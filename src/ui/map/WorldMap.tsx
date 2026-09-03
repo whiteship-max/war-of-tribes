@@ -16,37 +16,26 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useGame } from '@/game/store';
-import { useWorld, worldNow } from '@/world/store';
-import { loadedIn, settlementAt } from '@/world/cache';
-import { formatCoord, formatLeft, marchPosition, parseCoord, secondsLeft } from '@/world/geo';
+import { useWorld } from '@/world/store';
+import { settlementAt } from '@/world/cache';
+import { formatCoord, parseCoord } from '@/world/geo';
 import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
 import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
-import type { Coord, MarchView, Rect, SettlementView } from '@/world/types';
-import { chunkBitmap } from './tiles';
-import {
-  LABEL_FROM,
-  SCALE_DETAIL,
-  SCALE_OVERVIEW,
-  SCALE_START,
-  TILE_CELLS,
-  TILE_MARGIN,
-} from './const';
+import type { Coord } from '@/world/types';
+import { SCALE_DETAIL, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
 import {
   type Camera,
   type Viewport,
   clampCamera,
-  detailAlpha,
   modeFor,
   panBy,
   scaleTo,
-  toScreen,
   toWorld,
   viewRect,
   zoomAt,
 } from './grid';
-import { GRID } from './palette';
-import { drawGrid, drawGround, drawVillages, markersOf, settlementsIn } from './detail';
+import { drawFrame } from './frame';
 import { dropTiles } from './ground';
 import { dropSprites } from './village';
 import { dropPaint } from './paint';
@@ -71,8 +60,6 @@ export function WorldMap() {
   const tap = useRef<{ x: number; y: number; t: number } | null>(null);
   const size = useRef({ w: 1, h: 1, dpr: 1 });
   const frameNo = useRef(0);
-  /** Прямоугольники уже нарисованных подписей текущего кадра. */
-  const labels = useRef<{ x: number; y: number; w: number; h: number }[]>([]);
 
   const [jumpOpen, setJumpOpen] = useState(false);
   const [jumpText, setJumpText] = useState('');
@@ -162,7 +149,7 @@ export function WorldMap() {
       useWorld.getState().ensureRegion({ x: rect.x - pad, y: rect.y - pad, w: rect.w + pad * 2, h: rect.h + pad * 2 });
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw(ctx, w, h, dpr, rect);
+      drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
 
       // В шапке всегда координата под серединой экрана: она отвечает на вопрос
       // «где я сейчас». Координата выбранной клетки живёт в её карточке.
@@ -181,181 +168,6 @@ export function WorldMap() {
     // Полотно живёт весь показ карты: данные оно берёт из стора само.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function draw(ctx: CanvasRenderingContext2D, w: number, h: number, dpr: number, rect: Rect): void {
-    const camera = cam.current;
-    const view: Viewport = { w, h };
-    const scale = camera.scale;
-    const near = detailAlpha(scale);
-    const far = 1 - near;
-    const frame = ++frameNo.current;
-    labels.current.length = 0;
-    const state = useWorld.getState();
-    const now = worldNow();
-
-    // Пустота за краем мира.
-    ctx.fillStyle = '#120e0b';
-    ctx.fillRect(0, 0, w, h);
-
-    // Дальний слой — пиксельный растр, по куску на картинку. Он лежит основой
-    // всегда: сквозь непропечённый тайл ближнего слоя виден именно он.
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
-    for (const chunk of loadedIn(rect)) {
-      const [sx, sy] = toScreen(camera, view, chunk.rect.x, chunk.rect.y);
-      ctx.drawImage(
-        chunkBitmap(chunk),
-        Math.round(sx),
-        Math.round(sy),
-        Math.ceil(chunk.rect.w * scale),
-        Math.ceil(chunk.rect.h * scale),
-      );
-    }
-    ctx.restore();
-
-    // Ближний слой поверх него. Сид берётся из стора, а не из замыкания рендера:
-    // цикл кадров создаётся один раз при монтировании и навсегда запоминает то
-    // окружение, в котором мира ещё нет. Через замыкание сюда приезжал бы вечный
-    // ноль, и нарисованный слой не включился бы никогда.
-    const seed = useWorld.getState().info?.seed ?? 0;
-    if (near > 0 && seed) drawGround(ctx, camera, view, seed, frame, near);
-
-    drawGrid(ctx, camera, view, near, 52);
-
-    const inView = settlementsIn(rect);
-
-    // Поселения: на обзоре — цветные точки (карта читается как расстановка сил),
-    // вблизи — нарисованные значки. В полосе перехода оба, встречной прозрачностью.
-    if (far > 0) {
-      ctx.save();
-      ctx.globalAlpha = far;
-      for (const s of inView) drawDot(ctx, camera, view, s, scale);
-      ctx.restore();
-    }
-    if (near > 0) drawVillages(ctx, camera, view, inView, dpr, near, markersOf(state.marches), now);
-
-    // Походы поверх земли и поселений: их таймер важнее любой крыши.
-    for (const m of state.marches) drawMarch(ctx, camera, view, m, now, scale >= LABEL_FROM);
-
-    if (scale >= LABEL_FROM) {
-      // Своя деревня подписывается первой: её имя важнее чужих.
-      for (const s of [...inView].sort((a, b) => Number(b.mine) - Number(a.mine))) {
-        drawLabel(ctx, camera, view, s, scale, near);
-      }
-    }
-
-    // Выбранная клетка.
-    const sel = state.selected;
-    if (sel) {
-      const [sx, sy] = toScreen(camera, view, sel.x, sel.y);
-      const [bx, by] = toScreen(camera, view, sel.x + 1, sel.y + 1);
-      ctx.fillStyle = GRID.selectFill;
-      ctx.fillRect(Math.round(sx), Math.round(sy), Math.round(bx - sx), Math.round(by - sy));
-      ctx.strokeStyle = GRID.select;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(Math.round(sx) - 1, Math.round(sy) - 1, Math.round(bx - sx) + 2, Math.round(by - sy) + 2);
-    }
-  }
-
-  /** Обзорный значок: цветная точка отношения. Вблизи её сменяет нарисованный. */
-  function drawDot(ctx: CanvasRenderingContext2D, camera: Camera, view: Viewport, s: SettlementView, scale: number): void {
-    const [sx, sy] = toScreen(camera, view, s.x + 0.5, s.y + 0.5);
-    if (sx < -scale * 2 || sy < -scale * 2 || sx > view.w + scale || sy > view.h + scale) return;
-    const r = Math.max(2.5, Math.min(9, scale * 0.42) * (s.mine ? 1.15 : 0.85));
-    ctx.beginPath();
-    ctx.arc(sx, sy, r, 0, Math.PI * 2);
-    ctx.fillStyle = s.color;
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(10, 8, 6, 0.75)';
-    ctx.stroke();
-  }
-
-  /** Подпись под значком. Если место занято соседом, имя не рисуется вовсе. */
-  function drawLabel(
-    ctx: CanvasRenderingContext2D,
-    camera: Camera,
-    view: Viewport,
-    s: SettlementView,
-    scale: number,
-    near: number,
-  ): void {
-    const [sx, sy] = toScreen(camera, view, s.x + 0.5, s.y + 0.5);
-    if (sx < 0 || sy < 0 || sx > view.w || sy > view.h) return;
-    // Вблизи имя отходит вниз: под ним двор поселения, а не пустая трава.
-    const top = sy + Math.max(6, scale * (0.5 + near * 0.7));
-    ctx.font = '11px system-ui, sans-serif';
-    const width = ctx.measureText(s.name).width;
-    const box = { x: sx - width / 2 - 2, y: top, w: width + 4, h: 13 };
-    for (const b of labels.current) {
-      if (box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y) return;
-    }
-    labels.current.push(box);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(10, 8, 6, 0.85)';
-    ctx.strokeText(s.name, sx, top);
-    ctx.fillStyle = s.mine ? s.color : '#e7dcc9';
-    ctx.fillText(s.name, sx, top);
-  }
-
-  function drawMarch(
-    ctx: CanvasRenderingContext2D,
-    camera: Camera,
-    view: Viewport,
-    m: MarchView,
-    now: number,
-    detail: boolean,
-  ): void {
-    const color = m.hostile ? RELATION_META.enemy.color : RELATION_META.self.color;
-    const pos = m.phase === 'stay' ? m.to : marchPosition(m, now);
-    const [fx, fy] = toScreen(camera, view, m.from.x + 0.5, m.from.y + 0.5);
-    const [tx, ty] = toScreen(camera, view, m.to.x + 0.5, m.to.y + 0.5);
-    const [px, py] = toScreen(camera, view, pos.x + 0.5, pos.y + 0.5);
-
-    ctx.save();
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = 0.4;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(fx, fy);
-    ctx.lineTo(tx, ty);
-    ctx.stroke();
-    ctx.restore();
-
-    // Стрелка смотрит туда, куда идёт отряд.
-    const angle = Math.atan2(ty - py, tx - px);
-    const r = Math.max(5, Math.min(13, camera.scale * 0.28));
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(angle);
-    ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.lineTo(-r * 0.7, r * 0.7);
-    ctx.lineTo(-r * 0.35, 0);
-    ctx.lineTo(-r * 0.7, -r * 0.7);
-    ctx.closePath();
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(10, 8, 6, 0.8)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
-
-    if (detail || m.hostile) {
-      const left = formatLeft(secondsLeft(m.arriveAt, now));
-      ctx.font = '11px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(10, 8, 6, 0.85)';
-      ctx.strokeText(left, px, py - r - 2);
-      ctx.fillStyle = color;
-      ctx.fillText(left, px, py - r - 2);
-    }
-  }
 
   // ---------- Жесты ----------
 
