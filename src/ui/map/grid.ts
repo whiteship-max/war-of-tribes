@@ -186,3 +186,28 @@ export const tileHasCell = (tx: number, ty: number, x: number, y: number): boole
   const o = tileOrigin(tx, ty);
   return x >= o.x && y >= o.y && x < o.x + TILE_CELLS && y < o.y + TILE_CELLS;
 };
+
+/** Куда лечь копии тайла на экране, в CSS-пикселях, уже округлённое. */
+export interface Quad {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Экранный прямоугольник тайла. Обе границы считаются из мировых координат углов,
+ * а не как «левая плюс ширина»: правый край тайла выводится ровно тем же
+ * выражением, что левый край соседа, поэтому округление у них общее и щели в
+ * пиксель между копиями не бывает. Формула живёт здесь, а не рядом с
+ * `drawImage`: под vitest холста нет, а промах на краю — это как раз та полоса
+ * пустоты при перетаскивании, ради которой всё и затевалось.
+ */
+export function tileQuad(cam: Camera, vp: Viewport, tx: number, ty: number): Quad {
+  const o = tileOrigin(tx, ty);
+  const [ax, ay] = toScreen(cam, vp, o.x, o.y);
+  const [bx, by] = toScreen(cam, vp, o.x + TILE_CELLS, o.y + TILE_CELLS);
+  const x = Math.round(ax);
+  const y = Math.round(ay);
+  return { x, y, w: Math.round(bx) - x, h: Math.round(by) - y };
+}

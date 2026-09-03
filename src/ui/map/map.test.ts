@@ -23,7 +23,7 @@ import {
   visibleCells,
   zoomAt,
 } from './grid';
-import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_OVERVIEW, TILE_CELLS, TREE_FREE_R } from './const';
+import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_OVERVIEW, TILE_CACHE, TILE_CELLS, TREE_FREE_R } from './const';
 import { type Sample, fieldAt, forestAt, stampsFor, treesIn } from './scatter';
 import { BUCKETS, STAGE_SHAPE, clearRadius, layout, pickBucket, ringOf, spriteKey, variantOf } from './village';
 
@@ -174,6 +174,21 @@ describe('перетаскивание', () => {
     // Земля стоит один drawImage на тайл: их должно быть единицы, а не сотни.
     expect(tiles.length).toBeLessThanOrEqual(16);
     expect(tiles.length).toBeGreaterThan(0);
+  });
+
+  it('кэш тайлов не меньше того, что помещается на экран', () => {
+    // Кэш меньше видимого — это не экономия, а вечная перевыпечка: тайл
+    // вытесняют раньше, чем он пригодится, и следующий кадр печёт его снова.
+    // Проверяем весь рабочий диапазон нарисованного слоя, а не только удобный
+    // ближний масштаб: на широком экране и у нижнего края полосы перехода
+    // тайлов больше всего.
+    const tall: Viewport = { w: 430, h: 932 };
+    for (const scale of [FADE_LO, 30, 34, SCALE_DETAIL, 70]) {
+      for (const vp of [VP, tall]) {
+        const need = tilesIn(tileRangeFor(viewRect({ cx: HOME.x, cy: HOME.y, scale }, vp))).length;
+        expect(need).toBeLessThanOrEqual(TILE_CACHE);
+      }
+    }
   });
 });
 

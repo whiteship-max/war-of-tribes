@@ -6,13 +6,13 @@
 import type { MarchView, Rect, SettlementView } from '@/world/types';
 import { loadedIn } from '@/world/cache';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
-import { TILE_CELLS } from './const';
+import { TILE_CACHE } from './const';
 import { GRID } from './palette';
 import {
   type Camera,
   type TileId,
   type Viewport,
-  tileOrigin,
+  tileQuad,
   tileRangeFor,
   tilesIn,
   toScreen,
@@ -45,6 +45,12 @@ export function drawGround(
 ): void {
   const rect = viewRect(cam, vp);
   const shown = tilesIn(tileRangeFor(rect));
+  // Предохранитель: если на экран просится больше тайлов, чем влезает в кэш,
+  // рисовать землю нельзя вовсе. Иначе тайлы начнут вытеснять друг друга и
+  // печься заново каждый кадр — самый дорогой из возможных исходов. Полоса
+  // перехода подобрана так, что сюда попадает только её самый край, где
+  // нарисованный слой всё равно почти прозрачен; вместо него виден обзор.
+  if (shown.length > TILE_CACHE) return;
   // Кольцо вокруг экрана печётся заранее, но в очереди стоит после видимого:
   // бюджет выпечки один тайл за кадр, и тратить его на запас нельзя.
   const ring = tilesIn(tileRangeFor(rect, 1));
@@ -59,12 +65,8 @@ export function drawGround(
     const canvas = tileAt(tx, ty, frame);
     // Тайла ещё нет — сквозь него виден пиксельный обзор. Дырки не бывает.
     if (!canvas) continue;
-    const o = tileOrigin(tx, ty);
-    const [ax, ay] = toScreen(cam, vp, o.x, o.y);
-    const [bx, by] = toScreen(cam, vp, o.x + TILE_CELLS, o.y + TILE_CELLS);
-    const x0 = Math.round(ax);
-    const y0 = Math.round(ay);
-    ctx.drawImage(canvas, TILE_SRC.x, TILE_SRC.y, TILE_SRC.size, TILE_SRC.size, x0, y0, Math.round(bx) - x0, Math.round(by) - y0);
+    const q = tileQuad(cam, vp, tx, ty);
+    ctx.drawImage(canvas, TILE_SRC.x, TILE_SRC.y, TILE_SRC.size, TILE_SRC.size, q.x, q.y, q.w, q.h);
   }
   ctx.restore();
 }
