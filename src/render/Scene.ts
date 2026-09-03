@@ -14,7 +14,7 @@ import {
 } from '@/game/derived';
 import { TROOP_IDS } from '@/game/data/troops';
 import { buildTerrain, ZONES } from './terrain';
-import { PLAN_SCALE, WALL_RADIUS, placeOf } from './plan';
+import { PLAN_SCALE, WALL_RADIUS, placeOf, plotRadius } from './plan';
 import { buildVillage } from './village';
 import { MAX_SOLDIERS, SoldierAgent, postFor } from './soldiers';
 import {
@@ -140,7 +140,6 @@ export class TribeScene {
   private season: Season = 'spring';
   private disposed = false;
   private paused = false;
-  private raycaster = new THREE.Raycaster();
   private selection: THREE.Mesh;
   private selected: number | null = null;
   private down: { id: number; x: number; y: number; t: number } | null = null;
@@ -341,34 +340,29 @@ export class TribeScene {
   };
 
   /**
-   * Здание под пальцем. Сначала честный рейкаст по увеличенным мишеням,
-   * потом — ближайшая крыша в радиусе TAP_FORGIVE на экране.
+   * Здание под пальцем — то, чей значок ближе всего к тапу на экране.
+   *
+   * Раньше здесь был честный рейкаст по невидимым мишеням, и на кольцевой
+   * планировке он врал: луч к костру в центре успевал зацепить мишень соседа,
+   * стоящего между камерой и центром. Экранная близость такой ошибки не даёт и,
+   * главное, совпадает с тем, что игрок видит: подсветка обучения рисуется той же
+   * функцией `screenSpot`, поэтому «тапни костёр» и «попал в костёр» — одно и то же.
+   *
+   * Каждому зданию своя досягаемость: крупная постройка ловит палец по всей крыше,
+   * мелкая — в радиусе прощения промаха.
    */
   private pickAt(clientX: number, clientY: number): number | null {
-    const rect = this.canvas.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return null;
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    const ndc = new THREE.Vector2((x / rect.width) * 2 - 1, -(y / rect.height) * 2 + 1);
-    this.raycaster.setFromCamera(ndc, this.camera);
-    const targets: THREE.Mesh[] = [];
-    for (const v of this.buildings.values()) targets.push(v.hit);
-    const hits = this.raycaster.intersectObjects(targets, false);
-    if (hits.length > 0) return (hits[0].object.userData.buildingId as number) ?? null;
-
     let best: number | null = null;
-    let bestDist = TAP_FORGIVE;
-    const p = new THREE.Vector3();
-    for (const [id, view] of this.buildings) {
-      p.copy(view.group.position);
-      p.y = 0.8;
-      p.project(this.camera);
-      if (p.z > 1) continue;
-      const sx = ((p.x + 1) / 2) * rect.width;
-      const sy = ((1 - p.y) / 2) * rect.height;
-      const dist = Math.hypot(sx - x, sy - y);
-      if (dist < bestDist) {
-        bestDist = dist;
+    let bestScore = Infinity;
+    for (const id of this.buildings.keys()) {
+      const spot = this.screenSpot(id);
+      if (!spot) continue;
+      const dist = Math.hypot(spot.x - clientX, spot.y - clientY);
+      const reach = Math.max(TAP_FORGIVE, spot.r);
+      if (dist > reach) continue;
+      const score = dist / reach;
+      if (score < bestScore) {
+        bestScore = score;
         best = id;
       }
     }
@@ -425,17 +419,26 @@ export class TribeScene {
     return v ? v.group.position.clone() : null;
   }
 
-  private makeHitbox(b: Building, tier: Tier): THREE.Mesh {
-    const [w, d] = footprintOf(b.type, tier);
-    // Мишень — ребёнок группы, а группу ужимает PLAN_SCALE. Делим на него, чтобы
-    // площадь попадания осталась прежней в мире, а не съёжилась вместе с домом.
-    const r = Math.max(1.4, Math.max(w, d) * 0.85) / PLAN_SCALE;
+  /**
+   * Невидимая мишень для тапа. Считается по реальным габаритам собранной модели,
+   * а не по фиксированной колонне: высокая мишень соседа перехватывала бы луч,
+   * и палец по костру открывал бы стоящее рядом укрытие. Шире своей площадки
+   * мишень тоже не бывает — по мелким целям добирает экранное прощение промаха.
+   */
+  private makeHitbox(b: Building, group: THREE.Group): THREE.Mesh {
+    const box = new THREE.Box3().setFromObject(group);
+    const spread = Math.max(
+      Math.max(Math.abs(box.min.x), Math.abs(box.max.x)),
+      Math.max(Math.abs(box.min.z), Math.abs(box.max.z)),
+    );
+    const r = Math.min(plotRadius(b.type) / PLAN_SCALE, Math.max(1.2, spread * 1.15));
+    const h = Math.max(1.2, box.max.y) + 0.4;
     const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(r, r, 3.4, 6),
+      new THREE.CylinderGeometry(r, r, h, 6),
       // Ничего не рисует, но остаётся в сцене — рейкаст по ней работает всегда.
       new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true, opacity: 0 }),
     );
-    mesh.position.y = 1.5;
+    mesh.position.y = h / 2;
     mesh.userData.buildingId = b.id;
     return mesh;
   }
@@ -490,7 +493,7 @@ export class TribeScene {
         const spot = placeOf(b.type);
         group.position.set(spot.x, 0, spot.z);
         group.rotation.y = spot.rot;
-        const hit = this.makeHitbox(b, tier);
+        const hit = this.makeHitbox(b, group);
         group.add(hit);
         this.scene.add(group);
         view = {

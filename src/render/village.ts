@@ -245,7 +245,9 @@ export function buildVillage({ stage, era, present }: VillageOptions): THREE.Gro
   root.add(roadRing(PLAZA_ROAD, half, mat, 0.045));
   const outerNeeded = [...has].some((type) => PLAN[type]?.ring === 3);
   if (outerNeeded) root.add(roadRing(OUTER_ROAD, half, mat, 0.045));
-  root.add(roadSpur(GATE_ROAD.angle, GATE_ROAD.from, GATE_ROAD.to, half, mat, 0.05));
+  // Пока стены нет, улице некуда вести: доводим её до окружной, а не в чистое поле.
+  const gateTo = has.has('palisade') ? GATE_ROAD.to : OUTER_ROAD;
+  root.add(roadSpur(GATE_ROAD.angle, GATE_ROAD.from, gateTo, half, mat, 0.05));
   for (const type of present) {
     const spur = spurFor(type);
     if (spur) root.add(roadSpur(spur.angle, spur.from, spur.to, half * 0.8, mat, 0.05));
