@@ -306,8 +306,6 @@ export function dropTiles(): void {
   }
 }
 
-export const tileCount = (): number => tiles.size;
-
 /** Кусок холста тайла без вылета — именно он ложится на экран. */
 export const TILE_SRC = {
   x: TILE_BLEED * TILE_BAKE,

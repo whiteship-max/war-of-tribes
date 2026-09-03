@@ -101,12 +101,6 @@ export function detailAlpha(scale: number): number {
 
 // ---------- Мир в клетках ----------
 
-export const inWorld = (x: number, y: number): boolean =>
-  x >= WORLD_ORIGIN.x &&
-  y >= WORLD_ORIGIN.y &&
-  x < WORLD_ORIGIN.x + WORLD_SIZE &&
-  y < WORLD_ORIGIN.y + WORLD_SIZE;
-
 /**
  * Целые клетки, попадающие в область, обрезанные по краю мира. Пустой
  * прямоугольник (w или h равны нулю) означает, что в кадре мира нет вовсе.
@@ -139,8 +133,6 @@ export interface TileId {
   ty: number;
 }
 
-export const tileKey = (tx: number, ty: number): string => `${tx}:${ty}`;
-
 export const tileIndexX = (x: number): number => Math.floor((x - WORLD_ORIGIN.x) / TILE_CELLS);
 export const tileIndexY = (y: number): number => Math.floor((y - WORLD_ORIGIN.y) / TILE_CELLS);
 
@@ -152,12 +144,6 @@ export const tileOrigin = (tx: number, ty: number): Coord => ({
   x: WORLD_ORIGIN.x + tx * TILE_CELLS,
   y: WORLD_ORIGIN.y + ty * TILE_CELLS,
 });
-
-/** Область тайла в клетках. */
-export function tileRect(tx: number, ty: number): Rect {
-  const o = tileOrigin(tx, ty);
-  return { x: o.x, y: o.y, w: TILE_CELLS, h: TILE_CELLS };
-}
 
 /**
  * Тайлы, накрывающие область. Правый край берётся с запасом в сторону лишнего
