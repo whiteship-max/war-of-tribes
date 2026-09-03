@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { Building, BuildingTypeId, EraId } from '@/game/types';
 import { VISUAL_TIERS } from '@/game/constants';
 import { MAT as T } from './terrain';
+import { GATE_ANGLE, WALL_RADIUS } from './plan';
 
 export type Stage = 0 | 1 | 2;
 /** Визуальная ступень: 0 — уровни 1–3, 1 — 4–7, 2 — 8–10. */
@@ -678,6 +679,92 @@ function smithy(t: Tier, st: EraStyle): THREE.Group {
   return g;
 }
 
+/** Дом вождя: сруб с крыльцом → усадьба с палатой → донжон с зубцами и стягом. */
+function chiefHouse(t: Tier, st: EraStyle): THREE.Group {
+  const g = new THREE.Group();
+  const w = [1.5, 1.8, 2.0][t];
+  const d = [1.4, 1.6, 1.8][t];
+  const h = [1.2, 1.7, 2.6][t];
+  g.add(pad(Math.max(w, d) * 0.95));
+  g.add(box(w, h, d, t === 2 ? M.stone : st.wall, 0, h / 2, 0));
+  if (t < 2) {
+    gable(g, w * 1.25, d * 1.3, h, 0.32 + t * 0.12, st.roof);
+  } else {
+    // Донжон: вместо крыши — боевая площадка с зубцами. Власть перестала быть избой.
+    g.add(box(w * 1.15, 0.16, d * 1.15, M.stoneDark, 0, h + 0.08, 0));
+    for (let i = 0; i < 5; i++) {
+      const x = -w * 0.5 + (i * w) / 4;
+      g.add(box(0.2, 0.32, 0.16, M.stoneDark, x, h + 0.32, -d * 0.55));
+      g.add(box(0.2, 0.32, 0.16, M.stoneDark, x, h + 0.32, d * 0.55));
+    }
+  }
+  // Крыльцо и дверь: вход всегда с фасада, а фасад по плану смотрит на площадь.
+  g.add(box(0.42, h * 0.55, 0.1, M.dark, 0, h * 0.28, d / 2 + 0.03));
+  for (const x of [-0.42, 0.42]) g.add(cyl(0.07, 0.08, 0.9, st.post, 5, x, 0.45, d / 2 + 0.42));
+  g.add(box(1.1, 0.1, 0.75, st.roofDark, 0, 0.95, d / 2 + 0.42));
+  // Стяг вождя виден через всю деревню — по нему дом и находят.
+  const poleTop = (t === 2 ? h + 1.5 : h + 1.2) - 0.3;
+  g.add(cyl(0.05, 0.05, t === 2 ? 1.6 : 1.2, st.post, 4, -w * 0.32, poleTop, -d * 0.3));
+  g.add(box(0.55, 0.4, 0.03, st.accent, -w * 0.32 + 0.28, poleTop + 0.4, -d * 0.3));
+  if (t >= 1) {
+    // Палата сбоку: в доме вождя стало где собираться.
+    const aw = w * 0.6;
+    g.add(box(aw, h * 0.6, d * 0.8, t === 2 ? M.stone : st.wall, w * 0.62, h * 0.3, 0));
+    g.add(box(aw * 1.15, 0.1, d * 0.9, st.roofDark, w * 0.62, h * 0.63, 0));
+  }
+  if (t === 2) {
+    // Угловые тумбы: донжон садится на каменное основание.
+    for (const [x, z] of [
+      [-w * 0.5, -d * 0.5],
+      [w * 0.5, -d * 0.5],
+      [-w * 0.5, d * 0.5],
+      [w * 0.5, d * 0.5],
+    ])
+      g.add(box(0.32, h * 0.9, 0.32, M.stoneDark, x, h * 0.45, z));
+  }
+  return g;
+}
+
+/** Казармы: учебный двор → двор с бараком → двор дружины с мишенями. */
+function barracks(t: Tier, st: EraStyle): THREE.Group {
+  const g = new THREE.Group();
+  const s = [1.2, 1.5, 1.7][t];
+  g.add(pad(s * 1.05));
+  fence(g, s, 0.75 + t * 0.1, st.post);
+  // Стойка с копьями — по ней двор и читается как военный.
+  g.add(box(1.0, 0.09, 0.16, st.post, 0, 0.85, s * 0.55));
+  for (let i = 0; i < 4; i++) {
+    g.add(cyl(0.035, 0.035, 1.1, st.accent, 4, -0.36 + i * 0.24, 0.55, s * 0.55));
+  }
+  // Чучело для рубки.
+  g.add(cyl(0.09, 0.1, 1.2, M.woodDark, 5, -s * 0.55, 0.6, -s * 0.2));
+  g.add(box(0.7, 0.09, 0.09, M.woodDark, -s * 0.55, 1.0, -s * 0.2));
+  if (t >= 1) {
+    // Барак: бойцам стало где ночевать.
+    const bw = [1.6, 2.0, 2.2][t];
+    const bh = [0.9, 1.05, 1.2][t];
+    const bz = -(s + 0.55);
+    g.add(box(bw, bh, 1.1, st.wall, 0, bh / 2, bz));
+    gable(g, bw * 1.12, 1.45, bh, 0.28, st.roof, 0, bz);
+    g.add(box(0.4, bh * 0.6, 0.08, M.dark, 0, bh * 0.3, bz + 0.57));
+  }
+  if (t === 2) {
+    // Мишени и щиты на ограде: двор стал местом учений дружины.
+    for (const x of [-s * 0.5, s * 0.5]) {
+      g.add(cyl(0.05, 0.05, 1.0, st.post, 4, x, 0.5, -s * 0.7));
+      const target = cyl(0.3, 0.3, 0.07, st.roof, 10, x, 1.0, -s * 0.7);
+      target.rotation.x = Math.PI / 2;
+      g.add(target);
+    }
+    for (let i = 0; i < 3; i++) {
+      const shield = cyl(0.22, 0.22, 0.06, st.accent, 8, -0.55 + i * 0.55, 0.62, s);
+      shield.rotation.x = Math.PI / 2;
+      g.add(shield);
+    }
+  }
+  return g;
+}
+
 /**
  * Леса вокруг готового здания: так выглядит улучшение. Здание продолжает работать,
  * поэтому разбирать его до площадки нельзя — обозначаем стройку снаружи.
@@ -705,34 +792,86 @@ export function scaffold(w: number, d: number, h = 1.5): THREE.Group {
   return g;
 }
 
-/** Частокол — кольцо столбов вокруг поселения с воротами на юге. */
+/**
+ * Стена вокруг поселения. Радиус берётся из плана и не меняется никогда: под него
+ * рассчитаны все площадки, поэтому стена не может наехать на постройки. Ворота
+ * всегда в одном месте — там же, куда смотрит камера при стартовом ракурсе.
+ *
+ * Ступени: частокол из жердей → каменная стена с зубцами и башнями → высокая
+ * стена со стягами. Со второй ступени поселение и выглядит укреплённым.
+ */
 function palisade(stage: Stage, t: Tier, st: EraStyle): THREE.Group {
   const g = new THREE.Group();
-  const R = 12.8;
-  const n = 72;
+  const R = WALL_RADIUS;
+  const n = 96;
   const frac = stage === 0 ? 0.15 : stage === 1 ? 0.55 : 1;
-  const h = [1.6, 2.1, 2.6][t];
+  const h = [1.7, 2.3, 2.9][t];
+  const stone = t >= 1;
+  /** Половина углового просвета ворот. */
+  const gateHalf = 0.105;
+
   for (let i = 0; i < n * frac; i++) {
-    const a = (i / n) * Math.PI * 2 + Math.PI / 2 + 0.2; // ворота на юге (+z)
-    if (Math.abs(((a - Math.PI / 2 + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.14) continue;
+    const a = (i / n) * Math.PI * 2 + GATE_ANGLE + gateHalf;
+    const rel = Math.atan2(Math.sin(a - GATE_ANGLE), Math.cos(a - GATE_ANGLE));
+    if (Math.abs(rel) < gateHalf) continue;
     const x = Math.cos(a) * R;
     const z = Math.sin(a) * R;
-    // Со второй ступени стену ставят на каменный цоколь — она читается как укрепление.
-    if (t >= 1) g.add(box(1.15, 0.45, 0.5, M.stone, x, 0.22, z));
-    const p = cyl(0.12, 0.14, h + (i % 3) * 0.15, st.post, 5, x, h / 2 + (t >= 1 ? 0.4 : 0), z);
-    g.add(p);
+    if (stone) {
+      // Каменная кладка: блок ставится вдоль касательной и шире шага по кругу —
+      // иначе стена читается частоколом из отдельных плит.
+      const along = -a - Math.PI / 2;
+      const seg = box(1.18, h, 0.5, M.stone, x, h / 2, z);
+      seg.rotation.y = along;
+      g.add(seg);
+      if (i % 2 === 0) {
+        const m = box(0.34, 0.34, 0.42, M.stoneDark, x, h + 0.17, z);
+        m.rotation.y = along;
+        g.add(m);
+      }
+    } else {
+      g.add(cyl(0.12, 0.14, h + (i % 3) * 0.14, st.post, 5, x, h / 2, z));
+    }
   }
+
+  // Башни по кругу: со второй ступени стена перестаёт быть глухой лентой.
+  if (stone && stage === 2) {
+    const towers = t === 1 ? 6 : 8;
+    for (let i = 0; i < towers; i++) {
+      const a = GATE_ANGLE + Math.PI / towers + (i / towers) * Math.PI * 2;
+      const x = Math.cos(a) * R;
+      const z = Math.sin(a) * R;
+      const th = h + 0.9;
+      g.add(cyl(0.55, 0.62, th, M.stone, 8, x, th / 2, z));
+      g.add(cyl(0.66, 0.66, 0.16, M.stoneDark, 8, x, th + 0.08, z));
+      g.add(cone(0.72, 0.75, st.roof, 8, x, th + 0.5, z));
+    }
+  }
+
   if (stage === 2) {
-    // Ворота: две башенки и перекладина, а на верхних ступенях — крыши и стяги.
-    for (const x of [-0.9, 0.9]) {
-      g.add(cyl(0.16, 0.18, h + 0.8, st.post, 6, x, (h + 0.8) / 2, R));
-      if (t >= 1) {
-        g.add(box(0.9, 0.9, 0.9, st.wall, x, h + 1.2, R));
-        g.add(cone(0.8, 0.6, st.roof, 4, x, h + 1.95, R));
+    // Ворота: две башни, перекладина и стяг. Их видно от самого въезда.
+    const gx = Math.cos(GATE_ANGLE) * R;
+    const gz = Math.sin(GATE_ANGLE) * R;
+    const tx = -Math.sin(GATE_ANGLE);
+    const tz = Math.cos(GATE_ANGLE);
+    const off = R * gateHalf + 0.35;
+    for (const sgn of [-1, 1]) {
+      const x = gx + tx * off * sgn;
+      const z = gz + tz * off * sgn;
+      const th = h + 1.0;
+      g.add(cyl(0.42, 0.48, th, stone ? M.stone : st.post, 7, x, th / 2, z));
+      if (stone) {
+        g.add(cyl(0.56, 0.56, 0.16, M.stoneDark, 7, x, th + 0.08, z));
+        g.add(cone(0.62, 0.8, st.roof, 7, x, th + 0.55, z));
       }
     }
-    g.add(box(2.2, 0.15, 0.2, M.wood, 0, h + 0.8, R));
-    if (t === 2) g.add(box(1.0, 0.6, 0.04, st.accent, 0, h + 0.35, R + 0.12));
+    const lintel = box(off * 2, 0.24, 0.3, stone ? M.stoneDark : M.wood, gx, h + 0.55, gz);
+    lintel.rotation.y = -GATE_ANGLE - Math.PI / 2;
+    g.add(lintel);
+    if (t === 2) {
+      const banner = box(0.8, 0.55, 0.04, st.accent, gx, h + 0.1, gz);
+      banner.rotation.y = -GATE_ANGLE - Math.PI / 2;
+      g.add(banner);
+    }
   }
   return g;
 }
@@ -754,6 +893,8 @@ export const FOOTPRINT: Partial<Record<BuildingTypeId, [number, number]>> = {
   tower: [1.0, 1.0],
   smithy: [2.0, 1.6],
   shelter: [2.6, 1.4],
+  chief_house: [1.8, 1.6],
+  barracks: [2.4, 2.4],
 };
 
 /** Во сколько раз ступень раздаёт основание — им меряются мишень тапа и леса. */
@@ -813,6 +954,10 @@ export function createBuildingGroup(type: BuildingTypeId, stage: Stage, tier: Ti
       return tower(tier, st);
     case 'smithy':
       return smithy(tier, st);
+    case 'chief_house':
+      return chiefHouse(tier, st);
+    case 'barracks':
+      return barracks(tier, st);
     default:
       return g;
   }

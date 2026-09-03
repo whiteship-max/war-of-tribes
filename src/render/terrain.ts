@@ -1,14 +1,19 @@
 // Ландшафт: земля, лес, скалы, кусты, слоты под здания.
 import * as THREE from 'three';
 
-export const WORLD_RADIUS = 15.5;
+/** Край мира. Стена посёлка — 15.6, а за ней ещё полоса угодий и лес. */
+export const WORLD_RADIUS = 24;
 
+/**
+ * Угодья вынесены за стену: внутри кольца теперь стоят сами постройки, а лес,
+ * скалы и поля — там, куда за ними ходят. Вольный сбор ведёт жителей именно сюда.
+ */
 export const ZONES = {
-  forest: new THREE.Vector3(9, 0, -8),
-  rocks: new THREE.Vector3(-9.5, 0, -7),
-  berries: new THREE.Vector3(10, 0, 5),
-  hunting: new THREE.Vector3(0, 0, -13),
-  fields: new THREE.Vector3(-9.2, 0, 5.2),
+  forest: new THREE.Vector3(13, 0, -12),
+  rocks: new THREE.Vector3(-14, 0, -10),
+  berries: new THREE.Vector3(15, 0, 7),
+  hunting: new THREE.Vector3(0, 0, -19),
+  fields: new THREE.Vector3(-14, 0, 8),
 };
 
 export const MAT = {
@@ -90,116 +95,38 @@ export function buildTerrain(): THREE.Group {
   ground.receiveShadow = true;
   root.add(ground);
 
-  // Утоптанная площадка у костра.
-  const pad = new THREE.Mesh(new THREE.CircleGeometry(3.2, 24), MAT.dirt);
-  pad.rotation.x = -Math.PI / 2;
-  pad.position.y = 0.02;
-  pad.receiveShadow = true;
-  root.add(pad);
-
   // Лес.
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 26; i++) {
     const a = hash(i * 3) * Math.PI * 2;
-    const r = 0.8 + hash(i * 7) * 3.6;
+    const r = 0.8 + hash(i * 7) * 5.2;
     const t = makeTree(0.9 + hash(i * 11) * 0.5, i);
     t.position.set(ZONES.forest.x + Math.cos(a) * r, 0, ZONES.forest.z + Math.sin(a) * r);
     root.add(t);
   }
   // Деревья по краю мира.
-  for (let i = 0; i < 34; i++) {
-    const a = (i / 34) * Math.PI * 2 + hash(i) * 0.15;
+  for (let i = 0; i < 54; i++) {
+    const a = (i / 54) * Math.PI * 2 + hash(i) * 0.15;
     const r = WORLD_RADIUS - 0.5 + hash(i * 5) * 2.5;
     const t = makeTree(0.8 + hash(i * 13) * 0.6, i);
     t.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
     root.add(t);
   }
   // Скалы.
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 11; i++) {
     const a = hash(i * 17) * Math.PI * 2;
-    const r = hash(i * 19) * 2.2;
+    const r = hash(i * 19) * 3.2;
     const rock = makeRock(0.8 + hash(i * 23) * 1.4);
     rock.position.x = ZONES.rocks.x + Math.cos(a) * r;
     rock.position.z = ZONES.rocks.z + Math.sin(a) * r;
     root.add(rock);
   }
   // Ягодные кусты.
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 9; i++) {
     const a = hash(i * 29) * Math.PI * 2;
-    const r = hash(i * 31) * 1.8;
+    const r = hash(i * 31) * 2.6;
     const b = makeBush();
     b.position.set(ZONES.berries.x + Math.cos(a) * r, 0, ZONES.berries.z + Math.sin(a) * r);
     root.add(b);
   }
   return root;
-}
-
-export interface Slot {
-  x: number;
-  z: number;
-  rot: number;
-}
-
-/**
- * Кольца рассчитаны на самую крупную визуальную ступень: к десятому уровню
- * постройка вырастает почти вдвое, и хорда между соседними слотами должна её вмещать.
- */
-const RINGS = [
-  { r: 5.4, n: 6, offset: 0.4 },
-  { r: 8.4, n: 8, offset: 0.1 },
-  { r: 11.2, n: 10, offset: 0.25 },
-];
-
-/** Слоты для зданий: кольца вокруг костра. Ближнее кольцо всегда в кадре телефона. */
-export function ringSlot(i: number): Slot {
-  let idx = i;
-  for (const ring of RINGS) {
-    if (idx < ring.n) {
-      const a = (idx / ring.n) * Math.PI * 2 + ring.offset;
-      return { x: Math.cos(a) * ring.r, z: Math.sin(a) * ring.r, rot: -a + Math.PI / 2 };
-    }
-    idx -= ring.n;
-  }
-  const a = idx * 0.9;
-  return { x: Math.cos(a) * 12, z: Math.sin(a) * 12, rot: -a + Math.PI / 2 };
-}
-
-/**
- * Слот ближнего кольца, смотрящий на ресурсную зону: лесопилка встаёт со стороны леса,
- * каменоломня — со стороны скал. Своего радиуса у зданий добычи нет специально —
- * иначе они уезжали бы за кадр, а панель здания открывается тапом по нему.
- */
-export function ringIndexToward(zone: THREE.Vector3): number {
-  const target = Math.atan2(zone.z, zone.x);
-  const { n, offset } = RINGS[0];
-  let best = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + offset;
-    const d = Math.abs(Math.atan2(Math.sin(target - a), Math.cos(target - a)));
-    if (d < bestDist) {
-      bestDist = d;
-      best = i;
-    }
-  }
-  return best;
-}
-
-/** Ресурсная зона здания добычи: там оно и стоит, туда же ходят его рабочие. */
-export const BUILDING_ZONE: Record<string, THREE.Vector3> = {
-  sawmill: ZONES.forest,
-  quarry: ZONES.rocks,
-  mine: ZONES.rocks,
-  gathering: ZONES.berries,
-  hunter_hut: ZONES.hunting,
-};
-
-/** Слот укрытия — рядом с костром. Укрытие в посёлке одно, и оно двойное. */
-export function shelterSlot(i: number): Slot {
-  const a = i === 0 ? 3.8 : 5.4;
-  return { x: Math.cos(a) * 3.1, z: Math.sin(a) * 3.1, rot: -a + Math.PI / 2 };
-}
-
-/** Слот под поле — пашня на западе, за кольцами застройки. */
-export function farmSlot(i: number): Slot {
-  return { x: ZONES.fields.x - (i % 2) * 3.6, z: ZONES.fields.z + Math.floor(i / 2) * 3.6, rot: 0 };
 }

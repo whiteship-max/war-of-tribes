@@ -1,9 +1,22 @@
 // 3D-диорама поселения. Получает состояние через sync(), анимирует сам.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Building, EraId, GameState, Season, Villager } from '@/game/types';
-import { buildingAttention, dayFraction, era, isSite, seasonOf, solarPhase, type Attention } from '@/game/derived';
-import { BUILDING_ZONE, buildTerrain, farmSlot, ringIndexToward, ringSlot, shelterSlot, ZONES, type Slot } from './terrain';
+import type { Building, EraId, GameState, Season, StageId, TroopId, Villager } from '@/game/types';
+import {
+  buildingAttention,
+  dayFraction,
+  era,
+  isSite,
+  seasonOf,
+  settlementStage,
+  solarPhase,
+  type Attention,
+} from '@/game/derived';
+import { TROOP_IDS } from '@/game/data/troops';
+import { buildTerrain, ZONES } from './terrain';
+import { PLAN_SCALE, WALL_RADIUS, placeOf } from './plan';
+import { buildVillage } from './village';
+import { MAX_SOLDIERS, SoldierAgent, postFor } from './soldiers';
 import {
   createBuildingGroup,
   footprintOf,
@@ -103,11 +116,13 @@ export class TribeScene {
   private fireLight: THREE.PointLight;
   private buildings = new Map<number, BuildingView>();
   private agents = new Map<number, VillagerAgent>();
-  private ringSlots = new Map<number, number>(); // id здания -> индекс слота
-  private farmSlots = new Map<number, number>();
-  private shelterSlots = new Map<number, number>();
-  private usedRing = new Set<number>();
-  private usedFarm = new Set<number>();
+  private soldiers: SoldierAgent[] = [];
+  /** Обстановка посёлка: площадь, дороги, размеченные площадки и декор. */
+  private village: THREE.Group | null = null;
+  /** Слепок того, из чего собрана обстановка: пересобираем только при изменениях. */
+  private villageKey = '';
+  /** Слепок армии — по нему пересобираются фигурки бойцов. */
+  private armyKey = '';
   private clock = new THREE.Clock();
   private raf = 0;
   private gameTime = 0;
@@ -128,10 +143,6 @@ export class TribeScene {
   onPick: ((id: number | null) => void) | null = null;
   /** Азимут стартового ракурса — сохраняется при перекадрировке. */
   private azimuth = Math.atan2(9, 12);
-  /** Аспект последнего кадрирования — по нему пересобирается кадр при росте посёлка. */
-  private aspect = 1;
-  /** Самая крупная визуальная ступень в посёлке: кадр растёт вместе с постройками. */
-  private villageTier: Tier = 0;
   /** После ручного вращения камеру больше не переставляем. */
   private userMoved = false;
 
@@ -229,19 +240,19 @@ export class TribeScene {
    * и коробка теней сжимаются вместе с дистанцией — дальняя геометрия не рисуется.
    */
   private applyFraming(aspect: number): void {
-    this.aspect = aspect;
     // 0.75 — граница портрета; любой телефон (0.46–0.62) попадает в narrow = 1.
     const narrow = THREE.MathUtils.clamp((0.75 - aspect) / 0.15, 0, 1);
-    const polar = THREE.MathUtils.lerp(0.99, 0.74, narrow);
+    // В портрете смотрим заметно сверху: кольцо стены должно читаться кольцом,
+    // а не полоской у горизонта под половиной экрана неба.
+    const polar = THREE.MathUtils.lerp(0.95, 0.62, narrow);
     // В портрете угол шире: иначе кадр не удержать без отъезда за предел дистанции.
     const fov = THREE.MathUtils.lerp(42, 48, narrow);
-    // Сколько мира должно влезать по ширине. В портрете горизонтальный fov уже,
-    // но кадр всё равно держит ближнее кольцо застройки целиком — вместе с самой
-    // крупной визуальной ступенью зданий: панель открывается тапом по крыше.
-    // Кадр растёт вместе с посёлком: лагерь из навесов не должен теряться в пустом поле.
-    const fitRadius = THREE.MathUtils.lerp(11.5, 7.2, narrow) * (1 + 0.14 * this.villageTier);
+    // Кадр держит кольцо стены целиком, а не постройки. Радиус стены задан планом
+    // раз и навсегда, поэтому кадр перестал дёргаться при каждой новой крыше:
+    // посёлок растёт внутри одной и той же рамки, как на карте укреплённого города.
+    const fitRadius = WALL_RADIUS * THREE.MathUtils.lerp(1.12, 1.0, narrow);
     const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
-    const dist = THREE.MathUtils.clamp(fitRadius / Math.tan(halfH), 9, 46);
+    const dist = THREE.MathUtils.clamp(fitRadius / Math.tan(halfH), 14, 92);
 
     this.camera.fov = fov;
 
@@ -255,8 +266,8 @@ export class TribeScene {
     this.camera.far = fog.far + 10;
     this.camera.updateProjectionMatrix();
 
-    // Коробка теней сжимается вместе с кадром: меньше площадь — чётче тень при том же разрешении.
-    const half = THREE.MathUtils.lerp(21, 17, narrow);
+    // Коробка теней накрывает посёлок целиком: она привязана к стене, как и кадр.
+    const half = WALL_RADIUS + 2;
     const sc = this.sun.shadow.camera;
     sc.left = -half;
     sc.right = half;
@@ -401,43 +412,6 @@ export class TribeScene {
 
   // ---------- Синхронизация с состоянием ----------
 
-  private takeIndex(used: Set<number>): number {
-    let i = 0;
-    while (used.has(i)) i++;
-    used.add(i);
-    return i;
-  }
-
-  private slotFor(b: Building, ordinalShelter: number): Slot {
-    if (b.type === 'campfire' || b.type === 'palisade') return { x: 0, z: 0, rot: 0 };
-    if (b.type === 'shelter') {
-      let i = this.shelterSlots.get(b.id);
-      if (i === undefined) {
-        i = ordinalShelter;
-        this.shelterSlots.set(b.id, i);
-      }
-      return shelterSlot(i);
-    }
-    if (b.type === 'farm') {
-      let i = this.farmSlots.get(b.id);
-      if (i === undefined) {
-        i = this.takeIndex(this.usedFarm);
-        this.farmSlots.set(b.id, i);
-      }
-      return farmSlot(i);
-    }
-    let i = this.ringSlots.get(b.id);
-    if (i === undefined) {
-      // Здание добычи просится в слот со стороны своей зоны; занято — берём первый свободный.
-      const zone = BUILDING_ZONE[b.type];
-      const want = zone ? ringIndexToward(zone) : -1;
-      i = want >= 0 && !this.usedRing.has(want) ? want : this.takeIndex(this.usedRing);
-      this.usedRing.add(i);
-      this.ringSlots.set(b.id, i);
-    }
-    return ringSlot(i);
-  }
-
   private buildingPosition(id: number): THREE.Vector3 | null {
     const v = this.buildings.get(id);
     return v ? v.group.position.clone() : null;
@@ -484,13 +458,12 @@ export class TribeScene {
     this.gameTime = s.time;
     this.gameTimeAt = performance.now();
     this.season = seasonOf(s.time);
+    this.syncVillage(s);
 
     // Здания. Модель пересобирается только на пороге ступени или при смене эпохи:
     // внутри ступени уровень читается масштабом, а стройка — лесами поверх модели.
     const eraId = era(s);
     const seen = new Set<number>();
-    let shelterOrdinal = 0;
-    let tallest: Tier = 0;
     for (const b of s.buildings) {
       seen.add(b.id);
       const stage = stageOf(b);
@@ -503,9 +476,10 @@ export class TribeScene {
       }
       if (!view) {
         const group = createBuildingGroup(b.type, stage, tier, eraId);
-        const slot = this.slotFor(b, shelterOrdinal);
-        group.position.set(slot.x, 0, slot.z);
-        group.rotation.y = slot.rot;
+        // Место берётся из плана: у каждого типа оно своё и не меняется никогда.
+        const spot = placeOf(b.type);
+        group.position.set(spot.x, 0, spot.z);
+        group.rotation.y = spot.rot;
         const hit = this.makeHitbox(b, tier);
         group.add(hit);
         this.scene.add(group);
@@ -519,7 +493,7 @@ export class TribeScene {
           scaffold: null,
           marker: null,
           markerKind: null,
-          markerY: (MARKER_HEIGHT[b.type] ?? 2.3) * (1 + 0.28 * tier),
+          markerY: ((MARKER_HEIGHT[b.type] ?? 2.3) * (1 + 0.28 * tier)) / PLAN_SCALE,
         };
         this.buildings.set(b.id, view);
         if (b.type === 'campfire') {
@@ -528,8 +502,10 @@ export class TribeScene {
         }
       }
       // Уровень читается силуэтом и внутри ступени: постройка подрастает с каждым.
-      view.group.scale.setScalar(levelScale(b.level));
-      if (b.type === 'shelter') shelterOrdinal++;
+      // Общий масштаб плана к стене не применяется: стена сама и есть это кольцо.
+      view.group.scale.setScalar(
+        b.type === 'palisade' ? 1 : levelScale(b.level) * PLAN_SCALE,
+      );
 
       // Улучшение: здание работает и не исчезает, его просто обносят лесами.
       const upgrading = b.level > 0 && isSite(b);
@@ -543,28 +519,11 @@ export class TribeScene {
       }
 
       this.setMarker(view, buildingAttention(s, b));
-      if (tier > tallest) tallest = tier;
-    }
-    // Постройки доросли до новой ступени — отодвигаем камеру, чтобы посёлок влез в кадр.
-    if (tallest !== this.villageTier) {
-      this.villageTier = tallest;
-      this.applyFraming(this.aspect);
     }
     for (const [id, view] of this.buildings) {
       if (seen.has(id)) continue;
       this.disposeView(view);
       this.buildings.delete(id);
-      for (const [map, used] of [
-        [this.ringSlots, this.usedRing],
-        [this.farmSlots, this.usedFarm],
-      ] as [Map<number, number>, Set<number>][]) {
-        const i = map.get(id);
-        if (i !== undefined) {
-          used.delete(i);
-          map.delete(id);
-        }
-      }
-      this.shelterSlots.delete(id);
     }
     if (this.selected !== null) this.setSelected(this.selected);
 
@@ -591,6 +550,53 @@ export class TribeScene {
       this.scene.remove(agent.group);
       this.agents.delete(id);
     }
+
+    this.syncSoldiers(s);
+  }
+
+  /**
+   * Обстановка посёлка. Пересобирается редко: только когда меняется стадия, эпоха
+   * или набор построек. Дороги при этом никуда не переезжают — они заданы планом.
+   */
+  private syncVillage(s: GameState): void {
+    const stage: StageId = settlementStage(s);
+    const eraId = era(s);
+    const present = s.buildings.map((b) => b.type).sort();
+    const key = `${stage}|${eraId}|${present.join(',')}`;
+    if (key === this.villageKey && this.village) return;
+    this.villageKey = key;
+    if (this.village) this.scene.remove(this.village);
+    this.village = buildVillage({ stage, era: eraId, present });
+    this.scene.add(this.village);
+  }
+
+  /**
+   * Фигурки бойцов. Армия — счётчики, а не жители, поэтому фигурки пересобираются
+   * целиком при изменении состава: их немного и они дешёвые.
+   */
+  private syncSoldiers(s: GameState): void {
+    const key = TROOP_IDS.map((id) => s.army?.[id] ?? 0).join(',');
+    if (key === this.armyKey) return;
+    this.armyKey = key;
+    for (const a of this.soldiers) this.scene.remove(a.group);
+    this.soldiers = [];
+
+    const roster: TroopId[] = [];
+    // Сильных показываем первыми: у ворот должна стоять лучшая дружина.
+    for (const id of [...TROOP_IDS].reverse()) {
+      const n = Math.max(0, s.army?.[id] ?? 0);
+      for (let i = 0; i < n && roster.length < MAX_SOLDIERS; i++) roster.push(id);
+    }
+    if (roster.length === 0) return;
+    const barracks = s.buildings.find((b) => b.type === 'barracks' && b.level > 0) ?? null;
+    const spot = barracks ? placeOf('barracks') : null;
+    const anchor = spot ? new THREE.Vector3(spot.x, 0, spot.z) : null;
+    roster.forEach((troop, i) => {
+      const { post, anchor: at } = postFor(i, barracks !== null, anchor);
+      const agent = new SoldierAgent(troop, post, at, i);
+      this.soldiers.push(agent);
+      this.scene.add(agent.group);
+    });
   }
 
   /** Где житель работает: приписан к зданию — идёт туда, вольный сбор — в свою зону. */
@@ -640,6 +646,8 @@ export class TribeScene {
       a.night = night;
       a.update(dt, t);
     }
+    // Дружина несёт службу и ночью: у ворот всегда кто-то стоит.
+    for (const a of this.soldiers) a.update(dt, t);
 
     // Маркеры покачиваются, кольцо выбора дышит — взгляд цепляется без лишних цветов.
     for (const view of this.buildings.values()) {

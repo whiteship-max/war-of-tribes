@@ -65,7 +65,7 @@ export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   pen: 2.96,
   totem: 2.0,
   smithy: 3.48,
-  barracks: 2.75,
+  barracks: 3.3,
   tower: 1.58,
   // Стена — это само кольцо, площадки под неё нет.
   palisade: 0,

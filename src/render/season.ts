@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { Season } from '@/game/types';
 import { MAT } from './terrain';
 import { M as BUILD } from './buildings';
+import { VILLAGE_MAT } from './village';
 
 interface Palette {
   grass: number;
@@ -22,6 +23,10 @@ interface Palette {
   hide: number;
   shingle: number;
   tile: number;
+  /** Дороги и размеченные площадки: зимой их тоже заносит. */
+  packed: number;
+  paved: number;
+  plot: number;
   /** Дневное небо и туман. */
   sky: number;
   /** Плотность снега: частицы, дым, белизна. */
@@ -45,6 +50,9 @@ export const SEASON_PALETTE: Record<Season, Palette> = {
     hide: 0xa87b52,
     shingle: 0x4a4640,
     tile: 0xb4553a,
+    packed: 0x7d6244,
+    paved: 0x9a978f,
+    plot: 0x87714f,
     sky: 0x9fc9e8,
     snow: 0,
   },
@@ -64,6 +72,9 @@ export const SEASON_PALETTE: Record<Season, Palette> = {
     hide: 0xb08558,
     shingle: 0x514c45,
     tile: 0xc25f42,
+    packed: 0x876a4a,
+    paved: 0xa39f96,
+    plot: 0x907a56,
     sky: 0x8fc4ea,
     snow: 0,
   },
@@ -83,6 +94,9 @@ export const SEASON_PALETTE: Record<Season, Palette> = {
     hide: 0x9d7049,
     shingle: 0x453f39,
     tile: 0xa64e35,
+    packed: 0x715940,
+    paved: 0x928e86,
+    plot: 0x7b6949,
     sky: 0xb6bfc4,
     snow: 0,
   },
@@ -102,6 +116,9 @@ export const SEASON_PALETTE: Record<Season, Palette> = {
     hide: 0xdbe0e6,
     shingle: 0xd6dbe1,
     tile: 0xe4ded9,
+    packed: 0xc3cad3,
+    paved: 0xd2d7dd,
+    plot: 0xbcc4ce,
     sky: 0xa9b8c9,
     snow: 1,
   },
@@ -131,6 +148,9 @@ const TARGETS: Record<MatKey, THREE.MeshLambertMaterial> = {
   hide: BUILD.hide,
   shingle: BUILD.shingle,
   tile: BUILD.tile,
+  packed: VILLAGE_MAT.packed,
+  paved: VILLAGE_MAT.paved,
+  plot: VILLAGE_MAT.plot,
 };
 
 /**
