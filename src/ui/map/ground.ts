@@ -3,9 +3,14 @@
 // Весь смысл файла в одном правиле: тайл собирается ровно один раз, а в кадре
 // его только копируют. Поэтому здесь нет ничего, что зависело бы от камеры, —
 // тайл привязан к абсолютной сетке мира и переживает и перетаскивание, и зум, и
-// пульс мира. Перевыпечка бывает по двум причинам: сменился мир или у поселения
-// в округе выросла стадия, а значит выросло и расчищенное пятно под ним.
-import type { Rect, SettlementView, Stage } from '@/world/types';
+// пульс мира.
+//
+// Перевыпечки нет вовсе, и это следствие одного решения: расчищенную землю под
+// поселением рисует не тайл, а спрайт поселения (`village.ts`). Стадия соседа
+// растёт со временем, и если бы пятно жило в тайле, каждый такой рост заставлял
+// бы перепекать землю. Тайл знает о поселениях только одно — где они стоят,
+// чтобы не сажать ёлки внутрь двора, а координаты не меняются никогда.
+import type { Rect, SettlementView } from '@/world/types';
 import { cachedChunk, chunkKeysIn, loadedIn, terrainAt as cachedTerrain } from '@/world/cache';
 import {
   PALETTE,
@@ -16,6 +21,7 @@ import {
   TILE_CELLS,
   TILE_MARGIN,
   TILE_PX,
+  TREE_FREE_R,
 } from './const';
 import { type TileId, tileOrigin } from './grid';
 import { type Clearing, type Sample, type Stamp, hash, stampsFor, treesIn } from './scatter';
@@ -25,10 +31,6 @@ interface Tile {
   canvas: HTMLCanvasElement;
   /** Номер кадра, в котором тайл последний раз рисовали, — по нему вытесняем. */
   usedFrame: number;
-  /** Слепок поселений округи: сменился — расчистка другая, надо перепечь. */
-  sig: string;
-  /** Версия кэша кусков на момент сверки слепка. */
-  chunksVersion: number;
 }
 
 const tiles = new Map<string, Tile>();
@@ -37,14 +39,6 @@ const pool: HTMLCanvasElement[] = [];
 let scratch: HTMLCanvasElement | null = null;
 
 const key = (tx: number, ty: number): string => `${tx}:${ty}`;
-
-/** Радиус расчищенной земли под поселением, в клетках. Растёт со стадией. */
-const CLEAR_R: Record<Stage, number> = {
-  camp: 0.85,
-  village: 1.15,
-  stronghold: 1.5,
-  town: 1.9,
-};
 
 const sample: Sample = (x, y) => cachedTerrain(x, y);
 
@@ -72,18 +66,8 @@ function settlementsAround(rect: Rect): SettlementView[] {
   return out;
 }
 
-/**
- * Слепок округи. В него входит стадия: она задаёт размер расчистки, и когда
- * сосед дорастает до города, пятно под ним обязано вырасти вместе с ним.
- */
-const signatureOf = (list: SettlementView[]): string =>
-  list
-    .map((s) => `${s.x},${s.y},${s.stage}`)
-    .sort()
-    .join(';');
-
 const clearingsOf = (list: SettlementView[]): Clearing[] =>
-  list.map((s) => ({ x: s.x, y: s.y, r: CLEAR_R[s.stage] ?? CLEAR_R.camp }));
+  list.map((s) => ({ x: s.x, y: s.y, r: TREE_FREE_R }));
 
 /**
  * Все ли куски карты под областью уже приехали. Печь по неполным данным нельзя:
@@ -172,12 +156,9 @@ function paintStamps(
   target.globalAlpha = 1;
 }
 
-const clearingStamps = (clearings: Clearing[]): Stamp[] =>
-  clearings.map((c) => ({ x: c.x + 0.5, y: c.y + 0.5, r: c.r }));
-
 // ---------- Выпечка ----------
 
-function bake(seed: number, tx: number, ty: number, chunksVersion: number): Tile | null {
+function bake(seed: number, tx: number, ty: number): Tile | null {
   const pad = paddedRect(tx, ty);
   if (!ready(pad)) return null;
 
@@ -239,13 +220,11 @@ function bake(seed: number, tx: number, ty: number, chunksVersion: number): Tile
   paintStamps(ctx, water, PALETTE.shallow, toPx, 1, 0.95);
   paintStamps(ctx, water, PALETTE.water, toPx, 0.74, 1);
 
-  // 5. Расчищенная земля под поселениями — тем же механизмом, что и кляксы.
-  const around = settlementsAround(pad);
-  const clearings = clearingsOf(around);
-  paintStamps(ctx, clearingStamps(clearings), PALETTE.cleared, toPx, 1, 0.95);
-
-  // 6. Ёлки. Берутся с запасом в две клетки: дерево за краем тайла заходит
-  // внутрь кроной, и без запаса по границе шла бы линия срезанных верхушек.
+  // 5. Ёлки. Двор поселения красит его собственный спрайт, а тайлу от поселения
+  // нужно только место, чтобы не сажать туда лес. Берутся с запасом в две
+  // клетки: дерево за краем тайла заходит внутрь кроной, и без запаса по границе
+  // шла бы линия срезанных верхушек.
+  const clearings = clearingsOf(settlementsAround(pad));
   const treeRect: Rect = { x: o.x - 2, y: o.y - 2, w: TILE_CELLS + 4, h: TILE_CELLS + 4 };
   const shadow = treeShadow();
   const { w: tw, h: th } = treeSize();
@@ -257,7 +236,7 @@ function bake(seed: number, tx: number, ty: number, chunksVersion: number): Tile
     ctx.drawImage(treeSprite(t.kind), sx - w / 2, sy - h * 0.88, w, h);
   }
 
-  return { canvas, usedFrame: 0, sig: signatureOf(around), chunksVersion };
+  return { canvas, usedFrame: 0 };
 }
 
 // ---------- Кэш ----------
@@ -301,28 +280,15 @@ export function tileAt(tx: number, ty: number, frame: number): HTMLCanvasElement
  * жёсткий: одна выпечка это несколько миллисекунд, две подряд уже видны рывком
  * при броске карты.
  */
-export function prepareTiles(seed: number, want: TileId[], frame: number, chunksVersion: number): void {
+export function prepareTiles(seed: number, want: TileId[], frame: number): void {
   let budget = TILE_BAKES_PER_FRAME;
   for (const { tx, ty } of want) {
-    const k = key(tx, ty);
-    const have = tiles.get(k);
-    if (have) {
-      // Слепок округи сверяется, только когда приехал новый кусок карты, а не
-      // каждый кадр: это несколько раз в минуту против шестидесяти раз в секунду.
-      if (have.chunksVersion !== chunksVersion) {
-        have.chunksVersion = chunksVersion;
-        if (signatureOf(settlementsAround(paddedRect(tx, ty))) !== have.sig) {
-          tiles.delete(k);
-          release(have);
-        }
-      }
-      if (tiles.has(k)) continue;
-    }
-    if (budget <= 0) continue;
-    const baked = bake(seed, tx, ty, chunksVersion);
+    if (tiles.has(key(tx, ty))) continue;
+    if (budget <= 0) break;
+    const baked = bake(seed, tx, ty);
     if (!baked) continue;
     baked.usedFrame = frame;
-    tiles.set(k, baked);
+    tiles.set(key(tx, ty), baked);
     budget--;
   }
   evict(frame);

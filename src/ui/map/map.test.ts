@@ -23,8 +23,9 @@ import {
   visibleCells,
   zoomAt,
 } from './grid';
-import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_OVERVIEW, TILE_CELLS } from './const';
+import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_OVERVIEW, TILE_CELLS, TREE_FREE_R } from './const';
 import { type Sample, fieldAt, forestAt, stampsFor, treesIn } from './scatter';
+import { BUCKETS, STAGE_SHAPE, clearRadius, layout, pickBucket, ringOf, spriteKey, variantOf } from './village';
 
 const SEED = 4242;
 /** Ландшафт берётся настоящий: тест должен ловить и странности реального мира. */
@@ -173,6 +174,71 @@ describe('перетаскивание', () => {
     // Земля стоит один drawImage на тайл: их должно быть единицы, а не сотни.
     expect(tiles.length).toBeLessThanOrEqual(16);
     expect(tiles.length).toBeGreaterThan(0);
+  });
+});
+
+describe('поселения читаются силуэтом', () => {
+  const STAGES = ['camp', 'village', 'stronghold', 'town'] as const;
+
+  it('стадия видна по ограде, а не только по размеру', () => {
+    // Главный признак на 48 px — есть ли кольцо и какое. У четырёх стадий оно
+    // обязано различаться, иначе игрок не отличит деревню от города силуэтом.
+    expect(STAGES.map((s) => ringOf(s, false))).toEqual(['none', 'none', 'palisade', 'stone']);
+    // Лагерь и деревня без ограды обе — их разводит число построек и размер двора.
+    expect(STAGE_SHAPE.village.count).toBeGreaterThan(STAGE_SHAPE.camp.count);
+  });
+
+  it('поселение растёт вширь со стадией', () => {
+    for (let i = 1; i < STAGES.length; i++) {
+      expect(clearRadius(STAGES[i])).toBeGreaterThan(clearRadius(STAGES[i - 1]));
+      expect(STAGE_SHAPE[STAGES[i]].count).toBeGreaterThan(STAGE_SHAPE[STAGES[i - 1]].count);
+    }
+  });
+
+  it('варвары не строят правильных стен', () => {
+    for (const s of STAGES) {
+      const ring = ringOf(s, true);
+      expect(ring === 'palisade' || ring === 'stone').toBe(false);
+    }
+  });
+
+  it('ёлки не лезут даже в самый большой двор', () => {
+    // Пятно двора рисует спрайт, а лес отбраковывает тайл, и радиусы у них
+    // разные. Если двор перерастёт вырубку, по краю города пойдут ёлки прямо
+    // по пашне. Стадия города — самый большой двор, с него и проверяем.
+    expect(TREE_FREE_R).toBeGreaterThan(clearRadius('town'));
+  });
+
+  it('расстановка построек детерминирована и идёт от дальних к ближним', () => {
+    for (const s of STAGES) {
+      const a = layout(s, false, 1);
+      expect(layout(s, false, 1)).toEqual(a);
+      expect(a.length).toBe(STAGE_SHAPE[s].count);
+      // Порядок художника: дальний дом рисуется раньше ближнего, иначе крыши
+      // наложатся не в том порядке.
+      expect(a.map((p) => p.y)).toEqual([...a.map((p) => p.y)].sort((x, y) => x - y));
+    }
+  });
+
+  it('соседние деревни не выходят близнецами', () => {
+    const variants = new Set(['s1', 's2', 's3', 's4', 's5', 'b7'].map(variantOf));
+    expect(variants.size).toBeGreaterThan(1);
+    expect(variantOf('s1')).toBe(variantOf('s1'));
+  });
+
+  it('корзины размера не дают перепекать спрайт на каждый щипок', () => {
+    // Между корзинами спрайт растягивается копированием: масштаб меняется
+    // непрерывно, а выпечка дорогая.
+    expect(BUCKETS).toEqual([...BUCKETS].sort((a, b) => a - b));
+    for (const px of [10, 23, 31, 45, 60, 200]) {
+      expect(BUCKETS).toContain(pickBucket(px));
+    }
+    expect(pickBucket(23)).toBe(pickBucket(29));
+    // Ключ кэша разводит то, от чего зависит картинка, и только это.
+    const look = { stage: 'town', relation: 'enemy', mine: false, variant: 1 } as const;
+    expect(spriteKey(look, 40, 2)).toBe(spriteKey({ ...look }, 40, 2));
+    expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, mine: true }, 40, 2));
+    expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, relation: 'ally' }, 40, 2));
   });
 });
 
