@@ -55,8 +55,11 @@ const SKY_INIT = new THREE.Color(0x9fc9e8);
 /** Тап пальцем: сколько можно проехать и как долго держать, чтобы это всё ещё был тап. */
 const TAP_MOVE = 14;
 const TAP_MS = 500;
-/** Промах по модели прощается в этом радиусе на экране — иначе на 390 px не попасть. */
-const TAP_FORGIVE = 46;
+/**
+ * Промах по модели прощается в этом радиусе на экране. Посёлок теперь кадрируется
+ * по стене целиком, постройки в кадре мельче — прощаем щедрее, чем раньше.
+ */
+const TAP_FORGIVE = 58;
 
 const MARKER_GLYPH: Record<Attention, string> = { idle: '💤', slot: '👤', upgrade: '⬆️' };
 const markerTextures = new Map<Attention, THREE.Texture>();
@@ -115,6 +118,8 @@ export class TribeScene {
   private hemi: THREE.HemisphereLight;
   private fireLight: THREE.PointLight;
   private buildings = new Map<number, BuildingView>();
+  /** Стена достроена: за неё жителей больше не выпускаем. */
+  private walled = false;
   private agents = new Map<number, VillagerAgent>();
   private soldiers: SoldierAgent[] = [];
   /** Обстановка посёлка: площадь, дороги, размеченные площадки и декор. */
@@ -392,7 +397,9 @@ export class TribeScene {
     // Радиус меряем тем же способом: точка, сдвинутая вбок на размер основания.
     const [w, d] = footprintOf(view.type, view.tier);
     const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
-    const edge = center.add(right.multiplyScalar(Math.max(1.3, Math.max(w, d) * 0.9))).project(this.camera);
+    const edge = center
+      .add(right.multiplyScalar(Math.max(1.3, Math.max(w, d) * 0.9 * PLAN_SCALE)))
+      .project(this.camera);
     const [ex, ey] = toScreen(edge);
     return { x, y, r: Math.min(140, Math.max(34, Math.hypot(ex - x, ey - y))) };
   }
@@ -406,7 +413,8 @@ export class TribeScene {
     }
     const [w, d] = footprintOf(view.type, view.tier);
     this.selection.position.set(view.group.position.x, 0.07, view.group.position.z);
-    this.selection.scale.setScalar(Math.max(1.1, Math.max(w, d) * 0.85));
+    // Кольцо лежит в сцене, а не в группе здания: масштаб плана к нему применяем сами.
+    this.selection.scale.setScalar(Math.max(0.9, Math.max(w, d) * 0.85 * PLAN_SCALE));
     this.selection.visible = true;
   }
 
@@ -419,7 +427,9 @@ export class TribeScene {
 
   private makeHitbox(b: Building, tier: Tier): THREE.Mesh {
     const [w, d] = footprintOf(b.type, tier);
-    const r = Math.max(1.4, Math.max(w, d) * 0.85);
+    // Мишень — ребёнок группы, а группу ужимает PLAN_SCALE. Делим на него, чтобы
+    // площадь попадания осталась прежней в мире, а не съёжилась вместе с домом.
+    const r = Math.max(1.4, Math.max(w, d) * 0.85) / PLAN_SCALE;
     const mesh = new THREE.Mesh(
       new THREE.CylinderGeometry(r, r, 3.4, 6),
       // Ничего не рисует, но остаётся в сцене — рейкаст по ней работает всегда.
@@ -559,6 +569,7 @@ export class TribeScene {
    * или набор построек. Дороги при этом никуда не переезжают — они заданы планом.
    */
   private syncVillage(s: GameState): void {
+    this.walled = s.buildings.some((b) => b.type === 'palisade' && b.level > 0);
     const stage: StageId = settlementStage(s);
     const eraId = era(s);
     const present = s.buildings.map((b) => b.type).sort();
@@ -599,12 +610,29 @@ export class TribeScene {
     });
   }
 
-  /** Где житель работает: приписан к зданию — идёт туда, вольный сбор — в свою зону. */
+  /**
+   * Где житель работает: приписан к зданию — идёт туда, вольный сбор — в свою зону
+   * за стеной. Пока стены нет, он туда и уходит; как только она встала, цель
+   * подтягивается внутрь кольца — сквозь кладку никто не ходит.
+   */
   private workplaceFor(v: Villager, ordinal: number, sitePos: THREE.Vector3 | null): [THREE.Vector3 | null, number] {
     if (v.workplace !== null) {
       const p = this.buildingPosition(v.workplace);
       if (p) return [p, 1.1];
     }
+    const [zone, wander] = this.freeRangeSpot(v, ordinal, sitePos);
+    return [zone && this.walled ? this.insideWall(zone) : zone, wander];
+  }
+
+  /** Держит точку внутри кольца стены, не меняя направления от центра. */
+  private insideWall(p: THREE.Vector3): THREE.Vector3 {
+    const r = Math.hypot(p.x, p.z);
+    const limit = WALL_RADIUS - 2.2;
+    if (r <= limit) return p;
+    return new THREE.Vector3((p.x / r) * limit, 0, (p.z / r) * limit);
+  }
+
+  private freeRangeSpot(v: Villager, ordinal: number, sitePos: THREE.Vector3 | null): [THREE.Vector3 | null, number] {
     switch (v.job) {
       case 'gatherer':
         return [ZONES.berries, 1.8];
