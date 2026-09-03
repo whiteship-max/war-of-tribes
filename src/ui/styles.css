@@ -1,0 +1,1625 @@
+:root {
+  --bg: #1a1410;
+  --panel: rgba(28, 22, 17, 0.94);
+  --panel-2: rgba(44, 34, 26, 0.9);
+  --line: rgba(255, 220, 170, 0.12);
+  --text: #f3e9d8;
+  --muted: #b8a893;
+  --accent: #e8a43c;
+  --accent-text: #241a0e;
+  --accent-2: #c4652f;
+  --good: #7cc47a;
+  --bad: #e06b5a;
+  --radius: 14px;
+
+  /* Вырезы: Telegram отдаёт их в --tg-* через JS, env() — фолбэк вне Telegram. */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--tg-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--tg-left, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--tg-right, 0px));
+
+  /* Высоту перезаписывает JS из tg.viewportStableHeight. */
+  --app-h: 100vh;
+  --nav-h: 56px;
+  /* Минимальный размер тач-цели. */
+  --tap: 44px;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: var(--text);
+  color-scheme: dark;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-h: 100dvh;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  overscroll-behavior: none;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.app {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--app-h);
+  overflow: hidden;
+  /* Закрытая шторка торчит за нижний край — браузер не должен подскакивать к ней. */
+  overflow-anchor: none;
+}
+
+.canvas-wrap {
+  position: absolute;
+  inset: 0;
+}
+
+.canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.loading {
+  height: var(--app-h);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.loading-fire {
+  font-size: 48px;
+  animation: flicker 1.2s infinite alternate;
+}
+
+@keyframes flicker {
+  from {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  to {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+}
+
+/* ---------- Верхний HUD: строка состояния и кнопка посёлка ---------- */
+
+.topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  padding-top: calc(var(--safe-top) + 6px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-bar {
+  pointer-events: auto;
+  margin: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hud-bar .cell {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.hud-bar .cell .ic {
+  font-size: 13px;
+}
+
+.hud-bar .cell b {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.hud-bar .cell i {
+  font-style: normal;
+  font-size: 11px;
+}
+
+.hud-bar .cell.warn b {
+  color: var(--bad);
+}
+
+.hud-bar .cell.era {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.hud-bar .cell.era i {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-bar .sep {
+  flex: 0 0 1px;
+  height: 14px;
+  background: var(--line);
+}
+
+/* ---------- Нижняя навигация ---------- */
+
+.bottomnav {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 12;
+  display: flex;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+  /* Навигация лежит поверх шторки — текст списка не должен просвечивать. */
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.bottomnav button {
+  flex: 1;
+  min-height: var(--nav-h);
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 7px 0 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  position: relative;
+}
+
+.bottomnav button .ico {
+  font-size: 21px;
+  line-height: 1;
+}
+
+.bottomnav button.active {
+  color: var(--accent);
+}
+
+.bottomnav button .badge {
+  position: absolute;
+  top: 5px;
+  right: calc(50% - 22px);
+  background: var(--accent-2);
+  color: #fff;
+  font-size: 10px;
+  border-radius: 999px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 4px;
+}
+
+/* ---------- Нижняя шторка ---------- */
+
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+:root[data-theme='light'] .sheet-backdrop {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  height: 62%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.45);
+  transform: translateY(100%);
+  transition:
+    transform 0.26s cubic-bezier(0.22, 0.61, 0.36, 1),
+    height 0.26s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+  pointer-events: none;
+}
+
+.sheet.open {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.sheet.full {
+  height: 85%;
+}
+
+.sheet-grab {
+  position: relative;
+  flex: 0 0 auto;
+  height: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.sheet-handle {
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--muted);
+  opacity: 0.45;
+}
+
+.sheet-close {
+  position: absolute;
+  top: 0;
+  right: max(4px, var(--safe-right));
+  width: var(--tap);
+  height: var(--tap);
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  /* Список должен доезжать до конца над приклеенной навигацией. */
+  padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px);
+}
+
+.panel {
+  padding: 0 12px 8px;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.panel h2 small {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+  text-align: right;
+}
+
+.panel h3 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.card {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card.locked {
+  opacity: 0.55;
+}
+
+.card.done {
+  border-color: rgba(124, 196, 122, 0.35);
+}
+
+.card .ico {
+  font-size: 23px;
+  width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.card .body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.card .title {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.card .title .count {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.card .desc {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.cost {
+  font-size: 12px;
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cost .no {
+  color: var(--bad);
+}
+
+.btn {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: 10px;
+  padding: 0 14px;
+  min-height: var(--tap);
+  min-width: var(--tap);
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 0 10px;
+}
+
+.btn.danger {
+  background: var(--bad);
+  color: #fff;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.stepper button {
+  width: var(--tap);
+  height: var(--tap);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.stepper button:disabled {
+  opacity: 0.3;
+}
+
+.stepper .n {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.progress {
+  height: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s linear;
+}
+
+.progress.good > div {
+  background: var(--good);
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs button {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0 13px;
+  min-height: var(--tap);
+  font-size: 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.tabs button.active {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.log {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.log .good {
+  color: var(--good);
+}
+
+.log .bad {
+  color: var(--bad);
+}
+
+.log .quest {
+  color: var(--accent);
+}
+
+.log div {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* ---------- Модалки ---------- */
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-top) + 16px) calc(var(--safe-right) + 16px) calc(var(--safe-bottom) + 16px)
+    calc(var(--safe-left) + 16px);
+  z-index: 20;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  width: 100%;
+  max-width: 360px;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.modal .m-ico {
+  font-size: 38px;
+  text-align: center;
+}
+
+.modal h2 {
+  margin: 8px 0 6px;
+  text-align: center;
+  font-size: 18px;
+}
+
+.modal p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.modal .options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal .opt {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  min-height: var(--tap);
+  text-align: left;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal .opt:active {
+  border-color: var(--accent);
+}
+
+.modal .opt small {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.modal .options .btn {
+  width: 100%;
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px);
+  transform: translateX(-50%);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  z-index: 30;
+  max-width: 84%;
+  text-align: center;
+  animation: toast-in 0.15s ease;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+.totem-row {
+  display: flex;
+  gap: 8px;
+}
+
+.totem-row button {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 4px;
+  min-height: 76px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.totem-row button .ico {
+  font-size: 24px;
+}
+
+/* ---------- Сезоны: чип в HUD, шторка, предупреждение о зиме ---------- */
+
+/* Чип сезона в HUD. Полоска прогресса — подчёркиванием, чтобы не занимать ширину. */
+.hud-bar .cell.season {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 2px 2px 5px;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.hud-bar .cell.season i {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.hud-bar .cell.season.active {
+  background: var(--panel-2);
+}
+
+.hud-bar .cell.season .season-bar {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.hud-bar .cell.season .season-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--season-tint, var(--accent));
+  transition: width 0.3s linear;
+}
+
+.hud-bar .cell.season-spring {
+  --season-tint: #7cc47a;
+}
+.hud-bar .cell.season-summer {
+  --season-tint: #e8c23c;
+}
+.hud-bar .cell.season-autumn {
+  --season-tint: #d8813a;
+}
+.hud-bar .cell.season-winter {
+  --season-tint: #8fc4e8;
+}
+
+/* Список множителей в шторке. */
+.season-hint {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.season-hint.soft {
+  color: var(--good);
+}
+
+.mod-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 10px;
+}
+
+.mod {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.mod.total {
+  margin-bottom: 10px;
+  border-color: var(--accent);
+}
+
+.mod .ico {
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
+}
+
+.mod .name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mod .val {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.mod .val.pos {
+  color: var(--good);
+}
+
+.mod .val.neg {
+  color: var(--bad);
+}
+
+.season-wheel {
+  display: flex;
+  gap: 6px;
+}
+
+.season-wheel .s-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.season-wheel .s-cell.now {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.season-wheel .s-cell .ico {
+  font-size: 18px;
+}
+
+/* Расчёт запасов в предупреждении о зиме. */
+.stocks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stock {
+  background: var(--panel-2);
+  border: 1px solid var(--bad);
+  border-radius: 12px;
+  padding: 9px 11px;
+}
+
+.stock.ok {
+  border-color: var(--good);
+}
+
+.stock .head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.stock .head .ico {
+  font-size: 15px;
+}
+
+.stock .head .days {
+  margin-left: auto;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.stock .progress {
+  margin-bottom: 6px;
+}
+
+.stock .progress > div.ok {
+  background: var(--good);
+}
+
+.stock .progress > div.no {
+  background: var(--bad);
+}
+
+.stock small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.modal p.verdict {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.modal p.verdict.ok {
+  color: var(--good);
+}
+
+.modal p.verdict.no {
+  color: var(--bad);
+}
+
+/* ---------- Кнопка второй строки HUD ---------- */
+
+.map-btn {
+  pointer-events: auto;
+  align-self: flex-end;
+  margin-right: calc(8px + var(--safe-right));
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: var(--tap);
+  padding: 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- Тревоги поверх всего ---------- */
+
+.alerts {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  top: calc(var(--safe-top) + 6px + var(--tap) + 44px);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.alert {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--bad);
+  border-left-width: 4px;
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  animation: toast-in 0.18s ease;
+}
+
+.alert .ic {
+  font-size: 16px;
+  flex: 0 0 auto;
+}
+
+.alert .txt {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------- Панель здания ---------- */
+
+.bhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.bhead .ico {
+  font-size: 30px;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.bhead .body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bhead .name {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.bhead .lvl {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.pips {
+  display: flex;
+  gap: 3px;
+}
+
+.pips i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.pips i.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Уровни выше предела эпохи: видно, что потолок сдвинет только прогресс. */
+.pips i.era {
+  border-style: dashed;
+  opacity: 0.4;
+}
+
+.upgrade {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.upgrade .hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.panel > .desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 0 0 10px;
+}
+
+.note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.note.bad {
+  color: var(--bad);
+}
+
+/* ---------- Слоты рабочих ---------- */
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 4px 6px 4px 10px;
+  margin-bottom: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+
+.slot:not(.filled):not(.pick) {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.slot .ico {
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.slot .who {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot .talent {
+  color: var(--accent);
+  font-weight: 500;
+  font-style: normal;
+  font-size: 12px;
+}
+
+.mini {
+  flex: 0 0 auto;
+  width: var(--tap);
+  height: var(--tap);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mini:disabled {
+  opacity: 0.3;
+}
+
+.btn.wide {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+/* ---------- Склад: строка ресурса ---------- */
+
+.res-line {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.res-line .ico {
+  font-size: 15px;
+}
+
+.res-line .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.res-line .val {
+  font-weight: 600;
+}
+
+.res-line .val.full {
+  color: var(--accent);
+}
+
+.res-line .delta {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 46px;
+  text-align: right;
+}
+
+.res-line .delta.pos {
+  color: var(--good);
+}
+
+.res-line .delta.neg {
+  color: var(--bad);
+}
+
+.res-line .bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.res-line .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--good);
+}
+
+.res-line .bar i.full {
+  background: var(--accent);
+}
+
+/* ---------- Карточка-строка: вся открывает панель ---------- */
+
+.card.as-row {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.card.as-row:disabled {
+  cursor: default;
+}
+
+.card .title .lvl-tag {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.card .desc .talent {
+  color: var(--accent);
+}
+
+.attn {
+  flex: 0 0 auto;
+  font-size: 17px;
+  width: 26px;
+  text-align: center;
+}
+
+/* Текущий запас рядом с ценой: решение принимается, не выходя из панели. */
+.cost .have {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+  margin-left: 5px;
+}
+
+.cost .work {
+  color: var(--muted);
+}
+
+/* ---------- Проводка первых шагов ---------- */
+
+/* Ловушка тапа: только у шагов-строк, которые закрывают касанием в любом месте. */
+.tut-catch {
+  position: absolute;
+  inset: 0;
+  z-index: 16;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+/*
+ * «Дырка» в затемнении. Затемнение — это её собственная тень наружу, поэтому
+ * сама цель остаётся нетронутой, а слой ничего не перехватывает: мир под ним живёт.
+ */
+.tut-hole {
+  position: absolute;
+  z-index: 17;
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.tut-hole.round {
+  border-radius: 50%;
+}
+
+.tut-hole::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 2px solid var(--accent);
+  animation: tut-ring 1.5s ease-out infinite;
+}
+
+@keyframes tut-ring {
+  0% {
+    transform: scale(0.97);
+    opacity: 0.95;
+  }
+  70% {
+    transform: scale(1.12);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.tut-bar {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 12px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: tut-in 0.18s ease;
+}
+
+/* Своя анимация, а не toast-in: тот сдвигает по X, потому что тост центрован по левому краю. */
+@keyframes tut-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tut-bar.at-top {
+  top: calc(var(--safe-top) + 6px + var(--tap) + 44px);
+}
+
+.tut-bar.at-bottom {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+}
+
+.tut-bar .txt {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.tut-bar .skip {
+  flex: 0 0 auto;
+  min-height: var(--tap);
+  padding: 0 10px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Строка обучения занимает место тревог — сдвигаем их ниже, чтобы не наложились. */
+.alerts.with-tut {
+  top: calc(var(--safe-top) + 6px + var(--tap) + 100px);
+}
+
+
+/* ---------- Карта мира ---------- */
+
+/*
+ * Слой карты лежит поверх сцены (z 8), но ниже шторки (z 10): карточка клетки
+ * выезжает снизу и накрывает нижний ряд кнопок — так и задумано.
+ */
+.worldmap {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  background: #120e0b;
+  overflow: hidden;
+}
+
+.worldmap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.wm-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: calc(var(--safe-top) + 6px) calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.wm-top > * {
+  pointer-events: auto;
+}
+
+.wm-btn {
+  position: relative;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.wm-btn.wide {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wm-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wm-btn em,
+.map-btn em {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  padding: 0 4px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.map-btn {
+  position: relative;
+}
+
+.wm-coord {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.wm-coord b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wm-coord i {
+  font-size: 10px;
+  font-style: normal;
+  color: var(--muted);
+}
+
+.wm-jump {
+  position: absolute;
+  top: calc(var(--safe-top) + 6px + var(--tap) + 8px);
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.wm-jump input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.wm-legend {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  bottom: calc(var(--safe-bottom) + var(--tap) + 18px);
+  max-height: 62%;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.wm-legend h3 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wm-legend h3:first-child {
+  margin-top: 0;
+}
+
+.wm-leg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 13px;
+}
+
+.wm-leg-row i {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.wm-leg-row b {
+  width: 16px;
+  text-align: center;
+}
+
+.wm-leg-row em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+}
+
+.wm-foot {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  bottom: calc(var(--safe-bottom) + 8px);
+  display: flex;
+  gap: 8px;
+}
+
+/* ---------- Карточка клетки и походы ---------- */
+
+.wm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.wm-actions .btn {
+  flex: 1 1 44%;
+}
+
+.wm-actions .btn.wide {
+  flex-basis: 100%;
+}
+
+.wm-coord-tag {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.card.danger {
+  border-color: var(--bad);
+  border-left-width: 3px;
+}
+
+.card.report {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.card.report.lost {
+  border-color: rgba(224, 107, 90, 0.4);
+}
+
+.card .title .count.new {
+  padding: 0 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.report-detail {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Набег виден заранее и всегда сверху — у него свой цвет тревоги. */
+.alert.raid {
+  border-color: var(--accent-2);
+}
+
+/* Тот же кружок, но со словом внутри: координата, «все», «отозвать». */
+.mini.text {
+  width: auto;
+  min-width: var(--tap);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

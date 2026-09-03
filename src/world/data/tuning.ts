@@ -1,0 +1,99 @@
+// Числа мира в одном месте. Баланс правится здесь, а не по коду.
+
+const MIN = 60_000;
+
+/** Сторона сетки в клетках. */
+export const WORLD_SIZE = 200;
+/**
+ * Левый верхний угол в отображаемых координатах. Внутри и снаружи используются
+ * одни и те же числа, поэтому клетка подписывается как «541|822» без пересчётов.
+ */
+export const WORLD_ORIGIN = { x: 400, y: 700 };
+
+/** Сторона куска карты, которым ходят запросы region(). */
+export const CHUNK = 32;
+
+// ---------- Генерация ----------
+
+export const TRIBE_COUNT = 6;
+/** Ботов в племени. */
+export const BOTS_MIN = 5;
+export const BOTS_MAX = 9;
+/** Поселений у одного бота. */
+export const SETTLEMENTS_MIN = 1;
+export const SETTLEMENTS_MAX = 3;
+/** Радиус разброса поселений вокруг центра племени, клеток. */
+export const TRIBE_RADIUS = 22;
+/** Минимальное расстояние между центрами племён. */
+export const TRIBE_GAP = 46;
+
+/** Сторона блока, в котором может появиться варварский лагерь, и вероятность. */
+export const BARBARIAN_BLOCK = 6;
+export const BARBARIAN_CHANCE = 0.11;
+
+/** На каком расстоянии от чужого поселения ставится деревня игрока. */
+export const HOME_NEAR_MIN = 5;
+export const HOME_NEAR_MAX = 9;
+
+// ---------- Мощь соседей ----------
+
+/** Насколько мощь поселения растёт за час реального времени. */
+export const POWER_GROWTH_PER_HOUR = 0.06;
+/** Предел роста: во сколько раз мощь может превысить начальную. */
+export const POWER_GROWTH_CAP = 3;
+/** Ближние цели слабее дальних: прибавка мощи за клетку расстояния от дома. */
+export const POWER_PER_TILE = 0.9;
+/** За сколько поселение отстраивает разбитый гарнизон. */
+export const DAMAGE_RECOVER = 25 * MIN;
+/** За сколько восстанавливаются запасы, которые можно унести. */
+export const LOOT_REFILL = 20 * MIN;
+
+// ---------- Разведка ----------
+
+/** До этого возраста данные точны. */
+export const INTEL_EXACT = 4 * MIN;
+/** Дальше — диапазон ±INTEL_ROUGH_SPREAD. */
+export const INTEL_ROUGH = 12 * MIN;
+/** Дальше — широкий диапазон. */
+export const INTEL_VAGUE = 30 * MIN;
+export const INTEL_ROUGH_SPREAD = 0.15;
+export const INTEL_VAGUE_SPREAD = 0.4;
+/** Сколько мощи прикрывает одного разведчика: выше — кого-то заметят. */
+export const SCOUT_COVER = 12;
+
+// ---------- Походы ----------
+
+/** Сколько отряд стоит в союзном поселении, прежде чем уйти домой. */
+export const SUPPORT_STAY = 8 * MIN;
+/** Меньше этого похода не бывает — иначе сосед в двух клетках берётся мгновенно. */
+export const MARCH_MIN_SECONDS = 45;
+
+// ---------- Племена ----------
+
+export const HOSTILITY_ATTACK = 25;
+export const HOSTILITY_SUPPORT = -18;
+/** Насколько враждебность спадает за минуту. */
+export const HOSTILITY_DECAY_PER_MIN = 0.5;
+/** С какого значения племя считается враждебным. */
+export const HOSTILITY_ENEMY = 50;
+/** Выше этого союз рвётся. */
+export const HOSTILITY_ALLY_BREAK = 25;
+
+// ---------- Мягкие набеги ИИ ----------
+
+/** Разброс паузы между набегами на игрока. */
+export const AI_ATTACK_MIN = 12 * MIN;
+export const AI_ATTACK_MAX = 26 * MIN;
+/** Сколько игрок видит отряд до его прихода: успеть отозвать армию и подготовиться. */
+export const AI_WARNING = 4 * MIN;
+/** До этого населения игрока не трогают. */
+export const AI_MIN_POP = 8;
+/** Какую долю своей мощи бот отправляет: набег должен быть отбиваемым. */
+export const AI_POWER_SHARE = 0.35;
+/** Потолок набега относительно обороны игрока. */
+export const AI_POWER_VS_DEFENSE = 0.85;
+/** Дальше этого расстояния боты за игроком не ходят. */
+export const AI_RANGE = 26;
+
+/** Сколько отчётов храним. */
+export const REPORTS_KEPT = 30;
