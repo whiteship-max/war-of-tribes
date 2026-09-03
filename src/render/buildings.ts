@@ -536,7 +536,8 @@ function workshop(t: Tier, st: EraStyle): THREE.Group {
 /** Ферма: одна полоса → поле с оградой и пугалом → большое поле с овином. */
 function farm(t: Tier, st: EraStyle): THREE.Group {
   const g = new THREE.Group();
-  const s = [2.6, 3.3, 4.0][t];
+  // Поле держится в своей площадке плана: широкая пашня вылезала за отведённое место.
+  const s = [2.2, 2.7, 3.2][t];
   g.add(box(s, 0.1, s, M.soil, 0, 0.05, 0));
   const rows = 4 + t * 2;
   const cols = 5 + t * 2;
@@ -555,9 +556,9 @@ function farm(t: Tier, st: EraStyle): THREE.Group {
     g.add(cone(0.22, 0.3, st.roof, 6, s * 0.32, 1.4, -s * 0.32));
   }
   if (t === 2) {
-    // Овин у края поля: урожай теперь есть где сушить.
-    g.add(box(1.5, 1.0, 1.1, st.wall, -s * 0.5 - 0.9, 0.5, s * 0.3));
-    gable(g, 1.8, 1.4, 1.0, 0.3, st.roof, -s * 0.5 - 0.9, s * 0.3);
+    // Овин вплотную к полю: урожай есть где сушить, а площадка не растёт.
+    g.add(box(1.2, 1.0, 1.0, st.wall, -s * 0.5 - 0.35, 0.5, 0));
+    gable(g, 1.45, 1.25, 1.0, 0.28, st.roof, -s * 0.5 - 0.35, 0);
   }
   return g;
 }

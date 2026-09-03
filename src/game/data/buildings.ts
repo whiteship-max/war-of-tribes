@@ -209,7 +209,7 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'tower',
     name: 'Башня',
     icon: '🗼',
-    description: 'Дозорная башня над воротами. Защита +4, и растёт с каждым уровнем.',
+    description: 'Дозорная вышка сбоку от ворот. Защита +4, и растёт с каждым уровнем.',
     cost: { wood: 40, stone: 30 },
     work: 70,
     requiresTech: 'towers',
