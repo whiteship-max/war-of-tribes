@@ -1,7 +1,50 @@
 import { useGame } from '@/game/store';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { buildingById, defense, freeVillagers, housingCapacity } from '@/game/derived';
+import { buildingById, builtOfType, defense, freeVillagers, housingCapacity, armyPower, armySize } from '@/game/derived';
+import { armyRoster } from '@/game/sim/army';
+
+/**
+ * Дружина. Бойцы — не жители с профессией «воин»: их нанимают в казармах,
+ * и в списке племени их нет. Поэтому здесь отдельная строка, а не роль.
+ */
+function Army() {
+  const s = useGame((g) => g.s);
+  const openBuilding = useGame((g) => g.openBuilding);
+  const roster = armyRoster(s);
+  const barracks = builtOfType(s, 'barracks');
+  if (roster.length === 0) {
+    return (
+      <div className="note">
+        Бойцов нет. Их не назначают из жителей — их учат в казармах за снаряжение.
+      </div>
+    );
+  }
+  return (
+    <>
+      <h3>
+        Дружина <span className="muted">мощь {Math.round(armyPower(s))} · бойцов {armySize(s)}</span>
+      </h3>
+      {roster.map(({ def, n }) => (
+        <button
+          className="card as-row"
+          key={def.id}
+          disabled={!barracks}
+          onClick={() => barracks && openBuilding(barracks.id)}
+        >
+          <div className="ico">{def.icon}</div>
+          <div className="body">
+            <div className="title">
+              {def.name}
+              <span className="count">{n} · мощь {def.power * n}</span>
+            </div>
+            <div className="desc">{def.description}</div>
+          </div>
+        </button>
+      ))}
+    </>
+  );
+}
 
 /** Склонение: 1 год, 2 года, 5 лет. */
 function years(n: number): string {
@@ -36,6 +79,8 @@ export function PeoplePanel() {
         <span className="name">Свободные</span>
         <span className="val">{idle}</span>
       </div>
+
+      <Army />
 
       {sorted.map((v) => {
         const job = JOB_BY_ID[v.job];

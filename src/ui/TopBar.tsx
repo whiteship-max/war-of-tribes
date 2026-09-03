@@ -2,12 +2,11 @@ import { useGame } from '@/game/store';
 import {
   dayOf,
   dayFraction,
-  era,
-  ERA_META,
   housingCapacity,
   seasonOf,
   seasonProgress,
   solarPhase,
+  stageProgress,
 } from '@/game/derived';
 import { SEASON_META } from '@/game/data/seasons';
 import { tutorialActive } from '@/game/data/tutorial';
@@ -28,6 +27,9 @@ const moraleIcon = (m: number): string => (m >= 70 ? '😊' : m >= 40 ? '😐' :
  * а цену стройки видно рядом с самой стройкой. Списка построек здесь тоже нет —
  * он целиком уехал в раздел «Здания» внизу.
  *
+ * Шкала прогресса здесь одна — стадия поселения. Эпоха отсюда убрана: она стала
+ * техническим уровнем и живёт в Доме вождя, где ей и место.
+ *
  * Отдельной кнопкой справа висит карта мира: это не раздел про посёлок, а выход
  * наружу, к соседям. Пока идёт обучение, её нет — новичку туда рано.
  */
@@ -45,7 +47,7 @@ export function TopBar() {
   const pop = s.villagers.length;
   const housing = housingCapacity(s);
   const morale = Math.round(s.morale);
-  const e = ERA_META[era(s)];
+  const stage = stageProgress(s);
   const tab = sheet?.kind === 'tab' ? sheet.tab : null;
 
   return (
@@ -80,9 +82,20 @@ export function TopBar() {
           <b>{morale}</b>
         </span>
         <span className="sep" />
-        <span className="cell era" title={e.name}>
-          <span className="ic">{e.icon}</span>
-          <i>{e.short}</i>
+        <span
+          className="cell era"
+          title={
+            stage.next
+              ? `${stage.stage.name}. До стадии «${stage.next.name}»: ` +
+                stage.need
+                  .filter((r) => !r.ok)
+                  .map((r) => `${r.label.toLowerCase()} ${Math.floor(r.have)}/${r.need}`)
+                  .join(', ')
+              : stage.stage.description
+          }
+        >
+          <span className="ic">{stage.stage.icon}</span>
+          <i>{stage.stage.short}</i>
         </span>
       </div>
 

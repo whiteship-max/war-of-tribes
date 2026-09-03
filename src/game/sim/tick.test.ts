@@ -24,6 +24,11 @@ import {
   jobMultiplier,
   levelOutputMult,
   maxLevelFor,
+  armySize,
+  builtCount,
+  settlementStage,
+  totalLevels,
+  wallLevel,
   productionPerDay,
   researchRate,
   seasonDayOf,
@@ -39,6 +44,7 @@ import { BASE_STORAGE_CAP, DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '
 import { BUILDINGS, BUILDING_BY_ID } from '../data/buildings';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS, YEAR_DAYS } from '../data/seasons';
 import { QUESTS } from '../data/quests';
+import { STAGE_BY_ID } from '../data/stages';
 import {
   TUTORIAL,
   advanceTutorial,
@@ -50,6 +56,7 @@ import {
   type TutorialUi,
 } from '../data/tutorial';
 import { deserialize, serialize } from '../save';
+import { WALL_RADIUS, placeOf } from '@/render/plan';
 import { SAVE_VERSION } from '../state';
 
 beforeEach(() => setRandom(seeded(42)));
@@ -563,9 +570,10 @@ function nextSite(s: GameState): void {
   for (const type of BUILD_ORDER) {
     if (countAll(s, type) === 0 && startBuilding(s, type) === null) return;
   }
-  // Всё поставлено — тянем вверх самое отстающее рабочее здание.
+  // Всё поставлено — тянем вверх самое отстающее здание. Не только рабочее:
+  // стена и Дом вождя рабочих мест не дают, но без них город не сложится.
   const behind = s.buildings
-    .filter((b) => b.level > 0 && BUILDING_BY_ID[b.type].job)
+    .filter((b) => b.level > 0)
     .sort((a, b) => a.level - b.level);
   for (const b of behind) if (startUpgrade(s, b.id) === null) return;
   const storage = buildingOfType(s, 'storage');
@@ -693,6 +701,19 @@ describe('сезоны', () => {
     for (const b of s.buildings) expect(countAll(s, b.type)).toBe(1);
     expect(builtOfType(s, 'hut')!.level).toBeGreaterThanOrEqual(8);
     expect(maxLevelFor(s, 'hut')).toBe(MAX_BUILDING_LEVEL);
+  });
+
+  it('разумная партия доходит до стадии «Город»', () => {
+    const s = createInitialState();
+    finishTutorial(s);
+    play(s, YEAR_DAYS * 8);
+    expect(settlementStage(s)).toBe('town');
+    const need = STAGE_BY_ID.town;
+    expect(s.villagers.length + armySize(s)).toBeGreaterThanOrEqual(need.pop);
+    expect(builtCount(s)).toBeGreaterThanOrEqual(need.buildings);
+    expect(totalLevels(s)).toBeGreaterThanOrEqual(need.levels);
+    // Город без стены не бывает: укрепления — отдельное требование стадии.
+    expect(wallLevel(s)).toBeGreaterThanOrEqual(need.wall);
   });
 
   it('предупреждение о зиме поднимается за день до неё и считает запасы', () => {
@@ -903,6 +924,50 @@ describe('миграция сохранений', () => {
     expect(hut.level).toBe(0);
     // Берём ту стройку, что продвинулась дальше.
     expect(hut.work).toBe(21);
+  });
+
+  it('воины становятся дубинщиками, а здания переезжают на свои места по плану', () => {
+    const s = createInitialState();
+    // Старое сохранение: роль «воин» ещё была профессией, а место здания —
+    // произвольным номером слота.
+    const raw = JSON.parse(serialize(s)) as Record<string, unknown>;
+    raw.version = 3;
+    const villagers = (raw.villagers as { job: string; talent: string | null }[]).map((v, i) =>
+      i < 2 ? { ...v, job: 'warrior', talent: 'warrior' } : v,
+    );
+    raw.villagers = villagers;
+    (raw.buildings as { slot: number }[]).forEach((b, i) => {
+      b.slot = 40 + i;
+    });
+    delete raw.army;
+    delete raw.equipment;
+
+    const back = deserialize(JSON.stringify(raw))!;
+    expect(back).not.toBeNull();
+    expect(back.version).toBe(SAVE_VERSION);
+
+    // Двое воинов ушли из племени в дружину.
+    expect(back.villagers).toHaveLength(3);
+    expect(back.villagers.some((v) => (v.job as string) === 'warrior')).toBe(false);
+    expect(back.villagers.some((v) => (v.talent as string | null) === 'warrior')).toBe(false);
+    expect(back.army.clubman).toBe(2);
+    expect(armySize(back)).toBe(2);
+    // Народу в посёлке столько же, сколько было: люди не исчезли, а сменили место.
+    expect(back.villagers.length + armySize(back)).toBe(s.villagers.length);
+
+    // Новые поля приезжают заполненными, а не как undefined.
+    expect(back.equipment.spear).toBe(0);
+    expect(back.recruits).toEqual([]);
+    expect(back.decree).toBe('none');
+    expect(back.ration).toBe('normal');
+
+    // Здания переехали: место теперь выводится из типа, а не из номера слота.
+    for (const b of back.buildings) {
+      const spot = placeOf(b.type);
+      expect(Math.hypot(spot.x, spot.z)).toBeLessThanOrEqual(WALL_RADIUS);
+    }
+    expect(back.log.some((l) => l.text.includes('дубинщиками'))).toBe(true);
+    expect(back.log.some((l) => l.text.includes('своё место'))).toBe(true);
   });
 
   it('сохранение первой версии доходит до текущего формата', () => {

@@ -3,11 +3,13 @@ import type { Building, JobId, Villager } from '@/game/types';
 import { useGame } from '@/game/store';
 import { MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { EQUIPMENT } from '@/game/data/equipment';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
 import { TECH_BY_ID } from '@/game/data/techs';
 import {
   armyPower,
   buildRate,
+  forgeUnlocked,
   buildingById,
   buildingHousing,
   buildingProduction,
@@ -31,6 +33,9 @@ import {
 } from '@/game/derived';
 import { assignWorker, cancelBuilding, changeFreeJob, chooseTotem, startUpgrade, unassignWorker } from '@/game/sim/actions';
 import { Cost } from '../parts/Cost';
+import { ChiefHouse } from '../parts/ChiefHouse';
+import { Smithy } from '../parts/Smithy';
+import { Barracks } from '../parts/Barracks';
 import { TechTree } from '../parts/TechTree';
 import { upgradeGain } from '../parts/upgrade';
 
@@ -226,6 +231,26 @@ function BuildingData({ b }: { b: Building }) {
       return <StorageData />;
     case 'knowledge':
       return isBuilt(b) ? <TechTree /> : <div className="note">Пока хранилище строится, исследуют у костра.</div>;
+    case 'chief_house':
+      return isBuilt(b) ? (
+        <ChiefHouse />
+      ) : (
+        <div className="note">Пока дом строится, править нечем: указы и рацион появятся с ним.</div>
+      );
+    case 'smithy':
+      return (
+        <>
+          <GenericData b={b} />
+          <Smithy b={b} />
+        </>
+      );
+    case 'barracks':
+      return (
+        <>
+          <GenericData b={b} />
+          <Barracks b={b} />
+        </>
+      );
     default:
       return <GenericData b={b} />;
   }
@@ -332,6 +357,22 @@ function StorageData() {
           </div>
         );
       })}
+
+      <h3>
+        Снаряжение <span className="muted">вместимость не расходует</span>
+      </h3>
+      <div className="note">
+        Снаряжение куют в кузнице, тратят в казармах. Склад его не ограничивает и чужой набег
+        его не уносит.
+      </div>
+      {EQUIPMENT.map((e) => (
+        <div className="res-line" key={e.id}>
+          <span className="ico">{e.icon}</span>
+          <span className="name">{e.name}</span>
+          <span className="val">{s.equipment[e.id] ?? 0}</span>
+          <span className="delta">{forgeUnlocked(s, e.id) ? '' : 'не изучено'}</span>
+        </div>
+      ))}
     </>
   );
 }
