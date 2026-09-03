@@ -32,6 +32,14 @@ import { VillagerAgent } from './villagers';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
 import { Smoke, Snowfall } from './weather';
+import {
+  applyDayNight,
+  configureRenderer,
+  configureSky,
+  createLightRig,
+  fitShadow,
+  type LightRig,
+} from './lighting';
 
 interface BuildingView {
   group: THREE.Group;
@@ -48,11 +56,6 @@ interface BuildingView {
   markerKind: Attention | null;
   markerY: number;
 }
-
-const SKY_DUSK = new THREE.Color(0xe08a5a);
-const SKY_NIGHT = new THREE.Color(0x141a2e);
-/** Стартовый цвет неба до первого кадра; дальше его ведёт сезон. */
-const SKY_INIT = new THREE.Color(0x9fc9e8);
 
 /** Тап пальцем: сколько можно проехать и как долго держать, чтобы это всё ещё был тап. */
 const TAP_MOVE = 14;
@@ -117,9 +120,13 @@ export class TribeScene {
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
-  private sun: THREE.DirectionalLight;
-  private hemi: THREE.HemisphereLight;
+  private rig: LightRig;
   private fireLight: THREE.PointLight;
+  /** Ландшафт с окружением — одной группой, чтобы силуэтный режим мог его погасить. */
+  private terrain: THREE.Group;
+  /** Силуэтный режим стенда: всё чёрным на белом, только постройки. */
+  private silhouette = false;
+  private silhouetteMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
   private buildings = new Map<number, BuildingView>();
   /** Стена достроена: за неё жителей больше не выпускаем. */
   private walled = false;
@@ -150,23 +157,20 @@ export class TribeScene {
   private down: { id: number; x: number; y: number; t: number } | null = null;
   /** Тап по зданию (или по пустому месту — тогда null). Ставит UI. */
   onPick: ((id: number | null) => void) | null = null;
+  /** Вызывается сразу после render() — стенд снимает кадр, пока буфер ещё не очищен. */
+  afterRender: (() => void) | null = null;
   /** Азимут стартового ракурса — сохраняется при перекадрировке. */
   private azimuth = Math.atan2(9, 12);
   /** После ручного вращения камеру больше не переставляем. */
   private userMoved = false;
 
-  constructor(private canvas: HTMLCanvasElement) {
+  /** pixelRatio — принудительная плотность пикселей (стенд); по умолчанию — экрана, в [1, 2]. */
+  constructor(private canvas: HTMLCanvasElement, private pixelRatio: number | null = null) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     // dpr зажат в [1, 2]: на 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое.
-    this.renderer.setPixelRatio(THREE.MathUtils.clamp(window.devicePixelRatio || 1, 1, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
-
-    this.scene.background = SKY_INIT.clone();
-    this.scene.fog = new THREE.Fog(SKY_INIT.clone(), 22, 40);
+    this.renderer.setPixelRatio(this.dpr());
+    configureRenderer(this.renderer);
+    configureSky(this.scene);
 
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
     this.camera.position.set(9, 10, 12);
@@ -187,29 +191,14 @@ export class TribeScene {
       this.userMoved = true;
     });
 
-    this.hemi = new THREE.HemisphereLight(0xcfe6ff, 0x5a6a3a, 0.7);
-    this.scene.add(this.hemi);
-
-    this.sun = new THREE.DirectionalLight(0xfff1d6, 1.6);
-    this.sun.position.set(12, 18, 8);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    const sc = this.sun.shadow.camera;
-    sc.left = -18;
-    sc.right = 18;
-    sc.top = 18;
-    sc.bottom = -18;
-    sc.near = 1;
-    sc.far = 60;
-    this.sun.shadow.bias = -0.0015;
-    this.scene.add(this.sun);
-    this.scene.add(this.sun.target);
+    this.rig = createLightRig(this.scene);
 
     this.fireLight = new THREE.PointLight(0xff9a3a, 2.5, 12, 1.6);
     this.fireLight.position.set(0, 1.0, 0);
     this.scene.add(this.fireLight);
 
-    this.scene.add(buildTerrain());
+    this.terrain = buildTerrain();
+    this.scene.add(this.terrain);
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
 
@@ -232,11 +221,15 @@ export class TribeScene {
     active = this;
   }
 
+  private dpr(): number {
+    return this.pixelRatio ?? THREE.MathUtils.clamp(window.devicePixelRatio || 1, 1, 2);
+  }
+
   resize(): void {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     if (w < 1 || h < 1) return;
-    this.renderer.setPixelRatio(THREE.MathUtils.clamp(window.devicePixelRatio || 1, 1, 2));
+    this.renderer.setPixelRatio(this.dpr());
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -276,13 +269,7 @@ export class TribeScene {
     this.camera.updateProjectionMatrix();
 
     // Коробка теней накрывает посёлок целиком: она привязана к стене, как и кадр.
-    const half = WALL_RADIUS + 2;
-    const sc = this.sun.shadow.camera;
-    sc.left = -half;
-    sc.right = half;
-    sc.top = half;
-    sc.bottom = -half;
-    sc.updateProjectionMatrix();
+    fitShadow(this.rig, WALL_RADIUS + 2);
 
     if (this.userMoved) return;
     // Цель чуть выше земли: деревня уходит из-под верхнего HUD.
@@ -693,6 +680,19 @@ export class TribeScene {
   private loop = (): void => {
     if (this.disposed || this.paused) return;
     this.raf = requestAnimationFrame(this.loop);
+    this.frame();
+  };
+
+  /**
+   * Один кадр вне цикла. Нужен стенду: в скрытой вкладке requestAnimationFrame
+   * не идёт, а снимок всё равно должен быть с устоявшимися тенями и палитрой.
+   */
+  renderOnce(): void {
+    if (this.disposed) return;
+    this.frame();
+  }
+
+  private frame(): void {
     const dt = Math.min(0.1, this.clock.getDelta());
     const t = this.clock.elapsedTime;
 
@@ -735,23 +735,49 @@ export class TribeScene {
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
-  };
+    this.afterRender?.();
+  }
 
   /** solar: 0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — глубокая ночь. */
   private applyDayNight(solar: number): void {
-    const angle = solar * Math.PI * 2;
-    const elev = Math.sin(angle); // -1..1
-    const daylight = THREE.MathUtils.clamp((elev + 0.35) / 0.5, 0, 1);
-    this.sun.position.set(Math.cos(angle) * 16, Math.max(2, elev * 20), 8);
-    this.sun.intensity = 0.15 + daylight * 1.5;
-    this.hemi.intensity = 0.25 + daylight * 0.55;
+    if (this.silhouette) return;
+    applyDayNight(this.rig, this.scene, solar, this.seasonVis.sky);
+  }
 
-    const dusk = THREE.MathUtils.clamp(1 - Math.abs(elev) / 0.3, 0, 1);
-    const sky = new THREE.Color().copy(SKY_NIGHT).lerp(this.seasonVis.sky, daylight);
-    sky.lerp(SKY_DUSK, dusk * 0.6);
-    (this.scene.background as THREE.Color).copy(sky);
-    (this.scene.fog as THREE.Fog).color.copy(sky);
-    const sunColor = new THREE.Color(0xffe7c4).lerp(new THREE.Color(0xff9a5a), dusk);
-    this.sun.color.copy(sunColor);
+  // ---------- Стенд-витрина ----------
+
+  /** Бюджет кадра: вызовы отрисовки и треугольники последнего render(). */
+  stats(): { calls: number; triangles: number; geometries: number; textures: number; programs: number } {
+    const info = this.renderer.info;
+    return {
+      calls: info.render.calls,
+      triangles: info.render.triangles,
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      programs: info.programs?.length ?? 0,
+    };
+  }
+
+  /**
+   * Силуэтный режим: постройки чёрным на белом, всё остальное погашено. Так
+   * проверяется главный критерий формы — здание должно опознаваться силуэтом.
+   */
+  setSilhouette(on: boolean): void {
+    this.silhouette = on;
+    this.scene.overrideMaterial = on ? this.silhouetteMat : null;
+    this.scene.fog = on ? null : this.scene.fog ?? new THREE.Fog(0xffffff, 22, 40);
+    if (on) (this.scene.background as THREE.Color).setHex(0xffffff);
+    this.terrain.visible = !on;
+    if (this.village) this.village.visible = !on;
+    for (const a of this.agents.values()) a.group.visible = !on;
+    for (const a of this.soldiers) a.group.visible = !on;
+    for (const c of this.caravans.values()) c.agent.group.visible = !on;
+    this.snowfall.points.visible = !on && this.snowfall.points.visible;
+    this.smoke.points.visible = !on;
+    this.selection.visible = !on && this.selected !== null;
+    for (const view of this.buildings.values()) {
+      view.hit.visible = !on;
+      if (view.marker) view.marker.visible = !on;
+    }
   }
 }

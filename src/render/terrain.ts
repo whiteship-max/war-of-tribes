@@ -237,7 +237,13 @@ export function buildEnvironment(): THREE.Group {
 
 export function buildTerrain(): THREE.Group {
   const root = new THREE.Group();
+  root.add(buildGround());
+  root.add(buildEnvironment());
+  return root;
+}
 
+/** Только земля, без окружения: стенд-витрина ставит на неё одно здание. */
+export function buildGround(): THREE.Mesh {
   // Земля с лёгкой неровностью. Внутри зоны расчистки её ровняют: посёлок стоит
   // на утоптанной площадке, а бугры начинаются за вырубкой.
   const geo = new THREE.CircleGeometry(WORLD_RADIUS + 3, 64);
@@ -254,7 +260,5 @@ export function buildTerrain(): THREE.Group {
   const ground = new THREE.Mesh(geo, MAT.grass);
   ground.name = 'ground';
   ground.receiveShadow = true;
-  root.add(ground);
-  root.add(buildEnvironment());
-  return root;
+  return ground;
 }

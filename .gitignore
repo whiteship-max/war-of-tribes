@@ -11,3 +11,6 @@ dist
 # прочий локальный мусор
 coverage
 *.log
+
+# снимки стенда-витрины (?showcase=...&snap=имя)
+snaps

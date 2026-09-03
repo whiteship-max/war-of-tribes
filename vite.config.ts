@@ -1,9 +1,44 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+/**
+ * Снимки стенда-витрины. Только dev-сервер: страница `?showcase=…&snap=имя`
+ * отправляет PNG кадра на POST /__snap?name=имя, и он ложится в snaps/имя.png.
+ * Иначе скриншот графики не сохранить в файл: буфер WebGL снаружи страницы недоступен.
+ */
+function snapPlugin(): Plugin {
+  return {
+    name: 'tribe-snap',
+    apply: 'serve',
+    configureServer(server) {
+      const dir = fileURLToPath(new URL('./snaps', import.meta.url));
+      server.middlewares.use('/__snap', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        const raw = new URL(req.url ?? '/', 'http://localhost').searchParams.get('name') ?? 'snap';
+        const name = raw.replace(/[^\w.-]+/g, '_');
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          mkdirSync(dir, { recursive: true });
+          const file = join(dir, `${name}.png`);
+          writeFileSync(file, Buffer.concat(chunks));
+          res.setHeader('Content-Type', 'text/plain');
+          res.end(file);
+        });
+      });
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), snapPlugin()],
   base: './',
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
