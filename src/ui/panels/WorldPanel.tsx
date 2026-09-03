@@ -7,7 +7,7 @@ import { defense, soldierPower } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, formatLeft, marchSeconds } from '@/world/geo';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
-import { MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
+import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
@@ -101,11 +101,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   return (
     <div className="panel">
       <div className="bhead">
-        <div className="ico">{stage.icon}</div>
+        <div className="ico">{card.castle ? CASTLE_ICON : stage.icon}</div>
         <div className="body">
           <div className="name">{card.name}</div>
           <div className="lvl">
-            {stage.name} · <span style={{ color: relation.color }}>{relation.name}</span>
+            {card.castle ? 'Замок' : stage.name} ·{' '}
+            <span style={{ color: relation.color }}>{relation.name}</span>
           </div>
         </div>
         <span className="wm-coord-tag">{formatCoord(card)}</span>
@@ -156,6 +157,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <span className="val">{formatEstimate(card.pop)}</span>
         </div>
       </div>
+      {card.castle && (
+        <p className="note">
+          В замке казна: удачный набег приносит золото — тем больше, чем сильнее разбит гарнизон.
+          Гарнизон здесь крепче обычного, и слабый отряд вернётся ни с чем.
+        </p>
+      )}
       {card.mine ? (
         <p className="note">Свои силы видны всегда. Чужие — только после разведки.</p>
       ) : card.intel ? (

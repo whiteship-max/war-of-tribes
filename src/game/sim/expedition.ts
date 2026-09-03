@@ -15,6 +15,8 @@ export interface ExpeditionOutcome {
   scoutsLost: number;
   /** Плюс — привезли добычу, минус — унесли у нас. */
   resources: Partial<Record<ResourceId, number>>;
+  /** Золото из чужой казны. Вместимость склада на него не действует. */
+  gold: number;
   prestige: number;
   morale: number;
   /** Для статистики племени: только настоящие бои. */
@@ -73,12 +75,14 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
     s.resources[r] = Math.max(0, Math.min(cap, s.resources[r] + n));
   }
 
+  if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
   if (o.prestige) s.prestige = Math.max(0, s.prestige + o.prestige);
   if (o.morale) s.morale = Math.max(0, Math.min(100, s.morale + o.morale));
   if (o.battle === 'won') s.stats.battlesWon++;
   if (o.battle === 'lost') s.stats.battlesLost++;
 
   log(s, o.text, o.kind);
+  if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
   if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
   if (fallen.length > 0) log(s, `Не вернулись: ${fallen.join(', ')}.`, 'bad');
 }

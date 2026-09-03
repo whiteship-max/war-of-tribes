@@ -15,8 +15,14 @@ export const STAGES: StageDef[] = [
   { id: 'camp', name: 'Лагерь', icon: '⛺', minPower: 0, minPop: 0 },
   { id: 'village', name: 'Деревня', icon: '🏘️', minPower: 30, minPop: 12 },
   { id: 'stronghold', name: 'Укреплённое поселение', icon: '🏯', minPower: 90, minPop: 30 },
-  { id: 'town', name: 'Город', icon: '🏰', minPower: 200, minPop: 65 },
+  { id: 'town', name: 'Город', icon: '🏙️', minPower: 200, minPop: 65 },
 ];
+
+/**
+ * Замок рисуется своим значком поверх стадии: это не ступень развития, а вид
+ * цели — крепость с казной. Город поэтому носит городской значок, а не замковый.
+ */
+export const CASTLE_ICON = '🏰';
 
 export const STAGE_BY_ID: Record<Stage, StageDef> = Object.fromEntries(
   STAGES.map((s) => [s.id, s]),

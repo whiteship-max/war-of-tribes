@@ -4,6 +4,7 @@
 // стоит на кнопке, а не в подсказке: игрок выбирает, уже зная цену.
 
 export type DecreeId = 'none' | 'order' | 'freedom';
+export type TaxId = 'none' | 'moderate' | 'high';
 export type RationId = 'lean' | 'normal' | 'rich';
 
 export interface DecreeDef {
@@ -98,3 +99,59 @@ export const RATIONS: RationDef[] = [
 export const RATION_BY_ID: Record<RationId, RationDef> = Object.fromEntries(
   RATIONS.map((r) => [r.id, r]),
 ) as Record<RationId, RationDef>;
+
+// ---------- Налог ----------
+
+/**
+ * Уровень налога — третий переключатель Дома вождя. Появляется вместе с золотом,
+ * то есть после технологии торга; до неё казны нет и налог не с чего собирать.
+ *
+ * Плата за налог — мораль, и берётся она не медленным сползанием, а прямой
+ * просадкой цели (`moraleTarget`): сползание племя отыграло бы за минуту, а
+ * просадка держится ровно столько, сколько держат налог. Низкая мораль режет всю
+ * выработку разом, поэтому высокий налог выгоден в короткую — заткнуть дыру, —
+ * но не как постоянный уклад: за игровой год потерянная выработка стоит дороже
+ * всей собранной казны (это проверяет тест).
+ */
+export interface TaxDef {
+  id: TaxId;
+  name: string;
+  icon: string;
+  /** Доля от «золота с человека в день» стадии поселения (см. StageDef.tax). */
+  perPop: number;
+  /** На сколько проседает целевая мораль, пока налог держат. */
+  moralePenalty: number;
+  /** Строка последствий — она же надпись на кнопке. */
+  effect: string;
+}
+
+export const TAXES: TaxDef[] = [
+  {
+    id: 'none',
+    name: 'Без налога',
+    icon: '🕊️',
+    perPop: 0,
+    moralePenalty: 0,
+    effect: 'Казна пуста, зато народ доволен',
+  },
+  {
+    id: 'moderate',
+    name: 'Умеренный',
+    icon: '🏺',
+    perPop: 0.55,
+    moralePenalty: 8,
+    effect: 'Больше половины сбора, мораль −8',
+  },
+  {
+    id: 'high',
+    name: 'Высокий',
+    icon: '💰',
+    perPop: 1,
+    moralePenalty: 22,
+    effect: 'Полный сбор, мораль −22 — только на короткий срок',
+  },
+];
+
+export const TAX_BY_ID: Record<TaxId, TaxDef> = Object.fromEntries(
+  TAXES.map((t) => [t.id, t]),
+) as Record<TaxId, TaxDef>;

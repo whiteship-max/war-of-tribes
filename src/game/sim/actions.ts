@@ -1,12 +1,13 @@
 // Действия игрока. Каждое возвращает null при успехе или текст ошибки.
 import type { BuildingTypeId, GameState, JobId, ResourceId, TechId, TotemId } from '../types';
-import type { DecreeId, RationId } from '../data/policy';
-import { DECREE_BY_ID, RATION_BY_ID } from '../data/policy';
+import type { DecreeId, RationId, TaxId } from '../data/policy';
+import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
 import { RESOURCE_IDS } from '../constants';
 import {
   buildingById,
   canAfford,
   countAll,
+  hasGold,
   hasTech,
   isSite,
   storageCap,
@@ -22,6 +23,7 @@ import { log } from './log';
 
 export { assignWorker, changeFreeJob, unassignWorker } from './workers';
 export { setForging } from './smithy';
+export { buyGoods, cancelCaravan, marketCheck } from './market';
 export { cancelRecruit, startRecruit } from './army';
 
 function pay(s: GameState, cost: Partial<Record<ResourceId, number>>): void {
@@ -150,6 +152,20 @@ export function setRation(s: GameState, id: RationId): string | null {
   if (s.ration === id) return null;
   s.ration = id;
   log(s, `Рацион: ${def.name.toLowerCase()}.`);
+  return null;
+}
+
+/**
+ * Уровень налога. Третий переключатель Дома вождя и единственный источник золота
+ * в мирной жизни. До технологии торга его нет: денег в игре ещё не существует.
+ */
+export function setTax(s: GameState, id: TaxId): string | null {
+  const def = TAX_BY_ID[id];
+  if (!def) return 'Такого налога нет.';
+  if (!hasGold(s)) return `Сначала изучите: ${TECH_BY_ID.trade.name}.`;
+  if (s.tax === id) return null;
+  s.tax = id;
+  log(s, `Налог: ${def.name.toLowerCase()}.`);
   return null;
 }
 

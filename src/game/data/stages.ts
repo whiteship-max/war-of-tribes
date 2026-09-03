@@ -21,6 +21,13 @@ export interface StageDef {
   levels: number;
   /** Уровень стены. 0 — укрепления не нужны. */
   wall: number;
+  /**
+   * Сколько золота приносит один человек за игровой день при полном налоге.
+   * Это и есть новая ценность населения: город собирает с души вшестеро больше
+   * лагеря, поэтому казна растёт не от указа вождя, а от того, что посёлок вырос.
+   * Множитель самого налога — в data/policy.ts.
+   */
+  tax: number;
 }
 
 /** От младшей к старшей: `settlementStage` берёт последнюю подходящую. */
@@ -35,6 +42,7 @@ export const STAGES: StageDef[] = [
     buildings: 0,
     levels: 0,
     wall: 0,
+    tax: 0.12,
   },
   {
     id: 'tribal',
@@ -46,6 +54,7 @@ export const STAGES: StageDef[] = [
     buildings: 5,
     levels: 8,
     wall: 0,
+    tax: 0.2,
   },
   {
     id: 'village',
@@ -57,6 +66,7 @@ export const STAGES: StageDef[] = [
     buildings: 8,
     levels: 20,
     wall: 0,
+    tax: 0.32,
   },
   {
     id: 'fortified',
@@ -68,6 +78,7 @@ export const STAGES: StageDef[] = [
     buildings: 10,
     levels: 36,
     wall: 1,
+    tax: 0.5,
   },
   {
     id: 'town',
@@ -79,6 +90,7 @@ export const STAGES: StageDef[] = [
     buildings: 13,
     levels: 60,
     wall: 4,
+    tax: 0.7,
   },
 ];
 

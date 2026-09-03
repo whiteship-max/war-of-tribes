@@ -227,6 +227,17 @@ export const BUILDINGS: BuildingDef[] = [
     job: 'smith',
   },
   {
+    id: 'market',
+    name: 'Рынок',
+    icon: '🛒',
+    description: 'Торговый двор у самых ворот. За золото сюда привозят чужое добро — дороже, чем своё, зато сразу.',
+    cost: { wood: 90, stone: 70, iron: 20 },
+    work: 150,
+    requiresTech: 'trade',
+    morale: 2,
+    perLevel: { morale: 1 },
+  },
+  {
     id: 'barracks',
     name: 'Казармы',
     icon: '⚔️',

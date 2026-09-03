@@ -35,6 +35,7 @@ import { assignWorker, cancelBuilding, changeFreeJob, chooseTotem, startUpgrade,
 import { Cost } from '../parts/Cost';
 import { ChiefHouse } from '../parts/ChiefHouse';
 import { Smithy } from '../parts/Smithy';
+import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
 import { TechTree } from '../parts/TechTree';
 import { upgradeGain } from '../parts/upgrade';
@@ -249,6 +250,13 @@ function BuildingData({ b }: { b: Building }) {
         <>
           <GenericData b={b} />
           <Barracks b={b} />
+        </>
+      );
+    case 'market':
+      return (
+        <>
+          <GenericData b={b} />
+          <Market b={b} />
         </>
       );
     default:

@@ -5,7 +5,7 @@
 // племени не знает про координаты, а мир — про жителей и склад.
 import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
-import { defense, soldierPower } from '@/game/derived';
+import { defense, hasGold, soldierPower } from '@/game/derived';
 import {
   applyExpedition,
   sendableUnits,
@@ -28,6 +28,9 @@ export function playerProfile(s: GameState): PlayerProfile {
     warriorPower: soldierPower(s),
     units: { warrior: units.warrior, scout: units.scout },
     resources,
+    // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
+    // Мир знает про деньги ровно одно — знает ли о них само племя.
+    goldAge: hasGold(s),
   };
 }
 
@@ -54,6 +57,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     warriorsLost: e.lost.warrior ?? 0,
     scoutsLost: e.lost.scout ?? 0,
     resources: e.resources,
+    // Золото едет в той же добыче отдельным ключом: складом оно не считается.
+    gold: e.resources.gold ?? 0,
     prestige: e.prestige,
     morale: e.morale,
     battle: e.battle,

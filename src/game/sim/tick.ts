@@ -26,6 +26,7 @@ import {
   seasonMods,
   seasonOf,
   storageCap,
+  taxIncomePerDay,
   yearOf,
 } from '../derived';
 import { COLD_DEATH, SEASON_DAYS, SEASON_META } from '../data/seasons';
@@ -37,6 +38,7 @@ import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { addVillager, killOldestVillager, killRandomVillager, removeVillager } from './population';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
+import { marketTick } from './market';
 import { recruitTick } from './army';
 import { chance, rnd, rndInt } from './random';
 import { log } from './log';
@@ -127,6 +129,10 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // жителей в бойцов — обе очереди идут своим чередом, как стройка.
   forgeTick(s, dt, mods);
   recruitTick(s, dt);
+
+  // 3в. Рынок: налог капает в казну, дневной прилавок обновляется со сменой дня,
+  // вернувшиеся караваны разгружаются. До технологии торга шаг ничего не делает.
+  marketTick(s, dt, taxIncomePerDay(s));
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
   const target = moraleTarget(s);

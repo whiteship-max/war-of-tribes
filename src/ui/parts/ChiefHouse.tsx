@@ -1,7 +1,16 @@
 import { useGame } from '@/game/store';
-import { DECREES, RATIONS } from '@/game/data/policy';
-import { ERA_META, decreeOf, eraProgress, rationOf, stageProgress } from '@/game/derived';
-import { setDecree, setRation } from '@/game/sim/actions';
+import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
+import {
+  ERA_META,
+  decreeOf,
+  eraProgress,
+  hasGold,
+  rationOf,
+  stageProgress,
+  taxIncomePerDay,
+  taxOf,
+} from '@/game/derived';
+import { setDecree, setRation, setTax } from '@/game/sim/actions';
 
 /**
  * Внутренности Дома вождя: где племя находится по эпохам и чем вождь правит.
@@ -17,6 +26,7 @@ export function ChiefHouse() {
   const stage = stageProgress(s);
   const decree = decreeOf(s);
   const ration = rationOf(s);
+  const tax = taxOf(s);
   const meta = ERA_META[era.era];
 
   return (
@@ -96,6 +106,40 @@ export function ChiefHouse() {
           </button>
         ))}
       </div>
+
+      {/* Налог и казна появляются вместе с торгом: до него денег в игре нет. */}
+      {hasGold(s) && (
+        <>
+          <h3>
+            Казна <span className="muted">+{taxIncomePerDay(s).toFixed(1)} в день</span>
+          </h3>
+          <div className="mod total">
+            <span className="ico">💰</span>
+            <span className="name">Золото</span>
+            <span className="val pos">{Math.floor(s.gold)}</span>
+          </div>
+          <div className="note">
+            Сбор идёт с людей и зависит от того, насколько вырос посёлок: город даёт с человека
+            вшестеро больше лагеря. Платит за это мораль, а низкая мораль режет всю выработку —
+            высокий налог выгоден в короткую, а не как уклад.
+          </div>
+
+          <h3>Налог</h3>
+          <div className="choice">
+            {TAXES.map((t) => (
+              <button
+                key={t.id}
+                className={`choice-opt${tax.id === t.id ? ' on' : ''}`}
+                onClick={() => act((st) => setTax(st, t.id))}
+              >
+                <span className="ico">{t.icon}</span>
+                <b>{t.name}</b>
+                <small>{t.effect}</small>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </>
   );
 }

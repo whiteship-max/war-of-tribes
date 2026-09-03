@@ -18,7 +18,9 @@ import {
   WALL_RADIUS,
   ROAD_HALF,
   RING_RADIUS,
+  ROAD_THROUGH,
   SPARE_PLOTS,
+  THROUGH_HALF,
   TOWER_PLACE,
   placeOf,
   plotRadius,
@@ -112,11 +114,48 @@ describe('план поселения', () => {
     const bx = Math.cos(GATE_ROAD.angle) * GATE_ROAD.to;
     const bz = Math.sin(GATE_ROAD.angle) * GATE_ROAD.to;
     for (const type of PLACED) {
-      if (type === 'campfire') continue;
+      // Рынок стоит на самой улице нарочно: она идёт между его рядами.
+      // Что проезд при этом остаётся свободным, проверяет отдельный тест ниже.
+      if (type === 'campfire' || ROAD_THROUGH.includes(type)) continue;
       const spot = placeOf(type);
       const d = distToSegment(spot.x, spot.z, ax, az, bx, bz);
       expect(d, `главная улица режет ${type}`).toBeGreaterThanOrEqual(plotRadius(type) + ROAD_HALF);
     }
+  });
+
+  it('здание на улице оставляет проезд свободным', () => {
+    // Здание развёрнуто фасадом к центру, а улица идёт по радиусу — значит
+    // в местных координатах модели дорога лежит вдоль оси z, ровно через x = 0.
+    // Ни одна вершина не имеет права оказаться в этом коридоре.
+    for (const type of ROAD_THROUGH) {
+      expect(PLAN[type], `${type} стоит на улице, но не в плане`).toBeTruthy();
+      for (const tier of [0, 1, 2] as const) {
+        const g = createBuildingGroup(type, 2, tier, 'state');
+        g.updateMatrixWorld(true);
+        let min = Infinity;
+        const v = new THREE.Vector3();
+        g.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh || !mesh.geometry) return;
+          const pos = mesh.geometry.attributes.position;
+          if (!pos) return;
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+            min = Math.min(min, Math.abs(v.x));
+          }
+        });
+        // Масштаб самый крупный из возможных: ступень 1 на седьмом уровне.
+        const scale = PLAN_SCALE * Math.max(levelScale(7), levelScale(10));
+        expect(min * scale, `${type}: ступень ${tier} загораживает проезд`).toBeGreaterThanOrEqual(
+          THROUGH_HALF,
+        );
+      }
+    }
+  });
+
+  it('улице от ворот есть куда вести: проезд шире самой дороги', () => {
+    // Мостовая города — самая широкая: ROAD_HALF × 1.9.
+    expect(THROUGH_HALF).toBeGreaterThan(ROAD_HALF * 1.9);
   });
 
   it('отводы к зданиям не режут соседей', () => {

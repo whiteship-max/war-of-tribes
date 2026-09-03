@@ -41,6 +41,7 @@ import { marchSeed, resolveBattle, stackAfter, stackLosses, stackPower } from '.
 import { estimate, readIntel } from '../intel';
 import {
   AI_MIN_POP,
+  CASTLE_GOLD_PER_POWER,
   AI_POWER_SHARE,
   AI_POWER_VS_DEFENSE,
   AI_RANGE,
@@ -138,6 +139,14 @@ export class LocalWorld implements WorldApi {
 
   private popNow = (s: GenSettlement, now: number): number => popOf(s, this.elapsed(now), POWER_GROWTH_CAP);
 
+  /**
+   * Племя уже знает золото. Пока нет — замков на карте не видно и добычи в золоте
+   * не бывает: деньги приходят в мир вместе с игроком, а не лежат там изначально.
+   */
+  private get goldAge(): boolean {
+    return this.save.profile?.goldAge ?? false;
+  }
+
   private hostilityOf = (tribeId: string | null): number =>
     tribeId ? Math.max(0, this.save.hostility[tribeId] ?? 0) : 0;
 
@@ -166,6 +175,7 @@ export class LocalWorld implements WorldApi {
       tribeName: this.tribeName(s.tribeId),
       color: RELATION_META[relation].color,
       mine: false,
+      castle: s.castle && this.goldAge,
     };
   }
 
@@ -183,6 +193,7 @@ export class LocalWorld implements WorldApi {
       tribeName: 'Твоё племя',
       color: RELATION_META.self.color,
       mine: true,
+      castle: false,
     };
   }
 
@@ -210,6 +221,17 @@ export class LocalWorld implements WorldApi {
     const last = this.save.looted[s.id] ?? this.save.createdAt - LOOT_REFILL;
     const refill = Math.min(1, Math.max(0, (now - last) / LOOT_REFILL));
     return Math.round(this.lootCap(s, now) * refill);
+  }
+
+  /**
+   * Сколько золота лежит в замке сейчас. Восстанавливается тем же сроком, что и
+   * прочая добыча, поэтому дважды подряд один замок не обчистить.
+   */
+  private castleGold(s: GenSettlement, now: number): number {
+    if (!s.castle || !this.goldAge) return 0;
+    const last = this.save.looted[s.id] ?? this.save.createdAt - LOOT_REFILL;
+    const refill = Math.min(1, Math.max(0, (now - last) / LOOT_REFILL));
+    return Math.round(powerOf(s, this.elapsed(now), POWER_GROWTH_CAP) * CASTLE_GOLD_PER_POWER * refill);
   }
 
   private takeLoot(s: GenSettlement, now: number, carry: number): Loot | null {
@@ -354,11 +376,15 @@ export class LocalWorld implements WorldApi {
     };
     this.save.intel[target.id] = intel;
 
+    // Золото берут до добра: доля казны соразмерна тому, сколько гарнизона выбили.
+    // Отряд, еле выстоявший, вынесет из замка гроши — бесплатных денег здесь нет.
+    const gold = outcome.won ? Math.round(this.castleGold(target, at) * outcome.defenderLoss) : 0;
     const loot = outcome.won ? this.takeLoot(target, at, stackCarry(left)) : null;
+    const spoils: Loot | null = gold > 0 ? { ...(loot ?? {}), gold } : loot;
     const wiped = stackSize(left) === 0;
-    const lootText = loot
-      ? ` Взято: ${Object.values(loot).reduce((n, v) => n + (v ?? 0), 0)} добра.`
-      : '';
+    const goods = loot ? Object.values(loot).reduce((n, v) => n + (v ?? 0), 0) : 0;
+    const lootText =
+      (goods > 0 ? ` Взято: ${goods} добра.` : '') + (gold > 0 ? ` Казна замка: ${gold} золота.` : '');
 
     this.addReport({
       id: `${m.id}-raid`,
@@ -371,7 +397,7 @@ export class LocalWorld implements WorldApi {
       lost,
       enemyPower: Math.round(defense),
       enemyLost,
-      loot,
+      loot: spoils,
       intel,
       text: outcome.won
         ? `Гарнизон ${target.name} разбит.${lootText}`
@@ -394,7 +420,7 @@ export class LocalWorld implements WorldApi {
 
     m.units = left;
     if (wiped) this.remove(m);
-    else this.turnHome(m, at, loot);
+    else this.turnHome(m, at, spoils);
   }
 
   private resolveScout(m: StoredMarch, target: GenSettlement, at: number): void {

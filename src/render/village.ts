@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import type { BuildingTypeId, EraId, StageId } from '@/game/types';
 import { STAGE_ORDER } from '@/game/data/stages';
-import { MAT as T, makeRock } from './terrain';
+import { MAT as T } from './terrain';
 import { M } from './buildings';
 import {
   GATE_ANGLE,
@@ -17,6 +17,7 @@ import {
   PLAZA_ROAD,
   RING_RADIUS,
   ROAD_HALF,
+  ROAD_THROUGH,
   SPARE_PLOTS,
   plotRadius,
   spotAt,
@@ -230,6 +231,12 @@ export interface VillageOptions {
  */
 export function buildVillage({ stage, era, present }: VillageOptions): THREE.Group {
   const root = new THREE.Group();
+  // Всё объёмное — колодец, разметка площадок, поленницы и телеги — лежит в своей
+  // группе. Дороги и мостовая остаются в корне: они плоские и под стену заходить
+  // им можно, а декору — нет (это проверяет тест зоны расчистки).
+  const decor = new THREE.Group();
+  decor.name = 'decor';
+  root.add(decor);
   const mat = roadMaterial(stage);
   const half = roadWidth(stage);
   const has = new Set(present);
@@ -239,7 +246,7 @@ export function buildVillage({ stage, era, present }: VillageOptions): THREE.Gro
   const wellSpot = spotAt(1.55, GATE_ANGLE + Math.PI * 0.62);
   const w = well(era);
   w.position.set(wellSpot.x, 0, wellSpot.z);
-  root.add(w);
+  decor.add(w);
 
   // Дороги плана. Окружная появляется, когда есть кому по ней ходить.
   root.add(roadRing(PLAZA_ROAD, half, mat, 0.045));
@@ -255,38 +262,39 @@ export function buildVillage({ stage, era, present }: VillageOptions): THREE.Gro
 
   // Пустые места: размеченные площадки, которые обрастают добром.
   let seed = 0;
-  const empty: { r: number; angle: number; plot: number }[] = [];
+  const empty: { r: number; angle: number; plot: number; onRoad: boolean }[] = [];
   for (const [type, place] of Object.entries(PLAN) as [BuildingTypeId, { ring: 1 | 2 | 3; angle: number }][]) {
     if (has.has(type)) continue;
-    empty.push({ r: RING_RADIUS[place.ring], angle: place.angle, plot: plotRadius(type) });
+    empty.push({
+      r: RING_RADIUS[place.ring],
+      angle: place.angle,
+      plot: plotRadius(type),
+      onRoad: ROAD_THROUGH.includes(type),
+    });
   }
   for (const place of SPARE_PLOTS) {
-    empty.push({ r: RING_RADIUS[place.ring], angle: place.angle, plot: 1.5 });
+    empty.push({ r: RING_RADIUS[place.ring], angle: place.angle, plot: 1.5, onRoad: false });
   }
   for (const e of empty) {
     seed++;
     const spot = spotAt(e.r, e.angle);
     const g = markedPlot(Math.min(2.2, e.plot * 0.85), seed);
     g.position.set(spot.x, 0, spot.z);
-    root.add(g);
+    decor.add(g);
     const d = decorFor(seed, stage);
-    if (d) {
+    if (!d) continue;
+    if (e.onRoad) {
+      // Место рынка стоит на воротной улице: добро сдвигаем на обочину, иначе
+      // телега поедет сквозь бочки, а загон встанет поперёк проезда.
+      const side = hash(seed * 5.9) > 0.5 ? 1 : -1;
+      const off = side * (ROAD_HALF * 2 + 0.7 + hash(seed * 3.1) * 0.5);
+      d.position.set(spot.x - Math.sin(e.angle) * off, 0, spot.z + Math.cos(e.angle) * off);
+    } else {
       const off = hash(seed * 3.1) * 0.6 - 0.3;
       d.position.set(spot.x + off, 0, spot.z + off * 0.7);
-      root.add(d);
     }
+    decor.add(d);
   }
 
-  // Валуны у стены на поздних стадиях: пустая полоса под стеной оживает.
-  if (STAGE_ORDER.indexOf(stage) >= 2) {
-    for (let i = 0; i < 10; i++) {
-      const a = hash(i * 5.7) * Math.PI * 2;
-      if (Math.abs(Math.atan2(Math.sin(a - GATE_ANGLE), Math.cos(a - GATE_ANGLE))) < 0.25) continue;
-      const r = OUTER_ROAD + 0.75 + hash(i * 2.3) * 0.3;
-      const rock = makeRock(0.35 + hash(i) * 0.3);
-      rock.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-      root.add(rock);
-    }
-  }
   return root;
 }

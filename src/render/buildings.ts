@@ -765,6 +765,70 @@ function barracks(t: Tier, st: EraStyle): THREE.Group {
   return g;
 }
 
+
+/**
+ * Рынок: два торговых ряда по обе стороны проезда. Он единственный стоит прямо
+ * на воротной улице (см. plan.ROAD_THROUGH), поэтому середина модели обязана
+ * оставаться пустой: между рядами идёт дорога, и по ней выезжает караван.
+ * Ряды начинаются от |x| = 2 в местных единицах — этот просвет проверяет тест.
+ *
+ * Ступени: навесы из холста → ряды под крышей → каменные лавки со стягами.
+ */
+function market(t: Tier, st: EraStyle): THREE.Group {
+  const g = new THREE.Group();
+  const half = 2.45; // ось ряда: проезд между рядами шириной в две такие оси
+  const len = [1.2, 1.4, 1.45][t]; // половина длины ряда вдоль улицы
+  const h = [0.5, 0.55, 0.62][t];
+  const roofY = [1.25, 1.5, 1.7][t];
+
+  for (const side of [-1, 1]) {
+    const x = side * half;
+    // Прилавок: длинный короб вдоль улицы, товар лежит на нём.
+    g.add(box(0.9, h, len * 2, t === 2 ? M.stone : st.wall, x, h / 2, 0));
+    g.add(box(1.0, 0.08, len * 2 + 0.1, st.floor, x, h + 0.04, 0));
+    // Столбы навеса.
+    for (const z of [-len + 0.15, len - 0.15]) {
+      g.add(cyl(0.06, 0.07, roofY, st.post, 5, x - 0.42, roofY / 2, z));
+      g.add(cyl(0.06, 0.07, roofY, st.post, 5, x + 0.42, roofY / 2, z));
+    }
+    if (t === 0) {
+      // Холст на жердях — самый первый торг.
+      const cloth = box(1.15, 0.05, len * 2, M.hide, x, roofY, 0);
+      cloth.rotation.z = side * 0.12;
+      g.add(cloth);
+    } else {
+      gable(g, 1.2, len * 2.1, roofY, 0.26 + t * 0.06, st.roof, x, 0);
+    }
+    // Товар на прилавке: мешки, короба и бочка в торце.
+    for (let i = 0; i < 3; i++) {
+      const z = -len * 0.6 + i * len * 0.6;
+      g.add(box(0.3, 0.22, 0.3, i % 2 === 0 ? st.accent : M.woodDark, x - side * 0.15, h + 0.19, z));
+    }
+    g.add(cyl(0.2, 0.18, 0.42, M.woodDark, 8, x + side * 0.28, 0.21, side * (len - 0.05)));
+    if (t >= 1) {
+      // Весы — знак общей меры: без неё торга не бывает.
+      const scaleX = x + side * 0.3;
+      const scaleZ = -len - 0.2;
+      g.add(cyl(0.05, 0.06, 0.9, st.post, 5, scaleX, 0.45, scaleZ));
+      g.add(box(0.55, 0.05, 0.05, st.accent, scaleX, 0.9, scaleZ));
+      for (const d of [-0.24, 0.24]) {
+        g.add(cyl(0.09, 0.07, 0.06, st.accent, 7, scaleX + d * side, 0.78, scaleZ));
+      }
+    }
+    if (t === 2) {
+      // Стяги вдоль рядов: рынок стал лицом города.
+      const poleZ = side * (len + 0.15);
+      const poleX = x + side * 0.35;
+      g.add(cyl(0.05, 0.05, 1.9, st.post, 4, poleX, 0.95, poleZ));
+      // Стяг развёрнут вдоль улицы, а не поперёк: поперёк он лез бы за площадку.
+      g.add(box(0.03, 0.36, 0.5, st.accent, poleX, 1.7, poleZ - side * 0.24));
+      // Каменная лавка снаружи ряда: проезд между рядами она не занимает.
+      g.add(box(0.7, 0.16, len * 1.4, M.stoneDark, x + side * 0.55, 0.2, 0));
+    }
+  }
+  return g;
+}
+
 /**
  * Леса вокруг готового здания: так выглядит улучшение. Здание продолжает работать,
  * поэтому разбирать его до площадки нельзя — обозначаем стройку снаружи.
@@ -895,6 +959,8 @@ export const FOOTPRINT: Partial<Record<BuildingTypeId, [number, number]>> = {
   shelter: [2.6, 1.4],
   chief_house: [1.8, 1.6],
   barracks: [2.4, 2.4],
+  // Рынок широк поперёк улицы и узок вдоль неё: два ряда по сторонам проезда.
+  market: [4.6, 2.8],
 };
 
 /** Во сколько раз ступень раздаёт основание — им меряются мишень тапа и леса. */
@@ -958,6 +1024,8 @@ export function createBuildingGroup(type: BuildingTypeId, stage: Stage, tier: Ti
       return chiefHouse(tier, st);
     case 'barracks':
       return barracks(tier, st);
+    case 'market':
+      return market(tier, st);
     default:
       return g;
   }

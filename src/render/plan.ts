@@ -66,6 +66,7 @@ export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   totem: 2.0,
   smithy: 3.48,
   barracks: 3.3,
+  market: 3.55,
   tower: 1.58,
   // Стена — это само кольцо, площадки под неё нет.
   palisade: 0,
@@ -111,8 +112,10 @@ export const PLAN: Partial<Record<BuildingTypeId, Place>> = {
   chief_house: { ring: 1, angle: 233.13 * D },
   hut: { ring: 1, angle: 305.13 * D },
 
-  // Второе кольцо: хозяйство. Место у самых ворот оставлено пустым — это
-  // привратная площадка, через неё идёт главная улица (и туда же встанет рынок).
+  // Второе кольцо: хозяйство. Рынок стоит ровно на воротах: главная улица идёт
+  // сквозь его ряды, как через привратную площадь настоящего города. Отвода
+  // к нему нет — улица от ворот и есть его подъезд (см. spurFor и ROAD_THROUGH).
+  market: { ring: 2, angle: GATE_ANGLE },
   smithy: { ring: 2, angle: 125.13 * D },
   workshop: { ring: 2, angle: 197.13 * D },
   barracks: { ring: 2, angle: 269.13 * D },
@@ -141,11 +144,19 @@ export const TOWER_PLACE = { r: 12.8, angle: 73.13 * D };
  * бочками, телегами. Пустой кружок земли читается как «здесь ещё будет дом».
  */
 export const SPARE_PLOTS: Place[] = [
-  // Привратная площадка второго кольца: под рынок, пока — телеги и бочки.
-  { ring: 2, angle: 53.13 * D },
   { ring: 3, angle: 107.13 * D },
   { ring: 3, angle: 359.13 * D },
 ];
+
+/**
+ * Здания, сквозь которые главная улица проходит нарочно. Пока такое одно —
+ * рынок: торговые ряды стоят по обе стороны проезда, а между ними идёт дорога
+ * из ворот. Модель обязана держать этот проезд свободным, и это проверяет тест.
+ */
+export const ROAD_THROUGH: BuildingTypeId[] = ['market'];
+
+/** Половина ширины проезда, который такое здание обязано оставить свободным. */
+export const THROUGH_HALF = 1.15;
 
 export interface Spot {
   x: number;
@@ -214,6 +225,8 @@ export interface RoadSpur {
  * поэтому дорога не режет соседей — это проверяет тест.
  */
 export function spurFor(type: BuildingTypeId): RoadSpur | null {
+  // Рынку отвод не нужен: к нему ведёт сама главная улица, она идёт через него.
+  if (ROAD_THROUGH.includes(type)) return null;
   const p = PLAN[type];
   if (!p) return null;
   const r = RING_RADIUS[p.ring];
@@ -224,3 +237,46 @@ export function spurFor(type: BuildingTypeId): RoadSpur | null {
 
 /** Главная улица: от ворот в стене до кольцевой дороги площади. */
 export const GATE_ROAD: RoadSpur = { angle: GATE_ANGLE, from: PLAZA_ROAD, to: WALL_RADIUS };
+
+// ---------- Зона расчистки ----------
+
+/**
+ * Запас между стеной и лесом. Племя, ставя посёлок, валит вокруг него лес:
+ * иначе частокол некуда замкнуть, а деревья лезут прямо на кладку.
+ */
+export const CLEAR_MARGIN = 4.6;
+
+/**
+ * Радиус расчистки. Внутри него нет ничего, кроме самого поселения, дорог и
+ * стены: ни деревьев, ни камней, ни кустов. Внешний декор расставляется той же
+ * детерминированной сыпью, что и раньше, — просто позиции внутри этого круга
+ * отбрасываются (см. render/terrain.ts).
+ */
+export const CLEAR_RADIUS = WALL_RADIUS + CLEAR_MARGIN;
+
+/**
+ * Полоса за границей расчистки, где стоят следы работы: пни, поваленные стволы,
+ * срезанный подлесок. Без неё край читался бы дырой в лесу, а не расчищенным местом.
+ */
+export const CLEAR_EDGE = 3.2;
+
+/**
+ * Половина ширины свободного коридора перед воротами. Выезд не должен упираться
+ * в лес: телега каравана выходит из ворот и едет по чистому.
+ */
+export const GATE_CLEAR_HALF = 3.4;
+
+/**
+ * Объект попадает в зону расчистки — ставить его туда нельзя. `radius` — габарит
+ * самого объекта: проверяется не точка, а крона дерева и длина бревна, иначе
+ * ствол стоял бы снаружи, а ветки нависали над стеной.
+ */
+export function inCleared(x: number, z: number, radius = 0): boolean {
+  if (Math.hypot(x, z) < CLEAR_RADIUS + radius) return true;
+  // Коридор перед воротами: считаем расстояние до луча, а не до прямой, —
+  // позади посёлка лес стоит спокойно.
+  const along = x * Math.cos(GATE_ANGLE) + z * Math.sin(GATE_ANGLE);
+  if (along <= -radius) return false;
+  const across = Math.abs(-x * Math.sin(GATE_ANGLE) + z * Math.cos(GATE_ANGLE));
+  return across < GATE_CLEAR_HALF + radius;
+}

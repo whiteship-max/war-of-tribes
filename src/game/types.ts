@@ -1,5 +1,5 @@
 // Базовые типы состояния игры. Симуляция не зависит от рендера и UI.
-import type { DecreeId, RationId } from './data/policy';
+import type { DecreeId, RationId, TaxId } from './data/policy';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -10,6 +10,12 @@ export type Resources = Record<ResourceId, number>;
  */
 export type EquipmentId = 'spear' | 'bow' | 'axe' | 'shield' | 'sword' | 'armor';
 export type Equipment = Record<EquipmentId, number>;
+
+/**
+ * Товар рынка: либо ресурс, либо предмет снаряжения. Ключи снаряжения носят
+ * префикс, чтобы один словарь `s.market.bought` держал и то, и другое.
+ */
+export type GoodId = ResourceId | `eq:${EquipmentId}`;
 
 /**
  * Войска. Боец — не житель с профессией, а единица в счётчике: нанятый уходит
@@ -58,7 +64,8 @@ export type BuildingTypeId =
   | 'palisade'
   | 'tower'
   | 'smithy'
-  | 'barracks';
+  | 'barracks'
+  | 'market';
 
 export type TechBranch = 'settlement' | 'craft' | 'war' | 'society';
 
@@ -90,7 +97,8 @@ export type TechId =
   | 'shamanism'
   | 'totem'
   | 'traditions'
-  | 'statehood';
+  | 'statehood'
+  | 'trade';
 
 /**
  * Эпоха — технический уровень племени. Двигается только технологиями и задаёт
@@ -159,6 +167,33 @@ export interface RecruitOrder {
   people: Villager[];
 }
 
+/**
+ * Рынок. Ассортимент не хранится: он выводится из номера дня (см. data/market.ts),
+ * поэтому перезагрузка не тасует прилавок заново. Хранить нужно только то, что
+ * уже разобрали сегодня — на этом счётчике держатся и дневной лимит, и рост цены.
+ */
+export interface MarketState {
+  /** Игровой день, на который составлен нынешний прилавок. */
+  day: number;
+  /** Сколько единиц каждого товара уже куплено за этот день. */
+  bought: Partial<Record<GoodId, number>>;
+}
+
+/**
+ * Караван за покупкой. Золото списано при заказе, груза на складе ещё нет:
+ * телега выезжает из ворот и возвращается только к `arriveAt`.
+ */
+export interface Caravan {
+  id: number;
+  good: GoodId;
+  count: number;
+  /** Уплаченное золото — ровно столько вернётся при отмене. */
+  gold: number;
+  /** Игровое время выхода и возвращения, сек. */
+  departAt: number;
+  arriveAt: number;
+}
+
 export interface ActiveEvent {
   defId: string;
   /** Момент появления (игровое время, сек). */
@@ -199,6 +234,20 @@ export interface GameState {
   decree: DecreeId;
   /** Рацион племени. */
   ration: RationId;
+  /**
+   * Уровень налога. Работает только после технологии торга: до неё золота
+   * в игре нет вовсе (см. derived.hasGold).
+   */
+  tax: TaxId;
+  /**
+   * Казна племени. Не ресурс: вместимость склада на золото не действует,
+   * и чужой набег его не уносит — казну прячут, а не сваливают в амбар.
+   */
+  gold: number;
+  /** Состояние рынка: на какой день собран прилавок и что с него уже взяли. */
+  market: MarketState;
+  /** Караваны в пути: их груз ещё не на складе. */
+  caravans: Caravan[];
   villagers: Villager[];
   buildings: Building[];
   techs: TechId[];

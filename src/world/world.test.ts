@@ -37,6 +37,7 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   resources: { food: 120, wood: 80 },
+  goldAge: false,
   ...over,
 });
 
@@ -405,6 +406,85 @@ describe('походы в локальном мире', () => {
 
     const after = (await world.tribes()).find((t) => t.id === target?.tribeId)?.hostility ?? 0;
     expect(after).toBeGreaterThan(before);
+  });
+});
+
+describe('замки', () => {
+  /** Ближайший к дому замок. Флаг стоит в генерации, поэтому ищем его там же. */
+  function nearestCastle(seed: number) {
+    const gen = generateWorld(seed);
+    const castles = gen.settlements.filter((s) => s.castle);
+    expect(castles.length, 'в мире должны быть замки').toBeGreaterThan(0);
+    return castles.sort((a, b) => distance(gen.home, a) - distance(gen.home, b))[0];
+  }
+
+  it('пока племя не знает золота, замков на карте нет', async () => {
+    const w = makeWorld(11);
+    const castle = nearestCastle(11);
+    await w.world.sync(profile({ goldAge: false }));
+    const before = await w.world.settlement(castle.id);
+    expect(before?.castle).toBe(false);
+    await w.world.sync(profile({ goldAge: true }));
+    const after = await w.world.settlement(castle.id);
+    expect(after?.castle).toBe(true);
+  });
+
+  it('набег на замок без достаточной армии не приносит золота и стоит потерь', async () => {
+    const w = makeWorld(11);
+    const castle = nearestCastle(11);
+    // Отряд заведомо слабее гарнизона замка: один воин против крепости.
+    await w.world.sync(profile({ goldAge: true, warriorPower: 1, units: { warrior: 2 } }));
+    const card = await w.world.settlement(castle.id);
+    expect(card).toBeTruthy();
+
+    const sent = await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 2 } });
+    expect(sent.error).toBeNull();
+    w.advance(60 * 60_000);
+    const pulse = await w.world.sync(profile({ goldAge: true, warriorPower: 1, units: { warrior: 2 } }));
+
+    const raid = pulse.reports.find((r) => r.kind === 'raid');
+    expect(raid, 'должен прийти отчёт о набеге').toBeTruthy();
+    expect(raid!.won).toBe(false);
+    expect(raid!.loot).toBeNull();
+    // Потери настоящие, а добычи нет — ни ресурсов, ни золота.
+    expect((raid!.lost.warrior ?? 0)).toBeGreaterThan(0);
+    for (const e of pulse.effects) expect(e.resources.gold ?? 0).toBe(0);
+    expect(pulse.effects.some((e) => (e.lost.warrior ?? 0) > 0)).toBe(true);
+  });
+
+  it('сильный отряд берёт замок и привозит золото домой', async () => {
+    const w = makeWorld(11);
+    const castle = nearestCastle(11);
+    const strong = profile({ goldAge: true, warriorPower: 40, units: { warrior: 40 } });
+    await w.world.sync(strong);
+    expect((await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 40 } })).error).toBeNull();
+
+    // Дорога туда, бой, дорога обратно.
+    w.advance(6 * 60 * 60_000);
+    const pulse = await w.world.sync(strong);
+    const raid = pulse.reports.find((r) => r.kind === 'raid');
+    expect(raid?.won).toBe(true);
+    expect(raid?.loot?.gold ?? 0, 'из замка должны везти золото').toBeGreaterThan(0);
+    // Золото приезжает домой отдельным последствием — как и остальная добыча.
+    const home = pulse.effects.find((e) => (e.resources.gold ?? 0) > 0);
+    expect(home, 'золото должно доехать до деревни').toBeTruthy();
+
+    const s = createInitialState();
+    applyExpedition(s, toOutcome(home!));
+    expect(s.gold).toBeGreaterThan(0);
+  });
+
+  it('обычное поселение золота не даёт', async () => {
+    const w = makeWorld(11);
+    const strong = profile({ goldAge: true, warriorPower: 40, units: { warrior: 40 } });
+    await w.world.sync(strong);
+    const target = await nearest(w.world);
+    const gen = generateWorld(11).settlements.find((x) => x.id === target.id);
+    if (gen?.castle) return; // ближайшая цель оказалась замком — проверять нечего
+    expect((await w.world.send({ target: target.id, mission: 'raid', units: { warrior: 40 } })).error).toBeNull();
+    w.advance(6 * 60 * 60_000);
+    const pulse = await w.world.sync(strong);
+    for (const e of pulse.effects) expect(e.resources.gold ?? 0).toBe(0);
   });
 });
 

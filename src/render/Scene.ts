@@ -1,9 +1,10 @@
 // 3D-диорама поселения. Получает состояние через sync(), анимирует сам.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Building, EraId, GameState, Season, StageId, TroopId, Villager } from '@/game/types';
+import type { Building, Caravan, EraId, GameState, Season, StageId, TroopId, Villager } from '@/game/types';
 import {
   buildingAttention,
+  caravanProgress,
   dayFraction,
   era,
   isSite,
@@ -28,6 +29,7 @@ import {
   type Tier,
 } from './buildings';
 import { VillagerAgent } from './villagers';
+import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
 import { Smoke, Snowfall } from './weather';
 
@@ -98,6 +100,7 @@ const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
   hut: 3.0,
   smithy: 2.8,
   mine: 2.6,
+  market: 2.2,
   campfire: 1.8,
   shelter: 1.7,
 };
@@ -122,6 +125,8 @@ export class TribeScene {
   private walled = false;
   private agents = new Map<number, VillagerAgent>();
   private soldiers: SoldierAgent[] = [];
+  /** Караваны рынка: телега на дороге у ворот, пока покупка в пути. */
+  private caravans = new Map<number, { agent: CaravanAgent; departAt: number; arriveAt: number }>();
   /** Обстановка посёлка: площадь, дороги, размеченные площадки и декор. */
   private village: THREE.Group | null = null;
   /** Слепок того, из чего собрана обстановка: пересобираем только при изменениях. */
@@ -565,6 +570,34 @@ export class TribeScene {
     }
 
     this.syncSoldiers(s);
+    this.syncCaravans(s);
+  }
+
+  /**
+   * Телеги караванов. Своего времени у них нет: сцена запоминает сроки заказа
+   * и каждый кадр пересчитывает долю пути — так телега едет плавно между тиками.
+   */
+  private syncCaravans(s: GameState): void {
+    const seen = new Set<number>();
+    for (const c of s.caravans ?? []) {
+      seen.add(c.id);
+      let view = this.caravans.get(c.id);
+      if (!view) {
+        const agent = new CaravanAgent(c.id);
+        this.scene.add(agent.group);
+        view = { agent, departAt: c.departAt, arriveAt: c.arriveAt };
+        this.caravans.set(c.id, view);
+      }
+      view.departAt = c.departAt;
+      view.arriveAt = c.arriveAt;
+      // Первый кадр телега уже должна стоять на своём месте, а не в центре посёлка.
+      view.agent.update(caravanProgress(s, c as Caravan), 0);
+    }
+    for (const [id, view] of this.caravans) {
+      if (seen.has(id)) continue;
+      this.scene.remove(view.agent.group);
+      this.caravans.delete(id);
+    }
   }
 
   /**
@@ -679,6 +712,10 @@ export class TribeScene {
     }
     // Дружина несёт службу и ночью: у ворот всегда кто-то стоит.
     for (const a of this.soldiers) a.update(dt, t);
+    for (const view of this.caravans.values()) {
+      const total = Math.max(0.001, view.arriveAt - view.departAt);
+      view.agent.update((gameNow - view.departAt) / total, t);
+    }
 
     // Маркеры покачиваются, кольцо выбора дышит — взгляд цепляется без лишних цветов.
     for (const view of this.buildings.values()) {

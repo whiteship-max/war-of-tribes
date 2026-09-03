@@ -144,6 +144,10 @@ export function deserialize(json: string): GameState | null {
       equipment: { ...emptyEquipment(), ...(data.equipment ?? {}) },
       army: { ...emptyArmy(), ...(data.army ?? {}) },
       recruits: data.recruits ?? [],
+      // Рынок и караваны появились позже формата: старое сохранение просто
+      // не знает этих полей, и версию из-за них поднимать незачем.
+      market: { day: 0, bought: {}, ...(data.market ?? {}) },
+      caravans: data.caravans ?? [],
       stats: { ...base.stats, ...(data.stats ?? {}) },
     } as GameState;
     // Обучение появилось позже формата: в старом сохранении его полей нет, а игрок

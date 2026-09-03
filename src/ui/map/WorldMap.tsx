@@ -12,7 +12,7 @@ import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { loadedIn, settlementAt } from '@/world/cache';
 import { formatCoord, formatLeft, marchPosition, parseCoord, secondsLeft } from '@/world/geo';
-import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
+import { CASTLE_ICON, RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
 import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { Coord, MarchView, Rect, SettlementView } from '@/world/types';
@@ -280,7 +280,7 @@ export function WorldMap() {
     ctx.font = `${Math.round(r * 1.25)}px ${EMOJI_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(STAGE_BY_ID[s.stage].icon, cx, cy + r * 0.08);
+    ctx.fillText(s.castle ? CASTLE_ICON : STAGE_BY_ID[s.stage].icon, cx, cy + r * 0.08);
   }
 
   /** Подпись под значком. Если место занято соседом, имя не рисуется вовсе. */
@@ -507,6 +507,10 @@ export function WorldMap() {
               <span>{s.name}</span>
             </div>
           ))}
+          <div className="wm-leg-row">
+            <b>{CASTLE_ICON}</b>
+            <span>Замок — крепкая цель с казной</span>
+          </div>
           <h3>Земля</h3>
           {TERRAIN_ORDER.map((t) => (
             <div className="wm-leg-row" key={t}>

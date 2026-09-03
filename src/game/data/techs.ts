@@ -48,6 +48,7 @@ export const TECHS: TechDef[] = [
   { id: 'shamanism', name: 'Шаманизм', icon: '🔮', branch: 'society', description: 'Открывает шамана и ритуалы.', cost: { hides: 10, bones: 10 }, work: 110, requires: ['totem'] },
   { id: 'traditions', name: 'Традиции', icon: '🏺', branch: 'society', description: 'Мораль +8, новые люди приходят быстрее.', cost: { food: 60 }, work: 160, requires: ['shamanism'] },
   { id: 'statehood', name: 'Установления', icon: '📜', branch: 'society', description: 'Раннее государство: счёт, суд и порядок. Постройки поднимаются до предела.', cost: { food: 120, stone: 80 }, work: 400, requires: ['traditions', 'iron_working'] },
+  { id: 'trade', name: 'Мера и торг', icon: '⚖️', branch: 'society', description: 'Общая мера ценности: появляется золото, налог в Доме вождя и рынок у ворот.', cost: { food: 150, copper: 60, iron: 40 }, work: 520, requires: ['statehood'] },
 ];
 
 export const TECH_BY_ID: Record<TechId, TechDef> = Object.fromEntries(TECHS.map((t) => [t.id, t])) as Record<TechId, TechDef>;

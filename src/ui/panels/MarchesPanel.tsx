@@ -26,12 +26,15 @@ const unitsText = (units: UnitStack): string =>
     .map((u) => `${u.icon} ${units[u.id]}`)
     .join(' · ') || '—';
 
-const lootText = (loot: Loot | null): string =>
-  loot
-    ? RESOURCE_IDS.filter((r) => loot[r])
-        .map((r) => `${RESOURCE_META[r].icon} ${Math.abs(loot[r] as number)}`)
-        .join(' · ')
-    : '';
+/** Добыча строкой. Золото из замка идёт тем же списком, но своим значком. */
+const lootText = (loot: Loot | null): string => {
+  if (!loot) return '';
+  const parts = RESOURCE_IDS.filter((r) => loot[r]).map(
+    (r) => `${RESOURCE_META[r].icon} ${Math.abs(loot[r] as number)}`,
+  );
+  if (loot.gold) parts.push(`💰 ${Math.abs(loot.gold)}`);
+  return parts.join(' · ');
+};
 
 function ReportCard({ r }: { r: Report }) {
   const [open, setOpen] = useState(false);

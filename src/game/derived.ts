@@ -2,9 +2,11 @@
 import type {
   Building,
   BuildingTypeId,
+  Caravan,
   EquipmentId,
   EraId,
   GameState,
+  GoodId,
   JobId,
   ResourceId,
   Resources,
@@ -38,7 +40,19 @@ import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/bui
 import { JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from './data/troops';
-import { DECREE_BY_ID, RATION_BY_ID, type DecreeDef, type RationDef } from './data/policy';
+import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
+import {
+  CARAVAN_BASE,
+  CARAVAN_PER_LEVEL,
+  GOODS,
+  GOOD_BY_ID,
+  batchCost,
+  goodMaterials,
+  goodPrice,
+  goodStock,
+  offerFor,
+  type GoodDef,
+} from './data/market';
 import { STAGES, STAGE_BY_ID, stageIndex, type StageDef } from './data/stages';
 import { ERA_TECHS, TECH_BY_ID } from './data/techs';
 import {
@@ -230,6 +244,115 @@ export const rationOf = (s: GameState): RationDef => RATION_BY_ID[s.ration] ?? R
 /** Прибавка к морали за игровой день от указа и рациона вместе. */
 export const policyMoralePerDay = (s: GameState): number =>
   decreeOf(s).moralePerDay + rationOf(s).moralePerDay;
+
+// ---------- Золото, налог, рынок ----------
+
+/**
+ * Знает ли племя золото. До технологии торга денег в игре нет вовсе: ни казны,
+ * ни налога, ни рынка, ни золота в чужих замках. Ранняя партия про это не знает.
+ */
+export const hasGold = (s: GameState): boolean => hasTech(s, 'trade');
+
+/** Действующий уровень налога. Без золота — всегда «без налога». */
+export const taxOf = (s: GameState): TaxDef =>
+  hasGold(s) ? TAX_BY_ID[s.tax] ?? TAX_BY_ID.none : TAX_BY_ID.none;
+
+/**
+ * Сбор золота за игровой день. Зависит от населения и стадии поселения: город
+ * собирает с человека вшестеро больше лагеря — в этом и новая ценность людей.
+ */
+export function taxIncomePerDay(s: GameState): number {
+  if (!hasGold(s)) return 0;
+  return taxOf(s).perPop * population(s) * STAGE_BY_ID[settlementStage(s)].tax;
+}
+
+/** Уровень рынка. 0 — рынка нет или он ещё строится. */
+export const marketLevel = (s: GameState): number => builtOfType(s, 'market')?.level ?? 0;
+
+/** Товар в принципе доступен племени: снаряжение — только изученное. */
+export const goodUnlocked = (s: GameState, def: GoodDef): boolean =>
+  !def.requiresTech || hasTech(s, def.requiresTech);
+
+/** Что стоит на прилавке сегодня. Пусто, пока нет рынка или золота. */
+export function marketOffer(s: GameState): GoodDef[] {
+  if (!hasGold(s)) return [];
+  return offerFor(dayOf(s.time), marketLevel(s), GOODS.filter((g) => goodUnlocked(s, g)));
+}
+
+/**
+ * Сколько единиц товара уже взяли с прилавка сегодня. Счётчик от прошлого дня
+ * не считается: прилавок обновляется по номеру дня, а не по тому, успел ли
+ * пройти шаг симуляции.
+ */
+export const marketBought = (s: GameState, id: GoodId): number => {
+  if (!s.market || s.market.day !== dayOf(s.time)) return 0;
+  return Math.max(0, s.market.bought[id] ?? 0);
+};
+
+/** Дневной запас товара при нынешнем уровне рынка. */
+export const marketStock = (s: GameState, def: GoodDef): number => goodStock(def, marketLevel(s));
+
+/** Сколько ещё можно взять сегодня. */
+export const marketLeft = (s: GameState, def: GoodDef): number =>
+  Math.max(0, marketStock(s, def) - marketBought(s, def.id));
+
+/** Цена следующей единицы с учётом того, сколько уже скупили за день. */
+export const marketPrice = (s: GameState, def: GoodDef): number =>
+  goodPrice(def, marketLevel(s), marketBought(s, def.id));
+
+/** Во что обойдётся партия из `count` единиц. Считается поштучно. */
+export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
+  batchCost(def, marketLevel(s), marketBought(s, def.id), count);
+
+/** Сколько идёт караван при нынешнем уровне рынка, секунд игрового времени. */
+export const caravanSeconds = (s: GameState): number =>
+  Math.max(12, CARAVAN_BASE - CARAVAN_PER_LEVEL * Math.max(0, marketLevel(s) - 1));
+
+/** Доля пути каравана, 0..1. По ней сцена ведёт телегу от ворот и обратно. */
+export function caravanProgress(s: GameState, c: Caravan): number {
+  const total = Math.max(0.001, c.arriveAt - c.departAt);
+  return Math.max(0, Math.min(1, (s.time - c.departAt) / total));
+}
+
+/**
+ * Во что единица товара обходится своим трудом, в золоте.
+ *
+ * Считается из собственных чисел игры: человек за день приносит казне
+ * `bestTaxPerPop` золота, а тот же человек на своём месте в здании
+ * `REFERENCE_LEVEL` уровня добывает `yield * levelOutputMult` единиц товара.
+ * Отношение и есть «цена своего труда» — с ней сравнивается цена рынка,
+ * и рынок обязан быть дороже (см. MIN_MARKUP и тест).
+ *
+ * Для снаряжения своим трудом считается стоимость материалов: работу кузнеца
+ * рынок сверху и накидывает.
+ */
+const REFERENCE_LEVEL = 5;
+
+const bestTaxPerPop = (): number =>
+  Math.max(...TAXES.map((t) => t.perPop)) * Math.max(...STAGES.map((st) => st.tax));
+
+/** Лучшая дневная добыча одного работника по этому ресурсу — эталон «сделать самому». */
+function bestYieldPerWorker(r: ResourceId): number {
+  let best = 0;
+  for (const job of JOBS) {
+    const y = job.yield[r] ?? 0;
+    if (y > best) best = y;
+  }
+  return best * levelOutputMult(REFERENCE_LEVEL);
+}
+
+export function selfCost(def: GoodDef): number {
+  if (def.resource) {
+    const per = bestYieldPerWorker(def.resource);
+    return per > 0 ? bestTaxPerPop() / per : 0;
+  }
+  let sum = 0;
+  for (const [r, n] of Object.entries(goodMaterials(def))) {
+    const g = GOOD_BY_ID[r];
+    if (g && n) sum += g.price * n;
+  }
+  return sum;
+}
 
 // ---------- Армия ----------
 
@@ -753,7 +876,11 @@ export function moraleTarget(s: GameState): number {
   t += Math.min(10, s.prestige / 5);
   t += seasonMods(s).morale;
   if (s.freezing > 0) t -= FREEZING_MORALE_PENALTY;
-  return Math.max(0, Math.min(100, t));
+  // Налог давит на мораль не медленным сползанием, а прямо: сползание племя
+  // отыграло бы за минуту, а просадка держится ровно столько, сколько держат налог.
+  // Вычитается он уже из приведённой к шкале величины — иначе в большом посёлке,
+  // где мораль и так упёрлась в потолок, налог не стоил бы вообще ничего.
+  return Math.max(0, Math.min(100, t) - taxOf(s).moralePenalty);
 }
 
 // ---------- Тревоги ----------
