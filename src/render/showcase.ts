@@ -6,6 +6,9 @@
 //   ?showcase=village&stage=town&era=state
 //     целый посёлок заданной стадии и эпохи из синтетического состояния, через
 //     настоящую TribeScene: дороги, стена, жители и бойцы — как в партии.
+//     workers=none оставляет всех жителей свободными: у костра толпа, признаков
+//     работы у зданий нет. По умолчанию посёлок укомплектован — по местам, а не
+//     по населению стадии: иначе кузнецов на кузницу уже не хватает.
 //
 // Общие параметры: silhouette=1 (постройки чёрным на белом), season=winter,
 // solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат), clean=1 (без подписи).
@@ -301,7 +304,14 @@ function dayFractionFor(solar: number, season: Season): number {
   return solar < 0.5 ? (solar / 0.5) * light : light + ((solar - 0.5) / 0.5) * (1 - light);
 }
 
-export function synthState(stage: StageId, eraId: EraId, season: Season, solar: number, extra?: string | null): GameState {
+export function synthState(
+  stage: StageId,
+  eraId: EraId,
+  season: Season,
+  solar: number,
+  extra?: string | null,
+  staffed = true,
+): GameState {
   const s = createInitialState();
   // Второй игровой год: первая зима мягче, а стенду нужна обычная.
   const seasonIdx = SEASON_ORDER.indexOf(season) + SEASON_ORDER.length;
@@ -324,11 +334,20 @@ export function synthState(stage: StageId, eraId: EraId, season: Season, solar: 
     else s.buildings.push({ id: s.nextId++, type, slot: -1, level, work: 0, workRequired: 0 });
   }
 
-  const pop = Math.max(5, STAGE_BY_ID[stage].pop);
+  // Мест работы в городе больше, чем людей по стадии: чтобы «укомплектованный»
+  // посёлок был укомплектован по-настоящему — с дымом у кузницы и грузом у
+  // каждого двора, — народу берём столько, сколько мест.
+  const slots = s.buildings.reduce(
+    (n, b) => n + (BUILDINGS.find((d) => d.id === b.type)?.job ? b.level : 0),
+    0,
+  );
+  const pop = Math.max(5, STAGE_BY_ID[stage].pop, staffed ? slots : 0);
   while (s.villagers.length < pop) addVillager(s, { job: 'idle' });
-  // Рассадить по рабочим местам: столько, сколько уровней у здания.
+  // Рассадить по рабочим местам: столько, сколько уровней у здания. При
+  // workers=none никого не назначаем: так проверяется вторая половина правила —
+  // все свободные руки стоят у костра, а признаков работы у зданий нет.
   let i = 0;
-  for (const b of s.buildings) {
+  for (const b of staffed ? s.buildings : []) {
     const def = BUILDINGS.find((d) => d.id === b.type);
     if (!def?.job) continue;
     for (let k = 0; k < b.level && i < s.villagers.length; k++, i++) {
@@ -401,7 +420,7 @@ function runPerf(scene: TribeScene, seconds: number, name: string, done: (line: 
 function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const stage = (p.get('stage') as StageId) ?? 'camp';
   const eraId = (p.get('era') as EraId) ?? 'camp';
-  const s = synthState(stage, eraId, c.season, c.solar, p.get('buildings'));
+  const s = synthState(stage, eraId, c.season, c.solar, p.get('buildings'), p.get('workers') !== 'none');
 
   const canvas = makeCanvas(root);
   const scene = new TribeScene(canvas, c.dpr);

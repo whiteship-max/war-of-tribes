@@ -1,7 +1,7 @@
 // 3D-диорама поселения. Получает состояние через sync(), анимирует сам.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Building, Caravan, EraId, GameState, Season, StageId, TroopId, Villager } from '@/game/types';
+import type { Building, BuildingTypeId, Caravan, EraId, GameState, Season, StageId, TroopId } from '@/game/types';
 import {
   buildingAttention,
   caravanProgress,
@@ -11,10 +11,13 @@ import {
   seasonOf,
   settlementStage,
   solarPhase,
+  storageCap,
+  workerCount,
   type Attention,
 } from '@/game/derived';
 import { TROOP_IDS } from '@/game/data/troops';
-import { buildTerrain, ZONES } from './terrain';
+import { RESOURCE_IDS } from '@/game/constants';
+import { buildTerrain } from './terrain';
 import { PLAN_SCALE, WALL_RADIUS, placeOf, plotRadius } from './plan';
 import { buildVillage } from './village';
 import { MAX_SOLDIERS, SoldierAgent, postFor } from './soldiers';
@@ -32,7 +35,8 @@ import { VillagerAgent } from './villagers';
 import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
-import { Smoke, Snowfall } from './weather';
+import { CHIMNEY_LOOK, Smoke, Snowfall, chimneySmoke, type SmokeSource } from './weather';
+import { SMOKE_HEIGHT, WORK_SIGN, WorkSigns, type LoadKind } from './worksigns';
 import {
   applyDayNight,
   configureRenderer,
@@ -56,6 +60,8 @@ interface BuildingView {
   /** Невидимая мишень для тапа — заметно крупнее самой модели. */
   hit: THREE.Mesh;
   scaffold: THREE.Group | null;
+  /** Горн кузницы: он есть в модели и гаснет, когда кузнецов нет. */
+  glow: THREE.Object3D | null;
   marker: THREE.Sprite | null;
   markerKind: Attention | null;
   markerY: number;
@@ -69,6 +75,16 @@ const TAP_MS = 500;
  * по стене целиком, постройки в кадре мельче — прощаем щедрее, чем раньше.
  */
 const TAP_FORGIVE = 58;
+
+/**
+ * Сколько жителей видно разом. Больше десятка фигурок у костра — уже толпа, в
+ * которой не сосчитать свободные руки, а весь смысл площади в том, чтобы их
+ * было видно счётом. Остальные свободные просто не показываются.
+ */
+const MAX_VILLAGERS = 10;
+
+/** Доля вместимости, с которой у склада появляются мешки. */
+const STORAGE_SHOWN = 0.15;
 
 const MARKER_GLYPH: Record<Attention, string> = { idle: '💤', slot: '👤', upgrade: '⬆️' };
 const markerTextures = new Map<Attention, THREE.Texture>();
@@ -132,8 +148,6 @@ export class TribeScene {
   private silhouette = false;
   private silhouetteMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
   private buildings = new Map<number, BuildingView>();
-  /** Стена достроена: за неё жителей больше не выпускаем. */
-  private walled = false;
   private agents = new Map<number, VillagerAgent>();
   private soldiers: SoldierAgent[] = [];
   /** Все фигурки — жители и бойцы — одним пулом инстансов: девять вызовов на всех. */
@@ -158,6 +172,10 @@ export class TribeScene {
   private seasonVis = new SeasonVisuals();
   private snowfall = new Snowfall();
   private smoke = new Smoke();
+  /** Дым труб — своя система: он гуще очажного, иначе признак работы не виден. */
+  private chimneys = new Smoke(CHIMNEY_LOOK, []);
+  /** Признаки занятости зданий: грузы у стен. Один вызов отрисовки на все. */
+  private signs = new WorkSigns();
   private season: Season = 'spring';
   private disposed = false;
   private paused = false;
@@ -216,6 +234,8 @@ export class TribeScene {
     this.scene.add(this.figures.group);
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
+    this.scene.add(this.chimneys.points);
+    this.scene.add(this.signs.group);
 
     this.selection = new THREE.Mesh(
       new THREE.RingGeometry(0.86, 1.06, 32),
@@ -431,11 +451,6 @@ export class TribeScene {
 
   // ---------- Синхронизация с состоянием ----------
 
-  private buildingPosition(id: number): THREE.Vector3 | null {
-    const v = this.buildings.get(id);
-    return v ? v.group.position.clone() : null;
-  }
-
   /**
    * Невидимая мишень для тапа. Считается по реальным габаритам собранной модели,
    * а не по фиксированной колонне: высокая мишень соседа перехватывала бы луч,
@@ -529,6 +544,7 @@ export class TribeScene {
           type: b.type,
           hit,
           scaffold: null,
+          glow: group.getObjectByName('forge') ?? null,
           marker: null,
           markerKind: null,
           markerY: ((MARKER_HEIGHT[b.type] ?? 2.3) * (1 + 0.28 * tier)) / PLAN_SCALE,
@@ -565,23 +581,18 @@ export class TribeScene {
     }
     if (this.selected !== null) this.setSelected(this.selected);
 
-    // Жители.
-    const site = s.buildings.find(isSite);
-    const sitePos = site ? this.buildingPosition(site.id) : null;
-    const perJob = new Map<string, number>();
+    // Жители. На сцене только свободные руки: назначенный на работу житель с неё
+    // исчезает, снятый — возвращается к костру. Сколько человек на площади,
+    // столько и можно назначить — это и есть весь смысл фигурок. Занятость
+    // показывают сами здания (syncWorkSigns), а не ходьба туда-обратно.
+    const idle = s.villagers.filter((v) => v.job === 'idle').slice(0, MAX_VILLAGERS);
     const seenV = new Set<number>();
-    for (const v of s.villagers) {
+    for (const v of idle) {
       seenV.add(v.id);
-      let agent = this.agents.get(v.id);
-      if (!agent) {
-        agent = new VillagerAgent(v, new THREE.Vector3(0, 0, 0));
-        this.agents.set(v.id, agent);
-        this.figures.add(agent.figure);
-      }
-      const n = perJob.get(v.job) ?? 0;
-      perJob.set(v.job, n + 1);
-      const [pos, wander] = this.workplaceFor(v, n, sitePos);
-      agent.setWork(v.job, pos, wander);
+      if (this.agents.has(v.id)) continue;
+      const agent = new VillagerAgent(v);
+      this.agents.set(v.id, agent);
+      this.figures.add(agent.figure);
     }
     for (const [id, agent] of this.agents) {
       if (seenV.has(id)) continue;
@@ -589,6 +600,7 @@ export class TribeScene {
       this.agents.delete(id);
     }
 
+    this.syncWorkSigns(s);
     this.syncSoldiers(s);
     this.syncCaravans(s);
   }
@@ -625,7 +637,6 @@ export class TribeScene {
    * или набор построек. Дороги при этом никуда не переезжают — они заданы планом.
    */
   private syncVillage(s: GameState): void {
-    this.walled = s.buildings.some((b) => b.type === 'palisade' && b.level > 0);
     const stage: StageId = settlementStage(s);
     const eraId = era(s);
     const present = s.buildings.map((b) => b.type).sort();
@@ -675,45 +686,34 @@ export class TribeScene {
   }
 
   /**
-   * Где житель работает: приписан к зданию — идёт туда, вольный сбор — в свою зону
-   * за стеной. Пока стены нет, он туда и уходит; как только она встала, цель
-   * подтягивается внутрь кольца — сквозь кладку никто не ходит.
+   * Признаки занятости. Здание, в котором есть рабочие, показывает это само:
+   * груз у стены, дым из трубы, горящий горн. Считается в sync, а не каждый
+   * кадр: набор работающих зданий меняется вместе с назначениями, не чаще.
+   *
+   * Склад — исключение из правила «есть рабочие»: их у него не бывает вовсе,
+   * а мешки при полных закромах он показывать обязан, иначе главное здание
+   * посёлка стоит мёртвым. У него признак считается по запасам.
    */
-  private workplaceFor(v: Villager, ordinal: number, sitePos: THREE.Vector3 | null): [THREE.Vector3 | null, number] {
-    if (v.workplace !== null) {
-      const p = this.buildingPosition(v.workplace);
-      if (p) return [p, 1.1];
+  private syncWorkSigns(s: GameState): void {
+    const loads: { type: BuildingTypeId; kind: LoadKind }[] = [];
+    const smoke: SmokeSource[] = [];
+    const stock = RESOURCE_IDS.reduce((n, r) => n + s.resources[r], 0);
+    const full = stock > storageCap(s) * STORAGE_SHOWN;
+    for (const b of s.buildings) {
+      const sign = WORK_SIGN[b.type];
+      if (!sign || b.level <= 0) continue;
+      const busy = b.type === 'storage' ? full : workerCount(s, b.id) > 0;
+      const view = this.buildings.get(b.id);
+      if (view?.glow) view.glow.visible = busy;
+      if (!busy) continue;
+      if (sign.load) loads.push({ type: b.type, kind: sign.load });
+      if (sign.smoke) {
+        const at = placeOf(b.type);
+        smoke.push(chimneySmoke(at.x, SMOKE_HEIGHT, at.z));
+      }
     }
-    const [zone, wander] = this.freeRangeSpot(v, ordinal, sitePos);
-    return [zone && this.walled ? this.insideWall(zone) : zone, wander];
-  }
-
-  /** Держит точку внутри кольца стены, не меняя направления от центра. */
-  private insideWall(p: THREE.Vector3): THREE.Vector3 {
-    const r = Math.hypot(p.x, p.z);
-    const limit = WALL_RADIUS - 2.2;
-    if (r <= limit) return p;
-    return new THREE.Vector3((p.x / r) * limit, 0, (p.z / r) * limit);
-  }
-
-  private freeRangeSpot(v: Villager, ordinal: number, sitePos: THREE.Vector3 | null): [THREE.Vector3 | null, number] {
-    switch (v.job) {
-      case 'gatherer':
-        return [ZONES.berries, 1.8];
-      case 'hunter':
-        return [ZONES.hunting, 3.5];
-      case 'woodcutter':
-        return [ZONES.forest, 2.5];
-      case 'stonecutter':
-      case 'miner':
-        return [ZONES.rocks, 1.8];
-      case 'farmer':
-      case 'herder':
-        return [ZONES.fields, 1.2];
-      case 'idle':
-      default:
-        return [sitePos, 1.2];
-    }
+    this.signs.set(loads);
+    this.chimneys.setSources(smoke);
   }
 
   // ---------- Анимация ----------
@@ -745,12 +745,14 @@ export class TribeScene {
     const snow = this.seasonVis.snow;
     this.snowfall.update(dt, t, snow);
     this.smoke.update(dt, snow);
+    this.chimneys.update(dt, snow);
 
     const night = solar > 0.58 && solar < 0.97;
     for (const a of this.agents.values()) {
       a.night = night;
-      a.update(dt, t);
+      a.update(dt);
     }
+    this.signs.update(t);
     // Дружина несёт службу и ночью: у ворот всегда кто-то стоит.
     for (const a of this.soldiers) a.update(dt, t);
     this.figures.update();
@@ -773,6 +775,10 @@ export class TribeScene {
       this.flame.rotation.y = t * 2;
     }
     if (this.flameInner) this.flameInner.rotation.y = -t * 3;
+    // Горн работающей кузницы дышит — с той же частотой, что и костёр, но тише.
+    for (const view of this.buildings.values()) {
+      if (view.glow?.visible) view.glow.scale.setScalar(1 + Math.sin(t * 7 + view.markerY) * 0.14);
+    }
     this.fireLight.intensity = fireIntensity(night, t);
 
     this.controls.update();
@@ -821,9 +827,11 @@ export class TribeScene {
     this.terrain.visible = !on;
     if (this.village) this.village.visible = !on;
     this.figures.group.visible = !on;
+    this.signs.group.visible = !on;
     for (const c of this.caravans.values()) c.agent.group.visible = !on;
     this.snowfall.points.visible = !on && this.snowfall.points.visible;
     this.smoke.points.visible = !on;
+    this.chimneys.points.visible = !on && this.chimneys.active;
     this.selection.visible = !on && this.selected !== null;
     for (const view of this.buildings.values()) {
       view.hit.visible = !on;

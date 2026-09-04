@@ -778,8 +778,10 @@ function smithy(t: Tier, st: EraStyle): THREE.Group {
   g.add(box(w, h, d, t === 0 ? M.stone : st.wall, 0, h / 2, 0));
   gable(g, w * 1.2, d * 1.3, h, 0.34 + t * 0.1, t === 0 ? M.thatchDark : st.roof);
   g.add(cyl(0.2, 0.25, 1.0 + t * 0.3, M.stoneDark, 6, w * 0.3, h + 0.5 + t * 0.15, -d * 0.2));
-  // Горн светится: кузница видна и ночью.
+  // Горн светится: кузница видна и ночью. Имя — чтобы сцена гасила его, когда
+  // кузнецов нет: занятость здание показывает само (render/worksigns.ts).
   const forge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.3), M.forge);
+  forge.name = 'forge';
   forge.position.set(0, 0.15, d / 2 + 0.05);
   g.add(forge);
   g.add(box(0.55, 0.35, 0.35, M.metal, -w * 0.3, 0.18, d / 2 + 0.4));
