@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { Building, BuildingTypeId, GameState, JobId, Season, TechId } from '../types';
+import type { Building, BuildingTypeId, GameState, JobId, Season } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
-import { startBuilding, startResearch, startUpgrade, resolveEvent } from './actions';
+import { startBuilding, startUpgrade, resolveEvent } from './actions';
 import { assignWorker, autoAssign, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
 import { addVillager } from './population';
 import { seeded, setRandom } from './random';
@@ -14,7 +14,6 @@ import {
   countAll,
   countBuilt,
   foodConsumptionPerDay,
-  hasTech,
   heatingWoodPerDay,
   housingCapacity,
   isSite,
@@ -24,7 +23,6 @@ import {
   maxLevelFor,
   armySize,
   productionPerDay,
-  researchRate,
   seasonDayOf,
   seasonOf,
   storageCap,
@@ -99,9 +97,9 @@ describe('симуляция', () => {
     const wood0 = s.resources.wood;
     catchUp(s, DAY_LENGTH, 0.5);
     expect(s.resources.wood).toBeGreaterThan(wood0);
-    // Один лесоруб вольным сбором: 6 в день вполсилы, ещё и с поправкой на мораль.
-    expect(s.resources.wood - wood0).toBeGreaterThan(1.5);
-    expect(s.resources.wood - wood0).toBeLessThan(4.5);
+    // Один лесоруб вольным сбором: 9 в день вполсилы, ещё и с поправкой на мораль.
+    expect(s.resources.wood - wood0).toBeGreaterThan(3);
+    expect(s.resources.wood - wood0).toBeLessThan(6);
   });
 
   it('свободные жители строят лесопилку', () => {
@@ -116,14 +114,6 @@ describe('симуляция', () => {
     const s = createInitialState();
     s.resources.wood = 0;
     expect(startBuilding(s, 'hut')).toMatch(/Не хватает/);
-  });
-
-  it('исследование завершается', () => {
-    const s = createInitialState();
-    expect(startResearch(s, 'stone_tools')).toBeNull();
-    catchUp(s, 120, 0.5);
-    expect(hasTech(s, 'stone_tools')).toBe(true);
-    expect(startResearch(s, 'bows')).toMatch(/Сначала/);
   });
 
   it('голод убивает жителя', () => {
@@ -231,7 +221,6 @@ describe('здания', () => {
   it('профессия без профильного здания недоступна вольным сбором', () => {
     const s = createInitialState();
     idleAll(s);
-    s.techs.push('farming');
     expect(changeFreeJob(s, 'farmer', 1)).toMatch(/только в здании/);
     const farm = place(s, 'farm');
     expect(assignWorker(s, farm.id)).toBeNull();
@@ -267,15 +256,6 @@ describe('здания', () => {
     expect(assignWorker(s, mill.id)).toBeNull();
   });
 
-  it('хранилище знаний ускоряет исследования вдвое против костра', () => {
-    const s = createInitialState();
-    const atFire = researchRate(s);
-    place(s, 'knowledge');
-    const atHouse = researchRate(s);
-    expect(atFire).toBeGreaterThan(0);
-    expect(atHouse).toBeCloseTo(atFire * 2, 6);
-  });
-
   it('второго здания того же типа не бывает', () => {
     const s = createInitialState();
     s.resources.wood = 500;
@@ -295,7 +275,6 @@ describe('здания', () => {
   it('улучшение не отключает здание: рабочие на местах, выработка не падает', () => {
     const s = createInitialState();
     idleAll(s);
-    s.techs.push('stone_tools');
     s.resources.wood = 500;
     s.morale = 60;
     const mill = place(s, 'sawmill', 2);
@@ -327,7 +306,6 @@ describe('здания', () => {
 
   it('после улучшения эффекты вырастают ровно на шаг уровня', () => {
     const s = createInitialState();
-    s.techs.push('stone_tools');
     s.resources.wood = 4000;
     s.resources.stone = 4000;
     const hut = place(s, 'hut', 1);
@@ -351,7 +329,6 @@ describe('здания', () => {
 
   it('на потолке уровней мест работы примерно столько же, сколько людей', () => {
     const s = createInitialState();
-    s.techs.push('housing');
     for (const def of BUILDINGS) place(s, def.id, def.maxLevel ?? MAX_BUILDING_LEVEL);
     // На потолке: 40+ человек под крышей одной хижины и одного укрытия.
     const housing = housingCapacity(s);
@@ -371,7 +348,6 @@ describe('здания', () => {
   it('исчезнувшее здание не оставляет висячих рабочих', () => {
     const s = createInitialState();
     idleAll(s);
-    s.techs.push('farming');
     const mill = place(s, 'sawmill');
     const farm = place(s, 'farm');
     assignWorker(s, mill.id);
@@ -391,10 +367,10 @@ describe('здания', () => {
 // ---------- Первые пять минут ----------
 
 describe('старт партии', () => {
-  it('за пять минут племя ставит лесопилку и хранилище знаний и не встаёт в тупик', () => {
+  it('за пять минут племя ставит лесопилку и хижину и не встаёт в тупик', () => {
     const s = createInitialState();
     const food0 = s.resources.food;
-    // Игрок делает очевидное: сначала лесопилка, потом хранилище знаний.
+    // Игрок делает очевидное: сначала лесопилка, потом хижина.
     expect(startBuilding(s, 'sawmill')).toBeNull();
     catchUp(s, 30, 0.5);
     const mill = s.buildings.find((b) => b.type === 'sawmill')!;
@@ -403,17 +379,17 @@ describe('старт партии', () => {
     changeFreeJob(s, 'woodcutter', -1);
     expect(assignWorker(s, mill.id)).toBeNull();
 
-    // Копим на хранилище знаний и ставим его.
+    // Копим на хижину и ставим её.
     let placed = false;
     for (let i = 0; i < 5 && !placed; i++) {
       catchUp(s, 30, 0.5);
-      placed = startBuilding(s, 'knowledge') === null;
+      placed = startBuilding(s, 'hut') === null;
     }
     expect(placed).toBe(true);
     catchUp(s, 5 * DAY_LENGTH - s.time, 0.5);
 
     expect(countBuilt(s, 'sawmill')).toBe(1);
-    expect(countBuilt(s, 'knowledge')).toBe(1);
+    expect(countBuilt(s, 'hut')).toBe(1);
     expect(s.villagers.length).toBeGreaterThanOrEqual(5);
     expect(s.resources.food).toBeGreaterThan(food0 * 0.5);
     expect(s.resources.wood).toBeGreaterThan(0);
@@ -428,13 +404,14 @@ function atSeason(s: GameState, season: Season, year: number): void {
 }
 
 /**
- * Племя середины игры: поля, навесы, мастерская, крыша над головой. Ставка на земледелие —
- * то самое состояние, ради которого зима и вводится: летом и осенью такое племя
- * кормит себя с запасом, а зимой поля встают.
+ * Племя середины игры: поля, навесы, мастерская, крыша над головой и дружина.
+ * Ставка на земледелие — то самое состояние, ради которого зима и вводится: летом
+ * и осенью такое племя кормит себя с запасом, а зимой поля встают. Дружина ест из
+ * того же котла: она и делает зиму дырой, которую надо закрывать заранее.
  */
 function tribe(pop: number, food: number, wood: number): GameState {
   const s = createInitialState();
-  s.techs.push('farming');
+  s.army.spearman = 6;
   while (s.villagers.length < pop) addVillager(s, { age: 24, talent: null });
   idleAll(s);
   // Каждого типа по одному: жильё и склад набирают своё уровнями, а не числом срубов.
@@ -443,7 +420,8 @@ function tribe(pop: number, food: number, wood: number): GameState {
   place(s, 'farm', 2);
   place(s, 'gathering', 2);
   place(s, 'hunter_hut', 1);
-  place(s, 'sawmill', 1);
+  // Лесопилки нарочно нет: дрова у такого племени только со склада, и зима
+  // спрашивает за них так же, как за еду.
   place(s, 'workshop', 1);
   autoAssign(s);
   // Награды за задания посыпались бы в первый же тик и подменили бы собой запас,
@@ -463,28 +441,6 @@ function release(s: GameState, job: JobId): void {
   else changeFreeJob(s, job, -1);
 }
 
-/** Порядок исследований — как их брал бы игрок, ведущий племя к государству. */
-const TECH_ORDER: TechId[] = [
-  'stone_tools',
-  'chiefdom',
-  'woodworking',
-  'bone_tools',
-  'housing',
-  'farming',
-  'spears',
-  'bows',
-  'shields',
-  'metallurgy',
-  'totem',
-  'shamanism',
-  'leatherworking',
-  'bronze_weapons',
-  'iron_working',
-  'traditions',
-  'statehood',
-  'palisade',
-];
-
 /** Порядок построек. Каждая ставится ровно один раз, дальше растёт уровнями. */
 const BUILD_ORDER: BuildingTypeId[] = [
   'sawmill',
@@ -492,7 +448,6 @@ const BUILD_ORDER: BuildingTypeId[] = [
   'hut',
   'hunter_hut',
   'quarry',
-  'knowledge',
   'chief_house',
   'workshop',
   'farm',
@@ -518,9 +473,8 @@ function wanted(s: GameState): [JobId, number][] {
     ['woodcutter', Math.max(1, Math.round(n * 0.2))],
     ['hunter', Math.max(1, Math.round(n * 0.15))],
     ['stonecutter', n >= 8 ? Math.max(1, Math.round(n * 0.12)) : 0],
-    ['farmer', hasTech(s, 'farming') ? Math.round(n * 0.15) : 0],
+    ['farmer', countBuilt(s, 'farm') > 0 ? Math.round(n * 0.15) : 0],
     ['miner', countBuilt(s, 'mine') > 0 ? 2 : 0],
-    ['scholar', countBuilt(s, 'knowledge') > 0 ? 1 : 0],
     ['crafter', countBuilt(s, 'workshop') > 0 ? 1 : 0],
     ['smith', countBuilt(s, 'smithy') > 0 ? 1 : 0],
   ];
@@ -556,11 +510,8 @@ function nextSite(s: GameState): void {
   if (storage) startUpgrade(s, storage.id);
 }
 
-/** Разумная игра без участия человека: исследования, работы, стройка и улучшения. */
+/** Разумная игра без участия человека: работы, стройка и улучшения. */
 function autopilot(s: GameState): void {
-  if (!s.research) {
-    for (const id of TECH_ORDER) if (!hasTech(s, id) && startResearch(s, id) === null) break;
-  }
   const wants = wanted(s);
   for (const [job, want] of wants) {
     while (jobCounts(s)[job] > want) release(s, job);
@@ -596,19 +547,17 @@ describe('сезоны', () => {
     expect(yearOf(s.time)).toBe(2);
   });
 
-  it('зима останавливает поля и режет добычу, но ускоряет исследования', () => {
+  it('зима останавливает поля и режет добычу', () => {
     const s = createInitialState();
-    s.techs.push('farming');
     idleAll(s);
     const farm = place(s, 'farm');
     assignWorker(s, farm.id);
     atSeason(s, 'summer', 2);
-    const summer = { food: productionPerDay(s).food, research: researchRate(s) };
+    const summer = productionPerDay(s).food;
     atSeason(s, 'winter', 2);
-    const winter = { food: productionPerDay(s).food, research: researchRate(s) };
+    const winter = productionPerDay(s).food;
     expect(jobMultiplier(s, 'farmer')).toBe(0);
-    expect(winter.food).toBeLessThan(summer.food * 0.6);
-    expect(winter.research).toBeGreaterThan(summer.research);
+    expect(winter).toBeLessThan(summer * 0.6);
   });
 
   it('племя с запасом еды и дров переживает зиму без потерь', () => {
@@ -628,7 +577,10 @@ describe('сезоны', () => {
     const morale0 = s.morale;
     catchUp(s, SEASON_SECONDS, 1);
     expect(s.villagers.length).toBeLessThan(12);
-    expect(s.morale).toBeLessThan(morale0 - 20);
+    expect(s.stats.died).toBeGreaterThan(0);
+    // Мораль проседает, но не до нуля: с потерями ртов становится меньше, и племя
+    // к концу зимы уже кое-как кормит себя само.
+    expect(s.morale).toBeLessThan(morale0 - 5);
     expect(s.log.some((e) => e.text.includes('холод'))).toBe(true);
   });
 

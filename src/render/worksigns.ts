@@ -46,7 +46,6 @@ export interface Sign {
  * мёртвым. У склада признак считается по запасам, а не по людям.
  */
 export const WORK_SIGN: Partial<Record<BuildingTypeId, Sign>> = {
-  knowledge: { load: 'bone' },
   gathering: { load: 'sack' },
   sawmill: { load: 'log' },
   quarry: { load: 'stone' },

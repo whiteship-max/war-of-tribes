@@ -1,5 +1,5 @@
 // Действия игрока. Каждое возвращает null при успехе или текст ошибки.
-import type { BuildingTypeId, GameState, JobId, ResourceId, TechId, TotemId } from '../types';
+import type { BuildingTypeId, GameState, JobId, ResourceId, TotemId } from '../types';
 import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
 import { RESOURCE_IDS } from '../constants';
@@ -8,14 +8,12 @@ import {
   canAfford,
   builtOfType,
   countAll,
-  hasTech,
   isSite,
   storageCap,
   upgradeCost,
   upgradeInfo,
 } from '../derived';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { TECH_BY_ID } from '../data/techs';
 import { EVENT_BY_ID } from '../data/events';
 import { JOB_BY_ID } from '../data/jobs';
 import { scheduleNextEvent } from './tick';
@@ -85,25 +83,6 @@ export function cancelBuilding(s: GameState, buildingId: number): string | null 
     b.workRequired = 0;
     log(s, `Улучшение отменено: ${def.name}.`);
   }
-  return null;
-}
-
-export function startResearch(s: GameState, techId: TechId): string | null {
-  const def = TECH_BY_ID[techId];
-  if (hasTech(s, techId)) return 'Уже изучено.';
-  if (s.research) return 'Уже идёт другое исследование.';
-  for (const r of def.requires) if (!hasTech(s, r)) return `Сначала изучите: ${TECH_BY_ID[r].name}.`;
-  if (!canAfford(s, def.cost)) return 'Не хватает ресурсов.';
-  pay(s, def.cost);
-  s.research = { techId, work: 0 };
-  log(s, `Начато исследование: ${def.name}.`);
-  return null;
-}
-
-export function cancelResearch(s: GameState): string | null {
-  if (!s.research) return 'Исследование не идёт.';
-  refund(s, TECH_BY_ID[s.research.techId].cost, 0.5);
-  s.research = null;
   return null;
 }
 

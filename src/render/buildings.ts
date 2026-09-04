@@ -415,43 +415,6 @@ function storage(t: Tier, st: Style): THREE.Group {
   return g;
 }
 
-/** Хранилище знаний: плиты под навесом → крытая палата → малый храм с колоннами. */
-function knowledge(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const r = [1.4, 1.7, 2.1][t];
-  g.add(pad(r));
-  g.add(cyl(r * 0.6, r * 0.68, [0.35, 0.5, 0.65][t], st.floor, 8, 0, [0.17, 0.25, 0.32][t], 0));
-  g.add(box(0.22, 1.2, 0.7, M.stoneDark, -0.6, 0.95, -0.1));
-  g.add(box(0.22, 1.0, 0.6, M.stoneDark, 0.55, 0.85, 0.2));
-  if (t === 0) {
-    g.add(cyl(0.06, 0.07, 1.5, st.post, 5, -0.85, 0.75, 0.75));
-    g.add(cyl(0.06, 0.07, 1.5, st.post, 5, 0.85, 0.75, 0.75));
-    const canopy = box(2.0, 0.06, 1.5, st.roof, 0, 1.55, 0.2);
-    canopy.rotation.x = -0.14;
-    g.add(canopy);
-    for (let i = 0; i < 3; i++) g.add(box(0.3, 0.5, 0.05, st.roofDark, -0.3 + i * 0.3, 0.55, 0.35));
-  } else {
-    // Колоннада: чем дальше, тем больше здание похоже на палату, а не на навес.
-    const n = t === 1 ? 4 : 6;
-    const cr = t === 1 ? 1.15 : 1.45;
-    const ch = t === 1 ? 1.8 : 2.4;
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + 0.4;
-      g.add(cyl(0.11, 0.13, ch, st.post, 7, Math.cos(a) * cr, ch / 2 + 0.25, Math.sin(a) * cr));
-    }
-    g.add(box(cr * 2.4, 0.14, cr * 2.4, st.roofDark, 0, ch + 0.34, 0));
-    if (t === 2) {
-      g.add(cone(cr * 1.5, 0.9, st.roof, 6, 0, ch + 0.85, 0));
-      // Стела с зарубками: у знания появился свой памятник.
-      g.add(box(0.35, 1.8, 0.3, st.accent, 0, 1.15, 0));
-    } else {
-      gable(g, cr * 2.5, cr * 2.5, ch + 0.4, 0.35, st.roof);
-    }
-    for (let i = 0; i < 4; i++) g.add(box(0.28, 0.46, 0.05, M.bone, -0.5 + i * 0.34, 0.72, cr * 0.55));
-  }
-  return g;
-}
-
 /** Навес собирателей: один навес → навес с сушилами → торговые ряды. */
 function gathering(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
@@ -1063,7 +1026,6 @@ function palisade(stage: Stage, t: Tier, st: Style): THREE.Group {
 export const FOOTPRINT: Partial<Record<BuildingTypeId, [number, number]>> = {
   hut: [2.4, 2.0],
   storage: [1.5, 1.3],
-  knowledge: [1.8, 1.4],
   gathering: [1.4, 1.0],
   sawmill: [1.8, 1.4],
   quarry: [2.0, 1.7],
@@ -1125,8 +1087,6 @@ function legacyModel(type: BuildingTypeId, stage: Stage, tier: Tier): THREE.Grou
       return hut(tier);
     case 'storage':
       return storage(tier, st);
-    case 'knowledge':
-      return knowledge(tier, st);
     case 'gathering':
       return gathering(tier, st);
     case 'sawmill':

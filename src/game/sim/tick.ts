@@ -13,14 +13,12 @@ import {
   buildRate,
   currentSite,
   foodConsumptionPerDay,
-  hasTech,
   heatingWoodPerDay,
   housingCapacity,
   moraleTarget,
   policyMoralePerDay,
   productionPerDay,
   rationOf,
-  researchRate,
   seasonDayOf,
   seasonIndex,
   seasonMods,
@@ -31,7 +29,6 @@ import {
 } from '../derived';
 import { COLD_DEATH, SEASON_DAYS, SEASON_META } from '../data/seasons';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { TECH_BY_ID } from '../data/techs';
 import { QUESTS } from '../data/quests';
 import { pickEvent } from '../data/events';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
@@ -113,25 +110,13 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     }
   }
 
-  // 3. Исследование.
-  if (s.research) {
-    s.research.work += researchRate(s, mods) * dt;
-    const def = TECH_BY_ID[s.research.techId];
-    if (s.research.work >= def.work) {
-      s.techs.push(def.id);
-      if (def.id === 'chiefdom') s.prestige += 5;
-      s.research = null;
-      log(s, `Изучено: ${def.name}.`, 'good');
-    }
-  }
-
-  // 3б. Кузница и казармы. Кузнец кует снаряжение, казармы превращают свободных
+  // 3. Кузница и казармы. Кузнец кует снаряжение, казармы превращают свободных
   // жителей в бойцов — обе очереди идут своим чередом, как стройка.
   forgeTick(s, dt, mods);
   recruitTick(s, dt);
 
-  // 3в. Рынок: налог капает в казну, дневной прилавок обновляется со сменой дня,
-  // вернувшиеся караваны разгружаются. До технологии торга шаг ничего не делает.
+  // 3б. Рынок: налог капает в казну, дневной прилавок обновляется со сменой дня,
+  // вернувшиеся караваны разгружаются.
   marketTick(s, dt, taxIncomePerDay(s));
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
@@ -149,9 +134,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // Рацион правит рождаемость: на скудном пайке детей не заводят вовсе.
   const growthMult = rationOf(s).growth;
   if (s.villagers.length < housing && foodDays >= 1.5 && s.morale >= 35 && growthMult > 0) {
-    let rate = (1 + s.morale / 100) * growthMult;
-    if (hasTech(s, 'traditions')) rate *= 1.3;
-    s.growth += rate * dt;
+    s.growth += (1 + s.morale / 100) * growthMult * dt;
     if (s.growth >= GROWTH_REQUIRED) {
       s.growth = 0;
       const v = addVillager(s);

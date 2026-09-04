@@ -3,7 +3,7 @@ import { pickName } from '../data/names';
 import { chance, pick, rnd, rndInt } from './random';
 import { log } from './log';
 
-const TALENTS: JobId[] = ['gatherer', 'hunter', 'woodcutter', 'stonecutter', 'miner', 'farmer', 'herder', 'crafter', 'smith', 'scholar', 'shaman'];
+const TALENTS: JobId[] = ['gatherer', 'hunter', 'woodcutter', 'stonecutter', 'miner', 'farmer', 'herder', 'crafter', 'smith', 'shaman'];
 
 export function randomTalent(): JobId | null {
   return chance(0.3) ? pick(TALENTS) : null;

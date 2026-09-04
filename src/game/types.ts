@@ -42,7 +42,6 @@ export type JobId =
   | 'herder'
   | 'crafter'
   | 'smith'
-  | 'scholar'
   | 'shaman';
 
 export type BuildingTypeId =
@@ -51,7 +50,6 @@ export type BuildingTypeId =
   | 'chief_house'
   | 'hut'
   | 'storage'
-  | 'knowledge'
   | 'gathering'
   | 'sawmill'
   | 'quarry'
@@ -66,39 +64,6 @@ export type BuildingTypeId =
   | 'smithy'
   | 'barracks'
   | 'market';
-
-export type TechBranch = 'settlement' | 'craft' | 'war' | 'society';
-
-export type TechId =
-  // ремесло
-  | 'stone_tools'
-  | 'woodworking'
-  | 'bone_tools'
-  | 'leatherworking'
-  | 'metallurgy'
-  | 'iron_working'
-  // поселение
-  | 'housing'
-  | 'farming'
-  | 'animal_husbandry'
-  | 'palisade'
-  | 'towers'
-  // война
-  | 'spears'
-  | 'bows'
-  | 'warband'
-  | 'axes'
-  | 'shields'
-  | 'bronze_weapons'
-  | 'swords'
-  | 'armor'
-  // общество
-  | 'chiefdom'
-  | 'shamanism'
-  | 'totem'
-  | 'traditions'
-  | 'statehood'
-  | 'trade';
 
 export type TotemId = 'wolf' | 'bear' | 'eagle';
 
@@ -133,11 +98,6 @@ export interface Building {
   work: number;
   /** Работа до конца стройки. 0 — стройка не идёт. */
   workRequired: number;
-}
-
-export interface Research {
-  techId: TechId;
-  work: number;
 }
 
 /** Заказ в казармах. Очередь одна и идёт последовательно, сверху вниз. */
@@ -237,8 +197,6 @@ export interface GameState {
   caravans: Caravan[];
   villagers: Villager[];
   buildings: Building[];
-  techs: TechId[];
-  research: Research | null;
   completedQuests: string[];
   activeEvent: ActiveEvent | null;
   nextEventAt: number;

@@ -1,5 +1,5 @@
 import type { GameState, ResourceId } from '../types';
-import { armySize, builtOfType, countBuilt, hasTech, jobCounts } from '../derived';
+import { armySize, builtOfType, countBuilt, jobCounts } from '../derived';
 
 export interface QuestDef {
   id: string;
@@ -32,13 +32,6 @@ export const QUESTS: QuestDef[] = [
     reward: { wood: 10 },
   },
   {
-    id: 'knowledge',
-    title: 'Хранилище знаний',
-    description: 'Построй хранилище знаний: у костра исследуют вполсилы.',
-    check: (s) => countBuilt(s, 'knowledge') >= 1,
-    reward: { stone: 10, food: 10 },
-  },
-  {
     id: 'first_upgrade',
     title: 'Второй уровень',
     description: 'Подними любое здание до 2 уровня: +1 рабочее место и +10% выработки.',
@@ -52,13 +45,6 @@ export const QUESTS: QuestDef[] = [
     check: (s) => countBuilt(s, 'hut') >= 1,
     progress: (s) => [Math.min(1, countBuilt(s, 'hut')), 1],
     reward: { wood: 10, food: 10 },
-  },
-  {
-    id: 'stone_tools',
-    title: 'Каменные орудия',
-    description: 'Изучи каменные орудия.',
-    check: (s) => hasTech(s, 'stone_tools'),
-    reward: { stone: 10 },
   },
   {
     id: 'pop_8',
@@ -83,13 +69,6 @@ export const QUESTS: QuestDef[] = [
     description: 'Построй мастерскую и поставь туда ремесленника.',
     check: (s) => countBuilt(s, 'workshop') >= 1 && jobCounts(s).crafter >= 1,
     reward: { stone: 15 },
-  },
-  {
-    id: 'spears',
-    title: 'Копья',
-    description: 'Изучи копья.',
-    check: (s) => hasTech(s, 'spears'),
-    reward: { food: 20, hides: 5 },
   },
   {
     id: 'warriors',
@@ -129,13 +108,6 @@ export const QUESTS: QuestDef[] = [
     reward: { food: 30 },
   },
   {
-    id: 'bows',
-    title: 'Луки',
-    description: 'Изучи лук.',
-    check: (s) => hasTech(s, 'bows'),
-    reward: { hides: 10, bones: 10 },
-  },
-  {
     id: 'totem',
     title: 'Символ племени',
     description: 'Построй тотем.',
@@ -171,9 +143,8 @@ export interface AchievementDef {
 export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first_hunt', icon: '🏹', title: 'Первая охота', check: (s) => s.stats.hunts >= 1 },
   { id: 'ten_people', icon: '👥', title: 'Первые 10 жителей', check: (s) => s.villagers.length >= 10 },
-  { id: 'first_tech', icon: '💡', title: 'Первое знание', check: (s) => s.techs.length >= 1 },
   { id: 'first_win', icon: '🏆', title: 'Первая победа', check: (s) => s.stats.battlesWon >= 1 },
   { id: 'survivor', icon: '🌙', title: 'Пережили 10 дней', check: (s) => s.time >= 10 * 60 },
-  { id: 'metal', icon: '⚒️', title: 'Первый металл', check: (s) => hasTech(s, 'metallurgy') },
+  { id: 'first_gear', icon: '⚒️', title: 'Первое снаряжение', check: (s) => Object.values(s.equipment ?? {}).some((n) => n > 0) },
   { id: 'twenty_people', icon: '🏘️', title: '20 жителей', check: (s) => s.villagers.length >= 20 },
 ];

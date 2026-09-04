@@ -15,8 +15,8 @@ import {
   buildingStat,
   currentSite,
   defense,
+  crafterBuildRate,
   freeVillagers,
-  hasKnowledgeHouse,
   housingCapacity,
   isBuilt,
   isSite,
@@ -34,7 +34,6 @@ import { ChiefHouse } from '../parts/ChiefHouse';
 import { Smithy } from '../parts/Smithy';
 import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
-import { TechTree } from '../parts/TechTree';
 import { upgradeGain } from '../parts/upgrade';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
@@ -224,8 +223,6 @@ function BuildingData({ b }: { b: Building }) {
       return <CampfireData />;
     case 'storage':
       return <StorageData />;
-    case 'knowledge':
-      return isBuilt(b) ? <TechTree /> : <div className="note">Пока хранилище строится, исследуют у костра.</div>;
     case 'chief_house':
       return isBuilt(b) ? (
         <ChiefHouse />
@@ -258,7 +255,7 @@ function BuildingData({ b }: { b: Building }) {
   }
 }
 
-/** Костёр — сердце племени: отсюда раздают вольный сбор и, пока нет хранилища, исследуют. */
+/** Костёр — сердце племени: отсюда раздают вольный сбор и здесь видно настроение. */
 function CampfireData() {
   const s = useGame((g) => g.s);
   const idle = freeVillagers(s).length;
@@ -280,8 +277,6 @@ function CampfireData() {
       {FREE_JOBS.map((jobId) => (
         <FreeJobRow key={jobId} job={jobId} />
       ))}
-
-      {!hasKnowledgeHouse(s) && <TechTree />}
 
       <h3>Настроение</h3>
       <div className="mod">
@@ -388,7 +383,7 @@ function GenericData({ b }: { b: Building }) {
   const jobDef = def.job ? JOB_BY_ID[def.job] : null;
 
   const stats: [string, string, string][] = [];
-  const housing = buildingHousing(s, b);
+  const housing = buildingHousing(b);
   if (housing) stats.push(['🛏️', 'Жилых мест', `${housing}`]);
   const storage = buildingStat(b, 'storage');
   if (storage) stats.push(['🧺', 'К вместимости склада', `+${storage}`]);
@@ -396,7 +391,7 @@ function GenericData({ b }: { b: Building }) {
   if (def_) stats.push(['🛡️', 'К защите поселения', `+${def_}`]);
   const morale = buildingStat(b, 'morale');
   if (morale) stats.push(['😊', 'К морали', `+${morale}`]);
-  if (b.type === 'workshop' && isBuilt(b)) stats.push(['💡', 'К скорости исследований', '+0.3/с']);
+  if (b.type === 'workshop' && isBuilt(b)) stats.push(['🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
   if (b.type === 'smithy' && isBuilt(b)) stats.push(['⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
   if (housing) stats.push(['👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.villagers.length} чел.`]);
   if (def_) stats.push(['⚔️', 'Защита посёлка', defense(s).toFixed(0)]);

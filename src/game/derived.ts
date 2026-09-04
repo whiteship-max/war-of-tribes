@@ -10,23 +10,21 @@ import type {
   ResourceId,
   Resources,
   Season,
-  TechId,
   Villager,
 } from './types';
 import {
+  BASE_DEFENSE,
   BASE_HOUSING,
   BASE_STORAGE_CAP,
-  CAMPFIRE_RESEARCH,
-  CRAFTER_RESEARCH,
+  BUILDER_RATE,
+  CRAFTER_BUILD,
   DAY_LENGTH,
   FREE_RANGE_MULT,
-  HOUSING_TECH_MULT,
   LEVEL_OUTPUT_STEP,
   MAX_BUILDING_LEVEL,
+  MORALE_BASE,
   RECRUIT_WORK,
-  RESEARCH_BASE,
   RESOURCE_IDS,
-  SCHOLAR_RESEARCH,
   SMITH_WORK,
   SOLDIER_FOOD,
   TALENT_MULT,
@@ -62,8 +60,6 @@ import {
   SEASON_SECONDS,
   type SeasonModifiers,
 } from './data/seasons';
-
-export const hasTech = (s: GameState, id: TechId): boolean => s.techs.includes(id);
 
 /** Здание достроено и работает. Уровень 0 — ещё стройплощадка. */
 export const isBuilt = (b: Building): boolean => b.level > 0;
@@ -199,19 +195,12 @@ export const ATTENTION_META: Record<Attention, { icon: string; text: string }> =
 
 // ---------- Вместимости ----------
 
-/**
- * Жилых мест в здании. «Строительство жилья» раздаёт хижину не на одного человека,
- * а на четверть: хижина одна, и плоская прибавка потерялась бы к десятому уровню.
- */
-export function buildingHousing(s: GameState, b: Building): number {
-  const h = buildingStat(b, 'housing');
-  if (!h) return 0;
-  return b.type === 'hut' && hasTech(s, 'housing') ? Math.round(h * HOUSING_TECH_MULT) : h;
-}
+/** Жилых мест в здании. */
+export const buildingHousing = (b: Building): number => buildingStat(b, 'housing');
 
 export function housingCapacity(s: GameState): number {
   let cap = BASE_HOUSING;
-  for (const b of s.buildings) cap += buildingHousing(s, b);
+  for (const b of s.buildings) cap += buildingHousing(b);
   return cap;
 }
 
@@ -363,8 +352,7 @@ export const awayCount = (s: GameState): number =>
 export function defense(s: GameState): number {
   let d = homeArmyPower(s);
   for (const b of s.buildings) d += buildingStat(b, 'defense');
-  if (hasTech(s, 'shields')) d += 3;
-  if (hasTech(s, 'bronze_weapons')) d += 4;
+  d += BASE_DEFENSE;
   if (s.totem === 'bear') d += 2;
   // Любой житель может отбиваться дубиной, но слабо.
   d += Math.max(0, s.villagers.length - Math.max(0, s.scoutsAway)) * 0.25;
@@ -429,29 +417,11 @@ export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
 
 // ---------- Производство ----------
 
-/** Множитель производительности профессии с учётом технологий, сезона и указа. */
+/** Множитель производительности профессии с учётом тотема, сезона и указа. */
 export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = seasonMods(s)): number {
   let m = mods.jobs[job] ?? 1;
-  if (hasTech(s, 'stone_tools')) m *= 1.2;
-  switch (job) {
-    case 'gatherer':
-      if (hasTech(s, 'bone_tools')) m *= 1.2;
-      break;
-    case 'hunter':
-      if (hasTech(s, 'bone_tools')) m *= 1.2;
-      if (hasTech(s, 'spears')) m *= 1.3;
-      if (hasTech(s, 'bows')) m *= 1.3;
-      if (s.totem === 'wolf') m *= 1.15;
-      break;
-    case 'woodcutter':
-      if (hasTech(s, 'woodworking')) m *= 1.3;
-      break;
-    case 'farmer':
-      if (s.totem === 'eagle') m *= 1.1;
-      break;
-    default:
-      break;
-  }
+  if (job === 'hunter' && s.totem === 'wolf') m *= 1.15;
+  if (job === 'farmer' && s.totem === 'eagle') m *= 1.1;
   // Мораль: от 0.7 при нуле до 1.15 при сотне.
   m *= 0.7 + (s.morale / 100) * 0.45;
   // Указ вождя действует на всю выработку разом — ровно на объявленную величину.
@@ -525,34 +495,24 @@ export function netPerDay(s: GameState): Resources {
   return p;
 }
 
+/** Вклад ремесленников мастерской в стройку: работа в секунду. */
+export function crafterBuildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
+  let rate = 0;
+  for (const v of s.villagers) {
+    if (v.job !== 'crafter' || v.workplace === null) continue;
+    rate += CRAFTER_BUILD * villagerMultiplier(s, v, mods);
+  }
+  return rate;
+}
+
+/**
+ * Скорость стройки: свободные жители с площади плюс ремесленники в мастерской.
+ * Улучшения — единственная прогрессия посёлка, и мастерская существует ради них.
+ */
 export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Ушедшие разведчиками — те же свободные жители: пока они в пути, стройка идёт без них.
   const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
-  let rate = idle;
-  if (hasTech(s, 'woodworking')) rate *= 1.2;
-  return rate * mods.build;
-}
-
-/** Есть ли построенное хранилище знаний. Без него исследуют у костра — вполсилы. */
-export const hasKnowledgeHouse = (s: GameState): boolean => countBuilt(s, 'knowledge') > 0;
-
-export function researchRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
-  const house = builtOfType(s, 'knowledge');
-  let rate = RESEARCH_BASE;
-  if (!house) {
-    // Память у костра: знание передают из уст в уста, вдвое медленнее.
-    rate *= CAMPFIRE_RESEARCH;
-  } else {
-    rate *= levelOutputMult(house.level);
-    for (const v of s.villagers) {
-      if (v.job !== 'scholar' || v.workplace === null) continue;
-      const b = buildingById(s, v.workplace);
-      if (b) rate += SCHOLAR_RESEARCH * levelOutputMult(b.level);
-    }
-  }
-  rate += jobCounts(s).crafter * CRAFTER_RESEARCH;
-  if (countBuilt(s, 'workshop') > 0) rate += 0.3;
-  return rate * mods.research;
+  return (idle * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build;
 }
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
@@ -598,7 +558,6 @@ function soften(m: SeasonModifiers, k: number): SeasonModifiers {
   return {
     jobs,
     build: damp(m.build),
-    research: m.research,
     morale: m.morale < 0 ? m.morale * k : m.morale,
     food: 1 + (m.food - 1) * k,
     heating: m.heating * k,
@@ -623,7 +582,7 @@ export const isFirstWinter = (s: GameState): boolean => yearOf(s.time) === 1;
 /** Сколько жителей помещается под крышу: только построенные жилые здания. */
 export function roofCapacity(s: GameState): number {
   let cap = 0;
-  for (const b of s.buildings) cap += buildingHousing(s, b);
+  for (const b of s.buildings) cap += buildingHousing(b);
   return cap;
 }
 
@@ -696,7 +655,7 @@ export const population = (s: GameState): number =>
 
 /** К какой морали стремится племя при текущих условиях. */
 export function moraleTarget(s: GameState): number {
-  let t = 50;
+  let t = MORALE_BASE;
   const pop = s.villagers.length;
   const housing = housingCapacity(s);
   if (pop <= housing) t += 10;
@@ -706,9 +665,6 @@ export function moraleTarget(s: GameState): number {
   else if (foodDays >= 3) t += 10;
   else if (foodDays < 1) t -= 8;
   for (const b of s.buildings) t += buildingStat(b, 'morale');
-  if (hasTech(s, 'chiefdom')) t += 6;
-  if (hasTech(s, 'leatherworking')) t += 8;
-  if (hasTech(s, 'traditions')) t += 8;
   t += jobCounts(s).shaman * 5;
   t += Math.min(10, s.prestige / 5);
   t += seasonMods(s).morale;

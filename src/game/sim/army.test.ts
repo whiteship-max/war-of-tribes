@@ -40,7 +40,6 @@ function place(s: GameState, type: BuildingTypeId, level = 1): void {
 /** Племя с казармами, кузницей и запасом: с него начинаются военные проверки. */
 function warband(pop = 10): GameState {
   const s = createInitialState();
-  s.techs.push('chiefdom', 'stone_tools', 'spears', 'warband', 'metallurgy', 'bows');
   while (s.villagers.length < pop) addVillager(s, { age: 24, talent: null });
   for (const v of s.villagers) {
     v.job = 'idle';

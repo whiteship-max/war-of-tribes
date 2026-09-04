@@ -2,7 +2,7 @@
 // на которых держится баланс: рынок всегда дороже собственного труда, дневной
 // лимит не обходится дроблением, а зима не покупается.
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { GameState, GoodId, TechId } from '../types';
+import type { GameState, GoodId } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { buyGoods, cancelCaravan, setTax } from './actions';
@@ -45,34 +45,6 @@ function place(s: GameState, type: Parameters<typeof buildingOfType>[1], level =
   s.buildings.push({ id: s.nextId++, type, slot: s.nextId, level, work: 0, workRequired: 0 });
 }
 
-const ALL_TECHS: TechId[] = [
-  'stone_tools',
-  'woodworking',
-  'bone_tools',
-  'leatherworking',
-  'metallurgy',
-  'iron_working',
-  'housing',
-  'farming',
-  'animal_husbandry',
-  'palisade',
-  'towers',
-  'spears',
-  'warband',
-  'bows',
-  'shields',
-  'axes',
-  'bronze_weapons',
-  'swords',
-  'armor',
-  'chiefdom',
-  'totem',
-  'shamanism',
-  'traditions',
-  'statehood',
-  'trade',
-];
-
 /** Расставляет людей по свободным местам зданий — иначе город ничего не производит. */
 function staff(s: GameState): void {
   for (const b of s.buildings) {
@@ -83,13 +55,12 @@ function staff(s: GameState): void {
 }
 
 /**
- * Поздняя партия: раннее государство, город со всеми постройками и рынком.
- * Именно на таком состоянии и проверяется баланс золота — раньше его просто нет.
+ * Поздняя партия: город со всеми постройками на потолке и рынком.
+ * На таком состоянии и проверяется баланс золота.
  */
 function city(pop = 44, marketLevel = MAX_BUILDING_LEVEL): GameState {
   const s = createInitialState();
   s.tutorialDone = true;
-  s.techs = [...ALL_TECHS];
   while (s.villagers.length < pop) addVillager(s, { age: 26, talent: null });
   for (const v of s.villagers) {
     v.job = 'idle';
@@ -98,7 +69,6 @@ function city(pop = 44, marketLevel = MAX_BUILDING_LEVEL): GameState {
   for (const type of [
     'hut',
     'storage',
-    'knowledge',
     'gathering',
     'sawmill',
     'quarry',
@@ -131,7 +101,6 @@ function city(pop = 44, marketLevel = MAX_BUILDING_LEVEL): GameState {
 function hungryTribe(): GameState {
   const s = createInitialState();
   s.tutorialDone = true;
-  s.techs = [...ALL_TECHS];
   while (s.villagers.length < 30) addVillager(s, { age: 26, talent: null });
   for (const v of s.villagers) {
     v.job = 'idle';
@@ -169,7 +138,6 @@ describe('золото', () => {
 
     // Тот же налог в маленьком посёлке приносит заметно меньше, чем в городе: население — ценность.
     const small = createInitialState();
-    small.techs = [...ALL_TECHS];
     small.tax = 'high';
     expect(taxIncomePerDay(small)).toBeLessThan(taxIncomePerDay(s) / 4);
 

@@ -53,7 +53,6 @@ export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   shelter: 2.3,
   chief_house: 2.6,
   hut: 2.95,
-  knowledge: 2.47,
   storage: 3.2,
   gathering: 2.27,
   sawmill: 2.47,
@@ -104,11 +103,10 @@ const D = Math.PI / 180;
  * быть видно глазом в таблице, а не результат вычисления в трёх местах.
  */
 export const PLAN: Partial<Record<BuildingTypeId, Place>> = {
-  // Первое кольцо: власть, жильё, знание и святилище. Дом вождя — прямо напротив
+  // Первое кольцо: власть, жильё и святилище. Дом вождя — прямо напротив
   // ворот через площадь: его видно, едва войдёшь.
   shelter: { ring: 1, angle: 17.13 * D },
   totem: { ring: 1, angle: 89.13 * D },
-  knowledge: { ring: 1, angle: 161.13 * D },
   chief_house: { ring: 1, angle: 233.13 * D },
   hut: { ring: 1, angle: 305.13 * D },
 
