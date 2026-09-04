@@ -1751,3 +1751,240 @@ body {
   flex: 1 1 100%;
   min-width: 0;
 }
+
+/* ---------- Подготовка боя: схема секторов ---------- */
+
+/*
+ * Шесть клеток в две полосы плюс резерв. Перетаскивания нет нарочно: на 375 px
+ * внутри шторки оно дерётся со скроллом. Клетка — обычная кнопка в тач-размер.
+ */
+.bf {
+  margin-bottom: 10px;
+}
+
+.bf-foe {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.bf-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.bf-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 58px;
+  padding: 7px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bf-cell.wide {
+  width: 100%;
+  min-height: var(--tap);
+}
+
+.bf-cell.empty {
+  border-style: dashed;
+}
+
+.bf-cell.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.14);
+}
+
+.bf-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.1;
+}
+
+.bf-name b {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.bf-cell.on .bf-name b {
+  color: var(--accent);
+}
+
+.bf-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-size: 12px;
+}
+
+.bf-stack em {
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.bf-empty {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Выбор состава сектора — прямо под схемой, без третьего слоя поверх шторки. */
+.bf-edit {
+  padding: 8px;
+  margin-bottom: 10px;
+  background: rgba(232, 164, 60, 0.07);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+}
+
+.bf-edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.bf-edit-head b {
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.bf-edit .slot {
+  background: var(--panel);
+}
+
+/* Приказ роду войск: свёрнутая строка, раскрывается по тапу. */
+.bf-order {
+  margin-bottom: 6px;
+}
+
+.bf-order-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 4px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.bf-order-head .ico {
+  font-size: 18px;
+}
+
+.bf-order-head .who {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.bf-order-head .who .talent {
+  display: block;
+  color: var(--accent);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.bf-order-head .chev {
+  color: var(--muted);
+}
+
+/* ---------- Разведданные: чужое построение ---------- */
+
+.bi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.bi-cell {
+  min-height: 46px;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.bi-name {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.1;
+  margin-bottom: 2px;
+}
+
+/* ---------- Журнал боя ---------- */
+
+.bl {
+  margin-bottom: 10px;
+}
+
+.bl-phase {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.bl-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bl-head b {
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.bl-cost {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bl-line {
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--line);
+}
+
+.bl-line.mine {
+  border-left-color: var(--good);
+}
+
+.bl-line.foe {
+  border-left-color: var(--bad);
+}
+
+.bl-line.muted {
+  color: var(--muted);
+}

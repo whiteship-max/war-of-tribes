@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { alerts, buildingOfType } from '@/game/derived';
 import { tutorialActive } from '@/game/data/tutorial';
-import { incomingMarches, useWorld, worldNow } from '@/world/store';
+import { defenseLock, incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
 
 /**
@@ -15,9 +15,9 @@ import { formatLeft, secondsLeft } from '@/world/geo';
 export function AlertBar() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
-  const openMap = useGame((g) => g.openMap);
-  const mapOpen = useGame((g) => g.mapOpen);
-  const raids = incomingMarches(useWorld((g) => g.marches));
+  const openDefense = useGame((g) => g.openDefense);
+  const marches = useWorld((g) => g.marches);
+  const raids = incomingMarches(marches);
   const [, retick] = useState(0);
 
   // Пока кто-то идёт на нас, счётчик должен тикать каждую секунду сам.
@@ -32,14 +32,20 @@ export function AlertBar() {
 
   return (
     <div className={`alerts${tutorialActive(s) ? ' with-tut' : ''}`}>
-      {raids.map((m) => (
-        <button key={m.id} className="alert raid" onClick={() => !mapOpen && openMap()}>
-          <span className="ic">⚔️</span>
-          <span className="txt">
-            Набег: {m.fromName} · {formatLeft(secondsLeft(m.arriveAt, worldNow()))}
-          </span>
-        </button>
-      ))}
+      {raids.map((m) => {
+        // Тап ведёт туда, где это чинят: к расстановке обороны. После отметки
+        // «минус 5 минут» она заперта — и панель говорит об этом прямо.
+        const frozen = defenseLock([m], worldNow()).frozen;
+        return (
+          <button key={m.id} className="alert raid" onClick={openDefense}>
+            <span className="ic">{frozen ? '🔒' : '⚔️'}</span>
+            <span className="txt">
+              Набег: {m.fromName} · {formatLeft(secondsLeft(m.arriveAt, worldNow()))}
+              {frozen ? ' · оборона заперта' : ''}
+            </span>
+          </button>
+        );
+      })}
       {list.map((a) => {
         const target = a.goto ? buildingOfType(s, a.goto) : null;
         return (

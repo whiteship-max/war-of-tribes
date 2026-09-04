@@ -25,7 +25,13 @@ export type SheetView =
   | { kind: 'tab'; tab: Tab }
   | { kind: 'building'; id: number }
   | { kind: 'world'; x: number; y: number }
-  | { kind: 'marches' };
+  | { kind: 'marches' }
+  /** Подготовка похода на цель: состав, расстановка, план, приказы, резерв. */
+  | { kind: 'battle'; target: string }
+  /** Оборона своей деревни — та же панель без цели и дороги. */
+  | { kind: 'defense' }
+  /** Отчёт о бое с журналом по фазам. */
+  | { kind: 'report'; id: string };
 
 const TICK_MS = 500;
 const AUTOSAVE_MS = 15000;
@@ -60,6 +66,12 @@ export interface GameStore {
   openWorldTile: (x: number, y: number) => void;
   /** Список своих походов и отчётов. */
   openMarches: () => void;
+  /** Подготовка похода на выбранную цель. */
+  openBattle: (target: string) => void;
+  /** Оборона деревни: расстановка, план, резерв, приказы. */
+  openDefense: () => void;
+  /** Отчёт о бое. */
+  openReport: (id: string) => void;
   closeSheet: () => void;
   init: () => Promise<void>;
   /** Выполняет действие игрока; ошибку показывает тостом. */
@@ -125,7 +137,8 @@ export const useGame = create<GameStore>((set, get) => ({
   closeMap: () => {
     const cur = get().sheet;
     // Карточки карты живут только вместе с картой.
-    const keep = cur && cur.kind !== 'world' && cur.kind !== 'marches' ? cur : null;
+    const onMap = cur && (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'battle' || cur.kind === 'report');
+    const keep = cur && !onMap ? cur : null;
     set({ mapOpen: false, sheet: keep });
   },
 
@@ -136,6 +149,18 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   openMarches: () => set({ sheet: { kind: 'marches' } }),
+
+  openBattle: (target) => {
+    haptic('light');
+    set({ sheet: { kind: 'battle', target } });
+  },
+
+  openDefense: () => {
+    haptic('light');
+    set({ sheet: { kind: 'defense' } });
+  },
+
+  openReport: (id) => set({ sheet: { kind: 'report', id } }),
 
   closeSheet: () => set({ sheet: null }),
 

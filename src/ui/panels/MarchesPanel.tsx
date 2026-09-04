@@ -1,5 +1,6 @@
 // Свои походы и отчёты. Отсюда отряд отзывают, здесь же видно, кто идёт на нас.
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useGame } from '@/game/store';
 import { incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { MISSION_BY_ID } from '@/world/data/meta';
@@ -37,10 +38,10 @@ const lootText = (loot: Loot | null): string => {
 };
 
 function ReportCard({ r }: { r: Report }) {
-  const [open, setOpen] = useState(false);
+  const openReport = useGame((g) => g.openReport);
   const icon = REPORT_ICON[r.kind];
   return (
-    <button className={`card as-row report${r.won ? '' : ' lost'}`} onClick={() => setOpen((v) => !v)}>
+    <button className={`card as-row report${r.won ? '' : ' lost'}`} onClick={() => openReport(r.id)}>
       <div className="ico">{icon}</div>
       <div className="body">
         <div className="title">
@@ -48,20 +49,9 @@ function ReportCard({ r }: { r: Report }) {
           {!r.read && <span className="count new">новое</span>}
         </div>
         <div className="desc">{r.text}</div>
-        {open && (
-          <div className="report-detail">
-            <div>Ушли: {unitsText(r.sent)}</div>
-            <div>Потери: {Object.keys(r.lost).length > 0 ? unitsText(r.lost) : 'нет'}</div>
-            {r.enemyPower !== null && (
-              <div>
-                Сила цели: {r.enemyPower}
-                {r.enemyLost !== null ? ` · выбито ${r.enemyLost}` : ''}
-              </div>
-            )}
-            {r.loot && <div>Добыча: {lootText(r.loot)}</div>}
-            <div className="muted">{formatCoord(r.target)}</div>
-          </div>
-        )}
+        <div className="cost">
+          <span className="work">{r.battle ? 'разбор боя →' : 'подробности →'}</span>
+        </div>
       </div>
     </button>
   );
