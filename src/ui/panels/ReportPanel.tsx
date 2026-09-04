@@ -4,7 +4,7 @@
 //
 // Просмотр пока текстовый: прокрутка журнала по фазам. 3D придёт на его место
 // позже — а сейчас это заодно проверяет, что журнал читаемый и осмысленный.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import {
@@ -80,7 +80,7 @@ function Journal({ rec }: { rec: BattleRecord }) {
             ) : (
               events.map((e, i) => (
                 <div className={`bl-line${'side' in e && e.side === rec.us ? ' mine' : ''}`} key={i}>
-                  {describeEvent(e)}
+                  {describeEvent(e, rec.us)}
                 </div>
               ))
             )}
@@ -93,18 +93,31 @@ function Journal({ rec }: { rec: BattleRecord }) {
 
 export function ReportPanel({ id }: { id: string }) {
   const reports = useWorld((g) => g.reports);
+  const loadReports = useWorld((g) => g.loadReports);
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const report = reports.find((r) => r.id === id) ?? null;
+
+  // Отчёт открывают и мимо списка походов — из тоста или после перезагрузки.
+  // Тогда список ещё пуст, и без этого панель врала бы «отчёт не хранится».
+  useEffect(() => {
+    if (reports.length === 0) void loadReports();
+  }, [reports.length, loadReports]);
   const rec = report?.battle ?? null;
   // Несопоставимые силы — смотреть нечего, подставляем итог, что бы ни выбрали раньше.
   const lopsided = rec ? lopsidedness(rec) >= LOPSIDED : false;
   const [watch, setWatch] = useState(() => Boolean(s.battleWatch) && !lopsided);
 
-  if (!report) return <div className="panel">
-    <h2>Отчёт</h2>
-    <div className="desc">Этот отчёт уже не хранится.</div>
-  </div>;
+  if (!report) {
+    return (
+      <div className="panel">
+        <h2>Отчёт</h2>
+        <div className="desc">
+          {reports.length === 0 ? 'Открываем отчёт…' : 'Этот отчёт уже не хранится: место заняли новые.'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="panel">

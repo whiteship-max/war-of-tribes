@@ -34,7 +34,15 @@ export const VERDICT_TITLE: Record<Verdict, string> = {
 
 /** Наша сторона или чужая — отчёт пишется от лица игрока, а не судьи. */
 export const ourWord = (side: Side, us: Side): string => (side === us ? 'наши' : 'чужие');
-const Our = (side: Side, us: Side): string => (side === us ? 'Наши' : 'Чужие');
+
+/**
+ * Притяжательное по роду слова, к которому оно относится. Без этого выходит
+ * «Чужие конница вырубила лучников»: отчёт должен читаться, а не собираться.
+ */
+type Gender = 'm' | 'f' | 'pl';
+const MINE: Record<Gender, string> = { m: 'Наш', f: 'Наша', pl: 'Наши' };
+const THEIRS: Record<Gender, string> = { m: 'Чужой', f: 'Чужая', pl: 'Чужие' };
+const own = (side: Side, us: Side, g: Gender): string => (side === us ? MINE[g] : THEIRS[g]);
 
 /** Сколько строк ключевых событий держит отчёт: больше десятка никто не читает. */
 export const KEYS_MAX = 7;
@@ -55,56 +63,68 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
   switch (e.id) {
     case 'volley':
       if (e.losses < EVENT_MIN) return null;
-      return line(
-        e,
-        '🏹',
-        `${Our(e.side, us)} лучники выбили ${e.losses} до столкновения.`,
-        mine,
-      );
+      return line(e, '🏹', `${own(e.side, us, 'pl')} лучники выбили ${e.losses} до столкновения.`, mine);
     case 'ranged-lost':
       return line(
         e,
         '🎯',
-        `${Our(e.side, us)} проиграли перестрелку: ${e.losses} против ${e.enemyLosses} — в рукопашную пошли с просевшей моралью.`,
+        `${own(e.side, us, 'pl')} проиграли перестрелку: потеряли ${e.losses} против ${e.enemyLosses} — в рукопашную пошли с просевшей моралью.`,
         !mine,
       );
     case 'spears-held':
       return line(
         e,
         '🔱',
-        `${Our(e.side, us)} копейщики (${SECTOR_NAME[e.sector]}) остановили кавалерийский удар: конница потеряла ${e.cavalryLost} против ${e.spearsLost}.`,
+        `${own(e.side, us, 'pl')} копейщики (${SECTOR_NAME[e.sector]}) остановили кавалерийский удар: конница потеряла ${e.cavalryLost} против ${e.spearsLost}.`,
         mine,
       );
     case 'cavalry-broke-archers':
       return line(
         e,
         '🐎',
-        `${Our(e.side, us)} конница вырубила лучников (${SECTOR_NAME[e.target]}): ${e.archersLost} потерь.`,
+        `${own(e.side, us, 'f')} конница вырубила лучников (${SECTOR_NAME[e.target]}): ${e.archersLost} потерь.`,
         mine,
       );
     case 'cavalry-intercepted':
-      return line(e, '🛑', `${Our(e.side, us)} конницу перехватили на подходе к ${SECTOR_NAME[e.target]}.`, !mine);
+      return line(
+        e,
+        '🛑',
+        `${mine ? 'Нашу' : 'Чужую'} конницу перехватили на подходе к ${SECTOR_NAME[e.target]}.`,
+        !mine,
+      );
     case 'flank-turned':
-      return line(e, '↩️', `${SECTOR_NAME[e.sector]} — ${ourWord(e.side, us)} обойдён.`, !mine);
+      return line(e, '↩️', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён — удар пришёл сбоку.`, !mine);
     case 'rear-reached':
-      return line(e, '⚑', `Противник дошёл до тыла: ${SECTOR_NAME[e.sector]} (${ourWord(e.side, us)}).`, !mine);
+      return line(
+        e,
+        '⚑',
+        mine
+          ? `Противник дошёл до нашего тыла (${SECTOR_NAME[e.sector]}).`
+          : `Мы дошли до их тыла (${SECTOR_NAME[e.sector]}).`,
+        !mine,
+      );
     case 'sector-broken':
-      return line(e, '💔', `${SECTOR_NAME[e.sector]} (${ourWord(e.side, us)}) сломался — бойцы побежали.`, !mine);
+      return line(e, '💔', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} сломался — бойцы побежали.`, !mine);
     case 'reserve-committed':
-      return line(e, '🚩', `${Our(e.side, us)} резерв (${e.men}) вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
+      return line(e, '🚩', `${own(e.side, us, 'm')} резерв (${e.men}) вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
     case 'morale-collapsed':
       return line(
         e,
         '🏳️',
-        `${Our(e.side, us)} сломались: бегущие сектора весили ${Math.round(e.brokenShare * 100)}% армии.`,
+        `${own(e.side, us, 'pl')} сломались: бегущие сектора весили ${Math.round(e.brokenShare * 100)}% армии.`,
         !mine,
       );
     case 'annihilated':
-      return line(e, '☠️', `${Our(e.side, us)} перебиты.`, !mine);
+      return line(e, '☠️', `${own(e.side, us, 'pl')} перебиты.`, !mine);
     case 'outfought':
-      return line(e, '⚖️', `${Our(e.side, us)} проиграли размен: сохранили ${e.kept}% против ${e.enemyKept}%.`, !mine);
+      return line(
+        e,
+        '⚖️',
+        `${own(e.side, us, 'pl')} проиграли размен: сохранили ${e.kept}% против ${e.enemyKept}%.`,
+        !mine,
+      );
     case 'pursuit':
-      return line(e, '🏇', `${Our(e.side, us)} преследование добило ${e.losses}.`, mine);
+      return line(e, '🏇', `Преследуя, ${ourWord(e.side, us)} добили ${e.losses}.`, mine);
     default:
       // phase-start, sector-collapsed, panic-spread, infantry-shifted, archers-kiting,
       // retreat, result — они есть в полном журнале, но исход объясняют плохо.

@@ -15,6 +15,14 @@ interface Props {
   onClose: () => void;
 }
 
+/** Заголовок с большой буквы: в журнале сектор пишется строчными, в шапке — нет. */
+const SECTOR_TITLE: Record<Sector, string> = Object.fromEntries(
+  (Object.keys(SECTOR_NAME) as Sector[]).map((id) => [
+    id,
+    SECTOR_NAME[id].charAt(0).toUpperCase() + SECTOR_NAME[id].slice(1),
+  ]),
+) as Record<Sector, string>;
+
 /** Чем этот сектор занят в бою — одна строка, чтобы выбор не был вслепую. */
 const ROLE: Record<Sector, string> = {
   A: 'Фланг. Ломается первым, если в нём нет пехоты-якоря.',
@@ -31,7 +39,7 @@ export function SectorEditor({ sector, here, free, onChange, onClose }: Props) {
   return (
     <div className="bf-edit">
       <div className="bf-edit-head">
-        <b>{sector === 'rest' ? 'Не расставлены' : SECTOR_NAME[sector]}</b>
+        <b>{sector === 'rest' ? 'Не расставлены' : SECTOR_TITLE[sector]}</b>
         <button className="mini text" onClick={onClose}>
           готово
         </button>

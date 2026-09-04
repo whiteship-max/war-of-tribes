@@ -110,6 +110,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
+      // Список мог быть уже открыт: без этого свежий отчёт не появится, пока
+      // игрок не закроет и не откроет панель заново.
+      if (get().reports.length > 0) void get().loadReports();
     }
 
     clockOffset = pulse.now - Date.now();
