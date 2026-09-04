@@ -1,5 +1,5 @@
 import { useGame, type Tab } from '@/game/store';
-import { buildingAttention, freeVillagers, isSite } from '@/game/derived';
+import { buildingAttention, idleCount, isSite } from '@/game/derived';
 import { QUESTS } from '@/game/data/quests';
 
 /**
@@ -16,7 +16,7 @@ export function BottomNav() {
   const sheet = useGame((g) => g.sheet);
   const openTab = useGame((g) => g.openTab);
   const s = useGame((g) => g.s);
-  const idle = freeVillagers(s).length;
+  const idle = idleCount(s);
   const building = s.buildings.some(isSite);
   const openQuests = QUESTS.filter((q) => !s.completedQuests.includes(q.id)).length;
   // Здание, стоящее совсем без рабочих, — единственный сигнал, ради которого стоит

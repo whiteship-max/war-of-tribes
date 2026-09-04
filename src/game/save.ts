@@ -17,14 +17,14 @@ type SavedState = Partial<GameState> & { version?: number };
 
 /**
  * Читает сохранение текущего формата. Сохранения младших версий не приводятся:
- * в них партия шла от костра через эпохи и технологии, и к новому старту в
- * позднем средневековье её не перевести честно — возвращаем null, а loadGame
- * говорит игроку, что партия началась заново.
+ * в шестой версии население стало числом, и списка поимённых жителей из старой
+ * партии девать некуда — возвращаем null, а loadGame говорит игроку, что партия
+ * началась заново.
  */
 export function deserialize(json: string): GameState | null {
   try {
     const data = JSON.parse(json) as SavedState;
-    if (!data || !Array.isArray(data.villagers) || data.version !== SAVE_VERSION) return null;
+    if (!data || typeof data.pop !== 'number' || data.version !== SAVE_VERSION) return null;
     const base = createInitialState();
     // Простое слияние: новые поля из createInitialState, остальное из сохранения.
     const s = {
@@ -37,6 +37,11 @@ export function deserialize(json: string): GameState | null {
       equipment: { ...emptyEquipment(), ...(data.equipment ?? {}) },
       army: { ...emptyArmy(), ...(data.army ?? {}) },
       recruits: data.recruits ?? [],
+      // Назначения — словари счётчиков: их мержить нельзя, иначе исчезнувшее
+      // здание оставило бы за собой рабочих. Берём как есть, а порядок наведёт
+      // normalizeAssignments ниже.
+      workers: { ...(data.workers ?? {}) },
+      freeJobs: { ...(data.freeJobs ?? {}) },
       market: { day: 0, bought: {}, ...(data.market ?? {}) },
       caravans: data.caravans ?? [],
       battlePlans: data.battlePlans ?? [],

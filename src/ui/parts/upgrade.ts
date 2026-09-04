@@ -1,6 +1,6 @@
 import type { Building, GameState } from '@/game/types';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { buildingHousing, buildingStat, levelOutputMult } from '@/game/derived';
+import { buildingHousing, buildingSlots, buildingStat, levelOutputMult } from '@/game/derived';
 
 /**
  * Что именно даст следующий уровень — у склада и у лесопилки это разные вещи.
@@ -13,7 +13,8 @@ export function upgradeGain(s: GameState, b: Building, toLevel: number): string 
   const parts: string[] = [];
   if (def.job) {
     const step = Math.round((levelOutputMult(toLevel) - levelOutputMult(b.level)) * 100);
-    parts.push('+1 рабочее место', `+${step}% к выработке`);
+    const slots = buildingSlots(at(toLevel)) - buildingSlots(at(b.level));
+    parts.push(`+${slots} ${slots === 1 ? 'рабочее место' : 'рабочих мест'}`, `+${step}% к выработке`);
   }
   const housing = buildingHousing(at(toLevel)) - buildingHousing(at(b.level));
   if (housing) parts.push(`+${housing} к жилью`);

@@ -6,6 +6,7 @@ import {
   buildingAttention,
   caravanProgress,
   dayFraction,
+  idleCount,
   isSite,
   seasonOf,
   solarPhase,
@@ -142,6 +143,7 @@ export class TribeScene {
   private silhouetteMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
   private buildings = new Map<number, BuildingView>();
   private agents = new Map<number, VillagerAgent>();
+  private nextAgentId = 1;
   private soldiers: SoldierAgent[] = [];
   /** Все фигурки — жители и бойцы — одним пулом инстансов: девять вызовов на всех. */
   private figures = new FigurePool();
@@ -571,22 +573,22 @@ export class TribeScene {
     if (this.selected !== null) this.setSelected(this.selected);
 
     // Жители. На сцене только свободные руки: назначенный на работу житель с неё
-    // исчезает, снятый — возвращается к костру. Сколько человек на площади,
-    // столько и можно назначить — это и есть весь смысл фигурок. Занятость
-    // показывают сами здания (syncWorkSigns), а не ходьба туда-обратно.
-    const idle = s.villagers.filter((v) => v.job === 'idle').slice(0, MAX_VILLAGERS);
-    const seenV = new Set<number>();
-    for (const v of idle) {
-      seenV.add(v.id);
-      if (this.agents.has(v.id)) continue;
-      const agent = new VillagerAgent(v);
-      this.agents.set(v.id, agent);
-      this.figures.add(agent.figure);
-    }
-    for (const [id, agent] of this.agents) {
-      if (seenV.has(id)) continue;
+    // исчезает, снятый — возвращается к костру. Занятость показывают сами здания
+    // (syncWorkSigns), а не ходьба туда-обратно.
+    //
+    // MAX_VILLAGERS — потолок показа, а не потолок племени: при населении в сотни
+    // толпу всё равно не сосчитать, а счёт свободных рук — весь смысл площади.
+    // Точное число стоит в строке состояния и в «Племени».
+    const shown = Math.min(idleCount(s), MAX_VILLAGERS);
+    while (this.agents.size > shown) {
+      const [id, agent] = [...this.agents][this.agents.size - 1];
       this.figures.remove(agent.figure);
       this.agents.delete(id);
+    }
+    while (this.agents.size < shown) {
+      const agent = new VillagerAgent();
+      this.agents.set(this.nextAgentId++, agent);
+      this.figures.add(agent.figure);
     }
 
     this.syncWorkSigns(s);

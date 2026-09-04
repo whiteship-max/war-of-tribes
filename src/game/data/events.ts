@@ -2,7 +2,7 @@ import type { GameState } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { buildingOfType, dayOf, housingCapacity, isSite, jobCounts, storageCap } from '../derived';
 import { resolveBattle } from '../sim/battle';
-import { addVillager, killRandomVillager } from '../sim/population';
+import { addPop, famineToll, killPop } from '../sim/population';
 import { chance, rnd } from '../sim/random';
 import { log } from '../sim/log';
 
@@ -36,16 +36,16 @@ export const EVENTS: EventDef[] = [
     icon: '🚶',
     title: 'Чужак у костра',
     text: 'К лагерю вышел человек из дальних земель. Он голоден и просит принять его в племя.',
-    weight: (s) => (s.villagers.length < housingCapacity(s) + 2 ? 3 : 1),
+    weight: (s) => (s.pop < housingCapacity(s) ? 3 : 1),
     options: [
       {
         label: 'Принять',
         hint: '−10 еды, +1 житель',
         apply: (s) => {
           addRes(s, 'food', -10);
-          const v = addVillager(s);
-          log(s, `${v.name} присоединился к племени.`, 'good');
-          return `${v.name} теперь часть племени.`;
+          const n = addPop(s, 1);
+          log(s, `Чужак принят в племя: +${n} чел.`, 'good');
+          return 'Чужак теперь часть племени.';
         },
       },
       {
@@ -138,18 +138,16 @@ export const EVENTS: EventDef[] = [
     icon: '⭐',
     title: 'Мастер своего дела',
     text: 'К племени пришёл опытный человек и просит еду за свои умения.',
-    weight: (s) => (s.villagers.length >= 6 ? 1.5 : 0.5),
+    weight: (s) => (s.pop >= 6 ? 1.5 : 0.5),
     options: [
       {
         label: 'Взять к себе',
         hint: '−20 еды, специалист',
         apply: (s) => {
           addRes(s, 'food', -20);
-          const talents = ['hunter', 'crafter', 'smith', 'woodcutter'] as const;
-          const t = talents[Math.floor(rnd() * talents.length)];
-          const v = addVillager(s, { talent: t, age: 25 + Math.floor(rnd() * 10) });
-          log(s, `${v.name} — талантливый специалист — в племени.`, 'good');
-          return `${v.name} присоединился. Талант: ${t === 'hunter' ? 'охота' : t === 'crafter' ? 'ремесло' : t === 'smith' ? 'кузня' : 'лес'}.`;
+          addPop(s, 1);
+          log(s, 'Мастер своего дела принят в племя.', 'good');
+          return 'Мастер остался в племени.';
         },
       },
       { label: 'Отказать', apply: () => 'Мастер ушёл к соседям.' },
@@ -180,7 +178,7 @@ export const EVENTS: EventDef[] = [
     icon: '🤒',
     title: 'Болезнь',
     text: 'Один из жителей тяжело заболел.',
-    weight: (s) => (s.villagers.length >= 5 ? 1.5 : 0),
+    weight: (s) => (s.pop >= 5 ? 1.5 : 0),
     options: [
       {
         label: 'Ритуал шамана',
@@ -191,8 +189,8 @@ export const EVENTS: EventDef[] = [
             return 'Шаман провёл ритуал. Больной выздоровел, племя воодушевлено.';
           }
           if (chance(0.5)) {
-            killRandomVillager(s, 'болезнь');
-            return 'Без шамана ритуал не помог. Племя потеряло человека.';
+            const n = killPop(s, famineToll(s), 'болезнь');
+            return `Без шамана ритуал не помог. Племя потеряло ${n} чел.`;
           }
           return 'Ритуала не было, но больной выкарабкался сам.';
         },
@@ -210,9 +208,9 @@ export const EVENTS: EventDef[] = [
         hint: 'Риск',
         apply: (s) => {
           if (chance(0.5)) {
-            killRandomVillager(s, 'болезнь');
+            const n = killPop(s, famineToll(s), 'болезнь');
             s.morale = Math.max(0, s.morale - 5);
-            return 'Больной умер. Племя скорбит.';
+            return `Болезнь унесла ${n} чел. Племя скорбит.`;
           }
           return 'Больному повезло: он выздоровел.';
         },

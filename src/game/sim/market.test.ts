@@ -7,7 +7,6 @@ import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { buyGoods, cancelCaravan, setTax } from './actions';
 import { marketCheck } from './market';
-import { addVillager } from './population';
 import { assignWorker } from './workers';
 import { seeded, setRandom } from './random';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
@@ -57,14 +56,12 @@ function staff(s: GameState): void {
  * Поздняя партия: город со всеми постройками на потолке и рынком.
  * На таком состоянии и проверяется баланс золота.
  */
-function city(pop = 44, marketLevel = MAX_BUILDING_LEVEL): GameState {
+function city(pop = 700, marketLevel = MAX_BUILDING_LEVEL): GameState {
   const s = createInitialState();
   s.tutorialDone = true;
-  while (s.villagers.length < pop) addVillager(s, { age: 26, talent: null });
-  for (const v of s.villagers) {
-    v.job = 'idle';
-    v.workplace = null;
-  }
+  s.pop = pop;
+  s.workers = {};
+  s.freeJobs = {};
   for (const type of [
     'hut',
     'storage',
@@ -87,7 +84,7 @@ function city(pop = 44, marketLevel = MAX_BUILDING_LEVEL): GameState {
   }
   place(s, 'market', marketLevel);
   staff(s);
-  s.resources = { wood: 400, stone: 400, food: 400, hides: 100, bones: 100, copper: 100, iron: 100 };
+  s.resources = { wood: 4000, stone: 4000, food: 4000, hides: 1000, bones: 1000, copper: 1000, iron: 1000 };
   s.morale = moraleTarget(s);
   return s;
 }
@@ -100,11 +97,9 @@ function city(pop = 44, marketLevel = MAX_BUILDING_LEVEL): GameState {
 function hungryTribe(): GameState {
   const s = createInitialState();
   s.tutorialDone = true;
-  while (s.villagers.length < 30) addVillager(s, { age: 26, talent: null });
-  for (const v of s.villagers) {
-    v.job = 'idle';
-    v.workplace = null;
-  }
+  s.pop = 240;
+  s.workers = {};
+  s.freeJobs = {};
   for (const type of ['hut', 'storage', 'sawmill', 'quarry', 'mine', 'chief_house'] as const) {
     place(s, type, 5);
   }
@@ -118,7 +113,7 @@ function hungryTribe(): GameState {
       if (assignWorker(s, b.id) !== null) break;
     }
   }
-  s.resources = { wood: 200, stone: 100, food: 120, hides: 20, bones: 20, copper: 0, iron: 0 };
+  s.resources = { wood: 2000, stone: 1000, food: 1200, hides: 200, bones: 200, copper: 0, iron: 0 };
   s.morale = moraleTarget(s);
   return s;
 }
@@ -280,9 +275,9 @@ describe('рынок', () => {
     // дневной запас еды меньше того, что посёлок этого размера съедает за день.
     // Значит, рынком можно заткнуть дыру, но нельзя сесть на него вместо полей.
     for (const [pop, level] of [
-      [12, 1],
-      [26, 5],
-      [44, MAX_BUILDING_LEVEL],
+      [120, 1],
+      [350, 5],
+      [700, MAX_BUILDING_LEVEL],
     ] as const) {
       const s = city(pop, level);
       s.time = (SEASONS.indexOf('winter') + SEASONS.length) * SEASON_SECONDS;

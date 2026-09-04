@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Building, BuildingTypeId, GameState, JobId, Season } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
-import { startUpgrade, resolveEvent } from './actions';
-import { assignWorker, autoAssign, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
-import { addVillager } from './population';
+import { startUpgrade, resolveEvent, setTax } from './actions';
+import { assignWorker, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
+import { popGrowth } from './population';
 import { seeded, setRandom } from './random';
 import {
   buildingOfType,
@@ -22,13 +22,14 @@ import {
   productionPerDay,
   seasonDayOf,
   seasonOf,
+  idleCount,
+  moraleTarget,
   storageCap,
   winterForecast,
   workerCount,
-  workersIn,
   yearOf,
 } from '../derived';
-import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL, MORALE_GROWTH_ZERO, RESOURCE_IDS, SLOTS_PER_LEVEL } from '../constants';
 import { BUILDINGS, BUILDING_BY_ID } from '../data/buildings';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS, YEAR_DAYS } from '../data/seasons';
 import { QUESTS } from '../data/quests';
@@ -60,11 +61,8 @@ function place(s: GameState, type: BuildingTypeId, level = 1): Building {
 
 /** Отправляет всех по домам: чистая доска для расчётов выработки. */
 function idleAll(s: GameState): void {
-  for (const v of s.villagers) {
-    v.job = 'idle';
-    v.workplace = null;
-    v.talent = null;
-  }
+  s.workers = {};
+  s.freeJobs = {};
 }
 
 describe('симуляция', () => {
@@ -74,8 +72,8 @@ describe('симуляция', () => {
     expect(types).toEqual(BUILDINGS.map((d) => d.id).sort());
     expect(s.buildings.every((b) => b.level === 1 && !isSite(b))).toBe(true);
     expect(buildingOfType(s, 'palisade')).not.toBeNull();
-    // Людей столько, сколько жилья, и у костра есть свободные руки.
-    expect(s.villagers.length).toBeLessThanOrEqual(housingCapacity(s));
+    // Людей меньше, чем жилья, и у костра есть свободные руки.
+    expect(s.pop).toBeLessThanOrEqual(housingCapacity(s));
     expect(jobCounts(s).idle).toBeGreaterThanOrEqual(3);
   });
 
@@ -92,31 +90,50 @@ describe('симуляция', () => {
   it('работники производят ресурсы, жители едят', () => {
     const s = createInitialState();
     const wood0 = s.resources.wood;
+    const mill = buildingOfType(s, 'sawmill')!;
+    const crew = workerCount(s, mill.id);
+    expect(crew).toBeGreaterThan(0);
     catchUp(s, DAY_LENGTH, 0.5);
-    // Один лесоруб на лесопилке первого уровня: 9 в день с поправкой на мораль.
-    expect(s.resources.wood - wood0).toBeGreaterThan(6);
-    expect(s.resources.wood - wood0).toBeLessThan(11);
+    // Лесорубы на лесопилке первого уровня: по 9 в день с поправкой на мораль.
+    expect(s.resources.wood - wood0).toBeGreaterThan(crew * 6);
+    expect(s.resources.wood - wood0).toBeLessThan(crew * 11);
   });
 
-  it('голод убивает жителя', () => {
+  it('голод забирает не одного человека, а долю посёлка', () => {
     const s = createInitialState();
-    const pop0 = s.villagers.length;
+    const pop0 = s.pop;
     s.resources.food = 0;
-    for (const v of s.villagers) {
-      v.job = 'woodcutter';
-      v.workplace = null;
-    }
+    // Все на лес: еду никто не добывает.
+    idleAll(s);
+    changeFreeJob(s, 'woodcutter', pop0);
     catchUp(s, DAY_LENGTH * 5, 1);
-    expect(s.villagers.length).toBeLessThan(pop0);
+    expect(s.pop).toBeLessThan(pop0);
+    // Убыль считается долей населения — на тридцати душах это уже не один человек.
+    expect(s.stats.died).toBeGreaterThan(1);
   });
 
-  it('население растёт при наличии жилья и еды', () => {
+  it('население растёт при наличии жилья, еды и морали', () => {
     const s = createInitialState();
-    const pop0 = s.villagers.length;
-    s.resources.food = 100;
+    const pop0 = s.pop;
+    s.resources.food = 3000;
+    s.morale = 90;
     place(s, 'hut', 3);
-    catchUp(s, 200, 1);
-    expect(s.villagers.length).toBeGreaterThan(pop0);
+    catchUp(s, 4 * DAY_LENGTH, 1);
+    expect(s.pop).toBeGreaterThan(pop0);
+  });
+
+  it('при низкой морали племя не растёт, а разбегается', () => {
+    const s = createInitialState();
+    s.resources.food = 3000;
+    place(s, 'hut', 3);
+    s.morale = 10;
+    // Мораль держим низкой нарочно: проверяем именно её вклад в прирост.
+    const pop0 = s.pop;
+    for (let i = 0; i < 4 * DAY_LENGTH; i++) {
+      s.morale = 10;
+      tick(s, 1, { offline: true });
+    }
+    expect(s.pop).toBeLessThan(pop0);
   });
 
   it('офлайн-догон не запускает события', () => {
@@ -148,7 +165,7 @@ describe('симуляция', () => {
     expect(assignWorker(s, buildingOfType(s, 'smithy')!.id)).toBeNull();
     tick(s, 0.5);
     expect(s.completedQuests).toContain('smith_at_work');
-    expect(s.resources.stone).toBeGreaterThan(stone0 + 10);
+    expect(s.resources.stone).toBeGreaterThan(stone0 + 100);
   });
 
   it('задания — про армию, снаряжение, разведку и походы, а не про стройку', () => {
@@ -184,23 +201,34 @@ describe('здания', () => {
     expect(two).toBeCloseTo(one * 2 * 1.1, 5);
   });
 
-  it('слоты не переполняются: мест столько же, сколько уровней', () => {
+  it('слоты не переполняются: мест столько, сколько даёт уровень', () => {
     const s = createInitialState();
     idleAll(s);
     const mill = place(s, 'sawmill', 1);
-    expect(buildingSlots(mill)).toBe(1);
-    expect(assignWorker(s, mill.id)).toBeNull();
+    expect(buildingSlots(mill)).toBe(SLOTS_PER_LEVEL);
+    expect(assignWorker(s, mill.id, 99)).toBeNull();
+    expect(workerCount(s, mill.id)).toBe(SLOTS_PER_LEVEL);
     expect(assignWorker(s, mill.id)).toMatch(/места заняты/);
-    expect(workerCount(s, mill.id)).toBe(1);
 
-    // Даже если лишнего вписали в обход действий, нормализация выставит его со слота.
-    s.villagers[3].job = 'woodcutter';
-    s.villagers[3].workplace = mill.id;
-    expect(workerCount(s, mill.id)).toBe(2);
+    // Даже если лишних вписали в обход действий, нормализация их выставит.
+    s.workers[mill.id] = SLOTS_PER_LEVEL + 5;
     normalizeAssignments(s);
-    expect(workerCount(s, mill.id)).toBe(1);
-    // Профессия у него остаётся: без места это просто вольный сбор.
-    expect(s.villagers[3].workplace).toBeNull();
+    expect(workerCount(s, mill.id)).toBe(SLOTS_PER_LEVEL);
+  });
+
+  it('больше, чем есть людей, назначить нельзя ни разом, ни в обход', () => {
+    const s = createInitialState();
+    idleAll(s);
+    const mill = place(s, 'sawmill', 10);
+    expect(assignWorker(s, mill.id, 999)).toBeNull();
+    expect(workerCount(s, mill.id)).toBe(s.pop);
+    expect(idleCount(s)).toBe(0);
+
+    // Убыль населения не оставляет посёлок с рабочими, которых нет.
+    s.pop = 5;
+    normalizeAssignments(s);
+    expect(workerCount(s, mill.id)).toBe(5);
+    expect(idleCount(s)).toBe(0);
   });
 
   it('вольный сбор без здания работает вполсилы', () => {
@@ -235,13 +263,13 @@ describe('здания', () => {
     assignWorker(s, mill.id);
     expect(unassignWorker(s, mill.id)).toBeNull();
     expect(workerCount(s, mill.id)).toBe(0);
-    expect(jobCounts(s).idle).toBe(s.villagers.length);
+    expect(jobCounts(s).idle).toBe(s.pop);
   });
 
   it('улучшение идёт как стройка и добавляет место', () => {
     const s = createInitialState();
     idleAll(s);
-    s.resources.wood = 200;
+    s.resources.wood = 2000;
     const mill = place(s, 'sawmill', 1);
     assignWorker(s, mill.id);
     expect(startUpgrade(s, mill.id)).toBeNull();
@@ -250,10 +278,10 @@ describe('здания', () => {
     expect(workerCount(s, mill.id)).toBe(1);
     expect(productionPerDay(s).wood).toBeGreaterThan(0);
 
-    catchUp(s, 60, 1);
+    catchUp(s, 300, 1);
     expect(mill.level).toBe(2);
     expect(isSite(mill)).toBe(false);
-    expect(buildingSlots(mill)).toBe(2);
+    expect(buildingSlots(mill)).toBe(2 * SLOTS_PER_LEVEL);
     expect(assignWorker(s, mill.id)).toBeNull();
   });
 
@@ -264,12 +292,12 @@ describe('здания', () => {
       expect(seen.has(b.type), `${b.type} стоит дважды`).toBe(false);
       seen.add(b.type);
     }
-    s.resources.wood = 500;
-    s.resources.stone = 500;
+    s.resources.wood = 5000;
+    s.resources.stone = 5000;
     const mill = buildingOfType(s, 'sawmill')!;
     expect(startUpgrade(s, mill.id)).toBeNull();
     expect(startUpgrade(s, mill.id)).toMatch(/уже идёт/);
-    catchUp(s, 60, 1);
+    catchUp(s, 300, 1);
     expect(mill.level).toBe(2);
     expect(s.buildings.filter((b) => b.type === 'sawmill')).toHaveLength(1);
   });
@@ -277,50 +305,50 @@ describe('здания', () => {
   it('улучшение не отключает здание: рабочие на местах, выработка не падает', () => {
     const s = createInitialState();
     idleAll(s);
-    s.resources.wood = 500;
+    s.resources.wood = 5000;
     s.morale = 60;
     const mill = place(s, 'sawmill', 2);
-    expect(assignWorker(s, mill.id)).toBeNull();
-    expect(assignWorker(s, mill.id)).toBeNull();
+    expect(assignWorker(s, mill.id, 2)).toBeNull();
     const before = productionPerDay(s).wood;
-    const crew = workersIn(s, mill.id).map((v) => v.id).sort();
+    const crew = workerCount(s, mill.id);
+    expect(crew).toBe(2);
 
     expect(startUpgrade(s, mill.id)).toBeNull();
     expect(isSite(mill)).toBe(true);
     // Слоты не сбросились, люди не слетели, выработка та же самая.
-    expect(buildingSlots(mill)).toBe(2);
-    expect(workersIn(s, mill.id).map((v) => v.id).sort()).toEqual(crew);
+    expect(buildingSlots(mill)).toBe(2 * SLOTS_PER_LEVEL);
+    expect(workerCount(s, mill.id)).toBe(crew);
     expect(productionPerDay(s).wood).toBeCloseTo(before, 6);
 
     // И нормализация назначений на тике их тоже не трогает.
     tick(s, 1);
-    expect(workersIn(s, mill.id).map((v) => v.id).sort()).toEqual(crew);
+    expect(workerCount(s, mill.id)).toBe(crew);
 
-    catchUp(s, 300, 1);
+    catchUp(s, 600, 1);
     s.morale = 60;
     expect(mill.level).toBe(3);
     expect(isSite(mill)).toBe(false);
-    // Новый слот добавился к старым, а не вместо них.
-    expect(buildingSlots(mill)).toBe(3);
-    expect(workersIn(s, mill.id).map((v) => v.id).sort()).toEqual(crew);
+    // Новые слоты добавились к старым, а не вместо них.
+    expect(buildingSlots(mill)).toBe(3 * SLOTS_PER_LEVEL);
+    expect(workerCount(s, mill.id)).toBe(crew);
     expect(productionPerDay(s).wood).toBeGreaterThan(before);
   });
 
   it('после улучшения эффекты вырастают ровно на шаг уровня', () => {
     const s = createInitialState();
-    s.resources.wood = 4000;
-    s.resources.stone = 4000;
+    s.resources.wood = 40000;
+    s.resources.stone = 40000;
     const hut = place(s, 'hut', 1);
     const housing0 = housingCapacity(s);
     expect(startUpgrade(s, hut.id)).toBeNull();
-    catchUp(s, 200, 1);
+    catchUp(s, 1200, 1);
     expect(hut.level).toBe(2);
     expect(housingCapacity(s) - housing0).toBe(BUILDING_BY_ID.hut.perLevel?.housing);
 
     const store = buildingOfType(s, 'storage')!;
     const cap0 = storageCap(s);
     expect(startUpgrade(s, store.id)).toBeNull();
-    catchUp(s, 200, 1);
+    catchUp(s, 1200, 1);
     expect(store.level).toBe(2);
     expect(storageCap(s) - cap0).toBe(BUILDING_BY_ID.storage.perLevel?.storage);
 
@@ -329,12 +357,13 @@ describe('здания', () => {
     expect(levelOutputMult(mill.level + 1) - levelOutputMult(mill.level)).toBeCloseTo(0.1, 6);
   });
 
-  it('на потолке уровней мест работы примерно столько же, сколько людей', () => {
+  it('на потолке уровней посёлок держит сотни людей, а мест работы примерно столько же', () => {
     const s = createInitialState();
     for (const def of BUILDINGS) place(s, def.id, def.maxLevel ?? MAX_BUILDING_LEVEL);
-    // На потолке: 40+ человек под крышей одной хижины и одного укрытия.
+    // Игра идёт к боям в сотни бойцов: посёлок на потолке — это 600–1000 человек.
     const housing = housingCapacity(s);
-    expect(housing).toBeGreaterThanOrEqual(40);
+    expect(housing).toBeGreaterThanOrEqual(600);
+    expect(housing).toBeLessThanOrEqual(1000);
     expect(maxLevelFor('hut')).toBe(MAX_BUILDING_LEVEL);
 
     // Пять зданий добычи можно укомплектовать целиком — это и есть рабочее ядро посёлка.
@@ -352,17 +381,87 @@ describe('здания', () => {
     idleAll(s);
     const mill = place(s, 'sawmill');
     const farm = place(s, 'farm');
-    assignWorker(s, mill.id);
-    assignWorker(s, farm.id);
+    assignWorker(s, mill.id, 3);
+    assignWorker(s, farm.id, 2);
     s.buildings.splice(s.buildings.indexOf(mill), 1);
     s.buildings.splice(s.buildings.indexOf(farm), 1);
     tick(s, 0.5);
-    // Лесоруб уходит на вольный сбор — руки без сарая работают вполсилы, но работают.
-    expect(jobCounts(s).woodcutter).toBe(1);
-    expect(s.villagers.every((v) => v.workplace === null)).toBe(true);
-    // Фермеру без поля делать нечего: он возвращается к костру.
+    // Записи о снесённых зданиях не остаются: все руки вернулись к костру.
+    expect(s.workers[mill.id]).toBeUndefined();
+    expect(s.workers[farm.id]).toBeUndefined();
+    expect(jobCounts(s).woodcutter).toBe(0);
     expect(jobCounts(s).farmer).toBe(0);
-    expect(jobCounts(s).idle).toBe(s.villagers.length - 1);
+    expect(jobCounts(s).idle).toBe(s.pop);
+  });
+});
+
+// ---------- Прирост населения ----------
+//
+// Рождений поимённо, старения и смерти от старости нет. Вместо них прирост:
+// свободное жильё, запас еды и мораль. Мораль — единственный множитель, умеющий
+// уйти в минус, и это цена налога и скудного пайка.
+
+describe('прирост населения', () => {
+  /** Посёлок, которому ничто не мешает расти, кроме заданной морали. */
+  const growing = (morale: number): GameState => {
+    const s = createInitialState();
+    s.tutorialDone = true;
+    place(s, 'hut', 6);
+    s.resources.food = 20000;
+    s.morale = morale;
+    return s;
+  };
+
+  it('мораль двигает прирост так же заметно, как выработку', () => {
+    const low = popGrowth(growing(55)).perDay;
+    const high = popGrowth(growing(95)).perDay;
+    expect(low).toBeGreaterThan(0);
+    // Между «еле держимся» и «племя довольно» разница в разы, а не в проценты.
+    expect(high).toBeGreaterThan(low * 3);
+  });
+
+  it('ниже порога прирост уходит в минус: недовольное племя разбегается', () => {
+    expect(popGrowth(growing(MORALE_GROWTH_ZERO)).perDay).toBeCloseTo(0, 6);
+    const leaving = popGrowth(growing(20));
+    expect(leaving.perDay).toBeLessThan(0);
+    expect(leaving.blocked).toMatch(/уходят/);
+  });
+
+  it('люди уходят даже при полном жилье и полных закромах', () => {
+    // Мораль не про крышу и не про кашу: её не выкупить запасами.
+    const s = growing(20);
+    expect(popGrowth(s).housing).toBe(1);
+    expect(popGrowth(s).food).toBe(1);
+    expect(popGrowth(s).perDay).toBeLessThan(0);
+  });
+
+  it('без свободного жилья и без запаса еды прироста нет', () => {
+    const full = growing(95);
+    full.pop = housingCapacity(full);
+    expect(popGrowth(full).perDay).toBe(0);
+    expect(popGrowth(full).blocked).toMatch(/жиль/);
+
+    const hungry = growing(95);
+    hungry.resources.food = 0;
+    expect(popGrowth(hungry).perDay).toBe(0);
+    expect(popGrowth(hungry).blocked).toMatch(/еды/);
+  });
+
+  it('налог виден дважды: и в казне, и в том, что племя перестаёт расти', () => {
+    const s = growing(80);
+    // Мораль приводим к цели, как это сделал бы тик.
+    s.morale = moraleTarget(s);
+    const before = popGrowth(s).perDay;
+    setTax(s, 'high');
+    s.morale = moraleTarget(s);
+    expect(popGrowth(s).perDay).toBeLessThan(before);
+  });
+
+  it('прирост не перепрыгивает вместимость жилья', () => {
+    const s = growing(100);
+    catchUp(s, 40 * DAY_LENGTH, 1);
+    expect(s.pop).toBeGreaterThan(30);
+    expect(s.pop).toBeLessThanOrEqual(housingCapacity(s));
   });
 });
 
@@ -385,7 +484,7 @@ describe('старт партии', () => {
     catchUp(s, 5 * DAY_LENGTH - s.time, 0.5);
 
     expect(armySize(s)).toBe(1);
-    expect(s.villagers.length).toBeGreaterThanOrEqual(9);
+    expect(s.pop).toBeGreaterThanOrEqual(25);
     expect(s.resources.food).toBeGreaterThan(food0 * 0.5);
     expect(s.resources.wood).toBeGreaterThan(0);
   });
@@ -406,18 +505,19 @@ function atSeason(s: GameState, season: Season, year: number): void {
  */
 function tribe(pop: number, food: number, wood: number): GameState {
   const s = createInitialState();
-  s.army.spearman = 12;
-  while (s.villagers.length < pop) addVillager(s, { age: 24, talent: null });
+  s.army.spearman = 40;
+  s.pop = pop;
   idleAll(s);
   // Каждого типа по одному: жильё и склад набирают своё уровнями, а не числом срубов.
-  place(s, 'hut', Math.max(1, Math.ceil((pop - 9) / 4) + 1));
+  place(s, 'hut', Math.max(1, Math.ceil((pop - 55) / 60) + 1));
   place(s, 'storage', 2);
-  place(s, 'farm', 2);
-  place(s, 'gathering', 2);
-  autoAssign(s);
-  // Лесоруба нарочно нет: дрова у такого племени только со склада, и зима
-  // спрашивает за них так же, как за еду.
-  for (const v of s.villagers) if (v.job === 'woodcutter') unassignWorker(s, v.workplace!, v.id);
+  place(s, 'farm', 4);
+  place(s, 'gathering', 1);
+  // Ставка на земледелие: большинство в поле, немного на сборе. Лесорубов нет
+  // нарочно — дрова у такого племени только со склада, и зима спрашивает за них
+  // так же, как за еду.
+  assignWorker(s, buildingOfType(s, 'farm')!.id, Math.round(pop * 0.6));
+  assignWorker(s, buildingOfType(s, 'gathering')!.id, Math.round(pop * 0.1));
   // Награды за задания посыпались бы в первый же тик и подменили бы собой запас,
   // а проверяем мы именно запас — поэтому задания считаем уже закрытыми.
   s.completedQuests = QUESTS.map((q) => q.id);
@@ -427,34 +527,33 @@ function tribe(pop: number, food: number, wood: number): GameState {
   return s;
 }
 
-/** Снимает одного жителя с работы, откуда бы он ни работал. */
-function release(s: GameState, job: JobId): void {
-  const v = [...s.villagers].reverse().find((x) => x.job === job);
-  if (!v) return;
-  if (v.workplace !== null) unassignWorker(s, v.workplace, v.id);
-  else changeFreeJob(s, job, -1);
+/** Снимает `n` человек с работы этой профессии, откуда бы они ни работали. */
+function release(s: GameState, job: JobId, n = 1): void {
+  const b = s.buildings.find((x) => BUILDING_BY_ID[x.type].job === job && workerCount(s, x.id) > 0);
+  if (b) unassignWorker(s, b.id, n);
+  else changeFreeJob(s, job, -n);
 }
 
-/** Ставит человека на работу: место в здании вдвое выгоднее вольного сбора. */
-function hire(s: GameState, job: JobId): boolean {
+/** Ставит `n` человек на работу: место в здании вдвое выгоднее вольного сбора. */
+function hire(s: GameState, job: JobId, n = 1): boolean {
   const b = s.buildings.find(
     (x) => BUILDING_BY_ID[x.type].job === job && x.level > 0 && workerCount(s, x.id) < buildingSlots(x),
   );
-  return (b ? assignWorker(s, b.id) : changeFreeJob(s, job, 1)) === null;
+  return (b ? assignWorker(s, b.id, n) : changeFreeJob(s, job, n)) === null;
 }
 
 /** Кого и сколько держать на работах при нынешнем размере племени. */
 function wanted(s: GameState): [JobId, number][] {
-  const n = s.villagers.length;
+  const n = s.pop;
   return [
     ['gatherer', Math.max(2, Math.round(n * 0.2))],
     ['woodcutter', Math.max(1, Math.round(n * 0.2))],
     ['hunter', Math.max(1, Math.round(n * 0.15))],
     ['stonecutter', n >= 8 ? Math.max(1, Math.round(n * 0.12)) : 0],
     ['farmer', Math.round(n * 0.15)],
-    ['miner', 2],
-    ['crafter', 1],
-    ['smith', 1],
+    ['miner', Math.max(2, Math.round(n * 0.05))],
+    ['crafter', Math.max(1, Math.round(n * 0.04))],
+    ['smith', Math.max(1, Math.round(n * 0.02))],
   ];
 }
 
@@ -465,7 +564,7 @@ function wanted(s: GameState): [JobId, number][] {
 function nextSite(s: GameState): void {
   if (s.buildings.some(isSite)) return;
   // Жильё — узкое место: пока селить некуда, племя не растёт.
-  if (s.villagers.length >= housingCapacity(s) - 1) {
+  if (s.pop >= housingCapacity(s) - 1) {
     const hut = buildingOfType(s, 'hut')!;
     if (startUpgrade(s, hut.id) === null) return;
   }
@@ -485,13 +584,14 @@ function nextSite(s: GameState): void {
 function autopilot(s: GameState): void {
   const wants = wanted(s);
   for (const [job, want] of wants) {
-    while (jobCounts(s)[job] > want) release(s, job);
+    const over = jobCounts(s)[job] - want;
+    if (over > 0) release(s, job, over);
   }
   for (const [job, want] of wants) {
-    // Двоих всегда держим свободными: стройка идёт их руками.
-    while (jobCounts(s)[job] < want && jobCounts(s).idle > 2) {
-      if (!hire(s, job)) break;
-    }
+    // Десятую часть всегда держим свободной: стройка идёт их руками.
+    const spare = Math.max(2, Math.round(s.pop * 0.1));
+    const need = Math.min(want - jobCounts(s)[job], idleCount(s) - spare);
+    if (need > 0) hire(s, job, need);
   }
   nextSite(s);
 }
@@ -532,22 +632,22 @@ describe('сезоны', () => {
   });
 
   it('племя с запасом еды и дров переживает зиму без потерь', () => {
-    const s = tribe(12, 400, 200);
+    const s = tribe(60, 4000, 2000);
     atSeason(s, 'winter', 2);
-    const pop = s.villagers.length;
+    const pop = s.pop;
     catchUp(s, SEASON_SECONDS, 1);
-    expect(s.villagers.length).toBeGreaterThanOrEqual(pop);
+    expect(s.pop).toBeGreaterThanOrEqual(pop);
     expect(s.stats.died).toBe(0);
     expect(s.freezing).toBe(0);
     expect(s.morale).toBeGreaterThan(35);
   });
 
   it('племя без запаса теряет мораль и людей — зима реально опасна', () => {
-    const s = tribe(12, 0, 0);
+    const s = tribe(60, 0, 0);
     atSeason(s, 'winter', 2);
     const morale0 = s.morale;
     catchUp(s, SEASON_SECONDS, 1);
-    expect(s.villagers.length).toBeLessThan(12);
+    expect(s.pop).toBeLessThan(60);
     expect(s.stats.died).toBeGreaterThan(0);
     // Мораль проседает, но не до нуля: с потерями ртов становится меньше, и племя
     // к концу зимы уже кое-как кормит себя само.
@@ -556,40 +656,40 @@ describe('сезоны', () => {
   });
 
   it('первая зима мягче последующих', () => {
-    const first = tribe(12, 25, 6);
+    const first = tribe(60, 125, 30);
     atSeason(first, 'winter', 1);
-    const later = tribe(12, 25, 6);
+    const later = tribe(60, 125, 30);
     atSeason(later, 'winter', 2);
     expect(heatingWoodPerDay(first)).toBeLessThan(heatingWoodPerDay(later));
     expect(foodConsumptionPerDay(first)).toBeLessThan(foodConsumptionPerDay(later));
     catchUp(first, SEASON_SECONDS, 1);
     setRandom(seeded(42));
     catchUp(later, SEASON_SECONDS, 1);
-    expect(first.villagers.length).toBeGreaterThanOrEqual(later.villagers.length);
+    expect(first.pop).toBeGreaterThanOrEqual(later.pop);
     expect(first.stats.died).toBeLessThanOrEqual(later.stats.died);
     expect(first.morale).toBeGreaterThan(later.morale);
   });
 
   it('за игровой год население растёт, а не вымирает', () => {
     const s = createInitialState();
-    const pop0 = s.villagers.length;
+    const pop0 = s.pop;
     play(s, YEAR_DAYS);
     expect(yearOf(s.time)).toBe(2);
-    expect(s.villagers.length).toBeGreaterThan(pop0);
+    expect(s.pop).toBeGreaterThan(pop0);
   });
 
   it('за три года при разумной игре племя развивается, а не топчется на месте', () => {
     const s = createInitialState();
     play(s, YEAR_DAYS * 3);
-    expect(s.villagers.length).toBeGreaterThanOrEqual(18);
+    expect(s.pop).toBeGreaterThanOrEqual(60);
     // Развитие идёт уровнями: хижина одна, но выросшая.
-    expect(buildingOfType(s, 'hut')!.level).toBeGreaterThanOrEqual(3);
+    expect(buildingOfType(s, 'hut')!.level).toBeGreaterThanOrEqual(2);
     expect(s.buildings.filter((b) => b.type === 'sawmill')).toHaveLength(1);
     expect(s.stats.born).toBeGreaterThan(s.stats.died);
   });
 
   it('предупреждение о зиме поднимается за день до неё и считает запасы', () => {
-    const s = tribe(12, 25, 6);
+    const s = tribe(60, 125, 30);
     // Конец предпоследнего дня осени второго года.
     s.time = SEASON_SECONDS * 6 + (SEASON_DAYS - 1) * DAY_LENGTH - 1;
     expect(seasonOf(s.time)).toBe('autumn');
@@ -738,8 +838,8 @@ describe('сохранения', () => {
     // Партия от костра через эпохи и технологии: к новому старту её не перевести.
     const s = createInitialState();
     const raw = JSON.parse(serialize(s)) as Record<string, unknown>;
-    raw.version = 4;
-    raw.techs = ['stone_tools'];
+    raw.version = 5;
+    raw.villagers = [{ id: 1, name: 'Ток', sex: 'm', age: 24, job: 'idle', workplace: null, talent: null }];
     expect(deserialize(JSON.stringify(raw))).toBeNull();
     // Вообще без версии — тоже.
     delete raw.version;

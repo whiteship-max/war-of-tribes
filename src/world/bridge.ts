@@ -60,7 +60,7 @@ export function playerProfile(s: GameState): PlayerProfile {
   }
   return {
     name: 'Наше племя',
-    pop: s.villagers.length,
+    pop: s.pop,
     defense: defense(s),
     // Мощь одного бойца — среднее по составу армии: мир считает отряд числами,
     // а состав знает только племя.

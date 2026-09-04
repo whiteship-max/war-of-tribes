@@ -2,10 +2,8 @@
 import type { GameState } from '../types';
 import {
   DAY_LENGTH,
-  DAYS_PER_YEAR,
   EVENT_INTERVAL_MAX,
   EVENT_INTERVAL_MIN,
-  GROWTH_REQUIRED,
   RESOURCE_IDS,
   STARVATION_DEATH,
 } from '../constants';
@@ -14,11 +12,9 @@ import {
   currentSite,
   foodConsumptionPerDay,
   heatingWoodPerDay,
-  housingCapacity,
   moraleTarget,
   policyMoralePerDay,
   productionPerDay,
-  rationOf,
   seasonDayOf,
   seasonIndex,
   seasonMods,
@@ -32,12 +28,12 @@ import { BUILDING_BY_ID } from '../data/buildings';
 import { QUESTS } from '../data/quests';
 import { pickEvent } from '../data/events';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
-import { addVillager, killOldestVillager, killRandomVillager, removeVillager } from './population';
+import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { marketTick } from './market';
 import { recruitTick } from './army';
-import { chance, rnd, rndInt } from './random';
+import { rnd, rndInt } from './random';
 import { log } from './log';
 
 export interface TickOptions {
@@ -71,7 +67,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     s.starvation += dt;
     if (s.starvation >= STARVATION_DEATH) {
       s.starvation = STARVATION_DEATH * 0.5;
-      if (s.villagers.length > 1) killRandomVillager(s, 'голод');
+      killPop(s, famineToll(s), 'голод');
     }
   } else {
     s.starvation = Math.max(0, s.starvation - dt * 2);
@@ -87,7 +83,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
       s.freezing += dt;
       if (s.freezing >= COLD_DEATH) {
         s.freezing = COLD_DEATH * 0.5;
-        if (s.villagers.length > 1) killOldestVillager(s, 'холод');
+        killPop(s, famineToll(s), 'холод');
       }
     } else {
       s.freezing = Math.max(0, s.freezing - dt * 2);
@@ -126,36 +122,12 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   const drift = (policyMoralePerDay(s) * dt) / DAY_LENGTH;
   if (drift !== 0) s.morale = Math.max(0, Math.min(100, s.morale + drift));
 
-  // 5. Рост населения.
-  const housing = housingCapacity(s);
-  const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s, mods));
-  // Рацион правит рождаемость: на скудном пайке детей не заводят вовсе.
-  const growthMult = rationOf(s).growth;
-  if (s.villagers.length < housing && foodDays >= 1.5 && s.morale >= 35 && growthMult > 0) {
-    s.growth += (1 + s.morale / 100) * growthMult * dt;
-    if (s.growth >= GROWTH_REQUIRED) {
-      s.growth = 0;
-      const v = addVillager(s);
-      s.stats.born++;
-      log(s, `${v.name} ${v.sex === 'f' ? 'пришла' : 'пришёл'} в племя.`, 'good');
-    }
-  } else {
-    s.growth = Math.max(0, s.growth - dt * 0.5);
-  }
+  // 5. Прирост населения. Ни рождений поимённо, ни старения: племя — это число,
+  // и растёт оно от свободного жилья, запаса еды и морали (см. sim/population).
+  growthTick(s, dt, mods);
 
-  // 6. Старение и смена поколений (раз в игровой день).
-  if (dayAfter > dayBefore) {
-    for (const v of s.villagers) v.age += 1 / DAYS_PER_YEAR;
-    const elders = s.villagers.filter((v) => v.age >= 58);
-    for (const v of elders) {
-      if (s.villagers.length <= 2) break;
-      if (chance((v.age - 55) / 40)) {
-        removeVillager(s, v.id);
-        s.stats.died++;
-        log(s, `${v.name} умер${v.sex === 'f' ? 'ла' : ''} от старости в ${Math.floor(v.age)} лет.`, 'bad');
-      }
-    }
-  }
+  // 6. Итог дня по племени — одной строкой, а не по человеку на строку.
+  if (dayAfter > dayBefore) logPopDay(s);
 
   // 6б. Смена сезона и предупреждение о зиме.
   if (seasonIndex(s.time) !== seasonBefore) {

@@ -24,8 +24,14 @@ export interface BuildingDef extends BuildingStats {
   cost: Partial<Record<ResourceId, number>>;
   /** База труда строителей на улучшение. */
   work: number;
-  /** Профессия, которой здание даёт рабочие места: их столько же, сколько уровней. */
+  /** Профессия, которой здание даёт рабочие места. */
   job?: JobId;
+  /**
+   * Рабочих мест за уровень. По умолчанию `SLOTS_PER_LEVEL`. Своё число нужно
+   * там, где толпа бессмысленна: у горна, у верстака и у тотема людей помещается
+   * заметно меньше, чем на поле или в лесу.
+   */
+  slotsPerLevel?: number;
   /** Прибавка пассивных эффектов за каждый уровень сверх первого. */
   perLevel?: BuildingStats;
   /**
@@ -41,8 +47,13 @@ export interface BuildingDef extends BuildingStats {
 /**
  * Каждого типа в посёлке ровно одно здание, и все они стоят с первого дня.
  * Поэтому все прибавки набираются уровнями: `perLevel` заменяет собой прежнее
- * «поставь ещё одну хижину». Числа подобраны так, чтобы на потолке (10 уровень)
- * население доходило до 40+ человек.
+ * «поставь ещё одну хижину».
+ *
+ * Масштаб: игра идёт к боям в сотни бойцов, поэтому на потолке (10 уровень)
+ * посёлок держит порядка семисот жителей, а рабочих мест даёт чуть больше —
+ * выбор, кого куда поставить, должен оставаться выбором. Цены и труд подняты
+ * под этот же порядок: производство при семи сотнях рабочих выросло примерно
+ * в тридцать раз против прежнего.
  */
 export const BUILDINGS: BuildingDef[] = [
   {
@@ -61,7 +72,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Навесы для пришлых и подмастерьев: кто ещё не заслужил места под крышей.',
     cost: {},
     work: 0,
-    housing: 4,
+    housing: 25,
     maxLevel: 1,
   },
   {
@@ -69,40 +80,40 @@ export const BUILDINGS: BuildingDef[] = [
     name: 'Дом вождя',
     icon: '👑',
     description: 'Отсюда правят: указ, рацион, налог и казна. С шестого уровня это уже двор, и в нём живут.',
-    cost: { wood: 30, stone: 15 },
-    work: 60,
+    cost: { wood: 364, stone: 182 },
+    work: 728,
     morale: 4,
-    housing: 6,
-    perLevel: { morale: 1, housing: 5 },
+    housing: 40,
+    perLevel: { morale: 1, housing: 30 },
     since: { housing: 6 },
   },
   {
     id: 'hut',
     name: 'Хижина',
     icon: '🏠',
-    description: 'Единственное настоящее жильё племени. Каждый уровень — ещё пять мест под крышей.',
-    cost: { wood: 15 },
-    work: 30,
-    housing: 6,
-    perLevel: { housing: 5 },
+    description: 'Единственное настоящее жильё племени. Каждый уровень — ещё шесть десятков мест под крышей.',
+    cost: { wood: 182, stone: 42 },
+    work: 364,
+    housing: 20,
+    perLevel: { housing: 60 },
   },
   {
     id: 'storage',
     name: 'Склад',
     icon: '🧺',
     description: 'Всё добро племени: запасы, снаряжение, прирост и место под них.',
-    cost: { wood: 20, stone: 8 },
-    work: 40,
-    storage: 220,
-    perLevel: { storage: 150 },
+    cost: { wood: 238, stone: 98 },
+    work: 490,
+    storage: 3600,
+    perLevel: { storage: 3200 },
   },
   {
     id: 'gathering',
     name: 'Навес собирателей',
     icon: '🍓',
     description: 'Место, куда сносят ягоды и коренья. Даёт работу собирателям.',
-    cost: { wood: 10 },
-    work: 20,
+    cost: { wood: 119 },
+    work: 245,
     job: 'gatherer',
   },
   {
@@ -110,8 +121,8 @@ export const BUILDINGS: BuildingDef[] = [
     name: 'Лесопилка',
     icon: '🪓',
     description: 'Пилы, козлы и штабель брёвен. Даёт работу лесорубам.',
-    cost: { wood: 12 },
-    work: 25,
+    cost: { wood: 140 },
+    work: 301,
     job: 'woodcutter',
   },
   {
@@ -119,8 +130,8 @@ export const BUILDINGS: BuildingDef[] = [
     name: 'Каменоломня',
     icon: '⛏️',
     description: 'Разработка у скал. Даёт работу каменотёсам.',
-    cost: { wood: 10, stone: 5 },
-    work: 30,
+    cost: { wood: 119, stone: 63 },
+    work: 364,
     job: 'stonecutter',
   },
   {
@@ -128,8 +139,8 @@ export const BUILDINGS: BuildingDef[] = [
     name: 'Охотничий домик',
     icon: '🏹',
     description: 'Сушила для шкур и стойка для копий. Даёт работу охотникам.',
-    cost: { wood: 14, bones: 4 },
-    work: 35,
+    cost: { wood: 168, bones: 49 },
+    work: 420,
     job: 'hunter',
   },
   {
@@ -137,8 +148,8 @@ export const BUILDINGS: BuildingDef[] = [
     name: 'Рудник',
     icon: '🕳️',
     description: 'Штольня в скале: медь и железо.',
-    cost: { wood: 40, stone: 30 },
-    work: 90,
+    cost: { wood: 476, stone: 364 },
+    work: 1092,
     job: 'miner',
   },
   {
@@ -146,17 +157,18 @@ export const BUILDINGS: BuildingDef[] = [
     name: 'Мастерская',
     icon: '🛠️',
     description: 'Даёт работу ремесленникам: они ускоряют улучшения зданий по всему посёлку.',
-    cost: { wood: 25, stone: 10 },
-    work: 50,
+    cost: { wood: 301, stone: 119 },
+    work: 602,
     job: 'crafter',
+    slotsPerLevel: 6,
   },
   {
     id: 'farm',
     name: 'Ферма',
     icon: '🌾',
-    description: 'Поле под ячмень. Каждый уровень — новая полоса и ещё один фермер.',
-    cost: { wood: 30, stone: 5 },
-    work: 60,
+    description: 'Поле под ячмень. Каждый уровень — новая полоса и десяток рук на ней.',
+    cost: { wood: 364, stone: 63 },
+    work: 728,
     job: 'farmer',
   },
   {
@@ -164,57 +176,59 @@ export const BUILDINGS: BuildingDef[] = [
     name: 'Загон',
     icon: '🐐',
     description: 'Козы и овцы под присмотром пастуха. Зима стаду почти не помеха.',
-    cost: { wood: 40, hides: 5 },
-    work: 60,
+    cost: { wood: 476, hides: 63 },
+    work: 728,
     job: 'herder',
   },
   {
     id: 'totem',
     name: 'Тотем',
     icon: '🗿',
-    description: 'Святилище племени. Мораль +8, место шамана.',
-    cost: { wood: 20, bones: 10 },
-    work: 40,
+    description: 'Святилище племени. Мораль +8, место шаманов.',
+    cost: { wood: 238, bones: 119 },
+    work: 490,
     morale: 8,
     perLevel: { morale: 2 },
     job: 'shaman',
+    slotsPerLevel: 2,
   },
   {
     id: 'palisade',
     name: 'Частокол',
     icon: '🧱',
     description: 'Стена вокруг поселения. Защита +6, и растёт с каждым уровнем. С четвёртого уровня стена каменная.',
-    cost: { wood: 70 },
-    work: 90,
-    defense: 6,
-    perLevel: { defense: 3 },
+    cost: { wood: 840, stone: 168 },
+    work: 1092,
+    defense: 30,
+    perLevel: { defense: 15 },
   },
   {
     id: 'tower',
     name: 'Башня',
     icon: '🗼',
     description: 'Дозорная вышка сбоку от ворот. Защита +4, и растёт с каждым уровнем.',
-    cost: { wood: 40, stone: 30 },
-    work: 70,
-    defense: 4,
-    perLevel: { defense: 3 },
+    cost: { wood: 476, stone: 364 },
+    work: 854,
+    defense: 20,
+    perLevel: { defense: 15 },
   },
   {
     id: 'smithy',
     name: 'Кузница',
     icon: '⚒️',
     description: 'Горн и наковальня. Кузнецы куют снаряжение — то, чем платят за войско.',
-    cost: { wood: 50, stone: 60 },
-    work: 120,
+    cost: { wood: 602, stone: 728 },
+    work: 1456,
     job: 'smith',
+    slotsPerLevel: 4,
   },
   {
     id: 'market',
     name: 'Рынок',
     icon: '🛒',
     description: 'Торговый двор у самых ворот. За золото сюда привозят чужое добро — дороже, чем своё, зато сразу.',
-    cost: { wood: 90, stone: 70, iron: 20 },
-    work: 150,
+    cost: { wood: 1092, stone: 840, iron: 238 },
+    work: 1820,
     morale: 2,
     perLevel: { morale: 1 },
   },
@@ -222,11 +236,11 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'barracks',
     name: 'Казармы',
     icon: '⚔️',
-    description: 'Двор для учений. Здесь свободные жители становятся бойцами. Защита +2 за уровень.',
-    cost: { wood: 60, stone: 30 },
-    work: 110,
-    defense: 2,
-    perLevel: { defense: 2 },
+    description: 'Двор для учений. Здесь свободные жители становятся бойцами. Каждый уровень ускоряет учения и добавляет защиты.',
+    cost: { wood: 728, stone: 364 },
+    work: 1330,
+    defense: 10,
+    perLevel: { defense: 10 },
   },
 ];
 

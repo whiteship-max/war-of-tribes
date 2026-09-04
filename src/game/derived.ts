@@ -10,7 +10,6 @@ import type {
   ResourceId,
   Resources,
   Season,
-  Villager,
 } from './types';
 import {
   BASE_DEFENSE,
@@ -25,14 +24,17 @@ import {
   MORALE_BASE,
   RECRUIT_WORK,
   RESOURCE_IDS,
+  SHAMAN_MORALE,
+  SHAMAN_MORALE_CAP,
+  SLOTS_PER_LEVEL,
   SMITH_WORK,
   SOLDIER_FOOD,
-  TALENT_MULT,
   UPGRADE_GROWTH,
+  VILLAGER_DEFENSE,
   emptyResources,
 } from './constants';
 import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
-import { JOBS, JOB_BY_ID } from './data/jobs';
+import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
@@ -79,21 +81,33 @@ export const currentSite = (s: GameState): Building | null => s.buildings.find(i
 /** Множитель выработки рабочего от уровня здания: +10% за уровень. */
 export const levelOutputMult = (level: number): number => 1 + LEVEL_OUTPUT_STEP * Math.max(0, level - 1);
 
-/** Рабочих мест в здании: столько же, сколько уровней. */
+/**
+ * Рабочих мест в здании. Личного навыка у жителя нет — всю его роль взял на себя
+ * уровень здания: он и добавляет места, и поднимает выработку каждому рабочему.
+ */
 export function buildingSlots(b: Building): number {
-  return BUILDING_BY_ID[b.type].job ? b.level : 0;
+  const def = BUILDING_BY_ID[b.type];
+  return def.job ? b.level * (def.slotsPerLevel ?? SLOTS_PER_LEVEL) : 0;
 }
 
-export const workersIn = (s: GameState, buildingId: number): Villager[] =>
-  s.villagers.filter((v) => v.workplace === buildingId);
+/** Сколько человек работает в этом здании. Назначение — число, а не список людей. */
+export const workerCount = (s: GameState, buildingId: number): number =>
+  Math.max(0, Math.floor(s.workers?.[buildingId] ?? 0));
 
-export const workerCount = (s: GameState, buildingId: number): number => {
+/** Сколько человек занято этой работой вольным сбором — без места в здании. */
+export const freeJobCount = (s: GameState, job: JobId): number =>
+  Math.max(0, Math.floor(s.freeJobs?.[job] ?? 0));
+
+/** Сколько человек вообще при деле: в зданиях и на вольном сборе. */
+export function busyCount(s: GameState): number {
   let n = 0;
-  for (const v of s.villagers) if (v.workplace === buildingId) n++;
+  for (const b of s.buildings) n += workerCount(s, b.id);
+  for (const job of FREE_JOBS) n += freeJobCount(s, job);
   return n;
-};
+}
 
-export const freeVillagers = (s: GameState): Villager[] => s.villagers.filter((v) => v.job === 'idle');
+/** Свободные руки: те, кого видно у костра и кем строят. */
+export const idleCount = (s: GameState): number => Math.max(0, s.pop - busyCount(s));
 
 /**
  * Пассивный эффект здания с учётом уровня: база + прибавка за каждый уровень сверх
@@ -194,9 +208,15 @@ export function storageCap(s: GameState): number {
   return cap;
 }
 
+/** Сколько человек по профессиям: рабочие зданий, вольный сбор и свободные руки. */
 export function jobCounts(s: GameState): Record<JobId, number> {
   const counts = Object.fromEntries(JOBS.map((j) => [j.id, 0])) as Record<JobId, number>;
-  for (const v of s.villagers) counts[v.job]++;
+  for (const b of s.buildings) {
+    const job = BUILDING_BY_ID[b.type].job;
+    if (job) counts[job] += workerCount(s, b.id);
+  }
+  for (const job of FREE_JOBS) counts[job] += freeJobCount(s, job);
+  counts.idle = idleCount(s);
   return counts;
 }
 
@@ -339,7 +359,7 @@ export function defense(s: GameState): number {
   d += BASE_DEFENSE;
   if (s.totem === 'bear') d += 2;
   // Любой житель может отбиваться дубиной, но слабо.
-  d += Math.max(0, s.villagers.length - Math.max(0, s.scoutsAway)) * 0.25;
+  d += Math.max(0, s.pop - Math.max(0, s.scoutsAway)) * VILLAGER_DEFENSE;
   return d;
 }
 
@@ -349,11 +369,13 @@ export const recruitsQueued = (s: GameState): number =>
 
 /**
  * Скорость обучения в казармах: работа в секунду. Зависит только от уровня казарм —
- * учения идут своим чередом, без рабочих и без сезона.
+ * учения идут своим чередом, без рабочих и без сезона. Растёт она быстрее выработки
+ * зданий, потому что умножается ещё и на сам уровень: дружина в сотни бойцов при
+ * линейном росте набиралась бы часами.
  */
 export function recruitRate(s: GameState): number {
   const b = buildingOfType(s, 'barracks');
-  return b ? RECRUIT_WORK * levelOutputMult(b.level) : 0;
+  return b ? RECRUIT_WORK * b.level * levelOutputMult(b.level) : 0;
 }
 
 // ---------- Кузница ----------
@@ -365,9 +387,7 @@ export function recruitRate(s: GameState): number {
 export function forgeRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   const smithy = buildingOfType(s, 'smithy');
   if (!smithy) return 0;
-  let rate = 0;
-  for (const v of workersIn(s, smithy.id)) rate += SMITH_WORK * villagerMultiplier(s, v, mods);
-  return rate;
+  return SMITH_WORK * workerCount(s, smithy.id) * workerMultiplier(s, 'smith', smithy, mods);
 }
 
 export interface ForgeInfo {
@@ -413,33 +433,40 @@ export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = 
 }
 
 /**
- * Множитель места работы: уровень здания или половина для вольного сбора.
- * Профессии без профильного здания места не требуют.
+ * Полный множитель выработки одного рабочего: профессия и место работы.
+ * Место — это уровень здания (`levelOutputMult`) либо половина для вольного
+ * сбора. Личного навыка у жителя нет: люди одинаковы, разницу делает здание.
  */
-export function placeMultiplier(s: GameState, v: Villager): number {
-  if (v.workplace !== null) {
-    const b = buildingById(s, v.workplace);
-    if (b) return levelOutputMult(b.level);
-  }
-  return JOB_BY_ID[v.job].building ? FREE_RANGE_MULT : 1;
+export function workerMultiplier(
+  s: GameState,
+  job: JobId,
+  place: Building | null,
+  mods: SeasonModifiers = seasonMods(s),
+): number {
+  const spot = place ? levelOutputMult(place.level) : JOB_BY_ID[job].building ? FREE_RANGE_MULT : 1;
+  return jobMultiplier(s, job, mods) * spot;
 }
 
-/** Полный множитель выработки конкретного жителя. */
-export function villagerMultiplier(s: GameState, v: Villager, mods: SeasonModifiers = seasonMods(s)): number {
-  const talent = v.talent === v.job ? TALENT_MULT : 1;
-  return jobMultiplier(s, v.job, mods) * talent * placeMultiplier(s, v);
+/** Складывает дневную выработку `n` рабочих одной профессии. */
+function addYield(out: Resources, job: JobId, n: number, mult: number): void {
+  if (n <= 0 || mult <= 0) return;
+  const def = JOB_BY_ID[job];
+  for (const r of RESOURCE_IDS) {
+    const y = def.yield[r];
+    if (y) out[r] += y * n * mult;
+  }
 }
 
 /** Валовое производство за игровой день. */
 export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
-  for (const v of s.villagers) {
-    const def = JOB_BY_ID[v.job];
-    const mult = villagerMultiplier(s, v, mods);
-    for (const r of RESOURCE_IDS) {
-      const y = def.yield[r];
-      if (y) out[r] += y * mult;
-    }
+  for (const b of s.buildings) {
+    const job = BUILDING_BY_ID[b.type].job;
+    if (!job) continue;
+    addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
+  }
+  for (const job of FREE_JOBS) {
+    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
   }
   return out;
 }
@@ -447,14 +474,8 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
 /** Что производит одно здание за день — для его собственной панели. */
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
-  const def = JOB_BY_ID[BUILDING_BY_ID[b.type].job ?? 'idle'];
-  for (const v of workersIn(s, b.id)) {
-    const mult = villagerMultiplier(s, v, mods);
-    for (const r of RESOURCE_IDS) {
-      const y = def.yield[r];
-      if (y) out[r] += y * mult;
-    }
-  }
+  const job = BUILDING_BY_ID[b.type].job;
+  if (job) addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
   return out;
 }
 
@@ -464,7 +485,8 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
  */
 export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   let total = 0;
-  for (const v of s.villagers) total += JOB_BY_ID[v.job].foodMultiplier ?? 1;
+  const counts = jobCounts(s);
+  for (const job of JOBS) total += counts[job.id] * (job.foodMultiplier ?? 1);
   // Новобранцы на учениях уже не жители, но кормятся так же, как бойцы.
   total += (armySize(s) + recruitsQueued(s)) * SOLDIER_FOOD;
   return total * mods.food * rationOf(s).food;
@@ -480,12 +502,9 @@ export function netPerDay(s: GameState): Resources {
 
 /** Вклад ремесленников мастерской в стройку: работа в секунду. */
 export function crafterBuildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
-  let rate = 0;
-  for (const v of s.villagers) {
-    if (v.job !== 'crafter' || v.workplace === null) continue;
-    rate += CRAFTER_BUILD * villagerMultiplier(s, v, mods);
-  }
-  return rate;
+  const shop = buildingOfType(s, 'workshop');
+  if (!shop) return 0;
+  return CRAFTER_BUILD * workerCount(s, shop.id) * workerMultiplier(s, 'crafter', shop, mods);
 }
 
 /**
@@ -575,7 +594,7 @@ export function roofCapacity(s: GameState): number {
  */
 export function heatingWoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   if (mods.heating <= 0) return 0;
-  const pop = s.villagers.length;
+  const pop = s.pop;
   const roofed = Math.min(pop, roofCapacity(s));
   const open = pop - roofed;
   // Общий костёр греет весь посёлок и срезает расход.
@@ -633,12 +652,12 @@ export function winterForecast(s: GameState): WinterForecast {
  * С него собирается налог: наём людей казну не уменьшает.
  */
 export const population = (s: GameState): number =>
-  s.villagers.length + armySize(s) + recruitsQueued(s);
+  s.pop + armySize(s) + recruitsQueued(s);
 
 /** К какой морали стремится племя при текущих условиях. */
 export function moraleTarget(s: GameState): number {
   let t = MORALE_BASE;
-  const pop = s.villagers.length;
+  const pop = s.pop;
   const housing = housingCapacity(s);
   if (pop <= housing) t += 10;
   else t -= 5 * (pop - housing);
@@ -647,7 +666,7 @@ export function moraleTarget(s: GameState): number {
   else if (foodDays >= 3) t += 10;
   else if (foodDays < 1) t -= 8;
   for (const b of s.buildings) t += buildingStat(b, 'morale');
-  t += jobCounts(s).shaman * 5;
+  t += Math.min(SHAMAN_MORALE_CAP, jobCounts(s).shaman * SHAMAN_MORALE);
   t += Math.min(10, s.prestige / 5);
   t += seasonMods(s).morale;
   if (s.freezing > 0) t -= FREEZING_MORALE_PENALTY;

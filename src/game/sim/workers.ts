@@ -1,114 +1,124 @@
-// Кто где работает. Единственный источник правды — сам житель: job + workplace.
-// Список рабочих здания собирается перебором жителей, дублирующего массива нет.
-import type { GameState, JobId, Villager } from '../types';
+// Кто где работает. Люди одинаковы, поэтому назначение — это число: сколько
+// человек стоит в здании (`s.workers`) и сколько занято вольным сбором
+// (`s.freeJobs`). Остальные свободны и видны у костра.
+import type { GameState, JobId } from '../types';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { JOB_BY_ID } from '../data/jobs';
-import { buildingById, buildingSlots, workerCount } from '../derived';
+import { FREE_JOBS, JOB_BY_ID } from '../data/jobs';
+import { buildingById, buildingSlots, freeJobCount, idleCount, workerCount } from '../derived';
 
-/** Свободный житель под работу: сначала тот, у кого к ней талант. */
-function takeFree(s: GameState, job: JobId, villagerId?: number): Villager | null {
-  const free = s.villagers.filter((v) => v.job === 'idle');
-  if (free.length === 0) return null;
-  if (villagerId !== undefined) return free.find((v) => v.id === villagerId) ?? null;
-  return free.find((v) => v.talent === job) ?? free[0];
-}
-
-/** Кого снять с работы первым: того, кому она не по таланту. */
-function takeWorker(pool: Villager[], job: JobId): Villager | null {
-  if (pool.length === 0) return null;
-  return pool.find((v) => v.talent !== job) ?? pool[pool.length - 1];
-}
-
-/** Ставит жителя на свободный слот здания. Без villagerId берёт самого подходящего. */
-export function assignWorker(s: GameState, buildingId: number, villagerId?: number): string | null {
+/** Ставит `n` человек на свободные места здания. Берёт сколько влезет, но не меньше одного. */
+export function assignWorker(s: GameState, buildingId: number, n = 1): string | null {
   const b = buildingById(s, buildingId);
   if (!b) return 'Здание не найдено.';
   const def = BUILDING_BY_ID[b.type];
   if (!def.job) return 'В этом здании не работают.';
-  if (workerCount(s, b.id) >= buildingSlots(b)) return 'Все места заняты — нужен уровень выше.';
-  const v = takeFree(s, def.job, villagerId);
-  if (!v) return villagerId === undefined ? 'Нет свободных жителей.' : 'Житель занят.';
-  v.job = def.job;
-  v.workplace = b.id;
+  const room = buildingSlots(b) - workerCount(s, b.id);
+  if (room <= 0) return 'Все места заняты — нужен уровень выше.';
+  const free = idleCount(s);
+  if (free <= 0) return 'Нет свободных жителей.';
+  const take = Math.min(Math.max(1, Math.floor(n)), room, free);
+  s.workers[b.id] = workerCount(s, b.id) + take;
   return null;
 }
 
-/** Снимает рабочего со здания. Без villagerId — того, кому работа не по таланту. */
-export function unassignWorker(s: GameState, buildingId: number, villagerId?: number): string | null {
+/** Снимает `n` рабочих со здания — они возвращаются к костру. */
+export function unassignWorker(s: GameState, buildingId: number, n = 1): string | null {
   const b = buildingById(s, buildingId);
   if (!b) return 'Здание не найдено.';
-  const pool = s.villagers.filter((v) => v.workplace === buildingId);
-  const v =
-    villagerId !== undefined
-      ? pool.find((x) => x.id === villagerId) ?? null
-      : takeWorker(pool, BUILDING_BY_ID[b.type].job ?? 'idle');
-  if (!v) return 'Здесь никто не работает.';
-  v.job = 'idle';
-  v.workplace = null;
+  const have = workerCount(s, b.id);
+  if (have <= 0) return 'Здесь никто не работает.';
+  s.workers[b.id] = have - Math.min(Math.max(1, Math.floor(n)), have);
   return null;
 }
 
 /**
  * «Вольный сбор» у костра: профессия без профильного здания. Работает вполсилы,
- * но доступна всегда — иначе игрок без здания остаётся без дохода.
+ * но доступна всегда — иначе игрок без свободного места остаётся без дохода.
  */
-export function changeFreeJob(s: GameState, job: JobId, delta: 1 | -1): string | null {
+export function changeFreeJob(s: GameState, job: JobId, delta: number): string | null {
   const def = JOB_BY_ID[job];
   if (!def.freeRange) return 'Эту работу дают только в здании.';
+  const have = freeJobCount(s, job);
+  const step = Math.floor(Math.abs(delta)) || 1;
   if (delta > 0) {
-    const v = takeFree(s, job);
-    if (!v) return 'Нет свободных жителей.';
-    v.job = job;
-    v.workplace = null;
+    const free = idleCount(s);
+    if (free <= 0) return 'Нет свободных жителей.';
+    s.freeJobs[job] = have + Math.min(step, free);
     return null;
   }
-  const pool = s.villagers.filter((v) => v.job === job && v.workplace === null);
-  const v = takeWorker(pool, job);
-  if (!v) return 'Никто не занят этой работой.';
-  v.job = 'idle';
+  if (have <= 0) return 'Никто не занят этой работой.';
+  s.freeJobs[job] = have - Math.min(step, have);
   return null;
 }
 
 /**
  * Приводит назначения в порядок после любых изменений мира: сгоревшее здание,
- * лишние рабочие в слотах. Вызывается каждый тик — дёшево.
+ * упавший уровень, убыль населения. Вызывается каждый тик — дёшево.
+ *
+ * Порядок сокращения тот же, что при убыли: сначала вольный сбор, потом самые
+ * многолюдные здания. Так посёлок не остаётся без единственного кузнеца, когда
+ * зима забрала треть народу.
  */
 export function normalizeAssignments(s: GameState): void {
-  const used = new Map<number, number>();
-  for (const v of s.villagers) {
-    if (v.job === 'idle') {
-      v.workplace = null;
-      continue;
+  s.pop = Math.max(0, Math.floor(s.pop));
+
+  // Висячих записей быть не должно: снесённое здание не держит рабочих.
+  const alive = new Set(s.buildings.map((b) => b.id));
+  for (const key of Object.keys(s.workers)) {
+    const id = Number(key);
+    if (!alive.has(id)) delete s.workers[id];
+  }
+  for (const b of s.buildings) {
+    const slots = buildingSlots(b);
+    const have = workerCount(s, b.id);
+    if (have > slots) s.workers[b.id] = slots;
+    else if (have <= 0) delete s.workers[b.id];
+  }
+  for (const job of FREE_JOBS) {
+    const n = freeJobCount(s, job);
+    if (n <= 0) delete s.freeJobs[job];
+    else s.freeJobs[job] = n;
+  }
+
+  // Народу может оказаться меньше, чем расставлено: лишние места пустеют.
+  let over = -idleCountRaw(s);
+  for (const job of FREE_JOBS) {
+    if (over <= 0) break;
+    const have = freeJobCount(s, job);
+    const take = Math.min(have, over);
+    if (take > 0) {
+      s.freeJobs[job] = have - take;
+      over -= take;
     }
-    const def = JOB_BY_ID[v.job];
-    if (v.workplace !== null) {
-      const b = buildingById(s, v.workplace);
-      const slots = b ? buildingSlots(b) : 0;
-      const n = used.get(v.workplace) ?? 0;
-      if (!b || BUILDING_BY_ID[b.type].job !== v.job || n >= slots) {
-        v.workplace = null;
-      } else {
-        used.set(v.workplace, n + 1);
-      }
-    }
-    // Без места работы остаётся только вольный сбор; остальные возвращаются к костру.
-    if (v.workplace === null && !def.freeRange) v.job = 'idle';
+  }
+  while (over > 0) {
+    const staffed = s.buildings
+      .filter((b) => workerCount(s, b.id) > 0)
+      .sort((a, b) => workerCount(s, b.id) - workerCount(s, a.id));
+    if (staffed.length === 0) break;
+    const b = staffed[0];
+    const take = Math.min(workerCount(s, b.id), over);
+    s.workers[b.id] = workerCount(s, b.id) - take;
+    over -= take;
   }
 }
 
-/** Рассаживает свободных жителей по пустым слотам. */
+/** Свободные руки без нижней отсечки: отрицательное значение — перебор назначений. */
+function idleCountRaw(s: GameState): number {
+  let busy = 0;
+  for (const b of s.buildings) busy += workerCount(s, b.id);
+  for (const job of FREE_JOBS) busy += freeJobCount(s, job);
+  return s.pop - busy;
+}
+
+/** Рассаживает свободные руки по пустым слотам, по кругу и понемногу. */
 export function autoAssign(s: GameState): void {
   for (const b of s.buildings) {
-    const def = BUILDING_BY_ID[b.type];
-    if (!def.job) continue;
-    while (workerCount(s, b.id) < buildingSlots(b)) {
-      // Сначала пробуем перевести того, кто уже работает по этой профессии вольно.
-      const free = s.villagers.find((v) => v.job === def.job && v.workplace === null);
-      if (free) {
-        free.workplace = b.id;
-        continue;
-      }
-      if (assignWorker(s, b.id) !== null) break;
-    }
+    if (!BUILDING_BY_ID[b.type].job) continue;
+    const room = buildingSlots(b) - workerCount(s, b.id);
+    if (room <= 0) continue;
+    const free = idleCount(s);
+    if (free <= 0) return;
+    s.workers[b.id] = workerCount(s, b.id) + Math.min(room, free);
   }
 }

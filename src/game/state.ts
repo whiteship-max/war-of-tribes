@@ -1,15 +1,17 @@
 import type { Building, BuildingTypeId, GameState } from './types';
 import { BUILDINGS } from './data/buildings';
-import { addVillager } from './sim/population';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
- * Версия 5 — старт в позднем средневековье: сохранения младших версий не
- * приводятся, партия начинается заново.
+ * Версия 6 — население стало числом: поимённых жителей с возрастом, полом и
+ * талантом больше нет, а весь масштаб посёлка вырос на порядок. Сохранения
+ * младших версий не приводятся: в них лежит список людей, которого в новой
+ * модели просто некуда деть, — партия начинается заново, и игроку об этом
+ * говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -18,6 +20,9 @@ const built = (s: GameState, type: BuildingTypeId): Building => ({
   work: 0,
   workRequired: 0,
 });
+
+/** Сколько человек в племени на старте. Крыш хватает ещё примерно на столько же. */
+const START_POP = 30;
 
 /**
  * Новая партия: посёлок стоит целиком, включая стену, всё первого уровня.
@@ -29,7 +34,7 @@ export function createInitialState(): GameState {
   const s: GameState = {
     version: SAVE_VERSION,
     time: 0,
-    resources: { wood: 120, stone: 80, food: 160, hides: 24, bones: 20, copper: 24, iron: 16 },
+    resources: { wood: 900, stone: 600, food: 900, hides: 180, bones: 150, copper: 180, iron: 120 },
     equipment: emptyEquipment(),
     army: emptyArmy(),
     recruits: [],
@@ -38,10 +43,12 @@ export function createInitialState(): GameState {
     decree: 'none',
     ration: 'normal',
     tax: 'none',
-    gold: 40,
+    gold: 320,
     market: { day: 0, bought: {} },
     caravans: [],
-    villagers: [],
+    pop: START_POP,
+    workers: {},
+    freeJobs: {},
     buildings: [],
     completedQuests: [],
     activeEvent: null,
@@ -54,6 +61,7 @@ export function createInitialState(): GameState {
     winterWarnedYear: 0,
     winterWarning: false,
     growth: 0,
+    popDay: START_POP,
     warriorsAway: 0,
     scoutsAway: 0,
     defenseFormation: null,
@@ -69,19 +77,19 @@ export function createInitialState(): GameState {
   for (const def of BUILDINGS) s.buildings.push(built(s, def.id));
   const at = (type: BuildingTypeId): number => s.buildings.find((b) => b.type === type)!.id;
 
-  // Хозяйство укомплектовано по одному человеку на двор: еда, лес, камень, руда.
-  addVillager(s, { sex: 'm', age: 34, talent: 'hunter', job: 'hunter' }).workplace = at('hunter_hut');
-  addVillager(s, { sex: 'f', age: 27, talent: null, job: 'farmer' }).workplace = at('farm');
-  addVillager(s, { sex: 'f', age: 24, talent: null, job: 'gatherer' }).workplace = at('gathering');
-  addVillager(s, { sex: 'm', age: 31, talent: null, job: 'woodcutter' }).workplace = at('sawmill');
-  addVillager(s, { sex: 'm', age: 29, talent: null, job: 'stonecutter' }).workplace = at('quarry');
-  addVillager(s, { sex: 'm', age: 26, talent: 'miner', job: 'miner' }).workplace = at('mine');
-  // Свободные руки у костра: из них выйдут кузнец, ремесленник и первые бойцы.
-  addVillager(s, { sex: 'm', age: 22, talent: 'smith', job: 'idle' });
-  addVillager(s, { sex: 'f', age: 19, talent: 'crafter', job: 'idle' });
-  addVillager(s, { sex: 'm', age: 20, talent: null, job: 'idle' });
-  addVillager(s, { sex: 'm', age: 23, talent: null, job: 'idle' });
-  addVillager(s, { sex: 'f', age: 21, talent: null, job: 'idle' });
+  // Хозяйство укомплектовано: еда, лес, камень, руда. Назначение — число людей
+  // в здании, а не список имён: люди одинаковы, разницу делает уровень постройки.
+  const crew: [BuildingTypeId, number][] = [
+    ['hunter_hut', 5],
+    ['farm', 4],
+    ['gathering', 4],
+    ['sawmill', 5],
+    ['quarry', 3],
+    ['mine', 2],
+  ];
+  for (const [type, n] of crew) s.workers[at(type)] = n;
+  // Остаток — свободные руки у костра: из них выйдут кузнецы, ремесленники и
+  // первые бойцы. Сколько их, столько и видно на площади.
 
   s.log.push({ at: 0, text: 'Посёлок стоит за стеной, у ворот рынок, в кузнице холодный горн. Соседи не дремлют.', kind: 'info' });
   s.log.push({ at: 0, text: 'Поставь кузнеца к горну, скуй копьё и найми первого бойца — дальше карта.', kind: 'info' });

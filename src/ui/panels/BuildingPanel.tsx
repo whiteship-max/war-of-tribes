@@ -1,7 +1,6 @@
-import { useState } from 'react';
-import type { Building, JobId, Villager } from '@/game/types';
+import type { Building, JobId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { FREE_RANGE_MULT, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META, SLOTS_PER_LEVEL } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { EQUIPMENT } from '@/game/data/equipment';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
@@ -16,16 +15,17 @@ import {
   currentSite,
   defense,
   crafterBuildRate,
-  freeVillagers,
+  freeJobCount,
   housingCapacity,
+  idleCount,
   isSite,
   jobMultiplier,
   levelOutputMult,
   netPerDay,
   storageCap,
   upgradeInfo,
-  villagerMultiplier,
-  workersIn,
+  workerCount,
+  workerMultiplier,
 } from '@/game/derived';
 import { assignWorker, cancelUpgrade, changeFreeJob, chooseTotem, startUpgrade, unassignWorker } from '@/game/sim/actions';
 import { Cost } from '../parts/Cost';
@@ -121,91 +121,94 @@ export function BuildingPanel({ id }: { id: number }) {
 
 // ---------- Слоты рабочих ----------
 
-function VillagerLine({ v }: { v: Villager }) {
-  const job = JOB_BY_ID[v.job];
+/**
+ * Ряд шага: −10 −1 [число] +1 +10. Поимённых жителей нет, люди одинаковы, поэтому
+ * назначение — это число, а не список карточек: на потолке уровней в поле стоит
+ * сотня человек, и сотню строк по одной на голову никто читать не станет.
+ */
+function Steps({
+  value,
+  max,
+  spare,
+  step,
+  addTut,
+  onChange,
+}: {
+  value: number;
+  max: number;
+  spare: number;
+  step: number;
+  addTut?: string;
+  onChange: (delta: number) => void;
+}) {
+  const room = Math.max(0, max - value);
+  const canAdd = room > 0 && spare > 0;
   return (
-    <>
-      <span className="ico">{job.icon}</span>
-      <span className="who">
-        {v.name}, {Math.floor(v.age)}
-        {v.talent === v.job && <b className="talent"> ★ талант</b>}
-      </span>
-    </>
+    <div className="stepper wide-steps">
+      <button disabled={value <= 0} onClick={() => onChange(-step)} aria-label={`Снять ${step}`}>
+        −{step}
+      </button>
+      <button disabled={value <= 0} onClick={() => onChange(-1)} aria-label="Снять">
+        −
+      </button>
+      <span className="n">{value}</span>
+      <button data-tut={addTut} disabled={!canAdd} onClick={() => onChange(1)} aria-label="Поставить">
+        +
+      </button>
+      <button disabled={!canAdd} onClick={() => onChange(step)} aria-label={`Поставить ${step}`}>
+        +{step}
+      </button>
+    </div>
   );
 }
 
+/**
+ * Рабочие здания. Мест столько, сколько даёт уровень; кого именно поставить —
+ * вопроса нет: личного навыка у жителя не осталось, его роль взял на себя сам
+ * уровень постройки, поднимая выработку каждому рабочему.
+ */
 function WorkerSlots({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
-  const [picking, setPicking] = useState(false);
   const def = BUILDING_BY_ID[b.type];
   if (!def.job) return null;
   const job = JOB_BY_ID[def.job];
   const slots = buildingSlots(b);
-  const workers = workersIn(s, b.id);
-  const free = freeVillagers(s);
-  const empty = Math.max(0, slots - workers.length);
+  const workers = workerCount(s, b.id);
+  const free = idleCount(s);
 
   return (
     <>
       <h3>
         {job.icon} {job.name}
         <span className="muted">
-          {workers.length}/{slots || '—'}
+          {workers}/{slots || '—'}
         </span>
       </h3>
-
-      {workers.map((v) => (
-        <div className="slot filled" key={v.id}>
-          <VillagerLine v={v} />
-          <button className="mini" onClick={() => act((st) => unassignWorker(st, b.id, v.id))} aria-label="Снять">
-            −
-          </button>
+      <div className="card">
+        <div className="ico">{job.icon}</div>
+        <div className="body">
+          <div className="title">
+            Рабочих в здании
+            <span className="count">свободных: {free}</span>
+          </div>
+          <div className="desc">
+            {slots > workers
+              ? `Свободных мест: ${slots - workers}. Следующий уровень добавит ещё ${def.slotsPerLevel ?? SLOTS_PER_LEVEL}.`
+              : 'Все места заняты — нужен уровень выше.'}
+          </div>
         </div>
-      ))}
-      {Array.from({ length: empty }, (_, i) => (
-        <div className="slot" key={`e${i}`}>
-          <span className="ico">◻️</span>
-          <span className="who">Свободное место</span>
-          <button
-            className="mini"
-            data-tut={i === 0 ? 'slot-add' : undefined}
-            disabled={free.length === 0}
-            onClick={() => act((st) => assignWorker(st, b.id))}
-            aria-label="Поставить"
-          >
-            +
-          </button>
-        </div>
-      ))}
-      {slots > 0 && empty === 0 && (
-        <div className="note">Все места заняты. Следующий уровень добавит ещё одно.</div>
-      )}
-      {empty > 0 && free.length > 0 && (
-        <>
-          <button className="btn ghost wide" onClick={() => setPicking(!picking)}>
-            {picking ? 'Свернуть' : `Выбрать из свободных (${free.length})`}
-          </button>
-          {picking &&
-            free.map((v) => (
-              <button
-                className="slot pick"
-                key={v.id}
-                onClick={() => {
-                  act((st) => assignWorker(st, b.id, v.id));
-                  setPicking(false);
-                }}
-              >
-                <span className="ico">{v.talent === def.job ? '⭐' : '🙂'}</span>
-                <span className="who">
-                  {v.name}, {Math.floor(v.age)}
-                  {v.talent && <i className="talent"> ★{JOB_BY_ID[v.talent].name.toLowerCase()}</i>}
-                </span>
-                <span className="mini">+</span>
-              </button>
-            ))}
-        </>
-      )}
+      </div>
+      <Steps
+        value={workers}
+        max={slots}
+        spare={free}
+        step={10}
+        addTut="slot-add"
+        onChange={(d) =>
+          act((st) => (d > 0 ? assignWorker(st, b.id, d) : unassignWorker(st, b.id, -d)))
+        }
+      />
     </>
   );
 }
@@ -249,7 +252,7 @@ function BuildingData({ b }: { b: Building }) {
 /** Костёр — сердце племени: отсюда раздают вольный сбор и здесь видно настроение. */
 function CampfireData() {
   const s = useGame((g) => g.s);
-  const idle = freeVillagers(s).length;
+  const idle = idleCount(s);
   const site = currentSite(s);
 
   return (
@@ -288,30 +291,33 @@ function FreeJobRow({ job }: { job: JobId }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const def = JOB_BY_ID[job];
-  const workers = s.villagers.filter((v) => v.job === job && v.workplace === null);
-  const idle = freeVillagers(s).length;
-  const mult = jobMultiplier(s, job) * 0.5;
+  const workers = freeJobCount(s, job);
+  const idle = idleCount(s);
+  const mult = jobMultiplier(s, job) * FREE_RANGE_MULT;
   const yields = RESOURCE_IDS.filter((r) => def.yield[r]).map(
     (r) => `${RESOURCE_META[r].icon}${((def.yield[r] ?? 0) * mult).toFixed(1)}`,
   );
 
   return (
-    <div className="card">
-      <div className="ico">{def.icon}</div>
-      <div className="body">
-        <div className="title">{def.name}</div>
-        <div className="desc">{yields.length ? `${yields.join(' ')} в день на человека` : def.description}</div>
+    <>
+      <div className="card">
+        <div className="ico">{def.icon}</div>
+        <div className="body">
+          <div className="title">
+            {def.name}
+            <span className="count">{workers}</span>
+          </div>
+          <div className="desc">{yields.length ? `${yields.join(' ')} в день на человека` : def.description}</div>
+        </div>
       </div>
-      <div className="stepper">
-        <button disabled={workers.length === 0} onClick={() => act((st) => changeFreeJob(st, job, -1))}>
-          −
-        </button>
-        <span className="n">{workers.length}</span>
-        <button disabled={idle === 0} onClick={() => act((st) => changeFreeJob(st, job, 1))}>
-          +
-        </button>
-      </div>
-    </div>
+      <Steps
+        value={workers}
+        max={workers + idle}
+        spare={idle}
+        step={10}
+        onChange={(d) => act((st) => changeFreeJob(st, job, d))}
+      />
+    </>
   );
 }
 
@@ -370,7 +376,7 @@ function GenericData({ b }: { b: Building }) {
   const def = BUILDING_BY_ID[b.type];
   const prod = buildingProduction(s, b);
   const produced = RESOURCE_IDS.filter((r) => prod[r] > 0.01);
-  const workers = workersIn(s, b.id);
+  const workers = workerCount(s, b.id);
   const jobDef = def.job ? JOB_BY_ID[def.job] : null;
 
   const stats: [string, string, string][] = [];
@@ -384,7 +390,7 @@ function GenericData({ b }: { b: Building }) {
   if (morale) stats.push(['😊', 'К морали', `+${morale}`]);
   if (b.type === 'workshop') stats.push(['🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
   if (b.type === 'smithy') stats.push(['⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
-  if (housing) stats.push(['👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.villagers.length} чел.`]);
+  if (housing) stats.push(['👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);
   if (def_) stats.push(['⚔️', 'Защита посёлка', defense(s).toFixed(0)]);
 
   return (
@@ -402,18 +408,18 @@ function GenericData({ b }: { b: Building }) {
             </div>
           ) : (
             <div className="note">
-              {workers.length === 0
+              {workers === 0
                 ? 'Здание стоит без рабочих — поставь кого-нибудь на место.'
                 : 'Это здание не даёт ресурсов напрямую.'}
             </div>
           )}
-          {workers.map((v) => (
-            <div className="mod" key={v.id}>
+          {workers > 0 && (
+            <div className="mod">
               <span className="ico">{jobDef.icon}</span>
-              <span className="name">{v.name}</span>
-              <span className="val">×{villagerMultiplier(s, v).toFixed(2)}</span>
+              <span className="name">Рабочих: {workers}</span>
+              <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>
             </div>
-          ))}
+          )}
           <div className="note">
             Уровень {b.level}: каждый рабочий работает на ×{levelOutputMult(b.level).toFixed(2)} от базы.
           </div>

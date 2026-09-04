@@ -34,7 +34,7 @@ export function TopBar() {
   const season = seasonOf(s.time);
   const meta = SEASON_META[season];
   const part = daypart(solarPhase(dayFraction(s.time), season));
-  const pop = s.villagers.length;
+  const pop = s.pop;
   const housing = housingCapacity(s);
   const morale = Math.round(s.morale);
   const army = armySize(s);

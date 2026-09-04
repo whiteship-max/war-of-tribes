@@ -483,6 +483,29 @@ body {
   font-size: 15px;
 }
 
+/*
+ * Ряд шага на всю ширину: −10 −1 [n] +1 +10. Люди назначаются числом, а число
+ * на потолке уровней трёхзначное — пальцем по одному его не набрать.
+ */
+.stepper.wide-steps {
+  width: 100%;
+  justify-content: space-between;
+  margin: 6px 0 10px;
+}
+
+.stepper.wide-steps button {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stepper.wide-steps .n {
+  flex: 0 0 auto;
+  min-width: 56px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
 .progress {
   height: 6px;
   background: rgba(0, 0, 0, 0.35);

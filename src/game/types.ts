@@ -71,21 +71,6 @@ export type TotemId = 'wolf' | 'bear' | 'eagle';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 
-export interface Villager {
-  id: number;
-  name: string;
-  sex: 'm' | 'f';
-  age: number; // в игровых годах
-  job: JobId;
-  /**
-   * Здание, в котором житель работает. null при job === 'idle' и при «вольном сборе» —
-   * работе по профессии без профильного здания (вполсилы).
-   */
-  workplace: number | null;
-  /** Врождённый талант: в этой профессии работает эффективнее. */
-  talent: JobId | null;
-}
-
 export interface Building {
   id: number;
   type: BuildingTypeId;
@@ -107,11 +92,11 @@ export interface RecruitOrder {
   done: number;
   /** Накопленная работа над текущим бойцом. */
   work: number;
-  /**
-   * Жители, ушедшие на учения. Они уже не в племени: не добывают и не строят.
-   * Хранятся целиком, чтобы отмена возвращала тех же людей, а не безымянные головы.
+/**
+   * Сколько человек ушло на учения. Они уже не в племени: не добывают и не строят.
+   * Отмена вернёт ровно столько же голов — поимённых жителей в игре нет.
    */
-  people: Villager[];
+  people: number;
 }
 
 /**
@@ -157,6 +142,7 @@ export interface Stats {
   hunts: number;
   battlesWon: number;
   battlesLost: number;
+  /** Сколько человек прибавилось и убыло за партию — приростом, голодом, боем. */
   born: number;
   died: number;
   eventsResolved: number;
@@ -199,7 +185,22 @@ export interface GameState {
   market: MarketState;
   /** Караваны в пути: их груз ещё не на складе. */
   caravans: Caravan[];
-  villagers: Villager[];
+  /**
+   * Жителей в посёлке. Поимённых жителей с возрастом, полом и характером в игре
+   * нет: население — число. Бойцы и новобранцы сюда не входят, они живут в
+   * счётчиках `army` и `recruits` (см. derived.population).
+   */
+  pop: number;
+  /**
+   * Сколько человек работает в каждом здании: ключ — id постройки. Личного навыка
+   * у жителя нет, работники одинаковы, поэтому назначение — это число, а не список.
+   */
+  workers: Record<number, number>;
+  /**
+   * Сколько человек занято «вольным сбором» — работой по профессии без профильного
+   * здания, вполсилы. Остальные (`pop` минус здания минус вольный сбор) свободны.
+   */
+  freeJobs: Partial<Record<JobId, number>>;
   buildings: Building[];
   completedQuests: string[];
   activeEvent: ActiveEvent | null;
@@ -213,7 +214,14 @@ export interface GameState {
   winterWarnedYear: number;
   /** Предупреждение «Скоро зима» ждёт показа. */
   winterWarning: boolean;
-  growth: number; // накопленный прогресс к появлению нового жителя
+  /**
+   * Накопленный прирост населения, −1..1. Дошёл до единицы — в посёлке одним
+   * человеком больше, упал до минус единицы — одним меньше: при низкой морали
+   * племя разбегается.
+   */
+  growth: number;
+  /** Население на начало текущего игрового дня: по нему летопись считает дневной прирост. */
+  popDay: number;
   /** Бойцы, ушедшие в поход: деревню они не защищают (см. derived.defense). */
   warriorsAway: number;
   /** Свободные жители, ушедшие разведчиками: они не строят. */

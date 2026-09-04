@@ -36,7 +36,8 @@ function makeWorld(seed = 7) {
 
 const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
-  pop: 20,
+  // Выше AI_MIN_POP: посёлок нового масштаба, набеги ИИ по нему идут.
+  pop: 120,
   defense: 30,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
@@ -209,10 +210,8 @@ describe('армия в походе', () => {
   /** Армия — счётчик бойцов, а не жители с профессией: роли «воин» больше нет. */
   const withWarriors = (n: number): GameState => {
     const s = createInitialState();
-    for (const v of s.villagers) {
-      v.job = 'idle';
-      v.workplace = null;
-    }
+    s.workers = {};
+    s.freeJobs = {};
     s.army.spearman = n;
     return s;
   };
@@ -539,7 +538,7 @@ describe('последствия для племени', () => {
     const s = createInitialState();
     s.army.spearman = 3;
     const before = armySize(s);
-    const villagersBefore = s.villagers.length;
+    const villagersBefore = s.pop;
     const food = s.resources.food;
 
     applyExpedition(
@@ -558,7 +557,7 @@ describe('последствия для племени', () => {
 
     expect(armySize(s)).toBe(before - 2);
     // Бойцы гибнут из армии, племя при этом не редеет.
-    expect(s.villagers.length).toBe(villagersBefore);
+    expect(s.pop).toBe(villagersBefore);
     expect(s.resources.food).toBeGreaterThan(food);
     expect(s.stats.battlesWon).toBe(1);
     expect(s.log[0].text).toContain('Не вернулись');

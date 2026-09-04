@@ -41,9 +41,13 @@ export interface GoodDef {
 }
 
 /**
- * Цены в золоте. Ориентир: город при высоком налоге собирает около 35 золота
- * в день, то есть дневной прилавок еды стоит ему нескольких дней казны, а меч —
- * четырёх. Дёшево здесь не бывает ничего.
+ * Цены в золоте. Ориентир: город на семь сотен душ при высоком налоге собирает
+ * около пятисот золота в день, то есть дневной прилавок еды стоит ему нескольких
+ * дней казны, а доспех — половины дня. Дёшево здесь не бывает ничего.
+ *
+ * Запас растёт вместе с посёлком: он тоже поднят на порядок, иначе рынок при
+ * семи сотнях едоков стал бы декорацией. Но еда так и не закрывает зимний
+ * расход ни при каком уровне — это правило, и его держит тест.
  */
 const RESOURCE_GOODS: {
   id: ResourceId;
@@ -54,13 +58,13 @@ const RESOURCE_GOODS: {
 }[] = [
   // Еда — самый дорогой товар и с самым жёстким запасом: даже рынок десятого
   // уровня не закрывает зимний расход, и зима остаётся угрозой (это проверяет тест).
-  { id: 'food', price: 10, stock: 8, stockPerLevel: 1.6, always: true },
-  { id: 'wood', price: 3, stock: 25, stockPerLevel: 10 },
-  { id: 'stone', price: 3, stock: 20, stockPerLevel: 8 },
-  { id: 'bones', price: 4, stock: 8, stockPerLevel: 3 },
-  { id: 'hides', price: 6, stock: 8, stockPerLevel: 3 },
-  { id: 'copper', price: 9, stock: 5, stockPerLevel: 2 },
-  { id: 'iron', price: 14, stock: 4, stockPerLevel: 2 },
+  { id: 'food', price: 10, stock: 60, stockPerLevel: 13, always: true },
+  { id: 'wood', price: 3, stock: 200, stockPerLevel: 80 },
+  { id: 'stone', price: 3, stock: 160, stockPerLevel: 64 },
+  { id: 'bones', price: 4, stock: 64, stockPerLevel: 24 },
+  { id: 'hides', price: 6, stock: 64, stockPerLevel: 24 },
+  { id: 'copper', price: 9, stock: 40, stockPerLevel: 16 },
+  { id: 'iron', price: 14, stock: 32, stockPerLevel: 16 },
 ];
 
 /**
@@ -68,12 +72,12 @@ const RESOURCE_GOODS: {
  * не только железом, но и чужой работой — иначе кузница была бы не нужна.
  */
 const EQUIPMENT_GOODS: Record<EquipmentId, { price: number; stock: number; stockPerLevel: number }> = {
-  spear: { price: 40, stock: 2, stockPerLevel: 1 },
-  bow: { price: 55, stock: 2, stockPerLevel: 1 },
-  axe: { price: 70, stock: 1, stockPerLevel: 1 },
-  shield: { price: 80, stock: 2, stockPerLevel: 1 },
-  sword: { price: 220, stock: 1, stockPerLevel: 1 },
-  armor: { price: 300, stock: 1, stockPerLevel: 1 },
+  spear: { price: 40, stock: 10, stockPerLevel: 5 },
+  bow: { price: 55, stock: 10, stockPerLevel: 5 },
+  axe: { price: 70, stock: 6, stockPerLevel: 5 },
+  shield: { price: 80, stock: 10, stockPerLevel: 5 },
+  sword: { price: 220, stock: 5, stockPerLevel: 4 },
+  armor: { price: 300, stock: 4, stockPerLevel: 3 },
 };
 
 export const GOODS: GoodDef[] = [

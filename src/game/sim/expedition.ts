@@ -3,11 +3,11 @@
 // эта сторона по-прежнему ничего не знает.
 import type { GameState, LogEntry, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
-import { homeArmy, jobCounts, storageCap } from '../derived';
+import { homeArmy, idleCount, storageCap } from '../derived';
 import { removeSoldiers } from './army';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
-import { removeVillager } from './population';
+import { losePop } from './population';
 import { log } from './log';
 
 /** Что случилось с деревней, пока отряд был в пути. */
@@ -38,10 +38,9 @@ export interface ExpeditionOutcome {
  * Отдельной профессии «воин» больше нет — армия живёт счётчиками в s.army.
  */
 export function sendableUnits(s: GameState): { warrior: number; scout: number } {
-  const counts = jobCounts(s);
   return {
     warrior: homeArmy(s),
-    scout: Math.max(0, counts.idle - Math.max(0, s.scoutsAway)),
+    scout: Math.max(0, idleCount(s) - Math.max(0, s.scoutsAway)),
   };
 }
 
@@ -51,19 +50,11 @@ export function setAway(s: GameState, warriors: number, scouts: number): void {
   s.scoutsAway = Math.max(0, Math.round(scouts));
 }
 
-/** Убирает n свободных жителей (разведчиков) и возвращает их имена. */
-function takeFallenScouts(s: GameState, n: number): string[] {
-  const names: string[] = [];
-  for (let i = 0; i < n; i++) {
-    // Племя не должно вымереть целиком из-за неудачной разведки.
-    if (s.villagers.length <= 1) break;
-    const v = s.villagers.find((x) => x.job === 'idle') ?? null;
-    if (!v) break;
-    removeVillager(s, v.id);
-    s.stats.died++;
-    names.push(v.name);
-  }
-  return names;
+/** Убирает не вернувшихся разведчиков. Племя не вымирает целиком из-за разведки. */
+function takeFallenScouts(s: GameState, n: number): number {
+  const gone = losePop(s, Math.min(Math.max(0, n), Math.max(0, s.pop - 1)));
+  s.stats.died += gone;
+  return gone;
 }
 
 /**
@@ -104,5 +95,5 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   log(s, o.text, o.kind);
   if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
   if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
-  if (fallen.length > 0) log(s, `Не вернулись: ${fallen.join(', ')}.`, 'bad');
+  if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen} чел.`, 'bad');
 }

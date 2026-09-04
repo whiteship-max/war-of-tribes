@@ -9,7 +9,7 @@ import {
   armySize,
   buildingOfType,
   defense,
-  freeVillagers,
+  idleCount,
   recruitRate,
 } from '@/game/derived';
 import { recruitCheck } from '@/game/sim/army';
@@ -30,7 +30,7 @@ export function Barracks() {
   const [counts, setCounts] = useState<Partial<Record<TroopId, number>>>({});
   const smithy = buildingOfType(s, 'smithy');
   const rate = recruitRate(s);
-  const free = freeVillagers(s).length;
+  const free = idleCount(s);
 
   const setCount = (id: TroopId, n: number): void =>
     setCounts((c) => ({ ...c, [id]: Math.max(1, Math.min(99, n)) }));

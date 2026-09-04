@@ -28,7 +28,6 @@ import { createInitialState } from '@/game/state';
 import { BUILDINGS } from '@/game/data/buildings';
 import { SEASON_DAYLIGHT, SEASON_DAYS } from '@/game/data/seasons';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '@/game/constants';
-import { addVillager } from '@/game/sim/population';
 import { createBuildingGroup, footprintOf, levelScale, type Tier } from './buildings';
 import { PLAN_SCALE } from './plan';
 import { buildGround } from './terrain';
@@ -304,27 +303,18 @@ export function synthState(
     if (existing) existing.level = level;
   }
 
-  // Мест работы в городе больше, чем людей: чтобы «укомплектованный»
-  // посёлок был укомплектован по-настоящему — с дымом у кузницы и грузом у
-  // каждого двора, — народу берём столько, сколько мест.
-  const slots = s.buildings.reduce(
-    (n, b) => n + (BUILDINGS.find((d) => d.id === b.type)?.job ? b.level : 0),
-    0,
-  );
-  const pop = Math.max(5, staffed ? slots : 0);
-  while (s.villagers.length < pop) addVillager(s, { job: 'idle' });
-  // Рассадить по рабочим местам: столько, сколько уровней у здания. При
-  // workers=none никого не назначаем: так проверяется вторая половина правила —
-  // все свободные руки стоят у костра, а признаков работы у зданий нет.
-  let i = 0;
+  // «Укомплектованный» посёлок должен быть укомплектован по-настоящему — с дымом
+  // у кузницы и грузом у каждого двора, — поэтому в каждое здание ставим по
+  // человеку на уровень. Больше и не надо: признак занятости зажигается от
+  // одного рабочего, а сама толпа на сцене всё равно не рисуется.
+  let hands = 0;
   for (const b of staffed ? s.buildings : []) {
-    const def = BUILDINGS.find((d) => d.id === b.type);
-    if (!def?.job) continue;
-    for (let k = 0; k < b.level && i < s.villagers.length; k++, i++) {
-      s.villagers[i].job = def.job;
-      s.villagers[i].workplace = b.id;
-    }
+    if (!BUILDINGS.find((d) => d.id === b.type)?.job) continue;
+    s.workers[b.id] = b.level;
+    hands += b.level;
   }
+  // Плюс десяток свободных рук у костра — их-то стенд и показывает.
+  s.pop = hands + 10;
 
   for (const [troop, n] of Object.entries(ARMY_FOR(level)) as [TroopId, number][]) s.army[troop] = n;
   s.tutorialDone = true;

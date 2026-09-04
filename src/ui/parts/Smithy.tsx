@@ -2,21 +2,21 @@ import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT } from '@/game/data/equipment';
-import { canAfford, forgeInfo, workersIn } from '@/game/derived';
+import { canAfford, forgeInfo, workerCount } from '@/game/derived';
 import { setForging } from '@/game/sim/actions';
 
 /**
  * Кузница: переключатель «что куём» и ход работы.
  *
  * Предметы — обычные счётчики: ни инвентаря, ни качества, ни износа. Скорость
- * зависит от числа кузнецов, уровня кузницы и таланта — всё это уже сидит
- * в множителе жителя, поэтому здесь просто показываем итог.
+ * зависит от числа кузнецов и уровня кузницы — личного навыка у жителя нет,
+ * его роль целиком взял на себя уровень здания.
  */
 export function Smithy({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const info = forgeInfo(s);
-  const smiths = workersIn(s, b.id).length;
+  const smiths = workerCount(s, b.id);
 
   return (
     <>

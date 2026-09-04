@@ -1,12 +1,23 @@
 import { useGame } from '@/game/store';
-import { JOB_BY_ID } from '@/game/data/jobs';
+import { JOBS } from '@/game/data/jobs';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { buildingById, buildingOfType, defense, freeVillagers, housingCapacity, armyPower, armySize } from '@/game/derived';
-import { armyRoster } from '@/game/sim/army';
+import {
+  armyPower,
+  armySize,
+  buildingOfType,
+  defense,
+  freeJobCount,
+  housingCapacity,
+  idleCount,
+  jobCounts,
+  workerCount,
+} from '@/game/derived';
+import { popGrowth } from '@/game/sim/population';
+import { armyRoster, trainees } from '@/game/sim/army';
 
 /**
  * Дружина. Бойцы — не жители с профессией «воин»: их нанимают в казармах,
- * и в списке племени их нет. Поэтому здесь отдельная строка, а не роль.
+ * и в списке работ их нет. Поэтому здесь отдельная строка, а не роль.
  */
 function Army() {
   const s = useGame((g) => g.s);
@@ -46,73 +57,111 @@ function Army() {
   );
 }
 
-/** Склонение: 1 год, 2 года, 5 лет. */
-function years(n: number): string {
-  const t = n % 100;
-  const o = n % 10;
-  if (t >= 11 && t <= 14) return `${n} лет`;
-  if (o === 1) return `${n} год`;
-  if (o >= 2 && o <= 4) return `${n} года`;
-  return `${n} лет`;
+/** Полоска доли, 0..1: чем короче, тем сильнее эта причина тормозит прирост. */
+function Factor({ icon, name, k, hint }: { icon: string; name: string; k: number; hint: string }) {
+  const pct = Math.round(Math.max(0, Math.min(1, k)) * 100);
+  return (
+    <div className="res-line">
+      <span className="ico">{icon}</span>
+      <span className="name">{name}</span>
+      <span className={`val${pct < 40 ? ' full' : ''}`}>{pct}%</span>
+      <span className="delta">{hint}</span>
+      <span className="bar">
+        <i style={{ width: `${pct}%` }} className={pct < 40 ? 'full' : ''} />
+      </span>
+    </div>
+  );
 }
 
 /**
- * Сквозной список племени: кто чем занят и где. Роль теперь следствие места работы,
- * поэтому назначают людей в панелях зданий, а не здесь.
+ * Племя числами. Поимённых жителей нет: население — это счёт, а роль человека —
+ * следствие места работы. Поэтому здесь не список людей, а список профессий и
+ * причина, по которой племя растёт или разбегается.
  */
 export function PeoplePanel() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
-  const idle = freeVillagers(s).length;
+  const idle = idleCount(s);
   const housing = housingCapacity(s);
-  const sorted = [...s.villagers].sort((a, b) => a.job.localeCompare(b.job) || a.id - b.id);
+  const counts = jobCounts(s);
+  const growth = popGrowth(s);
+  const training = trainees(s);
+  const working = JOBS.filter((j) => j.id !== 'idle' && counts[j.id] > 0);
 
   return (
     <div className="panel">
       <h2>
-        Племя <small>{s.villagers.length} чел. · жильё {housing} · защита {defense(s).toFixed(0)}</small>
+        Племя <small>{s.pop} чел. · жильё {housing} · защита {defense(s).toFixed(0)}</small>
       </h2>
-      <div className="note">Людей ставят на работу в панели здания. Свободные строят и отдыхают у костра.</div>
+      <div className="note">
+        Людей ставят на работу в панели здания — числом, а не поимённо. Свободные строят и
+        отдыхают у костра.
+      </div>
 
       <div className="mod total">
         <span className="ico">🔨</span>
-        <span className="name">Свободные</span>
+        <span className="name">Свободные руки</span>
         <span className="val">{idle}</span>
       </div>
+      {training > 0 && (
+        <div className="mod">
+          <span className="ico">⚔️</span>
+          <span className="name">На учениях в казармах</span>
+          <span className="val">{training}</span>
+        </div>
+      )}
+
+      <h3>
+        Прирост{' '}
+        <span className={`muted${growth.perDay < 0 ? ' neg' : ''}`}>
+          {growth.perDay >= 0 ? '+' : '−'}
+          {Math.abs(growth.perDay).toFixed(1)} чел. в день
+        </span>
+      </h3>
+      <div className="note">
+        {growth.blocked ??
+          'Племя растёт: есть куда селить, чем кормить и за кем идти. Рацион и указы вождя двигают прирост так же, как выработку.'}
+      </div>
+      <Factor
+        icon={growth.morale >= 0 ? '😊' : '😟'}
+        name="Мораль"
+        k={growth.morale}
+        hint={growth.morale < 0 ? 'люди уходят' : `${Math.round(s.morale)} из 100`}
+      />
+      <Factor icon="🛏️" name="Свободное жильё" k={growth.housing} hint={`${Math.max(0, housing - s.pop)} мест`} />
+      <Factor icon="🍖" name="Запас еды" k={growth.food} hint="на три дня — полный ход" />
 
       <Army />
 
-      {sorted.map((v) => {
-        const job = JOB_BY_ID[v.job];
-        const place = v.workplace !== null ? buildingById(s, v.workplace) : null;
-        const where = place
-          ? BUILDING_BY_ID[place.type].name
-          : v.job === 'idle'
-            ? 'у костра'
-            : 'вольный сбор';
+      <h3>Кто чем занят</h3>
+      {working.map((job) => {
+        const place = s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job.id) ?? null;
+        const inside = place ? workerCount(s, place.id) : 0;
+        const wild = freeJobCount(s, job.id);
         return (
           <button
             className="card as-row"
-            key={v.id}
+            key={job.id}
             disabled={!place}
             onClick={() => place && openBuilding(place.id)}
           >
             <div className="ico">{job.icon}</div>
             <div className="body">
               <div className="title">
-                {v.name}
-                <span className="count">
-                  {years(Math.floor(v.age))} · {v.sex === 'f' ? 'ж' : 'м'}
-                </span>
+                {job.name}
+                <span className="count">{counts[job.id]} чел.</span>
               </div>
               <div className="desc">
-                {job.name} · {where}
-                {v.talent && <span className="talent"> ★ {JOB_BY_ID[v.talent].name.toLowerCase()}</span>}
+                {place ? `${BUILDING_BY_ID[place.type].name}: ${inside}` : 'без здания'}
+                {wild > 0 && ` · вольный сбор: ${wild}`}
               </div>
             </div>
           </button>
         );
       })}
+      {working.length === 0 && (
+        <div className="note">Все руки свободны. Поставь людей в здания — панель у каждого своя.</div>
+      )}
     </div>
   );
 }

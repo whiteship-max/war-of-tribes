@@ -3,24 +3,12 @@
 //
 // Цена одного бойца: ресурсы + снаряжение + один свободный житель + время учений.
 // Очередь одна и идёт последовательно; отмена возвращает и добро, и людей.
-import type {
-  EquipmentId,
-  GameState,
-  RecruitOrder,
-  ResourceId,
-  TroopId,
-  Villager,
-} from '../types';
+import type { EquipmentId, GameState, RecruitOrder, ResourceId, TroopId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import {
-  canAfford,
-  freeVillagers,
-  recruitRate,
-  recruitsQueued,
-  storageCap,
-} from '../derived';
+import { canAfford, idleCount, recruitRate, recruitsQueued, storageCap } from '../derived';
+import { addPop, losePop } from './population';
 import { log } from './log';
 
 /** Сколько всего стоит партия бойцов в ресурсах. */
@@ -72,7 +60,7 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
   const n = Math.max(1, Math.floor(count));
   const cost = recruitCost(troop, n);
   const gear = recruitGear(troop, n);
-  const free = freeVillagers(s).length;
+  const free = idleCount(s);
   const missing: MissingGear[] = [];
   for (const [id, need] of Object.entries(gear)) {
     const have = s.equipment?.[id as EquipmentId] ?? 0;
@@ -102,17 +90,6 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
   };
 }
 
-/** Кого забрать на учения первым: того, у кого нет таланта к мирной работе. */
-function takeTrainee(s: GameState): Villager | null {
-  const free = freeVillagers(s);
-  if (free.length === 0) return null;
-  const v = free.find((x) => x.talent === null) ?? free[free.length - 1];
-  const idx = s.villagers.findIndex((x) => x.id === v.id);
-  if (idx < 0) return null;
-  const [taken] = s.villagers.splice(idx, 1);
-  return taken;
-}
-
 /** Ставит партию бойцов в очередь казарм. Плата снимается сразу — как за стройку. */
 export function startRecruit(s: GameState, troop: TroopId, count = 1): string | null {
   const check = recruitCheck(s, troop, count);
@@ -123,15 +100,12 @@ export function startRecruit(s: GameState, troop: TroopId, count = 1): string | 
   for (const [id, need] of Object.entries(check.gear)) {
     s.equipment[id as EquipmentId] -= need ?? 0;
   }
-  const people: Villager[] = [];
-  for (let i = 0; i < n; i++) {
-    const v = takeTrainee(s);
-    if (v) people.push(v);
-  }
+  // Люди уходят на учения сразу: они больше не добывают и не строят.
+  const people = losePop(s, n);
 
-  const order: RecruitOrder = { id: s.nextId++, troop, count: people.length, done: 0, work: 0, people };
+  const order: RecruitOrder = { id: s.nextId++, troop, count: people, done: 0, work: 0, people };
   s.recruits.push(order);
-  log(s, `Казармы: набор — ${check.def.name.toLowerCase()}, ${people.length}.`);
+  log(s, `Казармы: набор — ${check.def.name.toLowerCase()}, ${people}.`);
   return null;
 }
 
@@ -151,12 +125,8 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
   for (const [id, n] of Object.entries(def.gear)) {
     if (n) s.equipment[id as EquipmentId] = (s.equipment[id as EquipmentId] ?? 0) + n * left;
   }
-  // Люди возвращаются к костру теми же, кем ушли: имя, возраст и талант при них.
-  for (const v of order.people) {
-    v.job = 'idle';
-    v.workplace = null;
-    s.villagers.push(v);
-  }
+  // Недоучившиеся возвращаются к костру свободными руками.
+  addPop(s, Math.min(order.people, left));
   s.recruits.splice(idx, 1);
   log(s, `Казармы: набор отменён — ${def.name.toLowerCase()}.`);
   return null;
@@ -176,7 +146,7 @@ export function recruitTick(s: GameState, dt: number): void {
   while (order.work >= def.work && order.done < order.count) {
     order.work -= def.work;
     order.done++;
-    order.people.shift();
+    order.people = Math.max(0, order.people - 1);
     s.army[order.troop] = (s.army[order.troop] ?? 0) + 1;
     log(s, `Казармы: обучен ${def.one}.`, 'good');
   }
