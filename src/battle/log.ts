@@ -43,6 +43,12 @@ export function describeEvent(e: BattleEvent): string {
       return `${who}: ${SECTOR_NAME[e.sector]} обойдён`;
     case 'sector-collapsed':
       return `${who}: ${SECTOR_NAME[e.sector]} смят`;
+    case 'sector-broken':
+      return `${who}: ${SECTOR_NAME[e.sector]} сломался — бегут`;
+    case 'panic-spread':
+      return `${who}: паника перекинулась с ${SECTOR_NAME[e.from]} на ${SECTOR_NAME[e.to]}`;
+    case 'ranged-lost':
+      return `${who}: проиграли стрелковую фазу — ${e.losses} потерь против ${e.enemyLosses}`;
     case 'rear-reached':
       return `${who}: противник дошёл до тыла (${SECTOR_NAME[e.sector]})`;
     case 'reserve-committed':
@@ -52,7 +58,7 @@ export function describeEvent(e: BattleEvent): string {
     case 'archers-kiting':
       return `${who}: лучники (${SECTOR_NAME[e.sector]}) держат дистанцию`;
     case 'morale-collapsed':
-      return `${who}: мораль рухнула (${e.morale})`;
+      return `${who}: армия сломалась — бегут сектора весом ${Math.round(e.brokenShare * 100)}% (мораль ${e.morale})`;
     case 'annihilated':
       return `${who}: перебиты`;
     case 'outfought':

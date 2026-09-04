@@ -78,6 +78,13 @@ export interface ArmySetup {
   plan: Plan;
   orders: Orders;
   reserve: ReserveTrigger;
+  /**
+   * Ступень снаряжения рода войск, 0..`GEAR.max`: то, что выковала кузница.
+   * Каждая ступень прибавляет `GEAR.moralePerLevel` к базовой морали рода —
+   * снаряжение делает бойца стойче, а не только больнее. Отображение семи видов
+   * бойцов игры на четыре рода боя — дело моста, не ядра; здесь только число.
+   */
+  gear?: Partial<Record<UnitKind, number>>;
 }
 
 export type Side = 'attacker' | 'defender';
@@ -114,8 +121,14 @@ export type BattleEvent = EventBase &
     | { id: 'cavalry-intercepted'; side: Side; target: Sector }
     /** Сектор `sector` стороны `side` обойдён: удар пришёл с фланга или тыла. */
     | { id: 'flank-turned'; side: Side; sector: Sector; by: Side }
-    /** Фронт в `sector` смят: остатки откатились в тыл. */
+    /** Фронт в `sector` смят потерями: остатки откатились в тыл. */
     | { id: 'sector-collapsed'; side: Side; sector: Sector }
+    /** Мораль сектора упала до нуля: бойцы бегут, сектор больше не держит линию. */
+    | { id: 'sector-broken'; side: Side; sector: Sector }
+    /** Паника перекинулась со сломанного сектора `from` на соседний `to`. */
+    | { id: 'panic-spread'; side: Side; from: Sector; to: Sector }
+    /** Сторона проиграла стрелковую фазу: до контакта потеряла `losses` против `enemyLosses` у противника. */
+    | { id: 'ranged-lost'; side: Side; losses: number; enemyLosses: number }
     /** Противник прошёл сквозь фронт и достиг тыла `sector`. */
     | { id: 'rear-reached'; side: Side; sector: Sector; by: Side }
     /** Резерв (`men` человек) вошёл в `sector`. */
@@ -124,8 +137,8 @@ export type BattleEvent = EventBase &
     | { id: 'infantry-shifted'; side: Side; to: Sector; men: number }
     /** Лучники в `sector` держат дистанцию от медленного противника. */
     | { id: 'archers-kiting'; side: Side; sector: Sector }
-    /** Мораль рухнула. */
-    | { id: 'morale-collapsed'; side: Side; morale: number }
+    /** Армия сломалась: сломанные сектора весят `brokenShare` (0..1) от её начальной численности. */
+    | { id: 'morale-collapsed'; side: Side; morale: number; brokenShare: number }
     /** Сторона перебита почти целиком. */
     | { id: 'annihilated'; side: Side }
     /** Размен проигран без развала морали: сохранили `kept` долю против `enemyKept` у противника. */
@@ -157,9 +170,12 @@ export interface SideResult {
   final: Stack;
   losses: Stack;
   total: SideTotals;
-  /** По секторам расстановки: куда кого поставили и сколько оттуда вернулось. */
-  sectors: Record<Sector, { initial: Stack; final: Stack }>;
-  /** Мораль к концу боя, 0..100. */
+  /**
+   * По секторам расстановки: куда кого поставили, сколько оттуда вернулось,
+   * мораль сектора к концу боя (0..100; пустой сектор — 0) и бежал ли он.
+   */
+  sectors: Record<Sector, { initial: Stack; final: Stack; morale: number; broken: boolean }>;
+  /** Мораль армии к концу боя, 0..100: средняя по живым секторам, взвешенная числом людей. */
   morale: number;
   /** Сторона сломалась (мораль или истребление) — тик, когда это случилось. */
   brokenAt: number | null;
@@ -173,6 +189,8 @@ export interface PhaseSpan {
   /** Первый и последний тик фазы включительно. */
   from: number;
   to: number;
+  /** Сколько каждая сторона потеряла за эту фазу (дробные, наружу не округляются: сумма по фазам ≈ потери). */
+  losses: Record<Side, number>;
 }
 
 export interface BattleResult {

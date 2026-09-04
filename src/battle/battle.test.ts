@@ -5,9 +5,9 @@
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
 import { quickSetup, armyTotal, stackTotal } from './setup';
-import { ANNIHILATED_AT, COUNTER } from './config';
+import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_TICKS, TEMPER, UNIT_STATS } from './config';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, RING, TUNED_VS_QUICK, lossRatio, mirrored, setupOf } from './bench';
-import { PHASES, SECTORS, type ArmySetup, type BattleEvent, type BattleResult, type Side, type Winner } from './types';
+import { PHASES, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Side, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 
@@ -216,6 +216,160 @@ describe('превосходство условно', () => {
   });
 });
 
+/** Полная длина боя без досрочного конца: стрелковая фаза плюс все остальные целиком. */
+const fullLength = (r: BattleResult): number => r.phases.find((p) => p.phase === 'ranged')!.to + PHASES.filter((p) => p !== 'ranged').reduce((n, p) => n + PHASE_TICKS[p], 0);
+const endedEarly = (r: BattleResult): boolean => r.ticks < fullLength(r);
+
+describe('мораль по секторам', () => {
+  it('бой обычно кончается отступлением, а не гонгом', () => {
+    // Раньше 87% боёв шли до потолка тиков, а победителя объявляли по тому, кто впереди. Теперь сектора
+    // ломаются, паника идёт по соседям, и армия отступает сама: досрочный конец — норма, ничья — редкость.
+    const pairs = allPairs(4);
+    let early = 0;
+    let draws = 0;
+    let total = 0;
+    for (const p of pairs) {
+      for (const r of p.results) {
+        total += 1;
+        if (endedEarly(r)) early += 1;
+        if (r.winner === 'draw') draws += 1;
+      }
+    }
+    expect(early / total).toBeGreaterThan(0.8);
+    expect(draws / total).toBeLessThan(0.1);
+  });
+
+  it('перевес в 10% не даёт лавины: размен не выше ≈1.5', () => {
+    // Ограничитель на перекидывание паники: та же армия на 10% больше при прочих равных.
+    // Составы без пешей линии (одна конница с луками) сюда не входят: там кольцо — конница добивает
+    // лучников, когда линии нет, — даёт больше по замыслу.
+    const ratios: number[] = [];
+    for (const c of COMPOSITIONS) {
+      if (!(c.army.infantry ?? 0) && !(c.army.spear ?? 0)) continue;
+      const bigger = quickSetup(Object.fromEntries(Object.entries(c.army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
+      let bigLoss = 0;
+      let smallLoss = 0;
+      for (let seed = 1; seed <= 16; seed += 1) {
+        const bigAttacks = seed % 2 === 1;
+        const r = simulateBattle({ seed, attacker: bigAttacks ? bigger : c.setup, defender: bigAttacks ? c.setup : bigger });
+        bigLoss += r.sides[bigAttacks ? 'attacker' : 'defender'].total.losses;
+        smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
+      }
+      const ratio = smallLoss / Math.max(1, bigLoss);
+      expect(ratio, `${c.name}: размен ${ratio.toFixed(2)}`).toBeLessThanOrEqual(1.6);
+      ratios.push(ratio);
+    }
+    expect(ratios.reduce((a, b) => a + b, 0) / ratios.length).toBeLessThanOrEqual(1.5);
+  });
+
+  it('сломанный сектор тянет соседей, и армия отступает, когда сломано достаточно', () => {
+    let panics = 0;
+    let breaks = 0;
+    for (const r of sampleBattles()) {
+      for (const e of r.log) {
+        if (e.id === 'sector-broken') breaks += 1;
+        if (e.id === 'panic-spread') panics += 1;
+      }
+      // Армия, сломавшаяся по морали, к этому моменту потеряла сектора весом не меньше порога — или линию целиком.
+      for (const side of ['attacker', 'defender'] as const) {
+        const collapsed = r.log.find((e) => e.id === 'morale-collapsed' && e.side === side);
+        if (!collapsed || collapsed.id !== 'morale-collapsed') continue;
+        const brokenBefore = r.log.filter((e) => e.id === 'sector-broken' && e.side === side && e.tick <= collapsed.tick).length;
+        const lostShare = r.sides[side].total.losses / r.sides[side].total.initial;
+        expect(brokenBefore > 0 || lostShare > MORALE.autoBreakLoss * 0.9).toBe(true);
+      }
+    }
+    expect(breaks).toBeGreaterThan(0);
+    expect(panics).toBeGreaterThan(0);
+  });
+
+  it('якорь: сектор с пехотой держит мораль дольше, чем без неё', () => {
+    const wall = quickSetup({ infantry: 600 });
+    const bare = setupOf({ A: { spear: 150 }, B: { spear: 300 }, C: { spear: 150 } }, { orders: { spear: 'advance', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
+    const anchoredLine = setupOf({ A: { spear: 110, infantry: 40 }, B: { spear: 220, infantry: 80 }, C: { spear: 110, infantry: 40 } }, { orders: { spear: 'advance', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
+    let bareBreak = 0;
+    let anchoredBreak = 0;
+    for (let seed = 1; seed <= 6; seed += 1) {
+      const firstBreak = (r: BattleResult): number => r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker')?.tick ?? r.ticks + 1;
+      bareBreak += firstBreak(simulateBattle({ seed, attacker: bare, defender: wall }));
+      anchoredBreak += firstBreak(simulateBattle({ seed, attacker: anchoredLine, defender: wall }));
+    }
+    expect(anchoredBreak).toBeGreaterThan(bareBreak);
+    expect(MORALE.anchor).toBeLessThan(1);
+    expect(MORALE.anchorPanic).toBeLessThan(1);
+  });
+});
+
+describe('мораль как характеристика войск', () => {
+  it('у каждого рода своя базовая мораль: пехота — масса, копейщики стойче', () => {
+    expect(UNIT_STATS.infantry.morale).toBeLessThan(UNIT_STATS.spear.morale);
+    for (const k of UNIT_KINDS) {
+      expect(UNIT_STATS[k].morale).toBeGreaterThan(0);
+      expect(UNIT_STATS[k].morale).toBeLessThanOrEqual(MORALE.max);
+    }
+  });
+
+  it('снаряжение из кузницы делает войско стойче: та же армия со снаряжением выигрывает размен', () => {
+    const plain = quickSetup(BALANCED_ARMY);
+    const geared = quickSetup(BALANCED_ARMY, { gear: { spear: GEAR.max, infantry: GEAR.max, archer: GEAR.max, cavalry: GEAR.max } });
+    let wins = 0;
+    let ratio = 0;
+    const N = 12;
+    for (let seed = 1; seed <= N; seed += 1) {
+      const m = mirrored(geared, plain, seed);
+      if (m.winner === 'a') wins += 1;
+      ratio += m.lossRatio;
+    }
+    expect(wins).toBeGreaterThanOrEqual(N - 2);
+    expect(ratio / N).toBeGreaterThan(1.1);
+    // Ступень выше потолка не даёт больше потолка.
+    const capped = simulateBattle({ seed: 1, attacker: quickSetup(BALANCED_ARMY, { gear: { infantry: 99 } }), defender: plain });
+    const max = simulateBattle({ seed: 1, attacker: quickSetup(BALANCED_ARMY, { gear: { infantry: GEAR.max } }), defender: plain });
+    expect(JSON.stringify(capped.sides)).toBe(JSON.stringify(max.sides));
+  });
+
+  it('копейщики стойки, пока держат линию, и ломки под ударом во фланг', () => {
+    expect(TEMPER.spear.holding).toBeLessThan(TEMPER.spear.advancing);
+    expect(TEMPER.spear.advancing).toBeLessThan(TEMPER.spear.flanked);
+    const wall = quickSetup({ infantry: 600 });
+    const spears = (spear: ArmySetup['orders']['spear']): ArmySetup => quickSetup({ spear: 600 }, { orders: { spear, infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
+    let holding = 0;
+    let advancing = 0;
+    for (let seed = 1; seed <= 6; seed += 1) {
+      holding += simulateBattle({ seed, attacker: spears('hold-line'), defender: wall }).sides.attacker.morale;
+      advancing += simulateBattle({ seed, attacker: spears('advance'), defender: wall }).sides.attacker.morale;
+    }
+    expect(holding).toBeGreaterThan(advancing);
+  });
+
+  it('конница высока на разгоне, но хрупка, когда её остановили', () => {
+    expect(TEMPER.cavalry.charging).toBeLessThan(TEMPER.cavalry.stalled);
+    // Конница, вставшая во фронт против стены пехоты, ломается сама; та же конница в обходе — нет.
+    const wall = quickSetup({ infantry: 400 });
+    const stalled = setupOf({ A: { cavalry: 60 }, B: { cavalry: 80 }, C: { cavalry: 60 } }, { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
+    let broken = 0;
+    for (let seed = 1; seed <= 6; seed += 1) {
+      const r = simulateBattle({ seed, attacker: stalled, defender: wall });
+      if (r.log.some((e) => e.id === 'sector-broken' && e.side === 'attacker')) broken += 1;
+    }
+    expect(broken).toBeGreaterThanOrEqual(5);
+  });
+
+  it('лучники в рукопашной ломаются быстро', () => {
+    expect(TEMPER.archer.melee).toBeGreaterThan(TEMPER.archer.shooting);
+    const archers = quickSetup({ archer: 400 });
+    const wall = quickSetup({ infantry: 400 });
+    for (let seed = 1; seed <= 4; seed += 1) {
+      const r = simulateBattle({ seed, attacker: archers, defender: wall });
+      const clash = r.phases.find((p) => p.phase === 'clash')!;
+      const firstBreak = r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker');
+      expect(firstBreak).toBeDefined();
+      expect(firstBreak!.tick - clash.from).toBeLessThanOrEqual(12);
+      expect(r.winner).toBe('defender');
+    }
+  });
+});
+
 describe('детерминированность', () => {
   it('один вход и сид — один исход и один журнал', () => {
     const input = { seed: 4242, attacker: TUNED_VS_QUICK.tuned, defender: TUNED_VS_QUICK.quick };
@@ -230,8 +384,10 @@ describe('детерминированность', () => {
   it('другой сид меняет ход боя, но не его форму', () => {
     const a = simulateBattle({ seed: 1, attacker: TUNED_VS_QUICK.tuned, defender: TUNED_VS_QUICK.quick });
     const b = simulateBattle({ seed: 2, attacker: TUNED_VS_QUICK.tuned, defender: TUNED_VS_QUICK.quick });
-    expect(a.sides.attacker.total.losses).not.toBe(b.sides.attacker.total.losses);
-    expect(a.phases.map((p) => p.phase)).toEqual(b.phases.map((p) => p.phase));
+    expect(JSON.stringify({ ...a, seed: 0 })).not.toBe(JSON.stringify({ ...b, seed: 0 }));
+    // Форма — обязательные фазы в том же порядке; обходы и резерв бой вправе пропустить, если сторона сломалась раньше.
+    const must = (r: BattleResult): string[] => r.phases.map((p) => p.phase).filter((p) => p !== 'flanking' && p !== 'reserve');
+    expect(must(a)).toEqual(must(b));
   });
 });
 
@@ -262,7 +418,7 @@ function explains(e: BattleEvent, winner: Winner): boolean {
   if (winner === 'draw') return false;
   const loser = other(winner);
   if (!('side' in e)) return false;
-  if (e.side === loser) return ['morale-collapsed', 'annihilated', 'sector-collapsed', 'flank-turned', 'rear-reached', 'outfought'].includes(e.id);
+  if (e.side === loser) return ['morale-collapsed', 'annihilated', 'sector-collapsed', 'sector-broken', 'panic-spread', 'ranged-lost', 'flank-turned', 'rear-reached', 'outfought'].includes(e.id);
   return ['spears-held', 'cavalry-broke-archers', 'volley', 'pursuit', 'reserve-committed', 'archers-kiting', 'infantry-shifted'].includes(e.id);
 }
 
@@ -356,6 +512,28 @@ describe('журнал осмыслен', () => {
           case 'morale-collapsed':
             expect(r.sides[e.side].brokenAt).toBe(e.tick);
             expect(e.morale).toBeLessThanOrEqual(100);
+            expect(e.brokenShare).toBeGreaterThanOrEqual(0);
+            expect(e.brokenShare).toBeLessThanOrEqual(1);
+            break;
+          case 'sector-broken': {
+            // Сломаться может только сектор, где кто-то стоял.
+            const manned =
+              initialOf(e.side, e.sector) > 0 ||
+              r.log.some((x) => x.tick <= e.tick && 'side' in x && x.side === e.side && ((x.id === 'reserve-committed' && x.sector === e.sector) || (x.id === 'infantry-shifted' && x.to === e.sector)));
+            expect(manned, `сломан пустой сектор ${e.sector}`).toBe(true);
+            expect(seen.has(`broken:${e.side}:${e.sector}`)).toBe(false);
+            seen.add(`broken:${e.side}:${e.sector}`);
+            break;
+          }
+          case 'panic-spread':
+            expect(e.from).not.toBe(e.to);
+            // Паника идёт только от уже сломанного сектора.
+            expect(r.log.some((x) => x.id === 'sector-broken' && x.side === e.side && x.sector === e.from && x.tick <= e.tick)).toBe(true);
+            break;
+          case 'ranged-lost':
+            expect(e.phase).toBe('clash');
+            expect(e.losses).toBeGreaterThan(e.enemyLosses);
+            expect(e.losses).toBeLessThanOrEqual(r.sides[e.side].total.losses + 1);
             break;
           case 'annihilated':
             expect(r.sides[e.side].total.final).toBeLessThanOrEqual(Math.ceil(ANNIHILATED_AT * r.sides[e.side].total.initial));
@@ -392,6 +570,16 @@ describe('журнал осмыслен', () => {
       if (r.reason === 'morale' || r.reason === 'annihilated') {
         const loser = r.sides[other(r.winner as Side)];
         expect(loser.brokenAt).not.toBeNull();
+      }
+      // Мораль секторов сходится с журналом: сломан — значит, в журнале есть слом или сектор перебит.
+      for (const side of ['attacker', 'defender'] as const) {
+        for (const id of SECTORS) {
+          const sec = r.sides[side].sectors[id];
+          expect(sec.morale).toBeGreaterThanOrEqual(0);
+          expect(sec.morale).toBeLessThanOrEqual(100);
+          if (stackTotal(sec.initial) === 0) expect(sec.broken).toBe(false);
+          if (sec.broken && stackTotal(sec.final) > 0) expect(sec.morale).toBe(0);
+        }
       }
       if (r.winner !== 'draw') {
         // Победитель не может быть перебит.
