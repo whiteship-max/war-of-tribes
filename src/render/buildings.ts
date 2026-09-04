@@ -973,7 +973,7 @@ export function scaffold(w: number, d: number, h = 1.5): THREE.Group {
   const ladder = box(0.32, 0.05, h * 1.15, M.woodDark, hw - 0.3, h * 0.35, hd);
   ladder.rotation.x = 1.15;
   g.add(ladder);
-  return g;
+  return K.collapse(g);
 }
 
 /**
@@ -1092,7 +1092,17 @@ export const footprintOf = (type: BuildingTypeId, tier: Tier = 0): [number, numb
   return [w * k, d * k];
 };
 
+/**
+ * Модель здания. Хижина собрана из набора деталей и уже один меш; остальные —
+ * старые модели из отдельных мешей, и их склеивает `K.collapse`: один вызов
+ * отрисовки на материал вместо одного на каждую доску. Визуально модель та же,
+ * добавляется только контактное затемнение у земли.
+ */
 export function createBuildingGroup(type: BuildingTypeId, stage: Stage, tier: Tier, era: EraId): THREE.Group {
+  return K.collapse(legacyModel(type, stage, tier, era), K.GROUND_AO);
+}
+
+function legacyModel(type: BuildingTypeId, stage: Stage, tier: Tier, era: EraId): THREE.Group {
   const st = ERA_STYLE[era];
   if (type === 'campfire') return campfire(st);
   if (type === 'shelter') return shelter();

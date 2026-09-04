@@ -29,6 +29,7 @@ import {
   type Tier,
 } from './buildings';
 import { VillagerAgent } from './villagers';
+import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
 import { Smoke, Snowfall } from './weather';
@@ -135,6 +136,8 @@ export class TribeScene {
   private walled = false;
   private agents = new Map<number, VillagerAgent>();
   private soldiers: SoldierAgent[] = [];
+  /** Все фигурки — жители и бойцы — одним пулом инстансов: девять вызовов на всех. */
+  private figures = new FigurePool();
   /** Караваны рынка: телега на дороге у ворот, пока покупка в пути. */
   private caravans = new Map<number, { agent: CaravanAgent; departAt: number; arriveAt: number }>();
   /** Обстановка посёлка: площадь, дороги, размеченные площадки и декор. */
@@ -210,6 +213,7 @@ export class TribeScene {
 
     this.terrain = buildTerrain();
     this.scene.add(this.terrain);
+    this.scene.add(this.figures.group);
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
 
@@ -570,7 +574,7 @@ export class TribeScene {
       if (!agent) {
         agent = new VillagerAgent(v, new THREE.Vector3(0, 0, 0));
         this.agents.set(v.id, agent);
-        this.scene.add(agent.group);
+        this.figures.add(agent.figure);
       }
       const n = perJob.get(v.job) ?? 0;
       perJob.set(v.job, n + 1);
@@ -579,7 +583,7 @@ export class TribeScene {
     }
     for (const [id, agent] of this.agents) {
       if (seenV.has(id)) continue;
-      this.scene.remove(agent.group);
+      this.figures.remove(agent.figure);
       this.agents.delete(id);
     }
 
@@ -647,7 +651,7 @@ export class TribeScene {
     const key = TROOP_IDS.map((id) => s.army?.[id] ?? 0).join(',');
     if (key === this.armyKey) return;
     this.armyKey = key;
-    for (const a of this.soldiers) this.scene.remove(a.group);
+    for (const a of this.soldiers) this.figures.remove(a.figure);
     this.soldiers = [];
 
     const roster: TroopId[] = [];
@@ -664,7 +668,7 @@ export class TribeScene {
       const { post, anchor: at } = postFor(i, barracks !== null, anchor);
       const agent = new SoldierAgent(troop, post, at, i);
       this.soldiers.push(agent);
-      this.scene.add(agent.group);
+      this.figures.add(agent.figure);
     });
   }
 
@@ -747,6 +751,7 @@ export class TribeScene {
     }
     // Дружина несёт службу и ночью: у ворот всегда кто-то стоит.
     for (const a of this.soldiers) a.update(dt, t);
+    this.figures.update();
     for (const view of this.caravans.values()) {
       const total = Math.max(0.001, view.arriveAt - view.departAt);
       view.agent.update((gameNow - view.departAt) / total, t);
@@ -783,6 +788,13 @@ export class TribeScene {
 
   // ---------- Стенд-витрина ----------
 
+  /** Автоповорот камеры — стенд меряет им частоту кадров при вращении. */
+  spin(on: boolean, degPerSec = 24): void {
+    this.controls.autoRotate = on;
+    // OrbitControls: скорость 2.0 — оборот за 30 с при 60 к/с, то есть 12°/с.
+    this.controls.autoRotateSpeed = degPerSec / 6;
+  }
+
   /** Бюджет кадра: вызовы отрисовки и треугольники последнего render(). */
   stats(): { calls: number; triangles: number; geometries: number; textures: number; programs: number } {
     const info = this.renderer.info;
@@ -806,8 +818,7 @@ export class TribeScene {
     if (on) (this.scene.background as THREE.Color).setHex(0xffffff);
     this.terrain.visible = !on;
     if (this.village) this.village.visible = !on;
-    for (const a of this.agents.values()) a.group.visible = !on;
-    for (const a of this.soldiers) a.group.visible = !on;
+    this.figures.group.visible = !on;
     for (const c of this.caravans.values()) c.agent.group.visible = !on;
     this.snowfall.points.visible = !on && this.snowfall.points.visible;
     this.smoke.points.visible = !on;

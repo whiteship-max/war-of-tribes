@@ -9,6 +9,7 @@ import { STAGE_ORDER } from '@/game/data/stages';
 import { MAT as T } from './terrain';
 import { M, footprintOf, levelScale, TIER_START, type Tier } from './buildings';
 import { DECAL, LEGACY, SHADE } from './materials';
+import { GROUND_AO, collapse } from './kit';
 import { GROUND_SHADE } from './palette';
 import {
   GATE_ANGLE,
@@ -341,27 +342,31 @@ export function buildVillage({ stage, era, present, built = [] }: VillageOptions
   const decor = new THREE.Group();
   decor.name = 'decor';
   root.add(decor);
+  // Дороги — своей группой: все они из одного материала и склеиваются в один меш.
+  const roads = new THREE.Group();
+  roads.name = 'roads';
+  root.add(roads);
   const mat = roadMaterial(stage);
   const half = roadWidth(stage);
   const has = new Set(present);
 
   // Площадь: утоптанный круг под костром, к поздним стадиям — мощёный.
-  root.add(flat(new THREE.CircleGeometry(PLAZA_RADIUS + 0.5, 32), mat, 0.03));
+  roads.add(flat(new THREE.CircleGeometry(PLAZA_RADIUS + 0.5, 32), mat, 0.03));
   const wellSpot = spotAt(1.55, GATE_ANGLE + Math.PI * 0.62);
   const w = well(era);
   w.position.set(wellSpot.x, 0, wellSpot.z);
   decor.add(w);
 
   // Дороги плана. Окружная появляется, когда есть кому по ней ходить.
-  root.add(roadRing(PLAZA_ROAD, half, mat, 0.045));
+  roads.add(roadRing(PLAZA_ROAD, half, mat, 0.045));
   const outerNeeded = [...has].some((type) => PLAN[type]?.ring === 3);
-  if (outerNeeded) root.add(roadRing(OUTER_ROAD, half, mat, 0.045));
+  if (outerNeeded) roads.add(roadRing(OUTER_ROAD, half, mat, 0.045));
   // Пока стены нет, улице некуда вести: доводим её до окружной, а не в чистое поле.
   const gateTo = has.has('palisade') ? GATE_ROAD.to : OUTER_ROAD;
-  root.add(roadSpur(GATE_ROAD.angle, GATE_ROAD.from, gateTo, half, mat, 0.05));
+  roads.add(roadSpur(GATE_ROAD.angle, GATE_ROAD.from, gateTo, half, mat, 0.05));
   for (const type of present) {
     const spur = spurFor(type);
-    if (spur) root.add(roadSpur(spur.angle, spur.from, spur.to, half * 0.8, mat, 0.05));
+    if (spur) roads.add(roadSpur(spur.angle, spur.from, spur.to, half * 0.8, mat, 0.05));
   }
 
   // Пустые места: размеченные площадки, которые обрастают добром.
@@ -400,5 +405,8 @@ export function buildVillage({ stage, era, present, built = [] }: VillageOptions
     decor.add(d);
   }
 
+  // Плоские дороги тени не отбрасывают; декор стоит на земле — с затемнением у неё.
+  collapse(roads, undefined, false);
+  collapse(decor, GROUND_AO);
   return root;
 }

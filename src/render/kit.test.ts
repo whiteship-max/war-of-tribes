@@ -46,12 +46,11 @@ function expectColored(root: THREE.Object3D, label: string): void {
     const color = mesh.geometry.attributes.color;
     expect(color, `${label}: меш с vertexColors без атрибута color — будет чёрным`).toBeDefined();
     expect(color.count).toBe(mesh.geometry.attributes.position.count);
-    for (let i = 0; i < color.count; i++) {
-      for (const c of [color.getX(i), color.getY(i), color.getZ(i)]) {
-        expect(c, `${label}: цвет вершины вне диапазона`).toBeGreaterThanOrEqual(0);
-        expect(c).toBeLessThanOrEqual(1.2);
-      }
-    }
+    // Диапазон проверяется одним проходом: по expect на вершину — минута на все модели.
+    let bad = 0;
+    const arr = color.array as ArrayLike<number>;
+    for (let i = 0; i < arr.length; i++) if (!(arr[i] >= 0 && arr[i] <= 1.2)) bad++;
+    expect(bad, `${label}: цвет вершины вне диапазона`).toBe(0);
   }
 }
 

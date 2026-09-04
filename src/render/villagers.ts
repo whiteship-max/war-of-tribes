@@ -1,48 +1,21 @@
 // Жители: простые low-poly фигурки, которые ходят между костром и рабочим местом.
+// Мешей у агента нет — он правит позу своей Figure, а рисует всех разом пул
+// инстансов (figures.ts).
 import * as THREE from 'three';
 import type { JobId, Villager } from '@/game/types';
-import { LEGACY } from './materials';
+import { Figure, STICK_LENGTH, STICK_RADIUS } from './figures';
+import { JOB_TINT, PALETTE } from './palette';
 import { groundHeight } from './terrain';
-
-const SKIN = LEGACY.skin;
-const HAIR = LEGACY.hair;
-const STICK = LEGACY.stake;
-
-const JOB_COLORS: Record<JobId, number> = {
-  idle: 0xb59a76,
-  gatherer: 0x7fae5a,
-  hunter: 0x8a5a3a,
-  woodcutter: 0xc2803a,
-  stonecutter: 0x8f8a80,
-  miner: 0x6f6a62,
-  farmer: 0xd0b45a,
-  herder: 0xa8b06a,
-  crafter: 0x5f7ea6,
-  smith: 0x8a6a4a,
-  scholar: 0x9a8ac0,
-  shaman: 0x7a4fa0,
-};
-
-const tunicMats = new Map<JobId, THREE.MeshLambertMaterial>();
-const tunic = (job: JobId): THREE.MeshLambertMaterial => {
-  let m = tunicMats.get(job);
-  if (!m) {
-    m = new THREE.MeshLambertMaterial({ color: JOB_COLORS[job], flatShading: true });
-    tunicMats.set(job, m);
-  }
-  return m;
-};
 
 type Mode = 'toWork' | 'work' | 'toHome' | 'rest';
 
 const SPEED = 1.7;
 
+/** У кого в руках орудие: в силуэте оно отличает работника от праздного. */
+const WITH_TOOL: JobId[] = ['hunter', 'woodcutter', 'stonecutter', 'miner', 'farmer', 'herder', 'shaman', 'smith'];
+
 export class VillagerAgent {
-  readonly group = new THREE.Group();
-  private body: THREE.Mesh;
-  private legL: THREE.Mesh;
-  private legR: THREE.Mesh;
-  private tool: THREE.Mesh;
+  readonly figure = new Figure();
   private mode: Mode = 'rest';
   private timer = 1 + Math.random() * 3;
   private target = new THREE.Vector3();
@@ -54,42 +27,26 @@ export class VillagerAgent {
 
   constructor(v: Villager, home: THREE.Vector3) {
     this.job = v.job;
-    const g = this.group;
-    const scale = v.age < 14 ? 0.7 : 1;
-    this.legL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3, 0.12), SKIN);
-    this.legL.position.set(-0.08, 0.15, 0);
-    this.legR = this.legL.clone();
-    this.legR.position.x = 0.08;
-    this.body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.45, 6), tunic(v.job));
-    this.body.position.y = 0.52;
-    this.body.castShadow = true;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 7, 6), SKIN);
-    head.position.y = 0.9;
-    head.castShadow = true;
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.155, 7, 5, 0, Math.PI * 2, 0, Math.PI / 2), HAIR);
-    hair.position.y = 0.92;
-    this.tool = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.8, 4), STICK);
-    this.tool.position.set(0.22, 0.55, 0.05);
-    this.tool.rotation.z = 0.2;
-    g.add(this.legL, this.legR, this.body, head, hair, this.tool);
-    g.scale.setScalar(scale);
-    this.updateTool();
+    const f = this.figure;
+    f.scale = v.age < 14 ? 0.7 : 1;
+    f.colors.stick.setHex(PALETTE.stake);
+    this.dress(v.job);
     const a = Math.random() * Math.PI * 2;
-    g.position.set(home.x + Math.cos(a) * 1.8, 0, home.z + Math.sin(a) * 1.8);
-    this.target.copy(g.position);
+    f.position.set(home.x + Math.cos(a) * 1.8, 0, home.z + Math.sin(a) * 1.8);
+    this.target.copy(f.position);
   }
 
-  private updateTool(): void {
-    const show = ['hunter', 'woodcutter', 'stonecutter', 'miner', 'farmer', 'herder', 'shaman', 'smith'].includes(this.job);
-    this.tool.visible = show;
+  /** Одежда по профессии и орудие в руке. */
+  private dress(job: JobId): void {
+    this.figure.colors.torso.setHex(JOB_TINT[job]);
+    this.figure.stick = WITH_TOOL.includes(job) ? { length: STICK_LENGTH, radius: STICK_RADIUS, tilt: 0.2 } : null;
   }
 
   /** Назначить рабочее место. wander — радиус блуждания вокруг него. */
   setWork(job: JobId, pos: THREE.Vector3 | null, wander: number): void {
     if (this.job !== job) {
       this.job = job;
-      this.body.material = tunic(job);
-      this.updateTool();
+      this.dress(job);
     }
     const changed = (pos === null) !== (this.workPos === null) || (pos && this.workPos && pos.distanceTo(this.workPos) > 0.5);
     this.workPos = pos ? pos.clone() : null;
@@ -115,7 +72,8 @@ export class VillagerAgent {
   }
 
   update(dt: number, t: number): void {
-    const g = this.group;
+    const f = this.figure;
+    const p = f.position;
     const wantHome = this.night || !this.workPos;
     if (wantHome && (this.mode === 'toWork' || this.mode === 'work')) {
       this.mode = 'toHome';
@@ -126,21 +84,19 @@ export class VillagerAgent {
       this.pickTarget();
     }
 
-    const dx = this.target.x - g.position.x;
-    const dz = this.target.z - g.position.z;
+    const dx = this.target.x - p.x;
+    const dz = this.target.z - p.z;
     const dist = Math.hypot(dx, dz);
     const moving = (this.mode === 'toWork' || this.mode === 'toHome' || dist > 0.15) && dist > 0.1;
 
     if (moving) {
       const step = Math.min(dist, SPEED * dt);
-      g.position.x += (dx / dist) * step;
-      g.position.z += (dz / dist) * step;
-      g.rotation.y = Math.atan2(dx, dz);
+      p.x += (dx / dist) * step;
+      p.z += (dz / dist) * step;
+      f.rotationY = Math.atan2(dx, dz);
       this.walkPhase += dt * 11;
-      const swing = Math.sin(this.walkPhase) * 0.5;
-      this.legL.rotation.x = swing;
-      this.legR.rotation.x = -swing;
-      g.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.04 + groundHeight(g.position.x, g.position.z);
+      f.legSwing = Math.sin(this.walkPhase) * 0.5;
+      p.y = Math.abs(Math.sin(this.walkPhase)) * 0.04 + groundHeight(p.x, p.z);
       if (dist - step < 0.12) {
         if (this.mode === 'toWork') {
           this.mode = 'work';
@@ -151,14 +107,13 @@ export class VillagerAgent {
         }
       }
     } else {
-      this.legL.rotation.x = 0;
-      this.legR.rotation.x = 0;
+      f.legSwing = 0;
       this.timer -= dt;
       if (this.mode === 'work') {
         // Рабочее покачивание.
         const bob = Math.sin(t * 6 + this.walkPhase) * 0.06;
-        g.position.y = Math.max(0, bob) + groundHeight(g.position.x, g.position.z);
-        this.body.rotation.x = Math.sin(t * 6 + this.walkPhase) * 0.12;
+        p.y = Math.max(0, bob) + groundHeight(p.x, p.z);
+        f.torsoTilt = Math.sin(t * 6 + this.walkPhase) * 0.12;
         if (this.timer <= 0) {
           if (Math.random() < 0.35 || !this.workPos) {
             this.mode = 'toHome';
@@ -168,8 +123,8 @@ export class VillagerAgent {
           this.pickTarget();
         }
       } else {
-        g.position.y = groundHeight(g.position.x, g.position.z);
-        this.body.rotation.x = 0;
+        p.y = groundHeight(p.x, p.z);
+        f.torsoTilt = 0;
         if (this.mode === 'rest' && this.timer <= 0 && wantHome) {
           // Немного побродить у костра.
           this.pickTarget();

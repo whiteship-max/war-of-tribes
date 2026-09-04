@@ -7,8 +7,10 @@ import {
   AO_WALL,
   EMISSIVE_KEYS,
   GROUND_SHADE,
+  JOB_TINT,
   LIGHT_KEYS,
   PALETTE,
+  TROOP_TINT,
   SEASONAL_KEYS,
   SEASON_OVERRIDES,
   type PaletteKey,
@@ -20,6 +22,15 @@ describe('палитра', () => {
   it('ни одного чистого белого или чёрного канала, кроме огня и света', () => {
     for (const [key, hex] of Object.entries(PALETTE) as [PaletteKey, number][]) {
       if (EMISSIVE_KEYS.includes(key) || LIGHT_KEYS.includes(key)) continue;
+      for (const c of channels(hex)) {
+        expect(c, `${key}: канал слишком тёмный`).toBeGreaterThanOrEqual(0x10);
+        expect(c, `${key}: канал слишком светлый`).toBeLessThanOrEqual(0xf4);
+      }
+    }
+  });
+
+  it('одежда жителей и бойцов держит то же правило', () => {
+    for (const [key, hex] of [...Object.entries(JOB_TINT), ...Object.entries(TROOP_TINT)]) {
       for (const c of channels(hex)) {
         expect(c, `${key}: канал слишком тёмный`).toBeGreaterThanOrEqual(0x10);
         expect(c, `${key}: канал слишком светлый`).toBeLessThanOrEqual(0xf4);

@@ -51,6 +51,14 @@ body.name = 'body';
 
 export const KIT: Record<MatKey, ColorMaterial> & { body: THREE.MeshLambertMaterial } = Object.assign(make(true), { body });
 
+/**
+ * Тот же белый множитель для инстансов (figures.ts): цвет несёт instanceColor,
+ * а не вершины, поэтому vertexColors здесь выключен — иначе геометрия без
+ * атрибута color покрасилась бы чёрным.
+ */
+export const INSTANCED = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+INSTANCED.name = 'instanced';
+
 /** Ключ материала-декали: только то, что кладётся на землю. */
 export type DecalKey = 'trample';
 

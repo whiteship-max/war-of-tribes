@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -15,6 +15,22 @@ function snapPlugin(): Plugin {
     apply: 'serve',
     configureServer(server) {
       const dir = fileURLToPath(new URL('./snaps', import.meta.url));
+      // Замеры частоты кадров со стенда (?perf=…): строка JSON на замер, в snaps/perf.jsonl.
+      server.middlewares.use('/__perf', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          mkdirSync(dir, { recursive: true });
+          appendFileSync(join(dir, 'perf.jsonl'), Buffer.concat(chunks).toString('utf8').replace(/\s+$/, '') + '\n');
+          res.setHeader('Content-Type', 'text/plain');
+          res.end('ok');
+        });
+      });
       server.middlewares.use('/__snap', (req, res) => {
         if (req.method !== 'POST') {
           res.statusCode = 405;

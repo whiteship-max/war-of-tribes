@@ -9,6 +9,9 @@
 //
 // Общие параметры: silhouette=1 (постройки чёрным на белом), season=winter,
 // solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат), clean=1 (без подписи).
+// perf=8 — замер частоты кадров: камера крутится восемь секунд, стенд считает
+// кадры и шлёт итог на dev-сервер (POST /__perf → snaps/perf.jsonl). Так стенд
+// открывают на телефоне через тоннель, а число остаётся в репозитории у разработчика.
 // Подпись и бюджет кадра дублируются в document.body.dataset.showcase — их читает
 // инструмент проверки, которому сама канва недоступна.
 import * as THREE from 'three';
@@ -321,6 +324,54 @@ export function synthState(stage: StageId, eraId: EraId, season: Season, solar: 
   return s;
 }
 
+/**
+ * Замер частоты кадров. Прогрев полторы секунды, потом камера крутится seconds
+ * секунд, а стенд считает кадры по afterRender — настоящие кадры цикла, не
+ * renderOnce. Итог: средняя частота, худшие 5 % кадров, устройство и бюджет.
+ */
+function runPerf(scene: TribeScene, seconds: number, name: string, done: (line: string) => void): void {
+  const frames: number[] = [];
+  let last = 0;
+  setTimeout(() => {
+    scene.spin(true);
+    last = performance.now();
+    scene.afterRender = (): void => {
+      const now = performance.now();
+      frames.push(now - last);
+      last = now;
+    };
+    setTimeout(() => {
+      scene.afterRender = null;
+      scene.spin(false);
+      const sorted = [...frames].sort((a, b) => a - b);
+      const total = frames.reduce((a, b) => a + b, 0) / 1000;
+      const fps = frames.length / Math.max(0.001, total);
+      // Худшие 5 % кадров: то, что видно как рывки.
+      const worst = sorted.slice(Math.floor(sorted.length * 0.95));
+      const low = worst.length ? 1000 / (worst.reduce((a, b) => a + b, 0) / worst.length) : fps;
+      const st = scene.stats();
+      const report = {
+        name,
+        fps: Math.round(fps * 10) / 10,
+        low5: Math.round(low * 10) / 10,
+        frames: frames.length,
+        seconds,
+        calls: st.calls,
+        triangles: st.triangles,
+        dpr: window.devicePixelRatio,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        ua: navigator.userAgent,
+        at: new Date().toISOString(),
+      };
+      const line = `fps ${report.fps} · худшие 5 %: ${report.low5} · ${report.width}×${report.height} @${report.dpr}`;
+      document.body.dataset.perf = JSON.stringify(report);
+      done(line);
+      void fetch('/__perf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(report) });
+    }, seconds * 1000);
+  }, 1500);
+}
+
 function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const stage = (p.get('stage') as StageId) ?? 'camp';
   const eraId = (p.get('era') as EraId) ?? 'camp';
@@ -337,11 +388,20 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
     `${STAGE_BY_ID[stage].name} · ${ERA_META[eraId].name}\n${c.season} · solar ${c.solar}` +
     `${c.silhouette ? ' · силуэт' : ''}`;
   let text = head;
+  let perfLine = '';
   const tick = (): void => {
     const st = scene.stats();
-    text = `${head}\ncalls ${st.calls} · tris ${st.triangles}`;
+    text = `${head}\ncalls ${st.calls} · tris ${st.triangles}${perfLine ? `\n${perfLine}` : ''}`;
     publish(caption, text, { mode: 'village', ...st });
   };
+  const perf = Number(p.get('perf') ?? 0);
+  if (perf > 0) {
+    perfLine = 'замер…';
+    runPerf(scene, perf, `${stage}_${eraId}`, (line) => {
+      perfLine = line;
+      tick();
+    });
+  }
   tick();
   setInterval(tick, 500);
   new Snapper(c.snap).schedule(

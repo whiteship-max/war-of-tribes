@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 import { CLEAR_EDGE, CLEAR_RADIUS, PLAZA_RADIUS, WALL_RADIUS, inCleared } from './plan';
 import { KIT, LEGACY } from './materials';
+import { GROUND_AO, collapse } from './kit';
 import { GRASS_DARK_MUL, GRASS_LIGHT_MUL, WALL_TRAMPLE_MUL } from './palette';
 
 /** Край мира. За зоной расчистки идёт полоса угодий, а по краю — сплошной лес. */
@@ -378,7 +379,8 @@ export function buildEnvironment(): THREE.Group {
       put(root, () => makeBrush(scale), x, z, 0.3 * scale);
     }
   }
-  return root;
+  // Окружение неподвижно, поэтому вместо пяти сотен мешей — один: вызов на материал.
+  return collapse(root, GROUND_AO);
 }
 
 export function buildTerrain(): THREE.Group {

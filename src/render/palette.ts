@@ -18,7 +18,7 @@
 // - сезон не заменяет палитру, а переопределяет её часть (SEASON_OVERRIDES): снег
 //   ложится на то, что лежит горизонтально, — землю, кроны, крыши, дороги, — а стены,
 //   столбы, камень цоколя и металл остаются собой.
-import type { Season } from '@/game/types';
+import type { JobId, Season, TroopId } from '@/game/types';
 
 export const PALETTE = {
   // ---------- Небо и свет ----------
@@ -112,6 +112,36 @@ export const PALETTE = {
 } as const;
 
 export type PaletteKey = keyof typeof PALETTE;
+
+/**
+ * Одежда жителей по профессии. Фигурки рисуются инстансами с цветом на каждую,
+ * поэтому это цвета, а не материалы, — но hex всё равно живёт только здесь.
+ */
+export const JOB_TINT: Record<JobId, number> = {
+  idle: 0xb59a76,
+  gatherer: 0x7fae5a,
+  hunter: 0x8a5a3a,
+  woodcutter: 0xc2803a,
+  stonecutter: 0x8f8a80,
+  miner: 0x6f6a62,
+  farmer: 0xd0b45a,
+  herder: 0xa8b06a,
+  crafter: 0x5f7ea6,
+  smith: 0x8a6a4a,
+  scholar: 0x9a8ac0,
+  shaman: 0x7a4fa0,
+};
+
+/** Одежда бойцов по виду: чем выше в лестнице, тем ближе к металлу. */
+export const TROOP_TINT: Record<TroopId, number> = {
+  clubman: 0x8a6a4a,
+  spearman: 0xa2563f,
+  archer: 0x6f8a4a,
+  axeman: 0x9a5a2a,
+  swordsman: 0x7a5f9a,
+  shieldman: 0x4f6f9a,
+  legionary: 0x8a8f96,
+};
 
 /** Ключи, которым разрешён канал ff: они не освещаются, а светятся. */
 export const EMISSIVE_KEYS: PaletteKey[] = ['fire', 'fireInner', 'forge'];

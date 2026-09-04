@@ -16,8 +16,8 @@
 // Затемнение — множитель, поэтому сезонный перелив material.color его не трогает.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { KIT, type MatKey } from './materials';
-import { AO_BASE, AO_POST, AO_WALL, PALETTE, isSeasonal, type Mul } from './palette';
+import { KIT, MATERIAL_KEYS, type MatKey } from './materials';
+import { AO_BASE, AO_POST, AO_WALL, EMISSIVE_KEYS, PALETTE, isSeasonal, type Mul } from './palette';
 
 /** Чем красить деталь: сезонным материалом или цветом вершин на общем «теле». */
 export interface Paint {
@@ -457,6 +457,60 @@ export function assemble(parts: Part[]): THREE.Mesh {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/** Контактное затемнение у самой земли — для склейки старых моделей целиком. */
+export const GROUND_AO: Ao = { base: AO_WALL, y0: 0.02, y1: 0.45 };
+
+/**
+ * Склеивает готовую группу старых мешей в один меш по правилам набора. Каждый
+ * меш с материалом из общего набора (по имени — ключу палитры) становится деталью
+ * с краской paintOf, его мировая матрица запекается в геометрию. Вызовов
+ * отрисовки после этого столько, сколько материалов, а не мешей: старая модель
+ * фермы из ста досок стоила две сотни вызовов с теневым проходом — теперь три.
+ *
+ * Отдельными остаются меши, которые нельзя склеивать: именованные (пламя костра —
+ * его крутит сцена), светящиеся (огонь и горн — они не освещаются, а светятся),
+ * уже склеенные (массив материалов) и с материалом не из набора. Они переезжают
+ * в ту же группу со своей мировой матрицей.
+ *
+ * ao — контактное затемнение по мировой высоте (GROUND_AO для того, что стоит на
+ * земле; для плоских дорог его не задают). Группа меняется на месте: её имя и
+ * трансформация сохраняются.
+ */
+export function collapse(root: THREE.Group, ao?: Ao, shadows = true): THREE.Group {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const parts: Part[] = [];
+  const kept: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry) return;
+    const mat = mesh.material;
+    const key = Array.isArray(mat) ? null : (mat.name as MatKey);
+    const mergeable =
+      key !== null && !mesh.name && (MATERIAL_KEYS as readonly string[]).includes(key) && !EMISSIVE_KEYS.includes(key);
+    if (!mergeable) {
+      kept.push(mesh);
+      return;
+    }
+    const geo = mesh.geometry.clone().applyMatrix4(_m.copy(inv).multiply(mesh.matrixWorld));
+    mesh.geometry.dispose();
+    parts.push({ geo, paint: paintOf(key), ao });
+  });
+  for (const mesh of kept) {
+    _m.copy(inv).multiply(mesh.matrixWorld);
+    mesh.removeFromParent();
+    _m.decompose(mesh.position, mesh.quaternion, mesh.scale);
+  }
+  root.clear();
+  if (parts.length > 0) {
+    const merged = assemble(parts);
+    merged.castShadow = shadows;
+    root.add(merged);
+  }
+  for (const mesh of kept) root.add(mesh);
+  return root;
 }
 
 /** Все меши группы, у которых своя (не общая) геометрия, — для освобождения. */
