@@ -1,8 +1,8 @@
 // Балансные прогоны боя: таблица «кто кому проигрывает», кольцо контрров,
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
-import { simulateBattle, quickSetup, describeEvent, PHASE_TICKS, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
-import { COMPOSITIONS, TUNED_VS_QUICK, RING, lossRatio, mirrored } from '../src/battle/bench';
+import { simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
+import { BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, TUNED, gapAgainst, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -66,35 +66,83 @@ for (const pair of RING) {
   console.log(`${pad(pair.name, 44)} побед ${s.wins}/${SEEDS}, потери чужие/свои ${s.ratio.toFixed(2)}`);
 }
 
-console.log('\n=== Разрыв быстрой атаки: настроенная против шаблона, 100 боёв ===');
+/** Длительность считается по боям разных составов: зеркала планов и пресетов — бои одной и той же армии, там ничья закономерна. */
+const compositionResults = allResults.slice();
+
+console.log('\n=== Планы: одна и та же армия на стандартной раскладке, план против плана ===');
 {
-  let quickLoss = 0;
-  let tunedLoss = 0;
-  let tunedWins = 0;
-  for (let seed = 1; seed <= 100; seed += 1) {
-    const tunedAttacks = seed % 2 === 1;
-    const r = simulateBattle({
-      seed,
-      attacker: tunedAttacks ? TUNED_VS_QUICK.tuned : TUNED_VS_QUICK.quick,
-      defender: tunedAttacks ? TUNED_VS_QUICK.quick : TUNED_VS_QUICK.tuned,
-    });
-    const tunedSide = tunedAttacks ? 'attacker' : 'defender';
-    const quickSide = tunedAttacks ? 'defender' : 'attacker';
-    tunedLoss += r.sides[tunedSide].total.losses;
-    quickLoss += r.sides[quickSide].total.losses;
-    if (r.winner === tunedSide) tunedWins += 1;
+  const plans = Object.keys(PLANS) as Plan[];
+  const PW = 16;
+  console.log(pad('', PW) + plans.map((p) => pad(p, PW)).join(''));
+  const undefeated: string[] = [];
+  for (const a of plans) {
+    let row = pad(a, PW);
+    let loses = 0;
+    for (const b of plans) {
+      if (a === b) {
+        row += pad('—', PW);
+        continue;
+      }
+      const s = series(quickSetup(BALANCED_ARMY, { plan: a }), quickSetup(BALANCED_ARMY, { plan: b }), Math.min(SEEDS, 12));
+      if (s.losses > s.wins) loses += 1;
+      row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, PW);
+    }
+    if (loses === 0) undefeated.push(a);
+    console.log(row);
   }
-  console.log(`потери шаблона ${quickLoss}, настроенной ${tunedLoss}: разрыв ${((quickLoss / tunedLoss - 1) * 100).toFixed(1)}% (коридор 10–25%, цель 15%), побед настроенной ${tunedWins}/100`);
+  console.log(`никому не проигрывает: ${undefeated.join(', ') || 'нет'}`);
 }
 
-console.log('\n=== Длительность и чем кончается бой ===');
+console.log('\n=== Пресеты быстрой атаки ===');
 {
-  const sorted = allResults.map((r) => r.ticks).sort((x, y) => x - y);
+  const picks: Record<string, number> = {};
+  const withIntel: Record<string, number> = {};
+  for (let seed = 1; seed <= 400; seed += 1) {
+    const p = quickAttack(BALANCED_ARMY, seed).preset;
+    picks[p] = (picks[p] ?? 0) + 1;
+    const q = quickAttack(BALANCED_ARMY, seed, { cavalry: 300, infantry: 200 }).preset;
+    withIntel[q] = (withIntel[q] ?? 0) + 1;
+  }
+  console.log(`выбор на 400 сидов без разведки: ${QUICK_PRESET_IDS.map((id) => `${id} ${picks[id] ?? 0}`).join(', ')}`);
+  console.log(`   с разведкой «много конницы»: ${QUICK_PRESET_IDS.map((id) => `${id} ${withIntel[id] ?? 0}`).join(', ')}`);
+  console.log('пресет против пресета (строка против столбца, победы/ничьи/поражения и размен):');
+  const PW = 14;
+  console.log(pad('', PW) + QUICK_PRESET_IDS.map((p) => pad(p, PW)).join(''));
+  for (const a of QUICK_PRESET_IDS) {
+    let row = pad(a, PW);
+    for (const b of QUICK_PRESET_IDS) {
+      if (a === b) {
+        row += pad('—', PW);
+        continue;
+      }
+      const s = series(QUICK_PRESETS[a].layout(stackOf(BALANCED_ARMY)), QUICK_PRESETS[b].layout(stackOf(BALANCED_ARMY)), Math.min(SEEDS, 12));
+      row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, PW);
+    }
+    console.log(row);
+  }
+}
+
+console.log('\n=== Разрыв быстрой атаки: настроенная против быстрой атаки (случайный пресет), 100 боёв ===');
+{
+  const t = gapAgainst(TUNED, quickOf, 100);
+  console.log(`настроенная: разрыв ${(t.gap * 100).toFixed(1)}% (коридор 10–25%, цель 15%), побед ${t.won}/100, поражений ${t.lost}/100`);
+  for (const id of QUICK_PRESET_IDS) {
+    const g = gapAgainst(TUNED, () => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)), 40);
+    console.log(`   против ${pad(id, 13)} ${(g.gap * 100).toFixed(1).padStart(6)}% (побед ${g.won}/40)`);
+  }
+  const known = gapAgainst(KNOWN_COUNTER, () => QUICK_PRESETS.standard.layout(stackOf(BALANCED_ARMY)), 100);
+  const random = gapAgainst(KNOWN_COUNTER, quickOf, 100);
+  console.log(`известный контрер стандарта: против стандарта ${(known.gap * 100).toFixed(1)}%, против случайного пресета ${(random.gap * 100).toFixed(1)}% (цель ≈15%)`);
+}
+
+console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');
+{
+  const sorted = compositionResults.map((r) => r.ticks).sort((x, y) => x - y);
   const q = (p: number): number => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
   console.log(`боёв ${sorted.length}: мин ${sorted[0]}, медиана ${q(0.5)}, 90% ${q(0.9)}, макс ${sorted[sorted.length - 1]} тиков`);
-  const early = allResults.filter(endedEarly);
+  const early = compositionResults.filter(endedEarly);
   const reasons: Record<string, number> = {};
-  for (const r of allResults) reasons[r.reason] = (reasons[r.reason] ?? 0) + 1;
+  for (const r of compositionResults) reasons[r.reason] = (reasons[r.reason] ?? 0) + 1;
   console.log(
     `досрочно (отступление до гонга) ${early.length} (${((100 * early.length) / sorted.length).toFixed(1)}%), по таймауту ${sorted.length - early.length}; исходы: ${Object.entries(reasons)
       .map(([k, n]) => `${k} ${n}`)
@@ -127,9 +175,10 @@ if (process.env.SHOW) {
   const [an, bn] = process.env.SHOW.split(':');
   const scale = Number(process.env.SCALE ?? 1);
   const ca = COMPOSITIONS.find((c) => c.name === an);
-  const a = ca ? quickSetup(Object.fromEntries(Object.entries(ca.army).map(([k, n]) => [k, Math.round((n ?? 0) * scale)]))) : TUNED_VS_QUICK.tuned;
-  const b = COMPOSITIONS.find((c) => c.name === bn)?.setup ?? TUNED_VS_QUICK.quick;
-  const r: BattleResult = simulateBattle({ seed: Number(process.env.SEED ?? 1), attacker: a, defender: b });
+  const seed = Number(process.env.SEED ?? 1);
+  const a = ca ? quickSetup(Object.fromEntries(Object.entries(ca.army).map(([k, n]) => [k, Math.round((n ?? 0) * scale)]))) : TUNED;
+  const b = COMPOSITIONS.find((c) => c.name === bn)?.setup ?? quickOf(seed);
+  const r: BattleResult = simulateBattle({ seed, attacker: a, defender: b });
   const line = (s: Stack): string => `копья ${s.spear} пехота ${s.infantry} лучники ${s.archer} конница ${s.cavalry}`;
   console.log(`\n=== ${an} против ${bn}: ${r.winner} (${r.reason}), ${r.ticks} тиков, потери чужие/свои ${lossRatio(r, 'attacker').toFixed(2)} ===`);
   for (const side of ['attacker', 'defender'] as const) {

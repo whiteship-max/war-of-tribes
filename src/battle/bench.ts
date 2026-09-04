@@ -2,7 +2,7 @@
 // против шаблона. Их читают и тесты (раздел 16 документа), и скрипт отчёта —
 // чтобы таблица в отчёте и утверждения в тестах считались по одним данным.
 import { simulateBattle } from './sim';
-import { quickSetup, emptySectors, stackOf } from './setup';
+import { quickSetup, quickAttack, emptySectors, stackOf } from './setup';
 import type { ArmySetup, BattleResult, Side, Stack } from './types';
 
 /** Одинаковая численность: «при прочих равных» — это про число людей. */
@@ -85,15 +85,52 @@ export const RING: Array<{ name: string; a: ArmySetup; b: ArmySetup }> = [
   },
 ];
 
-/** Армия для замера разрыва: одна и та же, на шаблоне и настроенная под шаблон. */
+/** Армия для замера разрыва: одна и та же, на быстрой атаке и настроенная. */
 export const BALANCED_ARMY: Partial<Stack> = { spear: 150, infantry: 200, archer: 150, cavalry: 100 };
 
-export const TUNED_VS_QUICK: { quick: ArmySetup; tuned: ArmySetup } = {
-  quick: quickSetup(BALANCED_ARMY),
-  tuned: setupOf(
-    // Настройка под известный шаблон: фланги заякорены пехотой, чтобы не разваливались,
-    // лучники бьют по пехоте противника, конница ждёт в резерве, куда придётся.
-    { A: { infantry: 40, spear: 55 }, B: { infantry: 120, spear: 40 }, C: { infantry: 40, spear: 55 }, D: { archer: 45 }, E: { archer: 60 }, F: { archer: 45 }, R: { cavalry: 100 } },
-    { plan: 'envelop', orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'priority-infantry', cavalry: 'charge' }, reserve: { kind: 'weakest' } },
-  ),
-};
+/**
+ * Настроенная армия — эталон разрыва: против быстрой атаки (случайный пресет по
+ * сиду) выигрывает около 15% по потерям, и против каждого пресета в отдельности
+ * не проигрывает. Фланги заякорены пехотой, натиск через центр, конница уходит
+ * в обход, резерв — туда, где проигрываем. Перебор 192 расстановок показал
+ * потолок ≈25% против случайного пресета: выше не поднимается ни одна.
+ */
+export const TUNED: ArmySetup = setupOf(
+  { A: { infantry: 40, spear: 55 }, B: { infantry: 120, spear: 40 }, C: { infantry: 40, spear: 55 }, D: { archer: 45 }, E: { archer: 60 }, F: { archer: 45 }, R: { cavalry: 100 } },
+  { plan: 'assault', orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'flank' }, reserve: { kind: 'weakest' } },
+);
+
+/**
+ * Известный контрер стандартного пресета: против него одного выигрывает вдвое и
+ * больше, но против случайного пресета — не больше настроенной армии. Это и есть
+ * смысл пресетов: контрить нечего, пока не знаешь, какой пришёл.
+ */
+export const KNOWN_COUNTER: ArmySetup = setupOf(
+  { A: { infantry: 50, spear: 45 }, B: { infantry: 100, spear: 60 }, C: { infantry: 50, spear: 45 }, D: { archer: 60 }, E: { archer: 30 }, F: { archer: 60 }, R: { cavalry: 100 } },
+  { plan: 'assault', orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'hold-flank' }, reserve: { kind: 'immediate' } },
+);
+
+/** Быстрая атака той же армии: пресет по сиду боя. */
+export const quickOf = (seed: number): ArmySetup => quickAttack(BALANCED_ARMY, seed).setup;
+
+/**
+ * Разрыв по потерям: `setup` против `opponent(seed)` на `n` боях с обеих сторон
+ * поля. Больше нуля — `setup` теряет меньше. `lost` — сколько боёв `setup` проиграл.
+ */
+export function gapAgainst(setup: ArmySetup, opponent: (seed: number) => ArmySetup, n: number): { gap: number; lost: number; won: number } {
+  let own = 0;
+  let theirs = 0;
+  let lost = 0;
+  let won = 0;
+  for (let seed = 1; seed <= n; seed += 1) {
+    const attacks = seed % 2 === 1;
+    const foe = opponent(seed);
+    const r = simulateBattle({ seed, attacker: attacks ? setup : foe, defender: attacks ? foe : setup });
+    const me: Side = attacks ? 'attacker' : 'defender';
+    own += r.sides[me].total.losses;
+    theirs += r.sides[me === 'attacker' ? 'defender' : 'attacker'].total.losses;
+    if (r.winner === me) won += 1;
+    else if (r.winner !== 'draw') lost += 1;
+  }
+  return { gap: theirs / Math.max(1, own) - 1, lost, won };
+}

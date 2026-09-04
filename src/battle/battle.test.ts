@@ -4,10 +4,10 @@
 // врёт числам.
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
-import { quickSetup, armyTotal, stackTotal } from './setup';
+import { quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_TICKS, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, RING, TUNED_VS_QUICK, lossRatio, mirrored, setupOf } from './bench';
-import { PHASES, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Side, type Winner } from './types';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, TUNED, gapAgainst, lossRatio, mirrored, quickOf, setupOf } from './bench';
+import { PHASES, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 
@@ -73,7 +73,11 @@ describe('шаблон быстрой атаки', () => {
   it('раскладывает любой состав целиком и по правилу', () => {
     const s = quickSetup(BALANCED_ARMY);
     expect(armyTotal(s)).toEqual({ spear: 150, infantry: 200, archer: 150, cavalry: 100 });
-    expect(s.sectors.B.infantry).toBe(200);
+    // Центр пехотный, но фланги заякорены малой долей пехоты: без неё фланг ломается первым.
+    expect(s.sectors.B.infantry).toBe(140);
+    expect(s.sectors.A.infantry).toBe(30);
+    expect(s.sectors.C.infantry).toBe(30);
+    expect(s.sectors.B.spear).toBe(0);
     expect(s.sectors.A.spear + s.sectors.C.spear).toBe(150);
     expect(s.sectors.D.archer + s.sectors.E.archer + s.sectors.F.archer).toBe(150);
     expect(s.sectors.R.cavalry).toBe(100);
@@ -105,27 +109,68 @@ describe('нет доминирующего состава', () => {
 });
 
 describe('разрыв быстрой атаки', () => {
-  it('настроенная армия выигрывает у шаблона 10–25% по потерям на ста боях', () => {
-    let quick = 0;
-    let tuned = 0;
-    let tunedLost = 0;
-    for (let seed = 1; seed <= 100; seed += 1) {
-      const tunedAttacks = seed % 2 === 1;
-      const r = simulateBattle({
-        seed,
-        attacker: tunedAttacks ? TUNED_VS_QUICK.tuned : TUNED_VS_QUICK.quick,
-        defender: tunedAttacks ? TUNED_VS_QUICK.quick : TUNED_VS_QUICK.tuned,
-      });
-      const t: Side = tunedAttacks ? 'attacker' : 'defender';
-      tuned += r.sides[t].total.losses;
-      quick += r.sides[other(t)].total.losses;
-      if (r.winner === other(t)) tunedLost += 1;
-    }
-    const gap = quick / tuned - 1;
+  it('настроенная армия выигрывает у быстрой атаки 10–25% по потерям на ста боях', () => {
+    const { gap, lost } = gapAgainst(TUNED, quickOf, 100);
     expect(gap).toBeGreaterThanOrEqual(0.1);
     expect(gap).toBeLessThanOrEqual(0.25);
-    expect(tunedLost).toBeLessThan(10);
-    expect(armyTotal(TUNED_VS_QUICK.tuned)).toEqual(armyTotal(TUNED_VS_QUICK.quick));
+    expect(lost).toBeLessThan(25);
+    for (let seed = 1; seed <= 4; seed += 1) expect(armyTotal(TUNED)).toEqual(armyTotal(quickOf(seed)));
+  });
+
+  it('против каждого пресета в отдельности настроенная армия не проигрывает', () => {
+    for (const id of QUICK_PRESET_IDS) {
+      const { gap } = gapAgainst(TUNED, () => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)), 30);
+      expect(gap, id).toBeGreaterThan(-0.05);
+    }
+  });
+
+  it('известный контрер стандартного пресета против случайного пресета падает до тех же ≈15%', () => {
+    // Против одного известного шаблона контрер выигрывает вдвое и больше — это цена публичного
+    // шаблона. Против быстрой атаки, где пресет неизвестен, его преимущество — не больше, чем у
+    // любой настроенной армии.
+    const known = gapAgainst(KNOWN_COUNTER, () => QUICK_PRESETS.standard.layout(stackOf(BALANCED_ARMY)), 60);
+    const random = gapAgainst(KNOWN_COUNTER, quickOf, 100);
+    expect(known.gap).toBeGreaterThan(0.4);
+    expect(random.gap).toBeGreaterThan(0.05);
+    expect(random.gap).toBeLessThanOrEqual(0.25);
+    expect(random.gap).toBeLessThan(known.gap / 2);
+  });
+});
+
+describe('пресеты быстрой атаки', () => {
+  it('каждый пресет раскладывает любой состав целиком, и ни один не пуст', () => {
+    const armies: Array<Partial<Stack>> = [BALANCED_ARMY, { infantry: 300 }, { spear: 200, archer: 100 }, { cavalry: 50 }, { archer: 40, cavalry: 40 }, { spear: 1 }];
+    for (const id of QUICK_PRESET_IDS) {
+      for (const army of armies) {
+        const s = QUICK_PRESETS[id].layout(stackOf(army));
+        expect(armyTotal(s), `${id}: ${JSON.stringify(army)}`).toEqual(stackOf(army));
+        expect(validateSetup(s)).toBeNull();
+      }
+    }
+  });
+
+  it('быстрая атака выбирает пресет по сиду детерминированно, и без разведки все четыре в ходу', () => {
+    const picks: Record<string, number> = {};
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const a = quickAttack(BALANCED_ARMY, seed);
+      const b = quickAttack(BALANCED_ARMY, seed);
+      expect(a.preset).toBe(b.preset);
+      expect(JSON.stringify(a.setup)).toBe(JSON.stringify(b.setup));
+      picks[a.preset] = (picks[a.preset] ?? 0) + 1;
+    }
+    for (const id of QUICK_PRESET_IDS) expect(picks[id] ?? 0, id).toBeGreaterThan(400 * 0.15);
+  });
+
+  it('свежие разведданные сдвигают выбор: против массы конницы чаще приходит анти-кавалерия', () => {
+    let plain = 0;
+    let informed = 0;
+    for (let seed = 1; seed <= 400; seed += 1) {
+      if (quickAttack(BALANCED_ARMY, seed).preset === 'anti-cavalry') plain += 1;
+      if (quickAttack(BALANCED_ARMY, seed, { cavalry: 300, infantry: 200 }).preset === 'anti-cavalry') informed += 1;
+    }
+    expect(informed).toBeGreaterThan(plain * 1.5);
+    // Разведка без единого замеченного бойца ничего не сдвигает.
+    expect(presetWeights({})).toEqual(presetWeights());
   });
 });
 
@@ -372,7 +417,7 @@ describe('мораль как характеристика войск', () => {
 
 describe('детерминированность', () => {
   it('один вход и сид — один исход и один журнал', () => {
-    const input = { seed: 4242, attacker: TUNED_VS_QUICK.tuned, defender: TUNED_VS_QUICK.quick };
+    const input = { seed: 4242, attacker: TUNED, defender: quickOf(4242) };
     const snapshot = JSON.stringify(input);
     const a = simulateBattle(input);
     const b = simulateBattle(JSON.parse(snapshot));
@@ -382,8 +427,8 @@ describe('детерминированность', () => {
   });
 
   it('другой сид меняет ход боя, но не его форму', () => {
-    const a = simulateBattle({ seed: 1, attacker: TUNED_VS_QUICK.tuned, defender: TUNED_VS_QUICK.quick });
-    const b = simulateBattle({ seed: 2, attacker: TUNED_VS_QUICK.tuned, defender: TUNED_VS_QUICK.quick });
+    const a = simulateBattle({ seed: 1, attacker: TUNED, defender: quickOf(1) });
+    const b = simulateBattle({ seed: 2, attacker: TUNED, defender: quickOf(1) });
     expect(JSON.stringify({ ...a, seed: 0 })).not.toBe(JSON.stringify({ ...b, seed: 0 }));
     // Форма — обязательные фазы в том же порядке; обходы и резерв бой вправе пропустить, если сторона сломалась раньше.
     const must = (r: BattleResult): string[] => r.phases.map((p) => p.phase).filter((p) => p !== 'flanking' && p !== 'reserve');

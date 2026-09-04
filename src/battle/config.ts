@@ -259,13 +259,20 @@ export interface PlanMods {
   strike: number;
 }
 
+/**
+ * В модели морали каждая лишняя потеря стоит дорого, поэтому планы выровнены
+ * по размену в зеркале одинаковых армий (, раздел
+ * «Планы»): ни один не выигрывает у всех, каждый кому-то проигрывает. Оборона
+ * с прежними ×0.8/×0.7 не проигрывала никому, изматывание с ×0.9 урона и
+ * агрессия с −5 морали проигрывали всем.
+ */
 export const PLANS: Record<Plan, PlanMods> = {
-  defense: { dealt: 0.85, taken: 0.8, morale: 10, center: 1, flank: 1, tempo: 1, shock: 0.7, ranged: 1, strike: 1 },
-  assault: { dealt: 1, taken: 1, morale: 0, center: 1.25, flank: 0.9, tempo: 0, shock: 1, ranged: 1, strike: 1 },
+  defense: { dealt: 0.85, taken: 0.9, morale: 5, center: 1, flank: 1, tempo: 1, shock: 0.8, ranged: 1, strike: 1 },
+  assault: { dealt: 1, taken: 1, morale: 0, center: 1.25, flank: 0.95, tempo: 0, shock: 0.97, ranged: 1, strike: 1 },
   envelop: { dealt: 1, taken: 1, morale: 0, center: 0.9, flank: 1.15, tempo: 0, shock: 1, ranged: 1, strike: 1 },
   'cavalry-strike': { dealt: 1, taken: 1, morale: 0, center: 1, flank: 1, tempo: 0, shock: 1, ranged: 1, strike: 1.15 },
-  attrition: { dealt: 0.9, taken: 1, morale: 0, center: 1, flank: 1, tempo: 5, shock: 1, ranged: 1.1, strike: 1 },
-  aggressive: { dealt: 1.2, taken: 1.15, morale: -5, center: 1, flank: 1, tempo: -2, shock: 1, ranged: 1, strike: 1 },
+  attrition: { dealt: 1, taken: 1, morale: 0, center: 1, flank: 1, tempo: 5, shock: 1, ranged: 1.15, strike: 1 },
+  aggressive: { dealt: 1.2, taken: 1.12, morale: 0, center: 1, flank: 1, tempo: -2, shock: 1, ranged: 1, strike: 1 },
 };
 
 /** Охват: фланг, чья сила больше вражеской во столько раз, заворачивает к центру этой долей людей. */

@@ -746,6 +746,17 @@ class Battle {
         if (g.row !== 'strike' || !alive(g) || g.lane === null) continue;
         const enemy = other(side);
         const eLane = facing(g.lane);
+        // Резерв с приказом «держать фланг» ждёт именно этого: выходит на полосу обхода навстречу.
+        if (this.sides[enemy].setup.orders.cavalry === 'hold-flank') {
+          let men = 0;
+          for (const h of this.sides[enemy].groups) {
+            if (h.row !== 'reserve' || h.stack.cavalry < EPS || !alive(h)) continue;
+            h.lane = eLane;
+            h.row = 'front';
+            men += stackTotal(h.stack);
+          }
+          if (men >= 1) this.emit({ id: 'reserve-committed', side: enemy, sector: laneSector(eLane, 'front'), men: Math.round(men) });
+        }
         // Перехват: конница с приказом «держать фланг» или резерв, вошедший в эту полосу, —
         // единственные, кто разворачивается навстречу обходу. Остальные заняты фронтом.
         const holders = [...this.at(enemy, eLane, 'front'), ...this.at(enemy, eLane, 'rear')].filter(

@@ -4,7 +4,7 @@
 //   GRID='[{},{"MORALE.perLoss":300},{"UNIT.spear":{...}}]' npm run battle:sweep
 // Это быстрый прицел; итог всегда сверять полным отчётом и тестами.
 import { simulateBattle, quickSetup, MORALE, RETREAT, TEMPER, UNIT_STATS, COUNTER } from '../src/battle';
-import { COMPOSITIONS, TUNED_VS_QUICK, RING, mirrored } from '../src/battle/bench';
+import { COMPOSITIONS, TUNED, RING, mirrored, quickOf } from '../src/battle/bench';
 import type { BattleResult } from '../src/battle';
 
 const fullLen = (r: BattleResult): number => r.phases.find((p) => p.phase === 'ranged')!.to + 60;
@@ -47,7 +47,7 @@ function measure(): string {
   let tuned = 0;
   for (let seed = 1; seed <= 40; seed += 1) {
     const ta = seed % 2 === 1;
-    const r = simulateBattle({ seed, attacker: ta ? TUNED_VS_QUICK.tuned : TUNED_VS_QUICK.quick, defender: ta ? TUNED_VS_QUICK.quick : TUNED_VS_QUICK.tuned });
+    const r = simulateBattle({ seed, attacker: ta ? TUNED : quickOf(seed), defender: ta ? quickOf(seed) : TUNED });
     tuned += r.sides[ta ? 'attacker' : 'defender'].total.losses;
     quick += r.sides[ta ? 'defender' : 'attacker'].total.losses;
   }
