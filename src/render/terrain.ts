@@ -23,11 +23,18 @@ import { KIT, LEGACY } from './materials';
 import { GROUND_AO, collapse } from './kit';
 import { GRASS_DARK_MUL, GRASS_LIGHT_MUL, WALL_TRAMPLE_MUL } from './palette';
 
-/** Край мира. За зоной расчистки идёт полоса угодий, а по краю — сплошной лес. */
+/** Край мира. За зоной расчистки идёт полоса угодий, а дальше — сплошной лес до края. */
 export const WORLD_RADIUS = 30;
 
 /** Радиус диска земли: край уходит под туман и опускается вниз. */
 export const GROUND_RADIUS = WORLD_RADIUS + 6;
+
+/**
+ * Откуда начинается сплошной лес: сразу за полосой вырубки. Раньше лес стоял
+ * только тонкой цепочкой у самого края мира, и посёлок тонул в пустом зелёном
+ * поле; теперь он обступает расчистку, и кадр читается как поляна в лесу.
+ */
+export const FOREST_FROM = CLEAR_RADIUS + CLEAR_EDGE + 0.6;
 
 /**
  * Угодья вынесены за зону расчистки: внутри кольца стоят сами постройки, а лес,
@@ -44,6 +51,17 @@ export const ZONES = {
 
 /** Материалы окружения — из общего набора; цвета в palette.ts. */
 export const MAT = LEGACY;
+
+/**
+ * Прогалины в лесу под угодья: у скал, ягодника и полей деревья расступаются,
+ * охотничья зона — редколесье, куда ходят за дичью.
+ */
+const GLADES: { at: THREE.Vector3; r: number; keep: number }[] = [
+  { at: ZONES.rocks, r: 5.0, keep: 0.06 },
+  { at: ZONES.berries, r: 4.6, keep: 0.08 },
+  { at: ZONES.fields, r: 5.4, keep: 0.04 },
+  { at: ZONES.hunting, r: 6.0, keep: 0.3 },
+];
 
 /**
  * Габариты объектов окружения в плане: по ним точка отбрасывается, если крона
@@ -283,6 +301,27 @@ export function makeLog(len = 1.6, seed = 0): THREE.Group {
   return g;
 }
 
+/** Пашня за стеной: полоса вспаханной земли с рядами всходов. */
+export function makeField(len: number, seed: number): THREE.Group {
+  const g = new THREE.Group();
+  const wide = 1.6;
+  const soil = new THREE.Mesh(new THREE.BoxGeometry(wide, 0.1, len), MAT.soil);
+  soil.position.y = 0.05;
+  soil.receiveShadow = true;
+  g.add(soil);
+  const rows = 3;
+  const cols = Math.max(3, Math.round(len / 0.45));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const sprout = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.26, 4), MAT.sprout);
+      sprout.position.set(-wide / 2 + 0.35 + (r * (wide - 0.7)) / (rows - 1), 0.22, -len / 2 + 0.25 + (c * (len - 0.5)) / (cols - 1));
+      g.add(sprout);
+    }
+  }
+  g.rotation.y = hash(seed) * Math.PI;
+  return g;
+}
+
 /** Срезанный подлесок: низкая поросль, оставшаяся от вырубки. */
 export function makeBrush(scale = 1): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28 * scale, 0), MAT.grassDark);
@@ -332,12 +371,25 @@ export function buildEnvironment(): THREE.Group {
       TREE_SPREAD * scale,
     );
   }
-  // Сплошной лес по краю мира.
-  for (let i = 0; i < 72; i++) {
-    const a = (i / 72) * Math.PI * 2 + hash(i) * 0.12;
-    const r = WORLD_RADIUS - 0.5 + hash(i * 5) * 2.5;
-    const scale = 0.8 + hash(i * 13) * 0.6;
-    put(root, () => makeTree(scale, i), Math.cos(a) * r, Math.sin(a) * r, TREE_SPREAD * scale);
+  // Сплошной лес от полосы вырубки до края мира, с прогалинами под угодья.
+  // Ближе к краю гуще: за краем мира ничего нет, и опушка должна закрыть горизонт.
+  for (let i = 0; i < 560; i++) {
+    const a = hash(i * 3 + 1000) * Math.PI * 2;
+    const t = Math.sqrt(hash(i * 7 + 1000));
+    const r = FOREST_FROM + t * (GROUND_RADIUS - 1.5 - FOREST_FROM);
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    const glade = GLADES.find((gl) => Math.hypot(x - gl.at.x, z - gl.at.z) < gl.r);
+    if (glade && hash(i * 17 + 1000) > glade.keep) continue;
+    const scale = 0.85 + hash(i * 13 + 1000) * 0.55;
+    put(root, () => makeTree(scale, i), x, z, TREE_SPREAD * scale);
+  }
+  // Пашня: несколько полос у поля, куда ходят вольные пахари.
+  for (let i = 0; i < 4; i++) {
+    const a = hash(i * 67) * Math.PI * 2;
+    const r = 1.2 + hash(i * 71) * 2.6;
+    const len = 2.4 + hash(i * 73) * 1.6;
+    put(root, () => makeField(len, i), ZONES.fields.x + Math.cos(a) * r, ZONES.fields.z + Math.sin(a) * r, len / 2 + 0.3);
   }
   // Скалы.
   for (let i = 0; i < 14; i++) {

@@ -268,14 +268,16 @@ export class TribeScene {
     // 0.75 — граница портрета; любой телефон (0.46–0.62) попадает в narrow = 1.
     const narrow = THREE.MathUtils.clamp((0.75 - aspect) / 0.15, 0, 1);
     // В портрете смотрим заметно сверху: кольцо стены должно читаться кольцом,
-    // а не полоской у горизонта под половиной экрана неба.
-    const polar = THREE.MathUtils.lerp(0.95, 0.62, narrow);
+    // а не полоской у горизонта под половиной экрана неба. Но не отвесно:
+    // при 0.62 верхнюю треть экрана занимала голая трава, при 0.7 — опушка.
+    const polar = THREE.MathUtils.lerp(0.95, 0.7, narrow);
     // В портрете угол шире: иначе кадр не удержать без отъезда за предел дистанции.
     const fov = THREE.MathUtils.lerp(42, 48, narrow);
     // Кадр держит кольцо стены целиком, а не постройки. Радиус стены задан планом
     // раз и навсегда, поэтому кадр перестал дёргаться при каждой новой крыше:
     // посёлок растёт внутри одной и той же рамки, как на карте укреплённого города.
-    const fitRadius = WALL_RADIUS * THREE.MathUtils.lerp(1.12, 1.0, narrow);
+    // В портрете кольцо касается краёв экрана: ближе — и посёлок крупнее.
+    const fitRadius = WALL_RADIUS * THREE.MathUtils.lerp(1.12, 0.96, narrow);
     const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
     const dist = THREE.MathUtils.clamp(fitRadius / Math.tan(halfH), 14, 92);
 

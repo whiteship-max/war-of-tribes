@@ -45,12 +45,12 @@ export const PALETTE = {
   grass: 0x7fa552,
   grassDark: 0x66884a,
   grassLight: 0x97b85c,
-  /** Тропинка лагеря и голая земля. */
-  dirt: 0x8c6b4b,
+  /** Тропинка лагеря и голая земля. Светлее и суше, чем пашня: дорога — не борозда. */
+  dirt: 0x9a7b59,
   /** Вытоптанная земля: пятна у построек и обочины дорог. */
   trample: 0x7b6247,
-  /** Утоптанная улица — шире и темнее тропинки. */
-  packed: 0x806548,
+  /** Утоптанная улица — шире и чуть темнее тропинки. */
+  packed: 0x8f7657,
   /** Мостовая поздних стадий. */
   paved: 0x9c9891,
   /** Разметка пустого места под двор. */
@@ -160,9 +160,9 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     grass: 0x86a94f,
     grassDark: 0x6d8f45,
     grassLight: 0x9fbf58,
-    dirt: 0x957350,
+    dirt: 0xa2835f,
     trample: 0x846a4b,
-    packed: 0x8a6d4c,
+    packed: 0x987e5e,
     paved: 0xa39f96,
     plot: 0x907a56,
     soil: 0x77552f,
@@ -184,9 +184,9 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     grass: 0x9c9552,
     grassDark: 0x847c47,
     grassLight: 0xb0a44e,
-    dirt: 0x7f6244,
+    dirt: 0x8d7052,
     trample: 0x6f5940,
-    packed: 0x745c42,
+    packed: 0x826b50,
     paved: 0x938f88,
     plot: 0x7d6a4a,
     soil: 0x62472b,

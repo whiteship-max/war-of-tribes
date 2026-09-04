@@ -43,10 +43,13 @@ function roadMaterial(stage: StageId): THREE.Material {
   return T.dirt;
 }
 
-/** Ширина дороги растёт со стадией: тропинка → улица → мостовая. */
+/**
+ * Ширина дороги растёт со стадией: тропинка → улица → мостовая. Но не вдвое:
+ * широкая бурая улица на портретном кадре весила больше домов вокруг неё.
+ */
 function roadWidth(stage: StageId): number {
   const i = STAGE_ORDER.indexOf(stage);
-  return ROAD_HALF * (i <= 1 ? 1.0 : i === 2 ? 1.5 : 1.9);
+  return ROAD_HALF * (i <= 1 ? 1.0 : i === 2 ? 1.3 : 1.55);
 }
 
 const flat = (geo: THREE.BufferGeometry, mat: THREE.Material, y: number): THREE.Mesh => {
