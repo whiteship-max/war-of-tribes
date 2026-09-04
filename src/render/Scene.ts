@@ -146,6 +146,8 @@ export class TribeScene {
   private clock = new THREE.Clock();
   private raf = 0;
   private frameNo = 0;
+  /** Было ли уже состояние: по первому sync сезон ставится без перелива. */
+  private synced = false;
   private gameTime = 0;
   private gameTimeAt = 0;
   private flame: THREE.Object3D | null = null;
@@ -482,6 +484,12 @@ export class TribeScene {
     this.gameTime = s.time;
     this.gameTimeAt = performance.now();
     this.season = seasonOf(s.time);
+    // Первый кадр уже нарисован в конструкторе с весной по умолчанию: настоящий
+    // сезон ставим прыжком, иначе партия открывается с перелива к нему.
+    if (!this.synced) {
+      this.synced = true;
+      this.seasonVis.jump(this.season);
+    }
     this.syncVillage(s);
 
     // Здания. Модель пересобирается только на пороге ступени или при смене эпохи:

@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import type { Season } from '@/game/types';
 import { DECAL, KIT, LEGACY, type DecalKey, type MatKey } from './materials';
-import { PALETTE, SEASONAL_KEYS, SEASON_SNOW, seasonColor } from './palette';
+import { PALETTE, SEASONAL_KEYS, SEASON_SNOW, SEASON_SUN_ARC, seasonColor } from './palette';
 
 /** Переиспользуемый цвет: lerp вызывается по разу на материал каждый кадр. */
 const TMP = new THREE.Color();
@@ -25,9 +25,23 @@ export class SeasonVisuals {
   readonly sky = new THREE.Color(PALETTE.sky);
   /** Цвет дымки: в неё уходит дальний край мира. */
   readonly fog = new THREE.Color(PALETTE.fog);
+  /** Цвет солнца: летом белее, зимой бледнее. */
+  readonly sun = new THREE.Color(PALETTE.sunDay);
+  /** Высота солнечной дуги: зимой солнце ниже, тени длиннее. */
+  sunArc = 1;
   /** 0 — снега нет, 1 — полная зима. Гонит частицы, дым и длину ночи. */
   snow = 0;
   private started = false;
+
+  /**
+   * Поставить сезон мгновенно, без перелива. Сцена зовёт это при первой
+   * синхронизации с состоянием: первый кадр она рисует ещё до него, с весной по
+   * умолчанию, и без прыжка партия открывалась бы с перелива к своему сезону.
+   */
+  jump(season: Season): void {
+    this.started = false;
+    this.update(season, 0);
+  }
 
   update(season: Season, dt: number): void {
     // Первый кадр ставим палитру мгновенно: иначе партия начинается с перелива.
@@ -41,6 +55,8 @@ export class SeasonVisuals {
     for (const key of DECAL_TARGETS) DECAL[key].color.lerp(TMP.setHex(seasonColor(season, key)), k);
     this.sky.lerp(TMP.setHex(seasonColor(season, 'sky')), k);
     this.fog.lerp(TMP.setHex(seasonColor(season, 'fog')), k);
+    this.sun.lerp(TMP.setHex(seasonColor(season, 'sunDay')), k);
+    this.sunArc += (SEASON_SUN_ARC[season] - this.sunArc) * k;
     this.snow += (SEASON_SNOW[season] - this.snow) * k;
   }
 }

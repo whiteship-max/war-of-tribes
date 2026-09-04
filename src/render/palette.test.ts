@@ -31,6 +31,7 @@ describe('палитра', () => {
     for (const table of Object.values(SEASON_OVERRIDES)) {
       for (const [key, hex] of Object.entries(table) as [PaletteKey, number][]) {
         expect(PALETTE[key], `нет базового цвета для ${key}`).toBeDefined();
+        if (LIGHT_KEYS.includes(key)) continue;
         for (const c of channels(hex)) {
           expect(c).toBeGreaterThanOrEqual(0x10);
           expect(c).toBeLessThanOrEqual(0xf4);

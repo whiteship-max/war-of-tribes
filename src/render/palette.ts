@@ -35,8 +35,8 @@ export const PALETTE = {
   /** Заполняющий свет: небо сверху — холодное, земля снизу — тёплая и глухая. */
   hemiSky: 0x9db7d9,
   hemiGround: 0x6e6a5c,
-  hemiSkyNight: 0x35466a,
-  hemiGroundNight: 0x1e1f26,
+  hemiSkyNight: 0x46598a,
+  hemiGroundNight: 0x2a2c38,
   fireLight: 0xff9a3a,
   snowflake: 0xe8eef4,
   smoke: 0xd8d2c8,
@@ -126,6 +126,7 @@ export const LIGHT_KEYS: PaletteKey[] = ['sunDay', 'sunDusk', 'fireLight'];
 export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>>> = {
   spring: {},
   summer: {
+    sunDay: 0xfff0d2,
     grass: 0x86a94f,
     grassDark: 0x6d8f45,
     grassLight: 0x9fbf58,
@@ -149,6 +150,7 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     fog: 0xb8d5ea,
   },
   autumn: {
+    sunDay: 0xffd6a0,
     grass: 0x9c9552,
     grassDark: 0x847c47,
     grassLight: 0xb0a44e,
@@ -173,7 +175,8 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     fog: 0xc6cacc,
   },
   winter: {
-    // Снег голубой, не белый: с солнцем и полусферой он и так подойдёт к пределу.
+    // Зимнее солнце бледное; снег голубой, не белый: с солнцем и полусферой он и так у предела.
+    sunDay: 0xf2e6d4,
     grass: 0xd6dfe8,
     grassDark: 0xc4cfdb,
     grassLight: 0xe0e7ef,
@@ -202,6 +205,9 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
 /** Плотность снега по сезону: гонит частицы, дым и белизну. */
 export const SEASON_SNOW: Record<Season, number> = { spring: 0, summer: 0, autumn: 0, winter: 1 };
 
+/** Высота солнечной дуги по сезону: осенью и зимой солнце ниже, тени длиннее. */
+export const SEASON_SUN_ARC: Record<Season, number> = { spring: 1, summer: 1.05, autumn: 0.9, winter: 0.8 };
+
 /** Цвет палитры в сезоне: переопределение, если есть, иначе базовый. */
 export const seasonColor = (season: Season, key: PaletteKey): number =>
   SEASON_OVERRIDES[season][key] ?? PALETTE[key];
@@ -229,8 +235,12 @@ export const AO_WALL: Mul = [0.86, 0.87, 0.92];
 export const AO_POST: Mul = [0.78, 0.79, 0.86];
 /** Пятно под зданием на земле (умножающая декаль). */
 export const GROUND_SHADE: Mul = [0.68, 0.7, 0.8];
-/** Пятна травы: от сырой низины (темнее и синее) до выгоревшего бугра (светлее и желтее). */
-export const GRASS_DARK_MUL: Mul = [0.8, 0.85, 0.76];
-export const GRASS_LIGHT_MUL: Mul = [1.12, 1.08, 0.96];
-/** Трава внутри стены вытоптана и желтее. */
-export const WALL_TRAMPLE_MUL: Mul = [0.97, 0.92, 0.84];
+/**
+ * Пятна травы: от сырой низины (темнее, чуть синее) до выгоревшего бугра (светлее,
+ * чуть желтее). Сдвиг оттенка нарочно мал: те же множители лежат на зимнем снегу,
+ * и жёлтый уклон превратил бы его в болото.
+ */
+export const GRASS_DARK_MUL: Mul = [0.82, 0.86, 0.86];
+export const GRASS_LIGHT_MUL: Mul = [1.1, 1.07, 1.0];
+/** Трава внутри стены вытоптана: темнее и самую малость теплее. */
+export const WALL_TRAMPLE_MUL: Mul = [0.94, 0.92, 0.88];

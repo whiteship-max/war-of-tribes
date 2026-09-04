@@ -22,10 +22,13 @@ export interface LightRig {
   hemi: THREE.HemisphereLight;
 }
 
-/** Небо и дымка сезона — то, что переливает SeasonVisuals. */
+/** Небо, дымка и солнце сезона — то, что переливает SeasonVisuals. */
 export interface SkyColors {
   sky: THREE.Color;
   fog: THREE.Color;
+  sun: THREE.Color;
+  /** Высота солнечной дуги: 1 — весна, зимой меньше. */
+  sunArc: number;
 }
 
 /**
@@ -100,7 +103,6 @@ export function fitShadow(rig: LightRig, half: number): void {
 
 const C_SKY_NIGHT = new THREE.Color(PALETTE.skyNight);
 const C_SKY_DUSK = new THREE.Color(PALETTE.skyDusk);
-const C_SUN_DAY = new THREE.Color(PALETTE.sunDay);
 const C_SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
 const C_MOON = new THREE.Color(PALETTE.moon);
 const C_HEMI_SKY = new THREE.Color(PALETTE.hemiSky);
@@ -137,15 +139,16 @@ export function applyDayNight(rig: LightRig, scene: THREE.Scene, solar: number, 
   const nightK = smooth(-elev / 0.15);
 
   const dayT = THREE.MathUtils.clamp(solar, 0, 0.5) / 0.5;
-  const elevation = (12 + 40 * Math.sin(dayT * Math.PI)) * DEG;
+  const elevation = (12 + 40 * season.sunArc * Math.sin(dayT * Math.PI)) * DEG;
   const azimuth = KEY_AZIMUTH + (solar - 0.25) * 1.25;
   setSun(SUN_POS, azimuth, elevation);
   setSun(MOON_POS, KEY_AZIMUTH + 0.6, 40 * DEG);
   rig.sun.position.copy(SUN_POS).lerp(MOON_POS, nightK);
-  rig.sun.intensity = 0.6 + 2.6 * daylight;
-  rig.sun.color.copy(TMP_A.copy(C_SUN_DAY).lerp(C_SUN_DUSK, dusk)).lerp(C_MOON, nightK);
+  // Ночью лампа — луна: слабее втрое, но с тенью; жители у ворот должны оставаться различимы.
+  rig.sun.intensity = 1.0 + 2.2 * daylight;
+  rig.sun.color.copy(TMP_A.copy(season.sun).lerp(C_SUN_DUSK, dusk)).lerp(C_MOON, nightK);
 
-  rig.hemi.intensity = 0.45 + 0.65 * daylight;
+  rig.hemi.intensity = 0.6 + 0.5 * daylight;
   rig.hemi.color.copy(C_HEMI_SKY_NIGHT).lerp(C_HEMI_SKY, daylight);
   rig.hemi.groundColor.copy(C_HEMI_GROUND_NIGHT).lerp(C_HEMI_GROUND, daylight);
 
