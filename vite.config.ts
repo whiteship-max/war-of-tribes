@@ -55,7 +55,7 @@ function snapPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), snapPlugin()],
-  base: './',
+  base: '/',
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },

@@ -11,7 +11,10 @@
 // solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат), clean=1 (без подписи).
 // perf=8 — замер частоты кадров: камера крутится восемь секунд, стенд считает
 // кадры и шлёт итог на dev-сервер (POST /__perf → snaps/perf.jsonl). Так стенд
-// открывают на телефоне через тоннель, а число остаётся в репозитории у разработчика.
+// открывают на телефоне в локальной сети, а число остаётся в репозитории у разработчика.
+// На выложенной сборке такого адреса нет: тогда итог остаётся на экране, а тап по
+// подписи кладёт отчёт целиком в буфер обмена. Стенд собирается и в продакшен —
+// отдельным чанком, который в игру не попадает.
 // Подпись и бюджет кадра дублируются в document.body.dataset.showcase — их читает
 // инструмент проверки, которому сама канва недоступна.
 import * as THREE from 'three';
@@ -79,6 +82,20 @@ function makeCaption(root: HTMLElement, hidden: boolean): HTMLDivElement {
   return el;
 }
 
+/**
+ * Замер с телефона, открытого не по dev-серверу, отдать некуда: подпись становится
+ * кнопкой и кладёт отчёт целиком в буфер обмена. Тап подтверждается рамкой.
+ */
+function enableCopy(caption: HTMLDivElement): void {
+  caption.style.pointerEvents = 'auto';
+  caption.style.cursor = 'pointer';
+  caption.onclick = (): void => {
+    void navigator.clipboard?.writeText(document.body.dataset.perf ?? '').then(() => {
+      caption.style.outline = '2px solid #f3e9d8';
+    });
+  };
+}
+
 function publish(caption: HTMLDivElement, text: string, stats: object): void {
   caption.textContent = text;
   document.body.dataset.showcase = JSON.stringify({ text, ...stats });
@@ -122,11 +139,12 @@ class Snapper {
     lines.forEach((l, i) => ctx.fillText(l, 8 * k + pad, 8 * k + pad + lineH * (i + 0.8)));
     out.toBlob((blob) => {
       if (!blob) return;
-      void fetch(`/__snap?name=${encodeURIComponent(this.name ?? 'snap')}`, { method: 'POST', body: blob }).then(
-        () => {
+      void fetch(`/__snap?name=${encodeURIComponent(this.name ?? 'snap')}`, { method: 'POST', body: blob })
+        .then(() => {
           document.body.dataset.snapped = this.name ?? '';
-        },
-      );
+        })
+        // На выложенной сборке принимать снимок некому — это не ошибка.
+        .catch(() => {});
     }, 'image/png');
   }
 }
@@ -329,7 +347,7 @@ export function synthState(stage: StageId, eraId: EraId, season: Season, solar: 
  * секунд, а стенд считает кадры по afterRender — настоящие кадры цикла, не
  * renderOnce. Итог: средняя частота, худшие 5 % кадров, устройство и бюджет.
  */
-function runPerf(scene: TribeScene, seconds: number, name: string, done: (line: string) => void): void {
+function runPerf(scene: TribeScene, seconds: number, name: string, done: (line: string, copy?: boolean) => void): void {
   const frames: number[] = [];
   let last = 0;
   setTimeout(() => {
@@ -367,7 +385,15 @@ function runPerf(scene: TribeScene, seconds: number, name: string, done: (line: 
       const line = `fps ${report.fps} · худшие 5 %: ${report.low5} · ${report.width}×${report.height} @${report.dpr}`;
       document.body.dataset.perf = JSON.stringify(report);
       done(line);
-      void fetch('/__perf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(report) });
+      // Dev-сервер отвечает text/plain «ok». Выложенная сборка отдаёт на этот адрес
+      // что угодно другое (404 или сам index.html) — значит, забрать замер можно
+      // только с экрана, и подпись становится кнопкой «скопировать».
+      const noSink = (): void => done(line, true);
+      void fetch('/__perf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(report) })
+        .then((r) => {
+          if (!r.ok || !(r.headers.get('content-type') ?? '').startsWith('text/plain')) noSink();
+        })
+        .catch(noSink);
     }, seconds * 1000);
   }, 1500);
 }
@@ -397,8 +423,9 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const perf = Number(p.get('perf') ?? 0);
   if (perf > 0) {
     perfLine = 'замер…';
-    runPerf(scene, perf, `${stage}_${eraId}`, (line) => {
-      perfLine = line;
+    runPerf(scene, perf, `${stage}_${eraId}`, (line, copy) => {
+      perfLine = copy ? `${line}\nтап по подписи — скопировать отчёт` : line;
+      if (copy) enableCopy(caption);
       tick();
     });
   }
