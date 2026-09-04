@@ -1,7 +1,7 @@
-// Low-poly модели зданий: этапы стройки, три визуальные ступени по уровню
-// и материалы эпохи. Уровень меняет форму постройки, эпоха — из чего она сложена.
+// Low-poly модели зданий: этапы стройки и три визуальные ступени по уровню.
+// Стиль один на всю игру — позднее средневековье: штукатурка, черепица, фахверк.
 import * as THREE from 'three';
-import type { Building, BuildingTypeId, EraId } from '@/game/types';
+import type { Building, BuildingTypeId } from '@/game/types';
 import { VISUAL_TIERS } from '@/game/constants';
 import { MAT as T } from './terrain';
 import { GATE_ANGLE, WALL_RADIUS } from './plan';
@@ -38,15 +38,12 @@ export function stageOf(b: Building): Stage {
 export const M = LEGACY;
 
 /**
- * Из чего сложена постройка в этой эпохе. Одна таблица на все здания: переход
- * эпохи меняет материалы разом, и деревня перестраивается на глазах —
- * шкуры и жерди → солома → тёс → камень с дранкой → штукатурка с черепицей.
- *
- * Таблица хранит имена цветов палитры, а не материалы: старые модели берут из неё
- * LEGACY-материалы (ERA_STYLE), набор деталей — KIT (kitStyle), и обе стороны
- * читают одни и те же имена.
+ * Из чего сложена постройка. Стиль один — позднее средневековье: штукатурка,
+ * черепица, каменный цоколь, фахверк по стенам. Таблица хранит имена цветов
+ * палитры, а не материалы: старые модели берут из неё LEGACY-материалы (STYLE),
+ * набор деталей — KIT (stylePaint), и обе стороны читают одни и те же имена.
  */
-export interface EraRoles {
+export interface Roles {
   /** Стены и корпус. */
   wall: MatKey;
   /** Кровля. */
@@ -65,27 +62,28 @@ export interface EraRoles {
   beam: MatKey;
 }
 
-export const ERA_ROLES: Record<EraId, EraRoles> = {
-  camp: { wall: 'woodDark', roof: 'hide', roofDark: 'hide', post: 'woodDark', accent: 'bone', floor: 'soil', base: 'woodDark', beam: 'woodDark' },
-  stone: { wall: 'wood', roof: 'thatch', roofDark: 'thatchDark', post: 'woodDark', accent: 'stone', floor: 'soil', base: 'woodDark', beam: 'woodDark' },
-  tribe: { wall: 'wood', roof: 'thatch', roofDark: 'thatchDark', post: 'timber', accent: 'paintRed', floor: 'soil', base: 'stoneDark', beam: 'timber' },
-  bronze: { wall: 'plank', roof: 'thatchDark', roofDark: 'timber', post: 'timber', accent: 'ore', floor: 'stone', base: 'stoneDark', beam: 'timber' },
-  iron: { wall: 'stone', roof: 'shingle', roofDark: 'stoneDark', post: 'timber', accent: 'metal', floor: 'stone', base: 'stoneDark', beam: 'timber' },
-  state: { wall: 'plaster', roof: 'tile', roofDark: 'stoneDark', post: 'stone', accent: 'gold', floor: 'stone', base: 'stone', beam: 'timber' },
+export const ROLES: Roles = {
+  wall: 'plaster',
+  roof: 'tile',
+  roofDark: 'stoneDark',
+  post: 'stone',
+  accent: 'gold',
+  floor: 'stone',
+  base: 'stone',
+  beam: 'timber',
 };
 
 /**
- * Какие детали набора есть у эпохи. Эпоха меняет не каждую модель, а набор:
- * здание описывает объёмы («круглая стена, крыша-конус, дверь на фасаде»), а
- * какой именно конус, есть ли цоколь и труба — решает эта таблица. Шестнадцать
- * зданий на три ступени пишутся один раз, шесть эпох добавляются строками.
+ * Какие детали набора есть у построек. Здание описывает объёмы («круглая стена,
+ * крыша-конус, дверь на фасаде»), а какой именно конус, есть ли цоколь и труба —
+ * решает эта таблица, одна на все модели.
  */
-export interface EraFeatures {
-  /** Кровля: шкуры → солома → дранка → черепица. Солома двухслойная, с толстым свесом. */
+export interface Features {
+  /** Кровля: черепица. */
   roof: K.RoofKind;
-  /** Цоколь под стеной (в лагере его нет — стена стоит на земле). */
+  /** Цоколь под стеной. */
   plinth: boolean;
-  /** Что над очагом: ничего, дымник над вершиной, глиняная труба, каменная труба. */
+  /** Что над очагом: каменная труба. */
   chimney: 'none' | 'hood' | 'clay' | 'stone';
   /** Перемычка над дверью. */
   lintel: 'wood' | 'stone';
@@ -95,48 +93,48 @@ export interface EraFeatures {
   fachwerk: boolean;
   /** Ограда: плетень или жерди на столбах. */
   fence: 'wattle' | 'rail';
-  /**
-   * Крутизна крыши: высота конуса к его радиусу. Солома круче реальной,
-   * черепица положе — эпоха читается углом крыши даже в чёрном силуэте.
-   */
+  /** Крутизна крыши: высота конуса к его радиусу. Черепица положе соломы. */
   pitch: number;
 }
 
-export const ERA_FEATURES: Record<EraId, EraFeatures> = {
-  camp: { roof: 'hide', plinth: false, chimney: 'none', lintel: 'wood', windows: false, fachwerk: false, fence: 'wattle', pitch: 1.15 },
-  stone: { roof: 'thatch', plinth: true, chimney: 'hood', lintel: 'wood', windows: false, fachwerk: false, fence: 'wattle', pitch: 1.1 },
-  tribe: { roof: 'thatch', plinth: true, chimney: 'hood', lintel: 'wood', windows: false, fachwerk: false, fence: 'wattle', pitch: 1.05 },
-  bronze: { roof: 'thatch', plinth: true, chimney: 'clay', lintel: 'wood', windows: true, fachwerk: false, fence: 'rail', pitch: 0.95 },
-  iron: { roof: 'shingle', plinth: true, chimney: 'stone', lintel: 'stone', windows: true, fachwerk: false, fence: 'rail', pitch: 0.8 },
-  state: { roof: 'tile', plinth: true, chimney: 'stone', lintel: 'stone', windows: true, fachwerk: true, fence: 'rail', pitch: 0.72 },
+export const FEATURES: Features = {
+  roof: 'tile',
+  plinth: true,
+  chimney: 'stone',
+  lintel: 'stone',
+  windows: true,
+  fachwerk: true,
+  fence: 'rail',
+  pitch: 0.72,
 };
 
-export type EraStyle = Record<keyof EraRoles, THREE.Material>;
+export type Style = Record<keyof Roles, THREE.Material>;
 
-const styleFrom = (set: Record<MatKey, THREE.Material>, roles: EraRoles): EraStyle =>
-  Object.fromEntries(Object.entries(roles).map(([role, key]) => [role, set[key as MatKey]])) as EraStyle;
+const styleFrom = (set: Record<MatKey, THREE.Material>, roles: Roles): Style =>
+  Object.fromEntries(Object.entries(roles).map(([role, key]) => [role, set[key as MatKey]])) as Style;
 
-/** Материалы эпохи для старых моделей. */
-export const ERA_STYLE: Record<EraId, EraStyle> = Object.fromEntries(
-  (Object.keys(ERA_ROLES) as EraId[]).map((era) => [era, styleFrom(LEGACY, ERA_ROLES[era])]),
-) as Record<EraId, EraStyle>;
+/** Материалы для старых моделей. */
+export const STYLE: Style = styleFrom(LEGACY, ROLES);
 
-/** Краски эпохи для набора деталей: по роли — краска (см. kit.paintOf). */
-export type EraPaint = Record<keyof EraRoles, K.Paint> & { roofPaint: K.RoofPaint; ink: K.Paint; features: EraFeatures };
+/** Краски для набора деталей: по роли — краска (см. kit.paintOf). */
+export type Paint = Record<keyof Roles, K.Paint> & { roofPaint: K.RoofPaint; ink: K.Paint; features: Features };
 
-export function eraPaint(era: EraId): EraPaint {
-  const roles = ERA_ROLES[era];
-  const f = ERA_FEATURES[era];
+let paintCache: Paint | null = null;
+
+export function stylePaint(): Paint {
+  if (paintCache) return paintCache;
+  const f = FEATURES;
   const p = Object.fromEntries(
-    Object.entries(roles).map(([role, key]) => [role, K.paintOf(key as MatKey)]),
-  ) as Record<keyof EraRoles, K.Paint>;
+    Object.entries(ROLES).map(([role, key]) => [role, K.paintOf(key as MatKey)]),
+  ) as Record<keyof Roles, K.Paint>;
   const hard = f.roof === 'shingle' || f.roof === 'tile';
-  return {
+  paintCache = {
     ...p,
     roofPaint: { kind: f.roof, roof: p.roof, roofDark: p.roofDark, trim: hard ? p.accent : p.beam },
     ink: K.paintOf('dark'),
     features: f,
   };
+  return paintCache;
 }
 
 const shadow = (m: THREE.Mesh): THREE.Mesh => {
@@ -242,7 +240,7 @@ function goat(x: number, z: number, rot: number): THREE.Group {
 
 // ---------- Стартовые постройки: одна ступень на всю партию ----------
 
-function campfire(st: EraStyle): THREE.Group {
+function campfire(st: Style): THREE.Group {
   const g = new THREE.Group();
   for (let i = 0; i < 7; i++) {
     const a = (i / 7) * Math.PI * 2;
@@ -256,9 +254,8 @@ function campfire(st: EraStyle): THREE.Group {
     l.rotation.y = (i / 3) * Math.PI;
     g.add(l);
   }
-  // Очаг обрастает вместе с посёлком: с бронзы вокруг него кладут каменный обод.
-  const paved = st.floor === M.stone;
-  if (paved) g.add(cyl(1.05, 1.05, 0.12, st.floor, 12, 0, 0.06, 0));
+  // Каменный обод вокруг очага: площадь мощёная.
+  g.add(cyl(1.05, 1.05, 0.12, st.floor, 12, 0, 0.06, 0));
   const flame = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.8, 6), M.fire);
   flame.position.y = 0.5;
   flame.name = 'flame';
@@ -294,11 +291,11 @@ function shelter(): THREE.Group {
 /**
  * Хижина из набора деталей: шатёр → длинный дом с клетью → усадьба с крыльцом,
  * задним крылом и двором. Ступень меняет тип силуэта (конус → призма →
- * ступенчатая масса), эпоха — кровлю, цоколь, трубу или дымник, окна, фахверк.
+ * ступенчатая масса); кровля, цоколь, труба, окна и фахверк — из FEATURES.
  * Единицы — модельные (до PLAN_SCALE); фасад — +z, как требует facingCenter.
  */
-function hutParts(t: Tier, era: EraId): K.Part[] {
-  const p = eraPaint(era);
+function hutParts(t: Tier): K.Part[] {
+  const p = stylePaint();
   const f = p.features;
   const parts: K.Part[] = [];
   const y0 = f.plinth ? K.PLINTH_H - K.PLINTH_SINK : 0;
@@ -381,14 +378,14 @@ function hutParts(t: Tier, era: EraId): K.Part[] {
   return parts;
 }
 
-function hut(t: Tier, era: EraId): THREE.Group {
+function hut(t: Tier): THREE.Group {
   const g = new THREE.Group();
-  g.add(K.assemble(hutParts(t, era)));
+  g.add(K.assemble(hutParts(t)));
   return g;
 }
 
 /** Склад: амбар на сваях → амбар с пристройкой и бочками → длинный лабаз. */
-function storage(t: Tier, st: EraStyle): THREE.Group {
+function storage(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [1.5, 2.0, 2.7][t];
   const d = [1.3, 1.6, 1.9][t];
@@ -419,7 +416,7 @@ function storage(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Хранилище знаний: плиты под навесом → крытая палата → малый храм с колоннами. */
-function knowledge(t: Tier, st: EraStyle): THREE.Group {
+function knowledge(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const r = [1.4, 1.7, 2.1][t];
   g.add(pad(r));
@@ -456,7 +453,7 @@ function knowledge(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Навес собирателей: один навес → навес с сушилами → торговые ряды. */
-function gathering(t: Tier, st: EraStyle): THREE.Group {
+function gathering(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const bays = t + 1;
   for (let b = 0; b < bays; b++) {
@@ -483,7 +480,7 @@ function gathering(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Лесопилка: козлы под навесом → двойная пила → пильный двор со штабелями. */
-function sawmill(t: Tier, st: EraStyle): THREE.Group {
+function sawmill(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [1.8, 2.3, 2.9][t];
   g.add(pad(w * 0.85));
@@ -522,7 +519,7 @@ function sawmill(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Каменоломня: уступы → выработка с воротом → большой карьер с краном. */
-function quarry(t: Tier, st: EraStyle): THREE.Group {
+function quarry(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const s = [1.0, 1.25, 1.55][t];
   g.add(pad(1.6 * s));
@@ -555,7 +552,7 @@ function quarry(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Охотничий домик: изба со шкурами → двор с сушилами → длинная промысловая изба. */
-function hunterHut(t: Tier, st: EraStyle): THREE.Group {
+function hunterHut(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const r = [0.7, 0.9, 1.15][t];
   g.add(pad(1.4 + t * 0.35));
@@ -592,7 +589,7 @@ function hunterHut(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Рудник: штольня → штольня с копром → копёр с колесом и отвалами. */
-function mine(t: Tier, st: EraStyle): THREE.Group {
+function mine(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const s = [1.0, 1.2, 1.45][t];
   g.add(pad(1.7 * s));
@@ -625,7 +622,7 @@ function mine(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Мастерская: открытый навес → закрытая мастерская → ремесленный двор. */
-function workshop(t: Tier, st: EraStyle): THREE.Group {
+function workshop(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [1.8, 2.2, 2.8][t];
   const d = [1.6, 1.9, 2.2][t];
@@ -655,7 +652,7 @@ function workshop(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Ферма: одна полоса → поле с оградой и пугалом → большое поле с овином. */
-function farm(t: Tier, st: EraStyle): THREE.Group {
+function farm(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   // Поле держится в своей площадке плана: широкая пашня вылезала за отведённое место.
   const s = [2.2, 2.7, 3.2][t];
@@ -685,7 +682,7 @@ function farm(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Загон: жердевая ограда → загон с навесом → скотный двор с хлевом. */
-function pen(t: Tier, st: EraStyle): THREE.Group {
+function pen(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const s = [1.3, 1.7, 2.05][t];
   fence(g, s, 0.7 + t * 0.1, st.post);
@@ -713,7 +710,7 @@ function pen(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Тотем: столб → столб с обкладкой → капище из трёх столбов на помосте. */
-function totem(t: Tier, st: EraStyle): THREE.Group {
+function totem(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const h = [1, 1.35, 1.7][t];
   const pole = (x: number, z: number, k: number): void => {
@@ -749,7 +746,7 @@ function totem(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Башня: помост на сваях → рубленая вышка → каменная башня со стягом. */
-function tower(t: Tier, st: EraStyle): THREE.Group {
+function tower(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const h = [2.4, 3.2, 4.2][t];
   const w = [1.0, 1.2, 1.5][t];
@@ -770,7 +767,7 @@ function tower(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Кузница: горн под навесом → кузница с трубой → кузнечный двор. */
-function smithy(t: Tier, st: EraStyle): THREE.Group {
+function smithy(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [2.0, 2.5, 3.1][t];
   const d = [1.6, 1.9, 2.3][t];
@@ -802,7 +799,7 @@ function smithy(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Дом вождя: сруб с крыльцом → усадьба с палатой → донжон с зубцами и стягом. */
-function chiefHouse(t: Tier, st: EraStyle): THREE.Group {
+function chiefHouse(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [1.5, 1.8, 2.0][t];
   const d = [1.4, 1.6, 1.8][t];
@@ -848,7 +845,7 @@ function chiefHouse(t: Tier, st: EraStyle): THREE.Group {
 }
 
 /** Казармы: учебный двор → двор с бараком → двор дружины с мишенями. */
-function barracks(t: Tier, st: EraStyle): THREE.Group {
+function barracks(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const s = [1.2, 1.5, 1.7][t];
   g.add(pad(s * 1.05));
@@ -896,7 +893,7 @@ function barracks(t: Tier, st: EraStyle): THREE.Group {
  *
  * Ступени: навесы из холста → ряды под крышей → каменные лавки со стягами.
  */
-function market(t: Tier, st: EraStyle): THREE.Group {
+function market(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const half = 2.45; // ось ряда: проезд между рядами шириной в две такие оси
   const len = [1.2, 1.4, 1.45][t]; // половина длины ряда вдоль улицы
@@ -986,7 +983,7 @@ export function scaffold(w: number, d: number, h = 1.5): THREE.Group {
  * Ступени: частокол из жердей → каменная стена с зубцами и башнями → высокая
  * стена со стягами. Со второй ступени поселение и выглядит укреплённым.
  */
-function palisade(stage: Stage, t: Tier, st: EraStyle): THREE.Group {
+function palisade(stage: Stage, t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const R = WALL_RADIUS;
   const n = 96;
@@ -1100,12 +1097,12 @@ export const footprintOf = (type: BuildingTypeId, tier: Tier = 0): [number, numb
  * отрисовки на материал вместо одного на каждую доску. Визуально модель та же,
  * добавляется только контактное затемнение у земли.
  */
-export function createBuildingGroup(type: BuildingTypeId, stage: Stage, tier: Tier, era: EraId): THREE.Group {
-  return K.collapse(legacyModel(type, stage, tier, era), K.GROUND_AO);
+export function createBuildingGroup(type: BuildingTypeId, stage: Stage, tier: Tier): THREE.Group {
+  return K.collapse(legacyModel(type, stage, tier), K.GROUND_AO);
 }
 
-function legacyModel(type: BuildingTypeId, stage: Stage, tier: Tier, era: EraId): THREE.Group {
-  const st = ERA_STYLE[era];
+function legacyModel(type: BuildingTypeId, stage: Stage, tier: Tier): THREE.Group {
+  const st = STYLE;
   if (type === 'campfire') return campfire(st);
   if (type === 'shelter') return shelter();
   if (type === 'palisade') return palisade(stage, tier, st);
@@ -1125,7 +1122,7 @@ function legacyModel(type: BuildingTypeId, stage: Stage, tier: Tier, era: EraId)
   }
   switch (type) {
     case 'hut':
-      return hut(tier, era);
+      return hut(tier);
     case 'storage':
       return storage(tier, st);
     case 'knowledge':

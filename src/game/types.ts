@@ -100,16 +100,6 @@ export type TechId =
   | 'statehood'
   | 'trade';
 
-/**
- * Эпоха — технический уровень племени. Двигается только технологиями и задаёт
- * потолок уровней зданий и материалы построек. В строке состояния её нет:
- * там стоит стадия поселения (см. StageId). Эпоху показывают в Доме вождя.
- */
-export type EraId = 'camp' | 'stone' | 'tribe' | 'bronze' | 'iron' | 'state';
-
-/** Стадия поселения — единственная видимая игроку шкала прогресса. */
-export type StageId = 'camp' | 'tribal' | 'village' | 'fortified' | 'town';
-
 export type TotemId = 'wolf' | 'bear' | 'eagle';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';

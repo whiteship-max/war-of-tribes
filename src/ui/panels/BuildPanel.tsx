@@ -120,7 +120,6 @@ function BuiltCard({ b, rate }: { b: Building; rate: number }) {
   const levels = canLevelUp(b.type);
   const top = def.maxLevel ?? MAX_BUILDING_LEVEL;
   const topped = b.level >= top;
-  const eraCap = !topped && up.level > up.maxLevel;
   const eta = rate > 0 ? Math.ceil(up.work / rate) : null;
 
   return (
@@ -129,15 +128,12 @@ function BuiltCard({ b, rate }: { b: Building; rate: number }) {
       <div className="body">
         <div className="title">
           {def.name}
-          {/* Потолок здесь — свой предел типа, а не эпохи: он не скачет от партии к партии. */}
           <span className="count">{levels ? `ур. ${b.level} из ${top}` : 'ур. 1'}</span>
         </div>
         <div className="desc">{slots > 0 ? `Рабочих: ${workerCount(s, b.id)}/${slots}` : def.description}</div>
         {levels &&
           (topped ? (
             <div className="desc">Максимальный уровень.</div>
-          ) : eraCap ? (
-            <div className="desc">Выше {up.maxLevel} уровня не поднять в этой эпохе.</div>
           ) : (
             <>
               <div className="desc">

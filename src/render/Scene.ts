@@ -1,15 +1,13 @@
 // 3D-диорама поселения. Получает состояние через sync(), анимирует сам.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Building, BuildingTypeId, Caravan, EraId, GameState, Season, StageId, TroopId } from '@/game/types';
+import type { Building, BuildingTypeId, Caravan, GameState, Season, TroopId } from '@/game/types';
 import {
   buildingAttention,
   caravanProgress,
   dayFraction,
-  era,
   isSite,
   seasonOf,
-  settlementStage,
   solarPhase,
   storageCap,
   workerCount,
@@ -54,8 +52,6 @@ interface BuildingView {
   stage: Stage;
   /** Визуальная ступень: модель меняется на её пороге, а не на каждом уровне. */
   tier: Tier;
-  /** Эпоха, в материалах которой сложена нынешняя модель. */
-  era: EraId;
   type: Building['type'];
   /** Невидимая мишень для тапа — заметно крупнее самой модели. */
   hit: THREE.Mesh;
@@ -513,22 +509,21 @@ export class TribeScene {
     }
     this.syncVillage(s);
 
-    // Здания. Модель пересобирается только на пороге ступени или при смене эпохи:
-    // внутри ступени уровень читается масштабом, а стройка — лесами поверх модели.
-    const eraId = era(s);
+    // Здания. Модель пересобирается только на пороге ступени: внутри ступени
+    // уровень читается масштабом, а улучшение — лесами поверх модели.
     const seen = new Set<number>();
     for (const b of s.buildings) {
       seen.add(b.id);
       const stage = stageOf(b);
       const tier = visualTier(b.level);
       let view = this.buildings.get(b.id);
-      if (view && (view.stage !== stage || view.tier !== tier || view.era !== eraId)) {
+      if (view && (view.stage !== stage || view.tier !== tier)) {
         this.disposeView(view);
         this.buildings.delete(b.id);
         view = undefined;
       }
       if (!view) {
-        const group = createBuildingGroup(b.type, stage, tier, eraId);
+        const group = createBuildingGroup(b.type, stage, tier);
         // Место берётся из плана: у каждого типа оно своё и не меняется никогда.
         const spot = placeOf(b.type);
         group.position.set(spot.x, 0, spot.z);
@@ -540,7 +535,6 @@ export class TribeScene {
           group,
           stage,
           tier,
-          era: eraId,
           type: b.type,
           hit,
           scaffold: null,
@@ -633,26 +627,24 @@ export class TribeScene {
   }
 
   /**
-   * Обстановка посёлка. Пересобирается редко: только когда меняется стадия, эпоха
-   * или набор построек. Дороги при этом никуда не переезжают — они заданы планом.
+   * Обстановка посёлка. Пересобирается редко: только когда меняется набор построек
+   * или их ступени. Дороги при этом никуда не переезжают — они заданы планом.
    */
   private syncVillage(s: GameState): void {
-    const stage: StageId = settlementStage(s);
-    const eraId = era(s);
     const present = s.buildings.map((b) => b.type).sort();
     // Декали под зданиями растут со ступенью, поэтому ступень входит в ключ.
     const built = s.buildings
       .filter((b) => b.level > 0)
       .map((b) => ({ type: b.type, tier: visualTier(b.level) }))
       .sort((a, b) => (a.type < b.type ? -1 : 1));
-    const key = `${stage}|${eraId}|${present.join(',')}|${built.map((b) => `${b.type}:${b.tier}`).join(',')}`;
+    const key = `${present.join(',')}|${built.map((b) => `${b.type}:${b.tier}`).join(',')}`;
     if (key === this.villageKey && this.village) return;
     this.villageKey = key;
     if (this.village) {
       this.scene.remove(this.village);
       disposeGeometries(this.village);
     }
-    this.village = buildVillage({ stage, era: eraId, present, built });
+    this.village = buildVillage({ present, built });
     this.scene.add(this.village);
   }
 

@@ -73,12 +73,11 @@ export function BuildingPanel({ id }: { id: number }) {
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
-            {/* Потолок типа, а не эпохи: предел эпохи показывают пунктирные точки и подсказка. */}
             {b.level > 0 ? `Уровень ${b.level} из ${def.maxLevel ?? MAX_BUILDING_LEVEL}` : 'Стройплощадка'}
             {canLevel && (
               <span className="pips">
                 {Array.from({ length: def.maxLevel ?? MAX_BUILDING_LEVEL }, (_, i) => (
-                  <i key={i} className={i < b.level ? 'on' : i < up.maxLevel ? '' : 'era'} />
+                  <i key={i} className={i < b.level ? 'on' : ''} />
                 ))}
               </span>
             )}

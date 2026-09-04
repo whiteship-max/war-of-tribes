@@ -28,7 +28,6 @@ import {
   productionPerDay,
   seasonModsFor,
   selfCost,
-  settlementStage,
   taxIncomePerDay,
   workerCount,
 } from '../derived';
@@ -180,17 +179,16 @@ describe('золото', () => {
     expect(s.caravans).toHaveLength(0);
   });
 
-  it('после торга налог включается и казна растёт от населения и стадии', () => {
+  it('после торга налог включается и казна растёт от населения', () => {
     const s = city();
     expect(hasGold(s)).toBe(true);
     expect(setTax(s, 'high')).toBeNull();
     expect(taxIncomePerDay(s)).toBeGreaterThan(0);
 
-    // Тот же налог в лагере приносит заметно меньше, чем в городе: население — ценность.
+    // Тот же налог в маленьком посёлке приносит заметно меньше, чем в городе: население — ценность.
     const small = createInitialState();
     small.techs = [...ALL_TECHS];
     small.tax = 'high';
-    expect(settlementStage(s)).toBe('town');
     expect(taxIncomePerDay(small)).toBeLessThan(taxIncomePerDay(s) / 4);
 
     // За игровой день в казну ложится дневной сбор. Точное совпадение требовать

@@ -4,14 +4,12 @@ import type {
   BuildingTypeId,
   Caravan,
   EquipmentId,
-  EraId,
   GameState,
   GoodId,
   JobId,
   ResourceId,
   Resources,
   Season,
-  StageId,
   TechId,
   TroopId,
   Villager,
@@ -40,7 +38,7 @@ import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/bui
 import { JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from './data/troops';
-import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
+import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   CARAVAN_BASE,
   CARAVAN_PER_LEVEL,
@@ -53,8 +51,6 @@ import {
   offerFor,
   type GoodDef,
 } from './data/market';
-import { STAGES, STAGE_BY_ID, stageIndex, type StageDef } from './data/stages';
-import { ERA_TECHS, TECH_BY_ID } from './data/techs';
 import {
   FIRST_WINTER_SOFTEN,
   FREEZING_MORALE_PENALTY,
@@ -133,10 +129,10 @@ export function buildingStat(b: Building, key: keyof BuildingStats): number {
   return base + (def.perLevel?.[key] ?? 0) * (b.level - from);
 }
 
-/** Потолок уровня для типа здания: свой предел, общий предел и предел эпохи. */
-export function maxLevelFor(s: GameState, type: BuildingTypeId): number {
+/** Потолок уровня для типа здания: свой предел и общий предел. */
+export function maxLevelFor(type: BuildingTypeId): number {
   const def = BUILDING_BY_ID[type];
-  return Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL, ERA_MAX_LEVEL[era(s)]);
+  return Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
 }
 
 const scaleCost = (
@@ -169,7 +165,7 @@ export interface UpgradeInfo {
 
 export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
   const def = BUILDING_BY_ID[b.type];
-  const maxLevel = maxLevelFor(s, b.type);
+  const maxLevel = maxLevelFor(b.type);
   const level = b.level + 1;
   const cost = upgradeCost(def, level);
   const work = upgradeWork(def, level);
@@ -177,8 +173,7 @@ export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
   let blocked: string | null = null;
   if (b.level === 0) blocked = 'Здание ещё строится.';
   else if (isSite(b)) blocked = 'Улучшение уже идёт.';
-  else if ((def.maxLevel ?? MAX_BUILDING_LEVEL) <= b.level) blocked = 'Это здание не улучшается.';
-  else if (level > maxLevel) blocked = `Эпоха «${ERA_META[era(s)].name}» не даёт поднять выше ${maxLevel} уровня.`;
+  else if (level > maxLevel) blocked = b.level <= 1 ? 'Это здание не улучшается.' : 'Максимальный уровень.';
   else if (!affordable) blocked = 'Не хватает ресурсов.';
   return { level, cost, work, maxLevel, affordable, blocked };
 }
@@ -257,13 +252,10 @@ export const hasGold = (s: GameState): boolean => hasTech(s, 'trade');
 export const taxOf = (s: GameState): TaxDef =>
   hasGold(s) ? TAX_BY_ID[s.tax] ?? TAX_BY_ID.none : TAX_BY_ID.none;
 
-/**
- * Сбор золота за игровой день. Зависит от населения и стадии поселения: город
- * собирает с человека вшестеро больше лагеря — в этом и новая ценность людей.
- */
+/** Сбор золота за игровой день: с каждого человека посёлка, включая бойцов. */
 export function taxIncomePerDay(s: GameState): number {
   if (!hasGold(s)) return 0;
-  return taxOf(s).perPop * population(s) * STAGE_BY_ID[settlementStage(s)].tax;
+  return taxOf(s).perPop * population(s) * TAX_PER_POP;
 }
 
 /** Уровень рынка. 0 — рынка нет или он ещё строится. */
@@ -328,8 +320,7 @@ export function caravanProgress(s: GameState, c: Caravan): number {
  */
 const REFERENCE_LEVEL = 5;
 
-const bestTaxPerPop = (): number =>
-  Math.max(...TAXES.map((t) => t.perPop)) * Math.max(...STAGES.map((st) => st.tax));
+const bestTaxPerPop = (): number => Math.max(...TAXES.map((t) => t.perPop)) * TAX_PER_POP;
 
 /** Лучшая дневная добыча одного работника по этому ресурсу — эталон «сделать самому». */
 function bestYieldPerWorker(r: ResourceId): number {
@@ -725,137 +716,14 @@ export function winterForecast(s: GameState): WinterForecast {
   };
 }
 
-// ---------- Эпохи: технический уровень ----------
-
-/**
- * Эпоха двигается только технологиями. Ни население, ни число построек на неё не
- * влияют — это дело стадии поселения. В строке состояния эпохи нет: её показывают
- * в Доме вождя вместе со списком того, чего не хватает до следующей.
- */
-export function era(s: GameState): EraId {
-  let out: EraId = 'camp';
-  for (const [id, techs] of ERA_TECHS) if (techs.every((t) => hasTech(s, t))) out = id;
-  return out;
-}
-
-export const ERA_META: Record<EraId, { name: string; short: string; icon: string }> = {
-  camp: { name: 'Начало пути', short: 'Начало', icon: '🌿' },
-  stone: { name: 'Каменный век', short: 'Камень', icon: '⛰️' },
-  tribe: { name: 'Развитый камень', short: 'Ремесло', icon: '🛠️' },
-  bronze: { name: 'Бронзовый век', short: 'Бронза', icon: '⚒️' },
-  iron: { name: 'Железный век', short: 'Железо', icon: '⚙️' },
-  state: { name: 'Раннее государство', short: 'Государство', icon: '👑' },
-};
-
-/**
- * Потолок уровня зданий по эпохам. Развитие построек привязано к техническому
- * уровню: в начале пути одну лесопилку до максимума не закачать.
- */
-export const ERA_MAX_LEVEL: Record<EraId, number> = {
-  camp: 2,
-  stone: 4,
-  tribe: 6,
-  bronze: 8,
-  iron: 9,
-  state: 10,
-};
-
-export interface EraProgress {
-  era: EraId;
-  next: EraId | null;
-  /** Технологии следующей эпохи: что уже есть и чего не хватает. */
-  need: { id: TechId; name: string; icon: string; done: boolean }[];
-}
-
-/** Текущая эпоха и что нужно для следующей — это и показывает Дом вождя. */
-export function eraProgress(s: GameState): EraProgress {
-  const cur = era(s);
-  const i = ERA_TECHS.findIndex(([id]) => id === cur);
-  const nextEntry = ERA_TECHS[i + 1] ?? null;
-  if (!nextEntry) return { era: cur, next: null, need: [] };
-  const [next, techs] = nextEntry;
-  return {
-    era: cur,
-    next,
-    need: techs.map((id) => ({
-      id,
-      name: TECH_BY_ID[id].name,
-      icon: TECH_BY_ID[id].icon,
-      done: hasTech(s, id),
-    })),
-  };
-}
-
-// ---------- Стадия поселения: единственная видимая шкала ----------
+// ---------- Население ----------
 
 /**
  * Всё население поселения: жители, бойцы и те, кто сейчас на учениях.
- * Наём людей не уменьшает посёлок — иначе армия отбрасывала бы стадию назад.
+ * С него собирается налог: наём людей казну не уменьшает.
  */
 export const population = (s: GameState): number =>
   s.villagers.length + armySize(s) + recruitsQueued(s);
-
-/** Достроенных зданий в посёлке. */
-export const builtCount = (s: GameState): number => s.buildings.filter(isBuilt).length;
-
-/** Сумма уровней всех построек — мера того, насколько посёлок вырос вглубь. */
-export const totalLevels = (s: GameState): number =>
-  s.buildings.reduce((n, b) => n + Math.max(0, b.level), 0);
-
-/** Уровень стены. 0 — укреплений нет. */
-export const wallLevel = (s: GameState): number => builtOfType(s, 'palisade')?.level ?? 0;
-
-/**
- * Стадия поселения: население, число и уровень построек, наличие укреплений.
- * Берётся последняя стадия, все требования которой выполнены.
- */
-export function settlementStage(s: GameState): StageId {
-  const pop = population(s);
-  const built = builtCount(s);
-  const levels = totalLevels(s);
-  const wall = wallLevel(s);
-  let out: StageId = 'camp';
-  for (const st of STAGES) {
-    if (pop >= st.pop && built >= st.buildings && levels >= st.levels && wall >= st.wall) out = st.id;
-  }
-  return out;
-}
-
-export interface StageRequirement {
-  icon: string;
-  label: string;
-  have: number;
-  need: number;
-  ok: boolean;
-}
-
-export interface StageProgress {
-  stage: StageDef;
-  next: StageDef | null;
-  /** Чего не хватает до следующей стадии. Пусто на последней. */
-  need: StageRequirement[];
-}
-
-/** Текущая стадия и путь к следующей — для строки состояния и Дома вождя. */
-export function stageProgress(s: GameState): StageProgress {
-  const cur = STAGE_BY_ID[settlementStage(s)];
-  const next = STAGES[stageIndex(cur.id) + 1] ?? null;
-  if (!next) return { stage: cur, next: null, need: [] };
-  const req = (icon: string, label: string, have: number, need: number): StageRequirement => ({
-    icon,
-    label,
-    have,
-    need,
-    ok: have >= need,
-  });
-  const need = [
-    req('👥', 'Население', population(s), next.pop),
-    req('🏘️', 'Построек', builtCount(s), next.buildings),
-    req('⬆️', 'Сумма уровней', totalLevels(s), next.levels),
-  ];
-  if (next.wall > 0) need.push(req('🧱', 'Уровень стены', wallLevel(s), next.wall));
-  return { stage: cur, next, need };
-}
 
 /** К какой морали стремится племя при текущих условиях. */
 export function moraleTarget(s: GameState): number {

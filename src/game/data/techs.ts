@@ -1,4 +1,4 @@
-import type { EraId, ResourceId, TechBranch, TechId } from '../types';
+import type { ResourceId, TechBranch, TechId } from '../types';
 
 export interface TechDef {
   id: TechId;
@@ -52,20 +52,3 @@ export const TECHS: TechDef[] = [
 ];
 
 export const TECH_BY_ID: Record<TechId, TechDef> = Object.fromEntries(TECHS.map((t) => [t.id, t])) as Record<TechId, TechDef>;
-
-/**
- * Что нужно изучить, чтобы наступила эпоха. Эпоха — технический уровень: она
- * зависит только от знаний, а не от того, сколько народу и построек в посёлке
- * (это теперь дело стадии поселения — см. data/stages.ts).
- *
- * Порядок в массиве — от младшей эпохи к старшей: `era()` берёт последнюю,
- * все требования которой выполнены.
- */
-export const ERA_TECHS: [EraId, TechId[]][] = [
-  ['camp', []],
-  ['stone', ['stone_tools']],
-  ['tribe', ['woodworking', 'bone_tools']],
-  ['bronze', ['metallurgy']],
-  ['iron', ['iron_working']],
-  ['state', ['statehood']],
-];

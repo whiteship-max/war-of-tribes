@@ -161,15 +161,10 @@ body {
   color: var(--bad);
 }
 
-.hud-bar .cell.era {
+.hud-bar .cell.army {
   flex: 1 1 auto;
   justify-content: flex-end;
   overflow: hidden;
-}
-
-.hud-bar .cell.era i {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .hud-bar .sep {
@@ -1032,12 +1027,6 @@ body {
 .pips i.on {
   background: var(--accent);
   border-color: var(--accent);
-}
-
-/* Уровни выше предела эпохи: видно, что потолок сдвинет только прогресс. */
-.pips i.era {
-  border-style: dashed;
-  opacity: 0.4;
 }
 
 .upgrade {

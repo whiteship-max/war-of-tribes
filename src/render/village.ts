@@ -1,19 +1,12 @@
 // Обстановка посёлка: площадь с колодцем, дороги и декор на пустых местах.
 //
 // Всё это строится из плана (plan.ts), а не из того, где оказались здания: дороги
-// не переезжают, когда посёлок растёт. Меняется только покрытие — тропинка,
-// утоптанная земля, мощёный камень — и то, сколько на пустых местах добра.
+// не переезжают. Покрытие одно — мощёный камень позднесредневекового города.
 //
-// Размеченных площадок под непостроенные здания здесь больше нет. Кольцо
-// вытоптанной земли с колышками обещало дом там, где игрок ничего не начинал, и
-// посёлок с первого дня выглядел расчерченным под застройку. Фундамент появляется
-// только после того, как нажали «строить»: тогда его рисует само здание нулевого
-// уровня (stage 0 в render/buildings.ts). Где встанет непостроенное — говорит
-// панель «Здания» (placeHint в plan.ts), а не сцена.
+// Размеченных площадок под здания здесь нет: пустые места плана заняты
+// хозяйством — поленницами, бочками, телегами, сушилами.
 import * as THREE from 'three';
-import type { BuildingTypeId, EraId, StageId } from '@/game/types';
-import { STAGE_ORDER } from '@/game/data/stages';
-import { MAT as T } from './terrain';
+import type { BuildingTypeId } from '@/game/types';
 import { M, footprintOf, levelScale, TIER_START, type Tier } from './buildings';
 import { DECAL, LEGACY, SHADE } from './materials';
 import { GROUND_AO, collapse } from './kit';
@@ -38,25 +31,14 @@ import {
 /** Материалы обстановки — из общего набора; цвета в palette.ts. */
 export const VILLAGE_MAT = LEGACY;
 
-/**
- * Покрытие дороги растёт вместе с поселением: тропинка в лагере, утоптанная
- * земля в деревне, мощёный камень в городе. Одно правило на все дороги сразу.
- */
-function roadMaterial(stage: StageId): THREE.Material {
-  const i = STAGE_ORDER.indexOf(stage);
-  if (i >= 4) return VILLAGE_MAT.paved;
-  if (i >= 2) return VILLAGE_MAT.packed;
-  return T.dirt;
-}
+/** Покрытие дорог: мощёный камень, одно на все дороги сразу. */
+const ROAD_MAT = (): THREE.Material => VILLAGE_MAT.paved;
 
 /**
- * Ширина дороги растёт со стадией: тропинка → улица → мостовая. Но не вдвое:
- * широкая бурая улица на портретном кадре весила больше домов вокруг неё.
+ * Полуширина мостовой. Шире тропинки, но не вдвое: широкая бурая улица на
+ * портретном кадре весила больше домов вокруг неё.
  */
-function roadWidth(stage: StageId): number {
-  const i = STAGE_ORDER.indexOf(stage);
-  return ROAD_HALF * (i <= 1 ? 1.0 : i === 2 ? 1.3 : 1.55);
-}
+const ROAD_WIDTH = ROAD_HALF * 1.55;
 
 const flat = (geo: THREE.BufferGeometry, mat: THREE.Material, y: number): THREE.Mesh => {
   const m = new THREE.Mesh(geo, mat);
@@ -178,13 +160,12 @@ function meshAt(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: nu
 }
 
 /** Колодец на площади — вторая после костра примета обжитого центра. */
-function well(era: EraId): THREE.Group {
+function well(): THREE.Group {
   const g = new THREE.Group();
-  const stone = era === 'iron' || era === 'state' || era === 'bronze';
-  g.add(meshAt(new THREE.CylinderGeometry(0.52, 0.56, 0.5, 10), stone ? M.stone : M.woodDark, 0, 0.25, 0));
+  g.add(meshAt(new THREE.CylinderGeometry(0.52, 0.56, 0.5, 10), M.stone, 0, 0.25, 0));
   g.add(meshAt(new THREE.CylinderGeometry(0.44, 0.44, 0.08, 10), M.dark, 0, 0.5, 0));
   for (const x of [-0.5, 0.5]) g.add(meshAt(new THREE.CylinderGeometry(0.06, 0.06, 1.1, 5), M.woodDark, x, 0.85, 0));
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(0.78, 0.45, 4), stone ? M.shingle : M.thatch);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(0.78, 0.45, 4), M.shingle);
   roof.position.y = 1.6;
   roof.castShadow = true;
   g.add(roof);
@@ -196,10 +177,8 @@ function well(era: EraId): THREE.Group {
   return g;
 }
 
-/** Что поставить на пустом месте. Чем крупнее посёлок, тем гуще обстановка. */
-function decorFor(index: number, stage: StageId): THREE.Group | null {
-  const step = STAGE_ORDER.indexOf(stage);
-  if (step === 0 && index % 2 === 0) return null; // в лагере места ещё просто размечены
+/** Что поставить на пустом месте. */
+function decorFor(index: number): THREE.Group {
   const kinds = [woodpile, barrels, cart, dryingRack, paddock];
   const pick = kinds[Math.floor(hash(index * 7.3) * kinds.length)];
   return pick(index);
@@ -307,8 +286,6 @@ export function decalSpotFor(type: BuildingTypeId, tier: Tier): DecalSpot {
 }
 
 export interface VillageOptions {
-  stage: StageId;
-  era: EraId;
   /** Типы зданий, которые уже стоят (или строятся) — к ним ведут дороги. */
   present: BuildingTypeId[];
   /** Достроенные здания со ступенью — под ними лежат декали. */
@@ -317,10 +294,10 @@ export interface VillageOptions {
 
 /**
  * Собирает всю обстановку разом. Пересобирается редко — только когда меняется
- * стадия, эпоха или набор построек, — поэтому дешевле держать её одной группой,
+ * набор построек или их ступени, — поэтому дешевле держать её одной группой,
  * чем следить за каждой дорожкой по отдельности.
  */
-export function buildVillage({ stage, era, present, built = [] }: VillageOptions): THREE.Group {
+export function buildVillage({ present, built = [] }: VillageOptions): THREE.Group {
   const root = new THREE.Group();
   // Декали под зданиями — плоские, в корне: под стену им заходить можно.
   root.add(
@@ -340,14 +317,14 @@ export function buildVillage({ stage, era, present, built = [] }: VillageOptions
   const roads = new THREE.Group();
   roads.name = 'roads';
   root.add(roads);
-  const mat = roadMaterial(stage);
-  const half = roadWidth(stage);
+  const mat = ROAD_MAT();
+  const half = ROAD_WIDTH;
   const has = new Set(present);
 
-  // Площадь: утоптанный круг под костром, к поздним стадиям — мощёный.
+  // Площадь: мощёный круг под костром.
   roads.add(flat(new THREE.CircleGeometry(PLAZA_RADIUS + 0.5, 32), mat, 0.03));
   const wellSpot = spotAt(1.55, GATE_ANGLE + Math.PI * 0.62);
-  const w = well(era);
+  const w = well();
   w.position.set(wellSpot.x, 0, wellSpot.z);
   decor.add(w);
 
@@ -378,8 +355,7 @@ export function buildVillage({ stage, era, present, built = [] }: VillageOptions
   for (const e of empty) {
     seed++;
     const spot = spotAt(e.r, e.angle);
-    const d = decorFor(seed, stage);
-    if (!d) continue;
+    const d = decorFor(seed);
     if (e.onRoad) {
       // Место рынка стоит на воротной улице: добро сдвигаем на обочину, иначе
       // телега поедет сквозь бочки, а загон встанет поперёк проезда.

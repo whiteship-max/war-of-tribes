@@ -1,6 +1,5 @@
 import type { GameState, ResourceId } from '../types';
-import { armySize, builtOfType, countBuilt, hasTech, jobCounts, settlementStage } from '../derived';
-import { STAGE_BY_ID } from './stages';
+import { armySize, builtOfType, countBuilt, hasTech, jobCounts } from '../derived';
 
 export interface QuestDef {
   id: string;
@@ -157,13 +156,6 @@ export const QUESTS: QuestDef[] = [
     check: (s) => s.villagers.length >= 25,
     progress: pop(25),
     reward: { food: 80, wood: 40, stone: 40 },
-  },
-  {
-    id: 'stage_town',
-    title: 'Город',
-    description: `Доведи поселение до стадии «${STAGE_BY_ID.town.name}»: люди, постройки и каменная стена.`,
-    check: (s) => settlementStage(s) === 'town',
-    reward: { food: 120, wood: 60, stone: 60 },
   },
 ];
 

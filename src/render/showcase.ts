@@ -1,14 +1,15 @@
 // Стенд-витрина. Открывается по ?showcase=… и заменяет собой игру:
 //
-//   ?showcase=building&type=hut&eras=stone,iron&tiers=0,1,2
-//     одно здание сеткой: столбцы — визуальные ступени, ряды — эпохи (первый ряд
-//     ближе к камере). Свет, земля и масштаб — те же, что в игре.
-//   ?showcase=village&stage=town&era=state
-//     целый посёлок заданной стадии и эпохи из синтетического состояния, через
-//     настоящую TribeScene: дороги, стена, жители и бойцы — как в партии.
-//     workers=none оставляет всех жителей свободными: у костра толпа, признаков
-//     работы у зданий нет. По умолчанию посёлок укомплектован — по местам, а не
-//     по населению стадии: иначе кузнецов на кузницу уже не хватает.
+//   ?showcase=building&type=hut&tiers=0,1,2
+//     одно здание в ряд: столбцы — визуальные ступени. Свет, земля и масштаб —
+//     те же, что в игре.
+//   ?showcase=village&levels=10
+//     целый посёлок из синтетического состояния, через настоящую TribeScene:
+//     дороги, стена, жители и бойцы — как в партии. levels — уровень всех
+//     построек разом (1 — как на старте партии, 10 — потолок); buildings=hut:10,smithy:3
+//     правит отдельные. workers=none оставляет всех жителей свободными: у костра
+//     толпа, признаков работы у зданий нет. По умолчанию посёлок укомплектован —
+//     по местам, а не по населению: иначе кузнецов на кузницу не хватает.
 //
 // Общие параметры: silhouette=1 (постройки чёрным на белом), season=winter,
 // solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат), clean=1 (без подписи).
@@ -22,14 +23,11 @@
 // инструмент проверки, которому сама канва недоступна.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { BuildingTypeId, EraId, GameState, Season, StageId, TroopId } from '@/game/types';
+import type { BuildingTypeId, GameState, Season, TroopId } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { BUILDINGS } from '@/game/data/buildings';
-import { ERA_TECHS } from '@/game/data/techs';
-import { STAGE_BY_ID } from '@/game/data/stages';
 import { SEASON_DAYLIGHT, SEASON_DAYS } from '@/game/data/seasons';
-import { DAY_LENGTH } from '@/game/constants';
-import { ERA_META } from '@/game/derived';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '@/game/constants';
 import { addVillager } from '@/game/sim/population';
 import { createBuildingGroup, footprintOf, levelScale, type Tier } from './buildings';
 import { PLAN_SCALE } from './plan';
@@ -156,7 +154,6 @@ class Snapper {
 
 function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const type = (p.get('type') ?? 'hut') as BuildingTypeId;
-  const eras = (p.get('eras') ?? 'stone,iron').split(',') as EraId[];
   const tiers = (p.get('tiers') ?? '0,1,2').split(',').map(Number) as Tier[];
   const spacing = Number(p.get('spacing') ?? 4.4);
   /** Запас кадра вокруг сетки; меньше — крупнее здания. */
@@ -176,27 +173,20 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const seasonVis = new SeasonVisuals();
   seasonVis.update(c.season, 10);
 
-  // Сетка раскладывается в системе камеры: столбцы — вправо, ряды — вглубь.
+  // Ряд раскладывается в системе камеры: столбцы — вправо.
   const right = new THREE.Vector3(Math.cos(AZIMUTH), 0, -Math.sin(AZIMUTH));
-  const back = new THREE.Vector3(-Math.sin(AZIMUTH), 0, -Math.cos(AZIMUTH));
   const cols = tiers.length;
-  const rows = eras.length;
   const spots: DecalSpot[] = [];
-  eras.forEach((era, ri) => {
-    tiers.forEach((tier, ci) => {
-      const g = createBuildingGroup(type, 2, tier, era);
-      const scale = levelScale(TIER_TOP[tier]) * PLAN_SCALE;
-      g.scale.setScalar(scale);
-      g.position
-        .copy(right)
-        .multiplyScalar((ci - (cols - 1) / 2) * spacing)
-        .addScaledVector(back, (ri - (rows - 1) / 2) * spacing);
-      // Фасадом (+z модели) в камеру — как здание первого кольца смотрит на площадь.
-      g.rotation.y = AZIMUTH;
-      scene.add(g);
-      const [w, d] = footprintOf(type, tier);
-      spots.push({ x: g.position.x, z: g.position.z, radius: (Math.max(w, d) / 2) * scale });
-    });
+  tiers.forEach((tier, ci) => {
+    const g = createBuildingGroup(type, 2, tier);
+    const scale = levelScale(TIER_TOP[tier]) * PLAN_SCALE;
+    g.scale.setScalar(scale);
+    g.position.copy(right).multiplyScalar((ci - (cols - 1) / 2) * spacing);
+    // Фасадом (+z модели) в камеру — как здание первого кольца смотрит на площадь.
+    g.rotation.y = AZIMUTH;
+    scene.add(g);
+    const [w, d] = footprintOf(type, tier);
+    spots.push({ x: g.position.x, z: g.position.z, radius: (Math.max(w, d) / 2) * scale });
   });
   // Под каждым зданием — те же декали, что кладёт посёлок: вытоптанная земля и пятно тени.
   const decals = groundDecals(spots);
@@ -249,7 +239,7 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
 
   const caption = makeCaption(root, c.clean);
   const head =
-    `${type} · ряды: ${eras.join(', ')}\nстолбцы: ступени ${tiers.map((t) => ['1–3', '4–7', '8–10'][t]).join(' / ')}` +
+    `${type}\nстолбцы: ступени ${tiers.map((t) => ['1–3', '4–7', '8–10'][t]).join(' / ')}` +
     ` · ${c.season} · solar ${c.solar}${c.silhouette ? ' · силуэт' : ''}`;
   let text = head;
   const render = (): void => {
@@ -273,30 +263,15 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
 // ---------- Целый посёлок ----------
 
 /**
- * Что стоит в посёлке каждой стадии. Уровни подобраны так, чтобы состояние
- * действительно проходило порог стадии (settlementStage), а не только называлось ею.
+ * Дружина на стенде: крупному посёлку — полная дружина, стартовому — пара
+ * копейщиков. Уровень 8 — порог третьей визуальной ступени.
  */
-const PRESETS: Record<StageId, Partial<Record<BuildingTypeId, number>>> = {
-  camp: {},
-  tribal: { hut: 2, sawmill: 2, gathering: 1, chief_house: 1, hunter_hut: 1 },
-  village: { hut: 3, sawmill: 3, gathering: 2, chief_house: 2, hunter_hut: 2, farm: 3, workshop: 2, knowledge: 2, quarry: 2 },
-  fortified: {
-    hut: 5, sawmill: 4, gathering: 3, chief_house: 4, hunter_hut: 3, farm: 4, workshop: 3, knowledge: 3,
-    quarry: 3, pen: 3, smithy: 3, mine: 2, palisade: 1, totem: 2, storage: 3,
-  },
-  town: {
-    hut: 10, sawmill: 9, gathering: 8, chief_house: 10, hunter_hut: 8, farm: 9, workshop: 9, knowledge: 9,
-    quarry: 8, pen: 8, smithy: 9, mine: 9, palisade: 8, totem: 8, barracks: 8, tower: 8, market: 8, storage: 8,
-  },
-};
-
-const ARMY: Record<StageId, Partial<Record<TroopId, number>>> = {
-  camp: {},
-  tribal: {},
-  village: { clubman: 2 },
-  fortified: { spearman: 4, archer: 2 },
-  town: { spearman: 4, archer: 3, swordsman: 3, shieldman: 2, legionary: 2 },
-};
+const ARMY_FOR = (levels: number): Partial<Record<TroopId, number>> =>
+  levels >= 8
+    ? { spearman: 4, archer: 3, swordsman: 3, shieldman: 2, legionary: 2 }
+    : levels >= 4
+      ? { spearman: 4, archer: 2 }
+      : { spearman: 2 };
 
 /** Доля суток по фазе солнца — обратная к derived.solarPhase. */
 function dayFractionFor(solar: number, season: Season): number {
@@ -305,8 +280,7 @@ function dayFractionFor(solar: number, season: Season): number {
 }
 
 export function synthState(
-  stage: StageId,
-  eraId: EraId,
+  level: number,
   season: Season,
   solar: number,
   extra?: string | null,
@@ -317,13 +291,10 @@ export function synthState(
   const seasonIdx = SEASON_ORDER.indexOf(season) + SEASON_ORDER.length;
   s.time = (seasonIdx * SEASON_DAYS + 1) * DAY_LENGTH + dayFractionFor(solar, season) * DAY_LENGTH;
 
-  for (const [id, techs] of ERA_TECHS) {
-    s.techs.push(...techs);
-    if (id === eraId) break;
-  }
-
-  const levels: Partial<Record<BuildingTypeId, number>> = { ...PRESETS[stage] };
-  // Ручная добавка: buildings=hut:10,smithy:3 поверх пресета стадии.
+  // Все постройки одного уровня — так стенд показывает посёлок на любой точке партии.
+  const levels: Partial<Record<BuildingTypeId, number>> = {};
+  for (const def of BUILDINGS) levels[def.id] = Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, level);
+  // Ручная добавка: buildings=hut:10,smithy:3 поверх общего уровня.
   for (const part of (extra ?? '').split(',').filter(Boolean)) {
     const [type, lvl] = part.split(':');
     levels[type as BuildingTypeId] = Number(lvl ?? 1);
@@ -334,14 +305,14 @@ export function synthState(
     else s.buildings.push({ id: s.nextId++, type, slot: -1, level, work: 0, workRequired: 0 });
   }
 
-  // Мест работы в городе больше, чем людей по стадии: чтобы «укомплектованный»
+  // Мест работы в городе больше, чем людей: чтобы «укомплектованный»
   // посёлок был укомплектован по-настоящему — с дымом у кузницы и грузом у
   // каждого двора, — народу берём столько, сколько мест.
   const slots = s.buildings.reduce(
     (n, b) => n + (BUILDINGS.find((d) => d.id === b.type)?.job ? b.level : 0),
     0,
   );
-  const pop = Math.max(5, STAGE_BY_ID[stage].pop, staffed ? slots : 0);
+  const pop = Math.max(5, staffed ? slots : 0);
   while (s.villagers.length < pop) addVillager(s, { job: 'idle' });
   // Рассадить по рабочим местам: столько, сколько уровней у здания. При
   // workers=none никого не назначаем: так проверяется вторая половина правила —
@@ -356,7 +327,7 @@ export function synthState(
     }
   }
 
-  for (const [troop, n] of Object.entries(ARMY[stage]) as [TroopId, number][]) s.army[troop] = n;
+  for (const [troop, n] of Object.entries(ARMY_FOR(level)) as [TroopId, number][]) s.army[troop] = n;
   s.tutorialDone = true;
   return s;
 }
@@ -418,9 +389,8 @@ function runPerf(scene: TribeScene, seconds: number, name: string, done: (line: 
 }
 
 function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
-  const stage = (p.get('stage') as StageId) ?? 'camp';
-  const eraId = (p.get('era') as EraId) ?? 'camp';
-  const s = synthState(stage, eraId, c.season, c.solar, p.get('buildings'), p.get('workers') !== 'none');
+  const level = Math.max(1, Math.min(MAX_BUILDING_LEVEL, Number(p.get('levels') ?? 1)));
+  const s = synthState(level, c.season, c.solar, p.get('buildings'), p.get('workers') !== 'none');
 
   const canvas = makeCanvas(root);
   const scene = new TribeScene(canvas, c.dpr);
@@ -430,7 +400,7 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
 
   const caption = makeCaption(root, c.clean);
   const head =
-    `${STAGE_BY_ID[stage].name} · ${ERA_META[eraId].name}\n${c.season} · solar ${c.solar}` +
+    `посёлок · уровень ${level}\n${c.season} · solar ${c.solar}` +
     `${c.silhouette ? ' · силуэт' : ''}`;
   let text = head;
   let perfLine = '';
@@ -442,7 +412,7 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const perf = Number(p.get('perf') ?? 0);
   if (perf > 0) {
     perfLine = 'замер…';
-    runPerf(scene, perf, `${stage}_${eraId}`, (line, copy) => {
+    runPerf(scene, perf, `village_l${level}`, (line, copy) => {
       perfLine = copy ? `${line}\nтап по подписи — скопировать отчёт` : line;
       if (copy) enableCopy(caption);
       tick();

@@ -59,8 +59,8 @@ function vertices(root: THREE.Object3D): { x: number; z: number }[] {
   return out;
 }
 
-/** Стена на максимальной стадии: каменное кольцо с башнями и воротами. */
-const wall = (): THREE.Group => createBuildingGroup('palisade', 2, 2, 'state');
+/** Стена третьей ступени: каменное кольцо с башнями и воротами. */
+const wall = (): THREE.Group => createBuildingGroup('palisade', 2, 2);
 
 describe('зона расчистки', () => {
   it('запас между стеной и лесом заметен, а не символичен', () => {
@@ -77,7 +77,7 @@ describe('зона расчистки', () => {
     ).toBeGreaterThanOrEqual(CLEAR_RADIUS);
   });
 
-  it('кольцо стены на максимальной стадии не пересекается с окружением', () => {
+  it('кольцо стены третьей ступени не пересекается с окружением', () => {
     const w = extent(wall());
     // Стена стоит там, где ей положено: кольцо вокруг WALL_RADIUS.
     expect(w.min).toBeGreaterThan(WALL_RADIUS - 1.5);
@@ -87,7 +87,7 @@ describe('зона расчистки', () => {
 
   it('обстановка посёлка не наезжает на стену изнутри', () => {
     const present = BUILDINGS.map((b) => b.id);
-    const village = buildVillage({ stage: 'town', era: 'state', present });
+    const village = buildVillage({ present });
     const decor = village.getObjectByName('decor');
     expect(decor, 'декор посёлка должен лежать своей группой').toBeTruthy();
     expect(extent(decor as THREE.Object3D).max).toBeLessThan(extent(wall()).min);

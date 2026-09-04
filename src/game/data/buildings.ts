@@ -69,7 +69,7 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'chief_house',
     name: 'Дом вождя',
     icon: '👑',
-    description: 'Отсюда правят: указ, рацион и счёт эпохам. С шестого уровня это уже двор, и в нём живут.',
+    description: 'Отсюда правят: указ, рацион, налог и казна. С шестого уровня это уже двор, и в нём живут.',
     cost: { wood: 30, stone: 15 },
     work: 60,
     requiresTech: 'chiefdom',

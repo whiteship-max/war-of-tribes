@@ -34,7 +34,7 @@ const PLACED: BuildingTypeId[] = BUILDINGS.map((b) => b.id).filter((id) => id !=
 
 /** Настоящий радиус модели в плоскости XZ — по вершинам, а не по грубому боксу. */
 function modelRadius(type: BuildingTypeId): number {
-  const g = createBuildingGroup(type, 2, 2, 'state');
+  const g = createBuildingGroup(type, 2, 2);
   g.updateMatrixWorld(true);
   let max = 0;
   const v = new THREE.Vector3();
@@ -131,7 +131,7 @@ describe('план поселения', () => {
     for (const type of ROAD_THROUGH) {
       expect(PLAN[type], `${type} стоит на улице, но не в плане`).toBeTruthy();
       for (const tier of [0, 1, 2] as const) {
-        const g = createBuildingGroup(type, 2, tier, 'state');
+        const g = createBuildingGroup(type, 2, tier);
         g.updateMatrixWorld(true);
         let min = Infinity;
         const v = new THREE.Vector3();

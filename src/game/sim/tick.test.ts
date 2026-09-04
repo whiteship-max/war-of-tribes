@@ -13,8 +13,6 @@ import {
   canAfford,
   countAll,
   countBuilt,
-  era,
-  ERA_MAX_LEVEL,
   foodConsumptionPerDay,
   hasTech,
   heatingWoodPerDay,
@@ -25,16 +23,11 @@ import {
   levelOutputMult,
   maxLevelFor,
   armySize,
-  builtCount,
-  settlementStage,
-  totalLevels,
-  wallLevel,
   productionPerDay,
   researchRate,
   seasonDayOf,
   seasonOf,
   storageCap,
-  upgradeInfo,
   winterForecast,
   workerCount,
   workersIn,
@@ -44,7 +37,6 @@ import { BASE_STORAGE_CAP, DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '
 import { BUILDINGS, BUILDING_BY_ID } from '../data/buildings';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS, YEAR_DAYS } from '../data/seasons';
 import { QUESTS } from '../data/quests';
-import { STAGE_BY_ID } from '../data/stages';
 import {
   TUTORIAL,
   advanceTutorial,
@@ -256,21 +248,6 @@ describe('здания', () => {
     expect(jobCounts(s).idle).toBe(5);
   });
 
-  it('улучшение выше предела эпохи запрещено', () => {
-    const s = createInitialState();
-    s.resources.wood = 500;
-    s.resources.stone = 500;
-    const mill = place(s, 'sawmill', 2);
-    expect(era(s)).toBe('camp');
-    expect(upgradeInfo(s, mill).maxLevel).toBe(2);
-    expect(startUpgrade(s, mill.id)).toMatch(/Эпоха/);
-
-    // Каменный век поднимает потолок до третьего уровня.
-    s.techs.push('stone_tools');
-    expect(era(s)).toBe('stone');
-    expect(startUpgrade(s, mill.id)).toBeNull();
-  });
-
   it('улучшение идёт как стройка и добавляет место', () => {
     const s = createInitialState();
     idleAll(s);
@@ -376,10 +353,10 @@ describe('здания', () => {
     const s = createInitialState();
     s.techs.push('housing');
     for (const def of BUILDINGS) place(s, def.id, def.maxLevel ?? MAX_BUILDING_LEVEL);
-    // Раннее государство: 40+ человек под крышей одной хижины и одного укрытия.
+    // На потолке: 40+ человек под крышей одной хижины и одного укрытия.
     const housing = housingCapacity(s);
     expect(housing).toBeGreaterThanOrEqual(40);
-    expect(ERA_MAX_LEVEL.state).toBe(MAX_BUILDING_LEVEL);
+    expect(maxLevelFor('hut')).toBe(MAX_BUILDING_LEVEL);
 
     // Пять зданий добычи можно укомплектовать целиком — это и есть рабочее ядро посёлка.
     const core: BuildingTypeId[] = ['gathering', 'sawmill', 'quarry', 'hunter_hut', 'farm'];
@@ -504,7 +481,6 @@ const TECH_ORDER: TechId[] = [
   'bronze_weapons',
   'iron_working',
   'traditions',
-  // Эпоха теперь двигается только знаниями: без «Установлений» государства не будет.
   'statehood',
   'palisade',
 ];
@@ -687,33 +663,6 @@ describe('сезоны', () => {
     expect(countBuilt(s, 'sawmill')).toBe(1);
     expect(countAll(s, 'sawmill')).toBe(1);
     expect(s.stats.born).toBeGreaterThan(s.stats.died);
-  });
-
-  it('разумная партия доходит до последней эпохи и упирается в потолок жилья', () => {
-    const s = createInitialState();
-    finishTutorial(s);
-    // Автопилот доходит до государства к третьему году; шесть лет — с запасом.
-    play(s, YEAR_DAYS * 6);
-    expect(era(s)).toBe('state');
-    expect(s.villagers.length).toBeGreaterThanOrEqual(40);
-    expect(housingCapacity(s)).toBeGreaterThanOrEqual(40);
-    // Каждого типа по одному: развитие всю партию шло уровнями.
-    for (const b of s.buildings) expect(countAll(s, b.type)).toBe(1);
-    expect(builtOfType(s, 'hut')!.level).toBeGreaterThanOrEqual(8);
-    expect(maxLevelFor(s, 'hut')).toBe(MAX_BUILDING_LEVEL);
-  });
-
-  it('разумная партия доходит до стадии «Город»', () => {
-    const s = createInitialState();
-    finishTutorial(s);
-    play(s, YEAR_DAYS * 8);
-    expect(settlementStage(s)).toBe('town');
-    const need = STAGE_BY_ID.town;
-    expect(s.villagers.length + armySize(s)).toBeGreaterThanOrEqual(need.pop);
-    expect(builtCount(s)).toBeGreaterThanOrEqual(need.buildings);
-    expect(totalLevels(s)).toBeGreaterThanOrEqual(need.levels);
-    // Город без стены не бывает: укрепления — отдельное требование стадии.
-    expect(wallLevel(s)).toBeGreaterThanOrEqual(need.wall);
   });
 
   it('предупреждение о зиме поднимается за день до неё и считает запасы', () => {

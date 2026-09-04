@@ -21,7 +21,6 @@ import {
   housingCapacity,
   policyMoralePerDay,
   productionPerDay,
-  settlementStage,
 } from '../derived';
 
 beforeEach(() => setRandom(seeded(7)));
@@ -297,47 +296,5 @@ describe('указ и рацион', () => {
     catchUp(s, SEASON_DAYS * DAY_LENGTH * 4, 1);
     expect(s.villagers.length).toBeGreaterThan(8);
     expect(s.villagers.length).toBeLessThanOrEqual(housingCapacity(s));
-  });
-});
-
-describe('стадия поселения', () => {
-  it('лагерь становится поселением от людей и построек, а не от знаний', () => {
-    const s = createInitialState();
-    expect(settlementStage(s)).toBe('camp');
-    while (s.villagers.length < 10) addVillager(s, { age: 24, talent: null });
-    for (const type of ['hut', 'sawmill', 'gathering'] as BuildingTypeId[]) place(s, type, 2);
-    expect(settlementStage(s)).toBe('tribal');
-  });
-
-  it('без стены поселение не станет укреплённым, сколько ни строй', () => {
-    const s = createInitialState();
-    while (s.villagers.length < 40) addVillager(s, { age: 24, talent: null });
-    for (const type of [
-      'hut',
-      'storage',
-      'knowledge',
-      'gathering',
-      'sawmill',
-      'quarry',
-      'hunter_hut',
-      'workshop',
-      'farm',
-      'smithy',
-      'chief_house',
-    ] as BuildingTypeId[])
-      place(s, type, 6);
-    expect(settlementStage(s)).toBe('village');
-    place(s, 'palisade', 1);
-    expect(settlementStage(s)).toBe('fortified');
-  });
-
-  it('наём не отбрасывает стадию назад: бойцы — это тоже поселение', () => {
-    const s = warband(20);
-    place(s, 'hut', 6);
-    const before = settlementStage(s);
-    s.equipment.spear = 4;
-    startRecruit(s, 'spearman', 4);
-    catchUp(s, 200, 1);
-    expect(settlementStage(s)).toBe(before);
   });
 });
