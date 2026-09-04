@@ -243,6 +243,28 @@ export function makeTree(scale = 1, variant = 0): THREE.Group {
   return g;
 }
 
+/**
+ * Радиус, за которым дерево рисуется дешёвой моделью. Ствол там — два пикселя на
+ * телефоне, а стоит он больше самой кроны: цилиндр на пять сегментов — это два
+ * донца по пять треугольников сверх десяти боковых.
+ */
+export const FOREST_FAR = 26;
+
+/**
+ * Дальнее дерево: один конус без ствола и без донца. Донце лежит на земле и не
+ * видно никогда, а openEnded снимает с него весь веер. Пять треугольников против
+ * сорока четырёх у ближнего дерева — и в кадре разницы нет: на таком удалении
+ * ель и была конусом. Крона выше и шире ближней, чтобы силуэт не осел без ствола.
+ */
+export function makeFarTree(scale = 1, variant = 0): THREE.Mesh {
+  const mat = variant % 2 === 0 ? MAT.leaves : MAT.leaves2;
+  const h = 2.9 * scale;
+  // Подъём запечён в геометрию, а не в position: put() ставит объект на рельеф и
+  // position.y перезаписывает — конус ушёл бы в землю по середину.
+  const geo = new THREE.ConeGeometry(0.86 * scale, h, 5, 1, true).translate(0, h / 2, 0);
+  return new THREE.Mesh(geo, mat);
+}
+
 export function makeRock(scale = 1): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5 * scale, 0), MAT.rock);
   m.position.y = 0.3 * scale;
@@ -382,7 +404,8 @@ export function buildEnvironment(): THREE.Group {
     const glade = GLADES.find((gl) => Math.hypot(x - gl.at.x, z - gl.at.z) < gl.r);
     if (glade && hash(i * 17 + 1000) > glade.keep) continue;
     const scale = 0.85 + hash(i * 13 + 1000) * 0.55;
-    put(root, () => makeTree(scale, i), x, z, TREE_SPREAD * scale);
+    const far = r >= FOREST_FAR;
+    put(root, () => (far ? makeFarTree(scale, i) : makeTree(scale, i)), x, z, TREE_SPREAD * scale);
   }
   // Пашня: несколько полос у поля, куда ходят вольные пахари.
   for (let i = 0; i < 4; i++) {
@@ -432,7 +455,11 @@ export function buildEnvironment(): THREE.Group {
     }
   }
   // Окружение неподвижно, поэтому вместо пяти сотен мешей — один: вызов на материал.
-  return collapse(root, GROUND_AO);
+  // Теней оно не отбрасывает: коробка теней накрывает только посёлок (WALL_RADIUS + 2),
+  // а окружение начинается за CLEAR_RADIUS — в теневой проход оно уходило целиком
+  // и без единого пикселя на экране. Один меш культуре не поддаётся: либо весь,
+  // либо никак. В землю объекты сажает контактное затемнение GROUND_AO.
+  return collapse(root, GROUND_AO, false);
 }
 
 export function buildTerrain(): THREE.Group {
