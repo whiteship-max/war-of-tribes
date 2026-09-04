@@ -268,7 +268,7 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
  */
 const ARMY_FOR = (levels: number): Partial<Record<TroopId, number>> =>
   levels >= 8
-    ? { spearman: 4, archer: 3, swordsman: 3, shieldman: 2, legionary: 2 }
+    ? { spearman: 4, archer: 3, swordsman: 3, shieldman: 2, rider: 2, legionary: 2 }
     : levels >= 4
       ? { spearman: 4, archer: 2 }
       : { spearman: 2 };

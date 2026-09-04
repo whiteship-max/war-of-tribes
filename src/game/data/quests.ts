@@ -106,6 +106,14 @@ export const QUESTS: QuestDef[] = [
     reward: { iron: 20 },
   },
   {
+    id: 'riders',
+    title: 'Конный разъезд',
+    description: 'Найми трёх всадников: конница режет лучников и заходит во фланг.',
+    check: (s) => (s.army.rider ?? 0) >= 3,
+    progress: upTo((s) => s.army.rider ?? 0, 3),
+    reward: { hides: 40 },
+  },
+  {
     id: 'gold_150',
     title: 'Полная казна',
     description: 'Собери 150 золота — налогом или из чужих замков.',

@@ -16,7 +16,7 @@ export const MAX_SOLDIERS = 14;
 export type Post = 'gate' | 'patrol' | 'drill';
 
 /** Кому положен щит: щитоносцу и латнику — он и в силуэте виден. */
-const HAS_SHIELD: TroopId[] = ['shieldman', 'legionary'];
+const HAS_SHIELD: TroopId[] = ['shieldman', 'rider', 'legionary'];
 
 /** У кого оружие из металла — клинок, а не древко. */
 const STEEL_ARM: TroopId[] = ['swordsman', 'shieldman', 'legionary'];

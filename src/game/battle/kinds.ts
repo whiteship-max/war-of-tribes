@@ -1,11 +1,11 @@
-// Мост между семью видами бойцов племени и четырьмя родами полевого боя.
+// Мост между восемью видами бойцов племени и четырьмя родами полевого боя.
 // Ядро (`src/battle/`) про племя не знает и знать не должно — отображение живёт
 // здесь. Обратная зависимость запрещена: отсюда в ядро только типы.
 import type { TroopId } from '../types';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { GEAR, UNIT_KINDS, type Stack, type UnitKind } from '@/battle';
 
-/** Кто из племени каким родом выходит в поле. Конницы у племени пока нет. */
+/** Кто из племени каким родом выходит в поле. Все четыре рода закрыты. */
 export const KIND_OF: Record<TroopId, UnitKind> = {
   clubman: 'infantry',
   spearman: 'spear',
@@ -13,6 +13,7 @@ export const KIND_OF: Record<TroopId, UnitKind> = {
   axeman: 'infantry',
   swordsman: 'infantry',
   shieldman: 'infantry',
+  rider: 'cavalry',
   legionary: 'infantry',
 };
 

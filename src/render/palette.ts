@@ -137,6 +137,7 @@ export const TROOP_TINT: Record<TroopId, number> = {
   axeman: 0x9a5a2a,
   swordsman: 0x7a5f9a,
   shieldman: 0x4f6f9a,
+  rider: 0x8a5f3f,
   legionary: 0x8a8f96,
 };
 

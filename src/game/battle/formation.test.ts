@@ -2,8 +2,17 @@
 // сумма по шести секторам, резерву и оставленным дома равна гарнизону — иначе
 // игрок отправит половину армии в никуда и не поймёт почему.
 import { describe, expect, it } from 'vitest';
-import { SECTORS, UNIT_KINDS, stackTotal, validateSetup, QUICK_PRESET_IDS } from '@/battle';
-import { TROOP_IDS } from '../data/troops';
+import {
+  SECTORS,
+  UNIT_KINDS,
+  simulateBattle,
+  stackTotal,
+  validateSetup,
+  QUICK_PRESET_IDS,
+  type ArmySetup,
+} from '@/battle';
+import { RATIO_EVEN } from '@/battle/bench';
+import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
   applyTemplate,
   clampFormation,
@@ -16,7 +25,18 @@ import {
   unplacedTroops,
   type BattlePlanTemplate,
 } from './formation';
-import { BATTLE_MAN, gearOf, kindsOf, menOf, troopLosses, troopTotal, troopsAfter, type TroopStack } from './kinds';
+import {
+  BATTLE_MAN,
+  OWN_KINDS,
+  gearOf,
+  gearOfTroop,
+  kindsOf,
+  menOf,
+  troopLosses,
+  troopTotal,
+  troopsAfter,
+  type TroopStack,
+} from './kinds';
 
 const GARRISON: TroopStack = { clubman: 6, spearman: 8, archer: 5, axeman: 3, legionary: 2 };
 
@@ -151,5 +171,80 @@ describe('шаблоны', () => {
     const back = JSON.parse(JSON.stringify(tpl)) as BattlePlanTemplate;
     expect(back).toEqual(tpl);
     expect(validateSetup(toArmySetup(back.formation))).toBeNull();
+  });
+});
+
+
+// ---------- Конница племени ----------
+//
+// Без конного вида половина боевой системы у игрока мертва: угол кольца «конница
+// бьёт лучников», план «кавалерийский удар», кавалерийские приказы и перехват
+// обхода резервом. У чужих гарнизонов конница есть всегда, поэтому кольцо обязано
+// работать в обе стороны — это и проверяется здесь настоящими боями.
+
+/** Отряд племени, разложенный своим пресетом, в том виде, в каком его видит ядро. */
+const armyOf = (troops: TroopStack, preset: Parameters<typeof presetFormation>[1] = 'standard'): ArmySetup =>
+  toArmySetup(presetFormation(troops, preset));
+
+/** Пара боёв одним сидом: сторона поля не должна решать исход. */
+function ratio(a: ArmySetup, b: ArmySetup, seed: number): number {
+  const r1 = simulateBattle({ seed, attacker: a, defender: b });
+  const r2 = simulateBattle({ seed, attacker: b, defender: a });
+  const aLoss = r1.sides.attacker.total.losses + r2.sides.defender.total.losses;
+  const bLoss = r1.sides.defender.total.losses + r2.sides.attacker.total.losses;
+  return bLoss / Math.max(1, aLoss);
+}
+
+/** Средний размен по нескольким сидам: один бой ничего не доказывает. */
+const meanRatio = (a: ArmySetup, b: ArmySetup): number => {
+  let sum = 0;
+  for (let seed = 1; seed <= 6; seed += 1) sum += ratio(a, b, seed);
+  return sum / 6;
+};
+
+describe('конница племени', () => {
+  it('всадник выходит в поле конницей, и все четыре рода игроку доступны', () => {
+    expect(kindsOf({ rider: 10 }).cavalry).toBe(menOf('rider', 10));
+    expect(kindsOf({ rider: 10 }).infantry).toBe(0);
+    // Пустых родов у племени не осталось: приказы есть кому давать во всех четырёх.
+    expect([...OWN_KINDS].sort()).toEqual([...UNIT_KINDS].sort());
+  });
+
+  it('копьё и щит всадника поднимают его ступень снаряжения выше дубинщика', () => {
+    expect(gearOfTroop('rider')).toBe(2);
+    expect(gearOfTroop('rider')).toBeGreaterThan(gearOfTroop('clubman'));
+    expect(gearOf({ rider: 5 }).cavalry).toBe(2);
+  });
+
+  it('всадник дороже любого пешего и в ресурсах, и в снаряжении', () => {
+    const rider = TROOP_BY_ID.rider;
+    const gearCount = (id: (typeof TROOP_IDS)[number]): number =>
+      Object.values(TROOP_BY_ID[id].gear).reduce((n, v) => n + (v ?? 0), 0);
+    const foot = TROOP_IDS.filter((id) => id !== 'rider' && id !== 'legionary');
+    for (const id of foot) {
+      const def = TROOP_BY_ID[id];
+      expect(Object.values(rider.cost).reduce((a, b) => a + b, 0)).toBeGreaterThan(
+        Object.values(def.cost).reduce((a, b) => a + b, 0),
+      );
+      expect(gearCount('rider')).toBeGreaterThanOrEqual(gearCount(id));
+      expect(rider.work).toBeGreaterThan(def.work);
+    }
+  });
+
+  it('кольцо работает в обе стороны: конница племени режет лучников и вязнет в копьях', () => {
+    // Отряды одной мощи, поэтому сравнивать размен честно.
+    const riders = armyOf({ rider: 100 });
+    const archers = armyOf({ archer: 280 });
+    const spears = armyOf({ spearman: 350 }, 'anti-cavalry');
+    expect(meanRatio(riders, archers)).toBeGreaterThan(RATIO_EVEN);
+    expect(meanRatio(riders, spears)).toBeLessThan(1 / RATIO_EVEN);
+  });
+
+  it('план «кавалерийский удар» и кавалерийские приказы становятся живыми', () => {
+    const f = presetFormation({ rider: 40, spearman: 60 }, 'standard');
+    expect(kindsPresent(placedTroops(f))).toContain('cavalry');
+    const strike = toArmySetup({ ...f, plan: 'cavalry-strike' });
+    expect(validateSetup(strike)).toBeNull();
+    expect(strike.sectors.R.cavalry + SECTORS.reduce((n, id) => n + strike.sectors[id].cavalry, 0)).toBeGreaterThan(0);
   });
 });
