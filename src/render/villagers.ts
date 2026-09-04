@@ -14,10 +14,23 @@
 // агент знает только своё место у огня. Показывается их не больше `MAX_VILLAGERS`:
 // при населении в сотни толпу всё равно не сосчитать, а счёт — весь смысл площади.
 import * as THREE from 'three';
+import type { GameState } from '@/game/types';
+import { idleCount } from '@/game/derived';
 import { Figure } from './figures';
 import { JOB_TINT, PALETTE } from './palette';
 
 const SPEED = 1.0;
+
+/**
+ * Потолок показа свободных рук — не потолок племени. При населении в сотни толпу
+ * у костра всё равно не сосчитать, а счёт — весь смысл площади; точное число
+ * стоит в строке состояния и в «Племени». Снимать этот потолок нельзя: фигурки
+ * рисуются инстансами, но матрицы им всё равно пишутся каждый кадр.
+ */
+export const MAX_VILLAGERS = 10;
+
+/** Сколько фигурок у костра рисует сцена при этом состоянии. */
+export const shownVillagers = (s: GameState): number => Math.min(idleCount(s), MAX_VILLAGERS);
 
 /** Где гуляют: кольцо вокруг костра, внутри площади. */
 const HOME_MIN = 1.3;

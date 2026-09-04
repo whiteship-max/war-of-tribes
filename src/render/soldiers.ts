@@ -10,8 +10,19 @@ import { Figure, STICK_RADIUS } from './figures';
 import { PALETTE, TROOP_TINT } from './palette';
 import { GATE_ANGLE, OUTER_ROAD } from './plan';
 
-/** Больше десятка фигурок в кадре не различить, а рисовать их дорого. */
+/**
+ * Потолок показа дружины — не потолок армии. Больше полутора десятков фигурок в
+ * кадре не различить, а бойцов к концу партии сотни; точное число стоит в строке
+ * состояния и в казармах.
+ */
 export const MAX_SOLDIERS = 14;
+
+/** Сколько фигурок дружины рисует сцена при этой армии. */
+export const shownSoldiers = (army: Partial<Record<TroopId, number>>): number =>
+  Math.min(
+    MAX_SOLDIERS,
+    Object.values(army).reduce((n: number, v) => n + Math.max(0, v ?? 0), 0),
+  );
 
 export type Post = 'gate' | 'patrol' | 'drill';
 

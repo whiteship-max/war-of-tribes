@@ -6,7 +6,6 @@ import {
   buildingAttention,
   caravanProgress,
   dayFraction,
-  idleCount,
   isSite,
   seasonOf,
   solarPhase,
@@ -28,7 +27,7 @@ import {
   visualTier,
   type Tier,
 } from './buildings';
-import { VillagerAgent } from './villagers';
+import { VillagerAgent, shownVillagers } from './villagers';
 import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
@@ -75,7 +74,6 @@ const TAP_FORGIVE = 58;
  * которой не сосчитать свободные руки, а весь смысл площади в том, чтобы их
  * было видно счётом. Остальные свободные просто не показываются.
  */
-const MAX_VILLAGERS = 10;
 
 /** Доля вместимости, с которой у склада появляются мешки. */
 const STORAGE_SHOWN = 0.15;
@@ -576,10 +574,9 @@ export class TribeScene {
     // исчезает, снятый — возвращается к костру. Занятость показывают сами здания
     // (syncWorkSigns), а не ходьба туда-обратно.
     //
-    // MAX_VILLAGERS — потолок показа, а не потолок племени: при населении в сотни
-    // толпу всё равно не сосчитать, а счёт свободных рук — весь смысл площади.
-    // Точное число стоит в строке состояния и в «Племени».
-    const shown = Math.min(idleCount(s), MAX_VILLAGERS);
+    // Показывается не больше `MAX_VILLAGERS` фигурок: это потолок показа, а не
+    // потолок племени (см. shownVillagers).
+    const shown = shownVillagers(s);
     while (this.agents.size > shown) {
       const [id, agent] = [...this.agents][this.agents.size - 1];
       this.figures.remove(agent.figure);
