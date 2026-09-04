@@ -192,7 +192,7 @@ function main(): void {
   // сезон при дружине в треть населения. Отвечает на вопрос «зима осталась
   // задачей или стала строкой расходов».
   console.log('\nЗима при дружине в треть населения (год 2, без смягчения):');
-  console.log('  уровни | люди | дружина | еда добыча | еда расход | баланс | дрова | запас на 5 дней');
+  console.log('  уровни | люди | дружина | еда добыча | еда расход | баланс | дрова | лес добыча | дрова, % леса');
   for (const level of [2, 4, 6, 8, MAX_BUILDING_LEVEL]) {
     const w = createInitialState();
     w.tutorialDone = true;
@@ -207,14 +207,16 @@ function main(): void {
     staff(w);
     // Год 2, зима: смягчения первой зимы нет.
     w.time = (3 + 4) * 5 * DAY_LENGTH;
-    const prod = productionPerDay(w).food;
+    const day = productionPerDay(w);
+    const prod = day.food;
     const eat = foodConsumptionPerDay(w);
     const heat = heatingWoodPerDay(w);
-    const need = Math.max(0, eat - prod) * 5;
+    // Доля дров от зимней добычи леса — по ней видно, осталось ли отопление задачей.
+    const share = day.wood > 0 ? (heat / day.wood) * 100 : 100;
     console.log(
       `  ${String(level).padStart(6)} | ${String(w.pop).padStart(4)} | ${String(soldiers).padStart(7)} | ` +
         `${prod.toFixed(0).padStart(10)} | ${eat.toFixed(0).padStart(10)} | ${(prod - eat).toFixed(0).padStart(6)} | ` +
-        `${heat.toFixed(0).padStart(5)} | ${need.toFixed(0).padStart(15)}`,
+        `${heat.toFixed(0).padStart(5)} | ${day.wood.toFixed(0).padStart(10)} | ${share.toFixed(0).padStart(13)}`,
     );
   }
 
