@@ -106,15 +106,24 @@ export function BattlePanel({ targetId }: Props) {
   };
 
   const place = (t: TroopId, n: number): void => {
-    if (locked) return;
-    if (sel === null) return;
+    if (locked || sel === null || sel === 'rest') return;
     const f = cloneFormation(formation);
-    if (sel === 'rest') {
-      // Из мешка «не расставлены» забирать некуда: он и есть остаток.
-      return;
-    }
     f.sectors[sel][t] = Math.max(0, n);
     setFormation(f);
+  };
+
+  /**
+   * Тап по клетке. «Не расставлены» — не сектор, а остаток: открывать над ним
+   * степперы бессмысленно (забирать оттуда некуда), поэтому тап по нему просто
+   * убирает остаток в резерв — то же, что случится при отправке, но видимо.
+   */
+  const pick = (id: Sector | 'rest'): void => {
+    if (id === 'rest') {
+      if (!locked && troopTotal(unplaced) > 0) setFormation(stashUnplaced(formation, unplaced));
+      setSel(null);
+      return;
+    }
+    setSel(sel === id ? null : id);
   };
 
   const applyPreset = (): void => {
@@ -278,7 +287,7 @@ export function BattlePanel({ targetId }: Props) {
         formation={formation}
         unplaced={unplaced}
         selected={sel}
-        onSelect={(id) => setSel(sel === id ? null : id)}
+        onSelect={pick}
       />
       {sel !== null && !locked && (
         <SectorEditor

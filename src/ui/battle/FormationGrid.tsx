@@ -90,8 +90,8 @@ export function FormationGrid({ formation, unplaced, selected, onSelect }: Props
         <>
           <Cell id="rest" troops={unplaced} selected={selected === 'rest'} onSelect={onSelect} wide />
           <p className="note bad">
-            {rest} {rest === 1 ? 'боец не расставлен' : 'бойцов не расставлено'}. Если не разложить — уйдут
-            в резерв.
+            {rest} {rest === 1 ? 'боец не расставлен' : 'бойцов не расставлено'}. Тапни по ним, чтобы убрать
+            в резерв, — иначе они уйдут туда сами при отправке.
           </p>
         </>
       )}
