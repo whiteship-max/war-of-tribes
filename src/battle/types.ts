@@ -147,7 +147,8 @@ export type BattleEvent = EventBase &
     | { id: 'retreat'; side: Side; orderly: boolean }
     /** Преследование: `side` добила отступающих на `losses` человек. */
     | { id: 'pursuit'; side: Side; losses: number }
-    | { id: 'result'; winner: Winner; reason: ResultReason }
+    /** Итог. `pyrrhic` — поле удержано, но победитель потерял больше проигравшего: победа с непомерными потерями. */
+    | { id: 'result'; winner: Winner; reason: ResultReason; pyrrhic: boolean }
   );
 
 export type EventId = BattleEvent['id'];
@@ -156,6 +157,14 @@ export type EventId = BattleEvent['id'];
 export type EventBody = BattleEvent extends infer E ? (E extends BattleEvent ? Omit<E, 'tick' | 'phase'> : never) : never;
 
 export type ResultReason = 'morale' | 'annihilated' | 'losses' | 'draw';
+
+/**
+ * Исход для стороны: результат и цена отдельно. Поле удерживает тот, у кого
+ * дольше держится мораль, — и это может стоить больше, чем поражение. Победа
+ * с размером потерь выше, чем у противника, — `pyrrhic`, и отчёт называет её
+ * прямо, а не оставляет игроку выяснять по остаткам армии.
+ */
+export type Verdict = 'victory' | 'pyrrhic' | 'defeat' | 'draw';
 
 // ---------- Итог ----------
 
@@ -177,6 +186,8 @@ export interface SideResult {
   sectors: Record<Sector, { initial: Stack; final: Stack; morale: number; broken: boolean }>;
   /** Мораль армии к концу боя, 0..100: средняя по живым секторам, взвешенная числом людей. */
   morale: number;
+  /** Результат и цена: победа, победа с непомерными потерями, поражение, ничья. */
+  verdict: Verdict;
   /** Сторона сломалась (мораль или истребление) — тик, когда это случилось. */
   brokenAt: number | null;
   /** Сколько противника выбила стрельба до первого контакта и за весь бой. */
@@ -198,6 +209,8 @@ export interface BattleResult {
   ticks: number;
   winner: Winner;
   reason: ResultReason;
+  /** Победитель потерял больше проигравшего: размен ниже `PYRRHIC_BELOW`. */
+  pyrrhic: boolean;
   phases: PhaseSpan[];
   sides: Record<Side, SideResult>;
   log: BattleEvent[];

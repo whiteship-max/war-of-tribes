@@ -2,7 +2,7 @@
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
 import { simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, TUNED, gapAgainst, lossRatio, mirrored, quickOf } from '../src/battle/bench';
+import { BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -17,21 +17,29 @@ function pad(s: string | number, w: number, right = false): string {
 }
 
 /** Победы первой стороны в серии боёв с обеих сторон поля. */
-function series(a: ArmySetup, b: ArmySetup, seeds: number): { wins: number; losses: number; draws: number; ratio: number } {
+/**
+ * Серия зеркальных боёв. `wins/draws/losses` — кто удержал поле (результат),
+ * `ratio` — средний размен (цена), `pyrrhic` — сколько боёв из 2×seeds выиграны
+ * с непомерными потерями. Выводы «кто кому проигрывает» делаются по размену.
+ */
+function series(a: ArmySetup, b: ArmySetup, seeds: number): { wins: number; losses: number; draws: number; ratio: number; pyrrhic: number } {
   let wins = 0;
   let losses = 0;
   let draws = 0;
   let ratio = 0;
+  let pyrrhic = 0;
   for (let seed = 1; seed <= seeds; seed += 1) {
     const r = mirrored(a, b, seed);
-    if (r.winner === 'a') wins += 1;
-    else if (r.winner === 'b') losses += 1;
+    if (r.field.a > r.field.b) wins += 1;
+    else if (r.field.b > r.field.a) losses += 1;
     else draws += 1;
     ratio += r.lossRatio;
+    pyrrhic += r.pyrrhic;
     allResults.push(...r.results);
   }
-  return { wins, losses, draws, ratio: ratio / seeds };
+  return { wins, losses, draws, ratio: ratio / seeds, pyrrhic };
 }
+const beatsByRatio = (ratio: number): 'a' | 'b' | 'draw' => (ratio >= RATIO_EVEN ? 'a' : ratio <= 1 / RATIO_EVEN ? 'b' : 'draw');
 
 console.log(`\n=== Составы (${COMPOSITIONS.length}) по ${SEEDS} боёв на пару, каждая пара с обеих сторон поля ===`);
 const names = COMPOSITIONS.map((c) => c.name);
@@ -39,9 +47,11 @@ const W = 14;
 console.log(pad('', W) + names.map((n) => pad(n, W)).join(''));
 const beats: Record<string, string[]> = {};
 const losesTo: Record<string, string[]> = {};
+const costly: Record<string, string[]> = {};
 for (const a of COMPOSITIONS) {
   beats[a.name] = [];
   losesTo[a.name] = [];
+  costly[a.name] = [];
   let row = pad(a.name, W);
   for (const b of COMPOSITIONS) {
     if (a === b) {
@@ -49,21 +59,24 @@ for (const a of COMPOSITIONS) {
       continue;
     }
     const s = series(a.setup, b.setup, SEEDS);
-    if (s.wins > s.losses) beats[a.name].push(b.name);
-    else if (s.losses > s.wins) losesTo[a.name].push(b.name);
+    const verdict = beatsByRatio(s.ratio);
+    if (verdict === 'a') beats[a.name].push(b.name);
+    else if (verdict === 'b') losesTo[a.name].push(b.name);
+    if (s.wins > s.losses && verdict !== 'a') costly[a.name].push(b.name);
     row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, W);
   }
   console.log(row);
 }
-console.log('\nячейка: победы/ничьи/поражения состава из строки и его соотношение потерь (чужие/свои)');
+console.log('\nячейка: удержали поле / ничьих / отдали поле (результат) и размен чужие/свои (цена)');
+console.log('выводы — по размену: проигрывает, если размен ≤ 1/1.05; удерживает поле дороже, чем противник, — победа с непомерными потерями');
 for (const c of COMPOSITIONS) {
-  console.log(`${pad(c.name, W)} проигрывает: ${losesTo[c.name].join(', ') || '— НИКОМУ'}`);
+  console.log(`${pad(c.name, W)} проигрывает размен: ${losesTo[c.name].join(', ') || '— НИКОМУ'}${costly[c.name].length ? `; держит поле с непомерными потерями против: ${costly[c.name].join(', ')}` : ''}`);
 }
 
 console.log('\n=== Кольцо контрров при правильных приказах ===');
 for (const pair of RING) {
   const s = series(pair.a, pair.b, SEEDS);
-  console.log(`${pad(pair.name, 44)} побед ${s.wins}/${SEEDS}, потери чужие/свои ${s.ratio.toFixed(2)}`);
+  console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS})`);
 }
 
 /** Длительность считается по боям разных составов: зеркала планов и пресетов — бои одной и той же армии, там ничья закономерна. */
@@ -84,13 +97,13 @@ console.log('\n=== Планы: одна и та же армия на станд�
         continue;
       }
       const s = series(quickSetup(BALANCED_ARMY, { plan: a }), quickSetup(BALANCED_ARMY, { plan: b }), Math.min(SEEDS, 12));
-      if (s.losses > s.wins) loses += 1;
+      if (beatsByRatio(s.ratio) === 'b') loses += 1;
       row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, PW);
     }
     if (loses === 0) undefeated.push(a);
     console.log(row);
   }
-  console.log(`никому не проигрывает: ${undefeated.join(', ') || 'нет'}`);
+  console.log(`никому не проигрывает размен: ${undefeated.join(', ') || 'нет'}`);
 }
 
 console.log('\n=== Пресеты быстрой атаки ===');
@@ -167,8 +180,8 @@ for (const c of COMPOSITIONS) {
     smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
     if (r.winner === (bigAttacks ? 'attacker' : 'defender')) wins += 1;
   }
-  const line = !(c.army.infantry ?? 0) && !(c.army.spear ?? 0) ? ' (без пешей линии — вне теста)' : '';
-  console.log(`${pad(c.name, W)} размен ${(smallLoss / Math.max(1, bigLoss)).toFixed(2)}, побед ${wins}/${N}${line}`);
+  const cap = hasLine(c.army) ? `потолок ${OVERSIZE_CAP.line}` : `без пешей линии, потолок ${OVERSIZE_CAP.noLine}`;
+  console.log(`${pad(c.name, W)} размен ${(smallLoss / Math.max(1, bigLoss)).toFixed(2)} (${cap}), поле удержано ${wins}/${N}`);
 }
 
 if (process.env.SHOW) {

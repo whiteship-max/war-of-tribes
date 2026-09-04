@@ -5,27 +5,26 @@
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
 import { quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
-import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_TICKS, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, TUNED, gapAgainst, lossRatio, mirrored, quickOf, setupOf } from './bench';
+import { describeEvent } from './log';
+import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, UNIT_STATS } from './config';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, lossRatio, mirrored, quickOf, setupOf } from './bench';
 import { PHASES, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 
-/** Все пары составов по нескольку сидов, с обеих сторон поля. */
-function allPairs(seeds: number): Array<{ a: string; b: string; wins: number; losses: number; results: BattleResult[] }> {
-  const out: Array<{ a: string; b: string; wins: number; losses: number; results: BattleResult[] }> = [];
+/** Все пары составов по нескольку сидов, с обеих сторон поля. `ratio` — средний размен a к b. */
+function allPairs(seeds: number): Array<{ a: string; b: string; ratio: number; results: BattleResult[] }> {
+  const out: Array<{ a: string; b: string; ratio: number; results: BattleResult[] }> = [];
   for (let i = 0; i < COMPOSITIONS.length; i += 1) {
     for (let j = i + 1; j < COMPOSITIONS.length; j += 1) {
-      let wins = 0;
-      let losses = 0;
+      let ratio = 0;
       const results: BattleResult[] = [];
       for (let seed = 1; seed <= seeds; seed += 1) {
         const m = mirrored(COMPOSITIONS[i].setup, COMPOSITIONS[j].setup, seed);
-        if (m.winner === 'a') wins += 1;
-        else if (m.winner === 'b') losses += 1;
+        ratio += m.lossRatio;
         results.push(...m.results);
       }
-      out.push({ a: COMPOSITIONS[i].name, b: COMPOSITIONS[j].name, wins, losses, results });
+      out.push({ a: COMPOSITIONS[i].name, b: COMPOSITIONS[j].name, ratio: ratio / seeds, results });
     }
   }
   return out;
@@ -94,26 +93,57 @@ describe('шаблон быстрой атаки', () => {
 });
 
 describe('нет доминирующего состава', () => {
-  it('каждый состав кому-нибудь проигрывает', () => {
+  it('каждый состав кому-нибудь проигрывает размен', () => {
+    // Порог — по размену, не по доле побед: поле держит тот, у кого дольше мораль, а платить
+    // за него можно больше, чем за поражение.
     const pairs = allPairs(6);
     const losesTo = new Map<string, string[]>();
     for (const c of COMPOSITIONS) losesTo.set(c.name, []);
     for (const p of pairs) {
-      if (p.wins > p.losses) losesTo.get(p.b)!.push(p.a);
-      else if (p.losses > p.wins) losesTo.get(p.a)!.push(p.b);
+      if (p.ratio >= RATIO_EVEN) losesTo.get(p.b)!.push(p.a);
+      else if (p.ratio <= 1 / RATIO_EVEN) losesTo.get(p.a)!.push(p.b);
     }
     for (const c of COMPOSITIONS) {
-      expect(losesTo.get(c.name)!.length, `${c.name} не проигрывает никому`).toBeGreaterThan(0);
+      expect(losesTo.get(c.name)!.length, `${c.name} не проигрывает размен никому`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('результат и цена', () => {
+  it('победа с непомерными потерями называется прямо и сходится с числами', () => {
+    let pyrrhic = 0;
+    for (const r of sampleBattles()) {
+      const last = r.log[r.log.length - 1];
+      expect(last.id === 'result' && last.pyrrhic).toBe(r.pyrrhic);
+      if (r.winner === 'draw') {
+        expect(r.pyrrhic).toBe(false);
+        expect(r.sides.attacker.verdict).toBe('draw');
+        expect(r.sides.defender.verdict).toBe('draw');
+        continue;
+      }
+      const w = r.sides[r.winner];
+      const l = r.sides[other(r.winner)];
+      expect(l.verdict).toBe('defeat');
+      // Поле удержано, но потеряно больше противника — это отдельная категория, а не победа.
+      const costly = w.total.losses > 0 && l.total.losses / w.total.losses < PYRRHIC_BELOW;
+      expect(r.pyrrhic).toBe(costly);
+      expect(w.verdict).toBe(costly ? 'pyrrhic' : 'victory');
+      if (costly) pyrrhic += 1;
+    }
+    // Такие бои есть: копья удерживают поле против лучников, теряя вдвое больше.
+    expect(pyrrhic).toBeGreaterThan(0);
+    const r = simulateBattle({ seed: 1, attacker: quickSetup({ spear: 600 }), defender: quickSetup({ archer: 600 }) });
+    expect(r.winner).toBe('attacker');
+    expect(r.pyrrhic).toBe(true);
+    expect(describeEvent(r.log[r.log.length - 1])).toContain('непомерными потерями');
   });
 });
 
 describe('разрыв быстрой атаки', () => {
   it('настроенная армия выигрывает у быстрой атаки 10–25% по потерям на ста боях', () => {
-    const { gap, lost } = gapAgainst(TUNED, quickOf, 100);
+    const { gap } = gapAgainst(TUNED, quickOf, 100);
     expect(gap).toBeGreaterThanOrEqual(0.1);
     expect(gap).toBeLessThanOrEqual(0.25);
-    expect(lost).toBeLessThan(25);
     for (let seed = 1; seed <= 4; seed += 1) expect(armyTotal(TUNED)).toEqual(armyTotal(quickOf(seed)));
   });
 
@@ -177,15 +207,14 @@ describe('пресеты быстрой атаки', () => {
 describe('кольцо контрров', () => {
   for (const pair of RING) {
     it(pair.name, () => {
-      let wins = 0;
+      // По размену: в каждой паре боёв контрящий теряет меньше, в среднем — заметно меньше.
       let ratio = 0;
       const N = 12;
       for (let seed = 1; seed <= N; seed += 1) {
         const m = mirrored(pair.a, pair.b, seed);
-        if (m.winner === 'a') wins += 1;
+        expect(m.lossRatio).toBeGreaterThanOrEqual(RATIO_EVEN);
         ratio += m.lossRatio;
       }
-      expect(wins).toBe(N);
       expect(ratio / N).toBeGreaterThan(1.5);
     });
   }
@@ -207,11 +236,10 @@ describe('превосходство условно', () => {
     expect(COUNTER.spear.cavalryAdvancing).toBeLessThan(COUNTER.spear.cavalryHolding);
   });
 
-  it('конница против сомкнутых копий проигрывает', () => {
+  it('конница против сомкнутых копий проигрывает размен', () => {
     for (let seed = 1; seed <= 6; seed += 1) {
       const m = mirrored(cavalry, spears('hold-line'), seed);
-      expect(m.winner).toBe('b');
-      expect(m.lossRatio).toBeLessThan(1);
+      expect(m.lossRatio).toBeLessThanOrEqual(1 / RATIO_EVEN);
     }
   });
 
@@ -284,13 +312,12 @@ describe('мораль по секторам', () => {
     expect(draws / total).toBeLessThan(0.1);
   });
 
-  it('перевес в 10% не даёт лавины: размен не выше ≈1.5', () => {
+  it('перевес в 10% не даёт лавины: размен не выше ≈1.5, у составов без линии — не выше своего потолка', () => {
     // Ограничитель на перекидывание паники: та же армия на 10% больше при прочих равных.
-    // Составы без пешей линии (одна конница с луками) сюда не входят: там кольцо — конница добивает
-    // лучников, когда линии нет, — даёт больше по замыслу.
+    // Составы без пешей линии рушатся сильнее по замыслу — без якоря сектор и должен рушиться,
+    // а кольцо добивает лучников, когда линии нет, — но и у них есть потолок (`OVERSIZE_CAP.noLine`).
     const ratios: number[] = [];
     for (const c of COMPOSITIONS) {
-      if (!(c.army.infantry ?? 0) && !(c.army.spear ?? 0)) continue;
       const bigger = quickSetup(Object.fromEntries(Object.entries(c.army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
       let bigLoss = 0;
       let smallLoss = 0;
@@ -301,10 +328,14 @@ describe('мораль по секторам', () => {
         smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
       }
       const ratio = smallLoss / Math.max(1, bigLoss);
-      expect(ratio, `${c.name}: размен ${ratio.toFixed(2)}`).toBeLessThanOrEqual(1.6);
+      if (!hasLine(c.army)) {
+        expect(ratio, `${c.name} (без линии): размен ${ratio.toFixed(2)}`).toBeLessThanOrEqual(OVERSIZE_CAP.noLine);
+        continue;
+      }
+      expect(ratio, `${c.name}: размен ${ratio.toFixed(2)}`).toBeLessThanOrEqual(OVERSIZE_CAP.line);
       ratios.push(ratio);
     }
-    expect(ratios.reduce((a, b) => a + b, 0) / ratios.length).toBeLessThanOrEqual(1.5);
+    expect(ratios.reduce((a, b) => a + b, 0) / ratios.length).toBeLessThanOrEqual(OVERSIZE_CAP.lineMean);
   });
 
   it('сломанный сектор тянет соседей, и армия отступает, когда сломано достаточно', () => {
@@ -357,15 +388,13 @@ describe('мораль как характеристика войск', () => {
   it('снаряжение из кузницы делает войско стойче: та же армия со снаряжением выигрывает размен', () => {
     const plain = quickSetup(BALANCED_ARMY);
     const geared = quickSetup(BALANCED_ARMY, { gear: { spear: GEAR.max, infantry: GEAR.max, archer: GEAR.max, cavalry: GEAR.max } });
-    let wins = 0;
     let ratio = 0;
     const N = 12;
     for (let seed = 1; seed <= N; seed += 1) {
       const m = mirrored(geared, plain, seed);
-      if (m.winner === 'a') wins += 1;
+      expect(m.lossRatio).toBeGreaterThan(1);
       ratio += m.lossRatio;
     }
-    expect(wins).toBeGreaterThanOrEqual(N - 2);
     expect(ratio / N).toBeGreaterThan(1.1);
     // Ступень выше потолка не даёт больше потолка.
     const capped = simulateBattle({ seed: 1, attacker: quickSetup(BALANCED_ARMY, { gear: { infantry: 99 } }), defender: plain });
@@ -410,7 +439,6 @@ describe('мораль как характеристика войск', () => {
       const firstBreak = r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker');
       expect(firstBreak).toBeDefined();
       expect(firstBreak!.tick - clash.from).toBeLessThanOrEqual(12);
-      expect(r.winner).toBe('defender');
     }
   });
 });

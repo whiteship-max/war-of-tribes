@@ -68,6 +68,9 @@ export function describeEvent(e: BattleEvent): string {
     case 'pursuit':
       return `${who}: преследование добило ${e.losses}`;
     case 'result':
-      return e.winner === 'draw' ? 'ничья: стороны разошлись' : `победа: ${SIDE_NAME[e.winner]} (${e.reason})`;
+      if (e.winner === 'draw') return 'ничья: стороны разошлись';
+      return e.pyrrhic
+        ? `победа с непомерными потерями: ${SIDE_NAME[e.winner]} удержали поле, но потеряли больше противника (${e.reason})`
+        : `победа: ${SIDE_NAME[e.winner]} (${e.reason})`;
   }
 }

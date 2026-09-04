@@ -33,10 +33,35 @@ export const COMPOSITIONS: Composition[] = [
 export const lossRatio = (r: BattleResult, side: Side): number =>
   r.sides[side === 'attacker' ? 'defender' : 'attacker'].total.losses / Math.max(1, r.sides[side].total.losses);
 
+/**
+ * Размен в этих пределах — поровну. Балансные пороги задаются по размену, а не
+ * по доле побед: в зеркале одинаковых армий перевес в 5% каскадом даёт 10/0/0,
+ * доля побед плохой измеритель, размен — хороший.
+ */
+export const RATIO_EVEN = 1.05;
+
+/**
+ * Потолки ограничителя «перевес 10%»: размен большей стороны не выше этого.
+ * У составов с пешей линией (пехота или копья) — 1.6 на состав и 1.5 в среднем.
+ * Составы без линии (одни лучники, одна конница, конница с луками) держат свой
+ * потолок: без якоря сектор и должен рушиться, а кольцо добивает лучников, когда
+ * линии нет, — это замысел, но и у него есть граница, иначе предохранитель
+ * ничего не предохраняет.
+ */
+export const OVERSIZE_CAP = { line: 1.6, lineMean: 1.5, noLine: 2.0 };
+
+/** Есть ли у состава пешая линия — пехота или копья. */
+export const hasLine = (army: Partial<Stack>): boolean => (army.infantry ?? 0) > 0 || (army.spear ?? 0) > 0;
+
 export interface Mirrored {
+  /** Кто выиграл размен: потери противника больше своих хотя бы в `RATIO_EVEN` раз. */
   winner: 'a' | 'b' | 'draw';
   /** Потери b к потерям a, суммарно за оба боя. */
   lossRatio: number;
+  /** Сколько раз каждая сторона удержала поле (из двух боёв) — результат, не цена. */
+  field: { a: number; b: number };
+  /** Сколько из двух боёв — победы с непомерными потерями. */
+  pyrrhic: number;
   ticks: number;
   results: [BattleResult, BattleResult];
 }
@@ -47,15 +72,15 @@ export function mirrored(a: ArmySetup, b: ArmySetup, seed: number): Mirrored {
   const r2 = simulateBattle({ seed, attacker: b, defender: a });
   const aLoss = r1.sides.attacker.total.losses + r2.sides.defender.total.losses;
   const bLoss = r1.sides.defender.total.losses + r2.sides.attacker.total.losses;
-  const aWins = (r1.winner === 'attacker' ? 1 : 0) + (r2.winner === 'defender' ? 1 : 0);
-  const bWins = (r1.winner === 'defender' ? 1 : 0) + (r2.winner === 'attacker' ? 1 : 0);
+  const field = {
+    a: (r1.winner === 'attacker' ? 1 : 0) + (r2.winner === 'defender' ? 1 : 0),
+    b: (r1.winner === 'defender' ? 1 : 0) + (r2.winner === 'attacker' ? 1 : 0),
+  };
   const ratio = bLoss / Math.max(1, aLoss);
   let winner: Mirrored['winner'] = 'draw';
-  if (aWins > bWins) winner = 'a';
-  else if (bWins > aWins) winner = 'b';
-  else if (ratio > 1.05) winner = 'a';
-  else if (ratio < 1 / 1.05) winner = 'b';
-  return { winner, lossRatio: ratio, ticks: (r1.ticks + r2.ticks) / 2, results: [r1, r2] };
+  if (ratio >= RATIO_EVEN) winner = 'a';
+  else if (ratio <= 1 / RATIO_EVEN) winner = 'b';
+  return { winner, lossRatio: ratio, field, pyrrhic: (r1.pyrrhic ? 1 : 0) + (r2.pyrrhic ? 1 : 0), ticks: (r1.ticks + r2.ticks) / 2, results: [r1, r2] };
 }
 
 /** Расстановка вручную: только указанные сектора. */

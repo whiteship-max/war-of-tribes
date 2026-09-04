@@ -28,6 +28,7 @@ import {
   PHASE_MIN,
   PHASE_TICKS,
   PLANS,
+  PYRRHIC_BELOW,
   RANGED_RATE,
   RANGED_SHOCK_LATE,
   RANGED_SHOCK_TICKS,
@@ -1229,7 +1230,6 @@ class Battle {
       this.winner = 'draw';
       this.reason = 'draw';
     }
-    this.emit({ id: 'result', winner: this.winner, reason: this.reason });
     const sides = { attacker: this.sideResult('attacker'), defender: this.sideResult('defender') };
     // Стрельба не может выбить больше, чем противник потерял по итогу: округления сходятся к целым потерям.
     for (const side of SIDES) {
@@ -1237,11 +1237,22 @@ class Battle {
       sides[side].rangedTotal = Math.min(sides[side].rangedTotal, enemyLosses);
       sides[side].rangedBeforeContact = Math.min(sides[side].rangedBeforeContact, sides[side].rangedTotal);
     }
+    // Результат и цена отдельно: поле удержано, но потеряно больше, чем у противника, — победа с непомерными потерями.
+    let pyrrhic = false;
+    if (this.winner !== 'draw') {
+      const w = sides[this.winner].total.losses;
+      const l = sides[other(this.winner)].total.losses;
+      pyrrhic = w > 0 && l / w < PYRRHIC_BELOW;
+      sides[this.winner].verdict = pyrrhic ? 'pyrrhic' : 'victory';
+      sides[other(this.winner)].verdict = 'defeat';
+    }
+    this.emit({ id: 'result', winner: this.winner, reason: this.reason, pyrrhic });
     return {
       seed: this.input.seed,
       ticks: this.tick,
       winner: this.winner,
       reason: this.reason,
+      pyrrhic,
       phases: this.phases,
       sides,
       log: this.log,
@@ -1279,6 +1290,7 @@ class Battle {
       total: { initial: stackTotal(initial), final: stackTotal(final), losses: stackTotal(losses) },
       sectors,
       morale: Math.round(Math.max(0, Math.min(MORALE.max, s.morale))),
+      verdict: 'draw',
       brokenAt: s.brokenAt,
       rangedBeforeContact: Math.round(s.rangedBeforeContact),
       rangedTotal: Math.round(s.rangedTotal),
