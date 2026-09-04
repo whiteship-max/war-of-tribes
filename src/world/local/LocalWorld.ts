@@ -3,8 +3,11 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { seeded } from '@/game/sim/random';
+import { FRONT, REAR, type Stack } from '@/battle';
+import { gearOf, kindsOf, troopLosses, troopTotal } from '@/game/battle/kinds';
 import type { WorldApi } from '../api';
 import type {
+  BattleRecord,
   HomeEffect,
   Intel,
   IntelReading,
@@ -37,7 +40,9 @@ import {
 } from '../geo';
 import { RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackSize } from '../data/units';
-import { marchSeed, resolveBattle, stackAfter, stackLosses, stackPower } from '../combat';
+import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
+import { garrisonOf, raidingParty, GARRISON_STYLES } from '../garrison';
+import { resolveField } from '../battle';
 import { estimate, readIntel } from '../intel';
 import {
   AI_MIN_POP,
@@ -49,6 +54,7 @@ import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
   DAMAGE_RECOVER,
+  DEFENSE_FREEZE,
   HOSTILITY_ALLY_BREAK,
   HOSTILITY_ATTACK,
   HOSTILITY_DECAY_PER_MIN,
@@ -204,6 +210,33 @@ export class LocalWorld implements WorldApi {
     if (i >= 0) this.save.marches.splice(i, 1);
   }
 
+  /** Отряд без записанного состава (старый поход, чужой набег) — пешая масса по мощи. */
+  private fallbackStack(power: number): Stack {
+    return { spear: 0, infantry: Math.max(1, Math.round(power / 2)), archer: 0, cavalry: 0 };
+  }
+
+  /**
+   * Снимок гарнизона: численность, состав по родам и построение. Состав выводится
+   * из мощи и сида (см. garrison.ts), поэтому разведка и бой видят одно и то же
+   * войско, а не два разных. План, приказы и резерв в снимок не попадают — их
+   * разведка не даёт, и вся неопределённость держится на этом.
+   */
+  private snapshot(s: GenSettlement, now: number): Intel {
+    const power = this.powerNow(s, now);
+    const g = garrisonOf(this.save.seed, s.id, power, s.castle);
+    const formation: Partial<Record<string, Stack>> = {};
+    for (const id of [...FRONT, ...REAR]) formation[id] = { ...g.setup.sectors[id] };
+    return {
+      at: now,
+      power,
+      pop: this.popNow(s, now),
+      loot: this.lootAvailable(s, now),
+      kinds: g.kinds,
+      formation,
+      style: GARRISON_STYLES[g.style].name,
+    };
+  }
+
   // ---------- Добыча ----------
 
   private lootCap = (s: GenSettlement, now: number): number => Math.round(this.popNow(s, now) * 3);
@@ -342,10 +375,26 @@ export class LocalWorld implements WorldApi {
 
   private resolveRaid(m: StoredMarch, target: GenSettlement, at: number): void {
     const defense = this.powerNow(target, at);
-    const outcome = resolveBattle({ seed: m.seed, attack: m.power, defense });
+    const garrison = garrisonOf(this.save.seed, target.id, defense, target.castle);
+    // Состав отряда знает только племя; у старых походов его нет — считаем пехотой.
+    const troops = m.troops ?? {};
+    const kinds = troopTotal(troops) > 0 ? kindsOf(troops) : this.fallbackStack(m.power);
+    const field = resolveField({
+      seed: m.seed,
+      attacker: { kinds, gear: gearOf(troops), setup: m.setup ?? null },
+      defender: { kinds: garrison.kinds, gear: garrison.gear, setup: garrison.setup },
+      intel: this.save.intel[target.id]?.kinds,
+    });
+    const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
+    const lostTroops = troopTotal(troops) > 0 && field.result
+      ? troopLosses(troops, field.result.sides.attacker.losses)
+      : {};
     const lost = stackLosses(m.units, outcome.attackerLoss);
     const left = stackAfter(m.units, lost);
     const enemyLost = Math.round(defense * outcome.defenderLoss);
+    const record: BattleRecord | null = field.result
+      ? { us: 'attacker', preset: field.preset.attacker, result: field.result }
+      : null;
 
     const prev = this.damageOf(target.id, at);
     this.save.damage[target.id] = {
@@ -359,13 +408,8 @@ export class LocalWorld implements WorldApi {
       );
     }
 
-    // Бой — та же разведка: гарнизон посчитан своими глазами.
-    const intel: Intel = {
-      at,
-      power: defense,
-      pop: this.popNow(target, at),
-      loot: this.lootAvailable(target, at),
-    };
+    // Бой — та же разведка, и лучшая: гарнизон посчитан своими глазами.
+    const intel = this.snapshot(target, at);
     this.save.intel[target.id] = intel;
 
     // Золото берут до добра: доля казны соразмерна тому, сколько гарнизона выбили.
@@ -391,6 +435,7 @@ export class LocalWorld implements WorldApi {
       enemyLost,
       loot: spoils,
       intel,
+      battle: record,
       text: outcome.won
         ? `Гарнизон ${target.name} разбит.${lootText}`
         : `Оборона ${target.name} оказалась крепче.${wiped ? ' Отряд не вернётся.' : ' Уцелевшие уходят домой.'}`,
@@ -400,6 +445,7 @@ export class LocalWorld implements WorldApi {
     this.addEffect({
       id: `${m.id}-battle`,
       lost,
+      lostTroops,
       resources: {},
       prestige: outcome.won ? 4 : 0,
       morale: outcome.won ? 4 : -6,
@@ -427,7 +473,7 @@ export class LocalWorld implements WorldApi {
 
     let intel: Intel | null = null;
     if (seen) {
-      intel = { at, power, pop: this.popNow(target, at), loot: this.lootAvailable(target, at) };
+      intel = this.snapshot(target, at);
       this.save.intel[target.id] = intel;
     }
 
@@ -444,6 +490,7 @@ export class LocalWorld implements WorldApi {
       enemyLost: null,
       loot: null,
       intel,
+      battle: null,
       text: seen
         ? `Отряд пересчитал войско: около ${Math.round(power)} силы.${spotted ? ' Одного заметили.' : ''}`
         : 'Разведчика заметили, и он не вернулся. Ходить надо вдвоём.',
@@ -490,6 +537,7 @@ export class LocalWorld implements WorldApi {
       enemyLost: null,
       loot: null,
       intel: null,
+      battle: null,
       text: `Отряд встал в ${target.name}. Союз крепче, отряд вернётся сам.`,
       read: false,
     });
@@ -522,6 +570,7 @@ export class LocalWorld implements WorldApi {
         enemyLost: null,
         loot: null,
         intel: null,
+        battle: null,
         text: `${m.fromName}: чужаки покружили у становища и ушли.`,
         read: false,
       });
@@ -529,11 +578,31 @@ export class LocalWorld implements WorldApi {
     }
 
     const profile = this.save.profile;
-    const defense = profile?.defense ?? 0;
-    const outcome = resolveBattle({ seed: m.seed, attack: m.power, defense });
+    const party = raidingParty(this.save.seed, m.id, m.power);
+    // Гарнизон дома: бойцы племени плюс ополчение — частокол, башня и сами жители.
+    // Ополчение в расстановке не участвует, оно растекается по фронту само.
+    const home = profile?.army ?? {};
+    const militia = Math.max(0, Math.round(profile?.militia ?? 0));
+    const homeKinds = kindsOf(home);
+    homeKinds.infantry += militia;
+    // Оборона, запертая за пять минут до прихода: менять её было уже нельзя.
+    const frozen = this.save.frozenDefense;
+    const setup = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);
+    const field = resolveField({
+      seed: m.seed,
+      attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
+      defender: { kinds: homeKinds, gear: gearOf(home), setup },
+    });
+    const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
+    const record: BattleRecord | null = field.result
+      ? { us: 'defender', preset: setup ? null : field.preset.defender, result: field.result }
+      : null;
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
     const warriors = profile?.units.warrior ?? 0;
-    const warriorsLost = Math.min(warriors, Math.round(warriors * outcome.defenderLoss));
+    // Ополчение гибнет наравне со всеми, но списываются только бойцы: жителей
+    // набег не уносит — за них отвечают мораль и разграбленный склад.
+    const troopsLost = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
+    const warriorsLost = Math.min(warriors, troopTotal(troopsLost) || Math.round(warriors * outcome.defenderLoss));
     const plunder = outcome.won ? this.plunderHome(profile, stackCarry(attackerLeft)) : {};
     const taken = Object.values(plunder).reduce((n, v) => n + Math.abs(v ?? 0), 0);
 
@@ -550,6 +619,7 @@ export class LocalWorld implements WorldApi {
       enemyLost: Math.round(m.power * outcome.attackerLoss),
       loot: taken > 0 ? plunder : null,
       intel: null,
+      battle: record,
       text: outcome.won
         ? `${m.fromName} прорвались через заслон. Унесено ${taken} добра.`
         : `${m.fromName} отбиты у частокола.`,
@@ -559,6 +629,7 @@ export class LocalWorld implements WorldApi {
     this.addEffect({
       id: `${m.id}-defense`,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
+      lostTroops: troopsLost,
       resources: plunder,
       prestige: outcome.won ? 0 : 3,
       morale: outcome.won ? -10 : 5,
@@ -622,6 +693,7 @@ export class LocalWorld implements WorldApi {
       id: m.id,
       mission: m.mission,
       units: { ...m.units },
+      troops: m.troops ? { ...m.troops } : undefined,
       own: m.own,
       hostile: !m.own,
       phase: m.phase,
@@ -769,6 +841,8 @@ export class LocalWorld implements WorldApi {
       arriveAt: now + Math.round(seconds * 1000),
       phase: 'out',
       power: stackPower(units, profile.warriorPower),
+      troops: order.troops && troopTotal(order.troops) > 0 ? { ...order.troops } : undefined,
+      setup: order.setup ?? null,
       loot: null,
     };
     this.save.marches.push(march);
@@ -844,6 +918,7 @@ export class LocalWorld implements WorldApi {
   async sync(profile: PlayerProfile): Promise<WorldPulse> {
     const now = this.clock();
     this.save.profile = profile;
+    this.lockDefense(now, profile);
     this.fresh = [];
     this.advance(now);
     const reports = this.fresh;
@@ -859,6 +934,24 @@ export class LocalWorld implements WorldApi {
       effects,
       unread: this.save.reports.filter((r) => !r.read).length,
     };
+  }
+
+  /**
+   * Заморозка обороны: за `DEFENSE_FREEZE` до прихода чужой армии расстановка
+   * защёлкивается и дальше не меняется, что бы игрок ни присылал в слепке.
+   * Иначе оборону перенастраивали бы в последнюю секунду, и разведка нападающего
+   * не значила бы ничего.
+   */
+  private lockDefense(now: number, profile: PlayerProfile): void {
+    const soon = this.save.marches.find(
+      (m) => !m.own && m.phase === 'out' && m.arriveAt - now <= DEFENSE_FREEZE,
+    );
+    if (!soon) {
+      if (this.save.frozenDefense) this.save.frozenDefense = null;
+      return;
+    }
+    if (this.save.frozenDefense?.marchId === soon.id) return;
+    this.save.frozenDefense = { marchId: soon.id, setup: profile.defenseSetup ?? null };
   }
 
   async persist(): Promise<void> {

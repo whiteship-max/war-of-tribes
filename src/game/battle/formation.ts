@@ -21,7 +21,7 @@ import {
   type Stack,
   type UnitKind,
 } from '@/battle';
-import { KIND_OF, TROOPS_OF_KIND, gearOf, kindsOf, menOf, troopTotal, type TroopStack } from './kinds';
+import { TROOPS_OF_KIND, gearOf, kindsOf, menOf, troopTotal, weightOf, type TroopStack } from './kinds';
 
 export interface Formation {
   sectors: Record<Sector, TroopStack>;
@@ -156,14 +156,23 @@ export function presetFormation(troops: TroopStack, preset: QuickPresetId): Form
   return troopTotal(rest) > 0 ? stashUnplaced(f, rest) : f;
 }
 
-/** Расстановка в том виде, в каком её понимает ядро боя. */
+/**
+ * Расстановка в том виде, в каком её понимает ядро боя. Округление одно на весь
+ * род: если бы каждый сектор округлялся сам, отряд из пяти лучников то прибывал,
+ * то убывал на человека при перекладывании между секторами.
+ */
 export function toArmySetup(f: Formation, militia = 0): ArmySetup {
   const sectors = Object.fromEntries(SECTORS.map((id) => [id, emptyStack()])) as Record<Sector, Stack>;
-  for (const id of SECTORS) {
-    for (const t of TROOP_IDS) {
-      const n = f.sectors[id][t] ?? 0;
-      if (n > 0) sectors[id][KIND_OF[t]] += menOf(t, n);
-    }
+  for (const k of UNIT_KINDS) {
+    const raw = SECTORS.map((id) =>
+      TROOPS_OF_KIND[k].reduce((n, t) => n + (f.sectors[id][t] ?? 0) * weightOf(t), 0),
+    );
+    const total = raw.reduce((a, b) => a + b, 0);
+    if (total <= 0) continue;
+    const parts = share(Math.max(1, Math.round(total)), raw);
+    SECTORS.forEach((id, i) => {
+      sectors[id][k] = parts[i];
+    });
   }
   if (militia > 0) {
     // Ополчение растекается по фронту поровну: остаток — в центр.

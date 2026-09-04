@@ -1,7 +1,15 @@
 // Старение разведданных. Разведка — не разовая галочка: снимок стареет,
 // точность падает ступенями, и в конце от него не остаётся ничего.
+import { UNIT_KINDS, stackTotal, type Stack, type UnitKind } from '@/battle';
 import type { Estimate, Intel, IntelReading, Precision } from './types';
 import { INTEL_EXACT, INTEL_ROUGH, INTEL_ROUGH_SPREAD, INTEL_VAGUE, INTEL_VAGUE_SPREAD } from './data/tuning';
+
+/**
+ * На старых данных мелкие отряды теряются: разведка помнит, что было много
+ * пехоты, но про десяток всадников уже не поручится. Доля, ниже которой род
+ * уходит в «неизвестно».
+ */
+const VAGUE_SHARE = 0.15;
 
 /** Ступень точности по возрасту данных. */
 export function precisionOf(ageMs: number): Precision {
@@ -33,6 +41,24 @@ export function estimate(value: number, precision: Precision): Estimate {
 /** Точное значение — то, что игрок видит про себя. */
 export const exact = (value: number): Estimate => estimate(value, 'exact');
 
+/**
+ * Численность по родам с той точностью, что осталась. На свежих данных — точные
+ * числа, дальше — диапазоны, на старых мелкие отряды пропадают совсем: показывать
+ * «кавалерия: 0», когда её просто не разглядели, значит врать игроку.
+ */
+export function readKinds(kinds: Stack | undefined, precision: Precision): Partial<Record<UnitKind, Estimate>> | null {
+  if (!kinds || precision === 'unknown') return null;
+  const total = stackTotal(kinds);
+  if (total <= 0) return null;
+  const out: Partial<Record<UnitKind, Estimate>> = {};
+  for (const k of UNIT_KINDS) {
+    const n = kinds[k];
+    if (precision === 'vague' && n / total < VAGUE_SHARE) continue;
+    out[k] = estimate(n, precision);
+  }
+  return out;
+}
+
 /** Читаемые разведданные на момент now. null — разведки не было или она истлела. */
 export function readIntel(intel: Intel | null, now: number): IntelReading | null {
   if (!intel) return null;
@@ -46,6 +72,11 @@ export function readIntel(intel: Intel | null, now: number): IntelReading | null
     power: estimate(intel.power, precision),
     pop: estimate(intel.pop, precision),
     loot: estimate(intel.loot, precision),
+    kinds: readKinds(intel.kinds, precision),
+    // Построение живёт недолго: на старых данных противник давно перестроился,
+    // и показывать вчерашнюю схему как сегодняшнюю нельзя.
+    formation: precision === 'vague' ? null : (intel.formation ?? null),
+    style: intel.style ?? null,
   };
 }
 

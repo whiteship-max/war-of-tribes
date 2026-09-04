@@ -5,6 +5,8 @@ import type { GameState, LogEntry, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { homeArmy, jobCounts, storageCap } from '../derived';
 import { removeSoldiers } from './army';
+import { TROOP_IDS } from '../data/troops';
+import type { TroopStack } from '../battle/kinds';
 import { removeVillager } from './population';
 import { log } from './log';
 
@@ -13,6 +15,12 @@ export interface ExpeditionOutcome {
   /** Погибшие воины и разведчики. */
   warriorsLost: number;
   scoutsLost: number;
+  /**
+   * Кто именно не вернулся. Бой считает по составу отряда, поэтому потери
+   * приходят поимённо по видам, а не одним числом: иначе поход из латников
+   * списывал бы дубинщиков, оставшихся дома.
+   */
+  troopsLost?: TroopStack;
   /** Плюс — привезли добычу, минус — унесли у нас. */
   resources: Partial<Record<ResourceId, number>>;
   /** Золото из чужой казны. Вместимость склада на него не действует. */
@@ -63,8 +71,18 @@ function takeFallenScouts(s: GameState, n: number): string[] {
  * Ушедших в поход пересчитывает мир — здесь их число не трогаем.
  */
 export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
-  // Бойцы гибнут из армии, слабые первыми; разведчики — из свободных жителей.
-  const soldiersLost = removeSoldiers(s, o.warriorsLost);
+  // Бойцы гибнут по составу отряда; если состава нет (старый поход) — слабые первыми.
+  let soldiersLost = 0;
+  if (o.troopsLost) {
+    for (const id of TROOP_IDS) {
+      const n = Math.min(Math.max(0, s.army[id] ?? 0), Math.max(0, o.troopsLost[id] ?? 0));
+      if (n > 0) {
+        s.army[id] -= n;
+        soldiersLost += n;
+      }
+    }
+  }
+  if (soldiersLost === 0) soldiersLost = removeSoldiers(s, o.warriorsLost);
   s.stats.died += soldiersLost;
   const fallen = takeFallenScouts(s, o.scoutsLost);
 
@@ -76,8 +94,6 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   }
 
   if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
-  // Золото везут только из замков: привезли — значит, замок взят.
-  if (o.gold > 0) s.stats.castles = (s.stats.castles ?? 0) + 1;
   // Золото везут только из замков: привезли — значит, замок взят.
   if (o.gold > 0) s.stats.castles = (s.stats.castles ?? 0) + 1;
   if (o.prestige) s.prestige = Math.max(0, s.prestige + o.prestige);

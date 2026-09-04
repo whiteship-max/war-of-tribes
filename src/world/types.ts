@@ -3,6 +3,8 @@
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
 import type { ResourceId } from '@/game/types';
+import type { TroopStack } from '@/game/battle/kinds';
+import type { ArmySetup, BattleResult, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
 
 export interface Coord {
   x: number;
@@ -61,6 +63,15 @@ export interface Intel {
   pop: number;
   /** Сколько добра было видно на момент разведки. */
   loot: number;
+  /** Кого разглядели — по родам полевого боя, в бойцах строя. */
+  kinds?: Stack;
+  /**
+   * Как противник стоял: шесть секторов без резерва. Резерв и условие его ввода
+   * разведка не показывает — это единственная по-настоящему скрытая вещь в игре.
+   */
+  formation?: Partial<Record<string, Stack>>;
+  /** Уклад войска словами: «копейная стена», «конная дружина». */
+  style?: string;
 }
 
 export interface IntelReading {
@@ -70,6 +81,11 @@ export interface IntelReading {
   power: Estimate;
   pop: Estimate;
   loot: Estimate;
+  /** Численность по родам с той точностью, что осталась. null — состав не разглядели. */
+  kinds: Partial<Record<UnitKind, Estimate>> | null;
+  /** Построение по секторам. null — данные слишком стары: построение уже не то. */
+  formation: Partial<Record<string, Stack>> | null;
+  style: string | null;
 }
 
 /** Поселение как оно видно на карте — без разведки. */
@@ -119,6 +135,8 @@ export interface MarchView {
   id: string;
   mission: Mission;
   units: UnitStack;
+  /** Состав отряда по видам бойцов племени. Пусто у чужих отрядов. */
+  troops?: TroopStack;
   /** Свой отряд или чужой. */
   own: boolean;
   /** Идёт на деревню игрока. */
@@ -140,6 +158,13 @@ export interface MarchOrder {
   target: SettlementId;
   mission: Mission;
   units: UnitStack;
+  /** Кто именно идёт: без этого бой не знает состава и считает отряд пехотой. */
+  troops?: TroopStack;
+  /**
+   * Расстановка, план, приказы и резерв. null или пусто — быстрая атака: пресет
+   * выберется по сиду похода, и противник не знает, какой из четырёх пришёл.
+   */
+  setup?: ArmySetup | null;
 }
 
 export interface SendResult {
@@ -149,6 +174,18 @@ export interface SendResult {
 }
 
 export type ReportKind = 'raid' | 'scout' | 'support' | 'defense';
+
+/**
+ * Бой целиком: журнал, потери по секторам и исход. Отчёт на экране строится из
+ * него, а не из чисел рядом, — событие, которого нет в журнале, в отчёт не попадёт.
+ */
+export interface BattleRecord {
+  /** За какую сторону играл игрок. */
+  us: Side;
+  /** Пресет быстрой атаки, если расстановку не задавали. */
+  preset: QuickPresetId | null;
+  result: BattleResult;
+}
 
 export interface Report {
   id: string;
@@ -165,6 +202,8 @@ export interface Report {
   loot: Loot | null;
   /** Что удалось разглядеть. */
   intel: Intel | null;
+  /** Полевой бой с журналом. null — боя не было (разведка, поддержка). */
+  battle: BattleRecord | null;
   text: string;
   read: boolean;
 }
@@ -176,6 +215,8 @@ export interface Report {
 export interface HomeEffect {
   id: string;
   lost: UnitStack;
+  /** Кого именно недосчитались: бой знает состав, и списывать надо тех же. */
+  lostTroops?: TroopStack;
   /** Плюс — привезли, минус — унесли. */
   resources: Loot;
   prestige: number;
@@ -197,6 +238,12 @@ export interface PlayerProfile {
   defense: number;
   /** Сила одного воина с нынешними технологиями. */
   warriorPower: number;
+  /** Гарнизон по видам бойцов: из него собирается оборона в бою. */
+  army?: TroopStack;
+  /** Что даёт оборону помимо бойцов — частокол, башня, сами жители. В поле это ополчение. */
+  militia?: number;
+  /** Как деревня встречает набег. null — обороняется тем, что вышло само. */
+  defenseSetup?: ArmySetup | null;
   /** Что доступно к отправке. */
   units: UnitStack;
   /** Что можно у игрока отнять. Золота здесь нет: казну набегом не берут. */

@@ -7,6 +7,7 @@ import { haptic } from '@/telegram/webapp';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from './bridge';
+import { DEFENSE_FREEZE } from './data/tuning';
 import {
   cachedChunk,
   chunkKeysIn,
@@ -164,11 +165,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
       if (order.mission === 'scout') s.stats.scouted = (s.stats.scouted ?? 0) + 1;
       if (order.mission === 'raid') s.stats.raids = (s.stats.raids ?? 0) + 1;
     });
-    // Племя ведёт счёт своим походам: по нему закрываются задания про карту.
-    useGame.getState().world((s) => {
-      if (order.mission === 'scout') s.stats.scouted = (s.stats.scouted ?? 0) + 1;
-      if (order.mission === 'raid') s.stats.raids = (s.stats.raids ?? 0) + 1;
-    });
     await get().pulse();
     await get().refreshCard();
     return null;
@@ -215,6 +211,29 @@ export const useWorld = create<WorldStore>((set, get) => ({
 /** Свои походы — отдельно от чужих: их показывает список, их можно отозвать. */
 export const ownMarches = (marches: MarchView[]): MarchView[] => marches.filter((m) => m.own);
 
-/** Чужие отряды, идущие на деревню игрока. */
+/** Чужие отряды, идущие на деревню игрока. Ближайший по времени — первым. */
 export const incomingMarches = (marches: MarchView[]): MarchView[] =>
-  marches.filter((m) => m.hostile && m.phase === 'out');
+  marches.filter((m) => m.hostile && m.phase === 'out').sort((a, b) => a.arriveAt - b.arriveAt);
+
+/**
+ * Заморозка обороны. Менять расстановку можно до отметки «минус пять минут» до
+ * прихода чужой армии; после неё настройки заперты, и игроку это показывают, а
+ * не игнорируют нажатия молча (раздел 8 документа).
+ *
+ * Считается здесь, чтобы у панели и у мира была одна формула: мир защёлкивает
+ * ту же отметку у себя (`LocalWorld.lockDefense`).
+ */
+export interface DefenseLock {
+  /** Ближайший чужой отряд или null. */
+  march: MarchView | null;
+  /** Секунд до прихода. */
+  seconds: number;
+  frozen: boolean;
+}
+
+export function defenseLock(marches: MarchView[], now: number): DefenseLock {
+  const m = incomingMarches(marches)[0] ?? null;
+  if (!m) return { march: null, seconds: 0, frozen: false };
+  const left = m.arriveAt - now;
+  return { march: m, seconds: Math.max(0, left / 1000), frozen: left <= DEFENSE_FREEZE };
+}

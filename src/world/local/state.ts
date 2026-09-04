@@ -1,5 +1,7 @@
 // Изменяемая часть локального мира: походы, разведданные, следы набегов, отношения.
 // Всё, что нельзя вывести из сида, живёт здесь и сохраняется в localStorage.
+import type { ArmySetup } from '@/battle';
+import type { TroopStack } from '@/game/battle/kinds';
 import type {
   Coord,
   HomeEffect,
@@ -37,6 +39,10 @@ export interface StoredMarch {
   phase: MarchPhase;
   /** Ударная мощь на момент выхода. */
   power: number;
+  /** Кто именно идёт: без состава бой не знает, чем бить. Пусто у чужих отрядов. */
+  troops?: TroopStack;
+  /** Расстановка отряда. null — быстрая атака, пресет по сиду похода. */
+  setup?: ArmySetup | null;
   loot: Loot | null;
   /** Для поддержки: до какого момента отряд стоит в чужих стенах. */
   stayUntil?: number;
@@ -67,6 +73,12 @@ export interface WorldSave {
   profile: PlayerProfile | null;
   /** Когда игрок последний раз выходил на связь. */
   seenAt: number;
+  /**
+   * Оборона, запертая за пять минут до прихода чужой армии (раздел 8 документа).
+   * Latch, а не флаг: слепок деревни приходит каждый пульс, и без него защитник
+   * менял бы расстановку до самого удара.
+   */
+  frozenDefense: { marchId: string; setup: ArmySetup | null } | null;
 }
 
 export interface WorldStorage {
@@ -111,6 +123,7 @@ export function createWorldSave(seed: number, home: Coord, allyTribe: TribeId | 
     effects: [],
     profile: null,
     seenAt: now,
+    frozenDefense: null,
   };
 }
 
