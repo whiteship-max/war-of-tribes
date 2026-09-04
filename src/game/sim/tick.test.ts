@@ -144,8 +144,25 @@ describe('симуляция', () => {
 
   it('задание выполняется и даёт награду', () => {
     const s = createInitialState();
+    const stone0 = s.resources.stone;
+    expect(assignWorker(s, buildingOfType(s, 'smithy')!.id)).toBeNull();
     tick(s, 0.5);
-    expect(s.completedQuests).toContain('assign_workers');
+    expect(s.completedQuests).toContain('smith_at_work');
+    expect(s.resources.stone).toBeGreaterThan(stone0 + 10);
+  });
+
+  it('задания — про армию, снаряжение, разведку и походы, а не про стройку', () => {
+    const s = createInitialState();
+    // Ни одно задание не закрыто самим фактом готового посёлка.
+    tick(s, 0.5);
+    expect(s.completedQuests).toEqual([]);
+    for (const q of QUESTS) expect(q.description).not.toMatch(/[Пп]острой|[Ии]зучи/);
+    // Счётчики походов закрывают свои задания.
+    s.stats.scouted = 1;
+    s.stats.raids = 1;
+    tick(s, 0.5);
+    expect(s.completedQuests).toContain('first_scout');
+    expect(s.completedQuests).toContain('first_raid');
   });
 });
 
@@ -600,7 +617,8 @@ describe('сезоны', () => {
 // ---------- Обучение ----------
 
 /** Ничего не открыто: обучение смотрит и на интерфейс тоже. */
-const UI_NONE: TutorialUi = { building: null, tab: null };
+const UI_NONE: TutorialUi = { building: null, tab: null, mapOpen: false, worldTile: false };
+const ui = (over: Partial<TutorialUi>): TutorialUi => ({ ...UI_NONE, ...over });
 
 const at = (s: GameState): string => currentStep(s)?.id ?? 'done';
 
@@ -619,10 +637,75 @@ describe('обучение', () => {
   it('тапом закрывается только шаг без условия', () => {
     const s = createInitialState();
     expect(tapTutorial(s, UI_NONE)).toBe(true);
-    expect(at(s)).toBe('campfire');
+    expect(at(s)).toBe('smithy');
     // Шаг с условием ждёт настоящего действия — тап по экрану его не проматывает.
     expect(tapTutorial(s, UI_NONE)).toBe(false);
-    expect(at(s)).toBe('campfire');
+    expect(at(s)).toBe('smithy');
+  });
+
+  it('шаг закрывается по факту: бойца наняли до просьбы', () => {
+    const s = createInitialState();
+    tapTutorial(s, UI_NONE);
+    const smithy = buildingOfType(s, 'smithy')!;
+    expect(assignWorker(s, smithy.id)).toBeNull();
+    expect(setForging(s, 'spear')).toBeNull();
+    advanceTutorial(s, UI_NONE);
+    expect(at(s)).toBe('open_build');
+    // Игрок сам нашёл казармы и нанял дубинщика — все шаги про наём снимаются разом.
+    expect(startRecruit(s, 'clubman', 1)).toBeNull();
+    advanceTutorial(s, UI_NONE);
+    expect(at(s)).toBe('map');
+  });
+
+  it('весь путь проходится действиями игрока и заканчивается сам', () => {
+    const s = createInitialState();
+    const smithy = buildingOfType(s, 'smithy')!;
+    const barracks = buildingOfType(s, 'barracks')!;
+
+    expect(at(s)).toBe('intro');
+    tapTutorial(s, UI_NONE);
+    expect(at(s)).toBe('smithy');
+
+    advanceTutorial(s, ui({ building: smithy.id }));
+    expect(at(s)).toBe('smith');
+
+    expect(assignWorker(s, smithy.id)).toBeNull();
+    advanceTutorial(s, ui({ building: smithy.id }));
+    expect(at(s)).toBe('forge');
+
+    expect(setForging(s, 'spear')).toBeNull();
+    advanceTutorial(s, ui({ building: smithy.id }));
+    expect(at(s)).toBe('open_build');
+
+    advanceTutorial(s, ui({ tab: 'build' }));
+    expect(at(s)).toBe('open_barracks');
+
+    advanceTutorial(s, ui({ building: barracks.id }));
+    expect(at(s)).toBe('recruit');
+    // Копьё ещё куётся — строка объясняет ожидание, а не молчит.
+    expect(stepText(currentStep(s)!, s)).toMatch(/куёт/);
+    catchUp(s, 60, 0.5);
+    expect(s.equipment.spear).toBeGreaterThan(0);
+    expect(stepText(currentStep(s)!, s)).toBe('Найми копейщика.');
+    expect(startRecruit(s, 'spearman', 1)).toBeNull();
+    advanceTutorial(s, ui({ building: barracks.id }));
+    expect(at(s)).toBe('map');
+
+    advanceTutorial(s, ui({ mapOpen: true }));
+    expect(at(s)).toBe('pick');
+
+    advanceTutorial(s, ui({ mapOpen: true, worldTile: true }));
+    expect(at(s)).toBe('scout');
+
+    // Разведка ушла: мир проставляет число ушедших на пульсе.
+    s.scoutsAway = 2;
+    advanceTutorial(s, ui({ mapOpen: true, worldTile: true }));
+    expect(at(s)).toBe('outro');
+
+    tapTutorial(s, UI_NONE);
+    expect(s.tutorialDone).toBe(true);
+    expect(currentStep(s)).toBeNull();
+    expect(tutorialActive(s)).toBe(false);
   });
 
   it('пропуск закрывает обучение с любого шага', () => {

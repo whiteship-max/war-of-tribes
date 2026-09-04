@@ -34,6 +34,8 @@ const AUTOSAVE_MS = 15000;
 const tutorialUi = (g: GameStore): TutorialUi => ({
   building: g.sheet?.kind === 'building' ? g.sheet.id : null,
   tab: g.sheet?.kind === 'tab' ? g.sheet.tab : null,
+  mapOpen: g.mapOpen,
+  worldTile: g.sheet?.kind === 'world',
 });
 
 export interface GameStore {
@@ -117,6 +119,7 @@ export const useGame = create<GameStore>((set, get) => ({
   openMap: () => {
     haptic('light');
     set({ mapOpen: true, sheet: null });
+    get().syncTutorial();
   },
 
   closeMap: () => {
@@ -129,6 +132,7 @@ export const useGame = create<GameStore>((set, get) => ({
   openWorldTile: (x, y) => {
     haptic('light');
     set({ sheet: { kind: 'world', x, y } });
+    get().syncTutorial();
   },
 
   openMarches: () => set({ sheet: { kind: 'marches' } }),

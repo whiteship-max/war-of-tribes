@@ -85,6 +85,7 @@ export function buyGoods(s: GameState, good: GoodId, count = 1): string | null {
     arriveAt: s.time + travel,
   };
   s.caravans.push(caravan);
+  s.stats.purchases = (s.stats.purchases ?? 0) + 1;
   log(s, `Рынок: заказано ${def.name.toLowerCase()} — ${check.count}. Телега вышла за ворота.`);
   return null;
 }

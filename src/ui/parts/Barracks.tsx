@@ -135,6 +135,7 @@ export function Barracks() {
               </div>
               <button
                 className="btn"
+                data-tut={`recruit-${def.id}`}
                 disabled={check.blocked !== null}
                 onClick={() => act((st) => startRecruit(st, def.id, n))}
               >

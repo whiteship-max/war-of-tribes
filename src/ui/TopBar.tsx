@@ -1,7 +1,6 @@
 import { useGame } from '@/game/store';
 import { armySize, dayOf, dayFraction, housingCapacity, seasonOf, seasonProgress, solarPhase } from '@/game/derived';
 import { SEASON_META } from '@/game/data/seasons';
-import { tutorialActive } from '@/game/data/tutorial';
 import { useWorld } from '@/world/store';
 
 /** Время суток по фазе солнца — зимой она сдвинута, и «ночь» наступает раньше. */
@@ -22,7 +21,7 @@ const moraleIcon = (m: number): string => (m >= 70 ? '😊' : m >= 40 ? '😐' :
  * Справа — дружина: армия теперь центр игры, и её численность видна всегда.
  *
  * Отдельной кнопкой справа висит карта мира: это не раздел про посёлок, а выход
- * наружу, к соседям. Пока идёт обучение, её нет — новичку туда рано.
+ * наружу, к соседям. Обучение ведёт к ней последним шагом.
  */
 export function TopBar() {
   const s = useGame((g) => g.s);
@@ -80,12 +79,10 @@ export function TopBar() {
         </span>
       </div>
 
-      {!tutorialActive(s) && (
-        <button className="map-btn" onClick={openMap} title="Карта мира: соседи, походы, разведка">
-          🗺️ <span>Карта</span>
-          {(unread > 0 || marching > 0) && <em>{unread > 0 ? unread : marching}</em>}
-        </button>
-      )}
+      <button className="map-btn" data-tut="nav-map" onClick={openMap} title="Карта мира: соседи, походы, разведка">
+        🗺️ <span>Карта</span>
+        {(unread > 0 || marching > 0) && <em>{unread > 0 ? unread : marching}</em>}
+      </button>
     </div>
   );
 }

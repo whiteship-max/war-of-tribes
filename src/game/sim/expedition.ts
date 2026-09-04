@@ -76,6 +76,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   }
 
   if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
+  // Золото везут только из замков: привезли — значит, замок взят.
+  if (o.gold > 0) s.stats.castles = (s.stats.castles ?? 0) + 1;
+  // Золото везут только из замков: привезли — значит, замок взят.
+  if (o.gold > 0) s.stats.castles = (s.stats.castles ?? 0) + 1;
   if (o.prestige) s.prestige = Math.max(0, s.prestige + o.prestige);
   if (o.morale) s.morale = Math.max(0, Math.min(100, s.morale + o.morale));
   if (o.battle === 'won') s.stats.battlesWon++;

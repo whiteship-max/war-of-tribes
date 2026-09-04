@@ -184,6 +184,9 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <button
             key={m.id}
             className={`btn${mission === m.id ? '' : ' ghost'}`}
+            // Проводка ведёт к разведке: пока миссия не выбрана — к этой кнопке,
+            // потом — к кнопке отправки ниже (см. data-tut там).
+            data-tut={m.id === 'scout' && mission !== 'scout' ? 'scout' : undefined}
             onClick={() => (mission === m.id ? setMission(null) : start(m.id))}
           >
             {m.icon} {m.name}
@@ -247,7 +250,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               : 'Разведчики уходят из строителей: стройка на это время замедлится.'}
           </p>
 
-          <button className="btn wide" disabled={busy || stackSize(picked) === 0} onClick={() => void doSend()}>
+          <button
+            className="btn wide"
+            data-tut={mission === 'scout' ? 'scout' : undefined}
+            disabled={busy || stackSize(picked) === 0}
+            onClick={() => void doSend()}
+          >
             {MISSIONS.find((m) => m.id === mission)?.icon} Отправить{' '}
             {UNITS.filter((u) => picked[u.id] > 0)
               .map((u) => `${u.icon}${picked[u.id]}`)

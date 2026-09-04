@@ -159,6 +159,16 @@ export const useWorld = create<WorldStore>((set, get) => ({
       return res.error;
     }
     haptic('medium');
+    // Племя ведёт счёт своим походам: по нему закрываются задания про карту.
+    useGame.getState().world((s) => {
+      if (order.mission === 'scout') s.stats.scouted = (s.stats.scouted ?? 0) + 1;
+      if (order.mission === 'raid') s.stats.raids = (s.stats.raids ?? 0) + 1;
+    });
+    // Племя ведёт счёт своим походам: по нему закрываются задания про карту.
+    useGame.getState().world((s) => {
+      if (order.mission === 'scout') s.stats.scouted = (s.stats.scouted ?? 0) + 1;
+      if (order.mission === 'raid') s.stats.raids = (s.stats.raids ?? 0) + 1;
+    });
     await get().pulse();
     await get().refreshCard();
     return null;

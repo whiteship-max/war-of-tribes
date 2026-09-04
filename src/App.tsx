@@ -105,7 +105,7 @@ export function App() {
       <WinterModal />
       <OfflineModal />
       <LegacyModal />
-      {!mapOpen && <TutorialOverlay />}
+      <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

@@ -158,6 +158,13 @@ export interface Stats {
   born: number;
   died: number;
   eventsResolved: number;
+  /** Отправлено разведок и набегов — по ним считаются задания про карту. */
+  scouted: number;
+  raids: number;
+  /** Замков, из которых привезли золото. */
+  castles: number;
+  /** Покупок на рынке. */
+  purchases: number;
 }
 
 export interface GameState {

@@ -56,6 +56,7 @@ export function Smithy({ b }: { b: Building }) {
           <button
             key={e.id}
             className={`card as-row${info.item === e.id ? ' done' : ''}`}
+            data-tut={`forge-${e.id}`}
             onClick={() => act((st) => setForging(st, e.id))}
           >
             <div className="ico">{e.icon}</div>

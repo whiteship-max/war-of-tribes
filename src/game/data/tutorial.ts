@@ -1,13 +1,15 @@
 // Проводка первых шагов. Только данные: что сказать, что подсветить и по какому
 // факту шаг считается пройденным. Рисует это ui/TutorialOverlay.
+//
+// Посёлок стоит с первой секунды, поэтому вести за руку надо не к стройке, а к
+// тому, вокруг чего игра: кузница → снаряжение → казармы → карта → разведка.
 import type { BuildingTypeId, GameState } from '../types';
 import { DAY_LENGTH } from '../constants';
-import { buildingById } from '../derived';
-import { SEASONS, SEASON_DAYS } from './seasons';
+import { armySize, buildingById, buildingOfType, workerCount } from '../derived';
 
 /** Что подсвечивается «дыркой» в затемнении. */
 export type TutorialTarget =
-  /** Ничего: строка на весь экран, дальше по тапу в любом месте. */
+  /** Ничего: строка на весь экран. Без `done` — дальше по тапу в любом месте. */
   | { kind: 'none' }
   /** Здание в сцене — позиция считается проекцией из 3D, так что живёт при повороте камеры. */
   | { kind: 'building'; type: BuildingTypeId }
@@ -20,6 +22,10 @@ export interface TutorialUi {
   building: number | null;
   /** Открытый раздел нижней навигации. */
   tab: string | null;
+  /** Открыта карта мира. */
+  mapOpen: boolean;
+  /** Открыта карточка клетки карты. */
+  worldTile: boolean;
 }
 
 export interface TutorialStep {
@@ -28,15 +34,12 @@ export interface TutorialStep {
   text: string | ((s: GameState) => string);
   target: TutorialTarget;
   /**
-   * Шаг закрыт. Проверяется по факту, а не по порядку: игрок, построивший лесопилку
+   * Шаг закрыт. Проверяется по факту, а не по порядку: игрок, нанявший бойца
    * раньше просьбы, не застревает — шаг проматывается. Шаг без `done` — строка,
    * которую закрывают тапом в любом месте.
    */
   done?: (s: GameState, ui: TutorialUi) => boolean;
 }
-
-/** День, на который приходит первая зима: она замыкает первый год. */
-export const FIRST_WINTER_DAY = SEASONS.indexOf('winter') * SEASON_DAYS + 1;
 
 /**
  * Сколько игрового времени обучение придерживает случайные события. Ограничение по
@@ -51,28 +54,96 @@ const opened = (s: GameState, ui: TutorialUi, type: BuildingTypeId): boolean => 
   return b !== null && b.type === type;
 };
 
+/** Сколько кузнецов стоит у горна. */
+const smiths = (s: GameState): number => {
+  const smithy = buildingOfType(s, 'smithy');
+  return smithy ? workerCount(s, smithy.id) : 0;
+};
+
+/** Есть ли на складе хоть один предмет снаряжения. */
+const anyGear = (s: GameState): boolean => Object.values(s.equipment ?? {}).some((n) => n > 0);
+
+/** Бойцы уже есть или учатся. */
+const anyTroops = (s: GameState): boolean => armySize(s) > 0 || (s.recruits ?? []).length > 0;
+
+/** Разведка ушла: число ушедших выводится из походов мира на каждом пульсе. */
+const scouting = (s: GameState): boolean => s.scoutsAway > 0;
+
+/**
+ * Шаги сценария, разложенные по местам экрана: кузница и её слот, наряд на копьё,
+ * список зданий и казармы в нём, кнопка карты, соседнее поселение и разведка.
+ * Каждый шаг заканчивается действием игрока в настоящем интерфейсе: обучающих
+ * макетов и кнопки «Далее» здесь нет.
+ */
 export const TUTORIAL: TutorialStep[] = [
   {
     id: 'intro',
-    text: 'Пять человек и костёр. Больше у племени ничего нет.',
+    text: 'Посёлок стоит, стена замкнута. Соседи не дремлют.',
     target: { kind: 'none' },
   },
   {
-    id: 'campfire',
-    text: 'Тапни костёр — у каждого здания своя панель.',
-    target: { kind: 'building', type: 'campfire' },
-    // Главное правило — «данные живут в зданиях», поэтому годится любая открытая панель.
-    done: (_s, ui) => ui.building !== null,
+    id: 'smithy',
+    text: 'Тапни кузницу — у каждого здания своя панель.',
+    target: { kind: 'building', type: 'smithy' },
+    done: (s, ui) => opened(s, ui, 'smithy') || smiths(s) > 0 || anyGear(s),
   },
   {
-    id: 'storage',
-    text: 'Все запасы племени — на складе. Тапни его.',
-    target: { kind: 'building', type: 'storage' },
-    done: (s, ui) => opened(s, ui, 'storage'),
+    id: 'smith',
+    text: 'Поставь кузнеца к горну.',
+    target: { kind: 'dom', sel: '[data-tut="slot-add"]' },
+    done: (s) => smiths(s) > 0 || anyGear(s),
   },
   {
-    id: 'winter',
-    text: `Зима придёт на ${FIRST_WINTER_DAY}-й день. К ней готовятся заранее.`,
+    id: 'forge',
+    text: 'Выбери наряд: начни с копья.',
+    target: { kind: 'dom', sel: '[data-tut="forge-spear"]' },
+    done: (s) => s.forging !== null || anyGear(s),
+  },
+  {
+    id: 'open_build',
+    text: 'Открой «Здания» внизу — там весь посёлок.',
+    target: { kind: 'dom', sel: '[data-tut="nav-build"]' },
+    done: (s, ui) => ui.tab === 'build' || opened(s, ui, 'barracks') || anyTroops(s),
+  },
+  {
+    id: 'open_barracks',
+    text: 'Найди казармы — там нанимают бойцов.',
+    target: { kind: 'dom', sel: '[data-tut="list-barracks"]' },
+    done: (s, ui) => opened(s, ui, 'barracks') || anyTroops(s),
+  },
+  {
+    id: 'recruit',
+    // Пока копьё куётся, кнопка найма не нажимается: строка объясняет ожидание.
+    text: (s) =>
+      (s.equipment.spear ?? 0) > 0
+        ? 'Найми копейщика.'
+        : s.forging === 'spear'
+          ? 'Кузница куёт копьё. Как будет готово — нанимай.'
+          : 'Нужно копьё: скуй его или найми, кого можешь.',
+    target: { kind: 'dom', sel: '[data-tut="recruit-spearman"]' },
+    done: (s) => anyTroops(s),
+  },
+  {
+    id: 'map',
+    text: 'Открой карту — соседи там.',
+    target: { kind: 'dom', sel: '[data-tut="nav-map"]' },
+    done: (s, ui) => ui.mapOpen || scouting(s),
+  },
+  {
+    id: 'pick',
+    text: 'Тапни соседнее поселение.',
+    target: { kind: 'none' },
+    done: (s, ui) => ui.worldTile || scouting(s),
+  },
+  {
+    id: 'scout',
+    text: 'Выбери «Разведать» и отправь двоих.',
+    target: { kind: 'dom', sel: '[data-tut="scout"]' },
+    done: (s) => scouting(s),
+  },
+  {
+    id: 'outro',
+    text: 'Разведка вернётся с числами. Дальше — поход.',
     target: { kind: 'none' },
   },
 ];
