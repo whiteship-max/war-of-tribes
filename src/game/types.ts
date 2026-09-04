@@ -1,5 +1,6 @@
 // Базовые типы состояния игры. Симуляция не зависит от рендера и UI.
 import type { DecreeId, RationId, TaxId } from './data/policy';
+import type { BattlePlanTemplate, Formation } from './battle/formation';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -216,6 +217,15 @@ export interface GameState {
   warriorsAway: number;
   /** Свободные жители, ушедшие разведчиками: они не строят. */
   scoutsAway: number;
+  /**
+   * Как племя встречает набег: расстановка обороны деревни. null — обороняемся
+   * тем, что вышло само (быстрая раскладка по сиду набега).
+   */
+  defenseFormation: Formation | null;
+  /** Сохранённые схемы похода: состав, расстановка, план, приказы, резерв. */
+  battlePlans: BattlePlanTemplate[];
+  /** Что игрок предпочитает после боя: смотреть журнал или сразу итог. */
+  battleWatch: boolean;
   /** Номер текущего шага обучения (см. data/tutorial.ts). */
   tutorialStep: number;
   /** Обучение пройдено или пропущено. */

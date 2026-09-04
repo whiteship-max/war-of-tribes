@@ -39,6 +39,7 @@ export function deserialize(json: string): GameState | null {
       recruits: data.recruits ?? [],
       market: { day: 0, bought: {}, ...(data.market ?? {}) },
       caravans: data.caravans ?? [],
+      battlePlans: data.battlePlans ?? [],
       stats: { ...base.stats, ...(data.stats ?? {}) },
     } as GameState;
     normalizeAssignments(s);

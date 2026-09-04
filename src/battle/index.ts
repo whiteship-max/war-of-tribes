@@ -5,3 +5,5 @@ export * from './config';
 export { simulateBattle } from './sim';
 export { quickSetup, quickAttack, presetWeights, QUICK_PRESETS, QUICK_PRESET_IDS, PRESET_WEIGHTS, emptyStack, stackOf, stackTotal, emptySectors, armyTotal, validateSetup, DEFAULT_ORDERS, type QuickPresetId, type QuickPreset, type Intel } from './setup';
 export { describeEvent, SECTOR_NAME, PHASE_NAME, SIDE_NAME } from './log';
+export * from './names';
+export { summarize, ourWord, VERDICT_TITLE, KEYS_MAX, type BattleSummary, type ReportLine } from './report';
