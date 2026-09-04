@@ -1,10 +1,12 @@
 // Жители: простые low-poly фигурки, которые ходят между костром и рабочим местом.
 import * as THREE from 'three';
 import type { JobId, Villager } from '@/game/types';
+import { LEGACY } from './materials';
+import { groundHeight } from './terrain';
 
-const SKIN = new THREE.MeshLambertMaterial({ color: 0xd9a77a, flatShading: true });
-const HAIR = new THREE.MeshLambertMaterial({ color: 0x3a2618, flatShading: true });
-const STICK = new THREE.MeshLambertMaterial({ color: 0x6b4426, flatShading: true });
+const SKIN = LEGACY.skin;
+const HAIR = LEGACY.hair;
+const STICK = LEGACY.stake;
 
 const JOB_COLORS: Record<JobId, number> = {
   idle: 0xb59a76,
@@ -138,7 +140,7 @@ export class VillagerAgent {
       const swing = Math.sin(this.walkPhase) * 0.5;
       this.legL.rotation.x = swing;
       this.legR.rotation.x = -swing;
-      g.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.04;
+      g.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.04 + groundHeight(g.position.x, g.position.z);
       if (dist - step < 0.12) {
         if (this.mode === 'toWork') {
           this.mode = 'work';
@@ -155,7 +157,7 @@ export class VillagerAgent {
       if (this.mode === 'work') {
         // Рабочее покачивание.
         const bob = Math.sin(t * 6 + this.walkPhase) * 0.06;
-        g.position.y = Math.max(0, bob);
+        g.position.y = Math.max(0, bob) + groundHeight(g.position.x, g.position.z);
         this.body.rotation.x = Math.sin(t * 6 + this.walkPhase) * 0.12;
         if (this.timer <= 0) {
           if (Math.random() < 0.35 || !this.workPos) {
@@ -166,7 +168,7 @@ export class VillagerAgent {
           this.pickTarget();
         }
       } else {
-        g.position.y = 0;
+        g.position.y = groundHeight(g.position.x, g.position.z);
         this.body.rotation.x = 0;
         if (this.mode === 'rest' && this.timer <= 0 && wantHome) {
           // Немного побродить у костра.

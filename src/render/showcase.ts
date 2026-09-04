@@ -22,9 +22,10 @@ import { SEASON_DAYLIGHT, SEASON_DAYS } from '@/game/data/seasons';
 import { DAY_LENGTH } from '@/game/constants';
 import { ERA_META } from '@/game/derived';
 import { addVillager } from '@/game/sim/population';
-import { createBuildingGroup, levelScale, type Tier } from './buildings';
+import { createBuildingGroup, footprintOf, levelScale, type Tier } from './buildings';
 import { PLAN_SCALE } from './plan';
 import { buildGround } from './terrain';
+import { groundDecals, type DecalSpot } from './village';
 import { SeasonVisuals } from './season';
 import { TribeScene } from './Scene';
 import { applyDayNight, configureRenderer, configureSky, createLightRig, fitShadow } from './lighting';
@@ -141,9 +142,11 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(c.dpr);
   configureRenderer(renderer);
+  // Считаем вызовы честно, вместе с теневым проходом (см. Scene).
+  renderer.info.autoReset = false;
   const scene = new THREE.Scene();
   configureSky(scene);
-  const rig = createLightRig(scene);
+  const rig = createLightRig(scene, Number(p.get('shadow') ?? 1024));
   const ground = buildGround();
   scene.add(ground);
   const seasonVis = new SeasonVisuals();
@@ -154,10 +157,12 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const back = new THREE.Vector3(-Math.sin(AZIMUTH), 0, -Math.cos(AZIMUTH));
   const cols = tiers.length;
   const rows = eras.length;
+  const spots: DecalSpot[] = [];
   eras.forEach((era, ri) => {
     tiers.forEach((tier, ci) => {
       const g = createBuildingGroup(type, 2, tier, era);
-      g.scale.setScalar(levelScale(TIER_TOP[tier]) * PLAN_SCALE);
+      const scale = levelScale(TIER_TOP[tier]) * PLAN_SCALE;
+      g.scale.setScalar(scale);
       g.position
         .copy(right)
         .multiplyScalar((ci - (cols - 1) / 2) * spacing)
@@ -165,8 +170,13 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
       // Фасадом (+z модели) в камеру — как здание первого кольца смотрит на площадь.
       g.rotation.y = AZIMUTH;
       scene.add(g);
+      const [w, d] = footprintOf(type, tier);
+      spots.push({ x: g.position.x, z: g.position.z, radius: (Math.max(w, d) / 2) * scale });
     });
   });
+  // Под каждым зданием — те же декали, что кладёт посёлок: вытоптанная земля и пятно тени.
+  const decals = groundDecals(spots);
+  scene.add(decals);
 
   // Сетка вписывается по ширине: в портрете именно она ограничивает кадр.
   const fitRadius = ((cols - 1) * spacing) / 2 + 2.2 + margin;
@@ -187,11 +197,12 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
     camera.aspect = aspect;
     // То же кадрирование, что в Scene.applyFraming: в портрете выше и шире.
     const narrow = THREE.MathUtils.clamp((0.75 - aspect) / 0.15, 0, 1);
-    const polar = THREE.MathUtils.lerp(0.95, 0.62, narrow);
+    // polar=… и zoom=… позволяют посмотреть ниже и ближе, чем стартовый кадр игры.
+    const polar = Number(p.get('polar') ?? THREE.MathUtils.lerp(0.95, 0.62, narrow));
     const fov = THREE.MathUtils.lerp(42, 48, narrow);
     camera.fov = fov;
     const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
-    const dist = fitRadius / Math.tan(halfH);
+    const dist = (fitRadius / Math.tan(halfH)) / Number(p.get('zoom') ?? 1);
     camera.position.setFromSpherical(new THREE.Spherical(dist, polar, AZIMUTH)).add(target);
     camera.lookAt(target);
     camera.updateProjectionMatrix();
@@ -209,6 +220,7 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
     (scene.background as THREE.Color).setHex(0xffffff);
     scene.fog = null;
     ground.visible = false;
+    decals.visible = false;
   }
 
   const caption = makeCaption(root, c.clean);
@@ -217,8 +229,9 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
     ` · ${c.season} · solar ${c.solar}${c.silhouette ? ' · силуэт' : ''}`;
   let text = head;
   const render = (): void => {
-    if (!c.silhouette) applyDayNight(rig, scene, c.solar, seasonVis.sky);
+    if (!c.silhouette) applyDayNight(rig, scene, c.solar, seasonVis);
     controls.update();
+    renderer.info.reset();
     renderer.render(scene, camera);
     const info = renderer.info;
     const stats = { calls: info.render.calls, triangles: info.render.triangles };

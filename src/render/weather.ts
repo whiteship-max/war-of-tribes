@@ -1,6 +1,7 @@
 // Погода: снег над поселением и дым от костра. Обе системы — точки, без новой геометрии зданий.
 import * as THREE from 'three';
-import { WORLD_RADIUS } from './terrain';
+import { WORLD_RADIUS, groundHeight } from './terrain';
+import { PALETTE } from './palette';
 
 const SNOW_COUNT = 420;
 const SNOW_TOP = 12;
@@ -21,12 +22,13 @@ export class Snowfall {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     this.material = new THREE.PointsMaterial({
-      color: 0xffffff,
+      color: PALETTE.snowflake,
       size: 0.13,
       transparent: true,
       opacity: 0,
       depthWrite: false,
       fog: false,
+      toneMapped: false,
     });
     this.points = new THREE.Points(geo, this.material);
     this.points.frustumCulled = false;
@@ -51,7 +53,8 @@ export class Snowfall {
       pos[i * 3 + 1] -= this.velocity[i] * dt;
       // Лёгкий боковой снос, чтобы снег не падал строго вертикально.
       pos[i * 3] += Math.sin(t * 0.7 + i) * dt * 0.35;
-      if (pos[i * 3 + 1] < 0) this.reset(pos, i, SNOW_TOP);
+      // За стеной земля с рельефом: снежинка должна дойти до неё, а не пропасть под холмом.
+      if (pos[i * 3 + 1] < groundHeight(pos[i * 3], pos[i * 3 + 2])) this.reset(pos, i, SNOW_TOP);
     }
     attr.needsUpdate = true;
   }
@@ -73,7 +76,7 @@ export class Smoke {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     this.material = new THREE.PointsMaterial({
-      color: 0xd8d2c8,
+      color: PALETTE.smoke,
       size: 0.4,
       transparent: true,
       opacity: 0.18,

@@ -5,6 +5,8 @@ import type { Building, BuildingTypeId, EraId } from '@/game/types';
 import { VISUAL_TIERS } from '@/game/constants';
 import { MAT as T } from './terrain';
 import { GATE_ANGLE, WALL_RADIUS } from './plan';
+import { LEGACY, type MatKey } from './materials';
+import * as K from './kit';
 
 export type Stage = 0 | 1 | 2;
 /** Визуальная ступень: 0 — уровни 1–3, 1 — 4–7, 2 — 8–10. */
@@ -32,63 +34,110 @@ export function stageOf(b: Building): Stage {
   return b.work / b.workRequired >= 0.35 ? 1 : 0;
 }
 
-/** Материалы зданий. Экспортируются, чтобы сезон мог красить крыши снегом. */
-export const M = {
-  wood: new THREE.MeshLambertMaterial({ color: 0x9a6a3a, flatShading: true }),
-  woodDark: new THREE.MeshLambertMaterial({ color: 0x5e3b1f, flatShading: true }),
-  plank: new THREE.MeshLambertMaterial({ color: 0xbb8f5e, flatShading: true }),
-  timber: new THREE.MeshLambertMaterial({ color: 0x7a5330, flatShading: true }),
-  thatch: new THREE.MeshLambertMaterial({ color: 0xc9a35a, flatShading: true }),
-  thatchDark: new THREE.MeshLambertMaterial({ color: 0xa8843f, flatShading: true }),
-  shingle: new THREE.MeshLambertMaterial({ color: 0x4a4640, flatShading: true }),
-  tile: new THREE.MeshLambertMaterial({ color: 0xb4553a, flatShading: true }),
-  plaster: new THREE.MeshLambertMaterial({ color: 0xe0d6c2, flatShading: true }),
-  hide: new THREE.MeshLambertMaterial({ color: 0xa87b52, flatShading: true }),
-  stone: new THREE.MeshLambertMaterial({ color: 0x8f8a80, flatShading: true }),
-  stoneDark: new THREE.MeshLambertMaterial({ color: 0x6e6a62, flatShading: true }),
-  fire: new THREE.MeshBasicMaterial({ color: 0xff7a1a }),
-  fireInner: new THREE.MeshBasicMaterial({ color: 0xffd25a }),
-  forge: new THREE.MeshBasicMaterial({ color: 0xff6a1a }),
-  soil: new THREE.MeshLambertMaterial({ color: 0x6b4a2e, flatShading: true }),
-  sprout: new THREE.MeshLambertMaterial({ color: 0x7fc24f, flatShading: true }),
-  goat: new THREE.MeshLambertMaterial({ color: 0xe8e0d0, flatShading: true }),
-  paintRed: new THREE.MeshLambertMaterial({ color: 0xb8402e, flatShading: true }),
-  paintBlue: new THREE.MeshLambertMaterial({ color: 0x2f6f9a, flatShading: true }),
-  metal: new THREE.MeshLambertMaterial({ color: 0x55565a, flatShading: true }),
-  gold: new THREE.MeshLambertMaterial({ color: 0xd8a83a, flatShading: true }),
-  dark: new THREE.MeshLambertMaterial({ color: 0x241a12, flatShading: true }),
-  ore: new THREE.MeshLambertMaterial({ color: 0xb87333, flatShading: true }),
-  bone: new THREE.MeshLambertMaterial({ color: 0xe6dfc8, flatShading: true }),
-};
+/** Материалы старых моделей — из общего набора; цвета в palette.ts. */
+export const M = LEGACY;
 
 /**
  * Из чего сложена постройка в этой эпохе. Одна таблица на все здания: переход
  * эпохи меняет материалы разом, и деревня перестраивается на глазах —
  * шкуры и жерди → солома → тёс → камень с дранкой → штукатурка с черепицей.
+ *
+ * Таблица хранит имена цветов палитры, а не материалы: старые модели берут из неё
+ * LEGACY-материалы (ERA_STYLE), набор деталей — KIT (kitStyle), и обе стороны
+ * читают одни и те же имена.
  */
-export interface EraStyle {
+export interface EraRoles {
   /** Стены и корпус. */
-  wall: THREE.Material;
+  wall: MatKey;
   /** Кровля. */
-  roof: THREE.Material;
+  roof: MatKey;
   /** Конёк, навесы, тень кровли. */
-  roofDark: THREE.Material;
+  roofDark: MatKey;
   /** Столбы, каркас, ограды. */
-  post: THREE.Material;
+  post: MatKey;
   /** Отделка: краска, металл, золото. */
-  accent: THREE.Material;
+  accent: MatKey;
   /** Настил и основание. */
-  floor: THREE.Material;
+  floor: MatKey;
+  /** Цоколь — каменное основание под стеной. */
+  base: MatKey;
+  /** Балки фахверка и косяки. */
+  beam: MatKey;
 }
 
-export const ERA_STYLE: Record<EraId, EraStyle> = {
-  camp: { wall: M.woodDark, roof: M.hide, roofDark: M.hide, post: M.woodDark, accent: M.bone, floor: M.soil },
-  stone: { wall: M.wood, roof: M.thatch, roofDark: M.thatchDark, post: M.woodDark, accent: M.stone, floor: M.soil },
-  tribe: { wall: M.wood, roof: M.thatch, roofDark: M.thatchDark, post: M.timber, accent: M.paintRed, floor: M.soil },
-  bronze: { wall: M.plank, roof: M.thatchDark, roofDark: M.timber, post: M.timber, accent: M.ore, floor: M.stone },
-  iron: { wall: M.stone, roof: M.shingle, roofDark: M.stoneDark, post: M.timber, accent: M.metal, floor: M.stone },
-  state: { wall: M.plaster, roof: M.tile, roofDark: M.stoneDark, post: M.stone, accent: M.gold, floor: M.stone },
+export const ERA_ROLES: Record<EraId, EraRoles> = {
+  camp: { wall: 'woodDark', roof: 'hide', roofDark: 'hide', post: 'woodDark', accent: 'bone', floor: 'soil', base: 'woodDark', beam: 'woodDark' },
+  stone: { wall: 'wood', roof: 'thatch', roofDark: 'thatchDark', post: 'woodDark', accent: 'stone', floor: 'soil', base: 'woodDark', beam: 'woodDark' },
+  tribe: { wall: 'wood', roof: 'thatch', roofDark: 'thatchDark', post: 'timber', accent: 'paintRed', floor: 'soil', base: 'stoneDark', beam: 'timber' },
+  bronze: { wall: 'plank', roof: 'thatchDark', roofDark: 'timber', post: 'timber', accent: 'ore', floor: 'stone', base: 'stoneDark', beam: 'timber' },
+  iron: { wall: 'stone', roof: 'shingle', roofDark: 'stoneDark', post: 'timber', accent: 'metal', floor: 'stone', base: 'stoneDark', beam: 'timber' },
+  state: { wall: 'plaster', roof: 'tile', roofDark: 'stoneDark', post: 'stone', accent: 'gold', floor: 'stone', base: 'stone', beam: 'timber' },
 };
+
+/**
+ * Какие детали набора есть у эпохи. Эпоха меняет не каждую модель, а набор:
+ * здание описывает объёмы («круглая стена, крыша-конус, дверь на фасаде»), а
+ * какой именно конус, есть ли цоколь и труба — решает эта таблица. Шестнадцать
+ * зданий на три ступени пишутся один раз, шесть эпох добавляются строками.
+ */
+export interface EraFeatures {
+  /** Кровля: шкуры → солома → дранка → черепица. Солома двухслойная, с толстым свесом. */
+  roof: K.RoofKind;
+  /** Цоколь под стеной (в лагере его нет — стена стоит на земле). */
+  plinth: boolean;
+  /** Что над очагом: ничего, дымник над вершиной, глиняная труба, каменная труба. */
+  chimney: 'none' | 'hood' | 'clay' | 'stone';
+  /** Перемычка над дверью. */
+  lintel: 'wood' | 'stone';
+  /** Окна — только на широких стенах, иначе на телефоне это шум. */
+  windows: boolean;
+  /** Балки фахверка по стенам. */
+  fachwerk: boolean;
+  /** Ограда: плетень или жерди на столбах. */
+  fence: 'wattle' | 'rail';
+  /**
+   * Крутизна крыши: высота конуса к его радиусу. Солома круче реальной,
+   * черепица положе — эпоха читается углом крыши даже в чёрном силуэте.
+   */
+  pitch: number;
+}
+
+export const ERA_FEATURES: Record<EraId, EraFeatures> = {
+  camp: { roof: 'hide', plinth: false, chimney: 'none', lintel: 'wood', windows: false, fachwerk: false, fence: 'wattle', pitch: 1.15 },
+  stone: { roof: 'thatch', plinth: true, chimney: 'hood', lintel: 'wood', windows: false, fachwerk: false, fence: 'wattle', pitch: 1.1 },
+  tribe: { roof: 'thatch', plinth: true, chimney: 'hood', lintel: 'wood', windows: false, fachwerk: false, fence: 'wattle', pitch: 1.05 },
+  bronze: { roof: 'thatch', plinth: true, chimney: 'clay', lintel: 'wood', windows: true, fachwerk: false, fence: 'rail', pitch: 0.95 },
+  iron: { roof: 'shingle', plinth: true, chimney: 'stone', lintel: 'stone', windows: true, fachwerk: false, fence: 'rail', pitch: 0.8 },
+  state: { roof: 'tile', plinth: true, chimney: 'stone', lintel: 'stone', windows: true, fachwerk: true, fence: 'rail', pitch: 0.72 },
+};
+
+export type EraStyle = Record<keyof EraRoles, THREE.Material>;
+
+const styleFrom = (set: Record<MatKey, THREE.Material>, roles: EraRoles): EraStyle =>
+  Object.fromEntries(Object.entries(roles).map(([role, key]) => [role, set[key as MatKey]])) as EraStyle;
+
+/** Материалы эпохи для старых моделей. */
+export const ERA_STYLE: Record<EraId, EraStyle> = Object.fromEntries(
+  (Object.keys(ERA_ROLES) as EraId[]).map((era) => [era, styleFrom(LEGACY, ERA_ROLES[era])]),
+) as Record<EraId, EraStyle>;
+
+/** Краски эпохи для набора деталей: по роли — краска (см. kit.paintOf). */
+export type EraPaint = Record<keyof EraRoles, K.Paint> & { roofPaint: K.RoofPaint; ink: K.Paint; features: EraFeatures };
+
+export function eraPaint(era: EraId): EraPaint {
+  const roles = ERA_ROLES[era];
+  const f = ERA_FEATURES[era];
+  const p = Object.fromEntries(
+    Object.entries(roles).map(([role, key]) => [role, K.paintOf(key as MatKey)]),
+  ) as Record<keyof EraRoles, K.Paint>;
+  const hard = f.roof === 'shingle' || f.roof === 'tile';
+  return {
+    ...p,
+    roofPaint: { kind: f.roof, roof: p.roof, roofDark: p.roofDark, trim: hard ? p.accent : p.beam },
+    ink: K.paintOf('dark'),
+    features: f,
+  };
+}
 
 const shadow = (m: THREE.Mesh): THREE.Mesh => {
   m.castShadow = true;
@@ -242,28 +291,99 @@ function shelter(): THREE.Group {
 
 // ---------- Здания: три ступени на каждое ----------
 
-/** Хижина: круглый сруб → сруб с пристройкой → усадьба с крыльцом и трубой. */
-function hut(t: Tier, st: EraStyle): THREE.Group {
+/**
+ * Хижина из набора деталей: шатёр → длинный дом с клетью → усадьба с крыльцом,
+ * задним крылом и двором. Ступень меняет тип силуэта (конус → призма →
+ * ступенчатая масса), эпоха — кровлю, цоколь, трубу или дымник, окна, фахверк.
+ * Единицы — модельные (до PLAN_SCALE); фасад — +z, как требует facingCenter.
+ */
+function hutParts(t: Tier, era: EraId): K.Part[] {
+  const p = eraPaint(era);
+  const f = p.features;
+  const parts: K.Part[] = [];
+  const y0 = f.plinth ? K.PLINTH_H - K.PLINTH_SINK : 0;
+  const lintel = f.lintel === 'stone' ? p.base : p.beam;
+  const fencePost = f.fence === 'wattle' ? p.post : p.beam;
+  const fenceRail = f.fence === 'wattle' ? p.post : p.beam;
+
+  /** Что над очагом: труба уходит в скат, дымник садится на вершину. */
+  const smoke = (x: number, roofY: number, z: number, apexY: number): void => {
+    if (f.chimney === 'stone') parts.push(...K.chimney(0.34, apexY + 0.45 - roofY, p.base, p.base, x, roofY, z));
+    else if (f.chimney === 'clay') parts.push(K.cyl(0.14, 0.17, apexY + 0.35 - roofY, p.accent, 6, x, roofY + (apexY + 0.35 - roofY) / 2, z));
+    else if (f.chimney === 'hood') parts.push(...K.smokeHood(0.34, p.roofDark, p.post, 0, apexY - 0.02, 0));
+  };
+
+  // Круглое ядро остаётся главной массой на всех ступенях: так хижина не путается
+  // в силуэте с прямоугольными складом, казармами и мастерской.
+  const core = (r: number, h: number, R: number, x: number, z: number): { roofY: number; apex: number } => {
+    const roofH = R * f.pitch;
+    const roofY = y0 + h - 0.12;
+    if (f.plinth) parts.push(K.plinthRound(r, p.base, 10, x, z));
+    parts.push(K.wallRound(r, h, p.wall, 10, x, z, y0));
+    parts.push(...K.roofCone(R, roofH, roofY, p.roofPaint, 10, x, z));
+    return { roofY, apex: roofY + roofH };
+  };
+
+  /** Крыло: прямоугольная клеть с двускатной крышей, конёк вдоль z — фронтон смотрит на площадь. */
+  const wing = (w: number, h: number, d: number, rise: number, x: number, z: number, overhang: number): number => {
+    if (f.plinth) parts.push(K.plinth(w, d, p.base, x, z));
+    parts.push(K.wallGable(w, h, d, rise - 0.1, p.wall, x, z, undefined, y0));
+    const roofY = y0 + h - 0.1;
+    parts.push(...K.roofGable(w, d, rise, roofY, p.roofPaint, overhang, x, z));
+    if (f.fachwerk) parts.push(...K.halfTimber(w, h, d, p.beam, 0.1, y0, x, z));
+    return roofY + rise;
+  };
+
+  if (t === 0) {
+    // Шатёр: низкий барабан и крыша на две трети высоты, одна масса.
+    const { roofY, apex } = core(1.0, 0.75, 1.45, 0, 0);
+    parts.push(...K.door(0.42, 0.62, p.ink, lintel, 0, 1.0 * 1.04 + 0.02));
+    parts.push(K.stepStone(0.6, p.base, 0, 1.0 * 1.04 + 0.06));
+    if (f.chimney === 'hood') parts.push(...K.smokeHood(0.34, p.roofDark, p.post, 0, apex - 0.02, 0));
+    else smoke(-0.5, roofY + (apex - roofY) * 0.45, -0.45, apex - 0.3);
+    return parts;
+  }
+
+  if (t === 1) {
+    // Колокол и малый фронтон справа, ниже плеча: две массы, силуэт ступенчатый.
+    const { roofY, apex } = core(1.1, 0.95, 1.62, 0, 0);
+    parts.push(...K.door(0.44, 0.68, p.ink, lintel, 0, 1.1 * 1.04 + 0.02));
+    parts.push(K.stepStone(0.6, p.base, 0, 1.1 * 1.04 + 0.06));
+    const wx = 1.55;
+    const wz = 0.15;
+    wing(1.25, 0.8, 1.35, 0.72 * (f.pitch / 1.05), wx, wz, 0.2);
+    if (f.chimney === 'hood') parts.push(...K.smokeHood(0.34, p.roofDark, p.post, 0, apex - 0.02, 0));
+    else smoke(-0.6, roofY + (apex - roofY) * 0.4, -0.4, apex - 0.3);
+    return parts;
+  }
+
+  // Усадьба: большой шатёр слева, длинное крыло справа с крыльцом, двор с оградой.
+  const cx = -0.55;
+  const { roofY, apex } = core(1.2, 1.2, 1.75, cx, 0);
+  const wx = 1.27;
+  const ww = 1.6;
+  const wd = 2.1;
+  const ridge = wing(ww, 1.15, wd, 0.95 * (f.pitch / 1.05), wx, 0, 0.22);
+  // Крыльцо перед крылом, дверь под ним; ступени с железа.
+  parts.push(...K.porch(1.2, 0.7, 1.1, p.post, p.roofDark, p.floor, wd / 2, wx));
+  parts.push(...K.door(0.46, 0.72, p.ink, lintel, wx, wd / 2 + 0.02));
+  if (f.lintel === 'stone') parts.push(K.stepStone(0.7, p.base, wx, wd / 2 + 0.72));
+  // Окна — только на длинной стене крыла (2.1): на короткой это шум.
+  if (f.windows) for (const z of [-0.55, 0.45]) parts.push(K.window_(0.28, p.ink, wx + ww / 2 + 0.02, y0 + 0.78, z, { y: Math.PI / 2 }));
+  // Труба уходит в скат шатра и выше его вершины; дымник садится на вершину.
+  if (f.chimney === 'hood') parts.push(...K.smokeHood(0.4, p.roofDark, p.post, cx, apex - 0.02, 0));
+  else smoke(cx - 0.55, roofY + (apex - roofY) * 0.45, -0.45, Math.max(apex, ridge) - 0.25);
+  // Двор: ограда углом слева от шатра и поленница у стены.
+  const fx = -2.45;
+  parts.push(...K.fenceRun(fx, -0.9, fx, 0.9, 0.55, fencePost, fenceRail));
+  parts.push(...K.fenceRun(fx, 0.9, fx + 0.7, 0.9, 0.55, fencePost, fenceRail));
+  parts.push(...K.woodpile(p.post, cx - 0.35, -1.55, 0.35));
+  return parts;
+}
+
+function hut(t: Tier, era: EraId): THREE.Group {
   const g = new THREE.Group();
-  const r = [0.95, 1.2, 1.45][t];
-  const h = [0.95, 1.3, 1.7][t];
-  g.add(cyl(r, r * 1.05, h, st.wall, 8, 0, h / 2, 0));
-  g.add(cone(r * 1.42, [1.1, 1.35, 1.6][t], st.roof, 8, 0, h + [0.55, 0.68, 0.8][t], 0));
-  g.add(box(0.4, 0.65, 0.1, st.post, 0, 0.33, r * 1.02));
-  if (t >= 1) {
-    // Пристройка сбоку: дом перестаёт быть одной шайбой.
-    const aw = r * 0.95;
-    g.add(box(aw, h * 0.7, aw, st.wall, r * 1.05, h * 0.35, r * 0.5));
-    const lean = box(aw * 1.4, 0.08, aw * 1.3, st.roofDark, r * 1.05, h * 0.78, r * 0.5);
-    lean.rotation.z = -0.3;
-    g.add(lean);
-  }
-  if (t === 2) {
-    // Крыльцо и печная труба: силуэт читается как дом, а не как шалаш.
-    for (const x of [-0.55, 0.55]) g.add(cyl(0.07, 0.08, 1.05, st.post, 5, x, 0.52, r * 1.45));
-    g.add(box(1.6, 0.1, 1.0, st.roofDark, 0, 1.1, r * 1.5));
-    g.add(cyl(0.17, 0.21, 1.0, st.accent, 6, -r * 0.55, h + 1.15, -r * 0.4));
-  }
+  g.add(K.assemble(hutParts(t, era)));
   return g;
 }
 
@@ -942,7 +1062,7 @@ function palisade(stage: Stage, t: Tier, st: EraStyle): THREE.Group {
 
 /** Основание здания на первой ступени. Растёт вместе с ступенью — см. footprintOf. */
 export const FOOTPRINT: Partial<Record<BuildingTypeId, [number, number]>> = {
-  hut: [1.6, 1.6],
+  hut: [2.4, 2.0],
   storage: [1.5, 1.3],
   knowledge: [1.8, 1.4],
   gathering: [1.4, 1.0],
@@ -993,7 +1113,7 @@ export function createBuildingGroup(type: BuildingTypeId, stage: Stage, tier: Ti
   }
   switch (type) {
     case 'hut':
-      return hut(tier, st);
+      return hut(tier, era);
     case 'storage':
       return storage(tier, st);
     case 'knowledge':

@@ -37,9 +37,12 @@ import {
   configureRenderer,
   configureSky,
   createLightRig,
+  fireIntensity,
   fitShadow,
   type LightRig,
 } from './lighting';
+import { PALETTE } from './palette';
+import { disposeGeometries } from './kit';
 
 interface BuildingView {
   group: THREE.Group;
@@ -142,6 +145,7 @@ export class TribeScene {
   private armyKey = '';
   private clock = new THREE.Clock();
   private raf = 0;
+  private frameNo = 0;
   private gameTime = 0;
   private gameTimeAt = 0;
   private flame: THREE.Object3D | null = null;
@@ -171,6 +175,11 @@ export class TribeScene {
     this.renderer.setPixelRatio(this.dpr());
     configureRenderer(this.renderer);
     configureSky(this.scene);
+    // Честный счёт вызовов: при autoReset счётчик сбрасывается после теневого
+    // прохода, и stats() занижал бы бюджет вдвое. Сбрасываем сами перед кадром.
+    this.renderer.info.autoReset = false;
+    // Теневой проход через кадр: двигаются только фигурки, отставание тени на кадр не видно.
+    this.renderer.shadowMap.autoUpdate = false;
 
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
     this.camera.position.set(9, 10, 12);
@@ -193,7 +202,7 @@ export class TribeScene {
 
     this.rig = createLightRig(this.scene);
 
-    this.fireLight = new THREE.PointLight(0xff9a3a, 2.5, 12, 1.6);
+    this.fireLight = new THREE.PointLight(PALETTE.fireLight, 0.6, 14, 1.6);
     this.fireLight.position.set(0, 1.0, 0);
     this.scene.add(this.fireLight);
 
@@ -204,7 +213,15 @@ export class TribeScene {
 
     this.selection = new THREE.Mesh(
       new THREE.RingGeometry(0.86, 1.06, 32),
-      new THREE.MeshBasicMaterial({ color: 0xe8a43c, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }),
+      // Цвет интерфейса, не сцены: кольцо не тонмапится, иначе акцент посереет.
+      new THREE.MeshBasicMaterial({
+        color: 0xe8a43c,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        toneMapped: false,
+      }),
     );
     this.selection.rotation.x = -Math.PI / 2;
     this.selection.position.y = 0.07;
@@ -444,7 +461,7 @@ export class TribeScene {
     }
     if (!kind) return;
     const sprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: markerTexture(kind), depthTest: false, transparent: true }),
+      new THREE.SpriteMaterial({ map: markerTexture(kind), depthTest: false, transparent: true, toneMapped: false }),
     );
     sprite.scale.setScalar(0.9);
     sprite.position.y = view.markerY;
@@ -455,7 +472,9 @@ export class TribeScene {
 
   private disposeView(view: BuildingView): void {
     this.scene.remove(view.group);
-    view.hit.geometry.dispose();
+    // Геометрия модели своя у каждого здания — без этого смена ступени текла в GPU.
+    // Материалы общие, их не трогаем.
+    disposeGeometries(view.group);
     (view.hit.material as THREE.Material).dispose();
   }
 
@@ -596,11 +615,19 @@ export class TribeScene {
     const stage: StageId = settlementStage(s);
     const eraId = era(s);
     const present = s.buildings.map((b) => b.type).sort();
-    const key = `${stage}|${eraId}|${present.join(',')}`;
+    // Декали под зданиями растут со ступенью, поэтому ступень входит в ключ.
+    const built = s.buildings
+      .filter((b) => b.level > 0)
+      .map((b) => ({ type: b.type, tier: visualTier(b.level) }))
+      .sort((a, b) => (a.type < b.type ? -1 : 1));
+    const key = `${stage}|${eraId}|${present.join(',')}|${built.map((b) => `${b.type}:${b.tier}`).join(',')}`;
     if (key === this.villageKey && this.village) return;
     this.villageKey = key;
-    if (this.village) this.scene.remove(this.village);
-    this.village = buildVillage({ stage, era: eraId, present });
+    if (this.village) {
+      this.scene.remove(this.village);
+      disposeGeometries(this.village);
+    }
+    this.village = buildVillage({ stage, era: eraId, present, built });
     this.scene.add(this.village);
   }
 
@@ -731,9 +758,11 @@ export class TribeScene {
       this.flame.rotation.y = t * 2;
     }
     if (this.flameInner) this.flameInner.rotation.y = -t * 3;
-    this.fireLight.intensity = (night ? 4 : 1.2) * (1 + Math.sin(t * 17) * 0.12);
+    this.fireLight.intensity = fireIntensity(night, t);
 
     this.controls.update();
+    this.renderer.info.reset();
+    this.renderer.shadowMap.needsUpdate = (this.frameNo++ & 1) === 0;
     this.renderer.render(this.scene, this.camera);
     this.afterRender?.();
   }
@@ -741,7 +770,7 @@ export class TribeScene {
   /** solar: 0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — глубокая ночь. */
   private applyDayNight(solar: number): void {
     if (this.silhouette) return;
-    applyDayNight(this.rig, this.scene, solar, this.seasonVis.sky);
+    applyDayNight(this.rig, this.scene, solar, this.seasonVis);
   }
 
   // ---------- Стенд-витрина ----------

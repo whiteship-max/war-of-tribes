@@ -7,9 +7,13 @@ import * as THREE from 'three';
 import type { BuildingTypeId, EraId, StageId } from '@/game/types';
 import { STAGE_ORDER } from '@/game/data/stages';
 import { MAT as T } from './terrain';
-import { M } from './buildings';
+import { M, footprintOf, levelScale, TIER_START, type Tier } from './buildings';
+import { DECAL, LEGACY, SHADE } from './materials';
+import { GROUND_SHADE } from './palette';
 import {
   GATE_ANGLE,
+  PLAN_SCALE,
+  placeOf,
   GATE_ROAD,
   OUTER_ROAD,
   PLAN,
@@ -24,19 +28,8 @@ import {
   spurFor,
 } from './plan';
 
-/** Свои материалы обстановки: земля дорог, мостовая, разметка площадки. */
-export const VILLAGE_MAT = {
-  /** Утоптанная земля — шире и темнее тропинки. */
-  packed: new THREE.MeshLambertMaterial({ color: 0x7d6244, flatShading: true }),
-  /** Мощёный камень поздних стадий. */
-  paved: new THREE.MeshLambertMaterial({ color: 0x9a978f, flatShading: true }),
-  /** Разметка пустого места: голая земля под будущий двор. */
-  plot: new THREE.MeshLambertMaterial({ color: 0x87714f, flatShading: true }),
-  /** Колышки разметки и жерди загородок. */
-  stake: new THREE.MeshLambertMaterial({ color: 0x6b4426, flatShading: true }),
-  barrel: new THREE.MeshLambertMaterial({ color: 0x8a6136, flatShading: true }),
-  cloth: new THREE.MeshLambertMaterial({ color: 0xc7b28a, flatShading: true }),
-};
+/** Материалы обстановки — из общего набора; цвета в palette.ts. */
+export const VILLAGE_MAT = LEGACY;
 
 /**
  * Покрытие дороги растёт вместе с поселением: тропинка в лагере, утоптанная
@@ -217,11 +210,114 @@ function markedPlot(r: number, seed: number): THREE.Group {
   return g;
 }
 
+// ---------- Декали: вытоптанная земля и пятно тени под зданием ----------
+
+export interface DecalSpot {
+  x: number;
+  z: number;
+  /** Радиус основания в мировых единицах. */
+  radius: number;
+}
+
+/**
+ * Мягкий диск: веер до радиуса r одним цветом, дальше кольцо растушёвки до
+ * внешнего цвета. Обод чуть неровный по хешу — не идеальный круг.
+ */
+function softDisc(
+  pos: number[],
+  col: number[],
+  x: number,
+  z: number,
+  r: number,
+  feather: number,
+  inner: number[],
+  outer: number[],
+  seed: number,
+): void {
+  const n = 16;
+  const stride = inner.length;
+  const ring = (k: number, radius: number): [number, number] => {
+    const a = (k / n) * Math.PI * 2;
+    const wobble = 1 + 0.12 * (Math.sin(seed * 12.9 + k * 2.3) * 0.5);
+    return [x + Math.cos(a) * radius * wobble, z + Math.sin(a) * radius * wobble];
+  };
+  const push = (px: number, pz: number, c: number[]): void => {
+    pos.push(px, 0, pz);
+    for (let i = 0; i < stride; i++) col.push(c[i]);
+  };
+  for (let k = 0; k < n; k++) {
+    const [ax, az] = ring(k, r);
+    const [bx, bz] = ring(k + 1, r);
+    const [cx, cz] = ring(k + 1, r + feather);
+    const [dx, dz] = ring(k, r + feather);
+    // Веер (против часовой, если смотреть сверху: нормаль +y).
+    push(x, z, inner);
+    push(bx, bz, inner);
+    push(ax, az, inner);
+    // Кольцо растушёвки.
+    push(ax, az, inner);
+    push(bx, bz, inner);
+    push(cx, cz, outer);
+    push(ax, az, inner);
+    push(cx, cz, outer);
+    push(dx, dz, outer);
+  }
+}
+
+function discMesh(pos: number[], col: number[], stride: number, mat: THREE.Material, y: number, order: number): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, stride));
+  const normals = new Float32Array(pos.length);
+  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  const m = new THREE.Mesh(geo, mat);
+  m.position.y = y;
+  m.renderOrder = order;
+  m.receiveShadow = true;
+  return m;
+}
+
+/**
+ * Две склейки на все здания: вытоптанная земля (сезонный цвет, альфа вершин) и
+ * умножающее пятно тени (растушёвка цветом к единице). Второе сажает здание в
+ * землю на любом фоне: на траве, на дороге, на снегу.
+ */
+export function groundDecals(spots: DecalSpot[]): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'decals';
+  if (spots.length === 0) return g;
+  const tp: number[] = [];
+  const tc: number[] = [];
+  const sp: number[] = [];
+  const sc: number[] = [];
+  spots.forEach((s, i) => {
+    // Вытоптанность — полупрозрачная и чуть шире основания: земля, а не лужа.
+    softDisc(tp, tc, s.x, s.z, s.radius + 0.1, 0.9, [1, 1, 1, 0.55], [1, 1, 1, 0], i);
+    softDisc(sp, sc, s.x, s.z, s.radius * 0.8, s.radius * 0.55, [...GROUND_SHADE], [1, 1, 1], i + 7);
+  });
+  // Вытоптанная земля — под дорогами (0.045–0.05), они её перекрывают своей шириной;
+  // пятно тени — над дорогами и под кольцом выбора (0.07): оно ложится и на полотно.
+  g.add(discMesh(tp, tc, 4, DECAL.trample, 0.02, 1));
+  g.add(discMesh(sp, sc, 3, SHADE, 0.06, 2));
+  return g;
+}
+
+/** Основание построенного здания в мировых единицах — для декалей под ним. */
+export function decalSpotFor(type: BuildingTypeId, tier: Tier): DecalSpot {
+  const spot = placeOf(type);
+  const [w, d] = footprintOf(type, tier);
+  const top = [TIER_START[1] - 1, TIER_START[2] - 1, 10][tier];
+  return { x: spot.x, z: spot.z, radius: (Math.max(w, d) / 2) * PLAN_SCALE * levelScale(top) };
+}
+
 export interface VillageOptions {
   stage: StageId;
   era: EraId;
   /** Типы зданий, которые уже стоят (или строятся) — к ним ведут дороги. */
   present: BuildingTypeId[];
+  /** Достроенные здания со ступенью — под ними лежат декали. */
+  built?: { type: BuildingTypeId; tier: Tier }[];
 }
 
 /**
@@ -229,8 +325,16 @@ export interface VillageOptions {
  * стадия, эпоха или набор построек, — поэтому дешевле держать её одной группой,
  * чем следить за каждой дорожкой по отдельности.
  */
-export function buildVillage({ stage, era, present }: VillageOptions): THREE.Group {
+export function buildVillage({ stage, era, present, built = [] }: VillageOptions): THREE.Group {
   const root = new THREE.Group();
+  // Декали под зданиями — плоские, в корне: под стену им заходить можно.
+  root.add(
+    groundDecals(
+      built
+        .filter((b) => b.type !== 'palisade' && b.type !== 'campfire')
+        .map((b) => decalSpotFor(b.type, b.tier)),
+    ),
+  );
   // Всё объёмное — колодец, разметка площадок, поленницы и телеги — лежит в своей
   // группе. Дороги и мостовая остаются в корне: они плоские и под стену заходить
   // им можно, а декору — нет (это проверяет тест зоны расчистки).
