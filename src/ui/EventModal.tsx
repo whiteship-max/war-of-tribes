@@ -1,5 +1,5 @@
 import { useGame } from '@/game/store';
-import { EVENT_BY_ID, eventText } from '@/game/data/events';
+import { EVENT_BY_ID, eventText, optionHint } from '@/game/data/events';
 
 export function EventModal() {
   const s = useGame((g) => g.s);
@@ -37,7 +37,7 @@ export function EventModal() {
           {def.options.map((o, i) => (
             <button key={i} className="opt" onClick={() => resolve(i)}>
               <span>{o.label}</span>
-              {o.hint && <small>{o.hint}</small>}
+              {optionHint(o, s) && <small>{optionHint(o, s)}</small>}
             </button>
           ))}
         </div>

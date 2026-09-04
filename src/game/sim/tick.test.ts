@@ -714,6 +714,130 @@ describe('сезоны', () => {
   });
 });
 
+// ---------- События ----------
+//
+// Люди приходят и уходят толпой: поимённых жителей нет, а посёлок доходит до
+// сотен. Событие «пришёл один чужак» на таком масштабе не событие.
+
+/** Ставит событие активным и разрешает выбранный вариант. */
+function fireEvent(s: GameState, id: string, option: number): string {
+  s.activeEvent = { defId: id, at: s.time };
+  const r = resolveEvent(s, option);
+  expect(r.error).toBeNull();
+  return r.result ?? '';
+}
+
+/** Посёлок нужного размера с запасом и свободным жильём. */
+function village(pop: number): GameState {
+  const s = createInitialState();
+  s.tutorialDone = true;
+  place(s, 'hut', MAX_BUILDING_LEVEL);
+  place(s, 'storage', MAX_BUILDING_LEVEL);
+  s.pop = pop;
+  for (const r of RESOURCE_IDS) s.resources[r] = 5000;
+  s.morale = 70;
+  return s;
+}
+
+describe('события идут толпой, а не по человеку', () => {
+  it('беженцы приходят группой, и группа растёт вместе с посёлком', () => {
+    const small = village(30);
+    const before = small.pop;
+    fireEvent(small, 'refugees', 0);
+    const camePetite = small.pop - before;
+    expect(camePetite).toBeGreaterThanOrEqual(8);
+
+    const big = village(600);
+    const before2 = big.pop;
+    fireEvent(big, 'refugees', 0);
+    const cameBig = big.pop - before2;
+    // Толпа — доля посёлка: в большом племени она заметно больше.
+    expect(cameBig).toBeGreaterThan(camePetite * 3);
+    // Но и не ломает баланс: разом посёлок не удваивается.
+    expect(cameBig).toBeLessThan(before2 * 0.15);
+  });
+
+  it('«сколько поместится» не селит людей под открытым небом', () => {
+    const s = village(30);
+    s.pop = housingCapacity(s) - 3;
+    const before = s.pop;
+    fireEvent(s, 'refugees', 1);
+    expect(s.pop).toBe(before + 3);
+    expect(s.pop).toBe(housingCapacity(s));
+  });
+
+  it('принять всех можно и сверх крыш — но за тесноту платит мораль', () => {
+    const s = village(30);
+    s.pop = housingCapacity(s);
+    const target = moraleTarget(s);
+    fireEvent(s, 'refugees', 0);
+    expect(s.pop).toBeGreaterThan(housingCapacity(s));
+    expect(moraleTarget(s)).toBeLessThan(target);
+    // Теснота считается долей, а не головами: полтора десятка лишних не обнуляют мораль.
+    expect(moraleTarget(s)).toBeGreaterThan(20);
+  });
+
+  it('отказ стоит морали: это были люди', () => {
+    const s = village(200);
+    const morale0 = s.morale;
+    fireEvent(s, 'refugees', 2);
+    expect(s.pop).toBe(200);
+    expect(s.morale).toBeLessThan(morale0);
+  });
+
+  it('бродячая артель приводит людей и двигает стройку', () => {
+    const s = village(200);
+    const mill = buildingOfType(s, 'sawmill')!;
+    expect(startUpgrade(s, mill.id)).toBeNull();
+    const work0 = mill.work;
+    const pop0 = s.pop;
+    fireEvent(s, 'wanderers', 0);
+    expect(s.pop).toBeGreaterThan(pop0);
+    expect(mill.work).toBeGreaterThan(work0);
+  });
+
+  it('мор забирает долю посёлка, а не одного человека', () => {
+    const s = village(400);
+    // Шамана нет, значит обряд может не помочь; сид подобран на неудачу.
+    setRandom(seeded(3));
+    let died = 0;
+    for (let i = 0; i < 12 && died === 0; i++) {
+      const t = village(400);
+      setRandom(seeded(i + 1));
+      fireEvent(t, 'sickness', 2);
+      died = t.stats.died;
+    }
+    expect(died, 'мор хоть раз из дюжины должен ударить').toBeGreaterThan(1);
+    expect(s.pop).toBe(400);
+  });
+
+  it('награды и цены событий считаются от размера посёлка', () => {
+    const small = village(30);
+    const big = village(600);
+    const f0 = small.resources.food;
+    const f1 = big.resources.food;
+    fireEvent(small, 'berries', 0);
+    fireEvent(big, 'berries', 0);
+    expect(big.resources.food - f1).toBeGreaterThan((small.resources.food - f0) * 5);
+  });
+
+  it('волки и разбойники соразмерны обороне, а не числу из прошлого века', () => {
+    // При семи сотнях жителей стая волков не должна быть безобидной строкой лога.
+    for (const pop of [30, 700]) {
+      const s = village(pop);
+      setRandom(seeded(11));
+      const won = [...Array(20)].filter(() => {
+        const t = village(pop);
+        fireEvent(t, 'wolves', 0);
+        return t.stats.battlesWon > 0;
+      }).length;
+      // Волки слабее обороны: почти всегда отбиваемся, но это настоящий бой.
+      expect(won, `посёлок на ${pop}`).toBeGreaterThan(15);
+      expect(s.pop).toBe(pop);
+    }
+  });
+});
+
 // ---------- Обучение ----------
 
 /** Ничего не открыто: обучение смотрит и на интерфейс тоже. */

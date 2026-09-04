@@ -16,6 +16,8 @@ import {
   BASE_HOUSING,
   BASE_STORAGE_CAP,
   BUILDER_RATE,
+  CROWDING_MAX,
+  CROWDING_PENALTY,
   CRAFTER_BUILD,
   DAY_LENGTH,
   FREE_RANGE_MULT,
@@ -659,8 +661,10 @@ export function moraleTarget(s: GameState): number {
   let t = MORALE_BASE;
   const pop = s.pop;
   const housing = housingCapacity(s);
+  // Теснота считается долей, а не головами: при семи сотнях жителей штраф
+  // «минус пять за человека сверх крыш» обнулял бы мораль от одного лишнего.
   if (pop <= housing) t += 10;
-  else t -= 5 * (pop - housing);
+  else t -= Math.min(CROWDING_MAX, (CROWDING_PENALTY * (pop - housing)) / Math.max(1, housing));
   const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s));
   if (s.resources.food <= 0) t -= 25;
   else if (foodDays >= 3) t += 10;
