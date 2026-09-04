@@ -1,8 +1,15 @@
-// Обстановка посёлка: площадь с колодцем, дороги, размеченные пустые площадки и декор.
+// Обстановка посёлка: площадь с колодцем, дороги и декор на пустых местах.
 //
 // Всё это строится из плана (plan.ts), а не из того, где оказались здания: дороги
 // не переезжают, когда посёлок растёт. Меняется только покрытие — тропинка,
 // утоптанная земля, мощёный камень — и то, сколько на пустых местах добра.
+//
+// Размеченных площадок под непостроенные здания здесь больше нет. Кольцо
+// вытоптанной земли с колышками обещало дом там, где игрок ничего не начинал, и
+// посёлок с первого дня выглядел расчерченным под застройку. Фундамент появляется
+// только после того, как нажали «строить»: тогда его рисует само здание нулевого
+// уровня (stage 0 в render/buildings.ts). Где встанет непостроенное — говорит
+// панель «Здания» (placeHint в plan.ts), а не сцена.
 import * as THREE from 'three';
 import type { BuildingTypeId, EraId, StageId } from '@/game/types';
 import { STAGE_ORDER } from '@/game/data/stages';
@@ -24,7 +31,6 @@ import {
   ROAD_HALF,
   ROAD_THROUGH,
   SPARE_PLOTS,
-  plotRadius,
   spotAt,
   spurFor,
 } from './plan';
@@ -199,21 +205,6 @@ function decorFor(index: number, stage: StageId): THREE.Group | null {
   return pick(index);
 }
 
-/**
- * Размеченная площадка: обод вытоптанной земли и колышки по углам. Именно обод,
- * а не залитый круг — иначе пустой посёлок читается как поле воронок, а не как
- * размеченное под застройку место.
- */
-function markedPlot(r: number, seed: number): THREE.Group {
-  const g = new THREE.Group();
-  g.add(flat(new THREE.RingGeometry(r * 0.78, r, 20), VILLAGE_MAT.plot, 0.035));
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + 0.4 + hash(seed) * 0.3;
-    g.add(meshAt(new THREE.CylinderGeometry(0.05, 0.06, 0.42, 4), VILLAGE_MAT.stake, Math.cos(a) * r * 0.89, 0.21, Math.sin(a) * r * 0.89));
-  }
-  return g;
-}
-
 // ---------- Декали: вытоптанная земля и пятно тени под зданием ----------
 
 export interface DecalSpot {
@@ -372,27 +363,21 @@ export function buildVillage({ stage, era, present, built = [] }: VillageOptions
     if (spur) roads.add(roadSpur(spur.angle, spur.from, spur.to, half * 0.8, mat, 0.05));
   }
 
-  // Пустые места: размеченные площадки, которые обрастают добром.
+  // Пустые места плана: разметки на них нет, но посёлок на них живёт — поленницы,
+  // бочки, телеги, сушила. Место под будущий дом не размечено, оно просто занято
+  // хозяйством, как во всяком дворе.
   let seed = 0;
-  const empty: { r: number; angle: number; plot: number; onRoad: boolean }[] = [];
+  const empty: { r: number; angle: number; onRoad: boolean }[] = [];
   for (const [type, place] of Object.entries(PLAN) as [BuildingTypeId, { ring: 1 | 2 | 3; angle: number }][]) {
     if (has.has(type)) continue;
-    empty.push({
-      r: RING_RADIUS[place.ring],
-      angle: place.angle,
-      plot: plotRadius(type),
-      onRoad: ROAD_THROUGH.includes(type),
-    });
+    empty.push({ r: RING_RADIUS[place.ring], angle: place.angle, onRoad: ROAD_THROUGH.includes(type) });
   }
   for (const place of SPARE_PLOTS) {
-    empty.push({ r: RING_RADIUS[place.ring], angle: place.angle, plot: 1.5, onRoad: false });
+    empty.push({ r: RING_RADIUS[place.ring], angle: place.angle, onRoad: false });
   }
   for (const e of empty) {
     seed++;
     const spot = spotAt(e.r, e.angle);
-    const g = markedPlot(Math.min(2.2, e.plot * 0.85), seed);
-    g.position.set(spot.x, 0, spot.z);
-    decor.add(g);
     const d = decorFor(seed, stage);
     if (!d) continue;
     if (e.onRoad) {

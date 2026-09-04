@@ -53,8 +53,6 @@ export const PALETTE = {
   packed: 0x8f7657,
   /** Мостовая поздних стадий. */
   paved: 0x9c9891,
-  /** Разметка пустого места под двор. */
-  plot: 0x8a7452,
   /** Пашня и земляная завалинка ранних эпох. */
   soil: 0x6f4d31,
   sprout: 0x8ac652,
@@ -164,7 +162,6 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     trample: 0x846a4b,
     packed: 0x987e5e,
     paved: 0xa39f96,
-    plot: 0x907a56,
     soil: 0x77552f,
     sprout: 0x96d054,
     leaves: 0x3f7f3e,
@@ -188,7 +185,6 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     trample: 0x6f5940,
     packed: 0x826b50,
     paved: 0x938f88,
-    plot: 0x7d6a4a,
     soil: 0x62472b,
     sprout: 0xc9b04a,
     trunk: 0x62432b,
@@ -214,7 +210,6 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     trample: 0xc0c8d1,
     packed: 0xc3cad3,
     paved: 0xd2d7dd,
-    plot: 0xbcc4ce,
     soil: 0xa9b3bd,
     sprout: 0xcdd8e2,
     trunk: 0x5a4030,

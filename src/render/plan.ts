@@ -189,6 +189,60 @@ export function placeOf(type: BuildingTypeId): Spot {
 /** Все занятые планом места — для теста и для расстановки декора. */
 export const plannedTypes = (): BuildingTypeId[] => Object.keys(PLAN) as BuildingTypeId[];
 
+/**
+ * Где встанет здание — словами. Со сцены разметка пустых мест убрана (её кольца
+ * обещали дом там, где игрок ничего не начинал), поэтому место непостроенного
+ * называет панель «Здания». Здесь только числа и типы: имена зданий подставляет
+ * интерфейс, а падежей в тексте нет нарочно — их пришлось бы склонять по-русски.
+ *
+ * Сторона считается от ворот: игрок смотрит на посёлок ровно от них (GATE_ANGLE
+ * выведен из азимута стартовой камеры), поэтому «справа от ворот» — это правая
+ * половина экрана, а не абстрактное направление.
+ */
+export type PlaceSide = 'gate' | 'right' | 'left' | 'opposite';
+
+export interface PlaceHint {
+  /** 0 — центр площади, 4 — само кольцо стены. */
+  ring: 0 | 1 | 2 | 3 | 4;
+  side: PlaceSide;
+  /** Соседи по кольцу — ближайшие занятые планом места слева и справа. */
+  neighbours: BuildingTypeId[];
+}
+
+/** Разница углов, приведённая к (−180°, 180°]. Плюс — против часовой. */
+const angleDelta = (a: number, from: number): number => {
+  let d = (a - from) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d <= -Math.PI) d += Math.PI * 2;
+  return d;
+};
+
+function sideOf(angle: number): PlaceSide {
+  const d = angleDelta(angle, GATE_ANGLE);
+  const abs = Math.abs(d);
+  if (abs < 25 * D) return 'gate';
+  if (abs > 155 * D) return 'opposite';
+  // Мир поворачивается на экран зеркально: против часовой стрелки — это влево.
+  return d > 0 ? 'left' : 'right';
+}
+
+export function placeHint(type: BuildingTypeId): PlaceHint {
+  if (type === 'campfire') return { ring: 0, side: 'gate', neighbours: [] };
+  if (type === 'palisade') return { ring: 4, side: 'gate', neighbours: [] };
+  const angle = type === 'tower' ? TOWER_PLACE.angle : (PLAN[type]?.angle ?? SPARE_PLOTS[0].angle);
+  const ring: 1 | 2 | 3 = type === 'tower' ? 3 : (PLAN[type]?.ring ?? 3);
+  // Соседи — ближайшие по углу места того же кольца: по одному в каждую сторону.
+  let left: [BuildingTypeId, number] | null = null;
+  let right: [BuildingTypeId, number] | null = null;
+  for (const [other, place] of Object.entries(PLAN) as [BuildingTypeId, Place][]) {
+    if (other === type || place.ring !== ring) continue;
+    const d = angleDelta(place.angle, angle);
+    if (d > 0 && (left === null || d < left[1])) left = [other, d];
+    if (d < 0 && (right === null || -d < -right[1])) right = [other, d];
+  }
+  return { ring, side: sideOf(angle), neighbours: [right?.[0], left?.[0]].filter(Boolean) as BuildingTypeId[] };
+}
+
 // ---------- Дороги ----------
 
 /**

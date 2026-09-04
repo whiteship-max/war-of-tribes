@@ -16,6 +16,7 @@ import {
   workerCount,
 } from '@/game/derived';
 import { startBuilding } from '@/game/sim/actions';
+import { placeHint, type PlaceSide } from '@/render/plan';
 import { Cost } from '../parts/Cost';
 import { upgradeGain } from '../parts/upgrade';
 
@@ -155,6 +156,39 @@ function BuiltCard({ b, rate }: { b: Building; rate: number }) {
   );
 }
 
+const RING_NAME: Record<0 | 1 | 2 | 3 | 4, string> = {
+  0: 'на площади, у костра',
+  1: 'у самой площади',
+  2: 'в среднем кольце',
+  3: 'у стены',
+  4: 'кольцом вокруг посёлка',
+};
+
+const SIDE_NAME: Record<PlaceSide, string> = {
+  gate: 'у ворот',
+  right: 'справа от ворот',
+  left: 'слева от ворот',
+  opposite: 'напротив ворот',
+};
+
+/**
+ * Где встанет постройка — словами. На сцене пустые места больше не размечены
+ * (кольцо с колышками обещало дом там, где игрок ничего не начинал), поэтому
+ * место называет список: кольцо, сторона от ворот и соседи, по которым его видно
+ * в кадре. Стена — исключение: она и есть кольцо, соседей у неё нет.
+ */
+function Place({ id }: { id: Building['type'] }) {
+  const hint = placeHint(id);
+  const where = hint.ring === 4 ? RING_NAME[4] : `${RING_NAME[hint.ring]}, ${SIDE_NAME[hint.side]}`;
+  const near = hint.neighbours.map((n) => BUILDING_BY_ID[n].name).join(', ');
+  return (
+    <div className="desc place">
+      📍 {where}
+      {near && ` · рядом: ${near}`}
+    </div>
+  );
+}
+
 /** Ещё не поставленное здание: тап начинает стройку. Второго такого же не будет. */
 function NewCard({
   id,
@@ -186,6 +220,7 @@ function NewCard({
         <div className="desc">
           {techOk ? def.description : `Нужно изучить: ${TECH_BY_ID[def.requiresTech!].name}`}
         </div>
+        <Place id={id} />
         <Cost cost={def.cost} work={def.work} eta={eta} />
       </div>
       <span className="attn" title="Начать стройку">
