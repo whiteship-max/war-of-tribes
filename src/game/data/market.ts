@@ -15,7 +15,7 @@
 //
 // Еда — самый дорогой товар и с самым жёстким запасом: зима должна оставаться
 // угрозой, а не строкой расходов.
-import type { EquipmentId, GoodId, ResourceId, TechId } from '../types';
+import type { EquipmentId, GoodId, ResourceId } from '../types';
 import { RESOURCE_META } from '../constants';
 import { seeded } from '../sim/random';
 import { EQUIPMENT, EQUIPMENT_BY_ID } from './equipment';
@@ -36,8 +36,6 @@ export interface GoodDef {
   /** Дневной запас на первом уровне рынка и прибавка за каждый следующий. */
   stock: number;
   stockPerLevel: number;
-  /** Без этой технологии товара на прилавке не бывает. */
-  requiresTech?: TechId;
   /** Всегда в ассортименте: без еды рынок перестал бы быть спасением от голода. */
   always?: boolean;
 }
@@ -103,7 +101,6 @@ export const GOODS: GoodDef[] = [
       price: g.price,
       stock: g.stock,
       stockPerLevel: g.stockPerLevel,
-      requiresTech: e.requiresTech,
     };
   }),
 ];

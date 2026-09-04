@@ -11,7 +11,6 @@ import type {
   Resources,
   Season,
   TechId,
-  TroopId,
   Villager,
 } from './types';
 import {
@@ -37,7 +36,7 @@ import {
 import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
 import { JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
-import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from './data/troops';
+import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   CARAVAN_BASE,
@@ -242,34 +241,17 @@ export const policyMoralePerDay = (s: GameState): number =>
 
 // ---------- Золото, налог, рынок ----------
 
-/**
- * Знает ли племя золото. До технологии торга денег в игре нет вовсе: ни казны,
- * ни налога, ни рынка, ни золота в чужих замках. Ранняя партия про это не знает.
- */
-export const hasGold = (s: GameState): boolean => hasTech(s, 'trade');
-
-/** Действующий уровень налога. Без золота — всегда «без налога». */
-export const taxOf = (s: GameState): TaxDef =>
-  hasGold(s) ? TAX_BY_ID[s.tax] ?? TAX_BY_ID.none : TAX_BY_ID.none;
+/** Действующий уровень налога. Старое сохранение без поля читается как «без налога». */
+export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.none;
 
 /** Сбор золота за игровой день: с каждого человека посёлка, включая бойцов. */
-export function taxIncomePerDay(s: GameState): number {
-  if (!hasGold(s)) return 0;
-  return taxOf(s).perPop * population(s) * TAX_PER_POP;
-}
+export const taxIncomePerDay = (s: GameState): number => taxOf(s).perPop * population(s) * TAX_PER_POP;
 
 /** Уровень рынка. 0 — рынка нет или он ещё строится. */
 export const marketLevel = (s: GameState): number => builtOfType(s, 'market')?.level ?? 0;
 
-/** Товар в принципе доступен племени: снаряжение — только изученное. */
-export const goodUnlocked = (s: GameState, def: GoodDef): boolean =>
-  !def.requiresTech || hasTech(s, def.requiresTech);
-
-/** Что стоит на прилавке сегодня. Пусто, пока нет рынка или золота. */
-export function marketOffer(s: GameState): GoodDef[] {
-  if (!hasGold(s)) return [];
-  return offerFor(dayOf(s.time), marketLevel(s), GOODS.filter((g) => goodUnlocked(s, g)));
-}
+/** Что стоит на прилавке сегодня. Пусто, пока нет рынка. */
+export const marketOffer = (s: GameState): GoodDef[] => offerFor(dayOf(s.time), marketLevel(s), GOODS);
 
 /**
  * Сколько единиц товара уже взяли с прилавка сегодня. Счётчик от прошлого дня
@@ -389,15 +371,6 @@ export function defense(s: GameState): number {
   return d;
 }
 
-/** Боец доступен, когда изучена его технология. Дубинщику технология не нужна. */
-export const troopUnlocked = (s: GameState, id: TroopId): boolean => {
-  const def = TROOP_BY_ID[id];
-  return !def.requiresTech || hasTech(s, def.requiresTech);
-};
-
-/** Виды бойцов, которые уже есть в списке казарм. */
-export const availableTroops = (s: GameState): TroopDef[] => TROOPS.filter((t) => troopUnlocked(s, t.id));
-
 /** Сколько бойцов ждёт своей очереди в казармах. */
 export const recruitsQueued = (s: GameState): number =>
   (s.recruits ?? []).reduce((n, o) => n + Math.max(0, o.count - o.done), 0);
@@ -412,10 +385,6 @@ export function recruitRate(s: GameState): number {
 }
 
 // ---------- Кузница ----------
-
-/** Снаряжение можно ковать, когда изучена его технология. */
-export const forgeUnlocked = (s: GameState, id: EquipmentId): boolean =>
-  hasTech(s, EQUIPMENT_BY_ID[id].requiresTech);
 
 /**
  * Работа кузнецов в секунду: сколько их, какого уровня кузница и есть ли навык —

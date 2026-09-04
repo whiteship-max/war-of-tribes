@@ -12,12 +12,10 @@
 import type { Caravan, GameState, GoodId } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { GOOD_BY_ID, type GoodDef } from '../data/market';
-import { TECH_BY_ID } from '../data/techs';
 import {
   builtOfType,
   caravanSeconds,
   dayOf,
-  hasGold,
   marketBought,
   marketCost,
   marketLeft,
@@ -58,11 +56,8 @@ export function marketCheck(s: GameState, good: GoodId, count: number): MarketCh
   const cost = marketCost(s, def, n);
 
   let blocked: string | null = null;
-  if (!hasGold(s)) blocked = `Нужно изучить: ${TECH_BY_ID.trade.name}.`;
-  else if (!builtOfType(s, 'market')) blocked = 'Сначала построй рынок.';
-  else if (def.requiresTech && !s.techs.includes(def.requiresTech)) {
-    blocked = `Нужно изучить: ${TECH_BY_ID[def.requiresTech].name}.`;
-  } else if (!marketOffer(s).some((g) => g.id === def.id)) blocked = 'Сегодня этого на прилавке нет.';
+  if (!builtOfType(s, 'market')) blocked = 'Сначала построй рынок.';
+  else if (!marketOffer(s).some((g) => g.id === def.id)) blocked = 'Сегодня этого на прилавке нет.';
   else if (left <= 0) blocked = 'На сегодня всё разобрали — приходи завтра.';
   else if (n > left) blocked = `Сегодня осталось только ${left}.`;
   else if (s.gold < cost) blocked = 'Не хватает золота.';
@@ -142,8 +137,6 @@ function unload(s: GameState, c: Caravan): void {
  * разгрузка вернувшихся караванов. Всё три — про золото, поэтому и живут вместе.
  */
 export function marketTick(s: GameState, dt: number, income: number): void {
-  if (!hasGold(s)) return;
-
   // Новый день — новый прилавок: ассортимент выводится из номера дня, а счётчик
   // купленного обнуляется здесь.
   rollMarketDay(s);

@@ -37,7 +37,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   resources: { food: 120, wood: 80 },
-  goldAge: false,
   ...over,
 });
 
@@ -418,29 +417,25 @@ describe('замки', () => {
     return castles.sort((a, b) => distance(gen.home, a) - distance(gen.home, b))[0];
   }
 
-  it('пока племя не знает золота, замков на карте нет', async () => {
+  it('замки видны на карте с первого дня', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
-    await w.world.sync(profile({ goldAge: false }));
-    const before = await w.world.settlement(castle.id);
-    expect(before?.castle).toBe(false);
-    await w.world.sync(profile({ goldAge: true }));
-    const after = await w.world.settlement(castle.id);
-    expect(after?.castle).toBe(true);
+    await w.world.sync(profile());
+    expect((await w.world.settlement(castle.id))?.castle).toBe(true);
   });
 
   it('набег на замок без достаточной армии не приносит золота и стоит потерь', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
     // Отряд заведомо слабее гарнизона замка: один воин против крепости.
-    await w.world.sync(profile({ goldAge: true, warriorPower: 1, units: { warrior: 2 } }));
+    await w.world.sync(profile({ warriorPower: 1, units: { warrior: 2 } }));
     const card = await w.world.settlement(castle.id);
     expect(card).toBeTruthy();
 
     const sent = await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 2 } });
     expect(sent.error).toBeNull();
     w.advance(60 * 60_000);
-    const pulse = await w.world.sync(profile({ goldAge: true, warriorPower: 1, units: { warrior: 2 } }));
+    const pulse = await w.world.sync(profile({ warriorPower: 1, units: { warrior: 2 } }));
 
     const raid = pulse.reports.find((r) => r.kind === 'raid');
     expect(raid, 'должен прийти отчёт о набеге').toBeTruthy();
@@ -455,7 +450,7 @@ describe('замки', () => {
   it('сильный отряд берёт замок и привозит золото домой', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
-    const strong = profile({ goldAge: true, warriorPower: 40, units: { warrior: 40 } });
+    const strong = profile({ warriorPower: 40, units: { warrior: 40 } });
     await w.world.sync(strong);
     expect((await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 40 } })).error).toBeNull();
 
@@ -476,7 +471,7 @@ describe('замки', () => {
 
   it('обычное поселение золота не даёт', async () => {
     const w = makeWorld(11);
-    const strong = profile({ goldAge: true, warriorPower: 40, units: { warrior: 40 } });
+    const strong = profile({ warriorPower: 40, units: { warrior: 40 } });
     await w.world.sync(strong);
     const target = await nearest(w.world);
     const gen = generateWorld(11).settlements.find((x) => x.id === target.id);

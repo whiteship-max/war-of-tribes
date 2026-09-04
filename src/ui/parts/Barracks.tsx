@@ -4,7 +4,6 @@ import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
-import { TECH_BY_ID } from '@/game/data/techs';
 import {
   armyPower,
   armySize,
@@ -13,7 +12,6 @@ import {
   freeVillagers,
   isBuilt,
   recruitRate,
-  troopUnlocked,
 } from '@/game/derived';
 import { recruitCheck } from '@/game/sim/army';
 import { cancelRecruit, startRecruit } from '@/game/sim/actions';
@@ -98,12 +96,11 @@ export function Barracks({ b }: { b: Building }) {
 
       <h3>Нанять</h3>
       {TROOPS.map((def) => {
-        const open = troopUnlocked(s, def.id);
         const n = counts[def.id] ?? 1;
         const check = recruitCheck(s, def.id, n);
         const have = s.army[def.id] ?? 0;
         return (
-          <div className={`troop${open ? '' : ' locked'}`} key={def.id}>
+          <div className="troop" key={def.id}>
             <div className="ico">{def.icon}</div>
             <div className="body">
               <div className="title">
@@ -112,58 +109,52 @@ export function Barracks({ b }: { b: Building }) {
                   в дружине: {have} · мощь {def.power}
                 </span>
               </div>
-              <div className="desc">
-                {open ? def.description : `Нужно изучить: ${TECH_BY_ID[def.requiresTech!].name}`}
-              </div>
-              {open && (
-                <div className="cost">
-                  {RESOURCE_IDS.filter((r) => def.cost[r]).map((r) => (
-                    <span key={r} className={s.resources[r] >= (check.cost[r] ?? 0) ? '' : 'no'}>
-                      {RESOURCE_META[r].icon} {check.cost[r]}
+              <div className="desc">{def.description}</div>
+              <div className="cost">
+                {RESOURCE_IDS.filter((r) => def.cost[r]).map((r) => (
+                  <span key={r} className={s.resources[r] >= (check.cost[r] ?? 0) ? '' : 'no'}>
+                    {RESOURCE_META[r].icon} {check.cost[r]}
+                  </span>
+                ))}
+                {Object.entries(check.gear).map(([id, need]) => {
+                  const short = check.missing.some((m) => m.id === id);
+                  return (
+                    <span key={id} className={short ? 'no' : ''}>
+                      {EQUIPMENT_BY_ID[id as keyof typeof EQUIPMENT_BY_ID].icon} {need}
                     </span>
-                  ))}
-                  {Object.entries(check.gear).map(([id, need]) => {
-                    const short = check.missing.some((m) => m.id === id);
-                    return (
-                      <span key={id} className={short ? 'no' : ''}>
-                        {EQUIPMENT_BY_ID[id as keyof typeof EQUIPMENT_BY_ID].icon} {need}
-                      </span>
-                    );
-                  })}
-                  <span className={free >= n ? '' : 'no'}>👤 {n}</span>
-                  <span>⏳ {check.eta !== null ? `${check.eta} с` : `${check.work}`}</span>
-                </div>
+                  );
+                })}
+                <span className={free >= n ? '' : 'no'}>👤 {n}</span>
+                <span>⏳ {check.eta !== null ? `${check.eta} с` : `${check.work}`}</span>
+              </div>
+            </div>
+            <div className="troop-buy">
+              <div className="stepper">
+                <button disabled={n <= 1} onClick={() => setCount(def.id, n - 1)}>
+                  −
+                </button>
+                <span className="n">{n}</span>
+                <button onClick={() => setCount(def.id, n + 1)}>+</button>
+              </div>
+              <button
+                className="btn"
+                disabled={check.blocked !== null}
+                onClick={() => act((st) => startRecruit(st, def.id, n))}
+              >
+                Нанять
+              </button>
+              <small className={check.blocked ? 'no' : ''}>
+                {check.blocked ?? `свободных останется ${check.freeAfter}`}
+              </small>
+              {check.missing.length > 0 && smithy && (
+                <button className="btn ghost wide" onClick={() => openBuilding(smithy.id)}>
+                  ⚒️ В кузницу — ковать {check.missing.map((m) => EQUIPMENT_BY_ID[m.id].one).join(', ')}
+                </button>
+              )}
+              {check.missing.length > 0 && !smithy && (
+                <div className="note bad">Снаряжение делают в кузнице — её ещё нет.</div>
               )}
             </div>
-            {open && (
-              <div className="troop-buy">
-                <div className="stepper">
-                  <button disabled={n <= 1} onClick={() => setCount(def.id, n - 1)}>
-                    −
-                  </button>
-                  <span className="n">{n}</span>
-                  <button onClick={() => setCount(def.id, n + 1)}>+</button>
-                </div>
-                <button
-                  className="btn"
-                  disabled={check.blocked !== null}
-                  onClick={() => act((st) => startRecruit(st, def.id, n))}
-                >
-                  Нанять
-                </button>
-                <small className={check.blocked ? 'no' : ''}>
-                  {check.blocked ?? `свободных останется ${check.freeAfter}`}
-                </small>
-                {check.missing.length > 0 && smithy && (
-                  <button className="btn ghost wide" onClick={() => openBuilding(smithy.id)}>
-                    ⚒️ В кузницу — ковать {check.missing.map((m) => EQUIPMENT_BY_ID[m.id].one).join(', ')}
-                  </button>
-                )}
-                {check.missing.length > 0 && !smithy && (
-                  <div className="note bad">Снаряжение делают в кузнице — её ещё нет.</div>
-                )}
-              </div>
-            )}
           </div>
         );
       })}

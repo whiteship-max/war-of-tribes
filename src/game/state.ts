@@ -27,8 +27,6 @@ export function createInitialState(): GameState {
     forgeWork: 0,
     decree: 'none',
     ration: 'normal',
-    // Золота в игре нет, пока не изучен торг: до него казна не наполняется
-    // и налог не переключается — см. derived.hasGold.
     tax: 'none',
     gold: 0,
     market: { day: 0, bought: {} },

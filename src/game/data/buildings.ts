@@ -1,4 +1,4 @@
-import type { BuildingTypeId, JobId, ResourceId, TechId } from '../types';
+import type { BuildingTypeId, JobId, ResourceId } from '../types';
 
 /** Пассивные эффекты здания — растут не множителем, а прибавкой за уровень. */
 export interface BuildingStats {
@@ -20,7 +20,6 @@ export interface BuildingDef extends BuildingStats {
   cost: Partial<Record<ResourceId, number>>;
   /** Работа строителей на 1 уровень (1 свободный житель = 1 работа/сек). */
   work: number;
-  requiresTech?: TechId;
   /** Профессия, которой здание даёт рабочие места: их столько же, сколько уровней. */
   job?: JobId;
   /** Прибавка пассивных эффектов за каждый уровень сверх первого. */
@@ -72,7 +71,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Отсюда правят: указ, рацион, налог и казна. С шестого уровня это уже двор, и в нём живут.',
     cost: { wood: 30, stone: 15 },
     work: 60,
-    requiresTech: 'chiefdom',
     morale: 4,
     housing: 6,
     perLevel: { morale: 1, housing: 5 },
@@ -150,7 +148,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Штольня в скале: медь и железо.',
     cost: { wood: 40, stone: 30 },
     work: 90,
-    requiresTech: 'metallurgy',
     job: 'miner',
   },
   {
@@ -169,7 +166,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Поле под ячмень. Каждый уровень — новая полоса и ещё один фермер.',
     cost: { wood: 30, stone: 5 },
     work: 60,
-    requiresTech: 'farming',
     job: 'farmer',
   },
   {
@@ -179,7 +175,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Козы и овцы под присмотром пастуха. Зима стаду почти не помеха.',
     cost: { wood: 40, hides: 5 },
     work: 60,
-    requiresTech: 'animal_husbandry',
     job: 'herder',
   },
   {
@@ -189,7 +184,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Святилище племени. Мораль +8, место шамана.',
     cost: { wood: 20, bones: 10 },
     work: 40,
-    requiresTech: 'totem',
     morale: 8,
     perLevel: { morale: 2 },
     job: 'shaman',
@@ -201,7 +195,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Стена вокруг поселения. Защита +6, и растёт с каждым уровнем. С четвёртого уровня стена каменная.',
     cost: { wood: 70 },
     work: 90,
-    requiresTech: 'palisade',
     defense: 6,
     perLevel: { defense: 3 },
   },
@@ -212,7 +205,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Дозорная вышка сбоку от ворот. Защита +4, и растёт с каждым уровнем.',
     cost: { wood: 40, stone: 30 },
     work: 70,
-    requiresTech: 'towers',
     defense: 4,
     perLevel: { defense: 3 },
   },
@@ -223,7 +215,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Горн и наковальня. Кузнецы куют снаряжение — то, чем платят за войско.',
     cost: { wood: 50, stone: 60 },
     work: 120,
-    requiresTech: 'metallurgy',
     job: 'smith',
   },
   {
@@ -233,7 +224,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Торговый двор у самых ворот. За золото сюда привозят чужое добро — дороже, чем своё, зато сразу.',
     cost: { wood: 90, stone: 70, iron: 20 },
     work: 150,
-    requiresTech: 'trade',
     morale: 2,
     perLevel: { morale: 1 },
   },
@@ -244,7 +234,6 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Двор для учений. Здесь свободные жители становятся бойцами. Защита +2 за уровень.',
     cost: { wood: 60, stone: 30 },
     work: 110,
-    requiresTech: 'warband',
     defense: 2,
     perLevel: { defense: 2 },
   },

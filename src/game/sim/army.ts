@@ -14,7 +14,6 @@ import type {
 import { RESOURCE_IDS } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { TECH_BY_ID } from '../data/techs';
 import {
   builtOfType,
   canAfford,
@@ -22,7 +21,6 @@ import {
   recruitRate,
   recruitsQueued,
   storageCap,
-  troopUnlocked,
 } from '../derived';
 import { log } from './log';
 
@@ -86,7 +84,6 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
 
   let blocked: string | null = null;
   if (!builtOfType(s, 'barracks')) blocked = 'Сначала построй казармы.';
-  else if (!troopUnlocked(s, troop)) blocked = `Нужно изучить: ${TECH_BY_ID[def.requiresTech!].name}.`;
   else if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
   else if (missing.length > 0) {
     blocked = `Не хватает: ${missing

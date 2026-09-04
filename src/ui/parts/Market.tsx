@@ -5,7 +5,6 @@ import { GOOD_BY_ID } from '@/game/data/market';
 import {
   caravanProgress,
   caravanSeconds,
-  hasGold,
   isBuilt,
   marketLeft,
   marketOffer,
@@ -32,7 +31,6 @@ export function Market({ b }: { b: Building }) {
   const [tab, setTab] = useState<Tab>('buy');
 
   if (!isBuilt(b)) return <div className="note">Пока рынок строится, торговать негде.</div>;
-  if (!hasGold(s)) return <div className="note">Племя ещё не знает денег: торговать не на что.</div>;
 
   return (
     <>

@@ -6,8 +6,8 @@ import { RESOURCE_IDS } from '../constants';
 import {
   buildingById,
   canAfford,
+  builtOfType,
   countAll,
-  hasGold,
   hasTech,
   isSite,
   storageCap,
@@ -46,7 +46,6 @@ function refund(s: GameState, cost: Partial<Record<ResourceId, number>>, k: numb
 export function startBuilding(s: GameState, type: BuildingTypeId): string | null {
   const def = BUILDING_BY_ID[type];
   if (def.starter) return 'Это здание нельзя построить.';
-  if (def.requiresTech && !hasTech(s, def.requiresTech)) return `Нужно изучить: ${TECH_BY_ID[def.requiresTech].name}.`;
   if (countAll(s, type) > 0) return 'Такое здание уже есть — улучшай его.';
   if (!canAfford(s, def.cost)) return 'Не хватает ресурсов.';
   pay(s, def.cost);
@@ -122,7 +121,7 @@ export function resolveEvent(s: GameState, optionIndex: number): { error: string
 }
 
 export function chooseTotem(s: GameState, totem: TotemId): string | null {
-  if (!hasTech(s, 'totem')) return 'Сначала изучите тотем.';
+  if (!builtOfType(s, 'totem')) return 'Сначала нужно святилище.';
   if (s.totem) return 'Тотем уже выбран.';
   s.totem = totem;
   const names: Record<TotemId, string> = { wolf: 'Волка', bear: 'Медведя', eagle: 'Орла' };
@@ -137,7 +136,6 @@ export function chooseTotem(s: GameState, totem: TotemId): string | null {
 export function setDecree(s: GameState, id: DecreeId): string | null {
   const def = DECREE_BY_ID[id];
   if (!def) return 'Такого указа нет.';
-  if (!hasTech(s, 'chiefdom')) return 'Сначала племя должно выбрать вождя.';
   if (s.decree === id) return null;
   s.decree = id;
   log(s, `Указ вождя: ${def.name.toLowerCase()}.`);
@@ -148,7 +146,6 @@ export function setDecree(s: GameState, id: DecreeId): string | null {
 export function setRation(s: GameState, id: RationId): string | null {
   const def = RATION_BY_ID[id];
   if (!def) return 'Такого рациона нет.';
-  if (!hasTech(s, 'chiefdom')) return 'Сначала племя должно выбрать вождя.';
   if (s.ration === id) return null;
   s.ration = id;
   log(s, `Рацион: ${def.name.toLowerCase()}.`);
@@ -157,12 +154,11 @@ export function setRation(s: GameState, id: RationId): string | null {
 
 /**
  * Уровень налога. Третий переключатель Дома вождя и единственный источник золота
- * в мирной жизни. До технологии торга его нет: денег в игре ещё не существует.
+ * в мирной жизни.
  */
 export function setTax(s: GameState, id: TaxId): string | null {
   const def = TAX_BY_ID[id];
   if (!def) return 'Такого налога нет.';
-  if (!hasGold(s)) return `Сначала изучите: ${TECH_BY_ID.trade.name}.`;
   if (s.tax === id) return null;
   s.tax = id;
   log(s, `Налог: ${def.name.toLowerCase()}.`);

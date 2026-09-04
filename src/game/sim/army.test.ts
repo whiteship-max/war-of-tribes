@@ -76,10 +76,19 @@ describe('снаряжение', () => {
     expect(forgeInfo(s).blocked).toMatch(/никто не работает/);
   });
 
-  it('неизученное снаряжение ковать нельзя', () => {
+  it('любое снаряжение куётся с первого дня: гейтов по технологиям нет', () => {
     const s = warband();
-    expect(setForging(s, 'sword')).toMatch(/Нужно изучить/);
-    expect(s.forging).toBeNull();
+    expect(setForging(s, 'sword')).toBeNull();
+    expect(s.forging).toBe('sword');
+    expect(setForging(s, 'armor')).toBeNull();
+  });
+
+  it('все виды бойцов доступны сразу — выбор между ними экономический', () => {
+    const s = warband();
+    s.equipment = { spear: 1, bow: 1, axe: 1, shield: 2, sword: 3, armor: 1 };
+    for (const id of ['clubman', 'spearman', 'archer', 'axeman', 'swordsman', 'shieldman', 'legionary'] as const) {
+      expect(recruitCheck(s, id, 1).blocked, id).toBeNull();
+    }
   });
 
   it('без материалов заготовка ждёт, а не пропадает', () => {

@@ -1,6 +1,6 @@
 // Золото, налог и рынок. Проверяется не то, что код что-то делает, а обещания,
-// на которых держится баланс: до торга денег нет вовсе, рынок всегда дороже
-// собственного труда, дневной лимит не обходится дроблением, а зима не покупается.
+// на которых держится баланс: рынок всегда дороже собственного труда, дневной
+// лимит не обходится дроблением, а зима не покупается.
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { GameState, GoodId, TechId } from '../types';
 import { createInitialState } from '../state';
@@ -20,7 +20,6 @@ import {
   builtOfType,
   dayOf,
   foodConsumptionPerDay,
-  hasGold,
   marketLeft,
   marketOffer,
   marketStock,
@@ -163,25 +162,8 @@ const totalOutput = (s: GameState): number => {
 const cheapest = (): number => Math.min(...GOODS.filter((g) => g.resource).map((g) => g.price));
 
 describe('золото', () => {
-  it('до технологии торга золота нет ни в состоянии, ни в интерфейсе', () => {
+  it('налог включается с первого дня и казна растёт от населения', () => {
     const s = city();
-    s.techs = s.techs.filter((t) => t !== 'trade');
-    expect(hasGold(s)).toBe(false);
-    // Налог не переключается, сбор нулевой, прилавок пуст.
-    expect(setTax(s, 'high')).not.toBeNull();
-    expect(s.tax).toBe('none');
-    expect(taxIncomePerDay(s)).toBe(0);
-    expect(marketOffer(s)).toHaveLength(0);
-    expect(buyGoods(s, 'food', 1)).not.toBeNull();
-    // Даже за целый игровой год казна не наполняется ни на монету.
-    catchUp(s, YEAR_DAYS * DAY_LENGTH, 2);
-    expect(s.gold).toBe(0);
-    expect(s.caravans).toHaveLength(0);
-  });
-
-  it('после торга налог включается и казна растёт от населения', () => {
-    const s = city();
-    expect(hasGold(s)).toBe(true);
     expect(setTax(s, 'high')).toBeNull();
     expect(taxIncomePerDay(s)).toBeGreaterThan(0);
 

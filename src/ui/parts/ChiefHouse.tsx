@@ -1,6 +1,6 @@
 import { useGame } from '@/game/store';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
-import { decreeOf, hasGold, rationOf, taxIncomePerDay, taxOf } from '@/game/derived';
+import { decreeOf, rationOf, taxIncomePerDay, taxOf } from '@/game/derived';
 import { setDecree, setRation, setTax } from '@/game/sim/actions';
 
 /**
@@ -48,39 +48,34 @@ export function ChiefHouse() {
         ))}
       </div>
 
-      {/* Налог и казна появляются вместе с торгом: до него денег в игре нет. */}
-      {hasGold(s) && (
-        <>
-          <h3>
-            Казна <span className="muted">+{taxIncomePerDay(s).toFixed(1)} в день</span>
-          </h3>
-          <div className="mod total">
-            <span className="ico">💰</span>
-            <span className="name">Золото</span>
-            <span className="val pos">{Math.floor(s.gold)}</span>
-          </div>
-          <div className="note">
-            Сбор идёт с людей: чем больше народу в посёлке, тем полнее казна. Платит за это
-            мораль, а низкая мораль режет всю выработку — высокий налог выгоден в короткую,
-            а не как уклад.
-          </div>
+      <h3>
+        Казна <span className="muted">+{taxIncomePerDay(s).toFixed(1)} в день</span>
+      </h3>
+      <div className="mod total">
+        <span className="ico">💰</span>
+        <span className="name">Золото</span>
+        <span className="val pos">{Math.floor(s.gold)}</span>
+      </div>
+      <div className="note">
+        Сбор идёт с людей: чем больше народу в посёлке, тем полнее казна. Платит за это
+        мораль, а низкая мораль режет всю выработку — высокий налог выгоден в короткую,
+        а не как уклад.
+      </div>
 
-          <h3>Налог</h3>
-          <div className="choice">
-            {TAXES.map((t) => (
-              <button
-                key={t.id}
-                className={`choice-opt${tax.id === t.id ? ' on' : ''}`}
-                onClick={() => act((st) => setTax(st, t.id))}
-              >
-                <span className="ico">{t.icon}</span>
-                <b>{t.name}</b>
-                <small>{t.effect}</small>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      <h3>Налог</h3>
+      <div className="choice">
+        {TAXES.map((t) => (
+          <button
+            key={t.id}
+            className={`choice-opt${tax.id === t.id ? ' on' : ''}`}
+            onClick={() => act((st) => setTax(st, t.id))}
+          >
+            <span className="ico">{t.icon}</span>
+            <b>{t.name}</b>
+            <small>{t.effect}</small>
+          </button>
+        ))}
+      </div>
     </>
   );
 }

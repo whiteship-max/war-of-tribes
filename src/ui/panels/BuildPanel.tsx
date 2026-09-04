@@ -2,7 +2,6 @@ import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { MAX_BUILDING_LEVEL } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
-import { TECH_BY_ID } from '@/game/data/techs';
 import {
   ATTENTION_META,
   buildRate,
@@ -10,7 +9,6 @@ import {
   buildingSlots,
   canAfford,
   countAll,
-  hasTech,
   isSite,
   upgradeInfo,
   workerCount,
@@ -64,20 +62,9 @@ export function BuildPanel() {
       )}
 
       {available.length > 0 && <h3>Можно построить</h3>}
-      {available.map((def) => {
-        const techOk = !def.requiresTech || hasTech(s, def.requiresTech);
-        const afford = canAfford(s, def.cost);
-        const eta = rate > 0 ? Math.ceil(def.work / rate) : null;
-        return (
-          <NewCard
-            key={def.id}
-            id={def.id}
-            techOk={techOk}
-            afford={afford}
-            eta={eta}
-          />
-        );
-      })}
+      {available.map((def) => (
+        <NewCard key={def.id} id={def.id} afford={canAfford(s, def.cost)} eta={rate > 0 ? Math.ceil(def.work / rate) : null} />
+      ))}
     </div>
   );
 }
@@ -186,36 +173,24 @@ function Place({ id }: { id: Building['type'] }) {
 }
 
 /** Ещё не поставленное здание: тап начинает стройку. Второго такого же не будет. */
-function NewCard({
-  id,
-  techOk,
-  afford,
-  eta,
-}: {
-  id: Building['type'];
-  techOk: boolean;
-  afford: boolean;
-  eta: number | null;
-}) {
+function NewCard({ id, afford, eta }: { id: Building['type']; afford: boolean; eta: number | null }) {
   const act = useGame((g) => g.act);
   const def = BUILDING_BY_ID[id];
 
   return (
     <button
-      className={`card as-row${techOk ? '' : ' locked'}`}
+      className="card as-row"
       data-tut={`build-${def.id}`}
-      disabled={!techOk || !afford}
+      disabled={!afford}
       onClick={() => act((st) => startBuilding(st, def.id))}
     >
       <div className="ico">{def.icon}</div>
       <div className="body">
         <div className="title">
           {def.name}
-          <span className="count">{techOk ? (afford ? 'построить' : 'не хватает') : 'закрыто'}</span>
+          <span className="count">{afford ? 'построить' : 'не хватает'}</span>
         </div>
-        <div className="desc">
-          {techOk ? def.description : `Нужно изучить: ${TECH_BY_ID[def.requiresTech!].name}`}
-        </div>
+        <div className="desc">{def.description}</div>
         <Place id={id} />
         <Cost cost={def.cost} work={def.work} eta={eta} />
       </div>

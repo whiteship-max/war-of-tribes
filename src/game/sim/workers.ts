@@ -3,7 +3,7 @@
 import type { GameState, JobId, Villager } from '../types';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { JOB_BY_ID } from '../data/jobs';
-import { buildingById, buildingSlots, hasTech, isBuilt, workerCount } from '../derived';
+import { buildingById, buildingSlots, isBuilt, workerCount } from '../derived';
 
 /** Свободный житель под работу: сначала тот, у кого к ней талант. */
 function takeFree(s: GameState, job: JobId, villagerId?: number): Villager | null {
@@ -26,8 +26,6 @@ export function assignWorker(s: GameState, buildingId: number, villagerId?: numb
   const def = BUILDING_BY_ID[b.type];
   if (!def.job) return 'В этом здании не работают.';
   if (!isBuilt(b)) return 'Здание ещё строится.';
-  const jobDef = JOB_BY_ID[def.job];
-  if (jobDef.requiresTech && !hasTech(s, jobDef.requiresTech)) return 'Профессия ещё недоступна.';
   if (workerCount(s, b.id) >= buildingSlots(b)) return 'Все места заняты — нужен уровень выше.';
   const v = takeFree(s, def.job, villagerId);
   if (!v) return villagerId === undefined ? 'Нет свободных жителей.' : 'Житель занят.';
@@ -58,7 +56,6 @@ export function unassignWorker(s: GameState, buildingId: number, villagerId?: nu
 export function changeFreeJob(s: GameState, job: JobId, delta: 1 | -1): string | null {
   const def = JOB_BY_ID[job];
   if (!def.freeRange) return 'Эту работу дают только в здании.';
-  if (def.requiresTech && !hasTech(s, def.requiresTech)) return 'Профессия ещё недоступна.';
   if (delta > 0) {
     const v = takeFree(s, job);
     if (!v) return 'Нет свободных жителей.';
@@ -75,7 +72,7 @@ export function changeFreeJob(s: GameState, job: JobId, delta: 1 | -1): string |
 
 /**
  * Приводит назначения в порядок после любых изменений мира: сгоревшее здание,
- * потерянная профессия, лишние рабочие в слотах. Вызывается каждый тик — дёшево.
+ * лишние рабочие в слотах. Вызывается каждый тик — дёшево.
  */
 export function normalizeAssignments(s: GameState): void {
   const used = new Map<number, number>();
@@ -85,11 +82,6 @@ export function normalizeAssignments(s: GameState): void {
       continue;
     }
     const def = JOB_BY_ID[v.job];
-    if (def.requiresTech && !hasTech(s, def.requiresTech)) {
-      v.job = 'idle';
-      v.workplace = null;
-      continue;
-    }
     if (v.workplace !== null) {
       const b = buildingById(s, v.workplace);
       const slots = b ? buildingSlots(b) : 0;

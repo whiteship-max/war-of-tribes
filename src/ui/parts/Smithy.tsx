@@ -2,8 +2,7 @@ import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT } from '@/game/data/equipment';
-import { TECH_BY_ID } from '@/game/data/techs';
-import { canAfford, forgeInfo, forgeUnlocked, isBuilt, workersIn } from '@/game/derived';
+import { canAfford, forgeInfo, isBuilt, workersIn } from '@/game/derived';
 import { setForging } from '@/game/sim/actions';
 
 /**
@@ -55,14 +54,12 @@ export function Smithy({ b }: { b: Building }) {
       )}
 
       {EQUIPMENT.map((e) => {
-        const open = forgeUnlocked(s, e.id);
         const have = s.equipment[e.id] ?? 0;
         const afford = canAfford(s, e.cost);
         return (
           <button
             key={e.id}
-            className={`card as-row${open ? '' : ' locked'}${info.item === e.id ? ' done' : ''}`}
-            disabled={!open}
+            className={`card as-row${info.item === e.id ? ' done' : ''}`}
             onClick={() => act((st) => setForging(st, e.id))}
           >
             <div className="ico">{e.icon}</div>
@@ -71,22 +68,18 @@ export function Smithy({ b }: { b: Building }) {
                 {e.name}
                 <span className="count">на складе: {have}</span>
               </div>
-              <div className="desc">
-                {open ? e.description : `Нужно изучить: ${TECH_BY_ID[e.requiresTech].name}`}
+              <div className="desc">{e.description}</div>
+              <div className="cost">
+                {RESOURCE_IDS.filter((r) => e.cost[r]).map((r) => (
+                  <span key={r} className={s.resources[r] >= (e.cost[r] ?? 0) ? '' : 'no'}>
+                    {RESOURCE_META[r].icon} {e.cost[r]}
+                  </span>
+                ))}
+                <span>⏳ {e.work}</span>
+                {!afford && <span className="no">не хватает материалов</span>}
               </div>
-              {open && (
-                <div className="cost">
-                  {RESOURCE_IDS.filter((r) => e.cost[r]).map((r) => (
-                    <span key={r} className={s.resources[r] >= (e.cost[r] ?? 0) ? '' : 'no'}>
-                      {RESOURCE_META[r].icon} {e.cost[r]}
-                    </span>
-                  ))}
-                  <span>⏳ {e.work}</span>
-                  {!afford && <span className="no">не хватает материалов</span>}
-                </div>
-              )}
             </div>
-            <span className="attn">{info.item === e.id ? '🔨' : open ? '▸' : '🔒'}</span>
+            <span className="attn">{info.item === e.id ? '🔨' : '▸'}</span>
           </button>
         );
       })}

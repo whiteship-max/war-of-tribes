@@ -1,6 +1,6 @@
 import type { GameState } from '../types';
 import { DAY_LENGTH } from '../constants';
-import { builtOfType, dayOf, hasTech, housingCapacity, isSite, jobCounts, storageCap } from '../derived';
+import { builtOfType, dayOf, housingCapacity, isSite, jobCounts, storageCap } from '../derived';
 import { resolveBattle } from '../sim/battle';
 import { addVillager, killRandomVillager } from '../sim/population';
 import { chance, rnd } from '../sim/random';
@@ -256,7 +256,7 @@ export const EVENTS: EventDef[] = [
     icon: '🎉',
     title: 'Праздник',
     text: 'Вождь предлагает устроить праздник у костра.',
-    weight: (s) => (hasTech(s, 'chiefdom') && s.resources.food >= 25 ? 2 : 0),
+    weight: (s) => (s.resources.food >= 25 ? 2 : 0),
     options: [
       {
         label: 'Праздновать',

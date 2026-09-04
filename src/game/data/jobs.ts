@@ -1,4 +1,4 @@
-import type { BuildingTypeId, JobId, ResourceId, TechId } from '../types';
+import type { BuildingTypeId, JobId, ResourceId } from '../types';
 
 export interface JobDef {
   id: JobId;
@@ -7,8 +7,6 @@ export interface JobDef {
   description: string;
   /** Производство за игровой день на одного работника в здании 1 уровня. */
   yield: Partial<Record<ResourceId, number>>;
-  /** Требуемая технология. */
-  requiresTech?: TechId;
   /** Профильное здание: рабочие места берутся из его уровня. */
   building?: BuildingTypeId;
   /** Профессия доступна и без здания — «вольным сбором» вполсилы. */
@@ -61,7 +59,6 @@ export const JOBS: JobDef[] = [
     icon: '💎',
     description: 'Достаёт медную и железную руду. Нужен рудник.',
     yield: { copper: 1.6, iron: 0.7 },
-    requiresTech: 'metallurgy',
     building: 'mine',
   },
   {
@@ -70,7 +67,6 @@ export const JOBS: JobDef[] = [
     icon: '🌾',
     description: 'Выращивает урожай. Нужна ферма.',
     yield: { food: 11 },
-    requiresTech: 'farming',
     building: 'farm',
   },
   {
@@ -79,7 +75,6 @@ export const JOBS: JobDef[] = [
     icon: '🐐',
     description: 'Держит скот. Зима стаду почти не мешает — оно зимует в загоне.',
     yield: { food: 5, hides: 1.2 },
-    requiresTech: 'animal_husbandry',
     building: 'pen',
   },
   {
@@ -96,7 +91,6 @@ export const JOBS: JobDef[] = [
     icon: '⚒️',
     description: 'Кует снаряжение: копья, луки, топоры, щиты, мечи и доспех.',
     yield: {},
-    requiresTech: 'metallurgy',
     building: 'smithy',
   },
   {
@@ -113,7 +107,6 @@ export const JOBS: JobDef[] = [
     icon: '🔮',
     description: 'Проводит ритуалы у тотема и поддерживает мораль.',
     yield: {},
-    requiresTech: 'shamanism',
     building: 'totem',
   },
 ];

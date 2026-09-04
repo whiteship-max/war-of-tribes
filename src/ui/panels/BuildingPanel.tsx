@@ -5,11 +5,9 @@ import { MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '@/game/constant
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { EQUIPMENT } from '@/game/data/equipment';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
-import { TECH_BY_ID } from '@/game/data/techs';
 import {
   armyPower,
   buildRate,
-  forgeUnlocked,
   buildingById,
   buildingHousing,
   buildingProduction,
@@ -19,7 +17,6 @@ import {
   defense,
   freeVillagers,
   hasKnowledgeHouse,
-  hasTech,
   housingCapacity,
   isBuilt,
   isSite,
@@ -152,7 +149,6 @@ function WorkerSlots({ b }: { b: Building }) {
   const slots = buildingSlots(b);
   const workers = workersIn(s, b.id);
   const free = freeVillagers(s);
-  const locked = job.requiresTech && !hasTech(s, job.requiresTech);
   const empty = Math.max(0, slots - workers.length);
 
   return (
@@ -164,7 +160,6 @@ function WorkerSlots({ b }: { b: Building }) {
         </span>
       </h3>
       {!isBuilt(b) && <div className="note">Места появятся, когда стройка закончится.</div>}
-      {locked && <div className="note">Нужно изучить: {TECH_BY_ID[job.requiresTech!].name}.</div>}
 
       {workers.map((v) => (
         <div className="slot filled" key={v.id}>
@@ -181,7 +176,7 @@ function WorkerSlots({ b }: { b: Building }) {
           <button
             className="mini"
             data-tut={i === 0 ? 'slot-add' : undefined}
-            disabled={free.length === 0 || !!locked}
+            disabled={free.length === 0}
             onClick={() => act((st) => assignWorker(st, b.id))}
             aria-label="Поставить"
           >
@@ -192,7 +187,7 @@ function WorkerSlots({ b }: { b: Building }) {
       {slots > 0 && empty === 0 && b.level > 0 && (
         <div className="note">Все места заняты. Следующий уровень добавит ещё одно.</div>
       )}
-      {empty > 0 && free.length > 0 && !locked && (
+      {empty > 0 && free.length > 0 && (
         <>
           <button className="btn ghost wide" onClick={() => setPicking(!picking)}>
             {picking ? 'Свернуть' : `Выбрать из свободных (${free.length})`}
@@ -309,14 +304,13 @@ function FreeJobRow({ job }: { job: JobId }) {
   const def = JOB_BY_ID[job];
   const workers = s.villagers.filter((v) => v.job === job && v.workplace === null);
   const idle = freeVillagers(s).length;
-  const locked = def.requiresTech && !hasTech(s, def.requiresTech);
   const mult = jobMultiplier(s, job) * 0.5;
   const yields = RESOURCE_IDS.filter((r) => def.yield[r]).map(
     (r) => `${RESOURCE_META[r].icon}${((def.yield[r] ?? 0) * mult).toFixed(1)}`,
   );
 
   return (
-    <div className={`card ${locked ? 'locked' : ''}`}>
+    <div className="card">
       <div className="ico">{def.icon}</div>
       <div className="body">
         <div className="title">{def.name}</div>
@@ -327,7 +321,7 @@ function FreeJobRow({ job }: { job: JobId }) {
           −
         </button>
         <span className="n">{workers.length}</span>
-        <button disabled={idle === 0 || !!locked} onClick={() => act((st) => changeFreeJob(st, job, 1))}>
+        <button disabled={idle === 0} onClick={() => act((st) => changeFreeJob(st, job, 1))}>
           +
         </button>
       </div>
@@ -377,7 +371,6 @@ function StorageData() {
           <span className="ico">{e.icon}</span>
           <span className="name">{e.name}</span>
           <span className="val">{s.equipment[e.id] ?? 0}</span>
-          <span className="delta">{forgeUnlocked(s, e.id) ? '' : 'не изучено'}</span>
         </div>
       ))}
     </>

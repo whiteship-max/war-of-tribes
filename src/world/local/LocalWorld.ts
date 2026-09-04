@@ -139,14 +139,6 @@ export class LocalWorld implements WorldApi {
 
   private popNow = (s: GenSettlement, now: number): number => popOf(s, this.elapsed(now), POWER_GROWTH_CAP);
 
-  /**
-   * Племя уже знает золото. Пока нет — замков на карте не видно и добычи в золоте
-   * не бывает: деньги приходят в мир вместе с игроком, а не лежат там изначально.
-   */
-  private get goldAge(): boolean {
-    return this.save.profile?.goldAge ?? false;
-  }
-
   private hostilityOf = (tribeId: string | null): number =>
     tribeId ? Math.max(0, this.save.hostility[tribeId] ?? 0) : 0;
 
@@ -175,7 +167,7 @@ export class LocalWorld implements WorldApi {
       tribeName: this.tribeName(s.tribeId),
       color: RELATION_META[relation].color,
       mine: false,
-      castle: s.castle && this.goldAge,
+      castle: s.castle,
     };
   }
 
@@ -228,7 +220,7 @@ export class LocalWorld implements WorldApi {
    * прочая добыча, поэтому дважды подряд один замок не обчистить.
    */
   private castleGold(s: GenSettlement, now: number): number {
-    if (!s.castle || !this.goldAge) return 0;
+    if (!s.castle) return 0;
     const last = this.save.looted[s.id] ?? this.save.createdAt - LOOT_REFILL;
     const refill = Math.min(1, Math.max(0, (now - last) / LOOT_REFILL));
     return Math.round(powerOf(s, this.elapsed(now), POWER_GROWTH_CAP) * CASTLE_GOLD_PER_POWER * refill);
