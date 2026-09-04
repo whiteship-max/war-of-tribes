@@ -24,9 +24,7 @@ import {
   footprintOf,
   levelScale,
   scaffold,
-  stageOf,
   visualTier,
-  type Stage,
   type Tier,
 } from './buildings';
 import { VillagerAgent } from './villagers';
@@ -49,7 +47,6 @@ import { disposeGeometries } from './kit';
 
 interface BuildingView {
   group: THREE.Group;
-  stage: Stage;
   /** Визуальная ступень: модель меняется на её пороге, а не на каждом уровне. */
   tier: Tier;
   type: Building['type'];
@@ -514,16 +511,15 @@ export class TribeScene {
     const seen = new Set<number>();
     for (const b of s.buildings) {
       seen.add(b.id);
-      const stage = stageOf(b);
       const tier = visualTier(b.level);
       let view = this.buildings.get(b.id);
-      if (view && (view.stage !== stage || view.tier !== tier)) {
+      if (view && view.tier !== tier) {
         this.disposeView(view);
         this.buildings.delete(b.id);
         view = undefined;
       }
       if (!view) {
-        const group = createBuildingGroup(b.type, stage, tier);
+        const group = createBuildingGroup(b.type, tier);
         // Место берётся из плана: у каждого типа оно своё и не меняется никогда.
         const spot = placeOf(b.type);
         group.position.set(spot.x, 0, spot.z);
@@ -533,7 +529,6 @@ export class TribeScene {
         this.scene.add(group);
         view = {
           group,
-          stage,
           tier,
           type: b.type,
           hit,
@@ -556,7 +551,7 @@ export class TribeScene {
       );
 
       // Улучшение: здание работает и не исчезает, его просто обносят лесами.
-      const upgrading = b.level > 0 && isSite(b);
+      const upgrading = isSite(b);
       if (upgrading && !view.scaffold) {
         const [w, d] = footprintOf(b.type, tier);
         view.scaffold = scaffold(w, d, 1.5 + 0.5 * tier);
@@ -634,7 +629,6 @@ export class TribeScene {
     const present = s.buildings.map((b) => b.type).sort();
     // Декали под зданиями растут со ступенью, поэтому ступень входит в ключ.
     const built = s.buildings
-      .filter((b) => b.level > 0)
       .map((b) => ({ type: b.type, tier: visualTier(b.level) }))
       .sort((a, b) => (a.type < b.type ? -1 : 1));
     const key = `${present.join(',')}|${built.map((b) => `${b.type}:${b.tier}`).join(',')}`;
@@ -666,7 +660,7 @@ export class TribeScene {
       for (let i = 0; i < n && roster.length < MAX_SOLDIERS; i++) roster.push(id);
     }
     if (roster.length === 0) return;
-    const barracks = s.buildings.find((b) => b.type === 'barracks' && b.level > 0) ?? null;
+    const barracks = s.buildings.find((b) => b.type === 'barracks') ?? null;
     const spot = barracks ? placeOf('barracks') : null;
     const anchor = spot ? new THREE.Vector3(spot.x, 0, spot.z) : null;
     roster.forEach((troop, i) => {
@@ -693,7 +687,7 @@ export class TribeScene {
     const full = stock > storageCap(s) * STORAGE_SHOWN;
     for (const b of s.buildings) {
       const sign = WORK_SIGN[b.type];
-      if (!sign || b.level <= 0) continue;
+      if (!sign) continue;
       const busy = b.type === 'storage' ? full : workerCount(s, b.id) > 0;
       const view = this.buildings.get(b.id);
       if (view?.glow) view.glow.visible = busy;

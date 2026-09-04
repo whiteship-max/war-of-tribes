@@ -60,7 +60,7 @@ function vertices(root: THREE.Object3D): { x: number; z: number }[] {
 }
 
 /** Стена третьей ступени: каменное кольцо с башнями и воротами. */
-const wall = (): THREE.Group => createBuildingGroup('palisade', 2, 2);
+const wall = (): THREE.Group => createBuildingGroup('palisade', 2);
 
 describe('зона расчистки', () => {
   it('запас между стеной и лесом заметен, а не символичен', () => {

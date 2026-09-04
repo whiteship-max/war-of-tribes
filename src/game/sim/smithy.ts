@@ -3,7 +3,7 @@
 import type { EquipmentId, GameState } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { builtOfType, canAfford, forgeRate } from '../derived';
+import { canAfford, forgeRate } from '../derived';
 import type { SeasonModifiers } from '../data/seasons';
 import { log } from './log';
 
@@ -15,7 +15,6 @@ export function setForging(s: GameState, item: EquipmentId | null): string | nul
   }
   const def = EQUIPMENT_BY_ID[item];
   if (!def) return 'Такого снаряжения нет.';
-  if (!builtOfType(s, 'smithy')) return 'Сначала построй кузницу.';
   if (s.forging === item) return null;
   s.forging = item;
   // Накопленную работу не выбрасываем: руки кузнеца заняты тем же делом,

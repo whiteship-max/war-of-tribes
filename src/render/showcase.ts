@@ -178,7 +178,7 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const cols = tiers.length;
   const spots: DecalSpot[] = [];
   tiers.forEach((tier, ci) => {
-    const g = createBuildingGroup(type, 2, tier);
+    const g = createBuildingGroup(type, tier);
     const scale = levelScale(TIER_TOP[tier]) * PLAN_SCALE;
     g.scale.setScalar(scale);
     g.position.copy(right).multiplyScalar((ci - (cols - 1) / 2) * spacing);
@@ -302,7 +302,6 @@ export function synthState(
   for (const [type, level] of Object.entries(levels) as [BuildingTypeId, number][]) {
     const existing = s.buildings.find((b) => b.type === type);
     if (existing) existing.level = level;
-    else s.buildings.push({ id: s.nextId++, type, slot: -1, level, work: 0, workRequired: 0 });
   }
 
   // Мест работы в городе больше, чем людей: чтобы «укомплектованный»

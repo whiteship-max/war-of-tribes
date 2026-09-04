@@ -1,25 +1,35 @@
 import type { Building, BuildingTypeId, GameState } from './types';
+import { BUILDINGS } from './data/buildings';
 import { addVillager } from './sim/population';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
 
-/** Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts). */
-export const SAVE_VERSION = 4;
+/**
+ * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
+ * Версия 5 — старт в позднем средневековье: сохранения младших версий не
+ * приводятся, партия начинается заново.
+ */
+export const SAVE_VERSION = 5;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
   type,
-  slot: -1,
   level: 1,
   work: 0,
   workRequired: 0,
 });
 
+/**
+ * Новая партия: посёлок стоит целиком, включая стену, всё первого уровня.
+ * Стройки с нуля в игре нет — единственная прогрессия посёлка это уровни, а
+ * центр игры — карта, армия и бой. Стартовые запасы рассчитаны так, чтобы первые
+ * копьё и боец делались без ожидания, но на дружину пришлось работать.
+ */
 export function createInitialState(): GameState {
   const s: GameState = {
     version: SAVE_VERSION,
     time: 0,
-    resources: { wood: 26, stone: 14, food: 40, hides: 3, bones: 3, copper: 0, iron: 0 },
+    resources: { wood: 120, stone: 80, food: 160, hides: 24, bones: 20, copper: 24, iron: 16 },
     equipment: emptyEquipment(),
     army: emptyArmy(),
     recruits: [],
@@ -28,7 +38,7 @@ export function createInitialState(): GameState {
     decree: 'none',
     ration: 'normal',
     tax: 'none',
-    gold: 0,
+    gold: 40,
     market: { day: 0, bought: {} },
     caravans: [],
     villagers: [],
@@ -53,19 +63,24 @@ export function createInitialState(): GameState {
     nextId: 1,
     lastSaved: Date.now(),
   };
-  s.buildings.push(built(s, 'campfire'));
-  // Укрытий одно на всех: типов по одному, а вместимость набирается уровнями.
-  s.buildings.push(built(s, 'shelter'));
-  // Склад стоит с первого дня: ресурсы видны только в его панели, а без неё игрок
-  // не видит ни одного числа о запасах.
-  s.buildings.push(built(s, 'storage'));
-  // Стартовые работники ходят вольным сбором: зданий добычи ещё нет, доход половинный.
-  addVillager(s, { sex: 'm', age: 28, talent: 'hunter', job: 'hunter' });
-  addVillager(s, { sex: 'f', age: 24, talent: null, job: 'gatherer' });
-  addVillager(s, { sex: 'm', age: 31, talent: null, job: 'woodcutter' });
+  for (const def of BUILDINGS) s.buildings.push(built(s, def.id));
+  const at = (type: BuildingTypeId): number => s.buildings.find((b) => b.type === type)!.id;
+
+  // Хозяйство укомплектовано по одному человеку на двор: еда, лес, камень, руда.
+  addVillager(s, { sex: 'm', age: 34, talent: 'hunter', job: 'hunter' }).workplace = at('hunter_hut');
+  addVillager(s, { sex: 'f', age: 27, talent: null, job: 'farmer' }).workplace = at('farm');
+  addVillager(s, { sex: 'f', age: 24, talent: null, job: 'gatherer' }).workplace = at('gathering');
+  addVillager(s, { sex: 'm', age: 31, talent: null, job: 'woodcutter' }).workplace = at('sawmill');
+  addVillager(s, { sex: 'm', age: 29, talent: null, job: 'stonecutter' }).workplace = at('quarry');
+  addVillager(s, { sex: 'm', age: 26, talent: 'miner', job: 'miner' }).workplace = at('mine');
+  // Свободные руки у костра: из них выйдут кузнец, ремесленник и первые бойцы.
+  addVillager(s, { sex: 'm', age: 22, talent: 'smith', job: 'idle' });
   addVillager(s, { sex: 'f', age: 19, talent: 'crafter', job: 'idle' });
-  addVillager(s, { sex: 'm', age: 22, talent: null, job: 'idle' });
-  s.log.push({ at: 0, text: 'Пять человек собрались у костра. Так началось племя.', kind: 'info' });
-  s.log.push({ at: 0, text: 'Тапни по зданию, чтобы открыть его. Лесопилка удвоит труд лесоруба.', kind: 'info' });
+  addVillager(s, { sex: 'm', age: 20, talent: null, job: 'idle' });
+  addVillager(s, { sex: 'm', age: 23, talent: null, job: 'idle' });
+  addVillager(s, { sex: 'f', age: 21, talent: null, job: 'idle' });
+
+  s.log.push({ at: 0, text: 'Посёлок стоит за стеной, у ворот рынок, в кузнице холодный горн. Соседи не дремлют.', kind: 'info' });
+  s.log.push({ at: 0, text: 'Поставь кузнеца к горну, скуй копьё и найми первого бойца — дальше карта.', kind: 'info' });
   return s;
 }

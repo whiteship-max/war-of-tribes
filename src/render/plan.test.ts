@@ -15,7 +15,6 @@ import {
   PLAN_SCALE,
   PLAZA_RADIUS,
   PLAZA_ROAD,
-  placeHint,
   WALL_RADIUS,
   ROAD_HALF,
   RING_RADIUS,
@@ -34,7 +33,7 @@ const PLACED: BuildingTypeId[] = BUILDINGS.map((b) => b.id).filter((id) => id !=
 
 /** Настоящий радиус модели в плоскости XZ — по вершинам, а не по грубому боксу. */
 function modelRadius(type: BuildingTypeId): number {
-  const g = createBuildingGroup(type, 2, 2);
+  const g = createBuildingGroup(type, 2);
   g.updateMatrixWorld(true);
   let max = 0;
   const v = new THREE.Vector3();
@@ -131,7 +130,7 @@ describe('план поселения', () => {
     for (const type of ROAD_THROUGH) {
       expect(PLAN[type], `${type} стоит на улице, но не в плане`).toBeTruthy();
       for (const tier of [0, 1, 2] as const) {
-        const g = createBuildingGroup(type, 2, tier);
+        const g = createBuildingGroup(type, tier);
         g.updateMatrixWorld(true);
         let min = Infinity;
         const v = new THREE.Vector3();
@@ -237,66 +236,5 @@ describe('план поселения', () => {
       if (def.id === 'palisade' || def.id === 'campfire' || def.id === 'tower') continue;
       expect(PLAN[def.id], `${def.id} забыт в плане`).toBeTruthy();
     }
-  });
-
-  // Разметки пустых мест в сцене больше нет: куда встанет постройка, говорит
-  // список зданий. Значит, подсказка обязана быть у каждого здания и не врать.
-  describe('подсказка о месте', () => {
-    it('есть у всякой постройки и называет её кольцо', () => {
-      for (const def of BUILDINGS) {
-        const hint = placeHint(def.id);
-        if (def.id === 'palisade') {
-          expect(hint.ring).toBe(4);
-          continue;
-        }
-        if (def.id === 'campfire') {
-          expect(hint.ring).toBe(0);
-          continue;
-        }
-        const spot = placeOf(def.id);
-        // Башня стоит между третьим кольцом и стеной — «у стены» про неё правда.
-        expect(
-          Math.abs(RING_RADIUS[hint.ring as 1 | 2 | 3] - spot.r),
-          `${def.id}: кольцо не то`,
-        ).toBeLessThan(1.5);
-      }
-    });
-
-    it('соседи — действительно ближайшие места того же кольца', () => {
-      // Ближайший по каждую сторону, посчитанный здесь заново и независимо.
-      const delta = (a: number, from: number): number => {
-        let d = (a - from) % (Math.PI * 2);
-        if (d > Math.PI) d -= Math.PI * 2;
-        if (d <= -Math.PI) d += Math.PI * 2;
-        return d;
-      };
-      for (const type of PLACED) {
-        const hint = placeHint(type);
-        if (hint.ring === 0 || hint.ring === 4 || type === 'tower') continue;
-        const self = PLAN[type]!;
-        let left: BuildingTypeId | null = null;
-        let right: BuildingTypeId | null = null;
-        let ld = Infinity;
-        let rd = Infinity;
-        for (const other of PLACED) {
-          const p = PLAN[other];
-          if (!p || other === type || p.ring !== self.ring) continue;
-          const d = delta(p.angle, self.angle);
-          if (d > 0 && d < ld) [left, ld] = [other, d];
-          if (d < 0 && -d < rd) [right, rd] = [other, -d];
-        }
-        const want = [right, left].filter(Boolean);
-        expect(hint.neighbours, `${type}: не те соседи`).toEqual(want);
-      }
-    });
-
-    it('сторона считается от ворот: рынок — у самых ворот, дом вождя — напротив', () => {
-      expect(placeHint('market').side).toBe('gate');
-      expect(placeHint('chief_house').side).toBe('opposite');
-      // Лесопилка стоит на 323°, ворота — на 53°: разворот на четверть по часовой,
-      // а по часовой в этой сцене — вправо по экрану.
-      expect(placeHint('sawmill').side).toBe('right');
-      expect(placeHint('farm').side).toBe('left');
-    });
   });
 });

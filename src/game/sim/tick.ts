@@ -96,17 +96,15 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     s.freezing = Math.max(0, s.freezing - dt * 2);
   }
 
-  // 2. Стройка: свободные жители работают над первой стройплощадкой в очереди.
-  // Улучшение — такая же стройка, просто у здания уже есть уровень.
+  // 2. Улучшения: свободные жители и ремесленники работают над первым в очереди.
   const site = currentSite(s);
   if (site) {
     site.work += buildRate(s, mods) * dt;
     if (site.work >= site.workRequired) {
-      const name = BUILDING_BY_ID[site.type].name;
       site.level += 1;
       site.work = 0;
       site.workRequired = 0;
-      log(s, site.level === 1 ? `Построено: ${name}.` : `${name}: уровень ${site.level}.`, 'good');
+      log(s, `${BUILDING_BY_ID[site.type].name}: уровень ${site.level}.`, 'good');
     }
   }
 

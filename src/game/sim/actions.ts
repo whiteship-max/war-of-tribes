@@ -1,13 +1,10 @@
 // Действия игрока. Каждое возвращает null при успехе или текст ошибки.
-import type { BuildingTypeId, GameState, JobId, ResourceId, TotemId } from '../types';
+import type { GameState, JobId, ResourceId, TotemId } from '../types';
 import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
 import { RESOURCE_IDS } from '../constants';
 import {
   buildingById,
-  canAfford,
-  builtOfType,
-  countAll,
   isSite,
   storageCap,
   upgradeCost,
@@ -28,7 +25,7 @@ function pay(s: GameState, cost: Partial<Record<ResourceId, number>>): void {
   for (const r of RESOURCE_IDS) s.resources[r] -= cost[r] ?? 0;
 }
 
-/** Возвращает долю потраченного на стройку обратно на склад. */
+/** Возвращает долю потраченного на улучшение обратно на склад. */
 function refund(s: GameState, cost: Partial<Record<ResourceId, number>>, k: number): void {
   const cap = storageCap(s);
   for (const r of RESOURCE_IDS) {
@@ -37,22 +34,7 @@ function refund(s: GameState, cost: Partial<Record<ResourceId, number>>, k: numb
   }
 }
 
-/**
- * Ставит новое здание. Каждый тип строится ровно один раз: второе такое же не
- * появится ни в списке, ни через действие — дальше постройка растёт уровнями.
- */
-export function startBuilding(s: GameState, type: BuildingTypeId): string | null {
-  const def = BUILDING_BY_ID[type];
-  if (def.starter) return 'Это здание нельзя построить.';
-  if (countAll(s, type) > 0) return 'Такое здание уже есть — улучшай его.';
-  if (!canAfford(s, def.cost)) return 'Не хватает ресурсов.';
-  pay(s, def.cost);
-  s.buildings.push({ id: s.nextId++, type, slot: s.nextId, level: 0, work: 0, workRequired: def.work });
-  log(s, `Начата стройка: ${def.name}.`);
-  return null;
-}
-
-/** Улучшение — такая же стройка: стоит ресурсов, занимает труд и идёт в общей очереди. */
+/** Улучшение — стройка: стоит ресурсов, занимает труд и идёт в общей очереди. */
 export function startUpgrade(s: GameState, buildingId: number): string | null {
   const b = buildingById(s, buildingId);
   if (!b) return 'Здание не найдено.';
@@ -65,24 +47,16 @@ export function startUpgrade(s: GameState, buildingId: number): string | null {
   return null;
 }
 
-/** Отменяет стройку или улучшение. Начатую работу возвращают наполовину. */
-export function cancelBuilding(s: GameState, buildingId: number): string | null {
-  const idx = s.buildings.findIndex((b) => b.id === buildingId);
-  if (idx < 0) return 'Стройка не найдена.';
-  const b = s.buildings[idx];
+/** Отменяет улучшение. Начатую работу возвращают наполовину, нетронутую — целиком. */
+export function cancelUpgrade(s: GameState, buildingId: number): string | null {
+  const b = buildingById(s, buildingId);
+  if (!b) return 'Здание не найдено.';
   if (!isSite(b)) return 'Здесь ничего не строят.';
   const def = BUILDING_BY_ID[b.type];
-  const part = b.work === 0 ? 1 : 0.5;
-  if (b.level === 0) {
-    refund(s, def.cost, part);
-    s.buildings.splice(idx, 1);
-    log(s, `Стройка отменена: ${def.name}.`);
-  } else {
-    refund(s, upgradeCost(def, b.level + 1), part);
-    b.work = 0;
-    b.workRequired = 0;
-    log(s, `Улучшение отменено: ${def.name}.`);
-  }
+  refund(s, upgradeCost(def, b.level + 1), b.work === 0 ? 1 : 0.5);
+  b.work = 0;
+  b.workRequired = 0;
+  log(s, `Улучшение отменено: ${def.name}.`);
   return null;
 }
 
@@ -100,7 +74,6 @@ export function resolveEvent(s: GameState, optionIndex: number): { error: string
 }
 
 export function chooseTotem(s: GameState, totem: TotemId): string | null {
-  if (!builtOfType(s, 'totem')) return 'Сначала нужно святилище.';
   if (s.totem) return 'Тотем уже выбран.';
   s.totem = totem;
   const names: Record<TotemId, string> = { wolf: 'Волка', bear: 'Медведя', eagle: 'Орла' };

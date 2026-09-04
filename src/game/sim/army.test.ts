@@ -34,10 +34,10 @@ function place(s: GameState, type: BuildingTypeId, level = 1): void {
     exist.workRequired = 0;
     return;
   }
-  s.buildings.push({ id: s.nextId++, type, slot: 0, level, work: 0, workRequired: 0 });
+  s.buildings.push({ id: s.nextId++, type, level, work: 0, workRequired: 0 });
 }
 
-/** Племя с казармами, кузницей и запасом: с него начинаются военные проверки. */
+/** Племя со свободными руками и запасом: с него начинаются военные проверки. */
 function warband(pop = 10): GameState {
   const s = createInitialState();
   while (s.villagers.length < pop) addVillager(s, { age: 24, talent: null });
@@ -217,8 +217,15 @@ describe('казармы', () => {
 });
 
 describe('указ и рацион', () => {
-  /** Одинаковые племена: разница между ними — только в указе или рационе. */
-  const twin = (): [GameState, GameState] => [warband(12), warband(12)];
+  /**
+   * Одинаковые племена: разница между ними — только в указе или рационе. Оба под
+   * высоким налогом, иначе целевая мораль упирается в потолок и сдвиг не виден.
+   */
+  const twin = (): [GameState, GameState] => {
+    const pair: [GameState, GameState] = [warband(12), warband(12)];
+    for (const s of pair) s.tax = 'high';
+    return pair;
+  };
 
   it('указ меняет выработку ровно на заявленную величину', () => {
     const s = warband(12);

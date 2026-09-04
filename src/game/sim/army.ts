@@ -15,7 +15,6 @@ import { RESOURCE_IDS } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
 import {
-  builtOfType,
   canAfford,
   freeVillagers,
   recruitRate,
@@ -83,8 +82,7 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
   const work = def.work * n;
 
   let blocked: string | null = null;
-  if (!builtOfType(s, 'barracks')) blocked = 'Сначала построй казармы.';
-  else if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
+  if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
   else if (missing.length > 0) {
     blocked = `Не хватает: ${missing
       .map((m) => `${EQUIPMENT_BY_ID[m.id].name.toLowerCase()} ${m.need - m.have}`)

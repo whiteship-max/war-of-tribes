@@ -40,6 +40,8 @@ export interface GameStore {
   s: GameState;
   ready: boolean;
   offlineSeconds: number;
+  /** Найденное сохранение было старого формата и отброшено — игроку об этом говорят прямо. */
+  legacyReset: boolean;
   sheet: SheetView | null;
   /** Открыта карта мира. Пока она открыта, 3D-сцена не рисуется (но и не выгружается). */
   mapOpen: boolean;
@@ -68,6 +70,7 @@ export interface GameStore {
   resolve: (optionIndex: number) => void;
   dismissResult: () => void;
   dismissOffline: () => void;
+  dismissLegacy: () => void;
   dismissWinterWarning: () => void;
   showToast: (text: string) => void;
   /** Досчитывает шаги обучения по факту: после действия игрока и на каждом тике. */
@@ -88,6 +91,7 @@ export const useGame = create<GameStore>((set, get) => ({
   s: createInitialState(),
   ready: false,
   offlineSeconds: 0,
+  legacyReset: false,
   sheet: null,
   mapOpen: false,
   toast: null,
@@ -132,8 +136,10 @@ export const useGame = create<GameStore>((set, get) => ({
   closeSheet: () => set({ sheet: null }),
 
   init: async () => {
-    const { state, offlineSeconds } = await loadGame();
-    set({ s: state, ready: true, offlineSeconds });
+    const { state, offlineSeconds, legacy } = await loadGame();
+    set({ s: state, ready: true, offlineSeconds, legacyReset: legacy });
+    // Старое сохранение к новой партии не подходит: его место сразу занимает новая.
+    if (legacy) void get().save();
     if (loopStarted) return;
     loopStarted = true;
     setInterval(() => {
@@ -186,6 +192,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   dismissResult: () => set({ eventResult: null }),
   dismissOffline: () => set({ offlineSeconds: 0 }),
+  dismissLegacy: () => set({ legacyReset: false }),
 
   dismissWinterWarning: () => {
     const s = get().s;

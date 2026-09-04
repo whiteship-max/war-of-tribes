@@ -2,7 +2,7 @@
 // факту шаг считается пройденным. Рисует это ui/TutorialOverlay.
 import type { BuildingTypeId, GameState } from '../types';
 import { DAY_LENGTH } from '../constants';
-import { buildingById, countAll, countBuilt, workerCount } from '../derived';
+import { buildingById } from '../derived';
 import { SEASONS, SEASON_DAYS } from './seasons';
 
 /** Что подсвечивается «дыркой» в затемнении. */
@@ -51,16 +51,6 @@ const opened = (s: GameState, ui: TutorialUi, type: BuildingTypeId): boolean => 
   return b !== null && b.type === type;
 };
 
-/** Сколько народу уже рубит лес на лесопилке. */
-const sawmillWorkers = (s: GameState): number =>
-  s.buildings.reduce((n, b) => (b.type === 'sawmill' ? n + workerCount(s, b.id) : n), 0);
-
-/**
- * Шесть шагов сценария, разложенных по местам экрана: «построй лесопилку» — это раздел
- * «Здания» внизу и карточка в его списке, а «отправь рубить лес» — сначала само здание,
- * потом слот в его панели. Каждый шаг заканчивается действием игрока в настоящем интерфейсе:
- * обучающих макетов и кнопки «Далее» здесь нет.
- */
 export const TUTORIAL: TutorialStep[] = [
   {
     id: 'intro',
@@ -73,32 +63,6 @@ export const TUTORIAL: TutorialStep[] = [
     target: { kind: 'building', type: 'campfire' },
     // Главное правило — «данные живут в зданиях», поэтому годится любая открытая панель.
     done: (_s, ui) => ui.building !== null,
-  },
-  {
-    id: 'open_build',
-    text: 'Открой «Здания» внизу — там весь посёлок и стройка.',
-    target: { kind: 'dom', sel: '[data-tut="nav-build"]' },
-    done: (s, ui) => ui.tab === 'build' || countAll(s, 'sawmill') > 0,
-  },
-  {
-    id: 'build_sawmill',
-    text: 'Построй лесопилку: на месте лесоруб вдвое сильнее.',
-    target: { kind: 'dom', sel: '[data-tut="build-sawmill"]' },
-    done: (s) => countAll(s, 'sawmill') > 0,
-  },
-  {
-    id: 'open_sawmill',
-    text: 'Тапни лесопилку — у неё тоже своя панель.',
-    target: { kind: 'building', type: 'sawmill' },
-    done: (s, ui) => opened(s, ui, 'sawmill') || sawmillWorkers(s) > 0,
-  },
-  {
-    id: 'assign',
-    // Пока идёт стройка, слота ещё нет: строка объясняет ожидание, а не молчит.
-    text: (s) =>
-      countBuilt(s, 'sawmill') > 0 ? 'Поставь человека рубить лес.' : 'Лесопилка строится. Скоро появится место.',
-    target: { kind: 'dom', sel: '[data-tut="slot-add"]' },
-    done: (s) => sawmillWorkers(s) > 0,
   },
   {
     id: 'storage',

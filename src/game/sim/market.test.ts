@@ -17,7 +17,6 @@ import { TAXES } from '../data/policy';
 import {
   buildingOfType,
   buildingSlots,
-  builtOfType,
   dayOf,
   foodConsumptionPerDay,
   marketLeft,
@@ -42,7 +41,7 @@ function place(s: GameState, type: Parameters<typeof buildingOfType>[1], level =
     exist.workRequired = 0;
     return;
   }
-  s.buildings.push({ id: s.nextId++, type, slot: s.nextId, level, work: 0, workRequired: 0 });
+  s.buildings.push({ id: s.nextId++, type, level, work: 0, workRequired: 0 });
 }
 
 /** Расставляет людей по свободным местам зданий — иначе город ничего не производит. */
@@ -109,17 +108,23 @@ function hungryTribe(): GameState {
   for (const type of ['hut', 'storage', 'sawmill', 'quarry', 'mine', 'chief_house'] as const) {
     place(s, type, 5);
   }
-  // Единственный источник еды — маленький навес собирателей.
+  // Единственный источник еды — маленький навес собирателей: поле, загон и
+  // охотничий домик стоят пустыми, люди ушли на лес, камень и руду.
   place(s, 'gathering', 2);
   place(s, 'market', 5);
-  staff(s);
+  for (const type of ['sawmill', 'quarry', 'mine', 'gathering'] as const) {
+    const b = buildingOfType(s, type)!;
+    while (workerCount(s, b.id) < buildingSlots(b)) {
+      if (assignWorker(s, b.id) !== null) break;
+    }
+  }
   s.resources = { wood: 200, stone: 100, food: 120, hides: 20, bones: 20, copper: 0, iron: 0 };
   s.morale = moraleTarget(s);
   return s;
 }
 
 /** Уровень рынка в этом состоянии — тестам он нужен для цены партии. */
-const marketLevelOf = (s: GameState): number => builtOfType(s, 'market')?.level ?? 0;
+const marketLevelOf = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
 
 /** Общая масса ресурсов за день — ею меряется потеря от просевшей морали. */
 const totalOutput = (s: GameState): number => {
@@ -136,10 +141,10 @@ describe('золото', () => {
     expect(setTax(s, 'high')).toBeNull();
     expect(taxIncomePerDay(s)).toBeGreaterThan(0);
 
-    // Тот же налог в маленьком посёлке приносит заметно меньше, чем в городе: население — ценность.
+    // Тот же налог в стартовом посёлке приносит заметно меньше, чем в городе: население — ценность.
     const small = createInitialState();
     small.tax = 'high';
-    expect(taxIncomePerDay(small)).toBeLessThan(taxIncomePerDay(s) / 4);
+    expect(taxIncomePerDay(small)).toBeLessThan(taxIncomePerDay(s) / 3);
 
     // За игровой день в казну ложится дневной сбор. Точное совпадение требовать
     // нельзя: за день посёлок мог подрасти, а с ним и сбор.

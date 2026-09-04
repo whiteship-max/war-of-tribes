@@ -13,7 +13,6 @@ import type { Caravan, GameState, GoodId } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { GOOD_BY_ID, type GoodDef } from '../data/market';
 import {
-  builtOfType,
   caravanSeconds,
   dayOf,
   marketBought,
@@ -56,8 +55,7 @@ export function marketCheck(s: GameState, good: GoodId, count: number): MarketCh
   const cost = marketCost(s, def, n);
 
   let blocked: string | null = null;
-  if (!builtOfType(s, 'market')) blocked = 'Сначала построй рынок.';
-  else if (!marketOffer(s).some((g) => g.id === def.id)) blocked = 'Сегодня этого на прилавке нет.';
+  if (!marketOffer(s).some((g) => g.id === def.id)) blocked = 'Сегодня этого на прилавке нет.';
   else if (left <= 0) blocked = 'На сегодня всё разобрали — приходи завтра.';
   else if (n > left) blocked = `Сегодня осталось только ${left}.`;
   else if (s.gold < cost) blocked = 'Не хватает золота.';

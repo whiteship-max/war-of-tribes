@@ -1,12 +1,10 @@
-import type { Army, Building, BuildingTypeId, GameState, LogEntry, Villager } from './types';
-import { MAX_BUILDING_LEVEL, MAX_OFFLINE_SECONDS } from './constants';
-import { BUILDING_BY_ID } from './data/buildings';
+import type { GameState } from './types';
+import { MAX_OFFLINE_SECONDS } from './constants';
 import { emptyArmy } from './data/troops';
 import { emptyEquipment } from './data/equipment';
 import { createInitialState, SAVE_VERSION } from './state';
 import { catchUp } from './sim/tick';
-import { finishTutorial } from './data/tutorial';
-import { autoAssign, normalizeAssignments } from './sim/workers';
+import { normalizeAssignments } from './sim/workers';
 import { cloudGet, cloudSet } from '@/telegram/webapp';
 
 const KEY = 'tribe.save.v1';
@@ -18,120 +16,15 @@ export function serialize(s: GameState): string {
 type SavedState = Partial<GameState> & { version?: number };
 
 /**
- * Версия 1 не знала уровней зданий и рабочих мест: у здания было только work/workRequired,
- * а профессия жила сама по себе. Достроенные здания становятся первым уровнем,
- * жители — вольным сбором, а дальше autoAssign рассаживает их по слотам.
+ * Читает сохранение текущего формата. Сохранения младших версий не приводятся:
+ * в них партия шла от костра через эпохи и технологии, и к новому старту в
+ * позднем средневековье её не перевести честно — возвращаем null, а loadGame
+ * говорит игроку, что партия началась заново.
  */
-function migrateV1(data: SavedState): SavedState {
-  const buildings = (data.buildings ?? []).map((b: Building & { level?: number }): Building => {
-    const done = b.level !== undefined ? b.level > 0 : b.work >= b.workRequired;
-    return {
-      id: b.id,
-      type: b.type,
-      slot: b.slot,
-      level: done ? 1 : 0,
-      work: done ? 0 : b.work,
-      workRequired: done ? 0 : b.workRequired,
-    };
-  });
-  const villagers = (data.villagers ?? []).map((v: Villager): Villager => ({ ...v, workplace: null }));
-  return { ...data, version: 2, buildings, villagers };
-}
-
-/**
- * Версия 3: каждый тип здания строится ровно один раз. Несколько построек одного типа
- * сводятся в одну, а её уровень — сумма уровней: прежний суммарный эффект при этом не
- * теряется (три хижины первого уровня дают хижину третьего, и мест под крышей становится
- * больше, а не меньше). Игроку об этом пишем в летопись — прогресс не должен пропадать молча.
- */
-function migrateV2(data: SavedState): SavedState {
-  const groups = new Map<BuildingTypeId, Building[]>();
-  for (const b of data.buildings ?? []) {
-    const list = groups.get(b.type);
-    if (list) list.push(b);
-    else groups.set(b.type, [b]);
-  }
-  const buildings: Building[] = [];
-  const log: LogEntry[] = [...(data.log ?? [])];
-  for (const [type, list] of groups) {
-    const def = BUILDING_BY_ID[type];
-    if (!def) continue;
-    if (list.length === 1) {
-      buildings.push(list[0]);
-      continue;
-    }
-    const level = Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, list.reduce((n, b) => n + b.level, 0));
-    // Оставляем самую развитую постройку: за ней уже закреплено место на карте.
-    const keep = [...list].sort((a, b) => b.level - a.level)[0];
-    // Если ни одна не была достроена, сливаем и стройки — берём ту, что дальше продвинулась.
-    const site = level === 0 ? list.reduce((a, b) => (b.work > a.work ? b : a)) : null;
-    buildings.push({
-      id: keep.id,
-      type,
-      slot: keep.slot,
-      level,
-      work: site ? site.work : 0,
-      workRequired: site ? site.workRequired : 0,
-    });
-    log.push({
-      at: data.time ?? 0,
-      text: `${def.name}: ${list.length} постройки свели в одну, уровень ${level}.`,
-      kind: 'info',
-    });
-  }
-  return { ...data, version: 3, buildings, log };
-}
-
-/**
- * Версия 4: роль «воин» исчезла из списка профессий — армия стала счётчиком бойцов.
- * Каждый житель-воин становится дубинщиком: он и был бойцом без снаряжения.
- * Заодно здания переезжают на свои места по фиксированному плану посёлка —
- * место теперь выводится из типа здания, а не подбирается свободным слотом.
- */
-function migrateV3(data: SavedState): SavedState {
-  const army: Army = { ...emptyArmy(), ...(data.army ?? {}) };
-  const villagers: Villager[] = [];
-  let drafted = 0;
-  for (const v of data.villagers ?? []) {
-    // 'warrior' больше нет в JobId, но в старом сохранении он лежит строкой.
-    if ((v.job as string) === 'warrior') {
-      drafted++;
-      continue;
-    }
-    villagers.push(v.talent && (v.talent as string) === 'warrior' ? { ...v, talent: null } : v);
-  }
-  army.clubman += drafted;
-  const log: LogEntry[] = [...(data.log ?? [])];
-  if (drafted > 0) {
-    log.push({
-      at: data.time ?? 0,
-      text: `Воины ушли в казармы: ${drafted} ${drafted === 1 ? 'человек' : 'человека'} стали дубинщиками.`,
-      kind: 'info',
-    });
-  }
-  log.push({
-    at: data.time ?? 0,
-    text: 'Посёлок перестроили: у каждого здания теперь своё место в кольцах вокруг площади.',
-    kind: 'info',
-  });
-  return { ...data, version: 4, villagers, army, log };
-}
-
-/** Подтягивает сохранение до текущего формата по шагам: 1 → 2 → 3 → 4. */
-function migrate(data: SavedState): SavedState | null {
-  let d = data;
-  if (d.version === 1) d = migrateV1(d);
-  if (d.version === 2) d = migrateV2(d);
-  if (d.version === 3) d = migrateV3(d);
-  return d.version === SAVE_VERSION ? d : null;
-}
-
 export function deserialize(json: string): GameState | null {
   try {
-    const raw = JSON.parse(json) as SavedState;
-    if (!raw || !Array.isArray(raw.villagers)) return null;
-    const data = raw.version === SAVE_VERSION ? raw : migrate(raw);
-    if (!data) return null;
+    const data = JSON.parse(json) as SavedState;
+    if (!data || !Array.isArray(data.villagers) || data.version !== SAVE_VERSION) return null;
     const base = createInitialState();
     // Простое слияние: новые поля из createInitialState, остальное из сохранения.
     const s = {
@@ -144,16 +37,10 @@ export function deserialize(json: string): GameState | null {
       equipment: { ...emptyEquipment(), ...(data.equipment ?? {}) },
       army: { ...emptyArmy(), ...(data.army ?? {}) },
       recruits: data.recruits ?? [],
-      // Рынок и караваны появились позже формата: старое сохранение просто
-      // не знает этих полей, и версию из-за них поднимать незачем.
       market: { day: 0, bought: {}, ...(data.market ?? {}) },
       caravans: data.caravans ?? [],
       stats: { ...base.stats, ...(data.stats ?? {}) },
     } as GameState;
-    // Обучение появилось позже формата: в старом сохранении его полей нет, а игрок
-    // там уже освоился — начинать проводку первых шагов заново незачем.
-    if (data.tutorialStep === undefined) finishTutorial(s);
-    if (raw.version !== SAVE_VERSION) autoAssign(s);
     normalizeAssignments(s);
     return s;
   } catch {
@@ -175,6 +62,8 @@ export interface LoadResult {
   state: GameState;
   offlineSeconds: number;
   fresh: boolean;
+  /** Сохранение было, но старого формата: его отбросили и начали новую партию. */
+  legacy: boolean;
 }
 
 export async function loadGame(): Promise<LoadResult> {
@@ -195,12 +84,18 @@ export async function loadGame(): Promise<LoadResult> {
   };
   const chosen = pickNewer(json, cloud);
   const state = chosen ? deserialize(chosen) : null;
-  if (!state) return { state: createInitialState(), offlineSeconds: 0, fresh: true };
+  if (!state) {
+    // Что-то лежало, но прочитать это нельзя — старый формат. Молча стирать
+    // прогресс нельзя: игроку об этом скажет отдельное окно.
+    const legacy = Boolean(json || cloud);
+    if (legacy) clearSave();
+    return { state: createInitialState(), offlineSeconds: 0, fresh: true, legacy };
+  }
 
   const elapsed = Math.max(0, Math.floor((Date.now() - state.lastSaved) / 1000));
   const offline = Math.min(elapsed, MAX_OFFLINE_SECONDS);
   if (offline > 5) catchUp(state, offline, 2);
-  return { state, offlineSeconds: offline, fresh: false };
+  return { state, offlineSeconds: offline, fresh: false, legacy: false };
 }
 
 export function clearSave(): void {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Building, TroopId } from '@/game/types';
+import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
@@ -7,10 +7,9 @@ import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import {
   armyPower,
   armySize,
-  builtOfType,
+  buildingOfType,
   defense,
   freeVillagers,
-  isBuilt,
   recruitRate,
 } from '@/game/derived';
 import { recruitCheck } from '@/game/sim/army';
@@ -24,16 +23,14 @@ import { cancelRecruit, startRecruit } from '@/game/sim/actions';
  * Тупика без объяснения быть не должно: если не хватает снаряжения, здесь
  * написано, чего именно, и рядом стоит кнопка перехода в кузницу.
  */
-export function Barracks({ b }: { b: Building }) {
+export function Barracks() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const act = useGame((g) => g.act);
   const [counts, setCounts] = useState<Partial<Record<TroopId, number>>>({});
-  const smithy = builtOfType(s, 'smithy');
+  const smithy = buildingOfType(s, 'smithy');
   const rate = recruitRate(s);
   const free = freeVillagers(s).length;
-
-  if (!isBuilt(b)) return <div className="note">Учения начнутся, когда казармы достроят.</div>;
 
   const setCount = (id: TroopId, n: number): void =>
     setCounts((c) => ({ ...c, [id]: Math.max(1, Math.min(99, n)) }));
@@ -74,7 +71,7 @@ export function Barracks({ b }: { b: Building }) {
                   <div className="title">
                     {def.name}
                     <span className="count">
-                      {o.done}/{o.count} · {i === 0 ? (eta !== null ? `~${eta} с` : 'нет казарм') : 'ждёт'}
+                      {o.done}/{o.count} · {i === 0 ? (eta !== null ? `~${eta} с` : 'стоит') : 'ждёт'}
                     </span>
                   </div>
                   <div className="progress">

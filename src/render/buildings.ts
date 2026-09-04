@@ -1,14 +1,13 @@
-// Low-poly модели зданий: этапы стройки и три визуальные ступени по уровню.
+// Low-poly модели зданий: три визуальные ступени по уровню.
 // Стиль один на всю игру — позднее средневековье: штукатурка, черепица, фахверк.
 import * as THREE from 'three';
-import type { Building, BuildingTypeId } from '@/game/types';
+import type { BuildingTypeId } from '@/game/types';
 import { VISUAL_TIERS } from '@/game/constants';
 import { MAT as T } from './terrain';
 import { GATE_ANGLE, WALL_RADIUS } from './plan';
 import { LEGACY, type MatKey } from './materials';
 import * as K from './kit';
 
-export type Stage = 0 | 1 | 2;
 /** Визуальная ступень: 0 — уровни 1–3, 1 — 4–7, 2 — 8–10. */
 export type Tier = 0 | 1 | 2;
 
@@ -24,15 +23,6 @@ export const visualTier = (level: number): Tier =>
  */
 export const levelScale = (level: number): number =>
   1 + 0.045 * Math.max(0, level - TIER_START[visualTier(Math.max(1, level))]);
-
-/**
- * Этап стройки. Уже стоящее здание всегда показывается целиком: улучшение
- * не разбирает его обратно до площадки, а обносит лесами (см. scaffold).
- */
-export function stageOf(b: Building): Stage {
-  if (b.level > 0 || b.workRequired <= 0) return 2;
-  return b.work / b.workRequired >= 0.35 ? 1 : 0;
-}
 
 /** Материалы старых моделей — из общего набора; цвета в palette.ts. */
 export const M = LEGACY;
@@ -168,15 +158,7 @@ function pad(radius: number): THREE.Mesh {
   return m;
 }
 
-function logsPile(g: THREE.Group): void {
-  for (let i = 0; i < 3; i++) {
-    const l = cyl(0.08, 0.08, 0.9, M.woodDark, 5, -0.3 + i * 0.2, 0.12 + (i === 1 ? 0.1 : 0), 0.4);
-    l.rotation.z = Math.PI / 2;
-    g.add(l);
-  }
-}
-
-/** Четыре столба с обвязкой: и каркас стройки, и остов навеса. */
+/** Четыре столба с обвязкой: остов навеса, копра, рамы пилы. */
 function frame(g: THREE.Group, w: number, d: number, h: number, mat: THREE.Material = M.woodDark): void {
   const hw = w / 2;
   const hd = d / 2;
@@ -946,17 +928,16 @@ export function scaffold(w: number, d: number, h = 1.5): THREE.Group {
  * Ступени: частокол из жердей → каменная стена с зубцами и башнями → высокая
  * стена со стягами. Со второй ступени поселение и выглядит укреплённым.
  */
-function palisade(stage: Stage, t: Tier, st: Style): THREE.Group {
+function palisade(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const R = WALL_RADIUS;
   const n = 96;
-  const frac = stage === 0 ? 0.15 : stage === 1 ? 0.55 : 1;
   const h = [1.7, 2.3, 2.9][t];
   const stone = t >= 1;
   /** Половина углового просвета ворот. */
   const gateHalf = 0.105;
 
-  for (let i = 0; i < n * frac; i++) {
+  for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + GATE_ANGLE + gateHalf;
     const rel = Math.atan2(Math.sin(a - GATE_ANGLE), Math.cos(a - GATE_ANGLE));
     if (Math.abs(rel) < gateHalf) continue;
@@ -980,7 +961,7 @@ function palisade(stage: Stage, t: Tier, st: Style): THREE.Group {
   }
 
   // Башни по кругу: со второй ступени стена перестаёт быть глухой лентой.
-  if (stone && stage === 2) {
+  if (stone) {
     const towers = t === 1 ? 6 : 8;
     for (let i = 0; i < towers; i++) {
       const a = GATE_ANGLE + Math.PI / towers + (i / towers) * Math.PI * 2;
@@ -993,7 +974,7 @@ function palisade(stage: Stage, t: Tier, st: Style): THREE.Group {
     }
   }
 
-  if (stage === 2) {
+  {
     // Ворота: две башни, перекладина и стяг. Их видно от самого въезда.
     const gx = Math.cos(GATE_ANGLE) * R;
     const gz = Math.sin(GATE_ANGLE) * R;
@@ -1059,30 +1040,19 @@ export const footprintOf = (type: BuildingTypeId, tier: Tier = 0): [number, numb
  * отрисовки на материал вместо одного на каждую доску. Визуально модель та же,
  * добавляется только контактное затемнение у земли.
  */
-export function createBuildingGroup(type: BuildingTypeId, stage: Stage, tier: Tier): THREE.Group {
-  return K.collapse(legacyModel(type, stage, tier), K.GROUND_AO);
+export function createBuildingGroup(type: BuildingTypeId, tier: Tier): THREE.Group {
+  return K.collapse(legacyModel(type, tier), K.GROUND_AO);
 }
 
-function legacyModel(type: BuildingTypeId, stage: Stage, tier: Tier): THREE.Group {
+function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
   const st = STYLE;
-  if (type === 'campfire') return campfire(st);
-  if (type === 'shelter') return shelter();
-  if (type === 'palisade') return palisade(stage, tier, st);
-
-  const g = new THREE.Group();
-  const [w, d] = footprintOf(type, tier);
-  if (stage === 0) {
-    g.add(pad(Math.max(w, d) * 0.75));
-    logsPile(g);
-    return g;
-  }
-  if (stage === 1) {
-    g.add(pad(Math.max(w, d) * 0.75));
-    if (type === 'farm') g.add(box(w, 0.08, d, M.soil, 0, 0.04, 0));
-    else frame(g, w, d, type === 'tower' ? 2.4 : 1.0, st.post);
-    return g;
-  }
   switch (type) {
+    case 'campfire':
+      return campfire(st);
+    case 'shelter':
+      return shelter();
+    case 'palisade':
+      return palisade(tier, st);
     case 'hut':
       return hut(tier);
     case 'storage':
@@ -1116,6 +1086,6 @@ function legacyModel(type: BuildingTypeId, stage: Stage, tier: Tier): THREE.Grou
     case 'market':
       return market(tier, st);
     default:
-      return g;
+      return new THREE.Group();
   }
 }

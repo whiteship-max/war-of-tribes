@@ -61,30 +61,17 @@ import {
   type SeasonModifiers,
 } from './data/seasons';
 
-/** Здание достроено и работает. Уровень 0 — ещё стройплощадка. */
-export const isBuilt = (b: Building): boolean => b.level > 0;
-
-/** На здании идёт работа: первая стройка или улучшение. */
+/** На здании идёт улучшение. */
 export const isSite = (b: Building): boolean => b.workRequired > 0;
 
 export const buildingById = (s: GameState, id: number): Building | null =>
   s.buildings.find((b) => b.id === id) ?? null;
 
-export const countBuilt = (s: GameState, type: BuildingTypeId): number =>
-  s.buildings.filter((b) => b.type === type && isBuilt(b)).length;
-
-export const countAll = (s: GameState, type: BuildingTypeId): number =>
-  s.buildings.filter((b) => b.type === type).length;
-
-/** Единственное здание этого типа — построенное или ещё стройплощадка. */
+/** Единственное здание этого типа. Второго такого в посёлке не бывает. */
 export const buildingOfType = (s: GameState, type: BuildingTypeId): Building | null =>
   s.buildings.find((b) => b.type === type) ?? null;
 
-/** Построенное здание этого типа. Второго такого в посёлке не бывает. */
-export const builtOfType = (s: GameState, type: BuildingTypeId): Building | null =>
-  s.buildings.find((b) => b.type === type && isBuilt(b)) ?? null;
-
-/** Первая стройка в очереди — над ней работают свободные жители. */
+/** Первое улучшение в очереди — над ним работают свободные жители. */
 export const currentSite = (s: GameState): Building | null => s.buildings.find(isSite) ?? null;
 
 // ---------- Уровни, слоты, улучшения ----------
@@ -92,10 +79,9 @@ export const currentSite = (s: GameState): Building | null => s.buildings.find(i
 /** Множитель выработки рабочего от уровня здания: +10% за уровень. */
 export const levelOutputMult = (level: number): number => 1 + LEVEL_OUTPUT_STEP * Math.max(0, level - 1);
 
-/** Рабочих мест в здании: столько же, сколько уровней. Стройплощадка мест не даёт. */
+/** Рабочих мест в здании: столько же, сколько уровней. */
 export function buildingSlots(b: Building): number {
-  const def = BUILDING_BY_ID[b.type];
-  return def.job && b.level > 0 ? b.level : 0;
+  return BUILDING_BY_ID[b.type].job ? b.level : 0;
 }
 
 export const workersIn = (s: GameState, buildingId: number): Villager[] =>
@@ -115,7 +101,6 @@ export const freeVillagers = (s: GameState): Villager[] => s.villagers.filter((v
  * первый уровень; у Дома вождя жильё начинается с шестого.
  */
 export function buildingStat(b: Building, key: keyof BuildingStats): number {
-  if (b.level <= 0) return 0;
   const def = BUILDING_BY_ID[b.type];
   const base = def[key] ?? 0;
   if (base === 0) return 0;
@@ -166,8 +151,7 @@ export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
   const work = upgradeWork(def, level);
   const affordable = canAfford(s, cost);
   let blocked: string | null = null;
-  if (b.level === 0) blocked = 'Здание ещё строится.';
-  else if (isSite(b)) blocked = 'Улучшение уже идёт.';
+  if (isSite(b)) blocked = 'Улучшение уже идёт.';
   else if (level > maxLevel) blocked = b.level <= 1 ? 'Это здание не улучшается.' : 'Максимальный уровень.';
   else if (!affordable) blocked = 'Не хватает ресурсов.';
   return { level, cost, work, maxLevel, affordable, blocked };
@@ -177,7 +161,7 @@ export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
 export type Attention = 'idle' | 'slot' | 'upgrade';
 
 export function buildingAttention(s: GameState, b: Building): Attention | null {
-  if (!isBuilt(b) || isSite(b)) return null;
+  if (isSite(b)) return null;
   const slots = buildingSlots(b);
   if (slots > 0) {
     const n = workerCount(s, b.id);
@@ -236,8 +220,8 @@ export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.non
 /** Сбор золота за игровой день: с каждого человека посёлка, включая бойцов. */
 export const taxIncomePerDay = (s: GameState): number => taxOf(s).perPop * population(s) * TAX_PER_POP;
 
-/** Уровень рынка. 0 — рынка нет или он ещё строится. */
-export const marketLevel = (s: GameState): number => builtOfType(s, 'market')?.level ?? 0;
+/** Уровень рынка. */
+export const marketLevel = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
 
 /** Что стоит на прилавке сегодня. Пусто, пока нет рынка. */
 export const marketOffer = (s: GameState): GoodDef[] => offerFor(dayOf(s.time), marketLevel(s), GOODS);
@@ -368,7 +352,7 @@ export const recruitsQueued = (s: GameState): number =>
  * учения идут своим чередом, без рабочих и без сезона.
  */
 export function recruitRate(s: GameState): number {
-  const b = builtOfType(s, 'barracks');
+  const b = buildingOfType(s, 'barracks');
   return b ? RECRUIT_WORK * levelOutputMult(b.level) : 0;
 }
 
@@ -379,7 +363,7 @@ export function recruitRate(s: GameState): number {
  * всё это уже сидит в множителе жителя.
  */
 export function forgeRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
-  const smithy = builtOfType(s, 'smithy');
+  const smithy = buildingOfType(s, 'smithy');
   if (!smithy) return 0;
   let rate = 0;
   for (const v of workersIn(s, smithy.id)) rate += SMITH_WORK * villagerMultiplier(s, v, mods);
@@ -407,8 +391,7 @@ export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   const work = s.forgeWork ?? 0;
   const need = def?.work ?? 0;
   let blocked: string | null = null;
-  if (!builtOfType(s, 'smithy')) blocked = 'Кузница ещё строится.';
-  else if (!def) blocked = 'Выбери, что куём.';
+  if (!def) blocked = 'Выбери, что куём.';
   else if (rate <= 0) blocked = 'В кузнице никто не работает.';
   else if (work >= need && !canAfford(s, def.cost)) blocked = 'Не хватает материалов на предмет.';
   const eta = def && rate > 0 ? Math.max(0, Math.ceil((need - work) / rate)) : null;
@@ -436,7 +419,7 @@ export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = 
 export function placeMultiplier(s: GameState, v: Villager): number {
   if (v.workplace !== null) {
     const b = buildingById(s, v.workplace);
-    if (b && isBuilt(b)) return levelOutputMult(b.level);
+    if (b) return levelOutputMult(b.level);
   }
   return JOB_BY_ID[v.job].building ? FREE_RANGE_MULT : 1;
 }
@@ -579,7 +562,7 @@ export const winterMods = (s: GameState): SeasonModifiers => seasonModsFor('wint
 
 export const isFirstWinter = (s: GameState): boolean => yearOf(s.time) === 1;
 
-/** Сколько жителей помещается под крышу: только построенные жилые здания. */
+/** Сколько жителей помещается под крышу. */
 export function roofCapacity(s: GameState): number {
   let cap = 0;
   for (const b of s.buildings) cap += buildingHousing(b);
@@ -595,9 +578,8 @@ export function heatingWoodPerDay(s: GameState, mods: SeasonModifiers = seasonMo
   const pop = s.villagers.length;
   const roofed = Math.min(pop, roofCapacity(s));
   const open = pop - roofed;
-  let wood = (roofed * HEATING_SHELTERED + open) * mods.heating;
-  if (countBuilt(s, 'campfire') > 0) wood *= HEATING_CAMPFIRE;
-  return wood;
+  // Общий костёр греет весь посёлок и срезает расход.
+  return (roofed * HEATING_SHELTERED + open) * mods.heating * HEATING_CAMPFIRE;
 }
 
 export interface ResourceForecast {

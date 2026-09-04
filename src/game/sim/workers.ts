@@ -3,7 +3,7 @@
 import type { GameState, JobId, Villager } from '../types';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { JOB_BY_ID } from '../data/jobs';
-import { buildingById, buildingSlots, isBuilt, workerCount } from '../derived';
+import { buildingById, buildingSlots, workerCount } from '../derived';
 
 /** Свободный житель под работу: сначала тот, у кого к ней талант. */
 function takeFree(s: GameState, job: JobId, villagerId?: number): Villager | null {
@@ -25,7 +25,6 @@ export function assignWorker(s: GameState, buildingId: number, villagerId?: numb
   if (!b) return 'Здание не найдено.';
   const def = BUILDING_BY_ID[b.type];
   if (!def.job) return 'В этом здании не работают.';
-  if (!isBuilt(b)) return 'Здание ещё строится.';
   if (workerCount(s, b.id) >= buildingSlots(b)) return 'Все места заняты — нужен уровень выше.';
   const v = takeFree(s, def.job, villagerId);
   if (!v) return villagerId === undefined ? 'Нет свободных жителей.' : 'Житель занят.';
@@ -86,7 +85,7 @@ export function normalizeAssignments(s: GameState): void {
       const b = buildingById(s, v.workplace);
       const slots = b ? buildingSlots(b) : 0;
       const n = used.get(v.workplace) ?? 0;
-      if (!b || !isBuilt(b) || BUILDING_BY_ID[b.type].job !== v.job || n >= slots) {
+      if (!b || BUILDING_BY_ID[b.type].job !== v.job || n >= slots) {
         v.workplace = null;
       } else {
         used.set(v.workplace, n + 1);
@@ -97,11 +96,11 @@ export function normalizeAssignments(s: GameState): void {
   }
 }
 
-/** Рассаживает свободных жителей по пустым слотам — нужно после миграции сохранения. */
+/** Рассаживает свободных жителей по пустым слотам. */
 export function autoAssign(s: GameState): void {
   for (const b of s.buildings) {
     const def = BUILDING_BY_ID[b.type];
-    if (!def.job || !isBuilt(b)) continue;
+    if (!def.job) continue;
     while (workerCount(s, b.id) < buildingSlots(b)) {
       // Сначала пробуем перевести того, кто уже работает по этой профессии вольно.
       const free = s.villagers.find((v) => v.job === def.job && v.workplace === null);

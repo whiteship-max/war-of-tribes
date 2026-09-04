@@ -17,8 +17,12 @@ export interface BuildingDef extends BuildingStats {
   name: string;
   icon: string;
   description: string;
+  /**
+   * База цены улучшений: подъём до уровня L стоит cost × UPGRADE_GROWTH^(L−1)
+   * ресурсов и столько же раз больше труда, чем `work` (см. derived.upgradeCost).
+   */
   cost: Partial<Record<ResourceId, number>>;
-  /** Работа строителей на 1 уровень (1 свободный житель = 1 работа/сек). */
+  /** База труда строителей на улучшение. */
   work: number;
   /** Профессия, которой здание даёт рабочие места: их столько же, сколько уровней. */
   job?: JobId;
@@ -32,15 +36,13 @@ export interface BuildingDef extends BuildingStats {
   since?: Partial<Record<keyof BuildingStats, number>>;
   /** Потолок уровня для этого типа. По умолчанию MAX_BUILDING_LEVEL. */
   maxLevel?: number;
-  /** Стартовое здание, нельзя построить вручную. */
-  starter?: boolean;
 }
 
 /**
- * Каждый тип строится ровно один раз — второго такого же в посёлке не бывает.
+ * Каждого типа в посёлке ровно одно здание, и все они стоят с первого дня.
  * Поэтому все прибавки набираются уровнями: `perLevel` заменяет собой прежнее
- * «поставь ещё одну хижину». Числа подобраны так, чтобы к раннему государству
- * (потолок 10 уровня) население доходило до 40+ человек.
+ * «поставь ещё одну хижину». Числа подобраны так, чтобы на потолке (10 уровень)
+ * население доходило до 40+ человек.
  */
 export const BUILDINGS: BuildingDef[] = [
   {
@@ -51,7 +53,6 @@ export const BUILDINGS: BuildingDef[] = [
     cost: {},
     work: 0,
     maxLevel: 1,
-    starter: true,
   },
   {
     id: 'shelter',
@@ -62,7 +63,6 @@ export const BUILDINGS: BuildingDef[] = [
     work: 0,
     housing: 4,
     maxLevel: 1,
-    starter: true,
   },
   {
     id: 'chief_house',

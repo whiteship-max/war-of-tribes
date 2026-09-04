@@ -13,6 +13,7 @@ import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
+import { LegacyModal } from './ui/LegacyModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
 import { WorldMap } from './ui/map/WorldMap';
 import { WorldPanel } from './ui/panels/WorldPanel';
@@ -103,6 +104,7 @@ export function App() {
       <EventModal />
       <WinterModal />
       <OfflineModal />
+      <LegacyModal />
       {!mapOpen && <TutorialOverlay />}
       {toast && <div className="toast">{toast}</div>}
     </div>

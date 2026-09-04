@@ -2,7 +2,7 @@ import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT } from '@/game/data/equipment';
-import { canAfford, forgeInfo, isBuilt, workersIn } from '@/game/derived';
+import { canAfford, forgeInfo, workersIn } from '@/game/derived';
 import { setForging } from '@/game/sim/actions';
 
 /**
@@ -17,10 +17,6 @@ export function Smithy({ b }: { b: Building }) {
   const act = useGame((g) => g.act);
   const info = forgeInfo(s);
   const smiths = workersIn(s, b.id).length;
-
-  if (!isBuilt(b)) {
-    return <div className="note">Пока кузница строится, ковать нечем.</div>;
-  }
 
   return (
     <>

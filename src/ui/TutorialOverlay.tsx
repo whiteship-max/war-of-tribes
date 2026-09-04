@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { useGame } from '@/game/store';
 import { currentStep, stepText, type TutorialStep } from '@/game/data/tutorial';
-import { isBuilt } from '@/game/derived';
 import { activeScene } from '@/render/Scene';
 
 /** Запас вокруг цели, чтобы «дырка» не резала её по краю. */
@@ -39,8 +38,7 @@ function domSpot(sel: string): Spot | null {
 }
 
 function buildingSpot(s: GameState, type: BuildingTypeId): Spot | null {
-  // Готовое здание важнее стройплощадки: если типов два, подсвечиваем рабочее.
-  const b = s.buildings.find((x) => x.type === type && isBuilt(x)) ?? s.buildings.find((x) => x.type === type);
+  const b = s.buildings.find((x) => x.type === type);
   if (!b) return null;
   const p = activeScene()?.screenSpot(b.id);
   if (!p) return null;

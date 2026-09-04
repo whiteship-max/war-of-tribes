@@ -2,17 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Building, BuildingTypeId, GameState, JobId, Season } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
-import { startBuilding, startUpgrade, resolveEvent } from './actions';
+import { startUpgrade, resolveEvent } from './actions';
 import { assignWorker, autoAssign, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
 import { addVillager } from './population';
 import { seeded, setRandom } from './random';
 import {
   buildingOfType,
   buildingSlots,
-  builtOfType,
-  canAfford,
-  countAll,
-  countBuilt,
   foodConsumptionPerDay,
   heatingWoodPerDay,
   housingCapacity,
@@ -22,6 +18,7 @@ import {
   levelOutputMult,
   maxLevelFor,
   armySize,
+  forgeInfo,
   productionPerDay,
   seasonDayOf,
   seasonOf,
@@ -31,7 +28,7 @@ import {
   workersIn,
   yearOf,
 } from '../derived';
-import { BASE_STORAGE_CAP, DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
 import { BUILDINGS, BUILDING_BY_ID } from '../data/buildings';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS, YEAR_DAYS } from '../data/seasons';
 import { QUESTS } from '../data/quests';
@@ -46,25 +43,18 @@ import {
   type TutorialUi,
 } from '../data/tutorial';
 import { deserialize, serialize } from '../save';
-import { WALL_RADIUS, placeOf } from '@/render/plan';
 import { SAVE_VERSION } from '../state';
+import { setForging } from './smithy';
+import { startRecruit } from './army';
 
 beforeEach(() => setRandom(seeded(42)));
 
-/**
- * Ставит готовое здание нужного уровня — короче, чем прогонять стройку.
- * Тип в посёлке один, поэтому повторный вызов не плодит копии, а задаёт уровень.
- */
+/** Ставит зданию нужный уровень — короче, чем прогонять улучшения. Тип в посёлке один. */
 function place(s: GameState, type: BuildingTypeId, level = 1): Building {
-  const exist = s.buildings.find((b) => b.type === type);
-  if (exist) {
-    exist.level = level;
-    exist.work = 0;
-    exist.workRequired = 0;
-    return exist;
-  }
-  const b: Building = { id: s.nextId++, type, slot: s.nextId, level, work: 0, workRequired: 0 };
-  s.buildings.push(b);
+  const b = s.buildings.find((x) => x.type === type)!;
+  b.level = level;
+  b.work = 0;
+  b.workRequired = 0;
   return b;
 }
 
@@ -78,61 +68,55 @@ function idleAll(s: GameState): void {
 }
 
 describe('симуляция', () => {
-  it('стартовое состояние: 5 жителей, костёр, укрытия и склад', () => {
+  it('новая партия: весь посёлок со стеной стоит с первой секунды, всё первого уровня', () => {
     const s = createInitialState();
-    expect(s.villagers).toHaveLength(5);
-    expect(s.buildings.map((b) => b.type)).toEqual(['campfire', 'shelter', 'storage']);
-    expect(s.buildings.every((b) => b.level === 1)).toBe(true);
-    expect(housingCapacity(s)).toBe(5);
+    const types = s.buildings.map((b) => b.type).sort();
+    expect(types).toEqual(BUILDINGS.map((d) => d.id).sort());
+    expect(s.buildings.every((b) => b.level === 1 && !isSite(b))).toBe(true);
+    expect(buildingOfType(s, 'palisade')).not.toBeNull();
+    // Людей столько, сколько жилья, и у костра есть свободные руки.
+    expect(s.villagers.length).toBeLessThanOrEqual(housingCapacity(s));
+    expect(jobCounts(s).idle).toBeGreaterThanOrEqual(3);
   });
 
-  it('стартовых ресурсов хватает на лесопилку — третий шаг обучения выполним', () => {
+  it('наём, кузница, рынок и золото доступны сразу', () => {
     const s = createInitialState();
-    expect(canAfford(s, BUILDING_BY_ID.sawmill.cost)).toBe(true);
-    expect(startBuilding(s, 'sawmill')).toBeNull();
+    expect(s.gold).toBeGreaterThan(0);
+    expect(setForging(s, 'armor')).toBeNull();
+    expect(forgeInfo(s).blocked).toMatch(/никто не работает/);
+    // Копьё на складе — и первый копейщик нанимается без единого условия.
+    s.equipment.spear = 1;
+    expect(startRecruit(s, 'spearman', 1)).toBeNull();
   });
 
   it('работники производят ресурсы, жители едят', () => {
     const s = createInitialState();
     const wood0 = s.resources.wood;
     catchUp(s, DAY_LENGTH, 0.5);
-    expect(s.resources.wood).toBeGreaterThan(wood0);
-    // Один лесоруб вольным сбором: 9 в день вполсилы, ещё и с поправкой на мораль.
-    expect(s.resources.wood - wood0).toBeGreaterThan(3);
-    expect(s.resources.wood - wood0).toBeLessThan(6);
-  });
-
-  it('свободные жители строят лесопилку', () => {
-    const s = createInitialState();
-    expect(startBuilding(s, 'sawmill')).toBeNull();
-    expect(s.resources.wood).toBe(14);
-    catchUp(s, 14, 0.5); // 2 свободных × 14 сек = 28 > 25
-    expect(countBuilt(s, 'sawmill')).toBe(1);
-  });
-
-  it('нельзя построить без ресурсов', () => {
-    const s = createInitialState();
-    s.resources.wood = 0;
-    expect(startBuilding(s, 'hut')).toMatch(/Не хватает/);
+    // Один лесоруб на лесопилке первого уровня: 9 в день с поправкой на мораль.
+    expect(s.resources.wood - wood0).toBeGreaterThan(6);
+    expect(s.resources.wood - wood0).toBeLessThan(11);
   });
 
   it('голод убивает жителя', () => {
     const s = createInitialState();
+    const pop0 = s.villagers.length;
     s.resources.food = 0;
     for (const v of s.villagers) {
       v.job = 'woodcutter';
       v.workplace = null;
     }
     catchUp(s, DAY_LENGTH * 5, 1);
-    expect(s.villagers.length).toBeLessThan(5);
+    expect(s.villagers.length).toBeLessThan(pop0);
   });
 
   it('население растёт при наличии жилья и еды', () => {
     const s = createInitialState();
+    const pop0 = s.villagers.length;
     s.resources.food = 100;
-    place(s, 'hut');
+    place(s, 'hut', 3);
     catchUp(s, 200, 1);
-    expect(s.villagers.length).toBeGreaterThan(5);
+    expect(s.villagers.length).toBeGreaterThan(pop0);
   });
 
   it('офлайн-догон не запускает события', () => {
@@ -234,7 +218,7 @@ describe('здания', () => {
     assignWorker(s, mill.id);
     expect(unassignWorker(s, mill.id)).toBeNull();
     expect(workerCount(s, mill.id)).toBe(0);
-    expect(jobCounts(s).idle).toBe(5);
+    expect(jobCounts(s).idle).toBe(s.villagers.length);
   });
 
   it('улучшение идёт как стройка и добавляет место', () => {
@@ -256,20 +240,21 @@ describe('здания', () => {
     expect(assignWorker(s, mill.id)).toBeNull();
   });
 
-  it('второго здания того же типа не бывает', () => {
+  it('каждого типа ровно одно здание, и развитие идёт только уровнями', () => {
     const s = createInitialState();
+    const seen = new Set<BuildingTypeId>();
+    for (const b of s.buildings) {
+      expect(seen.has(b.type), `${b.type} стоит дважды`).toBe(false);
+      seen.add(b.type);
+    }
     s.resources.wood = 500;
     s.resources.stone = 500;
-    expect(startBuilding(s, 'sawmill')).toBeNull();
-    // Второй раз — ни пока строится, ни когда достроена.
-    expect(startBuilding(s, 'sawmill')).toMatch(/уже есть/);
+    const mill = buildingOfType(s, 'sawmill')!;
+    expect(startUpgrade(s, mill.id)).toBeNull();
+    expect(startUpgrade(s, mill.id)).toMatch(/уже идёт/);
     catchUp(s, 60, 1);
-    expect(countBuilt(s, 'sawmill')).toBe(1);
-    expect(startBuilding(s, 'sawmill')).toMatch(/уже есть/);
-    expect(countAll(s, 'sawmill')).toBe(1);
-    // Склад стоит с первого дня — второго тоже не будет.
-    expect(startBuilding(s, 'storage')).toMatch(/уже есть/);
-    expect(startBuilding(s, 'campfire')).toMatch(/нельзя построить/);
+    expect(mill.level).toBe(2);
+    expect(s.buildings.filter((b) => b.type === 'sawmill')).toHaveLength(1);
   });
 
   it('улучшение не отключает здание: рабочие на местах, выработка не падает', () => {
@@ -315,7 +300,7 @@ describe('здания', () => {
     expect(hut.level).toBe(2);
     expect(housingCapacity(s) - housing0).toBe(BUILDING_BY_ID.hut.perLevel?.housing);
 
-    const store = builtOfType(s, 'storage')!;
+    const store = buildingOfType(s, 'storage')!;
     const cap0 = storageCap(s);
     expect(startUpgrade(s, store.id)).toBeNull();
     catchUp(s, 200, 1);
@@ -337,7 +322,7 @@ describe('здания', () => {
 
     // Пять зданий добычи можно укомплектовать целиком — это и есть рабочее ядро посёлка.
     const core: BuildingTypeId[] = ['gathering', 'sawmill', 'quarry', 'hunter_hut', 'farm'];
-    const coreSlots = core.reduce((n, t) => n + buildingSlots(builtOfType(s, t)!), 0);
+    const coreSlots = core.reduce((n, t) => n + buildingSlots(buildingOfType(s, t)!), 0);
     expect(coreSlots).toBeLessThanOrEqual(housing);
     // Всех мест разом больше, чем людей — но не в разы: выбор есть, абсурда нет.
     const allSlots = s.buildings.reduce((n, b) => n + buildingSlots(b), 0);
@@ -360,37 +345,30 @@ describe('здания', () => {
     expect(s.villagers.every((v) => v.workplace === null)).toBe(true);
     // Фермеру без поля делать нечего: он возвращается к костру.
     expect(jobCounts(s).farmer).toBe(0);
-    expect(jobCounts(s).idle).toBe(4);
+    expect(jobCounts(s).idle).toBe(s.villagers.length - 1);
   });
 });
 
 // ---------- Первые пять минут ----------
 
 describe('старт партии', () => {
-  it('за пять минут племя ставит лесопилку и хижину и не встаёт в тупик', () => {
+  it('за пять минут племя куёт копьё, нанимает бойца и не встаёт в тупик', () => {
     const s = createInitialState();
     const food0 = s.resources.food;
-    // Игрок делает очевидное: сначала лесопилка, потом хижина.
-    expect(startBuilding(s, 'sawmill')).toBeNull();
-    catchUp(s, 30, 0.5);
-    const mill = s.buildings.find((b) => b.type === 'sawmill')!;
-    expect(mill.level).toBe(1);
-    // Лесоруб переезжает с вольного сбора на лесопилку.
-    changeFreeJob(s, 'woodcutter', -1);
-    expect(assignWorker(s, mill.id)).toBeNull();
-
-    // Копим на хижину и ставим её.
-    let placed = false;
-    for (let i = 0; i < 5 && !placed; i++) {
+    // Игрок делает очевидное: кузнеца к горну, наряд на копьё, бойца в казармы.
+    const smithy = buildingOfType(s, 'smithy')!;
+    expect(assignWorker(s, smithy.id)).toBeNull();
+    expect(setForging(s, 'spear')).toBeNull();
+    let recruited = false;
+    for (let i = 0; i < 10 && !recruited; i++) {
       catchUp(s, 30, 0.5);
-      placed = startBuilding(s, 'hut') === null;
+      recruited = startRecruit(s, 'spearman', 1) === null;
     }
-    expect(placed).toBe(true);
+    expect(recruited).toBe(true);
     catchUp(s, 5 * DAY_LENGTH - s.time, 0.5);
 
-    expect(countBuilt(s, 'sawmill')).toBe(1);
-    expect(countBuilt(s, 'hut')).toBe(1);
-    expect(s.villagers.length).toBeGreaterThanOrEqual(5);
+    expect(armySize(s)).toBe(1);
+    expect(s.villagers.length).toBeGreaterThanOrEqual(9);
     expect(s.resources.food).toBeGreaterThan(food0 * 0.5);
     expect(s.resources.wood).toBeGreaterThan(0);
   });
@@ -411,7 +389,7 @@ function atSeason(s: GameState, season: Season, year: number): void {
  */
 function tribe(pop: number, food: number, wood: number): GameState {
   const s = createInitialState();
-  s.army.spearman = 6;
+  s.army.spearman = 12;
   while (s.villagers.length < pop) addVillager(s, { age: 24, talent: null });
   idleAll(s);
   // Каждого типа по одному: жильё и склад набирают своё уровнями, а не числом срубов.
@@ -419,11 +397,10 @@ function tribe(pop: number, food: number, wood: number): GameState {
   place(s, 'storage', 2);
   place(s, 'farm', 2);
   place(s, 'gathering', 2);
-  place(s, 'hunter_hut', 1);
-  // Лесопилки нарочно нет: дрова у такого племени только со склада, и зима
-  // спрашивает за них так же, как за еду.
-  place(s, 'workshop', 1);
   autoAssign(s);
+  // Лесоруба нарочно нет: дрова у такого племени только со склада, и зима
+  // спрашивает за них так же, как за еду.
+  for (const v of s.villagers) if (v.job === 'woodcutter') unassignWorker(s, v.workplace!, v.id);
   // Награды за задания посыпались бы в первый же тик и подменили бы собой запас,
   // а проверяем мы именно запас — поэтому задания считаем уже закрытыми.
   s.completedQuests = QUESTS.map((q) => q.id);
@@ -441,22 +418,6 @@ function release(s: GameState, job: JobId): void {
   else changeFreeJob(s, job, -1);
 }
 
-/** Порядок построек. Каждая ставится ровно один раз, дальше растёт уровнями. */
-const BUILD_ORDER: BuildingTypeId[] = [
-  'sawmill',
-  'gathering',
-  'hut',
-  'hunter_hut',
-  'quarry',
-  'chief_house',
-  'workshop',
-  'farm',
-  'mine',
-  'smithy',
-  'totem',
-  'palisade',
-];
-
 /** Ставит человека на работу: место в здании вдвое выгоднее вольного сбора. */
 function hire(s: GameState, job: JobId): boolean {
   const b = s.buildings.find(
@@ -473,41 +434,34 @@ function wanted(s: GameState): [JobId, number][] {
     ['woodcutter', Math.max(1, Math.round(n * 0.2))],
     ['hunter', Math.max(1, Math.round(n * 0.15))],
     ['stonecutter', n >= 8 ? Math.max(1, Math.round(n * 0.12)) : 0],
-    ['farmer', countBuilt(s, 'farm') > 0 ? Math.round(n * 0.15) : 0],
-    ['miner', countBuilt(s, 'mine') > 0 ? 2 : 0],
-    ['crafter', countBuilt(s, 'workshop') > 0 ? 1 : 0],
-    ['smith', countBuilt(s, 'smithy') > 0 ? 1 : 0],
+    ['farmer', Math.round(n * 0.15)],
+    ['miner', 2],
+    ['crafter', 1],
+    ['smith', 1],
   ];
 }
 
 /**
- * Что строить дальше. Развитие идёт уровнями, поэтому «построить нечего» больше не
- * значит «делать нечего»: очередь всегда занята либо новым типом, либо улучшением.
+ * Что улучшать дальше. Всё уже стоит, поэтому очередь всегда занята улучшением:
+ * сначала жильё и склад, когда они узкое место, потом самое отстающее здание.
  */
 function nextSite(s: GameState): void {
   if (s.buildings.some(isSite)) return;
   // Жильё — узкое место: пока селить некуда, племя не растёт.
   if (s.villagers.length >= housingCapacity(s) - 1) {
-    const hut = buildingOfType(s, 'hut');
-    if (!hut ? startBuilding(s, 'hut') === null : startUpgrade(s, hut.id) === null) return;
+    const hut = buildingOfType(s, 'hut')!;
+    if (startUpgrade(s, hut.id) === null) return;
   }
   // Что-то упёрлось в потолок склада — поднимаем вместимость.
   const cap = storageCap(s);
   if (RESOURCE_IDS.some((r) => s.resources[r] >= cap - 1)) {
-    const st = buildingOfType(s, 'storage');
-    if (st && startUpgrade(s, st.id) === null) return;
+    const st = buildingOfType(s, 'storage')!;
+    if (startUpgrade(s, st.id) === null) return;
   }
-  for (const type of BUILD_ORDER) {
-    if (countAll(s, type) === 0 && startBuilding(s, type) === null) return;
-  }
-  // Всё поставлено — тянем вверх самое отстающее здание. Не только рабочее:
-  // стена и Дом вождя рабочих мест не дают, но без них город не сложится.
-  const behind = s.buildings
-    .filter((b) => b.level > 0)
-    .sort((a, b) => a.level - b.level);
+  // Тянем вверх самое отстающее здание. Не только рабочее: стена и Дом вождя
+  // рабочих мест не дают, но без них посёлок не растёт.
+  const behind = [...s.buildings].sort((a, b) => a.level - b.level);
   for (const b of behind) if (startUpgrade(s, b.id) === null) return;
-  const storage = buildingOfType(s, 'storage');
-  if (storage) startUpgrade(s, storage.id);
 }
 
 /** Разумная игра без участия человека: работы, стройка и улучшения. */
@@ -601,19 +555,19 @@ describe('сезоны', () => {
 
   it('за игровой год население растёт, а не вымирает', () => {
     const s = createInitialState();
+    const pop0 = s.villagers.length;
     play(s, YEAR_DAYS);
     expect(yearOf(s.time)).toBe(2);
-    expect(s.villagers.length).toBeGreaterThan(5);
+    expect(s.villagers.length).toBeGreaterThan(pop0);
   });
 
   it('за три года при разумной игре племя развивается, а не топчется на месте', () => {
     const s = createInitialState();
     play(s, YEAR_DAYS * 3);
-    expect(s.villagers.length).toBeGreaterThanOrEqual(12);
+    expect(s.villagers.length).toBeGreaterThanOrEqual(18);
     // Развитие идёт уровнями: хижина одна, но выросшая.
-    expect(builtOfType(s, 'hut')?.level ?? 0).toBeGreaterThanOrEqual(3);
-    expect(countBuilt(s, 'sawmill')).toBe(1);
-    expect(countAll(s, 'sawmill')).toBe(1);
+    expect(buildingOfType(s, 'hut')!.level).toBeGreaterThanOrEqual(3);
+    expect(s.buildings.filter((b) => b.type === 'sawmill')).toHaveLength(1);
     expect(s.stats.born).toBeGreaterThan(s.stats.died);
   });
 
@@ -659,12 +613,7 @@ describe('обучение', () => {
 
   it('каждый шаг — одна короткая строка', () => {
     const s = createInitialState();
-    const withMill = createInitialState();
-    place(withMill, 'sawmill');
-    for (const step of TUTORIAL) {
-      expect(stepText(step, s).length).toBeLessThanOrEqual(60);
-      expect(stepText(step, withMill).length).toBeLessThanOrEqual(60);
-    }
+    for (const step of TUTORIAL) expect(stepText(step, s).length).toBeLessThanOrEqual(60);
   });
 
   it('тапом закрывается только шаг без условия', () => {
@@ -676,57 +625,6 @@ describe('обучение', () => {
     expect(at(s)).toBe('campfire');
   });
 
-  it('шаг закрывается по факту: лесопилку поставили до просьбы', () => {
-    const s = createInitialState();
-    const campfire = s.buildings.find((b) => b.type === 'campfire')!;
-    tapTutorial(s, UI_NONE);
-    advanceTutorial(s, { building: campfire.id, tab: null });
-    expect(at(s)).toBe('open_build');
-    // Игрок сам нашёл стройку и поставил лесопилку — оба шага про неё снимаются разом.
-    expect(startBuilding(s, 'sawmill')).toBeNull();
-    advanceTutorial(s, UI_NONE);
-    expect(at(s)).toBe('open_sawmill');
-  });
-
-  it('весь путь проходится действиями игрока и заканчивается сам', () => {
-    const s = createInitialState();
-    const campfire = s.buildings.find((b) => b.type === 'campfire')!;
-    const storage = s.buildings.find((b) => b.type === 'storage')!;
-
-    expect(at(s)).toBe('intro');
-    tapTutorial(s, UI_NONE);
-    expect(at(s)).toBe('campfire');
-
-    advanceTutorial(s, { building: campfire.id, tab: null });
-    expect(at(s)).toBe('open_build');
-
-    advanceTutorial(s, { building: null, tab: 'build' });
-    expect(at(s)).toBe('build_sawmill');
-
-    expect(startBuilding(s, 'sawmill')).toBeNull();
-    advanceTutorial(s, { building: null, tab: 'build' });
-    expect(at(s)).toBe('open_sawmill');
-
-    const mill = s.buildings.find((b) => b.type === 'sawmill')!;
-    advanceTutorial(s, { building: mill.id, tab: null });
-    expect(at(s)).toBe('assign');
-
-    // Лесопилка достраивается свободными жителями — слот появляется сам.
-    catchUp(s, 30, 0.5);
-    expect(mill.level).toBe(1);
-    expect(assignWorker(s, mill.id)).toBeNull();
-    advanceTutorial(s, { building: mill.id, tab: null });
-    expect(at(s)).toBe('storage');
-
-    advanceTutorial(s, { building: storage.id, tab: null });
-    expect(at(s)).toBe('winter');
-
-    tapTutorial(s, UI_NONE);
-    expect(s.tutorialDone).toBe(true);
-    expect(currentStep(s)).toBeNull();
-    expect(tutorialActive(s)).toBe(false);
-  });
-
   it('пропуск закрывает обучение с любого шага', () => {
     const s = createInitialState();
     tapTutorial(s, UI_NONE);
@@ -736,152 +634,32 @@ describe('обучение', () => {
     // Повторный досчёт ничего не воскрешает.
     expect(advanceTutorial(s, UI_NONE)).toBe(false);
   });
-
-  it('старое сохранение не начинает обучение заново', () => {
-    const s = createInitialState();
-    const raw = JSON.parse(serialize(s)) as Record<string, unknown>;
-    delete raw.tutorialStep;
-    delete raw.tutorialDone;
-    const back = deserialize(JSON.stringify(raw))!;
-    expect(back).not.toBeNull();
-    expect(back.tutorialDone).toBe(true);
-    expect(tutorialActive(back)).toBe(false);
-  });
 });
 
-// ---------- Миграция сохранений ----------
+// ---------- Сохранения ----------
 
-describe('миграция сохранений', () => {
-  /** Сохранение старого формата: типов было по нескольку штук. */
-  const oldSave = (buildings: Partial<Building>[], version = 2): string => {
+describe('сохранения', () => {
+  it('сохранение текущего формата читается обратно целиком', () => {
     const s = createInitialState();
-    const raw = JSON.parse(serialize(s)) as Record<string, unknown>;
-    raw.version = version;
-    raw.buildings = buildings.map((b, i) => ({
-      id: i + 1,
-      slot: -1,
-      level: 1,
-      work: 0,
-      workRequired: 0,
-      ...b,
-    }));
-    return JSON.stringify(raw);
-  };
-
-  it('три хижины сводятся в одну и вместимость не теряется', () => {
-    const back = deserialize(
-      oldSave([
-        { type: 'campfire' },
-        { type: 'shelter' },
-        { type: 'shelter' },
-        { type: 'storage' },
-        { type: 'hut' },
-        { type: 'hut' },
-        { type: 'hut' },
-      ]),
-    );
-    expect(back).not.toBeNull();
-    const s = back!;
-    for (const b of s.buildings) expect(countAll(s, b.type)).toBe(1);
-    // Уровень — сумма уровней слитых построек.
-    expect(builtOfType(s, 'hut')!.level).toBe(3);
-    // Старый формат давал 3 хижины по 3 места, 2 укрытия по 2 и базовое место — 14.
-    expect(housingCapacity(s)).toBeGreaterThanOrEqual(14);
-    // И игрок об этом узнаёт: прогресс не исчезает молча.
-    expect(s.log.some((e) => e.text.includes('свели в одну'))).toBe(true);
-  });
-
-  it('уровни складов складываются, а потолок типа не превышается', () => {
-    const back = deserialize(
-      oldSave([
-        { type: 'campfire' },
-        { type: 'shelter', level: 1 },
-        { type: 'shelter', level: 1 },
-        { type: 'storage', level: 5 },
-        { type: 'storage', level: 4 },
-        { type: 'storage', level: 4 },
-      ]),
-    );
-    const s = back!;
-    // 5 + 4 + 4 = 13, но выше десятого уровня склад не поднимается.
-    expect(builtOfType(s, 'storage')!.level).toBe(MAX_BUILDING_LEVEL);
-    // Укрытие не улучшается вовсе — два укрытия дают одно первого уровня.
-    expect(builtOfType(s, 'shelter')!.level).toBe(1);
-    expect(storageCap(s)).toBeGreaterThan(BASE_STORAGE_CAP);
-  });
-
-  it('недостроенные копии сливаются в одну стройку', () => {
-    const back = deserialize(
-      oldSave([
-        { type: 'campfire' },
-        { type: 'storage' },
-        { type: 'hut', level: 0, work: 5, workRequired: 30 },
-        { type: 'hut', level: 0, work: 21, workRequired: 30 },
-      ]),
-    );
-    const s = back!;
-    const hut = buildingOfType(s, 'hut')!;
-    expect(countAll(s, 'hut')).toBe(1);
-    expect(hut.level).toBe(0);
-    // Берём ту стройку, что продвинулась дальше.
-    expect(hut.work).toBe(21);
-  });
-
-  it('воины становятся дубинщиками, а здания переезжают на свои места по плану', () => {
-    const s = createInitialState();
-    // Старое сохранение: роль «воин» ещё была профессией, а место здания —
-    // произвольным номером слота.
-    const raw = JSON.parse(serialize(s)) as Record<string, unknown>;
-    raw.version = 3;
-    const villagers = (raw.villagers as { job: string; talent: string | null }[]).map((v, i) =>
-      i < 2 ? { ...v, job: 'warrior', talent: 'warrior' } : v,
-    );
-    raw.villagers = villagers;
-    (raw.buildings as { slot: number }[]).forEach((b, i) => {
-      b.slot = 40 + i;
-    });
-    delete raw.army;
-    delete raw.equipment;
-
-    const back = deserialize(JSON.stringify(raw))!;
+    s.gold = 77;
+    s.army.legionary = 2;
+    const back = deserialize(serialize(s))!;
     expect(back).not.toBeNull();
     expect(back.version).toBe(SAVE_VERSION);
-
-    // Двое воинов ушли из племени в дружину.
-    expect(back.villagers).toHaveLength(3);
-    expect(back.villagers.some((v) => (v.job as string) === 'warrior')).toBe(false);
-    expect(back.villagers.some((v) => (v.talent as string | null) === 'warrior')).toBe(false);
-    expect(back.army.clubman).toBe(2);
-    expect(armySize(back)).toBe(2);
-    // Народу в посёлке столько же, сколько было: люди не исчезли, а сменили место.
-    expect(back.villagers.length + armySize(back)).toBe(s.villagers.length);
-
-    // Новые поля приезжают заполненными, а не как undefined.
-    expect(back.equipment.spear).toBe(0);
-    expect(back.recruits).toEqual([]);
-    expect(back.decree).toBe('none');
-    expect(back.ration).toBe('normal');
-
-    // Здания переехали: место теперь выводится из типа, а не из номера слота.
-    for (const b of back.buildings) {
-      const spot = placeOf(b.type);
-      expect(Math.hypot(spot.x, spot.z)).toBeLessThanOrEqual(WALL_RADIUS);
-    }
-    expect(back.log.some((l) => l.text.includes('дубинщиками'))).toBe(true);
-    expect(back.log.some((l) => l.text.includes('своё место'))).toBe(true);
+    expect(back.gold).toBe(77);
+    expect(back.army.legionary).toBe(2);
+    expect(back.buildings.map((b) => b.type).sort()).toEqual(s.buildings.map((b) => b.type).sort());
   });
 
-  it('сохранение первой версии доходит до текущего формата', () => {
-    const back = deserialize(
-      oldSave([{ type: 'campfire' }, { type: 'shelter' }, { type: 'storage' }, { type: 'hut' }, { type: 'hut' }], 1),
-    );
-    const s = back!;
-    expect(s.version).toBe(SAVE_VERSION);
-    expect(countAll(s, 'hut')).toBe(1);
-    expect(builtOfType(s, 'hut')!.level).toBe(2);
-    // Жители не остались привязанными к исчезнувшим зданиям.
-    for (const v of s.villagers) {
-      if (v.workplace !== null) expect(s.buildings.some((b) => b.id === v.workplace)).toBe(true);
-    }
+  it('сохранение старого формата не приводится, а отбрасывается', () => {
+    // Партия от костра через эпохи и технологии: к новому старту её не перевести.
+    const s = createInitialState();
+    const raw = JSON.parse(serialize(s)) as Record<string, unknown>;
+    raw.version = 4;
+    raw.techs = ['stone_tools'];
+    expect(deserialize(JSON.stringify(raw))).toBeNull();
+    // Вообще без версии — тоже.
+    delete raw.version;
+    expect(deserialize(JSON.stringify(raw))).toBeNull();
   });
 });

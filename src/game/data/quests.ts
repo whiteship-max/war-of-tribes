@@ -1,5 +1,5 @@
 import type { GameState, ResourceId } from '../types';
-import { armySize, builtOfType, countBuilt, jobCounts } from '../derived';
+import { armySize, buildingOfType, jobCounts } from '../derived';
 
 export interface QuestDef {
   id: string;
@@ -13,7 +13,7 @@ export interface QuestDef {
 
 const pop = (n: number) => (s: GameState): [number, number] => [Math.min(s.villagers.length, n), n];
 
-const hutLevel = (s: GameState): number => builtOfType(s, 'hut')?.level ?? 0;
+const hutLevel = (s: GameState): number => buildingOfType(s, 'hut')?.level ?? 0;
 
 export const QUESTS: QuestDef[] = [
   {
@@ -25,26 +25,11 @@ export const QUESTS: QuestDef[] = [
     reward: { food: 10 },
   },
   {
-    id: 'sawmill',
-    title: 'Лесопилка',
-    description: 'Построй лесопилку — лесоруб на месте работает вдвое сильнее, чем вольным сбором.',
-    check: (s) => countBuilt(s, 'sawmill') >= 1,
-    reward: { wood: 10 },
-  },
-  {
     id: 'first_upgrade',
     title: 'Второй уровень',
     description: 'Подними любое здание до 2 уровня: +1 рабочее место и +10% выработки.',
     check: (s) => s.buildings.some((b) => b.level >= 2),
     reward: { food: 15, wood: 10 },
-  },
-  {
-    id: 'first_hut',
-    title: 'Первая хижина',
-    description: 'Построй хижину, чтобы племя могло расти.',
-    check: (s) => countBuilt(s, 'hut') >= 1,
-    progress: (s) => [Math.min(1, countBuilt(s, 'hut')), 1],
-    reward: { wood: 10, food: 10 },
   },
   {
     id: 'pop_8',
@@ -64,26 +49,12 @@ export const QUESTS: QuestDef[] = [
     reward: { wood: 20, stone: 10 },
   },
   {
-    id: 'workshop',
-    title: 'Мастерская',
-    description: 'Построй мастерскую и поставь туда ремесленника.',
-    check: (s) => countBuilt(s, 'workshop') >= 1 && jobCounts(s).crafter >= 1,
-    reward: { stone: 15 },
-  },
-  {
     id: 'warriors',
     title: 'Первые бойцы',
     description: 'Построй казармы и найми двух бойцов. Роли «воин» больше нет — бойцов учат.',
     check: (s) => armySize(s) >= 2,
     progress: (s) => [Math.min(2, armySize(s)), 2],
     reward: { food: 15 },
-  },
-  {
-    id: 'chief_house',
-    title: 'Дом вождя',
-    description: 'Построй Дом вождя: оттуда правят указом и рационом.',
-    check: (s) => countBuilt(s, 'chief_house') >= 1,
-    reward: { wood: 15, stone: 10 },
   },
   {
     id: 'smith_gear',
@@ -99,27 +70,6 @@ export const QUESTS: QuestDef[] = [
     check: (s) => s.villagers.length >= 15,
     progress: pop(15),
     reward: { food: 40, wood: 20 },
-  },
-  {
-    id: 'farm',
-    title: 'Земледельцы',
-    description: 'Построй ферму.',
-    check: (s) => countBuilt(s, 'farm') >= 1,
-    reward: { food: 30 },
-  },
-  {
-    id: 'totem',
-    title: 'Символ племени',
-    description: 'Построй тотем.',
-    check: (s) => countBuilt(s, 'totem') >= 1,
-    reward: { food: 30 },
-  },
-  {
-    id: 'palisade',
-    title: 'Укреплённое поселение',
-    description: 'Построй частокол.',
-    check: (s) => countBuilt(s, 'palisade') >= 1,
-    reward: { stone: 40 },
   },
   {
     id: 'pop_25',

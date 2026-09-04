@@ -1,6 +1,6 @@
 import type { GameState } from '../types';
 import { DAY_LENGTH } from '../constants';
-import { builtOfType, dayOf, housingCapacity, isSite, jobCounts, storageCap } from '../derived';
+import { buildingOfType, dayOf, housingCapacity, isSite, jobCounts, storageCap } from '../derived';
 import { resolveBattle } from '../sim/battle';
 import { addVillager, killRandomVillager } from '../sim/population';
 import { chance, rnd } from '../sim/random';
@@ -111,7 +111,7 @@ export const EVENTS: EventDef[] = [
     id: 'storm',
     icon: '🌩️',
     title: 'Буря',
-    text: 'Ночью налетела буря и повредила стройку.',
+    text: 'Ночью налетела буря и повалила леса на стройке.',
     weight: (s) => (s.buildings.some(isSite) ? 2 : 0),
     options: [
       {
@@ -296,7 +296,7 @@ export const EVENTS: EventDef[] = [
     icon: '🔥',
     title: 'Пожар',
     text: 'Искра от костра попала на крышу хижины!',
-    weight: (s) => ((builtOfType(s, 'hut')?.level ?? 0) >= 2 ? 1 : 0),
+    weight: (s) => ((buildingOfType(s, 'hut')?.level ?? 0) >= 2 ? 1 : 0),
     options: [
       {
         label: 'Тушить всем племенем',
@@ -312,7 +312,7 @@ export const EVENTS: EventDef[] = [
         apply: (s) => {
           // Хижина в посёлке одна: сносить её целиком — значит отнять всё жильё разом.
           // Огонь съедает пристройку, то есть один уровень.
-          const hut = builtOfType(s, 'hut');
+          const hut = buildingOfType(s, 'hut');
           if (hut && hut.level > 1) hut.level -= 1;
           addRes(s, 'wood', 5);
           return 'Пристройка сгорела. Удалось спасти немного древесины.';

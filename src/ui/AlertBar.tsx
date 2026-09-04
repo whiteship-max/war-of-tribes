@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { alerts, countBuilt, isBuilt } from '@/game/derived';
+import { alerts, buildingOfType } from '@/game/derived';
 import { tutorialActive } from '@/game/data/tutorial';
 import { incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
@@ -41,7 +41,7 @@ export function AlertBar() {
         </button>
       ))}
       {list.map((a) => {
-        const target = a.goto && countBuilt(s, a.goto) > 0 ? s.buildings.find((b) => b.type === a.goto && isBuilt(b)) : null;
+        const target = a.goto ? buildingOfType(s, a.goto) : null;
         return (
           <button key={a.id} className="alert" onClick={() => target && openBuilding(target.id)} disabled={!target}>
             <span className="ic">{a.icon}</span>

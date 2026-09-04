@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import type { Building, GoodId } from '@/game/types';
+import type { GoodId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { GOOD_BY_ID } from '@/game/data/market';
 import {
   caravanProgress,
   caravanSeconds,
-  isBuilt,
   marketLeft,
   marketOffer,
   marketPrice,
@@ -26,11 +25,9 @@ import { buyGoods, cancelCaravan } from '@/game/sim/actions';
  */
 type Tab = 'buy' | 'tribes';
 
-export function Market({ b }: { b: Building }) {
+export function Market() {
   const s = useGame((g) => g.s);
   const [tab, setTab] = useState<Tab>('buy');
-
-  if (!isBuilt(b)) return <div className="note">Пока рынок строится, торговать негде.</div>;
 
   return (
     <>

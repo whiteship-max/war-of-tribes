@@ -14,7 +14,8 @@ import type {
   UnitStack,
 } from '../types';
 
-export const WORLD_SAVE_VERSION = 1;
+/** Версия 2 — новый старт партии: мир прежних сохранений отбрасывается вместе с ними. */
+export const WORLD_SAVE_VERSION = 2;
 export const WORLD_KEY = 'tribe.world.v1';
 
 export interface StoredMarch {

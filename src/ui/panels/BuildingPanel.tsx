@@ -18,7 +18,6 @@ import {
   crafterBuildRate,
   freeVillagers,
   housingCapacity,
-  isBuilt,
   isSite,
   jobMultiplier,
   levelOutputMult,
@@ -28,7 +27,7 @@ import {
   villagerMultiplier,
   workersIn,
 } from '@/game/derived';
-import { assignWorker, cancelBuilding, changeFreeJob, chooseTotem, startUpgrade, unassignWorker } from '@/game/sim/actions';
+import { assignWorker, cancelUpgrade, changeFreeJob, chooseTotem, startUpgrade, unassignWorker } from '@/game/sim/actions';
 import { Cost } from '../parts/Cost';
 import { ChiefHouse } from '../parts/ChiefHouse';
 import { Smithy } from '../parts/Smithy';
@@ -69,7 +68,7 @@ export function BuildingPanel({ id }: { id: number }) {
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
-            {b.level > 0 ? `Уровень ${b.level} из ${def.maxLevel ?? MAX_BUILDING_LEVEL}` : 'Стройплощадка'}
+            {`Уровень ${b.level} из ${def.maxLevel ?? MAX_BUILDING_LEVEL}`}
             {canLevel && (
               <span className="pips">
                 {Array.from({ length: def.maxLevel ?? MAX_BUILDING_LEVEL }, (_, i) => (
@@ -79,7 +78,7 @@ export function BuildingPanel({ id }: { id: number }) {
             )}
           </div>
         </div>
-        {!site && canLevel && b.level > 0 && (
+        {!site && canLevel && (
           <button className="btn" disabled={up.blocked !== null} onClick={() => act((st) => startUpgrade(st, b.id))}>
             До {up.level} ур.
           </button>
@@ -93,23 +92,20 @@ export function BuildingPanel({ id }: { id: number }) {
           <div className="ico">🏗️</div>
           <div className="body">
             <div className="title">
-              {b.level === 0 ? 'Строится' : `Улучшение до ${b.level + 1} уровня`}
+              Улучшение до {b.level + 1} уровня
               <span className="count">{inQueue ? 'в очереди' : eta !== null ? `~${eta} с` : 'нет строителей'}</span>
             </div>
-            {b.level > 0 && (
-              <div className="desc">Здание в лесах, но работает: рабочие на местах, выработка идёт.</div>
-            )}
+            <div className="desc">Здание в лесах, но работает: рабочие на местах, выработка идёт.</div>
             <div className="progress">
               <div style={{ width: `${Math.floor((b.work / Math.max(1, b.workRequired)) * 100)}%` }} />
             </div>
           </div>
-          <button className="btn ghost" onClick={() => act((st) => cancelBuilding(st, b.id))} aria-label="Отменить">
+          <button className="btn ghost" onClick={() => act((st) => cancelUpgrade(st, b.id))} aria-label="Отменить">
             ✕
           </button>
         </div>
       ) : (
-        canLevel &&
-        b.level > 0 && (
+        canLevel && (
           <div className="upgrade">
             <Cost cost={up.cost} work={up.work} eta={upEta} />
             <div className="hint">{up.blocked ?? upgradeGain(s, b, up.level)}</div>
@@ -158,7 +154,6 @@ function WorkerSlots({ b }: { b: Building }) {
           {workers.length}/{slots || '—'}
         </span>
       </h3>
-      {!isBuilt(b) && <div className="note">Места появятся, когда стройка закончится.</div>}
 
       {workers.map((v) => (
         <div className="slot filled" key={v.id}>
@@ -183,7 +178,7 @@ function WorkerSlots({ b }: { b: Building }) {
           </button>
         </div>
       ))}
-      {slots > 0 && empty === 0 && b.level > 0 && (
+      {slots > 0 && empty === 0 && (
         <div className="note">Все места заняты. Следующий уровень добавит ещё одно.</div>
       )}
       {empty > 0 && free.length > 0 && (
@@ -224,11 +219,7 @@ function BuildingData({ b }: { b: Building }) {
     case 'storage':
       return <StorageData />;
     case 'chief_house':
-      return isBuilt(b) ? (
-        <ChiefHouse />
-      ) : (
-        <div className="note">Пока дом строится, править нечем: указы и рацион появятся с ним.</div>
-      );
+      return <ChiefHouse />;
     case 'smithy':
       return (
         <>
@@ -240,14 +231,14 @@ function BuildingData({ b }: { b: Building }) {
       return (
         <>
           <GenericData b={b} />
-          <Barracks b={b} />
+          <Barracks />
         </>
       );
     case 'market':
       return (
         <>
           <GenericData b={b} />
-          <Market b={b} />
+          <Market />
         </>
       );
     default:
@@ -269,11 +260,11 @@ function CampfireData() {
       <div className="note">
         {site
           ? `Свободные жители строят: ${BUILDING_BY_ID[site.type].name} (${Math.floor((site.work / Math.max(1, site.workRequired)) * 100)}%).`
-          : 'Свободные жители отдыхают. Начни стройку, чтобы занять их.'}
+          : 'Свободные жители отдыхают. Начни улучшение, чтобы занять их.'}
       </div>
 
       <h3>Вольный сбор</h3>
-      <div className="note">Работа без профильного здания идёт вполсилы. Построй здание — те же руки дадут вдвое больше.</div>
+      <div className="note">Работа без места в здании идёт вполсилы. Поставь человека в его двор — те же руки дадут вдвое больше.</div>
       {FREE_JOBS.map((jobId) => (
         <FreeJobRow key={jobId} job={jobId} />
       ))}
@@ -391,8 +382,8 @@ function GenericData({ b }: { b: Building }) {
   if (def_) stats.push(['🛡️', 'К защите поселения', `+${def_}`]);
   const morale = buildingStat(b, 'morale');
   if (morale) stats.push(['😊', 'К морали', `+${morale}`]);
-  if (b.type === 'workshop' && isBuilt(b)) stats.push(['🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
-  if (b.type === 'smithy' && isBuilt(b)) stats.push(['⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
+  if (b.type === 'workshop') stats.push(['🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
+  if (b.type === 'smithy') stats.push(['⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
   if (housing) stats.push(['👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.villagers.length} чел.`]);
   if (def_) stats.push(['⚔️', 'Защита посёлка', defense(s).toFixed(0)]);
 
@@ -423,11 +414,9 @@ function GenericData({ b }: { b: Building }) {
               <span className="val">×{villagerMultiplier(s, v).toFixed(2)}</span>
             </div>
           ))}
-          {isBuilt(b) && (
-            <div className="note">
-              Уровень {b.level}: каждый рабочий работает на ×{levelOutputMult(b.level).toFixed(2)} от базы.
-            </div>
-          )}
+          <div className="note">
+            Уровень {b.level}: каждый рабочий работает на ×{levelOutputMult(b.level).toFixed(2)} от базы.
+          </div>
         </>
       )}
 
@@ -444,7 +433,7 @@ function GenericData({ b }: { b: Building }) {
         </>
       )}
 
-      {b.type === 'totem' && isBuilt(b) && !s.totem && (
+      {b.type === 'totem' && !s.totem && (
         <>
           <h3>Выбери символ племени</h3>
           <div className="totem-row">

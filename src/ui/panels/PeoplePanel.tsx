@@ -1,7 +1,7 @@
 import { useGame } from '@/game/store';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { buildingById, builtOfType, defense, freeVillagers, housingCapacity, armyPower, armySize } from '@/game/derived';
+import { buildingById, buildingOfType, defense, freeVillagers, housingCapacity, armyPower, armySize } from '@/game/derived';
 import { armyRoster } from '@/game/sim/army';
 
 /**
@@ -12,7 +12,7 @@ function Army() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const roster = armyRoster(s);
-  const barracks = builtOfType(s, 'barracks');
+  const barracks = buildingOfType(s, 'barracks');
   if (roster.length === 0) {
     return (
       <div className="note">

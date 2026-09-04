@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { BUILDINGS } from '@/game/data/buildings';
-import { createBuildingGroup, type Stage, type Tier } from './buildings';
+import { createBuildingGroup, type Tier } from './buildings';
 import { buildVillage } from './village';
 import { buildTerrain } from './terrain';
 import { MODEL_RADIUS } from './plan';
@@ -54,7 +54,7 @@ function expectColored(root: THREE.Object3D, label: string): void {
 describe('набор деталей', () => {
   it('хижина из набора — один меш на всех ступенях', () => {
     for (const tier of [0, 1, 2] as Tier[]) {
-      const g = createBuildingGroup('hut', 2, tier);
+      const g = createBuildingGroup('hut', tier);
       expect(meshes(g).length, `hut ступень ${tier}`).toBe(1);
       const mats = meshes(g)[0].material as THREE.Material[];
       // Тело + кровля (+ отделка): не больше четырёх вызовов отрисовки.
@@ -63,7 +63,7 @@ describe('набор деталей', () => {
   });
 
   it('ступени хижины растут вширь и ввысь и держатся в габарите плана', () => {
-    const e = [0, 1, 2].map((t) => extent(createBuildingGroup('hut', 2, t as Tier)));
+    const e = [0, 1, 2].map((t) => extent(createBuildingGroup('hut', t as Tier)));
     expect(e[1].radius).toBeGreaterThan(e[0].radius * 1.4);
     expect(e[2].radius).toBeGreaterThan(e[1].radius * 1.0);
     expect(e[1].height).toBeGreaterThan(e[0].height * 1.1);
@@ -73,10 +73,8 @@ describe('набор деталей', () => {
 
   it('у каждого меша с vertexColors есть цвет вершин: здания, посёлок, ландшафт', () => {
     for (const def of BUILDINGS) {
-      for (const stage of [0, 1, 2] as Stage[]) {
-        for (const tier of [0, 1, 2] as Tier[]) {
-          expectColored(createBuildingGroup(def.id, stage, tier), `${def.id} ${stage}/${tier}`);
-        }
+      for (const tier of [0, 1, 2] as Tier[]) {
+        expectColored(createBuildingGroup(def.id, tier), `${def.id} ${tier}`);
       }
     }
     const present = BUILDINGS.map((b) => b.id);
