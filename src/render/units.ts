@@ -115,7 +115,9 @@ function torso(f: Figure, b: Body, cloth: number, legs: number, skin: number): v
 
 /** Шапка, капюшон или шлем поверх головы. `tall` — во сколько раз выше плоской. */
 function headwear(f: Figure, b: Body, color: number, tall: number, drop = 0): void {
-  const y = b.headCenter - b.rig.neckY - b.headH * (0.12 + drop);
+  // Основание конуса лежит на верхней части головы: низкая посадка
+  // прятала конус внутри черепа и оставляла макушку снаружи.
+  const y = b.headCenter - b.rig.neckY + b.headH * (0.35 - drop);
   addSlot(f, 'cap', 'head', color, [0, y, 0], [b.headH * REF.headWide * 1.06, b.headH * tall, b.headH * REF.headDeep * 1.06]);
 }
 
@@ -149,7 +151,7 @@ export function dressVillager(f: Figure, kind: number): void {
     // Долгополая одежда: корпус спускается до щиколоток, ног почти не видно.
     // Перевёрнутый корпус расширяется книзу — это и есть подол.
     torso(f, b, cloth, cloth, PALETTE.skin);
-    addSlot(f, 'body', 'hips', cloth, [0, b.rig.hipY * 1.02, 0], [b.chestW * 1.34, b.rig.hipY, b.chestW * 0.98], [Math.PI, 0, 0]);
+    addSlot(f, 'body', 'hips', cloth, [0, b.rig.hipY * 0.02, 0], [b.chestW * 1.34, b.rig.hipY, b.chestW * 0.98], [Math.PI, 0, 0]);
     headwear(f, b, PALETTE.hair, 0.38, 0.04);
     // Ноша за спиной: узел на верёвке — второй заметный признак этого покроя.
     addSlot(f, 'plate', 'torso', PALETTE.barrel, [0, b.torsoH * 0.62, -b.chestW * 0.5], [b.chestW * 0.72, b.torsoH * 0.5, b.chestW * 0.34]);
@@ -397,7 +399,12 @@ export function dressHorse(f: Figure, b: Body): void {
   const m = mountRig(h);
   f.rig.mount = m;
   // Посадка: таз на седле, колени разведены и вынесены вперёд.
-  f.rig.hipY = m.backY + h * 0.05;
+  const lift = m.backY + h * 0.05 - f.rig.hipY;
+  f.rig.hipY += lift;
+  // Суставы туловища вычисляются как разность высот: переносим весь
+  // верх тела вместе с тазом, сохраняя длины плеча и шеи относительно него.
+  f.rig.shoulderY += lift;
+  f.rig.neckY += lift;
   f.rig.hipX = h * 0.09;
   f.rig.straddle = 0.4;
   f.rig.seat = 0.45;

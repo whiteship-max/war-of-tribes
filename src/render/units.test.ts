@@ -9,7 +9,7 @@ import type { EquipmentId } from '@/game/types';
 import { hasArmor, hasShield, weaponOf } from '@/game/battle/kinds';
 import { troopCard } from '@/game/battle/describe';
 import type { TroopId } from '@/game/types';
-import { Figure, FigurePool, PARTS, figureBox } from './figures';
+import { Figure, FigurePool, PARTS, figureBox, forEachPart } from './figures';
 import { ACTIONS, poseFigure } from './poses';
 import { TURNS, above, area, overlap, projY, silhouette, widthAt } from './silhouette';
 import { FOLK_KINDS, MAN_HEIGHT, dressMount, dressSoldier, dressVillager, gearTier } from './units';
@@ -248,6 +248,22 @@ describe('кузница видна на бойце', () => {
 });
 
 describe('конь', () => {
+  it('посадка переносит голову, плечи и оружие вместе с тазом', () => {
+    const foot = soldier('spearman');
+    const mounted = soldier('rider');
+    const lift = mounted.rig.hipY - foot.rig.hipY;
+    expect(mounted.rig.shoulderY - foot.rig.shoulderY).toBeCloseTo(lift);
+    expect(mounted.rig.neckY - foot.rig.neckY).toBeCloseTo(lift);
+    const headY = (f: Figure): number => {
+      let y = 0;
+      forEachPart(f, (slot, matrix) => {
+        if (slot.part === 'head' && slot.joint === 'head') y = matrix.elements[13];
+      });
+      return y;
+    };
+    expect(headY(mounted) - headY(foot)).toBeCloseTo(lift);
+  });
+
   it('всадник несёт коня, пеший — нет', () => {
     expect(soldier('rider').rig.mount).not.toBeNull();
     for (const id of TROOP_IDS) {
@@ -272,6 +288,40 @@ describe('конь', () => {
     const box = figureBox(f);
     expect(box.min.y).toBeGreaterThan(-0.05);
     expect(box.min.y).toBeLessThan(0.06);
+  });
+});
+
+describe('посадка одежды', () => {
+  it('подол третьего покроя начинается у таза и доходит до щиколоток', () => {
+    const f = villager(2);
+    const skirt = f.slots.find((s) => s.part === 'body' && s.joint === 'hips')!;
+    const top = new THREE.Vector3(0, 0, 0).applyMatrix4(skirt.local).y + f.rig.hipY;
+    const bottom = new THREE.Vector3(0, 1, 0).applyMatrix4(skirt.local).y + f.rig.hipY;
+    expect(top).toBeGreaterThanOrEqual(f.rig.hipY);
+    expect(top).toBeLessThan(f.rig.hipY + f.rig.height * 0.04);
+    expect(bottom).toBeGreaterThanOrEqual(0);
+    expect(bottom).toBeLessThan(f.rig.height * 0.04);
+  });
+
+  it('макушка и верхние грани головы закрыты головным убором', () => {
+    const pool = new FigurePool();
+    const geometry = (part: string): THREE.BufferGeometry =>
+      (pool.group.children.find((m) => m.name === part) as THREE.InstancedMesh).geometry;
+    // Берём реальные вершины черепа: одна проверка верхней границы конуса
+    // не поймала бы голову, торчащую сквозь его наклонные стороны.
+    for (const f of [...TROOP_IDS.map(soldier), ...[0, 1, 2].map(villager)]) {
+      const head = f.slots.find((s) => s.part === 'head' && s.joint === 'head')!;
+      const cap = f.slots.find((s) => s.part === 'cap')!;
+      const toCap = cap.local.clone().invert().multiply(head.local);
+      const pos = geometry('head').getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const point = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(toCap);
+        if (point.y < 0) continue;
+        expect(point.y).toBeLessThanOrEqual(1);
+        // Вписанный круг шестигранника — консервативная граница покрытия.
+        expect(Math.hypot(point.x, point.z)).toBeLessThanOrEqual((1 - point.y) * Math.sqrt(3) / 4 + 0.001);
+      }
+    }
   });
 });
 
