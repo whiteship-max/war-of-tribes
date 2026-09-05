@@ -175,13 +175,24 @@ interface Caches {
   natural: Map<number, number>;
   cost: Map<number, number>;
   roads: RoadNet | null;
+  masses: Landmasses | null;
 }
 
-let caches: Caches = { seed: NaN, crossings: new Map(), passes: new Map(), natural: new Map(), cost: new Map(), roads: null };
+const emptyCaches = (): Caches => ({
+  seed: NaN,
+  crossings: new Map(),
+  passes: new Map(),
+  natural: new Map(),
+  cost: new Map(),
+  roads: null,
+  masses: null,
+});
+
+let caches: Caches = emptyCaches();
 
 /** Новый сид — новая география. Кэш чужого мира держать нельзя. */
 export function dropGeography(): void {
-  caches = { seed: NaN, crossings: new Map(), passes: new Map(), natural: new Map(), cost: new Map(), roads: null };
+  caches = emptyCaches();
 }
 
 function cachesFor(seed: number): Caches {
@@ -511,4 +522,76 @@ export function roadNet(seed: number): RoadNet {
   const c = cachesFor(seed);
   if (!c.roads) c.roads = buildRoads(seed);
   return c.roads;
+}
+
+// ---------- Материки ----------
+
+/**
+ * Связные куски суши. В игре по ним никто не ходит — отряд идёт по прямой и
+ * при нужде плывёт, — но именно они отвечают на вопрос «а не отрезано ли это
+ * поселение водой»: клетка знает свой кусок, кусок знает свой размер.
+ *
+ * Держится это ради одного обещания, и обещание проверяется тестом: дом игрока
+ * стоит на главном материке, у него всегда есть сухопутные соседи, а поселения
+ * на островах допустимы — до них добираются вплавь, и это интересная цель, а не
+ * сломанная генерация. Отсюда же берётся раздел «вода» в `npm run world:report`.
+ */
+export interface Landmasses {
+  /** Номер куска суши в клетке. -1 — вода или за краем мира. */
+  at(x: number, y: number): number;
+  /** Сколько клеток в куске. */
+  sizeOf(id: number): number;
+  /** Размеры всех кусков по их номерам. */
+  sizes: number[];
+}
+
+function buildLandmasses(seed: number): Landmasses {
+  const n = WORLD_SIZE;
+  const id = new Int32Array(n * n).fill(-1);
+  const water = new Uint8Array(n * n);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      water[y * n + x] = terrainAt(seed, WORLD_ORIGIN.x + x, WORLD_ORIGIN.y + y) === 'water' ? 1 : 0;
+    }
+  }
+  const sizes: number[] = [];
+  const stack: number[] = [];
+  for (let start = 0; start < n * n; start++) {
+    if (water[start] || id[start] >= 0) continue;
+    const mass = sizes.length;
+    let size = 0;
+    id[start] = mass;
+    stack.push(start);
+    while (stack.length > 0) {
+      const i = stack.pop() as number;
+      size++;
+      const ix = i % n;
+      const iy = (i - ix) / n;
+      // Связность по восьми соседям: по диагонали между двумя озёрами суша
+      // всё-таки проходима, и разрывать её там было бы неправдой.
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = ix + dx;
+          const ny = iy + dy;
+          if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+          const j = ny * n + nx;
+          if (water[j] || id[j] >= 0) continue;
+          id[j] = mass;
+          stack.push(j);
+        }
+      }
+    }
+    sizes.push(size);
+  }
+  return {
+    sizes,
+    at: (x, y) => (inWorld(x, y) ? id[(y - WORLD_ORIGIN.y) * n + (x - WORLD_ORIGIN.x)] : -1),
+    sizeOf: (mass) => sizes[mass] ?? 0,
+  };
+}
+
+export function landmasses(seed: number): Landmasses {
+  const c = cachesFor(seed);
+  if (!c.masses) c.masses = buildLandmasses(seed);
+  return c.masses;
 }

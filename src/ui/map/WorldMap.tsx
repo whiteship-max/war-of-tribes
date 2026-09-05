@@ -146,6 +146,17 @@ export function WorldMap() {
   const vp = (): Viewport => ({ w: size.current.w, h: size.current.h });
 
   /**
+   * Поводок и потолок отдаления разом. Зовётся и в кадре, и сразу после каждого
+   * жеста: иначе кнопка масштаба успевала бы объявить вид, до которого камеру
+   * всё равно не пустят, и подпись расходилась бы с картинкой на кадр.
+   */
+  const hold = (c: Camera): Camera => {
+    if (FREE_CAMERA) return clampCamera(c);
+    const at = cameraAnchor(worldNow());
+    return at ? leashCamera(c, vp(), at) : clampCamera(c);
+  };
+
+  /**
    * Ставит клетку в верхнюю четверть экрана: снизу выезжает шторка с карточкой,
    * и выбранная клетка не должна оказаться под ней.
    */
@@ -215,10 +226,7 @@ export function WorldMap() {
       // Поводок держится каждый кадр, а не в момент жеста: якорь движется сам —
       // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
       // касания. Отладочный обзор мира (`?worldview=`) поводка не знает.
-      if (!FREE_CAMERA) {
-        const at = cameraAnchor(worldNow());
-        if (at) cam.current = leashCamera(cam.current, { w, h }, at);
-      }
+      cam.current = hold(cam.current);
       const rect = viewRect(cam.current, { w, h });
       // Куски запрашиваются с запасом: тайл у края экрана не испечётся, пока не
       // приедут куски под его округой, а без запаса они приезжали бы только
@@ -255,7 +263,7 @@ export function WorldMap() {
   };
 
   const applyZoom = (sx: number, sy: number, k: number): void => {
-    cam.current = zoomAt(cam.current, vp(), sx, sy, k);
+    cam.current = hold(zoomAt(cam.current, vp(), sx, sy, k));
     const next = modeFor(cam.current.scale) === 'detail';
     setZoomedIn((prev) => (prev === next ? prev : next));
   };
@@ -336,16 +344,21 @@ export function WorldMap() {
   // ---------- Кнопки ----------
 
   const toggleZoom = (): void => {
-    cam.current = scaleTo(cam.current, vp(), zoomedIn ? SCALE_OVERVIEW : SCALE_DETAIL);
-    setZoomedIn(modeFor(cam.current.scale) === 'detail');
+    const want = zoomedIn ? SCALE_OVERVIEW : SCALE_DETAIL;
+    const next = hold(scaleTo(cam.current, vp(), want));
+    // Потолок отдаления мог не пустить дальше разведанного. Молча оставить
+    // кнопку без действия нельзя — она выглядела бы сломанной.
+    if (zoomedIn && modeFor(next.scale) === 'detail') showToast('Дальше разведанного карту не отдалить.');
+    cam.current = next;
+    setZoomedIn(modeFor(next.scale) === 'detail');
   };
 
   const goHome = (): void => {
     const home = useWorld.getState().info?.home;
     if (!home) return;
     setAnchor('home');
-    cam.current = { ...cam.current, scale: SCALE_DETAIL };
-    setZoomedIn(true);
+    cam.current = hold({ ...cam.current, scale: SCALE_DETAIL });
+    setZoomedIn(modeFor(cam.current.scale) === 'detail');
     centerOn(home);
   };
 

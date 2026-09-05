@@ -8,7 +8,7 @@ import { revealWorld } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, awayTroops, playerProfile, syncAway } from './bridge';
-import { inSight, type SightDisc } from './fog';
+import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, MARCH_SIGHT } from './data/tuning';
 import { heroReady } from '@/game/derived';
@@ -20,6 +20,7 @@ import {
   clearCache,
   clearPending,
   isPending,
+  exploredAt,
   isStale,
   markPending,
   putChunk,
@@ -374,7 +375,7 @@ export function sightDiscs(now: number): SightDisc[] {
   return out;
 }
 
-/** Где стоит камера и насколько её отпускают от этой точки. */
+/** Где стоит камера, насколько её отпускают от этой точки и докуда разведано. */
 export interface CameraAnchor {
   id: AnchorId;
   name: string;
@@ -383,6 +384,26 @@ export interface CameraAnchor {
   y: number;
   /** Радиус поводка: обзор якоря плюс запас, чтобы было куда указать. */
   r: number;
+  /** Разведанное вокруг якоря — из него карта выводит потолок отдаления. */
+  reach: Reach;
+}
+
+/**
+ * Разведанное вокруг якоря. Меряется по кэшу кусков — по тому же туману, что
+ * игрок и видит на полотне, а не по маске мира: карта не имеет к ней доступа,
+ * да и показывать потолок надо ровно от нарисованной дымки.
+ *
+ * Считается не каждый кадр: якорь меряется целой клеткой (фигура переходит её
+ * за секунды), а туман меняется только с приездом куска — его и считает `chunks`.
+ */
+let reachMemo: { key: string; reach: Reach } | null = null;
+
+function reachAround(x: number, y: number, chunks: number): Reach {
+  const key = `${x}|${y}|${chunks}`;
+  if (reachMemo && reachMemo.key === key) return reachMemo.reach;
+  const reach = exploredReach({ x, y }, exploredAt);
+  reachMemo = { key, reach };
+  return reach;
 }
 
 /**
@@ -393,12 +414,19 @@ export interface CameraAnchor {
 export function cameraAnchor(now: number): CameraAnchor | null {
   const g = useWorld.getState();
   const home = g.info?.home;
-  const atHome = home ? { id: 'home' as const, name: 'Деревня', x: home.x + 0.5, y: home.y + 0.5, r: HOME_SIGHT + CAMERA_LEASH } : null;
-  if (g.anchor === 'home') return atHome;
-  const f = g.figures.find((x) => x.id === g.anchor);
-  if (!f || f.phase === 'down') return atHome;
-  const at = figurePosition(f, now);
-  return { id: f.id, name: f.name, x: at.x + 0.5, y: at.y + 0.5, r: f.sight + CAMERA_LEASH };
+  const at = g.anchor === 'home' ? null : g.figures.find((x) => x.id === g.anchor);
+  const live = at && at.phase !== 'down' ? at : null;
+  const spot = live ? figurePosition(live, now) : home ? { x: home.x, y: home.y } : null;
+  if (!spot) return null;
+  const cell = { x: Math.floor(spot.x), y: Math.floor(spot.y) };
+  return {
+    id: live ? live.id : 'home',
+    name: live ? live.name : 'Деревня',
+    x: spot.x + 0.5,
+    y: spot.y + 0.5,
+    r: (live ? live.sight : HOME_SIGHT) + CAMERA_LEASH,
+    reach: reachAround(cell.x, cell.y, g.chunks),
+  };
 }
 
 /** Клетка в чьём-то обзоре прямо сейчас. */
