@@ -16,7 +16,9 @@ import {
   PLAN_SCALE,
   placeOf,
   GATE_ROAD,
+  FIELD_ROAD,
   OUTER_ROAD,
+  OUTSIDE_RING,
   PLAN,
   PLAZA_RADIUS,
   PLAZA_ROAD,
@@ -332,6 +334,9 @@ export function buildVillage({ present, built = [] }: VillageOptions): THREE.Gro
   roads.add(roadRing(PLAZA_ROAD, half, mat, 0.045));
   const outerNeeded = [...has].some((type) => PLAN[type]?.ring === 3);
   if (outerNeeded) roads.add(roadRing(OUTER_ROAD, half, mat, 0.045));
+  // Просёлок по угодьям появляется вместе с первым двором за стеной.
+  const fieldNeeded = [...has].some((type) => PLAN[type]?.ring === OUTSIDE_RING);
+  if (fieldNeeded) roads.add(roadRing(FIELD_ROAD, half * 0.8, mat, 0.045));
   // Пока стены нет, улице некуда вести: доводим её до окружной, а не в чистое поле.
   const gateTo = has.has('palisade') ? GATE_ROAD.to : OUTER_ROAD;
   roads.add(roadSpur(GATE_ROAD.angle, GATE_ROAD.from, gateTo, half, mat, 0.05));
@@ -345,8 +350,10 @@ export function buildVillage({ present, built = [] }: VillageOptions): THREE.Gro
   // хозяйством, как во всяком дворе.
   let seed = 0;
   const empty: { r: number; angle: number; onRoad: boolean }[] = [];
-  for (const [type, place] of Object.entries(PLAN) as [BuildingTypeId, { ring: 1 | 2 | 3; angle: number }][]) {
-    if (has.has(type)) continue;
+  for (const [type, place] of Object.entries(PLAN) as [BuildingTypeId, { ring: 1 | 2 | 3 | 4; angle: number }][]) {
+    // Пустое место за стеной — это просто луг: хозяйство складывают во дворе,
+    // а не в поле, и декор туда не выносим (он бы стоял в чистом поле один).
+    if (has.has(type) || place.ring === OUTSIDE_RING) continue;
     empty.push({ r: RING_RADIUS[place.ring], angle: place.angle, onRoad: ROAD_THROUGH.includes(type) });
   }
   for (const place of SPARE_PLOTS) {

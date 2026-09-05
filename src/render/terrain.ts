@@ -23,8 +23,12 @@ import { KIT, LEGACY } from './materials';
 import { GROUND_AO, collapse } from './kit';
 import { GRASS_DARK_MUL, GRASS_LIGHT_MUL, WALL_TRAMPLE_MUL } from './palette';
 
-/** Край мира. За зоной расчистки идёт полоса угодий, а дальше — сплошной лес до края. */
-export const WORLD_RADIUS = 30;
+/**
+ * Край мира. За зоной расчистки идёт полоса угодий, а дальше — сплошной лес до
+ * края. Вырос вместе с расчисткой: ресурсные дворы стоят теперь за стеной, и
+ * лес отодвинулся, чтобы не расти прямо в поле.
+ */
+export const WORLD_RADIUS = 36;
 
 /** Радиус диска земли: край уходит под туман и опускается вниз. */
 export const GROUND_RADIUS = WORLD_RADIUS + 6;
@@ -37,16 +41,18 @@ export const GROUND_RADIUS = WORLD_RADIUS + 6;
 export const FOREST_FROM = CLEAR_RADIUS + CLEAR_EDGE + 0.6;
 
 /**
- * Угодья вынесены за зону расчистки: внутри кольца стоят сами постройки, а лес,
- * скалы и поля — там, куда за ними ходят. Вольный сбор ведёт жителей именно сюда.
- * Направления остались прежними, изменилось только расстояние от центра.
+ * Угодья лежат сразу за зоной расчистки — и ровно в тех направлениях, куда
+ * смотрят ресурсные дворы четвёртого кольца: лесопилка стоит лицом к лесу,
+ * каменоломня к скалам, ферма к полям. Направления не менялись с самого начала,
+ * менялось только расстояние от центра; теперь оно снова выросло, потому что
+ * между угодьями и стеной встали сами дворы.
  */
 export const ZONES = {
-  forest: new THREE.Vector3(17.6, 0, -16.3),
-  rocks: new THREE.Vector3(-19.5, 0, -13.9),
-  berries: new THREE.Vector3(21.8, 0, 10.2),
-  hunting: new THREE.Vector3(0, 0, -25),
-  fields: new THREE.Vector3(-20.8, 0, 11.9),
+  forest: new THREE.Vector3(23.1, 0, -21.4),
+  rocks: new THREE.Vector3(-25.7, 0, -18.2),
+  berries: new THREE.Vector3(28.6, 0, 13.3),
+  hunting: new THREE.Vector3(0, 0, -31.5),
+  fields: new THREE.Vector3(-27.4, 0, 15.6),
 };
 
 /** Материалы окружения — из общего набора; цвета в palette.ts. */
@@ -57,10 +63,10 @@ export const MAT = LEGACY;
  * охотничья зона — редколесье, куда ходят за дичью.
  */
 const GLADES: { at: THREE.Vector3; r: number; keep: number }[] = [
-  { at: ZONES.rocks, r: 5.0, keep: 0.06 },
-  { at: ZONES.berries, r: 4.6, keep: 0.08 },
-  { at: ZONES.fields, r: 5.4, keep: 0.04 },
-  { at: ZONES.hunting, r: 6.0, keep: 0.3 },
+  { at: ZONES.rocks, r: 6.0, keep: 0.06 },
+  { at: ZONES.berries, r: 5.5, keep: 0.08 },
+  { at: ZONES.fields, r: 6.5, keep: 0.04 },
+  { at: ZONES.hunting, r: 7.2, keep: 0.3 },
 ];
 
 /**
@@ -248,7 +254,7 @@ export function makeTree(scale = 1, variant = 0): THREE.Group {
  * телефоне, а стоит он больше самой кроны: цилиндр на пять сегментов — это два
  * донца по пять треугольников сверх десяти боковых.
  */
-export const FOREST_FAR = 26;
+export const FOREST_FAR = 31;
 
 /**
  * Дальнее дерево: один конус без ствола и без донца. Донце лежит на земле и не
@@ -395,7 +401,7 @@ export function buildEnvironment(): THREE.Group {
   }
   // Сплошной лес от полосы вырубки до края мира, с прогалинами под угодья.
   // Ближе к краю гуще: за краем мира ничего нет, и опушка должна закрыть горизонт.
-  for (let i = 0; i < 560; i++) {
+  for (let i = 0; i < 680; i++) {
     const a = hash(i * 3 + 1000) * Math.PI * 2;
     const t = Math.sqrt(hash(i * 7 + 1000));
     const r = FOREST_FROM + t * (GROUND_RADIUS - 1.5 - FOREST_FROM);
@@ -436,8 +442,8 @@ export function buildEnvironment(): THREE.Group {
 
   // Граница расчистки: полоса вырубки шириной CLEAR_EDGE сразу за запретной зоной.
   // Здесь племя брало лес на частокол, и это видно.
-  for (let i = 0; i < 90; i++) {
-    const a = (i / 90) * Math.PI * 2 + hash(i * 41) * 0.06;
+  for (let i = 0; i < 126; i++) {
+    const a = (i / 126) * Math.PI * 2 + hash(i * 41) * 0.06;
     const r = CLEAR_RADIUS + 0.25 + hash(i * 43) * (CLEAR_EDGE - 0.4);
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;

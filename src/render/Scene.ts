@@ -16,7 +16,7 @@ import {
 import { TROOP_IDS } from '@/game/data/troops';
 import { RESOURCE_IDS } from '@/game/constants';
 import { buildTerrain } from './terrain';
-import { PLAN_SCALE, WALL_RADIUS, placeOf, plotRadius } from './plan';
+import { FRAME_RADIUS, OUTSKIRTS_RADIUS, PLAN_SCALE, placeOf, plotRadius } from './plan';
 import { buildVillage } from './village';
 import { MAX_SOLDIERS, SoldierAgent, postFor } from './soldiers';
 import {
@@ -285,11 +285,12 @@ export class TribeScene {
     const polar = THREE.MathUtils.lerp(0.95, 0.7, narrow);
     // В портрете угол шире: иначе кадр не удержать без отъезда за предел дистанции.
     const fov = THREE.MathUtils.lerp(42, 48, narrow);
-    // Кадр держит кольцо стены целиком, а не постройки. Радиус стены задан планом
-    // раз и навсегда, поэтому кадр перестал дёргаться при каждой новой крыше:
-    // посёлок растёт внутри одной и той же рамки, как на карте укреплённого города.
-    // В портрете кольцо касается краёв экрана: ближе — и посёлок крупнее.
-    const fitRadius = WALL_RADIUS * THREE.MathUtils.lerp(1.12, 0.96, narrow);
+    // Кадр держит план целиком, а не постройки: FRAME_RADIUS задан планом раз и
+    // навсегда, поэтому кадр не дёргается при каждой новой крыше — посёлок растёт
+    // внутри одной и той же рамки, как на карте укреплённого города. Считается он
+    // не от стены, а от края застройки: ресурсные дворы стоят снаружи, и половина
+    // хозяйства иначе оказалась бы за краем экрана.
+    const fitRadius = FRAME_RADIUS * THREE.MathUtils.lerp(1.12, 0.96, narrow);
     const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
     const dist = THREE.MathUtils.clamp(fitRadius / Math.tan(halfH), 14, 92);
 
@@ -306,7 +307,8 @@ export class TribeScene {
     this.camera.updateProjectionMatrix();
 
     // Коробка теней накрывает посёлок целиком: она привязана к стене, как и кадр.
-    fitShadow(this.rig, WALL_RADIUS + 2);
+    // Тень накрывает и дворы за стеной: окружение теней не отбрасывает, а они — да.
+    fitShadow(this.rig, OUTSKIRTS_RADIUS + 1);
 
     if (this.userMoved) return;
     // Цель чуть выше земли: деревня уходит из-под верхнего HUD.

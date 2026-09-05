@@ -7,14 +7,14 @@
 // Своего состояния у телеги нет: сцена каждый кадр отдаёт ей долю пути
 // (`derived.caravanProgress`), а всё остальное — чистая геометрия.
 import * as THREE from 'three';
-import { CLEAR_RADIUS, GATE_ANGLE, RING_RADIUS } from './plan';
+import { FIELD_ROAD, GATE_ANGLE, RING_RADIUS } from './plan';
 import { M } from './buildings';
 
 /** Откуда выезжает: от торговых рядов на воротной улице. */
 const START_R = RING_RADIUS[2];
 
-/** Докуда уезжает: до края расчистки, дальше её уже не видно за лесом. */
-const FAR_R = CLEAR_RADIUS - 1.2;
+/** Докуда уезжает: за просёлок по угодьям, дальше её уже не видно за лесом. */
+const FAR_R = FIELD_ROAD + 2;
 
 /**
  * Доля пути, которую телега стоит «в отъезде» на дальнем конце. Без неё разворот

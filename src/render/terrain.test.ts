@@ -7,7 +7,18 @@ import { BUILDINGS } from '@/game/data/buildings';
 import { createBuildingGroup } from './buildings';
 import { buildEnvironment, WORLD_RADIUS } from './terrain';
 import { buildVillage } from './village';
-import { CLEAR_EDGE, CLEAR_RADIUS, GATE_ANGLE, GATE_CLEAR_HALF, WALL_RADIUS, inCleared } from './plan';
+import {
+  CLEAR_EDGE,
+  CLEAR_RADIUS,
+  GATE_ANGLE,
+  GATE_CLEAR_HALF,
+  OUTSIDE_BUILDINGS,
+  OUTSKIRTS_RADIUS,
+  WALL_RADIUS,
+  inCleared,
+  placeOf,
+  plotRadius,
+} from './plan';
 
 interface Extent {
   min: number;
@@ -63,10 +74,21 @@ function vertices(root: THREE.Object3D): { x: number; z: number }[] {
 const wall = (): THREE.Group => createBuildingGroup('palisade', 2);
 
 describe('зона расчистки', () => {
-  it('запас между стеной и лесом заметен, а не символичен', () => {
-    expect(CLEAR_RADIUS).toBeGreaterThan(WALL_RADIUS + 3);
+  it('запас между хозяйством и лесом заметен, а не символичен', () => {
+    // Расчистка считается от края застройки, а не от стены: за стеной стоят дворы.
+    expect(CLEAR_RADIUS).toBeGreaterThan(OUTSKIRTS_RADIUS + 2);
+    expect(OUTSKIRTS_RADIUS).toBeGreaterThan(WALL_RADIUS);
     // За зоной ещё должна остаться полоса вырубки и лес до края мира.
     expect(CLEAR_RADIUS + CLEAR_EDGE).toBeLessThan(WORLD_RADIUS - 2);
+  });
+
+  it('ни один двор за стеной не стоит в лесу', () => {
+    const env = extent(buildEnvironment());
+    for (const type of OUTSIDE_BUILDINGS) {
+      const spot = placeOf(type);
+      const outer = Math.hypot(spot.x, spot.z) + plotRadius(type);
+      expect(outer, `${type} вылез за расчистку`).toBeLessThan(env.min);
+    }
   });
 
   it('ни одно дерево, ни один камень не стоит внутри радиуса расчистки', () => {
@@ -83,6 +105,8 @@ describe('зона расчистки', () => {
     expect(w.min).toBeGreaterThan(WALL_RADIUS - 1.5);
     expect(w.max).toBeLessThan(WALL_RADIUS + 1.5);
     expect(extent(buildEnvironment()).min).toBeGreaterThan(w.max);
+    // И кольцо стены не задевает угодья: между ними стоят ресурсные дворы.
+    expect(OUTSKIRTS_RADIUS).toBeGreaterThan(w.max);
   });
 
   it('обстановка посёлка не наезжает на стену изнутри', () => {
@@ -107,6 +131,8 @@ describe('зона расчистки', () => {
   it('inCleared описывает ровно то, что проверяют тесты выше', () => {
     expect(inCleared(0, 0)).toBe(true);
     expect(inCleared(WALL_RADIUS + 1, 0)).toBe(true);
+    // Дворы за стеной — тоже внутри расчистки: лес перед ними расступается.
+    expect(inCleared(OUTSKIRTS_RADIUS - 0.5, 0)).toBe(true);
     // Прямо за воротами — коридор; в ту же сторону, но вбок от него — уже лес.
     const far = CLEAR_RADIUS + CLEAR_EDGE;
     expect(inCleared(Math.cos(GATE_ANGLE) * far, Math.sin(GATE_ANGLE) * far)).toBe(true);
