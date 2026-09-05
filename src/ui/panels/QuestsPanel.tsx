@@ -1,15 +1,27 @@
+import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { ACHIEVEMENTS, QUESTS } from '@/game/data/quests';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Chronicle } from '../parts/Chronicle';
+import { DailyPage } from '../parts/daily/DailyPage';
 
+/**
+ * «Задания» — две страницы.
+ *
+ * Первая — то, ради чего сюда заходят: задания племени, достижения, летопись и
+ * служебное. Вторая — то, что делается раз в сутки и раз навсегда: задание дня,
+ * подписки, приглашение. Смешать их в один список нельзя — ежедневка утонула бы
+ * под летописью, а служебные кнопки оказались бы посреди социальных ссылок.
+ *
+ * Страница живёт местным состоянием, а не стором, в отличие от вкладок ратуши:
+ * туда ведут ссылки из справки о морали, а сюда снаружи не ведёт ничего. Заодно
+ * это и правильное поведение — шторка закрывается, память умирает вместе с ней,
+ * и «Задания» всегда открываются на заданиях.
+ */
 export function QuestsPanel() {
   const s = useGame((g) => g.s);
-  const reset = useGame((g) => g.reset);
-  const resetWorld = useWorld((g) => g.resetWorld);
-  const replayTutorial = useGame((g) => g.replayTutorial);
-  const open = QUESTS.filter((q) => !s.completedQuests.includes(q.id)).slice(0, 3);
+  const [page, setPage] = useState<'quests' | 'daily'>('quests');
   const doneCount = s.completedQuests.length;
 
   return (
@@ -18,6 +30,29 @@ export function QuestsPanel() {
         Задания <small>выполнено {doneCount}/{QUESTS.length} · престиж {s.prestige}</small>
       </h2>
 
+      <div className="tabs">
+        <button className={page === 'quests' ? 'active' : ''} onClick={() => setPage('quests')}>
+          📜 Задания
+        </button>
+        <button className={page === 'daily' ? 'active' : ''} onClick={() => setPage('daily')}>
+          🎯 Каждый день
+        </button>
+      </div>
+
+      {page === 'quests' ? <QuestList /> : <DailyPage />}
+    </div>
+  );
+}
+
+function QuestList() {
+  const s = useGame((g) => g.s);
+  const reset = useGame((g) => g.reset);
+  const resetWorld = useWorld((g) => g.resetWorld);
+  const replayTutorial = useGame((g) => g.replayTutorial);
+  const open = QUESTS.filter((q) => !s.completedQuests.includes(q.id)).slice(0, 3);
+
+  return (
+    <>
       {open.map((q) => {
         const p = q.progress?.(s);
         return (
@@ -82,6 +117,6 @@ export function QuestsPanel() {
       >
         Начать заново
       </button>
-    </div>
+    </>
   );
 }

@@ -2594,3 +2594,281 @@ body {
 .card.gem-pack .ico {
   font-size: 20px;
 }
+
+/* ---------- Ежедневное задание, соцссылки, приглашение ---------- */
+
+.social-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.social-row .ico {
+  font-size: 20px;
+  width: 26px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.social-row .body {
+  flex: 1;
+  min-width: 0;
+}
+
+.social-row .title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.social-row .desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+/* Ссылка приглашения видна текстом: скопировать её в буфер выходит не везде. */
+.invite-link {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  word-break: break-all;
+  user-select: all;
+}
+
+/* Шапка мини-игры: название слева, часы или счёт справа. */
+.mg-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mg-head b {
+  font-size: 14px;
+}
+
+.mg-clock {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.mg-clock.low {
+  color: var(--bad);
+}
+
+/* Стрельба: дорожка целится временем, а не местом. Тап-зона во всю ширину,
+   touch-action: none — иначе вертикальный жест и прокрутит шторку, и выстрелит. */
+.mg-track {
+  position: relative;
+  height: 56px;
+  margin-bottom: 10px;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+}
+
+.mg-rail {
+  position: relative;
+  width: 100%;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.mg-zone,
+.mg-bull {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+/* Цвет зоны — из --good, но числом: color-mix не понимают вебвью старых
+   Android-клиентов Telegram, и зона стала бы невидимой, то есть игра —
+   непроходимой. Значение то же, что #7cc47a в палитре. */
+.mg-zone {
+  background: rgba(124, 196, 122, 0.26);
+}
+
+.mg-bull {
+  background: rgba(124, 196, 122, 0.62);
+}
+
+.mg-marker {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--text);
+  border-radius: 2px;
+  will-change: transform;
+}
+
+.mg-shots {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mg-shot {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.mg-shot.hit {
+  background: var(--good);
+}
+
+.mg-shot.ring {
+  background: rgba(124, 196, 122, 0.45);
+}
+
+.mg-shot.miss {
+  background: var(--bad);
+}
+
+/* Викторина: две колонки рядом. Сравнивать через прокрутку нельзя. */
+.mg-quiz {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mg-side {
+  min-height: 108px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mg-side.picked {
+  border-color: var(--accent);
+}
+
+.mg-side.right {
+  border-color: var(--good);
+}
+
+.mg-side.wrong {
+  border-color: var(--bad);
+}
+
+.mg-side-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mg-stack {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mg-side small {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: auto;
+}
+
+.mg-why {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.mg-why b {
+  color: var(--text);
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* Лабиринт: клетка ровно в тач-цель, доска 7 x 44 = 308 px влезает в 351 px. */
+.mg-maze {
+  --cell: var(--tap);
+  position: relative;
+  width: calc(var(--cell) * 7);
+  margin: 0 auto 10px;
+  display: grid;
+  grid-template-columns: repeat(7, var(--cell));
+  border-right: 2px solid var(--text);
+  border-bottom: 2px solid var(--text);
+  touch-action: none;
+  user-select: none;
+}
+
+.mg-cell {
+  width: var(--cell);
+  height: var(--cell);
+  border-top: 2px solid transparent;
+  border-left: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-sizing: border-box;
+}
+
+.mg-cell.w-top {
+  border-top-color: var(--text);
+}
+
+.mg-cell.w-left {
+  border-left-color: var(--text);
+}
+
+.mg-knight {
+  position: absolute;
+  width: var(--cell);
+  height: var(--cell);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  transition: transform 0.08s linear;
+  pointer-events: none;
+}
+
+.mg-trail {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: calc((var(--cell) - 8px) / 2);
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.mg-result {
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.mg-result.good {
+  color: var(--good);
+}
+
+.mg-result.bad {
+  color: var(--bad);
+}
