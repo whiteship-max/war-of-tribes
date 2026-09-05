@@ -4,6 +4,7 @@ import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { startUpgrade, resolveEvent, setTax } from './actions';
 import { applyExpedition, sackOutskirts } from './expedition';
+import { throwFeast } from './actions';
 import { assignWorker, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
 import { popGrowth } from './population';
 import { seeded, setRandom } from './random';
@@ -23,7 +24,17 @@ import {
   productionPerDay,
   seasonDayOf,
   seasonOf,
+  cavalryTrain,
+  feastInfo,
+  feastMorale,
+  healShare,
+  hiddenStash,
   idleCount,
+  intelKeen,
+  mountGear,
+  recruitRate,
+  warningSeconds,
+  idleCount as _idleCount,
   isOutsideWall,
   moraleTarget,
   OUTSIDE_TYPES,
@@ -32,7 +43,15 @@ import {
   workerCount,
   yearOf,
 } from '../derived';
-import { DAY_LENGTH, MAX_BUILDING_LEVEL, MORALE_GROWTH_ZERO, RESOURCE_IDS, SLOTS_PER_LEVEL } from '../constants';
+import {
+  DAY_LENGTH,
+  INFIRMARY_HEAL_CAP,
+  MAX_BUILDING_LEVEL,
+  MORALE_GROWTH_ZERO,
+  RESOURCE_IDS,
+  SLOTS_PER_LEVEL,
+} from '../constants';
+import { playerProfile } from '@/world/bridge';
 import { BUILDINGS, BUILDING_BY_ID } from '../data/buildings';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS, YEAR_DAYS } from '../data/seasons';
 import { QUESTS } from '../data/quests';
@@ -67,6 +86,148 @@ function idleAll(s: GameState): void {
   s.workers = {};
   s.freeJobs = {};
 }
+
+describe('службы посёлка', () => {
+  /** Ставит одно здание нужного уровня, остальное оставляет как в новой партии. */
+  const withLevel = (type: BuildingTypeId, level: number): GameState => {
+    const s = createInitialState();
+    place(s, type, level);
+    return s;
+  };
+
+  it('лазарет возвращает часть потерь ранеными, но война не дешевеет до нуля', () => {
+    for (const level of [1, 5, 10]) {
+      const s = withLevel('infirmary', level);
+      // Потолок обязателен: без него победа с непомерными потерями перестала бы
+      // быть непомерной, а отказ от боя — иметь смысл.
+      expect(healShare(s)).toBeLessThanOrEqual(INFIRMARY_HEAL_CAP);
+      expect(healShare(s)).toBeGreaterThan(0);
+    }
+    expect(healShare(withLevel('infirmary', 10))).toBeGreaterThan(healShare(withLevel('infirmary', 1)));
+
+    const s = withLevel('infirmary', 10);
+    s.army.clubman = 100;
+    const pop = s.pop;
+    applyExpedition(s, {
+      warriorsLost: 100,
+      scoutsLost: 0,
+      resources: {},
+      gold: 0,
+      prestige: 0,
+      morale: 0,
+      battle: 'lost',
+      text: 'Отряд разбит.',
+      kind: 'bad',
+    });
+    const healed = s.pop - pop;
+    // Раненые возвращаются в племя, а не в строй: боец потерян, человек жив.
+    expect(s.army.clubman).toBe(0);
+    expect(healed).toBe(Math.floor(100 * healShare(s)));
+    expect(healed).toBeGreaterThan(0);
+    expect(s.stats.died).toBe(100 - healed);
+  });
+
+  it('без лазарета из боя не возвращается никто', () => {
+    const s = createInitialState();
+    s.buildings = s.buildings.filter((b) => b.type !== 'infirmary');
+    s.army.clubman = 40;
+    const pop = s.pop;
+    applyExpedition(s, {
+      warriorsLost: 40, scoutsLost: 0, resources: {}, gold: 0, prestige: 0, morale: 0,
+      battle: 'lost', text: '', kind: 'bad',
+    });
+    expect(s.pop).toBe(pop);
+    expect(s.stats.died).toBe(40);
+  });
+
+  it('дозор растит и стойкость разведданных, и запас времени на перестройку', () => {
+    expect(intelKeen(withLevel('watch', 1))).toBeLessThan(intelKeen(withLevel('watch', 10)));
+    expect(warningSeconds(withLevel('watch', 1))).toBeLessThan(warningSeconds(withLevel('watch', 10)));
+    // Правило, которое нельзя нарушать: предупреждение длиннее заморозки обороны.
+    // Дозор время только прибавляет — база уже больше заморозки (см. world.test).
+    expect(warningSeconds(withLevel('watch', 1))).toBeGreaterThan(0);
+  });
+
+  it('конюшня ускоряет только конницу и даёт ей ступень снаряжения с четвёртого уровня', () => {
+    const s = withLevel('stable', 10);
+    place(s, 'barracks', 5);
+    expect(recruitRate(s, 'rider')).toBeCloseTo(recruitRate(s) * cavalryTrain(s), 6);
+    // Пеший вид от конюшни не ускоряется ни на волос.
+    expect(recruitRate(s, 'clubman')).toBe(recruitRate(s));
+    expect(cavalryTrain(s)).toBeGreaterThan(1);
+
+    expect(mountGear(withLevel('stable', 3))).toBe(0);
+    expect(mountGear(withLevel('stable', 4))).toBe(1);
+    expect(mountGear(withLevel('stable', 10))).toBeGreaterThanOrEqual(1);
+  });
+
+  it('тайник прячет запас, и спрятанного просто нет в слепке для мира', () => {
+    const s = withLevel('cache', 10);
+    for (const r of RESOURCE_IDS) s.resources[r] = 10_000;
+    const stash = hiddenStash(s);
+    expect(stash).toBeGreaterThan(0);
+    const profile = playerProfile(s);
+    for (const r of RESOURCE_IDS) expect(profile.resources[r]).toBe(10_000 - stash);
+    // Запас меньше тайника не виден миру вовсе — унести нечего.
+    s.resources.iron = stash - 10;
+    expect(playerProfile(s).resources.iron).toBe(0);
+    expect(hiddenStash(withLevel('cache', 1))).toBeLessThan(stash);
+  });
+
+  it('пир поднимает мораль, стоит золота по числу ртов и упирается в откат', () => {
+    const s = withLevel('tavern', 1);
+    s.gold = 10_000;
+    const before = feastInfo(s);
+    expect(before.blocked).toBeNull();
+    expect(before.cost).toBeGreaterThan(0);
+
+    expect(throwFeast(s)).toBeNull();
+    expect(s.gold).toBe(10_000 - before.cost);
+    expect(feastMorale(s)).toBe(before.bonus);
+    // Второй раз подряд — нельзя, и панель об этом говорит.
+    expect(throwFeast(s)).not.toBeNull();
+
+    // Цена растёт с посёлком: пир на семьсот ртов дороже пира на тридцать.
+    const big = withLevel('tavern', 1);
+    big.pop = 700;
+    expect(feastInfo(big).cost).toBeGreaterThan(before.cost * 10);
+
+    // Уровень делает пир крепче, а откат короче.
+    const top = withLevel('tavern', 10);
+    top.gold = 10_000;
+    expect(feastInfo(top).bonus).toBeGreaterThan(before.bonus);
+    throwFeast(top);
+    const cheap = withLevel('tavern', 1);
+    cheap.gold = 10_000;
+    throwFeast(cheap);
+    // Через шесть дней трактир десятого уровня уже наливает, а первого — ещё нет.
+    cheap.time = top.time = 6 * DAY_LENGTH;
+    expect(feastInfo(top).cooldown).toBeLessThan(feastInfo(cheap).cooldown);
+    expect(feastInfo(top).cooldown).toBe(0);
+  });
+
+  it('пир не переполняет шкалу морали: он ложится после приведения к сотне', () => {
+    const s = withLevel('tavern', 10);
+    // Довольное племя на потолке шкалы: пир не должен дать ни одного очка сверх.
+    for (const b of s.buildings) b.level = 10;
+    s.resources.food = 100_000;
+    s.gold = 10_000;
+    const full = moraleTarget(s);
+    throwFeast(s);
+    expect(moraleTarget(s)).toBe(full);
+    expect(moraleTarget(s)).toBeLessThanOrEqual(100);
+
+    // А просевшую мораль пир отыгрывает — ради этого он и есть.
+    const taxed = withLevel('tavern', 10);
+    for (const b of taxed.buildings) b.level = 10;
+    taxed.resources.food = 100_000;
+    taxed.gold = 10_000;
+    setTax(taxed, 'high');
+    const low = moraleTarget(taxed);
+    throwFeast(taxed);
+    expect(moraleTarget(taxed)).toBeGreaterThan(low);
+  });
+});
 
 describe('стена и хозяйство за ней', () => {
   it('снаружи стоит ровно производство, и план поселения говорит то же самое', () => {

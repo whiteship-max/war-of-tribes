@@ -13,7 +13,7 @@ import { defenseLock } from './store';
 import { presetFormation, toArmySetup } from '@/game/battle/formation';
 import type { ArmySetup, Stack } from '@/battle';
 import { syncAway, toOutcome } from './bridge';
-import { AI_WARNING, DEFENSE_FREEZE, INTEL_EXACT, INTEL_ROUGH, INTEL_VAGUE, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
+import { AI_WARNING_BASE, DEFENSE_FREEZE, INTEL_EXACT, INTEL_ROUGH, INTEL_VAGUE, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
 import type { Intel, MarchView, PlayerProfile, SettlementView } from './types';
 
 const START = 1_700_000_000_000;
@@ -712,9 +712,11 @@ describe('заморозка обороны', () => {
 
   it('окно на перестройку есть: предупреждение длиннее заморозки', () => {
     // Иначе набег появляется уже запертым, и панель обороны — замок на двери.
-    expect(AI_WARNING).toBeGreaterThan(DEFENSE_FREEZE);
+    // Проверяется база — то, что видно вообще без Дозора: он время только
+    // прибавляет, укоротить предупреждение он не может.
+    expect(AI_WARNING_BASE).toBeGreaterThan(DEFENSE_FREEZE);
     const now = START;
-    const arriveAt = now + AI_WARNING;
+    const arriveAt = now + AI_WARNING_BASE;
     expect(defenseLock([incoming(arriveAt)], now).frozen).toBe(false);
     expect(defenseLock([incoming(arriveAt)], now).seconds).toBeGreaterThan(DEFENSE_FREEZE / 1000);
   });

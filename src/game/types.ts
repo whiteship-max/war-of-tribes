@@ -60,6 +60,11 @@ export type BuildingTypeId =
   | 'farm'
   | 'pen'
   | 'church'
+  | 'infirmary'
+  | 'watch'
+  | 'stable'
+  | 'cache'
+  | 'tavern'
   | 'palisade'
   | 'tower'
   | 'smithy'
@@ -239,6 +244,13 @@ export interface GameState {
   battlePlans: BattlePlanTemplate[];
   /** Что игрок предпочитает после боя: смотреть журнал или сразу итог. */
   battleWatch: boolean;
+  /**
+   * Пир в трактире: до какого игрового времени он греет племя и когда его
+   * задавали в прошлый раз. Два числа, а не флаг: по первому считается прибавка
+   * к морали, по второму — откат (см. derived.feastInfo).
+   */
+  feastUntil: number;
+  feastAt: number;
   /** Номер текущего шага обучения (см. data/tutorial.ts). */
   tutorialStep: number;
   /** Обучение пройдено или пропущено. */

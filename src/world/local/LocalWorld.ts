@@ -3,8 +3,8 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { seeded } from '@/game/sim/random';
-import { FRONT, REAR, type Stack } from '@/battle';
-import { gearOf, kindsOf, troopLosses, troopTotal } from '@/game/battle/kinds';
+import { FRONT, GEAR, REAR, type Stack, type UnitKind } from '@/battle';
+import { gearOf, kindsOf, troopLosses, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { WorldApi } from '../api';
 import type {
   BattleRecord,
@@ -50,7 +50,7 @@ import {
   AI_POWER_SHARE,
   AI_POWER_VS_DEFENSE,
   AI_RANGE,
-  AI_WARNING,
+  AI_WARNING_BASE,
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
   DAMAGE_RECOVER,
@@ -259,6 +259,29 @@ export class LocalWorld implements WorldApi {
     return Math.round(powerOf(s, this.elapsed(now), POWER_GROWTH_CAP) * CASTLE_GOLD_PER_POWER * refill);
   }
 
+  /**
+   * Сколько игрок видит чужую армию до её прихода. База обязана быть заметно
+   * больше `DEFENSE_FREEZE` — иначе набег появляется уже запертым; Дозор игрока
+   * только прибавляет сверху, укоротить предупреждение он не может.
+   */
+  private warningMs(): number {
+    return AI_WARNING_BASE + Math.max(0, this.save.profile?.warning ?? 0) * 1000;
+  }
+
+  /**
+   * Снаряжение своего отряда. Конюшня добавляет коннице ступень: мощь бойца она
+   * не трогает (это запрещено — мощь считается из состава), а ступень снаряжения
+   * даёт в бою мораль, и именно так сытые кони и добрая сбруя работают.
+   */
+  private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
+    const gear = gearOf(troops);
+    const bonus = Math.max(0, Math.round(this.save.profile?.mountGear ?? 0));
+    if (bonus > 0 && gear.cavalry !== undefined) {
+      gear.cavalry = Math.min(GEAR.max, gear.cavalry + bonus);
+    }
+    return gear;
+  }
+
   private takeLoot(s: GenSettlement, now: number, carry: number): Loot | null {
     const avail = this.lootAvailable(s, now);
     const take = Math.min(avail, Math.floor(carry));
@@ -381,7 +404,7 @@ export class LocalWorld implements WorldApi {
     const kinds = troopTotal(troops) > 0 ? kindsOf(troops) : this.fallbackStack(m.power);
     const field = resolveField({
       seed: m.seed,
-      attacker: { kinds, gear: gearOf(troops), setup: m.setup ?? null },
+      attacker: { kinds, gear: this.ownGear(troops), setup: m.setup ?? null },
       defender: { kinds: garrison.kinds, gear: garrison.gear, setup: garrison.setup },
       intel: this.save.intel[target.id]?.kinds,
     });
@@ -595,7 +618,7 @@ export class LocalWorld implements WorldApi {
     const field = resolveField({
       seed: m.seed,
       attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
-      defender: { kinds: homeKinds, gear: gearOf(home), setup },
+      defender: { kinds: homeKinds, gear: this.ownGear(home), setup },
     });
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
     const record: BattleRecord | null = field.result
@@ -673,7 +696,7 @@ export class LocalWorld implements WorldApi {
     );
     const units: UnitStack = { warrior: Math.max(1, Math.round(power / 3)) };
     const seconds = marchSeconds(distance(src, home), terrainFactor(save.seed, src, home), units);
-    const travel = Math.max(seconds * 1000, AI_WARNING);
+    const travel = Math.max(seconds * 1000, this.warningMs());
     const id = `m${save.nextMarch}`;
     save.marches.push({
       id,

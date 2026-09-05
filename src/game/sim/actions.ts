@@ -2,9 +2,11 @@
 import type { GameState, JobId, ResourceId, PatronId } from '../types';
 import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
-import { RESOURCE_IDS } from '../constants';
+import { FEAST_DAYS, RESOURCE_IDS } from '../constants';
 import {
   buildingById,
+  feastInfo,
+  feastSeconds,
   isSite,
   storageCap,
   upgradeCost,
@@ -82,6 +84,21 @@ export function choosePatron(s: GameState, patron: PatronId): string | null {
   s.patron = patron;
   const names: Record<PatronId, string> = { wolf: 'Волка', bear: 'Медведя', eagle: 'Орла' };
   log(s, `Племя приняло покровителя — ${names[patron]}.`, 'good');
+  return null;
+}
+
+/**
+ * Пир в трактире: золото в мораль. Единственный быстрый рычаг настроения —
+ * всё остальное (указ, рацион, налог) двигает его медленно и надолго. Плата
+ * снимается сразу и целиком, отмены нет: пир уже съеден.
+ */
+export function throwFeast(s: GameState): string | null {
+  const info = feastInfo(s);
+  if (info.blocked) return info.blocked;
+  s.gold -= info.cost;
+  s.feastUntil = s.time + feastSeconds();
+  s.feastAt = s.time;
+  log(s, `Трактир: пир на всё племя за ${info.cost} золота. Мораль +${info.bonus} на ${FEAST_DAYS} дн.`, 'good');
   return null;
 }
 

@@ -12,6 +12,9 @@ import {
   buildingProduction,
   buildingSlots,
   buildingStat,
+  cavalryTrain,
+  healShare,
+  intelKeen,
   currentSite,
   defense,
   crafterBuildRate,
@@ -22,8 +25,10 @@ import {
   isSite,
   jobMultiplier,
   levelOutputMult,
+  mountGear,
   netPerDay,
   storageCap,
+  warningSeconds,
   upgradeInfo,
   workerCount,
   workerMultiplier,
@@ -34,6 +39,7 @@ import { ChiefHouse } from '../parts/ChiefHouse';
 import { Smithy } from '../parts/Smithy';
 import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
+import { Tavern } from '../parts/Tavern';
 import { upgradeGain } from '../parts/upgrade';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
@@ -252,6 +258,13 @@ function BuildingData({ b }: { b: Building }) {
           <Market />
         </>
       );
+    case 'tavern':
+      return (
+        <>
+          <GenericData b={b} />
+          <Tavern />
+        </>
+      );
     default:
       return <GenericData b={b} />;
   }
@@ -396,6 +409,24 @@ function GenericData({ b }: { b: Building }) {
   if (def_) stats.push(['🛡️', 'К защите поселения', `+${def_}`]);
   const morale = buildingStat(b, 'morale');
   if (morale) stats.push(['😊', 'К морали', `+${morale}`]);
+  // Службы посёлка: у каждой одно число, и лучше показать его словами игрока,
+  // а не названием поля. Числа берутся из тех же функций, что и логика.
+  const archers = buildingStat(b, 'archers');
+  if (archers) stats.push(['🏹', 'Ополченцев выйдет стрелками', `${archers}`]);
+  if (b.type === 'infirmary') {
+    stats.push(['🩹', 'Потерь вернётся ранеными', `${Math.round(healShare(s) * 100)}%`]);
+  }
+  if (b.type === 'watch') {
+    stats.push(['🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
+    stats.push(['⏳', 'Набег виден дольше на', `${Math.round(warningSeconds(s) / 60)} мин`]);
+  }
+  if (b.type === 'stable') {
+    stats.push(['🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
+    const gear = mountGear(s);
+    stats.push(['🎽', 'Снаряжение всадников', gear > 0 ? `+${gear} ступень` : 'с 4 уровня']);
+  }
+  const hidden = buildingStat(b, 'hidden');
+  if (hidden) stats.push(['🧰', 'Спрятано от набега', `${hidden} каждого припаса`]);
   if (b.type === 'workshop') stats.push(['🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
   if (b.type === 'smithy') stats.push(['⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
   if (housing) stats.push(['👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);

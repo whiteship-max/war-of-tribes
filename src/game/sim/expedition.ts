@@ -4,11 +4,11 @@
 import type { Building, GameState, LogEntry, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { homeArmy, idleCount, isOutsideWall, storageCap, workerCount } from '../derived';
+import { healShare, homeArmy, idleCount, isOutsideWall, storageCap, workerCount } from '../derived';
 import { removeSoldiers } from './army';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
-import { losePop } from './population';
+import { addPop, losePop } from './population';
 import { log } from './log';
 
 /** Что случилось с деревней, пока отряд был в пути. */
@@ -95,9 +95,7 @@ export function setAway(s: GameState, warriors: number, scouts: number): void {
 
 /** Убирает не вернувшихся разведчиков. Племя не вымирает целиком из-за разведки. */
 function takeFallenScouts(s: GameState, n: number): number {
-  const gone = losePop(s, Math.min(Math.max(0, n), Math.max(0, s.pop - 1)));
-  s.stats.died += gone;
-  return gone;
+  return losePop(s, Math.min(Math.max(0, n), Math.max(0, s.pop - 1)));
 }
 
 /**
@@ -117,8 +115,14 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
     }
   }
   if (soldiersLost === 0) soldiersLost = removeSoldiers(s, o.warriorsLost);
-  s.stats.died += soldiersLost;
   const fallen = takeFallenScouts(s, o.scoutsLost);
+
+  // Лазарет: часть тех, кого считали убитыми, отлежится и вернётся в племя.
+  // Именно в племя, а не в строй: боец потерян, снаряжение потрачено, человек
+  // жив. Доля упирается в INFIRMARY_HEAL_CAP — война не должна дешеветь до нуля.
+  const wounded = Math.floor((soldiersLost + fallen) * healShare(s));
+  if (wounded > 0) addPop(s, wounded);
+  s.stats.died += Math.max(0, soldiersLost + fallen - wounded);
 
   const cap = storageCap(s);
   for (const r of RESOURCE_IDS) {
@@ -145,4 +149,5 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
   if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen} чел.`, 'bad');
+  if (wounded > 0) log(s, `В лазарете выходили раненых: ${wounded} чел. вернулись в племя.`, 'good');
 }

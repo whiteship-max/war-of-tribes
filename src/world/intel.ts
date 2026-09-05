@@ -62,12 +62,16 @@ export function readKinds(kinds: Stack | undefined, precision: Precision): Parti
 /** Читаемые разведданные на момент now. null — разведки не было или она истлела. */
 export function readIntel(intel: Intel | null, now: number): IntelReading | null {
   if (!intel) return null;
-  const age = Math.max(0, now - intel.at);
+  const real = Math.max(0, now - intel.at);
+  // Дозор не подделывает время: он тянет донесения дальше, поэтому на ступени
+  // точности снимок стареет медленнее, чем на календаре. Возраст игроку
+  // показывается настоящий — врать ему про свежесть данных нельзя.
+  const age = real / Math.max(1, intel.keen ?? 1);
   const precision = precisionOf(age);
   if (precision === 'unknown') return null;
   return {
     at: intel.at,
-    ageSeconds: age / 1000,
+    ageSeconds: real / 1000,
     precision,
     power: estimate(intel.power, precision),
     pop: estimate(intel.pop, precision),

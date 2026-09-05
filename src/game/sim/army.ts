@@ -66,7 +66,7 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
     const have = s.equipment?.[id as EquipmentId] ?? 0;
     if (have < (need ?? 0)) missing.push({ id: id as EquipmentId, have, need: need ?? 0 });
   }
-  const rate = recruitRate(s);
+  const rate = recruitRate(s, troop);
   const work = def.work * n;
 
   let blocked: string | null = null;
@@ -139,7 +139,7 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
 export function recruitTick(s: GameState, dt: number): void {
   const order = s.recruits[0];
   if (!order) return;
-  const rate = recruitRate(s);
+  const rate = recruitRate(s, order.troop);
   if (rate <= 0) return;
   const def = TROOP_BY_ID[order.troop];
   order.work += rate * dt;

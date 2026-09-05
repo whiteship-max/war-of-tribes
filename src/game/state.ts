@@ -67,6 +67,8 @@ export function createInitialState(): GameState {
     defenseFormation: null,
     battlePlans: [],
     battleWatch: false,
+    feastUntil: 0,
+    feastAt: 0,
     tutorialStep: 0,
     tutorialDone: false,
     log: [],

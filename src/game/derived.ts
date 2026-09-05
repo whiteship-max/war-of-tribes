@@ -2,6 +2,7 @@
 import type {
   Building,
   BuildingTypeId,
+  TroopId,
   Caravan,
   EquipmentId,
   GameState,
@@ -14,6 +15,11 @@ import type {
 import {
   BASE_DEFENSE,
   BASE_HOUSING,
+  FEAST_COOLDOWN_DAYS,
+  FEAST_COOLDOWN_PER_LEVEL,
+  FEAST_DAYS,
+  FEAST_GOLD_PER_POP,
+  INFIRMARY_HEAL_CAP,
   BASE_STORAGE_CAP,
   BUILDER_RATE,
   CROWDING_MAX,
@@ -378,6 +384,102 @@ export function defense(s: GameState): number {
   return d;
 }
 
+// ---------- Службы посёлка ----------
+//
+// Пять зданий третьего кольца не производят ничего и рабочих мест не дают:
+// каждое правит одно число в другой части игры. Все они читаются одинаково —
+// через `buildingStat`, поэтому уровень везде работает сам собой.
+
+/** Величина пассива здания этого типа. Ноль, если такого здания нет. */
+export function statOf(s: GameState, type: BuildingTypeId, key: keyof BuildingStats): number {
+  const b = buildingOfType(s, type);
+  return b ? buildingStat(b, key) : 0;
+}
+
+/**
+ * Какую долю потерь боя лазарет возвращает в племя ранеными, 0..`INFIRMARY_HEAL_CAP`.
+ * Потолок здесь не украшение: без него война на высоком уровне перестала бы
+ * стоить людей, а победа с непомерными потерями — быть непомерной.
+ */
+export const healShare = (s: GameState): number =>
+  Math.min(INFIRMARY_HEAL_CAP, statOf(s, 'infirmary', 'heal') / 100);
+
+/**
+ * Во сколько раз медленнее стареют разведданные. Единица — как без дозора.
+ * Снимок запоминает это число в момент разведки: данные, собранные хорошим
+ * дозором, и остаются хорошими (см. world/intel.readIntel).
+ */
+export const intelKeen = (s: GameState): number => 1 + statOf(s, 'watch', 'intel') / 100;
+
+/**
+ * За сколько игрок видит чужую армию до её прихода, секунд игрового времени.
+ * Правило, которое нельзя нарушать: предупреждение обязано быть заметно длиннее
+ * заморозки обороны (`DEFENSE_FREEZE`), иначе набег появляется уже запертым.
+ * Поэтому дозор время только прибавляет, а не задаёт его целиком.
+ */
+export const warningSeconds = (s: GameState): number => statOf(s, 'watch', 'warn');
+
+/** Во сколько раз быстрее учится конница благодаря конюшне. */
+export const cavalryTrain = (s: GameState): number => 1 + statOf(s, 'stable', 'train') / 100;
+
+/** Ступень снаряжения, которую конюшня добавляет всадникам в бою. */
+export const mountGear = (s: GameState): number => Math.floor(statOf(s, 'stable', 'mountGear'));
+
+/** Сколько единиц каждого ресурса тайник прячет от чужого набега. */
+export const hiddenStash = (s: GameState): number => statOf(s, 'cache', 'hidden');
+
+/** Что осталось бы на складе после самого удачного для чужих набега. */
+export const safeResources = (s: GameState): Resources => {
+  const hidden = hiddenStash(s);
+  const out = emptyResources();
+  for (const r of RESOURCE_IDS) out[r] = Math.min(s.resources[r], hidden);
+  return out;
+};
+
+export interface FeastInfo {
+  /** Прибавка к морали, пока пир идёт. */
+  bonus: number;
+  /** Сколько золота стоит пир прямо сейчас: по числу ртов. */
+  cost: number;
+  /** Секунд игрового времени до конца пира; 0 — пира нет. */
+  left: number;
+  /** Секунд до следующего пира; 0 — можно прямо сейчас. */
+  cooldown: number;
+  /** Почему нельзя; null — можно. */
+  blocked: string | null;
+}
+
+/**
+ * Пир в трактире: единственный быстрый рычаг морали в игре и второй выход у
+ * золота после рынка. Прибавка временная, стоит по числу ртов и упирается в
+ * откат — уровень трактира делает пир крепче, а откат короче.
+ */
+export function feastInfo(s: GameState): FeastInfo {
+  const tavern = buildingOfType(s, 'tavern');
+  const bonus = tavern ? buildingStat(tavern, 'feast') : 0;
+  const level = tavern?.level ?? 0;
+  const cost = Math.ceil(FEAST_GOLD_PER_POP * population(s));
+  const left = Math.max(0, (s.feastUntil ?? 0) - s.time);
+  const wait = Math.max(1, FEAST_COOLDOWN_DAYS - FEAST_COOLDOWN_PER_LEVEL * Math.max(0, level - 1)) * DAY_LENGTH;
+  // `feastUntil` — ноль ровно до первого пира (после него он всегда больше нуля,
+  // пир длится дни). По нему и отличается «ещё не пировали» от «только что
+  // пировали в первую же секунду партии»: первый пир доступен сразу.
+  const cooldown = s.feastUntil > 0 ? Math.max(0, s.feastAt + wait - s.time) : 0;
+  let blocked: string | null = null;
+  if (!tavern) blocked = 'Трактира нет.';
+  else if (left > 0) blocked = 'Пир и так идёт.';
+  else if (cooldown > 0) blocked = `Бочки пусты: ещё ${Math.ceil(cooldown / DAY_LENGTH)} дн.`;
+  else if (s.gold < cost) blocked = `Не хватает золота: нужно ${cost}.`;
+  return { bonus, cost, left, cooldown, blocked };
+}
+
+/** Прибавка к морали от идущего пира. Ноль, если пира нет. */
+export const feastMorale = (s: GameState): number =>
+  (s.feastUntil ?? 0) > s.time ? feastInfo(s).bonus : 0;
+
+/** Сколько игрового времени длится пир. */
+export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
+
 /** Сколько бойцов ждёт своей очереди в казармах. */
 export const recruitsQueued = (s: GameState): number =>
   (s.recruits ?? []).reduce((n, o) => n + Math.max(0, o.count - o.done), 0);
@@ -388,9 +490,13 @@ export const recruitsQueued = (s: GameState): number =>
  * зданий, потому что умножается ещё и на сам уровень: дружина в сотни бойцов при
  * линейном росте набиралась бы часами.
  */
-export function recruitRate(s: GameState): number {
+export function recruitRate(s: GameState, troop?: TroopId): number {
   const b = buildingOfType(s, 'barracks');
-  return b ? RECRUIT_WORK * b.level * levelOutputMult(b.level) : 0;
+  if (!b) return 0;
+  const base = RECRUIT_WORK * b.level * levelOutputMult(b.level);
+  // Конюшня ускоряет только конницу: это её экономический след, а не общая
+  // прибавка казармам. Без вида бойца считается голая скорость казарм.
+  return troop && TROOP_BY_ID[troop].mounted ? base * cavalryTrain(s) : base;
 }
 
 // ---------- Кузница ----------
@@ -691,7 +797,12 @@ export function moraleTarget(s: GameState): number {
   // отыграло бы за минуту, а просадка держится ровно столько, сколько держат налог.
   // Вычитается он уже из приведённой к шкале величины — иначе в большом посёлке,
   // где мораль и так упёрлась в потолок, налог не стоил бы вообще ничего.
-  return Math.max(0, Math.min(100, t) - taxOf(s).moralePenalty);
+  // Пир прибавляется там же, где вычитается налог, — **после** приведения к
+  // шкале. Иначе он утонул бы: постоянных источников морали в посёлке на потолке
+  // уровней уже больше, чем вмещает шкала, и ещё одно слагаемое до `Math.min`
+  // не стоило бы ничего. А так пир делает ровно то, ради чего он есть: отыгрывает
+  // просадку от налога, голода, тесноты и холода — и ни разу не переполняет шкалу.
+  return Math.max(0, Math.min(100, Math.min(100, t) - taxOf(s).moralePenalty + feastMorale(s)));
 }
 
 // ---------- Тревоги ----------

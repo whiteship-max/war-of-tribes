@@ -6,7 +6,17 @@
 import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
 import { TROOP_IDS } from '@/game/data/troops';
-import { buildingOfType, buildingStat, defense, homeArmyPower, soldierPower } from '@/game/derived';
+import {
+  buildingOfType,
+  buildingStat,
+  defense,
+  hiddenStash,
+  homeArmyPower,
+  intelKeen,
+  mountGear,
+  soldierPower,
+  warningSeconds,
+} from '@/game/derived';
 import { BATTLE_MAN, type TroopStack } from '@/game/battle/kinds';
 import { clampFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
 import { troopTotal } from '@/game/battle/kinds';
@@ -59,8 +69,13 @@ export const militiaArchers = (s: GameState): number => {
 /** Слепок деревни для мира. Считается заново перед каждым обращением. */
 export function playerProfile(s: GameState): PlayerProfile {
   const units = sendableUnits(s);
+  // Тайник не «защищает» добро, а прячет его: спрятанного просто нет в слепке,
+  // поэтому чужой набег его не находит, как ни считай добычу. Никакой отдельной
+  // проверки на стороне мира для этого не нужно, и это правильно — мир не должен
+  // знать про здания племени.
+  const stash = hiddenStash(s);
   const resources: Loot = {};
-  for (const r of RESOURCE_IDS) resources[r] = Math.floor(s.resources[r]);
+  for (const r of RESOURCE_IDS) resources[r] = Math.max(0, Math.floor(s.resources[r]) - stash);
   const army = homeTroops(s);
   // Расстановка обороны подрезается по тому, кто сейчас дома: часть могла уйти
   // в поход или погибнуть, а нанятые с прошлого раза встают в резерв.
@@ -82,6 +97,10 @@ export function playerProfile(s: GameState): PlayerProfile {
     army,
     militia: militiaMen(s),
     militiaArchers: militiaArchers(s),
+    // Дозор и конюшня: мир получает три числа и не спрашивает, откуда они.
+    warning: warningSeconds(s),
+    intelKeen: intelKeen(s),
+    mountGear: mountGear(s),
     defenseSetup,
     // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     resources,

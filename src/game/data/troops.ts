@@ -26,6 +26,12 @@ export interface TroopDef {
   work: number;
   /** Вклад в мощь армии и в оборону поселения. */
   power: number;
+  /**
+   * Конный вид. От этого зависит экономика конницы — конюшня ускоряет его учения
+   * и даёт ему ступень снаряжения (см. derived.recruitRate и bridge). В бою род
+   * определяет `battle/kinds.KIND_OF`, а не этот флаг: там своя таблица.
+   */
+  mounted?: boolean;
 }
 
 /** От дешёвого к дорогому — это порядок списка в казармах, а не порядок открытия. */
@@ -106,6 +112,7 @@ export const TROOPS: TroopDef[] = [
     cost: { food: 40, wood: 8, hides: 12 },
     work: 90,
     power: 14,
+    mounted: true,
   },
   {
     id: 'legionary',

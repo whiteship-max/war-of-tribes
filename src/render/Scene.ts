@@ -112,6 +112,7 @@ function markerTexture(kind: Attention): THREE.Texture {
 const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
   tower: 3.8,
   church: 3.6,
+  watch: 3.4,
   houses: 2.6,
   smithy: 2.8,
   mine: 2.6,
