@@ -157,12 +157,12 @@ async function main() {
 
   for (let sheet = 1; sheet <= 3; sheet++) {
     const file = path.join(SRC, `sheet${sheet}.png`)
-    // Листы не лежат в git — шесть мегабайт, а нарезка уже готова и
-    // закоммичена. Скажем об этом словами, а не упадём на ENOENT.
+    // Листы лежат в репозитории, так что пропасть они могут только если их
+    // подвинули руками. Скажем об этом словами, а не упадём на ENOENT.
     if (!existsSync(file)) {
       throw new Error(
-        `нет ${path.relative(ROOT, file)}. Исходные листы в репозиторий не кладутся ` +
-        `(см. .gitignore): положи их в ${path.relative(ROOT, SRC)} и запусти снова. ` +
+        `нет ${path.relative(ROOT, file)}. Листы лежат в репозитории — верни файл ` +
+        `на место (git checkout ${path.relative(ROOT, SRC).replace(/\\/g, '/')}) и запусти снова. ` +
         `Готовая нарезка при этом уже лежит в ${path.relative(ROOT, OUT)}.`,
       )
     }
