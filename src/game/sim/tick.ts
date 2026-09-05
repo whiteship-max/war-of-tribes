@@ -34,7 +34,7 @@ import { forgeTick } from './smithy';
 import { marketTick } from './market';
 import { recruitTick } from './army';
 import { rnd, rndInt } from './random';
-import { log } from './log';
+import { log, trimLog } from './log';
 
 export interface TickOptions {
   /** Офлайн-догон: события не запускаются. */
@@ -127,7 +127,12 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   growthTick(s, dt, mods);
 
   // 6. Итог дня по племени — одной строкой, а не по человеку на строку.
-  if (dayAfter > dayBefore) logPopDay(s);
+  if (dayAfter > dayBefore) {
+    logPopDay(s);
+    // Летопись живёт месяц: старое отбрасывается на смене суток, а не на каждой
+    // записи — проход по трём сотням строк раз в игровой день ничего не стоит.
+    trimLog(s);
+  }
 
   // 6б. Смена сезона и предупреждение о зиме.
   if (seasonIndex(s.time) !== seasonBefore) {

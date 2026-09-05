@@ -14,6 +14,7 @@ import { startUpgrade } from '@/game/sim/actions';
 import { assignWorker, changeFreeJob, unassignWorker } from '@/game/sim/workers';
 import { seeded, setRandom } from '@/game/sim/random';
 import { serialize } from '@/game/save';
+import { LOG_MAX, LOG_MAX_DAYS } from '@/game/sim/log';
 import {
   buildingOfType,
   dayOf,
@@ -107,6 +108,16 @@ function report(title: string, s: GameState): void {
   console.log(`  всё сохранение         ${kb(bytes(whole))} utf-8 · ${whole.length} символов`);
   console.log(`  доля летописи          ${((logJson.length / whole.length) * 100).toFixed(0)}%`);
   console.log(`  чанков CloudStorage    ${Math.ceil(whole.length / CLOUD_CHUNK)} по ${CLOUD_CHUNK} символов`);
+  // Во что обойдётся запасной предел, если в него упрутся. Считается от
+  // измеренного размера записи этой же партии, а не от числа на глаз.
+  if (perEntry > 0) {
+    const worst = perEntry * LOG_MAX;
+    const worstChars = (logJson.length / s.log.length) * LOG_MAX;
+    console.log(
+      `  предел ${LOG_MAX} записей     ${kb(worst)} utf-8 · ${Math.round(worstChars)} символов · ` +
+        `${Math.ceil((whole.length - logJson.length + worstChars) / CLOUD_CHUNK)} чанков`,
+    );
+  }
 }
 
 function play(hours: number): GameState {
@@ -124,6 +135,7 @@ function play(hours: number): GameState {
 function main(): void {
   console.log(`Летопись: прогон ${HOURS} ч игрового времени (${Math.round((HOURS * 3600) / DAY_LENGTH)} игровых дней).`);
   console.log(`Один игровой день = ${DAY_LENGTH} с реального времени.`);
+  console.log(`Правило обрезки: старше ${LOG_MAX_DAYS} игровых дней выбрасывается, запасной предел ${LOG_MAX} записей.`);
 
   const s = play(HOURS);
   report(`Активная игра, ${HOURS} ч подряд:`, s);

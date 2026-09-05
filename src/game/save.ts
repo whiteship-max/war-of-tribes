@@ -6,6 +6,7 @@ import { emptyEquipment } from './data/equipment';
 import { createInitialState, SAVE_VERSION } from './state';
 import { catchUp } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
+import { trimLog } from './sim/log';
 import { cloudGet, cloudSet } from '@/telegram/webapp';
 
 const KEY = 'tribe.save.v1';
@@ -58,6 +59,10 @@ export function deserialize(json: string): GameState | null {
       s.buildings.push({ id: s.nextId++, type: def.id, level: 1, work: 0, workRequired: 0 });
     }
     normalizeAssignments(s);
+    // Летопись старого сохранения могла копиться по прежнему правилу «последние
+    // 80 записей» и растянуться на полгода игрового времени. Приводим её к тому
+    // же месяцу, что и у новой партии, прямо на загрузке.
+    trimLog(s);
     return s;
   } catch {
     return null;
