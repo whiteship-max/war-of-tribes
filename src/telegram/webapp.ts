@@ -30,6 +30,17 @@ export interface TgThemeParams {
   header_bg_color?: string;
 }
 
+/**
+ * Данные запуска. Подписью они не проверены, поэтому ни одно игровое решение —
+ * награда, прогресс, начисление — на них висеть не может. Годятся только на
+ * показ: собрать ссылку приглашения и узнать, кто пригласил.
+ */
+export interface TgInitDataUnsafe {
+  user?: { id: number; first_name?: string; username?: string };
+  /** Параметр из ссылки вида t.me/<бот>/<аппка>?startapp=<код>. */
+  start_param?: string;
+}
+
 export interface TelegramWebApp {
   ready(): void;
   expand(): void;
@@ -42,7 +53,14 @@ export interface TelegramWebApp {
   safeAreaInset?: TgInset;
   /** Bot API 8.0: отступ от шапки мини-аппки внутри безопасной зоны. */
   contentSafeAreaInset?: TgInset;
-  initDataUnsafe?: { user?: { id: number; first_name?: string; username?: string } };
+  initDataUnsafe?: TgInitDataUnsafe;
+  /** Версия Bot API клиента и платформа — для отчёта об ошибке, не для ветвлений. */
+  version?: string;
+  platform?: string;
+  /** Bot API 6.0: открыть внешнюю ссылку. Для t.me не годится — уведёт в браузер. */
+  openLink?(url: string, options?: { try_instant_view?: boolean }): void;
+  /** Bot API 6.0: открыть ссылку t.me внутри клиента, не выходя из аппки. */
+  openTelegramLink?(url: string): void;
   setHeaderColor?(color: string): void;
   setBackgroundColor?(color: string): void;
   disableVerticalSwipes?(): void;
@@ -214,6 +232,105 @@ export function haptic(kind: 'light' | 'medium' | 'success' | 'error' = 'light')
     else h.impactOccurred(kind);
   } catch {
     /* ignore */
+  }
+}
+
+// ---------- Ссылки и «поделиться» ----------
+
+/**
+ * Внешняя ссылка (ютуб, сайт). Клиент открывает её своим браузером и возвращает
+ * игрока обратно в аппку; вне Telegram — обычная вкладка.
+ *
+ * Звать только из обработчика нажатия: `window.open` без жеста пользователя
+ * браузер блокирует, и никакого сообщения об этом не будет.
+ */
+export function openExternal(url: string): void {
+  const app = tg();
+  try {
+    if (app?.openLink) {
+      app.openLink(url);
+      return;
+    }
+  } catch {
+    /* старый клиент — уходим в фолбэк */
+  }
+  try {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Ссылка t.me — группа, чат, «поделиться». Отдельно от внешней нарочно:
+ * `openLink` на t.me уводит игрока во внешний браузер, откуда в мини-аппку он
+ * уже не вернётся. Домен решает, какую из двух звать.
+ */
+export function openTelegram(url: string): void {
+  const app = tg();
+  try {
+    if (app?.openTelegramLink) {
+      app.openTelegramLink(url);
+      return;
+    }
+  } catch {
+    /* ignore */
+  }
+  openExternal(url);
+}
+
+/** Идентификатор игрока. Есть только внутри Telegram; выдумывать замену нельзя. */
+export function tgUserId(): number | null {
+  const id = tg()?.initDataUnsafe?.user?.id;
+  return typeof id === 'number' && Number.isFinite(id) ? id : null;
+}
+
+/** Код из ссылки, по которой запустили аппку. Пусто — запустили обычным путём. */
+export const startParam = (): string | null => tg()?.initDataUnsafe?.start_param ?? null;
+
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Чем кончилась попытка поделиться — от этого зависит, что сказать игроку. */
+export type ShareResult = 'telegram' | 'system' | 'clipboard' | 'none';
+
+/**
+ * Поделиться ссылкой. Четыре ступени, и порядок менять нельзя: и `navigator.share`,
+ * и `window.open` требуют жеста пользователя, а жест теряется на первом же `await`.
+ * Поэтому в теле до первого ожидания стоят ровно те ступени, которым жест нужен.
+ */
+export async function shareLink(url: string, text: string): Promise<ShareResult> {
+  const app = tg();
+  const share = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+  try {
+    if (app?.openTelegramLink) {
+      app.openTelegramLink(share);
+      return 'telegram';
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (navigator.share) {
+      await navigator.share({ text, url });
+      return 'system';
+    }
+  } catch {
+    // Игрок закрыл системное окно — это не ошибка, но и не отправка.
+    return 'none';
+  }
+  if (await copyText(url)) return 'clipboard';
+  try {
+    window.open(share, '_blank', 'noopener,noreferrer');
+    return 'telegram';
+  } catch {
+    return 'none';
   }
 }
 

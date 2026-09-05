@@ -3,9 +3,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { buildRate, buildingOfType, isSite, townHallBuildMult, upgradeInfo } from '../derived';
-import { TEST_GEMS } from '../constants';
+import { RESOURCE_IDS, TEST_GEMS } from '../constants';
 import { startUpgrade } from './actions';
 import { creditGems, gemsOf, rushPrice, rushUpgrade } from './gems';
+import { DAILY_GAMES } from '../data/daily';
+import { SOCIAL_LINKS } from '../data/social';
+import { dailyReward } from './daily';
 import { tick } from './tick';
 
 describe('алмазы', () => {
@@ -133,18 +136,14 @@ describe('алмазы', () => {
         else if (/\.tsx?$/.test(name)) files.push(p);
       }
     };
-    walk(join(root, 'ui'));
-    walk(join(root, 'render'));
-    walk(join(root, 'world'));
-    // Ежедневные задания, социальные подписки и рефералка появились позже, и
-    // соблазн выдать за них алмазы там сильнее всего: награду за подписку и за
-    // приглашённого друга проверить без сервера нечем, а выдать её клиенту —
-    // одна строка. Целиком папку `sim` обходить нельзя: в ней законно живёт
-    // сам `sim/gems.ts`, единственная дверь начисления.
-    walk(join(root, 'game', 'daily'));
-    files.push(join(root, 'game', 'sim', 'daily.ts'));
-    files.push(join(root, 'game', 'data', 'daily.ts'));
-    files.push(join(root, 'game', 'data', 'social.ts'));
+    // Раньше обходились три дерева — ui, render, world. Этого мало: ежедневные
+    // задания, социальные подписки и рефералка легли в `game/`, куда тест не
+    // смотрел вовсе, а соблазн выдать алмаз «за подписку» сильнее всего именно
+    // там — проверить её без сервера нечем, а выдать награду клиенту это одна
+    // строка. Поэтому обходится весь `src`, кроме самого модуля алмазов: он и
+    // есть единственная законная дверь.
+    walk(root);
+    const allowed = new Set([join(root, 'game', 'sim', 'gems.ts'), join(root, 'game', 'sim', 'gems.test.ts')]);
 
     /**
      * Комментарии выбрасываются: договор нарушает код, а не рассказ о нём.
@@ -156,15 +155,50 @@ describe('алмазы', () => {
 
     const guilty: string[] = [];
     for (const f of files) {
-      // Файла может ещё не быть — обход по списку, а не по дереву, только у
-      // одиночных файлов вне общей папки.
-      if (!existsSync(f)) continue;
+      if (allowed.has(f)) continue;
       const src = code(readFileSync(f, 'utf8'));
       if (/creditGems/.test(src)) guilty.push(`${f}: creditGems`);
-      // Присваивание полю — единственный другой способ прибавить себе алмазов.
-      if (/\.gems\s*(=[^=]|\+=|-=|\+\+)/.test(src)) guilty.push(`${f}: правит s.gems`);
+      // Присваивание полю — другой способ прибавить себе алмазов. Закрыты и
+      // обходные написания: через строковый ключ и через Object.assign.
+      if (/\.gems\s*(=[^=]|\+=|-=|\+\+|--)/.test(src)) guilty.push(`${f}: правит s.gems`);
+      if (/\[\s*['"]gems['"]\s*\]\s*(=[^=]|\+=|-=)/.test(src)) guilty.push(`${f}: правит s['gems']`);
+      if (/Object\.assign\([^)]*gems\s*:/.test(src)) guilty.push(`${f}: Object.assign с gems`);
     }
     expect(guilty).toEqual([]);
+  });
+
+  /**
+   * Награда ежедневного задания — ресурсами, и это держится не обещанием, а
+   * типом: `ResourceId` алмазов не содержит, поэтому `{ wood: 40, gems: 2 }` —
+   * ошибка компиляции, а не решение баланса. Тест закрывает обход через `as`.
+   */
+  it('награда ежедневного задания состоит только из ресурсов', () => {
+    for (const g of DAILY_GAMES) {
+      for (const key of Object.keys(g.reward)) {
+        expect(RESOURCE_IDS).toContain(key);
+      }
+    }
+    const s = createInitialState();
+    for (const g of DAILY_GAMES) {
+      for (const key of Object.keys(dailyReward(s, g.id))) expect(RESOURCE_IDS).toContain(key);
+    }
+  });
+
+  /**
+   * У ссылки на подписку нет поля награды, и завести его нельзя: проверить
+   * подписку без сервера нечем, а обещание задним числом стало бы долгом игры
+   * перед игроком. Проверяется чтением исходника — иначе договор держится на
+   * честном слове ровно до следующей правки.
+   */
+  it('за подписку и за приглашение ничего не начисляется', () => {
+    const src = readFileSync(join(__dirname, '..', 'data', 'social.ts'), 'utf8');
+    for (const link of SOCIAL_LINKS) {
+      expect(Object.keys(link)).not.toContain('reward');
+    }
+    // Ни поля, ни начисления: в модуле не должно быть ни одного присваивания
+    // ресурсов, алмазов или золота.
+    expect(/reward\s*[:=]/.test(src)).toBe(false);
+    expect(/(gems|gold|resources)\s*(=[^=]|\+=)/.test(src)).toBe(false);
   });
 });
 
