@@ -7,7 +7,7 @@ import { TROOP_IDS } from '@/game/data/troops';
 import type { TroopId } from '@/game/types';
 import { Figure, figureBox } from '@/render/figures';
 import { poseFigure } from '@/render/poses';
-import { FOLK_KINDS, MAN_HEIGHT, dressSoldier, dressVillager, gearTier } from '@/render/units';
+import { FOLK_KINDS, MAN_HEIGHT, dressSoldier, dressVillager, gearTier, humanRig, mountRig } from '@/render/units';
 import { TURNS, above, area, overlap, projY, silhouette, widthAt } from '@/render/silhouette';
 
 const soldier = (troop: TroopId): Figure => {
@@ -80,4 +80,25 @@ for (const id of TROOP_IDS) {
     `${id.padEnd(11)} ступень ${gearTier(id)}  верх ${box.max.y.toFixed(2)}` +
     `  ширина ${(box.max.x - box.min.x).toFixed(2)}  деталей ${f.slots.length}`,
   );
+}
+
+console.log('\n--- скелет взрослой фигуры (доли роста) ---');
+const rig = humanRig();
+for (const [name, v] of [
+  ['макушка', MAN_HEIGHT],
+  ['основание шеи', rig.neckY],
+  ['плечевой сустав', rig.shoulderY],
+  ['кисть', rig.shoulderY - rig.armLen],
+  ['тазобедренный сустав', rig.hipY],
+  ['полуразмах плеч', rig.shoulderX],
+  ['разнос ног', rig.hipX],
+  ['длина руки', rig.armLen],
+] as [string, number][]) {
+  console.log(`${name.padEnd(22)} ${v.toFixed(3)}  (${(v / MAN_HEIGHT).toFixed(3)} роста)`);
+}
+
+console.log('\n--- конь (доли роста человека) ---');
+const m = mountRig();
+for (const [name, v] of Object.entries(m)) {
+  console.log(`${name.padEnd(12)} ${v.toFixed(3)}  (${(v / MAN_HEIGHT).toFixed(3)})`);
 }

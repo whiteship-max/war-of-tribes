@@ -356,6 +356,14 @@ function runPerf(scene: PerfTarget, seconds: number, name: string, done: (line: 
     setTimeout(() => {
       scene.afterRender = null;
       scene.spin(false);
+      // Меньше десяти кадров в секунду — это не медленная сцена, а свёрнутая
+      // вкладка: в фоне requestAnimationFrame стоит. Ноль кадров в секунду в
+      // отчёте выглядит как замер, поэтому говорим прямо, что замера не было.
+      if (frames.length < seconds * 10) {
+        document.body.dataset.perf = JSON.stringify({ name, seconds, frames: frames.length, failed: 'вкладка была в фоне' });
+        done('замер не состоялся: вкладку нельзя сворачивать, в фоне кадры не идут');
+        return;
+      }
       const sorted = [...frames].sort((a, b) => a - b);
       const total = frames.reduce((a, b) => a + b, 0) / 1000;
       const fps = frames.length / Math.max(0.001, total);
@@ -425,6 +433,10 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
   }
   tick();
   setInterval(tick, 500);
+  const bench = Number(p.get('bench') ?? 0);
+  if (bench > 0) {
+    benchmark(`village_l${level}`, () => scene.renderOnce(), bench, () => scene.stats());
+  }
   new Snapper(c.snap).schedule(
     canvas,
     () => {
@@ -644,7 +656,15 @@ function benchmark(
   frames: number,
   stats: () => { calls: number; triangles: number },
 ): void {
-  setTimeout(() => {
+  // Ждём настоящего размера окна: в свёрнутой или ещё не показанной вкладке
+  // канва нулевая, и замер выйдет замером пустоты.
+  let waited = 0;
+  const start = (): void => {
+    if (window.innerWidth < 2 && waited < 30000) {
+      waited += 300;
+      setTimeout(start, 300);
+      return;
+    }
     for (let i = 0; i < 10; i++) render();
     const t0 = performance.now();
     for (let i = 0; i < frames; i++) render();
@@ -659,7 +679,8 @@ function benchmark(
       height: window.innerHeight,
       ua: navigator.userAgent,
     });
-  }, 1200);
+  };
+  setTimeout(start, 1200);
 }
 
 export function mountShowcase(p: URLSearchParams): void {
