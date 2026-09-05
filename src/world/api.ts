@@ -4,11 +4,19 @@
 // Когда появится сервер, рядом встанет HttpWorld с теми же сигнатурами, и ни один
 // компонент интерфейса переписывать не придётся. Поэтому все методы асинхронные,
 // даже те, что сегодня отвечают мгновенно.
+import type { TroopStack } from '@/game/battle/kinds';
 import type {
+  AttackOrder,
+  AttackResult,
+  DealId,
+  DealView,
+  FigureId,
+  FigureView,
   IntelReading,
   MarchOrder,
   MarchView,
   PlayerProfile,
+  Coord,
   Rect,
   RegionChunk,
   Report,
@@ -41,6 +49,34 @@ export interface WorldApi {
 
   /** Отзыв похода. null — отозван, иначе текст ошибки. */
   recall(marchId: string): Promise<string | null>;
+
+  /** Три фигуры игрока: где они, что при них, когда придут. */
+  figures(): Promise<FigureView[]>;
+
+  /** Вести фигуру в клетку. null — пошла, иначе текст ошибки. */
+  moveFigure(id: FigureId, to: Coord): Promise<string | null>;
+
+  /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
+  recallFigure(id: FigureId): Promise<string | null>;
+
+  /**
+   * Полководец забирает гарнизон себе или возвращает его. Работает только
+   * вплотную к своему поселению: в поле состав войска не меняется.
+   * `troops` пусто — вернуть всё домой.
+   */
+  setGarrison(troops: TroopStack | null): Promise<string | null>;
+
+  /**
+   * Полководец бьёт поселение, у которого стоит. Бой считается сразу: он уже
+   * дошёл, и защитнику было отпущено всё время, пока фигура шла.
+   */
+  attack(order: AttackOrder): Promise<AttackResult>;
+
+  /** Дипломат подписывает договор с племенем поселения, у которого стоит. */
+  negotiate(deal: DealId): Promise<string | null>;
+
+  /** Договоры, действующие прямо сейчас. */
+  deals(): Promise<DealView[]>;
 
   /** Отчёты о походах и обороне, свежие сверху. */
   reports(): Promise<Report[]>;

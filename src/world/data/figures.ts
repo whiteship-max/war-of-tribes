@@ -1,0 +1,115 @@
+// Три фигуры на карте — по одной каждой. Не отряды и не юниты: фигура одна,
+// её нельзя размножить, и потерять её насовсем тоже нельзя.
+//
+// Разница между ними — в трёх числах и в том, что они умеют у чужого поселения.
+// Разведчик открывает карту, дипломат даёт отношения, полководец водит армию.
+// Складывать эти умения в одну фигуру нельзя: тогда исчезнет выбор, кого послать.
+import type { DealId, FigureId } from '../types';
+
+export interface FigureDef {
+  id: FigureId;
+  name: string;
+  /** Имя в винительном падеже: «отправить разведчика». */
+  one: string;
+  icon: string;
+  description: string;
+  /** Клеток в минуту по равнине — той же меркой, что и юниты (`data/units.ts`). */
+  speed: number;
+  /** Радиус обзора в клетках: и открывает местность, и держит живые данные. */
+  sight: number;
+  /** Что фигура делает, стоя у чужого поселения. */
+  ability: string;
+}
+
+export const FIGURES: FigureDef[] = [
+  {
+    id: 'scout',
+    name: 'Разведчик',
+    one: 'разведчика',
+    icon: '👣',
+    description: 'Ходит быстро, видит далеко, в бой не вступает. Им и открывают карту.',
+    speed: 9,
+    sight: 8,
+    ability: 'Стоя у чужого поселения, считает войско: полные разведданные, пока стоит.',
+  },
+  {
+    id: 'diplomat',
+    name: 'Дипломат',
+    one: 'дипломата',
+    icon: '🕊️',
+    description: 'Идёт медленно и видит недалеко. Зато привозит то, чего не привезёт никто.',
+    speed: 3.4,
+    sight: 3,
+    ability: 'У чужого поселения открывает переговоры: союз, ненападение, дань, торговля.',
+  },
+  {
+    id: 'general',
+    name: 'Полководец',
+    one: 'полководца',
+    icon: '🎖️',
+    description: 'Водит армию. Без него дружина из деревни не выходит.',
+    speed: 4.5,
+    sight: 4,
+    ability: 'У своего поселения берёт и возвращает гарнизон, у чужого — ведёт войско в бой.',
+  },
+];
+
+export const FIGURE_BY_ID: Record<FigureId, FigureDef> = Object.fromEntries(
+  FIGURES.map((f) => [f.id, f]),
+) as Record<FigureId, FigureDef>;
+
+export const FIGURE_IDS: FigureId[] = FIGURES.map((f) => f.id);
+
+/**
+ * Договоры дипломата. Порог враждебности — единственное условие: с племенем,
+ * которое ты только что жёг, союза не будет, а перемирия — ещё будет.
+ */
+export interface DealDef {
+  id: DealId;
+  name: string;
+  icon: string;
+  description: string;
+  /** Выше этой враждебности племени договор не подпишут. */
+  maxHostility: number;
+  /** Насколько подпись снижает враждебность. */
+  hostilityDrop: number;
+}
+
+export const DEALS: DealDef[] = [
+  {
+    id: 'truce',
+    name: 'Ненападение',
+    icon: '🤝',
+    description: 'Пока договор в силе, набегов от этого племени не будет.',
+    maxHostility: 80,
+    hostilityDrop: 20,
+  },
+  {
+    id: 'trade',
+    name: 'Торговое соглашение',
+    icon: '⚖️',
+    description: 'Караваны племени идут через нас и оставляют золото.',
+    maxHostility: 45,
+    hostilityDrop: 10,
+  },
+  {
+    id: 'tribute',
+    name: 'Дань',
+    icon: '📦',
+    description: 'Племя откупается добром. Гордости у них после этого меньше, а у нас — склад полнее.',
+    maxHostility: 30,
+    hostilityDrop: 5,
+  },
+  {
+    id: 'alliance',
+    name: 'Союз',
+    icon: '🏳️',
+    description: 'Племя считается союзным: к нему можно водить поддержку.',
+    maxHostility: 15,
+    hostilityDrop: 15,
+  },
+];
+
+export const DEAL_BY_ID: Record<DealId, DealDef> = Object.fromEntries(
+  DEALS.map((d) => [d.id, d]),
+) as Record<DealId, DealDef>;

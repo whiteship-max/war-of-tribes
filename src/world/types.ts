@@ -32,6 +32,23 @@ export type Relation = 'self' | 'ally' | 'neutral' | 'enemy' | 'barbarian';
 export type UnitId = 'scout' | 'warrior';
 export type UnitStack = Partial<Record<UnitId, number>>;
 
+/** Три фигуры на карте, по одной каждой. Список закрыт: вторых полководцев нет. */
+export type FigureId = 'scout' | 'diplomat' | 'general';
+
+/** Что фигура делает прямо сейчас. */
+export type FigurePhase =
+  /** Дома, у своего поселения. */
+  | 'home'
+  /** В пути к назначенной клетке. */
+  | 'moving'
+  /** Стоит в поле или у чужого поселения. */
+  | 'field'
+  /** Погибла и возвращается: через положенное время встанет дома. */
+  | 'down';
+
+/** Договоры дипломата. Порядок — от простого к трудному (см. data/figures.ts). */
+export type DealId = 'truce' | 'trade' | 'tribute' | 'alliance';
+
 export type Mission = 'raid' | 'scout' | 'support';
 
 /** Куда идёт отряд: к цели, стоит поддержкой, возвращается. */
@@ -111,6 +128,23 @@ export interface SettlementView {
   mine: boolean;
   /** Замок: цель с казной, крепче обычного поселения. */
   castle: boolean;
+  /**
+   * Клетка в обзоре прямо сейчас: живые данные настоящие. Ложь — показано
+   * последнее увиденное, и это надо сказать игроку словами, а не молча.
+   */
+  visible: boolean;
+  /** Когда живые данные видели в последний раз, мс. null — никогда. */
+  seenAt: number | null;
+  /** Живые данные устарели: `visible` ложно, а память о месте есть. */
+  stale: boolean;
+  /**
+   * Численность на момент последнего взгляда. null — не разглядели ни разу.
+   * Имя отдельное от `SettlementCard.pop` нарочно: там оценка с точностью, здесь
+   * то самое число, которое видели своими глазами.
+   */
+  seenPop: number | null;
+  /** Оттуда прямо сейчас выходит войско. Видно только пока клетка в обзоре. */
+  marching: boolean;
 }
 
 /** Кусок карты. Ландшафт идёт компактным массивом: на сервере это будет то же самое. */
@@ -118,6 +152,14 @@ export interface RegionChunk {
   rect: Rect;
   /** Индексы TERRAIN_ORDER по клеткам, построчно: i = (y - rect.y) * rect.w + (x - rect.x). */
   terrain: Uint8Array;
+  /**
+   * Разведанная местность тем же порядком: 1 — клетка открыта навсегда.
+   * Рельеф приезжает и для закрытых клеток: мир живёт на клиенте, и утаивать
+   * от него то, что он сам считает из сида, бессмысленно. Правда — эта маска,
+   * по ней карта и рисует дымку; на сервере он же обрежет и рельеф.
+   */
+  explored: Uint8Array;
+  /** Поселения, о которых игрок уже знает. Закрытых клеток здесь нет. */
   settlements: SettlementView[];
 }
 
@@ -131,10 +173,54 @@ export interface SettlementCard extends SettlementView {
   power: Estimate;
   pop: Estimate;
   intel: IntelReading | null;
+  /** Какие фигуры стоят у этой цели вплотную — им и доступны здешние действия. */
+  figuresHere: FigureId[];
+  /** Договоры с племенем цели, действующие прямо сейчас. */
+  deals: DealView[];
   /** Какие действия имеют смысл для этой цели. */
   can: Record<Mission | 'open', boolean>;
   /** Почему действий нет; null — всё доступно. */
   note: string | null;
+}
+
+/** Договор с чужим племенем, подписанный дипломатом. */
+export interface DealView {
+  id: DealId;
+  tribeId: TribeId;
+  tribeName: string;
+  /** До какого момента он в силе, мс. */
+  until: number;
+}
+
+/**
+ * Фигура на карте. Положение считается из времени выхода и времени прибытия —
+ * ровно как у похода. Поэтому фигура, шедшая, пока игрока не было, оказывается
+ * там же, где оказалась бы при непрерывной игре: догон ничего не «доигрывает».
+ */
+export interface FigureView {
+  id: FigureId;
+  name: string;
+  icon: string;
+  phase: FigurePhase;
+  /** Где она сейчас: в пути — точка между `from` и `to`. */
+  at: Coord;
+  from: Coord;
+  to: Coord;
+  departAt: number;
+  arriveAt: number;
+  /** Радиус обзора в клетках. */
+  sight: number;
+  /** Поселение, у которого фигура стоит вплотную. null — чистое поле. */
+  atId: SettlementId | null;
+  atName: string | null;
+  /** Стоит у своего поселения: полководец здесь меняет состав. */
+  atHome: boolean;
+  /** Когда павшая фигура вернётся в строй, мс. 0 — она в строю. */
+  downUntil: number;
+  /** Войско при полководце. Пусто у остальных двоих. */
+  troops: TroopStack;
+  /** Мощь этого войска: её же вычитают из обороны деревни. */
+  power: number;
 }
 
 export interface MarchView {
@@ -171,6 +257,27 @@ export interface MarchOrder {
    * выберется по сиду похода, и противник не знает, какой из четырёх пришёл.
    */
   setup?: ArmySetup | null;
+}
+
+/**
+ * Приказ полководцу ударить по поселению, у которого он стоит. Цели в приказе
+ * нет нарочно: она выведена из того, где он стоит, — иначе появился бы второй
+ * способ назначить цель, и они разошлись бы.
+ */
+export interface AttackOrder {
+  /**
+   * Расстановка, план, приказы и резерв. null — быстрая атака: пресет выберется
+   * по сиду, и противник не знает, какой из четырёх пришёл.
+   */
+  setup?: ArmySetup | null;
+}
+
+export interface AttackResult {
+  /** Текст ошибки или null. */
+  error: string | null;
+  /** Отчёт о бое: его же кладут в список отчётов. */
+  reportId: string | null;
+  won: boolean;
 }
 
 export interface SendResult {
@@ -298,6 +405,8 @@ export interface WorldInfo {
 export interface WorldPulse {
   now: number;
   marches: MarchView[];
+  /** Три фигуры целиком: их положение выводится из времени, а не из тика. */
+  figures: FigureView[];
   /** Новые отчёты — их ещё не видели. */
   reports: Report[];
   /** Последствия для деревни: применяет игровая сторона. */

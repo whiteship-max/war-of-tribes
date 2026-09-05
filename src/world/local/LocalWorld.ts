@@ -3,11 +3,18 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { seeded } from '@/game/sim/random';
-import { FRONT, GEAR, REAR, type Stack, type UnitKind } from '@/battle';
+import { FRONT, GEAR, REAR, type ArmySetup, type Stack, type UnitKind } from '@/battle';
 import { gearOf, kindsOf, troopLosses, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { WorldApi } from '../api';
 import type {
+  AttackOrder,
+  AttackResult,
   BattleRecord,
+  Coord,
+  DealId,
+  DealView,
+  FigureId,
+  FigureView,
   HomeEffect,
   Intel,
   IntelReading,
@@ -30,6 +37,7 @@ import type {
 } from '../types';
 import { generateWorld, popOf, powerOf, type GenSettlement, type WorldGen } from '../gen';
 import {
+  clampToWorld,
   distance,
   formatCoord,
   marchPosition,
@@ -37,7 +45,10 @@ import {
   terrainAt,
   terrainFactor,
   terrainIndex,
+  travelTime,
 } from '../geo';
+import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
+import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
 import { RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackSize } from '../data/units';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
@@ -54,7 +65,14 @@ import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
   DAMAGE_RECOVER,
+  DEAL_DURATION,
+  DEAL_PAYOUT,
   DEFENSE_FREEZE,
+  FIGURE_DOWN,
+  FIGURE_SCOUT_COVER,
+  FIGURE_TOUCH,
+  HOME_SIGHT,
+  MARCH_SIGHT,
   HOSTILITY_ALLY_BREAK,
   HOSTILITY_ATTACK,
   HOSTILITY_DECAY_PER_MIN,
@@ -65,6 +83,8 @@ import {
   REPORTS_KEPT,
   SCOUT_COVER,
   SUPPORT_STAY,
+  TRADE_GOLD_PER_SETTLEMENT,
+  TRIBUTE_PER_SETTLEMENT,
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from '../data/tuning';
@@ -72,6 +92,7 @@ import {
   browserStorage,
   createWorldSave,
   parseWorldSave,
+  type StoredFigure,
   type StoredMarch,
   type WorldSave,
   type WorldStorage,
@@ -99,8 +120,14 @@ export class LocalWorld implements WorldApi {
   private byId = new Map<SettlementId, GenSettlement>();
   private clock: () => number;
   private storage: WorldStorage | null;
-  /** Отчёты, появившиеся в текущем шаге: их отдаёт sync(). */
+  /**
+   * Отчёты, появившиеся с прошлого пульса. Копятся и между вызовами `sync`:
+   * бой полководца случается в момент нажатия, а не на тике, и очищать список
+   * в начале пульса значило бы терять именно эти отчёты.
+   */
   private fresh: Report[] = [];
+  /** Разведанная местность: открывается навсегда, обратно не затягивается. */
+  private fog: FogMap;
 
   constructor(opts: LocalWorldOptions = {}) {
     this.clock = opts.now ?? (() => Date.now());
@@ -113,12 +140,28 @@ export class LocalWorld implements WorldApi {
         ? stored
         : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock());
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
+    this.fog = new FogMap(this.save.fog);
+    // Первая партия обязана начинаться с открытой округи: чёрный экран на входе
+    // читается как сломанная карта, а не как туман войны.
+    this.fog.revealDisc(this.save.home, HOME_SIGHT);
+    this.stepSightings(this.clock(), this.sightDiscs(this.clock()));
   }
 
   // ---------- Служебное ----------
 
   private write(): void {
+    this.save.fog = this.fog.toJSON();
     this.storage?.write(JSON.stringify(this.save));
+  }
+
+  /** Разведанная местность наружу — карте и тестам размера сохранения. */
+  fogData(): FogData {
+    return this.fog.toJSON();
+  }
+
+  /** Сколько клеток открыто. Нужен отчёту о размере сохранения. */
+  exploredCells(): number {
+    return this.fog.count();
   }
 
   private elapsed = (now: number): number => Math.max(0, now - this.save.createdAt);
@@ -150,34 +193,59 @@ export class LocalWorld implements WorldApi {
 
   private relationOf(s: GenSettlement): Relation {
     if (!s.tribeId) return 'barbarian';
+    // Подписанный союз — тоже союз: дипломат для того и ходит, чтобы менять
+    // отношения, а не только смотреть на них.
+    if (this.pactActive(s.tribeId, 'alliance')) return 'ally';
     const h = this.hostilityOf(s.tribeId);
     if (h >= HOSTILITY_ENEMY) return 'enemy';
     if (s.tribeId === this.save.allyTribe && h < HOSTILITY_ALLY_BREAK) return 'ally';
     return 'neutral';
   }
 
+  /** Договор с племенем в силе прямо сейчас? */
+  private pactActive(tribeId: string | null, deal: DealId): boolean {
+    if (!tribeId) return false;
+    const pact = this.save.pacts[tribeId]?.[deal];
+    return Boolean(pact && pact.until > this.clock());
+  }
+
   private tribeName = (id: string | null): string | null =>
     this.gen.tribes.find((t) => t.id === id)?.name ?? null;
 
-  private view(s: GenSettlement, now: number): SettlementView {
-    const relation = this.relationOf(s);
+  /**
+   * Поселение на карте. Здесь и живёт второй слой тумана: пока клетка в обзоре,
+   * живые данные настоящие; вышла из обзора — показывается последнее увиденное,
+   * и об этом сказано полем `stale`, а не умолчанием.
+   */
+  private view(s: GenSettlement, now: number, discs: SightDisc[]): SettlementView {
+    const visible = inSight(discs, s.x, s.y);
+    const seen = this.save.sightings[s.id] ?? null;
+    const relation = visible ? this.relationOf(s) : (seen?.relation ?? 'neutral');
+    const stage = visible ? stageOf(this.powerNow(s, now), this.popNow(s, now)) : (seen?.stage ?? 'camp');
     return {
       id: s.id,
       x: s.x,
       y: s.y,
       name: s.name,
-      stage: stageOf(this.powerNow(s, now), this.popNow(s, now)),
+      stage,
       relation,
-      owner: s.owner,
-      tribeId: s.tribeId,
-      tribeName: this.tribeName(s.tribeId),
+      owner: visible ? s.owner : (seen?.owner ?? null),
+      tribeId: visible ? s.tribeId : (seen?.tribeId ?? null),
+      tribeName: this.tribeName(visible ? s.tribeId : (seen?.tribeId ?? null)),
       color: RELATION_META[relation].color,
       mine: false,
       castle: s.castle,
+      visible,
+      seenAt: visible ? now : (seen?.at ?? null),
+      stale: !visible && seen !== null,
+      seenPop: visible ? Math.round(this.popNow(s, now)) : (seen?.pop ?? null),
+      // Выходящее войско видно только пока смотришь: это самая живая из живых
+      // величин, и помнить её со вчерашнего дня было бы враньём.
+      marching: visible && this.save.marches.some((m) => m.fromId === s.id && m.phase === 'out'),
     };
   }
 
-  private homeView(): SettlementView {
+  private homeView(now: number): SettlementView {
     const p = this.save.profile;
     return {
       id: HOME_ID,
@@ -192,6 +260,12 @@ export class LocalWorld implements WorldApi {
       color: RELATION_META.self.color,
       mine: true,
       castle: false,
+      // Свой дом виден всегда и целиком: тумана над собой не бывает.
+      visible: true,
+      seenAt: now,
+      stale: false,
+      seenPop: Math.round(p?.pop ?? 0),
+      marching: this.save.marches.some((m) => m.own && m.phase === 'out'),
     };
   }
 
@@ -208,11 +282,6 @@ export class LocalWorld implements WorldApi {
   private remove(m: StoredMarch): void {
     const i = this.save.marches.indexOf(m);
     if (i >= 0) this.save.marches.splice(i, 1);
-  }
-
-  /** Отряд без записанного состава (старый поход, чужой набег) — пешая масса по мощи. */
-  private fallbackStack(power: number): Stack {
-    return { spear: 0, infantry: Math.max(1, Math.round(power / 2)), archer: 0, cavalry: 0 };
   }
 
   /**
@@ -320,6 +389,266 @@ export class LocalWorld implements WorldApi {
     return out;
   }
 
+  // ---------- Туман войны ----------
+
+  /** Где фигура находится в момент t. В пути — доля пройденного, иначе цель. */
+  private figureAt(f: StoredFigure, t: number): Coord {
+    if (f.phase !== 'moving') return { ...f.to };
+    return marchPosition(f, t);
+  }
+
+  /**
+   * Круги обзора прямо сейчас: своё поселение, три фигуры и свои отряды в пути.
+   * От них зависит только второй слой — живые данные. Первый слой (местность)
+   * они открывают навсегда, и обратно он не закрывается.
+   */
+  private sightDiscs(now: number): SightDisc[] {
+    const out: SightDisc[] = [{ x: this.save.home.x, y: this.save.home.y, r: HOME_SIGHT }];
+    for (const id of FIGURE_IDS) {
+      const f = this.save.figures[id];
+      if (!f || f.phase === 'down') continue;
+      const at = this.figureAt(f, now);
+      out.push({ x: at.x, y: at.y, r: FIGURE_BY_ID[id].sight });
+    }
+    for (const m of this.save.marches) {
+      if (!m.own) continue;
+      const at = m.phase === 'stay' ? m.to : marchPosition(m, now);
+      out.push({ x: at.x, y: at.y, r: MARCH_SIGHT });
+    }
+    return out;
+  }
+
+  /**
+   * Открывает местность за прошедшее время. Считается не «где кто стоит», а
+   * «где кто прошёл»: фигура, пересёкшая пол-карты, пока игрока не было, обязана
+   * оставить за собой такой же коридор, как если бы он смотрел на неё всё это
+   * время. Отметка `fogAt` — единственное, что для этого хранится.
+   */
+  private stepFog(now: number): void {
+    const save = this.save;
+    const from = Math.min(save.fogAt, now);
+    this.fog.revealDisc(save.home, HOME_SIGHT);
+    for (const id of FIGURE_IDS) {
+      const f = save.figures[id];
+      if (!f || f.phase === 'down') continue;
+      this.fog.revealPath(this.figureAt(f, from), this.figureAt(f, now), FIGURE_BY_ID[id].sight);
+    }
+    for (const m of save.marches) {
+      if (!m.own) continue;
+      const a = marchPosition(m, Math.max(m.departAt, from));
+      this.fog.revealPath(a, marchPosition(m, now), MARCH_SIGHT);
+    }
+    save.fogAt = now;
+  }
+
+  /**
+   * Снимает живые данные с того, что сейчас в обзоре. Клетка, открытая мимоходом
+   * и ни разу не рассмотренная, тоже получает снимок — иначе на карте оказалось
+   * бы поселение вообще без данных, и игрок решил бы, что оно пустое.
+   */
+  private stepSightings(now: number, discs: SightDisc[]): void {
+    for (const s of this.gen.settlements) {
+      if (!this.fog.has(s.x, s.y)) continue;
+      const known = this.save.sightings[s.id];
+      if (known && !inSight(discs, s.x, s.y)) continue;
+      this.save.sightings[s.id] = {
+        at: now,
+        stage: stageOf(this.powerNow(s, now), this.popNow(s, now)),
+        relation: this.relationOf(s),
+        owner: s.owner,
+        tribeId: s.tribeId,
+        pop: Math.round(this.popNow(s, now)),
+        castle: s.castle,
+      };
+    }
+  }
+
+  // ---------- Фигуры ----------
+
+  /** Поселение, у которого фигура стоит вплотную. HOME_ID — своё. */
+  private touching(at: Coord): { id: SettlementId; name: string; home: boolean } | null {
+    if (distance(at, this.save.home) <= FIGURE_TOUCH) {
+      return { id: HOME_ID, name: 'Наша деревня', home: true };
+    }
+    let best: GenSettlement | null = null;
+    let bestDist = FIGURE_TOUCH;
+    for (const s of this.gen.settlements) {
+      const d = distance(at, s);
+      if (d <= bestDist) {
+        best = s;
+        bestDist = d;
+      }
+    }
+    return best ? { id: best.id, name: best.name, home: false } : null;
+  }
+
+  /** Отправляет фигуру домой павшей: насовсем её потерять нельзя. */
+  private downFigure(id: FigureId, at: number, text: string): void {
+    const f = this.save.figures[id];
+    const def = FIGURE_BY_ID[id];
+    f.phase = 'down';
+    f.from = { ...this.save.home };
+    f.to = { ...this.save.home };
+    f.departAt = at;
+    f.arriveAt = at;
+    f.downUntil = at + FIGURE_DOWN;
+    const lost = f.troops ?? {};
+    f.troops = undefined;
+    this.addEffect({
+      id: `fig-${id}-${at}`,
+      lost: {},
+      lostTroops: troopTotal(lost) > 0 ? lost : undefined,
+      resources: {},
+      prestige: 0,
+      morale: -4,
+      battle: null,
+      text: `${def.name} ${text} Вернётся не скоро.`,
+      good: false,
+    });
+  }
+
+  /**
+   * Шаг фигур: прибытие, возвращение павших и то, что фигура делает, стоя на
+   * месте. Положение здесь не двигается — оно выведено из времени, и двигать
+   * его тиком значило бы получить два разных ответа онлайн и офлайн.
+   */
+  private stepFigures(now: number): void {
+    for (const id of FIGURE_IDS) {
+      const f = this.save.figures[id];
+      if (!f) continue;
+      if (f.phase === 'down') {
+        if (now < f.downUntil) continue;
+        f.phase = 'home';
+        f.downUntil = 0;
+        f.from = { ...this.save.home };
+        f.to = { ...this.save.home };
+        f.departAt = now;
+        f.arriveAt = now;
+        this.addEffect({
+          id: `fig-${id}-back-${now}`,
+          lost: {},
+          resources: {},
+          prestige: 0,
+          morale: 2,
+          battle: null,
+          text: `${FIGURE_BY_ID[id].name} снова в строю.`,
+          good: true,
+        });
+        continue;
+      }
+      if (f.phase === 'moving' && now >= f.arriveAt) {
+        const at = f.arriveAt;
+        f.from = { ...f.to };
+        f.departAt = at;
+        f.phase = this.touching(f.to)?.home ? 'home' : 'field';
+        this.onFigureArrived(id, at);
+        if (this.save.figures[id].phase === 'down') continue;
+      }
+      // Разведчик, стоящий у чужого поселения, считает войско заново, пока стоит:
+      // это и есть его умение, и на нём держится ценность фигуры.
+      if (id === 'scout' && f.phase === 'field') {
+        const near = this.touching(f.to);
+        const target = near && !near.home ? this.byId.get(near.id) : null;
+        if (target) this.save.intel[target.id] = this.snapshot(target, now);
+      }
+    }
+  }
+
+  /**
+   * Что случается в момент прибытия. Бросок один и посеян временем выхода, а не
+   * порядком разбора событий: иначе онлайн и офлайн дали бы разные исходы.
+   */
+  private onFigureArrived(id: FigureId, at: number): void {
+    const f = this.save.figures[id];
+    const near = this.touching(f.to);
+    const target = near && !near.home ? this.byId.get(near.id) : null;
+    if (!target) return;
+    const rng = seeded(marchSeed(this.save.seed, Math.floor(f.departAt / 1000)));
+    if (id === 'scout') {
+      const power = this.powerNow(target, at);
+      if (power > FIGURE_SCOUT_COVER && rng() < 0.25) {
+        this.downFigure(id, at, `попался часовым у ${target.name}.`);
+        return;
+      }
+      this.save.intel[target.id] = this.snapshot(target, at);
+      return;
+    }
+    if (id === 'diplomat' && this.relationOf(target) === 'enemy' && rng() < 0.3) {
+      this.downFigure(id, at, `схвачен во враждебном ${target.name}.`);
+    }
+  }
+
+  // ---------- Договоры ----------
+
+  private tribeSettlements = (tribeId: string): number =>
+    this.gen.settlements.filter((s) => s.tribeId === tribeId).length;
+
+  /** Выплаты по дани и торговле и истечение договоров. */
+  private stepPacts(now: number): void {
+    for (const [tribeId, deals] of Object.entries(this.save.pacts)) {
+      for (const key of Object.keys(deals) as DealId[]) {
+        const pact = deals[key];
+        if (!pact) continue;
+        if (now >= pact.until) {
+          delete deals[key];
+          this.addEffect({
+            id: `pact-${tribeId}-${key}-end`,
+            lost: {},
+            resources: {},
+            prestige: 0,
+            morale: -2,
+            battle: null,
+            text: `Договор «${DEAL_BY_ID[key].name}» с племенем ${this.tribeName(tribeId)} истёк.`,
+            good: false,
+          });
+          continue;
+        }
+        if (key !== 'tribute' && key !== 'trade') continue;
+        // Догон офлайна платит за каждый пропущенный срок, а не один раз: иначе
+        // выгоднее было бы не отходить от экрана.
+        for (let guard = 0; guard < 200 && now - pact.paidAt >= DEAL_PAYOUT; guard++) {
+          pact.paidAt += DEAL_PAYOUT;
+          this.payPact(tribeId, key, pact.paidAt);
+        }
+      }
+    }
+  }
+
+  private payPact(tribeId: string, deal: DealId, at: number): void {
+    const count = Math.max(1, this.tribeSettlements(tribeId));
+    const name = this.tribeName(tribeId) ?? 'соседи';
+    if (deal === 'trade') {
+      const gold = Math.round(TRADE_GOLD_PER_SETTLEMENT * count);
+      this.addEffect({
+        id: `pact-${tribeId}-trade-${at}`,
+        lost: {},
+        resources: { gold },
+        prestige: 0,
+        morale: 0,
+        battle: null,
+        text: `Торговля с племенем ${name}: ${gold} золота.`,
+        good: true,
+      });
+      return;
+    }
+    const total = Math.round(TRIBUTE_PER_SETTLEMENT * count);
+    // Платят тем же, чем богаты сами: список берётся у их поселения.
+    const mix = this.gen.settlements.find((s) => s.tribeId === tribeId)?.lootMix ?? ['food'];
+    const resources: Loot = {};
+    const per = Math.max(1, Math.floor(total / mix.length));
+    for (const r of mix) resources[r] = (resources[r] ?? 0) + per;
+    this.addEffect({
+      id: `pact-${tribeId}-tribute-${at}`,
+      lost: {},
+      resources,
+      prestige: 1,
+      morale: 1,
+      battle: null,
+      text: `Дань от племени ${name} доставлена.`,
+      good: true,
+    });
+  }
+
   // ---------- Ход мира ----------
 
   private dueAt = (m: StoredMarch): number => (m.phase === 'stay' ? m.stayUntil ?? m.arriveAt : m.arriveAt);
@@ -337,6 +666,14 @@ export class LocalWorld implements WorldApi {
       }
       save.hostilityAt = now;
     }
+
+    // Туман раскрывается до разбора походов: отряд, дошедший и повернувший
+    // домой за время офлайна, обязан оставить след по дороге туда, а не только
+    // обратно. Фигуры — там же и по тем же правилам.
+    this.stepFog(now);
+    this.stepFigures(now);
+    this.stepPacts(now);
+    this.stepSightings(now, this.sightDiscs(now));
 
     // События походов — строго по времени: догон офлайна должен дать тот же порядок.
     for (let guard = 0; guard < 500; guard++) {
@@ -375,9 +712,11 @@ export class LocalWorld implements WorldApi {
 
     const target = this.byId.get(m.targetId) ?? null;
     if (!target) return this.turnHome(m, at, null);
-    if (m.mission === 'scout') return this.resolveScout(m, target, at);
+    // Набегов в этом списке не бывает: армия ходит только с полководцем, и бой
+    // считается там, где он стоит (см. attack). Отряд без него — разведка или
+    // поддержка, больше отправить нечего.
     if (m.mission === 'support') return this.resolveSupport(m, target, at);
-    return this.resolveRaid(m, target, at);
+    return this.resolveScout(m, target, at);
   }
 
   private arriveHome(m: StoredMarch, at: number): void {
@@ -396,34 +735,41 @@ export class LocalWorld implements WorldApi {
     });
   }
 
-  private resolveRaid(m: StoredMarch, target: GenSettlement, at: number): void {
+  /**
+   * Бой полководца по поселению, у которого он стоит.
+   *
+   * Считается сразу и здесь, а не «при прибытии отряда»: полководец уже дошёл, и
+   * защитнику было отпущено всё время, пока фигура шла через карту, — это та же
+   * фора, ради которой бой считался на приходе. Уцелевшие остаются при
+   * полководце: в поле состав войска не меняется. Добыча уходит домой обозом
+   * сразу — везти её обратно фигурой значило бы завести у неё второй груз и
+   * второй маршрут, а этого шага здесь нет.
+   */
+  private attackAt(target: GenSettlement, at: number, setup: ArmySetup | null): AttackResult {
+    const f = this.save.figures.general;
+    const troops = f.troops ?? {};
+    const men = troopTotal(troops);
+    const seed = marchSeed(this.save.seed, this.save.nextMarch++);
     const defense = this.powerNow(target, at);
     const garrison = garrisonOf(this.save.seed, target.id, defense, target.castle);
-    // Состав отряда знает только племя; у старых походов его нет — считаем пехотой.
-    const troops = m.troops ?? {};
-    const kinds = troopTotal(troops) > 0 ? kindsOf(troops) : this.fallbackStack(m.power);
     const field = resolveField({
-      seed: m.seed,
-      attacker: { kinds, gear: this.ownGear(troops), setup: m.setup ?? null },
+      seed,
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), setup },
       defender: { kinds: garrison.kinds, gear: garrison.gear, setup: garrison.setup },
       intel: this.save.intel[target.id]?.kinds,
     });
-    const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
-    const lostTroops = troopTotal(troops) > 0 && field.result
-      ? troopLosses(troops, field.result.sides.attacker.losses)
-      : {};
-    const lost = stackLosses(m.units, outcome.attackerLoss);
-    const left = stackAfter(m.units, lost);
-    const enemyLost = Math.round(defense * outcome.defenderLoss);
-    const record: BattleRecord | null = field.result
-      ? { us: 'attacker', preset: field.preset.attacker, result: field.result }
-      : null;
+    const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
+    const left: TroopStack = {};
+    for (const [id, n] of Object.entries(troops) as [keyof TroopStack, number][]) {
+      const rest = (n ?? 0) - (lostTroops[id] ?? 0);
+      if (rest > 0) left[id] = rest;
+    }
+    const survivors = troopTotal(left);
+    const lostMen = men - survivors;
+    const enemyLost = Math.round(defense * field.defenderLoss);
 
     const prev = this.damageOf(target.id, at);
-    this.save.damage[target.id] = {
-      loss: Math.min(0.95, prev + outcome.defenderLoss * (1 - prev)),
-      at,
-    };
+    this.save.damage[target.id] = { loss: Math.min(0.95, prev + field.defenderLoss * (1 - prev)), at };
     if (target.tribeId) {
       this.save.hostility[target.tribeId] = Math.min(
         100,
@@ -436,52 +782,60 @@ export class LocalWorld implements WorldApi {
     this.save.intel[target.id] = intel;
 
     // Золото берут до добра: доля казны соразмерна тому, сколько гарнизона выбили.
-    // Отряд, еле выстоявший, вынесет из замка гроши — бесплатных денег здесь нет.
-    const gold = outcome.won ? Math.round(this.castleGold(target, at) * outcome.defenderLoss) : 0;
-    const loot = outcome.won ? this.takeLoot(target, at, stackCarry(left)) : null;
+    const gold = field.won ? Math.round(this.castleGold(target, at) * field.defenderLoss) : 0;
+    const loot = field.won ? this.takeLoot(target, at, stackCarry({ warrior: survivors })) : null;
     const spoils: Loot | null = gold > 0 ? { ...(loot ?? {}), gold } : loot;
-    const wiped = stackSize(left) === 0;
     const goods = loot ? Object.values(loot).reduce((n, v) => n + (v ?? 0), 0) : 0;
     const lootText =
       (goods > 0 ? ` Взято: ${goods} добра.` : '') + (gold > 0 ? ` Казна замка: ${gold} золота.` : '');
+    const record: BattleRecord | null = field.result
+      ? { us: 'attacker', preset: field.preset.attacker, result: field.result }
+      : null;
 
+    const reportId = `atk${seed}`;
     this.addReport({
-      id: `${m.id}-raid`,
+      id: reportId,
       at,
       kind: 'raid',
-      title: outcome.won ? `Набег удался: ${target.name}` : `Набег отбит: ${target.name}`,
+      title: field.won ? `Набег удался: ${target.name}` : `Набег отбит: ${target.name}`,
       target: { id: target.id, name: target.name, x: target.x, y: target.y },
-      won: outcome.won,
-      sent: { ...m.units },
-      lost,
+      won: field.won,
+      sent: { warrior: men },
+      lost: lostMen > 0 ? { warrior: lostMen } : {},
       enemyPower: Math.round(defense),
       enemyLost,
       loot: spoils,
       intel,
       battle: record,
-      text: outcome.won
+      text: field.won
         ? `Гарнизон ${target.name} разбит.${lootText}`
-        : `Оборона ${target.name} оказалась крепче.${wiped ? ' Отряд не вернётся.' : ' Уцелевшие уходят домой.'}`,
+        : `Оборона ${target.name} оказалась крепче.${survivors === 0 ? ' Полководец пал.' : ' Уцелевшие остались при полководце.'}`,
       read: false,
     });
 
     this.addEffect({
-      id: `${m.id}-battle`,
-      lost,
+      id: `${reportId}-battle`,
+      lost: lostMen > 0 ? { warrior: lostMen } : {},
       lostTroops,
-      resources: {},
-      prestige: outcome.won ? 4 : 0,
-      morale: outcome.won ? 4 : -6,
-      battle: outcome.won ? 'won' : 'lost',
-      text: outcome.won
+      // Обоз идёт домой сам: полководец остаётся в поле, а добыча ему не нужна.
+      resources: spoils ?? {},
+      prestige: field.won ? 4 : 0,
+      morale: field.won ? 4 : -6,
+      battle: field.won ? 'won' : 'lost',
+      text: field.won
         ? `Набег на ${target.name} (${formatCoord(target)}) удался.`
         : `Набег на ${target.name} (${formatCoord(target)}) отбит.`,
-      good: outcome.won,
+      good: field.won,
     });
 
-    m.units = left;
-    if (wiped) this.remove(m);
-    else this.turnHome(m, at, spoils);
+    if (survivors === 0) {
+      f.troops = undefined;
+      this.downFigure('general', at, `разбит под ${target.name}.`);
+    } else {
+      f.troops = left;
+    }
+    this.write();
+    return { error: null, reportId, won: field.won };
   }
 
   private resolveScout(m: StoredMarch, target: GenSettlement, at: number): void {
@@ -684,7 +1038,14 @@ export class LocalWorld implements WorldApi {
     if (save.marches.some((m) => !m.own)) return;
 
     const home = save.home;
-    const near = this.gen.settlements.filter((s) => distance(s, home) <= AI_RANGE);
+    // Племя, с которым подписано ненападение или союз, набегов не шлёт: иначе
+    // дипломат покупал бы бумагу, а не мир.
+    const near = this.gen.settlements.filter(
+      (s) =>
+        distance(s, home) <= AI_RANGE &&
+        !this.pactActive(s.tribeId, 'truce') &&
+        !this.pactActive(s.tribeId, 'alliance'),
+    );
     const angry = near.filter((s) => s.tribeId && this.hostilityOf(s.tribeId) > 10);
     const pool = angry.length > 0 ? angry : near.filter((s) => !s.tribeId);
     if (pool.length === 0) return;
@@ -766,13 +1127,18 @@ export class LocalWorld implements WorldApi {
         terrain[y * w + x] = terrainIndex(terrainAt(this.save.seed, x0 + x, y0 + y));
       }
     }
+    const rect0 = { x: x0, y: y0, w, h };
+    const discs = this.sightDiscs(now);
     const settlements: SettlementView[] = [];
     for (const s of this.gen.settlements) {
-      if (s.x >= x0 && s.x < x1 && s.y >= y0 && s.y < y1) settlements.push(this.view(s, now));
+      if (s.x < x0 || s.x >= x1 || s.y < y0 || s.y >= y1) continue;
+      // Неразведанная клетка не отдаёт даже того, что в ней кто-то живёт.
+      if (!this.fog.has(s.x, s.y)) continue;
+      settlements.push(this.view(s, now, discs));
     }
     const home = this.save.home;
-    if (home.x >= x0 && home.x < x1 && home.y >= y0 && home.y < y1) settlements.push(this.homeView());
-    return { rect: { x: x0, y: y0, w, h }, terrain, settlements };
+    if (home.x >= x0 && home.x < x1 && home.y >= y0 && home.y < y1) settlements.push(this.homeView(now));
+    return { rect: rect0, terrain, explored: this.fog.maskFor(rect0), settlements };
   }
 
   async settlement(id: SettlementId): Promise<SettlementCard | null> {
@@ -780,33 +1146,72 @@ export class LocalWorld implements WorldApi {
     if (id === HOME_ID) {
       const p = this.save.profile;
       return {
-        ...this.homeView(),
+        ...this.homeView(now),
         terrain: terrainAt(this.save.seed, this.save.home.x, this.save.home.y),
         distance: 0,
         terrainFactor: 1,
         power: estimate(p?.defense ?? 0, 'exact'),
         pop: estimate(p?.pop ?? 0, 'exact'),
         intel: null,
+        figuresHere: this.figuresAt(HOME_ID, now),
+        deals: [],
         can: { raid: false, scout: false, support: false, open: true },
         note: 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
       };
     }
     const s = this.byId.get(id);
-    if (!s) return null;
-    const view = this.view(s, now);
+    // Про неразведанное место карточки нет: игрок о нём ещё не знает.
+    if (!s || !this.fog.has(s.x, s.y)) return null;
+    const view = this.view(s, now, this.sightDiscs(now));
     const reading = readIntel(this.save.intel[id] ?? null, now);
     const ally = view.relation === 'ally';
+    const here = this.figuresAt(id, now);
+    const general = this.save.figures.general;
+    // Набег доступен ровно тогда, когда есть кому вести: полководец стоит здесь
+    // и войско при нём. Второго способа назначить цель в игре нет.
+    const canRaid = here.includes('general') && troopTotal(general.troops ?? {}) > 0;
     return {
       ...view,
       terrain: terrainAt(this.save.seed, s.x, s.y),
       distance: distance(this.save.home, s),
       terrainFactor: terrainFactor(this.save.seed, this.save.home, s),
+      // Численность знают двое: разведка и собственные глаза, пока клетка в обзоре.
       power: reading ? reading.power : { ...UNKNOWN },
-      pop: reading ? reading.pop : { ...UNKNOWN },
+      pop:
+        reading?.pop ??
+        (view.seenPop !== null ? estimate(view.seenPop, view.visible ? 'exact' : 'rough') : { ...UNKNOWN }),
       intel: reading,
-      can: { raid: true, scout: true, support: ally, open: false },
-      note: ally ? null : 'Поддержку принимают только союзники.',
+      figuresHere: here,
+      deals: s.tribeId ? this.dealsOf(s.tribeId, now) : [],
+      can: { raid: canRaid, scout: true, support: ally, open: false },
+      note: canRaid
+        ? null
+        : here.includes('general')
+          ? 'Полководец здесь, но войска при нём нет: за дружиной надо домой.'
+          : 'Атакует только полководец: доведи его сюда — и ударь.',
     };
+  }
+
+  /** Какие фигуры стоят вплотную к этой цели. */
+  private figuresAt(id: SettlementId, now: number): FigureId[] {
+    const out: FigureId[] = [];
+    for (const fid of FIGURE_IDS) {
+      const f = this.save.figures[fid];
+      if (!f || f.phase === 'down' || f.phase === 'moving') continue;
+      if (this.touching(this.figureAt(f, now))?.id === id) out.push(fid);
+    }
+    return out;
+  }
+
+  private dealsOf(tribeId: string, now: number): DealView[] {
+    const deals = this.save.pacts[tribeId] ?? {};
+    const out: DealView[] = [];
+    for (const key of Object.keys(deals) as DealId[]) {
+      const pact = deals[key];
+      if (!pact || pact.until <= now) continue;
+      out.push({ id: key, tribeId, tribeName: this.tribeName(tribeId) ?? '', until: pact.until });
+    }
+    return out;
   }
 
   async intel(id: SettlementId): Promise<IntelReading | null> {
@@ -837,8 +1242,11 @@ export class LocalWorld implements WorldApi {
       size += count;
     }
     if (size === 0) return { error: 'Отряд пустой.', march: null };
-    if (order.mission === 'raid' && (units.warrior ?? 0) === 0) {
-      return { error: 'В набег ходят воины.', march: null };
+    if (order.mission === 'raid') {
+      // Единственный способ ударить — полководец у цели. Оставлять рядом второй
+      // путь значило бы, что правило «армия ходит только с ним» держится на
+      // честном слове интерфейса.
+      return { error: 'В набег армию водит полководец, а не гонец.', march: null };
     }
     if (order.mission === 'scout' && (units.scout ?? 0) === 0) {
       return { error: 'Разведку ведут разведчики.', march: null };
@@ -911,6 +1319,167 @@ export class LocalWorld implements WorldApi {
     return null;
   }
 
+  // ---------- Фигуры и то, что они умеют ----------
+
+  private viewFigure(id: FigureId, now: number): FigureView {
+    const f = this.save.figures[id];
+    const def = FIGURE_BY_ID[id];
+    const at = this.figureAt(f, now);
+    const near = f.phase === 'down' ? null : this.touching(at);
+    const troops = f.troops ?? {};
+    return {
+      id,
+      name: def.name,
+      icon: def.icon,
+      phase: f.phase,
+      at,
+      from: { ...f.from },
+      to: { ...f.to },
+      departAt: f.departAt,
+      arriveAt: f.arriveAt,
+      sight: def.sight,
+      atId: near?.id ?? null,
+      atName: near?.name ?? null,
+      atHome: near?.home ?? false,
+      downUntil: f.downUntil,
+      troops: { ...troops },
+      power: troopTotal(troops) * (this.save.profile?.warriorPower ?? 1),
+    };
+  }
+
+  async figures(): Promise<FigureView[]> {
+    const now = this.clock();
+    return FIGURE_IDS.map((id) => this.viewFigure(id, now));
+  }
+
+  async moveFigure(id: FigureId, to: Coord): Promise<string | null> {
+    const now = this.clock();
+    const f = this.save.figures[id];
+    const def = FIGURE_BY_ID[id];
+    if (f.phase === 'down') {
+      const left = Math.ceil(Math.max(0, f.downUntil - now) / 1000);
+      return `${def.name} выбыл: вернётся через ${Math.ceil(left / 60)} мин.`;
+    }
+    const target = clampToWorld(to);
+    const from = this.figureAt(f, now);
+    const dist = distance(from, target);
+    if (dist < 0.5) return `${def.name} уже там.`;
+    const seconds = travelTime(dist, terrainFactor(this.save.seed, from, target), def.speed);
+    f.from = from;
+    f.to = target;
+    f.departAt = now;
+    f.arriveAt = now + Math.round(seconds * 1000);
+    f.phase = 'moving';
+    this.write();
+    return null;
+  }
+
+  /** Домой — обычный переход, по тем же правилам: своей арифметики у него нет. */
+  async recallFigure(id: FigureId): Promise<string | null> {
+    return this.moveFigure(id, { ...this.save.home });
+  }
+
+  /**
+   * Полководец берёт гарнизон себе или возвращает его. Только вплотную к своему
+   * поселению: в поле состав войска не меняется, и это правило, а не удобство.
+   *
+   * `troops` — каким войско должно стать. Разница с нынешним и есть то, что
+   * переходит из деревни к полководцу или обратно, поэтому взять больше, чем
+   * стоит дома, нельзя: дома — это `profile.army`, и в нём уже нет тех, кто при
+   * полководце.
+   */
+  async setGarrison(troops: TroopStack | null): Promise<string | null> {
+    const now = this.clock();
+    const f = this.save.figures.general;
+    if (f.phase === 'down') return 'Полководец выбыл.';
+    if (f.phase === 'moving') return 'Полководец в пути — войско к нему не подойдёт.';
+    if (!this.touching(this.figureAt(f, now))?.home) {
+      return 'Забрать дружину можно только у своей деревни.';
+    }
+    const home = this.save.profile?.army ?? {};
+    const held = f.troops ?? {};
+    const next: TroopStack = {};
+    for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
+      const want = Math.max(0, Math.floor(raw ?? 0));
+      if (want <= 0) continue;
+      const take = want - (held[key] ?? 0);
+      if (take > (home[key] ?? 0)) return 'Столько бойцов дома нет.';
+      next[key] = want;
+    }
+    f.troops = troopTotal(next) > 0 ? next : undefined;
+    this.write();
+    return null;
+  }
+
+  async attack(order: AttackOrder): Promise<AttackResult> {
+    const now = this.clock();
+    const f = this.save.figures.general;
+    if (f.phase === 'down') return { error: 'Полководец выбыл.', reportId: null, won: false };
+    if (f.phase === 'moving') return { error: 'Полководец ещё в пути.', reportId: null, won: false };
+    if (troopTotal(f.troops ?? {}) === 0) return { error: 'Войска при полководце нет.', reportId: null, won: false };
+    const near = this.touching(this.figureAt(f, now));
+    if (!near || near.home) return { error: 'Рядом нет чужого поселения.', reportId: null, won: false };
+    const target = this.byId.get(near.id);
+    if (!target) return { error: 'Цель не найдена.', reportId: null, won: false };
+    return this.attackAt(target, now, order.setup ?? null);
+  }
+
+  async negotiate(deal: DealId): Promise<string | null> {
+    const now = this.clock();
+    const f = this.save.figures.diplomat;
+    if (f.phase === 'down') return 'Дипломат выбыл.';
+    if (f.phase === 'moving') return 'Дипломат ещё в пути.';
+    const near = this.touching(this.figureAt(f, now));
+    const target = near && !near.home ? this.byId.get(near.id) : null;
+    if (!target) return 'Дипломату не с кем говорить: рядом нет чужого поселения.';
+    if (!target.tribeId) return 'У варваров нет старейшин, с которыми говорят.';
+    const def = DEAL_BY_ID[deal];
+    const hostility = this.hostilityOf(target.tribeId);
+    if (hostility > def.maxHostility) {
+      return `Слишком много обид: «${def.name}» подпишут при вражде не выше ${def.maxHostility}, а она ${Math.round(hostility)}.`;
+    }
+    const tribe = this.save.pacts[target.tribeId] ?? (this.save.pacts[target.tribeId] = {});
+    tribe[deal] = { until: now + DEAL_DURATION, paidAt: now };
+    this.save.hostility[target.tribeId] = Math.max(0, hostility - def.hostilityDrop);
+    const name = this.tribeName(target.tribeId) ?? target.name;
+    this.addReport({
+      id: `deal-${target.tribeId}-${deal}-${now}`,
+      at: now,
+      kind: 'support',
+      title: `${def.name}: ${name}`,
+      target: { id: target.id, name: target.name, x: target.x, y: target.y },
+      won: true,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: `Дипломат договорился в ${target.name}. ${def.description}`,
+      read: false,
+    });
+    this.addEffect({
+      id: `deal-${target.tribeId}-${deal}-${now}-eff`,
+      lost: {},
+      resources: {},
+      prestige: 3,
+      morale: 3,
+      battle: null,
+      text: `Договор с племенем ${name}: ${def.name.toLowerCase()}.`,
+      good: true,
+    });
+    this.write();
+    return null;
+  }
+
+  async deals(): Promise<DealView[]> {
+    const now = this.clock();
+    const out: DealView[] = [];
+    for (const tribeId of Object.keys(this.save.pacts)) out.push(...this.dealsOf(tribeId, now));
+    return out;
+  }
+
   async reports(): Promise<Report[]> {
     return this.save.reports.map((r) => ({ ...r }));
   }
@@ -949,7 +1518,6 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     this.save.profile = profile;
     this.lockDefense(now, profile);
-    this.fresh = [];
     this.advance(now);
     const reports = this.fresh;
     this.fresh = [];
@@ -960,6 +1528,7 @@ export class LocalWorld implements WorldApi {
     return {
       now,
       marches: this.save.marches.map((m) => this.viewMarch(m)),
+      figures: FIGURE_IDS.map((id) => this.viewFigure(id, now)),
       reports,
       effects,
       unread: this.save.reports.filter((r) => !r.read).length,

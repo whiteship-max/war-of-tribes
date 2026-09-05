@@ -98,13 +98,17 @@ export function terrainFactor(seed: number, from: Coord, to: Coord): number {
 // ---------- Время пути ----------
 
 /**
- * Сколько секунд идти. Расстояние делится на скорость самого медленного юнита
- * и правится ландшафтом. Обратный путь считается той же формулой — значит, ровно столько же.
+ * Сколько секунд идти. Расстояние делится на скорость и правится ландшафтом.
+ * Обратный путь считается той же формулой — значит, ровно столько же. Фигуры на
+ * карте идут по ней же: своя формула времени у них расходилась бы с походами.
  */
-export function marchSeconds(dist: number, factor: number, units: UnitStack): number {
-  const speed = stackSpeed(units);
-  return Math.max(MARCH_MIN_SECONDS, Math.round(((dist / speed) * 60 * factor * 100)) / 100);
+export function travelTime(dist: number, factor: number, speed: number): number {
+  return Math.max(MARCH_MIN_SECONDS, Math.round((dist / speed) * 60 * factor * 100) / 100);
 }
+
+/** То же для отряда: скорость берётся по самому медленному в нём. */
+export const marchSeconds = (dist: number, factor: number, units: UnitStack): number =>
+  travelTime(dist, factor, stackSpeed(units));
 
 /** Полное время пути между двумя точками мира. */
 export const travelSeconds = (seed: number, from: Coord, to: Coord, units: UnitStack): number =>

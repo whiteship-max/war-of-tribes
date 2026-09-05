@@ -12,9 +12,20 @@ import { resolveField } from './battle';
 import { defenseLock } from './store';
 import { presetFormation, toArmySetup } from '@/game/battle/formation';
 import type { ArmySetup, Stack } from '@/battle';
-import { syncAway, toOutcome } from './bridge';
-import { AI_WARNING_BASE, DEFENSE_FREEZE, INTEL_EXACT, INTEL_ROUGH, INTEL_VAGUE, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
-import type { Intel, MarchView, PlayerProfile, SettlementView } from './types';
+import { awayTroops, homeTroops, playerProfile, syncAway, toOutcome } from './bridge';
+import { FogMap, fogSaveBytes } from './fog';
+import { troopTotal } from '@/game/battle/kinds';
+import {
+  AI_WARNING_BASE,
+  DEFENSE_FREEZE,
+  HOME_SIGHT,
+  INTEL_EXACT,
+  INTEL_ROUGH,
+  INTEL_VAGUE,
+  WORLD_ORIGIN,
+  WORLD_SIZE,
+} from './data/tuning';
+import type { FigureView, Intel, MarchView, PlayerProfile, SettlementView } from './types';
 
 const START = 1_700_000_000_000;
 
@@ -57,6 +68,28 @@ async function nearest(world: LocalWorld): Promise<SettlementView> {
 }
 
 const own = (marches: MarchView[]): MarchView[] => marches.filter((m) => m.own);
+
+/**
+ * Единственный способ ударить: довести полководца до цели и напасть. Отправки
+ * набега «гонцом» в игре больше нет, поэтому и в тестах её быть не должно —
+ * иначе они проверяли бы путь, которым игрок пройти не может.
+ */
+async function raidWith(
+  w: ReturnType<typeof makeWorld>,
+  target: { id: string; x: number; y: number },
+  p: PlayerProfile,
+  setup: ArmySetup | null = null,
+) {
+  await w.world.sync(p);
+  expect(await w.world.setGarrison(p.army ?? {})).toBeNull();
+  expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
+  const walking = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+  w.at(walking.arriveAt);
+  await w.world.sync(p);
+  const res = await w.world.attack({ setup });
+  const pulse = await w.world.sync(p);
+  return { res, pulse, walk: walking.arriveAt - walking.departAt };
+}
 
 describe('генерация мира', () => {
   it('воспроизводима по сиду', () => {
@@ -282,43 +315,40 @@ describe('армия в походе', () => {
 });
 
 describe('походы в локальном мире', () => {
-  it('набег доходит, даёт отчёт и возвращается ровно за то же время', async () => {
-    const { world, at } = makeWorld(11);
+  it('полководец доводит армию до цели, бьёт и остаётся в поле', async () => {
+    const w = makeWorld(11);
+    const p = profile({ warriorPower: 4, army: { clubman: 8, spearman: 6 } });
+    await w.world.sync(p);
+    const target = await nearest(w.world);
+
+    const { res, pulse, walk } = await raidWith(w, target, p);
+    expect(walk).toBeGreaterThan(0);
+    expect(res.error).toBeNull();
+    expect(pulse.reports.some((r) => r.kind === 'raid')).toBe(true);
+    expect(pulse.effects.length).toBeGreaterThan(0);
+
+    // Уцелевшие остаются при полководце: в поле состав войска не меняется.
+    const general = pulse.figures.find((f) => f.id === 'general') as FigureView;
+    expect(general.phase === 'field' || general.phase === 'down').toBe(true);
+    if (general.phase === 'field') expect(general.atId).toBe(target.id);
+  });
+
+  it('набег гонцом отправить нельзя: армию водит только полководец', async () => {
+    const { world } = makeWorld(11);
     await world.sync(profile());
     const target = await nearest(world);
-
     const res = await world.send({ target: target.id, mission: 'raid', units: { warrior: 8 } });
-    expect(res.error).toBeNull();
-    const m = res.march as MarchView;
-    const trip = m.arriveAt - m.departAt;
-    expect(trip).toBeGreaterThan(0);
-
-    at(m.arriveAt);
-    const arrival = await world.sync(profile());
-    expect(arrival.reports).toHaveLength(1);
-    expect(arrival.reports[0].kind).toBe('raid');
-    expect(arrival.effects.length).toBeGreaterThan(0);
-
-    const back = own(arrival.marches)[0];
-    expect(back.phase).toBe('back');
-    // Обратный путь занимает столько же, сколько дорога туда.
-    expect(back.arriveAt - back.departAt).toBe(trip);
-
-    at(back.arriveAt);
-    const home = await world.sync(profile());
-    expect(own(home.marches)).toHaveLength(0);
-    expect(home.effects.length).toBeGreaterThan(0);
+    expect(res.error).toBeTruthy();
+    expect(res.march).toBeNull();
   });
 
   it('один и тот же поход с одним сидом даёт один и тот же результат боя', async () => {
     const run = async () => {
-      const { world, at } = makeWorld(2024);
-      await world.sync(profile());
-      const target = await nearest(world);
-      const res = await world.send({ target: target.id, mission: 'raid', units: { warrior: 7 } });
-      at((res.march as MarchView).arriveAt);
-      const pulse = await world.sync(profile());
-      return pulse.reports[0];
+      const w = makeWorld(2024);
+      const p = profile({ warriorPower: 4, army: { clubman: 7 } });
+      const target = await nearest(w.world);
+      const { pulse } = await raidWith(w, target, p);
+      return pulse.reports.find((r) => r.kind === 'raid');
     };
     const a = await run();
     const b = await run();
@@ -329,7 +359,7 @@ describe('походы в локальном мире', () => {
     const { world, advance } = makeWorld(31);
     await world.sync(profile());
     const target = await nearest(world);
-    const res = await world.send({ target: target.id, mission: 'raid', units: { warrior: 5 } });
+    const res = await world.send({ target: target.id, mission: 'scout', units: { scout: 3 } });
     const m = res.march as MarchView;
 
     advance(30_000);
@@ -406,21 +436,18 @@ describe('походы в локальном мире', () => {
   });
 
   it('набег поднимает враждебность всего племени', async () => {
-    const { world, at } = makeWorld(23);
-    await world.sync(profile());
+    const w = makeWorld(23);
+    const world = w.world;
+    const p = profile({ warriorPower: 4, army: { clubman: 6 } });
+    await world.sync(p);
     const info = await world.info();
     const chunk = await world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
+    // Ищем среди того, что уже разведано: неоткрытых клеток карта не отдаёт.
     const target = chunk.settlements.find((s) => s.tribeId);
     expect(target).toBeTruthy();
     const before = (await world.tribes()).find((t) => t.id === target?.tribeId)?.hostility ?? 0;
 
-    const res = await world.send({
-      target: (target as SettlementView).id,
-      mission: 'raid',
-      units: { warrior: 6 },
-    });
-    at((res.march as MarchView).arriveAt);
-    await world.sync(profile());
+    await raidWith(w, target as SettlementView, p);
 
     const after = (await world.tribes()).find((t) => t.id === target?.tribeId)?.hostility ?? 0;
     expect(after).toBeGreaterThan(before);
@@ -446,15 +473,9 @@ describe('замки', () => {
   it('набег на замок без достаточной армии не приносит золота и стоит потерь', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
-    // Отряд заведомо слабее гарнизона замка: один воин против крепости.
-    await w.world.sync(profile({ warriorPower: 1, units: { warrior: 2 } }));
-    const card = await w.world.settlement(castle.id);
-    expect(card).toBeTruthy();
-
-    const sent = await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 2 } });
-    expect(sent.error).toBeNull();
-    w.advance(60 * 60_000);
-    const pulse = await w.world.sync(profile({ warriorPower: 1, units: { warrior: 2 } }));
+    // Отряд заведомо слабее гарнизона замка: пара дубинщиков против крепости.
+    const weak = profile({ warriorPower: 1, units: { warrior: 2 }, army: { clubman: 2 } });
+    const { pulse } = await raidWith(w, castle, weak);
 
     const raid = pulse.reports.find((r) => r.kind === 'raid');
     expect(raid, 'должен прийти отчёт о набеге').toBeTruthy();
@@ -469,13 +490,12 @@ describe('замки', () => {
   it('сильный отряд берёт замок и привозит золото домой', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
-    const strong = profile({ warriorPower: 40, units: { warrior: 40 } });
-    await w.world.sync(strong);
-    expect((await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 40 } })).error).toBeNull();
-
-    // Дорога туда, бой, дорога обратно.
-    w.advance(6 * 60 * 60_000);
-    const pulse = await w.world.sync(strong);
+    const strong = profile({
+      warriorPower: 40,
+      units: { warrior: 40 },
+      army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
+    });
+    const { pulse } = await raidWith(w, castle, strong);
     const raid = pulse.reports.find((r) => r.kind === 'raid');
     expect(raid?.won).toBe(true);
     expect(raid?.loot?.gold ?? 0, 'из замка должны везти золото').toBeGreaterThan(0);
@@ -490,14 +510,16 @@ describe('замки', () => {
 
   it('обычное поселение золота не даёт', async () => {
     const w = makeWorld(11);
-    const strong = profile({ warriorPower: 40, units: { warrior: 40 } });
+    const strong = profile({
+      warriorPower: 40,
+      units: { warrior: 40 },
+      army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
+    });
     await w.world.sync(strong);
     const target = await nearest(w.world);
     const gen = generateWorld(11).settlements.find((x) => x.id === target.id);
     if (gen?.castle) return; // ближайшая цель оказалась замком — проверять нечего
-    expect((await w.world.send({ target: target.id, mission: 'raid', units: { warrior: 40 } })).error).toBeNull();
-    w.advance(6 * 60 * 60_000);
-    const pulse = await w.world.sync(strong);
+    const { pulse } = await raidWith(w, target, strong);
     for (const e of pulse.effects) expect(e.resources.gold ?? 0).toBe(0);
   });
 });
@@ -611,17 +633,8 @@ describe('состав отряда и отчёт о бое', () => {
     await w.world.sync(p);
     const target = await nearest(w.world);
 
-    const sent = await w.world.send({
-      target: target.id,
-      mission: 'raid',
-      units: { warrior: 14 },
-      troops: army,
-    });
-    expect(sent.error).toBeNull();
-    expect(sent.march?.troops).toEqual(army);
-
-    w.advance(6 * 60 * 60_000);
-    const pulse = await w.world.sync(p);
+    const { res, pulse } = await raidWith(w, target, p);
+    expect(res.error).toBeNull();
     const raid = pulse.reports.find((r) => r.kind === 'raid');
     expect(raid, 'должен прийти отчёт о набеге').toBeTruthy();
 
@@ -647,9 +660,7 @@ describe('состав отряда и отчёт о бое', () => {
       const p = profile({ warriorPower: 4, units: { warrior: 14, scout: 0 }, army });
       await w.world.sync(p);
       const target = await nearest(w.world);
-      await w.world.send({ target: target.id, mission: 'raid', units: { warrior: 14 }, troops: army, setup });
-      w.advance(6 * 60 * 60_000);
-      const pulse = await w.world.sync(p);
+      const { pulse } = await raidWith(w, target, p, setup);
       return pulse.reports.find((r) => r.kind === 'raid')!.battle!;
     };
     const quick = await run(null);
@@ -780,5 +791,232 @@ describe('заморозка обороны', () => {
     expect(held.result.log).toEqual(never.result.log);
     // А если бы расстановка не значила ничего, проверять было бы нечего.
     expect(always.result.log).not.toEqual(never.result.log);
+  });
+});
+
+describe('туман войны', () => {
+  it('на старте видно своё поселение и минимум двух соседей', async () => {
+    // Не на одном сиде: чёрный экран на входе недопустим в любом мире.
+    for (const seed of [1, 7, 11, 23, 31, 42, 55, 88, 2024, 4242]) {
+      const w = makeWorld(seed);
+      await w.world.sync(profile());
+      const info = await w.world.info();
+      const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
+      expect(chunk.settlements.some((s) => s.mine), `сид ${seed}: своё поселение`).toBe(true);
+      const neighbours = chunk.settlements.filter((s) => !s.mine);
+      expect(neighbours.length, `сид ${seed}: соседей на старте`).toBeGreaterThanOrEqual(2);
+      // И они не «где-то там»: до них видно, куда идти.
+      for (const n of neighbours) expect(distance(info.home, n)).toBeLessThanOrEqual(HOME_SIGHT);
+    }
+  });
+
+  it('неразведанного поселения на карте нет вовсе — ни точки, ни карточки', async () => {
+    const w = makeWorld(11);
+    await w.world.sync(profile());
+    const info = await w.world.info();
+    const far = generateWorld(11).settlements
+      .filter((s) => distance(info.home, s) > HOME_SIGHT + 6)
+      .sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+    expect(far, 'в мире должно быть что-то за пределами стартового обзора').toBeTruthy();
+    const chunk = await w.world.region({ x: far.x - 2, y: far.y - 2, w: 5, h: 5 });
+    expect(chunk.settlements.some((s) => s.id === far.id)).toBe(false);
+    expect(await w.world.settlement(far.id)).toBeNull();
+  });
+
+  it('разведанная местность не затягивается обратно, а живые данные — да', async () => {
+    const w = makeWorld(11);
+    const p = profile();
+    await w.world.sync(p);
+    const info = await w.world.info();
+    const far = generateWorld(11).settlements
+      .filter((s) => distance(info.home, s) > HOME_SIGHT + 4)
+      .sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+
+    // Разведчик встаёт в трёх клетках: вплотную к сильному поселению его могут
+    // взять часовые, а обзора в восемь клеток хватает и отсюда.
+    expect(await w.world.moveFigure('scout', { x: far.x + 3, y: far.y })).toBeNull();
+    const walk = (await w.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    w.at(walk.arriveAt);
+    await w.world.sync(p);
+
+    const near = async () => (await w.world.region({ x: far.x - 1, y: far.y - 1, w: 3, h: 3 })).settlements
+      .find((s) => s.id === far.id);
+    const seen = await near();
+    expect(seen, 'пришли — увидели').toBeTruthy();
+    expect(seen!.visible).toBe(true);
+    expect(seen!.stale).toBe(false);
+    expect(seen!.seenPop).toBeGreaterThan(0);
+
+    // Уводим разведчика домой и ждём. Местность остаётся открытой навсегда.
+    expect(await w.world.recallFigure('scout')).toBeNull();
+    const back = (await w.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    w.at(back.arriveAt + 60_000);
+    await w.world.sync(p);
+
+    const later = await near();
+    expect(later, 'поселение с карты не пропадает').toBeTruthy();
+    expect(later!.visible).toBe(false);
+    expect(later!.stale, 'живые данные помечены устаревшими').toBe(true);
+    expect(later!.seenAt).toBe(seen!.seenAt);
+    expect(later!.seenPop).toBe(seen!.seenPop);
+    // И давность видна: карточке есть что сказать про возраст данных.
+    expect(w.now() - (later!.seenAt as number)).toBeGreaterThan(60_000);
+
+    const chunk = await w.world.region({ x: far.x - 1, y: far.y - 1, w: 3, h: 3 });
+    const ix = far.x - chunk.rect.x;
+    const iy = far.y - chunk.rect.y;
+    expect(chunk.explored[iy * chunk.rect.w + ix]).toBe(1);
+  });
+
+  it('размер сохранения: половина карты в маске — единицы килобайт', () => {
+    const w = makeWorld(11);
+    const fog = new FogMap();
+    // Открываем ровно половину сетки — верхнюю.
+    for (let y = 0; y < WORLD_SIZE / 2; y++) {
+      for (let x = 0; x < WORLD_SIZE; x++) fog.reveal(WORLD_ORIGIN.x + x, WORLD_ORIGIN.y + y);
+    }
+    expect(fog.count()).toBe((WORLD_SIZE * WORLD_SIZE) / 2);
+    const bytes = fogSaveBytes(fog.toJSON());
+    // Двадцать тысяч клеток списком строк вида «541|822» — это 195 КБ в JSON.
+    // Маска даёт 5.0 КБ, и потолок стоит рядом: если она вдруг вырастет вчетверо,
+    // тест обязан упасть, а не молча раздуть сохранение мира.
+    expect(bytes).toBeGreaterThan(4000);
+    expect(bytes).toBeLessThan(6000);
+    expect(w.world.exploredCells()).toBeGreaterThan(0);
+  });
+});
+
+describe('фигуры на карте', () => {
+  const far = (seed: number, home: { x: number; y: number }) =>
+    generateWorld(seed).settlements
+      .filter((s) => distance(home, s) > HOME_SIGHT + 4)
+      .sort((a, b) => distance(home, a) - distance(home, b))[0];
+
+  it('дошедшая за офлайн фигура оказывается там же, где и при непрерывной игре', async () => {
+    const info = await makeWorld(11).world.info();
+    const target = far(11, info.home);
+
+    // Непрерывная игра: пульс каждые полминуты всю дорогу.
+    const live = makeWorld(11);
+    await live.world.sync(profile());
+    expect(await live.world.moveFigure('scout', { x: target.x + 3, y: target.y })).toBeNull();
+    const trip = (await live.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    const end = trip.arriveAt + 5_000;
+    for (let t = START; t < end; t += 30_000) {
+      live.at(Math.min(t, end));
+      await live.world.sync(profile());
+    }
+    live.at(end);
+    const a = (await live.world.sync(profile())).figures.find((f) => f.id === 'scout') as FigureView;
+
+    // Офлайн: один пульс в самом конце.
+    const away = makeWorld(11);
+    await away.world.sync(profile());
+    expect(await away.world.moveFigure('scout', { x: target.x + 3, y: target.y })).toBeNull();
+    away.at(end);
+    const b = (await away.world.sync(profile())).figures.find((f) => f.id === 'scout') as FigureView;
+
+    expect(b.at).toEqual(a.at);
+    expect(b.phase).toBe(a.phase);
+    expect(b.atId).toBe(a.atId);
+    // И след в тумане тот же: коридор по дороге открыт в обоих случаях.
+    const mid = { x: Math.round((info.home.x + target.x) / 2), y: Math.round((info.home.y + target.y) / 2) };
+    const cell = async (world: LocalWorld) => {
+      const c = await world.region({ x: mid.x, y: mid.y, w: 1, h: 1 });
+      return c.explored[0];
+    };
+    expect(await cell(away.world)).toBe(1);
+    expect(await cell(away.world)).toBe(await cell(live.world));
+  });
+
+  it('погибшая фигура не теряется насовсем, а возвращается через положенное время', async () => {
+    const w = makeWorld(11);
+    const p = profile({ warriorPower: 1, units: { warrior: 1 }, army: { clubman: 1 } });
+    const castle = generateWorld(11).settlements.filter((s) => s.castle)[0];
+    // Один дубинщик против замка — полководца там и оставят.
+    const { pulse } = await raidWith(w, castle, p);
+    const down = pulse.figures.find((f) => f.id === 'general') as FigureView;
+    expect(down.phase).toBe('down');
+    expect(down.downUntil).toBeGreaterThan(w.now());
+
+    w.at(down.downUntil + 1000);
+    const back = (await w.world.sync(p)).figures.find((f) => f.id === 'general') as FigureView;
+    expect(back.phase).toBe('home');
+    expect(back.atHome).toBe(true);
+    expect(back.downUntil).toBe(0);
+  });
+
+  it('полководец берёт и возвращает гарнизон только вплотную к своей деревне', async () => {
+    const w = makeWorld(11);
+    const p = profile({ warriorPower: 4, army: { clubman: 6, archer: 4 } });
+    await w.world.sync(p);
+
+    // Дома — можно.
+    expect(await w.world.setGarrison({ clubman: 6, archer: 4 })).toBeNull();
+    let general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    expect(general.troops).toEqual({ clubman: 6, archer: 4 });
+    expect(general.power).toBeGreaterThan(0);
+
+    // Больше, чем стоит дома, взять нельзя.
+    expect(await w.world.setGarrison({ clubman: 99 })).toBeTruthy();
+
+    // В поле — нельзя ни забрать, ни вернуть.
+    const target = await nearest(w.world);
+    expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
+    general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    w.at(general.arriveAt);
+    await w.world.sync(p);
+    expect(await w.world.setGarrison({})).toBeTruthy();
+
+    // Вернулся домой — снова можно, и войско уходит обратно в деревню.
+    expect(await w.world.recallFigure('general')).toBeNull();
+    general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    w.at(general.arriveAt);
+    await w.world.sync(p);
+    expect(await w.world.setGarrison(null)).toBeNull();
+    general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    expect(troopTotal(general.troops)).toBe(0);
+  });
+
+  it('пока армия при полководце в поле, дома её нет', async () => {
+    const w = makeWorld(11);
+    const s = createInitialState();
+    s.army = { ...s.army, clubman: 10, spearman: 6 };
+    const before = defense(s);
+
+    await w.world.sync(playerProfile(s));
+    expect(await w.world.setGarrison({ clubman: 10, spearman: 6 })).toBeNull();
+    const target = await nearest(w.world);
+    expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
+    const pulse = await w.world.sync(playerProfile(s));
+
+    // Число ушедших выводится из фигур и походов, как и раньше — из походов.
+    syncAway(s, pulse.marches, pulse.figures);
+    expect(s.warriorsAway).toBe(16);
+    expect(defense(s)).toBeLessThan(before);
+    // Дома остаётся ополчение: частокол, башня и сами жители.
+    expect(defense(s)).toBeGreaterThan(0);
+    expect(troopTotal(homeTroops(s, awayTroops(pulse.marches, pulse.figures)))).toBe(0);
+  });
+
+  it('дипломат подписывает договор, и племя перестаёт ходить в набеги', async () => {
+    const w = makeWorld(11);
+    const p = profile();
+    await w.world.sync(p);
+    const target = (await nearest(w.world));
+    const card = await w.world.settlement(target.id);
+    if (!card?.tribeId) return; // ближайшие оказались варварами — договариваться не с кем
+
+    expect(await w.world.negotiate('truce'), 'до цели ещё надо дойти').toBeTruthy();
+    expect(await w.world.moveFigure('diplomat', { x: target.x, y: target.y })).toBeNull();
+    const walk = (await w.world.figures()).find((f) => f.id === 'diplomat') as FigureView;
+    w.at(walk.arriveAt);
+    await w.world.sync(p);
+
+    expect(await w.world.negotiate('truce')).toBeNull();
+    const deals = await w.world.deals();
+    expect(deals.some((d) => d.id === 'truce' && d.tribeId === card.tribeId)).toBe(true);
+    const again = await w.world.settlement(target.id);
+    expect(again?.deals.some((d) => d.id === 'truce')).toBe(true);
   });
 });
