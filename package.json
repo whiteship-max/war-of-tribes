@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "battle:report": "vite-node scripts/battle-report.ts",
     "pop:report": "vite-node scripts/pop-report.ts",
+    "world:report": "vite-node scripts/world-report.ts",
     "figure:report": "vite-node scripts/figure-report.ts",
     "battle:sweep": "vite-node scripts/battle-sweep.ts"
   },

@@ -6,6 +6,8 @@ import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
+import { FEATURE, cellCost, dropGeography, featuresAt, roadNet, tribeCenters } from './geography';
+import { TERRAIN_META } from './data/terrain';
 import { precisionOf, readIntel } from './intel';
 import { stackLosses } from './combat';
 import { resolveField } from './battle';
@@ -22,10 +24,17 @@ import {
   INTEL_EXACT,
   INTEL_ROUGH,
   INTEL_VAGUE,
+  COST_BRIDGE,
+  COST_FORD,
+  COST_PASS,
+  COST_RIDGE,
+  COST_RIVER,
+  COST_ROAD,
+  PATH_SAMPLES_PER_CELL,
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from './data/tuning';
-import type { FigureView, Intel, MarchView, PlayerProfile, SettlementView } from './types';
+import type { Coord, FigureView, Intel, MarchView, PlayerProfile, SettlementView } from './types';
 
 const START = 1_700_000_000_000;
 
@@ -136,6 +145,149 @@ describe('генерация мира', () => {
       expect(seen.has(key)).toBe(false);
       seen.add(key);
     }
+  });
+});
+
+describe('география: реки, переходы, тракты', () => {
+  const SEED = 4242;
+
+  /** Клетки русла без переправы на прямой между точками — их и переходят вброд. */
+  const swims = (seed: number, a: Coord, b: Coord): number => {
+    const dist = distance(a, b);
+    const samples = Math.max(3, Math.round(dist * PATH_SAMPLES_PER_CELL));
+    let n = 0;
+    for (let i = 0; i < samples; i++) {
+      const t = (i + 0.5) / samples;
+      const f = featuresAt(seed, Math.round(a.x + (b.x - a.x) * t), Math.round(a.y + (b.y - a.y) * t));
+      if (f & FEATURE.river && !(f & (FEATURE.bridge | FEATURE.ford))) n++;
+    }
+    return n;
+  };
+
+  it('один сид даёт одни и те же реки, мосты и дороги', () => {
+    const before: number[] = [];
+    for (let y = WORLD_ORIGIN.y; y < WORLD_ORIGIN.y + 40; y++) {
+      for (let x = WORLD_ORIGIN.x; x < WORLD_ORIGIN.x + 40; x++) before.push(featuresAt(SEED, x, y));
+    }
+    const roadsBefore = [...roadNet(SEED).cells].sort((a, b) => a - b);
+    // Кэш выброшен целиком: считается всё заново, из одного только сида.
+    dropGeography();
+    const after: number[] = [];
+    for (let y = WORLD_ORIGIN.y; y < WORLD_ORIGIN.y + 40; y++) {
+      for (let x = WORLD_ORIGIN.x; x < WORLD_ORIGIN.x + 40; x++) after.push(featuresAt(SEED, x, y));
+    }
+    expect(after).toEqual(before);
+    expect([...roadNet(SEED).cells].sort((a, b) => a - b)).toEqual(roadsBefore);
+    expect(tribeCenters(SEED)).toEqual(tribeCenters(SEED));
+    // Другой сид — другие реки: иначе карта была бы одна на все партии.
+    expect([...roadNet(SEED + 1).cells]).not.toEqual(roadsBefore);
+  });
+
+  it('на карте есть и реки, и переправы, и хребты с перевалами', () => {
+    let river = 0;
+    let crossing = 0;
+    let ridge = 0;
+    let pass = 0;
+    for (let y = WORLD_ORIGIN.y; y < WORLD_ORIGIN.y + WORLD_SIZE; y += 2) {
+      for (let x = WORLD_ORIGIN.x; x < WORLD_ORIGIN.x + WORLD_SIZE; x += 2) {
+        const f = featuresAt(SEED, x, y);
+        if (f & FEATURE.river) river++;
+        if (f & (FEATURE.bridge | FEATURE.ford)) crossing++;
+        if (f & FEATURE.ridge) ridge++;
+        if (f & FEATURE.pass) pass++;
+      }
+    }
+    expect(river).toBeGreaterThan(100);
+    expect(ridge).toBeGreaterThan(20);
+    // Переход — редкость: на нём и держится ценность моста.
+    expect(crossing).toBeGreaterThan(0);
+    expect(crossing * 4).toBeLessThan(river);
+    expect(pass).toBeGreaterThan(0);
+    expect(pass * 2).toBeLessThan(ridge);
+  });
+
+  it('река — преграда, а не просто дорогая клетка', () => {
+    // Порядок обязан быть таким: дорога дешевле равнины, мост её почти не
+    // замечает, брод заметен, а лезть в воду без переправы дорого по-настоящему.
+    expect(COST_ROAD).toBeLessThan(1);
+    expect(COST_BRIDGE).toBeLessThan(COST_FORD);
+    expect(COST_FORD).toBeLessThan(COST_RIVER);
+    expect(COST_RIVER).toBeGreaterThan(TERRAIN_META.water.cost * 2);
+    expect(COST_PASS).toBeLessThan(COST_RIDGE);
+  });
+
+  it('море вдвое медленнее прежнего: плыть можно, но невыгодно', () => {
+    expect(TERRAIN_META.water.cost).toBeGreaterThanOrEqual(3.5);
+    expect(TERRAIN_META.water.cost).toBeLessThanOrEqual(4);
+    expect(TERRAIN_META.water.cost).toBeGreaterThan(TERRAIN_META.hills.cost * 2);
+  });
+
+  it('путь через мост заметно быстрее пути вплавь через ту же реку', () => {
+    // Пример настоящий, а не выдуманный: мост берётся с карты, берега — по
+    // разные стороны русла в стороне от него.
+    const home = generateWorld(SEED).home;
+    let checked = 0;
+    for (let y = home.y - 20; y <= home.y + 20 && checked < 3; y++) {
+      for (let x = home.x - 20; x <= home.x + 20 && checked < 3; x++) {
+        if (!(featuresAt(SEED, x, y) & FEATURE.bridge)) continue;
+        const bridge = { x, y };
+        for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]] as [number, number][]) {
+          // Русло берётся недалеко от моста: на большом отдалении крюк перестаёт
+          // окупаться, и это правильно — река не бесконечно дорога.
+          for (const away of [5, 6, 7, 8]) {
+            const r = { x: x + dx * away, y: y + dy * away };
+            const f = featuresAt(SEED, r.x, r.y);
+            if (!(f & FEATURE.river) || f & (FEATURE.bridge | FEATURE.ford)) continue;
+            for (const [nx, ny] of [[1, 0], [0, 1], [1, 1], [1, -1]] as [number, number][]) {
+              const a = { x: r.x - nx * 4, y: r.y - ny * 4 };
+              const b = { x: r.x + nx * 4, y: r.y + ny * 4 };
+              if (swims(SEED, a, b) === 0) continue;
+              if (swims(SEED, a, bridge) > 0 || swims(SEED, bridge, b) > 0) continue;
+              const direct = travelSeconds(SEED, a, b, { warrior: 5 });
+              const via = travelSeconds(SEED, a, bridge, { warrior: 5 }) + travelSeconds(SEED, bridge, b, { warrior: 5 });
+              // Крюк длиннее по расстоянию — и всё равно быстрее по времени.
+              expect(distance(a, bridge) + distance(bridge, b)).toBeGreaterThan(distance(a, b));
+              expect(via).toBeLessThan(direct);
+              checked++;
+              break;
+            }
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('по тракту идут быстрее, чем по целине', () => {
+    const net = roadNet(SEED);
+    expect(net.edges.length).toBeGreaterThan(0);
+    let sameCell = 0;
+    for (const key of net.cells) {
+      const x = WORLD_ORIGIN.x + Math.floor(key / 4096);
+      const y = WORLD_ORIGIN.y + (key % 4096);
+      expect(featuresAt(SEED, x, y) & FEATURE.road).toBeTruthy();
+      // Тракт быстрее любой целины — и равнины тоже.
+      expect(cellCost(SEED, x, y)).toBeLessThan(TERRAIN_META.plain.cost);
+      sameCell++;
+    }
+    expect(sameCell).toBeGreaterThan(100);
+  });
+
+  it('дорога, дошедшая до реки, ставит мост', () => {
+    for (const key of roadNet(SEED).cells) {
+      const x = WORLD_ORIGIN.x + Math.floor(key / 4096);
+      const y = WORLD_ORIGIN.y + (key % 4096);
+      const f = featuresAt(SEED, x, y);
+      if (f & FEATURE.river) expect(f & FEATURE.bridge).toBeTruthy();
+    }
+  });
+
+  it('поселения не садятся в русло и не громоздятся на хребте', () => {
+    const w = generateWorld(SEED);
+    for (const s of w.settlements) {
+      expect(featuresAt(w.seed, s.x, s.y) & (FEATURE.river | FEATURE.ridge)).toBe(0);
+    }
+    expect(featuresAt(w.seed, w.home.x, w.home.y) & (FEATURE.river | FEATURE.ridge)).toBe(0);
   });
 });
 

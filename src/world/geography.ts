@@ -1,0 +1,487 @@
+// География мира: из чего складывается местность и во что она обходится отряду.
+//
+// Раньше карта была равномерной россыпью клеток с множителями: равнина дешевле,
+// холмы дороже, и всё. Такая местность не рождает решений — куда ни иди, разница
+// в проценты. Здесь она рождает: река — преграда, а не дорогая клетка; перейти
+// её можно у моста или брода, и эти места редки; в холмах есть хребты, и через
+// них ведут перевалы; между племенными станами проложены дороги, по которым идут
+// вдвое быстрее целины.
+//
+// Всё выводится из сида чистыми функциями — ни одного `Math.random()`, ни одного
+// хранимого байта. Сервер, получив тот же сид, получит те же реки, те же мосты и
+// те же дороги; клиент считает их у себя только потому, что сервера пока нет.
+//
+// Зависимость здесь односторонняя: `geo.ts` (расстояния и время пути) и `gen.ts`
+// (поселения) читают этот модуль, а он не знает про них ничего. Иначе дороги,
+// которым нужны станы, и станы, которым нужна проходимость, замкнулись бы в круг.
+import { seeded } from '@/game/sim/random';
+import type { Coord, Terrain } from './types';
+import { terrainCost } from './data/terrain';
+import {
+  CROSSING_BLOCK,
+  CROSSING_RADIUS,
+  PASS_BLOCK,
+  PASS_RADIUS,
+  RIDGE_SCALE,
+  RIDGE_WIDTH,
+  RIVER_SCALE,
+  RIVER_WIDTH,
+  RIVER_WIGGLE,
+  RIVER_WIGGLE_SCALE,
+  ROAD_CORRIDOR,
+  ROAD_MAX_LENGTH,
+  TRIBE_COUNT,
+  TRIBE_GAP,
+  WORLD_ORIGIN,
+  WORLD_SIZE,
+  COST_BRIDGE,
+  COST_FORD,
+  COST_PASS,
+  COST_RIDGE,
+  COST_RIVER,
+  COST_ROAD,
+} from './data/tuning';
+
+// ---------- Шум ----------
+
+/** Хеш клетки в 0..1. Детерминирован по сиду. */
+export function hash2(seed: number, x: number, y: number): number {
+  let h = (seed ^ Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(y | 0, 0x165667b1)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+
+const smooth = (t: number): number => t * t * (3 - 2 * t);
+
+/** Гладкий шум: решётка хешей, между узлами — сглаженная интерполяция. */
+export function noise(seed: number, x: number, y: number, scale: number): number {
+  const fx = x / scale;
+  const fy = y / scale;
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = smooth(fx - x0);
+  const ty = smooth(fy - y0);
+  const a = hash2(seed, x0, y0);
+  const b = hash2(seed, x0 + 1, y0);
+  const c = hash2(seed, x0, y0 + 1);
+  const d = hash2(seed, x0 + 1, y0 + 1);
+  return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+}
+
+/**
+ * Ландшафт клетки. Крупная волна задаёт материк и озёра, мелкая рвёт границы,
+ * чтобы лес не лежал ровными пятнами.
+ */
+export function terrainAt(seed: number, x: number, y: number): Terrain {
+  const n = noise(seed, x, y, 17) * 0.62 + noise(seed + 8191, x, y, 5.5) * 0.38;
+  if (n < 0.34) return 'water';
+  if (n < 0.54) return 'plain';
+  if (n < 0.68) return 'forest';
+  return 'hills';
+}
+
+// ---------- Линии: реки и хребты ----------
+
+/**
+ * Река и хребет — это линия уровня гладкого поля, а не россыпь «речных» клеток.
+ * Линия уровня непрерывна по построению: она не рвётся, не ветвится в кашу и
+ * тянется через полкарты — ровно то, что и нужно от реки.
+ *
+ * Ширина держится постоянной делением на длину градиента: без него линия
+ * расплывалась бы в озеро там, где поле пологое, и исчезала бы там, где круто.
+ */
+function lineAt(seed: number, x: number, y: number, field: (x: number, y: number) => number, width: number): boolean {
+  const v = field(x, y) - 0.5;
+  const gx = (field(x + 1, y) - field(x - 1, y)) / 2;
+  const gy = (field(x, y + 1) - field(x, y - 1)) / 2;
+  const g = Math.hypot(gx, gy);
+  if (g < 1e-7) return false;
+  return Math.abs(v) / g <= width;
+}
+
+const RIVER_SALT = 0x51ed;
+const RIDGE_SALT = 0x2f0b;
+
+const riverField = (seed: number) => (x: number, y: number): number =>
+  noise(seed + RIVER_SALT, x, y, RIVER_SCALE) * (1 - RIVER_WIGGLE) +
+  noise(seed + RIVER_SALT + 977, x, y, RIVER_WIGGLE_SCALE) * RIVER_WIGGLE;
+
+const ridgeField = (seed: number) => (x: number, y: number): number => noise(seed + RIDGE_SALT, x, y, RIDGE_SCALE);
+
+/** Река течёт по суше: в озере её не видно, там и так вода. */
+function isRiver(seed: number, x: number, y: number): boolean {
+  if (terrainAt(seed, x, y) === 'water') return false;
+  return lineAt(seed, x, y, riverField(seed), RIVER_WIDTH);
+}
+
+/** Хребет бывает только в холмах: на равнине горам взяться неоткуда. */
+function isRidge(seed: number, x: number, y: number): boolean {
+  if (terrainAt(seed, x, y) !== 'hills') return false;
+  return lineAt(seed, x, y, ridgeField(seed), RIDGE_WIDTH);
+}
+
+// ---------- Переходы: мосты, броды, перевалы ----------
+
+/**
+ * Переход выбирается один на блок клеток, а не разыгрывается в каждой: иначе
+ * броды сыпались бы кучками и река перестала бы делить карту. Внутри блока
+ * берётся та клетка линии, у которой хеш меньше всех, — правило детерминированное
+ * и не зависит от того, с какой стороны к блоку подошли.
+ */
+interface Node {
+  at: Coord;
+  /** Мост или брод; у хребта — всегда перевал. */
+  bridge: boolean;
+}
+
+function pickNode(
+  seed: number,
+  bx: number,
+  by: number,
+  block: number,
+  on: (seed: number, x: number, y: number) => boolean,
+  salt: number,
+): Node | null {
+  let best: Coord | null = null;
+  let bestH = Infinity;
+  for (let y = by; y < by + block; y++) {
+    for (let x = bx; x < bx + block; x++) {
+      if (!on(seed, x, y)) continue;
+      const h = hash2(seed + salt, x, y);
+      if (h < bestH) {
+        bestH = h;
+        best = { x, y };
+      }
+    }
+  }
+  if (!best) return null;
+  // Мост или брод решает тот же хеш: у брода ноги мокрые, у моста нет.
+  return { at: best, bridge: hash2(seed + salt + 31, best.x, best.y) < 0.5 };
+}
+
+const floorTo = (v: number, block: number): number => Math.floor(v / block) * block;
+
+interface Caches {
+  seed: number;
+  crossings: Map<string, Node | null>;
+  passes: Map<string, Node | null>;
+  natural: Map<number, number>;
+  cost: Map<number, number>;
+  roads: RoadNet | null;
+}
+
+let caches: Caches = { seed: NaN, crossings: new Map(), passes: new Map(), natural: new Map(), cost: new Map(), roads: null };
+
+/** Новый сид — новая география. Кэш чужого мира держать нельзя. */
+export function dropGeography(): void {
+  caches = { seed: NaN, crossings: new Map(), passes: new Map(), natural: new Map(), cost: new Map(), roads: null };
+}
+
+function cachesFor(seed: number): Caches {
+  if (caches.seed !== seed) {
+    dropGeography();
+    caches.seed = seed;
+  }
+  return caches;
+}
+
+function nodeOf(seed: number, x: number, y: number, block: number, kind: 'crossing' | 'pass'): Node | null {
+  const bx = floorTo(x, block);
+  const by = floorTo(y, block);
+  const c = cachesFor(seed);
+  const store = kind === 'crossing' ? c.crossings : c.passes;
+  const key = `${bx}|${by}`;
+  const have = store.get(key);
+  if (have !== undefined) return have;
+  const node =
+    kind === 'crossing'
+      ? pickNode(seed, bx, by, block, isRiver, 0x77a1)
+      : pickNode(seed, bx, by, block, isRidge, 0x1b93);
+  store.set(key, node);
+  return node;
+}
+
+/** Переход в клетке: он же накрывает соседние — река шириной в клетку не всегда. */
+function nodeAt(seed: number, x: number, y: number, block: number, radius: number, kind: 'crossing' | 'pass'): Node | null {
+  for (let by = -1; by <= 1; by++) {
+    for (let bx = -1; bx <= 1; bx++) {
+      const node = nodeOf(seed, x + bx * block, y + by * block, block, kind);
+      if (!node) continue;
+      if (Math.hypot(node.at.x - x, node.at.y - y) <= radius) return node;
+    }
+  }
+  return null;
+}
+
+// ---------- Признаки клетки ----------
+
+/** Что есть в клетке, битами. Ими же кусок карты едет в интерфейс. */
+export const FEATURE = {
+  river: 1,
+  bridge: 2,
+  ford: 4,
+  ridge: 8,
+  pass: 16,
+  road: 32,
+} as const;
+
+const cellKey = (x: number, y: number): number => (x - WORLD_ORIGIN.x) * 4096 + (y - WORLD_ORIGIN.y);
+
+/**
+ * Природные признаки — всё, кроме дорог. Отдельно от `featuresAt` они нужны по
+ * одной причине: дороги прокладываются по этой самой проходимости, и если бы
+ * они входили в неё, прокладка звала бы сама себя.
+ */
+function naturalAt(seed: number, x: number, y: number): number {
+  const c = cachesFor(seed);
+  const key = cellKey(x, y);
+  const have = c.natural.get(key);
+  if (have !== undefined) return have;
+  let bits = 0;
+  if (isRiver(seed, x, y)) {
+    bits |= FEATURE.river;
+    const node = nodeAt(seed, x, y, CROSSING_BLOCK, CROSSING_RADIUS, 'crossing');
+    if (node) bits |= node.bridge ? FEATURE.bridge : FEATURE.ford;
+  } else if (isRidge(seed, x, y)) {
+    bits |= FEATURE.ridge;
+    if (nodeAt(seed, x, y, PASS_BLOCK, PASS_RADIUS, 'pass')) bits |= FEATURE.pass;
+  }
+  c.natural.set(key, bits);
+  return bits;
+}
+
+/**
+ * Признаки клетки целиком. Дорога, дошедшая до реки, ставит мост: тракт между
+ * станами не может обрываться на берегу.
+ */
+export function featuresAt(seed: number, x: number, y: number): number {
+  const bits = naturalAt(seed, x, y);
+  if (!roadNet(seed).cells.has(cellKey(x, y))) return bits;
+  const withRoad = bits | FEATURE.road;
+  return bits & FEATURE.river ? (withRoad & ~FEATURE.ford) | FEATURE.bridge : withRoad;
+}
+
+// ---------- Проходимость ----------
+
+/**
+ * Во сколько раз клетка медленнее равнины. Порядок проверок — это и есть правила
+ * местности словами: по дороге быстрее всего, мост снимает реку, брод её
+ * смягчает, река без перехода — преграда, перевал снимает хребет.
+ */
+export function cellCost(seed: number, x: number, y: number): number {
+  const c = cachesFor(seed);
+  const key = cellKey(x, y);
+  const have = c.cost.get(key);
+  if (have !== undefined) return have;
+  const cost = costFrom(featuresAt(seed, x, y), terrainAt(seed, x, y));
+  c.cost.set(key, cost);
+  return cost;
+}
+
+function costFrom(bits: number, t: Terrain): number {
+  if (bits & FEATURE.road) return COST_ROAD;
+  if (bits & FEATURE.bridge) return COST_BRIDGE;
+  if (bits & FEATURE.ford) return COST_FORD;
+  if (bits & FEATURE.river) return COST_RIVER;
+  if (bits & FEATURE.pass) return COST_PASS;
+  if (bits & FEATURE.ridge) return COST_RIDGE;
+  return terrainCost(t);
+}
+
+/** Проходимость без дорог — по ней дороги и прокладываются. */
+const rawCost = (seed: number, x: number, y: number): number => costFrom(naturalAt(seed, x, y), terrainAt(seed, x, y));
+
+// ---------- Станы племён ----------
+
+const inWorld = (x: number, y: number): boolean =>
+  x >= WORLD_ORIGIN.x && y >= WORLD_ORIGIN.y && x < WORLD_ORIGIN.x + WORLD_SIZE && y < WORLD_ORIGIN.y + WORLD_SIZE;
+
+/**
+ * Где вообще можно поставить двор: не в воде, не в русле и не на хребте. Правило
+ * одно на станы и на поселения — иначе тракт упирался бы в город, стоящий в реке.
+ */
+export function buildable(seed: number, x: number, y: number): boolean {
+  if (terrainAt(seed, x, y) === 'water') return false;
+  return (naturalAt(seed, x, y) & (FEATURE.river | FEATURE.ridge)) === 0;
+}
+
+let centersSeed = NaN;
+let centersCache: Coord[] = [];
+
+/**
+ * Центры племён. Живут здесь, а не в генерации поселений, потому что нужны двоим:
+ * генерация ставит вокруг них ботов, а география тянет между ними дороги. Считать
+ * их дважды нельзя — тракты пошли бы не туда, где стоят станы.
+ */
+export function tribeCenters(seed: number): Coord[] {
+  if (centersSeed === seed) return centersCache;
+  const rng = seeded(seed ^ 0x5bf03635);
+  const out: Coord[] = [];
+  for (let i = 0; i < TRIBE_COUNT; i++) {
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const x = Math.round(WORLD_ORIGIN.x + WORLD_SIZE * (0.1 + rng() * 0.8));
+      const y = Math.round(WORLD_ORIGIN.y + WORLD_SIZE * (0.1 + rng() * 0.8));
+      if (!inWorld(x, y) || !buildable(seed, x, y)) continue;
+      if (out.some((c) => Math.hypot(c.x - x, c.y - y) < TRIBE_GAP)) continue;
+      out.push({ x, y });
+      break;
+    }
+  }
+  centersSeed = seed;
+  centersCache = out;
+  return out;
+}
+
+// ---------- Дороги ----------
+
+export interface RoadNet {
+  /** Клетки тракта, ключом `cellKey`. */
+  cells: Set<number>;
+  /** Пары станов, которые тракт соединил, — для проверок и отладки. */
+  edges: [Coord, Coord][];
+}
+
+/**
+ * Тракт между двумя станами. Не прямая: дорога идёт по самой дешёвой полосе
+ * внутри коридора вокруг прямой, поэтому сама находит броды, перевалы и обходит
+ * озёра. Отсюда и берутся узлы на карте — их никто не расставлял руками.
+ */
+function road(seed: number, a: Coord, b: Coord): number[] {
+  const half = ROAD_CORRIDOR;
+  const x0 = Math.max(WORLD_ORIGIN.x, Math.min(a.x, b.x) - half);
+  const y0 = Math.max(WORLD_ORIGIN.y, Math.min(a.y, b.y) - half);
+  const x1 = Math.min(WORLD_ORIGIN.x + WORLD_SIZE - 1, Math.max(a.x, b.x) + half);
+  const y1 = Math.min(WORLD_ORIGIN.y + WORLD_SIZE - 1, Math.max(a.y, b.y) + half);
+  const w = x1 - x0 + 1;
+  const h = y1 - y0 + 1;
+  if (w <= 0 || h <= 0) return [];
+
+  const idx = (x: number, y: number): number => (y - y0) * w + (x - x0);
+  const dist = new Float64Array(w * h).fill(Infinity);
+  const prev = new Int32Array(w * h).fill(-1);
+  const done = new Uint8Array(w * h);
+  const start = idx(a.x, a.y);
+  const goal = idx(b.x, b.y);
+  dist[start] = 0;
+
+  // Куча на массиве: узлов тут тысячи, а не миллионы, и городить структуру ради
+  // одной прокладки при генерации мира незачем.
+  const heap: [number, number][] = [[0, start]];
+  const push = (d: number, i: number): void => {
+    heap.push([d, i]);
+    let k = heap.length - 1;
+    while (k > 0) {
+      const p = (k - 1) >> 1;
+      if (heap[p][0] <= heap[k][0]) break;
+      [heap[p], heap[k]] = [heap[k], heap[p]];
+      k = p;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0];
+    const last = heap.pop() as [number, number];
+    if (heap.length > 0) {
+      heap[0] = last;
+      let k = 0;
+      for (;;) {
+        const l = k * 2 + 1;
+        const r = l + 1;
+        let m = k;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === k) break;
+        [heap[m], heap[k]] = [heap[k], heap[m]];
+        k = m;
+      }
+    }
+    return top;
+  };
+
+  while (heap.length > 0) {
+    const [d, i] = pop();
+    if (done[i]) continue;
+    done[i] = 1;
+    if (i === goal) break;
+    const cx = x0 + (i % w);
+    const cy = y0 + Math.floor(i / w);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
+        const j = idx(nx, ny);
+        if (done[j]) continue;
+        const step = Math.hypot(dx, dy) * rawCost(seed, nx, ny);
+        const nd = d + step;
+        if (nd >= dist[j]) continue;
+        dist[j] = nd;
+        prev[j] = i;
+        push(nd, j);
+      }
+    }
+  }
+
+  if (!done[goal]) return [];
+  const path: number[] = [];
+  for (let i = goal; i !== -1; i = prev[i]) {
+    path.push(cellKey(x0 + (i % w), y0 + Math.floor(i / w)));
+    if (i === start) break;
+  }
+  return path;
+}
+
+/** Дороги мира: каждый стан соединён с ближайшими соседями, но не со всеми подряд. */
+function buildRoads(seed: number): RoadNet {
+  const centers = tribeCenters(seed);
+  const cells = new Set<number>();
+  const edges: [Coord, Coord][] = [];
+  // Остов по ближайшему соседу (алгоритм Прима): дороги связывают карту целиком,
+  // но не превращают её в паутину из всех пар.
+  const joined = new Set<number>();
+  if (centers.length > 0) joined.add(0);
+  while (joined.size < centers.length) {
+    let bestA = -1;
+    let bestB = -1;
+    let best = Infinity;
+    for (const i of joined) {
+      for (let j = 0; j < centers.length; j++) {
+        if (joined.has(j)) continue;
+        const d = Math.hypot(centers[i].x - centers[j].x, centers[i].y - centers[j].y);
+        if (d < best) {
+          best = d;
+          bestA = i;
+          bestB = j;
+        }
+      }
+    }
+    if (bestB < 0) break;
+    joined.add(bestB);
+    if (best <= ROAD_MAX_LENGTH) {
+      edges.push([centers[bestA], centers[bestB]]);
+      // Тракт шире одной клетки нарочно. Отряды в игре ходят по прямой, а не по
+      // нашей колее; узкая дорога давала бы выигрыш только там, где она сама
+      // оказалась прямой, и смысл её терялся бы на первом же повороте.
+      for (const c of road(seed, centers[bestA], centers[bestB])) {
+        const x = WORLD_ORIGIN.x + Math.floor(c / 4096);
+        const y = WORLD_ORIGIN.y + (c % 4096);
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (inWorld(nx, ny)) cells.add(cellKey(nx, ny));
+          }
+        }
+      }
+    }
+  }
+  return { cells, edges };
+}
+
+export function roadNet(seed: number): RoadNet {
+  const c = cachesFor(seed);
+  if (!c.roads) c.roads = buildRoads(seed);
+  return c.roads;
+}

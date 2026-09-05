@@ -2,9 +2,17 @@
 // Всё здесь — чистые функции от сида и координат: одинаковый сид даёт одинаковый мир
 // и одинаковую дорогу, поэтому расчёт можно будет один в один повторить на сервере.
 import type { Coord, MarchView, Terrain, UnitStack } from './types';
-import { TERRAIN_ORDER, terrainCost } from './data/terrain';
+import { TERRAIN_ORDER } from './data/terrain';
 import { stackSpeed } from './data/units';
-import { MARCH_MIN_SECONDS, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
+import { cellCost, terrainAt } from './geography';
+import { MARCH_MIN_SECONDS, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
+
+/**
+ * Потолок числа замеров на один путь. Он не про баланс, а про то, чтобы поход
+ * через всю карту не считался вечно; при шаге в полклетки на две сотни клеток
+ * его не достать.
+ */
+const PATH_SAMPLES_MAX = 600;
 
 export const coordKey = (x: number, y: number): string => `${x}|${y}`;
 
@@ -32,65 +40,37 @@ export const distance = (a: Coord, b: Coord): number => Math.hypot(a.x - b.x, a.
 
 // ---------- Ландшафт ----------
 
-/** Хеш клетки в 0..1. Детерминирован по сиду. */
-function hash2(seed: number, x: number, y: number): number {
-  let h = (seed ^ Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(y | 0, 0x165667b1)) >>> 0;
-  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
-}
-
-const smooth = (t: number): number => t * t * (3 - 2 * t);
-
-/** Гладкий шум: решётка хешей, между узлами — сглаженная интерполяция. */
-function noise(seed: number, x: number, y: number, scale: number): number {
-  const fx = x / scale;
-  const fy = y / scale;
-  const x0 = Math.floor(fx);
-  const y0 = Math.floor(fy);
-  const tx = smooth(fx - x0);
-  const ty = smooth(fy - y0);
-  const a = hash2(seed, x0, y0);
-  const b = hash2(seed, x0 + 1, y0);
-  const c = hash2(seed, x0, y0 + 1);
-  const d = hash2(seed, x0 + 1, y0 + 1);
-  return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
-}
-
-/**
- * Ландшафт клетки. Крупная волна задаёт материк и озёра, мелкая рвёт границы,
- * чтобы лес не лежал ровными пятнами.
- */
-export function terrainAt(seed: number, x: number, y: number): Terrain {
-  const n = noise(seed, x, y, 17) * 0.62 + noise(seed + 8191, x, y, 5.5) * 0.38;
-  if (n < 0.34) return 'water';
-  if (n < 0.54) return 'plain';
-  if (n < 0.68) return 'forest';
-  return 'hills';
-}
+/* Сам ландшафт, реки, хребты и дороги живут в `geography.ts`: там всё, что
+   выводится из сида по клетке. Здесь остаётся только расстояние и время. */
+export { terrainAt };
 
 export const terrainIndex = (t: Terrain): number => TERRAIN_ORDER.indexOf(t);
 
 /**
  * Средняя проходимость по прямой между клетками.
  *
- * Точки замера берутся в серединах равных отрезков, а концы предварительно
- * приводятся к одному порядку — поэтому путь туда и обратно считается по тем же
- * клеткам и время пути симметрично при любой арифметике с плавающей точкой.
+ * Замеры идут с постоянным шагом в долю клетки, а не фиксированным числом на
+ * весь путь. Разница принципиальная: при постоянном шаге сумма замеров — это
+ * настоящий интеграл вдоль линии, и река отнимает одно и то же время что на
+ * коротком пути, что на длинном. При фиксированном числе замеров она растворялась
+ * бы в длине — преграда переставала быть преградой ровно там, где важнее всего.
+ *
+ * Концы предварительно приводятся к одному порядку, поэтому путь туда и обратно
+ * считается по тем же точкам и время пути симметрично при любой арифметике с
+ * плавающей точкой.
  */
 export function terrainFactor(seed: number, from: Coord, to: Coord): number {
   const flip = to.x < from.x || (to.x === from.x && to.y < from.y);
   const a = flip ? to : from;
   const b = flip ? from : to;
   const dist = distance(a, b);
-  const samples = Math.max(3, Math.min(24, Math.round(dist)));
+  const samples = Math.max(3, Math.min(PATH_SAMPLES_MAX, Math.round(dist * PATH_SAMPLES_PER_CELL)));
   let sum = 0;
   for (let i = 0; i < samples; i++) {
     const t = (i + 0.5) / samples;
     const x = Math.round(a.x + (b.x - a.x) * t);
     const y = Math.round(a.y + (b.y - a.y) * t);
-    sum += terrainCost(terrainAt(seed, x, y));
+    sum += cellCost(seed, x, y);
   }
   return sum / samples;
 }

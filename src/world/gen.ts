@@ -5,7 +5,8 @@ import type { ResourceId } from '@/game/types';
 import { seeded } from '@/game/sim/random';
 import { pickName } from '@/game/data/names';
 import type { Coord, SettlementId, TribeId } from './types';
-import { coordKey, distance, terrainAt } from './geo';
+import { coordKey, distance } from './geo';
+import { buildable, tribeCenters } from './geography';
 import {
   BARBARIAN_BLOCK,
   BARBARIAN_CHANCE,
@@ -21,8 +22,6 @@ import {
   POWER_PER_TILE,
   SETTLEMENTS_MAX,
   SETTLEMENTS_MIN,
-  TRIBE_COUNT,
-  TRIBE_GAP,
   TRIBE_RADIUS,
   WORLD_ORIGIN,
   WORLD_SIZE,
@@ -74,9 +73,9 @@ const hi = { x: WORLD_ORIGIN.x + WORLD_SIZE, y: WORLD_ORIGIN.y + WORLD_SIZE };
 
 const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
 
-/** Клетка внутри мира и не под водой — только там ставят поселения. */
+/** Клетка внутри мира и пригодна под двор: не вода, не русло, не хребет. */
 const habitable = (seed: number, x: number, y: number): boolean =>
-  x >= lo.x && y >= lo.y && x < hi.x && y < hi.y && terrainAt(seed, x, y) !== 'water';
+  x >= lo.x && y >= lo.y && x < hi.x && y < hi.y && buildable(seed, x, y);
 
 /**
  * Ищет свободную сушу рядом с точкой: сама точка, потом кольца вокруг.
@@ -113,17 +112,9 @@ export function generateWorld(seed: number): WorldGen {
   const byKey = new Map<string, GenSettlement>();
   let counter = 1;
 
-  // 1. Центры племён — врозь, чтобы кланы читались отдельными пятнами.
-  for (let i = 0; i < TRIBE_COUNT; i++) {
-    let center: Coord | null = null;
-    for (let attempt = 0; attempt < 80 && !center; attempt++) {
-      const x = Math.round(lo.x + WORLD_SIZE * (0.1 + rng() * 0.8));
-      const y = Math.round(lo.y + WORLD_SIZE * (0.1 + rng() * 0.8));
-      if (!habitable(seed, x, y)) continue;
-      if (tribes.some((t) => distance(t.center, { x, y }) < TRIBE_GAP)) continue;
-      center = { x, y };
-    }
-    if (!center) continue;
+  // 1. Центры племён приходят из географии: между ними проложены тракты, и
+  // считать их здесь во второй раз нельзя — дороги пошли бы не к тем станам.
+  for (const [i, center] of tribeCenters(seed).entries()) {
     tribes.push({
       id: `t${i}`,
       name: TRIBE_NAMES[i % TRIBE_NAMES.length],
