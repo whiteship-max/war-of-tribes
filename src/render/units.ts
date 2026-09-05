@@ -134,8 +134,10 @@ export const FOLK_KINDS = 3;
  */
 export function dressVillager(f: Figure, kind: number): void {
   const k = ((kind % FOLK_KINDS) + FOLK_KINDS) % FOLK_KINDS;
-  const height = [MAN_HEIGHT, MAN_HEIGHT * 0.97, MAN_HEIGHT * 0.94][k];
-  const build = [0.96, 1, 0.92][k];
+  // Рост и сложение у покроев разные: одежда одеждой, но толпа не должна быть
+  // одним человеком в трёх рубахах.
+  const height = MAN_HEIGHT * [1, 0.93, 0.89][k];
+  const build = [0.94, 1.08, 0.92][k];
   const cloth = FOLK_TINT[k];
   const rig = humanRig(height, build);
   const b = bodyOf(rig, build);
@@ -174,16 +176,20 @@ export function dressVillager(f: Figure, kind: number): void {
  */
 export const gearTier = (troop: TroopId): number => gearOfTroop(troop);
 
-/** Сложение по виду: латник шире дубинщика — это видно раньше, чем его доспех. */
-const BUILD: Record<TroopId, number> = {
-  clubman: 0.94,
-  spearman: 1,
-  archer: 0.95,
-  axeman: 1.06,
-  swordsman: 1,
-  shieldman: 1.06,
-  rider: 1,
-  legionary: 1.14,
+/**
+ * Рост и сложение по виду. Оружие с полуоборота может уйти за корпус, а рост
+ * и ширина видны всегда — поэтому лестница различается ещё и сложением:
+ * дубинщик — мужик поменьше, латник — крупный человек в железе.
+ */
+const SIZE: Record<TroopId, { height: number; build: number }> = {
+  clubman: { height: 0.95, build: 0.92 },
+  spearman: { height: 1, build: 1 },
+  archer: { height: 0.98, build: 0.93 },
+  axeman: { height: 1.02, build: 1.08 },
+  swordsman: { height: 1, build: 1 },
+  shieldman: { height: 1, build: 1.08 },
+  rider: { height: 1, build: 1 },
+  legionary: { height: 1.05, build: 1.16 },
 };
 
 /**
@@ -218,8 +224,8 @@ function armorUp(f: Figure, b: Body, tier: number): void {
 
 /** Круглый щит на левой руке. */
 function roundShield(f: Figure, b: Body, size: number): void {
-  addSlot(f, 'shield', 'armL', PALETTE.woodDark, [0, -b.rig.armLen * 0.82, size * 0.18], [size, size, size * 0.08]);
-  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.82, size * 0.24], [size * 0.24, size * 0.24, size * 0.06]);
+  addSlot(f, 'shield', 'armL', PALETTE.woodDark, [0, -b.rig.armLen * 0.72, size * 0.18], [size, size, size * 0.08]);
+  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.72, size * 0.24], [size * 0.24, size * 0.24, size * 0.06]);
 }
 
 /**
@@ -236,9 +242,10 @@ function sword(f: Figure, b: Body, len: number, out: number): void {
 
 /** Одевает бойца этого вида. Всё, что видно на поле, решается здесь. */
 export function dressSoldier(f: Figure, troop: TroopId): void {
-  const build = BUILD[troop];
+  const { height: tall, build } = SIZE[troop];
+  const h = MAN_HEIGHT * tall;
   const tier = gearTier(troop);
-  const rig = humanRig(MAN_HEIGHT, build);
+  const rig = humanRig(h, build);
   const b = bodyOf(rig, build);
   f.strip();
   f.rig = rig;
@@ -254,7 +261,7 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
       // Дубина: короткая и толстая, с тяжёлым концом, отведена вбок почти
       // горизонтально. Самый простой силуэт лестницы — короткий обрубок у пояса,
       // и голова непокрытая: у дубинщика из кузницы нет ничего.
-      const len = MAN_HEIGHT * 0.3;
+      const len = h * 0.3;
       const grip = gripFrame([0, -rig.armLen, b.chestW * 0.2], [0.28, 0, 1.05]);
       addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, 0, 0], [0.05, len, 0.05], [0, 0, 0], grip);
       addSlot(f, 'plate', 'armR', PALETTE.woodDark, [0, len + 0.05, 0], [0.11, 0.13, 0.11], [0, 0, 0], grip);
@@ -263,7 +270,7 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
     case 'spearman': {
       // Копьё стоит вертикально и уходит на треть роста выше головы: это и есть
       // главный признак копейщика, по нему его не спутать с мечником.
-      const len = MAN_HEIGHT * 1.25;
+      const len = h * 1.25;
       const grip = gripFrame([0, -rig.armLen - len * 0.28, b.chestW * 0.26], [0, 0, -0.07]);
       addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, 0, 0], [0.032, len, 0.032], [0, 0, 0], grip);
       addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len + 0.06, 0], [0.05, 0.16, 0.02], [0, 0, 0], grip);
@@ -274,43 +281,48 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
       // ломаная из двух конечностей в силуэте читается так же. Изгиб сделан
       // вбок, а не вперёд: спереди дуга должна быть видна дугой, иначе лук не
       // отличить от копья. Верх лука ниже макушки — этим он от копья и отличается.
-      const half = MAN_HEIGHT * 0.45;
+      const half = h * 0.5;
       const bend = 0.34;
-      const grip = gripFrame([0, -rig.armLen, b.chestW * 0.34], [0, 0, -0.12]);
+      const grip = gripFrame([0, -rig.armLen + h * 0.11, b.chestW * 0.34], [0, 0, -0.12]);
       addSlot(f, 'limb', 'armL', PALETTE.woodDark, [0, 0, 0], [0.026, half, 0.034], [0, 0, Math.PI - bend], grip);
       addSlot(f, 'limb', 'armL', PALETTE.woodDark, [0, 0, 0], [0.026, half, 0.034], [0, 0, bend], grip);
       // Колчан наискось за плечом — второй признак, видный со спины.
-      addSlot(f, 'plate', 'torso', PALETTE.leather, [-b.chestW * 0.3, b.torsoH * 0.86, -b.chestW * 0.32], [0.08, MAN_HEIGHT * 0.3, 0.08], [0.3, 0, 0.34]);
+      addSlot(f, 'plate', 'torso', PALETTE.leather, [-b.chestW * 0.3, b.torsoH * 0.86, -b.chestW * 0.32], [0.08, h * 0.3, 0.08], [0.3, 0, 0.34]);
       // Оперение стрел торчит из колчана над плечом: второй признак лучника.
-      addSlot(f, 'plate', 'torso', PALETTE.bone, [-b.chestW * 0.4, b.torsoH * 1.12, -b.chestW * 0.4], [0.05, MAN_HEIGHT * 0.13, 0.05], [0.3, 0, 0.34]);
+      addSlot(f, 'plate', 'torso', PALETTE.bone, [-b.chestW * 0.4, b.torsoH * 1.12, -b.chestW * 0.4], [0.05, h * 0.13, 0.05], [0.3, 0, 0.34]);
       break;
     }
     case 'axeman': {
       // Топор держат обухом кверху: топорище вертикально у плеча, тяжёлое лезвие
       // приходится на высоту головы. В силуэте это груз наверху сбоку — ни на
       // копьё (тонкая линия от земли), ни на меч (косая от бедра) не похоже.
-      const len = MAN_HEIGHT * 0.72;
-      const grip = gripFrame([0, -rig.armLen, b.chestW * 0.2], [0.1, 0, 0.24]);
-      addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, -len * 0.16, 0], [0.038, len, 0.038], [0, 0, 0], grip);
-      addSlot(f, 'plate', 'armR', PALETTE.metal, [-0.06, len * 0.76, 0], [0.13, 0.2, 0.05], [0, 0, -0.1], grip);
-      addSlot(f, 'plate', 'armR', PALETTE.metal, [0.03, len * 0.78, 0], [0.06, 0.11, 0.045], [0, 0, 0], grip);
+      const len = h * 0.8;
+      // Топорище лежит поперёк груди, лезвие приходится над плечом почти по оси
+      // фигуры. Выше плеч корпус ничего не закрывает, поэтому такой топор виден
+      // с любой стороны — а прижатое к боку оружие с полуоборота исчезает.
+      const grip = gripFrame([0, -rig.armLen, b.chestW * 0.24], [0.12, 0, -0.42]);
+      addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, -len * 0.16, 0], [0.04, len, 0.04], [0, 0, 0], grip);
+      addSlot(f, 'plate', 'armR', PALETTE.metal, [0.06, len * 0.76, 0], [0.14, 0.21, 0.05], [0, 0, 0.1], grip);
+      addSlot(f, 'plate', 'armR', PALETTE.metal, [-0.03, len * 0.78, 0], [0.06, 0.12, 0.045], [0, 0, 0], grip);
       break;
     }
     case 'swordsman': {
       // Клинок вынесен низко и вперёд: линия идёт от бедра, а не над головой.
-      sword(f, b, MAN_HEIGHT * 0.68, 0.62);
+      sword(f, b, h * 0.68, 0.62);
       break;
     }
     case 'shieldman': {
-      roundShield(f, b, MAN_HEIGHT * 0.4);
-      sword(f, b, MAN_HEIGHT * 0.52, 0.5);
+      // Круглый щит — весь его силуэт; меч короткий и почти прижат, иначе
+      // щитоносца не отличить от мечника со спины.
+      roundShield(f, b, h * 0.4);
+      sword(f, b, h * 0.42, 0.3);
       break;
     }
     case 'rider': {
       dressHorse(f, b);
-      roundShield(f, b, MAN_HEIGHT * 0.34);
+      roundShield(f, b, h * 0.34);
       // Копьё наперевес: почти горизонтально вперёд — так его и держат в седле.
-      const len = MAN_HEIGHT * 1.1;
+      const len = h * 1.1;
       const grip = gripFrame([0, -rig.armLen, b.chestW * 0.3], [1.16, 0, -0.1]);
       addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, -len * 0.3, 0], [0.032, len, 0.032], [0, 0, 0], grip);
       addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * 0.72, 0], [0.05, 0.15, 0.02], [0, 0, 0], grip);
@@ -319,10 +331,12 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
     case 'legionary': {
       // Ростовой прямоугольный щит против круглого у щитоносца: это и есть
       // разница ближайшей пары, цветом её не сделать.
-      const w = MAN_HEIGHT * 0.3;
-      addSlot(f, 'plate', 'armL', PALETTE.paintRed, [0, -rig.armLen * 0.72, w * 0.36], [w, MAN_HEIGHT * 0.52, 0.035]);
-      addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -rig.armLen * 0.72, w * 0.42], [w * 0.22, w * 0.22, 0.03]);
-      sword(f, b, MAN_HEIGHT * 0.54, 0.42);
+      const w = h * 0.31;
+      // Ростовой щит: от голени до плеча. У щитоносца круглый и заметно выше —
+      // на этом ближайшая пара и держится.
+      addSlot(f, 'plate', 'armL', PALETTE.paintRed, [0, -rig.armLen * 0.9, w * 0.36], [w, h * 0.66, 0.035]);
+      addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -rig.armLen * 0.9, w * 0.42], [w * 0.22, w * 0.22, 0.03]);
+      sword(f, b, h * 0.54, 0.42);
       break;
     }
   }
