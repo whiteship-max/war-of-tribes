@@ -6,11 +6,13 @@
 //   SEEDS=1,2,3 npm run world:report
 //
 // Меняешь число в разделе «География» в `data/tuning.ts` — смотри сюда, а не на глаз.
-import { FEATURE, cellCost, dropGeography, featuresAt, roadNet, terrainAt, tribeCenters } from '../src/world/geography';
+import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet, terrainAt, tribeCenters } from '../src/world/geography';
 import { generateWorld } from '../src/world/gen';
 import { distance, terrainFactor, travelSeconds } from '../src/world/geo';
-import { PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from '../src/world/data/tuning';
+import { AI_RANGE, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from '../src/world/data/tuning';
+import { TERRAIN_META } from '../src/world/data/terrain';
 import type { Coord } from '../src/world/types';
+import type { GenSettlement } from '../src/world/gen';
 
 const seeds = (process.env.SEEDS ?? '7,101,4242').split(',').map((s) => Number(s.trim()));
 const units = { warrior: 5 } as const;
@@ -115,6 +117,84 @@ function crossingPair(seed: number, bridge: Coord): string[] | null {
 }
 
 /**
+ * Вода: сколько на карте материков, где стоит дом и не отрезано ли водой хоть
+ * одно поселение.
+ *
+ * Отвечает на единственный вопрос, ради которого вода вообще дорога: остаётся ли
+ * она трудностью, а не стеной. Островные поселения — желанная цель; недопустим
+ * один случай — дом игрока, до соседей которого не дойти посуху.
+ */
+function waterReport(seed: number, home: Coord, settlements: GenSettlement[]): string[] {
+  const land = landmasses(seed);
+  const biggest = land.sizes.indexOf(Math.max(...land.sizes));
+  const homeMass = land.at(home.x, home.y);
+  const off = settlements.filter((s) => land.at(s.x, s.y) !== homeMass);
+  const byLand = settlements.filter((s) => land.at(s.x, s.y) === homeMass && distance(home, s) <= 25);
+
+  // Ширина протоки: от островного поселения до ближайшей клетки материка дома.
+  const strait = (s: Coord): number => {
+    for (let r = 1; r <= 80; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          if (land.at(s.x + dx, s.y + dy) === homeMass) return Math.hypot(dx, dy);
+        }
+      }
+    }
+    return Infinity;
+  };
+
+  // Ближние цели: те, до которых игрок и ходит. По ним и видно, стала ли вода
+  // стеной — если бы стала, множитель прямой упёрся бы в её собственную цену.
+  const near = settlements.filter((s) => distance(home, s) <= AI_RANGE);
+  const factors = near.map((s) => ({ s, f: terrainFactor(seed, home, s) })).sort((a, b) => b.f - a.f);
+  const swimming = near.filter((s) => waterShare(seed, home, s) > 0.5).length;
+  const worst = factors[0];
+
+  const out = [
+    `  материков ${land.sizes.length}, дом на ${homeMass === biggest ? 'главном' : 'НЕ главном'} (${land.sizeOf(homeMass)} кл)`,
+    `  соседей по суше в 25 клетках: ${byLand.length}; поселений вне материка дома: ${off.length}`,
+  ];
+  if (off.length > 0) {
+    out.push(
+      `  острова: ` +
+        off
+          .map((s) => `${at(s)} (клочок ${land.sizeOf(land.at(s.x, s.y))} кл, протока ${strait(s).toFixed(1)} кл)`)
+          .join(', '),
+    );
+  }
+  out.push(`  целей ближе ${AI_RANGE} кл: ${near.length}, из них прямая больше чем наполовину по воде: ${swimming}`);
+  if (worst) {
+    out.push(
+      `  худшая ближняя прямая: ${at(worst.s)} ×${worst.f.toFixed(2)} на ${distance(home, worst.s).toFixed(1)} кл` +
+        ` (вода ${(waterShare(seed, home, worst.s) * 100).toFixed(0)}%, река ${(riverShare(seed, home, worst.s) * 100).toFixed(0)}%,` +
+        ` сама вода стоит ×${TERRAIN_META.water.cost})`,
+    );
+  }
+  return out;
+}
+
+/** Доля замеров прямой, попавших в воду и в русло без переправы. */
+function shares(seed: number, a: Coord, b: Coord): { water: number; river: number } {
+  const dist = distance(a, b);
+  const samples = Math.max(3, Math.round(dist * PATH_SAMPLES_PER_CELL));
+  let water = 0;
+  let river = 0;
+  for (let i = 0; i < samples; i++) {
+    const t = (i + 0.5) / samples;
+    const x = Math.round(a.x + (b.x - a.x) * t);
+    const y = Math.round(a.y + (b.y - a.y) * t);
+    const f = featuresAt(seed, x, y);
+    if (f & FEATURE.river && !(f & (FEATURE.bridge | FEATURE.ford | FEATURE.road))) river++;
+    else if (terrainAt(seed, x, y) === 'water') water++;
+  }
+  return { water: water / samples, river: river / samples };
+}
+
+const waterShare = (seed: number, a: Coord, b: Coord): number => shares(seed, a, b).water;
+const riverShare = (seed: number, a: Coord, b: Coord): number => shares(seed, a, b).river;
+
+/**
  * Пример «тракт против целины»: сколько прямая между станами идёт по дороге и
  * во что обходится тот же путь, если бы дороги не было вовсе.
  */
@@ -172,6 +252,8 @@ for (const seed of seeds) {
   console.log(`хребты ${ridge} кл (${pct(ridge, total)}), перевалы ${passes}`);
   console.log(`тракты ${roads} кл, отрезков ${net.edges.length}`);
   console.log(`вода ${water} кл (${pct(water, total)})`);
+  console.log('вода и острова:');
+  for (const line of waterReport(seed, world.home, world.settlements)) console.log(line);
   console.log('мост против вплавь:');
   for (const line of bridgeExample(seed, world.home)) console.log(line);
   console.log('тракт:');

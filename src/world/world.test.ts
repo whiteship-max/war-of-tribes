@@ -6,7 +6,7 @@ import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
-import { FEATURE, cellCost, dropGeography, featuresAt, roadNet, tribeCenters } from './geography';
+import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet, tribeCenters } from './geography';
 import { TERRAIN_META } from './data/terrain';
 import { CLAIM_REACH, claimsNear, claimsOf, ownerAt } from './territory';
 import { precisionOf, readIntel } from './intel';
@@ -217,10 +217,38 @@ describe('география: реки, переходы, тракты', () => {
     expect(COST_PASS).toBeLessThan(COST_RIDGE);
   });
 
-  it('море вдвое медленнее прежнего: плыть можно, но невыгодно', () => {
-    expect(TERRAIN_META.water.cost).toBeGreaterThanOrEqual(3.5);
-    expect(TERRAIN_META.water.cost).toBeLessThanOrEqual(4);
-    expect(TERRAIN_META.water.cost).toBeGreaterThan(TERRAIN_META.hills.cost * 2);
+  it('вода дорога вдвое против прежнего, но плыть по-прежнему можно', () => {
+    expect(TERRAIN_META.water.cost).toBeGreaterThanOrEqual(7);
+    expect(TERRAIN_META.water.cost).toBeLessThanOrEqual(8);
+    expect(TERRAIN_META.water.cost).toBeGreaterThan(TERRAIN_META.hills.cost * 4);
+    // Река всё равно тяжелее моря: иначе переправа перестала бы что-то значить,
+    // а озеро стало бы преградой наравне с руслом.
+    expect(COST_RIVER).toBeGreaterThan(TERRAIN_META.water.cost * 2);
+  });
+
+  it('ни одно поселение не отрезано водой, и дом не стоит на острове', () => {
+    // Проверка настоящая: суша размечается на связные куски по всему миру, и
+    // считается, где чей. Островные поселения допустимы и даже желанны — до них
+    // плывут; недопустимо одно: дом игрока, отрезанный от всех соседей.
+    for (const seed of [1, 7, 29, 33, 68, 101, 900, 4242]) {
+      dropGeography();
+      const world = generateWorld(seed);
+      const land = landmasses(seed);
+      const home = land.at(world.home.x, world.home.y);
+      expect(home).toBeGreaterThanOrEqual(0);
+      // Дом на главном материке: он один такой, остальное — клочки земли.
+      expect(land.sizeOf(home)).toBe(Math.max(...land.sizes));
+      // Сухопутных соседей у дома не «хотя бы пара», а десяток с лишним.
+      const byLand = world.settlements.filter(
+        (s) => land.at(s.x, s.y) === home && distance(world.home, s) <= 25,
+      );
+      expect(byLand.length).toBeGreaterThanOrEqual(2);
+      // До любой цели поблизости добираются не вплавь: прямая по земле дешевле
+      // самой воды, а значит, «отрезанных водой» соседей у дома нет.
+      const near = world.settlements.filter((s) => distance(world.home, s) <= 12);
+      expect(near.length).toBeGreaterThan(0);
+      expect(Math.min(...near.map((s) => terrainFactor(seed, world.home, s)))).toBeLessThan(TERRAIN_META.water.cost);
+    }
   });
 
   it('путь через мост заметно быстрее пути вплавь через ту же реку', () => {
