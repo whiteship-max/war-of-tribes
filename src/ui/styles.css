@@ -581,6 +581,54 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+/* Летопись свёрнута: кнопка ступени. Слева дело, справа цена — сколько строк. */
+.chron-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.chron-toggle i {
+  font-style: normal;
+  opacity: 0.7;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* Отметка времени стоит одна на день, а не в каждой строке: на 375 px «Д121»
+   в каждой из десяти строк подряд съедает четверть ширины и ничего не говорит. */
+.log-day {
+  padding: 0;
+  border: none;
+}
+
+.log .log-date {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-bottom: 2px;
+  border-bottom: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.log .log-date i {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.log .log-empty {
+  border-bottom: none;
+  padding: 8px 0;
+}
+
 /* ---------- Модалки ---------- */
 
 .modal-backdrop {

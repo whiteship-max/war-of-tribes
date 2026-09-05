@@ -2,7 +2,7 @@ import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { ACHIEVEMENTS, QUESTS } from '@/game/data/quests';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import { dayOf } from '@/game/derived';
+import { Chronicle } from '../parts/Chronicle';
 
 export function QuestsPanel() {
   const s = useGame((g) => g.s);
@@ -64,14 +64,7 @@ export function QuestsPanel() {
         })}
       </div>
 
-      <h3>Летопись</h3>
-      <div className="log">
-        {s.log.slice(0, 25).map((e, i) => (
-          <div key={i} className={e.kind}>
-            <span style={{ opacity: 0.6 }}>Д{dayOf(e.at)}</span> · {e.text}
-          </div>
-        ))}
-      </div>
+      <Chronicle />
 
       <h3>Служебное</h3>
       <button className="btn ghost wide" onClick={replayTutorial}>
