@@ -1,15 +1,6 @@
 import { useGame } from '@/game/store';
-import {
-  dayOf,
-  dayFraction,
-  housingCapacity,
-  seasonOf,
-  seasonProgress,
-  solarPhase,
-  stageProgress,
-} from '@/game/derived';
+import { armySize, dayOf, dayFraction, housingCapacity, seasonOf, seasonProgress, solarPhase } from '@/game/derived';
 import { SEASON_META } from '@/game/data/seasons';
-import { tutorialActive } from '@/game/data/tutorial';
 import { useWorld } from '@/world/store';
 
 /** Время суток по фазе солнца — зимой она сдвинута, и «ночь» наступает раньше. */
@@ -25,13 +16,12 @@ const moraleIcon = (m: number): string => (m >= 70 ? '😊' : m >= 40 ? '😐' :
 /**
  * Верхняя строка состояния. Ресурсов здесь нет: их полный список живёт на складе,
  * а цену стройки видно рядом с самой стройкой. Списка построек здесь тоже нет —
- * он целиком уехал в раздел «Здания» внизу.
+ * он целиком уехал в ратушу, на вкладку «Стройка».
  *
- * Шкала прогресса здесь одна — стадия поселения. Эпоха отсюда убрана: она стала
- * техническим уровнем и живёт в Доме вождя, где ей и место.
+ * Справа — дружина: армия теперь центр игры, и её численность видна всегда.
  *
  * Отдельной кнопкой справа висит карта мира: это не раздел про посёлок, а выход
- * наружу, к соседям. Пока идёт обучение, её нет — новичку туда рано.
+ * наружу, к соседям. Обучение ведёт к ней последним шагом.
  */
 export function TopBar() {
   const s = useGame((g) => g.s);
@@ -44,10 +34,10 @@ export function TopBar() {
   const season = seasonOf(s.time);
   const meta = SEASON_META[season];
   const part = daypart(solarPhase(dayFraction(s.time), season));
-  const pop = s.villagers.length;
+  const pop = s.pop;
   const housing = housingCapacity(s);
   const morale = Math.round(s.morale);
-  const stage = stageProgress(s);
+  const army = armySize(s);
   const tab = sheet?.kind === 'tab' ? sheet.tab : null;
 
   return (
@@ -71,40 +61,40 @@ export function TopBar() {
           </span>
         </button>
         <span className="sep" />
-        <span className={`cell${pop > housing ? ' warn' : ''}`} title="Население и вместимость жилья">
+        <button
+          className={`cell tap${pop > housing ? ' warn' : ''}${tab === 'pop' ? ' active' : ''}`}
+          onClick={() => openTab('pop')}
+          title="Население и жильё. Нажми, чтобы увидеть, как считается прирост."
+        >
           <span className="ic">👥</span>
           <b>{pop}</b>
           <i>/{housing}</i>
-        </span>
+        </button>
         <span className="sep" />
-        <span className={`cell${morale < 35 ? ' warn' : ''}`} title="Мораль племени">
+        <button
+          className={`cell tap${morale < 35 ? ' warn' : ''}${tab === 'morale' ? ' active' : ''}`}
+          onClick={() => openTab('morale')}
+          title="Мораль племени. Нажми, чтобы увидеть, что её поднимает и что тянет вниз."
+        >
           <span className="ic">{moraleIcon(morale)}</span>
           <b>{morale}</b>
-        </span>
+        </button>
         <span className="sep" />
-        <span
-          className="cell era"
-          title={
-            stage.next
-              ? `${stage.stage.name}. До стадии «${stage.next.name}»: ` +
-                stage.need
-                  .filter((r) => !r.ok)
-                  .map((r) => `${r.label.toLowerCase()} ${Math.floor(r.have)}/${r.need}`)
-                  .join(', ')
-              : stage.stage.description
-          }
+        <button
+          className={`cell tap army${tab === 'army' ? ' active' : ''}`}
+          onClick={() => openTab('army')}
+          title="Дружина. Нажми, чтобы увидеть состав, кольцо контрров и карточки войск."
         >
-          <span className="ic">{stage.stage.icon}</span>
-          <i>{stage.stage.short}</i>
-        </span>
+          <span className="ic">⚔️</span>
+          <b>{army}</b>
+          <i>дружина</i>
+        </button>
       </div>
 
-      {!tutorialActive(s) && (
-        <button className="map-btn" onClick={openMap} title="Карта мира: соседи, походы, разведка">
-          🗺️ <span>Карта</span>
-          {(unread > 0 || marching > 0) && <em>{unread > 0 ? unread : marching}</em>}
-        </button>
-      )}
+      <button className="map-btn" data-tut="nav-map" onClick={openMap} title="Карта мира: соседи, походы, разведка">
+        🗺️ <span>Карта</span>
+        {(unread > 0 || marching > 0) && <em>{unread > 0 ? unread : marching}</em>}
+      </button>
     </div>
   );
 }

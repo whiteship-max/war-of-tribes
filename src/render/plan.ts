@@ -4,7 +4,7 @@
 // никогда не даёт аккуратной композиции — посёлок расползается, а на поздних уровнях
 // крыши лезут друг на друга. Здесь же место известно заранее и рассчитано под самую
 // крупную, третью визуальную ступень здания, поэтому картинка остаётся собранной
-// на любой стадии.
+// на любом уровне.
 //
 // Файл нарочно не знает про three.js: это чистые числа, и тест проверяет их
 // напрямую — все постройки максимального уровня помещаются внутри стены,
@@ -37,8 +37,16 @@ export const ROAD_HALF = 0.5;
  */
 export const GATE_ANGLE = Math.atan2(0.8, 0.6);
 
-/** Радиусы колец, от центра наружу. Индекс — номер кольца. */
-export const RING_RADIUS: [number, number, number, number] = [0, 5, 8, 11.9];
+/**
+ * Радиусы колец, от центра наружу. Индекс — номер кольца. Четвёртое кольцо лежит
+ * **за стеной**: ресурсные дворы вынесены наружу, потому что поле, каменоломня и
+ * штольня стоят там, где ресурс, а не внутри укреплений. Из этого следует и
+ * главное: набег до них дотягивается, а до внутренних зданий — нет.
+ */
+export const RING_RADIUS: [number, number, number, number, number] = [0, 5, 8, 11.9, 20];
+
+/** Кольцо за стеной. Всё, что на нём стоит, уязвимо для набега. */
+export const OUTSIDE_RING = 4;
 
 /** Насколько подрастает постройка к десятому уровню (levelScale в buildings.ts). */
 const TOP_LEVEL_SCALE = 1 + 0.045 * (MAX_BUILDING_LEVEL - VISUAL_TIERS[1]);
@@ -50,10 +58,8 @@ const TOP_LEVEL_SCALE = 1 + 0.045 * (MAX_BUILDING_LEVEL - VISUAL_TIERS[1]);
  */
 export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   campfire: 1.05,
-  shelter: 2.3,
-  chief_house: 2.6,
-  hut: 2.95,
-  knowledge: 2.47,
+  town_hall: 2.6,
+  houses: 2.6,
   storage: 3.2,
   gathering: 2.27,
   sawmill: 2.47,
@@ -63,9 +69,18 @@ export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   workshop: 3.15,
   farm: 2.95,
   pen: 2.96,
-  totem: 2.0,
+  church: 2.8,
+  statue: 1.9,
+  // Заглушки: настоящие модели придут отдельно. Габарит выбран сразу настоящий —
+  // от него считается площадка, и переставлять посёлок под новые модели не придётся.
+  infirmary: 2.75,
+  watch: 2.4,
+  stable: 2.9,
+  cache: 2.25,
+  tavern: 2.75,
   smithy: 3.48,
   barracks: 3.3,
+  market: 3.55,
   tower: 1.58,
   // Стена — это само кольцо, площадки под неё нет.
   palisade: 0,
@@ -80,13 +95,16 @@ const PLOT_MARGIN = 0.22;
  * Стартовые здания уровней не набирают, им хватает своей ступени.
  */
 export function plotRadius(type: BuildingTypeId): number {
-  const flat = type === 'campfire' || type === 'shelter';
+  const flat = type === 'campfire';
   return MODEL_RADIUS[type] * PLAN_SCALE * (flat ? 1 : TOP_LEVEL_SCALE) + PLOT_MARGIN;
 }
 
 export interface Place {
-  /** Кольцо: 1 — власть и жильё, 2 — хозяйство, 3 — производство. */
-  ring: 1 | 2 | 3;
+  /**
+   * Кольцо: 1 — власть, жильё и церковь, 2 — ремесло и склад, 3 — службы посёлка,
+   * 4 — ресурсные дворы за стеной.
+   */
+  ring: 1 | 2 | 3 | 4;
   /** Угол на кольце, радианы. */
   angle: number;
 }
@@ -103,31 +121,68 @@ const D = Math.PI / 180;
  * быть видно глазом в таблице, а не результат вычисления в трёх местах.
  */
 export const PLAN: Partial<Record<BuildingTypeId, Place>> = {
-  // Первое кольцо: власть, жильё, знание и святилище. Дом вождя — прямо напротив
-  // ворот через площадь: его видно, едва войдёшь.
-  shelter: { ring: 1, angle: 17.13 * D },
-  totem: { ring: 1, angle: 89.13 * D },
-  knowledge: { ring: 1, angle: 161.13 * D },
-  chief_house: { ring: 1, angle: 233.13 * D },
-  hut: { ring: 1, angle: 305.13 * D },
+  // Первое кольцо: власть, жильё и церковь. Ратуша — прямо напротив
+  // ворот через площадь: её видно, едва войдёшь.
+  church: { ring: 1, angle: 89.13 * D },
+  town_hall: { ring: 1, angle: 233.13 * D },
+  houses: { ring: 1, angle: 305.13 * D },
+  // Статуя стоит у самой площади: герой должен быть виден от костра.
+  statue: { ring: 1, angle: 17.13 * D },
 
-  // Второе кольцо: хозяйство. Место у самых ворот оставлено пустым — это
-  // привратная площадка, через неё идёт главная улица (и туда же встанет рынок).
+  // Второе кольцо: ремесло и склад. Рынок стоит ровно на воротах: главная улица
+  // идёт сквозь его ряды, как через привратную площадь настоящего города. Отвода
+  // к нему нет — улица от ворот и есть его подъезд (см. spurFor и ROAD_THROUGH).
+  market: { ring: 2, angle: GATE_ANGLE },
   smithy: { ring: 2, angle: 125.13 * D },
   workshop: { ring: 2, angle: 197.13 * D },
   barracks: { ring: 2, angle: 269.13 * D },
   storage: { ring: 2, angle: 341.13 * D },
 
-  // Третье кольцо: производство. Каждое здание смотрит в сторону своей зоны
-  // за стеной — лесопилка к лесу, каменоломня к скалам, ферма к полям.
-  gathering: { ring: 3, angle: 35.13 * D },
-  farm: { ring: 3, angle: 143.13 * D },
-  pen: { ring: 3, angle: 179.13 * D },
-  quarry: { ring: 3, angle: 215.13 * D },
-  mine: { ring: 3, angle: 251.13 * D },
-  hunter_hut: { ring: 3, angle: 287.13 * D },
-  sawmill: { ring: 3, angle: 323.13 * D },
+  // Третье кольцо: службы посёлка. Раньше здесь стояло производство; после
+  // выноса дворов за стену место освободилось, и заняли его те здания, которым
+  // защита стены нужнее всего. Каждое встало по смыслу: дозор ближе к воротам,
+  // конюшня и лазарет — к казармам, трактир — к складу и рынку, тайник —
+  // в самой глухой части посёлка, напротив ворот.
+  watch: { ring: 3, angle: 35.13 * D },
+  cache: { ring: 3, angle: 179.13 * D },
+  infirmary: { ring: 3, angle: 251.13 * D },
+  stable: { ring: 3, angle: 287.13 * D },
+  tavern: { ring: 3, angle: 359.13 * D },
+
+  // Четвёртое кольцо — за стеной. Каждый двор смотрит в сторону своих угодий:
+  // лесопилка к лесу, каменоломня к скалам, ферма к полям, охотничий домик к
+  // редколесью. Углы те же, что были на третьем кольце, — изменился радиус.
+  gathering: { ring: 4, angle: 35.13 * D },
+  farm: { ring: 4, angle: 143.13 * D },
+  pen: { ring: 4, angle: 179.13 * D },
+  quarry: { ring: 4, angle: 215.13 * D },
+  mine: { ring: 4, angle: 251.13 * D },
+  hunter_hut: { ring: 4, angle: 287.13 * D },
+  sawmill: { ring: 4, angle: 323.13 * D },
 };
+
+/**
+ * Стоит ли здание за стеной **по плану**. Решает это не план, а само здание —
+ * поле `outside` в data/buildings.ts (`derived.isOutsideWall`): «снаружи» это
+ * правило игры, от которого зависит набег, а не расстановка крыш. План обязан
+ * повторять то же самое, и это сверяет тест.
+ */
+export const isOutside = (type: BuildingTypeId): boolean => PLAN[type]?.ring === OUTSIDE_RING;
+
+/** Места за стеной по плану поселения. */
+export const OUTSIDE_BUILDINGS: BuildingTypeId[] = (
+  Object.keys(PLAN) as BuildingTypeId[]
+).filter(isOutside);
+
+/**
+ * Докуда доходит застройка: самый дальний край площадки за стеной. От него
+ * считаются и зона расчистки, и кадр камеры — иначе поля оказались бы в лесу,
+ * а половина хозяйства за краем экрана.
+ */
+export const OUTSKIRTS_RADIUS = OUTSIDE_BUILDINGS.reduce(
+  (max, type) => Math.max(max, RING_RADIUS[OUTSIDE_RING] + plotRadius(type)),
+  RING_RADIUS[OUTSIDE_RING],
+);
 
 /**
  * Башня стоит сбоку от ворот, внутри окружной дороги: дозорная вышка над въездом,
@@ -141,11 +196,21 @@ export const TOWER_PLACE = { r: 12.8, angle: 73.13 * D };
  * бочками, телегами. Пустой кружок земли читается как «здесь ещё будет дом».
  */
 export const SPARE_PLOTS: Place[] = [
-  // Привратная площадка второго кольца: под рынок, пока — телеги и бочки.
-  { ring: 2, angle: 53.13 * D },
   { ring: 3, angle: 107.13 * D },
-  { ring: 3, angle: 359.13 * D },
+  { ring: 3, angle: 143.13 * D },
+  { ring: 3, angle: 215.13 * D },
+  { ring: 3, angle: 323.13 * D },
 ];
+
+/**
+ * Здания, сквозь которые главная улица проходит нарочно. Пока такое одно —
+ * рынок: торговые ряды стоят по обе стороны проезда, а между ними идёт дорога
+ * из ворот. Модель обязана держать этот проезд свободным, и это проверяет тест.
+ */
+export const ROAD_THROUGH: BuildingTypeId[] = ['market'];
+
+/** Половина ширины проезда, который такое здание обязано оставить свободным. */
+export const THROUGH_HALF = 1.15;
 
 export interface Spot {
   x: number;
@@ -175,9 +240,6 @@ export function placeOf(type: BuildingTypeId): Spot {
   return spotAt(RING_RADIUS[p.ring], p.angle);
 }
 
-/** Все занятые планом места — для теста и для расстановки декора. */
-export const plannedTypes = (): BuildingTypeId[] => Object.keys(PLAN) as BuildingTypeId[];
-
 // ---------- Дороги ----------
 
 /**
@@ -201,6 +263,13 @@ export const PLAZA_ROAD = 2.2;
  */
 export const OUTER_ROAD = 14.7;
 
+/**
+ * Просёлок по угодьям: единственная дорога за стеной. Идёт между стеной и
+ * кольцом ресурсных дворов, к ней же выходят их отводы, и в неё упирается
+ * главная улица, вышедшая из ворот.
+ */
+export const FIELD_ROAD = 17;
+
 export interface RoadSpur {
   angle: number;
   from: number;
@@ -214,13 +283,74 @@ export interface RoadSpur {
  * поэтому дорога не режет соседей — это проверяет тест.
  */
 export function spurFor(type: BuildingTypeId): RoadSpur | null {
+  // Рынку отвод не нужен: к нему ведёт сама главная улица, она идёт через него.
+  if (ROAD_THROUGH.includes(type)) return null;
   const p = PLAN[type];
   if (!p) return null;
   const r = RING_RADIUS[p.ring];
   const edge = plotRadius(type);
+  // Двор за стеной выходит на просёлок, третье кольцо — на окружную под стеной,
+  // первые два — внутрь, к площади.
+  if (p.ring === OUTSIDE_RING) return { angle: p.angle, from: FIELD_ROAD, to: r - edge * 0.7 };
   if (p.ring === 3) return { angle: p.angle, from: r + edge * 0.7, to: OUTER_ROAD };
   return { angle: p.angle, from: PLAZA_ROAD, to: r - edge * 0.7 };
 }
 
-/** Главная улица: от ворот в стене до кольцевой дороги площади. */
-export const GATE_ROAD: RoadSpur = { angle: GATE_ANGLE, from: PLAZA_ROAD, to: WALL_RADIUS };
+/**
+ * Главная улица: от кольцевой дороги площади через ворота и дальше, до просёлка
+ * по угодьям. Она же выезд каравана и единственная дорога, пересекающая стену.
+ */
+export const GATE_ROAD: RoadSpur = { angle: GATE_ANGLE, from: PLAZA_ROAD, to: FIELD_ROAD };
+
+// ---------- Зона расчистки ----------
+
+/**
+ * Запас между хозяйством и лесом. Племя, ставя посёлок, валит вокруг него лес:
+ * иначе частокол некуда замкнуть, деревья лезут прямо на кладку, а полю негде
+ * лежать. Больше не надо: с большим запасом посёлок теряется посреди пустого
+ * зелёного круга.
+ */
+export const CLEAR_MARGIN = 2.6;
+
+/**
+ * Радиус расчистки. Внутри него нет ничего, кроме самого поселения, его дворов
+ * за стеной, дорог и стены: ни деревьев, ни камней, ни кустов. Считается от
+ * края застройки, а не от стены: ресурсные дворы стоят снаружи, и лес обязан
+ * расступиться перед ними тоже.
+ */
+export const CLEAR_RADIUS = OUTSKIRTS_RADIUS + CLEAR_MARGIN;
+
+/**
+ * Полоса за границей расчистки, где стоят следы работы: пни, поваленные стволы,
+ * срезанный подлесок. Без неё край читался бы дырой в лесу, а не расчищенным местом.
+ */
+export const CLEAR_EDGE = 2.8;
+
+/**
+ * Половина ширины свободного коридора перед воротами. Выезд не должен упираться
+ * в лес: телега каравана выходит из ворот и едет по чистому.
+ */
+export const GATE_CLEAR_HALF = 3.4;
+
+/**
+ * Радиус, по которому кадрируется камера. Не стена: с выносом ресурсных дворов
+ * наружу половина хозяйства оказалась бы за краем экрана. Кадр держит всю
+ * застройку с небольшим запасом — тогда в него попадает и опушка, и посёлок
+ * снова читается поляной в лесу, а не кольцом посреди зелёного диска.
+ */
+export const FRAME_RADIUS = OUTSKIRTS_RADIUS + 1;
+
+/**
+ * Объект попадает в зону расчистки — ставить его туда нельзя. `radius` — габарит
+ * самого объекта: проверяется не точка, а крона дерева и длина бревна, иначе
+ * ствол стоял бы снаружи, а ветки нависали над стеной.
+ */
+export function inCleared(x: number, z: number, radius = 0): boolean {
+  if (Math.hypot(x, z) < CLEAR_RADIUS + radius) return true;
+  // Коридор перед воротами: считаем расстояние до луча, а не до прямой, —
+  // позади посёлка лес стоит спокойно.
+  const along = x * Math.cos(GATE_ANGLE) + z * Math.sin(GATE_ANGLE);
+  if (along <= -radius) return false;
+  const across = Math.abs(-x * Math.sin(GATE_ANGLE) + z * Math.cos(GATE_ANGLE));
+  return across < GATE_CLEAR_HALF + radius;
+}

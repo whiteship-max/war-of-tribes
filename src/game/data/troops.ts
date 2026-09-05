@@ -1,9 +1,15 @@
-// Войска. Лестница повторяет военную ветку технологий: каждый следующий боец
-// требует того снаряжения, которое открывает следующая технология.
+// Войска. Все виды доступны с первого дня: никакой лестницы открытия нет, выбор
+// между ними — тактический и экономический. Дешёвый боец стоит мало снаряжения
+// и учится быстро, дорогой — сильнее на человека, а людей в посёлке немного.
 //
 // Боец — это не житель со «профессией воин», а единица в счётчике `s.army`.
 // Цена найма: ресурсы + снаряжение + один свободный житель + время в казармах.
-import type { EquipmentId, ResourceId, TechId, TroopId } from '../types';
+//
+// Роды боя закрыты все четыре: копья, пехота, лучники и конница (всадник).
+// Без конного вида у игрока были бы мертвы угол кольца «конница бьёт лучников»,
+// план «кавалерийский удар», кавалерийские приказы и перехват обхода резервом —
+// а у чужих гарнизонов конница есть, и кольцо работало бы в одну сторону.
+import type { EquipmentId, ResourceId, TroopId } from '../types';
 
 export interface TroopDef {
   id: TroopId;
@@ -20,18 +26,22 @@ export interface TroopDef {
   work: number;
   /** Вклад в мощь армии и в оборону поселения. */
   power: number;
-  /** Технология, после которой боец появляется в списке. Пусто — доступен сразу. */
-  requiresTech?: TechId;
+  /**
+   * Конный вид. От этого зависит экономика конницы — конюшня ускоряет его учения
+   * и даёт ему ступень снаряжения (см. derived.recruitRate и bridge). В бою род
+   * определяет `battle/kinds.KIND_OF`, а не этот флаг: там своя таблица.
+   */
+  mounted?: boolean;
 }
 
-/** От слабого к сильному. В этом же порядке боец идёт в список казарм. */
+/** От дешёвого к дорогому — это порядок списка в казармах, а не порядок открытия. */
 export const TROOPS: TroopDef[] = [
   {
     id: 'clubman',
     name: 'Дубинщики',
     one: 'дубинщик',
     icon: '🪃',
-    description: 'Мужик с дубиной. Снаряжения не просит, но и стоит немного.',
+    description: 'Мужик с дубиной. Снаряжения не просит, но и стоит немного — дешёвая масса.',
     gear: {},
     cost: { food: 10, wood: 4 },
     work: 15,
@@ -47,7 +57,6 @@ export const TROOPS: TroopDef[] = [
     cost: { food: 14 },
     work: 25,
     power: 4,
-    requiresTech: 'spears',
   },
   {
     id: 'archer',
@@ -59,7 +68,6 @@ export const TROOPS: TroopDef[] = [
     cost: { food: 14, hides: 2 },
     work: 35,
     power: 5,
-    requiresTech: 'bows',
   },
   {
     id: 'axeman',
@@ -71,7 +79,6 @@ export const TROOPS: TroopDef[] = [
     cost: { food: 18, wood: 4 },
     work: 45,
     power: 7,
-    requiresTech: 'axes',
   },
   {
     id: 'swordsman',
@@ -83,7 +90,6 @@ export const TROOPS: TroopDef[] = [
     cost: { food: 22 },
     work: 60,
     power: 9,
-    requiresTech: 'swords',
   },
   {
     id: 'shieldman',
@@ -95,19 +101,29 @@ export const TROOPS: TroopDef[] = [
     cost: { food: 26 },
     work: 75,
     power: 12,
-    requiresTech: 'shields',
+  },
+  {
+    id: 'rider',
+    name: 'Всадники',
+    one: 'всадник',
+    icon: '🐎',
+    description: 'Единственный конный вид племени. Режет лучников и заходит во фланг, но разбивается о сомкнутые копья. Конь, сбруя и седло стоят дороже любого пешего.',
+    gear: { spear: 1, shield: 1 },
+    cost: { food: 40, wood: 8, hides: 12 },
+    work: 90,
+    power: 14,
+    mounted: true,
   },
   {
     id: 'legionary',
     name: 'Латники',
     one: 'латник',
     icon: '🦺',
-    description: 'Меч, щит и доспех. Дружина раннего государства.',
+    description: 'Меч, щит и доспех. Лучший боец на человека — и самый дорогой в железе.',
     gear: { sword: 1, shield: 1, armor: 1 },
     cost: { food: 32, iron: 4 },
     work: 100,
     power: 16,
-    requiresTech: 'armor',
   },
 ];
 
@@ -124,5 +140,6 @@ export const emptyArmy = (): Record<TroopId, number> => ({
   axeman: 0,
   swordsman: 0,
   shieldman: 0,
+  rider: 0,
   legionary: 0,
 });

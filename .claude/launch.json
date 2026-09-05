@@ -10,6 +10,19 @@
       ],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "tribe-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
+      "port": 4173
     }
   ]
 }

@@ -2,26 +2,21 @@ import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT } from '@/game/data/equipment';
-import { TECH_BY_ID } from '@/game/data/techs';
-import { canAfford, forgeInfo, forgeUnlocked, isBuilt, workersIn } from '@/game/derived';
+import { canAfford, forgeInfo, workerCount } from '@/game/derived';
 import { setForging } from '@/game/sim/actions';
 
 /**
  * Кузница: переключатель «что куём» и ход работы.
  *
  * Предметы — обычные счётчики: ни инвентаря, ни качества, ни износа. Скорость
- * зависит от числа кузнецов, уровня кузницы и таланта — всё это уже сидит
- * в множителе жителя, поэтому здесь просто показываем итог.
+ * зависит от числа кузнецов и уровня кузницы — личного навыка у жителя нет,
+ * его роль целиком взял на себя уровень здания.
  */
 export function Smithy({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const info = forgeInfo(s);
-  const smiths = workersIn(s, b.id).length;
-
-  if (!isBuilt(b)) {
-    return <div className="note">Пока кузница строится, ковать нечем.</div>;
-  }
+  const smiths = workerCount(s, b.id);
 
   return (
     <>
@@ -55,14 +50,13 @@ export function Smithy({ b }: { b: Building }) {
       )}
 
       {EQUIPMENT.map((e) => {
-        const open = forgeUnlocked(s, e.id);
         const have = s.equipment[e.id] ?? 0;
         const afford = canAfford(s, e.cost);
         return (
           <button
             key={e.id}
-            className={`card as-row${open ? '' : ' locked'}${info.item === e.id ? ' done' : ''}`}
-            disabled={!open}
+            className={`card as-row${info.item === e.id ? ' done' : ''}`}
+            data-tut={`forge-${e.id}`}
             onClick={() => act((st) => setForging(st, e.id))}
           >
             <div className="ico">{e.icon}</div>
@@ -71,22 +65,18 @@ export function Smithy({ b }: { b: Building }) {
                 {e.name}
                 <span className="count">на складе: {have}</span>
               </div>
-              <div className="desc">
-                {open ? e.description : `Нужно изучить: ${TECH_BY_ID[e.requiresTech].name}`}
+              <div className="desc">{e.description}</div>
+              <div className="cost">
+                {RESOURCE_IDS.filter((r) => e.cost[r]).map((r) => (
+                  <span key={r} className={s.resources[r] >= (e.cost[r] ?? 0) ? '' : 'no'}>
+                    {RESOURCE_META[r].icon} {e.cost[r]}
+                  </span>
+                ))}
+                <span>⏳ {e.work}</span>
+                {!afford && <span className="no">не хватает материалов</span>}
               </div>
-              {open && (
-                <div className="cost">
-                  {RESOURCE_IDS.filter((r) => e.cost[r]).map((r) => (
-                    <span key={r} className={s.resources[r] >= (e.cost[r] ?? 0) ? '' : 'no'}>
-                      {RESOURCE_META[r].icon} {e.cost[r]}
-                    </span>
-                  ))}
-                  <span>⏳ {e.work}</span>
-                  {!afford && <span className="no">не хватает материалов</span>}
-                </div>
-              )}
             </div>
-            <span className="attn">{info.item === e.id ? '🔨' : open ? '▸' : '🔒'}</span>
+            <span className="attn">{info.item === e.id ? '🔨' : '▸'}</span>
           </button>
         );
       })}

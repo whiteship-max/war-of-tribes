@@ -5,7 +5,7 @@
 // вместимость склада на них не распространяется (иначе полный склад молча
 // остановил бы кузницу), и набег соседа их не уносит — армию нельзя обезоружить
 // одним чужим отрядом. Видны они всё равно на складе, отдельным разделом.
-import type { EquipmentId, ResourceId, TechId } from '../types';
+import type { EquipmentId, ResourceId } from '../types';
 
 export interface EquipmentDef {
   id: EquipmentId;
@@ -14,11 +14,14 @@ export interface EquipmentDef {
   one: string;
   icon: string;
   description: string;
-  /** Технология, открывающая ковку. */
-  requiresTech: TechId;
   /** Ресурсы на один предмет. */
   cost: Partial<Record<ResourceId, number>>;
-  /** Работа кузнецов на один предмет. */
+  /**
+   * Работа кузнецов на один предмет. Числа сотенные: у горна помещается немного
+   * народу (`slotsPerLevel` кузницы — четыре), зато уровень поднимает и число
+   * мест, и выработку каждого, так что дружина в сотни бойцов одевается за
+   * разумное время, а первое копьё куётся на глазах.
+   */
   work: number;
 }
 
@@ -29,9 +32,8 @@ export const EQUIPMENT: EquipmentDef[] = [
     one: 'копьё',
     icon: '🔱',
     description: 'Древко и наконечник. Первое оружие, которое племя делает нарочно.',
-    requiresTech: 'spears',
     cost: { wood: 4, stone: 3 },
-    work: 20,
+    work: 50,
   },
   {
     id: 'bow',
@@ -39,9 +41,8 @@ export const EQUIPMENT: EquipmentDef[] = [
     one: 'лук',
     icon: '🏹',
     description: 'Тис, жила и костяные наконечники. Бьёт дальше копья.',
-    requiresTech: 'bows',
     cost: { wood: 6, bones: 3 },
-    work: 30,
+    work: 75,
   },
   {
     id: 'axe',
@@ -49,9 +50,8 @@ export const EQUIPMENT: EquipmentDef[] = [
     one: 'топор',
     icon: '🪓',
     description: 'Боевой топор: тяжелее копья и прощает меньше промахов.',
-    requiresTech: 'axes',
     cost: { wood: 5, copper: 3 },
-    work: 45,
+    work: 112,
   },
   {
     id: 'shield',
@@ -59,9 +59,8 @@ export const EQUIPMENT: EquipmentDef[] = [
     one: 'щит',
     icon: '🛡️',
     description: 'Доски и бычья кожа. С ним строй держится.',
-    requiresTech: 'shields',
     cost: { wood: 6, hides: 4 },
-    work: 40,
+    work: 100,
   },
   {
     id: 'sword',
@@ -69,9 +68,8 @@ export const EQUIPMENT: EquipmentDef[] = [
     one: 'меч',
     icon: '🗡️',
     description: 'Кованый клинок. Дорог, но решает бой.',
-    requiresTech: 'swords',
     cost: { copper: 8, iron: 4 },
-    work: 70,
+    work: 175,
   },
   {
     id: 'armor',
@@ -79,9 +77,8 @@ export const EQUIPMENT: EquipmentDef[] = [
     one: 'доспех',
     icon: '🦺',
     description: 'Пластины на кожаной основе. Латника берут не всякой стрелой.',
-    requiresTech: 'armor',
     cost: { iron: 10, hides: 6 },
-    work: 110,
+    work: 275,
   },
 ];
 

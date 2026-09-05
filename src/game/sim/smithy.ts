@@ -3,8 +3,7 @@
 import type { EquipmentId, GameState } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { TECH_BY_ID } from '../data/techs';
-import { builtOfType, canAfford, forgeRate, forgeUnlocked, hasTech } from '../derived';
+import { canAfford, forgeRate } from '../derived';
 import type { SeasonModifiers } from '../data/seasons';
 import { log } from './log';
 
@@ -16,8 +15,6 @@ export function setForging(s: GameState, item: EquipmentId | null): string | nul
   }
   const def = EQUIPMENT_BY_ID[item];
   if (!def) return 'Такого снаряжения нет.';
-  if (!builtOfType(s, 'smithy')) return 'Сначала построй кузницу.';
-  if (!hasTech(s, def.requiresTech)) return `Нужно изучить: ${TECH_BY_ID[def.requiresTech].name}.`;
   if (s.forging === item) return null;
   s.forging = item;
   // Накопленную работу не выбрасываем: руки кузнеца заняты тем же делом,
@@ -34,7 +31,7 @@ export function forgeTick(s: GameState, dt: number, mods: SeasonModifiers): void
   const item = s.forging;
   if (!item) return;
   const def = EQUIPMENT_BY_ID[item];
-  if (!def || !forgeUnlocked(s, item)) {
+  if (!def) {
     s.forging = null;
     return;
   }

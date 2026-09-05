@@ -2,10 +2,8 @@
 import type { GameState } from '../types';
 import {
   DAY_LENGTH,
-  DAYS_PER_YEAR,
   EVENT_INTERVAL_MAX,
   EVENT_INTERVAL_MIN,
-  GROWTH_REQUIRED,
   RESOURCE_IDS,
   STARVATION_DEATH,
 } from '../constants';
@@ -13,32 +11,29 @@ import {
   buildRate,
   currentSite,
   foodConsumptionPerDay,
-  hasTech,
   heatingWoodPerDay,
-  housingCapacity,
   moraleTarget,
   policyMoralePerDay,
   productionPerDay,
-  rationOf,
-  researchRate,
   seasonDayOf,
   seasonIndex,
   seasonMods,
   seasonOf,
   storageCap,
+  taxIncomePerDay,
   yearOf,
 } from '../derived';
 import { COLD_DEATH, SEASON_DAYS, SEASON_META } from '../data/seasons';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { TECH_BY_ID } from '../data/techs';
 import { QUESTS } from '../data/quests';
 import { pickEvent } from '../data/events';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
-import { addVillager, killOldestVillager, killRandomVillager, removeVillager } from './population';
+import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
+import { marketTick } from './market';
 import { recruitTick } from './army';
-import { chance, rnd, rndInt } from './random';
+import { rnd, rndInt } from './random';
 import { log } from './log';
 
 export interface TickOptions {
@@ -72,7 +67,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     s.starvation += dt;
     if (s.starvation >= STARVATION_DEATH) {
       s.starvation = STARVATION_DEATH * 0.5;
-      if (s.villagers.length > 1) killRandomVillager(s, 'голод');
+      killPop(s, famineToll(s), 'голод');
     }
   } else {
     s.starvation = Math.max(0, s.starvation - dt * 2);
@@ -88,7 +83,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
       s.freezing += dt;
       if (s.freezing >= COLD_DEATH) {
         s.freezing = COLD_DEATH * 0.5;
-        if (s.villagers.length > 1) killOldestVillager(s, 'холод');
+        killPop(s, famineToll(s), 'холод');
       }
     } else {
       s.freezing = Math.max(0, s.freezing - dt * 2);
@@ -97,78 +92,42 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     s.freezing = Math.max(0, s.freezing - dt * 2);
   }
 
-  // 2. Стройка: свободные жители работают над первой стройплощадкой в очереди.
-  // Улучшение — такая же стройка, просто у здания уже есть уровень.
+  // 2. Улучшения: свободные жители и ремесленники работают над первым в очереди.
   const site = currentSite(s);
   if (site) {
     site.work += buildRate(s, mods) * dt;
     if (site.work >= site.workRequired) {
-      const name = BUILDING_BY_ID[site.type].name;
       site.level += 1;
       site.work = 0;
       site.workRequired = 0;
-      log(s, site.level === 1 ? `Построено: ${name}.` : `${name}: уровень ${site.level}.`, 'good');
+      log(s, `${BUILDING_BY_ID[site.type].name}: уровень ${site.level}.`, 'good');
     }
   }
 
-  // 3. Исследование.
-  if (s.research) {
-    s.research.work += researchRate(s, mods) * dt;
-    const def = TECH_BY_ID[s.research.techId];
-    if (s.research.work >= def.work) {
-      s.techs.push(def.id);
-      if (def.id === 'chiefdom') s.prestige += 5;
-      s.research = null;
-      log(s, `Изучено: ${def.name}.`, 'good');
-    }
-  }
-
-  // 3б. Кузница и казармы. Кузнец кует снаряжение, казармы превращают свободных
+  // 3. Кузница и казармы. Кузнец кует снаряжение, казармы превращают свободных
   // жителей в бойцов — обе очереди идут своим чередом, как стройка.
   forgeTick(s, dt, mods);
   recruitTick(s, dt);
+
+  // 3б. Рынок: налог капает в казну, дневной прилавок обновляется со сменой дня,
+  // вернувшиеся караваны разгружаются.
+  marketTick(s, dt, taxIncomePerDay(s));
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
   const target = moraleTarget(s);
   const speed = (dt / 20) * (s.freezing > 0 ? 2 : 1); // ~20 сек до заметного сдвига
   s.morale += (target - s.morale) * Math.min(1, speed);
   // Указ и рацион двигают мораль не целью, а прямо: ровно столько в игровой день,
-  // сколько написано на кнопке в Доме вождя.
+  // сколько написано на кнопке в ратуше.
   const drift = (policyMoralePerDay(s) * dt) / DAY_LENGTH;
   if (drift !== 0) s.morale = Math.max(0, Math.min(100, s.morale + drift));
 
-  // 5. Рост населения.
-  const housing = housingCapacity(s);
-  const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s, mods));
-  // Рацион правит рождаемость: на скудном пайке детей не заводят вовсе.
-  const growthMult = rationOf(s).growth;
-  if (s.villagers.length < housing && foodDays >= 1.5 && s.morale >= 35 && growthMult > 0) {
-    let rate = (1 + s.morale / 100) * growthMult;
-    if (hasTech(s, 'traditions')) rate *= 1.3;
-    s.growth += rate * dt;
-    if (s.growth >= GROWTH_REQUIRED) {
-      s.growth = 0;
-      const v = addVillager(s);
-      s.stats.born++;
-      log(s, `${v.name} ${v.sex === 'f' ? 'пришла' : 'пришёл'} в племя.`, 'good');
-    }
-  } else {
-    s.growth = Math.max(0, s.growth - dt * 0.5);
-  }
+  // 5. Прирост населения. Ни рождений поимённо, ни старения: племя — это число,
+  // и растёт оно от свободного жилья, запаса еды и морали (см. sim/population).
+  growthTick(s, dt, mods);
 
-  // 6. Старение и смена поколений (раз в игровой день).
-  if (dayAfter > dayBefore) {
-    for (const v of s.villagers) v.age += 1 / DAYS_PER_YEAR;
-    const elders = s.villagers.filter((v) => v.age >= 58);
-    for (const v of elders) {
-      if (s.villagers.length <= 2) break;
-      if (chance((v.age - 55) / 40)) {
-        removeVillager(s, v.id);
-        s.stats.died++;
-        log(s, `${v.name} умер${v.sex === 'f' ? 'ла' : ''} от старости в ${Math.floor(v.age)} лет.`, 'bad');
-      }
-    }
-  }
+  // 6. Итог дня по племени — одной строкой, а не по человеку на строку.
+  if (dayAfter > dayBefore) logPopDay(s);
 
   // 6б. Смена сезона и предупреждение о зиме.
   if (seasonIndex(s.time) !== seasonBefore) {

@@ -7,31 +7,43 @@ import { BottomNav } from './ui/BottomNav';
 import { Sheet } from './ui/Sheet';
 import { EventModal } from './ui/EventModal';
 import { PeoplePanel } from './ui/panels/PeoplePanel';
-import { BuildPanel } from './ui/panels/BuildPanel';
 import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
+import { PopPanel } from './ui/panels/PopPanel';
+import { MoralePanel } from './ui/panels/MoralePanel';
+import { ArmyPanel } from './ui/panels/ArmyPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
+import { LegacyModal } from './ui/LegacyModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
 import { WorldMap } from './ui/map/WorldMap';
 import { WorldPanel } from './ui/panels/WorldPanel';
 import { MarchesPanel } from './ui/panels/MarchesPanel';
+import { BattlePanel } from './ui/panels/BattlePanel';
+import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
   if (view.kind === 'world') return <WorldPanel x={view.x} y={view.y} />;
   if (view.kind === 'marches') return <MarchesPanel />;
+  if (view.kind === 'battle') return <BattlePanel targetId={view.target} />;
+  if (view.kind === 'defense') return <BattlePanel />;
+  if (view.kind === 'report') return <ReportPanel id={view.id} />;
   switch (view.tab) {
     case 'people':
       return <PeoplePanel />;
-    case 'build':
-      return <BuildPanel />;
     case 'quests':
       return <QuestsPanel />;
     case 'season':
       return <SeasonPanel />;
+    case 'pop':
+      return <PopPanel />;
+    case 'morale':
+      return <MoralePanel />;
+    case 'army':
+      return <ArmyPanel />;
   }
 }
 
@@ -103,7 +115,8 @@ export function App() {
       <EventModal />
       <WinterModal />
       <OfflineModal />
-      {!mapOpen && <TutorialOverlay />}
+      <LegacyModal />
+      <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

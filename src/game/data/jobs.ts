@@ -1,4 +1,4 @@
-import type { BuildingTypeId, JobId, ResourceId, TechId } from '../types';
+import type { BuildingTypeId, JobId, ResourceId } from '../types';
 
 export interface JobDef {
   id: JobId;
@@ -7,8 +7,6 @@ export interface JobDef {
   description: string;
   /** Производство за игровой день на одного работника в здании 1 уровня. */
   yield: Partial<Record<ResourceId, number>>;
-  /** Требуемая технология. */
-  requiresTech?: TechId;
   /** Профильное здание: рабочие места берутся из его уровня. */
   building?: BuildingTypeId;
   /** Профессия доступна и без здания — «вольным сбором» вполсилы. */
@@ -18,13 +16,13 @@ export interface JobDef {
 }
 
 export const JOBS: JobDef[] = [
-  { id: 'idle', name: 'Свободен', icon: '🔨', description: 'Свободные жители строят здания и отдыхают у костра.', yield: {} },
+  { id: 'idle', name: 'Свободен', icon: '🔨', description: 'Свободные жители улучшают здания и отдыхают у костра.', yield: {} },
   {
     id: 'gatherer',
     name: 'Собиратель',
     icon: '🍇',
     description: 'Собирает ягоды и коренья рядом с лагерем.',
-    yield: { food: 7 },
+    yield: { food: 10 },
     building: 'gathering',
     freeRange: true,
   },
@@ -32,8 +30,8 @@ export const JOBS: JobDef[] = [
     id: 'hunter',
     name: 'Охотник',
     icon: '🏹',
-    description: 'Приносит мясо, шкуры и кости. Лучше с копьём и луком.',
-    yield: { food: 6, hides: 1.2, bones: 1 },
+    description: 'Приносит мясо, шкуры и кости — с копьём и луком, как положено.',
+    yield: { food: 14, hides: 2.4, bones: 2 },
     building: 'hunter_hut',
     freeRange: true,
   },
@@ -42,7 +40,7 @@ export const JOBS: JobDef[] = [
     name: 'Лесоруб',
     icon: '🪓',
     description: 'Рубит лес на краю поселения.',
-    yield: { wood: 6 },
+    yield: { wood: 9 },
     building: 'sawmill',
     freeRange: true,
   },
@@ -51,7 +49,7 @@ export const JOBS: JobDef[] = [
     name: 'Каменотёс',
     icon: '⛏️',
     description: 'Добывает камень у скал.',
-    yield: { stone: 4 },
+    yield: { stone: 5 },
     building: 'quarry',
     freeRange: true,
   },
@@ -60,8 +58,7 @@ export const JOBS: JobDef[] = [
     name: 'Рудокоп',
     icon: '💎',
     description: 'Достаёт медную и железную руду. Нужен рудник.',
-    yield: { copper: 1.6, iron: 0.7 },
-    requiresTech: 'metallurgy',
+    yield: { copper: 2, iron: 0.8 },
     building: 'mine',
   },
   {
@@ -69,8 +66,7 @@ export const JOBS: JobDef[] = [
     name: 'Фермер',
     icon: '🌾',
     description: 'Выращивает урожай. Нужна ферма.',
-    yield: { food: 11 },
-    requiresTech: 'farming',
+    yield: { food: 13 },
     building: 'farm',
   },
   {
@@ -78,15 +74,14 @@ export const JOBS: JobDef[] = [
     name: 'Пастух',
     icon: '🐐',
     description: 'Держит скот. Зима стаду почти не мешает — оно зимует в загоне.',
-    yield: { food: 5, hides: 1.2 },
-    requiresTech: 'animal_husbandry',
+    yield: { food: 6, hides: 1.4 },
     building: 'pen',
   },
   {
     id: 'crafter',
     name: 'Ремесленник',
     icon: '🛠️',
-    description: 'Работает в мастерской и ускоряет исследования.',
+    description: 'Работает в мастерской и ускоряет улучшения зданий: один мастер стоит полутора строителей.',
     yield: {},
     building: 'workshop',
   },
@@ -96,25 +91,15 @@ export const JOBS: JobDef[] = [
     icon: '⚒️',
     description: 'Кует снаряжение: копья, луки, топоры, щиты, мечи и доспех.',
     yield: {},
-    requiresTech: 'metallurgy',
     building: 'smithy',
   },
   {
-    id: 'scholar',
-    name: 'Хранитель',
-    icon: '📚',
-    description: 'Помнит и передаёт знания. Ускоряет исследования.',
+    id: 'priest',
+    name: 'Жрец',
+    icon: '🕯️',
+    description: 'Служит в церкви и поддерживает дух племени.',
     yield: {},
-    building: 'knowledge',
-  },
-  {
-    id: 'shaman',
-    name: 'Шаман',
-    icon: '🔮',
-    description: 'Проводит ритуалы у тотема и поддерживает мораль.',
-    yield: {},
-    requiresTech: 'shamanism',
-    building: 'totem',
+    building: 'church',
   },
 ];
 

@@ -2,45 +2,68 @@
 import type {
   Building,
   BuildingTypeId,
+  TroopId,
+  Caravan,
   EquipmentId,
-  EraId,
   GameState,
+  GoodId,
   JobId,
   ResourceId,
   Resources,
   Season,
-  StageId,
-  TechId,
-  TroopId,
-  Villager,
 } from './types';
 import {
+  BASE_DEFENSE,
   BASE_HOUSING,
+  FEAST_COOLDOWN_DAYS,
+  FEAST_COOLDOWN_PER_LEVEL,
+  FEAST_DAYS,
+  FEAST_GOLD_PER_POP,
+  HERO_DOWN_DAYS,
+  HERO_RETRAIN_PER_POP,
+  INFIRMARY_HEAL_CAP,
   BASE_STORAGE_CAP,
-  CAMPFIRE_RESEARCH,
-  CRAFTER_RESEARCH,
+  BUILDER_RATE,
+  CROWDING_MAX,
+  CROWDING_PENALTY,
+  CRAFTER_BUILD,
   DAY_LENGTH,
   FREE_RANGE_MULT,
-  HOUSING_TECH_MULT,
   LEVEL_OUTPUT_STEP,
   MAX_BUILDING_LEVEL,
+  MORALE_BASE,
+  MORALE_OUTPUT_LOW,
+  MORALE_OUTPUT_SPAN,
   RECRUIT_WORK,
-  RESEARCH_BASE,
   RESOURCE_IDS,
-  SCHOLAR_RESEARCH,
+  PRIEST_MORALE,
+  PRIEST_MORALE_CAP,
+  SLOTS_PER_LEVEL,
   SMITH_WORK,
+  TOWN_HALL_BUILD_STEP,
   SOLDIER_FOOD,
-  TALENT_MULT,
   UPGRADE_GROWTH,
+  VILLAGER_DEFENSE,
   emptyResources,
 } from './constants';
+import type { UnitKind } from '@/battle';
 import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
-import { JOBS, JOB_BY_ID } from './data/jobs';
+import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
-import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from './data/troops';
-import { DECREE_BY_ID, RATION_BY_ID, type DecreeDef, type RationDef } from './data/policy';
-import { STAGES, STAGE_BY_ID, stageIndex, type StageDef } from './data/stages';
-import { ERA_TECHS, TECH_BY_ID } from './data/techs';
+import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
+import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
+import {
+  CARAVAN_BASE,
+  CARAVAN_PER_LEVEL,
+  GOODS,
+  GOOD_BY_ID,
+  batchCost,
+  goodMaterials,
+  goodPrice,
+  goodStock,
+  offerFor,
+  type GoodDef,
+} from './data/market';
 import {
   FIRST_WINTER_SOFTEN,
   FREEZING_MORALE_PENALTY,
@@ -49,37 +72,36 @@ import {
   SEASONS,
   SEASON_DAYLIGHT,
   SEASON_DAYS,
+  SEASON_META,
   SEASON_MODIFIERS,
   SEASON_SECONDS,
   type SeasonModifiers,
 } from './data/seasons';
 
-export const hasTech = (s: GameState, id: TechId): boolean => s.techs.includes(id);
-
-/** Здание достроено и работает. Уровень 0 — ещё стройплощадка. */
-export const isBuilt = (b: Building): boolean => b.level > 0;
-
-/** На здании идёт работа: первая стройка или улучшение. */
+/** На здании идёт улучшение. */
 export const isSite = (b: Building): boolean => b.workRequired > 0;
 
 export const buildingById = (s: GameState, id: number): Building | null =>
   s.buildings.find((b) => b.id === id) ?? null;
 
-export const countBuilt = (s: GameState, type: BuildingTypeId): number =>
-  s.buildings.filter((b) => b.type === type && isBuilt(b)).length;
-
-export const countAll = (s: GameState, type: BuildingTypeId): number =>
-  s.buildings.filter((b) => b.type === type).length;
-
-/** Единственное здание этого типа — построенное или ещё стройплощадка. */
+/** Единственное здание этого типа. Второго такого в посёлке не бывает. */
 export const buildingOfType = (s: GameState, type: BuildingTypeId): Building | null =>
   s.buildings.find((b) => b.type === type) ?? null;
 
-/** Построенное здание этого типа. Второго такого в посёлке не бывает. */
-export const builtOfType = (s: GameState, type: BuildingTypeId): Building | null =>
-  s.buildings.find((b) => b.type === type && isBuilt(b)) ?? null;
+/**
+ * Здание стоит за стеной — значит, до него дотягивается чужой набег. Единственный
+ * источник правды: поле `outside` в определении здания. План поселения ставит
+ * такие здания на четвёртое кольцо, но решает это не он.
+ */
+export const isOutsideWall = (type: BuildingTypeId): boolean =>
+  BUILDING_BY_ID[type].outside === true;
 
-/** Первая стройка в очереди — над ней работают свободные жители. */
+/** Здания за стеной — ровно то, что может отнять набег. */
+export const OUTSIDE_TYPES: BuildingTypeId[] = Object.values(BUILDING_BY_ID)
+  .filter((d) => d.outside)
+  .map((d) => d.id);
+
+/** Первое улучшение в очереди — над ним работают свободные жители. */
 export const currentSite = (s: GameState): Building | null => s.buildings.find(isSite) ?? null;
 
 // ---------- Уровни, слоты, улучшения ----------
@@ -87,30 +109,40 @@ export const currentSite = (s: GameState): Building | null => s.buildings.find(i
 /** Множитель выработки рабочего от уровня здания: +10% за уровень. */
 export const levelOutputMult = (level: number): number => 1 + LEVEL_OUTPUT_STEP * Math.max(0, level - 1);
 
-/** Рабочих мест в здании: столько же, сколько уровней. Стройплощадка мест не даёт. */
+/**
+ * Рабочих мест в здании. Личного навыка у жителя нет — всю его роль взял на себя
+ * уровень здания: он и добавляет места, и поднимает выработку каждому рабочему.
+ */
 export function buildingSlots(b: Building): number {
   const def = BUILDING_BY_ID[b.type];
-  return def.job && b.level > 0 ? b.level : 0;
+  return def.job ? b.level * (def.slotsPerLevel ?? SLOTS_PER_LEVEL) : 0;
 }
 
-export const workersIn = (s: GameState, buildingId: number): Villager[] =>
-  s.villagers.filter((v) => v.workplace === buildingId);
+/** Сколько человек работает в этом здании. Назначение — число, а не список людей. */
+export const workerCount = (s: GameState, buildingId: number): number =>
+  Math.max(0, Math.floor(s.workers?.[buildingId] ?? 0));
 
-export const workerCount = (s: GameState, buildingId: number): number => {
+/** Сколько человек занято этой работой вольным сбором — без места в здании. */
+export const freeJobCount = (s: GameState, job: JobId): number =>
+  Math.max(0, Math.floor(s.freeJobs?.[job] ?? 0));
+
+/** Сколько человек вообще при деле: в зданиях и на вольном сборе. */
+export function busyCount(s: GameState): number {
   let n = 0;
-  for (const v of s.villagers) if (v.workplace === buildingId) n++;
+  for (const b of s.buildings) n += workerCount(s, b.id);
+  for (const job of FREE_JOBS) n += freeJobCount(s, job);
   return n;
-};
+}
 
-export const freeVillagers = (s: GameState): Villager[] => s.villagers.filter((v) => v.job === 'idle');
+/** Свободные руки: те, кого видно у костра и кем строят. */
+export const idleCount = (s: GameState): number => Math.max(0, s.pop - busyCount(s));
 
 /**
  * Пассивный эффект здания с учётом уровня: база + прибавка за каждый уровень сверх
  * того, с которого эффект вообще появляется (`since`). У большинства зданий это
- * первый уровень; у Дома вождя жильё начинается с шестого.
+ * первый уровень; у ратуши жильё начинается с шестого.
  */
 export function buildingStat(b: Building, key: keyof BuildingStats): number {
-  if (b.level <= 0) return 0;
   const def = BUILDING_BY_ID[b.type];
   const base = def[key] ?? 0;
   if (base === 0) return 0;
@@ -119,10 +151,10 @@ export function buildingStat(b: Building, key: keyof BuildingStats): number {
   return base + (def.perLevel?.[key] ?? 0) * (b.level - from);
 }
 
-/** Потолок уровня для типа здания: свой предел, общий предел и предел эпохи. */
-export function maxLevelFor(s: GameState, type: BuildingTypeId): number {
+/** Потолок уровня для типа здания: свой предел и общий предел. */
+export function maxLevelFor(type: BuildingTypeId): number {
   const def = BUILDING_BY_ID[type];
-  return Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL, ERA_MAX_LEVEL[era(s)]);
+  return Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
 }
 
 const scaleCost = (
@@ -155,16 +187,14 @@ export interface UpgradeInfo {
 
 export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
   const def = BUILDING_BY_ID[b.type];
-  const maxLevel = maxLevelFor(s, b.type);
+  const maxLevel = maxLevelFor(b.type);
   const level = b.level + 1;
   const cost = upgradeCost(def, level);
   const work = upgradeWork(def, level);
   const affordable = canAfford(s, cost);
   let blocked: string | null = null;
-  if (b.level === 0) blocked = 'Здание ещё строится.';
-  else if (isSite(b)) blocked = 'Улучшение уже идёт.';
-  else if ((def.maxLevel ?? MAX_BUILDING_LEVEL) <= b.level) blocked = 'Это здание не улучшается.';
-  else if (level > maxLevel) blocked = `Эпоха «${ERA_META[era(s)].name}» не даёт поднять выше ${maxLevel} уровня.`;
+  if (isSite(b)) blocked = 'Улучшение уже идёт.';
+  else if (level > maxLevel) blocked = b.level <= 1 ? 'Это здание не улучшается.' : 'Максимальный уровень.';
   else if (!affordable) blocked = 'Не хватает ресурсов.';
   return { level, cost, work, maxLevel, affordable, blocked };
 }
@@ -173,7 +203,7 @@ export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
 export type Attention = 'idle' | 'slot' | 'upgrade';
 
 export function buildingAttention(s: GameState, b: Building): Attention | null {
-  if (!isBuilt(b) || isSite(b)) return null;
+  if (isSite(b)) return null;
   const slots = buildingSlots(b);
   if (slots > 0) {
     const n = workerCount(s, b.id);
@@ -191,19 +221,12 @@ export const ATTENTION_META: Record<Attention, { icon: string; text: string }> =
 
 // ---------- Вместимости ----------
 
-/**
- * Жилых мест в здании. «Строительство жилья» раздаёт хижину не на одного человека,
- * а на четверть: хижина одна, и плоская прибавка потерялась бы к десятому уровню.
- */
-export function buildingHousing(s: GameState, b: Building): number {
-  const h = buildingStat(b, 'housing');
-  if (!h) return 0;
-  return b.type === 'hut' && hasTech(s, 'housing') ? Math.round(h * HOUSING_TECH_MULT) : h;
-}
+/** Жилых мест в здании. */
+export const buildingHousing = (b: Building): number => buildingStat(b, 'housing');
 
 export function housingCapacity(s: GameState): number {
   let cap = BASE_HOUSING;
-  for (const b of s.buildings) cap += buildingHousing(s, b);
+  for (const b of s.buildings) cap += buildingHousing(b);
   return cap;
 }
 
@@ -213,9 +236,15 @@ export function storageCap(s: GameState): number {
   return cap;
 }
 
+/** Сколько человек по профессиям: рабочие зданий, вольный сбор и свободные руки. */
 export function jobCounts(s: GameState): Record<JobId, number> {
   const counts = Object.fromEntries(JOBS.map((j) => [j.id, 0])) as Record<JobId, number>;
-  for (const v of s.villagers) counts[v.job]++;
+  for (const b of s.buildings) {
+    const job = BUILDING_BY_ID[b.type].job;
+    if (job) counts[job] += workerCount(s, b.id);
+  }
+  for (const job of FREE_JOBS) counts[job] += freeJobCount(s, job);
+  counts.idle = idleCount(s);
   return counts;
 }
 
@@ -230,6 +259,94 @@ export const rationOf = (s: GameState): RationDef => RATION_BY_ID[s.ration] ?? R
 /** Прибавка к морали за игровой день от указа и рациона вместе. */
 export const policyMoralePerDay = (s: GameState): number =>
   decreeOf(s).moralePerDay + rationOf(s).moralePerDay;
+
+// ---------- Золото, налог, рынок ----------
+
+/** Действующий уровень налога. Старое сохранение без поля читается как «без налога». */
+export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.none;
+
+/** Сбор золота за игровой день: с каждого человека посёлка, включая бойцов. */
+export const taxIncomePerDay = (s: GameState): number => taxOf(s).perPop * population(s) * TAX_PER_POP;
+
+/** Уровень рынка. */
+export const marketLevel = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
+
+/** Что стоит на прилавке сегодня. Пусто, пока нет рынка. */
+export const marketOffer = (s: GameState): GoodDef[] => offerFor(dayOf(s.time), marketLevel(s), GOODS);
+
+/**
+ * Сколько единиц товара уже взяли с прилавка сегодня. Счётчик от прошлого дня
+ * не считается: прилавок обновляется по номеру дня, а не по тому, успел ли
+ * пройти шаг симуляции.
+ */
+export const marketBought = (s: GameState, id: GoodId): number => {
+  if (!s.market || s.market.day !== dayOf(s.time)) return 0;
+  return Math.max(0, s.market.bought[id] ?? 0);
+};
+
+/** Дневной запас товара при нынешнем уровне рынка. */
+export const marketStock = (s: GameState, def: GoodDef): number => goodStock(def, marketLevel(s));
+
+/** Сколько ещё можно взять сегодня. */
+export const marketLeft = (s: GameState, def: GoodDef): number =>
+  Math.max(0, marketStock(s, def) - marketBought(s, def.id));
+
+/** Цена следующей единицы с учётом того, сколько уже скупили за день. */
+export const marketPrice = (s: GameState, def: GoodDef): number =>
+  goodPrice(def, marketLevel(s), marketBought(s, def.id));
+
+/** Во что обойдётся партия из `count` единиц. Считается поштучно. */
+export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
+  batchCost(def, marketLevel(s), marketBought(s, def.id), count);
+
+/** Сколько идёт караван при нынешнем уровне рынка, секунд игрового времени. */
+export const caravanSeconds = (s: GameState): number =>
+  Math.max(12, CARAVAN_BASE - CARAVAN_PER_LEVEL * Math.max(0, marketLevel(s) - 1));
+
+/** Доля пути каравана, 0..1. По ней сцена ведёт телегу от ворот и обратно. */
+export function caravanProgress(s: GameState, c: Caravan): number {
+  const total = Math.max(0.001, c.arriveAt - c.departAt);
+  return Math.max(0, Math.min(1, (s.time - c.departAt) / total));
+}
+
+/**
+ * Во что единица товара обходится своим трудом, в золоте.
+ *
+ * Считается из собственных чисел игры: человек за день приносит казне
+ * `bestTaxPerPop` золота, а тот же человек на своём месте в здании
+ * `REFERENCE_LEVEL` уровня добывает `yield * levelOutputMult` единиц товара.
+ * Отношение и есть «цена своего труда» — с ней сравнивается цена рынка,
+ * и рынок обязан быть дороже (см. MIN_MARKUP и тест).
+ *
+ * Для снаряжения своим трудом считается стоимость материалов: работу кузнеца
+ * рынок сверху и накидывает.
+ */
+const REFERENCE_LEVEL = 5;
+
+const bestTaxPerPop = (): number => Math.max(...TAXES.map((t) => t.perPop)) * TAX_PER_POP;
+
+/** Лучшая дневная добыча одного работника по этому ресурсу — эталон «сделать самому». */
+function bestYieldPerWorker(r: ResourceId): number {
+  let best = 0;
+  for (const job of JOBS) {
+    const y = job.yield[r] ?? 0;
+    if (y > best) best = y;
+  }
+  return best * levelOutputMult(REFERENCE_LEVEL);
+}
+
+export function selfCost(def: GoodDef): number {
+  if (def.resource) {
+    const per = bestYieldPerWorker(def.resource);
+    return per > 0 ? bestTaxPerPop() / per : 0;
+  }
+  let sum = 0;
+  for (const [r, n] of Object.entries(goodMaterials(def))) {
+    const g = GOOD_BY_ID[r];
+    if (g && n) sum += g.price * n;
+  }
+  return sum;
+}
 
 // ---------- Армия ----------
 
@@ -267,22 +384,163 @@ export const awayCount = (s: GameState): number =>
 export function defense(s: GameState): number {
   let d = homeArmyPower(s);
   for (const b of s.buildings) d += buildingStat(b, 'defense');
-  if (hasTech(s, 'shields')) d += 3;
-  if (hasTech(s, 'bronze_weapons')) d += 4;
-  if (s.totem === 'bear') d += 2;
+  d += BASE_DEFENSE;
+  if (s.patron === 'bear') d += 2;
   // Любой житель может отбиваться дубиной, но слабо.
-  d += Math.max(0, s.villagers.length - Math.max(0, s.scoutsAway)) * 0.25;
+  d += Math.max(0, s.pop - Math.max(0, s.scoutsAway)) * VILLAGER_DEFENSE;
   return d;
 }
 
-/** Боец доступен, когда изучена его технология. Дубинщику технология не нужна. */
-export const troopUnlocked = (s: GameState, id: TroopId): boolean => {
-  const def = TROOP_BY_ID[id];
-  return !def.requiresTech || hasTech(s, def.requiresTech);
+// ---------- Службы посёлка ----------
+//
+// Пять зданий третьего кольца не производят ничего и рабочих мест не дают:
+// каждое правит одно число в другой части игры. Все они читаются одинаково —
+// через `buildingStat`, поэтому уровень везде работает сам собой.
+
+/** Величина пассива здания этого типа. Ноль, если такого здания нет. */
+export function statOf(s: GameState, type: BuildingTypeId, key: keyof BuildingStats): number {
+  const b = buildingOfType(s, type);
+  return b ? buildingStat(b, key) : 0;
+}
+
+/**
+ * Какую долю потерь боя лазарет возвращает в племя ранеными, 0..`INFIRMARY_HEAL_CAP`.
+ * Потолок здесь не украшение: без него война на высоком уровне перестала бы
+ * стоить людей, а победа с непомерными потерями — быть непомерной.
+ */
+export const healShare = (s: GameState): number =>
+  Math.min(INFIRMARY_HEAL_CAP, statOf(s, 'infirmary', 'heal') / 100);
+
+/**
+ * Во сколько раз медленнее стареют разведданные. Единица — как без дозора.
+ * Снимок запоминает это число в момент разведки: данные, собранные хорошим
+ * дозором, и остаются хорошими (см. world/intel.readIntel).
+ */
+export const intelKeen = (s: GameState): number => 1 + statOf(s, 'watch', 'intel') / 100;
+
+/**
+ * За сколько игрок видит чужую армию до её прихода, секунд игрового времени.
+ * Правило, которое нельзя нарушать: предупреждение обязано быть заметно длиннее
+ * заморозки обороны (`DEFENSE_FREEZE`), иначе набег появляется уже запертым.
+ * Поэтому дозор время только прибавляет, а не задаёт его целиком.
+ */
+export const warningSeconds = (s: GameState): number => statOf(s, 'watch', 'warn');
+
+/** Во сколько раз быстрее учится конница благодаря конюшне. */
+export const cavalryTrain = (s: GameState): number => 1 + statOf(s, 'stable', 'train') / 100;
+
+/** Ступень снаряжения, которую конюшня добавляет всадникам в бою. */
+export const mountGear = (s: GameState): number => Math.floor(statOf(s, 'stable', 'mountGear'));
+
+/** Сколько единиц каждого ресурса тайник прячет от чужого набега. */
+export const hiddenStash = (s: GameState): number => statOf(s, 'cache', 'hidden');
+
+/** Что осталось бы на складе после самого удачного для чужих набега. */
+export const safeResources = (s: GameState): Resources => {
+  const hidden = hiddenStash(s);
+  const out = emptyResources();
+  for (const r of RESOURCE_IDS) out[r] = Math.min(s.resources[r], hidden);
+  return out;
 };
 
-/** Виды бойцов, которые уже есть в списке казарм. */
-export const availableTroops = (s: GameState): TroopDef[] => TROOPS.filter((t) => troopUnlocked(s, t.id));
+export interface FeastInfo {
+  /** Прибавка к морали, пока пир идёт. */
+  bonus: number;
+  /** Сколько золота стоит пир прямо сейчас: по числу ртов. */
+  cost: number;
+  /** Секунд игрового времени до конца пира; 0 — пира нет. */
+  left: number;
+  /** Секунд до следующего пира; 0 — можно прямо сейчас. */
+  cooldown: number;
+  /** Почему нельзя; null — можно. */
+  blocked: string | null;
+}
+
+/**
+ * Пир в трактире: единственный быстрый рычаг морали в игре и второй выход у
+ * золота после рынка. Прибавка временная, стоит по числу ртов и упирается в
+ * откат — уровень трактира делает пир крепче, а откат короче.
+ */
+export function feastInfo(s: GameState): FeastInfo {
+  const tavern = buildingOfType(s, 'tavern');
+  const bonus = tavern ? buildingStat(tavern, 'feast') : 0;
+  const level = tavern?.level ?? 0;
+  const cost = Math.ceil(FEAST_GOLD_PER_POP * population(s));
+  const left = Math.max(0, (s.feastUntil ?? 0) - s.time);
+  const wait = Math.max(1, FEAST_COOLDOWN_DAYS - FEAST_COOLDOWN_PER_LEVEL * Math.max(0, level - 1)) * DAY_LENGTH;
+  // `feastUntil` — ноль ровно до первого пира (после него он всегда больше нуля,
+  // пир длится дни). По нему и отличается «ещё не пировали» от «только что
+  // пировали в первую же секунду партии»: первый пир доступен сразу.
+  const cooldown = s.feastUntil > 0 ? Math.max(0, s.feastAt + wait - s.time) : 0;
+  let blocked: string | null = null;
+  if (!tavern) blocked = 'Трактира нет.';
+  else if (left > 0) blocked = 'Пир и так идёт.';
+  else if (cooldown > 0) blocked = `Бочки пусты: ещё ${Math.ceil(cooldown / DAY_LENGTH)} дн.`;
+  else if (s.gold < cost) blocked = `Не хватает золота: нужно ${cost}.`;
+  return { bonus, cost, left, cooldown, blocked };
+}
+
+/** Прибавка к морали от идущего пира. Ноль, если пира нет. */
+export const feastMorale = (s: GameState): number =>
+  (s.feastUntil ?? 0) > s.time ? feastInfo(s).bonus : 0;
+
+/** Сколько игрового времени длится пир. */
+export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
+
+// ---------- Герой ----------
+
+/**
+ * Сколько бойцов строя приводит с собой герой в выбранный им род. Это и есть
+ * усиление: ядро боя знает роды и бойцов строя, а не «легендарных чемпионов»,
+ * поэтому слава героя честнее всего считается людьми, которые за ним идут.
+ * Мощь армии (`armyPower`) он при этом не трогает — её нельзя ничем множить.
+ */
+export const heroMen = (s: GameState): number => Math.round(statOf(s, 'statue', 'hero'));
+
+/** Герой дома и здоров — значит, пойдёт со следующим походом. */
+export const heroReady = (s: GameState): boolean =>
+  s.hero.marchId === null && s.hero.downUntil <= s.time;
+
+export interface HeroInfo {
+  name: string;
+  kind: UnitKind;
+  /** Сколько бойцов строя он приводит в свой род. */
+  men: number;
+  /** Пойдёт со следующим походом. */
+  ready: boolean;
+  /** В походе прямо сейчас. */
+  away: boolean;
+  /** Секунд игрового времени до возвращения после гибели; 0 — он в строю. */
+  down: number;
+  /** Во что обойдётся смена рода войск. */
+  retrainCost: number;
+  /** Почему нельзя сменить род; null — можно. */
+  blocked: string | null;
+}
+
+export function heroInfo(s: GameState): HeroInfo {
+  const h = s.hero;
+  const down = Math.max(0, h.downUntil - s.time);
+  const away = h.marchId !== null;
+  const retrainCost = Math.ceil(HERO_RETRAIN_PER_POP * population(s));
+  let blocked: string | null = null;
+  if (away) blocked = 'Герой в походе.';
+  else if (down > 0) blocked = `Герой ранен: ${Math.ceil(down / DAY_LENGTH)} дн.`;
+  else if (s.gold < retrainCost) blocked = `Не хватает золота: нужно ${retrainCost}.`;
+  return {
+    name: h.name,
+    kind: h.kind,
+    men: heroMen(s),
+    ready: !away && down <= 0,
+    away,
+    down,
+    retrainCost,
+    blocked,
+  };
+}
+
+/** Сколько лежит павший герой. Он не пропадает совсем — только выбывает на время. */
+export const heroDownSeconds = (): number => HERO_DOWN_DAYS * DAY_LENGTH;
 
 /** Сколько бойцов ждёт своей очереди в казармах. */
 export const recruitsQueued = (s: GameState): number =>
@@ -290,29 +548,29 @@ export const recruitsQueued = (s: GameState): number =>
 
 /**
  * Скорость обучения в казармах: работа в секунду. Зависит только от уровня казарм —
- * учения идут своим чередом, без рабочих и без сезона.
+ * учения идут своим чередом, без рабочих и без сезона. Растёт она быстрее выработки
+ * зданий, потому что умножается ещё и на сам уровень: дружина в сотни бойцов при
+ * линейном росте набиралась бы часами.
  */
-export function recruitRate(s: GameState): number {
-  const b = builtOfType(s, 'barracks');
-  return b ? RECRUIT_WORK * levelOutputMult(b.level) : 0;
+export function recruitRate(s: GameState, troop?: TroopId): number {
+  const b = buildingOfType(s, 'barracks');
+  if (!b) return 0;
+  const base = RECRUIT_WORK * b.level * levelOutputMult(b.level);
+  // Конюшня ускоряет только конницу: это её экономический след, а не общая
+  // прибавка казармам. Без вида бойца считается голая скорость казарм.
+  return troop && TROOP_BY_ID[troop].mounted ? base * cavalryTrain(s) : base;
 }
 
 // ---------- Кузница ----------
-
-/** Снаряжение можно ковать, когда изучена его технология. */
-export const forgeUnlocked = (s: GameState, id: EquipmentId): boolean =>
-  hasTech(s, EQUIPMENT_BY_ID[id].requiresTech);
 
 /**
  * Работа кузнецов в секунду: сколько их, какого уровня кузница и есть ли навык —
  * всё это уже сидит в множителе жителя.
  */
 export function forgeRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
-  const smithy = builtOfType(s, 'smithy');
+  const smithy = buildingOfType(s, 'smithy');
   if (!smithy) return 0;
-  let rate = 0;
-  for (const v of workersIn(s, smithy.id)) rate += SMITH_WORK * villagerMultiplier(s, v, mods);
-  return rate;
+  return SMITH_WORK * workerCount(s, smithy.id) * workerMultiplier(s, 'smith', smithy, mods);
 }
 
 export interface ForgeInfo {
@@ -336,8 +594,7 @@ export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   const work = s.forgeWork ?? 0;
   const need = def?.work ?? 0;
   let blocked: string | null = null;
-  if (!builtOfType(s, 'smithy')) blocked = 'Кузница ещё строится.';
-  else if (!def) blocked = 'Выбери, что куём.';
+  if (!def) blocked = 'Выбери, что куём.';
   else if (rate <= 0) blocked = 'В кузнице никто не работает.';
   else if (work >= need && !canAfford(s, def.cost)) blocked = 'Не хватает материалов на предмет.';
   const eta = def && rate > 0 ? Math.max(0, Math.ceil((need - work) / rate)) : null;
@@ -346,64 +603,60 @@ export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
 
 // ---------- Производство ----------
 
-/** Множитель производительности профессии с учётом технологий, сезона и указа. */
+/**
+ * Во что мораль обходится выработке: от `MORALE_OUTPUT_LOW` при нуле до
+ * `MORALE_OUTPUT_LOW + MORALE_OUTPUT_SPAN` при сотне. Отдельной функцией, потому
+ * что это же число показывает справочный экран счастья — считать его дважды нельзя.
+ */
+export const moraleOutputMult = (morale: number): number =>
+  MORALE_OUTPUT_LOW + (Math.max(0, Math.min(100, morale)) / 100) * MORALE_OUTPUT_SPAN;
+
+/** Множитель производительности профессии с учётом покровителя, сезона и указа. */
 export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = seasonMods(s)): number {
   let m = mods.jobs[job] ?? 1;
-  if (hasTech(s, 'stone_tools')) m *= 1.2;
-  switch (job) {
-    case 'gatherer':
-      if (hasTech(s, 'bone_tools')) m *= 1.2;
-      break;
-    case 'hunter':
-      if (hasTech(s, 'bone_tools')) m *= 1.2;
-      if (hasTech(s, 'spears')) m *= 1.3;
-      if (hasTech(s, 'bows')) m *= 1.3;
-      if (s.totem === 'wolf') m *= 1.15;
-      break;
-    case 'woodcutter':
-      if (hasTech(s, 'woodworking')) m *= 1.3;
-      break;
-    case 'farmer':
-      if (s.totem === 'eagle') m *= 1.1;
-      break;
-    default:
-      break;
-  }
-  // Мораль: от 0.7 при нуле до 1.15 при сотне.
-  m *= 0.7 + (s.morale / 100) * 0.45;
+  if (job === 'hunter' && s.patron === 'wolf') m *= 1.15;
+  if (job === 'farmer' && s.patron === 'eagle') m *= 1.1;
+  m *= moraleOutputMult(s.morale);
   // Указ вождя действует на всю выработку разом — ровно на объявленную величину.
   m *= decreeOf(s).output;
   return m;
 }
 
 /**
- * Множитель места работы: уровень здания или половина для вольного сбора.
- * Профессии без профильного здания места не требуют.
+ * Полный множитель выработки одного рабочего: профессия и место работы.
+ * Место — это уровень здания (`levelOutputMult`) либо половина для вольного
+ * сбора. Личного навыка у жителя нет: люди одинаковы, разницу делает здание.
  */
-export function placeMultiplier(s: GameState, v: Villager): number {
-  if (v.workplace !== null) {
-    const b = buildingById(s, v.workplace);
-    if (b && isBuilt(b)) return levelOutputMult(b.level);
-  }
-  return JOB_BY_ID[v.job].building ? FREE_RANGE_MULT : 1;
+export function workerMultiplier(
+  s: GameState,
+  job: JobId,
+  place: Building | null,
+  mods: SeasonModifiers = seasonMods(s),
+): number {
+  const spot = place ? levelOutputMult(place.level) : JOB_BY_ID[job].building ? FREE_RANGE_MULT : 1;
+  return jobMultiplier(s, job, mods) * spot;
 }
 
-/** Полный множитель выработки конкретного жителя. */
-export function villagerMultiplier(s: GameState, v: Villager, mods: SeasonModifiers = seasonMods(s)): number {
-  const talent = v.talent === v.job ? TALENT_MULT : 1;
-  return jobMultiplier(s, v.job, mods) * talent * placeMultiplier(s, v);
+/** Складывает дневную выработку `n` рабочих одной профессии. */
+function addYield(out: Resources, job: JobId, n: number, mult: number): void {
+  if (n <= 0 || mult <= 0) return;
+  const def = JOB_BY_ID[job];
+  for (const r of RESOURCE_IDS) {
+    const y = def.yield[r];
+    if (y) out[r] += y * n * mult;
+  }
 }
 
 /** Валовое производство за игровой день. */
 export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
-  for (const v of s.villagers) {
-    const def = JOB_BY_ID[v.job];
-    const mult = villagerMultiplier(s, v, mods);
-    for (const r of RESOURCE_IDS) {
-      const y = def.yield[r];
-      if (y) out[r] += y * mult;
-    }
+  for (const b of s.buildings) {
+    const job = BUILDING_BY_ID[b.type].job;
+    if (!job) continue;
+    addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
+  }
+  for (const job of FREE_JOBS) {
+    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
   }
   return out;
 }
@@ -411,14 +664,8 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
 /** Что производит одно здание за день — для его собственной панели. */
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
-  const def = JOB_BY_ID[BUILDING_BY_ID[b.type].job ?? 'idle'];
-  for (const v of workersIn(s, b.id)) {
-    const mult = villagerMultiplier(s, v, mods);
-    for (const r of RESOURCE_IDS) {
-      const y = def.yield[r];
-      if (y) out[r] += y * mult;
-    }
-  }
+  const job = BUILDING_BY_ID[b.type].job;
+  if (job) addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
   return out;
 }
 
@@ -428,7 +675,8 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
  */
 export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   let total = 0;
-  for (const v of s.villagers) total += JOB_BY_ID[v.job].foodMultiplier ?? 1;
+  const counts = jobCounts(s);
+  for (const job of JOBS) total += counts[job.id] * (job.foodMultiplier ?? 1);
   // Новобранцы на учениях уже не жители, но кормятся так же, как бойцы.
   total += (armySize(s) + recruitsQueued(s)) * SOLDIER_FOOD;
   return total * mods.food * rationOf(s).food;
@@ -442,34 +690,33 @@ export function netPerDay(s: GameState): Resources {
   return p;
 }
 
+/** Вклад ремесленников мастерской в стройку: работа в секунду. */
+export function crafterBuildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
+  const shop = buildingOfType(s, 'workshop');
+  if (!shop) return 0;
+  return CRAFTER_BUILD * workerCount(s, shop.id) * workerMultiplier(s, 'crafter', shop, mods);
+}
+
+/**
+ * Множитель скорости стройки от уровня ратуши: +8% за уровень сверх первого.
+ * Ратуша не даёт труда сама — она им распоряжается, поэтому это множитель ко
+ * всему, что строит посёлок, а не ещё одно слагаемое.
+ */
+export function townHallBuildMult(s: GameState): number {
+  const hall = buildingOfType(s, 'town_hall');
+  if (!hall) return 1;
+  return 1 + TOWN_HALL_BUILD_STEP * Math.max(0, hall.level - 1);
+}
+
+/**
+ * Скорость стройки: свободные жители с площади плюс ремесленники в мастерской,
+ * всё это — под рукой ратуши.
+ * Улучшения — единственная прогрессия посёлка, и мастерская существует ради них.
+ */
 export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Ушедшие разведчиками — те же свободные жители: пока они в пути, стройка идёт без них.
   const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
-  let rate = idle;
-  if (hasTech(s, 'woodworking')) rate *= 1.2;
-  return rate * mods.build;
-}
-
-/** Есть ли построенное хранилище знаний. Без него исследуют у костра — вполсилы. */
-export const hasKnowledgeHouse = (s: GameState): boolean => countBuilt(s, 'knowledge') > 0;
-
-export function researchRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
-  const house = builtOfType(s, 'knowledge');
-  let rate = RESEARCH_BASE;
-  if (!house) {
-    // Память у костра: знание передают из уст в уста, вдвое медленнее.
-    rate *= CAMPFIRE_RESEARCH;
-  } else {
-    rate *= levelOutputMult(house.level);
-    for (const v of s.villagers) {
-      if (v.job !== 'scholar' || v.workplace === null) continue;
-      const b = buildingById(s, v.workplace);
-      if (b) rate += SCHOLAR_RESEARCH * levelOutputMult(b.level);
-    }
-  }
-  rate += jobCounts(s).crafter * CRAFTER_RESEARCH;
-  if (countBuilt(s, 'workshop') > 0) rate += 0.3;
-  return rate * mods.research;
+  return (idle * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
 }
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
@@ -515,7 +762,6 @@ function soften(m: SeasonModifiers, k: number): SeasonModifiers {
   return {
     jobs,
     build: damp(m.build),
-    research: m.research,
     morale: m.morale < 0 ? m.morale * k : m.morale,
     food: 1 + (m.food - 1) * k,
     heating: m.heating * k,
@@ -537,10 +783,10 @@ export const winterMods = (s: GameState): SeasonModifiers => seasonModsFor('wint
 
 export const isFirstWinter = (s: GameState): boolean => yearOf(s.time) === 1;
 
-/** Сколько жителей помещается под крышу: только построенные жилые здания. */
+/** Сколько жителей помещается под крышу. */
 export function roofCapacity(s: GameState): number {
   let cap = 0;
-  for (const b of s.buildings) cap += buildingHousing(s, b);
+  for (const b of s.buildings) cap += buildingHousing(b);
   return cap;
 }
 
@@ -550,12 +796,11 @@ export function roofCapacity(s: GameState): number {
  */
 export function heatingWoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   if (mods.heating <= 0) return 0;
-  const pop = s.villagers.length;
+  const pop = s.pop;
   const roofed = Math.min(pop, roofCapacity(s));
   const open = pop - roofed;
-  let wood = (roofed * HEATING_SHELTERED + open) * mods.heating;
-  if (countBuilt(s, 'campfire') > 0) wood *= HEATING_CAMPFIRE;
-  return wood;
+  // Общий костёр греет весь посёлок и срезает расход.
+  return (roofed * HEATING_SHELTERED + open) * mods.heating * HEATING_CAMPFIRE;
 }
 
 export interface ResourceForecast {
@@ -602,159 +847,135 @@ export function winterForecast(s: GameState): WinterForecast {
   };
 }
 
-// ---------- Эпохи: технический уровень ----------
-
-/**
- * Эпоха двигается только технологиями. Ни население, ни число построек на неё не
- * влияют — это дело стадии поселения. В строке состояния эпохи нет: её показывают
- * в Доме вождя вместе со списком того, чего не хватает до следующей.
- */
-export function era(s: GameState): EraId {
-  let out: EraId = 'camp';
-  for (const [id, techs] of ERA_TECHS) if (techs.every((t) => hasTech(s, t))) out = id;
-  return out;
-}
-
-export const ERA_META: Record<EraId, { name: string; short: string; icon: string }> = {
-  camp: { name: 'Начало пути', short: 'Начало', icon: '🌿' },
-  stone: { name: 'Каменный век', short: 'Камень', icon: '⛰️' },
-  tribe: { name: 'Развитый камень', short: 'Ремесло', icon: '🛠️' },
-  bronze: { name: 'Бронзовый век', short: 'Бронза', icon: '⚒️' },
-  iron: { name: 'Железный век', short: 'Железо', icon: '⚙️' },
-  state: { name: 'Раннее государство', short: 'Государство', icon: '👑' },
-};
-
-/**
- * Потолок уровня зданий по эпохам. Развитие построек привязано к техническому
- * уровню: в начале пути одну лесопилку до максимума не закачать.
- */
-export const ERA_MAX_LEVEL: Record<EraId, number> = {
-  camp: 2,
-  stone: 4,
-  tribe: 6,
-  bronze: 8,
-  iron: 9,
-  state: 10,
-};
-
-export interface EraProgress {
-  era: EraId;
-  next: EraId | null;
-  /** Технологии следующей эпохи: что уже есть и чего не хватает. */
-  need: { id: TechId; name: string; icon: string; done: boolean }[];
-}
-
-/** Текущая эпоха и что нужно для следующей — это и показывает Дом вождя. */
-export function eraProgress(s: GameState): EraProgress {
-  const cur = era(s);
-  const i = ERA_TECHS.findIndex(([id]) => id === cur);
-  const nextEntry = ERA_TECHS[i + 1] ?? null;
-  if (!nextEntry) return { era: cur, next: null, need: [] };
-  const [next, techs] = nextEntry;
-  return {
-    era: cur,
-    next,
-    need: techs.map((id) => ({
-      id,
-      name: TECH_BY_ID[id].name,
-      icon: TECH_BY_ID[id].icon,
-      done: hasTech(s, id),
-    })),
-  };
-}
-
-// ---------- Стадия поселения: единственная видимая шкала ----------
+// ---------- Население ----------
 
 /**
  * Всё население поселения: жители, бойцы и те, кто сейчас на учениях.
- * Наём людей не уменьшает посёлок — иначе армия отбрасывала бы стадию назад.
+ * С него собирается налог: наём людей казну не уменьшает.
  */
 export const population = (s: GameState): number =>
-  s.villagers.length + armySize(s) + recruitsQueued(s);
+  s.pop + armySize(s) + recruitsQueued(s);
 
-/** Достроенных зданий в посёлке. */
-export const builtCount = (s: GameState): number => s.buildings.filter(isBuilt).length;
+/** Одно слагаемое морали: почему племя довольно или недовольно именно сейчас. */
+export interface MoraleLine {
+  id: string;
+  icon: string;
+  name: string;
+  /** Вклад в целевую мораль. Ноль в список не попадает. */
+  value: number;
+  /** Откуда взялось число — живыми величинами этой партии. */
+  hint: string;
+}
 
-/** Сумма уровней всех построек — мера того, насколько посёлок вырос вглубь. */
-export const totalLevels = (s: GameState): number =>
-  s.buildings.reduce((n, b) => n + Math.max(0, b.level), 0);
-
-/** Уровень стены. 0 — укреплений нет. */
-export const wallLevel = (s: GameState): number => builtOfType(s, 'palisade')?.level ?? 0;
+export interface MoraleBreakdown {
+  /** Мораль устоявшегося племени, от которой всё считается. */
+  base: number;
+  lines: MoraleLine[];
+  /** База со всеми слагаемыми, до приведения к шкале. */
+  raw: number;
+  /** Она же в пределах 0..100. */
+  clamped: number;
+  /** Просадка от налога — она вычитается уже после приведения к шкале. */
+  tax: number;
+  /**
+   * Прибавка от пира в трактире. Стоит рядом с налогом, потому что ложится туда
+   * же — после приведения к шкале: до неё она бы утонула (см. moraleBreakdown).
+   */
+  feast: number;
+  /** Итог: к какой морали стремится племя. */
+  target: number;
+}
 
 /**
- * Стадия поселения: население, число и уровень построек, наличие укреплений.
- * Берётся последняя стадия, все требования которой выполнены.
+ * Разбор целевой морали по слагаемым. `moraleTarget` считается отсюда же, а не
+ * рядом: экран счастья показывает ровно то, чем живёт симуляция, и разойтись
+ * им негде.
  */
-export function settlementStage(s: GameState): StageId {
-  const pop = population(s);
-  const built = builtCount(s);
-  const levels = totalLevels(s);
-  const wall = wallLevel(s);
-  let out: StageId = 'camp';
-  for (const st of STAGES) {
-    if (pop >= st.pop && built >= st.buildings && levels >= st.levels && wall >= st.wall) out = st.id;
+export function moraleBreakdown(s: GameState): MoraleBreakdown {
+  const lines: MoraleLine[] = [];
+  // Ноль в список не попадает: строка «зима −0» была бы шумом. Исключение —
+  // рычаги, про которые игрок иначе не узнает, что они у него вообще есть.
+  const add = (id: string, icon: string, name: string, value: number, hint: string, keepZero = false): void => {
+    if (keepZero || Math.abs(value) > 0.001) lines.push({ id, icon, name, value, hint });
+  };
+
+  const pop = s.pop;
+  const housing = housingCapacity(s);
+  // Теснота считается долей, а не головами: при семи сотнях жителей штраф
+  // «минус пять за человека сверх крыш» обнулял бы мораль от одного лишнего.
+  if (pop <= housing) {
+    add('housing', '🛏️', 'Жильё с запасом', 10, `${housing - pop} свободных мест из ${housing}`);
+  } else {
+    const over = pop - housing;
+    add(
+      'crowding',
+      '🏚️',
+      'Теснота',
+      -Math.min(CROWDING_MAX, (CROWDING_PENALTY * over) / Math.max(1, housing)),
+      `${over} чел. сверх крыш — потолок штрафа −${CROWDING_MAX}`,
+    );
   }
-  return out;
-}
 
-export interface StageRequirement {
-  icon: string;
-  label: string;
-  have: number;
-  need: number;
-  ok: boolean;
-}
+  const eat = foodConsumptionPerDay(s);
+  const foodDays = s.resources.food / Math.max(1, eat);
+  if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -25, 'еды нет вовсе');
+  else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${foodDays.toFixed(1)} дн.`);
+  else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас меньше дня: ${foodDays.toFixed(1)}`);
 
-export interface StageProgress {
-  stage: StageDef;
-  next: StageDef | null;
-  /** Чего не хватает до следующей стадии. Пусто на последней. */
-  need: StageRequirement[];
-}
+  for (const b of s.buildings) {
+    const v = buildingStat(b, 'morale');
+    const def = BUILDING_BY_ID[b.type];
+    add(`b-${b.id}`, def.icon, def.name, v, `уровень ${b.level}`);
+  }
 
-/** Текущая стадия и путь к следующей — для строки состояния и Дома вождя. */
-export function stageProgress(s: GameState): StageProgress {
-  const cur = STAGE_BY_ID[settlementStage(s)];
-  const next = STAGES[stageIndex(cur.id) + 1] ?? null;
-  if (!next) return { stage: cur, next: null, need: [] };
-  const req = (icon: string, label: string, have: number, need: number): StageRequirement => ({
-    icon,
-    label,
-    have,
-    need,
-    ok: have >= need,
-  });
-  const need = [
-    req('👥', 'Население', population(s), next.pop),
-    req('🏘️', 'Построек', builtCount(s), next.buildings),
-    req('⬆️', 'Сумма уровней', totalLevels(s), next.levels),
-  ];
-  if (next.wall > 0) need.push(req('🧱', 'Уровень стены', wallLevel(s), next.wall));
-  return { stage: cur, next, need };
+  const priests = jobCounts(s).priest;
+  add(
+    'priests',
+    '🕯️',
+    'Жрецы в церкви',
+    Math.min(PRIEST_MORALE_CAP, priests * PRIEST_MORALE),
+    `${priests} чел. по +${PRIEST_MORALE}, потолок +${PRIEST_MORALE_CAP}`,
+    true,
+  );
+
+  add(
+    'prestige',
+    '🏅',
+    'Слава племени',
+    Math.min(10, s.prestige / 5),
+    `${s.stats.battlesWon} побед · ${s.stats.battlesLost} поражений, слава ${Math.round(s.prestige)}`,
+  );
+
+  const season = seasonOf(s.time);
+  add('season', SEASON_META[season].icon, SEASON_META[season].name, seasonMods(s).morale, 'сезонный сдвиг');
+  if (s.freezing > 0) add('freezing', '🥶', 'Племя мёрзнет', -FREEZING_MORALE_PENALTY, 'дрова кончились');
+
+  const raw = lines.reduce((n, l) => n + l.value, MORALE_BASE);
+  const clamped = Math.min(100, raw);
+  // Налог давит на мораль не медленным сползанием, а прямо: сползание племя
+  // отыграло бы за минуту, а просадка держится ровно столько, сколько держат налог.
+  // Вычитается он уже из приведённой к шкале величины — иначе в большом посёлке,
+  // где мораль и так упёрлась в потолок, налог не стоил бы вообще ничего.
+  // Пир прибавляется там же, где вычитается налог, — **после** приведения к
+  // шкале. Иначе он утонул бы: постоянных источников морали в посёлке на потолке
+  // уровней уже больше, чем вмещает шкала, и ещё одно слагаемое до `Math.min`
+  // не стоило бы ничего. А так пир делает ровно то, ради чего он есть: отыгрывает
+  // просадку от налога, голода, тесноты и холода — и ни разу не переполняет шкалу.
+  const tax = taxOf(s).moralePenalty;
+  const feast = feastMorale(s);
+  return {
+    base: MORALE_BASE,
+    lines,
+    raw,
+    clamped,
+    tax,
+    feast,
+    target: Math.max(0, Math.min(100, clamped - tax + feast)),
+  };
 }
 
 /** К какой морали стремится племя при текущих условиях. */
-export function moraleTarget(s: GameState): number {
-  let t = 50;
-  const pop = s.villagers.length;
-  const housing = housingCapacity(s);
-  if (pop <= housing) t += 10;
-  else t -= 5 * (pop - housing);
-  const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s));
-  if (s.resources.food <= 0) t -= 25;
-  else if (foodDays >= 3) t += 10;
-  else if (foodDays < 1) t -= 8;
-  for (const b of s.buildings) t += buildingStat(b, 'morale');
-  if (hasTech(s, 'chiefdom')) t += 6;
-  if (hasTech(s, 'leatherworking')) t += 8;
-  if (hasTech(s, 'traditions')) t += 8;
-  t += jobCounts(s).shaman * 5;
-  t += Math.min(10, s.prestige / 5);
-  t += seasonMods(s).morale;
-  if (s.freezing > 0) t -= FREEZING_MORALE_PENALTY;
-  return Math.max(0, Math.min(100, t));
-}
+export const moraleTarget = (s: GameState): number => moraleBreakdown(s).target;
 
 // ---------- Тревоги ----------
 

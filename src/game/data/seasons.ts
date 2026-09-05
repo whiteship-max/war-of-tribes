@@ -19,8 +19,6 @@ export interface SeasonModifiers {
   jobs: Partial<Record<JobId, number>>;
   /** Множитель скорости стройки. */
   build: number;
-  /** Множитель скорости исследований. */
-  research: number;
   /** Прибавка к целевой морали. */
   morale: number;
   /** Множитель потребления еды. */
@@ -34,7 +32,6 @@ export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
   spring: {
     jobs: { gatherer: 1.15, farmer: 1.2 },
     build: 1,
-    research: 1,
     morale: 0,
     food: 1,
     heating: 0,
@@ -43,7 +40,6 @@ export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
   summer: {
     jobs: { farmer: 1.35, gatherer: 1.25, woodcutter: 1.1, stonecutter: 1.1, miner: 1.1, hunter: 0.9 },
     build: 1.1,
-    research: 1,
     morale: 2,
     food: 1,
     heating: 0,
@@ -52,17 +48,15 @@ export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
   autumn: {
     jobs: { farmer: 1.5, hunter: 1.2, gatherer: 1.1, woodcutter: 1.15 },
     build: 1,
-    research: 1,
     morale: 0,
     food: 1,
     heating: 0,
   },
-  // Зима — испытание: поле мертво, зато племя сидит у огня и думает.
+  // Зима — испытание: поле мертво, добыча просела, дрова горят.
   // Скот зимует в загоне и почти не проседает — ради этого животноводство и изучают.
   winter: {
     jobs: { farmer: 0, gatherer: 0.4, hunter: 0.75, woodcutter: 0.8, stonecutter: 0.65, miner: 0.7, herder: 0.9 },
     build: 0.7,
-    research: 1.15,
     morale: -6,
     food: 1.4,
     heating: 1.2,
@@ -91,7 +85,7 @@ export const SEASON_META: Record<Season, { name: string; icon: string; hint: str
   spring: { name: 'Весна', icon: '🌱', hint: 'Земля оттаяла: сбор и поля идут веселее.' },
   summer: { name: 'Лето', icon: '☀️', hint: 'Длинный день: поля, стройка и добыча на пике, но зверь разбрёлся.' },
   autumn: { name: 'Осень', icon: '🍂', hint: 'Жатва и жирный зверь. Успей набить склады — дальше зима.' },
-  winter: { name: 'Зима', icon: '❄️', hint: 'Поля мертвы, добыча просела, дрова горят. Зато думается хорошо.' },
+  winter: { name: 'Зима', icon: '❄️', hint: 'Поля мертвы, добыча просела, дрова горят. Считай запасы.' },
 };
 
 /** Доля суток, когда солнце над горизонтом. Зимой ночь длиннее. */

@@ -5,7 +5,21 @@
 // племени не знает про координаты, а мир — про жителей и склад.
 import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
-import { defense, soldierPower } from '@/game/derived';
+import { TROOP_IDS } from '@/game/data/troops';
+import {
+  buildingOfType,
+  buildingStat,
+  defense,
+  hiddenStash,
+  homeArmyPower,
+  intelKeen,
+  mountGear,
+  soldierPower,
+  warningSeconds,
+} from '@/game/derived';
+import { BATTLE_MAN, type TroopStack } from '@/game/battle/kinds';
+import { clampFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
+import { troopTotal } from '@/game/battle/kinds';
 import {
   applyExpedition,
   sendableUnits,
@@ -14,19 +28,81 @@ import {
 } from '@/game/sim/expedition';
 import type { HomeEffect, Loot, MarchView, PlayerProfile } from './types';
 
+/**
+ * Гарнизон дома по видам бойцов: ушедшие в поход в обороне не участвуют.
+ * Ушедшие числятся одним числом, поэтому снимаются со слабых — так же, как
+ * гибнут (`removeSoldiers`).
+ */
+export function homeTroops(s: GameState): TroopStack {
+  let away = Math.max(0, s.warriorsAway);
+  const out: TroopStack = {};
+  for (const id of TROOP_IDS) {
+    const have = Math.max(0, s.army?.[id] ?? 0);
+    const gone = Math.min(have, away);
+    away -= gone;
+    const left = have - gone;
+    if (left > 0) out[id] = left;
+  }
+  return out;
+}
+
+/**
+ * Ополчение: та часть обороны, которую дают не бойцы, а частокол, башня и сами
+ * жители. В поле оно выходит пехотой без снаряжения — иначе набеги ИИ, чей
+ * потолок считается от `defense()`, били бы по пустому месту.
+ */
+export const militiaMen = (s: GameState): number =>
+  Math.max(0, Math.round((defense(s) - homeArmyPower(s)) / BATTLE_MAN));
+
+/**
+ * Сколько ополченцев выходит стрелками, а не пехотой. Это и есть работа башни:
+ * людей она не добавляет — их уже посчитал `militiaMen` по общей обороне, — а
+ * ставит часть из них на стену с луком. Частокол остаётся плоской обороной,
+ * поэтому между двумя укреплениями появляется выбор, а не разница в цене.
+ */
+export const militiaArchers = (s: GameState): number => {
+  const tower = buildingOfType(s, 'tower');
+  if (!tower) return 0;
+  return Math.min(militiaMen(s), Math.max(0, Math.round(buildingStat(tower, 'archers'))));
+};
+
 /** Слепок деревни для мира. Считается заново перед каждым обращением. */
 export function playerProfile(s: GameState): PlayerProfile {
   const units = sendableUnits(s);
+  // Тайник не «защищает» добро, а прячет его: спрятанного просто нет в слепке,
+  // поэтому чужой набег его не находит, как ни считай добычу. Никакой отдельной
+  // проверки на стороне мира для этого не нужно, и это правильно — мир не должен
+  // знать про здания племени.
+  const stash = hiddenStash(s);
   const resources: Loot = {};
-  for (const r of RESOURCE_IDS) resources[r] = Math.floor(s.resources[r]);
+  for (const r of RESOURCE_IDS) resources[r] = Math.max(0, Math.floor(s.resources[r]) - stash);
+  const army = homeTroops(s);
+  // Расстановка обороны подрезается по тому, кто сейчас дома: часть могла уйти
+  // в поход или погибнуть, а нанятые с прошлого раза встают в резерв.
+  let defenseSetup = null;
+  if (s.defenseFormation) {
+    const { formation, extra } = clampFormation(s.defenseFormation, army);
+    const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
+    const archers = militiaArchers(s);
+    defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers);
+  }
   return {
     name: 'Наше племя',
-    pop: s.villagers.length,
+    pop: s.pop,
     defense: defense(s),
     // Мощь одного бойца — среднее по составу армии: мир считает отряд числами,
     // а состав знает только племя.
     warriorPower: soldierPower(s),
     units: { warrior: units.warrior, scout: units.scout },
+    army,
+    militia: militiaMen(s),
+    militiaArchers: militiaArchers(s),
+    // Дозор и конюшня: мир получает три числа и не спрашивает, откуда они.
+    warning: warningSeconds(s),
+    intelKeen: intelKeen(s),
+    mountGear: mountGear(s),
+    defenseSetup,
+    // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     resources,
   };
 }
@@ -38,12 +114,19 @@ export function playerProfile(s: GameState): PlayerProfile {
 export function syncAway(s: GameState, marches: MarchView[]): boolean {
   let warriors = 0;
   let scouts = 0;
+  let heroSeen = false;
   for (const m of marches) {
     if (!m.own) continue;
     warriors += m.units.warrior ?? 0;
     scouts += m.units.scout ?? 0;
+    if (s.hero.marchId === m.id) heroSeen = true;
   }
-  if (s.warriorsAway === warriors && s.scoutsAway === scouts) return false;
+  // Герой тоже выводится из списка походов, а не хранится дважды: поход мог
+  // кончиться без последствия (отозвали, цель исчезла) — тогда герой просто дома.
+  // Гибель разбирает `applyExpedition`, и вызывают его раньше этого места.
+  const heroChanged = s.hero.marchId !== null && !heroSeen;
+  if (heroChanged) s.hero.marchId = null;
+  if (s.warriorsAway === warriors && s.scoutsAway === scouts) return heroChanged;
   setAway(s, warriors, scouts);
   return true;
 }
@@ -52,11 +135,16 @@ export function syncAway(s: GameState, marches: MarchView[]): boolean {
 export function toOutcome(e: HomeEffect): ExpeditionOutcome {
   return {
     warriorsLost: e.lost.warrior ?? 0,
+    // Бой знает, кто именно погиб: списывать надо тех же, а не «слабых первыми».
+    troopsLost: e.lostTroops,
     scoutsLost: e.lost.scout ?? 0,
     resources: e.resources,
+    // Золото едет в той же добыче отдельным ключом: складом оно не считается.
+    gold: e.resources.gold ?? 0,
     prestige: e.prestige,
     morale: e.morale,
     battle: e.battle,
+    sacked: e.sacked ?? 0,
     text: e.text,
     kind: e.good ? 'good' : 'bad',
   };

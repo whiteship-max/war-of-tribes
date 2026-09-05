@@ -1,7 +1,8 @@
 import type { GameState } from '../types';
+import { BATTLE_MORALE_LOSS, BATTLE_MORALE_WIN } from '../constants';
 import { defense } from '../derived';
-import { chance, rnd } from './random';
-import { killRandomVillager } from './population';
+import { rnd } from './random';
+import { famineToll, killPop } from './population';
 import { log } from './log';
 
 export interface BattleResult {
@@ -19,20 +20,19 @@ export function resolveBattle(s: GameState, enemyPower: number, enemyName: strin
   if (won) {
     s.stats.battlesWon++;
     s.prestige += 3;
-    s.morale = Math.min(100, s.morale + 5);
+    s.morale = Math.min(100, s.morale + BATTLE_MORALE_WIN);
     const text = `Племя отбило нападение: ${enemyName}. Мораль выросла.`;
     log(s, text, 'good');
     return { won, text };
   }
   s.stats.battlesLost++;
-  s.morale = Math.max(0, s.morale - 12);
+  s.morale = Math.max(0, s.morale - BATTLE_MORALE_LOSS);
   const foodLost = Math.round(s.resources.food * 0.25);
   s.resources.food -= foodLost;
   let text = `Не удалось сдержать: ${enemyName}. Потеряно ${foodLost} еды.`;
-  if (s.villagers.length > 2 && chance(0.35)) {
-    const v = killRandomVillager(s, 'бой');
-    if (v) text += ` ${v.name} не вернулся из боя.`;
-  }
+  // Проигранная стычка стоит людей — доли посёлка, а не одного безымянного жителя.
+  const fallen = killPop(s, Math.ceil(famineToll(s) * (0.5 + rnd())), 'бой');
+  if (fallen > 0) text += ` Не вернулись из боя: ${fallen} чел.`;
   log(s, text, 'bad');
   return { won, text };
 }

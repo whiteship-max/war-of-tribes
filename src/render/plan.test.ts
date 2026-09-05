@@ -5,12 +5,18 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { BuildingTypeId } from '@/game/types';
 import { BUILDINGS } from '@/game/data/buildings';
+import { isOutsideWall } from '@/game/derived';
 import { createBuildingGroup, levelScale } from './buildings';
 import {
+  CLEAR_RADIUS,
+  FIELD_ROAD,
   GATE_ANGLE,
+  GATE_CLEAR_HALF,
   GATE_ROAD,
   MODEL_RADIUS,
   OUTER_ROAD,
+  OUTSIDE_BUILDINGS,
+  OUTSKIRTS_RADIUS,
   PLAN,
   PLAN_SCALE,
   PLAZA_RADIUS,
@@ -18,8 +24,11 @@ import {
   WALL_RADIUS,
   ROAD_HALF,
   RING_RADIUS,
+  ROAD_THROUGH,
   SPARE_PLOTS,
+  THROUGH_HALF,
   TOWER_PLACE,
+  isOutside,
   placeOf,
   plotRadius,
   spotAt,
@@ -29,9 +38,13 @@ import {
 /** Здания, у которых есть место на плане: стена — это кольцо, а не постройка. */
 const PLACED: BuildingTypeId[] = BUILDINGS.map((b) => b.id).filter((id) => id !== 'palisade');
 
+/** Внутри стены — всё, кроме ресурсных дворов четвёртого кольца. */
+const INSIDE: BuildingTypeId[] = PLACED.filter((id) => !isOutside(id));
+const OUTSIDE: BuildingTypeId[] = PLACED.filter(isOutside);
+
 /** Настоящий радиус модели в плоскости XZ — по вершинам, а не по грубому боксу. */
 function modelRadius(type: BuildingTypeId): number {
-  const g = createBuildingGroup(type, 2, 2, 'state');
+  const g = createBuildingGroup(type, 2);
   g.updateMatrixWorld(true);
   let max = 0;
   const v = new THREE.Vector3();
@@ -46,6 +59,27 @@ function modelRadius(type: BuildingTypeId): number {
     }
   });
   return max;
+}
+
+/** Разброс вершин группы по расстоянию от центра посёлка. */
+function extentOf(root: THREE.Object3D): { min: number; max: number } {
+  root.updateMatrixWorld(true);
+  const v = new THREE.Vector3();
+  let min = Infinity;
+  let max = 0;
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry) return;
+    const pos = mesh.geometry.attributes.position;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      const r = Math.hypot(v.x, v.z);
+      if (r < min) min = r;
+      if (r > max) max = r;
+    }
+  });
+  return { min, max };
 }
 
 /** Расстояние от точки до отрезка — им меряется зазор между дорогой и площадкой. */
@@ -87,11 +121,64 @@ describe('план поселения', () => {
     }
   });
 
-  it('всё помещается внутри стены', () => {
-    for (const type of PLACED) {
+  it('посёлок помещается внутри стены', () => {
+    for (const type of INSIDE) {
       const spot = placeOf(type);
       const outer = Math.hypot(spot.x, spot.z) + plotRadius(type);
       expect(outer, `${type} вылезает за стену`).toBeLessThanOrEqual(WALL_RADIUS);
+    }
+  });
+
+  // Ресурсные дворы стоят снаружи нарочно: набег до них дотягивается, а до
+  // внутренних зданий — нет. Проверяется поэтому обратное: они целиком снаружи
+  // и не садятся на кладку.
+  it('план повторяет решение игры о том, что стоит снаружи', () => {
+    // Решает это здание (`outside` в data/buildings.ts): от него зависит набег.
+    // План обязан повторять то же самое, иначе разорять будут не то, что видно.
+    for (const def of BUILDINGS) {
+      if (def.id === 'palisade') continue;
+      expect(isOutside(def.id), `${def.id}: план и данные разошлись`).toBe(isOutsideWall(def.id));
+    }
+  });
+
+  it('ресурсные дворы стоят целиком за стеной и не садятся на кладку', () => {
+    expect(OUTSIDE.length, 'за стеной должны стоять ресурсные дворы').toBeGreaterThan(0);
+    expect(OUTSIDE_BUILDINGS.slice().sort()).toEqual(OUTSIDE.slice().sort());
+    const wallOuter = extentOf(createBuildingGroup('palisade', 2)).max;
+    for (const type of OUTSIDE) {
+      const spot = placeOf(type);
+      const inner = Math.hypot(spot.x, spot.z) - plotRadius(type);
+      expect(inner, `${type} налезает на стену снаружи`).toBeGreaterThanOrEqual(wallOuter);
+    }
+  });
+
+  it('дворы за стеной не наезжают друг на друга и стоят внутри расчистки', () => {
+    const spots = OUTSIDE.map((type) => ({ type, spot: placeOf(type), r: plotRadius(type) }));
+    for (let i = 0; i < spots.length; i++) {
+      for (let j = i + 1; j < spots.length; j++) {
+        const a = spots[i];
+        const b = spots[j];
+        const d = Math.hypot(a.spot.x - b.spot.x, a.spot.z - b.spot.z);
+        expect(d, `${a.type} и ${b.type} налезают друг на друга`).toBeGreaterThanOrEqual(a.r + b.r);
+      }
+    }
+    for (const { type, spot, r } of spots) {
+      const outer = Math.hypot(spot.x, spot.z) + r;
+      expect(outer, `${type} вылез за край застройки`).toBeLessThanOrEqual(OUTSKIRTS_RADIUS + 1e-6);
+      expect(outer, `${type} стоит в лесу`).toBeLessThan(CLEAR_RADIUS);
+    }
+  });
+
+  it('двор за стеной не загораживает выезд из ворот', () => {
+    // Коридор перед воротами обязан оставаться свободным: по нему едет караван.
+    for (const type of OUTSIDE) {
+      const spot = placeOf(type);
+      const across = Math.abs(-spot.x * Math.sin(GATE_ANGLE) + spot.z * Math.cos(GATE_ANGLE));
+      const along = spot.x * Math.cos(GATE_ANGLE) + spot.z * Math.sin(GATE_ANGLE);
+      if (along <= 0) continue;
+      expect(across, `${type} стоит на выезде из ворот`).toBeGreaterThanOrEqual(
+        plotRadius(type) + GATE_CLEAR_HALF,
+      );
     }
   });
 
@@ -112,11 +199,48 @@ describe('план поселения', () => {
     const bx = Math.cos(GATE_ROAD.angle) * GATE_ROAD.to;
     const bz = Math.sin(GATE_ROAD.angle) * GATE_ROAD.to;
     for (const type of PLACED) {
-      if (type === 'campfire') continue;
+      // Рынок стоит на самой улице нарочно: она идёт между его рядами.
+      // Что проезд при этом остаётся свободным, проверяет отдельный тест ниже.
+      if (type === 'campfire' || ROAD_THROUGH.includes(type)) continue;
       const spot = placeOf(type);
       const d = distToSegment(spot.x, spot.z, ax, az, bx, bz);
       expect(d, `главная улица режет ${type}`).toBeGreaterThanOrEqual(plotRadius(type) + ROAD_HALF);
     }
+  });
+
+  it('здание на улице оставляет проезд свободным', () => {
+    // Здание развёрнуто фасадом к центру, а улица идёт по радиусу — значит
+    // в местных координатах модели дорога лежит вдоль оси z, ровно через x = 0.
+    // Ни одна вершина не имеет права оказаться в этом коридоре.
+    for (const type of ROAD_THROUGH) {
+      expect(PLAN[type], `${type} стоит на улице, но не в плане`).toBeTruthy();
+      for (const tier of [0, 1, 2] as const) {
+        const g = createBuildingGroup(type, tier);
+        g.updateMatrixWorld(true);
+        let min = Infinity;
+        const v = new THREE.Vector3();
+        g.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh || !mesh.geometry) return;
+          const pos = mesh.geometry.attributes.position;
+          if (!pos) return;
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+            min = Math.min(min, Math.abs(v.x));
+          }
+        });
+        // Масштаб самый крупный из возможных: ступень 1 на седьмом уровне.
+        const scale = PLAN_SCALE * Math.max(levelScale(7), levelScale(10));
+        expect(min * scale, `${type}: ступень ${tier} загораживает проезд`).toBeGreaterThanOrEqual(
+          THROUGH_HALF,
+        );
+      }
+    }
+  });
+
+  it('улице от ворот есть куда вести: проезд шире самой дороги', () => {
+    // Мостовая города — самая широкая: ROAD_HALF × 1.9.
+    expect(THROUGH_HALF).toBeGreaterThan(ROAD_HALF * 1.9);
   });
 
   it('отводы к зданиям не режут соседей', () => {
@@ -143,7 +267,7 @@ describe('план поселения', () => {
       if (type === 'campfire') continue;
       const d = Math.hypot(placeOf(type).x, placeOf(type).z);
       const plot = plotRadius(type);
-      for (const road of [PLAZA_ROAD, OUTER_ROAD]) {
+      for (const road of [PLAZA_ROAD, OUTER_ROAD, FIELD_ROAD]) {
         // Дорога либо снаружи площадки, либо внутри неё — но не поперёк.
         const clear = d - plot >= road + ROAD_HALF - 1e-6 || d + plot <= road - ROAD_HALF + 1e-6;
         expect(clear, `${type} стоит на кольцевой дороге ${road}`).toBe(true);
@@ -152,7 +276,7 @@ describe('план поселения', () => {
   });
 
   it('свободные места тоже никому не мешают', () => {
-    const taken = PLACED.map((type) => ({ type, spot: placeOf(type), r: plotRadius(type) }));
+    const taken = INSIDE.map((type) => ({ type, spot: placeOf(type), r: plotRadius(type) }));
     for (const spare of SPARE_PLOTS) {
       const spot = spotAt(RING_RADIUS[spare.ring], spare.angle);
       for (const t of taken) {

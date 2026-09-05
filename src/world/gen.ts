@@ -9,6 +9,10 @@ import { coordKey, distance, terrainAt } from './geo';
 import {
   BARBARIAN_BLOCK,
   BARBARIAN_CHANCE,
+  CASTLE_CHANCE,
+  CASTLE_MIN_DISTANCE,
+  CASTLE_POP,
+  CASTLE_POWER,
   BOTS_MAX,
   BOTS_MIN,
   HOME_NEAR_MAX,
@@ -48,6 +52,8 @@ export interface GenSettlement {
   /** Что здесь можно взять. */
   lootMix: ResourceId[];
   capital: boolean;
+  /** Замок: крепкая цель с казной. */
+  castle: boolean;
 }
 
 export interface WorldGen {
@@ -144,6 +150,9 @@ export function generateWorld(seed: number): WorldGen {
         );
         if (!spot) continue;
         const capital = k === 0 && b === 0;
+        // Замок или обычное поселение решается здесь, до всякого знания о доме:
+        // мир детерминирован по сиду, а расстояние до дома отсеивается ниже.
+        const castle = rng() < CASTLE_CHANCE;
         const name = capital
           ? `${tribe.name.split(' ').pop()}, стан`
           : `${PLACE_FIRST[int(0, PLACE_FIRST.length - 1)]} ${PLACE_SECOND[int(0, PLACE_SECOND.length - 1)]}`;
@@ -159,6 +168,7 @@ export function generateWorld(seed: number): WorldGen {
           growth: POWER_GROWTH_PER_HOUR * (0.5 + rng()),
           lootMix: ['wood', 'stone', 'food'],
           capital,
+          castle,
         };
         settlements.push(s);
         byKey.set(coordKey(s.x, s.y), s);
@@ -186,6 +196,8 @@ export function generateWorld(seed: number): WorldGen {
         growth: POWER_GROWTH_PER_HOUR * 0.4,
         lootMix: ['food', 'hides', 'bones'],
         capital: false,
+        // Варвары живут в шалашах: казны у них нет.
+        castle: false,
       };
       settlements.push(s);
       byKey.set(coordKey(s.x, s.y), s);
@@ -208,10 +220,17 @@ export function generateWorld(seed: number): WorldGen {
   if (!home) home = { x: Math.round(lo.x + WORLD_SIZE / 2), y: Math.round(lo.y + WORLD_SIZE / 2) };
 
   // 5. Ближние цели слабее дальних — так у игрока есть, с чего начать.
+  // Ближние замки при этом разжалуют в обычные поселения: первая цель на карте
+  // не должна оказаться крепостью, в которую отряд уйдёт и не вернётся.
   for (const s of settlements) {
     const d = Math.min(60, distance(s, home));
+    if (s.castle && distance(s, home) < CASTLE_MIN_DISTANCE) s.castle = false;
     s.basePower = Math.round((s.basePower + d * POWER_PER_TILE) * 10) / 10;
     s.basePop = Math.round(s.basePop + d * 0.25);
+    if (s.castle) {
+      s.basePower = Math.round(s.basePower * CASTLE_POWER * 10) / 10;
+      s.basePop = Math.round(s.basePop * CASTLE_POP);
+    }
   }
 
   // 6. Соседнее племя начинает союзным: поддержку должно быть кому нести с первого дня.

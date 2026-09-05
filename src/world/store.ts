@@ -7,6 +7,8 @@ import { haptic } from '@/telegram/webapp';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from './bridge';
+import { DEFENSE_FREEZE } from './data/tuning';
+import { heroReady } from '@/game/derived';
 import {
   cachedChunk,
   chunkKeysIn,
@@ -100,15 +102,21 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const game = useGame.getState();
     const pulse = await worldApi().sync(playerProfile(game.s));
 
-    // Число ушедших выводится из походов: правим состояние на месте, перерисовку
-    // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.
-    syncAway(game.s, pulse.marches);
+    // Последствия походов применяются раньше, чем пересчитываются ушедшие: в
+    // момент прихода отряда герой ещё числится в походе, и по этому и понятно,
+    // что павший — именно он (см. applyExpedition и syncAway).
     if (pulse.effects.length > 0) {
       useGame.getState().world((s) => applyEffects(s, pulse.effects));
       haptic('medium');
     }
+    // Число ушедших выводится из походов: правим состояние на месте, перерисовку
+    // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.
+    syncAway(game.s, pulse.marches);
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
+      // Список мог быть уже открыт: без этого свежий отчёт не появится, пока
+      // игрок не закроет и не откроет панель заново.
+      if (get().reports.length > 0) void get().loadReports();
     }
 
     clockOffset = pulse.now - Date.now();
@@ -159,6 +167,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
       return res.error;
     }
     haptic('medium');
+    // Племя ведёт счёт своим походам: по нему закрываются задания про карту.
+    useGame.getState().world((s) => {
+      if (order.mission === 'scout') s.stats.scouted = (s.stats.scouted ?? 0) + 1;
+      if (order.mission === 'raid') s.stats.raids = (s.stats.raids ?? 0) + 1;
+      // Герой уходит с походом — с одним за раз. Людей, которых он приводит,
+      // панель уже вложила в расстановку; здесь отмечается только он сам.
+      // Только собранный игроком поход: в быстрой атаке расстановку выбирает
+      // пресет по сиду, и вести герою там некого (см. BattlePanel).
+      if (order.mission === 'raid' && order.setup && res.march && heroReady(s)) {
+        s.hero.marchId = res.march.id;
+      }
+    });
     await get().pulse();
     await get().refreshCard();
     return null;
@@ -205,6 +225,29 @@ export const useWorld = create<WorldStore>((set, get) => ({
 /** Свои походы — отдельно от чужих: их показывает список, их можно отозвать. */
 export const ownMarches = (marches: MarchView[]): MarchView[] => marches.filter((m) => m.own);
 
-/** Чужие отряды, идущие на деревню игрока. */
+/** Чужие отряды, идущие на деревню игрока. Ближайший по времени — первым. */
 export const incomingMarches = (marches: MarchView[]): MarchView[] =>
-  marches.filter((m) => m.hostile && m.phase === 'out');
+  marches.filter((m) => m.hostile && m.phase === 'out').sort((a, b) => a.arriveAt - b.arriveAt);
+
+/**
+ * Заморозка обороны. Менять расстановку можно до отметки «минус пять минут» до
+ * прихода чужой армии; после неё настройки заперты, и игроку это показывают, а
+ * не игнорируют нажатия молча (раздел 8 документа).
+ *
+ * Считается здесь, чтобы у панели и у мира была одна формула: мир защёлкивает
+ * ту же отметку у себя (`LocalWorld.lockDefense`).
+ */
+export interface DefenseLock {
+  /** Ближайший чужой отряд или null. */
+  march: MarchView | null;
+  /** Секунд до прихода. */
+  seconds: number;
+  frozen: boolean;
+}
+
+export function defenseLock(marches: MarchView[], now: number): DefenseLock {
+  const m = incomingMarches(marches)[0] ?? null;
+  if (!m) return { march: null, seconds: 0, frozen: false };
+  const left = m.arriveAt - now;
+  return { march: m, seconds: Math.max(0, left / 1000), frozen: left <= DEFENSE_FREEZE };
+}

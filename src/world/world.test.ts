@@ -7,9 +7,13 @@ import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
 import { precisionOf, readIntel } from './intel';
-import { resolveBattle, stackLosses } from './combat';
+import { stackLosses } from './combat';
+import { resolveField } from './battle';
+import { defenseLock } from './store';
+import { presetFormation, toArmySetup } from '@/game/battle/formation';
+import type { ArmySetup, Stack } from '@/battle';
 import { syncAway, toOutcome } from './bridge';
-import { INTEL_EXACT, INTEL_ROUGH, INTEL_VAGUE, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
+import { AI_WARNING_BASE, DEFENSE_FREEZE, INTEL_EXACT, INTEL_ROUGH, INTEL_VAGUE, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
 import type { Intel, MarchView, PlayerProfile, SettlementView } from './types';
 
 const START = 1_700_000_000_000;
@@ -32,7 +36,8 @@ function makeWorld(seed = 7) {
 
 const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
-  pop: 20,
+  // Выше AI_MIN_POP: посёлок нового масштаба, набеги ИИ по нему идут.
+  pop: 120,
   defense: 30,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
@@ -162,26 +167,42 @@ describe('разведданные стареют', () => {
 });
 
 describe('бой', () => {
-  it('один сид — один результат', () => {
-    const a = resolveBattle({ seed: 987654, attack: 40, defense: 30 });
-    const b = resolveBattle({ seed: 987654, attack: 40, defense: 30 });
-    expect(b).toEqual(a);
+  const side = (kinds: Partial<Stack>) => ({
+    kinds: { spear: 0, infantry: 0, archer: 0, cavalry: 0, ...kinds },
+    setup: null,
   });
 
-  it('другой сид — другая удача', () => {
-    const a = resolveBattle({ seed: 1, attack: 40, defense: 30 });
-    const b = resolveBattle({ seed: 2, attack: 40, defense: 30 });
-    expect(b.luck).not.toBe(a.luck);
+  it('один сид — один результат и один журнал', () => {
+    const input = { seed: 987654, attacker: side({ infantry: 40 }), defender: side({ infantry: 30 }) };
+    const a = resolveField(input);
+    const b = resolveField(input);
+    expect(b.result?.log).toEqual(a.result?.log);
+    expect(b.won).toBe(a.won);
+  });
+
+  it('другой сид — другая расстановка быстрой атаки', () => {
+    const army = side({ spear: 100, infantry: 100, archer: 60, cavalry: 40 });
+    const presets = new Set<string | null>();
+    for (let seed = 1; seed <= 40; seed++) {
+      presets.add(resolveField({ seed, attacker: army, defender: side({ infantry: 200 }) }).preset.attacker);
+    }
+    expect(presets.size).toBeGreaterThan(1);
   });
 
   it('проигравший теряет много, но не всех: отряд отступает', () => {
-    const out = resolveBattle({ seed: 5, attack: 5, defense: 100 });
+    const out = resolveField({ seed: 5, attacker: side({ infantry: 5 }), defender: side({ infantry: 100 }) });
     expect(out.won).toBe(false);
-    expect(out.attackerLoss).toBeLessThan(1);
-    const lost = stackLosses({ warrior: 10, scout: 2 }, out.attackerLoss);
+    expect(out.attackerLoss).toBeLessThanOrEqual(1);
+    const lost = stackLosses({ warrior: 10, scout: 2 }, Math.min(0.9, out.attackerLoss));
     expect(lost.warrior).toBeLessThan(10);
     // Разведчики держатся позади — их выбивает реже.
     expect(lost.scout ?? 0).toBeLessThan(lost.warrior as number);
+  });
+
+  it('пустая сторона в ядро не идёт: пришедший никем проигрывает', () => {
+    const out = resolveField({ seed: 3, attacker: side({}), defender: side({ infantry: 10 }) });
+    expect(out.won).toBe(false);
+    expect(out.result).toBeNull();
   });
 });
 
@@ -189,10 +210,8 @@ describe('армия в походе', () => {
   /** Армия — счётчик бойцов, а не жители с профессией: роли «воин» больше нет. */
   const withWarriors = (n: number): GameState => {
     const s = createInitialState();
-    for (const v of s.villagers) {
-      v.job = 'idle';
-      v.workplace = null;
-    }
+    s.workers = {};
+    s.freeJobs = {};
     s.army.spearman = n;
     return s;
   };
@@ -408,6 +427,81 @@ describe('походы в локальном мире', () => {
   });
 });
 
+describe('замки', () => {
+  /** Ближайший к дому замок. Флаг стоит в генерации, поэтому ищем его там же. */
+  function nearestCastle(seed: number) {
+    const gen = generateWorld(seed);
+    const castles = gen.settlements.filter((s) => s.castle);
+    expect(castles.length, 'в мире должны быть замки').toBeGreaterThan(0);
+    return castles.sort((a, b) => distance(gen.home, a) - distance(gen.home, b))[0];
+  }
+
+  it('замки видны на карте с первого дня', async () => {
+    const w = makeWorld(11);
+    const castle = nearestCastle(11);
+    await w.world.sync(profile());
+    expect((await w.world.settlement(castle.id))?.castle).toBe(true);
+  });
+
+  it('набег на замок без достаточной армии не приносит золота и стоит потерь', async () => {
+    const w = makeWorld(11);
+    const castle = nearestCastle(11);
+    // Отряд заведомо слабее гарнизона замка: один воин против крепости.
+    await w.world.sync(profile({ warriorPower: 1, units: { warrior: 2 } }));
+    const card = await w.world.settlement(castle.id);
+    expect(card).toBeTruthy();
+
+    const sent = await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 2 } });
+    expect(sent.error).toBeNull();
+    w.advance(60 * 60_000);
+    const pulse = await w.world.sync(profile({ warriorPower: 1, units: { warrior: 2 } }));
+
+    const raid = pulse.reports.find((r) => r.kind === 'raid');
+    expect(raid, 'должен прийти отчёт о набеге').toBeTruthy();
+    expect(raid!.won).toBe(false);
+    expect(raid!.loot).toBeNull();
+    // Потери настоящие, а добычи нет — ни ресурсов, ни золота.
+    expect((raid!.lost.warrior ?? 0)).toBeGreaterThan(0);
+    for (const e of pulse.effects) expect(e.resources.gold ?? 0).toBe(0);
+    expect(pulse.effects.some((e) => (e.lost.warrior ?? 0) > 0)).toBe(true);
+  });
+
+  it('сильный отряд берёт замок и привозит золото домой', async () => {
+    const w = makeWorld(11);
+    const castle = nearestCastle(11);
+    const strong = profile({ warriorPower: 40, units: { warrior: 40 } });
+    await w.world.sync(strong);
+    expect((await w.world.send({ target: castle.id, mission: 'raid', units: { warrior: 40 } })).error).toBeNull();
+
+    // Дорога туда, бой, дорога обратно.
+    w.advance(6 * 60 * 60_000);
+    const pulse = await w.world.sync(strong);
+    const raid = pulse.reports.find((r) => r.kind === 'raid');
+    expect(raid?.won).toBe(true);
+    expect(raid?.loot?.gold ?? 0, 'из замка должны везти золото').toBeGreaterThan(0);
+    // Золото приезжает домой отдельным последствием — как и остальная добыча.
+    const home = pulse.effects.find((e) => (e.resources.gold ?? 0) > 0);
+    expect(home, 'золото должно доехать до деревни').toBeTruthy();
+
+    const s = createInitialState();
+    applyExpedition(s, toOutcome(home!));
+    expect(s.gold).toBeGreaterThan(0);
+  });
+
+  it('обычное поселение золота не даёт', async () => {
+    const w = makeWorld(11);
+    const strong = profile({ warriorPower: 40, units: { warrior: 40 } });
+    await w.world.sync(strong);
+    const target = await nearest(w.world);
+    const gen = generateWorld(11).settlements.find((x) => x.id === target.id);
+    if (gen?.castle) return; // ближайшая цель оказалась замком — проверять нечего
+    expect((await w.world.send({ target: target.id, mission: 'raid', units: { warrior: 40 } })).error).toBeNull();
+    w.advance(6 * 60 * 60_000);
+    const pulse = await w.world.sync(strong);
+    for (const e of pulse.effects) expect(e.resources.gold ?? 0).toBe(0);
+  });
+});
+
 describe('мягкость мира', () => {
   it('набег ИИ приходит с запасом времени и не сильнее обороны', async () => {
     const { world, advance } = makeWorld(101);
@@ -444,7 +538,7 @@ describe('последствия для племени', () => {
     const s = createInitialState();
     s.army.spearman = 3;
     const before = armySize(s);
-    const villagersBefore = s.villagers.length;
+    const villagersBefore = s.pop;
     const food = s.resources.food;
 
     applyExpedition(
@@ -463,7 +557,7 @@ describe('последствия для племени', () => {
 
     expect(armySize(s)).toBe(before - 2);
     // Бойцы гибнут из армии, племя при этом не редеет.
-    expect(s.villagers.length).toBe(villagersBefore);
+    expect(s.pop).toBe(villagersBefore);
     expect(s.resources.food).toBeGreaterThan(food);
     expect(s.stats.battlesWon).toBe(1);
     expect(s.log[0].text).toContain('Не вернулись');
@@ -506,5 +600,185 @@ describe('карта', () => {
     expect(chunk.rect.x).toBe(WORLD_ORIGIN.x);
     expect(chunk.rect.y).toBe(WORLD_ORIGIN.y);
     expect(chunk.terrain.length).toBe(chunk.rect.w * chunk.rect.h);
+  });
+});
+
+describe('состав отряда и отчёт о бое', () => {
+  it('поход несёт состав, и потери списываются теми же видами', async () => {
+    const w = makeWorld(77);
+    const army = { spearman: 6, archer: 4, clubman: 4 };
+    const p = profile({ warriorPower: 4, units: { warrior: 14, scout: 4 }, army, militia: 10 });
+    await w.world.sync(p);
+    const target = await nearest(w.world);
+
+    const sent = await w.world.send({
+      target: target.id,
+      mission: 'raid',
+      units: { warrior: 14 },
+      troops: army,
+    });
+    expect(sent.error).toBeNull();
+    expect(sent.march?.troops).toEqual(army);
+
+    w.advance(6 * 60 * 60_000);
+    const pulse = await w.world.sync(p);
+    const raid = pulse.reports.find((r) => r.kind === 'raid');
+    expect(raid, 'должен прийти отчёт о набеге').toBeTruthy();
+
+    // Отчёт строится из журнала: он есть, он именованный и он про эти же числа.
+    const battle = raid!.battle;
+    expect(battle, 'у набега должен быть журнал боя').toBeTruthy();
+    expect(battle!.us).toBe('attacker');
+    expect(battle!.result.log.length).toBeGreaterThan(3);
+    expect(battle!.result.ticks).toBeGreaterThanOrEqual(50);
+    expect(battle!.result.ticks).toBeLessThanOrEqual(100);
+
+    const effect = pulse.effects.find((e) => e.lostTroops);
+    expect(effect, 'потери должны прийти по видам бойцов').toBeTruthy();
+    for (const [id, n] of Object.entries(effect!.lostTroops ?? {})) {
+      expect(n).toBeLessThanOrEqual((army as Record<string, number>)[id] ?? 0);
+    }
+  });
+
+  it('быстрая атака и настроенная расстановка — разные бои с одного сида', async () => {
+    const army = { spearman: 8, archer: 6 };
+    const run = async (setup: ArmySetup | null) => {
+      const w = makeWorld(4242);
+      const p = profile({ warriorPower: 4, units: { warrior: 14, scout: 0 }, army });
+      await w.world.sync(p);
+      const target = await nearest(w.world);
+      await w.world.send({ target: target.id, mission: 'raid', units: { warrior: 14 }, troops: army, setup });
+      w.advance(6 * 60 * 60_000);
+      const pulse = await w.world.sync(p);
+      return pulse.reports.find((r) => r.kind === 'raid')!.battle!;
+    };
+    const quick = await run(null);
+    const tuned = await run(toArmySetup(presetFormation(army, 'anti-cavalry')));
+    // У быстрой атаки пресет назван, у настроенной — нет: расстановку задали руками.
+    expect(quick.preset).not.toBeNull();
+    expect(tuned.preset).toBeNull();
+  });
+
+  it('разведка показывает состав и построение, а с возрастом — только порядок величины', async () => {
+    const w = makeWorld(88);
+    const p = profile();
+    await w.world.sync(p);
+    const target = await nearest(w.world);
+    const sent = await w.world.send({ target: target.id, mission: 'scout', units: { scout: 3 } });
+    w.at((sent.march as MarchView).arriveAt);
+    await w.world.sync(p);
+
+    const fresh = await w.world.intel(target.id);
+    expect(fresh?.kinds, 'свежая разведка знает состав').toBeTruthy();
+    expect(fresh?.formation, 'и построение').toBeTruthy();
+    expect(fresh?.style).toBeTruthy();
+    expect(Object.keys(fresh!.formation!).sort()).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+    // Резерв и план разведка не даёт: на этом держится вся неопределённость.
+    expect(Object.keys(fresh!.formation!)).not.toContain('R');
+
+    w.advance(INTEL_VAGUE - INTEL_ROUGH + 1000);
+    const old = await w.world.intel(target.id);
+    expect(old?.precision).toBe('vague');
+    expect(old?.formation, 'старое построение не показывают как нынешнее').toBeNull();
+  });
+});
+
+describe('заморозка обороны', () => {
+  const incoming = (arriveAt: number): MarchView => ({
+    id: 'x',
+    mission: 'raid',
+    units: { warrior: 5 },
+    own: false,
+    hostile: true,
+    phase: 'out',
+    from: { x: 0, y: 0 },
+    to: { x: 1, y: 1 },
+    fromName: 'Чужие',
+    toName: 'Наша деревня',
+    targetId: 'home',
+    departAt: 0,
+    arriveAt,
+    loot: null,
+    recallable: false,
+  });
+
+  it('срабатывает ровно за пять минут', () => {
+    const now = START;
+    expect(defenseLock([incoming(now + DEFENSE_FREEZE + 1000)], now).frozen).toBe(false);
+    expect(defenseLock([incoming(now + DEFENSE_FREEZE)], now).frozen).toBe(true);
+    expect(defenseLock([incoming(now + 1000)], now).frozen).toBe(true);
+    expect(DEFENSE_FREEZE).toBe(5 * 60_000);
+  });
+
+  it('окно на перестройку есть: предупреждение длиннее заморозки', () => {
+    // Иначе набег появляется уже запертым, и панель обороны — замок на двери.
+    // Проверяется база — то, что видно вообще без Дозора: он время только
+    // прибавляет, укоротить предупреждение он не может.
+    expect(AI_WARNING_BASE).toBeGreaterThan(DEFENSE_FREEZE);
+    const now = START;
+    const arriveAt = now + AI_WARNING_BASE;
+    expect(defenseLock([incoming(arriveAt)], now).frozen).toBe(false);
+    expect(defenseLock([incoming(arriveAt)], now).seconds).toBeGreaterThan(DEFENSE_FREEZE / 1000);
+  });
+
+  it('без чужих отрядов оборона открыта', () => {
+    expect(defenseLock([], START).frozen).toBe(false);
+    expect(defenseLock([], START).march).toBeNull();
+  });
+
+  /**
+   * Прогон набега ИИ на деревню с заданной обороной. `switchAt` — момент, в
+   * который игрок присылает другую расстановку: до отметки её обязаны принять,
+   * после — нет. Пульсы идут часто: набег, пришедшийся на отсутствие игрока,
+   * не состоится, и редким опросом до боя не дойти.
+   */
+  async function defendWith(early: ArmySetup, late: ArmySetup, switchBeforeMs: number) {
+    const w = makeWorld(303);
+    const army = { spearman: 10, archer: 6 };
+    const p = (setup: ArmySetup): PlayerProfile =>
+      profile({ army, militia: 10, defenseSetup: setup, units: { warrior: 16, scout: 2 } });
+
+    await w.world.sync(p(early));
+    for (let i = 0; i < 200; i++) {
+      w.advance(15_000);
+      const pulse = await w.world.sync(p(early));
+      const raid = pulse.marches.find((m) => m.hostile);
+      if (!raid) continue;
+
+      // Доводим до боя короткими шагами, меняя оборону в назначенный момент.
+      while (w.now() < raid.arriveAt) {
+        w.advance(15_000);
+        const at = w.now();
+        const setup = raid.arriveAt - at <= switchBeforeMs ? late : early;
+        const pulse2 = await w.world.sync(p(setup));
+        const report = pulse2.reports.find((r) => r.kind === 'defense' && r.battle);
+        if (report) return report.battle!;
+      }
+      const last = await w.world.sync(p(late));
+      const report = last.reports.find((r) => r.kind === 'defense' && r.battle);
+      if (report) return report.battle!;
+      return null;
+    }
+    return null;
+  }
+
+  it('расстановка, присланная после отметки, в бой не идёт', async () => {
+    const army = { spearman: 10, archer: 6 };
+    const early = toArmySetup(presetFormation(army, 'defense'), 10);
+    const late = toArmySetup(presetFormation(army, 'center-punch'), 10);
+
+    const held = await defendWith(early, late, DEFENSE_FREEZE - 30_000);
+    const never = await defendWith(early, early, 0);
+    const always = await defendWith(late, late, 0);
+    expect(held, 'набег ИИ должен дойти до боя').toBeTruthy();
+    expect(never).toBeTruthy();
+    expect(always).toBeTruthy();
+    if (!held || !never || !always) return;
+
+    expect(held.us).toBe('defender');
+    // Смена внутри пяти минут ничего не изменила: бой тот же, что без неё.
+    expect(held.result.log).toEqual(never.result.log);
+    // А если бы расстановка не значила ничего, проверять было бы нечего.
+    expect(always.result.log).not.toEqual(never.result.log);
   });
 });

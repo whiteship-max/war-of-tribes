@@ -1,5 +1,7 @@
 // Базовые типы состояния игры. Симуляция не зависит от рендера и UI.
-import type { DecreeId, RationId } from './data/policy';
+import type { DecreeId, RationId, TaxId } from './data/policy';
+import type { BattlePlanTemplate, Formation } from './battle/formation';
+import type { UnitKind } from '@/battle';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -12,6 +14,12 @@ export type EquipmentId = 'spear' | 'bow' | 'axe' | 'shield' | 'sword' | 'armor'
 export type Equipment = Record<EquipmentId, number>;
 
 /**
+ * Товар рынка: либо ресурс, либо предмет снаряжения. Ключи снаряжения носят
+ * префикс, чтобы один словарь `s.market.bought` держал и то, и другое.
+ */
+export type GoodId = ResourceId | `eq:${EquipmentId}`;
+
+/**
  * Войска. Боец — не житель с профессией, а единица в счётчике: нанятый уходит
  * из рабочих совсем. Роли «воин» в списке профессий поэтому больше нет.
  */
@@ -22,6 +30,7 @@ export type TroopId =
   | 'axeman'
   | 'swordsman'
   | 'shieldman'
+  | 'rider'
   | 'legionary';
 export type Army = Record<TroopId, number>;
 
@@ -36,16 +45,13 @@ export type JobId =
   | 'herder'
   | 'crafter'
   | 'smith'
-  | 'scholar'
-  | 'shaman';
+  | 'priest';
 
 export type BuildingTypeId =
   | 'campfire'
-  | 'shelter'
-  | 'chief_house'
-  | 'hut'
+  | 'town_hall'
+  | 'houses'
   | 'storage'
-  | 'knowledge'
   | 'gathering'
   | 'sawmill'
   | 'quarry'
@@ -54,92 +60,57 @@ export type BuildingTypeId =
   | 'workshop'
   | 'farm'
   | 'pen'
-  | 'totem'
+  | 'church'
+  | 'statue'
+  | 'infirmary'
+  | 'watch'
+  | 'stable'
+  | 'cache'
+  | 'tavern'
   | 'palisade'
   | 'tower'
   | 'smithy'
-  | 'barracks';
-
-export type TechBranch = 'settlement' | 'craft' | 'war' | 'society';
-
-export type TechId =
-  // ремесло
-  | 'stone_tools'
-  | 'woodworking'
-  | 'bone_tools'
-  | 'leatherworking'
-  | 'metallurgy'
-  | 'iron_working'
-  // поселение
-  | 'housing'
-  | 'farming'
-  | 'animal_husbandry'
-  | 'palisade'
-  | 'towers'
-  // война
-  | 'spears'
-  | 'bows'
-  | 'warband'
-  | 'axes'
-  | 'shields'
-  | 'bronze_weapons'
-  | 'swords'
-  | 'armor'
-  // общество
-  | 'chiefdom'
-  | 'shamanism'
-  | 'totem'
-  | 'traditions'
-  | 'statehood';
+  | 'barracks'
+  | 'market';
 
 /**
- * Эпоха — технический уровень племени. Двигается только технологиями и задаёт
- * потолок уровней зданий и материалы построек. В строке состояния её нет:
- * там стоит стадия поселения (см. StageId). Эпоху показывают в Доме вождя.
+ * Герой племени — единственный поимённый человек в игре. Он не житель и не боец
+ * из счётчика: его даёт Статуя, он ходит с одним походом за раз и усиливает один
+ * выбранный род войск. Погибнув, он не пропадает совсем — возвращается через
+ * время: имя у племени остаётся, а вместе с ним и вложенные в статую уровни.
  */
-export type EraId = 'camp' | 'stone' | 'tribe' | 'bronze' | 'iron' | 'state';
+export interface Hero {
+  /** Имя с прозвищем. Даётся один раз за партию и не меняется. */
+  name: string;
+  /** Род войск, который он ведёт. Меняется в Статуе за золото. */
+  kind: UnitKind;
+  /**
+   * До какого игрового времени он лежит после гибели. Ноль — в строю.
+   * Не «убит навсегда»: героя нельзя потерять, можно только остаться без него.
+   */
+  downUntil: number;
+  /** Поход, с которым он ушёл. null — дома, на площади. */
+  marchId: string | null;
+}
 
-/** Стадия поселения — единственная видимая игроку шкала прогресса. */
-export type StageId = 'camp' | 'tribal' | 'village' | 'fortified' | 'town';
-
-export type TotemId = 'wolf' | 'bear' | 'eagle';
+/**
+ * Покровитель племени: одноразовый выбор в церкви. Раньше это назывался тотем —
+ * имя сменилось вместе со зданием, развилка осталась той же и по-прежнему
+ * необратима (см. sim/actions.choosePatron).
+ */
+export type PatronId = 'wolf' | 'bear' | 'eagle';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
-
-export interface Villager {
-  id: number;
-  name: string;
-  sex: 'm' | 'f';
-  age: number; // в игровых годах
-  job: JobId;
-  /**
-   * Здание, в котором житель работает. null при job === 'idle' и при «вольном сборе» —
-   * работе по профессии без профильного здания (вполсилы).
-   */
-  workplace: number | null;
-  /** Врождённый талант: в этой профессии работает эффективнее. */
-  talent: JobId | null;
-}
 
 export interface Building {
   id: number;
   type: BuildingTypeId;
-  /**
-   * Место на карте поселения. Оставлено для старых сохранений: место здания
-   * теперь выводится из его типа по фиксированному плану (render/plan.ts).
-   */
-  slot: number;
-  /** Текущий уровень. 0 — здание ещё строится и не работает. */
+  /** Текущий уровень, от единицы: все здания стоят с первого дня. */
   level: number;
-  /** Накопленная работа текущей стройки или улучшения. */
+  /** Накопленная работа текущего улучшения. */
   work: number;
-  /** Работа до конца стройки. 0 — стройка не идёт. */
+  /** Работа до конца улучшения. 0 — улучшение не идёт. */
   workRequired: number;
-}
-
-export interface Research {
-  techId: TechId;
-  work: number;
 }
 
 /** Заказ в казармах. Очередь одна и идёт последовательно, сверху вниз. */
@@ -152,11 +123,38 @@ export interface RecruitOrder {
   done: number;
   /** Накопленная работа над текущим бойцом. */
   work: number;
-  /**
-   * Жители, ушедшие на учения. Они уже не в племени: не добывают и не строят.
-   * Хранятся целиком, чтобы отмена возвращала тех же людей, а не безымянные головы.
+/**
+   * Сколько человек ушло на учения. Они уже не в племени: не добывают и не строят.
+   * Отмена вернёт ровно столько же голов — поимённых жителей в игре нет.
    */
-  people: Villager[];
+  people: number;
+}
+
+/**
+ * Рынок. Ассортимент не хранится: он выводится из номера дня (см. data/market.ts),
+ * поэтому перезагрузка не тасует прилавок заново. Хранить нужно только то, что
+ * уже разобрали сегодня — на этом счётчике держатся и дневной лимит, и рост цены.
+ */
+export interface MarketState {
+  /** Игровой день, на который составлен нынешний прилавок. */
+  day: number;
+  /** Сколько единиц каждого товара уже куплено за этот день. */
+  bought: Partial<Record<GoodId, number>>;
+}
+
+/**
+ * Караван за покупкой. Золото списано при заказе, груза на складе ещё нет:
+ * телега выезжает из ворот и возвращается только к `arriveAt`.
+ */
+export interface Caravan {
+  id: number;
+  good: GoodId;
+  count: number;
+  /** Уплаченное золото — ровно столько вернётся при отмене. */
+  gold: number;
+  /** Игровое время выхода и возвращения, сек. */
+  departAt: number;
+  arriveAt: number;
 }
 
 export interface ActiveEvent {
@@ -175,9 +173,17 @@ export interface Stats {
   hunts: number;
   battlesWon: number;
   battlesLost: number;
+  /** Сколько человек прибавилось и убыло за партию — приростом, голодом, боем. */
   born: number;
   died: number;
   eventsResolved: number;
+  /** Отправлено разведок и набегов — по ним считаются задания про карту. */
+  scouted: number;
+  raids: number;
+  /** Замков, из которых привезли золото. */
+  castles: number;
+  /** Покупок на рынке. */
+  purchases: number;
 }
 
 export interface GameState {
@@ -199,27 +205,82 @@ export interface GameState {
   decree: DecreeId;
   /** Рацион племени. */
   ration: RationId;
-  villagers: Villager[];
+  /** Уровень налога. */
+  tax: TaxId;
+  /**
+   * Казна племени. Не ресурс: вместимость склада на золото не действует,
+   * и чужой набег его не уносит — казну прячут, а не сваливают в амбар.
+   */
+  gold: number;
+  /**
+   * Алмазы — премиальная валюта. Не ресурс и не золото: склад её не ограничивает,
+   * набег не уносит, купить за неё нельзя ничего, кроме времени (см. sim/gems.ts).
+   * Начисляет её ровно одно место — `creditGems`, и оно ждёт сервера.
+   */
+  gems: number;
+  /** Состояние рынка: на какой день собран прилавок и что с него уже взяли. */
+  market: MarketState;
+  /** Караваны в пути: их груз ещё не на складе. */
+  caravans: Caravan[];
+  /**
+   * Жителей в посёлке. Поимённых жителей с возрастом, полом и характером в игре
+   * нет: население — число. Бойцы и новобранцы сюда не входят, они живут в
+   * счётчиках `army` и `recruits` (см. derived.population).
+   */
+  pop: number;
+  /**
+   * Сколько человек работает в каждом здании: ключ — id постройки. Личного навыка
+   * у жителя нет, работники одинаковы, поэтому назначение — это число, а не список.
+   */
+  workers: Record<number, number>;
+  /**
+   * Сколько человек занято «вольным сбором» — работой по профессии без профильного
+   * здания, вполсилы. Остальные (`pop` минус здания минус вольный сбор) свободны.
+   */
+  freeJobs: Partial<Record<JobId, number>>;
   buildings: Building[];
-  techs: TechId[];
-  research: Research | null;
   completedQuests: string[];
   activeEvent: ActiveEvent | null;
   nextEventAt: number;
   morale: number; // 0..100
   prestige: number;
-  totem: TotemId | null;
+  patron: PatronId | null;
+  /** Герой племени: имя, род войск и состояние. См. Hero. */
+  hero: Hero;
   starvation: number; // накопленное время голода, сек
   freezing: number; // накопленное время зимы без дров, сек
   /** Год, за который уже показали предупреждение о зиме (0 — ещё не показывали). */
   winterWarnedYear: number;
   /** Предупреждение «Скоро зима» ждёт показа. */
   winterWarning: boolean;
-  growth: number; // накопленный прогресс к появлению нового жителя
+  /**
+   * Накопленный прирост населения, −1..1. Дошёл до единицы — в посёлке одним
+   * человеком больше, упал до минус единицы — одним меньше: при низкой морали
+   * племя разбегается.
+   */
+  growth: number;
+  /** Население на начало текущего игрового дня: по нему летопись считает дневной прирост. */
+  popDay: number;
   /** Бойцы, ушедшие в поход: деревню они не защищают (см. derived.defense). */
   warriorsAway: number;
   /** Свободные жители, ушедшие разведчиками: они не строят. */
   scoutsAway: number;
+  /**
+   * Как племя встречает набег: расстановка обороны деревни. null — обороняемся
+   * тем, что вышло само (быстрая раскладка по сиду набега).
+   */
+  defenseFormation: Formation | null;
+  /** Сохранённые схемы похода: состав, расстановка, план, приказы, резерв. */
+  battlePlans: BattlePlanTemplate[];
+  /** Что игрок предпочитает после боя: смотреть журнал или сразу итог. */
+  battleWatch: boolean;
+  /**
+   * Пир в трактире: до какого игрового времени он греет племя и когда его
+   * задавали в прошлый раз. Два числа, а не флаг: по первому считается прибавка
+   * к морали, по второму — откат (см. derived.feastInfo).
+   */
+  feastUntil: number;
+  feastAt: number;
   /** Номер текущего шага обучения (см. data/tutorial.ts). */
   tutorialStep: number;
   /** Обучение пройдено или пропущено. */

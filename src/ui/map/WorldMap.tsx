@@ -19,7 +19,7 @@ import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
-import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
+import { CASTLE_ICON, RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
 import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { Coord } from '@/world/types';
@@ -327,6 +327,10 @@ export function WorldMap() {
               <span>{s.name}</span>
             </div>
           ))}
+          <div className="wm-leg-row">
+            <b>{CASTLE_ICON}</b>
+            <span>Замок — крепкая цель с казной</span>
+          </div>
           <h3>Земля</h3>
           {TERRAIN_ORDER.map((t) => (
             <div className="wm-leg-row" key={t}>

@@ -43,8 +43,6 @@ function linesOf(mods: SeasonModifiers): Line[] {
     out.push({ icon: def.icon, label: def.name, mult: m, good: m > 1 });
   }
   if (mods.build !== 1) out.push({ icon: '🔨', label: 'Скорость стройки', mult: mods.build, good: mods.build > 1 });
-  if (mods.research !== 1)
-    out.push({ icon: '💡', label: 'Скорость исследований', mult: mods.research, good: mods.research > 1 });
   if (mods.food !== 1)
     out.push({ icon: '🍖', label: 'Потребление еды', mult: mods.food, good: mods.food < 1 });
   if (mods.morale !== 0)

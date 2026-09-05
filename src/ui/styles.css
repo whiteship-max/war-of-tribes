@@ -10,6 +10,9 @@
   --accent-2: #c4652f;
   --good: #7cc47a;
   --bad: #e06b5a;
+  /* Красный алмаз: премиальная валюта, и цвет у неё свой, не акцентный. */
+  --gem: #e0524f;
+  --gem-text: #2a0e0d;
   --radius: 14px;
 
   /* Вырезы: Telegram отдаёт их в --tg-* через JS, env() — фолбэк вне Telegram. */
@@ -161,15 +164,10 @@ body {
   color: var(--bad);
 }
 
-.hud-bar .cell.era {
+.hud-bar .cell.army {
   flex: 1 1 auto;
   justify-content: flex-end;
   overflow: hidden;
-}
-
-.hud-bar .cell.era i {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .hud-bar .sep {
@@ -410,6 +408,13 @@ body {
   margin-top: 2px;
 }
 
+/* Место в плане: со сцены разметку пустых мест убрали, и это единственное место,
+   где сказано, куда встанет постройка. Читаться должно как подпись, а не как текст. */
+.card .desc.place {
+  color: var(--text);
+  opacity: 0.75;
+}
+
 .cost {
   font-size: 12px;
   margin-top: 4px;
@@ -479,6 +484,29 @@ body {
   text-align: center;
   font-weight: 600;
   font-size: 15px;
+}
+
+/*
+ * Ряд шага на всю ширину: −10 −1 [n] +1 +10. Люди назначаются числом, а число
+ * на потолке уровней трёхзначное — пальцем по одному его не набрать.
+ */
+.stepper.wide-steps {
+  width: 100%;
+  justify-content: space-between;
+  margin: 6px 0 10px;
+}
+
+.stepper.wide-steps button {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stepper.wide-steps .n {
+  flex: 0 0 auto;
+  min-width: 56px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
 }
 
 .progress {
@@ -1025,12 +1053,6 @@ body {
 .pips i.on {
   background: var(--accent);
   border-color: var(--accent);
-}
-
-/* Уровни выше предела эпохи: видно, что потолок сдвинет только прогресс. */
-.pips i.era {
-  border-style: dashed;
-  opacity: 0.4;
 }
 
 .upgrade {
@@ -1754,4 +1776,654 @@ body {
 .troop-buy .btn.ghost.wide {
   flex: 1 1 100%;
   min-width: 0;
+}
+
+/* ---------- Подготовка боя: схема секторов ---------- */
+
+/*
+ * Шесть клеток в две полосы плюс резерв. Перетаскивания нет нарочно: на 375 px
+ * внутри шторки оно дерётся со скроллом. Клетка — обычная кнопка в тач-размер.
+ */
+.bf {
+  margin-bottom: 10px;
+}
+
+.bf-foe {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.bf-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.bf-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 58px;
+  padding: 7px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bf-cell.wide {
+  width: 100%;
+  min-height: var(--tap);
+}
+
+.bf-cell.empty {
+  border-style: dashed;
+}
+
+.bf-cell.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.14);
+}
+
+.bf-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.1;
+}
+
+.bf-name b {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.bf-cell.on .bf-name b {
+  color: var(--accent);
+}
+
+.bf-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-size: 12px;
+}
+
+.bf-stack em {
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.bf-empty {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Выбор состава сектора — прямо под схемой, без третьего слоя поверх шторки. */
+.bf-edit {
+  padding: 8px;
+  margin-bottom: 10px;
+  background: rgba(232, 164, 60, 0.07);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+}
+
+.bf-edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.bf-edit-head b {
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.bf-edit .slot {
+  background: var(--panel);
+}
+
+/* Приказ роду войск: свёрнутая строка, раскрывается по тапу. */
+.bf-order {
+  margin-bottom: 6px;
+}
+
+.bf-order-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 4px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.bf-order-head .ico {
+  font-size: 18px;
+}
+
+.bf-order-head .who {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.bf-order-head .who .talent {
+  display: block;
+  color: var(--accent);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.bf-order-head .chev {
+  color: var(--muted);
+}
+
+/* ---------- Разведданные: чужое построение ---------- */
+
+.bi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.bi-cell {
+  min-height: 46px;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.bi-name {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.1;
+  margin-bottom: 2px;
+}
+
+/* ---------- Журнал боя ---------- */
+
+.bl {
+  margin-bottom: 10px;
+}
+
+.bl-phase {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.bl-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bl-head b {
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.bl-cost {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bl-line {
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--line);
+}
+
+.bl-line.mine {
+  border-left-color: var(--good);
+}
+
+.bl-line.foe {
+  border-left-color: var(--bad);
+}
+
+.bl-line.muted {
+  color: var(--muted);
+}
+
+/* Внутри редактора сектора строка войск двухэтажная: род и остаток не режутся. */
+.bf-edit .slot .who {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.25;
+}
+
+.bf-edit .slot .who .talent {
+  display: block;
+  font-size: 11.5px;
+}
+
+/* ---------- Справочные экраны кнопок верхней строки ---------- */
+
+/* Ячейка HUD, которая открывает справку. Выглядит как остальные, но нажимается. */
+.hud-bar .cell.tap {
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 3px 4px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+
+.hud-bar .cell.tap.army {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.hud-bar .cell.tap.active {
+  background: var(--panel-2);
+}
+
+/* Подпись под названием строки: откуда взялось число. */
+.mod .name .sub {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.mod .name {
+  white-space: normal;
+}
+
+/* Узкое место прироста: та полоска, которая сейчас всё и тормозит. */
+.res-line.bottleneck .name {
+  color: var(--text);
+}
+
+.res-line .name .tag {
+  font-style: normal;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bad);
+  margin-left: 5px;
+}
+
+/* Шкала морали с двумя порогами прироста. */
+.morale-scale {
+  position: relative;
+  height: 16px;
+  margin: 6px 0 26px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(224, 107, 90, 0.55), rgba(232, 164, 60, 0.45) 45%, rgba(124, 196, 122, 0.55));
+  border: 1px solid var(--line);
+}
+
+.morale-scale i,
+.morale-scale b {
+  position: absolute;
+  top: -3px;
+  height: calc(100% + 6px);
+}
+
+.morale-scale i {
+  width: 2px;
+  margin-left: -1px;
+  background: var(--muted);
+}
+
+.morale-scale i.full {
+  background: var(--good);
+}
+
+/* Метка текущей морали — самая заметная: остальные две это пороги. */
+.morale-scale b {
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--text);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.morale-scale u {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.morale-scale b u {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* ---------- Кольцо контрров ---------- */
+
+.ring-wrap {
+  margin-bottom: 10px;
+}
+
+.ring {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto 4px;
+  height: auto;
+}
+
+.ring-node {
+  fill: var(--panel-2);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.ring-ico {
+  font-size: 17px;
+}
+
+.ring-name {
+  font-size: 9px;
+  fill: var(--text);
+}
+
+.ring-mult {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--accent);
+}
+
+/* ---------- Карточка вида войск ---------- */
+
+.btn.ghost.back {
+  align-self: flex-start;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+}
+
+.card.as-row .chev {
+  align-self: center;
+  color: var(--muted);
+  font-size: 18px;
+  padding: 0 4px;
+}
+
+.card.as-row.none {
+  opacity: 0.62;
+}
+
+.counters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.counter {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: var(--panel-2);
+}
+
+.counter.good {
+  border-left-color: var(--good);
+}
+
+.counter.bad {
+  border-left-color: var(--bad);
+}
+
+.counter b {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.counter small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.bullets {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.bullets li {
+  margin-bottom: 4px;
+}
+
+.bullets li::marker {
+  color: var(--muted);
+}
+
+.bullets.good li::marker {
+  color: var(--good);
+}
+
+.bullets.bad li::marker {
+  color: var(--bad);
+}
+
+/*
+ * Дружина прижата вправо, поэтому переполнение обрезается слева — по иконке.
+ * Сжимать разрешено только подписи: число и значок остаются видны при любом
+ * размере племени, а «дружина» при тесноте ужимается многоточием.
+ */
+.hud-bar .cell.tap.army .ic,
+.hud-bar .cell.tap.army b {
+  flex: 0 0 auto;
+}
+
+.hud-bar .cell.tap.army i {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* ---------- Ратуша: строка постройки ---------- */
+/*
+ * Строка стройки в ратуше: иконка, название, уровень, цена, время, спрос на
+ * людей и две кнопки — обычный уровень и достройка за алмазы. Всё это должно
+ * читаться на 375 px без горизонтальной прокрутки, поэтому строка не таблица,
+ * а колонка: шапка, цена, люди, кнопки.
+ */
+.build-row {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.build-row.site {
+  border-color: var(--accent);
+}
+
+.build-row.locked {
+  opacity: 0.72;
+}
+
+.build-row .grip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+
+.build-row .grip > .ico {
+  flex: 0 0 auto;
+  width: 26px;
+  font-size: 21px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.build-row .grip > .body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.build-row .title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.build-row .title .count {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.build-row .title .lvl-tag {
+  font-size: 11px;
+  font-style: normal;
+  color: var(--accent);
+}
+
+.build-row .attn-dot {
+  font-style: normal;
+  margin-left: 4px;
+}
+
+.build-row .desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  /* Описание — справка, а не главное в строке: две строки, дальше многоточие. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.build-row .desc.gain {
+  color: var(--accent);
+}
+
+.build-row .desc.bad {
+  color: var(--bad);
+}
+
+.build-row .cost {
+  margin-top: 0;
+}
+
+.cost .people {
+  color: var(--muted);
+}
+
+.build-row .acts {
+  display: flex;
+  gap: 6px;
+}
+
+.build-row .acts .btn {
+  flex: 1 1 auto;
+}
+
+/* Достройка за алмазы — не главная кнопка строки: она уже и другого цвета. */
+.build-row .acts .btn.gem {
+  flex: 0 0 auto;
+}
+
+.build-row .progress {
+  display: block;
+}
+
+.build-row .progress > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s linear;
+}
+
+/* ---------- Алмазы ---------- */
+
+.btn.gem {
+  flex: 0 0 auto;
+  background: rgba(224, 82, 79, 0.16);
+  border: 1px solid rgba(224, 82, 79, 0.55);
+  color: var(--gem);
+  min-width: 72px;
+}
+
+.gem-ico {
+  color: var(--gem);
+}
+
+.tabs button .tab-count {
+  font-style: normal;
+  color: var(--gem);
+  margin-left: 4px;
+}
+
+.note.warn {
+  color: var(--accent);
+}
+
+.card.gem-pack .ico {
+  font-size: 20px;
 }
