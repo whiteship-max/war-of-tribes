@@ -43,6 +43,10 @@ import {
   COST_ROAD,
 } from './data/tuning';
 
+/** Клетка внутри сетки мира. */
+const inWorld = (x: number, y: number): boolean =>
+  x >= WORLD_ORIGIN.x && y >= WORLD_ORIGIN.y && x < WORLD_ORIGIN.x + WORLD_SIZE && y < WORLD_ORIGIN.y + WORLD_SIZE;
+
 // ---------- Шум ----------
 
 /** Хеш клетки в 0..1. Детерминирован по сиду. */
@@ -237,7 +241,14 @@ export const FEATURE = {
   track: 64,
 } as const;
 
+/**
+ * Ключ клетки для кэшей. Годится только внутри мира: за его краем разность
+ * уходит в минус, и два разных места получили бы один ключ. Поэтому снаружи
+ * кэш не трогают вовсе (`memoKey`), а не «как-нибудь» считают.
+ */
 const cellKey = (x: number, y: number): number => (x - WORLD_ORIGIN.x) * 4096 + (y - WORLD_ORIGIN.y);
+
+const memoKey = (x: number, y: number): number => (inWorld(x, y) ? cellKey(x, y) : -1);
 
 /**
  * Природные признаки — всё, кроме дорог. Отдельно от `featuresAt` они нужны по
@@ -246,8 +257,8 @@ const cellKey = (x: number, y: number): number => (x - WORLD_ORIGIN.x) * 4096 + 
  */
 function naturalAt(seed: number, x: number, y: number): number {
   const c = cachesFor(seed);
-  const key = cellKey(x, y);
-  const have = c.natural.get(key);
+  const key = memoKey(x, y);
+  const have = key < 0 ? undefined : c.natural.get(key);
   if (have !== undefined) return have;
   let bits = 0;
   if (isRiver(seed, x, y)) {
@@ -258,7 +269,7 @@ function naturalAt(seed: number, x: number, y: number): number {
     bits |= FEATURE.ridge;
     if (nodeAt(seed, x, y, PASS_BLOCK, PASS_RADIUS, 'pass')) bits |= FEATURE.pass;
   }
-  c.natural.set(key, bits);
+  if (key >= 0) c.natural.set(key, bits);
   return bits;
 }
 
@@ -284,11 +295,11 @@ export function featuresAt(seed: number, x: number, y: number): number {
  */
 export function cellCost(seed: number, x: number, y: number): number {
   const c = cachesFor(seed);
-  const key = cellKey(x, y);
-  const have = c.cost.get(key);
+  const key = memoKey(x, y);
+  const have = key < 0 ? undefined : c.cost.get(key);
   if (have !== undefined) return have;
   const cost = costFrom(featuresAt(seed, x, y), terrainAt(seed, x, y));
-  c.cost.set(key, cost);
+  if (key >= 0) c.cost.set(key, cost);
   return cost;
 }
 
@@ -306,9 +317,6 @@ function costFrom(bits: number, t: Terrain): number {
 const rawCost = (seed: number, x: number, y: number): number => costFrom(naturalAt(seed, x, y), terrainAt(seed, x, y));
 
 // ---------- Станы племён ----------
-
-const inWorld = (x: number, y: number): boolean =>
-  x >= WORLD_ORIGIN.x && y >= WORLD_ORIGIN.y && x < WORLD_ORIGIN.x + WORLD_SIZE && y < WORLD_ORIGIN.y + WORLD_SIZE;
 
 /**
  * Где вообще можно поставить двор: не в воде, не в русле и не на хребте. Правило
