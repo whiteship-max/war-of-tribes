@@ -45,6 +45,8 @@ export type JointId =
   | 'head'
   | 'armL'
   | 'armR'
+  | 'elbowL' | 'elbowR' | 'handL' | 'handR'
+  | 'kneeL' | 'kneeR'
   | 'legL'
   | 'legR'
   | 'neck'
@@ -56,6 +58,7 @@ export type JointId =
 
 export const JOINTS: JointId[] = [
   'root', 'hips', 'torso', 'head', 'armL', 'armR', 'legL', 'legR',
+  'elbowL', 'elbowR', 'handL', 'handR', 'kneeL', 'kneeR',
   'neck', 'legFL', 'legFR', 'legBL', 'legBR', 'tail',
 ];
 
@@ -97,6 +100,8 @@ export interface Rig {
   shoulderX: number;
   /** Длина руки: плечо → кисть. */
   armLen: number;
+  /** Длина ноги не меняется при посадке на коня. */
+  legLen: number;
   /** Основание шеи: вокруг него кивает голова. */
   neckY: number;
   /** Развод коленей: у всадника ноги обнимают бока коня. */
@@ -114,6 +119,7 @@ export const restRig = (): Rig => ({
   shoulderY: 0.7,
   shoulderX: 0.13,
   armLen: 0.27,
+  legLen: 0.44,
   neckY: 0.78,
   straddle: 0,
   seat: 0,
@@ -168,6 +174,11 @@ export class Figure {
   armOff = 0;
   /** Развод рук в стороны от корпуса. */
   armSpread = 0.06;
+  /** Сгиб локтей и коленей: положительное колено уходит назад. */
+  elbowMain = 0;
+  elbowOff = 0;
+  kneeL = 0;
+  kneeR = 0;
   /** Доля падения, 0..1. Двигает её тот, кто роняет, — поза только читает. */
   down = 0;
 
@@ -335,6 +346,14 @@ function poseJoints(f: Figure): void {
   put('armR', 'torso', -r.shoulderX, r.shoulderY - r.hipY, 0, f.armMain, 0, -f.armSpread);
   put('legL', 'hips', r.hipX, 0, 0, r.seat + f.legSwing, 0, r.straddle);
   put('legR', 'hips', -r.hipX, 0, 0, r.seat - f.legSwing, 0, -r.straddle);
+  const halfArm = r.armLen * 0.5;
+  put('elbowL', 'armL', 0, -halfArm, 0, -f.elbowOff);
+  put('elbowR', 'armR', 0, -halfArm, 0, -f.elbowMain);
+  put('handL', 'elbowL', 0, -halfArm, 0, 0);
+  put('handR', 'elbowR', 0, -halfArm, 0, 0);
+  const thigh = r.legLen * 0.5;
+  put('kneeL', 'legL', 0, -thigh, 0, f.kneeL);
+  put('kneeR', 'legR', 0, -thigh, 0, f.kneeR);
 }
 
 /** Матрица детали — одна на весь обход, наружу она не отдаётся. */
