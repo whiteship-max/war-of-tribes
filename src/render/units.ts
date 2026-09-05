@@ -377,9 +377,11 @@ export function dressHero(f: Figure, troop: TroopId): void {
   dressSoldier(f, troop);
   const { height: tall, build } = SIZE[troop];
   const b = bodyOf(humanRig(MAN_HEIGHT * tall, build), build);
-  // Плащ: широкая пластина за спиной от плеч до колен. В силуэте это то, чем
-  // герой отличается от рядового с тем же оружием.
-  addSlot(f, 'plate', 'torso', HERO_TINT.cloak, [0, b.torsoH * 0.34, -b.chestW * 0.46], [b.chestW * 1.5, b.torsoH * 1.5, 0.03], [0.06, 0, 0]);
+  // Две сплюснутые шестигранные массы дают складки и расширяющийся подол.
+  // Подол отклоняется отдельно от плеч; скиннинга и отдельного материала нет.
+  f.hasCape = true;
+  addSlot(f, 'body', 'cape', HERO_TINT.cloak, [0, 0.02, 0], [b.chestW * 1.1, b.torsoH * 0.6, b.chestW * 0.24], [Math.PI, 0, 0]);
+  addSlot(f, 'body', 'capeHem', HERO_TINT.cloak, [0, 0.015, 0], [b.chestW * 1.5, b.torsoH * 0.95, b.chestW * 0.32], [Math.PI, 0, 0]);
 }
 
 // ---------- Конь ----------

@@ -47,6 +47,7 @@ export type JointId =
   | 'armR'
   | 'elbowL' | 'elbowR' | 'handL' | 'handR'
   | 'kneeL' | 'kneeR'
+  | 'cape' | 'capeHem'
   | 'legL'
   | 'legR'
   | 'neck'
@@ -60,6 +61,7 @@ export type JointId =
 export const JOINTS: JointId[] = [
   'root', 'hips', 'torso', 'head', 'armL', 'armR', 'legL', 'legR',
   'elbowL', 'elbowR', 'handL', 'handR', 'kneeL', 'kneeR',
+  'cape', 'capeHem',
   'neck', 'legFL', 'legFR', 'legBL', 'legBR', 'tail',
   'hockFL', 'hockFR', 'hockBL', 'hockBR',
 ];
@@ -181,6 +183,8 @@ export class Figure {
   elbowOff = 0;
   kneeL = 0;
   kneeR = 0;
+  capeSwing = 0;
+  hasCape = false;
   /** Доля падения, 0..1. Двигает её тот, кто роняет, — поза только читает. */
   down = 0;
 
@@ -194,6 +198,7 @@ export class Figure {
   /** Снимает всё надетое: фигура одевается заново. */
   strip(): void {
     this.slots.length = 0;
+    this.hasCape = false;
     for (const p of PARTS) this.counts[p] = 0;
   }
 }
@@ -360,6 +365,11 @@ function poseJoints(f: Figure): void {
   const thigh = r.legLen * 0.5;
   put('kneeL', 'legL', 0, -thigh, 0, f.kneeL);
   put('kneeR', 'legR', 0, -thigh, 0, f.kneeR);
+  if (f.hasCape) {
+    const torsoH = r.neckY - r.hipY;
+    put('cape', 'torso', 0, r.shoulderY - r.hipY, -r.shoulderX * 0.72, 0.12 + f.capeSwing);
+    put('capeHem', 'cape', 0, -torsoH * 0.55, 0, 0.08 + f.capeSwing * 0.6);
+  }
 }
 
 /** Матрица детали — одна на весь обход, наружу она не отдаётся. */
