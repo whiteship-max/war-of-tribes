@@ -246,8 +246,10 @@ function armorUp(f: Figure, b: Body, tier: number): void {
 
 /** Круглый щит на левой руке. */
 function roundShield(f: Figure, b: Body, size: number): void {
-  addSlot(f, 'shield', 'armL', PALETTE.woodDark, [0, -b.rig.armLen * 0.72, size * 0.18], [size, size, size * 0.08]);
-  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.72, size * 0.24], [size * 0.24, size * 0.24, size * 0.06]);
+  // Просвет до кирасы нужен и при отведённом назад предплечье в шаге.
+  const front = b.chestW * 0.8;
+  addSlot(f, 'shield', 'armL', PALETTE.woodDark, [0, -b.rig.armLen * 0.56, front], [size, size, size * 0.08]);
+  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.56, front + size * 0.06], [size * 0.24, size * 0.24, size * 0.06]);
 }
 
 /**
@@ -269,8 +271,9 @@ function sword(f: Figure, b: Body, len: number, out: number): void {
  */
 function towerShield(f: Figure, b: Body, h: number): void {
   const w = h * 0.31;
-  addSlot(f, 'plate', 'armL', PALETTE.paintRed, [0, -b.rig.armLen * 0.9, w * 0.36], [w, h * 0.66, 0.035]);
-  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.9, w * 0.42], [w * 0.22, w * 0.22, 0.03]);
+  const front = b.chestW * 0.8;
+  addSlot(f, 'plate', 'armL', PALETTE.paintRed, [0, -b.rig.armLen * 0.9, front], [w, h * 0.66, 0.035]);
+  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.9, front + 0.022], [w * 0.22, w * 0.22, 0.03]);
 }
 
 /** Одевает бойца этого вида. Всё, что видно на поле, решается здесь. */
@@ -325,7 +328,8 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
         : gripFrame([0, -rig.armLen - len * 0.28, b.chestW * 0.26], [0, 0, -0.07]);
       const drop = mounted ? -len * 0.3 : 0;
       addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, drop, 0], [0.032, len, 0.032], [0, 0, 0], grip);
-      addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * (mounted ? 0.72 : 1) + (mounted ? 0 : 0.06), 0], [0.05, mounted ? 0.15 : 0.16, 0.02], [0, 0, 0], grip);
+      // Существующий конус даёт остриё, а не прямоугольный обрубок.
+      addSlot(f, 'cap', 'armR', PALETTE.metal, [0, len + drop - 0.02, 0], [0.065, 0.18, 0.035], [0, 0, 0], grip);
       break;
     }
     case 'bow': {
@@ -393,9 +397,9 @@ export function dressHero(f: Figure, troop: TroopId): void {
 export function mountRig(height = MAN_HEIGHT): MountRig {
   return {
     backY: height * 0.82,
-    barrelH: height * 0.30,
-    bodyLen: height * 0.92,
-    bodyW: height * 0.32,
+    barrelH: height * 0.36,
+    bodyLen: height * 0.94,
+    bodyW: height * 0.38,
     legY: height * 0.67,
     legX: height * 0.115,
     legZ: height * 0.32,
@@ -405,8 +409,8 @@ export function mountRig(height = MAN_HEIGHT): MountRig {
     neckZ: height * 0.34,
     neckLen: height * 0.43,
     neckPitch: 0.45,
-    tailY: height * 0.78,
-    tailZ: -height * 0.43,
+    tailY: height * 0.70,
+    tailZ: -height * 0.35,
   };
 }
 
@@ -431,16 +435,15 @@ export function dressHorse(f: Figure, b: Body): void {
   f.rig.seat = 0.45;
 
   const coat = PALETTE.horseCoat;
-  // Корпус кладётся набок: примитив растёт вверх, а бочка коня лежит. Широкий
-  // конец у крупа — так и сложена лошадь.
-  addSlot(f, 'body', 'root', coat, [0, m.backY - m.barrelH / 2, m.bodyLen / 2], [m.bodyW, m.bodyLen, m.barrelH], [-Math.PI / 2, 0, 0]);
+  // Тот же гранёный шар, что у головы: округлые грудь и круп вместо бруса.
+  addSlot(f, 'head', 'root', coat, [0, m.backY - m.barrelH / 2, 0], [m.bodyW, m.barrelH, m.bodyLen]);
   // Шея растёт от головы вниз к холке: широкий конец примитива должен быть внизу.
   addSlot(f, 'body', 'neck', coat, [0, m.neckLen * 0.98, 0], [m.bodyW * 0.66, m.neckLen * 1.12, m.bodyW * 0.86], [Math.PI, 0, 0]);
   addSlot(f, 'limb', 'neck', PALETTE.horseMane, [0, m.neckLen, -m.bodyW * 0.30], [m.bodyW * 0.12, m.neckLen, m.bodyW * 0.18], [-0.07, 0, 0]);
   // Голова собирается в своей системе: ось Y вдоль морды, вперёд и чуть вниз.
-  const skull = gripFrame([0, m.neckLen * 0.98, 0], [1.2, 0, 0]);
+  const skull = gripFrame([0, m.neckLen * 0.98, 0], [1.65, 0, 0]);
   // Одна сужающаяся к морде масса вместо шара с приставленным коробом.
-  addSlot(f, 'body', 'neck', coat, [0, h * 0.29, 0], [h * 0.17, h * 0.35, h * 0.19], [Math.PI, 0, 0], skull);
+  addSlot(f, 'body', 'neck', coat, [0, h * 0.24, 0], [h * 0.18, h * 0.31, h * 0.22], [Math.PI, 0, 0], skull);
   for (const side of [-1, 1]) {
     addSlot(f, 'cap', 'neck', coat, [side * h * 0.052, m.neckLen + h * 0.02, -h * 0.04], [h * 0.065, h * 0.14, h * 0.07], [-0.2, 0, -side * 0.18]);
   }

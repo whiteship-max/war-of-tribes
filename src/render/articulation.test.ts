@@ -5,6 +5,30 @@ import { dressHero, dressSoldier, humanRig } from './units';
 import { ACTIONS, poseFigure } from './poses';
 
 describe('сочленённые фигуры', () => {
+  it('кираса остаётся позади плоскости щита в боевых позах', () => {
+    for (const kind of ['shieldman', 'legionary'] as const) {
+      const f = new Figure();
+      dressSoldier(f, kind);
+      f.phase = 0;
+      for (const action of ['stand', 'guard', 'walk', 'strike'] as const) {
+        for (const time of [0, 0.2, 0.55, 0.8, 1.1]) {
+          poseFigure(f, action, time);
+          let shield: THREE.Matrix4 | undefined;
+          let chest: THREE.Matrix4 | undefined;
+          forEachPart(f, (slot, matrix) => {
+            if (!shield && slot.joint === 'handL') shield = matrix.clone();
+            if (!chest && slot.part === 'plate' && slot.joint === 'torso') chest = matrix.clone();
+          });
+          const toShield = shield!.invert().multiply(chest!);
+          for (const x of [-0.5, 0.5]) for (const y of [-0.5, 0.5]) for (const z of [-0.5, 0.5]) {
+            const corner = new THREE.Vector3(x, y, z).applyMatrix4(toShield);
+            expect(corner.z, `${kind} ${action} ${time}`).toBeLessThan(-0.5);
+          }
+        }
+      }
+    }
+  });
+
   it('локоть и колено остаются внутри стыка деталей во всех позах', () => {
     for (const kind of ['swordsman', 'rider'] as const) {
       const f = new Figure();
