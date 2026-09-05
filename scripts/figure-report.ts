@@ -5,9 +5,11 @@
 //   npx vite-node scripts/figure-report.ts
 import { TROOP_IDS } from '@/game/data/troops';
 import type { TroopId } from '@/game/types';
-import { Figure, figureBox } from '@/render/figures';
+import * as THREE from 'three';
+import { Figure, FigurePool, figureBox } from '@/render/figures';
 import { poseFigure } from '@/render/poses';
-import { FOLK_KINDS, MAN_HEIGHT, dressSoldier, dressVillager, gearTier, humanRig, mountRig } from '@/render/units';
+import { FOLK_KINDS, MAN_HEIGHT, dressHero, dressMount, dressSoldier, dressVillager, gearTier, humanRig, mountRig } from '@/render/units';
+import { HERO_SCALE } from '@/render/hero';
 import { TURNS, above, area, overlap, projY, silhouette, widthAt } from '@/render/silhouette';
 
 const soldier = (troop: TroopId): Figure => {
@@ -41,6 +43,11 @@ for (const turn of TURNS) {
   }
 }
 rows.sort((x, y) => y.k - x.k);
+console.log('--- все 28 пар × 6 ракурсов; IoU, меньше — различимее ---');
+console.log('a,b,turn,iou');
+for (const r of [...rows].sort((a, b) => a.a.localeCompare(b.a) || a.b.localeCompare(b.b) || a.turn - b.turn)) {
+  console.log(`${r.a},${r.b},${Math.round(r.turn * 180 / Math.PI)},${r.k.toFixed(3)}`);
+}
 console.log('--- худшие пары по совпадению пятна ---');
 for (const r of rows.slice(0, 12)) {
   console.log(`${(r.turn * 180 / Math.PI).toFixed(0).padStart(4)}°  ${r.a.padEnd(11)} ${r.b.padEnd(11)} ${r.k.toFixed(3)}`);
@@ -101,4 +108,30 @@ console.log('\n--- конь (доли роста человека) ---');
 const m = mountRig();
 for (const [name, v] of Object.entries(m)) {
   console.log(`${name.padEnd(12)} ${v.toFixed(3)}  (${(v / MAN_HEIGHT).toFixed(3)})`);
+}
+
+const hero = new Figure();
+dressHero(hero, 'swordsman');
+hero.scale = HERO_SCALE;
+hero.phase = 0;
+poseFigure(hero, 'stand', 0);
+console.log('\n--- герой: совпадение с каждым видом по шести ракурсам ---');
+for (const id of TROOP_IDS) {
+  console.log(`${id}: ${TURNS.map((t) => overlap(silhouette(hero, t), silhouette(soldier(id), t)).toFixed(3)).join(' / ')}`);
+}
+
+const horse = new Figure();
+dressMount(horse);
+const pool = new FigurePool();
+console.log('\n--- стоимость одной фигуры: детали / треугольники с теневым проходом ---');
+for (const [id, f] of [...TROOP_IDS.map((id) => [id, soldier(id)] as const),
+  ...[0, 1, 2].map((k) => [`folk${k}`, folk(k)] as const), ['horse', horse] as const, ['hero', hero] as const]) {
+  let tris = 0;
+  for (const obj of pool.group.children) {
+    const mesh = obj as THREE.InstancedMesh;
+    const g = mesh.geometry;
+    const n = (g.index?.count ?? g.getAttribute('position').count) / 3;
+    tris += n * f.counts[mesh.name as keyof typeof f.counts] * (mesh.castShadow ? 2 : 1);
+  }
+  console.log(`${id}: ${f.slots.length} / ${tris}`);
 }
