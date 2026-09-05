@@ -251,15 +251,15 @@ function roundShield(f: Figure, b: Body, size: number): void {
 }
 
 /**
- * Меч: рукоять, перекрестье, клинок. Клинок поднят наружу под сорок пять
- * градусов — оружие, прижатое к боку, в силуэте не существует, а к камере
+ * Меч: рукоять, перекрестье, клинок. Клинок вынесен наружу — оружие,
+ * прижатое к боку, в силуэте не существует, а к камере
  * направленное сокращается в точку. Наружу и вверх видно с любой стороны.
  */
 function sword(f: Figure, b: Body, len: number, out: number): void {
   const grip = gripFrame([0, -b.rig.armLen, b.chestW * 0.16], [0.12, 0, out]);
   addSlot(f, 'shaft', 'armR', PALETTE.leather, [0, 0, 0], [0.032, len * 0.2, 0.032], [0, 0, 0], grip);
   addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * 0.21, 0], [len * 0.32, 0.03, 0.032], [0, 0, 0], grip);
-  addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * 0.22 + len * 0.42, 0], [len * 0.085, len * 0.84, 0.02], [0, 0, 0], grip);
+  addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * 0.22 + len * 0.42, 0], [len * 0.105, len * 0.84, 0.025], [0, 0, 0], grip);
 }
 
 /**
@@ -303,7 +303,7 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
   // ближайшую пару — щитоносца и латника, — а цветом её было бы не развести.
   if (shield) {
     if (heavy) towerShield(f, b, h);
-    else roundShield(f, b, h * (mounted ? 0.34 : 0.4));
+    else roundShield(f, b, h * (mounted ? 0.34 : 0.43));
   }
 
   switch (weaponOf(troop)) {
@@ -319,7 +319,7 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
     case 'spear': {
       // Пеший держит копьё вертикально — оно уходит на треть роста выше головы,
       // и по этому копейщика не спутать с мечником. Конный берёт наперевес.
-      const len = h * (mounted ? 1.1 : 1.25);
+      const len = h * (mounted ? 1.1 : 1.4);
       const grip = mounted
         ? gripFrame([0, -rig.armLen, b.chestW * 0.3], [1.16, 0, -0.1])
         : gripFrame([0, -rig.armLen - len * 0.28, b.chestW * 0.26], [0, 0, -0.07]);
@@ -334,7 +334,7 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
       // вбок, а не вперёд: спереди дуга должна быть видна дугой, иначе лук не
       // отличить от копья. Верх лука ниже макушки — этим он от копья и отличается.
       const half = h * 0.5;
-      const bend = 0.34;
+      const bend = 0.5;
       const grip = gripFrame([0, -rig.armLen + h * 0.11, b.chestW * 0.34], [0, 0, -0.12]);
       addSlot(f, 'limb', 'armL', PALETTE.woodDark, [0, 0, 0], [0.026, half, 0.034], [0, 0, Math.PI - bend], grip);
       addSlot(f, 'limb', 'armL', PALETTE.woodDark, [0, 0, 0], [0.026, half, 0.034], [0, 0, bend], grip);
@@ -345,13 +345,12 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
       break;
     }
     case 'axe': {
-      // Топор держат обухом кверху: топорище вертикально у плеча, тяжёлое лезвие
-      // приходится на высоту головы. В силуэте это груз наверху сбоку — ни на
-      // копьё (тонкая линия от земли), ни на меч (косая от бедра) не похоже.
-      const len = h * 0.8;
-      const grip = gripFrame([0, -rig.armLen, b.chestW * 0.24], [0.12, 0, -0.42]);
+      // Длинный топор вынесен вперёд и вбок: широкое лезвие не прячется
+      // за грудью с полуоборота. Копьё остаётся вертикалью, меч — низкой косой.
+      const len = h * 0.94;
+      const grip = gripFrame([0, -rig.armLen, b.chestW * 0.32], [0.65, 0, -0.42]);
       addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, -len * 0.16, 0], [0.04, len, 0.04], [0, 0, 0], grip);
-      addSlot(f, 'plate', 'armR', PALETTE.metal, [0.06, len * 0.76, 0], [0.14, 0.21, 0.05], [0, 0, 0.1], grip);
+      addSlot(f, 'plate', 'armR', PALETTE.metal, [0.095, len * 0.76, 0], [0.23, 0.18, 0.055], [0, 0, 0.1], grip);
       addSlot(f, 'plate', 'armR', PALETTE.metal, [-0.03, len * 0.78, 0], [0.06, 0.12, 0.045], [0, 0, 0], grip);
       break;
     }
@@ -359,7 +358,7 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
       // Со щитом клинок короткий и почти прижат, без щита — вынесен низко и
       // вперёд, линией от бедра. Иначе мечника не отличить от щитоносца со спины.
       if (shield) sword(f, b, h * (heavy ? 0.54 : 0.42), heavy ? 0.42 : 0.3);
-      else sword(f, b, h * 0.68, 0.62);
+      else sword(f, b, h * 0.72, 1.02);
       break;
     }
   }
