@@ -16,7 +16,8 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useGame } from '@/game/store';
-import { figurePosition, useWorld, worldNow } from '@/world/store';
+import { cameraAnchor, figurePosition, useWorld, worldNow } from '@/world/store';
+import { WORLD_VIEW, freeCamera } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
 import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
@@ -39,6 +40,7 @@ import {
   type Camera,
   type Viewport,
   clampCamera,
+  leashCamera,
   modeFor,
   panBy,
   scaleTo,
@@ -56,6 +58,9 @@ import { dropZones } from './zones';
 
 const TAP_MOVE = 12;
 const TAP_MS = 500;
+
+/** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
+const FREE_CAMERA = freeCamera();
 
 /**
  * Легенда показывает те же силуэты, что и полотно, а не эмодзи: значки стадий с
@@ -128,6 +133,8 @@ export function WorldMap() {
   const unread = useWorld((g) => g.unread);
   const figures = useWorld((g) => g.figures);
   const picked = useWorld((g) => g.picked);
+  const anchor = useWorld((g) => g.anchor);
+  const setAnchor = useWorld((g) => g.setAnchor);
   const pickFigure = useWorld((g) => g.pick);
   const moveFigure = useWorld((g) => g.moveFigure);
   const closeMap = useGame((g) => g.closeMap);
@@ -205,6 +212,13 @@ export function WorldMap() {
     const frame = (): void => {
       raf = requestAnimationFrame(frame);
       const { w, h, dpr } = size.current;
+      // Поводок держится каждый кадр, а не в момент жеста: якорь движется сам —
+      // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
+      // касания. Отладочный обзор мира (`?worldview=`) поводка не знает.
+      if (!FREE_CAMERA) {
+        const at = cameraAnchor(worldNow());
+        if (at) cam.current = leashCamera(cam.current, { w, h }, at);
+      }
       const rect = viewRect(cam.current, { w, h });
       // Куски запрашиваются с запасом: тайл у края экрана не испечётся, пока не
       // приедут куски под его округой, а без запаса они приезжали бы только
@@ -301,10 +315,12 @@ export function WorldMap() {
     // отдельного экрана «куда идти» нет и заводить его незачем.
     const hand = useWorld.getState().picked;
     if (hand) {
+      // Из руки фигура не выпадает: разведка — это десяток шагов подряд в одну
+      // сторону, и заново брать её после каждого было бы мучением. Отпускают её
+      // кнопкой в подсказке или переходом на другой якорь.
       void (async () => {
         const err = await moveFigure(hand, c);
         showToast(err ?? `${FIGURE_BY_ID[hand].name} пошёл к ${formatCoord(c)}.`);
-        if (!err) pickFigure(null);
       })();
       return;
     }
@@ -327,6 +343,7 @@ export function WorldMap() {
   const goHome = (): void => {
     const home = useWorld.getState().info?.home;
     if (!home) return;
+    setAnchor('home');
     cam.current = { ...cam.current, scale: SCALE_DETAIL };
     setZoomedIn(true);
     centerOn(home);
@@ -364,11 +381,17 @@ export function WorldMap() {
         </button>
         <div className="wm-coord">
           <b ref={coordRef}>—</b>
-          <i>карта мира</i>
+          <i>{FREE_CAMERA ? `обзор мира (${WORLD_VIEW})` : 'карта мира'}</i>
         </div>
-        <button className={`wm-btn${jumpOpen ? ' active' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
-          ⌖
-        </button>
+        {/* Переход по координатам — часть свободного обзора: игроку он ни к чему,
+            камера всё равно не уйдёт дальше поводка своих. */}
+        {FREE_CAMERA ? (
+          <button className={`wm-btn${jumpOpen ? ' active' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
+            ⌖
+          </button>
+        ) : (
+          <span className="wm-btn ghost" aria-hidden="true" />
+        )}
       </div>
 
       {jumpOpen && (
@@ -457,20 +480,37 @@ export function WorldMap() {
         </div>
       )}
 
+      {/* Ряд якорей камеры: деревня и три фигуры. Смотреть игрок может только
+          туда, где у него кто-то есть, и этот ряд — весь список таких мест. */}
       <div className="wm-figures">
+        <button
+          className={`wm-fig${anchor === 'home' ? ' active' : ''}`}
+          onClick={() => {
+            const home = useWorld.getState().info?.home;
+            setAnchor('home');
+            if (home) centerOn(home);
+          }}
+        >
+          <span className="ico">🏠</span>
+          <em>деревня</em>
+        </button>
         {figures.map((f) => (
           <button
             key={f.id}
-            className={`wm-fig${picked === f.id ? ' active' : ''}${f.phase === 'down' ? ' down' : ''}`}
+            className={`wm-fig${anchor === f.id ? ' active' : ''}${picked === f.id ? ' hand' : ''}${f.phase === 'down' ? ' down' : ''}`}
             onClick={() => {
-              if (picked === f.id) {
-                pickFigure(null);
-                return;
-              }
               if (f.phase === 'down') {
                 showToast(`${f.name} выбыл: вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}.`);
                 return;
               }
+              // Второе нажатие по той же фигуре только отпускает её из руки:
+              // камера остаётся на ней, иначе следить за фигурой и разглядывать
+              // клетки под ней было бы нельзя одновременно.
+              if (anchor === f.id) {
+                pickFigure(picked === f.id ? null : f.id);
+                return;
+              }
+              setAnchor(f.id);
               pickFigure(f.id);
               centerOn(figurePosition(f, worldNow()));
             }}
@@ -481,7 +521,12 @@ export function WorldMap() {
         ))}
       </div>
 
-      {picked && <div className="wm-hint">Тапни по клетке — {FIGURE_BY_ID[picked].one} пойдёт туда.</div>}
+      {picked && (
+        <div className="wm-hint">
+          <span>Тапни по клетке — {FIGURE_BY_ID[picked].name} пойдёт туда.</span>
+          <button onClick={() => pickFigure(null)}>Отпустить</button>
+        </div>
+      )}
 
       <div className="wm-foot">
         <button className="wm-btn wide" onClick={goHome}>

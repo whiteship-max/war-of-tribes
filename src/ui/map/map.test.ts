@@ -5,8 +5,9 @@
 import { describe, expect, it } from 'vitest';
 import { terrainAt } from '@/world/geo';
 import { lineStamps } from './scatter';
+import { WORLD_VIEW, freeCamera, revealWorld } from '@/debug';
 import { useWorld } from '@/world/store';
-import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
+import { CAMERA_LEASH, WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { Rect } from '@/world/types';
 import {
   type Camera,
@@ -17,6 +18,10 @@ import {
   scaleTo,
   tileIndexX,
   tileIndexY,
+  LEASH_EDGE,
+  leashCamera,
+  toScreen,
+  toWorld,
   tileRangeFor,
   tilesIn,
   TILE_LAST,
@@ -24,7 +29,7 @@ import {
   visibleCells,
   zoomAt,
 } from './grid';
-import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_OVERVIEW, TILE_CACHE, TILE_CELLS, TREE_FREE_R } from './const';
+import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_MAX, SCALE_OVERVIEW, TILE_CACHE, TILE_CELLS, TREE_FREE_R } from './const';
 import { type Sample, fieldAt, forestAt, stampsFor, treesIn } from './scatter';
 import { BUCKETS, STAGE_SHAPE, clearRadius, layout, pickBucket, ringOf, spriteKey, variantOf } from './village';
 
@@ -388,5 +393,75 @@ describe('линии местности', () => {
   it('одинаковый вход даёт одинаковый выход', () => {
     const on = (x: number, y: number): boolean => (x + y) % 3 === 0;
     expect(lineStamps(rect, on, 0.5)).toEqual(lineStamps(rect, on, 0.5));
+  });
+});
+
+describe('камера привязана к своим', () => {
+  const SIGHT = 8;
+  const LEASH = SIGHT + CAMERA_LEASH;
+  const anchorAt = (x: number, y: number) => ({ x: x + 0.5, y: y + 0.5, r: LEASH });
+
+  it('дальше поводка камера не уходит', () => {
+    const a = anchorAt(HOME.x, HOME.y);
+    // Бросок пальцем через полмира — камера остаётся при своих.
+    const far = leashCamera({ cx: a.x + 200, cy: a.y - 150, scale: SCALE_OVERVIEW }, VP, a);
+    expect(Math.abs(far.cx - a.x)).toBeLessThanOrEqual(LEASH + 1e-9);
+    expect(Math.abs(far.cy - a.y)).toBeLessThanOrEqual(LEASH + 1e-9);
+  });
+
+  it('якорь не прячется под шапкой и не уходит за кромку', () => {
+    const a = anchorAt(HOME.x, HOME.y);
+    for (const scale of [SCALE_OVERVIEW, 16, SCALE_DETAIL]) {
+      const cam = leashCamera({ cx: a.x + 999, cy: a.y + 999, scale }, VP, a);
+      const [sx, sy] = toScreen(cam, VP, a.x, a.y);
+      // Запас в пикселях, а не в клетках: шапку и ряды кнопок масштаб не сжимает.
+      expect(sx).toBeGreaterThanOrEqual(LEASH_EDGE - 1e-6);
+      expect(sx).toBeLessThanOrEqual(VP.w - LEASH_EDGE + 1e-6);
+      expect(sy).toBeGreaterThanOrEqual(LEASH_EDGE - 1e-6);
+      expect(sy).toBeLessThanOrEqual(VP.h - LEASH_EDGE + 1e-6);
+    }
+  });
+
+  it('чем ближе масштаб, тем короче поводок', () => {
+    const a = anchorAt(HOME.x, HOME.y);
+    const slack = (scale: number): number => leashCamera({ cx: a.x + 999, cy: a.y, scale }, VP, a).cx - a.x;
+    // На обзоре решает поводок, вблизи — экран: разгуляться там негде, и
+    // камера почти стоит на якоре.
+    expect(slack(SCALE_OVERVIEW)).toBeCloseTo(LEASH, 6);
+    expect(slack(SCALE_DETAIL)).toBeLessThan(slack(SCALE_OVERVIEW));
+    expect(slack(SCALE_MAX)).toBeLessThan(2);
+    expect(slack(SCALE_MAX)).toBeGreaterThan(0);
+  });
+
+  it('свободный обзор мира выключен, пока его не позвали адресом', () => {
+    // Ни в игре, ни в тестах адреса нет — значит, поводок работает всегда, а
+    // отладочный обзор включается только руками.
+    expect(WORLD_VIEW).toBe('off');
+    expect(freeCamera()).toBe(false);
+    expect(revealWorld()).toBe(false);
+  });
+
+  it('фигурой можно сделать десять шагов подряд в неразведанную сторону', () => {
+    // Это и есть проверка требования: приказ отдаётся тапом по клетке, и каждый
+    // раз должна находиться клетка за краем обзора, до которой палец достаёт, —
+    // при том что фигура ни разу не пропадает с экрана.
+    const start = { x: HOME.x, y: HOME.y };
+    let at = start;
+    let cam: Camera = { cx: at.x + 0.5, cy: at.y + 0.5, scale: SCALE_DETAIL };
+    for (let step = 0; step < 10; step++) {
+      const a = anchorAt(at.x, at.y);
+      // Игрок тянет карту вниз до упора и тапает у нижнего края, над кнопками.
+      cam = leashCamera(panBy(cam, 0, -VP.h), VP, a);
+      const [, sy] = toScreen(cam, VP, a.x, a.y);
+      expect(sy).toBeGreaterThanOrEqual(LEASH_EDGE - 1e-6);
+      const target = toWorld(cam, VP, VP.w / 2, VP.h - 140);
+      const next = { x: Math.floor(target.x), y: Math.floor(target.y) };
+      // Шаг ведёт за край обзора — иначе разведывать было бы нечего.
+      expect(next.y - at.y).toBeGreaterThan(SIGHT);
+      at = next;
+    }
+    // Десять шагов — это заметный путь, и он умещается в мире.
+    expect(at.y - start.y).toBeGreaterThan(90);
+    expect(at.y).toBeLessThan(WORLD_ORIGIN.y + WORLD_SIZE);
   });
 });

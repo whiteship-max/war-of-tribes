@@ -331,6 +331,15 @@ describe('зоны влияния племён', () => {
     }
   });
 
+  it('отладочный обзор мира отдаёт всю землю — и только по флагу', async () => {
+    const far = { x: WORLD_ORIGIN.x, y: WORLD_ORIGIN.y, w: 24, h: 24 };
+    const closed = await new LocalWorld({ seed: 4242, now: () => START, storage: null }).region(far);
+    expect([...closed.explored].every((v) => v === 0)).toBe(true);
+    // Тот же угол карты, но мир создан с `reveal` — так открывается `?worldview=open`.
+    const open = await new LocalWorld({ seed: 4242, now: () => START, storage: null, reveal: true }).region(far);
+    expect([...open.explored].every((v) => v === 1)).toBe(true);
+  });
+
   it('кусок карты несёт признаки местности вместе с ландшафтом', async () => {
     const { world } = makeWorld(4242);
     const info = await world.info();

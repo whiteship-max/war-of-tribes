@@ -4,12 +4,13 @@
 import { create } from 'zustand';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
+import { revealWorld } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, awayTroops, playerProfile, syncAway } from './bridge';
 import { inSight, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
-import { DEFENSE_FREEZE, HOME_SIGHT, MARCH_SIGHT } from './data/tuning';
+import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, MARCH_SIGHT } from './data/tuning';
 import { heroReady } from '@/game/derived';
 import { marchPosition } from './geo';
 import {
@@ -26,6 +27,7 @@ import {
   terrainAt,
 } from './cache';
 import type {
+  AnchorId,
   AttackOrder,
   Coord,
   DealId,
@@ -59,6 +61,13 @@ export interface WorldStore {
    * есть весь способ отдать ей приказ, отдельного экрана «куда идти» нет.
    */
   picked: FigureId | null;
+  /**
+   * На чём стоит камера. Не то же самое, что фигура в руке: приказ движения
+   * можно отпустить, а камера всё равно должна остаться на том, за кем игрок
+   * следит. Живёт в сторе, а не в компоненте, потому что от неё зависит и
+   * поводок камеры, и ряд кнопок внизу слева.
+   */
+  anchor: AnchorId;
   reports: Report[];
   unread: number;
   tribes: TribeInfo[];
@@ -80,6 +89,8 @@ export interface WorldStore {
   recall: (id: string) => Promise<void>;
   /** Взять фигуру в руку или отпустить. */
   pick: (id: FigureId | null) => void;
+  /** Переставить камеру на своё поселение или на одну из фигур. */
+  setAnchor: (id: AnchorId) => void;
   /** Вести выбранную фигуру в клетку. Возвращает текст ошибки или null. */
   moveFigure: (id: FigureId, to: Coord) => Promise<string | null>;
   recallFigure: (id: FigureId) => Promise<string | null>;
@@ -108,6 +119,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   figures: [],
   deals: [],
   picked: null,
+  anchor: 'home',
   reports: [],
   unread: 0,
   tribes: [],
@@ -120,7 +132,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   boot: async () => {
     if (get().ready) return;
-    if (!hasWorldApi()) setWorldApi(new LocalWorld());
+    if (!hasWorldApi()) setWorldApi(new LocalWorld({ reveal: revealWorld() }));
     const info = await worldApi().info();
     set({ info, ready: true });
     await get().pulse();
@@ -231,6 +243,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   pick: (id) => set({ picked: id }),
 
+  setAnchor: (id) => set({ anchor: id, picked: id === 'home' ? null : get().picked }),
+
   moveFigure: async (id, to) => {
     const err = await worldApi().moveFigure(id, to);
     if (err) {
@@ -304,7 +318,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   resetWorld: async () => {
     clearCache();
-    setWorldApi(new LocalWorld({ seed: Math.floor(Math.random() * 0x7fffffff) }));
+    setWorldApi(new LocalWorld({ seed: Math.floor(Math.random() * 0x7fffffff), reveal: revealWorld() }));
     set({
       ready: false,
       info: null,
@@ -312,6 +326,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       figures: [],
       deals: [],
       picked: null,
+      anchor: 'home',
       reports: [],
       unread: 0,
       tribes: [],
@@ -357,6 +372,33 @@ export function sightDiscs(now: number): SightDisc[] {
     out.push({ x: at.x, y: at.y, r: MARCH_SIGHT });
   }
   return out;
+}
+
+/** Где стоит камера и насколько её отпускают от этой точки. */
+export interface CameraAnchor {
+  id: AnchorId;
+  name: string;
+  /** Середина клетки: камера меряется серединами, а не углами. */
+  x: number;
+  y: number;
+  /** Радиус поводка: обзор якоря плюс запас, чтобы было куда указать. */
+  r: number;
+}
+
+/**
+ * Точка, к которой привязана камера. Выбывшая фигура якорем быть не может —
+ * её на карте нет, — и камера в этом случае возвращается к деревне сама, а не
+ * зависает над пустым полем.
+ */
+export function cameraAnchor(now: number): CameraAnchor | null {
+  const g = useWorld.getState();
+  const home = g.info?.home;
+  const atHome = home ? { id: 'home' as const, name: 'Деревня', x: home.x + 0.5, y: home.y + 0.5, r: HOME_SIGHT + CAMERA_LEASH } : null;
+  if (g.anchor === 'home') return atHome;
+  const f = g.figures.find((x) => x.id === g.anchor);
+  if (!f || f.phase === 'down') return atHome;
+  const at = figurePosition(f, now);
+  return { id: f.id, name: f.name, x: at.x + 0.5, y: at.y + 0.5, r: f.sight + CAMERA_LEASH };
 }
 
 /** Клетка в чьём-то обзоре прямо сейчас. */

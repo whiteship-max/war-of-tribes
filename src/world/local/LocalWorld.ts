@@ -112,6 +112,12 @@ export interface LocalWorldOptions {
   now?: () => number;
   /** null — не сохранять (тесты). */
   storage?: WorldStorage | null;
+  /**
+   * Отдавать всю землю разведанной. Только отладочный обзор мира (`?worldview=open`):
+   * в обычной партии мир не отдаёт клиенту того, чего игрок не видел, — иначе
+   * туман войны существовал бы только на картинке.
+   */
+  reveal?: boolean;
 }
 
 const UNKNOWN = { precision: 'unknown' as const, value: null, min: 0, max: 0 };
@@ -132,9 +138,12 @@ export class LocalWorld implements WorldApi {
   private fog: FogMap;
   /** Притязания поселений на землю. Считаются один раз: поселения не переезжают. */
   private claims: Claim[];
+  /** Отладочный обзор: вся земля считается разведанной. */
+  private reveal: boolean;
 
   constructor(opts: LocalWorldOptions = {}) {
     this.clock = opts.now ?? (() => Date.now());
+    this.reveal = opts.reveal ?? false;
     this.storage = opts.storage === undefined ? browserStorage : opts.storage;
     const stored = parseWorldSave(this.storage?.read() ?? null);
     const seed = opts.seed ?? stored?.seed ?? Math.floor(Math.random() * 0x7fffffff);
@@ -1138,7 +1147,7 @@ export class LocalWorld implements WorldApi {
         terrain[i] = terrainIndex(terrainAt(this.save.seed, wx, wy));
         features[i] = featuresAt(this.save.seed, wx, wy);
         // Цвет племени — те же разведданные, что и всё остальное: в тумане его нет.
-        if (this.fog.has(wx, wy)) influence[i] = ownerAt(claims, wx, wy);
+        if (this.reveal || this.fog.has(wx, wy)) influence[i] = ownerAt(claims, wx, wy);
       }
     }
     const rect0 = { x: x0, y: y0, w, h };
@@ -1147,12 +1156,13 @@ export class LocalWorld implements WorldApi {
     for (const s of this.gen.settlements) {
       if (s.x < x0 || s.x >= x1 || s.y < y0 || s.y >= y1) continue;
       // Неразведанная клетка не отдаёт даже того, что в ней кто-то живёт.
-      if (!this.fog.has(s.x, s.y)) continue;
+      if (!this.reveal && !this.fog.has(s.x, s.y)) continue;
       settlements.push(this.view(s, now, discs));
     }
     const home = this.save.home;
     if (home.x >= x0 && home.x < x1 && home.y >= y0 && home.y < y1) settlements.push(this.homeView(now));
-    return { rect: rect0, terrain, features, influence, explored: this.fog.maskFor(rect0), settlements };
+    const explored = this.reveal ? new Uint8Array(w * h).fill(1) : this.fog.maskFor(rect0);
+    return { rect: rect0, terrain, features, influence, explored, settlements };
   }
 
   async settlement(id: SettlementId): Promise<SettlementCard | null> {

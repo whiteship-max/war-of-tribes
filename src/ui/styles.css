@@ -1645,6 +1645,18 @@ body {
   opacity: 0.55;
 }
 
+/* Фигура в руке: следующий тап по карте уведёт её. Отличается от простого
+   якоря камеры — на якоре стоят и тогда, когда приказ отдавать не собираются. */
+.wm-fig.hand {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Пустое место кнопки перехода по координатам: её видит только отладочный
+   обзор, а шапка обязана остаться той же ширины. */
+.wm-btn.ghost {
+  visibility: hidden;
+}
+
 .wm-hint {
   position: absolute;
   left: calc(8px + var(--safe-left));
@@ -1656,6 +1668,21 @@ body {
   border-radius: 10px;
   font-size: 12px;
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.wm-hint button {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 2px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
 }
 
 /* ---------- Карточка клетки и походы ---------- */
