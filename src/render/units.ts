@@ -392,20 +392,20 @@ export function dressHero(f: Figure, troop: TroopId): void {
 export function mountRig(height = MAN_HEIGHT): MountRig {
   return {
     backY: height * 0.82,
-    barrelH: height * 0.36,
-    bodyLen: height * 0.78,
-    bodyW: height * 0.28,
-    legY: height * 0.6,
-    legX: height * 0.108,
-    legZ: height * 0.26,
-    legLen: height * 0.595,
+    barrelH: height * 0.30,
+    bodyLen: height * 0.92,
+    bodyW: height * 0.32,
+    legY: height * 0.67,
+    legX: height * 0.115,
+    legZ: height * 0.32,
+    legLen: height * 0.665,
     // Шея выходит из бочки, а не стоит на ней: основание ниже верха спины.
-    neckY: height * 0.74,
-    neckZ: height * 0.3,
-    neckLen: height * 0.42,
-    neckPitch: 0.6,
+    neckY: height * 0.70,
+    neckZ: height * 0.34,
+    neckLen: height * 0.43,
+    neckPitch: 0.45,
     tailY: height * 0.78,
-    tailZ: -height * 0.36,
+    tailZ: -height * 0.43,
   };
 }
 
@@ -434,14 +434,21 @@ export function dressHorse(f: Figure, b: Body): void {
   // конец у крупа — так и сложена лошадь.
   addSlot(f, 'body', 'root', coat, [0, m.backY - m.barrelH / 2, m.bodyLen / 2], [m.bodyW, m.bodyLen, m.barrelH], [-Math.PI / 2, 0, 0]);
   // Шея растёт от головы вниз к холке: широкий конец примитива должен быть внизу.
-  addSlot(f, 'body', 'neck', coat, [0, m.neckLen, 0], [m.bodyW * 0.72, m.neckLen, m.bodyW * 0.62], [Math.PI, 0, 0]);
-  addSlot(f, 'plate', 'neck', PALETTE.horseMane, [0, m.neckLen * 0.5, -m.bodyW * 0.26], [m.bodyW * 0.16, m.neckLen, m.bodyW * 0.3]);
+  addSlot(f, 'body', 'neck', coat, [0, m.neckLen * 0.98, 0], [m.bodyW * 0.66, m.neckLen * 1.12, m.bodyW * 0.86], [Math.PI, 0, 0]);
+  addSlot(f, 'limb', 'neck', PALETTE.horseMane, [0, m.neckLen, -m.bodyW * 0.30], [m.bodyW * 0.12, m.neckLen, m.bodyW * 0.18], [-0.07, 0, 0]);
   // Голова собирается в своей системе: ось Y вдоль морды, вперёд и чуть вниз.
-  const skull = gripFrame([0, m.neckLen * 0.92, 0], [1.1, 0, 0]);
-  addSlot(f, 'head', 'neck', coat, [0, h * 0.11, 0], [h * 0.16, h * 0.28, h * 0.2], [0, 0, 0], skull);
-  addSlot(f, 'plate', 'neck', coat, [0, h * 0.25, 0], [h * 0.115, h * 0.14, h * 0.145], [0, 0, 0], skull);
-  for (const j of ['legFL', 'legFR', 'legBL', 'legBR'] as const) {
-    addSlot(f, 'limb', j, coat, [0, 0, 0], [h * 0.079, m.legLen, h * 0.085]);
+  const skull = gripFrame([0, m.neckLen * 0.98, 0], [1.2, 0, 0]);
+  // Одна сужающаяся к морде масса вместо шара с приставленным коробом.
+  addSlot(f, 'body', 'neck', coat, [0, h * 0.29, 0], [h * 0.17, h * 0.35, h * 0.19], [Math.PI, 0, 0], skull);
+  for (const side of [-1, 1]) {
+    addSlot(f, 'cap', 'neck', coat, [side * h * 0.052, m.neckLen + h * 0.02, -h * 0.04], [h * 0.065, h * 0.14, h * 0.07], [-0.2, 0, -side * 0.18]);
+  }
+  for (const [upper, lower, hind] of [
+    ['legFL', 'hockFL', false], ['legFR', 'hockFR', false],
+    ['legBL', 'hockBL', true], ['legBR', 'hockBR', true],
+  ] as const) {
+    addSlot(f, 'limb', upper, coat, [0, 0, 0], [h * (hind ? 0.105 : 0.075), m.legLen * 0.46, h * (hind ? 0.13 : 0.085)]);
+    addSlot(f, 'limb', lower, coat, [0, 0, h * 0.008], [h * 0.043, m.legLen * 0.56, h * 0.06]);
   }
   addSlot(f, 'limb', 'tail', PALETTE.horseMane, [0, 0, 0], [h * 0.06, h * 0.34, h * 0.07]);
   addSlot(f, 'plate', 'root', PALETTE.leather, [0, m.backY + h * 0.015, -h * 0.02], [m.bodyW * 1.06, h * 0.045, h * 0.19]);

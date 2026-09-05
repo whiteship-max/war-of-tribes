@@ -54,12 +54,14 @@ export type JointId =
   | 'legFR'
   | 'legBL'
   | 'legBR'
+  | 'hockFL' | 'hockFR' | 'hockBL' | 'hockBR'
   | 'tail';
 
 export const JOINTS: JointId[] = [
   'root', 'hips', 'torso', 'head', 'armL', 'armR', 'legL', 'legR',
   'elbowL', 'elbowR', 'handL', 'handR', 'kneeL', 'kneeR',
   'neck', 'legFL', 'legFR', 'legBL', 'legBR', 'tail',
+  'hockFL', 'hockFR', 'hockBL', 'hockBR',
 ];
 
 /** Скелет коня. Ноль у фигуры — пеший. */
@@ -333,8 +335,12 @@ function poseJoints(f: Figure): void {
     const gait = f.gait;
     put('legFL', 'root', m.legX, m.legY, m.legZ, gait);
     put('legFR', 'root', -m.legX, m.legY, m.legZ, -gait);
-    put('legBL', 'root', m.legX, m.legY, -m.legZ, -gait);
-    put('legBR', 'root', -m.legX, m.legY, -m.legZ, gait);
+    put('legBL', 'root', m.legX, m.legY, -m.legZ, -0.18 - gait);
+    put('legBR', 'root', -m.legX, m.legY, -m.legZ, -0.18 + gait);
+    put('hockFL', 'legFL', 0, -m.legLen * 0.44, 0, -Math.max(0, gait) * 1.2);
+    put('hockFR', 'legFR', 0, -m.legLen * 0.44, 0, -Math.max(0, -gait) * 1.2);
+    put('hockBL', 'legBL', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, -gait));
+    put('hockBR', 'legBR', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, gait));
   }
 
   put('hips', 'root', 0, r.hipY + f.bob, 0, 0);
