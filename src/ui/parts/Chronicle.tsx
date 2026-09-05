@@ -98,6 +98,9 @@ export function Chronicle() {
             {g.entries.map((e, i) => (
               <div key={i} className={e.kind}>
                 {e.text}
+                {/* Повторы склеены счётчиком. Читать только `n ?? 1`: у записей
+                    старых партий поля нет, и `e.n > 1` дало бы тихую ложь. */}
+                {(e.n ?? 1) > 1 && <i className="log-times"> ×{e.n}</i>}
               </div>
             ))}
           </div>

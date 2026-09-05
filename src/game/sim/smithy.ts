@@ -44,5 +44,7 @@ export function forgeTick(s: GameState, dt: number, mods: SeasonModifiers): void
   for (const r of RESOURCE_IDS) s.resources[r] -= def.cost[r] ?? 0;
   s.forgeWork -= def.work;
   s.equipment[item] = (s.equipment[item] ?? 0) + 1;
-  log(s, `Кузница: готов ${def.one}.`, 'good');
+  // Ключ склейки: кузница пишет по строке на предмет, а за игровой день их
+  // десятки. Без него одна эта строка занимала половину летописи.
+  log(s, `Кузница: готов ${def.one}.`, 'good', `forge:${item}`);
 }

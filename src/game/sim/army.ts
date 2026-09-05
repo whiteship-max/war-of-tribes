@@ -148,7 +148,8 @@ export function recruitTick(s: GameState, dt: number): void {
     order.done++;
     order.people = Math.max(0, order.people - 1);
     s.army[order.troop] = (s.army[order.troop] ?? 0) + 1;
-    log(s, `Казармы: обучен ${def.one}.`, 'good');
+    // По строке на бойца: заказ на полсотни — полсотни одинаковых строк.
+    log(s, `Казармы: обучен ${def.one}.`, 'good', `recruit:${order.troop}`);
   }
   if (order.done >= order.count) {
     const rest = order.work;

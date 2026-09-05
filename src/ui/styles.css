@@ -624,6 +624,12 @@ body {
   color: var(--muted);
 }
 
+.log .log-times {
+  font-style: normal;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
 .log .log-empty {
   border-bottom: none;
   padding: 8px 0;

@@ -83,6 +83,67 @@ describe('летопись', () => {
     expect(s.time - oldest).toBeLessThanOrEqual(LOG_MAX_DAYS * DAY_LENGTH);
   });
 
+  it('повторы склеиваются счётчиком, а не занимают по строке', () => {
+    const s = createInitialState();
+    s.time = 50 * DAY_LENGTH;
+    s.log = [];
+    for (let i = 0; i < 30; i++) log(s, 'Кузница: готов копьё.', 'good', 'forge:spear');
+    expect(s.log).toHaveLength(1);
+    expect(s.log[0].n).toBe(30);
+  });
+
+  it('склейка не рвётся о чужие записи того же дня', () => {
+    const s = createInitialState();
+    s.time = 50 * DAY_LENGTH;
+    s.log = [];
+    // Между копьями ложатся итог дня, событие, смена сезона — по одной голове
+    // склейка рвалась на каждой из них, и за месяц строк выходило вдвое больше.
+    for (let i = 0; i < 10; i++) {
+      log(s, 'Кузница: готов копьё.', 'good', 'forge:spear');
+      log(s, `Итог дня ${i}.`);
+    }
+    const forge = s.log.filter((e) => e.group === 'forge:spear');
+    expect(forge).toHaveLength(1);
+    expect(forge[0].n).toBe(10);
+  });
+
+  it('склейка не переживает смену суток: вчерашняя ковка — отдельная строка', () => {
+    const s = createInitialState();
+    s.time = 50 * DAY_LENGTH;
+    s.log = [];
+    log(s, 'Кузница: готов копьё.', 'good', 'forge:spear');
+    s.time += DAY_LENGTH + 1;
+    log(s, 'Кузница: готов копьё.', 'good', 'forge:spear');
+    expect(s.log.filter((e) => e.group === 'forge:spear')).toHaveLength(2);
+  });
+
+  it('разные ключи не склеиваются между собой, а записи без ключа — никогда', () => {
+    const s = createInitialState();
+    s.time = 50 * DAY_LENGTH;
+    s.log = [];
+    log(s, 'Кузница: готов копьё.', 'good', 'forge:spear');
+    log(s, 'Кузница: готов щит.', 'good', 'forge:shield');
+    expect(s.log).toHaveLength(2);
+    // Две зимы подряд — это две зимы, а не «зима ×2».
+    log(s, 'Пришла зима.', 'bad');
+    log(s, 'Пришла зима.', 'bad');
+    expect(s.log.filter((e) => e.text === 'Пришла зима.')).toHaveLength(2);
+  });
+
+  it('склейка не ломает порядок: летопись остаётся отсортированной по времени', () => {
+    const s = createInitialState();
+    s.time = 50 * DAY_LENGTH;
+    s.log = [];
+    for (let i = 0; i < 12; i++) {
+      log(s, 'Кузница: готов копьё.', 'good', 'forge:spear');
+      s.time += 2;
+      log(s, `Событие ${i}.`);
+      s.time += 2;
+    }
+    // На порядке держится обрезка хвостом — сломав его, trimLog отрежет не то.
+    for (let i = 1; i < s.log.length; i++) expect(s.log[i - 1].at).toBeGreaterThanOrEqual(s.log[i].at);
+  });
+
   it('сохранение с раздутой летописью приводится к месяцу на загрузке', () => {
     const s = createInitialState();
     s.time = 400 * DAY_LENGTH;
