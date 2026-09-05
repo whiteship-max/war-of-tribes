@@ -18,6 +18,7 @@ import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from './g
 import { GRID } from './palette';
 import { drawGrid, drawGround, drawVillages, markersOf, settlementsIn } from './detail';
 import { drawFog } from './fog';
+import { drawZones } from './zones';
 import { drawFigures } from './figures';
 
 /** Занятые подписями места текущего кадра: соседи не пишут имена друг на друга. */
@@ -181,6 +182,9 @@ export function drawFrame(
 
   drawOverview(ctx, cam, vp, rect);
   if (near > 0 && seed) drawGround(ctx, cam, vp, seed, frame, near);
+  // Цвет владений ложится на землю, но под туман: в неразведанное он не заходит
+  // ни цветом, ни намёком — мир туда его просто не кладёт.
+  drawZones(ctx, cam, vp, now);
   drawGrid(ctx, cam, vp, near, TOP_INSET);
 
   const inView = settlementsIn(rect);

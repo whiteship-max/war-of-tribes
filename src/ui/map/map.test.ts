@@ -4,6 +4,7 @@
 // тонким слоем поверх них.
 import { describe, expect, it } from 'vitest';
 import { terrainAt } from '@/world/geo';
+import { lineStamps } from './scatter';
 import { useWorld } from '@/world/store';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { Rect } from '@/world/types';
@@ -358,5 +359,34 @@ describe('переключение масштабов', () => {
     expect(useWorld.getState().selected).toEqual(chosen);
 
     useWorld.setState({ selected: null });
+  });
+});
+
+describe('линии местности', () => {
+  const rect = { x: 0, y: 0, w: 8, h: 8 };
+  const near = (stamps: { x: number; y: number }[], x: number, y: number): boolean =>
+    stamps.some((s) => Math.abs(s.x - x) < 1e-6 && Math.abs(s.y - y) < 1e-6);
+
+  it('не рвётся на диагональных соседях', () => {
+    // Три клетки лесенкой — так и идёт русло, и колея тракта.
+    const cells = new Set(['2|2', '3|3', '4|4']);
+    const stamps = lineStamps(rect, (x, y) => cells.has(`${x}|${y}`), 0.4);
+    // Диск в каждой клетке плюс перемычка между соседями: без перемычек между
+    // центрами по диагонали (1.41 клетки) остаётся дыра.
+    expect(near(stamps, 2.5, 2.5)).toBe(true);
+    expect(near(stamps, 3.5, 3.5)).toBe(true);
+    expect(near(stamps, 3, 3)).toBe(true);
+    expect(near(stamps, 4, 4)).toBe(true);
+  });
+
+  it('перемычка между парой клеток рисуется один раз', () => {
+    const cells = new Set(['2|2', '3|2']);
+    const stamps = lineStamps(rect, (x, y) => cells.has(`${x}|${y}`), 0.4);
+    expect(stamps.filter((s) => Math.abs(s.x - 3) < 1e-6 && Math.abs(s.y - 2.5) < 1e-6).length).toBe(1);
+  });
+
+  it('одинаковый вход даёт одинаковый выход', () => {
+    const on = (x: number, y: number): boolean => (x + y) % 3 === 0;
+    expect(lineStamps(rect, on, 0.5)).toEqual(lineStamps(rect, on, 0.5));
   });
 });

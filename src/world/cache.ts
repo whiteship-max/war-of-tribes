@@ -81,6 +81,25 @@ export function exploredAt(x: number, y: number): boolean {
   return i >= 0 && c.explored[i] === 1;
 }
 
+/**
+ * Признаки местности клетки: биты `FEATURE`. Ноль — и когда в клетке ничего нет,
+ * и когда кусок ещё не приехал: рисовать реку раньше земли всё равно некуда.
+ */
+export function featuresAt(x: number, y: number): number {
+  const c = chunkAt(x, y);
+  if (!c) return 0;
+  const i = cellIndex(c, x, y);
+  return i < 0 ? 0 : (c.features[i] ?? 0);
+}
+
+/** Чья земля: 0 — ничья или неразведанная. Мир в туман цвет племени не кладёт. */
+export function influenceAt(x: number, y: number): number {
+  const c = chunkAt(x, y);
+  if (!c) return 0;
+  const i = cellIndex(c, x, y);
+  return i < 0 ? 0 : (c.influence[i] ?? 0);
+}
+
 export function settlementAt(x: number, y: number): SettlementView | null {
   const c = chunkAt(x, y);
   if (!c) return null;

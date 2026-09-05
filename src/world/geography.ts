@@ -30,6 +30,7 @@ import {
   RIVER_WIGGLE_SCALE,
   ROAD_CORRIDOR,
   ROAD_MAX_LENGTH,
+  ROAD_WOBBLE,
   TRIBE_COUNT,
   TRIBE_GAP,
   WORLD_ORIGIN,
@@ -217,7 +218,15 @@ function nodeAt(seed: number, x: number, y: number, block: number, radius: numbe
 
 // ---------- Признаки клетки ----------
 
-/** Что есть в клетке, битами. Ими же кусок карты едет в интерфейс. */
+/**
+ * Что есть в клетке, битами. Ими же кусок карты едет в интерфейс.
+ *
+ * `road` и `track` — не одно и то же. Тракт занимает полосу в три клетки: отряды
+ * в игре ходят по прямой, а не по нашей колее, и узкая дорога давала бы выигрыш
+ * только там, где сама оказалась прямой. Колея — середина этой полосы, и рисуется
+ * на карте именно она: полоса в три клетки на ближнем масштабе была бы шириной в
+ * пол-экрана. Обочина при этом видна тоже — светлой расчищенной каймой.
+ */
 export const FEATURE = {
   river: 1,
   bridge: 2,
@@ -225,6 +234,7 @@ export const FEATURE = {
   ridge: 8,
   pass: 16,
   road: 32,
+  track: 64,
 } as const;
 
 const cellKey = (x: number, y: number): number => (x - WORLD_ORIGIN.x) * 4096 + (y - WORLD_ORIGIN.y);
@@ -258,8 +268,10 @@ function naturalAt(seed: number, x: number, y: number): number {
  */
 export function featuresAt(seed: number, x: number, y: number): number {
   const bits = naturalAt(seed, x, y);
-  if (!roadNet(seed).cells.has(cellKey(x, y))) return bits;
-  const withRoad = bits | FEATURE.road;
+  const net = roadNet(seed);
+  const key = cellKey(x, y);
+  if (!net.cells.has(key)) return bits;
+  const withRoad = bits | FEATURE.road | (net.track.has(key) ? FEATURE.track : 0);
   return bits & FEATURE.river ? (withRoad & ~FEATURE.ford) | FEATURE.bridge : withRoad;
 }
 
@@ -337,8 +349,10 @@ export function tribeCenters(seed: number): Coord[] {
 // ---------- Дороги ----------
 
 export interface RoadNet {
-  /** Клетки тракта, ключом `cellKey`. */
+  /** Вся полоса тракта, ключом `cellKey`: по ней и считается проходимость. */
   cells: Set<number>;
+  /** Середина полосы — та самая колея, которую рисует карта. */
+  track: Set<number>;
   /** Пары станов, которые тракт соединил, — для проверок и отладки. */
   edges: [Coord, Coord][];
 }
@@ -414,7 +428,10 @@ function road(seed: number, a: Coord, b: Coord): number[] {
         if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
         const j = idx(nx, ny);
         if (done[j]) continue;
-        const step = Math.hypot(dx, dy) * rawCost(seed, nx, ny);
+        // Разброс — только для выбора колеи: на настоящую проходимость клетки
+        // он не влияет, иначе одна и та же равнина стоила бы разного.
+        const wobble = 1 + (hash2(seed + 0x3a17, nx, ny) - 0.5) * ROAD_WOBBLE;
+        const step = Math.hypot(dx, dy) * rawCost(seed, nx, ny) * wobble;
         const nd = d + step;
         if (nd >= dist[j]) continue;
         dist[j] = nd;
@@ -437,6 +454,7 @@ function road(seed: number, a: Coord, b: Coord): number[] {
 function buildRoads(seed: number): RoadNet {
   const centers = tribeCenters(seed);
   const cells = new Set<number>();
+  const track = new Set<number>();
   const edges: [Coord, Coord][] = [];
   // Остов по ближайшему соседу (алгоритм Прима): дороги связывают карту целиком,
   // но не превращают её в паутину из всех пар.
@@ -465,6 +483,7 @@ function buildRoads(seed: number): RoadNet {
       // нашей колее; узкая дорога давала бы выигрыш только там, где она сама
       // оказалась прямой, и смысл её терялся бы на первом же повороте.
       for (const c of road(seed, centers[bestA], centers[bestB])) {
+        track.add(c);
         const x = WORLD_ORIGIN.x + Math.floor(c / 4096);
         const y = WORLD_ORIGIN.y + (c % 4096);
         for (let dy = -1; dy <= 1; dy++) {
@@ -477,7 +496,7 @@ function buildRoads(seed: number): RoadNet {
       }
     }
   }
-  return { cells, edges };
+  return { cells, track, edges };
 }
 
 export function roadNet(seed: number): RoadNet {

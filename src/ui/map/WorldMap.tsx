@@ -22,10 +22,19 @@ import { formatCoord, parseCoord } from '@/world/geo';
 import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
-import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
+import {
+  COST_BRIDGE,
+  COST_FORD,
+  COST_PASS,
+  COST_RIDGE,
+  COST_RIVER,
+  COST_ROAD,
+  WORLD_ORIGIN,
+  WORLD_SIZE,
+} from '@/world/data/tuning';
 import type { Coord, FigureView } from '@/world/types';
 import { formatLeft, secondsLeft } from '@/world/geo';
-import { SCALE_DETAIL, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
+import { PALETTE, SCALE_DETAIL, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
 import {
   type Camera,
   type Viewport,
@@ -39,9 +48,11 @@ import {
 } from './grid';
 import { drawFrame } from './frame';
 import { dropTiles } from './ground';
+import { dropBitmaps } from './tiles';
 import { type Look, dropSprites, silhouetteUrl } from './village';
 import { dropPaint } from './paint';
 import { dropFog } from './fog';
+import { dropZones } from './zones';
 
 const TAP_MOVE = 12;
 const TAP_MS = 500;
@@ -67,6 +78,20 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
     name: 'Стоянка варваров',
     note: 'шатры и терновая дуга вместо стены',
   },
+];
+
+/**
+ * Местность поверх ландшафта. Числа берутся из тех же констант, что и расчёт
+ * пути: легенда, в которой множитель написан руками, врёт со следующей правки
+ * баланса, и игрок учится неправде.
+ */
+const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
+  { color: PALETTE.river, name: 'Река', note: `вплавь ×${COST_RIVER} — преграда, а не дорогая клетка` },
+  { color: PALETTE.bridge, name: 'Мост', note: `×${COST_BRIDGE}, и таких мест немного` },
+  { color: PALETTE.ford, name: 'Брод', note: `×${COST_FORD}: ноги мокрые, зато не крюк` },
+  { color: PALETTE.ridge, name: 'Хребет', note: `×${COST_RIDGE} — в холмах через него не лезут` },
+  { color: PALETTE.pass, name: 'Перевал', note: `×${COST_PASS}: единственный проход через хребет` },
+  { color: PALETTE.road, name: 'Тракт', note: `×${COST_ROAD} — дорога между станами племён` },
 ];
 
 /** Строка под значком фигуры: где она и когда освободится. */
@@ -143,9 +168,11 @@ export function WorldMap() {
   const seed = info?.seed ?? 0;
   useEffect(() => {
     dropTiles();
+    dropBitmaps();
     dropSprites();
     dropPaint();
     dropFog();
+    dropZones();
   }, [seed]);
 
   // ---------- Отрисовка ----------
@@ -406,6 +433,24 @@ export function WorldMap() {
               </span>
             </div>
           ))}
+          <h3>Местность</h3>
+          {TERRAIN_ROWS.map((row) => (
+            <div className="wm-leg-row" key={row.name}>
+              <i style={{ background: row.color }} />
+              <span>
+                {row.name} <em>{row.note}</em>
+              </span>
+            </div>
+          ))}
+
+          <h3>Владения</h3>
+          <div className="wm-leg-row">
+            <i style={{ background: RELATION_META.enemy.color, opacity: 0.45 }} />
+            <span>
+              Земля племени <em>цветом по разведанному; в тумане не видно ничего</em>
+            </span>
+          </div>
+
           <button className="btn ghost wide" onClick={() => setLegendOpen(false)}>
             Понятно
           </button>

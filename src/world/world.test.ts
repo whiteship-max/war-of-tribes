@@ -8,6 +8,7 @@ import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
 import { FEATURE, cellCost, dropGeography, featuresAt, roadNet, tribeCenters } from './geography';
 import { TERRAIN_META } from './data/terrain';
+import { CLAIM_REACH, claimsNear, claimsOf, ownerAt } from './territory';
 import { precisionOf, readIntel } from './intel';
 import { stackLosses } from './combat';
 import { resolveField } from './battle';
@@ -288,6 +289,59 @@ describe('география: реки, переходы, тракты', () => {
       expect(featuresAt(w.seed, s.x, s.y) & (FEATURE.river | FEATURE.ridge)).toBe(0);
     }
     expect(featuresAt(w.seed, w.home.x, w.home.y) & (FEATURE.river | FEATURE.ridge)).toBe(0);
+  });
+});
+
+describe('зоны влияния племён', () => {
+  it('влияние затухает по расстоянию, а не рисуется границей', () => {
+    const gen = generateWorld(4242);
+    const claims = claimsOf(gen);
+    const s = gen.settlements.find((x) => x.tribeId && x.capital);
+    expect(s).toBeTruthy();
+    const owner = ownerAt(claims, s!.x, s!.y);
+    expect(owner).toBeGreaterThan(0);
+    expect(gen.tribes[owner - 1].id).toBe(s!.tribeId);
+    // Далеко от всех дворов земля ничья: пятно расплывается, а не кончается линией.
+    let far = { x: s!.x, y: s!.y };
+    for (const d of [CLAIM_REACH * 3, CLAIM_REACH * 5]) {
+      far = { x: s!.x + d, y: s!.y + d };
+      if (claimsNear(claims, far.x, far.y, far.x, far.y).length === 0) break;
+    }
+    expect(ownerAt(claims, far.x, far.y)).toBe(0);
+  });
+
+  it('цвет племени не проступает в тумане', async () => {
+    const { world } = makeWorld(4242);
+    const info = await world.info();
+    // Дальний угол карты никем не разведан: там не должно быть ни одного цвета,
+    // хотя ландшафт и реки мир отдаёт — их игрок и так считает из сида.
+    const far = { x: WORLD_ORIGIN.x, y: WORLD_ORIGIN.y, w: 24, h: 24 };
+    const dark = await world.region(far);
+    expect([...dark.explored].every((v) => v === 0)).toBe(true);
+    expect([...dark.influence].every((v) => v === 0)).toBe(true);
+    expect([...dark.terrain].some((v) => v !== 0)).toBe(true);
+
+    // А вокруг своей деревни местность открыта — и владения соседей видны.
+    const near = await world.region({ x: info.home.x - 12, y: info.home.y - 12, w: 24, h: 24 });
+    expect([...near.explored].some((v) => v === 1)).toBe(true);
+    expect([...near.influence].some((v) => v > 0)).toBe(true);
+    // И ни одна закрашенная клетка не оказалась неразведанной.
+    for (let i = 0; i < near.influence.length; i++) {
+      if (near.influence[i] > 0) expect(near.explored[i]).toBe(1);
+    }
+  });
+
+  it('кусок карты несёт признаки местности вместе с ландшафтом', async () => {
+    const { world } = makeWorld(4242);
+    const info = await world.info();
+    const chunk = await world.region({ x: info.home.x - 16, y: info.home.y - 16, w: 32, h: 32 });
+    expect(chunk.features.length).toBe(chunk.terrain.length);
+    for (let y = 0; y < chunk.rect.h; y++) {
+      for (let x = 0; x < chunk.rect.w; x++) {
+        // То же самое, что считает проходимость: двух правд о клетке быть не должно.
+        expect(chunk.features[y * chunk.rect.w + x]).toBe(featuresAt(info.seed, chunk.rect.x + x, chunk.rect.y + y));
+      }
+    }
   });
 });
 

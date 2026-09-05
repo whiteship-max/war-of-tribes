@@ -48,6 +48,8 @@ import {
   travelTime,
 } from '../geo';
 import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
+import { featuresAt } from '../geography';
+import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
 import { RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackSize } from '../data/units';
@@ -128,6 +130,8 @@ export class LocalWorld implements WorldApi {
   private fresh: Report[] = [];
   /** Разведанная местность: открывается навсегда, обратно не затягивается. */
   private fog: FogMap;
+  /** Притязания поселений на землю. Считаются один раз: поселения не переезжают. */
+  private claims: Claim[];
 
   constructor(opts: LocalWorldOptions = {}) {
     this.clock = opts.now ?? (() => Date.now());
@@ -140,6 +144,7 @@ export class LocalWorld implements WorldApi {
         ? stored
         : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock());
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
+    this.claims = claimsOf(this.gen);
     this.fog = new FogMap(this.save.fog);
     // Первая партия обязана начинаться с открытой округи: чёрный экран на входе
     // читается как сломанная карта, а не как туман войны.
@@ -1122,9 +1127,18 @@ export class LocalWorld implements WorldApi {
     const w = Math.max(0, x1 - x0);
     const h = Math.max(0, y1 - y0);
     const terrain = new Uint8Array(w * h);
+    const features = new Uint8Array(w * h);
+    const influence = new Uint8Array(w * h);
+    const claims = claimsNear(this.claims, x0, y0, x1, y1);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        terrain[y * w + x] = terrainIndex(terrainAt(this.save.seed, x0 + x, y0 + y));
+        const wx = x0 + x;
+        const wy = y0 + y;
+        const i = y * w + x;
+        terrain[i] = terrainIndex(terrainAt(this.save.seed, wx, wy));
+        features[i] = featuresAt(this.save.seed, wx, wy);
+        // Цвет племени — те же разведданные, что и всё остальное: в тумане его нет.
+        if (this.fog.has(wx, wy)) influence[i] = ownerAt(claims, wx, wy);
       }
     }
     const rect0 = { x: x0, y: y0, w, h };
@@ -1138,7 +1152,7 @@ export class LocalWorld implements WorldApi {
     }
     const home = this.save.home;
     if (home.x >= x0 && home.x < x1 && home.y >= y0 && home.y < y1) settlements.push(this.homeView(now));
-    return { rect: rect0, terrain, explored: this.fog.maskFor(rect0), settlements };
+    return { rect: rect0, terrain, features, influence, explored: this.fog.maskFor(rect0), settlements };
   }
 
   async settlement(id: SettlementId): Promise<SettlementCard | null> {

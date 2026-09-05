@@ -11,9 +11,15 @@
 // бы перепекать землю. Тайл знает о поселениях только одно — где они стоят,
 // чтобы не сажать ёлки внутрь двора, а координаты не меняются никогда.
 import type { Rect, SettlementView } from '@/world/types';
-import { cachedChunk, chunkKeysIn, loadedIn, terrainAt as cachedTerrain } from '@/world/cache';
+import { cachedChunk, chunkKeysIn, loadedIn, featuresAt as cachedFeatures, terrainAt as cachedTerrain } from '@/world/cache';
+import { FEATURE } from '@/world/geography';
 import {
+  NODE_R,
   PALETTE,
+  RIDGE_R,
+  RIVER_R,
+  TRACK_R,
+  VERGE_R,
   TILE_BAKE,
   TILE_BAKES_PER_FRAME,
   TILE_BLEED,
@@ -24,7 +30,7 @@ import {
   TREE_FREE_R,
 } from './const';
 import { type TileId, tileOrigin } from './grid';
-import { type Clearing, type Sample, type Stamp, hash, stampsFor, treesIn } from './scatter';
+import { type Clearing, type Flag, type Sample, type Stamp, hash, lineStamps, stampsFor, treesIn } from './scatter';
 import { grassPatch, makeCanvas, softDisc, treeShadow, treeSize, treeSprite } from './paint';
 
 interface Tile {
@@ -41,6 +47,13 @@ let scratch: HTMLCanvasElement | null = null;
 const key = (tx: number, ty: number): string => `${tx}:${ty}`;
 
 const sample: Sample = (x, y) => cachedTerrain(x, y);
+
+/** Признак клетки — из того же куска карты, что и ландшафт. */
+const has = (bits: number): Flag => (x, y) => (cachedFeatures(x, y) & bits) !== 0;
+const hasOnly = (bits: number, without: number): Flag => (x, y) => {
+  const f = cachedFeatures(x, y);
+  return (f & bits) !== 0 && (f & without) === 0;
+};
 
 // ---------- Данные тайла ----------
 
@@ -220,7 +233,24 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   paintStamps(ctx, water, PALETTE.shallow, toPx, 1, 0.95);
   paintStamps(ctx, water, PALETTE.water, toPx, 0.74, 1);
 
-  // 5. Ёлки. Двор поселения красит его собственный спрайт, а тайлу от поселения
+  // 5. Местность поверх ландшафта. Порядок здесь — это правила словами: хребет
+  // лежит на холмах, река режет всё, переправа ложится поверх реки (мост и виден
+  // как то, что реку перекрывает), тракт идёт последним и проходит по мосту.
+  paintStamps(ctx, lineStamps(pad, hasOnly(FEATURE.ridge, FEATURE.pass), RIDGE_R), PALETTE.ridge, toPx, 1, 0.85);
+  paintStamps(ctx, lineStamps(pad, hasOnly(FEATURE.ridge, FEATURE.pass), RIDGE_R), PALETTE.ridgeLight, toPx, 0.55, 0.6);
+  paintStamps(ctx, lineStamps(pad, has(FEATURE.pass), NODE_R), PALETTE.pass, toPx, 1, 0.7);
+
+  const river = lineStamps(pad, has(FEATURE.river), RIVER_R);
+  paintStamps(ctx, river, PALETTE.river, toPx, 1.35, 0.9);
+  paintStamps(ctx, river, PALETTE.riverDeep, toPx, 0.85, 1);
+  paintStamps(ctx, lineStamps(pad, has(FEATURE.ford), NODE_R), PALETTE.ford, toPx, 1, 0.9);
+  paintStamps(ctx, lineStamps(pad, has(FEATURE.bridge), NODE_R), PALETTE.bridge, toPx, 1, 0.95);
+
+  // Обочина — широкая расчищенная кайма, колея — узкая полоса посреди неё.
+  paintStamps(ctx, lineStamps(pad, has(FEATURE.road), VERGE_R), PALETTE.verge, toPx, 1, 0.3);
+  paintStamps(ctx, lineStamps(pad, has(FEATURE.track), TRACK_R), PALETTE.road, toPx, 1, 0.9);
+
+  // 6. Ёлки. Двор поселения красит его собственный спрайт, а тайлу от поселения
   // нужно только место, чтобы не сажать туда лес. Берутся с запасом в две
   // клетки: дерево за краем тайла заходит внутрь кроной, и без запаса по границе
   // шла бы линия срезанных верхушек.
@@ -228,7 +258,8 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   const treeRect: Rect = { x: o.x - 2, y: o.y - 2, w: TILE_CELLS + 4, h: TILE_CELLS + 4 };
   const shadow = treeShadow();
   const { w: tw, h: th } = treeSize();
-  for (const t of treesIn(seed, treeRect, sample, clearings)) {
+  const noTrees = has(FEATURE.river | FEATURE.ridge | FEATURE.road);
+  for (const t of treesIn(seed, treeRect, sample, clearings, noTrees)) {
     const [sx, sy] = toPx(t.x, t.y);
     const w = tw * t.size;
     const h = th * t.size;

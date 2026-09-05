@@ -121,6 +121,44 @@ export function stampsFor(seed: number, rect: { x: number; y: number; w: number;
   return out;
 }
 
+// ---------- Линии местности: реки, хребты, тракты ----------
+
+/** Есть ли в клетке признак. Тот же приём, что и `Sample`: холста здесь нет. */
+export type Flag = (x: number, y: number) => boolean;
+
+/**
+ * Штампы вдоль линии клеток. Диск в середине каждой клетки линию не замыкает:
+ * у клеток по диагонали центры разнесены на 1.41, и между ними остаётся дыра —
+ * река на картинке рвалась бы ровно там, где на расчёте пути она сплошная.
+ * Поэтому к дискам клеток добавляются диски в серединах между соседями.
+ */
+export function lineStamps(
+  rect: { x: number; y: number; w: number; h: number },
+  on: Flag,
+  r: number,
+): Stamp[] {
+  const out: Stamp[] = [];
+  const pad = Math.ceil(r) + 1;
+  for (let y = Math.floor(rect.y) - pad; y < rect.y + rect.h + pad; y++) {
+    for (let x = Math.floor(rect.x) - pad; x < rect.x + rect.w + pad; x++) {
+      if (!on(x, y)) continue;
+      out.push({ x: x + 0.5, y: y + 0.5, r });
+      // Только четыре направления из восьми: обратные даёт сосед сам, и каждая
+      // перемычка иначе рисовалась бы дважды.
+      for (const [dx, dy] of [
+        [1, 0],
+        [0, 1],
+        [1, 1],
+        [1, -1],
+      ]) {
+        if (!on(x + dx, y + dy)) continue;
+        out.push({ x: x + 0.5 + dx / 2, y: y + 0.5 + dy / 2, r });
+      }
+    }
+  }
+  return out;
+}
+
 // ---------- Лес ----------
 
 /**
@@ -170,7 +208,14 @@ export interface Tree {
  * разыгрывается хешем: без этого плотность росла бы ступенями и граница леса
  * снова стала бы видна клетками.
  */
-export function treesInCell(seed: number, x: number, y: number, sample: Sample, clearings: Clearing[]): Tree[] {
+export function treesInCell(
+  seed: number,
+  x: number,
+  y: number,
+  sample: Sample,
+  clearings: Clearing[],
+  blocked?: Flag,
+): Tree[] {
   const density = forestAt(x, y, sample);
   if (density <= 0) return [];
   const n = Math.floor(density * TREES_PER_CELL + hash(seed, x, y, SALT.count));
@@ -183,6 +228,8 @@ export function treesInCell(seed: number, x: number, y: number, sample: Sample, 
     // а лес в ней остаётся лесом. Отбраковка идёт по тому же полю, что и берег.
     if (isInside(fieldAt(seed, px, py, 'water', sample))) continue;
     if (inClearing(px, py, clearings)) continue;
+    // Ёлка посреди тракта или в русле — такая же грубая ошибка, как ёлка в озере.
+    if (blocked?.(Math.floor(px), Math.floor(py))) continue;
     out.push({
       x: px,
       y: py,
@@ -199,11 +246,12 @@ export function treesIn(
   rect: { x: number; y: number; w: number; h: number },
   sample: Sample,
   clearings: Clearing[] = [],
+  blocked?: Flag,
 ): Tree[] {
   const out: Tree[] = [];
   for (let y = Math.floor(rect.y); y < rect.y + rect.h; y++) {
     for (let x = Math.floor(rect.x); x < rect.x + rect.w; x++) {
-      for (const t of treesInCell(seed, x, y, sample, clearings)) out.push(t);
+      for (const t of treesInCell(seed, x, y, sample, clearings, blocked)) out.push(t);
     }
   }
   // Дальние рисуются раньше ближних, иначе кроны наложатся не в том порядке.
