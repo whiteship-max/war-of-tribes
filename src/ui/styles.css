@@ -2023,3 +2023,238 @@ body {
   display: block;
   font-size: 11.5px;
 }
+
+/* ---------- Справочные экраны кнопок верхней строки ---------- */
+
+/* Ячейка HUD, которая открывает справку. Выглядит как остальные, но нажимается. */
+.hud-bar .cell.tap {
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 3px 4px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+
+.hud-bar .cell.tap.army {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.hud-bar .cell.tap.active {
+  background: var(--panel-2);
+}
+
+/* Подпись под названием строки: откуда взялось число. */
+.mod .name .sub {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.mod .name {
+  white-space: normal;
+}
+
+/* Узкое место прироста: та полоска, которая сейчас всё и тормозит. */
+.res-line.bottleneck .name {
+  color: var(--text);
+}
+
+.res-line .name .tag {
+  font-style: normal;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bad);
+  margin-left: 5px;
+}
+
+/* Шкала морали с двумя порогами прироста. */
+.morale-scale {
+  position: relative;
+  height: 16px;
+  margin: 6px 0 26px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(224, 107, 90, 0.55), rgba(232, 164, 60, 0.45) 45%, rgba(124, 196, 122, 0.55));
+  border: 1px solid var(--line);
+}
+
+.morale-scale i,
+.morale-scale b {
+  position: absolute;
+  top: -3px;
+  height: calc(100% + 6px);
+}
+
+.morale-scale i {
+  width: 2px;
+  margin-left: -1px;
+  background: var(--muted);
+}
+
+.morale-scale i.full {
+  background: var(--good);
+}
+
+/* Метка текущей морали — самая заметная: остальные две это пороги. */
+.morale-scale b {
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--text);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.morale-scale u {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.morale-scale b u {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* ---------- Кольцо контрров ---------- */
+
+.ring-wrap {
+  margin-bottom: 10px;
+}
+
+.ring {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto 4px;
+  height: auto;
+}
+
+.ring-node {
+  fill: var(--panel-2);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.ring-ico {
+  font-size: 17px;
+}
+
+.ring-name {
+  font-size: 9px;
+  fill: var(--text);
+}
+
+.ring-mult {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--accent);
+}
+
+/* ---------- Карточка вида войск ---------- */
+
+.btn.ghost.back {
+  align-self: flex-start;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+}
+
+.card.as-row .chev {
+  align-self: center;
+  color: var(--muted);
+  font-size: 18px;
+  padding: 0 4px;
+}
+
+.card.as-row.none {
+  opacity: 0.62;
+}
+
+.counters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.counter {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: var(--panel-2);
+}
+
+.counter.good {
+  border-left-color: var(--good);
+}
+
+.counter.bad {
+  border-left-color: var(--bad);
+}
+
+.counter b {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.counter small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.bullets {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.bullets li {
+  margin-bottom: 4px;
+}
+
+.bullets li::marker {
+  color: var(--muted);
+}
+
+.bullets.good li::marker {
+  color: var(--good);
+}
+
+.bullets.bad li::marker {
+  color: var(--bad);
+}
+
+/*
+ * Дружина прижата вправо, поэтому переполнение обрезается слева — по иконке.
+ * Сжимать разрешено только подписи: число и значок остаются видны при любом
+ * размере племени, а «дружина» при тесноте ужимается многоточием.
+ */
+.hud-bar .cell.tap.army .ic,
+.hud-bar .cell.tap.army b {
+  flex: 0 0 auto;
+}
+
+.hud-bar .cell.tap.army i {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
