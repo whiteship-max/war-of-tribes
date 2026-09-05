@@ -4,11 +4,18 @@
 // Мешей у агента нет, как и у остальных: он правит позу своей `Figure`, а рисует
 // всех разом пул инстансов (figures.ts). Никаких новых вызовов отрисовки герой
 // не добавляет — он такая же фигурка, просто одна и на своём месте.
+//
+// Одевается он тем же `dressHero` → `dressSoldier`, что и дружина, и по виду
+// бойца того рода, который сейчас ведёт: второго набора правил о том, как
+// выглядит боец, в игре быть не должно. Сменил род в Статуе — сменился и
+// силуэт на площади. Своего у героя только рост и плащ.
 import type { GameState } from '@/game/types';
 import { heroReady } from '@/game/derived';
+import { TROOPS_OF_KIND } from '@/game/battle/kinds';
 import { RING_RADIUS, PLAN, facingCenter } from './plan';
-import { Figure, STICK_RADIUS } from './figures';
-import { HERO_TINT, PALETTE } from './palette';
+import { Figure } from './figures';
+import { poseFigure } from './poses';
+import { dressHero } from './units';
 
 /**
  * Виден ли герой в сцене. Ушёл в поход или лежит после боя — площадь пуста, и
@@ -26,29 +33,25 @@ export function heroSpot(): { x: number; z: number; rot: number } {
   return { x: Math.cos(angle) * r, z: Math.sin(angle) * r, rot: facingCenter(angle) };
 }
 
+/** Насколько герой крупнее рядового: заметно, но не вдвое — он человек. */
+const HERO_SCALE = 1.12;
+
 export class HeroAgent {
   readonly figure = new Figure();
-  private phase = Math.random() * 10;
 
-  constructor() {
+  constructor(s: GameState) {
     const f = this.figure;
-    // Одет не как свободные руки у костра: герой должен читаться с одного взгляда.
-    f.colors.torso.setHex(HERO_TINT.cloak);
-    f.colors.cap.setHex(HERO_TINT.helm);
-    f.colors.shield.setHex(HERO_TINT.shield);
-    f.colors.stick.setHex(PALETTE.metal);
-    // Копьё длиннее любого дружинного: силуэт героя должен быть выше всех.
-    f.stick = { length: 1.35, radius: STICK_RADIUS * 1.3, tilt: 0.1 };
-    f.shield = true;
-    f.torsoWidth = 1.15;
+    // Лучший вид своего рода: герой ведёт род, а выглядит как его вершина.
+    const own = TROOPS_OF_KIND[s.hero.kind];
+    dressHero(f, own[own.length - 1]);
+    f.scale = HERO_SCALE;
     const spot = heroSpot();
     f.position.set(spot.x, 0, spot.z);
     f.rotationY = spot.rot;
   }
 
-  /** Герой не гуляет: он стоит у статуи. Живёт только дыхание — им и обходимся. */
+  /** Герой не гуляет: он стоит у статуи в изготовке, как стража у ворот. */
   update(t: number): void {
-    this.figure.torsoTilt = Math.sin(t * 1.1 + this.phase) * 0.03;
-    this.figure.legSwing = 0;
+    poseFigure(this.figure, 'guard', t);
   }
 }

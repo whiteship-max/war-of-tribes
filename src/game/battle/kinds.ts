@@ -1,7 +1,7 @@
 // Мост между восемью видами бойцов племени и четырьмя родами полевого боя.
 // Ядро (`src/battle/`) про племя не знает и знать не должно — отображение живёт
 // здесь. Обратная зависимость запрещена: отсюда в ядро только типы.
-import type { TroopId } from '../types';
+import type { EquipmentId, TroopId } from '../types';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { GEAR, UNIT_KINDS, type Stack, type UnitKind } from '@/battle';
 
@@ -73,6 +73,39 @@ export const gearOfTroop = (troop: TroopId): number =>
     GEAR.max,
     Object.values(TROOP_BY_ID[troop].gear).reduce((n, v) => n + (v ?? 0), 0),
   );
+
+/**
+ * Что боец держит в руках. Выводится из его снаряжения (`TroopDef.gear` в
+ * data/troops.ts), а не задаётся второй таблицей: снаряжение — единственное
+ * место, где записано, чем вооружён вид, и всё остальное следует за ним.
+ * Из этого же поля карточка вида берёт список предметов на ковку, а фигура в
+ * сцене — что вложить в руку. Пусто в `gear` — значит из кузницы на бойце нет
+ * ничего, и в руках у него дубина.
+ */
+export type WeaponKind = 'club' | 'spear' | 'bow' | 'axe' | 'sword';
+
+/**
+ * Порядок разбора: если предметов несколько, главным считается тот, что выше.
+ * Щит и доспех оружием не считаются — они разбираются отдельно.
+ */
+const WEAPON_BY_GEAR: [EquipmentId, WeaponKind][] = [
+  ['bow', 'bow'],
+  ['axe', 'axe'],
+  ['sword', 'sword'],
+  ['spear', 'spear'],
+];
+
+export function weaponOf(troop: TroopId): WeaponKind {
+  const gear = TROOP_BY_ID[troop].gear;
+  for (const [item, weapon] of WEAPON_BY_GEAR) if (gear[item]) return weapon;
+  return 'club';
+}
+
+/** Есть ли у вида щит. Тот же конфиг, что и у карточки. */
+export const hasShield = (troop: TroopId): boolean => (TROOP_BY_ID[troop].gear.shield ?? 0) > 0;
+
+/** Есть ли у вида доспех. По нему различаются щитоносец и латник. */
+export const hasArmor = (troop: TroopId): boolean => (TROOP_BY_ID[troop].gear.armor ?? 0) > 0;
 
 export function gearOf(t: TroopStack): Partial<Record<UnitKind, number>> {
   const out: Partial<Record<UnitKind, number>> = {};

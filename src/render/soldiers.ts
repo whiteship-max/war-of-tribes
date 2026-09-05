@@ -3,11 +3,13 @@
 //
 // Заняты они тем, чем занята настоящая дружина: двое стоят у ворот, кто-то ходит
 // дозором по окружной дороге под стеной, остальные машут оружием у казарм.
-// Рисует их тот же пул инстансов, что и жителей (figures.ts): агент правит позу.
+// Рисует их тот же пул инстансов, что и жителей (figures.ts): агент правит позу,
+// а из чего он собран — решает units.ts по виду бойца.
 import * as THREE from 'three';
 import type { TroopId } from '@/game/types';
-import { Figure, STICK_RADIUS } from './figures';
-import { PALETTE, TROOP_TINT } from './palette';
+import { Figure } from './figures';
+import { poseFigure } from './poses';
+import { dressSoldier } from './units';
 import { GATE_ANGLE, OUTER_ROAD } from './plan';
 
 /**
@@ -26,15 +28,8 @@ export const shownSoldiers = (army: Partial<Record<TroopId, number>>): number =>
 
 export type Post = 'gate' | 'patrol' | 'drill';
 
-/** Кому положен щит: щитоносцу и латнику — он и в силуэте виден. */
-const HAS_SHIELD: TroopId[] = ['shieldman', 'rider', 'legionary'];
-
-/** У кого оружие из металла — клинок, а не древко. */
-const STEEL_ARM: TroopId[] = ['swordsman', 'shieldman', 'legionary'];
-
 export class SoldierAgent {
   readonly figure = new Figure();
-  private phase: number;
   private angle: number;
 
   constructor(
@@ -43,17 +38,11 @@ export class SoldierAgent {
     private anchor: THREE.Vector3,
     index: number,
   ) {
-    this.phase = index * 1.37;
     this.angle = Math.atan2(anchor.z, anchor.x);
     const f = this.figure;
-    f.torsoWidth = 1.06;
-    f.colors.torso.setHex(TROOP_TINT[troop]);
-    // Шлем — у всех, кроме дубинщика: у того ещё только волосы.
-    f.colors.cap.setHex(troop === 'clubman' ? PALETTE.hair : PALETTE.metal);
-    // Оружие: у всех древко, у мечников — клинок. В силуэте важно, что оно есть.
-    f.stick = { length: troop === 'archer' ? 0.9 : 1.15, radius: STICK_RADIUS * 1.12, tilt: 0.18 };
-    f.colors.stick.setHex(STEEL_ARM.includes(troop) ? PALETTE.metal : PALETTE.woodDark);
-    f.shield = HAS_SHIELD.includes(troop);
+    dressSoldier(f, troop);
+    // Своё смещение по времени: иначе дружина машет оружием одним движением.
+    f.phase = index * 1.37;
     f.position.copy(anchor);
   }
 
@@ -67,11 +56,11 @@ export class SoldierAgent {
     const p = f.position;
     switch (this.post) {
       case 'gate': {
-        // Стража стоит: лёгкое покачивание, чтобы фигурка не выглядела вкопанной.
+        // Стража стоит в изготовке: щит вперёд, оружие отведено.
         p.copy(this.anchor);
-        p.y = Math.abs(Math.sin(t * 1.2 + this.phase)) * 0.015;
+        p.y = 0;
         this.faceOut();
-        f.legSwing = 0;
+        poseFigure(f, 'guard', t);
         break;
       }
       case 'patrol': {
@@ -79,17 +68,15 @@ export class SoldierAgent {
         this.angle += (dt * 0.9) / OUTER_ROAD;
         p.set(Math.cos(this.angle) * OUTER_ROAD, 0, Math.sin(this.angle) * OUTER_ROAD);
         f.rotationY = Math.atan2(-Math.sin(this.angle), -Math.cos(this.angle)) + Math.PI / 2;
-        f.legSwing = Math.sin(t * 9 + this.phase) * 0.45;
-        p.y = Math.abs(Math.sin(t * 9 + this.phase)) * 0.035;
+        poseFigure(f, 'walk', t);
         break;
       }
       default: {
-        // Учения: шаг вперёд-назад и удар оружием сверху вниз.
-        const swing = Math.sin(t * 2.2 + this.phase);
-        p.set(this.anchor.x + swing * 0.35, 0, this.anchor.z + Math.cos(t * 1.7 + this.phase) * 0.25);
-        f.rotationY = this.angle + Math.PI + Math.sin(t * 1.1 + this.phase) * 0.5;
-        if (f.stick) f.stick.tilt = 0.18 + Math.sin(t * 5 + this.phase) * 0.7;
-        f.legSwing = swing * 0.3;
+        // Учения: замах и удар на месте, с переступом вокруг своего места.
+        const sway = Math.sin(t * 1.1 + f.phase);
+        p.set(this.anchor.x + sway * 0.3, 0, this.anchor.z + Math.cos(t * 0.9 + f.phase) * 0.22);
+        f.rotationY = this.angle + Math.PI + sway * 0.4;
+        poseFigure(f, 'strike', t);
         break;
       }
     }
