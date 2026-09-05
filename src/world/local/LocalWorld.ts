@@ -638,6 +638,9 @@ export class LocalWorld implements WorldApi {
       prestige: outcome.won ? 0 : 3,
       morale: outcome.won ? -10 : 5,
       battle: outcome.won ? 'lost' : 'won',
+      // Прорвались — значит, дошли и до хозяйства за стеной. Насколько плохо,
+      // решает то, сколько от заслона осталось; что с этим делать, знает племя.
+      sacked: outcome.won ? Math.max(0.35, outcome.defenderLoss) : 0,
       text: outcome.won ? `Набег ${m.fromName} прорвался в деревню.` : `Набег ${m.fromName} отбит.`,
       good: !outcome.won,
     });

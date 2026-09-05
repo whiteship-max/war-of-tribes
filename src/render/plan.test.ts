@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { BuildingTypeId } from '@/game/types';
 import { BUILDINGS } from '@/game/data/buildings';
+import { isOutsideWall } from '@/game/derived';
 import { createBuildingGroup, levelScale } from './buildings';
 import {
   CLEAR_RADIUS,
@@ -131,6 +132,15 @@ describe('план поселения', () => {
   // Ресурсные дворы стоят снаружи нарочно: набег до них дотягивается, а до
   // внутренних зданий — нет. Проверяется поэтому обратное: они целиком снаружи
   // и не садятся на кладку.
+  it('план повторяет решение игры о том, что стоит снаружи', () => {
+    // Решает это здание (`outside` в data/buildings.ts): от него зависит набег.
+    // План обязан повторять то же самое, иначе разорять будут не то, что видно.
+    for (const def of BUILDINGS) {
+      if (def.id === 'palisade') continue;
+      expect(isOutside(def.id), `${def.id}: план и данные разошлись`).toBe(isOutsideWall(def.id));
+    }
+  });
+
   it('ресурсные дворы стоят целиком за стеной и не садятся на кладку', () => {
     expect(OUTSIDE.length, 'за стеной должны стоять ресурсные дворы').toBeGreaterThan(0);
     expect(OUTSIDE_BUILDINGS.slice().sort()).toEqual(OUTSIDE.slice().sort());

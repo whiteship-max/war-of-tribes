@@ -49,6 +49,13 @@ export interface BuildingDef extends BuildingStats {
   since?: Partial<Record<keyof BuildingStats, number>>;
   /** Потолок уровня для этого типа. По умолчанию MAX_BUILDING_LEVEL. */
   maxLevel?: number;
+  /**
+   * Здание стоит **за стеной**. Это правило игры, а не рисунок: поле, каменоломня
+   * и штольня стоят там, где ресурс, и чужой набег дотягивается ровно до них
+   * (см. sim/expedition.sackOutskirts). План поселения ставит такие здания на
+   * четвёртое кольцо, и тест сверяет обе стороны.
+   */
+  outside?: boolean;
 }
 
 /**
@@ -114,6 +121,7 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 119 },
     work: 245,
     job: 'gatherer',
+    outside: true,
   },
   {
     id: 'sawmill',
@@ -123,6 +131,7 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 140 },
     work: 301,
     job: 'woodcutter',
+    outside: true,
   },
   {
     id: 'quarry',
@@ -132,6 +141,7 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 119, stone: 63 },
     work: 364,
     job: 'stonecutter',
+    outside: true,
   },
   {
     id: 'hunter_hut',
@@ -141,6 +151,7 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 168, bones: 49 },
     work: 420,
     job: 'hunter',
+    outside: true,
   },
   {
     id: 'mine',
@@ -150,6 +161,7 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 476, stone: 364 },
     work: 1092,
     job: 'miner',
+    outside: true,
   },
   {
     id: 'workshop',
@@ -169,6 +181,7 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 364, stone: 63 },
     work: 728,
     job: 'farmer',
+    outside: true,
   },
   {
     id: 'pen',
@@ -178,6 +191,7 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 476, hides: 63 },
     work: 728,
     job: 'herder',
+    outside: true,
   },
   {
     id: 'church',

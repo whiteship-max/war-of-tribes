@@ -118,6 +118,7 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     prestige: e.prestige,
     morale: e.morale,
     battle: e.battle,
+    sacked: e.sacked ?? 0,
     text: e.text,
     kind: e.good ? 'good' : 'bad',
   };

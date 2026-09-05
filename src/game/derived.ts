@@ -75,6 +75,19 @@ export const buildingById = (s: GameState, id: number): Building | null =>
 export const buildingOfType = (s: GameState, type: BuildingTypeId): Building | null =>
   s.buildings.find((b) => b.type === type) ?? null;
 
+/**
+ * Здание стоит за стеной — значит, до него дотягивается чужой набег. Единственный
+ * источник правды: поле `outside` в определении здания. План поселения ставит
+ * такие здания на четвёртое кольцо, но решает это не он.
+ */
+export const isOutsideWall = (type: BuildingTypeId): boolean =>
+  BUILDING_BY_ID[type].outside === true;
+
+/** Здания за стеной — ровно то, что может отнять набег. */
+export const OUTSIDE_TYPES: BuildingTypeId[] = Object.values(BUILDING_BY_ID)
+  .filter((d) => d.outside)
+  .map((d) => d.id);
+
 /** Первое улучшение в очереди — над ним работают свободные жители. */
 export const currentSite = (s: GameState): Building | null => s.buildings.find(isSite) ?? null;
 

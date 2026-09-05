@@ -3,6 +3,7 @@ import type { Building, BuildingTypeId, GameState, JobId, Season } from '../type
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { startUpgrade, resolveEvent, setTax } from './actions';
+import { applyExpedition, sackOutskirts } from './expedition';
 import { assignWorker, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
 import { popGrowth } from './population';
 import { seeded, setRandom } from './random';
@@ -23,7 +24,9 @@ import {
   seasonDayOf,
   seasonOf,
   idleCount,
+  isOutsideWall,
   moraleTarget,
+  OUTSIDE_TYPES,
   storageCap,
   winterForecast,
   workerCount,
@@ -64,6 +67,82 @@ function idleAll(s: GameState): void {
   s.workers = {};
   s.freeJobs = {};
 }
+
+describe('стена и хозяйство за ней', () => {
+  it('снаружи стоит ровно производство, и план поселения говорит то же самое', () => {
+    expect(OUTSIDE_TYPES.slice().sort()).toEqual(
+      ['farm', 'gathering', 'hunter_hut', 'mine', 'pen', 'quarry', 'sawmill'].sort(),
+    );
+    // Внутри — жильё, власть, склад, ремесло и оборона: до них набег не доходит.
+    for (const type of ['houses', 'chief_house', 'storage', 'smithy', 'workshop', 'barracks', 'market', 'church', 'palisade', 'tower'] as BuildingTypeId[]) {
+      expect(isOutsideWall(type), `${type} не должен стоять за стеной`).toBe(false);
+    }
+  });
+
+  it('набег разоряет дворы за стеной и не трогает ничего внутри', () => {
+    const s = createInitialState();
+    idleAll(s);
+    for (const b of s.buildings) {
+      b.level = 5;
+      s.workers[b.id] = 4;
+    }
+    s.pop = 200;
+    const before = new Map(s.buildings.map((b) => [b.id, { level: b.level, men: workerCount(s, b.id) }]));
+
+    const names = sackOutskirts(s, 1);
+    expect(names.length, 'разор должен быть назван поимённо').toBeGreaterThan(0);
+
+    let touched = 0;
+    let burned = 0;
+    for (const b of s.buildings) {
+      const was = before.get(b.id)!;
+      if (isOutsideWall(b.type)) {
+        if (workerCount(s, b.id) !== was.men) touched++;
+        if (b.level !== was.level) burned++;
+        expect(b.level, `${b.type} нельзя снести набегом`).toBeGreaterThanOrEqual(1);
+      } else {
+        expect(workerCount(s, b.id), `${b.type} за стеной, его трогать нельзя`).toBe(was.men);
+        expect(b.level, `${b.type} за стеной, уровень терять не должен`).toBe(was.level);
+      }
+    }
+    // Три двора встали, уровень потерял ровно один — самый людный.
+    expect(touched).toBe(3);
+    expect(burned).toBe(1);
+    // Люди не погибли, а разбежались: население то же, руки свободны.
+    expect(s.pop).toBe(200);
+    expect(idleCount(s)).toBeGreaterThan(0);
+  });
+
+  it('лёгкий набег останавливает работу, но уровня не снимает', () => {
+    const s = createInitialState();
+    for (const b of s.buildings) b.level = 4;
+    const levels = s.buildings.map((b) => b.level);
+    sackOutskirts(s, 0.35);
+    expect(s.buildings.map((b) => b.level)).toEqual(levels);
+  });
+
+  it('отбитый набег хозяйства не трогает', () => {
+    const s = createInitialState();
+    for (const b of s.buildings) b.level = 4;
+    const men = new Map(s.buildings.map((b) => [b.id, workerCount(s, b.id)]));
+    applyExpedition(s, {
+      warriorsLost: 0,
+      scoutsLost: 0,
+      resources: {},
+      gold: 0,
+      prestige: 3,
+      morale: 5,
+      battle: 'won',
+      sacked: 0,
+      text: 'Набег отбит.',
+      kind: 'good',
+    });
+    for (const b of s.buildings) {
+      expect(b.level).toBe(4);
+      expect(workerCount(s, b.id)).toBe(men.get(b.id));
+    }
+  });
+});
 
 describe('симуляция', () => {
   it('новая партия: весь посёлок со стеной стоит с первой секунды, всё первого уровня', () => {

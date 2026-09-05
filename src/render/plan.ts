@@ -144,10 +144,15 @@ export const PLAN: Partial<Record<BuildingTypeId, Place>> = {
   sawmill: { ring: 4, angle: 323.13 * D },
 };
 
-/** Стоит ли здание за стеной. Единственный источник правды для всей игры. */
+/**
+ * Стоит ли здание за стеной **по плану**. Решает это не план, а само здание —
+ * поле `outside` в data/buildings.ts (`derived.isOutsideWall`): «снаружи» это
+ * правило игры, от которого зависит набег, а не расстановка крыш. План обязан
+ * повторять то же самое, и это сверяет тест.
+ */
 export const isOutside = (type: BuildingTypeId): boolean => PLAN[type]?.ring === OUTSIDE_RING;
 
-/** Здания за стеной — набег дотягивается ровно до них. */
+/** Места за стеной по плану поселения. */
 export const OUTSIDE_BUILDINGS: BuildingTypeId[] = (
   Object.keys(PLAN) as BuildingTypeId[]
 ).filter(isOutside);

@@ -18,6 +18,7 @@ import {
   freeJobCount,
   housingCapacity,
   idleCount,
+  isOutsideWall,
   isSite,
   jobMultiplier,
   levelOutputMult,
@@ -86,6 +87,13 @@ export function BuildingPanel({ id }: { id: number }) {
       </div>
 
       <div className="desc">{def.description}</div>
+
+      {isOutsideWall(b.type) && (
+        <div className="note">
+          ⚠️ Двор стоит за стеной. Прорвавшийся набег разгонит отсюда людей, а самому
+          богатому двору собьёт уровень — внутри стены такого не бывает.
+        </div>
+      )}
 
       {site ? (
         <div className="card">
