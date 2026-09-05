@@ -24,12 +24,15 @@ import {
   LEVEL_OUTPUT_STEP,
   MAX_BUILDING_LEVEL,
   MORALE_BASE,
+  MORALE_OUTPUT_LOW,
+  MORALE_OUTPUT_SPAN,
   RECRUIT_WORK,
   RESOURCE_IDS,
   SHAMAN_MORALE,
   SHAMAN_MORALE_CAP,
   SLOTS_PER_LEVEL,
   SMITH_WORK,
+  TOWN_HALL_BUILD_STEP,
   SOLDIER_FOOD,
   UPGRADE_GROWTH,
   VILLAGER_DEFENSE,
@@ -60,6 +63,7 @@ import {
   SEASONS,
   SEASON_DAYLIGHT,
   SEASON_DAYS,
+  SEASON_META,
   SEASON_MODIFIERS,
   SEASON_SECONDS,
   type SeasonModifiers,
@@ -114,7 +118,7 @@ export const idleCount = (s: GameState): number => Math.max(0, s.pop - busyCount
 /**
  * Пассивный эффект здания с учётом уровня: база + прибавка за каждый уровень сверх
  * того, с которого эффект вообще появляется (`since`). У большинства зданий это
- * первый уровень; у Дома вождя жильё начинается с шестого.
+ * первый уровень; у ратуши жильё начинается с шестого.
  */
 export function buildingStat(b: Building, key: keyof BuildingStats): number {
   const def = BUILDING_BY_ID[b.type];
@@ -422,13 +426,20 @@ export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
 
 // ---------- Производство ----------
 
+/**
+ * Во что мораль обходится выработке: от `MORALE_OUTPUT_LOW` при нуле до
+ * `MORALE_OUTPUT_LOW + MORALE_OUTPUT_SPAN` при сотне. Отдельной функцией, потому
+ * что это же число показывает справочный экран счастья — считать его дважды нельзя.
+ */
+export const moraleOutputMult = (morale: number): number =>
+  MORALE_OUTPUT_LOW + (Math.max(0, Math.min(100, morale)) / 100) * MORALE_OUTPUT_SPAN;
+
 /** Множитель производительности профессии с учётом тотема, сезона и указа. */
 export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = seasonMods(s)): number {
   let m = mods.jobs[job] ?? 1;
   if (job === 'hunter' && s.totem === 'wolf') m *= 1.15;
   if (job === 'farmer' && s.totem === 'eagle') m *= 1.1;
-  // Мораль: от 0.7 при нуле до 1.15 при сотне.
-  m *= 0.7 + (s.morale / 100) * 0.45;
+  m *= moraleOutputMult(s.morale);
   // Указ вождя действует на всю выработку разом — ровно на объявленную величину.
   m *= decreeOf(s).output;
   return m;
@@ -510,13 +521,25 @@ export function crafterBuildRate(s: GameState, mods: SeasonModifiers = seasonMod
 }
 
 /**
- * Скорость стройки: свободные жители с площади плюс ремесленники в мастерской.
+ * Множитель скорости стройки от уровня ратуши: +8% за уровень сверх первого.
+ * Ратуша не даёт труда сама — она им распоряжается, поэтому это множитель ко
+ * всему, что строит посёлок, а не ещё одно слагаемое.
+ */
+export function townHallBuildMult(s: GameState): number {
+  const hall = buildingOfType(s, 'town_hall');
+  if (!hall) return 1;
+  return 1 + TOWN_HALL_BUILD_STEP * Math.max(0, hall.level - 1);
+}
+
+/**
+ * Скорость стройки: свободные жители с площади плюс ремесленники в мастерской,
+ * всё это — под рукой ратуши.
  * Улучшения — единственная прогрессия посёлка, и мастерская существует ради них.
  */
 export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Ушедшие разведчиками — те же свободные жители: пока они в пути, стройка идёт без них.
   const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
-  return (idle * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build;
+  return (idle * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
 }
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
@@ -656,30 +679,107 @@ export function winterForecast(s: GameState): WinterForecast {
 export const population = (s: GameState): number =>
   s.pop + armySize(s) + recruitsQueued(s);
 
-/** К какой морали стремится племя при текущих условиях. */
-export function moraleTarget(s: GameState): number {
-  let t = MORALE_BASE;
+/** Одно слагаемое морали: почему племя довольно или недовольно именно сейчас. */
+export interface MoraleLine {
+  id: string;
+  icon: string;
+  name: string;
+  /** Вклад в целевую мораль. Ноль в список не попадает. */
+  value: number;
+  /** Откуда взялось число — живыми величинами этой партии. */
+  hint: string;
+}
+
+export interface MoraleBreakdown {
+  /** Мораль устоявшегося племени, от которой всё считается. */
+  base: number;
+  lines: MoraleLine[];
+  /** База со всеми слагаемыми, до приведения к шкале. */
+  raw: number;
+  /** Она же в пределах 0..100. */
+  clamped: number;
+  /** Просадка от налога — она вычитается уже после приведения к шкале. */
+  tax: number;
+  /** Итог: к какой морали стремится племя. */
+  target: number;
+}
+
+/**
+ * Разбор целевой морали по слагаемым. `moraleTarget` считается отсюда же, а не
+ * рядом: экран счастья показывает ровно то, чем живёт симуляция, и разойтись
+ * им негде.
+ */
+export function moraleBreakdown(s: GameState): MoraleBreakdown {
+  const lines: MoraleLine[] = [];
+  // Ноль в список не попадает: строка «зима −0» была бы шумом. Исключение —
+  // рычаги, про которые игрок иначе не узнает, что они у него вообще есть.
+  const add = (id: string, icon: string, name: string, value: number, hint: string, keepZero = false): void => {
+    if (keepZero || Math.abs(value) > 0.001) lines.push({ id, icon, name, value, hint });
+  };
+
   const pop = s.pop;
   const housing = housingCapacity(s);
   // Теснота считается долей, а не головами: при семи сотнях жителей штраф
   // «минус пять за человека сверх крыш» обнулял бы мораль от одного лишнего.
-  if (pop <= housing) t += 10;
-  else t -= Math.min(CROWDING_MAX, (CROWDING_PENALTY * (pop - housing)) / Math.max(1, housing));
-  const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s));
-  if (s.resources.food <= 0) t -= 25;
-  else if (foodDays >= 3) t += 10;
-  else if (foodDays < 1) t -= 8;
-  for (const b of s.buildings) t += buildingStat(b, 'morale');
-  t += Math.min(SHAMAN_MORALE_CAP, jobCounts(s).shaman * SHAMAN_MORALE);
-  t += Math.min(10, s.prestige / 5);
-  t += seasonMods(s).morale;
-  if (s.freezing > 0) t -= FREEZING_MORALE_PENALTY;
+  if (pop <= housing) {
+    add('housing', '🛏️', 'Жильё с запасом', 10, `${housing - pop} свободных мест из ${housing}`);
+  } else {
+    const over = pop - housing;
+    add(
+      'crowding',
+      '🏚️',
+      'Теснота',
+      -Math.min(CROWDING_MAX, (CROWDING_PENALTY * over) / Math.max(1, housing)),
+      `${over} чел. сверх крыш — потолок штрафа −${CROWDING_MAX}`,
+    );
+  }
+
+  const eat = foodConsumptionPerDay(s);
+  const foodDays = s.resources.food / Math.max(1, eat);
+  if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -25, 'еды нет вовсе');
+  else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${foodDays.toFixed(1)} дн.`);
+  else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас меньше дня: ${foodDays.toFixed(1)}`);
+
+  for (const b of s.buildings) {
+    const v = buildingStat(b, 'morale');
+    const def = BUILDING_BY_ID[b.type];
+    add(`b-${b.id}`, def.icon, def.name, v, `уровень ${b.level}`);
+  }
+
+  const shamans = jobCounts(s).shaman;
+  add(
+    'shamans',
+    '🔮',
+    'Шаманы в святилище',
+    Math.min(SHAMAN_MORALE_CAP, shamans * SHAMAN_MORALE),
+    `${shamans} чел. по +${SHAMAN_MORALE}, потолок +${SHAMAN_MORALE_CAP}`,
+    true,
+  );
+
+  add(
+    'prestige',
+    '🏅',
+    'Слава племени',
+    Math.min(10, s.prestige / 5),
+    `${s.stats.battlesWon} побед · ${s.stats.battlesLost} поражений, слава ${Math.round(s.prestige)}`,
+  );
+
+  const season = seasonOf(s.time);
+  add('season', SEASON_META[season].icon, SEASON_META[season].name, seasonMods(s).morale, 'сезонный сдвиг');
+  if (s.freezing > 0) add('freezing', '🥶', 'Племя мёрзнет', -FREEZING_MORALE_PENALTY, 'дрова кончились');
+
+  const raw = lines.reduce((n, l) => n + l.value, MORALE_BASE);
+  const clamped = Math.min(100, raw);
   // Налог давит на мораль не медленным сползанием, а прямо: сползание племя
   // отыграло бы за минуту, а просадка держится ровно столько, сколько держат налог.
   // Вычитается он уже из приведённой к шкале величины — иначе в большом посёлке,
   // где мораль и так упёрлась в потолок, налог не стоил бы вообще ничего.
-  return Math.max(0, Math.min(100, t) - taxOf(s).moralePenalty);
+  const tax = taxOf(s).moralePenalty;
+  return { base: MORALE_BASE, lines, raw, clamped, tax, target: Math.max(0, clamped - tax) };
 }
+
+/** К какой морали стремится племя при текущих условиях. */
+export const moraleTarget = (s: GameState): number => moraleBreakdown(s).target;
 
 // ---------- Тревоги ----------
 

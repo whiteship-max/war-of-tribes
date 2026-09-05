@@ -7,10 +7,12 @@ import { BottomNav } from './ui/BottomNav';
 import { Sheet } from './ui/Sheet';
 import { EventModal } from './ui/EventModal';
 import { PeoplePanel } from './ui/panels/PeoplePanel';
-import { BuildPanel } from './ui/panels/BuildPanel';
 import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
+import { PopPanel } from './ui/panels/PopPanel';
+import { MoralePanel } from './ui/panels/MoralePanel';
+import { ArmyPanel } from './ui/panels/ArmyPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
@@ -32,12 +34,16 @@ function SheetContent({ view }: { view: SheetView }) {
   switch (view.tab) {
     case 'people':
       return <PeoplePanel />;
-    case 'build':
-      return <BuildPanel />;
     case 'quests':
       return <QuestsPanel />;
     case 'season':
       return <SeasonPanel />;
+    case 'pop':
+      return <PopPanel />;
+    case 'morale':
+      return <MoralePanel />;
+    case 'army':
+      return <ArmyPanel />;
   }
 }
 

@@ -51,7 +51,7 @@ const TOP_LEVEL_SCALE = 1 + 0.045 * (MAX_BUILDING_LEVEL - VISUAL_TIERS[1]);
 export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   campfire: 1.05,
   shelter: 2.3,
-  chief_house: 2.6,
+  town_hall: 2.6,
   hut: 2.95,
   storage: 3.2,
   gathering: 2.27,
@@ -103,11 +103,11 @@ const D = Math.PI / 180;
  * быть видно глазом в таблице, а не результат вычисления в трёх местах.
  */
 export const PLAN: Partial<Record<BuildingTypeId, Place>> = {
-  // Первое кольцо: власть, жильё и святилище. Дом вождя — прямо напротив
+  // Первое кольцо: власть, жильё и святилище. Ратуша — прямо напротив
   // ворот через площадь: его видно, едва войдёшь.
   shelter: { ring: 1, angle: 17.13 * D },
   totem: { ring: 1, angle: 89.13 * D },
-  chief_house: { ring: 1, angle: 233.13 * D },
+  town_hall: { ring: 1, angle: 233.13 * D },
   hut: { ring: 1, angle: 305.13 * D },
 
   // Второе кольцо: хозяйство. Рынок стоит ровно на воротах: главная улица идёт

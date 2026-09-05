@@ -5,7 +5,7 @@ import { buildingHousing, buildingSlots, buildingStat, levelOutputMult } from '@
 /**
  * Что именно даст следующий уровень — у склада и у лесопилки это разные вещи.
  * Прибавка считается разностью настоящих величин, а не берётся из `perLevel`:
- * у Дома вождя жильё появляется не с первого уровня.
+ * у ратуши жильё появляется не с первого уровня.
  */
 export function upgradeGain(s: GameState, b: Building, toLevel: number): string {
   const def = BUILDING_BY_ID[b.type];

@@ -1,17 +1,22 @@
 import type { Building, BuildingTypeId, GameState } from './types';
+import { TEST_GEMS } from './constants';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
+ * Версия 7 — Дом вождя стал Ратушей: у здания сменился идентификатор, и старое
+ * сохранение пришло бы с постройкой, которой в игре больше нет, — вместе с
+ * рабочими за ней и её местом на плане. Приводить это не к чему: партия
+ * начинается заново, и игроку об этом говорят прямо (LegacyModal).
  * Версия 6 — население стало числом: поимённых жителей с возрастом, полом и
  * талантом больше нет, а весь масштаб посёлка вырос на порядок. Сохранения
  * младших версий не приводятся: в них лежит список людей, которого в новой
  * модели просто некуда деть, — партия начинается заново, и игроку об этом
  * говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -44,6 +49,9 @@ export function createInitialState(): GameState {
     ration: 'normal',
     tax: 'none',
     gold: 320,
+    // Тестовый запас алмазов: он существует, чтобы можно было проверить трату,
+    // пока покупки нет. Начисляет алмазы одно место на всю игру — creditGems.
+    gems: TEST_GEMS,
     market: { day: 0, bought: {} },
     caravans: [],
     pop: START_POP,

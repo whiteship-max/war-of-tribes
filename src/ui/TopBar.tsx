@@ -16,7 +16,7 @@ const moraleIcon = (m: number): string => (m >= 70 ? '😊' : m >= 40 ? '😐' :
 /**
  * Верхняя строка состояния. Ресурсов здесь нет: их полный список живёт на складе,
  * а цену стройки видно рядом с самой стройкой. Списка построек здесь тоже нет —
- * он целиком уехал в раздел «Здания» внизу.
+ * он целиком уехал в ратушу, на вкладку «Стройка».
  *
  * Справа — дружина: армия теперь центр игры, и её численность видна всегда.
  *
@@ -61,22 +61,34 @@ export function TopBar() {
           </span>
         </button>
         <span className="sep" />
-        <span className={`cell${pop > housing ? ' warn' : ''}`} title="Население и вместимость жилья">
+        <button
+          className={`cell tap${pop > housing ? ' warn' : ''}${tab === 'pop' ? ' active' : ''}`}
+          onClick={() => openTab('pop')}
+          title="Население и жильё. Нажми, чтобы увидеть, как считается прирост."
+        >
           <span className="ic">👥</span>
           <b>{pop}</b>
           <i>/{housing}</i>
-        </span>
+        </button>
         <span className="sep" />
-        <span className={`cell${morale < 35 ? ' warn' : ''}`} title="Мораль племени">
+        <button
+          className={`cell tap${morale < 35 ? ' warn' : ''}${tab === 'morale' ? ' active' : ''}`}
+          onClick={() => openTab('morale')}
+          title="Мораль племени. Нажми, чтобы увидеть, что её поднимает и что тянет вниз."
+        >
           <span className="ic">{moraleIcon(morale)}</span>
           <b>{morale}</b>
-        </span>
+        </button>
         <span className="sep" />
-        <span className="cell army" title="Дружина: бойцов в посёлке и в походе">
+        <button
+          className={`cell tap army${tab === 'army' ? ' active' : ''}`}
+          onClick={() => openTab('army')}
+          title="Дружина. Нажми, чтобы увидеть состав, кольцо контрров и карточки войск."
+        >
           <span className="ic">⚔️</span>
           <b>{army}</b>
           <i>дружина</i>
-        </span>
+        </button>
       </div>
 
       <button className="map-btn" data-tut="nav-map" onClick={openMap} title="Карта мира: соседи, походы, разведка">

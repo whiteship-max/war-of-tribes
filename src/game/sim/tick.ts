@@ -118,7 +118,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   const speed = (dt / 20) * (s.freezing > 0 ? 2 : 1); // ~20 сек до заметного сдвига
   s.morale += (target - s.morale) * Math.min(1, speed);
   // Указ и рацион двигают мораль не целью, а прямо: ровно столько в игровой день,
-  // сколько написано на кнопке в Доме вождя.
+  // сколько написано на кнопке в ратуше.
   const drift = (policyMoralePerDay(s) * dt) / DAY_LENGTH;
   if (drift !== 0) s.morale = Math.max(0, Math.min(100, s.morale + drift));
 

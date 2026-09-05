@@ -79,7 +79,7 @@ function build(s: GameState): void {
   const cap = housingCapacity(s);
   // Жильё — узкое место: пока селить некуда, племя стоит.
   if (s.pop >= cap - 20) {
-    for (const t of ['hut', 'chief_house'] as BuildingTypeId[]) {
+    for (const t of ['hut', 'town_hall'] as BuildingTypeId[]) {
       const b = buildingOfType(s, t)!;
       if (startUpgrade(s, b.id) === null) return;
     }
