@@ -46,7 +46,7 @@ function warband(pop = 40): GameState {
   s.freeJobs = {};
   place(s, 'barracks', 2);
   place(s, 'smithy', 2);
-  place(s, 'hut', 4);
+  place(s, 'houses', 4);
   for (const r of RESOURCE_IDS) s.resources[r] = 2000;
   // Награды за задания посыпались бы в первый же тик и подменили собой запас,
   // а проверяем мы именно запас — поэтому задания считаем уже закрытыми.

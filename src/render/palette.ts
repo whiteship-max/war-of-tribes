@@ -126,7 +126,7 @@ export const JOB_TINT: Record<JobId, number> = {
   herder: 0xa8b06a,
   crafter: 0x5f7ea6,
   smith: 0x8a6a4a,
-  shaman: 0x7a4fa0,
+  priest: 0x7a4fa0,
 };
 
 /** Одежда бойцов по виду: чем выше в лестнице, тем ближе к металлу. */

@@ -279,16 +279,16 @@ export const EVENTS: EventDef[] = [
     weight: (s) => (s.pop >= 12 ? 1.5 : 0),
     options: [
       {
-        label: 'Ритуал шамана',
-        hint: 'Нужен шаман',
+        label: 'Молебен жрецов',
+        hint: 'Нужен жрец',
         apply: (s) => {
-          if (jobCounts(s).shaman > 0) {
+          if (jobCounts(s).priest > 0) {
             s.morale = Math.min(100, s.morale + 4);
             return 'Шаманы обошли дворы. Хворь отступила, племя воодушевлено.';
           }
           if (chance(0.5)) {
             const n = killPop(s, crowd(s, 0.04, 3), 'мор');
-            return `Без шамана обряда не вышло. Мор унёс ${people(n)}.`;
+            return `Без жреца обряда не вышло. Мор унёс ${people(n)}.`;
           }
           return 'Обряда не было, но хворь ушла сама.';
         },
@@ -390,27 +390,27 @@ export const EVENTS: EventDef[] = [
     id: 'fire',
     icon: '🔥',
     title: 'Пожар',
-    text: 'Искра от костра попала на крышу хижины!',
-    weight: (s) => ((buildingOfType(s, 'hut')?.level ?? 0) >= 2 ? 1 : 0),
+    text: 'Искра от костра попала на крышу одного из дворов!',
+    weight: (s) => ((buildingOfType(s, 'houses')?.level ?? 0) >= 2 ? 1 : 0),
     options: [
       {
         label: 'Тушить всем племенем',
-        hint: (s) => `−${amount(s, 10)} еды, хижина цела`,
+        hint: (s) => `−${amount(s, 10)} еды, дворы целы`,
         apply: (s) => {
           addRes(s, 'food', -amount(s, 10));
-          return 'Хижину спасли. Все устали, но довольны.';
+          return 'Двор отстояли. Все устали, но довольны.';
         },
       },
       {
         label: 'Спасать вещи',
-        hint: 'Хижина потеряет уровень',
+        hint: 'Жилища потеряют уровень',
         apply: (s) => {
-          // Хижина в посёлке одна: сносить её целиком — значит отнять всё жильё разом.
-          // Огонь съедает пристройку, то есть один уровень.
-          const hut = buildingOfType(s, 'hut');
-          if (hut && hut.level > 1) hut.level -= 1;
+          // Жилища в посёлке одни: сносить их целиком — значит отнять всё жильё разом.
+          // Огонь съедает улицу дворов, то есть один уровень.
+          const houses = buildingOfType(s, 'houses');
+          if (houses && houses.level > 1) houses.level -= 1;
           addRes(s, 'wood', amount(s, 5));
-          return 'Пристройка сгорела вместе с жильём под ней. Удалось спасти немного древесины.';
+          return 'Крайние дворы выгорели дотла. Удалось спасти немного древесины.';
         },
       },
     ],

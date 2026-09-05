@@ -117,7 +117,7 @@ describe('симуляция', () => {
     const pop0 = s.pop;
     s.resources.food = 3000;
     s.morale = 90;
-    place(s, 'hut', 3);
+    place(s, 'houses', 3);
     catchUp(s, 4 * DAY_LENGTH, 1);
     expect(s.pop).toBeGreaterThan(pop0);
   });
@@ -125,7 +125,7 @@ describe('симуляция', () => {
   it('при низкой морали племя не растёт, а разбегается', () => {
     const s = createInitialState();
     s.resources.food = 3000;
-    place(s, 'hut', 3);
+    place(s, 'houses', 3);
     s.morale = 10;
     // Мораль держим низкой нарочно: проверяем именно её вклад в прирост.
     const pop0 = s.pop;
@@ -338,12 +338,12 @@ describe('здания', () => {
     const s = createInitialState();
     s.resources.wood = 40000;
     s.resources.stone = 40000;
-    const hut = place(s, 'hut', 1);
+    const houses = place(s, 'houses', 1);
     const housing0 = housingCapacity(s);
-    expect(startUpgrade(s, hut.id)).toBeNull();
+    expect(startUpgrade(s, houses.id)).toBeNull();
     catchUp(s, 1200, 1);
-    expect(hut.level).toBe(2);
-    expect(housingCapacity(s) - housing0).toBe(BUILDING_BY_ID.hut.perLevel?.housing);
+    expect(houses.level).toBe(2);
+    expect(housingCapacity(s) - housing0).toBe(BUILDING_BY_ID.houses.perLevel?.housing);
 
     const store = buildingOfType(s, 'storage')!;
     const cap0 = storageCap(s);
@@ -364,7 +364,7 @@ describe('здания', () => {
     const housing = housingCapacity(s);
     expect(housing).toBeGreaterThanOrEqual(600);
     expect(housing).toBeLessThanOrEqual(1000);
-    expect(maxLevelFor('hut')).toBe(MAX_BUILDING_LEVEL);
+    expect(maxLevelFor('houses')).toBe(MAX_BUILDING_LEVEL);
 
     // Пять зданий добычи можно укомплектовать целиком — это и есть рабочее ядро посёлка.
     const core: BuildingTypeId[] = ['gathering', 'sawmill', 'quarry', 'hunter_hut', 'farm'];
@@ -406,7 +406,7 @@ describe('прирост населения', () => {
   const growing = (morale: number): GameState => {
     const s = createInitialState();
     s.tutorialDone = true;
-    place(s, 'hut', 6);
+    place(s, 'houses', 6);
     s.resources.food = 20000;
     s.morale = morale;
     return s;
@@ -509,7 +509,7 @@ function tribe(pop: number, food: number, wood: number): GameState {
   s.pop = pop;
   idleAll(s);
   // Каждого типа по одному: жильё и склад набирают своё уровнями, а не числом срубов.
-  place(s, 'hut', Math.max(1, Math.ceil((pop - 55) / 60) + 1));
+  place(s, 'houses', Math.max(1, Math.ceil((pop - 55) / 60) + 1));
   place(s, 'storage', 2);
   place(s, 'farm', 4);
   place(s, 'gathering', 1);
@@ -565,8 +565,8 @@ function nextSite(s: GameState): void {
   if (s.buildings.some(isSite)) return;
   // Жильё — узкое место: пока селить некуда, племя не растёт.
   if (s.pop >= housingCapacity(s) - 1) {
-    const hut = buildingOfType(s, 'hut')!;
-    if (startUpgrade(s, hut.id) === null) return;
+    const houses = buildingOfType(s, 'houses')!;
+    if (startUpgrade(s, houses.id) === null) return;
   }
   // Что-то упёрлось в потолок склада — поднимаем вместимость.
   const cap = storageCap(s);
@@ -683,7 +683,7 @@ describe('сезоны', () => {
     play(s, YEAR_DAYS * 3);
     expect(s.pop).toBeGreaterThanOrEqual(60);
     // Развитие идёт уровнями: хижина одна, но выросшая.
-    expect(buildingOfType(s, 'hut')!.level).toBeGreaterThanOrEqual(2);
+    expect(buildingOfType(s, 'houses')!.level).toBeGreaterThanOrEqual(2);
     expect(s.buildings.filter((b) => b.type === 'sawmill')).toHaveLength(1);
     expect(s.stats.born).toBeGreaterThan(s.stats.died);
   });
@@ -731,7 +731,7 @@ function fireEvent(s: GameState, id: string, option: number): string {
 function village(pop: number): GameState {
   const s = createInitialState();
   s.tutorialDone = true;
-  place(s, 'hut', MAX_BUILDING_LEVEL);
+  place(s, 'houses', MAX_BUILDING_LEVEL);
   place(s, 'storage', MAX_BUILDING_LEVEL);
   s.pop = pop;
   for (const r of RESOURCE_IDS) s.resources[r] = 5000;

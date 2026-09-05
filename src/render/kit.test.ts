@@ -52,23 +52,26 @@ function expectColored(root: THREE.Object3D, label: string): void {
 }
 
 describe('набор деталей', () => {
-  it('хижина из набора — один меш на всех ступенях', () => {
+  it('жилища из набора — один меш на всех ступенях', () => {
     for (const tier of [0, 1, 2] as Tier[]) {
-      const g = createBuildingGroup('hut', tier);
-      expect(meshes(g).length, `hut ступень ${tier}`).toBe(1);
+      const g = createBuildingGroup('houses', tier);
+      expect(meshes(g).length, `houses ступень ${tier}`).toBe(1);
       const mats = meshes(g)[0].material as THREE.Material[];
       // Тело + кровля (+ отделка): не больше четырёх вызовов отрисовки.
-      expect(mats.length, `hut ступень ${tier}: слишком много материалов`).toBeLessThanOrEqual(4);
+      expect(mats.length, `houses ступень ${tier}: слишком много материалов`).toBeLessThanOrEqual(4);
     }
   });
 
-  it('ступени хижины растут вширь и ввысь и держатся в габарите плана', () => {
-    const e = [0, 1, 2].map((t) => extent(createBuildingGroup('hut', t as Tier)));
+  // Жилища — улица дворов: ступень добавляет двор и растит главный дом. Поэтому
+  // ширина скачком растёт на первой ступени (двор → три двора) и добавляет
+  // немного на второй, а высота идёт ровным шагом за главным домом.
+  it('ступени жилищ растут вширь и ввысь и держатся в габарите плана', () => {
+    const e = [0, 1, 2].map((t) => extent(createBuildingGroup('houses', t as Tier)));
     expect(e[1].radius).toBeGreaterThan(e[0].radius * 1.4);
     expect(e[2].radius).toBeGreaterThan(e[1].radius * 1.0);
     expect(e[1].height).toBeGreaterThan(e[0].height * 1.1);
     expect(e[2].height).toBeGreaterThan(e[1].height * 1.1);
-    expect(e[2].radius).toBeLessThanOrEqual(MODEL_RADIUS.hut);
+    expect(e[2].radius).toBeLessThanOrEqual(MODEL_RADIUS.houses);
   });
 
   it('у каждого меша с vertexColors есть цвет вершин: здания, посёлок, ландшафт', () => {

@@ -10,6 +10,13 @@ export interface BuildingStats {
   defense?: number;
   /** Постоянный бонус к морали. */
   morale?: number;
+  /**
+   * Сколько ополченцев выходит стрелками, а не пехотой. Это и есть работа башни:
+   * частокол даёт плоскую оборону, башня — стрелков на ней. Число не добавляет
+   * людей, а переводит часть уже посчитанного ополчения в другой род боя
+   * (см. world/bridge.militiaArchers).
+   */
+  archers?: number;
 }
 
 export interface BuildingDef extends BuildingStats {
@@ -28,7 +35,7 @@ export interface BuildingDef extends BuildingStats {
   job?: JobId;
   /**
    * Рабочих мест за уровень. По умолчанию `SLOTS_PER_LEVEL`. Своё число нужно
-   * там, где толпа бессмысленна: у горна, у верстака и у тотема людей помещается
+   * там, где толпа бессмысленна: у горна, у верстака и в церкви людей помещается
    * заметно меньше, чем на поле или в лесу.
    */
   slotsPerLevel?: number;
@@ -66,16 +73,6 @@ export const BUILDINGS: BuildingDef[] = [
     maxLevel: 1,
   },
   {
-    id: 'shelter',
-    name: 'Укрытие',
-    icon: '⛺',
-    description: 'Навесы для пришлых и подмастерьев: кто ещё не заслужил места под крышей.',
-    cost: {},
-    work: 0,
-    housing: 25,
-    maxLevel: 1,
-  },
-  {
     id: 'chief_house',
     name: 'Дом вождя',
     icon: '👑',
@@ -88,13 +85,15 @@ export const BUILDINGS: BuildingDef[] = [
     since: { housing: 6 },
   },
   {
-    id: 'hut',
-    name: 'Хижина',
-    icon: '🏠',
-    description: 'Единственное настоящее жильё племени. Каждый уровень — ещё шесть десятков мест под крышей.',
+    id: 'houses',
+    name: 'Жилища',
+    icon: '🏘️',
+    description: 'Дворы племени: не один дом, а улица домов. Каждый уровень — ещё шесть десятков мест под крышей.',
     cost: { wood: 182, stone: 42 },
     work: 364,
-    housing: 20,
+    // Сюда же ушли двадцать пять мест бывшего укрытия: плоская прибавка без
+    // цены и без уровня была подпоркой старого племенного старта.
+    housing: 45,
     perLevel: { housing: 60 },
   },
   {
@@ -166,7 +165,7 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'farm',
     name: 'Ферма',
     icon: '🌾',
-    description: 'Поле под ячмень. Каждый уровень — новая полоса и десяток рук на ней.',
+    description: 'Поле под ячмень. Каждый уровень — новая полоса и дюжина рук на ней.',
     cost: { wood: 364, stone: 63 },
     work: 728,
     job: 'farmer',
@@ -181,36 +180,37 @@ export const BUILDINGS: BuildingDef[] = [
     job: 'herder',
   },
   {
-    id: 'totem',
-    name: 'Тотем',
-    icon: '🗿',
-    description: 'Святилище племени. Мораль +8, место шаманов.',
+    id: 'church',
+    name: 'Церковь',
+    icon: '⛪',
+    description: 'Главный дом духа племени: здесь служат жрецы и здесь раз и навсегда выбирают покровителя.',
     cost: { wood: 238, bones: 119 },
     work: 490,
     morale: 8,
     perLevel: { morale: 2 },
-    job: 'shaman',
+    job: 'priest',
     slotsPerLevel: 2,
   },
   {
     id: 'palisade',
     name: 'Частокол',
     icon: '🧱',
-    description: 'Стена вокруг поселения. Защита +6, и растёт с каждым уровнем. С четвёртого уровня стена каменная.',
+    description: 'Кольцо укреплений. Даёт посёлку плоскую оборону и выводит в поле ополчение. С четвёртого уровня стена каменная.',
     cost: { wood: 840, stone: 168 },
     work: 1092,
-    defense: 30,
-    perLevel: { defense: 15 },
+    defense: 40,
+    perLevel: { defense: 24 },
   },
   {
     id: 'tower',
     name: 'Башня',
     icon: '🗼',
-    description: 'Дозорная вышка сбоку от ворот. Защита +4, и растёт с каждым уровнем.',
+    description: 'Вышка над воротами. Обороны даёт мало, зато ставит часть ополчения стрелками: с неё бьют, а не машут дубиной.',
     cost: { wood: 476, stone: 364 },
     work: 854,
-    defense: 20,
-    perLevel: { defense: 15 },
+    defense: 10,
+    archers: 6,
+    perLevel: { defense: 5, archers: 6 },
   },
   {
     id: 'smithy',

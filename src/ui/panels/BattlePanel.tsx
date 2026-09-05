@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, defenseLock, worldNow } from '@/world/store';
 import { defense, homeArmy, soldierPower } from '@/game/derived';
-import { homeTroops, militiaMen } from '@/world/bridge';
+import { homeTroops, militiaArchers, militiaMen } from '@/world/bridge';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
 import { CASTLE_ICON, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
@@ -255,8 +255,15 @@ export function BattlePanel({ targetId }: Props) {
           <div className="mod total">
             <span className="ico">🪵</span>
             <span className="name">Ополчение (частокол и жители)</span>
-            <span className="val">{militiaMen(s)}</span>
+            <span className="val">{militiaMen(s) - militiaArchers(s)}</span>
           </div>
+          {militiaArchers(s) > 0 && (
+            <div className="mod total">
+              <span className="ico">🏹</span>
+              <span className="name">Стрелки на башне</span>
+              <span className="val">{militiaArchers(s)}</span>
+            </div>
+          )}
         </div>
       )}
 

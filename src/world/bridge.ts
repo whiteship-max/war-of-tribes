@@ -6,7 +6,7 @@
 import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
 import { TROOP_IDS } from '@/game/data/troops';
-import { defense, homeArmyPower, soldierPower } from '@/game/derived';
+import { buildingOfType, buildingStat, defense, homeArmyPower, soldierPower } from '@/game/derived';
 import { BATTLE_MAN, type TroopStack } from '@/game/battle/kinds';
 import { clampFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
 import { troopTotal } from '@/game/battle/kinds';
@@ -44,6 +44,18 @@ export function homeTroops(s: GameState): TroopStack {
 export const militiaMen = (s: GameState): number =>
   Math.max(0, Math.round((defense(s) - homeArmyPower(s)) / BATTLE_MAN));
 
+/**
+ * Сколько ополченцев выходит стрелками, а не пехотой. Это и есть работа башни:
+ * людей она не добавляет — их уже посчитал `militiaMen` по общей обороне, — а
+ * ставит часть из них на стену с луком. Частокол остаётся плоской обороной,
+ * поэтому между двумя укреплениями появляется выбор, а не разница в цене.
+ */
+export const militiaArchers = (s: GameState): number => {
+  const tower = buildingOfType(s, 'tower');
+  if (!tower) return 0;
+  return Math.min(militiaMen(s), Math.max(0, Math.round(buildingStat(tower, 'archers'))));
+};
+
 /** Слепок деревни для мира. Считается заново перед каждым обращением. */
 export function playerProfile(s: GameState): PlayerProfile {
   const units = sendableUnits(s);
@@ -56,7 +68,8 @@ export function playerProfile(s: GameState): PlayerProfile {
   if (s.defenseFormation) {
     const { formation, extra } = clampFormation(s.defenseFormation, army);
     const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
-    defenseSetup = toArmySetup(fitted, militiaMen(s));
+    const archers = militiaArchers(s);
+    defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers);
   }
   return {
     name: 'Наше племя',
@@ -68,6 +81,7 @@ export function playerProfile(s: GameState): PlayerProfile {
     units: { warrior: units.warrior, scout: units.scout },
     army,
     militia: militiaMen(s),
+    militiaArchers: militiaArchers(s),
     defenseSetup,
     // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     resources,

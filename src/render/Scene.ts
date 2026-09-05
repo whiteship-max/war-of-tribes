@@ -111,13 +111,12 @@ function markerTexture(kind: Attention): THREE.Texture {
 /** Высота маркера над зданием: высокие постройки не должны его прятать. */
 const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
   tower: 3.8,
-  totem: 3.2,
-  hut: 3.0,
+  church: 3.6,
+  houses: 2.6,
   smithy: 2.8,
   mine: 2.6,
   market: 2.2,
   campfire: 1.8,
-  shelter: 1.7,
 };
 
 /**

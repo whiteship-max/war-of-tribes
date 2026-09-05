@@ -44,13 +44,12 @@ export type JobId =
   | 'herder'
   | 'crafter'
   | 'smith'
-  | 'shaman';
+  | 'priest';
 
 export type BuildingTypeId =
   | 'campfire'
-  | 'shelter'
   | 'chief_house'
-  | 'hut'
+  | 'houses'
   | 'storage'
   | 'gathering'
   | 'sawmill'
@@ -60,14 +59,19 @@ export type BuildingTypeId =
   | 'workshop'
   | 'farm'
   | 'pen'
-  | 'totem'
+  | 'church'
   | 'palisade'
   | 'tower'
   | 'smithy'
   | 'barracks'
   | 'market';
 
-export type TotemId = 'wolf' | 'bear' | 'eagle';
+/**
+ * Покровитель племени: одноразовый выбор в церкви. Раньше это назывался тотем —
+ * имя сменилось вместе со зданием, развилка осталась той же и по-прежнему
+ * необратима (см. sim/actions.choosePatron).
+ */
+export type PatronId = 'wolf' | 'bear' | 'eagle';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 
@@ -207,7 +211,7 @@ export interface GameState {
   nextEventAt: number;
   morale: number; // 0..100
   prestige: number;
-  totem: TotemId | null;
+  patron: PatronId | null;
   starvation: number; // накопленное время голода, сек
   freezing: number; // накопленное время зимы без дров, сек
   /** Год, за который уже показали предупреждение о зиме (0 — ещё не показывали). */

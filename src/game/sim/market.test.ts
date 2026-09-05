@@ -63,7 +63,7 @@ function city(pop = 700, marketLevel = MAX_BUILDING_LEVEL): GameState {
   s.workers = {};
   s.freeJobs = {};
   for (const type of [
-    'hut',
+    'houses',
     'storage',
     'gathering',
     'sawmill',
@@ -73,7 +73,7 @@ function city(pop = 700, marketLevel = MAX_BUILDING_LEVEL): GameState {
     'workshop',
     'farm',
     'pen',
-    'totem',
+    'church',
     'chief_house',
     'smithy',
     'barracks',
@@ -100,7 +100,7 @@ function hungryTribe(): GameState {
   s.pop = 240;
   s.workers = {};
   s.freeJobs = {};
-  for (const type of ['hut', 'storage', 'sawmill', 'quarry', 'mine', 'chief_house'] as const) {
+  for (const type of ['houses', 'storage', 'sawmill', 'quarry', 'mine', 'chief_house'] as const) {
     place(s, type, 5);
   }
   // Единственный источник еды — маленький навес собирателей: поле, загон и

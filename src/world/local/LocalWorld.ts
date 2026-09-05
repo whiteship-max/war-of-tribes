@@ -580,11 +580,15 @@ export class LocalWorld implements WorldApi {
     const profile = this.save.profile;
     const party = raidingParty(this.save.seed, m.id, m.power);
     // Гарнизон дома: бойцы племени плюс ополчение — частокол, башня и сами жители.
-    // Ополчение в расстановке не участвует, оно растекается по фронту само.
+    // Ополчение в расстановке не участвует: пехота растекается по фронту сама,
+    // а стрелков башни ставит во вторую линию `toArmySetup`.
     const home = profile?.army ?? {};
     const militia = Math.max(0, Math.round(profile?.militia ?? 0));
+    // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род.
+    const archers = Math.min(militia, Math.max(0, Math.round(profile?.militiaArchers ?? 0)));
     const homeKinds = kindsOf(home);
-    homeKinds.infantry += militia;
+    homeKinds.infantry += militia - archers;
+    homeKinds.archer += archers;
     // Оборона, запертая за пять минут до прихода: менять её было уже нельзя.
     const frozen = this.save.frozenDefense;
     const setup = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);

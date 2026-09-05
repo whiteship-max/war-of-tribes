@@ -161,7 +161,7 @@ export function presetFormation(troops: TroopStack, preset: QuickPresetId): Form
  * род: если бы каждый сектор округлялся сам, отряд из пяти лучников то прибывал,
  * то убывал на человека при перекладывании между секторами.
  */
-export function toArmySetup(f: Formation, militia = 0): ArmySetup {
+export function toArmySetup(f: Formation, militia = 0, militiaArchers = 0): ArmySetup {
   const sectors = Object.fromEntries(SECTORS.map((id) => [id, emptyStack()])) as Record<Sector, Stack>;
   for (const k of UNIT_KINDS) {
     const raw = SECTORS.map((id) =>
@@ -180,6 +180,13 @@ export function toArmySetup(f: Formation, militia = 0): ArmySetup {
     sectors.A.infantry += parts[0];
     sectors.B.infantry += parts[1];
     sectors.C.infantry += parts[2];
+  }
+  if (militiaArchers > 0) {
+    // Стрелки с башни стоят во второй линии: оттуда и бьют, пока держится фронт.
+    const parts = share(Math.round(militiaArchers), [1, 1, 1]);
+    sectors.D.archer += parts[0];
+    sectors.E.archer += parts[1];
+    sectors.F.archer += parts[2];
   }
   const gear = gearOf(placedTroops(f));
   return { sectors, plan: f.plan, orders: { ...f.orders }, reserve: { ...f.reserve }, gear };

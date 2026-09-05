@@ -94,12 +94,12 @@ export const JOBS: JobDef[] = [
     building: 'smithy',
   },
   {
-    id: 'shaman',
-    name: 'Шаман',
-    icon: '🔮',
-    description: 'Проводит ритуалы у тотема и поддерживает мораль.',
+    id: 'priest',
+    name: 'Жрец',
+    icon: '🕯️',
+    description: 'Служит в церкви и поддерживает дух племени.',
     yield: {},
-    building: 'totem',
+    building: 'church',
   },
 ];
 

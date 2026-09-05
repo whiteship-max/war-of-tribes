@@ -54,7 +54,7 @@ export const WORK_SIGN: Partial<Record<BuildingTypeId, Sign>> = {
   workshop: { load: 'log' },
   farm: { load: 'sack' },
   pen: { load: 'sack' },
-  totem: { smoke: true },
+  church: { smoke: true },
   smithy: { load: 'stone', smoke: true, glow: true },
   storage: { load: 'sack' },
 };

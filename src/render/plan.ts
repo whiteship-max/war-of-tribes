@@ -50,9 +50,8 @@ const TOP_LEVEL_SCALE = 1 + 0.045 * (MAX_BUILDING_LEVEL - VISUAL_TIERS[1]);
  */
 export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   campfire: 1.05,
-  shelter: 2.3,
   chief_house: 2.6,
-  hut: 2.95,
+  houses: 2.6,
   storage: 3.2,
   gathering: 2.27,
   sawmill: 2.47,
@@ -62,7 +61,7 @@ export const MODEL_RADIUS: Record<BuildingTypeId, number> = {
   workshop: 3.15,
   farm: 2.95,
   pen: 2.96,
-  totem: 2.0,
+  church: 2.8,
   smithy: 3.48,
   barracks: 3.3,
   market: 3.55,
@@ -80,7 +79,7 @@ const PLOT_MARGIN = 0.22;
  * Стартовые здания уровней не набирают, им хватает своей ступени.
  */
 export function plotRadius(type: BuildingTypeId): number {
-  const flat = type === 'campfire' || type === 'shelter';
+  const flat = type === 'campfire';
   return MODEL_RADIUS[type] * PLAN_SCALE * (flat ? 1 : TOP_LEVEL_SCALE) + PLOT_MARGIN;
 }
 
@@ -103,12 +102,11 @@ const D = Math.PI / 180;
  * быть видно глазом в таблице, а не результат вычисления в трёх местах.
  */
 export const PLAN: Partial<Record<BuildingTypeId, Place>> = {
-  // Первое кольцо: власть, жильё и святилище. Дом вождя — прямо напротив
+  // Первое кольцо: власть, жильё и церковь. Дом вождя — прямо напротив
   // ворот через площадь: его видно, едва войдёшь.
-  shelter: { ring: 1, angle: 17.13 * D },
-  totem: { ring: 1, angle: 89.13 * D },
+  church: { ring: 1, angle: 89.13 * D },
   chief_house: { ring: 1, angle: 233.13 * D },
-  hut: { ring: 1, angle: 305.13 * D },
+  houses: { ring: 1, angle: 305.13 * D },
 
   // Второе кольцо: хозяйство. Рынок стоит ровно на воротах: главная улица идёт
   // сквозь его ряды, как через привратную площадь настоящего города. Отвода

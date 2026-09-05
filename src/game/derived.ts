@@ -26,8 +26,8 @@ import {
   MORALE_BASE,
   RECRUIT_WORK,
   RESOURCE_IDS,
-  SHAMAN_MORALE,
-  SHAMAN_MORALE_CAP,
+  PRIEST_MORALE,
+  PRIEST_MORALE_CAP,
   SLOTS_PER_LEVEL,
   SMITH_WORK,
   SOLDIER_FOOD,
@@ -359,7 +359,7 @@ export function defense(s: GameState): number {
   let d = homeArmyPower(s);
   for (const b of s.buildings) d += buildingStat(b, 'defense');
   d += BASE_DEFENSE;
-  if (s.totem === 'bear') d += 2;
+  if (s.patron === 'bear') d += 2;
   // Любой житель может отбиваться дубиной, но слабо.
   d += Math.max(0, s.pop - Math.max(0, s.scoutsAway)) * VILLAGER_DEFENSE;
   return d;
@@ -422,11 +422,11 @@ export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
 
 // ---------- Производство ----------
 
-/** Множитель производительности профессии с учётом тотема, сезона и указа. */
+/** Множитель производительности профессии с учётом покровителя, сезона и указа. */
 export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = seasonMods(s)): number {
   let m = mods.jobs[job] ?? 1;
-  if (job === 'hunter' && s.totem === 'wolf') m *= 1.15;
-  if (job === 'farmer' && s.totem === 'eagle') m *= 1.1;
+  if (job === 'hunter' && s.patron === 'wolf') m *= 1.15;
+  if (job === 'farmer' && s.patron === 'eagle') m *= 1.1;
   // Мораль: от 0.7 при нуле до 1.15 при сотне.
   m *= 0.7 + (s.morale / 100) * 0.45;
   // Указ вождя действует на всю выработку разом — ровно на объявленную величину.
@@ -670,7 +670,7 @@ export function moraleTarget(s: GameState): number {
   else if (foodDays >= 3) t += 10;
   else if (foodDays < 1) t -= 8;
   for (const b of s.buildings) t += buildingStat(b, 'morale');
-  t += Math.min(SHAMAN_MORALE_CAP, jobCounts(s).shaman * SHAMAN_MORALE);
+  t += Math.min(PRIEST_MORALE_CAP, jobCounts(s).priest * PRIEST_MORALE);
   t += Math.min(10, s.prestige / 5);
   t += seasonMods(s).morale;
   if (s.freezing > 0) t -= FREEZING_MORALE_PENALTY;

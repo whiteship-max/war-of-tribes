@@ -27,7 +27,7 @@ import {
   workerCount,
   workerMultiplier,
 } from '@/game/derived';
-import { assignWorker, cancelUpgrade, changeFreeJob, chooseTotem, startUpgrade, unassignWorker } from '@/game/sim/actions';
+import { assignWorker, cancelUpgrade, changeFreeJob, choosePatron, startUpgrade, unassignWorker } from '@/game/sim/actions';
 import { Cost } from '../parts/Cost';
 import { ChiefHouse } from '../parts/ChiefHouse';
 import { Smithy } from '../parts/Smithy';
@@ -439,16 +439,17 @@ function GenericData({ b }: { b: Building }) {
         </>
       )}
 
-      {b.type === 'totem' && !s.totem && (
+      {b.type === 'church' && !s.patron && (
         <>
-          <h3>Выбери символ племени</h3>
+          <h3>Выбери покровителя племени</h3>
+          <div className="note">Выбирают один раз и навсегда: сменить покровителя нельзя ни за какие деньги.</div>
           <div className="totem-row">
             {[
               { id: 'wolf' as const, icon: '🐺', name: 'Волк', bonus: 'Охота +15%' },
               { id: 'bear' as const, icon: '🐻', name: 'Медведь', bonus: 'Защита +2' },
               { id: 'eagle' as const, icon: '🦅', name: 'Орёл', bonus: 'Фермы +10%' },
             ].map((t) => (
-              <button key={t.id} onClick={() => act((st) => chooseTotem(st, t.id))}>
+              <button key={t.id} onClick={() => act((st) => choosePatron(st, t.id))}>
                 <span className="ico">{t.icon}</span>
                 <b>{t.name}</b>
                 <span style={{ color: 'var(--muted)' }}>{t.bonus}</span>
