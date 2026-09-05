@@ -583,7 +583,8 @@ export class TribeScene {
       this.agents.delete(id);
     }
     while (this.agents.size < shown) {
-      const agent = new VillagerAgent();
+      // Покрои идут по кругу: три вида одежды, и толпа у костра разношёрстная.
+      const agent = new VillagerAgent(this.nextAgentId);
       this.agents.set(this.nextAgentId++, agent);
       this.figures.add(agent.figure);
     }
@@ -735,7 +736,7 @@ export class TribeScene {
     const night = solar > 0.58 && solar < 0.97;
     for (const a of this.agents.values()) {
       a.night = night;
-      a.update(dt);
+      a.update(dt, t);
     }
     this.signs.update(t);
     // Дружина несёт службу и ночью: у ворот всегда кто-то стоит.

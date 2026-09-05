@@ -11,13 +11,16 @@
 // показывают сами здания (worksigns.ts).
 //
 // Поимённых жителей в игре нет — население это число, — поэтому и фигурка ничья:
-// агент знает только своё место у огня. Показывается их не больше `MAX_VILLAGERS`:
-// при населении в сотни толпу всё равно не сосчитать, а счёт — весь смысл площади.
+// агент знает только своё место у огня и свой покрой одежды (units.ts). Покроев
+// три, и берутся они по кругу: толпа у костра не должна выглядеть штампованной.
+// Показывается их не больше `MAX_VILLAGERS`: при населении в сотни толпу всё равно
+// не сосчитать, а счёт — весь смысл площади.
 import * as THREE from 'three';
 import type { GameState } from '@/game/types';
 import { idleCount } from '@/game/derived';
 import { Figure } from './figures';
-import { JOB_TINT, PALETTE } from './palette';
+import { poseFigure } from './poses';
+import { dressVillager } from './units';
 
 const SPEED = 1.0;
 
@@ -40,15 +43,12 @@ export class VillagerAgent {
   readonly figure = new Figure();
   private timer = 1 + Math.random() * 3;
   private target = new THREE.Vector3();
-  private walkPhase = Math.random() * 10;
   night = false;
 
-  constructor() {
+  /** `kind` — покрой одежды: жителей различает только вид, ролей у них нет. */
+  constructor(kind: number) {
     const f = this.figure;
-    f.colors.stick.setHex(PALETTE.stake);
-    // Свободный житель одет как свободный: у костра других не бывает.
-    f.colors.torso.setHex(JOB_TINT.idle);
-    f.stick = null;
+    dressVillager(f, kind);
     const a = Math.random() * Math.PI * 2;
     const r = HOME_MIN + Math.random() * (HOME_MAX - HOME_MIN);
     f.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
@@ -61,7 +61,7 @@ export class VillagerAgent {
     this.target.set(Math.cos(a) * r, 0, Math.sin(a) * r);
   }
 
-  update(dt: number): void {
+  update(dt: number, t: number): void {
     const f = this.figure;
     const p = f.position;
     const dx = this.target.x - p.x;
@@ -73,15 +73,13 @@ export class VillagerAgent {
       p.x += (dx / dist) * step;
       p.z += (dz / dist) * step;
       f.rotationY = Math.atan2(dx, dz);
-      this.walkPhase += dt * 9;
-      f.legSwing = Math.sin(this.walkPhase) * 0.45;
+      poseFigure(f, 'walk', t);
       // Площадь ровная (внутри расчистки земля на нуле), рельеф спрашивать не у кого.
-      p.y = Math.abs(Math.sin(this.walkPhase)) * 0.04;
+      p.y = 0;
       return;
     }
 
-    f.legSwing = 0;
-    f.torsoTilt = 0;
+    poseFigure(f, 'stand', t);
     p.y = 0;
     this.timer -= dt;
     if (this.timer > 0) return;

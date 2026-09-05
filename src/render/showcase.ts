@@ -3,6 +3,11 @@
 //   ?showcase=building&type=hut&tiers=0,1,2
 //     одно здание в ряд: столбцы — визуальные ступени. Свет, земля и масштаб —
 //     те же, что в игре.
+//   ?showcase=units&action=stand
+//     ряд фигур: три покроя горожан, восемь видов бойцов и конь отдельно.
+//     units=spearman,swordsman показывает только названных; action=stand|walk|
+//     guard|strike|hit|fall — что они делают; count=40 вместо ряда ставит строй
+//     из сорока бойцов — по нему и меряется бюджет.
 //   ?showcase=village&levels=10
 //     целый посёлок из синтетического состояния, через настоящую TribeScene:
 //     дороги, стена, жители и бойцы — как в партии. levels — уровень всех
@@ -29,6 +34,10 @@ import { BUILDINGS } from '@/game/data/buildings';
 import { SEASON_DAYLIGHT, SEASON_DAYS } from '@/game/data/seasons';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '@/game/constants';
 import { createBuildingGroup, footprintOf, levelScale, type Tier } from './buildings';
+import { TROOPS } from '@/game/data/troops';
+import { Figure, FigurePool, PARTS, type PartName } from './figures';
+import { ACTIONS, poseFigure, type Action } from './poses';
+import { FOLK_KINDS, dressMount, dressSoldier, dressVillager } from './units';
 import { PLAN_SCALE } from './plan';
 import { buildGround } from './terrain';
 import { groundDecals, type DecalSpot } from './village';
@@ -326,7 +335,14 @@ export function synthState(
  * секунд, а стенд считает кадры по afterRender — настоящие кадры цикла, не
  * renderOnce. Итог: средняя частота, худшие 5 % кадров, устройство и бюджет.
  */
-function runPerf(scene: TribeScene, seconds: number, name: string, done: (line: string, copy?: boolean) => void): void {
+interface PerfTarget {
+  /** Автоповорот камеры: замер идёт на движении, а не на статичном кадре. */
+  spin(on: boolean): void;
+  stats(): { calls: number; triangles: number };
+  afterRender: (() => void) | null;
+}
+
+function runPerf(scene: PerfTarget, seconds: number, name: string, done: (line: string, copy?: boolean) => void): void {
   const frames: number[] = [];
   let last = 0;
   setTimeout(() => {
@@ -419,10 +435,239 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
   );
 }
 
+// ---------- Фигуры ----------
+
+/** Что стенд умеет показать: покрои горожан, виды бойцов и конь без всадника. */
+interface UnitSpec {
+  id: string;
+  label: string;
+  dress: (f: Figure) => void;
+}
+
+function unitCatalog(): UnitSpec[] {
+  const folk: UnitSpec[] = [];
+  for (let k = 0; k < FOLK_KINDS; k++) {
+    folk.push({ id: `folk${k}`, label: `горожанин ${k + 1}`, dress: (f: Figure) => dressVillager(f, k) });
+  }
+  const troops: UnitSpec[] = TROOPS.map((t) => ({
+    id: t.id,
+    label: t.one,
+    dress: (f: Figure) => dressSoldier(f, t.id),
+  }));
+  return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }];
+}
+
+/**
+ * Ряд фигур или строй из `count` бойцов. Силуэтная проверка — главный критерий
+ * формы: на боевом масштабе восемь видов обязаны различаться чёрными пятнами
+ * без подписей, поэтому silhouette=1 работает и здесь.
+ */
+function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
+  const asked = p.get('action') as Action | null;
+  const action: Action = asked && ACTIONS.includes(asked) ? asked : 'stand';
+  const count = Math.max(0, Number(p.get('count') ?? 0));
+  const catalog = unitCatalog();
+  const want = p.get('units');
+  const picked = want && want !== 'all'
+    ? want.split(',').map((id) => catalog.find((u) => u.id === id)).filter((u): u is UnitSpec => !!u)
+    : catalog;
+  const spacing = Number(p.get('spacing') ?? 0.9);
+  // turn=90 разворачивает фигуры боком: силуэт обязан читаться со всех сторон.
+  const turn = (Number(p.get('turn') ?? 0) * Math.PI) / 180;
+
+  const canvas = makeCanvas(root);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(c.dpr);
+  configureRenderer(renderer);
+  // Считаем вызовы честно, вместе с теневым проходом (см. Scene).
+  renderer.info.autoReset = false;
+  const scene = new THREE.Scene();
+  configureSky(scene);
+  const rig = createLightRig(scene, Number(p.get('shadow') ?? 1024));
+  const ground = buildGround();
+  scene.add(ground);
+  const seasonVis = new SeasonVisuals();
+  seasonVis.update(c.season, 10);
+
+  const pool = new FigurePool();
+  scene.add(pool.group);
+  // Ряд раскладывается в системе камеры: столбцы — вправо, как у зданий.
+  const right = new THREE.Vector3(Math.cos(AZIMUTH), 0, -Math.sin(AZIMUTH));
+  const figures: Figure[] = [];
+  let fitRadius: number;
+  let head: string;
+
+  if (count > 0) {
+    // Строй: сорок бойцов в кадре — тот самый замер бюджета. Виды идут по кругу,
+    // чтобы в кадре были и конные, и щиты, и древки.
+    const troops = TROOPS.map((t) => t.id);
+    const cols = Math.max(1, Math.round(Math.sqrt(count * 1.7)));
+    const step = 0.8;
+    for (let i = 0; i < count; i++) {
+      const f = new Figure();
+      dressSoldier(f, troops[i % troops.length]);
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      f.position.set((col - (cols - 1) / 2) * step, 0, (row - Math.floor(count / cols) / 2) * step);
+      f.rotationY = AZIMUTH + turn;
+      pool.add(f);
+      figures.push(f);
+    }
+    fitRadius = (cols * step) / 2 + 1;
+    head = `строй · ${count} бойцов · ${action}`;
+  } else {
+    picked.forEach((spec, i) => {
+      const f = new Figure();
+      spec.dress(f);
+      f.position.copy(right).multiplyScalar((i - (picked.length - 1) / 2) * spacing);
+      f.rotationY = AZIMUTH + turn;
+      pool.add(f);
+      figures.push(f);
+    });
+    fitRadius = ((picked.length - 1) * spacing) / 2 + spacing * 0.75;
+    head = `${picked.map((u) => u.label).join(' · ')}\n${action} · ${c.season}${c.silhouette ? ' · силуэт' : ''}`;
+  }
+  fitShadow(rig, fitRadius + 2);
+
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.enablePan = false;
+  const target = new THREE.Vector3(0, 0.55, 0);
+  controls.target.copy(target);
+
+  const resize = (): void => {
+    const w = canvas.clientWidth || window.innerWidth;
+    const h = canvas.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false);
+    const aspect = w / h;
+    camera.aspect = aspect;
+    const narrow = THREE.MathUtils.clamp((0.75 - aspect) / 0.15, 0, 1);
+    // Фигуры смотрят снизу-сбоку, почти с земли: так силуэт и виден в бою.
+    const polar = Number(p.get('polar') ?? THREE.MathUtils.lerp(1.24, 1.05, narrow));
+    const fov = THREE.MathUtils.lerp(42, 48, narrow);
+    camera.fov = fov;
+    const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
+    const dist = (fitRadius / Math.tan(halfH)) / Number(p.get('zoom') ?? 1);
+    camera.position.setFromSpherical(new THREE.Spherical(dist, polar, AZIMUTH)).add(target);
+    camera.lookAt(target);
+    camera.updateProjectionMatrix();
+    const fog = scene.fog as THREE.Fog | null;
+    if (fog) {
+      fog.near = dist * 1.6;
+      fog.far = dist * 2.6;
+    }
+  };
+  resize();
+  window.addEventListener('resize', resize);
+
+  if (c.silhouette) {
+    scene.overrideMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    (scene.background as THREE.Color).setHex(0xffffff);
+    scene.fog = null;
+    ground.visible = false;
+  }
+
+  const caption = makeCaption(root, c.clean);
+  let text = head;
+  let perfLine = '';
+  let afterRender: (() => void) | null = null;
+  const clock = new THREE.Clock();
+  let t = 0;
+  const render = (): void => {
+    t += Math.min(0.05, clock.getDelta());
+    // Падение — единственная поза со своим ходом: стенд роняет и поднимает, чтобы
+    // движение было видно, а в игре долю двигает тот, кто роняет.
+    const down = Math.min(1, ((t % 3.2) / 1.6));
+    for (const f of figures) {
+      if (action === 'fall') f.down = down;
+      poseFigure(f, action, t);
+    }
+    pool.update();
+    if (!c.silhouette) applyDayNight(rig, scene, c.solar, seasonVis);
+    controls.update();
+    renderer.info.reset();
+    renderer.render(scene, camera);
+    afterRender?.();
+    const info = renderer.info;
+    const demand = pool.demand();
+    const stats = { calls: info.render.calls, triangles: info.render.triangles };
+    const parts = PARTS.map((k: PartName) => `${k} ${demand[k]}`).join(' · ');
+    text = `${head}\ncalls ${stats.calls} · tris ${stats.triangles}\nдеталей: ${parts}` +
+      (perfLine ? `\n${perfLine}` : '');
+    publish(caption, text, { mode: 'units', ...stats, instances: demand });
+  };
+  const loop = (): void => {
+    requestAnimationFrame(loop);
+    render();
+  };
+  loop();
+
+  const perf = Number(p.get('perf') ?? 0);
+  const name = count > 0 ? `units_x${count}` : 'units_row';
+  if (perf > 0) {
+    perfLine = 'замер…';
+    runPerf(
+      {
+        spin: (on: boolean): void => {
+          controls.autoRotate = on;
+          controls.autoRotateSpeed = 4;
+        },
+        stats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
+        set afterRender(cb: (() => void) | null) {
+          afterRender = cb;
+        },
+      },
+      perf,
+      name,
+      (line, copy) => {
+        perfLine = copy ? `${line}\nтап по подписи — скопировать отчёт` : line;
+        if (copy) enableCopy(caption);
+      },
+    );
+  }
+  const bench = Number(p.get('bench') ?? 0);
+  if (bench > 0) benchmark(name, render, bench, () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }));
+
+  new Snapper(c.snap).schedule(canvas, render, () => text);
+}
+
+/**
+ * Кадры подряд, без ожидания вертикальной синхронизации: сколько миллисекунд
+ * стоит кадр. Частоту кадров это не заменяет — она упирается в экран, — но
+ * сравнивать «до» и «после» этим можно даже в фоновой вкладке, где
+ * requestAnimationFrame стоит и мерить нечем. Итог ложится в body.dataset.bench.
+ */
+function benchmark(
+  name: string,
+  render: () => void,
+  frames: number,
+  stats: () => { calls: number; triangles: number },
+): void {
+  setTimeout(() => {
+    for (let i = 0; i < 10; i++) render();
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) render();
+    const ms = (performance.now() - t0) / frames;
+    document.body.dataset.bench = JSON.stringify({
+      name,
+      ms: Math.round(ms * 1000) / 1000,
+      frames,
+      ...stats(),
+      dpr: window.devicePixelRatio,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      ua: navigator.userAgent,
+    });
+  }, 1200);
+}
+
 export function mountShowcase(p: URLSearchParams): void {
   const root = document.getElementById('root') ?? document.body;
   document.title = 'TRIBE · стенд';
   const c = common(p);
-  if (p.get('showcase') === 'village') mountVillage(root, p, c);
+  const mode = p.get('showcase');
+  if (mode === 'village') mountVillage(root, p, c);
+  else if (mode === 'units') mountUnits(root, p, c);
   else mountBuilding(root, p, c);
 }
