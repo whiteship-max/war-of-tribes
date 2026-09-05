@@ -55,6 +55,10 @@ function GarrisonEditor() {
   if (!general) return null;
   const rows = TROOP_IDS.filter((t) => (home[t] ?? 0) + (held[t] ?? 0) > 0);
   const total = troopTotal(want);
+  // Пока полководец стоит в деревне, его дружина её защищает; уйдёт — не будет.
+  // Игрок обязан видеть это число до того, как он уйдёт, а не в отчёте после.
+  const def = defense(s);
+  const after = Math.max(0, def - total * soldierPower(s));
   const apply = async (next: TroopStack | null): Promise<void> => {
     setBusy(true);
     const err = await setGarrison(next);
@@ -97,6 +101,15 @@ function GarrisonEditor() {
           );
         })
       )}
+      <div className="mod-list">
+        <div className="mod total">
+          <span className="ico">🏠</span>
+          <span className="name">Уйдёт с ним — оборона станет</span>
+          <span className={`val ${after < def * 0.5 ? 'neg' : ''}`}>
+            {Math.round(def)} → {Math.round(after)}
+          </span>
+        </div>
+      </div>
       <div className="wm-actions">
         <button className="btn wide" disabled={busy} onClick={() => void apply(want)}>
           🎖️ Отдать полководцу {total}
