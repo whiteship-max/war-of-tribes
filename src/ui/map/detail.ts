@@ -170,6 +170,7 @@ const lookOf = (s: SettlementView): Look => ({
   relation: s.relation,
   mine: s.mine,
   variant: variantOf(s.id),
+  castle: s.castle,
 });
 
 /**

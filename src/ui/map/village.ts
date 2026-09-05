@@ -24,7 +24,7 @@ const LINE = 0.024;
 
 // ---------- Чистая часть: её можно считать без canvas ----------
 
-export type PlaceKind = 'lean' | 'hut' | 'hall' | 'tent';
+export type PlaceKind = 'lean' | 'hut' | 'hall' | 'tent' | 'keep';
 export type RingKind = 'none' | 'palisade' | 'stone' | 'thorn';
 
 /** Постройка внутри поселения: середина основания и габариты, всё в долях клетки. */
@@ -56,13 +56,32 @@ export const STAGE_SHAPE: Record<Stage, StageShape> = {
   town: { clear: 1.22, count: 10, ring: 'stone' },
 };
 
-/** Варвары не строят правильных стен: у них терновая загородка и то не всегда. */
-export function ringOf(stage: Stage, barbarian: boolean): RingKind {
-  if (!barbarian) return STAGE_SHAPE[stage].ring;
-  return stage === 'camp' ? 'none' : 'thorn';
+/**
+ * Замок — не пятая стадия, а вторая ось: крепость с казной бывает при любой
+ * стадии, и мир задаёт её отдельным полем (`SettlementView.castle`). Поэтому в
+ * `STAGE_SHAPE` его нет, а силуэт он меняет двумя правками поверх стадии —
+ * донжоном в середине и каменной стеной, чем бы стадия ни была.
+ *
+ * Это не украшение. Замок вдвое сильнее обычного соседа и держит гарнизон у
+ * стены (`CASTLE_POWER`, `styleOf`), а стадию мир считает по мощи и населению —
+ * так что замок на стадии деревни выглядел бы кучкой хижин без ограды, и
+ * картинка обещала бы лёгкую цель там, где стоит крепость.
+ */
+export function ringOf(stage: Stage, barbarian: boolean, castle = false): RingKind {
+  // Варвары живут в шалашах, замков у них не бывает (`gen.ts`), но случись
+  // такой — стены он всё равно не получит: терновая дуга у них вместо неё.
+  if (barbarian) return stage === 'camp' ? 'none' : 'thorn';
+  if (castle) return 'stone';
+  return STAGE_SHAPE[stage].ring;
 }
 
-export const clearRadius = (stage: Stage): number => STAGE_SHAPE[stage].clear;
+/**
+ * Радиус двора. Замку нужно место под кольцо стены с башнями, поэтому меньше
+ * укреплённого поселения его двор не бывает. Верх не растёт: город с замком
+ * остаётся городом по размеру, иначе двор перерос бы вырубку (`TREE_FREE_R`).
+ */
+export const clearRadius = (stage: Stage, castle = false): number =>
+  castle ? Math.max(STAGE_SHAPE[stage].clear, STAGE_SHAPE.stronghold.clear) : STAGE_SHAPE[stage].clear;
 
 /** Детерминированный генератор: один и тот же вариант всегда даёт ту же расстановку. */
 function rng(seed: number): () => number {
@@ -91,18 +110,22 @@ export function variantOf(id: string): number {
  * должна выглядеть выросшей, а не расставленной по циркулю. Сортировка по y —
  * порядок художника: дальние дома рисуются раньше ближних.
  */
-export function layout(stage: Stage, barbarian: boolean, variant: number): Place[] {
+export function layout(stage: Stage, barbarian: boolean, variant: number, castle = false): Place[] {
   const sh = STAGE_SHAPE[stage];
-  const rnd = rng(variant * 7919 + sh.count * 31 + (barbarian ? 101 : 7));
-  const walled = ringOf(stage, barbarian) === 'palisade' || ringOf(stage, barbarian) === 'stone';
-  const inner = sh.clear * (walled ? 0.56 : 0.70);
+  const rnd = rng(variant * 7919 + sh.count * 31 + (barbarian ? 101 : 7) + (castle ? 613 : 0));
+  const ring = ringOf(stage, barbarian, castle);
+  const walled = ring === 'palisade' || ring === 'stone';
+  const inner = clearRadius(stage, castle) * (walled ? 0.56 : 0.70);
   const kind: PlaceKind = barbarian ? 'tent' : stage === 'camp' ? 'lean' : 'hut';
   const out: Place[] = [];
 
-  // Главный дом в середине: он выше прочих и держит силуэт крупного поселения.
-  const hall = !barbarian && (stage === 'stronghold' || stage === 'town');
-  if (hall) out.push({ x: 0, y: -inner * 0.12, w: 0.42, h: 0.62, kind: 'hall' });
+  // В середине — главный дом, а у замка донжон: он вдвое выше хижины и торчит
+  // над стеной, поэтому замок читается даже там, где стадия ещё лагерь.
+  const center: PlaceKind | null = castle && !barbarian ? 'keep' : !barbarian && (stage === 'stronghold' || stage === 'town') ? 'hall' : null;
+  if (center === 'keep') out.push({ x: 0, y: -inner * 0.1, w: 0.4, h: 0.98, kind: 'keep' });
+  else if (center === 'hall') out.push({ x: 0, y: -inner * 0.12, w: 0.42, h: 0.62, kind: 'hall' });
 
+  const hall = center !== null;
   const n = sh.count - (hall ? 1 : 0);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + variant * 0.7 + (rnd() - 0.5) * 0.6;
@@ -137,14 +160,18 @@ export interface Look {
   relation: Relation;
   mine: boolean;
   variant: number;
+  /** Крепость с казной. Не стадия: бывает при любой (см. `ringOf`). */
+  castle: boolean;
 }
 
 /**
- * Ключ кэша. Отношение входит в него потому, что от него зависит флаг, а `mine` —
- * потому что своё поселение выпекается с подсветкой и вторым вымпелом.
+ * Ключ кэша. Отношение входит в него потому, что от него зависит флаг, `mine` —
+ * потому что своё поселение выпекается с подсветкой и вторым вымпелом, а замок —
+ * потому что меняет и кольцо, и середину двора. Забыть здесь поле значит выдать
+ * замку спрайт обычного соседа той же стадии, и молча.
  */
 export const spriteKey = (look: Look, bucket: number, dpr: number): string =>
-  `${look.stage}|${look.relation}|${look.mine ? 1 : 0}|${look.variant}|${bucket}|${dpr}`;
+  `${look.stage}|${look.relation}|${look.mine ? 1 : 0}|${look.castle ? 1 : 0}|${look.variant}|${bucket}|${dpr}`;
 
 // ---------- Габариты спрайта ----------
 
@@ -268,6 +295,52 @@ function hall(ctx: C, x: number, y: number, w: number, h: number, p: BuildPalett
   ctx.moveTo(x - w * 0.22, y - h);
   ctx.lineTo(x + w * 0.22, y - h);
   ctx.stroke();
+}
+
+/**
+ * Донжон замка: высокая квадратная башня с зубцами. Единственная постройка, чей
+ * материал не зависит от стадии — она всегда каменная, как и кольцо вокруг:
+ * замок на стадии деревни должен спорить с хижинами вокруг, а не сливаться.
+ *
+ * Зубчатый верх сделан четырьмя мерлонами, а не восемью: на нижней корзине
+ * (22 px на клетку) башня выходит около двадцати пикселей, и восемь зубцов
+ * слиплись бы в ровную линию — то есть в обычную крышу.
+ */
+function keep(ctx: C, x: number, y: number, w: number, h: number): void {
+  const p = PAL_STONE;
+  const top = y - h;
+  shadow(ctx, x, y, w);
+
+  ctx.beginPath();
+  ctx.rect(x - w / 2, top, w, h);
+  ctx.fillStyle = p.wall;
+  ctx.fill();
+  outline(ctx, p);
+  // Теневая половина: объём одной заливкой, как у прочих построек.
+  ctx.fillStyle = p.wallDark;
+  ctx.fillRect(x + w * 0.08, top, w * 0.42, h);
+
+  // Зубцы поверх корпуса.
+  const m = w / 7;
+  for (const i of [0, 2, 4, 6]) {
+    ctx.beginPath();
+    ctx.rect(x - w / 2 + i * m, top - m, m, m);
+    ctx.fillStyle = i >= 4 ? p.wallDark : p.wall;
+    ctx.fill();
+    outline(ctx, p);
+  }
+
+  // Поясок и проём ворот: без них башня читается пустым столбом.
+  ctx.fillStyle = p.roofDark;
+  ctx.fillRect(x - w / 2, top + h * 0.3, w, LINE * 1.6);
+  ctx.fillStyle = RAMPART.gate;
+  ctx.beginPath();
+  ctx.moveTo(x - w * 0.13, y);
+  ctx.lineTo(x - w * 0.13, y - h * 0.2);
+  ctx.quadraticCurveTo(x, y - h * 0.3, x + w * 0.13, y - h * 0.2);
+  ctx.lineTo(x + w * 0.13, y);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /** Шатёр варваров: шкура на жердях, жерди торчат крестом наружу. */
@@ -544,8 +617,8 @@ export function bakeSettlement(look: Look, cell: number, dpr: number): Sprite {
 
   const barbarian = look.relation === 'barbarian';
   const p = paletteOf(look);
-  const r = clearRadius(look.stage);
-  const rnd = rng(look.variant * 104729 + look.stage.length * 13 + (barbarian ? 5 : 1));
+  const r = clearRadius(look.stage, look.castle);
+  const rnd = rng(look.variant * 104729 + look.stage.length * 13 + (barbarian ? 5 : 1) + (look.castle ? 37 : 0));
 
   // Своё поселение подсвечено тёплым пятном под землёй: без ctx.filter, обычным
   // радиальным градиентом — он есть везде.
@@ -571,7 +644,7 @@ export function bakeSettlement(look: Look, cell: number, dpr: number): Sprite {
     ctx.stroke();
   }
 
-  const ring = ringOf(look.stage, barbarian);
+  const ring = ringOf(look.stage, barbarian, look.castle);
   // Кольцо рисуется до домов: его дальняя половина должна уходить за крыши.
   if (ring === 'palisade') palisadeRing(ctx, r * 0.86);
   if (ring === 'stone') stoneRing(ctx, r * 0.86);
@@ -579,10 +652,11 @@ export function bakeSettlement(look: Look, cell: number, dpr: number): Sprite {
 
   if (barbarian) campfire(ctx, 0, r * SQUASH * 0.15, 0.13);
 
-  for (const b of layout(look.stage, barbarian, look.variant)) {
+  for (const b of layout(look.stage, barbarian, look.variant, look.castle)) {
     if (b.kind === 'lean') lean(ctx, b.x, b.y, b.w, b.h, p);
     else if (b.kind === 'tent') tent(ctx, b.x, b.y, b.w, b.h, p);
     else if (b.kind === 'hall') hall(ctx, b.x, b.y, b.w, b.h, p);
+    else if (b.kind === 'keep') keep(ctx, b.x, b.y, b.w, b.h);
     else hut(ctx, b.x, b.y, b.w, b.h, p);
   }
 
@@ -614,6 +688,31 @@ export function settlementSprite(look: Look, px: number, dpr: number): Sprite {
 
 export function dropSprites(): void {
   cache.clear();
+}
+
+/** Картинки для легенды: их немного и меняться им не с чего. */
+const legendCache = new Map<string, string>();
+
+/**
+ * Силуэт для легенды — картинкой, а не эмодзи. Легенда обязана показывать ту же
+ * карту, что и полотно: значков стадий на ней нет с тех пор, как поселения стали
+ * рисоваться, и эмодзи в легенде объясняли бы карту, которой больше нет.
+ *
+ * Печётся мимо `settlementSprite`: тот кэш рассчитан на экран (`CACHE_MAX` 16),
+ * и шесть строк легенды вытеснили бы из него живые спрайты ровно в тот момент,
+ * когда игрок закрывает легенду и возвращается к карте.
+ *
+ * Клетка здесь крупнее нижней корзины карты (20 против 22 — почти та же), но
+ * мельче делать нельзя: на 15 зубцы донжона и башни городской стены сливаются в
+ * ровную линию, и строка «Замок» перестаёт отличаться от строки «Город».
+ */
+export function silhouetteUrl(look: Look, cell = 20, dpr = 2): string {
+  const key = `${spriteKey(look, cell, dpr)}`;
+  const have = legendCache.get(key);
+  if (have) return have;
+  const url = bakeSettlement(look, cell, dpr).canvas.toDataURL('image/png');
+  legendCache.set(key, url);
+  return url;
 }
 
 /**

@@ -19,7 +19,7 @@ import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
-import { CASTLE_ICON, RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
+import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
 import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { Coord } from '@/world/types';
@@ -37,13 +37,34 @@ import {
 } from './grid';
 import { drawFrame } from './frame';
 import { dropTiles } from './ground';
-import { dropSprites } from './village';
+import { type Look, dropSprites, silhouetteUrl } from './village';
 import { dropPaint } from './paint';
 
 const TAP_MOVE = 12;
 const TAP_MS = 500;
 
-const EMOJI_FONT = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+/**
+ * Легенда показывает те же силуэты, что и полотно, а не эмодзи: значки стадий с
+ * карты ушли, когда поселения стали рисоваться, и картинка в легенде обязана
+ * совпадать с картинкой на земле. Замок стоит на стадии деревни нарочно — он
+ * бывает при любой, и именно этим опасен: кучка хижин в каменной стене.
+ */
+const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
+  ...Object.values(STAGE_BY_ID).map((s) => ({
+    look: { stage: s.id, relation: 'neutral', mine: false, variant: 0, castle: false } as Look,
+    name: s.name,
+  })),
+  {
+    look: { stage: 'village', relation: 'neutral', mine: false, variant: 0, castle: true },
+    name: 'Замок',
+    note: 'крепость с казной, бывает при любой стадии',
+  },
+  {
+    look: { stage: 'stronghold', relation: 'barbarian', mine: false, variant: 0, castle: false },
+    name: 'Стоянка варваров',
+    note: 'шатры и терновая дуга вместо стены',
+  },
+];
 
 export function WorldMap() {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -321,16 +342,14 @@ export function WorldMap() {
             </div>
           ))}
           <h3>Поселения</h3>
-          {Object.values(STAGE_BY_ID).map((s) => (
-            <div className="wm-leg-row" key={s.id}>
-              <b style={{ fontFamily: EMOJI_FONT }}>{s.icon}</b>
-              <span>{s.name}</span>
+          {LEGEND_ROWS.map((row) => (
+            <div className="wm-leg-row wm-leg-shape" key={row.name}>
+              <img src={silhouetteUrl(row.look)} alt="" />
+              <span>
+                {row.name} {row.note && <em>{row.note}</em>}
+              </span>
             </div>
           ))}
-          <div className="wm-leg-row">
-            <b>{CASTLE_ICON}</b>
-            <span>Замок — крепкая цель с казной</span>
-          </div>
           <h3>Земля</h3>
           {TERRAIN_ORDER.map((t) => (
             <div className="wm-leg-row" key={t}>

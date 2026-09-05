@@ -222,6 +222,8 @@ describe('поселения читаются силуэтом', () => {
     // разные. Если двор перерастёт вырубку, по краю города пойдут ёлки прямо
     // по пашне. Стадия города — самый большой двор, с него и проверяем.
     expect(TREE_FREE_R).toBeGreaterThan(clearRadius('town'));
+    // Замок расширяет двор мелких стадий, и его тоже надо держать под вырубкой.
+    for (const s of STAGES) expect(TREE_FREE_R).toBeGreaterThan(clearRadius(s, true));
   });
 
   it('расстановка построек детерминирована и идёт от дальних к ближним', () => {
@@ -250,10 +252,72 @@ describe('поселения читаются силуэтом', () => {
     }
     expect(pickBucket(23)).toBe(pickBucket(29));
     // Ключ кэша разводит то, от чего зависит картинка, и только это.
-    const look = { stage: 'town', relation: 'enemy', mine: false, variant: 1 } as const;
+    const look = { stage: 'town', relation: 'enemy', mine: false, variant: 1, castle: false } as const;
     expect(spriteKey(look, 40, 2)).toBe(spriteKey({ ...look }, 40, 2));
     expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, mine: true }, 40, 2));
     expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, relation: 'ally' }, 40, 2));
+    // Без этого замок получил бы спрайт обычного соседа той же стадии — молча.
+    expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, castle: true }, 40, 2));
+  });
+});
+
+describe('замок — вторая ось, а не пятая стадия', () => {
+  const STAGES = ['camp', 'village', 'stronghold', 'town'] as const;
+
+  it('стена и донжон появляются при любой стадии', () => {
+    // Мир считает стадию по мощи и населению, а замок ставит отдельным полем.
+    // Замок на стадии лагеря или деревни без этого выглядел бы кучкой хижин без
+    // ограды — картинка обещала бы лёгкую цель там, где стоит крепость вдвое
+    // сильнее обычного соседа.
+    for (const s of STAGES) {
+      expect(ringOf(s, false, true)).toBe('stone');
+      expect(layout(s, false, 1, true).some((p) => p.kind === 'keep')).toBe(true);
+    }
+  });
+
+  it('без замка донжона не бывает ни на одной стадии', () => {
+    for (const s of STAGES) {
+      expect(layout(s, false, 1, false).some((p) => p.kind === 'keep')).toBe(false);
+    }
+  });
+
+  it('донжон выше всего, что стоит в обычном поселении', () => {
+    // Он должен торчать над стеной: кольцо у замка каменное и высокое, и низкая
+    // башня спряталась бы за ним на нижней корзине размера.
+    const keep = layout('village', false, 1, true).find((p) => p.kind === 'keep');
+    const tallest = Math.max(...STAGES.flatMap((s) => layout(s, false, 1, false).map((p) => p.h)));
+    expect(keep).toBeDefined();
+    expect(keep?.h).toBeGreaterThan(tallest);
+  });
+
+  it('двор замка не меньше укреплённого поселения и не больше города', () => {
+    for (const s of STAGES) {
+      expect(clearRadius(s, true)).toBeGreaterThanOrEqual(clearRadius('stronghold'));
+      expect(clearRadius(s, true)).toBeLessThanOrEqual(clearRadius('town'));
+    }
+  });
+
+  it('замок не отменяет стадию: число построек остаётся её признаком', () => {
+    for (const s of STAGES) {
+      expect(layout(s, false, 1, true).length).toBe(STAGE_SHAPE[s].count);
+    }
+    expect(layout('town', false, 1, true).length).toBeGreaterThan(layout('camp', false, 1, true).length);
+  });
+
+  it('варвары не получают стены даже замком', () => {
+    // Замков у варваров не бывает (`gen.ts`), но правило «правильной стены у них
+    // не бывает» держится и здесь, а не только на честном слове генератора.
+    for (const s of STAGES) {
+      const ring = ringOf(s, true, true);
+      expect(ring === 'palisade' || ring === 'stone').toBe(false);
+    }
+  });
+
+  it('расстановка замка детерминирована и отличается от обычной', () => {
+    const a = layout('stronghold', false, 2, true);
+    expect(layout('stronghold', false, 2, true)).toEqual(a);
+    expect(a).not.toEqual(layout('stronghold', false, 2, false));
+    expect(a.map((p) => p.y)).toEqual([...a.map((p) => p.y)].sort((x, y) => x - y));
   });
 });
 
