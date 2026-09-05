@@ -14,6 +14,7 @@ import {
 } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
 import { armyRoster, trainees } from '@/game/sim/army';
+import { Factor } from '../parts/Factor';
 
 /**
  * Дружина. Бойцы — не жители с профессией «воин»: их нанимают в казармах,
@@ -54,22 +55,6 @@ function Army() {
         </button>
       ))}
     </>
-  );
-}
-
-/** Полоска доли, 0..1: чем короче, тем сильнее эта причина тормозит прирост. */
-function Factor({ icon, name, k, hint }: { icon: string; name: string; k: number; hint: string }) {
-  const pct = Math.round(Math.max(0, Math.min(1, k)) * 100);
-  return (
-    <div className="res-line">
-      <span className="ico">{icon}</span>
-      <span className="name">{name}</span>
-      <span className={`val${pct < 40 ? ' full' : ''}`}>{pct}%</span>
-      <span className="delta">{hint}</span>
-      <span className="bar">
-        <i style={{ width: `${pct}%` }} className={pct < 40 ? 'full' : ''} />
-      </span>
-    </div>
   );
 }
 

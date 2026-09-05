@@ -35,7 +35,7 @@ import {
 } from '@/game/derived';
 import { assignWorker, cancelUpgrade, changeFreeJob, choosePatron, startUpgrade, unassignWorker } from '@/game/sim/actions';
 import { Cost } from '../parts/Cost';
-import { ChiefHouse } from '../parts/ChiefHouse';
+import { TownHall } from '../parts/TownHall';
 import { Smithy } from '../parts/Smithy';
 import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
@@ -236,8 +236,8 @@ function BuildingData({ b }: { b: Building }) {
       return <CampfireData />;
     case 'storage':
       return <StorageData />;
-    case 'chief_house':
-      return <ChiefHouse />;
+    case 'town_hall':
+      return <TownHall b={b} />;
     case 'smithy':
       return (
         <>

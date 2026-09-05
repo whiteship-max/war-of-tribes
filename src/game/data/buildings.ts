@@ -59,7 +59,7 @@ export interface BuildingDef extends BuildingStats {
   perLevel?: BuildingStats;
   /**
    * С какого уровня эффект вообще появляется. По умолчанию с первого.
-   * Дом вождя так и раздаёт жильё: сначала это дом одного человека, и только
+   * Ратуша так и раздаёт жильё: сначала это дом одного человека, и только
    * с шестого уровня — двор с людьми (см. buildingStat).
    */
   since?: Partial<Record<keyof BuildingStats, number>>;
@@ -96,10 +96,11 @@ export const BUILDINGS: BuildingDef[] = [
     maxLevel: 1,
   },
   {
-    id: 'chief_house',
-    name: 'Дом вождя',
-    icon: '👑',
-    description: 'Отсюда правят: указ, рацион, налог и казна. С шестого уровня это уже двор, и в нём живут.',
+    id: 'town_hall',
+    name: 'Ратуша',
+    icon: '🏛️',
+    description:
+      'Сердце города: отсюда ведут все стройки, здесь же указ, рацион, налог и казна. Каждый её уровень ускоряет стройку по всему посёлку; с шестого в ней живут.',
     cost: { wood: 364, stone: 182 },
     work: 728,
     morale: 4,

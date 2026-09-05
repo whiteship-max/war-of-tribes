@@ -341,7 +341,7 @@ describe('стена и хозяйство за ней', () => {
       ['farm', 'gathering', 'hunter_hut', 'mine', 'pen', 'quarry', 'sawmill'].sort(),
     );
     // Внутри — жильё, власть, склад, ремесло и оборона: до них набег не доходит.
-    for (const type of ['houses', 'chief_house', 'storage', 'smithy', 'workshop', 'barracks', 'market', 'church', 'palisade', 'tower'] as BuildingTypeId[]) {
+    for (const type of ['houses', 'town_hall', 'storage', 'smithy', 'workshop', 'barracks', 'market', 'church', 'palisade', 'tower'] as BuildingTypeId[]) {
       expect(isOutsideWall(type), `${type} не должен стоять за стеной`).toBe(false);
     }
   });
@@ -920,7 +920,7 @@ function nextSite(s: GameState): void {
     const st = buildingOfType(s, 'storage')!;
     if (startUpgrade(s, st.id) === null) return;
   }
-  // Тянем вверх самое отстающее здание. Не только рабочее: стена и Дом вождя
+  // Тянем вверх самое отстающее здание. Не только рабочее: стена и ратуша
   // рабочих мест не дают, но без них посёлок не растёт.
   const behind = [...s.buildings].sort((a, b) => a.level - b.level);
   for (const b of behind) if (startUpgrade(s, b.id) === null) return;
@@ -1220,7 +1220,7 @@ describe('обучение', () => {
     expect(assignWorker(s, smithy.id)).toBeNull();
     expect(setForging(s, 'spear')).toBeNull();
     advanceTutorial(s, UI_NONE);
-    expect(at(s)).toBe('open_build');
+    expect(at(s)).toBe('open_town');
     // Игрок сам нашёл казармы и нанял дубинщика — все шаги про наём снимаются разом.
     expect(startRecruit(s, 'clubman', 1)).toBeNull();
     advanceTutorial(s, UI_NONE);
@@ -1245,9 +1245,10 @@ describe('обучение', () => {
 
     expect(setForging(s, 'spear')).toBeNull();
     advanceTutorial(s, ui({ building: smithy.id }));
-    expect(at(s)).toBe('open_build');
+    expect(at(s)).toBe('open_town');
 
-    advanceTutorial(s, ui({ tab: 'build' }));
+    const hall = buildingOfType(s, 'town_hall')!;
+    advanceTutorial(s, ui({ building: hall.id }));
     expect(at(s)).toBe('open_barracks');
 
     advanceTutorial(s, ui({ building: barracks.id }));
@@ -1302,6 +1303,20 @@ describe('сохранения', () => {
     expect(back.gold).toBe(77);
     expect(back.army.legionary).toBe(2);
     expect(back.buildings.map((b) => b.type).sort()).toEqual(s.buildings.map((b) => b.type).sort());
+  });
+
+  it('версия сохранения выросла над обеими ветками, которые её поднимали', () => {
+    // Ловушка слияния: перестройка посёлка и ратуша поднимали версию каждая, обе
+    // до семёрки. Слитые вместе они дают формат, несовместимый с обеими, и версия
+    // обязана вырасти дальше — иначе сохранение седьмой версии прочиталось бы как
+    // своё и приехало бы с постройками, которых в игре нет.
+    expect(SAVE_VERSION).toBeGreaterThan(7);
+    for (const old of [6, 7]) {
+      const s = createInitialState();
+      const json = JSON.parse(serialize(s));
+      json.version = old;
+      expect(deserialize(JSON.stringify(json)), `версия ${old} должна отбрасываться`).toBeNull();
+    }
   });
 
   it('сохранение старого формата не приводится, а отбрасывается', () => {

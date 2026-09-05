@@ -773,8 +773,8 @@ function smithy(t: Tier, st: Style): THREE.Group {
   return g;
 }
 
-/** Дом вождя: сруб с крыльцом → усадьба с палатой → донжон с зубцами и стягом. */
-function chiefHouse(t: Tier, st: Style): THREE.Group {
+/** Ратуша: сруб с крыльцом → усадьба с палатой → донжон с зубцами и стягом. */
+function townHall(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [1.5, 1.8, 2.0][t];
   const d = [1.4, 1.6, 1.8][t];
@@ -1188,7 +1188,7 @@ export const FOOTPRINT: Partial<Record<BuildingTypeId, [number, number]>> = {
   church: [1.9, 2.9],
   tower: [1.0, 1.0],
   smithy: [2.0, 1.6],
-  chief_house: [1.8, 1.6],
+  town_hall: [1.8, 1.6],
   barracks: [2.4, 2.4],
   // Рынок широк поперёк улицы и узок вдоль неё: два ряда по сторонам проезда.
   market: [4.6, 2.8],
@@ -1252,8 +1252,8 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return tower(tier, st);
     case 'smithy':
       return smithy(tier, st);
-    case 'chief_house':
-      return chiefHouse(tier, st);
+    case 'town_hall':
+      return townHall(tier, st);
     case 'barracks':
       return barracks(tier, st);
     case 'market':

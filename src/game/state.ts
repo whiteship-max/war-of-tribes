@@ -1,4 +1,5 @@
 import type { Building, BuildingTypeId, GameState } from './types';
+import { TEST_GEMS } from './constants';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
@@ -6,13 +7,15 @@ import { heroName } from './data/names';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
- * Версия 7 — перестройка посёлка: укрытия больше нет, тотем стал церковью,
- * хижина — жилищами, а `s.totem` — `s.patron`. Все три поля в сохранении шестой
- * версии называются иначе, чем в состоянии, поэтому мержить его поверх нового
- * начального нельзя: сохранение младшей версии отбрасывается, партия начинается
+ * Версия 8 — перестройка посёлка и ратуша разом. Укрытия больше нет, тотем стал
+ * церковью, хижина — жилищами, `s.totem` — `s.patron`, а Дом вождя — Ратушей.
+ * У четырёх зданий сменился идентификатор, одно исчезло, шесть появилось: старое
+ * сохранение пришло бы и с постройками, которых в игре больше нет (вместе с
+ * рабочими за ними и их местами на плане), и без тех, что появились. Приводить
+ * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -45,6 +48,9 @@ export function createInitialState(): GameState {
     ration: 'normal',
     tax: 'none',
     gold: 320,
+    // Тестовый запас алмазов: он существует, чтобы можно было проверить трату,
+    // пока покупки нет. Начисляет алмазы одно место на всю игру — creditGems.
+    gems: TEST_GEMS,
     market: { day: 0, bought: {} },
     caravans: [],
     pop: START_POP,
