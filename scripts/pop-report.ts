@@ -47,7 +47,7 @@ const SHARE: [JobId, number][] = [
   ['herder', 0.05],
   ['crafter', 0.05],
   ['smith', 0.02],
-  ['shaman', 0.01],
+  ['priest', 0.01],
 ];
 
 const jobBuilding = (s: GameState, job: JobId) =>
@@ -79,7 +79,7 @@ function build(s: GameState): void {
   const cap = housingCapacity(s);
   // Жильё — узкое место: пока селить некуда, племя стоит.
   if (s.pop >= cap - 20) {
-    for (const t of ['hut', 'chief_house'] as BuildingTypeId[]) {
+    for (const t of ['houses', 'chief_house'] as BuildingTypeId[]) {
       const b = buildingOfType(s, t)!;
       if (startUpgrade(s, b.id) === null) return;
     }

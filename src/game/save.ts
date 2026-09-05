@@ -1,6 +1,7 @@
 import type { GameState } from './types';
 import { MAX_OFFLINE_SECONDS } from './constants';
 import { emptyArmy } from './data/troops';
+import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { createInitialState, SAVE_VERSION } from './state';
 import { catchUp } from './sim/tick';
@@ -47,6 +48,15 @@ export function deserialize(json: string): GameState | null {
       battlePlans: data.battlePlans ?? [],
       stats: { ...base.stats, ...(data.stats ?? {}) },
     } as GameState;
+    // Здание, добавленное в BUILDINGS после того, как сохранение записали,
+    // должно появиться в посёлке само — так же, как оно появляется в новой партии
+    // (CLAUDE.md, «Правила»). Иначе игрок с сохранением остался бы без него
+    // навсегда: `buildings` берётся из сохранения как есть, мержить его нельзя —
+    // мерж вернул бы и здания, которых в игре больше нет.
+    for (const def of BUILDINGS) {
+      if (s.buildings.some((b) => b.type === def.id)) continue;
+      s.buildings.push({ id: s.nextId++, type: def.id, level: 1, work: 0, workRequired: 0 });
+    }
     normalizeAssignments(s);
     return s;
   } catch {

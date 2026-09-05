@@ -93,6 +93,23 @@ function idleAll(s: GameState): void {
   s.freeJobs = {};
 }
 
+describe('сохранение и набор зданий', () => {
+  it('здание, добавленное после записи сохранения, появляется в посёлке само', () => {
+    const s = createInitialState();
+    // Сохранение, записанное до того, как в игру добавили трактир и статую.
+    const older = { ...s, buildings: s.buildings.filter((b) => b.type !== 'tavern' && b.type !== 'statue') };
+    const back = deserialize(JSON.stringify(older))!;
+    expect(back).not.toBeNull();
+    expect(back.buildings.map((b) => b.type).sort()).toEqual(BUILDINGS.map((d) => d.id).sort());
+    expect(buildingOfType(back, 'tavern')!.level).toBe(1);
+    // Уровни уже стоявших зданий не сбрасываются.
+    const grown = { ...s, buildings: s.buildings.map((b) => ({ ...b, level: 4 })).filter((b) => b.type !== 'watch') };
+    const kept = deserialize(JSON.stringify(grown))!;
+    expect(buildingOfType(kept, 'houses')!.level).toBe(4);
+    expect(buildingOfType(kept, 'watch')!.level).toBe(1);
+  });
+});
+
 describe('службы посёлка', () => {
   /** Ставит одно здание нужного уровня, остальное оставляет как в новой партии. */
   const withLevel = (type: BuildingTypeId, level: number): GameState => {
