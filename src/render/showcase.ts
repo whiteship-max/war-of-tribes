@@ -123,10 +123,19 @@ class Snapper {
   /** render — принудительный кадр; caption — подпись на момент снимка. */
   schedule(canvas: HTMLCanvasElement, render: () => void, caption: () => string, delayMs = 700): void {
     if (!this.name) return;
-    setTimeout(() => {
+    // Ждём настоящего размера канвы: в ещё не показанной вкладке она нулевая,
+    // и в файл ушла бы пустая картинка.
+    let waited = 0;
+    const take = (): void => {
+      if (!canvas.clientWidth && waited < 30000) {
+        waited += 300;
+        setTimeout(take, 300);
+        return;
+      }
       for (let i = 0; i < 4; i++) render();
       this.take(canvas, caption());
-    }, delayMs);
+    };
+    setTimeout(take, delayMs);
   }
 
   private take(canvas: HTMLCanvasElement, caption: string): void {
