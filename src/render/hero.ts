@@ -34,7 +34,7 @@ export function heroSpot(): { x: number; z: number; rot: number } {
 }
 
 /** Насколько герой крупнее рядового: заметно, но не вдвое — он человек. */
-const HERO_SCALE = 1.12;
+export const HERO_SCALE = 1.12;
 
 export class HeroAgent {
   readonly figure = new Figure();

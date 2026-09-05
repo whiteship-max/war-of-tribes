@@ -37,7 +37,8 @@ import { createBuildingGroup, footprintOf, levelScale, type Tier } from './build
 import { TROOPS } from '@/game/data/troops';
 import { Figure, FigurePool, PARTS, type PartName } from './figures';
 import { ACTIONS, poseFigure, type Action } from './poses';
-import { FOLK_KINDS, dressMount, dressSoldier, dressVillager } from './units';
+import { FOLK_KINDS, dressHero, dressMount, dressSoldier, dressVillager } from './units';
+import { HERO_SCALE } from './hero';
 import { PLAN_SCALE } from './plan';
 import { buildGround } from './terrain';
 import { groundDecals, type DecalSpot } from './village';
@@ -458,14 +459,19 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
 
 // ---------- Фигуры ----------
 
-/** Что стенд умеет показать: покрои горожан, виды бойцов и конь без всадника. */
+/** Что стенд умеет показать: покрои горожан, виды бойцов, конь и герой. */
 interface UnitSpec {
   id: string;
   label: string;
   dress: (f: Figure) => void;
 }
 
-function unitCatalog(): UnitSpec[] {
+/**
+ * Герой в каталоге стоит отдельной строкой, но своей одёжки у него нет: он
+ * одевается тем же `dressHero` по виду бойца (`hero=<вид>`), что и у статуи.
+ * Второй правды о том, как выглядит герой, стенд заводить не должен.
+ */
+function unitCatalog(heroTroop: TroopId): UnitSpec[] {
   const folk: UnitSpec[] = [];
   for (let k = 0; k < FOLK_KINDS; k++) {
     folk.push({ id: `folk${k}`, label: `горожанин ${k + 1}`, dress: (f: Figure) => dressVillager(f, k) });
@@ -475,7 +481,15 @@ function unitCatalog(): UnitSpec[] {
     label: t.one,
     dress: (f: Figure) => dressSoldier(f, t.id),
   }));
-  return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }];
+  const hero: UnitSpec = {
+    id: 'hero',
+    label: `герой (${TROOPS.find((t) => t.id === heroTroop)?.one ?? heroTroop})`,
+    dress: (f: Figure) => {
+      dressHero(f, heroTroop);
+      f.scale = HERO_SCALE;
+    },
+  };
+  return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }, hero];
 }
 
 /**
@@ -487,7 +501,8 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const asked = p.get('action') as Action | null;
   const action: Action = asked && ACTIONS.includes(asked) ? asked : 'stand';
   const count = Math.max(0, Number(p.get('count') ?? 0));
-  const catalog = unitCatalog();
+  const heroTroop = (TROOPS.find((t) => t.id === p.get('hero'))?.id ?? 'swordsman') as TroopId;
+  const catalog = unitCatalog(heroTroop);
   const want = p.get('units');
   const picked = want && want !== 'all'
     ? want.split(',').map((id) => catalog.find((u) => u.id === id)).filter((u): u is UnitSpec => !!u)
