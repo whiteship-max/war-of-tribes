@@ -161,7 +161,18 @@ export function presetFormation(troops: TroopStack, preset: QuickPresetId): Form
  * род: если бы каждый сектор округлялся сам, отряд из пяти лучников то прибывал,
  * то убывал на человека при перекладывании между секторами.
  */
-export function toArmySetup(f: Formation, militia = 0, militiaArchers = 0): ArmySetup {
+export interface HeroBoost {
+  kind: UnitKind;
+  /** Сколько бойцов строя приводит герой. */
+  men: number;
+}
+
+export function toArmySetup(
+  f: Formation,
+  militia = 0,
+  militiaArchers = 0,
+  hero: HeroBoost | null = null,
+): ArmySetup {
   const sectors = Object.fromEntries(SECTORS.map((id) => [id, emptyStack()])) as Record<Sector, Stack>;
   for (const k of UNIT_KINDS) {
     const raw = SECTORS.map((id) =>
@@ -187,6 +198,18 @@ export function toArmySetup(f: Formation, militia = 0, militiaArchers = 0): Army
     sectors.D.archer += parts[0];
     sectors.E.archer += parts[1];
     sectors.F.archer += parts[2];
+  }
+  if (hero && hero.men > 0) {
+    // Люди, которые идут за именем. Встают туда, где уже стоит их род, — герой
+    // ведёт свой род, а не создаёт новый отряд на пустом месте; если рода в
+    // расстановке нет вовсе, дружина собирается вокруг него во фронте.
+    const own = SECTORS.map((id) => sectors[id][hero.kind]);
+    const total = own.reduce((a, b) => a + b, 0);
+    const weights = total > 0 ? own : SECTORS.map((id) => (id === 'A' || id === 'B' || id === 'C' ? 1 : 0));
+    const parts = share(Math.round(hero.men), weights);
+    SECTORS.forEach((id, i) => {
+      sectors[id][hero.kind] += parts[i];
+    });
   }
   const gear = gearOf(placedTroops(f));
   return { sectors, plan: f.plan, orders: { ...f.orders }, reserve: { ...f.reserve }, gear };

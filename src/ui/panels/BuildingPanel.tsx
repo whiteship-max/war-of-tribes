@@ -40,6 +40,7 @@ import { Smithy } from '../parts/Smithy';
 import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
 import { Tavern } from '../parts/Tavern';
+import { Statue } from '../parts/Statue';
 import { upgradeGain } from '../parts/upgrade';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
@@ -263,6 +264,13 @@ function BuildingData({ b }: { b: Building }) {
         <>
           <GenericData b={b} />
           <Tavern />
+        </>
+      );
+    case 'statue':
+      return (
+        <>
+          <GenericData b={b} />
+          <Statue />
         </>
       );
     default:

@@ -114,12 +114,19 @@ export function playerProfile(s: GameState): PlayerProfile {
 export function syncAway(s: GameState, marches: MarchView[]): boolean {
   let warriors = 0;
   let scouts = 0;
+  let heroSeen = false;
   for (const m of marches) {
     if (!m.own) continue;
     warriors += m.units.warrior ?? 0;
     scouts += m.units.scout ?? 0;
+    if (s.hero.marchId === m.id) heroSeen = true;
   }
-  if (s.warriorsAway === warriors && s.scoutsAway === scouts) return false;
+  // Герой тоже выводится из списка походов, а не хранится дважды: поход мог
+  // кончиться без последствия (отозвали, цель исчезла) — тогда герой просто дома.
+  // Гибель разбирает `applyExpedition`, и вызывают его раньше этого места.
+  const heroChanged = s.hero.marchId !== null && !heroSeen;
+  if (heroChanged) s.hero.marchId = null;
+  if (s.warriorsAway === warriors && s.scoutsAway === scouts) return heroChanged;
   setAway(s, warriors, scouts);
   return true;
 }

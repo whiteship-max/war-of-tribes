@@ -7,3 +7,29 @@ export function pickName(sex: 'm' | 'f', rnd: () => number): string {
   const list = sex === 'm' ? MALE_NAMES : FEMALE_NAMES;
   return list[Math.floor(rnd() * list.length)];
 }
+
+/**
+ * Прозвища героя. Имя ему даётся один раз за партию и складывается из обычного
+ * имени и прозвища: «Бран Одноглазый». Поимённых жителей в племени по-прежнему
+ * нет — герой один, и он не житель.
+ */
+export const HERO_EPITHETS = [
+  'Одноглазый',
+  'Долгая Рука',
+  'Волчий Брат',
+  'Тихий',
+  'Каменный',
+  'Рыжий',
+  'Хромой',
+  'Быстрый',
+  'Медвежья Шкура',
+  'Молчун',
+  'Северянин',
+  'Тяжёлая Секира',
+];
+
+/** Имя героя: обычное имя плюс прозвище. */
+export function heroName(rnd: () => number): string {
+  const first = pickName('m', rnd);
+  return `${first} ${HERO_EPITHETS[Math.floor(rnd() * HERO_EPITHETS.length)]}`;
+}

@@ -8,6 +8,7 @@ import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from './bridge';
 import { DEFENSE_FREEZE } from './data/tuning';
+import { heroReady } from '@/game/derived';
 import {
   cachedChunk,
   chunkKeysIn,
@@ -101,13 +102,16 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const game = useGame.getState();
     const pulse = await worldApi().sync(playerProfile(game.s));
 
-    // Число ушедших выводится из походов: правим состояние на месте, перерисовку
-    // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.
-    syncAway(game.s, pulse.marches);
+    // Последствия походов применяются раньше, чем пересчитываются ушедшие: в
+    // момент прихода отряда герой ещё числится в походе, и по этому и понятно,
+    // что павший — именно он (см. applyExpedition и syncAway).
     if (pulse.effects.length > 0) {
       useGame.getState().world((s) => applyEffects(s, pulse.effects));
       haptic('medium');
     }
+    // Число ушедших выводится из походов: правим состояние на месте, перерисовку
+    // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.
+    syncAway(game.s, pulse.marches);
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
       // Список мог быть уже открыт: без этого свежий отчёт не появится, пока
@@ -167,6 +171,13 @@ export const useWorld = create<WorldStore>((set, get) => ({
     useGame.getState().world((s) => {
       if (order.mission === 'scout') s.stats.scouted = (s.stats.scouted ?? 0) + 1;
       if (order.mission === 'raid') s.stats.raids = (s.stats.raids ?? 0) + 1;
+      // Герой уходит с походом — с одним за раз. Людей, которых он приводит,
+      // панель уже вложила в расстановку; здесь отмечается только он сам.
+      // Только собранный игроком поход: в быстрой атаке расстановку выбирает
+      // пресет по сиду, и вести герою там некого (см. BattlePanel).
+      if (order.mission === 'raid' && order.setup && res.march && heroReady(s)) {
+        s.hero.marchId = res.march.id;
+      }
     });
     await get().pulse();
     await get().refreshCard();

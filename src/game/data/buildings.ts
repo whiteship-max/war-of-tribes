@@ -31,6 +31,8 @@ export interface BuildingStats {
   hidden?: number;
   /** Прибавка к морали, пока идёт пир в трактире. */
   feast?: number;
+  /** Сколько бойцов строя приводит с собой герой. Работа Статуи. */
+  hero?: number;
 }
 
 export interface BuildingDef extends BuildingStats {
@@ -218,6 +220,16 @@ export const BUILDINGS: BuildingDef[] = [
     perLevel: { morale: 2 },
     job: 'priest',
     slotsPerLevel: 2,
+  },
+  {
+    id: 'statue',
+    name: 'Статуя Героя',
+    icon: '🗿',
+    description: 'Каменный витязь на площади. Морали он не прибавляет — их в посёлке и так четыре источника; он даёт племени имя: один герой уходит с одним походом и ведёт выбранный род войск.',
+    cost: { stone: 224, wood: 84 },
+    work: 490,
+    hero: 10,
+    perLevel: { hero: 5 },
   },
   {
     id: 'infirmary',

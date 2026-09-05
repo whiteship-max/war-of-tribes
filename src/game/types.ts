@@ -1,6 +1,7 @@
 // Базовые типы состояния игры. Симуляция не зависит от рендера и UI.
 import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { BattlePlanTemplate, Formation } from './battle/formation';
+import type { UnitKind } from '@/battle';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -60,6 +61,7 @@ export type BuildingTypeId =
   | 'farm'
   | 'pen'
   | 'church'
+  | 'statue'
   | 'infirmary'
   | 'watch'
   | 'stable'
@@ -70,6 +72,26 @@ export type BuildingTypeId =
   | 'smithy'
   | 'barracks'
   | 'market';
+
+/**
+ * Герой племени — единственный поимённый человек в игре. Он не житель и не боец
+ * из счётчика: его даёт Статуя, он ходит с одним походом за раз и усиливает один
+ * выбранный род войск. Погибнув, он не пропадает совсем — возвращается через
+ * время: имя у племени остаётся, а вместе с ним и вложенные в статую уровни.
+ */
+export interface Hero {
+  /** Имя с прозвищем. Даётся один раз за партию и не меняется. */
+  name: string;
+  /** Род войск, который он ведёт. Меняется в Статуе за золото. */
+  kind: UnitKind;
+  /**
+   * До какого игрового времени он лежит после гибели. Ноль — в строю.
+   * Не «убит навсегда»: героя нельзя потерять, можно только остаться без него.
+   */
+  downUntil: number;
+  /** Поход, с которым он ушёл. null — дома, на площади. */
+  marchId: string | null;
+}
 
 /**
  * Покровитель племени: одноразовый выбор в церкви. Раньше это назывался тотем —
@@ -217,6 +239,8 @@ export interface GameState {
   morale: number; // 0..100
   prestige: number;
   patron: PatronId | null;
+  /** Герой племени: имя, род войск и состояние. См. Hero. */
+  hero: Hero;
   starvation: number; // накопленное время голода, сек
   freezing: number; // накопленное время зимы без дров, сек
   /** Год, за который уже показали предупреждение о зиме (0 — ещё не показывали). */

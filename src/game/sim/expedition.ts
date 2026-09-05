@@ -4,7 +4,7 @@
 import type { Building, GameState, LogEntry, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { healShare, homeArmy, idleCount, isOutsideWall, storageCap, workerCount } from '../derived';
+import { healShare, heroDownSeconds, homeArmy, idleCount, isOutsideWall, storageCap, workerCount } from '../derived';
 import { removeSoldiers } from './army';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
@@ -141,6 +141,13 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];
+  // Герой возвращается вместе с отрядом. Разбитый отряд приносит его на щите —
+  // но не насовсем: имя у племени остаётся, а через несколько дней и сам герой.
+  const heroFell = o.battle === 'lost' && s.hero.marchId !== null;
+  if (o.battle !== null && s.hero.marchId !== null) {
+    s.hero.marchId = null;
+    if (heroFell) s.hero.downUntil = s.time + heroDownSeconds();
+  }
 
   log(s, o.text, o.kind);
   if (sacked.length > 0) {
@@ -150,4 +157,5 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen} чел.`, 'bad');
   if (wounded > 0) log(s, `В лазарете выходили раненых: ${wounded} чел. вернулись в племя.`, 'good');
+  if (heroFell) log(s, `${s.hero.name} пал в бою. Его выходят и поставят в строй снова.`, 'bad');
 }

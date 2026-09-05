@@ -4,7 +4,9 @@ import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { startUpgrade, resolveEvent, setTax } from './actions';
 import { applyExpedition, sackOutskirts } from './expedition';
-import { throwFeast } from './actions';
+import { setHeroKind, throwFeast } from './actions';
+import { toArmySetup, presetFormation } from '../battle/formation';
+import { SECTORS } from '@/battle';
 import { assignWorker, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
 import { popGrowth } from './population';
 import { seeded, setRandom } from './random';
@@ -28,6 +30,10 @@ import {
   feastInfo,
   feastMorale,
   healShare,
+  heroDownSeconds,
+  heroInfo,
+  heroMen,
+  heroReady,
   hiddenStash,
   idleCount,
   intelKeen,
@@ -226,6 +232,89 @@ describe('службы посёлка', () => {
     const low = moraleTarget(taxed);
     throwFeast(taxed);
     expect(moraleTarget(taxed)).toBeGreaterThan(low);
+  });
+});
+
+describe('герой', () => {
+  const withLevel = (type: BuildingTypeId, level: number): GameState => {
+    const s = createInitialState();
+    place(s, type, level);
+    return s;
+  };
+
+  it('у племени есть имя с первого дня, и статуя решает, сколько людей идёт за ним', () => {
+    const s = createInitialState();
+    expect(s.hero.name.length).toBeGreaterThan(3);
+    expect(heroReady(s)).toBe(true);
+    expect(heroMen(withLevel('statue', 10))).toBeGreaterThan(heroMen(withLevel('statue', 1)));
+    // Статуя не источник морали: их в посёлке и так четыре.
+    expect(BUILDING_BY_ID.statue.morale ?? 0).toBe(0);
+    expect(BUILDING_BY_ID.statue.perLevel?.morale ?? 0).toBe(0);
+  });
+
+  it('герой приводит людей в свой род и не трогает мощь армии', () => {
+    const s = withLevel('statue', 5);
+    const power = armySize(s);
+    const troops = { spearman: 12, rider: 6 };
+    const f = presetFormation(troops, 'standard');
+    const plain = toArmySetup(f);
+    const withHero = toArmySetup(f, 0, 0, { kind: 'cavalry', men: heroMen(s) });
+    const men = (setup: ReturnType<typeof toArmySetup>, kind: 'cavalry' | 'spear'): number =>
+      SECTORS.reduce((n, id) => n + setup.sectors[id][kind], 0);
+    expect(men(withHero, 'cavalry') - men(plain, 'cavalry')).toBe(heroMen(s));
+    // Чужой род он не усиливает, и в счётчиках племени ничего не меняется.
+    expect(men(withHero, 'spear')).toBe(men(plain, 'spear'));
+    expect(armySize(s)).toBe(power);
+  });
+
+  it('смена рода стоит золота по числу ртов, а тот же род — бесплатно', () => {
+    const s = createInitialState();
+    s.gold = 10_000;
+    const cost = heroInfo(s).retrainCost;
+    expect(setHeroKind(s, s.hero.kind)).toBeNull();
+    expect(s.gold).toBe(10_000);
+    expect(setHeroKind(s, 'cavalry')).toBeNull();
+    expect(s.hero.kind).toBe('cavalry');
+    expect(s.gold).toBe(10_000 - cost);
+    // Пир и слава дорожают вместе с посёлком.
+    const big = createInitialState();
+    big.pop = 700;
+    expect(heroInfo(big).retrainCost).toBeGreaterThan(cost * 10);
+  });
+
+  it('павший герой возвращается через время, а не исчезает навсегда', () => {
+    const s = withLevel('statue', 3);
+    s.hero.marchId = 'm1';
+    s.army.clubman = 10;
+    expect(heroReady(s)).toBe(false);
+    applyExpedition(s, {
+      warriorsLost: 10, scoutsLost: 0, resources: {}, gold: 0, prestige: 0, morale: -5,
+      battle: 'lost', text: 'Отряд разбит.', kind: 'bad',
+    });
+    // Из похода он вернулся, но лежит: имя у племени остаётся, героя не теряют.
+    expect(s.hero.marchId).toBeNull();
+    expect(s.hero.name.length).toBeGreaterThan(3);
+    expect(heroReady(s)).toBe(false);
+    expect(s.hero.downUntil).toBe(s.time + heroDownSeconds());
+    s.time = s.hero.downUntil;
+    expect(heroReady(s)).toBe(true);
+    // Смена рода, пока он ранен, запрещена — и панель говорит почему.
+    const hurt = withLevel('statue', 3);
+    hurt.gold = 10_000;
+    hurt.hero.downUntil = hurt.time + 100;
+    expect(setHeroKind(hurt, 'archer')).not.toBeNull();
+  });
+
+  it('победа героя не калечит', () => {
+    const s = withLevel('statue', 3);
+    s.hero.marchId = 'm1';
+    s.army.clubman = 10;
+    applyExpedition(s, {
+      warriorsLost: 2, scoutsLost: 0, resources: { wood: 40 }, gold: 0, prestige: 3, morale: 2,
+      battle: 'won', text: 'Победа.', kind: 'good',
+    });
+    expect(s.hero.marchId).toBeNull();
+    expect(heroReady(s)).toBe(true);
   });
 });
 

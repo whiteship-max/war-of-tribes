@@ -3,10 +3,12 @@ import type { GameState, JobId, ResourceId, PatronId } from '../types';
 import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
 import { FEAST_DAYS, RESOURCE_IDS } from '../constants';
+import type { UnitKind } from '@/battle';
 import {
   buildingById,
   feastInfo,
   feastSeconds,
+  heroInfo,
   isSite,
   storageCap,
   upgradeCost,
@@ -84,6 +86,21 @@ export function choosePatron(s: GameState, patron: PatronId): string | null {
   s.patron = patron;
   const names: Record<PatronId, string> = { wolf: 'Волка', bear: 'Медведя', eagle: 'Орла' };
   log(s, `Племя приняло покровителя — ${names[patron]}.`, 'good');
+  return null;
+}
+
+/**
+ * Сменить роду войск, который ведёт герой. Плата — золото по числу ртов: развилка
+ * не одноразовая (в отличие от покровителя), но и не бесплатная, иначе род
+ * подбирался бы под каждый поход и выбор перестал бы что-то значить.
+ */
+export function setHeroKind(s: GameState, kind: UnitKind): string | null {
+  if (s.hero.kind === kind) return null;
+  const info = heroInfo(s);
+  if (info.blocked) return info.blocked;
+  s.gold -= info.retrainCost;
+  s.hero.kind = kind;
+  log(s, `${s.hero.name} встал во главе другого рода. Плата — ${info.retrainCost} золота.`);
   return null;
 }
 

@@ -19,6 +19,8 @@ import {
   FEAST_COOLDOWN_PER_LEVEL,
   FEAST_DAYS,
   FEAST_GOLD_PER_POP,
+  HERO_DOWN_DAYS,
+  HERO_RETRAIN_PER_POP,
   INFIRMARY_HEAL_CAP,
   BASE_STORAGE_CAP,
   BUILDER_RATE,
@@ -41,6 +43,7 @@ import {
   VILLAGER_DEFENSE,
   emptyResources,
 } from './constants';
+import type { UnitKind } from '@/battle';
 import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
@@ -479,6 +482,61 @@ export const feastMorale = (s: GameState): number =>
 
 /** Сколько игрового времени длится пир. */
 export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
+
+// ---------- Герой ----------
+
+/**
+ * Сколько бойцов строя приводит с собой герой в выбранный им род. Это и есть
+ * усиление: ядро боя знает роды и бойцов строя, а не «легендарных чемпионов»,
+ * поэтому слава героя честнее всего считается людьми, которые за ним идут.
+ * Мощь армии (`armyPower`) он при этом не трогает — её нельзя ничем множить.
+ */
+export const heroMen = (s: GameState): number => Math.round(statOf(s, 'statue', 'hero'));
+
+/** Герой дома и здоров — значит, пойдёт со следующим походом. */
+export const heroReady = (s: GameState): boolean =>
+  s.hero.marchId === null && s.hero.downUntil <= s.time;
+
+export interface HeroInfo {
+  name: string;
+  kind: UnitKind;
+  /** Сколько бойцов строя он приводит в свой род. */
+  men: number;
+  /** Пойдёт со следующим походом. */
+  ready: boolean;
+  /** В походе прямо сейчас. */
+  away: boolean;
+  /** Секунд игрового времени до возвращения после гибели; 0 — он в строю. */
+  down: number;
+  /** Во что обойдётся смена рода войск. */
+  retrainCost: number;
+  /** Почему нельзя сменить род; null — можно. */
+  blocked: string | null;
+}
+
+export function heroInfo(s: GameState): HeroInfo {
+  const h = s.hero;
+  const down = Math.max(0, h.downUntil - s.time);
+  const away = h.marchId !== null;
+  const retrainCost = Math.ceil(HERO_RETRAIN_PER_POP * population(s));
+  let blocked: string | null = null;
+  if (away) blocked = 'Герой в походе.';
+  else if (down > 0) blocked = `Герой ранен: ${Math.ceil(down / DAY_LENGTH)} дн.`;
+  else if (s.gold < retrainCost) blocked = `Не хватает золота: нужно ${retrainCost}.`;
+  return {
+    name: h.name,
+    kind: h.kind,
+    men: heroMen(s),
+    ready: !away && down <= 0,
+    away,
+    down,
+    retrainCost,
+    blocked,
+  };
+}
+
+/** Сколько лежит павший герой. Он не пропадает совсем — только выбывает на время. */
+export const heroDownSeconds = (): number => HERO_DOWN_DAYS * DAY_LENGTH;
 
 /** Сколько бойцов ждёт своей очереди в казармах. */
 export const recruitsQueued = (s: GameState): number =>

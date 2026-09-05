@@ -28,6 +28,7 @@ import {
   type Tier,
 } from './buildings';
 import { VillagerAgent, shownVillagers } from './villagers';
+import { HeroAgent, heroShown } from './hero';
 import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
@@ -112,6 +113,7 @@ function markerTexture(kind: Attention): THREE.Texture {
 const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
   tower: 3.8,
   church: 3.6,
+  statue: 3.2,
   watch: 3.4,
   houses: 2.6,
   smithy: 2.8,
@@ -143,6 +145,8 @@ export class TribeScene {
   private agents = new Map<number, VillagerAgent>();
   private nextAgentId = 1;
   private soldiers: SoldierAgent[] = [];
+  /** Герой у своей статуи. null — он в походе или лежит после боя. */
+  private hero: HeroAgent | null = null;
   /** Все фигурки — жители и бойцы — одним пулом инстансов: девять вызовов на всех. */
   private figures = new FigurePool();
   /** Караваны рынка: телега на дороге у ворот, пока покупка в пути. */
@@ -590,6 +594,16 @@ export class TribeScene {
       this.figures.add(agent.figure);
     }
 
+    // Герой: одна фигурка у статуи. Ушёл с походом или ранен — площадь пуста.
+    const wantHero = heroShown(s);
+    if (wantHero && !this.hero) {
+      this.hero = new HeroAgent();
+      this.figures.add(this.hero.figure);
+    } else if (!wantHero && this.hero) {
+      this.figures.remove(this.hero.figure);
+      this.hero = null;
+    }
+
     this.syncWorkSigns(s);
     this.syncSoldiers(s);
     this.syncCaravans(s);
@@ -742,6 +756,7 @@ export class TribeScene {
     this.signs.update(t);
     // Дружина несёт службу и ночью: у ворот всегда кто-то стоит.
     for (const a of this.soldiers) a.update(dt, t);
+    this.hero?.update(t);
     this.figures.update();
     for (const view of this.caravans.values()) {
       const total = Math.max(0.001, view.arriveAt - view.departAt);

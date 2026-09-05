@@ -11,6 +11,8 @@ import { useGame } from '@/game/store';
 import { useWorld, defenseLock, worldNow } from '@/world/store';
 import { defense, homeArmy, soldierPower } from '@/game/derived';
 import { homeTroops, militiaArchers, militiaMen } from '@/world/bridge';
+import { heroInfo, heroReady } from '@/game/derived';
+import { KIND_META } from '@/battle';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
 import { CASTLE_ICON, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
@@ -131,6 +133,11 @@ export function BattlePanel({ targetId }: Props) {
     setSel(null);
   };
 
+  // Герой уходит только с тем походом, который игрок собрал сам: в быстрой атаке
+  // расстановку выбирает пресет по сиду, и вести ему там некого.
+  const hero = heroInfo(s);
+  const heroGoes = attack && heroReady(s) && hero.men > 0;
+
   const doSend = async (): Promise<void> => {
     const final = settled(formation, unplaced);
     const troops = placedTroops(final);
@@ -145,7 +152,7 @@ export function BattlePanel({ targetId }: Props) {
       mission: 'raid',
       units: { warrior: men },
       troops,
-      setup: toArmySetup(final),
+      setup: toArmySetup(final, 0, 0, heroGoes ? { kind: hero.kind, men: hero.men } : null),
     });
     setBusy(false);
     if (err) {
@@ -264,6 +271,16 @@ export function BattlePanel({ targetId }: Props) {
               <span className="val">{militiaArchers(s)}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {attack && heroGoes && (
+        <div className="mod-list">
+          <div className="mod total">
+            <span className="ico">🛡️</span>
+            <span className="name">{hero.name} ведёт {KIND_META[hero.kind].name.toLowerCase()}</span>
+            <span className="val pos">+{hero.men}</span>
+          </div>
         </div>
       )}
 

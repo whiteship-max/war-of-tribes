@@ -21,7 +21,8 @@ export function upgradeGain(s: GameState, b: Building, toLevel: number): string 
   const housing = buildingHousing(at(toLevel)) - buildingHousing(at(b.level));
   if (housing) parts.push(`+${housing} к жилью`);
   const stats: [
-    keyof typeof def & ('storage' | 'defense' | 'morale' | 'archers' | 'heal' | 'intel' | 'train' | 'hidden' | 'feast'),
+    keyof typeof def &
+      ('storage' | 'defense' | 'morale' | 'archers' | 'heal' | 'intel' | 'train' | 'hidden' | 'feast' | 'hero'),
     string,
   ][] = [
     ['storage', 'к вместимости склада'],
@@ -33,6 +34,7 @@ export function upgradeGain(s: GameState, b: Building, toLevel: number): string 
     ['train', '% к скорости учений конницы'],
     ['hidden', 'к спрятанному от набега'],
     ['feast', 'к морали от пира'],
+    ['hero', 'бойцов за героем'],
   ];
   for (const [key, label] of stats) {
     const d = buildingStat(at(toLevel), key) - buildingStat(at(b.level), key);

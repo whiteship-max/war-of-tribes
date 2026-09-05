@@ -129,6 +129,16 @@ export const JOB_TINT: Record<JobId, number> = {
   priest: 0x7a4fa0,
 };
 
+/**
+ * Герой на площади. Отдельные три цвета, а не запись в TROOP_TINT: герой не вид
+ * бойца, он один, и узнаваться должен сразу — по плащу, шлему и щиту.
+ */
+export const HERO_TINT = {
+  cloak: 0x9a2f3a,
+  helm: 0xc9a03a,
+  shield: 0xc9a03a,
+};
+
 /** Одежда бойцов по виду: чем выше в лестнице, тем ближе к металлу. */
 export const TROOP_TINT: Record<TroopId, number> = {
   clubman: 0x8a6a4a,

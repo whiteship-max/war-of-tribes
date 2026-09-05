@@ -2,6 +2,7 @@ import type { Building, BuildingTypeId, GameState } from './types';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
+import { heroName } from './data/names';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
@@ -56,6 +57,9 @@ export function createInitialState(): GameState {
     morale: 60,
     prestige: 5,
     patron: null,
+    // Герой стоит у своей статуи с первого дня, как и всё остальное. Имя даётся
+    // один раз за партию; род войск игрок меняет в Статуе за золото.
+    hero: { name: heroName(Math.random), kind: 'infantry', downUntil: 0, marchId: null },
     starvation: 0,
     freezing: 0,
     winterWarnedYear: 0,
