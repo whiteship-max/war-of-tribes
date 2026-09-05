@@ -2,7 +2,7 @@
 // факту шаг считается пройденным. Рисует это ui/TutorialOverlay.
 //
 // Посёлок стоит с первой секунды, поэтому вести за руку надо не к стройке, а к
-// тому, вокруг чего игра: кузница → снаряжение → казармы → карта → разведка.
+// тому, вокруг чего игра: кузница → снаряжение → ратуша → казармы → карта → разведка.
 import type { BuildingTypeId, GameState } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { armySize, buildingById, buildingOfType, workerCount } from '../derived';
@@ -71,7 +71,7 @@ const scouting = (s: GameState): boolean => s.scoutsAway > 0;
 
 /**
  * Шаги сценария, разложенные по местам экрана: кузница и её слот, наряд на копьё,
- * список зданий и казармы в нём, кнопка карты, соседнее поселение и разведка.
+ * ратуша и казармы в её списке построек, кнопка карты, соседнее поселение и разведка.
  * Каждый шаг заканчивается действием игрока в настоящем интерфейсе: обучающих
  * макетов и кнопки «Далее» здесь нет.
  */
@@ -100,10 +100,10 @@ export const TUTORIAL: TutorialStep[] = [
     done: (s) => s.forging !== null || anyGear(s),
   },
   {
-    id: 'open_build',
-    text: 'Открой «Здания» внизу — там весь посёлок.',
-    target: { kind: 'dom', sel: '[data-tut="nav-build"]' },
-    done: (s, ui) => ui.tab === 'build' || opened(s, ui, 'barracks') || anyTroops(s),
+    id: 'open_town',
+    text: 'Открой ратушу внизу — оттуда ведут весь посёлок.',
+    target: { kind: 'dom', sel: '[data-tut="nav-townhall"]' },
+    done: (s, ui) => opened(s, ui, 'town_hall') || opened(s, ui, 'barracks') || anyTroops(s),
   },
   {
     id: 'open_barracks',

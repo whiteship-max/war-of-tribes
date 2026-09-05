@@ -36,7 +36,7 @@ function Lines({ lines }: { lines: MoraleLine[] }) {
 
 export function MoralePanel() {
   const s = useGame((g) => g.s);
-  const openBuilding = useGame((g) => g.openBuilding);
+  const openTownHall = useGame((g) => g.openTownHall);
   const openTab = useGame((g) => g.openTab);
   const b = moraleBreakdown(s);
   const morale = Math.round(s.morale);
@@ -46,7 +46,7 @@ export function MoralePanel() {
   const decree = decreeOf(s);
   const ration = rationOf(s);
   const drift = policyMoralePerDay(s);
-  const hall = buildingOfType(s, 'chief_house');
+  const hall = buildingOfType(s, 'town_hall');
 
   // Ноль тоже показываем сверху: это рычаг, которым игрок пока не воспользовался.
   const up = b.lines.filter((l) => l.value >= 0).sort((a, c) => c.value - a.value);
@@ -173,7 +173,7 @@ export function MoralePanel() {
         </span>
       </div>
       {hall && (
-        <button className="btn ghost wide" onClick={() => hall && openBuilding(hall.id)}>
+        <button className="btn ghost wide" onClick={() => openTownHall('manage')}>
           🏛️ В ратушу — указ, рацион и налог
         </button>
       )}

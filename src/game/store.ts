@@ -18,7 +18,14 @@ import { haptic } from '@/telegram/webapp';
  * `season`, `pop`, `morale` и `army` — справочные экраны кнопок верхней строки:
  * в нижнюю навигацию они не попадают, открываются только оттуда.
  */
-export type Tab = 'people' | 'build' | 'quests' | 'season' | 'pop' | 'morale' | 'army';
+export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'army';
+
+/**
+ * Вкладки ратуши. Живут в сторе, а не в самой панели: на «Управление» ведут
+ * ссылки из справки о морали, и вести им некуда, если вкладка — местная память
+ * компонента, который ещё не открыт.
+ */
+export type TownTab = 'build' | 'manage' | 'gems';
 
 /**
  * Что показывает нижняя шторка: раздел, конкретное здание или клетка карты мира.
@@ -57,12 +64,22 @@ export interface GameStore {
   sheet: SheetView | null;
   /** Открыта карта мира. Пока она открыта, 3D-сцена не рисуется (но и не выгружается). */
   mapOpen: boolean;
+  /** Какая вкладка открыта в ратуше. */
+  townTab: TownTab;
   toast: string | null;
   eventResult: string | null;
   /** Открывает раздел; повторный вызов того же — закрывает. */
   openTab: (tab: Tab) => void;
   /** Открывает панель здания. null — закрыть (тап по пустому месту). */
   openBuilding: (id: number | null) => void;
+  /**
+   * Открывает ратушу на нужной вкладке. Отдельно от `openBuilding`, потому что
+   * ратуша — единственное здание, к которому ведут не только тап по крыше:
+   * через неё идёт вся стройка посёлка.
+   */
+  openTownHall: (tab?: TownTab) => void;
+  /** Переключает вкладку ратуши. */
+  setTownTab: (tab: TownTab) => void;
   /** Карта мира вместо сцены. */
   openMap: () => void;
   closeMap: () => void;
@@ -112,6 +129,7 @@ export const useGame = create<GameStore>((set, get) => ({
   legacyReset: false,
   sheet: null,
   mapOpen: false,
+  townTab: 'build',
   toast: null,
   eventResult: null,
 
@@ -131,6 +149,18 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ sheet: { kind: 'building', id } });
     get().syncTutorial();
   },
+
+  openTownHall: (tab = 'build') => {
+    const hall = get().s.buildings.find((b) => b.type === 'town_hall');
+    if (!hall) return;
+    haptic('light');
+    const cur = get().sheet;
+    const open = cur?.kind === 'building' && cur.id === hall.id && get().townTab === tab;
+    set({ townTab: tab, sheet: open ? null : { kind: 'building', id: hall.id } });
+    get().syncTutorial();
+  },
+
+  setTownTab: (tab) => set({ townTab: tab }),
 
   openMap: () => {
     haptic('light');

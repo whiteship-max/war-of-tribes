@@ -32,6 +32,7 @@ import {
   SHAMAN_MORALE_CAP,
   SLOTS_PER_LEVEL,
   SMITH_WORK,
+  TOWN_HALL_BUILD_STEP,
   SOLDIER_FOOD,
   UPGRADE_GROWTH,
   VILLAGER_DEFENSE,
@@ -117,7 +118,7 @@ export const idleCount = (s: GameState): number => Math.max(0, s.pop - busyCount
 /**
  * Пассивный эффект здания с учётом уровня: база + прибавка за каждый уровень сверх
  * того, с которого эффект вообще появляется (`since`). У большинства зданий это
- * первый уровень; у Дома вождя жильё начинается с шестого.
+ * первый уровень; у ратуши жильё начинается с шестого.
  */
 export function buildingStat(b: Building, key: keyof BuildingStats): number {
   const def = BUILDING_BY_ID[b.type];
@@ -520,13 +521,25 @@ export function crafterBuildRate(s: GameState, mods: SeasonModifiers = seasonMod
 }
 
 /**
- * Скорость стройки: свободные жители с площади плюс ремесленники в мастерской.
+ * Множитель скорости стройки от уровня ратуши: +8% за уровень сверх первого.
+ * Ратуша не даёт труда сама — она им распоряжается, поэтому это множитель ко
+ * всему, что строит посёлок, а не ещё одно слагаемое.
+ */
+export function townHallBuildMult(s: GameState): number {
+  const hall = buildingOfType(s, 'town_hall');
+  if (!hall) return 1;
+  return 1 + TOWN_HALL_BUILD_STEP * Math.max(0, hall.level - 1);
+}
+
+/**
+ * Скорость стройки: свободные жители с площади плюс ремесленники в мастерской,
+ * всё это — под рукой ратуши.
  * Улучшения — единственная прогрессия посёлка, и мастерская существует ради них.
  */
 export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Ушедшие разведчиками — те же свободные жители: пока они в пути, стройка идёт без них.
   const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
-  return (idle * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build;
+  return (idle * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
 }
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {

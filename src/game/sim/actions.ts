@@ -105,7 +105,7 @@ export function setRation(s: GameState, id: RationId): string | null {
 }
 
 /**
- * Уровень налога. Третий переключатель Дома вождя и единственный источник золота
+ * Уровень налога. Третий переключатель ратуши и единственный источник золота
  * в мирной жизни.
  */
 export function setTax(s: GameState, id: TaxId): string | null {

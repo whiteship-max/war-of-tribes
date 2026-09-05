@@ -574,7 +574,7 @@ function nextSite(s: GameState): void {
     const st = buildingOfType(s, 'storage')!;
     if (startUpgrade(s, st.id) === null) return;
   }
-  // Тянем вверх самое отстающее здание. Не только рабочее: стена и Дом вождя
+  // Тянем вверх самое отстающее здание. Не только рабочее: стена и ратуша
   // рабочих мест не дают, но без них посёлок не растёт.
   const behind = [...s.buildings].sort((a, b) => a.level - b.level);
   for (const b of behind) if (startUpgrade(s, b.id) === null) return;
@@ -874,7 +874,7 @@ describe('обучение', () => {
     expect(assignWorker(s, smithy.id)).toBeNull();
     expect(setForging(s, 'spear')).toBeNull();
     advanceTutorial(s, UI_NONE);
-    expect(at(s)).toBe('open_build');
+    expect(at(s)).toBe('open_town');
     // Игрок сам нашёл казармы и нанял дубинщика — все шаги про наём снимаются разом.
     expect(startRecruit(s, 'clubman', 1)).toBeNull();
     advanceTutorial(s, UI_NONE);
@@ -899,9 +899,10 @@ describe('обучение', () => {
 
     expect(setForging(s, 'spear')).toBeNull();
     advanceTutorial(s, ui({ building: smithy.id }));
-    expect(at(s)).toBe('open_build');
+    expect(at(s)).toBe('open_town');
 
-    advanceTutorial(s, ui({ tab: 'build' }));
+    const hall = buildingOfType(s, 'town_hall')!;
+    advanceTutorial(s, ui({ building: hall.id }));
     expect(at(s)).toBe('open_barracks');
 
     advanceTutorial(s, ui({ building: barracks.id }));

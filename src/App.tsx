@@ -7,7 +7,6 @@ import { BottomNav } from './ui/BottomNav';
 import { Sheet } from './ui/Sheet';
 import { EventModal } from './ui/EventModal';
 import { PeoplePanel } from './ui/panels/PeoplePanel';
-import { BuildPanel } from './ui/panels/BuildPanel';
 import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
@@ -35,8 +34,6 @@ function SheetContent({ view }: { view: SheetView }) {
   switch (view.tab) {
     case 'people':
       return <PeoplePanel />;
-    case 'build':
-      return <BuildPanel />;
     case 'quests':
       return <QuestsPanel />;
     case 'season':
