@@ -16,13 +16,15 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useGame } from '@/game/store';
-import { useWorld } from '@/world/store';
+import { figurePosition, useWorld, worldNow } from '@/world/store';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
 import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
+import { FIGURE_BY_ID } from '@/world/data/figures';
 import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
-import type { Coord } from '@/world/types';
+import type { Coord, FigureView } from '@/world/types';
+import { formatLeft, secondsLeft } from '@/world/geo';
 import { SCALE_DETAIL, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
 import {
   type Camera,
@@ -39,6 +41,7 @@ import { drawFrame } from './frame';
 import { dropTiles } from './ground';
 import { type Look, dropSprites, silhouetteUrl } from './village';
 import { dropPaint } from './paint';
+import { dropFog } from './fog';
 
 const TAP_MOVE = 12;
 const TAP_MS = 500;
@@ -66,6 +69,14 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
   },
 ];
 
+/** Строка под значком фигуры: где она и когда освободится. */
+function figureNote(f: FigureView): string {
+  if (f.phase === 'down') return formatLeft(secondsLeft(f.downUntil, worldNow()));
+  if (f.phase === 'moving') return formatLeft(secondsLeft(f.arriveAt, worldNow()));
+  if (f.atHome) return 'дома';
+  return f.atName ?? 'в поле';
+}
+
 export function WorldMap() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -90,6 +101,10 @@ export function WorldMap() {
   const info = useWorld((g) => g.info);
   const marchCount = useWorld((g) => g.marches.filter((m) => m.own).length);
   const unread = useWorld((g) => g.unread);
+  const figures = useWorld((g) => g.figures);
+  const picked = useWorld((g) => g.picked);
+  const pickFigure = useWorld((g) => g.pick);
+  const moveFigure = useWorld((g) => g.moveFigure);
   const closeMap = useGame((g) => g.closeMap);
   const openMarches = useGame((g) => g.openMarches);
   const showToast = useGame((g) => g.showToast);
@@ -130,6 +145,7 @@ export function WorldMap() {
     dropTiles();
     dropSprites();
     dropPaint();
+    dropFog();
   }, [seed]);
 
   // ---------- Отрисовка ----------
@@ -254,6 +270,17 @@ export function WorldMap() {
     const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
     if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
     if (c.x >= WORLD_ORIGIN.x + WORLD_SIZE || c.y >= WORLD_ORIGIN.y + WORLD_SIZE) return;
+    // Фигура в руке — тап ведёт её сюда. Это и есть весь способ отдать приказ:
+    // отдельного экрана «куда идти» нет и заводить его незачем.
+    const hand = useWorld.getState().picked;
+    if (hand) {
+      void (async () => {
+        const err = await moveFigure(hand, c);
+        showToast(err ?? `${FIGURE_BY_ID[hand].name} пошёл к ${formatCoord(c)}.`);
+        if (!err) pickFigure(null);
+      })();
+      return;
+    }
     void useWorld.getState().select(c);
     focusOn(c);
   };
@@ -350,6 +377,26 @@ export function WorldMap() {
               </span>
             </div>
           ))}
+          <h3>Туман войны</h3>
+          <div className="wm-leg-row">
+            <i style={{ background: '#120e0b' }} />
+            <span>
+              Не разведано <em>сюда никто не заходил</em>
+            </span>
+          </div>
+          <div className="wm-leg-row">
+            <i style={{ background: '#3a332b' }} />
+            <span>
+              Вне обзора <em>местность знаем, а что там сейчас — нет</em>
+            </span>
+          </div>
+          <div className="wm-leg-row">
+            <i style={{ background: '#6b7a44' }} />
+            <span>
+              В обзоре <em>видно своими глазами</em>
+            </span>
+          </div>
+
           <h3>Земля</h3>
           {TERRAIN_ORDER.map((t) => (
             <div className="wm-leg-row" key={t}>
@@ -364,6 +411,32 @@ export function WorldMap() {
           </button>
         </div>
       )}
+
+      <div className="wm-figures">
+        {figures.map((f) => (
+          <button
+            key={f.id}
+            className={`wm-fig${picked === f.id ? ' active' : ''}${f.phase === 'down' ? ' down' : ''}`}
+            onClick={() => {
+              if (picked === f.id) {
+                pickFigure(null);
+                return;
+              }
+              if (f.phase === 'down') {
+                showToast(`${f.name} выбыл: вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}.`);
+                return;
+              }
+              pickFigure(f.id);
+              centerOn(figurePosition(f, worldNow()));
+            }}
+          >
+            <span className="ico">{f.icon}</span>
+            <em>{figureNote(f)}</em>
+          </button>
+        ))}
+      </div>
+
+      {picked && <div className="wm-hint">Тапни по клетке — {FIGURE_BY_ID[picked].one} пойдёт туда.</div>}
 
       <div className="wm-foot">
         <button className="wm-btn wide" onClick={goHome}>

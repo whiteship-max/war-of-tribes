@@ -1587,6 +1587,77 @@ body {
   gap: 8px;
 }
 
+/* ---------- Три фигуры ---------- */
+
+/* Ряд стоит над нижними кнопками: фигура — то, чем на карте ходят, и до неё
+   должно быть одно движение большого пальца. */
+.wm-figures {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  bottom: calc(var(--safe-bottom) + 8px + var(--tap) + 8px);
+  display: flex;
+  gap: 6px;
+}
+
+.wm-fig {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+}
+
+.wm-fig .ico {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.wm-fig em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wm-fig.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.wm-fig.active em {
+  color: var(--accent-text);
+}
+
+/* Павшая фигура остаётся на месте в ряду: она не потеряна, она возвращается. */
+.wm-fig.down {
+  opacity: 0.55;
+}
+
+.wm-hint {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  bottom: calc(var(--safe-bottom) + 8px + var(--tap) + 8px + var(--tap) + 14px);
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  font-size: 12px;
+  text-align: center;
+}
+
 /* ---------- Карточка клетки и походы ---------- */
 
 .wm-actions {

@@ -1,23 +1,28 @@
-// Подготовка похода и оборона поселения — одна панель. Разница между ними в
-// двух вещах: у похода есть цель, дорога и кнопка «отправить», у обороны —
-// таймер прибытия и заморозка за пять минут. Всё остальное — состав,
-// расстановка, план, приказы, резерв — одно и то же, и разводить это по двум
-// экранам значило бы держать две копии одной панели.
+// Подготовка боя и оборона поселения — одна панель. Разница между ними в двух
+// вещах: у боя есть цель и кнопка «ударить», у обороны — таймер прибытия и
+// заморозка за пять минут. Всё остальное — расстановка, план, приказы, резерв —
+// одно и то же, и разводить это по двум экранам значило бы держать две копии
+// одной панели.
+//
+// Состав в бою не выбирается: армия уже стоит у ворот при полководце, и менять
+// её можно было только дома. Здесь остаётся то, что решается на месте, — как
+// эта армия встанет.
 //
 // Прогноза исхода здесь нет. Ни шансов, ни предварительного расчёта: игрок не
 // знает плана и резерва противника, и вся неопределённость держится на этом.
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, defenseLock, worldNow } from '@/world/store';
-import { defense, homeArmy, soldierPower } from '@/game/derived';
-import { homeTroops, militiaArchers, militiaMen } from '@/world/bridge';
+import { defense, homeArmy } from '@/game/derived';
+import { awayTroops, homeTroops, militiaArchers, militiaMen } from '@/world/bridge';
 import { heroInfo, heroReady } from '@/game/derived';
 import { KIND_META } from '@/battle';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
-import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
+import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { CASTLE_ICON, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import {
   applyTemplate,
+  clampFormation,
   cloneFormation,
   kindsPresent,
   placedTroops,
@@ -59,14 +64,18 @@ export function BattlePanel({ targetId }: Props) {
   const showToast = useGame((g) => g.showToast);
   const openWorldTile = useGame((g) => g.openWorldTile);
   const card = useWorld((g) => g.card);
-  const send = useWorld((g) => g.send);
   const marches = useWorld((g) => g.marches);
   const attack = Boolean(targetId);
 
-  const home = useMemo(() => homeTroops(s), [s]);
+  const figures = useWorld((g) => g.figures);
+  const strike = useWorld((g) => g.attack);
+  const general = figures.find((f) => f.id === 'general');
+  const away = useMemo(() => awayTroops(marches, figures), [marches, figures]);
+  // В бою расставляют то, что при полководце; дома — весь гарнизон.
+  const home = useMemo(() => (attack ? (general?.troops ?? {}) : homeTroops(s, away)), [s, away, attack, general]);
   const lock = defenseLock(marches, worldNow());
 
-  const [picked, setPicked] = useState<TroopStack>(() => (attack ? { ...home } : home));
+  const [picked, setPicked] = useState<TroopStack>(() => ({ ...home }));
   const [formation, setFormation] = useState<Formation>(() =>
     attack ? presetFormation(home, 'standard') : (s.defenseFormation ?? presetFormation(home, 'defense')),
   );
@@ -81,31 +90,23 @@ export function BattlePanel({ targetId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formation, attack, lock.frozen]);
 
+  // Состав похода не выбирается — он приехал вместе с полководцем. Если он
+  // изменился (взяли дружину дома, кого-то потеряли в бою), схема пересобирается.
+  const forceKey = TROOP_IDS.map((t) => home[t] ?? 0).join(',');
+  useEffect(() => {
+    if (!attack) return;
+    setPicked({ ...home });
+    setFormation((f) => {
+      const { formation: fitted, extra } = clampFormation(f, home);
+      return troopTotal(extra) > 0 ? stashUnplaced(fitted, extra) : fitted;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceKey, attack]);
+
   const unplaced = unplacedTroops(picked, formation);
   const placed = placedTroops(formation);
   const sent = troopTotal(picked);
   const locked = !attack && lock.frozen;
-
-  const setPick = (t: TroopId, n: number): void => {
-    const max = home[t] ?? 0;
-    const next = { ...picked, [t]: Math.max(0, Math.min(max, n)) };
-    setPicked(next);
-    // Убрали больше, чем лежит вне схемы, — снимаем и с расстановки.
-    if ((next[t] ?? 0) < (placed[t] ?? 0)) {
-      const f = cloneFormation(formation);
-      let over = (placed[t] ?? 0) - (next[t] ?? 0);
-      for (const id of ['R', 'F', 'D', 'E', 'C', 'A', 'B'] as Sector[]) {
-        if (over <= 0) break;
-        const have = f.sectors[id][t] ?? 0;
-        const take = Math.min(have, over);
-        if (take > 0) {
-          f.sectors[id][t] = have - take;
-          over -= take;
-        }
-      }
-      setFormation(f);
-    }
-  };
 
   const place = (t: TroopId, n: number): void => {
     if (locked || sel === null || sel === 'rest') return;
@@ -138,20 +139,21 @@ export function BattlePanel({ targetId }: Props) {
   const hero = heroInfo(s);
   const heroGoes = attack && heroReady(s) && hero.men > 0;
 
-  const doSend = async (): Promise<void> => {
+  /**
+   * Удар. Бой считается сразу: полководец уже дошёл, и защитнику было отпущено
+   * всё время, пока фигура шла через карту.
+   */
+  const doStrike = async (): Promise<void> => {
     const final = settled(formation, unplaced);
-    const troops = placedTroops(final);
-    const men = troopTotal(troops);
-    if (men === 0) {
-      showToast('Отряд пустой.');
+    if (troopTotal(placedTroops(final)) === 0) {
+      showToast('Ставить в строй некого.');
       return;
     }
     setBusy(true);
-    const err = await send({
-      target: targetId as string,
-      mission: 'raid',
-      units: { warrior: men },
-      troops,
+    // Герой уходит с тем боем, который игрок собрал сам: гибель и возвращение
+    // разберёт `applyExpedition` по этой же отметке.
+    if (heroGoes) act((g) => { g.hero.marchId = 'general'; return null; });
+    const err = await strike({
       setup: toArmySetup(final, 0, 0, heroGoes ? { kind: hero.kind, men: hero.men } : null),
     });
     setBusy(false);
@@ -159,23 +161,20 @@ export function BattlePanel({ targetId }: Props) {
       showToast(err);
       return;
     }
-    showToast('Отряд вышел.');
+    showToast('Дружина ударила. Отчёт в походах.');
     if (card) openWorldTile(card.x, card.y);
   };
 
   // ---------- Шапка ----------
 
-  const strength = soldierPower(s);
   const def = defense(s);
-  const defAfter = Math.max(0, def - sent * strength);
-  const eta = card ? marchSeconds(card.distance, card.terrainFactor, { warrior: Math.max(1, sent) }) : 0;
   const stage = card ? STAGE_BY_ID[card.stage] : null;
 
   const head = attack ? (
     <div className="bhead">
       <div className="ico">{card?.castle ? CASTLE_ICON : (stage?.icon ?? '⚔️')}</div>
       <div className="body">
-        <div className="name">Поход на {card?.name ?? 'цель'}</div>
+        <div className="name">Бой за {card?.name ?? 'цель'}</div>
         <div className="lvl">
           {card?.castle ? 'Замок' : (stage?.name ?? '')} ·{' '}
           {card && <span style={{ color: RELATION_META[card.relation].color }}>{RELATION_META[card.relation].name}</span>}
@@ -219,37 +218,29 @@ export function BattlePanel({ targetId }: Props) {
       {attack && <IntelCard intel={card?.intel ?? null} name={card?.name ?? 'это место'} />}
 
       <h3>
-        Состав <small>{attack ? `дома ${homeArmy(s)}` : 'весь гарнизон'}</small>
+        Состав <small>{attack ? 'при полководце' : 'весь гарнизон'}</small>
       </h3>
       {troopTotal(home) === 0 ? (
-        <div className="desc">Бойцов дома нет. Найми кого-нибудь в казармах.</div>
+        <div className="desc">
+          {attack
+            ? 'При полководце никого. Дружину дают ему дома — в поле состав не меняется.'
+            : 'Бойцов дома нет. Найми кого-нибудь в казармах.'}
+        </div>
       ) : attack ? (
-        TROOP_IDS.filter((t) => (home[t] ?? 0) > 0).map((t) => {
-          const d = TROOP_BY_ID[t];
-          const n = picked[t] ?? 0;
-          const max = home[t] ?? 0;
-          return (
-            <div className="slot pick" key={t}>
-              <span className="ico">{d.icon}</span>
-              <span className="who">
-                {d.name}
-                <i className="talent"> дома {max}</i>
-              </span>
-              <div className="stepper">
-                <button disabled={n <= 0} onClick={() => setPick(t, n - 1)}>
-                  −
-                </button>
-                <span className="n">{n}</span>
-                <button disabled={n >= max} onClick={() => setPick(t, n + 1)}>
-                  +
-                </button>
-              </div>
-              <button className="mini text" disabled={n >= max} onClick={() => setPick(t, max)}>
-                все
-              </button>
+        <div className="mod-list">
+          {TROOP_IDS.filter((t) => (home[t] ?? 0) > 0).map((t) => (
+            <div className="mod" key={t}>
+              <span className="ico">{TROOP_BY_ID[t].icon}</span>
+              <span className="name">{TROOP_BY_ID[t].name}</span>
+              <span className="val">{home[t]}</span>
             </div>
-          );
-        })
+          ))}
+          <div className="mod total">
+            <span className="ico">🏠</span>
+            <span className="name">Оборона деревни без них</span>
+            <span className="val">{fmt(def)}</span>
+          </div>
+        </div>
       ) : (
         <div className="mod-list">
           {TROOP_IDS.filter((t) => (home[t] ?? 0) > 0).map((t) => (
@@ -285,20 +276,9 @@ export function BattlePanel({ targetId }: Props) {
       )}
 
       {attack && (
-        <div className="mod-list">
-          <div className="mod">
-            <span className="ico">⏱</span>
-            <span className="name">Дорога туда</span>
-            <span className="val">{sent > 0 ? formatLeft(eta) : '—'}</span>
-          </div>
-          <div className="mod total">
-            <span className="ico">🏠</span>
-            <span className="name">Оборона деревни станет</span>
-            <span className={`val ${defAfter < def * 0.5 ? 'neg' : ''}`}>
-              {fmt(def)} → {fmt(defAfter)}
-            </span>
-          </div>
-        </div>
+        <p className="note">
+          Дружина уже здесь: менять состав можно было только дома. Осталось решить, как она встанет.
+        </p>
       )}
 
       <h3>
@@ -361,11 +341,12 @@ export function BattlePanel({ targetId }: Props) {
                     <button
                       className="mini text"
                       onClick={() => {
+                        // Из схемы берём только расстановку: состав уже при
+                        // полководце, и подменять его шаблоном нельзя.
                         const out = applyTemplate(tpl, home);
-                        setPicked(out.troops);
                         setFormation(out.formation);
                         setSel(null);
-                        if (out.short) showToast('Дома нашлись не все — взяли сколько есть.');
+                        if (out.short) showToast('Под рукой нашлись не все — встали как есть.');
                       }}
                     >
                       Взять
@@ -385,8 +366,8 @@ export function BattlePanel({ targetId }: Props) {
             💾 Сохранить нынешнюю схему
           </button>
 
-          <button className="btn wide" disabled={busy || sent === 0} onClick={() => void doSend()}>
-            ⚔️ Отправить {troopsLine(picked)}
+          <button className="btn wide" disabled={busy || sent === 0} onClick={() => void doStrike()}>
+            ⚔️ Ударить {troopsLine(picked)}
           </button>
         </>
       )}

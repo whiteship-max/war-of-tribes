@@ -1,30 +1,116 @@
 // Карточка клетки карты. Открывается тапом по клетке и живёт в той же нижней шторке,
 // что и панели зданий: тап — карточка — действие, без отдельных экранов.
+//
+// Здесь же собраны все действия фигур: довести сюда, ударить, договориться,
+// забрать гарнизон. Отдельного экрана «приказы» нет — приказ отдаётся там, где
+// игрок и так смотрит, то есть на клетке.
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { useWorld } from '@/world/store';
+import { figuresOn, useWorld, worldNow } from '@/world/store';
 import { defense, soldierPower } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
-import { formatCoord, formatLeft, marchSeconds } from '@/world/geo';
+import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
+import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { TERRAIN_META } from '@/world/data/terrain';
-import type { Mission, UnitStack } from '@/world/types';
+import type { FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
-import { homeTroops } from '@/world/bridge';
-import { troopTotal } from '@/game/battle/kinds';
+import { awayTroops, homeTroops } from '@/world/bridge';
+import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString());
 
 /**
- * Какие юниты имеют смысл в этой миссии. Набега здесь нет: он ушёл в подготовку
- * похода — там состав выбирается по видам бойцов, а не одним числом воинов.
+ * Какие юниты имеют смысл в этой миссии. Набега здесь нет и быть не может: армию
+ * водит полководец, а гонцом её больше не отправить (см. `LocalWorld.send`).
  */
 const ALLOWED: Record<Mission, ('warrior' | 'scout')[]> = {
-  raid: ['warrior', 'scout'],
+  raid: [],
   scout: ['scout'],
   support: ['warrior'],
 };
+
+/**
+ * Что полководец держит при себе. Правится только вплотную к своей деревне: в
+ * поле состав войска не меняется, и это правило игры, а не ограничение панели.
+ */
+function GarrisonEditor() {
+  const s = useGame((g) => g.s);
+  const showToast = useGame((g) => g.showToast);
+  const marches = useWorld((g) => g.marches);
+  const figures = useWorld((g) => g.figures);
+  const setGarrison = useWorld((g) => g.setGarrison);
+  const general = figures.find((f) => f.id === 'general');
+  const held: TroopStack = general?.troops ?? {};
+  const home = homeTroops(s, awayTroops(marches, figures));
+  const [want, setWant] = useState<TroopStack>(held);
+  const [busy, setBusy] = useState(false);
+
+  // Пришёл новый состав из мира — начинаем от него, а не от прошлого выбора.
+  const key = TROOP_IDS.map((t) => held[t] ?? 0).join(',');
+  useEffect(() => setWant({ ...held }), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!general) return null;
+  const rows = TROOP_IDS.filter((t) => (home[t] ?? 0) + (held[t] ?? 0) > 0);
+  const total = troopTotal(want);
+  const apply = async (next: TroopStack | null): Promise<void> => {
+    setBusy(true);
+    const err = await setGarrison(next);
+    setBusy(false);
+    showToast(err ?? (troopTotal(next ?? {}) > 0 ? 'Дружина при полководце.' : 'Дружина вернулась в деревню.'));
+  };
+
+  return (
+    <>
+      <h3>
+        Дружина при полководце <small>{total}</small>
+      </h3>
+      {rows.length === 0 ? (
+        <div className="desc">Бойцов нет ни дома, ни при нём. Найми кого-нибудь в казармах.</div>
+      ) : (
+        rows.map((t) => {
+          const max = (home[t] ?? 0) + (held[t] ?? 0);
+          const n = want[t] ?? 0;
+          const set = (v: number): void => setWant((w) => ({ ...w, [t]: Math.max(0, Math.min(max, v)) }));
+          return (
+            <div className="slot pick" key={t}>
+              <span className="ico">{TROOP_BY_ID[t].icon}</span>
+              <span className="who">
+                {TROOP_BY_ID[t].name}
+                <i className="talent">всего {max}</i>
+              </span>
+              <div className="stepper">
+                <button disabled={n <= 0} onClick={() => set(n - 1)}>
+                  −
+                </button>
+                <span className="n">{n}</span>
+                <button disabled={n >= max} onClick={() => set(n + 1)}>
+                  +
+                </button>
+              </div>
+              <button className="mini text" disabled={n >= max} onClick={() => set(max)}>
+                все
+              </button>
+            </div>
+          );
+        })
+      )}
+      <div className="wm-actions">
+        <button className="btn wide" disabled={busy} onClick={() => void apply(want)}>
+          🎖️ Отдать полководцу {total}
+        </button>
+        <button className="btn ghost wide" disabled={busy || troopTotal(held) === 0} onClick={() => void apply(null)}>
+          🏠 Вернуть всю дружину домой
+        </button>
+      </div>
+      <p className="note">
+        Пока дружина при полководце в поле, деревню защищают только частокол, башня и сами жители.
+      </p>
+    </>
+  );
+}
 
 export function WorldPanel({ x, y }: { x: number; y: number }) {
   const s = useGame((g) => g.s);
@@ -36,6 +122,10 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const terrain = useWorld((g) => g.cardTerrain);
   const loading = useWorld((g) => g.cardLoading);
   const send = useWorld((g) => g.send);
+  const figures = useWorld((g) => g.figures);
+  const moveFigure = useWorld((g) => g.moveFigure);
+  const attack = useWorld((g) => g.attack);
+  const negotiate = useWorld((g) => g.negotiate);
   const [mission, setMission] = useState<Mission | null>(null);
   const [pick, setPick] = useState<UnitStack>({});
   const [busy, setBusy] = useState(false);
@@ -50,7 +140,35 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const home = useWorld((g) => g.info?.home ?? null);
   const homeDist = home ? Math.hypot(home.x - x, home.y - y) : 0;
 
+  /** Кнопки «вести сюда»: одна на фигуру, кроме тех, что уже здесь. */
+  const lead = (standing: FigureId[]): JSX.Element => (
+    <div className="wm-actions">
+      {FIGURES.filter((d) => !standing.includes(d.id)).map((d) => {
+        const f = figures.find((v) => v.id === d.id);
+        const down = f?.phase === 'down';
+        return (
+          <button
+            key={d.id}
+            className="btn ghost"
+            disabled={down || busy}
+            onClick={() => {
+              void (async () => {
+                setBusy(true);
+                const err = await moveFigure(d.id, here);
+                setBusy(false);
+                showToast(err ?? `${d.name} пошёл к ${formatCoord(here)}.`);
+              })();
+            }}
+          >
+            {d.icon} {down ? `${d.name}: ранен ${formatLeft(secondsLeft(f?.downUntil ?? 0, worldNow()))}` : `Вести ${d.one}`}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   if (!card) {
+    const standing = figuresOn(x, y, worldNow()).map((f) => f.id);
     return (
       <div className="panel">
         <h2>
@@ -59,7 +177,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <div className="desc">
           {loading
             ? 'Смотрим, кто здесь…'
-            : `${terrain ? TERRAIN_META[terrain].name : 'Земля'}. Здесь никто не живёт — идти сюда незачем.`}
+            : `${terrain ? TERRAIN_META[terrain].name : 'Земля'}. Здесь никто не живёт — но пройти через это место можно.`}
         </div>
         <div className="mod-list">
           <div className="mod">
@@ -68,6 +186,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             <span className="val">{fmt(homeDist)} кл.</span>
           </div>
         </div>
+        {standing.length > 0 && (
+          <p className="note">Здесь стоят: {standing.map((id) => FIGURE_BY_ID[id].name).join(', ')}.</p>
+        )}
+        <h3>Кого вести сюда</h3>
+        {lead(standing)}
       </div>
     );
   }
@@ -75,14 +198,14 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const stage = STAGE_BY_ID[card.stage];
   const relation = RELATION_META[card.relation];
   const have = sendableUnits(s);
-  // Вся дружина, что дома, — состав быстрой атаки.
-  const army = homeTroops(s);
-  const quick = troopTotal(army);
   const strength = soldierPower(s);
   const def = defense(s);
   const picked = { warrior: pick.warrior ?? 0, scout: pick.scout ?? 0 };
   const eta = marchSeconds(card.distance, card.terrainFactor, picked);
   const defAfter = Math.max(0, def - picked.warrior * (strength + 0.25) - picked.scout * 0.25);
+  const standing = card.figuresHere;
+  const general = figures.find((f) => f.id === 'general');
+  const generalMen = troopTotal(general?.troops ?? {});
 
   const setUnit = (id: 'warrior' | 'scout', n: number): void => {
     setPick((p) => ({ ...p, [id]: Math.max(0, Math.min(have[id], n)) }));
@@ -95,20 +218,14 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   };
 
   /**
-   * Быстрая атака: вся дружина, что дома, и расстановка по пресету. Пресета
-   * четыре, выбирает его сид похода — поэтому шаблон не становится известным
-   * и его нечем контрить заранее.
+   * Быстрая атака: полководец бьёт тем, что при нём, расстановку выберет пресет
+   * по сиду. Пресета четыре — противник не знает, какой из них пришёл.
    */
-  const quickAttack = async (): Promise<void> => {
-    if (!card || quick === 0) return;
+  const quickStrike = async (): Promise<void> => {
     setBusy(true);
-    const err = await send({ target: card.id, mission: 'raid', units: { warrior: quick }, troops: army });
+    const err = await attack({ setup: null });
     setBusy(false);
-    if (err) {
-      showToast(err);
-      return;
-    }
-    showToast('Дружина вышла.');
+    showToast(err ?? 'Дружина ударила. Отчёт в походах.');
   };
 
   const doSend = async (): Promise<void> => {
@@ -123,6 +240,13 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
     setMission(null);
     setPick({});
     showToast('Отряд вышел.');
+  };
+
+  const doDeal = async (id: (typeof DEALS)[number]['id']): Promise<void> => {
+    setBusy(true);
+    const err = await negotiate(id);
+    setBusy(false);
+    showToast(err ?? 'Договор подписан.');
   };
 
   return (
@@ -158,16 +282,23 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <span className="val">{fmt(card.distance)} кл.</span>
         </div>
         <div className="mod">
-          <span className="ico">🛡️</span>
-          <span className="name">Ход воинов</span>
-          <span className="val">{formatLeft(marchSeconds(card.distance, card.terrainFactor, { warrior: 1 }))}</span>
-        </div>
-        <div className="mod">
           <span className="ico">👣</span>
           <span className="name">Ход разведки</span>
           <span className="val">{formatLeft(marchSeconds(card.distance, card.terrainFactor, { scout: 1 }))}</span>
         </div>
       </div>
+
+      {/* Второй слой тумана словами: живые данные либо настоящие, либо старые, и
+          игрок обязан понимать, что именно перед ним. */}
+      {!card.mine && (
+        <p className={`note${card.visible ? '' : ' bad'}`}>
+          {card.visible
+            ? 'Место в обзоре: видно, что там сейчас.'
+            : card.stale && card.seenAt
+              ? `Вне обзора. Показано увиденное ${formatAge((worldNow() - card.seenAt) / 1000)} — что там теперь, неизвестно.`
+              : 'Вне обзора. Что там сейчас, никто не видит.'}
+        </p>
+      )}
 
       <h3>Войско</h3>
       <div className="mod-list">
@@ -183,6 +314,13 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <span className="name">Население</span>
           <span className="val">{formatEstimate(card.pop)}</span>
         </div>
+        {card.visible && card.marching && (
+          <div className="mod total">
+            <span className="ico">🚩</span>
+            <span className="name">Оттуда выходит войско</span>
+            <span className="val neg">видим</span>
+          </div>
+        )}
       </div>
       {card.castle && (
         <p className="note">
@@ -197,7 +335,22 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           Данные получены {formatAge(card.intel.ageSeconds)} — {PRECISION_NOTE[card.intel.precision]}.
         </p>
       ) : (
-        <p className="note bad">Про это место мы ничего не знаем. Сначала разведка.</p>
+        <p className="note bad">Про войско здесь мы ничего не знаем. Нужен разведчик у самых ворот.</p>
+      )}
+
+      {card.deals.length > 0 && (
+        <>
+          <h3>Договоры</h3>
+          <div className="mod-list">
+            {card.deals.map((d) => (
+              <div className="mod" key={d.id}>
+                <span className="ico">{DEALS.find((x) => x.id === d.id)?.icon}</span>
+                <span className="name">{DEALS.find((x) => x.id === d.id)?.name}</span>
+                <span className="val pos">{formatLeft(secondsLeft(d.until, worldNow()))}</span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <h3>Что делать</h3>
@@ -214,16 +367,13 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         )}
         {card.can.raid && (
           <>
-            {/* Одним тапом, без захода в подготовку: обычный игрок должен
-                уложиться в десяток секунд. Расстановку выберет пресет по сиду
-                похода — противник не знает, какой из четырёх пришёл. */}
-            <button className="btn wide" disabled={quick === 0 || busy} onClick={() => void quickAttack()}>
-              ⚔️ Быстрая атака · всей дружиной ({quick})
+            {/* Полководец здесь и войско при нём — только теперь и можно ударить. */}
+            <button className="btn wide" disabled={busy} onClick={() => void quickStrike()}>
+              ⚔️ Ударить сразу · {generalMen} бойцов
             </button>
-            <button className="btn ghost wide" disabled={quick === 0} onClick={() => openBattle(card.id)}>
-              🎯 Настроить тактику
+            <button className="btn ghost wide" onClick={() => openBattle(card.id)}>
+              🎯 Настроить бой
             </button>
-            {quick === 0 && <p className="note bad">Бойцов дома нет — воевать некем.</p>}
           </>
         )}
         {MISSIONS.filter((m) => m.id !== 'raid' && card.can[m.id]).map((m) => (
@@ -239,7 +389,38 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           </button>
         ))}
       </div>
-      {card.note && !card.can.support && <p className="note">{card.note}</p>}
+      {!card.mine && card.note && <p className="note">{card.note}</p>}
+
+      {/* Своя деревня — единственное место, где полководец меняет состав войска. */}
+      {card.mine && standing.includes('general') && <GarrisonEditor />}
+
+      {standing.includes('scout') && !card.mine && (
+        <p className="note">👣 Разведчик стоит у ворот и считает войско: данные обновляются, пока он здесь.</p>
+      )}
+
+      {standing.includes('diplomat') && !card.mine && card.tribeId && (
+        <>
+          <h3>Переговоры</h3>
+          {DEALS.map((d) => (
+            <div className="card" key={d.id}>
+              <div className="ico">{d.icon}</div>
+              <div className="body">
+                <div className="title">{d.name}</div>
+                <div className="desc">{d.description}</div>
+                <div className="cost">
+                  <button className="mini text" disabled={busy} onClick={() => void doDeal(d.id)}>
+                    Предложить
+                  </button>
+                  <span className="work">вражда не выше {d.maxHostility}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      <h3>Кого вести сюда</h3>
+      {lead(standing)}
 
       {mission && (
         <>

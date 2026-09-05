@@ -6,9 +6,12 @@ import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
-import { applyEffects, playerProfile, syncAway } from './bridge';
-import { DEFENSE_FREEZE } from './data/tuning';
+import { applyEffects, awayTroops, playerProfile, syncAway } from './bridge';
+import { inSight, type SightDisc } from './fog';
+import { FIGURE_BY_ID } from './data/figures';
+import { DEFENSE_FREEZE, HOME_SIGHT, MARCH_SIGHT } from './data/tuning';
 import { heroReady } from '@/game/derived';
+import { marchPosition } from './geo';
 import {
   cachedChunk,
   chunkKeysIn,
@@ -23,7 +26,12 @@ import {
   terrainAt,
 } from './cache';
 import type {
+  AttackOrder,
   Coord,
+  DealId,
+  DealView,
+  FigureId,
+  FigureView,
   MarchOrder,
   MarchView,
   Rect,
@@ -33,6 +41,7 @@ import type {
   TribeInfo,
   WorldInfo,
 } from './types';
+import type { TroopStack } from '@/game/battle/kinds';
 
 /** Как часто мир опрашивается. Достаточно редко, чтобы не мешать симуляции племени. */
 const PULSE_MS = 2000;
@@ -41,6 +50,15 @@ export interface WorldStore {
   ready: boolean;
   info: WorldInfo | null;
   marches: MarchView[];
+  /** Три фигуры. Приезжают пульсом вместе с походами — вторым списком. */
+  figures: FigureView[];
+  /** Договоры, действующие прямо сейчас. */
+  deals: DealView[];
+  /**
+   * Кого игрок держит в руке. Выбранной фигурой ходят тапом по карте — это и
+   * есть весь способ отдать ей приказ, отдельного экрана «куда идти» нет.
+   */
+  picked: FigureId | null;
   reports: Report[];
   unread: number;
   tribes: TribeInfo[];
@@ -60,6 +78,16 @@ export interface WorldStore {
   refreshCard: () => Promise<void>;
   send: (order: MarchOrder) => Promise<string | null>;
   recall: (id: string) => Promise<void>;
+  /** Взять фигуру в руку или отпустить. */
+  pick: (id: FigureId | null) => void;
+  /** Вести выбранную фигуру в клетку. Возвращает текст ошибки или null. */
+  moveFigure: (id: FigureId, to: Coord) => Promise<string | null>;
+  recallFigure: (id: FigureId) => Promise<string | null>;
+  /** Полководец забирает гарнизон или возвращает его домой. */
+  setGarrison: (troops: TroopStack | null) => Promise<string | null>;
+  /** Полководец бьёт по цели, у которой стоит. */
+  attack: (order: AttackOrder) => Promise<string | null>;
+  negotiate: (deal: DealId) => Promise<string | null>;
   loadReports: () => Promise<void>;
   markRead: () => Promise<void>;
   /** Новый мир с нуля — рядом с «начать заново» у племени. */
@@ -77,6 +105,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
   ready: false,
   info: null,
   marches: [],
+  figures: [],
+  deals: [],
+  picked: null,
   reports: [],
   unread: 0,
   tribes: [],
@@ -93,14 +124,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const info = await worldApi().info();
     set({ info, ready: true });
     await get().pulse();
-    set({ tribes: await worldApi().tribes() });
+    set({ tribes: await worldApi().tribes(), deals: await worldApi().deals() });
     if (!timer) timer = setInterval(() => void get().pulse(), PULSE_MS);
   },
 
   pulse: async () => {
     if (!hasWorldApi()) return;
     const game = useGame.getState();
-    const pulse = await worldApi().sync(playerProfile(game.s));
+    // Кто сейчас не дома, знает мир: походы и войско при полководце. Слепок
+    // деревни собирается уже без них, иначе дом оборонялся бы теми, кто стоит
+    // в поле у чужих ворот.
+    const away = awayTroops(get().marches, get().figures);
+    const pulse = await worldApi().sync(playerProfile(game.s, away));
 
     // Последствия походов применяются раньше, чем пересчитываются ушедшие: в
     // момент прихода отряда герой ещё числится в походе, и по этому и понятно,
@@ -111,7 +146,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
     // Число ушедших выводится из походов: правим состояние на месте, перерисовку
     // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.
-    syncAway(game.s, pulse.marches);
+    syncAway(game.s, pulse.marches, pulse.figures);
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
       // Список мог быть уже открыт: без этого свежий отчёт не появится, пока
@@ -120,7 +155,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
 
     clockOffset = pulse.now - Date.now();
-    set({ marches: pulse.marches, unread: pulse.unread, now: pulse.now });
+    set({ marches: pulse.marches, figures: pulse.figures, unread: pulse.unread, now: pulse.now });
     if (get().selected && get().card) void get().refreshCard();
   },
 
@@ -194,6 +229,70 @@ export const useWorld = create<WorldStore>((set, get) => ({
     await get().pulse();
   },
 
+  pick: (id) => set({ picked: id }),
+
+  moveFigure: async (id, to) => {
+    const err = await worldApi().moveFigure(id, to);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().pulse();
+    return null;
+  },
+
+  recallFigure: async (id) => {
+    const err = await worldApi().recallFigure(id);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    await get().pulse();
+    return null;
+  },
+
+  setGarrison: async (troops) => {
+    const err = await worldApi().setGarrison(troops);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    // Сразу же: пока не прошёл пульс, деревня всё ещё считает эту дружину своей.
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
+  attack: async (order) => {
+    const res = await worldApi().attack(order);
+    if (res.error) {
+      haptic('error');
+      return res.error;
+    }
+    haptic('medium');
+    useGame.getState().world((s) => {
+      s.stats.raids = (s.stats.raids ?? 0) + 1;
+    });
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
+  negotiate: async (deal) => {
+    const err = await worldApi().negotiate(deal);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    set({ deals: await worldApi().deals() });
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
   loadReports: async () => {
     set({ reports: await worldApi().reports() });
   },
@@ -210,6 +309,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
       ready: false,
       info: null,
       marches: [],
+      figures: [],
+      deals: [],
+      picked: null,
       reports: [],
       unread: 0,
       tribes: [],
@@ -221,6 +323,56 @@ export const useWorld = create<WorldStore>((set, get) => ({
     await get().boot();
   },
 }));
+
+/**
+ * Где фигура прямо сейчас. Считается из времени, а не берётся из пульса: пульс
+ * идёт раз в две секунды, а фигура на карте должна ехать плавно.
+ */
+export function figurePosition(f: FigureView, now: number): Coord {
+  if (f.phase !== 'moving') return f.to;
+  const total = Math.max(1, f.arriveAt - f.departAt);
+  const t = Math.min(1, Math.max(0, (now - f.departAt) / total));
+  return { x: f.from.x + (f.to.x - f.from.x) * t, y: f.from.y + (f.to.y - f.from.y) * t };
+}
+
+/**
+ * Круги обзора прямо сейчас — тем же составом, что и в мире: своя деревня, три
+ * фигуры и свои отряды в пути. Карта считает их у себя, а не спрашивает мир,
+ * ровно по одной причине: они меняются каждый кадр, а пульс идёт раз в две
+ * секунды, и туман отставал бы от фигуры на два корпуса.
+ */
+export function sightDiscs(now: number): SightDisc[] {
+  const g = useWorld.getState();
+  const out: SightDisc[] = [];
+  const home = g.info?.home;
+  if (home) out.push({ x: home.x, y: home.y, r: HOME_SIGHT });
+  for (const f of g.figures) {
+    if (f.phase === 'down') continue;
+    const at = figurePosition(f, now);
+    out.push({ x: at.x, y: at.y, r: f.sight });
+  }
+  for (const m of g.marches) {
+    if (!m.own) continue;
+    const at = m.phase === 'stay' ? m.to : marchPosition(m, now);
+    out.push({ x: at.x, y: at.y, r: MARCH_SIGHT });
+  }
+  return out;
+}
+
+/** Клетка в чьём-то обзоре прямо сейчас. */
+export const cellInSight = (discs: SightDisc[], x: number, y: number): boolean => inSight(discs, x + 0.5, y + 0.5);
+
+/** Фигура, стоящая на этой клетке (или вплотную к ней). Для карточки клетки. */
+export function figuresOn(x: number, y: number, now: number): FigureView[] {
+  return useWorld.getState().figures.filter((f) => {
+    if (f.phase === 'down') return false;
+    const at = figurePosition(f, now);
+    return Math.round(at.x) === x && Math.round(at.y) === y;
+  });
+}
+
+/** Как называется фигура — карте и панелям, чтобы не тянуть конфиг по одной. */
+export const figureName = (id: FigureId): string => FIGURE_BY_ID[id].name;
 
 /** Свои походы — отдельно от чужих: их показывает список, их можно отозвать. */
 export const ownMarches = (marches: MarchView[]): MarchView[] => marches.filter((m) => m.own);

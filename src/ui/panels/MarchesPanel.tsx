@@ -1,7 +1,12 @@
-// Свои походы и отчёты. Отсюда отряд отзывают, здесь же видно, кто идёт на нас.
+// Три фигуры, свои походы и отчёты. Отсюда фигуру и отряд отзывают, здесь же
+// видно, кто идёт на нас.
+//
+// Список фигур стоит первым нарочно: армия ходит только с полководцем, и вопрос
+// «где он сейчас» на этом экране главный.
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
-import { incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
+import { figurePosition, incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
+import { troopTotal } from '@/game/battle/kinds';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { MISSION_BY_ID } from '@/world/data/meta';
 import { UNITS } from '@/world/data/units';
@@ -64,6 +69,9 @@ export function MarchesPanel() {
   const loadReports = useWorld((g) => g.loadReports);
   const markRead = useWorld((g) => g.markRead);
   const select = useWorld((g) => g.select);
+  const figures = useWorld((g) => g.figures);
+  const recallFigure = useWorld((g) => g.recallFigure);
+  const showToast = useGame((g) => g.showToast);
 
   useEffect(() => {
     void loadReports().then(() => void markRead());
@@ -77,6 +85,53 @@ export function MarchesPanel() {
       <h2>
         Походы <small>{own.length > 0 ? `в пути ${own.length}` : 'все дома'}</small>
       </h2>
+
+      <h3>Фигуры</h3>
+      {figures.map((f) => {
+        const at = figurePosition(f, worldNow());
+        const cell = { x: Math.round(at.x), y: Math.round(at.y) };
+        const men = troopTotal(f.troops);
+        const where =
+          f.phase === 'down'
+            ? `выбыл, вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}`
+            : f.phase === 'moving'
+              ? `в пути · ${formatLeft(secondsLeft(f.arriveAt, worldNow()))}`
+              : f.atHome
+                ? 'дома'
+                : (f.atName ?? 'в поле');
+        return (
+          <div className={`card${f.phase === 'down' ? ' lost' : ''}`} key={f.id}>
+            <div className="ico">{f.icon}</div>
+            <div className="body">
+              <div className="title">
+                {f.name}
+                {men > 0 && <span className="count">дружина {men}</span>}
+              </div>
+              <div className="desc">
+                {where}
+                {men > 0 ? ' · войско при нём, дома его нет' : ''}
+              </div>
+              <div className="cost">
+                {f.phase !== 'down' && (
+                  <button className="mini text" onClick={() => void select(cell)}>
+                    {formatCoord(cell)}
+                  </button>
+                )}
+                {f.phase !== 'down' && !f.atHome && (
+                  <button
+                    className="mini text"
+                    onClick={() => {
+                      void recallFigure(f.id).then((err) => err && showToast(err));
+                    }}
+                  >
+                    Домой
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
 
       {incoming.length > 0 && (
         <>

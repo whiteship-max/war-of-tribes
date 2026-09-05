@@ -54,14 +54,31 @@ export function chunkAt(x: number, y: number): CachedChunk | null {
   return chunks.get(chunkKey(indexOf(x, WORLD_ORIGIN.x), indexOf(y, WORLD_ORIGIN.y))) ?? null;
 }
 
+/** Индекс клетки внутри куска. -1 — клетка не из него. */
+function cellIndex(c: CachedChunk, x: number, y: number): number {
+  const ix = x - c.rect.x;
+  const iy = y - c.rect.y;
+  if (ix < 0 || iy < 0 || ix >= c.rect.w || iy >= c.rect.h) return -1;
+  return iy * c.rect.w + ix;
+}
+
 /** Ландшафт клетки из кэша. null — кусок ещё не приехал. */
 export function terrainAt(x: number, y: number): Terrain | null {
   const c = chunkAt(x, y);
   if (!c) return null;
-  const ix = x - c.rect.x;
-  const iy = y - c.rect.y;
-  if (ix < 0 || iy < 0 || ix >= c.rect.w || iy >= c.rect.h) return null;
-  return TERRAIN_ORDER[c.terrain[iy * c.rect.w + ix]] ?? null;
+  const i = cellIndex(c, x, y);
+  return i < 0 ? null : (TERRAIN_ORDER[c.terrain[i]] ?? null);
+}
+
+/**
+ * Клетка разведана? Пока кусок не приехал, считаем закрытой: лучше показать
+ * дымку, которая через мгновение разойдётся, чем мигнуть открытой землёй.
+ */
+export function exploredAt(x: number, y: number): boolean {
+  const c = chunkAt(x, y);
+  if (!c) return false;
+  const i = cellIndex(c, x, y);
+  return i >= 0 && c.explored[i] === 1;
 }
 
 export function settlementAt(x: number, y: number): SettlementView | null {

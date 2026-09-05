@@ -17,6 +17,8 @@ import { LABEL_FROM, PALETTE } from './const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from './grid';
 import { GRID } from './palette';
 import { drawGrid, drawGround, drawVillages, markersOf, settlementsIn } from './detail';
+import { drawFog } from './fog';
+import { drawFigures } from './figures';
 
 /** Занятые подписями места текущего кадра: соседи не пишут имена друг на друга. */
 interface Box {
@@ -193,8 +195,13 @@ export function drawFrame(
   }
   if (near > 0) drawVillages(ctx, cam, vp, inView, dpr, near, markersOf(state.marches), now);
 
+  // Туман ложится поверх земли и поселений, но под всё, что движется: крыша под
+  // дымкой — это и есть смысл слоя, а таймер чужой армии важнее любой дымки.
+  drawFog(ctx, cam, vp);
+
   // Походы поверх земли и поселений: их таймер важнее любой крыши.
   for (const m of state.marches) drawMarch(ctx, cam, vp, m, now, cam.scale >= LABEL_FROM);
+  drawFigures(ctx, cam, vp, state.figures, state.picked, now);
 
   if (cam.scale >= LABEL_FROM) {
     const taken: Box[] = [];
