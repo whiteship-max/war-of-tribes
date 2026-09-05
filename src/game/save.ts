@@ -45,6 +45,10 @@ export function deserialize(json: string): GameState | null {
       workers: { ...(data.workers ?? {}) },
       freeJobs: { ...(data.freeJobs ?? {}) },
       market: { day: 0, bought: {}, ...(data.market ?? {}) },
+      // Ежедневка мержится по полям по той же причине, что и рынок: спред
+      // `...data` на уровень ниже не спускается, и сохранение, записанное до
+      // появления нового поля внутри DailyState, привезло бы его как undefined.
+      daily: { ...base.daily, ...(data.daily ?? {}) },
       caravans: data.caravans ?? [],
       battlePlans: data.battlePlans ?? [],
       stats: { ...base.stats, ...(data.stats ?? {}) },

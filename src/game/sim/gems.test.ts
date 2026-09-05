@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
@@ -122,10 +122,11 @@ describe('алмазы', () => {
    * поле напрямую. Проверяется чтением исходников — иначе договор держится
    * на честном слове.
    */
-  it('ни интерфейс, ни сцена не умеют начислять алмазы', () => {
+  it('ни интерфейс, ни сцена, ни ежедневка не умеют начислять алмазы', () => {
     const root = join(__dirname, '..', '..');
     const files: string[] = [];
     const walk = (dir: string): void => {
+      if (!existsSync(dir)) return;
       for (const name of readdirSync(dir)) {
         const p = join(dir, name);
         if (statSync(p).isDirectory()) walk(p);
@@ -135,10 +136,30 @@ describe('алмазы', () => {
     walk(join(root, 'ui'));
     walk(join(root, 'render'));
     walk(join(root, 'world'));
+    // Ежедневные задания, социальные подписки и рефералка появились позже, и
+    // соблазн выдать за них алмазы там сильнее всего: награду за подписку и за
+    // приглашённого друга проверить без сервера нечем, а выдать её клиенту —
+    // одна строка. Целиком папку `sim` обходить нельзя: в ней законно живёт
+    // сам `sim/gems.ts`, единственная дверь начисления.
+    walk(join(root, 'game', 'daily'));
+    files.push(join(root, 'game', 'sim', 'daily.ts'));
+    files.push(join(root, 'game', 'data', 'daily.ts'));
+    files.push(join(root, 'game', 'data', 'social.ts'));
+
+    /**
+     * Комментарии выбрасываются: договор нарушает код, а не рассказ о нём.
+     * Назвать единственную дверь начисления по имени в пояснении можно и нужно —
+     * иначе следующий читатель не найдёт, где она.
+     */
+    const code = (src: string): string =>
+      src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
     const guilty: string[] = [];
     for (const f of files) {
-      const src = readFileSync(f, 'utf8');
+      // Файла может ещё не быть — обход по списку, а не по дереву, только у
+      // одиночных файлов вне общей папки.
+      if (!existsSync(f)) continue;
+      const src = code(readFileSync(f, 'utf8'));
       if (/creditGems/.test(src)) guilty.push(`${f}: creditGems`);
       // Присваивание полю — единственный другой способ прибавить себе алмазов.
       if (/\.gems\s*(=[^=]|\+=|-=|\+\+)/.test(src)) guilty.push(`${f}: правит s.gems`);

@@ -24,6 +24,7 @@ export { assignWorker, changeFreeJob, unassignWorker } from './workers';
 export { setForging } from './smithy';
 export { buyGoods, cancelCaravan, marketCheck } from './market';
 export { cancelRecruit, startRecruit } from './army';
+export { dailyReward, dailyStatus, finishDaily, startDaily } from './daily';
 
 function pay(s: GameState, cost: Partial<Record<ResourceId, number>>): void {
   for (const r of RESOURCE_IDS) s.resources[r] -= cost[r] ?? 0;
