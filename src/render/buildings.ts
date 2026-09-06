@@ -938,6 +938,33 @@ function barracks(t: Tier): THREE.Group {
   return g;
 }
 
+/** Коновязь и повторяющиеся денники: конюшня не похожа на пустую ограду загона. */
+function stable(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const w = [1.65, 2.5, 2.9][t];
+  const z = [-0.3, -0.6, -0.8][t];
+  const a = militaryShed(w, 1.25, 1.35, 0, z);
+  // Статичная лошадь из существующих деталей, склеенная с постройкой.
+  // Поза боком к фасаду показывает длинную шею, голову и четыре ноги.
+  const horse = (x: number, z: number, scale = 1): void => {
+    const coat = K.paintOf('leather');
+    const q: K.Part[] = [K.box(0.76, 0.32, 0.28, coat, 0, 0.64, 0)];
+    for (const dx of [-0.27, 0.27]) for (const dz of [-0.1, 0.1]) q.push(K.box(0.085, 0.48, 0.085, coat, dx, 0.25, dz));
+    q.push(K.box(0.22, 0.53, 0.23, coat, 0.37, 0.91, 0, { z: -0.38 }));
+    q.push(K.box(0.36, 0.18, 0.2, coat, 0.52, 1.17, 0));
+    q.push(K.box(0.06, 0.17, 0.17, p.ink, 0.4, 1.31, 0));
+    q.push(K.box(0.07, 0.39, 0.13, p.ink, -0.4, 0.55, 0, { z: -0.2 }));
+    q.push(K.box(0.35, 0.07, 0.32, p.beam, -0.05, 0.83, 0));
+    a.push(...shiftParts(q, x, z, 0, scale));
+  };
+  horse(0, 0.35, 0.83);
+  for (const x of [-0.7, 0.7]) a.push(K.box(0.14, 0.85, 0.14, p.beam, x, 0.42, 0.98));
+  a.push(K.box(1.6, 0.14, 0.14, p.post, 0, 0.7, 0.98));
+  const g = new THREE.Group();
+  g.add(K.assemble(a));
+  return g;
+}
+
 
 /**
  * Рынок: два торговых ряда по обе стороны проезда. Он единственный стоит прямо
@@ -1368,6 +1395,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'infirmary':
     case 'watch':
     case 'stable':
+      return tier === 0 ? stable(tier) : stubModel(tier, st, STUBS.stable);
     case 'cache':
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
@@ -1375,6 +1403,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return new THREE.Group();
   }
 }
+
 
 
 
