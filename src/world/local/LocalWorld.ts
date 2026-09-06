@@ -5,6 +5,7 @@
 import { seeded } from '@/game/sim/random';
 import { FRONT, GEAR, REAR, type ArmySetup, type Stack, type UnitKind } from '@/battle';
 import { gearOf, kindsOf, troopLosses, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopsOfKinds } from '@/game/battle/faces';
 import type { WorldApi } from '../api';
 import type {
   AttackOrder,
@@ -803,7 +804,14 @@ export class LocalWorld implements WorldApi {
     const lootText =
       (goods > 0 ? ` Взято: ${goods} добра.` : '') + (gold > 0 ? ` Казна замка: ${gold} золота.` : '');
     const record: BattleRecord | null = field.result
-      ? { us: 'attacker', preset: field.preset.attacker, result: field.result }
+      ? {
+          us: 'attacker',
+          preset: field.preset.attacker,
+          result: field.result,
+          // Наш состав известен поимённо, чужой выводится из его же ступени
+          // снаряжения: замок выходит латниками, малое поселение — дубинщиками.
+          troops: { attacker: { ...troops }, defender: troopsOfKinds(garrison.kinds, garrison.gear) },
+        }
       : null;
 
     const reportId = `atk${seed}`;
@@ -990,7 +998,15 @@ export class LocalWorld implements WorldApi {
     });
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
     const record: BattleRecord | null = field.result
-      ? { us: 'defender', preset: setup ? null : field.preset.defender, result: field.result }
+      ? {
+          us: 'defender',
+          preset: setup ? null : field.preset.defender,
+          result: field.result,
+          troops: { attacker: troopsOfKinds(party.kinds, party.gear), defender: { ...home } },
+          // Ополчение — не бойцы: частокол, башня и жители. В строю они стоят,
+          // в казармах их нет, поэтому и записаны они отдельно.
+          militia: { attacker: { men: 0, archers: 0 }, defender: { men: militia, archers } },
+        }
       : null;
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
     const warriors = profile?.units.warrior ?? 0;

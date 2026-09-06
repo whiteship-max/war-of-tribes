@@ -397,6 +397,7 @@ class Battle {
       this.phase = phase;
       const from = this.tick + 1;
       const lostBefore = { attacker: this.sides.attacker.lostTotal, defender: this.sides.defender.lostTotal };
+      const menBefore = this.sectorMen();
       this.tick += 1;
       this.onPhaseStart();
       this.step();
@@ -425,9 +426,41 @@ class Battle {
           attacker: Math.round((this.sides.attacker.lostTotal - lostBefore.attacker) * 10) / 10,
           defender: Math.round((this.sides.defender.lostTotal - lostBefore.defender) * 10) / 10,
         },
+        bySector: this.lossBySector(menBefore),
       });
     }
     return this.finish();
+  }
+
+  /**
+   * Сколько людей осталось у каждого сектора расстановки. Считается по `origin`
+   * группы, а он за бой не меняется: пехота, ушедшая на слабый фланг, и резерв,
+   * вошедший в центр, остаются родом из своего сектора. Иначе потери «переезжали»
+   * бы вместе с людьми, и сумма по секторам не сошлась бы с потерями стороны.
+   */
+  private sectorMen(): Record<Side, Partial<Record<Sector, number>>> {
+    const out = { attacker: {}, defender: {} } as Record<Side, Partial<Record<Sector, number>>>;
+    for (const side of SIDES) {
+      for (const g of this.sides[side].groups) {
+        out[side][g.origin] = (out[side][g.origin] ?? 0) + stackTotal(g.stack);
+      }
+    }
+    return out;
+  }
+
+  /** Потери за фазу по секторам: сколько у каждого убыло с её начала. */
+  private lossBySector(
+    before: Record<Side, Partial<Record<Sector, number>>>,
+  ): Record<Side, Partial<Record<Sector, number>>> {
+    const now = this.sectorMen();
+    const out = { attacker: {}, defender: {} } as Record<Side, Partial<Record<Sector, number>>>;
+    for (const side of SIDES) {
+      for (const sector of SECTORS) {
+        const lost = (before[side][sector] ?? 0) - (now[side][sector] ?? 0);
+        if (lost > 0.05) out[side][sector] = Math.round(lost * 10) / 10;
+      }
+    }
+    return out;
   }
 
   // ----- Начало и конец фаз -----

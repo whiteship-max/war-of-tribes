@@ -12,12 +12,16 @@ import { CLAIM_REACH, claimsNear, claimsOf, ownerAt } from './territory';
 import { precisionOf, readIntel } from './intel';
 import { stackLosses } from './combat';
 import { resolveField } from './battle';
+import { garrisonOf } from './garrison';
 import { defenseLock } from './store';
 import { presetFormation, toArmySetup } from '@/game/battle/formation';
 import type { ArmySetup, Stack } from '@/battle';
 import { awayTroops, homeTroops, playerProfile, syncAway, toOutcome } from './bridge';
 import { FogMap, fogSaveBytes } from './fog';
-import { troopTotal } from '@/game/battle/kinds';
+import { createWorldSave, parseWorldSave } from './local/state';
+import { castOfRecord, troopsOfKinds } from '@/game/battle/faces';
+import { TROOP_IDS } from '@/game/data/troops';
+import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
   DEFENSE_FREEZE,
@@ -1261,5 +1265,102 @@ describe('фигуры на карте', () => {
     expect(deals.some((d) => d.id === 'truce' && d.tribeId === card.tribeId)).toBe(true);
     const again = await w.world.settlement(target.id);
     expect(again?.deals.some((d) => d.id === 'truce')).toBe(true);
+  });
+});
+
+describe('запись боя: кто именно стоял в строю', () => {
+  const army: Stack = { spear: 150, infantry: 200, archer: 150, cavalry: 100 };
+  const result = () =>
+    resolveField({
+      seed: 21,
+      attacker: { kinds: army, setup: null },
+      defender: { kinds: army, setup: null },
+    }).result!;
+
+  it('старая запись без состава открывается, и состав ей достраивается', () => {
+    const battle = { us: 'attacker' as const, preset: null, result: result() };
+    // Ровно то, что лежало в сохранении до появления поля: `troops` там нет.
+    const legacy = { ...battle } as Partial<typeof battle> & { troops?: unknown };
+    delete legacy.troops;
+    const home = { x: 4, y: 5 };
+    const save = createWorldSave(99, home, null, 1000);
+    save.reports = [
+      {
+        id: 'r1',
+        at: 1000,
+        kind: 'raid',
+        title: 'Старый отчёт',
+        target: { id: 's1', name: 'Соседи', x: 6, y: 7 },
+        won: true,
+        sent: {},
+        lost: {},
+        enemyPower: 100,
+        enemyLost: 40,
+        loot: null,
+        intel: null,
+        battle: legacy as never,
+        text: 'из прошлой версии',
+        read: false,
+      },
+    ];
+    const back = parseWorldSave(JSON.stringify(save));
+    expect(back).not.toBeNull();
+    const rec = back!.reports[0].battle!;
+    // Отчёт не потерян и не обнулён, а состав достроен из родов боя.
+    expect(back!.reports[0].title).toBe('Старый отчёт');
+    expect(rec.result.sides.attacker.total.initial).toBe(battle.result.sides.attacker.total.initial);
+    expect(rec.troops).toBeTruthy();
+    for (const side of ['attacker', 'defender'] as const) {
+      const men = troopTotal(rec.troops[side]);
+      expect(men).toBe(Math.round(rec.result.sides[side].total.initial));
+      for (const id of Object.keys(rec.troops[side])) expect(TROOP_IDS).toContain(id);
+    }
+    // И ролик по такой записи собирается.
+    const cast = castOfRecord(rec.result, rec.us, rec.troops, rec.militia);
+    expect(cast.sectors.length).toBeGreaterThan(0);
+  });
+
+  it('новая запись состав не теряет и второй раз не достраивает', () => {
+    const troops = { attacker: { legionary: 40 }, defender: { clubman: 90 } };
+    const save = createWorldSave(99, { x: 1, y: 1 }, null, 1000);
+    save.reports = [
+      {
+        id: 'r2',
+        at: 1000,
+        kind: 'raid',
+        title: 'Свежий отчёт',
+        target: { id: 's1', name: 'Соседи', x: 6, y: 7 },
+        won: true,
+        sent: {},
+        lost: {},
+        enemyPower: 100,
+        enemyLost: 40,
+        loot: null,
+        intel: null,
+        battle: { us: 'attacker', preset: null, result: result(), troops },
+        text: '',
+        read: false,
+      },
+    ];
+    const back = parseWorldSave(JSON.stringify(save));
+    expect(back!.reports[0].battle!.troops).toEqual(troops);
+  });
+
+  it('чужой гарнизон получает состав из своей мощи, ничего не теряя', () => {
+    for (const power of [12, 40, 90]) {
+      for (const castle of [false, true]) {
+        const g = garrisonOf(777, 'sett-1', power, castle);
+        const troops = troopsOfKinds(g.kinds, g.gear);
+        expect(troopTotal(troops)).toBe(g.men);
+        for (const id of Object.keys(troops)) expect(TROOP_IDS).toContain(id);
+      }
+    }
+    // Замок кован лучше деревни — и это видно по тому, кто в нём стоит.
+    const village = troopsOfKinds(garrisonOf(777, 'a', 10).kinds, garrisonOf(777, 'a', 10).gear);
+    const keep = garrisonOf(777, 'b', 90, true);
+    const castleTroops = troopsOfKinds(keep.kinds, keep.gear);
+    const heaviest = (t: Record<string, number | undefined>): number =>
+      Math.max(...Object.keys(t).map((id) => gearOfTroop(id as never)));
+    expect(heaviest(castleTroops)).toBeGreaterThan(heaviest(village));
   });
 });

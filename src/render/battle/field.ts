@@ -16,9 +16,13 @@ export const FIELD_HALF = 60;
 /** Докуда бьёт коробка теней. Дальше фигур нет, а карта тени тем острее, чем меньше квадрат. */
 const SHADOW_HALF = Math.round(FIELD.laneW * 2 + FIELD.frontZ + FIELD.rowGap + FIELD.reserveGap) + 4;
 
-/** Плоская земля одним вызовом отрисовки. */
+/**
+ * Плоская земля одним вызовом отрисовки. Тон — приглушённая трава палитры, а не
+ * яркая: на весь экран открытый зелёный кричит и сцена читается тестовой.
+ * Настоящая земля — рельеф, пятна, вытоптанность — придёт пачкой про красоту.
+ */
 export function buildField(): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(FIELD_HALF * 2, FIELD_HALF * 2), LEGACY.grass);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(FIELD_HALF * 2, FIELD_HALF * 2), LEGACY.grassDark);
   mesh.name = 'field';
   mesh.rotation.x = -Math.PI / 2;
   mesh.receiveShadow = true;

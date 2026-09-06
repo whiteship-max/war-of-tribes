@@ -8,7 +8,7 @@ import type { Side } from '@/battle/types';
 import { FigurePool } from '../figures';
 import type { Action } from '../poses';
 import { applyDayNight, type LightRig } from '../lighting';
-import { SeasonVisuals } from '../season';
+import { PALETTE } from '../palette';
 import { buildField, setupFieldScene } from './field';
 import { SectorTroops } from './troops';
 
@@ -17,6 +17,18 @@ import { SectorTroops } from './troops';
  * закатное солнце — четвёртая пачка, и заводить их по дороге не надо.
  */
 const SOLAR = 0.25;
+
+/**
+ * Небо боя. Своим литералом, а не через `SeasonVisuals`: тот переливает **общие**
+ * материалы KIT и LEGACY, и ролик, начавшись зимой, перекрасил бы деревню в лето
+ * — она рисуется теми же материалами.
+ */
+const SKY = {
+  sky: new THREE.Color(PALETTE.sky),
+  fog: new THREE.Color(PALETTE.fog),
+  sun: new THREE.Color(PALETTE.sunDay),
+  sunArc: 1,
+};
 
 /** Что бойцы делают на каждом такте. Одна поза на такт: тактика тут не при чём. */
 const ACTION: Record<Frame['act'], Action> = {
@@ -32,7 +44,6 @@ export class BattleStage {
   private rig: LightRig;
   private pool = new FigurePool();
   private blocks: SectorTroops[] = [];
-  private season = new SeasonVisuals();
   private ground: THREE.Mesh;
   private us: Side;
 
@@ -42,8 +53,7 @@ export class BattleStage {
     this.ground = buildField();
     this.scene.add(this.ground);
     this.scene.add(this.pool.group);
-    this.season.jump('summer');
-    applyDayNight(this.rig, this.scene, SOLAR, this.season);
+    applyDayNight(this.rig, this.scene, SOLAR, SKY);
     for (const c of cast.sectors) this.blocks.push(new SectorTroops(c, this.us, this.pool));
     // Пул растёт по потребности; заказываем всё сразу, чтобы посреди отъезда не
     // пересоздавать инстансы — это единственное место, где кадр мог бы дрогнуть.

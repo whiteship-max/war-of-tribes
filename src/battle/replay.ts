@@ -158,7 +158,7 @@ const SHOT_MUSTER_END: CameraShot = { x: -5.2, y: 3.4, z: -10.8, atX: -3.0, atY:
  * так, чтобы вверху кадра оставалась полоска неба: отвесный взгляд превращает
  * бой в зелёную схему, а горизонт — единственное, что говорит «это поле».
  */
-const SHOT_FIELD: CameraShot = { x: 0, y: 9.5, z: -19, atX: 0, atY: 0.6, atZ: 0.2, fov: 54 };
+const SHOT_FIELD: CameraShot = { x: 0, y: 6.2, z: -20.5, atX: 0, atY: 1.1, atZ: 1.2, fov: 46 };
 
 /** Спуск в конце — половина пути вниз. */
 const SHOT_DOWN: CameraShot = { x: 0.8, y: 6, z: -15.5, atX: 0.3, atY: 0.7, atZ: -1.5, fov: 48 };
@@ -170,12 +170,12 @@ const SHOT_LAST: CameraShot = { x: 3.4, y: 2.1, z: -9, atX: 0.4, atY: 0.6, atZ: 
 function shotAt(spot: { x: number; z: number }): CameraShot {
   return {
     x: spot.x * 0.25,
-    y: 8.6,
-    z: -18,
+    y: 5.6,
+    z: -19.5,
     atX: spot.x * 0.45,
-    atY: 0.6,
-    atZ: spot.z * 0.4 + 0.2,
-    fov: 52,
+    atY: 1.1,
+    atZ: spot.z * 0.4 + 1.2,
+    fov: 45,
   };
 }
 
@@ -238,7 +238,30 @@ export interface Mark {
   text: string;
 }
 
-/** Сектор расстановки как объект показа: сколько фигур, каких родов, когда побежал. */
+/**
+ * Кто именно стоит в строю: метка, род боя и сколько людей. **Ядро метку не
+ * читает** — оно только делит фигуры в той же пропорции, в какой стоят люди.
+ * Что означает `id`, знает тот, кто рисует: у племени это вид бойца или
+ * ополчение, у сервера — что он туда положит.
+ *
+ * Так ядро остаётся ядром: `Face` для него — строка с весом, ровно как `Sector`
+ * для него буква. А раскадровка остаётся самодостаточной: всё, что нужно
+ * картинке, лежит в ней, и второго входа у показа нет.
+ */
+export interface Face {
+  id: string;
+  kind: UnitKind;
+  men: number;
+}
+
+/** Столько фигур этой метки стоит в секторе. */
+export interface FaceCount {
+  id: string;
+  kind: UnitKind;
+  figures: number;
+}
+
+/** Сектор расстановки как объект показа: сколько фигур, каких, когда побежал. */
 export interface CastSector {
   side: Side;
   sector: Sector;
@@ -247,8 +270,8 @@ export interface CastSector {
   /** Бойцов на старте и к концу боя — из итога, а не из пересчёта. */
   men: number;
   finalMen: number;
-  /** Фигуры по родам; сумма — `figures`. */
-  byKind: Record<UnitKind, number>;
+  /** Фигуры по видам; сумма — `figures`. */
+  byFace: FaceCount[];
   figures: number;
   /** Ранг удалённости от кадра близкого плана: по нему фигуры и проявляются. */
   rank: number;
@@ -265,6 +288,8 @@ export interface Span {
   t0: number;
   t1: number;
   losses: Record<Side, number>;
+  /** Те же потери по секторам, если журнал их знает. */
+  bySector?: Record<Side, Partial<Record<Sector, number>>>;
 }
 
 export interface ActWindow {
@@ -277,6 +302,12 @@ export interface Cast {
   /** Сторона игрока: она всегда на −Z и называется «наши». */
   us: Side;
   seed: number;
+  /**
+   * Журнал знает потери по секторам на каждую фазу. Тогда фланг, выбитый за одну
+   * фазу, и тает за одну фазу. У записей боя, посчитанных до появления
+   * `PhaseSpan.bySector`, этого нет, и сектор тает по общему ходу потерь стороны.
+   */
+  detailed: boolean;
   seconds: number;
   acts: ActWindow[];
   spans: Span[];
@@ -315,7 +346,7 @@ export interface SectorFrame {
   sector: Sector;
   lane: Lane | null;
   row: Row;
-  byKind: Record<UnitKind, number>;
+  byFace: FaceCount[];
   /** Сколько фигур поставлено сейчас: на близком плане — кусок строя, дальше — всё. */
   figures: number;
   /** Сколько из них на ногах; остальные лежат. */
@@ -355,28 +386,54 @@ export interface Frame {
 const stackTotal = (s: Stack): number => UNIT_KINDS.reduce((n, k) => n + (s[k] ?? 0), 0);
 
 /**
- * Разложить `total` фигур по родам пропорционально составу. Наибольший остаток:
- * сумма обязана сойтись ровно, иначе фигуры то прибывали бы, то убывали при
+ * Разложить `total` целых единиц по весам `men`. Наибольший остаток: сумма
+ * обязана сойтись ровно, иначе фигуры то прибывали бы, то убывали при
  * перекладывании — та же беда, из-за которой округление в `toArmySetup` одно
- * на род. Род, чья доля меньше половины фигуры, из кадра выпадает: показать
- * тридцать всадников из трёхсот пеших одной фигурой честнее нечем.
+ * на род. Доля меньше половины фигуры из кадра выпадает: показать тридцать
+ * всадников из трёхсот пеших одной фигурой честнее нечем.
  */
-function share(stack: Stack, total: number): Record<UnitKind, number> {
-  const out = {} as Record<UnitKind, number>;
-  for (const k of UNIT_KINDS) out[k] = 0;
-  const sum = stackTotal(stack);
-  if (sum <= 0 || total <= 0) return out;
-  const rest: { kind: UnitKind; frac: number }[] = [];
-  let given = 0;
-  for (const k of UNIT_KINDS) {
-    const exact = ((stack[k] ?? 0) / sum) * total;
-    const whole = Math.floor(exact);
-    out[k] = whole;
-    given += whole;
-    rest.push({ kind: k, frac: exact - whole });
-  }
-  rest.sort((a, b) => b.frac - a.frac || UNIT_KINDS.indexOf(a.kind) - UNIT_KINDS.indexOf(b.kind));
-  for (let i = 0; given < total && i < rest.length; i++, given++) out[rest[i].kind] += 1;
+function spreadBy(men: number[], total: number): number[] {
+  const sum = men.reduce((a, b) => a + b, 0);
+  if (sum <= 0 || total <= 0) return men.map(() => 0);
+  const exact = men.map((m) => (m / sum) * total);
+  const out = exact.map((e) => Math.floor(e));
+  let given = out.reduce((a, b) => a + b, 0);
+  const order = exact.map((e, i) => ({ i, frac: e - out[i] })).sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; given < total; k++, given++) out[order[k % order.length].i] += 1;
+  return out;
+}
+
+/**
+ * Фигуры сектора по видам. Сначала по родам — их знает итог боя по секторам, —
+ * потом внутри рода по видам в той пропорции, в какой они стоят во всей армии.
+ *
+ * Пропорция армейская, а не посекторная, потому что посекторной нет ни у кого:
+ * `toArmySetup` складывает виды в роды ещё до боя, и ядро с этого места видит
+ * только роды. Врать этим нельзя — можно ошибиться разве что в том, что латники
+ * стояли не поровну по флангам.
+ *
+ * Метки не даны — метка равна роду. Так ядро остаётся работоспособным само по
+ * себе; в игре состав есть всегда, и до картинки такая метка не доходит.
+ */
+function facesFor(stack: Stack, total: number, faces: Face[]): FaceCount[] {
+  const kinds = spreadBy(
+    UNIT_KINDS.map((k) => stack[k] ?? 0),
+    total,
+  );
+  const out: FaceCount[] = [];
+  UNIT_KINDS.forEach((kind, i) => {
+    const n = kinds[i];
+    if (n <= 0) return;
+    const mine = faces.filter((f) => f.kind === kind && f.men > 0);
+    if (mine.length === 0) {
+      out.push({ id: kind, kind, figures: n });
+      return;
+    }
+    const split = spreadBy(mine.map((f) => f.men), n);
+    mine.forEach((f, j) => {
+      if (split[j] > 0) out.push({ id: f.id, kind, figures: split[j] });
+    });
+  });
   return out;
 }
 
@@ -419,7 +476,16 @@ function layout(result: BattleResult, acts: ActWindow[]): Span[] {
     let t = win.from;
     for (const p of inAct) {
       const dur = ticks > 0 ? ((p.to - p.from + 1) / ticks) * (win.to - win.from) : 0;
-      out.push({ phase: p.phase, act: win.act, from: p.from, to: p.to, t0: t, t1: t + dur, losses: p.losses });
+      out.push({
+        phase: p.phase,
+        act: win.act,
+        from: p.from,
+        to: p.to,
+        t0: t,
+        t1: t + dur,
+        losses: p.losses,
+        bySector: p.bySector,
+      });
       t += dur;
     }
     // Фазы, которой в итоге нет, быть не должно, но такт без содержания всё
@@ -449,13 +515,7 @@ function layout(result: BattleResult, acts: ActWindow[]): Span[] {
  * строю читается как «там никого нет».
  */
 function spread(men: number[], total: number): number[] {
-  const sum = men.reduce((a, b) => a + b, 0);
-  if (sum <= 0 || total <= 0) return men.map(() => 0);
-  const exact = men.map((m) => (m / sum) * total);
-  const out = exact.map((e) => Math.floor(e));
-  const order = exact.map((e, i) => ({ i, frac: e - out[i] })).sort((a, b) => b.frac - a.frac || a.i - b.i);
-  let given = out.reduce((a, b) => a + b, 0);
-  for (let k = 0; given < total; k++, given++) out[order[k % order.length].i] += 1;
+  const out = spreadBy(men, total);
   // Занять фигуру у самого многолюдного сектора для того, кому не досталось.
   for (let i = 0; i < out.length; i++) {
     if (out[i] > 0 || men[i] <= 0) continue;
@@ -469,7 +529,7 @@ function spread(men: number[], total: number): number[] {
 }
 
 /** Сектора обеих сторон как объекты показа. */
-function castSectors(result: BattleResult, us: Side): CastSector[] {
+function castSectors(result: BattleResult, us: Side, faces: Record<Side, Face[]>): CastSector[] {
   const out: CastSector[] = [];
   for (const side of SIDES2) {
     const res = result.sides[side];
@@ -488,7 +548,7 @@ function castSectors(result: BattleResult, us: Side): CastSector[] {
         row: rowOf(sector),
         men: stackTotal(cell.initial),
         finalMen: stackTotal(cell.final),
-        byKind: share(cell.initial, figures[i]),
+        byFace: facesFor(cell.initial, figures[i], faces[side]),
         figures: figures[i],
         rank: 0,
         brokenAt: null,
@@ -580,12 +640,21 @@ function keyframes(us: Side, acts: ActWindow[], marks: Mark[]): Keyframe[] {
   return keys.sort((a, b) => a.t - b.t);
 }
 
-/** Раскадровка боя. Один и тот же журнал даёт одну и ту же раскадровку. */
-export function buildCast(result: BattleResult, us: Side): Cast {
+/** Пустой состав: ядро обходится без меток, метка тогда равна роду. */
+const NO_FACES: Record<Side, Face[]> = { attacker: [], defender: [] };
+
+/**
+ * Раскадровка боя. Один и тот же журнал даёт одну и ту же раскадровку.
+ *
+ * `faces` — кто именно стоял в строю с каждой стороны. Ядро эти метки не читает,
+ * оно только делит по ним фигуры; без них метка равна роду боя. Игра передаёт
+ * состав всегда — иначе близкий план не выполняет своего обещания.
+ */
+export function buildCast(result: BattleResult, us: Side, faces: Record<Side, Face[]> = NO_FACES): Cast {
   const acts = actWindows(result);
   const spans = layout(result, acts);
   const marks = markLog(result, spans, us);
-  const sectors = castSectors(result, us);
+  const sectors = castSectors(result, us, faces);
   for (const c of sectors) {
     const broke = marks.find((m) => m.id === 'sector-broken' && m.side === c.side && m.sector === c.sector);
     c.brokenAt = broke ? broke.t : null;
@@ -593,6 +662,7 @@ export function buildCast(result: BattleResult, us: Side): Cast {
   return {
     us,
     seed: result.seed,
+    detailed: result.phases.every((p) => p.bySector !== undefined),
     seconds: acts[acts.length - 1].to,
     acts,
     spans,
@@ -665,6 +735,26 @@ function lossProgress(spans: Span[], side: Side, t: number): number {
   return clamp01(done / total);
 }
 
+/**
+ * Сколько сектор потерял к моменту `t` — по фазам, как записано в журнале. Внутри
+ * фазы потери размазаны ровно: точнее журнал и не знает, а между фазами разница
+ * уже видна. Это и есть смысл поля: фланг, выбитый за одну фазу, тает за одну
+ * фазу, а не плавно вместе со всей армией.
+ */
+function sectorLost(spans: Span[], side: Side, sector: Sector, t: number): number {
+  let lost = 0;
+  for (const s of spans) {
+    const n = s.bySector?.[side]?.[sector] ?? 0;
+    if (t >= s.t1) {
+      lost += n;
+      continue;
+    }
+    if (t > s.t0) lost += n * ((t - s.t0) / Math.max(1e-6, s.t1 - s.t0));
+    break;
+  }
+  return lost;
+}
+
 /** Событие, о котором ролик говорит сейчас: последнее случившееся. */
 function activeMark(cast: Cast, t: number): Mark | null {
   let out: Mark | null = null;
@@ -708,9 +798,12 @@ export function frameAt(cast: Cast, t: number): Frame {
     for (const c of cast.sectors.filter((x) => x.side === side).sort((a, b) => a.rank - b.rank)) {
       const shown = Math.max(0, Math.min(c.figures, left));
       left -= shown;
-      // Сколько в секторе осталось людей: от начального к конечному по общему
-      // ходу потерь стороны. Итог знает оба конца, журнал — когда именно.
-      const now = c.men + (c.finalMen - c.men) * progress;
+      // Сколько в секторе осталось людей. Журнал знает потери сектора по фазам —
+      // берём их. Не знает (старая запись боя) — идём от начального к конечному
+      // по общему ходу потерь стороны: итог знает оба конца, но не темп.
+      const now = cast.detailed
+        ? Math.max(0, c.men - sectorLost(cast.spans, side, c.sector, time))
+        : c.men + (c.finalMen - c.men) * progress;
       men += now;
       const alive = c.men > 0 ? clamp01(now / c.men) : 0;
       const up = shown === 0 ? 0 : Math.min(shown, Math.max(now > 0.5 ? 1 : 0, Math.round(shown * alive)));
@@ -722,7 +815,7 @@ export function frameAt(cast: Cast, t: number): Frame {
         sector: c.sector,
         lane: c.lane,
         row: c.row,
-        byKind: c.byKind,
+        byFace: c.byFace,
         figures: shown,
         standing: up,
         broken: c.brokenAt !== null && time >= c.brokenAt,

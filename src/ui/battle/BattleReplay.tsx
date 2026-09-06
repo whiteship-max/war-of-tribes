@@ -13,19 +13,13 @@ import { createPortal } from 'react-dom';
 import { activeScene } from '@/render/Scene';
 import { ReplayPlayer } from '@/render/battle/player';
 import { PHASE_NAME } from '@/battle/log';
-import { buildCast, frameAt, type Frame } from '@/battle/replay';
-import type { BattleResult, Side } from '@/battle/types';
+import { frameAt, type Frame } from '@/battle/replay';
+import { castOfRecord } from '@/game/battle/faces';
+import type { BattleRecord } from '@/world/types';
 
-export function BattleReplay({
-  result,
-  us,
-  onDone,
-}: {
-  result: BattleResult;
-  us: Side;
-  onDone: () => void;
-}) {
-  const cast = useMemo(() => buildCast(result, us), [result, us]);
+export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
+  const us = rec.us;
+  const cast = useMemo(() => castOfRecord(rec.result, rec.us, rec.troops, rec.militia), [rec]);
   // Первый кадр есть до запуска: управление обязано быть на экране сразу,
   // а не появляться, когда рендерер отдаст первый onFrame.
   const [frame, setFrame] = useState<Frame>(() => frameAt(cast, 0));

@@ -2,6 +2,7 @@
 // Всё, что нельзя вывести из сида, живёт здесь и сохраняется в localStorage.
 import type { ArmySetup } from '@/battle';
 import type { TroopStack } from '@/game/battle/kinds';
+import { troopsOfKinds } from '@/game/battle/faces';
 import type { FogData } from '../fog';
 import type {
   Coord,
@@ -213,6 +214,36 @@ export function homeFigure(home: Coord, now: number): StoredFigure {
   };
 }
 
+/**
+ * Записи боя, сделанные до того, как в них появился состав по видам бойцов.
+ * Версию формата это не поднимает: отчёт и без состава открывается целиком, а
+ * поднять её значило бы выбросить мир — чужая версия читается как «мира нет».
+ *
+ * Что можно восстановить, восстанавливается: роды боя в итоге записаны, и из них
+ * тем же правилом выводятся виды. Ступени снаряжения в записи нет и взять её
+ * неоткуда, поэтому старый бой показывается самым простым снаряжением — это
+ * честнее, чем выдумать латников там, где могли стоять дубинщики.
+ */
+function fillTroops(reports: Report[]): Report[] {
+  let changed = false;
+  const out = reports.map((r) => {
+    const b = r.battle;
+    if (!b || b.troops) return r;
+    changed = true;
+    return {
+      ...r,
+      battle: {
+        ...b,
+        troops: {
+          attacker: troopsOfKinds(b.result.sides.attacker.initial),
+          defender: troopsOfKinds(b.result.sides.defender.initial),
+        },
+      },
+    };
+  });
+  return changed ? out : reports;
+}
+
 /** Читает сохранение мира. null — его нет или оно от другого формата. */
 export function parseWorldSave(json: string | null): WorldSave | null {
   if (!json) return null;
@@ -224,7 +255,8 @@ export function parseWorldSave(json: string | null): WorldSave | null {
     // Словари фигур мержатся отдельно: иначе новая фигура приедет как undefined —
     // ровно та же причина, по которой так мержатся счётчики в сохранении племени.
     const figures = { ...base.figures, ...(data.figures ?? {}) };
-    return { ...base, ...data, figures, v: WORLD_SAVE_VERSION };
+    const reports = fillTroops(data.reports ?? base.reports);
+    return { ...base, ...data, figures, reports, v: WORLD_SAVE_VERSION };
   } catch {
     return null;
   }

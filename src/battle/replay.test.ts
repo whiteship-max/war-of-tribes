@@ -24,7 +24,7 @@ import {
   type Cast,
   type CameraShot,
 } from './replay';
-import type { ArmySetup, BattleResult, Side, Stack } from './types';
+import { SECTORS, UNIT_KINDS, type ArmySetup, type BattleResult, type Sector, type Side, type Stack } from './types';
 
 const SRC = join(__dirname, '..');
 
@@ -52,6 +52,7 @@ const sample = (cast: Cast, step = 1 / 30): number[] => {
 /** Исходники модуля визуализации: сам режиссёр и весь проигрыватель. */
 function sources(): { file: string; code: string }[] {
   const out = [{ file: 'battle/replay.ts', code: readFileSync(join(SRC, 'battle/replay.ts'), 'utf8') }];
+  out.push({ file: 'game/battle/faces.ts', code: readFileSync(join(SRC, 'game/battle/faces.ts'), 'utf8') });
   const dir = join(SRC, 'render/battle');
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.ts') && !name.endsWith('.tsx')) continue;
@@ -194,8 +195,12 @@ describe('камера: один непрерывный ход', () => {
     const low = frameAt(cast, 0).shot;
     const top = frameAt(cast, cast.acts[1].to).shot;
     const last = frameAt(cast, cast.seconds).shot;
+    // «Отъехали» — это про дистанцию до того, на что смотрим, а не только про
+    // высоту: камера уходит и вверх, и назад.
+    const reach = (c: CameraShot): number => Math.hypot(c.x - c.atX, c.y - c.atY, c.z - c.atZ);
     expect(low.y).toBeLessThan(3);
-    expect(top.y).toBeGreaterThan(low.y * 4);
+    expect(top.y).toBeGreaterThan(low.y * 2);
+    expect(reach(top)).toBeGreaterThan(reach(low) * 3);
     expect(last.y).toBeLessThan(3);
     // Отъезд непрерывен и однонаправлен: камера всё время идёт вверх и назад.
     let prev = low;
@@ -383,11 +388,90 @@ describe('кадр не врёт о численности', () => {
       for (const side of ['attacker', 'defender'] as Side[]) {
         const placed = cast.sectors.filter((c) => c.side === side).reduce((n, c) => n + c.figures, 0);
         expect(placed, `${men} бойцов`).toBe(cast.figures[side]);
-        // И по родам внутри сектора сумма тоже сходится.
+        // И по видам внутри сектора сумма тоже сходится.
         for (const c of cast.sectors.filter((x) => x.side === side)) {
-          expect(Object.values(c.byKind).reduce((a, b) => a + b, 0)).toBe(c.figures);
+          expect(c.byFace.reduce((n, f) => n + f.figures, 0)).toBe(c.figures);
         }
       }
+    }
+  });
+});
+
+describe('потери по секторам: журнал знает, где всё сломалось', () => {
+  it('сумма по секторам сходится с потерями фазы', () => {
+    for (const seed of [3, 7, 19]) {
+      const r = evenFight(seed);
+      for (const p of r.phases) {
+        expect(p.bySector, `${p.phase}: нет разбивки`).toBeDefined();
+        for (const side of ['attacker', 'defender'] as Side[]) {
+          const sum = Object.values(p.bySector![side]).reduce((n, v) => n + (v ?? 0), 0);
+          expect(sum, `${p.phase}/${side}`).toBeCloseTo(p.losses[side], 0);
+        }
+      }
+    }
+  });
+
+  it('потери сектора за бой сходятся с его итогом', () => {
+    const r = evenFight();
+    for (const side of ['attacker', 'defender'] as Side[]) {
+      for (const sector of SECTORS) {
+        const cell = r.sides[side].sectors[sector];
+        const start = UNIT_KINDS.reduce((n, k) => n + cell.initial[k], 0);
+        const end = UNIT_KINDS.reduce((n, k) => n + cell.final[k], 0);
+        if (start <= 0) continue;
+        const lost = r.phases.reduce((n, p) => n + (p.bySector?.[side]?.[sector] ?? 0), 0);
+        expect(lost, `${side}/${sector}`).toBeCloseTo(start - end, 0);
+      }
+    }
+  });
+
+  it('разбивка детерминирована: тот же вход — те же числа', () => {
+    const a = evenFight(11);
+    const b = evenFight(11);
+    expect(b.phases).toEqual(a.phases);
+  });
+
+  it('сектор тает по своим потерям, а не вместе со всей армией', () => {
+    const r = evenFight();
+    const cast = buildCast(r, 'attacker');
+    expect(cast.detailed).toBe(true);
+    // Ищем сектор, который просел резко: он обязан просесть в кадре тогда же,
+    // когда по журналу, а не размазаться по всему ролику.
+    let worst: { side: Side; sector: Sector; span: (typeof cast.spans)[number]; lost: number } | null = null;
+    for (const span of cast.spans) {
+      for (const side of ['attacker', 'defender'] as Side[]) {
+        for (const [sector, lost] of Object.entries(span.bySector?.[side] ?? {})) {
+          if (!worst || (lost ?? 0) > worst.lost) worst = { side, sector: sector as Sector, span, lost: lost ?? 0 };
+        }
+      }
+    }
+    expect(worst).toBeTruthy();
+    const { side, sector, span } = worst!;
+    const men = (t: number): number =>
+      frameAt(cast, t).sectors.find((s) => s.side === side && s.sector === sector)!.figures;
+    const alive = (t: number): number => {
+      const f = frameAt(cast, t).sectors.find((s) => s.side === side && s.sector === sector)!;
+      return f.figures > 0 ? f.standing / f.figures : 1;
+    };
+    // За эту фазу доля живых падает; и падает она сильнее, чем в среднем по ролику.
+    const drop = alive(span.t0) - alive(span.t1);
+    const whole = alive(0) - alive(cast.seconds);
+    expect(men(span.t1)).toBeGreaterThan(0);
+    expect(drop).toBeGreaterThan(0);
+    expect(drop / Math.max(1e-6, whole)).toBeGreaterThan((span.t1 - span.t0) / cast.seconds);
+  });
+
+  it('старая запись боя без разбивки открывается и показывается', () => {
+    const r = evenFight();
+    // Ровно то, что лежит в сохранении, сделанном до появления поля.
+    const legacy: BattleResult = { ...r, phases: r.phases.map(({ bySector, ...rest }) => rest) };
+    const cast = buildCast(legacy, 'attacker');
+    expect(cast.detailed).toBe(false);
+    for (const t of sample(cast, 1)) expect(() => frameAt(cast, t)).not.toThrow();
+    const end = frameAt(cast, cast.seconds);
+    // Числа не потерялись: к концу живо столько же, сколько в итоге боя.
+    for (const side of ['attacker', 'defender'] as Side[]) {
+      expect(end.side[side].men).toBeCloseTo(r.sides[side].total.final, -0.6);
     }
   });
 });

@@ -153,12 +153,7 @@ export function ReportPanel({ id }: { id: string }) {
             </button>
           </div>
           {playing && (
-            <BattleReplay
-              key={report.id}
-              result={rec.result}
-              us={rec.us}
-              onDone={() => setPlaying(false)}
-            />
+            <BattleReplay key={report.id} rec={rec} onDone={() => setPlaying(false)} />
           )}
           {lopsided && !watch && (
             <p className="note">
