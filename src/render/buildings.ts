@@ -880,7 +880,7 @@ function townHall(t: Tier): THREE.Group {
 
 /** Казармы: учебный двор → двор с бараком → двор дружины с мишенями. */
 function barracks(t: Tier, st: Style): THREE.Group {
-  if (t === 0) return militaryBarracks(t);
+  if (t <= 1) return militaryBarracks(t);
   const g = new THREE.Group();
   const s = [1.2, 1.5, 1.7][t];
   g.add(pad(s * 1.05));
@@ -938,6 +938,19 @@ function militaryBarracks(t: Tier): THREE.Group {
   const z = [-0.4, -0.65, -1.05][t];
   const h = [1.15, 1.35, 1.55][t];
   const a = militaryShed(w, d, h, 0, z);
+  if (t >= 1) {
+    a.push(K.box(w, h, 0.15, p.post, 0, h / 2, z - d / 2 + 0.07));
+    for (const side of [-1, 1]) {
+      a.push(K.box(0.15, h, d, p.post, side * (w / 2 - 0.07), h / 2, z));
+      a.push(K.box(w * 0.29, h * 0.7, 0.13, p.post, side * w * 0.355, h * 0.35, z + d / 2));
+      // Нары за открытым центральным пролётом, два уровня с торцами одеял.
+      for (const y of [0.32, 0.78]) {
+        a.push(K.box(0.72, 0.1, 0.72, p.beam, side * w * 0.28, y, z));
+        a.push(K.box(0.62, 0.08, 0.54, K.paintOf('cloth'), side * w * 0.28, y + 0.08, z + 0.09));
+      }
+    }
+    a.push(K.box(w, 0.12, 0.14, p.beam, 0, h * 0.78, z + d / 2));
+  }
   // Стойка с длинными копьями и круглыми щитами узнаётся даже без бойцов.
   for (const x of [-0.68, 0.68]) a.push(K.box(0.1, 0.92, 0.12, p.beam, x, 0.46, 0.72));
   a.push(K.box(1.45, 0.13, 0.12, p.beam, 0, 0.77, 0.72));
