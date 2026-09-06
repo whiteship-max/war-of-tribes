@@ -880,6 +880,7 @@ function townHall(t: Tier): THREE.Group {
 
 /** Казармы: учебный двор → двор с бараком → двор дружины с мишенями. */
 function barracks(t: Tier, st: Style): THREE.Group {
+  if (t === 0) return militaryBarracks(t);
   const g = new THREE.Group();
   const s = [1.2, 1.5, 1.7][t];
   g.add(pad(s * 1.05));
@@ -915,6 +916,42 @@ function barracks(t: Tier, st: Style): THREE.Group {
       g.add(shield);
     }
   }
+  return g;
+}
+
+/** Общий деревянный каркас военных построек; материал кровли сохраняет снег. */
+function militaryShed(w: number, d: number, h: number, x: number, z: number): K.Part[] {
+  const p = stylePaint();
+  const roof = { ...p.roofPaint, roof: K.paintOf('shingle'), trim: p.beam };
+  const a = [K.plinth(w, d, p.base, x, z)];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) a.push(K.box(0.13, h, 0.13, p.post, x + sx * (w / 2 - 0.06), h / 2, z + sz * (d / 2 - 0.06)));
+  for (const sz of [-1, 1]) a.push(K.box(w, 0.13, 0.13, p.beam, x, h - 0.05, z + sz * (d / 2 - 0.06)));
+  a.push(...K.roofGable(w, d, 0.38, h, roof, 0.12, x, z));
+  return a;
+}
+
+function militaryBarracks(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const metal = K.paintOf('metal');
+  const w = [1.75, 2.55, 3.05][t];
+  const d = [1.05, 1.3, 1.35][t];
+  const z = [-0.4, -0.65, -1.05][t];
+  const h = [1.15, 1.35, 1.55][t];
+  const a = militaryShed(w, d, h, 0, z);
+  // Стойка с длинными копьями и круглыми щитами узнаётся даже без бойцов.
+  for (const x of [-0.68, 0.68]) a.push(K.box(0.1, 0.92, 0.12, p.beam, x, 0.46, 0.72));
+  a.push(K.box(1.45, 0.13, 0.12, p.beam, 0, 0.77, 0.72));
+  for (let i = 0; i < 4; i++) {
+    const x = -0.52 + i * 0.34;
+    a.push(K.cyl(0.035, 0.035, 1.35, p.post, 4, x, 0.68, 0.67));
+    a.push(K.cone(0.09, 0.29, metal, 4, x, 1.48, 0.67));
+  }
+  for (const x of [-0.43, 0.43]) {
+    a.push(K.cyl(0.24, 0.24, 0.07, p.accent, 8, x, 0.6, 0.83, { x: Math.PI / 2 }));
+    a.push(K.cyl(0.07, 0.07, 0.085, metal, 6, x, 0.6, 0.875, { x: Math.PI / 2 }));
+  }
+  const g = new THREE.Group();
+  g.add(K.assemble(a));
   return g;
 }
 
