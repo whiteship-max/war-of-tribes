@@ -674,35 +674,84 @@ function tower(t: Tier, st: Style): THREE.Group {
   return g;
 }
 
-/** Кузница: горн под навесом → кузница с трубой → кузнечный двор. */
-function smithy(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [2.0, 2.5, 3.1][t];
-  const d = [1.6, 1.9, 2.3][t];
-  const h = [1.0, 1.25, 1.55][t];
-  g.add(box(w, h, d, t === 0 ? M.stone : st.wall, 0, h / 2, 0));
-  gable(g, w * 1.2, d * 1.3, h, 0.34 + t * 0.1, t === 0 ? M.thatchDark : st.roof);
-  g.add(cyl(0.2, 0.25, 1.0 + t * 0.3, M.stoneDark, 6, w * 0.3, h + 0.5 + t * 0.15, -d * 0.2));
-  // Горн светится: кузница видна и ночью. Имя — чтобы сцена гасила его, когда
-  // кузнецов нет: занятость здание показывает само (render/worksigns.ts).
-  const forge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.3), M.forge);
-  forge.name = 'forge';
-  forge.position.set(0, 0.15, d / 2 + 0.05);
-  g.add(forge);
-  g.add(box(0.55, 0.35, 0.35, M.metal, -w * 0.3, 0.18, d / 2 + 0.4));
+/** Открытый производственный фасад и широкая вытяжка — знак кузницы. */
+function smithy(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const stone = K.paintOf('stoneDark');
+  const metal = K.paintOf('metal');
+  const a: K.Part[] = [];
+  const h = [1.45, 1.9, 2.2][t];
+  const w = [1.4, 1.65, 1.95][t];
+  const d = [1.65, 2, 2.25][t];
+  const x = [-0.5, -0.75, -1][t];
+  a.push(K.plinth(w, d, stone, x));
+  a.push(K.box(w, h, 0.16, p.wall, x, h / 2, -d / 2 + 0.08));
+  for (const sx of [-1, 1]) {
+    a.push(K.box(0.14, h, 0.14, p.beam, x + sx * (w / 2 - 0.06), h / 2, d / 2 - 0.06));
+    a.push(K.box(0.12, 0.56, 0.12, p.beam, x + sx * (w / 2 - 0.2), h - 0.23, d / 2 - 0.06, { z: sx * 0.65 }));
+  }
+  a.push(K.box(w + 0.1, 0.16, 0.16, p.beam, x, h - 0.05, d / 2 - 0.06));
+  a.push(...K.roofGable(w, d, 0.48, h, p.roofPaint, 0.13, x));
   if (t >= 1) {
-    // Наковальня на колоде и стойка с оружием.
-    g.add(cyl(0.22, 0.24, 0.4, M.woodDark, 7, w * 0.4, 0.2, d / 2 + 0.5));
-    g.add(box(0.42, 0.16, 0.2, M.metal, w * 0.4, 0.48, d / 2 + 0.5));
-    for (let i = 0; i < 3; i++) g.add(cyl(0.03, 0.03, 1.0, st.accent, 4, -w * 0.5 + i * 0.17, 0.5, -d / 2 - 0.25));
+    // Инструментальная клеть слева; рабочий проём сохраняется справа.
+    a.push(K.box(0.16, h, d, p.wall, x - w / 2 + 0.08, h / 2, 0));
+    a.push(K.box(w * 0.65, h, 0.14, p.wall, x - w * 0.175, h / 2, d / 2 - 0.07));
+    a.push(K.wallGable(w, 0.08, d, 0.45, p.wall, x, 0, undefined, h - 0.08));
+    a.push(...K.door(0.4, 0.92, p.ink, p.beam, x - w * 0.15, d / 2 + 0.015));
+    a.push(K.box(0.3, 0.3, 0.04, p.ink, x - w * 0.15, 1.5, d / 2 + 0.025));
+    a.push(K.box(w, 0.12, 0.1, p.beam, x, 1.18, d / 2 + 0.04));
+    // Низкий рабочий навес не скрывает массивную трубу.
+    a.push(K.roofLean(1.3, 1.25, 1.77, p.roof, -0.4, 0.75, 0.18));
+    a.push(K.box(0.12, 1.54, 0.12, p.beam, 1.34, 0.77, 0.79));
+    a.push(K.box(0.16, 0.16, 0.9, p.beam, 1.34, 1.6, 0.28));
+    // Крупные заготовки читаются лучше россыпи тонких копий оружия.
+    for (const z of [-0.42, -0.18, 0.06]) a.push(K.box(0.6, 0.12, 0.14, metal, x, 0.22, z));
   }
+  // Горн стоит у открытого края навеса; широкая нижняя часть вытяжки
+  // сужается в квадратную трубу, поэтому это не башня и не жилая дымовая труба.
+  const fx = 0.72;
+  const fz = 0.12;
+  a.push(K.box(1.06, 0.4, 0.92, stone, fx, 0.2, fz));
+  a.push(K.box(1.14, 0.12, 1.02, p.base, fx, 0.44, fz));
+  a.push(K.box(1.02, 0.7, 0.16, stone, fx, 0.83, fz - 0.38));
+  for (const sx of [-1, 1]) a.push(K.box(0.17, 0.62, 0.72, p.base, fx + sx * 0.45, 0.82, fz));
+  a.push(K.arch(0.9, 0.25, 0.12, 0.16, p.base, fx, 0.65, fz + 0.4));
+  a.push(K.cyl(0.37, 0.79, 0.54, stone, 4, fx, 1.51, fz, { y: Math.PI / 4 }));
+  const top = [2.6, 3.0, 3.5][t];
+  a.push(K.box(0.51, top - 1.76, 0.51, stone, fx, (top + 1.76) / 2, fz));
+  a.push(K.box(0.68, 0.14, 0.68, p.base, fx, top, fz));
+  a.push(K.box(0.38, 0.025, 0.38, p.ink, fx, top + 0.078, fz));
+  // Наковальня: широкая подошва, узкая шея, длинная рабочая поверхность и рог.
+  const ax = -0.47;
+  const az = 1.02;
+  a.push(K.cyl(0.26, 0.3, 0.38, p.post, 8, ax, 0.19, az));
+  a.push(K.box(0.43, 0.09, 0.3, metal, ax, 0.43, az));
+  a.push(K.box(0.21, 0.18, 0.19, metal, ax, 0.55, az));
+  a.push(K.box(0.56, 0.12, 0.26, metal, ax, 0.69, az));
+  a.push(K.cone(0.12, 0.3, metal, 4, ax + 0.39, 0.69, az, { z: -Math.PI / 2 }));
+  a.push(K.box(0.075, 0.36, 0.075, p.beam, ax - 0.18, 0.85, az + 0.02, { z: -0.65 }));
+  a.push(K.box(0.22, 0.12, 0.12, metal, ax - 0.29, 0.99, az + 0.02));
   if (t === 2) {
-    g.add(cyl(0.2, 0.25, 1.5, M.stoneDark, 6, -w * 0.32, h + 0.75, -d * 0.2));
-    g.add(box(w * 0.5, h * 0.6, d * 0.55, st.wall, -w * 0.72, h * 0.3, d * 0.3));
-    g.add(box(w * 0.6, 0.09, d * 0.65, st.roofDark, -w * 0.72, h * 0.63, d * 0.3));
-    // Закалочная колода.
-    g.add(cyl(0.3, 0.32, 0.45, st.post, 8, w * 0.5, 0.22, -d * 0.45));
+    // Боковой пролёт остаётся низким и открытым: место длинных заготовок.
+    const sx = -2.3;
+    a.push(K.plinth(0.95, 1.85, stone, sx, 0.03));
+    a.push(...K.roofGable(0.95, 1.85, 0.3, 1.45, p.roofPaint, 0.1, sx, 0.03));
+    for (const z of [-0.8, 0.83]) a.push(K.box(0.14, 1.42, 0.14, p.beam, sx - 0.4, 0.71, z));
+    a.push(K.box(0.8, 0.12, 1.45, p.beam, sx, 0.69, 0.03));
+    for (const x of [sx - 0.22, sx, sx + 0.22]) a.push(K.box(0.13, 0.1, 1.3, metal, x, 0.8, 0.03));
+    // Бадья с тёмной глубиной и двумя обручами, без отдельного материала воды.
+    a.push(K.cyl(0.34, 0.29, 0.5, p.post, 10, 1.33, 0.25, 1.05));
+    a.push(K.cyl(0.28, 0.28, 0.025, p.ink, 10, 1.33, 0.503, 1.05));
+    for (const y of [0.12, 0.41]) a.push(K.cyl(0.335, 0.335, 0.07, metal, 10, 1.33, y, 1.05));
+    a.push(K.box(w, 0.12, 0.1, p.beam, x, 1.7, d / 2 + 0.04));
+    a.push(K.box(0.12, 0.47, 0.1, p.beam, x, 1.94, d / 2 + 0.04));
   }
+  const g = new THREE.Group();
+  g.add(K.assemble(a));
+  const forge = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.16, 0.5), M.forge);
+  forge.name = 'forge';
+  forge.position.set(fx, 0.57, fz + 0.06);
+  g.add(forge);
   return g;
 }
 
@@ -1229,7 +1278,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'tower':
       return tower(tier, st);
     case 'smithy':
-      return smithy(tier, st);
+      return smithy(tier);
     case 'town_hall':
       return townHall(tier);
     case 'barracks':
@@ -1248,4 +1297,5 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return new THREE.Group();
   }
 }
+
 
