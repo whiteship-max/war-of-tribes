@@ -379,8 +379,60 @@ const HOUSE_ROW: [number, number, number, number][][] = [
   ],
 ];
 
+/** Жилой двор: отдельные фронтоны и трубы вместо круглых кровель. */
+function residentialParts(t: Tier): K.Part[] {
+  const p = stylePaint();
+  const parts: K.Part[] = [];
+  const home = (x: number, z: number, w: number, d: number, h: number, upper: number, rot = 0): void => {
+    const a: K.Part[] = [];
+    const y0 = 0.16;
+    const uw = w + (upper ? 0.18 : 0);
+    const ud = d + (upper ? 0.12 : 0);
+    const eave = y0 + h + upper;
+    const rise = uw * 0.67;
+    a.push(K.plinth(w, d, p.base));
+    a.push(K.box(w, h, d, p.wall, 0, y0 + h / 2, 0));
+    if (upper) {
+      a.push(K.wallGable(uw, upper, ud, rise, p.wall, 0, 0, undefined, y0 + h));
+      a.push(K.box(uw + 0.06, 0.13, ud + 0.06, p.beam, 0, y0 + h, 0));
+      for (const sx of [-1, 1]) a.push(K.box(0.1, 0.28, 0.17, p.beam, sx * w * 0.34, y0 + h - 0.13, d / 2));
+    } else a.push(K.wallGable(w, 0.04, d, rise, p.wall, 0, 0, undefined, eave - 0.04));
+    a.push(...K.roofGable(uw, ud, rise, eave, p.roofPaint, 0.12));
+    // Широкие балки и ставни сохраняют рисунок на игровом масштабе.
+    for (const side of [-1, 1]) {
+      const fz = side * (ud / 2 + 0.025);
+      a.push(K.box(uw, 0.085, 0.075, p.beam, 0, eave - 0.04, fz));
+      for (const sx of [-1, 1]) a.push(K.box(0.085, h + upper, 0.075, p.beam, sx * (uw / 2 - 0.045), y0 + (h + upper) / 2, fz));
+      a.push(K.box(0.075, rise, 0.075, p.beam, 0, eave + rise / 2, fz));
+      if (upper) {
+        for (const sx of [-1, 1]) {
+          a.push(K.box(0.22, 0.32, 0.045, p.ink, sx * uw * 0.25, y0 + h + upper * 0.53, fz + side * 0.035));
+          a.push(K.box(0.10, 0.34, 0.045, p.post, sx * uw * 0.25 + 0.15, y0 + h + upper * 0.53, fz + side * 0.05));
+        }
+      }
+    }
+    for (const sx of [-1, 1]) {
+      a.push(K.box(0.075, 0.09, d, p.beam, sx * (w / 2 + 0.02), y0 + h * 0.48, 0));
+      a.push(K.box(0.05, 0.3, 0.24, p.ink, sx * (w / 2 + 0.025), y0 + h * 0.66, -d * 0.18));
+      a.push(K.box(0.07, 0.3, 0.1, p.post, sx * (w / 2 + 0.04), y0 + h * 0.66, -d * 0.18 + 0.18));
+    }
+    a.push(...K.door(0.3, h * 0.72, p.ink, p.beam, -w * 0.18, d / 2 + 0.03));
+    a.push(K.stepStone(0.43, p.base, -w * 0.18, d / 2 + 0.13));
+    a.push(K.box(0.075, Math.hypot(uw * 0.32, rise * 0.7), 0.08, p.beam, uw * 0.16, eave + rise * 0.35, ud / 2 + 0.03, { z: Math.atan2(uw * 0.32, rise * 0.7) }));
+    a.push(...K.chimney(0.22, rise * 0.7 + 0.32, p.base, p.base, -uw * 0.24, eave + rise * 0.3, -ud * 0.23));
+    parts.push(...shiftParts(a, x, z, rot, 1));
+  };
+  home(-0.8, 0.45, 1.2, 1.55, 0.95, 0);
+  home(0.95, -0.1, 0.85, 1.25, 0.75, 0, -0.12);
+  return shiftParts(parts, 0, 0, 0, t === 0 ? 0.65 : 1);
+}
+
 function houses(t: Tier): THREE.Group {
   const g = new THREE.Group();
+  if (t === 0) {
+    g.add(K.assemble(residentialParts(t)));
+    return g;
+  }
   const parts: K.Part[] = [];
   // Соседние дворы всегда самые простые: улица читается силуэтом главного дома,
   // а треугольников прибавляется немного.
