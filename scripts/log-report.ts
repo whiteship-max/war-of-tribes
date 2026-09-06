@@ -11,7 +11,7 @@ import type { GameState, JobId } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { catchUp, tick } from '@/game/sim/tick';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
-import { setForging } from '@/game/sim/smithy';
+import { startForge } from '@/game/sim/smithy';
 import { startRecruit } from '@/game/sim/army';
 import { buyGoods } from '@/game/sim/market';
 import { assignWorker, changeFreeJob, unassignWorker } from '@/game/sim/workers';
@@ -166,8 +166,10 @@ function play(hours: number, offline: boolean, trade = false): GameState {
         for (let i = 0; i < Math.min(marketLeft(s, g), 8, room); i++) buyGoods(s, g.id, 1);
       }
     }
-    // Кузнец без наряда молчит, а с нарядом пишет строку на каждый предмет.
-    if (!s.forging) setForging(s, 'spear');
+    // Кузница под непрерывным заказом: очередь пустеет — игрок ставит новый.
+    // Строка в летописи выходит одна на заказ, а не на предмет, — это и есть
+    // то, что отчёт должен померить.
+    if (s.forge.length === 0) startForge(s, 'spear', 10);
     if (s.recruits.length === 0 && s.time >= nextHire) {
       startRecruit(s, 'spearman', 5);
       nextHire = s.time + 10 * DAY_LENGTH;

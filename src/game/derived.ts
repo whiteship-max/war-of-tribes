@@ -201,13 +201,17 @@ export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
 }
 
 /** Что в здании требует внимания — маркер над крышей и метка в списке построек. */
-export type Attention = 'idle' | 'slot' | 'upgrade';
+export type Attention = 'idle' | 'order' | 'slot' | 'upgrade';
 
 export function buildingAttention(s: GameState, b: Building): Attention | null {
   if (isSite(b)) return null;
   const slots = buildingSlots(b);
+  const n = slots > 0 ? workerCount(s, b.id) : 0;
+  // Простаивающая кузница — первое, что надо сказать про неё: кузнецы стоят у
+  // холодного горна, и каждая минута такого простоя это потерянная минута.
+  // Стоит выше «есть свободное место»: пустой горн дороже пустого места.
+  if (b.type === 'smithy' && n > 0 && (s.forge?.length ?? 0) === 0) return 'order';
   if (slots > 0) {
-    const n = workerCount(s, b.id);
     if (n === 0) return 'idle';
     if (n < slots) return 'slot';
   }
@@ -216,6 +220,7 @@ export function buildingAttention(s: GameState, b: Building): Attention | null {
 
 export const ATTENTION_META: Record<Attention, { icon: string; text: string }> = {
   idle: { icon: '💤', text: 'Стоит без рабочих' },
+  order: { icon: '⚒️', text: 'Кузнецы без заказа' },
   slot: { icon: '👤', text: 'Есть свободное место' },
   upgrade: { icon: '⬆️', text: 'Можно улучшить' },
 };
@@ -592,6 +597,7 @@ export function forgeRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
 }
 
 export interface ForgeInfo {
+  /** Что куётся прямо сейчас. null — очередь пуста, кузница стоит. */
   item: EquipmentId | null;
   def: EquipmentDef | null;
   /** Работа в секунду. */
@@ -599,24 +605,51 @@ export interface ForgeInfo {
   /** Накоплено и нужно работы на текущий предмет. */
   work: number;
   need: number;
-  /** Секунд до готовности; null — работа стоит. */
+  /** Сколько заказов в очереди. */
+  queued: number;
+  /** Секунд до конца первого заказа целиком; null — работа стоит. */
   eta: number | null;
   /** Почему кузница молчит; null — всё в порядке. */
   blocked: string | null;
+  /** Кузница простаивает: кузнецы есть, а заказов нет. Это надо показывать. */
+  idle: boolean;
 }
 
+/**
+ * Что происходит в кузнице. Материалов эта функция не спрашивает: за заказ
+ * платят вперёд, поэтому встать посреди дела он не может — встать он может
+ * только оттого, что от горна ушли люди.
+ */
 export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): ForgeInfo {
-  const item = s.forging;
-  const def = item ? EQUIPMENT_BY_ID[item] : null;
+  const order = s.forge?.[0] ?? null;
+  const def = order ? EQUIPMENT_BY_ID[order.item] : null;
   const rate = forgeRate(s, mods);
-  const work = s.forgeWork ?? 0;
+  const smiths = forgeHands(s);
+  const work = order?.work ?? 0;
   const need = def?.work ?? 0;
   let blocked: string | null = null;
-  if (!def) blocked = 'Выбери, что куём.';
+  if (!def) blocked = 'Заказов нет — кузница стоит.';
   else if (rate <= 0) blocked = 'В кузнице никто не работает.';
-  else if (work >= need && !canAfford(s, def.cost)) blocked = 'Не хватает материалов на предмет.';
-  const eta = def && rate > 0 ? Math.max(0, Math.ceil((need - work) / rate)) : null;
-  return { item, def, rate, work, need, eta, blocked };
+  const left = def && order ? def.work * (order.count - order.done) - work : 0;
+  return {
+    item: order?.item ?? null,
+    def,
+    rate,
+    work,
+    need,
+    queued: s.forge?.length ?? 0,
+    eta: def && rate > 0 ? Math.max(0, Math.ceil(left / rate)) : null,
+    blocked,
+    // Простой — это кузнецы у холодного горна. Кузница без людей не простаивает,
+    // она просто пуста, и лечится это другим: людьми, а не заказом.
+    idle: !order && smiths > 0,
+  };
+}
+
+/** Сколько кузнецов стоит у горна. Отдельной функцией: её спрашивают и панель, и сцена. */
+export function forgeHands(s: GameState): number {
+  const smithy = buildingOfType(s, 'smithy');
+  return smithy ? workerCount(s, smithy.id) : 0;
 }
 
 // ---------- Производство ----------
@@ -1020,6 +1053,12 @@ export function alerts(s: GameState): Alert[] {
   if (heat > 0) {
     if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дрова кончились — племя мёрзнет', goto: 'storage' });
     else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров хватит меньше чем на день', goto: 'storage' });
+  }
+  // Кузнецы у холодного горна. Не «умирают», но час такого простоя стоит игроку
+  // ровно часа: заказ он закрывает одним тапом, а не заметив — теряет вечер.
+  // Строка идёт последней: голод и холод острее.
+  if (forgeInfo(s).idle) {
+    out.push({ id: 'forge-idle', icon: '⚒️', text: 'Кузнецы стоят без заказа', goto: 'smithy' });
   }
   return out;
 }

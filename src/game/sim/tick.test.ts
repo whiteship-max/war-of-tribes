@@ -73,7 +73,7 @@ import {
 } from '../data/tutorial';
 import { deserialize, serialize } from '../save';
 import { SAVE_VERSION } from '../state';
-import { setForging } from './smithy';
+import { startForge } from './smithy';
 import { startRecruit } from './army';
 
 beforeEach(() => setRandom(seeded(42)));
@@ -426,7 +426,7 @@ describe('симуляция', () => {
   it('наём, кузница, рынок и золото доступны сразу', () => {
     const s = createInitialState();
     expect(s.gold).toBeGreaterThan(0);
-    expect(setForging(s, 'armor')).toBeNull();
+    expect(startForge(s, 'armor', 1)).toBeNull();
     expect(forgeInfo(s).blocked).toMatch(/никто не работает/);
     // Копьё на складе — и первый копейщик нанимается без единого условия.
     s.equipment.spear = 1;
@@ -817,10 +817,10 @@ describe('старт партии', () => {
   it('за пять минут племя куёт копьё, нанимает бойца и не встаёт в тупик', () => {
     const s = createInitialState();
     const food0 = s.resources.food;
-    // Игрок делает очевидное: кузнеца к горну, наряд на копьё, бойца в казармы.
+    // Игрок делает очевидное: кузнеца к горну, заказ на копья, бойца в казармы.
     const smithy = buildingOfType(s, 'smithy')!;
     expect(assignWorker(s, smithy.id)).toBeNull();
-    expect(setForging(s, 'spear')).toBeNull();
+    expect(startForge(s, 'spear', 4)).toBeNull();
     let recruited = false;
     for (let i = 0; i < 10 && !recruited; i++) {
       catchUp(s, 30, 0.5);
@@ -1218,7 +1218,7 @@ describe('обучение', () => {
     tapTutorial(s, UI_NONE);
     const smithy = buildingOfType(s, 'smithy')!;
     expect(assignWorker(s, smithy.id)).toBeNull();
-    expect(setForging(s, 'spear')).toBeNull();
+    expect(startForge(s, 'spear', 1)).toBeNull();
     advanceTutorial(s, UI_NONE);
     expect(at(s)).toBe('open_town');
     // Игрок сам нашёл казармы и нанял дубинщика — все шаги про наём снимаются разом.
@@ -1243,7 +1243,7 @@ describe('обучение', () => {
     advanceTutorial(s, ui({ building: smithy.id }));
     expect(at(s)).toBe('forge');
 
-    expect(setForging(s, 'spear')).toBeNull();
+    expect(startForge(s, 'spear', 1)).toBeNull();
     advanceTutorial(s, ui({ building: smithy.id }));
     expect(at(s)).toBe('open_town');
 

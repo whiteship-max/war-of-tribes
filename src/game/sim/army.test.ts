@@ -4,7 +4,7 @@ import type { BuildingTypeId, GameState } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { setDecree, setRation } from './actions';
-import { setForging } from './smithy';
+import { forgeCheck, startForge } from './smithy';
 import { cancelRecruit, recruitCheck, startRecruit } from './army';
 import { assignWorker, changeFreeJob } from './workers';
 import { seeded, setRandom } from './random';
@@ -55,20 +55,21 @@ function warband(pop = 40): GameState {
 }
 
 describe('снаряжение', () => {
-  it('кузнец кует выбранное и кладёт на склад', () => {
+  it('кузнец кует заказанное и кладёт на склад', () => {
     const s = warband();
     const smithy = s.buildings.find((b) => b.type === 'smithy')!;
     expect(assignWorker(s, smithy.id)).toBeNull();
-    expect(setForging(s, 'spear')).toBeNull();
     const wood0 = s.resources.wood;
+    expect(startForge(s, 'spear', 1)).toBeNull();
+    // Материалы списаны сразу, на складе их уже нет.
+    expect(s.resources.wood).toBeLessThan(wood0);
     catchUp(s, 60, 0.5);
     expect(s.equipment.spear).toBeGreaterThan(0);
-    expect(s.resources.wood).toBeLessThan(wood0);
   });
 
   it('без кузнеца кузница молчит и объясняет почему', () => {
     const s = warband();
-    expect(setForging(s, 'spear')).toBeNull();
+    expect(startForge(s, 'spear', 1)).toBeNull();
     catchUp(s, 60, 0.5);
     expect(s.equipment.spear).toBe(0);
     expect(forgeInfo(s).blocked).toMatch(/никто не работает/);
@@ -76,9 +77,10 @@ describe('снаряжение', () => {
 
   it('любое снаряжение куётся с первого дня: гейтов по технологиям нет', () => {
     const s = warband();
-    expect(setForging(s, 'sword')).toBeNull();
-    expect(s.forging).toBe('sword');
-    expect(setForging(s, 'armor')).toBeNull();
+    expect(startForge(s, 'sword', 1)).toBeNull();
+    expect(s.forge[0].item).toBe('sword');
+    expect(startForge(s, 'armor', 1)).toBeNull();
+    expect(s.forge).toHaveLength(2);
   });
 
   it('все виды бойцов доступны сразу — выбор между ними экономический', () => {
@@ -89,20 +91,18 @@ describe('снаряжение', () => {
     }
   });
 
-  it('без материалов заготовка ждёт, а не пропадает', () => {
+  it('заказ не встаёт от пустого склада: за него уже заплачено', () => {
     const s = warband();
     const smithy = s.buildings.find((b) => b.type === 'smithy')!;
     assignWorker(s, smithy.id);
-    setForging(s, 'spear');
+    expect(startForge(s, 'spear', 3)).toBeNull();
+    // Склад обнулили после заказа — заказ всё равно доходит до конца.
     for (const r of RESOURCE_IDS) s.resources[r] = 0;
-    catchUp(s, 60, 0.5);
-    expect(s.equipment.spear).toBe(0);
-    expect(forgeInfo(s).blocked).toMatch(/материалов/);
-    // Материалы завезли — предмет выходит сразу, накопленная работа не потеряна.
-    s.resources.wood = 50;
-    s.resources.stone = 50;
-    tick(s, 1, { offline: true });
-    expect(s.equipment.spear).toBe(1);
+    catchUp(s, 300, 0.5);
+    expect(s.equipment.spear).toBe(3);
+    // А новый заказ без материалов не поставить, и сказано об этом прямо.
+    expect(forgeCheck(s, 'spear', 1).blocked).toMatch(/материалов/);
+    expect(startForge(s, 'spear', 1)).toMatch(/материалов/);
   });
 });
 

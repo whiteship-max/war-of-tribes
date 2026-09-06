@@ -22,7 +22,7 @@ import { log } from './log';
 import { recordSpent } from '@/profile/stats';
 
 export { assignWorker, changeFreeJob, unassignWorker } from './workers';
-export { setForging } from './smithy';
+export { cancelForge, forgeCheck, startForge } from './smithy';
 export { buyGoods, cancelCaravan, marketCheck } from './market';
 export { cancelRecruit, startRecruit } from './army';
 export { cancelSurvey, startSurvey, surveyInfo } from './survey';

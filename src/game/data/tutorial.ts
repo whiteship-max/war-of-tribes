@@ -95,9 +95,9 @@ export const TUTORIAL: TutorialStep[] = [
   },
   {
     id: 'forge',
-    text: 'Выбери наряд: начни с копья.',
+    text: 'Закажи копья: кузница сделает заказ и встанет.',
     target: { kind: 'dom', sel: '[data-tut="forge-spear"]' },
-    done: (s) => s.forging !== null || anyGear(s),
+    done: (s) => s.forge.length > 0 || anyGear(s),
   },
   {
     id: 'open_town',
@@ -117,7 +117,7 @@ export const TUTORIAL: TutorialStep[] = [
     text: (s) =>
       (s.equipment.spear ?? 0) > 0
         ? 'Найми копейщика.'
-        : s.forging === 'spear'
+        : s.forge.some((o) => o.item === 'spear')
           ? 'Кузница куёт копьё. Как будет готово — нанимай.'
           : 'Нужно копьё: скуй его или найми, кого можешь.',
     target: { kind: 'dom', sel: '[data-tut="recruit-spearman"]' },

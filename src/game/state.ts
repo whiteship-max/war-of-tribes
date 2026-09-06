@@ -9,6 +9,11 @@ import { emptyProfile, refreshCard } from '@/profile/stats';
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
  *
+ * Версия 11 — кузница работает по заказам: `s.forging` и `s.forgeWork` уступили
+ * место очереди `s.forge`. Наряд из десятки приводить не к чему — за него не
+ * платили вперёд, и накопленная работа была работой над предметом, которого
+ * никто не заказывал; она просто отбрасывается, а склад при этом не беднеет.
+ *
  * Версия 10 — изучение округи в Дозоре (`s.survey`). Три числа, из которых
  * первое — сколько ступеней пройдено, а два других считаются от времени начала.
  * Задним числом их взять неоткуда, и приводить нечего: девятка приходит с нулём
@@ -29,7 +34,7 @@ import { emptyProfile, refreshCard } from '@/profile/stats';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -56,8 +61,8 @@ export function createInitialState(): GameState {
     equipment: emptyEquipment(),
     army: emptyArmy(),
     recruits: [],
-    forging: null,
-    forgeWork: 0,
+    // Кузница стоит без заказа: первое дело игрока — заказать копьё.
+    forge: [],
     // Округа не изучена: деревня видит ровно свой круг обзора, дальше темнота.
     survey: { done: 0, startedAt: 0, until: 0 },
     decree: 'none',

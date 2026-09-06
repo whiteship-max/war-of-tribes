@@ -79,7 +79,7 @@ const TAP_FORGIVE = 58;
 /** Доля вместимости, с которой у склада появляются мешки. */
 const STORAGE_SHOWN = 0.15;
 
-const MARKER_GLYPH: Record<Attention, string> = { idle: '💤', slot: '👤', upgrade: '⬆️' };
+const MARKER_GLYPH: Record<Attention, string> = { idle: '💤', order: '⚒️', slot: '👤', upgrade: '⬆️' };
 const markerTextures = new Map<Attention, THREE.Texture>();
 
 /** Значок над крышей рисуется в канву: эмодзи читается лучше любой low-poly иконки. */
@@ -720,7 +720,15 @@ export class TribeScene {
     for (const b of s.buildings) {
       const sign = WORK_SIGN[b.type];
       if (!sign) continue;
-      const busy = b.type === 'storage' ? full : workerCount(s, b.id) > 0;
+      // Склад — исключение по запасам, кузница — по заказам: кузнецы у горна
+      // без заказа не работают, и горн у них холодный. Это и есть тот признак
+      // простоя, который игрок обязан заметить со сцены, не открывая панели.
+      const busy =
+        b.type === 'storage'
+          ? full
+          : b.type === 'smithy'
+            ? workerCount(s, b.id) > 0 && (s.forge?.length ?? 0) > 0
+            : workerCount(s, b.id) > 0;
       const view = this.buildings.get(b.id);
       if (view?.glow) view.glow.visible = busy;
       if (!busy) continue;
