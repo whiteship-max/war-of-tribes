@@ -32,14 +32,23 @@ export interface DailyStatus {
 }
 
 export function dailyStatus(s: GameState, day: number): DailyStatus {
-  // Запись за другой день просрочена: попытка снова есть.
-  const today = s.daily.day === day ? s.daily.result : 'none';
+  // Запись за более ранний день просрочена: попытка снова есть.
+  //
+  // Назад время не идёт. Переведя часы устройства на вчера, игрок получил бы
+  // ещё одну попытку, и так сколько угодно раз: без сервера настоящее время
+  // проверить нечем, но откат — самый дешёвый обход, и стоит он одной строки.
+  // Перевод часов ВПЕРЁД так не закрыть: игрок с навсегда переведёнными часами
+  // неотличим от дождавшегося завтра, и это лечится только серверным временем,
+  // которого модуль и ждёт.
+  const stale = day > s.daily.day;
+  const today = stale ? 'none' : s.daily.result;
   return {
     day,
     game: dailyGameOf(day),
     seed: dailySeed(day),
-    played: today !== 'none',
-    won: today === 'won',
+    // День раньше записанного — часы перевели назад: попытка за него уже сыграна.
+    played: day < s.daily.day || today !== 'none',
+    won: !stale && today === 'won',
   };
 }
 
@@ -72,6 +81,7 @@ export function dailyReward(s: GameState, game: DailyGameId): Partial<Record<Res
  * запись до выигранной.
  */
 export function startDaily(s: GameState, day: number): string | null {
+  if (day < s.daily.day) return 'Задание за этот день уже сыграно.';
   const st = dailyStatus(s, day);
   if (st.played) return st.won ? 'Сегодняшнее задание уже выполнено.' : 'Попытка на сегодня потрачена.';
   s.daily = { day, result: 'lost' };

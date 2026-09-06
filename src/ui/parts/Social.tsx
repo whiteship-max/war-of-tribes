@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  BOT_IS_PLACEHOLDER,
   INVITE_TEXT,
   SITE_URL,
   SOCIAL_LINKS,
@@ -87,6 +88,12 @@ function Invite() {
           {inTelegram()
             ? 'Личной ссылки пока нет: мини-аппке нужно короткое имя в @BotFather.'
             : 'Игра открыта не из Telegram, поэтому личной ссылки нет — ниже обычный адрес игры.'}
+        </div>
+      )}
+      {link && BOT_IS_PLACEHOLDER && (
+        <div className="note bad">
+          Ссылка собрана на временное имя бота и пока никуда не ведёт: мини-аппку ещё не завели
+          в @BotFather. Поделиться ею можно, но друг по ней не придёт.
         </div>
       )}
       {/* Ссылка видна текстом: скопировать её в буфер выходит не везде — для

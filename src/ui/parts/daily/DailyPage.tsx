@@ -21,8 +21,11 @@ import { Quiz } from './Quiz';
 export function DailyPage() {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
+  const save = useGame((g) => g.save);
   const [playing, setPlaying] = useState(false);
   const [result, setResult] = useState<boolean | null>(null);
+  /** День начатой попытки. Не null — попытка идёт, и день на время её заморожен. */
+  const [attempt, setAttempt] = useState<number | null>(null);
   const arena = useRef<HTMLDivElement>(null);
 
   // Доска встаёт под шапку панели, а игроку нужно видеть её целиком и сразу: у
@@ -50,14 +53,26 @@ export function DailyPage() {
   }, [playing]);
 
   const now = Date.now();
-  const day = dayIndex(now);
+  // Пока идёт попытка, день не пересчитывается. Полночь UTC, заставшая игрока
+  // посреди лабиринта, иначе сменила бы доску под рукой (сид выводится из дня) и
+  // отняла бы победу: `finishDaily` не принял бы итог за день, который не
+  // начинали, и попытка сгорела бы ни за что.
+  const day = attempt ?? dayIndex(now);
   const st = dailyStatus(s, day);
   const def = DAILY_GAME_BY_ID[st.game];
   const reward = dailyReward(s, st.game);
 
   const begin = (): void => {
     setResult(null);
-    if (act((g) => startDaily(g, day))) setPlaying(true);
+    const today = dayIndex(Date.now());
+    if (!act((g) => startDaily(g, today))) return;
+    setAttempt(today);
+    setPlaying(true);
+    // Потраченную попытку кладём на диск сразу. Автосохранение идёт раз в
+    // пятнадцать секунд, и всё это время закрытая начисто игра возвращала бы
+    // попытку обратно — ровно та лазейка, ради которой попытка и тратится
+    // на старте, а не на победе.
+    void save();
   };
 
   // Итог уходит в симуляцию, и она же решает, давать ли награду: кнопке здесь не
@@ -71,6 +86,7 @@ export function DailyPage() {
   const done = (won: boolean): void => {
     act((g) => finishDaily(g, day, won));
     setResult(won);
+    void save();
   };
 
   return (
@@ -110,7 +126,15 @@ export function DailyPage() {
                   ? 'Взято. Награда уже на складе, новое задание — завтра.'
                   : 'Не вышло. Попытка одна в сутки: завтра будет другая игра.'}
               </div>
-              <button className="btn ghost wide" onClick={() => setPlaying(false)}>
+              <button
+                className="btn ghost wide"
+                onClick={() => {
+                  // Заморозку дня снимаем вместе с игрой: если пока играли
+                  // наступило завтра, страница обязана показать завтрашнее задание.
+                  setAttempt(null);
+                  setPlaying(false);
+                }}
+              >
                 Закрыть
               </button>
             </>

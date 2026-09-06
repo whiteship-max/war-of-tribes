@@ -24,6 +24,14 @@
 export const BOT_USERNAME = 'TribesWarsBot';
 export const MINI_APP_NAME = 'play';
 
+/**
+ * Стоят ли здесь ещё заглушки. Пока стоят, ссылка приглашения собирается и ею
+ * можно поделиться — но ведёт она в никуда, и молчать об этом нельзя: игрок
+ * отправил бы её другу и не узнал, почему тот не пришёл. Как только имена из
+ * @BotFather впишут сюда, пометка исчезнет сама.
+ */
+export const BOT_IS_PLACEHOLDER = BOT_USERNAME === 'TribesWarsBot' && MINI_APP_NAME === 'play';
+
 /** Группа племени — единственная настоящая ссылка из трёх. */
 export const TG_GROUP = 'https://t.me/TribesWars';
 

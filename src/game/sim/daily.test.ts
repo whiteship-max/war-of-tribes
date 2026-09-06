@@ -118,6 +118,32 @@ describe('ежедневное задание: попытка', () => {
     expect(s.stats.dailyWins).toBe(0);
   });
 
+  it('перевод часов назад не открывает вторую попытку', () => {
+    const s = createInitialState();
+    startDaily(s, TODAY);
+    finishDaily(s, TODAY, false);
+    // Игрок ушёл в настройки телефона и поставил вчерашнюю дату.
+    expect(dailyStatus(s, TODAY - 1).played).toBe(true);
+    expect(startDaily(s, TODAY - 1)).not.toBeNull();
+    expect(s.stats.dailyWins).toBe(0);
+    // И награду задним числом тоже не выписать.
+    expect(finishDaily(s, TODAY - 1, true)).not.toBeNull();
+    expect(s.stats.dailyWins).toBe(0);
+  });
+
+  it('после победы откат часов тоже закрыт: второй награды не будет', () => {
+    const s = createInitialState();
+    startDaily(s, TODAY);
+    finishDaily(s, TODAY, true);
+    const food = s.resources.food;
+    // Вчерашний день показан сыгранным, а не свободным.
+    expect(dailyStatus(s, TODAY - 1).played).toBe(true);
+    expect(startDaily(s, TODAY - 1)).not.toBeNull();
+    expect(finishDaily(s, TODAY - 1, true)).not.toBeNull();
+    expect(s.stats.dailyWins).toBe(1);
+    expect(s.resources.food).toBe(food);
+  });
+
   it('назавтра попытка открывается снова', () => {
     const s = createInitialState();
     startDaily(s, TODAY);
