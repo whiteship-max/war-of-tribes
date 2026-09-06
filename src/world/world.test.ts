@@ -1802,9 +1802,11 @@ describe('лазутчик в мире', () => {
     // Догоняем вторую партию по времени и смотрим, что стало с поселением.
     b.at(a.now());
     await b.world.sync(p);
-    const hour = 60 * MINUTE;
-    a.advance(hour);
-    b.advance(hour);
+    // Горизонт длиннее самого бунта: три часа простоя видны в населении только
+    // тогда, когда обе партии успели ещё и пожить дальше.
+    const horizon = 6 * 60 * MINUTE;
+    a.advance(horizon);
+    b.advance(horizon);
     await a.world.sync(p);
     await b.world.sync(p);
 
