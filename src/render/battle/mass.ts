@@ -173,6 +173,9 @@ export class MassView {
       mesh.geometry.dispose();
       mesh.dispose();
     }
+    // Полотнищу материал клонирован (ему нужны обе стороны) — его и убираем.
+    // Общие INSTANCED и SHADE трогать нельзя: ими рисует вся остальная сцена.
+    (this.flags.material as THREE.Material).dispose();
   }
 }
 
