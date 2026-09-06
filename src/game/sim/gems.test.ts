@@ -124,7 +124,98 @@ describe('алмазы', () => {
    * Поэтому интерфейс и сцена не имеют права ни звать `creditGems`, ни трогать
    * поле напрямую. Проверяется чтением исходников — иначе договор держится
    * на честном слове.
+   *
+   * Прежний набор образцов ловил ровно четыре написания: `s.gems =`, `s.gems +=`,
+   * `s['gems'] =` и `Object.assign(` с ключом в тех же скобках. Мимо него
+   * проходило всё остальное — придирчивая проверка провела через замок девять
+   * штук подряд, и ни одна не была экзотикой:
+   *
+   *   set({ s: { ...s, gems: s.gems + 500 } })      — пересборка спредом
+   *   Object.assign(useGame.getState().s, { gems }) — вложенные скобки рвали [^)]*
+   *   s.gems *= 10;  s.gems ||= 999;                — операторов было четыре из десяти
+   *   ++(s as any).gems                             — префиксный инкремент
+   *   [s.gems] = [9999]                             — деструктуризация
+   *   const k = 'gems'; s[k] = 9999                 — вычисляемый ключ
+   *   localStorage.setItem('tribe.save.v1', ...)    — запись мимо save.ts
+   *
+   * Чего замок не может и не сможет: имя поля, собранное из кусков
+   * (`s['ge' + 'ms']`), и состояние под другим именем. Он стоит не от
+   * злоумышленника — исходники у того и так в руках, — а от следующей правки,
+   * которую напишут не задумываясь. Поэтому закрыты все естественные написания,
+   * а сам список образцов проверяется тестом ниже: правило, которое ничего не
+   * ловит, хуже отсутствующего.
    */
+  const strip = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  /** Любой оператор присваивания: `=`, `+=`, `*=`, `??=`, `||=`, `**=`, `>>>=`. */
+  const ASSIGN = String.raw`(?:\*\*|\?\?|\|\||&&|<<|>>>?|[+\-*/%&|^])?=(?!=)`;
+  /** Присваивание или инкремент — всё, чем поле можно изменить. */
+  const WRITE = String.raw`(?:\+\+|--|${ASSIGN})`;
+
+  const GEM_WRITES: [RegExp, string][] = [
+    [/creditGems/, 'зовёт creditGems'],
+    [new RegExp(String.raw`\.gems\s*${WRITE}`), 'правит s.gems'],
+    // Префиксный инкремент, в том числе через приведение: `++(s as any).gems`.
+    [/(?:\+\+|--)[\w$()[\]{}'".\s]*\.gems\b/, 'правит s.gems префиксом'],
+    [new RegExp(String.raw`\[\s*(['"])gems\1\s*\]\s*${WRITE}`), "правит s['gems']"],
+    // Деструктуризация: `[s.gems] = [...]`, `({ x: s.gems } = ...)`.
+    [new RegExp(String.raw`[[{][^[\]{}]*\.gems[^[\]{}]*[\]}]\s*${ASSIGN}`), 'правит s.gems деструктуризацией'],
+    // Вычисляемый ключ: `const k = 'gems'; s[k] = 9999`. Имени поля в такой
+    // строке нет вовсе, поэтому ловится не оно, а сама форма — запись в корень
+    // состояния по вычисленному ключу. Законной такой записи нет ни одной:
+    // словари состояния правятся через своё поле (`s.resources[r] =`), а не
+    // через корень.
+    [new RegExp(String.raw`(?:^|[^\w$.])s\s*\[[^\]]+\]\s*${WRITE}`), 'пишет в состояние по вычисленному ключу'],
+  ];
+
+  /**
+   * Ключ `gems:` в объектном литерале. Ловит и пересборку спредом, и
+   * `Object.assign` на любой глубине скобок: и то, и другое обязано назвать поле.
+   * Разрешён он ровно там, где алмазы объявлены и заданы: тип состояния, новая
+   * партия и витрина наборов — ни один из этих файлов не интерфейс и не сцена.
+   */
+  const GEM_KEY: [RegExp, string] = [/(^|[^\w$.])gems\s*:/, 'кладёт gems: в объект'];
+
+  /**
+   * Ключ сохранения знает только `save.ts` (там же и `saveLocalNow` для выхода
+   * из игры). Второй слой, пишущий сейв своими руками, обходит и формат, и любой
+   * договор о том, чего в сохранении быть не должно.
+   */
+  const SAVE_KEY: [RegExp, string] = [/tribe\.save\.v1/, 'пишет сейв мимо save.ts'];
+
+  it('образцы замка ловят то, ради чего заведены, и не ловят честный код', () => {
+    const all = [...GEM_WRITES, GEM_KEY, SAVE_KEY];
+    const caught = (line: string): boolean => all.some(([re]) => re.test(strip(line)));
+
+    // Девять написаний, прошедших прежний замок насквозь.
+    for (const line of [
+      'creditGems(s, { source: "server", amount: 1000, ref: "x" });',
+      'set({ s: { ...s, gems: s.gems + 500 } });',
+      'Object.assign(useGame.getState().s, { gems: 9999 });',
+      'const k = "gems" as const; s[k] = 9999;',
+      '++(s as any).gems;',
+      's.gems *= 10;',
+      's.gems ||= 999;',
+      '[s.gems] = [9999];',
+      'localStorage.setItem("tribe.save.v1", JSON.stringify({ ...s, gems: 9999 }));',
+    ]) {
+      expect([line, caught(line)]).toEqual([line, true]);
+    }
+
+    // Честное чтение через единственную дверь замок не трогает.
+    for (const line of [
+      'const gems = gemsOf(s);',
+      'disabled={gemsOf(s) < price}',
+      '<span className="count">{p.gems}</span>',
+      "if (gemsOf(s) < price) return 'Не хватает алмазов.';",
+      "onClick={() => setTab('gems')}",
+      's.resources[r] = Math.min(cap, s.resources[r] + n);',
+    ]) {
+      expect([line, caught(line)]).toEqual([line, false]);
+    }
+  });
+
   it('ни интерфейс, ни сцена, ни ежедневка не умеют начислять алмазы', () => {
     const root = join(__dirname, '..', '..');
     const files: string[] = [];
@@ -143,26 +234,26 @@ describe('алмазы', () => {
     // строка. Поэтому обходится весь `src`, кроме самого модуля алмазов: он и
     // есть единственная законная дверь.
     walk(root);
-    const allowed = new Set([join(root, 'game', 'sim', 'gems.ts'), join(root, 'game', 'sim', 'gems.test.ts')]);
-
-    /**
-     * Комментарии выбрасываются: договор нарушает код, а не рассказ о нём.
-     * Назвать единственную дверь начисления по имени в пояснении можно и нужно —
-     * иначе следующий читатель не найдёт, где она.
-     */
-    const code = (src: string): string =>
-      src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const door = new Set([join(root, 'game', 'sim', 'gems.ts'), join(root, 'game', 'sim', 'gems.test.ts')]);
+    // Где поле алмазов объявлено и задано. Присваивать в них всё равно нельзя —
+    // разрешён только ключ в литерале: тип состояния, новая партия и витрина.
+    const declares = new Set([
+      ...door,
+      join(root, 'game', 'types.ts'),
+      join(root, 'game', 'state.ts'),
+      join(root, 'game', 'data', 'gems.ts'),
+    ]);
+    // Ключ сейва знает save.ts — и этот тест, где он назван образцом правила.
+    const saveKnows = new Set([join(root, 'game', 'save.ts'), join(root, 'game', 'sim', 'gems.test.ts')]);
 
     const guilty: string[] = [];
     for (const f of files) {
-      if (allowed.has(f)) continue;
-      const src = code(readFileSync(f, 'utf8'));
-      if (/creditGems/.test(src)) guilty.push(`${f}: creditGems`);
-      // Присваивание полю — другой способ прибавить себе алмазов. Закрыты и
-      // обходные написания: через строковый ключ и через Object.assign.
-      if (/\.gems\s*(=[^=]|\+=|-=|\+\+|--)/.test(src)) guilty.push(`${f}: правит s.gems`);
-      if (/\[\s*['"]gems['"]\s*\]\s*(=[^=]|\+=|-=)/.test(src)) guilty.push(`${f}: правит s['gems']`);
-      if (/Object\.assign\([^)]*gems\s*:/.test(src)) guilty.push(`${f}: Object.assign с gems`);
+      const src = strip(readFileSync(f, 'utf8'));
+      const rules: [RegExp, string][] = [];
+      if (!door.has(f)) rules.push(...GEM_WRITES);
+      if (!declares.has(f)) rules.push(GEM_KEY);
+      if (!saveKnows.has(f)) rules.push(SAVE_KEY);
+      for (const [re, why] of rules) if (re.test(src)) guilty.push(`${f}: ${why}`);
     }
     expect(guilty).toEqual([]);
   });

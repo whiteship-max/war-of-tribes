@@ -3,7 +3,7 @@ import type { GameState } from './types';
 import { createInitialState } from './state';
 import { tick } from './sim/tick';
 import { resolveEvent } from './sim/actions';
-import { clearSave, loadGame, saveGame } from './save';
+import { clearSave, loadGame, saveGame, saveLocalNow } from './save';
 import {
   advanceTutorial,
   finishTutorial,
@@ -220,13 +220,10 @@ export const useGame = create<GameStore>((set, get) => ({
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') void get().save();
     });
-    window.addEventListener('beforeunload', () => {
-      try {
-        localStorage.setItem('tribe.save.v1', JSON.stringify({ ...get().s, lastSaved: Date.now() }));
-      } catch {
-        /* ignore */
-      }
-    });
+    // На выходе пишем синхронно и через save.ts: ключ и формат сохранения знает
+    // только он. Своя копия `setItem` с ключом строкой жила здесь и совпадала с
+    // ним по случайности — до первой правки формата.
+    window.addEventListener('beforeunload', () => saveLocalNow(get().s));
   },
 
   act: (fn) => {

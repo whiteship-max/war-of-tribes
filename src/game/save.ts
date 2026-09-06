@@ -124,6 +124,25 @@ export function deserialize(json: string): GameState | null {
   }
 }
 
+/**
+ * Синхронная запись на выход из игры. `beforeunload` не ждёт промисов, поэтому
+ * облака здесь нет — только localStorage.
+ *
+ * Живёт она здесь, а не у того, кто закрывает вкладку, по одной причине: ключ
+ * и формат сохранения должны быть записаны в одном месте. Второй слой, знающий
+ * `KEY` и умеющий собрать json сам, расходится с этим молча — и расходится он
+ * ровно в тот день, когда формат меняют. Он же обходит любой договор о том,
+ * чего в сохранении быть не должно: записать туда можно что угодно, минуя
+ * `serialize`. Тест «сейв пишет только save.ts» в sim/gems.test.ts держит это.
+ */
+export function saveLocalNow(s: GameState): void {
+  try {
+    localStorage.setItem(KEY, serialize(s));
+  } catch {
+    /* localStorage может быть недоступен */
+  }
+}
+
 export async function saveGame(s: GameState): Promise<void> {
   const json = serialize(s);
   try {
