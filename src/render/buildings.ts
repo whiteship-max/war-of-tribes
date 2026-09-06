@@ -251,96 +251,6 @@ function campfire(st: Style): THREE.Group {
 
 // ---------- Здания: три ступени на каждое ----------
 
-/**
- * Хижина из набора деталей: шатёр → длинный дом с клетью → усадьба с крыльцом,
- * задним крылом и двором. Ступень меняет тип силуэта (конус → призма →
- * ступенчатая масса); кровля, цоколь, труба, окна и фахверк — из FEATURES.
- * Единицы — модельные (до PLAN_SCALE); фасад — +z, как требует facingCenter.
- */
-export function hutParts(t: Tier): K.Part[] {
-  const p = stylePaint();
-  const f = p.features;
-  const parts: K.Part[] = [];
-  const y0 = f.plinth ? K.PLINTH_H - K.PLINTH_SINK : 0;
-  const lintel = f.lintel === 'stone' ? p.base : p.beam;
-  const fencePost = f.fence === 'wattle' ? p.post : p.beam;
-  const fenceRail = f.fence === 'wattle' ? p.post : p.beam;
-
-  /** Что над очагом: труба уходит в скат, дымник садится на вершину. */
-  const smoke = (x: number, roofY: number, z: number, apexY: number): void => {
-    if (f.chimney === 'stone') parts.push(...K.chimney(0.34, apexY + 0.45 - roofY, p.base, p.base, x, roofY, z));
-    else if (f.chimney === 'clay') parts.push(K.cyl(0.14, 0.17, apexY + 0.35 - roofY, p.accent, 6, x, roofY + (apexY + 0.35 - roofY) / 2, z));
-    else if (f.chimney === 'hood') parts.push(...K.smokeHood(0.34, p.roofDark, p.post, 0, apexY - 0.02, 0));
-  };
-
-  // Круглое ядро остаётся главной массой на всех ступенях: так хижина не путается
-  // в силуэте с прямоугольными складом, казармами и мастерской.
-  const core = (r: number, h: number, R: number, x: number, z: number): { roofY: number; apex: number } => {
-    const roofH = R * f.pitch;
-    const roofY = y0 + h - 0.12;
-    if (f.plinth) parts.push(K.plinthRound(r, p.base, 10, x, z));
-    parts.push(K.wallRound(r, h, p.wall, 10, x, z, y0));
-    parts.push(...K.roofCone(R, roofH, roofY, p.roofPaint, 10, x, z));
-    return { roofY, apex: roofY + roofH };
-  };
-
-  /** Крыло: прямоугольная клеть с двускатной крышей, конёк вдоль z — фронтон смотрит на площадь. */
-  const wing = (w: number, h: number, d: number, rise: number, x: number, z: number, overhang: number): number => {
-    if (f.plinth) parts.push(K.plinth(w, d, p.base, x, z));
-    parts.push(K.wallGable(w, h, d, rise - 0.1, p.wall, x, z, undefined, y0));
-    const roofY = y0 + h - 0.1;
-    parts.push(...K.roofGable(w, d, rise, roofY, p.roofPaint, overhang, x, z));
-    if (f.fachwerk) parts.push(...K.halfTimber(w, h, d, p.beam, 0.1, y0, x, z));
-    return roofY + rise;
-  };
-
-  if (t === 0) {
-    // Шатёр: низкий барабан и крыша на две трети высоты, одна масса.
-    const { roofY, apex } = core(1.0, 0.75, 1.45, 0, 0);
-    parts.push(...K.door(0.42, 0.62, p.ink, lintel, 0, 1.0 * 1.04 + 0.02));
-    parts.push(K.stepStone(0.6, p.base, 0, 1.0 * 1.04 + 0.06));
-    if (f.chimney === 'hood') parts.push(...K.smokeHood(0.34, p.roofDark, p.post, 0, apex - 0.02, 0));
-    else smoke(-0.5, roofY + (apex - roofY) * 0.45, -0.45, apex - 0.3);
-    return parts;
-  }
-
-  if (t === 1) {
-    // Колокол и малый фронтон справа, ниже плеча: две массы, силуэт ступенчатый.
-    const { roofY, apex } = core(1.1, 0.95, 1.62, 0, 0);
-    parts.push(...K.door(0.44, 0.68, p.ink, lintel, 0, 1.1 * 1.04 + 0.02));
-    parts.push(K.stepStone(0.6, p.base, 0, 1.1 * 1.04 + 0.06));
-    const wx = 1.55;
-    const wz = 0.15;
-    wing(1.25, 0.8, 1.35, 0.72 * (f.pitch / 1.05), wx, wz, 0.2);
-    if (f.chimney === 'hood') parts.push(...K.smokeHood(0.34, p.roofDark, p.post, 0, apex - 0.02, 0));
-    else smoke(-0.6, roofY + (apex - roofY) * 0.4, -0.4, apex - 0.3);
-    return parts;
-  }
-
-  // Усадьба: большой шатёр слева, длинное крыло справа с крыльцом, двор с оградой.
-  const cx = -0.55;
-  const { roofY, apex } = core(1.2, 1.2, 1.75, cx, 0);
-  const wx = 1.27;
-  const ww = 1.6;
-  const wd = 2.1;
-  const ridge = wing(ww, 1.15, wd, 0.95 * (f.pitch / 1.05), wx, 0, 0.22);
-  // Крыльцо перед крылом, дверь под ним; ступени с железа.
-  parts.push(...K.porch(1.2, 0.7, 1.1, p.post, p.roofDark, p.floor, wd / 2, wx));
-  parts.push(...K.door(0.46, 0.72, p.ink, lintel, wx, wd / 2 + 0.02));
-  if (f.lintel === 'stone') parts.push(K.stepStone(0.7, p.base, wx, wd / 2 + 0.72));
-  // Окна — только на длинной стене крыла (2.1): на короткой это шум.
-  if (f.windows) for (const z of [-0.55, 0.45]) parts.push(K.window_(0.28, p.ink, wx + ww / 2 + 0.02, y0 + 0.78, z, { y: Math.PI / 2 }));
-  // Труба уходит в скат шатра и выше его вершины; дымник садится на вершину.
-  if (f.chimney === 'hood') parts.push(...K.smokeHood(0.4, p.roofDark, p.post, cx, apex - 0.02, 0));
-  else smoke(cx - 0.55, roofY + (apex - roofY) * 0.45, -0.45, Math.max(apex, ridge) - 0.25);
-  // Двор: ограда углом слева от шатра и поленница у стены.
-  const fx = -2.45;
-  parts.push(...K.fenceRun(fx, -0.9, fx, 0.9, 0.55, fencePost, fenceRail));
-  parts.push(...K.fenceRun(fx, 0.9, fx + 0.7, 0.9, 0.55, fencePost, fenceRail));
-  parts.push(...K.woodpile(p.post, cx - 0.35, -1.55, 0.35));
-  return parts;
-}
-
 /** Ставит готовый набор деталей на новое место: сосед по улице, а не второй меш. */
 function shiftParts(parts: K.Part[], x: number, z: number, rotY: number, scale: number): K.Part[] {
   const m = new THREE.Matrix4().compose(
@@ -351,33 +261,6 @@ function shiftParts(parts: K.Part[], x: number, z: number, rotY: number, scale: 
   for (const p of parts) p.geo.applyMatrix4(m);
   return parts;
 }
-
-/**
- * Жилища — не один дом, а улица дворов: главный двор и соседние поменьше.
- * Ступень добавляет двор и раздвигает улицу, поэтому уровень виден и в силуэте,
- * а не только в числе жилых мест. Всё это по-прежнему один меш: соседей
- * собирает не клонирование готовой модели, а тот же набор деталей со сдвигом.
- */
-const HOUSE_ROW: [number, number, number, number][][] = [
-  // ступень 0: двор и клеть при нём
-  [
-    [0.15, 0.25, 0, 0.72],
-    [-1.0, -0.35, 0.5, 0.4],
-  ],
-  // ступень 1: три двора вдоль улицы
-  [
-    [0.1, 0.4, 0, 0.72],
-    [-1.75, -0.3, 0.5, 0.46],
-    [1.7, -0.4, -0.5, 0.42],
-  ],
-  // ступень 2: улица в четыре двора, главный по центру
-  [
-    [0.15, 0.6, 0, 0.72],
-    [-1.85, -0.2, 0.5, 0.44],
-    [1.8, -0.35, -0.5, 0.42],
-    [-0.15, -1.9, Math.PI * 0.92, 0.38],
-  ],
-];
 
 /** Жилой двор: отдельные фронтоны и трубы вместо круглых кровель. */
 function residentialParts(t: Tier): K.Part[] {
@@ -422,25 +305,22 @@ function residentialParts(t: Tier): K.Part[] {
     a.push(...K.chimney(0.22, rise * 0.7 + 0.32, p.base, p.base, -uw * 0.24, eave + rise * 0.3, -ud * 0.23));
     parts.push(...shiftParts(a, x, z, rot, 1));
   };
-  home(-0.8, 0.45, 1.2, 1.55, 0.95, t >= 1 ? 0.68 : 0);
-  home(0.95, -0.1, 0.85, 1.25, 0.75, 0, -0.12);
-  if (t >= 1) home(-0.1, -1.2, 1.1, 0.85, 0.85, 0, Math.PI / 2);
-  return shiftParts(parts, 0, 0, 0, t === 0 ? 0.65 : 1);
+  if (t === 2) {
+    home(-0.98, 0.65, 1.2, 1.55, 1.05, 1.04);
+    home(1.05, 0.65, 0.9, 1.4, 0.9, 0.5);
+    home(-0.98, -1.3, 1.05, 1.05, 0.9, 0);
+    home(0.65, -1.25, 1.1, 1.05, 0.95, 0.24, Math.PI / 2);
+  } else {
+    home(-0.8, 0.45, 1.2, 1.55, 0.95, t === 1 ? 0.68 : 0);
+    home(0.95, -0.1, 0.85, 1.25, 0.75, 0, -0.12);
+    if (t === 1) home(-0.1, -1.2, 1.1, 0.85, 0.85, 0, Math.PI / 2);
+  }
+  return shiftParts(parts, 0, 0, 0, [0.65, 1, 0.98][t]);
 }
 
 function houses(t: Tier): THREE.Group {
   const g = new THREE.Group();
-  if (t <= 1) {
-    g.add(K.assemble(residentialParts(t)));
-    return g;
-  }
-  const parts: K.Part[] = [];
-  // Соседние дворы всегда самые простые: улица читается силуэтом главного дома,
-  // а треугольников прибавляется немного.
-  HOUSE_ROW[t].forEach(([x, z, rot, scale], i) => {
-    parts.push(...shiftParts(hutParts(i === 0 ? t : 0), x, z, rot, scale));
-  });
-  g.add(K.assemble(parts));
+  g.add(K.assemble(residentialParts(t)));
   return g;
 }
 
@@ -1368,3 +1248,4 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return new THREE.Group();
   }
 }
+
