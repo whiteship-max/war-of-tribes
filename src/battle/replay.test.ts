@@ -10,11 +10,18 @@ import { quickSetup } from './setup';
 import {
   ACTS,
   CAPTION_HOLD,
+  FIELD,
   FIGURE_CAP,
   FIGURE_MIN,
+  MAX_RANKS,
   MUSTER_FIGURES,
   SKIP,
+  bannersFor,
+  blockDepth,
   buildCast,
+  dustRadius,
+  ranksFor,
+  shaftsFor,
   figureCount,
   frameAt,
   laneOf,
@@ -476,5 +483,146 @@ describe('потери по секторам: журнал знает, где в
     for (const side of ['attacker', 'defender'] as Side[]) {
       expect(end.side[side].men).toBeCloseTo(r.sides[side].total.final, -0.6);
     }
+  });
+});
+
+describe('строй: где чей фронт, видно по кадру', () => {
+  it('блок не перешагивает линию соприкосновения', () => {
+    // Передняя шеренга стоит на месте сектора, ряды уходят назад. Если
+    // центрировать блок, глубокий строй лезет за середину поля, и синие с
+    // красными перемешиваются — по кадру не понять, где чей фронт.
+    const deep = blockDepth(MAX_RANKS);
+    expect(FIELD.contactZ).toBeGreaterThan(0);
+    // Наш самый глубокий фронт кончается на −contactZ и уходит от середины назад.
+    expect(-FIELD.contactZ - deep).toBeLessThan(-FIELD.contactZ);
+    // Между передними шеренгами остаётся зазор, и он шире человека.
+    expect(FIELD.contactZ * 2).toBeGreaterThan(1.2);
+  });
+
+  it('глубокий блок не садится на тыловой сектор своей полосы', () => {
+    expect(blockDepth(MAX_RANKS)).toBeLessThan(FIELD.rowGap);
+    expect(blockDepth(MAX_RANKS) + FIELD.rowGap).toBeLessThan(FIELD.rowGap + FIELD.reserveGap);
+  });
+
+  it('ряды растут с числом бойцов и упираются в потолок', () => {
+    let prev = 0;
+    for (const men of [10, 30, 60, 120, 240, 480, 960, 4000]) {
+      const n = ranksFor(men, FIGURE_CAP);
+      expect(n).toBeGreaterThanOrEqual(prev);
+      expect(n).toBeLessThanOrEqual(MAX_RANKS);
+      prev = n;
+    }
+    expect(ranksFor(30, FIGURE_CAP)).toBe(1);
+    expect(ranksFor(1000, FIGURE_CAP)).toBe(MAX_RANKS);
+    // Глубже, чем позволяет число фигур, строй не ставим.
+    expect(ranksFor(1000, 3)).toBeLessThan(MAX_RANKS);
+  });
+
+  it('в каждом кадре наши и чужие стоят по разные стороны середины', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    for (const t of sample(cast, 0.5)) {
+      for (const s of frameAt(cast, t).sectors) {
+        const back = s.side === cast.us ? -1 : 1;
+        const far = s.z + back * blockDepth(s.ranks);
+        expect(Math.sign(s.z) || back).toBe(back);
+        expect(Math.sign(far)).toBe(back);
+      }
+    }
+  });
+});
+
+describe('масса: число видно без цифр', () => {
+  it('знамя на каждые полсотни бойцов, и их можно сосчитать', () => {
+    expect(bannersFor(0)).toBe(0);
+    expect(bannersFor(50)).toBe(1);
+    expect(bannersFor(150)).toBe(3);
+    expect(bannersFor(500)).toBe(10);
+    // Не падает с ростом армии и не исчезает у живой.
+    let prev = 0;
+    for (let men = 0; men <= 3000; men += 13) {
+      const n = bannersFor(men);
+      expect(n).toBeGreaterThanOrEqual(prev - 1);
+      if (men > 0) expect(n).toBeGreaterThanOrEqual(1);
+      prev = n;
+    }
+  });
+
+  it('знамёна стороны сходятся с её численностью', () => {
+    for (const men of [40, 200, 900]) {
+      const cast = buildCast(battle(armyMix(men), armyMix(men)), 'attacker');
+      for (const side of ['attacker', 'defender'] as Side[]) {
+        const sum = cast.sectors.filter((c) => c.side === side).reduce((n, c) => n + c.banners, 0);
+        expect(sum, `${men} бойцов`).toBe(bannersFor(cast.men[side]));
+      }
+    }
+  });
+
+  it('вдесятеро большая армия несёт вдесятеро больше знамён, а фигур — втрое', () => {
+    const small = buildCast(battle(armyMix(50), armyMix(50)), 'attacker');
+    const big = buildCast(battle(armyMix(500), armyMix(500)), 'attacker');
+    const flags = (c: typeof small): number => bannersFor(c.men.attacker);
+    expect(flags(big) / flags(small)).toBeGreaterThan(8);
+    // Фигуры при этом упираются в потолок — ради этого масса и заведена.
+    expect(big.figures.attacker / small.figures.attacker).toBeLessThan(4);
+  });
+
+  it('древков больше, чем фигур, и копейная стена гуще прочих', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    for (const c of cast.sectors) {
+      if (c.figures === 0) continue;
+      expect(c.shafts, `${c.side}/${c.sector}`).toBeGreaterThan(c.figures);
+    }
+    const spears = shaftsFor([{ id: 'spearman', kind: 'spear', figures: 10 }]);
+    const bows = shaftsFor([{ id: 'archer', kind: 'archer', figures: 10 }]);
+    expect(spears).toBeGreaterThan(bows * 2);
+  });
+
+  it('пятно массы растёт с числом бойцов, а не фигур', () => {
+    expect(dustRadius(0)).toBe(0);
+    expect(dustRadius(500)).toBeGreaterThan(dustRadius(20) * 4);
+    // Площадь пропорциональна числу: вдесятеро больше людей — вдесятеро площадь.
+    const area = (men: number): number => Math.PI * dustRadius(men) ** 2;
+    expect(area(1000) / area(100)).toBeCloseTo(10, 1);
+    // И на целой раскадровке: сумма площадей сторон относится как их численность.
+    const cast = buildCast(battle(armyMix(120), armyMix(480)), 'attacker');
+    const sum = (side: Side): number =>
+      cast.sectors.filter((c) => c.side === side).reduce((n, c) => n + Math.PI * c.dust ** 2, 0);
+    expect(sum('defender') / sum('attacker')).toBeCloseTo(cast.men.defender / cast.men.attacker, 1);
+  });
+
+  it('масса проявляется вместе с фигурами и не падает на отъезде', () => {
+    const cast = buildCast(battle(armyMix(600), armyMix(600)), 'attacker');
+    for (const side of ['attacker', 'defender'] as Side[]) {
+      let prevFlags = -1;
+      let prevShafts = -1;
+      for (let t = 0; t <= cast.acts[1].to; t += 0.2) {
+        const f = frameAt(cast, t);
+        const flags = f.side[side].banners;
+        const shafts = f.sectors.filter((s) => s.side === side).reduce((n, s) => n + s.shafts, 0);
+        expect(flags).toBeGreaterThanOrEqual(prevFlags);
+        expect(shafts).toBeGreaterThanOrEqual(prevShafts - 1);
+        prevFlags = flags;
+        prevShafts = shafts;
+      }
+      // К концу отъезда войско несёт все свои знамёна.
+      expect(frameAt(cast, cast.acts[1].to).side[side].banners).toBe(bannersFor(cast.men[side]));
+    }
+  });
+
+  it('двадцать против пятисот: масса показывает разницу там, где фигуры уже не могут', () => {
+    const cast = buildCast(battle(armyMix(8), armyMix(220)), 'attacker');
+    const f = frameAt(cast, cast.acts[2].from);
+    const dust = (side: Side): number =>
+      f.sectors.filter((s) => s.side === side).reduce((n, s) => n + Math.PI * s.dust ** 2, 0);
+    const men = cast.men.defender / cast.men.attacker;
+    expect(men).toBeGreaterThan(8);
+    // Фигуры разницу сжимают — на то и потолок.
+    const byFigures = f.side.defender.figures / f.side.attacker.figures;
+    expect(byFigures).toBeLessThan(men / 3);
+    // Знамёна её показывают: горстка несёт одно, войско — несколько, и это
+    // считается глазами. Пятно массы держит разницу ещё честнее.
+    expect(f.side.attacker.banners).toBe(1);
+    expect(f.side.defender.banners).toBeGreaterThanOrEqual(4);
+    expect(dust('defender') / dust('attacker')).toBeGreaterThan(byFigures * 2);
   });
 });

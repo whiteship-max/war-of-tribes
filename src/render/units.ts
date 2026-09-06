@@ -244,11 +244,15 @@ function armorUp(f: Figure, b: Body, tier: number): void {
   }
 }
 
-/** Круглый щит на левой руке. */
-function roundShield(f: Figure, b: Body, size: number): void {
+/**
+ * Круглый щит на левой руке. Поле щита красится цветом стороны, а не деревом:
+ * на поле боя щит — самая большая плоскость бойца, и по ней сторона читается
+ * раньше, чем по рубахе. Цвет у бойца один на всех деталях.
+ */
+function roundShield(f: Figure, b: Body, size: number, cloth: number): void {
   // Просвет до кирасы нужен и при отведённом назад предплечье в шаге.
   const front = b.chestW * 0.8;
-  addSlot(f, 'shield', 'armL', PALETTE.woodDark, [0, -b.rig.armLen * 0.56, front], [size, size, size * 0.08]);
+  addSlot(f, 'shield', 'armL', cloth, [0, -b.rig.armLen * 0.56, front], [size, size, size * 0.08]);
   addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.56, front + size * 0.06], [size * 0.24, size * 0.24, size * 0.06]);
 }
 
@@ -269,10 +273,10 @@ function sword(f: Figure, b: Body, len: number, out: number): void {
  * у остальных щит круглый и заметно выше — на этом держится разница ближайшей
  * пары, щитоносца и латника.
  */
-function towerShield(f: Figure, b: Body, h: number): void {
+function towerShield(f: Figure, b: Body, h: number, cloth: number): void {
   const w = h * 0.31;
   const front = b.chestW * 0.8;
-  addSlot(f, 'plate', 'armL', PALETTE.paintRed, [0, -b.rig.armLen * 0.9, front], [w, h * 0.66, 0.035]);
+  addSlot(f, 'plate', 'armL', cloth, [0, -b.rig.armLen * 0.9, front], [w, h * 0.66, 0.035]);
   addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.9, front + 0.022], [w * 0.22, w * 0.22, 0.03]);
 }
 
@@ -305,8 +309,8 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
   // Щит: ростовой у того, кто в доспехе, круглый у остальных. Это и разводит
   // ближайшую пару — щитоносца и латника, — а цветом её было бы не развести.
   if (shield) {
-    if (heavy) towerShield(f, b, h);
-    else roundShield(f, b, h * (mounted ? 0.34 : 0.43));
+    if (heavy) towerShield(f, b, h, cloth);
+    else roundShield(f, b, h * (mounted ? 0.34 : 0.43), cloth);
   }
 
   switch (weaponOf(troop)) {

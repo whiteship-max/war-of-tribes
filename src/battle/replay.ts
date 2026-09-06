@@ -79,16 +79,86 @@ export const MUSTER_FIGURES = 7;
  */
 export const FIELD = {
   /** Шаг между полосами. */
-  laneW: 3.6,
+  laneW: 3.3,
   /** Расстояние от центра до фронта, пока строи не сошлись. */
   frontZ: 5,
   /** И когда сошлись. */
-  contactZ: 1.1,
+  contactZ: 1.4,
   /** Тыл за своим фронтом. */
-  rowGap: 2.4,
+  rowGap: 3.4,
   /** Резерв за тылом. */
-  reserveGap: 3.2,
+  reserveGap: 3.6,
 } as const;
+
+// ---------- Строй ----------
+
+/** Интервал в шеренге: плечом к плечу. */
+export const FILE_STEP = 0.62;
+/** Дистанция между рядами: чуть больше интервала. */
+export const RANK_STEP = 0.74;
+
+/**
+ * Глубина строя растёт с числом БОЙЦОВ, не фигур. Фигур на сторону всегда не
+ * больше `FIGURE_CAP`, и массы по ним не видно; а ряды видно сразу — сотня
+ * стоит в два ряда, восемь сотен в четыре.
+ *
+ * Больше `MAX_RANKS` нельзя: блок вылезет за `FIELD.rowGap` и сядет на тыловой
+ * сектор своей же полосы. Это проверяется тестом, а не помнится наизусть.
+ */
+export const RANK_MEN = 30;
+export const MAX_RANKS = 4;
+
+export function ranksFor(men: number, figures: number): number {
+  if (figures <= 1) return 1;
+  const byMen = Math.min(MAX_RANKS, Math.max(1, Math.floor(Math.log2(Math.max(1, men) / RANK_MEN)) + 1));
+  // Глубже, чем позволяет число фигур, строй не ставим: три фигуры в четыре
+  // ряда — это колонна по одному, а не строй.
+  return Math.max(1, Math.min(byMen, Math.round(Math.sqrt(figures))));
+}
+
+/** Насколько блок уходит назад от своей передней шеренги. */
+export const blockDepth = (ranks: number): number => Math.max(0, ranks - 1) * RANK_STEP;
+
+// ---------- Масса ----------
+
+/**
+ * Одно знамя на столько бойцов. Знамёна можно сосчитать глазами, и это честная
+ * единица измерения: три знамени против одного объясняют расклад без цифр.
+ * Точное число при этом всё равно стоит цифрой в строке состояния — знамя
+ * показывает порядок, а не подменяет счёт.
+ */
+export const BANNER_MEN = 50;
+
+export const bannersFor = (men: number): number => (men > 0 ? Math.max(1, Math.round(men / BANNER_MEN)) : 0);
+
+/**
+ * Древков на фигуру. Их ставится больше, чем людей, — и это не украшение:
+ * у реального строя издалека видно именно лес древков, а не лица. Один
+ * инстансированный примитив, один вызов отрисовки.
+ *
+ * Плотность зависит от рода: копейная стена — сплошной частокол, у лучников
+ * торчат луки, у конницы пики немногих всадников.
+ */
+export const SHAFTS_PER_FIGURE: Record<UnitKind, number> = {
+  spear: 3.2,
+  infantry: 2,
+  archer: 1.4,
+  cavalry: 1.6,
+};
+
+export function shaftsFor(byFace: readonly FaceCount[]): number {
+  let n = 0;
+  for (const f of byFace) n += f.figures * SHAFTS_PER_FIGURE[f.kind];
+  return Math.round(n);
+}
+
+/**
+ * Радиус тёмного пятна под строем. Площадь пропорциональна числу бойцов, а не
+ * фигур: масса должна читаться и там, где фигур мало, — двадцать против пятисот
+ * это ровно тот случай.
+ */
+export const DUST_PER_MAN = 0.055;
+export const dustRadius = (men: number): number => (men > 0 ? Math.sqrt(men * DUST_PER_MAN) : 0);
 
 export type Row = 'front' | 'rear' | 'reserve';
 
@@ -148,17 +218,17 @@ export interface CameraShot {
  * сторон. Смотрит чуть вниз, а не по горизонту: в портрете кадр высокий, и
  * ровный взгляд отдаёт полэкрана пустому небу.
  */
-const SHOT_MUSTER: CameraShot = { x: -5.9, y: 2.7, z: -13, atX: -3.2, atY: 0.7, atZ: -4.6, fov: 38 };
+const SHOT_MUSTER: CameraShot = { x: -5.9, y: 2.9, z: -12.4, atX: -3.2, atY: 0.75, atZ: -5, fov: 38 };
 
 /** Тот же план чуть позже: камера уже пошла, но ещё внизу. */
-const SHOT_MUSTER_END: CameraShot = { x: -5.5, y: 3.9, z: -13.4, atX: -2.8, atY: 0.7, atZ: -3.6, fov: 40 };
+const SHOT_MUSTER_END: CameraShot = { x: -5.5, y: 4.1, z: -12.8, atX: -2.8, atY: 0.75, atZ: -4, fov: 40 };
 
 /**
  * Стратегический план: видны оба войска и все шесть секторов. Наклон подобран
  * так, чтобы вверху кадра оставалась полоска неба: отвесный взгляд превращает
  * бой в зелёную схему, а горизонт — единственное, что говорит «это поле».
  */
-const SHOT_FIELD: CameraShot = { x: 0, y: 8.2, z: -19.5, atX: 0, atY: 1.1, atZ: 1.6, fov: 52 };
+const SHOT_FIELD: CameraShot = { x: 0, y: 9.3, z: -17.5, atX: 0, atY: 0.9, atZ: 1.6, fov: 50 };
 
 /** Спуск в конце — половина пути вниз. */
 const SHOT_DOWN: CameraShot = { x: 0.8, y: 6, z: -15.5, atX: 0.3, atY: 0.7, atZ: -1.5, fov: 48 };
@@ -170,12 +240,12 @@ const SHOT_LAST: CameraShot = { x: 3.4, y: 2.1, z: -9, atX: 0.4, atY: 0.6, atZ: 
 function shotAt(spot: { x: number; z: number }): CameraShot {
   return {
     x: spot.x * 0.25,
-    y: 7.6,
-    z: -18.8,
+    y: 8.7,
+    z: -16.9,
     atX: spot.x * 0.45,
-    atY: 1.1,
+    atY: 0.9,
     atZ: spot.z * 0.4 + 1.6,
-    fov: 50,
+    fov: 48,
   };
 }
 
@@ -273,6 +343,13 @@ export interface CastSector {
   /** Фигуры по видам; сумма — `figures`. */
   byFace: FaceCount[];
   figures: number;
+  /** Строй сектора: сколько рядов в глубину и сколько человек в шеренге. */
+  ranks: number;
+  files: number;
+  /** Знамён, древков и радиус пятна массы — на полный сектор. */
+  banners: number;
+  shafts: number;
+  dust: number;
   /** Ранг удалённости от кадра близкого плана: по нему фигуры и проявляются. */
   rank: number;
   /** Когда сектор побежал — из события журнала. null — не бежал. */
@@ -347,10 +424,17 @@ export interface SectorFrame {
   lane: Lane | null;
   row: Row;
   byFace: FaceCount[];
+  /** Строй блока: ряды в глубину и человек в шеренге. Масса ставится по нему же. */
+  ranks: number;
+  files: number;
   /** Сколько фигур поставлено сейчас: на близком плане — кусок строя, дальше — всё. */
   figures: number;
   /** Сколько из них на ногах; остальные лежат. */
   standing: number;
+  /** Масса на этом кадре: она проявляется вместе с фигурами и тает вместе с ними. */
+  banners: number;
+  shafts: number;
+  dust: number;
   /** Сектор уже побежал — по журналу. */
   broken: boolean;
   x: number;
@@ -362,6 +446,8 @@ export interface SideFrame {
   men: number;
   figures: number;
   standing: number;
+  /** Знамён в кадре: их считают глазами, поэтому число обязано сходиться. */
+  banners: number;
 }
 
 export interface Frame {
@@ -539,17 +625,32 @@ function castSectors(result: BattleResult, us: Side, faces: Record<Side, Face[]>
       live.map((sector) => stackTotal(res.sectors[sector].initial)),
       total,
     );
+    // Знамёна раскладываются на сторону целиком, а не считаются по секторам:
+    // округление в каждом секторе врозь дало бы то шесть знамён, то девять при
+    // одной и той же армии, а их считают глазами.
+    const banners = spread(
+      live.map((sector) => stackTotal(res.sectors[sector].initial)),
+      bannersFor(res.total.initial),
+    );
     live.forEach((sector, i) => {
       const cell = res.sectors[sector];
+      const men = stackTotal(cell.initial);
+      const byFace = facesFor(cell.initial, figures[i], faces[side]);
+      const ranks = ranksFor(men, figures[i]);
       out.push({
         side,
         sector,
         lane: laneOf(sector),
         row: rowOf(sector),
-        men: stackTotal(cell.initial),
+        men,
         finalMen: stackTotal(cell.final),
-        byFace: facesFor(cell.initial, figures[i], faces[side]),
+        byFace,
         figures: figures[i],
+        ranks,
+        files: Math.max(1, Math.ceil(figures[i] / ranks)),
+        banners: banners[i],
+        shafts: shaftsFor(byFace),
+        dust: dustRadius(men),
         rank: 0,
         brokenAt: null,
       });
@@ -795,6 +896,7 @@ export function frameAt(cast: Cast, t: number): Frame {
     let figures = 0;
     let standing = 0;
     let men = 0;
+    let banners = 0;
     for (const c of cast.sectors.filter((x) => x.side === side).sort((a, b) => a.rank - b.rank)) {
       const shown = Math.max(0, Math.min(c.figures, left));
       left -= shown;
@@ -810,20 +912,32 @@ export function frameAt(cast: Cast, t: number): Frame {
       figures += shown;
       standing += up;
       const spot = sectorSpot(side, cast.us, c.sector, closing);
+      // Масса проявляется вместе с фигурами и убывает вместе с живыми: иначе на
+      // близком плане над горсткой людей стояло бы всё войско знамён.
+      const part = c.figures > 0 ? shown / c.figures : 0;
+      const flags = shown > 0 ? Math.max(1, Math.round(c.banners * part * alive)) : 0;
       sectors.push({
         side,
         sector: c.sector,
         lane: c.lane,
         row: c.row,
         byFace: c.byFace,
+        ranks: c.ranks,
+        files: c.files,
         figures: shown,
         standing: up,
+        banners: Math.min(c.banners, flags),
+        shafts: Math.round(c.shafts * part * alive),
+        // Пятно проявляется вместе с фигурами и убывает вместе с живыми: площадь
+        // ему задаёт число людей, а не радиус, поэтому под корнем произведение.
+        dust: c.dust * Math.sqrt(Math.max(0, part * alive)),
         broken: c.brokenAt !== null && time >= c.brokenAt,
         x: spot.x,
         z: spot.z,
       });
+      banners += Math.min(c.banners, flags);
     }
-    sideFrame[side] = { men: Math.round(men), figures, standing };
+    sideFrame[side] = { men: Math.round(men), figures, standing, banners };
   }
 
   return {

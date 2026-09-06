@@ -10,7 +10,8 @@ import type { Action } from '../poses';
 import { applyDayNight, type LightRig } from '../lighting';
 import { PALETTE } from '../palette';
 import { buildField, setupFieldScene } from './field';
-import { SectorTroops } from './troops';
+import { MassView } from './mass';
+import { CLOTH_OF, SectorTroops } from './troops';
 
 /**
  * Полдень: бой в этой пачке идёт при ровном дневном свете. Время суток и
@@ -44,6 +45,8 @@ export class BattleStage {
   private rig: LightRig;
   private pool = new FigurePool();
   private blocks: SectorTroops[] = [];
+  /** Масса: знамёна, лес древков и пятно под строем. Три вызова на всё поле. */
+  private mass: MassView;
   private ground: THREE.Mesh;
   private us: Side;
 
@@ -55,6 +58,14 @@ export class BattleStage {
     this.scene.add(this.pool.group);
     applyDayNight(this.rig, this.scene, SOLAR, SKY);
     for (const c of cast.sectors) this.blocks.push(new SectorTroops(c, this.us, this.pool));
+    // Ёмкость заказывается сразу на всё войско: пересоздавать инстансы посреди
+    // отъезда — единственное место, где кадр мог бы дрогнуть.
+    this.mass = new MassView({
+      shafts: cast.sectors.reduce((n, c) => n + c.shafts + c.banners, 0),
+      flags: cast.sectors.reduce((n, c) => n + c.banners, 0),
+      dust: cast.sectors.length,
+    });
+    this.scene.add(this.mass.group);
     // Пул растёт по потребности; заказываем всё сразу, чтобы посреди отъезда не
     // пересоздавать инстансы — это единственное место, где кадр мог бы дрогнуть.
     this.pool.fit();
@@ -81,6 +92,7 @@ export class BattleStage {
       block?.apply(f, this.us, action, t);
     }
     this.pool.update();
+    this.mass.update(frame.sectors, (f) => CLOTH_OF(f.side === this.us));
   }
 
   /** Сколько инстансов примитивов заказано на всех — по этому числу считают бюджет. */
@@ -89,6 +101,7 @@ export class BattleStage {
   }
 
   dispose(): void {
+    this.mass.dispose();
     for (const b of this.blocks) b.dispose(this.pool);
     this.blocks = [];
     this.ground.geometry.dispose();
