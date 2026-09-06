@@ -1,0 +1,269 @@
+
+> tribe@0.1.0 figure:report
+> vite-node scripts/figure-report.ts
+
+--- все 28 пар × 6 ракурсов; IoU, меньше — различимее ---
+a,b,turn,iou
+archer,axeman,0,0.656
+archer,axeman,60,0.567
+archer,axeman,120,0.528
+archer,axeman,180,0.582
+archer,axeman,240,0.537
+archer,axeman,300,0.697
+archer,legionary,0,0.522
+archer,legionary,60,0.487
+archer,legionary,120,0.526
+archer,legionary,180,0.528
+archer,legionary,240,0.472
+archer,legionary,300,0.466
+archer,rider,0,0.366
+archer,rider,60,0.198
+archer,rider,120,0.143
+archer,rider,180,0.346
+archer,rider,240,0.160
+archer,rider,300,0.120
+archer,shieldman,0,0.614
+archer,shieldman,60,0.621
+archer,shieldman,120,0.655
+archer,shieldman,180,0.636
+archer,shieldman,240,0.614
+archer,shieldman,300,0.635
+archer,swordsman,0,0.579
+archer,swordsman,60,0.596
+archer,swordsman,120,0.681
+archer,swordsman,180,0.576
+archer,swordsman,240,0.612
+archer,swordsman,300,0.632
+axeman,legionary,0,0.537
+axeman,legionary,60,0.489
+axeman,legionary,120,0.608
+axeman,legionary,180,0.475
+axeman,legionary,240,0.446
+axeman,legionary,300,0.539
+axeman,rider,0,0.403
+axeman,rider,60,0.177
+axeman,rider,120,0.217
+axeman,rider,180,0.429
+axeman,rider,240,0.187
+axeman,rider,300,0.169
+axeman,shieldman,0,0.690
+axeman,shieldman,60,0.659
+axeman,shieldman,120,0.673
+axeman,shieldman,180,0.600
+axeman,shieldman,240,0.579
+axeman,shieldman,300,0.729
+axeman,swordsman,0,0.645
+axeman,swordsman,60,0.689
+axeman,swordsman,120,0.585
+axeman,swordsman,180,0.566
+axeman,swordsman,240,0.556
+axeman,swordsman,300,0.664
+clubman,archer,0,0.580
+clubman,archer,60,0.594
+clubman,archer,120,0.701
+clubman,archer,180,0.598
+clubman,archer,240,0.679
+clubman,archer,300,0.662
+clubman,axeman,0,0.581
+clubman,axeman,60,0.603
+clubman,axeman,120,0.490
+clubman,axeman,180,0.515
+clubman,axeman,240,0.534
+clubman,axeman,300,0.625
+clubman,legionary,0,0.376
+clubman,legionary,60,0.368
+clubman,legionary,120,0.467
+clubman,legionary,180,0.398
+clubman,legionary,240,0.399
+clubman,legionary,300,0.456
+clubman,rider,0,0.283
+clubman,rider,60,0.104
+clubman,rider,120,0.128
+clubman,rider,180,0.300
+clubman,rider,240,0.132
+clubman,rider,300,0.149
+clubman,shieldman,0,0.504
+clubman,shieldman,60,0.512
+clubman,shieldman,120,0.594
+clubman,shieldman,180,0.516
+clubman,shieldman,240,0.559
+clubman,shieldman,300,0.596
+clubman,spearman,0,0.573
+clubman,spearman,60,0.658
+clubman,spearman,120,0.590
+clubman,spearman,180,0.573
+clubman,spearman,240,0.665
+clubman,spearman,300,0.563
+clubman,swordsman,0,0.659
+clubman,swordsman,60,0.765
+clubman,swordsman,120,0.732
+clubman,swordsman,180,0.665
+clubman,swordsman,240,0.704
+clubman,swordsman,300,0.668
+rider,legionary,0,0.450
+rider,legionary,60,0.363
+rider,legionary,120,0.271
+rider,legionary,180,0.478
+rider,legionary,240,0.359
+rider,legionary,300,0.257
+shieldman,legionary,0,0.688
+shieldman,legionary,60,0.674
+shieldman,legionary,120,0.713
+shieldman,legionary,180,0.691
+shieldman,legionary,240,0.658
+shieldman,legionary,300,0.686
+shieldman,rider,0,0.427
+shieldman,rider,60,0.233
+shieldman,rider,120,0.182
+shieldman,rider,180,0.438
+shieldman,rider,240,0.230
+shieldman,rider,300,0.192
+spearman,archer,0,0.624
+spearman,archer,60,0.574
+spearman,archer,120,0.652
+spearman,archer,180,0.632
+spearman,archer,240,0.588
+spearman,archer,300,0.669
+spearman,axeman,0,0.698
+spearman,axeman,60,0.656
+spearman,axeman,120,0.562
+spearman,axeman,180,0.612
+spearman,axeman,240,0.592
+spearman,axeman,300,0.709
+spearman,legionary,0,0.489
+spearman,legionary,60,0.434
+spearman,legionary,120,0.574
+spearman,legionary,180,0.496
+spearman,legionary,240,0.435
+spearman,legionary,300,0.543
+spearman,rider,0,0.464
+spearman,rider,60,0.145
+spearman,rider,120,0.165
+spearman,rider,180,0.449
+spearman,rider,240,0.157
+spearman,rider,300,0.161
+spearman,shieldman,0,0.600
+spearman,shieldman,60,0.575
+spearman,shieldman,120,0.654
+spearman,shieldman,180,0.601
+spearman,shieldman,240,0.594
+spearman,shieldman,300,0.678
+spearman,swordsman,0,0.647
+spearman,swordsman,60,0.761
+spearman,swordsman,120,0.671
+spearman,swordsman,180,0.629
+spearman,swordsman,240,0.688
+spearman,swordsman,300,0.639
+swordsman,legionary,0,0.452
+swordsman,legionary,60,0.430
+swordsman,legionary,120,0.575
+swordsman,legionary,180,0.456
+swordsman,legionary,240,0.422
+swordsman,legionary,300,0.510
+swordsman,rider,0,0.340
+swordsman,rider,60,0.138
+swordsman,rider,120,0.159
+swordsman,rider,180,0.352
+swordsman,rider,240,0.148
+swordsman,rider,300,0.160
+swordsman,shieldman,0,0.593
+swordsman,shieldman,60,0.597
+swordsman,shieldman,120,0.700
+swordsman,shieldman,180,0.588
+swordsman,shieldman,240,0.581
+swordsman,shieldman,300,0.670
+--- худшие пары по совпадению пятна ---
+  60°  clubman     swordsman   0.765
+  60°  spearman    swordsman   0.761
+ 120°  clubman     swordsman   0.732
+ 300°  axeman      shieldman   0.729
+ 120°  shieldman   legionary   0.713
+ 300°  spearman    axeman      0.709
+ 240°  clubman     swordsman   0.704
+ 120°  clubman     archer      0.701
+ 120°  swordsman   shieldman   0.700
+   0°  spearman    axeman      0.698
+ 300°  archer      axeman      0.697
+ 180°  shieldman   legionary   0.691
+
+--- горожане ---
+покрой 0 и 1: 0.806
+покрой 0 и 2: 0.678
+покрой 1 и 2: 0.717
+
+--- копейщик против мечника: клеток выше 1.1 роста ---
+   0°  копьё   67  меч    0
+  60°  копьё   75  меч    0
+ 120°  копьё   81  меч    0
+ 180°  копьё   82  меч    0
+ 240°  копьё   75  меч   51
+ 300°  копьё   66  меч   35
+
+--- щитоносец против латника ---
+   0°  голень 0.28 / 0.48  площадь 842 / 1178 = 1.40
+  60°  голень 0.22 / 0.50  площадь 765 / 1103 = 1.44
+ 120°  голень 0.20 / 0.34  площадь 650 / 907 = 1.40
+ 180°  голень 0.22 / 0.26  площадь 837 / 1153 = 1.38
+ 240°  голень 0.20 / 0.52  площадь 753 / 1125 = 1.49
+ 300°  голень 0.26 / 0.36  площадь 683 / 979 = 1.43
+
+--- рост, ступень снаряжения, деталей ---
+clubman     ступень 0  верх 1.04  ширина 0.63  деталей 14
+spearman    ступень 1  верх 1.65  ширина 0.33  деталей 14
+archer      ступень 1  верх 1.12  ширина 0.55  деталей 16
+axeman      ступень 1  верх 1.16  ширина 0.66  деталей 15
+swordsman   ступень 1  верх 1.14  ширина 0.97  деталей 15
+shieldman   ступень 2  верх 1.14  ширина 0.64  деталей 20
+rider       ступень 2  верх 1.58  ширина 0.60  деталей 35
+legionary   ступень 3  верх 1.22  ширина 0.75  деталей 23
+
+--- скелет взрослой фигуры (доли роста) ---
+макушка                1.050  (1.000 роста)
+основание шеи          0.823  (0.784 роста)
+плечевой сустав        0.777  (0.740 роста)
+кисть                  0.442  (0.421 роста)
+тазобедренный сустав   0.475  (0.452 роста)
+полуразмах плеч        0.110  (0.105 роста)
+разнос ног             0.048  (0.046 роста)
+длина руки             0.334  (0.318 роста)
+
+--- конь (доли роста человека) ---
+backY        0.861  (0.820)
+barrelH      0.378  (0.360)
+bodyLen      0.987  (0.940)
+bodyW        0.399  (0.380)
+legY         0.704  (0.670)
+legX         0.121  (0.115)
+legZ         0.336  (0.320)
+legLen       0.698  (0.665)
+neckY        0.735  (0.700)
+neckZ        0.357  (0.340)
+neckLen      0.452  (0.430)
+neckPitch    0.450  (0.429)
+tailY        0.735  (0.700)
+tailZ        -0.367  (-0.350)
+
+--- герой: совпадение с каждым видом по шести ракурсам ---
+clubman: 0.514 / 0.595 / 0.486 / 0.490 / 0.506 / 0.485
+spearman: 0.566 / 0.633 / 0.528 / 0.542 / 0.529 / 0.532
+archer: 0.518 / 0.545 / 0.508 / 0.480 / 0.482 / 0.510
+axeman: 0.592 / 0.583 / 0.486 / 0.516 / 0.467 / 0.528
+swordsman: 0.705 / 0.724 / 0.612 / 0.634 / 0.666 / 0.679
+shieldman: 0.565 / 0.522 / 0.576 / 0.531 / 0.468 / 0.550
+rider: 0.412 / 0.216 / 0.272 / 0.446 / 0.232 / 0.234
+legionary: 0.510 / 0.489 / 0.605 / 0.521 / 0.442 / 0.556
+
+--- стоимость одной фигуры: детали / треугольники с теневым проходом ---
+clubman: 14 / 268
+spearman: 14 / 256
+archer: 16 / 308
+axeman: 15 / 292
+swordsman: 15 / 292
+shieldman: 20 / 452
+rider: 35 / 752
+legionary: 23 / 484
+folk0: 12 / 236
+folk1: 13 / 244
+folk2: 14 / 308
+horse: 16 / 336
+hero: 17 / 388

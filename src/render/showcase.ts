@@ -498,6 +498,8 @@ function unitCatalog(heroTroop: TroopId): UnitSpec[] {
  * без подписей, поэтому silhouette=1 работает и здесь.
  */
 function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
+  // Одна и та же фаза для воспроизводимых кадров; обычный стенд анимируется.
+  const fixedTime = p.has('time') ? Number(p.get('time')) : null;
   const asked = p.get('action') as Action | null;
   const action: Action = asked && ACTIONS.includes(asked) ? asked : 'stand';
   const count = Math.max(0, Number(p.get('count') ?? 0));
@@ -611,11 +613,12 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const clock = new THREE.Clock();
   let t = 0;
   const render = (): void => {
-    t += Math.min(0.05, clock.getDelta());
+    t = fixedTime ?? t + Math.min(0.05, clock.getDelta());
     // Падение — единственная поза со своим ходом: стенд роняет и поднимает, чтобы
     // движение было видно, а в игре долю двигает тот, кто роняет.
     const down = Math.min(1, ((t % 3.2) / 1.6));
     for (const f of figures) {
+      if (fixedTime !== null) f.phase = 0;
       if (action === 'fall') f.down = down;
       poseFigure(f, action, t);
     }

@@ -42,6 +42,10 @@ function rest(f: Figure): void {
   f.armMain = 0;
   f.armOff = 0;
   f.armSpread = 0.06;
+  f.elbowMain = 0.08;
+  f.elbowOff = 0.08;
+  f.kneeL = 0;
+  f.kneeR = 0;
 }
 
 /**
@@ -76,6 +80,10 @@ export function poseFigure(f: Figure, action: Action, t: number): void {
       f.headNod = -0.03;
       // Конь идёт рысью: диагонали в противофазе — это делают суставы ног.
       f.gait = s * 0.5;
+      f.kneeL = Math.max(0, s) * 0.65;
+      f.kneeR = Math.max(0, -s) * 0.65;
+      f.elbowMain = 0.2 + Math.max(0, -s) * 0.2;
+      f.elbowOff = 0.2 + Math.max(0, s) * 0.2;
       break;
     }
     case 'guard': {
@@ -87,6 +95,10 @@ export function poseFigure(f: Figure, action: Action, t: number): void {
       f.armMain = -0.42 + breath * 0.05;
       f.armSpread = 0.2;
       f.legSwing = 0.12;
+      f.elbowMain = 0.55;
+      f.elbowOff = 0.65;
+      f.kneeL = 0.12;
+      f.kneeR = 0.12;
       break;
     }
     case 'strike': {
@@ -122,6 +134,10 @@ export function poseFigure(f: Figure, action: Action, t: number): void {
       f.legSwing = Math.sin(p * TAU) * 0.22;
       f.bob = -Math.max(0, tilt) * 0.1;
       f.gait = Math.sin(u * 0.9) * 0.05;
+      f.elbowMain = 0.08 + Math.max(0, -arm) * 0.35;
+      f.elbowOff = 0.45;
+      f.kneeL = Math.max(0, f.legSwing) * 0.6;
+      f.kneeR = Math.max(0, -f.legSwing) * 0.6;
       break;
     }
     case 'hit': {
@@ -152,6 +168,11 @@ export function poseFigure(f: Figure, action: Action, t: number): void {
       break;
     }
   }
+  if (f.rig.mount) {
+    f.kneeL = 0.7;
+    f.kneeR = 0.7;
+  }
+  f.capeSwing = Math.sin(u * 2.2) * 0.025 + Math.abs(f.legSwing) * 0.18 + Math.max(0, f.torsoTilt) * 0.25;
 }
 
 /** Двигает падение вперёд. Упавший остаётся лежать: доля не откатывается. */

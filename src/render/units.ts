@@ -12,11 +12,12 @@
 // цветом, и ближайшие пары разведены нарочно: копейщик держит древко высоко над
 // головой, мечник — клинок низко и вперёд; у щитоносца круглый щит, у латника —
 // ростовой прямоугольный, гребень на шлеме и самый широкий корпус.
+import * as THREE from 'three';
 import type { TroopId } from '@/game/types';
 import { KIND_OF } from '@/game/battle/kinds';
 import { gearOfTroop, hasArmor, hasShield, weaponOf } from '@/game/battle/kinds';
 import { Figure, addSlot, gripFrame, type MountRig, type Rig } from './figures';
-import { FOLK_TINT, HERO_TINT, PALETTE, TROOP_TINT } from './palette';
+import { FOLK_TINT, HERO_TINT, PALETTE } from './palette';
 
 /** Рост взрослой фигуры в метрах сцены — тот же, что был у прежних фигурок. */
 export const MAN_HEIGHT = 1.05;
@@ -35,12 +36,12 @@ const HEADS = 5;
 const REF = {
   chin: 0.849,
   neck: 0.832,
-  shoulder: 0.726,
+  shoulder: 0.785,
   wrist: 0.447,
   hip: 0.48,
   ankle: 0.012,
   /** Ширина головы и её глубина — доли от высоты головы. */
-  headWide: 0.67,
+  headWide: 0.74,
   headDeep: 0.74,
 } as const;
 
@@ -54,8 +55,9 @@ export function humanRig(height = MAN_HEIGHT, build = 1): Rig {
     hipY: at(REF.hip),
     hipX: height * 0.046 * build,
     shoulderY: at(REF.shoulder),
-    shoulderX: height * 0.113 * build,
+    shoulderX: height * 0.105 * build,
     armLen: at(REF.shoulder) - at(REF.wrist),
+    legLen: at(REF.hip) - height * REF.ankle,
     neckY: at(REF.neck),
     straddle: 0,
     seat: 0,
@@ -86,7 +88,7 @@ function bodyOf(rig: Rig, build: number): Body {
     headCenter: h - headH / 2,
     torsoH: rig.neckY - rig.hipY,
     chestW: h * 0.235 * build,
-    legLen: rig.hipY - h * REF.ankle,
+    legLen: rig.legLen,
     legW: h * 0.078 * build,
     armW: h * 0.053 * build,
   };
@@ -100,11 +102,15 @@ function bodyOf(rig: Rig, build: number): Body {
  */
 function torso(f: Figure, b: Body, cloth: number, legs: number, skin: number): void {
   const { rig } = b;
-  addSlot(f, 'limb', 'legL', legs, [0, 0, 0], [b.legW, b.legLen, b.legW * 1.12]);
-  addSlot(f, 'limb', 'legR', legs, [0, 0, 0], [b.legW, b.legLen, b.legW * 1.12]);
+  for (const [upper, lower] of [['legL', 'kneeL'], ['legR', 'kneeR']] as const) {
+    addSlot(f, 'limb', upper, legs, [0, 0, 0], [b.legW, b.legLen * 0.51, b.legW * 1.12]);
+    addSlot(f, 'limb', lower, legs, [0, 0, b.legW * 0.08], [b.legW * 0.78, b.legLen * 0.5, b.legW * 1.05]);
+  }
   // Руки чуть позади линии груди: иначе они висят отдельно от корпуса.
-  addSlot(f, 'limb', 'armL', skin, [0, 0, -b.armW * 0.2], [b.armW, rig.armLen, b.armW * 1.08]);
-  addSlot(f, 'limb', 'armR', skin, [0, 0, -b.armW * 0.2], [b.armW, rig.armLen, b.armW * 1.08]);
+  for (const [upper, lower] of [['armL', 'elbowL'], ['armR', 'elbowR']] as const) {
+    addSlot(f, 'limb', upper, cloth, [0, 0, 0], [b.armW * 1.3, rig.armLen * 0.53, b.armW * 1.2]);
+    addSlot(f, 'limb', lower, skin, [0, 0, 0], [b.armW, rig.armLen * 0.5, b.armW * 1.08]);
+  }
   addSlot(f, 'body', 'torso', cloth, [0, 0, 0], [b.chestW, b.torsoH, b.chestW * 0.68]);
   addSlot(f, 'head', 'head', PALETTE.skin, [0, b.headCenter - rig.neckY, 0], [
     b.headH * REF.headWide,
@@ -121,9 +127,20 @@ function headwear(f: Figure, b: Body, color: number, tall: number, drop = 0): vo
   addSlot(f, 'cap', 'head', color, [0, y, 0], [b.headH * REF.headWide * 1.06, b.headH * tall, b.headH * REF.headDeep * 1.06]);
 }
 
-/** Пояс: тонкая полоса по низу корпуса. Дёшево, а фигура перестаёт быть мешком. */
-function belt(f: Figure, b: Body): void {
-  addSlot(f, 'plate', 'torso', PALETTE.leather, [0, b.torsoH * 0.14, 0], [b.chestW * 0.84, b.torsoH * 0.1, b.chestW * 0.64]);
+/** Шея заменяет отдельный пояс: сохраняем число деталей и соединяем голову с грудью. */
+function neck(f: Figure, b: Body): void {
+  addSlot(f, 'shaft', 'head', PALETTE.skin, [0, -b.headH * 0.13, 0], [b.headH * 0.38, b.headH * 0.4, b.headH * 0.4]);
+}
+
+/** Старые координаты хвата заданы от плеча; переносим их к подвижной кисти. */
+function attachHands(f: Figure, start: number, armLen: number): void {
+  const shift = new THREE.Matrix4().makeTranslation(0, armLen, 0);
+  for (let i = start; i < f.slots.length; i++) {
+    const slot = f.slots[i];
+    if (slot.joint !== 'armL' && slot.joint !== 'armR') continue;
+    slot.joint = slot.joint === 'armL' ? 'handL' : 'handR';
+    slot.local.premultiply(shift);
+  }
 }
 
 // ---------- Горожане ----------
@@ -151,6 +168,7 @@ export function dressVillager(f: Figure, kind: number): void {
     // Долгополая одежда: корпус спускается до щиколоток, ног почти не видно.
     // Перевёрнутый корпус расширяется книзу — это и есть подол.
     torso(f, b, cloth, cloth, PALETTE.skin);
+    neck(f, b);
     addSlot(f, 'body', 'hips', cloth, [0, b.rig.hipY * 0.02, 0], [b.chestW * 1.34, b.rig.hipY, b.chestW * 0.98], [Math.PI, 0, 0]);
     headwear(f, b, PALETTE.hair, 0.38, 0.04);
     // Ноша за спиной: узел на верёвке — второй заметный признак этого покроя.
@@ -159,13 +177,14 @@ export function dressVillager(f: Figure, kind: number): void {
   }
 
   torso(f, b, cloth, PALETTE.leather, PALETTE.skin);
-  belt(f, b);
+  neck(f, b);
   if (k === 1) {
     // Капюшон: выше и ниже надвинут, чем волосы, — силуэт головы другой.
     headwear(f, b, PALETTE.woodDark, 1.02, 0.16);
     // Посох в руке: третий силуэт у костра — с вертикальной палкой.
     const grip = gripFrame([0, -b.rig.armLen, b.chestW * 0.2], [0, 0, -0.1]);
     addSlot(f, 'shaft', 'armR', PALETTE.stake, [0, -b.rig.hipY * 0.85, 0], [0.028, height * 0.92, 0.028], [0, 0, 0], grip);
+    attachHands(f, f.slots.length - 1, rig.armLen);
   } else {
     headwear(f, b, PALETTE.hair, 0.34);
   }
@@ -219,28 +238,30 @@ function armorUp(f: Figure, b: Body, tier: number): void {
       b.headH * 0.62,
       b.headH * 1.08,
     ]);
-    for (const j of ['legL', 'legR'] as const) {
-      addSlot(f, 'plate', j, PALETTE.armor, [0, -b.legLen * 0.55, b.legW * 0.36], [b.legW * 1.1, b.legLen * 0.5, b.legW * 0.5]);
+    for (const j of ['kneeL', 'kneeR'] as const) {
+      addSlot(f, 'plate', j, PALETTE.armor, [0, -b.legLen * 0.25, b.legW * 0.45], [b.legW, b.legLen * 0.48, b.legW * 0.5]);
     }
   }
 }
 
 /** Круглый щит на левой руке. */
 function roundShield(f: Figure, b: Body, size: number): void {
-  addSlot(f, 'shield', 'armL', PALETTE.woodDark, [0, -b.rig.armLen * 0.72, size * 0.18], [size, size, size * 0.08]);
-  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.72, size * 0.24], [size * 0.24, size * 0.24, size * 0.06]);
+  // Просвет до кирасы нужен и при отведённом назад предплечье в шаге.
+  const front = b.chestW * 0.8;
+  addSlot(f, 'shield', 'armL', PALETTE.woodDark, [0, -b.rig.armLen * 0.56, front], [size, size, size * 0.08]);
+  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.56, front + size * 0.06], [size * 0.24, size * 0.24, size * 0.06]);
 }
 
 /**
- * Меч: рукоять, перекрестье, клинок. Клинок поднят наружу под сорок пять
- * градусов — оружие, прижатое к боку, в силуэте не существует, а к камере
+ * Меч: рукоять, перекрестье, клинок. Клинок вынесен наружу — оружие,
+ * прижатое к боку, в силуэте не существует, а к камере
  * направленное сокращается в точку. Наружу и вверх видно с любой стороны.
  */
 function sword(f: Figure, b: Body, len: number, out: number): void {
   const grip = gripFrame([0, -b.rig.armLen, b.chestW * 0.16], [0.12, 0, out]);
   addSlot(f, 'shaft', 'armR', PALETTE.leather, [0, 0, 0], [0.032, len * 0.2, 0.032], [0, 0, 0], grip);
   addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * 0.21, 0], [len * 0.32, 0.03, 0.032], [0, 0, 0], grip);
-  addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * 0.22 + len * 0.42, 0], [len * 0.085, len * 0.84, 0.02], [0, 0, 0], grip);
+  addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * 0.22 + len * 0.42, 0], [len * 0.105, len * 0.84, 0.025], [0, 0, 0], grip);
 }
 
 /**
@@ -250,12 +271,13 @@ function sword(f: Figure, b: Body, len: number, out: number): void {
  */
 function towerShield(f: Figure, b: Body, h: number): void {
   const w = h * 0.31;
-  addSlot(f, 'plate', 'armL', PALETTE.paintRed, [0, -b.rig.armLen * 0.9, w * 0.36], [w, h * 0.66, 0.035]);
-  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.9, w * 0.42], [w * 0.22, w * 0.22, 0.03]);
+  const front = b.chestW * 0.8;
+  addSlot(f, 'plate', 'armL', PALETTE.paintRed, [0, -b.rig.armLen * 0.9, front], [w, h * 0.66, 0.035]);
+  addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.9, front + 0.022], [w * 0.22, w * 0.22, 0.03]);
 }
 
 /** Одевает бойца этого вида. Всё, что видно на поле, решается здесь. */
-export function dressSoldier(f: Figure, troop: TroopId): void {
+export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.paintBlue): void {
   const { height: tall, build } = SIZE[troop];
   const h = MAN_HEIGHT * tall;
   const tier = gearTier(troop);
@@ -263,9 +285,8 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
   const b = bodyOf(rig, build);
   f.strip();
   f.rig = rig;
-  const cloth = TROOP_TINT[troop];
   torso(f, b, cloth, PALETTE.leather, PALETTE.skin);
-  belt(f, b);
+  neck(f, b);
   // Шлем — с первой же ступени снаряжения; дубинщику остаются волосы.
   if (tier >= 1) headwear(f, b, PALETTE.armor, 0.62, 0.06);
   else headwear(f, b, PALETTE.hair, 0.34);
@@ -279,12 +300,13 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
   const mounted = KIND_OF[troop] === 'cavalry';
 
   if (mounted) dressHorse(f, b);
+  const heldStart = f.slots.length;
 
   // Щит: ростовой у того, кто в доспехе, круглый у остальных. Это и разводит
   // ближайшую пару — щитоносца и латника, — а цветом её было бы не развести.
   if (shield) {
     if (heavy) towerShield(f, b, h);
-    else roundShield(f, b, h * (mounted ? 0.34 : 0.4));
+    else roundShield(f, b, h * (mounted ? 0.34 : 0.43));
   }
 
   switch (weaponOf(troop)) {
@@ -300,13 +322,14 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
     case 'spear': {
       // Пеший держит копьё вертикально — оно уходит на треть роста выше головы,
       // и по этому копейщика не спутать с мечником. Конный берёт наперевес.
-      const len = h * (mounted ? 1.1 : 1.25);
+      const len = h * (mounted ? 1.1 : 1.4);
       const grip = mounted
         ? gripFrame([0, -rig.armLen, b.chestW * 0.3], [1.16, 0, -0.1])
         : gripFrame([0, -rig.armLen - len * 0.28, b.chestW * 0.26], [0, 0, -0.07]);
       const drop = mounted ? -len * 0.3 : 0;
       addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, drop, 0], [0.032, len, 0.032], [0, 0, 0], grip);
-      addSlot(f, 'plate', 'armR', PALETTE.metal, [0, len * (mounted ? 0.72 : 1) + (mounted ? 0 : 0.06), 0], [0.05, mounted ? 0.15 : 0.16, 0.02], [0, 0, 0], grip);
+      // Существующий конус даёт остриё, а не прямоугольный обрубок.
+      addSlot(f, 'cap', 'armR', PALETTE.metal, [0, len + drop - 0.02, 0], [0.065, 0.18, 0.035], [0, 0, 0], grip);
       break;
     }
     case 'bow': {
@@ -315,7 +338,7 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
       // вбок, а не вперёд: спереди дуга должна быть видна дугой, иначе лук не
       // отличить от копья. Верх лука ниже макушки — этим он от копья и отличается.
       const half = h * 0.5;
-      const bend = 0.34;
+      const bend = 0.5;
       const grip = gripFrame([0, -rig.armLen + h * 0.11, b.chestW * 0.34], [0, 0, -0.12]);
       addSlot(f, 'limb', 'armL', PALETTE.woodDark, [0, 0, 0], [0.026, half, 0.034], [0, 0, Math.PI - bend], grip);
       addSlot(f, 'limb', 'armL', PALETTE.woodDark, [0, 0, 0], [0.026, half, 0.034], [0, 0, bend], grip);
@@ -326,13 +349,12 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
       break;
     }
     case 'axe': {
-      // Топор держат обухом кверху: топорище вертикально у плеча, тяжёлое лезвие
-      // приходится на высоту головы. В силуэте это груз наверху сбоку — ни на
-      // копьё (тонкая линия от земли), ни на меч (косая от бедра) не похоже.
-      const len = h * 0.8;
-      const grip = gripFrame([0, -rig.armLen, b.chestW * 0.24], [0.12, 0, -0.42]);
+      // Длинный топор вынесен вперёд и вбок: широкое лезвие не прячется
+      // за грудью с полуоборота. Копьё остаётся вертикалью, меч — низкой косой.
+      const len = h * 0.94;
+      const grip = gripFrame([0, -rig.armLen, b.chestW * 0.32], [0.65, 0, -0.42]);
       addSlot(f, 'shaft', 'armR', PALETTE.woodDark, [0, -len * 0.16, 0], [0.04, len, 0.04], [0, 0, 0], grip);
-      addSlot(f, 'plate', 'armR', PALETTE.metal, [0.06, len * 0.76, 0], [0.14, 0.21, 0.05], [0, 0, 0.1], grip);
+      addSlot(f, 'plate', 'armR', PALETTE.metal, [0.095, len * 0.76, 0], [0.23, 0.18, 0.055], [0, 0, 0.1], grip);
       addSlot(f, 'plate', 'armR', PALETTE.metal, [-0.03, len * 0.78, 0], [0.06, 0.12, 0.045], [0, 0, 0], grip);
       break;
     }
@@ -340,10 +362,11 @@ export function dressSoldier(f: Figure, troop: TroopId): void {
       // Со щитом клинок короткий и почти прижат, без щита — вынесен низко и
       // вперёд, линией от бедра. Иначе мечника не отличить от щитоносца со спины.
       if (shield) sword(f, b, h * (heavy ? 0.54 : 0.42), heavy ? 0.42 : 0.3);
-      else sword(f, b, h * 0.68, 0.62);
+      else sword(f, b, h * 0.72, 1.02);
       break;
     }
   }
+  attachHands(f, heldStart, rig.armLen);
   armorUp(f, b, tier);
 }
 
@@ -357,9 +380,11 @@ export function dressHero(f: Figure, troop: TroopId): void {
   dressSoldier(f, troop);
   const { height: tall, build } = SIZE[troop];
   const b = bodyOf(humanRig(MAN_HEIGHT * tall, build), build);
-  // Плащ: широкая пластина за спиной от плеч до колен. В силуэте это то, чем
-  // герой отличается от рядового с тем же оружием.
-  addSlot(f, 'plate', 'torso', HERO_TINT.cloak, [0, b.torsoH * 0.34, -b.chestW * 0.46], [b.chestW * 1.5, b.torsoH * 1.5, 0.03], [0.06, 0, 0]);
+  // Две сплюснутые шестигранные массы дают складки и расширяющийся подол.
+  // Подол отклоняется отдельно от плеч; скиннинга и отдельного материала нет.
+  f.hasCape = true;
+  addSlot(f, 'body', 'cape', HERO_TINT.cloak, [0, 0.02, 0], [b.chestW * 1.1, b.torsoH * 0.6, b.chestW * 0.24], [Math.PI, 0, 0]);
+  addSlot(f, 'body', 'capeHem', HERO_TINT.cloak, [0, 0.015, 0], [b.chestW * 1.5, b.torsoH * 0.95, b.chestW * 0.32], [Math.PI, 0, 0]);
 }
 
 // ---------- Конь ----------
@@ -373,19 +398,19 @@ export function mountRig(height = MAN_HEIGHT): MountRig {
   return {
     backY: height * 0.82,
     barrelH: height * 0.36,
-    bodyLen: height * 0.78,
-    bodyW: height * 0.28,
-    legY: height * 0.6,
-    legX: height * 0.108,
-    legZ: height * 0.26,
-    legLen: height * 0.595,
+    bodyLen: height * 0.94,
+    bodyW: height * 0.38,
+    legY: height * 0.67,
+    legX: height * 0.115,
+    legZ: height * 0.32,
+    legLen: height * 0.665,
     // Шея выходит из бочки, а не стоит на ней: основание ниже верха спины.
-    neckY: height * 0.74,
-    neckZ: height * 0.3,
-    neckLen: height * 0.42,
-    neckPitch: 0.6,
-    tailY: height * 0.78,
-    tailZ: -height * 0.36,
+    neckY: height * 0.70,
+    neckZ: height * 0.34,
+    neckLen: height * 0.43,
+    neckPitch: 0.45,
+    tailY: height * 0.70,
+    tailZ: -height * 0.35,
   };
 }
 
@@ -410,18 +435,24 @@ export function dressHorse(f: Figure, b: Body): void {
   f.rig.seat = 0.45;
 
   const coat = PALETTE.horseCoat;
-  // Корпус кладётся набок: примитив растёт вверх, а бочка коня лежит. Широкий
-  // конец у крупа — так и сложена лошадь.
-  addSlot(f, 'body', 'root', coat, [0, m.backY - m.barrelH / 2, m.bodyLen / 2], [m.bodyW, m.bodyLen, m.barrelH], [-Math.PI / 2, 0, 0]);
+  // Тот же гранёный шар, что у головы: округлые грудь и круп вместо бруса.
+  addSlot(f, 'head', 'root', coat, [0, m.backY - m.barrelH / 2, 0], [m.bodyW, m.barrelH, m.bodyLen]);
   // Шея растёт от головы вниз к холке: широкий конец примитива должен быть внизу.
-  addSlot(f, 'body', 'neck', coat, [0, m.neckLen, 0], [m.bodyW * 0.72, m.neckLen, m.bodyW * 0.62], [Math.PI, 0, 0]);
-  addSlot(f, 'plate', 'neck', PALETTE.horseMane, [0, m.neckLen * 0.5, -m.bodyW * 0.26], [m.bodyW * 0.16, m.neckLen, m.bodyW * 0.3]);
+  addSlot(f, 'body', 'neck', coat, [0, m.neckLen * 0.98, 0], [m.bodyW * 0.66, m.neckLen * 1.12, m.bodyW * 0.86], [Math.PI, 0, 0]);
+  addSlot(f, 'limb', 'neck', PALETTE.horseMane, [0, m.neckLen, -m.bodyW * 0.30], [m.bodyW * 0.12, m.neckLen, m.bodyW * 0.18], [-0.07, 0, 0]);
   // Голова собирается в своей системе: ось Y вдоль морды, вперёд и чуть вниз.
-  const skull = gripFrame([0, m.neckLen * 0.92, 0], [1.1, 0, 0]);
-  addSlot(f, 'head', 'neck', coat, [0, h * 0.11, 0], [h * 0.16, h * 0.28, h * 0.2], [0, 0, 0], skull);
-  addSlot(f, 'plate', 'neck', coat, [0, h * 0.25, 0], [h * 0.115, h * 0.14, h * 0.145], [0, 0, 0], skull);
-  for (const j of ['legFL', 'legFR', 'legBL', 'legBR'] as const) {
-    addSlot(f, 'limb', j, coat, [0, 0, 0], [h * 0.079, m.legLen, h * 0.085]);
+  const skull = gripFrame([0, m.neckLen * 0.98, 0], [1.65, 0, 0]);
+  // Одна сужающаяся к морде масса вместо шара с приставленным коробом.
+  addSlot(f, 'body', 'neck', coat, [0, h * 0.24, 0], [h * 0.18, h * 0.31, h * 0.22], [Math.PI, 0, 0], skull);
+  for (const side of [-1, 1]) {
+    addSlot(f, 'cap', 'neck', coat, [side * h * 0.052, m.neckLen + h * 0.02, -h * 0.04], [h * 0.065, h * 0.14, h * 0.07], [-0.2, 0, -side * 0.18]);
+  }
+  for (const [upper, lower, hind] of [
+    ['legFL', 'hockFL', false], ['legFR', 'hockFR', false],
+    ['legBL', 'hockBL', true], ['legBR', 'hockBR', true],
+  ] as const) {
+    addSlot(f, 'limb', upper, coat, [0, 0, 0], [h * (hind ? 0.105 : 0.075), m.legLen * 0.46, h * (hind ? 0.13 : 0.085)]);
+    addSlot(f, 'limb', lower, coat, [0, 0, h * 0.008], [h * 0.043, m.legLen * 0.56, h * 0.06]);
   }
   addSlot(f, 'limb', 'tail', PALETTE.horseMane, [0, 0, 0], [h * 0.06, h * 0.34, h * 0.07]);
   addSlot(f, 'plate', 'root', PALETTE.leather, [0, m.backY + h * 0.015, -h * 0.02], [m.bodyW * 1.06, h * 0.045, h * 0.19]);

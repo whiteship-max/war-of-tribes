@@ -45,6 +45,9 @@ export type JointId =
   | 'head'
   | 'armL'
   | 'armR'
+  | 'elbowL' | 'elbowR' | 'handL' | 'handR'
+  | 'kneeL' | 'kneeR'
+  | 'cape' | 'capeHem'
   | 'legL'
   | 'legR'
   | 'neck'
@@ -52,11 +55,15 @@ export type JointId =
   | 'legFR'
   | 'legBL'
   | 'legBR'
+  | 'hockFL' | 'hockFR' | 'hockBL' | 'hockBR'
   | 'tail';
 
 export const JOINTS: JointId[] = [
   'root', 'hips', 'torso', 'head', 'armL', 'armR', 'legL', 'legR',
+  'elbowL', 'elbowR', 'handL', 'handR', 'kneeL', 'kneeR',
+  'cape', 'capeHem',
   'neck', 'legFL', 'legFR', 'legBL', 'legBR', 'tail',
+  'hockFL', 'hockFR', 'hockBL', 'hockBR',
 ];
 
 /** Скелет коня. Ноль у фигуры — пеший. */
@@ -97,6 +104,8 @@ export interface Rig {
   shoulderX: number;
   /** Длина руки: плечо → кисть. */
   armLen: number;
+  /** Длина ноги не меняется при посадке на коня. */
+  legLen: number;
   /** Основание шеи: вокруг него кивает голова. */
   neckY: number;
   /** Развод коленей: у всадника ноги обнимают бока коня. */
@@ -114,6 +123,7 @@ export const restRig = (): Rig => ({
   shoulderY: 0.7,
   shoulderX: 0.13,
   armLen: 0.27,
+  legLen: 0.44,
   neckY: 0.78,
   straddle: 0,
   seat: 0,
@@ -168,6 +178,13 @@ export class Figure {
   armOff = 0;
   /** Развод рук в стороны от корпуса. */
   armSpread = 0.06;
+  /** Сгиб локтей и коленей: положительное колено уходит назад. */
+  elbowMain = 0;
+  elbowOff = 0;
+  kneeL = 0;
+  kneeR = 0;
+  capeSwing = 0;
+  hasCape = false;
   /** Доля падения, 0..1. Двигает её тот, кто роняет, — поза только читает. */
   down = 0;
 
@@ -181,6 +198,7 @@ export class Figure {
   /** Снимает всё надетое: фигура одевается заново. */
   strip(): void {
     this.slots.length = 0;
+    this.hasCape = false;
     for (const p of PARTS) this.counts[p] = 0;
   }
 }
@@ -322,8 +340,12 @@ function poseJoints(f: Figure): void {
     const gait = f.gait;
     put('legFL', 'root', m.legX, m.legY, m.legZ, gait);
     put('legFR', 'root', -m.legX, m.legY, m.legZ, -gait);
-    put('legBL', 'root', m.legX, m.legY, -m.legZ, -gait);
-    put('legBR', 'root', -m.legX, m.legY, -m.legZ, gait);
+    put('legBL', 'root', m.legX, m.legY, -m.legZ, -0.18 - gait);
+    put('legBR', 'root', -m.legX, m.legY, -m.legZ, -0.18 + gait);
+    put('hockFL', 'legFL', 0, -m.legLen * 0.44, 0, -Math.max(0, gait) * 1.2);
+    put('hockFR', 'legFR', 0, -m.legLen * 0.44, 0, -Math.max(0, -gait) * 1.2);
+    put('hockBL', 'legBL', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, -gait));
+    put('hockBR', 'legBR', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, gait));
   }
 
   put('hips', 'root', 0, r.hipY + f.bob, 0, 0);
@@ -335,6 +357,19 @@ function poseJoints(f: Figure): void {
   put('armR', 'torso', -r.shoulderX, r.shoulderY - r.hipY, 0, f.armMain, 0, -f.armSpread);
   put('legL', 'hips', r.hipX, 0, 0, r.seat + f.legSwing, 0, r.straddle);
   put('legR', 'hips', -r.hipX, 0, 0, r.seat - f.legSwing, 0, -r.straddle);
+  const halfArm = r.armLen * 0.5;
+  put('elbowL', 'armL', 0, -halfArm, 0, -f.elbowOff);
+  put('elbowR', 'armR', 0, -halfArm, 0, -f.elbowMain);
+  put('handL', 'elbowL', 0, -halfArm, 0, 0);
+  put('handR', 'elbowR', 0, -halfArm, 0, 0);
+  const thigh = r.legLen * 0.5;
+  put('kneeL', 'legL', 0, -thigh, 0, f.kneeL);
+  put('kneeR', 'legR', 0, -thigh, 0, f.kneeR);
+  if (f.hasCape) {
+    const torsoH = r.neckY - r.hipY;
+    put('cape', 'torso', 0, r.shoulderY - r.hipY, -r.shoulderX * 0.72, 0.12 + f.capeSwing);
+    put('capeHem', 'cape', 0, -torsoH * 0.55, 0, 0.08 + f.capeSwing * 0.6);
+  }
 }
 
 /** Матрица детали — одна на весь обход, наружу она не отдаётся. */
