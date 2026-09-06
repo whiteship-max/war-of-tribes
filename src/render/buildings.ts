@@ -422,14 +422,15 @@ function residentialParts(t: Tier): K.Part[] {
     a.push(...K.chimney(0.22, rise * 0.7 + 0.32, p.base, p.base, -uw * 0.24, eave + rise * 0.3, -ud * 0.23));
     parts.push(...shiftParts(a, x, z, rot, 1));
   };
-  home(-0.8, 0.45, 1.2, 1.55, 0.95, 0);
+  home(-0.8, 0.45, 1.2, 1.55, 0.95, t >= 1 ? 0.68 : 0);
   home(0.95, -0.1, 0.85, 1.25, 0.75, 0, -0.12);
+  if (t >= 1) home(-0.1, -1.2, 1.1, 0.85, 0.85, 0, Math.PI / 2);
   return shiftParts(parts, 0, 0, 0, t === 0 ? 0.65 : 1);
 }
 
 function houses(t: Tier): THREE.Group {
   const g = new THREE.Group();
-  if (t === 0) {
+  if (t <= 1) {
     g.add(K.assemble(residentialParts(t)));
     return g;
   }
