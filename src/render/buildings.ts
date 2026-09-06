@@ -676,7 +676,7 @@ function tower(t: Tier, st: Style): THREE.Group {
 
 /** Кузница: горн под навесом → кузница с трубой → кузнечный двор. */
 function smithy(t: Tier, st: Style): THREE.Group {
-  if (t === 0) return smithyYard(t);
+  if (t <= 1) return smithyYard(t);
   const g = new THREE.Group();
   const w = [2.0, 2.5, 3.1][t];
   const d = [1.6, 1.9, 2.3][t];
@@ -725,6 +725,21 @@ function smithyYard(t: Tier): THREE.Group {
   }
   a.push(K.box(w + 0.1, 0.16, 0.16, p.beam, x, h - 0.05, d / 2 - 0.06));
   a.push(...K.roofGable(w, d, 0.48, h, p.roofPaint, 0.13, x));
+  if (t >= 1) {
+    // Инструментальная клеть слева; рабочий проём сохраняется справа.
+    a.push(K.box(0.16, h, d, p.wall, x - w / 2 + 0.08, h / 2, 0));
+    a.push(K.box(w * 0.65, h, 0.14, p.wall, x - w * 0.175, h / 2, d / 2 - 0.07));
+    a.push(K.wallGable(w, 0.08, d, 0.45, p.wall, x, 0, undefined, h - 0.08));
+    a.push(...K.door(0.4, 0.92, p.ink, p.beam, x - w * 0.15, d / 2 + 0.015));
+    a.push(K.box(0.3, 0.3, 0.04, p.ink, x - w * 0.15, 1.5, d / 2 + 0.025));
+    a.push(K.box(w, 0.12, 0.1, p.beam, x, 1.18, d / 2 + 0.04));
+    // Низкий рабочий навес не скрывает массивную трубу.
+    a.push(K.roofLean(1.3, 1.25, 1.77, p.roof, -0.4, 0.75, 0.18));
+    a.push(K.box(0.12, 1.54, 0.12, p.beam, 1.34, 0.77, 0.79));
+    a.push(K.box(0.16, 0.16, 0.9, p.beam, 1.34, 1.6, 0.28));
+    // Крупные заготовки читаются лучше россыпи тонких копий оружия.
+    for (const z of [-0.42, -0.18, 0.06]) a.push(K.box(0.6, 0.12, 0.14, metal, x, 0.22, z));
+  }
   // Горн стоит у открытого края навеса; широкая нижняя часть вытяжки
   // сужается в квадратную трубу, поэтому это не башня и не жилая дымовая труба.
   const fx = 0.72;
