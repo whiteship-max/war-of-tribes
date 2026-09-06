@@ -79,15 +79,15 @@ export const MUSTER_FIGURES = 7;
  */
 export const FIELD = {
   /** Шаг между полосами. */
-  laneW: 5,
+  laneW: 3.6,
   /** Расстояние от центра до фронта, пока строи не сошлись. */
-  frontZ: 7,
+  frontZ: 5,
   /** И когда сошлись. */
-  contactZ: 1.3,
+  contactZ: 1.1,
   /** Тыл за своим фронтом. */
-  rowGap: 3.2,
+  rowGap: 2.4,
   /** Резерв за тылом. */
-  reserveGap: 4.5,
+  reserveGap: 3.2,
 } as const;
 
 export type Row = 'front' | 'rear' | 'reserve';
@@ -143,30 +143,38 @@ export interface CameraShot {
   fov: number;
 }
 
-/** Близкий план: камера у земли, за нашим левым флангом; видно горстку с обеих сторон. */
-const SHOT_MUSTER: CameraShot = { x: -7.4, y: 1.5, z: -13.2, atX: -5.2, atY: 1.0, atZ: -6.4, fov: 34 };
+/**
+ * Близкий план: камера у земли, за нашим левым флангом; видно горстку с обеих
+ * сторон. Смотрит чуть вниз, а не по горизонту: в портрете кадр высокий, и
+ * ровный взгляд отдаёт полэкрана пустому небу.
+ */
+const SHOT_MUSTER: CameraShot = { x: -5.6, y: 2.2, z: -10.2, atX: -3.4, atY: 0.5, atZ: -4.2, fov: 34 };
 
 /** Тот же план чуть позже: камера уже пошла, но ещё внизу. */
-const SHOT_MUSTER_END: CameraShot = { x: -6.9, y: 2.4, z: -13.8, atX: -4.6, atY: 1.0, atZ: -5.6, fov: 36 };
+const SHOT_MUSTER_END: CameraShot = { x: -5.2, y: 3.4, z: -10.8, atX: -3.0, atY: 0.5, atZ: -3.2, fov: 36 };
 
-/** Стратегический план: видны оба войска и все шесть секторов. */
-const SHOT_FIELD: CameraShot = { x: 0, y: 20, z: -24.5, atX: 0, atY: 0, atZ: -1, fov: 55 };
+/**
+ * Стратегический план: видны оба войска и все шесть секторов. Наклон подобран
+ * так, чтобы вверху кадра оставалась полоска неба: отвесный взгляд превращает
+ * бой в зелёную схему, а горизонт — единственное, что говорит «это поле».
+ */
+const SHOT_FIELD: CameraShot = { x: 0, y: 9.5, z: -19, atX: 0, atY: 0.6, atZ: 0.2, fov: 54 };
 
 /** Спуск в конце — половина пути вниз. */
-const SHOT_DOWN: CameraShot = { x: 1.2, y: 8.6, z: -17.5, atX: 0.4, atY: 0.6, atZ: -2.4, fov: 46 };
+const SHOT_DOWN: CameraShot = { x: 0.8, y: 6, z: -15.5, atX: 0.3, atY: 0.7, atZ: -1.5, fov: 48 };
 
 /** Финал: камера снова у земли — последнее знамя, бегущие, поле. */
-const SHOT_LAST: CameraShot = { x: 2.6, y: 1.9, z: -11.8, atX: 0.4, atY: 1.0, atZ: -3.2, fov: 38 };
+const SHOT_LAST: CameraShot = { x: 3.4, y: 2.1, z: -9, atX: 0.4, atY: 0.6, atZ: -2, fov: 40 };
 
 /** Подача к сектору на стратегическом плане: камера смещается, но плана не меняет. */
 function shotAt(spot: { x: number; z: number }): CameraShot {
   return {
-    x: spot.x * 0.45,
-    y: 17.5,
-    z: -22.5,
-    atX: spot.x * 0.8,
-    atY: 0,
-    atZ: spot.z * 0.45 - 1,
+    x: spot.x * 0.25,
+    y: 8.6,
+    z: -18,
+    atX: spot.x * 0.45,
+    atY: 0.6,
+    atZ: spot.z * 0.4 + 0.2,
     fov: 52,
   };
 }

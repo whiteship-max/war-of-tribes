@@ -89,10 +89,11 @@ export function mountReplayStand(p: URLSearchParams): void {
   // Честный счёт вызовов вместе с теневым проходом — как в игре и в стенде графики.
   renderer.info.autoReset = false;
 
-  const player = new ReplayPlayer(renderer, cast, {
-    speed: Number(p.get('speed') ?? 1),
-    onFrame: () => publish(),
-  });
+  // onFrame ставится после сборки: конструктор рисует первый кадр сам, а подпись
+  // читает `player`, которого в этот момент ещё нет.
+  const opts = { speed: Number(p.get('speed') ?? 1) } as { speed: number; onFrame?: () => void };
+  const player = new ReplayPlayer(renderer, cast, opts);
+  opts.onFrame = () => publish();
 
   const resize = (): void => {
     const w = canvas.clientWidth || window.innerWidth;

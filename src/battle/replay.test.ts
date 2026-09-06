@@ -195,7 +195,7 @@ describe('камера: один непрерывный ход', () => {
     const top = frameAt(cast, cast.acts[1].to).shot;
     const last = frameAt(cast, cast.seconds).shot;
     expect(low.y).toBeLessThan(3);
-    expect(top.y).toBeGreaterThan(12);
+    expect(top.y).toBeGreaterThan(low.y * 4);
     expect(last.y).toBeLessThan(3);
     // Отъезд непрерывен и однонаправлен: камера всё время идёт вверх и назад.
     let prev = low;

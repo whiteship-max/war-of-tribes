@@ -41,6 +41,10 @@ export function BattleReplay({
       done.current();
       return;
     }
+    // Пока идёт ролик, интерфейс игры уходит: он рисуется поверх той же канвы,
+    // в которую идёт бой, и иначе шторка с отчётом закрывает половину поля.
+    // Слой ролика висит на body, а не в `.app`, поэтому его это не касается.
+    document.body.classList.add('replaying');
     const renderer = scene.lend(true);
     const player = new ReplayPlayer(renderer, cast, {
       onFrame: (f) => {
@@ -60,6 +64,7 @@ export function BattleReplay({
       player.dispose();
       scene.lend(false);
       scene.renderOnce();
+      document.body.classList.remove('replaying');
     };
   }, [cast]);
 

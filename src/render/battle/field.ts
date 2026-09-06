@@ -32,7 +32,7 @@ export function buildField(): THREE.Mesh {
  */
 export function setupFieldScene(scene: THREE.Scene): LightRig {
   configureSky(scene);
-  scene.fog = new THREE.Fog(PALETTE.fog, 46, 110);
+  scene.fog = new THREE.Fog(PALETTE.fog, 45, 85);
   const rig = createLightRig(scene);
   fitShadow(rig, SHADOW_HALF);
   return rig;

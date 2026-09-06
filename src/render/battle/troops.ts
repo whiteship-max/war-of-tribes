@@ -33,7 +33,7 @@ const CLOTH: Record<'ours' | 'theirs', number> = {
 };
 
 /** Шаг между бойцами в блоке сектора. */
-const STEP = 0.85;
+const STEP = 0.75;
 
 /** Одна фигура на поле: её место в блоке и очередь падения. */
 interface Man {
