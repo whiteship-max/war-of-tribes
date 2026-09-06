@@ -568,6 +568,8 @@ export interface Cast {
   seconds: number;
   /** Где и когда идёт бой: земля, снег и час. Ядро их не читает, показ — читает. */
   ground: Ground;
+  /** Слои музыки по тактам. Звук идёт отсюда, а не решает сам. */
+  music: MusicCue[];
   acts: ActWindow[];
   spans: Span[];
   keys: Keyframe[];
@@ -580,6 +582,61 @@ export interface Cast {
   winner: Side | 'draw';
 }
 
+// ---------- Музыка ----------
+
+/**
+ * Слой музыки. Не три разных куска, а **один и тот же материал в трёх
+ * плотностях**: только барабаны, гармония без мелодии, полный трек. Ролик их
+ * переключает, а не склеивает встык, — поэтому дорожки обязаны быть одной
+ * длины, одного темпа и с общего начала, иначе переход слышен швом.
+ */
+export type MusicLayer = 'drums' | 'harmony' | 'full' | 'silence';
+
+/**
+ * Какой слой на каком такте. Таблица, а не условия по коду: звук правится без
+ * правки логики, ровно как баланс правится в `battle/config.ts`.
+ *
+ * Тишина в конце — не «музыка кончилась», а решение: после боя обрыв, и уже на
+ * тишине падает знамя. Громкому финалу верят меньше, чем тихому.
+ */
+export const MUSIC_BY_ACT: Record<Act, MusicLayer> = {
+  muster: 'drums',
+  pullback: 'harmony',
+  melee: 'full',
+  rout: 'silence',
+};
+
+/** Смена слоя: с какой секунды ролика и что звучит. */
+export interface MusicCue {
+  at: number;
+  layer: MusicLayer;
+}
+
+/**
+ * Последовательность слоёв ролика. Тот же журнал — та же последовательность:
+ * звук ничего не решает сам, он идёт из раскадровки, как камера и как масса.
+ * Подряд идущие одинаковые слои не повторяются — смена есть смена.
+ */
+export function musicCues(acts: readonly ActWindow[]): MusicCue[] {
+  const out: MusicCue[] = [];
+  for (const win of acts) {
+    const layer = MUSIC_BY_ACT[win.act];
+    if (out.length > 0 && out[out.length - 1].layer === layer) continue;
+    out.push({ at: win.from, layer });
+  }
+  return out;
+}
+
+/** Что звучит на секунде `t`. */
+export function musicAt(cues: readonly MusicCue[], t: number): MusicLayer {
+  let layer: MusicLayer = 'silence';
+  for (const cue of cues) {
+    if (cue.at > t) break;
+    layer = cue.layer;
+  }
+  return layer;
+}
+
 // ---------- Управление ----------
 
 /**
@@ -587,16 +644,21 @@ export interface Cast {
  * обязана быть на каждом кадре, и проверить это можно только тогда, когда она
  * есть в данных. В JSX ролика не пишется ни одной кнопки — так же, как в
  * карточке вида не пишется ни одного множителя.
+ *
+ * Переключатель звука живёт здесь по той же причине. Нажат он или нет — уже не
+ * дело раскадровки: это настройка устройства, а не партии, и живёт она у того,
+ * кто рисует.
  */
 export interface Control {
-  id: 'skip';
+  id: 'skip' | 'sound';
   label: string;
-  /** Куда ведёт: в отчёт цифрами. */
-  goes: 'report';
+  /** Куда ведёт: в отчёт цифрами или в переключение звука. */
+  goes: 'report' | 'sound';
 }
 
 export const SKIP: Control = { id: 'skip', label: 'Пропустить', goes: 'report' };
-const CONTROLS: readonly Control[] = [SKIP];
+export const SOUND: Control = { id: 'sound', label: 'Звук', goes: 'sound' };
+const CONTROLS: readonly Control[] = [SOUND, SKIP];
 
 // ---------- Кадр ----------
 
@@ -687,6 +749,8 @@ export interface Frame {
    * так больше, чем нарисовано.
    */
   crowd: number;
+  /** Какой слой музыки звучит на этом кадре. */
+  music: MusicLayer;
   controls: readonly Control[];
   done: boolean;
 }
@@ -1009,6 +1073,7 @@ export function buildCast(
     detailed: result.phases.every((p) => p.bySector !== undefined),
     seconds: acts[acts.length - 1].to,
     ground,
+    music: musicCues(acts),
     acts,
     spans,
     keys: keyframes(us, acts, marks),
@@ -1375,6 +1440,7 @@ export function frameAt(cast: Cast, t: number): Frame {
     poseTime: clock.poseTime,
     impact: clock.impact,
     crowd,
+    music: musicAt(cast.music, time),
     controls: CONTROLS,
     done: t >= cast.seconds,
   };

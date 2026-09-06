@@ -19,6 +19,7 @@ import {
 } from '@/battle';
 import { setBattleWatch } from '@/game/battle/actions';
 import { BattleReplay } from '@/ui/battle/BattleReplay';
+import { battleMusic } from '@/sound/web';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { UNITS } from '@/world/data/units';
 import { formatCoord } from '@/world/geo';
@@ -144,6 +145,10 @@ export function ReportPanel({ id }: { id: string }) {
             <button
               className={`btn${watch ? '' : ' ghost'}`}
               onClick={() => {
+                // Единственный жест, на котором звук вообще может открыться:
+                // в вебвью Telegram он сам не заиграет, а другого нажатия перед
+                // роликом нет. Открыть контекст надо прямо здесь, в обработчике.
+                battleMusic.arm();
                 setWatch(true);
                 act((g) => setBattleWatch(g, true));
                 setPlaying(true);
