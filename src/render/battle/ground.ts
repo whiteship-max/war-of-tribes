@@ -357,11 +357,11 @@ export function buildGround(g: Ground): GroundView {
         : hash(g.seed + i * 61) * Math.PI * 2;
       // На гребне камни стоят ПЕРЕД обрывом, а не на скате: со ската их не
       // видно вовсе — их закрывает сам гребень.
-      const r = g.ridge ? CLEAR_R - 5 + hash(g.seed + i * 71) * 5 : CLEAR_R - 3 + hash(g.seed + i * 71) * 14;
+      const r = g.ridge ? CLEAR_R - 3 + hash(g.seed + i * 71) * 5 : CLEAR_R - 3 + hash(g.seed + i * 71) * 14;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
       if (flooded(g, x, z)) continue;
-      const scale = (g.ridge ? 1.4 : 0.7) + hash(g.seed + i * 83) * 1.8;
+      const scale = (g.ridge ? 0.9 : 0.7) + hash(g.seed + i * 83) * 1.5;
       near.push(rock(g, scale, g.seed + i * 5).translate(x, groundHeight(g, x, z), z));
     }
   }
