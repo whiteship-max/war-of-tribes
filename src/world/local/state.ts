@@ -7,6 +7,7 @@ import type { FogData } from '../fog';
 import type {
   Coord,
   DealId,
+  DiploRecord,
   FigureId,
   FigurePhase,
   HomeEffect,
@@ -24,15 +25,23 @@ import type {
 } from '../types';
 
 /**
- * Версия 4 — география: реки, переправы, хребты с перевалами и тракты между
- * станами. Станы племён теперь приходят из `geography.tribeCenters`, то есть при
- * том же сиде поселения встали иначе, — старое сохранение мира указывало бы на
- * несуществующие цели. Прежняя тройка была про туман войны и три фигуры: там
- * разведанной местности в сохранении не было вовсе.
+ * Версия 5 — отношения с поселениями: число, состояние (нейтралитет, пакт,
+ * война) и характер владельца. Племенная враждебность с самозатуханием при этом
+ * исчезла как отдельная величина: она стала производной от отношений, и двух
+ * правд об одном не осталось (см. docs/MAP_ACTIONS.md).
  *
- * Чужая версия читается как «мира нет», и мир генерируется заново.
+ * Четвёрка была про географию: реки, переправы, хребты с перевалами и тракты
+ * между станами. Станы племён тогда переехали в `geography.tribeCenters`, то
+ * есть при том же сиде поселения встали иначе, — и всё, что старше, по-прежнему
+ * приводить не к чему.
+ *
+ * **Сохранение мира теперь приводится, а не выбрасывается.** Порядок тот же,
+ * что у сохранения племени: цепочка ступеней начинается с `MIN_WORLD_SAVE_VERSION`,
+ * всё, что старше, читается как «мира нет», и мир генерируется заново.
  */
-export const WORLD_SAVE_VERSION = 4;
+export const WORLD_SAVE_VERSION = 5;
+/** Младше этой версии сохранение мира не приводится: там другой ландшафт. */
+export const MIN_WORLD_SAVE_VERSION = 4;
 export const WORLD_KEY = 'tribe.world.v1';
 
 export interface StoredMarch {
@@ -76,6 +85,11 @@ export interface StoredFigure {
   arriveAt: number;
   /** До какого момента павшая фигура вне игры. 0 — она в строю. */
   downUntil: number;
+  /**
+   * До какого момента фигура занята прошлым приказом. 0 — свободна. Приказы
+   * конкурируют за её время: агент каждого вида один, и в этом смысл.
+   */
+  busyUntil?: number;
   /** Войско при полководце. У остальных двоих пусто и появляться не должно. */
   troops?: TroopStack;
 }
@@ -115,9 +129,19 @@ export interface WorldSave {
   damage: Record<SettlementId, { loss: number; at: number }>;
   /** Когда поселение обчистили в последний раз. */
   looted: Record<SettlementId, number>;
-  hostility: Record<TribeId, number>;
-  /** Момент, до которого враждебность уже спала. */
-  hostilityAt: number;
+  /**
+   * Отношения с чужими поселениями: число, состояние и сроки. Племенной
+   * враждебности отдельным полем больше нет — она считается отсюда
+   * (`LocalWorld.hostilityOf`), иначе об одном и том же было бы две правды.
+   */
+  diplomacy: Record<SettlementId, DiploRecord>;
+  /**
+   * Племенная враждебность из сохранения версии 4. Живёт полтора шага: ступень
+   * 4 → 5 кладёт её сюда, а разворачивает в отношения поселений `LocalWorld` —
+   * только он знает, какие дворы у какого племени. После разворота поле
+   * гасится. Другого такого поля заводить не надо.
+   */
+  legacyHostility?: Record<TribeId, number>;
   allyTribe: TribeId | null;
   nextAiAt: number;
   /** Не доставленные племени последствия. */
@@ -182,8 +206,7 @@ export function createWorldSave(seed: number, home: Coord, allyTribe: TribeId | 
     intel: {},
     damage: {},
     looted: {},
-    hostility: {},
-    hostilityAt: now,
+    diplomacy: {},
     allyTribe,
     nextAiAt: now + 10 * 60_000,
     effects: [],
@@ -244,13 +267,36 @@ function fillTroops(reports: Report[]): Report[] {
   return changed ? out : reports;
 }
 
-/** Читает сохранение мира. null — его нет или оно от другого формата. */
+/**
+ * Ступени приведения сохранения мира. Каждая правит объект на месте и поднимает
+ * его версию на одну: так же, как это сделано у сохранения племени.
+ *
+ * 4 → 5: племенная враждебность уезжает в `legacyHostility`. Развернуть её в
+ * отношения поселений здесь нельзя — тут нет мира и неизвестно, какие дворы у
+ * какого племени, — поэтому её разворачивает `LocalWorld` при подключении.
+ */
+function migrateWorldSave(data: Partial<WorldSave> & { hostility?: Record<TribeId, number> }): void {
+  if ((data.v ?? 0) < 5) {
+    const old = data.hostility;
+    if (old && Object.keys(old).length > 0) data.legacyHostility = old;
+    delete data.hostility;
+    data.diplomacy = data.diplomacy ?? {};
+    data.v = 5;
+  }
+}
+
+/**
+ * Читает сохранение мира. null — его нет, оно испорчено или оно младше
+ * `MIN_WORLD_SAVE_VERSION`: тогда мир генерируется заново.
+ */
 export function parseWorldSave(json: string | null): WorldSave | null {
   if (!json) return null;
   try {
     const data = JSON.parse(json) as Partial<WorldSave>;
-    if (!data || data.v !== WORLD_SAVE_VERSION || typeof data.seed !== 'number') return null;
+    if (!data || typeof data.v !== 'number' || typeof data.seed !== 'number') return null;
+    if (data.v < MIN_WORLD_SAVE_VERSION || data.v > WORLD_SAVE_VERSION) return null;
     if (!data.home || typeof data.home.x !== 'number') return null;
+    migrateWorldSave(data);
     const base = createWorldSave(data.seed, data.home, data.allyTribe ?? null, data.createdAt ?? Date.now());
     // Словари фигур мержатся отдельно: иначе новая фигура приедет как undefined —
     // ровно та же причина, по которой так мержатся счётчики в сохранении племени.

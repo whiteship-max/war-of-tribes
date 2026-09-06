@@ -10,6 +10,7 @@ import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet, trib
 import { TERRAIN_META } from './data/terrain';
 import { CLAIM_REACH, claimsNear, claimsOf, ownerAt } from './territory';
 import { precisionOf, readIntel } from './intel';
+import { temperOf } from './diplomacy';
 import { stackLosses } from './combat';
 import { resolveField } from './battle';
 import { garrisonOf } from './garrison';
@@ -18,7 +19,7 @@ import { presetFormation, toArmySetup } from '@/game/battle/formation';
 import type { ArmySetup, Stack } from '@/battle';
 import { awayTroops, homeTroops, playerProfile, syncAway, toOutcome } from './bridge';
 import { FogMap, fogSaveBytes } from './fog';
-import { createWorldSave, parseWorldSave } from './local/state';
+import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave } from './local/state';
 import { castOfRecord, troopsOfKinds } from '@/game/battle/faces';
 import { TROOP_IDS } from '@/game/data/troops';
 import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
@@ -1362,5 +1363,289 @@ describe('запись боя: кто именно стоял в строю', ()
     const heaviest = (t: Record<string, number | undefined>): number =>
       Math.max(...Object.keys(t).map((id) => gearOfTroop(id as never)));
     expect(heaviest(castleTroops)).toBeGreaterThan(heaviest(village));
+  });
+});
+
+describe('отношения с поселениями', () => {
+  /** Ближайшее к дому поселение с племенем: с варварами не договариваются. */
+  async function neighbour(world: LocalWorld) {
+    const info = await world.info();
+    const chunk = await world.region({ x: info.home.x - 30, y: info.home.y - 30, w: 60, h: 60 });
+    const list = chunk.settlements.filter((s) => !s.mine && s.tribeId);
+    expect(list.length, 'у дома должен быть сосед с племенем').toBeGreaterThan(0);
+    return list.sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+  }
+
+  /** Довести дипломата до цели: приказы отдаются только у самых ворот. */
+  async function bringDiplomat(w: ReturnType<typeof makeWorld>, p: PlayerProfile, to: Coord) {
+    expect(await w.world.moveFigure('diplomat', { x: to.x, y: to.y })).toBeNull();
+    const walk = (await w.world.figures()).find((f) => f.id === 'diplomat') as FigureView;
+    w.at(walk.arriveAt);
+    await w.world.sync(p);
+  }
+
+  /** Дождаться, пока дипломат освободится от прошлых переговоров. */
+  async function freeDiplomat(w: ReturnType<typeof makeWorld>, p: PlayerProfile) {
+    const f = (await w.world.figures()).find((x) => x.id === 'diplomat') as FigureView;
+    if (f.busyUntil > w.now()) w.at(f.busyUntil);
+    await w.world.sync(p);
+  }
+
+  const rich = (): PlayerProfile =>
+    profile({ resources: { food: 100_000, wood: 100_000, stone: 100_000 } });
+
+  it('приказ отдаётся только у ворот, и недоступное объяснено словами', async () => {
+    const w = makeWorld(31);
+    const p = rich();
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+
+    const far = await w.world.orders(target.id);
+    expect(far.length, 'приказы не прячутся, даже когда их нельзя отдать').toBe(5);
+    for (const o of far) {
+      expect(o.can, o.id).toBe(false);
+      expect(o.reason, o.id).toMatch(/далеко/);
+    }
+    const res = await w.world.order('gift', target.id);
+    expect(res.error).toMatch(/далеко/);
+
+    await bringDiplomat(w, p, target);
+    const near = await w.world.orders(target.id);
+    expect(near.find((o) => o.id === 'insult')?.can, 'оскорбить можно всегда').toBe(true);
+    // Мира нет там, где нет войны, — и об этом сказано, а не спрятано.
+    const peace = near.find((o) => o.id === 'peace');
+    expect(peace?.can).toBe(false);
+    expect(peace?.reason).toMatch(/войны/);
+    // У дара видна цена, у всякого приказа — время.
+    const gift = near.find((o) => o.id === 'gift');
+    expect(Object.values(gift?.cost ?? {}).reduce((n, v) => n + (v ?? 0), 0)).toBeGreaterThan(0);
+    expect(gift?.seconds).toBeGreaterThan(0);
+  });
+
+  it('дипломат занят после приказа: приказы конкурируют за его время', async () => {
+    const w = makeWorld(33);
+    const p = rich();
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+    await bringDiplomat(w, p, target);
+
+    expect((await w.world.order('insult', target.id)).error).toBeNull();
+    const busy = (await w.world.orders(target.id)).find((o) => o.id === 'insult');
+    expect(busy?.can).toBe(false);
+    expect(busy?.reason).toMatch(/переговоры/);
+    const f = (await w.world.figures()).find((x) => x.id === 'diplomat') as FigureView;
+    expect(f.busyUntil).toBeGreaterThan(w.now());
+
+    await freeDiplomat(w, p);
+    expect((await w.world.orders(target.id)).find((o) => o.id === 'insult')?.can).toBe(true);
+  });
+
+  it('плата берётся только за принятое', async () => {
+    const w = makeWorld(37);
+    const p = rich();
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+    await bringDiplomat(w, p, target);
+
+    // Дарим, пока не примут: отвергнутый дар возвращается и склада не трогает.
+    let refused = 0;
+    let accepted = 0;
+    for (let i = 0; i < 30 && accepted === 0; i++) {
+      await freeDiplomat(w, p);
+      const before = await w.world.orders(target.id);
+      const res = await w.world.order('gift', target.id);
+      expect(res.error).toBeNull();
+      const pulse = await w.world.sync(p);
+      const eff = pulse.effects.find((e) => e.id.includes('gift'));
+      const spent = Object.values(eff?.resources ?? {}).reduce((n, v) => n + Math.abs(v ?? 0), 0);
+      const cost = Object.values(before.find((o) => o.id === 'gift')?.cost ?? {}).reduce(
+        (n, v) => n + (v ?? 0),
+        0,
+      );
+      if (res.accepted) {
+        accepted++;
+        expect(spent, 'принятый дар стоит ровно объявленного').toBe(cost);
+      } else {
+        refused++;
+        expect(spent, 'отвергнутый дар со склада не уходит').toBe(0);
+      }
+    }
+    expect(accepted, 'рано или поздно дар обязан быть принят').toBe(1);
+    expect(refused + accepted).toBeGreaterThan(0);
+  });
+
+  it('война объявляется сразу, а разрыв пакта — через сутки предупреждения', async () => {
+    const w = makeWorld(41);
+    const p = rich();
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+    await bringDiplomat(w, p, target);
+
+    // Сначала пакт: дарим, пока не согласятся.
+    const signed = await pactWith(w, p, target.id);
+    expect(signed, 'пакт должен был быть подписан').toBe(true);
+    expect((await w.world.settlement(target.id))?.diplomacy?.standing).toBe('pact');
+
+    await freeDiplomat(w, p);
+    expect((await w.world.order('war', target.id)).error).toBeNull();
+    const card = await w.world.settlement(target.id);
+    expect(card?.diplomacy?.standing, 'бумага держит до срока').toBe('pact');
+    expect(card?.diplomacy?.breakAt).toBeGreaterThan(w.now());
+
+    w.at(card!.diplomacy!.breakAt);
+    await w.world.sync(p);
+    expect((await w.world.settlement(target.id))?.diplomacy?.standing).toBe('war');
+  });
+
+  /** Подписать пакт по-настоящему: дарить, пока сосед не согласится. */
+  async function pactWith(
+    w: ReturnType<typeof makeWorld>,
+    p: PlayerProfile,
+    id: string,
+  ): Promise<boolean> {
+    for (let i = 0; i < 40; i++) {
+      await freeDiplomat(w, p);
+      const opt = (await w.world.orders(id)).find((o) => o.id === 'pact');
+      if (opt?.can && (opt.chance ?? 0) >= 1) {
+        const res = await w.world.order('pact', id);
+        if (res.accepted) return true;
+        continue;
+      }
+      await w.world.order('gift', id);
+    }
+    return false;
+  }
+
+  /**
+   * Сколько набегов вышло за отрезок времени и сколько из них — из этой цели.
+   * Считается прогоном, а не заявлением: поведение ботов и есть то, ради чего
+   * вся дипломатия существует.
+   */
+  async function countRaids(
+    w: ReturnType<typeof makeWorld>,
+    p: PlayerProfile,
+    from: string,
+    hours: number,
+  ): Promise<{ all: number; here: number }> {
+    const seen = new Set<string>();
+    let all = 0;
+    let here = 0;
+    const end = w.now() + hours * 3_600_000;
+    while (w.now() < end) {
+      w.advance(20_000);
+      const pulse = await w.world.sync(p);
+      for (const m of pulse.marches) {
+        if (m.own || seen.has(m.id)) continue;
+        seen.add(m.id);
+        all++;
+        if (m.fromName === from) here++;
+      }
+    }
+    return { all, here };
+  }
+
+  it('в пакте сосед не нападает, в войне нападает чаще, чем в нейтралитете', async () => {
+    const SEED = 43;
+    const HOURS = 5;
+
+    const quiet = makeWorld(SEED);
+    const p = rich();
+    await quiet.world.sync(p);
+    const target = await neighbour(quiet.world);
+    const neutral = await countRaids(quiet, p, target.name, HOURS);
+
+    const angry = makeWorld(SEED);
+    await angry.world.sync(p);
+    await bringDiplomat(angry, p, target);
+    expect((await angry.world.order('war', target.id)).error).toBeNull();
+    const war = await countRaids(angry, p, target.name, HOURS);
+
+    const calm = makeWorld(SEED);
+    await calm.world.sync(p);
+    await bringDiplomat(calm, p, target);
+    expect(await pactWith(calm, p, target.id), 'пакт должен быть подписан').toBe(true);
+    const pact = await countRaids(calm, p, target.name, HOURS);
+
+    expect(neutral.all, 'в мирной партии набеги всё-таки идут').toBeGreaterThan(0);
+    expect(war.all, 'в войне набегов больше').toBeGreaterThan(neutral.all);
+    expect(war.here, 'и метят они именно во врага').toBeGreaterThan(neutral.here);
+    expect(pact.here, 'из-под пакта не выходит ни одного').toBe(0);
+  });
+
+  it('набег роняет отношение с самим двором сильнее, чем с соседями по племени', async () => {
+    const w = makeWorld(23);
+    const p = profile({ warriorPower: 4, army: { clubman: 6 } });
+    await w.world.sync(p);
+    const info = await w.world.info();
+    const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
+    const target = chunk.settlements.find((s) => s.tribeId);
+    const kin = chunk.settlements.find((s) => s.tribeId === target?.tribeId && s.id !== target?.id);
+    expect(target).toBeTruthy();
+
+    await raidWith(w, target as SettlementView, p);
+    const hit = (await w.world.settlement((target as SettlementView).id))?.diplomacy?.attitude ?? 0;
+    expect(hit).toBeLessThan(0);
+    if (kin) {
+      const near = (await w.world.settlement(kin.id))?.diplomacy?.attitude ?? 0;
+      expect(near, 'соседям по племени тоже обидно').toBeLessThan(0);
+      expect(hit, 'но самому двору обиднее всех').toBeLessThan(near);
+    }
+  });
+
+  it('характер владельца один на все его дворы и не хранится в сохранении', async () => {
+    const w = makeWorld(51);
+    await w.world.sync(profile());
+    const gen = generateWorld(51);
+    const owners = new Map<string, string[]>();
+    for (const s of gen.settlements) {
+      if (!s.owner) continue;
+      owners.set(s.owner, [...(owners.get(s.owner) ?? []), s.id]);
+    }
+    const pair = [...owners.values()].find((ids) => ids.length > 1);
+    expect(pair, 'у кого-то из ботов должно быть несколько дворов').toBeTruthy();
+    expect(temperOf(51, gen.settlements.find((s) => s.id === pair![0])!.owner!)).toBe(
+      temperOf(51, gen.settlements.find((s) => s.id === pair![1])!.owner!),
+    );
+  });
+});
+
+describe('сохранение мира приводится, а не выбрасывается', () => {
+  it('версия 5 читается как есть', () => {
+    const save = createWorldSave(5, { x: 410, y: 710 }, 't0', 1000);
+    expect(save.v).toBe(WORLD_SAVE_VERSION);
+    const back = parseWorldSave(JSON.stringify(save));
+    expect(back?.seed).toBe(5);
+    expect(back?.diplomacy).toEqual({});
+  });
+
+  it('версия 4 приводится, и обиды племён переезжают в отношения дворов', () => {
+    const gen = generateWorld(63);
+    const tribe = gen.settlements.find((s) => s.tribeId)?.tribeId as string;
+    // Ровно то, что лежало в сохранении до этой пачки: враждебность по племенам.
+    const legacy = {
+      ...createWorldSave(63, gen.home, gen.allyTribe, 1000),
+      v: 4,
+      hostility: { [tribe]: 40 },
+      hostilityAt: 1000,
+    } as Record<string, unknown>;
+    delete legacy.diplomacy;
+
+    const back = parseWorldSave(JSON.stringify(legacy));
+    expect(back, 'старое сохранение обязано открыться').toBeTruthy();
+    expect(back?.v).toBe(WORLD_SAVE_VERSION);
+    expect(back?.legacyHostility).toEqual({ [tribe]: 40 });
+
+    // Разворачивает её мир: только он знает, какие дворы у какого племени.
+    const store = { read: () => JSON.stringify(legacy), write: () => {} };
+    const world = new LocalWorld({ seed: 63, now: () => 2000, storage: store });
+    const angry = gen.settlements.filter((s) => s.tribeId === tribe);
+    const inside = (world as unknown as { save: { diplomacy: Record<string, { attitude: number }>; legacyHostility?: unknown } }).save;
+    expect(inside.legacyHostility, 'поле гасится после разворота').toBeUndefined();
+    for (const s of angry) expect(inside.diplomacy[s.id].attitude).toBe(-40);
+  });
+
+  it('версия 3 по-прежнему отбрасывается: мир там был другой', () => {
+    const old = { ...createWorldSave(9, { x: 410, y: 710 }, null, 1000), v: 3 };
+    expect(parseWorldSave(JSON.stringify(old))).toBeNull();
   });
 });

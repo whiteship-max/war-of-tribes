@@ -15,6 +15,9 @@ import type {
   Coord,
   DealId,
   DealView,
+  DiploActionId,
+  DiploRecord,
+  DiploView,
   FigureId,
   FigureView,
   HomeEffect,
@@ -23,6 +26,8 @@ import type {
   Loot,
   MarchOrder,
   MarchView,
+  OrderOption,
+  OrderResult,
   PlayerProfile,
   Rect,
   RegionChunk,
@@ -32,6 +37,8 @@ import type {
   SettlementCard,
   SettlementId,
   SettlementView,
+  Standing,
+  TemperId,
   TribeInfo,
   UnitStack,
   WorldInfo,
@@ -42,6 +49,7 @@ import {
   clampToWorld,
   distance,
   formatCoord,
+  formatLeft,
   marchPosition,
   marchSeconds,
   terrainAt,
@@ -53,6 +61,18 @@ import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
 import { featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
+import { DIPLO_ACTIONS, DIPLO_ACTION_BY_ID, TEMPER_BY_ID } from '../data/diplomacy';
+import {
+  chanceOf,
+  clampAttitude,
+  freshRecord,
+  moodOf,
+  orderSeed,
+  raidWeight,
+  respond,
+  standingAt,
+  temperOf,
+} from '../diplomacy';
 import { RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackSize } from '../data/units';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
@@ -79,10 +99,16 @@ import {
   HOME_SIGHT,
   MARCH_SIGHT,
   HOSTILITY_ALLY_BREAK,
-  HOSTILITY_ATTACK,
-  HOSTILITY_DECAY_PER_MIN,
   HOSTILITY_ENEMY,
-  HOSTILITY_SUPPORT,
+  ATTACK_ATTITUDE,
+  ATTACK_ATTITUDE_TRIBE,
+  AI_BARBARIAN_WEIGHT,
+  AI_NEUTRAL_QUIET,
+  AI_WAR_PACE,
+  AI_WAR_WEIGHT,
+  GIFT_PER_POP,
+  PEACE_PER_POP,
+  SUPPORT_ATTITUDE,
   LOOT_REFILL,
   POWER_GROWTH_CAP,
   REPORTS_KEPT,
@@ -157,6 +183,7 @@ export class LocalWorld implements WorldApi {
         : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock());
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
     this.claims = claimsOf(this.gen);
+    this.expandLegacyHostility();
     this.fog = new FogMap(this.save.fog);
     // Первая партия обязана начинаться с открытой округи: чёрный экран на входе
     // читается как сломанная карта, а не как туман войны.
@@ -214,11 +241,28 @@ export class LocalWorld implements WorldApi {
 
   private popNow = (s: GenSettlement, now: number): number => popOf(s, this.elapsed(now), POWER_GROWTH_CAP);
 
-  private hostilityOf = (tribeId: string | null): number =>
-    tribeId ? Math.max(0, this.save.hostility[tribeId] ?? 0) : 0;
+  /**
+   * Враждебность племени. Своим полем в сохранении она больше не живёт: это
+   * средняя обида по его дворам, а обида — это отношение с минусом. Одна
+   * величина, один источник; порог договоров (`DEALS`) читает то же самое.
+   */
+  private hostilityOf(tribeId: string | null): number {
+    if (!tribeId) return 0;
+    let sum = 0;
+    let count = 0;
+    for (const s of this.gen.settlements) {
+      if (s.tribeId !== tribeId) continue;
+      count++;
+      sum += Math.max(0, -(this.save.diplomacy[s.id]?.attitude ?? 0));
+    }
+    return count === 0 ? 0 : Math.min(100, sum / count);
+  }
 
   private relationOf(s: GenSettlement): Relation {
     if (!s.tribeId) return 'barbarian';
+    // Война с самим этим двором сильнее всего прочего: она объявлена ему, а не
+    // племени, и на карте он обязан покраснеть сразу.
+    if (this.standingOf(s, this.clock()) === 'war') return 'enemy';
     // Подписанный союз — тоже союз: дипломат для того и ходит, чтобы менять
     // отношения, а не только смотреть на них.
     if (this.pactActive(s.tribeId, 'alliance')) return 'ally';
@@ -226,6 +270,64 @@ export class LocalWorld implements WorldApi {
     if (h >= HOSTILITY_ENEMY) return 'enemy';
     if (s.tribeId === this.save.allyTribe && h < HOSTILITY_ALLY_BREAK) return 'ally';
     return 'neutral';
+  }
+
+  // ---------- Отношения с поселениями ----------
+
+  /**
+   * Разворачивает племенную враждебность из сохранения версии 4 в отношения
+   * поселений. Делается один раз, при подключении мира: в `parseWorldSave` для
+   * этого нет самого мира — там неизвестно, какие дворы у какого племени.
+   */
+  private expandLegacyHostility(): void {
+    const old = this.save.legacyHostility;
+    if (!old) return;
+    const now = this.clock();
+    for (const s of this.gen.settlements) {
+      const h = s.tribeId ? old[s.tribeId] : 0;
+      if (!h) continue;
+      const rec = this.save.diplomacy[s.id] ?? freshRecord(now);
+      rec.attitude = clampAttitude(rec.attitude - h);
+      this.save.diplomacy[s.id] = rec;
+    }
+    delete this.save.legacyHostility;
+  }
+
+  /** Характер владельца: один на все его дворы, потому что владелец один. */
+  private temperOfSettlement = (s: GenSettlement): TemperId =>
+    temperOf(this.save.seed, s.owner ?? s.id);
+
+  /**
+   * Отношения с двором. Если состояние успело смениться само (пакт истёк,
+   * настал срок объявленного разрыва), запись правится тут же — это не тик, а
+   * приведение при чтении: считать одно и то же дважды нельзя.
+   */
+  private diploOf(id: SettlementId, now: number): DiploRecord {
+    const rec = this.save.diplomacy[id] ?? freshRecord(now);
+    const settled = standingAt(rec, now);
+    if (settled !== rec.standing) {
+      rec.standing = settled;
+      rec.since = rec.breakAt > 0 && settled === 'war' ? rec.breakAt : rec.until || now;
+      rec.until = 0;
+      rec.breakAt = 0;
+      this.save.diplomacy[id] = rec;
+    }
+    return rec;
+  }
+
+  private standingOf = (s: GenSettlement, now: number): Standing =>
+    standingAt(this.save.diplomacy[s.id] ?? { attitude: 0, standing: 'neutral', since: 0, until: 0, breakAt: 0 }, now);
+
+  /** Сдвинуть отношение. Единственная дверь: считать его больше негде. */
+  private moveAttitude(id: SettlementId, delta: number, now: number): void {
+    const rec = this.diploOf(id, now);
+    rec.attitude = clampAttitude(rec.attitude + delta);
+    this.save.diplomacy[id] = rec;
+  }
+
+  private diploView(s: GenSettlement, now: number): DiploView {
+    const rec = this.diploOf(s.id, now);
+    return { ...rec, standing: standingAt(rec, now), temper: this.temperOfSettlement(s), mood: moodOf(rec.attitude) };
   }
 
   /** Договор с племенем в силе прямо сейчас? */
@@ -683,15 +785,9 @@ export class LocalWorld implements WorldApi {
     const save = this.save;
     const prevSeen = save.seenAt;
 
-    // Обиды затягиваются сами: набег не делает племя врагом навсегда.
-    const minutes = (now - save.hostilityAt) / 60_000;
-    if (minutes > 0.05) {
-      const drop = minutes * HOSTILITY_DECAY_PER_MIN;
-      for (const id of Object.keys(save.hostility)) {
-        save.hostility[id] = Math.max(0, save.hostility[id] - drop);
-      }
-      save.hostilityAt = now;
-    }
+    // Самозатухания у отношений нет: их выправляет дар, то есть приказ, а не
+    // ожидание. Раньше здесь спадала племенная враждебность — вместе с ней
+    // спадала бы и цена набега, и переждать было бы выгоднее, чем договориться.
 
     // Туман раскрывается до разбора походов: отряд, дошедший и повернувший
     // домой за время офлайна, обязан оставить след по дороге туда, а не только
@@ -796,11 +892,14 @@ export class LocalWorld implements WorldApi {
 
     const prev = this.damageOf(target.id, at);
     this.save.damage[target.id] = { loss: Math.min(0.95, prev + field.defenderLoss * (1 - prev)), at };
+    // Набег роняет отношение с самим двором и, слабее, с остальными дворами
+    // того же племени: обида племени и есть среднее по его дворам.
+    this.moveAttitude(target.id, ATTACK_ATTITUDE, at);
     if (target.tribeId) {
-      this.save.hostility[target.tribeId] = Math.min(
-        100,
-        this.hostilityOf(target.tribeId) + HOSTILITY_ATTACK,
-      );
+      for (const other of this.gen.settlements) {
+        if (other.id === target.id || other.tribeId !== target.tribeId) continue;
+        this.moveAttitude(other.id, ATTACK_ATTITUDE_TRIBE, at);
+      }
     }
 
     // Бой — та же разведка, и лучшая: гарнизон посчитан своими глазами.
@@ -930,12 +1029,7 @@ export class LocalWorld implements WorldApi {
   private resolveSupport(m: StoredMarch, target: GenSettlement, at: number): void {
     m.phase = 'stay';
     m.stayUntil = at + SUPPORT_STAY;
-    if (target.tribeId) {
-      this.save.hostility[target.tribeId] = Math.max(
-        0,
-        this.hostilityOf(target.tribeId) + HOSTILITY_SUPPORT,
-      );
-    }
+    this.moveAttitude(target.id, SUPPORT_ATTITUDE, at);
     this.addReport({
       id: `${m.id}-support`,
       at,
@@ -1076,26 +1170,49 @@ export class LocalWorld implements WorldApi {
     const save = this.save;
     if (now < save.nextAiAt) return;
     const rng = seeded(marchSeed(save.seed, save.nextMarch + 7919));
-    save.nextAiAt = now + AI_ATTACK_MIN + rng() * (AI_ATTACK_MAX - AI_ATTACK_MIN);
+
+    const home = save.home;
+    const near = this.gen.settlements.filter((s) => distance(s, home) <= AI_RANGE);
+    // Война хоть с одним соседом ускоряет весь темп: воюющий сосед не ждёт
+    // своей очереди столько же, сколько ждал бы ровный.
+    const atWar = near.some((s) => this.standingOf(s, now) === 'war');
+    const pause = AI_ATTACK_MIN + rng() * (AI_ATTACK_MAX - AI_ATTACK_MIN);
+    save.nextAiAt = now + pause * (atWar ? AI_WAR_PACE : 1);
 
     const profile = save.profile;
     if (!profile || profile.pop < AI_MIN_POP) return;
     if (save.marches.some((m) => !m.own)) return;
 
-    const home = save.home;
-    // Племя, с которым подписано ненападение или союз, набегов не шлёт: иначе
-    // дипломат покупал бы бумагу, а не мир.
-    const near = this.gen.settlements.filter(
-      (s) =>
-        distance(s, home) <= AI_RANGE &&
-        !this.pactActive(s.tribeId, 'truce') &&
-        !this.pactActive(s.tribeId, 'alliance'),
-    );
-    const angry = near.filter((s) => s.tribeId && this.hostilityOf(s.tribeId) > 10);
-    const pool = angry.length > 0 ? angry : near.filter((s) => !s.tribeId);
+    // Откуда выйдет набег, решает отношение: пакт — ноль, война — заметно
+    // больше нейтралитета, а характер владельца входит множителем. Племя, с
+    // которым подписано ненападение или союз, тоже не ходит: иначе дипломат
+    // покупал бы бумагу, а не мир.
+    const pool: { s: GenSettlement; w: number }[] = [];
+    let total = 0;
+    for (const s of near) {
+      if (this.pactActive(s.tribeId, 'truce') || this.pactActive(s.tribeId, 'alliance')) continue;
+      const w = s.tribeId
+        ? raidWeight(this.standingOf(s, now), this.save.diplomacy[s.id]?.attitude ?? 0, this.temperOfSettlement(s), {
+            war: AI_WAR_WEIGHT,
+            quiet: AI_NEUTRAL_QUIET,
+          })
+        : // У варваров отношений нет и быть не может: старейшин у них тоже нет.
+          AI_BARBARIAN_WEIGHT;
+      if (w <= 0) continue;
+      total += w;
+      pool.push({ s, w });
+    }
     if (pool.length === 0) return;
 
-    const src = pool[Math.floor(rng() * pool.length)];
+    let roll = rng() * total;
+    let src = pool[pool.length - 1].s;
+    for (const item of pool) {
+      roll -= item.w;
+      if (roll <= 0) {
+        src = item.s;
+        break;
+      }
+    }
     const power = Math.max(
       2,
       Math.min(this.powerNow(src, now) * AI_POWER_SHARE, Math.max(3, profile.defense * AI_POWER_VS_DEFENSE)),
@@ -1210,6 +1327,8 @@ export class LocalWorld implements WorldApi {
         intel: null,
         figuresHere: this.figuresAt(HOME_ID, now),
         deals: [],
+        // Сама с собой деревня не воюет и пактов не подписывает.
+        diplomacy: null,
         can: { raid: false, scout: false, support: false, open: true },
         note: 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
       };
@@ -1238,6 +1357,7 @@ export class LocalWorld implements WorldApi {
       intel: reading,
       figuresHere: here,
       deals: s.tribeId ? this.dealsOf(s.tribeId, now) : [],
+      diplomacy: this.diploView(s, now),
       can: { raid: canRaid, scout: true, support: ally, open: false },
       note: canRaid
         ? null
@@ -1397,6 +1517,7 @@ export class LocalWorld implements WorldApi {
       atName: near?.name ?? null,
       atHome: near?.home ?? false,
       downUntil: f.downUntil,
+      busyUntil: Math.max(0, f.busyUntil ?? 0),
       troops: { ...troops },
       power: troopTotal(troops) * (this.save.profile?.warriorPower ?? 1),
     };
@@ -1495,7 +1616,11 @@ export class LocalWorld implements WorldApi {
     }
     const tribe = this.save.pacts[target.tribeId] ?? (this.save.pacts[target.tribeId] = {});
     tribe[deal] = { until: now + DEAL_DURATION, paidAt: now };
-    this.save.hostility[target.tribeId] = Math.max(0, hostility - def.hostilityDrop);
+    // Подпись греет отношения со всеми дворами племени: враждебность племени —
+    // это среднее по ним, и снижать её отдельным числом больше нечего.
+    for (const other of this.gen.settlements) {
+      if (other.tribeId === target.tribeId) this.moveAttitude(other.id, def.hostilityDrop, now);
+    }
     const name = this.tribeName(target.tribeId) ?? target.name;
     this.addReport({
       id: `deal-${target.tribeId}-${deal}-${now}`,
@@ -1526,6 +1651,183 @@ export class LocalWorld implements WorldApi {
     });
     this.write();
     return null;
+  }
+
+  // ---------- Приказы дипломата ----------
+
+  /**
+   * Что придётся отдать за приказ. Считается от размера двора, а не константой:
+   * большому поселению мелочь не подаришь, и вира с него больше. Платим тем,
+   * что здесь в цене, — тем же списком, каким отсюда берут добычу.
+   */
+  private orderCost(action: DiploActionId, s: GenSettlement, now: number): Loot {
+    const per = action === 'gift' ? GIFT_PER_POP : action === 'peace' ? PEACE_PER_POP : 0;
+    if (per <= 0) return {};
+    const total = Math.max(1, Math.round(this.popNow(s, now) * per));
+    const mix = s.lootMix;
+    const out: Loot = {};
+    const share = Math.max(1, Math.round(total / mix.length));
+    for (const r of mix) out[r] = (out[r] ?? 0) + share;
+    return out;
+  }
+
+  /** Сколько добра не хватает на складе. Ноль — хватает. */
+  private shortOf(cost: Loot): number {
+    const have = this.save.profile?.resources ?? {};
+    let short = 0;
+    for (const [r, n] of Object.entries(cost) as [keyof Loot, number][]) {
+      short += Math.max(0, (n ?? 0) - (have[r] ?? 0));
+    }
+    return short;
+  }
+
+  /**
+   * Меню приказов дипломата по этой цели. Недоступное действие не выбрасывается,
+   * а возвращается с причиной: игрок обязан видеть, чего ему не хватает, а не
+   * гадать, куда делась кнопка.
+   */
+  private orderOptions(target: GenSettlement, now: number): OrderOption[] {
+    const f = this.save.figures.diplomat;
+    const busyLeft = Math.max(0, (f.busyUntil ?? 0) - now);
+    const near = f.phase === 'down' || f.phase === 'moving' ? null : this.touching(this.figureAt(f, now));
+    const rec = this.diploOf(target.id, now);
+    const standing = standingAt(rec, now);
+    const temper = this.temperOfSettlement(target);
+    const pressure = this.damageOf(target.id, now);
+
+    const common =
+      f.phase === 'down'
+        ? `Дипломат выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`
+        : f.phase === 'moving'
+          ? 'Дипломат ещё в пути.'
+          : near?.id !== target.id
+            ? 'Слишком далеко: дипломата надо довести к самым воротам.'
+            : busyLeft > 0
+              ? `Дипломат ещё ведёт прошлые переговоры: ${formatLeft(busyLeft / 1000)}.`
+              : !target.tribeId
+                ? 'У варваров нет старейшин, с которыми говорят.'
+                : null;
+
+    return DIPLO_ACTIONS.map((def) => {
+      const chance = chanceOf({ action: def.id, attitude: rec.attitude, temper, standing, pressure, seed: 0 });
+      const cost = this.orderCost(def.id, target, now);
+      let reason = common;
+      if (!reason) {
+        const t = TEMPER_BY_ID[temper];
+        if (def.id === 'pact' && standing === 'pact') reason = 'Пакт уже подписан.';
+        else if (def.id === 'pact' && standing === 'war') reason = 'Сначала мир: под войну договоров не подписывают.';
+        else if (def.id === 'pact' && chance === 0)
+          reason = `${t.name} и слушать не станет: нужно отношение не ниже ${t.pactBar}, а оно ${rec.attitude}.`;
+        else if (def.id === 'peace' && standing !== 'war') reason = 'Воевать не с кем: войны и так нет.';
+        else if (def.id === 'peace' && chance === 0)
+          reason = `Мириться не станут: нужно отношение не ниже ${t.peaceBar}, а оно ${rec.attitude}.`;
+        else if (def.id === 'war' && standing === 'war') reason = 'Война и так идёт.';
+        else if (def.id === 'war' && rec.breakAt > 0)
+          reason = `Разрыв пакта уже объявлен: осталось ${formatLeft(Math.max(0, rec.breakAt - now) / 1000)}.`;
+        else {
+          const short = this.shortOf(cost);
+          if (short > 0) reason = `На складе не хватает ${short} добра.`;
+        }
+      }
+      return {
+        id: def.id,
+        can: reason === null,
+        reason,
+        chance,
+        cost,
+        seconds: Math.round(def.busy / 1000),
+      };
+    });
+  }
+
+  async orders(target: SettlementId): Promise<OrderOption[]> {
+    const s = this.byId.get(target);
+    if (!s) return [];
+    return this.orderOptions(s, this.clock());
+  }
+
+  /**
+   * Приказ дипломату. Ответ соседа считает чистая функция `respond` — по
+   * отношению, характеру и зерну; зерно выведено из самого отношения, поэтому
+   * второе нажатие при тех же условиях даёт тот же ответ. Хочешь другого —
+   * меняй условия.
+   *
+   * Плата берётся только за принятое: отказ стоит времени дипломата, а не добра.
+   */
+  async order(action: DiploActionId, target: SettlementId): Promise<OrderResult> {
+    const now = this.clock();
+    const s = this.byId.get(target);
+    const fail = (error: string): OrderResult => ({ error, accepted: false, diplomacy: null, text: '' });
+    if (!s) return fail('Цель не найдена.');
+    const opt = this.orderOptions(s, now).find((o) => o.id === action);
+    if (!opt) return fail('Такого приказа нет.');
+    if (!opt.can) return fail(opt.reason ?? 'Сейчас нельзя.');
+
+    const rec = this.diploOf(target, now);
+    const standing = standingAt(rec, now);
+    const before = rec.attitude;
+    const answer = respond({
+      action,
+      attitude: rec.attitude,
+      temper: this.temperOfSettlement(s),
+      standing,
+      pressure: this.damageOf(target, now),
+      seed: orderSeed(this.save.seed, target, action, rec.attitude, standing),
+    });
+
+    rec.attitude = answer.attitude;
+    if (answer.standing !== standing) {
+      if (answer.breakIn > 0) {
+        // Разрыв пакта не мгновенный: до срока бумага ещё держит обе стороны.
+        rec.breakAt = now + answer.breakIn;
+      } else {
+        rec.standing = answer.standing;
+        rec.since = now;
+        rec.until = answer.duration > 0 ? now + answer.duration : 0;
+        rec.breakAt = 0;
+      }
+    }
+    this.save.diplomacy[target] = rec;
+
+    const def = DIPLO_ACTION_BY_ID[action];
+    const f = this.save.figures.diplomat;
+    f.busyUntil = now + def.busy;
+
+    const cost = answer.accepted ? opt.cost : {};
+    const spent: Loot = {};
+    for (const [r, n] of Object.entries(cost) as [keyof Loot, number][]) spent[r] = -(n ?? 0);
+    const good = answer.accepted && action !== 'war' && action !== 'insult';
+    const text = `${s.name}: ${answer.text}`;
+
+    this.addEffect({
+      id: `order-${target}-${action}-${now}`,
+      lost: {},
+      resources: spent,
+      prestige: action === 'pact' || action === 'peace' ? (answer.accepted ? 2 : 0) : action === 'war' ? 1 : 0,
+      morale: good ? 2 : action === 'war' ? -2 : 0,
+      battle: null,
+      text,
+      good,
+    });
+    this.addReport({
+      id: `order-${target}-${action}-${now}-r`,
+      at: now,
+      kind: 'support',
+      title: `${def.name}: ${s.name}`,
+      target: { id: s.id, name: s.name, x: s.x, y: s.y },
+      won: answer.accepted,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: `${answer.text} Отношение: ${before} → ${rec.attitude}.`,
+      read: false,
+    });
+    this.write();
+    return { error: null, accepted: answer.accepted, diplomacy: this.diploView(s, now), text };
   }
 
   async deals(): Promise<DealView[]> {

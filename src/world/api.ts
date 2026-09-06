@@ -10,11 +10,14 @@ import type {
   AttackResult,
   DealId,
   DealView,
+  DiploActionId,
   FigureId,
   FigureView,
   IntelReading,
   MarchOrder,
   MarchView,
+  OrderOption,
+  OrderResult,
   PlayerProfile,
   Coord,
   Rect,
@@ -74,6 +77,20 @@ export interface WorldApi {
 
   /** Дипломат подписывает договор с племенем поселения, у которого стоит. */
   negotiate(deal: DealId): Promise<string | null>;
+
+  /**
+   * Меню приказов дипломата по цели: цена, время и шанс — до подтверждения.
+   * Недоступное действие возвращается с причиной, а не выбрасывается из списка:
+   * игрок обязан видеть, чего ему не хватает.
+   */
+  orders(target: SettlementId): Promise<OrderOption[]>;
+
+  /**
+   * Отдать приказ дипломату. Ответ соседа — чистая функция от отношения,
+   * характера и зерна: одно и то же предложение при одинаковых условиях даёт
+   * один и тот же ответ, и место этой функции потом займёт живой игрок.
+   */
+  order(action: DiploActionId, target: SettlementId): Promise<OrderResult>;
 
   /** Договоры, действующие прямо сейчас. */
   deals(): Promise<DealView[]>;
