@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { armySize, defense, soldierPower } from '@/game/derived';
+import { armySize, commandCap, defense, soldierPower } from '@/game/derived';
 import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
@@ -69,6 +69,9 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   defense: 30,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
+  // Вместимость отряда — работа Статуи. Без неё полководец не уведёт никого,
+  // и это правильно: в тестах она задаётся так же, как её даёт здание.
+  command: 60,
   resources: { food: 120, wood: 80 },
   ...over,
 });
@@ -99,6 +102,10 @@ async function raidWith(
 ) {
   await w.world.sync(p);
   expect(await w.world.setGarrison(p.army ?? {})).toBeNull();
+  // Дружина собирается не мгновенно: ждём, пока она дойдёт до полководца.
+  const gathering = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+  if (gathering.readyAt > w.now()) w.at(gathering.readyAt);
+  await w.world.sync(p);
   expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
   const walking = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
   w.at(walking.arriveAt);
@@ -744,6 +751,8 @@ describe('замки', () => {
       warriorPower: 40,
       units: { warrior: 40 },
       army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
+      // Восемь десятков за собой уводит только высокая Статуя.
+      command: 100,
     });
     const { pulse } = await raidWith(w, castle, strong);
     const raid = pulse.reports.find((r) => r.kind === 'raid');
@@ -764,6 +773,7 @@ describe('замки', () => {
       warriorPower: 40,
       units: { warrior: 40 },
       army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
+      command: 100,
     });
     await w.world.sync(strong);
     const target = await nearest(w.world);
@@ -1201,11 +1211,14 @@ describe('фигуры на карте', () => {
     const p = profile({ warriorPower: 4, army: { clubman: 6, archer: 4 } });
     await w.world.sync(p);
 
-    // Дома — можно.
+    // Дома — можно, но не мгновенно: дружина идёт из казарм к полководцу.
     expect(await w.world.setGarrison({ clubman: 6, archer: 4 })).toBeNull();
     let general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    expect(general.troops).toEqual({ clubman: 6, archer: 4 });
+    expect(general.readyAt, 'сбор занимает время').toBeGreaterThan(w.now());
+    expect(general.troops, 'ушедшие из деревни числятся при нём сразу').toEqual({ clubman: 6, archer: 4 });
     expect(general.power).toBeGreaterThan(0);
+    w.at(general.readyAt);
+    await w.world.sync(p);
 
     // Больше, чем стоит дома, взять нельзя.
     expect(await w.world.setGarrison({ clubman: 99 })).toBeTruthy();
@@ -1225,7 +1238,15 @@ describe('фигуры на карте', () => {
     await w.world.sync(p);
     expect(await w.world.setGarrison(null)).toBeNull();
     general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    expect(troopTotal(general.troops)).toBe(0);
+    // Роспуск стоит того же времени, что и сбор: пока люди идут обратно, дома
+    // их ещё нет и в строю уже нет.
+    expect(general.readyAt).toBeGreaterThan(w.now());
+    expect(troopTotal(general.troops), 'на дороге они числятся при нём').toBe(10);
+    w.at(general.readyAt);
+    await w.world.sync(p);
+    general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    expect(troopTotal(general.troops), 'дошли — и полководец снова один').toBe(0);
+    expect(general.readyAt).toBe(0);
   });
 
   it('пока армия при полководце в поле, дома её нет', async () => {
@@ -1846,5 +1867,150 @@ describe('лазутчик в мире', () => {
     const card = await w.world.settlement(target.id);
     expect(card).toBeTruthy();
     expect(card?.revolt).toBeTruthy();
+  });
+});
+
+describe('отряд полководца', () => {
+  /** Ближайший к дому чужой двор с племенем. */
+  async function neighbour(world: LocalWorld) {
+    const info = await world.info();
+    const chunk = await world.region({ x: info.home.x - 30, y: info.home.y - 30, w: 60, h: 60 });
+    const list = chunk.settlements.filter((s) => !s.mine && s.tribeId);
+    expect(list.length).toBeGreaterThan(0);
+    return list.sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+  }
+
+  const general = async (w: ReturnType<typeof makeWorld>): Promise<FigureView> =>
+    (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+
+  it('вместимость выводится из уровня Статуи и ниоткуда больше', async () => {
+    const s = createInitialState();
+    const statue = s.buildings.find((b) => b.type === 'statue');
+    expect(statue, 'Статуя стоит в посёлке с первого дня').toBeTruthy();
+    const first = commandCap(s);
+    expect(first).toBeGreaterThan(0);
+    statue!.level = 5;
+    const higher = commandCap(s);
+    expect(higher, 'выше статуя — больше дружины').toBeGreaterThan(first);
+    statue!.level = 10;
+    expect(commandCap(s)).toBeGreaterThan(higher);
+    // Мир получает это число слепком и не спрашивает, откуда оно.
+    expect(playerProfile(s).command).toBe(commandCap(s));
+  });
+
+  it('больше вместимости не увести, и об этом сказано числом', async () => {
+    const w = makeWorld(11);
+    const p = profile({ command: 8, army: { clubman: 20 } });
+    await w.world.sync(p);
+    const err = await w.world.setGarrison({ clubman: 20 });
+    expect(err).toMatch(/8/);
+    expect(troopTotal((await general(w)).troops)).toBe(0);
+    // Ровно по вместимости — можно.
+    expect(await w.world.setGarrison({ clubman: 8 })).toBeNull();
+  });
+
+  it('передача занимает время в обе стороны, и в дороге войско не годится в бой', async () => {
+    const w = makeWorld(11);
+    const p = profile({ army: { clubman: 10, archer: 6 } });
+    await w.world.sync(p);
+
+    expect(await w.world.setGarrison({ clubman: 10, archer: 6 })).toBeNull();
+    let g = await general(w);
+    expect(g.readyAt, 'сбор идёт время').toBeGreaterThan(w.now());
+    // Пока идут — второй приказ не принимается, и ударить нечем.
+    expect(await w.world.setGarrison({ clubman: 4 })).toMatch(/в дороге/);
+    const target = await neighbour(w.world);
+    expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
+    const walk = await general(w);
+    w.at(Math.max(walk.arriveAt, w.now()));
+    await w.world.sync(p);
+
+    w.at(Math.max(w.now(), (await general(w)).readyAt));
+    await w.world.sync(p);
+    g = await general(w);
+    expect(g.readyAt, 'дошли — и сбор кончился').toBe(0);
+    expect(troopTotal(g.troops)).toBe(16);
+
+    // Обратно — столько же: роспуск не мгновенный.
+    expect(await w.world.recallFigure('general')).toBeNull();
+    const back = await general(w);
+    w.at(back.arriveAt);
+    await w.world.sync(p);
+    expect(await w.world.setGarrison(null)).toBeNull();
+    g = await general(w);
+    expect(g.readyAt, 'роспуск идёт время').toBeGreaterThan(w.now());
+    w.at(g.readyAt);
+    await w.world.sync(p);
+    expect(troopTotal((await general(w)).troops)).toBe(0);
+  });
+
+  it('под пактом нападать нельзя, и причина видна в карточке', async () => {
+    const w = makeWorld(11);
+    const p = profile({ army: { clubman: 10 }, resources: { food: 100_000, wood: 100_000, stone: 100_000 } });
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+
+    // Подписываем пакт по-настоящему: дарим, пока не согласятся.
+    expect(await w.world.moveFigure('diplomat', { x: target.x, y: target.y })).toBeNull();
+    const dip = (await w.world.figures()).find((f) => f.id === 'diplomat') as FigureView;
+    w.at(dip.arriveAt);
+    await w.world.sync(p);
+    let signed = false;
+    for (let i = 0; i < 40 && !signed; i++) {
+      const f = (await w.world.figures()).find((x) => x.id === 'diplomat') as FigureView;
+      if (f.busyUntil > w.now()) w.at(f.busyUntil);
+      await w.world.sync(p);
+      const opt = (await w.world.orders('diplomat', target.id)).find((o) => o.id === 'pact');
+      if (opt?.can && (opt.chance ?? 0) >= 1) signed = (await w.world.order('pact', target.id)).accepted;
+      else await w.world.order('gift', target.id);
+    }
+    expect(signed, 'пакт должен быть подписан').toBe(true);
+
+    // Ведём полководца с дружиной к тому же двору.
+    expect(await w.world.setGarrison({ clubman: 10 })).toBeNull();
+    w.at((await general(w)).readyAt);
+    await w.world.sync(p);
+    expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
+    w.at((await general(w)).arriveAt);
+    await w.world.sync(p);
+
+    const card = await w.world.settlement(target.id);
+    expect(card?.can.raid, 'под пактом удара нет').toBe(false);
+    expect(card?.note).toMatch(/[Пп]акт/);
+    // И это правило мира, а не подсказка панели.
+    const res = await w.world.attack({ setup: null });
+    expect(res.error).toMatch(/[Пп]акт/);
+    expect(res.reportId).toBeNull();
+  });
+
+  it('полководец не теряется навсегда: разбитый возвращается сам', async () => {
+    const w = makeWorld(5);
+    // Горстка дубинщиков против целого поселения — заведомый разгром.
+    const p = profile({ warriorPower: 1, army: { clubman: 2 }, command: 60 });
+    await w.world.sync(p);
+    const info = await w.world.info();
+    const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
+    const strongest = chunk.settlements
+      .filter((s) => !s.mine)
+      .sort((a, b) => (b.seenPop ?? 0) - (a.seenPop ?? 0))[0];
+
+    expect(await w.world.setGarrison({ clubman: 2 })).toBeNull();
+    w.at((await general(w)).readyAt);
+    await w.world.sync(p);
+    expect(await w.world.moveFigure('general', { x: strongest.x, y: strongest.y })).toBeNull();
+    w.at((await general(w)).arriveAt);
+    await w.world.sync(p);
+    const res = await w.world.attack({ setup: null });
+    expect(res.error).toBeNull();
+
+    const g = await general(w);
+    if (troopTotal(g.troops) > 0) return; // отряд уцелел — проверять нечего
+    expect(g.phase, 'разбитый выбывает, а не пропадает').toBe('down');
+    expect(g.downUntil).toBeGreaterThan(w.now());
+    w.at(g.downUntil + 1000);
+    await w.world.sync(p);
+    const back = await general(w);
+    expect(back.phase, 'и возвращается сам').not.toBe('down');
+    expect(back.downUntil).toBe(0);
   });
 });

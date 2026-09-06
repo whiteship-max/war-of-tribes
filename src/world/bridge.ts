@@ -9,6 +9,7 @@ import { TROOP_IDS } from '@/game/data/troops';
 import {
   buildingOfType,
   buildingStat,
+  commandCap,
   defense,
   hiddenStash,
   homeArmyPower,
@@ -135,6 +136,8 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     warning: warningSeconds(s),
     intelKeen: intelKeen(s),
     mountGear: mountGear(s),
+    // Статуя Героя: сколько дружины полководец уводит в поле.
+    command: commandCap(s),
     defenseSetup,
     // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     resources,

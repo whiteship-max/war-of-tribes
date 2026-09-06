@@ -5,6 +5,7 @@
 import { seeded } from '@/game/sim/random';
 import { FRONT, GEAR, REAR, type ArmySetup, type Stack, type UnitKind } from '@/battle';
 import { gearOf, kindsOf, troopLosses, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { TROOP_IDS } from '@/game/data/troops';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { WorldApi } from '../api';
@@ -120,6 +121,9 @@ import {
   AI_WAR_PACE,
   AI_WAR_WEIGHT,
   GIFT_PER_POP,
+  HANDOVER_BASE,
+  HANDOVER_MAX,
+  HANDOVER_PER_MAN,
   PEACE_PER_POP,
   REVOLT_POWER_LOSS,
   SPY_BUSY,
@@ -1390,9 +1394,14 @@ export class LocalWorld implements WorldApi {
     const ally = view.relation === 'ally';
     const here = this.figuresAt(id, now);
     const general = this.save.figures.general;
-    // Набег доступен ровно тогда, когда есть кому вести: полководец стоит здесь
-    // и войско при нём. Второго способа назначить цель в игре нет.
-    const canRaid = here.includes('general') && troopTotal(general.troops ?? {}) > 0;
+    this.settleHandover(general, now);
+    // Набег доступен ровно тогда, когда есть кому вести: полководец стоит здесь,
+    // войско при нём и уже собралось. Второго способа назначить цель в игре нет.
+    // Под пактом нападать нельзя — и это правило мира, а не подсказка панели.
+    const pact = standingAt(this.diploOf(s.id, now), now) === 'pact';
+    const gathering = Boolean(general.handover);
+    const canRaid =
+      here.includes('general') && troopTotal(general.troops ?? {}) > 0 && !gathering && !pact;
     return {
       ...view,
       terrain: terrainAt(this.save.seed, s.x, s.y),
@@ -1411,9 +1420,13 @@ export class LocalWorld implements WorldApi {
       can: { raid: canRaid, scout: true, support: ally, open: false },
       note: canRaid
         ? null
-        : here.includes('general')
-          ? 'Полководец здесь, но войска при нём нет: за дружиной надо домой.'
-          : 'Атакует только полководец: доведи его сюда — и ударь.',
+        : pact
+          ? 'Пакт в силе: нападать нельзя, пока он не разорван. Разрыв объявляет дипломат — и вступает он в силу не сразу.'
+          : gathering
+            ? `Дружина ещё в дороге: ${formatLeft(Math.max(0, (general.handover?.until ?? 0) - now) / 1000)}.`
+            : here.includes('general')
+              ? 'Полководец здесь, но войска при нём нет: за дружиной надо домой.'
+              : 'Атакует только полководец: доведи его сюда — и ударь.',
     };
   }
 
@@ -1548,6 +1561,7 @@ export class LocalWorld implements WorldApi {
 
   private viewFigure(id: FigureId, now: number): FigureView {
     const f = this.save.figures[id];
+    this.settleHandover(f, now);
     const def = FIGURE_BY_ID[id];
     const at = this.figureAt(f, now);
     const near = f.phase === 'down' ? null : this.touching(at);
@@ -1570,6 +1584,8 @@ export class LocalWorld implements WorldApi {
       busyUntil: Math.max(0, f.busyUntil ?? 0),
       troops: { ...troops },
       power: troopTotal(troops) * (this.save.profile?.warriorPower ?? 1),
+      capacity: id === 'general' ? this.commandCap() : 0,
+      readyAt: f.handover?.until ?? 0,
     };
   }
 
@@ -1622,8 +1638,12 @@ export class LocalWorld implements WorldApi {
   async setGarrison(troops: TroopStack | null): Promise<string | null> {
     const now = this.clock();
     const f = this.save.figures.general;
+    this.settleHandover(f, now);
     if (f.phase === 'down') return 'Полководец выбыл.';
     if (f.phase === 'moving') return 'Полководец в пути — войско к нему не подойдёт.';
+    if (f.handover) {
+      return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+    }
     if (!this.touching(this.figureAt(f, now))?.home) {
       return 'Забрать дружину можно только у своей деревни.';
     }
@@ -1637,9 +1657,44 @@ export class LocalWorld implements WorldApi {
       if (take > (home[key] ?? 0)) return 'Столько бойцов дома нет.';
       next[key] = want;
     }
-    f.troops = troopTotal(next) > 0 ? next : undefined;
+    const cap = this.commandCap();
+    if (troopTotal(next) > cap) {
+      return `Столько за собой не увести: Статуя держит ${cap} бойцов.`;
+    }
+
+    // Сколько людей переходит из рук в руки — в обе стороны: время стоит и
+    // сбор, и роспуск. Пока идут — они уже не в гарнизоне и ещё не в строю,
+    // поэтому в `troops` числятся и уходящие, и возвращающиеся.
+    let moved = 0;
+    const onRoad: TroopStack = {};
+    for (const id of TROOP_IDS) {
+      const a = held[id] ?? 0;
+      const b = next[id] ?? 0;
+      moved += Math.abs(b - a);
+      const both = Math.max(a, b);
+      if (both > 0) onRoad[id] = both;
+    }
+    if (moved === 0) return null;
+    const wait = Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN);
+    f.troops = troopTotal(onRoad) > 0 ? onRoad : undefined;
+    f.handover = { troops: next, until: now + wait };
     this.write();
     return null;
+  }
+
+  /** Сколько бойцов полководец может вести: работа Статуи, число из слепка. */
+  private commandCap = (): number => Math.max(0, Math.round(this.save.profile?.command ?? 0));
+
+  /**
+   * Передача дружины кончается сама, по времени: срок наступил — состав стал
+   * тем, о котором договорились. Это приведение при чтении, а не тик: офлайн
+   * даёт ровно то же, что непрерывная игра.
+   */
+  private settleHandover(f: StoredFigure, now: number): void {
+    if (!f.handover || now < f.handover.until) return;
+    const next = f.handover.troops;
+    f.troops = troopTotal(next) > 0 ? { ...next } : undefined;
+    f.handover = undefined;
   }
 
   async attack(order: AttackOrder): Promise<AttackResult> {
@@ -1647,11 +1702,28 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures.general;
     if (f.phase === 'down') return { error: 'Полководец выбыл.', reportId: null, won: false };
     if (f.phase === 'moving') return { error: 'Полководец ещё в пути.', reportId: null, won: false };
+    this.settleHandover(f, now);
+    if (f.handover) {
+      return {
+        error: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
+        reportId: null,
+        won: false,
+      };
+    }
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'Войска при полководце нет.', reportId: null, won: false };
     const near = this.touching(this.figureAt(f, now));
     if (!near || near.home) return { error: 'Рядом нет чужого поселения.', reportId: null, won: false };
     const target = this.byId.get(near.id);
     if (!target) return { error: 'Цель не найдена.', reportId: null, won: false };
+    // Пакт держит и здесь, а не только в панели: правило игры не может стоять
+    // на честном слове интерфейса.
+    if (standingAt(this.diploOf(target.id, now), now) === 'pact') {
+      return {
+        error: 'Пакт в силе: удара не будет. Сначала разрыв — его объявляет дипломат.',
+        reportId: null,
+        won: false,
+      };
+    }
     return this.attackAt(target, now, order.setup ?? null);
   }
 

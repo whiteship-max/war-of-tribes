@@ -497,6 +497,13 @@ export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
  */
 export const heroMen = (s: GameState): number => Math.round(statOf(s, 'statue', 'hero'));
 
+/**
+ * Сколько бойцов полководец уводит с собой в поле. Растёт с уровнем Статуи и
+ * ничем больше: это единственное ограничение похода, и оно же — причина, по
+ * которой дома всегда кто-то остаётся.
+ */
+export const commandCap = (s: GameState): number => Math.round(statOf(s, 'statue', 'command'));
+
 /** Герой дома и здоров — значит, пойдёт со следующим походом. */
 export const heroReady = (s: GameState): boolean =>
   s.hero.marchId === null && s.hero.downUntil <= s.time;

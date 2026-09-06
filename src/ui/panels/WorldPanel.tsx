@@ -57,6 +57,11 @@ function GarrisonEditor() {
   if (!general) return null;
   const rows = TROOP_IDS.filter((t) => (home[t] ?? 0) + (held[t] ?? 0) > 0);
   const total = troopTotal(want);
+  // Вместимость — работа Статуи, и это главное ограничение похода: дома всегда
+  // кто-то остаётся, потому что за собой всех не увести.
+  const cap = general.capacity;
+  const over = Math.max(0, total - cap);
+  const gathering = general.readyAt > worldNow();
   // Пока полководец стоит в деревне, его дружина её защищает; уйдёт — не будет.
   // Игрок обязан видеть это число до того, как он уйдёт, а не в отчёте после.
   const def = defense(s);
@@ -71,13 +76,25 @@ function GarrisonEditor() {
   return (
     <>
       <h3>
-        Дружина при полководце <small>{total}</small>
+        Дружина при полководце{' '}
+        <small className={over > 0 ? 'bad' : undefined}>
+          {total} из {cap}
+        </small>
       </h3>
+      {gathering && (
+        <p className="note bad">
+          Дружина в дороге: {formatLeft(secondsLeft(general.readyAt, worldNow()))}. Пока она идёт,
+          деревню эти люди уже не защищают, а в бой ещё не годятся.
+        </p>
+      )}
       {rows.length === 0 ? (
         <div className="desc">Бойцов нет ни дома, ни при нём. Найми кого-нибудь в казармах.</div>
       ) : (
         rows.map((t) => {
-          const max = (home[t] ?? 0) + (held[t] ?? 0);
+          // Больше вместимости не набрать: шаг вверх упирается в неё, а не в
+          // ошибку после нажатия.
+          const room = Math.max(0, cap - total + (want[t] ?? 0));
+          const max = Math.min(room, (home[t] ?? 0) + (held[t] ?? 0));
           const n = want[t] ?? 0;
           const set = (v: number): void => setWant((w) => ({ ...w, [t]: Math.max(0, Math.min(max, v)) }));
           return (
@@ -104,6 +121,11 @@ function GarrisonEditor() {
         })
       )}
       <div className="mod-list">
+        <div className="mod">
+          <span className="ico">🗿</span>
+          <span className="name">Статуя держит</span>
+          <span className={`val ${over > 0 ? 'neg' : ''}`}>{cap} бойцов</span>
+        </div>
         <div className="mod total">
           <span className="ico">🏠</span>
           <span className="name">Уйдёт с ним — оборона станет</span>
@@ -113,15 +135,20 @@ function GarrisonEditor() {
         </div>
       </div>
       <div className="wm-actions">
-        <button className="btn wide" disabled={busy} onClick={() => void apply(want)}>
+        <button className="btn wide" disabled={busy || gathering || over > 0} onClick={() => void apply(want)}>
           🎖️ Отдать полководцу {total}
         </button>
-        <button className="btn ghost wide" disabled={busy || troopTotal(held) === 0} onClick={() => void apply(null)}>
+        <button
+          className="btn ghost wide"
+          disabled={busy || gathering || troopTotal(held) === 0}
+          onClick={() => void apply(null)}
+        >
           🏠 Вернуть всю дружину домой
         </button>
       </div>
       <p className="note">
         Пока дружина при полководце в поле, деревню защищают только частокол, башня и сами жители.
+        Сбор и роспуск занимают время: войско не перескакивает между ролями.
       </p>
     </>
   );
