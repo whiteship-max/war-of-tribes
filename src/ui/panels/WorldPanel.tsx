@@ -348,7 +348,13 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <p className="note">Свои силы видны всегда. Чужие — только после разведки.</p>
       ) : card.intel ? (
         <p className={`note${card.intel.precision === 'exact' ? '' : ' bad'}`}>
-          Данные получены {formatAge(card.intel.ageSeconds)} — {PRECISION_NOTE[card.intel.precision]}.
+          Данные получены {formatAge(card.intel.ageSeconds)} —{' '}
+          {/* «Приблизительно» и «протухло» — разные вещи, и путать их нельзя:
+              донесение лазутчика вилкой с самого начала, а не устарело. */}
+          {card.intel.hearsay
+            ? `донесение лазутчика: числа приблизительны с самого начала${card.intel.precision === 'vague' ? ', и с возрастом от них остался только порядок величины' : ''}`
+            : PRECISION_NOTE[card.intel.precision]}
+          .
         </p>
       ) : (
         <p className="note bad">Про войско здесь мы ничего не знаем. Нужен разведчик у самых ворот.</p>
@@ -373,12 +379,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               );
             })}
           </div>
-          <p className={`note${card.intel.precision === 'exact' ? '' : ' bad'}`}>
-            {card.intel.hearsay
-              ? 'Считано на глаз и с чужих слов: числа приблизительны с самого начала и с возрастом станут ещё шире.'
-              : PRECISION_NOTE[card.intel.precision]}
-            {card.intel.style ? ` · ${card.intel.style}` : ''}
-          </p>
+          {card.intel.style && <p className="note">Уклад войска: {card.intel.style}.</p>}
         </>
       )}
 

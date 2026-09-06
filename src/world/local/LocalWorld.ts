@@ -1755,9 +1755,12 @@ export class LocalWorld implements WorldApi {
     return null;
   }
 
-  /** Чем занят агент — словами. У лазутчика это не занятость, а задержание. */
-  private busyNote = (id: FigureId): string =>
-    id === 'spy' ? 'Лазутчика держат под стражей' : `${FIGURE_BY_ID[id].name} ещё ведёт прошлые переговоры`;
+  /** Чем занят агент — словами. Задержание и своё дело — разные вещи. */
+  private busyNote(id: FigureId): string {
+    if (this.save.figures[id]?.held) return `${FIGURE_BY_ID[id].name}а держат под стражей`;
+    if (id === 'spy') return 'Лазутчик отлёживается после дела';
+    return `${FIGURE_BY_ID[id].name} ещё ведёт прошлые переговоры`;
+  }
 
   /** Меню приказов для агента. У разведчика и полководца своих приказов нет. */
   private orderOptions(agent: FigureId, target: GenSettlement, now: number): OrderOption[] {
@@ -1949,6 +1952,7 @@ export class LocalWorld implements WorldApi {
     const out = spyOutcome(chance, seed, action);
     const f = this.save.figures.spy;
     f.busyUntil = now + (out.success ? SPY_BUSY : SPY_HELD);
+    f.held = !out.success;
 
     let intel: Intel | null = null;
     if (!out.success) {
