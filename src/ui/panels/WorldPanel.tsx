@@ -94,7 +94,10 @@ function GarrisonEditor() {
           // Больше вместимости не набрать: шаг вверх упирается в неё, а не в
           // ошибку после нажатия.
           const room = Math.max(0, cap - total + (want[t] ?? 0));
-          const max = Math.min(room, (home[t] ?? 0) + (held[t] ?? 0));
+          // «Всего» — про запас племени, а не про место в отряде: подпись не
+          // должна врать, что лучников нет, когда их просто некуда взять.
+          const all = (home[t] ?? 0) + (held[t] ?? 0);
+          const max = Math.min(room, all);
           const n = want[t] ?? 0;
           const set = (v: number): void => setWant((w) => ({ ...w, [t]: Math.max(0, Math.min(max, v)) }));
           return (
@@ -102,7 +105,10 @@ function GarrisonEditor() {
               <span className="ico">{TROOP_BY_ID[t].icon}</span>
               <span className="who">
                 {TROOP_BY_ID[t].name}
-                <i className="talent">всего {max}</i>
+                <i className="talent">
+                  всего {all}
+                  {room === 0 && (want[t] ?? 0) === 0 ? ' · мест нет' : ''}
+                </i>
               </span>
               <div className="stepper">
                 <button disabled={n <= 0} onClick={() => set(n - 1)}>

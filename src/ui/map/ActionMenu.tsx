@@ -271,7 +271,7 @@ export function ActionMenu() {
           </div>
         )}
 
-        {menu.target === null && (
+        {menu.target === null && menu.march === null && (
           <div className="am-plain">Здесь никто не живёт. Приказывать некому — но пройти можно.</div>
         )}
 
