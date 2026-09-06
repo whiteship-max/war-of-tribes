@@ -878,47 +878,6 @@ function townHall(t: Tier): THREE.Group {
   return g;
 }
 
-/** Казармы: учебный двор → двор с бараком → двор дружины с мишенями. */
-function barracks(t: Tier, st: Style): THREE.Group {
-  if (t <= 1) return militaryBarracks(t);
-  const g = new THREE.Group();
-  const s = [1.2, 1.5, 1.7][t];
-  g.add(pad(s * 1.05));
-  fence(g, s, 0.75 + t * 0.1, st.post);
-  // Стойка с копьями — по ней двор и читается как военный.
-  g.add(box(1.0, 0.09, 0.16, st.post, 0, 0.85, s * 0.55));
-  for (let i = 0; i < 4; i++) {
-    g.add(cyl(0.035, 0.035, 1.1, st.accent, 4, -0.36 + i * 0.24, 0.55, s * 0.55));
-  }
-  // Чучело для рубки.
-  g.add(cyl(0.09, 0.1, 1.2, M.woodDark, 5, -s * 0.55, 0.6, -s * 0.2));
-  g.add(box(0.7, 0.09, 0.09, M.woodDark, -s * 0.55, 1.0, -s * 0.2));
-  if (t >= 1) {
-    // Барак: бойцам стало где ночевать.
-    const bw = [1.6, 2.0, 2.2][t];
-    const bh = [0.9, 1.05, 1.2][t];
-    const bz = -(s + 0.55);
-    g.add(box(bw, bh, 1.1, st.wall, 0, bh / 2, bz));
-    gable(g, bw * 1.12, 1.45, bh, 0.28, st.roof, 0, bz);
-    g.add(box(0.4, bh * 0.6, 0.08, M.dark, 0, bh * 0.3, bz + 0.57));
-  }
-  if (t === 2) {
-    // Мишени и щиты на ограде: двор стал местом учений дружины.
-    for (const x of [-s * 0.5, s * 0.5]) {
-      g.add(cyl(0.05, 0.05, 1.0, st.post, 4, x, 0.5, -s * 0.7));
-      const target = cyl(0.3, 0.3, 0.07, st.roof, 10, x, 1.0, -s * 0.7);
-      target.rotation.x = Math.PI / 2;
-      g.add(target);
-    }
-    for (let i = 0; i < 3; i++) {
-      const shield = cyl(0.22, 0.22, 0.06, st.accent, 8, -0.55 + i * 0.55, 0.62, s);
-      shield.rotation.x = Math.PI / 2;
-      g.add(shield);
-    }
-  }
-  return g;
-}
-
 /** Общий деревянный каркас военных построек; материал кровли сохраняет снег. */
 function militaryShed(w: number, d: number, h: number, x: number, z: number): K.Part[] {
   const p = stylePaint();
@@ -930,7 +889,7 @@ function militaryShed(w: number, d: number, h: number, x: number, z: number): K.
   return a;
 }
 
-function militaryBarracks(t: Tier): THREE.Group {
+function barracks(t: Tier): THREE.Group {
   const p = stylePaint();
   const metal = K.paintOf('metal');
   const w = [1.75, 2.55, 3.05][t];
@@ -962,6 +921,17 @@ function militaryBarracks(t: Tier): THREE.Group {
   for (const x of [-0.43, 0.43]) {
     a.push(K.cyl(0.24, 0.24, 0.07, p.accent, 8, x, 0.6, 0.83, { x: Math.PI / 2 }));
     a.push(K.cyl(0.07, 0.07, 0.085, metal, 6, x, 0.6, 0.875, { x: Math.PI / 2 }));
+  }
+  if (t === 2) {
+    a.push(...militaryShed(0.95, 1.75, 1.1, -1.62, 0.4));
+    a.push(K.box(0.12, 1.03, 1.6, p.post, -2.02, 0.52, 0.4));
+    // Учебные мишени и свободная середина — плац, а не жилой двор.
+    for (const x of [0.55, 1.35]) {
+      a.push(K.box(0.1, 1.1, 0.12, p.beam, x, 0.55, -0.1));
+      a.push(K.cyl(0.28, 0.28, 0.1, p.post, 8, x, 1.08, -0.04, { x: Math.PI / 2 }));
+      a.push(K.cyl(0.13, 0.13, 0.11, K.paintOf('cloth'), 8, x, 1.08, 0.015, { x: Math.PI / 2 }));
+    }
+    for (const side of [-1, 1]) a.push(...K.fenceRun(side * 0.65, 1.55, side * 1.8, 1.55, 0.66, p.post, p.beam));
   }
   const g = new THREE.Group();
   g.add(K.assemble(a));
@@ -1390,7 +1360,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'town_hall':
       return townHall(tier);
     case 'barracks':
-      return barracks(tier, st);
+      return barracks(tier);
     case 'market':
       return market(tier, st);
     case 'statue':
@@ -1405,6 +1375,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return new THREE.Group();
   }
 }
+
 
 
 
