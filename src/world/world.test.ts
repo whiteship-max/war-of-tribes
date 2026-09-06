@@ -22,7 +22,7 @@ import { FogMap, fogSaveBytes } from './fog';
 import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave } from './local/state';
 import { castOfRecord, troopsOfKinds } from '@/game/battle/faces';
 import { TROOP_IDS } from '@/game/data/troops';
-import { SURVEY_STEPS } from '@/game/data/survey';
+import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
 import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
@@ -797,6 +797,54 @@ describe('мягкость мира', () => {
     expect(raid.arriveAt - pulse.now).toBeGreaterThanOrEqual(3 * 60_000);
   });
 
+  it('набег виден заранее: либо он в круге, либо о нём донёс Дозор', async () => {
+    // Живой обзор сжался до круга у деревни, но обещание про набег осталось
+    // прежним: его видно за `AI_WARNING_BASE` до прихода, и это работа Дозора,
+    // записанная в его определении. Без этого набег из дальнего двора входил
+    // бы в круг уже за отметкой заморозки — и перехват в поле стал бы кнопкой,
+    // которая не нажимается.
+    for (const seed of [101, 303, 707, 909]) {
+      const w = makeWorld(seed);
+      // Дозор первого уровня стоит с первой секунды: 120 секунд сверх базы.
+      const p = profile({ warning: 120 });
+      await w.world.sync(p);
+      const info = await w.world.info();
+
+      let seenAt = 0;
+      let raid: MarchView | null = null;
+      for (let i = 0; i < 900 && !raid; i++) {
+        w.advance(10_000);
+        const pulse = await w.world.sync(p);
+        const found = pulse.marches.find((m) => !m.own && m.phase === 'out');
+        if (found) {
+          raid = found;
+          seenAt = pulse.now;
+        }
+      }
+      if (!raid) continue; // ближних соседей может не оказаться — это допустимо
+
+      const left = raid.arriveAt - seenAt;
+      // Запас времени заметно длиннее заморозки обороны.
+      expect(left, `сид ${seed}: запас времени`).toBeGreaterThan(DEFENSE_FREEZE);
+      expect(left, `сид ${seed}: обещанное предупреждение`).toBeGreaterThan(
+        AI_WARNING_BASE + 120_000 - 15_000,
+      );
+
+      // А чужой отряд, до которого ещё далеко по времени, не виден вовсе, если
+      // он не в круге: пока он идёт по чужой земле, его там некому увидеть.
+      const span = Math.max(1, raid.arriveAt - raid.departAt);
+      const k = Math.min(1, Math.max(0, (seenAt - raid.departAt) / span));
+      const at = { x: raid.from.x + (raid.to.x - raid.from.x) * k, y: raid.from.y + (raid.to.y - raid.from.y) * k };
+      const far = distance(info.home, at) > HOME_SIGHT;
+      if (far) {
+        // Раз он ещё за кругом — значит, увидели его донесением, и ровно в срок.
+        expect(left, `сид ${seed}: донесение приходит в срок`).toBeLessThanOrEqual(
+          AI_WARNING_BASE + 120_000 + 15_000,
+        );
+      }
+    }
+  });
+
   it('набег, пришедшийся на отсутствие игрока, не состоится', async () => {
     const { world, advance, at } = makeWorld(202);
     await world.sync(profile());
@@ -1117,11 +1165,13 @@ describe('туман войны', () => {
       .filter((s) => distance(info.home, s) > HOME_SIGHT + 4)
       .sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
 
-    // Разведчик встаёт в трёх клетках: вплотную к сильному поселению его могут
-    // взять часовые, а обзора в восемь клеток хватает и отсюда.
-    expect(await w.world.moveFigure('scout', { x: far.x + 3, y: far.y })).toBeNull();
-    const walk = (await w.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    // Живые данные за кругом деревни даёт один лазутчик, и только пока он
+    // стоит наблюдателем. Обзор у него два, поэтому смотреть надо вплотную.
+    expect(await w.world.moveFigure('spy', { x: far.x + 1, y: far.y })).toBeNull();
+    const walk = (await w.world.figures()).find((f) => f.id === 'spy') as FigureView;
     w.at(walk.arriveAt);
+    await w.world.sync(p);
+    expect(await w.world.watch(true)).toBeNull();
     await w.world.sync(p);
 
     const near = async () => (await w.world.region({ x: far.x - 1, y: far.y - 1, w: 3, h: 3 })).settlements
@@ -1132,9 +1182,9 @@ describe('туман войны', () => {
     expect(seen!.stale).toBe(false);
     expect(seen!.seenPop).toBeGreaterThan(0);
 
-    // Уводим разведчика домой и ждём. Местность остаётся открытой навсегда.
-    expect(await w.world.recallFigure('scout')).toBeNull();
-    const back = (await w.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    // Уводим лазутчика домой и ждём. Местность остаётся открытой навсегда.
+    expect(await w.world.recallFigure('spy')).toBeNull();
+    const back = (await w.world.figures()).find((f) => f.id === 'spy') as FigureView;
     w.at(back.arriveAt + 60_000);
     await w.world.sync(p);
 
@@ -1151,6 +1201,124 @@ describe('туман войны', () => {
     const ix = far.x - chunk.rect.x;
     const iy = far.y - chunk.rect.y;
     expect(chunk.explored[iy * chunk.rect.w + ix]).toBe(1);
+  });
+
+  it('изученный радиус открывает землю, но живого обзора не даёт', async () => {
+    const w = makeWorld(11);
+    const info = await w.world.info();
+    // Поселение за кругом деревни, но внутри изученной округи.
+    const far = generateWorld(11).settlements
+      .filter((s) => {
+        const d = distance(info.home, s);
+        return d > HOME_SIGHT + 2 && d < SURVEY_STEPS[SURVEY_MAX - 1].radius - 2;
+      })
+      .sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+    expect(far, 'в мире должно быть поселение между кругом и краем изученного').toBeTruthy();
+
+    await w.world.sync(profile({ survey: SURVEY_STEPS[SURVEY_MAX - 1].radius }));
+    const card = await w.world.settlement(far.id);
+    expect(card, 'изученная земля отдаёт карточку: место открыто').toBeTruthy();
+    // Но это снимок, а не наблюдение: живого обзора там нет и быть не должно.
+    expect(card!.visible, 'изученная округа не наблюдается').toBe(false);
+    expect(card!.stale, 'данные помечены устаревшими').toBe(true);
+    // Мощь гарнизона изучение не даёт вовсе: за ней по-прежнему идут разведкой.
+    expect(card!.power.precision).toBe('unknown');
+  });
+
+  it('живой обзор есть только у деревни и вокруг наблюдающего лазутчика', async () => {
+    const w = makeWorld(11);
+    const p = profile();
+    await w.world.sync(p);
+    const info = await w.world.info();
+    const far = generateWorld(11).settlements
+      .filter((s) => distance(info.home, s) > HOME_SIGHT + 4)
+      .sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+
+    const look = async (): Promise<SettlementView | undefined> =>
+      (await w.world.region({ x: far.x - 1, y: far.y - 1, w: 3, h: 3 })).settlements.find((s) => s.id === far.id);
+
+    // Разведчик у самых ворот: карту он открывает, но не наблюдает.
+    expect(await w.world.moveFigure('scout', { x: far.x + 1, y: far.y })).toBeNull();
+    const scout = (await w.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    w.at(scout.arriveAt);
+    await w.world.sync(p);
+    expect((await look())!.visible, 'разведчик живого обзора не даёт').toBe(false);
+    expect((await look())!.stale).toBe(true);
+
+    // Полководец с войском — тоже не наблюдатель.
+    expect(await w.world.moveFigure('general', { x: far.x + 1, y: far.y + 1 })).toBeNull();
+    const general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    w.at(general.arriveAt);
+    await w.world.sync(p);
+    expect((await look())!.visible, 'полководец живого обзора не даёт').toBe(false);
+
+    // Лазутчик пришёл и залёг — вот теперь видно живьём.
+    expect(await w.world.moveFigure('spy', { x: far.x + 1, y: far.y })).toBeNull();
+    const spy = (await w.world.figures()).find((f) => f.id === 'spy') as FigureView;
+    w.at(spy.arriveAt);
+    await w.world.sync(p);
+    expect((await look())!.visible, 'пришёл, но не залёг — не смотрит').toBe(false);
+    expect(await w.world.watch(true)).toBeNull();
+    await w.world.sync(p);
+    expect((await look())!.visible, 'наблюдатель видит живьём').toBe(true);
+
+    // Снял наблюдение — снова снимок с отметкой давности.
+    expect(await w.world.watch(false)).toBeNull();
+    w.advance(MINUTE);
+    await w.world.sync(p);
+    expect((await look())!.visible).toBe(false);
+    expect((await look())!.stale).toBe(true);
+
+    // И своя деревня видна всегда: тумана над собой не бывает.
+    const home = await w.world.settlement('home');
+    expect(home!.visible).toBe(true);
+  });
+
+  it('наблюдающий лазутчик не разведывает и не бунтует', async () => {
+    const w = makeWorld(11);
+    const p = profile();
+    await w.world.sync(p);
+    const target = await nearest(w.world);
+    expect(await w.world.moveFigure('spy', { x: target.x, y: target.y })).toBeNull();
+    const spy = (await w.world.figures()).find((f) => f.id === 'spy') as FigureView;
+    w.at(spy.arriveAt);
+    await w.world.sync(p);
+
+    // Пока не смотрит — приказы доступны.
+    const free = await w.world.orders('spy', target.id);
+    expect(free.length).toBeGreaterThan(0);
+    expect(free.every((o) => o.can), 'у ворот и свободен — приказы идут').toBe(true);
+
+    expect(await w.world.watch(true)).toBeNull();
+    const watching = await w.world.orders('spy', target.id);
+    // Недоступное показано и объяснено, а не спрятано.
+    expect(watching).toHaveLength(free.length);
+    for (const o of watching) {
+      expect(o.can, `приказ ${o.id} у наблюдателя`).toBe(false);
+      expect(o.reason).toContain('наблюдателем');
+    }
+    const res = await w.world.order('probe', target.id);
+    expect(res.error).toContain('наблюдателем');
+    expect(res.accepted).toBe(false);
+
+    // Снял наблюдение — работает снова.
+    expect(await w.world.watch(false)).toBeNull();
+    expect((await w.world.orders('spy', target.id)).every((o) => o.can)).toBe(true);
+  });
+
+  it('лазутчик, отправленный в путь, наблюдать перестаёт', async () => {
+    const w = makeWorld(11);
+    const p = profile();
+    await w.world.sync(p);
+    expect(await w.world.watch(true)).toBeNull();
+    expect((await w.world.figures()).find((f) => f.id === 'spy')!.watching).toBe(true);
+    const info = await w.world.info();
+    expect(await w.world.moveFigure('spy', { x: info.home.x + 6, y: info.home.y })).toBeNull();
+    const spy = (await w.world.figures()).find((f) => f.id === 'spy') as FigureView;
+    expect(spy.watching, 'пошёл — значит перестал смотреть').toBe(false);
+    expect(spy.watchSight).toBe(0);
+    // И в пути наблюдателем не станешь: наблюдают стоя.
+    expect(await w.world.watch(true)).toContain('стоя');
   });
 
   it('размер сохранения: половина карты в маске — единицы килобайт', () => {

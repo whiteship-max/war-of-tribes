@@ -10,7 +10,7 @@ import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, awayTroops, playerProfile, syncAway } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
-import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, MARCH_SIGHT } from './data/tuning';
+import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT } from './data/tuning';
 import { heroReady } from '@/game/derived';
 import { marchPosition } from './geo';
 import {
@@ -125,6 +125,11 @@ export interface WorldStore {
   /** Вести выбранную фигуру в клетку. Возвращает текст ошибки или null. */
   moveFigure: (id: FigureId, to: Coord) => Promise<string | null>;
   recallFigure: (id: FigureId) => Promise<string | null>;
+  /**
+   * Поставить лазутчика наблюдателем или снять. Пока он смотрит, он не
+   * приказывает — и наоборот: смотреть или действовать и есть решение.
+   */
+  watch: (on: boolean) => Promise<string | null>;
   /** Полководец забирает гарнизон или возвращает его домой. */
   setGarrison: (troops: TroopStack | null) => Promise<string | null>;
   /** Полководец бьёт по цели, у которой стоит. */
@@ -319,6 +324,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
+  watch: async (on) => {
+    const err = await worldApi().watch(on);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    await get().pulse();
+    // Приказы лазутчика после этого другие: наблюдатель не работает.
+    await get().refreshOrders();
+    return null;
+  },
+
   setGarrison: async (troops) => {
     const err = await worldApi().setGarrison(troops);
     if (err) {
@@ -501,10 +518,14 @@ export function figurePosition(f: FigureView, now: number): Coord {
 }
 
 /**
- * Круги обзора прямо сейчас — тем же составом, что и в мире: своя деревня, три
- * фигуры и свои отряды в пути. Карта считает их у себя, а не спрашивает мир,
- * ровно по одной причине: они меняются каждый кадр, а пульс идёт раз в две
- * секунды, и туман отставал бы от фигуры на два корпуса.
+ * Живой обзор прямо сейчас — тем же правилом, что и в мире: круг у своей
+ * деревни и стоящий наблюдателем лазутчик, больше никто (см. world/sight.ts).
+ * Карта считает его у себя, а не спрашивает мир, ровно по одной причине: он
+ * меняется каждый кадр, а пульс идёт раз в две секунды, и дымка отставала бы
+ * от лазутчика на два корпуса.
+ *
+ * Радиус наблюдения приходит готовым (`watchSight`): решает, кто наблюдает,
+ * один модуль, и второй правды об этом между картой и миром быть не должно.
  */
 export function sightDiscs(now: number): SightDisc[] {
   const g = useWorld.getState();
@@ -512,14 +533,9 @@ export function sightDiscs(now: number): SightDisc[] {
   const home = g.info?.home;
   if (home) out.push({ x: home.x, y: home.y, r: HOME_SIGHT });
   for (const f of g.figures) {
-    if (f.phase === 'down') continue;
+    if (f.watchSight <= 0) continue;
     const at = figurePosition(f, now);
-    out.push({ x: at.x, y: at.y, r: f.sight });
-  }
-  for (const m of g.marches) {
-    if (!m.own) continue;
-    const at = m.phase === 'stay' ? m.to : marchPosition(m, now);
-    out.push({ x: at.x, y: at.y, r: MARCH_SIGHT });
+    out.push({ x: at.x, y: at.y, r: f.watchSight });
   }
   return out;
 }

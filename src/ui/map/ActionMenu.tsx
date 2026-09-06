@@ -51,6 +51,7 @@ export function ActionMenu() {
   const order = useWorld((g) => g.order);
   const attack = useWorld((g) => g.attack);
   const intercept = useWorld((g) => g.intercept);
+  const watch = useWorld((g) => g.watch);
   const showToast = useGame((g) => g.showToast);
   const openBattle = useGame((g) => g.openBattle);
 
@@ -269,6 +270,39 @@ export function ActionMenu() {
             Приказы отдаются у самых ворот: доведи лазутчика — он и сосчитает войско, и найдёт
             недовольных.
           </div>
+        )}
+
+        {/*
+          Наблюдение. Живой обзор за кругом деревни даёт один лазутчик, и цена
+          у этого прямая: пока он смотрит, он не работает. Кнопка стоит и на
+          пустой земле — смотреть можно на дорогу, а не только на ворота.
+        */}
+        {menu.agent === 'spy' && (
+          <button
+            className={`am-row${figure?.watching ? ' watching' : ''}`}
+            onClick={() => {
+              void (async () => {
+                const on = !figure?.watching;
+                const err = await watch(on);
+                showToast(
+                  err ??
+                    (on
+                      ? 'Лазутчик залёг и смотрит. Пока смотрит — не работает.'
+                      : 'Лазутчик снят с наблюдения и снова готов к делу.'),
+                );
+              })();
+            }}
+          >
+            <span className="ico">{figure?.watching ? '👁️' : '🫥'}</span>
+            <span className="body">
+              <b>{figure?.watching ? 'Снять с наблюдения' : 'Стать наблюдателем'}</b>
+              <i>
+                {figure?.watching
+                  ? `Смотрит на ${(figure?.watchSight ?? 0) || FIGURE_BY_ID.spy.sight} клетки вокруг. Приказы при этом не отдаются.`
+                  : 'Заляжет и будет держать живой обзор вокруг себя. Выведать войско и поднять бунт при этом нельзя.'}
+              </i>
+            </span>
+          </button>
         )}
 
         {menu.target === null && menu.march === null && (

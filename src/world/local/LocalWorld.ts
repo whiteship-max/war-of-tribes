@@ -63,6 +63,7 @@ import {
   travelTime,
 } from '../geo';
 import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
+import { WATCHER, liveSight, standing } from '../sight';
 import { featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
@@ -520,6 +521,7 @@ export class LocalWorld implements WorldApi {
     return AI_WARNING_BASE + Math.max(0, this.save.profile?.warning ?? 0) * 1000;
   }
 
+
   /**
    * Снаряжение своего отряда. Конюшня добавляет коннице ступень: мощь бойца она
    * не трогает (это запрещено — мощь считается из состава), а ступень снаряжения
@@ -581,11 +583,6 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Круги обзора прямо сейчас: своё поселение, три фигуры и свои отряды в пути.
-   * От них зависит только второй слой — живые данные. Первый слой (местность)
-   * они открывают навсегда, и обратно он не закрывается.
-   */
-  /**
    * Докуда деревня открывает местность вокруг себя: свой круг обзора или, если
    * Дозор изучил округу, изученный радиус. Это **только первый слой тумана** —
    * земля. Живой обзор у деревни остаётся прежним кругом (`HOME_SIGHT`), и
@@ -596,18 +593,24 @@ export class LocalWorld implements WorldApi {
     return Math.max(HOME_SIGHT, Math.round(this.save.profile?.survey ?? 0));
   }
 
+  /**
+   * Живой обзор прямо сейчас: круг у своей деревни и стоящий лазутчик — больше
+   * никто (см. world/sight.ts). Отряды и остальные фигуры открывают местность,
+   * но за происходящим не следят: живые данные — отдельный слой, и держать его
+   * всем, у кого есть кто-нибудь в поле, значит не иметь тумана вовсе.
+   *
+   * Круг деревни здесь **не растягивается** изучением округи: изученный радиус
+   * открывает землю, и только.
+   */
   private sightDiscs(now: number): SightDisc[] {
     const out: SightDisc[] = [{ x: this.save.home.x, y: this.save.home.y, r: HOME_SIGHT }];
     for (const id of FIGURE_IDS) {
       const f = this.save.figures[id];
-      if (!f || f.phase === 'down') continue;
+      if (!f) continue;
+      const r = liveSight(id, f.phase, f.watching);
+      if (r <= 0) continue;
       const at = this.figureAt(f, now);
-      out.push({ x: at.x, y: at.y, r: FIGURE_BY_ID[id].sight });
-    }
-    for (const m of this.save.marches) {
-      if (!m.own) continue;
-      const at = m.phase === 'stay' ? m.to : marchPosition(m, now);
-      out.push({ x: at.x, y: at.y, r: MARCH_SIGHT });
+      out.push({ x: at.x, y: at.y, r });
     }
     return out;
   }
@@ -1568,6 +1571,36 @@ export class LocalWorld implements WorldApi {
     });
   }
 
+  /**
+   * Что игрок видит из походов. Свои — всегда: он сам их послал и знает куда.
+   * Чужие — по двум причинам, и вторая важнее первой.
+   *
+   * 1. **Живой обзор.** Отряд в поле — самая живая из живых величин, и
+   *    показывать его с чужой земли, где у игрока никого нет, значит отдавать
+   *    разведданные даром. Круг у деревни и наблюдающий лазутчик — вот и всё.
+   * 2. **Донесение Дозора.** Армию, идущую на твою деревню, видно до её
+   *    прихода — это и записано в определении Дозора («чужую армию видно
+   *    задолго до того, как она встанет под стеной»), и это же обещание
+   *    `AI_WARNING_BASE`: предупреждение обязано быть заметно длиннее
+   *    `DEFENSE_FREEZE`, иначе набег появляется уже запертым.
+   *
+   * Держать только первое было бы ошибкой того же рода, что и держать только
+   * второе. Без донесения набег из дальнего двора входил бы в круг уже за
+   * отметкой заморозки, и перехват в поле — лучшее, что есть на карте, —
+   * превратился бы в кнопку, которая не нажимается. Без живого обзора круг у
+   * деревни не значил бы ничего. Поэтому берётся то, что случится раньше.
+   */
+  private visibleMarches(now: number): StoredMarch[] {
+    const discs = this.sightDiscs(now);
+    const warn = this.warningMs();
+    return this.save.marches.filter((m) => {
+      if (m.own) return true;
+      if (m.targetId === HOME_ID && m.phase === 'out' && m.arriveAt - now <= warn) return true;
+      const at = m.phase === 'stay' ? m.to : marchPosition(m, now);
+      return inSight(discs, at.x, at.y);
+    });
+  }
+
   private viewMarch(m: StoredMarch): MarchView {
     return {
       id: m.id,
@@ -1802,7 +1835,7 @@ export class LocalWorld implements WorldApi {
   }
 
   async marches(): Promise<MarchView[]> {
-    return this.save.marches.map((m) => this.viewMarch(m));
+    return this.visibleMarches(this.clock()).map((m) => this.viewMarch(m));
   }
 
   async recall(marchId: string): Promise<string | null> {
@@ -1857,6 +1890,10 @@ export class LocalWorld implements WorldApi {
       atHome: near?.home ?? false,
       downUntil: f.downUntil,
       busyUntil: Math.max(0, f.busyUntil ?? 0),
+      // Наблюдение — приказ, а не свойство фигуры: пока лазутчик смотрит, он не
+      // работает, и обратное тоже верно. Панель обязана показывать, что сейчас.
+      watching: Boolean(f.watching),
+      watchSight: liveSight(id, f.phase, f.watching),
       troops: { ...troops },
       power: troopTotal(troops) * (this.save.profile?.warriorPower ?? 1),
       capacity: id === 'general' ? this.commandCap() : 0,
@@ -1892,11 +1929,37 @@ export class LocalWorld implements WorldApi {
     f.departAt = now;
     f.arriveAt = now + Math.round(seconds * 1000);
     f.phase = 'moving';
+    // Пошёл — значит перестал смотреть. Наблюдение, пережившее дорогу, вернулось
+    // бы само собой на новом месте и запирало бы приказы там, где игрок его не
+    // ставил: приказ, который молча станет чем-то другим, хуже отказа.
+    if (id === WATCHER) f.watching = false;
     this.write();
     return null;
   }
 
   /** Домой — обычный переход, по тем же правилам: своей арифметики у него нет. */
+  /**
+   * Поставить лазутчика наблюдателем или снять с наблюдения. Наблюдают **стоя**:
+   * в пути фигура идёт, а не смотрит, и принимать приказ, который начнёт
+   * действовать когда-нибудь потом, нельзя.
+   */
+  async watch(on: boolean): Promise<string | null> {
+    const now = this.clock();
+    const id = WATCHER;
+    const f = this.save.figures[id];
+    const def = FIGURE_BY_ID[id];
+    if (f.phase === 'down') {
+      return `${def.name} выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`;
+    }
+    const busy = Math.max(0, (f.busyUntil ?? 0) - now);
+    if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
+    if (on && !standing(f.phase)) return 'Наблюдают стоя: доведи лазутчика до места, откуда смотреть.';
+    if (Boolean(f.watching) === on) return null;
+    f.watching = on;
+    this.write();
+    return null;
+  }
+
   async recallFigure(id: FigureId): Promise<string | null> {
     return this.moveFigure(id, { ...this.save.home });
   }
@@ -2099,6 +2162,13 @@ export class LocalWorld implements WorldApi {
     }
     const busy = Math.max(0, (f.busyUntil ?? 0) - now);
     if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
+    // Наблюдатель не работает, и это не подпорка интерфейса, а само правило:
+    // живой обзор за пределами круга даёт один лазутчик, и платит он за это
+    // тем, что смотрит вместо того, чтобы делать. Отказ — с причиной и с тем,
+    // что надо сделать, а не молчаливо погашенная кнопка.
+    if (id === WATCHER && f.watching) {
+      return 'Лазутчик стоит наблюдателем: пока он смотрит, он не работает. Сними наблюдение — и приказывай.';
+    }
     return null;
   }
 
@@ -2407,7 +2477,7 @@ export class LocalWorld implements WorldApi {
     this.write();
     return {
       now,
-      marches: this.save.marches.map((m) => this.viewMarch(m)),
+      marches: this.visibleMarches(now).map((m) => this.viewMarch(m)),
       figures: FIGURE_IDS.map((id) => this.viewFigure(id, now)),
       reports,
       effects,
