@@ -169,6 +169,14 @@ export interface WorldSave {
   figures: Record<FigureId, StoredFigure>;
   /** Договоры по племенам. */
   pacts: Record<TribeId, Partial<Record<DealId, Pact>>>;
+  /**
+   * Бунты, поднятые лазутчиком: одно окно времени на поселение. Вставшее
+   * производство и просевший гарнизон из него выводятся при чтении, а не
+   * отмечаются тиком, — поэтому офлайн даёт ровно то же, что непрерывная игра.
+   * Новая фигура и это поле версию сохранения не поднимают: словарь фигур
+   * мержится с новой партией, а `revolts` приезжает пустым по умолчанию.
+   */
+  revolts: Record<SettlementId, { since: number; until: number }>;
 }
 
 export interface WorldStorage {
@@ -220,8 +228,10 @@ export function createWorldSave(seed: number, home: Coord, allyTribe: TribeId | 
       scout: homeFigure(home, now),
       diplomat: homeFigure(home, now),
       general: homeFigure(home, now),
+      spy: homeFigure(home, now),
     },
     pacts: {},
+    revolts: {},
   };
 }
 

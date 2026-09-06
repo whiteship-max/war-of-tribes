@@ -10,7 +10,7 @@ import type {
   AttackResult,
   DealId,
   DealView,
-  DiploActionId,
+  OrderActionId,
   FigureId,
   FigureView,
   IntelReading,
@@ -79,18 +79,20 @@ export interface WorldApi {
   negotiate(deal: DealId): Promise<string | null>;
 
   /**
-   * Меню приказов дипломата по цели: цена, время и шанс — до подтверждения.
+   * Меню приказов агента по цели: цена, время и шанс — до подтверждения.
    * Недоступное действие возвращается с причиной, а не выбрасывается из списка:
-   * игрок обязан видеть, чего ему не хватает.
+   * игрок обязан видеть, чего ему не хватает. У разведчика и полководца своих
+   * приказов пока нет — им список пустой.
    */
-  orders(target: SettlementId): Promise<OrderOption[]>;
+  orders(agent: FigureId, target: SettlementId): Promise<OrderOption[]>;
 
   /**
-   * Отдать приказ дипломату. Ответ соседа — чистая функция от отношения,
-   * характера и зерна: одно и то же предложение при одинаковых условиях даёт
-   * один и тот же ответ, и место этой функции потом займёт живой игрок.
+   * Отдать приказ агенту. Кому какой приказ, знает `ORDER_AGENT`. Ответ —
+   * чистая функция от условий дела и зерна: одно и то же предложение при
+   * одинаковых условиях даёт один и тот же ответ, и место этой функции потом
+   * займёт живой игрок.
    */
-  order(action: DiploActionId, target: SettlementId): Promise<OrderResult>;
+  order(action: OrderActionId, target: SettlementId): Promise<OrderResult>;
 
   /** Договоры, действующие прямо сейчас. */
   deals(): Promise<DealView[]>;

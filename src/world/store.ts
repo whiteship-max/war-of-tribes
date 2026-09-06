@@ -33,7 +33,7 @@ import type {
   Coord,
   DealId,
   DealView,
-  DiploActionId,
+  OrderActionId,
   FigureId,
   FigureView,
   MarchOrder,
@@ -128,7 +128,7 @@ export interface WorldStore {
   /** Перечитать строки меню: после приказа цена, шанс и причины уже другие. */
   refreshOrders: () => Promise<void>;
   /** Отдать приказ дипломату по цели открытого меню. */
-  order: (action: DiploActionId) => Promise<OrderResult>;
+  order: (action: OrderActionId) => Promise<OrderResult>;
   loadReports: () => Promise<void>;
   markRead: () => Promise<void>;
   /** Новый мир с нуля — рядом с «начать заново» у племени. */
@@ -352,7 +352,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     if (!view) return;
     const [card, orders] = await Promise.all([
       worldApi().settlement(view.id),
-      worldApi().orders(view.id),
+      worldApi().orders(agent, view.id),
     ]);
     const menu = get().menu;
     if (!menu || menu.target !== view.id) return;
@@ -366,7 +366,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     if (!menu?.target) return;
     const [card, orders] = await Promise.all([
       worldApi().settlement(menu.target),
-      worldApi().orders(menu.target),
+      worldApi().orders(menu.agent, menu.target),
     ]);
     const now = get().menu;
     if (!now || now.target !== menu.target) return;

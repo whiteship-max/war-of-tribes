@@ -33,8 +33,13 @@ export type Relation = 'self' | 'ally' | 'neutral' | 'enemy' | 'barbarian';
 export type UnitId = 'scout' | 'warrior';
 export type UnitStack = Partial<Record<UnitId, number>>;
 
-/** Три фигуры на карте, по одной каждой. Список закрыт: вторых полководцев нет. */
-export type FigureId = 'scout' | 'diplomat' | 'general';
+/**
+ * Фигуры на карте, по одной каждой. Список закрыт: вторых полководцев нет, и
+ * второго лазутчика тоже — приказы конкурируют за время одной фигуры, в этом
+ * и смысл. Расширяется он целиком (положение, обзор, гибель и возвращение у
+ * всех фигур считаются одним кодом), а не заводится сущностью рядом.
+ */
+export type FigureId = 'scout' | 'diplomat' | 'general' | 'spy';
 
 /** Что фигура делает прямо сейчас. */
 export type FigurePhase =
@@ -69,8 +74,18 @@ export type Standing = 'neutral' | 'pact' | 'war';
 /** Характер владельца: от него зависит, как сосед отвечает (см. data/diplomacy.ts). */
 export type TemperId = 'proud' | 'greedy' | 'fierce' | 'wary' | 'steady';
 
-/** Приказы дипломата. Список закрыт: лазутчик и полководец заведут свои. */
+/** Приказы дипломата. */
 export type DiploActionId = 'gift' | 'insult' | 'pact' | 'peace' | 'war';
+
+/**
+ * Приказы лазутчика: выведать войско и поддержать повстанцев. Оба — с шансом,
+ * оба при провале только задерживают его, но не губят: лазутчик один, и потеря
+ * агента насовсем превратила бы механику в наказание.
+ */
+export type SpyActionId = 'probe' | 'revolt';
+
+/** Всё, что можно приказать агенту у цели. Кому какой приказ — `ORDER_AGENT`. */
+export type OrderActionId = DiploActionId | SpyActionId;
 
 /**
  * Отношения с поселением как они лежат в сохранении. Ничего, что можно вывести
@@ -92,6 +107,17 @@ export interface DiploRecord {
   breakAt: number;
 }
 
+/**
+ * Бунт, поднятый лазутчиком. Хранится одним окном времени, а всё остальное —
+ * вставшее производство и просевший гарнизон — выводится из него при чтении.
+ */
+export interface RevoltView {
+  since: number;
+  until: number;
+  /** На сколько просел гарнизон, доля. */
+  power: number;
+}
+
 /** Отношения с поселением, как их показывает карточка и меню приказов. */
 export interface DiploView extends DiploRecord {
   temper: TemperId;
@@ -104,7 +130,7 @@ export interface DiploView extends DiploRecord {
  * недоступное действие показано и объяснено, а не спрятано.
  */
 export interface OrderOption {
-  id: DiploActionId;
+  id: OrderActionId;
   can: boolean;
   /** Почему нельзя. null — можно. */
   reason: string | null;
@@ -171,6 +197,13 @@ export interface Intel {
   formation?: Partial<Record<string, Stack>>;
   /** Уклад войска словами: «копейная стена», «конная дружина». */
   style?: string;
+  /**
+   * Доля, ниже которой числа этого снимка не сужаются, как бы он ни был свеж.
+   * Её ставит лазутчик: он считает войско на глаз и из чужих разговоров, и его
+   * донесение — вилка с самого начала, а не точное число, которое потом стареет.
+   * Пусто — снимок сделан своими глазами (разведчик у ворот, бой) и точен.
+   */
+  spread?: number;
 }
 
 export interface IntelReading {
@@ -185,6 +218,12 @@ export interface IntelReading {
   /** Построение по секторам. null — данные слишком стары: построение уже не то. */
   formation: Partial<Record<string, Stack>> | null;
   style: string | null;
+  /**
+   * Донесение с чужих слов: числа были приблизительными уже в момент получения.
+   * Игроку это говорится прямо — «данные стареют» и «данные такими и пришли»
+   * разные вещи, и путать их нельзя.
+   */
+  hearsay: boolean;
 }
 
 /** Поселение как оно видно на карте — без разведки. */
@@ -274,6 +313,8 @@ export interface SettlementCard extends SettlementView {
    * null — своя деревня: сама с собой она не воюет и пактов не подписывает.
    */
   diplomacy: DiploView | null;
+  /** Бунт в поселении: до какого момента он идёт. null — там спокойно. */
+  revolt: RevoltView | null;
   /** Какие действия имеют смысл для этой цели. */
   can: Record<Mission | 'open', boolean>;
   /** Почему действий нет; null — всё доступно. */

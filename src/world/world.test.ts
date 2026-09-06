@@ -29,6 +29,7 @@ import {
   HOME_SIGHT,
   INTEL_EXACT,
   INTEL_ROUGH,
+  REVOLT_POWER_LOSS,
   INTEL_VAGUE,
   COST_BRIDGE,
   COST_FORD,
@@ -43,6 +44,7 @@ import {
 import type { Coord, FigureView, Intel, MarchView, PlayerProfile, SettlementView } from './types';
 
 const START = 1_700_000_000_000;
+const MINUTE = 60_000;
 
 /** Мир с ручными часами и без сохранения: тесты не трогают localStorage. */
 function makeWorld(seed = 7) {
@@ -1400,7 +1402,7 @@ describe('отношения с поселениями', () => {
     await w.world.sync(p);
     const target = await neighbour(w.world);
 
-    const far = await w.world.orders(target.id);
+    const far = await w.world.orders('diplomat', target.id);
     expect(far.length, 'приказы не прячутся, даже когда их нельзя отдать').toBe(5);
     for (const o of far) {
       expect(o.can, o.id).toBe(false);
@@ -1410,7 +1412,7 @@ describe('отношения с поселениями', () => {
     expect(res.error).toMatch(/далеко/);
 
     await bringDiplomat(w, p, target);
-    const near = await w.world.orders(target.id);
+    const near = await w.world.orders('diplomat', target.id);
     expect(near.find((o) => o.id === 'insult')?.can, 'оскорбить можно всегда').toBe(true);
     // Мира нет там, где нет войны, — и об этом сказано, а не спрятано.
     const peace = near.find((o) => o.id === 'peace');
@@ -1430,14 +1432,14 @@ describe('отношения с поселениями', () => {
     await bringDiplomat(w, p, target);
 
     expect((await w.world.order('insult', target.id)).error).toBeNull();
-    const busy = (await w.world.orders(target.id)).find((o) => o.id === 'insult');
+    const busy = (await w.world.orders('diplomat', target.id)).find((o) => o.id === 'insult');
     expect(busy?.can).toBe(false);
     expect(busy?.reason).toMatch(/переговоры/);
     const f = (await w.world.figures()).find((x) => x.id === 'diplomat') as FigureView;
     expect(f.busyUntil).toBeGreaterThan(w.now());
 
     await freeDiplomat(w, p);
-    expect((await w.world.orders(target.id)).find((o) => o.id === 'insult')?.can).toBe(true);
+    expect((await w.world.orders('diplomat', target.id)).find((o) => o.id === 'insult')?.can).toBe(true);
   });
 
   it('плата берётся только за принятое', async () => {
@@ -1452,7 +1454,7 @@ describe('отношения с поселениями', () => {
     let accepted = 0;
     for (let i = 0; i < 30 && accepted === 0; i++) {
       await freeDiplomat(w, p);
-      const before = await w.world.orders(target.id);
+      const before = await w.world.orders('diplomat', target.id);
       const res = await w.world.order('gift', target.id);
       expect(res.error).toBeNull();
       const pulse = await w.world.sync(p);
@@ -1505,7 +1507,7 @@ describe('отношения с поселениями', () => {
   ): Promise<boolean> {
     for (let i = 0; i < 40; i++) {
       await freeDiplomat(w, p);
-      const opt = (await w.world.orders(id)).find((o) => o.id === 'pact');
+      const opt = (await w.world.orders('diplomat', id)).find((o) => o.id === 'pact');
       if (opt?.can && (opt.chance ?? 0) >= 1) {
         const res = await w.world.order('pact', id);
         if (res.accepted) return true;
@@ -1647,5 +1649,200 @@ describe('сохранение мира приводится, а не выбра
   it('версия 3 по-прежнему отбрасывается: мир там был другой', () => {
     const old = { ...createWorldSave(9, { x: 410, y: 710 }, null, 1000), v: 3 };
     expect(parseWorldSave(JSON.stringify(old))).toBeNull();
+  });
+});
+
+describe('лазутчик в мире', () => {
+  /** Ближайший к дому чужой двор с племенем. */
+  async function neighbour(world: LocalWorld) {
+    const info = await world.info();
+    const chunk = await world.region({ x: info.home.x - 30, y: info.home.y - 30, w: 60, h: 60 });
+    const list = chunk.settlements.filter((s) => !s.mine && s.tribeId);
+    expect(list.length).toBeGreaterThan(0);
+    return list.sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+  }
+
+  async function bringSpy(w: ReturnType<typeof makeWorld>, p: PlayerProfile, to: Coord) {
+    expect(await w.world.moveFigure('spy', { x: to.x, y: to.y })).toBeNull();
+    const f = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+    w.at(f.arriveAt);
+    await w.world.sync(p);
+  }
+
+  async function freeSpy(w: ReturnType<typeof makeWorld>, p: PlayerProfile) {
+    const f = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+    if (f.busyUntil > w.now()) w.at(f.busyUntil);
+    await w.world.sync(p);
+  }
+
+  /** Повторяет приказ, пока не получит нужный исход: условия меняются сами. */
+  async function until(
+    w: ReturnType<typeof makeWorld>,
+    p: PlayerProfile,
+    action: 'probe' | 'revolt',
+    id: string,
+    want: boolean,
+  ): Promise<boolean> {
+    for (let i = 0; i < 25; i++) {
+      await freeSpy(w, p);
+      const res = await w.world.order(action, id);
+      if (res.error) return false;
+      if (res.accepted === want) return true;
+    }
+    return false;
+  }
+
+  it('приказ отдаётся только у ворот, и недоступное объяснено словами', async () => {
+    const w = makeWorld(61);
+    const p = profile();
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+
+    const far = await w.world.orders('spy', target.id);
+    expect(far.length, 'оба приказа видны, даже когда их нельзя отдать').toBe(2);
+    for (const o of far) {
+      expect(o.can, o.id).toBe(false);
+      expect(o.reason, o.id).toMatch(/далеко/);
+      expect(o.chance, 'шанс виден до подтверждения').toBeGreaterThan(0);
+    }
+    expect((await w.world.order('probe', target.id)).error).toMatch(/далеко/);
+
+    await bringSpy(w, p, target);
+    const near = await w.world.orders('spy', target.id);
+    expect(near.every((o) => o.can)).toBe(true);
+    // У разведчика и полководца своих приказов пока нет — и пустой список честнее
+    // выдуманных кнопок.
+    expect((await w.world.orders('scout', target.id)).length).toBe(0);
+  });
+
+  it('в лагере бродяг бунтовать не против кого, а сосчитать их можно', async () => {
+    const w = makeWorld(67);
+    const p = profile();
+    await w.world.sync(p);
+    const info = await w.world.info();
+    const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
+    const camp = chunk.settlements.find((s) => !s.mine && !s.tribeId);
+    if (!camp) return; // рядом не оказалось варваров — проверять нечего
+    await bringSpy(w, p, camp);
+    const opts = await w.world.orders('spy', camp.id);
+    expect(opts.find((o) => o.id === 'probe')?.can).toBe(true);
+    const revolt = opts.find((o) => o.id === 'revolt');
+    expect(revolt?.can).toBe(false);
+    expect(revolt?.reason).toMatch(/бродяг|недовольных/);
+  });
+
+  it('провал не губит лазутчика: его задерживают и запоминают', async () => {
+    const w = makeWorld(71);
+    const p = profile();
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+    await bringSpy(w, p, target);
+
+    const before = (await w.world.settlement(target.id))?.diplomacy?.attitude ?? 0;
+    expect(await until(w, p, 'probe', target.id, false), 'провал должен когда-то случиться').toBe(true);
+
+    const f = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+    expect(f.phase, 'лазутчик не гибнет никогда').not.toBe('down');
+    expect(f.busyUntil, 'его задержали').toBeGreaterThan(w.now());
+    // Задержанный не ходит: приказ движения ему сейчас не отдать.
+    const err = await w.world.moveFigure('spy', { x: target.x + 3, y: target.y + 3 });
+    expect(err).toMatch(/стражей/);
+    const after = (await w.world.settlement(target.id))?.diplomacy?.attitude ?? 0;
+    expect(after, 'и запомнили').toBeLessThan(before);
+  });
+
+  it('донесение приходит вилкой и с датой, а не точным числом', async () => {
+    const w = makeWorld(73);
+    const p = profile();
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+    await bringSpy(w, p, target);
+    expect(await until(w, p, 'probe', target.id, true), 'донесение должно прийти').toBe(true);
+
+    const reading = await w.world.intel(target.id);
+    expect(reading).toBeTruthy();
+    expect(reading?.hearsay, 'числа приблизительны с самого начала').toBe(true);
+    expect(reading?.power.value, 'точного числа у донесения нет').toBeNull();
+    expect(reading?.power.max).toBeGreaterThan(reading?.power.min ?? 0);
+    expect(reading?.kinds, 'и какого вида войско — тоже вилкой').toBeTruthy();
+    expect(reading?.formation, 'построения лазутчик не приносит').toBeNull();
+    expect(reading?.ageSeconds).toBeLessThan(60);
+
+    const width = (r: typeof reading): number => (r ? r.power.max - r.power.min : 0);
+    const fresh = width(reading);
+    w.advance(INTEL_ROUGH + MINUTE);
+    expect(width(await w.world.intel(target.id)), 'со временем вилка шире').toBeGreaterThan(fresh);
+  });
+
+  it('бунт останавливает производство и слабит гарнизон — прогоном, а не на слово', async () => {
+    const SEED = 79;
+    const p = profile();
+    // Две одинаковые партии: в одной поднимаем бунт, в другой нет.
+    const a = makeWorld(SEED);
+    const b = makeWorld(SEED);
+    await a.world.sync(p);
+    await b.world.sync(p);
+    const target = await neighbour(a.world);
+
+    await bringSpy(a, p, target);
+    await bringSpy(b, p, target);
+    // Обе партии идут одинаково до самого приказа.
+    expect(await until(a, p, 'revolt', target.id, true), 'бунт должен подняться').toBe(true);
+    const card = await a.world.settlement(target.id);
+    expect(card?.revolt, 'бунт виден в карточке').toBeTruthy();
+    expect(card?.revolt?.until).toBeGreaterThan(a.now());
+
+    // Второй раз бунтовать там же нельзя, и об этом сказано. Ждём, пока
+    // лазутчика отпустят: первая помеха всегда та, что ближе.
+    await freeSpy(a, p);
+    const again = (await a.world.orders('spy', target.id)).find((o) => o.id === 'revolt');
+    expect(again?.can).toBe(false);
+    expect(again?.reason).toMatch(/и так бунт/);
+
+    // Догоняем вторую партию по времени и смотрим, что стало с поселением.
+    b.at(a.now());
+    await b.world.sync(p);
+    const hour = 60 * MINUTE;
+    a.advance(hour);
+    b.advance(hour);
+    await a.world.sync(p);
+    await b.world.sync(p);
+
+    const seen = async (w: ReturnType<typeof makeWorld>): Promise<number> =>
+      (await w.world.settlement(target.id))?.seenPop ?? 0;
+    expect(await seen(a), 'под бунтом поселение не растёт').toBeLessThan(await seen(b));
+
+    // Гарнизон: сравниваем середины вилок двух донесений об одном и том же дворе.
+    expect(await until(a, p, 'probe', target.id, true)).toBe(true);
+    expect(await until(b, p, 'probe', target.id, true)).toBe(true);
+    const mid = async (w: ReturnType<typeof makeWorld>): Promise<number> => {
+      const r = await w.world.intel(target.id);
+      return ((r?.power.min ?? 0) + (r?.power.max ?? 0)) / 2;
+    };
+    const under = await mid(a);
+    const calm = await mid(b);
+    expect(under, 'а гарнизон его заметно слабее').toBeLessThan(calm * (1 - REVOLT_POWER_LOSS / 2));
+
+    // Бунт кончается сам, и после него поселение снова живёт.
+    a.at((card?.revolt?.until ?? 0) + MINUTE);
+    await a.world.sync(p);
+    expect((await a.world.settlement(target.id))?.revolt).toBeNull();
+  });
+
+  it('бунт не двигает прошлое: разбитый гарнизон под бунтом не отстраивается', async () => {
+    const SEED = 83;
+    const p = profile({ warriorPower: 4, army: { clubman: 8 } });
+    const w = makeWorld(SEED);
+    await w.world.sync(p);
+    const target = await neighbour(w.world);
+    await bringSpy(w, p, target);
+    expect(await until(w, p, 'revolt', target.id, true)).toBe(true);
+    // Час под бунтом — и это не отменяет ни одной прошлой отметки: мир по-прежнему
+    // отвечает на вопросы, а не падает на отрицательном возрасте записей.
+    w.advance(60 * MINUTE);
+    await w.world.sync(p);
+    const card = await w.world.settlement(target.id);
+    expect(card).toBeTruthy();
+    expect(card?.revolt).toBeTruthy();
   });
 });

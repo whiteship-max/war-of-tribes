@@ -24,18 +24,24 @@ const UNKNOWN: Estimate = { precision: 'unknown', value: null, min: 0, max: 0 };
 /**
  * Число с той точностью, которая осталась. Границы диапазона считаются от самого
  * значения, а не случайно, — иначе оценка прыгала бы при каждой перерисовке.
+ *
+ * `floor` — вилка, ниже которой снимок не сужается, как бы он ни был свеж. Её
+ * ставит лазутчик: он считает войско на глаз, и точного числа в его донесении
+ * нет с самого начала. Точный снимок с такой вилкой невозможен по смыслу,
+ * поэтому он читается как приблизительный.
  */
-export function estimate(value: number, precision: Precision): Estimate {
+export function estimate(value: number, precision: Precision, floor = 0): Estimate {
   if (precision === 'unknown') return { ...UNKNOWN };
-  if (precision === 'exact') {
+  if (precision === 'exact' && floor <= 0) {
     const v = Math.round(value);
     return { precision, value: v, min: v, max: v };
   }
-  const spread = precision === 'rough' ? INTEL_ROUGH_SPREAD : INTEL_VAGUE_SPREAD;
-  const step = precision === 'rough' ? 5 : 10;
+  const step = precision === 'vague' ? 10 : 5;
+  const base = precision === 'vague' ? INTEL_VAGUE_SPREAD : precision === 'rough' ? INTEL_ROUGH_SPREAD : 0;
+  const spread = Math.max(base, floor);
   const min = Math.max(0, Math.floor((value * (1 - spread)) / step) * step);
   const max = Math.ceil((value * (1 + spread)) / step) * step;
-  return { precision, value: null, min, max };
+  return { precision: precision === 'exact' ? 'rough' : precision, value: null, min, max };
 }
 
 /** Точное значение — то, что игрок видит про себя. */
@@ -46,7 +52,11 @@ export const exact = (value: number): Estimate => estimate(value, 'exact');
  * числа, дальше — диапазоны, на старых мелкие отряды пропадают совсем: показывать
  * «кавалерия: 0», когда её просто не разглядели, значит врать игроку.
  */
-export function readKinds(kinds: Stack | undefined, precision: Precision): Partial<Record<UnitKind, Estimate>> | null {
+export function readKinds(
+  kinds: Stack | undefined,
+  precision: Precision,
+  floor = 0,
+): Partial<Record<UnitKind, Estimate>> | null {
   if (!kinds || precision === 'unknown') return null;
   const total = stackTotal(kinds);
   if (total <= 0) return null;
@@ -54,7 +64,7 @@ export function readKinds(kinds: Stack | undefined, precision: Precision): Parti
   for (const k of UNIT_KINDS) {
     const n = kinds[k];
     if (precision === 'vague' && n / total < VAGUE_SHARE) continue;
-    out[k] = estimate(n, precision);
+    out[k] = estimate(n, precision, floor);
   }
   return out;
 }
@@ -69,17 +79,23 @@ export function readIntel(intel: Intel | null, now: number): IntelReading | null
   const age = real / Math.max(1, intel.keen ?? 1);
   const precision = precisionOf(age);
   if (precision === 'unknown') return null;
+  // Донесение лазутчика приблизительно с самого начала: у него своя вилка, и
+  // сузиться до точного числа оно не может ни при какой свежести. Стареет оно
+  // при этом обычным порядком — вилка только расширяется.
+  const floor = Math.max(0, intel.spread ?? 0);
+  const shown: Precision = floor > 0 && precision === 'exact' ? 'rough' : precision;
   return {
     at: intel.at,
     ageSeconds: real / 1000,
-    precision,
-    power: estimate(intel.power, precision),
-    pop: estimate(intel.pop, precision),
-    loot: estimate(intel.loot, precision),
-    kinds: readKinds(intel.kinds, precision),
+    precision: shown,
+    hearsay: floor > 0,
+    power: estimate(intel.power, shown, floor),
+    pop: estimate(intel.pop, shown, floor),
+    loot: estimate(intel.loot, shown, floor),
+    kinds: readKinds(intel.kinds, shown, floor),
     // Построение живёт недолго: на старых данных противник давно перестроился,
     // и показывать вчерашнюю схему как сегодняшнюю нельзя.
-    formation: precision === 'vague' ? null : (intel.formation ?? null),
+    formation: shown === 'vague' ? null : (intel.formation ?? null),
     style: intel.style ?? null,
   };
 }

@@ -19,6 +19,7 @@ import type {
   DiploRecord,
   DiploView,
   FigureId,
+  OrderActionId,
   FigureView,
   HomeEffect,
   Intel,
@@ -36,6 +37,7 @@ import type {
   SendResult,
   SettlementCard,
   SettlementId,
+  RevoltView,
   SettlementView,
   Standing,
   TemperId,
@@ -62,6 +64,17 @@ import { featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
 import { DIPLO_ACTIONS, DIPLO_ACTION_BY_ID, TEMPER_BY_ID } from '../data/diplomacy';
+import { ORDER_AGENT, SPY_ACTIONS, SPY_ACTION_BY_ID } from '../data/spy';
+import {
+  guardOf,
+  revoltActive,
+  revoltElapsed,
+  revoltPower,
+  revoltWindow,
+  spyChance,
+  spyOutcome,
+  spySeed,
+} from '../spy';
 import {
   chanceOf,
   clampAttitude,
@@ -108,6 +121,10 @@ import {
   AI_WAR_WEIGHT,
   GIFT_PER_POP,
   PEACE_PER_POP,
+  REVOLT_POWER_LOSS,
+  SPY_BUSY,
+  SPY_CAUGHT_ATTITUDE,
+  SPY_HELD,
   SUPPORT_ATTITUDE,
   LOOT_REFILL,
   POWER_GROWTH_CAP,
@@ -208,7 +225,32 @@ export class LocalWorld implements WorldApi {
     return this.fog.count();
   }
 
-  private elapsed = (now: number): number => Math.max(0, now - this.save.createdAt);
+  /**
+   * Собственные часы поселения. Их останавливает бунт: пока он идёт, поселение
+   * не растёт, запасы не копятся и разбитый гарнизон не отстраивается — это и
+   * означает «производство встало».
+   *
+   * Считается при чтении из одного окна времени, а не отмечается тиком, поэтому
+   * офлайн даёт ровно то же, что непрерывная игра. Отметки на записях
+   * (`damage.at`, `looted`) ставятся в этих же часах — иначе бунт двигал бы
+   * прошлое, и разбитый гарнизон чинился бы задним числом.
+   */
+  private liveAt = (id: SettlementId, now: number): number =>
+    now - revoltElapsed(this.save.revolts[id], now);
+
+  /** Сколько поселение прожило своей жизнью: возраст мира минус время бунтов. */
+  private lived = (s: GenSettlement, now: number): number =>
+    Math.max(0, this.liveAt(s.id, now) - this.save.createdAt);
+
+  /** Бунт идёт прямо сейчас? */
+  private inRevolt = (id: SettlementId, now: number): boolean =>
+    revoltActive(this.save.revolts[id], now);
+
+  private revoltView(id: SettlementId, now: number): RevoltView | null {
+    const w = this.save.revolts[id];
+    if (!w || !revoltActive(w, now)) return null;
+    return { since: w.since, until: w.until, power: REVOLT_POWER_LOSS };
+  }
 
   /**
    * Место боя на клетке: земля, переправа, гребень, тракт плюс игровое время
@@ -223,7 +265,7 @@ export class LocalWorld implements WorldApi {
   private damageOf(id: SettlementId, now: number): number {
     const d = this.save.damage[id];
     if (!d) return 0;
-    const k = 1 - (now - d.at) / DAMAGE_RECOVER;
+    const k = 1 - (this.liveAt(id, now) - d.at) / DAMAGE_RECOVER;
     return k <= 0 ? 0 : d.loss * k;
   }
 
@@ -235,11 +277,14 @@ export class LocalWorld implements WorldApi {
   }
 
   private powerNow(s: GenSettlement, now: number): number {
-    const base = powerOf(s, this.elapsed(now), POWER_GROWTH_CAP);
-    return Math.max(1, base * (1 - this.damageOf(s.id, now)) + this.supportIn(s.id));
+    const base = powerOf(s, this.lived(s, now), POWER_GROWTH_CAP);
+    // Пока идёт бунт, гарнизон занят своими: он слабее ровно на объявленную долю.
+    const revolt = revoltPower(this.inRevolt(s.id, now));
+    return Math.max(1, base * revolt * (1 - this.damageOf(s.id, now)) + this.supportIn(s.id));
   }
 
-  private popNow = (s: GenSettlement, now: number): number => popOf(s, this.elapsed(now), POWER_GROWTH_CAP);
+  private popNow = (s: GenSettlement, now: number): number =>
+    popOf(s, this.lived(s, now), POWER_GROWTH_CAP);
 
   /**
    * Враждебность племени. Своим полем в сохранении она больше не живёт: это
@@ -441,7 +486,7 @@ export class LocalWorld implements WorldApi {
   /** Сколько добра лежит в поселении сейчас: после набега запасы восстанавливаются не сразу. */
   private lootAvailable(s: GenSettlement, now: number): number {
     const last = this.save.looted[s.id] ?? this.save.createdAt - LOOT_REFILL;
-    const refill = Math.min(1, Math.max(0, (now - last) / LOOT_REFILL));
+    const refill = Math.min(1, Math.max(0, (this.liveAt(s.id, now) - last) / LOOT_REFILL));
     return Math.round(this.lootCap(s, now) * refill);
   }
 
@@ -452,8 +497,8 @@ export class LocalWorld implements WorldApi {
   private castleGold(s: GenSettlement, now: number): number {
     if (!s.castle) return 0;
     const last = this.save.looted[s.id] ?? this.save.createdAt - LOOT_REFILL;
-    const refill = Math.min(1, Math.max(0, (now - last) / LOOT_REFILL));
-    return Math.round(powerOf(s, this.elapsed(now), POWER_GROWTH_CAP) * CASTLE_GOLD_PER_POWER * refill);
+    const refill = Math.min(1, Math.max(0, (this.liveAt(s.id, now) - last) / LOOT_REFILL));
+    return Math.round(powerOf(s, this.lived(s, now), POWER_GROWTH_CAP) * CASTLE_GOLD_PER_POWER * refill);
   }
 
   /**
@@ -484,7 +529,7 @@ export class LocalWorld implements WorldApi {
     const take = Math.min(avail, Math.floor(carry));
     const cap = Math.max(1, this.lootCap(s, now));
     const leftShare = Math.max(0, (avail - take) / cap);
-    this.save.looted[s.id] = now - leftShare * LOOT_REFILL;
+    this.save.looted[s.id] = this.liveAt(s.id, now) - leftShare * LOOT_REFILL;
     if (take <= 0) return null;
     const mix = s.lootMix;
     const out: Loot = {};
@@ -891,7 +936,10 @@ export class LocalWorld implements WorldApi {
     const enemyLost = Math.round(defense * field.defenderLoss);
 
     const prev = this.damageOf(target.id, at);
-    this.save.damage[target.id] = { loss: Math.min(0.95, prev + field.defenderLoss * (1 - prev)), at };
+    this.save.damage[target.id] = {
+      loss: Math.min(0.95, prev + field.defenderLoss * (1 - prev)),
+      at: this.liveAt(target.id, at),
+    };
     // Набег роняет отношение с самим двором и, слабее, с остальными дворами
     // того же племени: обида племени и есть среднее по его дворам.
     this.moveAttitude(target.id, ATTACK_ATTITUDE, at);
@@ -1329,6 +1377,7 @@ export class LocalWorld implements WorldApi {
         deals: [],
         // Сама с собой деревня не воюет и пактов не подписывает.
         diplomacy: null,
+        revolt: null,
         can: { raid: false, scout: false, support: false, open: true },
         note: 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
       };
@@ -1358,6 +1407,7 @@ export class LocalWorld implements WorldApi {
       figuresHere: here,
       deals: s.tribeId ? this.dealsOf(s.tribeId, now) : [],
       diplomacy: this.diploView(s, now),
+      revolt: this.revoltView(s.id, now),
       can: { raid: canRaid, scout: true, support: ally, open: false },
       note: canRaid
         ? null
@@ -1536,6 +1586,11 @@ export class LocalWorld implements WorldApi {
       const left = Math.ceil(Math.max(0, f.downUntil - now) / 1000);
       return `${def.name} выбыл: вернётся через ${Math.ceil(left / 60)} мин.`;
     }
+    // Занятая фигура с места не сходит. Для лазутчика это и есть цена провала:
+    // его задержали, и увести его нельзя, пока не отпустят. Для дипломата —
+    // то же правило: посреди переговоров он не уходит.
+    const busy = Math.max(0, (f.busyUntil ?? 0) - now);
+    if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
     const target = clampToWorld(to);
     const from = this.figureAt(f, now);
     const dist = distance(from, target);
@@ -1682,31 +1737,48 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Меню приказов дипломата по этой цели. Недоступное действие не выбрасывается,
-   * а возвращается с причиной: игрок обязан видеть, чего ему не хватает, а не
-   * гадать, куда делась кнопка.
+   * Почему агент сейчас не может приказывать по этой цели. null — может.
+   * Одна проверка на всех: дошёл, не выбыл, не занят прошлым делом.
    */
-  private orderOptions(target: GenSettlement, now: number): OrderOption[] {
-    const f = this.save.figures.diplomat;
-    const busyLeft = Math.max(0, (f.busyUntil ?? 0) - now);
-    const near = f.phase === 'down' || f.phase === 'moving' ? null : this.touching(this.figureAt(f, now));
+  private agentBlock(id: FigureId, target: GenSettlement, now: number): string | null {
+    const f = this.save.figures[id];
+    const def = FIGURE_BY_ID[id];
+    if (f.phase === 'down') {
+      return `${def.name} выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`;
+    }
+    if (f.phase === 'moving') return `${def.name} ещё в пути.`;
+    if (this.touching(this.figureAt(f, now))?.id !== target.id) {
+      return `Слишком далеко: ${def.one} надо довести к самым воротам.`;
+    }
+    const busy = Math.max(0, (f.busyUntil ?? 0) - now);
+    if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
+    return null;
+  }
+
+  /** Чем занят агент — словами. У лазутчика это не занятость, а задержание. */
+  private busyNote = (id: FigureId): string =>
+    id === 'spy' ? 'Лазутчика держат под стражей' : `${FIGURE_BY_ID[id].name} ещё ведёт прошлые переговоры`;
+
+  /** Меню приказов для агента. У разведчика и полководца своих приказов нет. */
+  private orderOptions(agent: FigureId, target: GenSettlement, now: number): OrderOption[] {
+    if (agent === 'diplomat') return this.diploOptions(target, now);
+    if (agent === 'spy') return this.spyOptions(target, now);
+    return [];
+  }
+
+  /**
+   * Приказы дипломата. Недоступное действие не выбрасывается, а возвращается с
+   * причиной: игрок обязан видеть, чего ему не хватает, а не гадать, куда
+   * делась кнопка.
+   */
+  private diploOptions(target: GenSettlement, now: number): OrderOption[] {
     const rec = this.diploOf(target.id, now);
     const standing = standingAt(rec, now);
     const temper = this.temperOfSettlement(target);
     const pressure = this.damageOf(target.id, now);
-
     const common =
-      f.phase === 'down'
-        ? `Дипломат выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`
-        : f.phase === 'moving'
-          ? 'Дипломат ещё в пути.'
-          : near?.id !== target.id
-            ? 'Слишком далеко: дипломата надо довести к самым воротам.'
-            : busyLeft > 0
-              ? `Дипломат ещё ведёт прошлые переговоры: ${formatLeft(busyLeft / 1000)}.`
-              : !target.tribeId
-                ? 'У варваров нет старейшин, с которыми говорят.'
-                : null;
+      this.agentBlock('diplomat', target, now) ??
+      (!target.tribeId ? 'У варваров нет старейшин, с которыми говорят.' : null);
 
     return DIPLO_ACTIONS.map((def) => {
       const chance = chanceOf({ action: def.id, attitude: rec.attitude, temper, standing, pressure, seed: 0 });
@@ -1740,39 +1812,74 @@ export class LocalWorld implements WorldApi {
     });
   }
 
-  async orders(target: SettlementId): Promise<OrderOption[]> {
+  /**
+   * Приказы лазутчика. Шанс считается той же чистой функцией, что и в приказе,
+   * и от тех же трёх входов: уровень лазутчика (Дозор игрока), стража цели и
+   * расстояние. Показанный шанс и есть тот, по которому потом бросается кость.
+   */
+  private spyOptions(target: GenSettlement, now: number): OrderOption[] {
+    const common = this.agentBlock('spy', target, now);
+    const keen = Math.max(1, this.save.profile?.intelKeen ?? 1);
+    const guard = guardOf(this.powerNow(target, now), target.castle);
+    const away = distance(this.save.home, target);
+    return SPY_ACTIONS.map((def) => {
+      const chance = spyChance({ action: def.id, keen, guard, distance: away });
+      let reason = common;
+      if (!reason && def.id === 'revolt') {
+        if (!target.tribeId) reason = 'В лагере бродяг нет ни хозяев, ни недовольных: бунтовать не против кого.';
+        else if (this.inRevolt(target.id, now)) {
+          reason = `Там и так бунт: ещё ${formatLeft(Math.max(0, (this.save.revolts[target.id]?.until ?? 0) - now) / 1000)}.`;
+        }
+      }
+      return {
+        id: def.id,
+        can: reason === null,
+        reason,
+        chance,
+        // Лазутчик не платит добром: он платит риском.
+        cost: {},
+        seconds: Math.round(def.busy / 1000),
+      };
+    });
+  }
+
+  async orders(agent: FigureId, target: SettlementId): Promise<OrderOption[]> {
     const s = this.byId.get(target);
     if (!s) return [];
-    return this.orderOptions(s, this.clock());
+    return this.orderOptions(agent, s, this.clock());
   }
 
   /**
-   * Приказ дипломату. Ответ соседа считает чистая функция `respond` — по
-   * отношению, характеру и зерну; зерно выведено из самого отношения, поэтому
-   * второе нажатие при тех же условиях даёт тот же ответ. Хочешь другого —
-   * меняй условия.
+   * Приказ агенту. Кому какой приказ, знает одна таблица (`ORDER_AGENT`), и
+   * второго списка «у кого что» быть не должно.
    *
-   * Плата берётся только за принятое: отказ стоит времени дипломата, а не добра.
+   * Ответ считает чистая функция — `respond` у дипломата, `spyOutcome` у
+   * лазутчика, — и зерно у обеих выведено из условий дела, а не из счётчика
+   * обращений: второе нажатие при тех же условиях даёт тот же ответ.
    */
-  async order(action: DiploActionId, target: SettlementId): Promise<OrderResult> {
+  async order(action: OrderActionId, target: SettlementId): Promise<OrderResult> {
     const now = this.clock();
     const s = this.byId.get(target);
     const fail = (error: string): OrderResult => ({ error, accepted: false, diplomacy: null, text: '' });
     if (!s) return fail('Цель не найдена.');
-    const opt = this.orderOptions(s, now).find((o) => o.id === action);
+    const agent = ORDER_AGENT[action];
+    if (!agent) return fail('Такого приказа нет.');
+    const opt = this.orderOptions(agent, s, now).find((o) => o.id === action);
     if (!opt) return fail('Такого приказа нет.');
     if (!opt.can) return fail(opt.reason ?? 'Сейчас нельзя.');
+    if (agent === 'spy') return this.spyOrder(action as 'probe' | 'revolt', s, now, opt.chance ?? 0);
 
+    const diplo = action as DiploActionId;
     const rec = this.diploOf(target, now);
     const standing = standingAt(rec, now);
     const before = rec.attitude;
     const answer = respond({
-      action,
+      action: diplo,
       attitude: rec.attitude,
       temper: this.temperOfSettlement(s),
       standing,
       pressure: this.damageOf(target, now),
-      seed: orderSeed(this.save.seed, target, action, rec.attitude, standing),
+      seed: orderSeed(this.save.seed, target, diplo, rec.attitude, standing),
     });
 
     rec.attitude = answer.attitude;
@@ -1789,28 +1896,28 @@ export class LocalWorld implements WorldApi {
     }
     this.save.diplomacy[target] = rec;
 
-    const def = DIPLO_ACTION_BY_ID[action];
+    const def = DIPLO_ACTION_BY_ID[diplo];
     const f = this.save.figures.diplomat;
     f.busyUntil = now + def.busy;
 
     const cost = answer.accepted ? opt.cost : {};
     const spent: Loot = {};
     for (const [r, n] of Object.entries(cost) as [keyof Loot, number][]) spent[r] = -(n ?? 0);
-    const good = answer.accepted && action !== 'war' && action !== 'insult';
+    const good = answer.accepted && diplo !== 'war' && diplo !== 'insult';
     const text = `${s.name}: ${answer.text}`;
 
     this.addEffect({
-      id: `order-${target}-${action}-${now}`,
+      id: `order-${target}-${diplo}-${now}`,
       lost: {},
       resources: spent,
-      prestige: action === 'pact' || action === 'peace' ? (answer.accepted ? 2 : 0) : action === 'war' ? 1 : 0,
-      morale: good ? 2 : action === 'war' ? -2 : 0,
+      prestige: diplo === 'pact' || diplo === 'peace' ? (answer.accepted ? 2 : 0) : diplo === 'war' ? 1 : 0,
+      morale: good ? 2 : diplo === 'war' ? -2 : 0,
       battle: null,
       text,
       good,
     });
     this.addReport({
-      id: `order-${target}-${action}-${now}-r`,
+      id: `order-${target}-${diplo}-${now}-r`,
       at: now,
       kind: 'support',
       title: `${def.name}: ${s.name}`,
@@ -1828,6 +1935,71 @@ export class LocalWorld implements WorldApi {
     });
     this.write();
     return { error: null, accepted: answer.accepted, diplomacy: this.diploView(s, now), text };
+  }
+
+  /**
+   * Дело лазутчика. Он у игрока один, поэтому провал его **не губит**: он
+   * возвращается ни с чем, его держат под стражей `SPY_HELD`, и цель запоминает
+   * лицо — отношение падает. Потерять агента насовсем значило бы превратить
+   * механику в наказание, а не в риск.
+   */
+  private spyOrder(action: 'probe' | 'revolt', s: GenSettlement, now: number, chance: number): OrderResult {
+    const rec = this.diploOf(s.id, now);
+    const seed = spySeed(this.save.seed, s.id, action, chance, rec.attitude);
+    const out = spyOutcome(chance, seed, action);
+    const f = this.save.figures.spy;
+    f.busyUntil = now + (out.success ? SPY_BUSY : SPY_HELD);
+
+    let intel: Intel | null = null;
+    if (!out.success) {
+      // Его заметили — и запомнили. Это и есть цена провала вместо гибели.
+      this.moveAttitude(s.id, SPY_CAUGHT_ATTITUDE, now);
+    } else if (action === 'probe') {
+      // Донесение — тот же снимок, что и у разведчика, но с вилкой и без
+      // построения: лазутчик считает головы, а не разглядывает линии.
+      const snap = this.snapshot(s, now);
+      intel = { ...snap, formation: undefined, spread: out.spread };
+      this.save.intel[s.id] = intel;
+    } else {
+      this.save.revolts[s.id] = revoltWindow(now);
+    }
+
+    const def = SPY_ACTION_BY_ID[action];
+    const title = out.success ? `${def.name}: ${s.name}` : `Провал у ${s.name}`;
+    this.addReport({
+      id: `spy-${s.id}-${action}-${now}`,
+      at: now,
+      kind: 'scout',
+      title,
+      target: { id: s.id, name: s.name, x: s.x, y: s.y },
+      won: out.success,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel,
+      battle: null,
+      text: out.text,
+      read: false,
+    });
+    this.addEffect({
+      id: `spy-${s.id}-${action}-${now}-eff`,
+      lost: {},
+      resources: {},
+      prestige: out.success && action === 'revolt' ? 2 : 0,
+      morale: out.success ? 1 : -2,
+      battle: null,
+      text: `${s.name}: ${out.text}`,
+      good: out.success,
+    });
+    this.write();
+    return {
+      error: null,
+      accepted: out.success,
+      diplomacy: this.diploView(s, now),
+      text: `${s.name}: ${out.text}`,
+    };
   }
 
   async deals(): Promise<DealView[]> {
