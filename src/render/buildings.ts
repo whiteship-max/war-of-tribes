@@ -773,49 +773,94 @@ function smithy(t: Tier, st: Style): THREE.Group {
   return g;
 }
 
-/** Ратуша: сруб с крыльцом → усадьба с палатой → донжон с зубцами и стягом. */
-function townHall(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [1.5, 1.8, 2.0][t];
-  const d = [1.4, 1.6, 1.8][t];
-  const h = [1.2, 1.7, 2.6][t];
-  g.add(pad(Math.max(w, d) * 0.95));
-  g.add(box(w, h, d, t === 2 ? M.stone : st.wall, 0, h / 2, 0));
-  if (t < 2) {
-    gable(g, w * 1.25, d * 1.3, h, 0.32 + t * 0.12, st.roof);
-  } else {
-    // Донжон: вместо крыши — боевая площадка с зубцами. Власть перестала быть избой.
-    g.add(box(w * 1.15, 0.16, d * 1.15, M.stoneDark, 0, h + 0.08, 0));
-    for (let i = 0; i < 5; i++) {
-      const x = -w * 0.5 + (i * w) / 4;
-      g.add(box(0.2, 0.32, 0.16, M.stoneDark, x, h + 0.32, -d * 0.55));
-      g.add(box(0.2, 0.32, 0.16, M.stoneDark, x, h + 0.32, d * 0.55));
-    }
-  }
-  // Крыльцо и дверь: вход всегда с фасада, а фасад по плану смотрит на площадь.
-  g.add(box(0.42, h * 0.55, 0.1, M.dark, 0, h * 0.28, d / 2 + 0.03));
-  for (const x of [-0.42, 0.42]) g.add(cyl(0.07, 0.08, 0.9, st.post, 5, x, 0.45, d / 2 + 0.42));
-  g.add(box(1.1, 0.1, 0.75, st.roofDark, 0, 0.95, d / 2 + 0.42));
-  // Стяг вождя виден через всю деревню — по нему дом и находят.
-  const poleTop = (t === 2 ? h + 1.5 : h + 1.2) - 0.3;
-  g.add(cyl(0.05, 0.05, t === 2 ? 1.6 : 1.2, st.post, 4, -w * 0.32, poleTop, -d * 0.3));
-  g.add(box(0.55, 0.4, 0.03, st.accent, -w * 0.32 + 0.28, poleTop + 0.4, -d * 0.3));
+/** Городской зал с башней: каменный низ → открытая аркада → каменные палаты. */
+function townHall(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const stone = K.paintOf('stoneLight');
+  const darkStone = K.paintOf('stoneDark');
+  const parts: K.Part[] = [];
+  const w = [1.65, 1.9, 2.1][t];
+  const d = [1.75, 2.0, 2.2][t];
+  const cx = 0.38;
+  const baseH = [0.82, 1.02, 1.22][t];
+  const upperH = [0.58, 0.85, 1.02][t];
+  const roofY = 0.16 + baseH + upperH;
+  const rise = [0.78, 0.9, 1.02][t];
+  const front = d / 2;
+  const towerX = -0.91;
+  const towerZ = 0.1;
+  const tw = [0.72, 0.84, 0.94][t];
+  const towerH = [2.25, 3.1, 3.95][t];
+  // Каменный зал и неизменная ось входа. Верхний этаж выступает над цоколем.
+  parts.push(K.plinth(w, d, darkStone, cx));
+  parts.push(K.wallBox(w, baseH, d - (t ? 0.44 : 0), p.base, cx, t ? -0.22 : 0, 0.16));
+  parts.push(K.wallGable(w + 0.08, upperH, d + 0.04, rise, t === 2 ? stone : p.wall, cx, 0, undefined, 0.16 + baseH));
+  parts.push(...K.roofGable(w + 0.08, d + 0.04, rise, roofY, p.roofPaint, 0.16, cx));
+  // Тёмная вставка повторяет арочный контур, поэтому углы не торчат из свода.
+  const opening = (x: number, y: number, z: number, width: number, spring: number, rot?: K.Rot): void => {
+    parts.push(K.arch(width, spring, 0, 0.035, p.ink, x, y, z, rot));
+    parts.push(K.arch(width + 0.16, spring, 0.085, 0.13, stone, x, y, z + (rot ? 0 : 0.04), rot));
+  };
+  opening(cx, 0.18, front + 0.035 - (t ? 0.44 : 0), 0.57, 0.44);
+  parts.push(K.box(0.76, 0.1, 0.36, stone, cx, 0.08, front + 0.12));
   if (t >= 1) {
-    // Палата сбоку: в доме вождя стало где собираться.
-    const aw = w * 0.6;
-    g.add(box(aw, h * 0.6, d * 0.8, t === 2 ? M.stone : st.wall, w * 0.62, h * 0.3, 0));
-    g.add(box(aw * 1.15, 0.1, d * 0.9, st.roofDark, w * 0.62, h * 0.63, 0));
+    // Настоящая глубина аркады: зал отступает назад, между опорами есть просвет.
+    parts.push(K.box(w + 0.16, 0.12, 0.64, stone, cx, 0.14, front - 0.08));
+    for (const s of (t === 2 ? [-1, 0, 1] : [-1, 1])) {
+      const bay = t === 2 ? w / 3 : w / 2;
+      parts.push(K.arch(bay + 0.04, baseH - bay / 2, 0.12, 0.22, stone,
+        cx + s * (t === 2 ? bay : w * 0.25), 0.19, front - 0.03));
+    }
+    parts.push(K.box(w + 0.16, 0.12, d + 0.14, darkStone, cx, baseH + 0.13, 0));
+    for (const s of [-1, 1]) {
+      opening(cx + s * w * 0.25, baseH + 0.29, front + 0.055, 0.3, 0.25);
+    }
+    // Опорные каменные лопатки собирают высокий ствол башни.
+    for (const s of [-1, 1]) parts.push(K.box(0.12, towerH * 0.65, tw + 0.08, stone,
+      towerX + s * tw * 0.46, towerH * 0.325 + 0.14, towerZ));
   }
+  // Фахверк крупными полосами: читается на телефоне без россыпи тонких досок.
+  const upperY = 0.16 + baseH;
+  for (const z of [-front - 0.04, front + 0.04]) {
+    for (const y of [upperY + 0.05, roofY - 0.04]) parts.push(K.box(w + 0.14, 0.095, 0.09, p.beam, cx, y, z));
+    for (const x of [cx - w * 0.43, cx, cx + w * 0.43]) parts.push(K.box(0.085, upperH, 0.09, p.beam, x, upperY + upperH / 2, z));
+    for (const s of [-1, 1]) parts.push(K.box(0.075, Math.hypot(w * 0.35, upperH * 0.8), 0.08, p.beam,
+      cx + s * w * 0.23, upperY + upperH / 2, z, { z: s * Math.atan2(w * 0.35, upperH * 0.8) }));
+  }
+  // Фронтон и коньковая стойка объединяют силуэт трёх поколений ратуши.
+  parts.push(K.box(0.1, rise, 0.09, p.beam, cx, roofY + rise / 2, front + 0.055));
+  // Башня опирается на землю, а не на крышу. Каменные пояса и широкий венец.
+  parts.push(K.plinth(tw, tw, darkStone, towerX, towerZ));
+  parts.push(K.wallBox(tw, towerH, tw, p.base, towerX, towerZ, 0.12));
+  for (const y of [0.4, baseH + 0.16, towerH - 0.18]) parts.push(K.box(tw + 0.09, 0.12, tw + 0.09, stone, towerX, y, towerZ));
+  opening(towerX, towerH - 0.82, towerZ + tw / 2 + 0.025, tw * 0.33, 0.26);
+  parts.push(K.box(tw + 0.22, 0.14, tw + 0.22, darkStone, towerX, towerH + 0.08, towerZ));
+  const crown = tw + 0.12;
+  for (const x of [-1, 0, 1]) for (const z of [-1, 1]) {
+    parts.push(K.box(0.19, 0.29, 0.19, stone, towerX + x * crown / 2, towerH + 0.29, towerZ + z * crown / 2));
+  }
+  for (const x of [-1, 1]) parts.push(K.box(0.19, 0.29, 0.19, stone, towerX + x * crown / 2, towerH + 0.29, towerZ));
   if (t === 2) {
-    // Угловые тумбы: донжон садится на каменное основание.
-    for (const [x, z] of [
-      [-w * 0.5, -d * 0.5],
-      [w * 0.5, -d * 0.5],
-      [-w * 0.5, d * 0.5],
-      [w * 0.5, d * 0.5],
-    ])
-      g.add(box(0.32, h * 0.9, 0.32, M.stoneDark, x, h * 0.45, z));
+    // Ступенчатые каменные щипцы: фронтон виден над черепицей, не нарисован на ней.
+    for (const z of [-front - 0.09, front + 0.09]) {
+      for (const s of [-1, 1]) for (let i = 0; i < 4; i++) {
+        const x = (i + 0.5) * w / 8;
+        parts.push(K.box(w / 4 + 0.025, 0.18, 0.17, stone, cx + s * x,
+          roofY + rise * (1 - x / (w / 2)) + 0.17, z));
+      }
+      parts.push(K.box(0.22, 0.34, 0.2, stone, cx, roofY + rise + 0.08, z));
+    }
+    // Окно на боковой грани башни раскрывает объём при повороте камеры.
+    opening(towerX - tw / 2 - 0.05, towerH - 0.82, towerZ, 0.34, 0.3, { y: -Math.PI / 2 });
+    parts.push(K.box(0.29, 0.67, 0.055, K.paintOf('paintRed'), towerX, towerH - 1.35, towerZ + tw / 2 + 0.06));
+    parts.push(K.box(0.06, 0.45, 0.065, p.accent, towerX, towerH - 1.3, towerZ + tw / 2 + 0.095));
+    // Поперечная слуховая кровля: верхний этаж теперь не один огромный скат.
+    const dx = cx + w * 0.38;
+    parts.push(K.wallGable(0.64, 0.26, 0.65, 0.4, stone, dx, -0.12, { y: Math.PI / 2 }, roofY + 0.3));
+    parts.push(...K.roofGable(0.64, 0.65, 0.4, roofY + 0.56, p.roofPaint, 0.07, dx, -0.12, { y: Math.PI / 2 }));
   }
+  const g = new THREE.Group();
+  g.add(K.assemble(parts));
   return g;
 }
 
@@ -1253,7 +1298,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'smithy':
       return smithy(tier, st);
     case 'town_hall':
-      return townHall(tier, st);
+      return townHall(tier);
     case 'barracks':
       return barracks(tier, st);
     case 'market':
