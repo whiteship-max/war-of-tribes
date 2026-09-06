@@ -148,17 +148,17 @@ export interface CameraShot {
  * сторон. Смотрит чуть вниз, а не по горизонту: в портрете кадр высокий, и
  * ровный взгляд отдаёт полэкрана пустому небу.
  */
-const SHOT_MUSTER: CameraShot = { x: -5.6, y: 2.2, z: -10.2, atX: -3.4, atY: 0.5, atZ: -4.2, fov: 34 };
+const SHOT_MUSTER: CameraShot = { x: -5.9, y: 2.7, z: -13, atX: -3.2, atY: 0.7, atZ: -4.6, fov: 38 };
 
 /** Тот же план чуть позже: камера уже пошла, но ещё внизу. */
-const SHOT_MUSTER_END: CameraShot = { x: -5.2, y: 3.4, z: -10.8, atX: -3.0, atY: 0.5, atZ: -3.2, fov: 36 };
+const SHOT_MUSTER_END: CameraShot = { x: -5.5, y: 3.9, z: -13.4, atX: -2.8, atY: 0.7, atZ: -3.6, fov: 40 };
 
 /**
  * Стратегический план: видны оба войска и все шесть секторов. Наклон подобран
  * так, чтобы вверху кадра оставалась полоска неба: отвесный взгляд превращает
  * бой в зелёную схему, а горизонт — единственное, что говорит «это поле».
  */
-const SHOT_FIELD: CameraShot = { x: 0, y: 6.2, z: -20.5, atX: 0, atY: 1.1, atZ: 1.2, fov: 46 };
+const SHOT_FIELD: CameraShot = { x: 0, y: 8.2, z: -19.5, atX: 0, atY: 1.1, atZ: 1.6, fov: 52 };
 
 /** Спуск в конце — половина пути вниз. */
 const SHOT_DOWN: CameraShot = { x: 0.8, y: 6, z: -15.5, atX: 0.3, atY: 0.7, atZ: -1.5, fov: 48 };
@@ -170,12 +170,12 @@ const SHOT_LAST: CameraShot = { x: 3.4, y: 2.1, z: -9, atX: 0.4, atY: 0.6, atZ: 
 function shotAt(spot: { x: number; z: number }): CameraShot {
   return {
     x: spot.x * 0.25,
-    y: 5.6,
-    z: -19.5,
+    y: 7.6,
+    z: -18.8,
     atX: spot.x * 0.45,
     atY: 1.1,
-    atZ: spot.z * 0.4 + 1.2,
-    fov: 45,
+    atZ: spot.z * 0.4 + 1.6,
+    fov: 50,
   };
 }
 

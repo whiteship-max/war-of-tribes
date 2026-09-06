@@ -17,12 +17,13 @@ export const FIELD_HALF = 60;
 const SHADOW_HALF = Math.round(FIELD.laneW * 2 + FIELD.frontZ + FIELD.rowGap + FIELD.reserveGap) + 4;
 
 /**
- * Плоская земля одним вызовом отрисовки. Тон — приглушённая трава палитры, а не
- * яркая: на весь экран открытый зелёный кричит и сцена читается тестовой.
- * Настоящая земля — рельеф, пятна, вытоптанность — придёт пачкой про красоту.
+ * Плоская земля одним вызовом отрисовки. Цвет — свой ключ палитры, а не трава
+ * посёлка: ту переливает сезон прямо в общем материале, и ролик, запущенный
+ * зимой, шёл бы по белому полю. Настоящая земля — рельеф, пятна, вытоптанность —
+ * придёт пачкой про красоту.
  */
 export function buildField(): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(FIELD_HALF * 2, FIELD_HALF * 2), LEGACY.grassDark);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(FIELD_HALF * 2, FIELD_HALF * 2), LEGACY.field);
   mesh.name = 'field';
   mesh.rotation.x = -Math.PI / 2;
   mesh.receiveShadow = true;

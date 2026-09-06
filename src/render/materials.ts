@@ -17,7 +17,7 @@ import { EMISSIVE_KEYS, PALETTE, type PaletteKey } from './palette';
 
 /** Цвета, которым нужен материал. Небо и свет — нет: их берут напрямую из палитры. */
 export const MATERIAL_KEYS = [
-  'grass', 'grassDark', 'grassLight', 'dirt', 'trample', 'packed', 'paved', 'soil', 'sprout',
+  'grass', 'grassDark', 'grassLight', 'field', 'dirt', 'trample', 'packed', 'paved', 'soil', 'sprout',
   'trunk', 'leaves', 'leaves2', 'bush', 'berry', 'rock', 'cut',
   'wood', 'woodDark', 'plank', 'timber',
   'thatch', 'thatchDark', 'hide', 'shingle', 'tile',

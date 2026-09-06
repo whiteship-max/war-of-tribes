@@ -17,19 +17,32 @@
 import * as THREE from 'three';
 import { simulateBattle } from '@/battle/sim';
 import { quickSetup } from '@/battle/setup';
-import { buildCast, type Act, type Cast } from '@/battle/replay';
+import type { Act, Cast } from '@/battle/replay';
+import { castOfRecord, troopsOfKinds } from '@/game/battle/faces';
+import { kindsOf, type TroopStack } from '@/game/battle/kinds';
 import type { BattleResult, Side, Stack } from '@/battle/types';
 import { configureRenderer } from './lighting';
 import { ReplayPlayer } from './battle/player';
 
-/** Состав по числу бойцов: сбалансированная армия, доли те же на любом размере. */
-function armyOf(men: number): Partial<Stack> {
+/**
+ * Состав по числу бойцов: сбалансированное войско, доли те же на любом размере.
+ * Виды настоящие и разные — стенд обязан показывать то же, что игра, а на
+ * близком плане ровно это и проверяется: видно, кого собрал.
+ */
+function armyOf(men: number): TroopStack {
   const part = (k: number): number => Math.max(0, Math.round(men * k));
-  return { spear: part(0.25), infantry: part(0.35), archer: part(0.25), cavalry: part(0.15) };
+  return {
+    spearman: part(0.25),
+    legionary: part(0.12),
+    swordsman: part(0.13),
+    clubman: part(0.1),
+    archer: part(0.25),
+    rider: part(0.15),
+  };
 }
 
-function fight(men: number, foe: number, seed: number): BattleResult {
-  return simulateBattle({ seed, attacker: quickSetup(armyOf(men)), defender: quickSetup(armyOf(foe)) });
+function fight(a: Stack, d: Stack, seed: number): BattleResult {
+  return simulateBattle({ seed, attacker: quickSetup(a), defender: quickSetup(d) });
 }
 
 /** Именованные моменты ролика: по ним снимают кадры приёмки. */
@@ -73,8 +86,13 @@ export function mountReplayStand(p: URLSearchParams): void {
   const foe = Number(p.get('foe') ?? men);
   const seed = Number(p.get('seed') ?? 7);
   const us = (p.get('us') as Side) ?? 'attacker';
-  const result = fight(men, foe, seed);
-  const cast = buildCast(result, us);
+  const mine = armyOf(men);
+  const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
+  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { spear: 0, infantry: foe, archer: 0, cavalry: 0 }, seed);
+  // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1`
+  // показывает именно этот путь, а не поимённый).
+  const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
+  const cast = castOfRecord(result, us, { attacker: mine, defender: foeTroops });
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -123,6 +141,7 @@ export function mountReplayStand(p: URLSearchParams): void {
       seconds: f.seconds,
       t: Number(player.time.toFixed(3)),
       figures: f.figures,
+      battleMen: f.men,
       ...s,
       dpr: renderer.getPixelRatio(),
       size: [canvas.clientWidth, canvas.clientHeight],

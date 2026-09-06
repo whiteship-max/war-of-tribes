@@ -195,12 +195,15 @@ describe('камера: один непрерывный ход', () => {
     const low = frameAt(cast, 0).shot;
     const top = frameAt(cast, cast.acts[1].to).shot;
     const last = frameAt(cast, cast.seconds).shot;
-    // «Отъехали» — это про дистанцию до того, на что смотрим, а не только про
-    // высоту: камера уходит и вверх, и назад.
+    // «Отъехали» — это про то, сколько поля попадает в кадр, а не только про
+    // высоту камеры: она уходит и вверх, и назад, и угол при этом шире.
     const reach = (c: CameraShot): number => Math.hypot(c.x - c.atX, c.y - c.atY, c.z - c.atZ);
+    const view = (c: CameraShot): number => 2 * reach(c) * Math.tan((c.fov * Math.PI) / 360);
     expect(low.y).toBeLessThan(3);
     expect(top.y).toBeGreaterThan(low.y * 2);
-    expect(reach(top)).toBeGreaterThan(reach(low) * 3);
+    expect(reach(top)).toBeGreaterThan(reach(low) * 2);
+    // В стратегический план влезает втрое больше поля, чем в близкий.
+    expect(view(top)).toBeGreaterThan(view(low) * 3);
     expect(last.y).toBeLessThan(3);
     // Отъезд непрерывен и однонаправлен: камера всё время идёт вверх и назад.
     let prev = low;
