@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AVATARS } from '@/data/avatars';
 import { createInitialState, SAVE_VERSION } from '@/game/state';
@@ -7,8 +9,17 @@ import { startUpgrade } from '@/game/sim/actions';
 import { applyExpedition } from '@/game/sim/expedition';
 import { buildingOfType } from '@/game/derived';
 import { DAY_LENGTH } from '@/game/constants';
-import { DEFAULT_AVATAR, DEFAULT_NAME, faceSrc, profileName, setAvatar, setName, setTelegramIdentity } from './identity';
-import { PROFILE_DAYS, recordBattle, recordProduced, recordRaidLoss, refreshCard } from './stats';
+import { DEFAULT_AVATAR, DEFAULT_NAME, faceSrc, profileName } from './identity';
+import {
+  PROFILE_DAYS,
+  recordBattle,
+  recordProduced,
+  recordRaidLoss,
+  refreshCard,
+  setAvatar,
+  setName,
+  setTelegramIdentity,
+} from './stats';
 import { power } from './power';
 
 /**
@@ -266,6 +277,29 @@ describe('имя и лицо', () => {
     setName(s, '   ');
     expect(s.profile.name).toBeNull();
     expect(profileName(s.profile)).toBe('Мария');
+  });
+
+  it('визитка пересобирается сразу, а не к следующему игровому дню', () => {
+    // Именно её увидят чужие глаза на карте мира. Дожидаться смены суток нельзя:
+    // игрок переименовался, вышел — и остался под старым именем.
+    const s = createInitialState();
+    setName(s, 'Всеволод');
+    expect(s.profile.card.name).toBe('Всеволод');
+    setAvatar(s, '17_duke');
+    expect(s.profile.card.avatarId).toBe('17_duke');
+    setTelegramIdentity(s, 'Пётр', null);
+    expect(s.profile.card.name).toBe('Всеволод');
+    setName(s, '');
+    expect(s.profile.card.name).toBe('Пётр');
+  });
+
+  it('экран выбора строится из набора, а не из прописанных карточек', () => {
+    // Двадцать четыре карточки руками — это двадцать четыре места, которые
+    // разъедутся с набором при первой же перегенерации листов.
+    const src = readFileSync(join(__dirname, '..', 'ui', 'parts', 'AvatarPicker.tsx'), 'utf8');
+    const named = AVATARS.filter((a) => src.includes(a.id)).map((a) => a.id);
+    expect(named).toEqual([]);
+    expect(src).toMatch(/AVATARS\.map/);
   });
 
   it('несуществующий аватар не принимается, а умолчание есть в наборе', () => {

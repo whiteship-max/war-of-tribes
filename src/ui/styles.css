@@ -994,12 +994,19 @@ body {
   color: var(--bad);
 }
 
-/* ---------- Кнопка второй строки HUD ---------- */
+/* ---------- Вторая строка HUD: профиль слева, карта справа ---------- */
+
+.top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
+  pointer-events: none;
+}
 
 .map-btn {
   pointer-events: auto;
-  align-self: flex-end;
-  margin-right: calc(8px + var(--safe-right));
   display: flex;
   align-items: center;
   gap: 5px;
@@ -2871,4 +2878,242 @@ body {
 
 .mg-result.bad {
   color: var(--bad);
+}
+
+/* ---------- Профиль: кнопка, шапка, выбор лица ---------- */
+
+.profile-btn {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: var(--tap);
+  max-width: 58%;
+  padding: 3px 12px 3px 3px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.profile-btn.active {
+  border-color: var(--accent);
+}
+
+.profile-btn .face {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  /* Лица нарезаны по 128 px: под кружок в 34 они уменьшаются, а не тянутся. */
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.profile-btn .who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.profile-head .pic {
+  position: relative;
+  flex: 0 0 auto;
+  width: 86px;
+  padding: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  line-height: 0;
+}
+
+.profile-head .pic > img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 263 / 384;
+  object-fit: cover;
+}
+
+/* Маленькое лицо поверх карточки: ровно то, что видно в кружке кнопки. */
+.profile-head .pic .mini {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 30px;
+  height: 30px;
+  aspect-ratio: auto;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.profile-head .who {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profile-head .name {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-head .name em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-head .rename {
+  display: flex;
+  gap: 6px;
+}
+
+.profile-head .rename input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  /* Ввод — единственное место в игре, где текст выделяют и правят. */
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+
+.profile-head .rename .btn {
+  flex: 0 0 auto;
+  padding: 0 12px;
+}
+
+.profile-head .power {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.profile-head .power b {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.profile-head .power i {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.profile-head .split {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.trend {
+  margin-bottom: 10px;
+}
+
+.trend .bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+  padding: 4px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.trend .bars i {
+  flex: 1 1 0;
+  min-width: 2px;
+  background: var(--accent);
+  opacity: 0.75;
+  border-radius: 2px 2px 0 0;
+}
+
+.trend .note {
+  margin: 4px 0 0;
+}
+
+.trend .note b.up {
+  color: var(--good);
+}
+
+.trend .note b.down {
+  color: var(--bad);
+}
+
+.av-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.av {
+  padding: 0;
+  background: var(--panel-2);
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 0;
+}
+
+.av img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 263 / 384;
+  object-fit: cover;
+}
+
+.av span {
+  display: block;
+  padding: 4px 2px 5px;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.av.on {
+  border-color: var(--accent);
+}
+
+.av.on span {
+  color: var(--text);
+  font-weight: 600;
 }

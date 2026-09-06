@@ -13,6 +13,7 @@ import { SeasonPanel } from './ui/panels/SeasonPanel';
 import { PopPanel } from './ui/panels/PopPanel';
 import { MoralePanel } from './ui/panels/MoralePanel';
 import { ArmyPanel } from './ui/panels/ArmyPanel';
+import { ProfilePanel } from './ui/panels/ProfilePanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
@@ -44,6 +45,8 @@ function SheetContent({ view }: { view: SheetView }) {
       return <MoralePanel />;
     case 'army':
       return <ArmyPanel />;
+    case 'profile':
+      return <ProfilePanel />;
   }
 }
 

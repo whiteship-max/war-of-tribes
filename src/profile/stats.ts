@@ -9,11 +9,13 @@
 //   — суточные корзины на месяц, и лишь по трём показателям (производство,
 //     потери от грабежей, мощь).
 // Журнала событий здесь нет нарочно: он растёт без предела, и его никто не читает.
+import type { AvatarId } from '@/data/avatars';
+import { AVATARS } from '@/data/avatars';
 import type { GameState, ResourceId } from '@/game/types';
 import { RESOURCE_IDS, emptyResources } from '@/game/constants';
 import { dayOf } from '@/game/derived';
 import type { ProfileDay, ProfileState } from './types';
-import { DEFAULT_AVATAR, profileAvatar, profileName, profilePhoto } from './identity';
+import { DEFAULT_AVATAR, cleanName, profileAvatar, profileName, profilePhoto } from './identity';
 import { power } from './power';
 
 /** Сколько суточных корзин держим. Старше — выпадает; счёт по возрасту, не по числу. */
@@ -150,3 +152,45 @@ export function refreshCard(s: GameState): void {
 
 /** Корзины по возрастанию дня — то, что показывает панель. */
 export const recentDays = (s: GameState): ProfileDay[] => s.profile.days.slice();
+
+// ---------- Имя и лицо ----------
+//
+// Пишутся здесь, а не в identity.ts, по той же причине, по какой здесь пишется
+// статистика: любая правка обязана пересобрать визитку. Оставь запись рядом с
+// чтением — и визитка держала бы старое имя до следующего игрового дня, а
+// именно её увидят чужие глаза на карте мира.
+
+/** Переименование. Пустое имя — не ошибка, а отказ от своего: вернётся Telegram. */
+export function setName(s: GameState, name: string): string | null {
+  s.profile.name = cleanName(name);
+  refreshCard(s);
+  return null;
+}
+
+/** Выбор из набора. Он перебивает фото Telegram — на то и выбор. */
+export function setAvatar(s: GameState, id: AvatarId): string | null {
+  if (!AVATARS.some((a) => a.id === id)) return 'Такого аватара нет.';
+  s.profile.avatarId = id;
+  refreshCard(s);
+  return null;
+}
+
+/**
+ * Отказ от своего выбора: вернуть фото Telegram. Без этого выбор был бы
+ * необратимым — а необратимых развилок в игре ровно одна, и это покровитель.
+ */
+export function clearAvatar(s: GameState): string | null {
+  s.profile.avatarId = null;
+  refreshCard(s);
+  return null;
+}
+
+/**
+ * Что отдал Telegram при запуске. Кладёт это оболочка интерфейса, а не
+ * симуляция: про Telegram она не знает, а визитке нужны готовые значения.
+ */
+export function setTelegramIdentity(s: GameState, name: string | null, photo: string | null): void {
+  s.profile.tgName = cleanName(name);
+  s.profile.tgPhoto = photo && /^https?:\/\//i.test(photo) ? photo : null;
+  refreshCard(s);
+}

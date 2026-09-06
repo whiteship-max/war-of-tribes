@@ -36,7 +36,17 @@ export interface TgThemeParams {
  * показ: собрать ссылку приглашения и узнать, кто пригласил.
  */
 export interface TgInitDataUnsafe {
-  user?: { id: number; first_name?: string; username?: string };
+  user?: {
+    id: number;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+    /**
+     * Аватарка клиента. Приходит не всегда: её нет у закрытых профилей и на
+     * старых клиентах — тогда лицо берётся из набора игры.
+     */
+    photo_url?: string;
+  };
   /** Параметр из ссылки вида t.me/<бот>/<аппка>?startapp=<код>. */
   start_param?: string;
 }
@@ -277,6 +287,21 @@ export function openTelegram(url: string): void {
     /* ignore */
   }
   openExternal(url);
+}
+
+/**
+ * Кто запустил аппку. Подписью эти данные не проверены, поэтому годятся только
+ * на показ — имя и лицо в профиле. Ни одно игровое решение на них не висит.
+ */
+export const tgUser = (): NonNullable<TgInitDataUnsafe['user']> | null =>
+  tg()?.initDataUnsafe?.user ?? null;
+
+/** Имя игрока из Telegram: имя и фамилия, если она есть. */
+export function tgDisplayName(): string | null {
+  const u = tgUser();
+  if (!u) return null;
+  const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+  return name.length > 0 ? name : null;
 }
 
 /** Идентификатор игрока. Есть только внутри Telegram; выдумывать замену нельзя. */

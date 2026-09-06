@@ -11,14 +11,15 @@ import {
   tapTutorial as tapTutorialStep,
   type TutorialUi,
 } from './data/tutorial';
-import { haptic } from '@/telegram/webapp';
+import { haptic, tgDisplayName, tgUser } from '@/telegram/webapp';
+import { setTelegramIdentity } from '@/profile/stats';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
  * `season`, `pop`, `morale` и `army` — справочные экраны кнопок верхней строки:
  * в нижнюю навигацию они не попадают, открываются только оттуда.
  */
-export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'army';
+export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'army' | 'profile';
 
 /**
  * Вкладки ратуши. Живут в сторе, а не в самой панели: на «Управление» ведут
@@ -200,6 +201,10 @@ export const useGame = create<GameStore>((set, get) => ({
 
   init: async () => {
     const { state, offlineSeconds, legacy } = await loadGame();
+    // Имя и лицо из Telegram кладёт сюда оболочка: симуляция про Telegram не
+    // знает, а визитке нужны готовые значения. Свой выбор игрока это не трогает —
+    // он лежит рядом и приоритетнее (см. profile/identity).
+    setTelegramIdentity(state, tgDisplayName(), tgUser()?.photo_url ?? null);
     set({ s: state, ready: true, offlineSeconds, legacyReset: legacy });
     // Старое сохранение к новой партии не подходит: его место сразу занимает новая.
     if (legacy) void get().save();

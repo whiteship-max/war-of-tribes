@@ -2,6 +2,7 @@ import { useGame } from '@/game/store';
 import { armySize, dayOf, dayFraction, housingCapacity, seasonOf, seasonProgress, solarPhase } from '@/game/derived';
 import { SEASON_META } from '@/game/data/seasons';
 import { useWorld } from '@/world/store';
+import { ProfileButton } from './ProfileButton';
 
 /** Время суток по фазе солнца — зимой она сдвинута, и «ночь» наступает раньше. */
 function daypart(solar: number): { icon: string; name: string } {
@@ -20,8 +21,11 @@ const moraleIcon = (m: number): string => (m >= 70 ? '😊' : m >= 40 ? '😐' :
  *
  * Справа — дружина: армия теперь центр игры, и её численность видна всегда.
  *
- * Отдельной кнопкой справа висит карта мира: это не раздел про посёлок, а выход
- * наружу, к соседям. Обучение ведёт к ней последним шагом.
+ * Под строкой — свой ряд на две кнопки: слева профиль (лицо и имя), справа карта
+ * мира. Карта — не раздел про посёлок, а выход наружу, к соседям, и обучение
+ * ведёт к ней последним шагом. Профиль стоит в этом же ряду, а не третьей
+ * строкой сверху: на 390 px каждая лишняя полоса отъедает у сцены сорок пикселей,
+ * а левый край под шапкой аппки всё равно пуст.
  */
 export function TopBar() {
   const s = useGame((g) => g.s);
@@ -91,10 +95,13 @@ export function TopBar() {
         </button>
       </div>
 
-      <button className="map-btn" data-tut="nav-map" onClick={openMap} title="Карта мира: соседи, походы, разведка">
-        🗺️ <span>Карта</span>
-        {(unread > 0 || marching > 0) && <em>{unread > 0 ? unread : marching}</em>}
-      </button>
+      <div className="top-row">
+        <ProfileButton />
+        <button className="map-btn" data-tut="nav-map" onClick={openMap} title="Карта мира: соседи, походы, разведка">
+          🗺️ <span>Карта</span>
+          {(unread > 0 || marching > 0) && <em>{unread > 0 ? unread : marching}</em>}
+        </button>
+      </div>
     </div>
   );
 }
