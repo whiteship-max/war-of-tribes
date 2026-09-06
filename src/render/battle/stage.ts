@@ -10,6 +10,7 @@ import type { Action } from '../poses';
 import { applyDayNight, type LightRig } from '../lighting';
 import { PALETTE } from '../palette';
 import { buildField, setupFieldScene } from './field';
+import { ArrowStorm } from './arrows';
 import { MassView } from './mass';
 import { CLOTH_OF, SectorTroops } from './troops';
 
@@ -31,13 +32,20 @@ const SKY = {
   sunArc: 1,
 };
 
-/** Что бойцы делают на каждом такте. Одна поза на такт: тактика тут не при чём. */
+/**
+ * Что бойцы делают. Такт задаёт основное, но первое столкновение — своя поза:
+ * строй останавливается и упирается, и только потом начинается свалка. Это и
+ * есть замах, без которого удар ничего не весит.
+ */
 const ACTION: Record<Frame['act'], Action> = {
   muster: 'stand',
   pullback: 'walk',
   melee: 'strike',
   rout: 'walk',
 };
+
+const actionOf = (frame: Frame): Action =>
+  frame.phase === 'approach' ? 'walk' : frame.phase === 'clash' ? 'guard' : ACTION[frame.act];
 
 export class BattleStage {
   readonly scene = new THREE.Scene();
@@ -47,6 +55,8 @@ export class BattleStage {
   private blocks: SectorTroops[] = [];
   /** Масса: знамёна, лес древков и пятно под строем. Три вызова на всё поле. */
   private mass: MassView;
+  /** Залпы: все стрелы поля одним вызовом отрисовки. */
+  private arrows = new ArrowStorm();
   private ground: THREE.Mesh;
   private us: Side;
 
@@ -66,6 +76,7 @@ export class BattleStage {
       dust: cast.sectors.length,
     });
     this.scene.add(this.mass.group);
+    this.scene.add(this.arrows.mesh);
     // Пул растёт по потребности; заказываем всё сразу, чтобы посреди отъезда не
     // пересоздавать инстансы — это единственное место, где кадр мог бы дрогнуть.
     this.pool.fit();
@@ -86,13 +97,16 @@ export class BattleStage {
       this.camera.fov = s.fov;
       this.camera.updateProjectionMatrix();
     }
-    const action = ACTION[frame.act];
+    // Позы идут по времени раскадровки, а не по часам: на первом столкновении
+    // ход почти замирает, и удар от этого весит больше любых полигонов.
+    const action = actionOf(frame);
     for (const f of frame.sectors) {
       const block = this.blocks.find((b) => b.side === f.side && b.sector === f.sector);
-      block?.apply(f, this.us, action, t);
+      block?.apply(f, this.us, action, frame.poseTime);
     }
     this.pool.update();
-    this.mass.update(frame.sectors, (f) => CLOTH_OF(f.side === this.us));
+    this.mass.update(frame.sectors, (f) => CLOTH_OF(f.side === this.us), { couch: frame.couch, time: t, impact: frame.impact });
+    this.arrows.update(frame.volleys);
   }
 
   /** Сколько инстансов примитивов заказано на всех — по этому числу считают бюджет. */
@@ -101,6 +115,7 @@ export class BattleStage {
   }
 
   dispose(): void {
+    this.arrows.dispose();
     this.mass.dispose();
     for (const b of this.blocks) b.dispose(this.pool);
     this.blocks = [];

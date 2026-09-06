@@ -8,7 +8,9 @@
 //   ?replay=1&men=500&foe=500&at=pullback
 //     кадр в середине отъезда — самое тяжёлое место: фигуры ещё крупные, а видно
 //     уже много. Бюджет меряется здесь, а не на статичных планах.
-//   &t=12.5   остановиться на этой секунде;  &at=muster|pullback|field|melee|last
+//   &t=12.5   остановиться на этой секунде
+//   &at=muster|pull1|pullback|pull3|field|melee|last — планы камеры
+//   &at=volley|clash|charge|rout — моменты действия, найденные в журнале
 //   &snap=имя отправить кадр на dev-сервер (POST /__snap → snaps/имя.png)
 //   &dpr=2    плотность пикселей снимка;  &speed=2 быстрее реального времени
 //
@@ -61,6 +63,29 @@ function moment(cast: Cast, at: string): number {
       return win('melee').from + 1;
     case 'melee':
       return win('melee').from + (win('melee').to - win('melee').from) * 0.6;
+    // Моменты действия ищутся по журналу: стенд обязан показывать ровно то, что
+    // в нём записано, а не подобранную руками секунду.
+    case 'volley': {
+      // Стрельба живёт в стрелковой фазе, а событие `volley` подводит её итог
+      // на тике столкновения, — берём фазу, а не отметку события.
+      const r = cast.spans.find((x) => x.phase === 'ranged');
+      const a = cast.spans.find((x) => x.phase === 'approach');
+      return r && a ? r.t0 + (a.t1 - r.t0) * 0.63 : 1.5;
+    }
+    case 'clash': {
+      const clash = cast.spans.find((x) => x.phase === 'clash');
+      return clash ? clash.t0 + 0.5 : win('melee').from;
+    }
+    case 'charge': {
+      const m = cast.marks.find(
+        (x) => x.id === 'cavalry-broke-archers' || x.id === 'flank-turned' || x.id === 'cavalry-intercepted',
+      );
+      return m ? m.t + 1.3 : win('melee').from + 4;
+    }
+    case 'rout': {
+      const m = cast.marks.find((x) => x.id === 'sector-broken');
+      return m ? m.t + 2.2 : cast.seconds - 4;
+    }
     case 'last':
       return cast.seconds;
     default:
@@ -147,6 +172,10 @@ export function mountReplayStand(p: URLSearchParams): void {
       size: [canvas.clientWidth, canvas.clientHeight],
     });
   }
+
+  // Отладочный крючок стенда: инструмент проверки не видит канву и не может
+  // дотянуться до сцены иначе. В игру стенд не попадает, поэтому и крючок тоже.
+  (window as unknown as { replayStand?: unknown }).replayStand = { player, cast, result };
 
   if (frozen !== null) {
     player.seek(frozen);

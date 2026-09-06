@@ -86,15 +86,23 @@ export class SectorTroops {
     // Побежавший сектор развёрнут спиной к противнику — это видно с любого плана.
     const away = frame.broken ? Math.PI : 0;
     const fallen = frame.figures - frame.standing;
+    // Бегут не по команде: паника расходится по строю, и каждый срывается со
+    // своего мгновения. Порядок тот же, что у падения, — от края блока внутрь.
+    const runners = frame.flee > 0 ? Math.ceil(frame.figures * Math.min(1, frame.flee * 2.2)) : 0;
     this.men.forEach((m, i) => {
       const f = m.figure;
       f.visible = i < frame.figures;
       if (!f.visible) return;
-      f.position.set(frame.x + m.dx, 0, frame.z + m.dz);
-      f.rotationY = facing + away;
       const down = m.order < fallen;
+      const runs = !down && m.order >= fallen && m.order < fallen + runners;
+      // Бегущий уходит с поля своим ходом, а не телепортируется вместе с блоком:
+      // сектор смещается целиком, а он ещё и отстаёт от него по-своему.
+      const lag = runs ? (1 - (m.order - fallen) / Math.max(1, runners)) * 0.9 : 0;
+      const back = frame.side === us ? -1 : 1;
+      f.position.set(frame.x + frame.dx + m.dx, 0, frame.z + frame.dz + m.dz - back * lag);
+      f.rotationY = facing + (runs ? Math.PI : away);
       f.down = down ? 1 : 0;
-      poseFigure(f, down ? 'fall' : frame.broken ? 'walk' : action, t);
+      poseFigure(f, down ? 'fall' : runs ? 'walk' : action, t);
     });
   }
 

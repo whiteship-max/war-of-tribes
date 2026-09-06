@@ -160,6 +160,49 @@ export function shaftsFor(byFace: readonly FaceCount[]): number {
 export const DUST_PER_MAN = 0.055;
 export const dustRadius = (men: number): number => (men > 0 ? Math.sqrt(men * DUST_PER_MAN) : 0);
 
+// ---------- Действие ----------
+
+/** Сколько летит залп от выстрела до прилёта, секунд. */
+export const VOLLEY_FLIGHT = 2.2;
+
+/**
+ * На сколько залпов раскладывается стрельба стороны. Событие `volley` подводит
+ * итог всей стрелковой фазы и стоит на тике первого столкновения («выбили N до
+ * столкновения»), а стреляли — в стрелковой фазе, туда залпы и кладутся. Рвать
+ * их на десяток мелких незачем: три дуги в небе читаются, десять сливаются.
+ */
+export const VOLLEY_SHOTS = 3;
+
+/** Сколько длится удар конницы: разгон, удар, возврат. */
+export const CHARGE_SECONDS = 2.6;
+/** Насколько далеко клин выносит вперёд от своего места. */
+export const CHARGE_REACH = 0.72;
+
+/** Сколько бегущий сектор уходит с поля и как далеко. */
+export const FLEE_SECONDS = 5;
+export const FLEE_DIST = 7;
+
+/**
+ * Замирание на первом столкновении. Три кадра почти неподвижности дороже
+ * любого числа полигонов: вес движения и есть то, что читается как сила удара.
+ */
+export const CLASH_HOLD = { seconds: 1.1, slow: 0.12 };
+/** Сколько держится вспышка удара — по ней рисуется пыль. */
+export const IMPACT_SECONDS = 1.4;
+
+/** Летящий залп: откуда, куда, насколько долетел и сколько в нём стрел. */
+export interface Volley {
+  side: Side;
+  fromX: number;
+  fromZ: number;
+  toX: number;
+  toZ: number;
+  /** 0 — только сошёл с тетивы, 1 — прилетел. */
+  u: number;
+  /** Кого он выбил: по этому числу считается густота пачки. */
+  men: number;
+}
+
 export type Row = 'front' | 'rear' | 'reserve';
 
 export const rowOf = (s: Sector): Row =>
@@ -305,6 +348,12 @@ export interface Mark {
   side: Side;
   sector: Sector | null;
   lane: Lane | null;
+  /**
+   * Сколько людей стоит за событием: выбитых залпом, вырубленных конницей,
+   * вошедших резервом. У события без числа — ноль. По нему показ решает, какой
+   * густоты рисовать залп, а не выдумывает её.
+   */
+  amount: number;
   text: string;
 }
 
@@ -437,6 +486,15 @@ export interface SectorFrame {
   dust: number;
   /** Сектор уже побежал — по журналу. */
   broken: boolean;
+  /**
+   * Насколько сектор уже убежал, 0..1. Паника в журнале есть (`sector-broken`,
+   * `panic-spread`) — здесь она только изображается: бегут не все разом, а по
+   * очереди, как записано, и каждый со своего мгновения.
+   */
+  flee: number;
+  /** Куда блок сейчас смещён: разгон конницы и уход бегущих. */
+  dx: number;
+  dz: number;
   x: number;
   z: number;
 }
@@ -463,6 +521,21 @@ export interface Frame {
   caption: string | null;
   sectors: SectorFrame[];
   side: Record<Side, SideFrame>;
+  /** Залпы, что сейчас в небе. Пустой список — стрелять некому или уже нечем. */
+  volleys: Volley[];
+  /**
+   * Копья опущены: 0 — древки вверх, 1 — наперевес. Опускаются они разом, и
+   * это и есть замах перед ударом.
+   */
+  couch: number;
+  /**
+   * Время для поз. Не совпадает с `t`: на первом столкновении ход почти
+   * замирает (`CLASH_HOLD`), и удар от этого весит больше, чем от любого
+   * числа полигонов. Функция от `t` и потому воспроизводима.
+   */
+  poseTime: number;
+  /** Вспышка удара, 1 → 0: по ней поднимается пыль. */
+  impact: number;
   controls: readonly Control[];
   done: boolean;
 }
@@ -680,6 +753,15 @@ function sectorOf(e: BattleEvent): Sector | null {
   return null;
 }
 
+/** Число, стоящее за событием: у разных событий оно называется по-разному. */
+function amountOf(e: BattleEvent): number {
+  if ('losses' in e && typeof e.losses === 'number') return e.losses;
+  if ('archersLost' in e) return e.archersLost;
+  if ('men' in e) return e.men;
+  if ('cavalryLost' in e) return e.cavalryLost;
+  return 0;
+}
+
 /** События журнала на времени и на месте. `phase-start` и `result` — служебные. */
 function markLog(result: BattleResult, spans: Span[], us: Side): Mark[] {
   const at = (tick: number, phase: PhaseId): { t: number; act: Act } => {
@@ -702,6 +784,7 @@ function markLog(result: BattleResult, spans: Span[], us: Side): Mark[] {
       side: 'side' in e ? e.side : us,
       sector,
       lane: sector ? laneOf(sector) : null,
+      amount: amountOf(e),
       text: describeEvent(e, us),
     });
   }
@@ -856,6 +939,156 @@ function sectorLost(spans: Span[], side: Side, sector: Sector, t: number): numbe
   return lost;
 }
 
+/**
+ * Залпы в небе на момент `t`. Событие `volley` говорит, кто стрелял и скольких
+ * выбил, но не говорит, откуда и куда, — это выводится из журнала же: стреляют
+ * сектора, где стоят лучники, а прилетает туда, где сторона потеряла людей в
+ * стрелковой фазе (`PhaseSpan.bySector`). Ни одного числа из симуляции.
+ */
+function volleysAt(cast: Cast, t: number, closing: number): Volley[] {
+  const ranged = cast.spans.find((sp) => sp.phase === 'ranged');
+  const approach = cast.spans.find((sp) => sp.phase === 'approach');
+  if (!ranged || !approach) return [];
+  const out: Volley[] = [];
+  for (const m of cast.marks) {
+    if (m.id !== 'volley' || m.amount <= 0) continue;
+    const from = archerSpot(cast, m.side, closing);
+    const to = hitSpot(cast, foeOf(m.side), closing);
+    if (!from || !to) continue;
+    // «До столкновения» — это стрелковая фаза И сближение: лучники бьют, пока
+    // линии идут навстречу. Залпы ложатся на обе так, чтобы последний успел
+    // долететь: стрелы не должны висеть в небе, когда линии уже сошлись.
+    const span = Math.max(0.1, approach.t1 - ranged.t0 - VOLLEY_FLIGHT);
+    for (let i = 0; i < VOLLEY_SHOTS; i++) {
+      const at = ranged.t0 + (span * i) / VOLLEY_SHOTS;
+      const u = (t - at) / VOLLEY_FLIGHT;
+      if (u < 0 || u > 1) continue;
+      out.push({
+        side: m.side,
+        fromX: from.x,
+        fromZ: from.z,
+        toX: to.x,
+        toZ: to.z,
+        u,
+        men: m.amount / VOLLEY_SHOTS,
+      });
+    }
+  }
+  return out;
+}
+
+/** Откуда бьёт залп: середина секторов этой стороны, где стоят лучники. */
+function archerSpot(cast: Cast, side: Side, closing: number): { x: number; z: number } | null {
+  let x = 0;
+  let z = 0;
+  let n = 0;
+  for (const c of cast.sectors) {
+    if (c.side !== side) continue;
+    const bows = c.byFace.reduce((k, f) => k + (f.kind === 'archer' ? f.figures : 0), 0);
+    if (bows <= 0) continue;
+    const p = sectorSpot(side, cast.us, c.sector, closing);
+    x += p.x * bows;
+    z += p.z * bows;
+    n += bows;
+  }
+  return n > 0 ? { x: x / n, z: z / n } : null;
+}
+
+/** Куда он прилетает: середина секторов, потерявших людей в стрелковой фазе. */
+function hitSpot(cast: Cast, side: Side, closing: number): { x: number; z: number } | null {
+  const ranged = cast.spans.find((sp) => sp.phase === 'ranged');
+  const lost = ranged?.bySector?.[side];
+  let x = 0;
+  let z = 0;
+  let n = 0;
+  for (const c of cast.sectors) {
+    if (c.side !== side) continue;
+    // Журнал знает потери по секторам — берём их. Не знает (старая запись) —
+    // целимся во фронт: залп бьёт по тем, кто идёт навстречу.
+    const w = lost ? (lost[c.sector] ?? 0) : c.row === 'front' ? c.men : 0;
+    if (w <= 0) continue;
+    const p = sectorSpot(side, cast.us, c.sector, closing);
+    x += p.x * w;
+    z += p.z * w;
+    n += w;
+  }
+  return n > 0 ? { x: x / n, z: z / n } : null;
+}
+
+/**
+ * Смещение сектора: конница в разгоне и бегущие, уходящие с поля. Оба движения
+ * записаны в журнале — `cavalry-broke-archers`, `flank-turned`, `spears-held`
+ * говорят, кто и куда ударил, `sector-broken` — кто и когда побежал.
+ */
+function moveOf(
+  cast: Cast,
+  c: CastSector,
+  t: number,
+  flee: number,
+): { dx: number; dz: number } {
+  const back = c.side === cast.us ? -1 : 1;
+  // Бегство сильнее разгона: сектор, который уже сломался, никуда не атакует.
+  if (flee > 0) return { dx: 0, dz: back * FLEE_DIST * flee };
+  const ride = chargeAt(cast, c, t);
+  if (!ride) return { dx: 0, dz: 0 };
+  const here = sectorSpot(c.side, cast.us, c.sector, 1);
+  return { dx: (ride.x - here.x) * ride.u, dz: (ride.z - here.z) * ride.u };
+}
+
+/** Конный удар этого сектора: куда и насколько он сейчас вынесен. */
+function chargeAt(cast: Cast, c: CastSector, t: number): { x: number; z: number; u: number } | null {
+  const horse = c.byFace.some((f) => f.kind === 'cavalry' && f.figures > 0);
+  if (!horse) return null;
+  for (const m of cast.marks) {
+    if (m.side !== c.side || !m.sector) continue;
+    if (m.id !== 'cavalry-broke-archers' && m.id !== 'flank-turned' && m.id !== 'cavalry-intercepted') continue;
+    const u = (t - m.t) / CHARGE_SECONDS;
+    if (u < 0 || u > 1) continue;
+    // Цель у обхода — сектор чужой стороны; у своего сломанного фланга — свой.
+    const foe = m.id === 'flank-turned' ? foeOf(m.side) : foeOf(c.side);
+    const target = sectorSpot(foe, cast.us, m.sector, 1);
+    // Разгон и возврат: клин выносит вперёд и откатывается, а не телепортируется.
+    const swing = Math.sin(Math.PI * u) * CHARGE_REACH;
+    return { x: target.x, z: target.z, u: swing };
+  }
+  return null;
+}
+
+/**
+ * Время для поз. На первом столкновении ход почти замирает: три кадра
+ * неподвижности — и удар весит больше, чем от любого числа полигонов.
+ */
+function poseClock(cast: Cast, t: number): { poseTime: number; impact: number } {
+  const clash = cast.spans.find((sp) => sp.phase === 'clash');
+  if (!clash) return { poseTime: t, impact: 0 };
+  const hold = Math.min(CLASH_HOLD.seconds, Math.max(0, clash.t1 - clash.t0));
+  const into = t - clash.t0;
+  if (into <= 0) return { poseTime: t, impact: 0 };
+  const slowed = Math.min(into, hold) * CLASH_HOLD.slow;
+  const after = Math.max(0, into - hold);
+  const since = t - (clash.t0 + hold);
+  return {
+    poseTime: clash.t0 + slowed + after,
+    impact: since >= 0 && since < IMPACT_SECONDS ? 1 - since / IMPACT_SECONDS : 0,
+  };
+}
+
+/**
+ * Копья опускаются разом перед ударом и остаются наперевес до конца боя.
+ * Вверх они возвращаются только у тех, кто уже бежит, — но это решает не здесь,
+ * а сектор своим бегством.
+ */
+function couchAt(cast: Cast, t: number): number {
+  const approach = cast.spans.find((sp) => sp.phase === 'approach');
+  const clash = cast.spans.find((sp) => sp.phase === 'clash');
+  if (!approach || !clash) return 0;
+  // Замах начинается на второй половине сближения и кончается в момент удара.
+  const from = approach.t0 + (approach.t1 - approach.t0) * 0.45;
+  if (t <= from) return 0;
+  if (t >= clash.t0) return 1;
+  return ease((t - from) / Math.max(1e-6, clash.t0 - from));
+}
+
 /** Событие, о котором ролик говорит сейчас: последнее случившееся. */
 function activeMark(cast: Cast, t: number): Mark | null {
   let out: Mark | null = null;
@@ -912,6 +1145,10 @@ export function frameAt(cast: Cast, t: number): Frame {
       figures += shown;
       standing += up;
       const spot = sectorSpot(side, cast.us, c.sector, closing);
+      // Бегство идёт от мгновения слома этого сектора, а не всей армии: паника
+      // в журнале перекидывается по одному, и так же она и показывается.
+      const flee = c.brokenAt === null ? 0 : clamp01((time - c.brokenAt) / FLEE_SECONDS);
+      const move = moveOf(cast, c, time, flee);
       // Масса проявляется вместе с фигурами и убывает вместе с живыми: иначе на
       // близком плане над горсткой людей стояло бы всё войско знамён.
       const part = c.figures > 0 ? shown / c.figures : 0;
@@ -932,6 +1169,9 @@ export function frameAt(cast: Cast, t: number): Frame {
         // ему задаёт число людей, а не радиус, поэтому под корнем произведение.
         dust: c.dust * Math.sqrt(Math.max(0, part * alive)),
         broken: c.brokenAt !== null && time >= c.brokenAt,
+        flee,
+        dx: move.dx,
+        dz: move.dz,
         x: spot.x,
         z: spot.z,
       });
@@ -940,6 +1180,7 @@ export function frameAt(cast: Cast, t: number): Frame {
     sideFrame[side] = { men: Math.round(men), figures, standing, banners };
   }
 
+  const clock = poseClock(cast, time);
   return {
     t: time,
     act,
@@ -951,6 +1192,12 @@ export function frameAt(cast: Cast, t: number): Frame {
     caption: mark && time - mark.t <= CAPTION_HOLD ? mark.text : null,
     sectors,
     side: sideFrame,
+    // Дуга считается по нынешнему сближению, а не по контакту: стреляют, пока
+    // линии ещё идут навстречу, и стрелы должны падать туда, где противник сейчас.
+    volleys: volleysAt(cast, time, closing),
+    couch: couchAt(cast, time),
+    poseTime: clock.poseTime,
+    impact: clock.impact,
     controls: CONTROLS,
     done: t >= cast.seconds,
   };

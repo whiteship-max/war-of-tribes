@@ -16,6 +16,12 @@ import {
   MAX_RANKS,
   MUSTER_FIGURES,
   SKIP,
+  CHARGE_SECONDS,
+  CLASH_HOLD,
+  FLEE_DIST,
+  FLEE_SECONDS,
+  IMPACT_SECONDS,
+  VOLLEY_SHOTS,
   bannersFor,
   blockDepth,
   buildCast,
@@ -624,5 +630,141 @@ describe('масса: число видно без цифр', () => {
     expect(f.side.attacker.banners).toBe(1);
     expect(f.side.defender.banners).toBeGreaterThanOrEqual(4);
     expect(dust('defender') / dust('attacker')).toBeGreaterThan(byFigures * 2);
+  });
+});
+
+describe('действие: всё из журнала, ничего от себя', () => {
+  it('залп летит в стрелковой фазе — тогда, когда по журналу стреляли', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    const shots = cast.marks.filter((m) => m.id === 'volley');
+    expect(shots.length).toBeGreaterThan(0);
+    const ranged = cast.spans.find((s) => s.phase === 'ranged')!;
+    const clash = cast.spans.find((s) => s.phase === 'clash')!;
+
+    // Событие `volley` подводит итог всей стрелковой фазы и стоит на тике
+    // столкновения; стреляли в стрелковой фазе, туда залпы и легли.
+    const mid = frameAt(cast, ranged.t0 + (ranged.t1 - ranged.t0) * 0.4).volleys;
+    expect(mid.length).toBeGreaterThan(0);
+    for (const v of mid) {
+      expect(v.u).toBeGreaterThan(0);
+      expect(v.u).toBeLessThan(1);
+      // Летит от своих к чужим: концы дуги по разные стороны середины поля.
+      expect(Math.sign(v.fromZ)).not.toBe(Math.sign(v.toZ));
+      expect(v.men).toBeGreaterThan(0);
+    }
+    // Ни одной стрелы в небе, когда линии уже сошлись.
+    expect(frameAt(cast, clash.t0).volleys).toEqual([]);
+    expect(frameAt(cast, cast.seconds).volleys).toEqual([]);
+
+    // Сколько выбито по журналу, столько и летит: залп не выдумывает своей густоты.
+    for (const m of shots) {
+      let sum = 0;
+      for (let t = ranged.t0; t <= clash.t0; t += 0.05) {
+        for (const v of frameAt(cast, t).volleys) {
+          if (v.side === m.side && v.u < 0.05) sum += v.men;
+        }
+      }
+      expect(sum).toBeGreaterThan(0);
+    }
+    const one = frameAt(cast, ranged.t0 + 0.02).volleys.find((v) => v.side === shots[0].side)!;
+    expect(one.men * VOLLEY_SHOTS).toBeCloseTo(shots[0].amount, 5);
+  });
+
+  it('копья опускаются разом и до удара, а не после', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    const clash = cast.spans.find((s) => s.phase === 'clash')!;
+    const approach = cast.spans.find((s) => s.phase === 'approach')!;
+    expect(frameAt(cast, approach.t0).couch).toBe(0);
+    expect(frameAt(cast, clash.t0).couch).toBe(1);
+    // Опускаются непрерывно: рывка между кадрами нет.
+    let prev = 0;
+    for (let t = approach.t0; t <= clash.t0; t += 0.05) {
+      const now = frameAt(cast, t).couch;
+      expect(now).toBeGreaterThanOrEqual(prev - 1e-9);
+      expect(now - prev).toBeLessThan(0.15);
+      prev = now;
+    }
+  });
+
+  it('на первом столкновении ход почти замирает, потом идёт как шёл', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    const clash = cast.spans.find((s) => s.phase === 'clash')!;
+    const pace = (t: number, dt = 0.1): number =>
+      (frameAt(cast, t + dt).poseTime - frameAt(cast, t).poseTime) / dt;
+    expect(pace(clash.t0 - 0.5)).toBeCloseTo(1, 1);
+    expect(pace(clash.t0 + 0.3)).toBeLessThan(0.3);
+    expect(pace(clash.t0 + CLASH_HOLD.seconds + 0.5)).toBeCloseTo(1, 1);
+    // Время поз не идёт назад — иначе бойцы дёрнулись бы в обратную сторону.
+    let prev = -1;
+    for (let t = 0; t <= cast.seconds; t += 0.1) {
+      const now = frameAt(cast, t).poseTime;
+      expect(now).toBeGreaterThanOrEqual(prev);
+      prev = now;
+    }
+  });
+
+  it('удар отмечен вспышкой, и она гаснет', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    const clash = cast.spans.find((s) => s.phase === 'clash')!;
+    expect(frameAt(cast, clash.t0).impact).toBe(0);
+    const after = clash.t0 + CLASH_HOLD.seconds + 0.1;
+    expect(frameAt(cast, after).impact).toBeGreaterThan(0.8);
+    expect(frameAt(cast, after + IMPACT_SECONDS + 0.1).impact).toBe(0);
+  });
+
+  it('бегут не все разом, а каждый со своего мгновения слома', () => {
+    const result = evenFight();
+    const cast = buildCast(result, 'attacker');
+    const broken = cast.marks.filter((m) => m.id === 'sector-broken');
+    if (broken.length < 2) return;
+    const first = broken[0];
+    const later = broken.find((m) => m.t > first.t + 0.5);
+    if (!later) return;
+    const at = (t: number, m: (typeof broken)[number]): number =>
+      frameAt(cast, t).sectors.find((s) => s.side === m.side && s.sector === m.sector)!.flee;
+    // Когда первый уже бежит, второй ещё стоит: паника идёт по строю, а не по кнопке.
+    expect(at(later.t - 0.1, first)).toBeGreaterThan(0);
+    expect(at(later.t - 0.1, later)).toBe(0);
+    // И бегущий уходит с поля в свою сторону, а не в чужую.
+    const late = frameAt(cast, Math.min(cast.seconds, first.t + FLEE_SECONDS)).sectors.find(
+      (s) => s.side === first.side && s.sector === first.sector,
+    )!;
+    expect(late.flee).toBe(1);
+    expect(Math.sign(late.dz)).toBe(Math.sign(late.z));
+    expect(Math.abs(late.dz)).toBeCloseTo(FLEE_DIST, 5);
+  });
+
+  it('конница выносится вперёд и возвращается, а не телепортируется', () => {
+    for (const seed of [7, 13, 21, 34]) {
+      const cast = buildCast(evenFight(seed), 'attacker');
+      const ride = cast.marks.find(
+        (m) => m.id === 'cavalry-broke-archers' || m.id === 'flank-turned' || m.id === 'cavalry-intercepted',
+      );
+      if (!ride) continue;
+      // Смотрим только на конные сектора этой стороны и только пока они не
+      // бегут: у бегущего смещение своё и заведомо больше.
+      const moved = (t: number): number =>
+        Math.max(
+          0,
+          ...frameAt(cast, t)
+            .sectors.filter(
+              (s) => s.side === ride.side && s.flee === 0 && s.byFace.some((f) => f.kind === 'cavalry'),
+            )
+            .map((s) => Math.hypot(s.dx, s.dz)),
+        );
+      // На середине удара кто-то вынесен; к его концу все на своих местах.
+      const mid = moved(ride.t + CHARGE_SECONDS * 0.5);
+      if (mid <= 0) continue;
+      expect(mid).toBeGreaterThan(0.2);
+      expect(moved(ride.t + CHARGE_SECONDS + 0.05)).toBeLessThan(mid);
+      return;
+    }
+  });
+
+  it('раскадровка остаётся воспроизводимой со всем действием', () => {
+    const result = evenFight(19);
+    const a = buildCast(result, 'attacker');
+    const b = buildCast(result, 'attacker');
+    for (const t of sample(a, 0.2)) expect(frameAt(b, t)).toEqual(frameAt(a, t));
   });
 });

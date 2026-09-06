@@ -1,29 +1,49 @@
-// Масса войска: знамёна, лес древков и тёмное пятно под строем.
+// Масса войска: лес древков, знамёна и тёмное пятно под строем.
 //
 // Всё, что здесь рисуется, — не украшение, а способ показать число, которого
 // фигурами не показать. Фигур на сторону не больше `FIGURE_CAP`, и двадцать
-// против пятисот по ним не читаются никак; знамёна, древки и пятно читаются.
+// против пятисот по ним не читаются никак; древки, знамёна и пятно читаются.
 //
 // Сколько чего — решает раскадровка (`bannersFor`, `shaftsFor`, `dustRadius`).
-// Здесь только расстановка и отрисовка: три инстансированных набора, три вызова
-// на всё поле, сколько бы ни было войска.
+// Здесь только расстановка и отрисовка: четыре инстансированных набора, четыре
+// вызова на всё поле, сколько бы ни было войска.
 //
-// Древки и знамёна — это и есть то, что видно у реального строя издалека, а не
-// лица. Поэтому они гуще фигур и стоят выше их.
+// Главное правило строя: **древки параллельны**. Настоящий строй читается
+// дисциплиной, а не разнобоем: одинаковый наклон и есть масса. Разброс —
+// пара градусов, и он нужен только чтобы стена не была нарисованной линейкой.
+// Разнобой уместен у бегущих, и там он и появляется.
 import * as THREE from 'three';
 import { FILE_STEP, RANK_STEP, type SectorFrame } from '@/battle/replay';
 import { INSTANCED, SHADE } from '../materials';
 import { PALETTE } from '../palette';
 
 /** Высота древка над землёй: заметно выше человека (`MAN_HEIGHT` = 1.05). */
-const SHAFT_H = { min: 1.5, max: 2.05 };
+const SHAFT_H = { min: 1.62, max: 1.94 };
 const SHAFT_R = 0.014;
-/** Наклон древка от вертикали: строй не забор, но и не хаос. */
-const SHAFT_TILT = 0.13;
 
-/** Знамя выше древков — иначе его в лесу не видно. */
-const BANNER_H = 2.6;
-const BANNER_CLOTH = { w: 0.44, h: 0.3 };
+/** Наклон строя: копья держат чуть назад от вертикали, все одинаково. */
+const SHAFT_LEAN = 0.11;
+/** Разброс вокруг общего наклона — пара градусов, не больше. */
+const SHAFT_SPREAD = 0.035;
+/** Наперевес: копьё опускается вперёд почти до горизонтали. */
+const COUCH_ANGLE = 1.18;
+/**
+ * Опущенное копьё держат у груди, а не волочат по земле: пятка древка
+ * поднимается вместе с наклоном, иначе стена копий ложится на траву.
+ */
+const COUCH_PIVOT = 0.98;
+/** У бегущих строя нет: наклон рассыпается. */
+const ROUT_SPREAD = 0.6;
+
+/** Наконечник: он и превращает палку в копьё. */
+const TIP_H = 0.17;
+const TIP_R = 0.032;
+
+/** Знамя выше древков, и высота у всех знамён войска одна. */
+const BANNER_H = 2.55;
+const BANNER_CLOTH = { w: 0.5, h: 0.34 };
+/** Навершие древка знамени. */
+const FINIAL_H = 0.13;
 
 /** Насколько пятно массы темнит землю под собой. */
 const DUST_DARK = 0.62;
@@ -32,18 +52,33 @@ const DUST_DARK = 0.62;
  * Детерминированный хеш: одна и та же раскадровка обязана давать один и тот же
  * лес древков. `Math.random` здесь запрещён так же, как в режиссуре.
  */
+const TMP = new THREE.Vector3();
+const TOP = new THREE.Vector3();
+
 function hash(n: number): number {
   let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-/** Общий пул инстансов массы: один меш на каждый примитив, три вызова на всё. */
+/** Что нужно массе от кадра помимо самих секторов. */
+export interface MassBeat {
+  /** Копья опущены: 0 — вверх, 1 — наперевес. */
+  couch: number;
+  /** Время сцены: по нему колышутся полотнища. */
+  time: number;
+  /** Вспышка удара, 1 → 0: от неё вздымается пыль под сошедшимися линиями. */
+  impact: number;
+}
+
+/** Общий пул инстансов массы: один меш на примитив, четыре вызова на всё поле. */
 export class MassView {
   readonly group = new THREE.Group();
   private shafts: THREE.InstancedMesh;
+  private tips: THREE.InstancedMesh;
   private flags: THREE.InstancedMesh;
   private dust: THREE.InstancedMesh;
+  private flagMat: THREE.Material;
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
@@ -55,24 +90,23 @@ export class MassView {
     this.group.name = 'mass';
     // Древко без донцев — их закрывает строй; четыре грани, восемь треугольников.
     const shaft = new THREE.CylinderGeometry(SHAFT_R, SHAFT_R * 1.15, 1, 4, 1, true).translate(0, 0.5, 0);
+    // Наконечник — тот же конус, что у копья в руках бойца (`units.ts`).
+    const tip = new THREE.ConeGeometry(TIP_R, 1, 4).translate(0, 0.5, 0);
     const flag = new THREE.PlaneGeometry(1, 1).translate(0.5, -0.5, 0);
-    this.shafts = this.make(shaft, INSTANCED, Math.max(1, capacity.shafts), false);
-    this.flags = this.make(flag, INSTANCED, Math.max(1, capacity.flags), true);
-    this.dust = this.make(dustDisc(), SHADE, Math.max(1, capacity.dust), false);
+    const poles = Math.max(1, capacity.shafts);
+    this.shafts = this.make(shaft, INSTANCED, poles);
+    this.tips = this.make(tip, INSTANCED, poles);
+    this.flagMat = (INSTANCED as THREE.Material).clone();
+    this.flagMat.side = THREE.DoubleSide;
+    this.flags = this.make(flag, this.flagMat, Math.max(1, capacity.flags));
+    this.dust = this.make(dustDisc(), SHADE, Math.max(1, capacity.dust));
     // Пятно лежит на земле и тени не отбрасывает: оно само и есть тень.
     this.dust.renderOrder = -1;
-    for (const mesh of [this.shafts, this.flags, this.dust]) this.group.add(mesh);
+    for (const mesh of [this.dust, this.shafts, this.tips, this.flags]) this.group.add(mesh);
   }
 
-  private make(
-    geometry: THREE.BufferGeometry,
-    material: THREE.Material,
-    capacity: number,
-    twoSided: boolean,
-  ): THREE.InstancedMesh {
-    const mat = twoSided ? (material as THREE.Material).clone() : material;
-    if (twoSided) mat.side = THREE.DoubleSide;
-    const mesh = new THREE.InstancedMesh(geometry, mat, capacity);
+  private make(geometry: THREE.BufferGeometry, material: THREE.Material, capacity: number): THREE.InstancedMesh {
+    const mesh = new THREE.InstancedMesh(geometry, material, capacity);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -87,72 +121,118 @@ export class MassView {
    * `cloth` — цвет стороны: знамя обязано быть того же цвета, что и рубаха,
    * иначе оно не говорит, чьё оно.
    */
-  update(sectors: readonly SectorFrame[], cloth: (s: SectorFrame) => number): void {
-    let shafts = 0;
+  update(sectors: readonly SectorFrame[], cloth: (s: SectorFrame) => number, beat: MassBeat): void {
+    let poles = 0;
     let flags = 0;
     let dust = 0;
     sectors.forEach((f, si) => {
+      if (f.figures <= 0) return;
       // Блок: передняя шеренга на месте сектора, ряды уходят назад.
+      // Куда «назад» для этого блока: наша сторона стоит на −Z, чужая на +Z.
       const back = Math.sign(f.z) || 1;
-      const halfW = (f.files * FILE_STEP) / 2 + 0.3;
-      // Глубина берётся по ПОСТАВЛЕННЫМ рядам, а не по полному блоку: на близком
-      // плане стоит одна шеренга, и древки, растянутые на всю глубину, торчали бы
-      // из пустой земли позади неё.
+      const x0 = f.x + f.dx;
+      const z0 = f.z + f.dz;
+      const halfW = (f.files * FILE_STEP) / 2 + 0.25;
+      // Глубина — по ПОСТАВЛЕННЫМ рядам: на близком плане стоит одна шеренга, и
+      // древки, растянутые на всю глубину, торчали бы из пустой земли позади неё.
       const shown = Math.max(1, Math.ceil(f.figures / Math.max(1, f.files)));
       const depth = Math.max(RANK_STEP, Math.min(f.ranks, shown) * RANK_STEP);
       const color = cloth(f);
 
-      // Пятно массы — под всем блоком, площадь по числу бойцов.
+      // Копья опускают те, кто идёт в рукопашную; у лучников в руках лук, и он
+      // остаётся при них. Бегущие строя не держат вовсе.
+      const melee = share(f, (kind) => kind === 'spear' || kind === 'infantry');
+      const couch = beat.couch * melee * (1 - f.flee);
+      const spread = SHAFT_SPREAD + ROUT_SPREAD * f.flee;
+
+      // Пятно массы — под всем блоком, площадь по числу бойцов. На ударе оно
+      // вздувается: это и есть пыль, поднятая сошедшимися линиями.
+      const kick = f.row === 'front' ? 1 + beat.impact * 0.55 : 1;
       if (f.dust > 0.01) {
-        this.p.set(f.x, 0.012, f.z + (back * depth) / 2);
-        this.s.set(f.dust, 1, f.dust * 0.85);
+        this.p.set(x0, 0.012, z0 + (back * depth) / 2);
+        this.s.set(f.dust * kick, 1, f.dust * 0.85 * kick);
         this.e.set(-Math.PI / 2, 0, 0);
         this.m.compose(this.p, this.q.setFromEuler(this.e), this.s);
         dust = this.write(this.dust, dust, this.m, this.c.setScalar(1));
       }
 
-      // Лес древков: гуще фигур, стоит по всей глубине блока, к задним рядам плотнее.
+      // Лес древков стоит решёткой строя, а не россыпью: каждое древко — оружие
+      // бойца, которого не нарисовали, и стоит оно на его месте в шеренге.
+      const cols = Math.max(1, Math.round(f.files * Math.sqrt(Math.max(1, f.shafts / Math.max(1, f.figures)))));
+      const rows = Math.max(1, Math.ceil(f.shafts / cols));
       for (let i = 0; i < f.shafts; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
         const r1 = hash(si * 9173 + i * 31 + 1);
         const r2 = hash(si * 9173 + i * 31 + 2);
-        const r3 = hash(si * 9173 + i * 31 + 3);
-        const x = f.x + (r1 * 2 - 1) * halfW;
-        // Смещение к задним рядам: спереди древки закрыли бы лица переднего строя.
-        const z = f.z + back * (0.25 + r2 * depth);
-        const h = SHAFT_H.min + r3 * (SHAFT_H.max - SHAFT_H.min);
-        this.p.set(x, 0, z);
+        const x = x0 + ((col + 0.5) / cols - 0.5) * halfW * 2 + (r1 - 0.5) * 0.1;
+        const z = z0 + back * (0.2 + ((row + 0.5) / rows) * depth) + (r2 - 0.5) * 0.08;
+        const h = SHAFT_H.min + r1 * (SHAFT_H.max - SHAFT_H.min);
+        // Один наклон на весь строй: наклоняются все вместе, вперёд — на врага.
+        const lean = -back * (SHAFT_LEAN - COUCH_ANGLE * couch) + (r2 - 0.5) * spread;
+        const roll = (r1 - 0.5) * spread;
+        const y = COUCH_PIVOT * couch;
+        // Опущенное копьё вынесено вперёд из руки, а не растёт из пяток.
+        const zc = z - back * couch * h * 0.28;
+        this.p.set(x, y, zc);
         this.s.set(1, h, 1);
-        this.e.set((r1 - 0.5) * SHAFT_TILT, 0, (r2 - 0.5) * SHAFT_TILT);
-        this.m.compose(this.p, this.q.setFromEuler(this.e), this.s);
-        // Древко темнее к концу леса: иначе стена читается плоской заливкой.
-        this.c.setHex(r3 > 0.5 ? PALETTE.woodDark : PALETTE.wood);
-        shafts = this.write(this.shafts, shafts, this.m, this.c);
+        this.e.set(lean, 0, roll);
+        this.q.setFromEuler(this.e);
+        this.m.compose(this.p, this.q, this.s);
+        this.c.setHex(r1 > 0.5 ? PALETTE.woodDark : PALETTE.wood);
+        poles = this.write(this.shafts, poles, this.m, this.c);
+        // Наконечник садится ровно на конец древка и наклонён вместе с ним:
+        // конец считается тем же поворотом, а не приблизительной формулой.
+        this.tip(x, y, zc, h, TIP_H, PALETTE.metal, poles - 1);
       }
 
-      // Знамёна стоят в середине блока по глубине, а не сзади: сзади — это со
+      // Знамёна: на видимом древке, в середине блока по глубине. Сзади — это со
       // стороны камеры для нашей армии, и они закрыли бы собственный строй.
       for (let i = 0; i < f.banners; i++) {
         const u = f.banners === 1 ? 0.5 : i / (f.banners - 1);
-        const x = f.x + (u * 2 - 1) * halfW * 0.7;
-        const z = f.z + back * depth * 0.45;
+        const x = x0 + (u * 2 - 1) * halfW * 0.7;
+        const z = z0 + back * depth * 0.45;
+        // Падает знамя вместе с сектором: сломался — древко валится набок.
+        const fall = f.flee * 1.15;
+        const h = BANNER_H * (1 - 0.35 * f.flee);
+        this.e.set(0, 0, fall);
+        this.q.setFromEuler(this.e);
         this.p.set(x, 0, z);
-        this.s.set(1, BANNER_H, 1);
-        this.e.set(0, 0, 0);
-        this.m.compose(this.p, this.q.setFromEuler(this.e), this.s);
+        this.s.set(1, h, 1);
+        this.m.compose(this.p, this.q, this.s);
         this.c.setHex(PALETTE.woodDark);
-        shafts = this.write(this.shafts, shafts, this.m, this.c);
+        poles = this.write(this.shafts, poles, this.m, this.c);
+        // Навершие — крошечная деталь, но без неё древко просто палка.
+        const top = this.tip(x, 0, z, h, FINIAL_H, PALETTE.gold, poles - 1);
 
-        // Полотнище висит у верха древка, развёрнуто поперёк взгляда камеры.
-        this.p.set(x + 0.02, BANNER_H - 0.06, z);
+        // Полотнище свисает от верха древка и слегка колышется: своя фаза у
+        // каждого знамени, иначе войско машет флагами в такт.
+        const phase = hash(si * 733 + i * 97) * Math.PI * 2;
+        const wave = Math.sin(beat.time * 1.7 + phase) * 0.26;
+        this.p.copy(top).add(TMP.set(0.015, -FINIAL_H - 0.04, 0));
         this.s.set(BANNER_CLOTH.w, BANNER_CLOTH.h, 1);
+        this.e.set(0, wave, fall + wave * 0.18);
         this.m.compose(this.p, this.q.setFromEuler(this.e), this.s);
         this.c.setHex(color);
         flags = this.write(this.flags, flags, this.m, this.c);
       }
     });
-    this.finish(this.shafts, shafts);
+    this.finish(this.shafts, poles);
+    this.finish(this.tips, poles);
     this.finish(this.flags, flags);
     this.finish(this.dust, dust);
+  }
+
+  /**
+   * Ставит наконечник на конец древка с поворотом `this.q` и возвращает эту
+   * точку: от неё же вешается полотнище знамени.
+   */
+  private tip(x: number, y: number, z: number, h: number, size: number, color: number, at: number): THREE.Vector3 {
+    TOP.set(0, h, 0).applyQuaternion(this.q).add(TMP.set(x, y, z));
+    this.s.set(1, size, 1);
+    this.m.compose(TOP, this.q, this.s);
+    this.write(this.tips, at, this.m, this.c.setHex(color));
+    return TOP;
   }
 
   private write(mesh: THREE.InstancedMesh, at: number, m: THREE.Matrix4, color: THREE.Color): number {
@@ -163,20 +243,31 @@ export class MassView {
   }
 
   private finish(mesh: THREE.InstancedMesh, count: number): void {
-    mesh.count = count;
+    mesh.count = Math.min(count, mesh.instanceMatrix.count);
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
   dispose(): void {
-    for (const mesh of [this.shafts, this.flags, this.dust]) {
+    for (const mesh of [this.shafts, this.tips, this.flags, this.dust]) {
       mesh.geometry.dispose();
       mesh.dispose();
     }
     // Полотнищу материал клонирован (ему нужны обе стороны) — его и убираем.
     // Общие INSTANCED и SHADE трогать нельзя: ими рисует вся остальная сцена.
-    (this.flags.material as THREE.Material).dispose();
+    this.flagMat.dispose();
   }
+}
+
+/** Какая доля фигур сектора — этого сорта. По ней решается, кому опускать копьё. */
+function share(f: SectorFrame, pick: (kind: string) => boolean): number {
+  let all = 0;
+  let mine = 0;
+  for (const face of f.byFace) {
+    all += face.figures;
+    if (pick(face.kind)) mine += face.figures;
+  }
+  return all > 0 ? mine / all : 0;
 }
 
 /**
