@@ -2014,3 +2014,124 @@ describe('отряд полководца', () => {
     expect(back.downUntil).toBe(0);
   });
 });
+
+describe('перехват в поле', () => {
+  const general = async (w: ReturnType<typeof makeWorld>): Promise<FigureView> =>
+    (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+
+  /** Ждём, пока ИИ вышлет набег: он идёт с запасом времени, его и ловим. */
+  async function waitRaid(w: ReturnType<typeof makeWorld>, p: PlayerProfile): Promise<MarchView> {
+    for (let i = 0; i < 400; i++) {
+      w.advance(20_000);
+      const pulse = await w.world.sync(p);
+      const raid = pulse.marches.find((m) => !m.own && m.phase === 'out');
+      if (raid) return raid;
+    }
+    throw new Error('набега так и не было');
+  }
+
+  const army = { legionary: 30, spearman: 20, archer: 15, rider: 10 };
+  const strong = (): PlayerProfile =>
+    profile({ warriorPower: 30, army, command: 100, units: { warrior: 40, scout: 4 } });
+
+  it('точка и время встречи известны до приказа, а не после', async () => {
+    const w = makeWorld(101);
+    const p = strong();
+    await w.world.sync(p);
+    expect(await w.world.setGarrison(army)).toBeNull();
+    w.at((await general(w)).readyAt);
+    await w.world.sync(p);
+    const raid = await waitRaid(w, p);
+
+    const plan = await w.world.interceptPlan(raid.id);
+    expect(plan.can, plan.reason ?? '').toBe(true);
+    expect(plan.at, 'клетка встречи известна заранее').toBeTruthy();
+    expect(plan.seconds).toBeGreaterThan(0);
+    expect(plan.men, 'и сколько их — тоже').toBeGreaterThan(0);
+    expect(plan.targetSeconds, 'и сколько им осталось идти').toBeGreaterThan(0);
+    // Встреча не позже, чем они дойдут: обещание, которое не сбудется, хуже отказа.
+    expect(plan.seconds).toBeLessThanOrEqual(plan.targetSeconds + 1);
+
+    expect(await w.world.intercept(raid.id)).toBeNull();
+    const g = await general(w);
+    expect(g.phase).toBe('moving');
+    // Полководец идёт ровно туда и ровно к тому времени, что было обещано.
+    expect(g.to.x).toBe(plan.at?.x);
+    expect(g.to.y).toBe(plan.at?.y);
+    expect(Math.abs(g.arriveAt - (w.now() + plan.seconds * 1000))).toBeLessThan(1500);
+  });
+
+  it('разбитый в поле набег до деревни не доходит', async () => {
+    const w = makeWorld(101);
+    const p = strong();
+    await w.world.sync(p);
+    expect(await w.world.setGarrison(army)).toBeNull();
+    w.at((await general(w)).readyAt);
+    await w.world.sync(p);
+    const raid = await waitRaid(w, p);
+    expect(await w.world.intercept(raid.id)).toBeNull();
+
+    // Одним прыжком через время встречи и один пульс: никакой фоновой работы
+    // для этого не нужно — исход выведен из времён, а не досчитан по дороге.
+    const g = await general(w);
+    w.at(g.arriveAt + 1000);
+    const pulse = await w.world.sync(p);
+
+    const report = (await w.world.reports()).find((r) => r.title.startsWith('Перехват'));
+    expect(report, 'о перехвате должен быть отчёт').toBeTruthy();
+    expect(report?.battle, 'и в нём настоящий журнал боя').toBeTruthy();
+    // Набег слабее обороны игрока по правилу мира, а дружина тут вся целиком:
+    // такой перехват обязан удаваться, иначе проверять нечего.
+    expect(report?.won, 'семьдесят пять бойцов против набега — победа').toBe(true);
+    expect(pulse.marches.some((m) => m.id === raid.id), 'разбитые дальше не идут').toBe(false);
+    const defense = (await w.world.reports()).find((r) => r.kind === 'defense');
+    expect(defense, 'до деревни они не дошли').toBeFalsy();
+    const after = await general(w);
+    expect(after.phase, 'полководец остаётся в поле').not.toBe('moving');
+    expect(after.at, 'и стоит там, где была встреча').toEqual({ x: g.to.x, y: g.to.y });
+  });
+
+  it('не догнать — приказа нет, и сказано почему', async () => {
+    const w = makeWorld(101);
+    const p = strong();
+    await w.world.sync(p);
+    expect(await w.world.setGarrison(army)).toBeNull();
+    w.at((await general(w)).readyAt);
+    await w.world.sync(p);
+    const raid = await waitRaid(w, p);
+
+    // Уводим полководца в противоположную сторону, за край обзора.
+    const info = await w.world.info();
+    const far = { x: info.home.x + 30, y: info.home.y + 30 };
+    expect(await w.world.moveFigure('general', far)).toBeNull();
+    w.at((await general(w)).arriveAt);
+    await w.world.sync(p);
+
+    const plan = await w.world.interceptPlan(raid.id);
+    if (plan.can) return; // с этого угла всё-таки успевает — проверять нечего
+    expect(plan.at).toBeNull();
+    expect(plan.reason).toMatch(/догнать|дойдут/);
+    expect(await w.world.intercept(raid.id)).toMatch(/догнать|дойдут/);
+  });
+
+  it('без войска перехватывать нечем, и это сказано отдельно', async () => {
+    const w = makeWorld(101);
+    const p = strong();
+    await w.world.sync(p);
+    const raid = await waitRaid(w, p);
+    const plan = await w.world.interceptPlan(raid.id);
+    expect(plan.can).toBe(false);
+    expect(plan.reason).toMatch(/[Вв]ойска/);
+  });
+
+  it('свой отряд перехватывать нечего, а исчезнувший — нельзя', async () => {
+    const w = makeWorld(101);
+    const p = strong();
+    await w.world.sync(p);
+    const target = (await w.world.region({ x: 0, y: 0, w: 0, h: 0 })).settlements[0];
+    expect(target).toBeUndefined();
+    const plan = await w.world.interceptPlan('нет-такого');
+    expect(plan.can).toBe(false);
+    expect(plan.reason).toMatch(/не догнать/i);
+  });
+});

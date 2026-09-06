@@ -422,6 +422,27 @@ export interface AttackOrder {
   setup?: ArmySetup | null;
 }
 
+/**
+ * Перехват чужого отряда в поле: где и когда встретятся, если приказать сейчас.
+ * Считается **до подтверждения** и целиком из времён и скоростей — фоновой
+ * работы за этим нет (см. world/pursuit.ts).
+ */
+export interface InterceptPlan {
+  can: boolean;
+  /** Почему нельзя. null — можно. */
+  reason: string | null;
+  /** Клетка встречи. null — встречи не будет. */
+  at: Coord | null;
+  /** Через сколько секунд встреча. */
+  seconds: number;
+  /** Кого догоняем — имя отряда на карте. */
+  targetName: string;
+  /** Сколько их видно. */
+  men: number;
+  /** Сколько цели осталось идти до своей цели, секунд. */
+  targetSeconds: number;
+}
+
 export interface AttackResult {
   /** Текст ошибки или null. */
   error: string | null;

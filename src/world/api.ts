@@ -14,6 +14,7 @@ import type {
   FigureId,
   FigureView,
   IntelReading,
+  InterceptPlan,
   MarchOrder,
   MarchView,
   OrderOption,
@@ -74,6 +75,16 @@ export interface WorldApi {
    * дошёл, и защитнику было отпущено всё время, пока фигура шла.
    */
   attack(order: AttackOrder): Promise<AttackResult>;
+
+  /**
+   * Где и когда полководец встретит чужой отряд, если приказать сейчас. Точка
+   * и время считаются **до подтверждения** и одним уравнением — фоновой работы
+   * за перехватом нет (см. world/pursuit.ts). Не догнать — приходит причина.
+   */
+  interceptPlan(marchId: string): Promise<InterceptPlan>;
+
+  /** Вести полководца на перехват. null — пошёл, иначе текст ошибки. */
+  intercept(marchId: string): Promise<string | null>;
 
   /** Дипломат подписывает договор с племенем поселения, у которого стоит. */
   negotiate(deal: DealId): Promise<string | null>;

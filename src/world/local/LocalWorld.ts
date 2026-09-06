@@ -25,6 +25,7 @@ import type {
   HomeEffect,
   Intel,
   IntelReading,
+  InterceptPlan,
   Loot,
   MarchOrder,
   MarchView,
@@ -54,6 +55,7 @@ import {
   formatCoord,
   formatLeft,
   marchPosition,
+  secondsLeft,
   marchSeconds,
   terrainAt,
   terrainFactor,
@@ -93,6 +95,7 @@ import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, raidingParty, GARRISON_STYLES } from '../garrison';
 import { resolveField } from '../battle';
 import { placeAt } from '../place';
+import { intercept as meetingOf, type Meeting } from '../pursuit';
 import { estimate, readIntel } from '../intel';
 import {
   AI_MIN_POP,
@@ -459,6 +462,9 @@ export class LocalWorld implements WorldApi {
   private remove(m: StoredMarch): void {
     const i = this.save.marches.indexOf(m);
     if (i >= 0) this.save.marches.splice(i, 1);
+    // За этим отрядом могли гнаться: цель исчезла — встреча пересчитывается
+    // (а точнее, срывается) прямо здесь, в событии, а не тиком где-то ещё.
+    this.rechase(m.id, this.clock());
   }
 
   /**
@@ -737,6 +743,12 @@ export class LocalWorld implements WorldApi {
    */
   private onFigureArrived(id: FigureId, at: number): void {
     const f = this.save.figures[id];
+    // Погоня разбирается раньше всего прочего: полководец пришёл не к воротам,
+    // а в точку встречи, и там его ждёт (или не ждёт) чужой отряд.
+    if (f.chase) {
+      this.resolveChase(f, at);
+      return;
+    }
     const near = this.touching(f.to);
     const target = near && !near.home ? this.byId.get(near.id) : null;
     if (!target) return;
@@ -863,6 +875,7 @@ export class LocalWorld implements WorldApi {
   /** Разворачивает отряд домой. Обратный путь занимает столько же, сколько дорога туда. */
   private turnHome(m: StoredMarch, at: number, loot: Loot | null): void {
     const duration = Math.max(0, m.arriveAt - m.departAt);
+    const chased = this.save.figures.general.chase?.marchId === m.id;
     const backTo = { ...m.from };
     const backToName = m.fromName;
     m.from = { ...m.to };
@@ -874,6 +887,9 @@ export class LocalWorld implements WorldApi {
     m.arriveAt = at + duration;
     m.stayUntil = undefined;
     m.loot = loot;
+    // Смена курса — новое событие выхода: встреча считается заново тем же
+    // уравнением, а не подправляется на глазок.
+    if (chased) this.rechase(m.id, at);
   }
 
   private resolve(m: StoredMarch, at: number, prevSeen: number): void {
@@ -1022,6 +1038,254 @@ export class LocalWorld implements WorldApi {
     }
     this.write();
     return { error: null, reportId, won: field.won };
+  }
+
+  // ---------- Перехват в поле ----------
+
+  /**
+   * Скорость фигуры на этом отрезке, клеток в миллисекунду. Считается той же
+   * формулой, что и обычный переход (`travelTime`), по тому же ландшафту:
+   * своей арифметики у погони нет, иначе она разошлась бы с ходьбой.
+   */
+  private paceOf(id: FigureId, from: Coord, to: Coord): number {
+    const seconds = travelTime(1, terrainFactor(this.save.seed, from, to), FIGURE_BY_ID[id].speed);
+    return seconds > 0 ? 1 / (seconds * 1000) : 0;
+  }
+
+  /** Чужой отряд, который можно догонять. null — такого нет. */
+  private chaseTarget(marchId: string): StoredMarch | null {
+    const m = this.save.marches.find((x) => x.id === marchId);
+    if (!m || m.own || m.phase !== 'out') return null;
+    return m;
+  }
+
+  /**
+   * Где и когда встретимся, если приказать сейчас. Всё решается уравнением
+   * (`pursuit.intercept`) один раз, в момент вопроса: ни фонового счёта, ни
+   * шагов по таймеру за этим нет.
+   */
+  private planChase(m: StoredMarch, now: number): { meet: Meeting | null; reason: string | null } {
+    const f = this.save.figures.general;
+    this.settleHandover(f, now);
+    if (f.phase === 'down') {
+      return {
+        meet: null,
+        reason: `Полководец выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`,
+      };
+    }
+    if (f.handover) {
+      return {
+        meet: null,
+        reason: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
+      };
+    }
+    if (troopTotal(f.troops ?? {}) === 0) {
+      return { meet: null, reason: 'Войска при полководце нет: за дружиной надо домой.' };
+    }
+    const from = this.figureAt(f, now);
+    const ahead = marchPosition(m, now);
+    const meet = meetingOf(from, this.paceOf('general', from, ahead), m, now);
+    if (!meet) {
+      // Отдельная причина, а не общее «нельзя»: игрок должен понимать, что
+      // помешало — расстояние или время, которое осталось у цели.
+      return {
+        meet: null,
+        reason: `Не догнать: они дойдут раньше — им идти ${formatLeft(secondsLeft(m.arriveAt, now))}.`,
+      };
+    }
+    return { meet, reason: null };
+  }
+
+  async interceptPlan(marchId: string): Promise<InterceptPlan> {
+    const now = this.clock();
+    const m = this.chaseTarget(marchId);
+    if (!m) {
+      return {
+        can: false,
+        reason: 'Этот отряд уже не догнать.',
+        at: null,
+        seconds: 0,
+        targetName: '',
+        men: 0,
+        targetSeconds: 0,
+      };
+    }
+    const { meet, reason } = this.planChase(m, now);
+    return {
+      can: meet !== null,
+      reason,
+      at: meet ? { x: Math.round(meet.at.x), y: Math.round(meet.at.y) } : null,
+      seconds: meet ? meet.seconds : 0,
+      targetName: m.fromName,
+      men: stackSize(m.units),
+      targetSeconds: secondsLeft(m.arriveAt, now),
+    };
+  }
+
+  async intercept(marchId: string): Promise<string | null> {
+    const now = this.clock();
+    const m = this.chaseTarget(marchId);
+    if (!m) return 'Этот отряд уже не догнать.';
+    const { meet, reason } = this.planChase(m, now);
+    if (!meet) return reason ?? 'Перехват не выходит.';
+    this.setChase(this.save.figures.general, meet, now, marchId);
+    this.write();
+    return null;
+  }
+
+  /** Курс на точку встречи. Прибытие ставится ровно на её время. */
+  private setChase(f: StoredFigure, meet: Meeting, now: number, marchId: string): void {
+    f.from = this.figureAt(f, now);
+    f.to = clampToWorld(meet.at);
+    f.departAt = now;
+    f.arriveAt = Math.max(now, Math.round(meet.time));
+    f.phase = 'moving';
+    f.chase = { marchId };
+  }
+
+  /**
+   * Цель сменила курс или пропала — встреча считается заново. Это не тик:
+   * поворот отряда домой и его исчезновение и так разбираются по времени в
+   * `advance`, и пересчёт живёт ровно в этом событии.
+   */
+  private rechase(marchId: string, now: number): void {
+    const f = this.save.figures.general;
+    if (f.chase?.marchId !== marchId) return;
+    const m = this.chaseTarget(marchId);
+    const plan = m ? this.planChase(m, now) : { meet: null, reason: null };
+    if (!m || !plan.meet) {
+      this.breakChase(f, now, 'Их след потерян: отряд ушёл, и полководец встал в поле.');
+      return;
+    }
+    this.setChase(f, plan.meet, now, marchId);
+  }
+
+  /** Погоня сорвалась: полководец останавливается там, где стоял. */
+  private breakChase(f: StoredFigure, now: number, text: string): void {
+    const at = this.figureAt(f, now);
+    f.from = { ...at };
+    f.to = { ...at };
+    f.departAt = now;
+    f.arriveAt = now;
+    f.phase = this.touching(at)?.home ? 'home' : 'field';
+    f.chase = undefined;
+    this.addEffect({
+      id: `chase-lost-${now}`,
+      lost: {},
+      resources: {},
+      prestige: 0,
+      morale: -1,
+      battle: null,
+      text,
+      good: false,
+    });
+  }
+
+  /**
+   * Встреча состоялась (или не состоялась) — разбираем её в момент прибытия.
+   * Бой считает то же ядро, что и всё остальное: своего боя у поля нет.
+   */
+  private resolveChase(f: StoredFigure, at: number): void {
+    const marchId = f.chase?.marchId ?? '';
+    f.chase = undefined;
+    const m = this.chaseTarget(marchId);
+    if (!m) {
+      this.breakChase(f, at, 'Перехват сорвался: отряда на месте не оказалось.');
+      return;
+    }
+    const here = this.figureAt(f, at);
+    const them = marchPosition(m, at);
+    if (distance(here, them) > FIGURE_TOUCH) {
+      this.breakChase(f, at, `Перехват сорвался: ${m.fromName} прошли стороной.`);
+      return;
+    }
+
+    const spot = { x: Math.round(here.x), y: Math.round(here.y) };
+    const troops = f.troops ?? {};
+    const men = troopTotal(troops);
+    const seed = marchSeed(this.save.seed, this.save.nextMarch++);
+    const party = raidingParty(this.save.seed, m.id, m.power);
+    const field = resolveField({
+      seed,
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), setup: null },
+      defender: { kinds: party.kinds, gear: party.gear, setup: party.setup },
+    });
+    const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
+    const left: TroopStack = {};
+    for (const [id, n] of Object.entries(troops) as [keyof TroopStack, number][]) {
+      const rest = (n ?? 0) - (lostTroops[id] ?? 0);
+      if (rest > 0) left[id] = rest;
+    }
+    const survivors = troopTotal(left);
+    const lostMen = men - survivors;
+    const enemyLost = Math.round(m.power * field.defenderLoss);
+
+    const record: BattleRecord | null = field.result
+      ? {
+          us: 'attacker',
+          preset: field.preset.attacker,
+          result: field.result,
+          troops: { attacker: { ...troops }, defender: troopsOfKinds(party.kinds, party.gear) },
+          // Бой идёт в чистом поле — на той клетке, где сошлись.
+          place: this.placeOf(spot),
+        }
+      : null;
+
+    const reportId = `chase${seed}`;
+    this.addReport({
+      id: reportId,
+      at,
+      kind: 'raid',
+      title: field.won ? `Перехват удался: ${m.fromName}` : `Перехват не удался: ${m.fromName}`,
+      target: { id: m.fromId, name: m.fromName, x: spot.x, y: spot.y },
+      won: field.won,
+      sent: { warrior: men },
+      lost: lostMen > 0 ? { warrior: lostMen } : {},
+      enemyPower: Math.round(m.power),
+      enemyLost,
+      loot: null,
+      intel: null,
+      battle: record,
+      text: field.won
+        ? `${m.fromName} разбиты в поле и до деревни не дошли.`
+        : `${m.fromName} пробились дальше.${survivors === 0 ? ' Полководец пал.' : ''}`,
+      read: false,
+    });
+    this.addEffect({
+      id: `${reportId}-eff`,
+      lost: lostMen > 0 ? { warrior: lostMen } : {},
+      lostTroops,
+      resources: {},
+      prestige: field.won ? 4 : 0,
+      morale: field.won ? 5 : -5,
+      battle: field.won ? 'won' : 'lost',
+      text: field.won
+        ? `Набег ${m.fromName} перехвачен в поле (${formatCoord(spot)}).`
+        : `Перехват ${m.fromName} не удался.`,
+      good: field.won,
+    });
+
+    if (field.won) {
+      // Разбитые дальше не идут: набега не будет вовсе.
+      this.remove(m);
+    } else {
+      // Отбились, но не даром: до деревни дойдут поредевшими.
+      m.power = Math.max(1, m.power * (1 - field.defenderLoss));
+      m.units = stackAfter(m.units, stackLosses(m.units, field.defenderLoss));
+    }
+
+    if (survivors === 0) {
+      f.troops = undefined;
+      this.downFigure('general', at, `разбит в поле у ${formatCoord(spot)}.`);
+    } else {
+      f.troops = left;
+      const stop = this.figureAt(f, at);
+      f.from = { ...stop };
+      f.to = { ...stop };
+      f.departAt = at;
+      f.arriveAt = at;
+      f.phase = this.touching(stop)?.home ? 'home' : 'field';
+    }
   }
 
   private resolveScout(m: StoredMarch, target: GenSettlement, at: number): void {
