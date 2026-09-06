@@ -176,6 +176,70 @@ export function shaftsFor(byFace: readonly FaceCount[]): number {
 export const DUST_PER_MAN = 0.055;
 export const dustRadius = (men: number): number => (men > 0 ? Math.sqrt(men * DUST_PER_MAN) : 0);
 
+// ---------- Земля и свет ----------
+
+/**
+ * Где и когда идёт бой. Ядро эти поля не считает и ничем на них не отвечает —
+ * оно только несёт их в раскадровке, чтобы показу больше ничего не было нужно.
+ * Ровно как `Face.id`: смысл им придаёт тот, кто рисует.
+ *
+ * Выводит их чистая функция моста (`game/battle/ground.ts`) из записи боя, а не
+ * показ из мира. Иначе ролик перестал бы быть самодостаточным ровно тогда,
+ * когда журнал приедет с сервера: земля и свет добирались бы из чужой карты.
+ */
+export interface Ground {
+  /** Что под ногами: ровное поле, холмы или берег. */
+  land: 'plain' | 'hills' | 'shore';
+  /** Через поле идёт река. */
+  river: boolean;
+  /** На реке брод — отмель, по которой её переходят. */
+  ford: boolean;
+  /** Гребень: за строем земля обрывается, и войско стоит на фоне неба. */
+  ridge: boolean;
+  /** Тракт поперёк поля. */
+  road: boolean;
+  /** Опушка: стена леса по краю расчистки. */
+  woods: boolean;
+  /** Снег: зимний бой — другое зрелище, а не то же самое посветлее. */
+  winter: boolean;
+  /**
+   * Доля суток для света: 0 — рассвет, 0.25 — полдень, 0.5 — закат. Та же мера,
+   * которой живёт деревня (`solarPhase`), поэтому риг у боя и у неё общий.
+   */
+  solar: number;
+  /** Сид травы, деревьев и камней: та же запись боя — то же поле до кустика. */
+  seed: number;
+}
+
+/**
+ * Ровное поле в полдень. Столько и знает запись боя, сделанная до того, как
+ * место стали записывать: выдумывать ей брод и закат нельзя — она про них
+ * ничего не говорила, — а показать её надо.
+ */
+export const PLAIN_GROUND: Ground = {
+  land: 'plain',
+  river: false,
+  ford: false,
+  ridge: false,
+  road: false,
+  woods: false,
+  winter: false,
+  solar: 0.25,
+  seed: 0,
+};
+
+// ---------- Поле после боя ----------
+
+/**
+ * Сколько брошенного оставляет после себя одна павшая фигура: щит из руки,
+ * копьё, воткнувшееся в землю, шлем. Больше единицы нарочно — за фигурой стоят
+ * люди, которых не нарисовали, и поле после боя обязано выглядеть полем после
+ * боя, а не паузой с лежачими.
+ */
+export const WRECK_PER_FALLEN = 2.6;
+
+export const wreckFor = (fallen: number): number => Math.round(Math.max(0, fallen) * WRECK_PER_FALLEN);
+
 // ---------- Действие ----------
 
 /** Сколько летит залп от выстрела до прилёта, секунд. */
@@ -276,11 +340,17 @@ export interface CameraShot {
  * Близкий план: камера у земли, за нашим левым флангом; видно горстку с обеих
  * сторон. Смотрит чуть вниз, а не по горизонту: в портрете кадр высокий, и
  * ровный взгляд отдаёт полэкрана пустому небу.
+ *
+ * Взгляд поднят настолько, чтобы горизонт стоял в верхней трети, а не под самым
+ * краем. Это и есть кадр залпа: стрелы идут по дуге над головами, и увидеть их
+ * можно только против неба — над зелёным полем они читаются хворостом. Ниже
+ * опускать нельзя, выше — тоже: полэкрана пустого неба стоит ровно столько же,
+ * сколько полэкрана пустой травы.
  */
-const SHOT_MUSTER: CameraShot = { x: -5.9, y: 2.9, z: -12.4, atX: -3.2, atY: 0.75, atZ: -5, fov: 38 };
+const SHOT_MUSTER: CameraShot = { x: -5.9, y: 2.6, z: -12.4, atX: -3.1, atY: 1.5, atZ: -4.4, fov: 38 };
 
 /** Тот же план чуть позже: камера уже пошла, но ещё внизу. */
-const SHOT_MUSTER_END: CameraShot = { x: -5.5, y: 4.1, z: -12.8, atX: -2.8, atY: 0.75, atZ: -4, fov: 40 };
+const SHOT_MUSTER_END: CameraShot = { x: -5.5, y: 3.9, z: -12.8, atX: -2.8, atY: 1.35, atZ: -3.6, fov: 40 };
 
 /**
  * Стратегический план: видны оба войска и все шесть секторов. Наклон подобран
@@ -292,8 +362,13 @@ const SHOT_FIELD: CameraShot = { x: 0, y: 9.3, z: -17.5, atX: 0, atY: 0.9, atZ: 
 /** Спуск в конце — половина пути вниз. */
 const SHOT_DOWN: CameraShot = { x: 0.8, y: 6, z: -15.5, atX: 0.3, atY: 0.7, atZ: -1.5, fov: 48 };
 
-/** Финал: камера снова у земли — последнее знамя, бегущие, поле. */
-const SHOT_LAST: CameraShot = { x: 3.4, y: 2.1, z: -9, atX: 0.4, atY: 0.6, atZ: -2, fov: 40 };
+/**
+ * Финал: камера снова у земли — последнее знамя, бегущие, поле. Стоит она за
+ * своим строем и смотрит поверх него на линию соприкосновения: там лежит всё,
+ * что осталось от боя, и ради этого кадр и нужен. Ниже и ближе — и вместо поля
+ * после боя в кадре стена спин уцелевших.
+ */
+const SHOT_LAST: CameraShot = { x: 3, y: 2.9, z: -12.4, atX: 0.2, atY: 0.5, atZ: 0.6, fov: 42 };
 
 /** Подача к сектору на стратегическом плане: камера смещается, но плана не меняет. */
 function shotAt(spot: { x: number; z: number }): CameraShot {
@@ -451,6 +526,8 @@ export interface Cast {
    */
   detailed: boolean;
   seconds: number;
+  /** Где и когда идёт бой: земля, снег и час. Ядро их не читает, показ — читает. */
+  ground: Ground;
   acts: ActWindow[];
   spans: Span[];
   keys: Keyframe[];
@@ -496,6 +573,12 @@ export interface SectorFrame {
   figures: number;
   /** Сколько из них на ногах; остальные лежат. */
   standing: number;
+  /**
+   * Сколько брошенного лежит на месте сектора: щиты, воткнутые копья, шлемы.
+   * Считается от павших, то есть от потерь журнала, — картинка своего числа
+   * убитых не заводит.
+   */
+  wreck: number;
   /** Масса на этом кадре: она проявляется вместе с фигурами и тает вместе с ними. */
   banners: number;
   shafts: number;
@@ -855,8 +938,17 @@ const NO_FACES: Record<Side, Face[]> = { attacker: [], defender: [] };
  * `faces` — кто именно стоял в строю с каждой стороны. Ядро эти метки не читает,
  * оно только делит по ним фигуры; без них метка равна роду боя. Игра передаёт
  * состав всегда — иначе близкий план не выполняет своего обещания.
+ *
+ * `ground` — где и когда. Ядро не читает и его: оно кладёт землю и час в
+ * раскадровку, чтобы показу хватило её одной. Не дали — ровное поле в полдень,
+ * но со своим сидом: у каждого боя всё равно своя трава.
  */
-export function buildCast(result: BattleResult, us: Side, faces: Record<Side, Face[]> = NO_FACES): Cast {
+export function buildCast(
+  result: BattleResult,
+  us: Side,
+  faces: Record<Side, Face[]> = NO_FACES,
+  ground: Ground = { ...PLAIN_GROUND, seed: result.seed },
+): Cast {
   const acts = actWindows(result);
   const spans = layout(result, acts);
   const marks = markLog(result, spans, us);
@@ -870,6 +962,7 @@ export function buildCast(result: BattleResult, us: Side, faces: Record<Side, Fa
     seed: result.seed,
     detailed: result.phases.every((p) => p.bySector !== undefined),
     seconds: acts[acts.length - 1].to,
+    ground,
     acts,
     spans,
     keys: keyframes(us, acts, marks),
@@ -1186,6 +1279,9 @@ export function frameAt(cast: Cast, t: number): Frame {
         files: c.files,
         figures: shown,
         standing: up,
+        // Брошенное — от павших, то есть от потерь журнала. Своего числа убитых
+        // картинка не заводит: она их только раскладывает по земле.
+        wreck: wreckFor(shown - up),
         banners: Math.min(c.banners, flags),
         // Лес древков без носителей включается только с отъездом (`crowdAt`).
         shafts: Math.round(c.shafts * part * alive * crowd),

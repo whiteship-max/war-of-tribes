@@ -130,8 +130,18 @@ function setSun(out: THREE.Vector3, azimuth: number, elevation: number): void {
  * Время суток. solar: 0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — глубокая ночь.
  * Днём солнце ходит дугой вокруг ключевого азимута: 12° на рассвете и закате
  * (длинные тёплые тени), 52° в полдень. Ночью лампа плавно переезжает в луну.
+ *
+ * `key` — вокруг какого азимута ходит солнце. У деревни он выведен из стартовой
+ * камеры и меняться не должен; сцена боя смотрит в другую сторону и просит свой,
+ * иначе её войско оказалось бы против света и обе стороны стали бы одного цвета.
  */
-export function applyDayNight(rig: LightRig, scene: THREE.Scene, solar: number, season: SkyColors): void {
+export function applyDayNight(
+  rig: LightRig,
+  scene: THREE.Scene,
+  solar: number,
+  season: SkyColors,
+  key: number = KEY_AZIMUTH,
+): void {
   const angle = solar * Math.PI * 2;
   const elev = Math.sin(angle); // -1..1
   const daylight = THREE.MathUtils.clamp((elev + 0.35) / 0.5, 0, 1);
@@ -140,9 +150,9 @@ export function applyDayNight(rig: LightRig, scene: THREE.Scene, solar: number, 
 
   const dayT = THREE.MathUtils.clamp(solar, 0, 0.5) / 0.5;
   const elevation = (12 + 40 * season.sunArc * Math.sin(dayT * Math.PI)) * DEG;
-  const azimuth = KEY_AZIMUTH + (solar - 0.25) * 1.25;
+  const azimuth = key + (solar - 0.25) * 1.25;
   setSun(SUN_POS, azimuth, elevation);
-  setSun(MOON_POS, KEY_AZIMUTH + 0.6, 40 * DEG);
+  setSun(MOON_POS, key + 0.6, 40 * DEG);
   rig.sun.position.copy(SUN_POS).lerp(MOON_POS, nightK);
   // Ночью лампа — луна: слабее втрое, но с тенью; жители у ворот должны оставаться различимы.
   rig.sun.intensity = 1.0 + 2.2 * daylight;

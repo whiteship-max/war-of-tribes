@@ -6,6 +6,7 @@ import { seeded } from '@/game/sim/random';
 import { FRONT, GEAR, REAR, type ArmySetup, type Stack, type UnitKind } from '@/battle';
 import { gearOf, kindsOf, troopLosses, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopsOfKinds } from '@/game/battle/faces';
+import type { BattlePlace } from '@/game/battle/ground';
 import type { WorldApi } from '../api';
 import type {
   AttackOrder,
@@ -57,6 +58,7 @@ import { stackCarry, stackSize } from '../data/units';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, raidingParty, GARRISON_STYLES } from '../garrison';
 import { resolveField } from '../battle';
+import { placeAt } from '../place';
 import { estimate, readIntel } from '../intel';
 import {
   AI_MIN_POP,
@@ -180,6 +182,15 @@ export class LocalWorld implements WorldApi {
   }
 
   private elapsed = (now: number): number => Math.max(0, now - this.save.createdAt);
+
+  /**
+   * Место боя на клетке: земля, переправа, гребень, тракт плюс игровое время
+   * племени из последнего слепка деревни. Мир его не толкует — он ставит его
+   * отметкой на записи, а читает уже показ.
+   */
+  private placeOf(at: Coord): BattlePlace {
+    return placeAt(this.save.seed, at.x, at.y, this.save.profile?.time);
+  }
 
   /** Насколько гарнизон ещё не отстроился после последнего разгрома. */
   private damageOf(id: SettlementId, now: number): number {
@@ -811,6 +822,8 @@ export class LocalWorld implements WorldApi {
           // Наш состав известен поимённо, чужой выводится из его же ступени
           // снаряжения: замок выходит латниками, малое поселение — дубинщиками.
           troops: { attacker: { ...troops }, defender: troopsOfKinds(garrison.kinds, garrison.gear) },
+          // Бой идёт на клетке цели: у брода, на гребне, у опушки — как там и есть.
+          place: this.placeOf(target),
         }
       : null;
 
@@ -1006,6 +1019,8 @@ export class LocalWorld implements WorldApi {
           // Ополчение — не бойцы: частокол, башня и жители. В строю они стоят,
           // в казармах их нет, поэтому и записаны они отдельно.
           militia: { attacker: { men: 0, archers: 0 }, defender: { men: militia, archers } },
+          // Оборону держат у себя дома — там и снимается место боя.
+          place: this.placeOf(this.save.home),
         }
       : null;
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));

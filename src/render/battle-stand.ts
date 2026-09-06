@@ -8,6 +8,11 @@
 //   ?replay=1&men=500&foe=500&at=pullback
 //     кадр в середине отъезда — самое тяжёлое место: фигуры ещё крупные, а видно
 //     уже много. Бюджет меряется здесь, а не на статичных планах.
+//   ?replay=1&men=200&place=ford,woods&hour=19&at=field
+//     то же место и тот же час, что записал бы мир: земля и свет выводятся из
+//     записи боя той же чистой функцией, что и в игре.
+//   &place=ford|river|ridge|road|woods|hills|shore — через запятую, как в клетке
+//   &hour=0..24  час игровых суток;  &winter=1 — зимний бой
 //   &t=12.5   остановиться на этой секунде
 //   &at=muster|pull1|pullback|pull3|field|melee|last — планы камеры
 //   &at=volley|clash|charge|rout — моменты действия, найденные в журнале
@@ -21,6 +26,8 @@ import { simulateBattle } from '@/battle/sim';
 import { quickSetup } from '@/battle/setup';
 import type { Act, Cast } from '@/battle/replay';
 import { castOfRecord, troopsOfKinds } from '@/game/battle/faces';
+import { groundName, hourName, type BattleLand, type BattlePlace } from '@/game/battle/ground';
+import { DAY_LENGTH } from '@/game/constants';
 import { kindsOf, type TroopStack } from '@/game/battle/kinds';
 import type { BattleResult, Side, Stack } from '@/battle/types';
 import { configureRenderer } from './lighting';
@@ -41,6 +48,30 @@ function armyOf(men: number): TroopStack {
     archer: part(0.25),
     rider: part(0.15),
   };
+}
+
+/**
+ * Место боя из адреса — той же формы, что кладёт в запись мира. Стенд обязан
+ * ходить тем же путём, что игра: если бы он собирал `Ground` напрямую, кадры
+ * приёмки ничего не доказывали бы про настоящий ролик.
+ */
+function placeOf(p: URLSearchParams): BattlePlace | undefined {
+  const marks = (p.get('place') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const hour = p.has('hour') ? Number(p.get('hour')) : null;
+  const winter = p.get('winter') === '1';
+  if (marks.length === 0 && hour === null && !winter) return undefined;
+  const land: BattleLand = marks.includes('shore') ? 'shore' : marks.includes('hills') ? 'hills' : 'plain';
+  const place: BattlePlace = { land };
+  if (marks.includes('river') || marks.includes('ford')) place.river = true;
+  if (marks.includes('ford')) place.ford = true;
+  if (marks.includes('ridge')) place.ridge = true;
+  if (marks.includes('road')) place.road = true;
+  if (marks.includes('woods')) place.woods = true;
+  // Час и время года приходят одним числом — игровым временем племени, ровно
+  // как в игре. Зима — это просто день из зимней пятидневки.
+  const day = winter ? 15 : 0;
+  place.time = (day + (hour === null ? 0.5 : hour / 24)) * DAY_LENGTH;
+  return place;
 }
 
 function fight(a: Stack, d: Stack, seed: number): BattleResult {
@@ -117,7 +148,7 @@ export function mountReplayStand(p: URLSearchParams): void {
   // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1`
   // показывает именно этот путь, а не поимённый).
   const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
-  const cast = castOfRecord(result, us, { attacker: mine, defender: foeTroops });
+  const cast = castOfRecord(result, us, { attacker: mine, defender: foeTroops }, undefined, placeOf(p));
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -155,7 +186,8 @@ export function mountReplayStand(p: URLSearchParams): void {
     const s = player.stats();
     const f = cast;
     const text =
-      `бой ${men} против ${foe} · сид ${seed} · ролик ${f.seconds.toFixed(1)} с\n` +
+      `бой ${men} против ${foe} · сид ${seed} · ролик ${f.seconds.toFixed(1)} с · ` +
+      `${groundName(f.ground)} ${hourName(f.ground)}${f.ground.winter ? ', зимой' : ''}\n` +
       `t=${player.time.toFixed(2)} · фигур ${f.figures.attacker}/${f.figures.defender} · ` +
       `вызовов ${s.calls} · треугольников ${s.triangles.toLocaleString('ru')} · инстансов ${s.instances}`;
     caption.textContent = text;
@@ -167,6 +199,7 @@ export function mountReplayStand(p: URLSearchParams): void {
       t: Number(player.time.toFixed(3)),
       figures: f.figures,
       battleMen: f.men,
+      ground: f.ground,
       ...s,
       dpr: renderer.getPixelRatio(),
       size: [canvas.clientWidth, canvas.clientHeight],

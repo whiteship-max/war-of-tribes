@@ -12,6 +12,7 @@ import { UNIT_KINDS, buildCast, type BattleResult, type Cast, type Face, type Si
 import { TROOP_BY_ID } from '../data/troops';
 import type { TroopId } from '../types';
 import { KIND_OF, TROOPS_OF_KIND, gearOfTroop, type TroopStack } from './kinds';
+import { groundOf, type BattlePlace } from './ground';
 
 /**
  * Метка того, кто стоит в строю: вид бойца племени или ополчение. Ополчение —
@@ -111,17 +112,21 @@ export function wearOf(id: string, kind: UnitKind): Wear {
 export const facesTotal = (faces: Face[]): number => faces.reduce((n, f) => n + f.men, 0);
 
 /**
- * Раскадровка ролика из записи боя: состав сторон превращается в метки, и
- * дальше картинке хватает одной раскадровки. Единственная дверь из записи боя
- * в показ — чтобы «сервер прислал, клиент показал» осталось одним вызовом.
+ * Раскадровка ролика из записи боя: состав сторон превращается в метки, место и
+ * час — в землю и свет, и дальше картинке хватает одной раскадровки. Единственная
+ * дверь из записи боя в показ — чтобы «сервер прислал, клиент показал» осталось
+ * одним вызовом.
  */
 export function castOfRecord(
   result: BattleResult,
   us: Side,
   troops: Record<Side, TroopStack>,
   militia?: Record<Side, { men: number; archers: number }>,
+  place?: BattlePlace,
 ): Cast {
   const side = (id: Side): Face[] =>
     facesOf({ troops: troops[id] ?? {}, militia: militia?.[id]?.men, militiaArchers: militia?.[id]?.archers });
-  return buildCast(result, us, { attacker: side('attacker'), defender: side('defender') });
+  // Земля и свет — тем же ходом, что и состав: из записи боя чистой функцией.
+  // Места нет (старая запись) — ровное поле в полдень, но со своим сидом.
+  return buildCast(result, us, { attacker: side('attacker'), defender: side('defender') }, groundOf(place, result.seed));
 }

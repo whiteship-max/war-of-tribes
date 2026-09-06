@@ -67,9 +67,11 @@ const sample = (cast: Cast, step = 1 / 30): number[] => {
 function sources(): { file: string; code: string }[] {
   const out = [{ file: 'battle/replay.ts', code: readFileSync(join(SRC, 'battle/replay.ts'), 'utf8') }];
   out.push({ file: 'game/battle/faces.ts', code: readFileSync(join(SRC, 'game/battle/faces.ts'), 'utf8') });
+  out.push({ file: 'game/battle/ground.ts', code: readFileSync(join(SRC, 'game/battle/ground.ts'), 'utf8') });
   const dir = join(SRC, 'render/battle');
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.ts') && !name.endsWith('.tsx')) continue;
+    if (name.endsWith('.test.ts')) continue;
     out.push({ file: `render/battle/${name}`, code: readFileSync(join(dir, name), 'utf8') });
   }
   return out;
@@ -95,6 +97,23 @@ describe('визуализация — проигрыватель журнала
     for (const from of imports) {
       expect(from, `посторонний импорт ${from}`).toMatch(/^\.\/(types|log|config)$/);
     }
+  });
+
+  it('показ не читает мир: земля и свет приезжают раскадровкой', () => {
+    // Место боя записано в самой записи боя и переведено в `Cast.ground` чистой
+    // функцией. Стоит показу дочитать карту — и раскадровка перестанет быть
+    // самодостаточной ровно тогда, когда журнал приедет с сервера.
+    for (const { file, code } of sources()) {
+      const src = stripComments(code);
+      expect(src, `${file}: показ полез в мир`).not.toMatch(/from '@\/world|worldApi|LocalWorld|terrainAt|featuresAt|placeAt/);
+    }
+  });
+
+  it('земля и час лежат в раскадровке, а не добираются на показе', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    expect(cast.ground).toBeDefined();
+    expect(cast.ground.solar).toBeGreaterThanOrEqual(0);
+    expect(cast.ground.seed).toBe(cast.seed);
   });
 
   it('проигрыватель берёт раскадровку, а не итог боя', () => {

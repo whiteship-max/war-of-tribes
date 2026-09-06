@@ -128,6 +128,9 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     army,
     militia: militiaMen(s),
     militiaArchers: militiaArchers(s),
+    // Час и время года: мир их не толкует, он ставит их отметкой на записи боя,
+    // чтобы ролик светил закатом там, где бой и случился на закате.
+    time: s.time,
     // Дозор и конюшня: мир получает три числа и не спрашивает, откуда они.
     warning: warningSeconds(s),
     intelKeen: intelKeen(s),

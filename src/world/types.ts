@@ -4,6 +4,7 @@
 // говорят на одном языке со складом.
 import type { ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
+import type { BattlePlace } from '@/game/battle/ground';
 import type { ArmySetup, BattleResult, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
 
 export interface Coord {
@@ -337,6 +338,15 @@ export interface BattleRecord {
    * поэтому в `troops` их не записать, а в строю они стоят и гибнут наравне.
    */
   militia?: Record<Side, { men: number; archers: number }>;
+  /**
+   * Где и когда это было. Ролик рисует землю и свет отсюда, а не из карты:
+   * показ не имеет права дочитывать мир, иначе раскадровка перестанет быть
+   * самодостаточной ровно тогда, когда журнал приедет с сервера.
+   *
+   * Поле необязательное: записи боя, сделанные раньше, места не несут, и
+   * открыться они обязаны — им достаётся ровное поле в полдень.
+   */
+  place?: BattlePlace;
 }
 
 export interface Report {
@@ -414,6 +424,13 @@ export interface PlayerProfile {
   resources: Loot;
   /** Насколько дольше видно чужую армию до прихода, секунд. Работа Дозора. */
   warning?: number;
+  /**
+   * Игровое время племени в секундах. Мир его не считает и не толкует — он
+   * ставит его отметкой на записи боя, чтобы ролик знал час и время года.
+   * Без него бой пришлось бы освещать настоящими часами устройства, и повтор
+   * через неделю показал бы другое небо.
+   */
+  time?: number;
   /** Во сколько раз медленнее стареет разведка игрока. Тоже Дозор. */
   intelKeen?: number;
   /** Ступень снаряжения, которую конюшня добавляет коннице игрока. */

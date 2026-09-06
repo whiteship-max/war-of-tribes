@@ -7,30 +7,13 @@ import type { Cast, Frame } from '@/battle/replay';
 import type { Side } from '@/battle/types';
 import { FigurePool } from '../figures';
 import type { Action } from '../poses';
-import { applyDayNight, type LightRig } from '../lighting';
-import { PALETTE } from '../palette';
-import { buildField, setupFieldScene } from './field';
+import { buildSky, setupFieldScene } from './field';
+import { buildGround, type GroundView } from './ground';
+import { Aftermath } from './aftermath';
 import { ArrowStorm } from './arrows';
 import { MassView } from './mass';
 import { CLOTH_OF, SectorTroops } from './troops';
-
-/**
- * Полдень: бой в этой пачке идёт при ровном дневном свете. Время суток и
- * закатное солнце — четвёртая пачка, и заводить их по дороге не надо.
- */
-const SOLAR = 0.25;
-
-/**
- * Небо боя. Своим литералом, а не через `SeasonVisuals`: тот переливает **общие**
- * материалы KIT и LEGACY, и ролик, начавшись зимой, перекрасил бы деревню в лето
- * — она рисуется теми же материалами.
- */
-const SKY = {
-  sky: new THREE.Color(PALETTE.sky),
-  fog: new THREE.Color(PALETTE.fog),
-  sun: new THREE.Color(PALETTE.sunDay),
-  sunArc: 1,
-};
+import { wreckFor } from '@/battle/replay';
 
 /**
  * Что бойцы делают. Такт задаёт основное, но первое столкновение — своя поза:
@@ -50,23 +33,30 @@ const actionOf = (frame: Frame): Action =>
 export class BattleStage {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(45, 1, 0.5, 200);
-  private rig: LightRig;
   private pool = new FigurePool();
   private blocks: SectorTroops[] = [];
   /** Масса: знамёна, лес древков и пятно под строем. Три вызова на всё поле. */
   private mass: MassView;
   /** Залпы: все стрелы поля одним вызовом отрисовки. */
   private arrows = new ArrowStorm();
-  private ground: THREE.Mesh;
+  /** Поле после боя: брошенные щиты и воткнутые копья. */
+  private wreck: Aftermath;
+  /** Земля клетки, на которой случился бой, и купол неба над ней. */
+  private ground: GroundView;
+  private sky: THREE.Mesh;
   private us: Side;
 
   constructor(cast: Cast) {
     this.us = cast.us;
-    this.rig = setupFieldScene(this.scene);
-    this.ground = buildField();
-    this.scene.add(this.ground);
+    // Свет и земля — из раскадровки, то есть из записи боя. Ни настоящих часов,
+    // ни карты мира: повтор через неделю обязан дать тот же кадр.
+    setupFieldScene(this.scene, cast.ground);
+    this.ground = buildGround(cast.ground);
+    this.scene.add(this.ground.group);
+    // Купол собирается после света: цвета он берёт у самой сцены.
+    this.sky = buildSky(this.scene, cast.ground);
+    this.scene.add(this.sky);
     this.scene.add(this.pool.group);
-    applyDayNight(this.rig, this.scene, SOLAR, SKY);
     for (const c of cast.sectors) this.blocks.push(new SectorTroops(c, this.us, this.pool));
     // Ёмкость заказывается сразу на всё войско: пересоздавать инстансы посреди
     // отъезда — единственное место, где кадр мог бы дрогнуть.
@@ -76,6 +66,8 @@ export class BattleStage {
       dust: cast.sectors.length,
     });
     this.scene.add(this.mass.group);
+    this.wreck = new Aftermath(cast.sectors.reduce((n, c) => n + wreckFor(c.figures), 0));
+    this.scene.add(this.wreck.group);
     this.scene.add(this.arrows.mesh);
     // Пул растёт по потребности; заказываем всё сразу, чтобы посреди отъезда не
     // пересоздавать инстансы — это единственное место, где кадр мог бы дрогнуть.
@@ -106,6 +98,7 @@ export class BattleStage {
     }
     this.pool.update();
     this.mass.update(frame.sectors, (f) => CLOTH_OF(f.side === this.us), { couch: frame.couch, time: t, impact: frame.impact });
+    this.wreck.update(frame.sectors, (f) => CLOTH_OF(f.side === this.us));
     this.arrows.update(frame.volleys);
   }
 
@@ -117,9 +110,12 @@ export class BattleStage {
   dispose(): void {
     this.arrows.dispose();
     this.mass.dispose();
+    this.wreck.dispose();
     for (const b of this.blocks) b.dispose(this.pool);
     this.blocks = [];
-    this.ground.geometry.dispose();
+    this.ground.dispose();
+    this.sky.geometry.dispose();
+    (this.sky.material as THREE.Material).dispose();
     this.scene.clear();
   }
 }

@@ -19,7 +19,7 @@ import type { BattleRecord } from '@/world/types';
 
 export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
   const us = rec.us;
-  const cast = useMemo(() => castOfRecord(rec.result, rec.us, rec.troops, rec.militia), [rec]);
+  const cast = useMemo(() => castOfRecord(rec.result, rec.us, rec.troops, rec.militia, rec.place), [rec]);
   // Первый кадр есть до запуска: управление обязано быть на экране сразу,
   // а не появляться, когда рендерер отдаст первый onFrame.
   const [frame, setFrame] = useState<Frame>(() => frameAt(cast, 0));
