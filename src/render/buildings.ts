@@ -1064,6 +1064,14 @@ function palisade(t: Tier): THREE.Group {
       for (let i = 0; i < 8; i++) tower(GATE_ANGLE + Math.PI / 8 + i * Math.PI / 4, 3.65);
       for (const s of [-1, 1]) tower(GATE_ANGLE + s * 0.145, 4.05);
       // Надвратный зал опирается на две башни и арку, проезд под ним открыт.
+      // Заполнение над сводом: нижние края блоков скрыты каменным архивольтом.
+      for (let i = 0; i < 16; i++) {
+        const x = -1.75 + (i + 0.5) * 3.5 / 16;
+        const bottom = 1.5 + Math.sqrt(1.75 * 1.75 - x * x);
+        parts.push(K.box(3.5 / 16 + 0.01, 3.5 - bottom, 0.64, stone,
+          gx - Math.sin(GATE_ANGLE) * x, (3.5 + bottom) / 2,
+          gz + Math.cos(GATE_ANGLE) * x, { y: -GATE_ANGLE - Math.PI / 2 }));
+      }
       radialBox(GATE_ANGLE, R, 3.6, 0.63, 0.74, 3.55, stone);
       radialBox(GATE_ANGLE, R, 3.74, 0.14, 0.84, 3.94, dark);
       for (const s of [-1, 1]) radialBox(GATE_ANGLE, R + s * 0.31, 3.7, 0.3, 0.2, 4.1, light);
