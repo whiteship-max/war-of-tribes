@@ -973,6 +973,15 @@ function stable(t: Tier): THREE.Group {
   }
   for (const x of [-0.7, 0.7]) a.push(K.box(0.14, 0.85, 0.14, p.beam, x, 0.42, 0.98));
   a.push(K.box(1.6, 0.14, 0.14, p.post, 0, 0.7, 0.98));
+  if (t === 2) {
+    a.push(...militaryShed(0.75, 1.45, 1.05, -1.47, 0.55));
+    a.push(K.box(0.12, 0.92, 1.3, p.post, -1.76, 0.46, 0.55));
+    // Ограда выгула ниже коновязи, вход остаётся свободным посередине.
+    a.push(...K.fenceRun(1.6, -0.2, 1.6, 1.48, 0.65, p.post, p.beam));
+    a.push(...K.fenceRun(-1.6, 1.48, -0.55, 1.48, 0.65, p.post, p.beam));
+    a.push(...K.fenceRun(0.55, 1.48, 1.6, 1.48, 0.65, p.post, p.beam));
+    a.push(K.box(0.55, 0.37, 0.5, K.paintOf('straw'), -1.43, 0.25, 0.5));
+  }
   const g = new THREE.Group();
   g.add(K.assemble(a));
   return g;
@@ -1406,7 +1415,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'statue':
       return statue(tier, st);
     case 'stable':
-      return tier <= 1 ? stable(tier) : stubModel(tier, st, STUBS.stable);
+      return stable(tier);
     case 'infirmary':
     case 'watch':
     case 'cache':
