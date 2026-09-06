@@ -164,6 +164,36 @@ export function gablePrism(w: number, h: number, d: number, rise: number, paint:
 
 // ---------- Стены и цоколь (основание — в y0) ----------
 
+/** Полукруглая арка с прямыми пятами; border=0 — вставка в тот же проём.
+ * Восемь граней свода, без фасок: портал, окно, аркада или ворота стены.
+ * Возвращает обычную деталь assemble, своего материала/вызова не создаёт. */
+export function arch(w: number, spring: number, border: number, depth: number, paint: Paint,
+  x = 0, y = 0, z = 0, rot?: Rot): Part {
+  const r = w / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(-r, 0);
+  shape.lineTo(-r, spring);
+  for (let i = 0; i <= 8; i++) {
+    const a = Math.PI - i * Math.PI / 8;
+    shape.lineTo(Math.cos(a) * r, spring + Math.sin(a) * r);
+  }
+  shape.lineTo(r, 0);
+  if (border > 0) {
+    const inner = Math.max(0.01, r - border);
+    shape.lineTo(inner, 0);
+    shape.lineTo(inner, spring);
+    for (let i = 0; i <= 8; i++) {
+      const a = i * Math.PI / 8;
+      shape.lineTo(Math.cos(a) * inner, spring + Math.sin(a) * inner);
+    }
+    shape.lineTo(-inner, 0);
+  }
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, steps: 1, curveSegments: 1 });
+  geo.translate(0, 0, -depth / 2);
+  return place(geo, paint, x, y, z, rot);
+}
+
 /** Затемнение стены: нижняя половина, не выше 0.55. */
 const wallAo = (y0: number, h: number): Ao => ({ base: AO_WALL, y0, y1: y0 + Math.min(0.55, h / 2) });
 
