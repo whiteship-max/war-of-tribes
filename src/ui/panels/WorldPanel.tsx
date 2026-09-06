@@ -13,6 +13,7 @@ import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo'
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
+import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
@@ -139,6 +140,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const moveFigure = useWorld((g) => g.moveFigure);
   const attack = useWorld((g) => g.attack);
   const negotiate = useWorld((g) => g.negotiate);
+  const openMenu = useWorld((g) => g.openMenu);
   const [mission, setMission] = useState<Mission | null>(null);
   const [pick, setPick] = useState<UnitStack>({});
   const [busy, setBusy] = useState(false);
@@ -351,9 +353,52 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <p className="note bad">Про войско здесь мы ничего не знаем. Нужен разведчик у самых ворот.</p>
       )}
 
+      {/* Отношения именно с этим двором: состояние, число и характер владельца.
+          Число рядом со словами нарочно: по слову понятно направление, по числу —
+          далеко ли до согласия. */}
+      {card.diplomacy && (
+        <>
+          <h3>Отношения</h3>
+          <div className="mod-list">
+            <div className="mod total">
+              <span className="ico">{STANDING_META[card.diplomacy.standing].icon}</span>
+              <span className="name">{STANDING_META[card.diplomacy.standing].name}</span>
+              <span className="val" style={{ color: STANDING_META[card.diplomacy.standing].color }}>
+                {card.diplomacy.attitude > 0 ? `+${card.diplomacy.attitude}` : card.diplomacy.attitude}
+              </span>
+            </div>
+            <div className="mod">
+              <span className="ico">🤝</span>
+              <span className="name">Как нас встречают</span>
+              <span className="val">{card.diplomacy.mood}</span>
+            </div>
+            <div className="mod">
+              <span className="ico">{TEMPER_BY_ID[card.diplomacy.temper].icon}</span>
+              <span className="name">Характер владельца</span>
+              <span className="val">{TEMPER_BY_ID[card.diplomacy.temper].name}</span>
+            </div>
+            {card.diplomacy.standing === 'pact' && card.diplomacy.breakAt > 0 && (
+              <div className="mod total">
+                <span className="ico">⏳</span>
+                <span className="name">Пакт разорван, война через</span>
+                <span className="val neg">{formatLeft(secondsLeft(card.diplomacy.breakAt, worldNow()))}</span>
+              </div>
+            )}
+            {card.diplomacy.standing === 'pact' && card.diplomacy.breakAt === 0 && card.diplomacy.until > 0 && (
+              <div className="mod">
+                <span className="ico">📜</span>
+                <span className="name">Пакт держится ещё</span>
+                <span className="val pos">{formatLeft(secondsLeft(card.diplomacy.until, worldNow()))}</span>
+              </div>
+            )}
+          </div>
+          <p className="note">{TEMPER_BY_ID[card.diplomacy.temper].note}</p>
+        </>
+      )}
+
       {card.deals.length > 0 && (
         <>
-          <h3>Договоры</h3>
+          <h3>Договоры с племенем</h3>
           <div className="mod-list">
             {card.deals.map((d) => (
               <div className="mod" key={d.id}>
@@ -368,6 +413,16 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
 
       <h3>Что делать</h3>
       <div className="wm-actions">
+        {!card.mine &&
+          standing.map((id) => (
+            <button
+              key={id}
+              className="btn wide"
+              onClick={() => void openMenu(id, { x: card.x, y: card.y })}
+            >
+              {FIGURE_BY_ID[id].icon} Приказы: {FIGURE_BY_ID[id].name.toLowerCase()}
+            </button>
+          ))}
         {card.can.open && (
           <>
             <button className="btn wide" onClick={closeMap}>
@@ -413,7 +468,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
 
       {standing.includes('diplomat') && !card.mine && card.tribeId && (
         <>
-          <h3>Переговоры</h3>
+          <h3>Союзы с племенем</h3>
+          <p className="note">
+            Это договоры со всем племенем. Отношения с самим двором — война, пакт, дар, оскорбление —
+            в приказах дипломату выше.
+          </p>
           {DEALS.map((d) => (
             <div className="card" key={d.id}>
               <div className="ico">{d.icon}</div>

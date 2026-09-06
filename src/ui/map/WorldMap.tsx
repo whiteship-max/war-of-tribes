@@ -12,11 +12,12 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useGame } from '@/game/store';
-import { cameraAnchor, figurePosition, useWorld, worldNow } from '@/world/store';
+import { cameraAnchor, figurePosition, figuresOn, useWorld, worldNow } from '@/world/store';
 import { WORLD_VIEW, freeCamera } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
@@ -55,6 +56,7 @@ import { type Look, dropSprites, silhouetteUrl } from './village';
 import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
+import { ActionMenu } from './ActionMenu';
 
 const TAP_MOVE = 12;
 const TAP_MS = 500;
@@ -319,21 +321,62 @@ export function WorldMap() {
     const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
     if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
     if (c.x >= WORLD_ORIGIN.x + WORLD_SIZE || c.y >= WORLD_ORIGIN.y + WORLD_SIZE) return;
-    // Фигура в руке — тап ведёт её сюда. Это и есть весь способ отдать приказ:
-    // отдельного экрана «куда идти» нет и заводить его незачем.
+    openAt(c);
+  };
+
+  /**
+   * Куда ведёт одиночный тап. Двойного тапа здесь нет и быть не может — в
+   * браузере это масштабирование, — поэтому все три смысла разведены по тому,
+   * что под пальцем и есть ли агент в руке:
+   *
+   * - агент в руке и под пальцем цель (или он сам) — меню приказов;
+   * - агент в руке и под пальцем земля — приказ идти (прежнее поведение, и
+   *   трогать его нельзя: разведка — это десяток шагов подряд в темноту);
+   * - без агента в руке — своя фигура в поле берётся в руку, а поселение
+   *   открывает карточку.
+   */
+  const openAt = (c: Coord): void => {
     const hand = useWorld.getState().picked;
+    const target = settlementAt(c.x, c.y);
+    const standing = figuresOn(c.x, c.y, worldNow());
     if (hand) {
-      // Из руки фигура не выпадает: разведка — это десяток шагов подряд в одну
-      // сторону, и заново брать её после каждого было бы мучением. Отпускают её
-      // кнопкой в подсказке или переходом на другой якорь.
+      if (target || standing.some((f) => f.id === hand)) {
+        void useWorld.getState().openMenu(hand, c);
+        return;
+      }
+      // Из руки фигура не выпадает: заново брать её после каждого шага было бы
+      // мучением. Отпускают её кнопкой в подсказке или переходом на другой якорь.
       void (async () => {
         const err = await moveFigure(hand, c);
         showToast(err ?? `${FIGURE_BY_ID[hand].name} пошёл к ${formatCoord(c)}.`);
       })();
       return;
     }
+    if (!target && standing.length > 0) {
+      const f = standing[0];
+      setAnchor(f.id);
+      pickFigure(f.id);
+      showToast(`${f.name} выбран: тапни по клетке — пойдёт туда.`);
+      return;
+    }
     void useWorld.getState().select(c);
     focusOn(c);
+  };
+
+  /**
+   * Правая кнопка — то же меню. Это подарок десктопу: всё, что делается ею,
+   * делается и одним тапом, иначе на телефоне часть игры была бы недоступна.
+   */
+  const onContextMenu = (e: ReactMouseEvent<HTMLCanvasElement>): void => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const world = toWorld(cam.current, vp(), e.clientX - rect.left, e.clientY - rect.top);
+    const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
+    if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
+    if (c.x >= WORLD_ORIGIN.x + WORLD_SIZE || c.y >= WORLD_ORIGIN.y + WORLD_SIZE) return;
+    const g = useWorld.getState();
+    const agent = g.picked ?? figuresOn(c.x, c.y, worldNow())[0]?.id ?? (g.anchor === 'home' ? 'diplomat' : g.anchor);
+    void g.openMenu(agent, c);
   };
 
   const onWheel = (e: ReactWheelEvent<HTMLCanvasElement>): void => {
@@ -385,6 +428,7 @@ export function WorldMap() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onContextMenu={onContextMenu}
         onWheel={onWheel}
       />
 
@@ -534,9 +578,11 @@ export function WorldMap() {
         ))}
       </div>
 
+      <ActionMenu />
+
       {picked && (
         <div className="wm-hint">
-          <span>Тапни по клетке — {FIGURE_BY_ID[picked].name} пойдёт туда.</span>
+          <span>Тапни по земле — {FIGURE_BY_ID[picked].name} пойдёт туда, по поселению — приказы.</span>
           <button onClick={() => pickFigure(null)}>Отпустить</button>
         </div>
       )}

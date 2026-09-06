@@ -33,13 +33,17 @@ import type {
   Coord,
   DealId,
   DealView,
+  DiploActionId,
   FigureId,
   FigureView,
   MarchOrder,
   MarchView,
+  OrderOption,
+  OrderResult,
   Rect,
   Report,
   SettlementCard,
+  SettlementId,
   Terrain,
   TribeInfo,
   WorldInfo,
@@ -48,6 +52,16 @@ import type { TroopStack } from '@/game/battle/kinds';
 
 /** Как часто мир опрашивается. Достаточно редко, чтобы не мешать симуляции племени. */
 const PULSE_MS = 2000;
+
+/** Открытое меню приказов: агент, клетка и то, что мир знает про цель. */
+export interface ActionMenuState {
+  agent: FigureId;
+  cell: Coord;
+  /** Поселение под клеткой. null — пустая земля: приказывать некому и нечего. */
+  target: SettlementId | null;
+  name: string;
+  card: SettlementCard | null;
+}
 
 export interface WorldStore {
   ready: boolean;
@@ -81,6 +95,14 @@ export interface WorldStore {
   cardLoading: boolean;
   /** Счётчик приехавших кусков карты: по нему перерисовывается полотно. */
   chunks: number;
+  /**
+   * Открытое меню приказов: какой агент, по какой цели. Живёт в сторе, а не в
+   * полотне, потому что открывается из двух мест — тапом по карте и кнопкой в
+   * карточке клетки, — а меню при этом одно.
+   */
+  menu: ActionMenuState | null;
+  /** Строки меню: цена, время, шанс и причина отказа. Считает их мир. */
+  orders: OrderOption[];
   boot: () => Promise<void>;
   pulse: () => Promise<void>;
   ensureRegion: (rect: Rect) => void;
@@ -100,6 +122,13 @@ export interface WorldStore {
   /** Полководец бьёт по цели, у которой стоит. */
   attack: (order: AttackOrder) => Promise<string | null>;
   negotiate: (deal: DealId) => Promise<string | null>;
+  /** Открыть меню приказов агента по этой клетке. */
+  openMenu: (agent: FigureId, cell: Coord) => Promise<void>;
+  closeMenu: () => void;
+  /** Перечитать строки меню: после приказа цена, шанс и причины уже другие. */
+  refreshOrders: () => Promise<void>;
+  /** Отдать приказ дипломату по цели открытого меню. */
+  order: (action: DiploActionId) => Promise<OrderResult>;
   loadReports: () => Promise<void>;
   markRead: () => Promise<void>;
   /** Новый мир с нуля — рядом с «начать заново» у племени. */
@@ -130,6 +159,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
   cardTerrain: null,
   cardLoading: false,
   chunks: 0,
+  menu: null,
+  orders: [],
 
   boot: async () => {
     if (get().ready) return;
@@ -308,6 +339,49 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
+  openMenu: async (agent, cell) => {
+    // Меню — единственный слой над картой: карточку клетки при этом закрываем,
+    // иначе шторка легла бы поверх и меню оказалось бы под ней.
+    useGame.getState().closeSheet();
+    const view = settlementAt(cell.x, cell.y);
+    set({ menu: { agent, cell, target: view?.id ?? null, name: view?.name ?? 'Пустая земля', card: null }, orders: [] });
+    if (!view) return;
+    const [card, orders] = await Promise.all([
+      worldApi().settlement(view.id),
+      worldApi().orders(view.id),
+    ]);
+    const menu = get().menu;
+    if (!menu || menu.target !== view.id) return;
+    set({ menu: { ...menu, card }, orders });
+  },
+
+  closeMenu: () => set({ menu: null, orders: [] }),
+
+  refreshOrders: async () => {
+    const menu = get().menu;
+    if (!menu?.target) return;
+    const [card, orders] = await Promise.all([
+      worldApi().settlement(menu.target),
+      worldApi().orders(menu.target),
+    ]);
+    const now = get().menu;
+    if (!now || now.target !== menu.target) return;
+    set({ menu: { ...now, card }, orders });
+  },
+
+  order: async (action) => {
+    const menu = get().menu;
+    if (!menu?.target) return { error: 'Цель не выбрана.', accepted: false, diplomacy: null, text: '' };
+    const res = await worldApi().order(action, menu.target);
+    haptic(res.error ? 'error' : res.accepted ? 'medium' : 'light');
+    // Пульс раньше перечитывания: последствие приказа (плата, мораль) должно
+    // лечь на племя до того, как меню покажет новые цены.
+    await get().pulse();
+    await get().refreshOrders();
+    await get().refreshCard();
+    return res;
+  },
+
   loadReports: async () => {
     set({ reports: await worldApi().reports() });
   },
@@ -334,6 +408,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
       selected: null,
       card: null,
       cardTerrain: null,
+      menu: null,
+      orders: [],
       chunks: get().chunks + 1,
     });
     await get().boot();
