@@ -4,7 +4,9 @@ import { DAY_LENGTH } from '../constants';
 import { dayOf } from '../derived';
 import { deserialize, serialize } from '../save';
 import { LOG_MAX, LOG_MAX_DAYS, log, trimLog } from './log';
-import { catchUp } from './tick';
+import { catchUp, tick } from './tick';
+import { buyGoods } from './market';
+import { marketLeft, marketOffer } from '../derived';
 
 /** Кладёт запись задним числом: `at` считается от нынешнего времени. */
 function backdate(s: ReturnType<typeof createInitialState>, daysAgo: number, text: string): void {
@@ -142,6 +144,39 @@ describe('летопись', () => {
     }
     // На порядке держится обрезка хвостом — сломав его, trimLog отрежет не то.
     for (let i = 1; i < s.log.length; i++) expect(s.log[i - 1].at).toBeGreaterThanOrEqual(s.log[i].at);
+  });
+
+  /**
+   * Обещание «за месяц» проверяется не на ровной партии, а на той, где летопись
+   * пишут чаще всего. Самый плотный писарь — рынок: кнопка покупки берёт по
+   * единице за раз, а на каждый заказ ложились две строки, заказ и возвращение
+   * каравана. Двадцать заказов в день — это сорок строк, запасной предел
+   * `LOG_MAX` выбирался за неделю, и ступень «за месяц» показывала пять дней.
+   * Молча: обещание месяца до этого теста нигде не проверялось.
+   */
+  it('месяц остаётся месяцем и у торгового племени: запасной предел не срабатывает', () => {
+    const s = createInitialState();
+    s.tutorialDone = true;
+    let orders = 0;
+    for (let day = 0; day < LOG_MAX_DAYS + 5; day++) {
+      // Казна не кончается: проверяется летопись, а не баланс золота.
+      s.gold = 1_000_000;
+      for (const g of marketOffer(s)) {
+        for (let i = 0; i < Math.min(marketLeft(s, g), 8); i++) {
+          if (buyGoods(s, g.id, 1) === null) orders++;
+        }
+      }
+      for (let t = 0; t < DAY_LENGTH; t++) tick(s, 1);
+    }
+    expect(orders).toBeGreaterThan(200);
+    // Прилавок здесь — обычный, рынок первого уровня: три товара. Потолок
+    // торговли (рынок десятого уровня, дюжина товаров, берут всё каждый день)
+    // в предел по-прежнему упирается — это видно в `npm run log:report` и
+    // решается не склейкой, а числом предела. Тест держит то, что починено.
+    // Предел по количеству — запасной: сработал он, значит месяц не показан.
+    expect(s.log.length).toBeLessThan(LOG_MAX);
+    const oldest = Math.min(...s.log.map((e) => e.at));
+    expect((s.time - oldest) / DAY_LENGTH).toBeGreaterThan(LOG_MAX_DAYS - 1);
   });
 
   it('сохранение с раздутой летописью приводится к месяцу на загрузке', () => {

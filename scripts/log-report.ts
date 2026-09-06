@@ -13,6 +13,7 @@ import { catchUp, tick } from '@/game/sim/tick';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
 import { setForging } from '@/game/sim/smithy';
 import { startRecruit } from '@/game/sim/army';
+import { buyGoods } from '@/game/sim/market';
 import { assignWorker, changeFreeJob, unassignWorker } from '@/game/sim/workers';
 import { seeded, setRandom } from '@/game/sim/random';
 import { serialize } from '@/game/save';
@@ -24,6 +25,8 @@ import {
   idleCount,
   isSite,
   jobCounts,
+  marketLeft,
+  marketOffer,
   storageCap,
   workerCount,
 } from '@/game/derived';
@@ -133,15 +136,31 @@ function report(title: string, s: GameState): void {
  * казармы набирают, события поднимаются и разрешаются. Без этого отчёт мерил
  * тишину — а летопись раздувают именно ковка и наём, по строке на предмет и на
  * бойца, и именно они решают, каким должен быть предел.
+ *
+ * `trade` — торговое племя: рынок пишет по строке на заказ и по строке на
+ * возвращение каравана, а кнопка покупки берёт по единице за раз. Долгое время
+ * отчёт этого писаря не видел вовсе — прилавка в прогоне не было, — и месячная
+ * ступень летописи ломалась молча. Кто чаще всех пишет, тот и должен быть в
+ * отчёте.
  */
-function play(hours: number, offline: boolean): GameState {
+function play(hours: number, offline: boolean, trade = false): GameState {
   setRandom(seeded(7));
   const s = createInitialState();
   s.tutorialDone = true;
   let nextHire = 0;
+  let tradeDay = -1;
   for (let t = 0; t < hours * 3600; t += STEP) {
     staff(s);
     build(s);
+    if (trade && dayOf(s.time) !== tradeDay) {
+      tradeDay = dayOf(s.time);
+      // Казна пополняется извне: считаем строки летописи, а не золото. У живого
+      // игрока её пополняют налог и взятые замки.
+      s.gold = Math.max(s.gold, 200_000);
+      for (const g of marketOffer(s)) {
+        for (let i = 0; i < Math.min(marketLeft(s, g), 8); i++) buyGoods(s, g.id, 1);
+      }
+    }
     // Кузнец без наряда молчит, а с нарядом пишет строку на каждый предмет.
     if (!s.forging) setForging(s, 'spear');
     if (s.recruits.length === 0 && s.time >= nextHire) {
@@ -207,6 +226,23 @@ function main(): void {
   report(`Активная игра, ${HOURS * 3} ч подряд:`, long);
   console.log('\n  Кто наполняет летопись:');
   for (const [text, n] of sources(long)) console.log(`  ${String(n).padStart(4)} × ${text}`);
+
+  // Торговое племя — самый плотный писарь из всех, и до сих пор его в отчёте не
+  // было вовсе: прилавка в прогоне не существовало, а предел 250 записей мерили
+  // по партии, которая ничего не покупает. Отсюда и брались «3.8 записи в день».
+  //
+  // Этот прогон обязан кричать, и крик его — не ложная тревога. Заказ и приход
+  // каравана склеиваются по товару за сутки (как ковка и наём), поэтому дюжина
+  // заказов одного товара стоит теперь двух строк вместо двадцати четырёх. Но на
+  // рынке высокого уровня товаров на прилавке дюжина, и племя, каждый день
+  // берущее всё, пишет ~13 строк в день — на месяц надо ~400, а предел 250.
+  // Выбор между «поднять предел» (сохранение растёт на ~28 КБ, а оно уезжает в
+  // CloudStorage каждые пятнадцать секунд) и «рынок должен писать короче» —
+  // решение владельца баланса, а не обрезки: и то, и другое здесь видно числами.
+  const trader = play(HOURS * 3, false, true);
+  report(`Торговое племя, ${HOURS * 3} ч подряд (заказы каждый день):`, trader);
+  console.log('\n  Кто наполняет летопись:');
+  for (const [text, n] of sources(trader)) console.log(`  ${String(n).padStart(4)} × ${text}`);
 }
 
 main();

@@ -86,7 +86,13 @@ export function buyGoods(s: GameState, good: GoodId, count = 1): string | null {
   };
   s.caravans.push(caravan);
   s.stats.purchases = (s.stats.purchases ?? 0) + 1;
-  log(s, `Рынок: заказано ${def.name.toLowerCase()} — ${check.count}. Телега вышла за ворота.`);
+  // Ключ склейки — по той же причине, по какой он есть у ковки и найма: рынок
+  // пишет по строке на заказ, а кнопка покупки берёт по единице за раз. Игрок,
+  // заходящий на прилавок каждый день, набирал двадцать строк в сутки, летопись
+  // упиралась в запасной предел `LOG_MAX` за неделю, и ступень «за месяц»
+  // показывала пять дней вместо месяца — молча, потому что обещание месяца
+  // нигде не проверялось. Замерено `npm run log:report`, раздел «торговый день».
+  log(s, `Рынок: заказано ${def.name.toLowerCase()} — ${check.count}. Телега вышла за ворота.`, 'info', `market:order:${def.id}`);
   return null;
 }
 
@@ -116,18 +122,22 @@ function unload(s: GameState, c: Caravan): void {
     const before = s.resources[def.resource];
     s.resources[def.resource] = Math.min(cap, before + c.count);
     const fit = Math.round(s.resources[def.resource] - before);
+    // Возвращений ровно столько же, сколько заказов, — и склеиваются они так же.
+    // Полный склад пишется другим родом строки ('bad'), поэтому с обычным
+    // возвращением он не сольётся: склейка требует совпадения и ключа, и рода.
     log(
       s,
       fit < c.count
         ? `Караван привёз ${def.name.toLowerCase()} — ${c.count}, но склад полон: влезло ${fit}.`
         : `Караван вернулся: ${def.name.toLowerCase()} — ${c.count}.`,
       fit < c.count ? 'bad' : 'good',
+      `market:home:${def.id}`,
     );
     return;
   }
   if (def.equipment) {
     s.equipment[def.equipment] = (s.equipment[def.equipment] ?? 0) + c.count;
-    log(s, `Караван вернулся: ${def.name.toLowerCase()} — ${c.count}.`, 'good');
+    log(s, `Караван вернулся: ${def.name.toLowerCase()} — ${c.count}.`, 'good', `market:home:${def.id}`);
   }
 }
 
