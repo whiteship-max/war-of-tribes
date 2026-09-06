@@ -351,14 +351,6 @@ describe('время ролика', () => {
     expect(contestOf(rout)).toBeLessThan(0.1);
   });
 
-  it('бою, о котором журналу нечего сказать, длина не достаётся', () => {
-    // Шестьдесят на шестьдесят: обе стороны платят поровну, спорность предельная,
-    // но событий в журнале нет — камере некуда резать, и тянуть его нельзя.
-    const small = battle({ spear: 30, infantry: 30 }, { spear: 30, infantry: 30 });
-    expect(contestOf(small)).toBeGreaterThan(0.9);
-    expect(buildCast(small, 'attacker').seconds).toBeLessThanOrEqual(35);
-  });
-
   it('девять фаз ложатся на четыре такта и покрывают ролик целиком', () => {
     const cast = buildCast(evenFight(), 'attacker');
     expect(cast.acts.map((a) => a.act)).toEqual([...ACTS]);

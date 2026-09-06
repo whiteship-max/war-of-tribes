@@ -136,9 +136,12 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
 function reasonText(r: BattleResult, us: Side, verdict: Verdict): string {
   const our = r.sides[us].total;
   const foe = r.sides[us === 'attacker' ? 'defender' : 'attacker'].total;
-  if (verdict === 'draw') return 'Ни одна сторона не сломала другую — разошлись.';
-  const won = verdict !== 'defeat';
   const cost = `Потеряно ${our.losses} из ${our.initial}, у противника — ${foe.losses} из ${foe.initial}.`;
+  // Цена стоит у всех четырёх исходов, а не у трёх. У ничьей она важна не
+  // меньше: именно по ней и видно, чем кончилось перемалывание, — а «ничего
+  // решающего не случилось» без чисел звучит так, будто и не было ничего.
+  if (verdict === 'draw') return `Ни одна сторона не сломала другую — разошлись. ${cost}`;
+  const won = verdict !== 'defeat';
   if (verdict === 'pyrrhic') return `Поле осталось за нами, но заплачено дороже, чем взято. ${cost}`;
   switch (r.reason) {
     case 'annihilated':
