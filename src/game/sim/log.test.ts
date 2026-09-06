@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
-import { DAY_LENGTH } from '../constants';
-import { dayOf } from '../derived';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '../constants';
 import { deserialize, serialize } from '../save';
 import { LOG_MAX, LOG_MAX_DAYS, log, trimLog } from './log';
 import { catchUp, tick } from './tick';
 import { buyGoods } from './market';
-import { marketLeft, marketOffer } from '../derived';
+import { buildingOfType, dayOf, marketLeft, marketOffer, storageCap } from '../derived';
 
 /** Кладёт запись задним числом: `at` считается от нынешнего времени. */
 function backdate(s: ReturnType<typeof createInitialState>, daysAgo: number, text: string): void {
@@ -157,22 +156,28 @@ describe('летопись', () => {
   it('месяц остаётся месяцем и у торгового племени: запасной предел не срабатывает', () => {
     const s = createInitialState();
     s.tutorialDone = true;
+    // Потолок торговли, а не средний случай: рынок десятого уровня выкладывает
+    // дюжину товаров, и племя каждый день берёт с прилавка всё. Склад тоже
+    // десятого — иначе мерился бы не поток записей, а полный амбар.
+    for (const t of ['market', 'storage'] as const) buildingOfType(s, t)!.level = MAX_BUILDING_LEVEL;
     let orders = 0;
     for (let day = 0; day < LOG_MAX_DAYS + 5; day++) {
       // Казна не кончается: проверяется летопись, а не баланс золота.
-      s.gold = 1_000_000;
+      s.gold = 2_000_000;
       for (const g of marketOffer(s)) {
-        for (let i = 0; i < Math.min(marketLeft(s, g), 8); i++) {
+        // В полный склад не покупаем: за товар, который испарится на пороге,
+        // платят золотом, и второй раз так никто не делает.
+        const room = g.resource ? storageCap(s) - s.resources[g.resource] : Infinity;
+        for (let i = 0; i < Math.min(marketLeft(s, g), 8, room); i++) {
           if (buyGoods(s, g.id, 1) === null) orders++;
         }
       }
       for (let t = 0; t < DAY_LENGTH; t++) tick(s, 1);
     }
-    expect(orders).toBeGreaterThan(200);
-    // Прилавок здесь — обычный, рынок первого уровня: три товара. Потолок
-    // торговли (рынок десятого уровня, дюжина товаров, берут всё каждый день)
-    // в предел по-прежнему упирается — это видно в `npm run log:report` и
-    // решается не склейкой, а числом предела. Тест держит то, что починено.
+    // Дюжина товаров, три тысячи заказов за месяц с лишним — и всё это должно
+    // уложиться в строку на товар в день.
+    expect(marketOffer(s).length).toBeGreaterThan(10);
+    expect(orders).toBeGreaterThan(2000);
     // Предел по количеству — запасной: сработал он, значит месяц не показан.
     expect(s.log.length).toBeLessThan(LOG_MAX);
     const oldest = Math.min(...s.log.map((e) => e.at));

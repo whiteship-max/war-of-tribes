@@ -5,6 +5,7 @@ import { FRONT, REAR, type Sector } from '@/battle';
 import { TROOP_IDS, TROOP_BY_ID } from '@/game/data/troops';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { Formation } from '@/game/battle/formation';
+import { count, plural } from '../parts/plural';
 
 /** Короткие подписи: на треть экрана «левый фланг» не влезает. */
 const SHORT: Record<Sector, string> = {
@@ -90,7 +91,10 @@ export function FormationGrid({ formation, unplaced, selected, onSelect }: Props
         <>
           <Cell id="rest" troops={unplaced} selected={selected === 'rest'} onSelect={onSelect} wide />
           <p className="note bad">
-            {rest} {rest === 1 ? 'боец не расставлен' : 'бойцов не расставлено'}. Тапни по ним, чтобы убрать
+            {/* Склоняются оба слова, и общим правилом: «2 бойцов не расставлено»
+                читалось так же криво, как «оставалось 2 шагов» в лабиринте. */}
+            {count(rest, 'боец', 'бойца', 'бойцов')}{' '}
+            {plural(rest, 'не расставлен', 'не расставлены', 'не расставлено')}. Тапни по ним, чтобы убрать
             в резерв, — иначе они уйдут туда сами при отправке.
           </p>
         </>

@@ -158,7 +158,12 @@ function play(hours: number, offline: boolean, trade = false): GameState {
       // игрока её пополняют налог и взятые замки.
       s.gold = Math.max(s.gold, 200_000);
       for (const g of marketOffer(s)) {
-        for (let i = 0; i < Math.min(marketLeft(s, g), 8); i++) buyGoods(s, g.id, 1);
+        // В полный склад не покупаем. Это не поблажка отчёту, а поведение
+        // игрока: за товар, который испарится на пороге, платят золотом, и
+        // второй раз так никто не делает. Бот, месяц заказывающий камень в
+        // полный амбар, мерил бы не летопись, а собственную глупость.
+        const room = g.resource ? storageCap(s) - s.resources[g.resource] : Infinity;
+        for (let i = 0; i < Math.min(marketLeft(s, g), 8, room); i++) buyGoods(s, g.id, 1);
       }
     }
     // Кузнец без наряда молчит, а с нарядом пишет строку на каждый предмет.

@@ -113,7 +113,19 @@ export function cancelCaravan(s: GameState, id: number): string | null {
   return null;
 }
 
-/** Кладёт привезённое на склад. Ресурсы упираются во вместимость, снаряжение — нет. */
+/**
+ * Кладёт привезённое на склад. Ресурсы упираются во вместимость, снаряжение — нет.
+ *
+ * **Приход каравана в летопись не пишется.** Он не событие: игрок сам его
+ * заказал минуту назад, телега едет у него на глазах по главной улице, а
+ * привезённое лежит на складе. Строка про него — тот же вывод отладки, что
+ * «Кузница: готов копьё» на каждый предмет, и вытесняла она то, ради чего
+ * летопись читают.
+ *
+ * Событие тут ровно одно: склад полон и часть груза пропала. Это игрок узнать
+ * обязан — заплачено золотом, а на склад легло не всё, — поэтому пишется только
+ * оно, и склеивается по товару за сутки, как и заказ.
+ */
 function unload(s: GameState, c: Caravan): void {
   const def = GOOD_BY_ID[c.good];
   if (!def) return;
@@ -122,22 +134,20 @@ function unload(s: GameState, c: Caravan): void {
     const before = s.resources[def.resource];
     s.resources[def.resource] = Math.min(cap, before + c.count);
     const fit = Math.round(s.resources[def.resource] - before);
-    // Возвращений ровно столько же, сколько заказов, — и склеиваются они так же.
-    // Полный склад пишется другим родом строки ('bad'), поэтому с обычным
-    // возвращением он не сольётся: склейка требует совпадения и ключа, и рода.
-    log(
-      s,
-      fit < c.count
-        ? `Караван привёз ${def.name.toLowerCase()} — ${c.count}, но склад полон: влезло ${fit}.`
-        : `Караван вернулся: ${def.name.toLowerCase()} — ${c.count}.`,
-      fit < c.count ? 'bad' : 'good',
-      `market:home:${def.id}`,
-    );
+    if (fit < c.count) {
+      log(
+        s,
+        `Караван привёз ${def.name.toLowerCase()} — ${c.count}, но склад полон: влезло ${fit}.`,
+        'bad',
+        `market:full:${def.id}`,
+      );
+    }
     return;
   }
   if (def.equipment) {
+    // Снаряжение вместимости не знает вовсе, пропасть ему негде — событию
+    // взяться неоткуда, и строки тут нет ни одной.
     s.equipment[def.equipment] = (s.equipment[def.equipment] ?? 0) + c.count;
-    log(s, `Караван вернулся: ${def.name.toLowerCase()} — ${c.count}.`, 'good', `market:home:${def.id}`);
   }
 }
 
