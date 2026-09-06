@@ -985,84 +985,8 @@ export function scaffold(w: number, d: number, h = 1.5): THREE.Group {
  * Ступени: частокол из жердей → каменная стена с зубцами и башнями → высокая
  * стена со стягами. Со второй ступени поселение и выглядит укреплённым.
  */
-function palisade(t: Tier, st: Style): THREE.Group {
-  if (t <= 1) return curtainWall(t);
-  const g = new THREE.Group();
-  const R = WALL_RADIUS;
-  const n = 96;
-  const h = [1.7, 2.3, 2.9][t];
-  const stone = t >= 1;
-  /** Половина углового просвета ворот. */
-  const gateHalf = 0.105;
-
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + GATE_ANGLE + gateHalf;
-    const rel = Math.atan2(Math.sin(a - GATE_ANGLE), Math.cos(a - GATE_ANGLE));
-    if (Math.abs(rel) < gateHalf) continue;
-    const x = Math.cos(a) * R;
-    const z = Math.sin(a) * R;
-    if (stone) {
-      // Каменная кладка: блок ставится вдоль касательной и шире шага по кругу —
-      // иначе стена читается частоколом из отдельных плит.
-      const along = -a - Math.PI / 2;
-      const seg = box(1.18, h, 0.5, M.stone, x, h / 2, z);
-      seg.rotation.y = along;
-      g.add(seg);
-      if (i % 2 === 0) {
-        const m = box(0.34, 0.34, 0.42, M.stoneDark, x, h + 0.17, z);
-        m.rotation.y = along;
-        g.add(m);
-      }
-    } else {
-      g.add(cyl(0.12, 0.14, h + (i % 3) * 0.14, st.post, 5, x, h / 2, z));
-    }
-  }
-
-  // Башни по кругу: со второй ступени стена перестаёт быть глухой лентой.
-  if (stone) {
-    const towers = t === 1 ? 6 : 8;
-    for (let i = 0; i < towers; i++) {
-      const a = GATE_ANGLE + Math.PI / towers + (i / towers) * Math.PI * 2;
-      const x = Math.cos(a) * R;
-      const z = Math.sin(a) * R;
-      const th = h + 0.9;
-      g.add(cyl(0.55, 0.62, th, M.stone, 8, x, th / 2, z));
-      g.add(cyl(0.66, 0.66, 0.16, M.stoneDark, 8, x, th + 0.08, z));
-      g.add(cone(0.72, 0.75, st.roof, 8, x, th + 0.5, z));
-    }
-  }
-
-  {
-    // Ворота: две башни, перекладина и стяг. Их видно от самого въезда.
-    const gx = Math.cos(GATE_ANGLE) * R;
-    const gz = Math.sin(GATE_ANGLE) * R;
-    const tx = -Math.sin(GATE_ANGLE);
-    const tz = Math.cos(GATE_ANGLE);
-    const off = R * gateHalf + 0.35;
-    for (const sgn of [-1, 1]) {
-      const x = gx + tx * off * sgn;
-      const z = gz + tz * off * sgn;
-      const th = h + 1.0;
-      g.add(cyl(0.42, 0.48, th, stone ? M.stone : st.post, 7, x, th / 2, z));
-      if (stone) {
-        g.add(cyl(0.56, 0.56, 0.16, M.stoneDark, 7, x, th + 0.08, z));
-        g.add(cone(0.62, 0.8, st.roof, 7, x, th + 0.55, z));
-      }
-    }
-    const lintel = box(off * 2, 0.24, 0.3, stone ? M.stoneDark : M.wood, gx, h + 0.55, gz);
-    lintel.rotation.y = -GATE_ANGLE - Math.PI / 2;
-    g.add(lintel);
-    if (t === 2) {
-      const banner = box(0.8, 0.55, 0.04, st.accent, gx, h + 0.1, gz);
-      banner.rotation.y = -GATE_ANGLE - Math.PI / 2;
-      g.add(banner);
-    }
-  }
-  return g;
-}
-
 /** Единый ритм укреплений в прежнем радиальном поясе и с прежним проездом. */
-function curtainWall(t: Tier): THREE.Group {
+function palisade(t: Tier): THREE.Group {
   const p = stylePaint();
   const parts: K.Part[] = [];
   const R = WALL_RADIUS;
@@ -1116,8 +1040,37 @@ function curtainWall(t: Tier): THREE.Group {
     // Открытые створки вдоль проезда: свободный просвет не меняется.
     for (const side of [-1, 1]) {
       const a = GATE_ANGLE + side * 0.105;
-      radialBox(a, R - 0.35, 0.12, 1.95, 1.1, 0.98, p.beam);
-      for (const y of [0.45, 1.5]) radialBox(a, R - 0.35, 0.15, 0.13, 1.12, y, dark);
+      radialBox(a, R - 0.1, 0.12, 1.95, 0.9, 0.98, p.beam);
+      for (const y of [0.45, 1.5]) radialBox(a, R - 0.1, 0.15, 0.13, 0.92, y, dark);
+    }
+    if (t === 2) {
+      const tower = (a: number, th: number): void => {
+        const r = R + 0.12;
+        radialBox(a, r, 1.3, th, 1.0, th / 2 - 0.04, stone);
+        radialBox(a, r, 1.43, 0.36, 1.16, 0.1, dark);
+        radialBox(a, r, 1.43, 0.18, 1.12, th, dark);
+        // Местные координаты площадки башни: x по касательной, z внутрь.
+        const [tx, tz] = at(a, r);
+        const local = (x: number, z: number, w: number, ht: number, d: number, y: number): void => {
+          parts.push(K.box(w, ht, d, light, tx - Math.sin(a) * x - Math.cos(a) * z,
+            y, tz + Math.cos(a) * x - Math.sin(a) * z, { y: -a - Math.PI / 2 }));
+        };
+        for (const s of [-1, 1]) {
+          local(0, s * 0.44, 1.3, 0.3, 0.2, th + 0.22);
+          local(s * 0.56, 0, 0.2, 0.9, 0.74, th + 0.22);
+          for (const x of [-0.5, 0, 0.5]) local(x, s * 0.44, 0.28, 0.4, 0.24, th + 0.57);
+        }
+      };
+      for (let i = 0; i < 8; i++) tower(GATE_ANGLE + Math.PI / 8 + i * Math.PI / 4, 3.65);
+      for (const s of [-1, 1]) tower(GATE_ANGLE + s * 0.145, 4.05);
+      // Надвратный зал опирается на две башни и арку, проезд под ним открыт.
+      radialBox(GATE_ANGLE, R, 3.6, 0.63, 0.74, 3.55, stone);
+      radialBox(GATE_ANGLE, R, 3.74, 0.14, 0.84, 3.94, dark);
+      for (const s of [-1, 1]) radialBox(GATE_ANGLE, R + s * 0.31, 3.7, 0.3, 0.2, 4.1, light);
+      for (let i = -2; i <= 2; i++) {
+        const a = GATE_ANGLE + i * 0.045;
+        radialBox(a, R + 0.31, 0.38, 0.43, 0.24, 4.43, stone);
+      }
     }
   }
   const g = new THREE.Group();
@@ -1317,7 +1270,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'campfire':
       return campfire(st);
     case 'palisade':
-      return palisade(tier, st);
+      return palisade(tier);
     case 'houses':
       return houses(tier);
     case 'storage':
@@ -1362,5 +1315,6 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return new THREE.Group();
   }
 }
+
 
 
