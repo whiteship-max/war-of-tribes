@@ -15,7 +15,7 @@ import { ReplayPlayer } from '@/render/battle/player';
 import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/faces';
-import { battleMusic } from '@/sound/web';
+import { battleMusic, villageMusic } from '@/sound/web';
 import { setSoundOn, soundOn } from '@/sound/settings';
 import type { BattleRecord } from '@/world/types';
 
@@ -48,6 +48,9 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
     // Жест уже был — им открыли ролик, — поэтому музыке можно начинать. Сама
     // она ни контекста, ни загрузок без жеста не заводит.
     battleMusic.start();
+    // Деревня глушится, а не останавливается: круг идёт дальше под роликом, и
+    // возврат после боя не стоит ни одной загрузки.
+    villageMusic.duck(true);
     const player = new ReplayPlayer(renderer, cast, {
       onFrame: (f) => {
         // Слой музыки идёт из кадра, как и всё остальное: звук ничего не решает.
@@ -66,6 +69,7 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
     return () => {
       window.removeEventListener('resize', onResize);
       battleMusic.stop();
+      villageMusic.duck(false);
       player.dispose();
       scene.lend(false);
       scene.renderOnce();
@@ -101,6 +105,10 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
               setSoundOn(next);
               setSound(next);
               battleMusic.toggle(next);
+              // Переключатель один на всю музыку: игрок выключает звук, а не
+              // боевую дорожку. Деревня при этом остаётся заглушенной роликом
+              // и вернётся сама, когда он кончится.
+              villageMusic.toggle(next);
             }}
           >
             {c.label}

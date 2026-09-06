@@ -16,7 +16,7 @@ import { simulateBattle } from '@/battle/sim';
 import { quickSetup } from '@/battle/setup';
 import { ACTS, MUSIC_BY_ACT, buildCast, frameAt, musicAt, musicCues, type Cast } from '@/battle/replay';
 import { BattleMusic, type AudioHost } from './music';
-import { MUSIC_FORMAT, MUSIC_TRACKS, trackOf, trackUrl } from './manifest';
+import { MUSIC_FORMAT, MUSIC_TRACKS, battleFiles, trackOf, trackUrl } from './manifest';
 import { setSoundStorage, setSoundOn, soundOn } from './settings';
 
 const SRC = join(__dirname, '..');
@@ -37,6 +37,7 @@ class Counting implements AudioHost {
   loaded: string[] = [];
   started = 0;
   layers: (string | null)[] = [];
+  mixes: Record<string, number>[] = [];
   stopped = 0;
   /** Есть ли файлы. По умолчанию нет — это и есть нынешняя сборка. */
   constructor(private files = false) {}
@@ -55,8 +56,11 @@ class Counting implements AudioHost {
     this.started++;
   }
 
-  layer(id: string | null): void {
-    this.layers.push(id);
+  mix(levels: Record<string, number>): void {
+    this.mixes.push(levels);
+    // Кто слышен: единственная дорожка с ненулевой громкостью, если она одна.
+    const loud = Object.entries(levels).filter(([, v]) => v > 0);
+    this.layers.push(loud.length === 1 ? loud[0][0] : loud.length === 0 ? null : '?');
   }
 
   stop(): void {
@@ -182,7 +186,7 @@ describe('выключенный звук не грузит файлов', () =>
     setSoundOn(true);
     music.toggle(true);
     expect(host.opened).toBe(1);
-    expect(host.loaded.length).toBe(MUSIC_TRACKS.length);
+    expect(host.loaded.length).toBe(battleFiles().length);
   });
 
   it('настройка помнится между сеансами', () => {
@@ -208,7 +212,7 @@ describe('сборка без звуковых файлов работает м�
     await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
     // Качать пробовали — и это правильно: файл может появиться завтра.
-    expect(host.loaded.length).toBe(MUSIC_TRACKS.length);
+    expect(host.loaded.length).toBe(battleFiles().length);
     // Играть нечем, и это не ошибка, а состояние.
     expect(music.state()).toBe('silent');
     music.set('full');

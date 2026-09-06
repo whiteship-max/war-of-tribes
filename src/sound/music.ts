@@ -13,7 +13,7 @@
 //
 // Всё, что музыке нужно от браузера, спрятано за `AudioHost`. Не ради красоты:
 // иначе первые три правила проверялись бы глазами, а так тест считает вызовы.
-import { trackOf, trackUrl, MUSIC_FADE, MUSIC_LOOP, type MusicTrack } from './manifest';
+import { MUSIC_FADE, battleFiles, battleLevels, battleLoop } from './manifest';
 import { soundOn } from './settings';
 import type { MusicLayer } from '@/battle/replay';
 
@@ -32,10 +32,20 @@ export interface AudioHost {
    * ответ: сборка без звуковых файлов обязана работать молча.
    */
   load(id: string, url: string): Promise<boolean>;
-  /** Пустить все загруженные слои с общего начала, петлёй. */
-  start(loop: number): void;
-  /** Слышен один слой, остальные молчат. `null` — тишина. */
-  layer(id: string | null, fade: number): void;
+  /**
+   * Пустить все загруженные слои с общего начала, петлёй. `loop` — где петля
+   * замыкается; `null` — петля и есть сама дорожка. Слои обязаны замыкаться в
+   * одной точке, иначе они разъедутся к третьему кругу; у цельной пьесы такой
+   * точки нет, и придумывать её — значит резать её посреди такта.
+   */
+  start(loop: number | null): void;
+  /**
+   * Выставить громкости. Ключ — дорожка, значение — 0..1; чего в наборе нет,
+   * то молчит. Не «слышен один», а именно набор: в слоях звучит ровно один из
+   * трёх, а цельная дорожка ведётся по такту промежуточной громкостью, и
+   * второго способа сказать это быть не должно.
+   */
+  mix(levels: Record<string, number>, fade: number): void;
   stop(): void;
 }
 
@@ -85,7 +95,7 @@ export class BattleMusic {
     if (!this.pulling) this.pulling = this.pull();
     void this.pulling.then(() => {
       if (!this.running || this.dead) return;
-      this.host.start(MUSIC_LOOP);
+      this.host.start(battleLoop());
       this.apply();
     });
   }
@@ -128,26 +138,37 @@ export class BattleMusic {
     this.stop();
   }
 
-  /** Скачать всё разом: слои идут с общего начала, догружать по одному нечего. */
+  /**
+   * Скачать боевую музыку. Что именно качать, решает режим (`battleFiles`):
+   * три слоя или одна цельная пьеса. Догружать по одному нечего — слои идут с
+   * общего начала и одновременно, и приход третьего после начала боя дал бы
+   * шов посреди такта.
+   */
   private async pull(): Promise<void> {
-    const tracks: MusicTrack[] = [];
-    for (const layer of ['drums', 'harmony', 'full'] as const) {
-      const track = trackOf(layer);
-      if (track) tracks.push(track);
-    }
     await Promise.all(
-      tracks.map(async (track) => {
-        const ok = await this.host.load(track.layer, trackUrl(track));
-        if (ok) this.have.add(track.layer);
+      battleFiles().map(async ({ id, url }) => {
+        const ok = await this.host.load(id, url);
+        if (ok) this.have.add(id);
       }),
     );
     this.pulled = true;
   }
 
-  /** Выставить громкости под нынешний слой. Нет дорожки — тишина, и это не сбой. */
+  /**
+   * Выставить громкости под нынешний слой. Нет дорожки — тишина, и это не сбой.
+   *
+   * В цельном режиме слой не выбирает материал, а задаёт громкость: такт
+   * по-прежнему приходит из раскадровки, и `silence` по-прежнему означает
+   * обрыв в тишину перед финалом — просто обрывается одна дорожка, а не
+   * гасится третья из трёх.
+   */
   private apply(): void {
     if (!this.running) return;
-    const id = this.want !== 'silence' && this.have.has(this.want) ? this.want : null;
-    this.host.layer(id, MUSIC_FADE);
+    const levels: Record<string, number> = {};
+    // Чего не скачалось, того и нет: молчим, а не ждём отсутствующего файла.
+    for (const [id, level] of Object.entries(battleLevels(this.want))) {
+      if (this.have.has(id)) levels[id] = level;
+    }
+    this.host.mix(levels, MUSIC_FADE);
   }
 }

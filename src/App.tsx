@@ -24,6 +24,7 @@ import { MarchesPanel } from './ui/panels/MarchesPanel';
 import { BattlePanel } from './ui/panels/BattlePanel';
 import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
+import { villageMusic } from './sound/web';
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -65,6 +66,19 @@ export function App() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Музыка деревни ждёт первого нажатия игрока: в вебвью Telegram звук без
+  // жеста не заиграет вовсе. Годится любое нажатие в интерфейсе — отдельной
+  // кнопки «включить музыку» у деревни нет и заводить её не надо.
+  //
+  // Слушатель не снимается после первого раза нарочно: при выключенном звуке
+  // `arm` ничего не делает и не качает, и следующее нажатие после включения
+  // обязано сработать. Само `arm` идемпотентно — контекст один на все жесты.
+  useEffect(() => {
+    const wake = (): void => villageMusic.arm();
+    document.addEventListener('pointerdown', wake, { passive: true });
+    return () => document.removeEventListener('pointerdown', wake);
+  }, []);
 
   // Мир запускается после загрузки сохранения: иначе первый же его отклик
   // применил бы последствия походов к состоянию, которое вот-вот заменят.
