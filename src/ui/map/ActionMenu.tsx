@@ -11,13 +11,15 @@
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { FIGURE_BY_ID, FIGURES } from '@/world/data/figures';
-import { DIPLO_ACTIONS, STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
+import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
+import { actionsOf } from '@/world/data/spy';
+import { SPY_HELD } from '@/world/data/tuning';
 import { RELATION_META } from '@/world/data/meta';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
 import type { ResourceId } from '@/game/types';
-import type { Loot, OrderOption } from '@/world/types';
+import type { Loot, OrderActionId, OrderOption } from '@/world/types';
 
 /** Цена приказа теми же значками, что и всюду в игре. Пусто — бесплатно. */
 function Price({ cost }: { cost: Loot }) {
@@ -66,7 +68,7 @@ export function ActionMenu() {
     if (!err) closeMenu();
   };
 
-  const give = async (id: (typeof DIPLO_ACTIONS)[number]['id']): Promise<void> => {
+  const give = async (id: OrderActionId): Promise<void> => {
     const res = await order(id);
     showToast(res.error ?? res.text);
   };
@@ -116,10 +118,18 @@ export function ActionMenu() {
           </div>
         )}
 
-        {/* Приказы дипломата. Строка видна всегда: недоступное объяснено. */}
-        {menu.agent === 'diplomat' &&
-          menu.target !== null &&
-          DIPLO_ACTIONS.map((a) => {
+        {/* Бунт виден там же, где приказы: он и есть окно для удара. */}
+        {card?.revolt && (
+          <div className="am-revolt">
+            🔥 В поселении бунт: работы встали, гарнизон слабее на{' '}
+            {Math.round(card.revolt.power * 100)}%. Осталось{' '}
+            {formatLeft(secondsLeft(card.revolt.until, worldNow()))}.
+          </div>
+        )}
+
+        {/* Приказы агента. Строка видна всегда: недоступное объяснено. */}
+        {menu.target !== null &&
+          actionsOf(menu.agent).map((a) => {
             const o = orders.find((x) => x.id === a.id);
             if (!o) return null;
             const chance = chanceText(o, a.chanceLabel);
@@ -138,6 +148,11 @@ export function ActionMenu() {
                     {chance && <span className="am-chance">{chance}</span>}
                     <span className="am-time">⏳ {formatLeft(o.seconds)}</span>
                     <Price cost={o.cost} />
+                    {menu.agent === 'spy' && (
+                      // Цена лазутчика — не добро, а риск, и она обязана стоять
+                      // рядом с шансом, а не прятаться в описании.
+                      <span className="am-risk">провал: задержат на {formatLeft(SPY_HELD / 1000)}</span>
+                    )}
                   </em>
                 </span>
               </button>
@@ -191,6 +206,13 @@ export function ActionMenu() {
             {here
               ? '👣 Стоит у ворот и считает войско: данные обновляются, пока он здесь.'
               : 'Доведи разведчика к воротам — он пересчитает войско и будет держать данные свежими.'}
+          </div>
+        )}
+
+        {menu.agent === 'spy' && menu.target !== null && !here && (
+          <div className="am-plain">
+            Приказы отдаются у самых ворот: доведи лазутчика — он и сосчитает войско, и найдёт
+            недовольных.
           </div>
         )}
 

@@ -14,6 +14,7 @@ import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
+import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
@@ -351,6 +352,57 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         </p>
       ) : (
         <p className="note bad">Про войско здесь мы ничего не знаем. Нужен разведчик у самых ворот.</p>
+      )}
+
+      {/* Донесение лазутчика: числа вилкой и с датой. Точного числа здесь не
+          бывает — и это сказано словами, чтобы игрок не принял вилку за старение. */}
+      {card.intel?.kinds && (
+        <>
+          <h3>
+            Донесение <small>{formatAge(card.intel.ageSeconds)}</small>
+          </h3>
+          <div className="mod-list">
+            {UNIT_KINDS.map((k) => {
+              const e = card.intel?.kinds?.[k];
+              return (
+                <div className="mod" key={k}>
+                  <span className="ico">{KIND_META[k].icon}</span>
+                  <span className="name">{KIND_META[k].name}</span>
+                  <span className={`val${e ? '' : ' neg'}`}>{e ? formatEstimate(e) : 'не разглядели'}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className={`note${card.intel.precision === 'exact' ? '' : ' bad'}`}>
+            {card.intel.hearsay
+              ? 'Считано на глаз и с чужих слов: числа приблизительны с самого начала и с возрастом станут ещё шире.'
+              : PRECISION_NOTE[card.intel.precision]}
+            {card.intel.style ? ` · ${card.intel.style}` : ''}
+          </p>
+        </>
+      )}
+
+      {/* Бунт — окно для удара, а не пакость сама по себе. */}
+      {card.revolt && (
+        <>
+          <h3>Бунт</h3>
+          <div className="mod-list">
+            <div className="mod total">
+              <span className="ico">🔥</span>
+              <span className="name">Работы встали, гарнизон слабее</span>
+              <span className="val pos">−{Math.round(card.revolt.power * 100)}%</span>
+            </div>
+            <div className="mod">
+              <span className="ico">⏳</span>
+              <span className="name">Окно закроется через</span>
+              <span className="val">{formatLeft(secondsLeft(card.revolt.until, worldNow()))}</span>
+            </div>
+          </div>
+          <p className="note">
+            Пока идёт бунт, поселение не растёт и запасы в нём не копятся. Это время для удара, а не
+            для ожидания.
+          </p>
+        </>
       )}
 
       {/* Отношения именно с этим двором: состояние, число и характер владельца.

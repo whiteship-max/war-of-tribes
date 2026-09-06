@@ -3385,3 +3385,16 @@ body.replaying .app > *:not(.canvas-wrap) {
 .am-agent.active {
   border-color: var(--accent);
 }
+
+/* Бунт и риск лазутчика в меню приказов. */
+.am-revolt {
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+}
+
+.am-risk {
+  color: var(--bad);
+}
