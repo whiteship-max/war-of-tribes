@@ -201,6 +201,10 @@ export const useWorld = create<WorldStore>((set, get) => ({
     clockOffset = pulse.now - Date.now();
     set({ marches: pulse.marches, figures: pulse.figures, unread: pulse.unread, now: pulse.now });
     if (get().selected && get().card) void get().refreshCard();
+    // Открытое меню живёт теми же пульсами: в причинах отказа стоят отсчёты
+    // («дипломат занят ещё 3:00»), и замерший на месте отсчёт читается как
+    // сломанный экран, а не как запрет.
+    if (get().menu?.target) void get().refreshOrders();
   },
 
   ensureRegion: (rect) => {
