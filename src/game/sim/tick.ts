@@ -31,6 +31,7 @@ import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
+import { surveyTick } from './survey';
 import { marketTick } from './market';
 import { recruitTick } from './army';
 import { rnd, rndInt } from './random';
@@ -116,6 +117,9 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // жителей в бойцов — обе очереди идут своим чередом, как стройка.
   forgeTick(s, dt, mods);
   recruitTick(s, dt);
+  // Изучение округи в Дозоре: не работа, а срок. Одна сверка отметки с часами —
+  // поэтому офлайн-догон проходит мимо неё ровно так же, как непрерывная игра.
+  surveyTick(s);
 
   // 3б. Рынок: налог капает в казну, дневной прилавок обновляется со сменой дня,
   // вернувшиеся караваны разгружаются.

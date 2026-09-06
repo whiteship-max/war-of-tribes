@@ -16,6 +16,7 @@ import {
   intelKeen,
   mountGear,
   soldierPower,
+  surveyRadius,
   warningSeconds,
 } from '@/game/derived';
 import { BATTLE_MAN, type TroopStack } from '@/game/battle/kinds';
@@ -132,8 +133,11 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     // Час и время года: мир их не толкует, он ставит их отметкой на записи боя,
     // чтобы ролик светил закатом там, где бой и случился на закате.
     time: s.time,
-    // Дозор и конюшня: мир получает три числа и не спрашивает, откуда они.
+    // Дозор и конюшня: мир получает четыре числа и не спрашивает, откуда они.
     warning: warningSeconds(s),
+    // Изученная округа: радиус земли, которую Дозор открыл навсегда. Живого
+    // обзора он не даёт — открывает местность, и только.
+    survey: surveyRadius(s),
     intelKeen: intelKeen(s),
     mountGear: mountGear(s),
     // Статуя Героя: сколько дружины полководец уводит в поле.

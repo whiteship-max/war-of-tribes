@@ -48,6 +48,7 @@ import {
 } from './constants';
 import type { UnitKind } from '@/battle';
 import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
+import { surveyRadiusOf } from './data/survey';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
@@ -425,6 +426,16 @@ export const intelKeen = (s: GameState): number => 1 + statOf(s, 'watch', 'intel
  * Поэтому дозор время только прибавляет, а не задаёт его целиком.
  */
 export const warningSeconds = (s: GameState): number => statOf(s, 'watch', 'warn');
+
+/**
+ * Радиус земли, открытой изучением округи, клеток. Ноль — не изучено ничего.
+ *
+ * Это единственное число, которым Дозор правит карту мира: оно едет туда
+ * слепком деревни (`PlayerProfile.survey`), как предупреждение о набеге и
+ * вместимость отряда. Живого обзора радиус не даёт — он открывает землю, и
+ * только (см. docs/fog-and-figures.md).
+ */
+export const surveyRadius = (s: GameState): number => surveyRadiusOf(s.survey?.done ?? 0);
 
 /** Во сколько раз быстрее учится конница благодаря конюшне. */
 export const cavalryTrain = (s: GameState): number => 1 + statOf(s, 'stable', 'train') / 100;

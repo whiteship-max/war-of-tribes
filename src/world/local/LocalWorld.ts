@@ -585,6 +585,17 @@ export class LocalWorld implements WorldApi {
    * От них зависит только второй слой — живые данные. Первый слой (местность)
    * они открывают навсегда, и обратно он не закрывается.
    */
+  /**
+   * Докуда деревня открывает местность вокруг себя: свой круг обзора или, если
+   * Дозор изучил округу, изученный радиус. Это **только первый слой тумана** —
+   * земля. Живой обзор у деревни остаётся прежним кругом (`HOME_SIGHT`), и
+   * растягивать его вслед за изучением нельзя: тогда десятая ступень отдала бы
+   * игроку живое наблюдение за третью карты даром.
+   */
+  private homeReveal(): number {
+    return Math.max(HOME_SIGHT, Math.round(this.save.profile?.survey ?? 0));
+  }
+
   private sightDiscs(now: number): SightDisc[] {
     const out: SightDisc[] = [{ x: this.save.home.x, y: this.save.home.y, r: HOME_SIGHT }];
     for (const id of FIGURE_IDS) {
@@ -610,7 +621,7 @@ export class LocalWorld implements WorldApi {
   private stepFog(now: number): void {
     const save = this.save;
     const from = Math.min(save.fogAt, now);
-    this.fog.revealDisc(save.home, HOME_SIGHT);
+    this.fog.revealDisc(save.home, this.homeReveal());
     for (const id of FIGURE_IDS) {
       const f = save.figures[id];
       if (!f || f.phase === 'down') continue;

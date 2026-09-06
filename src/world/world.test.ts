@@ -22,6 +22,7 @@ import { FogMap, fogSaveBytes } from './fog';
 import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave } from './local/state';
 import { castOfRecord, troopsOfKinds } from '@/game/battle/faces';
 import { TROOP_IDS } from '@/game/data/troops';
+import { SURVEY_STEPS } from '@/game/data/survey';
 import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
@@ -1068,6 +1069,30 @@ describe('туман войны', () => {
       // И они не «где-то там»: до них видно, куда идти.
       for (const n of neighbours) expect(distance(info.home, n)).toBeLessThanOrEqual(HOME_SIGHT);
     }
+  });
+
+  it('изученная Дозором округа открывает землю за кругом деревни', async () => {
+    const w = makeWorld(11);
+    const info = await w.world.info();
+    // Первая ступень изучения обязана открывать больше, чем видит деревня сама:
+    // ступень, не открывшая ни клетки, читалась бы как сломанная кнопка.
+    expect(SURVEY_STEPS[0].radius).toBeGreaterThan(HOME_SIGHT);
+
+    await w.world.sync(profile());
+    const far = { x: info.home.x + HOME_SIGHT + 3, y: info.home.y };
+    const dark = await w.world.region({ x: far.x, y: far.y, w: 1, h: 1 });
+    expect(dark.explored[0], 'за кругом деревни земля тёмная').toBe(0);
+
+    // Дозор изучил округу — тот же клочок открылся, и обратно не затянется.
+    w.advance(MINUTE);
+    await w.world.sync(profile({ survey: SURVEY_STEPS[0].radius }));
+    const lit = await w.world.region({ x: far.x, y: far.y, w: 1, h: 1 });
+    expect(lit.explored[0], 'изученная округа открыта').toBe(1);
+
+    w.advance(MINUTE);
+    await w.world.sync(profile());
+    const still = await w.world.region({ x: far.x, y: far.y, w: 1, h: 1 });
+    expect(still.explored[0], 'открытое не закрывается никогда').toBe(1);
   });
 
   it('неразведанного поселения на карте нет вовсе — ни точки, ни карточки', async () => {

@@ -28,6 +28,7 @@ import {
   mountGear,
   netPerDay,
   storageCap,
+  surveyRadius,
   warningSeconds,
   upgradeInfo,
   workerCount,
@@ -41,6 +42,7 @@ import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
 import { Tavern } from '../parts/Tavern';
 import { Statue } from '../parts/Statue';
+import { Watch } from '../parts/Watch';
 import { upgradeGain } from '../parts/upgrade';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
@@ -273,6 +275,13 @@ function BuildingData({ b }: { b: Building }) {
           <Statue />
         </>
       );
+    case 'watch':
+      return (
+        <>
+          <GenericData b={b} />
+          <Watch />
+        </>
+      );
     default:
       return <GenericData b={b} />;
   }
@@ -427,6 +436,11 @@ function GenericData({ b }: { b: Building }) {
   if (b.type === 'watch') {
     stats.push(['🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
     stats.push(['⏳', 'Набег виден дольше на', `${Math.round(warningSeconds(s) / 60)} мин`]);
+    stats.push([
+      '🗺️',
+      'Округа изучена на',
+      surveyRadius(s) > 0 ? `${surveyRadius(s)} клеток` : 'только круг деревни',
+    ]);
   }
   if (b.type === 'stable') {
     stats.push(['🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
