@@ -144,6 +144,49 @@ describe('ежедневное задание: попытка', () => {
     expect(s.resources.food).toBe(food);
   });
 
+  /**
+   * Обратная сторона храповика, и она достаётся не жулику, а человеку со сбитой
+   * датой: телефон с датой на год вперёд (заводская, севшая батарейка, ручная
+   * правка ради чужого приложения), одна сыгранная попытка — и ежедневка
+   * закрыта, пока календарь не догонит запись. Открыть её нельзя: этим же ходом
+   * попытку и множат. Но состояние обязано отличать «сегодня не вышло» от
+   * «часы отстают от записи» — иначе панель год обещает «приходи завтра».
+   */
+  it('часы, ушедшие вперёд, запирают задание — и это видно отдельно от проигрыша', () => {
+    const s = createInitialState();
+    const ahead = TODAY + 400;
+    expect(startDaily(s, ahead)).toBeNull();
+    expect(finishDaily(s, ahead, true)).toBeNull();
+
+    const now = dailyStatus(s, TODAY);
+    expect(now.played).toBe(true);
+    expect(now.clockBehind).toBe(true);
+    // Победа принадлежит записанному дню: сегодня её не было, и обещать
+    // награду за сегодня нельзя.
+    expect(now.won).toBe(false);
+    expect(startDaily(s, TODAY)).not.toBeNull();
+    // И через год тоже, пока дата не догонит запись.
+    expect(dailyStatus(s, TODAY + 399).clockBehind).toBe(true);
+    // День записи и всё, что после, — уже не «часы отстают».
+    expect(dailyStatus(s, ahead).clockBehind).toBe(false);
+    expect(dailyStatus(s, ahead).won).toBe(true);
+    expect(dailyStatus(s, ahead + 1).clockBehind).toBe(false);
+    expect(dailyStatus(s, ahead + 1).played).toBe(false);
+  });
+
+  it('в обычной партии часы не «отстают»: признак не загорается на ровном месте', () => {
+    const s = createInitialState();
+    expect(dailyStatus(s, TODAY).clockBehind).toBe(false);
+    startDaily(s, TODAY);
+    expect(dailyStatus(s, TODAY).clockBehind).toBe(false);
+    finishDaily(s, TODAY, false);
+    expect(dailyStatus(s, TODAY).clockBehind).toBe(false);
+    expect(dailyStatus(s, TODAY + 1).clockBehind).toBe(false);
+    // Перевод на вчера — это уже «часы отстают», и попытка по-прежнему закрыта.
+    expect(dailyStatus(s, TODAY - 1).clockBehind).toBe(true);
+    expect(dailyStatus(s, TODAY - 1).played).toBe(true);
+  });
+
   it('назавтра попытка открывается снова', () => {
     const s = createInitialState();
     startDaily(s, TODAY);
