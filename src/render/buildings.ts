@@ -775,7 +775,7 @@ function smithy(t: Tier, st: Style): THREE.Group {
 
 /** Ратуша: сруб с крыльцом → усадьба с палатой → донжон с зубцами и стягом. */
 function townHall(t: Tier, st: Style): THREE.Group {
-  if (t > 0) return oldTownHall(t, st);
+  if (t > 1) return oldTownHall(t, st);
   const p = stylePaint();
   const stone = K.paintOf('stoneLight');
   const darkStone = K.paintOf('stoneDark');
@@ -794,7 +794,7 @@ function townHall(t: Tier, st: Style): THREE.Group {
   const towerH = [2.25, 3.1, 3.95][t];
   // Каменный зал и неизменная ось входа. Верхний этаж выступает над цоколем.
   parts.push(K.plinth(w, d, darkStone, cx));
-  parts.push(K.wallBox(w, baseH, d, p.base, cx, 0, 0.16));
+  parts.push(K.wallBox(w, baseH, d - (t ? 0.44 : 0), p.base, cx, t ? -0.22 : 0, 0.16));
   parts.push(K.wallGable(w + 0.08, upperH, d + 0.04, rise, p.wall, cx, 0, undefined, 0.16 + baseH));
   parts.push(...K.roofGable(w + 0.08, d + 0.04, rise, roofY, p.roofPaint, 0.16, cx));
   // Тёмная вставка повторяет арочный контур, поэтому углы не торчат из свода.
@@ -802,8 +802,23 @@ function townHall(t: Tier, st: Style): THREE.Group {
     parts.push(K.arch(width, spring, 0, 0.035, p.ink, x, y, z, rot));
     parts.push(K.arch(width + 0.16, spring, 0.085, 0.13, stone, x, y, z + (rot ? 0 : 0.04), rot));
   };
-  opening(cx, 0.18, front + 0.035, 0.57, 0.44);
+  opening(cx, 0.18, front + 0.035 - (t ? 0.44 : 0), 0.57, 0.44);
   parts.push(K.box(0.76, 0.1, 0.36, stone, cx, 0.08, front + 0.12));
+  if (t >= 1) {
+    // Настоящая глубина аркады: зал отступает назад, между опорами есть просвет.
+    parts.push(K.box(w + 0.16, 0.12, 0.64, stone, cx, 0.14, front - 0.08));
+    for (const s of [-1, 1]) {
+      parts.push(K.arch(w * 0.52, baseH - w * 0.26, 0.12, 0.22, stone,
+        cx + s * w * 0.25, 0.19, front - 0.03));
+    }
+    parts.push(K.box(w + 0.16, 0.12, d + 0.14, darkStone, cx, baseH + 0.13, 0));
+    for (const s of [-1, 1]) {
+      opening(cx + s * w * 0.25, baseH + 0.29, front + 0.055, 0.3, 0.25);
+    }
+    // Опорные каменные лопатки собирают высокий ствол башни.
+    for (const s of [-1, 1]) parts.push(K.box(0.12, towerH * 0.65, tw + 0.08, stone,
+      towerX + s * tw * 0.46, towerH * 0.325 + 0.14, towerZ));
+  }
   // Фахверк крупными полосами: читается на телефоне без россыпи тонких досок.
   const upperY = 0.16 + baseH;
   for (const z of [-front - 0.04, front + 0.04]) {
