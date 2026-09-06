@@ -2,6 +2,7 @@
 import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { BattlePlanTemplate, Formation } from './battle/formation';
 import type { UnitKind } from '@/battle';
+import type { ProfileState } from '@/profile/types';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -321,6 +322,12 @@ export interface GameState {
    */
   feastUntil: number;
   feastAt: number;
+  /**
+   * Профиль игрока: имя, лицо, итоги партии и визитка. Лежит отдельным куском,
+   * потому что из него потом соберётся карточка для чужих глаз на карте мира —
+   * там не будет ни зданий, ни армии, только готовые значения (см. profile/types).
+   */
+  profile: ProfileState;
   /** Номер текущего шага обучения (см. data/tutorial.ts). */
   tutorialStep: number;
   /** Обучение пройдено или пропущено. */

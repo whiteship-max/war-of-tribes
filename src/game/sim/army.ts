@@ -10,6 +10,7 @@ import { EQUIPMENT_BY_ID } from '../data/equipment';
 import { canAfford, idleCount, recruitRate, recruitsQueued, storageCap } from '../derived';
 import { addPop, losePop } from './population';
 import { log } from './log';
+import { recordSpent } from '@/profile/stats';
 
 /** Сколько всего стоит партия бойцов в ресурсах. */
 export function recruitCost(troop: TroopId, count: number): Partial<Record<ResourceId, number>> {
@@ -97,6 +98,7 @@ export function startRecruit(s: GameState, troop: TroopId, count = 1): string | 
   const n = check.count;
 
   for (const r of RESOURCE_IDS) s.resources[r] -= check.cost[r] ?? 0;
+  recordSpent(s, check.cost);
   for (const [id, need] of Object.entries(check.gear)) {
     s.equipment[id as EquipmentId] -= need ?? 0;
   }

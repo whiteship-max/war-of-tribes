@@ -35,6 +35,7 @@ import { marketTick } from './market';
 import { recruitTick } from './army';
 import { rnd, rndInt } from './random';
 import { log, trimLog } from './log';
+import { recordProduced, refreshCard } from '@/profile/stats';
 
 export interface TickOptions {
   /** Офлайн-догон: события не запускаются. */
@@ -57,9 +58,16 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // 1. Производство и потребление.
   const prod = productionPerDay(s, mods);
   const cap = storageCap(s);
+  // Профиль считает добытое по тому, что действительно легло на склад: полный
+  // склад ничего не добавил, и в итогах этого быть не должно.
+  let gained = 0;
   for (const r of RESOURCE_IDS) {
-    if (prod[r]) s.resources[r] = Math.min(cap, s.resources[r] + (prod[r] * dt) / DAY_LENGTH);
+    if (!prod[r]) continue;
+    const before = s.resources[r];
+    s.resources[r] = Math.min(cap, before + (prod[r] * dt) / DAY_LENGTH);
+    gained += Math.max(0, s.resources[r] - before);
   }
+  recordProduced(s, gained);
   const eat = (foodConsumptionPerDay(s, mods) * dt) / DAY_LENGTH;
   s.resources.food -= eat;
   if (s.resources.food < 0) {
@@ -129,6 +137,9 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // 6. Итог дня по племени — одной строкой, а не по человеку на строку.
   if (dayAfter > dayBefore) {
     logPopDay(s);
+    // Визитка пересобирается раз в игровой день: это тот слепок, который на
+    // карте мира увидят чужие, и собирать его им будет не из чего.
+    refreshCard(s);
     // Летопись живёт месяц: старое отбрасывается на смене суток, а не на каждой
     // записи — проход по трём сотням строк раз в игровой день ничего не стоит.
     trimLog(s);

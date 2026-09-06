@@ -4,9 +4,17 @@ import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
 import { heroName } from './data/names';
+import { emptyProfile, refreshCard } from '@/profile/stats';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
+ *
+ * Версия 9 — профиль игрока: имя, лицо, итоги партии и визитка (`s.profile`).
+ * Это первый раз с седьмой версии, когда сохранение младшего формата не
+ * отбрасывается, а приводится: терять из-за аватара отыгранную партию не за что.
+ * Цепочка миграций начинается с восьмёрки — см. `MIN_SAVE_VERSION` в save.ts;
+ * всё, что старше, по-прежнему отбрасывается, и по той же причине, что и раньше.
+ *
  * Версия 8 — перестройка посёлка и ратуша разом. Укрытия больше нет, тотем стал
  * церковью, хижина — жилищами, `s.totem` — `s.patron`, а Дом вождя — Ратушей.
  * У четырёх зданий сменился идентификатор, одно исчезло, шесть появилось: старое
@@ -15,7 +23,7 @@ import { heroName } from './data/names';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -82,6 +90,7 @@ export function createInitialState(): GameState {
     battleWatch: false,
     feastUntil: 0,
     feastAt: 0,
+    profile: emptyProfile(),
     tutorialStep: 0,
     tutorialDone: false,
     log: [],
@@ -108,5 +117,8 @@ export function createInitialState(): GameState {
 
   s.log.push({ at: 0, text: 'Посёлок стоит за стеной, у ворот рынок, в кузнице холодный горн. Соседи не дремлют.', kind: 'info' });
   s.log.push({ at: 0, text: 'Поставь кузнеца к горну, скуй копьё и найми первого бойца — дальше карта.', kind: 'info' });
+  // Визитка собирается сразу: мощь стоящего посёлка не ноль, и в профиле она
+  // должна быть видна до первого тика.
+  refreshCard(s);
   return s;
 }

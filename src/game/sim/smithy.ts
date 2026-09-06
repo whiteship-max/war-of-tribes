@@ -6,6 +6,7 @@ import { EQUIPMENT_BY_ID } from '../data/equipment';
 import { canAfford, forgeRate } from '../derived';
 import type { SeasonModifiers } from '../data/seasons';
 import { log } from './log';
+import { recordSpent } from '@/profile/stats';
 
 /** Выбирает, что куёт кузница. null — снять наряд. */
 export function setForging(s: GameState, item: EquipmentId | null): string | null {
@@ -42,6 +43,7 @@ export function forgeTick(s: GameState, dt: number, mods: SeasonModifiers): void
   if (s.forgeWork < def.work) return;
   if (!canAfford(s, def.cost)) return;
   for (const r of RESOURCE_IDS) s.resources[r] -= def.cost[r] ?? 0;
+  recordSpent(s, def.cost);
   s.forgeWork -= def.work;
   s.equipment[item] = (s.equipment[item] ?? 0) + 1;
   // Ключ склейки: кузница пишет по строке на предмет, а за игровой день их

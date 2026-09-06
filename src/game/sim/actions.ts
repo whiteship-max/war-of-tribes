@@ -19,6 +19,7 @@ import { EVENT_BY_ID } from '../data/events';
 import { JOB_BY_ID } from '../data/jobs';
 import { scheduleNextEvent } from './tick';
 import { log } from './log';
+import { recordSpent } from '@/profile/stats';
 
 export { assignWorker, changeFreeJob, unassignWorker } from './workers';
 export { setForging } from './smithy';
@@ -28,6 +29,7 @@ export { dailyReward, dailyStatus, finishDaily, startDaily } from './daily';
 
 function pay(s: GameState, cost: Partial<Record<ResourceId, number>>): void {
   for (const r of RESOURCE_IDS) s.resources[r] -= cost[r] ?? 0;
+  recordSpent(s, cost);
 }
 
 /** Возвращает долю потраченного на улучшение обратно на склад. */

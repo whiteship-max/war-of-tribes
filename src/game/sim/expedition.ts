@@ -10,6 +10,7 @@ import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
 import { addPop, losePop } from './population';
 import { log } from './log';
+import { recordBattle, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 
 /** Что случилось с деревней, пока отряд был в пути. */
 export interface ExpeditionOutcome {
@@ -123,21 +124,33 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   const wounded = Math.floor((soldiersLost + fallen) * healShare(s));
   if (wounded > 0) addPop(s, wounded);
   s.stats.died += Math.max(0, soldiersLost + fallen - wounded);
+  recordTroopsLost(s, soldiersLost);
 
   const cap = storageCap(s);
+  // Плюс — привезли своё, минус — унесли у нас. Профиль считает и то, и другое:
+  // привезённое итогом, унесённое по ресурсам — на вопрос «что утекает» итог
+  // не отвечает.
+  const brought: Partial<Record<ResourceId, number>> = {};
+  const taken: Partial<Record<ResourceId, number>> = {};
   for (const r of RESOURCE_IDS) {
     const n = o.resources[r];
     if (!n) continue;
+    const before = s.resources[r];
     s.resources[r] = Math.max(0, Math.min(cap, s.resources[r] + n));
+    const delta = s.resources[r] - before;
+    if (delta > 0) brought[r] = delta;
+    else if (delta < 0) taken[r] = -delta;
   }
+  recordRaidLoss(s, taken);
 
   if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
+  recordLoot(s, brought, Math.max(0, o.gold));
   // Золото везут только из замков: привезли — значит, замок взят.
   if (o.gold > 0) s.stats.castles = (s.stats.castles ?? 0) + 1;
   if (o.prestige) s.prestige = Math.max(0, s.prestige + o.prestige);
   if (o.morale) s.morale = Math.max(0, Math.min(100, s.morale + o.morale));
-  if (o.battle === 'won') s.stats.battlesWon++;
-  if (o.battle === 'lost') s.stats.battlesLost++;
+  if (o.battle === 'won') recordBattle(s, 'won');
+  if (o.battle === 'lost') recordBattle(s, 'lost');
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];

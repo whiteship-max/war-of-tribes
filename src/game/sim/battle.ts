@@ -4,6 +4,7 @@ import { defense } from '../derived';
 import { rnd } from './random';
 import { famineToll, killPop } from './population';
 import { log } from './log';
+import { recordBattle, recordRaidLoss } from '@/profile/stats';
 
 export interface BattleResult {
   won: boolean;
@@ -18,17 +19,18 @@ export function resolveBattle(s: GameState, enemyPower: number, enemyName: strin
   const ours = defense(s) * (0.85 + rnd() * 0.3);
   const won = ours >= enemyPower;
   if (won) {
-    s.stats.battlesWon++;
+    recordBattle(s, 'won');
     s.prestige += 3;
     s.morale = Math.min(100, s.morale + BATTLE_MORALE_WIN);
     const text = `Племя отбило нападение: ${enemyName}. Мораль выросла.`;
     log(s, text, 'good');
     return { won, text };
   }
-  s.stats.battlesLost++;
+  recordBattle(s, 'lost');
   s.morale = Math.max(0, s.morale - BATTLE_MORALE_LOSS);
   const foodLost = Math.round(s.resources.food * 0.25);
   s.resources.food -= foodLost;
+  recordRaidLoss(s, { food: foodLost });
   let text = `Не удалось сдержать: ${enemyName}. Потеряно ${foodLost} еды.`;
   // Проигранная стычка стоит людей — доли посёлка, а не одного безымянного жителя.
   const fallen = killPop(s, Math.ceil(famineToll(s) * (0.5 + rnd())), 'бой');
