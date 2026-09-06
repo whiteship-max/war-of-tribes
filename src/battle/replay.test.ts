@@ -25,6 +25,7 @@ import {
   bannersFor,
   blockDepth,
   buildCast,
+  crowdAt,
   dustRadius,
   ranksFor,
   shaftsFor,
@@ -766,5 +767,47 @@ describe('действие: всё из журнала, ничего от себ
     const a = buildCast(result, 'attacker');
     const b = buildCast(result, 'attacker');
     for (const t of sample(a, 0.2)) expect(frameAt(b, t)).toEqual(frameAt(a, t));
+  });
+});
+
+describe('лес древков заводится только с отъездом', () => {
+  it('на близком плане ни одного древка без носителя', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    const muster = cast.acts[0];
+    for (let t = 0; t <= muster.to; t += 0.25) {
+      const f = frameAt(cast, t);
+      expect(f.crowd).toBe(0);
+      // Каждое видимое копьё в этот момент держит фигура — своё, из `dressSoldier`.
+      for (const s of f.sectors) expect(s.shafts, `${s.side}/${s.sector} на ${t}`).toBe(0);
+    }
+  });
+
+  it('лес появляется на отъезде и к его концу стоит весь', () => {
+    const cast = buildCast(battle(armyMix(600), armyMix(600)), 'attacker');
+    const pull = cast.acts[1];
+    let prev = -1;
+    for (let t = pull.from; t <= pull.to; t += 0.2) {
+      const all = frameAt(cast, t).sectors.reduce((n, s) => n + s.shafts, 0);
+      expect(all).toBeGreaterThanOrEqual(prev);
+      prev = all;
+    }
+    expect(prev).toBeGreaterThan(0);
+    // На стратегическом плане лес стоит целиком — там масса и читается.
+    const field = frameAt(cast, cast.acts[2].from);
+    for (const s of field.sectors) {
+      if (s.figures === 0) continue;
+      expect(s.shafts).toBeGreaterThan(s.figures);
+    }
+  });
+
+  it('подробность меняется один раз и вся сразу — под движение камеры', () => {
+    const cast = buildCast(evenFight(), 'attacker');
+    // Фигуры и лес идут одним ходом: два разных были бы двумя переключениями.
+    for (const t of [0, 2, 5, 7, 9, cast.acts[1].to]) {
+      const f = frameAt(cast, t);
+      const grown = (f.side.attacker.figures - Math.min(MUSTER_FIGURES, cast.figures.attacker)) /
+        Math.max(1, cast.figures.attacker - Math.min(MUSTER_FIGURES, cast.figures.attacker));
+      expect(grown).toBeCloseTo(crowdAt(cast, t), 1);
+    }
   });
 });

@@ -146,6 +146,22 @@ export const SHAFTS_PER_FIGURE: Record<UnitKind, number> = {
   cavalry: 1.6,
 };
 
+/**
+ * Доля леса древков, показанная на момент `t`.
+ *
+ * Лес — это оружие бойцов, которых не нарисовали. На близком плане таких бойцов
+ * в кадре нет: там видно горстку, и каждый держит своё оружие сам. Древко без
+ * носителя посреди пустой травы читается как «копья держит никто» и разваливает
+ * весь строй. Поэтому лес включается только с отъездом — там же, где прячется
+ * вся остальная смена подробности: в движении камеры.
+ */
+export function crowdAt(cast: Cast, t: number): number {
+  const pull = cast.acts[1];
+  if (t <= pull.from) return 0;
+  if (t >= pull.to) return 1;
+  return ease((t - pull.from) / (pull.to - pull.from));
+}
+
 export function shaftsFor(byFace: readonly FaceCount[]): number {
   let n = 0;
   for (const f of byFace) n += f.figures * SHAFTS_PER_FIGURE[f.kind];
@@ -536,6 +552,12 @@ export interface Frame {
   poseTime: number;
   /** Вспышка удара, 1 → 0: по ней поднимается пыль. */
   impact: number;
+  /**
+   * Сколько леса древков показано: 0 на близком плане, 1 после отъезда. Древко
+   * без видимого носителя появляется только тогда, когда носителей в кадре и
+   * так больше, чем нарисовано.
+   */
+  crowd: number;
   controls: readonly Control[];
   done: boolean;
 }
@@ -898,9 +920,9 @@ export function shotAtTime(cast: Cast, t: number): CameraShot {
  */
 export function placedAt(cast: Cast, side: Side, t: number): number {
   const total = cast.figures[side];
-  const pull = cast.acts[1];
-  const u = t <= pull.from ? 0 : t >= pull.to ? 1 : ease((t - pull.from) / (pull.to - pull.from));
-  return Math.round(lerp(Math.min(MUSTER_FIGURES, total), total, u));
+  // Тот же ход, что у леса древков: подробность меняется один раз и вся сразу,
+  // под движение камеры, а не двумя разными способами в разные моменты.
+  return Math.round(lerp(Math.min(MUSTER_FIGURES, total), total, crowdAt(cast, t)));
 }
 
 /** Доля потерь стороны, уже случившихся к моменту `t`: из фазовых потерь итога. */
@@ -1120,6 +1142,7 @@ export function frameAt(cast: Cast, t: number): Frame {
 
   const mark = activeMark(cast, time);
   const focus = mark && mark.sector ? { side: mark.side, sector: mark.sector, lane: mark.lane } : null;
+  const crowd = crowdAt(cast, time);
 
   const sectors: SectorFrame[] = [];
   const sideFrame = {} as Record<Side, SideFrame>;
@@ -1164,7 +1187,8 @@ export function frameAt(cast: Cast, t: number): Frame {
         figures: shown,
         standing: up,
         banners: Math.min(c.banners, flags),
-        shafts: Math.round(c.shafts * part * alive),
+        // Лес древков без носителей включается только с отъездом (`crowdAt`).
+        shafts: Math.round(c.shafts * part * alive * crowd),
         // Пятно проявляется вместе с фигурами и убывает вместе с живыми: площадь
         // ему задаёт число людей, а не радиус, поэтому под корнем произведение.
         dust: c.dust * Math.sqrt(Math.max(0, part * alive)),
@@ -1198,6 +1222,7 @@ export function frameAt(cast: Cast, t: number): Frame {
     couch: couchAt(cast, time),
     poseTime: clock.poseTime,
     impact: clock.impact,
+    crowd,
     controls: CONTROLS,
     done: t >= cast.seconds,
   };

@@ -26,7 +26,12 @@ export const ARROWS = { min: 34, max: 120 };
  */
 const ARC = 2.4;
 /** Разлёт точки падения вокруг цели. */
-const SPREAD = { x: 2.2, z: 1.6 };
+const SPREAD = { x: 2.4, z: 1.8 };
+/**
+ * Разлёт точки выстрела. Лучники стоят шеренгой, а не в одной точке: без этого
+ * залп сходится в узел у стрелков и на близком плане читается кучей палок.
+ */
+const FROM_SPREAD = { x: 3, z: 1.2 };
 /** Длина стрелы и её толщина. */
 const LEN = 0.66;
 const R = 0.019;
@@ -80,20 +85,22 @@ export class ArrowStorm {
         const r2 = hash(vi * 7717 + i * 53 + 2);
         const r3 = hash(vi * 7717 + i * 53 + 3);
         // Своя фаза у каждой стрелы: пачка растянута, а не летит одним диском.
-        const u = clamp01((v.u - r3 * 0.34) / (1 - r3 * 0.34));
+        const u = clamp01((v.u - r3 * 0.5) / (1 - r3 * 0.5));
         // Ещё не сошедшая с тетивы стрела место в буфере НЕ занимает: иначе в
         // нём остаётся матрица прошлого кадра, и по небу висят чужие стрелы.
         if (u <= 0) continue;
         at += 1;
         const tx = v.toX + (r1 - 0.5) * SPREAD.x;
         const tz = v.toZ + (r2 - 0.5) * SPREAD.z;
-        const x = v.fromX + (tx - v.fromX) * u;
-        const z = v.fromZ + (tz - v.fromZ) * u;
+        const fx = v.fromX + (r2 - 0.5) * FROM_SPREAD.x;
+        const fz = v.fromZ + (r1 - 0.5) * FROM_SPREAD.z;
+        const x = fx + (tx - fx) * u;
+        const z = fz + (tz - fz) * u;
         // Общая парабола на всех: одна формула, а не своя физика у каждой стрелы.
         const y = height(u);
         // Стрела смотрит вдоль своего движения: та же парабола чуть впереди.
         const du = 0.02;
-        DIR.set((tx - v.fromX) * du, height(Math.min(1, u + du)) - y, (tz - v.fromZ) * du).normalize();
+        DIR.set((tx - fx) * du, height(Math.min(1, u + du)) - y, (tz - fz) * du).normalize();
         this.p.set(x, y, z);
         this.s.set(1, LEN, 1);
         this.q.setFromUnitVectors(UP, DIR);
