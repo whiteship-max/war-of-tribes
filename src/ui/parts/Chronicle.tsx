@@ -4,6 +4,7 @@ import { useGame } from '@/game/store';
 import { DAY_LENGTH } from '@/game/constants';
 import { dayOf } from '@/game/derived';
 import { LOG_MAX_DAYS } from '@/game/sim/log';
+import { count, plural } from './plural';
 
 /**
  * Летопись: свёрнута по умолчанию и раскрывается ступенями.
@@ -32,19 +33,7 @@ const within = (log: LogEntry[], now: number, days: number): LogEntry[] =>
 function ago(days: number): string {
   if (days <= 0) return 'сегодня';
   if (days === 1) return 'вчера';
-  const last = days % 10;
-  const tens = days % 100;
-  const word = tens >= 11 && tens <= 14 ? 'дней' : last === 1 ? 'день' : last >= 2 && last <= 4 ? 'дня' : 'дней';
-  return `${days} ${word} назад`;
-}
-
-function plural(n: number, one: string, few: string, many: string): string {
-  const last = n % 10;
-  const tens = n % 100;
-  if (tens >= 11 && tens <= 14) return many;
-  if (last === 1) return one;
-  if (last >= 2 && last <= 4) return few;
-  return many;
+  return `${count(days, 'день', 'дня', 'дней')} назад`;
 }
 
 export function Chronicle() {

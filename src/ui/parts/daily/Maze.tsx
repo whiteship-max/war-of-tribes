@@ -8,6 +8,7 @@ import {
   type Cell,
 } from '@/game/daily/maze';
 import { haptic } from '@/telegram/webapp';
+import { count } from '../plural';
 
 /** Порог свайпа: вдвое больше, чем у карты — здесь нет панорамы, и ложный свайп дороже. */
 const SWIPE = 24;
@@ -215,7 +216,10 @@ export function Maze({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
 
       {lost ? (
         <div className="mg-result bad">
-          Время вышло. До сундука оставалось {trail.length} {trail.length === 1 ? 'шаг' : 'шагов'} —
+          {/* Склонение общим правилом: `=== 1 ? 'шаг' : 'шагов'` давало
+              «оставалось 2 шагов», а два-четыре хода до сундука — самый частый
+              остаток у того, кто проиграл по таймеру. */}
+          Время вышло. До сундука оставалось {count(trail.length, 'шаг', 'шага', 'шагов')} —
           точки показывают короткий путь.
         </div>
       ) : (
