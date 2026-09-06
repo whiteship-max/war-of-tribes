@@ -9,6 +9,8 @@ import { simulateBattle } from './sim';
 import { quickSetup } from './setup';
 import {
   ACTS,
+  ACT_PHASES,
+  contestOf,
   CAPTION_HOLD,
   FIELD,
   FIGURE_CAP,
@@ -312,18 +314,49 @@ describe('армия не тает на отъезде', () => {
 });
 
 describe('время ролика', () => {
-  it('ровный бой укладывается в 40–60 секунд', () => {
+  it('ровный бой укладывается в 55–70 секунд', () => {
     for (const seed of [1, 5, 11, 23, 44]) {
       const cast = buildCast(evenFight(seed), 'attacker');
-      expect(cast.seconds).toBeGreaterThanOrEqual(40);
-      expect(cast.seconds).toBeLessThanOrEqual(60);
+      expect(cast.seconds).toBeGreaterThanOrEqual(55);
+      expect(cast.seconds).toBeLessThanOrEqual(70);
     }
   });
 
-  it('асимметричный бой короче сам собой — растягивать нечего', () => {
+  // Прежняя проверка требовала только «короче ровного», и этого оказалось мало:
+  // разгром шёл 49.6 против 56 у ровного боя. Шесть секунд — не разница,
+  // а погрешность, и «короткие бои остаются короткими» держалось на слове.
+  // Поэтому порог теперь абсолютный, и разрыв тоже.
+  it('разгром вдвое короче, и разница читается, а не измеряется', () => {
     const even = buildCast(evenFight(), 'attacker');
-    const rout = buildCast(battle({ infantry: 900, cavalry: 300 }, { archer: 30 }), 'attacker');
-    expect(rout.seconds).toBeLessThan(even.seconds);
+    for (const rout of [
+      battle({ infantry: 900, cavalry: 300 }, { archer: 30 }),
+      battle({ infantry: 500 }, { infantry: 20 }),
+      battle({ spear: 300, infantry: 300 }, { infantry: 60 }),
+    ]) {
+      const cast = buildCast(rout, 'attacker');
+      expect(cast.seconds).toBeLessThanOrEqual(35);
+      expect(even.seconds - cast.seconds).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it('длину задаёт спорность боя, а не число строк в журнале', () => {
+    const even = evenFight();
+    const rout = battle({ infantry: 500 }, { infantry: 20 });
+    // У разгрома строк в журнале почти столько же — мерой они быть не могут.
+    const marks = (r: BattleResult): number =>
+      r.log.filter((e) => e.id !== 'phase-start' && ACT_PHASES.melee.includes(e.phase)).length;
+    expect(marks(rout)).toBeGreaterThan(marks(even) / 3);
+    // А спорность разделяет их на порядок.
+    expect(contestOf(even)).toBeGreaterThan(0.6);
+    expect(contestOf(rout)).toBeLessThan(0.1);
+  });
+
+  it('бою, о котором журналу нечего сказать, длина не достаётся', () => {
+    // Шестьдесят на шестьдесят: обе стороны платят поровну, спорность предельная,
+    // но событий в журнале нет — камере некуда резать, и тянуть его нельзя.
+    const small = battle({ spear: 30, infantry: 30 }, { spear: 30, infantry: 30 });
+    expect(contestOf(small)).toBeGreaterThan(0.9);
+    expect(buildCast(small, 'attacker').seconds).toBeLessThanOrEqual(35);
   });
 
   it('девять фаз ложатся на четыре такта и покрывают ролик целиком', () => {

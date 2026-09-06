@@ -453,8 +453,26 @@ export const MUSTER_SECONDS = 4;
 export const PULLBACK_SECONDS = 6;
 /** Спуск к полю в конце. */
 export const ROUT_SECONDS = 6;
-/** Бой линий: длительность из содержания журнала, а не из числа тиков. */
-export const MELEE_SECONDS = { base: 16, perMark: 1.6, min: 16, max: 40 };
+/**
+ * Бой линий. Длину задаёт **спорность боя**, а не число событий в журнале.
+ *
+ * Раньше её задавали метки — и мера оказалась плохой. Числа этого не скрывали:
+ * ровный бой шёл 56 секунд, разгром пятисот двадцатью — 49.6. Шесть секунд
+ * разницы никто не назовёт «коротким разгромом», а обещание «короткие бои
+ * остаются короткими» держалось на слове. Причина простая: разгром пишет в
+ * журнал почти столько же строк, сколько ровный бой, — просто все они об одном.
+ *
+ * Спорность — то самое, что игрок и хочет пересмотреть подольше: обе стороны
+ * платили. Разгром платила одна, смотреть там нечего, и он обрывается вдвое
+ * раньше сам собой.
+ *
+ * `perMark` осталось, но перестало быть длиной: теперь это **потолок по
+ * содержанию**. Бой шестидесяти на шестьдесят спорен до предела (обе стороны
+ * теряют по четверти), но событий в журнале не оставляет вовсе — камере
+ * некуда резать, и тянуть его на минуту нельзя. Четыре секунды на метку
+ * связывают только такой случай: с одиннадцати меток потолок уже выше `max`.
+ */
+export const MELEE_SECONDS = { min: 14, max: 54, perMark: 4 };
 
 /** Ближе этого камера к новому сектору не подаётся: иначе она мечется. */
 export const MARK_HOLD = 2.0;
@@ -812,13 +830,30 @@ function facesFor(stack: Stack, total: number, faces: Face[]): FaceCount[] {
 }
 
 /**
- * Сколько времени занимает бой линий. Из содержания журнала: мало событий —
- * короткий ролик. Асимметричные бои коротки сами собой, растягивать их нечем
- * и незачем.
+ * Насколько бой был спорным: 0 — платила одна сторона, 1 — обе поровну.
+ *
+ * Мерка — **доля выбитых**, а не число погибших: пятьсот против двадцати
+ * выбивают двадцать человек и теряют десяток, и по головам это выглядит почти
+ * поровну. По долям — единица против сотой, чем разгром и является.
  */
-function meleeSeconds(marks: number): number {
-  const raw = MELEE_SECONDS.base + MELEE_SECONDS.perMark * marks;
-  return Math.min(MELEE_SECONDS.max, Math.max(MELEE_SECONDS.min, Math.round(raw * 10) / 10));
+export function contestOf(result: BattleResult): number {
+  const share = (side: Side): number =>
+    result.sides[side].total.losses / Math.max(1, result.sides[side].total.initial);
+  const a = share('attacker');
+  const d = share('defender');
+  return Math.min(a, d) / Math.max(a, d, 1e-6);
+}
+
+/**
+ * Сколько времени занимает бой линий: спорность задаёт длину, журнал
+ * ограничивает её сверху. Бою, о котором журналу нечего сказать, длина не
+ * достаётся, как бы спорен он ни был, — камере некуда резать.
+ */
+function meleeSeconds(contest: number, marks: number): number {
+  const { min, max, perMark } = MELEE_SECONDS;
+  const wanted = min + (max - min) * contest;
+  const raw = Math.min(wanted, min + perMark * marks);
+  return Math.min(max, Math.max(min, Math.round(raw * 10) / 10));
 }
 
 /** Границы тактов. Три из четырёх постоянные: близкий план и отъезд и есть лицо ролика. */
@@ -829,7 +864,7 @@ function actWindows(result: BattleResult): ActWindow[] {
   const lengths: Record<Act, number> = {
     muster: MUSTER_SECONDS,
     pullback: PULLBACK_SECONDS,
-    melee: meleeSeconds(meleeMarks),
+    melee: meleeSeconds(contestOf(result), meleeMarks),
     rout: ROUT_SECONDS,
   };
   const out: ActWindow[] = [];

@@ -74,7 +74,7 @@ export const MUSIC_TRACKS: MusicTrack[] = [
     layer: 'full',
     file: `full.${MUSIC_FORMAT}`,
     act: 'melee',
-    seconds: { min: 16, max: 40 },
+    seconds: { min: 14, max: 54 },
     note:
       'Полный трек: ударные, гармония и мелодия. Играет весь бой линий — от ' +
       'столкновения до перелома. Самый длинный такт, петля крутится в нём.',
