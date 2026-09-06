@@ -986,7 +986,7 @@ export function scaffold(w: number, d: number, h = 1.5): THREE.Group {
  * стена со стягами. Со второй ступени поселение и выглядит укреплённым.
  */
 function palisade(t: Tier, st: Style): THREE.Group {
-  if (t === 0) return curtainWall(t);
+  if (t <= 1) return curtainWall(t);
   const g = new THREE.Group();
   const R = WALL_RADIUS;
   const n = 96;
@@ -1088,6 +1088,37 @@ function curtainWall(t: Tier): THREE.Group {
     }
     for (const s of [-1, 1]) radialBox(GATE_ANGLE + s * 0.119, R, 0.28, 2.45, 0.3, 1.16, p.beam);
     radialBox(GATE_ANGLE, R - 0.02, 3.92, 0.24, 0.32, 2.34, p.beam);
+  } else {
+    const stone = K.paintOf('stone');
+    const dark = K.paintOf('stoneDark');
+    const light = K.paintOf('stoneLight');
+    const n = 96;
+    const step = span / n;
+    for (let i = 0; i < n; i++) {
+      const a = GATE_ANGLE + gap + step * (i + 0.5);
+      const width = 2 * R * Math.tan(step / 2) + 0.025;
+      radialBox(a, R, width, h, 0.82, h / 2 - 0.05, stone);
+      // Трапециевидный цоколь из существующего box: низ шире верха.
+      const base = K.box(width, 0.58, 0.82, dark);
+      const pos = base.geo.attributes.position;
+      for (let v = 0; v < pos.count; v++) if (pos.getY(v) < 0) pos.setZ(v, pos.getZ(v) * 1.32);
+      base.geo.computeVertexNormals();
+      base.geo.rotateY(-a - Math.PI / 2);
+      const [bx, bz] = at(a, R);
+      base.geo.translate(bx, 0.18, bz);
+      parts.push(base);
+      radialBox(a, R - 0.02, width, 0.12, 0.88, h, dark);
+      radialBox(a, R + 0.3, width, 0.43, 0.24, h + 0.25, light);
+      radialBox(a, R + 0.3, 0.53, 0.5, 0.29, h + 0.7, stone);
+    }
+    const [gx, gz] = at(GATE_ANGLE, R);
+    parts.push(K.arch(3.5, 1.5, 0.18, 0.68, light, gx, 0, gz, { y: -GATE_ANGLE - Math.PI / 2 }));
+    // Открытые створки вдоль проезда: свободный просвет не меняется.
+    for (const side of [-1, 1]) {
+      const a = GATE_ANGLE + side * 0.105;
+      radialBox(a, R - 0.35, 0.12, 1.95, 1.1, 0.98, p.beam);
+      for (const y of [0.45, 1.5]) radialBox(a, R - 0.35, 0.15, 0.13, 1.12, y, dark);
+    }
   }
   const g = new THREE.Group();
   g.add(K.assemble(parts));
