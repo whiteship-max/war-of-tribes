@@ -957,7 +957,20 @@ function stable(t: Tier): THREE.Group {
     q.push(K.box(0.35, 0.07, 0.32, p.beam, -0.05, 0.83, 0));
     a.push(...shiftParts(q, x, z, 0, scale));
   };
-  horse(0, 0.35, 0.83);
+  if (t === 0) horse(0, 0.35, 0.83);
+  else {
+    a.push(K.box(w, 1.25, 0.13, p.post, 0, 0.63, z - 0.56));
+    for (let i = 0; i <= 3; i++) {
+      const x = -w / 2 + i * w / 3;
+      a.push(K.box(0.09, 1.2, 1.08, p.beam, x, 0.6, z));
+      a.push(K.box(0.12, 1.32, 0.14, p.post, x, 0.66, z + 0.58));
+    }
+    for (let i = 0; i < 3; i++) a.push(K.box(w / 3 - 0.12, 0.35, 0.08, p.post, -w / 3 + i * w / 3, 0.25, z + 0.6));
+    horse(-0.68, 0.28, 0.66);
+    horse(0.65, 0.28, 0.66);
+    a.push(K.box(w * 0.85, 0.2, 0.29, p.post, 0, 0.15, 0.92));
+    a.push(K.box(w * 0.8, 0.025, 0.2, p.ink, 0, 0.26, 0.92));
+  }
   for (const x of [-0.7, 0.7]) a.push(K.box(0.14, 0.85, 0.14, p.beam, x, 0.42, 0.98));
   a.push(K.box(1.6, 0.14, 0.14, p.post, 0, 0.7, 0.98));
   const g = new THREE.Group();
@@ -1393,7 +1406,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'statue':
       return statue(tier, st);
     case 'stable':
-      return tier === 0 ? stable(tier) : stubModel(tier, st, STUBS.stable);
+      return tier <= 1 ? stable(tier) : stubModel(tier, st, STUBS.stable);
     case 'infirmary':
     case 'watch':
     case 'cache':
