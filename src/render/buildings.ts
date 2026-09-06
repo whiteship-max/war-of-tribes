@@ -619,7 +619,7 @@ function pen(t: Tier, st: Style): THREE.Group {
  * поселения трогать не пришлось.
  */
 function church(t: Tier, st: Style): THREE.Group {
-  if (t === 0) return stoneChurch(t);
+  if (t <= 1) return stoneChurch(t);
   const g = new THREE.Group();
   const w = [1.3, 1.6, 1.9][t];
   const d = [1.9, 2.4, 2.9][t];
@@ -680,6 +680,18 @@ function stoneChurch(t: Tier): THREE.Group {
     opening(0.3, 0.4, side * (w / 2 + 0.025), 0.55, -0.45, side * Math.PI / 2);
     a.push(K.box(0.12, 0.13, d, dark, side * w / 2, 0.3, z));
   }
+  if (t >= 1) {
+    // Низкая гранёная апсида и контрфорсы выделяют церковь среди жилых домов.
+    const az = z - d / 2 + 0.08;
+    const ar = w * 0.37;
+    a.push(K.cyl(ar, ar + 0.08, h * 0.75, stone, 8, 0, h * 0.375 + 0.08, az));
+    a.push(K.cone(ar + 0.1, 0.52, p.roof, 8, 0, h * 0.75 + 0.34, az));
+    for (const side of [-1, 1]) for (const bz of [-d * 0.48, d * 0.05]) {
+      a.push(K.box(0.26, h * 0.8, 0.2, p.base, side * (w / 2 + 0.1), h * 0.4, bz));
+      a.push(K.box(0.35, 0.2, 0.28, dark, side * (w / 2 + 0.1), 0.1, bz));
+    }
+    for (const y of [1.1, th - belfry - 0.7]) a.push(K.box(tw + 0.1, 0.12, tw + 0.1, p.base, 0, y, tz));
+  }
   a.push(K.plinth(tw + 0.08, tw + 0.08, dark, 0, tz));
   a.push(K.wallBox(tw, th - belfry, tw, stone, 0, tz, 0.1));
   a.push(K.box(tw + 0.13, 0.13, tw + 0.13, dark, 0, th - belfry, tz));
@@ -696,6 +708,7 @@ function stoneChurch(t: Tier): THREE.Group {
   a.push(K.box(0.065, 0.46, 0.065, p.accent, 0, top + 0.18, tz));
   a.push(K.box(0.3, 0.065, 0.065, p.accent, 0, top + 0.28, tz));
   opening(tw * 0.72, 0.56, 0, 0.15, tz + tw / 2 + 0.03);
+  if (t >= 1) opening(0.25, 0.65, 0, 1.5, tz + tw / 2 + 0.03);
   a.push(K.stepStone(tw * 0.85, p.base, 0, tz + tw / 2 + 0.17));
   const g = new THREE.Group();
   g.add(K.assemble(a));
