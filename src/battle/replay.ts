@@ -196,7 +196,7 @@ export const REF_SCREEN_H = 812;
  * древками без хозяина. Такт камеры такой границей не был: на среднем плане
  * фигуры ещё большие, а лес по такту уже стоял.
  */
-export const SHAFT_PX = { off: 30, on: 20 } as const;
+export const SHAFT_PX = { off: 90, on: 60 } as const;
 
 /** Сколько пикселей занимает боец, стоящий в `d` метрах от камеры. */
 export function manPixels(shot: CameraShot, d: number, screenH: number = REF_SCREEN_H): number {

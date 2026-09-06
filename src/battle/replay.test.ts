@@ -834,6 +834,60 @@ describe('лес древков включается по видимому ра�
     expect(manPixels(shot, 20)).toBeCloseTo(manPixels(shot, 40) * 2, 6);
   });
 
+  it('лес гаснет вместе с камерой, а не хлопком', () => {
+    // На спуске камера подходит вплотную, боец растёт, и лес обязан уйти. Уйти
+    // он должен в самом движении: хлопок посреди кадра виден так же, как древко
+    // без хозяина, и стоит той же веры к картинке.
+    const cast = buildCast(battle(armyMix(600), armyMix(600)), 'attacker');
+    const step = 1 / 30;
+    let worst = 0;
+    let peak = 0;
+    let prev: number | null = null;
+    for (let t = 0; t <= cast.seconds; t += step) {
+      const f = frameAt(cast, Math.min(t, cast.seconds));
+      // Доля показанного леса у каждого сектора меняется плавно.
+      for (const s of f.sectors) {
+        const next = frameAt(cast, Math.min(t + step, cast.seconds)).sectors.find(
+          (x) => x.side === s.side && x.sector === s.sector,
+        )!;
+        expect(Math.abs(shaftShare(next.manPx) - shaftShare(s.manPx)), `${s.side}/${s.sector} на ${t.toFixed(2)}`)
+          .toBeLessThanOrEqual(0.08);
+      }
+      const all = f.sectors.reduce((n, s) => n + s.shafts, 0);
+      if (prev !== null) worst = Math.max(worst, Math.abs(all - prev));
+      peak = Math.max(peak, all);
+      prev = all;
+    }
+    // И самих древков за кадр уходит считанные штуки, а не весь лес разом.
+    // Мерка относительная: хлопок — это доли, близкие к единице, а здесь
+    // измерено около двадцатой части, и запас до предела двукратный.
+    expect(peak).toBeGreaterThan(100);
+    expect(worst, `${worst} древков за кадр при ${peak} в лесу`).toBeLessThan(peak * 0.1);
+  });
+
+  it('гашение растянуто по спуску, а не срезано в один миг', () => {
+    const cast = buildCast(battle(armyMix(600), armyMix(600)), 'attacker');
+    const step = 1 / 30;
+    let faded = 0;
+    for (const c of cast.sectors) {
+      let lit = -1;
+      let dark = -1;
+      for (let t = 0; t <= cast.seconds; t += step) {
+        const s = frameAt(cast, Math.min(t, cast.seconds)).sectors.find(
+          (x) => x.side === c.side && x.sector === c.sector,
+        )!;
+        const share = shaftShare(s.manPx);
+        if (share > 0.9) lit = t;
+        if (share < 0.1 && dark < 0 && lit > 0) dark = t;
+      }
+      if (lit < 0 || dark < 0) continue;
+      faded++;
+      // Полсекунды — нижняя граница: быстрее человек читает это переключением.
+      expect(dark - lit, `${c.side}/${c.sector} гаснет за ${(dark - lit).toFixed(2)} с`).toBeGreaterThan(0.5);
+    }
+    expect(faded, 'ни один сектор не гаснет — проверять нечего').toBeGreaterThan(0);
+  });
+
   it('рост бойца у режиссёра и у фигуры — одно число', () => {
     // Порог считается по росту, и он обязан быть тем же, каким фигуру рисуют:
     // разойдутся — порог начнёт мерить не то, что видно.
