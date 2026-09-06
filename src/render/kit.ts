@@ -170,27 +170,45 @@ export function gablePrism(w: number, h: number, d: number, rise: number, paint:
 export function arch(w: number, spring: number, border: number, depth: number, paint: Paint,
   x = 0, y = 0, z = 0, rot?: Rot): Part {
   const r = w / 2;
-  const shape = new THREE.Shape();
-  shape.moveTo(-r, 0);
-  shape.lineTo(-r, spring);
-  for (let i = 0; i <= 8; i++) {
-    const a = Math.PI - i * Math.PI / 8;
-    shape.lineTo(Math.cos(a) * r, spring + Math.sin(a) * r);
-  }
-  shape.lineTo(r, 0);
-  if (border > 0) {
-    const inner = Math.max(0.01, r - border);
-    shape.lineTo(inner, 0);
-    shape.lineTo(inner, spring);
-    for (let i = 0; i <= 8; i++) {
-      const a = i * Math.PI / 8;
-      shape.lineTo(Math.cos(a) * inner, spring + Math.sin(a) * inner);
+  const inner = border > 0 ? Math.max(0.01, r - border) : 0;
+  const pos: number[] = [];
+  type V = [number, number, number];
+  const tri = (a: V, b: V, c: V): void => { pos.push(...a, ...b, ...c); };
+  const quad = (a: V, b: V, c: V, d: V): void => { tri(a, b, c); tri(a, c, d); };
+  const point = (rad: number, angle: number, z: number): V => [Math.cos(angle) * rad, spring + Math.sin(angle) * rad, z];
+  const front = depth / 2;
+  // Свод строится сразу гранями: не подтягиваем ExtrudeGeometry и её триангулятор.
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 8;
+    const b = (i + 1) * Math.PI / 8;
+    const af = point(r, a, front), bf = point(r, b, front);
+    const ab = point(r, a, -front), bb = point(r, b, -front);
+    quad(af, ab, bb, bf);
+    if (inner > 0) {
+      const cf = point(inner, b, front), df = point(inner, a, front);
+      const cb = point(inner, b, -front), db = point(inner, a, -front);
+      quad(af, bf, cf, df);
+      quad(ab, db, cb, bb);
+      quad(df, cf, cb, db);
+    } else {
+      tri([0, spring, front], af, bf);
+      tri([0, spring, -front], bb, ab);
     }
-    shape.lineTo(-inner, 0);
   }
-  shape.closePath();
-  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, steps: 1, curveSegments: 1 });
-  geo.translate(0, 0, -depth / 2);
+  const leg = (width: number, cx: number): void => {
+    const box = new THREE.BoxGeometry(width, spring, depth);
+    const flat = box.toNonIndexed();
+    flat.translate(cx, spring / 2, 0);
+    pos.push(...Array.from(flat.attributes.position.array));
+    box.dispose(); flat.dispose();
+  };
+  if (inner > 0) {
+    leg(r - inner, -(r + inner) / 2);
+    leg(r - inner, (r + inner) / 2);
+  } else leg(w, 0);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
   return place(geo, paint, x, y, z, rot);
 }
 
