@@ -986,6 +986,7 @@ export function scaffold(w: number, d: number, h = 1.5): THREE.Group {
  * стена со стягами. Со второй ступени поселение и выглядит укреплённым.
  */
 function palisade(t: Tier, st: Style): THREE.Group {
+  if (t === 0) return curtainWall(t);
   const g = new THREE.Group();
   const R = WALL_RADIUS;
   const n = 96;
@@ -1057,6 +1058,39 @@ function palisade(t: Tier, st: Style): THREE.Group {
       g.add(banner);
     }
   }
+  return g;
+}
+
+/** Единый ритм укреплений в прежнем радиальном поясе и с прежним проездом. */
+function curtainWall(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const parts: K.Part[] = [];
+  const R = WALL_RADIUS;
+  const gap = 0.105;
+  const span = Math.PI * 2 - 2 * gap;
+  const h = [1.7, 2.1, 2.65][t];
+  const at = (a: number, r: number): [number, number] => [Math.cos(a) * r, Math.sin(a) * r];
+  const radialBox = (a: number, r: number, w: number, height: number, depth: number, y: number, paint: K.Paint): void => {
+    const [x, z] = at(a, r);
+    parts.push(K.box(w, height, depth, paint, x, y, z, { y: -a - Math.PI / 2 }));
+  };
+  if (t === 0) {
+    const n = 224;
+    for (let i = 0; i < n; i++) {
+      const a = GATE_ANGLE + gap + span * (i + 0.5) / n;
+      const [x, z] = at(a, R);
+      parts.push(K.cyl(0.215, 0.23, h, p.post, 4, x, h / 2 - 0.06, z, { y: -a + Math.PI / 4 }));
+      parts.push(K.cone(0.215, 0.38, p.post, 4, x, h + 0.13, z, { y: -a + Math.PI / 4 }));
+    }
+    for (let i = 0; i < 48; i++) {
+      const a = GATE_ANGLE + gap + span * (i + 0.5) / 48;
+      for (const y of [0.55, 1.25]) radialBox(a, R - 0.2, span * R / 48 + 0.03, 0.15, 0.14, y, p.beam);
+    }
+    for (const s of [-1, 1]) radialBox(GATE_ANGLE + s * 0.119, R, 0.28, 2.45, 0.3, 1.16, p.beam);
+    radialBox(GATE_ANGLE, R - 0.02, 3.92, 0.24, 0.32, 2.34, p.beam);
+  }
+  const g = new THREE.Group();
+  g.add(K.assemble(parts));
   return g;
 }
 
