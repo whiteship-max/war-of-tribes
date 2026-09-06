@@ -947,7 +947,7 @@ function stable(t: Tier): THREE.Group {
   // Статичная лошадь из существующих деталей, склеенная с постройкой.
   // Поза боком к фасаду показывает длинную шею, голову и четыре ноги.
   const horse = (x: number, z: number, scale = 1): void => {
-    const coat = K.paintOf('leather');
+    const coat = K.paintOf('horseCoat');
     const q: K.Part[] = [K.box(0.76, 0.32, 0.28, coat, 0, 0.64, 0)];
     for (const dx of [-0.27, 0.27]) for (const dz of [-0.1, 0.1]) q.push(K.box(0.085, 0.48, 0.085, coat, dx, 0.25, dz));
     q.push(K.box(0.22, 0.53, 0.23, coat, 0.37, 0.91, 0, { z: -0.38 }));
@@ -1392,10 +1392,10 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return market(tier, st);
     case 'statue':
       return statue(tier, st);
-    case 'infirmary':
-    case 'watch':
     case 'stable':
       return tier === 0 ? stable(tier) : stubModel(tier, st, STUBS.stable);
+    case 'infirmary':
+    case 'watch':
     case 'cache':
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
