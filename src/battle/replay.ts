@@ -137,13 +137,16 @@ export const bannersFor = (men: number): number => (men > 0 ? Math.max(1, Math.r
  * инстансированный примитив, один вызов отрисовки.
  *
  * Плотность зависит от рода: копейная стена — сплошной частокол, у лучников
- * торчат луки, у конницы пики немногих всадников.
+ * торчат луки. **У конницы леса нет вовсе, и это ноль, а не малое число.**
+ * Всадник виден целиком — конь под ним крупнее любой пехоты, — и древко рядом
+ * с ним читается не оружием невидимого бойца, а палкой, которую никто не
+ * держит. Ставить его туда нельзя ни на каком плане.
  */
 export const SHAFTS_PER_FIGURE: Record<UnitKind, number> = {
   spear: 3.2,
   infantry: 2,
   archer: 1.4,
-  cavalry: 1.6,
+  cavalry: 0,
 };
 
 /**
@@ -167,6 +170,43 @@ export function shaftsFor(byFace: readonly FaceCount[]): number {
   for (const f of byFace) n += f.figures * SHAFTS_PER_FIGURE[f.kind];
   return Math.round(n);
 }
+
+/**
+ * Рост бойца строя. То же число, что в `render/units.ts`, и это одна величина,
+ * а не две: тест сверяет их. Ядру она нужна, чтобы посчитать, насколько крупно
+ * боец виден, — от этого зависит, можно ли подменить его древком.
+ */
+export const MAN_HEIGHT = 1.05;
+
+/**
+ * Экран, под который посчитан ролик: портрет телефона. Считать по настоящему
+ * размеру канвы нельзя — тогда один и тот же журнал давал бы разные кадры на
+ * разных устройствах, а это первое правило ролика. Все числа камеры подобраны
+ * под этот же экран, так что мерка честная.
+ */
+export const REF_SCREEN_H = 812;
+
+/**
+ * Порог леса по видимому размеру бойца: пока он крупнее `off`, леса нет вовсе;
+ * мельче `on` — лес полон.
+ *
+ * Это и есть та граница, на которой силуэт перестаёт читаться и подмена
+ * становится незаметной: у бойца в тридцать пикселей уже не видно, держит он
+ * древко или нет, а у бойца в полсотни — видно, и лес рядом с ним читается
+ * древками без хозяина. Такт камеры такой границей не был: на среднем плане
+ * фигуры ещё большие, а лес по такту уже стоял.
+ */
+export const SHAFT_PX = { off: 30, on: 20 } as const;
+
+/** Сколько пикселей занимает боец, стоящий в `d` метрах от камеры. */
+export function manPixels(shot: CameraShot, d: number, screenH: number = REF_SCREEN_H): number {
+  const frame = 2 * Math.max(0.1, d) * Math.tan((shot.fov * Math.PI) / 360);
+  return (MAN_HEIGHT / frame) * screenH;
+}
+
+/** Доля показанного леса при таком видимом размере бойца: 0 у `off`, 1 у `on`. */
+export const shaftShare = (px: number): number =>
+  ease(clamp01((SHAFT_PX.off - px) / (SHAFT_PX.off - SHAFT_PX.on)));
 
 /**
  * Радиус тёмного пятна под строем. Площадь пропорциональна числу бойцов, а не
@@ -579,6 +619,12 @@ export interface SectorFrame {
    * убитых не заводит.
    */
   wreck: number;
+  /**
+   * Насколько крупно виден боец этого сектора, в пикселях эталонного экрана.
+   * От него, а не от такта камеры, зависит лес древков: подмена невидимого
+   * бойца древком допустима только там, где её не поймать глазом.
+   */
+  manPx: number;
   /** Масса на этом кадре: она проявляется вместе с фигурами и тает вместе с ними. */
   banners: number;
   shafts: number;
@@ -1236,6 +1282,7 @@ export function frameAt(cast: Cast, t: number): Frame {
   const mark = activeMark(cast, time);
   const focus = mark && mark.sector ? { side: mark.side, sector: mark.sector, lane: mark.lane } : null;
   const crowd = crowdAt(cast, time);
+  const shot = shotAtTime(cast, time);
 
   const sectors: SectorFrame[] = [];
   const sideFrame = {} as Record<Side, SideFrame>;
@@ -1265,6 +1312,12 @@ export function frameAt(cast: Cast, t: number): Frame {
       // в журнале перекидывается по одному, и так же она и показывается.
       const flee = c.brokenAt === null ? 0 : clamp01((time - c.brokenAt) / FLEE_SECONDS);
       const move = moveOf(cast, c, time, flee);
+      // Насколько крупно виден боец именно этого сектора: дальний строй мельче
+      // ближнего, и лес встаёт в нём раньше — там его и не поймать.
+      const manPx = manPixels(
+        shot,
+        Math.hypot(shot.x - (spot.x + move.dx), shot.y - MAN_HEIGHT / 2, shot.z - (spot.z + move.dz)),
+      );
       // Масса проявляется вместе с фигурами и убывает вместе с живыми: иначе на
       // близком плане над горсткой людей стояло бы всё войско знамён.
       const part = c.figures > 0 ? shown / c.figures : 0;
@@ -1283,11 +1336,14 @@ export function frameAt(cast: Cast, t: number): Frame {
         // картинка не заводит: она их только раскладывает по земле.
         wreck: wreckFor(shown - up),
         banners: Math.min(c.banners, flags),
-        // Лес древков без носителей включается только с отъездом (`crowdAt`).
-        shafts: Math.round(c.shafts * part * alive * crowd),
+        // Лес — по видимому размеру бойца, а не по такту камеры: древко стоит
+        // вместо человека, которого не нарисовали, и подменять им можно только
+        // того, кого всё равно не разглядеть.
+        shafts: Math.round(c.shafts * part * alive * shaftShare(manPx)),
         // Пятно проявляется вместе с фигурами и убывает вместе с живыми: площадь
         // ему задаёт число людей, а не радиус, поэтому под корнем произведение.
         dust: c.dust * Math.sqrt(Math.max(0, part * alive)),
+        manPx,
         broken: c.brokenAt !== null && time >= c.brokenAt,
         flee,
         dx: move.dx,
@@ -1306,7 +1362,7 @@ export function frameAt(cast: Cast, t: number): Frame {
     act,
     phase: span.phase,
     tick,
-    shot: shotAtTime(cast, time),
+    shot,
     closing,
     focus,
     caption: mark && time - mark.t <= CAPTION_HOLD ? mark.text : null,

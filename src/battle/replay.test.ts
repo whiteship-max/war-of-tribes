@@ -16,6 +16,10 @@ import {
   MAX_RANKS,
   MUSTER_FIGURES,
   SKIP,
+  SHAFT_PX,
+  MAN_HEIGHT,
+  manPixels,
+  shaftShare,
   CHARGE_SECONDS,
   CLASH_HOLD,
   FLEE_DIST,
@@ -39,6 +43,7 @@ import {
   type CameraShot,
 } from './replay';
 import { SECTORS, UNIT_KINDS, type ArmySetup, type BattleResult, type Sector, type Side, type Stack } from './types';
+import { MAN_HEIGHT as FIGURE_MAN_HEIGHT } from '../render/units';
 
 const SRC = join(__dirname, '..');
 
@@ -592,15 +597,28 @@ describe('масса: число видно без цифр', () => {
     expect(big.figures.attacker / small.figures.attacker).toBeLessThan(4);
   });
 
-  it('древков больше, чем фигур, и копейная стена гуще прочих', () => {
+  it('древков больше, чем фигур там, где есть кому их держать', () => {
     const cast = buildCast(evenFight(), 'attacker');
     for (const c of cast.sectors) {
-      if (c.figures === 0) continue;
-      expect(c.shafts, `${c.side}/${c.sector}`).toBeGreaterThan(c.figures);
+      // Конница леса не носит вовсе, поэтому считаем по пешим местам.
+      const foot = c.byFace.reduce((n, f) => n + (f.kind === 'cavalry' ? 0 : f.figures), 0);
+      if (foot === 0) continue;
+      expect(c.shafts, `${c.side}/${c.sector}`).toBeGreaterThan(foot);
     }
     const spears = shaftsFor([{ id: 'spearman', kind: 'spear', figures: 10 }]);
     const bows = shaftsFor([{ id: 'archer', kind: 'archer', figures: 10 }]);
     expect(spears).toBeGreaterThan(bows * 2);
+  });
+
+  it('у конницы леса нет: ноль, а не малое число', () => {
+    // Всадник виден целиком — конь под ним крупнее любой пехоты, — и древко
+    // рядом с ним читается палкой, которую никто не держит.
+    expect(shaftsFor([{ id: 'rider', kind: 'cavalry', figures: 20 }])).toBe(0);
+    const mixed = shaftsFor([
+      { id: 'rider', kind: 'cavalry', figures: 20 },
+      { id: 'spearman', kind: 'spear', figures: 10 },
+    ]);
+    expect(mixed).toBe(shaftsFor([{ id: 'spearman', kind: 'spear', figures: 10 }]));
   });
 
   it('пятно массы растёт с числом бойцов, а не фигур', () => {
@@ -789,39 +807,43 @@ describe('действие: всё из журнала, ничего от себ
   });
 });
 
-describe('лес древков заводится только с отъездом', () => {
-  it('на близком плане ни одного древка без носителя', () => {
-    const cast = buildCast(evenFight(), 'attacker');
-    const muster = cast.acts[0];
-    for (let t = 0; t <= muster.to; t += 0.25) {
-      const f = frameAt(cast, t);
-      expect(f.crowd).toBe(0);
-      // Каждое видимое копьё в этот момент держит фигура — своё, из `dressSoldier`.
-      for (const s of f.sectors) expect(s.shafts, `${s.side}/${s.sector} на ${t}`).toBe(0);
+describe('лес древков включается по видимому размеру бойца', () => {
+  it('пока боец крупнее порога, древков нет ни одного', () => {
+    // Не «на близком плане», а «пока видно, что древко некому держать». Такт
+    // камеры такой границей не был: на среднем плане фигуры ещё большие, а лес
+    // по такту уже стоял — это и было древками без хозяина.
+    for (const cast of [buildCast(evenFight(), 'attacker'), buildCast(battle(armyMix(600), armyMix(600)), 'attacker')]) {
+      for (const t of sample(cast, 0.25)) {
+        for (const s of frameAt(cast, t).sectors) {
+          if (s.manPx >= SHAFT_PX.off) expect(s.shafts, `${s.sector} ${s.manPx.toFixed(0)}px на ${t}`).toBe(0);
+        }
+      }
     }
   });
 
-  it('лес появляется на отъезде и к его концу стоит весь', () => {
-    const cast = buildCast(battle(armyMix(600), armyMix(600)), 'attacker');
-    const pull = cast.acts[1];
-    let prev = -1;
-    for (let t = pull.from; t <= pull.to; t += 0.2) {
-      const all = frameAt(cast, t).sectors.reduce((n, s) => n + s.shafts, 0);
-      expect(all).toBeGreaterThanOrEqual(prev);
-      prev = all;
-    }
-    expect(prev).toBeGreaterThan(0);
-    // На стратегическом плане лес стоит целиком — там масса и читается.
-    const field = frameAt(cast, cast.acts[2].from);
-    for (const s of field.sectors) {
-      if (s.figures === 0) continue;
-      expect(s.shafts).toBeGreaterThan(s.figures);
-    }
+  it('порог — чистая геометрия камеры и держится на числах, а не на такте', () => {
+    expect(shaftShare(SHAFT_PX.off)).toBe(0);
+    expect(shaftShare(SHAFT_PX.off + 20)).toBe(0);
+    expect(shaftShare(SHAFT_PX.on)).toBe(1);
+    expect(shaftShare(SHAFT_PX.on - 5)).toBe(1);
+    const mid = shaftShare((SHAFT_PX.off + SHAFT_PX.on) / 2);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1);
+    // Вдвое дальше — вдвое мельче: пикселей считает камера, а не номер такта.
+    const shot = frameAt(buildCast(evenFight(), 'attacker'), 0).shot;
+    expect(manPixels(shot, 20)).toBeCloseTo(manPixels(shot, 40) * 2, 6);
   });
 
-  it('подробность меняется один раз и вся сразу — под движение камеры', () => {
+  it('рост бойца у режиссёра и у фигуры — одно число', () => {
+    // Порог считается по росту, и он обязан быть тем же, каким фигуру рисуют:
+    // разойдутся — порог начнёт мерить не то, что видно.
+    expect(MAN_HEIGHT).toBe(FIGURE_MAN_HEIGHT);
+  });
+
+  it('число фигур по-прежнему растёт одним ходом камеры', () => {
     const cast = buildCast(evenFight(), 'attacker');
-    // Фигуры и лес идут одним ходом: два разных были бы двумя переключениями.
+    // Фигуры идут по такту, и это не то же, что лес: армия не должна таять на
+    // спуске, а лес обязан гаснуть, как только видно, что держать его некому.
     for (const t of [0, 2, 5, 7, 9, cast.acts[1].to]) {
       const f = frameAt(cast, t);
       const grown = (f.side.attacker.figures - Math.min(MUSTER_FIGURES, cast.figures.attacker)) /

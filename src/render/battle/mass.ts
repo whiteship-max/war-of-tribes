@@ -12,14 +12,36 @@
 // дисциплиной, а не разнобоем: одинаковый наклон и есть масса. Разброс —
 // пара градусов, и он нужен только чтобы стена не была нарисованной линейкой.
 // Разнобой уместен у бегущих, и там он и появляется.
+//
+// Второе правило, и оно важнее первого: **у каждого древка есть хозяин**.
+// Древко ставится только в занятую позицию строя — в клетку человека, который
+// его держал бы, — и никогда в промежуток между шеренгами, за фланг или рядом с
+// конницей. Лес древков живёт на той же решётке, что и фигуры (`SectorTroops`),
+// а не на своей, более плотной: своя решётка и была тем, из-за чего древки
+// вставали там, где никто не стоит.
 import * as THREE from 'three';
 import { FILE_STEP, RANK_STEP, type SectorFrame } from '@/battle/replay';
+import type { UnitKind } from '@/battle/types';
 import { INSTANCED, SHADE } from '../materials';
+import { MAN_HEIGHT, SPEAR_LEN } from '../units';
 import { PALETTE } from '../palette';
 
-/** Высота древка над землёй: заметно выше человека (`MAN_HEIGHT` = 1.05). */
-const SHAFT_H = { min: 1.62, max: 1.94 };
+/**
+ * Длина древка. Не «побольше человека», а ровно то копьё, которое держал бы
+ * боец с этого места: `SPEAR_LEN` — та же доля роста, по которой копьё кладётся
+ * в руку в `units.ts`. Древко стоит пяткой в земле, поэтому остриё выходит туда
+ * же, куда у копья в руке, — на треть роста выше головы. Двух длин одного копья
+ * быть не должно: длинное одинокое древко читается палкой, а не оружием.
+ */
+const SHAFT_H = { min: MAN_HEIGHT * SPEAR_LEN * 0.92, max: MAN_HEIGHT * SPEAR_LEN };
 const SHAFT_R = 0.014;
+
+/**
+ * Разброс древка внутри клетки своего хозяина. Меньше половины шага строя по
+ * обеим осям — вместе с выносом опущенного копья (`COUCH_SHIFT`): древко обязано
+ * оставаться в клетке того, кто его держит, и это проверяется тестом.
+ */
+const JITTER = { x: 0.4, z: 0.32 };
 
 /** Наклон строя: копья держат чуть назад от вертикали, все одинаково. */
 const SHAFT_LEAN = 0.11;
@@ -32,6 +54,12 @@ const COUCH_ANGLE = 1.18;
  * поднимается вместе с наклоном, иначе стена копий ложится на траву.
  */
 const COUCH_PIVOT = 0.98;
+/**
+ * Насколько пятка опущенного копья выносится вперёд из руки. Вместе с разбросом
+ * укладывается в половину шага между шеренгами: копьё наперевес — всё ещё копьё
+ * своего бойца, а не воткнутое перед чужой шеренгой.
+ */
+const COUCH_SHIFT = 0.2;
 /** У бегущих строя нет: наклон рассыпается. */
 const ROUT_SPREAD = 0.6;
 
@@ -39,8 +67,13 @@ const ROUT_SPREAD = 0.6;
 const TIP_H = 0.17;
 const TIP_R = 0.032;
 
-/** Знамя выше древков, и высота у всех знамён войска одна. */
-const BANNER_H = 2.55;
+/**
+ * Знамя выше древков, и высота у всех знамён войска одна. Мерка та же, что у
+ * копья, — рост бойца: древко в два роста это высокий штандарт, а не мачта.
+ * Прежние 2.55 давали четыре с половиной человеческих роста в пересчёте, и
+ * такое древко читалось шестом, воткнутым в траву, а не знаменем в руках.
+ */
+const BANNER_H = MAN_HEIGHT * 2;
 const BANNER_CLOTH = { w: 0.5, h: 0.34 };
 /** Навершие древка знамени. */
 const FINIAL_H = 0.13;
@@ -61,6 +94,41 @@ function hash(n: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+/**
+ * Место `i`-й фигуры в блоке. Тот же счёт, что в `SectorTroops`: шеренги
+ * заполняются слева направо, ряды уходят назад от передней. Совпадать он обязан
+ * до знака — иначе древко встанет в промежуток между шеренгами, то есть туда,
+ * где никто не стоит.
+ */
+export function figureSpot(f: SectorFrame, i: number, back: number): { x: number; z: number } {
+  const files = Math.max(1, f.files);
+  return {
+    x: f.x + f.dx + ((i % files) - (files - 1) / 2) * FILE_STEP,
+    z: f.z + f.dz + Math.floor(i / files) * RANK_STEP * back,
+  };
+}
+
+/** Род бойца, стоящего на месте `i`: виды идут подряд, как их ставит строй. */
+export function kindAt(f: SectorFrame, i: number): UnitKind | null {
+  let n = 0;
+  for (const face of f.byFace) {
+    n += face.figures;
+    if (i < n) return face.kind;
+  }
+  return null;
+}
+
+/**
+ * Кто может держать древко леса: занятые места, кроме конных. Всадник виден
+ * целиком — конь под ним крупнее любой пехоты, — и древко рядом с ним читается
+ * не оружием невидимого бойца, а палкой, которую никто не держит.
+ */
+function bearersOf(f: SectorFrame): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < f.figures; i++) if (kindAt(f, i) !== 'cavalry') out.push(i);
+  return out;
+}
+
 /** Что нужно массе от кадра помимо самих секторов. */
 export interface MassBeat {
   /** Копья опущены: 0 — вверх, 1 — наперевес. */
@@ -74,6 +142,12 @@ export interface MassBeat {
 /** Общий пул инстансов массы: один меш на примитив, четыре вызова на всё поле. */
 export class MassView {
   readonly group = new THREE.Group();
+  /**
+   * Куда встали древки леса на последнем кадре и чьи они. Не украшение и не
+   * отладка на всякий случай: по этому списку проверяется главное правило —
+   * у каждого древка есть хозяин, и он стоит в своей клетке.
+   */
+  readonly forest: { sector: number; bearer: number; x: number; z: number; h: number }[] = [];
   private shafts: THREE.InstancedMesh;
   private tips: THREE.InstancedMesh;
   private flags: THREE.InstancedMesh;
@@ -125,6 +199,7 @@ export class MassView {
     let poles = 0;
     let flags = 0;
     let dust = 0;
+    this.forest.length = 0;
     sectors.forEach((f, si) => {
       if (f.figures <= 0) return;
       // Блок: передняя шеренга на месте сектора, ряды уходят назад.
@@ -132,12 +207,12 @@ export class MassView {
       const back = Math.sign(f.z) || 1;
       const x0 = f.x + f.dx;
       const z0 = f.z + f.dz;
-      const halfW = (f.files * FILE_STEP) / 2 + 0.25;
-      // Глубина — по ПОСТАВЛЕННЫМ рядам: на близком плане стоит одна шеренга, и
-      // древки, растянутые на всю глубину, торчали бы из пустой земли позади неё.
+      // Глубина ПОСТАВЛЕННОГО блока — только для пятна массы под ним: сама масса
+      // теперь стоит по местам строя и своей глубины не выдумывает.
       const shown = Math.max(1, Math.ceil(f.figures / Math.max(1, f.files)));
       const depth = Math.max(RANK_STEP, Math.min(f.ranks, shown) * RANK_STEP);
       const color = cloth(f);
+      const bearers = bearersOf(f);
 
       // Копья опускают те, кто идёт в рукопашную; у лучников в руках лук, и он
       // остаётся при них. Бегущие строя не держат вовсе.
@@ -156,24 +231,25 @@ export class MassView {
         dust = this.write(this.dust, dust, this.m, this.c.setScalar(1));
       }
 
-      // Лес древков стоит решёткой строя, а не россыпью: каждое древко — оружие
-      // бойца, которого не нарисовали, и стоит оно на его месте в шеренге.
-      const cols = Math.max(1, Math.round(f.files * Math.sqrt(Math.max(1, f.shafts / Math.max(1, f.figures)))));
-      const rows = Math.max(1, Math.ceil(f.shafts / cols));
-      for (let i = 0; i < f.shafts; i++) {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
+      // Лес древков стоит НА МЕСТАХ СТРОЯ: каждое древко — оружие бойца из этой
+      // клетки, и стоит оно в его клетке. Ни в промежутке между шеренгами, ни за
+      // флангом, ни у конницы древка быть не может — там его некому держать.
+      for (let i = 0; i < f.shafts && bearers.length > 0; i++) {
+        const bearer = bearers[i % bearers.length];
+        const spot = figureSpot(f, bearer, back);
         const r1 = hash(si * 9173 + i * 31 + 1);
         const r2 = hash(si * 9173 + i * 31 + 2);
-        const x = x0 + ((col + 0.5) / cols - 0.5) * halfW * 2 + (r1 - 0.5) * 0.1;
-        const z = z0 + back * (0.2 + ((row + 0.5) / rows) * depth) + (r2 - 0.5) * 0.08;
+        const x = spot.x + (r1 - 0.5) * JITTER.x;
+        const z = spot.z + (r2 - 0.5) * JITTER.z;
         const h = SHAFT_H.min + r1 * (SHAFT_H.max - SHAFT_H.min);
         // Один наклон на весь строй: наклоняются все вместе, вперёд — на врага.
         const lean = -back * (SHAFT_LEAN - COUCH_ANGLE * couch) + (r2 - 0.5) * spread;
         const roll = (r1 - 0.5) * spread;
         const y = COUCH_PIVOT * couch;
-        // Опущенное копьё вынесено вперёд из руки, а не растёт из пяток.
-        const zc = z - back * couch * h * 0.28;
+        // Опущенное копьё вынесено вперёд из руки, а не растёт из пяток — но не
+        // дальше своей клетки: иначе оно встанет перед чужой шеренгой.
+        const zc = z - back * couch * COUCH_SHIFT;
+        this.forest.push({ sector: si, bearer, x, z: zc, h });
         this.p.set(x, y, zc);
         this.s.set(1, h, 1);
         this.e.set(lean, 0, roll);
@@ -186,12 +262,16 @@ export class MassView {
         this.tip(x, y, zc, h, TIP_H, PALETTE.metal, poles - 1);
       }
 
-      // Знамёна: на видимом древке, в середине блока по глубине. Сзади — это со
-      // стороны камеры для нашей армии, и они закрыли бы собственный строй.
-      for (let i = 0; i < f.banners; i++) {
+      // Знамёна тоже стоят на занятых местах: знамя держит знаменосец, и без
+      // него это шест посреди травы. Конница знамя нести может — одно древко в
+      // руке всадника не лес, — поэтому места берутся все занятые, а не только
+      // пешие.
+      for (let i = 0; i < f.banners && f.figures > 0; i++) {
         const u = f.banners === 1 ? 0.5 : i / (f.banners - 1);
-        const x = x0 + (u * 2 - 1) * halfW * 0.7;
-        const z = z0 + back * depth * 0.45;
+        const at = Math.min(f.figures - 1, Math.round(u * (f.figures - 1)));
+        const spot = figureSpot(f, at, back);
+        const x = spot.x;
+        const z = spot.z;
         // Падает знамя вместе с сектором: сломался — древко валится набок.
         const fall = f.flee * 1.15;
         const h = BANNER_H * (1 - 0.35 * f.flee);
