@@ -5,7 +5,11 @@ import { initTelegram } from './telegram/webapp';
 import './ui/styles.css';
 
 const params = new URLSearchParams(location.search);
-if (params.has('showcase')) {
+if (params.has('replay')) {
+  // Стенд ролика о бое: снимки приёмки и замер бюджета в середине отъезда.
+  // Отдельным чанком, как и стенд графики, — в игру он не попадает.
+  void import('./render/battle-stand').then((m) => m.mountReplayStand(params));
+} else if (params.has('showcase')) {
   // Стенд-витрина для проверки графики: одно здание по ступеням или целый
   // посёлок заданного уровня. Отдельный чанк — в игру он не попадает.
   void import('./render/showcase').then((m) => m.mountShowcase(params));

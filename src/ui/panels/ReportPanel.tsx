@@ -2,8 +2,10 @@
 // в журнале, сюда не попадёт. Две кнопки — мгновенный итог и просмотр; выбор
 // запоминается, а при несопоставимых силах мгновенный подставляется сам.
 //
-// Просмотр пока текстовый: прокрутка журнала по фазам. 3D придёт на его место
-// позже — а сейчас это заодно проверяет, что журнал читаемый и осмысленный.
+// «Смотреть бой» открывает ролик — проигрыватель того же журнала. Он всегда
+// доступен повторно: раз кадры выводятся из журнала, повтор ничего не стоит и
+// обязан совпасть с первым показом до кадра. Журнал по фазам остаётся под
+// кнопками: ролик показывает, текст объясняет.
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
@@ -16,6 +18,7 @@ import {
   type Side,
 } from '@/battle';
 import { setBattleWatch } from '@/game/battle/actions';
+import { BattleReplay } from '@/ui/battle/BattleReplay';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { UNITS } from '@/world/data/units';
 import { formatCoord } from '@/world/geo';
@@ -107,6 +110,10 @@ export function ReportPanel({ id }: { id: string }) {
   // Несопоставимые силы — смотреть нечего, подставляем итог, что бы ни выбрали раньше.
   const lopsided = rec ? lopsidedness(rec) >= LOPSIDED : false;
   const [watch, setWatch] = useState(() => Boolean(s.battleWatch) && !lopsided);
+  // Ролик идёт поверх всего экрана, поэтому его состояние местное: снаружи на
+  // него ничего не ведёт, а отчёт под ним никуда не девается — «Пропустить»
+  // возвращает ровно в него.
+  const [playing, setPlaying] = useState(false);
 
   if (!report) {
     return (
@@ -139,17 +146,31 @@ export function ReportPanel({ id }: { id: string }) {
               onClick={() => {
                 setWatch(true);
                 act((g) => setBattleWatch(g, true));
+                setPlaying(true);
               }}
             >
-              📜 Смотреть бой
+              ▶️ Смотреть бой
             </button>
           </div>
+          {playing && (
+            <BattleReplay
+              key={report.id}
+              result={rec.result}
+              us={rec.us}
+              onDone={() => setPlaying(false)}
+            />
+          )}
           {lopsided && !watch && (
             <p className="note">
               Силы были несопоставимы — смотреть тут нечего, поэтому сразу итог. Журнал никуда не делся.
             </p>
           )}
-          {watch && <Journal rec={rec} />}
+          {watch && (
+            <>
+              <h3>Как это было</h3>
+              <Journal rec={rec} />
+            </>
+          )}
         </>
       )}
     </div>

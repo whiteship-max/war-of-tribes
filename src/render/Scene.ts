@@ -178,6 +178,8 @@ export class TribeScene {
   private season: Season = 'spring';
   private disposed = false;
   private paused = false;
+  /** Канва и рендерер отданы ролику о бое: диорама молчит, пока их не вернут. */
+  private lent = false;
   private selection: THREE.Mesh;
   private selected: number | null = null;
   private down: { id: number; x: number; y: number; t: number } | null = null;
@@ -334,6 +336,16 @@ export class TribeScene {
     if (this.paused || this.disposed) return;
     this.paused = true;
     cancelAnimationFrame(this.raf);
+  }
+
+  /**
+   * Одалживает канву и рендерер ролику о бое. Второго контекста WebGL в игре не
+   * бывает (раздел 12 документа о бое): пока одолжено, диорама кадров не рисует,
+   * а свой цикл ведёт ролик. Геометрия посёлка при этом жива — как и на карте.
+   */
+  lend(on: boolean): THREE.WebGLRenderer {
+    this.lent = on;
+    return this.renderer;
   }
 
   resume(): void {
@@ -741,6 +753,8 @@ export class TribeScene {
 
   private frame(): void {
     const dt = Math.min(0.1, this.clock.getDelta());
+    // Канва отдана ролику о бое: он рисует в неё сам, диораме тут делать нечего.
+    if (this.lent) return;
     const t = this.clock.elapsedTime;
 
     const gameNow = this.gameTime + (performance.now() - this.gameTimeAt) / 1000;
