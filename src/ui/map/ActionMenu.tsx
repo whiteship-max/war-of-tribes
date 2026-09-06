@@ -50,6 +50,7 @@ export function ActionMenu() {
   const moveFigure = useWorld((g) => g.moveFigure);
   const order = useWorld((g) => g.order);
   const attack = useWorld((g) => g.attack);
+  const intercept = useWorld((g) => g.intercept);
   const showToast = useGame((g) => g.showToast);
   const openBattle = useGame((g) => g.openBattle);
 
@@ -116,6 +117,60 @@ export function ActionMenu() {
               <span style={{ color: RELATION_META[card.relation].color }}>{card.tribeName ?? 'нет'}</span>.
             </div>
           </div>
+        )}
+
+        {/* Чужой отряд в поле: точка и время встречи видны до подтверждения. */}
+        {menu.march && (
+          <>
+            <div className="am-rel">
+              <div className="am-rel-top">
+                <span>⚔️ Отряд в поле</span>
+                <span className="am-att">{menu.plan?.men ?? '—'} чел.</span>
+              </div>
+              <div className="am-note">
+                Идут от {menu.march.fromName} к {menu.march.toName}; им идти{' '}
+                {formatLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
+              </div>
+            </div>
+            {menu.agent === 'general' ? (
+              <button
+                className={`am-row${menu.plan?.can ? '' : ' off'}`}
+                disabled={!menu.plan?.can}
+                onClick={() => {
+                  void (async () => {
+                    const err = await intercept();
+                    showToast(err ?? 'Полководец пошёл на перехват.');
+                    if (!err) closeMenu();
+                  })();
+                }}
+              >
+                <span className="ico">🏇</span>
+                <span className="body">
+                  <b>Перехватить в поле</b>
+                  <i>
+                    {menu.plan
+                      ? menu.plan.can
+                        ? `Встреча на ${formatCoord(menu.plan.at ?? { x: 0, y: 0 })} через ${formatLeft(menu.plan.seconds)}.`
+                        : menu.plan.reason
+                      : 'Считаем встречу…'}
+                  </i>
+                  {menu.plan?.can && (
+                    <em>
+                      <span className="am-chance">
+                        📍 {formatCoord(menu.plan.at ?? { x: 0, y: 0 })}
+                      </span>
+                      <span className="am-time">⏳ {formatLeft(menu.plan.seconds)}</span>
+                      <span className="am-risk">им идти {formatLeft(menu.plan.targetSeconds)}</span>
+                    </em>
+                  )}
+                </span>
+              </button>
+            ) : (
+              <div className="am-plain">
+                Отряд в поле встречает полководец: у остальных для этого нет ни войска, ни права.
+              </div>
+            )}
+          </>
         )}
 
         {/* Бунт виден там же, где приказы: он и есть окно для удара. */}

@@ -36,6 +36,7 @@ import type {
   OrderActionId,
   FigureId,
   FigureView,
+  InterceptPlan,
   MarchOrder,
   MarchView,
   OrderOption,
@@ -61,6 +62,13 @@ export interface ActionMenuState {
   target: SettlementId | null;
   name: string;
   card: SettlementCard | null;
+  /**
+   * Чужой отряд на этой клетке. Его можно догонять — и точка встречи считается
+   * заранее, до подтверждения приказа.
+   */
+  march: MarchView | null;
+  /** Где и когда встретимся, если приказать сейчас. null — цели нет. */
+  plan: InterceptPlan | null;
 }
 
 export interface WorldStore {
@@ -124,9 +132,15 @@ export interface WorldStore {
   negotiate: (deal: DealId) => Promise<string | null>;
   /** Открыть меню приказов агента по этой клетке. */
   openMenu: (agent: FigureId, cell: Coord) => Promise<void>;
+  /** Открыть меню перехвата по чужому отряду — из списка походов или с карты. */
+  openChase: (march: MarchView) => Promise<void>;
+  /** Вести полководца на перехват. Возвращает текст ошибки или null. */
+  intercept: () => Promise<string | null>;
   closeMenu: () => void;
   /** Перечитать строки меню: после приказа цена, шанс и причины уже другие. */
   refreshOrders: () => Promise<void>;
+  /** Перечитать план перехвата: цель идёт, и точка встречи с ней уезжает. */
+  loadPlan: (marchId: string) => Promise<void>;
   /** Отдать приказ дипломату по цели открытого меню. */
   order: (action: OrderActionId) => Promise<OrderResult>;
   loadReports: () => Promise<void>;
@@ -205,6 +219,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // («дипломат занят ещё 3:00»), и замерший на месте отсчёт читается как
     // сломанный экран, а не как запрет.
     if (get().menu?.target) void get().refreshOrders();
+    // План перехвата тем более: цель идёт, и точка встречи уезжает вместе с ней.
+    const chased = get().menu?.march;
+    if (chased) void get().loadPlan(chased.id);
   },
 
   ensureRegion: (rect) => {
@@ -348,7 +365,21 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // иначе шторка легла бы поверх и меню оказалось бы под ней.
     useGame.getState().closeSheet();
     const view = settlementAt(cell.x, cell.y);
-    set({ menu: { agent, cell, target: view?.id ?? null, name: view?.name ?? 'Пустая земля', card: null }, orders: [] });
+    const march = marchOn(get().marches, cell, worldNow());
+    set({
+      menu: {
+        agent,
+        cell,
+        target: view?.id ?? null,
+        name: view?.name ?? (march ? `Отряд от ${march.fromName}` : 'Пустая земля'),
+        card: null,
+        march,
+        plan: null,
+      },
+      orders: [],
+    });
+    // Точка встречи считается до подтверждения — она и есть половина решения.
+    if (march) void get().loadPlan(march.id);
     if (!view) return;
     const [card, orders] = await Promise.all([
       worldApi().settlement(view.id),
@@ -357,6 +388,44 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const menu = get().menu;
     if (!menu || menu.target !== view.id) return;
     set({ menu: { ...menu, card }, orders });
+  },
+
+  openChase: async (march) => {
+    useGame.getState().closeSheet();
+    const cell = marchPosition(march, worldNow());
+    set({
+      menu: {
+        agent: 'general',
+        cell: { x: Math.round(cell.x), y: Math.round(cell.y) },
+        target: null,
+        name: `Отряд от ${march.fromName}`,
+        card: null,
+        march,
+        plan: null,
+      },
+      orders: [],
+    });
+    await get().loadPlan(march.id);
+  },
+
+  loadPlan: async (marchId) => {
+    const plan = await worldApi().interceptPlan(marchId);
+    const menu = get().menu;
+    if (!menu || menu.march?.id !== marchId) return;
+    set({ menu: { ...menu, plan } });
+  },
+
+  intercept: async () => {
+    const menu = get().menu;
+    if (!menu?.march) return 'Догонять некого.';
+    const err = await worldApi().intercept(menu.march.id);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    return null;
   },
 
   closeMenu: () => set({ menu: null, orders: [] }),
@@ -523,6 +592,19 @@ export function figuresOn(x: number, y: number, now: number): FigureView[] {
 
 /** Как называется фигура — карте и панелям, чтобы не тянуть конфиг по одной. */
 export const figureName = (id: FigureId): string => FIGURE_BY_ID[id].name;
+
+/**
+ * Чужой отряд, стоящий сейчас на этой клетке. Ищется по положению, выведенному
+ * из времени, — так же, как он и рисуется на полотне.
+ */
+export function marchOn(marches: MarchView[], cell: Coord, now: number): MarchView | null {
+  for (const m of marches) {
+    if (m.own || m.phase !== 'out') continue;
+    const at = marchPosition(m, now);
+    if (Math.round(at.x) === cell.x && Math.round(at.y) === cell.y) return m;
+  }
+  return null;
+}
 
 /** Свои походы — отдельно от чужих: их показывает список, их можно отозвать. */
 export const ownMarches = (marches: MarchView[]): MarchView[] => marches.filter((m) => m.own);

@@ -64,6 +64,7 @@ function ReportCard({ r }: { r: Report }) {
 
 export function MarchesPanel() {
   const marches = useWorld((g) => g.marches);
+  const openChase = useWorld((g) => g.openChase);
   const reports = useWorld((g) => g.reports);
   const recall = useWorld((g) => g.recall);
   const loadReports = useWorld((g) => g.loadReports);
@@ -146,6 +147,12 @@ export function MarchesPanel() {
                 </div>
                 <div className="desc">
                   Чужой отряд идёт к нам от {formatCoord(m.from)}. Успей вернуть своих или встретить.
+                </div>
+                <div className="cost">
+                  {/* Встретить их можно и в поле: точку встречи покажут до приказа. */}
+                  <button className="mini text" onClick={() => void openChase(m)}>
+                    🎖️ Перехватить в поле
+                  </button>
                 </div>
               </div>
             </div>

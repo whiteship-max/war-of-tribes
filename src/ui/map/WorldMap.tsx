@@ -17,7 +17,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useGame } from '@/game/store';
-import { cameraAnchor, figurePosition, figuresOn, useWorld, worldNow } from '@/world/store';
+import { cameraAnchor, figurePosition, figuresOn, marchOn, useWorld, worldNow } from '@/world/store';
 import { WORLD_VIEW, freeCamera } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
@@ -336,12 +336,15 @@ export function WorldMap() {
    *   открывает карточку.
    */
   const openAt = (c: Coord): void => {
-    const hand = useWorld.getState().picked;
+    const g = useWorld.getState();
+    const hand = g.picked;
     const target = settlementAt(c.x, c.y);
     const standing = figuresOn(c.x, c.y, worldNow());
+    // Чужой отряд в поле — такая же цель, как поселение: по нему тоже приказ.
+    const enemy = marchOn(g.marches, c, worldNow());
     if (hand) {
-      if (target || standing.some((f) => f.id === hand)) {
-        void useWorld.getState().openMenu(hand, c);
+      if (target || enemy || standing.some((f) => f.id === hand)) {
+        void g.openMenu(hand, c);
         return;
       }
       // Из руки фигура не выпадает: заново брать её после каждого шага было бы
@@ -350,6 +353,10 @@ export function WorldMap() {
         const err = await moveFigure(hand, c);
         showToast(err ?? `${FIGURE_BY_ID[hand].name} пошёл к ${formatCoord(c)}.`);
       })();
+      return;
+    }
+    if (!target && enemy) {
+      void g.openChase(enemy);
       return;
     }
     if (!target && standing.length > 0) {
