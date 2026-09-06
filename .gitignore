@@ -22,3 +22,9 @@ docs/handoff/shots
 # одноразовые пробники приёмки: сессия кладёт сюда скрипт, чтобы что-то
 # посчитать или сверить, и он живёт до конца задачи. В историю им не надо.
 .tmp-review/
+
+# исходники музыки: два пака по сотням мегабайт WAV. В репозиторий им не надо —
+# из них собираются mp3 в public/assets/music/, а откуда паки и что из них
+# взято, записано в assets-src/MUSIC.md
+assets-src/Medieval Music Vol.1 by gabone_audio/
+assets-src/Combat Pack - vol 1/
