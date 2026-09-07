@@ -488,8 +488,7 @@ function sickBed(x:number,z:number):K.Part[] {
   const wood=K.paintOf('woodDark');
   return [K.box(0.56,0.14,1.12,wood,x,0.31,z),K.box(0.51,0.1,0.93,K.paintOf('cut'),x,0.43,z),K.box(0.42,0.13,0.23,K.paintOf('plaster'),x,0.51,z-0.32),K.box(0.56,0.42,0.09,wood,x,0.3,z-0.55)];
 }
-function tavern(t:Tier,st:Style):THREE.Group {
-  if(t>1) return stubModel(t,st,STUBS.tavern);
+function tavern(t:Tier):THREE.Group {
   const wood=K.paintOf('woodDark'); const a=craftTable(0,0.35,1.6);
   for(const z of [-0.13,0.84]) {
     a.push(K.box(1.7,0.1,0.23,K.paintOf('plank'),0,0.34,z));
@@ -506,6 +505,15 @@ function tavern(t:Tier,st:Style):THREE.Group {
     a.push(K.box(0.58,0.08,0.08,wood,1.44,1.83,-0.35));
     a.push(K.box(0.39,0.39,0.075,K.paintOf('cut'),1.55,1.53,-0.35));
     a.push(K.cyl(0.12,0.12,0.09,wood,8,1.55,1.52,-0.28,{x:Math.PI/2}));
+  }
+  if(t===2) {
+    const p=stylePaint();
+    a.push(K.box(0.85,1.03,1.2,p.wall,-1.36,0.6,-0.77));
+    a.push(...K.roofGable(0.85,1.2,0.36,1.15,p.roofPaint,0.12,-1.36,-0.77));
+    a.push(...craftTable(0.28,1.28,1.9));
+    for(const z of [0.91,1.65]) a.push(K.box(1.95,0.1,0.22,K.paintOf('plank'),0.28,0.34,z));
+    a.push(...tradeBarrel(1.45,0,0.6),...tradeBarrel(-1.48,0,0.7));
+    a.push(K.box(0.25,0.58,0.26,p.base,-0.62,2.0,-1.12));
   }
   a.push(...tradeBarrel(-1.15,0,0.3));
   a.push(K.cyl(0.085,0.085,0.13,K.paintOf('cut'),6,0.38,0.77,0.32));
@@ -1543,7 +1551,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'cache':
       return cache(tier);
     case 'tavern':
-      return tavern(tier,st);
+      return tavern(tier);
     default:
       return new THREE.Group();
   }
