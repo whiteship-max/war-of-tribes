@@ -170,24 +170,6 @@ function frame(g: THREE.Group, w: number, d: number, h: number, mat: THREE.Mater
 }
 
 /** Двускатная кровля из двух наклонных плит — читается как настоящая крыша. */
-function gable(
-  g: THREE.Group,
-  w: number,
-  d: number,
-  y: number,
-  rise: number,
-  mat: THREE.Material,
-  x = 0,
-  z = 0,
-): void {
-  for (const s of [-1, 1]) {
-    const half = box(w, 0.09, d * 0.62, mat, x, y + rise * 0.5, z + (s * d) / 4);
-    half.rotation.x = s * -0.5;
-    g.add(half);
-  }
-}
-
-/** Ограда по периметру: столбы и две жерди. */
 function campfire(st: Style): THREE.Group {
   const g = new THREE.Group();
   for (let i = 0; i < 7; i++) {
@@ -477,33 +459,130 @@ function mine(): THREE.Group {
 }
 
 /** Мастерская: открытый навес → закрытая мастерская → ремесленный двор. */
-function workshop(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [1.8, 2.2, 2.8][t];
-  const d = [1.6, 1.9, 2.2][t];
-  const h = [1.2, 1.5, 1.8][t];
-  if (t === 0) {
-    frame(g, w, d, h, st.post);
-    const roof = box(w * 1.2, 0.08, d * 1.2, st.roofDark, 0, h + 0.1, 0);
-    roof.rotation.x = 0.12;
-    g.add(roof);
-  } else {
-    g.add(box(w, h, d, st.wall, 0, h / 2, 0));
-    gable(g, w * 1.15, d * 1.25, h, 0.3 + t * 0.1, st.roof);
-    g.add(box(0.45, h * 0.6, 0.1, M.dark, 0, h * 0.3, d / 2 + 0.02));
+/** Открытый рабочий стол сохраняется при росте мастерской. */
+function craftTable(x: number, z: number, length = 1.35): K.Part[] {
+  const wood=K.paintOf('woodDark'), plank=K.paintOf('plank');
+  const a=[K.box(length,0.13,0.58,plank,x,0.64,z)];
+  for(const dx of [-length*0.38,length*0.38]) for(const dz of [-0.21,0.21]) a.push(K.box(0.1,0.6,0.1,wood,x+dx,0.3,z+dz));
+  return a;
+}
+function sickBed(x:number,z:number):K.Part[] {
+  const wood=K.paintOf('woodDark');
+  return [K.box(0.56,0.14,1.12,wood,x,0.31,z),K.box(0.51,0.1,0.93,K.paintOf('cut'),x,0.43,z),K.box(0.42,0.13,0.23,K.paintOf('plaster'),x,0.51,z-0.32),K.box(0.56,0.42,0.09,wood,x,0.3,z-0.55)];
+}
+function tavern(t:Tier):THREE.Group {
+  const wood=K.paintOf('woodDark'); const a=craftTable(0,0.35,1.6);
+  for(const z of [-0.13,0.84]) {
+    a.push(K.box(1.7,0.1,0.23,K.paintOf('plank'),0,0.34,z));
+    for(const x of [-0.58,0.58]) a.push(K.box(0.12,0.3,0.18,wood,x,0.15,z));
   }
-  g.add(box(0.9, 0.5, 0.5, st.wall, t === 0 ? 0 : w * 0.6 + 0.2, 0.25, t === 0 ? 0 : d * 0.2));
-  g.add(cyl(0.25, 0.25, 0.4, st.post, 7, w * 0.35, 0.2, d * 0.5 + 0.25));
-  if (t >= 1) {
-    // Труба и стойка с инструментом.
-    g.add(cyl(0.14, 0.17, 0.8, st.accent, 6, -w * 0.3, h + 0.55, -d * 0.25));
-    for (let i = 0; i < 3; i++) g.add(box(0.05, 0.5, 0.05, M.metal, -w * 0.55 - 0.3 + i * 0.16, 0.55, d * 0.4));
+  if(t>=1) {
+    const p=stylePaint();
+    a.push(K.box(2.0,1.3,1.16,p.wall,0,0.73,-1.02));
+    a.push(...K.roofGable(2.0,1.16,0.53,1.42,p.roofPaint,0.14,0,-1.02));
+    a.push(K.box(0.45,0.94,0.05,p.ink,-0.35,0.55,-0.41));
+    for(const x of [-0.89,0.89]) a.push(K.box(0.12,1.3,0.07,wood,x,0.74,-0.39));
+    a.push(K.box(0.38,0.4,0.07,p.ink,0.45,0.94,-0.39));
+    a.push(K.box(0.09,1.9,0.09,wood,1.22,0.95,-0.35));
+    a.push(K.box(0.58,0.08,0.08,wood,1.44,1.83,-0.35));
+    a.push(K.box(0.39,0.39,0.075,K.paintOf('cut'),1.55,1.53,-0.35));
+    a.push(K.cyl(0.12,0.12,0.09,wood,8,1.55,1.52,-0.28,{x:Math.PI/2}));
   }
-  if (t === 2) {
-    g.add(box(w * 0.5, h * 0.55, d * 0.5, st.wall, -w * 0.7, h * 0.28, d * 0.35));
-    g.add(box(w * 0.6, 0.09, d * 0.6, st.roofDark, -w * 0.7, h * 0.6, d * 0.35));
+  if(t===2) {
+    const p=stylePaint();
+    a.push(K.box(0.85,1.03,1.2,p.wall,-1.36,0.6,-0.77));
+    a.push(...K.roofGable(0.85,1.2,0.36,1.15,p.roofPaint,0.12,-1.36,-0.77));
+    a.push(...craftTable(0.28,1.28,1.9));
+    for(const z of [0.91,1.65]) a.push(K.box(1.95,0.1,0.22,K.paintOf('plank'),0.28,0.34,z));
+    a.push(...tradeBarrel(1.45,0,0.6),...tradeBarrel(-1.48,0,0.7));
+    a.push(K.box(0.25,0.58,0.26,p.base,-0.62,2.0,-1.12));
   }
-  return g;
+  a.push(...tradeBarrel(-1.15,0,0.3));
+  a.push(K.cyl(0.085,0.085,0.13,K.paintOf('cut'),6,0.38,0.77,0.32));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function cellar(t:Tier):THREE.Group {
+  const stone=K.paintOf('stone'),wood=K.paintOf('woodDark');
+  const a:K.Part[]=[K.cyl(0.7,1.48,0.7,K.paintOf('soil'),8,0,0.35,-0.28),K.box(0.94,0.79,0.2,K.paintOf('dark'),0,0.42,0.78)];
+  for(const x of [-0.58,0.58]) a.push(K.box(0.25,0.89,0.4,stone,x,0.445,0.73));
+  a.push(K.box(1.4,0.23,0.47,stone,0,0.91,0.73));
+  for(const x of [-0.33,-0.11,0.11,0.33]) a.push(K.box(0.2,0.7,0.1,K.paintOf('plank'),x,0.4,0.91));
+  for(const y of [0.2,0.66]) a.push(K.box(0.91,0.07,0.07,wood,0,y,0.99));
+  for(let i=0;i<2;i++) a.push(K.box(1.08,0.08,0.26,stone,0,0.04+i*0.06,1.27-i*0.2));
+  if(t===2) {
+    a.push(K.cyl(0.64,1.12,0.58,K.paintOf('soil'),7,-0.42,0.29,-0.75));
+    for(const x of [-0.77,0.77]) a.push(K.box(0.24,0.61,0.9,stone,x,0.31,0.47));
+    for(const x of [-0.34,0.34]) a.push(K.box(0.085,0.72,0.045,K.paintOf('metal'),x,0.42,1.03));
+    a.push(K.box(0.9,0.09,0.045,K.paintOf('metal'),0,0.46,1.04));
+    a.push(K.cyl(0.075,0.075,0.05,K.paintOf('metal'),8,0.07,0.53,1.1,{x:Math.PI/2}));
+    a.push(K.box(0.17,0.16,0.08,K.paintOf('metal'),0.07,0.43,1.11));
+    a.push(K.box(0.025,0.07,0.02,K.paintOf('dark'),0.07,0.42,1.16));
+    a.push(K.box(0.18,0.29,0.18,wood,-0.55,0.87,-0.71));
+  }
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function cache(t:Tier):THREE.Group {
+  if(t>=1) return cellar(t);
+  const wood=K.paintOf('woodDark'); const a:K.Part[]=[K.cyl(0.67,1.0,0.18,K.paintOf('soil'),8,0,0.09,0),K.box(0.84,0.055,0.84,K.paintOf('dark'),0,0.2,0)];
+  for(const x of [-0.3,-0.1,0.1,0.3]) a.push(K.box(0.18,0.08,0.78,K.paintOf('plank'),x,0.26,0));
+  for(const z of [-0.22,0.22]) a.push(K.box(0.84,0.045,0.07,wood,0,0.32,z));
+  a.push(K.box(0.19,0.065,0.08,K.paintOf('metal'),0,0.37,0.1));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function infirmary(t:Tier):THREE.Group {
+  const wood=K.paintOf('woodDark'); const a:K.Part[]=[];
+  for(const x of [-0.68,0.68]) for(const z of [-0.74,0.74]) a.push(K.box(0.08,1.3,0.08,wood,x,0.65,z));
+  a.push(K.box(1.57,0.07,1.78,K.paintOf('thatch'),0,1.34,0,{z:0.09}));
+  if(t>=1) {
+    const p=stylePaint();
+    a.push(K.box(2.15,1.05,0.96,p.wall,0,0.6,-0.95));
+    a.push(...K.roofGable(2.15,1.0,0.4,1.14,{...p.roofPaint,roof:K.paintOf('thatch'),trim:wood},0.12,0,-0.95));
+    a.push(K.box(0.46,0.85,0.04,p.ink,-0.5,0.51,-0.45));
+    for(const x of [0.22,0.47,0.72]) a.push(K.cone(0.085,0.32,K.paintOf('cut'),5,x,0.7,-0.41));
+  }
+  if(t===2) {
+    const p=stylePaint();
+    a.push(K.box(0.9,1.16,1.76,p.wall,-1.18,0.66,0));
+    a.push(...K.roofGable(0.9,1.76,0.37,1.26,{...p.roofPaint,roof:K.paintOf('thatch'),trim:wood},0.12,-1.18,0));
+    a.push(...sickBed(-1.18,0.75));
+    for(const z of [-0.5,0.6]) a.push(K.box(0.07,0.96,0.07,wood,1.43,0.48,z));
+    a.push(K.box(0.07,0.07,1.23,wood,1.43,0.96,0.05));
+    for(const z of [-0.34,0,0.34]) a.push(K.cone(0.12,0.35,K.paintOf('cut'),5,1.43,0.67,z));
+    a.push(K.cyl(0.27,0.2,0.27,K.paintOf('metal'),8,0.77,0.25,1.13));
+    a.push(K.cyl(0.23,0.23,0.035,p.ink,8,0.77,0.4,1.13));
+    for(const x of [0.55,0.99]) a.push(K.box(0.12,0.17,0.34,p.base,x,0.085,1.13));
+  }
+  a.push(...sickBed(0,0));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function workshop(t: Tier): THREE.Group {
+  const wood=K.paintOf('woodDark');
+  const a=militaryShed(t===0?1.8:2.5,1.3,t===0?1.5:1.8,0,-0.25);
+  if(t>=1) {
+    a.push(K.box(2.45,1.6,0.12,K.paintOf('plank'),0,0.9,-0.86));
+    for(const x of [-1.16,1.16]) a.push(K.box(0.12,1.6,1.3,K.paintOf('wood'),x,0.9,-0.25));
+    a.push(...craftTable(0,-0.38,1.7));
+    a.push(K.cyl(0.13,0.13,0.75,K.paintOf('cut'),6,0,1.03,-0.38,{z:Math.PI/2}));
+    for(const x of [-0.57,0.57]) a.push(K.box(0.1,0.38,0.2,wood,x,0.88,-0.38));
+  }
+  a.push(...craftTable(0,0.26));
+  a.push(K.box(0.75,0.11,0.19,K.paintOf('cut'),0,0.77,0.26));
+  for(const x of [-0.47,-0.3]) a.push(K.box(0.1,0.23,0.22,K.paintOf('metal'),x,0.8,0.49));
+  a.push(K.box(0.3,0.06,0.07,wood,-0.39,0.72,0.65));
+  for(const x of [-0.44,0.12,0.5]) a.push(K.cyl(0.16,0.21,0.025,K.paintOf('cut'),6,x,0.03,0.82));
+  if(t===2) {
+    a.push(...militaryShed(0.9,1.95,1.25,-1.7,0.25,true));
+    for(const x of [0.65,1.5]) a.push(K.box(0.14,2.45,0.14,wood,x,1.225,0.98));
+    a.push(K.box(1.05,0.14,0.14,wood,1.07,2.37,0.98));
+    a.push(K.box(0.075,1.5,0.04,K.paintOf('metal'),1.07,1.45,0.98));
+    a.push(K.box(1.65,0.2,0.33,K.paintOf('cut'),0.9,0.66,1.03));
+    for(let i=0;i<3;i++) a.push(K.box(0.48,0.16,1.48,K.paintOf('plank'),-1.65,0.17+i*0.19,0.34));
+  }
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Ферма: одна полоса → поле с оградой и пугалом → большое поле с овином. */
@@ -1125,112 +1204,6 @@ function palisade(t: Tier): THREE.Group {
 
 // ---------- Заглушки под будущие модели ----------
 //
-// Пять служб посёлка ждут настоящих моделей: их делают отдельно и не здесь.
-// Заглушка нужна ровно для одного — **габарит**. Он выбран сразу настоящим и
-// записан в `MODEL_RADIUS`, поэтому, когда придут готовые модели, переставлять
-// посёлок и пересчитывать план не придётся: место под каждое здание уже
-// зарезервировано по его третьей ступени на десятом уровне.
-//
-// Форма нарочно простая: клеть с двускатной кровлей, пристройка со ступени и
-// одна примета, по которой здание узнаётся в сцене. Фасад — +z, как требует
-// `facingCenter`; всё остальное соберёт `K.collapse`.
-
-/** Во сколько раз заглушка растёт со ступенью — как TIER_SPREAD у площадок. */
-const STUB_GROW: [number, number, number] = [1, 1.2, 1.42];
-
-interface Stub {
-  /** Ширина, глубина и высота стен первой ступени. */
-  size: [number, number, number];
-  /** Примета здания: её ставят поверх коробки. `h` — высота конька. */
-  mark: (g: THREE.Group, st: Style, w: number, d: number, h: number, t: Tier) => void;
-}
-
-function stubModel(t: Tier, st: Style, def: Stub): THREE.Group {
-  const g = new THREE.Group();
-  const k = STUB_GROW[t];
-  const w = def.size[0] * k;
-  const d = def.size[1] * k;
-  const h = def.size[2] * k;
-  // Цоколь, клеть, кровля — тот же порядок, что у старых моделей посёлка.
-  g.add(box(w * 1.06, 0.18, d * 1.06, st.base, 0, 0.09, 0));
-  g.add(box(w, h, d, st.wall, 0, 0.18 + h / 2, 0));
-  const roofY = 0.18 + h;
-  gable(g, w * 1.18, d * 1.16, roofY, 0.28 + 0.09 * t, st.roof);
-  g.add(box(0.46, 0.7, 0.08, M.woodDark, 0, 0.53, d / 2 + 0.04));
-  if (t >= 1) {
-    // Пристройка сбоку: ступень видно и без примет.
-    const aw = w * 0.5;
-    const ad = d * 0.62;
-    const ah = h * 0.72;
-    g.add(box(aw, ah, ad, st.wall, w * 0.7, 0.18 + ah / 2, -d * 0.12));
-    gable(g, aw * 1.18, ad * 1.16, 0.18 + ah, 0.22, st.roof, w * 0.7, -d * 0.12);
-  }
-  def.mark(g, st, w, d, roofY + 0.28 + 0.09 * t, t);
-  return g;
-}
-
-/** Бочки — общая примета трактира и тайника: их ставят у стены. */
-function barrels(g: THREE.Group, st: Style, x: number, z: number, n: number): void {
-  for (let i = 0; i < n; i++) {
-    g.add(cyl(0.22, 0.2, 0.46, st.post, 8, x + i * 0.5, 0.23, z + (i % 2) * 0.28));
-  }
-}
-
-const STUBS: Record<string, Stub> = {
-  // Лазарет: длинная палата под низкой кровлей, на щипце — крест.
-  infirmary: {
-    size: [1.8, 1.3, 1.0],
-    mark: (g, st, w, d, h) => {
-      g.add(box(0.12, 0.62, 0.06, st.accent, 0, h - 0.18, d / 2 + 0.06));
-      g.add(box(0.42, 0.12, 0.06, st.accent, 0, h - 0.02, d / 2 + 0.06));
-    },
-  },
-  // Дозор: изба с мачтой и площадкой наверху — оттуда и смотрят.
-  watch: {
-    size: [1.5, 1.4, 1.0],
-    mark: (g, st, w, d, h, t) => {
-      const mast = 1.1 + 0.45 * t;
-      g.add(cyl(0.1, 0.12, mast, M.woodDark, 6, 0, h + mast / 2 - 0.15, -d * 0.18));
-      g.add(box(0.86, 0.12, 0.86, st.floor, 0, h + mast - 0.2, -d * 0.18));
-      g.add(box(0.5, 0.34, 0.04, st.accent, 0.42, h + mast + 0.05, -d * 0.18));
-    },
-  },
-  // Конюшня: длинный денник, у стены поилка и загородка для коней.
-  stable: {
-    size: [1.9, 1.35, 1.05],
-    mark: (g, st, w, d) => {
-      g.add(box(1.1, 0.24, 0.34, st.post, -w * 0.2, 0.12, d / 2 + 0.5));
-      for (const x of [-w * 0.5, -w * 0.05, w * 0.4]) {
-        g.add(cyl(0.07, 0.08, 0.72, M.woodDark, 5, x, 0.36, d / 2 + 0.8));
-      }
-      g.add(box(w * 1.05, 0.08, 0.08, M.woodDark, -w * 0.05, 0.6, d / 2 + 0.8));
-    },
-  },
-  // Тайник: приземистый сруб с лазом в подпол и бочками у стены.
-  cache: {
-    size: [1.4, 1.3, 0.8],
-    mark: (g, st, w, d) => {
-      g.add(box(0.7, 0.1, 0.7, M.woodDark, -w * 0.75, 0.05, d * 0.3));
-      g.add(box(0.5, 0.06, 0.5, st.base, -w * 0.75, 0.13, d * 0.3));
-      barrels(g, st, w * 0.62, -d * 0.5, 2);
-    },
-  },
-  // Трактир: изба пошире, вывеска на столбе и бочки у крыльца.
-  tavern: {
-    size: [1.75, 1.5, 1.15],
-    mark: (g, st, w, d) => {
-      g.add(cyl(0.09, 0.1, 1.6, M.woodDark, 6, w * 0.62, 0.8, d / 2 + 0.34));
-      g.add(box(0.06, 0.36, 0.62, st.accent, w * 0.62, 1.36, d / 2 + 0.62));
-      barrels(g, st, -w * 0.72, d * 0.42, 3);
-    },
-  },
-};
-
-/**
- * Статуя Героя: постамент, на нём каменный витязь. Модель тоже заглушка — героя
- * и статую переделают отдельно, — но габарит настоящий: место под неё на первом
- * кольце зарезервировано по третьей ступени десятого уровня.
- */
 /** Дозор: открытая галерея и лёгкая крыша вместо зубцов крепостной башни. */
 function watch(t: Tier): THREE.Group {
   if (t >= 1) return watchTower(t);
@@ -1426,7 +1399,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'mine':
       return mine();
     case 'workshop':
-      return workshop(tier, st);
+      return workshop(tier);
     case 'farm':
       return farm();
     case 'pen':
@@ -1450,9 +1423,11 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'watch':
       return watch(tier);
     case 'infirmary':
+      return infirmary(tier);
     case 'cache':
+      return cache(tier);
     case 'tavern':
-      return stubModel(tier, st, STUBS[type]);
+      return tavern(tier);
     default:
       return new THREE.Group();
   }
