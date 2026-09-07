@@ -488,6 +488,18 @@ function sickBed(x:number,z:number):K.Part[] {
   const wood=K.paintOf('woodDark');
   return [K.box(0.56,0.14,1.12,wood,x,0.31,z),K.box(0.51,0.1,0.93,K.paintOf('cut'),x,0.43,z),K.box(0.42,0.13,0.23,K.paintOf('plaster'),x,0.51,z-0.32),K.box(0.56,0.42,0.09,wood,x,0.3,z-0.55)];
 }
+function tavern(t:Tier,st:Style):THREE.Group {
+  if(t>0) return stubModel(t,st,STUBS.tavern);
+  const wood=K.paintOf('woodDark'); const a=craftTable(0,0.35,1.6);
+  for(const z of [-0.13,0.84]) {
+    a.push(K.box(1.7,0.1,0.23,K.paintOf('plank'),0,0.34,z));
+    for(const x of [-0.58,0.58]) a.push(K.box(0.12,0.3,0.18,wood,x,0.15,z));
+  }
+  a.push(...tradeBarrel(-1.15,0,0.3));
+  a.push(K.cyl(0.085,0.085,0.13,K.paintOf('cut'),6,0.38,0.77,0.32));
+  return new THREE.Group().add(K.assemble(a));
+}
+
 function cellar(t:Tier):THREE.Group {
   const stone=K.paintOf('stone'),wood=K.paintOf('woodDark');
   const a:K.Part[]=[K.cyl(0.7,1.48,0.7,K.paintOf('soil'),8,0,0.35,-0.28),K.box(0.94,0.79,0.2,K.paintOf('dark'),0,0.42,0.78)];
@@ -1519,7 +1531,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'cache':
       return cache(tier);
     case 'tavern':
-      return stubModel(tier, st, STUBS[type]);
+      return tavern(tier,st);
     default:
       return new THREE.Group();
   }
