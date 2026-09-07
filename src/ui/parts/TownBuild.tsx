@@ -18,6 +18,7 @@ import { gemsOf, rushPrice, rushUpgrade } from '@/game/sim/gems';
 import { startUpgrade } from '@/game/sim/actions';
 import { Cost } from './Cost';
 import { upgradeGain } from './upgrade';
+import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 
@@ -66,10 +67,14 @@ function rowFacts(s: GameState, b: Building): string {
  * и правда просит людей. У жилья величина обратная (места под крышей), и её не
  * дублируем — она уже стоит в строке «что даст уровень».
  */
-function peopleCell(b: Building): string | null {
+function peopleCell(b: Building): ReactNode {
   const def = BUILDING_BY_ID[b.type];
   if (!def.job) return null;
-  return `👤 +${def.slotsPerLevel ?? SLOTS_PER_LEVEL}`;
+  return (
+    <>
+      <Icon name="ui-person" glyph="👤" /> +{def.slotsPerLevel ?? SLOTS_PER_LEVEL}
+    </>
+  );
 }
 
 /**
@@ -97,7 +102,7 @@ export function TownBuild() {
   return (
     <>
       <div className="mod total">
-        <span className="ico">🔨</span>
+        <span className="ico"><Icon name="ui-hammer" glyph="🔨" /></span>
         <span className="name">
           Строителей
           <em className="sub">свободные руки и ремесленники, под рукой ратуши ×{mult.toFixed(2)}</em>

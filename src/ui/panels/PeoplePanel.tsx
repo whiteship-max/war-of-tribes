@@ -87,7 +87,7 @@ export function PeoplePanel() {
       </div>
 
       <div className="mod total">
-        <span className="ico">🔨</span>
+        <span className="ico"><Icon name="ui-hammer" glyph="🔨" /></span>
         <span className="name">Свободные руки</span>
         <span className="val">{idle}</span>
       </div>

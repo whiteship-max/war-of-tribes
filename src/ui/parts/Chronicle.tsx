@@ -5,6 +5,7 @@ import { DAY_LENGTH } from '@/game/constants';
 import { dayOf } from '@/game/derived';
 import { LOG_MAX_DAYS } from '@/game/sim/log';
 import { count, plural } from './plural';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Летопись: свёрнута по умолчанию и раскрывается ступенями.
@@ -50,7 +51,7 @@ export function Chronicle() {
       <>
         <h3>Летопись</h3>
         <button className="btn ghost wide chron-toggle" onClick={() => setStep(0)}>
-          <span>📖 Показать за сутки</span>
+          <span><Icon name="ui-book" glyph="📖" /> Показать за сутки</span>
           <i>{day1 > 0 ? `${day1} ${plural(day1, 'запись', 'записи', 'записей')}` : 'тихо'}</i>
         </button>
       </>

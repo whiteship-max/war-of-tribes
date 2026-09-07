@@ -61,7 +61,16 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'mood', ids: ['good', 'mid', 'bad'], source: 'ступени морали в TopBar' },
   { prefix: 'day', ids: ['morning', 'evening', 'night'], source: 'время суток в TopBar' },
   { prefix: 'alert', ids: ['starving', 'freezing', 'raid', 'locked'], source: 'AlertBar' },
-  { prefix: 'ui', ids: ['warning', 'site', 'time'], source: 'общий инвентарь интерфейса' },
+  {
+    prefix: 'ui',
+    ids: [
+      'warning', 'site', 'time',
+      'loot', 'person', 'hammer', 'scroll', 'book', 'treasury', 'pouch', 'crate', 'wagon',
+      'ruler', 'eye', 'eye-off', 'pin', 'home', 'banner', 'grave', 'bandage', 'spyglass',
+      'bolt', 'target',
+    ],
+    source: 'общий инвентарь интерфейса',
+  },
 ];
 
 /** Все имена файлов, которые игра готова показать, — вся накладная целиком. */
@@ -91,6 +100,9 @@ const ALIAS: Record<string, IconName> = {
   'alert-wood': 'res-wood',
   'alert-forge-idle': 'job-smith',
   'nav-townhall': 'bld-town_hall',
+  // Наборы алмазов на витрине: горсть — это сам алмаз, сундук — общий сундук.
+  'ui-handful': 'res-gem',
+  'ui-chest': 'ui-crate',
 };
 
 /** Имя файла для пары «группа + идентификатор», с учётом ссылок. */

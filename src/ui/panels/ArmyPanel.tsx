@@ -39,18 +39,18 @@ export function ArmyPanel() {
         <span className="val pos">{defense(s).toFixed(0)}</span>
       </div>
       <div className="mod">
-        <span className="ico">🏠</span>
+        <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
         <span className="name">Дома</span>
         <span className="val">{home}</span>
       </div>
       <div className="mod">
-        <span className="ico">🚩</span>
+        <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
         <span className="name">В походе</span>
         <span className={`val${away > 0 ? ' neg' : ''}`}>{away}</span>
       </div>
       {training > 0 && (
         <div className="mod">
-          <span className="ico">🎯</span>
+          <span className="ico"><Icon name="ui-target" glyph="🎯" /></span>
           <span className="name">На учениях</span>
           <span className="val">{training}</span>
         </div>

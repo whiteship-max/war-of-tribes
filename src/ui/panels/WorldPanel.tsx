@@ -136,7 +136,7 @@ function GarrisonEditor() {
           <span className={`val ${over > 0 ? 'neg' : ''}`}>{cap} бойцов</span>
         </div>
         <div className="mod total">
-          <span className="ico">🏠</span>
+          <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
           <span className="name">Уйдёт с ним — оборона станет</span>
           <span className={`val ${after < def * 0.5 ? 'neg' : ''}`}>
             {Math.round(def)} → {Math.round(after)}
@@ -152,7 +152,7 @@ function GarrisonEditor() {
           disabled={busy || gathering || troopTotal(held) === 0}
           onClick={() => void apply(null)}
         >
-          🏠 Вернуть всю дружину домой
+          <Icon name="ui-home" glyph="🏠" /> Вернуть всю дружину домой
         </button>
       </div>
       <p className="note">
@@ -233,7 +233,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         </div>
         <div className="mod-list">
           <div className="mod">
-            <span className="ico">📏</span>
+            <span className="ico"><Icon name="ui-ruler" glyph="📏" /></span>
             <span className="name">От нашей деревни</span>
             <span className="val">{fmt(homeDist)} кл.</span>
           </div>
@@ -317,7 +317,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
 
       <div className="mod-list">
         <div className="mod">
-          <span className="ico">👤</span>
+          <span className="ico"><Icon name="ui-person" glyph="👤" /></span>
           <span className="name">Владелец</span>
           <span className="val">{card.owner ?? 'ничей'}</span>
         </div>
@@ -329,7 +329,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           </span>
         </div>
         <div className="mod">
-          <span className="ico">📏</span>
+          <span className="ico"><Icon name="ui-ruler" glyph="📏" /></span>
           <span className="name">Расстояние</span>
           <span className="val">{fmt(card.distance)} кл.</span>
         </div>
@@ -385,7 +385,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         </div>
         {card.visible && card.marching && (
           <div className="mod total">
-            <span className="ico">🚩</span>
+            <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
             <span className="name">Оттуда выходит войско</span>
             <span className="val neg">видим</span>
           </div>
@@ -492,7 +492,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             )}
             {card.diplomacy.standing === 'pact' && card.diplomacy.breakAt === 0 && card.diplomacy.until > 0 && (
               <div className="mod">
-                <span className="ico">📜</span>
+                <span className="ico"><Icon name="ui-scroll" glyph="📜" /></span>
                 <span className="name">Пакт держится ещё</span>
                 <span className="val pos">{formatLeft(secondsLeft(card.diplomacy.until, worldNow()))}</span>
               </div>
@@ -561,7 +561,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               ⚔️ Ударить сразу · {generalMen} бойцов
             </button>
             <button className="btn ghost wide" onClick={() => openBattle(card.id)}>
-              🎯 Настроить бой
+              <Icon name="ui-target" glyph="🎯" /> Настроить бой
             </button>
           </>
         )}
@@ -657,7 +657,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               <span className="val">{stackSize(picked) > 0 ? formatLeft(eta) : '—'}</span>
             </div>
             <div className="mod total">
-              <span className="ico">🏠</span>
+              <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
               <span className="name">Оборона деревни станет</span>
               <span className={`val ${defAfter < def * 0.5 ? 'neg' : ''}`}>
                 {fmt(def)} → {fmt(defAfter)}

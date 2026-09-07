@@ -433,42 +433,45 @@ function GenericData({ b }: { b: Building }) {
   const workers = workerCount(s, b.id);
   const jobDef = def.job ? JOB_BY_ID[def.job] : null;
 
-  const stats: [string, string, string][] = [];
+  // Строка «что даёт посёлку»: имя значка, эмодзи на его месте, название, величина.
+  // Имя стоит рядом с эмодзи, а не вместо: пока значка нет, показывается эмодзи.
+  const stats: [string, string, string, string][] = [];
   const housing = buildingHousing(b);
-  if (housing) stats.push(['🛏️', 'Жилых мест', `${housing}`]);
+  if (housing) stats.push(['bld-houses', '🛏️', 'Жилых мест', `${housing}`]);
   const storage = buildingStat(b, 'storage');
-  if (storage) stats.push(['🧺', 'К вместимости склада', `+${storage}`]);
+  if (storage) stats.push(['bld-storage', '🧺', 'К вместимости склада', `+${storage}`]);
   const def_ = buildingStat(b, 'defense');
-  if (def_) stats.push(['🛡️', 'К защите поселения', `+${def_}`]);
+  if (def_) stats.push(['gear-shield', '🛡️', 'К защите поселения', `+${def_}`]);
   const morale = buildingStat(b, 'morale');
-  if (morale) stats.push(['😊', 'К морали', `+${morale}`]);
+  if (morale) stats.push(['mood-good', '😊', 'К морали', `+${morale}`]);
   // Службы посёлка: у каждой одно число, и лучше показать его словами игрока,
   // а не названием поля. Числа берутся из тех же функций, что и логика.
   const archers = buildingStat(b, 'archers');
-  if (archers) stats.push(['🏹', 'Ополченцев выйдет стрелками', `${archers}`]);
+  if (archers) stats.push(['gear-bow', '🏹', 'Ополченцев выйдет стрелками', `${archers}`]);
   if (b.type === 'infirmary') {
-    stats.push(['🩹', 'Потерь вернётся ранеными', `${Math.round(healShare(s) * 100)}%`]);
+    stats.push(['ui-bandage', '🩹', 'Потерь вернётся ранеными', `${Math.round(healShare(s) * 100)}%`]);
   }
   if (b.type === 'watch') {
-    stats.push(['🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
-    stats.push(['⏳', 'Набег виден дольше на', `${Math.round(warningSeconds(s) / 60)} мин`]);
+    stats.push(['ui-spyglass', '🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
+    stats.push(['ui-time', '⏳', 'Набег виден дольше на', `${Math.round(warningSeconds(s) / 60)} мин`]);
     stats.push([
+      'hud-map',
       '🗺️',
       'Округа изучена на',
       surveyRadius(s) > 0 ? `${surveyRadius(s)} клеток` : 'только круг деревни',
     ]);
   }
   if (b.type === 'stable') {
-    stats.push(['🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
+    stats.push(['troop-horse', '🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
     const gear = mountGear(s);
-    stats.push(['🎽', 'Снаряжение всадников', gear > 0 ? `+${gear} ступень` : 'с 4 уровня']);
+    stats.push(['gear-armor', '🎽', 'Снаряжение всадников', gear > 0 ? `+${gear} ступень` : 'с 4 уровня']);
   }
   const hidden = buildingStat(b, 'hidden');
-  if (hidden) stats.push(['🧰', 'Спрятано от набега', `${hidden} каждого припаса`]);
-  if (b.type === 'workshop') stats.push(['🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
-  if (b.type === 'smithy') stats.push(['⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
-  if (housing) stats.push(['👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);
-  if (def_) stats.push(['⚔️', 'Защита посёлка', defense(s).toFixed(0)]);
+  if (hidden) stats.push(['ui-crate', '🧰', 'Спрятано от набега', `${hidden} каждого припаса`]);
+  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
+  if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
+  if (housing) stats.push(['hud-pop', '👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);
+  if (def_) stats.push(['hud-army', '⚔️', 'Защита посёлка', defense(s).toFixed(0)]);
 
   return (
     <>
@@ -477,7 +480,9 @@ function GenericData({ b }: { b: Building }) {
           <h3>Выработка</h3>
           {produced.length > 0 ? (
             <div className="mod total">
-              <span className="ico">📦</span>
+              <span className="ico">
+                <Icon name="ui-loot" glyph="📦" />
+              </span>
               <span className="name">Всего за день</span>
               <span className="val pos">
                 {produced.map((r) => `${RESOURCE_META[r].icon}${fmt(prod[r])}`).join('  ')}
@@ -508,9 +513,11 @@ function GenericData({ b }: { b: Building }) {
       {stats.length > 0 && (
         <>
           <h3>Что даёт посёлку</h3>
-          {stats.map(([icon, name, val], i) => (
+          {stats.map(([art, glyph, name, val], i) => (
             <div className="mod" key={i}>
-              <span className="ico">{icon}</span>
+              <span className="ico">
+                <Icon name={art} glyph={glyph} />
+              </span>
               <span className="name">{name}</span>
               <span className="val">{val}</span>
             </div>

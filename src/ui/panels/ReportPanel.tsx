@@ -24,6 +24,7 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { UNITS } from '@/world/data/units';
 import { formatCoord } from '@/world/geo';
 import type { BattleRecord, Loot, Report, UnitStack } from '@/world/types';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Силы несопоставимы — смотреть нечего: мгновенный итог по умолчанию. */
 export const LOPSIDED = 3;
@@ -140,7 +141,7 @@ export function ReportPanel({ id }: { id: string }) {
                 act((g) => setBattleWatch(g, false));
               }}
             >
-              ⚡ Мгновенный итог
+              <Icon name="ui-bolt" glyph="⚡" /> Мгновенный итог
             </button>
             <button
               className={`btn${watch ? '' : ' ghost'}`}
@@ -242,13 +243,13 @@ export function ReportBody({ report }: { report: Report }) {
           <span className="val">{unitsText(report.sent)}</span>
         </div>
         <div className="mod">
-          <span className="ico">🪦</span>
+          <span className="ico"><Icon name="ui-grave" glyph="🪦" /></span>
           <span className="name">Не вернулись</span>
           <span className="val">{Object.keys(report.lost).length > 0 ? unitsText(report.lost) : 'нет'}</span>
         </div>
         {report.loot && (
           <div className="mod total">
-            <span className="ico">📦</span>
+            <span className="ico"><Icon name="ui-loot" glyph="📦" /></span>
             <span className="name">Добыча</span>
             <span className="val">{lootText(report.loot)}</span>
           </div>

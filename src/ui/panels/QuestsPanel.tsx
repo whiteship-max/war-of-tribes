@@ -5,6 +5,7 @@ import { ACHIEVEMENTS, QUESTS } from '@/game/data/quests';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Chronicle } from '../parts/Chronicle';
 import { DailyPage } from '../parts/daily/DailyPage';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * «Задания» — две страницы.
@@ -32,10 +33,10 @@ export function QuestsPanel() {
 
       <div className="tabs">
         <button className={page === 'quests' ? 'active' : ''} onClick={() => setPage('quests')}>
-          📜 Задания
+          <Icon name="ui-scroll" glyph="📜" /> Задания
         </button>
         <button className={page === 'daily' ? 'active' : ''} onClick={() => setPage('daily')}>
-          🎯 Каждый день
+          <Icon name="ui-target" glyph="🎯" /> Каждый день
         </button>
       </div>
 
@@ -57,7 +58,7 @@ function QuestList() {
         const p = q.progress?.(s);
         return (
           <div className="card" key={q.id}>
-            <div className="ico">📜</div>
+            <div className="ico"><Icon name="ui-scroll" glyph="📜" /></div>
             <div className="body">
               <div className="title">
                 {q.title}

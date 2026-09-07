@@ -20,6 +20,7 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
 import type { ResourceId } from '@/game/types';
 import type { Loot, OrderActionId, OrderOption } from '@/world/types';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Цена приказа теми же значками, что и всюду в игре. Пусто — бесплатно. */
 function Price({ cost }: { cost: Loot }) {
@@ -247,7 +248,7 @@ export function ActionMenu() {
                 openBattle(card.id);
               }}
             >
-              <span className="ico">🎯</span>
+              <span className="ico"><Icon name="ui-target" glyph="🎯" /></span>
               <span className="body">
                 <b>Настроить бой</b>
                 <i>Расставить по секторам, выбрать план и приказы.</i>
@@ -293,7 +294,9 @@ export function ActionMenu() {
               })();
             }}
           >
-            <span className="ico">{figure?.watching ? '👁️' : '🫥'}</span>
+            <span className="ico">
+              {figure?.watching ? <Icon name="ui-eye" glyph="👁️" /> : <Icon name="ui-eye-off" glyph="🫥" />}
+            </span>
             <span className="body">
               <b>{figure?.watching ? 'Снять с наблюдения' : 'Стать наблюдателем'}</b>
               <i>

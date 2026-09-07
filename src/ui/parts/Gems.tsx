@@ -5,6 +5,8 @@ import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { isSite } from '@/game/derived';
 import { GEM_SECONDS, gemsOf, rushPrice } from '@/game/sim/gems';
 import { rushUpgrade } from '@/game/sim/gems';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Вкладка «Алмазы»: счёт, на что они тратятся и витрина наборов.
@@ -81,7 +83,9 @@ export function Gems() {
       </div>
       {GEM_PACKS.map((p) => (
         <div className="card gem-pack" key={p.id}>
-          <div className="ico">{p.icon}</div>
+          <div className="ico">
+            <Icon name={iconName('ui', p.id)} glyph={p.icon} />
+          </div>
           <div className="body">
             <div className="title">
               {p.name}
