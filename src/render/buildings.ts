@@ -484,6 +484,19 @@ function craftTable(x: number, z: number, length = 1.35): K.Part[] {
   for(const dx of [-length*0.38,length*0.38]) for(const dz of [-0.21,0.21]) a.push(K.box(0.1,0.6,0.1,wood,x+dx,0.3,z+dz));
   return a;
 }
+function sickBed(x:number,z:number):K.Part[] {
+  const wood=K.paintOf('woodDark');
+  return [K.box(0.56,0.14,1.12,wood,x,0.31,z),K.box(0.51,0.1,0.93,K.paintOf('cut'),x,0.43,z),K.box(0.42,0.13,0.23,K.paintOf('plaster'),x,0.51,z-0.32),K.box(0.56,0.42,0.09,wood,x,0.3,z-0.55)];
+}
+function infirmary(t:Tier,st:Style):THREE.Group {
+  if(t>0) return stubModel(t,st,STUBS.infirmary);
+  const wood=K.paintOf('woodDark'); const a:K.Part[]=[];
+  for(const x of [-0.68,0.68]) for(const z of [-0.74,0.74]) a.push(K.box(0.08,1.3,0.08,wood,x,0.65,z));
+  a.push(K.box(1.57,0.07,1.78,K.paintOf('thatch'),0,1.34,0,{z:0.09}));
+  a.push(...sickBed(0,0));
+  return new THREE.Group().add(K.assemble(a));
+}
+
 function workshop(t: Tier): THREE.Group {
   const wood=K.paintOf('woodDark');
   const a=militaryShed(t===0?1.8:2.5,1.3,t===0?1.5:1.8,0,-0.25);
@@ -1454,6 +1467,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'watch':
       return watch(tier);
     case 'infirmary':
+      return infirmary(tier,st);
     case 'cache':
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
