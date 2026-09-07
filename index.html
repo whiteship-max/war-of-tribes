@@ -61,20 +61,8 @@
         width: min(230px, 62vw);
         height: auto;
       }
-      #boot-art .fl {
-        transform-origin: 64px 78px;
-        animation: bootfire 1.1s ease-in-out infinite alternate;
-      }
       #boot-art .gl {
         animation: bootglow 1.1s ease-in-out infinite alternate;
-      }
-      @keyframes bootfire {
-        from {
-          transform: scaleY(0.9) scaleX(1.04);
-        }
-        to {
-          transform: scaleY(1.07) scaleX(0.96);
-        }
       }
       @keyframes bootglow {
         from {
@@ -85,7 +73,6 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        #boot-art .fl,
         #boot-art .gl {
           animation: none;
         }
@@ -150,42 +137,12 @@
     <div id="root"></div>
 
     <div id="boot" role="status" aria-live="polite">
-      <!-- Место под арт из ART_HANDOFF (1.20). Пока — плоские фигуры палитры:
-           ночь skyNight, силуэты dark, костёр fire/fireInner/fireLight, брёвна
-           woodDark. Фотоартов на первой загрузке нет: они весят и грузятся. -->
-      <svg id="boot-art" viewBox="0 0 128 108" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <defs>
-          <radialGradient id="bg1" cx="50%" cy="72%" r="62%">
-            <stop offset="0" stop-color="#ff9a3a" stop-opacity=".55" />
-            <stop offset="1" stop-color="#ff9a3a" stop-opacity="0" />
-          </radialGradient>
-        </defs>
-        <rect width="128" height="108" rx="10" fill="#1a2238" />
-        <circle cx="99" cy="21" r="7" fill="#8ea3cf" opacity=".75" />
-        <path d="M0 74h128v34H0z" fill="#2b2733" />
-        <path d="M8 74l9-30 9 30zM26 74l11-38 11 38zM90 74l10-33 10 33zM108 74l9-27 9 27z" fill="#332e3c" />
-        <path d="M44 74l7-22 7 22zM70 74l8-25 8 25z" fill="#2b2733" />
-        <ellipse cx="64" cy="86" rx="44" ry="20" fill="url(#bg1)" class="gl" />
-        <path d="M46 88l36-9 2 5-36 9z" fill="#60432a" />
-        <path d="M82 88l-36-9-2 5 36 9z" fill="#6b4a30" />
-        <g class="fl">
-          <path d="M64 46c9 11 13 17 13 24 0 8-6 13-13 13s-13-5-13-13c0-7 4-13 13-24z" fill="#ff7a1a" />
-          <path d="M64 58c5 7 7 10 7 14 0 5-3 8-7 8s-7-3-7-8c0-4 2-7 7-14z" fill="#ffd25a" />
-        </g>
-        <circle cx="52" cy="42" r="1.6" fill="#ff9a3a" opacity=".8" />
-        <circle cx="76" cy="34" r="1.2" fill="#ff9a3a" opacity=".6" />
-        <circle cx="68" cy="26" r="1" fill="#ff9a3a" opacity=".45" />
-        <!-- Люди у костра: самое тёмное на картинке. Силуэт читается тем, что
-             он темнее и земли, и подсвеченного огнём воздуха за ним. -->
-        <g fill="#15121c">
-          <path d="M30 92c0-7 4-12 8-12s8 5 8 12z" />
-          <circle cx="38" cy="76" r="5" />
-          <path d="M84 92c0-7 4-12 8-12s8 5 8 12z" />
-          <circle cx="92" cy="76" r="5" />
-          <path d="M56 94c0-6 3-10 6-10s6 4 6 10z" opacity=".9" />
-          <circle cx="62" cy="82" r="4" opacity=".9" />
-        </g>
-      </svg>
+      <!-- Заставка. Источник — assets-src/splash/boot-village.svg; сюда она едет
+           разметкой, а не файлом: экран загрузки живёт в index.html целиком и без
+           единого внешнего запроса: boot.test.ts запрещает здесь и картинку файлом,
+           и ссылку наружу из стиля.
+           Вектор к тому же вшестеро легче того же кадра в WebP и не мылится на 3x. -->
+      <svg id="boot-art" viewBox="0 0 256 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="bs" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a7cfe9"/><stop offset=".62" stop-color="#c4d9e8"/><stop offset="1" stop-color="#dc8c60"/></linearGradient><radialGradient id="bg1" cx="50%" cy="58%" r="46%"><stop offset="0" stop-color="#ff9a3a" stop-opacity=".5"/><stop offset="1" stop-color="#ff9a3a" stop-opacity="0"/></radialGradient><clipPath id="bc"><rect width="256" height="160" rx="12"/></clipPath></defs><g clip-path="url(#bc)"><rect width="256" height="160" fill="url(#bs)"/><circle cx="204" cy="70" r="15" fill="#ffe4bf"/><path d="M0 76l38-16 30 12 34-18 40 20 32-12 44 18 38-10v28H0z" fill="#c4d9e8"/><path d="M0 88l30-12 34 14 36-16 34 16 40-14 52 18v18H0z" fill="#8f8b84"/><path d="M0 100l44-14 40 16 44-14 46 16 42-10v16H0z" fill="#66884a"/><g fill="#4a8a48"><path d="M6 102l7-14 7 14zM24 102l6-12 6 12zM40 101l8-15 8 15zM60 102l6-12 6 12z"/><path d="M192 102l7-13 7 13zM210 103l6-12 6 12zM226 101l8-15 8 15zM244 102l6-12 6 12z"/></g><path d="M0 106h256v54H0z" fill="#7fa552"/><path d="M0 130c40-6 72-8 128-8s88 2 128 8v30H0z" fill="#97b85c"/><ellipse cx="128" cy="100" rx="66" ry="26" fill="url(#bg1)" class="gl"/><path d="M52 104Q128 76 204 104l0 6Q128 84 52 110z" fill="#5b4029"/><g><path d="M74 96h17v12H74z" fill="#c9b48c"/><path d="M71 96l11.5-11L94 96z" fill="#b85a3e"/><path d="M97 88h22v20H97z" fill="#e4dac6"/><path d="M93 88l15-13 15 13z" fill="#aa5136"/><path d="M126 92h20v16h-20z" fill="#c9b48c"/><path d="M122 92l14-12 14 12z" fill="#b85a3e"/><path d="M152 96h16v12h-16z" fill="#e4dac6"/><path d="M149 96l11-10 11 10z" fill="#aa5136"/></g><path d="M106 52h4v34h-4z" fill="#60432a"/><path d="M110 54h30l-8 8 8 8h-30z" fill="#e8a43c"/><g fill="#d8d2c8" opacity=".7"><circle cx="139" cy="74" r="3"/><circle cx="142" cy="65" r="2.4"/><circle cx="138" cy="57" r="1.8"/></g><path d="M52 104Q128 132 204 104l0 7Q128 139 52 111z" fill="#60432a"/><g fill="#6f4f34"><path d="M56 108l4 1 1 11-4-1zM70 114l4 1.5 1 11-4-1.5zM86 119l4 1.5 1 11-4-1.5z"/><path d="M166 120.5l4-1.5 1 11-4 1.5zM182 115.5l4-1.5 1 11-4 1.5zM196 109l4-1 1 11-4 1z"/></g><path d="M108 118h40v14h-40z" fill="#5b4029"/><path d="M112 121h32v11h-32z" fill="#8c6238"/><path d="M126 121h4v11h-4z" fill="#5b4029"/><path d="M104 114h48v6h-48z" fill="#6f4f34"/><path d="M112 132h32l24 28h-80z" fill="#9c9891"/><ellipse cx="128" cy="133" rx="34" ry="5" fill="#7b6247" opacity=".5"/><g><path d="M18 142h12v9H18z" fill="#6b4a30"/><ellipse cx="24" cy="142" rx="6" ry="2.5" fill="#c9a878"/><path d="M226 148h13v10h-13z" fill="#6b4a30"/><ellipse cx="232.5" cy="148" rx="6.5" ry="2.8" fill="#c9a878"/><path d="M46 158c0-9 7-15 14-15s14 6 14 15z" fill="#568f4c"/><path d="M186 160c0-11 8-18 16-18s16 7 16 18z" fill="#4a8a48"/></g></g></svg>
 
       <div id="boot-say"></div>
       <div id="boot-bar"><div id="boot-fill"></div></div>
