@@ -410,43 +410,30 @@ function gathering(t: Tier, st: Style): THREE.Group {
   return g;
 }
 
-/** Лесопилка: козлы под навесом → двойная пила → пильный двор со штабелями. */
-function sawmill(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [1.8, 2.3, 2.9][t];
-  g.add(pad(w * 0.85));
-  for (const [x, z, h] of [
-    [-w / 2.4, -0.9, 1.2 + t * 0.2],
-    [w / 2.4, -0.9, 1.2 + t * 0.2],
-    [-w / 2.4, -0.15, 1.0 + t * 0.2],
-    [w / 2.4, -0.15, 1.0 + t * 0.2],
-  ])
-    g.add(cyl(0.06, 0.07, h, st.post, 5, x, h / 2, z));
-  const roof = box(w, 0.08, 1.1 + t * 0.3, st.roof, 0, 1.15 + t * 0.2, -0.55);
-  roof.rotation.x = 0.22;
-  g.add(roof);
-  // Козлы с бревном и диском: силуэт лесопилки узнаётся сверху.
-  for (const bench of t === 2 ? [-0.55, 0.65] : [0]) {
-    g.add(cyl(0.07, 0.08, 0.45, st.post, 5, bench - 0.45, 0.22, 0.6));
-    g.add(cyl(0.07, 0.08, 0.45, st.post, 5, bench + 0.45, 0.22, 0.6));
-    const log = cyl(0.18, 0.18, 1.4, M.wood, 6, bench, 0.52, 0.6);
-    log.rotation.z = Math.PI / 2;
-    g.add(log);
-    const blade = cyl(0.32, 0.32, 0.04, M.metal, 12, bench + 0.2, 0.72, 0.6);
-    blade.rotation.x = Math.PI / 2;
-    g.add(blade);
+/** Ресурсные дворы имеют одну постоянную модель на всех уровнях. */
+function sawmill(): THREE.Group {
+  const wood = K.paintOf('woodDark'), cut = K.paintOf('cut'), metal = K.paintOf('metal');
+  const a: K.Part[] = [];
+  // Длинное бревно на двух козлах, ручная рамная пила вместо современного диска.
+  for (const x of [-0.63, 0.63]) {
+    for (const side of [-1, 1]) a.push(K.box(0.13, 0.7, 0.13, wood, x, 0.34, 0.48 + side * 0.23, {x: side * 0.42}));
+    a.push(K.box(0.17, 0.12, 0.8, wood, x, 0.65, 0.48));
   }
-  for (let i = 0; i < 3 + t * 3; i++) {
-    const l = cyl(0.09, 0.09, 0.8, M.woodDark, 5, -w / 2 - 0.15, 0.1 + Math.floor(i / 3) * 0.19, -0.6 + (i % 3) * 0.22);
-    l.rotation.x = Math.PI / 2;
-    g.add(l);
+  a.push(K.cyl(0.21, 0.24, 2.1, K.paintOf('wood'), 8, 0, 0.86, 0.48, {z: Math.PI / 2}));
+  a.push(K.cyl(0.195, 0.195, 0.025, cut, 8, -1.06, 0.86, 0.48, {z: Math.PI / 2}));
+  for (const x of [-0.18, 0.64]) a.push(K.box(0.09, 0.94, 0.09, wood, x, 1.02, 0.52));
+  a.push(K.box(0.88, 0.08, 0.08, wood, 0.23, 1.48, 0.52));
+  a.push(K.box(0.79, 0.11, 0.025, metal, 0.23, 0.8, 0.52));
+  for (let i = 0; i < 7; i++) a.push(K.cone(0.042, 0.065, metal, 3, -0.1 + i * 0.105, 0.72, 0.52, {z: Math.PI}));
+  // Штабель параллелен рабочему бревну; светлые торцы показывают материал.
+  for (const [y,z] of [[0.2,-0.7],[0.2,-1.13],[0.55,-0.91]]) {
+    a.push(K.cyl(0.2, 0.22, 1.9, wood, 7, 0.05, y, z, {z: Math.PI / 2}));
+    a.push(K.cyl(0.185, 0.185, 0.025, cut, 7, 1.01, y, z, {z: Math.PI / 2}));
   }
-  if (t === 2) {
-    // Рама большой пилы: вертикаль, которую видно через всю деревню.
-    frame(g, 0.9, 0.7, 2.4, st.post);
-    g.add(box(0.8, 0.06, 0.1, M.metal, 0, 1.5, 0));
-  }
-  return g;
+  for (const [x,z,r] of [[-0.4,0.65,0.45],[0.5,0.85,0.34],[-0.8,0.02,0.26]])
+    a.push(K.cyl(r, r * 1.18, 0.05, cut, 7, x, 0.025, z));
+  a.push(K.box(1.25, 0.13, 0.25, K.paintOf('plank'), 0, 0.07, -0.25));
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Каменоломня: уступы → выработка с воротом → большой карьер с краном. */
@@ -1509,7 +1496,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'gathering':
       return gathering(tier, st);
     case 'sawmill':
-      return sawmill(tier, st);
+      return sawmill();
     case 'quarry':
       return quarry(tier, st);
     case 'hunter_hut':
