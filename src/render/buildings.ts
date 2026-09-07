@@ -346,7 +346,7 @@ function storage(t: Tier): THREE.Group {
   a.push(...tradeBarrel(-0.62, 0.3, 0.28));
   a.push(K.box(0.46, 0.42, 0.46, p.floor, 0.55, 0.51, 0.42));
   a.push(K.box(0.85, 0.12, 0.4, p.base, 0, 0.06, 1.02));
-  return K.assemble(a);
+  return new THREE.Group().add(K.assemble(a));
 }
 
 function storageDepot(t: Tier): THREE.Group {
@@ -380,7 +380,7 @@ function storageDepot(t: Tier): THREE.Group {
     a.push(K.box(1.05, 0.13, 1.45, p.floor, 2.02, 0.38, -0.15));
     for (const z of [-0.57, 0.08]) a.push(...tradeBarrel(2.02, 0.45, z));
   }
-  return K.assemble(a);
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Навес собирателей: один навес → навес с сушилами → торговые ряды. */
@@ -1025,7 +1025,36 @@ function stable(t: Tier): THREE.Group {
  *
  * Ступени: навесы из холста → ряды под крышей → каменные лавки со стягами.
  */
+/** Открытые прилавки по краям воротной улицы; середину не занимать. */
 function market(t: Tier, st: Style): THREE.Group {
+  if (t > 0) return marketLegacy(t, st);
+  return new THREE.Group().add(K.assemble(tradeStall(-2.45, 0, 1.65)));
+}
+
+function tradeStall(x: number, z: number, length: number): K.Part[] {
+  const p = stylePaint(); const a: K.Part[] = [];
+  const side = Math.sign(x);
+  a.push(K.box(0.82, 0.52, length, p.post, x, 0.26, z));
+  a.push(K.box(0.94, 0.1, length + 0.08, p.floor, x, 0.57, z));
+  for (const dz of [-length / 2, length / 2]) {
+    a.push(K.box(0.09, 1.5, 0.09, p.beam, x + side * 0.35, 0.75, z + dz));
+    a.push(K.box(0.09, 1.26, 0.09, p.beam, x - side * 0.35, 0.63, z + dz));
+  }
+  // Полосы — цвет вершин существующих скатов, без текстуры и нового материала.
+  for (let i = 0; i < 5; i++) {
+    const dz = z - length / 2 + (i + 0.5) * length / 5;
+    const paint = i % 2 ? p.roof : K.paintOf('thatch');
+    a.push(K.box(1.08, 0.055, length / 5, paint, x, 1.4, dz, {z: side * 0.22}));
+    a.push(K.box(0.04, 0.16, length / 5, paint, x - side * 0.52, 1.23, dz));
+  }
+  for (const dz of [-0.43, 0, 0.43]) {
+    a.push(K.box(0.42, 0.14, 0.32, p.beam, x, 0.69, z + dz));
+    a.push(K.cyl(0.12, 0.15, 0.17, K.paintOf('cut'), 6, x, 0.79, z + dz));
+  }
+  return a;
+}
+
+function marketLegacy(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const half = 2.45; // ось ряда: проезд между рядами шириной в две такие оси
   const len = [1.2, 1.4, 1.45][t]; // половина длины ряда вдоль улицы
