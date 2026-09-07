@@ -335,7 +335,8 @@ function tradeBarrel(x: number, y: number, z: number): K.Part[] {
 }
 
 function storage(t: Tier, st: Style): THREE.Group {
-  if (t > 0) return storageLegacy(t, st);
+  if (t > 1) return storageLegacy(t, st);
+  if (t === 1) return storageDepot(t);
   const p = stylePaint();
   const a: K.Part[] = [K.box(2.15, 0.3, 1.65, p.base, 0, 0.15, 0)];
   for (const x of [-0.94, 0.94]) for (const z of [-0.68, 0.68])
@@ -346,6 +347,27 @@ function storage(t: Tier, st: Style): THREE.Group {
   a.push(...tradeBarrel(-0.62, 0.3, 0.28));
   a.push(K.box(0.46, 0.42, 0.46, p.floor, 0.55, 0.51, 0.42));
   a.push(K.box(0.85, 0.12, 0.4, p.base, 0, 0.06, 1.02));
+  return K.assemble(a);
+}
+
+function storageDepot(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const w = 2.65, d = 1.75, h = 1.85;
+  const a: K.Part[] = [K.box(w + 0.2, 0.34, d + 0.7, p.base, 0, 0.17, 0.2),
+    K.box(w, h, d, p.floor, 0, 0.34 + h / 2, -0.15)];
+  a.push(...K.roofGable(w, d, 0.65, h + 0.34, p.roofPaint, 0.17, 0, -0.15));
+  for (const x of [-w / 2, 0, w / 2]) a.push(K.box(0.13, h, 0.1, p.beam, x, 0.34 + h / 2, 0.75));
+  a.push(K.box(w, 0.12, 0.1, p.beam, 0, 1.5, 0.77));
+  a.push(K.box(1.15, 1.4, 0.08, p.ink, 0, 1.04, 0.78));
+  for (const x of [-0.3, 0.3]) {
+    a.push(K.box(0.54, 1.32, 0.08, p.post, x, 1.02, 0.85));
+    a.push(K.box(0.54, 0.07, 0.05, p.floor, x, 0.7, 0.91));
+    a.push(K.box(0.54, 0.07, 0.05, p.floor, x, 1.37, 0.91));
+  }
+  a.push(K.box(1.25, 0.15, 0.35, p.base, 0, 0.075, 1.4));
+  for (const z of [-0.5, 0.04, 0.58]) a.push(...tradeBarrel(-1.75, 0, z));
+  for (const [x,y] of [[0.92,0.34],[1.39,0.34],[1.15,0.78]])
+    a.push(K.box(0.43, 0.42, 0.43, p.floor, x, y + 0.21, 1.02));
   return K.assemble(a);
 }
 
