@@ -1649,20 +1649,18 @@ export class LocalWorld implements WorldApi {
         continue;
       }
 
-      save.nextLetterAt = arriveAt + letterPause(save.seed, save.nextLetter + 1);
+      // Номер письма расходуется здесь, до всех проверок: из него выведены и
+      // зерно письма, и пауза до следующего, и повторно пускать его в дело —
+      // значит получить два письма из одного зерна.
+      const n = save.nextLetter;
+      save.nextLetter += 1;
+      save.nextLetterAt = arriveAt + letterPause(save.seed, save.nextLetter);
       changed = true;
       // Пока игрок ни разу не выходил на связь, мир не знает ни его склада, ни
       // его размера: цену дани считать не из чего. Расписание при этом идёт —
       // иначе первое подключение выложило бы на стол всё скопом.
       if (!save.profile) continue;
-      const draft = pickLetter(
-        save.seed,
-        save.nextLetter,
-        this.letterCandidates(arriveAt),
-        save.profile.resources,
-      );
-      const n = save.nextLetter;
-      save.nextLetter += 1;
+      const draft = pickLetter(save.seed, n, this.letterCandidates(arriveAt), save.profile.resources);
       if (!draft) continue;
       // Стол на пять, и очереди за ним нет: шестое письмо сгоняет то, у
       // которого срок ближе всех, и сгоняет его тем же разрешением, что и
