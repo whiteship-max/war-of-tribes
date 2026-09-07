@@ -7,6 +7,7 @@ import { MAT as T } from './terrain';
 import { GATE_ANGLE, WALL_RADIUS } from './plan';
 import { LEGACY, type MatKey } from './materials';
 import * as K from './kit';
+import { PALETTE } from './palette';
 
 /** Визуальная ступень: 0 — уровни 1–3, 1 — 4–7, 2 — 8–10. */
 export type Tier = 0 | 1 | 2;
@@ -879,13 +880,14 @@ function townHall(t: Tier): THREE.Group {
 }
 
 /** Общий деревянный каркас военных построек; материал кровли сохраняет снег. */
-function militaryShed(w: number, d: number, h: number, x: number, z: number): K.Part[] {
+function militaryShed(w: number, d: number, h: number, x: number, z: number, crossRoof = false): K.Part[] {
   const p = stylePaint();
   const roof = { ...p.roofPaint, roof: K.paintOf('shingle'), trim: p.beam };
   const a = [K.plinth(w, d, p.base, x, z)];
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) a.push(K.box(0.13, h, 0.13, p.post, x + sx * (w / 2 - 0.06), h / 2, z + sz * (d / 2 - 0.06)));
   for (const sz of [-1, 1]) a.push(K.box(w, 0.13, 0.13, p.beam, x, h - 0.05, z + sz * (d / 2 - 0.06)));
-  a.push(...K.roofGable(w, d, 0.38, h, roof, 0.12, x, z));
+  a.push(...K.roofGable(crossRoof ? d : w, crossRoof ? w : d, 0.38, h, roof, 0.12, x, z,
+    crossRoof ? { y: Math.PI / 2 } : undefined));
   return a;
 }
 
@@ -943,11 +945,11 @@ function stable(t: Tier): THREE.Group {
   const p = stylePaint();
   const w = [1.65, 2.5, 2.9][t];
   const z = [-0.3, -0.6, -0.8][t];
-  const a = militaryShed(w, 1.25, 1.35, 0, z);
+  const a = militaryShed(w, 1.25, 1.35, 0, z, true);
   // Статичная лошадь из существующих деталей, склеенная с постройкой.
   // Поза боком к фасаду показывает длинную шею, голову и четыре ноги.
   const horse = (x: number, z: number, scale = 1): void => {
-    const coat = K.paintOf('horseCoat');
+    const coat: K.Paint = { ...K.paintOf('wood'), tint: new THREE.Color(PALETTE.horseCoat) };
     const q: K.Part[] = [K.box(0.76, 0.32, 0.28, coat, 0, 0.64, 0)];
     for (const dx of [-0.27, 0.27]) for (const dz of [-0.1, 0.1]) q.push(K.box(0.085, 0.48, 0.085, coat, dx, 0.25, dz));
     q.push(K.box(0.22, 0.53, 0.23, coat, 0.37, 0.91, 0, { z: -0.38 }));
@@ -980,7 +982,7 @@ function stable(t: Tier): THREE.Group {
     a.push(...K.fenceRun(1.6, -0.2, 1.6, 1.48, 0.65, p.post, p.beam));
     a.push(...K.fenceRun(-1.6, 1.48, -0.55, 1.48, 0.65, p.post, p.beam));
     a.push(...K.fenceRun(0.55, 1.48, 1.6, 1.48, 0.65, p.post, p.beam));
-    a.push(K.box(0.55, 0.37, 0.5, K.paintOf('straw'), -1.43, 0.25, 0.5));
+    a.push(K.box(0.55, 0.37, 0.5, K.paintOf('cut'), -1.43, 0.25, 0.5));
   }
   const g = new THREE.Group();
   g.add(K.assemble(a));
