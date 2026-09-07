@@ -196,33 +196,6 @@ function gable(
 }
 
 /** Ограда по периметру: столбы и две жерди. */
-function fence(g: THREE.Group, s: number, h: number, mat: THREE.Material): void {
-  const step = s / 2;
-  for (let x = -s; x <= s + 0.01; x += step) {
-    g.add(cyl(0.05, 0.06, h, mat, 5, x, h / 2, -s));
-    g.add(cyl(0.05, 0.06, h, mat, 5, x, h / 2, s));
-  }
-  for (let z = -s + step; z <= s - step + 0.01; z += step) {
-    g.add(cyl(0.05, 0.06, h, mat, 5, -s, h / 2, z));
-    g.add(cyl(0.05, 0.06, h, mat, 5, s, h / 2, z));
-  }
-  for (const y of [h * 0.45, h * 0.85]) {
-    g.add(box(2 * s, 0.05, 0.05, mat, 0, y, -s), box(2 * s, 0.05, 0.05, mat, 0, y, s));
-    g.add(box(0.05, 0.05, 2 * s, mat, -s, y, 0), box(0.05, 0.05, 2 * s, mat, s, y, 0));
-  }
-}
-
-function goat(x: number, z: number, rot: number): THREE.Group {
-  const g = new THREE.Group();
-  g.add(box(0.5, 0.3, 0.25, M.goat, 0, 0.35, 0));
-  g.add(box(0.2, 0.2, 0.18, M.goat, 0.3, 0.5, 0));
-  g.position.set(x, 0, z);
-  g.rotation.y = rot;
-  return g;
-}
-
-// ---------- Стартовые постройки: одна ступень на всю партию ----------
-
 function campfire(st: Style): THREE.Group {
   const g = new THREE.Group();
   for (let i = 0; i < 7; i++) {
@@ -579,32 +552,26 @@ function farm(): THREE.Group {
   return new THREE.Group().add(K.assemble(a));
 }
 
-/** Загон: жердевая ограда → загон с навесом → скотный двор с хлевом. */
-function pen(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const s = [1.3, 1.7, 2.05][t];
-  fence(g, s, 0.7 + t * 0.1, st.post);
-  const herd = 2 + t * 2;
-  for (let i = 0; i < herd; i++) {
-    const a = (i / herd) * Math.PI * 2 + 0.6;
-    g.add(goat(Math.cos(a) * s * 0.5, Math.sin(a) * s * 0.5, a + 1.5));
+/** Открытый круг жердей с двумя козами; без навеса и конюшенных стойл. */
+function pen(): THREE.Group {
+  const wood = K.paintOf('woodDark'); const a: K.Part[] = [];
+  for (let i = 0; i < 10; i++) {
+    const angle = i * Math.PI * 2 / 10;
+    const x = Math.sin(angle) * 1.46, z = Math.cos(angle) * 1.46;
+    a.push(K.box(0.1, 0.75, 0.1, wood, x, 0.375, z));
+    const mid = angle + Math.PI / 10;
+    for (const y of [0.3, 0.63]) a.push(K.box(0.94, 0.07, 0.07, K.paintOf('wood'), Math.sin(mid) * 1.39, y, Math.cos(mid) * 1.39, {y: mid}));
   }
-  if (t >= 1) {
-    // Навес для скота: зимой стадо стоит под крышей.
-    g.add(cyl(0.07, 0.08, 1.0, st.post, 5, -s * 0.75, 0.5, -s * 0.55));
-    g.add(cyl(0.07, 0.08, 1.0, st.post, 5, -s * 0.15, 0.5, -s * 0.55));
-    const roof = box(1.1, 0.07, 0.95, st.roof, -s * 0.45, 1.05, -s * 0.5);
-    roof.rotation.x = 0.25;
-    g.add(roof);
+  for (const [x,z,rot] of [[-0.55,0.13,-0.4],[0.46,-0.3,2.4]]) {
+    const coat = K.paintOf('cut'), horn = K.paintOf('stoneDark');
+    const animal: K.Part[] = [K.box(0.34,0.34,0.64,coat,0,0.5,0), K.box(0.21,0.27,0.27,coat,0,0.76,0.32)];
+    for (const dx of [-0.12,0.12]) for (const dz of [-0.23,0.23]) animal.push(K.box(0.07,0.35,0.07,horn,dx,0.2,dz));
+    for (const dx of [-0.09,0.09]) animal.push(K.cone(0.045,0.22,horn,4,dx,0.99,0.27,{x:-0.4}));
+    a.push(...shiftParts(animal,x,z,rot,1));
   }
-  if (t === 2) {
-    // Хлев: стадо зимует под настоящей крышей.
-    g.add(box(1.7, 1.1, 1.3, st.wall, s * 0.55, 0.55, -s * 0.5));
-    gable(g, 2.0, 1.6, 1.1, 0.34, st.roof, s * 0.55, -s * 0.5);
-    // Колода с водой.
-    g.add(box(1.0, 0.25, 0.4, st.post, 0, 0.13, s * 0.6));
-  }
-  return g;
+  a.push(K.box(0.88,0.25,0.38,wood,0,0.15,0.96));
+  a.push(K.box(0.71,0.025,0.23,{...K.paintOf('wood'), tint:new THREE.Color(PALETTE.water)},0,0.28,0.96));
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Неф и западная колокольня растут вверх в пределах прежней площадки. */
@@ -1488,7 +1455,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'farm':
       return farm();
     case 'pen':
-      return pen(tier, st);
+      return pen();
     case 'church':
       return church(tier);
     case 'tower':
