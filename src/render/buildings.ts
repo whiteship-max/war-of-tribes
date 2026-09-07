@@ -484,8 +484,7 @@ function craftTable(x: number, z: number, length = 1.35): K.Part[] {
   for(const dx of [-length*0.38,length*0.38]) for(const dz of [-0.21,0.21]) a.push(K.box(0.1,0.6,0.1,wood,x+dx,0.3,z+dz));
   return a;
 }
-function workshop(t: Tier, st: Style): THREE.Group {
-  if(t>1) return workshopOld(t,st);
+function workshop(t: Tier): THREE.Group {
   const wood=K.paintOf('woodDark');
   const a=militaryShed(t===0?1.8:2.5,1.3,t===0?1.5:1.8,0,-0.25);
   if(t>=1) {
@@ -500,36 +499,15 @@ function workshop(t: Tier, st: Style): THREE.Group {
   for(const x of [-0.47,-0.3]) a.push(K.box(0.1,0.23,0.22,K.paintOf('metal'),x,0.8,0.49));
   a.push(K.box(0.3,0.06,0.07,wood,-0.39,0.72,0.65));
   for(const x of [-0.44,0.12,0.5]) a.push(K.cyl(0.16,0.21,0.025,K.paintOf('cut'),6,x,0.03,0.82));
+  if(t===2) {
+    a.push(...militaryShed(0.9,1.95,1.25,-1.7,0.25,true));
+    for(const x of [0.65,1.5]) a.push(K.box(0.14,2.45,0.14,wood,x,1.225,0.98));
+    a.push(K.box(1.05,0.14,0.14,wood,1.07,2.37,0.98));
+    a.push(K.box(0.075,1.5,0.04,K.paintOf('metal'),1.07,1.45,0.98));
+    a.push(K.box(1.65,0.2,0.33,K.paintOf('cut'),0.9,0.66,1.03));
+    for(let i=0;i<3;i++) a.push(K.box(0.48,0.16,1.48,K.paintOf('plank'),-1.65,0.17+i*0.19,0.34));
+  }
   return new THREE.Group().add(K.assemble(a));
-}
-
-function workshopOld(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [1.8, 2.2, 2.8][t];
-  const d = [1.6, 1.9, 2.2][t];
-  const h = [1.2, 1.5, 1.8][t];
-  if (t === 0) {
-    frame(g, w, d, h, st.post);
-    const roof = box(w * 1.2, 0.08, d * 1.2, st.roofDark, 0, h + 0.1, 0);
-    roof.rotation.x = 0.12;
-    g.add(roof);
-  } else {
-    g.add(box(w, h, d, st.wall, 0, h / 2, 0));
-    gable(g, w * 1.15, d * 1.25, h, 0.3 + t * 0.1, st.roof);
-    g.add(box(0.45, h * 0.6, 0.1, M.dark, 0, h * 0.3, d / 2 + 0.02));
-  }
-  g.add(box(0.9, 0.5, 0.5, st.wall, t === 0 ? 0 : w * 0.6 + 0.2, 0.25, t === 0 ? 0 : d * 0.2));
-  g.add(cyl(0.25, 0.25, 0.4, st.post, 7, w * 0.35, 0.2, d * 0.5 + 0.25));
-  if (t >= 1) {
-    // Труба и стойка с инструментом.
-    g.add(cyl(0.14, 0.17, 0.8, st.accent, 6, -w * 0.3, h + 0.55, -d * 0.25));
-    for (let i = 0; i < 3; i++) g.add(box(0.05, 0.5, 0.05, M.metal, -w * 0.55 - 0.3 + i * 0.16, 0.55, d * 0.4));
-  }
-  if (t === 2) {
-    g.add(box(w * 0.5, h * 0.55, d * 0.5, st.wall, -w * 0.7, h * 0.28, d * 0.35));
-    g.add(box(w * 0.6, 0.09, d * 0.6, st.roofDark, -w * 0.7, h * 0.6, d * 0.35));
-  }
-  return g;
 }
 
 /** Ферма: одна полоса → поле с оградой и пугалом → большое поле с овином. */
@@ -1452,7 +1430,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'mine':
       return mine();
     case 'workshop':
-      return workshop(tier, st);
+      return workshop(tier);
     case 'farm':
       return farm();
     case 'pen':
