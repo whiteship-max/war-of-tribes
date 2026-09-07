@@ -9,6 +9,7 @@ import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance } from './geo';
 import {
+  CAMP_LEAVE,
   SIEGE_BLOCK,
   consumptionPerHour,
   immuneUntil,
@@ -18,9 +19,10 @@ import {
   starvesAt,
   type SiegeWindow,
 } from './siege';
-import { SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
+import { SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
 import { syncSiege } from './bridge';
 import type { FigureView, PlayerProfile, SettlementView, WorldPulse } from './types';
+import type { TroopStack } from '@/game/battle/kinds';
 
 const START = 1_700_000_000_000;
 
@@ -482,4 +484,266 @@ describe('осада: подкрепление и часы голода', () => 
     const alone = starvesAt(window({ now: w.now(), garrison: 0 })) - w.now();
     expect(held).toBeLessThan(alone);
   }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// Вторая половина осады: приказ игрока, лагерь как цель, вылазка.
+// ---------------------------------------------------------------------------
+
+/** Дружина, с которой ходят осаждать: заметно крупнее любого соседа. */
+const HOST: TroopStack = { legionary: 30, spearman: 24, archer: 16 };
+
+/** Слепок деревни, которая сама никого не боится: с ней и ходят в осаду. */
+const host = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
+  ...holdout(),
+  defense: 900,
+  army: { ...HOST },
+  command: 200,
+  ...over,
+});
+
+/** Довести полководца с дружиной до ближайшего соседа. */
+async function marchGeneral(
+  w: ReturnType<typeof makeWorld>,
+  p: PlayerProfile,
+): Promise<SettlementView> {
+  await w.world.sync(p);
+  expect(await w.world.setGarrison({ ...HOST })).toBeNull();
+  const ready = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+  w.at(Math.max(w.now(), ready.readyAt));
+  await w.world.sync(p);
+  const target = await neighbour(w.world);
+  expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
+  const walking = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+  w.at(Math.max(w.now(), walking.arriveAt));
+  await w.world.sync(p);
+  return target;
+}
+
+describe('осада: приказ игрока — та же осада, что и чужая', () => {
+  it('полководец садится в осаду тем же окном и теми же часами голода', async () => {
+    const w = makeWorld(7);
+    const p = host();
+    const target = await marchGeneral(w, p);
+
+    expect(await w.world.besiege()).toBeNull();
+    const card = await w.world.settlement(target.id);
+    expect(card?.siege, 'лагерь под стенами виден').toBeTruthy();
+    expect(card?.siege?.mine, 'и он наш').toBe(true);
+    // Часов голода у чужого города игрок не видит: сколько там хлеба, он не
+    // знает ни глазами, ни разведкой — узнает вместе с ними.
+    expect(Object.keys(card?.siege ?? {})).toEqual(['mine', 'byName', 'since']);
+    // Полководец занят: пока лагерь стоит, других дел у него нет.
+    const fig = (await w.world.figures()).find((f) => f.id === 'general');
+    expect(fig?.besieging).toBe(target.id);
+    // Второй лагерь тем же полководцем не поставить.
+    expect(await w.world.besiege()).toBeTruthy();
+  }, 60_000);
+
+  it('одна реализация на обе стороны: осада живёт в одном месте и одним окном', () => {
+    const src = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
+    // Окно заводится ровно одной функцией — и своей, и чужой осадой.
+    expect((src.match(/openSiege\(\{/g) ?? []).length, 'окно открывает одна функция').toBe(1);
+    // Часы голода считает одна функция на обе стороны.
+    expect((src.match(/private openSiegeAt\(/g) ?? []).length).toBe(1);
+    expect((src.match(/private resiege\(/g) ?? []).length).toBe(1);
+    // Осада пропадает из сохранения ровно в одном месте.
+    expect((src.match(/delete this\.save\.sieges\[/g) ?? []).length, 'снимает осаду одно место').toBe(1);
+    // И бой с лагерем один: вылазка, выручка и удар полководца зовут его же.
+    expect((src.match(/private campBattle\(/g) ?? []).length).toBe(1);
+    // Ветки «а если это наша осада» в падении города ровно одна — та, где
+    // расходится добыча; всё остальное общее.
+    expect((src.match(/private siegeFalls\(/g) ?? []).length).toBe(1);
+  });
+
+  it('увод полководца снимает осаду, и приказ об этом говорит заранее', async () => {
+    const w = makeWorld(7);
+    const p = host();
+    const target = await marchGeneral(w, p);
+    expect(await w.world.besiege()).toBeNull();
+
+    // Слова о цене приказа живут в одном месте и стоят в панели до нажатия.
+    expect(CAMP_LEAVE).toContain('осада снята');
+    const menu = readFileSync(path.join(process.cwd(), 'src/ui/map/ActionMenu.tsx'), 'utf8');
+    expect(menu, 'меню действий говорит цену увода').toContain('CAMP_LEAVE');
+
+    const home = await w.world.info();
+    expect(await w.world.moveFigure('general', { ...home.home })).toBeNull();
+    await w.world.sync(p);
+    const card = await w.world.settlement(target.id);
+    expect(card?.siege, 'осада снята уходом').toBeNull();
+    expect((await w.world.figures()).find((f) => f.id === 'general')?.besieging).toBeNull();
+  }, 60_000);
+
+  it('армия в лагере занята: ни удара по городу, ни перехвата', async () => {
+    const w = makeWorld(7);
+    const p = host();
+    await marchGeneral(w, p);
+    expect(await w.world.besiege()).toBeNull();
+    const hit = await w.world.attack({ setup: null });
+    expect(hit.error, 'бить город из-под собственной осады нельзя').toContain('осаду');
+    expect(await w.world.intercept('m1')).toContain('осаду');
+  }, 60_000);
+
+  it('город падает от голода, и добыча едет домой', async () => {
+    const w = makeWorld(7);
+    const p = host();
+    const target = await marchGeneral(w, p);
+    expect(await w.world.besiege()).toBeNull();
+
+    for (let i = 0; i < 900; i++) {
+      w.advance(20_000);
+      const pulse = await w.world.sync(p);
+      const fell = pulse.reports.find((r) => r.title.startsWith('Город взят голодом'));
+      if (!fell) continue;
+      expect(fell.won).toBe(true);
+      // Боя не было ни у нас, ни у них: голод в битвы не записывается.
+      expect(fell.battle).toBeNull();
+      const gain = pulse.effects.find((e) => e.text.includes('сдался голоду'));
+      expect(gain, 'падение приезжает последствием').toBeTruthy();
+      expect(gain?.battle).toBeNull();
+      // Осада снята, полководец свободен.
+      expect((await w.world.figures()).find((f) => f.id === 'general')?.besieging).toBeNull();
+      // И второй раз подряд тот же город не осадить: в амбаре пусто.
+      expect(await w.world.besiege()).toContain('доели');
+      const card = await w.world.settlement(target.id);
+      expect(card?.can.besiege).toBe(false);
+      return;
+    }
+    throw new Error('город так и не пал');
+  }, 120_000);
+});
+
+describe('осада: вылазка', () => {
+  /** Осаждённая деревня с гарнизоном, которым есть чем выйти. */
+  const holed = (): PlayerProfile => holdout({ army: { legionary: 40, spearman: 30, archer: 20 } });
+
+  it('победа снимает осаду, поражение — нет, и в обоих случаях лагерю достаётся', async () => {
+    // Два прогона одного и того же положения: вылазка всем гарнизоном и
+    // вылазка горсткой. Что бы ни вышло, лагерь обязан недосчитаться людей —
+    // вылазка без урона противнику была бы чистым минусом, и кнопку не нажал
+    // бы никто ни разу.
+    let wins = 0;
+    let losses = 0;
+    for (const going of [{ legionary: 40, spearman: 30, archer: 20 }, { spearman: 3 }] as TroopStack[]) {
+      const w = makeWorld(7);
+      const p = holed();
+      await w.world.sync(p);
+      const start = await besiege(w, p);
+      const camp = start.marches.find((m) => m.siege);
+      expect(camp, 'лагерь стоит под стенами').toBeTruthy();
+
+      const res = await w.world.sortie(going);
+      expect(res.error).toBeNull();
+      const after = await w.world.sync(p);
+      const report = (await w.world.reports()).find((r) => r.id === res.reportId);
+      expect(report, 'у боя есть отчёт').toBeTruthy();
+      // Лагерю досталось в любом случае — это и есть смысл кнопки.
+      expect(report!.enemyLost, 'лагерь недосчитался людей').toBeGreaterThan(0);
+      if (res.won) {
+        wins++;
+        expect(after.siege, 'победа снимает осаду').toBeNull();
+      } else {
+        losses++;
+        expect(after.siege, 'поражение осаду не снимает').toBeTruthy();
+      }
+    }
+    expect(wins, 'полным гарнизоном вылазка выигрывает').toBeGreaterThan(0);
+    expect(losses, 'горсткой — нет').toBeGreaterThan(0);
+  }, 120_000);
+
+  it('часы голода пересчитаны после вылазки — и ровно один раз', async () => {
+    const w = makeWorld(7);
+    const p = holed();
+    await w.world.sync(p);
+    const before = (await besiege(w, p)).siege!;
+
+    // Вылазка горсткой: осада останется, а гарнизон поредеет.
+    const res = await w.world.sortie({ spearman: 3 });
+    expect(res.error).toBeNull();
+    expect(res.won).toBe(false);
+    const after = (await w.world.sync(p)).siege!;
+    expect(after, 'осада стоит').toBeTruthy();
+    // Отметка голода уехала: часы пошли от нового гарнизона и остатка еды.
+    expect(after.starvesAt).not.toBe(before.starvesAt);
+    // Ровно один раз: пересчёт живёт в событии, а не в пульсе. Три пульса
+    // подряд без единого события обязаны дать одну и ту же отметку.
+    const a = (await w.world.sync(p)).siege!.starvesAt;
+    w.advance(2000);
+    const b = (await w.world.sync(p)).siege!.starvesAt;
+    w.advance(2000);
+    const c = (await w.world.sync(p)).siege!.starvesAt;
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  }, 60_000);
+
+  it('вылазка отказывает, когда выходить некому и не на кого', async () => {
+    const w = makeWorld(7);
+    const p = holed();
+    await w.world.sync(p);
+    // Под стенами никого — выходить не на кого.
+    expect((await w.world.sortie({ spearman: 1 })).error).toContain('никого');
+    await besiege(w, p);
+    expect((await w.world.sortie({})).error).toContain('пустой');
+    expect((await w.world.sortie({ spearman: 9999 })).error).toContain('нет');
+  }, 60_000);
+});
+
+describe('осада: лагерь как цель на карте', () => {
+  it('удар по лагерю снимает осаду, и бьёт по нему тот же бой, что и вылазка', async () => {
+    // Полководец с дружиной стоит дома, когда под стены садится чужой лагерь.
+    // Ударить по нему он может тем же приказом, каким бьёт любую цель.
+    const w = makeWorld(7);
+    const p = holdout({ army: { legionary: 40, spearman: 30, archer: 20 } });
+    await w.world.sync(p);
+    // Дружину он берёт заранее: во время осады её из города уже не вывести —
+    // это тот же выход, только другим приказом.
+    expect(await w.world.setGarrison({ legionary: 40, spearman: 30, archer: 20 })).toBeNull();
+    const g = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    w.at(Math.max(w.now(), g.readyAt));
+    await w.world.sync(p);
+
+    const start = await besiege(w, p);
+    expect(start.siege).toBeTruthy();
+
+    const hit = await w.world.attack({ setup: null });
+    expect(hit.error).toBeNull();
+    expect(hit.won, 'дружина сильнее лагеря').toBe(true);
+    expect((await w.world.sync(p)).siege, 'разбитый лагерь снимает осаду').toBeNull();
+  }, 60_000);
+});
+
+describe('осада: частота от ИИ', () => {
+  it('под теми же стенами лагерь не встаёт чаще, чем раз в остывание', async () => {
+    const w = makeWorld(7);
+    const p = holdout();
+    await w.world.sync(p);
+    const first = await besiege(w, p);
+    const startedAt = first.siege!.since;
+
+    // Снимаем осаду вылазкой — то есть без падения города, а значит и без
+    // неприкосновенности. Остаётся только остывание, и держать оно обязано.
+    const res = await w.world.sortie({ spearman: 10 });
+    expect(res.error).toBeNull();
+
+    // До конца остывания второй лагерь под теми же стенами не встаёт.
+    while (w.now() < startedAt + SIEGE_COOLDOWN - 60_000) {
+      w.advance(30_000);
+      const pulse = await w.world.sync(p);
+      expect(pulse.siege, 'остывание держит').toBeNull();
+    }
+  }, 180_000);
+
+  it('порог осады — не единственное условие: доля и остывание объявлены числами', () => {
+    // Порог отвечает за смысл (штурм безнадёжен), доля и остывание — за
+    // редкость. Разведены они нарочно и крутятся врозь.
+    expect(SIEGE_IF_BELOW).toBeGreaterThan(0);
+    expect(SIEGE_CHANCE).toBeGreaterThan(0);
+    expect(SIEGE_CHANCE).toBeLessThan(1);
+    expect(SIEGE_COOLDOWN).toBeGreaterThan(SIEGE_IMMUNE / 2);
+    const src = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
+    // Оба ограничителя стоят в самом решении, а не где-то рядом.
+    expect(src).toContain('SIEGE_CHANCE');
+    expect(src).toContain('siegeAgainAt');
+  });
 });

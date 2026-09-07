@@ -577,7 +577,20 @@ export class LocalWorld implements WorldApi {
         const rest = (n ?? 0) - (lost[key] ?? 0);
         if (rest > 0) left[key] = rest;
       }
-      const gone = troopTotal(troops) - troopTotal(left);
+      let gone = troopTotal(troops) - troopTotal(left);
+      // То же правило и для нашего лагеря: вылазка, дошедшая до рогаток, не
+      // может не стоить ему ни одного человека.
+      if (gone === 0 && troopTotal(left) > 1) {
+        for (const id of TROOP_IDS) {
+          if ((left[id] ?? 0) > 0) {
+            left[id] = (left[id] as number) - 1;
+            if (left[id] === 0) delete left[id];
+            lost[id] = (lost[id] ?? 0) + 1;
+            gone = 1;
+            break;
+          }
+        }
+      }
       if (troopTotal(left) === 0) {
         f.troops = undefined;
         this.downFigure('general', at, 'потерял всю дружину под чужими стенами.');
@@ -604,7 +617,16 @@ export class LocalWorld implements WorldApi {
     const before = stackSize(m.units);
     m.power = Math.max(1, m.power * (1 - loss));
     m.units = stackAfter(m.units, stackLosses(m.units, loss));
-    return before - stackSize(m.units);
+    let gone = before - stackSize(m.units);
+    // Дошли до рогаток — кто-то в лагере лёг. Условия «если доля потерь больше
+    // нуля» здесь нарочно нет: вылазка, не стоившая осаждающему ни одного
+    // человека, — чистый минус, и такую кнопку не нажмёт никто ни разу. Один
+    // человек лагерю стоит любой бой у его рогаток, даже проигранный вчистую.
+    if (gone === 0 && before > 1) {
+      m.units = stackAfter(m.units, { warrior: 1 });
+      gone = before - stackSize(m.units);
+    }
+    return gone;
   }
 
   /**
