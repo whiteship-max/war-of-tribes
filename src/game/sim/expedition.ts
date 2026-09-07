@@ -25,6 +25,12 @@ export interface ExpeditionOutcome {
   troopsLost?: TroopStack;
   /** Плюс — привезли добычу, минус — унесли у нас. */
   resources: Partial<Record<ResourceId, number>>;
+  /**
+   * Сколько людей прибавилось в племени. Только плюс, и своей строки в летописи
+   * у него нет: единственный источник — выкуп пленных, а про него сказано в
+   * тексте самого последствия.
+   */
+  pop?: number;
   /** Золото из чужой казны. Вместимость склада на него не действует. */
   gold: number;
   prestige: number;
@@ -143,6 +149,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   }
   recordRaidLoss(s, taken);
 
+  // Выкупленные пленные возвращаются в племя людьми, а не в строй: боец
+  // потерян, снаряжение потрачено, человек жив — то же правило, что у лазарета.
+  if (o.pop && o.pop > 0) addPop(s, Math.round(o.pop));
   if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
   recordLoot(s, brought, Math.max(0, o.gold));
   // Золото везут только из замков: привезли — значит, замок взят.

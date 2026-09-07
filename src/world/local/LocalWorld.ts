@@ -26,6 +26,9 @@ import type {
   Intel,
   IntelReading,
   InterceptPlan,
+  Letter,
+  LetterAnswerId,
+  LetterView,
   Loot,
   MarchOrder,
   MarchView,
@@ -90,6 +93,17 @@ import {
   standingAt,
   temperOf,
 } from '../diplomacy';
+import {
+  crowdedOut,
+  letterExpired,
+  letterOrder,
+  letterPause,
+  letterUntil,
+  pickLetter,
+  resolveLetter,
+  type LetterCandidate,
+} from '../letters';
+import { LETTER_KIND_BY_ID, goodsText } from '../data/letters';
 import { RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackSize } from '../data/units';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
@@ -136,6 +150,7 @@ import {
   SUPPORT_ATTITUDE,
   LOOT_REFILL,
   POWER_GROWTH_CAP,
+  RANSOM_SHARE,
   REPORTS_KEPT,
   SCOUT_COVER,
   SUPPORT_STAY,
@@ -884,6 +899,9 @@ export class LocalWorld implements WorldApi {
     }
 
     this.scheduleAi(now);
+    // Письма — последними: набег, назначенный этим же пульсом, обязан получить
+    // своё предупреждение в тот же миг, когда становится виден.
+    this.stepLetters(now);
   }
 
   /** Разворачивает отряд домой. Обратный путь занимает столько же, сколько дорога туда. */
@@ -1476,6 +1494,16 @@ export class LocalWorld implements WorldApi {
       read: false,
     });
 
+    // Пленные. Это не новая потеря: часть тех, кого племя уже посчитало
+    // убитыми, на самом деле уведена — та же условность, что у лазарета.
+    // Поэтому выкуп потом только возвращает и ничего не отнимает, а письмо о
+    // нём остаётся тем, чем должно быть: потерянной возможностью, если его не
+    // открыть.
+    if (outcome.won && warriorsLost > 0) {
+      const held = Math.max(1, Math.round(warriorsLost * RANSOM_SHARE));
+      this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
+    }
+
     this.addEffect({
       id: `${m.id}-defense`,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
@@ -1490,6 +1518,237 @@ export class LocalWorld implements WorldApi {
       text: outcome.won ? `Набег ${m.fromName} прорвался в деревню.` : `Набег ${m.fromName} отбит.`,
       good: !outcome.won,
     });
+  }
+
+  // ---------- Письма ----------
+
+  /**
+   * Дворы, от которых может прийти письмо, и всё, что для этого надо знать.
+   * Сам выбор — что и от кого — делает чистый модуль (`pickLetter`); здесь
+   * только собираются факты, потому что о них знает мир, а не он.
+   *
+   * Двор, чьё письмо уже лежит на столе, в список не попадает: два гонца от
+   * одного соседа разом — это не переписка, а спам, и первый из них всё равно
+   * был бы вытеснен вторым.
+   */
+  private letterCandidates(now: number): LetterCandidate[] {
+    const home = this.save.home;
+    const busy = new Set(this.save.letters.map((l) => l.fromId));
+    const near = this.gen.settlements.filter(
+      (s) => s.tribeId && distance(s, home) <= AI_RANGE && !busy.has(s.id),
+    );
+    return near.map((s) => {
+      // Против кого зовут вставать: ближний двор другого племени. Выбор
+      // детерминирован — при равном расстоянии вперёд идёт меньший номер.
+      let rival: GenSettlement | null = null;
+      for (const other of this.gen.settlements) {
+        if (!other.tribeId || other.tribeId === s.tribeId) continue;
+        if (distance(other, home) > AI_RANGE) continue;
+        if (
+          !rival ||
+          distance(other, s) < distance(rival, s) ||
+          (distance(other, s) === distance(rival, s) && other.id < rival.id)
+        ) {
+          rival = other;
+        }
+      }
+      return {
+        id: s.id,
+        name: s.name,
+        pop: Math.round(this.popNow(s, now)),
+        lootMix: s.lootMix,
+        standing: this.standingOf(s, now),
+        attitude: this.save.diplomacy[s.id]?.attitude ?? 0,
+        captives: Math.max(0, this.save.captives[s.id] ?? 0),
+        ...(rival ? { rivalId: rival.id, rivalName: rival.name } : {}),
+      };
+    });
+  }
+
+  /**
+   * Разрешает письмо и применяет последствия. Одна дверь на все поводы: ответ
+   * игрока и разрешение без него ходят здесь, и разницу между ними знает только
+   * чистая функция (`resolveLetter`). Поэтому «разрешилось само» не может
+   * сделать того, чего не мог бы сделать сам игрок.
+   *
+   * Строка в летописи ровно одна — та, что вернул исход. Пустой текст означает,
+   * что писать нечего: у предупреждения о набеге запись оставит бой, и вторая
+   * строка была бы тем самым дублированием письма и летописи.
+   */
+  private closeLetter(l: Letter, answer: LetterAnswerId, at: number): void {
+    const i = this.save.letters.findIndex((x) => x.id === l.id);
+    if (i >= 0) this.save.letters.splice(i, 1);
+    const out = resolveLetter(l, answer);
+
+    if (out.attitude !== 0) this.moveAttitude(l.fromId, out.attitude, at);
+    if (out.standing) {
+      const rec = this.diploOf(l.fromId, at);
+      rec.standing = out.standing;
+      rec.since = at;
+      rec.until = out.duration > 0 ? at + out.duration : 0;
+      rec.breakAt = 0;
+      this.save.diplomacy[l.fromId] = rec;
+    }
+    if (out.against) {
+      this.moveAttitude(out.against.id, out.against.attitude, at);
+      const rec = this.diploOf(out.against.id, at);
+      rec.standing = out.against.standing;
+      rec.since = at;
+      rec.until = 0;
+      rec.breakAt = 0;
+      this.save.diplomacy[out.against.id] = rec;
+    }
+    // Пленных со двора больше не держат — независимо от того, выкупили их или
+    // бросили: второй раз одних и тех же не продают.
+    if (l.kind === 'ransom') delete this.save.captives[l.fromId];
+    if (!out.text) return;
+    this.addEffect({
+      id: `letter-${l.id}-${answer}`,
+      lost: {},
+      resources: out.resources,
+      pop: out.pop,
+      prestige: out.prestige,
+      morale: out.morale,
+      battle: null,
+      text: out.text,
+      good: out.good,
+    });
+  }
+
+  /**
+   * Ход писем: приходы по расписанию и разрешения по сроку, строго по времени.
+   *
+   * Фоновой работы здесь нет — это разбор того, что случилось между прошлым
+   * взглядом и нынешним. Поэтому игрок, вернувшийся через три дня, получает
+   * ровно то же, что получил бы, сидя в игре: часть писем протухла и
+   * разрешилась плохо, часть ещё жива, и каждое разрешившееся оставило строку.
+   */
+  private stepLetters(now: number): void {
+    const save = this.save;
+    let changed = false;
+    // Расписание назначается тем же кодом, что и все следующие приходы: второй
+    // формулы у него быть не должно.
+    if (save.nextLetterAt <= 0) {
+      save.nextLetterAt = now + letterPause(save.seed, save.nextLetter);
+      changed = true;
+    }
+
+    for (let guard = 0; guard < 500; guard++) {
+      // Ближайшее событие: приход нового письма или срок лежащего.
+      let due: Letter | null = null;
+      for (const l of save.letters) {
+        if (!due || l.until < due.until) due = l;
+      }
+      const arriveAt = save.nextLetterAt;
+      const expireAt = due ? due.until : Infinity;
+      if (Math.min(arriveAt, expireAt) > now) break;
+
+      if (expireAt <= arriveAt && due) {
+        this.closeLetter(due, 'lapse', due.until);
+        changed = true;
+        continue;
+      }
+
+      save.nextLetterAt = arriveAt + letterPause(save.seed, save.nextLetter + 1);
+      changed = true;
+      // Пока игрок ни разу не выходил на связь, мир не знает ни его склада, ни
+      // его размера: цену дани считать не из чего. Расписание при этом идёт —
+      // иначе первое подключение выложило бы на стол всё скопом.
+      if (!save.profile) continue;
+      const draft = pickLetter(
+        save.seed,
+        save.nextLetter,
+        this.letterCandidates(arriveAt),
+        save.profile.resources,
+      );
+      const n = save.nextLetter;
+      save.nextLetter += 1;
+      if (!draft) continue;
+      // Стол на пять, и очереди за ним нет: шестое письмо сгоняет то, у
+      // которого срок ближе всех, и сгоняет его тем же разрешением, что и
+      // истёкший срок, — со строкой в летописи (см. world/letters.ts).
+      const kick = crowdedOut(save.letters);
+      if (kick) this.closeLetter(kick, 'lapse', arriveAt);
+      save.letters.push({
+        ...draft,
+        id: `L${n}`,
+        at: arriveAt,
+        until: letterUntil(draft, arriveAt),
+      });
+    }
+
+    if (this.syncRaidLetter(now)) changed = true;
+    if (changed) this.write();
+  }
+
+  /**
+   * Предупреждение о набеге. Оно не приходит по расписанию и не выдумывается:
+   * письмо есть ровно тогда, когда игрок и так видит чужой отряд — по кругу у
+   * деревни или по донесению Дозора (`visibleMarches`). Второй правды о том,
+   * когда становится видно набег, здесь быть не должно: письмо только называет
+   * словами то, что уже на карте.
+   *
+   * Разрешается оно приходом отряда, и своей строки в летописи не пишет — её
+   * оставит бой.
+   */
+  private syncRaidLetter(now: number): boolean {
+    const save = this.save;
+    const seen = this.visibleMarches(now).filter(
+      (m) => !m.own && m.targetId === HOME_ID && m.phase === 'out',
+    );
+    let changed = false;
+    for (const l of [...save.letters]) {
+      if (l.kind !== 'raid') continue;
+      if (seen.some((m) => m.id === l.marchId)) continue;
+      this.closeLetter(l, 'lapse', Math.min(now, l.until));
+      changed = true;
+    }
+    for (const m of seen) {
+      if (save.letters.some((l) => l.marchId === m.id)) continue;
+      // Ячейка у предупреждения своя, пятая: сгонять решения оно не должно —
+      // чужой отряд выходит каждые четверть часа, и стол превратился бы в
+      // ленту, где ничего не доживает до ответа. Отряд на деревню в мире один
+      // (`scheduleAi`), поэтому и писем таких больше одного не бывает.
+      save.letters.push({
+        id: `L-raid-${m.id}`,
+        kind: 'raid',
+        at: now,
+        until: m.arriveAt,
+        fromId: m.fromId,
+        fromName: m.fromName,
+        cost: {},
+        marchId: m.id,
+      });
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** Письмо на столе: к сохранённому добавляется то, что считается при чтении. */
+  private letterView(l: Letter, now: number): LetterView {
+    const def = LETTER_KIND_BY_ID[l.kind];
+    const goods = goodsText(l.cost);
+    const short = this.shortOf(l.cost);
+    const choices: LetterView['choices'] = [];
+    if (def.yes && def.no) {
+      choices.push({
+        id: 'yes',
+        label: def.yes,
+        hint: def.yesHint(l, goods),
+        can: short === 0,
+        reason: short === 0 ? null : `На складе не хватает ${short} добра.`,
+      });
+      choices.push({ id: 'no', label: def.no, hint: def.noHint(l), can: true, reason: null });
+    }
+    return {
+      ...l,
+      title: def.title,
+      icon: def.icon,
+      body: def.body(l, goods),
+      choices,
+      seconds: Math.max(0, (l.until - now) / 1000),
+      silence: def.silence(l),
+    };
   }
 
   /**
@@ -2421,6 +2680,37 @@ export class LocalWorld implements WorldApi {
       diplomacy: this.diploView(s, now),
       text: `${s.name}: ${out.text}`,
     };
+  }
+
+  /**
+   * Письма на столе. Срок разбирается прямо здесь: «считаем при чтении» — это
+   * не фигура речи, а буквально то, что делает `stepLetters`, когда на стол
+   * посмотрели. Протухшее письмо до этого списка не доживает.
+   */
+  async letters(): Promise<LetterView[]> {
+    const now = this.clock();
+    this.stepLetters(now);
+    return letterOrder(this.save.letters).map((l) => this.letterView(l, now));
+  }
+
+  /**
+   * Ответ игрока. Просроченное письмо ответа уже не принимает — оно разрешилось
+   * само, и об этом есть строка в летописи; молча подменять один исход другим
+   * нельзя (правило «приказ, который молча станет чем-то другим, хуже отказа»).
+   */
+  async answerLetter(id: string, answer: 'yes' | 'no'): Promise<string | null> {
+    const now = this.clock();
+    this.stepLetters(now);
+    const l = this.save.letters.find((x) => x.id === id);
+    if (!l) return 'Этого письма на столе уже нет: оно разрешилось само, и о том есть строка в летописи.';
+    if (letterExpired(l, now)) return 'Срок вышел: гонец уехал.';
+    const view = this.letterView(l, now);
+    const choice = view.choices.find((c) => c.id === answer);
+    if (!choice) return 'В этом письме решать нечего — решают на карте.';
+    if (!choice.can) return choice.reason ?? 'Сейчас нельзя.';
+    this.closeLetter(l, answer, now);
+    this.write();
+    return null;
   }
 
   async deals(): Promise<DealView[]> {

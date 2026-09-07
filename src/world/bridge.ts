@@ -183,6 +183,7 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     troopsLost: e.lostTroops,
     scoutsLost: e.lost.scout ?? 0,
     resources: e.resources,
+    pop: e.pop ?? 0,
     // Золото едет в той же добыче отдельным ключом: складом оно не считается.
     gold: e.resources.gold ?? 0,
     prestige: e.prestige,

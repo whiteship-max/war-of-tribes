@@ -15,6 +15,8 @@ import type {
   FigureView,
   IntelReading,
   InterceptPlan,
+  LetterAnswerId,
+  LetterView,
   MarchOrder,
   MarchView,
   OrderOption,
@@ -111,6 +113,19 @@ export interface WorldApi {
    * займёт живой игрок.
    */
   order(action: OrderActionId, target: SettlementId): Promise<OrderResult>;
+
+  /**
+   * Письма, ждущие решения. Порядок — тот, в каком их разбирают: первым лежит
+   * то, что раньше всего разрешится само. Протухшие сюда не попадают: они
+   * разрешаются в тот момент, когда на стол посмотрели, а не тиком в стороне.
+   */
+  letters(): Promise<LetterView[]>;
+
+  /**
+   * Ответить на письмо. `lapse` отсюда не принимается: разрешение без игрока —
+   * дело мира, а не кнопки, и второго пути к нему быть не должно.
+   */
+  answerLetter(id: string, answer: Exclude<LetterAnswerId, 'lapse'>): Promise<string | null>;
 
   /** Договоры, действующие прямо сейчас. */
   deals(): Promise<DealView[]>;

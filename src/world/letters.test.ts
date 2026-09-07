@@ -1,0 +1,368 @@
+// Письма: чистая часть и то, как она живёт в мире.
+//
+// Разделено надвое нарочно. Первая половина не знает ни про мир, ни про часы —
+// она проверяет договор `resolveLetter`: одна дверь на три повода, ничего
+// неотстраиваемого, ни одной случайности. Вторая половина гоняет настоящий
+// `LocalWorld` с ручными часами: срок, переполнение, летопись и возвращение
+// после офлайна.
+import { describe, expect, it } from 'vitest';
+import { LocalWorld } from './local/LocalWorld';
+import { WORLD_SAVE_VERSION, parseWorldSave, type WorldSave } from './local/state';
+import {
+  LETTER_DECISIONS,
+  crowdedOut,
+  letterExpired,
+  letterOrder,
+  letterPause,
+  letterUntil,
+  pickLetter,
+  resolveLetter,
+  type LetterCandidate,
+} from './letters';
+import { LETTER_KIND_BY_ID } from './data/letters';
+import {
+  LETTER_PAUSE_MAX,
+  LETTER_PAUSE_MIN,
+  LETTER_SILENCE_EXTRA,
+  LETTER_SLOTS,
+  LETTER_TTL,
+} from './data/tuning';
+import type { Letter, LetterKindId, PlayerProfile } from './types';
+
+const START = 1_700_000_000_000;
+const HOUR = 3_600_000;
+
+const letter = (over: Partial<Letter> = {}): Letter => ({
+  id: 'L1',
+  kind: 'pact',
+  at: START,
+  until: START + LETTER_TTL,
+  fromId: 's1',
+  fromName: 'Кривой Лог',
+  cost: {},
+  ...over,
+});
+
+const candidate = (over: Partial<LetterCandidate> = {}): LetterCandidate => ({
+  id: 's1',
+  name: 'Кривой Лог',
+  pop: 120,
+  lootMix: ['food', 'wood'],
+  standing: 'neutral',
+  attitude: 0,
+  captives: 0,
+  rivalId: 's2',
+  rivalName: 'Дальний Стан',
+  ...over,
+});
+
+const DECISIONS: LetterKindId[] = ['pact', 'tribute', 'alliance', 'ransom'];
+
+describe('письмо — чистая функция', () => {
+  it('какое письмо придёт, решают только зерно, номер и то, что видно у соседей', () => {
+    const cands = [candidate(), candidate({ id: 's2', name: 'Дальний Стан', attitude: 20 })];
+    const a = pickLetter(11, 3, cands, { food: 500 });
+    const b = pickLetter(11, 3, cands, { food: 500 });
+    expect(a).toEqual(b);
+    // Другой номер — другое письмо (хотя бы на каком-то из первых десяти).
+    const others = [...Array(10)].map((_, i) => JSON.stringify(pickLetter(11, i, cands, { food: 500 })));
+    expect(new Set(others).size).toBeGreaterThan(1);
+  });
+
+  it('расписание приходов — тоже чистая функция, и держится в объявленных рамках', () => {
+    for (let n = 0; n < 50; n++) {
+      const p = letterPause(31, n);
+      expect(p).toBe(letterPause(31, n));
+      expect(p).toBeGreaterThanOrEqual(LETTER_PAUSE_MIN);
+      expect(p).toBeLessThanOrEqual(LETTER_PAUSE_MAX);
+    }
+  });
+
+  it('разрешение — чистая функция: тот же исход при тех же входах', () => {
+    for (const kind of DECISIONS) {
+      const l = letter({ kind, cost: { food: 30 }, men: 4, againstId: 's2', againstName: 'Дальний Стан' });
+      for (const answer of ['yes', 'no', 'lapse'] as const) {
+        expect(resolveLetter(l, answer)).toEqual(resolveLetter(l, answer));
+      }
+    }
+  });
+
+  it('молчание — это отказ, только холоднее ровно на объявленное число', () => {
+    for (const kind of DECISIONS) {
+      const l = letter({ kind, cost: { food: 30 }, men: 4, againstId: 's2', againstName: 'Дальний Стан' });
+      const no = resolveLetter(l, 'no');
+      const silent = resolveLetter(l, 'lapse');
+      expect(silent.attitude, kind).toBe(no.attitude + LETTER_SILENCE_EXTRA);
+      // Ни одной ветки, которой не было бы у отказа: состояние, добро и люди
+      // у молчания те же. В этом и весь смысл одной двери.
+      expect(silent.standing, kind).toBe(no.standing);
+      expect(silent.resources, kind).toEqual(no.resources);
+      expect(silent.pop, kind).toBe(no.pop);
+      // Строка своя: игрок обязан узнать, что гонец уехал без ответа.
+      expect(silent.text, kind).not.toBe(no.text);
+      expect(silent.text.length, kind).toBeGreaterThan(0);
+    }
+  });
+
+  it('ни одно письмо не отнимает того, что нельзя отстроить', () => {
+    for (const kind of DECISIONS) {
+      const l = letter({ kind, cost: { food: 30, wood: 30 }, men: 6, againstId: 's2', againstName: 'Дальний Стан' });
+      for (const answer of ['yes', 'no', 'lapse'] as const) {
+        const out = resolveLetter(l, answer);
+        // Людей письмо может только вернуть.
+        expect(out.pop, `${kind}/${answer}`).toBeGreaterThanOrEqual(0);
+        // Со склада уходит ровно то, о чём в письме сказано вперёд, и ничего
+        // сверх: неожиданных списаний у письма быть не может.
+        for (const [r, n] of Object.entries(out.resources)) {
+          expect(n).toBeLessThan(0);
+          expect(Math.abs(n ?? 0)).toBeLessThanOrEqual(l.cost[r as 'food'] ?? 0);
+        }
+        // Ни зданий, ни дружины письмо не касается вовсе: полей для этого в
+        // исходе нет — это структурный запрет, а не обещание.
+        expect(Object.keys(out)).toEqual(
+          expect.not.arrayContaining(['lost', 'lostTroops', 'sacked', 'battle']),
+        );
+      }
+    }
+  });
+
+  it('плата уходит только по согласию: отказ и молчание не стоят ни зерна', () => {
+    for (const kind of ['tribute', 'ransom'] as const) {
+      const l = letter({ kind, cost: { food: 40 }, men: 5 });
+      expect(resolveLetter(l, 'yes').resources).toEqual({ food: -40 });
+      expect(resolveLetter(l, 'no').resources).toEqual({});
+      expect(resolveLetter(l, 'lapse').resources).toEqual({});
+    }
+  });
+
+  it('предупреждение о набеге не разрешается письмом и в летопись не пишет', () => {
+    const raid = letter({ kind: 'raid', marchId: 'm1' });
+    for (const answer of ['yes', 'no', 'lapse'] as const) {
+      const out = resolveLetter(raid, answer);
+      expect(out.text, 'строку о бое оставит отчёт, а не письмо').toBe('');
+      expect(out.attitude).toBe(0);
+      expect(out.standing).toBe(null);
+    }
+    // И выбора в нём нет: решают на карте.
+    expect(LETTER_KIND_BY_ID.raid.yes).toBe(null);
+    expect(LETTER_KIND_BY_ID.raid.no).toBe(null);
+  });
+
+  it('порядок на столе — по сроку: набег ложится поверх суточных писем', () => {
+    const list: Letter[] = [
+      letter({ id: 'a', at: START, until: START + LETTER_TTL }),
+      letter({ id: 'b', at: START - HOUR, until: START - HOUR + LETTER_TTL }),
+      letter({ id: 'r', kind: 'raid', at: START, until: START + 7 * 60_000, marchId: 'm1' }),
+    ];
+    expect(letterOrder(list).map((l) => l.id)).toEqual(['r', 'b', 'a']);
+  });
+
+  it('стол вытесняет то, у чего срок ближе всех, и никогда — предупреждение', () => {
+    const list: Letter[] = [];
+    // На единицу меньше, чем помещается решений: гнать ещё некого.
+    for (let i = 0; i < LETTER_DECISIONS - 1; i++) {
+      list.push(letter({ id: `d${i}`, at: START + i * HOUR, until: START + i * HOUR + LETTER_TTL }));
+    }
+    expect(crowdedOut(list)).toBe(null);
+    // Предупреждение о набеге в счёт решений не идёт: у него своя, пятая ячейка.
+    list.push(letter({ id: 'raid', kind: 'raid', at: START, until: START + 60_000, marchId: 'm1' }));
+    expect(crowdedOut(list), 'набег никого не сгоняет').toBe(null);
+    // А вот последнее решение стол переполняет — и уходит то, у чего срок ближе.
+    list.push(letter({ id: 'last', at: START + 9 * HOUR, until: START + 9 * HOUR + LETTER_TTL }));
+    expect(crowdedOut(list)?.id, 'сгоняют самое старое, а не предупреждение').toBe('d0');
+  });
+
+  it('срок считается при чтении, а не отмечается заранее', () => {
+    const l = letter();
+    expect(letterExpired(l, START + LETTER_TTL - 1)).toBe(false);
+    expect(letterExpired(l, START + LETTER_TTL)).toBe(true);
+    expect(letterUntil({ kind: 'pact', fromId: 's1', fromName: 'x', cost: {} }, START)).toBe(START + LETTER_TTL);
+    // У набега срок — приход отряда, а не сутки.
+    expect(letterUntil({ kind: 'raid', fromId: 's1', fromName: 'x', cost: {} }, START, START + 5000)).toBe(START + 5000);
+  });
+});
+
+// ---------- Мир ----------
+
+const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
+  name: 'Тест',
+  pop: 120,
+  defense: 30,
+  warriorPower: 3,
+  units: { warrior: 10, scout: 4 },
+  command: 60,
+  resources: { food: 4000, wood: 4000, stone: 4000, hides: 4000, bones: 4000, copper: 4000, iron: 4000 },
+  ...over,
+});
+
+/** Мир с ручными часами и без сохранения — как в остальных тестах мира. */
+function makeWorld(seed = 7) {
+  let now = START;
+  const world = new LocalWorld({ seed, now: () => now, storage: null });
+  return {
+    world,
+    at: (t: number): void => {
+      now = t;
+    },
+    now: (): number => now,
+  };
+}
+
+/** Все последствия, доставленные племени за прогон. */
+async function pulse(w: ReturnType<typeof makeWorld>): Promise<string[]> {
+  const out = await w.world.sync(profile());
+  return out.effects.map((e) => e.text);
+}
+
+/**
+ * Шагает по часу, пока на столе не появится решение. Ждать приходится: письма
+ * приходят раз в шесть-десять часов нарочно — это `LETTER_TTL / (слоты − 1)`,
+ * и наступать на этот срок в тестах значило бы проверять не ту игру.
+ */
+async function waitLetter(w: ReturnType<typeof makeWorld>, hours = 24) {
+  for (let h = 1; h <= hours; h++) {
+    w.at(START + h * HOUR);
+    await pulse(w);
+    const found = (await w.world.letters()).filter((l) => l.kind !== 'raid')[0];
+    if (found) return found;
+  }
+  throw new Error('за сутки не пришло ни одного письма');
+}
+
+describe('письма в мире', () => {
+  it('письмо разрешается само ровно через сутки — и пишет одну строку', async () => {
+    const w = makeWorld(21);
+    await pulse(w);
+    const l = await waitLetter(w);
+    expect(l.until - l.at).toBe(LETTER_TTL);
+
+    // За секунду до срока оно ещё на столе.
+    w.at(l.until - 1000);
+    await pulse(w);
+    expect((await w.world.letters()).some((x) => x.id === l.id)).toBe(true);
+
+    // Ровно на сроке — разрешилось, и в летопись ушла ровно одна строка.
+    w.at(l.until);
+    const texts = await pulse(w);
+    expect((await w.world.letters()).some((x) => x.id === l.id)).toBe(false);
+    const mine = texts.filter((t) => t.includes(l.fromName));
+    expect(mine.length, 'разрешённое письмо пишет одну строку').toBe(1);
+  });
+
+  it('видимых не больше пяти, а сверх стола не хранится ничего', async () => {
+    const w = makeWorld(33);
+    await pulse(w);
+    // Двое суток подряд, шагами по часу: писем приходит заведомо больше пяти.
+    for (let h = 1; h <= 48; h++) {
+      w.at(START + h * HOUR);
+      await pulse(w);
+      const list = await w.world.letters();
+      expect(list.length, `час ${h}`).toBeLessThanOrEqual(LETTER_SLOTS);
+      // Пятая ячейка — предупреждения: решений на столе не больше четырёх, и
+      // набег, выходящий каждые четверть часа, никого с него не сгоняет.
+      expect(list.filter((l) => l.kind !== 'raid').length, `час ${h}`).toBeLessThanOrEqual(
+        LETTER_SLOTS - 1,
+      );
+      const save = (w.world as unknown as { save: WorldSave }).save;
+      expect(save.letters.length, 'очереди за столом нет').toBe(list.length);
+    }
+  });
+
+  it('вытесненное письмо разрешается тем же плохим сценарием и не пропадает молча', async () => {
+    const w = makeWorld(33);
+    await pulse(w);
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (let h = 1; h <= 48; h++) {
+      w.at(START + h * HOUR);
+      lines.push(...(await pulse(w)));
+      for (const l of await w.world.letters()) seen.add(l.id);
+    }
+    const left = new Set((await w.world.letters()).map((l) => l.id));
+    // Каждое письмо, которое лежало на столе и со стола ушло, оставило строку.
+    const gone = [...seen].filter((id) => !left.has(id) && !id.startsWith('L-raid'));
+    expect(gone.length, 'за двое суток что-то обязано было уйти').toBeGreaterThan(0);
+    const closed = lines.filter((t) => t.includes('«'));
+    expect(closed.length).toBeGreaterThanOrEqual(gone.length);
+  });
+
+  it('возвращение после офлайна: часть протухла, часть жива, и всё считается при чтении', async () => {
+    // Один и тот же мир, две дороги: непрерывная игра и три дня молчания.
+    const live = makeWorld(51);
+    await pulse(live);
+    for (let h = 1; h <= 72; h++) {
+      live.at(START + h * HOUR);
+      await pulse(live);
+    }
+    const away = makeWorld(51);
+    await pulse(away);
+    away.at(START + 72 * HOUR);
+    const lines = await pulse(away);
+
+    const table = await away.world.letters();
+    expect(table.length, 'что-то ещё живо').toBeGreaterThan(0);
+    expect(table.length).toBeLessThanOrEqual(LETTER_SLOTS);
+    for (const l of table) expect(l.seconds).toBeGreaterThan(0);
+    expect(lines.length, 'что-то разрешилось без игрока — и об этом сказано').toBeGreaterThan(0);
+
+    // Считаем при чтении: догон даёт ровно то же, что непрерывная игра.
+    const a = (await live.world.letters()).map((l) => `${l.kind}|${l.fromId}|${l.until}`);
+    const b = table.map((l) => `${l.kind}|${l.fromId}|${l.until}`);
+    expect(b).toEqual(a);
+  });
+
+  it('ответ игрока меняет отношения, а просроченному письму ответа уже не дают', async () => {
+    const w = makeWorld(21);
+    await pulse(w);
+    const l = await waitLetter(w);
+    const before = (await w.world.settlement(l.fromId))?.diplomacy?.attitude ?? 0;
+    expect(await w.world.answerLetter(l.id, 'no')).toBe(null);
+    const after = (await w.world.settlement(l.fromId))?.diplomacy?.attitude ?? 0;
+    expect(after).toBeLessThan(before);
+    // Второй раз то же письмо не отвечается: его на столе уже нет.
+    expect(await w.world.answerLetter(l.id, 'yes')).toBeTruthy();
+  });
+
+  it('предупреждение о набеге приходит тогда же, когда отряд становится виден', async () => {
+    const w = makeWorld(43);
+    let raid: { id: string; fromName: string } | null = null;
+    for (let m = 1; m <= 240 && !raid; m++) {
+      w.at(START + m * 60_000);
+      await pulse(w);
+      const hostile = (await w.world.marches()).find((x) => x.hostile);
+      const mail = (await w.world.letters()).find((x) => x.kind === 'raid');
+      // Второй правды о том, когда видно набег, нет: письмо есть ровно тогда,
+      // когда отряд виден на карте.
+      expect(Boolean(mail), `минута ${m}`).toBe(Boolean(hostile));
+      if (mail) raid = { id: mail.id, fromName: mail.fromName };
+    }
+    expect(raid, 'за четыре часа набег обязан случиться').toBeTruthy();
+    const view = (await w.world.letters()).find((x) => x.id === raid?.id);
+    expect(view?.choices.length, 'решают на карте, а не в письме').toBe(0);
+    expect(await w.world.answerLetter(raid!.id, 'yes')).toBeTruthy();
+  });
+});
+
+describe('сохранение мира', () => {
+  it('пятая версия приводится к шестой: стол пуст, расписание с нуля', () => {
+    const old = {
+      v: 5,
+      seed: 9,
+      createdAt: START,
+      home: { x: 10, y: 10 },
+      diplomacy: {},
+      figures: {},
+    };
+    const back = parseWorldSave(JSON.stringify(old));
+    expect(back?.v).toBe(WORLD_SAVE_VERSION);
+    expect(back?.letters).toEqual([]);
+    expect(back?.captives).toEqual({});
+    // Ноль, а не «сейчас плюс пауза»: назначает первый приход тот же код, что и
+    // все следующие, — иначе первое подключение выложило бы письма толпой.
+    expect(back?.nextLetterAt).toBe(0);
+  });
+
+  it('версия младше четвёртой по-прежнему отбрасывается', () => {
+    expect(parseWorldSave(JSON.stringify({ v: 3, seed: 9, home: { x: 1, y: 1 } }))).toBe(null);
+  });
+});
