@@ -149,15 +149,33 @@ function boot(opts: { theme?: Record<string, string>; store?: ReturnType<typeof 
 }
 
 describe('экран загрузки', () => {
-  it('живёт в index.html целиком, без единого внешнего запроса', () => {
-    // Ни одного файла: ни картинки, ни шрифта, ни стиля со стороны. Единственный
-    // внешний тег в документе — SDK самого Telegram, он был здесь до экрана.
+  it('тянет за собой ровно один файл — арт заставки, и больше ничего', () => {
+    // Раньше здесь стоял полный запрет: экран загрузки не должен ждать того, что
+    // сам прикрывает. Запрет снят ровно на один файл, и снят замером, а не на глаз
+    // (числа — в docs/loading.md): вложенная строкой заставка растит index.html
+    // с 3.3 до 30 КБ и отодвигает первый кадр на 3G с 268 мс до 821 мс, а
+    // появляется при этом в тот же момент. Значит, дешевле показать экран сразу
+    // и дать арту доехать.
+    //
+    // Правило «экран загрузки не тянет за собой полсети» осталось в силе: ссылка
+    // разрешена ровно одна и ровно эта. Ни шрифта, ни стиля, ни второй картинки.
+    const SPLASH = '/assets/splash/boot.webp';
     const body = html.slice(html.indexOf('<div id="boot"'), html.indexOf('type="module"'));
-    // url(#…) — ссылка внутрь того же svg, это не запрос. Запрещён любой другой.
-    expect(body).not.toMatch(/url\((?!#)/);
-    expect(body).not.toMatch(/<img/);
-    expect(body).not.toMatch(/src=/);
+    const refs = [...body.matchAll(/(?:src|href)="([^"]*)"|url\(([^)]*)\)/g)]
+      .map((m) => m[1] ?? m[2])
+      // url(#…) — ссылка внутрь того же документа, это не запрос.
+      .filter((u) => !u.startsWith('#'));
+    expect(refs).toEqual([SPLASH]);
     expect(body).not.toMatch(/@import/);
+
+    // Под артом с первой миллисекунды стоит цвет: пока файл едет, экран обязан
+    // выглядеть кадром игры, а не белой вспышкой и не пустотой с подписью.
+    const head = html.slice(0, html.indexOf('<div id="boot"'));
+    expect(head).toMatch(/html\s*\{[^}]*background:/);
+    expect(head).toMatch(/#boot\s*\{[^}]*background:\s*var\(--boot-bg/);
+
+    // И по-прежнему ни одного адреса наружу: единственный внешний тег в документе —
+    // SDK самого Telegram, он был здесь до экрана загрузки.
     const external = [...html.matchAll(/https?:\/\/[^"' )]+/g)].map((m) => m[0]);
     expect(external.filter((u) => !u.includes('telegram.org') && !u.includes('w3.org'))).toEqual([]);
   });

@@ -37,11 +37,17 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 18px;
-        padding: 24px;
+        justify-content: flex-end;
+        gap: 14px;
+        padding: 24px 24px 15vh;
         background: var(--boot-bg, #1a1410);
-        color: var(--boot-text, #f3e9d8);
+        /* Отсвет костра из палитры (fireLight), пока картинки ещё нет. */
+        background-image: radial-gradient(60% 34% at 50% 74%, rgba(255, 154, 58, 0.22), rgba(255, 154, 58, 0) 70%);
+        overflow: hidden;
+        /* Не из темы: строки лежат на тёмном арте, и светлый тон здесь —
+           читаемость, а не оформление. У светлой темы клиента текст тёмный,
+           и на пламени он утонул бы. Фон под артом и кнопку тема красит. */
+        color: #f3e9d8;
         font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
         text-align: center;
         /* Показываемся не сразу: короткую загрузку игрок не должен увидеть вовсе.
@@ -57,9 +63,27 @@
       #boot.off {
         opacity: 0;
       }
+      /* Арт лежит фоном во весь экран. Пока он едет, виден цвет палитры и тёплый
+         отсвет костра под ним: первый кадр обязан выглядеть кадром игры, а не
+         пустотой с подписью. */
       #boot-art {
-        width: min(230px, 62vw);
-        height: auto;
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity 0.4s ease-out;
+      }
+      #boot-art.on {
+        opacity: 1;
+      }
+      /* Затемнение под строками: белый текст на пламени иначе тонет. */
+      #boot-scrim {
+        position: absolute;
+        inset: auto 0 0;
+        height: 52%;
+        background: linear-gradient(180deg, rgba(26, 20, 16, 0) 0%, rgba(26, 20, 16, 0.82) 58%, rgba(26, 20, 16, 0.96) 100%);
       }
       #boot-art .gl {
         animation: bootglow 1.1s ease-in-out infinite alternate;
@@ -78,11 +102,13 @@
         }
       }
       #boot-say {
+        position: relative;
         max-width: 22em;
         opacity: 0.85;
         font-style: italic;
       }
       #boot-bar {
+        position: relative;
         width: min(220px, 60vw);
         height: 4px;
         border-radius: 2px;
@@ -97,11 +123,13 @@
         transition: width 0.28s ease-out;
       }
       #boot-stage {
+        position: relative;
         font-size: 13px;
         opacity: 0.7;
         min-height: 1.4em;
       }
       #boot-err {
+        position: relative;
         display: none;
         flex-direction: column;
         align-items: center;
@@ -137,12 +165,23 @@
     <div id="root"></div>
 
     <div id="boot" role="status" aria-live="polite">
-      <!-- Заставка. Источник — assets-src/splash/boot-village.svg; сюда она едет
-           разметкой, а не файлом: экран загрузки живёт в index.html целиком и без
-           единого внешнего запроса: boot.test.ts запрещает здесь и картинку файлом,
-           и ссылку наружу из стиля.
-           Вектор к тому же вшестеро легче того же кадра в WebP и не мылится на 3x. -->
-      <svg id="boot-art" viewBox="0 0 256 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="bs" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a7cfe9"/><stop offset=".62" stop-color="#c4d9e8"/><stop offset="1" stop-color="#dc8c60"/></linearGradient><radialGradient id="bg1" cx="50%" cy="58%" r="46%"><stop offset="0" stop-color="#ff9a3a" stop-opacity=".5"/><stop offset="1" stop-color="#ff9a3a" stop-opacity="0"/></radialGradient><clipPath id="bc"><rect width="256" height="160" rx="12"/></clipPath></defs><g clip-path="url(#bc)"><rect width="256" height="160" fill="url(#bs)"/><circle cx="204" cy="70" r="15" fill="#ffe4bf"/><path d="M0 76l38-16 30 12 34-18 40 20 32-12 44 18 38-10v28H0z" fill="#c4d9e8"/><path d="M0 88l30-12 34 14 36-16 34 16 40-14 52 18v18H0z" fill="#8f8b84"/><path d="M0 100l44-14 40 16 44-14 46 16 42-10v16H0z" fill="#66884a"/><g fill="#4a8a48"><path d="M6 102l7-14 7 14zM24 102l6-12 6 12zM40 101l8-15 8 15zM60 102l6-12 6 12z"/><path d="M192 102l7-13 7 13zM210 103l6-12 6 12zM226 101l8-15 8 15zM244 102l6-12 6 12z"/></g><path d="M0 106h256v54H0z" fill="#7fa552"/><path d="M0 130c40-6 72-8 128-8s88 2 128 8v30H0z" fill="#97b85c"/><ellipse cx="128" cy="100" rx="66" ry="26" fill="url(#bg1)" class="gl"/><path d="M52 104Q128 76 204 104l0 6Q128 84 52 110z" fill="#5b4029"/><g><path d="M74 96h17v12H74z" fill="#c9b48c"/><path d="M71 96l11.5-11L94 96z" fill="#b85a3e"/><path d="M97 88h22v20H97z" fill="#e4dac6"/><path d="M93 88l15-13 15 13z" fill="#aa5136"/><path d="M126 92h20v16h-20z" fill="#c9b48c"/><path d="M122 92l14-12 14 12z" fill="#b85a3e"/><path d="M152 96h16v12h-16z" fill="#e4dac6"/><path d="M149 96l11-10 11 10z" fill="#aa5136"/></g><path d="M106 52h4v34h-4z" fill="#60432a"/><path d="M110 54h30l-8 8 8 8h-30z" fill="#e8a43c"/><g fill="#d8d2c8" opacity=".7"><circle cx="139" cy="74" r="3"/><circle cx="142" cy="65" r="2.4"/><circle cx="138" cy="57" r="1.8"/></g><path d="M52 104Q128 132 204 104l0 7Q128 139 52 111z" fill="#60432a"/><g fill="#6f4f34"><path d="M56 108l4 1 1 11-4-1zM70 114l4 1.5 1 11-4-1.5zM86 119l4 1.5 1 11-4-1.5z"/><path d="M166 120.5l4-1.5 1 11-4 1.5zM182 115.5l4-1.5 1 11-4 1.5zM196 109l4-1 1 11-4 1z"/></g><path d="M108 118h40v14h-40z" fill="#5b4029"/><path d="M112 121h32v11h-32z" fill="#8c6238"/><path d="M126 121h4v11h-4z" fill="#5b4029"/><path d="M104 114h48v6h-48z" fill="#6f4f34"/><path d="M112 132h32l24 28h-80z" fill="#9c9891"/><ellipse cx="128" cy="133" rx="34" ry="5" fill="#7b6247" opacity=".5"/><g><path d="M18 142h12v9H18z" fill="#6b4a30"/><ellipse cx="24" cy="142" rx="6" ry="2.5" fill="#c9a878"/><path d="M226 148h13v10h-13z" fill="#6b4a30"/><ellipse cx="232.5" cy="148" rx="6.5" ry="2.8" fill="#c9a878"/><path d="M46 158c0-9 7-15 14-15s14 6 14 15z" fill="#568f4c"/><path d="M186 160c0-11 8-18 16-18s16 7 16 18z" fill="#4a8a48"/></g></g></svg>
+      <!-- Заставка. Собирается `npm run splash:build` из assets-src/splash/camp-full.png
+           и лежит отдельным файлом, а не строкой внутри документа. Замер в
+           docs/loading.md: вложенная растит index.html с 3.3 до 30 КБ и отодвигает
+           первый кадр экрана загрузки на 3G с 268 до 821 мс, появляясь при этом в тот
+           же момент. Пока арт едет, под ним стоит цвет палитры и тёплый отсвет — ни
+           белой вспышки, ни пустого чёрного с подписью.
+           Прежняя векторная заставка осталась в assets-src/splash/boot-village.svg. -->
+      <img
+        id="boot-art"
+        src="/assets/splash/boot.webp"
+        alt=""
+        aria-hidden="true"
+        decoding="async"
+        fetchpriority="high"
+        onload="this.className='on'"
+      />
+      <div id="boot-scrim"></div>
 
       <div id="boot-say"></div>
       <div id="boot-bar"><div id="boot-fill"></div></div>
