@@ -16,7 +16,7 @@ import {
 import { TROOP_IDS } from '@/game/data/troops';
 import { RESOURCE_IDS } from '@/game/constants';
 import { buildTerrain } from './terrain';
-import { FRAME_RADIUS, OUTSKIRTS_RADIUS, PLAN_SCALE, placeOf, plotRadius } from './plan';
+import { OUTSKIRTS_RADIUS, PLAN_SCALE, WALL_RADIUS, placeOf } from './plan';
 import { buildVillage } from './village';
 import { MAX_SOLDIERS, SoldierAgent, postFor } from './soldiers';
 import {
@@ -45,14 +45,22 @@ import {
 } from './lighting';
 import { PALETTE } from './palette';
 import { disposeGeometries } from './kit';
+import { Press, TAP_TARGET } from '@/gestures';
+import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
+import { clampPan, framing, zoomRange } from './camera';
 
 interface BuildingView {
   group: THREE.Group;
   /** Визуальная ступень: модель меняется на её пороге, а не на каждом уровне. */
   tier: Tier;
   type: Building['type'];
-  /** Невидимая мишень для тапа — заметно крупнее самой модели. */
-  hit: THREE.Mesh;
+  /**
+   * Силуэт модели в её собственных координатах: описанная коробка, снятая один
+   * раз при сборке — до того, как к группе подвесили леса и значок. По ней
+   * считается область попадания, поэтому тонкая геометрия ранних ступеней тапу
+   * не мешает: коробка накрывает здание целиком, и основание, и высоту.
+   */
+  box: THREE.Box3;
   scaffold: THREE.Group | null;
   /** Горн кузницы: он есть в модели и гаснет, когда кузнецов нет. */
   glow: THREE.Object3D | null;
@@ -61,14 +69,16 @@ interface BuildingView {
   markerY: number;
 }
 
-/** Тап пальцем: сколько можно проехать и как долго держать, чтобы это всё ещё был тап. */
-const TAP_MOVE = 14;
-const TAP_MS = 500;
 /**
- * Промах по модели прощается в этом радиусе на экране. Посёлок теперь кадрируется
- * по стене целиком, постройки в кадре мельче — прощаем щедрее, чем раньше.
+ * Полуширина полосы, в которой тап считается попаданием по стене, в мировых
+ * единицах. Стена — кольцо вокруг всего посёлка, коробки под неё не бывает
+ * (см. `pick.onRing`), а полоса чуть шире самой кладки: по стене тоже целятся
+ * пальцем, а не пикселем.
  */
-const TAP_FORGIVE = 58;
+const WALL_BAND = 1.6;
+
+/** Земля посёлка: по ней тап опускается в мир, когда меряется попадание по стене. */
+const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 /**
  * Сколько жителей видно разом. Больше десятка фигурок у костра — уже толпа, в
@@ -182,7 +192,9 @@ export class TribeScene {
   private lent = false;
   private selection: THREE.Mesh;
   private selected: number | null = null;
-  private down: { id: number; x: number; y: number; t: number } | null = null;
+  private down: Press | null = null;
+  /** Здание под пальцем в момент нажатия — на отпускании оно и открывается. */
+  private aimed: number | null = null;
   /** Тап по зданию (или по пустому месту — тогда null). Ставит UI. */
   onPick: ((id: number | null) => void) | null = null;
   /** Вызывается сразу после render() — стенд снимает кадр, пока буфер ещё не очищен. */
@@ -210,7 +222,6 @@ export class TribeScene {
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.target.set(0, 0.4, 0);
-    this.controls.enablePan = false;
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 7;
@@ -219,10 +230,27 @@ export class TribeScene {
     this.controls.maxPolarAngle = 1.25;
     this.controls.rotateSpeed = 0.55;
     this.controls.zoomSpeed = 0.8;
-    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    // Ведение по деревне — как по карте мира: один палец водит, щипок приближает.
+    // Разные жесты в двух местах одной игры игрок не прощает, а карта — это
+    // половина игры. Третий жест у диорамы свой: поворот двумя пальцами. У плоской
+    // карты такого жеста нет, поэтому и конфликта нет — см. `src/gestures.ts`.
+    this.controls.enablePan = true;
+    // Панорама идёт по земле, а не по плоскости экрана: иначе движение вниз
+    // поднимало бы камеру над посёлком, и «увести вбок» превращалось бы во взлёт.
+    this.controls.screenSpacePanning = false;
+    this.controls.panSpeed = 1;
+    this.controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
     this.controls.addEventListener('start', () => {
       this.userMoved = true;
     });
+    // Привязка к деревне: OrbitControls своей у цели не имеет, поэтому держим её
+    // сами на каждом изменении — уехать за окрестности в пустой лес нельзя.
+    this.controls.addEventListener('change', this.leash);
 
     this.rig = createLightRig(this.scene);
 
@@ -257,6 +285,7 @@ export class TribeScene {
     this.scene.add(this.selection);
 
     canvas.addEventListener('pointerdown', this.onPointerDown);
+    canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointercancel', this.onPointerCancel);
 
@@ -281,37 +310,23 @@ export class TribeScene {
   }
 
   /**
-   * Кадрирование от аспекта. В портрете (aspect < 0.7) камера подходит
-   * ближе и поднимается выше, иначе диорама теряется в центре экрана. Туман
-   * и коробка теней сжимаются вместе с дистанцией — дальняя геометрия не рисуется.
+   * Кадрирование от аспекта — числа считает `camera.framing`, здесь только
+   * раскладка по three.js. Туман и коробка теней сжимаются вместе с дистанцией:
+   * дальняя геометрия не рисуется.
    */
   private applyFraming(aspect: number): void {
-    // 0.75 — граница портрета; любой телефон (0.46–0.62) попадает в narrow = 1.
-    const narrow = THREE.MathUtils.clamp((0.75 - aspect) / 0.15, 0, 1);
-    // В портрете смотрим заметно сверху: кольцо стены должно читаться кольцом,
-    // а не полоской у горизонта под половиной экрана неба. Но не отвесно:
-    // при 0.62 верхнюю треть экрана занимала голая трава, при 0.7 — опушка.
-    const polar = THREE.MathUtils.lerp(0.95, 0.7, narrow);
-    // В портрете угол шире: иначе кадр не удержать без отъезда за предел дистанции.
-    const fov = THREE.MathUtils.lerp(42, 48, narrow);
-    // Кадр держит план целиком, а не постройки: FRAME_RADIUS задан планом раз и
-    // навсегда, поэтому кадр не дёргается при каждой новой крыше — посёлок растёт
-    // внутри одной и той же рамки, как на карте укреплённого города. Считается он
-    // не от стены, а от края застройки: ресурсные дворы стоят снаружи, и половина
-    // хозяйства иначе оказалась бы за краем экрана.
-    const fitRadius = FRAME_RADIUS * THREE.MathUtils.lerp(1.12, 0.96, narrow);
-    const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
-    const dist = THREE.MathUtils.clamp(fitRadius / Math.tan(halfH), 14, 92);
+    const f = framing(aspect);
+    const zoom = zoomRange(f);
 
-    this.camera.fov = fov;
+    this.camera.fov = f.fov;
 
-    this.controls.minDistance = dist * 0.45;
-    this.controls.maxDistance = dist * 1.6;
-    this.controls.maxPolarAngle = Math.max(1.05, polar + 0.32);
+    this.controls.minDistance = zoom.min;
+    this.controls.maxDistance = zoom.max;
+    this.controls.maxPolarAngle = Math.max(1.05, f.polar + 0.32);
 
     const fog = this.scene.fog as THREE.Fog;
-    fog.near = dist * 1.1;
-    fog.far = dist * 1.75;
+    fog.near = f.fogNear;
+    fog.far = f.fogFar;
     this.camera.far = fog.far + 10;
     this.camera.updateProjectionMatrix();
 
@@ -321,8 +336,8 @@ export class TribeScene {
 
     if (this.userMoved) return;
     // Цель чуть выше земли: деревня уходит из-под верхнего HUD.
-    this.controls.target.set(0, THREE.MathUtils.lerp(0.4, 1.4, narrow), 0);
-    this.camera.position.setFromSpherical(new THREE.Spherical(dist, polar, this.azimuth)).add(this.controls.target);
+    this.controls.target.set(0, f.targetY, 0);
+    this.camera.position.setFromSpherical(new THREE.Spherical(f.dist, f.polar, this.azimuth)).add(this.controls.target);
     this.camera.lookAt(this.controls.target);
     this.controls.update();
   }
@@ -363,6 +378,7 @@ export class TribeScene {
     if (active === this) active = null;
     cancelAnimationFrame(this.raf);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
     this.controls.dispose();
@@ -371,8 +387,32 @@ export class TribeScene {
 
   // ---------- Выбор здания ----------
 
+  /**
+   * Привязка к деревне. OrbitControls умеет держать дистанцию и угол, но не
+   * цель, — а без неё панорама одним пальцем уводит в пустой лес за окрестности.
+   * Цель возвращается на поводок, камера едет за ней тем же вектором: иначе
+   * ракурс дёргался бы у самой границы.
+   */
+  private leash = (): void => {
+    const t = this.controls.target;
+    const fixed = clampPan(t.x, t.z);
+    if (fixed.x === t.x && fixed.z === t.z) return;
+    this.camera.position.x += fixed.x - t.x;
+    this.camera.position.z += fixed.z - t.z;
+    t.x = fixed.x;
+    t.z = fixed.z;
+  };
+
   private onPointerDown = (e: PointerEvent): void => {
-    this.down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() };
+    // Цель выбирается здесь, а не на отпускании, и это не мелочь: за время
+    // касания палец успевает сдвинуть камеру панорамой, а сообщённая системой
+    // точка на отпускании прыгает — игрок же целился в момент нажатия.
+    this.down = new Press(e.pointerId, e.clientX, e.clientY, performance.now());
+    this.aimed = this.pickAt(e.clientX, e.clientY);
+  };
+
+  private onPointerMove = (e: PointerEvent): void => {
+    if (this.down?.id === e.pointerId) this.down.move(e.clientX, e.clientY);
   };
 
   private onPointerCancel = (): void => {
@@ -383,69 +423,113 @@ export class TribeScene {
     const d = this.down;
     this.down = null;
     if (!d || d.id !== e.pointerId || !this.onPick) return;
-    // Вращение камеры не должно открывать панели: тап — это короткое касание без сдвига.
-    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_MOVE) return;
-    if (performance.now() - d.t > TAP_MS) return;
-    this.onPick(this.pickAt(e.clientX, e.clientY));
+    // Ведение камеры не должно открывать панели: тап — короткое касание без сдвига.
+    if (!d.isTap(performance.now())) return;
+    this.onPick(this.aimed);
   };
 
   /**
-   * Здание под пальцем — то, чей значок ближе всего к тапу на экране.
+   * Здание под пальцем.
    *
-   * Раньше здесь был честный рейкаст по невидимым мишеням, и на кольцевой
-   * планировке он врал: луч к костру в центре успевал зацепить мишень соседа,
-   * стоящего между камерой и центром. Экранная близость такой ошибки не даёт и,
-   * главное, совпадает с тем, что игрок видит: подсветка обучения рисуется той же
-   * функцией `screenSpot`, поэтому «тапни костёр» и «попал в костёр» — одно и то же.
+   * Меряется не расстояние до точки, а попадание в **область**: у каждого здания
+   * своя коробка на экране, накрывающая силуэт целиком, и не меньше пальца
+   * (`TAP_TARGET`). Прежний выбор шёл по ближайшему якорю у подножия модели, и
+   * на кольцевой планировке это давало ячейку ±15–24 px на здание при силуэте в
+   * 18–39 px — вдвое меньше отпечатка, который эту ячейку ещё и закрывает.
    *
-   * Каждому зданию своя досягаемость: крупная постройка ловит палец по всей крыше,
-   * мелкая — в радиусе прощения промаха.
+   * Промах прощается: не попал никуда, но рядом дом — открывается дом
+   * (`TAP_FORGIVE`), при нескольких рядом — ближайший. Тап в чистое поле не
+   * открывает ничего.
+   *
+   * Стена спрашивается последней и по-своему: коробки у кольца вокруг посёлка
+   * быть не может, она накрыла бы весь посёлок (см. `pick.onRing`).
    */
   private pickAt(clientX: number, clientY: number): number | null {
-    let best: number | null = null;
-    let bestScore = Infinity;
+    const boxes: HitBox[] = [];
     for (const id of this.buildings.keys()) {
-      const spot = this.screenSpot(id);
-      if (!spot) continue;
-      const dist = Math.hypot(spot.x - clientX, spot.y - clientY);
-      const reach = Math.max(TAP_FORGIVE, spot.r);
-      if (dist > reach) continue;
-      const score = dist / reach;
-      if (score < bestScore) {
-        bestScore = score;
-        best = id;
-      }
+      const box = this.hitBoxOf(id);
+      if (box) boxes.push(box);
     }
-    return best;
+    const hit = pickBox(boxes, clientX, clientY);
+    if (hit !== null) return hit;
+    return this.pickWall(clientX, clientY);
+  }
+
+  /** Тап по кладке: точка касания опускается на землю и меряется до кольца стены. */
+  private pickWall(clientX: number, clientY: number): number | null {
+    let wall: number | null = null;
+    for (const [id, view] of this.buildings) if (view.type === 'palisade') wall = id;
+    if (wall === null) return null;
+    const ndc = this.toNdc(clientX, clientY);
+    if (!ndc) return null;
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera);
+    const at = ray.ray.intersectPlane(GROUND, new THREE.Vector3());
+    if (!at) return null;
+    return onRing(at.x, at.z, WALL_RADIUS, WALL_BAND) ? wall : null;
+  }
+
+  private toNdc(clientX: number, clientY: number): { x: number; y: number } | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    return {
+      x: ((clientX - rect.left) / rect.width) * 2 - 1,
+      y: -(((clientY - rect.top) / rect.height) * 2 - 1),
+    };
+  }
+
+  /**
+   * Область попадания здания: восемь углов его силуэта, спроецированные на экран,
+   * и описанный вокруг них прямоугольник — не меньше пальца. Силуэт снят с самой
+   * модели, поэтому тонкая геометрия ранних ступеней тапу не мешает, а высокая
+   * постройка ловит палец и по крыше.
+   */
+  private hitBoxOf(id: number): HitBox | null {
+    const view = this.buildings.get(id);
+    // Стена — кольцо вокруг всего посёлка, прямоугольника у неё не бывает.
+    if (!view || view.type === 'palisade') return null;
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    view.group.updateWorldMatrix(true, false);
+    return projectHitBox(id, view.box, view.group.matrixWorld, this.camera, rect);
   }
 
   /**
    * Где здание на экране: центр в пикселях страницы и радиус, накрывающий его модель.
-   * Считается от текущей камеры, поэтому подсветка не отстаёт при вращении.
-   * null — здания нет или оно за спиной камеры.
+   * Считается от текущей камеры, поэтому подсветка обучения не отстаёт при
+   * движении. Источник тот же, что у тапа: «дырка» в затемнении обязана стоять
+   * ровно там, куда попадёт палец. null — здания нет или оно за спиной камеры.
    */
   screenSpot(id: number): { x: number; y: number; r: number } | null {
+    const box = this.hitBoxOf(id) ?? this.wallSpot(id);
+    if (!box) return null;
+    return { x: box.x, y: box.y, r: Math.max(TAP_TARGET / 2, Math.max(box.hw, box.hh)) };
+  }
+
+  /** Подсветка стены: кольцо целиком, иначе обучению нечего показать. */
+  private wallSpot(id: number): HitBox | null {
     const view = this.buildings.get(id);
-    if (!view) return null;
+    if (!view || view.type !== 'palisade') return null;
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return null;
-    const center = view.group.position.clone();
-    center.y = 0.9;
-    const p = center.clone().project(this.camera);
-    if (p.z > 1) return null;
-    const toScreen = (v: THREE.Vector3): [number, number] => [
-      ((v.x + 1) / 2) * rect.width + rect.left,
-      ((1 - v.y) / 2) * rect.height + rect.top,
-    ];
-    const [x, y] = toScreen(p);
-    // Радиус меряем тем же способом: точка, сдвинутая вбок на размер основания.
-    const [w, d] = footprintOf(view.type, view.tier);
-    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
-    const edge = center
-      .add(right.multiplyScalar(Math.max(1.3, Math.max(w, d) * 0.9 * PLAN_SCALE)))
-      .project(this.camera);
-    const [ex, ey] = toScreen(edge);
-    return { x, y, r: Math.min(140, Math.max(34, Math.hypot(ex - x, ey - y))) };
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      v.set(Math.cos(a) * WALL_RADIUS, 1.4, Math.sin(a) * WALL_RADIUS).project(this.camera);
+      if (v.z > 1) continue;
+      const x = ((v.x + 1) / 2) * rect.width + rect.left;
+      const y = ((1 - v.y) / 2) * rect.height + rect.top;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+    if (minX > maxX) return null;
+    return hitBox(id, minX, minY, maxX, maxY);
   }
 
   setSelected(id: number | null): void {
@@ -463,30 +547,6 @@ export class TribeScene {
   }
 
   // ---------- Синхронизация с состоянием ----------
-
-  /**
-   * Невидимая мишень для тапа. Считается по реальным габаритам собранной модели,
-   * а не по фиксированной колонне: высокая мишень соседа перехватывала бы луч,
-   * и палец по костру открывал бы стоящее рядом укрытие. Шире своей площадки
-   * мишень тоже не бывает — по мелким целям добирает экранное прощение промаха.
-   */
-  private makeHitbox(b: Building, group: THREE.Group): THREE.Mesh {
-    const box = new THREE.Box3().setFromObject(group);
-    const spread = Math.max(
-      Math.max(Math.abs(box.min.x), Math.abs(box.max.x)),
-      Math.max(Math.abs(box.min.z), Math.abs(box.max.z)),
-    );
-    const r = Math.min(plotRadius(b.type) / PLAN_SCALE, Math.max(1.2, spread * 1.15));
-    const h = Math.max(1.2, box.max.y) + 0.4;
-    const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(r, r, h, 6),
-      // Ничего не рисует, но остаётся в сцене — рейкаст по ней работает всегда.
-      new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true, opacity: 0 }),
-    );
-    mesh.position.y = h / 2;
-    mesh.userData.buildingId = b.id;
-    return mesh;
-  }
 
   private setMarker(view: BuildingView, kind: Attention | null): void {
     if (view.markerKind === kind) return;
@@ -511,7 +571,6 @@ export class TribeScene {
     // Геометрия модели своя у каждого здания — без этого смена ступени текла в GPU.
     // Материалы общие, их не трогаем.
     disposeGeometries(view.group);
-    (view.hit.material as THREE.Material).dispose();
   }
 
   sync(s: GameState): void {
@@ -540,18 +599,19 @@ export class TribeScene {
       }
       if (!view) {
         const group = createBuildingGroup(b.type, tier);
+        // Силуэт снимается до расстановки: коробка нужна в собственных
+        // координатах группы, а место и поворот придут её матрицей.
+        const box = silhouetteBox(group);
         // Место берётся из плана: у каждого типа оно своё и не меняется никогда.
         const spot = placeOf(b.type);
         group.position.set(spot.x, 0, spot.z);
         group.rotation.y = spot.rot;
-        const hit = this.makeHitbox(b, group);
-        group.add(hit);
         this.scene.add(group);
         view = {
           group,
           tier,
           type: b.type,
-          hit,
+          box,
           scaffold: null,
           glow: group.getObjectByName('forge') ?? null,
           marker: null,
@@ -863,7 +923,6 @@ export class TribeScene {
     this.chimneys.points.visible = !on && this.chimneys.active;
     this.selection.visible = !on && this.selected !== null;
     for (const view of this.buildings.values()) {
-      view.hit.visible = !on;
       if (view.marker) view.marker.visible = !on;
     }
   }

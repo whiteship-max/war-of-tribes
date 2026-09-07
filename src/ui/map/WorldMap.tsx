@@ -57,9 +57,8 @@ import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { ActionMenu } from './ActionMenu';
+import { Press } from '@/gestures';
 
-const TAP_MOVE = 12;
-const TAP_MS = 500;
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
 const FREE_CAMERA = freeCamera();
@@ -121,7 +120,7 @@ export function WorldMap() {
   const placed = useRef(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ dist: number; mx: number; my: number } | null>(null);
-  const tap = useRef<{ x: number; y: number; t: number } | null>(null);
+  const tap = useRef<Press | null>(null);
   const size = useRef({ w: 1, h: 1, dpr: 1 });
   const frameNo = useRef(0);
 
@@ -278,7 +277,7 @@ export function WorldMap() {
     }
     const p = local(e);
     pointers.current.set(e.pointerId, p);
-    if (pointers.current.size === 1) tap.current = { x: p.x, y: p.y, t: performance.now() };
+    if (pointers.current.size === 1) tap.current = new Press(e.pointerId, p.x, p.y, performance.now());
     else tap.current = null;
     gesture.current = null;
   };
@@ -305,8 +304,7 @@ export function WorldMap() {
     }
 
     cam.current = panBy(cam.current, p.x - prev.x, p.y - prev.y);
-    const t = tap.current;
-    if (t && Math.hypot(p.x - t.x, p.y - t.y) > TAP_MOVE) tap.current = null;
+    tap.current?.move(p.x, p.y);
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>): void => {
@@ -315,8 +313,11 @@ export function WorldMap() {
     if (pointers.current.size < 2) gesture.current = null;
     const t = tap.current;
     tap.current = null;
-    if (!p || !t || performance.now() - t.t > TAP_MS) return;
-    if (Math.hypot(p.x - t.x, p.y - t.y) > TAP_MOVE) return;
+    // Жест судится по пути, а не по точке отпускания: на телефоне она прыгает,
+    // когда пятно контакта схлопывается (см. `gestures.Press`). А вот клетку
+    // выбирает именно последняя точка — панорама карты идёт за пальцем один к
+    // одному, и в сдвинутом кадре она означает ровно то же место, что нажатие.
+    if (!p || !t || !t.isTap(performance.now())) return;
     const world = toWorld(cam.current, vp(), p.x, p.y);
     const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
     if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
