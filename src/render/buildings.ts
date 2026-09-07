@@ -559,33 +559,24 @@ function workshop(t: Tier, st: Style): THREE.Group {
 }
 
 /** Ферма: одна полоса → поле с оградой и пугалом → большое поле с овином. */
-function farm(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  // Поле держится в своей площадке плана: широкая пашня вылезала за отведённое место.
-  const s = [2.2, 2.7, 3.2][t];
-  g.add(box(s, 0.1, s, M.soil, 0, 0.05, 0));
-  const rows = 4 + t * 2;
-  const cols = 5 + t * 2;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const x = -s / 2 + 0.35 + (r * (s - 0.7)) / (rows - 1);
-      const z = -s / 2 + 0.3 + (c * (s - 0.6)) / (cols - 1);
-      g.add(cone(0.1, 0.3, M.sprout, 4, x, 0.25, z));
-    }
+function farm(): THREE.Group {
+  const wood = K.paintOf('woodDark'), soil = K.paintOf('soil');
+  const a: K.Part[] = [K.box(2.35, 0.07, 2.05, soil, 0, 0.035, 0)];
+  for (const x of [-0.86, -0.29, 0.29, 0.86]) {
+    a.push(K.box(0.35, 0.1, 1.83, soil, x, 0.12, 0));
+    for (const z of [-0.64, -0.22, 0.22, 0.64]) a.push(K.cone(0.12, 0.24, K.paintOf('sprout'), 4, x, 0.28, z));
   }
-  if (t >= 1) {
-    fence(g, s / 2 + 0.2, 0.6, st.post);
-    // Пугало: поле обжитое, за ним следят.
-    g.add(cyl(0.05, 0.05, 1.3, st.post, 4, s * 0.32, 0.65, -s * 0.32));
-    g.add(box(0.8, 0.06, 0.06, st.post, s * 0.32, 1.05, -s * 0.32));
-    g.add(cone(0.22, 0.3, st.roof, 6, s * 0.32, 1.4, -s * 0.32));
-  }
-  if (t === 2) {
-    // Овин вплотную к полю: урожай есть где сушить, а площадка не растёт.
-    g.add(box(1.2, 1.0, 1.0, st.wall, -s * 0.5 - 0.35, 0.5, 0));
-    gable(g, 1.45, 1.25, 1.0, 0.28, st.roof, -s * 0.5 - 0.35, 0);
-  }
-  return g;
+  // Низкий плетень только с дальней стороны: борозды остаются открытыми.
+  for (const x of [-1.15, -0.57, 0, 0.57, 1.15]) a.push(K.box(0.07, 0.55, 0.07, wood, x, 0.275, -1.14));
+  for (const y of [0.16, 0.3, 0.44]) a.push(K.box(2.38, 0.055, 0.05, K.paintOf('wood'), 0, y, -1.14));
+  // Тачка с одним колесом, открытым коробом и двумя рукоятями.
+  const plank = K.paintOf('plank');
+  a.push(K.box(0.62, 0.1, 0.62, plank, 1.66, 0.44, 0.2));
+  for (const x of [1.36, 1.96]) a.push(K.box(0.07, 0.3, 0.7, plank, x, 0.58, 0.2));
+  a.push(K.box(0.6, 0.3, 0.07, plank, 1.66, 0.58, -0.13));
+  for (const x of [1.45, 1.87]) a.push(K.box(0.06, 0.07, 1.24, wood, x, 0.38, 0.51));
+  a.push(K.cyl(0.22, 0.22, 0.08, wood, 8, 1.66, 0.23, -0.17, {z: Math.PI / 2}));
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Загон: жердевая ограда → загон с навесом → скотный двор с хлевом. */
@@ -1495,7 +1486,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'workshop':
       return workshop(tier, st);
     case 'farm':
-      return farm(tier, st);
+      return farm();
     case 'pen':
       return pen(tier, st);
     case 'church':
