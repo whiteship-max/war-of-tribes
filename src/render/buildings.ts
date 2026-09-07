@@ -1027,7 +1027,12 @@ function stable(t: Tier): THREE.Group {
  */
 /** Открытые прилавки по краям воротной улицы; середину не занимать. */
 function market(t: Tier, st: Style): THREE.Group {
-  if (t > 0) return marketLegacy(t, st);
+  if (t > 1) return marketLegacy(t, st);
+  if (t === 1) {
+    const a: K.Part[] = [];
+    for (const x of [-2.45, 2.45]) for (const z of [-0.73, 0.73]) a.push(...tradeStall(x, z, 1.22));
+    return new THREE.Group().add(K.assemble(a));
+  }
   return new THREE.Group().add(K.assemble(tradeStall(-2.45, 0, 1.65)));
 }
 
@@ -1043,7 +1048,7 @@ function tradeStall(x: number, z: number, length: number): K.Part[] {
   // Полосы — цвет вершин существующих скатов, без текстуры и нового материала.
   for (let i = 0; i < 5; i++) {
     const dz = z - length / 2 + (i + 0.5) * length / 5;
-    const paint = i % 2 ? p.roof : K.paintOf('thatch');
+    const paint = i % 2 ? p.roof : { ...p.roof, tint: K.paintOf('cut').tint };
     a.push(K.box(1.08, 0.055, length / 5, paint, x, 1.4, dz, {z: side * 0.22}));
     a.push(K.box(0.04, 0.16, length / 5, paint, x - side * 0.52, 1.23, dz));
   }
