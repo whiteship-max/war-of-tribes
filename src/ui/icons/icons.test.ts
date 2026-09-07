@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { SRC, allowedColors, auditNames, check, returnedNames } from '../../../scripts/build-icons';
+import { SRC, allowedColors, auditNames, check, measureTone, returnedNames, toneFaults } from '../../../scripts/build-icons';
 import { ICON_GROUPS, ICON_MANIFEST, daypartOf, groupOf, iconName, moodOf } from './registry';
 import { DRAWN_ICONS } from './generated';
 import { isDrawn, symbolOf } from './sheet';
@@ -172,5 +172,43 @@ describe('пороги состояний живут в одном месте', 
     expect(daypartOf(0.3).name).toBe('season-sun');
     expect(daypartOf(0.5).name).toBe('day-evening');
     expect(daypartOf(0.9).name).toBe('day-night');
+  });
+});
+
+describe('тон: значок читается и на тёмной панели, и на светлой', () => {
+  const svg = (fill: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+    `<polygon points="1,1 31,1 31,31 1,31" fill="${fill}"/></svg>`;
+
+  it('значок целиком из штукатурки — брак: на светлой теме от него ничего не останется', async () => {
+    const tone = await measureTone(svg('#e4dac6'));
+    expect(tone, 'растеризатор недоступен').not.toBeNull();
+    expect(tone!.light).toBeGreaterThan(0.9);
+    const { faults } = toneFaults('t.svg', tone!);
+    expect(faults.map((f) => f.rule)).toContain('4 тон');
+  });
+
+  it('значок целиком из проёма — предупреждение: край обгрызается на тёмной панели', async () => {
+    const tone = await measureTone(svg('#2b2733'));
+    expect(tone).not.toBeNull();
+    const { warnings } = toneFaults('t.svg', tone!);
+    expect(warnings.map((f) => f.detail).join(' ')).toContain('тёмного');
+  });
+
+  it('средний тон палитры не вызывает ни брака, ни предупреждения', async () => {
+    const tone = await measureTone(svg('#9d6d42'));
+    expect(tone).not.toBeNull();
+    expect(toneFaults('t.svg', tone!)).toEqual({ faults: [], warnings: [] });
+  });
+
+  it('ни один принятый значок не уходит целиком в светлое', async () => {
+    // Предел в 25% — мерка приблизительная, и на грани значки остаются в игре
+    // предупреждением. А вот силуэт, целиком лежащий в светлом, техзадание
+    // запрещает прямо — такой в лист не попадает.
+    for (const name of DRAWN_ICONS) {
+      const tone = await measureTone(readFileSync(path.join(SRC, `${name}.svg`), 'utf8').trim());
+      if (tone === null) return;
+      expect(toneFaults(`${name}.svg`, tone).faults, name).toEqual([]);
+    }
   });
 });

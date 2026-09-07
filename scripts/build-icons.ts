@@ -29,6 +29,7 @@ import { gzipSync } from 'node:zlib';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
 import { ICON_GROUPS, ICON_MANIFEST } from '@/ui/icons/registry';
 import { FOLK_TINT, HERO_TINT, JOB_TINT, PALETTE, SEASON_OVERRIDES, TROOP_TINT } from '@/render/palette';
@@ -61,6 +62,21 @@ const MARGIN = 1;
  * круглая, — поэтому меряется длинная сторона рисунка.
  */
 const MIN_SPAN = 26;
+
+/**
+ * 4: два запрета по краям тонального коридора. Значок обязан читаться и на тёмной
+ * панели Telegram (`#1c1611`), и на светлой (`#f0efee`), а держится это на том, что
+ * основная масса лежит в средних тонах.
+ */
+const TONE_LIGHT_CAP = 0.25;
+const TONE_DARK_CAP = 0.15;
+/**
+ * Целиком в светлом — это уже не «край коридора», а «весь силуэт», и техзадание
+ * запрещает такое прямо. Здесь и проходит граница между браком и предупреждением:
+ * доля площади — мерка приблизительная (белёная стена дома держится цоколем), а
+ * значок, у которого светлого почти всё, не держится ничем.
+ */
+const TONE_LIGHT_FATAL = 0.9;
 
 /** 3.2: что вообще разрешено рисовать. */
 const ELEMENTS = new Set(['svg', 'g', 'path', 'polygon', 'rect', 'circle']);
@@ -324,6 +340,87 @@ export function check(file: string, text: string, colors: Map<string, string>): 
   return faults;
 }
 
+// ---------- тон ----------
+//
+// Проверка из раздела 4 техзадания: значок кладут на тёмную панель и на светлую и
+// смотрят, не потерял ли он силуэт. Мерка — доля площади, занятая цветами у краёв
+// коридора, и считается она растеризацией: у плоских заливок пиксель либо ровно
+// того цвета, либо чужой, поэтому перекрытия учитываются сами собой.
+
+const lum = (n: number): number =>
+  (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+
+/** Светлый край коридора: штукатурка, кость, снег — и зимние переопределения. */
+function toneColors(): { light: Set<string>; dark: Set<string> } {
+  const light = new Set((['plaster', 'bone', 'fieldSnow', 'snowflake'] as const).map((k) => hex(PALETTE[k])));
+  // Зима переопределяет часть палитры снегом — он тот же светлый край коридора.
+  for (const value of Object.values(SEASON_OVERRIDES.winter as Record<string, number>)) {
+    if (value !== undefined && lum(value) > 0.8) light.add(hex(value));
+  }
+  return { light, dark: new Set([hex(PALETTE.dark)]) };
+}
+
+export interface Tone {
+  light: number;
+  dark: number;
+}
+
+/**
+ * Доли площади. `null` — растеризатор недоступен: тогда проверка тона молча
+ * пропускается, а не роняет сборку на машине без librsvg.
+ */
+export async function measureTone(text: string, tone = toneColors()): Promise<Tone | null> {
+  // Растеризуем в родные 32x32 и без пересчёта размера: пересчёт мешает соседние
+  // цвета, и доли поплывут на границах заливок, которых у плоского значка много.
+  let raw: Buffer;
+  let channels: number;
+  let pixels: number;
+  try {
+    const out = await sharp(Buffer.from(text)).raw().toBuffer({ resolveWithObject: true });
+    raw = out.data;
+    channels = out.info.channels;
+    pixels = out.info.width * out.info.height;
+  } catch {
+    return null;
+  }
+  let total = 0;
+  let light = 0;
+  let dark = 0;
+  for (let i = 0; i < pixels; i++) {
+    const o = i * channels;
+    if (channels === 4 && raw[o + 3] < 128) continue;
+    total++;
+    const value = `#${(((raw[o] << 16) | (raw[o + 1] << 8) | raw[o + 2]) >>> 0).toString(16).padStart(6, '0')}`;
+    if (tone.light.has(value)) light++;
+    if (tone.dark.has(value)) dark++;
+  }
+  if (total === 0) return null;
+  return { light: light / total, dark: dark / total };
+}
+
+/** Брак или предупреждение — граница объяснена у TONE_LIGHT_FATAL. */
+export function toneFaults(file: string, tone: Tone): { faults: Fault[]; warnings: Fault[] } {
+  const faults: Fault[] = [];
+  const warnings: Fault[] = [];
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  if (tone.light > TONE_LIGHT_CAP) {
+    const row = {
+      file,
+      rule: '4 тон',
+      detail: `светлого ${pct(tone.light)} площади, предел ${pct(TONE_LIGHT_CAP)} — на светлой теме теряет силуэт`,
+    };
+    (tone.light >= TONE_LIGHT_FATAL ? faults : warnings).push(row);
+  }
+  if (tone.dark > TONE_DARK_CAP) {
+    warnings.push({
+      file,
+      rule: '4 тон',
+      detail: `тёмного ${pct(tone.dark)} площади, предел ${pct(TONE_DARK_CAP)} — на тёмной теме обгрызается край`,
+    });
+  }
+  return { faults, warnings };
+}
+
 // ---------- накладная ----------
 
 export interface Audit {
@@ -369,7 +466,7 @@ function kb(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} КБ`;
 }
 
-function main() {
+async function main() {
   const checkOnly = process.argv.includes('--check');
   const colors = allowedColors();
 
@@ -395,6 +492,24 @@ function main() {
     }
     good.push({ name, body: text, bytes: Buffer.byteLength(text, 'utf8') });
   }
+
+  // Тон: читается ли значок на светлой панели и на тёмной (техзадание, 4).
+  const tone = toneColors();
+  const toneWarn: Fault[] = [];
+  let toneMeasured = 0;
+  for (let i = good.length - 1; i >= 0; i--) {
+    const g = good[i];
+    const measured = await measureTone(g.body, tone);
+    if (measured === null) continue;
+    toneMeasured++;
+    const { faults: bad, warnings } = toneFaults(`${g.name}.svg`, measured);
+    toneWarn.push(...warnings);
+    if (bad.length > 0) {
+      (returned.has(g.name) ? waiting : faults).push(...bad);
+      good.splice(i, 1);
+    }
+  }
+
 
   // Два имени, один рисунок. Не брак по букве техзадания, но почти всегда ошибка
   // смысла: вид бойца, нарисованный своим оружием, — это значок снаряжения (1.4).
@@ -443,6 +558,13 @@ function main() {
   const healed = good.filter((g) => returned.has(g.name)).map((g) => g.name);
   if (healed.length > 0) {
     console.log(`\nисправлены и приняты — убрать строки из RETURNED.md: ${healed.join(', ')}`);
+  }
+  if (toneWarn.length > 0) {
+    console.log(`\nтон на грани — читаемость на одной из тем под вопросом (${toneWarn.length}):`);
+    for (const f of toneWarn) console.log(`  ${f.file.padEnd(22)} ${f.rule.padEnd(18)} ${f.detail}`);
+  }
+  if (toneMeasured === 0) {
+    console.log('\n! тон не мерялся: растеризатор недоступен');
   }
   if (twins.length > 0) {
     console.log(`\nодин рисунок на два имени — проверить смысл (${twins.length}):`);
@@ -508,4 +630,9 @@ ${names.map((n) => `  '${n}',`).join('\n')}
 // проверки и гоняет их на живой папке, и пересобирать лист при этом не должен.
 // Путь скрипта в argv не годится: vite-node его оттуда вычищает, — а вот про свой
 // прогон vitest сообщает переменной окружения.
-if (!process.env.VITEST) main();
+if (!process.env.VITEST) {
+  main().catch((err) => {
+    console.error(err?.message ?? err);
+    process.exit(1);
+  });
+}
