@@ -1,5 +1,6 @@
 import { useGame } from '@/game/store';
 import { EVENT_BY_ID, eventText, optionHint } from '@/game/data/events';
+import { Icon } from '@/ui/icons/Icon';
 
 export function EventModal() {
   const s = useGame((g) => g.s);
@@ -30,7 +31,9 @@ export function EventModal() {
   return (
     <div className="modal-backdrop">
       <div className="modal">
-        <div className="m-ico">{def.icon}</div>
+        <div className="m-ico">
+          <Icon name={`evt-${def.id}`} glyph={def.icon} />
+        </div>
         <h2>{def.title}</h2>
         <p>{eventText(def, s)}</p>
         <div className="options">

@@ -31,7 +31,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
-import { ICON_GROUPS, ICON_MANIFEST } from '@/ui/icons/registry';
+import { ICON_GROUPS, ICON_MANIFEST, iconName } from '@/ui/icons/registry';
 import { FOLK_TINT, HERO_TINT, JOB_TINT, PALETTE, SEASON_OVERRIDES, TROOP_TINT } from '@/render/palette';
 import { RELATION_META } from '@/world/data/meta';
 
@@ -543,7 +543,8 @@ export function auditNames(present: Set<string>, returned: Set<string>): Audit {
   const missing: { name: string; group: string }[] = [];
   const openGroups: string[] = [];
   for (const g of ICON_GROUPS) {
-    const names = g.ids.map((id) => `${g.prefix}-${id}`);
+    // Через ссылки: достижение, показывающее чужой значок, своего файла не просит.
+    const names = g.ids.map((id) => iconName(g.prefix, id));
     if (!names.some((n) => present.has(n) || returned.has(n))) {
       openGroups.push(g.prefix);
       continue;

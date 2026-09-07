@@ -106,7 +106,7 @@ export function ActionMenu() {
               </span>
             </div>
             <div className="am-temper">
-              {temper.icon} {temper.name}: {temper.note}
+              <Icon name={`temper-${temper.id}`} glyph={temper.icon} /> {temper.name}: {temper.note}
             </div>
             {diplo.standing === 'pact' && diplo.breakAt > 0 && (
               <div className="am-warn">

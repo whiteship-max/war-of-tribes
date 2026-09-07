@@ -9,6 +9,8 @@ import {
 } from '@/game/daily/maze';
 import { haptic } from '@/telegram/webapp';
 import { count } from '../plural';
+import type { ReactNode } from 'react';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Порог свайпа: вдвое больше, чем у карты — здесь нет панорамы, и ложный свайп дороже. */
 const SWIPE = 24;
@@ -167,10 +169,12 @@ export function Maze({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
   // Проиграл — показываем остаток кратчайшего пути. Без этого игрок не понимает,
   // где ошибся, и завтра ошибётся так же.
   const trail = lost ? solveFrom(lv, at, hasKey) : [];
-  const pip = (c: Cell): string | null => {
-    if (same(c, lv.chest)) return '💰';
-    if (same(c, lv.door)) return hasKey ? '🔓' : '🚪';
-    if (same(c, lv.key) && !hasKey) return '🔑';
+  const pip = (c: Cell): ReactNode => {
+    if (same(c, lv.chest)) return <Icon name="maze-chest" glyph="💰" />;
+    // Открытая дверь — та же дверь: второго рисунка ей не заводили, разница
+    // видна по тому, что ключ уже подобран и клетка проходима.
+    if (same(c, lv.door)) return <Icon name="maze-door" glyph={hasKey ? '🔓' : '🚪'} />;
+    if (same(c, lv.key) && !hasKey) return <Icon name="maze-key" glyph="🔑" />;
     return null;
   };
 

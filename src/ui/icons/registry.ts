@@ -12,7 +12,12 @@
 // Модуль чистый: ни React, ни DOM. Его читают двое — сборка значков
 // (scripts/build-icons.ts) и сам интерфейс, — и второй правды между ними быть не должно.
 import { BATTLE_ART } from '@/battle/report';
+import { ACHIEVEMENTS } from '@/game/data/quests';
+import { DAILY_GAMES } from '@/game/data/daily';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
+import { EVENTS } from '@/game/data/events';
+import { SOCIAL_LINKS } from '@/game/data/social';
+import { TEMPERS } from '@/world/data/diplomacy';
 import { LETTER_KINDS } from '@/world/data/letters';
 import { DEALS, FIGURES } from '@/world/data/figures';
 import { DIPLO_ACTIONS, STANDING_META } from '@/world/data/diplomacy';
@@ -81,6 +86,15 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'decree', ids: DECREES.map((d) => d.id), source: 'DECREES' },
   { prefix: 'ration', ids: RATIONS.map((r) => r.id), source: 'RATIONS' },
   { prefix: 'tax', ids: TAXES.map((x) => x.id), source: 'TAXES' },
+  { prefix: 'evt', ids: EVENTS.map((e) => e.id), source: 'EVENTS' },
+  { prefix: 'temper', ids: TEMPERS.map((t) => t.id), source: 'TEMPERS' },
+  { prefix: 'daily', ids: DAILY_GAMES.map((g) => g.id), source: 'DAILY_GAMES' },
+  // Ловушек в лабиринте нет: `daily/maze.ts` их не расставляет. Значка поэтому
+  // тоже нет — рисунок без места мёртвый вес (разбор в OBJECTS.md).
+  { prefix: 'maze', ids: ['key', 'door', 'chest'], source: 'клетки лабиринта' },
+  { prefix: 'soc', ids: SOCIAL_LINKS.map((l) => l.id), source: 'SOCIAL_LINKS' },
+  // Шесть достижений из восьми берут уже нарисованное — см. ALIAS ниже.
+  { prefix: 'ach', ids: ACHIEVEMENTS.map((a) => a.id), source: 'ACHIEVEMENTS' },
   { prefix: 'state', ids: Object.keys(STANDING_META), source: 'STANDING_META' },
   { prefix: 'deal', ids: DEALS.map((d) => d.id), source: 'DEALS' },
   { prefix: 'dip', ids: DIPLO_ACTIONS.map((a) => a.id), source: 'DIPLO_ACTIONS' },
@@ -100,24 +114,11 @@ export const ICON_GROUPS: readonly IconGroup[] = [
       // Разбор пары — в assets-src/icons/OBJECTS.md.
       'loot', 'person', 'hammer', 'scroll', 'book', 'pouch', 'crate', 'wagon',
       'ruler', 'eye', 'eye-off', 'pin', 'home', 'banner', 'grave', 'bandage', 'spyglass',
-      'bolt', 'target',
+      'bolt', 'target', 'star',
     ],
     source: 'общий инвентарь интерфейса',
   },
 ];
-
-/** Все имена файлов, которые игра готова показать, — вся накладная целиком. */
-export const ICON_MANIFEST: readonly IconName[] = ICON_GROUPS.flatMap((g) =>
-  g.ids.map((id) => `${g.prefix}-${id}`),
-);
-
-/** К какой группе относится имя файла. `null` — приставка игре незнакома. */
-export function groupOf(name: IconName): IconGroup | null {
-  const dash = name.indexOf('-');
-  if (dash < 0) return null;
-  const prefix = name.slice(0, dash);
-  return ICON_GROUPS.find((g) => g.prefix === prefix) ?? null;
-}
 
 // ---------- Ссылки: разные места игры, один значок ----------
 //
@@ -136,12 +137,40 @@ const ALIAS: Record<string, IconName> = {
   // Наборы алмазов на витрине: горсть — это сам алмаз, сундук — общий сундук.
   'ui-handful': 'res-gem',
   'ui-chest': 'ui-crate',
+  // Достижения: шесть из восьми — про то, что уже нарисовано. Второго рисунка
+  // тому же событию заводить незачем (техзадание, 1.19).
+  'ach-first_gear': 'job-smith',
+  'ach-first_scout': 'fig-scout',
+  'ach-first_raid': 'hud-army',
+  'ach-first_hunt': 'gear-bow',
+  'ach-twenty_people': 'bld-houses',
+  'ach-castle': 'stage-castle',
+  'ach-survivor': 'day-night',
 };
 
 /** Имя файла для пары «группа + идентификатор», с учётом ссылок. */
 export function iconName(prefix: string, id: string): IconName {
   const raw = `${prefix}-${id}`;
   return ALIAS[raw] ?? raw;
+}
+
+/**
+ * Все имена файлов, которые игра готова показать, — вся накладная целиком.
+ *
+ * Имя пропускается через ссылки: достижение «первая разведка» показывает значок
+ * разведчика, и спрашивать под него отдельный файл незачем. Повторы после этого
+ * схлопываются — иначе один и тот же файл значился бы в накладной дважды.
+ */
+export const ICON_MANIFEST: readonly IconName[] = [
+  ...new Set(ICON_GROUPS.flatMap((g) => g.ids.map((id) => iconName(g.prefix, id)))),
+];
+
+/** К какой группе относится имя файла. `null` — приставка игре незнакома. */
+export function groupOf(name: IconName): IconGroup | null {
+  const dash = name.indexOf('-');
+  if (dash < 0) return null;
+  const prefix = name.slice(0, dash);
+  return ICON_GROUPS.find((g) => g.prefix === prefix) ?? null;
 }
 
 // ---------- Состояние, у которого нет своего идентификатора ----------

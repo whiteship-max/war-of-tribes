@@ -8,6 +8,7 @@ import { Social } from '../Social';
 import { Archery } from './Archery';
 import { Maze } from './Maze';
 import { Quiz } from './Quiz';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Вторая страница «Заданий»: сперва ежедневная мини-игра, потом социальные
@@ -100,7 +101,9 @@ export function DailyPage() {
           шторку на 375×812. Игрок оказался бы перед наполовину видимым полем. */}
       {!playing && (
         <div className="card">
-          <div className="ico">{def.icon}</div>
+          <div className="ico">
+            <Icon name={`daily-${def.id}`} glyph={def.icon} />
+          </div>
           <div className="body">
             <div className="title">{def.name}</div>
             <div className="desc">{def.rules}</div>

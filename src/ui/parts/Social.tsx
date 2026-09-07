@@ -9,6 +9,7 @@ import {
 } from '@/game/data/social';
 import { useGame } from '@/game/store';
 import { copyText, inTelegram, openTelegram, shareLink, tgUserId } from '@/telegram/webapp';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Социальные ссылки и приглашение.
@@ -38,7 +39,9 @@ export function Social() {
 function SocialRow({ link }: { link: SocialLink }) {
   return (
     <div className="social-row">
-      <span className="ico">{link.icon}</span>
+      <span className="ico">
+        <Icon name={`soc-${link.id}`} glyph={link.icon} />
+      </span>
       <div className="body">
         <div className="title">{link.name}</div>
         <div className="desc">{link.note}</div>

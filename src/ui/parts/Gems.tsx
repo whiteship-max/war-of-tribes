@@ -77,7 +77,7 @@ export function Gems() {
         Купить <span className="muted">пока нельзя</span>
       </h3>
       <div className="note warn">
-        Покупка появится вместе с сервером: в Telegram за неё платят звёздами (⭐ Telegram
+        Покупка появится вместе с сервером: в Telegram за неё платят звёздами (<Icon name="ui-star" glyph="⭐" /> Telegram
         Stars), счёт выставляет бот, а подтверждает оплату вебхук. Пока этого нет, витрина
         показывает наборы, но не берёт денег.
       </div>
@@ -92,7 +92,7 @@ export function Gems() {
               <span className="count">♦ {p.gems}</span>
             </div>
             <div className="desc">
-              {p.stars} ⭐
+              {p.stars} <Icon name="ui-star" glyph="⭐" />
               {packRate(p) > base && ` · выгоднее на ${Math.round((packRate(p) / base - 1) * 100)}%`}
               {p.best && ' · берут чаще всего'}
             </div>

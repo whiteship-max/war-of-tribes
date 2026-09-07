@@ -39,7 +39,13 @@ describe('накладная собрана из данных игры', () => {
     const names = new Set(ICON_MANIFEST);
     for (const group of ICON_GROUPS) {
       expect(group.ids.length, `группа ${group.prefix} пуста`).toBeGreaterThan(0);
-      for (const id of group.ids) expect(names.has(`${group.prefix}-${id}`)).toBe(true);
+      // Спрашивается разрешённое имя: часть идентификаторов ведёт ссылкой на уже
+      // нарисованное (достижение «первая разведка» — на значок разведчика), и
+      // своего файла такие не просят.
+      for (const id of group.ids) {
+        const name = iconName(group.prefix, id);
+        expect(names.has(name), `${group.prefix}-${id} → ${name}`).toBe(true);
+      }
     }
   });
 

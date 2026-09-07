@@ -6,6 +6,7 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Chronicle } from '../parts/Chronicle';
 import { DailyPage } from '../parts/daily/DailyPage';
 import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * «Задания» — две страницы.
@@ -94,7 +95,7 @@ function QuestList() {
           const ok = a.check(s);
           return (
             <span className="villager-chip" key={a.id} style={{ opacity: ok ? 1 : 0.4 }}>
-              {a.icon} {a.title}
+              <Icon name={iconName('ach', a.id)} glyph={a.icon} /> {a.title}
             </span>
           );
         })}

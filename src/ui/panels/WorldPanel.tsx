@@ -489,7 +489,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               <span className="val">{card.diplomacy.mood}</span>
             </div>
             <div className="mod">
-              <span className="ico">{TEMPER_BY_ID[card.diplomacy.temper].icon}</span>
+              <span className="ico">
+                <Icon
+                  name={`temper-${card.diplomacy.temper}`}
+                  glyph={TEMPER_BY_ID[card.diplomacy.temper].icon}
+                />
+              </span>
               <span className="name">Характер владельца</span>
               <span className="val">{TEMPER_BY_ID[card.diplomacy.temper].name}</span>
             </div>
