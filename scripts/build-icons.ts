@@ -38,6 +38,7 @@ import { RELATION_META } from '@/world/data/meta';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const SRC = path.join(ROOT, 'assets-src', 'icons');
 const RETURNED = path.join(SRC, 'RETURNED.md');
+const OBJECTS = path.join(SRC, 'OBJECTS.md');
 const OUT_DIR = path.join(ROOT, 'public', 'assets', 'icons');
 const OUT_SPRITE = path.join(OUT_DIR, 'sprite.svg');
 const OUT_DATA = path.join(ROOT, 'src', 'ui', 'icons', 'generated.ts');
@@ -421,6 +422,105 @@ export function toneFaults(file: string, tone: Tone): { faults: Fault[]; warning
   return { faults, warnings };
 }
 
+// ---------- один предмет — два значка ----------
+//
+// Побайтового совпадения мало: подкова, нарисованная дважды разными числами, — это
+// всё равно одна подкова, и на экране игрок прочитает два таких значка как один.
+// Поэтому сравниваются не байты, а силуэт: файл растеризуется, берётся маска
+// непрозрачных пикселей, и две маски сверяются по доле общего (IoU). Заодно
+// сверяется набор красок: один предмет обычно и красят одинаково.
+//
+// Внутри группы похожесть — замысел, а не беда: пять вымпелов отношений, восемь
+// фигур бойцов и три рога морали обязаны быть роднёй. Поэтому сравниваются только
+// значки из разных групп.
+//
+// Приговора здесь нет и быть не может: «это один предмет» — суждение, а не число.
+// Сборка печатает пары и не падает; разобранные пары кладутся в OBJECTS.md,
+// и о них больше не напоминают.
+
+/** Выше этого доля общего силуэта означает «стоит посмотреть глазами». */
+const TWIN_IOU = 0.82;
+/** И при этом краски должны совпадать хотя бы наполовину. */
+const TWIN_PAINT = 0.6;
+
+/** Маска непрозрачных пикселей. `null` — растеризатор недоступен. */
+export async function maskOf(text: string): Promise<Uint8Array | null> {
+  try {
+    const out = await sharp(Buffer.from(text)).raw().toBuffer({ resolveWithObject: true });
+    const { data, info } = out;
+    const mask = new Uint8Array(info.width * info.height);
+    for (let i = 0; i < mask.length; i++) {
+      mask[i] = info.channels === 4 ? (data[i * info.channels + 3] > 128 ? 1 : 0) : 1;
+    }
+    return mask;
+  } catch {
+    return null;
+  }
+}
+
+/** Доля общего: пересечение к объединению. */
+export function iou(a: Uint8Array, b: Uint8Array): number {
+  let both = 0;
+  let either = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] || b[i]) either++;
+    if (a[i] && b[i]) both++;
+  }
+  return either === 0 ? 0 : both / either;
+}
+
+/** Доля общих красок. */
+export function paintShare(a: Set<string>, b: Set<string>): number {
+  let both = 0;
+  for (const c of a) if (b.has(c)) both++;
+  return Math.max(a.size, b.size) === 0 ? 0 : both / Math.max(a.size, b.size);
+}
+
+export interface Twin {
+  a: string;
+  b: string;
+  iou: number;
+  paint: number;
+}
+
+/**
+ * Пары из разных групп, у которых силуэт и краски почти совпали. Порядок —
+ * от самых похожих: первые в списке и есть повод переделать.
+ */
+export function findTwins(
+  icons: { name: string; mask: Uint8Array; paint: Set<string> }[],
+  allowed: Set<string>,
+): Twin[] {
+  const out: Twin[] = [];
+  for (let i = 0; i < icons.length; i++) {
+    for (let j = i + 1; j < icons.length; j++) {
+      const a = icons[i];
+      const b = icons[j];
+      if (a.name.split('-')[0] === b.name.split('-')[0]) continue;
+      if (allowed.has(pairKey(a.name, b.name))) continue;
+      const overlap = iou(a.mask, b.mask);
+      if (overlap < TWIN_IOU) continue;
+      const paint = paintShare(a.paint, b.paint);
+      if (paint < TWIN_PAINT) continue;
+      out.push({ a: a.name, b: b.name, iou: overlap, paint });
+    }
+  }
+  return out.sort((x, y) => y.iou - x.iou);
+}
+
+/** Ключ пары, не зависящий от порядка. */
+export const pairKey = (a: string, b: string): string => [a, b].sort().join(' = ');
+
+/** Разобранные пары: `- \`имя\` = \`имя\`` в OBJECTS.md. */
+export function allowedPairs(): Set<string> {
+  if (!existsSync(OBJECTS)) return new Set();
+  const out = new Set<string>();
+  for (const m of readFileSync(OBJECTS, 'utf8').matchAll(/^-\s+`([a-z0-9_-]+)`\s*=\s*`([a-z0-9_-]+)`/gm)) {
+    out.add(pairKey(m[1], m[2]));
+  }
+  return out;
+}
+
 // ---------- накладная ----------
 
 export interface Audit {
@@ -511,14 +611,20 @@ async function main() {
   }
 
 
-  // Два имени, один рисунок. Не брак по букве техзадания, но почти всегда ошибка
-  // смысла: вид бойца, нарисованный своим оружием, — это значок снаряжения (1.4).
-  const bySketch = new Map<string, string[]>();
+  // Один предмет — два значка. Побайтового совпадения мало: подкова, нарисованная
+  // дважды разными числами, — всё равно одна подкова.
+  const allowed = allowedPairs();
+  const shots: { name: string; mask: Uint8Array; paint: Set<string> }[] = [];
   for (const g of good) {
-    const sketch = g.body.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-    bySketch.set(sketch, [...(bySketch.get(sketch) ?? []), g.name]);
+    const mask = await maskOf(g.body);
+    if (mask === null) continue;
+    shots.push({
+      name: g.name,
+      mask,
+      paint: new Set([...g.body.matchAll(/fill="(#[0-9a-f]{6})"/g)].map((m) => m[1])),
+    });
   }
-  const twins = [...bySketch.values()].filter((names) => names.length > 1);
+  const twins = shots.length > 0 ? findTwins(shots, allowed) : [];
 
   // 2. Накладная.
   const { extra, missing, openGroups } = auditNames(new Set(files.map((f) => f.slice(0, -4))), returned);
@@ -567,8 +673,12 @@ async function main() {
     console.log('\n! тон не мерялся: растеризатор недоступен');
   }
   if (twins.length > 0) {
-    console.log(`\nодин рисунок на два имени — проверить смысл (${twins.length}):`);
-    for (const names of twins) console.log(`  ${names.join(' = ')}`);
+    console.log(`\nодин предмет на два значка? — посмотреть глазами (${twins.length}):`);
+    for (const pair of twins) {
+      const how = `силуэт ${Math.round(pair.iou * 100)}%, краски ${Math.round(pair.paint * 100)}%`;
+      console.log(`  ${pairKey(pair.a, pair.b).padEnd(42)} ${how}`);
+    }
+    console.log(`  разобрал — впиши пару в ${path.relative(ROOT, OBJECTS)}, и о ней больше не напомнят`);
   }
 
   console.log(`\nлист: ${good.length} символов, ${kb(raw)} на диске, ${kb(gz)} по сети`);

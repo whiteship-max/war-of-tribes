@@ -467,7 +467,7 @@ function GenericData({ b }: { b: Building }) {
     stats.push(['gear-armor', '🎽', 'Снаряжение всадников', gear > 0 ? `+${gear} ступень` : 'с 4 уровня']);
   }
   const hidden = buildingStat(b, 'hidden');
-  if (hidden) stats.push(['ui-crate', '🧰', 'Спрятано от набега', `${hidden} каждого припаса`]);
+  if (hidden) stats.push(['ui-loot', '🧰', 'Спрятано от набега', `${hidden} каждого припаса`]);
   if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
   if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
   if (housing) stats.push(['hud-pop', '👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);

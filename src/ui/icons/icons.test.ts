@@ -2,7 +2,21 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { SRC, allowedColors, auditNames, check, measureTone, returnedNames, toneFaults } from '../../../scripts/build-icons';
+import {
+  SRC,
+  allowedColors,
+  allowedPairs,
+  auditNames,
+  check,
+  findTwins,
+  iou,
+  maskOf,
+  measureTone,
+  pairKey,
+  paintShare,
+  returnedNames,
+  toneFaults,
+} from '../../../scripts/build-icons';
 import { ICON_GROUPS, ICON_MANIFEST, daypartOf, groupOf, iconName, moodOf } from './registry';
 import { DRAWN_ICONS } from './generated';
 import { isDrawn, symbolOf } from './sheet';
@@ -217,5 +231,84 @@ describe('тон: значок читается и на тёмной панел�
       if (tone === null) return;
       expect(toneFaults(`${name}.svg`, tone).faults, name).toEqual([]);
     }
+  });
+});
+
+describe('один предмет — два значка', () => {
+  const svg = (body: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">${body}</svg>`;
+  const square = svg('<polygon points="1,1 31,1 31,31 1,31" fill="#9d6d42"/>');
+  const shifted = svg('<polygon points="2,1 31,1 31,31 2,31" fill="#9d6d42"/>');
+  const bar = svg('<polygon points="1,14 31,14 31,18 1,18" fill="#9d6d42"/>');
+
+  it('маска и доля общего считаются по растру, а не по тексту файла', async () => {
+    const [a, b, c] = await Promise.all([maskOf(square), maskOf(shifted), maskOf(bar)]);
+    expect(a, 'растеризатор недоступен').not.toBeNull();
+    // Разные байты, почти один силуэт — ровно тот случай, ради которого проверка и заведена.
+    expect(square).not.toBe(shifted);
+    expect(iou(a!, b!)).toBeGreaterThan(0.9);
+    expect(iou(a!, c!)).toBeLessThan(0.3);
+  });
+
+  it('краски сравниваются набором, а не порядком', () => {
+    expect(paintShare(new Set(['#9d6d42', '#60432a']), new Set(['#60432a', '#9d6d42']))).toBe(1);
+    expect(paintShare(new Set(['#9d6d42']), new Set(['#8f8b84']))).toBe(0);
+  });
+
+  it('похожесть внутри группы не считается повтором: родня там замысел', async () => {
+    const mask = (await maskOf(square))!;
+    const paint = new Set(['#9d6d42']);
+    const family = [
+      { name: 'rel-self', mask, paint },
+      { name: 'rel-ally', mask, paint },
+    ];
+    expect(findTwins(family, new Set())).toEqual([]);
+  });
+
+  it('похожесть между группами всплывает парой', async () => {
+    const [a, b] = await Promise.all([maskOf(square), maskOf(shifted)]);
+    const paint = new Set(['#9d6d42']);
+    const pair = [
+      { name: 'bld-cache', mask: a!, paint },
+      { name: 'ui-crate', mask: b!, paint },
+    ];
+    const twins = findTwins(pair, new Set());
+    expect(twins).toHaveLength(1);
+    expect(pairKey(twins[0].a, twins[0].b)).toBe('bld-cache = ui-crate');
+  });
+
+  it('разобранная пара из OBJECTS.md больше не всплывает', async () => {
+    const [a, b] = await Promise.all([maskOf(square), maskOf(shifted)]);
+    const paint = new Set(['#9d6d42']);
+    const pair = [
+      { name: 'bld-cache', mask: a!, paint },
+      { name: 'ui-crate', mask: b!, paint },
+    ];
+    expect(findTwins(pair, new Set([pairKey('ui-crate', 'bld-cache')]))).toEqual([]);
+  });
+
+  it('ключ пары не зависит от порядка', () => {
+    expect(pairKey('ui-crate', 'bld-cache')).toBe(pairKey('bld-cache', 'ui-crate'));
+  });
+
+  it('OBJECTS.md читается и разбор в нём записан', () => {
+    const pairs = allowedPairs();
+    // Пары, про которые уже решено; строки лежат в самом разборе, а не отдельным перечнем.
+    expect(pairs.has(pairKey('alert-raid', 'hud-army'))).toBe(true);
+    expect(pairs.has(pairKey('hud-pop', 'stage-town'))).toBe(true);
+  });
+
+  it('нынешний набор не держит неразобранных повторов', async () => {
+    const paints = new Map<string, Set<string>>();
+    const shots: { name: string; mask: Uint8Array; paint: Set<string> }[] = [];
+    for (const name of DRAWN_ICONS) {
+      const text = readFileSync(path.join(SRC, `${name}.svg`), 'utf8').trim();
+      const mask = await maskOf(text);
+      if (mask === null) return;
+      const paint = new Set([...text.matchAll(/fill="(#[0-9a-f]{6})"/g)].map((m) => m[1]));
+      paints.set(name, paint);
+      shots.push({ name, mask, paint });
+    }
+    expect(findTwins(shots, allowedPairs())).toEqual([]);
   });
 });

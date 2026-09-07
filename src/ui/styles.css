@@ -1679,6 +1679,14 @@ body {
   font-size: 13px;
 }
 
+/* Вымпел отношений в легенде: значок ростом с прежний квадратик, но крупнее
+   кегля строки — форму на 14 px было бы не разобрать. */
+.wm-leg-row .wm-leg-flag {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
 .wm-leg-row i {
   width: 14px;
   height: 14px;

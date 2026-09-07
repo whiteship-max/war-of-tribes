@@ -59,6 +59,7 @@ import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { ActionMenu } from './ActionMenu';
 import { Press } from '@/gestures';
+import { Icon } from '@/ui/icons/Icon';
 
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
@@ -484,7 +485,9 @@ export function WorldMap() {
           <h3>Кто на карте</h3>
           {RELATION_ORDER.map((r) => (
             <div className="wm-leg-row" key={r}>
-              <i style={{ background: RELATION_META[r].color }} />
+              {/* Форма несёт смысл, цвет её подтверждает: цветной квадратик,
+                  который стоял здесь раньше, на цветовую слепоту не рассчитан вовсе. */}
+              <Icon name={`rel-${r}`} glyph="▪" className="wm-leg-flag" />
               <span>{RELATION_META[r].name}</span>
             </div>
           ))}
