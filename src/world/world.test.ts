@@ -42,7 +42,7 @@ import {
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from './data/tuning';
-import type { Coord, FigureView, Intel, MarchView, PlayerProfile, SettlementView } from './types';
+import type { Coord, FigureView, Intel, MarchView, PlayerProfile, SettlementCard, SettlementView } from './types';
 
 const START = 1_700_000_000_000;
 const MINUTE = 60_000;
@@ -1272,6 +1272,51 @@ describe('туман войны', () => {
     // И своя деревня видна всегда: тумана над собой не бывает.
     const home = await w.world.settlement('home');
     expect(home!.visible).toBe(true);
+  });
+
+  it('разведчик даёт донесение, а не наблюдение: число замирает, когда он ушёл', async () => {
+    // Разница, которую легко потерять: у стоящего разведчика мощь точная и
+    // свежая, но это снимок, переписываемый каждый пульс, а не чтение мира.
+    // `readIntel` принимает только снимок и часы — мира она не видит. Проверяем
+    // это поведением: гарнизон в мире растёт со временем, и число, взятое из
+    // мира, поехало бы вверх после ухода разведчика.
+    const w = makeWorld(11);
+    const p = profile();
+    await w.world.sync(p);
+    const info = await w.world.info();
+    const far = generateWorld(11).settlements
+      .filter((s) => distance(info.home, s) > HOME_SIGHT + 4)
+      .sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+
+    expect(await w.world.moveFigure('scout', { x: far.x + 1, y: far.y })).toBeNull();
+    const walk = (await w.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    w.at(walk.arriveAt);
+    await w.world.sync(p);
+
+    const here = (await w.world.settlement(far.id)) as SettlementCard;
+    // Живого обзора он не даёт — и это главное.
+    expect(here.visible, 'разведчик не наблюдает').toBe(false);
+    // Зато считает войско: донесение точное и свежее.
+    expect(here.power.precision).toBe('exact');
+    expect(here.intel?.ageSeconds ?? 99).toBeLessThan(5);
+    const counted = here.power.value as number;
+    expect(counted).toBeGreaterThan(0);
+
+    // Увели домой. Число обязано замереть на том, что он насчитал, и стареть.
+    expect(await w.world.recallFigure('scout')).toBeNull();
+    const back = (await w.world.figures()).find((f) => f.id === 'scout') as FigureView;
+    w.at(back.arriveAt);
+    await w.world.sync(p);
+    const gone = (await w.world.settlement(far.id)) as SettlementCard;
+    expect(gone.power.value, 'снимок замер, а не поехал вслед за миром').toBe(counted);
+    expect(gone.intel?.ageSeconds ?? 0).toBeGreaterThan(0);
+
+    // И истлевает: живые данные так себя не ведут.
+    w.advance(INTEL_VAGUE + MINUTE);
+    await w.world.sync(p);
+    const old = (await w.world.settlement(far.id)) as SettlementCard;
+    expect(old.intel, 'донесение истлело').toBeNull();
+    expect(old.power.precision).toBe('unknown');
   });
 
   it('наблюдающий лазутчик не разведывает и не бунтует', async () => {
