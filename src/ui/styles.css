@@ -1437,6 +1437,106 @@ body {
 }
 
 
+/* ---------- Письма ---------- */
+
+/*
+ * Столбик слева внизу, над нижней навигацией. Ширина взята так, чтобы на
+ * 390 px справа оставалась половина экрана: там стоит посёлок, и тапать по
+ * крышам игрок должен по-прежнему.
+ *
+ * `column-reverse` — не украшение: первым разбирают то, у чего срок ближе
+ * всех, и лежать оно должно ближе всех к пальцу, то есть снизу. Порядок в
+ * списке при этом остаётся честным — считает его мир.
+ */
+.letters {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px);
+  z-index: 9;
+  width: min(226px, 60vw);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.letter {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 5px 10px 5px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+/* Верхнее в стопке — то, что разберут первым, — читается как открытое. */
+.letter.first {
+  border-color: var(--accent);
+}
+
+.letter.raid {
+  border-color: #b4483a;
+}
+
+.letter .ic {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.letter .txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.letter .txt b {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.letter .txt small {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Сколько ждёт гонец — крупно: срок здесь такая же часть выбора, как цена. */
+.letter-card .letter-left {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/*
+ * Что будет, если промолчать. Отдельной рамкой нарочно: это третий исход
+ * письма наравне с «да» и «нет», и прятать его в мелкий текст значило бы
+ * оставить игрока с последствием, о котором нигде не сказано.
+ */
+.letter-card .letter-silence {
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  border-left: 2px solid #b4483a;
+  background: var(--panel-2);
+  border-radius: 0 8px 8px 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: left;
+}
+
 /* ---------- Карта мира ---------- */
 
 /*

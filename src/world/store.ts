@@ -37,6 +37,7 @@ import type {
   FigureId,
   FigureView,
   InterceptPlan,
+  LetterView,
   MarchOrder,
   MarchView,
   OrderOption,
@@ -94,6 +95,14 @@ export interface WorldStore {
   reports: Report[];
   unread: number;
   tribes: TribeInfo[];
+  /**
+   * Письма, ждущие решения. Порядок — тот, в каком их разбирают: первым лежит
+   * то, что раньше всего разрешится само. Считает и обрезает их мир, здесь они
+   * только лежат.
+   */
+  letters: LetterView[];
+  /** Какое письмо открыто. null — столбик свёрнут. */
+  openLetter: string | null;
   /** Время мира на последнем пульсе. */
   now: number;
   selected: Coord | null;
@@ -148,6 +157,12 @@ export interface WorldStore {
   loadPlan: (marchId: string) => Promise<void>;
   /** Отдать приказ дипломату по цели открытого меню. */
   order: (action: OrderActionId) => Promise<OrderResult>;
+  /** Перечитать стол писем. Мир заодно разберёт сроки: считаем при чтении. */
+  loadLetters: () => Promise<void>;
+  /** Открыть письмо или закрыть открытое (null). */
+  showLetter: (id: string | null) => void;
+  /** Ответить на письмо. Возвращает текст ошибки или null. */
+  answerLetter: (id: string, answer: 'yes' | 'no') => Promise<string | null>;
   loadReports: () => Promise<void>;
   markRead: () => Promise<void>;
   /** Новый мир с нуля — рядом с «начать заново» у племени. */
@@ -172,6 +187,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
   reports: [],
   unread: 0,
   tribes: [],
+  letters: [],
+  openLetter: null,
   now: Date.now(),
   selected: null,
   card: null,
@@ -219,6 +236,10 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
     clockOffset = pulse.now - Date.now();
     set({ marches: pulse.marches, figures: pulse.figures, unread: pulse.unread, now: pulse.now });
+    // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
+    // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
+    // иначе протухшее висело бы в столбике до следующего действия игрока.
+    void get().loadLetters();
     if (get().selected && get().card) void get().refreshCard();
     // Открытое меню живёт теми же пульсами: в причинах отказа стоят отсчёты
     // («дипломат занят ещё 3:00»), и замерший на месте отсчёт читается как
@@ -472,6 +493,34 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return res;
   },
 
+  loadLetters: async () => {
+    const letters = await worldApi().letters();
+    // Открытое письмо могло разрешиться само, пока игрок его читал: закрываем,
+    // а не оставляем висеть карточкой, у которой кнопки уже ничего не делают.
+    const open = get().openLetter;
+    set({ letters, openLetter: open && letters.some((l) => l.id === open) ? open : null });
+  },
+
+  showLetter: (id) => set({ openLetter: id }),
+
+  answerLetter: async (id, answer) => {
+    const err = await worldApi().answerLetter(id, answer);
+    if (err) {
+      haptic('error');
+      useGame.getState().showToast(err);
+      await get().loadLetters();
+      return err;
+    }
+    haptic('medium');
+    set({ openLetter: null });
+    // Пульс раньше перечитывания: последствие письма (плата, мораль, люди)
+    // должно лечь на племя до того, как столбик покажет новый список.
+    await get().pulse();
+    await get().loadLetters();
+    await get().refreshCard();
+    return null;
+  },
+
   loadReports: async () => {
     set({ reports: await worldApi().reports() });
   },
@@ -498,6 +547,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
       selected: null,
       card: null,
       cardTerrain: null,
+      letters: [],
+      openLetter: null,
       menu: null,
       orders: [],
       chunks: get().chunks + 1,

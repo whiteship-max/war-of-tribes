@@ -343,6 +343,41 @@ describe('письма в мире', () => {
   });
 });
 
+describe('пленные и выкуп', () => {
+  it('прорвавшийся набег оставляет пленных, и выкуп возвращает их людьми', async () => {
+    // Числом деревня сильна (от него мир считает мощь набега), а в строю у неё
+    // почти никого: набег прорвётся наверняка. Шаг мельче `AWAY_GRACE` — иначе
+    // набег «не состоится», и брать в плен будет некого.
+    const w = makeWorld(43);
+    const weak = profile({ defense: 200, units: { warrior: 8, scout: 0 }, army: { clubman: 1 }, militia: 0 });
+    let held: Record<string, number> = {};
+    for (let m = 1; m <= 900; m++) {
+      w.at(START + m * 15_000);
+      await w.world.sync(weak);
+      held = (w.world as unknown as { save: WorldSave }).save.captives;
+      if (Object.keys(held).length > 0) break;
+    }
+    const from = Object.keys(held)[0];
+    expect(from, 'за три часа хоть один набег прорвётся').toBeTruthy();
+    expect(held[from]).toBeGreaterThan(0);
+
+    // Пленные — это доля тех, кого племя уже посчитало убитыми: новой потери
+    // здесь нет, поэтому выкуп только возвращает.
+    // Двор, который кого-то держит, может предложить и выкуп — берём тот номер
+    // письма, на котором он его и предлагает: вес у выкупа выше прочих, но
+    // единственным видом он не становится.
+    const cands = [candidate({ id: from, name: 'Двор', captives: held[from] })];
+    const draft = [...Array(20)]
+      .map((_, n) => pickLetter(1, n, cands, { food: 900 }))
+      .find((d) => d?.kind === 'ransom');
+    expect(draft, 'выкуп предлагает тот, кто и правда кого-то держит').toBeTruthy();
+    expect(draft?.men).toBe(held[from]);
+    const paid = resolveLetter(letter({ ...draft!, id: 'r1' }), 'yes');
+    expect(paid.pop, 'вернулись людьми, а не в строй').toBe(held[from]);
+    expect(resolveLetter(letter({ ...draft!, id: 'r1' }), 'lapse').pop).toBe(0);
+  });
+});
+
 describe('сохранение мира', () => {
   it('пятая версия приводится к шестой: стол пуст, расписание с нуля', () => {
     const old = {

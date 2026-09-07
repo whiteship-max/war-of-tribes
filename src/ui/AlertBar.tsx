@@ -4,6 +4,7 @@ import { alerts, buildingOfType } from '@/game/derived';
 import { tutorialActive } from '@/game/data/tutorial';
 import { defenseLock, incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
+import { lettersVisible } from './Letters';
 
 /**
  * Критические состояния всплывают поверх любого экрана: голод, остывший очаг и
@@ -17,7 +18,16 @@ export function AlertBar() {
   const openBuilding = useGame((g) => g.openBuilding);
   const openDefense = useGame((g) => g.openDefense);
   const marches = useWorld((g) => g.marches);
-  const raids = incomingMarches(marches);
+  const eventResult = useGame((g) => g.eventResult);
+  const mapOpen = useGame((g) => g.mapOpen);
+  const letters = useWorld((g) => g.letters);
+  // Про этот набег уже написано в письме, и оно стоит на том же экране: две
+  // одинаковые строки — не забота, а шум. На карте письма нет, и строка тревог
+  // остаётся единственным предупреждением — там она и показывается.
+  const lettered = lettersVisible(s, eventResult, mapOpen)
+    ? new Set(letters.filter((l) => l.marchId).map((l) => l.marchId))
+    : new Set<string | undefined>();
+  const raids = incomingMarches(marches).filter((m) => !lettered.has(m.id));
   const [, retick] = useState(0);
 
   // Пока кто-то идёт на нас, счётчик должен тикать каждую секунду сам.

@@ -18,6 +18,7 @@ import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
+import { Letters } from './ui/Letters';
 import { WorldMap } from './ui/map/WorldMap';
 import { WorldPanel } from './ui/panels/WorldPanel';
 import { MarchesPanel } from './ui/panels/MarchesPanel';
@@ -125,6 +126,9 @@ export function App() {
       {mapOpen && <WorldMap />}
       {!mapOpen && <TopBar />}
       <AlertBar />
+      {/* Столбик писем живёт в деревне: на карте левый низ занят якорями и
+          кнопками, а письмо о набеге ведёт как раз на карту. */}
+      {!mapOpen && <Letters />}
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && <SheetContent view={shown} />}
       </Sheet>
