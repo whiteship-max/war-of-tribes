@@ -17,6 +17,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useGame } from '@/game/store';
+import { afterPaint } from '@/boot/paint';
 import { cameraAnchor, figurePosition, figuresOn, marchOn, useWorld, worldNow } from '@/world/store';
 import { WORLD_VIEW, freeCamera } from '@/debug';
 import { settlementAt } from '@/world/cache';
@@ -246,6 +247,10 @@ export function WorldMap() {
       }
     };
     raf = requestAnimationFrame(frame);
+    // Занавес перехода снимает тот, кто нарисовал первый кадр: полотно карты
+    // печёт куски земли, и объявлять её готовой раньше значило бы показать
+    // пустую сетку. Своего таймера у занавеса нет — время сборки не константа.
+    void afterPaint(() => useGame.getState().curtainUp());
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();

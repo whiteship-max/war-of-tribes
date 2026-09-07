@@ -20,12 +20,14 @@ import { LegacyModal } from './ui/LegacyModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
 import { Letters } from './ui/Letters';
 import { WorldMap } from './ui/map/WorldMap';
+import { SceneCurtain } from './ui/SceneCurtain';
 import { WorldPanel } from './ui/panels/WorldPanel';
 import { MarchesPanel } from './ui/panels/MarchesPanel';
 import { BattlePanel } from './ui/panels/BattlePanel';
 import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 import { villageMusic } from './sound/web';
+import { keepScene, probe } from './debug';
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -67,6 +69,12 @@ export function App() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Замер разделения сцен: стор нужен из консоли, чтобы гонять переход туда-сюда
+  // и снимать кучу между ними. Только по флагу `?probe=1` (см. src/debug.ts).
+  useEffect(() => {
+    if (probe()) (window as unknown as { __game?: typeof useGame }).__game = useGame;
+  }, []);
 
   // Музыка деревни ждёт первого нажатия игрока: в вебвью Telegram звук без
   // жеста не заиграет вовсе. Годится любое нажатие в интерфейсе — отдельной
@@ -116,8 +124,10 @@ export function App() {
 
   return (
     <div className="app" ref={appRef}>
-      {/* Сцена остаётся в DOM и под картой: её рендер-луп встаёт, но геометрия жива. */}
-      <GameCanvas />
+      {/* Диорама и карта не живут в памяти разом: уходя на карту, посёлок
+          выгружается целиком, возвращаясь — собирается заново. Переход прикрыт
+          занавесом: сборка идёт в главном потоке, и рисовать в это время нечем. */}
+      {(!mapOpen || keepScene()) && <GameCanvas />}
       {mapOpen && <WorldMap />}
       {!mapOpen && <TopBar />}
       <AlertBar />
@@ -134,6 +144,7 @@ export function App() {
       <LegacyModal />
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
+      <SceneCurtain />
     </div>
   );
 }

@@ -9,6 +9,7 @@
  * цвета темы живут в одном месте — в `index.html`, и тест `boot.test.ts` читает
  * именно тот файл.
  */
+import { afterPaint } from './paint';
 
 /**
  * Стадии в порядке настоящей работы:
@@ -42,36 +43,9 @@ export const bootFail = (why: string): void => api()?.fail(why);
 export const bootVisible = (): boolean => api()?.visible() ?? false;
 
 /**
- * Сколько ждём кадра, прежде чем идти дальше без него.
- *
- * В свёрнутой вкладке и в скрытом вебвью `requestAnimationFrame` не вызывается
- * вовсе — не «редко», а никогда, пока страницу не покажут. Без этого срока
- * экран загрузки висел бы у свернувшего игру ровно до возвращения, а сторожевой
- * таймер успел бы объявить исправную игру сломанной. Проверено: в скрытой
- * панели браузера игра так и осталась под экраном загрузки.
- */
-const PAINT_WAIT_MS = 250;
-
-/**
  * Уступает браузеру кадр, чтобы подпись стадии успела нарисоваться.
  *
- * Два кадра, а не один: первый только вычисляет стиль после правки DOM, рисует
- * второй. Без этого «считаем, что было без тебя» встало бы в очередь за самим
- * подсчётом и появилось бы ровно тогда, когда он уже кончился.
- *
- * Кадр — вежливость, а не условие: ждём его наперегонки с таймером и в любом
- * случае идём дальше.
+ * Та же функция, которой пользуется занавес перехода между посёлком и картой:
+ * повод один — впереди долгая работа в главном потоке (см. `boot/paint.ts`).
  */
-export function bootPaint(): Promise<void> {
-  if (typeof requestAnimationFrame !== 'function') return Promise.resolve();
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      resolve();
-    };
-    setTimeout(finish, PAINT_WAIT_MS);
-    requestAnimationFrame(() => requestAnimationFrame(finish));
-  });
-}
+export const bootPaint = afterPaint;

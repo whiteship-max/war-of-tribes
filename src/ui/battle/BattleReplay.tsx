@@ -7,10 +7,16 @@
 // обязана быть на каждом кадре, и проверить это можно только тогда, когда она
 // живёт в данных, а не в разметке.
 //
-// Своего контекста WebGL ролик не создаёт: канву и рендерер одалживает диорама.
+// Контекст WebGL в игре всегда один. Стоит диорама — ролик одалживает её канву
+// и рендерер. Открыт мир — диорамы нет вовсе (её выгружают, см. docs/loading.md),
+// и тогда ролик заводит свой контекст: он в этот момент единственный. Второго
+// одновременно не бывает ни при каком порядке действий, и это условие раздела 12
+// документа о бое остаётся в силе.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
+import { configureRenderer } from '@/render/lighting';
 import { ReplayPlayer } from '@/render/battle/player';
 import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
@@ -36,15 +42,31 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
 
   useEffect(() => {
     const scene = activeScene();
-    if (!scene) {
-      done.current();
-      return;
-    }
     // Пока идёт ролик, интерфейс игры уходит: он рисуется поверх той же канвы,
     // в которую идёт бой, и иначе шторка с отчётом закрывает половину поля.
     // Слой ролика висит на body, а не в `.app`, поэтому его это не касается.
     document.body.classList.add('replaying');
-    const renderer = scene.lend(true);
+
+    // Своя канва — только когда одолжить не у кого: отчёт о бое открывают с
+    // карты, а там диорамы нет. Класс тот же, `canvas-wrap`: правило «на время
+    // ролика от игры остаётся одна канва» не должно знать, чья она.
+    let own: THREE.WebGLRenderer | null = null;
+    let ownWrap: HTMLDivElement | null = null;
+    let renderer: THREE.WebGLRenderer;
+    if (scene) {
+      renderer = scene.lend(true);
+    } else {
+      ownWrap = document.createElement('div');
+      ownWrap.className = 'canvas-wrap';
+      const canvas = document.createElement('canvas');
+      ownWrap.appendChild(canvas);
+      (document.querySelector('.app') ?? document.body).appendChild(ownWrap);
+      own = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+      // Та же вилка плотности, что у диорамы: третий пиксель не виден, а филлрейт вдвое.
+      own.setPixelRatio(Math.min(2, Math.max(1, window.devicePixelRatio || 1)));
+      configureRenderer(own);
+      renderer = own;
+    }
     // Жест уже был — им открыли ролик, — поэтому музыке можно начинать. Сама
     // она ни контекста, ни загрузок без жеста не заводит.
     battleMusic.start();
@@ -71,8 +93,19 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
       battleMusic.stop();
       villageMusic.duck(false);
       player.dispose();
-      scene.lend(false);
-      scene.renderOnce();
+      if (scene) {
+        scene.lend(false);
+        scene.renderOnce();
+      }
+      if (own) {
+        own.dispose();
+        try {
+          own.forceContextLoss();
+        } catch {
+          /* старый драйвер не отдаёт контекст — заберёт сборщик */
+        }
+      }
+      ownWrap?.remove();
       document.body.classList.remove('replaying');
     };
   }, [cast]);

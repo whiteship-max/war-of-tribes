@@ -14,6 +14,7 @@ import {
 import { haptic, tgDisplayName, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
+import { afterPaint } from '@/boot/paint';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -49,6 +50,28 @@ export type SheetView =
 const TICK_MS = 500;
 const AUTOSAVE_MS = 15000;
 
+/**
+ * Занавес перехода: какой арт сейчас на экране.
+ *
+ * `march` — уходим на карту, `camp` — возвращаемся домой. Два арта, а не один,
+ * потому что переход в обе стороны одинаковым выглядит сбоем интерфейса, а не
+ * дорогой: игрок перестаёт понимать, куда его ведут.
+ */
+export type Curtain = 'march' | 'camp';
+
+/**
+ * Предел, после которого занавес снимается сам.
+ *
+ * Не механизм, а страховка. Поднимает занавес тот, кто нарисовал первый кадр
+ * новой сцены, — и это правильно: время сборки не константа, а свойство
+ * телефона. Но занавес перехватывает нажатия, и если кадр по какой-то причине
+ * не придёт, игрок останется заперт под картинкой навсегда. Шесть секунд —
+ * заведомо больше самой долгой сборки (медиана возврата домой ≈ 0.33 с,
+ * `npm run scene:report`), так что в обычной игре этот таймер не срабатывает
+ * никогда, а в необычной рвётся занавес, а не партия.
+ */
+const CURTAIN_MAX_MS = 6000;
+
 /** Что открыто — обучение засчитывает шаги и по интерфейсу, не только по состоянию. */
 const tutorialUi = (g: GameStore): TutorialUi => ({
   building: g.sheet?.kind === 'building' ? g.sheet.id : null,
@@ -64,8 +87,13 @@ export interface GameStore {
   /** Найденное сохранение было старого формата и отброшено — игроку об этом говорят прямо. */
   legacyReset: boolean;
   sheet: SheetView | null;
-  /** Открыта карта мира. Пока она открыта, 3D-сцена не рисуется (но и не выгружается). */
+  /**
+   * Открыта карта мира. Диорама при этом не просто стоит, а выгружена целиком:
+   * держать в памяти обе сцены разом незачем (docs/loading.md, часть 2).
+   */
   mapOpen: boolean;
+  /** Арт перехода поверх всего, пока одна сцена умирает, а другая собирается. */
+  curtain: Curtain | null;
   /** Какая вкладка открыта в ратуше. */
   townTab: TownTab;
   toast: string | null;
@@ -85,6 +113,12 @@ export interface GameStore {
   /** Карта мира вместо сцены. */
   openMap: () => void;
   closeMap: () => void;
+  /**
+   * Занавес поднят: новая сцена нарисовала первый кадр. Зовут те, кто этот кадр
+   * и нарисовал, — `GameCanvas` и `WorldMap`. Своего таймера у занавеса нет
+   * нарочно: время сборки сцены не константа, а свойство телефона.
+   */
+  curtainUp: () => void;
   /** Карточка клетки карты в нижней шторке. */
   openWorldTile: (x: number, y: number) => void;
   /** Список своих походов и отчётов. */
@@ -122,6 +156,8 @@ export interface GameStore {
 }
 
 let loopStarted = false;
+/** Номер перехода: страховка снимает только свой занавес, а не следующий. */
+let curtainNo = 0;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useGame = create<GameStore>((set, get) => ({
@@ -131,6 +167,7 @@ export const useGame = create<GameStore>((set, get) => ({
   legacyReset: false,
   sheet: null,
   mapOpen: false,
+  curtain: null,
   townTab: 'build',
   toast: null,
   eventResult: null,
@@ -165,17 +202,41 @@ export const useGame = create<GameStore>((set, get) => ({
   setTownTab: (tab) => set({ townTab: tab }),
 
   openMap: () => {
+    if (get().curtain) return;
     haptic('light');
-    set({ mapOpen: true, sheet: null });
-    get().syncTutorial();
+    // Сначала занавес, и только следующим кадром — сама смена сцены. Порядок
+    // не косметика: выгрузка диорамы и сборка карты идут в главном потоке, и
+    // всё, что не нарисовано до них, не нарисуется до самого конца.
+    set({ curtain: 'march', sheet: null });
+    const no = ++curtainNo;
+    setTimeout(() => {
+      if (curtainNo === no) get().curtainUp();
+    }, CURTAIN_MAX_MS);
+    void afterPaint(() => {
+      set({ mapOpen: true });
+      get().syncTutorial();
+    });
   },
 
   closeMap: () => {
+    if (get().curtain) return;
     const cur = get().sheet;
     // Карточки карты живут только вместе с картой.
     const onMap = cur && (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'battle' || cur.kind === 'report');
     const keep = cur && !onMap ? cur : null;
-    set({ mapOpen: false, sheet: keep });
+    set({ curtain: 'camp', sheet: null });
+    const no = ++curtainNo;
+    setTimeout(() => {
+      if (curtainNo === no) get().curtainUp();
+    }, CURTAIN_MAX_MS);
+    void afterPaint(() => set({ mapOpen: false, sheet: keep }));
+  },
+
+  curtainUp: () => {
+    if (!get().curtain) return;
+    // Страховке больше нечего снимать: следующий переход заведёт свой номер.
+    curtainNo++;
+    set({ curtain: null });
   },
 
   openWorldTile: (x, y) => {

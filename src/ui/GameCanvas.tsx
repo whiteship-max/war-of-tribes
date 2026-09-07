@@ -1,14 +1,21 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
 import { TribeScene } from '@/render/Scene';
-import { bootDone, bootPaint, bootStage } from '@/boot/stage';
+import { bootDone, bootStage } from '@/boot/stage';
+import { afterPaint } from '@/boot/paint';
+import { probe } from '@/debug';
 
 export function GameCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<TribeScene | null>(null);
 
-  useEffect(() => {
+  // Именно layout, а не обычный эффект. Дело в уборке: она обязана пройти, пока
+  // канва ещё в разметке, иначе OrbitControls снимает свой слушатель не с того
+  // узла и документ навсегда остаётся держателем всей сцены (подробно — в
+  // `TribeScene.dispose`). Сборка сцены при этом кадр не задерживает: занавес
+  // перехода нарисован кадром раньше, и ждать ему нечего.
+  useLayoutEffect(() => {
     const canvas = ref.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -17,24 +24,27 @@ export function GameCanvas() {
     sceneRef.current = scene;
     // Тап по зданию открывает его панель; тап по пустому месту закрывает открытую.
     scene.onPick = (id) => useGame.getState().openBuilding(id);
+    // Замер: сцену надо достать из консоли, в собранном бандле её неоткуда взять.
+    if (probe()) (window as unknown as { __scene?: TribeScene }).__scene = scene;
     const g0 = useGame.getState();
     scene.sync(g0.s);
     scene.setSelected(g0.sheet?.kind === 'building' ? g0.sheet.id : null);
-    // Пока открыта карта мира, диорама не рисуется — но и не выгружается:
-    // sync продолжает идти, поэтому возврат показывает уже актуальный посёлок сразу.
-    if (g0.mapOpen) scene.pause();
-    // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
-    // между конструктором и картинкой лежит компиляция шейдеров.
-    void bootPaint().then(bootDone);
+    // Первый кадр диорамы снимает и экран загрузки, и занавес перехода: между
+    // конструктором и картинкой лежит компиляция шейдеров, и объявлять сцену
+    // готовой по «конструктор вернулся» значило бы показывать пустоту.
+    void afterPaint(() => {
+      bootDone();
+      useGame.getState().curtainUp();
+    });
     const unsub = useGame.subscribe((g, prev) => {
       if (g.s !== prev.s) scene.sync(g.s);
       if (g.sheet !== prev.sheet) scene.setSelected(g.sheet?.kind === 'building' ? g.sheet.id : null);
-      if (g.mapOpen !== prev.mapOpen) {
-        if (g.mapOpen) scene.pause();
-        else {
-          scene.resume();
-          scene.resize();
-        }
+      // Обычно занавес домой поднимает монтирование: диораму выгрузили, и она
+      // собирается заново. Под `?keepscene=1` сцена никуда не девалась, монтирования
+      // не будет — и поднимать некому. Замер прежнего поведения на этом и вис.
+      if (prev.mapOpen && !g.mapOpen) {
+        scene.resize();
+        void afterPaint(() => useGame.getState().curtainUp());
       }
     });
     // Высота приходит из --app-h (viewportStableHeight Telegram), поэтому слушаем

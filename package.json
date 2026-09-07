@@ -16,7 +16,9 @@
     "figure:report": "vite-node scripts/figure-report.ts",
     "battle:sweep": "vite-node scripts/battle-sweep.ts",
     "log:report": "vite-node scripts/log-report.ts",
-    "music:build": "node scripts/build-music.mjs"
+    "music:build": "node scripts/build-music.mjs",
+    "scene:report": "vite-node scripts/scene-report.ts",
+    "splash:build": "node scripts/build-splash.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -187,7 +187,11 @@ export class TribeScene {
   private signs = new WorkSigns();
   private season: Season = 'spring';
   private disposed = false;
-  private paused = false;
+  /**
+   * Диорама больше не «встаёт на паузу» на время карты — её выгружают целиком
+   * (`dispose`) и собирают заново на возврате. Паузы поэтому нет: она была
+   * половинчатой, память держала, а «одну сцену в памяти» не давала.
+   */
   /** Канва и рендерер отданы ролику о бое: диорама молчит, пока их не вернут. */
   private lent = false;
   private selection: THREE.Mesh;
@@ -203,6 +207,10 @@ export class TribeScene {
   private azimuth = Math.atan2(9, 12);
   /** После ручного вращения камеру больше не переставляем. */
   private userMoved = false;
+  /** Ссылкой, а не литералом: на выгрузке подписку надо снять поимённо. */
+  private onControlStart = (): void => {
+    this.userMoved = true;
+  };
 
   /** pixelRatio — принудительная плотность пикселей (стенд); по умолчанию — экрана, в [1, 2]. */
   constructor(private canvas: HTMLCanvasElement, private pixelRatio: number | null = null) {
@@ -245,9 +253,7 @@ export class TribeScene {
       MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: THREE.MOUSE.ROTATE,
     };
-    this.controls.addEventListener('start', () => {
-      this.userMoved = true;
-    });
+    this.controls.addEventListener('start', this.onControlStart);
     // Привязка к деревне: OrbitControls своей у цели не имеет, поэтому держим её
     // сами на каждом изменении — уехать за окрестности в пустой лес нельзя.
     this.controls.addEventListener('change', this.leash);
@@ -343,17 +349,6 @@ export class TribeScene {
   }
 
   /**
-   * Останавливает рендер-луп, не трогая сцену. Карта мира и диорама не рисуются
-   * одновременно, но возвращение с карты не должно заново собирать геометрию:
-   * здания, жители и текстуры остаются на месте, гаснет только отрисовка.
-   */
-  pause(): void {
-    if (this.paused || this.disposed) return;
-    this.paused = true;
-    cancelAnimationFrame(this.raf);
-  }
-
-  /**
    * Одалживает канву и рендерер ролику о бое. Второго контекста WebGL в игре не
    * бывает (раздел 12 документа о бое): пока одолжено, диорама кадров не рисует,
    * а свой цикл ведёт ролик. Геометрия посёлка при этом жива — как и на карте.
@@ -363,16 +358,34 @@ export class TribeScene {
     return this.renderer;
   }
 
-  resume(): void {
-    if (!this.paused || this.disposed) return;
-    this.paused = false;
-    // Часы стояли вместе с лупом: съедаем накопленную дельту, иначе первый кадр
-    // прыгнет на всё время, проведённое на карте.
-    this.clock.getDelta();
-    this.gameTimeAt = performance.now();
-    this.loop();
-  }
-
+  /**
+   * Освобождает всё. Не «останавливает», как `pause`, а именно освобождает:
+   * после этого объект мёртв, и возврат в посёлок собирает диораму заново.
+   *
+   * Порядок важен, и вот что здесь делается на самом деле.
+   *
+   * 1. **Геометрия.** Своя у каждой сцены целиком — общих геометрий в модулях
+   *    рендера нет ни одной (набор деталей отдаёт новую на каждый вызов, пул
+   *    фигур строит свои в конструкторе). Поэтому обход всего графа безопасен.
+   * 2. **Материалы спрайтов.** Маркеры внимания создают `SpriteMaterial` на
+   *    каждый маркер, а текстура под ним общая и кэшируется по виду тревоги.
+   *    Материал — наш, его убираем; текстуру не трогаем, она переживёт сцену.
+   *    Остальные материалы модульные (`KIT`, `LEGACY`, `DECAL`), и трогать их
+   *    нельзя: следующая сцена возьмёт те же и получит мёртвые.
+   * 3. **Слушатели.** `OrbitControls.dispose()` снимает свой слушатель клавиатуры
+   *    с `domElement.getRootNode()` — то есть с документа, пока канва в нём. Если
+   *    выгружать сцену после того, как React убрал канву из разметки, корнем
+   *    окажется сама оторванная канва, слушатель останется на документе, и через
+   *    него документ будет держать всю сцену: замеряно снимком кучи — четыре
+   *    круга на карту и обратно оставляли четыре живые диорамы. Поэтому
+   *    `GameCanvas` выгружает сцену в `useLayoutEffect`: его уборка идёт **до**
+   *    того, как узел уйдёт из разметки. Свои подписки на контролы мы всё равно
+   *    снимаем сами — на случай, если порядок когда-нибудь изменится.
+   * 4. **Контекст WebGL.** `dispose` возвращает программы, но сам контекст
+   *    остаётся жив до сборки мусора — а браузер держит их не больше десятка на
+   *    вкладку и роняет самый старый молча. `forceContextLoss` отдаёт его сразу,
+   *    и это единственный способ сказать драйверу «мне больше не надо».
+   */
   dispose(): void {
     this.disposed = true;
     if (active === this) active = null;
@@ -381,8 +394,69 @@ export class TribeScene {
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
+    // Свои подписки снимаем сами: OrbitControls живёт дольше сцены (см. ниже),
+    // и через них он утащил бы её за собой.
+    this.controls.removeEventListener('start', this.onControlStart);
+    this.controls.removeEventListener('change', this.leash);
     this.controls.dispose();
+
+    this.scene.traverse((o) => {
+      const sprite = o as THREE.Sprite;
+      if (sprite.isSprite && sprite.material) sprite.material.dispose();
+    });
+    disposeGeometries(this.scene);
+    this.silhouetteMat.dispose();
+    this.scene.clear();
+
+    // Ссылки на подсистемы рвутся, чтобы граф не держался за них через сцену.
+    this.buildings.clear();
+    this.agents.clear();
+    this.caravans.clear();
+    this.soldiers = [];
+    this.hero = null;
+    this.village = null;
+    this.flame = null;
+    this.flameInner = null;
+
     this.renderer.dispose();
+    try {
+      this.renderer.forceContextLoss();
+    } catch {
+      // Старый драйвер может не отдать контекст — тогда его заберёт сборщик.
+    }
+  }
+
+  /**
+   * Что сцена держит в памяти сейчас. Цифры рендерера, а не догадка: по ним и
+   * меряется размен «выгружаем диораму — платим сборкой» (docs/loading.md).
+   */
+  memory(): { geometries: number; textures: number; programs: number; bytes: number } {
+    const info = this.renderer.info;
+    // Счётчики рендерера — штуки, а вопрос про байты. Считаем сами: буфер
+    // вершин ровно столько и весит, и в видеопамяти, и в куче.
+    let bytes = 0;
+    const seen = new Set<THREE.BufferGeometry>();
+    this.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      const geo = mesh.geometry;
+      if (!geo || seen.has(geo)) return;
+      seen.add(geo);
+      for (const attr of Object.values(geo.attributes)) {
+        bytes += (attr as THREE.BufferAttribute).array.byteLength;
+      }
+      if (geo.index) bytes += geo.index.array.byteLength;
+      const inst = mesh as THREE.InstancedMesh;
+      if (inst.isInstancedMesh) {
+        bytes += inst.instanceMatrix.array.byteLength;
+        if (inst.instanceColor) bytes += inst.instanceColor.array.byteLength;
+      }
+    });
+    return {
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      programs: info.programs?.length ?? 0,
+      bytes,
+    };
   }
 
   // ---------- Выбор здания ----------
@@ -805,7 +879,7 @@ export class TribeScene {
   // ---------- Анимация ----------
 
   private loop = (): void => {
-    if (this.disposed || this.paused) return;
+    if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
     this.frame();
   };
