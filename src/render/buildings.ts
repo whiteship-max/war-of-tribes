@@ -436,37 +436,30 @@ function sawmill(): THREE.Group {
   return new THREE.Group().add(K.assemble(a));
 }
 
-/** Каменоломня: уступы → выработка с воротом → большой карьер с краном. */
-function quarry(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const s = [1.0, 1.25, 1.55][t];
-  g.add(pad(1.6 * s));
-  g.add(box(2.0 * s, 0.3, 1.7 * s, M.stone, 0, 0.15, 0));
-  g.add(box(1.4 * s, 0.3, 1.2 * s, M.stone, -0.25, 0.45, -0.15));
-  g.add(box(0.8 * s, 0.3, 0.8 * s, M.stoneDark, -0.5, 0.75, -0.25));
-  for (let i = 0; i < 3 + t * 2; i++) {
-    const r = shadow(new THREE.Mesh(new THREE.DodecahedronGeometry(0.22, 0), M.stoneDark));
-    r.position.set(0.6 * s + (i % 3) * 0.3, 0.4, 0.5 * s - Math.floor(i / 3) * 0.5);
-    r.rotation.set(i, i * 2, 0);
-    g.add(r);
+/** Невысокий выход породы и отделённый блок на салазках. */
+function quarry(): THREE.Group {
+  const stone = K.paintOf('stone'), dark = K.paintOf('stoneDark');
+  const wood = K.paintOf('woodDark'), metal = K.paintOf('metal');
+  const a: K.Part[] = [
+    K.cyl(0.74, 1.08, 0.72, dark, 5, -0.45, 0.36, -0.46, {y: 0.32}),
+    K.cyl(0.42, 0.66, 0.93, stone, 5, -0.87, 0.68, -0.68, {z: -0.17}),
+    K.box(0.92, 0.64, 0.34, stone, -0.08, 0.38, 0.12, {y: -0.16})];
+  // Линия раскола с забитыми железными клиньями.
+  a.push(K.box(0.65, 0.022, 0.065, dark, -0.05, 0.709, 0.1));
+  for (const x of [-0.3, -0.04, 0.22]) {
+    a.push(K.cone(0.055, 0.2, metal, 4, x, 0.73, 0.1, {z: Math.PI}));
+    a.push(K.box(0.09, 0.055, 0.09, metal, x, 0.85, 0.1));
   }
-  if (t === 0) {
-    const handle = cyl(0.04, 0.04, 1.0, st.post, 4, 0.85, 0.55, 0.75);
-    handle.rotation.z = 0.45;
-    g.add(handle);
-    g.add(box(0.5, 0.09, 0.09, M.metal, 0.63, 1.0, 0.75));
-  } else {
-    // Ворот с укосиной: тёсаные блоки поднимают, а не таскают.
-    const h = t === 1 ? 2.2 : 3.2;
-    g.add(cyl(0.11, 0.13, h, st.post, 6, 0.9 * s, h / 2, 0.8 * s));
-    const boom = cyl(0.08, 0.08, h * 0.8, st.post, 5, 0.9 * s - h * 0.28, h * 0.9, 0.8 * s);
-    boom.rotation.z = 1.15;
-    g.add(boom);
-    g.add(box(0.05, h * 0.45, 0.05, M.metal, 0.9 * s - h * 0.55, h * 0.72, 0.8 * s));
-    g.add(box(0.42, 0.42, 0.42, M.stone, 0.9 * s - h * 0.55, 0.21, 0.8 * s));
-    if (t === 2) for (let i = 0; i < 4; i++) g.add(box(0.5, 0.32, 0.5, M.stone, -1.5, 0.16 + (i % 2) * 0.32, -1.0 + Math.floor(i / 2) * 0.6));
-  }
-  return g;
+  // Салазки и тяговые полозья — признак добытого строительного блока.
+  for (const x of [0.55, 1.08]) a.push(K.box(0.13, 0.15, 1.52, wood, x, 0.12, 0.6));
+  for (const z of [0.15, 0.55, 0.95]) a.push(K.box(0.82, 0.12, 0.17, K.paintOf('plank'), 0.81, 0.24, z));
+  a.push(K.box(0.69, 0.52, 0.7, stone, 0.81, 0.56, 0.45));
+  for (const z of [0.24, 0.65]) a.push(K.box(0.72, 0.035, 0.035, wood, 0.81, 0.84, z));
+  for (const [x,z,r] of [[-0.75,0.53,0.18],[-0.42,0.73,0.12],[0,0.65,0.16],[-1.15,0.16,0.13]])
+    a.push(K.cyl(r * 0.5, r, r, dark, 5, x, r / 2, z, {y: x}));
+  a.push(K.box(0.07, 0.83, 0.07, wood, -0.35, 0.44, 0.8, {z: -0.48}));
+  a.push(K.box(0.32, 0.14, 0.15, metal, -0.17, 0.8, 0.8));
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Охотничий домик: изба со шкурами → двор с сушилами → длинная промысловая изба. */
@@ -1498,7 +1491,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'sawmill':
       return sawmill();
     case 'quarry':
-      return quarry(tier, st);
+      return quarry();
     case 'hunter_hut':
       return hunterHut(tier, st);
     case 'mine':
