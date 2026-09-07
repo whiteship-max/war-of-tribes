@@ -485,9 +485,16 @@ function craftTable(x: number, z: number, length = 1.35): K.Part[] {
   return a;
 }
 function workshop(t: Tier, st: Style): THREE.Group {
-  if(t>0) return workshopOld(t,st);
+  if(t>1) return workshopOld(t,st);
   const wood=K.paintOf('woodDark');
-  const a=militaryShed(1.8,1.3,1.5,0,-0.25);
+  const a=militaryShed(t===0?1.8:2.5,1.3,t===0?1.5:1.8,0,-0.25);
+  if(t>=1) {
+    a.push(K.box(2.45,1.6,0.12,K.paintOf('plank'),0,0.9,-0.86));
+    for(const x of [-1.16,1.16]) a.push(K.box(0.12,1.6,1.3,K.paintOf('wood'),x,0.9,-0.25));
+    a.push(...craftTable(0,-0.38,1.7));
+    a.push(K.cyl(0.13,0.13,0.75,K.paintOf('cut'),6,0,1.03,-0.38,{z:Math.PI/2}));
+    for(const x of [-0.57,0.57]) a.push(K.box(0.1,0.38,0.2,wood,x,0.88,-0.38));
+  }
   a.push(...craftTable(0,0.26));
   a.push(K.box(0.75,0.11,0.19,K.paintOf('cut'),0,0.77,0.26));
   for(const x of [-0.47,-0.3]) a.push(K.box(0.1,0.23,0.22,K.paintOf('metal'),x,0.8,0.49));
