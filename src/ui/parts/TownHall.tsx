@@ -94,7 +94,9 @@ function Manage({ b }: { b: Building }) {
             className={`choice-opt${decree.id === d.id ? ' on' : ''}`}
             onClick={() => act((st) => setDecree(st, d.id))}
           >
-            <span className="ico">{d.icon}</span>
+            <span className="ico">
+              <Icon name={`decree-${d.id}`} glyph={d.icon} />
+            </span>
             <b>{d.name}</b>
             <small>{d.effect}</small>
           </button>
@@ -109,7 +111,9 @@ function Manage({ b }: { b: Building }) {
             className={`choice-opt${ration.id === r.id ? ' on' : ''}`}
             onClick={() => act((st) => setRation(st, r.id))}
           >
-            <span className="ico">{r.icon}</span>
+            <span className="ico">
+              <Icon name={`ration-${r.id}`} glyph={r.icon} />
+            </span>
             <b>{r.name}</b>
             <small>{r.effect}</small>
           </button>
@@ -120,7 +124,7 @@ function Manage({ b }: { b: Building }) {
         Казна <span className="muted">+{taxIncomePerDay(s).toFixed(1)} в день</span>
       </h3>
       <div className="mod total">
-        <span className="ico"><Icon name="ui-treasury" glyph="💰" /></span>
+        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
         <span className="name">Золото</span>
         <span className="val pos">{Math.floor(s.gold)}</span>
       </div>
@@ -138,7 +142,9 @@ function Manage({ b }: { b: Building }) {
             className={`choice-opt${tax.id === t.id ? ' on' : ''}`}
             onClick={() => act((st) => setTax(st, t.id))}
           >
-            <span className="ico">{t.icon}</span>
+            <span className="ico">
+              <Icon name={`tax-${t.id}`} glyph={t.icon} />
+            </span>
             <b>{t.name}</b>
             <small>{t.effect}</small>
           </button>

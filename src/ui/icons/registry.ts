@@ -12,7 +12,9 @@
 // Модуль чистый: ни React, ни DOM. Его читают двое — сборка значков
 // (scripts/build-icons.ts) и сам интерфейс, — и второй правды между ними быть не должно.
 import { BATTLE_ART } from '@/battle/report';
-import { DEALS } from '@/world/data/figures';
+import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
+import { LETTER_KINDS } from '@/world/data/letters';
+import { DEALS, FIGURES } from '@/world/data/figures';
 import { DIPLO_ACTIONS, STANDING_META } from '@/world/data/diplomacy';
 import { RELATION_ORDER, STAGES } from '@/world/data/meta';
 import { SPY_ACTIONS } from '@/world/data/spy';
@@ -71,6 +73,14 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   // значком (CASTLE_ICON), поэтому в список стадий добавляется отдельно.
   { prefix: 'stage', ids: [...STAGES.map((s) => s.id), 'castle'], source: 'STAGES + замок' },
   { prefix: 'rel', ids: RELATION_ORDER, source: 'RELATION_ORDER' },
+  { prefix: 'fig', ids: FIGURES.map((f) => f.id), source: 'FIGURES' },
+  // Только поводы. Трёх состояний письма (пришло, прочитано, просрочено), которых
+  // просит техзадание, в игре нет: у `Letter` нет поля прочтения, а завести его —
+  // правка модели писем и сохранения, а не арта. Разбор — в OBJECTS.md.
+  { prefix: 'letter', ids: LETTER_KINDS.map((l) => l.id), source: 'LETTER_KINDS' },
+  { prefix: 'decree', ids: DECREES.map((d) => d.id), source: 'DECREES' },
+  { prefix: 'ration', ids: RATIONS.map((r) => r.id), source: 'RATIONS' },
+  { prefix: 'tax', ids: TAXES.map((x) => x.id), source: 'TAXES' },
   { prefix: 'state', ids: Object.keys(STANDING_META), source: 'STANDING_META' },
   { prefix: 'deal', ids: DEALS.map((d) => d.id), source: 'DEALS' },
   { prefix: 'dip', ids: DIPLO_ACTIONS.map((a) => a.id), source: 'DIPLO_ACTIONS' },
@@ -85,7 +95,10 @@ export const ICON_GROUPS: readonly IconGroup[] = [
     prefix: 'ui',
     ids: [
       'warning', 'site', 'time',
-      'loot', 'person', 'hammer', 'scroll', 'book', 'treasury', 'pouch', 'crate', 'wagon',
+      // 'treasury' в накладной нет нарочно: единственное место, где показывалась казна,
+      // это строка золота в ратуше — а на той же вкладке стоят три сундука налога.
+      // Разбор пары — в assets-src/icons/OBJECTS.md.
+      'loot', 'person', 'hammer', 'scroll', 'book', 'pouch', 'crate', 'wagon',
       'ruler', 'eye', 'eye-off', 'pin', 'home', 'banner', 'grave', 'bandage', 'spyglass',
       'bolt', 'target',
     ],

@@ -12,6 +12,7 @@ import { MISSION_BY_ID } from '@/world/data/meta';
 import { UNITS } from '@/world/data/units';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import type { Loot, MarchView, Report, ReportKind, UnitStack } from '@/world/types';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Иконка отчёта: набег, разведка, поддержка или оборона дома. */
 const REPORT_ICON: Record<ReportKind, string> = {
@@ -102,7 +103,9 @@ export function MarchesPanel() {
                 : (f.atName ?? 'в поле');
         return (
           <div className={`card${f.phase === 'down' ? ' lost' : ''}`} key={f.id}>
-            <div className="ico">{f.icon}</div>
+            <div className="ico">
+              <Icon name={`fig-${f.id}`} glyph={f.icon} />
+            </div>
             <div className="body">
               <div className="title">
                 {f.name}

@@ -5,7 +5,7 @@
 // картинку или оставить эмодзи. Накладная — то, что игра ждёт, — лежит рядом,
 // в registry.ts, и собирается из данных игры.
 //
-// Лист: 141 символов, 49.4 КБ на диске, 10.0 КБ по сети.
+// Лист: 158 символов, 54.7 КБ на диске, 10.9 КБ по сети.
 
 export const ICON_SHEET = '/assets/icons/sprite.svg';
 
@@ -61,11 +61,18 @@ export const DRAWN_ICONS: readonly string[] = [
   'deal-trade',
   'deal-tribute',
   'deal-truce',
+  'decree-freedom',
+  'decree-none',
+  'decree-order',
   'dip-gift',
   'dip-insult',
   'dip-pact',
   'dip-peace',
   'dip-war',
+  'fig-diplomat',
+  'fig-general',
+  'fig-scout',
+  'fig-spy',
   'gear-armor',
   'gear-axe',
   'gear-bow',
@@ -86,11 +93,19 @@ export const DRAWN_ICONS: readonly string[] = [
   'job-smith',
   'job-stonecutter',
   'job-woodcutter',
+  'letter-alliance',
+  'letter-pact',
+  'letter-raid',
+  'letter-ransom',
+  'letter-tribute',
   'mood-bad',
   'mood-good',
   'mood-mid',
   'nav-people',
   'nav-quests',
+  'ration-lean',
+  'ration-normal',
+  'ration-rich',
   'rel-ally',
   'rel-barbarian',
   'rel-enemy',
@@ -119,6 +134,9 @@ export const DRAWN_ICONS: readonly string[] = [
   'state-neutral',
   'state-pact',
   'state-war',
+  'tax-high',
+  'tax-moderate',
+  'tax-none',
   'troop-archer',
   'troop-axeman',
   'troop-clubman',
@@ -148,7 +166,6 @@ export const DRAWN_ICONS: readonly string[] = [
   'ui-spyglass',
   'ui-target',
   'ui-time',
-  'ui-treasury',
   'ui-wagon',
   'ui-warning',
 ];

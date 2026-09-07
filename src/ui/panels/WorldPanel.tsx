@@ -212,7 +212,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               })();
             }}
           >
-            {d.icon} {down ? `${d.name}: ранен ${formatLeft(secondsLeft(f?.downUntil ?? 0, worldNow()))}` : `Вести ${d.one}`}
+            <Icon name={`fig-${d.id}`} glyph={d.icon} /> {down ? `${d.name}: ранен ${formatLeft(secondsLeft(f?.downUntil ?? 0, worldNow()))}` : `Вести ${d.one}`}
           </button>
         );
       })}

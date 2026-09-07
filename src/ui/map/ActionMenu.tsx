@@ -80,7 +80,9 @@ export function ActionMenu() {
     <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()}>
       <div className="am">
         <div className="am-head">
-          <span className="ico">{def.icon}</span>
+          <span className="ico">
+            <Icon name={`fig-${def.id}`} glyph={def.icon} />
+          </span>
           <div className="body">
             <b>
               {def.name} → {menu.name}
@@ -315,7 +317,9 @@ export function ActionMenu() {
         )}
 
         <button className="am-row lead" disabled={here} onClick={() => void lead()}>
-          <span className="ico">{def.icon}</span>
+          <span className="ico">
+            <Icon name={`fig-${def.id}`} glyph={def.icon} />
+          </span>
           <span className="body">
             <b>{here ? `${def.name} уже здесь` : `Вести ${def.one} сюда`}</b>
             <i>{here ? 'Дальше приказывай отсюда.' : 'Идти будет столько, сколько велит дорога.'}</i>
@@ -330,7 +334,7 @@ export function ActionMenu() {
               className={`am-agent${d.id === menu.agent ? ' active' : ''}`}
               onClick={() => void useWorld.getState().openMenu(d.id, menu.cell)}
             >
-              {d.icon}
+              <Icon name={`fig-${d.id}`} glyph={d.icon} />
             </button>
           ))}
         </div>

@@ -5,6 +5,7 @@ import { useWorld, worldNow } from '@/world/store';
 import { formatLeft } from '@/world/geo';
 import type { LetterView } from '@/world/types';
 import type { GameState } from '@/game/types';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Столбик писем слева внизу и открытое письмо.
@@ -66,7 +67,9 @@ export function Letters() {
             onClick={() => show(l.id)}
             data-tut={`letter-${l.kind}`}
           >
-            <span className="ic">{l.icon}</span>
+            <span className="ic">
+              <Icon name={`letter-${l.kind}`} glyph={l.icon} />
+            </span>
             <span className="txt">
               <b>{l.title}</b>
               <small>
@@ -97,7 +100,9 @@ function LetterCard({ letter }: { letter: LetterView }) {
   return (
     <div className="modal-backdrop" onClick={() => show(null)}>
       <div className="modal letter-card" onClick={(e) => e.stopPropagation()}>
-        <div className="m-ico">{letter.icon}</div>
+        <div className="m-ico">
+          <Icon name={`letter-${letter.kind}`} glyph={letter.icon} />
+        </div>
         <h2>{letter.title}</h2>
         <p>{letter.body}</p>
         <p className="letter-left">

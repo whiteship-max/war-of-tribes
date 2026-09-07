@@ -588,7 +588,9 @@ export function WorldMap() {
               centerOn(figurePosition(f, worldNow()));
             }}
           >
-            <span className="ico">{f.icon}</span>
+            <span className="ico">
+              <Icon name={`fig-${f.id}`} glyph={f.icon} />
+            </span>
             <em>{figureNote(f)}</em>
           </button>
         ))}
