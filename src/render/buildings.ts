@@ -334,9 +334,8 @@ function tradeBarrel(x: number, y: number, z: number): K.Part[] {
     K.cyl(0.2, 0.21, 0.055, band, 8, x, y + 0.32, z)];
 }
 
-function storage(t: Tier, st: Style): THREE.Group {
-  if (t > 1) return storageLegacy(t, st);
-  if (t === 1) return storageDepot(t);
+function storage(t: Tier): THREE.Group {
+  if (t >= 1) return storageDepot(t);
   const p = stylePaint();
   const a: K.Part[] = [K.box(2.15, 0.3, 1.65, p.base, 0, 0.15, 0)];
   for (const x of [-0.94, 0.94]) for (const z of [-0.68, 0.68])
@@ -352,9 +351,9 @@ function storage(t: Tier, st: Style): THREE.Group {
 
 function storageDepot(t: Tier): THREE.Group {
   const p = stylePaint();
-  const w = 2.65, d = 1.75, h = 1.85;
+  const w = t === 2 ? 3.05 : 2.65, d = 1.75, h = t === 2 ? 2.25 : 1.85;
   const a: K.Part[] = [K.box(w + 0.2, 0.34, d + 0.7, p.base, 0, 0.17, 0.2),
-    K.box(w, h, d, p.floor, 0, 0.34 + h / 2, -0.15)];
+    K.box(w, h, d, t === 2 ? p.wall : p.floor, 0, 0.34 + h / 2, -0.15)];
   a.push(...K.roofGable(w, d, 0.65, h + 0.34, p.roofPaint, 0.17, 0, -0.15));
   for (const x of [-w / 2, 0, w / 2]) a.push(K.box(0.13, h, 0.1, p.beam, x, 0.34 + h / 2, 0.75));
   a.push(K.box(w, 0.12, 0.1, p.beam, 0, 1.5, 0.77));
@@ -368,37 +367,20 @@ function storageDepot(t: Tier): THREE.Group {
   for (const z of [-0.5, 0.04, 0.58]) a.push(...tradeBarrel(-1.75, 0, z));
   for (const [x,y] of [[0.92,0.34],[1.39,0.34],[1.15,0.78]])
     a.push(K.box(0.43, 0.42, 0.43, p.floor, x, y + 0.21, 1.02));
-  return K.assemble(a);
-}
-
-function storageLegacy(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [1.5, 2.0, 2.7][t];
-  const d = [1.3, 1.6, 1.9][t];
-  const h = [0.9, 1.15, 1.4][t];
-  for (const [x, z] of [
-    [-w * 0.4, -d * 0.38],
-    [w * 0.4, -d * 0.38],
-    [-w * 0.4, d * 0.38],
-    [w * 0.4, d * 0.38],
-  ])
-    g.add(cyl(0.06, 0.07, 0.5, st.post, 5, x, 0.25, z));
-  g.add(box(w, h, d, st.wall, 0, 0.5 + h / 2, 0));
-  gable(g, w * 1.2, d * 1.25, 0.5 + h, [0.16, 0.24, 0.3][t], st.roof);
-  // Лестница ко входу — сразу видно, что амбар поднят над землёй.
-  const ladder = box(0.4, 0.06, 0.9, st.post, 0, 0.32, d * 0.62);
-  ladder.rotation.x = 0.55;
-  g.add(ladder);
-  if (t >= 1) {
-    for (let i = 0; i < 3; i++) g.add(cyl(0.22, 0.2, 0.44, st.post, 8, -w * 0.55 - 0.25, 0.22, -0.5 + i * 0.5));
-  }
   if (t === 2) {
-    // Второй сруб и штабель ящиков: склад стал двором.
-    g.add(box(w * 0.55, h * 0.75, d * 0.8, st.wall, w * 0.75, 0.4 + h * 0.37, -d * 0.15));
-    g.add(box(w * 0.7, 0.09, d * 0.95, st.roofDark, w * 0.75, 0.4 + h * 0.78, -d * 0.15));
-    for (let i = 0; i < 3; i++) g.add(box(0.42, 0.34, 0.42, st.post, 0.3 - i * 0.45, 0.17 + (i === 1 ? 0.34 : 0), d * 0.85));
+    // Верхний грузовой люк и вынесенная балка отличают лабаз от жилья.
+    a.push(K.box(0.65, 0.55, 0.08, p.ink, 0, 2.26, 0.78));
+    a.push(K.box(0.75, 0.1, 0.23, p.floor, 0, 1.98, 0.89));
+    a.push(K.box(0.16, 0.18, 1.35, p.beam, 0, 2.64, 1.04));
+    a.push(K.cyl(0.14, 0.14, 0.1, K.paintOf('metal'), 8, 0, 2.58, 1.53, {z: Math.PI / 2}));
+    a.push(K.box(0.035, 1.3, 0.035, p.post, 0, 1.9, 1.53));
+    a.push(K.box(0.46, 0.43, 0.46, p.floor, 0, 1.07, 1.53));
+    for (const x of [-w / 2, w / 2]) for (const y of [0.55, 1.05, 1.55, 2.05])
+      a.push(K.box(0.25, 0.2, 0.14, p.base, x, y, 0.79));
+    a.push(K.box(1.05, 0.13, 1.45, p.floor, 2.02, 0.38, -0.15));
+    for (const z of [-0.57, 0.08]) a.push(...tradeBarrel(2.02, 0.45, z));
   }
-  return g;
+  return K.assemble(a);
 }
 
 /** Навес собирателей: один навес → навес с сушилами → торговые ряды. */
@@ -1430,7 +1412,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'houses':
       return houses(tier);
     case 'storage':
-      return storage(tier, st);
+      return storage(tier);
     case 'gathering':
       return gathering(tier, st);
     case 'sawmill':
