@@ -1390,13 +1390,31 @@ function watchRail(w: number, y: number): K.Part[] {
 
 /** Памятник — самостоятельная каменная скульптура, не экземпляр бойца. */
 function statue(t: Tier, st: Style): THREE.Group {
-  if (t > 0) return statueLegacy(t, st);
+  if (t > 1) return statueLegacy(t, st);
+  if (t === 1) {
+    const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
+    const a: K.Part[] = [K.box(1.65, 0.2, 1.65, dark, 0, 0.1, 0),
+      K.box(1.28, 0.18, 1.28, stone, 0, 0.29, 0),
+      K.box(0.68, 1.72, 0.62, stone, 0, 1.24, 0),
+      K.box(0.9, 0.19, 0.84, dark, 0, 2.16, 0)];
+    a.push(...monumentShield(0, 1.32, 0.4, 0.43));
+    for (const x of [-0.24, 0, 0.24]) a.push(K.box(0.035, 0.17, 0.025, dark, x, 0.58, 0.32));
+    return new THREE.Group().add(K.assemble(a));
+  }
   const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
   const a: K.Part[] = [K.cyl(0.65, 0.82, 0.24, dark, 7, 0, 0.12, 0),
     K.cyl(0.38, 0.54, 1.27, stone, 5, 0, 0.84, 0),
     K.box(0.36, 0.14, 0.29, stone, -0.08, 1.48, 0, {z: -0.12})];
   for (let i = 0; i < 3; i++) a.push(K.box(0.21, 0.035, 0.035, dark, 0, 0.7 + i * 0.16, 0.39 - i * 0.02, {z: 0.22}));
   return new THREE.Group().add(K.assemble(a));
+}
+
+function monumentShield(x: number, y: number, z: number, r: number): K.Part[] {
+  const stone = K.paintOf('stoneDark'); const gold = K.paintOf('gold');
+  return [K.cyl(r, r, 0.13, stone, 8, x, y, z, {x: Math.PI / 2}),
+    K.cyl(r * 0.84, r * 0.84, 0.035, gold, 8, x, y, z + 0.085, {x: Math.PI / 2}),
+    K.box(0.075, r * 1.1, 0.04, stone, x, y, z + 0.12),
+    K.box(r * 0.9, 0.075, 0.04, stone, x, y + r * 0.12, z + 0.12)];
 }
 
 function statueLegacy(t: Tier, st: Style): THREE.Group {
