@@ -477,7 +477,26 @@ function mine(): THREE.Group {
 }
 
 /** Мастерская: открытый навес → закрытая мастерская → ремесленный двор. */
+/** Открытый рабочий стол сохраняется при росте мастерской. */
+function craftTable(x: number, z: number, length = 1.35): K.Part[] {
+  const wood=K.paintOf('woodDark'), plank=K.paintOf('plank');
+  const a=[K.box(length,0.13,0.58,plank,x,0.64,z)];
+  for(const dx of [-length*0.38,length*0.38]) for(const dz of [-0.21,0.21]) a.push(K.box(0.1,0.6,0.1,wood,x+dx,0.3,z+dz));
+  return a;
+}
 function workshop(t: Tier, st: Style): THREE.Group {
+  if(t>0) return workshopOld(t,st);
+  const wood=K.paintOf('woodDark');
+  const a=militaryShed(1.8,1.3,1.5,0,-0.25);
+  a.push(...craftTable(0,0.26));
+  a.push(K.box(0.75,0.11,0.19,K.paintOf('cut'),0,0.77,0.26));
+  for(const x of [-0.47,-0.3]) a.push(K.box(0.1,0.23,0.22,K.paintOf('metal'),x,0.8,0.49));
+  a.push(K.box(0.3,0.06,0.07,wood,-0.39,0.72,0.65));
+  for(const x of [-0.44,0.12,0.5]) a.push(K.cyl(0.16,0.21,0.025,K.paintOf('cut'),6,x,0.03,0.82));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function workshopOld(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [1.8, 2.2, 2.8][t];
   const d = [1.6, 1.9, 2.2][t];
