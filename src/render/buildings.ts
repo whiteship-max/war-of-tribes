@@ -326,34 +326,61 @@ function houses(t: Tier): THREE.Group {
 }
 
 /** Склад: амбар на сваях → амбар с пристройкой и бочками → длинный лабаз. */
-function storage(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [1.5, 2.0, 2.7][t];
-  const d = [1.3, 1.6, 1.9][t];
-  const h = [0.9, 1.15, 1.4][t];
-  for (const [x, z] of [
-    [-w * 0.4, -d * 0.38],
-    [w * 0.4, -d * 0.38],
-    [-w * 0.4, d * 0.38],
-    [w * 0.4, d * 0.38],
-  ])
-    g.add(cyl(0.06, 0.07, 0.5, st.post, 5, x, 0.25, z));
-  g.add(box(w, h, d, st.wall, 0, 0.5 + h / 2, 0));
-  gable(g, w * 1.2, d * 1.25, 0.5 + h, [0.16, 0.24, 0.3][t], st.roof);
-  // Лестница ко входу — сразу видно, что амбар поднят над землёй.
-  const ladder = box(0.4, 0.06, 0.9, st.post, 0, 0.32, d * 0.62);
-  ladder.rotation.x = 0.55;
-  g.add(ladder);
-  if (t >= 1) {
-    for (let i = 0; i < 3; i++) g.add(cyl(0.22, 0.2, 0.44, st.post, 8, -w * 0.55 - 0.25, 0.22, -0.5 + i * 0.5));
+/** Груз на высоком настиле — общий знак склада на всех ступенях. */
+function tradeBarrel(x: number, y: number, z: number): K.Part[] {
+  const wood = K.paintOf('wood'); const band = K.paintOf('woodDark');
+  return [K.cyl(0.19, 0.22, 0.4, wood, 8, x, y + 0.2, z),
+    K.cyl(0.205, 0.22, 0.055, band, 8, x, y + 0.08, z),
+    K.cyl(0.2, 0.21, 0.055, band, 8, x, y + 0.32, z)];
+}
+
+function storage(t: Tier): THREE.Group {
+  if (t >= 1) return storageDepot(t);
+  const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') };
+  const a: K.Part[] = [K.box(2.15, 0.3, 1.65, p.base, 0, 0.15, 0)];
+  for (const x of [-0.94, 0.94]) for (const z of [-0.68, 0.68])
+    a.push(K.box(0.14, 1.45, 0.14, p.post, x, 1.02, z));
+  a.push(K.box(2.1, 0.14, 0.14, p.beam, 0, 1.66, 0.68));
+  a.push(...K.roofGable(2.12, 1.55, 0.35, 1.72, p.roofPaint, 0.12));
+  for (const x of [-0.62, -0.12, 0.38]) a.push(...tradeBarrel(x, 0.3, -0.25));
+  a.push(...tradeBarrel(-0.62, 0.3, 0.28));
+  a.push(K.box(0.46, 0.42, 0.46, p.floor, 0.55, 0.51, 0.42));
+  a.push(K.box(0.85, 0.12, 0.4, p.base, 0, 0.06, 1.02));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function storageDepot(t: Tier): THREE.Group {
+  const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') };
+  const w = t === 2 ? 3.05 : 2.65, d = 1.75, h = t === 2 ? 2.25 : 1.85;
+  const a: K.Part[] = [K.box(w + 0.2, 0.34, d + 0.7, p.base, 0, 0.17, 0.2),
+    K.box(w, h, d, t === 2 ? p.wall : p.floor, 0, 0.34 + h / 2, -0.15)];
+  a.push(...K.roofGable(w, d, 0.65, h + 0.34, p.roofPaint, 0.17, 0, -0.15));
+  for (const x of [-w / 2, 0, w / 2]) a.push(K.box(0.13, h, 0.1, p.beam, x, 0.34 + h / 2, 0.75));
+  a.push(K.box(w, 0.12, 0.1, p.beam, 0, 1.5, 0.77));
+  a.push(K.box(1.15, 1.4, 0.08, p.ink, 0, 1.04, 0.78));
+  for (const x of [-0.3, 0.3]) {
+    a.push(K.box(0.54, 1.32, 0.08, p.post, x, 1.02, 0.85));
+    a.push(K.box(0.54, 0.07, 0.05, p.floor, x, 0.7, 0.91));
+    a.push(K.box(0.54, 0.07, 0.05, p.floor, x, 1.37, 0.91));
   }
+  a.push(K.box(1.25, 0.15, 0.35, p.base, 0, 0.075, 1.4));
+  for (const z of [-0.5, 0.04, 0.58]) a.push(...tradeBarrel(-1.75, 0, z));
+  for (const [x,y] of [[0.92,0.34],[1.39,0.34],[1.15,0.78]])
+    a.push(K.box(0.43, 0.42, 0.43, p.floor, x, y + 0.21, 1.02));
   if (t === 2) {
-    // Второй сруб и штабель ящиков: склад стал двором.
-    g.add(box(w * 0.55, h * 0.75, d * 0.8, st.wall, w * 0.75, 0.4 + h * 0.37, -d * 0.15));
-    g.add(box(w * 0.7, 0.09, d * 0.95, st.roofDark, w * 0.75, 0.4 + h * 0.78, -d * 0.15));
-    for (let i = 0; i < 3; i++) g.add(box(0.42, 0.34, 0.42, st.post, 0.3 - i * 0.45, 0.17 + (i === 1 ? 0.34 : 0), d * 0.85));
+    // Верхний грузовой люк и вынесенная балка отличают лабаз от жилья.
+    a.push(K.box(0.65, 0.55, 0.08, p.ink, 0, 2.26, 0.78));
+    a.push(K.box(0.75, 0.1, 0.23, p.floor, 0, 1.98, 0.89));
+    a.push(K.box(0.16, 0.18, 1.35, p.beam, 0, 2.64, 1.04));
+    a.push(K.cyl(0.14, 0.14, 0.1, K.paintOf('metal'), 8, 0, 2.58, 1.53, {z: Math.PI / 2}));
+    a.push(K.box(0.035, 1.3, 0.035, p.post, 0, 1.9, 1.53));
+    a.push(K.box(0.46, 0.43, 0.46, p.floor, 0, 1.07, 1.53));
+    for (const x of [-w / 2, w / 2]) for (const y of [0.55, 1.05, 1.55, 2.05])
+      a.push(K.box(0.25, 0.2, 0.14, p.base, x, y, 0.79));
+    a.push(K.box(1.05, 0.13, 1.45, p.floor, 2.02, 0.38, -0.15));
+    for (const z of [-0.57, 0.08]) a.push(...tradeBarrel(2.02, 0.45, z));
   }
-  return g;
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Навес собирателей: один навес → навес с сушилами → торговые ряды. */
@@ -998,59 +1025,56 @@ function stable(t: Tier): THREE.Group {
  *
  * Ступени: навесы из холста → ряды под крышей → каменные лавки со стягами.
  */
-function market(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const half = 2.45; // ось ряда: проезд между рядами шириной в две такие оси
-  const len = [1.2, 1.4, 1.45][t]; // половина длины ряда вдоль улицы
-  const h = [0.5, 0.55, 0.62][t];
-  const roofY = [1.25, 1.5, 1.7][t];
-
-  for (const side of [-1, 1]) {
-    const x = side * half;
-    // Прилавок: длинный короб вдоль улицы, товар лежит на нём.
-    g.add(box(0.9, h, len * 2, t === 2 ? M.stone : st.wall, x, h / 2, 0));
-    g.add(box(1.0, 0.08, len * 2 + 0.1, st.floor, x, h + 0.04, 0));
-    // Столбы навеса.
-    for (const z of [-len + 0.15, len - 0.15]) {
-      g.add(cyl(0.06, 0.07, roofY, st.post, 5, x - 0.42, roofY / 2, z));
-      g.add(cyl(0.06, 0.07, roofY, st.post, 5, x + 0.42, roofY / 2, z));
-    }
-    if (t === 0) {
-      // Холст на жердях — самый первый торг.
-      const cloth = box(1.15, 0.05, len * 2, M.hide, x, roofY, 0);
-      cloth.rotation.z = side * 0.12;
-      g.add(cloth);
-    } else {
-      gable(g, 1.2, len * 2.1, roofY, 0.26 + t * 0.06, st.roof, x, 0);
-    }
-    // Товар на прилавке: мешки, короба и бочка в торце.
-    for (let i = 0; i < 3; i++) {
-      const z = -len * 0.6 + i * len * 0.6;
-      g.add(box(0.3, 0.22, 0.3, i % 2 === 0 ? st.accent : M.woodDark, x - side * 0.15, h + 0.19, z));
-    }
-    g.add(cyl(0.2, 0.18, 0.42, M.woodDark, 8, x + side * 0.28, 0.21, side * (len - 0.05)));
-    if (t >= 1) {
-      // Весы — знак общей меры: без неё торга не бывает.
-      const scaleX = x + side * 0.3;
-      const scaleZ = -len - 0.2;
-      g.add(cyl(0.05, 0.06, 0.9, st.post, 5, scaleX, 0.45, scaleZ));
-      g.add(box(0.55, 0.05, 0.05, st.accent, scaleX, 0.9, scaleZ));
-      for (const d of [-0.24, 0.24]) {
-        g.add(cyl(0.09, 0.07, 0.06, st.accent, 7, scaleX + d * side, 0.78, scaleZ));
+/** Открытые прилавки по краям воротной улицы; середину не занимать. */
+function market(t: Tier): THREE.Group {
+  if (t >= 1) {
+    const a: K.Part[] = [];
+    for (const x of [-2.45, 2.45]) for (const z of [-0.73, 0.73]) a.push(...tradeStall(x, z, 1.22));
+    if (t === 2) {
+      const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') };
+      // Весы подняты над товаром, коновязь снаружи ряда, не на дороге.
+      a.push(K.box(0.13, 2.05, 0.13, p.beam, -2.45, 1.025, -1.67));
+      a.push(K.box(0.82, 0.09, 0.09, p.accent, -2.45, 2.04, -1.67));
+      for (const x of [-2.77, -2.13]) {
+        a.push(K.box(0.025, 0.38, 0.025, p.post, x, 1.8, -1.67));
+        a.push(K.cyl(0.14, 0.06, 0.08, K.paintOf('metal'), 8, x, 1.59, -1.67));
+      }
+      for (const z of [-0.88, 0.88]) a.push(K.box(0.13, 0.84, 0.13, p.post, 3.15, 0.42, z));
+      a.push(K.box(0.12, 0.12, 1.88, p.beam, 3.15, 0.7, 0));
+      a.push(K.box(0.35, 0.23, 1.0, p.floor, 3.03, 0.15, 0));
+      a.push(...tradeBarrel(-3.05, 0, 0.55), ...tradeBarrel(-3.05, 0, -0.1));
+      for (const x of [-2.45, 2.45]) {
+        a.push(K.box(1.1, 0.1, 2.8, p.base, x, 0.05, 0));
+        a.push(K.box(0.08, 1.92, 0.08, p.post, x, 0.96, 1.55));
+        a.push(K.box(0.035, 0.35, 0.34, p.accent, x, 1.68, 1.42));
       }
     }
-    if (t === 2) {
-      // Стяги вдоль рядов: рынок стал лицом города.
-      const poleZ = side * (len + 0.15);
-      const poleX = x + side * 0.35;
-      g.add(cyl(0.05, 0.05, 1.9, st.post, 4, poleX, 0.95, poleZ));
-      // Стяг развёрнут вдоль улицы, а не поперёк: поперёк он лез бы за площадку.
-      g.add(box(0.03, 0.36, 0.5, st.accent, poleX, 1.7, poleZ - side * 0.24));
-      // Каменная лавка снаружи ряда: проезд между рядами она не занимает.
-      g.add(box(0.7, 0.16, len * 1.4, M.stoneDark, x + side * 0.55, 0.2, 0));
-    }
+    return new THREE.Group().add(K.assemble(a));
   }
-  return g;
+  return new THREE.Group().add(K.assemble(tradeStall(-2.45, 0, 1.65)));
+}
+
+function tradeStall(x: number, z: number, length: number): K.Part[] {
+  const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') }; const a: K.Part[] = [];
+  const side = Math.sign(x);
+  a.push(K.box(0.82, 0.52, length, p.post, x, 0.26, z));
+  a.push(K.box(0.94, 0.1, length + 0.08, p.floor, x, 0.57, z));
+  for (const dz of [-length / 2, length / 2]) {
+    a.push(K.box(0.09, 1.5, 0.09, p.beam, x + side * 0.35, 0.75, z + dz));
+    a.push(K.box(0.09, 1.26, 0.09, p.beam, x - side * 0.35, 0.63, z + dz));
+  }
+  // Полосы — цвет вершин существующих скатов, без текстуры и нового материала.
+  for (let i = 0; i < 5; i++) {
+    const dz = z - length / 2 + (i + 0.5) * length / 5;
+    const paint = i % 2 ? p.roof : { ...p.roof, tint: K.paintOf('cut').tint };
+    a.push(K.box(1.08, 0.055, length / 5, paint, x, 1.4, dz, {z: side * 0.22}));
+    a.push(K.box(0.04, 0.16, length / 5, paint, x - side * 0.52, 1.23, dz));
+  }
+  for (const dz of [-0.43, 0, 0.43]) {
+    a.push(K.box(0.42, 0.14, 0.32, p.beam, x, 0.69, z + dz));
+    a.push(K.cyl(0.12, 0.15, 0.17, K.paintOf('cut'), 6, x, 0.79, z + dz));
+  }
+  return a;
 }
 
 /**
@@ -1385,7 +1409,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'houses':
       return houses(tier);
     case 'storage':
-      return storage(tier, st);
+      return storage(tier);
     case 'gathering':
       return gathering(tier, st);
     case 'sawmill':
@@ -1413,7 +1437,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'barracks':
       return barracks(tier);
     case 'market':
-      return market(tier, st);
+      return market(tier);
     case 'statue':
       return statue(tier, st);
     case 'stable':
