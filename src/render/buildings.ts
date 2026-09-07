@@ -1322,6 +1322,34 @@ const STUBS: Record<string, Stub> = {
  * и статую переделают отдельно, — но габарит настоящий: место под неё на первом
  * кольце зарезервировано по третьей ступени десятого уровня.
  */
+/** Дозор: открытая галерея и лёгкая крыша вместо зубцов крепостной башни. */
+function watch(t: Tier, st: Style): THREE.Group {
+  if (t > 0) return stubModel(t, st, STUBS.watch);
+  const p = stylePaint(); const wood = K.paintOf('woodDark');
+  const a: K.Part[] = [];
+  for (const x of [-0.64, 0.64]) for (const z of [-0.64, 0.64])
+    a.push(K.box(0.18, 2.0, 0.18, wood, x, 1, z));
+  for (const x of [-0.64, 0.64]) {
+    a.push(K.box(0.1, 1.96, 0.12, p.beam, x, 1.05, 0, {x: 0.65}));
+    a.push(K.box(0.1, 1.96, 0.12, p.beam, x, 1.05, 0, {x: -0.65}));
+  }
+  a.push(K.box(1.7, 0.18, 1.7, K.paintOf('plank'), 0, 2.0, 0));
+  a.push(...watchRail(1.6, 2.08));
+  for (const x of [-0.25, 0.25]) a.push(K.box(0.07, 2.4, 0.09, wood, x, 1.13, 1.0, {x: -0.22}));
+  for (let i = 0; i < 8; i++) a.push(K.box(0.56, 0.07, 0.09, K.paintOf('plank'), 0, 0.25 + i * 0.24, 1.2 - i * 0.053));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function watchRail(w: number, y: number): K.Part[] {
+  const wood = K.paintOf('woodDark'); const a: K.Part[] = [];
+  for (const x of [-w / 2, w / 2]) for (const z of [-w / 2, w / 2])
+    a.push(K.box(0.1, 0.65, 0.1, wood, x, y + 0.325, z));
+  for (const x of [-w / 2, w / 2]) a.push(K.box(0.1, 0.1, w, wood, x, y + 0.58, 0));
+  a.push(K.box(w, 0.1, 0.1, wood, 0, y + 0.58, -w / 2));
+  for (const x of [-w * 0.33, w * 0.33]) a.push(K.box(w * 0.34, 0.1, 0.1, wood, x, y + 0.58, w / 2));
+  return a;
+}
+
 function statue(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const base = [0.95, 1.15, 1.4][t];
@@ -1442,8 +1470,9 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return statue(tier, st);
     case 'stable':
       return stable(tier);
-    case 'infirmary':
     case 'watch':
+      return watch(tier, st);
+    case 'infirmary':
     case 'cache':
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
