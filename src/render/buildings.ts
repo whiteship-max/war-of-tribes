@@ -170,24 +170,6 @@ function frame(g: THREE.Group, w: number, d: number, h: number, mat: THREE.Mater
 }
 
 /** Двускатная кровля из двух наклонных плит — читается как настоящая крыша. */
-function gable(
-  g: THREE.Group,
-  w: number,
-  d: number,
-  y: number,
-  rise: number,
-  mat: THREE.Material,
-  x = 0,
-  z = 0,
-): void {
-  for (const s of [-1, 1]) {
-    const half = box(w, 0.09, d * 0.62, mat, x, y + rise * 0.5, z + (s * d) / 4);
-    half.rotation.x = s * -0.5;
-    g.add(half);
-  }
-}
-
-/** Ограда по периметру: столбы и две жерди. */
 function campfire(st: Style): THREE.Group {
   const g = new THREE.Group();
   for (let i = 0; i < 7; i++) {
@@ -1222,112 +1204,6 @@ function palisade(t: Tier): THREE.Group {
 
 // ---------- Заглушки под будущие модели ----------
 //
-// Пять служб посёлка ждут настоящих моделей: их делают отдельно и не здесь.
-// Заглушка нужна ровно для одного — **габарит**. Он выбран сразу настоящим и
-// записан в `MODEL_RADIUS`, поэтому, когда придут готовые модели, переставлять
-// посёлок и пересчитывать план не придётся: место под каждое здание уже
-// зарезервировано по его третьей ступени на десятом уровне.
-//
-// Форма нарочно простая: клеть с двускатной кровлей, пристройка со ступени и
-// одна примета, по которой здание узнаётся в сцене. Фасад — +z, как требует
-// `facingCenter`; всё остальное соберёт `K.collapse`.
-
-/** Во сколько раз заглушка растёт со ступенью — как TIER_SPREAD у площадок. */
-const STUB_GROW: [number, number, number] = [1, 1.2, 1.42];
-
-interface Stub {
-  /** Ширина, глубина и высота стен первой ступени. */
-  size: [number, number, number];
-  /** Примета здания: её ставят поверх коробки. `h` — высота конька. */
-  mark: (g: THREE.Group, st: Style, w: number, d: number, h: number, t: Tier) => void;
-}
-
-function stubModel(t: Tier, st: Style, def: Stub): THREE.Group {
-  const g = new THREE.Group();
-  const k = STUB_GROW[t];
-  const w = def.size[0] * k;
-  const d = def.size[1] * k;
-  const h = def.size[2] * k;
-  // Цоколь, клеть, кровля — тот же порядок, что у старых моделей посёлка.
-  g.add(box(w * 1.06, 0.18, d * 1.06, st.base, 0, 0.09, 0));
-  g.add(box(w, h, d, st.wall, 0, 0.18 + h / 2, 0));
-  const roofY = 0.18 + h;
-  gable(g, w * 1.18, d * 1.16, roofY, 0.28 + 0.09 * t, st.roof);
-  g.add(box(0.46, 0.7, 0.08, M.woodDark, 0, 0.53, d / 2 + 0.04));
-  if (t >= 1) {
-    // Пристройка сбоку: ступень видно и без примет.
-    const aw = w * 0.5;
-    const ad = d * 0.62;
-    const ah = h * 0.72;
-    g.add(box(aw, ah, ad, st.wall, w * 0.7, 0.18 + ah / 2, -d * 0.12));
-    gable(g, aw * 1.18, ad * 1.16, 0.18 + ah, 0.22, st.roof, w * 0.7, -d * 0.12);
-  }
-  def.mark(g, st, w, d, roofY + 0.28 + 0.09 * t, t);
-  return g;
-}
-
-/** Бочки — общая примета трактира и тайника: их ставят у стены. */
-function barrels(g: THREE.Group, st: Style, x: number, z: number, n: number): void {
-  for (let i = 0; i < n; i++) {
-    g.add(cyl(0.22, 0.2, 0.46, st.post, 8, x + i * 0.5, 0.23, z + (i % 2) * 0.28));
-  }
-}
-
-const STUBS: Record<string, Stub> = {
-  // Лазарет: длинная палата под низкой кровлей, на щипце — крест.
-  infirmary: {
-    size: [1.8, 1.3, 1.0],
-    mark: (g, st, w, d, h) => {
-      g.add(box(0.12, 0.62, 0.06, st.accent, 0, h - 0.18, d / 2 + 0.06));
-      g.add(box(0.42, 0.12, 0.06, st.accent, 0, h - 0.02, d / 2 + 0.06));
-    },
-  },
-  // Дозор: изба с мачтой и площадкой наверху — оттуда и смотрят.
-  watch: {
-    size: [1.5, 1.4, 1.0],
-    mark: (g, st, w, d, h, t) => {
-      const mast = 1.1 + 0.45 * t;
-      g.add(cyl(0.1, 0.12, mast, M.woodDark, 6, 0, h + mast / 2 - 0.15, -d * 0.18));
-      g.add(box(0.86, 0.12, 0.86, st.floor, 0, h + mast - 0.2, -d * 0.18));
-      g.add(box(0.5, 0.34, 0.04, st.accent, 0.42, h + mast + 0.05, -d * 0.18));
-    },
-  },
-  // Конюшня: длинный денник, у стены поилка и загородка для коней.
-  stable: {
-    size: [1.9, 1.35, 1.05],
-    mark: (g, st, w, d) => {
-      g.add(box(1.1, 0.24, 0.34, st.post, -w * 0.2, 0.12, d / 2 + 0.5));
-      for (const x of [-w * 0.5, -w * 0.05, w * 0.4]) {
-        g.add(cyl(0.07, 0.08, 0.72, M.woodDark, 5, x, 0.36, d / 2 + 0.8));
-      }
-      g.add(box(w * 1.05, 0.08, 0.08, M.woodDark, -w * 0.05, 0.6, d / 2 + 0.8));
-    },
-  },
-  // Тайник: приземистый сруб с лазом в подпол и бочками у стены.
-  cache: {
-    size: [1.4, 1.3, 0.8],
-    mark: (g, st, w, d) => {
-      g.add(box(0.7, 0.1, 0.7, M.woodDark, -w * 0.75, 0.05, d * 0.3));
-      g.add(box(0.5, 0.06, 0.5, st.base, -w * 0.75, 0.13, d * 0.3));
-      barrels(g, st, w * 0.62, -d * 0.5, 2);
-    },
-  },
-  // Трактир: изба пошире, вывеска на столбе и бочки у крыльца.
-  tavern: {
-    size: [1.75, 1.5, 1.15],
-    mark: (g, st, w, d) => {
-      g.add(cyl(0.09, 0.1, 1.6, M.woodDark, 6, w * 0.62, 0.8, d / 2 + 0.34));
-      g.add(box(0.06, 0.36, 0.62, st.accent, w * 0.62, 1.36, d / 2 + 0.62));
-      barrels(g, st, -w * 0.72, d * 0.42, 3);
-    },
-  },
-};
-
-/**
- * Статуя Героя: постамент, на нём каменный витязь. Модель тоже заглушка — героя
- * и статую переделают отдельно, — но габарит настоящий: место под неё на первом
- * кольце зарезервировано по третьей ступени десятого уровня.
- */
 /** Дозор: открытая галерея и лёгкая крыша вместо зубцов крепостной башни. */
 function watch(t: Tier): THREE.Group {
   if (t >= 1) return watchTower(t);
