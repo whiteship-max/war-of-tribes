@@ -488,8 +488,7 @@ function sickBed(x:number,z:number):K.Part[] {
   const wood=K.paintOf('woodDark');
   return [K.box(0.56,0.14,1.12,wood,x,0.31,z),K.box(0.51,0.1,0.93,K.paintOf('cut'),x,0.43,z),K.box(0.42,0.13,0.23,K.paintOf('plaster'),x,0.51,z-0.32),K.box(0.56,0.42,0.09,wood,x,0.3,z-0.55)];
 }
-function infirmary(t:Tier,st:Style):THREE.Group {
-  if(t>1) return stubModel(t,st,STUBS.infirmary);
+function infirmary(t:Tier):THREE.Group {
   const wood=K.paintOf('woodDark'); const a:K.Part[]=[];
   for(const x of [-0.68,0.68]) for(const z of [-0.74,0.74]) a.push(K.box(0.08,1.3,0.08,wood,x,0.65,z));
   a.push(K.box(1.57,0.07,1.78,K.paintOf('thatch'),0,1.34,0,{z:0.09}));
@@ -499,6 +498,18 @@ function infirmary(t:Tier,st:Style):THREE.Group {
     a.push(...K.roofGable(2.15,1.0,0.4,1.14,{...p.roofPaint,roof:K.paintOf('thatch'),trim:wood},0.12,0,-0.95));
     a.push(K.box(0.46,0.85,0.04,p.ink,-0.5,0.51,-0.45));
     for(const x of [0.22,0.47,0.72]) a.push(K.cone(0.085,0.32,K.paintOf('cut'),5,x,0.7,-0.41));
+  }
+  if(t===2) {
+    const p=stylePaint();
+    a.push(K.box(0.9,1.16,1.76,p.wall,-1.18,0.66,0));
+    a.push(...K.roofGable(0.9,1.76,0.37,1.26,{...p.roofPaint,roof:K.paintOf('thatch'),trim:wood},0.12,-1.18,0));
+    a.push(...sickBed(-1.18,0.75));
+    for(const z of [-0.5,0.6]) a.push(K.box(0.07,0.96,0.07,wood,1.43,0.48,z));
+    a.push(K.box(0.07,0.07,1.23,wood,1.43,0.96,0.05));
+    for(const z of [-0.34,0,0.34]) a.push(K.cone(0.12,0.35,K.paintOf('cut'),5,1.43,0.67,z));
+    a.push(K.cyl(0.27,0.2,0.27,K.paintOf('metal'),8,0.77,0.25,1.13));
+    a.push(K.cyl(0.23,0.23,0.035,p.ink,8,0.77,0.4,1.13));
+    for(const x of [0.55,0.99]) a.push(K.box(0.12,0.17,0.34,p.base,x,0.085,1.13));
   }
   a.push(...sickBed(0,0));
   return new THREE.Group().add(K.assemble(a));
@@ -1474,7 +1485,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'watch':
       return watch(tier);
     case 'infirmary':
-      return infirmary(tier,st);
+      return infirmary(tier);
     case 'cache':
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
