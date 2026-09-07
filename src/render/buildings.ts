@@ -326,7 +326,30 @@ function houses(t: Tier): THREE.Group {
 }
 
 /** Склад: амбар на сваях → амбар с пристройкой и бочками → длинный лабаз. */
+/** Груз на высоком настиле — общий знак склада на всех ступенях. */
+function tradeBarrel(x: number, y: number, z: number): K.Part[] {
+  const wood = K.paintOf('wood'); const band = K.paintOf('woodDark');
+  return [K.cyl(0.19, 0.22, 0.4, wood, 8, x, y + 0.2, z),
+    K.cyl(0.205, 0.22, 0.055, band, 8, x, y + 0.08, z),
+    K.cyl(0.2, 0.21, 0.055, band, 8, x, y + 0.32, z)];
+}
+
 function storage(t: Tier, st: Style): THREE.Group {
+  if (t > 0) return storageLegacy(t, st);
+  const p = stylePaint();
+  const a: K.Part[] = [K.box(2.15, 0.3, 1.65, p.base, 0, 0.15, 0)];
+  for (const x of [-0.94, 0.94]) for (const z of [-0.68, 0.68])
+    a.push(K.box(0.14, 1.45, 0.14, p.post, x, 1.02, z));
+  a.push(K.box(2.1, 0.14, 0.14, p.beam, 0, 1.66, 0.68));
+  a.push(...K.roofGable(2.12, 1.55, 0.35, 1.72, p.roofPaint, 0.12));
+  for (const x of [-0.62, -0.12, 0.38]) a.push(...tradeBarrel(x, 0.3, -0.25));
+  a.push(...tradeBarrel(-0.62, 0.3, 0.28));
+  a.push(K.box(0.46, 0.42, 0.46, p.floor, 0.55, 0.51, 0.42));
+  a.push(K.box(0.85, 0.12, 0.4, p.base, 0, 0.06, 1.02));
+  return K.assemble(a);
+}
+
+function storageLegacy(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const w = [1.5, 2.0, 2.7][t];
   const d = [1.3, 1.6, 1.9][t];
