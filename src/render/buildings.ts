@@ -1322,35 +1322,131 @@ const STUBS: Record<string, Stub> = {
  * и статую переделают отдельно, — но габарит настоящий: место под неё на первом
  * кольце зарезервировано по третьей ступени десятого уровня.
  */
-function statue(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const base = [0.95, 1.15, 1.4][t];
-  const ph = [0.5, 0.75, 1.0][t];
-  const fh = [0.95, 1.15, 1.4][t];
-  // Ступени постамента: чем выше уровень, тем выше пьедестал.
-  for (let i = 0; i < t + 1; i++) {
-    const k = base * (1 + (t - i) * 0.14);
-    g.add(cyl(k, k * 1.04, 0.16, st.base, 8, 0, 0.08 + i * 0.16, 0));
+/** Дозор: открытая галерея и лёгкая крыша вместо зубцов крепостной башни. */
+function watch(t: Tier): THREE.Group {
+  if (t >= 1) return watchTower(t);
+  const p = stylePaint(); const wood = K.paintOf('woodDark');
+  const a: K.Part[] = [];
+  for (const x of [-0.64, 0.64]) for (const z of [-0.64, 0.64])
+    a.push(K.box(0.18, 2.0, 0.18, wood, x, 1, z));
+  for (const x of [-0.64, 0.64]) {
+    a.push(K.box(0.1, 1.96, 0.12, p.beam, x, 1.05, 0, {x: 0.65}));
+    a.push(K.box(0.1, 1.96, 0.12, p.beam, x, 1.05, 0, {x: -0.65}));
   }
-  const top = 0.16 * (t + 1);
-  g.add(box(base * 1.1, ph, base * 1.1, st.base, 0, top + ph / 2, 0));
-  // Фигура: грубый силуэт витязя с копьём и щитом — узнаётся с любого ракурса.
-  const y0 = top + ph;
-  g.add(cyl(0.17, 0.22, fh * 0.52, st.wall, 7, 0, y0 + fh * 0.26, 0));
-  g.add(box(0.3, fh * 0.34, 0.24, st.wall, 0, y0 + fh * 0.69, 0));
-  g.add(cyl(0.13, 0.13, fh * 0.2, st.wall, 6, 0, y0 + fh * 0.96, 0));
-  g.add(cyl(0.05, 0.05, fh * 1.25, st.post, 5, base * 0.42, y0 + fh * 0.6, 0));
-  const shield = cyl(0.26, 0.26, 0.07, st.accent, 8, -base * 0.42, y0 + fh * 0.6, 0.06);
-  shield.rotation.x = Math.PI / 2;
-  g.add(shield);
-  if (t === 2) {
-    // Стяги по углам: место для имени.
-    for (const x of [-base * 1.05, base * 1.05]) {
-      g.add(cyl(0.06, 0.07, 1.5, M.woodDark, 5, x, 0.75, -base * 0.5));
-      g.add(box(0.05, 0.5, 0.34, st.accent, x, 1.25, -base * 0.5 + 0.2));
+  a.push(K.box(1.7, 0.18, 1.7, K.paintOf('plank'), 0, 2.0, 0));
+  a.push(...watchRail(1.6, 2.08));
+  for (const x of [-0.25, 0.25]) a.push(K.box(0.07, 2.4, 0.09, wood, x, 1.13, 1.0, {x: -0.22}));
+  for (let i = 0; i < 8; i++) a.push(K.box(0.56, 0.07, 0.09, K.paintOf('plank'), 0, 0.25 + i * 0.24, 1.2 - i * 0.053));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function watchTower(t: Tier): THREE.Group {
+  const p = stylePaint(); const wood = K.paintOf('woodDark');
+  const h = t === 2 ? 5.6 : 3.45;
+  const a: K.Part[] = [K.box(1.72, 0.25, 1.72, p.base, 0, 0.125, 0)];
+  if (t === 1) for (let i = 0; i < 12; i++) {
+    const y = 0.25 + (i + 0.5) * (h - 0.25) / 12;
+    for (const side of [-1, 1]) {
+      a.push(K.box(1.65, (h - 0.25) / 12 - 0.018, 0.19, i % 2 ? wood : K.paintOf('wood'), 0, y, side * 0.64));
+      a.push(K.box(0.19, (h - 0.25) / 12 - 0.018, 1.65, i % 2 ? wood : K.paintOf('wood'), side * 0.64, y, 0));
     }
   }
-  return g;
+  if (t === 2) {
+    a.push(K.box(1.48, h - 0.25, 1.48, K.paintOf('stone'), 0, (h + 0.25) / 2, 0));
+    for (const y of [0.5, 1.5, 2.5, 3.5, 4.5, 5.3]) {
+      for (const x of [-0.69, 0.69]) for (const z of [-0.69, 0.69])
+        a.push(K.box(0.22, 0.2, 0.22, K.paintOf('stoneDark'), x, y, z));
+    }
+    for (const y of [2.1, 3.65]) {
+      a.push(K.box(0.12, 0.56, 0.035, p.ink, 0, y, 0.75));
+      a.push(K.box(0.035, 0.56, 0.12, p.ink, 0.75, y, 0));
+    }
+    // Сигнальная корзина вне кровли, без отдельного источника света и материала.
+    a.push(K.box(1.2, 0.15, 0.15, wood, 1.05, h + 0.28, 0));
+    a.push(K.cyl(0.3, 0.18, 0.22, K.paintOf('metal'), 8, 1.63, h + 0.44, 0));
+    a.push(K.cone(0.23, 0.58, K.paintOf('gold'), 6, 1.63, h + 0.82, 0));
+    a.push(K.cone(0.12, 0.34, K.paintOf('cut'), 5, 1.63, h + 0.72, 0.12));
+  }
+  a.push(K.box(0.5, 0.95, 0.05, p.ink, 0, 0.7, 0.75));
+  a.push(K.box(2.15, 0.2, 2.15, K.paintOf('plank'), 0, h, 0));
+  a.push(...watchRail(2.0, h + 0.1));
+  for (const x of [-0.87, 0.87]) for (const z of [-0.87, 0.87]) {
+    a.push(K.box(0.13, 1.35, 0.13, wood, x, h + 0.7, z));
+    a.push(K.box(0.14, 0.85, 0.14, p.beam, x * 0.95, h - 0.3, z * 0.95, {z: x > 0 ? -0.48 : 0.48}));
+  }
+  a.push(...K.roofGable(2.15, 2.15, 0.48, h + 1.32, { ...p.roofPaint, roof: K.paintOf('shingle'), trim: wood }, 0.12));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function watchRail(w: number, y: number): K.Part[] {
+  const wood = K.paintOf('woodDark'); const a: K.Part[] = [];
+  for (const x of [-w / 2, w / 2]) for (const z of [-w / 2, w / 2])
+    a.push(K.box(0.1, 0.65, 0.1, wood, x, y + 0.325, z));
+  for (const x of [-w / 2, w / 2]) a.push(K.box(0.1, 0.1, w, wood, x, y + 0.58, 0));
+  a.push(K.box(w, 0.1, 0.1, wood, 0, y + 0.58, -w / 2));
+  for (const x of [-w * 0.33, w * 0.33]) a.push(K.box(w * 0.34, 0.1, 0.1, wood, x, y + 0.58, w / 2));
+  return a;
+}
+
+/** Памятник — самостоятельная каменная скульптура, не экземпляр бойца. */
+function statue(t: Tier): THREE.Group {
+  if (t === 2) return heroMonument();
+  if (t === 1) {
+    const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
+    const a: K.Part[] = [K.box(1.65, 0.2, 1.65, dark, 0, 0.1, 0),
+      K.box(1.28, 0.18, 1.28, stone, 0, 0.29, 0),
+      K.box(0.68, 1.72, 0.62, stone, 0, 1.24, 0),
+      K.box(0.9, 0.19, 0.84, dark, 0, 2.16, 0)];
+    a.push(...monumentShield(0, 1.32, 0.4, 0.43));
+    for (const x of [-0.24, 0, 0.24]) a.push(K.box(0.035, 0.17, 0.025, dark, x, 0.58, 0.32));
+    return new THREE.Group().add(K.assemble(a));
+  }
+  const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
+  const a: K.Part[] = [K.cyl(0.65, 0.82, 0.24, dark, 7, 0, 0.12, 0),
+    K.cyl(0.38, 0.54, 1.27, stone, 5, 0, 0.84, 0),
+    K.box(0.36, 0.14, 0.29, stone, -0.08, 1.48, 0, {z: -0.12})];
+  for (let i = 0; i < 3; i++) a.push(K.box(0.3, 0.045, 0.12, dark, 0, 0.7 + i * 0.16, 0.49 - i * 0.02, {z: 0.22}));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function monumentShield(x: number, y: number, z: number, r: number): K.Part[] {
+  const stone = K.paintOf('stoneDark'); const gold = K.paintOf('gold');
+  return [K.cyl(r, r, 0.13, stone, 8, x, y, z, {x: Math.PI / 2}),
+    K.cyl(r * 0.84, r * 0.84, 0.035, gold, 8, x, y, z + 0.085, {x: Math.PI / 2}),
+    K.box(0.075, r * 1.1, 0.04, stone, x, y, z + 0.12),
+    K.box(r * 0.9, 0.075, 0.04, stone, x, y + r * 0.12, z + 0.12)];
+}
+
+function heroMonument(): THREE.Group {
+  const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
+  const gold = K.paintOf('gold'); const a: K.Part[] = [];
+  for (let i = 0; i < 3; i++) a.push(K.box(2.48 - i * 0.37, 0.18, 2.48 - i * 0.37, i % 2 ? stone : dark, 0, 0.09 + i * 0.18, 0));
+  a.push(K.box(1.1, 0.7, 1.03, stone, 0, 0.89, 0));
+  a.push(K.box(1.3, 0.14, 1.22, dark, 0, 1.31, 0));
+  // Высеченная фигура: широкие массы, голова около четверти роста, без деталей бойца.
+  for (const x of [-0.23, 0.23]) {
+    a.push(K.box(0.3, 0.16, 0.48, stone, x, 1.46, 0.13));
+    a.push(K.box(0.26, 0.76, 0.3, stone, x, 1.89, 0));
+  }
+  a.push(K.cyl(0.32, 0.48, 0.58, stone, 6, 0, 2.21, 0));
+  a.push(K.box(0.81, 0.58, 0.4, stone, 0, 2.66, 0));
+  a.push(K.box(0.21, 0.17, 0.23, stone, 0, 3.0, 0));
+  a.push(K.cyl(0.235, 0.22, 0.4, stone, 6, 0, 3.24, 0.035));
+  a.push(K.box(0.1, 0.17, 0.13, stone, 0, 3.24, 0.24));
+  a.push(K.box(0.95, 0.16, 0.43, dark, 0, 2.91, -0.04));
+  // Три сходящихся каменных складки, а не прямоугольная доска плаща.
+  for (const x of [-0.3, 0, 0.3]) a.push(K.box(0.31, 1.22, 0.15, dark, x, 2.25, -0.3, {x: -0.14, z: -x * 0.22}));
+  a.push(K.box(0.23, 0.55, 0.25, stone, -0.5, 2.54, 0.08, {z: -0.24}));
+  a.push(...monumentShield(-0.42, 2.26, 0.4, 0.43));
+  a.push(K.box(0.25, 0.48, 0.25, stone, 0.5, 2.65, 0.04, {z: 0.55}));
+  a.push(K.box(0.12, 1.23, 0.11, dark, 0.7, 2.44, 0.09));
+  a.push(K.box(0.4, 0.09, 0.12, gold, 0.7, 2.82, 0.09));
+  for (const x of [-1.05, 1.05]) {
+    a.push(K.box(0.07, 2.2, 0.07, dark, x, 1.28, -0.62));
+    a.push(K.box(0.38, 0.63, 0.055, gold, x - Math.sign(x) * 0.17, 2.02, -0.62));
+    a.push(K.cone(0.08, 0.19, gold, 4, x, 2.47, -0.62));
+  }
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Основание здания на первой ступени. Растёт вместе с ступенью — см. footprintOf. */
@@ -1439,11 +1535,12 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'market':
       return market(tier);
     case 'statue':
-      return statue(tier, st);
+      return statue(tier);
     case 'stable':
       return stable(tier);
-    case 'infirmary':
     case 'watch':
+      return watch(tier);
+    case 'infirmary':
     case 'cache':
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
