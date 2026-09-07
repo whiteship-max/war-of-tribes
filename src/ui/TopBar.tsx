@@ -3,16 +3,9 @@ import { armySize, dayOf, dayFraction, housingCapacity, seasonOf, seasonProgress
 import { SEASON_META } from '@/game/data/seasons';
 import { useWorld } from '@/world/store';
 import { ProfileButton } from './ProfileButton';
+import { Icon } from '@/ui/icons/Icon';
+import { daypartOf, iconName, moodOf } from '@/ui/icons/registry';
 
-/** Время суток по фазе солнца — зимой она сдвинута, и «ночь» наступает раньше. */
-function daypart(solar: number): { icon: string; name: string } {
-  if (solar < 0.08) return { icon: '🌅', name: 'утро' };
-  if (solar < 0.42) return { icon: '☀️', name: 'день' };
-  if (solar < 0.58) return { icon: '🌇', name: 'вечер' };
-  return { icon: '🌙', name: 'ночь' };
-}
-
-const moraleIcon = (m: number): string => (m >= 70 ? '😊' : m >= 40 ? '😐' : '😟');
 
 /**
  * Верхняя строка состояния. Ресурсов здесь нет: их полный список живёт на складе,
@@ -37,7 +30,10 @@ export function TopBar() {
   const day = dayOf(s.time);
   const season = seasonOf(s.time);
   const meta = SEASON_META[season];
-  const part = daypart(solarPhase(dayFraction(s.time), season));
+  // Время суток и ступень морали выбираются порогами, и пороги эти — общие
+  // с «Племенем»: они лежат в накладной значков, а не переписаны здесь.
+  const part = daypartOf(solarPhase(dayFraction(s.time), season));
+  const mood = moodOf(Math.round(s.morale));
   const pop = s.pop;
   const housing = housingCapacity(s);
   const morale = Math.round(s.morale);
@@ -47,10 +43,12 @@ export function TopBar() {
   return (
     <div className="topbar">
       <div className="hud-bar">
-        <span className="cell" title={`День ${day}, ${part.name}`}>
-          <span className="ic">{part.icon}</span>
+        <span className="cell" title={`День ${day}, ${part.label}`}>
+          <span className="ic">
+            <Icon name={part.name} glyph={part.glyph} />
+          </span>
           <b>{day}</b>
-          <i>{part.name}</i>
+          <i>{part.label}</i>
         </span>
         <span className="sep" />
         <button
@@ -58,7 +56,9 @@ export function TopBar() {
           onClick={() => openTab('season')}
           title={`${meta.name}: ${meta.hint} Нажми, чтобы увидеть множители.`}
         >
-          <span className="ic">{meta.icon}</span>
+          <span className="ic">
+            <Icon name={iconName('season', season)} glyph={meta.icon} />
+          </span>
           <i>{meta.name}</i>
           <span className="season-bar">
             <span style={{ width: `${Math.round(seasonProgress(s.time) * 100)}%` }} />
@@ -70,7 +70,9 @@ export function TopBar() {
           onClick={() => openTab('pop')}
           title="Население и жильё. Нажми, чтобы увидеть, как считается прирост."
         >
-          <span className="ic">👥</span>
+          <span className="ic">
+            <Icon name="hud-pop" glyph="👥" />
+          </span>
           <b>{pop}</b>
           <i>/{housing}</i>
         </button>
@@ -80,7 +82,9 @@ export function TopBar() {
           onClick={() => openTab('morale')}
           title="Мораль племени. Нажми, чтобы увидеть, что её поднимает и что тянет вниз."
         >
-          <span className="ic">{moraleIcon(morale)}</span>
+          <span className="ic">
+            <Icon name={mood.name} glyph={mood.glyph} />
+          </span>
           <b>{morale}</b>
         </button>
         <span className="sep" />
@@ -89,7 +93,9 @@ export function TopBar() {
           onClick={() => openTab('army')}
           title="Дружина. Нажми, чтобы увидеть состав, кольцо контрров и карточки войск."
         >
-          <span className="ic">⚔️</span>
+          <span className="ic">
+            <Icon name="hud-army" glyph="⚔️" />
+          </span>
           <b>{army}</b>
           <i>дружина</i>
         </button>
@@ -98,7 +104,7 @@ export function TopBar() {
       <div className="top-row">
         <ProfileButton />
         <button className="map-btn" data-tut="nav-map" onClick={openMap} title="Карта мира: соседи, походы, разведка">
-          🗺️ <span>Карта</span>
+          <Icon name="hud-map" glyph="🗺️" /> <span>Карта</span>
           {(unread > 0 || marching > 0) && <em>{unread > 0 ? unread : marching}</em>}
         </button>
       </div>

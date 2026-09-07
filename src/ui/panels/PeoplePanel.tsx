@@ -15,6 +15,7 @@ import {
 import { popGrowth } from '@/game/sim/population';
 import { armyRoster, trainees } from '@/game/sim/army';
 import { Factor } from '../parts/Factor';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Дружина. Бойцы — не жители с профессией «воин»: их нанимают в казармах,
@@ -44,7 +45,9 @@ function Army() {
           disabled={!barracks}
           onClick={() => barracks && openBuilding(barracks.id)}
         >
-          <div className="ico">{def.icon}</div>
+          <div className="ico">
+            <Icon name={`bld-${def.id}`} glyph={def.icon} />
+          </div>
           <div className="body">
             <div className="title">
               {def.name}
@@ -130,7 +133,9 @@ export function PeoplePanel() {
             disabled={!place}
             onClick={() => place && openBuilding(place.id)}
           >
-            <div className="ico">{job.icon}</div>
+            <div className="ico">
+              <Icon name={`job-${job.id}`} glyph={job.icon} />
+            </div>
             <div className="body">
               <div className="title">
                 {job.name}

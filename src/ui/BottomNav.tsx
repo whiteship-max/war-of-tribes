@@ -1,6 +1,8 @@
 import { useGame, type Tab } from '@/game/store';
 import { buildingAttention, buildingOfType, idleCount, isSite } from '@/game/derived';
 import { QUESTS } from '@/game/data/quests';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Нижняя навигация. Стройка живёт в ратуше, поэтому раздела «Здания» здесь нет:
@@ -49,7 +51,9 @@ export function BottomNav() {
             className={active ? 'active' : ''}
             onClick={() => (t.id === 'townhall' ? openTownHall() : openTab(t.id as Tab))}
           >
-            <span className="ico">{t.icon}</span>
+            <span className="ico">
+              <Icon name={iconName('nav', t.id)} glyph={t.icon} />
+            </span>
             <span>{t.label}</span>
             {b !== null && <span className="badge">{b}</span>}
           </button>

@@ -11,6 +11,7 @@ import { KIND_OF } from '@/game/battle/kinds';
 import { moraleOf } from '@/game/battle/describe';
 import { CounterRing } from '../parts/CounterRing';
 import { TroopCardView } from '../parts/TroopCardView';
+import { Icon } from '@/ui/icons/Icon';
 
 export function ArmyPanel() {
   const s = useGame((g) => g.s);
@@ -69,7 +70,9 @@ export function ArmyPanel() {
         const m = moraleOf(def.id);
         return (
           <button className={`card as-row${n === 0 ? ' none' : ''}`} key={def.id} onClick={() => setOpen(def.id)}>
-            <div className="ico">{def.icon}</div>
+            <div className="ico">
+              <Icon name={`troop-${def.id}`} glyph={def.icon} />
+            </div>
             <div className="body">
               <div className="title">
                 {def.name}

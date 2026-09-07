@@ -3,6 +3,7 @@
 import { KIND_META, SECTOR_NAME, type Sector } from '@/battle';
 import { TROOP_IDS, TROOP_BY_ID } from '@/game/data/troops';
 import { KIND_OF, type TroopStack } from '@/game/battle/kinds';
+import { Icon } from '@/ui/icons/Icon';
 
 interface Props {
   /** Куда ставим. 'rest' — общий мешок нерасставленных. */
@@ -54,7 +55,9 @@ export function SectorEditor({ sector, here, free, onChange, onClose }: Props) {
           const max = n + (free[t] ?? 0);
           return (
             <div className="slot pick" key={t}>
-              <span className="ico">{def.icon}</span>
+              <span className="ico">
+                <Icon name={`troop-${def.id}`} glyph={def.icon} />
+              </span>
               <span className="who">
                 {def.name}
                 <br />

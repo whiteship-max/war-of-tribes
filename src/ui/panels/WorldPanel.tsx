@@ -21,6 +21,7 @@ import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
 import { awayTroops, homeTroops } from '@/world/bridge';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
+import { Icon } from '@/ui/icons/Icon';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString());
 
@@ -102,7 +103,9 @@ function GarrisonEditor() {
           const set = (v: number): void => setWant((w) => ({ ...w, [t]: Math.max(0, Math.min(max, v)) }));
           return (
             <div className="slot pick" key={t}>
-              <span className="ico">{TROOP_BY_ID[t].icon}</span>
+              <span className="ico">
+                <Icon name={`troop-${t}`} glyph={TROOP_BY_ID[t].icon} />
+              </span>
               <span className="who">
                 {TROOP_BY_ID[t].name}
                 <i className="talent">

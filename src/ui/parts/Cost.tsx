@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { ResourceId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { Icon } from '@/ui/icons/Icon';
 
 interface Props {
   cost: Partial<Record<ResourceId, number>>;
@@ -32,13 +33,14 @@ export function Cost({ cost, work, eta, extra }: Props) {
         const have = Math.floor(s.resources[r]);
         return (
           <span key={r} className={have >= need ? '' : 'no'} title={RESOURCE_META[r].name}>
-            {RESOURCE_META[r].icon} {need}
+            <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} /> {need}
             <i className="have">из {have}</i>
           </span>
         );
       })}
       {work !== undefined && (
-        <span className="work">⏱ {eta === undefined ? work : eta === null ? 'нет строителей' : `~${eta} с`}</span>
+        <span className="work">
+          <Icon name="ui-time" glyph="⏱" /> {eta === undefined ? work : eta === null ? 'нет строителей' : `~${eta} с`}</span>
       )}
       {extra}
     </div>

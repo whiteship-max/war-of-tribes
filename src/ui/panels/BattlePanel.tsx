@@ -41,6 +41,7 @@ import { FormationGrid } from '../battle/FormationGrid';
 import { SectorEditor } from '../battle/SectorEditor';
 import { OrdersPicker, PlanPicker, ReservePicker } from '../battle/Tactics';
 import { IntelCard } from '../battle/IntelCard';
+import { Icon } from '@/ui/icons/Icon';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString());
 
@@ -230,7 +231,9 @@ export function BattlePanel({ targetId }: Props) {
         <div className="mod-list">
           {TROOP_IDS.filter((t) => (home[t] ?? 0) > 0).map((t) => (
             <div className="mod" key={t}>
-              <span className="ico">{TROOP_BY_ID[t].icon}</span>
+              <span className="ico">
+                <Icon name={`troop-${t}`} glyph={TROOP_BY_ID[t].icon} />
+              </span>
               <span className="name">{TROOP_BY_ID[t].name}</span>
               <span className="val">{home[t]}</span>
             </div>
@@ -245,7 +248,9 @@ export function BattlePanel({ targetId }: Props) {
         <div className="mod-list">
           {TROOP_IDS.filter((t) => (home[t] ?? 0) > 0).map((t) => (
             <div className="mod" key={t}>
-              <span className="ico">{TROOP_BY_ID[t].icon}</span>
+              <span className="ico">
+                <Icon name={`troop-${t}`} glyph={TROOP_BY_ID[t].icon} />
+              </span>
               <span className="name">{TROOP_BY_ID[t].name}</span>
               <span className="val">{home[t]}</span>
             </div>

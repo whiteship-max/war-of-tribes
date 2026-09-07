@@ -9,6 +9,7 @@ import { buildingOfType, recruitRate } from '@/game/derived';
 import { temperOf, troopCard } from '@/game/battle/describe';
 import { weightOf } from '@/game/battle/kinds';
 import { GEAR } from '@/battle';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Полоска величины в своём потолке: мощь среди видов, мораль в шкале боя. */
 function Bar({
@@ -59,7 +60,9 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       </button>
 
       <div className="bhead">
-        <div className="ico">{def.icon}</div>
+        <div className="ico">
+          <Icon name={`troop-${def.id}`} glyph={def.icon} />
+        </div>
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
@@ -125,12 +128,12 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <div className="cost">
         {cost.resources.map((r) => (
           <span key={r.id} className={s.resources[r.id] >= r.n ? '' : 'no'}>
-            {RESOURCE_META[r.id].icon} {r.n}
+            <Icon name={`res-${r.id}`} glyph={RESOURCE_META[r.id].icon} /> {r.n}
           </span>
         ))}
         {cost.gear.map((g) => (
           <span key={g.id} className={(s.equipment[g.id] ?? 0) >= g.n ? '' : 'no'}>
-            {EQUIPMENT_BY_ID[g.id].icon} {g.n}
+            <Icon name={`gear-${g.id}`} glyph={EQUIPMENT_BY_ID[g.id].icon} /> {g.n}
           </span>
         ))}
         <span>👤 {cost.people}</span>

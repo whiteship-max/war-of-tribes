@@ -6,6 +6,7 @@ import { TROOP_IDS, TROOP_BY_ID } from '@/game/data/troops';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { Formation } from '@/game/battle/formation';
 import { count, plural } from '../parts/plural';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Короткие подписи: на треть экрана «левый фланг» не влезает. */
 const SHORT: Record<Sector, string> = {
@@ -26,7 +27,7 @@ export function StackLine({ troops }: { troops: TroopStack }) {
     <span className="bf-stack">
       {parts.map((t) => (
         <em key={t}>
-          {TROOP_BY_ID[t].icon}
+          <Icon name={`troop-${t}`} glyph={TROOP_BY_ID[t].icon} />
           {troops[t]}
         </em>
       ))}

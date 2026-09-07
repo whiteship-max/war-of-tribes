@@ -5,6 +5,7 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT, EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { forgeInfo, workerCount } from '@/game/derived';
 import { cancelForge, forgeCheck, startForge } from '@/game/sim/actions';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Кузница: очередь заказов и ход работы.
@@ -57,7 +58,9 @@ export function Smithy({ b }: { b: Building }) {
             const pct = Math.floor((o.work / Math.max(1, def.work)) * 100);
             return (
               <div className="card" key={o.id}>
-                <div className="ico">{def.icon}</div>
+                <div className="ico">
+                  <Icon name={`gear-${def.id}`} glyph={def.icon} />
+                </div>
                 <div className="body">
                   <div className="title">
                     {def.name}
@@ -93,7 +96,9 @@ export function Smithy({ b }: { b: Building }) {
         const have = s.equipment[e.id] ?? 0;
         return (
           <div className="troop" key={e.id}>
-            <div className="ico">{e.icon}</div>
+            <div className="ico">
+              <Icon name={`gear-${e.id}`} glyph={e.icon} />
+            </div>
             <div className="body">
               <div className="title">
                 {e.name}
@@ -103,7 +108,7 @@ export function Smithy({ b }: { b: Building }) {
               <div className="cost">
                 {RESOURCE_IDS.filter((r) => e.cost[r]).map((r) => (
                   <span key={r} className={s.resources[r] >= (check.cost[r] ?? 0) ? '' : 'no'}>
-                    {RESOURCE_META[r].icon} {check.cost[r]}
+                    <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} /> {check.cost[r]}
                   </span>
                 ))}
                 <span>⏳ {check.eta !== null ? `${check.eta} с` : `${check.work}`}</span>

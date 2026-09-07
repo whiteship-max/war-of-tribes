@@ -5,6 +5,8 @@ import { tutorialActive } from '@/game/data/tutorial';
 import { defenseLock, incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
 import { lettersVisible } from './Letters';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Критические состояния всплывают поверх любого экрана: голод, остывший очаг и
@@ -48,7 +50,9 @@ export function AlertBar() {
         const frozen = defenseLock([m], worldNow()).frozen;
         return (
           <button key={m.id} className="alert raid" onClick={openDefense}>
-            <span className="ic">{frozen ? '🔒' : '⚔️'}</span>
+            <span className="ic">
+              <Icon name={frozen ? 'alert-locked' : 'alert-raid'} glyph={frozen ? '🔒' : '⚔️'} />
+            </span>
             <span className="txt">
               Набег: {m.fromName} · {formatLeft(secondsLeft(m.arriveAt, worldNow()))}
               {frozen ? ' · оборона заперта' : ''}
@@ -60,7 +64,9 @@ export function AlertBar() {
         const target = a.goto ? buildingOfType(s, a.goto) : null;
         return (
           <button key={a.id} className="alert" onClick={() => target && openBuilding(target.id)} disabled={!target}>
-            <span className="ic">{a.icon}</span>
+            <span className="ic">
+              <Icon name={iconName('alert', a.id)} glyph={a.icon} />
+            </span>
             <span className="txt">{a.text}</span>
           </button>
         );

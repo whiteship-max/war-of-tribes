@@ -44,6 +44,8 @@ import { Tavern } from '../parts/Tavern';
 import { Statue } from '../parts/Statue';
 import { Watch } from '../parts/Watch';
 import { upgradeGain } from '../parts/upgrade';
+import { Icon } from '@/ui/icons/Icon';
+import { moodOf } from '@/ui/icons/registry';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
@@ -74,7 +76,9 @@ export function BuildingPanel({ id }: { id: number }) {
   return (
     <div className="panel">
       <div className="bhead">
-        <div className="ico">{def.icon}</div>
+        <div className="ico">
+          <Icon name={`bld-${def.id}`} glyph={def.icon} />
+        </div>
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
@@ -106,7 +110,9 @@ export function BuildingPanel({ id }: { id: number }) {
 
       {site ? (
         <div className="card">
-          <div className="ico">🏗️</div>
+          <div className="ico">
+            <Icon name="ui-site" glyph="🏗️" />
+          </div>
           <div className="body">
             <div className="title">
               Улучшение до {b.level + 1} уровня
@@ -197,13 +203,15 @@ function WorkerSlots({ b }: { b: Building }) {
   return (
     <>
       <h3>
-        {job.icon} {job.name}
+        <Icon name={`job-${job.id}`} glyph={job.icon} /> {job.name}
         <span className="muted">
           {workers}/{slots || '—'}
         </span>
       </h3>
       <div className="card">
-        <div className="ico">{job.icon}</div>
+        <div className="ico">
+          <Icon name={`job-${job.id}`} glyph={job.icon} />
+        </div>
         <div className="body">
           <div className="title">
             Рабочих в здании
@@ -312,7 +320,9 @@ function CampfireData() {
 
       <h3>Настроение</h3>
       <div className="mod">
-        <span className="ico">{s.morale >= 70 ? '😊' : s.morale >= 40 ? '😐' : '😟'}</span>
+        <span className="ico">
+          <Icon name={moodOf(s.morale).name} glyph={moodOf(s.morale).glyph} />
+        </span>
         <span className="name">Мораль племени</span>
         <span className="val">{Math.round(s.morale)}</span>
       </div>
@@ -339,7 +349,9 @@ function FreeJobRow({ job }: { job: JobId }) {
   return (
     <>
       <div className="card">
-        <div className="ico">{def.icon}</div>
+        <div className="ico">
+          <Icon name={`job-${def.id}`} glyph={def.icon} />
+        </div>
         <div className="body">
           <div className="title">
             {def.name}
@@ -376,7 +388,9 @@ function StorageData() {
         const full = v >= cap - 0.5;
         return (
           <div className="res-line" key={r}>
-            <span className="ico">{RESOURCE_META[r].icon}</span>
+            <span className="ico">
+              <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+            </span>
             <span className="name">{RESOURCE_META[r].name}</span>
             <span className={`val${full ? ' full' : ''}`}>{Math.floor(v)}</span>
             <span className={`delta ${net[r] > 0.05 ? 'pos' : net[r] < -0.05 ? 'neg' : ''}`}>
@@ -398,7 +412,9 @@ function StorageData() {
       </div>
       {EQUIPMENT.map((e) => (
         <div className="res-line" key={e.id}>
-          <span className="ico">{e.icon}</span>
+          <span className="ico">
+            <Icon name={`gear-${e.id}`} glyph={e.icon} />
+          </span>
           <span className="name">{e.name}</span>
           <span className="val">{s.equipment[e.id] ?? 0}</span>
         </div>
@@ -476,7 +492,9 @@ function GenericData({ b }: { b: Building }) {
           )}
           {workers > 0 && (
             <div className="mod">
-              <span className="ico">{jobDef.icon}</span>
+              <span className="ico">
+                <Icon name={`job-${jobDef.id}`} glyph={jobDef.icon} />
+              </span>
               <span className="name">Рабочих: {workers}</span>
               <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>
             </div>

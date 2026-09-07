@@ -18,6 +18,8 @@ import { gemsOf, rushPrice, rushUpgrade } from '@/game/sim/gems';
 import { startUpgrade } from '@/game/sim/actions';
 import { Cost } from './Cost';
 import { upgradeGain } from './upgrade';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 const ORDER = new Map(BUILDINGS.map((d, i) => [d.id, i]));
 const byOrder = (a: Building, b: Building): number => (ORDER.get(a.type) ?? 99) - (ORDER.get(b.type) ?? 99);
@@ -167,7 +169,9 @@ function SiteRow({ b, first, rate }: { b: Building; first: boolean; rate: number
   return (
     <div className="build-row site">
       <button className="grip" onClick={() => openBuilding(b.id)} aria-label={def.name}>
-        <span className="ico">{def.icon}</span>
+        <span className="ico">
+          <Icon name={`bld-${def.id}`} glyph={def.icon} />
+        </span>
         <span className="body">
           <span className="title">
             {def.name}
@@ -202,13 +206,19 @@ function BuildRow({ b, rate }: { b: Building; rate: number }) {
   return (
     <div className="build-row" data-tut={`list-${def.id}`}>
       <button className="grip" onClick={() => openBuilding(b.id)}>
-        <span className="ico">{def.icon}</span>
+        <span className="ico">
+          <Icon name={`bld-${def.id}`} glyph={def.icon} />
+        </span>
         <span className="body">
           <span className="title">
             {def.name}
             <span className="count">
               ур. {b.level} из {top}
-              {attn && <i className="attn-dot" title={ATTENTION_META[attn].text}>{ATTENTION_META[attn].icon}</i>}
+              {attn && (
+                <i className="attn-dot" title={ATTENTION_META[attn].text}>
+                  <Icon name={iconName('attn', attn)} glyph={ATTENTION_META[attn].icon} />
+                </i>
+              )}
             </span>
           </span>
           <span className="desc">{rowFacts(s, b)}</span>
@@ -247,7 +257,9 @@ function LockedRow({ b }: { b: Building }) {
   return (
     <div className="build-row locked" data-tut={`list-${def.id}`}>
       <button className="grip" onClick={() => openBuilding(b.id)}>
-        <span className="ico">{def.icon}</span>
+        <span className="ico">
+          <Icon name={`bld-${def.id}`} glyph={def.icon} />
+        </span>
         <span className="body">
           <span className="title">
             {def.name}

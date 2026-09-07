@@ -14,6 +14,7 @@ import {
 } from '@/game/derived';
 import { recruitCheck } from '@/game/sim/army';
 import { cancelRecruit, startRecruit } from '@/game/sim/actions';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Казармы: список бойцов по образцу Tribal Wars — иконка, цена, время, поле
@@ -66,7 +67,9 @@ export function Barracks() {
             const pct = Math.floor((o.work / def.work) * 100);
             return (
               <div className="card" key={o.id}>
-                <div className="ico">{def.icon}</div>
+                <div className="ico">
+                  <Icon name={`troop-${def.id}`} glyph={def.icon} />
+                </div>
                 <div className="body">
                   <div className="title">
                     {def.name}
@@ -98,7 +101,9 @@ export function Barracks() {
         const have = s.army[def.id] ?? 0;
         return (
           <div className="troop" key={def.id}>
-            <div className="ico">{def.icon}</div>
+            <div className="ico">
+              <Icon name={`troop-${def.id}`} glyph={def.icon} />
+            </div>
             <div className="body">
               <div className="title">
                 {def.name}
@@ -110,14 +115,14 @@ export function Barracks() {
               <div className="cost">
                 {RESOURCE_IDS.filter((r) => def.cost[r]).map((r) => (
                   <span key={r} className={s.resources[r] >= (check.cost[r] ?? 0) ? '' : 'no'}>
-                    {RESOURCE_META[r].icon} {check.cost[r]}
+                    <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} /> {check.cost[r]}
                   </span>
                 ))}
                 {Object.entries(check.gear).map(([id, need]) => {
                   const short = check.missing.some((m) => m.id === id);
                   return (
                     <span key={id} className={short ? 'no' : ''}>
-                      {EQUIPMENT_BY_ID[id as keyof typeof EQUIPMENT_BY_ID].icon} {need}
+                      <Icon name={`gear-${id}`} glyph={EQUIPMENT_BY_ID[id as keyof typeof EQUIPMENT_BY_ID].icon} /> {need}
                     </span>
                   );
                 })}

@@ -13,6 +13,8 @@ import {
   yearOf,
 } from '@/game/derived';
 import type { JobId } from '@/game/types';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /** Строка списка множителей: что растёт, что падает. */
 interface Line {
@@ -93,7 +95,7 @@ export function SeasonPanel() {
   return (
     <div className="panel">
       <h2>
-        {meta.icon} {meta.name} <small>год {year}, день {seasonDayOf(s.time)} из {SEASON_DAYS}</small>
+        <Icon name={iconName('season', season)} glyph={meta.icon} /> {meta.name} <small>год {year}, день {seasonDayOf(s.time)} из {SEASON_DAYS}</small>
       </h2>
 
       <div className="progress good" style={{ marginBottom: 10 }}>
@@ -146,7 +148,9 @@ export function SeasonPanel() {
       <div className="season-wheel">
         {SEASONS.map((x) => (
           <div className={`s-cell${x === season ? ' now' : ''}`} key={x}>
-            <span className="ico">{SEASON_META[x].icon}</span>
+            <span className="ico">
+              <Icon name={iconName('season', x)} glyph={SEASON_META[x].icon} />
+            </span>
             <span>{SEASON_META[x].name}</span>
           </div>
         ))}
