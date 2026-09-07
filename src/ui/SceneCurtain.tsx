@@ -37,7 +37,7 @@ const SHOW_AFTER_MS = 240;
  */
 
 const ART: Record<Curtain, { src: string; line: string }> = {
-  march: { src: camp, line: 'У костра выбирают дорогу' },
+  map: { src: camp, line: 'У костра выбирают дорогу' },
 };
 
 export function SceneCurtain() {

@@ -39,7 +39,7 @@ describe('переход между посёлком и картой', () => {
     // оказался невыгодным (docs/loading.md, часть 2).
     useGame.getState().openMap();
     expect(useGame.getState().mapOpen).toBe(true);
-    expect(useGame.getState().curtain).toBe('march');
+    expect(useGame.getState().curtain).toBe('map');
     useGame.getState().curtainUp();
 
     useGame.getState().closeMap();
@@ -73,7 +73,7 @@ describe('переход между посёлком и картой', () => {
     // Занавес перехватывает нажатия: зависший — это запертая игра. Таймер в
     // сторе один и он страховочный; поднимает занавес нарисованный кадр.
     expect(src('../game/store.ts')).toMatch(/CURTAIN_MAX_MS = 6000/);
-    useGame.setState({ curtain: 'march' });
+    useGame.setState({ curtain: 'map' });
     useGame.getState().curtainUp();
     expect(useGame.getState().curtain).toBeNull();
   });

@@ -59,7 +59,12 @@ const AUTOSAVE_MS = 15000;
  *
  * Возврат домой занавеса не знает вовсе: диорама никуда не девалась.
  */
-export type Curtain = 'march';
+/**
+ * Вид занавеса. Назван по случаю, а не по картинке: раньше он звался `march`
+ * по арту «дружина за воротами», арт сменился на костёр, и имя стало врать.
+ * Случай же остался один — первый вход на карту.
+ */
+export type Curtain = 'map';
 
 /**
  * Предел, после которого занавес снимается сам.
@@ -225,7 +230,7 @@ export const useGame = create<GameStore>((set, get) => ({
     setTimeout(() => {
       if (curtainNo === no) get().curtainUp();
     }, CURTAIN_MAX_MS);
-    set({ mapOpen: true, sheet: null, curtain: 'march' });
+    set({ mapOpen: true, sheet: null, curtain: 'map' });
     get().syncTutorial();
   },
 
