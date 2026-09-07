@@ -8,6 +8,12 @@ import type { BattleEvent, BattleResult, Side, Verdict } from './types';
 
 /** Строка «ключевых событий»: чем объясняется исход. */
 export interface ReportLine {
+  /**
+   * Имя нарисованного значка. Стоит рядом с эмодзи, а не вместо него: значков
+   * меньше, чем мест, и пока файла нет, показывается `icon`. Ядро от этого ни от
+   * чего не зависит — это такая же строка данных, как и сам эмодзи.
+   */
+  art: string;
   icon: string;
   text: string;
   /** Хорошо для нас или плохо. */
@@ -47,7 +53,8 @@ const own = (side: Side, us: Side, g: Gender): string => (side === us ? MINE[g] 
 /** Сколько строк ключевых событий держит отчёт: больше десятка никто не читает. */
 export const KEYS_MAX = 7;
 
-const line = (e: BattleEvent, icon: string, text: string, good: boolean): ReportLine => ({
+const line = (e: BattleEvent, art: string, icon: string, text: string, good: boolean): ReportLine => ({
+  art,
   icon,
   text,
   good,
@@ -63,10 +70,11 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
   switch (e.id) {
     case 'volley':
       if (e.losses < EVENT_MIN) return null;
-      return line(e, '🏹', `${own(e.side, us, 'pl')} лучники выбили ${e.losses} до столкновения.`, mine);
+      return line(e, 'bat-volley', '🏹', `${own(e.side, us, 'pl')} лучники выбили ${e.losses} до столкновения.`, mine);
     case 'ranged-lost':
       return line(
         e,
+        'bat-ranged-lost',
         '🎯',
         `${own(e.side, us, 'pl')} проиграли перестрелку: потеряли ${e.losses} против ${e.enemyLosses} — в рукопашную пошли с просевшей моралью.`,
         !mine,
@@ -74,6 +82,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
     case 'spears-held':
       return line(
         e,
+        'bat-spears-held',
         '🔱',
         `${own(e.side, us, 'pl')} копейщики (${SECTOR_NAME[e.sector]}) остановили кавалерийский удар: конница потеряла ${e.cavalryLost} против ${e.spearsLost}.`,
         mine,
@@ -81,6 +90,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
     case 'cavalry-broke-archers':
       return line(
         e,
+        'bat-cavalry-broke',
         '🐎',
         `${own(e.side, us, 'f')} конница вырубила лучников (${SECTOR_NAME[e.target]}): ${e.archersLost} потерь.`,
         mine,
@@ -88,15 +98,17 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
     case 'cavalry-intercepted':
       return line(
         e,
+        'bat-cavalry-stopped',
         '🛑',
         `${mine ? 'Нашу' : 'Чужую'} конницу перехватили на подходе к ${SECTOR_NAME[e.target]}.`,
         !mine,
       );
     case 'flank-turned':
-      return line(e, '↩️', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён — удар пришёл сбоку.`, !mine);
+      return line(e, 'bat-flank', '↩️', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён — удар пришёл сбоку.`, !mine);
     case 'rear-reached':
       return line(
         e,
+        'bat-rear',
         '⚑',
         mine
           ? `Противник дошёл до нашего тыла (${SECTOR_NAME[e.sector]}).`
@@ -104,33 +116,45 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         !mine,
       );
     case 'sector-broken':
-      return line(e, '💔', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} сломался — бойцы побежали.`, !mine);
+      return line(e, 'bat-sector-broken', '💔', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} сломался — бойцы побежали.`, !mine);
     case 'reserve-committed':
-      return line(e, '🚩', `${own(e.side, us, 'm')} резерв (${e.men}) вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
+      return line(e, 'bat-reserve', '🚩', `${own(e.side, us, 'm')} резерв (${e.men}) вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
     case 'morale-collapsed':
       return line(
         e,
+        'bat-morale',
         '🏳️',
         `${own(e.side, us, 'pl')} сломались: бегущие сектора весили ${Math.round(e.brokenShare * 100)}% армии.`,
         !mine,
       );
     case 'annihilated':
-      return line(e, '☠️', `${own(e.side, us, 'pl')} перебиты.`, !mine);
+      return line(e, 'bat-annihilated', '☠️', `${own(e.side, us, 'pl')} перебиты.`, !mine);
     case 'outfought':
       return line(
         e,
+        'bat-outfought',
         '⚖️',
         `${own(e.side, us, 'pl')} проиграли размен: сохранили ${e.kept}% против ${e.enemyKept}%.`,
         !mine,
       );
     case 'pursuit':
-      return line(e, '🏇', `Преследуя, ${ourWord(e.side, us)} добили ${e.losses}.`, mine);
+      return line(e, 'bat-pursuit', '🏇', `Преследуя, ${ourWord(e.side, us)} добили ${e.losses}.`, mine);
     default:
       // phase-start, sector-collapsed, panic-spread, infantry-shifted, archers-kiting,
       // retreat, result — они есть в полном журнале, но исход объясняют плохо.
       return null;
   }
 }
+
+/**
+ * Все значки отчёта, по порядку событий. Отсюда их берёт накладная арта: список
+ * не переписывается вторым местом, и новое событие обязано появиться здесь же.
+ */
+export const BATTLE_ART: readonly string[] = [
+  'bat-volley', 'bat-ranged-lost', 'bat-spears-held', 'bat-cavalry-broke', 'bat-cavalry-stopped',
+  'bat-flank', 'bat-rear', 'bat-sector-broken', 'bat-reserve', 'bat-morale',
+  'bat-annihilated', 'bat-outfought', 'bat-pursuit',
+];
 
 /** Чем кончилось — одной фразой, из причины и цены. */
 function reasonText(r: BattleResult, us: Side, verdict: Verdict): string {

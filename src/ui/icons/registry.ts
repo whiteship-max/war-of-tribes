@@ -11,6 +11,7 @@
 //
 // Модуль чистый: ни React, ни DOM. Его читают двое — сборка значков
 // (scripts/build-icons.ts) и сам интерфейс, — и второй правды между ними быть не должно.
+import { BATTLE_ART } from '@/battle/report';
 import { RESOURCE_IDS } from '@/game/constants';
 import { ATTENTION_META } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
@@ -55,6 +56,13 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'job', ids: JOBS.map((j) => j.id), source: 'JOBS' },
   { prefix: 'season', ids: seasonIds, source: 'SEASON_META (лето и день — одно солнце)' },
   { prefix: 'attn', ids: attnIds, source: 'ATTENTION_META без order' },
+  // Значки отчёта о бое перечислены там же, где строки отчёта: событие, которому
+  // не завели значок, не попадёт ни в отчёт, ни в накладную.
+  {
+    prefix: 'bat',
+    ids: BATTLE_ART.map((n) => n.slice('bat-'.length)),
+    source: 'BATTLE_ART в battle/report.ts',
+  },
   // --- дальше словарь интерфейса: своей таблицы в игре у него нет ---
   { prefix: 'nav', ids: ['people', 'quests'], source: 'BottomNav' },
   { prefix: 'hud', ids: ['pop', 'army', 'map'], source: 'TopBar' },
