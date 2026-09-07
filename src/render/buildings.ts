@@ -1324,7 +1324,8 @@ const STUBS: Record<string, Stub> = {
  */
 /** Дозор: открытая галерея и лёгкая крыша вместо зубцов крепостной башни. */
 function watch(t: Tier, st: Style): THREE.Group {
-  if (t > 0) return stubModel(t, st, STUBS.watch);
+  if (t > 1) return stubModel(t, st, STUBS.watch);
+  if (t === 1) return watchTower(t);
   const p = stylePaint(); const wood = K.paintOf('woodDark');
   const a: K.Part[] = [];
   for (const x of [-0.64, 0.64]) for (const z of [-0.64, 0.64])
@@ -1337,6 +1338,28 @@ function watch(t: Tier, st: Style): THREE.Group {
   a.push(...watchRail(1.6, 2.08));
   for (const x of [-0.25, 0.25]) a.push(K.box(0.07, 2.4, 0.09, wood, x, 1.13, 1.0, {x: -0.22}));
   for (let i = 0; i < 8; i++) a.push(K.box(0.56, 0.07, 0.09, K.paintOf('plank'), 0, 0.25 + i * 0.24, 1.2 - i * 0.053));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function watchTower(t: Tier): THREE.Group {
+  const p = stylePaint(); const wood = K.paintOf('woodDark');
+  const h = t === 2 ? 5.15 : 3.45;
+  const a: K.Part[] = [K.box(1.72, 0.25, 1.72, p.base, 0, 0.125, 0)];
+  for (let i = 0; i < 12; i++) {
+    const y = 0.25 + (i + 0.5) * (h - 0.25) / 12;
+    for (const side of [-1, 1]) {
+      a.push(K.box(1.65, (h - 0.25) / 12 - 0.018, 0.19, i % 2 ? wood : K.paintOf('wood'), 0, y, side * 0.64));
+      a.push(K.box(0.19, (h - 0.25) / 12 - 0.018, 1.65, i % 2 ? wood : K.paintOf('wood'), side * 0.64, y, 0));
+    }
+  }
+  a.push(K.box(0.5, 0.95, 0.05, p.ink, 0, 0.7, 0.75));
+  a.push(K.box(2.15, 0.2, 2.15, K.paintOf('plank'), 0, h, 0));
+  a.push(...watchRail(2.0, h + 0.1));
+  for (const x of [-0.87, 0.87]) for (const z of [-0.87, 0.87]) {
+    a.push(K.box(0.13, 1.35, 0.13, wood, x, h + 0.7, z));
+    a.push(K.box(0.14, 0.85, 0.14, p.beam, x * 0.95, h - 0.3, z * 0.95, {z: x > 0 ? -0.48 : 0.48}));
+  }
+  a.push(...K.roofGable(2.15, 2.15, 0.48, h + 1.32, { ...p.roofPaint, roof: K.paintOf('shingle'), trim: wood }, 0.12));
   return new THREE.Group().add(K.assemble(a));
 }
 
