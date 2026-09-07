@@ -369,13 +369,13 @@ function gathering(): THREE.Group {
   for(const [x,z] of [[-0.45,-0.24],[0.23,-0.25],[-0.34,0.6]]) {
     a.push(K.cyl(0.24,0.18,0.3,K.paintOf('plank'),8,x,0.15,z));
     a.push(K.cyl(0.21,0.21,0.025,p.ink,8,x,0.307,z));
-    for(const dx of [-0.08,0.08]) a.push(K.cone(0.065,0.13,K.paintOf('sprout'),4,x+dx,0.36,z));
+    for(const dx of [-0.08,0.08]) a.push(K.cone(0.065,0.13,{...K.paintOf('wood'), tint:new THREE.Color(PALETTE.grassDark)},4,x+dx,0.36,z));
   }
   for(const z of [-0.65,0.7]) a.push(K.box(0.08,1.0,0.08,wood,1.23,0.5,z));
   a.push(K.box(0.08,0.08,1.46,wood,1.23,0.95,0.02));
   for(const z of [-0.43,-0.05,0.33,0.62]) {
     a.push(K.box(0.035,0.2,0.035,wood,1.23,0.84,z));
-    a.push(K.cone(0.15,0.37,K.paintOf('sprout'),5,1.23,0.58,z));
+    a.push(K.cone(0.15,0.37,{...K.paintOf('wood'), tint:new THREE.Color(PALETTE.grassDark)},5,1.23,0.58,z));
   }
   return new THREE.Group().add(K.assemble(a));
 }
