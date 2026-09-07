@@ -7,6 +7,7 @@ import { MAT as T } from './terrain';
 import { GATE_ANGLE, WALL_RADIUS } from './plan';
 import { LEGACY, type MatKey } from './materials';
 import * as K from './kit';
+import { PALETTE } from './palette';
 
 /** Визуальная ступень: 0 — уровни 1–3, 1 — 4–7, 2 — 8–10. */
 export type Tier = 0 | 1 | 2;
@@ -878,43 +879,113 @@ function townHall(t: Tier): THREE.Group {
   return g;
 }
 
-/** Казармы: учебный двор → двор с бараком → двор дружины с мишенями. */
-function barracks(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const s = [1.2, 1.5, 1.7][t];
-  g.add(pad(s * 1.05));
-  fence(g, s, 0.75 + t * 0.1, st.post);
-  // Стойка с копьями — по ней двор и читается как военный.
-  g.add(box(1.0, 0.09, 0.16, st.post, 0, 0.85, s * 0.55));
-  for (let i = 0; i < 4; i++) {
-    g.add(cyl(0.035, 0.035, 1.1, st.accent, 4, -0.36 + i * 0.24, 0.55, s * 0.55));
-  }
-  // Чучело для рубки.
-  g.add(cyl(0.09, 0.1, 1.2, M.woodDark, 5, -s * 0.55, 0.6, -s * 0.2));
-  g.add(box(0.7, 0.09, 0.09, M.woodDark, -s * 0.55, 1.0, -s * 0.2));
+/** Общий деревянный каркас военных построек; материал кровли сохраняет снег. */
+function militaryShed(w: number, d: number, h: number, x: number, z: number, crossRoof = false): K.Part[] {
+  const p = stylePaint();
+  const roof = { ...p.roofPaint, roof: K.paintOf('shingle'), trim: p.beam };
+  const a = [K.plinth(w, d, p.base, x, z)];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) a.push(K.box(0.13, h, 0.13, p.post, x + sx * (w / 2 - 0.06), h / 2, z + sz * (d / 2 - 0.06)));
+  for (const sz of [-1, 1]) a.push(K.box(w, 0.13, 0.13, p.beam, x, h - 0.05, z + sz * (d / 2 - 0.06)));
+  a.push(...K.roofGable(crossRoof ? d : w, crossRoof ? w : d, 0.38, h, roof, 0.12, x, z,
+    crossRoof ? { y: Math.PI / 2 } : undefined));
+  return a;
+}
+
+function barracks(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const metal = K.paintOf('metal');
+  const w = [1.75, 2.55, 3.05][t];
+  const d = [1.05, 1.3, 1.35][t];
+  const z = [-0.4, -0.65, -1.05][t];
+  const h = [1.15, 1.35, 1.55][t];
+  const a = militaryShed(w, d, h, 0, z);
   if (t >= 1) {
-    // Барак: бойцам стало где ночевать.
-    const bw = [1.6, 2.0, 2.2][t];
-    const bh = [0.9, 1.05, 1.2][t];
-    const bz = -(s + 0.55);
-    g.add(box(bw, bh, 1.1, st.wall, 0, bh / 2, bz));
-    gable(g, bw * 1.12, 1.45, bh, 0.28, st.roof, 0, bz);
-    g.add(box(0.4, bh * 0.6, 0.08, M.dark, 0, bh * 0.3, bz + 0.57));
+    a.push(K.box(w, h, 0.15, p.post, 0, h / 2, z - d / 2 + 0.07));
+    for (const side of [-1, 1]) {
+      a.push(K.box(0.15, h, d, p.post, side * (w / 2 - 0.07), h / 2, z));
+      a.push(K.box(w * 0.29, h * 0.7, 0.13, p.post, side * w * 0.355, h * 0.35, z + d / 2));
+      // Нары за открытым центральным пролётом, два уровня с торцами одеял.
+      for (const y of [0.32, 0.78]) {
+        a.push(K.box(0.72, 0.1, 0.72, p.beam, side * w * 0.28, y, z));
+        a.push(K.box(0.62, 0.08, 0.54, K.paintOf('cloth'), side * w * 0.28, y + 0.08, z + 0.09));
+      }
+    }
+    a.push(K.box(w, 0.12, 0.14, p.beam, 0, h * 0.78, z + d / 2));
+  }
+  // Стойка с длинными копьями и круглыми щитами узнаётся даже без бойцов.
+  for (const x of [-0.68, 0.68]) a.push(K.box(0.1, 0.92, 0.12, p.beam, x, 0.46, 0.72));
+  a.push(K.box(1.45, 0.13, 0.12, p.beam, 0, 0.77, 0.72));
+  for (let i = 0; i < 4; i++) {
+    const x = -0.52 + i * 0.34;
+    a.push(K.cyl(0.035, 0.035, 1.35, p.post, 4, x, 0.68, 0.67));
+    a.push(K.cone(0.09, 0.29, metal, 4, x, 1.48, 0.67));
+  }
+  for (const x of [-0.43, 0.43]) {
+    a.push(K.cyl(0.24, 0.24, 0.07, p.accent, 8, x, 0.6, 0.83, { x: Math.PI / 2 }));
+    a.push(K.cyl(0.07, 0.07, 0.085, metal, 6, x, 0.6, 0.875, { x: Math.PI / 2 }));
   }
   if (t === 2) {
-    // Мишени и щиты на ограде: двор стал местом учений дружины.
-    for (const x of [-s * 0.5, s * 0.5]) {
-      g.add(cyl(0.05, 0.05, 1.0, st.post, 4, x, 0.5, -s * 0.7));
-      const target = cyl(0.3, 0.3, 0.07, st.roof, 10, x, 1.0, -s * 0.7);
-      target.rotation.x = Math.PI / 2;
-      g.add(target);
+    a.push(...militaryShed(0.95, 1.75, 1.1, -1.62, 0.4));
+    a.push(K.box(0.12, 1.03, 1.6, p.post, -2.02, 0.52, 0.4));
+    // Учебные мишени и свободная середина — плац, а не жилой двор.
+    for (const x of [0.55, 1.35]) {
+      a.push(K.box(0.1, 1.1, 0.12, p.beam, x, 0.55, -0.1));
+      a.push(K.cyl(0.28, 0.28, 0.1, p.post, 8, x, 1.08, -0.04, { x: Math.PI / 2 }));
+      a.push(K.cyl(0.13, 0.13, 0.11, K.paintOf('cloth'), 8, x, 1.08, 0.015, { x: Math.PI / 2 }));
     }
-    for (let i = 0; i < 3; i++) {
-      const shield = cyl(0.22, 0.22, 0.06, st.accent, 8, -0.55 + i * 0.55, 0.62, s);
-      shield.rotation.x = Math.PI / 2;
-      g.add(shield);
-    }
+    for (const side of [-1, 1]) a.push(...K.fenceRun(side * 0.65, 1.55, side * 1.8, 1.55, 0.66, p.post, p.beam));
   }
+  const g = new THREE.Group();
+  g.add(K.assemble(a));
+  return g;
+}
+
+/** Коновязь и повторяющиеся денники: конюшня не похожа на пустую ограду загона. */
+function stable(t: Tier): THREE.Group {
+  const p = stylePaint();
+  const w = [1.65, 2.5, 2.9][t];
+  const z = [-0.3, -0.6, -0.8][t];
+  const a = militaryShed(w, 1.25, 1.35, 0, z, true);
+  // Статичная лошадь из существующих деталей, склеенная с постройкой.
+  // Поза боком к фасаду показывает длинную шею, голову и четыре ноги.
+  const horse = (x: number, z: number, scale = 1): void => {
+    const coat: K.Paint = { ...K.paintOf('wood'), tint: new THREE.Color(PALETTE.horseCoat) };
+    const q: K.Part[] = [K.box(0.76, 0.32, 0.28, coat, 0, 0.64, 0)];
+    for (const dx of [-0.27, 0.27]) for (const dz of [-0.1, 0.1]) q.push(K.box(0.085, 0.48, 0.085, coat, dx, 0.25, dz));
+    q.push(K.box(0.22, 0.53, 0.23, coat, 0.37, 0.91, 0, { z: -0.38 }));
+    q.push(K.box(0.36, 0.18, 0.2, coat, 0.52, 1.17, 0));
+    q.push(K.box(0.06, 0.17, 0.17, p.ink, 0.4, 1.31, 0));
+    q.push(K.box(0.07, 0.39, 0.13, p.ink, -0.4, 0.55, 0, { z: -0.2 }));
+    q.push(K.box(0.35, 0.07, 0.32, p.beam, -0.05, 0.83, 0));
+    a.push(...shiftParts(q, x, z, 0, scale));
+  };
+  if (t === 0) horse(0, 0.35, 0.83);
+  else {
+    a.push(K.box(w, 1.25, 0.13, p.post, 0, 0.63, z - 0.56));
+    for (let i = 0; i <= 3; i++) {
+      const x = -w / 2 + i * w / 3;
+      a.push(K.box(0.09, 1.2, 1.08, p.beam, x, 0.6, z));
+      a.push(K.box(0.12, 1.32, 0.14, p.post, x, 0.66, z + 0.58));
+    }
+    for (let i = 0; i < 3; i++) a.push(K.box(w / 3 - 0.12, 0.35, 0.08, p.post, -w / 3 + i * w / 3, 0.25, z + 0.6));
+    horse(-0.68, 0.28, 0.66);
+    horse(0.65, 0.28, 0.66);
+    a.push(K.box(w * 0.85, 0.2, 0.29, p.post, 0, 0.15, 0.92));
+    a.push(K.box(w * 0.8, 0.025, 0.2, p.ink, 0, 0.26, 0.92));
+  }
+  for (const x of [-0.7, 0.7]) a.push(K.box(0.14, 0.85, 0.14, p.beam, x, 0.42, 0.98));
+  a.push(K.box(1.6, 0.14, 0.14, p.post, 0, 0.7, 0.98));
+  if (t === 2) {
+    a.push(...militaryShed(0.75, 1.45, 1.05, -1.47, 0.55));
+    a.push(K.box(0.12, 0.92, 1.3, p.post, -1.76, 0.46, 0.55));
+    // Ограда выгула ниже коновязи, вход остаётся свободным посередине.
+    a.push(...K.fenceRun(1.6, -0.2, 1.6, 1.48, 0.65, p.post, p.beam));
+    a.push(...K.fenceRun(-1.6, 1.48, -0.55, 1.48, 0.65, p.post, p.beam));
+    a.push(...K.fenceRun(0.55, 1.48, 1.6, 1.48, 0.65, p.post, p.beam));
+    a.push(K.box(0.55, 0.37, 0.5, K.paintOf('cut'), -1.43, 0.25, 0.5));
+  }
+  const g = new THREE.Group();
+  g.add(K.assemble(a));
   return g;
 }
 
@@ -1340,14 +1411,15 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'town_hall':
       return townHall(tier);
     case 'barracks':
-      return barracks(tier, st);
+      return barracks(tier);
     case 'market':
       return market(tier, st);
     case 'statue':
       return statue(tier, st);
+    case 'stable':
+      return stable(tier);
     case 'infirmary':
     case 'watch':
-    case 'stable':
     case 'cache':
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
@@ -1355,6 +1427,8 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
       return new THREE.Group();
   }
 }
+
+
 
 
 
