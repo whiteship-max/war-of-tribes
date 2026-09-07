@@ -1323,9 +1323,8 @@ const STUBS: Record<string, Stub> = {
  * кольце зарезервировано по третьей ступени десятого уровня.
  */
 /** Дозор: открытая галерея и лёгкая крыша вместо зубцов крепостной башни. */
-function watch(t: Tier, st: Style): THREE.Group {
-  if (t > 1) return stubModel(t, st, STUBS.watch);
-  if (t === 1) return watchTower(t);
+function watch(t: Tier): THREE.Group {
+  if (t >= 1) return watchTower(t);
   const p = stylePaint(); const wood = K.paintOf('woodDark');
   const a: K.Part[] = [];
   for (const x of [-0.64, 0.64]) for (const z of [-0.64, 0.64])
@@ -1343,14 +1342,30 @@ function watch(t: Tier, st: Style): THREE.Group {
 
 function watchTower(t: Tier): THREE.Group {
   const p = stylePaint(); const wood = K.paintOf('woodDark');
-  const h = t === 2 ? 5.15 : 3.45;
+  const h = t === 2 ? 5.6 : 3.45;
   const a: K.Part[] = [K.box(1.72, 0.25, 1.72, p.base, 0, 0.125, 0)];
-  for (let i = 0; i < 12; i++) {
+  if (t === 1) for (let i = 0; i < 12; i++) {
     const y = 0.25 + (i + 0.5) * (h - 0.25) / 12;
     for (const side of [-1, 1]) {
       a.push(K.box(1.65, (h - 0.25) / 12 - 0.018, 0.19, i % 2 ? wood : K.paintOf('wood'), 0, y, side * 0.64));
       a.push(K.box(0.19, (h - 0.25) / 12 - 0.018, 1.65, i % 2 ? wood : K.paintOf('wood'), side * 0.64, y, 0));
     }
+  }
+  if (t === 2) {
+    a.push(K.box(1.48, h - 0.25, 1.48, K.paintOf('stone'), 0, (h + 0.25) / 2, 0));
+    for (const y of [0.5, 1.5, 2.5, 3.5, 4.5, 5.3]) {
+      for (const x of [-0.69, 0.69]) for (const z of [-0.69, 0.69])
+        a.push(K.box(0.22, 0.2, 0.22, K.paintOf('stoneDark'), x, y, z));
+    }
+    for (const y of [2.1, 3.65]) {
+      a.push(K.box(0.12, 0.56, 0.035, p.ink, 0, y, 0.75));
+      a.push(K.box(0.035, 0.56, 0.12, p.ink, 0.75, y, 0));
+    }
+    // Сигнальная корзина вне кровли, без отдельного источника света и материала.
+    a.push(K.box(1.2, 0.15, 0.15, wood, 1.05, h + 0.28, 0));
+    a.push(K.cyl(0.3, 0.18, 0.22, K.paintOf('metal'), 8, 1.63, h + 0.44, 0));
+    a.push(K.cone(0.23, 0.58, K.paintOf('gold'), 6, 1.63, h + 0.82, 0));
+    a.push(K.cone(0.12, 0.34, K.paintOf('cut'), 5, 1.63, h + 0.72, 0.12));
   }
   a.push(K.box(0.5, 0.95, 0.05, p.ink, 0, 0.7, 0.75));
   a.push(K.box(2.15, 0.2, 2.15, K.paintOf('plank'), 0, h, 0));
@@ -1494,7 +1509,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'stable':
       return stable(tier);
     case 'watch':
-      return watch(tier, st);
+      return watch(tier);
     case 'infirmary':
     case 'cache':
     case 'tavern':
