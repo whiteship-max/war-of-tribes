@@ -78,17 +78,22 @@ describe('сверка с данными игры', () => {
   });
 
   it('группа, к которой не приступали, ничего не требует', () => {
-    // Профессии — вторая очередь. Пока не пришёл ни один файл `job-*`,
-    // спрашивать с них нечего, и сборка обязана оставаться зелёной.
-    const audit = auditNames(new Set(files), returned);
-    expect(audit.openGroups).toContain('job');
-    expect(audit.missing.filter((m) => m.group === 'job')).toEqual([]);
+    // Пока не пришёл ни один файл группы, спрашивать с неё нечего, и сборка
+    // обязана оставаться зелёной: так подключается каждая следующая очередь.
+    // Группа берётся не «та, которой сейчас нет» — сегодня нет одной, завтра
+    // другой, — а вычитается из папки нарочно, чтобы тест не зависел от того,
+    // сколько уже нарисовано.
+    const audit = auditNames(new Set([...files].filter((n) => !n.startsWith('bld-'))), returned);
+    expect(audit.openGroups).toContain('bld');
+    expect(audit.missing.filter((m) => m.group === 'bld')).toEqual([]);
   });
 
   it('первый же файл группы делает её спрос полным', () => {
-    const audit = auditNames(new Set([...files, 'job-smith']), returned);
-    expect(audit.openGroups).not.toContain('job');
-    expect(audit.missing.map((m) => m.name)).toContain('job-priest');
+    const one = new Set([...files].filter((n) => !n.startsWith('bld-')));
+    one.add('bld-smithy');
+    const audit = auditNames(one, returned);
+    expect(audit.openGroups).not.toContain('bld');
+    expect(audit.missing.map((m) => m.name)).toContain('bld-farm');
   });
 
   it('нынешняя папка сходится с игрой: ни лишнего, ни недостающего', () => {
@@ -147,9 +152,9 @@ describe('проверка формата', () => {
 describe('где значка нет — остаётся эмодзи', () => {
   it('нарисованное отличается от ненарисованного одним вопросом', () => {
     expect(isDrawn('res-wood')).toBe(true);
-    // Профессии не заказаны второй очередью, и спрашивать их можно уже сейчас:
-    // компонент сам покажет эмодзи, а когда файл приедет — значок, без правок кода.
-    expect(isDrawn('job-smith')).toBe(false);
+    // Спрашивать можно и то, чего ещё не нарисовали: компонент сам покажет
+    // эмодзи, а когда файл приедет — значок, без единой правки в компонентах.
+    expect(isDrawn('bat-volley')).toBe(false);
     expect(isDrawn('нет-такого')).toBe(false);
   });
 
