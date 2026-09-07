@@ -3,7 +3,6 @@
 import * as THREE from 'three';
 import type { BuildingTypeId } from '@/game/types';
 import { VISUAL_TIERS } from '@/game/constants';
-import { MAT as T } from './terrain';
 import { GATE_ANGLE, WALL_RADIUS } from './plan';
 import { LEGACY, type MatKey } from './materials';
 import * as K from './kit';
@@ -151,13 +150,6 @@ const cone = (r: number, h: number, mat: THREE.Material, seg = 8, x = 0, y = 0, 
   m.position.set(x, y, z);
   return m;
 };
-
-function pad(radius: number): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.06, 12), T.dirt);
-  m.position.y = 0.03;
-  m.receiveShadow = true;
-  return m;
-}
 
 /** Четыре столба с обвязкой: остов навеса, копра, рамы пилы. */
 function frame(g: THREE.Group, w: number, d: number, h: number, mat: THREE.Material = M.woodDark): void {
