@@ -7,7 +7,7 @@ import { haptic } from '@/telegram/webapp';
 import { revealWorld } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
-import { applyEffects, awayTroops, playerProfile, syncAway } from './bridge';
+import { applyEffects, awayTroops, playerProfile, syncAway, syncSiege } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT } from './data/tuning';
@@ -46,6 +46,7 @@ import type {
   Report,
   SettlementCard,
   SettlementId,
+  SiegeView,
   Terrain,
   TribeInfo,
   WorldInfo,
@@ -103,6 +104,13 @@ export interface WorldStore {
   letters: LetterView[];
   /** Какое письмо открыто. null — столбик свёрнут. */
   openLetter: string | null;
+  /**
+   * Осада деревни. Живёт здесь, а не в состоянии племени, по той же причине,
+   * что и походы: считает её мир, а панель показывает мировые часы — они идут
+   * между пульсами сами. В племя из неё едет только то, что нужно тику
+   * (`bridge.syncSiege`).
+   */
+  siege: SiegeView | null;
   /** Время мира на последнем пульсе. */
   now: number;
   selected: Coord | null;
@@ -189,6 +197,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   tribes: [],
   letters: [],
   openLetter: null,
+  siege: null,
   now: Date.now(),
   selected: null,
   card: null,
@@ -227,6 +236,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // Число ушедших выводится из походов: правим состояние на месте, перерисовку
     // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.
     syncAway(game.s, pulse.marches, pulse.figures);
+    // Осада режет выработку в тике, поэтому она обязана доехать до состояния
+    // племени, а не остаться картинкой на экране карты.
+    syncSiege(game.s, pulse.siege, pulse.now);
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
       // Список мог быть уже открыт: без этого свежий отчёт не появится, пока
@@ -235,7 +247,13 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
 
     clockOffset = pulse.now - Date.now();
-    set({ marches: pulse.marches, figures: pulse.figures, unread: pulse.unread, now: pulse.now });
+    set({
+      marches: pulse.marches,
+      figures: pulse.figures,
+      siege: pulse.siege,
+      unread: pulse.unread,
+      now: pulse.now,
+    });
     // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.

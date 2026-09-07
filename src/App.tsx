@@ -19,6 +19,7 @@ import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
 import { Letters } from './ui/Letters';
+import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
 import { SceneCurtain } from './ui/SceneCurtain';
 import { WorldPanel } from './ui/panels/WorldPanel';
@@ -134,6 +135,11 @@ export function App() {
       <AlertBar />
       {/* Столбик писем живёт в деревне: на карте левый низ занят якорями и
           кнопками, а письмо о набеге ведёт как раз на карту. */}
+      {/* Осада — в правом низу: слева письма, а осаду не разбирают, из-под неё
+          выходят. Обе панели живут в деревне и по одним правилам видимости.
+          Порядок здесь нужен стилям: пока осада на экране, столбик писем
+          уступает ей ширину селектором `.siege ~ .letters`. */}
+      {!mapOpen && <SiegeBanner />}
       {!mapOpen && <Letters />}
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && <SheetContent view={shown} />}

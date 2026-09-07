@@ -4,6 +4,7 @@ import type { ArmySetup } from '@/battle';
 import type { TroopStack } from '@/game/battle/kinds';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { FogData } from '../fog';
+import type { SiegeWindow } from '../siege';
 import type {
   Coord,
   DealId,
@@ -217,6 +218,24 @@ export interface WorldSave {
    */
   revolts: Record<SettlementId, { since: number; until: number }>;
   /**
+   * Осады: одно окно на поселение. Осаждено сейчас может быть только своё
+   * поселение (`HOME_ID`) — приказа «встать в осаду» у игрока пока нет, — но
+   * ключ здесь общий по той же причине, по которой он общий у бунтов: осада
+   * это свойство поселения, а не свойство дома.
+   *
+   * Срезанный приток, часы голода и сам момент падения из окна выводятся при
+   * чтении (`world/siege.ts`), а не отмечаются тиком, — поэтому офлайн даёт
+   * ровно то же, что непрерывная игра. Версию сохранения поле не поднимает:
+   * `parseWorldSave` мержит сохранение поверх новой партии, и старое приезжает
+   * без осад — ровно с тем, с чего начинается новая партия.
+   */
+  sieges: Record<SettlementId, SiegeWindow>;
+  /**
+   * До какого момента поселение нельзя осадить снова. Ставится в момент
+   * падения; всё остальное про него — чистая функция (`siegeImmune`).
+   */
+  siegeImmune: Record<SettlementId, number>;
+  /**
    * Письма на столе. Их не больше `LETTER_SLOTS`, и очереди за столом нет:
    * сверх видимых не хранится ничего (почему — см. `world/letters.ts`).
    * Протухло письмо или нет, здесь не отмечается — это выводится из `until`
@@ -288,6 +307,8 @@ export function createWorldSave(seed: number, home: Coord, allyTribe: TribeId | 
     },
     pacts: {},
     revolts: {},
+    sieges: {},
+    siegeImmune: {},
     letters: [],
     nextLetter: 1,
     // Ноль, а не «сейчас плюс пауза»: назначает первое письмо тот же код, что

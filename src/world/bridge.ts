@@ -4,7 +4,7 @@
 // унести) и отдаёт сюда последствия походов. Дальше вниз связи нет: симуляция
 // племени не знает про координаты, а мир — про жителей и склад.
 import type { GameState, TroopId } from '@/game/types';
-import { RESOURCE_IDS } from '@/game/constants';
+import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
 import { TROOP_IDS } from '@/game/data/troops';
 import {
   buildingOfType,
@@ -15,8 +15,10 @@ import {
   homeArmyPower,
   intelKeen,
   mountGear,
+  soldierFoodPerDay,
   soldierPower,
   surveyRadius,
+  townFoodPerDay,
   warningSeconds,
 } from '@/game/derived';
 import { BATTLE_MAN, type TroopStack } from '@/game/battle/kinds';
@@ -28,7 +30,15 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import type { FigureView, HomeEffect, Loot, MarchView, PlayerProfile } from './types';
+import type { FigureView, HomeEffect, Loot, MarchView, PlayerProfile, SiegeView } from './types';
+
+/**
+ * Сколько игровых дней укладывается в час реального времени. Осада живёт в
+ * мировых часах, а расход еды племя считает за игровой день — перевод должен
+ * быть один и стоять здесь, на самом мосту: мир про `DAY_LENGTH` не знает, а
+ * племя про мировые часы.
+ */
+const DAYS_PER_HOUR = 3_600_000 / (DAY_LENGTH * 1000);
 
 /**
  * Кто из дружины сейчас не дома, по видам. Складывается из двух списков мира, и
@@ -133,6 +143,13 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     // Час и время года: мир их не толкует, он ставит их отметкой на записи боя,
     // чтобы ролик светил закатом там, где бой и случился на закате.
     time: s.time,
+    // Осада считает не добычу, а на сколько хватит хлеба, поэтому здесь весь
+    // склад, а не то, что видно набегу: спрятанное в тайнике племя ест наравне
+    // с остальным. Два расхода — города и одного бойца — приезжают из того же
+    // `foodConsumptionPerDay`, которым племя живёт всегда.
+    food: Math.max(0, s.resources.food),
+    foodPerHour: townFoodPerDay(s) * DAYS_PER_HOUR,
+    soldierFoodPerHour: soldierFoodPerDay(s) * DAYS_PER_HOUR,
     // Дозор и конюшня: мир получает четыре числа и не спрашивает, откуда они.
     warning: warningSeconds(s),
     // Изученная округа: радиус земли, которую Дозор открыл навсегда. Живого
@@ -172,6 +189,36 @@ export function syncAway(s: GameState, marches: MarchView[], figures: FigureView
   if (heroChanged) s.hero.marchId = null;
   if (s.warriorsAway === warriors && s.scoutsAway === scouts) return heroChanged;
   setAway(s, warriors, scouts);
+  return true;
+}
+
+/**
+ * Осада из мира в племя. Мир считает её в своих часах, племя живёт игровым
+ * временем — перевод один и стоит здесь, как и всё, что знают друг о друге эти
+ * две стороны.
+ *
+ * Переводится **остаток**, а не отметка: `starvesAt` — мировые миллисекунды, и
+ * положить их в состояние племени значило бы, что тик и офлайн-догон сравнивают
+ * секунды партии с часами устройства. Остаток же одинаков в обеих шкалах —
+ * игровая секунда идёт ровно секунду.
+ *
+ * Возвращает `true`, если что-то изменилось: пульс идёт каждые две секунды, и
+ * перерисовывать по нему экран без причины не за что.
+ */
+export function syncSiege(s: GameState, view: SiegeView | null, now: number): boolean {
+  if (!view) {
+    if (s.siege === null) return false;
+    s.siege = null;
+    return true;
+  }
+  const until = s.time + Math.max(0, (view.starvesAt - now) / 1000);
+  const same =
+    s.siege !== null &&
+    s.siege.byName === view.byName &&
+    s.siege.garrison === view.garrison &&
+    Math.abs(s.siege.until - until) < 1;
+  if (same) return false;
+  s.siege = { byName: view.byName, until, garrison: view.garrison };
   return true;
 }
 

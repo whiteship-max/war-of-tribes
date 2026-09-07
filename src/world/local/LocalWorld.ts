@@ -44,6 +44,7 @@ import type {
   SettlementId,
   RevoltView,
   SettlementView,
+  SiegeView,
   Standing,
   TemperId,
   TribeInfo,
@@ -82,6 +83,15 @@ import {
   spyOutcome,
   spySeed,
 } from '../spy';
+import {
+  SIEGE_BLOCK,
+  immuneUntil,
+  openSiege,
+  siegeActive,
+  siegeImmune,
+  starvesAt,
+  type SiegeWindow,
+} from '../siege';
 import {
   chanceOf,
   clampAttitude,
@@ -153,6 +163,8 @@ import {
   RANSOM_SHARE,
   REPORTS_KEPT,
   SCOUT_COVER,
+  SIEGE_IF_BELOW,
+  SIEGE_ROUT,
   SUPPORT_STAY,
   TRADE_GOLD_PER_SETTLEMENT,
   TRIBUTE_PER_SETTLEMENT,
@@ -273,6 +285,186 @@ export class LocalWorld implements WorldApi {
     const w = this.save.revolts[id];
     if (!w || !revoltActive(w, now)) return null;
     return { since: w.since, until: w.until, power: REVOLT_POWER_LOSS };
+  }
+
+  // ---------- Осада ----------
+
+  /**
+   * Осада деревни, если она идёт прямо сейчас. Считается при чтении из одного
+   * окна: ни флага «осаждён», ни тика, который его снимет, в мире нет.
+   */
+  private homeSiege(now: number): SiegeWindow | null {
+    const w = this.save.sieges[HOME_ID];
+    return w && siegeActive(w, now) ? w : null;
+  }
+
+  /**
+   * Отказ на выход из осаждённого города — в точке отдачи приказа, а не
+   * проверкой потом. Приказ, который молча станет чем-то другим (или не станет
+   * ничем), хуже отказа: игрок обязан узнать, что войско не вышло, в тот же миг,
+   * когда он велел ему выйти.
+   */
+  private siegeBlock(now: number): string | null {
+    return this.homeSiege(now) ? SIEGE_BLOCK : null;
+  }
+
+  /**
+   * Открыть окно осады по нынешнему слепку деревни. Это же и единственный способ
+   * его пересчитать: пересчёт — то же открытие, только с новой отметкой времени
+   * и от остатка еды на неё.
+   *
+   * `extraMen` — те, кого слепок ещё не считает домашними: дружина, дошедшая до
+   * ворот в эту самую минуту. Слепок приходит в начале пульса, а приход отряда
+   * разбирается уже внутри него; без поправки подкрепление считалось бы
+   * пришедшим только к следующему пульсу, и часы голода соврали бы на две секунды
+   * в пользу игрока.
+   */
+  private openHomeSiege(byId: SettlementId, campId: string, at: number, extraMen = 0): SiegeWindow {
+    const p = this.save.profile;
+    const w = openSiege({
+      byId,
+      campId,
+      now: at,
+      food: p?.food ?? 0,
+      garrison: troopTotal(p?.army ?? {}) + Math.max(0, extraMen),
+      townPerHour: p?.foodPerHour ?? 0,
+      perManPerHour: p?.soldierFoodPerHour ?? 0,
+    });
+    this.save.sieges[HOME_ID] = w;
+    // Срок стоянки лагеря и есть час голода: падение разбирает та же очередь
+    // событий по времени, что и приход любого другого отряда.
+    const camp = this.save.marches.find((m) => m.id === campId);
+    if (camp) camp.stayUntil = starvesAt(w);
+    return w;
+  }
+
+  /**
+   * Гарнизон изменился — часы голода считаются заново. Один раз, в самом
+   * событии: пересчёт на каждое изменение и был бы тем самым тиком, которого у
+   * осады нет. Поводов ровно два — дружина дошла домой и передача войска
+   * вернула её в гарнизон; третий (вылазка) появится вместе с боем.
+   */
+  private resiege(now: number, extraMen = 0): void {
+    const w = this.homeSiege(now);
+    if (!w) return;
+    this.openHomeSiege(w.byId, w.campId, now, extraMen);
+  }
+
+  /** Осада наружу: факт, срок и то, чем он посчитан. Считать её больше негде. */
+  private siegeView(now: number): SiegeView | null {
+    const w = this.homeSiege(now);
+    if (!w) return null;
+    return {
+      byId: w.byId,
+      byName: this.byId.get(w.byId)?.name ?? 'Чужаки',
+      since: w.startedAt,
+      starvesAt: starvesAt(w),
+      garrison: w.garrisonAtStart,
+      foodAtStart: w.foodAtStart,
+    };
+  }
+
+  /**
+   * Отряд дошёл и увидел, чем его встречают. Лезть на частокол, который заметно
+   * сильнее пришедшего, никто не станет: он садится лагерем и берёт город тем,
+   * чего у города конечное количество.
+   *
+   * Своей кости у осады нет нарочно. Она случается ровно там, где штурм заведомо
+   * не удался бы, — и в этом её смысл: крепкая деревня перестаёт бояться набегов
+   * и начинает бояться голода. Отсюда же и вторая половина размена: большой
+   * гарнизон, который и сделал штурм безнадёжным, проедает город быстрее.
+   */
+  private beginSiege(m: StoredMarch, at: number): boolean {
+    const p = this.save.profile;
+    if (!p) return false;
+    if (this.save.sieges[HOME_ID]) return false;
+    // Цепочку осад закрывает окно неприкосновенности: у павшего города пустой
+    // амбар, и вторая осада подряд повторила бы исход, не дав ни решения между.
+    if (siegeImmune(this.save.siegeImmune[HOME_ID], at)) return false;
+    if (m.power >= Math.max(1, p.defense) * SIEGE_IF_BELOW) return false;
+
+    const w = this.openHomeSiege(m.fromId, m.id, at);
+    // Марш становится стоянкой у ворот. `from` не трогаем: по нему лагерь потом
+    // уйдёт домой, и подменить его точкой стоянки значило бы отправить чужаков
+    // восвояси в нашу же деревню.
+    m.phase = 'stay';
+    m.stayUntil = starvesAt(w);
+    this.addReport({
+      id: `${m.id}-siege`,
+      at,
+      kind: 'defense',
+      title: 'Город в осаде',
+      target: { id: HOME_ID, name: 'Наша деревня', x: this.save.home.x, y: this.save.home.y },
+      won: false,
+      sent: {},
+      lost: {},
+      enemyPower: Math.round(m.power),
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: `${m.fromName} не пошли на приступ: заслон крепче их отряда. Встали лагерем у ворот и ждут, когда кончится хлеб.`,
+      read: false,
+    });
+    return true;
+  }
+
+  /**
+   * Голод сделал своё: город пал. Владелец при этом не меняется — такой механики
+   * в игре нет и заводить её здесь незачем. Осада отнимает припасы и дружину,
+   * а не посёлок: ни одно здание она не трогает.
+   */
+  private resolveSiege(m: StoredMarch, at: number): void {
+    const w = this.save.sieges[HOME_ID];
+    delete this.save.sieges[HOME_ID];
+    this.save.siegeImmune[HOME_ID] = immuneUntil(at);
+
+    const p = this.save.profile;
+    const army = p?.army ?? {};
+    // Гарнизон рассеян: люди с оружием из взятого голодом города расходятся.
+    const routed: TroopStack = {};
+    for (const id of TROOP_IDS) {
+      const gone = Math.floor(Math.max(0, army[id] ?? 0) * SIEGE_ROUT);
+      if (gone > 0) routed[id] = gone;
+    }
+    const men = troopTotal(routed);
+    // Берут столько, сколько унесут: грузоподъёмность отряда — та же, что у набега.
+    const plunder = this.plunderHome(p ?? null, stackCarry(m.units));
+    const taken = Object.values(plunder).reduce((n, v) => n + Math.abs(v ?? 0), 0);
+    const from = (w && this.byId.get(w.byId)?.name) || m.fromName;
+
+    this.addReport({
+      id: `${m.id}-fell`,
+      at,
+      kind: 'defense',
+      title: 'Хлеб кончился',
+      target: { id: HOME_ID, name: 'Наша деревня', x: this.save.home.x, y: this.save.home.y },
+      won: false,
+      sent: { warrior: Math.round(troopTotal(army)) },
+      lost: men > 0 ? { warrior: men } : {},
+      enemyPower: Math.round(m.power),
+      enemyLost: null,
+      loot: taken > 0 ? plunder : null,
+      intel: null,
+      battle: null,
+      text: `Голод сделал за ${from} всю работу: гарнизон разошёлся, склад вычистили на ${taken} добра. Лагерь снят.`,
+      read: false,
+    });
+    this.addEffect({
+      id: `${m.id}-fell`,
+      lost: men > 0 ? { warrior: men } : {},
+      lostTroops: men > 0 ? routed : undefined,
+      resources: plunder,
+      prestige: 0,
+      morale: -12,
+      // Настоящего боя не было: город взяли голодом, и записывать это в
+      // проигранные битвы значило бы считать то, чего не случилось.
+      battle: null,
+      text: `Осада ${from} доела деревню: гарнизон рассеян, склад вычищен.`,
+      good: false,
+    });
+    // Лагерь снят: осаждающий уходит домой той же дорогой, какой пришёл.
+    this.turnHome(m, at, null);
   }
 
   /**
@@ -926,7 +1118,12 @@ export class LocalWorld implements WorldApi {
 
   private resolve(m: StoredMarch, at: number, prevSeen: number): void {
     if (m.phase === 'back') return this.arriveHome(m, at);
-    if (m.phase === 'stay') return this.turnHome(m, at, null);
+    if (m.phase === 'stay') {
+      // Стоянка у своих ворот — это осадный лагерь, и кончается она не уходом,
+      // а голодом. Отличает их одно: чей это лагерь, записано в самом окне.
+      if (this.save.sieges[HOME_ID]?.campId === m.id) return this.resolveSiege(m, at);
+      return this.turnHome(m, at, null);
+    }
     if (!m.own) return this.resolveIncoming(m, at, prevSeen);
 
     const target = this.byId.get(m.targetId) ?? null;
@@ -941,6 +1138,10 @@ export class LocalWorld implements WorldApi {
   private arriveHome(m: StoredMarch, at: number): void {
     this.remove(m);
     if (!m.own) return;
+    // Отряд, вышедший до осады, доходит как ни в чём не бывало и вливается в
+    // гарнизон — а это меняет число едоков за стеной, и часы голода считаются
+    // заново. Один раз, здесь, в самом событии.
+    this.resiege(at, troopTotal(m.troops ?? {}) || Math.max(0, m.units.warrior ?? 0));
     const loot = m.loot && Object.keys(m.loot).length > 0 ? m.loot : null;
     this.addEffect({
       id: `${m.id}-home`,
@@ -1156,6 +1357,13 @@ export class LocalWorld implements WorldApi {
 
   async intercept(marchId: string): Promise<string | null> {
     const now = this.clock();
+    // Перехват — это выход полководца в поле, и из осаждённого города он такой
+    // же невозможный, как любой другой. Отказ здесь, в приказе: принять его и
+    // не сдвинуть фигуру было бы хуже отказа.
+    if (this.touching(this.figureAt(this.save.figures.general, now))?.home) {
+      const blocked = this.siegeBlock(now);
+      if (blocked) return blocked;
+    }
     const m = this.chaseTarget(marchId);
     if (!m) return 'Этот отряд уже не догнать.';
     const { meet, reason } = this.planChase(m, now);
@@ -1408,9 +1616,11 @@ export class LocalWorld implements WorldApi {
   }
 
   private resolveIncoming(m: StoredMarch, at: number, prevSeen: number): void {
-    this.remove(m);
     // Пока игрока не было, никто ничего не громит: предупреждение он бы не увидел.
+    // Это и осады касается: лагерь под стенами спящего — то же самое разорение,
+    // только растянутое.
     if (at - prevSeen > AWAY_GRACE) {
+      this.remove(m);
       this.addReport({
         id: `${m.id}-skip`,
         at,
@@ -1430,6 +1640,10 @@ export class LocalWorld implements WorldApi {
       });
       return;
     }
+    // Отряд дошёл и увидел заслон. Если тот заведомо крепче — на приступ никто
+    // не пойдёт: марш становится лагерем, и разбирать его будет уже осада.
+    if (this.beginSiege(m, at)) return;
+    this.remove(m);
 
     const profile = this.save.profile;
     const party = raidingParty(this.save.seed, m.id, m.power);
@@ -1676,6 +1890,7 @@ export class LocalWorld implements WorldApi {
     }
 
     if (this.syncRaidLetter(now)) changed = true;
+    if (this.syncSiegeLetter(now)) changed = true;
     if (changed) this.write();
   }
 
@@ -1716,6 +1931,51 @@ export class LocalWorld implements WorldApi {
         fromName: m.fromName,
         cost: {},
         marchId: m.id,
+      });
+      changed = true;
+    }
+    return changed;
+  }
+
+  /**
+   * Письмо об осаде. Как и предупреждение о набеге, оно не приходит по
+   * расписанию и не выдумывается: письмо есть ровно тогда, когда лагерь стоит
+   * под стенами, и снимается вместе с ним. Второй правды о том, идёт ли осада,
+   * между письмом и картой быть не должно — письмо только называет словами то,
+   * что уже стоит у ворот.
+   *
+   * Выбора в нём нет: осаду снимают вылазкой, а не ответом гонцу. Своей строки
+   * в летописи оно поэтому не пишет — её оставит отчёт о том, чем всё кончилось.
+   */
+  private syncSiegeLetter(now: number): boolean {
+    const save = this.save;
+    const w = this.homeSiege(now);
+    let changed = false;
+    for (const l of [...save.letters]) {
+      if (l.kind !== 'siege') continue;
+      if (w && l.marchId === w.campId) {
+        // Часы голода могли пересчитаться от подкрепления: срок письма обязан
+        // идти за ними, иначе оно разрешится раньше или позже самой осады.
+        const until = starvesAt(w);
+        if (l.until !== until) {
+          l.until = until;
+          changed = true;
+        }
+        continue;
+      }
+      this.closeLetter(l, 'lapse', Math.min(now, l.until));
+      changed = true;
+    }
+    if (w && !save.letters.some((l) => l.kind === 'siege')) {
+      save.letters.push({
+        id: `L-siege-${w.campId}`,
+        kind: 'siege',
+        at: w.startedAt,
+        until: starvesAt(w),
+        fromId: w.byId,
+        fromName: this.byId.get(w.byId)?.name ?? 'Чужаки',
+        cost: {},
+        marchId: w.campId,
       });
       changed = true;
     }
@@ -1876,6 +2136,10 @@ export class LocalWorld implements WorldApi {
       arriveAt: m.phase === 'stay' ? m.stayUntil ?? m.arriveAt : m.arriveAt,
       loot: m.loot ? { ...m.loot } : null,
       recallable: m.own && m.phase !== 'back',
+      // Лагерь под стенами — это стоянка, а не поход, и панели должны звать её
+      // своим именем. Своего вида похода у осады нет: игрок такого приказа
+      // отдать не может, и заводить его в списке заданий было бы враньём.
+      siege: m.phase === 'stay' && this.save.sieges[m.targetId]?.campId === m.id,
     };
   }
 
@@ -1934,6 +2198,7 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     if (id === HOME_ID) {
       const p = this.save.profile;
+      const siege = this.siegeView(now);
       return {
         ...this.homeView(now),
         terrain: terrainAt(this.save.seed, this.save.home.x, this.save.home.y),
@@ -1948,7 +2213,9 @@ export class LocalWorld implements WorldApi {
         diplomacy: null,
         revolt: null,
         can: { raid: false, scout: false, support: false, open: true },
-        note: 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
+        note: siege
+          ? `Город в осаде: «${siege.byName}» стоят у ворот. ${SIEGE_BLOCK}`
+          : 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
       };
     }
     const s = this.byId.get(id);
@@ -2025,6 +2292,10 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     const profile = this.save.profile;
     if (!profile) return { error: 'Деревня ещё не готова к походу.', march: null };
+    // Из осаждённого города не выходит никто: ни гонец с воинами, ни разведка,
+    // ни поддержка союзнику.
+    const blocked = this.siegeBlock(now);
+    if (blocked) return { error: blocked, march: null };
 
     const target = this.byId.get(order.target) ?? null;
     if (!target) {
@@ -2180,6 +2451,14 @@ export class LocalWorld implements WorldApi {
     const from = this.figureAt(f, now);
     const dist = distance(from, target);
     if (dist < 0.5) return `${def.name} уже там.`;
+    // Из осаждённого города не выходит и фигура. Дорога домой при этом остаётся
+    // открытой всегда: запрет на выход не должен запирать снаружи тех, кто идёт
+    // внутрь, — иначе разведчик, застигнутый осадой в поле, не вернулся бы
+    // никогда.
+    if (this.touching(from)?.home && !this.touching(target)?.home) {
+      const blocked = this.siegeBlock(now);
+      if (blocked) return blocked;
+    }
     const seconds = travelTime(dist, terrainFactor(this.save.seed, from, target), def.speed);
     f.from = from;
     f.to = target;
@@ -2252,6 +2531,13 @@ export class LocalWorld implements WorldApi {
       if (take > (home[key] ?? 0)) return 'Столько бойцов дома нет.';
       next[key] = want;
     }
+    // Дружину из осаждённого города не увести: это тот же выход, только другим
+    // приказом. Вернуть её в гарнизон осада не мешает — под запретом выход, а не
+    // вход, и подкрепление под стенами дело хорошее.
+    if (TROOP_IDS.some((id) => (next[id] ?? 0) > (held[id] ?? 0))) {
+      const blocked = this.siegeBlock(now);
+      if (blocked) return blocked;
+    }
     const cap = this.commandCap();
     if (troopTotal(next) > cap) {
       return `Столько за собой не увести: Статуя держит ${cap} бойцов.`;
@@ -2288,8 +2574,13 @@ export class LocalWorld implements WorldApi {
   private settleHandover(f: StoredFigure, now: number): void {
     if (!f.handover || now < f.handover.until) return;
     const next = f.handover.troops;
+    // Сколько вернулось в гарнизон. Слепок деревни этих людей ещё не считает
+    // домашними, поэтому под осадой их приходится назвать поимённо — и часы
+    // голода пересчитываются, как от любого другого подкрепления.
+    const back = Math.max(0, troopTotal(f.troops ?? {}) - troopTotal(next));
     f.troops = troopTotal(next) > 0 ? { ...next } : undefined;
     f.handover = undefined;
+    if (back > 0) this.resiege(now, back);
   }
 
   async attack(order: AttackOrder): Promise<AttackResult> {
@@ -2769,6 +3060,7 @@ export class LocalWorld implements WorldApi {
       figures: FIGURE_IDS.map((id) => this.viewFigure(id, now)),
       reports,
       effects,
+      siege: this.siegeView(now),
       unread: this.save.reports.filter((r) => !r.read).length,
     };
   }

@@ -38,6 +38,8 @@ import {
   RESOURCE_IDS,
   PRIEST_MORALE,
   PRIEST_MORALE_CAP,
+  SIEGE_FOOD_YIELD,
+  SIEGE_YIELD,
   SLOTS_PER_LEVEL,
   SMITH_WORK,
   TOWN_HALL_BUILD_STEP,
@@ -698,6 +700,28 @@ function addYield(out: Resources, job: JobId, n: number, mult: number): void {
   }
 }
 
+/**
+ * Осада идёт прямо сейчас? Считается при чтении из одного окна, как всё
+ * остальное про осаду (см. `world/siege.ts`), и меряется **игровым** временем:
+ * так офлайн-догон снимает осаду ровно там, где она кончилась.
+ */
+export const underSiege = (s: GameState): boolean =>
+  s.siege !== null && s.time < s.siege.until;
+
+/**
+ * Во сколько раз осада срезала приток этого ресурса. Единственное место, где
+ * это решается: панели и тик спрашивают его, а не проверяют осаду у себя.
+ */
+export const siegeYield = (s: GameState, r: ResourceId): number =>
+  !underSiege(s) ? 1 : r === 'food' ? SIEGE_FOOD_YIELD : SIEGE_YIELD;
+
+/** Режет готовую выработку осадой. Мутирует на месте — как и всё здесь. */
+function cutBySiege(s: GameState, out: Resources): Resources {
+  if (!underSiege(s)) return out;
+  for (const r of RESOURCE_IDS) out[r] *= siegeYield(s, r);
+  return out;
+}
+
 /** Валовое производство за игровой день. */
 export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
@@ -709,7 +733,7 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
   for (const job of FREE_JOBS) {
     addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
   }
-  return out;
+  return cutBySiege(s, out);
 }
 
 /** Что производит одно здание за день — для его собственной панели. */
@@ -717,7 +741,7 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
   const out = emptyResources();
   const job = BUILDING_BY_ID[b.type].job;
   if (job) addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
-  return out;
+  return cutBySiege(s, out);
 }
 
 /**
@@ -725,13 +749,31 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
  * иначе армия обходилась бы племени только людьми. Рацион множит весь расход.
  */
 export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
+  // Новобранцы на учениях уже не жители, но кормятся так же, как бойцы.
+  return (
+    townFoodPerDay(s, mods) + (armySize(s) + recruitsQueued(s)) * soldierFoodPerDay(s, mods)
+  );
+}
+
+/**
+ * Сколько съедает за день сам посёлок — без единого бойца. Отдельно от общего
+ * расхода это нужно осаде: под стенами еду ест то, что внутри, а дружина в
+ * поле кормится не из осаждённого амбара. Считается тут, а не в мире: мир про
+ * жителей и профессии не знает и знать не должен.
+ */
+export function townFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   let total = 0;
   const counts = jobCounts(s);
   for (const job of JOBS) total += counts[job.id] * (job.foodMultiplier ?? 1);
-  // Новобранцы на учениях уже не жители, но кормятся так же, как бойцы.
-  total += (armySize(s) + recruitsQueued(s)) * SOLDIER_FOOD;
   return total * mods.food * rationOf(s).food;
 }
+
+/**
+ * Что добавляет к дневному расходу один боец. Сезон и рацион множат его так же,
+ * как и всё остальное, — иначе зимняя осада считалась бы по летним числам.
+ */
+export const soldierFoodPerDay = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
+  SOLDIER_FOOD * mods.food * rationOf(s).food;
 
 /** Чистый баланс за день (производство минус потребление еды и дрова на очаг). */
 export function netPerDay(s: GameState): Resources {

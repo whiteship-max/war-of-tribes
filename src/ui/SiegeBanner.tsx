@@ -1,0 +1,81 @@
+import { useEffect, useState } from 'react';
+import { useGame } from '@/game/store';
+import { tutorialActive } from '@/game/data/tutorial';
+import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
+import { useWorld, worldNow } from '@/world/store';
+import { formatLeft, secondsLeft } from '@/world/geo';
+import { Icon } from '@/ui/icons/Icon';
+
+/**
+ * Осада — единственное, что смотрит на игрока из правого нижнего угла деревни.
+ *
+ * Место выбрано не по остаточному принципу: слева внизу столбик писем, и класть
+ * туда шестую стопку значило бы, что осаду разбирают тем же движением, что и
+ * гонца с грамотой. Осаду не разбирают — из-под неё выходят.
+ *
+ * Числа здесь живые и все до одного считаны не тут: срок идёт по мировым часам
+ * (`starvesAt` — их отметка), доля срезанного притока берётся из констант, по
+ * которым его режет сама симуляция (`derived.siegeYield`). Своей арифметики у
+ * панели нет и быть не должно — иначе она однажды покажет не то, что происходит.
+ */
+export function SiegeBanner() {
+  const s = useGame((g) => g.s);
+  const eventResult = useGame((g) => g.eventResult);
+  const mapOpen = useGame((g) => g.mapOpen);
+  const siege = useWorld((g) => g.siege);
+  const [, retick] = useState(0);
+
+  // Пока лагерь стоит, отсчёт до голода обязан идти сам: замерший счётчик
+  // читается как сломанный экран, а не как «время ещё есть».
+  useEffect(() => {
+    if (!siege) return;
+    const t = setInterval(() => retick((v) => v + 1), 1000);
+    return () => clearInterval(t);
+  }, [siege]);
+
+  // Те же правила видимости, что у писем: обучение ведёт новичка своим путём,
+  // а модалка события делит слой с чем угодно поверх неё.
+  if (!siege || mapOpen || tutorialActive(s) || s.activeEvent || eventResult) return null;
+
+  const left = secondsLeft(siege.starvesAt, worldNow());
+  const cut = Math.round((1 - SIEGE_YIELD) * 100);
+
+  return (
+    <div className="siege">
+      <div className="siege-head">
+        <span className="ic">
+          <Icon name="letter-siege" glyph="⛺" />
+        </span>
+        <b>Город в осаде</b>
+      </div>
+      <div className="siege-who">«{siege.byName}» у ворот</div>
+      {/*
+        Дебаф одной строкой, а не таблицей: панель обязана быть маленькой —
+        слева в том же ярусе стоит столбик писем, и на 375 px на двоих места
+        ровно столько. Числа при этом всё равно из констант, которыми режет
+        симуляция, а не написаны словами в разметке.
+      */}
+      <div className="siege-cut">
+        Хлеб {SIEGE_FOOD_YIELD === 0 ? 'не идёт' : `×${SIEGE_FOOD_YIELD}`}, прочее −{cut}%
+      </div>
+      {/*
+        Главное число панели — оно же и весь размен: гарнизон, который не дал
+        чужим пойти на приступ, ест из того же амбара и приближает эту отметку.
+        Поэтому он и стоит здесь, рядом со сроком, а не отдельной строкой.
+      */}
+      <div className="siege-clock">
+        До голода <b>{formatLeft(left)}</b>
+      </div>
+      <div className="siege-eat">Гарнизон {siege.garrison} — он и ест</div>
+      {/*
+        Кнопка стоит погашенной и говорит почему. Изображать работающую вылазку
+        нельзя: боя у ворот ещё нет, и нажатие не сделало бы ничего — а приказ,
+        который молча ничего не делает, хуже отказа.
+      */}
+      <button className="siege-sortie" disabled>
+        ⚔️ Вылазка
+      </button>
+      <div className="siege-note">Бой у ворот — следующим шагом.</div>
+    </div>
+  );
+}
