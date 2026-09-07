@@ -197,7 +197,9 @@ export function ActionMenu() {
                 disabled={!o.can}
                 onClick={() => void give(a.id)}
               >
-                <span className="ico">{a.icon}</span>
+                <span className="ico">
+                  <Icon name={`${menu.agent === 'spy' ? 'spy' : 'dip'}-${a.id}`} glyph={a.icon} />
+                </span>
                 <span className="body">
                   <b>{a.name}</b>
                   <i>{o.can ? a.description : o.reason}</i>

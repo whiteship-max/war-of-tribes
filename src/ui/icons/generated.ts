@@ -5,7 +5,7 @@
 // картинку или оставить эмодзи. Накладная — то, что игра ждёт, — лежит рядом,
 // в registry.ts, и собирается из данных игры.
 //
-// Лист: 117 символов, 42.2 КБ на диске, 8.6 КБ по сети.
+// Лист: 141 символов, 49.4 КБ на диске, 10.0 КБ по сети.
 
 export const ICON_SHEET = '/assets/icons/sprite.svg';
 
@@ -57,6 +57,15 @@ export const DRAWN_ICONS: readonly string[] = [
   'day-evening',
   'day-morning',
   'day-night',
+  'deal-alliance',
+  'deal-trade',
+  'deal-tribute',
+  'deal-truce',
+  'dip-gift',
+  'dip-insult',
+  'dip-pact',
+  'dip-peace',
+  'dip-war',
   'gear-armor',
   'gear-axe',
   'gear-bow',
@@ -82,6 +91,11 @@ export const DRAWN_ICONS: readonly string[] = [
   'mood-mid',
   'nav-people',
   'nav-quests',
+  'rel-ally',
+  'rel-barbarian',
+  'rel-enemy',
+  'rel-neutral',
+  'rel-self',
   'res-bones',
   'res-copper',
   'res-food',
@@ -95,6 +109,16 @@ export const DRAWN_ICONS: readonly string[] = [
   'season-spring',
   'season-sun',
   'season-winter',
+  'spy-probe',
+  'spy-revolt',
+  'stage-camp',
+  'stage-castle',
+  'stage-stronghold',
+  'stage-town',
+  'stage-village',
+  'state-neutral',
+  'state-pact',
+  'state-war',
   'troop-archer',
   'troop-axeman',
   'troop-clubman',

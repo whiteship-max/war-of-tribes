@@ -304,7 +304,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   return (
     <div className="panel">
       <div className="bhead">
-        <div className="ico">{card.castle ? CASTLE_ICON : stage.icon}</div>
+        <div className="ico">
+          <Icon
+            name={card.castle ? 'stage-castle' : `stage-${stage.id}`}
+            glyph={card.castle ? CASTLE_ICON : stage.icon}
+          />
+        </div>
         <div className="body">
           <div className="name">{card.name}</div>
           <div className="lvl">
@@ -467,7 +472,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <h3>Отношения</h3>
           <div className="mod-list">
             <div className="mod total">
-              <span className="ico">{STANDING_META[card.diplomacy.standing].icon}</span>
+              <span className="ico">
+                <Icon
+                  name={`state-${card.diplomacy.standing}`}
+                  glyph={STANDING_META[card.diplomacy.standing].icon}
+                />
+              </span>
               <span className="name">{STANDING_META[card.diplomacy.standing].name}</span>
               <span className="val" style={{ color: STANDING_META[card.diplomacy.standing].color }}>
                 {card.diplomacy.attitude > 0 ? `+${card.diplomacy.attitude}` : card.diplomacy.attitude}
@@ -523,7 +533,9 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <div className="mod-list">
             {card.deals.map((d) => (
               <div className="mod" key={d.id}>
-                <span className="ico">{DEALS.find((x) => x.id === d.id)?.icon}</span>
+                <span className="ico">
+                  <Icon name={`deal-${d.id}`} glyph={DEALS.find((x) => x.id === d.id)?.icon ?? ''} />
+                </span>
                 <span className="name">{DEALS.find((x) => x.id === d.id)?.name}</span>
                 <span className="val pos">{formatLeft(secondsLeft(d.until, worldNow()))}</span>
               </div>

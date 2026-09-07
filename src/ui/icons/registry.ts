@@ -12,6 +12,10 @@
 // Модуль чистый: ни React, ни DOM. Его читают двое — сборка значков
 // (scripts/build-icons.ts) и сам интерфейс, — и второй правды между ними быть не должно.
 import { BATTLE_ART } from '@/battle/report';
+import { DEALS } from '@/world/data/figures';
+import { DIPLO_ACTIONS, STANDING_META } from '@/world/data/diplomacy';
+import { RELATION_ORDER, STAGES } from '@/world/data/meta';
+import { SPY_ACTIONS } from '@/world/data/spy';
 import { RESOURCE_IDS } from '@/game/constants';
 import { ATTENTION_META } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
@@ -63,6 +67,14 @@ export const ICON_GROUPS: readonly IconGroup[] = [
     ids: BATTLE_ART.map((n) => n.slice('bat-'.length)),
     source: 'BATTLE_ART в battle/report.ts',
   },
+  // Замок — не ступень развития, а вид цели: он рисуется поверх стадии и своим
+  // значком (CASTLE_ICON), поэтому в список стадий добавляется отдельно.
+  { prefix: 'stage', ids: [...STAGES.map((s) => s.id), 'castle'], source: 'STAGES + замок' },
+  { prefix: 'rel', ids: RELATION_ORDER, source: 'RELATION_ORDER' },
+  { prefix: 'state', ids: Object.keys(STANDING_META), source: 'STANDING_META' },
+  { prefix: 'deal', ids: DEALS.map((d) => d.id), source: 'DEALS' },
+  { prefix: 'dip', ids: DIPLO_ACTIONS.map((a) => a.id), source: 'DIPLO_ACTIONS' },
+  { prefix: 'spy', ids: SPY_ACTIONS.map((a) => a.id), source: 'SPY_ACTIONS' },
   // --- дальше словарь интерфейса: своей таблицы в игре у него нет ---
   { prefix: 'nav', ids: ['people', 'quests'], source: 'BottomNav' },
   { prefix: 'hud', ids: ['pop', 'army', 'map'], source: 'TopBar' },
