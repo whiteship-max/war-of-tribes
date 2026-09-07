@@ -488,6 +488,15 @@ function sickBed(x:number,z:number):K.Part[] {
   const wood=K.paintOf('woodDark');
   return [K.box(0.56,0.14,1.12,wood,x,0.31,z),K.box(0.51,0.1,0.93,K.paintOf('cut'),x,0.43,z),K.box(0.42,0.13,0.23,K.paintOf('plaster'),x,0.51,z-0.32),K.box(0.56,0.42,0.09,wood,x,0.3,z-0.55)];
 }
+function cache(t:Tier,st:Style):THREE.Group {
+  if(t>0) return stubModel(t,st,STUBS.cache);
+  const wood=K.paintOf('woodDark'); const a:K.Part[]=[K.cyl(0.67,1.0,0.18,K.paintOf('soil'),8,0,0.09,0),K.box(0.84,0.055,0.84,K.paintOf('dark'),0,0.2,0)];
+  for(const x of [-0.3,-0.1,0.1,0.3]) a.push(K.box(0.18,0.08,0.78,K.paintOf('plank'),x,0.26,0));
+  for(const z of [-0.22,0.22]) a.push(K.box(0.84,0.045,0.07,wood,0,0.32,z));
+  a.push(K.box(0.19,0.065,0.08,K.paintOf('metal'),0,0.37,0.1));
+  return new THREE.Group().add(K.assemble(a));
+}
+
 function infirmary(t:Tier):THREE.Group {
   const wood=K.paintOf('woodDark'); const a:K.Part[]=[];
   for(const x of [-0.68,0.68]) for(const z of [-0.74,0.74]) a.push(K.box(0.08,1.3,0.08,wood,x,0.65,z));
@@ -1487,6 +1496,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'infirmary':
       return infirmary(tier);
     case 'cache':
+      return cache(tier,st);
     case 'tavern':
       return stubModel(tier, st, STUBS[type]);
     default:
