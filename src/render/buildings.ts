@@ -1388,7 +1388,18 @@ function watchRail(w: number, y: number): K.Part[] {
   return a;
 }
 
+/** Памятник — самостоятельная каменная скульптура, не экземпляр бойца. */
 function statue(t: Tier, st: Style): THREE.Group {
+  if (t > 0) return statueLegacy(t, st);
+  const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
+  const a: K.Part[] = [K.cyl(0.65, 0.82, 0.24, dark, 7, 0, 0.12, 0),
+    K.cyl(0.38, 0.54, 1.27, stone, 5, 0, 0.84, 0),
+    K.box(0.36, 0.14, 0.29, stone, -0.08, 1.48, 0, {z: -0.12})];
+  for (let i = 0; i < 3; i++) a.push(K.box(0.21, 0.035, 0.035, dark, 0, 0.7 + i * 0.16, 0.39 - i * 0.02, {z: 0.22}));
+  return new THREE.Group().add(K.assemble(a));
+}
+
+function statueLegacy(t: Tier, st: Style): THREE.Group {
   const g = new THREE.Group();
   const base = [0.95, 1.15, 1.4][t];
   const ph = [0.5, 0.75, 1.0][t];
