@@ -435,41 +435,27 @@ function quarry(): THREE.Group {
   return new THREE.Group().add(K.assemble(a));
 }
 
-/** Охотничий домик: изба со шкурами → двор с сушилами → длинная промысловая изба. */
-function hunterHut(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const r = [0.7, 0.9, 1.15][t];
-  g.add(pad(1.4 + t * 0.35));
-  if (t < 2) {
-    g.add(cyl(r, r * 1.1, 0.8 + t * 0.25, st.wall, 7, 0, (0.8 + t * 0.25) / 2, 0));
-    g.add(cone(r * 1.5, 0.85 + t * 0.25, M.hide, 7, 0, 0.95 + t * 0.4, 0));
-  } else {
-    // Промысловая изба: длинный сруб под шкурной кровлей.
-    g.add(box(2.4, 1.1, 1.5, st.wall, 0, 0.55, 0));
-    gable(g, 2.7, 1.9, 1.1, 0.42, M.hide);
+/** Небольшой постоянный сруб со шкурой и охотничьей рогатиной. */
+function hunterHut(): THREE.Group {
+  const p=stylePaint(), wood=K.paintOf('woodDark'); const a: K.Part[]=[];
+  a.push(K.box(1.78,0.16,1.52,p.base,0,0.08,-0.12));
+  for(let i=0;i<6;i++) {
+    const y=0.25+i*0.16;
+    for(const z of [-0.72,0.49]) a.push(K.box(1.85,0.145,0.17,i%2?wood:K.paintOf('wood'),0,y,z));
+    for(const x of [-0.76,0.76]) a.push(K.box(0.17,0.145,1.54,i%2?wood:K.paintOf('wood'),x,y,-0.12));
   }
-  g.add(box(0.35, 0.55, 0.1, M.dark, 0, 0.27, (t < 2 ? r * 1.08 : 0.78)));
-  // Сушила: стойки, перекладина и растянутые шкуры.
-  for (let b = 0; b <= t; b++) {
-    const z = 0.75 + b * 0.55;
-    g.add(cyl(0.05, 0.06, 1.1, st.post, 5, -1.1, 0.55, z));
-    g.add(cyl(0.05, 0.06, 1.1, st.post, 5, 0.3, 0.55, z));
-    g.add(box(1.5, 0.06, 0.06, st.post, -0.4, 1.05, z));
-    g.add(box(0.45, 0.55, 0.04, M.hide, -0.85, 0.75, z));
-    g.add(box(0.45, 0.45, 0.04, M.hide, -0.1, 0.8, z));
-  }
-  const spear = cyl(0.03, 0.03, 1.2, st.post, 4, 0.95, 0.6, -0.35);
-  spear.rotation.z = -0.3;
-  g.add(spear);
-  if (t === 2) {
-    // Рога над входом: трофеи вместо вывески.
-    for (const sx of [-1, 1]) {
-      const horn = cyl(0.04, 0.05, 0.7, M.bone, 4, sx * 0.22, 1.65, 0.6);
-      horn.rotation.z = sx * 0.6;
-      g.add(horn);
-    }
-  }
-  return g;
+  a.push(...K.roofGable(1.8,1.52,0.44,1.15,{...p.roofPaint,roof:K.paintOf('shingle'),trim:wood},0.13,0,-0.12));
+  a.push(K.box(0.43,0.77,0.05,p.ink,-0.46,0.55,0.59));
+  // Натянутая шкура с четырьмя лапами, а не вывеска жилого дома.
+  const hide=K.paintOf('cut');
+  a.push(K.box(0.4,0.47,0.035,hide,0.36,0.77,0.61));
+  for(const x of [0.16,0.56]) for(const y of [0.49,1.04]) a.push(K.box(0.1,0.24,0.035,hide,x,y,0.61,{z:(x-0.36)*(y<0.7?2:-2)}));
+  for(const x of [0.87,1.55]) a.push(K.box(0.08,0.76,0.09,wood,x,0.38,0.64));
+  a.push(K.box(0.82,0.07,0.07,wood,1.21,0.67,0.64));
+  a.push(K.cyl(0.034,0.034,1.48,wood,5,1.22,0.74,0.64));
+  a.push(K.cone(0.09,0.28,K.paintOf('metal'),4,1.22,1.62,0.64));
+  a.push(K.box(0.3,0.045,0.06,wood,1.22,1.38,0.64));
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Закопушка: крепь, ручной ворот и отвал, без роста копра по уровням. */
@@ -1447,7 +1433,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'quarry':
       return quarry();
     case 'hunter_hut':
-      return hunterHut(tier, st);
+      return hunterHut();
     case 'mine':
       return mine();
     case 'workshop':
