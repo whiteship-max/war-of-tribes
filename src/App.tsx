@@ -110,14 +110,9 @@ export function App() {
     return () => clearTimeout(t);
   }, [sheet]);
 
-  if (!ready) {
-    return (
-      <div className="loading">
-        <div className="loading-fire">🔥</div>
-        <div>Племя собирается у костра…</div>
-      </div>
-    );
-  }
+  // Пока сохранение читается, рисовать нечего: экран загрузки лежит в index.html
+  // и уже стоит на экране — свой, из бандла, появился бы только после бандла.
+  if (!ready) return null;
 
   return (
     <div className="app" ref={appRef}>

@@ -175,7 +175,18 @@ export interface LoadResult {
   legacy: boolean;
 }
 
-export async function loadGame(): Promise<LoadResult> {
+/**
+ * Крючки загрузки. Нужны одному — экрану загрузки: подсчёт офлайна занимает
+ * заметное время, и он обязан быть отдельной стадией, а не молчаливой паузой.
+ * Крючок асинхронный нарочно: оболочка успевает нарисовать кадр с подписью
+ * до того, как счёт начнётся и заблокирует поток.
+ */
+export interface LoadHooks {
+  /** Зовётся перед догоном, если догонять есть что. */
+  onOffline?: (seconds: number) => Promise<void> | void;
+}
+
+export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   let json: string | null = null;
   try {
     json = localStorage.getItem(KEY);
@@ -203,7 +214,10 @@ export async function loadGame(): Promise<LoadResult> {
 
   const elapsed = Math.max(0, Math.floor((Date.now() - state.lastSaved) / 1000));
   const offline = Math.min(elapsed, MAX_OFFLINE_SECONDS);
-  if (offline > 5) catchUp(state, offline, 2);
+  if (offline > 5) {
+    await hooks.onOffline?.(offline);
+    catchUp(state, offline, 2);
+  }
   return { state, offlineSeconds: offline, fresh: false, legacy: false };
 }
 

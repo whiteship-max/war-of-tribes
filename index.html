@@ -6,9 +6,535 @@
     <meta name="theme-color" content="#1a1410" />
     <title>TRIBE</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <!--
+      Экран загрузки живёт здесь целиком: разметка, стили, картинка и код.
+      Ни одного внешнего запроса, ни одного шрифта, ни байта из бандла.
+
+      Причина одна и она решающая: экран, собранный тем же JavaScript, что и
+      игра, появится только после загрузки этого JavaScript — то есть ровно
+      после ожидания, которое он должен был закрыть. Первый кадр браузера уже
+      обязан быть нашим.
+
+      Отсюда же и картинка: она нарисована плоскими фигурами из палитры игры
+      (src/render/palette.ts), а не приложена файлом. Файл — это запрос.
+      Настоящий арт придёт по docs/ART_HANDOFF.md (1.20) и ляжет на это место.
+
+      Логика вынута в один объект TribeBoot и проверяется тестом, который
+      читает ЭТОТ файл и выполняет ЭТОТ код (src/boot/boot.test.ts). Второй
+      копии правил нет нигде.
+    -->
+    <style>
+      /* Никакой белой вспышки: цвет стоит на html до всякой разметки, а через
+         несколько строк его перебьёт цвет темы клиента. */
+      html {
+        background: var(--boot-bg, #1a1410);
+      }
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 24px;
+        background: var(--boot-bg, #1a1410);
+        color: var(--boot-text, #f3e9d8);
+        font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+        text-align: center;
+        /* Показываемся не сразу: короткую загрузку игрок не должен увидеть вовсе.
+           Класс `on` ставит код, когда порог пройден. */
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s linear;
+      }
+      #boot.on {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #boot.off {
+        opacity: 0;
+      }
+      #boot-art {
+        width: min(230px, 62vw);
+        height: auto;
+      }
+      #boot-art .fl {
+        transform-origin: 64px 78px;
+        animation: bootfire 1.1s ease-in-out infinite alternate;
+      }
+      #boot-art .gl {
+        animation: bootglow 1.1s ease-in-out infinite alternate;
+      }
+      @keyframes bootfire {
+        from {
+          transform: scaleY(0.9) scaleX(1.04);
+        }
+        to {
+          transform: scaleY(1.07) scaleX(0.96);
+        }
+      }
+      @keyframes bootglow {
+        from {
+          opacity: 0.5;
+        }
+        to {
+          opacity: 0.82;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-art .fl,
+        #boot-art .gl {
+          animation: none;
+        }
+      }
+      #boot-say {
+        max-width: 22em;
+        opacity: 0.85;
+        font-style: italic;
+      }
+      #boot-bar {
+        width: min(220px, 60vw);
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255, 220, 170, 0.14);
+        overflow: hidden;
+      }
+      #boot-fill {
+        height: 100%;
+        width: 0;
+        border-radius: 2px;
+        background: var(--boot-accent, #e8a43c);
+        transition: width 0.28s ease-out;
+      }
+      #boot-stage {
+        font-size: 13px;
+        opacity: 0.7;
+        min-height: 1.4em;
+      }
+      #boot-err {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        max-width: 20em;
+      }
+      #boot.bad #boot-err {
+        display: flex;
+      }
+      #boot.bad #boot-bar,
+      #boot.bad #boot-stage,
+      #boot.bad #boot-say {
+        display: none;
+      }
+      #boot-retry {
+        min-height: 44px;
+        padding: 0 22px;
+        border: 0;
+        border-radius: 14px;
+        font: inherit;
+        font-weight: 600;
+        color: var(--boot-accent-text, #241a0e);
+        background: var(--boot-accent, #e8a43c);
+      }
+      #boot-why {
+        font-size: 12px;
+        opacity: 0.6;
+        word-break: break-word;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <div id="boot" role="status" aria-live="polite">
+      <!-- Место под арт из ART_HANDOFF (1.20). Пока — плоские фигуры палитры:
+           ночь skyNight, силуэты dark, костёр fire/fireInner/fireLight, брёвна
+           woodDark. Фотоартов на первой загрузке нет: они весят и грузятся. -->
+      <svg id="boot-art" viewBox="0 0 128 108" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <radialGradient id="bg1" cx="50%" cy="72%" r="62%">
+            <stop offset="0" stop-color="#ff9a3a" stop-opacity=".55" />
+            <stop offset="1" stop-color="#ff9a3a" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <rect width="128" height="108" rx="10" fill="#1a2238" />
+        <circle cx="99" cy="21" r="7" fill="#8ea3cf" opacity=".75" />
+        <path d="M0 74h128v34H0z" fill="#2b2733" />
+        <path d="M8 74l9-30 9 30zM26 74l11-38 11 38zM90 74l10-33 10 33zM108 74l9-27 9 27z" fill="#332e3c" />
+        <path d="M44 74l7-22 7 22zM70 74l8-25 8 25z" fill="#2b2733" />
+        <ellipse cx="64" cy="86" rx="44" ry="20" fill="url(#bg1)" class="gl" />
+        <path d="M46 88l36-9 2 5-36 9z" fill="#60432a" />
+        <path d="M82 88l-36-9-2 5 36 9z" fill="#6b4a30" />
+        <g class="fl">
+          <path d="M64 46c9 11 13 17 13 24 0 8-6 13-13 13s-13-5-13-13c0-7 4-13 13-24z" fill="#ff7a1a" />
+          <path d="M64 58c5 7 7 10 7 14 0 5-3 8-7 8s-7-3-7-8c0-4 2-7 7-14z" fill="#ffd25a" />
+        </g>
+        <circle cx="52" cy="42" r="1.6" fill="#ff9a3a" opacity=".8" />
+        <circle cx="76" cy="34" r="1.2" fill="#ff9a3a" opacity=".6" />
+        <circle cx="68" cy="26" r="1" fill="#ff9a3a" opacity=".45" />
+        <!-- Люди у костра: самое тёмное на картинке. Силуэт читается тем, что
+             он темнее и земли, и подсвеченного огнём воздуха за ним. -->
+        <g fill="#15121c">
+          <path d="M30 92c0-7 4-12 8-12s8 5 8 12z" />
+          <circle cx="38" cy="76" r="5" />
+          <path d="M84 92c0-7 4-12 8-12s8 5 8 12z" />
+          <circle cx="92" cy="76" r="5" />
+          <path d="M56 94c0-6 3-10 6-10s6 4 6 10z" opacity=".9" />
+          <circle cx="62" cy="82" r="4" opacity=".9" />
+        </g>
+      </svg>
+
+      <div id="boot-say"></div>
+      <div id="boot-bar"><div id="boot-fill"></div></div>
+      <div id="boot-stage"></div>
+
+      <div id="boot-err">
+        <div id="boot-msg">Игра не загрузилась.</div>
+        <button id="boot-retry" type="button">Попробовать снова</button>
+        <div id="boot-why"></div>
+      </div>
+    </div>
+
+    <script>
+      /* eslint-disable */
+      var TribeBoot = (function () {
+        'use strict';
+
+        /**
+         * Порог показа. Меньше него экран не появляется вовсе.
+         *
+         * 240 мс — не круглое число «на глаз». Отклик короче четверти секунды
+         * человек читает как мгновенный: за этой границей нет ожидания, которое
+         * надо объяснять. Экран, успевший появиться и исчезнуть внутри неё,
+         * сообщает не «идёт загрузка», а «что-то мигнуло» — то есть выглядит
+         * сбоем. Всё, что укладывается в 240 мс (а это весь запуск из кэша),
+         * игрок обязан увидеть как прямой переход к игре.
+         */
+        var SHOW_AFTER_MS = 240;
+
+        /**
+         * Появившись, экран держится минимум столько. Иначе порог лечил бы
+         * только один край: загрузка, отставшая от порога на десяток
+         * миллисекунд, дала бы ту же вспышку, ради которой порог и заведён.
+         */
+        var MIN_VISIBLE_MS = 520;
+
+        /** Не дождались — показываем поломку, а не вечное колесо. */
+        var FAIL_AFTER_MS = 20000;
+
+        /** Ключ счётчика заходов. Отдельный от сохранения: он про экран, не про партию. */
+        var COUNT_KEY = 'tribe.boot.n';
+
+        /**
+         * Стадии. Настоящие: каждая ставится тем кодом, который эту работу и
+         * делает, поддельной полоски «до 90% и висим» здесь нет.
+         * `at` — доля полосы, на которой стадия начинается.
+         */
+        var STAGES = {
+          code: { at: 0.08, text: 'Раздуваем угли' },
+          save: { at: 0.34, text: 'Разбираем зарубки' },
+          offline: { at: 0.52, text: 'Считаем, что было без тебя' },
+          scene: { at: 0.78, text: 'Ставим посёлок' },
+          done: { at: 1, text: '' }
+        };
+
+        /** Присказки. По одной за заход, следующий заход — следующая. */
+        var SAYINGS = [
+          'Кто рано встал, тому и хлеб тёплый.',
+          'Зима спросит, где летом был.',
+          'Не хвались походом, хвались возвращением.',
+          'Один в поле воин, да недолго.',
+          'Сытое племя стены не бросит.',
+          'Кузнец кует, покуда горн дышит.',
+          'У соседа за пазухой не считай, свой амбар меряй.',
+          'Тихая река берега точит.',
+          'Слово вождя дешевле хлеба, да дороже золота.',
+          'Худой мир лучше доброй драки — а доброй драки не миновать.'
+        ];
+
+        /**
+         * Цвет фона до всякого JavaScript игры. Telegram отдаёт палитру клиента
+         * в themeParams, и белый экран на тёмной теме выглядит поломкой ещё до
+         * запуска. Нет клиента или нет цвета — остаётся наш тёмный.
+         */
+        function themeColors(win) {
+          var p = null;
+          try {
+            p = win && win.Telegram && win.Telegram.WebApp && win.Telegram.WebApp.themeParams;
+          } catch (e) {
+            p = null;
+          }
+          var hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+          var pick = function (v) {
+            return typeof v === 'string' && hex.test(v) ? v : null;
+          };
+          return {
+            bg: p ? pick(p.bg_color) : null,
+            text: p ? pick(p.text_color) : null,
+            accent: p ? pick(p.button_color) : null,
+            accentText: p ? pick(p.button_text_color) : null
+          };
+        }
+
+        /**
+         * Номер захода. Детерминированный: счётчик в localStorage, а не
+         * Math.random. Нет хранилища — берём номер дня по UTC: он одинаков для
+         * всех запусков этого дня, но от заглушки «всегда первая» избавляет.
+         */
+        function visitNo(store, nowMs) {
+          try {
+            var n = parseInt(store.getItem(COUNT_KEY) || '0', 10);
+            if (!isFinite(n) || n < 0) n = 0;
+            store.setItem(COUNT_KEY, String(n + 1));
+            return n;
+          } catch (e) {
+            return Math.floor(nowMs / 86400000);
+          }
+        }
+
+        /** Присказка захода. Чистая функция от номера. */
+        function sayingOf(no) {
+          var n = SAYINGS.length;
+          return SAYINGS[((no % n) + n) % n];
+        }
+
+        /**
+         * Машинка экрана. DOM приходит снаружи, поэтому её можно прогнать
+         * тестом без браузера — и прогоняется ровно этот код, не его копия.
+         */
+        function create(env) {
+          var doc = env.doc;
+          var now = env.now;
+          var t0 = now();
+          var el = {};
+          var shownAt = -1;
+          var finished = false;
+          var failed = false;
+          var showTimer = null;
+          var frozen = false;
+          var failTimer = null;
+          var pending = null;
+
+          var byId = function (id) {
+            if (!(id in el)) el[id] = doc.getElementById(id);
+            return el[id];
+          };
+
+          var css = function (name, value) {
+            if (value) doc.documentElement.style.setProperty(name, value);
+          };
+
+          function paintTheme() {
+            var c = themeColors(env.win);
+            css('--boot-bg', c.bg);
+            css('--boot-text', c.text);
+            css('--boot-accent', c.accent);
+            css('--boot-accent-text', c.accentText);
+            return c;
+          }
+
+          function show() {
+            showTimer = null;
+            if (finished || shownAt >= 0) return;
+            shownAt = now();
+            var box = byId('boot');
+            if (box) box.className = failed ? 'on bad' : 'on';
+          }
+
+          function hide() {
+            var box = byId('boot');
+            if (box) box.className = 'off';
+            if (env.onHidden) env.onHidden();
+          }
+
+          /** Стадия: подпись и настоящая доля полосы. */
+          function stage(name) {
+            var st = STAGES[name];
+            if (!st || failed || frozen) return;
+            // `?boot=<стадия>` замирает на ней — иначе снять кадром стадию, которая
+            // живёт полсекунды, нечем.
+            if (debug === name) frozen = true;
+            var label = byId('boot-stage');
+            if (label) label.textContent = st.text;
+            var fill = byId('boot-fill');
+            if (fill) fill.style.width = Math.round(st.at * 100) + '%';
+            if (env.mark) env.mark('tribe-' + name);
+          }
+
+          /** Готово. Если экран так и не показался — он и не покажется. */
+          function done() {
+            if (finished || failed || debug) return;
+            finished = true;
+            if (showTimer !== null) env.clear(showTimer);
+            if (failTimer !== null) env.clear(failTimer);
+            stage('done');
+            if (shownAt < 0) {
+              hide();
+              return;
+            }
+            var left = MIN_VISIBLE_MS - (now() - shownAt);
+            if (left > 0) env.delay(hide, left);
+            else hide();
+          }
+
+          /** Поломка: человек видит причину и кнопку, а не бесконечное колесо. */
+          function fail(why) {
+            if (finished || failed) return;
+            failed = true;
+            if (showTimer !== null) env.clear(showTimer);
+            if (failTimer !== null) env.clear(failTimer);
+            shownAt = shownAt < 0 ? now() : shownAt;
+            var box = byId('boot');
+            if (box) box.className = 'on bad';
+            var why$ = byId('boot-why');
+            if (why$) why$.textContent = why ? String(why).slice(0, 160) : '';
+            var btn = byId('boot-retry');
+            if (btn && !btn.__wired) {
+              btn.__wired = true;
+              btn.addEventListener('click', function () {
+                env.reload();
+              });
+            }
+          }
+
+          /**
+           * Отладка адресом — тем же приёмом, что `?worldview=` (src/debug.ts).
+           * Экран живёт доли секунды и исчезает: снять его кадром иначе нечем, а
+           * приёмка «на глаз, по памяти» — это не приёмка. `?boot=hold` держит
+           * экран открытым, `?boot=fail` показывает поломку.
+           *
+           * Флаг ничего не ускоряет и не замедляет: игра под ним грузится ровно
+           * так же, просто экран не уходит.
+           */
+          var debug = env.debug || '';
+          if (debug && debug !== 'hold' && debug !== 'fail' && !STAGES[debug]) debug = 'hold';
+          if (debug === 'fail') env.delay(function () {
+            fail('Не загрузился файл игры.');
+          }, 0);
+
+          paintTheme();
+          if (env.onTheme) env.onTheme(paintTheme);
+          var no = visitNo(env.store, Date.now ? Date.now() : 0);
+          pending = sayingOf(no);
+          showTimer = env.delay(show, debug ? 0 : SHOW_AFTER_MS);
+          failTimer = debug
+            ? null
+            : env.delay(function () {
+                fail('Загрузка идёт дольше обычного. Проверь связь.');
+              }, FAIL_AFTER_MS);
+
+          return {
+            stage: stage,
+            done: done,
+            fail: fail,
+            saying: pending,
+            /** Разметка появляется позже кода в <head> — подписи ставим, когда она есть. */
+            attach: function () {
+              var say = byId('boot-say');
+              if (say) say.textContent = pending;
+              stage('code');
+            },
+            visible: function () {
+              return shownAt >= 0;
+            },
+            elapsed: function () {
+              return now() - t0;
+            },
+            failed: function () {
+              return failed;
+            }
+          };
+        }
+
+        return {
+          SHOW_AFTER_MS: SHOW_AFTER_MS,
+          MIN_VISIBLE_MS: MIN_VISIBLE_MS,
+          FAIL_AFTER_MS: FAIL_AFTER_MS,
+          COUNT_KEY: COUNT_KEY,
+          STAGES: STAGES,
+          SAYINGS: SAYINGS,
+          themeColors: themeColors,
+          visitNo: visitNo,
+          sayingOf: sayingOf,
+          create: create
+        };
+      })();
+
+      /* В браузере машинка запускается сразу: часы стадий должны идти с первого
+         кадра, а не с момента, когда доедет бандл. В тесте (document нет) —
+         не запускается, и тест зовёт create() со своим окружением. */
+      if (typeof document !== 'undefined') {
+        window.__boot = TribeBoot.create({
+          doc: document,
+          win: window,
+          now: function () {
+            return performance.now();
+          },
+          delay: function (fn, ms) {
+            return setTimeout(fn, ms);
+          },
+          clear: function (id) {
+            clearTimeout(id);
+          },
+          reload: function () {
+            location.reload();
+          },
+          store: window.localStorage,
+          // Отметки стадий. Так запуск меряется на живом телефоне без отладчика:
+          // performance.getEntriesByType('mark') — и видно, где именно ушло время.
+          mark: function (name) {
+            try {
+              performance.mark(name);
+            } catch (e) {
+              /* нет performance — не беда */
+            }
+          },
+          debug: (/[?&]boot=([a-z]+)/.exec(location.search) || [])[1] || '',
+          onHidden: function () {
+            var box = document.getElementById('boot');
+            if (box && box.parentNode) box.parentNode.removeChild(box);
+            // Отметка запуска. Строчка кода, зато запуск меряется на живом
+            // телефоне без отладчика: performance.getEntriesByName('tribe-ready').
+            try {
+              performance.mark('tribe-ready');
+            } catch (e) {
+              /* нет performance — не беда */
+            }
+          },
+          onTheme: function (repaint) {
+            try {
+              window.Telegram.WebApp.onEvent('themeChanged', repaint);
+            } catch (e) {
+              /* нет клиента — нечего слушать */
+            }
+          }
+        });
+        document.addEventListener('DOMContentLoaded', function () {
+          window.__boot.attach();
+        });
+        // Не загрузился модуль игры или упал на старте — это поломка, а не ожидание.
+        window.addEventListener(
+          'error',
+          function (e) {
+            var t = e && e.target;
+            if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
+              window.__boot.fail('Не загрузился файл игры.');
+              return;
+            }
+            if (e && e.message) window.__boot.fail(e.message);
+          },
+          true
+        );
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e && e.reason;
+          window.__boot.fail((r && r.message) || 'Ошибка при запуске.');
+        });
+      }
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

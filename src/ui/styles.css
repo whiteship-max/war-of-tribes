@@ -82,32 +82,6 @@ body {
   touch-action: none;
 }
 
-.loading {
-  height: var(--app-h);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--muted);
-}
-
-.loading-fire {
-  font-size: 48px;
-  animation: flicker 1.2s infinite alternate;
-}
-
-@keyframes flicker {
-  from {
-    transform: scale(1);
-    opacity: 0.85;
-  }
-  to {
-    transform: scale(1.12);
-    opacity: 1;
-  }
-}
-
 /* ---------- Верхний HUD: строка состояния и кнопка посёлка ---------- */
 
 .topbar {

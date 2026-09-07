@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
 import { TribeScene } from '@/render/Scene';
+import { bootDone, bootPaint, bootStage } from '@/boot/stage';
 
 export function GameCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -11,6 +12,7 @@ export function GameCanvas() {
     const canvas = ref.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
+    bootStage('scene');
     const scene = new TribeScene(canvas);
     sceneRef.current = scene;
     // Тап по зданию открывает его панель; тап по пустому месту закрывает открытую.
@@ -21,6 +23,9 @@ export function GameCanvas() {
     // Пока открыта карта мира, диорама не рисуется — но и не выгружается:
     // sync продолжает идти, поэтому возврат показывает уже актуальный посёлок сразу.
     if (g0.mapOpen) scene.pause();
+    // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
+    // между конструктором и картинкой лежит компиляция шейдеров.
+    void bootPaint().then(bootDone);
     const unsub = useGame.subscribe((g, prev) => {
       if (g.s !== prev.s) scene.sync(g.s);
       if (g.sheet !== prev.sheet) scene.setSelected(g.sheet?.kind === 'building' ? g.sheet.id : null);

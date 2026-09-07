@@ -13,6 +13,7 @@ import {
 } from './data/tutorial';
 import { haptic, tgDisplayName, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
+import { bootPaint, bootStage } from '@/boot/stage';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -200,7 +201,16 @@ export const useGame = create<GameStore>((set, get) => ({
   closeSheet: () => set({ sheet: null }),
 
   init: async () => {
-    const { state, offlineSeconds, legacy } = await loadGame();
+    bootStage('save');
+    const { state, offlineSeconds, legacy } = await loadGame({
+      // Подсчёт офлайна — не техническая пауза, а «пока тебя не было»: игрок
+      // должен видеть, за что он ждёт. Кадр перед счётом обязателен — счёт
+      // синхронный и до конца работы браузеру рисовать будет нечем.
+      onOffline: async () => {
+        bootStage('offline');
+        await bootPaint();
+      },
+    });
     // Имя и лицо из Telegram кладёт сюда оболочка: симуляция про Telegram не
     // знает, а визитке нужны готовые значения. Свой выбор игрока это не трогает —
     // он лежит рядом и приоритетнее (см. profile/identity).

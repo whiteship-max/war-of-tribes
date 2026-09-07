@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, transformWithEsbuild, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -53,8 +53,47 @@ function snapPlugin(): Plugin {
   };
 }
 
+/**
+ * Ужимает встроенный экран загрузки.
+ *
+ * Экран живёт прямо в `index.html` — иначе он появился бы только после бандла,
+ * то есть после того самого ожидания, которое закрывает. Но объяснения, зачем
+ * там каждое число, писаны нам, а не телефону игрока: несжатыми они стоили
+ * четырёх пятых веса файла. Плагин выбрасывает комментарии и отступы на сборке;
+ * в исходнике и на dev-сервере всё остаётся как написано, и тест читает именно
+ * исходник.
+ *
+ * Ничего никуда не переезжает: разметка, стили, картинка и код по-прежнему
+ * в одном файле и по-прежнему без единого внешнего запроса.
+ */
+function bootMinifyPlugin(): Plugin {
+  return {
+    name: 'tribe-boot-minify',
+    apply: 'build',
+    enforce: 'post',
+    async transformIndexHtml(html) {
+      let out = html;
+      // <style> в шапке — только наш, экрана загрузки: стили игры едут чанком.
+      const styles = [...out.matchAll(/<style>([\s\S]*?)<\/style>/g)];
+      for (const m of styles) {
+        const { code } = await transformWithEsbuild(m[1], 'boot.css', { loader: 'css', minify: true, charset: 'utf8' });
+        out = out.replace(m[0], `<style>${code.trim()}</style>`);
+      }
+      const scripts = [...out.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+      for (const m of scripts) {
+        const { code } = await transformWithEsbuild(m[1], 'boot.js', { loader: 'js', minify: true, charset: 'utf8' });
+        out = out.replace(m[0], `<script>${code.trim()}</script>`);
+      }
+      // Комментарии разметки и отступы между тегами.
+      out = out.replace(/<!--(?!\[if)[\s\S]*?-->/g, '');
+      out = out.replace(/\n\s*/g, '\n').replace(/\n{2,}/g, '\n');
+      return out;
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), snapPlugin()],
+  plugins: [react(), snapPlugin(), bootMinifyPlugin()],
   base: '/',
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
