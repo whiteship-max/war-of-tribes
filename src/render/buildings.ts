@@ -488,8 +488,20 @@ function sickBed(x:number,z:number):K.Part[] {
   const wood=K.paintOf('woodDark');
   return [K.box(0.56,0.14,1.12,wood,x,0.31,z),K.box(0.51,0.1,0.93,K.paintOf('cut'),x,0.43,z),K.box(0.42,0.13,0.23,K.paintOf('plaster'),x,0.51,z-0.32),K.box(0.56,0.42,0.09,wood,x,0.3,z-0.55)];
 }
+function cellar(_t:Tier):THREE.Group {
+  const stone=K.paintOf('stone'),wood=K.paintOf('woodDark');
+  const a:K.Part[]=[K.cyl(0.7,1.48,0.7,K.paintOf('soil'),8,0,0.35,-0.28),K.box(0.94,0.79,0.2,K.paintOf('dark'),0,0.42,0.78)];
+  for(const x of [-0.58,0.58]) a.push(K.box(0.25,0.89,0.4,stone,x,0.445,0.73));
+  a.push(K.box(1.4,0.23,0.47,stone,0,0.91,0.73));
+  for(const x of [-0.33,-0.11,0.11,0.33]) a.push(K.box(0.2,0.7,0.1,K.paintOf('plank'),x,0.4,0.91));
+  for(const y of [0.2,0.66]) a.push(K.box(0.91,0.07,0.07,wood,0,y,0.99));
+  for(let i=0;i<2;i++) a.push(K.box(1.08,0.08,0.26,stone,0,0.04+i*0.06,1.27-i*0.2));
+  return new THREE.Group().add(K.assemble(a));
+}
+
 function cache(t:Tier,st:Style):THREE.Group {
-  if(t>0) return stubModel(t,st,STUBS.cache);
+  if(t>1) return stubModel(t,st,STUBS.cache);
+  if(t===1) return cellar(t);
   const wood=K.paintOf('woodDark'); const a:K.Part[]=[K.cyl(0.67,1.0,0.18,K.paintOf('soil'),8,0,0.09,0),K.box(0.84,0.055,0.84,K.paintOf('dark'),0,0.2,0)];
   for(const x of [-0.3,-0.1,0.1,0.3]) a.push(K.box(0.18,0.08,0.78,K.paintOf('plank'),x,0.26,0));
   for(const z of [-0.22,0.22]) a.push(K.box(0.84,0.045,0.07,wood,0,0.32,z));
