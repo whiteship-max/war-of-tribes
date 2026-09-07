@@ -9,12 +9,14 @@ import { fileURLToPath, URL } from 'node:url';
 const { useGame } = await import('@/game/store');
 
 /**
- * Занавес перехода между посёлком и картой.
+ * Переход между посёлком и картой.
  *
- * Диорама и карта больше не живут в памяти разом. Отсюда два обещания, и оба
- * проверяются здесь: порядок (сначала занавес, потом смена сцены) и то, что
- * выгруженное действительно освобождается — а последнее держится на одной
- * неочевидной строке, которую легко потерять при следующей правке.
+ * Разделение сцен пробовали и откатили (docs/loading.md, часть 2): переход в обе
+ * стороны снова мгновенный, диорама на время карты только перестаёт рисоваться.
+ * Здесь проверяется, что этот откат не отъехал обратно, что занавес остался
+ * ровно на одном случае — и что починка утечки на месте. Последняя к размену
+ * отношения не имеет и откату не подлежит: она держится на одной неочевидной
+ * строке, которую легко потерять при следующей правке.
  */
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -23,105 +25,92 @@ const scene = src('../render/Scene.ts');
 const curtain = src('./SceneCurtain.tsx');
 const app = src('../App.tsx');
 
-const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
-
-describe('занавес перехода', () => {
+describe('переход между посёлком и картой', () => {
   beforeEach(() => {
     useGame.setState({ mapOpen: false, curtain: null, sheet: null });
   });
 
-  it('сначала занавес, и только потом смена сцены', async () => {
+  it('переход мгновенный, а занавес заводится только на первый вход', () => {
+    // Один тест на всю последовательность нарочно: «первый вход» — состояние
+    // сессии, и разложенный по трём тестам он зависел бы от порядка их запуска.
+    //
+    // Никаких «сначала занавес, кадр, потом сцена»: ждать нечего, диорама на
+    // месте. Разделение сцен пробовали и откатили — размен памяти на задержку
+    // оказался невыгодным (docs/loading.md, часть 2).
     useGame.getState().openMap();
-    // Порядок — не косметика: выгрузка диорамы и сборка карты идут в главном
-    // потоке, и всё, что не нарисовано до них, не нарисуется до самого конца.
+    expect(useGame.getState().mapOpen).toBe(true);
     expect(useGame.getState().curtain).toBe('march');
+    useGame.getState().curtainUp();
+
+    useGame.getState().closeMap();
     expect(useGame.getState().mapOpen).toBe(false);
-    await settle();
-    expect(useGame.getState().mapOpen).toBe(true);
-  });
-
-  it('домой — свой арт, а не тот же самый', async () => {
-    useGame.getState().openMap();
-    await settle();
-    useGame.getState().curtainUp();
-    useGame.getState().closeMap();
-    expect(useGame.getState().curtain).toBe('camp');
-    expect(useGame.getState().mapOpen).toBe(true);
-    await settle();
-    expect(useGame.getState().mapOpen).toBe(false);
-  });
-
-  it('страховка снимает свой занавес и не трогает следующий', async () => {
-    // Занавес перехватывает нажатия: зависший — это запертая игра.
-    useGame.getState().openMap();
-    await settle();
-    useGame.getState().curtainUp();
-    useGame.getState().closeMap();
-    // Номер перехода сменился, значит страховка первого уже никого не снимет.
-    expect(useGame.getState().curtain).toBe('camp');
-  });
-
-  it('второй переход не начинается, пока идёт первый', async () => {
-    useGame.getState().openMap();
-    useGame.getState().closeMap();
-    // Занавес уже висит: повторный приказ его не перебивает и сцену не рвёт.
-    expect(useGame.getState().curtain).toBe('march');
-    await settle();
-    expect(useGame.getState().mapOpen).toBe(true);
-  });
-
-  it('занавес снимает тот, кто нарисовал кадр, а не таймер', async () => {
-    useGame.getState().openMap();
-    await settle();
-    expect(useGame.getState().curtain).toBe('march');
-    useGame.getState().curtainUp();
+    // Домой занавеса нет вовсе и быть не должно.
     expect(useGame.getState().curtain).toBeNull();
-    // Никакой таймер занавес не поднимает: время сборки сцены — свойство
-    // телефона, а не константа. Таймер в сторе один и он страховочный: снимает
-    // занавес через шесть секунд, чтобы игрок не остался заперт под картинкой,
-    // если кадр так и не придёт. В обычной игре он не срабатывает никогда.
-    expect(src('../game/store.ts')).toMatch(/CURTAIN_MAX_MS = 6000/);
+
+    // Второй раз земля уже испечена: ждать нечего, и объяснять нечего.
+    useGame.getState().openMap();
+    expect(useGame.getState().mapOpen).toBe(true);
+    expect(useGame.getState().curtain).toBeNull();
   });
 
-  it('у двух направлений два разных арта и две разные подписи', () => {
-    const files = [...curtain.matchAll(/from '\.\/art\/([\w-]+\.webp)'/g)].map((m) => m[1]);
-    expect(new Set(files).size).toBe(2);
-    const lines = [...curtain.matchAll(/line: '([^']+)'/g)].map((m) => m[1]);
-    expect(new Set(lines).size).toBe(2);
+  it('занавес не показывается, пока не пройден порог мелькания', () => {
+    // Он заводится сразу — чтобы браузер успел стянуть арт, — но виден только
+    // если переход затянулся. Порог тот же, что у экрана загрузки.
+    expect(curtain).toMatch(/const SHOW_AFTER_MS = 240/);
+    expect(curtain).toMatch(/visible && curtain \? ' on' : ''/);
+    // Замер: первый вход укладывается в 71 мс, то есть на быстрой машине
+    // занавеса не видно никогда. Это исход, а не недоработка.
   });
 
-  it('арты не входят в первую загрузку: только <img>, никаких предзагрузок', () => {
+  it('арт не входит в первую загрузку: только <img>, никаких предзагрузок', () => {
     // Адрес файла лежит в чанке, сам файл браузер качает, когда <img> впервые
-    // встанет в разметку, — то есть при первом переходе.
+    // встанет в разметку, — то есть при первом входе на карту.
     expect(curtain).toMatch(/<img/);
     expect(curtain).not.toMatch(/new Image\(|rel="preload"|fetchpriority/);
   });
 
-  it('диорама выгружается на карте, а не встаёт на паузу', () => {
-    // Пауза держала память и «одной сцены в памяти» не давала — её больше нет.
-    expect(scene).not.toMatch(/\n\s+pause\(\)/);
-    expect(scene).not.toMatch(/\n\s+resume\(\)/);
-    expect(app).toMatch(/!mapOpen \|\| keepScene\(\)/);
-    expect(scene).toMatch(/forceContextLoss/);
+  it('страховка снимает свой занавес и не трогает следующий', () => {
+    // Занавес перехватывает нажатия: зависший — это запертая игра. Таймер в
+    // сторе один и он страховочный; поднимает занавес нарисованный кадр.
+    expect(src('../game/store.ts')).toMatch(/CURTAIN_MAX_MS = 6000/);
+    useGame.setState({ curtain: 'march' });
+    useGame.getState().curtainUp();
+    expect(useGame.getState().curtain).toBeNull();
+  });
+
+  it('диорама на карте встаёт на паузу, а не выгружается', () => {
+    // Откат размена: выгрузка стоила четверти секунды на каждом возврате домой
+    // ради трёх мегабайтов. Числа — в docs/loading.md, часть 2.
+    expect(scene).toMatch(/pause\(\): void \{/);
+    expect(scene).toMatch(/resume\(\): void \{/);
+    expect(app).toMatch(/<GameCanvas \/>/);
+    expect(app).not.toMatch(/mapOpen && <GameCanvas/);
+    expect(canvas).toMatch(/if \(g\.mapOpen\) scene\.pause\(\);/);
   });
 
   it('сцена выгружается до того, как канва уйдёт из разметки', () => {
-    // Единственная строка, на которой держится освобождение памяти.
+    // Единственная строка, на которой держится освобождение памяти, и к
+    // разделению сцен она отношения не имеет: диорама выгружается при уходе с
+    // экрана игры, и без этой правки каждый такой уход оставлял бы в памяти
+    // целую сцену.
+    //
     // OrbitControls.dispose() снимает слушатель с domElement.getRootNode(); если
     // канву уже вынули, корнем окажется она сама, слушатель останется на
     // документе, и документ будет держать всю сцену. Замеряно снимком кучи:
-    // четыре круга на карту и обратно оставляли четыре живые диорамы вместо одной.
-    // Вернёшь обычный useEffect — вернёшь утечку, и тест об этом скажет.
+    // четыре круга на карту и обратно оставляли четыре живые диорамы вместо
+    // одной, +3.6 МБ за круг. Вернёшь обычный useEffect — вернёшь утечку.
     expect(canvas).toMatch(/useLayoutEffect\(\(\) => \{/);
-    expect(canvas).not.toMatch(/\buseEffect\(/);
+    expect(canvas).not.toMatch(/useEffect\(/);
     // Свои подписки на контролы снимаются поимённо — литералом их не снять.
     expect(scene).toMatch(/removeEventListener\('start', this\.onControlStart\)/);
     expect(scene).toMatch(/removeEventListener\('change', this\.leash\)/);
+    expect(scene).toMatch(/forceContextLoss/);
   });
 
   it('ролик о бое заводит свой контекст, только когда одолжить не у кого', () => {
-    // С карты диорамы нет вовсе, и без этого отчёт о бое открывался бы пустым.
-    // Двух контекстов разом при этом не бывает ни при каком порядке действий.
+    // Диорама теперь всегда на месте, и ветка со своим контекстом не должна
+    // срабатывать в игре. Убирать её всё равно нельзя: стенд ролика (?replay=)
+    // работает без диорамы, и двух контекстов разом не бывает ни там, ни здесь.
     const replay = src('./battle/BattleReplay.tsx');
     expect(replay).toMatch(/if \(scene\) \{\s*renderer = scene\.lend\(true\)/);
     expect(replay).toMatch(/own\.forceContextLoss/);

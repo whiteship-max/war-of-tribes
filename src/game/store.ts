@@ -14,7 +14,6 @@ import {
 import { haptic, tgDisplayName, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
-import { afterPaint } from '@/boot/paint';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -51,13 +50,16 @@ const TICK_MS = 500;
 const AUTOSAVE_MS = 15000;
 
 /**
- * Занавес перехода: какой арт сейчас на экране.
+ * Занавес перехода — арт поверх всего, пока экран не готов.
  *
- * `march` — уходим на карту, `camp` — возвращаемся домой. Два арта, а не один,
- * потому что переход в обе стороны одинаковым выглядит сбоем интерфейса, а не
- * дорогой: игрок перестаёт понимать, куда его ведут.
+ * Висит он ровно в одном месте: **первый вход на карту за сессию**. Там и правда
+ * есть чего ждать — печётся земля, туман и владения, и это единственный переход,
+ * который заметно дольше остальных. Все прочие мгновенные, и занавес на них был
+ * бы не объяснением, а морганием.
+ *
+ * Возврат домой занавеса не знает вовсе: диорама никуда не девалась.
  */
-export type Curtain = 'march' | 'camp';
+export type Curtain = 'march';
 
 /**
  * Предел, после которого занавес снимается сам.
@@ -158,6 +160,8 @@ export interface GameStore {
 let loopStarted = false;
 /** Номер перехода: страховка снимает только свой занавес, а не следующий. */
 let curtainNo = 0;
+/** Карту в этой сессии уже открывали: второй раз печь землю не надо, и ждать нечего. */
+let mapSeen = false;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useGame = create<GameStore>((set, get) => ({
@@ -204,32 +208,35 @@ export const useGame = create<GameStore>((set, get) => ({
   openMap: () => {
     if (get().curtain) return;
     haptic('light');
-    // Сначала занавес, и только следующим кадром — сама смена сцены. Порядок
-    // не косметика: выгрузка диорамы и сборка карты идут в главном потоке, и
-    // всё, что не нарисовано до них, не нарисуется до самого конца.
-    set({ curtain: 'march', sheet: null });
+    if (mapSeen) {
+      // Второй и всякий следующий раз — мгновенно: земля уже испечена, диорама
+      // никуда не девалась, ждать нечего.
+      set({ mapOpen: true, sheet: null });
+      get().syncTutorial();
+      return;
+    }
+    mapSeen = true;
+    // Занавес заводится сразу, а показывается — только если переход затянулся
+    // (порог держит сам `SceneCurtain`). Раньше срока он не «спрятан на всякий
+    // случай»: пока он в разметке, браузер тянет арт, и к моменту показа тот уже
+    // на месте. Иначе на медленном телефоне — а это и есть единственный случай,
+    // когда занавес вообще нужен, — игрок увидел бы подпись на пустом чёрном.
     const no = ++curtainNo;
     setTimeout(() => {
       if (curtainNo === no) get().curtainUp();
     }, CURTAIN_MAX_MS);
-    void afterPaint(() => {
-      set({ mapOpen: true });
-      get().syncTutorial();
-    });
+    set({ mapOpen: true, sheet: null, curtain: 'march' });
+    get().syncTutorial();
   },
 
   closeMap: () => {
-    if (get().curtain) return;
     const cur = get().sheet;
     // Карточки карты живут только вместе с картой.
     const onMap = cur && (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'battle' || cur.kind === 'report');
     const keep = cur && !onMap ? cur : null;
-    set({ curtain: 'camp', sheet: null });
-    const no = ++curtainNo;
-    setTimeout(() => {
-      if (curtainNo === no) get().curtainUp();
-    }, CURTAIN_MAX_MS);
-    void afterPaint(() => set({ mapOpen: false, sheet: keep }));
+    // Домой — мгновенно и без занавеса: диорама всё это время стояла на месте.
+    set({ mapOpen: false, sheet: keep, curtain: null });
+    curtainNo++;
   },
 
   curtainUp: () => {
@@ -373,6 +380,9 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   reset: () => {
+    // Новая партия — новый мир: первый вход на карту снова стоит времени, и
+    // занавес снова уместен.
+    mapSeen = false;
     clearSave();
     set({ s: createInitialState(), sheet: null, eventResult: null, offlineSeconds: 0 });
     void get().save();

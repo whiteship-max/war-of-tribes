@@ -29,22 +29,21 @@ export function GameCanvas() {
     const g0 = useGame.getState();
     scene.sync(g0.s);
     scene.setSelected(g0.sheet?.kind === 'building' ? g0.sheet.id : null);
-    // Первый кадр диорамы снимает и экран загрузки, и занавес перехода: между
-    // конструктором и картинкой лежит компиляция шейдеров, и объявлять сцену
-    // готовой по «конструктор вернулся» значило бы показывать пустоту.
-    void afterPaint(() => {
-      bootDone();
-      useGame.getState().curtainUp();
-    });
+    // Пока открыта карта мира, диорама не рисуется — но и не выгружается:
+    // sync продолжает идти, поэтому возврат показывает уже актуальный посёлок сразу.
+    if (g0.mapOpen) scene.pause();
+    // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
+    // между конструктором и картинкой лежит компиляция шейдеров.
+    void afterPaint(bootDone);
     const unsub = useGame.subscribe((g, prev) => {
       if (g.s !== prev.s) scene.sync(g.s);
       if (g.sheet !== prev.sheet) scene.setSelected(g.sheet?.kind === 'building' ? g.sheet.id : null);
-      // Обычно занавес домой поднимает монтирование: диораму выгрузили, и она
-      // собирается заново. Под `?keepscene=1` сцена никуда не девалась, монтирования
-      // не будет — и поднимать некому. Замер прежнего поведения на этом и вис.
-      if (prev.mapOpen && !g.mapOpen) {
-        scene.resize();
-        void afterPaint(() => useGame.getState().curtainUp());
+      if (g.mapOpen !== prev.mapOpen) {
+        if (g.mapOpen) scene.pause();
+        else {
+          scene.resume();
+          scene.resize();
+        }
       }
     });
     // Высота приходит из --app-h (viewportStableHeight Telegram), поэтому слушаем

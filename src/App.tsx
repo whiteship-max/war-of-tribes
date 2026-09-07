@@ -27,7 +27,7 @@ import { BattlePanel } from './ui/panels/BattlePanel';
 import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 import { villageMusic } from './sound/web';
-import { keepScene, probe } from './debug';
+import { probe } from './debug';
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -124,10 +124,11 @@ export function App() {
 
   return (
     <div className="app" ref={appRef}>
-      {/* Диорама и карта не живут в памяти разом: уходя на карту, посёлок
-          выгружается целиком, возвращаясь — собирается заново. Переход прикрыт
-          занавесом: сборка идёт в главном потоке, и рисовать в это время нечем. */}
-      {(!mapOpen || keepScene()) && <GameCanvas />}
+      {/* Сцена остаётся в DOM и под картой: её рендер-луп встаёт, но геометрия
+          жива, и переход в обе стороны мгновенный. Выгружать её на время карты
+          пробовали и откатили — размен памяти на задержку оказался невыгодным,
+          числа в docs/loading.md. */}
+      <GameCanvas />
       {mapOpen && <WorldMap />}
       {!mapOpen && <TopBar />}
       <AlertBar />
