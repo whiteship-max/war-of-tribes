@@ -356,31 +356,28 @@ function storageDepot(t: Tier): THREE.Group {
   return new THREE.Group().add(K.assemble(a));
 }
 
-/** Навес собирателей: один навес → навес с сушилами → торговые ряды. */
-function gathering(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const bays = t + 1;
-  for (let b = 0; b < bays; b++) {
-    const z = -0.7 * b;
-    g.add(cyl(0.06, 0.06, 1.2, st.post, 5, -0.6 - b * 0.2, 0.6, z));
-    g.add(cyl(0.06, 0.06, 1.2, st.post, 5, 0.6 + b * 0.2, 0.6, z));
-    g.add(box(1.4 + b * 0.4, 0.07, 0.07, st.post, 0, 1.15, z));
-    const awn = box(1.5 + b * 0.4, 0.06, 0.9, b === 0 ? st.roof : st.roofDark, 0, 1.2, z - 0.1);
-    awn.rotation.x = 0.2;
-    g.add(awn);
+/** Один постоянный навес с корзинами и сушилом трав. */
+function gathering(): THREE.Group {
+  const p=stylePaint(), wood=K.paintOf('woodDark'); const a: K.Part[]=[];
+  for(const x of [-0.77,0.77]) for(const z of [-0.65,0.35]) {
+    const h=z<0?1.45:1.13;
+    a.push(K.box(0.1,h,0.1,wood,x,h/2,z));
   }
-  for (let i = 0; i < 3 + t * 2; i++) {
-    g.add(cyl(0.22, 0.16, 0.3, st.roof, 7, -0.7 + (i % 4) * 0.48, 0.15, 0.55 - Math.floor(i / 4) * 0.45));
+  a.push(K.box(1.9,0.09,1.42,K.paintOf('shingle'),0,1.33,-0.15,{x:0.31}));
+  a.push(K.box(1.66,0.1,0.1,wood,0,1.1,0.35));
+  // Низкие открытые корзины, без складских бочек и прилавка рынка.
+  for(const [x,z] of [[-0.45,-0.24],[0.23,-0.25],[-0.34,0.6]]) {
+    a.push(K.cyl(0.24,0.18,0.3,K.paintOf('plank'),8,x,0.15,z));
+    a.push(K.cyl(0.21,0.21,0.025,p.ink,8,x,0.307,z));
+    for(const dx of [-0.08,0.08]) a.push(K.cone(0.065,0.13,K.paintOf('sprout'),4,x+dx,0.36,z));
   }
-  if (t >= 1) {
-    // Стол и корзины на нём: место становится похоже на лавку.
-    g.add(box(1.5, 0.08, 0.6, st.wall, 0, 0.6, 0.7));
-    for (const x of [-0.6, 0.6]) g.add(cyl(0.05, 0.05, 0.6, st.post, 4, x, 0.3, 0.7));
+  for(const z of [-0.65,0.7]) a.push(K.box(0.08,1.0,0.08,wood,1.23,0.5,z));
+  a.push(K.box(0.08,0.08,1.46,wood,1.23,0.95,0.02));
+  for(const z of [-0.43,-0.05,0.33,0.62]) {
+    a.push(K.box(0.035,0.2,0.035,wood,1.23,0.84,z));
+    a.push(K.cone(0.15,0.37,K.paintOf('sprout'),5,1.23,0.58,z));
   }
-  if (t === 2) {
-    for (let i = 0; i < 4; i++) g.add(box(0.28, 0.4, 0.06, st.accent, -0.85 + i * 0.55, 1.45, -1.45));
-  }
-  return g;
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Ресурсные дворы имеют одну постоянную модель на всех уровнях. */
@@ -1427,7 +1424,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'storage':
       return storage(tier);
     case 'gathering':
-      return gathering(tier, st);
+      return gathering();
     case 'sawmill':
       return sawmill();
     case 'quarry':
