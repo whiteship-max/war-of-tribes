@@ -491,6 +491,8 @@ export class LocalWorld implements WorldApi {
     kinds: Stack;
     gear: Partial<Record<UnitKind, number>>;
     setup: ArmySetup | null;
+    /** Сколько бойцов строя стоит в лагере — с прибавкой, если он готов. */
+    men: number;
     power: number;
     name: string;
   } | null {
@@ -509,6 +511,7 @@ export class LocalWorld implements WorldApi {
         kinds,
         gear: this.ownGear(troops),
         setup: null,
+        men: stackTotal(kinds),
         power: men * (this.save.profile?.warriorPower ?? 1),
         name: 'наш лагерь',
       };
@@ -524,6 +527,7 @@ export class LocalWorld implements WorldApi {
       // С прибавкой у лагеря людей больше, чем в его расстановке, — пресет
       // выбирается заново по тем же людям, а не растягивается на новых.
       setup: bonus > 0 ? null : party.setup,
+      men: stackTotal(kinds),
       power: m.power,
       name: m.fromName,
     };
@@ -843,7 +847,10 @@ export class LocalWorld implements WorldApi {
     const camp = this.campArmy(w, true);
     if (!camp) return;
     const power = this.powerNow(s, at);
-    if (power < camp.power * SIEGE_SORTIE_RATIO) return;
+    // Сравниваются **бойцы строя**, а не мощь с мощью: у лагеря игрока мощь
+    // считается головами найма на среднюю силу бойца, а у поселения — своей
+    // меркой, и сравнивать их напрямую значило бы сравнивать разное.
+    if (menOfPower(power) < camp.men * SIEGE_SORTIE_RATIO) return;
     const g = garrisonOf(this.save.seed, s.id, power, s.castle);
     const out = this.campBattle(id, at, this.warSeed().seed, { kinds: g.kinds, gear: g.gear, setup: g.setup }, true);
     if (!out) return;

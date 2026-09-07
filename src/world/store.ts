@@ -52,6 +52,7 @@ import type {
   WorldInfo,
 } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
+import type { ArmySetup } from '@/battle';
 
 /** Как часто мир опрашивается. Достаточно редко, чтобы не мешать симуляции племени. */
 const PULSE_MS = 2000;
@@ -151,6 +152,17 @@ export interface WorldStore {
   setGarrison: (troops: TroopStack | null) => Promise<string | null>;
   /** Полководец бьёт по цели, у которой стоит. */
   attack: (order: AttackOrder) => Promise<string | null>;
+  /**
+   * Полководец садится в осаду под целью, у которой стоит. Пока лагерь стоит,
+   * эта дружина занята, а приказ увести её снимает осаду — и панель говорит об
+   * этом до приказа (`CAMP_LEAVE`), а не после.
+   */
+  besiege: () => Promise<string | null>;
+  /**
+   * Вылазка из осаждённой деревни выбранным составом. Возвращает номер отчёта —
+   * его сразу и открывают: у боя всегда есть что показать.
+   */
+  sortie: (troops: TroopStack, setup?: ArmySetup | null) => Promise<{ error: string | null; reportId: string | null }>;
   negotiate: (deal: DealId) => Promise<string | null>;
   /** Открыть меню приказов агента по этой клетке. */
   openMenu: (agent: FigureId, cell: Coord) => Promise<void>;
@@ -401,6 +413,34 @@ export const useWorld = create<WorldStore>((set, get) => ({
     await get().pulse();
     await get().refreshCard();
     return null;
+  },
+
+  besiege: async () => {
+    const err = await worldApi().besiege();
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
+  sortie: async (troops, setup = null) => {
+    const res = await worldApi().sortie(troops, setup);
+    if (res.error) {
+      haptic('error');
+      return { error: res.error, reportId: null };
+    }
+    haptic('medium');
+    useGame.getState().world((s) => {
+      s.stats.raids = (s.stats.raids ?? 0) + 1;
+    });
+    // Сразу же: осада могла сняться этим самым боем, и панель обязана это
+    // показать в тот же миг, а не через две секунды.
+    await get().pulse();
+    return { error: null, reportId: res.reportId };
   },
 
   negotiate: async (deal) => {

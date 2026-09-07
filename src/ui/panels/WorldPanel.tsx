@@ -11,6 +11,7 @@ import { defense, soldierPower } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
+import { CAMP_LEAVE } from '@/world/siege';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
@@ -176,6 +177,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const figures = useWorld((g) => g.figures);
   const moveFigure = useWorld((g) => g.moveFigure);
   const attack = useWorld((g) => g.attack);
+  const besiege = useWorld((g) => g.besiege);
   const negotiate = useWorld((g) => g.negotiate);
   const openMenu = useWorld((g) => g.openMenu);
   const [mission, setMission] = useState<Mission | null>(null);
@@ -441,6 +443,34 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         </>
       )}
 
+      {/*
+        Лагерь под стенами. Часов голода здесь нет и быть не может: сколько
+        хлеба у чужого города, игрок не знает — ни глазами, ни разведкой. Он
+        видит, что осада идёт, и узнает о её конце вместе с городом. Свою осаду
+        он видит с часами, но в другом месте и по своему складу.
+      */}
+      {card.siege && (
+        <>
+          <h3>Осада</h3>
+          <div className="mod-list">
+            <div className="mod total">
+              <span className="ico">⛺</span>
+              <span className="name">
+                {card.siege.mine ? 'Наш лагерь у стен, стоит' : `Лагерь «${card.siege.byName}», стоит`}
+              </span>
+              {/* Сколько лагерь уже стоит, а не сколько ему осталось: срок знает
+                  только тот, чей это склад. */}
+              <span className="val">{formatLeft(Math.max(0, (worldNow() - card.siege.since) / 1000))}</span>
+            </div>
+          </div>
+          <p className="note">
+            {card.siege.mine
+              ? 'Приток в городе срезан, хлеб убывает. Сколько его осталось — не узнать: узнаем вместе с ними. Уведёшь полководца — осада снята.'
+              : 'Под этими стенами уже стоит чужой лагерь. Разобьёшь его — осада снята.'}
+          </p>
+        </>
+      )}
+
       {/* Бунт — окно для удара, а не пакость сама по себе. */}
       {card.revolt && (
         <>
@@ -581,6 +611,23 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               <Icon name="ui-target" glyph="🎯" /> Настроить бой
             </button>
           </>
+        )}
+        {/* Осада — второй способ взять город, и выбирают между ними здесь же. */}
+        {card.can.besiege && (
+          <button
+            className="btn ghost wide"
+            disabled={busy}
+            onClick={() => {
+              void (async () => {
+                setBusy(true);
+                const err = await besiege();
+                setBusy(false);
+                showToast(err ?? `Дружина обложила ${card.name}. ${CAMP_LEAVE}`);
+              })();
+            }}
+          >
+            ⛺ Осадить · {CAMP_LEAVE}
+          </button>
         )}
         {MISSIONS.filter((m) => m.id !== 'raid' && card.can[m.id]).map((m) => (
           <button

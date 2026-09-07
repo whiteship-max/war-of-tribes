@@ -43,6 +43,12 @@ export type SheetView =
   | { kind: 'battle'; target: string }
   /** Оборона своей деревни — та же панель без цели и дороги. */
   | { kind: 'defense' }
+  /**
+   * Вылазка из осаждённой деревни: кого выпускаем за ворота. Открывается только
+   * из панели осады и живёт в деревне, а не на карте, — из-под осады выходят
+   * там, где стоят.
+   */
+  | { kind: 'sortie' }
   /** Отчёт о бое с журналом по фазам. */
   | { kind: 'report'; id: string };
 
@@ -134,6 +140,8 @@ export interface GameStore {
   openBattle: (target: string) => void;
   /** Оборона деревни: расстановка, план, резерв, приказы. */
   openDefense: () => void;
+  /** Открыть вылазку. Ведёт сюда одна кнопка — из панели осады. */
+  openSortie: () => void;
   /** Отчёт о бое. */
   openReport: (id: string) => void;
   closeSheet: () => void;
@@ -267,6 +275,11 @@ export const useGame = create<GameStore>((set, get) => ({
   openDefense: () => {
     haptic('light');
     set({ sheet: { kind: 'defense' } });
+  },
+
+  openSortie: () => {
+    haptic('light');
+    set({ sheet: { kind: 'sortie' } });
   },
 
   openReport: (id) => set({ sheet: { kind: 'report', id } }),

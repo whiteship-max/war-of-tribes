@@ -22,6 +22,7 @@ export function SiegeBanner() {
   const s = useGame((g) => g.s);
   const eventResult = useGame((g) => g.eventResult);
   const mapOpen = useGame((g) => g.mapOpen);
+  const openSortie = useGame((g) => g.openSortie);
   const siege = useWorld((g) => g.siege);
   const [, retick] = useState(0);
 
@@ -68,14 +69,14 @@ export function SiegeBanner() {
       </div>
       <div className="siege-eat">Гарнизон {siege.garrison} — он и ест</div>
       {/*
-        Кнопка стоит погашенной и говорит почему. Изображать работающую вылазку
-        нельзя: боя у ворот ещё нет, и нажатие не сделало бы ничего — а приказ,
-        который молча ничего не делает, хуже отказа.
+        Вылазка — единственное, что игрок может сделать из-под осады сам, и
+        поэтому кнопка тут одна. Состав выбирается на своём экране: выпускать
+        весь гарнизон одним нажатием — не решение, а ловушка.
       */}
-      <button className="siege-sortie" disabled>
+      <button className="siege-sortie" onClick={openSortie}>
         ⚔️ Вылазка
       </button>
-      <div className="siege-note">Бой у ворот — следующим шагом.</div>
+      <div className="siege-note">Выйти и сбить лагерь. Он встретит готовым.</div>
     </div>
   );
 }

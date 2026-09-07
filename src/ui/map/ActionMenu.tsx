@@ -15,6 +15,7 @@ import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { actionsOf } from '@/world/data/spy';
 import { SPY_HELD } from '@/world/data/tuning';
 import { RELATION_META } from '@/world/data/meta';
+import { CAMP_LEAVE } from '@/world/siege';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
@@ -51,6 +52,7 @@ export function ActionMenu() {
   const moveFigure = useWorld((g) => g.moveFigure);
   const order = useWorld((g) => g.order);
   const attack = useWorld((g) => g.attack);
+  const besiege = useWorld((g) => g.besiege);
   const intercept = useWorld((g) => g.intercept);
   const watch = useWorld((g) => g.watch);
   const showToast = useGame((g) => g.showToast);
@@ -65,9 +67,12 @@ export function ActionMenu() {
   const standing = diplo ? STANDING_META[diplo.standing] : null;
   const temper = diplo ? TEMPER_BY_ID[diplo.temper] : null;
 
+  // Полководец в лагере: увести его можно, но это и есть снятие осады.
+  const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && !here;
+
   const lead = async (): Promise<void> => {
     const err = await moveFigure(menu.agent, menu.cell);
-    showToast(err ?? `${def.name} пошёл к ${formatCoord(menu.cell)}.`);
+    showToast(err ?? (leavingCamp ? `Осада снята: ${def.name} ушёл от стен.` : `${def.name} пошёл к ${formatCoord(menu.cell)}.`));
     if (!err) closeMenu();
   };
 
@@ -220,6 +225,43 @@ export function ActionMenu() {
             );
           })}
 
+        {/*
+          Лагерь под стенами — цель, а не декорация. Чужой лагерь бьют тем, что
+          при полководце, и бой этот тот же самый, каким осаждённые ходят на
+          вылазку: правда о том, насколько крепок лагерь, одна.
+        */}
+        {menu.agent === 'general' && card?.siege && !card.siege.mine && (
+          <button
+            className={`am-row${here && troopTotal(figure?.troops ?? {}) > 0 ? '' : ' off'}`}
+            disabled={!here || troopTotal(figure?.troops ?? {}) === 0}
+            onClick={() => {
+              void (async () => {
+                const err = await attack({ setup: null });
+                showToast(err ?? 'Дружина ударила по лагерю. Отчёт в походах.');
+                if (!err) closeMenu();
+              })();
+            }}
+          >
+            <span className="ico">⛺</span>
+            <span className="body">
+              <b>Ударить по лагерю</b>
+              <i>
+                {here
+                  ? `«${card.siege.byName}» стоят здесь с ${new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Разобьёшь — осада снята.`
+                  : 'Доведи полководца — и лагерь можно сбить.'}
+              </i>
+            </span>
+          </button>
+        )}
+
+        {/* Наш лагерь: он же и всё, чем сейчас занят полководец. */}
+        {menu.agent === 'general' && card?.siege?.mine && (
+          <div className="am-plain">
+            ⛺ Здесь стоит наш лагерь. Пока он стоит, других дел у полководца нет; сколько у них
+            хлеба — узнаем вместе с ними.
+          </div>
+        )}
+
         {/* Полководец: удар отсюда же, чтобы не гонять игрока по экранам. */}
         {menu.agent === 'general' && menu.target !== null && card && !card.mine && (
           <>
@@ -256,6 +298,37 @@ export function ActionMenu() {
               <span className="body">
                 <b>Настроить бой</b>
                 <i>Расставить по секторам, выбрать план и приказы.</i>
+              </span>
+            </button>
+            {/*
+              Осада стоит рядом с ударом нарочно: это второй способ взять город,
+              и выбирают между ними в один и тот же миг. Приступ — быстро и с
+              риском, осада — медленно, но без боя, и всё это время дружины нет
+              дома. Цена сказана прямо в строке, а не выясняется потом.
+            */}
+            <button
+              className={`am-row${card.can.besiege ? '' : ' off'}`}
+              disabled={!card.can.besiege}
+              onClick={() => {
+                void (async () => {
+                  const err = await besiege();
+                  showToast(err ?? `Дружина обложила ${card.name}. ${CAMP_LEAVE}`);
+                  if (!err) closeMenu();
+                })();
+              }}
+            >
+              <span className="ico">⛺</span>
+              <span className="body">
+                <b>Осадить</b>
+                <i>
+                  {card.can.besiege
+                    ? `Встать лагерем и ждать, когда кончится хлеб. Сколько его — не узнать. ${CAMP_LEAVE}`
+                    : card.siege
+                      ? 'Под этими стенами уже стоит лагерь.'
+                      : figure?.besieging
+                        ? 'Полководец уже держит осаду — второй лагерь ему не поставить.'
+                        : card.note}
+                </i>
               </span>
             </button>
           </>
@@ -316,13 +389,24 @@ export function ActionMenu() {
           <div className="am-plain">Здесь никто не живёт. Приказывать некому — но пройти можно.</div>
         )}
 
+        {/*
+          Увести полководца из лагеря можно — и это снимает осаду. Сказано об
+          этом здесь, до нажатия: цена приказа, которая выясняется после него, —
+          это не цена, а подвох.
+        */}
         <button className="am-row lead" disabled={here} onClick={() => void lead()}>
           <span className="ico">
             <Icon name={`fig-${def.id}`} glyph={def.icon} />
           </span>
           <span className="body">
             <b>{here ? `${def.name} уже здесь` : `Вести ${def.one} сюда`}</b>
-            <i>{here ? 'Дальше приказывай отсюда.' : 'Идти будет столько, сколько велит дорога.'}</i>
+            <i>
+              {here
+                ? 'Дальше приказывай отсюда.'
+                : leavingCamp
+                  ? CAMP_LEAVE
+                  : 'Идти будет столько, сколько велит дорога.'}
+            </i>
           </span>
         </button>
 
