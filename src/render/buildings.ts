@@ -336,7 +336,7 @@ function tradeBarrel(x: number, y: number, z: number): K.Part[] {
 
 function storage(t: Tier): THREE.Group {
   if (t >= 1) return storageDepot(t);
-  const p = stylePaint();
+  const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') };
   const a: K.Part[] = [K.box(2.15, 0.3, 1.65, p.base, 0, 0.15, 0)];
   for (const x of [-0.94, 0.94]) for (const z of [-0.68, 0.68])
     a.push(K.box(0.14, 1.45, 0.14, p.post, x, 1.02, z));
@@ -350,7 +350,7 @@ function storage(t: Tier): THREE.Group {
 }
 
 function storageDepot(t: Tier): THREE.Group {
-  const p = stylePaint();
+  const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') };
   const w = t === 2 ? 3.05 : 2.65, d = 1.75, h = t === 2 ? 2.25 : 1.85;
   const a: K.Part[] = [K.box(w + 0.2, 0.34, d + 0.7, p.base, 0, 0.17, 0.2),
     K.box(w, h, d, t === 2 ? p.wall : p.floor, 0, 0.34 + h / 2, -0.15)];
@@ -1031,7 +1031,7 @@ function market(t: Tier): THREE.Group {
     const a: K.Part[] = [];
     for (const x of [-2.45, 2.45]) for (const z of [-0.73, 0.73]) a.push(...tradeStall(x, z, 1.22));
     if (t === 2) {
-      const p = stylePaint();
+      const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') };
       // Весы подняты над товаром, коновязь снаружи ряда, не на дороге.
       a.push(K.box(0.13, 2.05, 0.13, p.beam, -2.45, 1.025, -1.67));
       a.push(K.box(0.82, 0.09, 0.09, p.accent, -2.45, 2.04, -1.67));
@@ -1055,7 +1055,7 @@ function market(t: Tier): THREE.Group {
 }
 
 function tradeStall(x: number, z: number, length: number): K.Part[] {
-  const p = stylePaint(); const a: K.Part[] = [];
+  const p = { ...stylePaint(), post: K.paintOf('woodDark'), floor: K.paintOf('plank'), wall: K.paintOf('stone') }; const a: K.Part[] = [];
   const side = Math.sign(x);
   a.push(K.box(0.82, 0.52, length, p.post, x, 0.26, z));
   a.push(K.box(0.94, 0.1, length + 0.08, p.floor, x, 0.57, z));
