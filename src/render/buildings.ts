@@ -1389,8 +1389,8 @@ function watchRail(w: number, y: number): K.Part[] {
 }
 
 /** Памятник — самостоятельная каменная скульптура, не экземпляр бойца. */
-function statue(t: Tier, st: Style): THREE.Group {
-  if (t > 1) return statueLegacy(t, st);
+function statue(t: Tier): THREE.Group {
+  if (t === 2) return heroMonument();
   if (t === 1) {
     const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
     const a: K.Part[] = [K.box(1.65, 0.2, 1.65, dark, 0, 0.1, 0),
@@ -1417,35 +1417,36 @@ function monumentShield(x: number, y: number, z: number, r: number): K.Part[] {
     K.box(r * 0.9, 0.075, 0.04, stone, x, y + r * 0.12, z + 0.12)];
 }
 
-function statueLegacy(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const base = [0.95, 1.15, 1.4][t];
-  const ph = [0.5, 0.75, 1.0][t];
-  const fh = [0.95, 1.15, 1.4][t];
-  // Ступени постамента: чем выше уровень, тем выше пьедестал.
-  for (let i = 0; i < t + 1; i++) {
-    const k = base * (1 + (t - i) * 0.14);
-    g.add(cyl(k, k * 1.04, 0.16, st.base, 8, 0, 0.08 + i * 0.16, 0));
+function heroMonument(): THREE.Group {
+  const stone = K.paintOf('stone'); const dark = K.paintOf('stoneDark');
+  const gold = K.paintOf('gold'); const a: K.Part[] = [];
+  for (let i = 0; i < 3; i++) a.push(K.box(2.48 - i * 0.37, 0.18, 2.48 - i * 0.37, i % 2 ? stone : dark, 0, 0.09 + i * 0.18, 0));
+  a.push(K.box(1.1, 0.7, 1.03, stone, 0, 0.89, 0));
+  a.push(K.box(1.3, 0.14, 1.22, dark, 0, 1.31, 0));
+  // Высеченная фигура: широкие массы, голова около четверти роста, без деталей бойца.
+  for (const x of [-0.23, 0.23]) {
+    a.push(K.box(0.3, 0.16, 0.48, stone, x, 1.46, 0.13));
+    a.push(K.box(0.26, 0.76, 0.3, stone, x, 1.89, 0));
   }
-  const top = 0.16 * (t + 1);
-  g.add(box(base * 1.1, ph, base * 1.1, st.base, 0, top + ph / 2, 0));
-  // Фигура: грубый силуэт витязя с копьём и щитом — узнаётся с любого ракурса.
-  const y0 = top + ph;
-  g.add(cyl(0.17, 0.22, fh * 0.52, st.wall, 7, 0, y0 + fh * 0.26, 0));
-  g.add(box(0.3, fh * 0.34, 0.24, st.wall, 0, y0 + fh * 0.69, 0));
-  g.add(cyl(0.13, 0.13, fh * 0.2, st.wall, 6, 0, y0 + fh * 0.96, 0));
-  g.add(cyl(0.05, 0.05, fh * 1.25, st.post, 5, base * 0.42, y0 + fh * 0.6, 0));
-  const shield = cyl(0.26, 0.26, 0.07, st.accent, 8, -base * 0.42, y0 + fh * 0.6, 0.06);
-  shield.rotation.x = Math.PI / 2;
-  g.add(shield);
-  if (t === 2) {
-    // Стяги по углам: место для имени.
-    for (const x of [-base * 1.05, base * 1.05]) {
-      g.add(cyl(0.06, 0.07, 1.5, M.woodDark, 5, x, 0.75, -base * 0.5));
-      g.add(box(0.05, 0.5, 0.34, st.accent, x, 1.25, -base * 0.5 + 0.2));
-    }
+  a.push(K.cyl(0.32, 0.48, 0.58, stone, 6, 0, 2.21, 0));
+  a.push(K.box(0.81, 0.58, 0.4, stone, 0, 2.66, 0));
+  a.push(K.box(0.21, 0.17, 0.23, stone, 0, 3.0, 0));
+  a.push(K.cyl(0.235, 0.22, 0.4, stone, 6, 0, 3.24, 0.035));
+  a.push(K.box(0.1, 0.17, 0.13, stone, 0, 3.24, 0.24));
+  a.push(K.box(0.95, 0.16, 0.43, dark, 0, 2.91, -0.04));
+  // Три сходящихся каменных складки, а не прямоугольная доска плаща.
+  for (const x of [-0.3, 0, 0.3]) a.push(K.box(0.31, 1.22, 0.15, dark, x, 2.25, -0.3, {x: -0.14, z: -x * 0.22}));
+  a.push(K.box(0.23, 0.55, 0.25, stone, -0.5, 2.54, 0.08, {z: -0.24}));
+  a.push(...monumentShield(-0.42, 2.26, 0.4, 0.43));
+  a.push(K.box(0.25, 0.48, 0.25, stone, 0.5, 2.65, 0.04, {z: 0.55}));
+  a.push(K.box(0.12, 1.23, 0.11, dark, 0.7, 2.44, 0.09));
+  a.push(K.box(0.4, 0.09, 0.12, gold, 0.7, 2.82, 0.09));
+  for (const x of [-1.05, 1.05]) {
+    a.push(K.box(0.07, 2.2, 0.07, dark, x, 1.28, -0.62));
+    a.push(K.box(0.38, 0.63, 0.055, gold, x - Math.sign(x) * 0.17, 2.02, -0.62));
+    a.push(K.cone(0.08, 0.19, gold, 4, x, 2.47, -0.62));
   }
-  return g;
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Основание здания на первой ступени. Растёт вместе с ступенью — см. footprintOf. */
@@ -1534,7 +1535,7 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'market':
       return market(tier);
     case 'statue':
-      return statue(tier, st);
+      return statue(tier);
     case 'stable':
       return stable(tier);
     case 'watch':
