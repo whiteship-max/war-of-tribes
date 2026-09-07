@@ -1405,7 +1405,7 @@ function statue(t: Tier): THREE.Group {
   const a: K.Part[] = [K.cyl(0.65, 0.82, 0.24, dark, 7, 0, 0.12, 0),
     K.cyl(0.38, 0.54, 1.27, stone, 5, 0, 0.84, 0),
     K.box(0.36, 0.14, 0.29, stone, -0.08, 1.48, 0, {z: -0.12})];
-  for (let i = 0; i < 3; i++) a.push(K.box(0.21, 0.035, 0.035, dark, 0, 0.7 + i * 0.16, 0.39 - i * 0.02, {z: 0.22}));
+  for (let i = 0; i < 3; i++) a.push(K.box(0.3, 0.045, 0.12, dark, 0, 0.7 + i * 0.16, 0.49 - i * 0.02, {z: 0.22}));
   return new THREE.Group().add(K.assemble(a));
 }
 
