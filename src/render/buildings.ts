@@ -3,7 +3,6 @@
 import * as THREE from 'three';
 import type { BuildingTypeId } from '@/game/types';
 import { VISUAL_TIERS } from '@/game/constants';
-import { MAT as T } from './terrain';
 import { GATE_ANGLE, WALL_RADIUS } from './plan';
 import { LEGACY, type MatKey } from './materials';
 import * as K from './kit';
@@ -152,13 +151,6 @@ const cone = (r: number, h: number, mat: THREE.Material, seg = 8, x = 0, y = 0, 
   return m;
 };
 
-function pad(radius: number): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.06, 12), T.dirt);
-  m.position.y = 0.03;
-  m.receiveShadow = true;
-  return m;
-}
-
 /** Четыре столба с обвязкой: остов навеса, копра, рамы пилы. */
 function frame(g: THREE.Group, w: number, d: number, h: number, mat: THREE.Material = M.woodDark): void {
   const hw = w / 2;
@@ -196,33 +188,6 @@ function gable(
 }
 
 /** Ограда по периметру: столбы и две жерди. */
-function fence(g: THREE.Group, s: number, h: number, mat: THREE.Material): void {
-  const step = s / 2;
-  for (let x = -s; x <= s + 0.01; x += step) {
-    g.add(cyl(0.05, 0.06, h, mat, 5, x, h / 2, -s));
-    g.add(cyl(0.05, 0.06, h, mat, 5, x, h / 2, s));
-  }
-  for (let z = -s + step; z <= s - step + 0.01; z += step) {
-    g.add(cyl(0.05, 0.06, h, mat, 5, -s, h / 2, z));
-    g.add(cyl(0.05, 0.06, h, mat, 5, s, h / 2, z));
-  }
-  for (const y of [h * 0.45, h * 0.85]) {
-    g.add(box(2 * s, 0.05, 0.05, mat, 0, y, -s), box(2 * s, 0.05, 0.05, mat, 0, y, s));
-    g.add(box(0.05, 0.05, 2 * s, mat, -s, y, 0), box(0.05, 0.05, 2 * s, mat, s, y, 0));
-  }
-}
-
-function goat(x: number, z: number, rot: number): THREE.Group {
-  const g = new THREE.Group();
-  g.add(box(0.5, 0.3, 0.25, M.goat, 0, 0.35, 0));
-  g.add(box(0.2, 0.2, 0.18, M.goat, 0.3, 0.5, 0));
-  g.position.set(x, 0, z);
-  g.rotation.y = rot;
-  return g;
-}
-
-// ---------- Стартовые постройки: одна ступень на всю партию ----------
-
 function campfire(st: Style): THREE.Group {
   const g = new THREE.Group();
   for (let i = 0; i < 7; i++) {
@@ -383,173 +348,132 @@ function storageDepot(t: Tier): THREE.Group {
   return new THREE.Group().add(K.assemble(a));
 }
 
-/** Навес собирателей: один навес → навес с сушилами → торговые ряды. */
-function gathering(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const bays = t + 1;
-  for (let b = 0; b < bays; b++) {
-    const z = -0.7 * b;
-    g.add(cyl(0.06, 0.06, 1.2, st.post, 5, -0.6 - b * 0.2, 0.6, z));
-    g.add(cyl(0.06, 0.06, 1.2, st.post, 5, 0.6 + b * 0.2, 0.6, z));
-    g.add(box(1.4 + b * 0.4, 0.07, 0.07, st.post, 0, 1.15, z));
-    const awn = box(1.5 + b * 0.4, 0.06, 0.9, b === 0 ? st.roof : st.roofDark, 0, 1.2, z - 0.1);
-    awn.rotation.x = 0.2;
-    g.add(awn);
+/** Один постоянный навес с корзинами и сушилом трав. */
+function gathering(): THREE.Group {
+  const p=stylePaint(), wood=K.paintOf('woodDark'); const a: K.Part[]=[];
+  for(const x of [-0.77,0.77]) for(const z of [-0.65,0.35]) {
+    const h=z<0?1.45:1.13;
+    a.push(K.box(0.1,h,0.1,wood,x,h/2,z));
   }
-  for (let i = 0; i < 3 + t * 2; i++) {
-    g.add(cyl(0.22, 0.16, 0.3, st.roof, 7, -0.7 + (i % 4) * 0.48, 0.15, 0.55 - Math.floor(i / 4) * 0.45));
+  a.push(K.box(1.9,0.09,1.42,K.paintOf('shingle'),0,1.33,-0.15,{x:0.31}));
+  a.push(K.box(1.66,0.1,0.1,wood,0,1.1,0.35));
+  // Низкие открытые корзины, без складских бочек и прилавка рынка.
+  for(const [x,z] of [[-0.45,-0.24],[0.23,-0.25],[-0.34,0.6]]) {
+    a.push(K.cyl(0.24,0.18,0.3,K.paintOf('plank'),8,x,0.15,z));
+    a.push(K.cyl(0.21,0.21,0.025,p.ink,8,x,0.307,z));
+    for(const dx of [-0.08,0.08]) a.push(K.cone(0.065,0.13,{...K.paintOf('wood'), tint:new THREE.Color(PALETTE.grassDark)},4,x+dx,0.36,z));
   }
-  if (t >= 1) {
-    // Стол и корзины на нём: место становится похоже на лавку.
-    g.add(box(1.5, 0.08, 0.6, st.wall, 0, 0.6, 0.7));
-    for (const x of [-0.6, 0.6]) g.add(cyl(0.05, 0.05, 0.6, st.post, 4, x, 0.3, 0.7));
+  for(const z of [-0.65,0.7]) a.push(K.box(0.08,1.0,0.08,wood,1.23,0.5,z));
+  a.push(K.box(0.08,0.08,1.46,wood,1.23,0.95,0.02));
+  for(const z of [-0.43,-0.05,0.33,0.62]) {
+    a.push(K.box(0.035,0.2,0.035,wood,1.23,0.84,z));
+    a.push(K.cone(0.15,0.37,{...K.paintOf('wood'), tint:new THREE.Color(PALETTE.grassDark)},5,1.23,0.58,z));
   }
-  if (t === 2) {
-    for (let i = 0; i < 4; i++) g.add(box(0.28, 0.4, 0.06, st.accent, -0.85 + i * 0.55, 1.45, -1.45));
-  }
-  return g;
+  return new THREE.Group().add(K.assemble(a));
 }
 
-/** Лесопилка: козлы под навесом → двойная пила → пильный двор со штабелями. */
-function sawmill(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const w = [1.8, 2.3, 2.9][t];
-  g.add(pad(w * 0.85));
-  for (const [x, z, h] of [
-    [-w / 2.4, -0.9, 1.2 + t * 0.2],
-    [w / 2.4, -0.9, 1.2 + t * 0.2],
-    [-w / 2.4, -0.15, 1.0 + t * 0.2],
-    [w / 2.4, -0.15, 1.0 + t * 0.2],
-  ])
-    g.add(cyl(0.06, 0.07, h, st.post, 5, x, h / 2, z));
-  const roof = box(w, 0.08, 1.1 + t * 0.3, st.roof, 0, 1.15 + t * 0.2, -0.55);
-  roof.rotation.x = 0.22;
-  g.add(roof);
-  // Козлы с бревном и диском: силуэт лесопилки узнаётся сверху.
-  for (const bench of t === 2 ? [-0.55, 0.65] : [0]) {
-    g.add(cyl(0.07, 0.08, 0.45, st.post, 5, bench - 0.45, 0.22, 0.6));
-    g.add(cyl(0.07, 0.08, 0.45, st.post, 5, bench + 0.45, 0.22, 0.6));
-    const log = cyl(0.18, 0.18, 1.4, M.wood, 6, bench, 0.52, 0.6);
-    log.rotation.z = Math.PI / 2;
-    g.add(log);
-    const blade = cyl(0.32, 0.32, 0.04, M.metal, 12, bench + 0.2, 0.72, 0.6);
-    blade.rotation.x = Math.PI / 2;
-    g.add(blade);
+/** Ресурсные дворы имеют одну постоянную модель на всех уровнях. */
+function sawmill(): THREE.Group {
+  const wood = K.paintOf('woodDark'), cut = K.paintOf('cut'), metal = K.paintOf('metal');
+  const a: K.Part[] = [];
+  // Длинное бревно на двух козлах, ручная рамная пила вместо современного диска.
+  for (const x of [-0.63, 0.63]) {
+    for (const side of [-1, 1]) a.push(K.box(0.13, 0.7, 0.13, wood, x, 0.34, 0.48 + side * 0.23, {x: side * 0.42}));
+    a.push(K.box(0.17, 0.12, 0.8, wood, x, 0.65, 0.48));
   }
-  for (let i = 0; i < 3 + t * 3; i++) {
-    const l = cyl(0.09, 0.09, 0.8, M.woodDark, 5, -w / 2 - 0.15, 0.1 + Math.floor(i / 3) * 0.19, -0.6 + (i % 3) * 0.22);
-    l.rotation.x = Math.PI / 2;
-    g.add(l);
+  a.push(K.cyl(0.21, 0.24, 2.1, K.paintOf('wood'), 8, 0, 0.86, 0.48, {z: Math.PI / 2}));
+  a.push(K.cyl(0.195, 0.195, 0.025, cut, 8, -1.06, 0.86, 0.48, {z: Math.PI / 2}));
+  for (const x of [-0.18, 0.64]) a.push(K.box(0.09, 0.94, 0.09, wood, x, 1.02, 0.52));
+  a.push(K.box(0.88, 0.08, 0.08, wood, 0.23, 1.48, 0.52));
+  a.push(K.box(0.79, 0.11, 0.025, metal, 0.23, 0.8, 0.52));
+  for (let i = 0; i < 7; i++) a.push(K.cone(0.042, 0.065, metal, 3, -0.1 + i * 0.105, 0.72, 0.52, {z: Math.PI}));
+  // Штабель параллелен рабочему бревну; светлые торцы показывают материал.
+  for (const [y,z] of [[0.2,-0.7],[0.2,-1.13],[0.55,-0.91]]) {
+    a.push(K.cyl(0.2, 0.22, 1.9, wood, 7, 0.05, y, z, {z: Math.PI / 2}));
+    a.push(K.cyl(0.185, 0.185, 0.025, cut, 7, 1.01, y, z, {z: Math.PI / 2}));
   }
-  if (t === 2) {
-    // Рама большой пилы: вертикаль, которую видно через всю деревню.
-    frame(g, 0.9, 0.7, 2.4, st.post);
-    g.add(box(0.8, 0.06, 0.1, M.metal, 0, 1.5, 0));
-  }
-  return g;
+  for (const [x,z,r] of [[-0.4,0.65,0.45],[0.5,0.85,0.34],[-0.8,0.02,0.26]])
+    a.push(K.cyl(r, r * 1.18, 0.05, cut, 7, x, 0.025, z));
+  a.push(K.box(1.25, 0.13, 0.25, K.paintOf('plank'), 0, 0.07, -0.25));
+  return new THREE.Group().add(K.assemble(a));
 }
 
-/** Каменоломня: уступы → выработка с воротом → большой карьер с краном. */
-function quarry(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const s = [1.0, 1.25, 1.55][t];
-  g.add(pad(1.6 * s));
-  g.add(box(2.0 * s, 0.3, 1.7 * s, M.stone, 0, 0.15, 0));
-  g.add(box(1.4 * s, 0.3, 1.2 * s, M.stone, -0.25, 0.45, -0.15));
-  g.add(box(0.8 * s, 0.3, 0.8 * s, M.stoneDark, -0.5, 0.75, -0.25));
-  for (let i = 0; i < 3 + t * 2; i++) {
-    const r = shadow(new THREE.Mesh(new THREE.DodecahedronGeometry(0.22, 0), M.stoneDark));
-    r.position.set(0.6 * s + (i % 3) * 0.3, 0.4, 0.5 * s - Math.floor(i / 3) * 0.5);
-    r.rotation.set(i, i * 2, 0);
-    g.add(r);
+/** Невысокий выход породы и отделённый блок на салазках. */
+function quarry(): THREE.Group {
+  const stone = K.paintOf('stone'), dark = K.paintOf('stoneDark');
+  const wood = K.paintOf('woodDark'), metal = K.paintOf('metal');
+  const a: K.Part[] = [
+    K.cyl(0.74, 1.08, 0.72, dark, 5, -0.45, 0.36, -0.46, {y: 0.32}),
+    K.cyl(0.42, 0.66, 0.93, stone, 5, -0.87, 0.68, -0.68, {z: -0.17}),
+    K.box(0.92, 0.64, 0.34, stone, -0.08, 0.38, 0.12, {y: -0.16})];
+  // Линия раскола с забитыми железными клиньями.
+  a.push(K.box(0.65, 0.022, 0.065, dark, -0.05, 0.709, 0.1));
+  for (const x of [-0.3, -0.04, 0.22]) {
+    a.push(K.cone(0.055, 0.2, metal, 4, x, 0.73, 0.1, {z: Math.PI}));
+    a.push(K.box(0.09, 0.055, 0.09, metal, x, 0.85, 0.1));
   }
-  if (t === 0) {
-    const handle = cyl(0.04, 0.04, 1.0, st.post, 4, 0.85, 0.55, 0.75);
-    handle.rotation.z = 0.45;
-    g.add(handle);
-    g.add(box(0.5, 0.09, 0.09, M.metal, 0.63, 1.0, 0.75));
-  } else {
-    // Ворот с укосиной: тёсаные блоки поднимают, а не таскают.
-    const h = t === 1 ? 2.2 : 3.2;
-    g.add(cyl(0.11, 0.13, h, st.post, 6, 0.9 * s, h / 2, 0.8 * s));
-    const boom = cyl(0.08, 0.08, h * 0.8, st.post, 5, 0.9 * s - h * 0.28, h * 0.9, 0.8 * s);
-    boom.rotation.z = 1.15;
-    g.add(boom);
-    g.add(box(0.05, h * 0.45, 0.05, M.metal, 0.9 * s - h * 0.55, h * 0.72, 0.8 * s));
-    g.add(box(0.42, 0.42, 0.42, M.stone, 0.9 * s - h * 0.55, 0.21, 0.8 * s));
-    if (t === 2) for (let i = 0; i < 4; i++) g.add(box(0.5, 0.32, 0.5, M.stone, -1.5, 0.16 + (i % 2) * 0.32, -1.0 + Math.floor(i / 2) * 0.6));
-  }
-  return g;
+  // Салазки и тяговые полозья — признак добытого строительного блока.
+  for (const x of [0.55, 1.08]) a.push(K.box(0.13, 0.15, 1.52, wood, x, 0.12, 0.6));
+  for (const z of [0.15, 0.55, 0.95]) a.push(K.box(0.82, 0.12, 0.17, K.paintOf('plank'), 0.81, 0.24, z));
+  a.push(K.box(0.69, 0.52, 0.7, stone, 0.81, 0.56, 0.45));
+  for (const z of [0.24, 0.65]) a.push(K.box(0.72, 0.035, 0.035, wood, 0.81, 0.84, z));
+  for (const [x,z,r] of [[-0.75,0.53,0.18],[-0.42,0.73,0.12],[0,0.65,0.16],[-1.15,0.16,0.13]])
+    a.push(K.cyl(r * 0.5, r, r, dark, 5, x, r / 2, z, {y: x}));
+  a.push(K.box(0.07, 0.83, 0.07, wood, -0.35, 0.44, 0.8, {z: -0.48}));
+  a.push(K.box(0.32, 0.14, 0.15, metal, -0.17, 0.8, 0.8));
+  return new THREE.Group().add(K.assemble(a));
 }
 
-/** Охотничий домик: изба со шкурами → двор с сушилами → длинная промысловая изба. */
-function hunterHut(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const r = [0.7, 0.9, 1.15][t];
-  g.add(pad(1.4 + t * 0.35));
-  if (t < 2) {
-    g.add(cyl(r, r * 1.1, 0.8 + t * 0.25, st.wall, 7, 0, (0.8 + t * 0.25) / 2, 0));
-    g.add(cone(r * 1.5, 0.85 + t * 0.25, M.hide, 7, 0, 0.95 + t * 0.4, 0));
-  } else {
-    // Промысловая изба: длинный сруб под шкурной кровлей.
-    g.add(box(2.4, 1.1, 1.5, st.wall, 0, 0.55, 0));
-    gable(g, 2.7, 1.9, 1.1, 0.42, M.hide);
+/** Небольшой постоянный сруб со шкурой и охотничьей рогатиной. */
+function hunterHut(): THREE.Group {
+  const p=stylePaint(), wood=K.paintOf('woodDark'); const a: K.Part[]=[];
+  a.push(K.box(1.78,0.16,1.52,p.base,0,0.08,-0.12));
+  for(let i=0;i<6;i++) {
+    const y=0.25+i*0.16;
+    for(const z of [-0.72,0.49]) a.push(K.box(1.85,0.145,0.17,i%2?wood:K.paintOf('wood'),0,y,z));
+    for(const x of [-0.76,0.76]) a.push(K.box(0.17,0.145,1.54,i%2?wood:K.paintOf('wood'),x,y,-0.12));
   }
-  g.add(box(0.35, 0.55, 0.1, M.dark, 0, 0.27, (t < 2 ? r * 1.08 : 0.78)));
-  // Сушила: стойки, перекладина и растянутые шкуры.
-  for (let b = 0; b <= t; b++) {
-    const z = 0.75 + b * 0.55;
-    g.add(cyl(0.05, 0.06, 1.1, st.post, 5, -1.1, 0.55, z));
-    g.add(cyl(0.05, 0.06, 1.1, st.post, 5, 0.3, 0.55, z));
-    g.add(box(1.5, 0.06, 0.06, st.post, -0.4, 1.05, z));
-    g.add(box(0.45, 0.55, 0.04, M.hide, -0.85, 0.75, z));
-    g.add(box(0.45, 0.45, 0.04, M.hide, -0.1, 0.8, z));
-  }
-  const spear = cyl(0.03, 0.03, 1.2, st.post, 4, 0.95, 0.6, -0.35);
-  spear.rotation.z = -0.3;
-  g.add(spear);
-  if (t === 2) {
-    // Рога над входом: трофеи вместо вывески.
-    for (const sx of [-1, 1]) {
-      const horn = cyl(0.04, 0.05, 0.7, M.bone, 4, sx * 0.22, 1.65, 0.6);
-      horn.rotation.z = sx * 0.6;
-      g.add(horn);
-    }
-  }
-  return g;
+  a.push(...K.roofGable(1.8,1.52,0.44,1.15,{...p.roofPaint,roof:K.paintOf('shingle'),trim:wood},0.13,0,-0.12));
+  a.push(K.box(0.43,0.77,0.05,p.ink,-0.46,0.55,0.59));
+  // Натянутая шкура с четырьмя лапами, а не вывеска жилого дома.
+  const hide=K.paintOf('cut');
+  a.push(K.box(0.4,0.47,0.035,hide,0.36,0.77,0.61));
+  for(const x of [0.16,0.56]) for(const y of [0.49,1.04]) a.push(K.box(0.1,0.24,0.035,hide,x,y,0.61,{z:(x-0.36)*(y<0.7?2:-2)}));
+  for(const x of [0.87,1.55]) a.push(K.box(0.08,0.76,0.09,wood,x,0.38,0.64));
+  a.push(K.box(0.82,0.07,0.07,wood,1.21,0.67,0.64));
+  a.push(K.cyl(0.034,0.034,1.48,wood,5,1.22,0.74,0.64));
+  a.push(K.cone(0.09,0.28,K.paintOf('metal'),4,1.22,1.62,0.64));
+  a.push(K.box(0.3,0.045,0.06,wood,1.22,1.38,0.64));
+  return new THREE.Group().add(K.assemble(a));
 }
 
-/** Рудник: штольня → штольня с копром → копёр с колесом и отвалами. */
-function mine(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const s = [1.0, 1.2, 1.45][t];
-  g.add(pad(1.7 * s));
-  g.add(cone(1.7 * s, 1.5 * s, M.stoneDark, 6, 0, 0.75 * s, -0.35));
-  g.add(box(1.0, 1.0, 0.4, M.dark, 0, 0.5, 0.55));
-  g.add(cyl(0.09, 0.1, 1.1, st.post, 5, -0.55, 0.55, 0.7));
-  g.add(cyl(0.09, 0.1, 1.1, st.post, 5, 0.55, 0.55, 0.7));
-  g.add(box(1.35, 0.12, 0.14, st.post, 0, 1.15, 0.7));
-  g.add(box(0.55, 0.35, 0.7, st.wall, 1.05 * s, 0.28, 0.95));
-  for (let i = 0; i < 3 + t * 2; i++) {
-    const lump = shadow(new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), M.ore));
-    lump.position.set(0.9 * s + (i % 3) * 0.25, 0.5, 0.8 + Math.floor(i / 3) * 0.25);
-    g.add(lump);
+/** Закопушка: крепь, ручной ворот и отвал, без роста копра по уровням. */
+function mine(): THREE.Group {
+  const wood = K.paintOf('woodDark'), plank = K.paintOf('plank');
+  const rock = K.paintOf('stoneDark'), ore = K.paintOf('ore');
+  const a: K.Part[] = [
+    K.cyl(0.63, 1.3, 1.18, rock, 6, 0, 0.59, -0.5),
+    K.cyl(0.22, 0.6, 0.6, rock, 5, -0.95, 0.3, -0.38),
+    K.box(0.84, 0.87, 0.12, K.paintOf('dark'), 0, 0.44, 0.65)];
+  // Крепь обрамляет чёрный вход и скрывает край скального массива.
+  for (const x of [-0.49, 0.49]) {
+    a.push(K.box(0.17, 1.06, 0.25, wood, x, 0.53, 0.73, {z: -x * 0.1}));
+    a.push(K.box(0.1, 0.4, 0.2, plank, x * 0.79, 0.86, 0.79, {z: -x * 0.85}));
   }
-  if (t >= 1) {
-    // Копёр над стволом: рудник виден издалека.
-    const h = t === 1 ? 2.6 : 3.6;
-    frame(g, 1.3, 1.1, h, st.post);
-    g.add(box(1.5, 0.1, 1.3, st.roofDark, 0, h + 0.08, 0));
-    if (t === 2) {
-      const wheel = cyl(0.55, 0.55, 0.12, st.accent, 10, 0, h + 0.5, 0);
-      wheel.rotation.x = Math.PI / 2;
-      g.add(wheel);
-      // Рельсы и вагонетка.
-      for (const x of [-0.18, 0.18]) g.add(box(0.06, 0.05, 2.4, M.metal, x, 0.05, 1.6));
-      g.add(box(0.6, 0.4, 0.7, st.accent, 0, 0.35, 2.1));
-    }
-  }
-  return g;
+  a.push(K.box(1.23, 0.18, 0.3, plank, 0, 1.08, 0.73));
+  // Ворот над рабочим приямком перед входом.
+  for (const x of [-0.55, 0.55]) a.push(K.box(0.12, 1.0, 0.13, wood, x, 0.5, 1.25));
+  a.push(K.cyl(0.1, 0.1, 1.3, plank, 8, 0, 0.97, 1.25, {z: Math.PI / 2}));
+  a.push(K.box(0.06, 0.38, 0.07, wood, 0.72, 0.8, 1.25));
+  a.push(K.box(0.28, 0.07, 0.07, plank, 0.8, 0.61, 1.25));
+  a.push(K.box(0.027, 0.52, 0.027, wood, 0, 0.68, 1.25));
+  a.push(K.cyl(0.21, 0.16, 0.3, plank, 8, 0, 0.28, 1.25));
+  a.push(K.cyl(0.19, 0.19, 0.035, K.paintOf('dark'), 8, 0, 0.443, 1.25));
+  a.push(K.cyl(0.18, 0.7, 0.45, rock, 6, 1.03, 0.225, 0));
+  for (const [x,y,z] of [[0.87,0.4,0.04],[1.23,0.3,0.17],[1.03,0.24,0.42]])
+    a.push(K.cyl(0.07, 0.15, 0.14, ore, 5, x, y, z, {z: x}));
+  for (const x of [-0.25, 0.25]) a.push(K.box(0.16, 0.06, 0.58, plank, x, 0.04, 0.92));
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Мастерская: открытый навес → закрытая мастерская → ремесленный двор. */
@@ -583,61 +507,46 @@ function workshop(t: Tier, st: Style): THREE.Group {
 }
 
 /** Ферма: одна полоса → поле с оградой и пугалом → большое поле с овином. */
-function farm(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  // Поле держится в своей площадке плана: широкая пашня вылезала за отведённое место.
-  const s = [2.2, 2.7, 3.2][t];
-  g.add(box(s, 0.1, s, M.soil, 0, 0.05, 0));
-  const rows = 4 + t * 2;
-  const cols = 5 + t * 2;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const x = -s / 2 + 0.35 + (r * (s - 0.7)) / (rows - 1);
-      const z = -s / 2 + 0.3 + (c * (s - 0.6)) / (cols - 1);
-      g.add(cone(0.1, 0.3, M.sprout, 4, x, 0.25, z));
-    }
+function farm(): THREE.Group {
+  const wood = K.paintOf('woodDark'), soil = K.paintOf('soil');
+  const a: K.Part[] = [K.box(2.35, 0.07, 2.05, soil, 0, 0.035, 0)];
+  for (const x of [-0.86, -0.29, 0.29, 0.86]) {
+    a.push(K.box(0.35, 0.1, 1.83, soil, x, 0.12, 0));
+    for (const z of [-0.64, -0.22, 0.22, 0.64]) a.push(K.cone(0.12, 0.24, K.paintOf('sprout'), 4, x, 0.28, z));
   }
-  if (t >= 1) {
-    fence(g, s / 2 + 0.2, 0.6, st.post);
-    // Пугало: поле обжитое, за ним следят.
-    g.add(cyl(0.05, 0.05, 1.3, st.post, 4, s * 0.32, 0.65, -s * 0.32));
-    g.add(box(0.8, 0.06, 0.06, st.post, s * 0.32, 1.05, -s * 0.32));
-    g.add(cone(0.22, 0.3, st.roof, 6, s * 0.32, 1.4, -s * 0.32));
-  }
-  if (t === 2) {
-    // Овин вплотную к полю: урожай есть где сушить, а площадка не растёт.
-    g.add(box(1.2, 1.0, 1.0, st.wall, -s * 0.5 - 0.35, 0.5, 0));
-    gable(g, 1.45, 1.25, 1.0, 0.28, st.roof, -s * 0.5 - 0.35, 0);
-  }
-  return g;
+  // Низкий плетень только с дальней стороны: борозды остаются открытыми.
+  for (const x of [-1.15, -0.57, 0, 0.57, 1.15]) a.push(K.box(0.07, 0.55, 0.07, wood, x, 0.275, -1.14));
+  for (const y of [0.16, 0.3, 0.44]) a.push(K.box(2.38, 0.055, 0.05, K.paintOf('wood'), 0, y, -1.14));
+  // Тачка с одним колесом, открытым коробом и двумя рукоятями.
+  const plank = K.paintOf('plank');
+  a.push(K.box(0.62, 0.1, 0.62, plank, 1.66, 0.44, 0.2));
+  for (const x of [1.36, 1.96]) a.push(K.box(0.07, 0.3, 0.7, plank, x, 0.58, 0.2));
+  a.push(K.box(0.6, 0.3, 0.07, plank, 1.66, 0.58, -0.13));
+  for (const x of [1.45, 1.87]) a.push(K.box(0.06, 0.07, 1.24, wood, x, 0.38, 0.51));
+  a.push(K.cyl(0.22, 0.22, 0.08, wood, 8, 1.66, 0.23, -0.17, {z: Math.PI / 2}));
+  return new THREE.Group().add(K.assemble(a));
 }
 
-/** Загон: жердевая ограда → загон с навесом → скотный двор с хлевом. */
-function pen(t: Tier, st: Style): THREE.Group {
-  const g = new THREE.Group();
-  const s = [1.3, 1.7, 2.05][t];
-  fence(g, s, 0.7 + t * 0.1, st.post);
-  const herd = 2 + t * 2;
-  for (let i = 0; i < herd; i++) {
-    const a = (i / herd) * Math.PI * 2 + 0.6;
-    g.add(goat(Math.cos(a) * s * 0.5, Math.sin(a) * s * 0.5, a + 1.5));
+/** Открытый круг жердей с двумя козами; без навеса и конюшенных стойл. */
+function pen(): THREE.Group {
+  const wood = K.paintOf('woodDark'); const a: K.Part[] = [];
+  for (let i = 0; i < 10; i++) {
+    const angle = i * Math.PI * 2 / 10;
+    const x = Math.sin(angle) * 1.46, z = Math.cos(angle) * 1.46;
+    a.push(K.box(0.1, 0.75, 0.1, wood, x, 0.375, z));
+    const mid = angle + Math.PI / 10;
+    for (const y of [0.3, 0.63]) a.push(K.box(0.94, 0.07, 0.07, K.paintOf('wood'), Math.sin(mid) * 1.39, y, Math.cos(mid) * 1.39, {y: mid}));
   }
-  if (t >= 1) {
-    // Навес для скота: зимой стадо стоит под крышей.
-    g.add(cyl(0.07, 0.08, 1.0, st.post, 5, -s * 0.75, 0.5, -s * 0.55));
-    g.add(cyl(0.07, 0.08, 1.0, st.post, 5, -s * 0.15, 0.5, -s * 0.55));
-    const roof = box(1.1, 0.07, 0.95, st.roof, -s * 0.45, 1.05, -s * 0.5);
-    roof.rotation.x = 0.25;
-    g.add(roof);
+  for (const [x,z,rot] of [[-0.55,0.13,-0.4],[0.46,-0.3,2.4]]) {
+    const coat = K.paintOf('cut'), horn = K.paintOf('stoneDark');
+    const animal: K.Part[] = [K.box(0.34,0.34,0.64,coat,0,0.5,0), K.box(0.21,0.27,0.27,coat,0,0.76,0.32)];
+    for (const dx of [-0.12,0.12]) for (const dz of [-0.23,0.23]) animal.push(K.box(0.07,0.35,0.07,horn,dx,0.2,dz));
+    for (const dx of [-0.09,0.09]) animal.push(K.cone(0.045,0.22,horn,4,dx,0.99,0.27,{x:-0.4}));
+    a.push(...shiftParts(animal,x,z,rot,1));
   }
-  if (t === 2) {
-    // Хлев: стадо зимует под настоящей крышей.
-    g.add(box(1.7, 1.1, 1.3, st.wall, s * 0.55, 0.55, -s * 0.5));
-    gable(g, 2.0, 1.6, 1.1, 0.34, st.roof, s * 0.55, -s * 0.5);
-    // Колода с водой.
-    g.add(box(1.0, 0.25, 0.4, st.post, 0, 0.13, s * 0.6));
-  }
-  return g;
+  a.push(K.box(0.88,0.25,0.38,wood,0,0.15,0.96));
+  a.push(K.box(0.71,0.025,0.23,{...K.paintOf('wood'), tint:new THREE.Color(PALETTE.water)},0,0.28,0.96));
+  return new THREE.Group().add(K.assemble(a));
 }
 
 /** Неф и западная колокольня растут вверх в пределах прежней площадки. */
@@ -1507,21 +1416,21 @@ function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {
     case 'storage':
       return storage(tier);
     case 'gathering':
-      return gathering(tier, st);
+      return gathering();
     case 'sawmill':
-      return sawmill(tier, st);
+      return sawmill();
     case 'quarry':
-      return quarry(tier, st);
+      return quarry();
     case 'hunter_hut':
-      return hunterHut(tier, st);
+      return hunterHut();
     case 'mine':
-      return mine(tier, st);
+      return mine();
     case 'workshop':
       return workshop(tier, st);
     case 'farm':
-      return farm(tier, st);
+      return farm();
     case 'pen':
-      return pen(tier, st);
+      return pen();
     case 'church':
       return church(tier);
     case 'tower':
