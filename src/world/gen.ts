@@ -16,6 +16,7 @@ import {
   CASTLE_POWER,
   BOTS_MAX,
   BOTS_MIN,
+  LAIR_ANCHOR_NEIGHBORS,
   HOME_NEAR_MAX,
   HOME_NEAR_MIN,
   POWER_GROWTH_PER_HOUR,
@@ -175,21 +176,17 @@ export function generateWorld(seed: number): WorldGen {
       const y = by + int(0, BARBARIAN_BLOCK - 1);
       if (!habitable(seed, x, y) || byKey.has(coordKey(x, y))) continue;
       if (settlements.some((s) => s.tribeId && distance(s, { x, y }) < 4)) continue;
-      const s: GenSettlement = {
-        id: `b${counter++}`,
-        x,
-        y,
-        name: BARBARIAN_NAMES[int(0, BARBARIAN_NAMES.length - 1)],
-        tribeId: null,
-        owner: null,
-        basePower: 6 + rng() * 11,
-        basePop: 5 + rng() * 12,
-        growth: POWER_GROWTH_PER_HOUR * 0.4,
-        lootMix: ['food', 'hides', 'bones'],
-        capital: false,
-        // Варвары живут в шалашах: казны у них нет.
-        castle: false,
-      };
+      // Два обращения к генератору впустую — и убирать их нельзя. Здесь стояли
+      // начальные мощь и население лагеря; теперь их считает `world/lairs.ts` от
+      // времени появления, но **порядок случайных чисел — часть сида**: выкинь
+      // эти два вызова, и весь мир переставится под уже сыгранными сохранениями,
+      // молча и у всех сразу.
+      rng();
+      rng();
+      // Логово собирается той же кухней, что и заводящиеся по ходу партии
+      // (`makeLair`): силы и населения у него нет — они выводятся из времени
+      // появления, а оно живёт в сохранении мира, а не в генерации.
+      const s = makeLair(`b${counter++}`, x, y, BARBARIAN_NAMES[int(0, BARBARIAN_NAMES.length - 1)]);
       settlements.push(s);
       byKey.set(coordKey(s.x, s.y), s);
     }
@@ -214,6 +211,9 @@ export function generateWorld(seed: number): WorldGen {
   // Ближние замки при этом разжалуют в обычные поселения: первая цель на карте
   // не должна оказаться крепостью, в которую отряд уйдёт и не вернётся.
   for (const s of settlements) {
+    // Логова эта правка обходит стороной: сила у них не хранится вовсе, а
+    // соразмерность миру им даёт опора — мощь дворов вокруг (`lairAnchor`).
+    if (isLair(s)) continue;
     const d = Math.min(60, distance(s, home));
     if (s.castle && distance(s, home) < CASTLE_MIN_DISTANCE) s.castle = false;
     s.basePower = Math.round((s.basePower + d * POWER_PER_TILE) * 10) / 10;
@@ -254,3 +254,59 @@ export const clampCoord = (c: Coord): Coord => ({
   x: clamp(Math.round(c.x), lo.x, hi.x - 1),
   y: clamp(Math.round(c.y), lo.y, hi.y - 1),
 });
+
+/**
+ * Логово — варварский лагерь. Признак один и выводится из данных: племени у
+ * логова нет и быть не может. Второго поля под это заводить нельзя — оно тут же
+ * разошлось бы с `tribeId` в первом же месте, где о лагере спрашивают.
+ */
+export const isLair = (s: GenSettlement): boolean => s.tribeId === null;
+
+/**
+ * Опора логова: средняя базовая мощь ближайших чужих дворов. Из неё выводятся и
+ * начальная сила, и потолок роста (`world/lairs.ts`), поэтому логово в глухом
+ * углу и логово среди станов растут по-разному — и оба остаются соразмерны
+ * тому, что вокруг них.
+ *
+ * Берётся именно **базовая** мощь, а не нынешняя: опора обязана быть постоянной.
+ * Считай её от растущих соседей — и потолок логова полз бы вместе с ними, то
+ * есть потолка не было бы вовсе.
+ */
+export function lairAnchor(settlements: GenSettlement[], at: Coord): number {
+  const near = settlements
+    .filter((s) => s.tribeId)
+    .map((s) => ({ p: s.basePower, d: distance(s, at) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, LAIR_ANCHOR_NEIGHBORS);
+  if (near.length === 0) return 1;
+  return near.reduce((n, s) => n + s.p, 0) / near.length;
+}
+
+/**
+ * Логово как поселение мира. Одна кухня и для генерации, и для тех, что
+ * заводятся по ходу партии: две сборки одного и того же разошлись бы ровно в
+ * тот день, когда у логова появится новое поле.
+ *
+ * Мощь и население здесь не хранятся: их считает `world/lairs.ts` от времени
+ * появления. Поля `basePower`/`basePop` остаются нулями нарочно — увидит их
+ * кто-то в обход, и промах будет громким, а не тихим.
+ */
+export function makeLair(id: SettlementId, x: number, y: number, name: string): GenSettlement {
+  return {
+    id,
+    x,
+    y,
+    name,
+    tribeId: null,
+    owner: null,
+    basePower: 0,
+    basePop: 0,
+    growth: 0,
+    // Строительные материалы и оружие: разбойники живут тем, что отняли у
+    // проезжих, а не тем, что вырастили.
+    lootMix: ['wood', 'stone'],
+    capital: false,
+    // Варвары живут в шалашах: казны у них нет.
+    castle: false,
+  };
+}

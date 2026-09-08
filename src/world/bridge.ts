@@ -246,6 +246,10 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     morale: e.morale,
     battle: e.battle,
     sacked: e.sacked ?? 0,
+    // Оружие из логова и сам факт того, что логово сожжено: мир отдал число и
+    // отметку, во что превратить первое и что засчитать по второй — дело племени.
+    arms: e.arms ?? 0,
+    lair: e.lair ?? false,
     text: e.text,
     kind: e.good ? 'good' : 'bad',
   };

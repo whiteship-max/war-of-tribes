@@ -64,9 +64,30 @@ import type {
   WorldInfo,
   WorldPulse,
 } from '../types';
-import { generateWorld, popOf, powerOf, type GenSettlement, type WorldGen } from '../gen';
+import {
+  generateWorld,
+  isLair,
+  lairAnchor,
+  makeLair,
+  popOf,
+  powerOf,
+  type GenSettlement,
+  type WorldGen,
+} from '../gen';
+import {
+  lairArms,
+  lairLoot,
+  lairPhase,
+  lairPop,
+  lairPower,
+  lairRaidWeight,
+  ruinLeft,
+  type LairPhase,
+  type LairRec,
+} from '../lairs';
 import {
   clampToWorld,
+  coordKey,
   distance,
   formatCoord,
   formatLeft,
@@ -81,7 +102,7 @@ import {
 } from '../geo';
 import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
 import { WATCHER, liveSight, standing } from '../sight';
-import { featuresAt } from '../geography';
+import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
 import { DIPLO_ACTIONS, DIPLO_ACTION_BY_ID, TEMPER_BY_ID } from '../data/diplomacy';
@@ -135,7 +156,7 @@ import {
   type LetterCandidate,
 } from '../letters';
 import { LETTER_KIND_BY_ID, goodsText } from '../data/letters';
-import { RELATION_META, stageOf } from '../data/meta';
+import { BARBARIAN_NAMES, RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackSize } from '../data/units';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
@@ -167,6 +188,11 @@ import {
   ATTACK_ATTITUDE_TRIBE,
   AI_BARBARIAN_WEIGHT,
   AI_NEUTRAL_QUIET,
+  LAIR_HOME_GAP,
+  LAIR_NEAR_CAP,
+  LAIR_SETTLE_GAP,
+  LAIR_SPAWN_MAX,
+  LAIR_SPAWN_MIN,
   AI_WAR_PACE,
   AI_WAR_WEIGHT,
   GIFT_PER_POP,
@@ -210,6 +236,7 @@ import {
   browserStorage,
   createWorldSave,
   parseWorldSave,
+  type SpawnedLair,
   type StoredFigure,
   type StoredMarch,
   type WorldSave,
@@ -256,6 +283,12 @@ export class LocalWorld implements WorldApi {
   private claims: Claim[];
   /** Отладочный обзор: вся земля считается разведанной. */
   private reveal: boolean;
+  /**
+   * Опора логова: мощь чужих дворов вокруг него. Считается один раз на логово —
+   * дворы не переезжают, а базовая мощь не меняется, — и на ней держится
+   * потолок роста (`world/lairs.ts`).
+   */
+  private anchors = new Map<SettlementId, number>();
 
   constructor(opts: LocalWorldOptions = {}) {
     this.clock = opts.now ?? serverNow;
@@ -269,6 +302,10 @@ export class LocalWorld implements WorldApi {
         ? stored
         : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock());
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
+    // Логова, заведённые по ходу партии, подмешиваются к сгенерированному: для
+    // всех, кто спросит мир, они такие же поселения, как остальные. Иначе о
+    // логове пришлось бы помнить в каждом месте, где перебираются дворы.
+    this.adoptSpawned();
     this.claims = claimsOf(this.gen);
     this.expandLegacyHostility();
     this.fog = new FogMap(this.save.fog);
@@ -311,6 +348,142 @@ export class LocalWorld implements WorldApi {
   /** Сколько поселение прожило своей жизнью: возраст мира минус время бунтов. */
   private lived = (s: GenSettlement, now: number): number =>
     Math.max(0, this.liveAt(s.id, now) - this.save.createdAt);
+
+  // ---------- Логова ----------
+
+  /**
+   * Подмешивает заведённые по ходу партии логова к сгенерированному миру.
+   * Мутировать результат генерации можно ровно здесь и ровно один раз, при
+   * подключении: `WorldGen` живёт внутри этого объекта, наружу не отдаётся, а
+   * все, кто перебирает поселения, обязаны видеть один список, а не два.
+   */
+  private adoptSpawned(): void {
+    for (const l of this.save.spawned) {
+      if (this.byId.has(l.id)) continue;
+      const s = makeLair(l.id, l.x, l.y, l.name);
+      this.gen.settlements.push(s);
+      this.gen.byKey.set(coordKey(s.x, s.y), s);
+      this.byId.set(s.id, s);
+    }
+  }
+
+  /**
+   * Запись логова. Заводится лениво: у логова из генерации всё выводится из
+   * возраста мира, и держать для него строку в сохранении не за чем — она
+   * появится в тот день, когда логово сожгут.
+   */
+  private lairRec(id: SettlementId): LairRec {
+    return this.save.lairs[id] ?? { bornAt: this.save.createdAt, burnedAt: 0 };
+  }
+
+  /** Опора: мощь дворов вокруг. Считается один раз на логово. */
+  private anchorOf(s: GenSettlement): number {
+    const have = this.anchors.get(s.id);
+    if (have !== undefined) return have;
+    const value = lairAnchor(this.gen.settlements, s);
+    this.anchors.set(s.id, value);
+    return value;
+  }
+
+  /**
+   * Что сейчас на месте поселения. У обычного двора состояние одно и другого
+   * быть не может: сжечь можно только логово.
+   */
+  private phaseOf(s: GenSettlement, now: number): LairPhase {
+    return isLair(s) ? lairPhase(this.lairRec(s.id), now) : 'alive';
+  }
+
+  /** Живая цель: по ней ходят набеги, её видно на карте, её можно бить. */
+  private alive(s: GenSettlement, now: number): boolean {
+    return this.phaseOf(s, now) === 'alive';
+  }
+
+  /**
+   * Логово сожжено. Не «побит гарнизон», а убрано: с карты оно пропадает, набеги
+   * оттуда прекращаются немедленно — включая уже вышедшие. Это и есть то самое
+   * видимое последствие победы, ради которого всё затевалось: игрок вернётся на
+   * карту и увидит, что с той стороны больше никто не идёт.
+   */
+  private burnLair(s: GenSettlement, at: number): void {
+    this.save.lairs[s.id] = { bornAt: this.lairRec(s.id).bornAt, burnedAt: at };
+    for (const m of [...this.save.marches]) {
+      if (m.own || m.fromId !== s.id) continue;
+      this.remove(m);
+    }
+    // Разведданные о сожжённом никому не нужны и врали бы: гарнизона больше нет.
+    delete this.save.intel[s.id];
+    delete this.save.sightings[s.id];
+  }
+
+  /** Сколько живых логов стоит в округе игрока. */
+  private lairsNear(now: number): number {
+    let n = 0;
+    for (const s of this.gen.settlements) {
+      if (!isLair(s) || !this.alive(s, now)) continue;
+      if (distance(s, this.save.home) <= AI_RANGE) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Заводит логово в стороне от дома. Место выбирается по зерну, как всё
+   * остальное в этом мире: тот же сид и то же время дают то же логово.
+   */
+  private spawnLair(at: number, rng: () => number): boolean {
+    const home = this.save.home;
+    const seed = this.save.seed;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const a = rng() * Math.PI * 2;
+      const r = LAIR_HOME_GAP + rng() * (AI_RANGE - LAIR_HOME_GAP);
+      const spot = clampToWorld({ x: Math.round(home.x + Math.cos(a) * r), y: Math.round(home.y + Math.sin(a) * r) });
+      if (!buildable(seed, spot.x, spot.y)) continue;
+      if (this.gen.byKey.has(coordKey(spot.x, spot.y))) continue;
+      if (distance(spot, home) < LAIR_HOME_GAP) continue;
+      // Под чужой стеной разбойники не селятся — и под своим же пепелищем тоже:
+      // новое логово обязано читаться как новое место, а не как воскресшее.
+      if (this.gen.settlements.some((o) => distance(o, spot) < LAIR_SETTLE_GAP)) continue;
+      const l: SpawnedLair = {
+        id: `l${this.save.nextLair}`,
+        x: spot.x,
+        y: spot.y,
+        name: BARBARIAN_NAMES[Math.floor(rng() * BARBARIAN_NAMES.length) % BARBARIAN_NAMES.length],
+      };
+      const born = makeLair(l.id, l.x, l.y, l.name);
+      this.save.spawned.push(l);
+      this.save.lairs[l.id] = { bornAt: at, burnedAt: 0 };
+      this.gen.settlements.push(born);
+      this.gen.byKey.set(coordKey(born.x, born.y), born);
+      this.byId.set(born.id, born);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Новые логова. Мир не должен ни пустеть, ни зарастать: слот расписания
+   * приходит по времени, но занимается только если живых логов в округе меньше
+   * потолка. Пропущенный слот не копится — он просто пропущен, поэтому вернуться
+   * после ночи офлайна к шести новым логовам разом нельзя.
+   */
+  private stepLairs(now: number): void {
+    const save = this.save;
+    if (save.nextLairAt === 0) {
+      save.nextLairAt = now + LAIR_SPAWN_MIN + seeded(marchSeed(save.seed, 700_000))() * (LAIR_SPAWN_MAX - LAIR_SPAWN_MIN);
+      return;
+    }
+    // Предел щедрый нарочно: слот проходит раз в час, и месяц офлайна — это
+    // около семисот слотов. Обрежь их сотней — и догон разошёлся бы с
+    // непрерывной игрой ровно на длину перерыва: у одного расписание уехало
+    // вперёд, у другого нет. Каждый шаг стоит одного зерна и одного прохода по
+    // логовам, так что цена этой щедрости — доли миллисекунды.
+    for (let guard = 0; guard < 5000 && now >= save.nextLairAt; guard++) {
+      const at = save.nextLairAt;
+      const rng = seeded(marchSeed(save.seed, 700_000 + save.nextLair++));
+      save.nextLairAt = at + LAIR_SPAWN_MIN + rng() * (LAIR_SPAWN_MAX - LAIR_SPAWN_MIN);
+      if (this.lairsNear(at) >= LAIR_NEAR_CAP) continue;
+      this.spawnLair(at, rng);
+    }
+  }
 
   /** Бунт идёт прямо сейчас? */
   private inRevolt = (id: SettlementId, now: number): boolean =>
@@ -1182,14 +1355,23 @@ export class LocalWorld implements WorldApi {
   }
 
   private powerNow(s: GenSettlement, now: number): number {
-    const base = powerOf(s, this.lived(s, now), POWER_GROWTH_CAP);
+    // Логово растёт по своей кривой — от опоры и времени появления, с потолком
+    // (`world/lairs.ts`). Общий рост соседей ему не годится: он без потолка по
+    // сути (втрое от базы за полтора суток) и считается от возраста мира, а
+    // логово может завестись сегодня. Часы берутся собственные, как у соседей:
+    // бунт останавливает и рост логова тоже.
+    const base = isLair(s)
+      ? lairPower(this.anchorOf(s), this.lairRec(s.id), this.liveAt(s.id, now))
+      : powerOf(s, this.lived(s, now), POWER_GROWTH_CAP);
     // Пока идёт бунт, гарнизон занят своими: он слабее ровно на объявленную долю.
     const revolt = revoltPower(this.inRevolt(s.id, now));
     return Math.max(1, base * revolt * (1 - this.damageOf(s.id, now)) + this.supportIn(s.id));
   }
 
   private popNow = (s: GenSettlement, now: number): number =>
-    popOf(s, this.lived(s, now), POWER_GROWTH_CAP);
+    isLair(s)
+      ? lairPop(this.powerNow(s, now))
+      : popOf(s, this.lived(s, now), POWER_GROWTH_CAP);
 
   /**
    * Враждебность племени. Своим полем в сохранении она больше не живёт: это
@@ -1297,6 +1479,10 @@ export class LocalWorld implements WorldApi {
    */
   private view(s: GenSettlement, now: number, discs: SightDisc[]): SettlementView {
     const visible = inSight(discs, s.x, s.y);
+    const ruin = this.phaseOf(s, now) === 'ruin';
+    // Пепелище показывает само себя, а не последний взгляд на живое логово:
+    // помнить сожжённое как стоящее значило бы врать о собственной победе.
+    if (ruin) return this.ruinView(s, now, visible);
     const seen = this.save.sightings[s.id] ?? null;
     const relation = visible ? this.relationOf(s) : (seen?.relation ?? 'neutral');
     const stage = visible ? stageOf(this.powerNow(s, now), this.popNow(s, now)) : (seen?.stage ?? 'camp');
@@ -1320,6 +1506,35 @@ export class LocalWorld implements WorldApi {
       // Выходящее войско видно только пока смотришь: это самая живая из живых
       // величин, и помнить её со вчерашнего дня было бы враньём.
       marching: visible && this.save.marches.some((m) => m.fromId === s.id && m.phase === 'out'),
+      ruin: false,
+    };
+  }
+
+  /**
+   * Пепелище на месте сожжённого логова. Стадия у него всегда самая мелкая, а
+   * отношение остаётся варварским: это след разбойников, а не ничья земля.
+   * Живых данных у него нет вовсе — их и не бывает у пепелища.
+   */
+  private ruinView(s: GenSettlement, now: number, visible: boolean): SettlementView {
+    return {
+      id: s.id,
+      x: s.x,
+      y: s.y,
+      name: s.name,
+      stage: 'camp',
+      relation: 'barbarian',
+      owner: null,
+      tribeId: null,
+      tribeName: null,
+      color: RELATION_META.barbarian.color,
+      mine: false,
+      castle: false,
+      visible,
+      seenAt: this.save.lairs[s.id]?.burnedAt ?? now,
+      stale: false,
+      seenPop: 0,
+      marching: false,
+      ruin: true,
     };
   }
 
@@ -1344,6 +1559,7 @@ export class LocalWorld implements WorldApi {
       stale: false,
       seenPop: Math.round(p?.pop ?? 0),
       marching: this.save.marches.some((m) => m.own && m.phase === 'out'),
+      ruin: false,
     };
   }
 
@@ -1389,7 +1605,8 @@ export class LocalWorld implements WorldApi {
 
   // ---------- Добыча ----------
 
-  private lootCap = (s: GenSettlement, now: number): number => Math.round(this.popNow(s, now) * 3);
+  private lootCap = (s: GenSettlement, now: number): number =>
+    isLair(s) ? lairLoot(this.powerNow(s, now)) : Math.round(this.popNow(s, now) * 3);
 
   /** Сколько добра лежит в поселении сейчас: после набега запасы восстанавливаются не сразу. */
   private lootAvailable(s: GenSettlement, now: number): number {
@@ -1543,6 +1760,9 @@ export class LocalWorld implements WorldApi {
   private stepSightings(now: number, discs: SightDisc[]): void {
     for (const s of this.gen.settlements) {
       if (!this.fog.has(s.x, s.y)) continue;
+      // У сожжённого логова живых данных нет: снимок с пепелища был бы записью
+      // о войске, которого не существует.
+      if (!this.alive(s, now)) continue;
       const known = this.save.sightings[s.id];
       if (known && !inSight(discs, s.x, s.y)) continue;
       this.save.sightings[s.id] = {
@@ -1808,6 +2028,9 @@ export class LocalWorld implements WorldApi {
       this.resolve(next, this.dueAt(next), prevSeen);
     }
 
+    // Новые логова — до очереди набегов: заведённое этим же пульсом логово
+    // обязано попасть в неё сразу, а не ждать следующего.
+    this.stepLairs(now);
     this.scheduleAi(now);
     // Письма — последними: набег, назначенный этим же пульсом, обязан получить
     // своё предупреждение в тот же миг, когда становится виден.
@@ -1856,7 +2079,8 @@ export class LocalWorld implements WorldApi {
     }
 
     const target = this.byId.get(m.targetId) ?? null;
-    if (!target) return this.turnHome(m, at, null);
+    // Логово могли сжечь, пока отряд шёл: разведывать и поддерживать там некого.
+    if (!target || !this.alive(target, at)) return this.turnHome(m, at, null);
     // Набегов в этом списке не бывает: армия ходит только с полководцем, и бой
     // считается там, где он стоит (см. attack). Отряд без него — разведка или
     // поддержка, больше отправить нечего.
@@ -1936,13 +2160,23 @@ export class LocalWorld implements WorldApi {
     const intel = this.snapshot(target, at);
     this.save.intel[target.id] = intel;
 
+    // Логово не «побито», а сожжено: победа убирает его с карты вместе со всеми
+    // набегами, которые оттуда шли. Разбирается это до добычи — брать её потом
+    // будет уже не у кого, и запас логова поэтому не восстанавливается.
+    const burned = isLair(target) && field.won;
+    const arms = burned ? lairArms(defense) : 0;
     // Золото берут до добра: доля казны соразмерна тому, сколько гарнизона выбили.
     const gold = field.won ? Math.round(this.castleGold(target, at) * field.defenderLoss) : 0;
     const loot = field.won ? this.takeLoot(target, at, stackCarry({ warrior: survivors })) : null;
     const spoils: Loot | null = gold > 0 ? { ...(loot ?? {}), gold } : loot;
+    // Сжигается логово после того, как из него всё вынесли: сожжённое уже не
+    // отдаёт ни добра, ни разведданных — их брать не у кого.
+    if (burned) this.burnLair(target, at);
     const goods = loot ? Object.values(loot).reduce((n, v) => n + (v ?? 0), 0) : 0;
     const lootText =
-      (goods > 0 ? ` Взято: ${goods} добра.` : '') + (gold > 0 ? ` Казна замка: ${gold} золота.` : '');
+      (goods > 0 ? ` Взято: ${goods} добра.` : '') +
+      (arms > 0 ? ` Оружия: ${arms}.` : '') +
+      (gold > 0 ? ` Казна замка: ${gold} золота.` : '');
     const record: BattleRecord | null = field.result
       ? {
           us: 'attacker',
@@ -1961,7 +2195,11 @@ export class LocalWorld implements WorldApi {
       id: reportId,
       at,
       kind: 'raid',
-      title: field.won ? `Набег удался: ${target.name}` : `Набег отбит: ${target.name}`,
+      title: burned
+        ? `Логово сожжено: ${target.name}`
+        : field.won
+          ? `Набег удался: ${target.name}`
+          : `Набег отбит: ${target.name}`,
       target: { id: target.id, name: target.name, x: target.x, y: target.y },
       won: field.won,
       sent: { warrior: men },
@@ -1971,9 +2209,11 @@ export class LocalWorld implements WorldApi {
       loot: spoils,
       intel,
       battle: record,
-      text: field.won
-        ? `Гарнизон ${target.name} разбит.${lootText}`
-        : `Оборона ${target.name} оказалась крепче.${survivors === 0 ? ' Полководец пал.' : ' Уцелевшие остались при полководце.'}`,
+      text: burned
+        ? `${target.name} выжжено дотла. Набеги оттуда больше не выйдут.${lootText}`
+        : field.won
+          ? `Гарнизон ${target.name} разбит.${lootText}`
+          : `Оборона ${target.name} оказалась крепче.${survivors === 0 ? ' Полководец пал.' : ' Уцелевшие остались при полководце.'}`,
       read: false,
     });
 
@@ -1983,12 +2223,18 @@ export class LocalWorld implements WorldApi {
       lostTroops,
       // Обоз идёт домой сам: полководец остаётся в поле, а добыча ему не нужна.
       resources: spoils ?? {},
+      // Оружие едет числом: во что оно превратится, решает племя — про кузницу
+      // и её список мир не знает.
+      arms: arms > 0 ? arms : undefined,
+      lair: burned || undefined,
       prestige: field.won ? 4 : 0,
       morale: field.won ? 4 : -6,
       battle: field.won ? 'won' : 'lost',
-      text: field.won
-        ? `Набег на ${target.name} (${formatCoord(target)}) удался.`
-        : `Набег на ${target.name} (${formatCoord(target)}) отбит.`,
+      text: burned
+        ? `Логово ${target.name} (${formatCoord(target)}) сожжено.`
+        : field.won
+          ? `Набег на ${target.name} (${formatCoord(target)}) удался.`
+          : `Набег на ${target.name} (${formatCoord(target)}) отбит.`,
       good: field.won,
     });
 
@@ -2774,10 +3020,18 @@ export class LocalWorld implements WorldApi {
   private scheduleAi(now: number): void {
     const save = this.save;
     if (now < save.nextAiAt) return;
+    // Час, на который набег был назначен, а не тот, в который его разобрали.
+    // Разница между ними и есть офлайн: пульс приходит когда придёт, а
+    // назначенное время одно и то же на обеих дорогах. Всё, что зависит от
+    // времени, здесь считается от него — иначе догон разошёлся бы с непрерывной
+    // игрой ровно на длину перерыва.
+    const due = save.nextAiAt;
     const rng = seeded(marchSeed(save.seed, save.nextMarch + 7919));
 
     const home = save.home;
-    const near = this.gen.settlements.filter((s) => distance(s, home) <= AI_RANGE);
+    // Сожжённое логово набегов не шлёт: в этом и есть видимое последствие
+    // победы. Пепелище стоит на карте, но воевать оттуда некому.
+    const near = this.gen.settlements.filter((s) => distance(s, home) <= AI_RANGE && this.alive(s, now));
     // Война хоть с одним соседом ускоряет весь темп: воюющий сосед не ждёт
     // своей очереди столько же, сколько ждал бы ровный.
     const atWar = near.some((s) => this.standingOf(s, now) === 'war');
@@ -2806,7 +3060,9 @@ export class LocalWorld implements WorldApi {
             quiet: AI_NEUTRAL_QUIET,
           })
         : // У варваров отношений нет и быть не может: старейшин у них тоже нет.
-          AI_BARBARIAN_WEIGHT;
+          // Зато есть возраст: выросшее логово шлёт набеги охотнее свежего, и
+          // это единственная цена бездействия, которая у игрока есть.
+          lairRaidWeight(AI_BARBARIAN_WEIGHT, this.lairRec(s.id), due);
       if (w <= 0) continue;
       total += w;
       pool.push({ s, w });
@@ -2991,6 +3247,8 @@ export class LocalWorld implements WorldApi {
         if (a.id === b.id) continue;
         // Своих не бьют: племя — это и есть «хорошие отношения» между дворами.
         if (a.tribeId && a.tribeId === b.tribeId) continue;
+        // Ни выйти из сожжённого логова, ни прийти в него нельзя: его нет.
+        if (!this.alive(a, now) || !this.alive(b, now)) continue;
         if (distance(a, b) > AI_WAR_RANGE) continue;
         if (save.sieges[b.id] || this.inRevolt(a.id, now)) continue;
         pairs.push({ from: a, to: b });
@@ -3172,6 +3430,9 @@ export class LocalWorld implements WorldApi {
       if (s.x < x0 || s.x >= x1 || s.y < y0 || s.y >= y1) continue;
       // Неразведанная клетка не отдаёт даже того, что в ней кто-то живёт.
       if (!this.reveal && !this.fog.has(s.x, s.y)) continue;
+      // Пепелище на карте остаётся — его для того и заводили; остывшего следа
+      // нет вовсе, и клетка снова становится обычной землёй.
+      if (this.phaseOf(s, now) === 'gone') continue;
       settlements.push(this.view(s, now, discs));
     }
     const home = this.save.home;
@@ -3200,6 +3461,7 @@ export class LocalWorld implements WorldApi {
         revolt: null,
         can: { raid: false, scout: false, support: false, besiege: false, open: true },
         siege: this.cardSiege(HOME_ID, now),
+        ruinLeft: 0,
         note: siege
           ? `Город в осаде: «${siege.byName}» стоят у ворот. ${SIEGE_BLOCK}`
           : 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
@@ -3208,7 +3470,33 @@ export class LocalWorld implements WorldApi {
     const s = this.byId.get(id);
     // Про неразведанное место карточки нет: игрок о нём ещё не знает.
     if (!s || !this.fog.has(s.x, s.y)) return null;
+    const phase = this.phaseOf(s, now);
+    // Остывшего следа нет вовсе: карточки у него быть не может, как и значка.
+    if (phase === 'gone') return null;
     const view = this.view(s, now, this.sightDiscs(now));
+    // Пепелище нельзя ни занять, ни ограбить, ни разведать — его можно только
+    // увидеть. Ни одной погасшей кнопки при этом не остаётся: действий у него
+    // нет вовсе, и сказано об этом словами.
+    if (phase === 'ruin') {
+      const rec = this.lairRec(s.id);
+      return {
+        ...view,
+        terrain: terrainAt(this.save.seed, s.x, s.y),
+        distance: distance(this.save.home, s),
+        terrainFactor: terrainFactor(this.save.seed, this.save.home, s),
+        power: { ...UNKNOWN },
+        pop: { ...UNKNOWN },
+        intel: null,
+        figuresHere: this.figuresAt(s.id, now),
+        deals: [],
+        diplomacy: null,
+        revolt: null,
+        can: { raid: false, scout: false, support: false, besiege: false, open: false },
+        siege: null,
+        ruinLeft: ruinLeft(rec, now) / 1000,
+        note: `Пепелище. Логово выжжено, брать тут нечего и занять его нельзя — след сойдёт сам через ${formatLeft(ruinLeft(rec, now) / 1000)}.`,
+      };
+    }
     const reading = readIntel(this.save.intel[id] ?? null, now);
     const ally = view.relation === 'ally';
     const here = this.figuresAt(id, now);
@@ -3252,6 +3540,7 @@ export class LocalWorld implements WorldApi {
         open: false,
       },
       siege: this.cardSiege(s.id, now),
+      ruinLeft: 0,
       note: canRaid
         ? null
         : pact
@@ -3623,6 +3912,11 @@ export class LocalWorld implements WorldApi {
     }
     const target = this.byId.get(near.id);
     if (!target) return { error: 'Цель не найдена.', reportId: null, won: false };
+    // Второй раз сожжённое логово разграбить нельзя, потому что его нет. Это
+    // правило мира, а не подсказка панели: кнопки у пепелища и так не бывает.
+    if (!this.alive(target, now)) {
+      return { error: 'Здесь только пепелище: брать нечего.', reportId: null, won: false };
+    }
     // Пакт держит и здесь, а не только в панели: правило игры не может стоять
     // на честном слове интерфейса.
     if (standingAt(this.diploOf(target.id, now), now) === 'pact') {

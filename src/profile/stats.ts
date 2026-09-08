@@ -127,6 +127,16 @@ export function recordBattle(s: GameState, outcome: 'won' | 'lost'): void {
   refreshCard(s);
 }
 
+/**
+ * Логово сожжено. Счётчик живёт в `s.stats` — там же, где счёт битв и взятых
+ * замков, — но правится отсюда: двух дверей к одному счётчику быть не должно.
+ * Пишется он в одном месте, в `applyExpedition`, по отметке из мира, а не по
+ * добыче: пустое логово тоже сожжено.
+ */
+export function recordLairBurned(s: GameState): void {
+  s.stats.lairs = (s.stats.lairs ?? 0) + 1;
+}
+
 // ---------- Визитка ----------
 
 /**

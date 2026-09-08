@@ -310,9 +310,24 @@ describe('письма в мире', () => {
     expect(lines.length, 'что-то разрешилось без игрока — и об этом сказано').toBeGreaterThan(0);
 
     // Считаем при чтении: догон даёт ровно то же, что непрерывная игра.
-    const a = (await live.world.letters()).map((l) => `${l.kind}|${l.fromId}|${l.until}`);
-    const b = table.map((l) => `${l.kind}|${l.fromId}|${l.until}`);
-    expect(b).toEqual(a);
+    //
+    // Ровно то же — про письма, которые назначает сам стол: их расписание, срок
+    // и отправитель выводятся из зерна и номера, и к часам устройства отношения
+    // не имеют. Предупреждение о набеге в это сравнение не входит, и это не
+    // послабление, а честность: оно не письмо, а отражение чужого отряда, а
+    // отряды офлайн и не должны совпадать — набег, пришедшийся на время без
+    // игрока, не состоится вовсе (`AWAY_GRACE`). Совпадать обязано другое: что
+    // предупреждение есть на обеих дорогах и стоит на нём один и тот же час
+    // прихода — час назначен, а не выбран по дороге.
+    const key = (l: { kind: string; fromId: string; until: number }): string =>
+      `${l.kind}|${l.fromId}|${l.until}`;
+    const mine = await live.world.letters();
+    expect(table.filter((l) => l.kind !== 'raid').map(key)).toEqual(
+      mine.filter((l) => l.kind !== 'raid').map(key),
+    );
+    expect(table.filter((l) => l.kind === 'raid').map((l) => l.until)).toEqual(
+      mine.filter((l) => l.kind === 'raid').map((l) => l.until),
+    );
   });
 
   it('ответ игрока меняет отношения, а просроченному письму ответа уже не дают', async () => {

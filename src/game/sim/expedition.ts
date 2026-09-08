@@ -1,16 +1,17 @@
 // Последствия походов для племени. Мир считает исход боя сам; сюда приезжает
 // готовый итог, и племя применяет его к себе. Про карту, соседей и координаты
 // эта сторона по-прежнему ничего не знает.
-import type { Building, GameState, LogEntry, ResourceId } from '../types';
+import type { Building, EquipmentId, GameState, LogEntry, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
+import { EQUIPMENT_BY_ID } from '../data/equipment';
 import { healShare, heroDownSeconds, homeArmy, idleCount, isOutsideWall, storageCap, workerCount } from '../derived';
 import { removeSoldiers } from './army';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
 import { addPop, losePop } from './population';
 import { log } from './log';
-import { recordBattle, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
+import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 
 /** Что случилось с деревней, пока отряд был в пути. */
 export interface ExpeditionOutcome {
@@ -42,8 +43,46 @@ export interface ExpeditionOutcome {
    * в поле: см. `sackOutskirts`. Ноль — набега не было или его отбили.
    */
   sacked?: number;
+  /**
+   * Сколько оружия взято в логове, штук. Мир отдаёт число, а какие это будут
+   * предметы, решает племя (`ARMS_TROPHY`): про кузницу и её список мир не
+   * знает и знать не должен — та же условность, что у `sacked`.
+   */
+  arms?: number;
+  /** Логово сожжено этим походом: его считает профиль. */
+  lair?: boolean;
   text: string;
   kind: LogEntry['kind'];
+}
+
+/**
+ * Во что превращается взятое в логове оружие. Разбойничье снаряжение простое:
+ * мечей и доспехов у них не водится — за ними в кузницу. Порядок — порядок
+ * раздачи: остаток от деления достаётся первым в списке, ровно так же, как мир
+ * делит добычу между ресурсами.
+ */
+export const ARMS_TROPHY: EquipmentId[] = ['spear', 'bow', 'axe', 'shield'];
+
+/**
+ * Раскладывает взятое оружие по видам. Вместимость склада на снаряжение не
+ * действует, поэтому обрезать тут нечего: полный склад не должен молча съедать
+ * трофей — по той же причине, по которой он не останавливает кузницу.
+ */
+export function takeArms(s: GameState, arms: number): Partial<Record<EquipmentId, number>> {
+  const total = Math.max(0, Math.round(arms));
+  if (total <= 0) return {};
+  const out: Partial<Record<EquipmentId, number>> = {};
+  const per = Math.floor(total / ARMS_TROPHY.length);
+  let rest = total - per * ARMS_TROPHY.length;
+  for (const id of ARMS_TROPHY) {
+    const extra = rest > 0 ? 1 : 0;
+    rest -= extra;
+    const n = per + extra;
+    if (n <= 0) continue;
+    out[id] = n;
+    s.equipment[id] = Math.max(0, (s.equipment[id] ?? 0) + n);
+  }
+  return out;
 }
 
 /**
@@ -153,7 +192,11 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // потерян, снаряжение потрачено, человек жив — то же правило, что у лазарета.
   if (o.pop && o.pop > 0) addPop(s, Math.round(o.pop));
   if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
+  const arms = takeArms(s, o.arms ?? 0);
   recordLoot(s, brought, Math.max(0, o.gold));
+  // Сожжённое логово считается само по себе, а не по добыче: пустое логово тоже
+  // сожжено, и победа над ним стоила того же похода.
+  if (o.lair) recordLairBurned(s);
   // Золото везут только из замков: привезли — значит, замок взят.
   if (o.gold > 0) s.stats.castles = (s.stats.castles ?? 0) + 1;
   if (o.prestige) s.prestige = Math.max(0, s.prestige + o.prestige);
@@ -176,6 +219,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
     log(s, `Разорено за стеной: ${sacked.join(', ')}. Люди разбежались по домам.`, 'bad');
   }
   if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
+  const armsText = Object.entries(arms)
+    .map(([id, n]) => `${EQUIPMENT_BY_ID[id as EquipmentId].name.toLowerCase()} — ${n}`)
+    .join(', ');
+  if (armsText) log(s, `Из логова принесли оружие: ${armsText}.`, 'good');
   if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen} чел.`, 'bad');
   if (wounded > 0) log(s, `В лазарете выходили раненых: ${wounded} чел. вернулись в племя.`, 'good');

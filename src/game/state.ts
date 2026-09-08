@@ -110,7 +110,7 @@ export function createInitialState(): GameState {
     tutorialStep: 0,
     tutorialDone: false,
     log: [],
-    stats: { hunts: 0, battlesWon: 0, battlesLost: 0, born: 0, died: 0, eventsResolved: 0, scouted: 0, raids: 0, castles: 0, purchases: 0, dailyWins: 0 },
+    stats: { hunts: 0, battlesWon: 0, battlesLost: 0, born: 0, died: 0, eventsResolved: 0, scouted: 0, raids: 0, castles: 0, lairs: 0, purchases: 0, dailyWins: 0 },
     nextId: 1,
     lastSaved: serverNow(),
   };
