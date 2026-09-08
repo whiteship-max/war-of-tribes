@@ -5,6 +5,7 @@ import { bootDone, bootStage } from '@/boot/stage';
 import { afterPaint } from '@/boot/paint';
 import { probe } from '@/debug';
 import { sceneLog } from '@/scenelog';
+import { applyViewport } from '@/telegram/webapp';
 
 export function GameCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -78,11 +79,25 @@ export function GameCanvas() {
      * не присылает ничего, кроме `pageshow`. Все ведут в один и тот же `wake`,
      * и звать его лишний раз ничего не стоит.
      */
-    const wake = () => scene.wake();
+    const wake = () => {
+      // Сперва вьюпорт, потом холст: `--app-h` задаёт высоту всему приложению,
+      // и пересчитанный до него холст померил бы старую раскладку. Клиент мог не
+      // прислать viewportChanged вовсе — тогда это единственное место, где
+      // высота обновится.
+      applyViewport();
+      scene.wake();
+    };
     const onFreeze = () => sceneLog.mark('hide', 'страница заморожена');
+    // Видимость сцена слушает сама — ей это про кадры. Здесь то же событие
+    // слушается про другое: высота приложения приходит из клиента Телеграма, и
+    // пересчитать её надо тому, кто про Телеграм знает.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') wake();
+    };
     window.addEventListener('pageshow', wake);
     document.addEventListener('resume', wake);
     document.addEventListener('freeze', onFreeze);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       unsub();
       ro.disconnect();
@@ -91,6 +106,7 @@ export function GameCanvas() {
       window.removeEventListener('pageshow', wake);
       document.removeEventListener('resume', wake);
       document.removeEventListener('freeze', onFreeze);
+      document.removeEventListener('visibilitychange', onVisible);
       sceneLog.detach(wired);
       scene.dispose();
       sceneRef.current = null;

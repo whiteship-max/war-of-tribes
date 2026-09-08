@@ -191,6 +191,10 @@ export class TribeScene {
   /** Сколько кадров нарисовано за жизнь сцены и когда был последний. */
   private drawn = 0;
   private lastFrame = 0;
+  /** Размер и плотность, с которыми настроен буфер. По ним видно, что он отстал. */
+  private sized = { w: 0, h: 0, dpr: 0 };
+  /** Пересчёт отложен: холста в этот момент не было или он был нулевой. */
+  private needSize = false;
   private frameNo = 0;
   /** Было ли уже состояние: по первому sync сезон ставится без перелива. */
   private synced = false;
@@ -356,6 +360,10 @@ export class TribeScene {
   wake(): void {
     if (this.disposed) return;
     this.beat.block('hidden', false);
+    // Вьюпорт мог поменяться, пока нас не было: поворот в фоне, вырезы, шапка
+    // клиента, другая плотность пикселей. ResizeObserver узнает об этом только
+    // со следующей раскладкой, а кадр пойдёт сейчас — и пошёл бы со старым буфером.
+    this.resize();
     this.beat.restart();
   }
 
@@ -408,15 +416,55 @@ export class TribeScene {
     return this.pixelRatio ?? THREE.MathUtils.clamp(window.devicePixelRatio || 1, 1, 2);
   }
 
+  /**
+   * Пересчитать буфер под нынешний холст.
+   *
+   * Нулевой размер молча пропустить нельзя — а раньше именно это и делалось.
+   * Вебвью, вернувшийся из фона, отдаёт нулевую раскладку на один-два кадра;
+   * единственный пересчёт, пришедшийся на этот миг, уходил впустую, и буфер
+   * навсегда оставался прежним. Поэтому пропуск запоминается, и первый же кадр
+   * пробует снова.
+   */
   resize(): void {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
-    if (w < 1 || h < 1) return;
-    this.renderer.setPixelRatio(this.dpr());
+    if (w < 1 || h < 1) {
+      if (!this.needSize) sceneLog.mark('zero', this.sizeLine());
+      this.needSize = true;
+      return;
+    }
+    this.needSize = false;
+    const dpr = this.dpr();
+    if (this.sized.w !== w || this.sized.h !== h || this.sized.dpr !== dpr) {
+      sceneLog.mark('size', `${w}×${h} @${dpr.toFixed(2)}`);
+      this.sized = { w, h, dpr };
+    }
+    this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.applyFraming(w / h);
+  }
+
+  /**
+   * Не отстал ли буфер от холста. Спрашивается раз в секунду, а не каждый кадр:
+   * `clientWidth` — чтение раскладки, и шестьдесят таких чтений в секунду на
+   * телефоне не бесплатны.
+   *
+   * ResizeObserver сюда не годится: он следит за элементом, а плотность пикселей
+   * меняется мимо него — на повороте, при переносе окна на другой экран и при
+   * возвращении вебвью из фона. Буфер при этом остаётся прежним, и картинка либо
+   * мылится, либо не появляется вовсе.
+   */
+  private checkSize(): void {
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    if (w < 1 || h < 1) {
+      this.needSize = true;
+      return;
+    }
+    if (w === this.sized.w && h === this.sized.h && this.dpr() === this.sized.dpr) return;
+    this.resize();
   }
 
   /**
@@ -1026,6 +1074,9 @@ export class TribeScene {
     // им, и «кадры идут» тут значит именно то, что цепочка жива.
     this.drawn++;
     this.lastFrame = performance.now();
+    // Отложенный пересчёт — первым же кадром: холст мог вернуться из фона
+    // нулевым, и тогда его размер надо взять при первой возможности.
+    if (this.needSize || this.drawn % 60 === 0) this.checkSize();
     const dt = Math.min(0.1, this.clock.getDelta());
     // Канва отдана ролику о бое: он рисует в неё сам, диораме тут делать нечего.
     if (this.lent) return;
