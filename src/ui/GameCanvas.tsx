@@ -132,6 +132,28 @@ export function GameCanvas() {
      * (`STALL_MS`), но одна проверка могла попасть на тяжёлый кадр.
      */
     let nudged = false;
+    /**
+     * Не даёт ли кадров сам браузер.
+     *
+     * Разница решающая, а по показаниям сцены её не видно: «кадры не идут»
+     * одинаково выглядит и у мёртвой цепочки, и у страницы, которую браузер
+     * просто не рисует. А не рисует он её не только в фоне: iOS душит кадры на
+     * время жеста, Android — под нагрузкой, и `visibilityState` при этом
+     * по-прежнему «видима». Объявить в такую минуту поломку значило бы соврать —
+     * и показать экран восстановления исправной игре.
+     *
+     * Поэтому сторож сперва просит кадр сам, напрямую. Не дождался своего —
+     * молчит: сцена тут ни при чём. Поймано живой проверкой в браузере, где
+     * панель была скрыта, а видимость подменена.
+     */
+    let awaitingFrame = false;
+    const askFrame = (): void => {
+      awaitingFrame = true;
+      requestAnimationFrame(() => {
+        awaitingFrame = false;
+      });
+    };
+
     const watch = window.setInterval(() => {
       const verdict = diagnose(scene.vitals());
       if (verdict === 'ok' || verdict === 'map' || verdict === 'hidden') {
@@ -140,6 +162,11 @@ export function GameCanvas() {
       }
       // Потерю контекста лечит свой срок и своя пересборка — сторожу тут не место.
       if (verdict === 'lost') return;
+      if (awaitingFrame) {
+        sceneLog.mark('watch', 'кадров не даёт сам браузер — ждём, сцена ни при чём');
+        return;
+      }
+      askFrame();
       if (!nudged) {
         nudged = true;
         sceneLog.mark('watch', `сторож: ${verdict} — будим сцену`);
