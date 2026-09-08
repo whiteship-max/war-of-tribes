@@ -9,12 +9,20 @@
  * ходом. Поэтому здесь нет ни одного ожидания, которого ждёт запуск, и ни одной
  * ветки, которая заканчивалась бы исключением наружу.
  *
- * Второе правило: **прогресс не пропадает молча никогда.** Расхождение двух
- * копий — обычное дело (играли на телефоне, потом на компьютере), и разбирать
- * его за игрока нельзя ни «свежее побеждает», ни «сервер главнее»: и то, и
- * другое однажды сотрёт вечер игры. Расхождение показывается двумя карточками,
- * выбирает игрок, а отвергнутая копия остаётся на устройстве (`spare`) — вернуть
- * её можно в «Заданиях», в «Служебном».
+ * Второе правило: **сервер — единственная правда, локальная копия — его
+ * продолжение.** Отсюда две разные вещи, которые нельзя путать:
+ *
+ *   - копия выросла из той же серверной записи и просто ушла дальше — это не
+ *     расхождение, а обычная игра, в том числе целый вечер без сети. Она
+ *     уезжает на сервер сама и молча, и терять здесь нечего;
+ *   - обе копии выросли из одной базы врозь (играли с двух устройств) — вот это
+ *     расхождение, и решается оно в пользу серверной. Тоже молча.
+ *
+ * Вопроса игроку нет ни в каком виде, и окна выбора нет: первая минута новой
+ * игры не должна начинаться с разбирательства. Но **прогресс и от этого не
+ * пропадает**: отвергнутая копия ложится на устройство (`spare`), и достать её
+ * можно в «Заданиях», в «Служебном». Тихо стереть её — нельзя; тихо предпочесть
+ * серверную — можно, потому что сервер и есть то место, где партия живёт.
  *
  * Чего здесь нет и не появится по дороге: сервер ничего не проверяет и ничего
  * не начисляет. Он хранит две непрозрачные строки и раздаёт своё «сейчас».
@@ -29,7 +37,7 @@ import { browserStorage } from '@/world/local/state';
 import { tgInitData } from '@/telegram/webapp';
 import { apiGet, apiPut, type ApiFail } from './api';
 import { serverNow } from './clock';
-import { beatLease, claimLease, device, dropLease, leaseHolder, LEASE_BEAT_MS } from './session';
+import { beatLease, claimLease, dropLease, leaseHolder, LEASE_BEAT_MS } from './session';
 import { snapshotOf } from './snapshot';
 
 const META_KEY = 'tribe.sync.v1';
@@ -45,21 +53,9 @@ export const PUSH_MS = 60_000;
  * на хостинге нет серверной части. Это не поломка, и говорить о ней надо
  * спокойно.
  */
-export type SyncState = 'off' | 'busy' | 'ok' | 'offline' | 'conflict' | 'taken';
+export type SyncState = 'off' | 'busy' | 'ok' | 'offline' | 'taken';
 
-/** Две партии, которые разошлись. Игрок выбирает между ними. */
-export interface Divergence {
-  here: SaveCard;
-  there: SaveCard;
-  /** Когда записали чужую, по серверным часам. */
-  thereAt: number;
-  /** С этого ли устройства чужая запись. */
-  thereSame: boolean;
-  record: SaveRecord;
-  etag: string | null;
-}
-
-/** Отвергнутая при выборе партия. Лежит на устройстве, чтобы её можно было вернуть. */
+/** Отвергнутая копия. Лежит на устройстве, чтобы её можно было вернуть. */
 export interface Spare {
   card: SaveCard;
   at: number;
@@ -73,11 +69,8 @@ export interface SyncStore {
   why: string;
   /** Когда в последний раз сошлось. */
   lastOk: number | null;
-  conflict: Divergence | null;
   /** Отвергнутая партия, если она есть. */
   spare: Spare | null;
-  /** Игрок выбрал, какую партию оставить. */
-  resolve: (keep: 'here' | 'there') => Promise<void>;
   /** Забрать ведение партии у другой вкладки. */
   takeOver: () => void;
   /** Вернуть отвергнутую партию. */
@@ -140,7 +133,7 @@ const keepSpare = (record: SaveRecord, at: number): void =>
 const WORDS: Record<ApiFail, string> = {
   offline: 'Нет связи с сервером. Играй дальше — сохраним, когда связь вернётся.',
   auth: 'Telegram не подтвердил вход. Прогресс сохраняется только на этом устройстве.',
-  conflict: 'Партия разошлась с той, что на сервере.',
+  conflict: 'На сервере партию продолжили с другого устройства.',
   busy: 'Слишком часто. Следующая попытка через минуту.',
   server: 'Сервер не принял сохранение. Играй дальше — попробуем ещё раз.',
 };
@@ -165,34 +158,27 @@ let pushing = false;
 
 const say = (state: SyncState, why: string): void => useSync.setState({ state, why });
 
-/** Взять чужую партию: положить обе строки на диск и перезапустить игру. */
-function adopt(record: SaveRecord, etag: string | null): void {
+/**
+ * Взять серверную партию: положить обе строки на диск и перезапустить игру.
+ *
+ * `spare` — копия, которую эта серверная запись собой заменяет. Она ложится
+ * рядом **только если замена состоялась**: сохранение с сервера может оказаться
+ * младше `MIN_SAVE_VERSION` и не прочитаться, и тогда на устройстве всё
+ * остаётся как было, а «отклонённая партия» из ниоткуда только сбивала бы с
+ * толку — она и есть та, в которую игрок сейчас играет.
+ */
+function adopt(record: SaveRecord, etag: string | null, spare: SaveRecord | null = null): void {
   if (!adoptSave(record.game)) {
     say('offline', 'Сохранение с сервера не читается этой версией игры. Партия на устройстве не тронута.');
     return;
   }
+  if (spare) keepSpare(spare, serverNow());
   if (record.world) browserStorage.write(record.world);
   else browserStorage.clear?.();
   writeMeta({ etag, rev: record.rev });
   // Перезапуск, а не подмена состояния на ходу: партию держат стор игры, стор
   // карты, сцена и таймеры, и заменить их всех разом посреди кадра нечем.
-  // Игрок только что сам выбрал эту партию — перезапуск для него ожидаем.
   location.reload();
-}
-
-function diverged(here: SaveCard, record: SaveRecord, etag: string | null): void {
-  useSync.setState({
-    state: 'conflict',
-    why: 'Партия на сервере не продолжает эту. Выбери, какую оставить.',
-    conflict: {
-      here,
-      there: record.card,
-      thereAt: record.updatedAt,
-      thereSame: record.device === device(),
-      record,
-      etag,
-    },
-  });
 }
 
 /** Отправить нынешнюю партию поверх записи `baseEtag`. */
@@ -208,9 +194,12 @@ async function push(baseEtag: string | null): Promise<void> {
       return;
     }
     if (res.why === 'conflict') {
+      // Пока мы играли, поверх нашей записи легла чужая — то есть партию ведут
+      // с другого устройства. Правда лежит на сервере: берём её, а свою кладём
+      // рядом отвергнутой. Спрашивать здесь нечего, но и терять нечего тоже.
       const body = res.body as ConflictResponse | null;
       if (body?.record) {
-        diverged(record.card, body.record, body.etag);
+        adopt(body.record, body.etag, record);
         return;
       }
       say('offline', WORDS.offline);
@@ -232,24 +221,7 @@ export const useSync = create<SyncStore>((set, get) => ({
   state: 'off',
   why: '',
   lastOk: null,
-  conflict: null,
   spare: null,
-
-  resolve: async (keep) => {
-    const c = get().conflict;
-    const here = mine();
-    if (!c || !here) return;
-    if (keep === 'there') {
-      // Берём чужую. Своя не пропадает: она ложится рядом, и вернуть её можно.
-      keepSpare(here, serverNow());
-      adopt(c.record, c.etag);
-      return;
-    }
-    // Оставляем свою. Чужая тоже не пропадает — она ложится рядом.
-    keepSpare(c.record, c.thereAt);
-    set({ conflict: null, state: 'busy', spare: readSpare() });
-    await push(c.etag);
-  },
 
   takeOver: () => {
     claimLease();
@@ -262,11 +234,11 @@ export const useSync = create<SyncStore>((set, get) => ({
     if (!adoptSave(sp.game)) return;
     if (sp.world) browserStorage.write(sp.world);
     else browserStorage.clear?.();
-    // Возвращённая партия ложится поверх, и запись о том, чему она наследует,
-    // стирается: следующий разговор с сервером начнётся с расхождения, то есть
-    // с вопроса игроку. Так и надо — тихо затирать серверную копию нельзя даже
-    // возвратом.
-    write(META_KEY, null);
+    // Отметка о том, чему наследует эта копия, **остаётся**: она указывает на
+    // ту самую серверную запись, которая её и вытеснила. Значит при следующем
+    // запуске возвращённая партия — продолжение серверной (`continue`), и она
+    // уедет наверх. Сотри отметку — и правило «сервер главнее» тут же вернуло бы
+    // её обратно в отвергнутые, то есть кнопка «Вернуть» не делала бы ничего.
     write(SPARE_KEY, null);
     location.reload();
   },
@@ -294,8 +266,7 @@ function startBeat(): void {
       timer = null;
       return;
     }
-    const st = useSync.getState().state;
-    if (st === 'conflict' || st === 'off') return;
+    if (useSync.getState().state === 'off') return;
     waited += LEASE_BEAT_MS;
     if (waited < PUSH_MS) return;
     waited = 0;
@@ -308,28 +279,35 @@ function startBeat(): void {
 export type Verdict =
   /** На сервере пусто: кладём свою как первую. */
   | 'first'
-  /** Своей нет: берём серверную, спрашивать не о чем. */
+  /** Своей нет: берём серверную, спорить не с чем. */
   | 'adopt'
-  /** Серверная — наша же предыдущая: кладём поверх неё. */
+  /** Серверная — наша же предыдущая: местная копия её продолжает, кладём поверх. */
   | 'continue'
-  /** Две разные партии: выбирает игрок. */
-  | 'ask';
+  /** Две партии выросли врозь: берём серверную, свою откладываем. */
+  | 'yield';
 
 /**
  * Всё правило встречи двух копий — одной чистой функцией, чтобы его можно было
  * прочесть целиком и проверить тестом. Ошибиться здесь дороже всего: любая из
- * четырёх веток, поставленная не туда, стирает вечер игры молча.
+ * четырёх веток, поставленная не туда, стирает вечер игры.
  *
  * `knownEtag` — какой серверной записи наследует копия на этом устройстве.
  * Совпал с тем, что лежит на сервере, — значит с прошлого раза туда никто
- * другой не писал, и наша копия честно продолжает серверную. Не совпал (или
- * его нет вовсе — на этом устройстве ещё не синхронизировались) — значит
- * партий стало две, и решать не нам.
+ * другой не писал, и наша копия честно **продолжает** серверную, сколько бы
+ * она за это время ни ушла вперёд. Ровно так выглядит игра без сети, и никакого
+ * расхождения в ней нет: одна линия, счётчик побольше. Не совпал (или его нет
+ * вовсе — на этом устройстве ещё не синхронизировались) — значит партий стало
+ * две.
+ *
+ * **Пустая отметка — это не совпадение, а незнание, и читается она как
+ * расхождение.** Соблазн прочесть её как «наследую тому, что лежит» велик и
+ * стоил бы дорого: устройство, ни разу не синхронизировавшееся, молча затирало
+ * бы чужую партию своей. Не знаем — уступаем серверу, а свою кладём рядом.
  */
 export function decide(a: { hasLocal: boolean; remoteEtag: string | null; knownEtag: string | null }): Verdict {
   if (a.remoteEtag === null) return 'first';
   if (!a.hasLocal) return 'adopt';
-  return a.knownEtag !== null && a.knownEtag === a.remoteEtag ? 'continue' : 'ask';
+  return a.knownEtag !== null && a.knownEtag === a.remoteEtag ? 'continue' : 'yield';
 }
 
 /**
@@ -379,11 +357,15 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
       if (record) adopt(record, etag);
       return;
     case 'continue':
-      // На сервере лежит ровно то, что клали мы. Наша копия — её продолжение.
+      // На сервере лежит ровно то, что клали мы. Наша копия — её продолжение,
+      // и она уезжает наверх: так и возвращается вечер игры без сети.
       await push(etag);
       return;
-    case 'ask':
-      if (record) diverged(here.card, record, etag);
+    case 'yield':
+      // Партии выросли врозь — играли с двух устройств. Правда лежит на
+      // сервере; своя копия не пропадает, а ложится рядом отвергнутой и
+      // достаётся в «Заданиях» → «Служебное».
+      if (record) adopt(record, etag, here);
       return;
   }
 }
@@ -394,6 +376,6 @@ export const mayWrite = (): boolean => useSync.getState().state !== 'taken';
 /** Отправить партию прямо сейчас: игрок сделал что-то важное или уходит. */
 export const syncNow = (): void => {
   const st = useSync.getState().state;
-  if (st === 'off' || st === 'taken' || st === 'conflict') return;
+  if (st === 'off' || st === 'taken') return;
   void push(readMeta()?.etag ?? null);
 };

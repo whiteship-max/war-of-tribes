@@ -3799,63 +3799,6 @@ body.replaying .app > *:not(.canvas-wrap) {
 
 /* ---------- Синхронизация с сервером ---------- */
 
-/*
- * Окно расхождения шире обычного: в нём две карточки рядом, и сводить их в
- * столбик нельзя — весь смысл в том, чтобы сравнить взглядом, а не листая.
- */
-.modal.wide {
-  max-width: 420px;
-}
-
-.save-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.save-card {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 10px;
-}
-
-.save-card h4 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.save-card > small {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.3;
-  margin-bottom: 8px;
-}
-
-.save-card .rows > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 3px 0;
-  border-top: 1px solid var(--line);
-}
-
-.save-card .rows > div:first-child {
-  border-top: 0;
-}
-
-.save-card .rows b {
-  font-size: 13px;
-}
-
-.save-card .rows span {
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .modal small.muted {
   display: block;
   color: var(--muted);
@@ -3898,7 +3841,6 @@ body.replaying .app > *:not(.canvas-wrap) {
 }
 
 .sync-line.offline i,
-.sync-line.conflict i,
 .sync-line.taken i {
   background: #d89a5a;
 }
