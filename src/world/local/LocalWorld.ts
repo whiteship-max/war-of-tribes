@@ -3706,9 +3706,19 @@ export class LocalWorld implements WorldApi {
     return out;
   }
 
-  /** Сколько добра не хватает на складе. Ноль — хватает. */
+  /**
+   * Сколько добра не хватает на складе. Ноль — хватает.
+   *
+   * Считается по `stock` — по всему складу, а не по тому, что видно набегу:
+   * тайник прячет добро от чужаков, а не от вождя, и платят из него наравне с
+   * остальным. Второе, ради чего это важно: ровно это число игрок видит в
+   * полоске ресурсов и в строке «нужно / из» под письмом. Считай мы по
+   * `resources`, полоска говорила бы «55 еды», а кнопка гасла бы с «не
+   * хватает» — и понять это было бы нечем.
+   */
   private shortOf(cost: Loot): number {
-    const have = this.save.profile?.resources ?? {};
+    const p = this.save.profile;
+    const have = p?.stock ?? p?.resources ?? {};
     let short = 0;
     for (const [r, n] of Object.entries(cost) as [keyof Loot, number][]) {
       short += Math.max(0, (n ?? 0) - (have[r] ?? 0));

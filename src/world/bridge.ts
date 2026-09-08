@@ -118,7 +118,15 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
   // знать про здания племени.
   const stash = hiddenStash(s);
   const resources: Loot = {};
-  for (const r of RESOURCE_IDS) resources[r] = Math.max(0, Math.floor(s.resources[r]) - stash);
+  // Тем же проходом собирается и `stock` — весь склад без вычетов. Им платят
+  // дань и выкуп, по нему же считается «хватает или нет», и оно обязано
+  // совпадать до единицы с тем, что игрок видит в полоске ресурсов: там стоит
+  // `Math.floor(s.resources[r])`, здесь — оно же.
+  const stock: Loot = {};
+  for (const r of RESOURCE_IDS) {
+    stock[r] = Math.max(0, Math.floor(s.resources[r]));
+    resources[r] = Math.max(0, (stock[r] ?? 0) - stash);
+  }
   const army = homeTroops(s, away);
   // Расстановка обороны подрезается по тому, кто сейчас дома: часть могла уйти
   // в поход или погибнуть, а нанятые с прошлого раза встают в резерв.
@@ -162,6 +170,7 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     defenseSetup,
     // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     resources,
+    stock,
   };
 }
 

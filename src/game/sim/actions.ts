@@ -15,7 +15,7 @@ import {
   upgradeInfo,
 } from '../derived';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { EVENT_BY_ID } from '../data/events';
+import { EVENT_BY_ID, eventBlock, payEventCost } from '../data/events';
 import { JOB_BY_ID } from '../data/jobs';
 import { scheduleNextEvent } from './tick';
 import { log } from './log';
@@ -73,6 +73,13 @@ export function resolveEvent(s: GameState, optionIndex: number): { error: string
   const def = EVENT_BY_ID[s.activeEvent.defId];
   const opt = def?.options[optionIndex];
   if (!opt) return { error: 'Неверный выбор.', result: null };
+  // Цена списывается здесь, до `apply`, и отказ приходит отсюда же. Раньше
+  // каждый вариант брал со склада сам, а «хватает ли» никто не спрашивал:
+  // не хватило — молча платили тем, что было, и получали полную награду.
+  // Теперь цена одна на показ, на запрет и на списание.
+  const block = eventBlock(opt, s);
+  if (block) return { error: block, result: null };
+  payEventCost(opt, s);
   const result = opt.apply(s);
   s.activeEvent = null;
   s.stats.eventsResolved++;

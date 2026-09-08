@@ -197,6 +197,19 @@ describe('службы посёлка', () => {
     expect(hiddenStash(withLevel('cache', 1))).toBeLessThan(stash);
   });
 
+  it('платят из всего склада, включая тайник: `stock` — то же число, что в полоске ресурсов', () => {
+    const s = withLevel('cache', 10);
+    for (const r of RESOURCE_IDS) s.resources[r] = 10_000;
+    const profile = playerProfile(s);
+    // Тайник прячет добро от чужаков, а не от вождя: дань и выкуп платят из
+    // всего склада. И это же число стоит в полоске ресурсов наверху экрана,
+    // поэтому «нужно / из» и гаснущая кнопка обязаны считать по нему.
+    for (const r of RESOURCE_IDS) {
+      expect(profile.stock?.[r]).toBe(Math.floor(s.resources[r]));
+      expect(profile.resources[r]).toBeLessThan(profile.stock?.[r] ?? 0);
+    }
+  });
+
   it('пир поднимает мораль, стоит золота по числу ртов и упирается в откат', () => {
     const s = withLevel('tavern', 1);
     s.gold = 10_000;

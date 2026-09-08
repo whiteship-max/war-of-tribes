@@ -4,8 +4,8 @@
 //
 // Люди приходят и уходят толпой. Поимённых жителей в игре нет, поэтому событие
 // про человека — это событие про группу: беженцы у ворот, бродячая артель, мор.
-import type { GameState } from '../types';
-import { DAY_LENGTH } from '../constants';
+import type { GameState, ResourceId } from '../types';
+import { DAY_LENGTH, RESOURCE_IDS, RESOURCE_META } from '../constants';
 import {
   buildingOfType,
   currentSite,
@@ -22,9 +22,28 @@ import { addPop, killPop } from '../sim/population';
 import { chance, rnd } from '../sim/random';
 import { log } from '../sim/log';
 
+/** Что вариант просит отдать. Золото — не ресурс, но плата бывает и в нём. */
+export type EventCost = Partial<Record<ResourceId | 'gold', number>>;
+
 export interface EventOption {
   label: string;
   hint?: string | ((s: GameState) => string);
+  /**
+   * Что вариант просит отдать. Считается от размера посёлка, как и всё
+   * остальное в событии.
+   *
+   * Цена вынесена из `apply` в отдельное поле нарочно, и причина не в
+   * аккуратности. Пока она жила строкой внутри `apply`, игрок узнавал её
+   * из подписи, написанной руками, — то есть из второго места, которое
+   * расходится с первым при первой же правке. Хуже: узнать, **хватает ли**,
+   * было неоткуда. Окно события закрывает и склад, и всю игру, отложить его
+   * нельзя, — и «отдать припасы» приходилось нажимать вслепую.
+   *
+   * Теперь цена одна на три дела: её показывает `Cost` («нужно / из»), по ней
+   * гаснет кнопка, и по ней же списывается добро в `resolveEvent`. `apply`
+   * получает состояние уже оплаченным и о цене не знает.
+   */
+  cost?: (s: GameState) => EventCost;
   /** Применяет выбор и возвращает текст результата. */
   apply: (s: GameState) => string;
 }
@@ -66,6 +85,10 @@ const crowd = (s: GameState, share: number, min: number): number =>
  */
 const foePower = (s: GameState, share: number): number => defense(s) * share;
 
+/** Сколько беженцев влезет под свободные крыши. Считают это двое: цена и сам выбор. */
+const fitting = (s: GameState): number =>
+  Math.min(crowd(s, 0.06, 8), Math.max(0, housingCapacity(s) - s.pop));
+
 const addRes = (s: GameState, r: keyof GameState['resources'], n: number): number => {
   const cap = storageCap(s);
   const before = s.resources[r];
@@ -95,10 +118,10 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Принять всех',
-        hint: (s) => `−${amount(s, 8)} еды, +${crowd(s, 0.06, 8)} чел.`,
+        hint: (s) => `+${crowd(s, 0.06, 8)} чел.`,
+        cost: (s) => ({ food: amount(s, 8) }),
         apply: (s) => {
           const n = crowd(s, 0.06, 8);
-          addRes(s, 'food', -amount(s, 8));
           addPop(s, n);
           s.stats.born += n;
           const over = s.pop - housingCapacity(s);
@@ -111,15 +134,17 @@ export const EVENTS: EventDef[] = [
       {
         label: 'Взять, сколько поместится',
         hint: 'Только под свободные крыши',
+        // Кормят ровно тех, кого взяли, поэтому и цена — доля от полной.
+        // Считается она тем же `fitting`, каким считается число принятых: иначе
+        // показанное «нужно» разошлось бы со списанным при первой же правке.
+        cost: (s) => ({ food: Math.round(amount(s, 8) * (fitting(s) / crowd(s, 0.06, 8))) }),
         apply: (s) => {
-          const want = crowd(s, 0.06, 8);
-          const room = Math.max(0, housingCapacity(s) - s.pop);
-          const n = Math.min(want, room);
+          const n = fitting(s);
           if (n <= 0) {
             s.morale = Math.max(0, s.morale - 3);
             return 'Свободных крыш нет вовсе. Толпа ушла дальше, и в посёлке об этом говорят.';
           }
-          addRes(s, 'food', -amount(s, 8) * (n / want));
+          const want = crowd(s, 0.06, 8);
           addPop(s, n);
           s.stats.born += n;
           return `Приняли ${people(n)} из ${want}. Остальные пошли дальше.`;
@@ -145,10 +170,10 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Взять к себе',
-        hint: (s) => `−${amount(s, 16)} еды, +${crowd(s, 0.03, 5)} чел. и работа на стройке`,
+        hint: (s) => `+${crowd(s, 0.03, 5)} чел. и работа на стройке`,
+        cost: (s) => ({ food: amount(s, 16) }),
         apply: (s) => {
           const n = crowd(s, 0.03, 5);
-          addRes(s, 'food', -amount(s, 16));
           addPop(s, n);
           s.stats.born += n;
           // Артель приходит с инструментом: первое дело — помочь на стройке.
@@ -163,11 +188,9 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Нанять на день',
-        hint: (s) => `−${amount(s, 20)} золота, стройка вперёд`,
+        hint: 'Стройка заметно продвинётся',
+        cost: (s) => ({ gold: amount(s, 20) }),
         apply: (s) => {
-          const price = amount(s, 20);
-          if (s.gold < price) return 'В казне не нашлось столько золота. Артель ушла к соседям.';
-          s.gold -= price;
           const site = currentSite(s);
           if (!site) return 'Золото заплачено, а работы для них не нашлось. Вождь остался в дураках.';
           site.work = Math.min(site.workRequired, site.work + site.workRequired * 0.35);
@@ -200,9 +223,9 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Отдать запасы',
-        hint: (s) => `−${amount(s, 15)} еды`,
-        apply: (s) => {
-          addRes(s, 'food', -amount(s, 15));
+        hint: 'Волки уйдут без боя',
+        cost: (s) => ({ food: amount(s, 15) }),
+        apply: () => {
           return 'Волки утащили часть запасов и ушли.';
         },
       },
@@ -234,9 +257,9 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Починить',
-        hint: (s) => `−${amount(s, 10)} древесины`,
-        apply: (s) => {
-          addRes(s, 'wood', -amount(s, 10));
+        hint: 'Стройка не потеряет ни дня',
+        cost: (s) => ({ wood: amount(s, 10) }),
+        apply: () => {
           return 'Стройку удалось починить.';
         },
       },
@@ -260,9 +283,9 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Обменять',
-        hint: (s) => `−${amount(s, 20)} древесины, +${amount(s, 30)} еды`,
+        hint: (s) => `+${amount(s, 30)} еды`,
+        cost: (s) => ({ wood: amount(s, 20) }),
         apply: (s) => {
-          addRes(s, 'wood', -amount(s, 20));
           addRes(s, 'food', amount(s, 30));
           s.prestige += 1;
           return 'Обмен состоялся. Соседи довольны.';
@@ -295,9 +318,9 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Выхаживать',
-        hint: (s) => `−${amount(s, 20)} еды`,
-        apply: (s) => {
-          addRes(s, 'food', -amount(s, 20));
+        hint: 'Все поправятся, никто не умрёт',
+        cost: (s) => ({ food: amount(s, 20) }),
+        apply: () => {
           return 'Больных выходили горячим варевом. Все поправились.';
         },
       },
@@ -324,9 +347,9 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Заплатить',
-        hint: (s) => `−${amount(s, 25)} еды`,
+        hint: 'Уйдут без боя, престиж просядет',
+        cost: (s) => ({ food: amount(s, 25) }),
         apply: (s) => {
-          addRes(s, 'food', -amount(s, 25));
           s.prestige = Math.max(0, s.prestige - 2);
           return 'Дань уплачена. Разбойники ушли, но престиж пострадал.';
         },
@@ -355,9 +378,9 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Праздновать',
-        hint: (s) => `−${amount(s, 20)} еды, мораль +15`,
+        hint: 'Мораль +15',
+        cost: (s) => ({ food: amount(s, 20) }),
         apply: (s) => {
-          addRes(s, 'food', -amount(s, 20));
           s.morale = Math.min(100, s.morale + 15);
           s.prestige += 1;
           return 'Праздник удался. Племя воодушевлено.';
@@ -395,9 +418,9 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Тушить всем племенем',
-        hint: (s) => `−${amount(s, 10)} еды, дворы целы`,
-        apply: (s) => {
-          addRes(s, 'food', -amount(s, 10));
+        hint: 'Дворы останутся целы',
+        cost: (s) => ({ food: amount(s, 10) }),
+        apply: () => {
           return 'Двор отстояли. Все устали, но довольны.';
         },
       },
@@ -433,6 +456,53 @@ export function pickEvent(s: GameState): EventDef | null {
 
 export const eventText = (e: EventDef, s: GameState): string => (typeof e.text === 'function' ? e.text(s) : e.text);
 
-/** Подсказка варианта: числа в ней тоже считаются от размера посёлка. */
+/**
+ * Подсказка варианта: числа в ней тоже считаются от размера посёлка.
+ *
+ * Цены в ней нет и быть не должно — цену показывает `Cost` значками и вместе с
+ * тем, сколько этого есть на складе. Строка объясняет, что игрок **получит**;
+ * что он за это отдаст, стоит строкой ниже и не переписывается словами второй
+ * раз.
+ */
 export const optionHint = (o: EventOption, s: GameState): string | undefined =>
   typeof o.hint === 'function' ? o.hint(s) : o.hint;
+
+/** Что вариант просит отдать прямо сейчас. Пусто — не просит ничего. */
+export const eventCost = (o: EventOption, s: GameState): EventCost =>
+  o.cost ? o.cost(s) : {};
+
+/**
+ * Почему этот вариант сейчас не нажимается. null — нажимается.
+ *
+ * Причина одна и всегда одна и та же — не хватает добра, — и считается она по
+ * тому же складу, который стоит у игрока перед глазами. Гаснущая кнопка здесь
+ * не строгость, а честность: окно события закрывает собой всю игру, склад из-под
+ * него не посмотреть, и «отдать припасы» нажималось вслепую. Тупика из этого не
+ * выйдет — у каждого события есть вариант, который ничего не стоит, и это
+ * проверяет тест.
+ */
+export function eventBlock(o: EventOption, s: GameState): string | null {
+  const cost = eventCost(o, s);
+  const short: string[] = [];
+  for (const r of RESOURCE_IDS) {
+    const need = cost[r] ?? 0;
+    if (need > Math.floor(s.resources[r])) short.push(RESOURCE_META[r].name.toLowerCase());
+  }
+  if ((cost.gold ?? 0) > Math.floor(s.gold)) short.push('золото');
+  if (short.length === 0) return null;
+  return `Не хватает: ${short.join(', ')}.`;
+}
+
+/**
+ * Списать цену варианта. Единственное место, где событие берёт со склада: сам
+ * `apply` получает состояние уже оплаченным и про цену не знает.
+ */
+export function payEventCost(o: EventOption, s: GameState): void {
+  const cost = eventCost(o, s);
+  for (const r of RESOURCE_IDS) {
+    const need = cost[r] ?? 0;
+    if (need > 0) s.resources[r] = Math.max(0, s.resources[r] - need);
+  }
+  const gold = cost.gold ?? 0;
+  if (gold > 0) s.gold = Math.max(0, s.gold - gold);
+}

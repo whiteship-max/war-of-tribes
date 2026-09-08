@@ -17,26 +17,14 @@ import { SPY_HELD } from '@/world/data/tuning';
 import { RELATION_META } from '@/world/data/meta';
 import { CAMP_LEAVE } from '@/world/siege';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { RESOURCE_IDS } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
-import type { ResourceId } from '@/game/types';
 import type { Loot, OrderActionId, OrderOption } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
+import { Cost } from '@/ui/parts/Cost';
 
-/** Цена приказа теми же значками, что и всюду в игре. Пусто — бесплатно. */
-function Price({ cost }: { cost: Loot }) {
-  const items = RESOURCE_IDS.filter((r) => (cost as Partial<Record<ResourceId, number>>)[r]);
-  if (items.length === 0) return <span className="am-free">даром</span>;
-  return (
-    <>
-      {items.map((r) => (
-        <span key={r} className="am-price">
-          {RESOURCE_META[r].icon} {(cost as Partial<Record<ResourceId, number>>)[r]}
-        </span>
-      ))}
-    </>
-  );
-}
+/** Просит ли приказ хоть что-нибудь со склада. */
+const isPaid = (cost: Loot): boolean => RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0) || (cost.gold ?? 0) > 0;
 
 /** Шанс словами и числом: у оскорбления это риск, а не удача. */
 function chanceText(o: OrderOption, label: string): string | null {
@@ -213,13 +201,20 @@ export function ActionMenu() {
                   <em>
                     {chance && <span className="am-chance">{chance}</span>}
                     <span className="am-time">⏳ {formatLeft(o.seconds)}</span>
-                    <Price cost={o.cost} />
+                    {!isPaid(o.cost) && <span className="am-free">даром</span>}
                     {menu.agent === 'spy' && (
                       // Цена лазутчика — не добро, а риск, и она обязана стоять
                       // рядом с шансом, а не прятаться в описании.
                       <span className="am-risk">провал: задержат на {formatLeft(SPY_HELD / 1000)}</span>
                     )}
                   </em>
+                  {/*
+                    Дар и вира — та же плата, что дань в письме, и показывается
+                    она так же: значок, сколько просят и сколько этого есть.
+                    Прежде здесь стояло одно «🌲 40», и хватает ли — приходилось
+                    вспоминать, стоя на карте, где склада не видно вовсе.
+                  */}
+                  {isPaid(o.cost) && <Cost cost={o.cost} />}
                 </span>
               </button>
             );

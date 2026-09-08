@@ -7,6 +7,7 @@ import { RHUMB_WORDS } from '@/world/data/letters';
 import type { LetterView } from '@/world/types';
 import type { GameState } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
+import { Cost } from '@/ui/parts/Cost';
 
 /**
  * Столбик писем слева внизу и открытое письмо.
@@ -144,6 +145,16 @@ function LetterCard({ letter }: { letter: LetterView }) {
         <h2>{letter.title}</h2>
         <LetterFromLine letter={letter} onSpot={() => spot(letter.id)} />
         <p>{letter.body}</p>
+        {/*
+          Что просят — и сколько этого есть. Тем же `Cost`, что стоит у стройки
+          и у ковки: одна форма на весь вопрос «хватает или нет».
+
+          Раньше здесь стояло только «дань: еда 40» в теле письма, а склад из-под
+          письма было не посмотреть — и «заплатить» нажимали наугад. Число в
+          строке «из» — тот же склад, по которому мир гасит кнопку: он приезжает
+          в слепке деревни целиком, вместе со спрятанным в тайнике.
+        */}
+        <Cost cost={letter.cost} />
         <p className="letter-left">
           {/* У решения ждёт гонец, у предупреждения — идёт отряд. Одна строка
               на оба случая врала бы в одном из них. */}

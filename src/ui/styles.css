@@ -26,6 +26,20 @@
   --nav-h: 56px;
   /* Минимальный размер тач-цели. */
   --tap: 44px;
+  /*
+   * Полоска ресурсов: сама она, вся её строка вместе с зазором и отступ от
+   * верха экрана до того, что стоит под ней.
+   *
+   * Числа эти знают трое, и все — снаружи полоски: затемнение модалок (оно
+   * начинается **под** ней, иначе окно события закрыло бы то самое, ради чего
+   * полоску завели), строка тревог и строка обучения — обе отсчитываются от
+   * низа шапки. Держать их в одном месте обязательно: разъедутся — окно
+   * наедет на полоску или подсказка ляжет на кнопку профиля, и по коду этого
+   * не увидит никто.
+   */
+  --res-h: 28px;
+  --res-row: calc(var(--res-h) + 6px);
+  --hud-res-h: calc(var(--res-row) + 6px);
 
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   color: var(--text);
@@ -148,6 +162,64 @@ body {
   flex: 0 0 1px;
   height: 14px;
   background: var(--line);
+}
+
+/*
+ * Полоска ресурсов. Семь ячеек на 360 px — это по сорок пикселей на ячейку,
+ * поэтому подписей здесь нет, а тысячи сокращаются (`shortNum`). Ячейки делят
+ * ширину поровну (`flex: 1 1 0`), и полоска не прыгает, когда число вырастает
+ * с трёх знаков до четырёх.
+ *
+ * `pointer-events: none` — не мелочь: полоска стоит поверх модалок, и будь она
+ * нажимаемой, тап по ней открывал бы шторку под открытым окном события.
+ */
+.res-bar {
+  margin: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
+  height: var(--res-h);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 6px;
+  color: var(--muted);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.res-bar .res {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.res-bar .res b {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Склад полон: всё, что добудут в этот ресурс, с этой минуты пропадает. Цвет —
+ * единственная пометка, какую полоска себе позволяет: значок рядом с числом
+ * второй раз перегрузил бы строку, а разбирать её игрок должен взглядом.
+ */
+.res-bar .res.full b,
+.res-bar .res.full {
+  color: var(--accent);
+}
+
+.res-bar .res.full {
+  background: rgba(232, 164, 60, 0.14);
+  border-radius: 7px;
 }
 
 /* ---------- Нижняя навигация ---------- */
@@ -611,9 +683,16 @@ body {
 
 /* ---------- Модалки ---------- */
 
+/*
+ * Затемнение начинается **под полоской ресурсов**, а не от верха экрана.
+ *
+ * Это и есть весь ответ на жалобу «в склад не зайти»: окно события отложить
+ * нельзя, а решать в нём приходится, отдавать ли добро. Полоску, отвечающую на
+ * этот вопрос, окно закрывать не имеет права — ни фоном, ни собой.
+ */
 .modal-backdrop {
   position: absolute;
-  inset: 0;
+  inset: calc(var(--safe-top) + var(--hud-res-h)) 0 0 0;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
@@ -679,6 +758,17 @@ body {
 
 .modal .opt:active {
   border-color: var(--accent);
+}
+
+/*
+ * Вариант с ценой раскладывается столбиком: подпись, что он даст, и что за это
+ * отдать. Та же причина, что у письма — на 360 px справа помещается «+40 еды»,
+ * а не строка с ценой и запасом.
+ */
+.modal .opt.priced {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
 }
 
 /*
@@ -1007,7 +1097,7 @@ body {
   position: absolute;
   left: calc(8px + var(--safe-left));
   right: calc(8px + var(--safe-right));
-  top: calc(var(--safe-top) + 6px + var(--tap) + 44px);
+  top: calc(var(--safe-top) + var(--res-row) + 6px + var(--tap) + 44px);
   z-index: 15;
   display: flex;
   flex-direction: column;
@@ -1388,7 +1478,7 @@ body {
 }
 
 .tut-bar.at-top {
-  top: calc(var(--safe-top) + 6px + var(--tap) + 44px);
+  top: calc(var(--safe-top) + var(--res-row) + 6px + var(--tap) + 44px);
 }
 
 .tut-bar.at-bottom {
@@ -1581,6 +1671,16 @@ body {
 
 .letter-card .opt small {
   line-height: 1.35;
+}
+
+/*
+ * Что просят и сколько этого есть — тем же `Cost`, что у стройки. Стоит по
+ * центру, потому что относится к телу письма, которое тоже по центру, и с
+ * запасом снизу: следом идёт срок гонца, и слипаться этим двум строкам нельзя.
+ */
+.letter-card .cost {
+  justify-content: center;
+  margin: 2px 0 10px;
 }
 
 /* Сколько ждёт гонец — крупно: срок здесь такая же часть выбора, как цена. */
@@ -3523,6 +3623,23 @@ body.replaying .app > *:not(.canvas-wrap) {
 
 .am-row.off i {
   color: var(--bad);
+}
+
+/*
+ * Цена приказа — тот же `Cost`, что у стройки: значок, сколько просят и сколько
+ * этого есть. Своей вёрстки ей здесь не надо, только два уточнения: строка
+ * прижимается к остальным (у меню свой шаг) и «из N» остаётся приглушённым даже
+ * на погасшей строке — красным в этом ряду говорит нехватка, а не сама скидка
+ * яркости.
+ */
+.am-row .cost {
+  margin-top: 2px;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.am-row .cost .have {
+  color: var(--muted);
 }
 
 .am-chance {

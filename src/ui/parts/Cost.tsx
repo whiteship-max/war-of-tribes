@@ -4,8 +4,11 @@ import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Icon } from '@/ui/icons/Icon';
 
+/** Чем можно расплатиться: склад плюс казна. Золото — не ресурс, но цена бывает и в нём. */
+export type Price = Partial<Record<ResourceId | 'gold', number>>;
+
 interface Props {
-  cost: Partial<Record<ResourceId, number>>;
+  cost: Price;
   /** Работа строителей — показываем рядом с ценой. */
   work?: number;
   /** Оценка времени в секундах при нынешнем числе строителей. null — строить некому. */
@@ -21,11 +24,22 @@ interface Props {
 /**
  * Цена с текущим запасом ровно тех ресурсов, которые в ней участвуют.
  * Полный список ресурсов живёт только на складе — здесь ровно то, что нужно решению.
+ *
+ * **Это единственная форма, какой в игре говорят «нужно столько, а есть
+ * столько».** Она стоит у стройки, у ковки, у найма — и она же у письма с
+ * данью, у выкупа, у приказа дипломата и у события с обменом. Второй такой
+ * формы заводить нельзя: игрок узнаёт её с одного взгляда, а два разных способа
+ * сказать одно и то же он читает как два разных смысла.
+ *
+ * Не хватает — ячейка краснеет (`.no`), и по этой же нехватке гаснет кнопка
+ * рядом. Одно и то же число: показанный запас берётся из `s`, и проверка
+ * «хватает ли» считается по нему же, а не по похожему.
  */
 export function Cost({ cost, work, eta, extra }: Props) {
   const s = useGame((g) => g.s);
   const items = RESOURCE_IDS.filter((r) => cost[r]);
-  if (items.length === 0 && work === undefined) return null;
+  const gold = cost.gold ?? 0;
+  if (items.length === 0 && gold <= 0 && work === undefined) return null;
   return (
     <div className="cost">
       {items.map((r) => {
@@ -38,6 +52,12 @@ export function Cost({ cost, work, eta, extra }: Props) {
           </span>
         );
       })}
+      {gold > 0 && (
+        <span className={Math.floor(s.gold) >= gold ? '' : 'no'} title="Золото">
+          <Icon name="res-gold" glyph="💰" /> {gold}
+          <i className="have">из {Math.floor(s.gold)}</i>
+        </span>
+      )}
       {work !== undefined && (
         <span className="work">
           <Icon name="ui-time" glyph="⏱" /> {eta === undefined ? work : eta === null ? 'нет строителей' : `~${eta} с`}</span>

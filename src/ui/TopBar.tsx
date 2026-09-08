@@ -3,14 +3,20 @@ import { armySize, dayOf, dayFraction, housingCapacity, seasonOf, seasonProgress
 import { SEASON_META } from '@/game/data/seasons';
 import { useWorld } from '@/world/store';
 import { ProfileButton } from './ProfileButton';
+import { ResourceBar } from './ResourceBar';
 import { Icon } from '@/ui/icons/Icon';
 import { daypartOf, iconName, moodOf } from '@/ui/icons/registry';
 
 
 /**
- * Верхняя строка состояния. Ресурсов здесь нет: их полный список живёт на складе,
- * а цену стройки видно рядом с самой стройкой. Списка построек здесь тоже нет —
- * он целиком уехал в ратушу, на вкладку «Стройка».
+ * Верхняя строка состояния. Списка построек здесь нет — он целиком уехал в
+ * ратушу, на вкладку «Стройка».
+ *
+ * Самой верхней строкой стоит полоска ресурсов (`ResourceBar`), и стоит она
+ * именно первой не ради красоты: это единственная строка, которую не закрывает
+ * ни одно окно, а закрывать её нельзя как раз потому, что решения, требующие
+ * отдать добро, приходят окнами. Полный список запасов при этом по-прежнему
+ * живёт на складе — полоска отвечает на «хватит ли», а не заменяет его.
  *
  * Справа — дружина: армия теперь центр игры, и её численность видна всегда.
  *
@@ -42,6 +48,7 @@ export function TopBar() {
 
   return (
     <div className="topbar">
+      <ResourceBar />
       <div className="hud-bar">
         <span className="cell" title={`День ${day}, ${part.label}`}>
           <span className="ic">
