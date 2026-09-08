@@ -144,6 +144,21 @@ const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
  */
 const hiddenNow = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'hidden';
 
+/**
+ * Сколько ждём возвращения контекста WebGL, прежде чем пересобирать сцену.
+ *
+ * Браузер возвращает контекст сам — но только если ему не помешали (см.
+ * `onContextLost`), и не мгновенно: на Android между потерей и возвращением
+ * проходит от десятков миллисекунд до секунды с лишним, пока система отдаёт
+ * обратно графическую память. Три секунды заведомо больше этого и заведомо
+ * меньше того, что игрок готов смотреть на чёрный прямоугольник.
+ *
+ * Ждать бесконечно нельзя: вебвью, у которого забрали поверхность совсем,
+ * события возвращения не пришлёт никогда, и без срока диорама не вернулась бы
+ * до перезахода — то есть ровно то, на что жалоба.
+ */
+export const RESTORE_WAIT = 3000;
+
 let active: TribeScene | null = null;
 export const activeScene = (): TribeScene | null => active;
 
@@ -195,6 +210,13 @@ export class TribeScene {
   private sized = { w: 0, h: 0, dpr: 0 };
   /** Пересчёт отложен: холста в этот момент не было или он был нулевой. */
   private needSize = false;
+  /**
+   * Контекст потерян и не вернулся в срок — сцену пора собирать заново. Делает
+   * это владелец канвы (`ui/GameCanvas`), а не сцена: пересборка означает новый
+   * элемент канвы, а сцена своим элементом не распоряжается.
+   */
+  onLost: (() => void) | null = null;
+  private restoreTimer = 0;
   private frameNo = 0;
   /** Было ли уже состояние: по первому sync сезон ставится без перелива. */
   private synced = false;
@@ -315,6 +337,10 @@ export class TribeScene {
     this.selection.renderOrder = 3;
     this.scene.add(this.selection);
 
+    // Потеря контекста — не исключительный случай, а обычное дело на телефоне:
+    // система забирает графическую память у фонового вебвью и отдаёт обратно.
+    canvas.addEventListener('webglcontextlost', this.onContextLost);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored);
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerup', this.onPointerUp);
@@ -364,8 +390,74 @@ export class TribeScene {
     // клиента, другая плотность пикселей. ResizeObserver узнает об этом только
     // со следующей раскладкой, а кадр пойдёт сейчас — и пошёл бы со старым буфером.
     this.resize();
+    // Про потерю контекста спрашивается сам драйвер, а не наша память о событии:
+    // потерянный в фоне контекст мог не прислать события вовсе, а вернувшийся —
+    // не прислать второго. Кадры в мёртвый контекст рисовать незачем.
+    const lost = this.lostNow();
+    this.beat.block('lost', lost);
+    if (lost) {
+      this.askRestore();
+      return;
+    }
     this.beat.restart();
   }
+
+  /**
+   * Контекст WebGL потерян.
+   *
+   * `preventDefault` здесь — не вежливость, а условие: без него браузер даже не
+   * пытается вернуть контекст, и `webglcontextrestored` не придёт никогда.
+   * three делает это и сам, но правило записано здесь, а порядок чужих
+   * обработчиков нам не подвластен, и второй раз отменить умолчание ничего не
+   * стоит.
+   */
+  private onContextLost = (e: Event): void => {
+    e.preventDefault();
+    sceneLog.mark('lost', this.sizeLine());
+    this.beat.block('lost', true);
+    this.askRestore();
+  };
+
+  /**
+   * Контекст вернулся. three заново поднимает состояние GL и заливает буферы по
+   * первому требованию, но размер холста ему никто не назначал — назначаем.
+   */
+  private onContextRestored = (): void => {
+    this.clearWait();
+    sceneLog.mark('restored', this.sizeLine());
+    this.beat.block('lost', false);
+    this.sized = { w: 0, h: 0, dpr: 0 };
+    this.resize();
+    this.beat.restart();
+  };
+
+  /** Попросить браузер вернуть контекст и завести срок ожидания. */
+  private askRestore(): void {
+    this.clearWait();
+    try {
+      this.renderer.forceContextRestore();
+      sceneLog.mark('ask', 'просим вернуть контекст');
+    } catch {
+      // Настоящую потерю так не отменить: расширение умеет вернуть только ту,
+      // которую само и устроило. Тогда остаётся ждать браузера и пересборки.
+    }
+    this.restoreTimer = window.setTimeout(this.giveUp, RESTORE_WAIT);
+  }
+
+  private clearWait(): void {
+    if (this.restoreTimer) clearTimeout(this.restoreTimer);
+    this.restoreTimer = 0;
+  }
+
+  /** Срок вышел. Контекст жив — ничего не случилось; мёртв — зовём пересборку. */
+  private giveUp = (): void => {
+    this.restoreTimer = 0;
+    if (this.disposed || !this.lostNow()) return;
+    // Скрытой странице контекст возвращать некуда: срок пойдёт заново с `wake`.
+    if (hiddenNow()) return;
+    sceneLog.mark('watch', `контекст не вернулся за ${RESTORE_WAIT} мс`);
+    this.onLost?.();
+  };
 
   /** Размеры холста и окна одной строкой — для журнала. */
   private sizeLine(): string {
@@ -568,7 +660,10 @@ export class TribeScene {
     this.disposed = true;
     if (active === this) active = null;
     this.beat.stop();
+    this.clearWait();
     document.removeEventListener('visibilitychange', this.onVisibility);
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);

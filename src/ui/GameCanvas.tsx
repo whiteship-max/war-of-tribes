@@ -4,8 +4,22 @@ import { TribeScene } from '@/render/Scene';
 import { bootDone, bootStage } from '@/boot/stage';
 import { afterPaint } from '@/boot/paint';
 import { probe } from '@/debug';
-import { sceneLog } from '@/scenelog';
+import { diagnose, sceneLog, type Verdict } from '@/scenelog';
+import { SceneTrouble } from './SceneTrouble';
 import { applyViewport } from '@/telegram/webapp';
+
+/**
+ * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —
+ * остановка меряется секундой с четвертью, — а реже игрок успеет решить, что
+ * игра сломалась насовсем.
+ */
+const WATCH_EVERY = 2000;
+
+/**
+ * Сколько после пересборки она считается свежей. Потеря контекста сразу после
+ * пересборки означает, что брать его бесполезно: чинить нечем, надо говорить.
+ */
+const REBUILD_COOLDOWN = 30_000;
 
 export function GameCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -20,7 +34,19 @@ export function GameCanvas() {
    * стоит на самой канве — только так пересборка бывает настоящей.
    */
   const [gen, setGen] = useState(0);
-  const rebuild = useCallback(() => setGen((n) => n + 1), []);
+  /**
+   * Приговор, с которым сцену уже не поднять самой. Пока он null, экрана-заглушки
+   * нет: чинящаяся сцена не должна пугать игрока сообщением о поломке.
+   */
+  const [trouble, setTrouble] = useState<Verdict | null>(null);
+  /** Когда пересобирали в последний раз — по нему видно, что пересборка не помогла. */
+  const rebuiltAt = useRef(0);
+
+  const rebuild = useCallback(() => {
+    rebuiltAt.current = performance.now();
+    setTrouble(null);
+    setGen((n) => n + 1);
+  }, []);
 
   // Именно layout, а не обычный эффект. Дело в уборке: она обязана пройти, пока
   // канва ещё в разметке, иначе OrbitControls снимает свой слушатель не с того
@@ -53,6 +79,53 @@ export function GameCanvas() {
     // Прибор подключается к живой сцене: без этого он честно говорит «не знаю».
     const wired = { vitals: () => scene.vitals(), revive: rebuild };
     sceneLog.attach(wired);
+
+    /**
+     * Контекст не вернулся в срок. Первая попытка — пересобрать сцену молча: у
+     * новой канвы будет новый контекст, а диорама соберётся из состояния игры,
+     * и игрок не увидит ничего, кроме мигнувшей картинки.
+     *
+     * Пересборка следом за пересборкой — уже не лечение, а карусель: значит,
+     * контекст отбирают быстрее, чем мы успеваем его брать. Тогда молчать
+     * нельзя, и на экране появляется, что случилось, и кнопка.
+     */
+    scene.onLost = () => {
+      const fresh = performance.now() - rebuiltAt.current < REBUILD_COOLDOWN;
+      if (fresh) {
+        sceneLog.mark('watch', 'пересборка не помогла — показываем экран восстановления');
+        setTrouble('lost');
+        return;
+      }
+      rebuild();
+    };
+
+    /**
+     * Сторож. Всё, что выше, лечит три известные болезни; сторож — про
+     * четвёртую, которой мы ещё не видели: кадры не идут, а причина не названа.
+     *
+     * Он не спешит: сперва будит сцену тем же `wake`, что и возвращение из фона,
+     * и только если через две секунды кадров по-прежнему нет, показывает
+     * игроку, что случилось. Секунда с четвертью без кадра — уже остановка
+     * (`STALL_MS`), но одна проверка могла попасть на тяжёлый кадр.
+     */
+    let nudged = false;
+    const watch = window.setInterval(() => {
+      const verdict = diagnose(scene.vitals());
+      if (verdict === 'ok' || verdict === 'map' || verdict === 'hidden') {
+        nudged = false;
+        return;
+      }
+      // Потерю контекста лечит свой срок и своя пересборка — сторожу тут не место.
+      if (verdict === 'lost') return;
+      if (!nudged) {
+        nudged = true;
+        sceneLog.mark('watch', `сторож: ${verdict} — будим сцену`);
+        wake();
+        return;
+      }
+      sceneLog.mark('watch', `сторож: ${verdict} после побудки — показываем экран восстановления`);
+      setTrouble(verdict);
+    }, WATCH_EVERY);
     const unsub = useGame.subscribe((g, prev) => {
       if (g.s !== prev.s) scene.sync(g.s);
       if (g.sheet !== prev.sheet) scene.setSelected(g.sheet?.kind === 'building' ? g.sheet.id : null);
@@ -100,6 +173,8 @@ export function GameCanvas() {
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       unsub();
+      clearInterval(watch);
+      scene.onLost = null;
       ro.disconnect();
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
@@ -118,6 +193,7 @@ export function GameCanvas() {
       {/* Ключ — не украшение: пересборка обязана дать новый элемент канвы,
           иначе мёртвый контекст WebGL достанется и новой сцене. */}
       <canvas key={gen} ref={ref} />
+      {trouble && <SceneTrouble verdict={trouble} onRetry={rebuild} />}
     </div>
   );
 }
