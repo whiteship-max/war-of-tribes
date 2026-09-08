@@ -45,7 +45,7 @@ import {
 } from './lighting';
 import { PALETTE } from './palette';
 import { disposeGeometries } from './kit';
-import { Press, TAP_TARGET } from '@/gestures';
+import { Gesture, TAP_TARGET } from '@/gestures';
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { clampPan, framing, zoomRange } from './camera';
 
@@ -192,7 +192,13 @@ export class TribeScene {
   private lent = false;
   private selection: THREE.Mesh;
   private selected: number | null = null;
-  private down: Press | null = null;
+  /**
+   * Разбор жеста — общий с картой мира (`src/gestures.ts`). Панораму, наезд и
+   * поворот ведёт `OrbitControls`; здесь решается только одно: тап это был или
+   * ведение. Одним пальцем камера **водит** (`TOUCH.PAN`), поворот бывает
+   * только двумя — как на карте.
+   */
+  private touch = new Gesture();
   /** Здание под пальцем в момент нажатия — на отпускании оно и открывается. */
   private aimed: number | null = null;
   /** Тап по зданию (или по пустому месту — тогда null). Ставит UI. */
@@ -504,28 +510,30 @@ export class TribeScene {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    this.touch.down(e.pointerId, e.clientX, e.clientY, performance.now());
     // Цель выбирается здесь, а не на отпускании, и это не мелочь: за время
     // касания палец успевает сдвинуть камеру панорамой, а сообщённая системой
     // точка на отпускании прыгает — игрок же целился в момент нажатия.
-    this.down = new Press(e.pointerId, e.clientX, e.clientY, performance.now());
-    this.aimed = this.pickAt(e.clientX, e.clientY);
+    //
+    // Второй палец прицел не двигает: это щипок, и тапа в нём уже нет — но
+    // перебивать им то, во что целился первый, всё равно незачем.
+    if (!this.touch.multi) this.aimed = this.pickAt(e.clientX, e.clientY);
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    if (this.down?.id === e.pointerId) this.down.move(e.clientX, e.clientY);
+    this.touch.move(e.pointerId, e.clientX, e.clientY, performance.now());
   };
 
-  private onPointerCancel = (): void => {
-    this.down = null;
+  private onPointerCancel = (e: PointerEvent): void => {
+    this.touch.cancel(e.pointerId);
   };
 
   private onPointerUp = (e: PointerEvent): void => {
-    const d = this.down;
-    this.down = null;
-    if (!d || d.id !== e.pointerId || !this.onPick) return;
-    // Ведение камеры не должно открывать панели: тап — короткое касание без сдвига.
-    if (!d.isTap(performance.now())) return;
-    this.onPick(this.aimed);
+    // Ведение камеры не должно открывать панели, а щипок — тем более: судит это
+    // общий с картой разбор жеста (`Gesture`), второй правды о том, тап это или
+    // ведение, в игре быть не должно.
+    if (!this.touch.up(e.pointerId, performance.now())) return;
+    this.onPick?.(this.aimed);
   };
 
   /**

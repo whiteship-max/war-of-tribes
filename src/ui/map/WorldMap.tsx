@@ -58,7 +58,7 @@ import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { ActionMenu } from './ActionMenu';
-import { Press } from '@/gestures';
+import { Gesture } from '@/gestures';
 import { Icon } from '@/ui/icons/Icon';
 
 
@@ -122,7 +122,13 @@ export function WorldMap() {
   const placed = useRef(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ dist: number; mx: number; my: number } | null>(null);
-  const tap = useRef<Press | null>(null);
+  /**
+   * Разбор жеста — тот же класс, что судит тап в деревне (`src/gestures.ts`).
+   * Общий он именно потому, что палец один: два разбора одного жеста однажды
+   * уже разошлись. Щипок карта считает сама — это её собственная камера, а не
+   * общая часть.
+   */
+  const touch = useRef(new Gesture());
   const size = useRef({ w: 1, h: 1, dpr: 1 });
   const frameNo = useRef(0);
 
@@ -283,8 +289,8 @@ export function WorldMap() {
     }
     const p = local(e);
     pointers.current.set(e.pointerId, p);
-    if (pointers.current.size === 1) tap.current = new Press(e.pointerId, p.x, p.y, performance.now());
-    else tap.current = null;
+    // Второй палец снимает тап сам: это уже щипок (см. `Gesture`).
+    touch.current.down(e.pointerId, p.x, p.y, performance.now());
     gesture.current = null;
   };
 
@@ -305,25 +311,29 @@ export function WorldMap() {
         if (g.dist > 0) applyZoom(mx, my, dist / g.dist);
       }
       gesture.current = { dist, mx, my };
-      tap.current = null;
       return;
     }
 
     cam.current = panBy(cam.current, p.x - prev.x, p.y - prev.y);
-    tap.current?.move(p.x, p.y);
+    touch.current.move(e.pointerId, p.x, p.y, performance.now());
+  };
+
+  const onPointerCancel = (e: ReactPointerEvent<HTMLCanvasElement>): void => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) gesture.current = null;
+    touch.current.cancel(e.pointerId);
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>): void => {
     const p = pointers.current.get(e.pointerId);
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) gesture.current = null;
-    const t = tap.current;
-    tap.current = null;
+    const tapped = touch.current.up(e.pointerId, performance.now());
     // Жест судится по пути, а не по точке отпускания: на телефоне она прыгает,
     // когда пятно контакта схлопывается (см. `gestures.Press`). А вот клетку
     // выбирает именно последняя точка — панорама карты идёт за пальцем один к
     // одному, и в сдвинутом кадре она означает ровно то же место, что нажатие.
-    if (!p || !t || !t.isTap(performance.now())) return;
+    if (!p || !tapped) return;
     const world = toWorld(cam.current, vp(), p.x, p.y);
     const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
     if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
@@ -441,7 +451,7 @@ export function WorldMap() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onContextMenu={onContextMenu}
         onWheel={onWheel}
       />
