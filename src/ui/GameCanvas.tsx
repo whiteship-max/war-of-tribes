@@ -22,16 +22,11 @@ const WATCH_EVERY = 2000;
 const REBUILD_COOLDOWN = 30_000;
 
 export function GameCanvas() {
-  const ref = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<TribeScene | null>(null);
   /**
-   * Номер сборки диорамы. Меняется — и React делает **новую** канву, а эффект
-   * собирает на ней новую сцену из состояния игры.
-   *
-   * Новую, а не ту же: потерянный контекст WebGL к прежнему элементу больше не
-   * возвращается, и `getContext` на нём отдаёт тот же мёртвый. Поэтому ключ
-   * стоит на самой канве — только так пересборка бывает настоящей.
+   * Номер сборки диорамы. Меняется — и эффект собирает сцену заново из состояния
+   * игры, на новой канве (её заводит сам эффект — см. ниже).
    */
   const [gen, setGen] = useState(0);
   /**
@@ -54,9 +49,25 @@ export function GameCanvas() {
   // `TribeScene.dispose`). Сборка сцены при этом кадр не задерживает: занавес
   // перехода нарисован кадром раньше, и ждать ему нечего.
   useLayoutEffect(() => {
-    const canvas = ref.current;
     const wrap = wrapRef.current;
-    if (!canvas || !wrap) return;
+    if (!wrap) return;
+    /*
+     * Канву заводит эффект, а не разметка, и это не вкусовщина.
+     *
+     * `dispose` отдаёт контекст WebGL насильно (`forceContextLoss`) — иначе
+     * браузер копил бы их и ронял самый старый молча. Но отданный контекст
+     * элемент не отпускает: `getContext` на той же канве возвращает **тот же
+     * мёртвый** контекст, и следующая сцена падает в конструкторе на пустой
+     * точности шейдера. Проверено на живой странице: `same: true, lost: true`.
+     *
+     * Значит, правило одно и без исключений: **новая сцена — новый элемент.**
+     * В разметке этого не выразить: React переиспользует узел, а эффект в
+     * StrictMode заходит дважды (сборка — уборка — сборка), и вторая сборка
+     * доставалась мёртвому контексту. Так дев-режим и жил с чёрной диорамой,
+     * пока это не всплыло здесь.
+     */
+    const canvas = document.createElement('canvas');
+    wrap.appendChild(canvas);
     // Стадия загрузки и её снятие бывают раз за партию: пересборка диораму
     // меняет, а экран загрузки давно ушёл, и звать его обратно незачем.
     if (gen === 0) bootStage('scene');
@@ -66,7 +77,13 @@ export function GameCanvas() {
     // Тап по зданию открывает его панель; тап по пустому месту закрывает открытую.
     scene.onPick = (id) => useGame.getState().openBuilding(id);
     // Замер: сцену надо достать из консоли, в собранном бандле её неоткуда взять.
-    if (probe()) (window as unknown as { __scene?: TribeScene }).__scene = scene;
+    // Журнал рядом со сценой: стенд восстановления проверяет не только то, что
+    // диорама вернулась, но и то, что она об этом честно написала.
+    if (probe()) {
+      const w = window as unknown as { __scene?: TribeScene; __scenelog?: typeof sceneLog };
+      w.__scene = scene;
+      w.__scenelog = sceneLog;
+    }
     const g0 = useGame.getState();
     scene.sync(g0.s);
     scene.setSelected(g0.sheet?.kind === 'building' ? g0.sheet.id : null);
@@ -183,17 +200,21 @@ export function GameCanvas() {
       document.removeEventListener('freeze', onFreeze);
       document.removeEventListener('visibilitychange', onVisible);
       sceneLog.detach(wired);
+      // Порядок важен: `dispose` снимает слушатель OrbitControls с корня узла, и
+      // канва обязана быть ещё в разметке (подробно — в `TribeScene.dispose`).
       scene.dispose();
+      canvas.remove();
       sceneRef.current = null;
     };
   }, [gen, rebuild]);
 
   return (
-    <div className="canvas-wrap" ref={wrapRef}>
-      {/* Ключ — не украшение: пересборка обязана дать новый элемент канвы,
-          иначе мёртвый контекст WebGL достанется и новой сцене. */}
-      <canvas key={gen} ref={ref} />
+    <>
+      {/* Внутри обёртки лежит только канва, и кладёт её эффект. React о ней не
+          знает, поэтому своих детей ему сюда давать нельзя — экран-заглушка
+          стоит рядом, а не внутри. */}
+      <div className="canvas-wrap" ref={wrapRef} />
       {trouble && <SceneTrouble verdict={trouble} onRetry={rebuild} />}
-    </div>
+    </>
   );
 }
