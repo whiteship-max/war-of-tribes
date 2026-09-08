@@ -40,6 +40,7 @@ import { ACTIONS, poseFigure, type Action } from './poses';
 import { FOLK_KINDS, dressHero, dressMount, dressSoldier, dressVillager } from './units';
 import { HERO_SCALE } from './hero';
 import { PLAN_SCALE } from './plan';
+import { AZIMUTH } from './camera';
 import { buildGround } from './terrain';
 import { groundDecals, type DecalSpot } from './village';
 import { SeasonVisuals } from './season';
@@ -50,9 +51,6 @@ const SEASON_ORDER: Season[] = ['spring', 'summer', 'autumn', 'winter'];
 
 /** Верхний уровень каждой ступени: сетка показывает здание в самом крупном виде ступени. */
 const TIER_TOP: [number, number, number] = [3, 7, 10];
-
-/** Стартовый азимут камеры игры — тот же, чтобы силуэты совпадали с тем, что видит игрок. */
-const AZIMUTH = Math.atan2(9, 12);
 
 interface Common {
   season: Season;

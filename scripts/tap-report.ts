@@ -177,15 +177,17 @@ const PROBE = `
   const game = window.__game;
   if (!scene || !game) throw new Error('нет window.__scene — страница открыта без ?probe=1?');
   const canvas = scene.canvas;
-  if (!canvas || !scene.buildings || typeof scene.hitBoxOf !== 'function') {
-    throw new Error('сцена не та: нет canvas/buildings/hitBoxOf — поля переименовали, стенд надо чинить');
+  if (!canvas || !scene.buildings || typeof scene.hitBoxOf !== 'function' || typeof scene.place !== 'function') {
+    throw new Error('сцена не та: нет canvas/buildings/hitBoxOf/place — поля переименовали, стенд надо чинить');
   }
 
   const pick = await import('/src/render/pick.ts');
   const IDENT = { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] };
   const rect = () => canvas.getBoundingClientRect();
   const state = () => game.getState();
-  const home = { p: scene.camera.position.toArray(), t: scene.controls.target.toArray() };
+  // Домашний кадр камеры: между следами она возвращается сюда, иначе сдвиг от
+  // прошлого следа уехал бы в таблицу следующего.
+  const home = { t: scene.target.toArray(), d: scene.dist };
 
   window.__tap = {
     ready: () => JSON.stringify({ w: rect().width, h: rect().height, dpr: window.devicePixelRatio, fake: !!window.__noWebGL }),
@@ -228,9 +230,9 @@ const PROBE = `
       // тогда, когда палец уже лежит.
       s.nextEventAt = s.time + 1e9;
       game.setState({ s: { ...s } });
-      scene.camera.position.fromArray(home.p);
-      scene.controls.target.fromArray(home.t);
-      scene.controls.update();
+      scene.target.fromArray(home.t);
+      scene.dist = home.d;
+      scene.place();
       return JSON.stringify('ok');
     },
 

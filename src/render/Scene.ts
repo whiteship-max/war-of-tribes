@@ -1,6 +1,5 @@
 // 3D-диорама поселения. Получает состояние через sync(), анимирует сам.
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Building, BuildingTypeId, Caravan, GameState, Season, TroopId } from '@/game/types';
 import {
   buildingAttention,
@@ -47,7 +46,7 @@ import { PALETTE } from './palette';
 import { disposeGeometries } from './kit';
 import { Gesture, Press, TAP_TARGET, swallowGhostClick } from '@/gestures';
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
-import { PAN_STEP_MAX, clampPan, framing, orbitDelta, zoomRange } from './camera';
+import { AZIMUTH, PAN_STEP_MAX, clampPan, framing, zoomRange } from './camera';
 import { FrameLoop } from './loop';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
@@ -167,7 +166,6 @@ export class TribeScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
-  private controls: OrbitControls;
   private rig: LightRig;
   private fireLight: THREE.PointLight;
   /** Ландшафт с окружением — одной группой, чтобы силуэтный режим мог его погасить. */
@@ -241,13 +239,14 @@ export class TribeScene {
   /**
    * Разбор жеста — общий с картой мира (`src/gestures.ts`). Он же и командует
    * камерой: пока `panning` говорит «нет», картинка не двигается ни на пиксель.
-   * Одним пальцем камера **водит**, поворот бывает только двумя — как на карте.
+   * Жестов ровно два, и оба те же, что на карте: одним пальцем камера **водит**,
+   * двумя — приближает. Поворота нет никакого (см. `camera.ts`).
    */
   private touch = new Gesture();
-  /** Пальцы на холсте: положение каждого. Из них и складываются щипок с поворотом. */
+  /** Пальцы на холсте: положение каждого. Из них и складывается щипок. */
   private pointers = new Map<number, { x: number; y: number }>();
-  /** Прошлый шаг щипка: расстояние между пальцами и середина между ними. */
-  private pinch: { dist: number; mx: number; my: number } | null = null;
+  /** Прошлый шаг щипка: расстояние между пальцами. Середина не нужна — она поворачивала. */
+  private pinch: { dist: number } | null = null;
   /** Где была середина посёлка на экране в начале касания — для журнала касаний. */
   private driftFrom: { x: number; y: number } | null = null;
   /** Сколько пальцев побывало на холсте за этот жест. Тоже журналу. */
@@ -258,8 +257,29 @@ export class TribeScene {
   onPick: ((id: number | null) => void) | null = null;
   /** Вызывается сразу после render() — стенд снимает кадр, пока буфер ещё не очищен. */
   afterRender: (() => void) | null = null;
-  /** Азимут стартового ракурса — сохраняется при перекадрировке. */
-  private azimuth = Math.atan2(9, 12);
+  /**
+   * Камера деревни целиком: куда смотрит, под каким наклоном и с какого
+   * расстояния. Азимута среди этих чисел нет — он один на всю игру (`AZIMUTH`),
+   * потому что поворота нет ни одним жестом.
+   *
+   * Держать их здесь, а не вычитывать обратно из позиции камеры, — то же
+   * правило, что и везде: одно число живёт в одном месте. Позиция считается из
+   * них (`place`), и обратного хода нет.
+   */
+  private target = new THREE.Vector3(0, 0.4, 0);
+  /** Наклон камеры: ставит кадрирование от аспекта, жест его не трогает. */
+  private polar = 0.95;
+  /** Расстояние до цели — единственное, что меняет щипок. */
+  private dist = 20;
+  /** Пол и потолок приближения, из `zoomRange`. */
+  private zoom = { min: 7, max: 26 };
+  /**
+   * Автоповорот стенда: единственное место в игре, где камера вообще
+   * поворачивается. Им меряют частоту кадров на телефоне (`?showcase=village&perf=8`),
+   * и в жест он не превращается ничем — ни кнопкой, ни настройкой.
+   */
+  private spinRate = 0;
+  private spinTurn = 0;
   /** После ручного движения камеру больше не переставляем. */
   private userMoved = false;
 
@@ -279,38 +299,23 @@ export class TribeScene {
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
     this.camera.position.set(9, 10, 12);
 
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(0, 0.4, 0);
-    this.controls.minDistance = 7;
-    this.controls.maxDistance = 26;
-    this.controls.minPolarAngle = 0.45;
-    this.controls.maxPolarAngle = 1.25;
     /*
-     * ВВОД У ORBITCONTROLS ОТОБРАН, И ЭТО ГЛАВНОЕ ЗДЕСЬ.
+     * КАМЕРОЙ ПРАВИТ ТОЛЬКО СЦЕНА, И ВТОРОГО СУДЬИ У НЕЁ НЕТ.
      *
-     * `enabled = false` — не «выключить камеру», а «не слушать палец»: все его
-     * обработчики выходят первой строкой, `setPointerCapture` он не берёт,
-     * панорамы своей не ведёт. При этом `update()` про `enabled` не знает вовсе
-     * — он по-прежнему пересчитывает камеру из позиции и цели и **зажимает
-     * дистанцию и полярный угол**. Ровно за этим он и остаётся: за пределами
-     * приближения и наклона, чтобы они лежали в одном месте, и за автоповоротом
-     * стенда. Панораму, наезд и поворот ведёт сцена сама — от общего с картой
-     * разбора жеста (`src/gestures.ts`).
+     * Здесь стоял `OrbitControls` с отобранным вводом: он брал `pointerdown`
+     * себе и начинал панораму с первого же пикселя, ничего не зная о том, тап
+     * это или ведение, — отсюда были обе жалобы разом (деревня уезжала под
+     * пальцем при прицеливании, и панорама отставала от пальца на треть).
+     * Ввод у него отобрали, и от него остались зажим дистанции с наклоном да
+     * автоповорот стенда. С уходом поворота зажимать наклон стало нечего:
+     * азимут один на игру, полярный угол ставит кадрирование, а дистанцию
+     * держит щипок по `zoomRange`. Класс убран целиком — держать его ради двух
+     * строк значило бы оставить в камере рычаг, которого никто не дёргает.
      *
-     * Почему отобран. Он берёт `pointerdown` себе и начинает панораму с первого
-     * же пикселя, без мёртвой зоны, — то есть камерой деревни правил второй
-     * судья, ничего не знавший о том, тап это или ведение. Отсюда обе жалобы
-     * разом: деревня уезжала под пальцем во время прицеливания (замер: 11–16 px
-     * за обычный тап), и ощущалась она не как карта — панорама у него линейная,
-     * а не «взял землю и повёл», и по вертикали отставала от пальца на треть
-     * (замер: 90 px пальцем — 61 px земли).
+     * Панораму и наезд ведёт сцена от общего с картой разбора жеста
+     * (`src/gestures.ts`), позицию камеры считает `place()`.
      */
-    this.controls.enabled = false;
-    // Затухания нет нарочно: камера идёт за пальцем один к одному, как карта, а
-    // затухание — это отставание картинки от пальца, то самое, от чего уходим.
-    this.controls.enableDamping = false;
-    // Прокрутку страницы под холстом гасим сами, а не полагаемся на то, что это
-    // сделал за нас выключенный OrbitControls.
+    // Прокрутку страницы под холстом гасим сами: полагаться теперь не на кого.
     canvas.style.touchAction = 'none';
 
     this.rig = createLightRig(this.scene);
@@ -592,9 +597,9 @@ export class TribeScene {
 
     this.camera.fov = f.fov;
 
-    this.controls.minDistance = zoom.min;
-    this.controls.maxDistance = zoom.max;
-    this.controls.maxPolarAngle = Math.max(1.05, f.polar + 0.32);
+    this.zoom = zoom;
+    this.polar = f.polar;
+    this.dist = Math.min(Math.max(this.dist, zoom.min), zoom.max);
 
     const fog = this.scene.fog as THREE.Fog;
     fog.near = f.fogNear;
@@ -606,12 +611,28 @@ export class TribeScene {
     // Тень накрывает и дворы за стеной: окружение теней не отбрасывает, а они — да.
     fitShadow(this.rig, OUTSKIRTS_RADIUS + 1);
 
-    if (this.userMoved) return;
+    if (this.userMoved) {
+      // Игрок уже вёл камеру сам: цель и приближение его, а наклон мог смениться
+      // вместе с аспектом — экран повернули или вырезало шапку.
+      this.place();
+      return;
+    }
     // Цель чуть выше земли: деревня уходит из-под верхнего HUD.
-    this.controls.target.set(0, f.targetY, 0);
-    this.camera.position.setFromSpherical(new THREE.Spherical(f.dist, f.polar, this.azimuth)).add(this.controls.target);
-    this.camera.lookAt(this.controls.target);
-    this.controls.update();
+    this.target.set(0, f.targetY, 0);
+    this.dist = f.dist;
+    this.place();
+  }
+
+  /**
+   * Поставить камеру по своим числам: цель, наклон, расстояние и единственный
+   * на игру азимут. Второго способа сдвинуть камеру в сцене нет — всё, что
+   * двигает обзор, правит эти числа и зовёт `place`.
+   */
+  private place(): void {
+    this.camera.position
+      .setFromSpherical(new THREE.Spherical(this.dist, this.polar, AZIMUTH + this.spinTurn))
+      .add(this.target);
+    this.camera.lookAt(this.target);
   }
 
   /**
@@ -690,11 +711,10 @@ export class TribeScene {
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
-    // Своих подписок на OrbitControls больше нет: ввод у него отобран, а
-    // привязку к деревне сцена ставит сама там, где двигает камеру. Остаётся
-    // его собственный слушатель — этим и занят `dispose`, и канва обязана быть
-    // при этом ещё в разметке (см. выше).
-    this.controls.dispose();
+    // Больше снимать нечего: все слушатели пальца висят на самой канве и сняты
+    // выше, а `OrbitControls` с его слушателем на корне узла ушёл вместе с
+    // поворотом камеры. Канва при уборке всё равно обязана быть ещё в разметке —
+    // теперь ради отдачи контекста, а не ради чужого слушателя (см. выше).
 
     this.scene.traverse((o) => {
       const sprite = o as THREE.Sprite;
@@ -758,19 +778,14 @@ export class TribeScene {
   // ---------- Выбор здания ----------
 
   /**
-   * Привязка к деревне. `controls.update()` держит дистанцию и наклон, но не
-   * цель, — а без неё панорама одним пальцем уводит в пустой лес за окрестности.
-   * Цель возвращается на поводок, камера едет за ней тем же вектором: иначе
-   * ракурс дёргался бы у самой границы. Зовётся там, где сцена двигает камеру
-   * (`shift`), а не подпиской на события контролов: ввод у них отобран, и
-   * событий больше нет.
+   * Привязка к деревне: без неё панорама одним пальцем уводит в пустой лес за
+   * окрестности. Цель возвращается на поводок, а камера считается из неё
+   * заново — ракурс от этого не дёргается, потому что угол и расстояние
+   * привязкой не трогаются. Зовётся там, где сцена двигает камеру (`shift`).
    */
   private leash = (): void => {
-    const t = this.controls.target;
+    const t = this.target;
     const fixed = clampPan(t.x, t.z);
-    if (fixed.x === t.x && fixed.z === t.z) return;
-    this.camera.position.x += fixed.x - t.x;
-    this.camera.position.z += fixed.z - t.z;
     t.x = fixed.x;
     t.z = fixed.z;
   };
@@ -794,19 +809,17 @@ export class TribeScene {
     ray.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera);
     const dy = ray.ray.direction.y;
     if (dy > -1e-4) return null;
-    const t = (this.controls.target.y - ray.ray.origin.y) / dy;
+    const t = (this.target.y - ray.ray.origin.y) / dy;
     if (!(t > 0)) return null;
     return ray.ray.at(t, new THREE.Vector3());
   }
 
-  /** Сдвинуть камеру и цель одним вектором: ракурс при этом не меняется. */
+  /** Увести цель: ракурс и приближение при этом не меняются. */
   private shift(dx: number, dz: number): void {
-    this.controls.target.x += dx;
-    this.controls.target.z += dz;
-    this.camera.position.x += dx;
-    this.camera.position.z += dz;
+    this.target.x += dx;
+    this.target.z += dz;
     this.leash();
-    this.controls.update();
+    this.place();
   }
 
   /** Панорама: точка, за которую взялись, остаётся под пальцем. */
@@ -824,30 +837,24 @@ export class TribeScene {
   }
 
   /**
-   * Два пальца: щипок приближает, сдвиг середины поворачивает. Тот же жест, что
-   * вёл `OrbitControls` (`TOUCH.DOLLY_ROTATE`), и те же его числа — на поворот
-   * жалоб не было, менять его не за чем. Пределы наклона и приближения ставит
-   * `controls.update()`: они по-прежнему записаны в одном месте.
+   * Два пальца — только приближение.
+   *
+   * Раньше тот же жест ещё и поворачивал сцену (`TOUCH.DOLLY_ROTATE` у
+   * `OrbitControls`), и это было его бедой: щипок и поворот живут на одном
+   * движении пальцев, поэтому наезд постоянно сбивал ракурс. Поворота больше
+   * нет ни здесь, ни где-либо ещё — середина между пальцами не считается вовсе,
+   * а пол с потолком приближения приходят из `zoomRange`.
    */
-  private twoFingers(rect: DOMRect): void {
+  private pinchZoom(): void {
     const [a, b] = [...this.pointers.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
-    const mx = (a.x + b.x) / 2;
-    const my = (a.y + b.y) / 2;
     const prev = this.pinch;
-    this.pinch = { dist, mx, my };
-    if (!prev) return;
+    this.pinch = { dist };
+    if (!prev || !(prev.dist > 0) || !(dist > 0)) return;
     this.userMoved = true;
-    const sph = new THREE.Spherical().setFromVector3(
-      new THREE.Vector3().subVectors(this.camera.position, this.controls.target),
-    );
-    const rot = orbitDelta(mx - prev.mx, my - prev.my, rect.height);
-    sph.theta += rot.theta;
-    sph.phi += rot.phi;
-    if (prev.dist > 0 && dist > 0) sph.radius *= prev.dist / dist;
-    this.camera.position.setFromSpherical(sph).add(this.controls.target);
-    this.azimuth = sph.theta;
-    this.controls.update();
+    const want = this.dist * (prev.dist / dist);
+    this.dist = Math.min(Math.max(want, this.zoom.min), this.zoom.max);
+    this.place();
   }
 
   /** Где середина посёлка на экране — мерка «уехала ли картинка» для журнала. */
@@ -889,7 +896,7 @@ export class TribeScene {
     const p = { x: e.clientX, y: e.clientY };
     this.pointers.set(e.pointerId, p);
     if (this.pointers.size >= 2) {
-      this.twoFingers(this.canvas.getBoundingClientRect());
+      this.pinchZoom();
       return;
     }
     this.touch.move(e.pointerId, p.x, p.y, now);
@@ -1413,7 +1420,12 @@ export class TribeScene {
     }
     this.fireLight.intensity = fireIntensity(night, t);
 
-    this.controls.update();
+    // Камера сама по себе не двигается: её ведёт палец. Крутится она ровно в
+    // одном случае — под замером частоты кадров на стенде.
+    if (this.spinRate !== 0) {
+      this.spinTurn += this.spinRate * dt;
+      this.place();
+    }
     this.renderer.info.reset();
     this.renderer.shadowMap.needsUpdate = (this.frameNo++ & 1) === 0;
     this.renderer.render(this.scene, this.camera);
@@ -1428,11 +1440,19 @@ export class TribeScene {
 
   // ---------- Стенд-витрина ----------
 
-  /** Автоповорот камеры — стенд меряет им частоту кадров при вращении. */
+  /**
+   * Автоповорот камеры — стенд меряет им частоту кадров при вращении.
+   *
+   * Единственный поворот, оставшийся в игре, и он не жест: игроку его не
+   * достать ничем, а без него замер на телефоне (`?showcase=village&perf=8`)
+   * мерил бы неподвижный кадр. Прежде его вёл `OrbitControls.autoRotate`;
+   * теперь угол прибавляется к азимуту прямо в кадре, и хранится он здесь, а
+   * не в камере.
+   */
   spin(on: boolean, degPerSec = 24): void {
-    this.controls.autoRotate = on;
-    // OrbitControls: скорость 2.0 — оборот за 30 с при 60 к/с, то есть 12°/с.
-    this.controls.autoRotateSpeed = degPerSec / 6;
+    this.spinRate = on ? (degPerSec * Math.PI) / 180 : 0;
+    if (!on) this.spinTurn = 0;
+    this.place();
   }
 
   /** Бюджет кадра: вызовы отрисовки и треугольники последнего render(). */

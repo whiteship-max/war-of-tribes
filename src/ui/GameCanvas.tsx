@@ -50,10 +50,11 @@ export function GameCanvas() {
   }, []);
 
   // Именно layout, а не обычный эффект. Дело в уборке: она обязана пройти, пока
-  // канва ещё в разметке, иначе OrbitControls снимает свой слушатель не с того
-  // узла и документ навсегда остаётся держателем всей сцены (подробно — в
-  // `TribeScene.dispose`). Сборка сцены при этом кадр не задерживает: занавес
-  // перехода нарисован кадром раньше, и ждать ему нечего.
+  // канва ещё в разметке (подробно — в `TribeScene.dispose`). Утечку на этом
+  // поймали через OrbitControls — его `dispose` снимал слушатель не с того узла,
+  // и документ навсегда оставался держателем всей сцены; самого OrbitControls в
+  // сцене больше нет, а порядок остался. Сборка сцены при этом кадр не
+  // задерживает: занавес перехода нарисован кадром раньше, и ждать ему нечего.
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -233,8 +234,8 @@ export function GameCanvas() {
       document.removeEventListener('freeze', onFreeze);
       document.removeEventListener('visibilitychange', onVisible);
       sceneLog.detach(wired);
-      // Порядок важен: `dispose` снимает слушатель OrbitControls с корня узла, и
-      // канва обязана быть ещё в разметке (подробно — в `TribeScene.dispose`).
+      // Порядок важен: сцена отдаёт контекст и снимает свои слушатели, и канва
+      // обязана быть при этом ещё в разметке (подробно — в `TribeScene.dispose`).
       scene.dispose();
       canvas.remove();
       sceneRef.current = null;

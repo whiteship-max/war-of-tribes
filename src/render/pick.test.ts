@@ -11,7 +11,7 @@ import { BUILDINGS } from '@/game/data/buildings';
 import { TAP_FORGIVE, TAP_TARGET } from '@/gestures';
 import { createBuildingGroup, levelScale, visualTier } from './buildings';
 import { PLAN_SCALE, placeOf } from './plan';
-import { framing } from './camera';
+import { AZIMUTH, framing } from './camera';
 import { hitBox, pickBox, projectHitBox, silhouetteBox, tapScore, type HitBox } from './pick';
 
 const W = 390;
@@ -26,7 +26,7 @@ function phoneCamera(): THREE.PerspectiveCamera {
   const f = framing(W / H);
   const cam = new THREE.PerspectiveCamera(f.fov, W / H, 0.1, f.fogFar + 10);
   const target = new THREE.Vector3(0, f.targetY, 0);
-  cam.position.setFromSpherical(new THREE.Spherical(f.dist, f.polar, Math.atan2(9, 12))).add(target);
+  cam.position.setFromSpherical(new THREE.Spherical(f.dist, f.polar, AZIMUTH)).add(target);
   cam.lookAt(target);
   cam.updateMatrixWorld(true);
   return cam;
