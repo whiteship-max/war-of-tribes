@@ -54,7 +54,7 @@
 import { createServer as createVite, type Plugin } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SLIP, TAP_TARGET } from '../src/gestures';
+import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SLIP, TAP_TARGET, WHEEL_STEP } from '../src/gestures';
 import { pickBox, type HitBox } from '../src/render/pick';
 import { WALL_RADIUS } from '../src/render/plan';
 import { BUILDINGS } from '../src/game/data/buildings';
@@ -290,6 +290,19 @@ const PROBE = `
         chain.push(n.tagName.toLowerCase() + (n.className ? '.' + String(n.className).split(' ')[0] : ''));
       }
       return JSON.stringify(chain.join(' < ') + ' — «' + (el.textContent || '').trim().slice(0, 40) + '»');
+    },
+
+    /**
+     * Камера деревни числами: расстояние до цели, его пол и потолок, сама цель.
+     * Своих чисел о приближении у стенда нет — пол и потолок он спрашивает у
+     * сцены, а та берёт их из zoomRange.
+     */
+    cam: () => JSON.stringify({ dist: live().dist, min: live().zoom.min, max: live().zoom.max, tx: live().target.x, tz: live().target.z }),
+
+    /** Точка земли под точкой экрана — ею меряется «наезд идёт к курсору». */
+    ground: (x, y) => {
+      const g = live().groundAt(x, y);
+      return JSON.stringify(g ? { x: g.x, z: g.z } : null);
     },
 
     /** Что открыто сейчас. null — ничего. */
@@ -590,6 +603,80 @@ async function report(): Promise<void> {
     return b.area && now?.area ? Math.max(m, Math.hypot(b.area.x - now.area.x, b.area.y - now.area.y)) : m;
   }, 0);
 
+  // ---------- Мышь ----------
+  //
+  // Колесо и кнопку мыши стенд щупает отдельно и последними, и это не прихоть:
+  // на телефоне их нет вовсе, а на ПК ими и играют. Проверка появилась после
+  // того, как вместе с OrbitControls из деревни молча пропало колесо — касания
+  // при этом работали, и стенд был зелёным.
+  //
+  // Тач-эмуляция на время этого раздела снимается: с ней Chrome отдаёт мышь
+  // странице не тем путём, и мы мерили бы не то, чем играют за столом.
+  await tab.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  await tab.eval<string>('window.__tap.reset()');
+
+  interface Cam {
+    dist: number;
+    min: number;
+    max: number;
+    tx: number;
+    tz: number;
+  }
+  const camNow = (): Promise<Cam> => tab.eval<Cam>('window.__tap.cam()');
+  const groundAt = (x: number, y: number): Promise<{ x: number; z: number } | null> =>
+    tab.eval<{ x: number; z: number } | null>(`window.__tap.ground(${x}, ${y})`);
+  const wheel = (x: number, y: number, deltaY: number): Promise<unknown> =>
+    tab.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY, button: 'none', clickCount: 0 });
+  const mouse = (type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', x: number, y: number, held: boolean): Promise<unknown> =>
+    tab.send('Input.dispatchMouseEvent', {
+      type,
+      x,
+      y,
+      button: 'left',
+      buttons: held ? 1 : 0,
+      clickCount: type === 'mouseMoved' ? 0 : 1,
+    });
+
+  // Целимся туда же, куда целился палец: в постройку, а не в пустое место.
+  const aim = points[0] ?? { x: Math.round(view.w / 2), y: Math.round(view.h / 2), id: -1 };
+  const camBefore = await camNow();
+  const groundBefore = await groundAt(aim.x, aim.y);
+  await wheel(aim.x, aim.y, -120);
+  await sleep(60);
+  const camIn = await camNow();
+  const groundAfter = await groundAt(aim.x, aim.y);
+  const cursorSlip =
+    groundBefore && groundAfter ? Math.hypot(groundBefore.x - groundAfter.x, groundBefore.z - groundAfter.z) : null;
+
+  for (let i = 0; i < 40; i++) await wheel(aim.x, aim.y, -120);
+  await sleep(60);
+  const camFloor = await camNow();
+  for (let i = 0; i < 60; i++) await wheel(aim.x, aim.y, 120);
+  await sleep(60);
+  const camCeil = await camNow();
+
+  // Ведение мышью с зажатой кнопкой: деревня едет, панель не открывается.
+  await tab.eval<string>('window.__tap.reset()');
+  const camDragFrom = await camNow();
+  await mouse('mousePressed', aim.x, aim.y, false);
+  for (let i = 1; i <= 8; i++) {
+    await mouse('mouseMoved', aim.x - i * 10, aim.y - i * 8, true);
+    await sleep(12);
+  }
+  await mouse('mouseReleased', aim.x - 80, aim.y - 64, false);
+  await sleep(80);
+  const camDragTo = await camNow();
+  const dragMoved = Math.hypot(camDragTo.tx - camDragFrom.tx, camDragTo.tz - camDragFrom.tz);
+  const dragOpened = await tab.eval<number | null>('window.__tap.sheet()');
+
+  // Клик мышью по постройке: открывается её панель.
+  await tab.eval<string>('window.__tap.reset()');
+  await mouse('mousePressed', aim.x, aim.y, false);
+  await sleep(40);
+  await mouse('mouseReleased', aim.x, aim.y, false);
+  await sleep(80);
+  const clickOpened = await tab.eval<number | null>('window.__tap.sheet()');
+
   tab.close();
   await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
 
@@ -669,6 +756,24 @@ async function report(): Promise<void> {
       `  ${pad(`тап по кладке стены (${px(onRing.x)},${px(onRing.y)})`, 52)}${padL(b ? nameOf(b.type) : '— ничего', 10)}`,
     );
   }
+
+  console.log(`
+  МЫШЬ (ПК): Input.dispatchMouseEvent, тач-эмуляция снята`);
+  console.log(`  Колесо и кнопка — то, чего у телефона нет: их отсутствие стенд без этого раздела не заметил бы.`);
+  const ratio = camIn.dist > 0 ? camBefore.dist / camIn.dist : 0;
+  console.log(
+    `  ${pad('колесо на себя (один щелчок)', 52)}${padL(`${camBefore.dist.toFixed(1)} → ${camIn.dist.toFixed(1)} = ×${ratio.toFixed(3)}`, 22)}   ждали ×${WHEEL_STEP.toFixed(3)}`,
+  );
+  console.log(
+    `  ${pad('земля под курсором на месте', 52)}${padL(cursorSlip === null ? 'не знаю' : `${cursorSlip.toFixed(2)} мира`, 22)}   ждали 0`,
+  );
+  console.log(
+    `  ${pad('колесо до упора: пол и потолок', 52)}${padL(`${camFloor.dist.toFixed(2)} и ${camCeil.dist.toFixed(2)}`, 22)}   ждали ${camFloor.min.toFixed(2)} и ${camCeil.max.toFixed(2)}`,
+  );
+  console.log(
+    `  ${pad('ведение с зажатой кнопкой', 52)}${padL(`деревня на ${dragMoved.toFixed(1)}`, 22)}   панель: ${dragOpened === null ? 'не открылась' : label(dragOpened, aim.id)}`,
+  );
+  console.log(`  ${pad('клик по постройке', 52)}${padL(label(clickOpened, aim.id), 22)}`);
   console.log('');
 }
 

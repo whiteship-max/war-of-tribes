@@ -58,7 +58,7 @@ import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { ActionMenu } from './ActionMenu';
-import { Gesture, swallowGhostClick, type Press } from '@/gestures';
+import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -462,8 +462,9 @@ export function WorldMap() {
   };
 
   const onWheel = (e: ReactWheelEvent<HTMLCanvasElement>): void => {
+    // Шаг колеса — общий с деревней (`WHEEL_STEP`): холста два, а мышь одна.
     const rect = e.currentTarget.getBoundingClientRect();
-    applyZoom(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+    applyZoom(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP);
   };
 
   // ---------- Кнопки ----------

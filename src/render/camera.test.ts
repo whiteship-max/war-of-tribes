@@ -129,8 +129,20 @@ describe('поворота у камеры деревни нет', () => {
   });
 
   it('приближение зажато полом и потолком в одном месте', () => {
-    // Раньше это делал `controls.update()`; теперь — сам щипок по `zoomRange`.
+    // Раньше это делал `controls.update()`; теперь — `zoomTo` по `zoomRange`, и
+    // ходят через него оба: щипок пальцами и колесо мыши.
     expect(scene).toMatch(/this\.zoom = zoom;/);
-    expect(scene).toMatch(/Math\.min\(Math\.max\(want, this\.zoom\.min\), this\.zoom\.max\)/);
+    expect(scene).toMatch(/Math\.min\(Math\.max\(this\.dist \* k, this\.zoom\.min\), this\.zoom\.max\)/);
+  });
+
+  it('наезд идёт к точке под курсором, а не в середину экрана', () => {
+    // То же правило, что у панорамы и что у карты (`zoomAt` в ui/map/grid.ts):
+    // земля под курсором остаётся под ним. Считается это тем же лучом.
+    expect(scene).toMatch(/private zoomTo\(sx: number, sy: number, k: number\): void \{/);
+    expect(scene).toMatch(/const before = this\.groundAt\(sx, sy\);/);
+    expect(scene).toMatch(/const after = this\.groundAt\(sx, sy\);/);
+    // И колесо, и щипок — через него: второго способа приблизить сцену нет.
+    expect(scene).toMatch(/this\.zoomTo\(e\.clientX, e\.clientY,/);
+    expect(scene).toMatch(/this\.zoomTo\(mx, my, prev\.dist \/ dist\)/);
   });
 });

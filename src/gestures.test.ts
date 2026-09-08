@@ -14,6 +14,7 @@ import {
   TAP_MS,
   TAP_SLIP,
   TAP_TARGET,
+  WHEEL_STEP,
   swallowGhostClick,
 } from './gestures';
 
@@ -319,5 +320,48 @@ describe('оба холста глотают свой щелчок', () => {
 
   it('карта', () => {
     expect(map).toMatch(/swallowGhostClick\(\)/);
+  });
+});
+
+describe('колесо мыши — одно на оба холста', () => {
+  /*
+   * Мышь у игры одна, холста два, и это ровно тот случай, на котором мы уже
+   * обожглись с разбором жеста. Проверка по исходнику: своё число шага вместо
+   * общего — правка одной строки, и заметить её можно только сравнив два
+   * холста руками.
+   *
+   * Отдельно проверяется, что колесо в деревне вообще есть. Его обрабатывал
+   * `OrbitControls`, и вместе с ним оно пропало молча: на телефоне щипок
+   * работал, а на ПК деревня перестала приближаться совсем.
+   */
+  const strip = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const scene = strip(readFileSync(new URL('./render/Scene.ts', import.meta.url), 'utf8'));
+  const map = strip(readFileSync(new URL('./ui/map/WorldMap.tsx', import.meta.url), 'utf8'));
+
+  it('шаг — заметный, но не прыжок', () => {
+    expect(WHEEL_STEP).toBeGreaterThan(1.05);
+    expect(WHEEL_STEP).toBeLessThan(1.5);
+  });
+
+  it('в деревне колесо слушают и отпускают', () => {
+    expect(scene).toMatch(/addEventListener\('wheel', this\.onWheel/);
+    expect(scene).toMatch(/removeEventListener\('wheel', this\.onWheel\)/);
+  });
+
+  it('оба холста берут шаг отсюда, а не пишут своё число', () => {
+    expect(scene).toMatch(/WHEEL_STEP/);
+    expect(map).toMatch(/WHEEL_STEP/);
+    expect(scene).not.toMatch(/1\.12/);
+    expect(map).not.toMatch(/1\.12/);
+  });
+
+  it('оба читают знак колеса, а не его величину', () => {
+    // `deltaMode` бывает в пикселях, строках и страницах: на одном колесе это
+    // даёт наезд, отличающийся в разы.
+    expect(scene).toMatch(/deltaY < 0/);
+    expect(map).toMatch(/deltaY < 0/);
+    expect(scene).not.toMatch(/deltaMode/);
+    expect(map).not.toMatch(/deltaMode/);
   });
 });

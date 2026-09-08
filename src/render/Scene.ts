@@ -44,7 +44,7 @@ import {
 } from './lighting';
 import { PALETTE } from './palette';
 import { disposeGeometries } from './kit';
-import { Gesture, Press, TAP_TARGET, swallowGhostClick } from '@/gestures';
+import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/gestures';
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { AZIMUTH, PAN_STEP_MAX, clampPan, framing, zoomRange } from './camera';
 import { FrameLoop } from './loop';
@@ -245,8 +245,15 @@ export class TribeScene {
   private touch = new Gesture();
   /** Пальцы на холсте: положение каждого. Из них и складывается щипок. */
   private pointers = new Map<number, { x: number; y: number }>();
-  /** Прошлый шаг щипка: расстояние между пальцами. Середина не нужна — она поворачивала. */
-  private pinch: { dist: number } | null = null;
+  /**
+   * Прошлый шаг щипка: расстояние между пальцами и середина между ними.
+   *
+   * Середина вернулась, но за другим делом. Раньше её сдвиг **поворачивал**
+   * сцену — с этим и покончено; теперь за ней, как на карте, едет земля, а
+   * приближение идёт к ней же. Правило у обоих холстов одно: щиплют туда, куда
+   * смотрят.
+   */
+  private pinch: { dist: number; mx: number; my: number } | null = null;
   /** Где была середина посёлка на экране в начале касания — для журнала касаний. */
   private driftFrom: { x: number; y: number } | null = null;
   /** Сколько пальцев побывало на холсте за этот жест. Тоже журналу. */
@@ -354,6 +361,12 @@ export class TribeScene {
     // система забирает графическую память у фонового вебвью и отдаёт обратно.
     canvas.addEventListener('webglcontextlost', this.onContextLost);
     canvas.addEventListener('webglcontextrestored', this.onContextRestored);
+    // Колесо мыши. Его обрабатывал `OrbitControls`, и вместе с ним оно и
+    // пропало: щипок мы написали, а колесо — нет, и на ПК деревня перестала
+    // приближаться вовсе. Пассивный слушатель — как у карты: страницу под
+    // холстом никто не прокручивает, а `preventDefault` React на своём колесе
+    // всё равно не даёт.
+    canvas.addEventListener('wheel', this.onWheel, { passive: true });
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerup', this.onPointerUp);
@@ -713,6 +726,7 @@ export class TribeScene {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.canvas.removeEventListener('wheel', this.onWheel);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
@@ -843,24 +857,65 @@ export class TribeScene {
   }
 
   /**
-   * Два пальца — только приближение.
+   * Приближение к точке экрана: земля под ней остаётся под ней.
    *
-   * Раньше тот же жест ещё и поворачивал сцену (`TOUCH.DOLLY_ROTATE` у
-   * `OrbitControls`), и это было его бедой: щипок и поворот живут на одном
-   * движении пальцев, поэтому наезд постоянно сбивал ракурс. Поворота больше
-   * нет ни здесь, ни где-либо ещё — середина между пальцами не считается вовсе,
-   * а пол с потолком приближения приходят из `zoomRange`.
+   * То же правило, что у панорамы, и та же мерка: берём землю под курсором,
+   * меняем расстояние, возвращаем землю на место. На карте это `zoomAt`
+   * (`ui/map/grid.ts`), и расходиться в правилах два холста одной игры не
+   * должны — наезд идёт туда, куда смотрят, а не в середину экрана.
+   *
+   * Пол и потолок — из `zoomRange`, своих чисел здесь нет. Упёрлись в предел —
+   * землю не двигаем вовсе: иначе колесо у самого пола ползало бы по посёлку,
+   * ничего не приближая.
+   */
+  private zoomTo(sx: number, sy: number, k: number): void {
+    const next = Math.min(Math.max(this.dist * k, this.zoom.min), this.zoom.max);
+    if (next === this.dist) return;
+    const before = this.groundAt(sx, sy);
+    this.userMoved = true;
+    this.dist = next;
+    this.place();
+    const after = this.groundAt(sx, sy);
+    if (!before || !after) return;
+    const dx = before.x - after.x;
+    const dz = before.z - after.z;
+    // У горизонта луч ложится почти вдоль земли — такая поправка не движение
+    // курсора, а вырождение расчёта, и её отбрасывают целиком (как в `pan`).
+    if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) > PAN_STEP_MAX) return;
+    this.shift(dx, dz);
+  }
+
+  /**
+   * Колесо мыши: тот же наезд, что щипком, и тем же шагом, что на карте
+   * (`WHEEL_STEP`). Читается только знак `deltaY` — величину браузеры отдают
+   * то в пикселях, то в строках. На деревне колесо делит расстояние до цели,
+   * на карте умножает масштаб; наружу это одно и то же движение.
+   */
+  private onWheel = (e: WheelEvent): void => {
+    if (e.deltaY === 0) return;
+    this.zoomTo(e.clientX, e.clientY, e.deltaY < 0 ? 1 / WHEEL_STEP : WHEEL_STEP);
+  };
+
+  /**
+   * Два пальца: наезд к середине между ними, и земля едет за этой серединой.
+   *
+   * Поворота здесь нет и не будет — раньше сдвиг середины поворачивал сцену
+   * (`TOUCH.DOLLY_ROTATE` у `OrbitControls`), и это было его бедой: щипок и
+   * поворот живут на одном движении пальцев, поэтому наезд постоянно сбивал
+   * ракурс. Теперь середина работает ровно как на карте: за ней тянется земля,
+   * к ней же идёт приближение.
    */
   private pinchZoom(): void {
     const [a, b] = [...this.pointers.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
     const prev = this.pinch;
-    this.pinch = { dist };
-    if (!prev || !(prev.dist > 0) || !(dist > 0)) return;
+    this.pinch = { dist, mx, my };
+    if (!prev) return;
     this.userMoved = true;
-    const want = this.dist * (prev.dist / dist);
-    this.dist = Math.min(Math.max(want, this.zoom.min), this.zoom.max);
-    this.place();
+    this.pan({ x: prev.mx, y: prev.my }, { x: mx, y: my });
+    if (prev.dist > 0 && dist > 0) this.zoomTo(mx, my, prev.dist / dist);
   }
 
   /** Где середина посёлка на экране — мерка «уехала ли картинка» для журнала. */
