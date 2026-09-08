@@ -5,6 +5,8 @@
 // неотстраиваемого, ни одной случайности. Вторая половина гоняет настоящий
 // `LocalWorld` с ручными часами: срок, переполнение, летопись и возвращение
 // после офлайна.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { WORLD_SAVE_VERSION, parseWorldSave, type WorldSave } from './local/state';
@@ -19,7 +21,9 @@ import {
   resolveLetter,
   type LetterCandidate,
 } from './letters';
-import { LETTER_KIND_BY_ID } from './data/letters';
+import { LETTER_KIND_BY_ID, RHUMB_WORDS } from './data/letters';
+import { BARBARIAN_NAMES, PLACE_FIRST, PLACE_SECOND, TRIBE_NAMES } from './data/meta';
+import { rhumbOf } from './geo';
 import {
   LETTER_PAUSE_MAX,
   LETTER_PAUSE_MIN,
@@ -339,6 +343,9 @@ describe('письма в мире', () => {
     expect(raid, 'за четыре часа набег обязан случиться').toBeTruthy();
     const view = (await w.world.letters()).find((x) => x.id === raid?.id);
     expect(view?.choices.length, 'решают на карте, а не в письме').toBe(0);
+    // Выбора в предупреждении нет, а место — есть: набег вышел из чужого двора,
+    // и лупа обязана вести туда же, куда и у решений.
+    expect(view?.from, 'у набега тоже есть источник на карте').toBeTruthy();
     expect(await w.world.answerLetter(raid!.id, 'yes')).toBeTruthy();
   });
 });
@@ -399,5 +406,150 @@ describe('сохранение мира', () => {
 
   it('версия младше четвёртой по-прежнему отбрасывается', () => {
     expect(parseWorldSave(JSON.stringify({ v: 3, seed: 9, home: { x: 1, y: 1 } }))).toBe(null);
+  });
+});
+
+/**
+ * Самое длинное имя поселения, какое вообще может сгенерироваться. Считается из
+ * тех же списков, из которых имена и собирает `generateWorld`, — вписать сюда
+ * строку значило бы, что тест устареет молча при первом же новом слове.
+ */
+function longestName(): string {
+  const longest = (list: string[]): string => list.reduce((a, b) => (b.length > a.length ? b : a));
+  const place = `${longest(PLACE_FIRST)} ${longest(PLACE_SECOND)}`;
+  const capital = `${longest(TRIBE_NAMES.map((t) => t.split(' ').pop() ?? t))}, стан`;
+  return longest([place, capital, longest(BARBARIAN_NAMES)]);
+}
+
+describe('длинные имена', () => {
+  it('в подписи выбора имени нет ни у одного вида писем', () => {
+    const name = longestName();
+    const against = longestName();
+    for (const kind of DECISIONS) {
+      const def = LETTER_KIND_BY_ID[kind];
+      const l = letter({
+        kind,
+        fromName: name,
+        againstId: 's2',
+        againstName: against,
+        men: 12,
+        cost: { food: 40, wood: 40 },
+      });
+      // Плата подставляется коротким знаком нарочно: перечень товаров растёт с
+      // размером просьбы, и укоротить его нельзя — ради него подпись и
+      // переносится. Мерить надо то, что написали мы, а не то, что посчитала игра.
+      const goods = '…';
+      for (const [where, text] of [
+        ['согласие', def.yesHint(l, goods)],
+        ['отказ', def.noHint(l)],
+      ] as const) {
+        expect(text, `${kind}/${where} — подпись не пуста`).not.toBe('');
+        expect(text.includes(name), `${kind}/${where} — имени в подписи выбора нет`).toBe(false);
+        // Кнопка стоит на 360 px и обязана уместиться в две строки.
+        expect(text.length, `${kind}/${where} — подпись короче полусотни знаков`).toBeLessThanOrEqual(52);
+      }
+    }
+  });
+
+  it('имя стоит там, где строка переносится: в теле и в строке молчания', () => {
+    const name = longestName();
+    for (const kind of DECISIONS) {
+      const def = LETTER_KIND_BY_ID[kind];
+      const l = letter({ kind, fromName: name, againstId: 's2', againstName: 'Сосед', men: 3, cost: { food: 9 } });
+      const said = `${def.body(l, 'еда 9')} ${def.silence(l)}`;
+      expect(said.includes(name), `${kind} — кто прислал, сказано словами`).toBe(true);
+    }
+  });
+});
+
+describe('откуда письмо и лупа', () => {
+  it('румб считается от деревни: север — это убывающий y', () => {
+    const home = { x: 100, y: 100 };
+    expect(rhumbOf(home, { x: 100, y: 80 })).toBe(0);
+    expect(rhumbOf(home, { x: 120, y: 80 })).toBe(1);
+    expect(rhumbOf(home, { x: 120, y: 100 })).toBe(2);
+    expect(rhumbOf(home, { x: 100, y: 120 })).toBe(4);
+    expect(rhumbOf(home, { x: 80, y: 100 })).toBe(6);
+    expect(RHUMB_WORDS).toHaveLength(8);
+  });
+
+  it('у письма есть место, и разведанную клетку отдают, а неразведанную — нет', async () => {
+    const w = makeWorld(21);
+    await pulse(w);
+    const l = await waitLetter(w);
+    expect(l.from, 'у соседа есть место на карте').toBeTruthy();
+    expect(l.from!.cells, 'до него считанные клетки').toBeGreaterThan(0);
+
+    // Разведанное отдаётся клеткой, и это та же клетка, что у поселения.
+    const known = l.from!.cell;
+    if (known) {
+      const card = await w.world.settlement(l.fromId);
+      expect(card && card.x === known.x && card.y === known.y, 'клетка та же, что у карточки').toBe(true);
+    }
+
+    // Двор, которого игрок не разведал, места не выдаёт — только румб и даль.
+    const hidden = (await w.world.letters()).map((x) => x.from).filter((f): f is NonNullable<typeof f> => !!f);
+    for (const f of hidden) {
+      if (f.cell) continue;
+      expect(f.cells, 'неразведанному остаются румб и расстояние').toBeGreaterThan(0);
+      expect(RHUMB_WORDS[f.rhumb], 'румб называется словом').toBeTruthy();
+    }
+  });
+
+  it('двор, которого игрок не разведал, места не выдаёт', async () => {
+    const w = makeWorld(21);
+    await pulse(w);
+    const save = (w.world as unknown as { save: WorldSave }).save;
+    const gen = (w.world as unknown as { gen: { settlements: { id: string; x: number; y: number }[] } }).gen;
+    const fog = (w.world as unknown as { fog: { has: (x: number, y: number) => boolean } }).fog;
+    const dark = gen.settlements.find((x) => !fog.has(x.x, x.y));
+    expect(dark, 'разведан не весь мир').toBeTruthy();
+
+    save.letters.push({
+      id: 'L-dark',
+      kind: 'pact',
+      at: w.now(),
+      until: w.now() + LETTER_TTL,
+      fromId: dark!.id,
+      fromName: 'Далёкий двор',
+      cost: {},
+    });
+    const view = (await w.world.letters()).find((x) => x.id === 'L-dark');
+    expect(view, 'письмо на столе').toBeTruthy();
+    expect(view!.from, 'место у него есть').toBeTruthy();
+    expect(view!.from!.cell, 'но клетки неразведанного не отдают').toBe(null);
+    expect(view!.from!.cells, 'остаются румб и расстояние').toBeGreaterThan(0);
+    expect(RHUMB_WORDS[view!.from!.rhumb]).toBeTruthy();
+  });
+
+  it('лупа не отвечает за игрока и не трогает стол', () => {
+    const src = readFileSync(join(__dirname, 'store.ts'), 'utf8');
+    // Именно реализация, а не строка в объявлении стора: `lastIndexOf`.
+    const spot = src.slice(src.lastIndexOf('spotLetter: ('), src.lastIndexOf('leaveMap: ('));
+    expect(spot.length, 'кнопка лупы найдена в сторе').toBeGreaterThan(0);
+    // Ни ответа, ни переписывания стола: письмо всё это время лежит у мира.
+    expect(spot.includes('answerLetter'), 'ответа лупа не даёт').toBe(false);
+    expect(spot.includes('letters:'), 'стол лупа не переписывает').toBe(false);
+    // А возврат обязан вернуть карточку — иначе уход посмотреть стоил бы письма.
+    const back = src.slice(src.lastIndexOf('leaveMap: ('));
+    expect(back.slice(0, 400).includes('openLetter: back'), 'с карты возвращаются к тому же письму').toBe(true);
+  });
+
+  it('уход на карту письма не трогает: ни ответа, ни срока, ни строки в летописи', async () => {
+    const w = makeWorld(21);
+    await pulse(w);
+    const l = await waitLetter(w);
+
+    // Лупа — дело интерфейса: она закрывает карточку и открывает карту. Мир при
+    // этом не спрашивают вовсе, и проверяется это тем, что стол не изменился.
+    const before = await w.world.letters();
+    w.at(w.now() + 60_000);
+    const texts = await pulse(w);
+    const after = await w.world.letters();
+    const same = after.find((x) => x.id === l.id);
+    expect(same, 'письмо на месте').toBeTruthy();
+    expect(same!.until, 'срок идёт как шёл').toBe(l.until);
+    expect(before.length).toBe(after.length);
+    expect(texts.some((t) => t.includes(l.fromName)), 'в летопись ничего не ушло').toBe(false);
   });
 });

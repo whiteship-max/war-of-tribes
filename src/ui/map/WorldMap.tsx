@@ -37,7 +37,7 @@ import {
 } from '@/world/data/tuning';
 import type { Coord, FigureView } from '@/world/types';
 import { formatLeft, secondsLeft } from '@/world/geo';
-import { PALETTE, SCALE_DETAIL, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
+import { PALETTE, SCALE_DETAIL, SCALE_MIN, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
 import {
   type Camera,
   type Viewport,
@@ -46,6 +46,7 @@ import {
   modeFor,
   panBy,
   scaleTo,
+  toScreen,
   toWorld,
   viewRect,
   zoomAt,
@@ -65,6 +66,15 @@ import { Icon } from '@/ui/icons/Icon';
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
 const FREE_CAMERA = freeCamera();
+
+/**
+ * Наводка лупы: сколько клеток тумана вокруг двора заказать и сколько раз
+ * пробовать навестись, пока они едут. Куски приезжают в первую секунду, дюжины
+ * проб хватает с запасом, а больше их быть не должно: недостижимую цель иначе
+ * догоняли бы вечно, перебивая игроку его же панораму.
+ */
+const SPOT_REGION = 24;
+const SPOT_TRIES = 12;
 
 /**
  * Легенда показывает те же силуэты, что и полотно, а не эмодзи: значки стадий с
@@ -121,6 +131,18 @@ export function WorldMap() {
     scale: SCALE_START,
   });
   const placed = useRef(false);
+  /**
+   * Наводка лупы: куда, сколько раз пробовали и удалось ли.
+   *
+   * Проб несколько потому, что с первого раза не выходит: потолок отдаления
+   * считается по **приехавшему** туману, а на первом кадре не приехало ничего —
+   * `reach` нулевой, карту не отпускают никуда, и до соседа в восьми клетках
+   * камера не дотягивается. Куски приезжают в первую секунду, и с каждым
+   * приездом наводка повторяется, пока двор не ляжет в кадр. Число проб
+   * ограничено: недостижимую цель иначе догоняли бы вечно, перебивая игроку
+   * его же панораму.
+   */
+  const spotted = useRef<{ key: string; tries: number; done: boolean } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ dist: number; mx: number; my: number } | null>(null);
   /**
@@ -151,6 +173,8 @@ export function WorldMap() {
   const picked = useWorld((g) => g.picked);
   const anchor = useWorld((g) => g.anchor);
   const setAnchor = useWorld((g) => g.setAnchor);
+  const spotlight = useWorld((g) => g.spotlight);
+  const chunks = useWorld((g) => g.chunks);
   const pickFigure = useWorld((g) => g.pick);
   const moveFigure = useWorld((g) => g.moveFigure);
   const closeMap = useGame((g) => g.closeMap);
@@ -197,6 +221,45 @@ export function WorldMap() {
     setZoomedIn(modeFor(SCALE_START) === 'detail');
     centerOn(info.home);
   }, [info]);
+
+  /**
+   * Лупа из письма: показать двор, приславший гонца.
+   *
+   * Новых прав камере это не даёт. Она по-прежнему привязана к своим и заперта
+   * поводком (`hold`), поэтому до чужого двора дотягиваются единственным
+   * законным способом — отходя: чем он дальше, тем мельче масштаб. Масштаб
+   * поэтому подбирается перебором сверху вниз, а не формулой: в формулу
+   * пришлось бы вписать и поводок, и потолок отдаления, и высоту выезжающей
+   * карточки, и разошлась бы она с ними при первой же правке любого из трёх.
+   *
+   * Не дотянулись — берётся самый дальний из допустимых видов: двор окажется у
+   * кромки, но на экране, и пульс покажет, где именно. Молча оставить камеру на
+   * месте нельзя — кнопка выглядела бы сломанной.
+   */
+  const showSpot = (c: Coord): boolean => {
+    const { w, h } = size.current;
+    const fits = (cand: Camera): boolean => {
+      const [px, py] = toScreen(cand, { w, h }, c.x + 0.5, c.y + 0.5);
+      // Снизу выезжает карточка клетки, сверху стоит шапка карты: годным
+      // считается только то, что легло между ними и не в самую кромку.
+      return px >= 48 && px <= w - 48 && py >= 110 && py <= h * 0.42;
+    };
+    let best: Camera | null = null;
+    let last = cam.current;
+    for (let scale = SCALE_DETAIL; scale > SCALE_MIN; scale /= 1.25) {
+      // Карточка занимает низ экрана, поэтому клетку ставим в верхнюю четверть —
+      // тем же смещением, что и обычный тап по карте (`focusOn`).
+      last = hold({ ...cam.current, scale, cx: c.x + 0.5, cy: c.y + 0.5 + (h * 0.24) / scale });
+      if (fits(last)) {
+        best = last;
+        break;
+      }
+    }
+    cam.current = best ?? last;
+    setZoomedIn(modeFor(cam.current.scale) === 'detail');
+    return best !== null;
+  };
+
 
   // Новый мир — новая земля: испечённое держать нельзя, оно от старого сида.
   const seed = info?.seed ?? 0;
@@ -274,6 +337,46 @@ export function WorldMap() {
     // Полотно живёт весь показ карты: данные оно берёт из стора само.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Лупа из письма наводит камеру. Стоит эффект после кадрового нарочно:
+   * размер полотна меряет он, а до него мерить нечего — `size` до первого
+   * `resize` это единица на единицу, и подобранный по ней масштаб не значил бы
+   * ничего.
+   */
+  useEffect(() => {
+    if (!spotlight || !info || size.current.w <= 1) return;
+    const key = formatCoord(spotlight);
+    if (spotted.current?.key !== key) {
+      spotted.current = { key, tries: 0, done: false };
+      // Камера возвращается к деревне: письмо приходит от соседа, а сосед стоит
+      // в пределах поводка деревни, а не идущей неизвестно где фигуры.
+      placed.current = true;
+      setAnchor('home');
+      // Куски вокруг двора заказываем сами: кадр просит только то, что видит, а
+      // туман вокруг цели нужен раньше, чем камера туда доедет.
+      useWorld.getState().ensureRegion({
+        x: spotlight.x - SPOT_REGION,
+        y: spotlight.y - SPOT_REGION,
+        w: SPOT_REGION * 2,
+        h: SPOT_REGION * 2,
+      });
+    }
+    const naming = spotted.current;
+    if (!naming.done && naming.tries < SPOT_TRIES) {
+      naming.tries += 1;
+      naming.done = showSpot(spotlight);
+    }
+    // Карточка двора открывается не сразу, а когда приедет кусок карты с ним:
+    // до этого `settlementAt` про поселение не знает, и на месте соседа
+    // открылась бы «пустая земля». Кусок заказан кадром, и приезд его считает
+    // `chunks` — на нём эффект и просыпается второй раз.
+    const g = useWorld.getState();
+    if (g.selected && g.selected.x === spotlight.x && g.selected.y === spotlight.y) return;
+    if (!settlementAt(spotlight.x, spotlight.y)) return;
+    void g.select(spotlight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotlight, info, chunks]);
 
   // ---------- Жесты ----------
 

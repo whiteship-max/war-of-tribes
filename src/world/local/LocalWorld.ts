@@ -39,6 +39,7 @@ import type {
   InterceptPlan,
   Letter,
   LetterAnswerId,
+  LetterFrom,
   LetterView,
   Loot,
   MarchOrder,
@@ -72,6 +73,7 @@ import {
   marchPosition,
   secondsLeft,
   marchSeconds,
+  rhumbOf,
   terrainAt,
   terrainFactor,
   terrainIndex,
@@ -2712,6 +2714,31 @@ export class LocalWorld implements WorldApi {
     return changed;
   }
 
+  /**
+   * Откуда письмо — глазами карты.
+   *
+   * Правило здесь одно и оно про туман: **лупа показывает место, а не сведения.**
+   * Клетка отдаётся только тогда, когда игрок её уже разведал, — иначе кнопка
+   * «показать на карте» открывала бы то, чего он не открывал сам, и правило
+   * «противник узнаёт только визуально» работало бы в одну сторону.
+   * Неразведанный двор при этом не молчит: румб и расстояние знает всякий, к
+   * кому приехал гонец, и письмо говорит их словами, ничего не открывая.
+   *
+   * null означает, что источника на карте нет вовсе: такое бывает у лагеря,
+   * чьего поселения мир не знает. Лупы у такого письма не будет — не
+   * выключенной, а никакой.
+   */
+  private letterFrom(l: Letter): LetterFrom | null {
+    const s = this.byId.get(l.fromId);
+    if (!s) return null;
+    const home = this.save.home;
+    return {
+      cell: this.reveal || this.fog.has(s.x, s.y) ? { x: s.x, y: s.y } : null,
+      rhumb: rhumbOf(home, s),
+      cells: Math.round(distance(home, s)),
+    };
+  }
+
   /** Письмо на столе: к сохранённому добавляется то, что считается при чтении. */
   private letterView(l: Letter, now: number): LetterView {
     const def = LETTER_KIND_BY_ID[l.kind];
@@ -2733,6 +2760,7 @@ export class LocalWorld implements WorldApi {
       title: def.title,
       icon: def.icon,
       body: def.body(l, goods),
+      from: this.letterFrom(l),
       choices,
       seconds: Math.max(0, (l.until - now) / 1000),
       silence: def.silence(l),

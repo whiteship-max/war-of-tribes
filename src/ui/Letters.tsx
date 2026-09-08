@@ -3,6 +3,7 @@ import { useGame } from '@/game/store';
 import { tutorialActive } from '@/game/data/tutorial';
 import { useWorld, worldNow } from '@/world/store';
 import { formatLeft } from '@/world/geo';
+import { RHUMB_WORDS } from '@/world/data/letters';
 import type { LetterView } from '@/world/types';
 import type { GameState } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
@@ -73,7 +74,11 @@ export function Letters() {
             <span className="txt">
               <b>{l.title}</b>
               <small>
-                {l.fromName} · {formatLeft(Math.max(0, (l.until - worldNow()) / 1000))}
+                {/* Имя жмётся многоточием, отсчёт — никогда: в одной строке они
+                    делили место, и на длинном имени срок съедался первым, а он
+                    и есть то, ради чего в столбик смотрят. */}
+                <i className="who">{l.fromName}</i>
+                <em>{formatLeft(Math.max(0, (l.until - worldNow()) / 1000))}</em>
               </small>
             </span>
           </button>
@@ -85,6 +90,38 @@ export function Letters() {
 }
 
 /**
+ * Кто прислал письмо и где он.
+ *
+ * Строка эта — единственное место в письме, где имя стоит нарочно и на виду:
+ * из тела письма его пришлось бы вычитывать, а из подписей выбора оно убрано
+ * совсем (см. правило длинных имён в `world/data/letters.ts`). Имя переносится
+ * на вторую строку и никогда не обрезается — длину его никто не обещал.
+ *
+ * Лупа рядом ведёт на карту. Есть она ровно тогда, когда есть что показать:
+ * клетку мир отдаёт только разведанную. Неразведанный двор не молчит — вместо
+ * лупы стоит румб и расстояние, столько и знает тот, к кому приехал гонец.
+ * Выключенной кнопки тут нет: кнопка, которая не нажимается, — это обещание,
+ * которого никто не давал.
+ */
+function LetterFromLine({ letter, onSpot }: { letter: LetterView; onSpot: () => void }) {
+  const from = letter.from;
+  const where = from && !from.cell ? `${RHUMB_WORDS[from.rhumb]}, ${from.cells} кл. — место не разведано` : null;
+  return (
+    <div className="letter-from">
+      <span className="who">
+        {letter.fromName}
+        {where && <small>{where}</small>}
+      </span>
+      {from?.cell && (
+        <button className="spot" onClick={onSpot} aria-label="Показать на карте">
+          🔍
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * Открытое письмо. Оно всегда показывает три вещи: что предлагают, что даст
  * каждый ответ и **что будет, если промолчать**. Последнее — не украшение:
  * молчание здесь такой же исход, как «да» и «нет», и прятать его значило бы
@@ -92,6 +129,7 @@ export function Letters() {
  */
 function LetterCard({ letter }: { letter: LetterView }) {
   const show = useWorld((g) => g.showLetter);
+  const spot = useWorld((g) => g.spotLetter);
   const answer = useWorld((g) => g.answerLetter);
   const openMap = useGame((g) => g.openMap);
   const openDefense = useGame((g) => g.openDefense);
@@ -104,6 +142,7 @@ function LetterCard({ letter }: { letter: LetterView }) {
           <Icon name={`letter-${letter.kind}`} glyph={letter.icon} />
         </div>
         <h2>{letter.title}</h2>
+        <LetterFromLine letter={letter} onSpot={() => spot(letter.id)} />
         <p>{letter.body}</p>
         <p className="letter-left">
           {/* У решения ждёт гонец, у предупреждения — идёт отряд. Одна строка

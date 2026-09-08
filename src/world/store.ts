@@ -107,6 +107,24 @@ export interface WorldStore {
   /** Какое письмо открыто. null — столбик свёрнут. */
   openLetter: string | null;
   /**
+   * Клетка, на которую игрока привели лупой из письма: карта встаёт на неё и
+   * отмечает пульсом, чтобы взгляд нашёл её сразу.
+   *
+   * Живёт в сторе, а не в полотне, по той же причине, что и якорь камеры:
+   * ставят её из деревни, до того как карта вообще смонтирована.
+   */
+  spotlight: Coord | null;
+  /**
+   * Какое письмо вернуть открытым, когда игрок уйдёт с карты.
+   *
+   * Ушедший смотреть обязан вернуться к тому же письму: лупа не отвечает за
+   * игрока, не считает письмо прочитанным и не трогает его срок — она только
+   * закрывает карточку на время. Письмо всё это время лежит на столе у мира и
+   * живёт своей жизнью; если срок вышел, пока игрок смотрел, вернуть будет
+   * нечего — и тогда не возвращается ничего.
+   */
+  letterBack: string | null;
+  /**
    * Осада деревни. Живёт здесь, а не в состоянии племени, по той же причине,
    * что и походы: считает её мир, а панель показывает мировые часы — они идут
    * между пульсами сами. В племя из неё едет только то, что нужно тику
@@ -182,6 +200,19 @@ export interface WorldStore {
   loadLetters: () => Promise<void>;
   /** Открыть письмо или закрыть открытое (null). */
   showLetter: (id: string | null) => void;
+  /**
+   * Показать на карте того, кто прислал письмо. Карточку письма закрывает, само
+   * письмо не трогает — оно ждёт на столе и откроется снова, когда игрок уйдёт
+   * с карты.
+   */
+  spotLetter: (id: string) => void;
+  /**
+   * Карта закрылась: пульс гаснет, отложенное письмо открывается обратно.
+   * Зовётся не полотном, а подпиской на `mapOpen` (см. ниже): уборка эффекта
+   * при размонтировании для этого не годится — в `StrictMode` она случается
+   * сразу после монтирования, и метка гасла бы, не успев показаться.
+   */
+  leaveMap: () => void;
   /** Ответить на письмо. Возвращает текст ошибки или null. */
   answerLetter: (id: string, answer: 'yes' | 'no') => Promise<string | null>;
   loadReports: () => Promise<void>;
@@ -217,6 +248,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
   tribes: [],
   letters: [],
   openLetter: null,
+  spotlight: null,
+  letterBack: null,
   siege: null,
   now: serverNow(),
   selected: null,
@@ -569,6 +602,28 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   showLetter: (id) => set({ openLetter: id }),
 
+  spotLetter: (id) => {
+    const l = get().letters.find((x) => x.id === id);
+    const cell = l?.from?.cell;
+    // Места нет — показывать нечего, и кнопки в таком письме тоже нет.
+    if (!cell) return;
+    useGame.getState().openMap();
+    // Переход мог и не состояться — карта не открывается поверх идущего
+    // занавеса. Тогда и карточку закрывать не за чем: игрок остался бы разом
+    // без карты и без письма.
+    if (!useGame.getState().mapOpen) return;
+    haptic('light');
+    set({ spotlight: cell, letterBack: id, openLetter: null });
+  },
+
+  leaveMap: () => {
+    const { letterBack, letters } = get();
+    // Письмо могло разрешиться само, пока игрок смотрел карту: возвращать
+    // карточку, у которой кнопки уже ничего не делают, нельзя.
+    const back = letterBack && letters.some((l) => l.id === letterBack) ? letterBack : null;
+    set({ spotlight: null, letterBack: null, openLetter: back });
+  },
+
   answerLetter: async (id, answer) => {
     const err = await worldApi().answerLetter(id, answer);
     if (err) {
@@ -615,6 +670,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
       cardTerrain: null,
       letters: [],
       openLetter: null,
+      spotlight: null,
+      letterBack: null,
       menu: null,
       orders: [],
       chunks: get().chunks + 1,
@@ -710,6 +767,18 @@ export function cameraAnchor(now: number): CameraAnchor | null {
     reach: reachAround(cell.x, cell.y, g.chunks),
   };
 }
+
+/**
+ * Мир слушает, закрылась ли карта.
+ *
+ * Дверь здесь одна и лежит она у мира, а не у игры: `mapOpen` живёт в сторе
+ * племени, а письма — в этом, и знать друг о друге им положено ровно в одну
+ * сторону. Момент закрытия важен: игрок, ушедший смотреть, кто ему написал,
+ * обязан вернуться к тому же письму — иначе лупа наказывала бы за любопытство.
+ */
+useGame.subscribe((g, prev) => {
+  if (prev.mapOpen && !g.mapOpen) useWorld.getState().leaveMap();
+});
 
 /** Клетка в чьём-то обзоре прямо сейчас. */
 export const cellInSight = (discs: SightDisc[], x: number, y: number): boolean => inSight(discs, x + 0.5, y + 0.5);

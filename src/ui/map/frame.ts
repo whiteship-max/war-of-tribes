@@ -11,7 +11,7 @@ import { useWorld, worldNow } from '@/world/store';
 import { loadedIn } from '@/world/cache';
 import { formatLeft, marchPosition, secondsLeft } from '@/world/geo';
 import { RELATION_META } from '@/world/data/meta';
-import type { MarchView, Rect, SettlementView } from '@/world/types';
+import type { Coord, MarchView, Rect, SettlementView } from '@/world/types';
 import { chunkBitmap } from './tiles';
 import { LABEL_FROM, PALETTE } from './const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from './grid';
@@ -155,6 +155,50 @@ function drawMarch(
   ctx.fillText(left, px, py - r - 2);
 }
 
+/**
+ * Пульс на клетке, куда игрока привели лупой из письма.
+ *
+ * Мерка здесь экранная, а не мировая, и это главное: масштаб подбирается под
+ * расстояние, и на дальнем виде клетка — три пикселя. Кольцо в клетку было бы
+ * не видно ровно тогда, когда оно и нужно. Поэтому кольца растут в пикселях и
+ * заметны при любом масштабе.
+ *
+ * Пульс идёт, пока метка стоит, а не гаснет через секунду: игрок приходит сюда
+ * читать карточку и возвращается к ней глазами не раз.
+ */
+function drawSpot(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, c: Coord, now: number): void {
+  const [px, py] = toScreen(cam, vp, c.x + 0.5, c.y + 0.5);
+  // Кольцо рисуется дважды: тёмный след пошире, светлое поверх. Земля под
+  // меткой бывает и травой, и песком, и снегом, и одноцветное кольцо на
+  // светлом читается хуже, чем не нарисованное вовсе.
+  const ring = (r: number, alpha: number): void => {
+    ctx.globalAlpha = alpha * 0.5;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = PALETTE.void;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = GRID.select;
+    ctx.stroke();
+  };
+  ctx.save();
+  // Две волны вполоборота друг к другу: одна всегда близко к середине, и метку
+  // видно в любой момент цикла, а не только на его начале.
+  for (const phase of [0, 0.5]) {
+    const t = ((now % SPOT_MS) / SPOT_MS + phase) % 1;
+    ring(SPOT_R + t * SPOT_GROW, 0.9 * (1 - t));
+  }
+  ring(SPOT_R, 1);
+  ctx.restore();
+}
+
+/** Пульс метки: радиус покоя, насколько разбегается волна и за сколько. */
+const SPOT_R = 20;
+const SPOT_GROW = 26;
+const SPOT_MS = 1600;
+
 // ---------- Кадр ----------
 
 /**
@@ -214,6 +258,9 @@ export function drawFrame(
       drawLabel(ctx, cam, vp, s, near, taken);
     }
   }
+
+  // Метка лупы поверх всего: её и завели затем, чтобы взгляд нашёл её сразу.
+  if (state.spotlight) drawSpot(ctx, cam, vp, state.spotlight, now);
 
   const sel = state.selected;
   if (!sel) return;

@@ -681,10 +681,17 @@ body {
   border-color: var(--accent);
 }
 
+/*
+ * Подсказка выбора переносится, а не жмётся в строку. `nowrap` здесь стоял
+ * потому, что у событий подсказка — это «+40 еды», и она всегда коротка. У
+ * письма же это фраза, и на 360 px она обрезалась на полуслове: игрок читал
+ * «набегов оттуда не…» и не понимал, что подписывает. Обрывок хуже короткой
+ * фразы, а `nowrap` на строке из данных — обещание, которого никто не давал.
+ */
 .modal .opt small {
   color: var(--muted);
   font-size: 12px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .modal .options .btn {
@@ -1480,12 +1487,100 @@ body {
   text-overflow: ellipsis;
 }
 
+/*
+ * Имя и срок — две ячейки, а не одна строка. В одной строке они делили место,
+ * и на длинном имени («Логово разбойников») многоточие съедало сначала срок —
+ * то самое, ради чего в столбик и смотрят. Теперь жмётся имя, а отсчёт стоит
+ * целиком всегда.
+ */
 .letter .txt small {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   font-size: 10px;
   color: var(--muted);
+  min-width: 0;
+}
+
+.letter .txt small .who {
+  font-style: normal;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.letter .txt small em {
+  font-style: normal;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text);
+  opacity: 0.75;
+}
+
+/*
+ * От кого письмо. Единственное место, где имя поселения стоит на виду: в теле
+ * его пришлось бы вычитывать, а из подписей выбора оно убрано совсем.
+ * Переносится и не обрезается никогда — длину имени задают данные, а не мы.
+ */
+.letter-card .letter-from {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  text-align: left;
+}
+
+.letter-card .letter-from .who {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Неразведанное место: румб и расстояние вместо лупы — и сказано об этом прямо. */
+.letter-card .letter-from .who small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.letter-card .letter-from .spot {
+  flex-shrink: 0;
+  width: var(--tap);
+  height: var(--tap);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.letter-card .letter-from .spot:active {
+  border-color: var(--accent);
+}
+
+/*
+ * Подпись выбора у письма стоит под названием кнопки, а не справа от него.
+ * Справа помещается «+40 еды», а не фраза с условием: на 360 px на строку
+ * остаётся около двухсот пикселей, и предложение в них не входит никогда.
+ */
+.letter-card .opt {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.letter-card .opt small {
+  line-height: 1.35;
 }
 
 /* Сколько ждёт гонец — крупно: срок здесь такая же часть выбора, как цена. */
