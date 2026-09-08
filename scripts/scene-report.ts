@@ -23,12 +23,12 @@
  * performance.memory округлён и разницу не поймать) и --js-flags=--expose-gc
  * (иначе «улеглось» — это надежда, а не факт).
  */
-import { spawn } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
+import { launchChrome, sleep, Tab } from './lib/chrome';
 import { generateWorld } from '../src/world/gen';
 
 const DIST = fileURLToPath(new URL('../dist', import.meta.url));
@@ -63,107 +63,6 @@ function serveDist(): Server {
       res.end();
     }
   }).listen(PORT);
-}
-
-function chromePath(): string {
-  if (process.env.CHROME) return process.env.CHROME;
-  const guesses = [
-    'C:/Program Files/Google/Chrome/Application/chrome.exe',
-    'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-    `${process.env.LOCALAPPDATA ?? ''}/Google/Chrome/Application/chrome.exe`,
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-  ];
-  const found = guesses.find((p) => p && existsSync(p));
-  if (!found) throw new Error('не нашёл Chrome — укажи путь в CHROME=');
-  return found;
-}
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
-/** Тонкий клиент CDP: одного соединения с вкладкой хватает на весь замер. */
-class Tab {
-  private id = 0;
-  private waiting = new Map<number, { ok: (v: unknown) => void; bad: (e: Error) => void }>();
-
-  private constructor(private ws: WebSocket) {
-    ws.addEventListener('message', (e) => {
-      const msg = JSON.parse(String(e.data)) as {
-        id?: number;
-        method?: string;
-        params?: { exceptionDetails?: { text: string; exception?: { description?: string } } };
-        result?: unknown;
-        error?: { message: string };
-      };
-      // Упавшее в странице обязано быть видно: молча падающая сцена выглядит как
-      // «переход не кончился», и причину пришлось бы искать вслепую.
-      if (msg.method === 'Runtime.exceptionThrown') {
-        const d = msg.params?.exceptionDetails;
-        console.error('  в странице:', d?.exception?.description ?? d?.text);
-      }
-      if (msg.id === undefined) return;
-      const slot = this.waiting.get(msg.id);
-      if (!slot) return;
-      this.waiting.delete(msg.id);
-      if (msg.error) slot.bad(new Error(msg.error.message));
-      else slot.ok(msg.result);
-    });
-  }
-
-  static async open(wsUrl: string): Promise<Tab> {
-    const ws = new WebSocket(wsUrl);
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener('open', () => resolve(), { once: true });
-      ws.addEventListener('error', () => reject(new Error('не открылось соединение с вкладкой')), { once: true });
-    });
-    return new Tab(ws);
-  }
-
-  send<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    const id = ++this.id;
-    return new Promise<T>((ok, bad) => {
-      this.waiting.set(id, { ok: ok as (v: unknown) => void, bad });
-      this.ws.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  /** Выполняет выражение на странице и отдаёт разобранный JSON. */
-  async eval<T>(expression: string): Promise<T> {
-    const r = await this.send<{
-      result: { value?: string };
-      exceptionDetails?: { text: string; exception?: { description?: string } };
-    }>('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-    if (r.exceptionDetails) {
-      throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
-    }
-    return JSON.parse(r.result.value ?? 'null') as T;
-  }
-
-  /**
-   * Сколько объектов этого класса ещё живо. Единственный честный ответ на вопрос
-   * «утекает ли»: куча растёт и от кэшей, а вот вторая живая диорама — это уже
-   * утечка и ничто другое. Так и нашлась та, что жила в игре всё время.
-   */
-  async alive(expression: string): Promise<number> {
-    const proto = await this.send<{ result: { objectId?: string } }>('Runtime.evaluate', {
-      expression: `${expression}.constructor.prototype`,
-    });
-    if (!proto.result.objectId) return -1;
-    const found = await this.send<{ objects: { objectId: string } }>('Runtime.queryObjects', {
-      prototypeObjectId: proto.result.objectId,
-    });
-    const n = await this.send<{ result: { value?: number } }>('Runtime.callFunctionOn', {
-      objectId: found.objects.objectId,
-      functionDeclaration: 'function () { return this.length; }',
-      returnByValue: true,
-    });
-    return n.result.value ?? -1;
-  }
-
-  close(): void {
-    this.ws.close();
-  }
 }
 
 /**
@@ -236,32 +135,12 @@ const ms = (v: number): string => Math.round(v).toString();
 const median = (a: number[]): number => [...a].sort((x, y) => x - y)[a.length >> 1];
 
 async function run(): Promise<Probe> {
-  const profile = join(process.env.TEMP ?? '/tmp', `tribe-scene-probe-${Date.now()}`);
-  const chrome = spawn(
-    chromePath(),
-    [
-      `--remote-debugging-port=${DEBUG_PORT}`,
-      `--user-data-dir=${profile}`,
-      ...(process.env.HEAD === '1' ? [] : ['--headless=new']),
-      '--enable-precise-memory-info',
-      '--js-flags=--expose-gc',
-      '--window-size=390,844',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-extensions',
-      '--use-gl=angle',
-      'about:blank',
-    ],
-    { stdio: 'ignore' },
-  );
-  for (let i = 0; i < 80; i++) {
-    try {
-      await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/version`);
-      break;
-    } catch {
-      await sleep(250);
-    }
-  }
+  const chrome = await launchChrome(DEBUG_PORT, [
+    '--enable-precise-memory-info',
+    '--js-flags=--expose-gc',
+    '--window-size=390,844',
+    '--use-gl=angle',
+  ]);
   try {
     return await measure();
   } finally {
@@ -271,15 +150,7 @@ async function run(): Promise<Probe> {
 }
 
 async function measure(): Promise<Probe> {
-  const created = (await (
-    await fetch(
-      `http://127.0.0.1:${DEBUG_PORT}/json/new?${encodeURIComponent(`http://127.0.0.1:${PORT}/?probe=1`)}`,
-      { method: 'PUT' },
-    )
-  ).json()) as { webSocketDebuggerUrl: string; id: string };
-  const tab = await Tab.open(created.webSocketDebuggerUrl);
-  await tab.send('Runtime.enable');
-  await tab.send('Page.enable');
+  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
   // Первый вход на карту бывает раз за сессию: сохранение и мир чистим, иначе
   // мерили бы вторую попытку.
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
@@ -332,7 +203,7 @@ async function measure(): Promise<Probe> {
   out.canvases = (await state()).canvases;
 
   tab.close();
-  await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${created.id}`);
+  await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
   return out;
 }
 

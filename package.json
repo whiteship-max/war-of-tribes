@@ -14,6 +14,7 @@
     "world:report": "vite-node scripts/world-report.ts",
     "raid:report": "vite-node scripts/raid-report.ts",
     "siege:report": "vite-node scripts/siege-report.ts",
+    "tap:report": "vite-node scripts/tap-report.ts",
     "figure:report": "vite-node scripts/figure-report.ts",
     "battle:sweep": "vite-node scripts/battle-sweep.ts",
     "log:report": "vite-node scripts/log-report.ts",
