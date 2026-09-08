@@ -3,7 +3,7 @@ import type { GameState } from './types';
 import { createInitialState } from './state';
 import { tick } from './sim/tick';
 import { resolveEvent } from './sim/actions';
-import { clearSave, loadGame, saveGame, saveLocalNow } from './save';
+import { clearSave, loadGame, saveGame } from './save';
 import {
   advanceTutorial,
   finishTutorial,
@@ -167,7 +167,7 @@ export interface GameStore {
   skipTutorial: () => void;
   /** Отладка: пройти обучение заново. */
   replayTutorial: () => void;
-  save: () => Promise<void>;
+  save: () => void;
   reset: () => void;
 }
 
@@ -304,7 +304,7 @@ export const useGame = create<GameStore>((set, get) => ({
     setTelegramIdentity(state, tgDisplayName(), tgUser()?.photo_url ?? null);
     set({ s: state, ready: true, offlineSeconds, legacyReset: legacy });
     // Старое сохранение к новой партии не подходит: его место сразу занимает новая.
-    if (legacy) void get().save();
+    if (legacy) get().save();
     // Синхронизация начинается после того, как игра уже пошла, и ничего не
     // ждёт: сервер — место складывания прогресса, а не условие запуска. Ей
     // отдают доступ к состоянию, а не наоборот, — иначе импорты замкнулись бы
@@ -321,17 +321,17 @@ export const useGame = create<GameStore>((set, get) => ({
       advanceTutorial(s, tutorialUi(get()));
       set({ s: { ...s } });
     }, TICK_MS);
-    setInterval(() => void get().save(), AUTOSAVE_MS);
+    setInterval(() => get().save(), AUTOSAVE_MS);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void get().save();
+      if (document.visibilityState === 'hidden') get().save();
     });
-    // На выходе пишем синхронно и через save.ts: ключ и формат сохранения знает
-    // только он. Своя копия `setItem` с ключом строкой жила здесь и совпадала с
-    // ним по случайности — до первой правки формата.
+    // На выходе пишем через save.ts: ключ и формат сохранения знает только он.
+    // Своя копия `setItem` с ключом строкой жила здесь и совпадала с ним по
+    // случайности — до первой правки формата.
     window.addEventListener('beforeunload', () => {
       // Вкладка, у которой отняли ведение партии, на выходе не пишет ничего:
       // иначе она затёрла бы ту, которую игрок выбрал (см. net/sync).
-      if (mayWrite()) saveLocalNow(get().s);
+      if (mayWrite()) get().save();
     });
   },
 
@@ -361,7 +361,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (error) get().showToast(error);
     haptic('medium');
     set({ s: { ...s }, eventResult: result });
-    void get().save();
+    get().save();
   },
 
   dismissResult: () => set({ eventResult: null }),
@@ -396,22 +396,22 @@ export const useGame = create<GameStore>((set, get) => ({
     const s = get().s;
     finishTutorial(s);
     set({ s: { ...s } });
-    void get().save();
+    get().save();
   },
 
   replayTutorial: () => {
     const s = get().s;
     restartTutorial(s);
     set({ s: { ...s }, sheet: null });
-    void get().save();
+    get().save();
   },
 
-  save: async () => {
+  save: () => {
     // Ведение партии могла забрать другая вкладка. Тогда эта не пишет вовсе —
     // ни на диск, ни на сервер: молча затирать чужой ход нельзя, а игрок про
     // это уже предупреждён окном.
     if (!mayWrite()) return;
-    await saveGame(get().s);
+    saveGame(get().s);
   },
 
   reset: () => {
@@ -420,6 +420,6 @@ export const useGame = create<GameStore>((set, get) => ({
     mapSeen = false;
     clearSave();
     set({ s: createInitialState(), sheet: null, eventResult: null, offlineSeconds: 0 });
-    void get().save();
+    get().save();
   },
 }));

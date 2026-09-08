@@ -72,7 +72,7 @@ export function ProfilePanel() {
 
   const commitRename = (): void => {
     act((st) => setName(st, draft));
-    void save();
+    save();
     setRenaming(false);
   };
 

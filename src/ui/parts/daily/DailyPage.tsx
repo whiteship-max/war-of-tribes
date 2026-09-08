@@ -74,7 +74,7 @@ export function DailyPage() {
     // пятнадцать секунд, и всё это время закрытая начисто игра возвращала бы
     // попытку обратно — ровно та лазейка, ради которой попытка и тратится
     // на старте, а не на победе.
-    void save();
+    save();
   };
 
   // Итог уходит в симуляцию, и она же решает, давать ли награду: кнопке здесь не
@@ -88,7 +88,7 @@ export function DailyPage() {
   const done = (won: boolean): void => {
     act((g) => finishDaily(g, day, won));
     setResult(won);
-    void save();
+    save();
   };
 
   return (

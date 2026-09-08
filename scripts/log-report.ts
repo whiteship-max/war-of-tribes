@@ -1,7 +1,7 @@
 // Летопись: сколько записей копится за партию и во что это обходится сохранению.
 //
 // Нужен затем же, зачем `pop:report` нужен населению: обрезка летописи — это
-// компромисс между «игрок видит историю» и «сохранение влезает в CloudStorage»,
+// компромисс между «игрок видит историю» и «сохранение остаётся небольшим»,
 // и на глаз его не подобрать. Меняешь LOG_MAX_DAYS или LOG_MAX в sim/log.ts —
 // смотри отчёт.
 //
@@ -36,8 +36,8 @@ import { BUILDING_BY_ID } from '@/game/data/buildings';
 const HOURS = Number(process.env.HOURS ?? 3);
 const STEP = Number(process.env.STEP ?? 15);
 
-/** Лимит одного значения Telegram CloudStorage — см. CHUNK в telegram/webapp.ts. */
-const CLOUD_CHUNK = 4000;
+/** Предел тела запроса к серверу хранения — см. MAX_BODY_BYTES в netlify/lib/http.ts. */
+const BODY_LIMIT = 512 * 1024;
 
 const SHARE: [JobId, number][] = [
   ['woodcutter', 0.22],
@@ -91,8 +91,8 @@ function build(s: GameState): void {
 
 /**
  * Размер строки в байтах UTF-8 (столько уедет по сети и столько займёт файл) и
- * в кодовых единицах UTF-16 (столько считает localStorage и CloudStorage).
- * Для кириллицы это вдвое разные числа, и путать их нельзя.
+ * в кодовых единицах UTF-16 (столько считает localStorage). Для кириллицы это
+ * вдвое разные числа, и путать их нельзя.
  */
 const bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
 const kb = (n: number): string => `${(n / 1024).toFixed(1)} КБ`;
@@ -112,7 +112,7 @@ function report(title: string, s: GameState): void {
   console.log(`  летопись               ${kb(bytes(logJson))} utf-8 · ${logJson.length} символов`);
   console.log(`  всё сохранение         ${kb(bytes(whole))} utf-8 · ${whole.length} символов`);
   console.log(`  доля летописи          ${((logJson.length / whole.length) * 100).toFixed(0)}%`);
-  console.log(`  чанков CloudStorage    ${Math.ceil(whole.length / CLOUD_CHUNK)} по ${CLOUD_CHUNK} символов`);
+  console.log(`  доля предела сервера   ${((bytes(whole) / BODY_LIMIT) * 100).toFixed(1)}% от ${kb(BODY_LIMIT)}`);
   // Во что обойдётся запасной предел, если в него упрутся. Считается от
   // измеренного размера записи этой же партии, а не от числа на глаз.
   if (perEntry > 0) {
@@ -120,7 +120,7 @@ function report(title: string, s: GameState): void {
     const worstChars = (logJson.length / s.log.length) * LOG_MAX;
     console.log(
       `  предел ${LOG_MAX} записей     ${kb(worst)} utf-8 · ${Math.round(worstChars)} символов · ` +
-        `${Math.ceil((whole.length - logJson.length + worstChars) / CLOUD_CHUNK)} чанков`,
+        `${((bytes(whole) - bytes(logJson) + worst) / BODY_LIMIT * 100).toFixed(1)}% предела сервера`,
     );
   }
   console.log(`  записей в игровой день ${perDay(s).toFixed(1)}, в самый плотный день ${peakDay(s)}`);
@@ -243,8 +243,8 @@ function main(): void {
   // заказов одного товара стоит теперь двух строк вместо двадцати четырёх. Но на
   // рынке высокого уровня товаров на прилавке дюжина, и племя, каждый день
   // берущее всё, пишет ~13 строк в день — на месяц надо ~400, а предел 250.
-  // Выбор между «поднять предел» (сохранение растёт на ~28 КБ, а оно уезжает в
-  // CloudStorage каждые пятнадцать секунд) и «рынок должен писать короче» —
+  // Выбор между «поднять предел» (сохранение растёт на ~28 КБ, а оно уезжает на
+  // сервер раз в минуту) и «рынок должен писать короче» —
   // решение владельца баланса, а не обрезки: и то, и другое здесь видно числами.
   const trader = play(HOURS * 3, false, true);
   report(`Торговое племя, ${HOURS * 3} ч подряд (заказы каждый день):`, trader);

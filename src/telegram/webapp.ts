@@ -2,8 +2,17 @@
 
 import { sceneLog } from '@/scenelog';
 
-interface TgCloudStorage {
-  setItem(key: string, value: string, cb?: (err: Error | null, ok?: boolean) => void): void;
+/**
+ * Облако Telegram — **только чтение, и только для подъёма старой партии**
+ * (`telegram/cloud-rescue.ts`). Хранилищем оно быть перестало: мест хранения
+ * два — устройство и наш сервер.
+ *
+ * `setItem` здесь нет нарочно, и это не забывчивость. Телеграм его отдаёт, а
+ * тип — нет: пока его нет в типе, `cloudSet` нельзя написать обратно случайно,
+ * попутно, «на всякий случай» — это ошибка компиляции. Возвращать его надо
+ * решением, а не правкой одной строки.
+ */
+interface TgCloudStorageRead {
   getItem(key: string, cb: (err: Error | null, value?: string) => void): void;
 }
 
@@ -83,7 +92,7 @@ export interface TelegramWebApp {
   setBackgroundColor?(color: string): void;
   disableVerticalSwipes?(): void;
   requestFullscreen?(): void;
-  CloudStorage?: TgCloudStorage;
+  CloudStorage?: TgCloudStorageRead;
   isVersionAtLeast?(v: string): boolean;
   HapticFeedback?: TgHaptic;
   onEvent?(event: string, cb: () => void): void;
@@ -399,50 +408,4 @@ export async function shareLink(url: string, text: string): Promise<ShareResult>
   } catch {
     return 'none';
   }
-}
-
-const CHUNK = 4000; // лимит значения CloudStorage — 4096 символов
-
-const cloud = (): TgCloudStorage | undefined => {
-  const app = tg();
-  if (!app?.CloudStorage || !app.isVersionAtLeast?.('6.9')) return undefined;
-  return app.CloudStorage;
-};
-
-export async function cloudSet(key: string, value: string): Promise<boolean> {
-  const cs = cloud();
-  if (!cs) return false;
-  const parts: string[] = [];
-  for (let i = 0; i < value.length; i += CHUNK) parts.push(value.slice(i, i + CHUNK));
-  const setOne = (k: string, v: string) =>
-    new Promise<boolean>((resolve) => {
-      try {
-        cs.setItem(k, v, (err, ok) => resolve(!err && Boolean(ok)));
-      } catch {
-        resolve(false);
-      }
-    });
-  const results = await Promise.all([
-    setOne(`${key}:n`, String(parts.length)),
-    ...parts.map((p, i) => setOne(`${key}:${i}`, p)),
-  ]);
-  return results.every(Boolean);
-}
-
-export async function cloudGet(key: string): Promise<string | null> {
-  const cs = cloud();
-  if (!cs) return null;
-  const getOne = (k: string) =>
-    new Promise<string | null>((resolve) => {
-      try {
-        cs.getItem(k, (err, v) => resolve(err || !v ? null : v));
-      } catch {
-        resolve(null);
-      }
-    });
-  const n = Number(await getOne(`${key}:n`));
-  if (!n) return null;
-  const parts = await Promise.all(Array.from({ length: n }, (_, i) => getOne(`${key}:${i}`)));
-  if (parts.some((p) => p === null)) return null;
-  return parts.join('');
 }

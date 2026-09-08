@@ -178,7 +178,7 @@ describe('алмазы', () => {
   const GEM_KEY: [RegExp, string] = [/(^|[^\w$.])gems\s*:/, 'кладёт gems: в объект'];
 
   /**
-   * Ключ сохранения знает только `save.ts` (там же и `saveLocalNow` для выхода
+   * Ключ сохранения знает только `save.ts` (там же и `saveGame` для выхода
    * из игры). Второй слой, пишущий сейв своими руками, обходит и формат, и любой
    * договор о том, чего в сохранении быть не должно.
    */
@@ -243,8 +243,16 @@ describe('алмазы', () => {
       join(root, 'game', 'state.ts'),
       join(root, 'game', 'data', 'gems.ts'),
     ]);
-    // Ключ сейва знает save.ts — и этот тест, где он назван образцом правила.
-    const saveKnows = new Set([join(root, 'game', 'save.ts'), join(root, 'game', 'sim', 'gems.test.ts')]);
+    // Ключ сейва знает save.ts — и два теста: этот, где ключ назван образцом
+    // правила, и `telegram/cloud.test.ts`, который проверяет подъём партии из
+    // облака Telegram, то есть по устройству своему обязан класть и читать
+    // сохранение мимо игры. Замок от этого не слабеет: он стоит от кода,
+    // который поедет игроку, а тесты не едут никуда.
+    const saveKnows = new Set([
+      join(root, 'game', 'save.ts'),
+      join(root, 'game', 'sim', 'gems.test.ts'),
+      join(root, 'telegram', 'cloud.test.ts'),
+    ]);
 
     const guilty: string[] = [];
     for (const f of files) {

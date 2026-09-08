@@ -357,8 +357,8 @@ describe('сборка без звуковых файлов работает м�
   });
 
   it('настройка звука живёт в localStorage, а не в сохранении партии', () => {
-    // Сохранение уезжает в CloudStorage и притащило бы громкость на все
-    // устройства сразу, а звук — настройка устройства, а не племени.
+    // Сохранение уезжает на сервер и притащило бы громкость на все устройства
+    // сразу, а звук — настройка устройства, а не племени.
     const settings = readFileSync(join(SRC, 'sound/settings.ts'), 'utf8');
     expect(settings).toMatch(/localStorage/);
     for (const file of ['sound/village.ts', 'sound/music.ts', 'sound/web.ts']) {

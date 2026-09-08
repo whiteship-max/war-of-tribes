@@ -20,13 +20,13 @@ export function AvatarPicker({ onBack }: { onBack: () => void }) {
 
   const choose = (): void => {
     act((st) => setAvatar(st, pick));
-    void save();
+    save();
     onBack();
   };
 
   const backToPhoto = (): void => {
     act((st) => clearAvatar(st));
-    void save();
+    save();
     onBack();
   };
 
