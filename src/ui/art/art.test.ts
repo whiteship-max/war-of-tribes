@@ -49,16 +49,19 @@ describe('арты: собрано — значит подключено', () =>
     const build = readFileSync(path.join(ROOT, 'scripts', 'build-splash.mjs'), 'utf8');
     const dead = readdirSync(SPLASH_SRC)
       .filter((f) => /\.(png|jpg|jpeg|webp|svg)$/i.test(f))
-      // Скрипт называет исходники по частям: `${p.name}-640.png`, `${BOOT.name}-full.png`.
+      // Скрипт называет исходники по частям: `${p.name}-full.png`, `${BOOT.name}-full.jpg`.
+      // Расширение в счёт не идёт: исходники приходят от художника тем форматом, каким
+      // нарисованы, и перегонять готовый JPEG в PNG ради проверки — семь лишних мегабайт
+      // в репозитории за ноль качества.
       .filter((f) => {
         const stem = f.replace(/\.[a-z]+$/i, '');
         const [name, size] = stem.split('-');
-        return !(build.includes(`'${name}'`) && build.includes(`-${size}.png`));
+        return !(build.includes(`'${name}'`) && build.includes(`-${size}.`));
       });
     expect(dead, 'лежит в assets-src/splash и никем не режется').toEqual([]);
   });
 
   it('занавес в игре ровно один, и его файл на месте', () => {
-    expect(readdirSync(ART).filter((f) => f.startsWith('curtain-'))).toEqual(['curtain-camp.webp']);
+    expect(readdirSync(ART).filter((f) => f.startsWith('curtain-'))).toEqual(['curtain-march.webp']);
   });
 });
