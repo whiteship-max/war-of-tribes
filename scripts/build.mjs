@@ -130,9 +130,14 @@ function verify() {
 /** Опись сборки: по этим именам проверяется, тот ли билд лежит на сайте. */
 function manifest() {
   const git = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
-  const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' });
   const commit = git.status === 0 ? git.stdout.trim() : '?';
-  const clean = dirty.status === 0 && dirty.stdout.trim() === '';
+  // Спрашиваем про содержимое, а не про `git status`: тот на Windows держит файл изменённым,
+  // когда на диске CRLF, а в коммите LF, — при полностью совпадающем тексте. Пометка, которая
+  // горит всегда, ничего не значит, а значить она должна ровно одно: собрано не то, что в коммите.
+  const changed = spawnSync('git', ['diff', '--quiet', 'HEAD', '--'], { cwd: ROOT }).status !== 0;
+  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], { cwd: ROOT, encoding: 'utf8' });
+  const extra = untracked.status === 0 && untracked.stdout.trim() !== '';
+  const clean = !changed && !extra;
 
   // Килобайт здесь — 1000 байт, как их считает сам vite: числа отчёта обязаны сходиться
   // с числами его вывода и с теми, что записаны в CLAUDE.md, иначе сверять их нечем.
