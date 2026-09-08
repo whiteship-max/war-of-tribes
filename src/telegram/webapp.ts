@@ -1,5 +1,7 @@
 // Тонкая обёртка над Telegram WebApp API. Работает и вне Telegram (в браузере).
 
+import { sceneLog } from '@/scenelog';
+
 interface TgCloudStorage {
   setItem(key: string, value: string, cb?: (err: Error | null, ok?: boolean) => void): void;
   getItem(key: string, cb: (err: Error | null, value?: string) => void): void;
@@ -91,6 +93,16 @@ declare global {
 export const tg = (): TelegramWebApp | undefined => window.Telegram?.WebApp;
 
 export const inTelegram = (): boolean => Boolean(tg()?.initDataUnsafe?.user);
+
+/**
+ * Чем игрок играет — одной строкой для отчёта об ошибке. Ветвлений по ней нет и
+ * быть не должно: клиент называет себя как хочет, а игра обязана работать всюду.
+ */
+export function tgAbout(): string {
+  const app = tg();
+  if (!app) return 'вне Telegram';
+  return `${app.platform ?? '?'} ${app.version ?? '?'}`;
+}
 
 // ---------- Вьюпорт ----------
 
@@ -224,10 +236,21 @@ export function initTelegram(): void {
       /* ignore */
     }
   };
-  on('viewportChanged', applyViewport);
+  on('viewportChanged', () => {
+    applyViewport();
+    sceneLog.mark('tg', `вьюпорт ${Math.round(app.viewportHeight)}/${Math.round(app.viewportStableHeight)}`);
+  });
   on('safeAreaChanged', applyViewport);
   on('contentSafeAreaChanged', applyViewport);
   on('fullscreenChanged', applyViewport);
+  // Bot API 8.0: клиент говорит, что аппку свернули и что развернули обратно.
+  // Это ровно тот случай, из-за которого заведён журнал: у старых клиентов
+  // события нет, и тогда о сворачивании расскажет только visibilitychange.
+  on('deactivated', () => sceneLog.mark('tg', 'свернули'));
+  on('activated', () => {
+    sceneLog.mark('tg', 'развернули');
+    applyViewport();
+  });
   on('themeChanged', () => {
     applyTheme();
     applyViewport();

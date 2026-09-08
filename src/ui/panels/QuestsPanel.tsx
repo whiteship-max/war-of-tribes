@@ -5,6 +5,7 @@ import { ACHIEVEMENTS, QUESTS } from '@/game/data/quests';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Chronicle } from '../parts/Chronicle';
 import { DailyPage } from '../parts/daily/DailyPage';
+import { SceneDoctor } from '../parts/SceneDoctor';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 
@@ -107,6 +108,9 @@ function QuestList() {
       <button className="btn ghost wide" onClick={replayTutorial}>
         Пройти обучение заново
       </button>
+      {/* Прибор, а не кнопка починки: жалоба на пропавшую диораму нестабильна, и
+          без журнала с телефона любая правка казалась бы помогшей. */}
+      <SceneDoctor />
       <button
         className="btn danger"
         onClick={() => {

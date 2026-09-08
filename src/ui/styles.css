@@ -3654,3 +3654,88 @@ body.replaying .app > *:not(.canvas-wrap) {
 .siege-note {
   margin-top: 3px;
 }
+
+/* ---------- Прибор: что было со сценой ---------- */
+
+/*
+ * Служебный экран, читаемый с телефона без отладчика: приговор, показания и
+ * журнал происшествий. Он ничего не решает — он показывает; поэтому и выглядит
+ * как записка, а не как панель управления.
+ */
+.doctor {
+  margin: 6px 0 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.doctor-verdict {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+/* Цветом отмечено только то, что и правда поломка: догадкам цвета не положено. */
+.doctor-verdict.v-lost,
+.doctor-verdict.v-zero,
+.doctor-verdict.v-stall,
+.doctor-verdict.v-gone {
+  color: var(--bad);
+}
+
+.doctor-verdict.v-ok {
+  color: var(--good);
+}
+
+.doctor-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.doctor-log {
+  max-height: 210px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  font-size: 11px;
+}
+
+.doctor-line {
+  display: flex;
+  gap: 6px;
+  padding: 1px 0;
+  color: var(--muted);
+}
+
+.doctor-line b {
+  flex: 0 0 62px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.doctor-line span {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.doctor-line i {
+  flex: 0 0 auto;
+  font-style: normal;
+  opacity: 0.7;
+}
+
+.doctor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.doctor-actions .btn {
+  flex: 1 1 30%;
+}
