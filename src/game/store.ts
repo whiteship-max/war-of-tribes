@@ -14,6 +14,7 @@ import {
 import { haptic, tgDisplayName, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
+import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -288,7 +289,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   init: async () => {
     bootStage('save');
-    const { state, offlineSeconds, legacy } = await loadGame({
+    const { state, offlineSeconds, legacy, fresh } = await loadGame({
       // Подсчёт офлайна — не техническая пауза, а «пока тебя не было»: игрок
       // должен видеть, за что он ждёт. Кадр перед счётом обязателен — счёт
       // синхронный и до конца работы браузеру рисовать будет нечем.
@@ -304,6 +305,14 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ s: state, ready: true, offlineSeconds, legacyReset: legacy });
     // Старое сохранение к новой партии не подходит: его место сразу занимает новая.
     if (legacy) void get().save();
+    // Синхронизация начинается после того, как игра уже пошла, и ничего не
+    // ждёт: сервер — место складывания прогресса, а не условие запуска. Ей
+    // отдают доступ к состоянию, а не наоборот, — иначе импорты замкнулись бы
+    // в кольцо.
+    provideGame(() => get().s);
+    // `fresh` — сохранения на диске не было. Тогда серверную партию берут без
+    // вопроса; была своя — спрашивают, какую оставить.
+    void syncBoot(!fresh);
     if (loopStarted) return;
     loopStarted = true;
     setInterval(() => {
@@ -319,7 +328,11 @@ export const useGame = create<GameStore>((set, get) => ({
     // На выходе пишем синхронно и через save.ts: ключ и формат сохранения знает
     // только он. Своя копия `setItem` с ключом строкой жила здесь и совпадала с
     // ним по случайности — до первой правки формата.
-    window.addEventListener('beforeunload', () => saveLocalNow(get().s));
+    window.addEventListener('beforeunload', () => {
+      // Вкладка, у которой отняли ведение партии, на выходе не пишет ничего:
+      // иначе она затёрла бы ту, которую игрок выбрал (см. net/sync).
+      if (mayWrite()) saveLocalNow(get().s);
+    });
   },
 
   act: (fn) => {
@@ -394,6 +407,10 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   save: async () => {
+    // Ведение партии могла забрать другая вкладка. Тогда эта не пишет вовсе —
+    // ни на диск, ни на сервер: молча затирать чужой ход нельзя, а игрок про
+    // это уже предупреждён окном.
+    if (!mayWrite()) return;
     await saveGame(get().s);
   },
 

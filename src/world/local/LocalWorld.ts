@@ -3,6 +3,7 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { seeded } from '@/game/sim/random';
+import { serverNow } from '@/net/clock';
 import {
   FRONT,
   GEAR,
@@ -255,7 +256,7 @@ export class LocalWorld implements WorldApi {
   private reveal: boolean;
 
   constructor(opts: LocalWorldOptions = {}) {
-    this.clock = opts.now ?? (() => Date.now());
+    this.clock = opts.now ?? serverNow;
     this.reveal = opts.reveal ?? false;
     this.storage = opts.storage === undefined ? browserStorage : opts.storage;
     const stored = parseWorldSave(this.storage?.read() ?? null);

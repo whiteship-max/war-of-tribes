@@ -1,6 +1,7 @@
 // Изменяемая часть локального мира: походы, разведданные, следы набегов, отношения.
 // Всё, что нельзя вывести из сида, живёт здесь и сохраняется в localStorage.
 import type { ArmySetup } from '@/battle';
+import { serverNow } from '@/net/clock';
 import type { TroopStack } from '@/game/battle/kinds';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { FogData } from '../fog';
@@ -285,6 +286,13 @@ export interface WorldSave {
 export interface WorldStorage {
   read(): string | null;
   write(json: string): void;
+  /**
+   * Стереть сохранение мира. Необязателен: подменённым хранилищам в тестах
+   * стирать нечего. Нужен одному — переносу партии с другого устройства: там
+   * мира могло не быть вовсе, и чужую деревню нельзя оставлять со здешней
+   * картой.
+   */
+  clear?(): void;
 }
 
 /** Хранилище по умолчанию. В тестах и на сервере подменяется. */
@@ -301,6 +309,13 @@ export const browserStorage: WorldStorage = {
       localStorage.setItem(WORLD_KEY, json);
     } catch {
       /* localStorage может быть недоступен */
+    }
+  },
+  clear() {
+    try {
+      localStorage.removeItem(WORLD_KEY);
+    } catch {
+      /* ignore */
     }
   },
 };
@@ -434,7 +449,7 @@ export function parseWorldSave(json: string | null): WorldSave | null {
     if (data.v < MIN_WORLD_SAVE_VERSION || data.v > WORLD_SAVE_VERSION) return null;
     if (!data.home || typeof data.home.x !== 'number') return null;
     migrateWorldSave(data);
-    const base = createWorldSave(data.seed, data.home, data.allyTribe ?? null, data.createdAt ?? Date.now());
+    const base = createWorldSave(data.seed, data.home, data.allyTribe ?? null, data.createdAt ?? serverNow());
     // Словари фигур мержатся отдельно: иначе новая фигура приедет как undefined —
     // ровно та же причина, по которой так мержатся счётчики в сохранении племени.
     const figures = { ...base.figures, ...(data.figures ?? {}) };

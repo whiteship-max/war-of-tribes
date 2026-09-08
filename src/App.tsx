@@ -22,6 +22,7 @@ import { Letters } from './ui/Letters';
 import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
 import { SceneCurtain } from './ui/SceneCurtain';
+import { SyncModal } from './ui/SyncModal';
 import { WorldPanel } from './ui/panels/WorldPanel';
 import { MarchesPanel } from './ui/panels/MarchesPanel';
 import { BattlePanel } from './ui/panels/BattlePanel';
@@ -154,6 +155,10 @@ export function App() {
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
       <SceneCurtain />
+      {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
+          этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
+          нет — он просто идёт после них. */}
+      <SyncModal />
     </div>
   );
 }

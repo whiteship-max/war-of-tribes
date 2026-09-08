@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { serverNow } from '@/net/clock';
 import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
 import { DAILY_GAME_BY_ID, dayIndex, untilNextDay } from '@/game/data/daily';
@@ -53,7 +54,7 @@ export function DailyPage() {
     return () => cancelAnimationFrame(raf);
   }, [playing]);
 
-  const now = Date.now();
+  const now = serverNow();
   // Пока идёт попытка, день не пересчитывается. Полночь UTC, заставшая игрока
   // посреди лабиринта, иначе сменила бы доску под рукой (сид выводится из дня) и
   // отняла бы победу: `finishDaily` не принял бы итог за день, который не
@@ -65,7 +66,7 @@ export function DailyPage() {
 
   const begin = (): void => {
     setResult(null);
-    const today = dayIndex(Date.now());
+    const today = dayIndex(serverNow());
     if (!act((g) => startDaily(g, today))) return;
     setAttempt(today);
     setPlaying(true);

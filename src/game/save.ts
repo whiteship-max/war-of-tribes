@@ -10,6 +10,7 @@ import { log, trimLog } from './sim/log';
 import type { ProfileState } from '@/profile/types';
 import { refreshCard } from '@/profile/stats';
 import { cloudGet, cloudSet } from '@/telegram/webapp';
+import { serverNow } from '@/net/clock';
 
 const KEY = 'tribe.save.v1';
 
@@ -23,7 +24,7 @@ const KEY = 'tribe.save.v1';
 export const MIN_SAVE_VERSION = 8;
 
 export function serialize(s: GameState): string {
-  return JSON.stringify({ ...s, lastSaved: Date.now() });
+  return JSON.stringify({ ...s, lastSaved: serverNow() });
 }
 
 type SavedState = Partial<GameState> & { version?: number };
@@ -193,32 +194,59 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   } catch {
     /* ignore */
   }
-  const cloud = await cloudGet(KEY);
-  // Берём более свежее сохранение.
-  const pickNewer = (a: string | null, b: string | null): string | null => {
-    if (!a) return b;
-    if (!b) return a;
-    const ta = deserialize(a)?.lastSaved ?? 0;
-    const tb = deserialize(b)?.lastSaved ?? 0;
-    return tb > ta ? b : a;
-  };
-  const chosen = pickNewer(json, cloud);
+  // Облако Telegram спрашивают только тогда, когда своей копии на устройстве
+  // нет вовсе. Два повода, и оба важные.
+  //
+  // Первый — правило «за игрока молча не выбирают». Раньше здесь бралось более
+  // свежее из двух, и это был тихий выбор между двумя живыми партиями: копия с
+  // другого устройства, записанная минутой позже, отменяла вечер игры на этом.
+  // Тем же ходом она отменяла бы и решение игрока в окне расхождения — то самое,
+  // где он только что выбрал партию руками. Теперь рабочая копия одна: та, что
+  // на устройстве. Расхождение двух живых партий разбирает слой синхронизации
+  // (`net/sync`), и разбирает вопросом, а не сравнением отметок времени.
+  //
+  // Второй — запуск. `cloudGet` это сеть, и раньше её ждал каждый заход в игру.
+  // Теперь её ждёт только тот случай, ради которого она и нужна: данные браузера
+  // почистили, а сервер недоступен или его ещё нет.
+  const cloud = json ? null : await cloudGet(KEY);
+  const chosen = json ?? cloud;
   const state = chosen ? deserialize(chosen) : null;
   if (!state) {
     // Что-то лежало, но прочитать это нельзя — старый формат. Молча стирать
     // прогресс нельзя: игроку об этом скажет отдельное окно.
-    const legacy = Boolean(json || cloud);
+    const legacy = Boolean(chosen);
     if (legacy) clearSave();
     return { state: createInitialState(), offlineSeconds: 0, fresh: true, legacy };
   }
 
-  const elapsed = Math.max(0, Math.floor((Date.now() - state.lastSaved) / 1000));
+  const elapsed = Math.max(0, Math.floor((serverNow() - state.lastSaved) / 1000));
   const offline = Math.min(elapsed, MAX_OFFLINE_SECONDS);
   if (offline > 5) {
     await hooks.onOffline?.(offline);
     catchUp(state, offline, 2);
   }
   return { state, offlineSeconds: offline, fresh: false, legacy: false };
+}
+
+/**
+ * Положить на диск чужое сохранение — то, что приехало с сервера, когда игрок
+ * выбрал партию с другого устройства.
+ *
+ * Живёт здесь по той же причине, по какой здесь живёт `saveLocalNow`: ключ и
+ * формат сохранения знает один файл. Строка при этом не принимается на слово —
+ * она сперва разбирается: положить на диск то, что игра потом не прочтёт,
+ * значит потерять и её, и ту партию, которую она заменила.
+ *
+ * Возвращает `false`, если строка не разобралась. Тогда ничего не записано.
+ */
+export function adoptSave(json: string): boolean {
+  if (!deserialize(json)) return false;
+  try {
+    localStorage.setItem(KEY, json);
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 export function clearSave(): void {

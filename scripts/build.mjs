@@ -42,6 +42,10 @@ const bin = (...parts) => path.join(ROOT, 'node_modules', ...parts);
 const STAGES = [
   { name: 'значки', args: [bin('vite-node', 'vite-node.mjs'), 'scripts/build-icons.ts'] },
   { name: 'типы', args: [bin('typescript', 'bin', 'tsc'), '--noEmit'] },
+  // Функции лежат вне src и своим проектом: у них Node без DOM. Без этой
+  // ступени серверная часть уезжала бы на хостинг непроверенной — её собирает
+  // esbuild, а он типов не смотрит.
+  { name: 'типы сервера', args: [bin('typescript', 'bin', 'tsc'), '-p', 'netlify', '--noEmit'] },
   { name: 'бандл', args: [bin('vite', 'bin', 'vite.js'), 'build'] },
 ];
 

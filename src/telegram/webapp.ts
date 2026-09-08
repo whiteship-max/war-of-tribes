@@ -65,6 +65,12 @@ export interface TelegramWebApp {
   safeAreaInset?: TgInset;
   /** Bot API 8.0: отступ от шапки мини-аппки внутри безопасной зоны. */
   contentSafeAreaInset?: TgInset;
+  /**
+   * Строка запуска как есть — подписанная Telegram. Проверить её может только
+   * тот, у кого есть токен бота, то есть сервер; клиент её не разбирает и
+   * ничему в ней не верит, он её только передаёт.
+   */
+  initData?: string;
   initDataUnsafe?: TgInitDataUnsafe;
   /** Версия Bot API клиента и платформа — для отчёта об ошибке, не для ветвлений. */
   version?: string;
@@ -325,6 +331,19 @@ export function tgDisplayName(): string | null {
   if (!u) return null;
   const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
   return name.length > 0 ? name : null;
+}
+
+/**
+ * Подписанная строка запуска — то единственное, чем игрок доказывает серверу,
+ * кто он. Отдаётся как есть и только тому, кто её отправит: разбирать её здесь
+ * незачем, а верить разобранному — нельзя.
+ *
+ * Пусто — играют вне Telegram. Тогда серверного сохранения нет вовсе, и
+ * подставлять что-нибудь вместо подписи нельзя (сравни с `tgUserId`).
+ */
+export function tgInitData(): string | null {
+  const raw = tg()?.initData;
+  return typeof raw === 'string' && raw.length > 0 ? raw : null;
 }
 
 /** Идентификатор игрока. Есть только внутри Telegram; выдумывать замену нельзя. */

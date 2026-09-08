@@ -8,7 +8,7 @@
     "build": "node scripts/build.mjs",
     "preview": "vite preview --host",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p netlify --noEmit",
     "battle:report": "vite-node scripts/battle-report.ts",
     "pop:report": "vite-node scripts/pop-report.ts",
     "world:report": "vite-node scripts/world-report.ts",
@@ -25,12 +25,14 @@
     "icons:build": "vite-node scripts/build-icons.ts"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "three": "^0.170.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@netlify/functions": "^6.0.0",
     "@types/node": "^26.4.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

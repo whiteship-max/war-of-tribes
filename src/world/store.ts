@@ -2,6 +2,7 @@
 // компоненты читают этот стор, а он ходит в worldApi(). Ни один экран не знает,
 // что за интерфейсом сейчас стоит LocalWorld.
 import { create } from 'zustand';
+import { serverNow } from '@/net/clock';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
 import { revealWorld } from '@/debug';
@@ -190,11 +191,18 @@ export interface WorldStore {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
-/** Поправка часов мира к местным. У локального мира она нулевая, у сервера — нет. */
+/**
+ * Поправка часов мира к нашим. У локального мира она нулевая — он и живёт по
+ * тем же часам (`serverNow`), — у настоящего сервера мира будет своя.
+ *
+ * Поправок две и складываются они нарочно: `serverNow` правит часы устройства
+ * по серверу хранения, а эта — часы мира по часам мира. Сводить их в одну
+ * нельзя: обновляются они врозь, и общая начала бы дёргаться от каждого пульса.
+ */
 let clockOffset = 0;
 
 /** Время мира прямо сейчас: таймеры походов идут между пульсами. */
-export const worldNow = (): number => Date.now() + clockOffset;
+export const worldNow = (): number => serverNow() + clockOffset;
 
 export const useWorld = create<WorldStore>((set, get) => ({
   ready: false,
@@ -210,7 +218,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   letters: [],
   openLetter: null,
   siege: null,
-  now: Date.now(),
+  now: serverNow(),
   selected: null,
   card: null,
   cardTerrain: null,
@@ -258,7 +266,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       if (get().reports.length > 0) void get().loadReports();
     }
 
-    clockOffset = pulse.now - Date.now();
+    clockOffset = pulse.now - serverNow();
     set({
       marches: pulse.marches,
       figures: pulse.figures,
@@ -282,7 +290,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   ensureRegion: (rect) => {
     if (!hasWorldApi()) return;
-    const now = Date.now();
+    const now = serverNow();
     for (const { key, cx, cy } of chunkKeysIn(rect)) {
       const have = cachedChunk(key);
       if ((have && !isStale(have, now)) || isPending(key)) continue;
@@ -290,7 +298,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       void worldApi()
         .region(chunkRect(cx, cy))
         .then((chunk) => {
-          putChunk(key, chunk, Date.now());
+          putChunk(key, chunk, serverNow());
           set({ chunks: get().chunks + 1 });
         })
         .finally(() => clearPending(key));

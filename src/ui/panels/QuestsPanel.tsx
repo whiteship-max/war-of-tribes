@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SpareSave } from '../parts/Sync';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { ACHIEVEMENTS, QUESTS } from '@/game/data/quests';
@@ -111,6 +112,9 @@ function QuestList() {
       {/* Прибор, а не кнопка починки: жалоба на пропавшую диораму нестабильна, и
           без журнала с телефона любая правка казалась бы помогшей. */}
       <SceneDoctor />
+      {/* Показывается только когда отклонённая партия есть. Ради неё выбор при
+          расхождении и не страшен: ошибиться можно, потерять — нет. */}
+      <SpareSave />
       <button
         className="btn danger"
         onClick={() => {

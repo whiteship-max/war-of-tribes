@@ -15,6 +15,7 @@ import { NAME_MAX, cardSrc, faceSrc, profileAvatar, profileName } from '@/profil
 import { PROFILE_DAYS, setName } from '@/profile/stats';
 import { buildingsPower, power, troopsPower } from '@/profile/power';
 import { AvatarPicker } from '../parts/AvatarPicker';
+import { SyncStatus } from '../parts/Sync';
 
 /** Число покрупнее словами: 12 400 вместо 12400 — на 390 px это читается. */
 const big = (n: number): string => Math.round(n).toLocaleString('ru-RU');
@@ -135,6 +136,11 @@ export function ProfilePanel() {
           </div>
         </div>
       </div>
+
+      {/* Где лежит прогресс — здесь, а не в служебном разделе: это про
+          учётную запись, а не про отладку. Неудача синхронизации обязана быть
+          видна, но не обязана мешать играть. */}
+      <SyncStatus />
 
       <PowerTrend days={p.days} />
 

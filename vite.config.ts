@@ -113,5 +113,7 @@ export default defineConfig({
       },
     },
   },
-  test: { environment: 'node', include: ['src/**/*.test.ts'] },
+  // Тесты серверных функций живут рядом с ними, а не в src: они про подпись
+  // и хранилище, а не про игру. Прогон один — приёмка должна быть одна.
+  test: { environment: 'node', include: ['src/**/*.test.ts', 'netlify/**/*.test.ts'] },
 });

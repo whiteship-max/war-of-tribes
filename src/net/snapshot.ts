@@ -1,0 +1,41 @@
+/**
+ * Слепок партии для сервера: две непрозрачные строки и короткая опись.
+ *
+ * Опись (`SaveCard`) собирается здесь, а не на сервере, нарочно. Сервер в
+ * сохранение не смотрит вовсе — он хранит и раздаёт, — а показать игроку, какие
+ * две партии разошлись, кто-то должен: «день 41, 320 человек, мощь 5 900»
+ * читается, «две записи с разными хешами» — нет. Считается опись теми же
+ * функциями, что и весь остальной интерфейс: своей формулы мощи или населения
+ * здесь нет ни одной.
+ */
+import type { GameState } from '@/game/types';
+import type { SaveCard, SaveRecord } from '../../netlify/lib/contract';
+import { serialize } from '@/game/save';
+import { armySize, dayOf, population } from '@/game/derived';
+import { power } from '@/profile/power';
+import { profileName } from '@/profile/identity';
+import { browserStorage } from '@/world/local/state';
+import { device } from './session';
+
+export type { SaveCard, SaveRecord };
+
+export const cardOf = (s: GameState): SaveCard => ({
+  name: profileName(s.profile),
+  day: dayOf(s.time),
+  pop: Math.round(population(s)),
+  power: Math.round(power(s)),
+  army: armySize(s),
+});
+
+/** Что уедет на сервер. Сохранение мира — та же строка, что лежит на диске. */
+export function snapshotOf(s: GameState): SaveRecord {
+  return {
+    v: 1,
+    rev: 0,
+    updatedAt: 0,
+    device: device(),
+    game: serialize(s),
+    world: browserStorage.read(),
+    card: cardOf(s),
+  };
+}
