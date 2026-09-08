@@ -7,6 +7,7 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Chronicle } from '../parts/Chronicle';
 import { DailyPage } from '../parts/daily/DailyPage';
 import { SceneDoctor } from '../parts/SceneDoctor';
+import { TouchDoctor } from '../parts/TouchDoctor';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 
@@ -112,6 +113,9 @@ function QuestList() {
       {/* Прибор, а не кнопка починки: жалоба на пропавшую диораму нестабильна, и
           без журнала с телефона любая правка казалась бы помогшей. */}
       <SceneDoctor />
+      {/* Тот же прибор, но про палец: жалоба «тап срабатывает иногда» без
+          журнала с телефона остаётся ощущением, а не фактом. */}
+      <TouchDoctor />
       {/* Показывается только когда отклонённая партия есть. Ради неё выбор при
           расхождении и не страшен: ошибиться можно, потерять — нет. */}
       <SpareSave />

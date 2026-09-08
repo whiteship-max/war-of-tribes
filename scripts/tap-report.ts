@@ -2,17 +2,34 @@
  * След пальца по постройкам: попадает ли тап туда, куда целились.
  *
  * Это стенд, а не тест. Он ничего не утверждает и ничем не падает — он печатает
- * таблицу, по которой видно глазом: у какой постройки силуэт в пол-пальца, какая
+ * таблицы, по которым видно глазом: у какой постройки силуэт в пол-пальца, какая
  * область попадания получилась после раздутия до `TAP_TARGET`, что открывается от
- * чистого тапа и при каком сходе пальца тап перестаёт быть тапом. Юнит-тесты на
- * разбор жеста (`gestures`, `pick`) стоят отдельно и проверяют правила; здесь —
- * настоящая сцена с настоящей планировкой, настоящей камерой и настоящими
- * моделями, то есть ровно те числа, которых из правил не выведешь.
+ * чистого тапа, при каком сходе пальца тап перестаёт быть тапом и на сколько
+ * уезжает деревня под пальцем. Юнит-тесты на разбор жеста (`gestures`, `pick`)
+ * стоят отдельно и проверяют правила; здесь — настоящая сцена с настоящей
+ * планировкой, настоящей камерой и настоящими моделями, то есть ровно те числа,
+ * которых из правил не выведешь.
  *
- * Заведён после того, как тап по зданию не открывал панель на телефоне, а на
- * мыши работал: причина оказалась в двух числах сразу (`TAP_MOVE` и `TAP_MS`), и
- * доказательством были не рассуждения, а вот эта матрица — «21 из 21 при сдвиге
- * 9 px и ноль из 21 при 11 px».
+ * ПАЛЕЦ ЗДЕСЬ НАСТОЯЩИЙ, И ЭТО ГЛАВНОЕ.
+ *
+ * Прежний стенд подавал в канву `new PointerEvent(...)` и подменял часы, чтобы
+ * след шёл мгновенно. Оба приёма выглядели безобидной экономией, а на деле
+ * прятали ровно ту болезнь, на которую пришла жалоба:
+ *
+ *   — синтетическому событию неизвестен захват указателя, и стенду приходилось
+ *     глушить `setPointerCapture`, то есть выключать кусок настоящего пути;
+ *   — события шли ровно тогда, когда их посылали, а живые `pointermove` браузер
+ *     собирает и отдаёт кадрами, склеивая по несколько шагов пальца в один;
+ *   — а главное, след моделировал сход **только перед снятием**. Живой палец
+ *     ведёт себя иначе: ложась на экран, он проезжает 14–20 px в первые 60–80 мс
+ *     (пятно контакта растекается, пока подушечка садится), а потом лежит
+ *     неподвижно, пока игрок целится. По прежнему правилу такой тап отбрасывался
+ *     молча — и стенд показывал 21 из 21, пока телефон терял каждый второй тап.
+ *
+ * Поэтому теперь ввод идёт `Input.dispatchTouchEvent` — через тот же путь, что и
+ * палец: тач-эмуляция браузера, настоящие `pointerId`, настоящий захват,
+ * настоящая склейка движений. Часы тоже настоящие: весь прогон идёт минуты, и это
+ * не потеря, а условие — виртуальные часы и были второй половиной обмана.
  *
  * ЧЕМ МЕРЯЕТ. Настоящая игра в настоящем Chrome, но **без WebGL**: контекст
  * канвы подделан заглушкой (её отдаёт dev-серверу плагин ниже), поэтому three
@@ -22,11 +39,12 @@
  *
  * ЧЕГО НЕ МЕРЯЕТ:
  *   рисунок      кадра нет вовсе — за внешним видом на `?showcase=` и в snaps/;
- *   разметку     двумерный слой сюда не входит: события идут прямо на канву,
- *                поверх неё в игре только «дырка» обучения с pointer-events:none;
- *   быстродействие  часы на время следа подменены (иначе след в 700 мс, взятый
- *                по всем постройкам и всем сдвигам, стоил бы минут, а браузер в
- *                фоне ещё и душит таймеры). Кадры за бюджетом — на стенде.
+ *   разметку     двумерный слой сюда не входит: касания идут в точку экрана, а
+ *                поверх канвы в игре только «дырка» обучения с pointer-events:none;
+ *   быстродействие  кадров нет, мерить нечего — бюджет кадра на стенде витрины;
+ *   вебвью Телеграма  это Chrome, а не он: перехват жеста клиентом здесь не
+ *                воспроизводится, и на такой случай в игре стоит журнал касаний
+ *                («Задания» → «Служебное» → «Что было под пальцем»).
  *
  * Запуск: npm run tap:report
  * Переменные: LEVEL=10 (поднять посёлок — у моделей другая ступень и другой
@@ -36,7 +54,7 @@
 import { createServer as createVite, type Plugin } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SETTLE, TAP_SLIP, TAP_TARGET } from '../src/gestures';
+import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SLIP, TAP_TARGET } from '../src/gestures';
 import { pickBox, type HitBox } from '../src/render/pick';
 import { WALL_RADIUS } from '../src/render/plan';
 import { BUILDINGS } from '../src/game/data/buildings';
@@ -47,6 +65,9 @@ const WIDTH = Number(process.env.WIDTH ?? 375);
 const HEIGHT = Number(process.env.HEIGHT ?? 812);
 const DPR = Number(process.env.DPR ?? 2);
 const LEVEL = Number(process.env.LEVEL ?? 1);
+
+/** Сколько ждём, пока точка касания освободится от шторки. */
+const CLEAR_WAIT_MS = 800;
 
 /**
  * Подделка контекста канвы: WebGL нет, а сцена нужна настоящая.
@@ -132,7 +153,7 @@ function stubPlugin(): Plugin {
     apply: 'serve',
     transformIndexHtml() {
       // head-prepend: заглушка обязана лечь до всякого модуля, иначе рендерер
-      // успеет спросить настоящий контекст и упасть.
+      // успеет спросить настоящий контекст и упадёт.
       return [{ tag: 'script', children: WEBGL_STUB, injectTo: 'head-prepend' as const }];
     },
   };
@@ -141,15 +162,14 @@ function stubPlugin(): Plugin {
 /**
  * Что подкладывается в страницу.
  *
- * Ничего своего про геометрию здесь нет: где здание на экране, спрашивается у
- * самой сцены (`hitBoxOf`, `screenSpot`), а точка мира переводится в пиксели тем
- * же `projectHitBox`, которым сцена считает области попадания. Второй правды о
- * том, где что на экране, быть не должно — иначе стенд начнёт доказывать себя.
+ * Только чтение и сброс. Самих касаний здесь больше нет — их подаёт браузер по
+ * команде снаружи, и в этом весь смысл переделки: путь события от стенда до
+ * сцены обязан совпадать с путём от пальца до сцены.
  *
- * Часы на время следа подменены. Жест судится по времени (`TAP_MS`,
- * `TAP_SETTLE`), и настоящее ожидание означало бы минуты на матрицу и веру в то,
- * что браузер не придушил таймеры в фоне. Виртуальные часы точны и мгновенны, а
- * весь след идёт синхронно — кадров между событиями всё равно не бывает.
+ * Ничего своего про геометрию тут тоже нет: где здание на экране, спрашивается
+ * у самой сцены (`hitBoxOf`, `screenSpot`), а точка мира переводится в пиксели
+ * тем же `projectHitBox`, которым сцена считает области попадания. Второй правды
+ * о том, где что на экране, быть не должно — иначе стенд начнёт доказывать себя.
  */
 const PROBE = `
 (async () => {
@@ -160,95 +180,24 @@ const PROBE = `
   if (!canvas || !scene.buildings || typeof scene.hitBoxOf !== 'function') {
     throw new Error('сцена не та: нет canvas/buildings/hitBoxOf — поля переименовали, стенд надо чинить');
   }
-  // Захват указателя: синтетический pointerId браузеру неизвестен,
-  // setPointerCapture бросает NotFoundError и обрывает слушателя OrbitControls.
-  // Доставку событий захват не меняет — глушим его на канве.
-  canvas.setPointerCapture = () => {};
-  canvas.releasePointerCapture = () => {};
-  canvas.hasPointerCapture = () => false;
 
   const pick = await import('/src/render/pick.ts');
   const IDENT = { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] };
   const rect = () => canvas.getBoundingClientRect();
   const state = () => game.getState();
-
-  const ev = (type, id, x, y) =>
-    canvas.dispatchEvent(
-      new PointerEvent(type, {
-        pointerId: id,
-        pointerType: 'touch',
-        isPrimary: id === 1,
-        clientX: x,
-        clientY: y,
-        button: 0,
-        buttons: type === 'pointerup' ? 0 : 1,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-
-  /** Один след пальца. Возвращает id открытой постройки или null. */
-  const trace = (o) => {
-    state().openBuilding(null);
-    const camera = scene.camera.position.clone();
-    const target = scene.controls.target.clone();
-    const own = Object.getOwnPropertyDescriptor(performance, 'now');
-    const real = performance.now.bind(performance);
-    const t0 = real();
-    let t = t0;
-    performance.now = () => t;
-    try {
-      const a = Math.PI / 5;
-      const dx = Math.cos(a) * o.slip;
-      const dy = Math.sin(a) * o.slip;
-      const slipAt = t0 + Math.max(0, o.ms - o.lead);
-      const shiver = t0 + o.ms * 0.4;
-      ev('pointerdown', 1, o.x, o.y);
-      if (o.fingers > 1) {
-        t = t0 + 20;
-        ev('pointerdown', 2, o.x + 70, o.y + 70);
-      }
-      // Дрожь внутри порога: палец лежит и чуть ползёт, тапом быть не перестаёт.
-      if (shiver < slipAt) {
-        t = shiver;
-        ev('pointermove', 1, o.x + 1.4, o.y + 1.4);
-      }
-      // Сход: пятно контакта схлопывается, и центр прыгает. lead — за сколько
-      // до снятия это случилось; большой lead — это уже не сход, а ведение.
-      t = slipAt;
-      ev('pointermove', 1, o.x + dx, o.y + dy);
-      t = t0 + o.ms;
-      if (o.fingers > 1) ev('pointerup', 2, o.x + 70, o.y + 70);
-      ev('pointerup', 1, o.x + dx, o.y + dy);
-    } finally {
-      if (own) Object.defineProperty(performance, 'now', own);
-      else delete performance.now;
-    }
-    const sheet = state().sheet;
-    const hit = sheet && sheet.kind === 'building' ? sheet.id : null;
-    state().openBuilding(null);
-    // Камера возвращается на место: панорама от ведения не должна утечь в
-    // следующий след, иначе таблица зависела бы от порядка строк.
-    //
-    // Затухание на это время выключено, и без этого не обойтись: с ним
-    // OrbitControls отдаёт накопленный сдвиг долями, остаток живёт в контролах и
-    // после возврата камеры доезжает уже в следующем следе. По сотой доле на
-    // след — и к концу матрицы посёлок уезжал на пиксель с лишним (стенд это
-    // видит сам и говорит «камера уехала»).
-    const damping = scene.controls.enableDamping;
-    scene.controls.enableDamping = false;
-    scene.controls.update();
-    scene.camera.position.copy(camera);
-    scene.controls.target.copy(target);
-    scene.controls.update();
-    scene.controls.enableDamping = damping;
-    return hit;
-  };
+  const home = { p: scene.camera.position.toArray(), t: scene.controls.target.toArray() };
 
   window.__tap = {
     ready: () => JSON.stringify({ w: rect().width, h: rect().height, dpr: window.devicePixelRatio, fake: !!window.__noWebGL }),
 
-    /** Поднять весь посёлок до уровня — у моделей другая ступень и другой силуэт. */
+    /**
+     * Поднять весь посёлок до уровня и снять обучение.
+     *
+     * Обучение снимается не для удобства: его слой закрывает панель здания на
+     * каждом своём шаге (TutorialOverlay), и без этого стенд мерил бы не тап,
+     * а проводку первых шагов. Найдено этим же прогоном — прежний стенд ловил
+     * панель синхронно и до слоя.
+     */
     level: (max) => {
       const s = state().s;
       for (const b of s.buildings) b.level = Math.max(1, Math.min(max[b.type] || 1, LEVEL_WANTED));
@@ -257,10 +206,59 @@ const PROBE = `
       return JSON.stringify('ok');
     },
 
+    /**
+     * Камера на исходную, панель закрыта, окна сняты: след не должен зависеть от
+     * предыдущего.
+     *
+     * Окна снимаются не для красоты. Прогон идёт минуты, то есть игровые сутки, и
+     * за это время симуляция поднимает случайные события — а окно события накрывает
+     * весь экран и глотает касание. В прежних прогонах из-за этого целые строки
+     * таблицы уходили в ноль, и выглядело это как поломка тапа. Зимнее
+     * предупреждение снимается тем же ходом и по той же причине.
+     */
+    reset: () => {
+      const g = state();
+      g.openBuilding(null);
+      if (g.eventResult) g.dismissResult();
+      const s = g.s;
+      s.activeEvent = null;
+      s.winterWarning = false;
+      // Следующее событие отодвигается за горизонт прогона: снять уже открытое
+      // мало — новое поднимется посреди следующего следа и накроет экран ровно
+      // тогда, когда палец уже лежит.
+      s.nextEventAt = s.time + 1e9;
+      game.setState({ s: { ...s } });
+      scene.camera.position.fromArray(home.p);
+      scene.controls.target.fromArray(home.t);
+      scene.controls.update();
+      return JSON.stringify('ok');
+    },
+
+    /**
+     * Свободна ли точка экрана — то есть достанется ли касание канве.
+     *
+     * Спрашивается у самой страницы, а не выводится из наших представлений о
+     * раскладке: над канвой живёт двумерный слой, и когда шторка уезжает вниз,
+     * она ещё несколько кадров стоит между пальцем и деревней.
+     */
+    free: (x, y) => JSON.stringify(document.elementFromPoint(x, y) === canvas),
+
+    /** Что открыто сейчас. null — ничего. */
+    sheet: () => {
+      const sh = state().sheet;
+      return JSON.stringify(sh && sh.kind === 'building' ? sh.id : null);
+    },
+
     /** Точка мира в пикселях страницы — тем же переводом, что у областей попадания. */
     at: (x, y, z) => {
       const b = pick.projectHitBox(0, { min: { x, y, z }, max: { x, y, z } }, IDENT, scene.camera, rect(), 0);
       return b && { x: b.x, y: b.y };
+    },
+
+    /** Где сейчас середина области попадания постройки — этим мерится сдвиг деревни. */
+    spot: (id) => {
+      const b = scene.hitBoxOf(id);
+      return JSON.stringify(b ? { x: b.x, y: b.y } : null);
     },
 
     /** Постройки: силуэт как есть и область попадания, какой её видит тап. */
@@ -278,22 +276,6 @@ const PROBE = `
       }
       return JSON.stringify(out);
     },
-
-    /** Матрица «сдвиг × длительность»: по следу на каждую постройку в каждой клетке. */
-    matrix: (plan) => {
-      const rows = [];
-      for (const slip of plan.slips) {
-        const row = [];
-        for (const ms of plan.durations) {
-          row.push(plan.points.map((p) => trace({ x: p.x, y: p.y, slip, ms, lead: plan.lead, fingers: 1 })));
-        }
-        rows.push(row);
-      }
-      return JSON.stringify(rows);
-    },
-
-    /** Одиночные следы: ведение, щипок, пустое поле, кладка. */
-    each: (list) => JSON.stringify(list.map((o) => trace(o))),
   };
   return JSON.stringify('ok');
 })()
@@ -307,6 +289,32 @@ interface Box {
   raw: HitBox | null;
   area: HitBox | null;
   spot: { x: number; y: number; r: number } | null;
+}
+
+/**
+ * Форма следа во времени: когда палец сходит с точки и насколько.
+ *
+ * Ось «когда» и есть то, чего стенду не хватало. У живого касания сход бывает
+ * трёх разных пород, и правило обязано разбирать их по-разному:
+ *   `сразу`   палец садится и растекается — это тап, каким бы долгим он ни был;
+ *   `середина` палец повёл и остановился — это ведение;
+ *   `сход`     пятно схлопывается на снятии — это тап.
+ */
+type When = 'сразу' | 'середина' | 'сход';
+
+interface Shape {
+  slip: number;
+  when: When;
+  /** Сколько всего лежит палец, мс. */
+  ms: number;
+}
+
+/** Шаги следа: время от нажатия и доля схода к этому времени. */
+function stepsOf(s: Shape): Array<{ at: number; k: number }> {
+  if (s.slip === 0) return [];
+  if (s.when === 'сразу') return [{ at: 40, k: 0.5 }, { at: 80, k: 1 }];
+  if (s.when === 'середина') return [{ at: 160, k: 0.5 }, { at: 220, k: 1 }];
+  return [{ at: Math.max(40, s.ms - 20), k: 1 }];
 }
 
 const nameOf = (type: string): string => BUILDINGS.find((b) => b.id === type)?.name ?? type;
@@ -341,6 +349,9 @@ async function report(): Promise<void> {
     deviceScaleFactor: DPR,
     mobile: true,
   });
+  // Без этого страница не считает себя сенсорной, а `dispatchTouchEvent` не
+  // превращается в указатель с `pointerType: touch` — то есть идёт не тем путём.
+  await tab.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   // Партия начинается заново: иначе стенд мерил бы чужой посёлок из localStorage.
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');
@@ -367,15 +378,123 @@ async function report(): Promise<void> {
   const wall = boxes.find((b) => !b.area && b.spot);
   const points = aimed.map((b) => ({ id: b.id, x: b.area!.x, y: b.area!.y }));
 
-  const slips = [0, TAP_MOVE - 1, TAP_MOVE + 1, (TAP_MOVE + TAP_SLIP) >> 1, TAP_SLIP - 1, TAP_SLIP + 1];
-  const durations = [200, 340, 420, TAP_MS - 10, TAP_MS + 10];
-  const matrix = await tab.eval<Array<Array<Array<number | null>>>>(
-    `window.__tap.matrix(${JSON.stringify({ slips, durations, lead: 15, points })})`,
-  );
-  const clean = matrix[0][0];
+  // ---------- Настоящий палец ----------
+
+  /** Сколько раз точка касания так и не освободилась — стенд об этом скажет. */
+  let blocked = 0;
+
+  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: Array<{ x: number; y: number }>): Promise<unknown> =>
+    tab.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map((p) => ({ ...p, radiusX: 12, radiusY: 12, force: 1 })),
+    });
+
+  /** Один след. Возвращает, что открылось, и на сколько деревня уехала под пальцем. */
+  const trace = async (
+    p: { id: number; x: number; y: number },
+    s: Shape,
+    fingers = 1,
+  ): Promise<{ hit: number | null; slip: number | null }> => {
+    await tab.eval<string>('window.__tap.reset()');
+    // Панель от прошлого следа закрывается не мгновенно: шторка уезжает вниз
+    // анимацией и, пока едет, перехватывает касания нижней половины экрана —
+    // они достаются ей, а не канве, и след мерит не то. Спрашиваем прямо у
+    // страницы, свободна ли точка, а не спим наугад: слепая пауза то коротка,
+    // то напрасна, и таблица от неё начинала зависеть от предыдущей строки.
+    let free = false;
+    for (let i = 0; i < CLEAR_WAIT_MS / 20 && !free; i++) {
+      free = await tab.eval<boolean>(`window.__tap.free(${p.x}, ${p.y})`);
+      if (!free) await sleep(20);
+    }
+    if (!free) blocked++;
+    const before = await tab.eval<{ x: number; y: number } | null>(`window.__tap.spot(${p.id})`);
+    const dx = 0.78;
+    const dy = 0.62;
+    const at = (k: number): { x: number; y: number } => ({ x: p.x + s.slip * k * dx, y: p.y + s.slip * k * dy });
+    const second = { x: Math.min(view.w - 6, p.x + 70), y: Math.min(view.h - 6, p.y + 70) };
+    let t = 0;
+    let last = at(0);
+    await send('touchStart', [last]);
+    if (fingers > 1) {
+      await sleep(20);
+      t = 20;
+      await send('touchStart', [last, second]);
+    }
+    for (const step of stepsOf(s)) {
+      await sleep(Math.max(1, step.at - t));
+      t = step.at;
+      last = at(step.k);
+      await send('touchMove', fingers > 1 ? [last, second] : [last]);
+    }
+    await sleep(Math.max(1, s.ms - t));
+    if (fingers > 1) await send('touchEnd', [last]);
+    await send('touchEnd', []);
+    await sleep(60);
+    const hit = await tab.eval<number | null>('window.__tap.sheet()');
+    const after = await tab.eval<{ x: number; y: number } | null>(`window.__tap.spot(${p.id})`);
+    // Сдвиг деревни ОТНОСИТЕЛЬНО пальца: панорама один к одному означает ноль.
+    // Прежняя панорама `OrbitControls` давала здесь единицы пикселей на тап и
+    // почти треть хода на ведении по вертикали.
+    const slip =
+      before && after
+        ? Math.hypot(after.x - before.x - (last.x - p.x), after.y - before.y - (last.y - p.y))
+        : null;
+    return { hit, slip };
+  };
+
+  /**
+   * Один и тот же след по всем постройкам: сколько из них открыли свою панель и
+   * насколько деревня разошлась с пальцем.
+   *
+   * Расхождение берётся серединой, а не худшим: браузер склеивает движения
+   * пальца и изредка роняет порцию целиком, и по максимуму одна такая потеря
+   * дала бы весь ход пальца — таблица врала бы про панораму целой строкой.
+   */
+  const sweep = async (s: Shape, fingers = 1): Promise<{ ok: number; slip: number }> => {
+    let ok = 0;
+    const slips: number[] = [];
+    for (const p of points) {
+      const r = await trace(p, s, fingers);
+      if (r.hit === p.id) ok++;
+      if (r.slip !== null) slips.push(r.slip);
+    }
+    slips.sort((x, y) => x - y);
+    return { ok, slip: slips.length ? slips[slips.length >> 1] : 0 };
+  };
+
+  // Разогрев: самое первое касание после включения эмуляции браузер съедает.
+  await send('touchStart', [{ x: 5, y: 5 }]);
+  await send('touchEnd', []);
+  await sleep(150);
+
+  const cleanRuns: Array<number | null> = [];
+  for (const p of points) cleanRuns.push((await trace(p, { slip: 0, when: 'сход', ms: 200 })).hit);
+
+  const slips = [TAP_MOVE - 1, TAP_MOVE + 1, (TAP_MOVE + TAP_SLIP) >> 1, TAP_SLIP - 1, TAP_SLIP + 1];
+  const whens: When[] = ['сразу', 'середина', 'сход'];
+  const grid: Array<Array<{ ok: number; slip: number }>> = [];
+  for (const slip of slips) {
+    const row: Array<{ ok: number; slip: number }> = [];
+    for (const when of whens) row.push(await sweep({ slip, when, ms: 380 }));
+    grid.push(row);
+  }
+
+  // Границу `TAP_MS` щупаем с запасом в обе стороны: часы настоящие, и `sleep`
+  // на десять миллисекунд точнее не бывает — проба вплотную к порогу мерила бы
+  // не правило, а разброс таймера.
+  const durations = [200, 420, TAP_MS - 80, TAP_MS + 80];
+  const held: number[] = [];
+  for (const ms of durations) held.push((await sweep({ slip: 0, when: 'сход', ms })).ok);
+
+  const drag = await sweep({ slip: 90, when: 'середина', ms: 420 });
+  const pinch = await sweep({ slip: 0, when: 'сход', ms: 240 }, 2);
 
   // Кладка стены и чистое поле: точки берутся из настоящей проекции кольца, а
   // «пустое место» ищется настоящим `pickBox` по тем же областям, что у сцены.
+  // Камеру перед этим обязательно вернуть домой: следы выше её панорамировали, а
+  // кольцо и пустое место считаются от текущего ракурса — на уехавшей камере
+  // «пустая» точка оказывалась посреди двора, и стенд ловил там ферму.
+  await tab.eval<string>('window.__tap.reset()');
   const ring: Array<{ x: number; y: number }> = [];
   for (let i = 0; i < 24; i++) {
     const a = (i / 24) * Math.PI * 2;
@@ -407,27 +526,8 @@ async function report(): Promise<void> {
       }
     }
   }
-
-  const extra = [
-    { what: `ведение ${TAP_SLIP + 8} px с самого начала`, o: { slip: TAP_SLIP + 8, ms: 400, lead: 380, fingers: 1 } },
-    {
-      what: `медленное ведение ${(TAP_MOVE + TAP_SLIP) >> 1} px (сдвиг за ${TAP_SETTLE + 110} мс до снятия)`,
-      o: { slip: (TAP_MOVE + TAP_SLIP) >> 1, ms: 400, lead: TAP_SETTLE + 110, fingers: 1 },
-    },
-    { what: 'щипок вторым пальцем', o: { slip: 0, ms: 200, lead: 15, fingers: 2 } },
-  ];
-  const extraRuns: Array<Array<number | null>> = [];
-  for (const e of extra) {
-    extraRuns.push(await tab.eval<Array<number | null>>(`window.__tap.each(${JSON.stringify(points.map((p) => ({ ...e.o, x: p.x, y: p.y })))})`));
-  }
-  const spot = await tab.eval<Array<number | null>>(
-    `window.__tap.each(${JSON.stringify(
-      [
-        ...(empty ? [{ ...empty, slip: 0, ms: 200, lead: 15, fingers: 1 }] : []),
-        ...(onRing ? [{ ...onRing, slip: 0, ms: 200, lead: 15, fingers: 1 }] : []),
-      ],
-    )})`,
-  );
+  const emptyHit = empty ? (await trace({ id: -1, ...empty }, { slip: 0, when: 'сход', ms: 200 })).hit : null;
+  const ringHit = onRing ? (await trace({ id: -1, ...onRing }, { slip: 0, when: 'сход', ms: 200 })).hit : null;
 
   const after = await tab.eval<Box[]>('window.__tap.boxes()');
   const drift = boxes.reduce((m, b) => {
@@ -447,19 +547,23 @@ async function report(): Promise<void> {
 
   console.log('\nСЛЕД ПАЛЬЦА ПО ПОСТРОЙКАМ');
   console.log(`  экран ${WIDTH}×${HEIGHT}, dpr ${view.dpr}, канва ${px(view.w)}×${px(view.h)} px, уровень зданий ${LEVEL}`);
+  console.log(`  палец настоящий: Input.dispatchTouchEvent, тач-эмуляция, часы не подменены`);
   console.log(`  WebGL нет: контекст подделан${view.fake ? '' : ' — НО ЗАГЛУШКА НЕ ВСТАЛА'}, кадр не рисуется, снимок отсюда чёрный`);
   console.log(
-    `  пороги: путь ${TAP_MOVE}/${TAP_SLIP} px, выдержка ${TAP_SETTLE} мс, длительность ${TAP_MS} мс, цель ${TAP_TARGET} px, прощение ${TAP_FORGIVE} px`,
+    `  пороги: камера с ${TAP_MOVE} px, тап живёт до ${TAP_SLIP} px и ${TAP_MS} мс, цель ${TAP_TARGET} px, прощение ${TAP_FORGIVE} px`,
   );
   // Камера обязана возвращаться на место после каждого следа: уехавшая панорама
   // тихо сдвинула бы все области, и таблица начала бы зависеть от порядка строк.
   if (drift > 0.5) console.log(`  ВНИМАНИЕ: за все следы камера уехала на ${drift.toFixed(1)} px — числа ниже поплыли`);
+  // Точка под пальцем обязана принадлежать канве: иначе след достался разметке,
+  // а не деревне, и клетка ниже означает не «не открылось», а «не докоснулись».
+  if (blocked > 0) console.log(`  ВНИМАНИЕ: в ${blocked} следах точка касания осталась под разметкой — эти следы не в счёт`);
   console.log('');
 
   console.log(`  ${pad('Постройка', 22)}${padL('силуэт', 9)}${padL('область', 9)}${padL('центр', 12)}   чистый тап`);
   for (const b of [...aimed].sort((a, c) => (a.raw?.hw ?? 0) * (a.raw?.hh ?? 0) - (c.raw?.hw ?? 0) * (c.raw?.hh ?? 0))) {
     const at = `${px(b.area!.x)},${px(b.area!.y)}`;
-    const got = clean[points.findIndex((p) => p.id === b.id)];
+    const got = cleanRuns[points.findIndex((p) => p.id === b.id)];
     console.log(
       `  ${pad(nameOf(b.type) + (LEVEL > 1 ? ` ${b.level}` : ''), 22)}${padL(size(b.raw), 9)}${padL(size(b.area), 9)}${padL(at, 12)}   ${label(got, b.id)}`,
     );
@@ -469,25 +573,37 @@ async function report(): Promise<void> {
     console.log(`\n  за кадром (центр вне канвы — до них надо довести камеру): ${offscreen.map((b) => nameOf(b.type)).join(', ')}`);
   }
 
-  console.log(`\n  След с прыжком на сходе — сколько построек из ${points.length} открыли свою панель`);
-  console.log(`  ${pad('сдвиг \\ длительность', 22)}${durations.map((d) => padL(`${d} мс`, 8)).join('')}`);
+  console.log(`\n  Сход пальца: сколько построек из ${points.length} открыли свою панель`);
+  console.log(`  Столбцы — КОГДА палец сошёл с точки. Этой оси стенду и не хватало:`);
+  console.log(`  живой палец растекается в первые 80 мс, и это тап, а не ведение.`);
+  console.log(`  ${pad('сход \\ когда', 22)}${whens.map((w) => padL(w, 12)).join('')}`);
   for (let i = 0; i < slips.length; i++) {
-    const cells = matrix[i].map((run) => padL(String(run.filter((got, k) => got === points[k].id).length), 8)).join('');
+    const cells = grid[i].map((c) => padL(String(c.ok), 12)).join('');
     console.log(`  ${pad(`${slips[i]} px`, 22)}${cells}`);
   }
-  console.log(`  (сдвиг приходит за 15 мс до снятия — так и ведёт себя палец на сходе)`);
+  console.log(`  (палец лежит 380 мс во всех клетках; «сразу» — 0–80 мс, «середина» — 160–220 мс, «сход» — за 20 мс до снятия)`);
+
+  console.log(`\n  Деревня под пальцем: на сколько она разошлась с пальцем, px — середина по постройкам`);
+  console.log(`  Панорама один к одному даёт ноль; мёртвая зона в ${TAP_MOVE} px даёт столько же и не больше.`);
+  console.log(`  ${pad('сход \\ когда', 22)}${whens.map((w) => padL(w, 12)).join('')}`);
+  for (let i = 0; i < slips.length; i++) {
+    const cells = grid[i].map((c) => padL(c.slip.toFixed(0), 12)).join('');
+    console.log(`  ${pad(`${slips[i]} px`, 22)}${cells}`);
+  }
+
+  console.log(`\n  Сколько палец лежит (без схода)`);
+  console.log(`  ${pad('', 22)}${durations.map((d) => padL(`${d} мс`, 9)).join('')}`);
+  console.log(`  ${pad('открылось', 22)}${held.map((n) => padL(String(n), 9)).join('')}`);
 
   console.log(`\n  Прочее`);
-  for (let i = 0; i < extra.length; i++) {
-    const hit = extraRuns[i].filter((got, k) => got === points[k].id).length;
-    console.log(`  ${pad(extra[i].what, 52)}${padL(`${hit} из ${points.length}`, 10)}`);
-  }
+  console.log(`  ${pad('ведение 90 px ровным ходом', 52)}${padL(`${drag.ok} из ${points.length}`, 10)}`);
+  console.log(`  ${pad('  оно же: деревня разошлась с пальцем', 52)}${padL(`${drag.slip.toFixed(0)} px`, 10)}`);
+  console.log(`  ${pad('щипок вторым пальцем', 52)}${padL(`${pinch.ok} из ${points.length}`, 10)}`);
   if (empty) {
-    console.log(`  ${pad(`тап в чистое поле (${px(empty.x)},${px(empty.y)})`, 52)}${padL(label(spot[0], -1), 10)}`);
+    console.log(`  ${pad(`тап в чистое поле (${px(empty.x)},${px(empty.y)})`, 52)}${padL(label(emptyHit, -1), 10)}`);
   }
   if (onRing) {
-    const got = spot[empty ? 1 : 0];
-    const b = got === null ? null : boxes.find((x) => x.id === got);
+    const b = ringHit === null ? null : boxes.find((x) => x.id === ringHit);
     console.log(
       `  ${pad(`тап по кладке стены (${px(onRing.x)},${px(onRing.y)})`, 52)}${padL(b ? nameOf(b.type) : '— ничего', 10)}`,
     );

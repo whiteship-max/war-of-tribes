@@ -2,7 +2,8 @@
 // у приближения — пол и потолок. Проверяется это числами, а не глазами.
 import { describe, expect, it } from 'vitest';
 import { FRAME_RADIUS, OUTSKIRTS_RADIUS } from './plan';
-import { PAN_LEASH, clampPan, framing, zoomRange } from './camera';
+import { readFileSync } from 'node:fs';
+import { PAN_LEASH, PAN_STEP_MAX, clampPan, framing, orbitDelta, zoomRange } from './camera';
 
 /** Телефон в портрете — тот экран, ради которого всё и делается. */
 const PHONE = 390 / 844;
@@ -60,5 +61,48 @@ describe('камера деревни', () => {
     expect(phone.polar).toBeLessThan(wide.polar);
     expect(phone.fov).toBeGreaterThan(wide.fov);
     expect(phone.targetY).toBeGreaterThan(wide.targetY);
+  });
+});
+
+describe('поворот двумя пальцами', () => {
+  it('меряется высотой холста в обе стороны — иначе на узком экране перекос', () => {
+    const wide = orbitDelta(60, 0, 800);
+    const tall = orbitDelta(0, 60, 800);
+    expect(Math.abs(wide.theta)).toBeCloseTo(Math.abs(tall.phi), 12);
+  });
+
+  it('поворот идёт за пальцем, а не против него', () => {
+    expect(orbitDelta(10, 0, 800).theta).toBeLessThan(0);
+    expect(orbitDelta(0, 10, 800).phi).toBeLessThan(0);
+  });
+
+  it('одиночного шага панорамы дальше половины поводка не бывает', () => {
+    // У горизонта луч ложится почти вдоль земли, и один пиксель даёт километры.
+    // Такой шаг не подрезается, а отбрасывается — предел и есть признак того,
+    // что расчёт выродился, а не палец ушёл.
+    expect(PAN_STEP_MAX).toBeLessThan(PAN_LEASH);
+    expect(PAN_STEP_MAX).toBeGreaterThan(0);
+  });
+});
+
+describe('ввод у OrbitControls отобран', () => {
+  // Проверка по исходнику, а не по поведению, и это тот же приём, что у замка
+  // алмазов: вернуть второго судью камере можно правкой одной строки, и
+  // заметить это по картинке нельзя — жалоба придёт через месяц с телефона.
+  const src = readFileSync(new URL('./Scene.ts', import.meta.url), 'utf8');
+
+  it('сцена выключает его слушателей явно', () => {
+    expect(src).toMatch(/this\.controls\.enabled = false/);
+  });
+
+  it('на его собственные жесты сцена больше не полагается', () => {
+    // Пока эти строки стоят, панораму и поворот ведёт он, а не разбор жеста.
+    expect(src).not.toMatch(/controls\.touches/);
+    expect(src).not.toMatch(/controls\.mouseButtons/);
+    expect(src).not.toMatch(/screenSpacePanning/);
+  });
+
+  it('камера трогается только с разрешения разбора жеста', () => {
+    expect(src).toMatch(/touch\.panning\(now\)/);
   });
 });

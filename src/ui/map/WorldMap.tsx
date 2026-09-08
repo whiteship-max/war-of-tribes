@@ -58,7 +58,8 @@ import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { ActionMenu } from './ActionMenu';
-import { Gesture } from '@/gestures';
+import { Gesture, swallowGhostClick, type Press } from '@/gestures';
+import { gestLog, type End } from '@/gestlog';
 import { Icon } from '@/ui/icons/Icon';
 
 
@@ -129,6 +130,12 @@ export function WorldMap() {
    * общая часть.
    */
   const touch = useRef(new Gesture());
+  /**
+   * Журнал касаний ведут оба холста, и это не украшение: жалоба звучала как «на
+   * карте работает, в деревне нет», и разобрать её можно только по одному
+   * журналу на двоих.
+   */
+  const touchStart = useRef<{ cam: Camera; fingers: number } | null>(null);
   const size = useRef({ w: 1, h: 1, dpr: 1 });
   const frameNo = useRef(0);
 
@@ -292,6 +299,11 @@ export function WorldMap() {
     // Второй палец снимает тап сам: это уже щипок (см. `Gesture`).
     touch.current.down(e.pointerId, p.x, p.y, performance.now());
     gesture.current = null;
+    const was = touchStart.current;
+    touchStart.current = {
+      cam: pointers.current.size === 1 || !was ? cam.current : was.cam,
+      fingers: Math.max(pointers.current.size, was?.fingers ?? 0),
+    };
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>): void => {
@@ -314,31 +326,77 @@ export function WorldMap() {
       return;
     }
 
-    cam.current = panBy(cam.current, p.x - prev.x, p.y - prev.y);
-    touch.current.move(e.pointerId, p.x, p.y, performance.now());
+    const now = performance.now();
+    touch.current.move(e.pointerId, p.x, p.y, now);
+    // Порог у камеры и у тапа теперь один — тот же `Gesture`, что в деревне.
+    // Десять пикселей мёртвой зоны на глаз не отличить, а вот два разных
+    // правила на двух холстах игрок замечает сразу.
+    if (touch.current.panning(now)) cam.current = panBy(cam.current, p.x - prev.x, p.y - prev.y);
   };
 
   const onPointerCancel = (e: ReactPointerEvent<HTMLCanvasElement>): void => {
+    const press = touch.current.current;
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) gesture.current = null;
+    note(press?.id === e.pointerId ? press : null, 'отменено браузером', null);
     touch.current.cancel(e.pointerId);
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>): void => {
+    const now = performance.now();
     const p = pointers.current.get(e.pointerId);
+    const press = touch.current.current;
+    const own = press?.id === e.pointerId ? press : null;
+    const multi = touch.current.multi;
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) gesture.current = null;
-    const tapped = touch.current.up(e.pointerId, performance.now());
+    const tapped = touch.current.up(e.pointerId, now);
     // Жест судится по пути, а не по точке отпускания: на телефоне она прыгает,
     // когда пятно контакта схлопывается (см. `gestures.Press`). А вот клетку
     // выбирает именно последняя точка — панорама карты идёт за пальцем один к
     // одному, и в сдвинутом кадре она означает ровно то же место, что нажатие.
-    if (!p || !tapped) return;
-    const world = toWorld(cam.current, vp(), p.x, p.y);
-    const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
-    if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
-    if (c.x >= WORLD_ORIGIN.x + WORLD_SIZE || c.y >= WORLD_ORIGIN.y + WORLD_SIZE) return;
+    const world = p && tapped ? toWorld(cam.current, vp(), p.x, p.y) : null;
+    const c = world ? { x: Math.floor(world.x), y: Math.floor(world.y) } : null;
+    const inside =
+      c !== null &&
+      c.x >= WORLD_ORIGIN.x &&
+      c.y >= WORLD_ORIGIN.y &&
+      c.x < WORLD_ORIGIN.x + WORLD_SIZE &&
+      c.y < WORLD_ORIGIN.y + WORLD_SIZE;
+    note(
+      own,
+      tapped ? (inside ? 'тап' : 'мимо') : !own || multi ? 'два пальца' : own.moved ? 'ведение' : 'долгое',
+      inside && c ? formatCoord(c) : null,
+    );
+    if (!inside || !c) return;
+    // Тот же призрачный щелчок, что и в деревне: карточка клетки поднимает то же
+    // затемнение, и закрыть её собственным касанием она не должна.
+    swallowGhostClick();
     openAt(c);
+  };
+
+  /**
+   * Запись в общий журнал касаний. Сдвиг картинки честно считается только там,
+   * где масштаб не менялся: после щипка «на сколько уехало» — вопрос без
+   * единственного ответа, и вместо числа тут стоит «не знаю».
+   */
+  const note = (press: Press | null, end: End, hit: string | null): void => {
+    const from = touchStart.current;
+    const same = from && from.cam.scale === cam.current.scale;
+    gestLog.add({
+      where: 'карта',
+      fingers: from?.fingers ?? 1,
+      ms: press ? performance.now() - press.t : 0,
+      far: press ? press.far : 0,
+      path: press ? press.path : 0,
+      end,
+      hit,
+      drift:
+        from && same
+          ? Math.hypot(from.cam.cx - cam.current.cx, from.cam.cy - cam.current.cy) * cam.current.scale
+          : null,
+    });
+    if (pointers.current.size === 0) touchStart.current = null;
   };
 
   /**

@@ -45,11 +45,12 @@ import {
 } from './lighting';
 import { PALETTE } from './palette';
 import { disposeGeometries } from './kit';
-import { Gesture, TAP_TARGET } from '@/gestures';
+import { Gesture, Press, TAP_TARGET, swallowGhostClick } from '@/gestures';
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
-import { clampPan, framing, zoomRange } from './camera';
+import { PAN_STEP_MAX, clampPan, framing, orbitDelta, zoomRange } from './camera';
 import { FrameLoop } from './loop';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
+import { gestLog, type End } from '@/gestlog';
 
 interface BuildingView {
   group: THREE.Group;
@@ -238,12 +239,19 @@ export class TribeScene {
   private selection: THREE.Mesh;
   private selected: number | null = null;
   /**
-   * Разбор жеста — общий с картой мира (`src/gestures.ts`). Панораму, наезд и
-   * поворот ведёт `OrbitControls`; здесь решается только одно: тап это был или
-   * ведение. Одним пальцем камера **водит** (`TOUCH.PAN`), поворот бывает
-   * только двумя — как на карте.
+   * Разбор жеста — общий с картой мира (`src/gestures.ts`). Он же и командует
+   * камерой: пока `panning` говорит «нет», картинка не двигается ни на пиксель.
+   * Одним пальцем камера **водит**, поворот бывает только двумя — как на карте.
    */
   private touch = new Gesture();
+  /** Пальцы на холсте: положение каждого. Из них и складываются щипок с поворотом. */
+  private pointers = new Map<number, { x: number; y: number }>();
+  /** Прошлый шаг щипка: расстояние между пальцами и середина между ними. */
+  private pinch: { dist: number; mx: number; my: number } | null = null;
+  /** Где была середина посёлка на экране в начале касания — для журнала касаний. */
+  private driftFrom: { x: number; y: number } | null = null;
+  /** Сколько пальцев побывало на холсте за этот жест. Тоже журналу. */
+  private maxFingers = 0;
   /** Здание под пальцем в момент нажатия — на отпускании оно и открывается. */
   private aimed: number | null = null;
   /** Тап по зданию (или по пустому месту — тогда null). Ставит UI. */
@@ -252,12 +260,8 @@ export class TribeScene {
   afterRender: (() => void) | null = null;
   /** Азимут стартового ракурса — сохраняется при перекадрировке. */
   private azimuth = Math.atan2(9, 12);
-  /** После ручного вращения камеру больше не переставляем. */
+  /** После ручного движения камеру больше не переставляем. */
   private userMoved = false;
-  /** Ссылкой, а не литералом: на выгрузке подписку надо снять поимённо. */
-  private onControlStart = (): void => {
-    this.userMoved = true;
-  };
 
   /** pixelRatio — принудительная плотность пикселей (стенд); по умолчанию — экрана, в [1, 2]. */
   constructor(private canvas: HTMLCanvasElement, private pixelRatio: number | null = null) {
@@ -277,33 +281,37 @@ export class TribeScene {
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.target.set(0, 0.4, 0);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 7;
     this.controls.maxDistance = 26;
     this.controls.minPolarAngle = 0.45;
     this.controls.maxPolarAngle = 1.25;
-    this.controls.rotateSpeed = 0.55;
-    this.controls.zoomSpeed = 0.8;
-    // Ведение по деревне — как по карте мира: один палец водит, щипок приближает.
-    // Разные жесты в двух местах одной игры игрок не прощает, а карта — это
-    // половина игры. Третий жест у диорамы свой: поворот двумя пальцами. У плоской
-    // карты такого жеста нет, поэтому и конфликта нет — см. `src/gestures.ts`.
-    this.controls.enablePan = true;
-    // Панорама идёт по земле, а не по плоскости экрана: иначе движение вниз
-    // поднимало бы камеру над посёлком, и «увести вбок» превращалось бы во взлёт.
-    this.controls.screenSpacePanning = false;
-    this.controls.panSpeed = 1;
-    this.controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
-    this.controls.mouseButtons = {
-      LEFT: THREE.MOUSE.PAN,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.ROTATE,
-    };
-    this.controls.addEventListener('start', this.onControlStart);
-    // Привязка к деревне: OrbitControls своей у цели не имеет, поэтому держим её
-    // сами на каждом изменении — уехать за окрестности в пустой лес нельзя.
-    this.controls.addEventListener('change', this.leash);
+    /*
+     * ВВОД У ORBITCONTROLS ОТОБРАН, И ЭТО ГЛАВНОЕ ЗДЕСЬ.
+     *
+     * `enabled = false` — не «выключить камеру», а «не слушать палец»: все его
+     * обработчики выходят первой строкой, `setPointerCapture` он не берёт,
+     * панорамы своей не ведёт. При этом `update()` про `enabled` не знает вовсе
+     * — он по-прежнему пересчитывает камеру из позиции и цели и **зажимает
+     * дистанцию и полярный угол**. Ровно за этим он и остаётся: за пределами
+     * приближения и наклона, чтобы они лежали в одном месте, и за автоповоротом
+     * стенда. Панораму, наезд и поворот ведёт сцена сама — от общего с картой
+     * разбора жеста (`src/gestures.ts`).
+     *
+     * Почему отобран. Он берёт `pointerdown` себе и начинает панораму с первого
+     * же пикселя, без мёртвой зоны, — то есть камерой деревни правил второй
+     * судья, ничего не знавший о том, тап это или ведение. Отсюда обе жалобы
+     * разом: деревня уезжала под пальцем во время прицеливания (замер: 11–16 px
+     * за обычный тап), и ощущалась она не как карта — панорама у него линейная,
+     * а не «взял землю и повёл», и по вертикали отставала от пальца на треть
+     * (замер: 90 px пальцем — 61 px земли).
+     */
+    this.controls.enabled = false;
+    // Затухания нет нарочно: камера идёт за пальцем один к одному, как карта, а
+    // затухание — это отставание картинки от пальца, то самое, от чего уходим.
+    this.controls.enableDamping = false;
+    // Прокрутку страницы под холстом гасим сами, а не полагаемся на то, что это
+    // сделал за нас выключенный OrbitControls.
+    canvas.style.touchAction = 'none';
 
     this.rig = createLightRig(this.scene);
 
@@ -682,10 +690,10 @@ export class TribeScene {
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
-    // Свои подписки снимаем сами: OrbitControls живёт дольше сцены (см. ниже),
-    // и через них он утащил бы её за собой.
-    this.controls.removeEventListener('start', this.onControlStart);
-    this.controls.removeEventListener('change', this.leash);
+    // Своих подписок на OrbitControls больше нет: ввод у него отобран, а
+    // привязку к деревне сцена ставит сама там, где двигает камеру. Остаётся
+    // его собственный слушатель — этим и занят `dispose`, и канва обязана быть
+    // при этом ещё в разметке (см. выше).
     this.controls.dispose();
 
     this.scene.traverse((o) => {
@@ -750,10 +758,12 @@ export class TribeScene {
   // ---------- Выбор здания ----------
 
   /**
-   * Привязка к деревне. OrbitControls умеет держать дистанцию и угол, но не
+   * Привязка к деревне. `controls.update()` держит дистанцию и наклон, но не
    * цель, — а без неё панорама одним пальцем уводит в пустой лес за окрестности.
    * Цель возвращается на поводок, камера едет за ней тем же вектором: иначе
-   * ракурс дёргался бы у самой границы.
+   * ракурс дёргался бы у самой границы. Зовётся там, где сцена двигает камеру
+   * (`shift`), а не подпиской на события контролов: ввод у них отобран, и
+   * событий больше нет.
    */
   private leash = (): void => {
     const t = this.controls.target;
@@ -765,11 +775,107 @@ export class TribeScene {
     t.z = fixed.z;
   };
 
+  /**
+   * Точка земли под пальцем: луч из камеры до плоскости, на которой лежит цель.
+   *
+   * Это и есть вся панорама деревни: взяли землю в точке, где лёг палец, и
+   * держим её под ним. Отсюда движение один к одному — ровно как на карте мира,
+   * где панорама по построению один к одному. Прежняя панорама `OrbitControls`
+   * считала сдвиг линейно от дистанции до цели и по вертикали отставала от
+   * пальца на треть (замер: палец 90 px — земля 61 px); вот эту разницу игрок и
+   * называл «в деревне камера не такая, как на карте».
+   *
+   * null — луч не встречает землю впереди камеры (взгляд в горизонт или выше).
+   */
+  private groundAt(clientX: number, clientY: number): THREE.Vector3 | null {
+    const ndc = this.toNdc(clientX, clientY);
+    if (!ndc) return null;
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera);
+    const dy = ray.ray.direction.y;
+    if (dy > -1e-4) return null;
+    const t = (this.controls.target.y - ray.ray.origin.y) / dy;
+    if (!(t > 0)) return null;
+    return ray.ray.at(t, new THREE.Vector3());
+  }
+
+  /** Сдвинуть камеру и цель одним вектором: ракурс при этом не меняется. */
+  private shift(dx: number, dz: number): void {
+    this.controls.target.x += dx;
+    this.controls.target.z += dz;
+    this.camera.position.x += dx;
+    this.camera.position.z += dz;
+    this.leash();
+    this.controls.update();
+  }
+
+  /** Панорама: точка, за которую взялись, остаётся под пальцем. */
+  private pan(from: { x: number; y: number }, to: { x: number; y: number }): void {
+    const a = this.groundAt(from.x, from.y);
+    const b = this.groundAt(to.x, to.y);
+    if (!a || !b) return;
+    const dx = a.x - b.x;
+    const dz = a.z - b.z;
+    // У горизонта луч ложится почти вдоль земли, и один пиксель даёт километры.
+    // Такой шаг не подрезается, а отбрасывается: он не движение пальца.
+    if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) > PAN_STEP_MAX) return;
+    this.userMoved = true;
+    this.shift(dx, dz);
+  }
+
+  /**
+   * Два пальца: щипок приближает, сдвиг середины поворачивает. Тот же жест, что
+   * вёл `OrbitControls` (`TOUCH.DOLLY_ROTATE`), и те же его числа — на поворот
+   * жалоб не было, менять его не за чем. Пределы наклона и приближения ставит
+   * `controls.update()`: они по-прежнему записаны в одном месте.
+   */
+  private twoFingers(rect: DOMRect): void {
+    const [a, b] = [...this.pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const prev = this.pinch;
+    this.pinch = { dist, mx, my };
+    if (!prev) return;
+    this.userMoved = true;
+    const sph = new THREE.Spherical().setFromVector3(
+      new THREE.Vector3().subVectors(this.camera.position, this.controls.target),
+    );
+    const rot = orbitDelta(mx - prev.mx, my - prev.my, rect.height);
+    sph.theta += rot.theta;
+    sph.phi += rot.phi;
+    if (prev.dist > 0 && dist > 0) sph.radius *= prev.dist / dist;
+    this.camera.position.setFromSpherical(sph).add(this.controls.target);
+    this.azimuth = sph.theta;
+    this.controls.update();
+  }
+
+  /** Где середина посёлка на экране — мерка «уехала ли картинка» для журнала. */
+  private centerOnScreen(): { x: number; y: number } | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    const v = new THREE.Vector3(0, 0, 0).project(this.camera);
+    if (v.z > 1) return null;
+    return { x: ((v.x + 1) / 2) * rect.width + rect.left, y: ((1 - v.y) / 2) * rect.height + rect.top };
+  }
+
   private onPointerDown = (e: PointerEvent): void => {
+    // Захват: без него палец, ушедший за край холста, перестал бы слать события,
+    // и жест повис бы незакрытым. Раньше захват брал OrbitControls — теперь его
+    // берём мы, потому что ввод целиком наш. Карта делает это же и так же.
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      /* захват не обязателен: жест обработается и без него */
+    }
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pointers.size < 2) this.pinch = null;
+    this.maxFingers = Math.max(this.maxFingers, this.pointers.size);
     this.touch.down(e.pointerId, e.clientX, e.clientY, performance.now());
-    // Цель выбирается здесь, а не на отпускании, и это не мелочь: за время
-    // касания палец успевает сдвинуть камеру панорамой, а сообщённая системой
-    // точка на отпускании прыгает — игрок же целился в момент нажатия.
+    if (this.pointers.size === 1) this.driftFrom = this.centerOnScreen();
+    // Цель выбирается здесь, а не на отпускании, и это не мелочь: сообщённая
+    // системой точка на отпускании прыгает, когда пятно контакта схлопывается, —
+    // игрок же целился в момент нажатия.
     //
     // Второй палец прицел не двигает: это щипок, и тапа в нём уже нет — но
     // перебивать им то, во что целился первый, всё равно незачем.
@@ -777,20 +883,91 @@ export class TribeScene {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    this.touch.move(e.pointerId, e.clientX, e.clientY, performance.now());
+    const prev = this.pointers.get(e.pointerId);
+    if (!prev) return;
+    const now = performance.now();
+    const p = { x: e.clientX, y: e.clientY };
+    this.pointers.set(e.pointerId, p);
+    if (this.pointers.size >= 2) {
+      this.twoFingers(this.canvas.getBoundingClientRect());
+      return;
+    }
+    this.touch.move(e.pointerId, p.x, p.y, now);
+    // Камера едет только тогда, когда разбор жеста это разрешил. Пока палец
+    // внутри `TAP_MOVE`, картинка стоит: прицеливание не должно шевелить
+    // деревню, а прежний второй судья шевелил её на 11–16 px за обычный тап.
+    if (this.touch.panning(now)) this.pan(prev, p);
   };
 
   private onPointerCancel = (e: PointerEvent): void => {
+    const press = this.touch.current;
+    this.forget(e.pointerId);
+    this.note(press?.id === e.pointerId ? press : null, 'отменено браузером', null);
     this.touch.cancel(e.pointerId);
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    const now = performance.now();
+    const press = this.touch.current;
+    const own = press?.id === e.pointerId ? press : null;
+    const multi = this.touch.multi;
+    this.forget(e.pointerId);
     // Ведение камеры не должно открывать панели, а щипок — тем более: судит это
     // общий с картой разбор жеста (`Gesture`), второй правды о том, тап это или
     // ведение, в игре быть не должно.
-    if (!this.touch.up(e.pointerId, performance.now())) return;
+    const tapped = this.touch.up(e.pointerId, now);
+    const end: End = tapped
+      ? this.aimed === null
+        ? 'мимо'
+        : 'тап'
+      : !own || multi
+        ? 'два пальца'
+        : own.moved
+          ? 'ведение'
+          : 'долгое';
+    this.note(own, end, tapped ? this.aimed : null);
+    if (!tapped) return;
+    // Панель открывается сейчас, а следом за этим же касанием придёт
+    // синтезированный щелчок — и закроет её о затемнение, которое она только
+    // что подняла. Ловим его один раз (см. `swallowGhostClick`).
+    swallowGhostClick();
     this.onPick?.(this.aimed);
   };
+
+  /** Палец снят или отобран: убрать его из щипка и отпустить захват. */
+  private forget(id: number): void {
+    this.pointers.delete(id);
+    if (this.pointers.size < 2) this.pinch = null;
+    try {
+      if (this.canvas.hasPointerCapture(id)) this.canvas.releasePointerCapture(id);
+    } catch {
+      /* захвата могло и не быть */
+    }
+  }
+
+  /**
+   * Запись в журнал касаний. Прибор честный: чего сцена не измерила, то и
+   * пишется как «не знаю», а не подставляется нулём. Нажатие передаётся сюда
+   * явно, а не берётся у `Gesture`: к моменту записи оно уже закрыто.
+   */
+  private note(press: Press | null, end: End, hit: number | null): void {
+    const from = this.driftFrom;
+    const to = this.centerOnScreen();
+    gestLog.add({
+      where: 'деревня',
+      fingers: this.maxFingers,
+      ms: press ? performance.now() - press.t : 0,
+      far: press ? press.far : 0,
+      path: press ? press.path : 0,
+      end,
+      hit: hit === null ? null : (this.buildings.get(hit)?.type ?? `id ${hit}`),
+      drift: from && to ? Math.hypot(to.x - from.x, to.y - from.y) : null,
+    });
+    if (this.pointers.size === 0) {
+      this.driftFrom = null;
+      this.maxFingers = 0;
+    }
+  }
 
   /**
    * Здание под пальцем.

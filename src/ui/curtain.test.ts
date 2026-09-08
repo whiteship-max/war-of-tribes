@@ -101,9 +101,13 @@ describe('переход между посёлком и картой', () => {
     // одной, +3.6 МБ за круг. Вернёшь обычный useEffect — вернёшь утечку.
     expect(canvas).toMatch(/useLayoutEffect\(\(\) => \{/);
     expect(canvas).not.toMatch(/useEffect\(/);
-    // Свои подписки на контролы снимаются поимённо — литералом их не снять.
-    expect(scene).toMatch(/removeEventListener\('start', this\.onControlStart\)/);
-    expect(scene).toMatch(/removeEventListener\('change', this\.leash\)/);
+    // Своих подписок на контролы больше нет: ввод у OrbitControls отобран
+    // (`enabled = false`), панораму и поворот ведёт сама сцена, а привязку к
+    // деревне она ставит там же, где двигает камеру. Значит и снимать нечего —
+    // но `dispose` обязан пройти при канве, ещё лежащей в разметке: он снимает
+    // слушатель с `getRootNode()`, и вынутая канва оставила бы его на документе.
+    expect(scene).not.toMatch(/controls\.addEventListener/);
+    expect(scene).toMatch(/this\.controls\.dispose\(\)/);
     expect(scene).toMatch(/forceContextLoss/);
   });
 

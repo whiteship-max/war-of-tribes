@@ -5,7 +5,17 @@
 // это путь пальца во времени, и все три поломки, из-за которых тап по зданию не
 // открывал панель, были именно в пути, а не в отдельном пороге.
 import { describe, expect, it } from 'vitest';
-import { Gesture, Press, TAP_MOVE, TAP_MS, TAP_SETTLE, TAP_SLIP, TAP_TARGET } from './gestures';
+import { readFileSync } from 'node:fs';
+import {
+  GHOST_CLICK_MS,
+  Gesture,
+  Press,
+  TAP_MOVE,
+  TAP_MS,
+  TAP_SLIP,
+  TAP_TARGET,
+  swallowGhostClick,
+} from './gestures';
 
 /** Одно касание: список шагов `[время, x, y]`, последний — отпускание. */
 type Step = [t: number, x: number, y: number];
@@ -51,6 +61,29 @@ describe('короткое касание — выбор', () => {
   });
 });
 
+describe('палец сел и повозился — это всё ещё тап', () => {
+  // Та самая жалоба: «тап срабатывает иногда». Замер настоящим касанием
+  // (`npm run tap:report`) показал, что палец, ложась на экран, проезжает
+  // 14–20 px в первые 60–80 мс, а потом лежит неподвижно, пока игрок целится.
+  // Прежняя выдержка в 90 мс к моменту снятия истекала, и такой тап молча
+  // выбрасывался. Выдержки больше нет: между `TAP_MOVE` и `TAP_SLIP` тап живёт
+  // сколько угодно.
+  it('уплыл на 14 px в первые 80 мс и замер до 380-й', () => {
+    expect(press([[0, 200, 400], [40, 207, 405], [80, 211, 409], [380, 211, 409]])).toBe(true);
+  });
+
+  it('уплыл на 20 px в первые 60 мс и замер до 250-й', () => {
+    expect(press([[0, 200, 400], [30, 209, 406], [60, 215, 413], [250, 215, 413]])).toBe(true);
+  });
+
+  it('часов между порогами нет: сколько бы ни лежал, до предела тапа — тап', () => {
+    const g = new Gesture();
+    g.down(1, 200, 400, 0);
+    g.move(1, 200 + TAP_MOVE + 1, 400, 10);
+    expect(g.up(1, TAP_MS)).toBe(true);
+  });
+});
+
 describe('касание с ведением — камера, без выбора', () => {
   it('палец уехал далеко', () => {
     expect(press([[0, 200, 400], [16, 220, 400], [32, 250, 400], [48, 280, 400]])).toBe(false);
@@ -64,33 +97,39 @@ describe('касание с ведением — камера, без выбор
     expect(g.up(1, 48)).toBe(false);
   });
 
-  it('медленное ведение на два десятка пикселей — тоже ведение', () => {
-    // Тем прыжок на сходе и отличается от ведения: он живёт последние
-    // миллисекунды касания, а ведение держится всё время, пока палец ведёт.
-    expect(press([[0, 200, 400], [100, 220, 400], [300, 224, 400]])).toBe(false);
-  });
-
-  it('ведение засчитывается, даже если новых движений больше не пришло', () => {
-    // Медленное ведение часто так и кончается: палец доехал, замер и снялся.
-    const g = new Gesture();
-    g.down(1, 200, 400, 0);
-    g.move(1, 220, 400, 10);
-    expect(g.up(1, 10 + TAP_SETTLE + 1)).toBe(false);
-  });
-
-  it('граница: за порогом уверенного тапа, но в пределах выдержки', () => {
-    const g = new Gesture();
-    g.down(1, 200, 400, 0);
-    g.move(1, 200 + TAP_MOVE + 1, 400, 100);
-    expect(g.up(1, 100 + TAP_SETTLE)).toBe(true);
-    const h = new Gesture();
-    h.down(1, 200, 400, 0);
-    h.move(1, 200 + TAP_MOVE + 1, 400, 100);
-    expect(h.up(1, 100 + TAP_SETTLE + 1)).toBe(false);
-  });
-
   it('порог меряется по диагонали, а не по осям', () => {
     expect(press([[0, 0, 0], [16, TAP_SLIP * 0.8, TAP_SLIP * 0.8], [32, TAP_SLIP * 0.8, TAP_SLIP * 0.8]])).toBe(false);
+  });
+});
+
+describe('камера трогается по команде разбора, а не сама', () => {
+  // Второго судьи у камеры быть не должно. В деревне им был `OrbitControls`:
+  // он брал `pointerdown` себе и начинал панораму с первого же пикселя, пока
+  // разбор ещё считал жест тапом. Отсюда и «камера не такая, как на карте».
+  it('пока палец внутри порога, картинка стоит', () => {
+    const g = new Gesture();
+    g.down(1, 200, 400, 0);
+    expect(g.panning(0)).toBe(false);
+    g.move(1, 200 + TAP_MOVE - 1, 400, 20);
+    expect(g.panning(20)).toBe(false);
+  });
+
+  it('прошёл порог — камера поехала, а тап ещё жив', () => {
+    const g = new Gesture();
+    g.down(1, 200, 400, 0);
+    g.move(1, 200 + TAP_MOVE + 1, 400, 20);
+    expect(g.panning(20)).toBe(true);
+    expect(g.up(1, 200)).toBe(true);
+  });
+
+  it('камера свободна и тогда, когда тапа в жесте уже нет', () => {
+    const two = new Gesture();
+    two.down(1, 200, 400, 0);
+    two.down(2, 300, 400, 10);
+    expect(two.panning(20)).toBe(true);
+    const slow = new Gesture();
+    slow.down(1, 200, 400, 0);
+    expect(slow.panning(TAP_MS + 1)).toBe(true);
   });
 });
 
@@ -178,7 +217,107 @@ describe('числа', () => {
   it('одиночное нажатие судится тем же классом, что и жест целиком', () => {
     const p = new Press(1, 100, 100, 0);
     expect(p.move(100 + TAP_MOVE - 1, 100, 10)).toBe(true);
+    expect(p.leading).toBe(false);
     expect(p.move(100 + TAP_SLIP + 1, 100, 20)).toBe(false);
     expect(p.moved).toBe(true);
+    expect(p.leading).toBe(true);
+  });
+
+  it('нажатие считает путь и самый дальний сход — этим и живёт журнал касаний', () => {
+    // Ведение от дрожи отличается именно этой парой: у дрожи путь длинный, а
+    // сход короткий. Без них журнал с телефона был бы списком «что-то было».
+    const p = new Press(1, 100, 100, 0);
+    p.move(110, 100, 10);
+    p.move(100, 100, 20);
+    expect(Math.round(p.path)).toBe(20);
+    expect(Math.round(p.far)).toBe(10);
+  });
+});
+
+describe('призрачный щелчок после тапа', () => {
+  // Не предосторожность, а починка. Тап открывает панель, панель поднимает
+  // затемнение, затемнение закрывается щелчком — и синтезированный браузером
+  // щелчок от ТОГО ЖЕ касания её тут же закрывает. Замер настоящим касанием:
+  // неподвижный тап — щелчок по затемнению и панель закрылась; тот же тап со
+  // сходом в 20 px — щелчка нет и панель осталась. Отсюда и «иногда».
+  interface FakeWindow {
+    handlers: Array<(e: Event) => void>;
+    timers: number;
+    cleared: number[];
+    addEventListener: (t: string, fn: (e: Event) => void, capture: boolean) => void;
+    removeEventListener: (t: string, fn: (e: Event) => void, capture: boolean) => void;
+    setTimeout: (fn: () => void, ms: number) => number;
+    clearTimeout: (id: number) => void;
+  }
+
+  function fakeWindow(): FakeWindow {
+    const w: FakeWindow = {
+      handlers: [],
+      timers: 0,
+      cleared: [],
+      addEventListener: (t, fn) => {
+        expect(t).toBe('click');
+        w.handlers.push(fn);
+      },
+      removeEventListener: (_t, fn) => {
+        w.handlers = w.handlers.filter((h) => h !== fn);
+      },
+      setTimeout: () => ++w.timers,
+      clearTimeout: (id) => w.cleared.push(id),
+    };
+    return w;
+  }
+
+  function withWindow<T>(w: FakeWindow, fn: () => T): T {
+    const g = globalThis as unknown as { window?: unknown };
+    const had = 'window' in g;
+    const prev = g.window;
+    g.window = w;
+    try {
+      return fn();
+    } finally {
+      if (had) g.window = prev;
+      else delete g.window;
+    }
+  }
+
+  it('перехватывает ровно один щелчок и снимается', () => {
+    const w = fakeWindow();
+    withWindow(w, () => swallowGhostClick());
+    expect(w.handlers.length).toBe(1);
+    let stopped = 0;
+    let prevented = 0;
+    const click = { stopPropagation: () => stopped++, preventDefault: () => prevented++ } as unknown as Event;
+    withWindow(w, () => w.handlers[0](click));
+    expect(stopped).toBe(1);
+    expect(prevented).toBe(1);
+    // Снялся сам: второй щелчок — уже настоящий, и глотать его нельзя.
+    expect(w.handlers.length).toBe(0);
+    expect(w.cleared.length).toBe(1);
+  });
+
+  it('срок ожидания короткий: щелчок приходит следом за касанием, а не когда-нибудь', () => {
+    expect(GHOST_CLICK_MS).toBeLessThanOrEqual(500);
+    expect(GHOST_CLICK_MS).toBeGreaterThan(100);
+  });
+
+  it('вне браузера не падает — модуль общий, а тесты идут без DOM', () => {
+    expect(() => swallowGhostClick()).not.toThrow();
+  });
+});
+
+describe('оба холста глотают свой щелчок', () => {
+  // Проверка по исходнику: путь «тап → панель → затемнение → щелчок» одинаков в
+  // деревне и на карте, и починка обязана стоять в обоих местах. Убрать её из
+  // одного — правка одной строки, а увидеть это можно только на телефоне.
+  const scene = readFileSync(new URL('./render/Scene.ts', import.meta.url), 'utf8');
+  const map = readFileSync(new URL('./ui/map/WorldMap.tsx', import.meta.url), 'utf8');
+
+  it('деревня', () => {
+    expect(scene).toMatch(/swallowGhostClick\(\)/);
+  });
+
+  it('карта', () => {
+    expect(map).toMatch(/swallowGhostClick\(\)/);
   });
 });
