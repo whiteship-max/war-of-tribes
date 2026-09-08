@@ -84,18 +84,23 @@ const SPOT_TRIES = 12;
  */
 const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
   ...Object.values(STAGE_BY_ID).map((s) => ({
-    look: { stage: s.id, relation: 'neutral', mine: false, variant: 0, castle: false } as Look,
+    look: { stage: s.id, relation: 'neutral', mine: false, variant: 0, castle: false, ruin: false } as Look,
     name: s.name,
   })),
   {
-    look: { stage: 'village', relation: 'neutral', mine: false, variant: 0, castle: true },
+    look: { stage: 'village', relation: 'neutral', mine: false, variant: 0, castle: true, ruin: false },
     name: 'Замок',
     note: 'крепость с казной, бывает при любой стадии',
   },
   {
-    look: { stage: 'stronghold', relation: 'barbarian', mine: false, variant: 0, castle: false },
+    look: { stage: 'stronghold', relation: 'barbarian', mine: false, variant: 0, castle: false, ruin: false },
     name: 'Стоянка варваров',
     note: 'шатры и терновая дуга вместо стены',
+  },
+  {
+    look: { stage: 'camp', relation: 'barbarian', mine: false, variant: 0, castle: false, ruin: true },
+    name: 'Пепелище',
+    note: 'сожжённое логово; занять нельзя, след сойдёт сам',
   },
 ];
 

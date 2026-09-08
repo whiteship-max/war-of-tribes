@@ -156,6 +156,14 @@ export function ProfilePanel() {
         <span className={`val${s.stats.battlesLost > 0 ? ' neg' : ''}`}>{s.stats.battlesLost}</span>
       </div>
       <div className="mod">
+        <span className="ico">🔥</span>
+        <span className="name">
+          Сожжено логов
+          <em className="sub">разбойничьих гнёзд, убранных с карты навсегда</em>
+        </span>
+        <span className={`val${(s.stats.lairs ?? 0) > 0 ? ' pos' : ''}`}>{s.stats.lairs ?? 0}</span>
+      </div>
+      <div className="mod">
         <span className="ico">🧺</span>
         <span className="name">
           Добыча

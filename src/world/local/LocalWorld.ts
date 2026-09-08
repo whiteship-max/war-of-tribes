@@ -4034,6 +4034,9 @@ export class LocalWorld implements WorldApi {
     if (this.touching(this.figureAt(f, now))?.id !== target.id) {
       return `Слишком далеко: ${def.one} надо довести к самым воротам.`;
     }
+    // На пепелище работать не с кем: ни выведывать, ни дарить, ни бунтовать.
+    // Отказ с причиной, а не молчаливо погашенная кнопка.
+    if (!this.alive(target, now)) return 'Здесь только пепелище: работать не с кем.';
     const busy = Math.max(0, (f.busyUntil ?? 0) - now);
     if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
     // Наблюдатель не работает, и это не подпорка интерфейса, а само правило:

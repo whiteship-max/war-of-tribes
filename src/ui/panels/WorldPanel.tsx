@@ -251,6 +251,40 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
 
   const stage = STAGE_BY_ID[card.stage];
   const relation = RELATION_META[card.relation];
+
+  // Пепелище: карточка короткая, потому что говорить про него больше нечего.
+  // Ни войска, ни владельца, ни договоров — и ни одной погасшей кнопки: занять
+  // его нельзя, а показывать выключенный набег значило бы обещать действие,
+  // которого нет. Единственное, что тут есть, — что победа была и что след
+  // сойдёт сам.
+  if (card.ruin) {
+    return (
+      <div className="panel">
+        <div className="bhead">
+          <div className="ico">🔥</div>
+          <div className="body">
+            <div className="name">{card.name}</div>
+            <div className="lvl">Пепелище</div>
+          </div>
+          <span className="wm-coord-tag">{formatCoord(card)}</span>
+        </div>
+        <div className="mod-list">
+          <div className="mod">
+            <span className="ico"><Icon name="ui-ruler" glyph="📏" /></span>
+            <span className="name">Расстояние</span>
+            <span className="val">{fmt(card.distance)} кл.</span>
+          </div>
+          <div className="mod">
+            <span className="ico">⌛</span>
+            <span className="name">След сойдёт через</span>
+            <span className="val">{formatLeft(card.ruinLeft)}</span>
+          </div>
+        </div>
+        <p className="note">{card.note}</p>
+      </div>
+    );
+  }
+
   const have = sendableUnits(s);
   const strength = soldierPower(s);
   const def = defense(s);

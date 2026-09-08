@@ -171,6 +171,7 @@ const lookOf = (s: SettlementView): Look => ({
   mine: s.mine,
   variant: variantOf(s.id),
   castle: s.castle,
+  ruin: s.ruin,
 });
 
 /**

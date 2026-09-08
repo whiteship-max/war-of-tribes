@@ -12,7 +12,7 @@
 // племени значит стереть стадию, а стадия — главный вопрос игрока к чужой точке.
 import { RELATION_META } from '@/world/data/meta';
 import type { Relation, Stage } from '@/world/types';
-import { EARTH, OWN, PAL_HIDE, PAL_STONE, PAL_WOOD, PROPS, RAMPART, type BuildPalette } from './palette';
+import { ASH, EARTH, OWN, PAL_HIDE, PAL_STONE, PAL_WOOD, PROPS, RAMPART, type BuildPalette } from './palette';
 
 type C = CanvasRenderingContext2D;
 
@@ -162,6 +162,12 @@ export interface Look {
   variant: number;
   /** Крепость с казной. Не стадия: бывает при любой (см. `ringOf`). */
   castle: boolean;
+  /**
+   * Пепелище на месте сожжённого логова. Не стадия и не отношение: это след, и
+   * рисуется он вместо поселения целиком — ни домов, ни ограды, ни флага.
+   * Победа игрока обязана быть видна на карте, а не только в отчёте.
+   */
+  ruin: boolean;
 }
 
 /**
@@ -171,7 +177,7 @@ export interface Look {
  * замку спрайт обычного соседа той же стадии, и молча.
  */
 export const spriteKey = (look: Look, bucket: number, dpr: number): string =>
-  `${look.stage}|${look.relation}|${look.mine ? 1 : 0}|${look.castle ? 1 : 0}|${look.variant}|${bucket}|${dpr}`;
+  `${look.stage}|${look.relation}|${look.mine ? 1 : 0}|${look.castle ? 1 : 0}|${look.ruin ? 1 : 0}|${look.variant}|${bucket}|${dpr}`;
 
 // ---------- Габариты спрайта ----------
 
@@ -588,6 +594,58 @@ export function flag(ctx: C, x: number, y: number, color: string, own: boolean):
   ctx.fill();
 }
 
+/**
+ * Пепелище: выжженное пятно, головни от шалашей и обугленный шест. Ни огня, ни
+ * флага, ни ограды — по силуэту должно читаться, что тут кончилось, а не идёт.
+ */
+function ashes(ctx: C, r: number, rnd: () => number): void {
+  const n = 14;
+  const rad: number[] = [];
+  for (let i = 0; i < n; i++) rad.push(r * (0.88 + rnd() * 0.2));
+  ctx.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const a = ((i % n) / n) * TAU;
+    const k = rad[i % n];
+    const x = Math.cos(a) * k;
+    const y = Math.sin(a) * k * SQUASH;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = ASH.ground;
+  ctx.fill();
+  ctx.strokeStyle = ASH.edge;
+  ctx.lineWidth = LINE * 2;
+  ctx.stroke();
+
+  // Пятна остывшего пепла.
+  ctx.fillStyle = ASH.ash;
+  for (let i = 0; i < 12; i++) {
+    const a = rnd() * TAU;
+    const k = r * Math.sqrt(rnd()) * 0.9;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * k, Math.sin(a) * k * SQUASH, 0.07, 0.03, 0, 0, TAU);
+    ctx.fill();
+  }
+
+  // Головни: обломки жердей, торчащие под разными углами. Три штуки — больше на
+  // 22 px сливаются в кляксу.
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * TAU + 0.4;
+    const k = r * (0.3 + rnd() * 0.45);
+    const x = Math.cos(a) * k;
+    const y = Math.sin(a) * k * SQUASH;
+    const h = 0.14 + rnd() * 0.14;
+    ctx.strokeStyle = i % 2 === 0 ? ASH.char : ASH.charLight;
+    ctx.lineWidth = LINE * (1.6 + rnd());
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (rnd() - 0.5) * 0.2, y - h);
+    ctx.stroke();
+  }
+}
+
 // ---------- Выпечка и кэш ----------
 
 const cache = new Map<string, Sprite>();
@@ -619,6 +677,13 @@ export function bakeSettlement(look: Look, cell: number, dpr: number): Sprite {
   const p = paletteOf(look);
   const r = clearRadius(look.stage, look.castle);
   const rnd = rng(look.variant * 104729 + look.stage.length * 13 + (barbarian ? 5 : 1) + (look.castle ? 37 : 0));
+
+  // Пепелище рисуется вместо всего остального и раньше всего остального: у него
+  // нет ни стадии, ни ограды, ни флага, и подмешивать их сюда нечего.
+  if (look.ruin) {
+    ashes(ctx, r, rnd);
+    return sprite;
+  }
 
   // Своё поселение подсвечено тёплым пятном под землёй: без ctx.filter, обычным
   // радиальным градиентом — он есть везде.

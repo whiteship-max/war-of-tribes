@@ -193,15 +193,24 @@ const profile = (): PlayerProfile =>
 /** Настоящее состояние мира. Отчёт — прибор, ему положено видеть больше панели. */
 const saveOf = (w: LocalWorld): WorldSave => (w as unknown as { save: WorldSave }).save;
 
+/**
+ * Где стоят логова на самом деле. По карточкам их не собрать: поселение, до
+ * которого ни разу не доходил живой обзор, показывается нейтральным — это второй
+ * слой тумана, и прибору он мешает так же, как игроку.
+ */
+function lairSpots(w: LocalWorld): Map<string, { x: number; y: number }> {
+  const save = saveOf(w);
+  const out = new Map<string, { x: number; y: number }>();
+  for (const x of generateWorld(save.seed).settlements) if (isLair(x)) out.set(x.id, { x: x.x, y: x.y });
+  for (const x of save.spawned) out.set(x.id, { x: x.x, y: x.y });
+  return out;
+}
+
 function lairCounts(w: LocalWorld, now: number): { alive: number; ruins: number } {
   const save = saveOf(w);
-  const gen = generateWorld(save.seed);
-  const spot = new Map<string, { x: number; y: number }>();
-  for (const x of gen.settlements) if (isLair(x)) spot.set(x.id, { x: x.x, y: x.y });
-  for (const x of save.spawned) spot.set(x.id, { x: x.x, y: x.y });
   let alive = 0;
   let ruins = 0;
-  for (const [id, at] of spot) {
+  for (const [id, at] of lairSpots(w)) {
     if (distance(at, save.home) > AI_RANGE) continue;
     const phase = lairPhase(save.lairs[id] ?? { bornAt: save.createdAt, burnedAt: 0 }, now);
     if (phase === 'alive') alive++;
@@ -210,45 +219,57 @@ function lairCounts(w: LocalWorld, now: number): { alive: number; ruins: number 
   return { alive, ruins };
 }
 
-async function nearestLair(
+function nearestLair(
   world: LocalWorld,
+  now: number,
   from: { x: number; y: number },
-): Promise<{ x: number; y: number } | null> {
-  const info = await world.info();
-  const chunk = await world.region({
-    x: info.home.x - AI_RANGE,
-    y: info.home.y - AI_RANGE,
-    w: AI_RANGE * 2 + 1,
-    h: AI_RANGE * 2 + 1,
-  });
-  const lairs = chunk.settlements.filter((x) => x.relation === 'barbarian' && !x.ruin && !x.mine);
-  if (lairs.length === 0) return null;
-  lairs.sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y));
-  return { x: lairs[0].x, y: lairs[0].y };
+): { x: number; y: number } | null {
+  const save = saveOf(world);
+  const live: { x: number; y: number }[] = [];
+  for (const [id, at] of lairSpots(world)) {
+    if (distance(at, save.home) > AI_RANGE) continue;
+    if (lairPhase(save.lairs[id] ?? { bornAt: save.createdAt, burnedAt: 0 }, now) !== 'alive') continue;
+    live.push(at);
+  }
+  if (live.length === 0) return null;
+  live.sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y));
+  return { ...live[0] };
 }
 
-console.log('=== КАРТА ЗА НЕСКОЛЬКО ЧАСОВ: не пустеет и не зарастает ===');
-console.log('Игрок жжёт логова при первой возможности: полководец ходит от одного к другому');
-console.log('и бьёт, как только дойдёт. Считается настоящим миром, а не прикидкой.');
-console.log(`Потолок живых логов в округе — ${LAIR_NEAR_CAP}, пауза между новыми ${LAIR_SPAWN_MIN / MIN}..${LAIR_SPAWN_MAX / MIN} мин.`);
-console.log('');
-console.log(`  сид   было   сожжено за ${HOURS} ч   осталось   пепелищ   круг набега, мин`);
+interface Run {
+  /** Сколько логов мир завёл за прогон. */
+  spawned: number;
+  burned: number;
+  left: number;
+  ruins: number;
+  /** Сколько минут занимает круг: дорога до логова и бой. */
+  round: number;
+  /** Сколько логов стояло в округе в среднем за прогон. */
+  standing: number;
+}
 
-const burnedAll: number[] = [];
-const leftAll: number[] = [];
-for (const seed of SEEDS.slice(0, 6)) {
+/**
+ * Прогон партии. `restMinutes` — сколько игрок занимается посёлком между
+ * набегами: ноль это охотник, который не делает больше ничего, полчаса —
+ * обычная игра, где карта одно дело из многих.
+ */
+async function play(seed: number, restMinutes: number): Promise<Run> {
   let now = START;
   const world = new LocalWorld({ seed, now: () => now, storage: null, reveal: true });
   const p = profile();
   await world.sync(p);
-  const first = lairCounts(world, now).alive;
   let burned = 0;
   let spentMs = 0;
   let goingSince = 0;
+  let restUntil = 0;
+  let samples = 0;
+  let standing = 0;
 
   const step = async (ms: number): Promise<void> => {
     now += Math.max(1000, Math.round(ms));
     await world.sync(p);
+    samples++;
+    standing += lairCounts(world, now).alive;
   };
 
   // Дружина к полководцу: без войска бить нечем, а передача идёт время.
@@ -256,11 +277,15 @@ for (const seed of SEEDS.slice(0, 6)) {
   for (let i = 0; i < 60; i++) {
     await step(MIN);
     const g = (await world.figures()).find((f) => f.id === 'general');
-    if (g && !g.gathering) break;
+    if (g && g.readyAt === 0) break;
   }
 
   const until = START + HOURS * HOUR;
   for (let guard = 0; guard < 4000 && now < until; guard++) {
+    if (now < restUntil) {
+      await step(Math.min(MIN, restUntil - now));
+      continue;
+    }
     const g = (await world.figures()).find((f) => f.id === 'general');
     if (!g || g.phase === 'down') {
       await step(MIN);
@@ -270,7 +295,7 @@ for (const seed of SEEDS.slice(0, 6)) {
       await step(Math.min(MIN, g.arriveAt - now + 1000));
       continue;
     }
-    const target = await nearestLair(world, g.at);
+    const target = nearestLair(world, now, g.at);
     if (!target) {
       await step(5 * MIN);
       continue;
@@ -288,19 +313,52 @@ for (const seed of SEEDS.slice(0, 6)) {
     if (res.won) {
       burned++;
       spentMs += now - (goingSince || now);
+      restUntil = now + restMinutes * MIN;
     }
     goingSince = 0;
     await step(30_000);
   }
   const end = lairCounts(world, now);
-  burnedAll.push(burned);
-  leftAll.push(end.alive);
+  return {
+    spawned: saveOf(world).spawned.length,
+    burned,
+    left: end.alive,
+    ruins: end.ruins,
+    round: burned > 0 ? spentMs / burned / MIN : 0,
+    standing: samples > 0 ? standing / samples : 0,
+  };
+}
+
+console.log('=== КАРТА ЗА НЕСКОЛЬКО ЧАСОВ: не пустеет и не зарастает ===');
+console.log(`Потолок живых логов в округе — ${LAIR_NEAR_CAP}, пауза между новыми ${LAIR_SPAWN_MIN / MIN}..${LAIR_SPAWN_MAX / MIN} мин.`);
+console.log('Две дороги на одном и том же мире: охотник, который не делает больше ничего,');
+console.log('и обычная игра, где на карту заходят между делом (полчаса на посёлок после');
+console.log('каждого набега). Первая отвечает, есть ли у мира предел, вторая — как он');
+console.log('выглядит в настоящей партии.');
+
+for (const [style, rest] of [
+  ['охотник (без передышки)', 0],
+  ['обычная игра (полчаса на посёлок)', 30],
+] as [string, number][]) {
+  console.log('');
+  console.log(`  ${style}`);
+  console.log(`  сид   было   заведено   сожжено за ${HOURS} ч   стояло в среднем   осталось   круг, мин`);
+  const burnedAll: number[] = [];
+  const standingAll: number[] = [];
+  for (const seed of SEEDS.slice(0, 6)) {
+    const first = lairCounts(new LocalWorld({ seed, now: () => START, storage: null }), START).alive;
+    const r = await play(seed, rest);
+    burnedAll.push(r.burned);
+    standingAll.push(r.standing);
+    console.log(
+      `  ${pad(seed, 4)}  ${pad(first, 5)}  ${pad(r.spawned, 9)}  ${pad(r.burned, 15)}  ${pad(n1(r.standing), 17)}  ${pad(r.left, 8)}  ${pad(r.round > 0 ? n1(r.round) : '—', 9)}`,
+    );
+  }
   console.log(
-    `  ${pad(seed, 4)}  ${pad(first, 5)}  ${pad(burned, 15)}  ${pad(end.alive, 8)}  ${pad(end.ruins, 8)}  ${pad(burned > 0 ? n1(spentMs / burned / MIN) : '—', 16)}`,
+    `  Сожжено ${Math.min(...burnedAll)}..${Math.max(...burnedAll)}; логов в округе в среднем ${n1(Math.min(...standingAll))}..${n1(Math.max(...standingAll))} из ${LAIR_NEAR_CAP}.`,
   );
 }
 console.log('');
-console.log(
-  `  Сожжено за ${HOURS} ч: ${Math.min(...burnedAll)}..${Math.max(...burnedAll)}. Осталось живых логов: ${Math.min(...leftAll)}..${Math.max(...leftAll)}.`,
-);
-console.log('  Пустошью карта не становится и логовами не зарастает: потолок держит и то, и другое.');
+console.log('  Мир не кончается: даже у охотника цели не переводятся — он жжёт заметно больше,');
+console.log('  чем стояло вначале. И не зарастает: в обычной партии их столько же, сколько');
+console.log('  рассыпала генерация, а выше потолка их не бывает никогда.');

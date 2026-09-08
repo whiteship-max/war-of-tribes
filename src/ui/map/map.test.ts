@@ -261,12 +261,15 @@ describe('поселения читаются силуэтом', () => {
     }
     expect(pickBucket(23)).toBe(pickBucket(29));
     // Ключ кэша разводит то, от чего зависит картинка, и только это.
-    const look = { stage: 'town', relation: 'enemy', mine: false, variant: 1, castle: false } as const;
+    const look = { stage: 'town', relation: 'enemy', mine: false, variant: 1, castle: false, ruin: false } as const;
     expect(spriteKey(look, 40, 2)).toBe(spriteKey({ ...look }, 40, 2));
     expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, mine: true }, 40, 2));
     expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, relation: 'ally' }, 40, 2));
     // Без этого замок получил бы спрайт обычного соседа той же стадии — молча.
     expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, castle: true }, 40, 2));
+    // И то же самое про пепелище: сожжённое логово рисуется вместо поселения
+    // целиком, и общий с ним ключ означал бы, что победа на карте не видна.
+    expect(spriteKey(look, 40, 2)).not.toBe(spriteKey({ ...look, ruin: true }, 40, 2));
   });
 });
 
