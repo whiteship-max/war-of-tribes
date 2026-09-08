@@ -48,6 +48,8 @@ import { disposeGeometries } from './kit';
 import { Gesture, TAP_TARGET } from '@/gestures';
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { clampPan, framing, zoomRange } from './camera';
+import { FrameLoop } from './loop';
+import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 
 interface BuildingView {
   group: THREE.Group;
@@ -136,6 +138,12 @@ const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
  * Живая сцена в приложении одна, а обучению нужна проекция здания в экранные
  * координаты — чтобы «дырка» в затемнении следовала за зданием при повороте камеры.
  */
+/**
+ * Скрыта ли страница сейчас. Отдельной функцией, потому что спрашивают дважды, а
+ * главное — потому что ответ обязан быть «видна» там, где документа нет вовсе.
+ */
+const hiddenNow = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
 let active: TribeScene | null = null;
 export const activeScene = (): TribeScene | null => active;
 
@@ -170,7 +178,19 @@ export class TribeScene {
   /** Слепок армии — по нему пересобираются фигурки бойцов. */
   private armyKey = '';
   private clock = new THREE.Clock();
-  private raf = 0;
+  /**
+   * Цепочка кадров и все причины, по которым она сейчас стоит: карта, скрытая
+   * страница, потерянный контекст, выгруженная сцена. Флаг тут не годится —
+   * причины накладываются друг на друга, и снятие одной ничего не решает
+   * (разбор — в `render/loop.ts`).
+   */
+  private beat = new FrameLoop<Block>(
+    () => this.frame(),
+    () => this.rewind(),
+  );
+  /** Сколько кадров нарисовано за жизнь сцены и когда был последний. */
+  private drawn = 0;
+  private lastFrame = 0;
   private frameNo = 0;
   /** Было ли уже состояние: по первому sync сезон ставится без перелива. */
   private synced = false;
@@ -187,7 +207,6 @@ export class TribeScene {
   private signs = new WorkSigns();
   private season: Season = 'spring';
   private disposed = false;
-  private paused = false;
   /** Канва и рендерер отданы ролику о бое: диорама молчит, пока их не вернут. */
   private lent = false;
   private selection: THREE.Mesh;
@@ -298,8 +317,91 @@ export class TribeScene {
     canvas.addEventListener('pointercancel', this.onPointerCancel);
 
     this.resize();
-    this.loop();
+    // Кадры не идут в скрытой странице — не «идут редко», а не идут вовсе. Значит
+    // и завести цепочку на скрытой странице нельзя: заявка повиснет до возвращения.
+    document.addEventListener('visibilitychange', this.onVisibility);
+    this.beat.block('hidden', hiddenNow());
+    this.beat.restart();
     active = this;
+  }
+
+  /**
+   * Страница скрылась или вернулась.
+   *
+   * Слушателя нет ни у кого другого нарочно: цепочка кадров — дело сцены, и
+   * решать, идти ей или стоять, должна она сама. Оболочка зовёт `wake` теми
+   * событиями, которых сцене не видно (`pageshow`, `resume`, Телеграм).
+   */
+  private onVisibility = (): void => {
+    const hidden = hiddenNow();
+    sceneLog.mark(hidden ? 'hide' : 'show', this.sizeLine());
+    if (hidden) {
+      this.beat.block('hidden', true);
+      return;
+    }
+    this.wake();
+  };
+
+  /**
+   * Вернулись из фона.
+   *
+   * Зовут это четверо — `visibilitychange`, `pageshow`, `resume` и Телеграм, — и
+   * все четверо зовут одно и то же. Идемпотентность здесь не удобство, а
+   * необходимость: какое из событий придёт на конкретном клиенте (и придёт ли
+   * хоть одно), заранее не известно, а прийти могут все сразу.
+   *
+   * Цепочка кадров заводится **заново**, а не «продолжается»: заявка, поданная
+   * перед сворачиванием, могла не пережить фон, и тогда её никто уже не позовёт.
+   */
+  wake(): void {
+    if (this.disposed) return;
+    this.beat.block('hidden', false);
+    this.beat.restart();
+  }
+
+  /** Размеры холста и окна одной строкой — для журнала. */
+  private sizeLine(): string {
+    return sizeNote(
+      { w: this.canvas.clientWidth, h: this.canvas.clientHeight },
+      { w: this.canvas.width, h: this.canvas.height },
+      { w: window.innerWidth, h: window.innerHeight },
+    );
+  }
+
+  /**
+   * Показания приборов. Их читает служебный экран (`src/scenelog.ts`), и они же
+   * — единственный источник ответа «что со сценой»: своей копии состояния у
+   * прибора нет, а про потерю контекста спрашивается сам драйвер, а не наша
+   * память о событии.
+   */
+  vitals(): Vitals {
+    return {
+      now: performance.now(),
+      frames: this.drawn,
+      lastFrame: this.lastFrame,
+      lost: this.lostNow(),
+      blocks: this.disposed ? ['gone'] : this.beat.stopped(),
+      css: { w: this.canvas.clientWidth, h: this.canvas.clientHeight },
+      buffer: { w: this.canvas.width, h: this.canvas.height },
+    };
+  }
+
+  /** Живой ответ драйвера, а не флаг: контекст мог вернуться сам. */
+  private lostNow(): boolean {
+    try {
+      return this.renderer.getContext().isContextLost();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Часы стояли вместе с цепочкой: съедаем накопленную дельту, иначе первый кадр
+   * после карты или после сна прыгнет на всё это время разом.
+   */
+  private rewind(): void {
+    this.clock.getDelta();
+    this.gameTimeAt = performance.now();
   }
 
   private dpr(): number {
@@ -370,19 +472,15 @@ export class TribeScene {
    * невыгодно. Числа — в docs/loading.md, часть 2. Не заводить заново.
    */
   pause(): void {
-    if (this.paused || this.disposed) return;
-    this.paused = true;
-    cancelAnimationFrame(this.raf);
+    if (this.disposed) return;
+    this.beat.block('map', true);
   }
 
   resume(): void {
-    if (!this.paused || this.disposed) return;
-    this.paused = false;
-    // Часы стояли вместе с лупом: съедаем накопленную дельту, иначе первый кадр
-    // прыгнет на всё время, проведённое на карте.
-    this.clock.getDelta();
-    this.gameTimeAt = performance.now();
-    this.loop();
+    if (this.disposed) return;
+    // Скрытая страница снимет свою причину сама, когда вернётся: снятая здесь,
+    // она завела бы цепочку кадров в фоне — то есть не завела бы вовсе.
+    this.beat.block('map', false);
   }
 
   /**
@@ -421,7 +519,8 @@ export class TribeScene {
   dispose(): void {
     this.disposed = true;
     if (active === this) active = null;
-    cancelAnimationFrame(this.raf);
+    this.beat.stop();
+    document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
@@ -912,11 +1011,6 @@ export class TribeScene {
 
   // ---------- Анимация ----------
 
-  private loop = (): void => {
-    if (this.disposed || this.paused) return;
-    this.raf = requestAnimationFrame(this.loop);
-    this.frame();
-  };
 
   /**
    * Один кадр вне цикла. Нужен стенду: в скрытой вкладке requestAnimationFrame
@@ -928,6 +1022,10 @@ export class TribeScene {
   }
 
   private frame(): void {
+    // Считается кадр лупа, а не кадр диорамы: одолженная ролику канва рисуется
+    // им, и «кадры идут» тут значит именно то, что цепочка жива.
+    this.drawn++;
+    this.lastFrame = performance.now();
     const dt = Math.min(0.1, this.clock.getDelta());
     // Канва отдана ролику о бое: он рисует в неё сам, диораме тут делать нечего.
     if (this.lent) return;
