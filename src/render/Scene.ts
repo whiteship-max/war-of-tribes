@@ -431,16 +431,25 @@ export class TribeScene {
     this.beat.restart();
   };
 
-  /** Попросить браузер вернуть контекст и завести срок ожидания. */
+  /**
+   * Попросить браузер вернуть контекст и завести срок ожидания.
+   *
+   * Просьба уходит следующим тактом, а не прямо здесь: `askRestore` зовётся из
+   * обработчика самой потери, а браузер в разгар рассылки этого события просьбу
+   * о возвращении не принимает.
+   */
   private askRestore(): void {
     this.clearWait();
-    try {
-      this.renderer.forceContextRestore();
-      sceneLog.mark('ask', 'просим вернуть контекст');
-    } catch {
-      // Настоящую потерю так не отменить: расширение умеет вернуть только ту,
-      // которую само и устроило. Тогда остаётся ждать браузера и пересборки.
-    }
+    setTimeout(() => {
+      if (this.disposed || !this.lostNow()) return;
+      try {
+        this.renderer.forceContextRestore();
+        sceneLog.mark('ask', 'просим вернуть контекст');
+      } catch {
+        // Настоящую потерю так не отменить: расширение умеет вернуть только ту,
+        // которую само и устроило. Тогда остаётся ждать браузера и пересборки.
+      }
+    }, 0);
     this.restoreTimer = window.setTimeout(this.giveUp, RESTORE_WAIT);
   }
 
@@ -518,8 +527,13 @@ export class TribeScene {
    * пробует снова.
    */
   resize(): void {
-    const w = this.canvas.clientWidth || window.innerWidth;
-    const h = this.canvas.clientHeight || window.innerHeight;
+    // Размер окна — запасная величина только на самый первый замер, когда
+    // раскладки ещё нет вовсе. Дальше ноль означает «холст не готов», и
+    // подставлять вместо него окно нельзя: буфер получил бы чужой размер, счёл
+    // бы дело сделанным и остался бы с ним.
+    const blind = this.sized.w === 0;
+    const w = this.canvas.clientWidth || (blind ? window.innerWidth : 0);
+    const h = this.canvas.clientHeight || (blind ? window.innerHeight : 0);
     if (w < 1 || h < 1) {
       if (!this.needSize) sceneLog.mark('zero', this.sizeLine());
       this.needSize = true;
