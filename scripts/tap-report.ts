@@ -173,21 +173,44 @@ function stubPlugin(): Plugin {
  */
 const PROBE = `
 (async () => {
-  const scene = window.__scene;
   const game = window.__game;
-  if (!scene || !game) throw new Error('нет window.__scene — страница открыта без ?probe=1?');
-  const canvas = scene.canvas;
-  if (!canvas || !scene.buildings || typeof scene.hitBoxOf !== 'function' || typeof scene.place !== 'function') {
+  if (!window.__scene || !game) throw new Error('нет window.__scene — страница открыта без ?probe=1?');
+
+  /*
+   * СЦЕНУ И КАНВУ СПРАШИВАЮТ КАЖДЫЙ РАЗ, А НЕ ЗАПОМИНАЮТ.
+   *
+   * У игры правило «новая сцена — новая канва»: экран игры пересобирает сцену
+   * при потере контекста и заводит под неё новый элемент. Запомненная ссылка
+   * после этого указывает на мёртвую сцену — и стенд начинал врать сразу двумя
+   * концами: «свободна ли точка» сравнивалось с канвой, которой на экране уже
+   * нет (все следы шли как «под разметкой»), а сброс возвращал домой камеру
+   * мёртвой сцены, пока живая уезжала от следа к следу. В таблице это выглядело
+   * как потерянный тап при любом сходе пальца — то есть как поломка игры.
+   */
+  const live = () => window.__scene;
+  const canvasOf = () => live().canvas;
+  const scene0 = live();
+  if (!canvasOf() || !scene0.buildings || typeof scene0.hitBoxOf !== 'function' || typeof scene0.place !== 'function') {
     throw new Error('сцена не та: нет canvas/buildings/hitBoxOf/place — поля переименовали, стенд надо чинить');
   }
 
   const pick = await import('/src/render/pick.ts');
   const IDENT = { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] };
-  const rect = () => canvas.getBoundingClientRect();
+  const rect = () => canvasOf().getBoundingClientRect();
   const state = () => game.getState();
   // Домашний кадр камеры: между следами она возвращается сюда, иначе сдвиг от
-  // прошлого следа уехал бы в таблицу следующего.
-  const home = { t: scene.target.toArray(), d: scene.dist };
+  // прошлого следа уехал бы в таблицу следующего. Ставится он на подъёме
+  // посёлка, когда кадр уже сложился.
+  let home = { t: live().target.toArray(), d: live().dist };
+  // Сколько раз сцена пересобиралась под нами. Ноль — норма; больше нуля стенд
+  // обязан сказать вслух: числа при этом сняты с разных сцен.
+  let seen = live();
+  let rebuilt = 0;
+  const watch = () => {
+    if (live() === seen) return;
+    seen = live();
+    rebuilt++;
+  };
 
   window.__tap = {
     ready: () => JSON.stringify({ w: rect().width, h: rect().height, dpr: window.devicePixelRatio, fake: !!window.__noWebGL }),
@@ -205,8 +228,12 @@ const PROBE = `
       for (const b of s.buildings) b.level = Math.max(1, Math.min(max[b.type] || 1, LEVEL_WANTED));
       s.tutorialDone = true;
       game.setState({ s: { ...s } });
+      home = { t: live().target.toArray(), d: live().dist };
       return JSON.stringify('ok');
     },
+
+    /** Сколько раз сцена пересобралась за прогон. */
+    rebuilds: () => JSON.stringify(rebuilt),
 
     /**
      * Камера на исходную, панель закрыта, окна сняты: след не должен зависеть от
@@ -219,6 +246,7 @@ const PROBE = `
      * предупреждение снимается тем же ходом и по той же причине.
      */
     reset: () => {
+      watch();
       const g = state();
       g.openBuilding(null);
       if (g.eventResult) g.dismissResult();
@@ -230,9 +258,9 @@ const PROBE = `
       // тогда, когда палец уже лежит.
       s.nextEventAt = s.time + 1e9;
       game.setState({ s: { ...s } });
-      scene.target.fromArray(home.t);
-      scene.dist = home.d;
-      scene.place();
+      live().target.fromArray(home.t);
+      live().dist = home.d;
+      live().place();
       return JSON.stringify('ok');
     },
 
@@ -243,7 +271,26 @@ const PROBE = `
      * раскладке: над канвой живёт двумерный слой, и когда шторка уезжает вниз,
      * она ещё несколько кадров стоит между пальцем и деревней.
      */
-    free: (x, y) => JSON.stringify(document.elementFromPoint(x, y) === canvas),
+    free: (x, y) => JSON.stringify(document.elementFromPoint(x, y) === canvasOf()),
+
+    /**
+     * Кто занял точку, если она не свободна. Без этого «в N следах точка
+     * осталась под разметкой» — жалоба без имени виноватого: окно события,
+     * уезжающая шторка и экран поломки сцены выглядят в таблице одинаково
+     * (нулями), а лечатся по-разному.
+     *
+     * Обратных кавычек и типов здесь быть не может: код едет в страницу строкой
+     * внутри шаблонного литерала и выполняется как есть.
+     */
+    who: (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      if (!el || el === canvasOf()) return JSON.stringify('канва');
+      const chain = [];
+      for (let n = el; n && chain.length < 4; n = n.parentElement) {
+        chain.push(n.tagName.toLowerCase() + (n.className ? '.' + String(n.className).split(' ')[0] : ''));
+      }
+      return JSON.stringify(chain.join(' < ') + ' — «' + (el.textContent || '').trim().slice(0, 40) + '»');
+    },
 
     /** Что открыто сейчас. null — ничего. */
     sheet: () => {
@@ -253,13 +300,13 @@ const PROBE = `
 
     /** Точка мира в пикселях страницы — тем же переводом, что у областей попадания. */
     at: (x, y, z) => {
-      const b = pick.projectHitBox(0, { min: { x, y, z }, max: { x, y, z } }, IDENT, scene.camera, rect(), 0);
+      const b = pick.projectHitBox(0, { min: { x, y, z }, max: { x, y, z } }, IDENT, live().camera, rect(), 0);
       return b && { x: b.x, y: b.y };
     },
 
     /** Где сейчас середина области попадания постройки — этим мерится сдвиг деревни. */
     spot: (id) => {
-      const b = scene.hitBoxOf(id);
+      const b = live().hitBoxOf(id);
       return JSON.stringify(b ? { x: b.x, y: b.y } : null);
     },
 
@@ -268,12 +315,12 @@ const PROBE = `
       const r = rect();
       const out = [];
       for (const b of state().s.buildings) {
-        const view = scene.buildings.get(b.id);
+        const view = live().buildings.get(b.id);
         if (!view) continue;
         view.group.updateWorldMatrix(true, false);
-        const raw = view.type === 'palisade' ? null : pick.projectHitBox(b.id, view.box, view.group.matrixWorld, scene.camera, r, 0);
-        const area = scene.hitBoxOf(b.id);
-        const spot = scene.screenSpot(b.id);
+        const raw = view.type === 'palisade' ? null : pick.projectHitBox(b.id, view.box, view.group.matrixWorld, live().camera, r, 0);
+        const area = live().hitBoxOf(b.id);
+        const spot = live().screenSpot(b.id);
         out.push({ id: b.id, type: view.type, tier: view.tier, level: b.level, raw, area, spot });
       }
       return JSON.stringify(out);
@@ -384,6 +431,8 @@ async function report(): Promise<void> {
 
   /** Сколько раз точка касания так и не освободилась — стенд об этом скажет. */
   let blocked = 0;
+  /** И кто её занял в первый раз: без имени жалоба ничего не лечит. */
+  let blockedBy = '';
 
   const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: Array<{ x: number; y: number }>): Promise<unknown> =>
     tab.send('Input.dispatchTouchEvent', {
@@ -408,7 +457,10 @@ async function report(): Promise<void> {
       free = await tab.eval<boolean>(`window.__tap.free(${p.x}, ${p.y})`);
       if (!free) await sleep(20);
     }
-    if (!free) blocked++;
+    if (!free) {
+      blocked++;
+      if (!blockedBy) blockedBy = await tab.eval<string>(`window.__tap.who(${p.x}, ${p.y})`);
+    }
     const before = await tab.eval<{ x: number; y: number } | null>(`window.__tap.spot(${p.id})`);
     const dx = 0.78;
     const dy = 0.62;
@@ -532,6 +584,7 @@ async function report(): Promise<void> {
   const ringHit = onRing ? (await trace({ id: -1, ...onRing }, { slip: 0, when: 'сход', ms: 200 })).hit : null;
 
   const after = await tab.eval<Box[]>('window.__tap.boxes()');
+  const rebuilt = await tab.eval<number>('window.__tap.rebuilds()');
   const drift = boxes.reduce((m, b) => {
     const now = after.find((x) => x.id === b.id);
     return b.area && now?.area ? Math.max(m, Math.hypot(b.area.x - now.area.x, b.area.y - now.area.y)) : m;
@@ -559,7 +612,13 @@ async function report(): Promise<void> {
   if (drift > 0.5) console.log(`  ВНИМАНИЕ: за все следы камера уехала на ${drift.toFixed(1)} px — числа ниже поплыли`);
   // Точка под пальцем обязана принадлежать канве: иначе след достался разметке,
   // а не деревне, и клетка ниже означает не «не открылось», а «не докоснулись».
-  if (blocked > 0) console.log(`  ВНИМАНИЕ: в ${blocked} следах точка касания осталась под разметкой — эти следы не в счёт`);
+  if (blocked > 0) {
+    console.log(`  ВНИМАНИЕ: в ${blocked} следах точка касания осталась под разметкой — эти следы не в счёт`);
+    console.log(`  первым её занял: ${blockedBy}`);
+  }
+  // Пересборка сцены посреди прогона — не мелочь: числа сняты с разных сцен, а
+  // «новая сцена — новая канва», то есть след мог уйти не туда, куда смотрел стенд.
+  if (rebuilt > 0) console.log(`  ВНИМАНИЕ: сцена пересобиралась ${rebuilt} раз(а) за прогон — числа ниже сняты не с одной сцены`);
   console.log('');
 
   console.log(`  ${pad('Постройка', 22)}${padL('силуэт', 9)}${padL('область', 9)}${padL('центр', 12)}   чистый тап`);
