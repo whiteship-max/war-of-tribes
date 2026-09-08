@@ -35,8 +35,8 @@ export const BOT_IS_PLACEHOLDER = BOT_USERNAME === 'TribesWarsBot' && MINI_APP_N
 /** Группа племени — единственная настоящая ссылка из трёх. */
 export const TG_GROUP = 'https://t.me/TribesWars';
 
-/** Постоянный адрес игры. Им делятся, когда приглашения ещё нет. */
-export const SITE_URL = 'https://gleeful-sunflower-a2f83c.netlify.app';
+/** Боевой адрес игры. Им делятся, когда приглашения ещё нет. */
+export const SITE_URL = 'https://celebrated-yeot-73e410.netlify.app';
 
 /**
  * Куда позвать. `url: null` — ссылки пока нет: канал и чат не заведены, и
