@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { tutorialActive } from '@/game/data/tutorial';
 import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
+import { SIEGE_ROUT } from '@/world/data/tuning';
 import { useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
 import { Icon } from '@/ui/icons/Icon';
@@ -40,6 +41,7 @@ export function SiegeBanner() {
 
   const left = secondsLeft(siege.starvesAt, worldNow());
   const cut = Math.round((1 - SIEGE_YIELD) * 100);
+  const rout = Math.round(SIEGE_ROUT * 100);
 
   return (
     <div className="siege">
@@ -68,6 +70,19 @@ export function SiegeBanner() {
         До голода <b>{formatLeft(left)}</b>
       </div>
       <div className="siege-eat">Гарнизон {siege.garrison} — он и ест</div>
+      {/*
+        Чем кончится голод — сказано здесь и заранее, рядом с часами, потому что
+        решение уходить из игры принимают, глядя на эти часы. Осада не начинается
+        без игрока: он видел лагерь, видел срок и имел вылазку. А вот кончиться
+        она может без него — и это должно быть известно до того, как он закроет
+        игру, а не после (см. docs/siege.md, «Падение города»).
+
+        Доля рассеянного гарнизона берётся из той же константы, которой её
+        считает мир: своей арифметики у панели нет.
+      */}
+      <div className="siege-fall">
+        Кончится хлеб — уйдёт {rout}% гарнизона, склад вычистят до тайника. Случится и без тебя.
+      </div>
       {/*
         Вылазка — единственное, что игрок может сделать из-под осады сам, и
         поэтому кнопка тут одна. Состав выбирается на своём экране: выпускать

@@ -3051,7 +3051,11 @@ export class LocalWorld implements WorldApi {
       // его размера: цену дани считать не из чего. Расписание при этом идёт —
       // иначе первое подключение выложило бы на стол всё скопом.
       if (!save.profile) continue;
-      const draft = pickLetter(save.seed, n, this.letterCandidates(arriveAt), save.profile.stock);
+      // `?? {}` тут не перестраховка: слепок деревни лежит в сохранении мира
+      // (`WorldSave.profile`), и из партии, начатой до появления `stock`, он
+      // приезжает без него. Живой пульс кладёт свежий слепок раньше `advance`,
+      // но полагаться на порядок двух строк в разных методах тут нечего.
+      const draft = pickLetter(save.seed, n, this.letterCandidates(arriveAt), save.profile.stock ?? {});
       if (!draft) continue;
       // Стол на пять, и очереди за ним нет: шестое письмо сгоняет то, у
       // которого срок ближе всех, и сгоняет его тем же разрешением, что и

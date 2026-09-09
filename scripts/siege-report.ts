@@ -34,10 +34,17 @@ import {
   SIEGE_COOLDOWN,
   SIEGE_IF_BELOW,
   SIEGE_RELIEF_AT,
+  SIEGE_ROUT,
   SIEGE_SORTIE_RATIO,
   SORTIE_CAMP_BONUS,
 } from '@/world/data/tuning';
-import type { PlayerProfile, Report } from '@/world/types';
+import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
+import { playerProfile } from '@/world/bridge';
+import { createInitialState } from '@/game/state';
+import { autoAssign } from '@/game/sim/workers';
+import { productionPerDay, storageCap, hiddenStash } from '@/game/derived';
+import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
+import type { GameState } from '@/game/types';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303];
@@ -62,7 +69,8 @@ const profile = (defense: number, army: TroopStack): PlayerProfile => ({
   army: { ...army },
   command: 120,
   warning: 120,
-  resources: { food: 900, wood: 600 },
+  stock: { food: 900, wood: 600 },
+  stash: 0,
   // Часы голода: полтора часа на пустой гарнизон, меньше — с полным.
   food: 9000,
   foodPerHour: 6000,
@@ -338,3 +346,101 @@ console.log(`порог вылазки бота: гарнизон ≥ лагер
 for (const seed of SEEDS) {
   console.log(`сид ${String(seed).padStart(4)}: ${await playerSiege(seed)}`);
 }
+
+
+// ------------------------------------------------------- цена падения ---
+//
+// Раздел заведён потому, что решение «пола по времени у осады против игрока не
+// будет» опиралось на замер, который устарел. Довод звучал так: падение — самый
+// мягкий исход, племя восстанавливается до возвращения игрока, а жёсткое — сам
+// дебаф, и пол его только удлиняет. После того как дележ склада стал общим
+// правилом, а обоз вырос с 8 до 750, падение перестало быть бесплатным, и
+// посылку надо было проверить заново, а не оставлять решение висеть на ней.
+
+/** Настоящее племя нужного уровня с полным складом: с ним игрок и уходит. */
+function tribeAt(level: number): GameState {
+  const g = createInitialState();
+  for (const b of g.buildings) b.level = level;
+  g.pop = Math.round(115 * (1 + (level - 1) * 0.7));
+  // Дружина дома и крупная: только тогда отряд не идёт на приступ, а садится
+  // лагерем (`SIEGE_IF_BELOW`). Осады против пустой деревни не бывает вовсе.
+  g.army = { spearman: Math.round(60 * level), legionary: Math.round(20 * level) };
+  autoAssign(g);
+  const cap = storageCap(g);
+  for (const r of RESOURCE_IDS) g.resources[r] = cap;
+  return g;
+}
+
+/** Мир с ручными часами: тот же приём, что у остальных разделов этого отчёта. */
+function clocked(seed: number) {
+  let now = 1_700_000_000_000;
+  const world = new LocalWorld({ seed, now: () => now, storage: null });
+  return {
+    world,
+    at: (t: number) => {
+      now = t;
+    },
+    advance: (ms: number) => {
+      now += ms;
+    },
+    now: () => now,
+  };
+}
+
+const goodsPerHour = (g: GameState): number =>
+  RESOURCE_IDS.reduce((n, r) => n + Math.max(0, productionPerDay(g)[r] ?? 0), 0) * (3600 / DAY_LENGTH);
+
+console.log('');
+console.log('--- цена падения: что стоит голод и что стоит дебаф до него ---');
+console.log('Осада начинается только при игроке (проверка `AWAY_GRACE` стоит раньше `beginSiege`),');
+console.log('а кончиться может без него: `homeFalls` — единственный вызов дележа, куда');
+console.log('`prevSeen` не передаётся. Это решение владельца, а не недосмотр: закрой его —');
+console.log('и лучшей игрой под осадой станет «закрыть приложение».');
+console.log('');
+console.log(' ур   склад   тайник     окно   дебаф за окно   унесено   доля склада   отстроится   гарнизон');
+
+for (const level of [1, 3, 5, 7, 10]) {
+  const g = tribeAt(level);
+  const w = clocked(7 + level);
+  const snap = (): PlayerProfile => playerProfile(g);
+  let siege: WorldPulse['siege'] = null;
+  for (let i = 0; i < 6000 && !siege; i++) {
+    w.advance(10_000);
+    siege = (await w.world.sync(snap())).siege;
+  }
+  if (!siege) {
+    console.log(`  ${String(level).padStart(2)}   осады не случилось за отпущенное время`);
+    continue;
+  }
+  const window = siege.starvesAt - w.now();
+  const cap = storageCap(g);
+  const total = cap * RESOURCE_IDS.length;
+  const debuff = goodsPerHour(g) * (window / (60 * MIN)) * (1 - SIEGE_YIELD);
+  // Уходим начисто: ни одного пульса до самого голода и восемь часов сверху.
+  w.at(siege.starvesAt + 8 * 60 * MIN);
+  const pulse = await w.world.sync(snap());
+  const taken = pulse.effects.reduce(
+    (n, e) => n + Object.values(e.resources).reduce((k, v) => k + Math.abs(v ?? 0), 0),
+    0,
+  );
+  const routed = pulse.effects.reduce(
+    (n, e) => n + Object.values(e.lostTroops ?? {}).reduce((k, v) => k + (v ?? 0), 0),
+    0,
+  );
+  const army = Object.values(g.army).reduce((n, v) => n + (v ?? 0), 0);
+  const refill = (taken / Math.max(1, goodsPerHour(g))) * 60;
+  console.log(
+    `  ${String(level).padStart(2)}  ${String(total).padStart(6)}  ${String(hiddenStash(g) * RESOURCE_IDS.length).padStart(6)}  ${(window / MIN).toFixed(1).padStart(6)}м  ${String(Math.round(debuff)).padStart(14)}  ${String(taken).padStart(8)}  ${`${Math.round((taken / total) * 100)}%`.padStart(11)}  ${`${refill.toFixed(1)} мин`.padStart(10)}  ${`−${routed} из ${army}`.padStart(9)}`,
+  );
+}
+console.log('');
+console.log(`Гарнизон рассеивается на ${Math.round(SIEGE_ROUT * 100)}% (SIEGE_ROUT) — это и есть настоящая цена падения.`);
+console.log('Добра уносится мало и не потому, что мы его пожалели: лагерь садится только когда');
+console.log('он слабее заслона (`SIEGE_IF_BELOW`), а значит он мал, и обоз у него мал.');
+console.log('');
+console.log('Вывод, ради которого раздел и заведён: **дебаф за окно стоит в разы больше**');
+console.log('добра, взятого при падении, а взятое хозяйство возвращает за считанные минуты.');
+console.log('Падение по-прежнему мягче ожидания — значит пол по времени, который удлиняет');
+console.log('окно ради отсрочки падения, ухудшал бы ровно тот случай, ради которого заводится.');
+console.log('Изменилось одно: «падение последствий не имеет» больше не верно — половина');
+console.log('гарнизона расходится, и это не отстраивается само.');

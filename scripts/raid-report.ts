@@ -50,7 +50,8 @@ const profile = (warning: number): PlayerProfile => ({
   army: { ...ARMY },
   command: 110,
   warning,
-  resources: { food: 400, wood: 300 },
+  stock: { food: 400, wood: 300 },
+  stash: 0,
 });
 
 interface Clocked {

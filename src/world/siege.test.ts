@@ -748,3 +748,41 @@ describe('осада: частота от ИИ', () => {
     expect(src).toContain('siegeAgainAt');
   });
 });
+
+describe('осада: цена падения известна заранее', () => {
+  const banner = readFileSync(path.join(process.cwd(), 'src/ui/SiegeBanner.tsx'), 'utf8');
+
+  it('панель говорит, чем кончится голод, и говорит это рядом с часами', () => {
+    // Падение случается и в отсутствие игрока — `homeFalls` единственный вызов
+    // дележа склада, куда `prevSeen` не передаётся, и закрыто это нарочно
+    // (docs/sack.md, «Отсутствие не защищает от голода»). Раз так, цена обязана
+    // стоять там, где принимают решение уходить, — под счётчиком голода.
+    expect(banner).toContain('siege-fall');
+    expect(banner).toMatch(/Кончится хлеб/);
+    expect(banner).toMatch(/тайник/);
+    // Порядок: сначала «сколько осталось», потом «чем кончится», потом кнопка.
+    expect(banner.indexOf('siege-clock')).toBeLessThan(banner.indexOf('siege-fall'));
+    expect(banner.indexOf('siege-fall')).toBeLessThan(banner.indexOf('siege-sortie'));
+  });
+
+  it('доля рассеянного гарнизона берётся из константы, а не написана словами', () => {
+    // То же правило, что у строки дебафа: своей арифметики у панели нет, иначе
+    // она однажды покажет не то, что делает мир.
+    expect(banner).toContain('SIEGE_ROUT');
+    expect(banner).not.toMatch(/уйдёт 50/);
+  });
+
+  it('защита отсутствия закрывает набег и не закрывает падение — это решение', () => {
+    const src = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
+    // Набег в отсутствие игрока не состоится: проверка стоит в `resolveIncoming`
+    // и раньше, чем лагерь успеет сесть.
+    expect(src).toMatch(/resolveIncoming[\s\S]{0,400}?AWAY_GRACE/);
+    expect(src.indexOf('AWAY_GRACE')).toBeLessThan(src.indexOf('this.beginSiege(m, at)'));
+    // А падение — состоится: `prevSeen` в эту цепочку не передаётся вовсе.
+    // Закрой это, и лучшей игрой под осадой станет «закрыть приложение».
+    const fall = src.slice(src.indexOf('private homeFalls'), src.indexOf('private nextSiegeAt'));
+    expect(fall).toContain('plunderHome');
+    expect(fall).not.toContain('AWAY_GRACE');
+    expect(fall).not.toContain('prevSeen');
+  });
+});
