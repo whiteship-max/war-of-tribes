@@ -7,6 +7,10 @@
 // обязана быть на каждом кадре, и проверить это можно только тогда, когда она
 // живёт в данных, а не в разметке.
 //
+// Переключателя звука здесь больше нет: музыка правится в настройках, в профиле,
+// и рычаг на неё один на всю игру. Ролик её только просит начать — жестом
+// служит нажатие «Смотреть бой» (`ReportPanel`), другого перед роликом нет.
+//
 // Контекст WebGL в игре всегда один. Стоит диорама — ролик одалживает её канву
 // и рендерер. Открыт мир — диорамы нет вовсе (её выгружают, см. docs/loading.md),
 // и тогда ролик заводит свой контекст: он в этот момент единственный. Второго
@@ -22,7 +26,6 @@ import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/faces';
 import { battleMusic, villageMusic } from '@/sound/web';
-import { setSoundOn, soundOn } from '@/sound/settings';
 import type { BattleRecord } from '@/world/types';
 
 export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
@@ -36,9 +39,6 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
   const shown = useRef('');
   const done = useRef(onDone);
   done.current = onDone;
-  // Звук — настройка устройства, а не партии: она живёт своим ключом и сюда
-  // приходит только для того, чтобы нарисовать переключатель нажатым.
-  const [sound, setSound] = useState(soundOn);
 
   useEffect(() => {
     const scene = activeScene();
@@ -123,27 +123,7 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
       {frame.caption && <div className="replay-caption">{frame.caption}</div>}
       <div className="replay-controls">
         {frame.controls.map((c) => (
-          <button
-            className={`btn${c.goes === 'sound' && !sound ? ' ghost' : ''}`}
-            key={c.id}
-            aria-pressed={c.goes === 'sound' ? sound : undefined}
-            onClick={() => {
-              if (c.goes !== 'sound') {
-                done.current();
-                return;
-              }
-              // Нажатие переключателя — тоже жест, и другого может не быть:
-              // игрок мог открыть ролик с выключенным звуком.
-              const next = !sound;
-              setSoundOn(next);
-              setSound(next);
-              battleMusic.toggle(next);
-              // Переключатель один на всю музыку: игрок выключает звук, а не
-              // боевую дорожку. Деревня при этом остаётся заглушенной роликом
-              // и вернётся сама, когда он кончится.
-              villageMusic.toggle(next);
-            }}
-          >
+          <button className="btn" key={c.id} onClick={() => done.current()}>
             {c.label}
           </button>
         ))}

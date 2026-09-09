@@ -27,19 +27,17 @@
   /* Минимальный размер тач-цели. */
   --tap: 44px;
   /*
-   * Полоска ресурсов: сама она, вся её строка вместе с зазором и отступ от
-   * верха экрана до того, что стоит под ней.
+   * Полоска ресурсов: сама она и вся её строка вместе с зазором. Числа знают
+   * снаружи строка тревог и строка обучения — обе отсчитываются от низа шапки,
+   * и держать их в одном месте обязательно: разъедутся — подсказка ляжет на
+   * кнопку профиля, и по коду этого не увидит никто.
    *
-   * Числа эти знают трое, и все — снаружи полоски: затемнение модалок (оно
-   * начинается **под** ней, иначе окно события закрыло бы то самое, ради чего
-   * полоску завели), строка тревог и строка обучения — обе отсчитываются от
-   * низа шапки. Держать их в одном месте обязательно: разъедутся — окно
-   * наедет на полоску или подсказка ляжет на кнопку профиля, и по коду этого
-   * не увидит никто.
+   * Отступа «докуда не доходит затемнение» здесь больше нет. Он был нужен,
+   * пока полоска стояла первой строкой и её выгораживали вырезом сверху; теперь
+   * она вторая, а над окнами держится слоем — z-index у .res-bar.
    */
   --res-h: 28px;
   --res-row: calc(var(--res-h) + 6px);
-  --hud-res-h: calc(var(--res-row) + 6px);
 
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   color: var(--text);
@@ -98,12 +96,17 @@ body {
 
 /* ---------- Верхний HUD: строка состояния и кнопка посёлка ---------- */
 
+/*
+ * Шапка **не заводит своего слоя** (z-index у неё нет), и это условие, а не
+ * упущение: полоска ресурсов обязана лежать выше затемнения модалок, а строка
+ * дня и ряд кнопок — ниже него. Свой z-index на шапке запер бы все три в один
+ * слой, и разнести их стало бы нечем.
+ */
 .topbar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 6;
   padding-top: calc(var(--safe-top) + 6px);
   display: flex;
   flex-direction: column;
@@ -113,6 +116,8 @@ body {
 
 .hud-bar {
   pointer-events: auto;
+  position: relative;
+  z-index: 6;
   margin: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
   display: flex;
   align-items: center;
@@ -170,10 +175,24 @@ body {
  * ширину поровну (`flex: 1 1 0`), и полоска не прыгает, когда число вырастает
  * с трёх знаков до четырёх.
  *
- * `pointer-events: none` — не мелочь: полоска стоит поверх модалок, и будь она
- * нажимаемой, тап по ней открывал бы шторку под открытым окном события.
+ * `z-index: 21` — то самое обещание, ради которого полоску и завели: она выше
+ * затемнения модалок (20) и потому видна из-под окна события, письма с данью и
+ * выкупа за пленных. Заодно она выше затемнения шторки и «дырки» обучения: «её
+ * не закрывает ни одно окно» — это и значит ни одно. Выше неё остаются только
+ * тост (30) и ролик о бое (40), и оба закрывают её нарочно: в первом случае
+ * речь о секунде, во втором игра на это время кончилась.
+ *
+ * Держится это тем, что у шапки нет своего слоя (см. `.topbar`). Прежде правило
+ * держалось иначе — вырезом в затемнении по верхней кромке экрана, — и работало
+ * только пока полоска была самой верхней строкой. Она больше не самая верхняя.
+ *
+ * `pointer-events: none` — не мелочь и тем более теперь: полоска стоит поверх
+ * модалок, и будь она нажимаемой, тап по ней открывал бы шторку под открытым
+ * окном события.
  */
 .res-bar {
+  position: relative;
+  z-index: 21;
   margin: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
   height: var(--res-h);
   display: flex;
@@ -684,15 +703,22 @@ body {
 /* ---------- Модалки ---------- */
 
 /*
- * Затемнение начинается **под полоской ресурсов**, а не от верха экрана.
+ * Затемнение кладётся на весь экран, а полоска ресурсов лежит **над** ним
+ * (z-index у .res-bar).
  *
  * Это и есть весь ответ на жалобу «в склад не зайти»: окно события отложить
  * нельзя, а решать в нём приходится, отдавать ли добро. Полоску, отвечающую на
  * этот вопрос, окно закрывать не имеет права — ни фоном, ни собой.
+ *
+ * Раньше то же обещание давалось вырезом сверху: затемнение начиналось ниже
+ * первой строки шапки. Вырез умеет выгораживать только верхнюю кромку, поэтому
+ * держался он на том, что полоска стоит первой, — а она теперь вторая. Слой
+ * выгораживает саму полоску, где бы она ни стояла, и заодно перестал оставлять
+ * незатемнённую полосу над окном.
  */
 .modal-backdrop {
   position: absolute;
-  inset: calc(var(--safe-top) + var(--hud-res-h)) 0 0 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
@@ -1068,6 +1094,8 @@ body {
 /* ---------- Вторая строка HUD: профиль слева, карта справа ---------- */
 
 .top-row {
+  position: relative;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1076,19 +1104,23 @@ body {
   pointer-events: none;
 }
 
+/*
+ * Кнопка карты — один значок, без слова. Слово ушло, цель под палец осталась:
+ * квадрат в `--tap` (44 px) — ровно наш предел, и меньше он стать не может, а
+ * не «примерно столько же, сколько было с подписью».
+ */
 .map-btn {
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  min-width: var(--tap);
   min-height: var(--tap);
-  padding: 0 12px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 12px;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 20px;
 }
 
 /* ---------- Тревоги поверх всего ---------- */
@@ -3272,20 +3304,23 @@ body {
 
 /* ---------- Профиль: кнопка, шапка, выбор лица ---------- */
 
+/*
+ * Кнопка профиля — только лицо. Имени рядом нет: игрок знает, как его зовут.
+ * Кружок вписан в `--tap` (44 px), то есть цель под палец не уменьшилась вместе
+ * с подписью, а освободившееся место не занято ничем — под ним сцена.
+ */
 .profile-btn {
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  min-width: var(--tap);
   min-height: var(--tap);
-  max-width: 58%;
-  padding: 3px 12px 3px 3px;
+  padding: 3px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .profile-btn.active {
@@ -3303,11 +3338,87 @@ body {
   border: 1px solid var(--line);
 }
 
-.profile-btn .who {
+/* ---------- Настройки: строка с переключателем ---------- */
+
+/*
+ * Строка настройки — тот же `.mod`, что и у чисел профиля, только нажимаемая:
+ * значок, название с пояснением и переключатель справа. Своей вёрстки у неё нет
+ * нарочно — игрок узнаёт строку с одного взгляда, а второй способ показать одно
+ * и то же он читает как второй смысл.
+ */
+.set-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+
+.set-row.on {
+  border-color: var(--accent);
+}
+
+.set-row .ico {
+  flex: 0 0 auto;
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
+}
+
+.set-row .name {
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.set-row .name .sub {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/*
+ * Переключатель. Состояние читается положением кружка и заливкой — двумя
+ * признаками, а не одним цветом: на цвет у нас и без того много навешано, а
+ * положение видно и в чёрно-белом.
+ */
+.set-row .sw {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.set-row.on .sw {
+  background: var(--accent);
+  border-color: var(--accent);
+  justify-content: flex-end;
+}
+
+.set-row .sw i {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.set-row.on .sw i {
+  background: var(--accent-text);
 }
 
 .profile-head {

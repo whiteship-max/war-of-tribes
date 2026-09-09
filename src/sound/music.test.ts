@@ -189,16 +189,61 @@ describe('выключенный звук не грузит файлов', () =>
     expect(host.loaded.length).toBe(battleFiles().length);
   });
 
-  it('настройка помнится между сеансами', () => {
+  it('настройка помнится между сеансами, а до неё игра молчит', () => {
     let saved: string | null = null;
     setSoundStorage({ read: () => saved, write: (v) => (saved = v) });
-    // Пустое хранилище — звук включён: ролик и так открывается по нажатию.
-    expect(soundOn()).toBe(true);
-    setSoundOn(false);
-    expect(saved).toBe('0');
+    // Пустое хранилище — музыка выключена. Игру открывают где придётся, и
+    // заигравшая без спроса музыка — это неожиданность, а не подарок.
     expect(soundOn()).toBe(false);
     setSoundOn(true);
+    expect(saved).toBe('1');
     expect(soundOn()).toBe(true);
+    setSoundOn(false);
+    expect(soundOn()).toBe(false);
+  });
+
+  it('у нового игрока не качается ни байта музыки, пока он её не включит', () => {
+    // То же обещание, но проверенное не флажком, а вызовами: пустое хранилище,
+    // жест был, а сеть не тронута.
+    let saved: string | null = null;
+    setSoundStorage({ read: () => saved, write: (v) => (saved = v) });
+    const host = new Counting(true);
+    const music = new BattleMusic(host, soundOn);
+    music.arm();
+    music.start();
+    expect(host.opened).toBe(0);
+    expect(host.loaded).toEqual([]);
+  });
+});
+
+describe('рычаг на музыку один на всю игру', () => {
+  // Читается исходник, а не поведение: второй переключатель работал бы
+  // безупречно ровно до того дня, когда правят первый. Именно так и было —
+  // звук жил кнопкой в ролике о бое, — и вернуть его туда должно быть трудно.
+  const read = (f: string): string =>
+    readFileSync(join(SRC, f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('пишет настройку ровно одно место интерфейса — раздел настроек', () => {
+    for (const f of ['ui/battle/BattleReplay.tsx', 'ui/panels/ReportPanel.tsx']) {
+      expect(read(f), f).not.toContain('setSoundOn');
+    }
+    expect(read('ui/parts/Settings.tsx')).toContain('setSoundOn');
+  });
+
+  it('в раскадровке ролика переключателя звука больше нет', () => {
+    const src = read('battle/replay.ts');
+    expect(src).not.toContain("'sound'");
+    expect(src).not.toContain('SOUND');
+  });
+
+  it('выключение гасит обе музыки, включение не тянет боевую', () => {
+    // У боевой свой жест — «Смотреть бой». Качать battle.mp3 из настроек
+    // значило бы платить мегабайтом за нажатие, которое о бое не просило.
+    const src = read('ui/parts/Settings.tsx');
+    expect(src).toMatch(/villageMusic\.toggle\(next\)/);
+    expect(src).toMatch(/if \(!next\) battleMusic\.toggle\(false\)/);
   });
 });
 

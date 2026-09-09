@@ -210,6 +210,15 @@ describe('«Пропустить» на каждом кадре', () => {
     expect(jsx).not.toContain(SKIP.label);
     expect(jsx).toMatch(/frame\.controls\.map/);
   });
+
+  it('других кнопок в кадре нет: звук уехал в настройки', () => {
+    // Переключатель звука стоял здесь же и был единственной дверью к музыке.
+    // Теперь она в профиле, и рычаг на неё один — см. sound/music.test.ts.
+    for (const t of [0, 3, 12]) {
+      const f = frameAt(buildCast(evenFight(), 'attacker'), t);
+      expect(f.controls.map((c) => c.id)).toEqual(['skip']);
+    }
+  });
 });
 
 describe('камера: один непрерывный ход', () => {

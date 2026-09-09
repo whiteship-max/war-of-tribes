@@ -1,6 +1,10 @@
-// Кнопка профиля: круглое лицо и имя, слева сверху — там, где её ищут после
-// кнопки закрытия аппки. Числа с неё не читаются: их место в самой панели, а
-// в строке состояния и без того пять ячеек.
+// Кнопка профиля: **одно круглое лицо и больше ничего**, слева сверху — там,
+// где её ищут после кнопки закрытия аппки.
+//
+// Имени рядом нет нарочно. Игрок знает, как его зовут, и читать это в каждом
+// кадре ему незачем; а место у левого края второй строки HUD дороже подписи —
+// освободившееся не занято ничем и остаётся сценой. Числа с кнопки не читаются
+// по той же причине, по какой и раньше: их место в самой панели.
 import { useGame } from '@/game/store';
 import { faceSrc, profileAvatar, profileName } from '@/profile/identity';
 
@@ -15,7 +19,8 @@ export function ProfileButton() {
       className={`profile-btn${active ? ' active' : ''}`}
       data-tut="nav-profile"
       onClick={() => openTab('profile')}
-      title="Профиль: мощь, битвы, потери"
+      title={`${profileName(s.profile)} — профиль и настройки`}
+      aria-label={`${profileName(s.profile)}: профиль и настройки`}
     >
       <img
         className="face"
@@ -31,7 +36,6 @@ export function ProfileButton() {
           if (!e.currentTarget.src.endsWith(fallback)) e.currentTarget.src = fallback;
         }}
       />
-      <span className="who">{profileName(s.profile)}</span>
     </button>
   );
 }
