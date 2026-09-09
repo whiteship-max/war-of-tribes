@@ -5,7 +5,7 @@ import { create } from 'zustand';
 import { serverNow } from '@/net/clock';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
-import { revealWorld } from '@/debug';
+import { probe, revealWorld, takeCosts } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, awayTroops, playerProfile, syncAway, syncSiege } from './bridge';
@@ -679,6 +679,21 @@ export const useWorld = create<WorldStore>((set, get) => ({
     await get().boot();
   },
 }));
+
+/**
+ * Стенд бюджета кадра: стор и накопленные времена кадров. Только по флагу
+ * `?probe=1` — тем же, которым `App.tsx` отдаёт стенду стор племени.
+ *
+ * Отдаётся именно стор, а не список отрядов: стенду нужно **подложить** худший
+ * случай, а взять его из мира негде — мир держит один чужой отряд на деревню и
+ * один мимо неё, и толпы в нём не бывает по устройству. Замер от этого честнее:
+ * рисование меряется на числе, которого игра не даёт, а не на том, что выпало.
+ */
+if (probe() && typeof window !== 'undefined') {
+  const w = window as unknown as { __world?: typeof useWorld; __mapPerf?: () => number[] };
+  w.__world = useWorld;
+  w.__mapPerf = takeCosts;
+}
 
 /**
  * Где фигура прямо сейчас. Считается из времени, а не берётся из пульса: пульс

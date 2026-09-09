@@ -2,6 +2,8 @@
 // vitest среда 'node', холста нет. Поэтому геометрия экрана и раскладка декора
 // живут отдельно от отрисовки (`grid.ts`, `scatter.ts`), а рисование остаётся
 // тонким слоем поверх них.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { terrainAt } from '@/world/geo';
 import { lineStamps } from './scatter';
@@ -35,6 +37,18 @@ import {
 import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_MAX, SCALE_MIN, SCALE_OVERVIEW, SCALE_START, TILE_CACHE, TILE_CELLS, TREE_FREE_R } from './const';
 import { type Sample, fieldAt, forestAt, stampsFor, treesIn } from './scatter';
 import { BUCKETS, STAGE_SHAPE, clearRadius, layout, pickBucket, ringOf, spriteKey, variantOf } from './village';
+import {
+  MEN_SHOWN,
+  PARTY_BUCKETS,
+  PARTY_STEPS,
+  hasRear,
+  lookOf,
+  partyBucket,
+  partyKey,
+  partyMen,
+  sizeOf,
+  type PartySize,
+} from './party';
 
 const SEED = 4242;
 /** Ландшафт берётся настоящий: тест должен ловить и странности реального мира. */
@@ -575,5 +589,147 @@ describe('дальше разведанного не отдалить', () => {
     expect(dark).toEqual({ left: 0, right: 0, up: 0, down: 0 });
     expect(zoomFloor(VP, dark)).toBeLessThanOrEqual(SCALE_MAX);
     expect(zoomFloor(VP, dark)).toBeGreaterThan(0);
+  });
+});
+
+describe('отряд на карте: размер — это разведданные', () => {
+  const foe = (units: Record<string, number>, seen: boolean) =>
+    lookOf({ own: false, units, standing: false, seen, west: false });
+
+  it('чужой отряд вне живого обзора не показывает, сколько их', () => {
+    // Донесение Дозора говорит «идут», а не «сколько идёт». Показать колонну в
+    // полный рост значило бы отдать даром то, за что игрок платит лазутчиком.
+    expect(foe({ warrior: 200 }, false).size).toBe('rumor');
+    expect(foe({ warrior: 3 }, false).size).toBe('rumor');
+    // И картинка обязана быть про это: у слуха нет ни одной фигуры.
+    expect(MEN_SHOWN.rumor).toBe(0);
+  });
+
+  it('тот же отряд в живом обзоре считают глазами', () => {
+    expect(foe({ warrior: 200 }, true).size).toBe('horde');
+    expect(foe({ warrior: 3 }, true).size).toBe('small');
+  });
+
+  it('свой отряд считают всегда: игрок сам его и собрал', () => {
+    const mine = (n: number) => lookOf({ own: true, units: { warrior: n }, standing: false, seen: false, west: false });
+    expect(mine(3).size).toBe('small');
+    expect(mine(200).size).toBe('horde');
+    expect(mine(200).side).toBe('own');
+  });
+
+  it('вид «слух» не выдаёт себя ни одной другой приметой', () => {
+    // Ни размером знамени, ни задними рядами: всё, что считается из числа
+    // людей, у слуха обязано молчать.
+    expect(hasRear('rumor')).toBe(false);
+    expect(MEN_SHOWN.rumor).toBeLessThan(MEN_SHOWN.small);
+  });
+
+  it('лестница монотонна и покрывает то, что ходит по карте', () => {
+    // Числа меряные (npm run map:report): чужие набеги — 2..42 человека, своё
+    // войско идёт на сотни. Каждая ступень обязана кому-то достаться.
+    const ladder: PartySize[] = ['small', 'band', 'host', 'horde'];
+    const at = (n: number) => ladder.indexOf(sizeOf(n));
+    for (let n = 1; n < 400; n++) expect(at(n)).toBeGreaterThanOrEqual(at(n - 1 || 1));
+    expect(sizeOf(2)).toBe('small');
+    expect(sizeOf(42)).toBe('host');
+    expect(sizeOf(200)).toBe('horde');
+    for (const step of PARTY_STEPS) expect(step).toBeGreaterThan(0);
+  });
+
+  it('людей считают все виды войск, а не только «воины»', () => {
+    // Тем же счётом меряется войско при полководце, а это TroopStack.
+    expect(partyMen({ warrior: 5, scout: 2 })).toBe(7);
+    expect(partyMen({ legionary: 40, rider: 10 })).toBe(50);
+    expect(partyMen({})).toBe(0);
+  });
+
+  it('стоянка не путается с походом ни в ключе кэша, ни в виде', () => {
+    const camp = lookOf({ own: true, units: { warrior: 30 }, standing: true, seen: true, west: false });
+    expect(camp.shape).toBe('camp');
+    // Направления у стоянки нет, и в ключ оно не входит: иначе один и тот же
+    // лагерь занимал бы в кэше две ячейки под одну картинку.
+    const west = { ...camp, west: true };
+    expect(partyKey(camp, 40, 2)).toBe(partyKey(west, 40, 2));
+    // А у колонны — входит: её печут зеркально.
+    const going = lookOf({ own: true, units: { warrior: 30 }, standing: false, seen: true, west: false });
+    expect(partyKey(going, 40, 2)).not.toBe(partyKey({ ...going, west: true }, 40, 2));
+  });
+
+  it('ключ кэша различает всё, от чего зависит картинка', () => {
+    const base = lookOf({ own: true, units: { warrior: 30 }, standing: false, seen: true, west: false });
+    const keys = new Set<string>();
+    for (const side of ['own', 'foe'] as const) {
+      for (const size of ['rumor', 'small', 'band', 'host', 'horde'] as PartySize[]) {
+        for (const shape of ['column', 'camp'] as const) {
+          keys.add(partyKey({ ...base, side, size, shape }, 40, 2));
+        }
+      }
+    }
+    // Забыть здесь поле значит молча выдать орде спрайт горстки.
+    expect(keys.size).toBe(2 * 5 * 2);
+  });
+
+  it('корзины размера не дают перепекать отряд на каждый щипок', () => {
+    // То же правило, что у поселений: масштаб непрерывен, выпечка дискретна.
+    expect(PARTY_BUCKETS).toEqual([...PARTY_BUCKETS].sort((a, b) => a - b));
+    const seen = new Set<number>();
+    for (let px = FADE_LO; px <= 80; px += 0.5) seen.add(partyBucket(px));
+    expect(seen.size).toBeLessThanOrEqual(PARTY_BUCKETS.length);
+    // Растяжение копии не больше трети: дальше рисунок мылится.
+    for (let i = 1; i < PARTY_BUCKETS.length; i++) {
+      expect(PARTY_BUCKETS[i] / PARTY_BUCKETS[i - 1]).toBeLessThan(1.4);
+    }
+  });
+});
+
+describe('отрисовка отряда ходит через правило разведки, а не мимо', () => {
+  // Читается исходник, а не поведение, и это тот самый случай, ради которого
+  // такие тесты и заводят: поведение здесь — картинка, а сломать правило можно
+  // одной строкой `seen: true`, и ни один прогон этого не заметит.
+  const read = (f: string): string =>
+    readFileSync(join(process.cwd(), 'src/ui/map', f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('кадр берёт живой обзор у общего модуля, а не считает его сам', () => {
+    const src = read('frame.ts');
+    // `sightDiscs` из world/store и `inSight` из world/fog — те же, которыми
+    // мир решал, показывать ли этот отряд вообще (LocalWorld.visibleMarches).
+    expect(src).toMatch(/import \{[^}]*sightDiscs[^}]*\} from '@\/world\/store'/);
+    expect(src).toMatch(/import \{[^}]*inSight[^}]*\} from '@\/world\/fog'/);
+    expect(src).toMatch(/const discs = sightDiscs\(now\)/);
+    // Своего HOME_SIGHT, своего радиуса лазутчика и своего перебора фигур в
+    // кадре быть не должно: это была бы вторая правда о том, кто наблюдает.
+    expect(src).not.toMatch(/HOME_SIGHT|watchSight|liveSight/);
+  });
+
+  it('чужому отряду «видно» не приписывается, а вычисляется', () => {
+    const src = read('frame.ts');
+    // Единственное `seen:` в кадре — вычисленное. Литерал `true` тут означал бы
+    // карту, на которой все армии ползают на виду.
+    const seen = [...src.matchAll(/seen: (.+),$/gm)].map((m) => m[1].trim());
+    expect(seen).toEqual(['m.own || inSight(discs, pos.x, pos.y)']);
+  });
+
+  it('свои фигуры считаются своими, и только они', () => {
+    const src = read('figures.ts');
+    // У фигур `seen: true` законно — но ровно потому, что там же стоит
+    // `own: true`: это войско игрока, он его и собрал.
+    const calls = [...src.matchAll(/partyLook\(\{([^}]*)\}\)/g)].map((m) => m[1]);
+    expect(calls.length).toBe(1);
+    expect(calls[0]).toContain('own: true');
+    expect(calls[0]).toContain('seen: true');
+    // Чужих фигур на карте не бывает вовсе, и заводить их здесь нельзя.
+    expect(src).not.toMatch(/own:\s*false/);
+  });
+
+  it('спрайт отряда не знает про мир и достать разведданные ему неоткуда', () => {
+    const src = read('party.ts');
+    expect(src).not.toMatch(/from '@\/world/);
+    // Ступень считается ровно в одном месте — в `lookOf`, под условием. Два
+    // упоминания: само определение и единственный вызов; третье означало бы
+    // вторую дверь к числу людей мимо проверки.
+    expect([...src.matchAll(/sizeOf\(/g)].length).toBe(2);
+    expect(src).toMatch(/o\.own \|\| o\.seen \? sizeOf\(partyMen\(o\.units\)\) : 'rumor'/);
   });
 });

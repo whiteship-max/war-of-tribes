@@ -7,7 +7,8 @@
 // рендера, останется в нём таким, каким было в первом кадре, — а в первом кадре
 // мира ещё нет. Однажды на этом уже потерялся сид, и нарисованный слой не
 // включался вовсе. Теперь брать неоткуда: всё приходит аргументами или из стора.
-import { useWorld, worldNow } from '@/world/store';
+import { sightDiscs, useWorld, worldNow } from '@/world/store';
+import { inSight, type SightDisc } from '@/world/fog';
 import { loadedIn } from '@/world/cache';
 import { formatLeft, marchPosition, secondsLeft } from '@/world/geo';
 import { RELATION_META } from '@/world/data/meta';
@@ -20,6 +21,7 @@ import { drawGrid, drawGround, drawVillages, markersOf, settlementsIn } from './
 import { drawFog } from './fog';
 import { drawZones } from './zones';
 import { drawFigures } from './figures';
+import { drawHeading, drawParty, lookOf as partyLook } from './party';
 
 /** Занятые подписями места текущего кадра: соседи не пишут имена друг на друга. */
 interface Box {
@@ -98,7 +100,21 @@ function drawLabel(
   ctx.fillText(s.name, sx, top);
 }
 
-/** Отряд в пути: пунктир до цели, стрелка по направлению движения и таймер. */
+/**
+ * Отряд на карте: колонна людей, знамя, наконечник хода и дорога под ногами.
+ *
+ * Что здесь считается за кадр и почему это не спор с законом кадра. Спрайт
+ * колонны испечён (`party.ts`) и стоит один `drawImage`; наконечник испечён и
+ * стоит поворот с копированием. Путями остаются только две линии дороги — и
+ * остаются нарочно: концы у них разъезжаются каждый кадр (отряд идёт), и
+ * испечь их значило бы перепекать шестьдесят раз в секунду, то есть ровно то,
+ * что закон и запрещает. Линий этих на весь кадр два десятка (см. бюджет в
+ * `docs/world-map.md`), а не тысячи, как у земли.
+ *
+ * Пройденное — тусклой сплошной, оставшееся — бегущим пунктиром к цели. Бег
+ * пунктира и есть ответ на «куда идёт» там, где до наконечника не дотянулся
+ * взгляд.
+ */
 function drawMarch(
   ctx: CanvasRenderingContext2D,
   cam: Camera,
@@ -106,42 +122,71 @@ function drawMarch(
   m: MarchView,
   now: number,
   withTimer: boolean,
+  near: number,
+  dpr: number,
+  discs: SightDisc[],
 ): void {
   const color = m.hostile ? RELATION_META.enemy.color : RELATION_META.self.color;
-  const pos = m.phase === 'stay' ? m.to : marchPosition(m, now);
+  const standing = m.phase === 'stay';
+  const pos = standing ? m.to : marchPosition(m, now);
   const [fx, fy] = toScreen(cam, vp, m.from.x + 0.5, m.from.y + 0.5);
   const [tx, ty] = toScreen(cam, vp, m.to.x + 0.5, m.to.y + 0.5);
   const [px, py] = toScreen(cam, vp, pos.x + 0.5, pos.y + 0.5);
 
-  ctx.save();
-  ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = color;
-  ctx.globalAlpha = 0.4;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(fx, fy);
-  ctx.lineTo(tx, ty);
-  ctx.stroke();
-  ctx.restore();
+  if (!standing) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    // Пройденное: сплошной след, тусклый. Он отвечает на вопрос «откуда идут» —
+    // тот самый, ради которого перехват в поле и существует.
+    ctx.globalAlpha = 0.2;
+    ctx.beginPath();
+    ctx.moveTo(fx, fy);
+    ctx.lineTo(px, py);
+    ctx.stroke();
+    // Оставшееся: пунктир, бегущий к цели. Смещение считается из времени, а не
+    // копится в переменной, — иначе после ухода с карты и возврата дорожка
+    // прыгнула бы.
+    ctx.globalAlpha = 0.5;
+    ctx.setLineDash([4, 5]);
+    ctx.lineDashOffset = -((now / 60) % 9);
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.restore();
+  }
 
-  // Стрелка смотрит туда, куда идёт отряд.
-  const angle = Math.atan2(ty - py, tx - px);
-  const r = Math.max(5, Math.min(13, cam.scale * 0.28));
-  ctx.save();
-  ctx.translate(px, py);
-  ctx.rotate(angle);
-  ctx.beginPath();
-  ctx.moveTo(r, 0);
-  ctx.lineTo(-r * 0.7, r * 0.7);
-  ctx.lineTo(-r * 0.35, 0);
-  ctx.lineTo(-r * 0.7, -r * 0.7);
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(10, 8, 6, 0.8)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
+  // Куда идёт. У стоящего лагеря направления нет вовсе: он не идёт.
+  const angle = standing ? 0 : Math.atan2(ty - py, tx - px);
+  // Колонна печётся зеркально по ходу, чтобы люди шли лицом вперёд, а не спиной.
+  const west = tx < px;
+
+  // Сколько их — это разведданные, и решает это одно правило на весь мир:
+  // свой отряд считает игрок, чужой — только глаза (`world/sight.ts`). Круг
+  // считается ровно тем же вызовом, каким мир решал, показывать ли отряд вообще.
+  const look = partyLook({
+    own: m.own,
+    units: m.units,
+    standing,
+    seen: m.own || inSight(discs, pos.x, pos.y),
+    west,
+  });
+
+  if (near > 0) {
+    ctx.save();
+    ctx.globalAlpha = near;
+    drawParty(ctx, look, cam.scale, dpr, px, py);
+    ctx.restore();
+  }
+
+  // Наконечник виден на любом масштабе: на пиксельном обзоре он и есть отряд.
+  // Вблизи он отходит вперёд, чтобы не лежать на колонне.
+  const r = Math.max(5, Math.min(12, cam.scale * 0.24));
+  if (!standing) {
+    const lead = near * cam.scale * 0.62;
+    drawHeading(ctx, look.side, dpr, px + Math.cos(angle) * lead, py + Math.sin(angle) * lead, angle, r);
+  }
 
   if (!withTimer && !m.hostile) return;
   const left = formatLeft(secondsLeft(m.arriveAt, now));
@@ -150,9 +195,9 @@ function drawMarch(
   ctx.textBaseline = 'bottom';
   ctx.lineWidth = 3;
   ctx.strokeStyle = 'rgba(10, 8, 6, 0.85)';
-  ctx.strokeText(left, px, py - r - 2);
+  ctx.strokeText(left, px, py - r - cam.scale * near * 0.55 - 2);
   ctx.fillStyle = color;
-  ctx.fillText(left, px, py - r - 2);
+  ctx.fillText(left, px, py - r - cam.scale * near * 0.55 - 2);
 }
 
 /**
@@ -247,9 +292,14 @@ export function drawFrame(
   // дымкой — это и есть смысл слоя, а таймер чужой армии важнее любой дымки.
   drawFog(ctx, cam, vp);
 
-  // Походы поверх земли и поселений: их таймер важнее любой крыши.
-  for (const m of state.marches) drawMarch(ctx, cam, vp, m, now, cam.scale >= LABEL_FROM);
-  drawFigures(ctx, cam, vp, state.figures, state.picked, now);
+  // Походы поверх земли и поселений: их таймер важнее любой крыши. Живой обзор
+  // считается один раз на кадр: это круг у деревни плюс стоящий лазутчик, то
+  // есть два-три круга, — и считает его тот же модуль, что и мир.
+  const discs = sightDiscs(now);
+  for (const m of state.marches) {
+    drawMarch(ctx, cam, vp, m, now, cam.scale >= LABEL_FROM, near, dpr, discs);
+  }
+  drawFigures(ctx, cam, vp, state.figures, state.picked, now, dpr);
 
   if (cam.scale >= LABEL_FROM) {
     const taken: Box[] = [];

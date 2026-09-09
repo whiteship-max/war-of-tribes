@@ -36,3 +36,27 @@ export const revealWorld = (): boolean => WORLD_VIEW === 'open';
  * неоткуда взять из консоли в собранном бандле.
  */
 export const probe = (): boolean => params.get('probe') === '1';
+
+/**
+ * Стоимость кадра карты, снятая стендом (`npm run map:report`).
+ *
+ * Живёт здесь, а не в `ui/map/`, по той же причине, что и `probe`: полотно про
+ * замер знать не обязано, а стенду нужен один общий адрес. Кольцо на тысячу
+ * отсчётов — этого хватает на пятнадцать секунд кадров и не растёт вечно.
+ *
+ * Выключено всегда, кроме `?probe=1`: в кадре остаётся одна проверка булева.
+ */
+const COSTS: number[] = [];
+const COSTS_MAX = 1000;
+
+export function frameCost(ms: number): void {
+  COSTS.push(ms);
+  if (COSTS.length > COSTS_MAX) COSTS.shift();
+}
+
+/** Снять накопленное и начать сначала. Стенд зовёт это через `window.__mapPerf`. */
+export function takeCosts(): number[] {
+  const out = COSTS.slice();
+  COSTS.length = 0;
+  return out;
+}

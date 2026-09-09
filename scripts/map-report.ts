@@ -1,0 +1,367 @@
+// Бюджет кадра карты: сколько стоит нарисовать отряды и сколько их вообще бывает.
+//
+// Отчёт заведён под один вопрос: карта показывает движущиеся отряды, и надо
+// знать, во что это обходится на телефоне. Гадать тут нечем — «пара спрайтов,
+// должно быть дёшево» — это не число, а надежда.
+//
+// Меряется три вещи, и первые две без браузера:
+//
+//   отряды    сколько людей ходит по карте на самом деле. Из этого выведены
+//             пороги лестницы `PARTY_STEPS` в `ui/map/party.ts`: горстка,
+//             ватага, войско, орда. Числа берутся из настоящего мира, а не
+//             назначаются;
+//   толчея    сколько отрядов бывает видно разом — худший случай, который мир
+//             вообще способен выдать. Он-то и есть бюджет: рисовать больше
+//             нечего;
+//   кадр      сколько миллисекунд стоит `drawFrame` в настоящем Chrome, на
+//             телефонном кадре (375×812, dpr 2) и на широком (1280×800, dpr 1),
+//             при нуле отрядов, при худшем случае и при заведомом перегрузе.
+//
+// Кадр меряется изнутри страницы, а не по частоте: частота упёрта в шестьдесят
+// и запаса не показывает. Часы включает флаг `?probe=1` (`src/debug.ts`), и в
+// обычной игре в кадре от них остаётся одна проверка булева.
+//
+// **Смотреть надо на разницу, а не на медиану.** Абсолютное время кадра гуляет
+// на три-четыре десятых миллисекунды от того, чем ещё занята машина, — а сам
+// кадр стоит около одной. Поэтому в таблице рядом с медианой стоит столбец
+// «отряды»: медиана минус медиана пустого кадра в том же прогоне. Он-то и
+// повторяется от запуска к запуску, и по нему судят, подорожало рисование или
+// нет. Правило то же, что у любого замера на шумной машине: сравнивают внутри
+// одного прогона, а не между.
+//
+// Мир на время замера **замораживается**: пульс подменяется пустышкой, и отряды
+// подкладываются в стор руками. Иначе мерили бы не рисование, а то, что мир
+// успел сгенерировать, — а он держит один чужой отряд на деревню и один мимо
+// неё, и толчеи в нём не бывает по устройству.
+//
+// Запуск: npm run map:report   (нужен собранный dist: npm run build)
+// Переменные: PORT=4191  CDP_PORT=9334  CHROME=путь\к\chrome.exe  HEAD=1  SECONDS=3
+import { createServer, type Server } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+import { fileURLToPath, URL } from 'node:url';
+import { launchChrome, sleep, Tab } from './lib/chrome';
+import { LocalWorld } from '@/world/local/LocalWorld';
+import type { MarchView, PlayerProfile } from '@/world/types';
+import { PARTY_STEPS, partyMen, sizeOf, type PartySize } from '@/ui/map/party';
+
+const DIST = fileURLToPath(new URL('../dist', import.meta.url));
+const PORT = Number(process.env.PORT ?? 4191);
+const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9334);
+/** Сколько секунд кадров снимать на каждый случай. Трёх хватает на две сотни кадров. */
+const SECONDS = Number(process.env.SECONDS ?? 3);
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.webp': 'image/webp',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.mp3': 'audio/mpeg',
+};
+
+function serveDist(): Server {
+  return createServer(async (req, res) => {
+    const path = new URL(req.url ?? '/', 'http://x').pathname;
+    let file = join(DIST, path === '/' ? 'index.html' : path.slice(1));
+    try {
+      if ((await stat(file)).isDirectory()) throw new Error('dir');
+    } catch {
+      file = join(DIST, 'index.html');
+    }
+    try {
+      res.setHeader('Content-Type', TYPES[extname(file)] ?? 'application/octet-stream');
+      res.end(await readFile(file));
+    } catch {
+      res.statusCode = 404;
+      res.end();
+    }
+  }).listen(PORT);
+}
+
+// ---------- Часть первая: сколько людей ходит по карте ----------
+
+/**
+ * Три точки дуги партии. Оборона игрока — половина того, что решает силу набега
+ * (`AI_POWER_VS_DEFENSE`), вторая половина — мощь двора, а она растёт со
+ * временем; поэтому у этапов разный не только профиль, но и горизонт прогона.
+ */
+const STAGES = [
+  { name: 'начало', pop: 60, defense: 46, hours: 5 },
+  { name: 'середина', pop: 300, defense: 220, hours: 5 },
+  { name: 'потолок', pop: 755, defense: 720, hours: 15 },
+];
+
+/** Шаг прогона: двадцать секунд — мельче мир всё равно ничего не решает. */
+const STEP = 20_000;
+const SEEDS = [11, 42, 77, 101, 202, 303];
+
+const profileFor = (st: (typeof STAGES)[number]): PlayerProfile => ({
+  name: 'Стенд',
+  pop: st.pop,
+  defense: st.defense,
+  warriorPower: 12,
+  units: { warrior: Math.round(st.defense / 4), scout: 6 },
+  army: { legionary: Math.round(st.defense / 6) },
+  command: 200,
+  warning: 120,
+  stock: { food: 400, wood: 300 },
+  stash: 0,
+});
+
+interface Crowd {
+  stage: string;
+  /** Сколько **разных** чужих отрядов встретилось. Не по пульсам: тот же отряд
+   *  виден десятки раз подряд, и счёт по пульсам мерил бы длину дороги. */
+  seen: number;
+  /** Людей в отряде: наименьший, срединный, наибольший. */
+  men: [number, number, number];
+  /** Как эти отряды раскладываются по ступеням лестницы. */
+  steps: Record<PartySize, number>;
+  /** Больше всего отрядов, видных разом. Это и есть бюджет: больше не бывает. */
+  peak: number;
+}
+
+const median = (a: number[]): number => (a.length === 0 ? 0 : [...a].sort((x, y) => x - y)[a.length >> 1]);
+
+/**
+ * Прогон мира: набеги, войны соседей, осады и выручка. Толчея набирается именно
+ * тут — одиночный набег её не даёт, а верхнюю границу надо знать настоящую.
+ */
+async function crowdOf(stage: (typeof STAGES)[number]): Promise<Crowd> {
+  const p = profileFor(stage);
+  const steps: Record<PartySize, number> = { rumor: 0, small: 0, band: 0, host: 0, horde: 0 };
+  const men: number[] = [];
+  let peak = 0;
+  const rounds = Math.round((stage.hours * 3600_000) / STEP);
+  for (const seed of SEEDS) {
+    let now = 1_700_000_000_000;
+    const world = new LocalWorld({ seed, now: () => now, storage: null });
+    const counted = new Set<string>();
+    for (let i = 0; i < rounds; i++) {
+      now += STEP;
+      const pulse = await world.sync(p);
+      peak = Math.max(peak, pulse.marches.length);
+      for (const m of pulse.marches as MarchView[]) {
+        if (m.own || counted.has(m.id)) continue;
+        counted.add(m.id);
+        const n = partyMen(m.units);
+        men.push(n);
+        steps[sizeOf(n)]++;
+      }
+    }
+  }
+  const sorted = [...men].sort((a, b) => a - b);
+  return {
+    stage: stage.name,
+    seen: men.length,
+    men: [sorted[0] ?? 0, median(men), sorted[sorted.length - 1] ?? 0],
+    steps,
+    peak,
+  };
+}
+
+// ---------- Часть вторая: кадр в настоящем Chrome ----------
+
+/**
+ * Что подкладывается странице. Не код игры — в бандл он не попадает ни при каком
+ * раскладе, поэтому и живёт строкой.
+ *
+ * `__freeze` подменяет пульс пустышкой: zustand берёт действие из состояния при
+ * каждом вызове, поэтому подмена работает и таймер перестаёт затирать отряды.
+ */
+const PROBE = `
+(() => {
+  const W = () => window.__world;
+  window.__freeze = () => {
+    W().setState({ pulse: async () => {} });
+    return JSON.stringify('ok');
+  };
+  /**
+   * Отряды сеткой вокруг деревни, шагом в клетку: худший случай — это когда все
+   * они на экране, а не когда половина за кромкой. Размеры идут по кругу через
+   * всю лестницу, стороны чередуются: так в кадре оказываются все виды спрайта.
+   */
+  window.__parties = (n) => {
+    const home = W().getState().info.home;
+    const now = Date.now();
+    const marches = [];
+    const side = Math.max(1, Math.ceil(Math.sqrt(n)));
+    for (let i = 0; i < n; i++) {
+      const gx = (i % side) - (side - 1) / 2;
+      const gy = Math.floor(i / side) - (side - 1) / 2;
+      const at = { x: Math.round(home.x + gx), y: Math.round(home.y + gy) };
+      const hostile = i % 2 === 1;
+      marches.push({
+        id: 'perf' + i,
+        mission: 'raid',
+        units: { warrior: [4, 12, 40, 200][i % 4] },
+        own: !hostile,
+        hostile,
+        phase: i % 7 === 6 ? 'stay' : 'out',
+        from: { x: at.x - 6, y: at.y - 4 },
+        to: { x: at.x + 6, y: at.y + 4 },
+        fromName: 'Стенд',
+        toName: 'Стенд',
+        targetId: 'perf' + i,
+        departAt: now - 120000,
+        arriveAt: now + 120000,
+        loot: null,
+        recallable: false,
+      });
+    }
+    W().setState({ marches });
+    return JSON.stringify(marches.length);
+  };
+  window.__army = (men) => {
+    const g = W().getState();
+    W().setState({
+      figures: g.figures.map((f) =>
+        f.id === 'general' ? { ...f, troops: { legionary: men }, phase: 'moving' } : f,
+      ),
+    });
+    return JSON.stringify('ok');
+  };
+  window.__take = () => JSON.stringify(window.__mapPerf());
+  window.__ready = () => JSON.stringify({ map: window.__game.getState().mapOpen, world: !!window.__world });
+  return JSON.stringify('ok');
+})()
+`;
+
+interface Shot {
+  view: string;
+  parties: number;
+  frames: number;
+  median: number;
+  p95: number;
+  max: number;
+  /** Медиана минус медиана пустого кадра того же прогона. Это и есть цена отрядов. */
+  cost: number;
+}
+
+const pct = (a: number[], q: number): number => (a.length === 0 ? 0 : [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * q))]);
+
+const VIEWS = [
+  { name: 'телефон 375×812', w: 375, h: 812, dpr: 2, mobile: true },
+  { name: 'широкий 1280×800', w: 1280, h: 800, dpr: 1, mobile: false },
+];
+
+async function frames(tab: Tab, view: (typeof VIEWS)[number], counts: number[]): Promise<Shot[]> {
+  await tab.send('Emulation.setDeviceMetricsOverride', {
+    width: view.w,
+    height: view.h,
+    deviceScaleFactor: view.dpr,
+    mobile: view.mobile,
+  });
+  // Земля печётся по тайлу за кадр: пока она не улеглась, кадр меряет выпечку,
+  // а не отряды. Полторы секунды на два десятка тайлов хватает с запасом.
+  await sleep(2500);
+  const out: Shot[] = [];
+  let base = 0;
+  for (const n of counts) {
+    await tab.eval<number>(`window.__parties(${n})`);
+    await tab.eval<string>(`window.__army(${n > 0 ? 120 : 0})`);
+    // Первые кадры после подкладки печут спрайты новых видов: это разовая
+    // работа, и мешать её с ценой кадра нельзя.
+    await sleep(600);
+    await tab.eval<number[]>('window.__take()');
+    await sleep(SECONDS * 1000);
+    const costs = await tab.eval<number[]>('window.__take()');
+    const mid = median(costs);
+    if (n === counts[0]) base = mid;
+    out.push({
+      view: view.name,
+      parties: n,
+      frames: costs.length,
+      median: mid,
+      p95: pct(costs, 0.95),
+      max: Math.max(0, ...costs),
+      cost: mid - base,
+    });
+  }
+  return out;
+}
+
+async function measure(counts: number[]): Promise<Shot[]> {
+  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
+  await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
+  await tab.send('Page.reload');
+  await sleep(4000);
+  await tab.eval<string>(PROBE);
+  await tab.eval<string>('(() => { window.__game.getState().openMap(); return JSON.stringify("ok"); })()');
+  for (let i = 0; i < 100; i++) {
+    await sleep(100);
+    const r = await tab.eval<{ map: boolean; world: boolean }>('window.__ready()');
+    if (r.map && r.world) break;
+  }
+  await tab.eval<string>('window.__freeze()');
+
+  const out: Shot[] = [];
+  for (const view of VIEWS) out.push(...(await frames(tab, view, counts)));
+  tab.close();
+  await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
+  return out;
+}
+
+// ---------- Печать ----------
+
+const pad = (s: string, n: number): string => s.padEnd(n);
+const num = (v: number, n: number, d = 2): string => v.toFixed(d).padStart(n);
+
+async function main(): Promise<void> {
+  console.log('\n=== сколько людей ходит по карте ===\n');
+  console.log('Пороги лестницы отрядов:', PARTY_STEPS.join(' / '), '— горстка / ватага / войско / орда\n');
+  console.log(
+    `${pad('этап', 10)} ${pad('часов', 6)} ${pad('отрядов', 8)} ${pad('людей мин/сред/макс', 20)} ${pad('горстка/ватага/войско/орда', 27)} разом`,
+  );
+  const crowds: Crowd[] = [];
+  for (const st of STAGES) {
+    const c = await crowdOf(st);
+    crowds.push(c);
+    const by = `${c.steps.small}/${c.steps.band}/${c.steps.host}/${c.steps.horde}`;
+    console.log(
+      `${pad(c.stage, 10)} ${String(st.hours).padStart(5)} ${String(c.seen).padStart(8)} ${`${c.men[0]}/${c.men[1]}/${c.men[2]}`.padStart(20)} ${pad(by, 27)} ${c.peak}`,
+    );
+  }
+  const peak = Math.max(...crowds.map((c) => c.peak));
+  console.log(`\nХудший случай мира: ${peak} отрядов разом плюс четыре фигуры игрока.`);
+  console.log('Мир держит один чужой отряд на деревню, один мимо неё и по одному на выручку');
+  console.log('каждому осаждённому — толчеи в нём не бывает по устройству, и это не догадка,');
+  console.log('а верхняя граница шести сидов на двадцати пяти игровых часах.');
+  console.log('Своё войско в эту таблицу не входит: его размер задаёт Статуя, и он идёт на');
+  console.log('сотни — верхняя ступень лестницы заведена под него.');
+
+  console.log('\n=== кадр карты ===\n');
+  const counts = [0, Math.max(10, peak + 4), 40];
+  console.log(`Случаи: пусто / ${counts[1]} (худший случай мира с запасом) / 40 (заведомый перегруз).\n`);
+  const server = serveDist();
+  const chrome = await launchChrome(DEBUG_PORT, ['--window-size=1400,900', '--force-device-scale-factor=1']);
+  let shots: Shot[] = [];
+  try {
+    shots = await measure(counts);
+  } finally {
+    chrome.kill();
+    server.close();
+    await sleep(300);
+  }
+
+  console.log(
+    `${pad('вид', 18)} ${pad('отрядов', 8)} ${pad('кадров', 7)} ${pad('медиана', 8)} ${pad('p95', 8)} ${pad('макс', 8)} ${pad('отряды', 8)} на отряд, мс`,
+  );
+  for (const s of shots) {
+    const per = s.parties > 0 ? (s.cost / s.parties).toFixed(3).padStart(12) : ''.padStart(12);
+    console.log(
+      `${pad(s.view, 18)} ${String(s.parties).padStart(7)} ${String(s.frames).padStart(7)} ${num(s.median, 8)} ${num(s.p95, 8)} ${num(s.max, 8)} ${num(s.cost, 8)} ${per}`,
+    );
+  }
+  const worst = shots.filter((s) => s.parties === counts[1]);
+  console.log('\nСмотреть надо на столбец «отряды» — медиану минус медиану пустого кадра того же');
+  console.log('прогона. Абсолютное время гуляет на три-четыре десятых от того, чем занята машина,');
+  console.log('а весь кадр стоит около миллисекунды; разница же внутри прогона повторяется.');
+  console.log('Худший случай мира стоит:', worst.map((s) => `${s.view.split(' ')[0]} ${s.cost.toFixed(2)} мс`).join(', ') + '.');
+  console.log('Бюджет кадра при шестидесяти в секунду — 16.7 мс, и в нём лежит не только карта.');
+  console.log('Кадров нет вовсе — значит страница не рисовалась: см. CLAUDE.md, «Стенд в проде».');
+}
+
+void main();

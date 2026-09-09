@@ -19,7 +19,7 @@ import {
 import { useGame } from '@/game/store';
 import { afterPaint } from '@/boot/paint';
 import { cameraAnchor, figurePosition, figuresOn, marchOn, useWorld, worldNow } from '@/world/store';
-import { WORLD_VIEW, freeCamera } from '@/debug';
+import { WORLD_VIEW, freeCamera, frameCost, probe } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
 import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
@@ -58,6 +58,8 @@ import { type Look, dropSprites, silhouetteUrl } from './village';
 import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
+import { dropParties } from './party';
+import { dropBadges } from './figures';
 import { ActionMenu } from './ActionMenu';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
@@ -66,6 +68,14 @@ import { Icon } from '@/ui/icons/Icon';
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
 const FREE_CAMERA = freeCamera();
+
+/**
+ * Стенд бюджета кадра (`npm run map:report`) смотрит? Читается один раз, и в
+ * кадре от этого остаётся одна проверка булева: часы карта заводит только под
+ * стендом. Мерить кадр иначе нечем — снаружи видна только частота, а она упёрта
+ * в шестьдесят и запаса не показывает.
+ */
+const PROBE = probe();
 
 /**
  * Наводка лупы: сколько клеток тумана вокруг двора заказать и сколько раз
@@ -364,7 +374,9 @@ export function WorldMap() {
       useWorld.getState().ensureRegion({ x: rect.x - pad, y: rect.y - pad, w: rect.w + pad * 2, h: rect.h + pad * 2 });
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const t0 = PROBE ? performance.now() : 0;
       drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
+      if (PROBE) frameCost(performance.now() - t0);
 
       // В шапке всегда координата под серединой экрана: она отвечает на вопрос
       // «где я сейчас». Координата выбранной клетки живёт в её карточке.
@@ -383,6 +395,11 @@ export function WorldMap() {
       ro.disconnect();
       // Уходим с карты — два десятка холстов в памяти держать незачем.
       dropTiles();
+      // Отряды и значки фигур от сида не зависят, поэтому в уборку по новому
+      // миру они не входят; а вот держать их между заходами на карту незачем —
+      // печутся они за доли миллисекунды.
+      dropParties();
+      dropBadges();
     };
     // Полотно живёт весь показ карты: данные оно берёт из стора само.
     // eslint-disable-next-line react-hooks/exhaustive-deps
