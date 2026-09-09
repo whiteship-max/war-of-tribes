@@ -9,20 +9,17 @@
 // отношения портятся и отвечают войной — с потолком, — а игрок разоряется теми
 // же правилами и не разоряется в своё отсутствие.
 import { describe, expect, it } from 'vitest';
-import { LocalWorld, HOME_ID } from './local/LocalWorld';
+import { LocalWorld } from './local/LocalWorld';
 import { distance } from './geo';
 import { haltElapsed, sackActive, sackLeft, sackLook, sackPower, sackWindow } from './sack';
 import { revoltWindow } from './spy';
-import { syncSack } from './bridge';
+import { plunder } from './spoils';
 import {
   REVENGE_ATTITUDE,
   REVENGE_WARS_MAX,
   SACK_DURATION,
   SACK_POWER_LOSS,
 } from './data/tuning';
-import { SACK_YIELD, RESOURCE_IDS } from '@/game/constants';
-import { createInitialState } from '@/game/state';
-import { productionPerDay, sacked as tribeSacked } from '@/game/derived';
 import type { GenSettlement } from './gen';
 import type { Loot, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
@@ -69,11 +66,8 @@ describe('разорение — чистая функция от времени
     expect(second.until).toBe(START + HOUR + SACK_DURATION);
   });
 
-  it('доля просадки одна и та же по обе стороны', () => {
-    // Мир роняет мощь разорённого двора, племя режет свою выработку, и число у
-    // них обязано быть одно: одностороннее правило игрок раскусит за день.
-    expect(SACK_YIELD).toBeCloseTo(1 - SACK_POWER_LOSS, 6);
-    expect(sackPower(true)).toBeCloseTo(SACK_YIELD, 6);
+  it('просадка мощи объявлена и держится ровно на время окна', () => {
+    expect(sackPower(true)).toBeCloseTo(1 - SACK_POWER_LOSS, 6);
     expect(sackPower(false)).toBe(1);
   });
 
@@ -248,7 +242,6 @@ describe('разорение чужого двора', () => {
     const card = await w.world.settlement(target.id);
     expect(card?.sack, 'карточка говорит о разорении').not.toBeNull();
     expect(card?.sack?.look, 'и говорит словами, а не часами').not.toBe('');
-    expect(card?.sack?.left, 'чужих часов игрок не считает').toBe(0);
 
     // Мощь просела: и потому, что гарнизон разбит, и потому, что двор стоит.
     const power = (w.world as unknown as { powerNow(s: GenSettlement, now: number): number });
@@ -420,63 +413,52 @@ describe('отношения портятся, и это отзывается', 
   });
 });
 
-describe('симметрия: игрок разоряется теми же правилами', () => {
-  /** Ждёт чужого набега и доводит его до ворот, не теряя игрока из виду. */
-  async function takeRaid(w: ReturnType<typeof makeWorld>, p: PlayerProfile) {
-    for (let i = 0; i < 4000; i++) {
+describe('симметрия: разорение чужого двора и своей деревни', () => {
+  /**
+   * Играет, не пропадая с глаз, пока чужой набег не прорвётся в деревню.
+   * Возвращает последствие и отчёт о нём: пульс отдаёт их один раз, и ловить их
+   * надо на том шаге, где они появились.
+   */
+  async function untilSacked(w: ReturnType<typeof makeWorld>, p: PlayerProfile) {
+    for (let i = 0; i < 20_000; i++) {
       w.advance(10_000);
       const pulse = await w.world.sync(p);
-      const raid = pulse.marches.find((m) => !m.own && m.phase === 'out');
-      if (!raid) continue;
-      while (w.now() < raid.arriveAt) {
-        w.advance(10_000);
-        await w.world.sync(p);
-      }
-      return await w.world.sync(p);
+      const effect = pulse.effects.find((e) => e.battle === 'lost');
+      if (effect) return { effect, report: pulse.reports.find((r) => r.id === effect.id) };
     }
-    throw new Error('набега так и не случилось');
+    throw new Error('набег так и не прорвался');
   }
 
-  it('прорвавшийся набег разоряет деревню тем же окном и той же долей', async () => {
+  it('прорвавшийся набег чистит наш склад тем же правилом, что и мы — чужой', async () => {
     const w = makeWorld(5);
-    // Беззащитная деревня: набег прорвётся наверняка, но не сядет в осаду —
-    // отряд заведомо сильнее порога `SIEGE_IF_BELOW`.
-    const p = profile({ pop: 120, defense: 30, army: {}, units: { warrior: 0, scout: 0 }, command: 0 });
-    let pulse = await takeRaid(w, p);
-    // Отбить такой деревне нечем, но набег мог и не дойти (отзыв, осада);
-    // ждём столько набегов, сколько нужно, чтобы один прорвался.
-    for (let i = 0; i < 8 && !pulse.sack; i++) pulse = await takeRaid(w, p);
-    expect(pulse.sack, 'деревня разорена').not.toBeNull();
-
-    const save = saveOf(w.world);
-    const window = save.sacks[HOME_ID];
-    expect(window, 'окно лежит там же, где и у чужих дворов').toBeTruthy();
-    expect(window.until - window.since, 'и срок у него тот же').toBe(SACK_DURATION);
-    expect(pulse.sack!.until).toBe(window.until);
-    // Свой срок игрок знает точно — в отличие от чужого.
-    const card = await w.world.settlement(HOME_ID);
-    expect(card?.sack?.left).toBeGreaterThan(0);
-
-    // Племя читает то же окно своим числом: срезанной выработкой.
-    const s = createInitialState();
-    const whole = productionPerDay(s);
-    expect(syncSack(s, pulse.sack, pulse.now)).toBe(true);
-    expect(tribeSacked(s)).toBe(true);
-    const cut = productionPerDay(s);
-    for (const r of RESOURCE_IDS) {
-      if (whole[r] <= 0) continue;
-      expect(cut[r]).toBeCloseTo(whole[r] * SACK_YIELD, 6);
+    // Беззащитная деревня со складом и тайником: набег прорвётся наверняка, но
+    // в осаду не сядет — отряд заведомо сильнее порога `SIEGE_IF_BELOW`.
+    const stock = { food: 4000, wood: 4000, stone: 4000 };
+    const p = profile({
+      pop: 120,
+      defense: 30,
+      army: {},
+      units: { warrior: 0, scout: 0 },
+      command: 0,
+      stock,
+      stash: 500,
+    });
+    const { effect, report } = await untilSacked(w, p);
+    const taken = Object.values(effect.resources).reduce((n, v) => n + Math.abs(v ?? 0), 0);
+    expect(taken, 'что-то унесли').toBeGreaterThan(0);
+    // Верхняя граница — открытая часть склада: ниже тайника не уносят никогда,
+    // как бы велик ни был отряд. Точную арифметику держит `spoils.test.ts`,
+    // здесь проверяется, что деревня игрока идёт через то же правило.
+    expect(taken).toBeLessThanOrEqual(plunder(stock, 500, Infinity).takenTotal);
+    // Спрятанное осталось: тайник прячет по 500 каждого из трёх припасов.
+    expect(report?.hidden, 'в отчёте сказано, сколько уцелело').toBe(1500);
+    // И ни одного припаса не унесли ниже тайника.
+    for (const [r, n] of Object.entries(effect.resources) as [keyof typeof stock, number][]) {
+      expect(stock[r] + n, `${r} не ушёл ниже тайника`).toBeGreaterThanOrEqual(500);
     }
-
-    // И снимается оно ровно в срок — по игровым часам, а не по первому пульсу.
-    // Двигается здесь конец окна, а не `s.time`: время двигает ещё и сезон, а
-    // сезон правит ту же выработку — сравнивать было бы уже не с чем.
-    s.sack!.until = s.time;
-    expect(tribeSacked(s)).toBe(false);
-    for (const r of RESOURCE_IDS) expect(productionPerDay(s)[r]).toBeCloseTo(whole[r], 6);
   }, 240_000);
 
-  it('нет игрока — нет набега, а значит и разорения', async () => {
+  it('нет игрока — нет набега, а значит и склад цел', async () => {
     const w = makeWorld(5);
     const p = profile({ pop: 120, defense: 30, army: {}, units: { warrior: 0, scout: 0 }, command: 0 });
     // Дожидаемся вышедшего отряда — и пропадаем: пульса нет до самого прихода.
@@ -491,8 +473,8 @@ describe('симметрия: игрок разоряется теми же пр
 
     w.at(raid.arriveAt + HOUR);
     const pulse = await w.world.sync(p);
-    expect(pulse.sack, 'разорения без игрока не бывает').toBeNull();
-    expect(saveOf(w.world).sacks[HOME_ID]).toBeUndefined();
+    expect(pulse.effects.some((e) => e.battle === 'lost'), 'бой не состоялся').toBe(false);
+    for (const e of pulse.effects) expect(Object.keys(e.resources).length).toBe(0);
     const skipped = pulse.reports.find((r) => r.title === 'Набег не состоялся');
     expect(skipped, 'набег просто не состоялся').toBeTruthy();
   }, 240_000);

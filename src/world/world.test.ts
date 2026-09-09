@@ -73,7 +73,8 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   // Вместимость отряда — работа Статуи. Без неё полководец не уведёт никого,
   // и это правильно: в тестах она задаётся так же, как её даёт здание.
   command: 60,
-  resources: { food: 120, wood: 80 },
+  stock: { food: 120, wood: 80 },
+  stash: 0,
   ...over,
 });
 
@@ -1653,7 +1654,7 @@ describe('отношения с поселениями', () => {
   }
 
   const rich = (): PlayerProfile =>
-    profile({ resources: { food: 100_000, wood: 100_000, stone: 100_000 } });
+    profile({ stock: { food: 100_000, wood: 100_000, stone: 100_000 } });
 
   it('приказ отдаётся только у ворот, и недоступное объяснено словами', async () => {
     const w = makeWorld(31);
@@ -2184,7 +2185,7 @@ describe('отряд полководца', () => {
 
   it('под пактом нападать нельзя, и причина видна в карточке', async () => {
     const w = makeWorld(11);
-    const p = profile({ army: { clubman: 10 }, resources: { food: 100_000, wood: 100_000, stone: 100_000 } });
+    const p = profile({ army: { clubman: 10 }, stock: { food: 100_000, wood: 100_000, stone: 100_000 } });
     await w.world.sync(p);
     const target = await neighbour(w.world);
 

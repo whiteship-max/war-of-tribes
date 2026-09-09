@@ -56,7 +56,8 @@ const holdout = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   units: { warrior: 10, scout: 4 },
   command: 100,
   army: { spearman: 10 },
-  resources: { food: 600, wood: 400 },
+  stock: { food: 600, wood: 400 },
+  stash: 0,
   // Часы голода: 6000 еды при 6000 в час на город и 60 на бойца.
   food: 6000,
   foodPerHour: 6000,

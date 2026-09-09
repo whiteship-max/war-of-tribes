@@ -2,7 +2,7 @@ import type { Building, GameState } from '@/game/types';
 import { RECRUIT_WORK } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { OFFER_PER_LEVEL } from '@/game/data/market';
-import { buildingHousing, buildingSlots, buildingStat, levelOutputMult } from '@/game/derived';
+import { buildingHousing, buildingSlots, buildingStat, levelOutputMult, stashAt } from '@/game/derived';
 
 /**
  * Что именно даст следующий уровень — у склада и у лесопилки это разные вещи.
@@ -32,7 +32,6 @@ export function upgradeGain(s: GameState, b: Building, toLevel: number): string 
     ['heal', '% потерь вернётся ранеными'],
     ['intel', '% к стойкости разведданных'],
     ['train', '% к скорости учений конницы'],
-    ['hidden', 'к спрятанному от набега'],
     ['feast', 'к морали от пира'],
     ['hero', 'бойцов за героем'],
   ];
@@ -55,6 +54,12 @@ export function upgradeGain(s: GameState, b: Building, toLevel: number): string 
   if (b.type === 'stable') {
     const gear = Math.floor(buildingStat(at(toLevel), 'mountGear')) - Math.floor(buildingStat(at(b.level), 'mountGear'));
     if (gear) parts.push(`+${gear} ступень снаряжения всадникам`);
+  }
+  // Тайник растёт не линейно, поэтому его прибавку не вывести из `perLevel` —
+  // и это главный довод его строить, он обязан стоять на кнопке числом.
+  if (b.type === 'cache') {
+    const gain = stashAt(toLevel) - stashAt(b.level);
+    if (gain > 0) parts.push(`+${gain} к спрятанному от набега (станет ${stashAt(toLevel)})`);
   }
   if (b.type === 'tavern') parts.push('короче перерыв между пирами');
   if (b.type === 'market') {

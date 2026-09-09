@@ -424,6 +424,17 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <span className="name">Население</span>
           <span className="val">{formatEstimate(card.pop)}</span>
         </div>
+        {/* Сколько можно взять — такие же разведданные, как численность, и
+            стареют они так же. Это **открытая** часть склада: подпол разведчик
+            не считает, и числа тайника здесь нет ни у кого, кроме своей
+            деревни (см. `LocalWorld.lootOpen`). */}
+        <div className="mod">
+          <span className="ico"><Icon name="ui-loot" glyph="📦" /></span>
+          <span className="name">Можно взять</span>
+          <span className={`val ${card.loot.precision === 'unknown' ? 'neg' : ''}`}>
+            {formatEstimate(card.loot)}
+          </span>
+        </div>
         {card.visible && card.marching && (
           <div className="mod total">
             <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
@@ -432,6 +443,13 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           </div>
         )}
       </div>
+      {!card.mine && (
+        <p className="note">
+          Победитель забирает со склада всё, кроме того, что помещается в тайник, и не
+          больше, чем поднимет отряд. Сколько прячет их тайник — не узнать ни разведкой,
+          ни боем: узнаётся только то, что осталось на виду.
+        </p>
+      )}
       {card.castle && (
         <p className="note">
           В замке казна: удачный набег приносит золото — тем больше, чем сильнее разбит гарнизон.
@@ -514,23 +532,13 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <div className="mod-list">
             <div className="mod total">
               <span className="ico">🔥</span>
-              <span className="name">
-                {card.mine ? 'Хозяйство за стеной разорено' : 'Хозяйство стоит, гарнизон поредел'}
-              </span>
+              <span className="name">Хозяйство стоит, гарнизон поредел</span>
               <span className="val">{card.sack.look}</span>
             </div>
-            {card.sack.left > 0 && (
-              <div className="mod">
-                <span className="ico">⏳</span>
-                <span className="name">Отстроимся через</span>
-                <span className="val">{formatLeft(card.sack.left)}</span>
-              </div>
-            )}
           </div>
           <p className="note">
-            {card.mine
-              ? 'Набег прорвался: приток срезан, пока не отстроимся. Склад при этом больше не убывает — унесли своё и ушли.'
-              : 'Здесь уже побывали: двор не растёт, склад пуст, и взять с него сейчас почти нечего. Отстроится сам.'}
+            Здесь уже побывали: двор не растёт, а склад вычищен до тайника — брать сейчас
+            почти нечего. Отстроится сам.
           </p>
         </>
       )}

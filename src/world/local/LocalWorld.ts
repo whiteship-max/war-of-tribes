@@ -56,7 +56,6 @@ import type {
   SettlementCard,
   SettlementId,
   RevoltView,
-  SackView,
   SettlementView,
   SiegeView,
   Standing,
@@ -118,14 +117,7 @@ import {
   spyOutcome,
   spySeed,
 } from '../spy';
-import {
-  haltElapsed,
-  sackActive,
-  sackLeft,
-  sackLook,
-  sackPower,
-  sackWindow,
-} from '../sack';
+import { haltElapsed, sackActive, sackLook, sackPower, sackWindow } from '../sack';
 import {
   CAMP_BUSY,
   CAMP_LEAVE,
@@ -167,6 +159,7 @@ import {
 import { LETTER_KIND_BY_ID, goodsText } from '../data/letters';
 import { BARBARIAN_NAMES, RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackSize } from '../data/units';
+import { asLoss, plunder, type Spoils } from '../spoils';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { resolveField, type FieldOutcome } from '../battle';
@@ -216,6 +209,8 @@ import {
   SPY_CAUGHT_ATTITUDE,
   SPY_HELD,
   SUPPORT_ATTITUDE,
+  AI_STASH_SHARE,
+  LOOT_PER_POP,
   LOOT_REFILL,
   POWER_GROWTH_CAP,
   RANSOM_SHARE,
@@ -535,28 +530,14 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Разорение глазами карточки. Своё показывается сроком, чужое — только видом:
-   * сколько соседу чинить стену, ему никто не докладывал. Развилка стоит одна и
+   * Разорение глазами карточки. Срока здесь нет: сколько соседу чинить стену,
+   * ему никто не докладывал — видно только по виду двора. Развилка стоит одна и
    * здесь, а не в разметке, — иначе панель однажды покажет часы чужого двора.
    */
   private cardSack(id: SettlementId, now: number): CardSack | null {
     const w = this.save.sacks[id];
     if (!sackActive(w, now)) return null;
-    return {
-      left: id === HOME_ID ? sackLeft(w, now) / 1000 : 0,
-      look: sackLook(w, now),
-    };
-  }
-
-  /**
-   * Разорение своей деревни. Здесь срок как раз показывается: это наш склад и
-   * наши люди, и считать по ним игрок вправе. Ровно та же развилка, что у осады
-   * (`SiegeView` против `CardSiege`).
-   */
-  private sackView(now: number): SackView | null {
-    const w = this.save.sacks[HOME_ID];
-    if (!w || !sackActive(w, now)) return null;
-    return { byName: w.by ?? 'Чужаки', until: w.until };
+    return { look: sackLook(w, now) };
   }
 
   // ---------- Осада ----------
@@ -966,9 +947,10 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures.general;
     const men = troopTotal(f.troops ?? {});
     const gold = Math.round(this.castleGold(s, at) * SIEGE_ROUT);
-    const loot = this.takeLoot(s, at, stackCarry({ warrior: men }));
-    const spoils: Loot | null = gold > 0 ? { ...(loot ?? {}), gold } : loot;
-    const goods = loot ? Object.values(loot).reduce((n, v) => n + (v ?? 0), 0) : 0;
+    const took = this.takeLoot(s, at, stackCarry({ warrior: men }));
+    const goods = took.takenTotal;
+    const spoils: Loot | null =
+      gold > 0 ? { ...took.taken, gold } : goods > 0 ? took.taken : null;
     this.addReport({
       id: `siege-${id}-${at}`,
       at,
@@ -981,11 +963,12 @@ export class LocalWorld implements WorldApi {
       enemyPower: Math.round(this.powerNow(s, at)),
       enemyLost: null,
       loot: spoils,
+      hidden: took.hiddenTotal,
       intel: this.snapshot(s, at),
       battle: null,
       text: `В ${s.name} кончился хлеб. Гарнизон разошёлся, склад вычистили на ${goods} добра.${
-        gold > 0 ? ` Казна: ${gold} золота.` : ''
-      } Лагерь снят.`,
+        took.hiddenTotal > 0 ? ` В их тайнике осталось ${took.hiddenTotal}.` : ''
+      }${gold > 0 ? ` Казна: ${gold} золота.` : ''} Лагерь снят.`,
       read: false,
     });
     this.addEffect({
@@ -1015,9 +998,10 @@ export class LocalWorld implements WorldApi {
     }
     const men = troopTotal(routed);
     const camp = this.save.marches.find((m) => m.id === w.campId);
-    // Берут столько, сколько унесут: грузоподъёмность отряда — та же, что у набега.
-    const plunder = this.plunderHome(p ?? null, stackCarry(camp?.units ?? {}));
-    const taken = Object.values(plunder).reduce((n, v) => n + Math.abs(v ?? 0), 0);
+    // Берут столько, сколько унесут, и всё, что не влезло в тайник: правило то
+    // же, что у прорвавшегося набега, и функция та же (`spoils.plunder`).
+    const spoils = this.plunderHome(p ?? null, stackCarry(camp?.units ?? {}));
+    const taken = spoils.takenTotal;
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Чужаки';
 
     this.addReport({
@@ -1031,17 +1015,18 @@ export class LocalWorld implements WorldApi {
       lost: men > 0 ? { warrior: men } : {},
       enemyPower: Math.round(camp?.power ?? 0),
       enemyLost: null,
-      loot: taken > 0 ? plunder : null,
+      loot: taken > 0 ? asLoss(spoils.taken) : null,
+      hidden: spoils.hiddenTotal,
       intel: null,
       battle: null,
-      text: `Голод сделал за ${from} всю работу: гарнизон разошёлся, склад вычистили на ${taken} добра. Лагерь снят.`,
+      text: `Голод сделал за ${from} всю работу: гарнизон разошёлся, склад вычистили на ${taken} добра.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''} Лагерь снят.`,
       read: false,
     });
     this.addEffect({
       id: `${w.campId}-fell`,
       lost: men > 0 ? { warrior: men } : {},
       lostTroops: men > 0 ? routed : undefined,
-      resources: plunder,
+      resources: asLoss(spoils.taken),
       prestige: 0,
       morale: -12,
       // Настоящего боя не было: город взяли голодом, и записывать это в
@@ -1700,7 +1685,7 @@ export class LocalWorld implements WorldApi {
       seenPop: Math.round(p?.pop ?? 0),
       marching: this.save.marches.some((m) => m.own && m.phase === 'out'),
       ruin: false,
-      sacked: this.isSacked(HOME_ID, now),
+      sacked: false,
     };
   }
 
@@ -1737,7 +1722,9 @@ export class LocalWorld implements WorldApi {
       at: now,
       power,
       pop: this.popNow(s, now),
-      loot: this.lootAvailable(s, now),
+      // Разведка видит амбары, а не подпол: в снимок идёт открытая часть склада,
+      // и тайника чужого двора игрок не узнаёт ни числом, ни разведкой.
+      loot: this.lootOpen(s, now),
       kinds: g.kinds,
       formation,
       style: GARRISON_STYLES[g.style].name,
@@ -1746,14 +1733,69 @@ export class LocalWorld implements WorldApi {
 
   // ---------- Добыча ----------
 
+  /**
+   * Полный склад двора. Не «сколько добра выпадет», а именно склад: столько
+   * лежит у него в амбарах, когда он ничем не потревожен, и ровно это забирает
+   * победитель за вычетом тайника.
+   *
+   * Считается от населения (`LOOT_PER_POP`), потому что население — единственная
+   * мерка достатка, которая у мира есть. Число меряное, а не выбранное: им
+   * задаётся, сколько стоит час войны против часа хозяйства (`npm run sack:report`).
+   * У логова свой счёт — от силы, а не от населения: разбойники живут не
+   * хозяйством, и добро у них чужое (docs/lairs.md).
+   */
   private lootCap = (s: GenSettlement, now: number): number =>
-    isLair(s) ? lairLoot(this.powerNow(s, now)) : Math.round(this.popNow(s, now) * 3);
+    isLair(s) ? lairLoot(this.powerNow(s, now)) : Math.round(this.popNow(s, now) * LOOT_PER_POP);
 
-  /** Сколько добра лежит в поселении сейчас: после набега запасы восстанавливаются не сразу. */
+  /**
+   * Сколько каждого припаса прячет тайник двора. Правило дележа одно на обе
+   * стороны (`spoils.plunder`), а **сколько помещается в тайник**, каждая
+   * сторона считает своим: у игрока это здание, у двора — доля его же склада.
+   * Ровно так же из мощи выводится гарнизон: мир не знает про чужие постройки и
+   * знать не должен.
+   *
+   * Доля выбрана по игроку: на десятом уровне Тайника он прячет около четверти
+   * полного склада (docs/sack.md). Без неё игрок выдоил бы соседей досуха, а
+   * его самого прикрывал бы собственный тайник, — то самое одностороннее
+   * правило, которое раскусывают за день.
+   */
+  private lootStash(s: GenSettlement, now: number): number {
+    const mix = Math.max(1, s.lootMix.length);
+    return Math.floor((this.lootCap(s, now) * AI_STASH_SHARE) / mix);
+  }
+
+  /**
+   * Сколько добра лежит в поселении сейчас. После набега склад пуст **по
+   * факту** — победитель выгреб его до тайника, — и наполняется он заново по
+   * собственным часам двора: их останавливает разорение, поэтому вернуться
+   * через час к полному амбару нельзя.
+   */
   private lootAvailable(s: GenSettlement, now: number): number {
     const last = this.save.looted[s.id] ?? this.save.createdAt - LOOT_REFILL;
     const refill = Math.min(1, Math.max(0, (this.liveAt(s.id, now) - last) / LOOT_REFILL));
     return Math.round(this.lootCap(s, now) * refill);
+  }
+
+  /** Склад двора по припасам: тем же раскладом, каким он потом делится. */
+  private lootStock(s: GenSettlement, now: number): Loot {
+    const total = this.lootAvailable(s, now);
+    const mix = s.lootMix;
+    const out: Loot = {};
+    if (total <= 0 || mix.length === 0) return out;
+    const per = Math.floor(total / mix.length);
+    let rest = total - per * mix.length;
+    for (const r of mix) {
+      const extra = rest > 0 ? 1 : 0;
+      rest -= extra;
+      const n = per + extra;
+      if (n > 0) out[r] = (out[r] ?? 0) + n;
+    }
+    return out;
+  }
+
+  /** Что видно разведке: склад двора за вычетом того, что в тайнике. */
+  private lootOpen(s: GenSettlement, now: number): number {
+    return plunder(this.lootStock(s, now), this.lootStash(s, now), Infinity).takenTotal;
   }
 
   /**
@@ -1791,42 +1833,31 @@ export class LocalWorld implements WorldApi {
     return gear;
   }
 
-  private takeLoot(s: GenSettlement, now: number, carry: number): Loot | null {
+  /**
+   * Что победитель выносит из чужого двора. Считает это то же правило, что и у
+   * нашей деревни (`spoils.plunder`): всё, кроме тайника, но не больше, чем
+   * поднимет отряд. Второй арифметики добычи в игре нет.
+   */
+  private takeLoot(s: GenSettlement, now: number, carry: number): Spoils {
     const avail = this.lootAvailable(s, now);
-    const take = Math.min(avail, Math.floor(carry));
+    const spoils = plunder(this.lootStock(s, now), this.lootStash(s, now), carry);
     const cap = Math.max(1, this.lootCap(s, now));
-    const leftShare = Math.max(0, (avail - take) / cap);
-    this.save.looted[s.id] = this.liveAt(s.id, now) - leftShare * LOOT_REFILL;
-    if (take <= 0) return null;
-    const mix = s.lootMix;
-    const out: Loot = {};
-    const per = Math.floor(take / mix.length);
-    let rest = take - per * mix.length;
-    for (const r of mix) {
-      const extra = rest > 0 ? 1 : 0;
-      rest -= extra;
-      const n = per + extra;
-      if (n > 0) out[r] = (out[r] ?? 0) + n;
-    }
-    return out;
+    // На складе остаётся тайник и то, что не подняли: отметка ставится так,
+    // чтобы наполнение пошло именно с этого места, а не с нуля и не с полного.
+    const left = Math.max(0, avail - spoils.takenTotal);
+    this.save.looted[s.id] = this.liveAt(s.id, now) - Math.min(1, left / cap) * LOOT_REFILL;
+    return spoils;
   }
 
-  /** Что чужаки унесут у игрока: поровну с того, что лежит на складе. */
-  private plunderHome(profile: PlayerProfile | null, carry: number): Loot {
-    const out: Loot = {};
-    if (!profile) return out;
-    const entries = Object.entries(profile.resources).filter(([, n]) => (n ?? 0) > 0) as [
-      keyof Loot,
-      number,
-    ][];
-    const total = entries.reduce((n, [, v]) => n + v, 0);
-    if (total <= 0) return out;
-    const take = Math.min(total, Math.floor(carry));
-    for (const [r, v] of entries) {
-      const n = Math.floor((v / total) * take);
-      if (n > 0) out[r] = -n;
-    }
-    return out;
+  /**
+   * Что чужаки унесут у игрока. Считает это общее правило (`spoils.plunder`) —
+   * то же самое, которым игрок обчищает чужие дворы: склад минус тайник, но не
+   * больше, чем отряд поднимет. Своей арифметики у этой стороны нет и быть не
+   * должно; отличаются стороны только тем, откуда берутся склад и тайник.
+   */
+  private plunderHome(profile: PlayerProfile | null, carry: number): Spoils {
+    if (!profile) return { taken: {}, takenTotal: 0, hiddenTotal: 0, spilledTotal: 0 };
+    return plunder(profile.stock ?? {}, profile.stash ?? 0, carry);
   }
 
   // ---------- Туман войны ----------
@@ -2313,8 +2344,15 @@ export class LocalWorld implements WorldApi {
     const arms = burned ? lairArms(defense) : 0;
     // Золото берут до добра: доля казны соразмерна тому, сколько гарнизона выбили.
     const gold = field.won ? Math.round(this.castleGold(target, at) * field.defenderLoss) : 0;
-    const loot = field.won ? this.takeLoot(target, at, stackCarry({ warrior: survivors })) : null;
-    const spoils: Loot | null = gold > 0 ? { ...(loot ?? {}), gold } : loot;
+    // Победитель выгребает склад дочиста — всё, кроме тайника, и не больше, чем
+    // отряд поднимет. Правило то же, что у набега на нашу деревню, и функция та
+    // же: одностороннего дележа в игре нет.
+    const took = field.won
+      ? this.takeLoot(target, at, stackCarry({ warrior: survivors }))
+      : { taken: {} as Loot, takenTotal: 0, hiddenTotal: 0, spilledTotal: 0 };
+    const goods = took.takenTotal;
+    const spoils: Loot | null =
+      gold > 0 ? { ...took.taken, gold } : goods > 0 ? took.taken : null;
     // Сжигается логово после того, как из него всё вынесли: сожжённое уже не
     // отдаёт ни добра, ни разведданных — их брать не у кого.
     if (burned) this.burnLair(target, at);
@@ -2325,9 +2363,9 @@ export class LocalWorld implements WorldApi {
     if (field.won && !burned) {
       this.sackSettlement(target.id, at, this.save.profile?.name ?? 'Мы');
     }
-    const goods = loot ? Object.values(loot).reduce((n, v) => n + (v ?? 0), 0) : 0;
     const lootText =
       (goods > 0 ? ` Взято: ${goods} добра.` : '') +
+      (took.hiddenTotal > 0 ? ` В тайнике у них осталось ${took.hiddenTotal}.` : '') +
       (arms > 0 ? ` Оружия: ${arms}.` : '') +
       (gold > 0 ? ` Казна замка: ${gold} золота.` : '');
     const record: BattleRecord | null = field.result
@@ -2360,6 +2398,7 @@ export class LocalWorld implements WorldApi {
       enemyPower: Math.round(defense),
       enemyLost,
       loot: spoils,
+      hidden: took.hiddenTotal,
       intel,
       battle: record,
       text: burned
@@ -2816,13 +2855,14 @@ export class LocalWorld implements WorldApi {
     // набег не уносит — за них отвечают мораль и разграбленный склад.
     const troopsLost = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
     const warriorsLost = Math.min(warriors, troopTotal(troopsLost) || Math.round(warriors * outcome.defenderLoss));
-    const plunder = outcome.won ? this.plunderHome(profile, stackCarry(attackerLeft)) : {};
-    const taken = Object.values(plunder).reduce((n, v) => n + Math.abs(v ?? 0), 0);
-    // Симметрия: прорвавшийся набег разоряет нашу деревню теми же правилами и
-    // тем же кодом, каким мы разоряем чужие дворы, — то же окно, тот же срок, та
-    // же четверть. Стоит это здесь, **после** проверки `AWAY_GRACE`: пока игрока
-    // нет, набег не состоится вовсе, а значит и разорения не будет.
-    if (outcome.won) this.sackSettlement(HOME_ID, at, m.fromName);
+    // Симметрия: прорвавшийся набег чистит наш склад тем же правилом и той же
+    // функцией, какой мы чистим чужие дворы, — всё, кроме тайника, и не больше,
+    // чем поднимет отряд. Считается это здесь, **после** проверки `AWAY_GRACE`:
+    // пока игрока нет, набег не состоится вовсе, а значит и терять нечего.
+    const spoils = outcome.won
+      ? this.plunderHome(profile, stackCarry(attackerLeft))
+      : { taken: {}, takenTotal: 0, hiddenTotal: 0, spilledTotal: 0 };
+    const taken = spoils.takenTotal;
 
     this.addReport({
       id: `${m.id}-defense`,
@@ -2835,11 +2875,12 @@ export class LocalWorld implements WorldApi {
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       enemyPower: Math.round(m.power),
       enemyLost: Math.round(m.power * outcome.attackerLoss),
-      loot: taken > 0 ? plunder : null,
+      loot: taken > 0 ? asLoss(spoils.taken) : null,
+      hidden: outcome.won ? spoils.hiddenTotal : 0,
       intel: null,
       battle: record,
       text: outcome.won
-        ? `${m.fromName} прорвались через заслон. Унесено ${taken} добра, хозяйство разорено.`
+        ? `${m.fromName} прорвались через заслон и вычистили склад: унесено ${taken} добра.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''}`
         : `${m.fromName} отбиты у частокола.`,
       read: false,
     });
@@ -2858,7 +2899,7 @@ export class LocalWorld implements WorldApi {
       id: `${m.id}-defense`,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       lostTroops: troopsLost,
-      resources: plunder,
+      resources: asLoss(spoils.taken),
       prestige: outcome.won ? 0 : 3,
       morale: outcome.won ? -10 : 5,
       battle: outcome.won ? 'lost' : 'won',
@@ -3010,7 +3051,7 @@ export class LocalWorld implements WorldApi {
       // его размера: цену дани считать не из чего. Расписание при этом идёт —
       // иначе первое подключение выложило бы на стол всё скопом.
       if (!save.profile) continue;
-      const draft = pickLetter(save.seed, n, this.letterCandidates(arriveAt), save.profile.resources);
+      const draft = pickLetter(save.seed, n, this.letterCandidates(arriveAt), save.profile.stock);
       if (!draft) continue;
       // Стол на пять, и очереди за ним нет: шестое письмо сгоняет то, у
       // которого срок ближе всех, и сгоняет его тем же разрешением, что и
@@ -3611,6 +3652,9 @@ export class LocalWorld implements WorldApi {
         terrainFactor: 1,
         power: estimate(p?.defense ?? 0, 'exact'),
         pop: estimate(p?.pop ?? 0, 'exact'),
+        // Свой склад игрок видит целиком, и «можно взять» здесь — то, что
+        // унесли бы у него: весь склад за вычетом собственного тайника.
+        loot: estimate(plunder(p?.stock ?? {}, p?.stash ?? 0, Infinity).takenTotal, 'exact'),
         intel: null,
         figuresHere: this.figuresAt(HOME_ID, now),
         deals: [],
@@ -3620,7 +3664,10 @@ export class LocalWorld implements WorldApi {
         can: { raid: false, scout: false, support: false, besiege: false, open: true },
         siege: this.cardSiege(HOME_ID, now),
         ruinLeft: 0,
-        sack: this.cardSack(HOME_ID, now),
+        // Своя деревня «разорённой» на карте не значится: то, что с ней сделал
+        // прорвавшийся набег, игрок видит по пустому складу и пустым дворам за
+        // стеной, а не по значку. См. docs/sack.md, раздел про дубли.
+        sack: null,
         note: siege
           ? `Город в осаде: «${siege.byName}» стоят у ворот. ${SIEGE_BLOCK}`
           : 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
@@ -3645,6 +3692,7 @@ export class LocalWorld implements WorldApi {
         terrainFactor: terrainFactor(this.save.seed, this.save.home, s),
         power: { ...UNKNOWN },
         pop: { ...UNKNOWN },
+        loot: { ...UNKNOWN },
         intel: null,
         figuresHere: this.figuresAt(s.id, now),
         deals: [],
@@ -3679,6 +3727,10 @@ export class LocalWorld implements WorldApi {
       pop:
         reading?.pop ??
         (view.seenPop !== null ? estimate(view.seenPop, view.visible ? 'exact' : 'rough') : { ...UNKNOWN }),
+      // Про чужой склад знает только разведка: смотреть на двор в подзорную
+      // трубу и считать чужие амбары — разные вещи, и второе требует разведчика
+      // у ворот. Поэтому здесь нет запасного пути через `visible`.
+      loot: reading?.loot ?? { ...UNKNOWN },
       intel: reading,
       figuresHere: here,
       deals: s.tribeId ? this.dealsOf(s.tribeId, now) : [],
@@ -4173,7 +4225,7 @@ export class LocalWorld implements WorldApi {
    */
   private shortOf(cost: Loot): number {
     const p = this.save.profile;
-    const have = p?.stock ?? p?.resources ?? {};
+    const have = p?.stock ?? {};
     let short = 0;
     for (const [r, n] of Object.entries(cost) as [keyof Loot, number][]) {
       short += Math.max(0, (n ?? 0) - (have[r] ?? 0));
@@ -4551,7 +4603,6 @@ export class LocalWorld implements WorldApi {
       reports,
       effects,
       siege: this.siegeView(now),
-      sack: this.sackView(now),
       unread: this.save.reports.filter((r) => !r.read).length,
     };
   }

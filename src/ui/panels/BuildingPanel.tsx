@@ -25,8 +25,10 @@ import {
   isSite,
   jobMultiplier,
   levelOutputMult,
+  maxLevelFor,
   mountGear,
   netPerDay,
+  stashAt,
   storageCap,
   surveyRadius,
   warningSeconds,
@@ -466,8 +468,18 @@ function GenericData({ b }: { b: Building }) {
     const gear = mountGear(s);
     stats.push(['gear-armor', '🎽', 'Снаряжение всадников', gear > 0 ? `+${gear} ступень` : 'с 4 уровня']);
   }
-  const hidden = buildingStat(b, 'hidden');
-  if (hidden) stats.push(['ui-loot', '🧰', 'Спрятано от набега', `${hidden} каждого припаса`]);
+  // Тайник. Главный довод его строить — не «сколько прячет сейчас», а «сколько
+  // будет», и оба числа стоят рядом, чтобы игроку не считать в уме. Всё, что
+  // сверх спрятанного, победитель уносит целиком (`world/spoils.plunder`), и
+  // сказано об этом прямо: иначе тайник читается как мелкая прибавка.
+  if (b.type === 'cache') {
+    const now = stashAt(b.level);
+    stats.push(['ui-loot', '🧰', 'Прячет сейчас', `${now} каждого припаса`]);
+    if (b.level < maxLevelFor(b.type)) {
+      const next = stashAt(b.level + 1);
+      stats.push(['ui-crate', '📦', `На ${b.level + 1} уровне`, `${next} (+${next - now})`]);
+    }
+  }
   if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
   if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
   if (housing) stats.push(['hud-pop', '👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);

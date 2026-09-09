@@ -36,7 +36,6 @@ import type {
   Loot,
   MarchView,
   PlayerProfile,
-  SackView,
   SiegeView,
 } from './types';
 
@@ -120,21 +119,17 @@ export const militiaArchers = (s: GameState): number => {
  */
 export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfile {
   const units = sendableUnits(s);
-  // Тайник не «защищает» добро, а прячет его: спрятанного просто нет в слепке,
-  // поэтому чужой набег его не находит, как ни считай добычу. Никакой отдельной
-  // проверки на стороне мира для этого не нужно, и это правильно — мир не должен
-  // знать про здания племени.
+  // Склад едет в мир целиком, а рядом — вместимость тайника числом. Вычитать
+  // одно из другого заранее нельзя: делит добычу общее правило (`spoils.plunder`),
+  // одно на игрока и на бота, и оно должно получить те же два числа с обеих
+  // сторон. Мир при этом про здания племени по-прежнему не знает — он знает,
+  // сколько прячется, а не где и во что.
+  //
+  // Число обязано совпадать до единицы с полоской ресурсов наверху экрана: там
+  // стоит `Math.floor(s.resources[r])`, здесь — оно же.
   const stash = hiddenStash(s);
-  const resources: Loot = {};
-  // Тем же проходом собирается и `stock` — весь склад без вычетов. Им платят
-  // дань и выкуп, по нему же считается «хватает или нет», и оно обязано
-  // совпадать до единицы с тем, что игрок видит в полоске ресурсов: там стоит
-  // `Math.floor(s.resources[r])`, здесь — оно же.
   const stock: Loot = {};
-  for (const r of RESOURCE_IDS) {
-    stock[r] = Math.max(0, Math.floor(s.resources[r]));
-    resources[r] = Math.max(0, (stock[r] ?? 0) - stash);
-  }
+  for (const r of RESOURCE_IDS) stock[r] = Math.max(0, Math.floor(s.resources[r]));
   const army = homeTroops(s, away);
   // Расстановка обороны подрезается по тому, кто сейчас дома: часть могла уйти
   // в поход или погибнуть, а нанятые с прошлого раза встают в резерв.
@@ -177,8 +172,8 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     command: commandCap(s),
     defenseSetup,
     // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
-    resources,
     stock,
+    stash,
   };
 }
 
@@ -236,28 +231,6 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
     Math.abs(s.siege.until - until) < 1;
   if (same) return false;
   s.siege = { byName: view.byName, until, garrison: view.garrison };
-  return true;
-}
-
-/**
- * Разорение из мира в племя. Устроено ровно как `syncSiege`, и это не копия «на
- * всякий случай»: перевод из мировых миллисекунд в игровые секунды нужен обоим,
- * а везти **остаток**, а не отметку, обязаны оба — иначе тик сравнивал бы
- * секунды партии с часами устройства.
- *
- * Сводить эти две функции в одну не надо: у осады три поля и своя арифметика
- * голода, у разорения — два и никакой; общей у них ровно одна строка перевода.
- */
-export function syncSack(s: GameState, view: SackView | null, now: number): boolean {
-  if (!view) {
-    if (s.sack === null) return false;
-    s.sack = null;
-    return true;
-  }
-  const until = s.time + Math.max(0, (view.until - now) / 1000);
-  const same = s.sack !== null && s.sack.byName === view.byName && Math.abs(s.sack.until - until) < 1;
-  if (same) return false;
-  s.sack = { byName: view.byName, until };
   return true;
 }
 

@@ -8,7 +8,7 @@ import { haptic } from '@/telegram/webapp';
 import { revealWorld } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
-import { applyEffects, awayTroops, playerProfile, syncAway, syncSack, syncSiege } from './bridge';
+import { applyEffects, awayTroops, playerProfile, syncAway, syncSiege } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT } from './data/tuning';
@@ -292,7 +292,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // Осада режет выработку в тике, поэтому она обязана доехать до состояния
     // племени, а не остаться картинкой на экране карты.
     syncSiege(game.s, pulse.siege, pulse.now);
-    syncSack(game.s, pulse.sack, pulse.now);
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
       // Список мог быть уже открыт: без этого свежий отчёт не появится, пока

@@ -38,7 +38,6 @@ import {
   RESOURCE_IDS,
   PRIEST_MORALE,
   PRIEST_MORALE_CAP,
-  SACK_YIELD,
   SIEGE_FOOD_YIELD,
   SIEGE_YIELD,
   SLOTS_PER_LEVEL,
@@ -451,8 +450,30 @@ export const cavalryTrain = (s: GameState): number => 1 + statOf(s, 'stable', 't
 /** Ступень снаряжения, которую конюшня добавляет всадникам в бою. */
 export const mountGear = (s: GameState): number => Math.floor(statOf(s, 'stable', 'mountGear'));
 
-/** Сколько единиц каждого ресурса тайник прячет от чужого набега. */
-export const hiddenStash = (s: GameState): number => statOf(s, 'cache', 'hidden');
+/**
+ * Сколько единиц каждого припаса прячет Тайник этого уровня.
+ *
+ * Растёт **геометрически**, тем же множителем `UPGRADE_GROWTH`, каким дорожают
+ * улучшения зданий, и это не украшение, а всё содержание таблицы. Обещание
+ * тайника одно и должно держаться на любом уровне: **спрятанного хватает на
+ * одно улучшение того уровня, на котором игрок сейчас стоит.** Улучшения дорожают
+ * в 1.4 раза за уровень; расти линейно тайник не может — к десятому уровню он
+ * перестал бы покрывать даже среднее улучшение, а таблица, верная на первый день
+ * и бессмысленная на десятый, хуже отсутствующей.
+ *
+ * Вместимость склада при этом растёт линейно, поэтому доля спрятанного сама
+ * собой идёт от мелочи к заметной части: 8 % полного склада на первом уровне,
+ * 25 % на десятом. Ни на каком уровне это не «весь склад» — неуязвимый склад
+ * убил бы и риск копить, и смысл нападать. Числа и вывод — docs/sack.md.
+ */
+export const stashAt = (level: number): number =>
+  Math.round((BUILDING_BY_ID.cache.hidden ?? 0) * Math.pow(UPGRADE_GROWTH, Math.max(1, level) - 1));
+
+/** Сколько единиц каждого ресурса тайник прячет от чужого набега прямо сейчас. */
+export const hiddenStash = (s: GameState): number => {
+  const b = buildingOfType(s, 'cache');
+  return b ? stashAt(b.level) : 0;
+};
 
 /** Что осталось бы на складе после самого удачного для чужих набега. */
 export const safeResources = (s: GameState): Resources => {
@@ -716,43 +737,10 @@ export const underSiege = (s: GameState): boolean =>
 export const siegeYield = (s: GameState, r: ResourceId): number =>
   !underSiege(s) ? 1 : r === 'food' ? SIEGE_FOOD_YIELD : SIEGE_YIELD;
 
-/**
- * Разорение держится прямо сейчас? Считается при чтении из одного окна и
- * меряется **игровым** временем — по той же причине, что и осада: так
- * офлайн-догон снимает его ровно там, где оно кончилось.
- */
-export const sacked = (s: GameState): boolean =>
-  s.sack !== null && s.time < s.sack.until;
-
-/**
- * Во сколько раз разорение срезало приток. Единственное место, где это
- * решается: панели и тик спрашивают его, а не проверяют окно у себя.
- */
-export const sackYield = (s: GameState): number => (sacked(s) ? SACK_YIELD : 1);
-
-/**
- * Сколько разорению осталось — словами и **часами, а не игровыми днями**. Срок
- * ему назначает мир в реальных часах (`SACK_DURATION`), и хотя хранится остаток
- * в игровых секундах, идут они секунда в секунду с настоящими: сказать игроку
- * «240 дней» было бы формально верно и совершенно бесполезно.
- */
-export function sackLeftText(s: GameState): string {
-  const left = Math.max(0, (s.sack?.until ?? 0) - s.time);
-  const h = Math.floor(left / 3600);
-  const m = Math.floor((left % 3600) / 60);
-  return h > 0 ? `${h} ч ${m} мин` : `${Math.max(1, m)} мин`;
-}
-
-/**
- * Режет готовую выработку тем, что случилось с деревней. Множители перемножаются:
- * осаждённая и вдобавок разорённая деревня работает хуже, чем каждая из бед по
- * отдельности, — и никакой третьей ветки для их сочетания не заводится.
- * Мутирует на месте — как и всё здесь.
- */
-function cutByTrouble(s: GameState, out: Resources): Resources {
-  const sack = sackYield(s);
-  if (!underSiege(s) && sack === 1) return out;
-  for (const r of RESOURCE_IDS) out[r] *= siegeYield(s, r) * sack;
+/** Режет готовую выработку осадой. Мутирует на месте — как и всё здесь. */
+function cutBySiege(s: GameState, out: Resources): Resources {
+  if (!underSiege(s)) return out;
+  for (const r of RESOURCE_IDS) out[r] *= siegeYield(s, r);
   return out;
 }
 
@@ -767,7 +755,7 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
   for (const job of FREE_JOBS) {
     addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
   }
-  return cutByTrouble(s, out);
+  return cutBySiege(s, out);
 }
 
 /** Что производит одно здание за день — для его собственной панели. */
@@ -775,7 +763,7 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
   const out = emptyResources();
   const job = BUILDING_BY_ID[b.type].job;
   if (job) addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
-  return cutByTrouble(s, out);
+  return cutBySiege(s, out);
 }
 
 /**
@@ -1129,12 +1117,6 @@ export function alerts(s: GameState): Alert[] {
   if (heat > 0) {
     if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дрова кончились — племя мёрзнет', goto: 'storage' });
     else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров хватит меньше чем на день', goto: 'storage' });
-  }
-  // Разорённая деревня. Строка стоит выше кузницы и ниже голода: работы в поле
-  // встали не насмерть, но каждая минута под этой строкой стоит четверти
-  // выработки, а сама причина игроку невидима — он видит только упавшие числа.
-  if (sacked(s)) {
-    out.push({ id: 'sacked', icon: '🔥', text: `Деревня разорена: выработка срезана, отстраиваемся ещё ${sackLeftText(s)}` });
   }
   // Кузнецы у холодного горна. Не «умирают», но час такого простоя стоит игроку
   // ровно часа: заказ он закрывает одним тапом, а не заметив — теряет вечер.

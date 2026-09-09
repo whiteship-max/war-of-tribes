@@ -9,6 +9,7 @@ import { toArmySetup, presetFormation } from '../battle/formation';
 import { SECTORS } from '@/battle';
 import { assignWorker, changeFreeJob, normalizeAssignments, unassignWorker } from './workers';
 import { popGrowth } from './population';
+import { plunder } from '@/world/spoils';
 import { seeded, setRandom } from './random';
 import {
   buildingOfType,
@@ -184,16 +185,24 @@ describe('службы посёлка', () => {
     expect(mountGear(withLevel('stable', 10))).toBeGreaterThanOrEqual(1);
   });
 
-  it('тайник прячет запас, и спрятанного просто нет в слепке для мира', () => {
+  it('тайник едет в мир числом, а вычитает его общее правило дележа', () => {
     const s = withLevel('cache', 10);
     for (const r of RESOURCE_IDS) s.resources[r] = 10_000;
     const stash = hiddenStash(s);
     expect(stash).toBeGreaterThan(0);
     const profile = playerProfile(s);
-    for (const r of RESOURCE_IDS) expect(profile.resources[r]).toBe(10_000 - stash);
-    // Запас меньше тайника не виден миру вовсе — унести нечего.
-    s.resources.iron = stash - 10;
-    expect(playerProfile(s).resources.iron).toBe(0);
+    // В слепок едет весь склад и вместимость тайника рядом. Заранее вычитать
+    // одно из другого нельзя: делит добычу одна функция на обе стороны, и она
+    // должна получить те же два числа и у игрока, и у бота.
+    expect(profile.stash).toBe(stash);
+    for (const r of RESOURCE_IDS) expect(profile.stock[r]).toBe(10_000);
+    // Унести можно всё, кроме спрятанного, — при неограниченном обозе ровно это.
+    const spoils = plunder(profile.stock, profile.stash, Infinity);
+    for (const r of RESOURCE_IDS) expect(spoils.taken[r]).toBe(10_000 - stash);
+    // Запас меньше тайника унести нельзя вовсе.
+    const small = plunder({ iron: stash - 10 }, stash, Infinity);
+    expect(small.takenTotal).toBe(0);
+    expect(small.hiddenTotal).toBe(stash - 10);
     expect(hiddenStash(withLevel('cache', 1))).toBeLessThan(stash);
   });
 
@@ -206,7 +215,7 @@ describe('службы посёлка', () => {
     // поэтому «нужно / из» и гаснущая кнопка обязаны считать по нему.
     for (const r of RESOURCE_IDS) {
       expect(profile.stock?.[r]).toBe(Math.floor(s.resources[r]));
-      expect(profile.resources[r]).toBeLessThan(profile.stock?.[r] ?? 0);
+      expect(profile.stash).toBeGreaterThan(0);
     }
   });
 

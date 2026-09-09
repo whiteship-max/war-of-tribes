@@ -247,6 +247,13 @@ export function ReportBody({ report }: { report: Report }) {
           <span className="name">Не вернулись</span>
           <span className="val">{Object.keys(report.lost).length > 0 ? unitsText(report.lost) : 'нет'}</span>
         </div>
+        {(report.hidden ?? 0) > 0 && (
+          <div className="mod">
+            <span className="ico">🧰</span>
+            <span className="name">Уцелело в тайнике</span>
+            <span className="val">{report.hidden}</span>
+          </div>
+        )}
         {report.loot && (
           <div className="mod total">
             <span className="ico"><Icon name="ui-loot" glyph="📦" /></span>
