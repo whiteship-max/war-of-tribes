@@ -12,7 +12,18 @@
 // племени значит стереть стадию, а стадия — главный вопрос игрока к чужой точке.
 import { RELATION_META } from '@/world/data/meta';
 import type { Relation, Stage } from '@/world/types';
-import { ASH, EARTH, OWN, PAL_HIDE, PAL_STONE, PAL_WOOD, PROPS, RAMPART, type BuildPalette } from './palette';
+import {
+  ASH,
+  EARTH,
+  OWN,
+  PAL_HIDE,
+  PAL_STONE,
+  PAL_WOOD,
+  PROPS,
+  RAMPART,
+  SACKED,
+  type BuildPalette,
+} from './palette';
 
 type C = CanvasRenderingContext2D;
 
@@ -168,6 +179,12 @@ export interface Look {
    * Победа игрока обязана быть видна на карте, а не только в отчёте.
    */
   ruin: boolean;
+  /**
+   * Разорённый двор: набег на него выигран, хозяйство стоит. Не стадия и не
+   * пепелище — поселение остаётся на месте со всеми своими домами, — поэтому
+   * рисуется поверх обычного силуэта, а не вместо него.
+   */
+  sacked: boolean;
 }
 
 /**
@@ -177,7 +194,7 @@ export interface Look {
  * замку спрайт обычного соседа той же стадии, и молча.
  */
 export const spriteKey = (look: Look, bucket: number, dpr: number): string =>
-  `${look.stage}|${look.relation}|${look.mine ? 1 : 0}|${look.castle ? 1 : 0}|${look.ruin ? 1 : 0}|${look.variant}|${bucket}|${dpr}`;
+  `${look.stage}|${look.relation}|${look.mine ? 1 : 0}|${look.castle ? 1 : 0}|${look.ruin ? 1 : 0}|${look.sacked ? 1 : 0}|${look.variant}|${bucket}|${dpr}`;
 
 // ---------- Габариты спрайта ----------
 
@@ -657,6 +674,65 @@ function paletteOf(look: Look): BuildPalette {
   return look.stage === 'town' ? PAL_STONE : PAL_WOOD;
 }
 
+/**
+ * Гарь по площадке разорённого двора. Ложится **под** постройки: горело вокруг
+ * них, а не на крышах, — и на мелком масштабе это просто грязное пятно, что и
+ * нужно: главную работу делает дым.
+ */
+function scorch(ctx: C, r: number, rnd: () => number): void {
+  ctx.fillStyle = SACKED.burn;
+  for (let i = 0; i < 7; i++) {
+    const a = rnd() * TAU;
+    const k = r * Math.sqrt(rnd()) * 0.92;
+    const w = 0.09 + rnd() * 0.09;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * k, Math.sin(a) * k * SQUASH, w, w * SQUASH, 0, 0, TAU);
+    ctx.fill();
+  }
+}
+
+/**
+ * Дым над крышами. Три столба разной высоты: один читался бы трубой, а равные
+ * три — забором. Столб узок у земли и расходится кверху, клуб на конце — иначе
+ * он читается палкой; круглыми же клубами целиком дым читается кроной дерева,
+ * и это проверено глазами, а не выведено.
+ *
+ * Высота ограничена сверху не для красоты: над точкой привязки у спрайта ровно
+ * `ANCHOR_Y` клетки, и столб, посчитанный от радиуса города, обрезался бы там
+ * ровной линией.
+ */
+function smoke(ctx: C, r: number, rnd: () => number): void {
+  const top = Math.min(1.2, r * 1.25);
+  for (let i = 0; i < 3; i++) {
+    const x0 = (i - 1) * r * 0.46;
+    const y0 = -r * SQUASH * 0.15;
+    const h = top * (0.6 + rnd() * 0.32);
+    const drift = (0.08 + rnd() * 0.12) * (i === 0 ? -1 : 1);
+    const steps = 5;
+    const left: [number, number][] = [];
+    const right: [number, number][] = [];
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      const y = y0 - h * t;
+      const x = x0 + drift * t * t + Math.sin(t * 4 + i) * 0.03;
+      const w = 0.03 + t * 0.07;
+      left.push([x - w, y]);
+      right.push([x + w, y]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(left[0][0], left[0][1]);
+    for (const [x, y] of left) ctx.lineTo(x, y);
+    for (let k = right.length - 1; k >= 0; k--) ctx.lineTo(right[k][0], right[k][1]);
+    ctx.closePath();
+    ctx.fillStyle = SACKED.smoke;
+    ctx.fill();
+    ctx.fillStyle = SACKED.smokeThin;
+    ctx.beginPath();
+    ctx.ellipse(x0 + drift + Math.sin(4 + i) * 0.03, y0 - h, 0.13, 0.09, 0, 0, TAU);
+    ctx.fill();
+  }
+}
+
 export function bakeSettlement(look: Look, cell: number, dpr: number): Sprite {
   const w = SPAN_W * cell;
   const h = SPAN_H * cell;
@@ -699,6 +775,7 @@ export function bakeSettlement(look: Look, cell: number, dpr: number): Sprite {
 
   clearing(ctx, r, rnd);
   if (look.stage !== 'camp' && !barbarian) fields(ctx, r, rnd);
+  if (look.sacked) scorch(ctx, r, rnd);
 
   if (look.mine) {
     // Светлый ободок по краю площадки — третий признак своего, помимо свечения и флага.
@@ -726,6 +803,7 @@ export function bakeSettlement(look: Look, cell: number, dpr: number): Sprite {
   }
 
   if (barbarian) skullStake(ctx, -r * 0.78, r * SQUASH * 0.42, 0.34);
+  if (look.sacked) smoke(ctx, r, rnd);
 
   // Флаг последним: его не должна закрывать ни одна крыша.
   flag(ctx, r * 0.74, r * SQUASH * 0.3, RELATION_META[look.relation].color, look.mine);

@@ -30,7 +30,15 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import type { FigureView, HomeEffect, Loot, MarchView, PlayerProfile, SiegeView } from './types';
+import type {
+  FigureView,
+  HomeEffect,
+  Loot,
+  MarchView,
+  PlayerProfile,
+  SackView,
+  SiegeView,
+} from './types';
 
 /**
  * Сколько игровых дней укладывается в час реального времени. Осада живёт в
@@ -228,6 +236,28 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
     Math.abs(s.siege.until - until) < 1;
   if (same) return false;
   s.siege = { byName: view.byName, until, garrison: view.garrison };
+  return true;
+}
+
+/**
+ * Разорение из мира в племя. Устроено ровно как `syncSiege`, и это не копия «на
+ * всякий случай»: перевод из мировых миллисекунд в игровые секунды нужен обоим,
+ * а везти **остаток**, а не отметку, обязаны оба — иначе тик сравнивал бы
+ * секунды партии с часами устройства.
+ *
+ * Сводить эти две функции в одну не надо: у осады три поля и своя арифметика
+ * голода, у разорения — два и никакой; общей у них ровно одна строка перевода.
+ */
+export function syncSack(s: GameState, view: SackView | null, now: number): boolean {
+  if (!view) {
+    if (s.sack === null) return false;
+    s.sack = null;
+    return true;
+  }
+  const until = s.time + Math.max(0, (view.until - now) / 1000);
+  const same = s.sack !== null && s.sack.byName === view.byName && Math.abs(s.sack.until - until) < 1;
+  if (same) return false;
+  s.sack = { byName: view.byName, until };
   return true;
 }
 

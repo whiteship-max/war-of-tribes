@@ -7,6 +7,7 @@ import { troopsOfKinds } from '@/game/battle/faces';
 import type { FogData } from '../fog';
 import type { SiegeWindow } from '../siege';
 import type { LairRec } from '../lairs';
+import type { SackRec } from '../sack';
 import type {
   Coord,
   DealId,
@@ -156,6 +157,12 @@ export interface Sighting {
   tribeId: TribeId | null;
   pop: number;
   castle: boolean;
+  /**
+   * Двор был разорён в момент снимка. Поля может не быть у снимка из старого
+   * сохранения — тогда читается как «цел», и это правда: до появления разорений
+   * их и не было.
+   */
+  sacked?: boolean;
 }
 
 /** Подписанный договор: до какого момента он в силе и когда платил в последний раз. */
@@ -238,6 +245,17 @@ export interface WorldSave {
    * мержится с новой партией, а `revolts` приезжает пустым по умолчанию.
    */
   revolts: Record<SettlementId, { since: number; until: number }>;
+  /**
+   * Разорения: одно окно на поселение, ключ общий — разорённой бывает и своя
+   * деревня (`HOME_ID`), и чужая, и правило у них одно (`world/sack.ts`).
+   *
+   * Просевшая мощь, вставшее хозяйство и опустевший склад из окна выводятся при
+   * чтении, а не отмечаются тиком: офлайн обязан дать ровно то же, что
+   * непрерывная игра. Версию сохранения поле не поднимает — `parseWorldSave`
+   * мержит прочитанное поверх новой партии, и старое приезжает без разорений,
+   * то есть с целой округой. Ровно то, что было.
+   */
+  sacks: Record<SettlementId, SackRec>;
   /**
    * Осады: одно окно на поселение. Осаждено сейчас может быть только своё
    * поселение (`HOME_ID`) — приказа «встать в осаду» у игрока пока нет, — но
@@ -384,6 +402,7 @@ export function createWorldSave(seed: number, home: Coord, allyTribe: TribeId | 
     },
     pacts: {},
     revolts: {},
+    sacks: {},
     sieges: {},
     siegeImmune: {},
     siegeAgainAt: {},

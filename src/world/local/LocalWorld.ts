@@ -23,6 +23,7 @@ import type {
   AttackOrder,
   AttackResult,
   BattleRecord,
+  CardSack,
   CardSiege,
   Coord,
   DealId,
@@ -55,6 +56,7 @@ import type {
   SettlementCard,
   SettlementId,
   RevoltView,
+  SackView,
   SettlementView,
   SiegeView,
   Standing,
@@ -110,13 +112,20 @@ import { ORDER_AGENT, SPY_ACTIONS, SPY_ACTION_BY_ID } from '../data/spy';
 import {
   guardOf,
   revoltActive,
-  revoltElapsed,
   revoltPower,
   revoltWindow,
   spyChance,
   spyOutcome,
   spySeed,
 } from '../spy';
+import {
+  haltElapsed,
+  sackActive,
+  sackLeft,
+  sackLook,
+  sackPower,
+  sackWindow,
+} from '../sack';
 import {
   CAMP_BUSY,
   CAMP_LEAVE,
@@ -200,6 +209,8 @@ import {
   HANDOVER_MAX,
   HANDOVER_PER_MAN,
   PEACE_PER_POP,
+  REVENGE_ATTITUDE,
+  REVENGE_WARS_MAX,
   REVOLT_POWER_LOSS,
   SPY_BUSY,
   SPY_CAUGHT_ATTITUDE,
@@ -333,17 +344,22 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Собственные часы поселения. Их останавливает бунт: пока он идёт, поселение
-   * не растёт, запасы не копятся и разбитый гарнизон не отстраивается — это и
-   * означает «производство встало».
+   * Собственные часы поселения. Их останавливают две беды, и обе — окна времени:
+   * бунт лазутчика и разорение после набега, который двор не отбил. Пока часы
+   * стоят, поселение не растёт, запасы не копятся, гарнизон не отстраивается —
+   * это и означает «хозяйство встало». Отсюда же и обещание «второй набег
+   * приносит крохи»: склад наполняется по этим же часам (`lootAvailable`).
    *
-   * Считается при чтении из одного окна времени, а не отмечается тиком, поэтому
-   * офлайн даёт ровно то же, что непрерывная игра. Отметки на записях
-   * (`damage.at`, `looted`) ставятся в этих же часах — иначе бунт двигал бы
-   * прошлое, и разбитый гарнизон чинился бы задним числом.
+   * Тормозов два, поэтому потерянное время считается по **объединению** окон
+   * (`sack.haltElapsed`), а не складывается: сложи их — и поселение, разорённое
+   * во время бунта, поехало бы во времени назад, чиня задним числом гарнизон.
+   *
+   * Считается при чтении, а не отмечается тиком, поэтому офлайн даёт ровно то
+   * же, что непрерывная игра. Отметки на записях (`damage.at`, `looted`)
+   * ставятся в этих же часах.
    */
   private liveAt = (id: SettlementId, now: number): number =>
-    now - revoltElapsed(this.save.revolts[id], now);
+    now - haltElapsed([this.save.revolts[id], this.save.sacks[id]], now);
 
   /** Сколько поселение прожило своей жизнью: возраст мира минус время бунтов. */
   private lived = (s: GenSettlement, now: number): number =>
@@ -493,6 +509,54 @@ export class LocalWorld implements WorldApi {
     const w = this.save.revolts[id];
     if (!w || !revoltActive(w, now)) return null;
     return { since: w.since, until: w.until, power: REVOLT_POWER_LOSS };
+  }
+
+  // ---------- Разорение ----------
+  //
+  // Одна реализация на обе стороны, как у осады. Разорённый набегом чужой двор и
+  // разорённая прорвавшимся набегом наша деревня — это одно и то же окно
+  // (`world/sack.ts`), тот же срок и та же просадка; расходятся они только в
+  // том, кто читает последствие: у чужого двора его читает сам мир (мощь,
+  // население, склад), а у нашей деревни — племя, потому что производство
+  // считает оно (`derived.sackYield`). Второй ветки кода под «наше» разорение
+  // быть не должно: одностороннее правило игрок раскусит за день.
+
+  /** Разорение держится прямо сейчас? Считается при чтении, а не тиком. */
+  private isSacked = (id: SettlementId, now: number): boolean =>
+    sackActive(this.save.sacks[id], now);
+
+  /**
+   * Ставит разорение. Единственная дверь — и она же дверь для нашей деревни:
+   * `id` здесь бывает и `HOME_ID`. Повторный набег не складывает сроки, а
+   * заводит окно заново (`sackWindow`): разоряют то, что успели отстроить.
+   */
+  private sackSettlement(id: SettlementId, at: number, byName: string): void {
+    this.save.sacks[id] = sackWindow(at, byName);
+  }
+
+  /**
+   * Разорение глазами карточки. Своё показывается сроком, чужое — только видом:
+   * сколько соседу чинить стену, ему никто не докладывал. Развилка стоит одна и
+   * здесь, а не в разметке, — иначе панель однажды покажет часы чужого двора.
+   */
+  private cardSack(id: SettlementId, now: number): CardSack | null {
+    const w = this.save.sacks[id];
+    if (!sackActive(w, now)) return null;
+    return {
+      left: id === HOME_ID ? sackLeft(w, now) / 1000 : 0,
+      look: sackLook(w, now),
+    };
+  }
+
+  /**
+   * Разорение своей деревни. Здесь срок как раз показывается: это наш склад и
+   * наши люди, и считать по ним игрок вправе. Ровно та же развилка, что у осады
+   * (`SiegeView` против `CardSiege`).
+   */
+  private sackView(now: number): SackView | null {
+    const w = this.save.sacks[HOME_ID];
+    if (!w || !sackActive(w, now)) return null;
+    return { byName: w.by ?? 'Чужаки', until: w.until };
   }
 
   // ---------- Осада ----------
@@ -1365,7 +1429,15 @@ export class LocalWorld implements WorldApi {
       : powerOf(s, this.lived(s, now), POWER_GROWTH_CAP);
     // Пока идёт бунт, гарнизон занят своими: он слабее ровно на объявленную долю.
     const revolt = revoltPower(this.inRevolt(s.id, now));
-    return Math.max(1, base * revolt * (1 - this.damageOf(s.id, now)) + this.supportIn(s.id));
+    // Разорение бьёт по той же величине и тем же способом. Это **сверх** того,
+    // что снёс сам бой (`damageOf`), и сверх нарочно: разбитый гарнизон при
+    // стоящих часах не чинится вовсе, а разорённый двор ещё и не может выставить
+    // тех, кто разбежался с пожарища.
+    const sack = sackPower(this.isSacked(s.id, now));
+    return Math.max(
+      1,
+      base * revolt * sack * (1 - this.damageOf(s.id, now)) + this.supportIn(s.id),
+    );
   }
 
   private popNow = (s: GenSettlement, now: number): number =>
@@ -1457,6 +1529,68 @@ export class LocalWorld implements WorldApi {
     this.save.diplomacy[id] = rec;
   }
 
+  /** Сколько дворов воюет с нами прямо сейчас. Из этого и считается потолок мести. */
+  private warsOnUs(now: number): number {
+    let n = 0;
+    for (const s of this.gen.settlements) if (this.standingOf(s, now) === 'war') n++;
+    return n;
+  }
+
+  /**
+   * Ответ соседа на набег. Второй системы отношений здесь не заводится: набег
+   * уже уронил отношение обычным `moveAttitude`, а это — единственное, чего
+   * прежней системе не хватало, чтобы «отношения портятся» имело последствия.
+   * Сосед не отвечал ничем: он копил обиду до самого дна шкалы и оставался в
+   * нейтралитете, то есть ходил в набеги не намного чаще ровного.
+   *
+   * Лестница поэтому такая: первый набег роняет двор в неприязнь, второй — в
+   * лютую вражду, третий переводит её в войну, и **отсюда** уже идёт всё
+   * остальное — набеги оттуда вшестеро охотнее (`AI_WAR_WEIGHT`) и общий темп
+   * быстрее (`AI_WAR_PACE`). Ни одного нового числа в набегах для этого не
+   * понадобилось.
+   *
+   * Потолков у мести четыре, и три из них стояли до этой задачи. Новый — только
+   * `REVENGE_WARS_MAX`: больше стольких войн разом на голову не свалится. Прежние:
+   * шкала отношения снизу заперта (`ATTITUDE_MIN`), то есть охотнее некуда; набег
+   * на нас один за раз и не сильнее `AI_POWER_VS_DEFENSE` доли обороны; чаще, чем
+   * `AI_ATTACK_MIN` × `AI_WAR_PACE`, из очереди ничего не выходит. Выход из мести —
+   * дипломат: `peace` возвращает нейтралитет, и место в потолке освобождается.
+   *
+   * Зовётся это **и после проигранного набега**: наживают врагов нападением, а
+   * не победой.
+   */
+  private avenge(target: GenSettlement, at: number): void {
+    // У варваров старейшин нет, воевать некому объявлять.
+    if (!target.tribeId) return;
+    const rec = this.diploOf(target.id, at);
+    // Уже воюем — объявлять нечего; под пактом набега не бывает вовсе.
+    if (standingAt(rec, at) !== 'neutral') return;
+    if (rec.attitude > REVENGE_ATTITUDE) return;
+    if (this.warsOnUs(at) >= REVENGE_WARS_MAX) return;
+    rec.standing = 'war';
+    rec.since = at;
+    rec.until = 0;
+    rec.breakAt = 0;
+    this.save.diplomacy[target.id] = rec;
+    this.addReport({
+      id: `war${target.id}-${at}`,
+      at,
+      kind: 'defense',
+      title: `Нам объявили войну: ${target.name}`,
+      target: { id: target.id, name: target.name, x: target.x, y: target.y },
+      won: false,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: `${target.name} больше не считает нас соседями: набеги оттуда пойдут чаще и злее. Мир заключает дипломат.`,
+      read: false,
+    });
+  }
+
   private diploView(s: GenSettlement, now: number): DiploView {
     const rec = this.diploOf(s.id, now);
     return { ...rec, standing: standingAt(rec, now), temper: this.temperOfSettlement(s), mood: moodOf(rec.attitude) };
@@ -1507,6 +1641,10 @@ export class LocalWorld implements WorldApi {
       // величин, и помнить её со вчерашнего дня было бы враньём.
       marching: visible && this.save.marches.some((m) => m.fromId === s.id && m.phase === 'out'),
       ruin: false,
+      // Разорение — живые данные, как стадия и численность: в обзоре настоящие,
+      // вне его — из последнего снимка. Помнить разорённым отстроившийся двор
+      // так же неверно, как помнить его численность, и врёт это одинаково.
+      sacked: visible ? this.isSacked(s.id, now) : (seen?.sacked ?? false),
     };
   }
 
@@ -1535,6 +1673,8 @@ export class LocalWorld implements WorldApi {
       seenPop: 0,
       marching: false,
       ruin: true,
+      // Пепелище не «разорено»: разорять там больше нечего и некого.
+      sacked: false,
     };
   }
 
@@ -1560,6 +1700,7 @@ export class LocalWorld implements WorldApi {
       seenPop: Math.round(p?.pop ?? 0),
       marching: this.save.marches.some((m) => m.own && m.phase === 'out'),
       ruin: false,
+      sacked: this.isSacked(HOME_ID, now),
     };
   }
 
@@ -1773,6 +1914,7 @@ export class LocalWorld implements WorldApi {
         tribeId: s.tribeId,
         pop: Math.round(this.popNow(s, now)),
         castle: s.castle,
+        sacked: this.isSacked(s.id, now),
       };
     }
   }
@@ -2156,6 +2298,10 @@ export class LocalWorld implements WorldApi {
       }
     }
 
+    // Ответ соседа считается здесь же и **до** исхода: врагов наживают
+    // нападением, а не победой (см. `avenge`).
+    this.avenge(target, at);
+
     // Бой — та же разведка, и лучшая: гарнизон посчитан своими глазами.
     const intel = this.snapshot(target, at);
     this.save.intel[target.id] = intel;
@@ -2172,6 +2318,13 @@ export class LocalWorld implements WorldApi {
     // Сжигается логово после того, как из него всё вынесли: сожжённое уже не
     // отдаёт ни добра, ни разведданных — их брать не у кого.
     if (burned) this.burnLair(target, at);
+    // Выигранный набег на поселение оставляет разорение: сжечь чужой двор нельзя
+    // (он чужой, а позже будет человеческий), но и стоять нетронутым после
+    // победы он не должен. Ставится это **после** добычи: разоряют то, что не
+    // унесли, а склад разорённого двора не наполняется, пока стоят его часы.
+    if (field.won && !burned) {
+      this.sackSettlement(target.id, at, this.save.profile?.name ?? 'Мы');
+    }
     const goods = loot ? Object.values(loot).reduce((n, v) => n + (v ?? 0), 0) : 0;
     const lootText =
       (goods > 0 ? ` Взято: ${goods} добра.` : '') +
@@ -2212,7 +2365,7 @@ export class LocalWorld implements WorldApi {
       text: burned
         ? `${target.name} выжжено дотла. Набеги оттуда больше не выйдут.${lootText}`
         : field.won
-          ? `Гарнизон ${target.name} разбит.${lootText}`
+          ? `Гарнизон ${target.name} разбит, двор разорён.${lootText}`
           : `Оборона ${target.name} оказалась крепче.${survivors === 0 ? ' Полководец пал.' : ' Уцелевшие остались при полководце.'}`,
       read: false,
     });
@@ -2665,6 +2818,11 @@ export class LocalWorld implements WorldApi {
     const warriorsLost = Math.min(warriors, troopTotal(troopsLost) || Math.round(warriors * outcome.defenderLoss));
     const plunder = outcome.won ? this.plunderHome(profile, stackCarry(attackerLeft)) : {};
     const taken = Object.values(plunder).reduce((n, v) => n + Math.abs(v ?? 0), 0);
+    // Симметрия: прорвавшийся набег разоряет нашу деревню теми же правилами и
+    // тем же кодом, каким мы разоряем чужие дворы, — то же окно, тот же срок, та
+    // же четверть. Стоит это здесь, **после** проверки `AWAY_GRACE`: пока игрока
+    // нет, набег не состоится вовсе, а значит и разорения не будет.
+    if (outcome.won) this.sackSettlement(HOME_ID, at, m.fromName);
 
     this.addReport({
       id: `${m.id}-defense`,
@@ -2681,7 +2839,7 @@ export class LocalWorld implements WorldApi {
       intel: null,
       battle: record,
       text: outcome.won
-        ? `${m.fromName} прорвались через заслон. Унесено ${taken} добра.`
+        ? `${m.fromName} прорвались через заслон. Унесено ${taken} добра, хозяйство разорено.`
         : `${m.fromName} отбиты у частокола.`,
       read: false,
     });
@@ -3462,6 +3620,7 @@ export class LocalWorld implements WorldApi {
         can: { raid: false, scout: false, support: false, besiege: false, open: true },
         siege: this.cardSiege(HOME_ID, now),
         ruinLeft: 0,
+        sack: this.cardSack(HOME_ID, now),
         note: siege
           ? `Город в осаде: «${siege.byName}» стоят у ворот. ${SIEGE_BLOCK}`
           : 'Своя деревня. Сюда возвращаются походы и сюда же приходят чужие.',
@@ -3494,6 +3653,7 @@ export class LocalWorld implements WorldApi {
         can: { raid: false, scout: false, support: false, besiege: false, open: false },
         siege: null,
         ruinLeft: ruinLeft(rec, now) / 1000,
+        sack: null,
         note: `Пепелище. Логово выжжено, брать тут нечего и занять его нельзя — след сойдёт сам через ${formatLeft(ruinLeft(rec, now) / 1000)}.`,
       };
     }
@@ -3541,6 +3701,7 @@ export class LocalWorld implements WorldApi {
       },
       siege: this.cardSiege(s.id, now),
       ruinLeft: 0,
+      sack: this.cardSack(s.id, now),
       note: canRaid
         ? null
         : pact
@@ -4390,6 +4551,7 @@ export class LocalWorld implements WorldApi {
       reports,
       effects,
       siege: this.siegeView(now),
+      sack: this.sackView(now),
       unread: this.save.reports.filter((r) => !r.read).length,
     };
   }

@@ -84,23 +84,68 @@ const SPOT_TRIES = 12;
  */
 const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
   ...Object.values(STAGE_BY_ID).map((s) => ({
-    look: { stage: s.id, relation: 'neutral', mine: false, variant: 0, castle: false, ruin: false } as Look,
+    look: {
+      stage: s.id,
+      relation: 'neutral',
+      mine: false,
+      variant: 0,
+      castle: false,
+      ruin: false,
+      sacked: false,
+    } as Look,
     name: s.name,
   })),
   {
-    look: { stage: 'village', relation: 'neutral', mine: false, variant: 0, castle: true, ruin: false },
+    look: {
+      stage: 'village',
+      relation: 'neutral',
+      mine: false,
+      variant: 0,
+      castle: true,
+      ruin: false,
+      sacked: false,
+    },
     name: 'Замок',
     note: 'крепость с казной, бывает при любой стадии',
   },
   {
-    look: { stage: 'stronghold', relation: 'barbarian', mine: false, variant: 0, castle: false, ruin: false },
+    look: {
+      stage: 'stronghold',
+      relation: 'barbarian',
+      mine: false,
+      variant: 0,
+      castle: false,
+      ruin: false,
+      sacked: false,
+    },
     name: 'Стоянка варваров',
     note: 'шатры и терновая дуга вместо стены',
   },
   {
-    look: { stage: 'camp', relation: 'barbarian', mine: false, variant: 0, castle: false, ruin: true },
+    look: {
+      stage: 'camp',
+      relation: 'barbarian',
+      mine: false,
+      variant: 0,
+      castle: false,
+      ruin: true,
+      sacked: false,
+    },
     name: 'Пепелище',
     note: 'сожжённое логово; занять нельзя, след сойдёт сам',
+  },
+  {
+    look: {
+      stage: 'village',
+      relation: 'neutral',
+      mine: false,
+      variant: 0,
+      castle: false,
+      ruin: false,
+      sacked: true,
+    },
+    name: 'Разорено',
+    note: 'набег на него выигран: хозяйство стоит, гарнизон поредел, брать нечего',
   },
 ];
 

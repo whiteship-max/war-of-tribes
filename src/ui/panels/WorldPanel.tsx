@@ -505,6 +505,36 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         </>
       )}
 
+      {/* Разорение — след нашей же победы. Часов у чужого двора нет и здесь: их
+          не показывает мир (см. `CardSack`), а панель их не выдумывает. Что
+          видно глазами — то и написано словами. */}
+      {card.sack && (
+        <>
+          <h3>Разорено</h3>
+          <div className="mod-list">
+            <div className="mod total">
+              <span className="ico">🔥</span>
+              <span className="name">
+                {card.mine ? 'Хозяйство за стеной разорено' : 'Хозяйство стоит, гарнизон поредел'}
+              </span>
+              <span className="val">{card.sack.look}</span>
+            </div>
+            {card.sack.left > 0 && (
+              <div className="mod">
+                <span className="ico">⏳</span>
+                <span className="name">Отстроимся через</span>
+                <span className="val">{formatLeft(card.sack.left)}</span>
+              </div>
+            )}
+          </div>
+          <p className="note">
+            {card.mine
+              ? 'Набег прорвался: приток срезан, пока не отстроимся. Склад при этом больше не убывает — унесли своё и ушли.'
+              : 'Здесь уже побывали: двор не растёт, склад пуст, и взять с него сейчас почти нечего. Отстроится сам.'}
+          </p>
+        </>
+      )}
+
       {/* Бунт — окно для удара, а не пакость сама по себе. */}
       {card.revolt && (
         <>
