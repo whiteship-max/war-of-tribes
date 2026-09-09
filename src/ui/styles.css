@@ -1841,6 +1841,9 @@ body {
   font-size: 15px;
 }
 
+/* Легенда и панель агентов делят одно место — правый низ над строкой кнопок, —
+   и потому закрывают друг друга по нажатию. Легенда шире и идёт в разметке
+   после колонки, поэтому накрывает её собой целиком. */
 .wm-legend {
   position: absolute;
   left: calc(8px + var(--safe-left));
@@ -1925,68 +1928,179 @@ body {
   gap: 8px;
 }
 
-/* ---------- Три фигуры ---------- */
+/* ---------- Нижний ярус карты ---------- */
 
-/* Ряд стоит над нижними кнопками: фигура — то, чем на карте ходят, и до неё
-   должно быть одно движение большого пальца. */
-.wm-figures {
+/*
+ * Одна колонка над строкой кнопок: подсказка про фигуру в руке и панель
+ * агентов. Колонка, а не два `position: absolute` со своими `calc`, ровно
+ * потому, что панель агентов меняет высоту, когда её раскрывают: соседа с
+ * посчитанным вручную отступом она бы накрыла. В потоке накрыть некого.
+ *
+ * Столбик писем и панель осады сюда не приходят: обе живут в деревне и на
+ * карте не рисуются вовсе. Правый низ карты делят только эта колонка,
+ * легенда и сама строка кнопок.
+ */
+.wm-bottom {
   position: absolute;
   left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
   bottom: calc(var(--safe-bottom) + 8px + var(--tap) + 8px);
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 6px;
+  pointer-events: none;
 }
 
-.wm-fig {
-  min-width: var(--tap);
-  min-height: var(--tap);
-  padding: 4px 8px;
+.wm-bottom > * {
+  pointer-events: auto;
+}
+
+/* Агенты — сворачиваемая панель в правом нижнем углу, над кнопкой легенды.
+   Ширина взята так, чтобы на 360 px слева оставалась половина экрана: там
+   земля, и тапать по ней игрок должен по-прежнему. */
+.wm-agents {
+  width: min(196px, 54vw);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+/* Шапка — она же вся свёрнутая панель. Четыре значка отвечают на «есть ли кому
+   дать приказ» не открываясь, число рядом — сколько таких. */
+.wm-agents-head {
+  min-height: var(--tap);
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 1px;
+  gap: 6px;
+  padding: 0 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.wm-agents-head.open {
+  border-color: var(--accent);
+}
+
+.wm-agents-head b {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wm-agents-head .who {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.wm-agents-head .who i {
+  display: block;
+  width: 15px;
+  height: 15px;
+  font-size: 13px;
+  font-style: normal;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* Свободен — в полную силу, занят — приглушён, выбыл — почти погас. Это и есть
+   весь ответ свёрнутой панели, и он читается яркостью, а не цветом. */
+.wm-agents-head .who i.busy {
+  opacity: 0.42;
+}
+
+.wm-agents-head .who i.down {
+  opacity: 0.22;
+}
+
+.wm-agents-head em {
+  margin-left: auto;
+  min-width: 16px;
+  padding: 0 4px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.wm-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wm-agent {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   color: var(--text);
+  text-align: left;
 }
 
-.wm-fig .ico {
-  font-size: 17px;
-  line-height: 1;
+.wm-agent .ico {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  font-size: 16px;
+  line-height: 18px;
+  text-align: center;
 }
 
-.wm-fig em {
-  font-style: normal;
-  font-size: 10px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  max-width: 74px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.wm-agent .body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Имя — подпись агента, и оно не режется: строка панели заведена под самое
+   длинное из четырёх («Полководец»). */
+.wm-agent .body b {
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.wm-fig.active {
+/* Состояние — вторым, мельче и приглушённо: оно отвечает на «когда», а не на
+   «кто». Переносится, а не обрезается многоточием. */
+.wm-agent .body em {
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.wm-agent.active {
   border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-text);
 }
 
-.wm-fig.active em {
-  color: var(--accent-text);
-}
-
-/* Павшая фигура остаётся на месте в ряду: она не потеряна, она возвращается. */
-.wm-fig.down {
-  opacity: 0.55;
+.wm-agent.active .body b {
+  color: var(--accent);
 }
 
 /* Фигура в руке: следующий тап по карте уведёт её. Отличается от простого
    якоря камеры — на якоре стоят и тогда, когда приказ отдавать не собираются. */
-.wm-fig.hand {
+.wm-agent.hand {
   box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Павшая фигура остаётся в списке: она не потеряна, она возвращается. */
+.wm-agent.down {
+  opacity: 0.55;
 }
 
 /* Пустое место кнопки перехода по координатам: её видит только отладочный
@@ -1995,11 +2109,10 @@ body {
   visibility: hidden;
 }
 
+/* Подсказка стоит в той же колонке и растянута на всю её ширину: считать ей
+   отступ от дна больше не надо — панель агентов под ней сама держит место. */
 .wm-hint {
-  position: absolute;
-  left: calc(8px + var(--safe-left));
-  right: calc(8px + var(--safe-right));
-  bottom: calc(var(--safe-bottom) + 8px + var(--tap) + 8px + var(--tap) + 14px);
+  align-self: stretch;
   padding: 6px 10px;
   background: var(--panel);
   border: 1px solid var(--accent);

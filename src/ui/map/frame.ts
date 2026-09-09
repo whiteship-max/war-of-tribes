@@ -20,7 +20,7 @@ import { GRID } from './palette';
 import { drawGrid, drawGround, drawVillages, markersOf, settlementsIn } from './detail';
 import { drawFog } from './fog';
 import { drawZones } from './zones';
-import { drawFigures } from './figures';
+import { drawFigureLabels, drawFigures } from './figures';
 import { drawHeading, drawParty, lookOf as partyLook } from './party';
 
 /** Занятые подписями места текущего кадра: соседи не пишут имена друг на друга. */
@@ -307,6 +307,9 @@ export function drawFrame(
     for (const s of [...inView].sort((a, b) => Number(b.mine) - Number(a.mine))) {
       drawLabel(ctx, cam, vp, s, near, taken);
     }
+    // Имена агентов — после дворов и по тому же занятому месту: агент, стоящий
+    // дома, не пишет своё имя поверх имени деревни, а опускается под него.
+    drawFigureLabels(ctx, cam, vp, state.figures, now, dpr, taken);
   }
 
   // Метка лупы поверх всего: её и завели затем, чтобы взгляд нашёл её сразу.

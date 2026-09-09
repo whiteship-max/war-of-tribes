@@ -1,20 +1,26 @@
 // Фигуры игрока на полотне. Рисуются последними — после тумана и походов:
 // фигура не может оказаться под дымкой, которую сама же и разгоняет.
 //
-// Значок фигуры **испечён** (`badge`), а не собирается за кадр. Разница не в
-// четырёх кружках: глиф — это `fillText`, а раскладка текста в браузере стоит
-// заметно дороже копирования картинки, и платить за неё шестьдесят раз в
-// секунду не за что — значок меняется только когда фигуру берут в руку.
+// **Каждый агент узнаётся силуэтом** (`agent.ts`), а не цветом и не значком в
+// одинаковом кружке: разведчик низкий и в широкой шляпе, дипломат — колокол
+// подола, лазутчик — узкий шип капюшона, полководец — плечи и гребень. Кружки с
+// эмодзи, стоявшие здесь раньше, различались только глифом, а глиф на двадцати
+// пикселях — пятно.
 //
-// Полководец с войском рисуется **колонной** (`party.ts`), а значок садится ей
-// на плечи. Это не украшение: армия ходит только с полководцем, и до сих пор
-// сотня бойцов на карте выглядела так же, как дипломат с письмом.
+// Спрайт **испечён** и стоит один `drawImage`; подпись под фигурой — тоже
+// спрайт. Раскладка текста в браузере дороже копирования картинки, и платить за
+// неё шестьдесят раз в секунду не за что: имён четыре, и они не меняются.
+//
+// Полководец с войском рисуется **колонной** (`party.ts`), а сам он встаёт в
+// хвосте её (или сбоку от лагеря) — не поверх и не над. Это не украшение: армия
+// ходит только с полководцем, и до сих пор сотня бойцов на карте выглядела так
+// же, как дипломат с письмом.
 import { RELATION_META } from '@/world/data/meta';
 import { formatLeft, secondsLeft } from '@/world/geo';
 import { figurePosition } from '@/world/store';
 import type { FigureView } from '@/world/types';
 import { type Camera, type Viewport, toScreen } from './grid';
-import { TOKEN } from './palette';
+import { LABEL_H, agentUnit, drawAgent, dropAgents, fanOffsets, labelSprite } from './agent';
 import { drawHeading, drawParty, lookOf as partyLook, partyMen } from './party';
 
 /** Цвет фигуры — тот же, что у своего поселения: это всё «своё». */
@@ -32,6 +38,21 @@ function drawSight(ctx: CanvasRenderingContext2D, sx: number, sy: number, r: num
   ctx.setLineDash([6, 6]);
   ctx.strokeStyle = 'rgba(232, 164, 60, 0.55)';
   ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Кольцо под ногами у той фигуры, что в руке. Выделение — не опознание, поэтому
+ * ему цвет и позволен: силуэт при этом остаётся тем же самым, и «кто это»
+ * по-прежнему читается формой, а не подсветкой.
+ */
+function drawPicked(ctx: CanvasRenderingContext2D, sx: number, sy: number, unit: number): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(sx, sy, unit * 0.3, unit * 0.3 * 0.55, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = OWN;
+  ctx.lineWidth = 2;
   ctx.stroke();
   ctx.restore();
 }
@@ -72,94 +93,69 @@ function drawRoute(
   ctx.fillText(left, tx, ty - 10);
 }
 
-// ---------- Значок фигуры ----------
+// ---------- Где кто стоит ----------
 
-/**
- * Значки печутся по корзинам радиуса — так же, как поселения и отряды. Радиус в
- * кадре плавает вместе с масштабом, и без корзин значок перепекался бы на
- * каждый щипок; растяжение копии на треть на кружке с глифом не видно.
- */
-const BADGE_BUCKETS = [10, 13, 16, 18];
-
-const badgeBucket = (r: number): number => BADGE_BUCKETS.find((b) => b >= r) ?? BADGE_BUCKETS[BADGE_BUCKETS.length - 1];
-
-interface Badge {
-  canvas: HTMLCanvasElement;
-  /** Радиус, под который выпечено: копию растягивают из него. */
-  r: number;
-}
-
-const badges = new Map<string, Badge>();
-/**
- * Фигур четыре, состояния два — на одной корзине это восемь ячеек. Дюжина, а не
- * восемь, чтобы щипок через границу корзины не выбрасывал ещё живые значки.
- */
-const BADGE_MAX = 12;
-
-function bakeBadge(icon: string, chosen: boolean, r: number, dpr: number): Badge {
-  // Полтора радиуса в каждую сторону: глиф вылезает за кружок на любом шрифте.
-  const half = r * 1.5;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = Math.max(1, Math.round(half * 2 * dpr));
-  const ctx = canvas.getContext('2d');
-  const badge: Badge = { canvas, r };
-  if (!ctx) return badge;
-  ctx.setTransform(dpr, 0, 0, dpr, half * dpr, half * dpr);
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = chosen ? OWN : TOKEN.base;
-  ctx.fill();
-  ctx.lineWidth = chosen ? 2.5 : 1.5;
-  ctx.strokeStyle = chosen ? '#fff2d8' : OWN;
-  ctx.stroke();
-  ctx.font = `${Math.round(r * 1.15)}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(icon, 0, r * 0.05);
-  return badge;
-}
-
-function badge(icon: string, chosen: boolean, r: number, dpr: number): Badge {
-  const bucket = badgeBucket(r);
-  const key = `${icon}|${chosen ? 1 : 0}|${bucket}|${dpr}`;
-  const have = badges.get(key);
-  if (have) {
-    badges.delete(key);
-    badges.set(key, have);
-    return have;
-  }
-  const made = bakeBadge(icon, chosen, bucket, dpr);
-  badges.set(key, made);
-  if (badges.size > BADGE_MAX) {
-    const oldest = badges.keys().next().value;
-    if (oldest !== undefined) badges.delete(oldest);
-  }
-  return made;
-}
-
-export function dropBadges(): void {
-  badges.clear();
-}
-
-function drawBadge(
-  ctx: CanvasRenderingContext2D,
-  icon: string,
-  chosen: boolean,
-  r: number,
-  dpr: number,
-  cx: number,
-  cy: number,
-): void {
-  // Копия растягивается из корзины в запрошенный радиус: поле у спрайта то же
-  // (полтора радиуса), поэтому пересчитывать нечего — берём половину от `r`.
-  const half = r * 1.5;
-  ctx.drawImage(badge(icon, chosen, r, dpr).canvas, cx - half, cy - half, half * 2, half * 2);
+interface Spot {
+  f: FigureView;
+  /** Экранная точка, на которой стоит отряд — он же середина клетки. */
+  px: number;
+  py: number;
+  /**
+   * Где стоит **сам агент**. Отличается от `px` только у полководца с войском:
+   * он отходит от колонны, и подпись обязана уехать за ним — иначе имя окажется
+   * под шатрами, а не под тем, кого называет.
+   */
+  ax: number;
+  /** Точка её цели: из неё выводится и направление, и наконечник хода. */
+  tx: number;
+  ty: number;
+  unit: number;
+  west: boolean;
+  /** Сколько людей при нём и стоит ли он лагерем: колонну рисуют по ним. */
+  men: number;
+  standing: boolean;
 }
 
 /**
- * Все четыре фигуры. Павшая не рисуется вовсе: её нет на карте, она возвращается
- * домой, и это видно в её карточке, а не пустым кружком в поле.
+ * Точки всех живых фигур разом — и для силуэтов, и для подписей. Считается один
+ * раз на кадр и одним кодом: две правды о том, где стоит фигура, разъехались бы
+ * ровно на разведение по клетке, и подпись уехала бы к соседу.
+ *
+ * Павшая не попадает сюда вовсе: её нет на карте, она возвращается домой, и это
+ * видно в её карточке, а не пустым кружком в поле.
  */
+function spotsOf(cam: Camera, vp: Viewport, figures: FigureView[], now: number): Spot[] {
+  const live = figures.filter((f) => f.phase !== 'down');
+  const unit = agentUnit(cam.scale);
+  // Разводятся стоящие на одной клетке: четверо дома иначе рисуются друг в
+  // друге, и видно одного.
+  const fan = fanOffsets(
+    live.map((f) => {
+      const at = figurePosition(f, now);
+      return `${Math.round(at.x)}|${Math.round(at.y)}`;
+    }),
+  );
+  return live.map((f, i) => {
+    const at = figurePosition(f, now);
+    const [raw, py] = toScreen(cam, vp, at.x + 0.5, at.y + 0.5);
+    const px = raw + fan[i] * unit;
+    const [tx, ty] = toScreen(cam, vp, f.to.x + 0.5, f.to.y + 0.5);
+    const west = tx < px;
+    // Полководец при войске отходит от колонны: в хвосте у идущей, сбоку от
+    // лагеря. Ставить его поверх колонны нельзя — силуэт, ради которого всё и
+    // затевалось, потерялся бы среди своих же; а поднимать над ней, как прежний
+    // кружок, значит подвесить человека в воздух.
+    const men = partyMen(f.troops);
+    const standing = f.phase === 'field';
+    const aside = men === 0 ? 0 : standing ? unit * 0.66 : (west ? 1 : -1) * unit * 0.6;
+    return { f, px, ax: px + aside, py, tx, ty, unit, west, men, standing };
+  });
+}
+
+const onScreen = (s: Spot, vp: Viewport): boolean =>
+  s.px > -60 && s.py > -60 && s.px < vp.w + 60 && s.py < vp.h + 60;
+
+/** Все четыре фигуры: обзор в руке, дорога, войско при полководце и силуэт. */
 export function drawFigures(
   ctx: CanvasRenderingContext2D,
   cam: Camera,
@@ -169,43 +165,95 @@ export function drawFigures(
   now: number,
   dpr: number,
 ): void {
-  for (const f of figures) {
-    if (f.phase === 'down') continue;
-    const at = figurePosition(f, now);
-    const [px, py] = toScreen(cam, vp, at.x + 0.5, at.y + 0.5);
-    if (px < -60 || py < -60 || px > vp.w + 60 || py > vp.h + 60) continue;
+  for (const spot of spotsOf(cam, vp, figures, now)) {
+    if (!onScreen(spot, vp)) continue;
+    const { f, px, ax, py, tx, ty, unit, west, men, standing } = spot;
     const chosen = picked === f.id;
     if (chosen) drawSight(ctx, px, py, f.sight * cam.scale);
     if (f.phase === 'moving') drawRoute(ctx, cam, vp, f, px, py, now);
 
-    const r = Math.max(9, Math.min(18, cam.scale * 0.34));
     // Войско при полководце — та же колонна, что у похода, и тем же кодом: две
     // правды о том, как выглядит своя армия, разошлись бы при первой же правке.
-    const men = partyMen(f.troops);
     if (men > 0) {
-      const [tx, ty] = toScreen(cam, vp, f.to.x + 0.5, f.to.y + 0.5);
-      const moving = f.phase === 'moving';
       // Лагерь ставят в чистом поле — там же, где садятся в осаду. Дома войско
       // стоит колонной у ворот: шатры посреди своей деревни читались бы осадой
       // собственного двора.
       drawParty(
         ctx,
-        partyLook({ own: true, units: f.troops, standing: f.phase === 'field', seen: true, west: tx < px }),
+        partyLook({ own: true, units: f.troops, standing, seen: true, west }),
         cam.scale,
         dpr,
         px,
         py,
       );
-      if (moving) {
+      if (f.phase === 'moving') {
         const angle = Math.atan2(ty - py, tx - px);
         const lead = cam.scale * 0.62;
-        drawHeading(ctx, 'own', dpr, px + Math.cos(angle) * lead, py + Math.sin(angle) * lead, angle, r * 0.7);
+        drawHeading(ctx, 'own', dpr, px + Math.cos(angle) * lead, py + Math.sin(angle) * lead, angle, unit * 0.26);
       }
     }
-    // Значок садится **над** колонной, если она есть: он опознаёт вожака, а не
-    // заменяет войско, и закрывать собой знамя ему нельзя — знамя выше голов, и
-    // на 0.62 клетки значок ложился ровно на него. Без войска он стоит там же,
-    // где стоял всегда.
-    drawBadge(ctx, f.icon, chosen, r, dpr, px, py - (men > 0 ? cam.scale * 0.88 : r * 0.2));
+    if (chosen) drawPicked(ctx, ax, py, unit);
+    drawAgent(ctx, { kind: f.id, west }, unit, dpr, ax, py);
   }
+}
+
+// ---------- Подписи ----------
+
+/** Занятое подписью место. Тот же прямоугольник, каким меряются имена дворов. */
+export interface Slot {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Насколько подпись опускается, наткнувшись на занятое место, и сколько раз. */
+const STACK_STEP = LABEL_H;
+const STACK_TRIES = 4;
+
+const hits = (box: Slot, taken: Slot[]): boolean =>
+  taken.some((b) => box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y);
+
+/**
+ * Подпись под фигурой — **кто это**, а не где он. «Дома» и «в поле» игрок и так
+ * видит: фигура нарисована ровно там, где стоит. А вот который из четырёх это —
+ * силуэт говорит быстро, но не безошибочно, и имя закрывает остаток.
+ *
+ * Наезжать подписям нельзя, и обрезать их на полуслове — тоже (это мы уже
+ * чинили в письмах). Поэтому подпись, наткнувшаяся на занятое место, **опускается
+ * строкой ниже** и пробует снова: четверо дома дают четыре строки лесенкой, а
+ * не кашу. Не нашла места и после четырёх попыток — не рисуется вовсе, тем же
+ * правилом, каким молчат имена тесно стоящих дворов.
+ *
+ * Место она делит с именами поселений (общий `taken`), и зовут её **после** них:
+ * своя деревня называется первой, агенты пристраиваются под ней.
+ */
+export function drawFigureLabels(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  vp: Viewport,
+  figures: FigureView[],
+  now: number,
+  dpr: number,
+  taken: Slot[],
+): void {
+  for (const spot of spotsOf(cam, vp, figures, now)) {
+    if (spot.ax < 0 || spot.py < 0 || spot.ax > vp.w || spot.py > vp.h) continue;
+    const sprite = labelSprite(spot.f.name, dpr);
+    let top = spot.py + Math.max(5, spot.unit * 0.17);
+    let box: Slot = { x: spot.ax - sprite.w / 2, y: top, w: sprite.w, h: sprite.h };
+    let tries = 0;
+    while (hits(box, taken) && tries < STACK_TRIES) {
+      top += STACK_STEP;
+      box = { ...box, y: top };
+      tries++;
+    }
+    if (hits(box, taken)) continue;
+    taken.push(box);
+    ctx.drawImage(sprite.canvas, box.x, top, sprite.w, sprite.h);
+  }
+}
+
+export function dropFigures(): void {
+  dropAgents();
 }

@@ -38,6 +38,18 @@ import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_MAX, SCALE_MIN, SCALE_OVERVIEW, S
 import { type Sample, fieldAt, forestAt, stampsFor, treesIn } from './scatter';
 import { BUCKETS, STAGE_SHAPE, clearRadius, layout, pickBucket, ringOf, spriteKey, variantOf } from './village';
 import {
+  AGENT_BUCKETS,
+  AGENT_MAX,
+  AGENT_MIN,
+  FAN_STEP,
+  agentBucket,
+  agentIdle,
+  agentKey,
+  agentUnit,
+  fanOffsets,
+} from './agent';
+import { FIGURE_IDS } from '@/world/data/figures';
+import {
   MEN_SHOWN,
   PARTY_BUCKETS,
   PARTY_STEPS,
@@ -731,5 +743,95 @@ describe('отрисовка отряда ходит через правило �
     // вторую дверь к числу людей мимо проверки.
     expect([...src.matchAll(/sizeOf\(/g)].length).toBe(2);
     expect(src).toMatch(/o\.own \|\| o\.seen \? sizeOf\(partyMen\(o\.units\)\) : 'rumor'/);
+  });
+});
+
+describe('агенты на карте различаются силуэтом', () => {
+  const read = (f: string): string =>
+    readFileSync(join(process.cwd(), 'src/ui/map', f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('у каждой фигуры своя кисть, и новая без неё не проедет', () => {
+    // Швейцарский `switch` без `default`: забытый вид рисовался бы пустотой, и
+    // ни один прогон этого не заметил бы — кадра в тестах нет.
+    const src = read('agent.ts');
+    for (const id of FIGURE_IDS) expect(src).toContain(`case '${id}':`);
+    expect(FIGURE_IDS.length).toBe(4);
+  });
+
+  it('различает силуэт, а не цвет: краска в кисти одна на всех', () => {
+    const src = read('agent.ts');
+    // Своей палитры у агентов нет: они все свои, а цвет у нас занят стороной.
+    expect(src).not.toMatch(/PARTY_FOE/);
+    expect([...src.matchAll(/PARTY_OWN/g)].length).toBe(2);
+  });
+
+  it('имя под фигурой печётся, а не раскладывается за кадр', () => {
+    const src = read('figures.ts');
+    // `fillText` в кадре осталось ровно одно — таймер прибытия, он меняется
+    // каждую секунду. Имена не меняются вовсе, и им место в спрайте.
+    expect(src).toMatch(/labelSprite\(spot\.f\.name/);
+    expect([...src.matchAll(/fillText\(/g)].length).toBe(1);
+  });
+
+  it('ключ выпечки различает всё, от чего зависит картинка', () => {
+    const keys = new Set<string>();
+    for (const kind of FIGURE_IDS) {
+      for (const west of [false, true]) keys.add(agentKey({ kind, west }, 34, 2));
+    }
+    // Забыть здесь поле значит молча выдать дипломату силуэт полководца.
+    expect(keys.size).toBe(FIGURE_IDS.length * 2);
+    // Стороны в ключе нет и быть не должно: чужих фигур на карте не бывает.
+    expect(agentKey({ kind: 'scout', west: false }, 34, 2)).not.toContain('own');
+  });
+
+  it('корзины размера не дают перепекать силуэт на каждый щипок', () => {
+    expect(AGENT_BUCKETS).toEqual([...AGENT_BUCKETS].sort((a, b) => a - b));
+    const seen = new Set<number>();
+    for (let px = AGENT_MIN; px <= AGENT_MAX; px += 0.5) seen.add(agentBucket(px));
+    expect(seen.size).toBeLessThanOrEqual(AGENT_BUCKETS.length);
+    // Растяжение копии не больше трети: дальше рисунок мылится.
+    for (let i = 1; i < AGENT_BUCKETS.length; i++) {
+      expect(AGENT_BUCKETS[i] / AGENT_BUCKETS[i - 1]).toBeLessThan(1.4);
+    }
+  });
+
+  it('агент виден и на пиксельном обзоре, и вблизи не раздувается', () => {
+    // Земля на обзоре сходится в точку, а агент — то, ради чего на карту
+    // смотрят: таять вместе с ней ему нельзя.
+    expect(agentUnit(SCALE_MIN)).toBe(AGENT_MIN);
+    expect(agentUnit(SCALE_OVERVIEW)).toBe(AGENT_MIN);
+    expect(agentUnit(SCALE_MAX)).toBe(AGENT_MAX);
+    expect(agentUnit(SCALE_START)).toBe(SCALE_START);
+  });
+
+  it('стоящие на одной клетке разводятся, а одиночка не смещается', () => {
+    expect(fanOffsets(['5|5'])).toEqual([0]);
+    expect(fanOffsets(['5|5', '9|9', '3|1'])).toEqual([0, 0, 0]);
+    // Четверо дома иначе рисуются друг в друге, и видно одного.
+    const four = fanOffsets(['5|5', '5|5', '5|5', '5|5']);
+    expect(new Set(four).size).toBe(4);
+    expect(four.reduce((a, b) => a + b, 0)).toBeCloseTo(0);
+    for (let i = 1; i < four.length; i++) expect(four[i] - four[i - 1]).toBeCloseTo(FAN_STEP);
+    // Разведение считается по клетке, а не по экранной точке: от щипка фигуры
+    // не должны съезжаться и разъезжаться.
+    const mixed = fanOffsets(['5|5', '6|6', '5|5']);
+    expect(mixed[1]).toBe(0);
+    expect(mixed[0]).toBeCloseTo(-mixed[2]);
+  });
+
+  it('внимания требует тот, кто дошёл и стоит без дела', () => {
+    const now = 1_000_000;
+    const at = (o: Partial<{ phase: 'home' | 'moving' | 'field' | 'down'; busyUntil: number; watching: boolean }>) =>
+      agentIdle({ phase: 'home', busyUntil: 0, watching: false, ...o }, now);
+    expect(at({})).toBe(true);
+    expect(at({ phase: 'field' })).toBe(true);
+    expect(at({ phase: 'moving' })).toBe(false);
+    expect(at({ phase: 'down' })).toBe(false);
+    expect(at({ busyUntil: now + 5000 })).toBe(false);
+    expect(at({ busyUntil: now - 1 })).toBe(true);
+    // Наблюдающий лазутчик занят именно этим, и дёргать его незачем.
+    expect(at({ watching: true })).toBe(false);
   });
 });

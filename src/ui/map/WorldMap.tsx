@@ -59,7 +59,8 @@ import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { dropParties } from './party';
-import { dropBadges } from './figures';
+import { agentIdle } from './agent';
+import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
@@ -173,12 +174,19 @@ const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
   { color: PALETTE.road, name: 'Тракт', note: `×${COST_ROAD} — дорога между станами племён` },
 ];
 
-/** Строка под значком фигуры: где она и когда освободится. */
-function figureNote(f: FigureView): string {
-  if (f.phase === 'down') return formatLeft(secondsLeft(f.downUntil, worldNow()));
-  if (f.phase === 'moving') return formatLeft(secondsLeft(f.arriveAt, worldNow()));
-  if (f.atHome) return 'дома';
-  return f.atName ?? 'в поле';
+/**
+ * Что с агентом сейчас — **второй** строкой в его строке панели, под именем.
+ * Именем он и подписан: где он, игрок видит на карте, а вот который из четырёх
+ * это — нет. На полотне подпись под фигурой поэтому одна и только имя
+ * (`drawFigureLabels`), а сроки и «дома» живут здесь, где для них есть ширина.
+ */
+function figureState(f: FigureView, now: number): string {
+  if (f.phase === 'down') return `выбыл, ${formatLeft(secondsLeft(f.downUntil, now))}`;
+  if (f.phase === 'moving') return `в пути, ${formatLeft(secondsLeft(f.arriveAt, now))}`;
+  if (f.watching) return 'наблюдает';
+  if (f.busyUntil > now) return `занят, ${formatLeft(secondsLeft(f.busyUntil, now))}`;
+  if (f.atHome) return 'дома, свободен';
+  return f.atName ? `у «${f.atName}», свободен` : 'в поле, свободен';
 }
 
 export function WorldMap() {
@@ -224,6 +232,12 @@ export function WorldMap() {
   const [jumpOpen, setJumpOpen] = useState(false);
   const [jumpText, setJumpText] = useState('');
   const [legendOpen, setLegendOpen] = useState(false);
+  /**
+   * Панель агентов свёрнута по умолчанию: карта — про землю, а не про список
+   * своих. Развёрнутая она делит место с легендой, поэтому обе закрывают друг
+   * друга (см. разметку внизу).
+   */
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
 
   const info = useWorld((g) => g.info);
@@ -395,11 +409,11 @@ export function WorldMap() {
       ro.disconnect();
       // Уходим с карты — два десятка холстов в памяти держать незачем.
       dropTiles();
-      // Отряды и значки фигур от сида не зависят, поэтому в уборку по новому
+      // Отряды и силуэты агентов от сида не зависят, поэтому в уборку по новому
       // миру они не входят; а вот держать их между заходами на карту незачем —
       // печутся они за доли миллисекунды.
       dropParties();
-      dropBadges();
+      dropFigures();
     };
     // Полотно живёт весь показ карты: данные оно берёт из стора само.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -658,6 +672,34 @@ export function WorldMap() {
     centerOn(home);
   };
 
+  /**
+   * Строка агента в панели: камера встаёт на него, а сам он берётся в руку —
+   * то же, что делал прежний чип в ряду фигур. Панель при этом закрывается:
+   * взяв агента, игрок смотрит на землю, а не на список.
+   *
+   * Второе нажатие по тому же агенту только отпускает его из руки — камера
+   * остаётся на нём, иначе следить за фигурой и разглядывать клетки под ней
+   * было бы нельзя одновременно.
+   */
+  const takeFigure = (f: FigureView): void => {
+    if (f.phase === 'down') {
+      showToast(`${f.name} выбыл: вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}.`);
+      return;
+    }
+    if (anchor === f.id) {
+      pickFigure(picked === f.id ? null : f.id);
+      if (picked !== f.id) setAgentsOpen(false);
+      return;
+    }
+    setAnchor(f.id);
+    pickFigure(f.id);
+    centerOn(figurePosition(f, worldNow()));
+    setAgentsOpen(false);
+  };
+
+  /** Сколько агентов ждут приказа — это и есть всё, что говорит свёрнутая панель. */
+  const freeAgents = figures.filter((f) => agentIdle(f, worldNow())).length;
+
   const doJump = (): void => {
     const c = parseCoord(jumpText);
     if (!c) {
@@ -718,6 +760,70 @@ export function WorldMap() {
           </button>
         </div>
       )}
+
+      <ActionMenu />
+
+      {/* Нижний ярус карты — одна колонка, прижатая ко дну над строкой кнопок:
+          подсказка про фигуру в руке и панель агентов. Раз они в одном потоке,
+          наехать друг на друга им нечем — ни на 360, ни на 375, ни когда панель
+          агентов раскрыта. Столбик писем и панель осады сюда не приходят: обе
+          живут в деревне и на карте не рисуются вовсе (см. `App.tsx`). */}
+      <div className="wm-bottom">
+        {picked && (
+          <div className="wm-hint">
+            <span>Тапни по земле — {FIGURE_BY_ID[picked].name} пойдёт туда, по поселению — приказы.</span>
+            <button onClick={() => pickFigure(null)}>Отпустить</button>
+          </div>
+        )}
+
+        {/* Агенты в сворачиваемой панели, а не строкой на весь низ: место в
+            правом нижнем углу одно, и делят его с легендой по очереди — открыл
+            одну, закрылась другая. Свёрнутой панель обязана отвечать на один
+            вопрос: есть ли кому дать приказ. Отвечают четыре значка (тусклый —
+            занят, почти погасший — выбыл) и число свободных. */}
+        <div className="wm-agents">
+          {agentsOpen && (
+            <div className="wm-agent-list">
+              {figures.map((f) => (
+                <button
+                  key={f.id}
+                  className={`wm-agent${anchor === f.id ? ' active' : ''}${picked === f.id ? ' hand' : ''}${f.phase === 'down' ? ' down' : ''}`}
+                  onClick={() => takeFigure(f)}
+                >
+                  <span className="ico">
+                    <Icon name={`fig-${f.id}`} glyph={f.icon} />
+                  </span>
+                  <span className="body">
+                    <b>{f.name}</b>
+                    <em>{figureState(f, worldNow())}</em>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            className={`wm-agents-head${agentsOpen ? ' open' : ''}`}
+            onClick={() => {
+              setAgentsOpen((v) => !v);
+              setLegendOpen(false);
+            }}
+            aria-label="Агенты"
+          >
+            <span className="who">
+              {figures.map((f) => (
+                <i
+                  key={f.id}
+                  className={`${agentIdle(f, worldNow()) ? 'free' : 'busy'}${f.phase === 'down' ? ' down' : ''}`}
+                >
+                  <Icon name={`fig-${f.id}`} glyph={f.icon} />
+                </i>
+              ))}
+            </span>
+            <b>Агенты</b>
+            {freeAgents > 0 && <em>{freeAgents}</em>}
+          </button>
+        </div>
+      </div>
 
       {legendOpen && (
         <div className="wm-legend">
@@ -792,60 +898,11 @@ export function WorldMap() {
         </div>
       )}
 
-      {/* Ряд якорей камеры: деревня и три фигуры. Смотреть игрок может только
-          туда, где у него кто-то есть, и этот ряд — весь список таких мест. */}
-      <div className="wm-figures">
-        <button
-          className={`wm-fig${anchor === 'home' ? ' active' : ''}`}
-          onClick={() => {
-            const home = useWorld.getState().info?.home;
-            setAnchor('home');
-            if (home) centerOn(home);
-          }}
-        >
-          <span className="ico">🏠</span>
-          <em>деревня</em>
-        </button>
-        {figures.map((f) => (
-          <button
-            key={f.id}
-            className={`wm-fig${anchor === f.id ? ' active' : ''}${picked === f.id ? ' hand' : ''}${f.phase === 'down' ? ' down' : ''}`}
-            onClick={() => {
-              if (f.phase === 'down') {
-                showToast(`${f.name} выбыл: вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}.`);
-                return;
-              }
-              // Второе нажатие по той же фигуре только отпускает её из руки:
-              // камера остаётся на ней, иначе следить за фигурой и разглядывать
-              // клетки под ней было бы нельзя одновременно.
-              if (anchor === f.id) {
-                pickFigure(picked === f.id ? null : f.id);
-                return;
-              }
-              setAnchor(f.id);
-              pickFigure(f.id);
-              centerOn(figurePosition(f, worldNow()));
-            }}
-          >
-            <span className="ico">
-              <Icon name={`fig-${f.id}`} glyph={f.icon} />
-            </span>
-            <em>{figureNote(f)}</em>
-          </button>
-        ))}
-      </div>
-
-      <ActionMenu />
-
-      {picked && (
-        <div className="wm-hint">
-          <span>Тапни по земле — {FIGURE_BY_ID[picked].name} пойдёт туда, по поселению — приказы.</span>
-          <button onClick={() => pickFigure(null)}>Отпустить</button>
-        </div>
-      )}
-
       <div className="wm-foot">
-        <button className="wm-btn wide" onClick={goHome}>
+        {/* «Домой» — он же якорь камеры на своей деревне: прежний чип «деревня»
+            в ряду фигур делал ровно это, и второй кнопки под одно дело быть не
+            должно. Подсветка говорит, на чём камера стоит. */}
+        <button className={`wm-btn wide${anchor === 'home' ? ' active' : ''}`} onClick={goHome}>
           🏠 <span>Домой</span>
         </button>
         <button className="wm-btn wide" onClick={openMarches}>
@@ -855,7 +912,14 @@ export function WorldMap() {
         <button className="wm-btn" onClick={toggleZoom} aria-label="Сменить масштаб">
           {zoomedIn ? '🔭' : '🔍'}
         </button>
-        <button className={`wm-btn${legendOpen ? ' active' : ''}`} onClick={() => setLegendOpen((v) => !v)} aria-label="Легенда">
+        <button
+          className={`wm-btn${legendOpen ? ' active' : ''}`}
+          onClick={() => {
+            setLegendOpen((v) => !v);
+            setAgentsOpen(false);
+          }}
+          aria-label="Легенда"
+        >
           ℹ️
         </button>
       </div>
