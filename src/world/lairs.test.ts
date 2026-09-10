@@ -289,7 +289,7 @@ describe('логова в мире', () => {
 
     // И каждое новое логово начинает слабым, а не с потолка.
     for (const l of save.spawned) {
-      const anchor = lairAnchor(gen.settlements, l);
+      const anchor = lairAnchor(save.home, l);
       const at = save.lairs[l.id].bornAt;
       expect(lairPower(anchor, save.lairs[l.id], at)).toBeCloseTo(anchor * LAIR_START, 6);
     }
@@ -299,7 +299,7 @@ describe('логова в мире', () => {
     const gen = generateWorld(51);
     const lairs = gen.settlements.filter((s) => isLair(s) && distance(s, gen.home) <= AI_RANGE);
     expect(lairs.length).toBeGreaterThan(0);
-    const anchor = lairAnchor(gen.settlements, lairs[0]);
+    const anchor = lairAnchor(gen.home, lairs[0]);
 
     const weak = lairPower(anchor, rec(START), START);
     const ripe = lairPower(anchor, rec(START), START + LAIR_RIPE);

@@ -28,3 +28,8 @@ docs/handoff/shots
 # взято, записано в assets-src/MUSIC.md
 assets-src/Medieval Music Vol.1 by gabone_audio/
 assets-src/Combat Pack - vol 1/
+
+# исходники географии: 23 МБ Natural Earth. В репозиторий им не надо — из них
+# собирается src/world/atlas/data.ts, а откуда они взяты, записано в
+# assets-src/world/SOURCES.md
+assets-src/world/cache/

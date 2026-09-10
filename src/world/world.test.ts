@@ -6,7 +6,7 @@ import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
-import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet, tribeCenters } from './geography';
+import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet } from './geography';
 import { TERRAIN_META } from './data/terrain';
 import { CLAIM_REACH, claimsNear, claimsOf, ownerAt } from './territory';
 import { precisionOf, readIntel } from './intel';
@@ -27,6 +27,7 @@ import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
   DEFENSE_FREEZE,
+  AI_RANGE,
   HOME_SIGHT,
   INTEL_EXACT,
   INTEL_ROUGH,
@@ -43,6 +44,20 @@ import {
   WORLD_SIZE,
 } from './data/tuning';
 import type { Coord, FigureView, Intel, MarchView, PlayerProfile, SettlementCard, SettlementView } from './types';
+
+/**
+ * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
+ * замки на нём появятся при регистрации живых игроков. Механика цела — участников
+ * у неё пока нет, и притворяться, что случай проверен, нельзя. Полный список:
+ * `grep -rn waitsForPlayers src`.
+ */
+const waitsForPlayers = it.skip;
+
+/**
+ * Трактов на карте нет: они соединяли станы племён, а станов не осталось.
+ * Прокладка цела — не хватает только концов. Вернутся вместе с городами.
+ */
+const waitsForCities = it.skip;
 
 const START = 1_700_000_000_000;
 const MINUTE = 60_000;
@@ -181,23 +196,27 @@ describe('география: реки, переходы, тракты', () => {
     return n;
   };
 
-  it('один сид даёт одни и те же реки, мосты и дороги', () => {
-    const before: number[] = [];
-    for (let y = WORLD_ORIGIN.y; y < WORLD_ORIGIN.y + 40; y++) {
-      for (let x = WORLD_ORIGIN.x; x < WORLD_ORIGIN.x + 40; x++) before.push(featuresAt(SEED, x, y));
-    }
-    const roadsBefore = [...roadNet(SEED).cells].sort((a, b) => a - b);
-    // Кэш выброшен целиком: считается всё заново, из одного только сида.
+  it('земля одна на все сиды, а переправы повторяются при том же сиде', () => {
+    // Главное обещание поворота: мир общий. Тот же квадрат при другом сиде обязан
+    // дать ту же сушу, тот же лес и те же русла — иначе «одна карта на всех» это
+    // слова. Разводит сиды только выбор переправ, и то не обязан.
+    const box = (seed: number, pick: (x: number, y: number) => unknown): unknown[] => {
+      const out: unknown[] = [];
+      for (let y = WORLD_ORIGIN.y + 300; y < WORLD_ORIGIN.y + 340; y++) {
+        for (let x = WORLD_ORIGIN.x + 300; x < WORLD_ORIGIN.x + 340; x++) out.push(pick(x, y));
+      }
+      return out;
+    };
+    const before = box(SEED, (x, y) => featuresAt(SEED, x, y));
+    // Кэш выброшен целиком: всё считается заново — и с другим сидом.
     dropGeography();
-    const after: number[] = [];
-    for (let y = WORLD_ORIGIN.y; y < WORLD_ORIGIN.y + 40; y++) {
-      for (let x = WORLD_ORIGIN.x; x < WORLD_ORIGIN.x + 40; x++) after.push(featuresAt(SEED, x, y));
-    }
-    expect(after).toEqual(before);
-    expect([...roadNet(SEED).cells].sort((a, b) => a - b)).toEqual(roadsBefore);
-    expect(tribeCenters(SEED)).toEqual(tribeCenters(SEED));
-    // Другой сид — другие реки: иначе карта была бы одна на все партии.
-    expect([...roadNet(SEED + 1).cells]).not.toEqual(roadsBefore);
+    const other = box(SEED + 1, (x, y) => featuresAt(SEED + 1, x, y));
+    // Признаки клетки целиком, включая мосты и броды: у двоих игроков на одной
+    // реке переправа обязана стоять в одном месте, иначе карта общая только
+    // на картинке.
+    expect(other).toEqual(before);
+    dropGeography();
+    expect(box(SEED, (x, y) => featuresAt(SEED, x, y))).toEqual(before);
   });
 
   it('на карте есть и реки, и переправы, и хребты с перевалами', () => {
@@ -242,38 +261,37 @@ describe('география: реки, переходы, тракты', () => {
     expect(COST_RIVER).toBeGreaterThan(TERRAIN_META.water.cost * 2);
   });
 
-  it('ни одно поселение не отрезано водой, и дом не стоит на острове', () => {
-    // Проверка настоящая: суша размечается на связные куски по всему миру, и
-    // считается, где чей. Островные поселения допустимы и даже желанны — до них
-    // плывут; недопустимо одно: дом игрока, отрезанный от всех соседей.
+  it('замок игрока стоит на большой земле, а не на скале посреди океана', () => {
+    // Сорок процентов настоящей карты — море, и попасть замком на трёхклеточный
+    // островок теперь легче лёгкого. Проверка настоящая: суша размечается на
+    // связные куски, и замок обязан оказаться на самом большом из них.
+    const land = landmasses(1);
+    const biggest = Math.max(...land.sizes);
     for (const seed of [1, 7, 29, 33, 68, 101, 900, 4242]) {
-      dropGeography();
       const world = generateWorld(seed);
-      const land = landmasses(seed);
       const home = land.at(world.home.x, world.home.y);
-      expect(home).toBeGreaterThanOrEqual(0);
-      // Дом на главном материке: он один такой, остальное — клочки земли.
-      expect(land.sizeOf(home)).toBe(Math.max(...land.sizes));
-      // Сухопутных соседей у дома не «хотя бы пара», а десяток с лишним.
-      const byLand = world.settlements.filter(
-        (s) => land.at(s.x, s.y) === home && distance(world.home, s) <= 25,
-      );
-      expect(byLand.length).toBeGreaterThanOrEqual(2);
-      // До любой цели поблизости добираются не вплавь: прямая по земле дешевле
-      // самой воды, а значит, «отрезанных водой» соседей у дома нет.
-      const near = world.settlements.filter((s) => distance(world.home, s) <= 12);
-      expect(near.length).toBeGreaterThan(0);
-      expect(Math.min(...near.map((s) => terrainFactor(seed, world.home, s)))).toBeLessThan(TERRAIN_META.water.cost);
+      expect(home, `сид ${seed}: замок на суше`).toBeGreaterThanOrEqual(0);
+      expect(land.sizeOf(home), `сид ${seed}: замок на материке`).toBe(biggest);
+      expect(terrainAt(seed, world.home.x, world.home.y), `сид ${seed}: не пустыня`).not.toBe('desert');
+      // И до ближайшего логова добираются посуху, а не вплавь.
+      const near = world.settlements
+        .filter((s) => distance(world.home, s) <= 26)
+        .sort((a, b) => distance(world.home, a) - distance(world.home, b));
+      expect(near.length, `сид ${seed}: логово по соседству`).toBeGreaterThan(0);
+      // И до ближайшего идут посуху, а не вплавь: прямая дешевле самой воды.
+      const best = Math.min(...near.map((s) => terrainFactor(seed, world.home, s)));
+      expect(best, `сид ${seed}: до логова посуху`).toBeLessThan(TERRAIN_META.water.cost);
     }
   });
 
   it('путь через мост заметно быстрее пути вплавь через ту же реку', () => {
-    // Пример настоящий, а не выдуманный: мост берётся с карты, берега — по
-    // разные стороны русла в стороне от него.
-    const home = generateWorld(SEED).home;
+    // Пример настоящий, а не выдуманный: мост берётся с карты — с Дуная, Рейна
+    // или Луары, — а берега по разные стороны русла в стороне от него. Ищется
+    // он по всей Европе, а не вокруг дома: замок теперь встаёт где угодно, и
+    // привязывать проверку правил местности к его окрестностям нечестно.
     let checked = 0;
-    for (let y = home.y - 20; y <= home.y + 20 && checked < 3; y++) {
-      for (let x = home.x - 20; x <= home.x + 20 && checked < 3; x++) {
+    for (let y = WORLD_ORIGIN.y + 200; y < WORLD_ORIGIN.y + 520 && checked < 3; y += 1) {
+      for (let x = WORLD_ORIGIN.x + 260; x < WORLD_ORIGIN.x + 620 && checked < 3; x += 1) {
         if (!(featuresAt(SEED, x, y) & FEATURE.bridge)) continue;
         const bridge = { x, y };
         for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]] as [number, number][]) {
@@ -286,6 +304,7 @@ describe('география: реки, переходы, тракты', () => {
             for (const [nx, ny] of [[1, 0], [0, 1], [1, 1], [1, -1]] as [number, number][]) {
               const a = { x: r.x - nx * 4, y: r.y - ny * 4 };
               const b = { x: r.x + nx * 4, y: r.y + ny * 4 };
+              if (terrainAt(SEED, a.x, a.y) === 'water' || terrainAt(SEED, b.x, b.y) === 'water') continue;
               if (swims(SEED, a, b) === 0) continue;
               if (swims(SEED, a, bridge) > 0 || swims(SEED, bridge, b) > 0) continue;
               const direct = travelSeconds(SEED, a, b, { warrior: 5 });
@@ -303,7 +322,7 @@ describe('география: реки, переходы, тракты', () => {
     expect(checked).toBeGreaterThan(0);
   });
 
-  it('по тракту идут быстрее, чем по целине', () => {
+  waitsForCities('по тракту идут быстрее, чем по целине', () => {
     const net = roadNet(SEED);
     expect(net.edges.length).toBeGreaterThan(0);
     let sameCell = 0;
@@ -318,7 +337,7 @@ describe('география: реки, переходы, тракты', () => {
     expect(sameCell).toBeGreaterThan(100);
   });
 
-  it('дорога, дошедшая до реки, ставит мост', () => {
+  waitsForCities('дорога, дошедшая до реки, ставит мост', () => {
     for (const key of roadNet(SEED).cells) {
       const x = WORLD_ORIGIN.x + Math.floor(key / 4096);
       const y = WORLD_ORIGIN.y + (key % 4096);
@@ -337,7 +356,7 @@ describe('география: реки, переходы, тракты', () => {
 });
 
 describe('зоны влияния племён', () => {
-  it('влияние затухает по расстоянию, а не рисуется границей', () => {
+  waitsForPlayers('влияние затухает по расстоянию, а не рисуется границей', () => {
     const gen = generateWorld(4242);
     const claims = claimsOf(gen);
     const s = gen.settlements.find((x) => x.tribeId && x.capital);
@@ -354,7 +373,7 @@ describe('зоны влияния племён', () => {
     expect(ownerAt(claims, far.x, far.y)).toBe(0);
   });
 
-  it('цвет племени не проступает в тумане', async () => {
+  waitsForPlayers('цвет племени не проступает в тумане', async () => {
     const { world } = makeWorld(4242);
     const info = await world.info();
     // Дальний угол карты никем не разведан: там не должно быть ни одного цвета,
@@ -694,7 +713,7 @@ describe('походы в локальном мире', () => {
     }
   });
 
-  it('набег поднимает враждебность всего племени', async () => {
+  waitsForPlayers('набег поднимает враждебность всего племени', async () => {
     const w = makeWorld(23);
     const world = w.world;
     const p = profile({ warriorPower: 4, army: { clubman: 6 } });
@@ -722,14 +741,14 @@ describe('замки', () => {
     return castles.sort((a, b) => distance(gen.home, a) - distance(gen.home, b))[0];
   }
 
-  it('замки видны на карте с первого дня', async () => {
+  waitsForPlayers('замки видны на карте с первого дня', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
     await w.world.sync(profile());
     expect((await w.world.settlement(castle.id))?.castle).toBe(true);
   });
 
-  it('набег на замок без достаточной армии не приносит золота и стоит потерь', async () => {
+  waitsForPlayers('набег на замок без достаточной армии не приносит золота и стоит потерь', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
     // Отряд заведомо слабее гарнизона замка: пара дубинщиков против крепости.
@@ -746,7 +765,7 @@ describe('замки', () => {
     expect(pulse.effects.some((e) => (e.lost.warrior ?? 0) > 0)).toBe(true);
   });
 
-  it('сильный отряд берёт замок и привозит золото домой', async () => {
+  waitsForPlayers('сильный отряд берёт замок и привозит золото домой', async () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
     const strong = profile({
@@ -1105,18 +1124,20 @@ describe('заморозка обороны', () => {
 });
 
 describe('туман войны', () => {
-  it('на старте видно своё поселение и минимум двух соседей', async () => {
-    // Не на одном сиде: чёрный экран на входе недопустим в любом мире.
+  it('на старте видно своё поселение и есть куда идти', async () => {
+    // Не на одном сиде: чёрный экран на входе недопустим в любом мире. Соседей
+    // на общей карте больше нет — единственная цель первого дня это логово, и
+    // мир обязан завести их у порога сам, а не через полчаса ожидания.
     for (const seed of [1, 7, 11, 23, 31, 42, 55, 88, 2024, 4242]) {
       const w = makeWorld(seed);
       await w.world.sync(profile());
       const info = await w.world.info();
       const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
       expect(chunk.settlements.some((s) => s.mine), `сид ${seed}: своё поселение`).toBe(true);
-      const neighbours = chunk.settlements.filter((s) => !s.mine);
-      expect(neighbours.length, `сид ${seed}: соседей на старте`).toBeGreaterThanOrEqual(2);
-      // И они не «где-то там»: до них видно, куда идти.
-      for (const n of neighbours) expect(distance(info.home, n)).toBeLessThanOrEqual(HOME_SIGHT);
+      const near = chunk.settlements.filter((s) => !s.mine);
+      expect(near.length, `сид ${seed}: цель на старте`).toBeGreaterThan(0);
+      // Ближайшая — в дневном переходе, а не «где-то там».
+      expect(Math.min(...near.map((s) => distance(info.home, s))), `сид ${seed}`).toBeLessThanOrEqual(AI_RANGE);
     }
   });
 
@@ -1320,7 +1341,7 @@ describe('туман войны', () => {
     expect(old.power.precision).toBe('unknown');
   });
 
-  it('наблюдающий лазутчик не разведывает и не бунтует', async () => {
+  waitsForPlayers('наблюдающий лазутчик не разведывает и не бунтует', async () => {
     const w = makeWorld(11);
     const p = profile();
     await w.world.sync(p);
@@ -1376,11 +1397,12 @@ describe('туман войны', () => {
     }
     expect(fog.count()).toBe((WORLD_SIZE * WORLD_SIZE) / 2);
     const bytes = fogSaveBytes(fog.toJSON());
-    // Двадцать тысяч клеток списком строк вида «541|822» — это 195 КБ в JSON.
-    // Маска даёт 5.0 КБ, и потолок стоит рядом: если она вдруг вырастет вчетверо,
-    // тест обязан упасть, а не молча раздуть сохранение мира.
-    expect(bytes).toBeGreaterThan(4000);
-    expect(bytes).toBeLessThan(6000);
+    // Клетка — бит, кусок 32×32 — 128 байт, в base64 172 символа. Половина
+    // настоящей карты это 320 000 клеток; списком строк вида «541|822» они дали
+    // бы три мегабайта, маска даёт под шестьдесят килобайт. Потолок стоит рядом:
+    // вырастет она вчетверо — тест обязан упасть, а не раздуть сохранение молча.
+    expect(bytes).toBeGreaterThan(50_000);
+    expect(bytes).toBeLessThan(70_000);
     expect(w.world.exploredCells()).toBeGreaterThan(0);
   });
 });
@@ -1428,7 +1450,7 @@ describe('фигуры на карте', () => {
     expect(await cell(away.world)).toBe(await cell(live.world));
   });
 
-  it('погибшая фигура не теряется насовсем, а возвращается через положенное время', async () => {
+  waitsForPlayers('погибшая фигура не теряется насовсем, а возвращается через положенное время', async () => {
     const w = makeWorld(11);
     const p = profile({ warriorPower: 1, units: { warrior: 1 }, army: { clubman: 1 } });
     const castle = generateWorld(11).settlements.filter((s) => s.castle)[0];
@@ -1656,7 +1678,7 @@ describe('отношения с поселениями', () => {
   const rich = (): PlayerProfile =>
     profile({ stock: { food: 100_000, wood: 100_000, stone: 100_000 } });
 
-  it('приказ отдаётся только у ворот, и недоступное объяснено словами', async () => {
+  waitsForPlayers('приказ отдаётся только у ворот, и недоступное объяснено словами', async () => {
     const w = makeWorld(31);
     const p = rich();
     await w.world.sync(p);
@@ -1684,7 +1706,7 @@ describe('отношения с поселениями', () => {
     expect(gift?.seconds).toBeGreaterThan(0);
   });
 
-  it('дипломат занят после приказа: приказы конкурируют за его время', async () => {
+  waitsForPlayers('дипломат занят после приказа: приказы конкурируют за его время', async () => {
     const w = makeWorld(33);
     const p = rich();
     await w.world.sync(p);
@@ -1702,7 +1724,7 @@ describe('отношения с поселениями', () => {
     expect((await w.world.orders('diplomat', target.id)).find((o) => o.id === 'insult')?.can).toBe(true);
   });
 
-  it('плата берётся только за принятое', async () => {
+  waitsForPlayers('плата берётся только за принятое', async () => {
     const w = makeWorld(37);
     const p = rich();
     await w.world.sync(p);
@@ -1736,7 +1758,7 @@ describe('отношения с поселениями', () => {
     expect(refused + accepted).toBeGreaterThan(0);
   });
 
-  it('война объявляется сразу, а разрыв пакта — через сутки предупреждения', async () => {
+  waitsForPlayers('война объявляется сразу, а разрыв пакта — через сутки предупреждения', async () => {
     const w = makeWorld(41);
     const p = rich();
     await w.world.sync(p);
@@ -1806,7 +1828,7 @@ describe('отношения с поселениями', () => {
     return { all, here };
   }
 
-  it('в пакте сосед не нападает, в войне нападает чаще, чем в нейтралитете', async () => {
+  waitsForPlayers('в пакте сосед не нападает, в войне нападает чаще, чем в нейтралитете', async () => {
     const SEED = 43;
     const HOURS = 5;
 
@@ -1834,7 +1856,7 @@ describe('отношения с поселениями', () => {
     expect(pact.here, 'из-под пакта не выходит ни одного').toBe(0);
   });
 
-  it('набег роняет отношение с самим двором сильнее, чем с соседями по племени', async () => {
+  waitsForPlayers('набег роняет отношение с самим двором сильнее, чем с соседями по племени', async () => {
     const w = makeWorld(23);
     const p = profile({ warriorPower: 4, army: { clubman: 6 } });
     await w.world.sync(p);
@@ -1854,7 +1876,7 @@ describe('отношения с поселениями', () => {
     }
   });
 
-  it('характер владельца один на все его дворы и не хранится в сохранении', async () => {
+  waitsForPlayers('характер владельца один на все его дворы и не хранится в сохранении', async () => {
     const w = makeWorld(51);
     await w.world.sync(profile());
     const gen = generateWorld(51);
@@ -1880,36 +1902,19 @@ describe('сохранение мира приводится, а не выбра
     expect(back?.diplomacy).toEqual({});
   });
 
-  it('версия 4 приводится, и обиды племён переезжают в отношения дворов', () => {
-    const gen = generateWorld(63);
-    const tribe = gen.settlements.find((s) => s.tribeId)?.tribeId as string;
-    // Ровно то, что лежало в сохранении до этой пачки: враждебность по племенам.
-    const legacy = {
-      ...createWorldSave(63, gen.home, gen.allyTribe, 1000),
-      v: 4,
-      hostility: { [tribe]: 40 },
-      hostilityAt: 1000,
-    } as Record<string, unknown>;
-    delete legacy.diplomacy;
-
-    const back = parseWorldSave(JSON.stringify(legacy));
-    expect(back, 'старое сохранение обязано открыться').toBeTruthy();
-    expect(back?.v).toBe(WORLD_SAVE_VERSION);
-    expect(back?.legacyHostility).toEqual({ [tribe]: 40 });
-
-    // Разворачивает её мир: только он знает, какие дворы у какого племени.
-    const store = { read: () => JSON.stringify(legacy), write: () => {} };
-    const world = new LocalWorld({ seed: 63, now: () => 2000, storage: store });
-    const angry = gen.settlements.filter((s) => s.tribeId === tribe);
-    const inside = (world as unknown as { save: { diplomacy: Record<string, { attitude: number }>; legacyHostility?: unknown } }).save;
-    expect(inside.legacyHostility, 'поле гасится после разворота').toBeUndefined();
-    for (const s of angry) expect(inside.diplomacy[s.id].attitude).toBe(-40);
+  it('сохранение прежней земли отбрасывается целиком, а не приводится', () => {
+    // Земля под координатами сменилась: замок, стоявший на 541|822, оказался бы
+    // посреди Бискайского залива. Приводить тут нечего, и молчать об этом тоже
+    // нельзя — мир просто собирается заново.
+    for (const v of [3, 4, 5, 6]) {
+      const old = { ...createWorldSave(9, { x: 410, y: 710 }, null, 1000), v };
+      expect(parseWorldSave(JSON.stringify(old)), `версия ${v}`).toBeNull();
+    }
+    // А своё — открывается.
+    const now = createWorldSave(9, generateWorld(9).home, null, 1000);
+    expect(parseWorldSave(JSON.stringify(now))?.v).toBe(WORLD_SAVE_VERSION);
   });
 
-  it('версия 3 по-прежнему отбрасывается: мир там был другой', () => {
-    const old = { ...createWorldSave(9, { x: 410, y: 710 }, null, 1000), v: 3 };
-    expect(parseWorldSave(JSON.stringify(old))).toBeNull();
-  });
 });
 
 describe('лазутчик в мире', () => {
@@ -1952,7 +1957,7 @@ describe('лазутчик в мире', () => {
     return false;
   }
 
-  it('приказ отдаётся только у ворот, и недоступное объяснено словами', async () => {
+  waitsForPlayers('приказ отдаётся только у ворот, и недоступное объяснено словами', async () => {
     const w = makeWorld(61);
     const p = profile();
     await w.world.sync(p);
@@ -1991,7 +1996,7 @@ describe('лазутчик в мире', () => {
     expect(revolt?.reason).toMatch(/бродяг|недовольных/);
   });
 
-  it('провал не губит лазутчика: его задерживают и запоминают', async () => {
+  waitsForPlayers('провал не губит лазутчика: его задерживают и запоминают', async () => {
     const w = makeWorld(71);
     const p = profile();
     await w.world.sync(p);
@@ -2011,7 +2016,7 @@ describe('лазутчик в мире', () => {
     expect(after, 'и запомнили').toBeLessThan(before);
   });
 
-  it('донесение приходит вилкой и с датой, а не точным числом', async () => {
+  waitsForPlayers('донесение приходит вилкой и с датой, а не точным числом', async () => {
     const w = makeWorld(73);
     const p = profile();
     await w.world.sync(p);
@@ -2034,7 +2039,7 @@ describe('лазутчик в мире', () => {
     expect(width(await w.world.intel(target.id)), 'со временем вилка шире').toBeGreaterThan(fresh);
   });
 
-  it('бунт останавливает производство и слабит гарнизон — прогоном, а не на слово', async () => {
+  waitsForPlayers('бунт останавливает производство и слабит гарнизон — прогоном, а не на слово', async () => {
     const SEED = 79;
     const p = profile();
     // Две одинаковые партии: в одной поднимаем бунт, в другой нет.
@@ -2091,7 +2096,7 @@ describe('лазутчик в мире', () => {
     expect((await a.world.settlement(target.id))?.revolt).toBeNull();
   });
 
-  it('бунт не двигает прошлое: разбитый гарнизон под бунтом не отстраивается', async () => {
+  waitsForPlayers('бунт не двигает прошлое: разбитый гарнизон под бунтом не отстраивается', async () => {
     const SEED = 83;
     const p = profile({ warriorPower: 4, army: { clubman: 8 } });
     const w = makeWorld(SEED);
@@ -2148,7 +2153,7 @@ describe('отряд полководца', () => {
     expect(await w.world.setGarrison({ clubman: 8 })).toBeNull();
   });
 
-  it('передача занимает время в обе стороны, и в дороге войско не годится в бой', async () => {
+  waitsForPlayers('передача занимает время в обе стороны, и в дороге войско не годится в бой', async () => {
     const w = makeWorld(11);
     const p = profile({ army: { clubman: 10, archer: 6 } });
     await w.world.sync(p);
@@ -2183,7 +2188,7 @@ describe('отряд полководца', () => {
     expect(troopTotal((await general(w)).troops)).toBe(0);
   });
 
-  it('под пактом нападать нельзя, и причина видна в карточке', async () => {
+  waitsForPlayers('под пактом нападать нельзя, и причина видна в карточке', async () => {
     const w = makeWorld(11);
     const p = profile({ army: { clubman: 10 }, stock: { food: 100_000, wood: 100_000, stone: 100_000 } });
     await w.world.sync(p);

@@ -1,33 +1,40 @@
-// Генерация мира. Полностью детерминирована по сиду: один сид — одна и та же карта,
-// те же соседи, та же деревня игрока. Ничего не хранится, кроме результата генерации,
-// поэтому серверу достаточно будет знать сид, чтобы получить ровно этот же мир.
+// Заселение мира. Земля больше не генерируется — она приходит из атласа
+// (`atlas/`), одна на всех. Здесь остаётся только то, что на этой земле стоит:
+// логова и замок игрока.
+//
+// Поселений ботов больше нет ни одного, и это не «выключено», а следствие
+// поворота: мир становится общим, а замки на нём появляются при регистрации
+// живых игроков. Код племён, дипломатии, писем и осад при этом на месте —
+// разбирать его будем отдельно; здесь просто некому в нём участвовать.
+//
+// Расстановка по-прежнему детерминирована по сиду: один сид — те же логова и тот
+// же замок. **Порядок обращений к `rng` — часть мира.** Мир не хранится, он
+// пересобирается из сида на каждой загрузке: переставь здесь два вызова местами,
+// и у всех, кто уже играет, логова окажутся в других местах.
 import type { ResourceId } from '@/game/types';
 import { seeded } from '@/game/sim/random';
-import { pickName } from '@/game/data/names';
 import type { Coord, SettlementId, TribeId } from './types';
-import { coordKey, distance } from './geo';
-import { buildable, tribeCenters } from './geography';
+import { coordKey, distance, terrainFactor } from './geo';
+import { buildable, reachableLand, terrainAt } from './geography';
 import {
+  AI_RANGE,
   BARBARIAN_BLOCK,
+  HOME_SIGHT,
   BARBARIAN_CHANCE,
-  CASTLE_CHANCE,
-  CASTLE_MIN_DISTANCE,
-  CASTLE_POP,
-  CASTLE_POWER,
-  BOTS_MAX,
-  BOTS_MIN,
-  LAIR_ANCHOR_NEIGHBORS,
-  HOME_NEAR_MAX,
-  HOME_NEAR_MIN,
-  POWER_GROWTH_PER_HOUR,
-  POWER_PER_TILE,
-  SETTLEMENTS_MAX,
-  SETTLEMENTS_MIN,
-  TRIBE_RADIUS,
+  HOME_LAND_RADIUS,
+  HOME_LAND_SHARE,
+  LAIR_ANCHOR_HOME,
+  LAIR_ANCHOR_FAR,
+  LAIR_ANCHOR_RANGE,
+  LAIR_HOME_GAP,
+  LAIR_NEAR_CAP,
+  LAIR_REACH_FACTOR,
+  LAIR_SETTLE_GAP,
+  MAINLAND_MIN,
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from './data/tuning';
-import { BARBARIAN_NAMES, PLACE_FIRST, PLACE_SECOND, TRIBE_COLORS, TRIBE_NAMES } from './data/meta';
+import { BARBARIAN_NAMES } from './data/meta';
 
 export interface GenTribe {
   id: TribeId;
@@ -78,167 +85,126 @@ const clamp = (v: number, min: number, max: number): number => Math.min(max, Mat
 const habitable = (seed: number, x: number, y: number): boolean =>
   x >= lo.x && y >= lo.y && x < hi.x && y < hi.y && buildable(seed, x, y);
 
-/**
- * Ищет свободную сушу рядом с точкой: сама точка, потом кольца вокруг.
- * Возвращает null, если вокруг всё занято или залито водой.
- */
-function freeSpot(
-  seed: number,
-  taken: Map<string, GenSettlement>,
-  x: number,
-  y: number,
-  radius = 3,
-): Coord | null {
-  for (let r = 0; r <= radius; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-        const px = x + dx;
-        const py = y + dy;
-        if (!habitable(seed, px, py)) continue;
-        if (taken.has(coordKey(px, py))) continue;
-        return { x: px, y: py };
-      }
-    }
-  }
-  return null;
-}
-
 export function generateWorld(seed: number): WorldGen {
   const rng = seeded(seed);
   const int = (min: number, max: number): number => min + Math.floor(rng() * (max - min + 1));
 
+  // Племён нет: их станы держали дороги и поселения ботов, а нет ни того, ни
+  // другого. Список остаётся пустым, а не удаляется — на него смотрит половина
+  // мира, и подменять его на `undefined` значило бы править эту половину.
   const tribes: GenTribe[] = [];
   const settlements: GenSettlement[] = [];
   const byKey = new Map<string, GenSettlement>();
   let counter = 1;
 
-  // 1. Центры племён приходят из географии: между ними проложены тракты, и
-  // считать их здесь во второй раз нельзя — дороги пошли бы не к тем станам.
-  for (const [i, center] of tribeCenters(seed).entries()) {
-    tribes.push({
-      id: `t${i}`,
-      name: TRIBE_NAMES[i % TRIBE_NAMES.length],
-      color: TRIBE_COLORS[i % TRIBE_COLORS.length],
-      center,
-    });
-  }
+  const addLair = (x: number, y: number): GenSettlement => {
+    const s = makeLair(`b${counter++}`, x, y, BARBARIAN_NAMES[int(0, BARBARIAN_NAMES.length - 1)]);
+    settlements.push(s);
+    byKey.set(coordKey(s.x, s.y), s);
+    return s;
+  };
 
-  // 2. Боты и их поселения вокруг центра своего племени.
-  for (const tribe of tribes) {
-    const bots = int(BOTS_MIN, BOTS_MAX);
-    for (let b = 0; b < bots; b++) {
-      const owner = pickName(rng() < 0.5 ? 'm' : 'f', rng);
-      const count = int(SETTLEMENTS_MIN, SETTLEMENTS_MAX);
-      for (let k = 0; k < count; k++) {
-        // Ближе к центру плотнее: два случайных числа дают спад к краю.
-        const r = TRIBE_RADIUS * Math.min(rng(), rng());
-        const a = rng() * Math.PI * 2;
-        const spot = freeSpot(
-          seed,
-          byKey,
-          Math.round(tribe.center.x + Math.cos(a) * r),
-          Math.round(tribe.center.y + Math.sin(a) * r),
-        );
-        if (!spot) continue;
-        const capital = k === 0 && b === 0;
-        // Замок или обычное поселение решается здесь, до всякого знания о доме:
-        // мир детерминирован по сиду, а расстояние до дома отсеивается ниже.
-        const castle = rng() < CASTLE_CHANCE;
-        const name = capital
-          ? `${tribe.name.split(' ').pop()}, стан`
-          : `${PLACE_FIRST[int(0, PLACE_FIRST.length - 1)]} ${PLACE_SECOND[int(0, PLACE_SECOND.length - 1)]}`;
-        const s: GenSettlement = {
-          id: `s${counter++}`,
-          x: spot.x,
-          y: spot.y,
-          name,
-          tribeId: tribe.id,
-          owner,
-          basePower: capital ? 48 + rng() * 34 : 22 + rng() * 26,
-          basePop: capital ? 32 + rng() * 30 : 14 + rng() * 18,
-          growth: POWER_GROWTH_PER_HOUR * (0.5 + rng()),
-          lootMix: ['wood', 'stone', 'food'],
-          capital,
-          castle,
-        };
-        settlements.push(s);
-        byKey.set(coordKey(s.x, s.y), s);
-      }
-    }
-  }
-
-  // 3. Варварские лагеря — редкой сыпью по всей карте, подальше от чужих стен.
+  // 1. Логова — редкой сыпью по всей карте. Блок крупный нарочно: мир вырос
+  // вчетверо по стороне, и прежний шаг дал бы полторы тысячи лагерей, то есть
+  // полторы тысячи объектов в каждом переборе мира.
   for (let by = lo.y; by < hi.y; by += BARBARIAN_BLOCK) {
     for (let bx = lo.x; bx < hi.x; bx += BARBARIAN_BLOCK) {
       if (rng() > BARBARIAN_CHANCE) continue;
       const x = bx + int(0, BARBARIAN_BLOCK - 1);
       const y = by + int(0, BARBARIAN_BLOCK - 1);
       if (!habitable(seed, x, y) || byKey.has(coordKey(x, y))) continue;
-      if (settlements.some((s) => s.tribeId && distance(s, { x, y }) < 4)) continue;
-      // Два обращения к генератору впустую — и убирать их нельзя. Здесь стояли
-      // начальные мощь и население лагеря; теперь их считает `world/lairs.ts` от
-      // времени появления, но **порядок случайных чисел — часть сида**: выкинь
-      // эти два вызова, и весь мир переставится под уже сыгранными сохранениями,
-      // молча и у всех сразу.
-      rng();
-      rng();
-      // Логово собирается той же кухней, что и заводящиеся по ходу партии
-      // (`makeLair`): силы и населения у него нет — они выводятся из времени
-      // появления, а оно живёт в сохранении мира, а не в генерации.
-      const s = makeLair(`b${counter++}`, x, y, BARBARIAN_NAMES[int(0, BARBARIAN_NAMES.length - 1)]);
-      settlements.push(s);
-      byKey.set(coordKey(s.x, s.y), s);
+      addLair(x, y);
     }
   }
 
-  // 4. Деревня игрока — не в центре сетки, а рядом со случайным чужим поселением:
-  // партия начинается в обжитой области, соседи видны с первого взгляда на карту.
+  // 2. Замок игрока. Прежде он вставал рядом с чужим двором — обжитая область
+  // была видна с первого взгляда. Дворов не осталось, поэтому правило другое и
+  // выражено через саму землю: место должно быть пригодным и стоять на **суше**,
+  // а не на островке в три клетки. Иначе первая партия начиналась бы на скале
+  // посреди Атлантики, и добраться оттуда было бы некуда.
   let home: Coord | null = null;
-  const anchors = settlements.filter((s) => s.tribeId);
-  for (let attempt = 0; attempt < 60 && !home && anchors.length > 0; attempt++) {
-    const anchor = anchors[Math.floor(rng() * anchors.length)];
-    const a = rng() * Math.PI * 2;
-    const r = HOME_NEAR_MIN + rng() * (HOME_NEAR_MAX - HOME_NEAR_MIN);
-    const spot = freeSpot(seed, byKey, Math.round(anchor.x + Math.cos(a) * r), Math.round(anchor.y + Math.sin(a) * r), 2);
-    // Слишком близко к чужому порогу — нечестно: набег ИИ приходил бы почти мгновенно.
-    if (!spot || settlements.some((s) => distance(s, spot) < 3)) continue;
-    home = spot;
+  for (let attempt = 0; attempt < 400 && !home; attempt++) {
+    const x = Math.round(lo.x + rng() * (WORLD_SIZE - 1));
+    const y = Math.round(lo.y + rng() * (WORLD_SIZE - 1));
+    if (!habitable(seed, x, y)) continue;
+    if (terrainAt(seed, x, y) === 'desert') continue;
+    // Сначала дешёвая мерка по кругу, и только на прошедших — обход суши: он
+    // стоит тысячи клеток, и гонять его на каждую пробу из четырёхсот незачем.
+    if (landShare(seed, x, y) < HOME_LAND_SHARE) continue;
+    if (reachableLand(seed, x, y, MAINLAND_MIN) < MAINLAND_MIN) continue;
+    if (settlements.some((s) => distance(s, { x, y }) < LAIR_HOME_GAP)) continue;
+    home = { x, y };
   }
-  if (!home) home = { x: Math.round(lo.x + WORLD_SIZE / 2), y: Math.round(lo.y + WORLD_SIZE / 2) };
+  // Не нашлось за четыреста попыток — берём первую пригодную клетку материка.
+  // Молча вставать в геометрический центр сетки нельзя: там может быть море.
+  if (!home) home = firstMainland(seed);
 
-  // 5. Ближние цели слабее дальних — так у игрока есть, с чего начать.
-  // Ближние замки при этом разжалуют в обычные поселения: первая цель на карте
-  // не должна оказаться крепостью, в которую отряд уйдёт и не вернётся.
-  for (const s of settlements) {
-    // Логова эта правка обходит стороной: сила у них не хранится вовсе, а
-    // соразмерность миру им даёт опора — мощь дворов вокруг (`lairAnchor`).
-    if (isLair(s)) continue;
-    const d = Math.min(60, distance(s, home));
-    if (s.castle && distance(s, home) < CASTLE_MIN_DISTANCE) s.castle = false;
-    s.basePower = Math.round((s.basePower + d * POWER_PER_TILE) * 10) / 10;
-    s.basePop = Math.round(s.basePop + d * 0.25);
-    if (s.castle) {
-      s.basePower = Math.round(s.basePower * CASTLE_POWER * 10) / 10;
-      s.basePop = Math.round(s.basePop * CASTLE_POP);
+  // 3. Логова у порога. Мир и так заводит их по ходу партии (`spawnLair`), но
+  // ждать за это первые полчаса нечего: без ботов логово — единственная цель на
+  // карте, и её надо видеть с первого взгляда.
+  //
+  // Первое ставится **внутри круга обзора деревни**, а не просто в округе. Иначе
+  // первый день выглядит так: чёрная карта, своё поселение посередине и ничего
+  // больше. Остальные расходятся до `AI_RANGE` — их находит разведчик.
+  for (let n = 0; n < LAIR_NEAR_CAP - 1; n++) {
+    const far = n === 0 ? HOME_SIGHT - 2 : AI_RANGE;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const a = rng() * Math.PI * 2;
+      const r = LAIR_HOME_GAP + rng() * (far - LAIR_HOME_GAP);
+      const x = Math.round(home.x + Math.cos(a) * r);
+      const y = Math.round(home.y + Math.sin(a) * r);
+      if (!habitable(seed, x, y) || byKey.has(coordKey(x, y))) continue;
+      if (distance({ x, y }, home) < LAIR_HOME_GAP) continue;
+      if (settlements.some((o) => distance(o, { x, y }) < LAIR_SETTLE_GAP)) continue;
+      // До первой цели идут посуху. На настоящей карте у замка на берегу
+      // ближайшее место через залив: по прямой десять клеток, по времени полчаса.
+      if (terrainFactor(seed, home, { x, y }) >= LAIR_REACH_FACTOR) continue;
+      addLair(x, y);
+      break;
     }
   }
 
-  // 6. Соседнее племя начинает союзным: поддержку должно быть кому нести с первого дня.
-  let allyTribe = tribes[0]?.id ?? 't0';
-  let best = Infinity;
-  for (const t of tribes) {
-    const d = distance(t.center, home);
-    if (d < best) {
-      best = d;
-      allyTribe = t.id;
-    }
-  }
-
-  return { seed, size: WORLD_SIZE, origin: { ...WORLD_ORIGIN }, tribes, settlements, byKey, home, allyTribe };
+  // Союзного племени нет, потому что нет племён. Поле остаётся ради договора с
+  // остальным миром: он спрашивает его в десятке мест и переживёт пустую строку.
+  return { seed, size: WORLD_SIZE, origin: { ...WORLD_ORIGIN }, tribes, settlements, byKey, home, allyTribe: 't0' };
 }
 
-/** Мощь поселения сейчас: база растёт со временем и упирается в потолок. */
+/**
+ * Доля суши вокруг клетки. Ею и меряется «стоит на материке, а не на скале»:
+ * считать связные куски земли (`landmasses`) ради одной проверки — это полный
+ * обход шестисот сорока тысяч клеток на каждую генерацию мира.
+ */
+function landShare(seed: number, x: number, y: number): number {
+  let land = 0;
+  let all = 0;
+  const r = HOME_LAND_RADIUS;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy > r * r) continue;
+      all++;
+      if (terrainAt(seed, x + dx, y + dy) !== 'water') land++;
+    }
+  }
+  return all > 0 ? land / all : 0;
+}
+
+/** Первая пригодная клетка материка. Запасной путь, и он обязан быть на земле. */
+function firstMainland(seed: number): Coord {
+  for (let y = lo.y; y < hi.y; y++) {
+    for (let x = lo.x; x < hi.x; x++) {
+      if (!habitable(seed, x, y)) continue;
+      if (reachableLand(seed, x, y, MAINLAND_MIN) < MAINLAND_MIN) continue;
+      return { x, y };
+    }
+  }
+  throw new Error('Атлас мира: материка не нашлось ни в одной клетке.');
+}
+
+/**
+ * Мощь поселения сейчас. Чужих дворов на карте не осталось, и звать её пока
+ * некому, кроме логова через `lairPower`; удалять не надо — она вернётся вместе
+ * с замками живых игроков.
+ */
 export function powerOf(s: GenSettlement, elapsedMs: number, cap: number): number {
   const hours = Math.max(0, elapsedMs) / 3_600_000;
   return s.basePower * Math.min(cap, 1 + s.growth * hours);
@@ -263,23 +229,22 @@ export const clampCoord = (c: Coord): Coord => ({
 export const isLair = (s: GenSettlement): boolean => s.tribeId === null;
 
 /**
- * Опора логова: средняя базовая мощь ближайших чужих дворов. Из неё выводятся и
- * начальная сила, и потолок роста (`world/lairs.ts`), поэтому логово в глухом
- * углу и логово среди станов растут по-разному — и оба остаются соразмерны
- * тому, что вокруг них.
+ * Опора логова: от неё выводятся и начальная сила, и потолок роста
+ * (`world/lairs.ts`). Раньше её давала мощь чужих дворов вокруг — логово среди
+ * станов росло крепче, чем в глухом углу. Дворов не осталось, и опору теперь
+ * задаёт единственное, что на этой карте ещё есть: расстояние до замка игрока.
  *
- * Берётся именно **базовая** мощь, а не нынешняя: опора обязана быть постоянной.
- * Считай её от растущих соседей — и потолок логова полз бы вместе с ними, то
- * есть потолка не было бы вовсе.
+ * Правило то же, каким мир испокон веку делал ближние цели слабее дальних, и
+ * числа те же по порядку. Дальше `LAIR_ANCHOR_RANGE` опора не растёт: у логова
+ * обязан быть потолок, иначе вернувшийся через три дня игрок застанет стену.
+ *
+ * Тихого запасного значения здесь нет и быть не должно. Прежняя единица при
+ * пустом списке соседей превращала логово в бутафорию — один боец, две души,
+ * четыре добра, — и не писала об этом никуда.
  */
-export function lairAnchor(settlements: GenSettlement[], at: Coord): number {
-  const near = settlements
-    .filter((s) => s.tribeId)
-    .map((s) => ({ p: s.basePower, d: distance(s, at) }))
-    .sort((a, b) => a.d - b.d)
-    .slice(0, LAIR_ANCHOR_NEIGHBORS);
-  if (near.length === 0) return 1;
-  return near.reduce((n, s) => n + s.p, 0) / near.length;
+export function lairAnchor(home: Coord, at: Coord): number {
+  const t = Math.min(1, distance(home, at) / LAIR_ANCHOR_RANGE);
+  return LAIR_ANCHOR_HOME + (LAIR_ANCHOR_FAR - LAIR_ANCHOR_HOME) * t;
 }
 
 /**

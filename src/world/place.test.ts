@@ -41,15 +41,17 @@ describe('место боя выводится из клетки', () => {
     }
   });
 
-  it('в мире находятся все четыре зрелища: брод, гребень, опушка, тракт', () => {
+  it('в мире находятся все зрелища, какие на этой карте есть', () => {
     const cells = scan(2);
     const has = (pick: (p: ReturnType<typeof placeAt>) => boolean): boolean =>
       cells.some((c) => pick(placeAt(SEED, c.x, c.y)));
     expect(has((p) => p.ford === true)).toBe(true);
     expect(has((p) => p.ridge === true)).toBe(true);
     expect(has((p) => p.woods === true)).toBe(true);
-    expect(has((p) => p.road === true)).toBe(true);
     expect(has((p) => p.land === 'shore')).toBe(true);
+    // Тракта среди них больше нет: дороги соединяли станы племён, а станов на
+    // общей карте не осталось. Поле `road` цело и ждёт настоящих дорог.
+    expect(has((p) => p.road === true)).toBe(false);
   });
 
   it('берег — там, где рядом вода, а лес — там, где лес', () => {

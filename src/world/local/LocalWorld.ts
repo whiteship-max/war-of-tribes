@@ -387,11 +387,11 @@ export class LocalWorld implements WorldApi {
     return this.save.lairs[id] ?? { bornAt: this.save.createdAt, burnedAt: 0 };
   }
 
-  /** Опора: мощь дворов вокруг. Считается один раз на логово. */
+  /** Опора логова: расстояние до замка игрока. Считается один раз на логово. */
   private anchorOf(s: GenSettlement): number {
     const have = this.anchors.get(s.id);
     if (have !== undefined) return have;
-    const value = lairAnchor(this.gen.settlements, s);
+    const value = lairAnchor(this.save.home, s);
     this.anchors.set(s.id, value);
     return value;
   }

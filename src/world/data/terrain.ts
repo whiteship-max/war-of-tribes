@@ -2,7 +2,7 @@
 import type { Terrain } from '../types';
 
 /** Порядок важен: по нему ландшафт едет в RegionChunk.terrain числом. */
-export const TERRAIN_ORDER: Terrain[] = ['plain', 'forest', 'hills', 'water'];
+export const TERRAIN_ORDER: Terrain[] = ['plain', 'forest', 'hills', 'water', 'steppe', 'desert'];
 
 export interface TerrainDef {
   id: Terrain;
@@ -31,6 +31,11 @@ export const TERRAIN_META: Record<Terrain, TerrainDef> = {
   forest: { id: 'forest', name: 'Лес', cost: 1.3, color: '#3c5330', detail: '#4a6339' },
   hills: { id: 'hills', name: 'Холмы', cost: 1.5, color: '#6b5a41', detail: '#7d6a4d' },
   water: { id: 'water', name: 'Вода', cost: 7.6, color: '#2b4761', detail: '#33536f' },
+  // Степь открыта и суха: идти по ней быстрее, чем по лесу, но воды и дров нет.
+  steppe: { id: 'steppe', name: 'Степь', cost: 1.05, color: '#7a7442', detail: '#8a8450' },
+  // Пустыня — не «дорогая равнина», а преграда помягче воды: Сахара отделяет
+  // берег Магриба от всего, что южнее, и это правило карты, а не украшение.
+  desert: { id: 'desert', name: 'Пустыня', cost: 2.4, color: '#9b8656', detail: '#ab9666' },
 };
 
 export const terrainCost = (t: Terrain): number => TERRAIN_META[t].cost;

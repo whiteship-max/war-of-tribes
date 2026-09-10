@@ -25,7 +25,8 @@
     "scene:report": "vite-node scripts/scene-report.ts",
     "revive:report": "vite-node scripts/revive-report.ts",
     "splash:build": "node scripts/build-splash.mjs",
-    "icons:build": "vite-node scripts/build-icons.ts"
+    "icons:build": "vite-node scripts/build-icons.ts",
+    "world:build": "node scripts/build-world.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.3",

@@ -1,38 +1,32 @@
 // География мира: из чего складывается местность и во что она обходится отряду.
 //
-// Раньше карта была равномерной россыпью клеток с множителями: равнина дешевле,
-// холмы дороже, и всё. Такая местность не рождает решений — куда ни иди, разница
-// в проценты. Здесь она рождает: река — преграда, а не дорогая клетка; перейти
-// её можно у моста или брода, и эти места редки; в холмах есть хребты, и через
-// них ведут перевалы; между племенными станами проложены дороги, по которым идут
-// вдвое быстрее целины.
+// Земля здесь больше не шум. Мир один на всех — Европа, Магриб, Анатолия, — и
+// ландшафт, русла и хребты приходят из атласа (`atlas/`), запечённого из данных
+// Natural Earth. Всё остальное осталось как было: река — преграда, а не дорогая
+// клетка; перейти её можно у моста или брода, и эти места редки; в горах есть
+// хребет, и через него ведут перевалы.
 //
-// Всё выводится из сида чистыми функциями — ни одного `Math.random()`, ни одного
-// хранимого байта. Сервер, получив тот же сид, получит те же реки, те же мосты и
-// те же дороги; клиент считает их у себя только потому, что сервера пока нет.
+// Сид в подписях остался, но **не значит здесь ничего**, и это не небрежность,
+// а требование. Мир один на всех: если бы сид игрока решал, какая клетка русла
+// станет мостом, у двоих на одной реке мосты стояли бы в разных местах — то есть
+// карта была бы общей только на картинке. Поэтому выбор перехода солится своим
+// постоянным числом (`GEO_SALT`), а сид остаётся в подписях, чтобы не переписывать
+// полтора десятка мест вызова ради аргумента, который вернётся вместе с сервером.
+// Держит это тест «земля одна на все сиды».
 //
 // Зависимость здесь односторонняя: `geo.ts` (расстояния и время пути) и `gen.ts`
-// (поселения) читают этот модуль, а он не знает про них ничего. Иначе дороги,
-// которым нужны станы, и станы, которым нужна проходимость, замкнулись бы в круг.
-import { seeded } from '@/game/sim/random';
+// (поселения) читают этот модуль, а он не знает про них ничего.
 import type { Coord, Terrain } from './types';
-import { terrainCost } from './data/terrain';
+import { TERRAIN_ORDER, terrainCost } from './data/terrain';
+import { ATLAS_RIDGE, ATLAS_RIVER, atlasCell, atlasTerrain } from './atlas/atlas';
 import {
   CROSSING_BLOCK,
   CROSSING_RADIUS,
   PASS_BLOCK,
   PASS_RADIUS,
-  RIDGE_SCALE,
-  RIDGE_WIDTH,
-  RIVER_SCALE,
-  RIVER_WIDTH,
-  RIVER_WIGGLE,
-  RIVER_WIGGLE_SCALE,
   ROAD_CORRIDOR,
   ROAD_MAX_LENGTH,
   ROAD_WOBBLE,
-  TRIBE_COUNT,
-  TRIBE_GAP,
   WORLD_ORIGIN,
   WORLD_SIZE,
   COST_BRIDGE,
@@ -58,73 +52,37 @@ export function hash2(seed: number, x: number, y: number): number {
   return (h >>> 0) / 4294967296;
 }
 
-const smooth = (t: number): number => t * t * (3 - 2 * t);
-
-/** Гладкий шум: решётка хешей, между узлами — сглаженная интерполяция. */
-export function noise(seed: number, x: number, y: number, scale: number): number {
-  const fx = x / scale;
-  const fy = y / scale;
-  const x0 = Math.floor(fx);
-  const y0 = Math.floor(fy);
-  const tx = smooth(fx - x0);
-  const ty = smooth(fy - y0);
-  const a = hash2(seed, x0, y0);
-  const b = hash2(seed, x0 + 1, y0);
-  const c = hash2(seed, x0, y0 + 1);
-  const d = hash2(seed, x0 + 1, y0 + 1);
-  return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
-}
-
 /**
- * Ландшафт клетки. Крупная волна задаёт материк и озёра, мелкая рвёт границы,
- * чтобы лес не лежал ровными пятнами.
+ * Ландшафт клетки — чтение атласа, а не расчёт. Сид в подписи остался нарочно:
+ * его передают из полутора десятков мест, и вычеркнуть его отсюда значило бы
+ * переписать половину мира ради одного аргумента, который однажды снова
+ * понадобится.
  */
-export function terrainAt(seed: number, x: number, y: number): Terrain {
-  const n = noise(seed, x, y, 17) * 0.62 + noise(seed + 8191, x, y, 5.5) * 0.38;
-  if (n < 0.34) return 'water';
-  if (n < 0.54) return 'plain';
-  if (n < 0.68) return 'forest';
-  return 'hills';
+export function terrainAt(_seed: number, x: number, y: number): Terrain {
+  return TERRAIN_ORDER[atlasTerrain(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y)] ?? 'water';
 }
 
 // ---------- Линии: реки и хребты ----------
 
 /**
- * Река и хребет — это линия уровня гладкого поля, а не россыпь «речных» клеток.
- * Линия уровня непрерывна по построению: она не рвётся, не ветвится в кашу и
- * тянется через полкарты — ровно то, что и нужно от реки.
- *
- * Ширина держится постоянной делением на длину градиента: без него линия
- * расплывалась бы в озеро там, где поле пологое, и исчезала бы там, где круто.
+ * Русло. Настоящее: Дунай, Рейн, Рона, Луара, Висла, Днепр, Дон, По, Эбро, Тахо,
+ * Темза, Евфрат — шесть с половиной сотен отрезков из Natural Earth. Мелкие
+ * притоки в преграды не идут (`scalerank` в скрипте запекания): река, которую
+ * переходят где угодно, картой не делит ничего, а прямая, случайно легшая вдоль
+ * ручья, стоила бы как поход через горы.
  */
-function lineAt(seed: number, x: number, y: number, field: (x: number, y: number) => number, width: number): boolean {
-  const v = field(x, y) - 0.5;
-  const gx = (field(x + 1, y) - field(x - 1, y)) / 2;
-  const gy = (field(x, y + 1) - field(x, y - 1)) / 2;
-  const g = Math.hypot(gx, gy);
-  if (g < 1e-7) return false;
-  return Math.abs(v) / g <= width;
+function isRiver(_seed: number, x: number, y: number): boolean {
+  return (atlasCell(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y) & ATLAS_RIVER) !== 0;
 }
 
-const RIVER_SALT = 0x51ed;
-const RIDGE_SALT = 0x2f0b;
-
-const riverField = (seed: number) => (x: number, y: number): number =>
-  noise(seed + RIVER_SALT, x, y, RIVER_SCALE) * (1 - RIVER_WIGGLE) +
-  noise(seed + RIVER_SALT + 977, x, y, RIVER_WIGGLE_SCALE) * RIVER_WIGGLE;
-
-const ridgeField = (seed: number) => (x: number, y: number): number => noise(seed + RIDGE_SALT, x, y, RIDGE_SCALE);
-
-/** Река течёт по суше: в озере её не видно, там и так вода. */
-function isRiver(seed: number, x: number, y: number): boolean {
-  if (terrainAt(seed, x, y) === 'water') return false;
-  return lineAt(seed, x, y, riverField(seed), RIVER_WIDTH);
-}
-
-/** Хребет бывает только в холмах: на равнине горам взяться неоткуда. */
-function isRidge(seed: number, x: number, y: number): boolean {
-  if (terrainAt(seed, x, y) !== 'hills') return false;
-  return lineAt(seed, x, y, ridgeField(seed), RIDGE_WIDTH);
+/**
+ * Хребет — сердцевина горного пятна, линия в одну клетку. Полигон Альп в атласе
+ * шириной в сорок клеток; будь хребтом весь он, перевал «один на блок» не открыл
+ * бы прохода, и через горы не было бы дороги вовсе. Утоньшение делает скрипт
+ * запекания, здесь — только чтение.
+ */
+function isRidge(_seed: number, x: number, y: number): boolean {
+  return (atlasCell(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y) & ATLAS_RIDGE) !== 0;
 }
 
 // ---------- Переходы: мосты, броды, перевалы ----------
@@ -141,6 +99,13 @@ interface Node {
   bridge: boolean;
 }
 
+/**
+ * Постоянная соль мира. Ею солится всё, что выбирает одно из многого на общей
+ * карте: какая клетка русла станет переправой и мостом это будет или бродом.
+ * Сид игрока сюда попасть не может — у двоих переправы разъехались бы.
+ */
+const GEO_SALT = 0x7e0d;
+
 function pickNode(
   seed: number,
   bx: number,
@@ -154,7 +119,7 @@ function pickNode(
   for (let y = by; y < by + block; y++) {
     for (let x = bx; x < bx + block; x++) {
       if (!on(seed, x, y)) continue;
-      const h = hash2(seed + salt, x, y);
+      const h = hash2(GEO_SALT + salt, x, y);
       if (h < bestH) {
         bestH = h;
         best = { x, y };
@@ -163,13 +128,12 @@ function pickNode(
   }
   if (!best) return null;
   // Мост или брод решает тот же хеш: у брода ноги мокрые, у моста нет.
-  return { at: best, bridge: hash2(seed + salt + 31, best.x, best.y) < 0.5 };
+  return { at: best, bridge: hash2(GEO_SALT + salt + 31, best.x, best.y) < 0.5 };
 }
 
 const floorTo = (v: number, block: number): number => Math.floor(v / block) * block;
 
 interface Caches {
-  seed: number;
   crossings: Map<string, Node | null>;
   passes: Map<string, Node | null>;
   natural: Map<number, number>;
@@ -179,7 +143,6 @@ interface Caches {
 }
 
 const emptyCaches = (): Caches => ({
-  seed: NaN,
   crossings: new Map(),
   passes: new Map(),
   natural: new Map(),
@@ -190,16 +153,17 @@ const emptyCaches = (): Caches => ({
 
 let caches: Caches = emptyCaches();
 
-/** Новый сид — новая география. Кэш чужого мира держать нельзя. */
+/** Считать заново. Нужен тестам и пересозданию мира; в игре зовётся однажды. */
 export function dropGeography(): void {
   caches = emptyCaches();
 }
 
-function cachesFor(seed: number): Caches {
-  if (caches.seed !== seed) {
-    dropGeography();
-    caches.seed = seed;
-  }
+/**
+ * Кэш один на всю игру и по сиду больше не разводится: география у всех одна.
+ * Прежде смена сида выбрасывала его целиком — теперь выбрасывать нечего, и
+ * ключ остаётся в подписи только ради вызывающих.
+ */
+function cachesFor(_seed: number): Caches {
   return caches;
 }
 
@@ -338,31 +302,18 @@ export function buildable(seed: number, x: number, y: number): boolean {
   return (naturalAt(seed, x, y) & (FEATURE.river | FEATURE.ridge)) === 0;
 }
 
-let centersSeed = NaN;
-let centersCache: Coord[] = [];
-
 /**
- * Центры племён. Живут здесь, а не в генерации поселений, потому что нужны двоим:
- * генерация ставит вокруг них ботов, а география тянет между ними дороги. Считать
- * их дважды нельзя — тракты пошли бы не туда, где стоят станы.
+ * Станы племён. Их больше нет — и это не упущение, а следствие: мир стал общим,
+ * поселений ботов на нём не будет, а тракты соединяли именно станы. Шесть
+ * случайных точек на настоящей карте Европы соединять нечем и незачем: дорога
+ * из ниоткуда в никуда — ложь, которую видно с первого взгляда.
+ *
+ * Дороги вернутся вместе с настоящими городами — и тогда это будут настоящие
+ * дороги. Прокладка (`road`, `roadNet`) оставлена на месте целиком: работать ей
+ * есть по чему, не хватает только концов.
  */
-export function tribeCenters(seed: number): Coord[] {
-  if (centersSeed === seed) return centersCache;
-  const rng = seeded(seed ^ 0x5bf03635);
-  const out: Coord[] = [];
-  for (let i = 0; i < TRIBE_COUNT; i++) {
-    for (let attempt = 0; attempt < 80; attempt++) {
-      const x = Math.round(WORLD_ORIGIN.x + WORLD_SIZE * (0.1 + rng() * 0.8));
-      const y = Math.round(WORLD_ORIGIN.y + WORLD_SIZE * (0.1 + rng() * 0.8));
-      if (!inWorld(x, y) || !buildable(seed, x, y)) continue;
-      if (out.some((c) => Math.hypot(c.x - x, c.y - y) < TRIBE_GAP)) continue;
-      out.push({ x, y });
-      break;
-    }
-  }
-  centersSeed = seed;
-  centersCache = out;
-  return out;
+export function tribeCenters(_seed: number): Coord[] {
+  return [];
 }
 
 // ---------- Дороги ----------
@@ -594,4 +545,53 @@ export function landmasses(seed: number): Landmasses {
   const c = cachesFor(seed);
   if (!c.masses) c.masses = buildLandmasses(seed);
   return c.masses;
+}
+
+/**
+ * Сколько суши связано с этой клеткой, но не больше потолка. Дешёвый ответ на
+ * единственный вопрос, который задают при расстановке: материк это или остров.
+ *
+ * Полная разметка (`landmasses`) стоит около ста шестидесяти миллисекунд —
+ * шестьсот сорок тысяч клеток, — и платить их на каждой генерации мира не за
+ * что. Здесь обход останавливается, как только набралось достаточно: на
+ * материке это происходит сразу, на острове обход кончается сам.
+ *
+ * Числа для мерки: материк 365 926 клеток, следующая по величине земля —
+ * Британия, 5 695. Потолок между ними и стоит.
+ */
+export function reachableLand(seed: number, x: number, y: number, cap: number): number {
+  if (!inWorld(x, y) || terrainAt(seed, x, y) === 'water') return 0;
+  const n = WORLD_SIZE;
+  // Отметки — байтовым полем, а не множеством: на двадцати тысячах клеток
+  // `Set<number>` стоит вдесятеро дороже самого обхода. Поле выделяется на
+  // вызов и обнуляется системой — держать его между вызовами не за чем.
+  const seen = new Uint8Array(n * n);
+  const stack = new Int32Array(cap * 2 + 16);
+  let top = 0;
+  const push = (px: number, py: number): void => {
+    if (top + 2 > stack.length) return;
+    stack[top++] = px;
+    stack[top++] = py;
+  };
+  seen[(y - WORLD_ORIGIN.y) * n + (x - WORLD_ORIGIN.x)] = 1;
+  push(x, y);
+  let count = 0;
+  while (top > 0 && count < cap) {
+    const cy = stack[--top];
+    const cx = stack[--top];
+    count++;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (!inWorld(nx, ny)) continue;
+        const i = (ny - WORLD_ORIGIN.y) * n + (nx - WORLD_ORIGIN.x);
+        if (seen[i]) continue;
+        if (terrainAt(seed, nx, ny) === 'water') continue;
+        seen[i] = 1;
+        push(nx, ny);
+      }
+    }
+  }
+  return count;
 }

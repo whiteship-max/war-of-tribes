@@ -67,7 +67,12 @@ const SEED = 4242;
 const sampleFor = (seed: number): Sample => (x, y) => terrainAt(seed, x, y);
 
 const VP: Viewport = { w: 390, h: 844 };
-const HOME = { x: WORLD_ORIGIN.x + 60, y: WORLD_ORIGIN.y + 80 };
+/**
+ * Точка на настоящей карте, где в одном тайле сходятся лес, холмы и вода —
+ * западный берег Норвегии. Прежние «шестьдесят клеток от начала» на общей карте
+ * попадают в открытый океан: проверять там ёлки и кляксы холмов было бы нечего.
+ */
+const HOME = { x: WORLD_ORIGIN.x + 129, y: WORLD_ORIGIN.y + 111 };
 
 describe('декор земли детерминирован по сиду', () => {
   const rect: Rect = { x: HOME.x, y: HOME.y, w: TILE_CELLS, h: TILE_CELLS };

@@ -20,6 +20,14 @@ import type { GenSettlement } from './gen';
 import type { Loot, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
 
+/**
+ * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
+ * замки на нём появятся при регистрации живых игроков. Механика цела — участников
+ * у неё пока нет, и притворяться, что случай проверен, нельзя. Полный список:
+ * `grep -rn waitsForPlayers src`.
+ */
+const waitsForPlayers = it.skip;
+
 const MIN = 60_000;
 const START = 1_700_000_000_000;
 
@@ -218,7 +226,7 @@ async function bringGeneral(w: ReturnType<typeof makeWorld>, p: PlayerProfile) {
 }
 
 describe('склад чужого двора', () => {
-  it('у двора есть склад и тайник, и тайник — объявленная доля склада', async () => {
+  waitsForPlayers('у двора есть склад и тайник, и тайник — объявленная доля склада', async () => {
     const w = makeWorld(11);
     await w.world.sync(profile());
     const s = listOf(w.world).find((x) => x.tribeId)!;
@@ -234,7 +242,7 @@ describe('склад чужого двора', () => {
     expect(LOOT_PER_POP).toBeGreaterThan(0);
   });
 
-  it('после набега склад пуст по факту: на виду не остаётся ничего', async () => {
+  waitsForPlayers('после набега склад пуст по факту: на виду не остаётся ничего', async () => {
     const w = makeWorld(11);
     const p = profile();
     const target = await bringGeneral(w, p);
@@ -317,7 +325,7 @@ describe('одно правило на обе стороны', () => {
 });
 
 describe('разведка не выдаёт больше, чем положено', () => {
-  it('без разведки про склад не известно ничего', async () => {
+  waitsForPlayers('без разведки про склад не известно ничего', async () => {
     const w = makeWorld(11);
     const p = profile();
     await w.world.sync(p);
@@ -328,7 +336,7 @@ describe('разведка не выдаёт больше, чем положен
     expect(card?.loot.precision, 'чужие амбары считает разведчик, а не карта').toBe('unknown');
   });
 
-  it('разведка показывает только то, что лежит на виду, — тайника в снимке нет', async () => {
+  waitsForPlayers('разведка показывает только то, что лежит на виду, — тайника в снимке нет', async () => {
     const w = makeWorld(11);
     const p = profile();
     const target = await bringGeneral(w, p);
