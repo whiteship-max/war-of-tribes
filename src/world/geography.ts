@@ -15,10 +15,23 @@
 // Держит это тест «земля одна на все сиды».
 //
 // Зависимость здесь односторонняя: `geo.ts` (расстояния и время пути) и `gen.ts`
-// (поселения) читают этот модуль, а он не знает про них ничего.
+// (поселения) читают этот модуль, а он не знает про них ничего. Сам он читает
+// `land.ts` — там лежит всё, что выводится прямо из атласа (вода, русло, хребет,
+// пригодность под двор, куски суши). Разведён этот слой не для красоты: землю
+// спрашивает и серверная функция расселения, а сюда ей не дотянуться (см.
+// заголовок `land.ts`).
 import type { Coord, Terrain } from './types';
 import { TERRAIN_ORDER, terrainCost } from './data/terrain';
-import { ATLAS_RIDGE, ATLAS_RIVER, atlasCell, atlasTerrain } from './atlas/atlas';
+import {
+  dropLand,
+  hasRidge,
+  hasRiver,
+  landmasses as landOf,
+  reachableLand as reachOf,
+  settleable,
+  terrainCodeAt,
+  type Landmasses,
+} from './land';
 import {
   CROSSING_BLOCK,
   CROSSING_RADIUS,
@@ -59,7 +72,7 @@ export function hash2(seed: number, x: number, y: number): number {
  * понадобится.
  */
 export function terrainAt(_seed: number, x: number, y: number): Terrain {
-  return TERRAIN_ORDER[atlasTerrain(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y)] ?? 'water';
+  return TERRAIN_ORDER[terrainCodeAt(x, y)] ?? 'water';
 }
 
 // ---------- Линии: реки и хребты ----------
@@ -72,7 +85,7 @@ export function terrainAt(_seed: number, x: number, y: number): Terrain {
  * ручья, стоила бы как поход через горы.
  */
 function isRiver(_seed: number, x: number, y: number): boolean {
-  return (atlasCell(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y) & ATLAS_RIVER) !== 0;
+  return hasRiver(x, y);
 }
 
 /**
@@ -82,7 +95,7 @@ function isRiver(_seed: number, x: number, y: number): boolean {
  * запекания, здесь — только чтение.
  */
 function isRidge(_seed: number, x: number, y: number): boolean {
-  return (atlasCell(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y) & ATLAS_RIDGE) !== 0;
+  return hasRidge(x, y);
 }
 
 // ---------- Переходы: мосты, броды, перевалы ----------
@@ -139,7 +152,6 @@ interface Caches {
   natural: Map<number, number>;
   cost: Map<number, number>;
   roads: RoadNet | null;
-  masses: Landmasses | null;
 }
 
 const emptyCaches = (): Caches => ({
@@ -148,7 +160,6 @@ const emptyCaches = (): Caches => ({
   natural: new Map(),
   cost: new Map(),
   roads: null,
-  masses: null,
 });
 
 let caches: Caches = emptyCaches();
@@ -156,6 +167,7 @@ let caches: Caches = emptyCaches();
 /** Считать заново. Нужен тестам и пересозданию мира; в игре зовётся однажды. */
 export function dropGeography(): void {
   caches = emptyCaches();
+  dropLand();
 }
 
 /**
@@ -297,9 +309,8 @@ const rawCost = (seed: number, x: number, y: number): number => costFrom(natural
  * Где вообще можно поставить двор: не в воде, не в русле и не на хребте. Правило
  * одно на станы и на поселения — иначе тракт упирался бы в город, стоящий в реке.
  */
-export function buildable(seed: number, x: number, y: number): boolean {
-  if (terrainAt(seed, x, y) === 'water') return false;
-  return (naturalAt(seed, x, y) & (FEATURE.river | FEATURE.ridge)) === 0;
+export function buildable(_seed: number, x: number, y: number): boolean {
+  return settleable(x, y);
 }
 
 /**
@@ -477,6 +488,17 @@ export function roadNet(seed: number): RoadNet {
 
 // ---------- Материки ----------
 
+/*
+ * Связные куски суши, проходимость по клетке и сама пригодность земли под двор
+ * переехали в `world/land.ts` и зовутся оттуда. Причина не в порядке: расселение
+ * живых игроков делает сервер, а серверный проект типов не знает ни `@/`, ни
+ * `world/types`. Копия правила на второй стороне означала бы вторую правду о
+ * том, где кончается суша, — поэтому реализация одна, а здесь остались только
+ * двери, через которые её зовёт мир.
+ */
+
+export type { Landmasses };
+
 /**
  * Связные куски суши. В игре по ним никто не ходит — отряд идёт по прямой и
  * при нужде плывёт, — но именно они отвечают на вопрос «а не отрезано ли это
@@ -487,111 +509,14 @@ export function roadNet(seed: number): RoadNet {
  * на островах допустимы — до них добираются вплавь, и это интересная цель, а не
  * сломанная генерация. Отсюда же берётся раздел «вода» в `npm run world:report`.
  */
-export interface Landmasses {
-  /** Номер куска суши в клетке. -1 — вода или за краем мира. */
-  at(x: number, y: number): number;
-  /** Сколько клеток в куске. */
-  sizeOf(id: number): number;
-  /** Размеры всех кусков по их номерам. */
-  sizes: number[];
-}
-
-function buildLandmasses(seed: number): Landmasses {
-  const n = WORLD_SIZE;
-  const id = new Int32Array(n * n).fill(-1);
-  const water = new Uint8Array(n * n);
-  for (let y = 0; y < n; y++) {
-    for (let x = 0; x < n; x++) {
-      water[y * n + x] = terrainAt(seed, WORLD_ORIGIN.x + x, WORLD_ORIGIN.y + y) === 'water' ? 1 : 0;
-    }
-  }
-  const sizes: number[] = [];
-  const stack: number[] = [];
-  for (let start = 0; start < n * n; start++) {
-    if (water[start] || id[start] >= 0) continue;
-    const mass = sizes.length;
-    let size = 0;
-    id[start] = mass;
-    stack.push(start);
-    while (stack.length > 0) {
-      const i = stack.pop() as number;
-      size++;
-      const ix = i % n;
-      const iy = (i - ix) / n;
-      // Связность по восьми соседям: по диагонали между двумя озёрами суша
-      // всё-таки проходима, и разрывать её там было бы неправдой.
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = ix + dx;
-          const ny = iy + dy;
-          if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
-          const j = ny * n + nx;
-          if (water[j] || id[j] >= 0) continue;
-          id[j] = mass;
-          stack.push(j);
-        }
-      }
-    }
-    sizes.push(size);
-  }
-  return {
-    sizes,
-    at: (x, y) => (inWorld(x, y) ? id[(y - WORLD_ORIGIN.y) * n + (x - WORLD_ORIGIN.x)] : -1),
-    sizeOf: (mass) => sizes[mass] ?? 0,
-  };
-}
-
-export function landmasses(seed: number): Landmasses {
-  const c = cachesFor(seed);
-  if (!c.masses) c.masses = buildLandmasses(seed);
-  return c.masses;
+export function landmasses(_seed: number): Landmasses {
+  return landOf();
 }
 
 /**
  * Сколько суши связано с этой клеткой, но не больше потолка. Дешёвый ответ на
  * единственный вопрос, который задают при расстановке: материк это или остров.
- *
- * Полная разметка (`landmasses`) стоит около ста шестидесяти миллисекунд —
- * шестьсот сорок тысяч клеток, — и платить их на каждой генерации мира не за
- * что. Здесь обход останавливается, как только набралось достаточно: на
- * материке это происходит сразу, на острове обход кончается сам.
- *
- * Числа для мерки: материк 365 926 клеток, следующая по величине земля —
- * Британия, 5 695. Потолок между ними и стоит.
  */
-export function reachableLand(seed: number, x: number, y: number, cap: number): number {
-  if (!inWorld(x, y) || terrainAt(seed, x, y) === 'water') return 0;
-  const n = WORLD_SIZE;
-  // Отметки — байтовым полем, а не множеством: на двадцати тысячах клеток
-  // `Set<number>` стоит вдесятеро дороже самого обхода. Поле выделяется на
-  // вызов и обнуляется системой — держать его между вызовами не за чем.
-  const seen = new Uint8Array(n * n);
-  const stack = new Int32Array(cap * 2 + 16);
-  let top = 0;
-  const push = (px: number, py: number): void => {
-    if (top + 2 > stack.length) return;
-    stack[top++] = px;
-    stack[top++] = py;
-  };
-  seen[(y - WORLD_ORIGIN.y) * n + (x - WORLD_ORIGIN.x)] = 1;
-  push(x, y);
-  let count = 0;
-  while (top > 0 && count < cap) {
-    const cy = stack[--top];
-    const cx = stack[--top];
-    count++;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const nx = cx + dx;
-        const ny = cy + dy;
-        if (!inWorld(nx, ny)) continue;
-        const i = (ny - WORLD_ORIGIN.y) * n + (nx - WORLD_ORIGIN.x);
-        if (seen[i]) continue;
-        if (terrainAt(seed, nx, ny) === 'water') continue;
-        seen[i] = 1;
-        push(nx, ny);
-      }
-    }
-  }
-  return count;
+export function reachableLand(_seed: number, x: number, y: number, cap: number): number {
+  return reachOf(x, y, cap);
 }
