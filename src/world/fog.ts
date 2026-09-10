@@ -87,6 +87,11 @@ export const inWorldCell = (x: number, y: number): boolean =>
  */
 export class FogMap {
   private chunks = new Map<string, Uint8Array>();
+  /**
+   * Готовая строка куска. null — кусок пуст и в сохранение не идёт; нет записи
+   * вовсе — строку ещё не считали или в куске что-то открылось.
+   */
+  private text = new Map<string, string | null>();
 
   constructor(data?: FogData | null) {
     if (!data) return;
@@ -121,11 +126,14 @@ export class FogMap {
     if (!inWorldCell(x, y)) return false;
     const lx = x - WORLD_ORIGIN.x;
     const ly = y - WORLD_ORIGIN.y;
-    const bits = this.bits(Math.floor(lx / CHUNK), Math.floor(ly / CHUNK), true) as Uint8Array;
+    const cx = Math.floor(lx / CHUNK);
+    const cy = Math.floor(ly / CHUNK);
+    const bits = this.bits(cx, cy, true) as Uint8Array;
     const i = (ly % CHUNK) * CHUNK + (lx % CHUNK);
     const mask = 1 << (i & 7);
     if ((bits[i >> 3] & mask) !== 0) return false;
     bits[i >> 3] |= mask;
+    this.text.delete(chunkKey(cx, cy));
     return true;
   }
 
@@ -191,11 +199,28 @@ export class FogMap {
     return out;
   }
 
-  /** Только непустые куски: на старте это один-два куска, а не вся сетка. */
+  /**
+   * Только непустые куски: на старте это один-два куска, а не вся сетка.
+   *
+   * Строка каждого куска считается один раз и живёт до тех пор, пока в этом
+   * куске что-нибудь не откроется. Причина не в красоте: сохранение мира
+   * пишется по каждому событию, вплоть до нескольких раз в минуту, а разведанная
+   * карта целиком — это шестьсот двадцать пять кусков, то есть сто с лишним
+   * килобайт base64 на каждую запись. На маленьком мире эта цена была незаметна;
+   * на настоящем она выросла вдесятеро и легла бы прямо на главный поток.
+   */
   toJSON(): FogData {
     const out: FogData = {};
     for (const [key, bits] of this.chunks) {
-      if (bits.some((b) => b !== 0)) out[key] = toBase64(bits);
+      const have = this.text.get(key);
+      if (have !== undefined) {
+        if (have !== null) out[key] = have;
+        continue;
+      }
+      const empty = bits.every((b) => b === 0);
+      const text = empty ? null : toBase64(bits);
+      this.text.set(key, text);
+      if (text !== null) out[key] = text;
     }
     return out;
   }

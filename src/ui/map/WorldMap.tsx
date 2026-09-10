@@ -193,6 +193,12 @@ export function WorldMap() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const coordRef = useRef<HTMLElement>(null);
+  /**
+   * Камера до приезда `info`. Середина сетки на настоящей карте — это Адриатика,
+   * и первый кадр показал бы игроку море вместо его двора. Кадров этих один-два
+   * (ниже камера встаёт на дом), но пустое море в них читается как сломанная
+   * карта, поэтому начинаем с чёрного: туман честнее чужого берега.
+   */
   const cam = useRef<Camera>({
     cx: WORLD_ORIGIN.x + WORLD_SIZE / 2,
     cy: WORLD_ORIGIN.y + WORLD_SIZE / 2,

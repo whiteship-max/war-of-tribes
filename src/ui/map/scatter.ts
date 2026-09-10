@@ -41,9 +41,17 @@ const SALT = {
   hills: 2029,
   count: 3049,
   tree: 4073,
+  steppe: 5087,
+  desert: 6089,
 } as const;
 
-const saltOf = (kind: Terrain): number => (kind === 'water' ? SALT.water : SALT.hills);
+/**
+ * Своя соль на каждый вид кляксы. Без неё степь и пустыня получили бы те же
+ * смещения, что холмы, и на стыке пятна легли бы одно в одно — граница между
+ * ними стала бы прямой, то есть ровно тем, чего кляксы и избегают.
+ */
+const saltOf = (kind: Terrain): number =>
+  kind === 'water' ? SALT.water : kind === 'steppe' ? SALT.steppe : kind === 'desert' ? SALT.desert : SALT.hills;
 
 // ---------- Поле метаболов ----------
 

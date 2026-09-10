@@ -171,6 +171,27 @@ function paintStamps(
 
 // ---------- Выпечка ----------
 
+/**
+ * Весь тайл с запасом — открытое море. Сорок процентов настоящей карты это
+ * вода, и таких тайлов в Атлантике и Средиземном подряд десятки.
+ *
+ * Быстрый путь для них — не оптимизация впрок, а необходимость: обычная выпечка
+ * кладёт на такой тайл под полторы тысячи мягких дисков, и все они дают ровно
+ * один цвет — поле насыщено везде, где до берега больше запаса. Считается это
+ * по той же области, из которой берутся штампы, поэтому шва на границе с землёй
+ * не появляется: у прибрежного тайла в запасе есть суша, и он печётся обычным
+ * порядком.
+ */
+function allWater(pad: Rect): boolean {
+  for (let y = pad.y - 1; y < pad.y + pad.h + 1; y++) {
+    for (let x = pad.x - 1; x < pad.x + pad.w + 1; x++) {
+      const t = sample(x, y);
+      if (t !== null && t !== 'water') return false;
+    }
+  }
+  return true;
+}
+
 function bake(seed: number, tx: number, ty: number): Tile | null {
   const pad = paddedRect(tx, ty);
   if (!ready(pad)) return null;
@@ -187,6 +208,13 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, TILE_PX, TILE_PX);
   ctx.imageSmoothingEnabled = true;
+
+  // Открытое море — один прямоугольник вместо полутора тысяч дисков.
+  if (allWater(pad)) {
+    ctx.fillStyle = PALETTE.water;
+    ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+    return { canvas, usedFrame: 0 };
+  }
 
   const lo = -Math.ceil(TILE_BLEED) - 1;
   const hi = TILE_CELLS + Math.ceil(TILE_BLEED) + 1;
@@ -228,12 +256,19 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   paintStamps(ctx, hills, PALETTE.hills, toPx, 1, 0.7);
   paintStamps(ctx, hills, PALETTE.hillsLight, toPx, 0.62, 0.45);
 
-  // 4. Вода: широкая отмель и тёмное тело внутри неё.
+  // 4. Степь и пустыня — теми же кляксами, что и холмы. Пустыня светлее и
+  // плотнее: Сахара на карте должна читаться песком, а не выгоревшим лугом.
+  paintStamps(ctx, stampsFor(seed, pad, 'steppe', sample), PALETTE.steppe, toPx, 1, 0.7);
+  const desert = stampsFor(seed, pad, 'desert', sample);
+  paintStamps(ctx, desert, PALETTE.desert, toPx, 1, 0.9);
+  paintStamps(ctx, desert, PALETTE.desertLight, toPx, 0.6, 0.5);
+
+  // 5. Вода: широкая отмель и тёмное тело внутри неё.
   const water = stampsFor(seed, pad, 'water', sample);
   paintStamps(ctx, water, PALETTE.shallow, toPx, 1, 0.95);
   paintStamps(ctx, water, PALETTE.water, toPx, 0.74, 1);
 
-  // 5. Местность поверх ландшафта. Порядок здесь — это правила словами: хребет
+  // 6. Местность поверх ландшафта. Порядок здесь — это правила словами: хребет
   // лежит на холмах, река режет всё, переправа ложится поверх реки (мост и виден
   // как то, что реку перекрывает), тракт идёт последним и проходит по мосту.
   paintStamps(ctx, lineStamps(pad, hasOnly(FEATURE.ridge, FEATURE.pass), RIDGE_R), PALETTE.ridge, toPx, 1, 0.85);
@@ -250,7 +285,7 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   paintStamps(ctx, lineStamps(pad, has(FEATURE.road), VERGE_R), PALETTE.verge, toPx, 1, 0.3);
   paintStamps(ctx, lineStamps(pad, has(FEATURE.track), TRACK_R), PALETTE.road, toPx, 1, 0.9);
 
-  // 6. Ёлки. Двор поселения красит его собственный спрайт, а тайлу от поселения
+  // 7. Ёлки. Двор поселения красит его собственный спрайт, а тайлу от поселения
   // нужно только место, чтобы не сажать туда лес. Берутся с запасом в две
   // клетки: дерево за краем тайла заходит внутрь кроной, и без запаса по границе
   // шла бы линия срезанных верхушек.

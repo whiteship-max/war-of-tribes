@@ -11,7 +11,7 @@ import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, awayTroops, playerProfile, syncAway, syncSiege } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
-import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT } from './data/tuning';
+import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
 import { heroReady } from '@/game/derived';
 import { marchPosition } from './geo';
 import {
@@ -755,7 +755,7 @@ let reachMemo: { key: string; reach: Reach } | null = null;
 function reachAround(x: number, y: number, chunks: number): Reach {
   const key = `${x}|${y}|${chunks}`;
   if (reachMemo && reachMemo.key === key) return reachMemo.reach;
-  const reach = exploredReach({ x, y }, exploredAt);
+  const reach = exploredReach({ x, y }, exploredAt, REACH_MAX);
   reachMemo = { key, reach };
   return reach;
 }
