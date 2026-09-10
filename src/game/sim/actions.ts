@@ -1,5 +1,5 @@
 // Действия игрока. Каждое возвращает null при успехе или текст ошибки.
-import type { GameState, JobId, ResourceId, PatronId } from '../types';
+import type { GameState, JobId, ResourceId } from '../types';
 import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
 import { FEAST_DAYS, RESOURCE_IDS } from '../constants';
@@ -86,18 +86,6 @@ export function resolveEvent(s: GameState, optionIndex: number): { error: string
   scheduleNextEvent(s);
   log(s, `${def.title}: ${result}`);
   return { error: null, result };
-}
-
-/**
- * Покровитель племени. Развилка одноразовая и необратимая — одна из немногих в
- * игре: выбрать второй раз нельзя ни за какие деньги.
- */
-export function choosePatron(s: GameState, patron: PatronId): string | null {
-  if (s.patron) return 'Покровитель уже выбран.';
-  s.patron = patron;
-  const names: Record<PatronId, string> = { wolf: 'Волка', bear: 'Медведя', eagle: 'Орла' };
-  log(s, `Племя приняло покровителя — ${names[patron]}.`, 'good');
-  return null;
 }
 
 /**

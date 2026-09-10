@@ -163,7 +163,9 @@ import { stackCarry, stackSize } from '../data/units';
 import { asLoss, plunder, type Spoils } from '../spoils';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
+import type { FaithId } from '@/game/types';
 import { resolveField, type FieldOutcome } from '../battle';
+import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
 import { estimate, precisionOf, readIntel } from '../intel';
@@ -183,6 +185,7 @@ import {
   FIGURE_DOWN,
   FIGURE_SCOUT_COVER,
   FIGURE_TOUCH,
+  FAITH_AROUND,
   HOME_SIGHT,
   MARCH_SIGHT,
   HOSTILITY_ALLY_BREAK,
@@ -863,6 +866,7 @@ export class LocalWorld implements WorldApi {
   ): {
     kinds: Stack;
     gear: Partial<Record<UnitKind, number>>;
+    resolve?: number;
     setup: ArmySetup | null;
     /** Сколько бойцов строя стоит в лагере — с прибавкой, если он готов. */
     men: number;
@@ -883,6 +887,7 @@ export class LocalWorld implements WorldApi {
       return {
         kinds,
         gear: this.ownGear(troops),
+        resolve: this.ownResolve(),
         setup: null,
         men: stackTotal(kinds),
         power: men * (this.save.profile?.warriorPower ?? 1),
@@ -915,7 +920,7 @@ export class LocalWorld implements WorldApi {
     id: SettlementId,
     at: number,
     seed: number,
-    attacker: { kinds: Stack; gear: Partial<Record<UnitKind, number>>; setup: ArmySetup | null },
+    attacker: { kinds: Stack; gear: Partial<Record<UnitKind, number>>; resolve?: number; setup: ArmySetup | null },
     guard: boolean,
   ): { field: FieldOutcome; camp: NonNullable<ReturnType<LocalWorld['campArmy']>> } | null {
     const w = this.siegeOf(id, at);
@@ -1471,7 +1476,7 @@ export class LocalWorld implements WorldApi {
       HOME_ID,
       now,
       seed,
-      { kinds: kindsOf(going), gear: this.ownGear(going), setup },
+      { kinds: kindsOf(going), gear: this.ownGear(going), resolve: this.ownResolve(), setup },
       true,
     );
     if (!out) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
@@ -1634,6 +1639,24 @@ export class LocalWorld implements WorldApi {
     delete this.save.legacyHostility;
   }
 
+  /**
+   * Насколько чужая вера портит знакомство с этим двором. Ноль, пока своей веры
+   * нет или двора на карте не нашлось.
+   *
+   * Двор берёт веру там же, где её берёт замок игрока, — у земли под собой.
+   * Поселений ботов на общей карте сейчас нет ни одного, так что живого
+   * применения у этого пока нет: механика ждёт участников, как дипломатия,
+   * письма и осады (`grep -rn waitsForPlayers src`). Заведена она здесь, а не
+   * рядом с ними, по одной причине — стартовое отношение заводится ровно в
+   * одном месте, и второго такого быть не должно.
+   */
+  private faithShift(id: SettlementId): number {
+    const mine = this.save.profile?.faith;
+    if (!mine) return 0;
+    const s = this.gen.settlements.find((x) => x.id === id);
+    return s ? faithAttitude(mine, faithAt(s.x, s.y)) : 0;
+  }
+
   /** Характер владельца: один на все его дворы, потому что владелец один. */
   private temperOfSettlement = (s: GenSettlement): TemperId =>
     temperOf(this.save.seed, s.owner ?? s.id);
@@ -1644,7 +1667,7 @@ export class LocalWorld implements WorldApi {
    * приведение при чтении: считать одно и то же дважды нельзя.
    */
   private diploOf(id: SettlementId, now: number): DiploRecord {
-    const rec = this.save.diplomacy[id] ?? freshRecord(now);
+    const rec = this.save.diplomacy[id] ?? freshRecord(now, this.faithShift(id));
     const settled = standingAt(rec, now);
     if (settled !== rec.standing) {
       rec.standing = settled;
@@ -1976,6 +1999,18 @@ export class LocalWorld implements WorldApi {
    * не трогает (это запрещено — мощь считается из состава), а ступень снаряжения
    * даёт в бою мораль, и именно так сытые кони и добрая сбруя работают.
    */
+  /**
+   * Стойкость нашей стороны: обряд перед боем, если он идёт. Число приезжает
+   * готовым в слепке деревни — мир про веру, храм и уклад не знает и знать не
+   * должен, ему передают одну прибавку к морали.
+   *
+   * Стоит рядом с `ownGear` нарочно: наша сторона в мире узнаётся ровно по
+   * этим двум вызовам, и забыть один из них труднее, когда они рядом.
+   */
+  private ownResolve(): number {
+    return Math.max(0, this.save.profile?.fervour ?? 0);
+  }
+
   private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
     const gear = gearOf(troops);
     const bonus = Math.max(0, Math.round(this.save.profile?.mountGear ?? 0));
@@ -2471,7 +2506,7 @@ export class LocalWorld implements WorldApi {
     const garrison = garrisonOf(this.save.seed, target.id, defense, target.castle);
     const field = resolveField({
       seed,
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), setup },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), setup },
       defender: { kinds: garrison.kinds, gear: garrison.gear, setup: garrison.setup },
       intel: this.save.intel[target.id]?.kinds,
     });
@@ -2788,7 +2823,7 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     const field = resolveField({
       seed,
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), setup: null },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), setup: null },
       defender: { kinds: party.kinds, gear: party.gear, setup: party.setup },
     });
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
@@ -3004,7 +3039,7 @@ export class LocalWorld implements WorldApi {
     const field = resolveField({
       seed: m.seed,
       attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
-      defender: { kinds: homeKinds, gear: this.ownGear(home), setup },
+      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), setup },
     });
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
     const record: BattleRecord | null = field.result
@@ -3522,7 +3557,7 @@ export class LocalWorld implements WorldApi {
       id,
       at,
       seed,
-      { kinds: kindsOf(troops), gear: this.ownGear(troops), setup: null },
+      { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), setup: null },
       guard,
     );
     if (!out) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
@@ -4797,8 +4832,32 @@ export class LocalWorld implements WorldApi {
       reports,
       effects,
       siege: this.siegeView(now),
+      faith: this.faithView(profile.faith ?? null),
       unread: this.save.reports.filter((r) => !r.read).length,
     };
+  }
+
+  /**
+   * Вера земли под замком и доля чужой веры вокруг.
+   *
+   * Считается по клетке замка и потому не меняется, пока замок стоит на месте,
+   * — отсюда и кэш: обход круга в сорок клеток стоит полтысячи чтений атласа, а
+   * пульс идёт каждые две секунды. Ключ включает веру деревни: после крещения
+   * та же округа даёт другую долю чужого.
+   */
+  private faithCache: { key: string; view: { id: FaithId; pressure: number } } | null = null;
+
+  private faithView(mine: FaithId | null): { id: FaithId; pressure: number } {
+    const home = this.save.home;
+    const here = faithAt(home.x, home.y);
+    // Пока деревня своей веры не назвала, чужой вокруг для неё нет: считать
+    // давление не на что, а подставлять веру земли значило бы посчитать её
+    // дважды. Первый же пульс поставит веру, второй посчитает округу.
+    const key = `${home.x}|${home.y}|${mine ?? here}`;
+    if (this.faithCache?.key === key) return this.faithCache.view;
+    const view = { id: here, pressure: faithPressure(home.x, home.y, FAITH_AROUND, mine ?? here) };
+    this.faithCache = { key, view };
+    return view;
   }
 
   /**

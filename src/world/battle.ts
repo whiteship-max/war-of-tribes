@@ -20,6 +20,15 @@ import {
 export interface FieldSide {
   kinds: Stack;
   gear?: Partial<Record<UnitKind, number>>;
+  /**
+   * Стойкость, с которой сторона вышла в поле: у нас — обряд перед боем
+   * (`derived.fervour`), у чужих — ноль, брать её им неоткуда.
+   *
+   * Кладётся поверх расстановки, ровно как `gear`, и по той же причине: при
+   * быстрой атаке расстановку выбирает пресет, а стойкость — свойство войска,
+   * а не построения.
+   */
+  resolve?: number;
   /** null — быстрая атака: пресет выберется по сиду похода. */
   setup: ArmySetup | null;
 }
@@ -75,8 +84,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
 
   const result = simulateBattle({
     seed: input.seed,
-    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear },
-    defender: { ...defender, gear: input.defender.gear ?? defender.gear },
+    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear, resolve: input.attacker.resolve ?? 0 },
+    defender: { ...defender, gear: input.defender.gear ?? defender.gear, resolve: input.defender.resolve ?? 0 },
   });
 
   const a = result.sides.attacker.total;

@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, defenseLock, worldNow } from '@/world/store';
-import { defense, homeArmy } from '@/game/derived';
+import { defense, fervour, homeArmy } from '@/game/derived';
 import { awayTroops, homeTroops, militiaArchers, militiaMen } from '@/world/bridge';
 import { heroInfo, heroReady } from '@/game/derived';
 import { KIND_META } from '@/battle';
@@ -155,7 +155,7 @@ export function BattlePanel({ targetId }: Props) {
     // разберёт `applyExpedition` по этой же отметке.
     if (heroGoes) act((g) => { g.hero.marchId = 'general'; return null; });
     const err = await strike({
-      setup: toArmySetup(final, 0, 0, heroGoes ? { kind: hero.kind, men: hero.men } : null),
+      setup: toArmySetup(final, 0, 0, heroGoes ? { kind: hero.kind, men: hero.men } : null, fervour(s)),
     });
     setBusy(false);
     if (err) {

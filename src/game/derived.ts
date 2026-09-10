@@ -5,9 +5,11 @@ import type {
   TroopId,
   Caravan,
   EquipmentId,
+  FaithId,
   GameState,
   GoodId,
   JobId,
+  ObservanceId,
   ResourceId,
   Resources,
   Season,
@@ -34,16 +36,29 @@ import {
   MORALE_BASE,
   MORALE_OUTPUT_LOW,
   MORALE_OUTPUT_SPAN,
+  PIETY_BASE,
+  PIETY_HERESY,
+  PIETY_HERESY_MORALE,
+  PIETY_HUNGER,
+  PIETY_PER_LEVEL,
+  PIETY_PER_PRIEST,
+  PIETY_PRESSURE,
+  PIETY_PRIEST_CAP,
+  PIETY_RELIC,
+  PIETY_RITE,
+  PIETY_SIEGE,
   RECRUIT_WORK,
   RESOURCE_IDS,
   PRIEST_MORALE,
   PRIEST_MORALE_CAP,
+  RITE_MORALE,
   SIEGE_FOOD_YIELD,
   SIEGE_YIELD,
   SLOTS_PER_LEVEL,
   SMITH_WORK,
   TOWN_HALL_BUILD_STEP,
   SOLDIER_FOOD,
+  STRAIN_DAYS,
   UPGRADE_GROWTH,
   VILLAGER_DEFENSE,
   emptyResources,
@@ -51,6 +66,7 @@ import {
 import type { UnitKind } from '@/battle';
 import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
+import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
@@ -273,8 +289,17 @@ export const policyMoralePerDay = (s: GameState): number =>
 /** Действующий уровень налога. Старое сохранение без поля читается как «без налога». */
 export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.none;
 
-/** Сбор золота за игровой день: с каждого человека посёлка, включая бойцов. */
-export const taxIncomePerDay = (s: GameState): number => taxOf(s).perPop * population(s) * TAX_PER_POP;
+/**
+ * Сбор золота за игровой день: с каждого человека посёлка, включая бойцов.
+ *
+ * Десятина и закят идут этой же дверью и с тем же знаком, что налог: приход
+ * собирает (плюс) или раздаёт (минус). Отдельного потока золота под веру нет и
+ * заводить его нельзя — казна в игре одна, и путь в неё должен быть один.
+ * Сумма умеет уйти в минус: закят при пустой казне просто ничего не возьмёт
+ * (`marketTick` не пускает золото ниже нуля).
+ */
+export const taxIncomePerDay = (s: GameState): number =>
+  taxOf(s).perPop * population(s) * TAX_PER_POP + faithGoldPerDay(s);
 
 /** Уровень рынка. */
 export const marketLevel = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
@@ -393,10 +418,12 @@ export function defense(s: GameState): number {
   let d = homeArmyPower(s);
   for (const b of s.buildings) d += buildingStat(b, 'defense');
   d += BASE_DEFENSE;
-  if (s.patron === 'bear') d += 2;
   // Любой житель может отбиваться дубиной, но слабо.
   d += Math.max(0, s.pop - Math.max(0, s.scoutsAway)) * VILLAGER_DEFENSE;
-  return d;
+  // Стойкость от веры — множитель на всё разом, а не слагаемое: приход не
+  // добавляет людей на стену, он держит тех, кто на ней уже стоит. Число берётся
+  // из наклона (`faithTilt`) и потому растёт вместе с храмом и укладом.
+  return d * (1 + faithTilt(s).steadfast);
 }
 
 // ---------- Службы посёлка ----------
@@ -686,12 +713,15 @@ export function forgeHands(s: GameState): number {
 export const moraleOutputMult = (morale: number): number =>
   MORALE_OUTPUT_LOW + (Math.max(0, Math.min(100, morale)) / 100) * MORALE_OUTPUT_SPAN;
 
-/** Множитель производительности профессии с учётом покровителя, сезона и указа. */
+/** Множитель производительности профессии с учётом веры, сезона и указа. */
 export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = seasonMods(s)): number {
   let m = mods.jobs[job] ?? 1;
-  if (job === 'hunter' && s.patron === 'wolf') m *= 1.15;
-  if (job === 'farmer' && s.patron === 'eagle') m *= 1.1;
   m *= moraleOutputMult(s.morale);
+  // Вера двигает выработку одним множителем на все профессии сразу — служб и
+  // постов не бывает «только у охотника». Профессии врозь она не трогает и
+  // трогать не должна: тогда одна вера оказалась бы лучшей под одно хозяйство,
+  // а вера достаётся по месту, а не выбирается.
+  m *= faithTilt(s).output;
   // Указ вождя действует на всю выработку разом — ровно на объявленную величину.
   m *= decreeOf(s).output;
   return m;
@@ -1065,6 +1095,16 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   add('season', SEASON_META[season].icon, SEASON_META[season].name, seasonMods(s).morale, 'сезонный сдвиг');
   if (s.freezing > 0) add('freezing', '🥶', 'Племя мёрзнет', -FREEZING_MORALE_PENALTY, 'дрова кончились');
 
+  // Вера. Два слагаемых, и они разной природы: наклон — то, что вера просит и
+  // даёт всегда (десятина давит, община держит), а ересь — то, что случается,
+  // когда набожность провалилась. Считаются они не здесь: строка берёт готовое
+  // число у `faithTilt` и `heresyMorale`, второй формулы тут быть не должно.
+  const fd = faithDef(s);
+  if (fd) {
+    add('faith', fd.icon, fd.name, faithTilt(s).morale, `${fd.temple} ${templeLevel(s)} ур., ${OBSERVANCE_BY_ID[observanceOf(s)].name.toLowerCase()}`);
+    add('heresy', '🔥', 'Вера трещит', heresyMorale(s), `набожность ${Math.round(piety(s))} из ${PIETY_HERESY}`);
+  }
+
   const raw = lines.reduce((n, l) => n + l.value, MORALE_BASE);
   const clamped = Math.min(100, raw);
   // Налог давит на мораль не медленным сползанием, а прямо: сползание племя
@@ -1077,7 +1117,10 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   // не стоило бы ничего. А так пир делает ровно то, ради чего он есть: отыгрывает
   // просадку от налога, голода, тесноты и холода — и ни разу не переполняет шкалу.
   const tax = taxOf(s).moralePenalty;
-  const feast = feastMorale(s);
+  // Обряд ложится там же, где пир, и по той же причине: до `Math.min` он утонул
+  // бы в посёлке на потолке уровней, где постоянных источников морали и так
+  // больше, чем вмещает сотня.
+  const feast = feastMorale(s) + riteMorale(s);
   return {
     base: MORALE_BASE,
     lines,
@@ -1091,6 +1134,185 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
 
 /** К какой морали стремится племя при текущих условиях. */
 export const moraleTarget = (s: GameState): number => moraleBreakdown(s).target;
+
+// ---------- Вера и набожность ----------
+//
+// Набожность — величина того же рода, что мораль, и с одним важным отличием:
+// своего поля в состоянии у неё нет. Она **считается при чтении** из храма,
+// уклада, обряда, чужой веры вокруг и надлома — а значит не может разойтись со
+// своими слагаемыми, не требует ни тика, ни офлайн-догона, и вернувшийся через
+// четыре часа игрок застаёт ровно то же, что застал бы, просидев эти четыре
+// часа в игре.
+//
+// Считается это здесь и только здесь. Панель храма своих формул не держит:
+// слагаемые приходят отсюда готовыми, ровно как у морали (`moraleBreakdown`).
+// Действия над верой — обряд, уклад, крещение — живут в `sim/faith.ts`.
+
+/** Слагаемое набожности — одна строка на экране храма. */
+export interface PietyLine {
+  id: string;
+  icon: string;
+  name: string;
+  value: number;
+  hint: string;
+}
+
+export interface PietyBreakdown {
+  base: number;
+  lines: PietyLine[];
+  /** Сумма до приведения к шкале. */
+  raw: number;
+  /** Итог, 0..100. */
+  value: number;
+}
+
+/** Уровень храма. Ноль — храма нет вовсе. */
+export const templeLevel = (s: GameState): number => buildingOfType(s, 'church')?.level ?? 0;
+
+/** Уклад храма. Сохранение без поля читается как ровный обычай. */
+export const observanceOf = (s: GameState): ObservanceId =>
+  OBSERVANCE_BY_ID[s.faith?.observance as ObservanceId] ? s.faith.observance : 'even';
+
+/** Вера деревни. null — мир ещё не назвал клетку замка. */
+export const faithOf = (s: GameState): FaithId | null => s.faith?.id ?? null;
+
+/** Определение веры деревни. null — вера ещё неизвестна. */
+export const faithDef = (s: GameState): FaithDef | null => {
+  const id = faithOf(s);
+  return id ? FAITH_BY_ID[id] : null;
+};
+
+/** Идёт ли обряд прямо сейчас. */
+export const riteActive = (s: GameState): boolean => (s.faith?.riteUntil ?? 0) > s.time;
+
+/**
+ * Надлом на сейчас: сколько его осталось от отметки. Убывает линейно за
+ * `STRAIN_DAYS` игровых дней — считается при чтении, а не сползает в тике.
+ */
+export function strainNow(s: GameState): number {
+  const f = s.faith;
+  if (!f || f.strain <= 0) return 0;
+  const gone = Math.max(0, s.time - f.strainAt) / (STRAIN_DAYS * DAY_LENGTH);
+  return Math.max(0, f.strain * (1 - gone));
+}
+
+/** Наклон веры, когда веры нет: ничего не даёт и ничего не просит. */
+const FLAT_TILT: FaithTilt = {
+  boon: '',
+  burden: '',
+  goldPerPop: 0,
+  morale: 0,
+  output: 1,
+  steadfast: 0,
+  learning: 1,
+  growth: 0,
+  fervour: 0,
+  pressure: 1,
+};
+
+/**
+ * Наклон веры прямо сейчас: уровень храма и уклад. Плоский, пока вера
+ * неизвестна, — и это не заглушка, а честный ответ: деревня, о которой мир ещё
+ * не сказал, где она стоит, ничего от веры не получает и ничего не платит.
+ */
+export function faithTilt(s: GameState): FaithTilt {
+  const id = faithOf(s);
+  return id ? tiltAt(id, templeLevel(s), observanceOf(s)) : FLAT_TILT;
+}
+
+/**
+ * Разбор набожности по слагаемым. `piety` считается отсюда же, а не рядом:
+ * экран храма показывает ровно то, чем живёт игра, и разойтись им негде.
+ */
+export function pietyBreakdown(s: GameState): PietyBreakdown {
+  const lines: PietyLine[] = [];
+  const add = (id: string, icon: string, name: string, value: number, hint: string, keepZero = false): void => {
+    if (keepZero || Math.abs(value) > 0.001) lines.push({ id, icon, name, value, hint });
+  };
+  const id = faithOf(s);
+  if (!id) return { base: PIETY_BASE, lines, raw: PIETY_BASE, value: PIETY_BASE };
+  const def = FAITH_BY_ID[id];
+  const level = templeLevel(s);
+  const obs = OBSERVANCE_BY_ID[observanceOf(s)];
+
+  add('temple', def.icon, def.temple, level * PIETY_PER_LEVEL, `уровень ${level} по +${PIETY_PER_LEVEL}`);
+  const priests = jobCounts(s).priest;
+  add(
+    'priests',
+    '🕯️',
+    'Служители прихода',
+    Math.min(PIETY_PRIEST_CAP, priests * PIETY_PER_PRIEST),
+    `${priests} чел. по +${PIETY_PER_PRIEST}, потолок +${PIETY_PRIEST_CAP}`,
+    true,
+  );
+  add('observance', obs.icon, obs.name, obs.piety, obs.effect, true);
+
+  if (riteActive(s)) {
+    const feast = def.feasts[seasonOf(s.time)];
+    add('rite', feast.icon, `Обряд: ${feast.name}`, PIETY_RITE, 'приход служит и празднует');
+  }
+  if (s.faith.relic) add('relic', '📿', FAITH_BY_ID[s.faith.relic].relic, PIETY_RELIC, 'реликвия прихода');
+
+  // Чужая вера вокруг. Множитель — свойство самой веры (`tilt.pressure`), а не
+  // оценка её: у язычества нет ни грамоты, ни дальнего владыки, к которому
+  // отсылают спорщика, поэтому спор идёт в самой деревне.
+  const pressure = Math.max(0, Math.min(1, s.faith.pressure ?? 0));
+  add(
+    'pressure',
+    '🧭',
+    'Округа иной веры',
+    -pressure * PIETY_PRESSURE * def.tilt.pressure,
+    `${Math.round(pressure * 100)}% земли вокруг верит иначе`,
+  );
+
+  const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s));
+  if (foodDays < 1) add('hunger', '🍖', 'Голодно в приходе', -PIETY_HUNGER, 'за что нам это');
+  if (s.siege) add('siege', '⚔️', 'Под стенами чужие', -PIETY_SIEGE, `осадил ${s.siege.byName}`);
+  add('strain', '💔', 'Надлом', -strainNow(s), 'навязанные решения ещё помнят');
+
+  const raw = lines.reduce((n, l) => n + l.value, PIETY_BASE);
+  return { base: PIETY_BASE, lines, raw, value: Math.max(0, Math.min(100, raw)) };
+}
+
+/** Набожность деревни, 0..100. */
+export const piety = (s: GameState): number => pietyBreakdown(s).value;
+
+/** Вера трещит: набожность упала ниже порога. */
+export const heresy = (s: GameState): boolean => faithOf(s) !== null && piety(s) < PIETY_HERESY;
+
+/**
+ * Во что ересь обходится морали. Между порогом и нулём — линейно: приход не
+ * разваливается со щелчком, он расходится тем сильнее, чем меньше в нём веры.
+ *
+ * Второй механики под это не заведено, и это решение, а не экономия. В деревне
+ * бунта нет ни в каком виде: `revolts` в мире — окно на **чужом** поселении,
+ * его поднимает лазутчик, и к своему двору оно неприменимо. Поэтому ересь идёт
+ * туда, где деревня и так живёт: в мораль, в строку тревоги и в событие с
+ * выбором.
+ */
+export function heresyMorale(s: GameState): number {
+  // Набожность спрашивается один раз: `pietyBreakdown` строит список строк, а
+  // зовут отсюда каждый тик через `moraleBreakdown`. Через `heresy(s)` вышло бы
+  // два прохода на ровном месте.
+  if (faithOf(s) === null) return 0;
+  const p = piety(s);
+  if (p >= PIETY_HERESY) return 0;
+  return -PIETY_HERESY_MORALE * (1 - p / PIETY_HERESY);
+}
+
+/** Прибавка к морали, пока идёт обряд. Ложится после шкалы, там же, где пир. */
+export const riteMorale = (s: GameState): number => (riteActive(s) ? RITE_MORALE : 0);
+
+/**
+ * Прибавка к стойкости дружины на время обряда — единственное, что вера кладёт
+ * в бой. Число зависит от **своей** веры, своего храма и своего уклада, и ни от
+ * чего больше: у `BattleInput` нет поля веры вовсе, и взять её противнику
+ * неоткуда (см. `game/battle/formation.ts` и `sim/faith.test.ts`).
+ */
+export const fervour = (s: GameState): number => (riteActive(s) ? faithTilt(s).fervour : 0);
+
+/** Сбор веры за игровой день: десятина в казну (плюс) или закят из неё (минус). */
+export const faithGoldPerDay = (s: GameState): number => faithTilt(s).goldPerPop * population(s);
 
 // ---------- Тревоги ----------
 
@@ -1123,6 +1345,11 @@ export function alerts(s: GameState): Alert[] {
   // Строка идёт последней: голод и холод острее.
   if (forgeInfo(s).idle) {
     out.push({ id: 'forge-idle', icon: '⚒️', text: 'Кузнецы стоят без заказа', goto: 'smithy' });
+  }
+  // Ересь. Второй механики под неё нет: в деревне это строка тревоги, просадка
+  // морали и событие с выбором — то, чем деревня живёт всегда.
+  if (heresy(s)) {
+    out.push({ id: 'heresy', icon: '🔥', text: 'В приходе раскол — вера трещит', goto: 'church' });
   }
   return out;
 }

@@ -186,7 +186,8 @@ const anchored = (stack: Stack): boolean => stack.infantry >= ANCHOR.infantrySha
 
 /**
  * Стартовая мораль группы: базовая мораль её родов, взвешенная числом людей,
- * плюс ступени снаряжения из кузницы и сдвиг плана.
+ * плюс ступени снаряжения из кузницы, сдвиг плана и стойкость, с которой армия
+ * вышла в поле (`setup.resolve` — ноль, если ничего такого не было).
  */
 function startMorale(setup: ArmySetup, stack: Stack): number {
   const total = stackTotal(stack);
@@ -196,7 +197,8 @@ function startMorale(setup: ArmySetup, stack: Stack): number {
     const gear = Math.max(0, Math.min(GEAR.max, setup.gear?.[k] ?? 0));
     m += stack[k] * (UNIT_STATS[k].morale + gear * GEAR.moralePerLevel);
   }
-  return Math.max(0, Math.min(MORALE.max, m / total + PLANS[setup.plan].morale));
+  const resolve = Math.max(0, setup.resolve ?? 0);
+  return Math.max(0, Math.min(MORALE.max, m / total + PLANS[setup.plan].morale + resolve));
 }
 
 function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, lane: Lane | null, row: Row, opts: { prefer?: 'rear' | 'front'; maneuver?: CavalryOrder | null; morale?: number } = {}): Group {

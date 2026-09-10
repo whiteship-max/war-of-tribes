@@ -11,6 +11,7 @@ import { probe, revealWorld, takeCosts } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, awayTroops, playerProfile, syncAway, syncSiege } from './bridge';
+import { syncFaith } from '@/game/sim/faith';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
@@ -320,6 +321,11 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // Осада режет выработку в тике, поэтому она обязана доехать до состояния
     // племени, а не остаться картинкой на экране карты.
     syncSiege(game.s, pulse.siege, pulse.now);
+    // Вера земли под замком и чужая вера вокруг. Первый ответ мира ставит веру
+    // новой партии — до него храм честно говорит, что грамоты из округи ещё не
+    // пришли, и подставлять католичество «пока не знаем» нельзя: деревня под
+    // Вильнюсом сменила бы веру молча.
+    syncFaith(game.s, pulse.faith.id, pulse.faith.pressure);
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
       // Список мог быть уже открыт: без этого свежий отчёт не появится, пока

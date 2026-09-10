@@ -11,6 +11,7 @@ import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
 import { addPop, losePop } from './population';
 import { log } from './log';
+import { loseRelic } from './faith';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 
 /** Что случилось с деревней, пока отряд был в пути. */
@@ -206,6 +207,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];
+  // Реликвию уносят вместе с остальным: она вещь, а не обещание, и цена ей —
+  // ровно та, что её можно потерять. Тайник её не прячет: святыню держат в
+  // храме на виду, иначе она не значила бы для прихода ничего.
+  const relicLost = o.sacked ? loseRelic(s) : null;
   // Герой возвращается вместе с отрядом. Разбитый отряд приносит его на щите —
   // но не насовсем: имя у племени остаётся, а через несколько дней и сам герой.
   const heroFell = o.battle === 'lost' && s.hero.marchId !== null;
@@ -218,6 +223,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (sacked.length > 0) {
     log(s, `Разорено за стеной: ${sacked.join(', ')}. Люди разбежались по домам.`, 'bad');
   }
+  if (relicLost) log(s, `${relicLost} унесли из храма. Приход осиротел.`, 'bad');
   if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
   const armsText = Object.entries(arms)
     .map(([id, n]) => `${EQUIPMENT_BY_ID[id as EquipmentId].name.toLowerCase()} — ${n}`)

@@ -160,7 +160,10 @@ export function marketTick(s: GameState, dt: number, income: number): void {
   // купленного обнуляется здесь.
   rollMarketDay(s);
 
-  if (income > 0) s.gold += (income * dt) / DAY_LENGTH;
+  // Сбор за игровой день умеет быть отрицательным: закят раздаёт из казны
+  // столько же, сколько десятина в неё собирает (`derived.taxIncomePerDay`).
+  // Ниже нуля казна при этом не уходит — раздать нечего.
+  if (income !== 0) s.gold = Math.max(0, s.gold + (income * dt) / DAY_LENGTH);
 
   if (s.caravans.length === 0) return;
   const arrived = s.caravans.filter((c) => s.time >= c.arriveAt);

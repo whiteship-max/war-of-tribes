@@ -2,7 +2,7 @@
 // откуда приходят данные: локальная генерация сейчас или сервер потом.
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
-import type { ResourceId } from '@/game/types';
+import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { ArmySetup, BattleResult, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
@@ -846,6 +846,19 @@ export interface PlayerProfile {
    */
   stash: number;
   /**
+   * Вера деревни. null — мир ещё не назвал клетку замка (см. `PlayerProfile` в
+   * первом пульсе новой партии). Мир пользуется ею ровно для одного:
+   * стартового отношения соседа иной веры (`world/faith.faithAttitude`).
+   */
+  faith?: FaithId | null;
+  /**
+   * Прибавка к стойкости дружины: идёт ли обряд перед боем. Мир не спрашивает,
+   * откуда она, и в бой кладёт как есть (`FieldSide.resolve`). Ни веры, ни
+   * храма у боевого расчёта нет ни одним полем — потому «моя вера бьёт твою»
+   * и не может случиться.
+   */
+  fervour?: number;
+  /**
    * Сколько еды лежит на складе. То же, что `stock.food`, но отдельным числом:
    * осада считает не добычу, а на сколько дней хватит хлеба, и спрятанное в
    * тайнике племя ест наравне с остальным.
@@ -919,5 +932,14 @@ export interface WorldPulse {
   effects: HomeEffect[];
   /** Осада деревни игрока. null — под стенами никого. */
   siege: SiegeView | null;
+  /**
+   * Вера земли под замком и доля чужой веры вокруг. Едет каждым пульсом,
+   * потому что мир — единственный, кто знает, на какой клетке стоит деревня:
+   * племя про координаты не знает и знать не должно.
+   *
+   * Приход этого числа **ставит** веру новой партии (`sim/faith.syncFaith`) и
+   * дальше её не трогает: крещение — дело деревни, а не земли.
+   */
+  faith: { id: FaithId; pressure: number };
   unread: number;
 }

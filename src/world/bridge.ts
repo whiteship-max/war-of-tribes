@@ -13,6 +13,8 @@ import {
   defense,
   hiddenStash,
   homeArmyPower,
+  faithOf,
+  fervour,
   intelKeen,
   mountGear,
   soldierFoodPerDay,
@@ -138,7 +140,7 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     const { formation, extra } = clampFormation(s.defenseFormation, army);
     const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
     const archers = militiaArchers(s);
-    defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers);
+    defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers, null, fervour(s));
   }
   return {
     name: 'Наше племя',
@@ -170,6 +172,12 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     mountGear: mountGear(s),
     // Статуя Героя: сколько дружины полководец уводит в поле.
     command: commandCap(s),
+    // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
+    // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
+    // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
+    // реликвии мир не видит: это дела прихода, а не карты.
+    faith: faithOf(s),
+    fervour: fervour(s),
     defenseSetup,
     // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     stock,

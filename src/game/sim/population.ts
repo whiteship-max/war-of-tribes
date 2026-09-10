@@ -18,6 +18,7 @@ import {
 } from '../constants';
 import { FREE_JOBS } from '../data/jobs';
 import {
+  faithTilt,
   foodConsumptionPerDay,
   freeJobCount,
   housingCapacity,
@@ -99,6 +100,13 @@ export interface GrowthInfo {
   morale: number;
   housing: number;
   food: number;
+  /**
+   * Прибавка от веры, множителем и **не меньше единицы**. Стоит отдельно от
+   * трёх остальных нарочно: те трое режут прирост и потому спорят за звание
+   * узкого места, а этот только добавляет — поставь его в тот же ряд, и панель
+   * начала бы называть узким местом веру, которая ничего не тормозит.
+   */
+  faith: number;
   /** Что именно упирается; null — ничто. */
   blocked: string | null;
 }
@@ -110,6 +118,9 @@ export interface GrowthInfo {
  */
 export function popGrowth(s: GameState, mods?: SeasonModifiers): GrowthInfo {
   const morale = moraleGrowthFactor(s.morale);
+  // Вера прибавляет к приросту, а не режет его: закят держит бедных на ногах,
+  // и детей в такой деревне доживает больше. Единица — вера прироста не трогает.
+  const faith = 1 + Math.max(0, faithTilt(s).growth);
   const cap = housingCapacity(s);
   const room = Math.max(0, cap - s.pop);
   const housing = Math.max(0, Math.min(1, room / GROWTH_ROOM));
@@ -121,15 +132,17 @@ export function popGrowth(s: GameState, mods?: SeasonModifiers): GrowthInfo {
 
   // Люди уходят вне зависимости от жилья и запасов: их держит не крыша, а вождь.
   if (morale < 0) {
-    return { perDay: base * morale, morale, housing, food, blocked: 'Мораль слишком низкая — люди уходят.' };
+    // Уходящих вера не удерживает: она прибавляет к росту, а не гасит убыль, —
+    // иначе высокий храм отменял бы цену низкой морали.
+    return { perDay: base * morale, morale, housing, food, faith, blocked: 'Мораль слишком низкая — люди уходят.' };
   }
-  const perDay = base * morale * housing * food * ration;
+  const perDay = base * morale * housing * food * ration * faith;
   let blocked: string | null = null;
   if (ration <= 0) blocked = 'На скудном пайке племя не растёт.';
   else if (housing <= 0) blocked = 'Нет свободного жилья.';
   else if (food <= 0.01) blocked = 'Нет запаса еды.';
   else if (morale <= 0.01) blocked = 'Мораль слишком низкая.';
-  return { perDay, morale, housing, food, blocked };
+  return { perDay, morale, housing, food, faith, blocked };
 }
 
 /** Шаг прироста: накапливает дробную часть, целые головы применяет сразу. */

@@ -120,8 +120,15 @@ describe('сейв профиля', () => {
     expect(g.completedQuests).toEqual(['first_hunt', 'first_scout']);
     expect(g.stats.battlesWon).toBe(3);
     expect(g.hero.name).toBe('Радим Хмурый');
-    expect(g.patron).toBe('wolf');
     expect(g.tutorialDone).toBe(true);
+    // Покровитель (`"patron": "wolf"` в сейве) с двенадцатой версии не
+    // существует: ступень 11 → 12 его отпускает, чтобы он не ездил в сохранении
+    // мёртвым полем, и говорит об этом в летописи.
+    expect((g as unknown as { patron?: unknown }).patron).toBeUndefined();
+    expect(g.log.some((l) => l.text.includes('Покровитель племени отпущен'))).toBe(true);
+    // Вера при этом не подставлена: её назовёт мир по клетке замка.
+    expect(g.faith.id).toBeNull();
+    expect(g.faith.observance).toBe('even');
     // Здания, появившиеся после того, как сохранение записали, приезжают сами.
     expect(buildingOfType(g, 'market')!.level).toBe(1);
   });

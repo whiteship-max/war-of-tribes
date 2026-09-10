@@ -34,9 +34,17 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 export const clampAttitude = (v: number): number =>
   Math.round(Math.min(ATTITUDE_MAX, Math.max(ATTITUDE_MIN, v)));
 
-/** Отношений с этим двором ещё не заводили: ровное знакомство. */
-export function freshRecord(now: number): DiploRecord {
-  return { attitude: 0, standing: 'neutral', since: now, until: 0, breakAt: 0 };
+/**
+ * Отношений с этим двором ещё не заводили: ровное знакомство.
+ *
+ * Ровное — но не обязательно с нуля: сосед иной веры смотрит на нас прохладнее
+ * с первого дня (`world/faith.faithAttitude`). Сдвиг симметричен и никого не
+ * делает дурным — он про расстояние между обычаями, а не про то, кто прав. И он
+ * **только про отношение**: в бой отношение не входит ни одним числом, поэтому
+ * «моя вера бьёт твою» отсюда не получается никак.
+ */
+export function freshRecord(now: number, faithShift = 0): DiploRecord {
+  return { attitude: clampAttitude(faithShift), standing: 'neutral', since: now, until: 0, breakAt: 0 };
 }
 
 /**

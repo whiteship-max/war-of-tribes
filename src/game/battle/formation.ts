@@ -172,6 +172,7 @@ export function toArmySetup(
   militia = 0,
   militiaArchers = 0,
   hero: HeroBoost | null = null,
+  resolve = 0,
 ): ArmySetup {
   const sectors = Object.fromEntries(SECTORS.map((id) => [id, emptyStack()])) as Record<Sector, Stack>;
   for (const k of UNIT_KINDS) {
@@ -212,7 +213,10 @@ export function toArmySetup(
     });
   }
   const gear = gearOf(placedTroops(f));
-  return { sectors, plan: f.plan, orders: { ...f.orders }, reserve: { ...f.reserve }, gear };
+  // `resolve` — то, с чем войско вышло в поле помимо снаряжения: у нас это
+  // обряд перед боем. Ядро про источник не знает, а поля веры у `BattleInput`
+  // нет вовсе — потому «моя вера бьёт твою» и не может случиться.
+  return { sectors, plan: f.plan, orders: { ...f.orders }, reserve: { ...f.reserve }, gear, resolve };
 }
 
 /** Сколько бойцов строя стоит в секторе — число, которым считает ядро. */

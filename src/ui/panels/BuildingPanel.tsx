@@ -36,7 +36,7 @@ import {
   workerCount,
   workerMultiplier,
 } from '@/game/derived';
-import { assignWorker, cancelUpgrade, changeFreeJob, choosePatron, startUpgrade, unassignWorker } from '@/game/sim/actions';
+import { assignWorker, cancelUpgrade, changeFreeJob, startUpgrade, unassignWorker } from '@/game/sim/actions';
 import { Cost } from '../parts/Cost';
 import { TownHall } from '../parts/TownHall';
 import { Smithy } from '../parts/Smithy';
@@ -45,6 +45,7 @@ import { Barracks } from '../parts/Barracks';
 import { Tavern } from '../parts/Tavern';
 import { Statue } from '../parts/Statue';
 import { Watch } from '../parts/Watch';
+import { Temple } from '../parts/Temple';
 import { upgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
@@ -292,6 +293,13 @@ function BuildingData({ b }: { b: Building }) {
           <Watch />
         </>
       );
+    case 'church':
+      return (
+        <>
+          <GenericData b={b} />
+          <Temple />
+        </>
+      );
     default:
       return <GenericData b={b} />;
   }
@@ -428,7 +436,6 @@ function StorageData() {
 /** Обычное здание: что оно производит и что даёт посёлку. */
 function GenericData({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
   const def = BUILDING_BY_ID[b.type];
   const prod = buildingProduction(s, b);
   const produced = RESOURCE_IDS.filter((r) => prod[r] > 0.01);
@@ -534,26 +541,6 @@ function GenericData({ b }: { b: Building }) {
               <span className="val">{val}</span>
             </div>
           ))}
-        </>
-      )}
-
-      {b.type === 'church' && !s.patron && (
-        <>
-          <h3>Выбери покровителя племени</h3>
-          <div className="note">Выбирают один раз и навсегда: сменить покровителя нельзя ни за какие деньги.</div>
-          <div className="totem-row">
-            {[
-              { id: 'wolf' as const, icon: '🐺', name: 'Волк', bonus: 'Охота +15%' },
-              { id: 'bear' as const, icon: '🐻', name: 'Медведь', bonus: 'Защита +2' },
-              { id: 'eagle' as const, icon: '🦅', name: 'Орёл', bonus: 'Фермы +10%' },
-            ].map((t) => (
-              <button key={t.id} onClick={() => act((st) => choosePatron(st, t.id))}>
-                <span className="ico">{t.icon}</span>
-                <b>{t.name}</b>
-                <span style={{ color: 'var(--muted)' }}>{t.bonus}</span>
-              </button>
-            ))}
-          </div>
         </>
       )}
     </>

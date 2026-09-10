@@ -5,19 +5,26 @@
 // Люди приходят и уходят толпой. Поимённых жителей в игре нет, поэтому событие
 // про человека — это событие про группу: беженцы у ворот, бродячая артель, мор.
 import type { GameState, ResourceId } from '../types';
-import { DAY_LENGTH, RESOURCE_IDS, RESOURCE_META } from '../constants';
+import { DAY_LENGTH, FAITH_REFUSAL_STRAIN, RESOURCE_IDS, RESOURCE_META, RITE_DAYS } from '../constants';
 import {
   buildingOfType,
   currentSite,
   dayOf,
   defense,
+  faithDef,
+  faithOf,
+  foodConsumptionPerDay,
+  heresy,
   housingCapacity,
   isSite,
   jobCounts,
   population,
+  seasonOf,
   storageCap,
+  strainNow,
 } from '../derived';
 import { resolveBattle } from '../sim/battle';
+import { addStrain, beginRite, grantRelic, riteInfo } from '../sim/faith';
 import { addPop, killPop } from '../sim/population';
 import { chance, rnd } from '../sim/random';
 import { log } from '../sim/log';
@@ -372,21 +379,167 @@ export const EVENTS: EventDef[] = [
   {
     id: 'festival',
     icon: '🎉',
-    title: 'Праздник',
-    text: 'Вождь предлагает устроить праздник у костра.',
-    weight: (s) => (s.resources.food >= amount(s, 25) ? 2 : 0),
+    title: 'Приход зовёт на праздник',
+    text: (s) => {
+      const f = faithDef(s);
+      const feast = f ? f.feasts[seasonOf(s.time)] : null;
+      return feast
+        ? `${feast.name}. ${feast.text} Ждут только слова вождя.`
+        : 'Вождь предлагает устроить праздник у костра.';
+    },
+    // Пока обряд справить нельзя — в этом сезоне уже справляли, идёт другой,
+    // не хватает добра, — событие не поднимается вовсе: окно с двумя гашеными
+    // кнопками игрок читает как сломанную игру.
+    weight: (s) => (riteInfo(s).blocked === null ? 3 : 0),
     options: [
       {
-        label: 'Праздновать',
-        hint: 'Мораль +15',
-        cost: (s) => ({ food: amount(s, 20) }),
+        label: 'Справить',
+        hint: `Набожность и настроение на ${RITE_DAYS} дн.`,
+        cost: (s) => {
+          const r = riteInfo(s);
+          return { food: r.food, gold: r.gold };
+        },
         apply: (s) => {
-          s.morale = Math.min(100, s.morale + 15);
+          // Плату уже сняло событие (`payEventCost`), поэтому зовём `beginRite`,
+          // а не `holdRite`: тот взял бы её второй раз. Отметки при этом ставит
+          // одна и та же функция — двух правд о начавшемся обряде быть не должно.
+          const f = faithDef(s);
+          beginRite(s);
           s.prestige += 1;
-          return 'Праздник удался. Племя воодушевлено.';
+          return f
+            ? `${f.feasts[seasonOf(s.time)].name} прошёл как надо. Приход и деревня довольны.`
+            : 'Праздник удался. Племя воодушевлено.';
         },
       },
-      { label: 'Сберечь еду', apply: () => 'Праздник отложили до лучших времён.' },
+      { label: 'Не время', apply: () => 'Праздник отложили до лучших времён.' },
+    ],
+  },
+  {
+    id: 'rome_letter',
+    icon: '📜',
+    title: 'Грамота из Рима',
+    text: 'Легат привёз грамоту с печатью: святой престол собирает на поход и ждёт нашей доли. Отказавших запоминают.',
+    // Только у латинского обряда: связь с Римом — его наклон, и ни у кого
+    // больше такой грамоты быть не может.
+    weight: (s) => (faithOf(s) === 'catholic' ? 2 : 0),
+    options: [
+      {
+        label: 'Дать, сколько просят',
+        hint: 'Слава племени растёт, и в Риме это запомнят',
+        cost: (s) => ({ gold: amount(s, 60) }),
+        apply: (s) => {
+          s.prestige += 3;
+          return 'Легат уехал довольным. Имя нашего вождя прозвучало в грамоте ответной.';
+        },
+      },
+      {
+        label: 'Отказать',
+        hint: 'Добро остаётся дома',
+        apply: (s) => {
+          addStrain(s, FAITH_REFUSAL_STRAIN);
+          return 'Легат уехал ни с чем. Священник служил в тот день молча, и приход это заметил.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'rome_relief',
+    icon: '🕊️',
+    title: 'Заступничество',
+    text: 'Из дальнего аббатства пришёл обоз: о нашей беде услышали и прислали хлеба, не спросив ничего взамен.',
+    // Заступничество приходит только к тем, кто платит за связь с Римом, и
+    // только когда действительно плохо: голод или чужие под стенами. Это и есть
+    // вторая половина католического наклона — за десятину есть что получить.
+    weight: (s) => {
+      if (faithOf(s) !== 'catholic') return 0;
+      const hungry = s.resources.food / Math.max(1, foodConsumptionPerDay(s)) < 1.5;
+      return hungry || s.siege ? 3 : 0;
+    },
+    options: [
+      {
+        label: 'Принять с благодарностью',
+        hint: (s) => `+${amount(s, 90)} еды`,
+        apply: (s) => {
+          const f = addRes(s, 'food', amount(s, 90));
+          return `Обоз разгрузили: ${f} еды в закромах. В храме служили благодарственную.`;
+        },
+      },
+    ],
+  },
+  {
+    id: 'heresy_split',
+    icon: '🔥',
+    title: 'Раскол в приходе',
+    text: (s) => {
+      const f = faithDef(s);
+      return `У колодца проповедует чужой: говорит, что ${f ? f.priest.toLowerCase() + 'и' : 'служители'} лгут, а правда у него. Половина деревни слушает.`;
+    },
+    // Событие поднимается только тогда, когда вера действительно трещит:
+    // раскол на здоровом приходе был бы шумом.
+    weight: (s) => (heresy(s) ? 4 : 0),
+    options: [
+      {
+        label: 'Позвать учёного проповедника',
+        hint: 'Спор выигран словом — надлом затягивается',
+        cost: (s) => ({ gold: amount(s, 45) }),
+        apply: (s) => {
+          // Спор выигран: надлом снимается целиком, а не наполовину — за это и
+          // платили. Само по себе это ереси не отменит, если давит округа или
+          // пустует храм: набожность считается из всего разом.
+          s.faith.strain = 0;
+          s.faith.strainAt = s.time;
+          return 'Приезжий говорил три дня и переспорил. Чужой ушёл ночью, и приход выдохнул.';
+        },
+      },
+      {
+        label: 'Разогнать силой',
+        hint: 'Спорить перестанут сразу',
+        apply: (s) => {
+          s.morale = Math.max(0, s.morale - 6);
+          s.faith.strain = Math.max(0, strainNow(s) - FAITH_REFUSAL_STRAIN);
+          s.faith.strainAt = s.time;
+          return 'Проповедника вывели за ворота. Спорить перестали, но смотрят исподлобья.';
+        },
+      },
+      {
+        label: 'Пусть говорят',
+        hint: 'Никого не трогаем',
+        apply: (s) => {
+          addStrain(s, FAITH_REFUSAL_STRAIN);
+          s.morale = Math.min(100, s.morale + 4);
+          return 'Чужого не тронули. Люди довольны, что их не гонят, — а в храме стало пусто.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'relic_offer',
+    icon: '📿',
+    title: 'Странник со святыней',
+    text: (s) => {
+      const f = faithDef(s);
+      return f
+        ? `У ворот стоит странник и просится в ${f.temple.toLowerCase()}. Говорит, что несёт святыню — «${f.relic}», — и что ей место у нас.`
+        : 'У ворот стоит странник и просится в храм.';
+    },
+    // Своей святыни ещё нет, вера уже известна. Редко: реликвия должна остаться
+    // событием, а не строкой расходов.
+    weight: (s) => (faithOf(s) !== null && !s.faith.relic ? 1 : 0),
+    options: [
+      {
+        label: 'Принять святыню',
+        hint: 'Пока она в храме, приход крепче',
+        cost: (s) => ({ gold: amount(s, 70), hides: amount(s, 12) }),
+        apply: (s) => {
+          grantRelic(s);
+          return 'Странника накормили и одарили. Святыню поставили на видное место.';
+        },
+      },
+      {
+        label: 'Накормить и проводить',
+        hint: 'Странник уходит своей дорогой',
+        apply: () => 'Странника накормили и проводили до просёлка. Что он нёс — так и не узнали.',
+      },
     ],
   },
   {

@@ -12,7 +12,7 @@
 import type { GameState } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { SURVEY_MAX, surveyStep, type SurveyStep } from '../data/survey';
-import { buildingOfType, canAfford } from '../derived';
+import { buildingOfType, canAfford, faithTilt } from '../derived';
 import { log } from './log';
 import { recordSpent } from '@/profile/stats';
 
@@ -29,6 +29,12 @@ export interface SurveyInfo {
   progress: number;
   /** Уровень Дозора: он же потолок ступени. */
   level: number;
+  /**
+   * Во сколько раз быстрее идут разъезды из-за веры. Единица — как у всех.
+   * Число здесь, а не в панели: срок ступени считает `startSurvey`, и второй
+   * правды о нём быть не должно.
+   */
+  learning: number;
   /** Радиус открытой земли сейчас, клеток. */
   radius: number;
   /** Почему следующую ступень нельзя начать; null — можно. */
@@ -64,6 +70,7 @@ export function surveyInfo(s: GameState): SurveyInfo {
     left,
     progress: running ? Math.max(0, Math.min(1, (s.time - st.startedAt) / span)) : 0,
     level,
+    learning: Math.max(0.1, faithTilt(s).learning),
     radius,
     blocked,
   };
@@ -76,7 +83,12 @@ export function startSurvey(s: GameState): string | null {
   const step = info.next as SurveyStep;
   for (const r of RESOURCE_IDS) s.resources[r] -= step.cost[r] ?? 0;
   recordSpent(s, step.cost);
-  s.survey = { done: info.done, startedAt: s.time, until: s.time + step.seconds };
+  // Медресе учит счёту и письму, и разъезды возвращаются с грамотой быстрее.
+  // Делится это здесь, при постановке ступени, а не при чтении: ступень
+  // доводится из отметки `until`, и менять её задним числом было бы враньём —
+  // уклад мог смениться, пока разъезды в поле.
+  const seconds = Math.max(1, Math.round(step.seconds / info.learning));
+  s.survey = { done: info.done, startedAt: s.time, until: s.time + seconds };
   log(s, `Дозор: разъезды пошли изучать округу (ступень ${step.n}).`);
   return null;
 }
