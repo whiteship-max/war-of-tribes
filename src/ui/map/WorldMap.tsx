@@ -16,6 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
+import { useRoster } from '@/net/roster';
 import { useGame } from '@/game/store';
 import { afterPaint } from '@/boot/paint';
 import { cameraAnchor, figurePosition, figuresOn, marchOn, useWorld, worldNow } from '@/world/store';
@@ -247,6 +248,10 @@ export function WorldMap() {
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
 
   const info = useWorld((g) => g.info);
+  // Свежесть общего реестра — не свойство карты и не свойство поселения: это
+  // про то, когда мы в последний раз спрашивали сервер. Отсюда и своя строка.
+  const roster = useRoster();
+  const rosterOld = roster.state === 'stale' || (roster.state === 'off' && roster.why !== '');
   const marchCount = useWorld((g) => g.marches.filter((m) => m.own).length);
   const unread = useWorld((g) => g.unread);
   const figures = useWorld((g) => g.figures);
@@ -775,6 +780,16 @@ export function WorldMap() {
           агентов раскрыта. Столбик писем и панель осады сюда не приходят: обе
           живут в деревне и на карте не рисуются вовсе (см. `App.tsx`). */}
       <div className="wm-bottom">
+        {/* Список соседей не приезжал давно — так и сказано. Молчать нельзя:
+            замки на карте при этом видны, и без этой строки игрок читал бы
+            вчерашнее как сегодняшнее. Одна строка на весь низ, и появляется она
+            только когда есть о чём говорить. */}
+        {rosterOld && (
+          <div className="wm-hint stale">
+            <span>{roster.why || 'Список соседей давно не обновлялся: чужие замки показаны по памяти.'}</span>
+          </div>
+        )}
+
         {picked && (
           <div className="wm-hint">
             <span>Тапни по земле — {FIGURE_BY_ID[picked].name} пойдёт туда, по поселению — приказы.</span>
