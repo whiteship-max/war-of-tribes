@@ -47,6 +47,7 @@ import type {
   MarchView,
   OrderOption,
   OrderResult,
+  PlayerCastle,
   PlayerProfile,
   Rect,
   RegionChunk,
@@ -165,7 +166,7 @@ import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garris
 import { resolveField, type FieldOutcome } from '../battle';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
-import { estimate, readIntel } from '../intel';
+import { estimate, precisionOf, readIntel } from '../intel';
 import {
   AI_MIN_POP,
   CASTLE_GOLD_PER_POWER,
@@ -262,6 +263,18 @@ export interface LocalWorldOptions {
   /** null — не сохранять (тесты). */
   storage?: WorldStorage | null;
   /**
+   * Клетка замка игрока, названная общим реестром. Она главнее и сохранения, и
+   * сида: на общей карте замок стоит там, где о нём знают соседи. Не названа —
+   * играют без сервера, и место ищет то же правило расселения само.
+   */
+  home?: Coord;
+  /**
+   * Замки живых игроков из реестра. Отдаётся функцией, а не списком: реестр
+   * приезжает по своему сроку, а мир спрашивает его на каждом пульсе. Про сеть
+   * мир при этом по-прежнему не знает ничего — ему приносят строки.
+   */
+  castles?: () => PlayerCastle[];
+  /**
    * Отдавать всю землю разведанной. Только отладочный обзор мира (`?worldview=open`):
    * в обычной партии мир не отдаёт клиенту того, чего игрок не видел, — иначе
    * туман войны существовал бы только на картинке.
@@ -295,23 +308,54 @@ export class LocalWorld implements WorldApi {
    * потолок роста (`world/lairs.ts`).
    */
   private anchors = new Map<SettlementId, number>();
+  /**
+   * Замки живых игроков. Отдельная карта, а не строки в `gen.settlements`, и
+   * это главное решение всей пачки: по сгенерированным поселениям ходит вся
+   * фоновая жизнь мира — набеги соседей, войны дворов между собой, выручка
+   * осаждённым, письма, приказы лазутчика и дипломата. Всё это выдумывает
+   * клиент, и приписать выдуманное живому человеку нельзя. Здесь до них не
+   * дотягивается ничто, кроме чтения карты, — не потому, что стоит проверка, а
+   * потому что их нет там, где перебирают поселения.
+   */
+  private castles = new Map<SettlementId, PlayerCastle>();
+  /** Откуда берутся строки реестра. null — реестра в этой сессии нет. */
+  private provide: (() => PlayerCastle[]) | null;
+  /**
+   * Мир собран заново оттого, что реестр назвал другую клетку. Читается один
+   * раз, сразу после постройки: сказать об этом игроку должен тот, у кого есть
+   * летопись.
+   */
+  readonly movedByRoster: boolean;
 
   constructor(opts: LocalWorldOptions = {}) {
     this.clock = opts.now ?? serverNow;
     this.reveal = opts.reveal ?? false;
     this.storage = opts.storage === undefined ? browserStorage : opts.storage;
+    this.provide = opts.castles ?? null;
     const stored = parseWorldSave(this.storage?.read() ?? null);
     const seed = opts.seed ?? stored?.seed ?? Math.floor(Math.random() * 0x7fffffff);
-    this.gen = generateWorld(seed);
-    this.save =
-      stored && stored.seed === seed
-        ? stored
-        : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock());
+    // Дом решается раньше всего остального: от него зависят и логова у порога,
+    // и то, годится ли вообще сохранение. Порядок — реестр, потом сохранение,
+    // потом сид; спорить с реестром сохранение не может.
+    const named = opts.home ?? null;
+    const home = named ?? stored?.home ?? undefined;
+    const sameHome = Boolean(stored && home && stored.home.x === home.x && stored.home.y === home.y);
+    const keep = Boolean(stored && stored.seed === seed && (!home || sameHome));
+    // Мир собран заново потому, что реестр назвал другую клетку, — а не потому,
+    // что сохранения не было вовсе. Разница видна только здесь, и сказать о ней
+    // игроку должен тот, у кого есть летопись (`world/store`).
+    this.movedByRoster = Boolean(stored && named && !sameHome);
+    this.gen = generateWorld(seed, home);
+    this.save = keep
+      ? (stored as WorldSave)
+      : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock(), named !== null);
+    if (keep && named) this.save.homeFromRoster = true;
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
     // Логова, заведённые по ходу партии, подмешиваются к сгенерированному: для
     // всех, кто спросит мир, они такие же поселения, как остальные. Иначе о
     // логове пришлось бы помнить в каждом месте, где перебираются дворы.
     this.adoptSpawned();
+    this.adoptCastles();
     this.claims = claimsOf(this.gen);
     this.expandLegacyHostility();
     this.fog = new FogMap(this.save.fog);
@@ -359,6 +403,114 @@ export class LocalWorld implements WorldApi {
   /** Сколько поселение прожило своей жизнью: возраст мира минус время бунтов. */
   private lived = (s: GenSettlement, now: number): number =>
     Math.max(0, this.liveAt(s.id, now) - this.save.createdAt);
+
+  // ---------- Замки живых игроков ----------
+
+  /**
+   * Берёт из реестра то, что приехало, и складывает с тем, что помнит
+   * сохранение.
+   *
+   * Складывает, а не заменяет, и это правило: **открытое не закрывается
+   * никогда.** Пропала строка из реестра — игрок ушёл, реестр прополол давние,
+   * сеть не ответила — клетка, в которой игрок своими глазами видел замок, не
+   * имеет права снова стать пустой землёй. Свежесть при этом не выдумывается:
+   * живые данные показывает снимок, и у него своя отметка времени.
+   *
+   * Своей строки здесь нет: свой замок — это `HOME_ID`, у него другой вид и
+   * другие права.
+   */
+  private adoptCastles(): void {
+    for (const c of this.provide?.() ?? []) {
+      if (c.x === this.save.home.x && c.y === this.save.home.y) continue;
+      this.save.castles[c.id] = { ...c };
+    }
+    for (const c of Object.values(this.save.castles)) this.castles.set(c.id, c);
+  }
+
+  /** Замок живого игрока по номеру. null — такого нет, и это обычный случай. */
+  private castleOf = (id: SettlementId): PlayerCastle | null => this.castles.get(id) ?? null;
+
+  /**
+   * Замок живого игрока глазами карты.
+   *
+   * Слоёв два, ровно как у всего остального. Первый — местность: то, что в этой
+   * клетке стоит замок, открывается вместе с землёй и не забывается. Второй —
+   * живые данные: чьё это, насколько велико и как называется. Их даёт только
+   * живой обзор (круг у деревни и стоящий лазутчик), вне его остаётся снимок с
+   * датой, а если снимка не было — не остаётся ничего, и это честнее «стадии
+   * по последним данным реестра»: реестр приезжает сам, а смотреть на соседа
+   * надо было.
+   */
+  private castleView(c: PlayerCastle, now: number, discs: SightDisc[]): SettlementView {
+    const visible = inSight(discs, c.x, c.y);
+    const seen = this.save.sightings[c.id] ?? null;
+    return {
+      id: c.id,
+      x: c.x,
+      y: c.y,
+      // Имя тоже живые данные. Владелец волен переименоваться, и показывать
+      // новое имя поверх снимка недельной давности значило бы врать о том,
+      // когда мы туда смотрели.
+      name: visible ? c.name : (seen?.owner ?? 'Чей-то замок'),
+      stage: visible ? stageOf(c.power, c.pop) : (seen?.stage ?? 'camp'),
+      relation: 'neutral',
+      owner: visible ? c.name : (seen?.owner ?? null),
+      tribeId: null,
+      tribeName: null,
+      color: RELATION_META.neutral.color,
+      mine: false,
+      castle: true,
+      visible,
+      seenAt: visible ? now : (seen?.at ?? null),
+      stale: !visible && seen !== null,
+      seenPop: visible ? c.pop : (seen?.pop ?? null),
+      // Выходит ли оттуда войско, не знает никто: походов между игроками в игре
+      // нет вовсе, и рисовать их неоткуда.
+      marching: false,
+      ruin: false,
+      sacked: false,
+    };
+  }
+
+  /**
+   * Карточка чужого замка.
+   *
+   * Действий тут нет ни одного — ни набега, ни осады, ни разведки, ни приказа
+   * агенту, — и это не «пока не сделано», а устройство пачки: между игроками в
+   * игре не происходит ничего. Поэтому и мощь берётся не из разведки: разведать
+   * замок нечем. Её даёт тот же живой обзор, что даёт число людей в чужом
+   * отряде, — и стареет она теми же ступенями, что и всякий снимок.
+   */
+  private castleCard(c: PlayerCastle, now: number, discs: SightDisc[]): SettlementCard {
+    const view = this.castleView(c, now, discs);
+    const seen = this.save.sightings[c.id] ?? null;
+    const age = view.visible ? 0 : seen ? Math.max(0, now - seen.at) : Infinity;
+    const grade = view.visible ? 'exact' : precisionOf(age);
+    // Смотрим сами — числа настоящие; не смотрим — числа из снимка и с его
+    // возрастом; снимка не было — не знаем ничего, и так и сказано.
+    const power = view.visible ? c.power : (seen?.power ?? null);
+    const pop = view.visible ? c.pop : (seen?.pop ?? null);
+    return {
+      ...view,
+      terrain: terrainAt(this.save.seed, c.x, c.y),
+      distance: distance(this.save.home, c),
+      terrainFactor: terrainFactor(this.save.seed, this.save.home, c),
+      power: power !== null ? estimate(power, grade) : { ...UNKNOWN },
+      pop: pop !== null ? estimate(pop, grade) : { ...UNKNOWN },
+      // Что у соседа на складе, не видно ниоткуда: разведать его нечем.
+      loot: { ...UNKNOWN },
+      intel: null,
+      figuresHere: this.figuresAt(c.id, now),
+      deals: [],
+      diplomacy: null,
+      revolt: null,
+      can: { raid: false, scout: false, support: false, besiege: false, open: false },
+      siege: null,
+      ruinLeft: 0,
+      sack: null,
+      note: 'Замок живого игрока. Что с ним делать, в игре пока нельзя ничего: ни похода, ни разведки, ни переговоров.',
+    };
+  }
 
   // ---------- Логова ----------
 
@@ -1946,6 +2098,25 @@ export class LocalWorld implements WorldApi {
         pop: Math.round(this.popNow(s, now)),
         castle: s.castle,
         sacked: this.isSacked(s.id, now),
+      };
+    }
+    // Замок живого игрока снимается **только из живого обзора**, и поблажки
+    // «первый раз бесплатно» у него нет. У сгенерированного поселения она есть
+    // не зря: клетку открыл разведчик, который мимо неё прошёл. Здесь открывать
+    // нечего — строка приезжает из реестра сама, в давно разведанную округу, и
+    // бесплатный снимок означал бы, что мощь и население соседа достаются
+    // игроку за то, что тот просто зашёл в игру.
+    for (const c of this.castles.values()) {
+      if (!inSight(discs, c.x, c.y)) continue;
+      this.save.sightings[c.id] = {
+        at: now,
+        stage: stageOf(c.power, c.pop),
+        relation: 'neutral',
+        owner: c.name,
+        tribeId: null,
+        pop: c.pop,
+        power: c.power,
+        castle: true,
       };
     }
   }
@@ -3638,6 +3809,15 @@ export class LocalWorld implements WorldApi {
       if (this.phaseOf(s, now) === 'gone') continue;
       settlements.push(this.view(s, now, discs));
     }
+    // Замки живых игроков идут тем же путём и через тот же туман: нет
+    // разведанной клетки — нет и точки на карте. Отдельный список нужен не для
+    // того, чтобы их показывать иначе, а для того, чтобы до них не дотягивалась
+    // фоновая жизнь мира.
+    for (const c of this.castles.values()) {
+      if (c.x < x0 || c.x >= x1 || c.y < y0 || c.y >= y1) continue;
+      if (!this.reveal && !this.fog.has(c.x, c.y)) continue;
+      settlements.push(this.castleView(c, now, discs));
+    }
     const home = this.save.home;
     if (home.x >= x0 && home.x < x1 && home.y >= y0 && home.y < y1) settlements.push(this.homeView(now));
     const explored = this.reveal ? new Uint8Array(w * h).fill(1) : this.fog.maskFor(rect0);
@@ -3646,6 +3826,13 @@ export class LocalWorld implements WorldApi {
 
   async settlement(id: SettlementId): Promise<SettlementCard | null> {
     const now = this.clock();
+    const castle = this.castleOf(id);
+    if (castle) {
+      // Неразведанная клетка не отдаёт даже того, что в ней кто-то живёт, — то
+      // же правило, что и у поселений.
+      if (!this.reveal && !this.fog.has(castle.x, castle.y)) return null;
+      return this.castleCard(castle, now, this.sightDiscs(now));
+    }
     if (id === HOME_ID) {
       const p = this.save.profile;
       const siege = this.siegeView(now);
@@ -4591,6 +4778,9 @@ export class LocalWorld implements WorldApi {
 
   async sync(profile: PlayerProfile): Promise<WorldPulse> {
     const now = this.clock();
+    // Реестр приезжает по своему сроку — раз в минуту и только пока открыта
+    // карта; здесь его просто перечитывают. Дешёвая операция: пара сотен строк.
+    this.adoptCastles();
     this.save.profile = profile;
     this.lockDefense(now, profile);
     this.advance(now);

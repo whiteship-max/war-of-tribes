@@ -158,6 +158,20 @@ describe('сервера нет — игра идёт', () => {
    * ожидание обязано кончаться **всегда** — и когда сервер ответил, и когда
    * его нет, и когда ведёт другая вкладка.
    */
+  it('ожидание клетки кончается по сроку, даже если разговора не было вовсе', async () => {
+    // Мир поднимают и стенды, и отчёты, и тесты — там `rosterBoot` никто не
+    // зовёт. Бесконечное ожидание означало бы карту, которая не открывается.
+    const r = await tab();
+    let done = false;
+    void r.rosterReady().then(() => {
+      done = true;
+    });
+    await vi.advanceTimersByTimeAsync(r.ROSTER_WAIT_MS - 100);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(done).toBe(true);
+  });
+
   it('ожидание клетки кончается в любом случае', async () => {
     for (const setup of [
       () => H.apiPut.mockResolvedValue(ok(answer())),

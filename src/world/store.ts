@@ -3,6 +3,8 @@
 // что за интерфейсом сейчас стоит LocalWorld.
 import { create } from 'zustand';
 import { serverNow } from '@/net/clock';
+import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
+import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
 import { probe, revealWorld, takeCosts } from '@/debug';
@@ -43,6 +45,7 @@ import type {
   MarchView,
   OrderOption,
   OrderResult,
+  PlayerCastle,
   Rect,
   Report,
   SettlementCard,
@@ -57,6 +60,15 @@ import type { ArmySetup } from '@/battle';
 
 /** Как часто мир опрашивается. Достаточно редко, чтобы не мешать симуляции племени. */
 const PULSE_MS = 2000;
+
+/**
+ * Замки живых игроков для мира. Перевод одной строки: реестр говорит про
+ * замок, мир — про поселение, и знать друг о друге им положено ровно здесь.
+ *
+ * Мир про сеть по-прежнему не знает ничего: ему приносят готовые строки.
+ */
+const worldCastles = (): PlayerCastle[] =>
+  castles().map((c) => ({ id: c.id, x: c.x, y: c.y, name: c.name, power: c.power, pop: c.pop, seenAt: c.seenAt }));
 
 /** Открытое меню приказов: агент, клетка и то, что мир знает про цель. */
 export interface ActionMenuState {
@@ -262,7 +274,23 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   boot: async () => {
     if (get().ready) return;
-    if (!hasWorldApi()) setWorldApi(new LocalWorld({ reveal: revealWorld() }));
+    if (!hasWorldApi()) {
+      // Клетку замка называет общий реестр, и знать её надо **до** постройки
+      // мира: собранный не на том месте, он потом переписывался бы под ногами
+      // у игрока. Ожидание тут ограничено само собой — у запроса свой срок, а
+      // неудача возвращается значением, — и первого кадра игры оно не касается:
+      // деревня к этому времени давно на экране.
+      await rosterReady();
+      const world = new LocalWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles });
+      // Реестр назвал другую клетку, чем та, на которой партия шла без него.
+      // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
+      if (world.movedByRoster) {
+        useGame.getState().world((s) => {
+          log(s, 'Замок занял своё место на общей карте. Разведанное вокруг прежнего пришлось забыть.', 'bad');
+        });
+      }
+      setWorldApi(world);
+    }
     const info = await worldApi().info();
     set({ info, ready: true });
     await get().pulse();
@@ -653,7 +681,16 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   resetWorld: async () => {
     clearCache();
-    setWorldApi(new LocalWorld({ seed: Math.floor(Math.random() * 0x7fffffff), reveal: revealWorld() }));
+    setWorldApi(
+      new LocalWorld({
+        seed: Math.floor(Math.random() * 0x7fffffff),
+        reveal: revealWorld(),
+        // Начать заново — это про свой мир, а не про общий: замок остаётся там,
+        // где о нём знают соседи, и переезжать ему некуда.
+        home: castleCell() ?? undefined,
+        castles: worldCastles,
+      }),
+    );
     set({
       ready: false,
       info: null,
@@ -792,7 +829,13 @@ export function cameraAnchor(now: number): CameraAnchor | null {
  * обязан вернуться к тому же письму — иначе лупа наказывала бы за любопытство.
  */
 useGame.subscribe((g, prev) => {
-  if (prev.mapOpen && !g.mapOpen) useWorld.getState().leaveMap();
+  if (prev.mapOpen && !g.mapOpen) {
+    useWorld.getState().leaveMap();
+    // За закрытой картой чужие замки никому не нужны, а лишний запрос в минуту
+    // с каждого играющего — это уже нагрузка. Своя дверь и свой явный останов.
+    stopPulling();
+  }
+  if (!prev.mapOpen && g.mapOpen) startPulling();
 });
 
 /** Клетка в чьём-то обзоре прямо сейчас. */

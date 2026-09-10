@@ -15,6 +15,8 @@ import { haptic, tgDisplayName, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
+import { provideClaim, rosterBoot } from '@/net/roster';
+import { claimOf } from '@/net/snapshot';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -313,6 +315,13 @@ export const useGame = create<GameStore>((set, get) => ({
     // `fresh` — сохранения на диске не было. Тогда серверную партию берут без
     // вопроса; была своя — спрашивают, какую оставить.
     void syncBoot(!fresh);
+    // Общий реестр замков — второй разговор с сервером и совсем отдельный от
+    // первого: там партия, здесь одна строка о том, где стоит замок. Заводится
+    // он тут же, потому что «первый вход» — это вход в игру, а не в карту:
+    // соседей расселяют относительно тех, кто уже стоит, и игрок, не открывший
+    // карту ни разу, всё равно на ней есть.
+    provideClaim(() => claimOf(get().s));
+    void rosterBoot();
     if (loopStarted) return;
     loopStarted = true;
     setInterval(() => {

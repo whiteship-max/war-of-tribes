@@ -424,8 +424,8 @@ describe('сохранение мира', () => {
     expect(back?.nextLetterAt).toBe(0);
   });
 
-  it('версия младше седьмой отбрасывается вся', () => {
-    for (const v of [3, 4, 5, 6]) {
+  it('версия младше восьмой отбрасывается вся', () => {
+    for (const v of [3, 4, 5, 6, 7]) {
       expect(parseWorldSave(JSON.stringify({ v, seed: 9, home: { x: 1, y: 1 } })), `версия ${v}`).toBe(null);
     }
   });

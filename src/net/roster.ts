@@ -159,13 +159,23 @@ let pushTimer: ReturnType<typeof setInterval> | null = null;
 let pullTimer: ReturnType<typeof setInterval> | null = null;
 let talking = false;
 
+/**
+ * Больше этого мир клетку не ждёт ни при каких условиях.
+ *
+ * Срок с запасом к сроку запроса (8 с). Нужен он не от недоверия к сети, а
+ * потому, что ждать может оказаться нечего вовсе: `rosterBoot` зовёт стор
+ * племени, а мир поднимают и стенды, и отчёты, и тесты — там его никто не
+ * звал, и бесконечное ожидание означало бы карту, которая не открывается.
+ */
+export const ROSTER_WAIT_MS = 9000;
+
 /** Договорились ли уже с сервером — или решили, что его не будет. */
+let over = false;
 let settled: (() => void) | null = null;
-const ready = new Promise<void>((resolve) => {
-  settled = resolve;
-});
+let ready: Promise<void> | null = null;
 
 const done = (): void => {
+  over = true;
   settled?.();
   settled = null;
 };
@@ -176,11 +186,23 @@ const done = (): void => {
  * замок, **до** постройки: собранный не на том месте, он потом переписывался бы
  * под ногами у игрока.
  *
- * Ожидание тут ограничено само собой: у каждого запроса свой срок (8 с), а
- * неудача возвращается значением. Первого кадра игры это не касается вовсе —
- * деревня к этому времени давно на экране.
+ * Кончается это ожидание **всегда**: разговором, отказом или сроком. Игры оно
+ * не задерживает — деревня к этому времени давно на экране, а карту открывают
+ * тапом много позже.
  */
-export const rosterReady = (): Promise<void> => ready;
+export function rosterReady(): Promise<void> {
+  if (over) return Promise.resolve();
+  if (!ready) {
+    ready = new Promise<void>((resolve) => {
+      settled = resolve;
+      const timer = setTimeout(done, ROSTER_WAIT_MS) as unknown as { unref?: () => void };
+      // В Node таймер держал бы процесс живым до самого срока — отчётам и
+      // тестам это ни к чему.
+      timer.unref?.();
+    });
+  }
+  return ready;
+}
 
 /** Отправить свою строку. Возвращает `true`, если сервер ответил. */
 async function push(): Promise<boolean> {
@@ -268,6 +290,9 @@ export function stopPulling(): void {
 export function resetRoster(): void {
   cache = null;
   claim = null;
+  over = false;
+  settled = null;
+  ready = null;
   stopPulling();
   if (pushTimer) clearInterval(pushTimer);
   pushTimer = null;
