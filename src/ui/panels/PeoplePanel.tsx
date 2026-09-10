@@ -5,6 +5,7 @@ import {
   armyPower,
   armySize,
   buildingOfType,
+  buildingTitle,
   defense,
   freeJobCount,
   housingCapacity,
@@ -142,7 +143,7 @@ export function PeoplePanel() {
                 <span className="count">{counts[job.id]} чел.</span>
               </div>
               <div className="desc">
-                {place ? `${BUILDING_BY_ID[place.type].name}: ${inside}` : 'без здания'}
+                {place ? `${buildingTitle(s, place.type)}: ${inside}` : 'без здания'}
                 {wild > 0 && ` · вольный сбор: ${wild}`}
               </div>
             </div>

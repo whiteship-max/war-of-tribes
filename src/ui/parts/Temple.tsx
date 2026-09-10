@@ -294,7 +294,7 @@ export function Temple() {
       )}
 
       <h3>
-        {def.priest}и <span className="muted">{priests} чел.</span>
+        {def.priests} <span className="muted">{priests} чел.</span>
       </h3>
       <div className="note">
         Служители держат набожность и настроение разом. Ставят их сюда же, рядовым числом —

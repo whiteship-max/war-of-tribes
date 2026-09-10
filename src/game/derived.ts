@@ -1311,6 +1311,21 @@ export const riteMorale = (s: GameState): number => (riteActive(s) ? RITE_MORALE
  */
 export const fervour = (s: GameState): number => (riteActive(s) ? faithTilt(s).fervour : 0);
 
+/**
+ * Как здание называется у этой деревни. Отличается от `def.name` ровно у одного
+ * здания и ровно по одной причине: храм у мусульман — мечеть, у язычников —
+ * капище, и подписывать их «Церковью» значит врать игроку на самом видном месте.
+ *
+ * Живёт здесь, а не в панели, чтобы имя было одно: его берут и шапка панели, и
+ * список построек в ратуше. Идентификатор здания при этом прежний (`church`) —
+ * от него зависят план посёлка, модель, значок и сохранение, и трогать их
+ * из-за подписи нельзя.
+ */
+export function buildingTitle(s: GameState, type: BuildingTypeId): string {
+  if (type !== 'church') return BUILDING_BY_ID[type].name;
+  return faithDef(s)?.temple ?? BUILDING_BY_ID[type].name;
+}
+
 /** Сбор веры за игровой день: десятина в казну (плюс) или закят из неё (минус). */
 export const faithGoldPerDay = (s: GameState): number => faithTilt(s).goldPerPop * population(s);
 

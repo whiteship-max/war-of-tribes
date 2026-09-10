@@ -12,6 +12,7 @@ import {
   buildingProduction,
   buildingSlots,
   buildingStat,
+  buildingTitle,
   cavalryTrain,
   healShare,
   intelKeen,
@@ -83,7 +84,7 @@ export function BuildingPanel({ id }: { id: number }) {
           <Icon name={`bld-${def.id}`} glyph={def.icon} />
         </div>
         <div className="body">
-          <div className="name">{def.name}</div>
+          <div className="name">{buildingTitle(s, b.type)}</div>
           <div className="lvl">
             {`Уровень ${b.level} из ${def.maxLevel ?? MAX_BUILDING_LEVEL}`}
             {canLevel && (
@@ -318,7 +319,7 @@ function CampfireData() {
       </h3>
       <div className="note">
         {site
-          ? `Свободные жители строят: ${BUILDING_BY_ID[site.type].name} (${Math.floor((site.work / Math.max(1, site.workRequired)) * 100)}%).`
+          ? `Свободные жители строят: ${buildingTitle(s, site.type)} (${Math.floor((site.work / Math.max(1, site.workRequired)) * 100)}%).`
           : 'Свободные жители отдыхают. Начни улучшение, чтобы занять их.'}
       </div>
 

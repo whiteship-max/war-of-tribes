@@ -499,6 +499,11 @@ describe('слова про веру', () => {
       expect(f.creed.length, f.id).toBeGreaterThan(30);
       expect(f.temple.length, f.id).toBeGreaterThan(3);
       expect(f.priest.length, f.id).toBeGreaterThan(3);
+      // Множественное написано руками: из числа оно не выводится («имам» + «и»
+      // даёт «имами»), и тест держит именно это — что поле есть и не совпадает
+      // с единственным.
+      expect(f.priests.length, f.id).toBeGreaterThan(4);
+      expect(f.priests, f.id).not.toBe(f.priest);
     }
   });
 

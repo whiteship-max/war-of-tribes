@@ -9,6 +9,7 @@ import {
   buildingHousing,
   buildingSlots,
   buildingStat,
+  buildingTitle,
   isSite,
   townHallBuildMult,
   upgradeInfo,
@@ -165,21 +166,25 @@ function RushButton({ b }: { b: Building }) {
 
 /** Улучшение в общей очереди: прогресс, время до конца и достройка за алмазы. */
 function SiteRow({ b, first, rate }: { b: Building; first: boolean; rate: number }) {
+  const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const def = BUILDING_BY_ID[b.type];
+  // Имя здания спрашивается у игры, а не у конфига: у храма оно зависит от веры
+  // деревни (`derived.buildingTitle`), и второй правды об этом быть не должно.
+  const name = buildingTitle(s, b.type);
   const left = Math.max(0, b.workRequired - b.work);
   const pct = Math.floor((b.work / Math.max(1, b.workRequired)) * 100);
   const eta = rate > 0 ? left / rate : null;
 
   return (
     <div className="build-row site">
-      <button className="grip" onClick={() => openBuilding(b.id)} aria-label={def.name}>
+      <button className="grip" onClick={() => openBuilding(b.id)} aria-label={name}>
         <span className="ico">
           <Icon name={`bld-${def.id}`} glyph={def.icon} />
         </span>
         <span className="body">
           <span className="title">
-            {def.name}
+            {name}
             <i className="lvl-tag">→ {b.level + 1} ур.</i>
             <span className="count">{first ? etaText(eta) : 'в очереди'}</span>
           </span>
@@ -216,7 +221,7 @@ function BuildRow({ b, rate }: { b: Building; rate: number }) {
         </span>
         <span className="body">
           <span className="title">
-            {def.name}
+            {buildingTitle(s, b.type)}
             <span className="count">
               ур. {b.level} из {top}
               {attn && (
@@ -267,7 +272,7 @@ function LockedRow({ b }: { b: Building }) {
         </span>
         <span className="body">
           <span className="title">
-            {def.name}
+            {buildingTitle(s, b.type)}
             <span className="count">
               ур. {b.level}
               {levels ? ` из ${top}` : ''}

@@ -13,6 +13,8 @@ import {
 } from '@/game/constants';
 import {
   armySize,
+  faithDef,
+  faithTilt,
   foodConsumptionPerDay,
   housingCapacity,
   idleCount,
@@ -125,6 +127,23 @@ export function PopPanel() {
         worst={worst.has('food')}
         hint={`на ${foodDays.toFixed(1)} дн., полный ход с ${GROWTH_FOOD_DAYS}`}
       />
+      {growth.faith > 1 && (
+        <>
+          <h3>И прибавка от веры</h3>
+          <div className="note">
+            Стоит отдельно от трёх множителей, потому что не режет, а добавляет: узким
+            местом она быть не может. Умножается сверх всего остального.
+          </div>
+          <div className="mod total">
+            <span className="ico">{faithDef(s)?.icon ?? '🙏'}</span>
+            <span className="name">
+              {faithDef(s)?.name ?? 'Вера'}
+              <em className="sub">{faithTilt(s).boon}</em>
+            </span>
+            <span className="val pos">×{growth.faith.toFixed(2)}</span>
+          </div>
+        </>
+      )}
 
       <h3>Порог морали</h3>
       <p className="season-hint">

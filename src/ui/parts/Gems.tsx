@@ -2,7 +2,7 @@ import { useGame } from '@/game/store';
 import { TEST_GEMS } from '@/game/constants';
 import { GEM_PACKS, packRate } from '@/game/data/gems';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { isSite } from '@/game/derived';
+import { buildingTitle, isSite } from '@/game/derived';
 import { GEM_SECONDS, gemsOf, rushPrice } from '@/game/sim/gems';
 import { rushUpgrade } from '@/game/sim/gems';
 import { Icon } from '@/ui/icons/Icon';
@@ -58,7 +58,7 @@ export function Gems() {
               <div className="ico">{def.icon}</div>
               <div className="body">
                 <div className="title">
-                  {def.name} → {b.level + 1} ур.
+                  {buildingTitle(s, b.type)} → {b.level + 1} ур.
                   <span className="count">{pct}%</span>
                 </div>
                 <div className="desc">Достроить сейчас — ресурсы уже уплачены.</div>
