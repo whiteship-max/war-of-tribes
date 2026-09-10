@@ -12,6 +12,7 @@
     "battle:report": "vite-node scripts/battle-report.ts",
     "pop:report": "vite-node scripts/pop-report.ts",
     "world:report": "vite-node scripts/world-report.ts",
+    "settle:report": "vite-node scripts/settle-report.ts",
     "raid:report": "vite-node scripts/raid-report.ts",
     "siege:report": "vite-node scripts/siege-report.ts",
     "lair:report": "vite-node scripts/lair-report.ts",
