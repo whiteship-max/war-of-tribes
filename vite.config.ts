@@ -109,7 +109,15 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: { three: ['three'], react: ['react', 'react-dom'] },
+        // Атлас мира — отдельным чанком нарочно. В первую загрузку он входит
+        // всё равно (мир поднимается на старте), но в описи сборки его вес виден
+        // отдельно от кода: сорок пять килобайт запечённой земли и двести
+        // семьдесят игры — разные числа, и путать их не надо.
+        manualChunks: {
+          three: ['three'],
+          react: ['react', 'react-dom'],
+          atlas: ['./src/world/atlas/data.ts'],
+        },
       },
     },
   },
