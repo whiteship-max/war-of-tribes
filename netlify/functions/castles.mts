@@ -1,0 +1,136 @@
+/**
+ * Реестр замков: где стоят живые игроки.
+ *
+ * Вторая и последняя вещь, которую держит сервер, и от первой она отличается
+ * ровно одним. Сохранение партии — непрозрачная строка: функция в неё не
+ * смотрит. Реестр прочитан насквозь — имя, мощь, население, клетка, — и это
+ * осознанное сужение правила «сервер хранит и не судит».
+ *
+ * Судьёй он от этого не стал. Имя, мощь и население он принимает как есть: что
+ * игрок о себе написал, то и раздаётся соседям, и проверить это нечем — ни
+ * ресурсов, ни построек он не видит. Он делает одну вещь, которую клиенту
+ * доверить нельзя: **выбирает клетку**. Клиент, выбирающий себе место, — это
+ * клиент, выбирающий себе соседей: сесть вплотную к слабому, подальше от
+ * сильного, за морем от всех сразу. Поэтому поля с координатами в теле запроса
+ * нет вовсе, и завести его — не «изменить проверку», а сломать замысел.
+ *
+ * Личность — только из подписи, ключ строки — только из неё же
+ * (`lib/initdata.ts`). Писать можно ровно свою строку, и это не проверка, а
+ * устройство: чужого ключа не из чего собрать, а `upsert` трогает одну строку.
+ *
+ * Чего здесь нет и что не надо доделывать по дороге: никаких действий между
+ * игроками, никаких уведомлений, никакого расчёта в фоне. Реестр отвечает на
+ * запрос и молчит между ними.
+ */
+import type { Config, Context } from '@netlify/functions';
+import { getStore } from '@netlify/blobs';
+import { readInitData, saveKeyOf } from '../lib/initdata.js';
+import { allow, botToken, deny, json, parseJson, readBody } from '../lib/http.js';
+import { readClaim, type RosterFile, type RosterResponse } from '../lib/contract.js';
+import { prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../lib/roster.js';
+
+export const config: Config = {
+  /** Путь объявляет функция — по той же причине, что и у сохранения. */
+  path: '/api/castles',
+};
+
+/** Весь реестр лежит одним значением: его читают целиком и целиком переписывают. */
+const KEY = 'roster';
+
+/**
+ * Докуда игроку раздаются чужие замки, клеток. Не тайна и не проверка: дальше
+ * этого он всё равно не дотянется ни камерой (`CAMERA_LEASH`), ни разведкой
+ * (`REACH_MAX` — 150 клеток), а ответ обязан иметь потолок размера, не зависящий
+ * от того, сколько всего игроков в игре.
+ *
+ * Потолок этот геометрический, а не на глаз: замки не ближе `SETTLE_GAP` (24)
+ * друг к другу, значит в круг радиусом 200 их помещается пара сотен, сколько бы
+ * их ни было на всей карте.
+ */
+const NEAR = 200;
+
+/** Чаще этого одна и та же строка не переписывается. */
+const MIN_WRITE_MS = 10_000;
+
+/**
+ * Через сколько тишины строка переписывается ради одной отметки «был в игре».
+ * Игра шлёт раз в пять минут, поэтому порог ниже — иначе половина отправок
+ * не доезжала бы до отметки.
+ */
+const QUIET_MS = 4 * 60_000;
+
+/** Сколько раз пытаться выиграть право переписать общее значение. */
+const WRITE_TRIES = 4;
+
+/** Запросов в минуту на игрока. Игре нужен один в минуту на чтение. */
+const PER_MINUTE = 40;
+
+/**
+ * Чтение и запись разведены по строгости нарочно. Записи строгая сверка нужна:
+ * без неё «прочитал — изменил — записал» встаёт на устаревшем значении и
+ * повторяется до бесконечности. Чтению не нужна: реестр и так живёт минутами,
+ * а строгое чтение идёт мимо края сети — то есть каждый игрок каждую минуту
+ * платил бы за свежесть, которой всё равно не пользуется.
+ */
+const hot = () => getStore({ name: 'tribe-world', consistency: 'strong' });
+const cool = () => getStore({ name: 'tribe-world' });
+
+/** Ответ реестра: своя клетка и соседи в пределах досягаемости. */
+function answer(file: RosterFile, key: string, now: number): RosterResponse {
+  const own = file.rows[key];
+  const mine = own ? { x: own.x, y: own.y } : null;
+  const castles = own
+    ? viewOf(file).filter((c) => Math.hypot(c.x - own.x, c.y - own.y) <= NEAR)
+    : [];
+  return { now, epoch: rosterEpoch(), mine, castles };
+}
+
+export default async (req: Request, _context: Context): Promise<Response> => {
+  const now = Date.now();
+  const auth = readInitData(req.headers.get('x-telegram-init-data'), botToken(), Math.floor(now / 1000));
+  // Наружу — одно слово на все причины отказа, как и у сохранения.
+  if (!auth.ok) return deny(401, 'unauthorized');
+
+  const key = saveKeyOf(auth.user);
+  if (!allow(key, PER_MINUTE)) return deny(429, 'slow-down', { 'retry-after': '5' });
+
+  if (req.method === 'GET') {
+    const found = await cool().getWithMetadata(KEY, { type: 'text' });
+    const file = readRoster(found ? parseJson(String(found.data)) : null);
+    return json(answer(file, key, now));
+  }
+
+  if (req.method !== 'PUT') return deny(405, 'method');
+
+  const text = await readBody(req);
+  if (text === null) return deny(413, 'too-big');
+  const sent = parseJson<unknown>(text);
+  const claim = readClaim(sent);
+  if (!claim) return deny(400, 'bad-body');
+
+  // Прочитать — изменить — записать, и место для нового замка выбирается
+  // **внутри** цикла. Иначе двое, зашедших в одну секунду, посчитали бы клетку
+  // каждый по своему списку, и второй записал бы место, выбранное без учёта
+  // первого, — то есть сервер сам поставил бы два замка вплотную.
+  for (let tries = 0; tries < WRITE_TRIES; tries++) {
+    const found = await hot().getWithMetadata(KEY, { type: 'text' });
+    const file = readRoster(found ? parseJson(String(found.data)) : null);
+    const etag = found?.etag ?? null;
+
+    const had = file.rows[key];
+    // Ничего не изменилось и писать не за чем — отвечаем тем, что есть. Отказом
+    // это не является: реестр общий, и каждая лишняя запись — ещё одна гонка за
+    // право его переписать.
+    if (had && (now - had.seenAt < MIN_WRITE_MS || !worthWriting(file, key, claim, now, QUIET_MS))) {
+      return json(answer(file, key, now));
+    }
+
+    const next = prune(upsert(file, key, claim, now), now, key);
+    const written = await hot().setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
+    if (written.modified) return json(answer(next, key, now));
+  }
+
+  // Не смогли пробиться за четыре попытки. Это не ошибка: реестр общий, кто-то
+  // писал в него быстрее. Игра попробует ещё раз своим чередом.
+  return deny(429, 'slow-down', { 'retry-after': '10' });
+};
