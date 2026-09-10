@@ -104,7 +104,6 @@ console.log('');
 
 // ---------------------------------------------------------------- тайник ---
 
-const cacheDef = BUILDINGS.find((b) => b.id === 'cache')!;
 const storageDef = BUILDINGS.find((b) => b.id === 'storage')!;
 const capAt = (level: number): number =>
   BASE_STORAGE_CAP + (storageDef.storage ?? 0) + (level - 1) * (storageDef.perLevel?.storage ?? 0);
@@ -241,7 +240,7 @@ async function plunderRun(seed: number, hours: number) {
       await w.world.sync(p);
       continue;
     }
-    if (g.x !== target.x || g.y !== target.y) {
+    if (g.at.x !== target.x || g.at.y !== target.y) {
       await w.world.moveFigure('general', { x: target.x, y: target.y });
       for (let i = 0; i < 600 && w.now() < deadline; i++) {
         w.advance(30_000);

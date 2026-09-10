@@ -37,7 +37,6 @@ import {
   LAIR_SPAWN_MAX,
   LAIR_SPAWN_MIN,
   LAIR_START,
-  POWER_GROWTH_CAP,
 } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { catchUp } from '@/game/sim/tick';
@@ -59,32 +58,33 @@ const n1 = (v: number): string => v.toFixed(1);
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 
 /** Типичное логово в округе игрока: по нему и судят. */
-function sampleAnchor(seed: number): number | null {
+function sampleAnchor(seed: number): { anchor: number; away: number } | null {
   const gen = generateWorld(seed);
   const lairs = gen.settlements.filter((x) => isLair(x) && distance(x, gen.home) <= AI_RANGE);
   if (lairs.length === 0) return null;
   const l = lairs.sort((a, b) => distance(a, gen.home) - distance(b, gen.home))[Math.floor(lairs.length / 2)];
-  return lairAnchor(gen.settlements, l);
+  return { anchor: lairAnchor(gen.home, l), away: distance(l, gen.home) };
 }
 
 // ------------------------------------------------------------------- рост ---
 
 console.log('=== РОСТ: логово против соседей вокруг него ===');
-console.log('Опора — средняя базовая мощь ближайших чужих дворов (`lairAnchor`).');
-console.log('Соседи со временем уходят втрое выше своей базы; логово упирается в потолок навсегда.');
+console.log('Опора — расстояние до замка игрока (`lairAnchor`): у порога слабее, вдали крепче.');
+console.log('Чужих дворов на общей карте нет — логово упирается в свой потолок навсегда.');
 console.log(`Оборона стартовой деревни без дружины — ${defense(createInitialState()).toFixed(0)}: с ней и сравнивать.`);
 console.log('');
-console.log('  сид   опора   свежее   полсрока   потолок   сосед на пределе');
+console.log('  сид   опора   свежее   полсрока   потолок   до замка, кл');
 
 for (const seed of SEEDS) {
-  const anchor = sampleAnchor(seed);
-  if (anchor === null) continue;
+  const sample = sampleAnchor(seed);
+  if (sample === null) continue;
+  const { anchor, away } = sample;
   const rec = { bornAt: 0, burnedAt: 0 };
   const fresh = lairPower(anchor, rec, 0);
   const half = lairPower(anchor, rec, LAIR_RIPE / 2);
   const ripe = lairPower(anchor, rec, LAIR_RIPE);
   console.log(
-    `  ${pad(seed, 4)}  ${pad(n1(anchor), 6)}  ${pad(n1(fresh), 7)}  ${pad(n1(half), 9)}  ${pad(n1(ripe), 8)}  ${pad(n1(anchor * POWER_GROWTH_CAP), 17)}`,
+    `  ${pad(seed, 4)}  ${pad(n1(anchor), 6)}  ${pad(n1(fresh), 7)}  ${pad(n1(half), 9)}  ${pad(n1(ripe), 8)}  ${pad(n1(away), 13)}`,
   );
 }
 console.log('');
@@ -150,7 +150,7 @@ console.log(`  Склад стартовой деревни: ${storageCap(create
 console.log('');
 console.log('  логово          мощь   народу   добра   оружия   оружие своей ковкой        доля круга');
 
-const anchor51 = sampleAnchor(51) ?? 50;
+const anchor51 = sampleAnchor(51)?.anchor ?? 50;
 for (const [name, k] of [
   ['свежее', 0],
   ['полсрока', 0.5],

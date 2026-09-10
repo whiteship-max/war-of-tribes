@@ -364,7 +364,7 @@ function tribeAt(level: number): GameState {
   g.pop = Math.round(115 * (1 + (level - 1) * 0.7));
   // Дружина дома и крупная: только тогда отряд не идёт на приступ, а садится
   // лагерем (`SIEGE_IF_BELOW`). Осады против пустой деревни не бывает вовсе.
-  g.army = { spearman: Math.round(60 * level), legionary: Math.round(20 * level) };
+  g.army = { ...g.army, spearman: Math.round(60 * level), legionary: Math.round(20 * level) };
   autoAssign(g);
   const cap = storageCap(g);
   for (const r of RESOURCE_IDS) g.resources[r] = cap;
