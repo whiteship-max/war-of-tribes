@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { TopBar } from './ui/TopBar';
@@ -32,6 +32,20 @@ import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 import { villageMusic } from './sound/web';
 import { probe } from './debug';
+
+/**
+ * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
+ *
+ * Первая загрузка игры про неё не знает ничего: `lazy` разрывает граф модулей,
+ * и rollup уносит и сцену, и её модели в свой файл — ровно так же, как уносит
+ * стенд-витрину и ролик о бое. Правило простое и проверяется описью сборки:
+ * **режим, в который игрок может не зайти ни разу, не имеет права стоить ему
+ * ни байта на старте.**
+ *
+ * `three` при этом уже загружен — он общий чанк, на котором стоит диорама, — и
+ * повторно не едет. Поэтому нажатие стоит только своего чанка.
+ */
+const Prologue = lazy(() => import('./prologue/Prologue').then((m) => ({ default: m.Prologue })));
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -78,6 +92,11 @@ export function App() {
    * потому, что на него ведёт ссылка из справки о морали).
    */
   const [started, setStarted] = useState(false);
+  /**
+   * Открыта ли предыстория. Тоже местное состояние: в неё ведёт одна временная
+   * кнопка со стартового экрана, и знать о ней ни сцене, ни симуляции незачем.
+   */
+  const [prologue, setPrologue] = useState(false);
   const appRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -142,7 +161,10 @@ export function App() {
           жива, и переход в обе стороны мгновенный. Выгружать её на время карты
           пробовали и откатили — размен памяти на задержку оказался невыгодным,
           числа в docs/loading.md. */}
-      <GameCanvas />
+      {/* Пока открыта предыстория, диорамы нет вовсе — не приостановлена, а
+          разобрана: контекст WebGL в игре один, и делить его между двумя живыми
+          сценами нельзя (подробно — в `prologue/Prologue.tsx`). */}
+      {!prologue && <GameCanvas />}
       {mapOpen && <WorldMap />}
       {!mapOpen && <TopBar />}
       <AlertBar />
@@ -179,7 +201,18 @@ export function App() {
         снимается мгновенно — тем же движением, каким снимается экран загрузки
         под ним.
       */}
-      {!started && <StartScreen onEnter={() => setStarted(true)} />}
+      {!started && !prologue && <StartScreen onEnter={() => setStarted(true)} onPrologue={() => setPrologue(true)} />}
+      {/*
+        Предыстория поверх всего и вместо всего: пока она открыта, диорама
+        разобрана, стартовый экран не рисуется, а выход возвращает ровно туда,
+        откуда пришли. Запасной вид у Suspense — тот же фон, что у стартового
+        экрана: чанк едет доли секунды, и мигать другим цветом ради них незачем.
+      */}
+      {prologue && (
+        <Suspense fallback={<div className="pro pro-wait">Поляна…</div>}>
+          <Prologue onExit={() => setPrologue(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

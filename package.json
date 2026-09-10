@@ -18,6 +18,7 @@
     "lair:report": "vite-node scripts/lair-report.ts",
     "sack:report": "vite-node scripts/sack-report.ts",
     "tap:report": "vite-node scripts/tap-report.ts",
+    "prologue:report": "vite-node scripts/prologue-report.ts",
     "map:report": "vite-node scripts/map-report.ts",
     "figure:report": "vite-node scripts/figure-report.ts",
     "battle:sweep": "vite-node scripts/battle-sweep.ts",

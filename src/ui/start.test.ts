@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { START_LABEL, startAction } from './start';
+import { PROLOGUE_IS_TEMPORARY, PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction } from './start';
 
 const SRC = join(__dirname, '..');
 
@@ -43,6 +43,40 @@ describe('кнопка одна, и та, которая правдива', () =
     expect(src).toContain('START_LABEL[action]');
     for (const word of ['Регистрация', 'Вход', 'Войти', 'Зарегистрироваться']) {
       expect(src, `парная заглушка: ${word}`).not.toContain(word);
+    }
+  });
+});
+
+describe('вход в предысторию — временная кнопка, и это видно из кода', () => {
+  it('помечена временной', () => {
+    // Пометка не украшение: по замыслу предысторией будут начинать все, и в тот
+    // день кнопку выдернут отсюда целиком. Снять пометку, чтобы «оставить
+    // пока», значит потерять единственное место, за которое её видно.
+    expect(PROLOGUE_IS_TEMPORARY).toBe(true);
+  });
+
+  it('не притворяется входом в партию', () => {
+    // Она ведёт в отдельный режим, а не во вторую дверь к тому же самому, —
+    // поэтому и слово у неё своё, и рядом сказано, что с племенем связи нет.
+    expect(PROLOGUE_LABEL).not.toBe(START_LABEL.new);
+    expect(PROLOGUE_LABEL).not.toBe(START_LABEL.continue);
+    expect(PROLOGUE_NOTE).toMatch(/не связана/);
+  });
+
+  it('слово и подпись стоят в разметке из одного места', () => {
+    const src = read('ui/StartScreen.tsx');
+    expect(src).toContain('{PROLOGUE_LABEL}');
+    expect(src).toContain('{PROLOGUE_NOTE}');
+    expect(src, 'слово кнопки переписано в разметке').not.toContain(PROLOGUE_LABEL);
+  });
+
+  it('стартовый экран не качает предысторию сам', () => {
+    // Правило «этот экран ничего не ждёт» сильнее удобства: чанк тянет `App`,
+    // и тянет уже после нажатия. Динамический импорт здесь означал бы `await`
+    // на экране, которому ждать запрещено.
+    const src = read('ui/StartScreen.tsx');
+    for (const word of ['import(', 'lazy(', 'prologue/']) {
+      expect(src, `стартовый экран сам грузит режим: ${word}`).not.toContain(word);
     }
   });
 });

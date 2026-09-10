@@ -4464,6 +4464,30 @@ body.replaying .app > *:not(.canvas-wrap) {
   filter: brightness(0.92);
 }
 
+/*
+ * Временная кнопка входа в предысторию. Вид у неё нарочно не такой, как у
+ * главной: главная — это партия, а эта — проба другого начала, и путать их
+ * игрок не должен. Почему она временная, написано в `ui/start.ts`.
+ */
+.start-alt {
+  width: 100%;
+  min-height: var(--tap);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: rgba(232, 164, 60, 0.14);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.start-note {
+  margin: -4px 0 2px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
 .start-more {
   width: 100%;
   min-height: var(--tap);

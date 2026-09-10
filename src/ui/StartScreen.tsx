@@ -3,7 +3,7 @@ import { useGame } from '@/game/store';
 import { bootSaying } from '@/boot/stage';
 import { haptic } from '@/telegram/webapp';
 import { Settings } from './parts/Settings';
-import { START_LABEL, startAction } from './start';
+import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction } from './start';
 
 /**
  * Стартовый экран.
@@ -32,7 +32,7 @@ import { START_LABEL, startAction } from './start';
  * ради стартового экрана сцену объявил бы поломкой (`diagnose`). Экран живёт
  * секунды, и платить за них новым состоянием в приборе не стоит.
  */
-export function StartScreen({ onEnter }: { onEnter: () => void }) {
+export function StartScreen({ onEnter, onPrologue }: { onEnter: () => void; onPrologue: () => void }) {
   // `fresh` — сохранения на диске не было. Это и есть весь вопрос, на который
   // отвечает единственная кнопка (почему она одна — в `ui/start.ts`).
   const fresh = useGame((g) => g.fresh);
@@ -63,6 +63,15 @@ export function StartScreen({ onEnter }: { onEnter: () => void }) {
         <button className="start-go" onClick={enter}>
           {START_LABEL[action]}
         </button>
+        {/*
+          Временная кнопка — почему временная и что с ней будет, написано в
+          `ui/start.ts` рядом с её словом. Ждать она не заставляет: чанк
+          предыстории качает `App`, и качает уже после нажатия.
+        */}
+        <button className="start-alt" onClick={onPrologue}>
+          {PROLOGUE_LABEL}
+        </button>
+        <p className="start-note">{PROLOGUE_NOTE}</p>
         <button className="start-more" onClick={() => setSettings(true)}>
           Настройки
         </button>

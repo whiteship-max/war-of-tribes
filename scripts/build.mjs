@@ -148,9 +148,16 @@ function manifest() {
   const kb = (n) => `${(n / 1000).toFixed(1)} КБ`;
 
   // Что качает первый заход в игру. Стенд грузится только по ?showcase=, ролик о бое —
-  // только на просмотр боя, арт перехода — на первый вход на карту, музыка и лица — по ходу
+  // только на просмотр боя, предыстория — по кнопке со стартового экрана (и код, и её
+  // стили), арт перехода — на первый вход на карту, музыка и лица — по ходу
   // партии. Заставка входит: её тянет экран загрузки, пусть и после первого кадра.
-  const LATER = [/^assets\/(music|avatars)\//, /^assets\/showcase-/, /^assets\/battle-stand-/, /^assets\/curtain-/];
+  const LATER = [
+    /^assets\/(music|avatars)\//,
+    /^assets\/showcase-/,
+    /^assets\/battle-stand-/,
+    /^assets\/curtain-/,
+    /^assets\/Prologue-/,
+  ];
 
   const rows = [];
   const walk = (dir, base) => {

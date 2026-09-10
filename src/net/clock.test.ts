@@ -71,7 +71,7 @@ describe('время берут в одну дверь', () => {
     }
   });
 
-  it('ни симуляция, ни мир, ни интерфейс, ни профиль часов не читают', () => {
+  it('ни симуляция, ни мир, ни интерфейс, ни профиль, ни предыстория часов не читают', () => {
     const root = join(__dirname, '..');
     const files: string[] = [];
     const walk = (dir: string): void => {
@@ -83,7 +83,7 @@ describe('время берут в одну дверь', () => {
         else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(p);
       }
     };
-    for (const dir of ['game', 'world', 'ui', 'profile', 'battle']) walk(join(root, dir));
+    for (const dir of ['game', 'world', 'ui', 'profile', 'battle', 'prologue']) walk(join(root, dir));
     expect(files.length).toBeGreaterThan(50);
 
     const guilty: string[] = [];
