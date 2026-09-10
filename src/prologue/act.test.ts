@@ -115,6 +115,35 @@ describe('мясо жарится только на огне', () => {
     const noRaw = state({ logs: 3, hearth: { fuel: 2, at: 0 } });
     expect(offer(noRaw, AT_FIRE, 0).deed).toBe('feed');
   });
+
+  it('но мясо в руках не запирает дрова: погасший костёр примет полено', () => {
+    // Ловушка, ради которой порядок и переписан: мясо и полено в руках, в очаге
+    // пусто — и кнопка отказывала обоим. Выйти из этого было нечем.
+    const s = state({ logs: 2, meat: { cooked: 0, raw: 3 }, hearth: { fuel: 0, at: 0 } });
+    expect(offer(s, AT_FIRE, 0)).toMatchObject({ deed: 'feed', can: true });
+    // И то же самое, когда дров в очаге меньше, чем стоит один кусок.
+    const low = state({ logs: 2, meat: { cooked: 0, raw: 3 }, hearth: { fuel: 0.3, at: 0 } });
+    expect(offer(low, AT_FIRE, 0)).toMatchObject({ deed: 'feed', can: true });
+    // А вот без полена в руках — честный отказ с причиной.
+    const bare = state({ logs: 0, meat: { cooked: 0, raw: 3 }, hearth: { fuel: 0, at: 0 } });
+    expect(offer(bare, AT_FIRE, 0)).toMatchObject({ deed: 'roast', can: false, why: 'Костёр погас' });
+  });
+
+  it('из костра нельзя выйти в тупик: у него всегда есть что предложить', () => {
+    // Перебор всех сочетаний «дрова × сырое мясо × сколько в очаге»: если ни
+    // одно действие не разрешено, причина обязана быть выполнимой — то есть
+    // такой, которую игрок может устранить, не бросая ничего.
+    for (const logs of [0, 1, 3]) {
+      for (const raw of [0, 1, 6]) {
+        for (const fuel of [0, 0.3, 4, HEARTH_CAP]) {
+          const s = state({ logs, meat: { cooked: 0, raw }, hearth: { fuel, at: 0 } });
+          const o = offer(s, AT_FIRE, 0);
+          const stuck = !o.can && logs > 0 && fuel < HEARTH_CAP - 0.001;
+          expect(stuck, `дрова ${logs}, сырое ${raw}, очаг ${fuel}: «${o.why}»`).toBe(false);
+        }
+      }
+    }
+  });
 });
 
 describe('есть можно и сырым, но плохо', () => {

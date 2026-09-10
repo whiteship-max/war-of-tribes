@@ -27,7 +27,7 @@
  * Это записано и здесь, и в `glade.SpotKind`, и проверено тестом.
  */
 import { HEARTH_CAP, fuelAt } from './fire';
-import { STARVE_MS, causeOfDeath, mealHours, type Death } from './body';
+import { STARVE_MS, causeOfDeath, type Death } from './body';
 import { TREE_LOGS, type GladeState, type Spot } from './glade';
 import { DEER_MEAT, carcassLeft, liveCarcass } from './hunt';
 import type { PrologueSave } from './save';
@@ -77,6 +77,9 @@ const no = (deed: Deed, label: string, why: string): Offer => ({ deed, label, ca
  */
 export const ROAST_COST = 0.5;
 
+/** Ниже какого голода есть уже нельзя: час на полосе в сорок восемь часов. */
+const FULL_ENOUGH = 3_600_000 / STARVE_MS;
+
 /**
  * Что предлагает игроку то, рядом с чем он стоит.
  *
@@ -101,17 +104,28 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
   if (spot.kind === 'tree') {
     return s.axe ? ok('chop', 'Рубить') : no('chop', 'Рубить', 'Нужен топор');
   }
-  // Костёр. Дел у него два, и жарка идёт первой: с сырым мясом в руках человек
-  // подошёл к огню за ним, а не за тем, чтобы подкинуть дров.
+  /*
+   * Костёр. Дел у него два, и порядок между ними не «жарка вперёд», а **что из
+   * двух сейчас вообще возможно**.
+   *
+   * Соблазн написать «с сырым мясом в руках жарим, иначе кладём дрова» велик, и
+   * он же заводит ловушку: у человека мясо и полено, а в очаге пусто — и кнопка
+   * говорит «в костре нет дров», не давая их положить. Выйти из этого нечем:
+   * бросить мясо игра не умеет, а костёр тем временем не разгорится сам.
+   *
+   * Поэтому сперва спрашивается, можно ли жарить **прямо сейчас**; нельзя —
+   * пробуем дрова; и только если и дров нет, объясняем про жарку, за которой и
+   * подошли.
+   */
   const fuel = fuelAt(s.hearth, now);
+  const roomForLogs = fuel < HEARTH_CAP - 0.001;
+  if (s.meat.raw > 0 && fuel >= ROAST_COST) return ok('roast', `Пожарить мясо (${roastCount(s, now)})`);
+  if (s.logs > 0 && roomForLogs) return ok('feed', 'Подложить дров');
   if (s.meat.raw > 0) {
-    if (fuel <= 0) return no('roast', 'Пожарить мясо', 'Костёр погас');
-    if (fuel < ROAST_COST) return no('roast', 'Пожарить мясо', 'В костре не осталось дров');
-    return ok('roast', `Пожарить мясо (${roastCount(s, now)})`);
+    return no('roast', 'Пожарить мясо', fuel <= 0 ? 'Костёр погас' : 'В костре не осталось дров');
   }
   if (s.logs <= 0) return no('feed', 'Подложить дров', 'Дров нет');
-  if (fuel >= HEARTH_CAP - 0.001) return no('feed', 'Подложить дров', 'Костёр и так полон');
-  return ok('feed', 'Подложить дров');
+  return no('feed', 'Подложить дров', 'Костёр и так полон');
 }
 
 /**
@@ -149,10 +163,12 @@ export function meal(s: PrologueSave, hunger: number, raw: boolean): Offer {
   const have = raw ? s.meat.raw : s.meat.cooked;
   const label = raw ? 'Съесть сырым' : 'Съесть';
   if (have <= 0) return no('eat', label, raw ? 'Сырого мяса нет' : 'Жареного мяса нет');
-  // Порог — не круглое число, а доля куска: пока голода меньше, чем даст самый
-  // маленький кусок, есть его значит выбросить бо́льшую часть.
-  const gain = (mealHours(raw) * 3_600_000) / STARVE_MS;
-  if (hunger < Math.min(gain, 0.02)) return no('eat', label, 'Ты сыт');
+  // Есть на полный живот нельзя, а на почти полный — можно: съеденное сверх
+  // сытости пропадает, но выбрасывать своё мясо — решение игрока, и запрещать
+  // его целиком значило бы решать за него. Запрещено только бессмысленное:
+  // меньше часа голода — это ноль на полосе, и «съел, а полоса не двинулась»
+  // читается поломкой.
+  if (hunger < FULL_ENOUGH) return no('eat', label, 'Ты сыт');
   return ok('eat', label);
 }
 

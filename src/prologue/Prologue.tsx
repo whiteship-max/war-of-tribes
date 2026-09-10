@@ -139,7 +139,11 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       <div className="pro-hands">
         {view?.axe && <span>🪓</span>}
         {view?.bow && <span>🏹 {view.quiver}</span>}
-        {!!view?.logs && <span>🪵 {view.logs}</span>}
+        {/* Дрова — словом, а не значком: 🪵 из Emoji 13.0, и на части систем
+            вместо полена рисуется пустой квадрат (об этом сказано в CLAUDE.md,
+            и здесь это поймано глазами — квадрат и был). Топор и лук старше и
+            рисуются везде. */}
+        {!!view?.logs && <span>дрова {view.logs}</span>}
         {!!view?.cooked && (
           <button className="pro-bite" onClick={eatCooked} disabled={!view.eatCooked.can} title={view.eatCooked.why}>
             🍗 {view.cooked}
@@ -183,7 +187,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       </div>
       {view && !view.offer.can && <div className="pro-why">{view.offer.why}</div>}
 
-      {hint && (
+      {hint && !view?.dead && (
         <div className="pro-hint">
           <b>Слева — идти, справа — смотреть.</b>
           <span>Тап — действие над тем, к чему подошёл: топор на колоде, пожитки у палатки, дрова в костёр.</span>
