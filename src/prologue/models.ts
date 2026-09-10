@@ -19,7 +19,7 @@ import { PALETTE } from '@/render/palette';
 import { KIT, LEGACY } from '@/render/materials';
 import * as K from '@/render/kit';
 import { makeFarTree, makeLog, makeRock, makeStump, makeTree, vnoise } from '@/render/terrain';
-import { AXE_STUMP, FIRE, GLADE_R, TENT, TREES } from './glade';
+import { AXE_STUMP, FIRE, GLADE_R, TENT, TREES, hash } from './glade';
 
 /** Докуда тянется земля. Дальше туман, и края диска не видно. */
 const GROUND_R = 44;
@@ -42,11 +42,6 @@ const FOREST_TO = 38;
 const FAR_FROM = 26;
 
 const SEGMENTS = 96;
-
-const hash = (a: number, b: number): number => {
-  const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
-  return s - Math.floor(s);
-};
 
 const smooth = (t: number): number => {
   const k = THREE.MathUtils.clamp(t, 0, 1);
@@ -394,3 +389,187 @@ export const groundAt = height;
 
 /** Цвет отсвета костра — тот же, что у деревни. */
 export const FIRE_LIGHT = PALETTE.fireLight;
+
+/**
+ * Краска по цвету палитры, у которого нет своего материала.
+ *
+ * Масть зверя, рог и тетива — цвета, а не материалы: сезон их не переливает, и
+ * заводить под каждый по материалу значило бы платить лишним вызовом отрисовки
+ * за оттенок. Тот же приём, каким деревня красит коня (`render/buildings.ts`).
+ */
+const coat = (hex: number): K.Paint => ({ ...K.paintOf('wood'), tint: new THREE.Color(hex) });
+
+/** Масть оленя, светлое брюхо, рог и тёмная морда: четыре оттенка на всего зверя. */
+const DEER_COAT = 0x8a6039;
+const DEER_BELLY = 0xc2a077;
+const DEER_HORN = PALETTE.bone;
+const DEER_MUZZLE = 0x4a3527;
+
+/** Высота холки: от неё считается весь зверь. Взрослый олень, не лань. */
+const DEER_H = 1.24;
+
+/** Туловище оленя вместе с хвостом. Ноги и голова — отдельными мешами: они ходят. */
+function deerTorso(): THREE.Mesh {
+  const c = coat(DEER_COAT);
+  const parts: K.Part[] = [
+    // Корпус — два бруса вместо одного: круп выше и уже груди, и от этого
+    // силуэт читается оленем, а не ящиком на ножках.
+    K.box(0.5, 0.54, 0.78, c, 0, DEER_H - 0.27, 0.16),
+    K.box(0.44, 0.48, 0.5, c, 0, DEER_H - 0.24, -0.42),
+    K.box(0.42, 0.2, 0.72, coat(DEER_BELLY), 0, DEER_H - 0.5, 0.14),
+    // Хвост: короткий, светлый — единственное белое пятно, по нему зверя и
+    // видно в траве, когда он повернулся спиной.
+    K.box(0.12, 0.2, 0.08, coat(DEER_BELLY), 0, DEER_H - 0.16, -0.66),
+  ];
+  const m = K.assemble(parts);
+  m.name = 'torso';
+  return m;
+}
+
+/**
+ * Шея, голова и рога — одним мешем с осью поворота в холке.
+ *
+ * Отдельно от корпуса потому, что голова — это и есть весь язык зверя: пасётся
+ * (опущена), заметил (вскинута). Сказать то же самое корпусом нечем.
+ */
+function deerHead(): THREE.Mesh {
+  const c = coat(DEER_COAT);
+  const horn = coat(DEER_HORN);
+  const parts: K.Part[] = [
+    K.cyl(0.13, 0.17, 0.56, c, 6, 0, 0.24, 0.14, { x: -0.5 }),
+    K.box(0.19, 0.21, 0.34, c, 0, 0.47, 0.36, { x: 0.24 }),
+    K.box(0.13, 0.13, 0.18, coat(DEER_MUZZLE), 0, 0.42, 0.54, { x: 0.24 }),
+  ];
+  for (const sx of [-1, 1]) {
+    // Уши торчат в стороны — их видно с любого ракурса, и вскинутая голова
+    // читается даже когда зверь стоит боком.
+    parts.push(K.box(0.05, 0.14, 0.09, c, sx * 0.12, 0.55, 0.3, { z: sx * 0.5 }));
+    // Рог: ствол и два отростка. Больше отростков на восьми метрах не видно.
+    parts.push(K.cyl(0.018, 0.026, 0.36, horn, 4, sx * 0.08, 0.72, 0.28, { z: sx * 0.32, x: -0.2 }));
+    parts.push(K.cyl(0.014, 0.018, 0.22, horn, 4, sx * 0.17, 0.86, 0.34, { z: sx * 0.7 }));
+    parts.push(K.cyl(0.014, 0.018, 0.2, horn, 4, sx * 0.14, 0.9, 0.16, { z: sx * 0.25, x: 0.6 }));
+  }
+  const m = K.assemble(parts);
+  m.name = 'head';
+  return m;
+}
+
+/** Пара ног с осью в суставе: их и качает шаг. `back` — задние, они толще. */
+function deerLegs(back: boolean): THREE.Mesh {
+  const c = coat(DEER_COAT);
+  const parts: K.Part[] = [];
+  const z = back ? -0.42 : 0.38;
+  for (const sx of [-1, 1]) {
+    parts.push(K.cyl(back ? 0.075 : 0.06, 0.045, 0.62, c, 5, sx * 0.17, -0.31, z));
+    parts.push(K.box(0.08, 0.07, 0.13, coat(DEER_MUZZLE), sx * 0.17, -0.6, z + 0.02));
+  }
+  const m = K.assemble(parts);
+  m.name = back ? 'legsBack' : 'legsFront';
+  return m;
+}
+
+/**
+ * Олень: корпус, голова и две пары ног.
+ *
+ * Четыре меша, а не один склеенный, и это единственное место на поляне, где
+ * склейка отменена нарочно: зверь — единственное, что здесь движется само, и
+ * неподвижный олень читается чучелом с первого взгляда. Плата — четыре вызова
+ * отрисовки; при бюджете поляны в полтора десятка это ровно та цена, ради
+ * которой бюджет и держат низким.
+ *
+ * Ставит его на место сцена: положение зверя живёт во времени кадров и в
+ * сохранение не попадает (`hunt.ts`, шапка).
+ */
+export function deer(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'deer';
+  const legsF = deerLegs(false);
+  const legsB = deerLegs(true);
+  legsF.position.y = DEER_H - 0.34;
+  legsB.position.y = DEER_H - 0.34;
+  const head = deerHead();
+  head.position.set(0, DEER_H - 0.2, 0.42);
+  g.add(deerTorso(), head, legsF, legsB);
+  return g;
+}
+
+/**
+ * Туша: тот же зверь, лежащий на боку.
+ *
+ * Одним мешем — лежащему двигать нечем. Ноги вытянуты и подняты: лежащий на
+ * боку олень с ногами «как стоял» читается спящим, а спящего игрок пойдёт
+ * будить.
+ */
+export function carcass(): THREE.Mesh {
+  const c = coat(DEER_COAT);
+  const parts: K.Part[] = [
+    K.box(0.54, 0.5, 0.76, c, 0, 0.26, 0.14, { z: Math.PI / 2 }),
+    K.box(0.48, 0.44, 0.48, c, 0, 0.24, -0.44, { z: Math.PI / 2 }),
+    K.box(0.2, 0.72, 0.2, coat(DEER_BELLY), 0.16, 0.2, 0.12, { z: Math.PI / 2 }),
+    // Шея и голова лежат в траве, рога торчат вверх — по ним тушу и видно.
+    K.cyl(0.13, 0.17, 0.5, c, 6, 0, 0.16, 0.6, { x: 1.35 }),
+    K.box(0.19, 0.2, 0.32, c, 0, 0.11, 0.88, { x: 1.5, z: 0.4 }),
+    K.cyl(0.02, 0.028, 0.4, coat(DEER_HORN), 4, 0.06, 0.3, 0.94, { x: -0.5, z: 0.5 }),
+    K.cyl(0.016, 0.02, 0.26, coat(DEER_HORN), 4, 0.2, 0.44, 0.98, { z: 1.0 }),
+  ];
+  for (const sx of [-1, 1]) {
+    for (const z of [-0.4, 0.36]) {
+      parts.push(K.cyl(0.07, 0.045, 0.6, c, 5, 0.3, 0.34 + sx * 0.12, z, { z: 1.1 + sx * 0.24 }));
+    }
+  }
+  const m = K.assemble(parts);
+  m.name = 'carcass';
+  return m;
+}
+
+/**
+ * Стрела: древко, наконечник и оперение.
+ *
+ * Лежит вдоль −Z, наконечником вперёд — тем же концом, каким смотрит камера,
+ * поэтому летящей стреле не нужно ни разворота, ни поправки: направление взгляда
+ * и есть её поворот.
+ */
+export function arrow(): THREE.Mesh {
+  const parts: K.Part[] = [
+    K.cyl(0.008, 0.008, 0.68, K.paintOf('wood'), 5, 0, 0, 0, { x: Math.PI / 2 }),
+    K.cone(0.017, 0.07, K.paintOf('metal'), 5, 0, 0, -0.37, { x: -Math.PI / 2 }),
+  ];
+  for (let i = 0; i < 3; i++) {
+    parts.push(K.box(0.004, 0.05, 0.11, K.paintOf('bone'), 0, 0, 0.29, { z: (i / 3) * Math.PI * 2 }));
+  }
+  const m = K.assemble(parts);
+  m.name = 'arrow';
+  m.castShadow = false;
+  return m;
+}
+
+/**
+ * Лук: дуга и тетива.
+ *
+ * Дуга набрана короткими отрезками по окружности — гнуть геометрию тут нечем, а
+ * восьми отрезков хватает, чтобы на вытянутой руке она читалась дугой, а не
+ * многоугольником. Плечи лука лежат в плоскости XY, тетива идёт по хорде.
+ */
+export function bow(): THREE.Mesh {
+  const wood = coat(0x7d5a34);
+  const string = coat(0xd8cdb4);
+  const parts: K.Part[] = [];
+  const r = 0.62;
+  const span = 2.0;
+  const n = 8;
+  // Дуга в плоскости YZ: плечи уходят вверх и вниз, а концы наклонены к
+  // стрелку — тетива обязана оказаться с его стороны, иначе лук вывернут.
+  for (let i = 0; i < n; i++) {
+    const a = -span / 2 + (span * (i + 0.5)) / n;
+    parts.push(
+      K.cyl(0.013, 0.016, (r * span) / n + 0.012, wood, 4, 0, Math.sin(a) * r, r * (1 - Math.cos(a)), { x: a }),
+    );
+  }
+  const tipY = Math.sin(span / 2) * r;
+  const tipZ = r * (1 - Math.cos(span / 2));
+  parts.push(K.cyl(0.005, 0.005, tipY * 2, string, 3, 0, 0, tipZ));
+  const m = K.assemble(parts);
+  m.name = 'bow';
+  m.castShadow = false;
+  return m;
+}

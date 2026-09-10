@@ -7,16 +7,50 @@
  *
  * ПРАВИЛО ОДНО, И ОНО ТО ЖЕ, ЧТО У ВСЕЙ ИГРЫ: **кнопка, которая не сработает,
  * гаснет и говорит причину.** В деревне так устроены стройка, ковка, наём и
- * письма (`ui/parts/Cost.tsx`); здесь платить нечем, кроме дров в руках, но
+ * письма (`ui/parts/Cost.tsx`); здесь платить нечем, кроме дров и мяса, но
  * правило от этого не меняется — проваливающихся нажатий не бывает, и «ничего
  * не произошло» игрок читать не должен.
+ *
+ * ДВЕРЕЙ ТРИ, И ОНИ РАЗВЕДЕНЫ НАРОЧНО.
+ *
+ *   `offer`  — тап и большая кнопка внизу: **не целится**, а бьёт по
+ *              ближайшему в досягаемости. Так взяли топор, свалили дерево,
+ *              положили дрова, срезали мясо, подобрали стрелу;
+ *   `bow`    — своя кнопка: натянуть и пустить. **Целится**, и летит стрела
+ *              туда, куда смотрят;
+ *   `meal`   — своя кнопка на счётчике мяса: поесть можно где угодно и когда
+ *              угодно, подходить не к чему.
+ *
+ * Смешивать первую со второй нельзя ни в какую сторону. Тап по зверю не
+ * работает, потому что зверь не подпускает; выстрел «по ближайшему» не работает,
+ * потому что тогда лук перестанет быть луком и станет второй кнопкой действия.
+ * Это записано и здесь, и в `glade.SpotKind`, и проверено тестом.
  */
 import { HEARTH_CAP, fuelAt } from './fire';
-import { TREE_LOGS, type Spot } from './glade';
+import { STARVE_MS, causeOfDeath, mealHours, type Death } from './body';
+import { TREE_LOGS, type GladeState, type Spot } from './glade';
+import { DEER_MEAT, carcassLeft, liveCarcass } from './hunt';
 import type { PrologueSave } from './save';
 
-/** Что именно делает действие. `null` — делать нечего. */
-export type Deed = 'take-axe' | 'chop' | 'feed' | null;
+/**
+ * Что именно делает действие. `null` — делать нечего.
+ *
+ * Один список на все три двери, а не три коротких: сцена выполняет их одним
+ * разбором, и разведи их по типам — появился бы четвёртый способ что-то
+ * сделать, о котором забыли бы при первой правке.
+ */
+export type Deed =
+  | 'take-axe'
+  | 'take-kit'
+  | 'chop'
+  | 'feed'
+  | 'roast'
+  | 'butcher'
+  | 'take-arrow'
+  | 'draw'
+  | 'shoot'
+  | 'eat'
+  | null;
 
 export interface Offer {
   deed: Deed;
@@ -30,6 +64,19 @@ export interface Offer {
 
 const NOTHING: Offer = { deed: null, label: 'Осмотрись', can: false, why: 'Подойди ближе' };
 
+const ok = (deed: Deed, label: string): Offer => ({ deed, label, can: true, why: '' });
+const no = (deed: Deed, label: string, why: string): Offer => ({ deed, label, can: false, why });
+
+/**
+ * Сколько полена сгорает на один кусок мяса.
+ *
+ * Полполена — три часа горения; полный олень, то есть шесть кусков, стоит трёх
+ * полен, то есть **ровно одного дерева**. Это и есть цена огня как кухни, и
+ * она названа числом нарочно: без неё жарка была бы бесплатной, а «есть сырым»
+ * — решением без второй стороны.
+ */
+export const ROAST_COST = 0.5;
+
 /**
  * Что предлагает игроку то, рядом с чем он стоит.
  *
@@ -39,19 +86,95 @@ const NOTHING: Offer = { deed: null, label: 'Осмотрись', can: false, wh
 export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
   if (!spot) return NOTHING;
   if (spot.kind === 'axe') {
-    if (s.axe) return { deed: null, label: 'Топор у тебя', can: false, why: 'Топор уже в руках' };
-    return { deed: 'take-axe', label: 'Взять топор', can: true, why: '' };
+    return s.axe ? no(null, 'Топор у тебя', 'Топор уже в руках') : ok('take-axe', 'Взять топор');
+  }
+  if (spot.kind === 'tent') {
+    return s.kit ? no(null, 'Пусто', 'Пожитки разобраны') : ok('take-kit', 'Взять лук и запас');
+  }
+  if (spot.kind === 'arrow') {
+    return ok('take-arrow', 'Подобрать стрелу');
+  }
+  if (spot.kind === 'carcass') {
+    const left = carcassLeft(s.hunt, now);
+    return left > 0 ? ok('butcher', `Срезать мясо (${left})`) : no(null, 'Ничего не осталось', 'Туша пуста');
   }
   if (spot.kind === 'tree') {
-    if (!s.axe) return { deed: 'chop', label: 'Рубить', can: false, why: 'Нужен топор' };
-    return { deed: 'chop', label: 'Рубить', can: true, why: '' };
+    return s.axe ? ok('chop', 'Рубить') : no('chop', 'Рубить', 'Нужен топор');
   }
-  // Костёр.
-  if (s.logs <= 0) return { deed: 'feed', label: 'Подложить дров', can: false, why: 'Дров нет' };
-  if (fuelAt(s.hearth, now) >= HEARTH_CAP - 0.001)
-    return { deed: 'feed', label: 'Подложить дров', can: false, why: 'Костёр и так полон' };
-  return { deed: 'feed', label: 'Подложить дров', can: true, why: '' };
+  // Костёр. Дел у него два, и жарка идёт первой: с сырым мясом в руках человек
+  // подошёл к огню за ним, а не за тем, чтобы подкинуть дров.
+  const fuel = fuelAt(s.hearth, now);
+  if (s.meat.raw > 0) {
+    if (fuel <= 0) return no('roast', 'Пожарить мясо', 'Костёр погас');
+    if (fuel < ROAST_COST) return no('roast', 'Пожарить мясо', 'В костре не осталось дров');
+    return ok('roast', `Пожарить мясо (${roastCount(s, now)})`);
+  }
+  if (s.logs <= 0) return no('feed', 'Подложить дров', 'Дров нет');
+  if (fuel >= HEARTH_CAP - 0.001) return no('feed', 'Подложить дров', 'Костёр и так полон');
+  return ok('feed', 'Подложить дров');
+}
+
+/**
+ * Сколько кусков костёр вправду прожарит: сколько несут и на сколько хватит дров.
+ *
+ * Жарит **всё, что может**, а не по куску за нажатие: шесть тапов по одному и
+ * тому же костру — это не решение, а работа.
+ */
+export const roastCount = (s: PrologueSave, now: number): number =>
+  Math.max(0, Math.min(s.meat.raw, Math.floor(fuelAt(s.hearth, now) / ROAST_COST)));
+
+/**
+ * Что предлагает лук.
+ *
+ * Два шага, а не удержание: тап натягивает, второй тап пускает. Между ними
+ * можно целиться сколько угодно — и целиться при этом **вторым пальцем**, тем
+ * самым, которым смотрят. Удержание отняло бы этот палец у взгляда, а других у
+ * игрока нет.
+ */
+export function bow(s: PrologueSave, drawn: boolean): Offer {
+  if (!s.kit) return no(null, 'Лук', 'Лука нет');
+  if (drawn) return ok('shoot', 'Пустить');
+  if (s.quiver <= 0) return no(null, 'Лук', 'Стрелы кончились');
+  return ok('draw', 'Натянуть');
+}
+
+/**
+ * Что предлагает кусок мяса.
+ *
+ * Есть на полный живот нельзя, и это не придирка: сверх сытости не наедаются,
+ * лишнее пропадает, — а погасшая кнопка с причиной честнее, чем съеденный
+ * впустую кусок оленя.
+ */
+export function meal(s: PrologueSave, hunger: number, raw: boolean): Offer {
+  const have = raw ? s.meat.raw : s.meat.cooked;
+  const label = raw ? 'Съесть сырым' : 'Съесть';
+  if (have <= 0) return no('eat', label, raw ? 'Сырого мяса нет' : 'Жареного мяса нет');
+  // Порог — не круглое число, а доля куска: пока голода меньше, чем даст самый
+  // маленький кусок, есть его значит выбросить бо́льшую часть.
+  const gain = (mealHours(raw) * 3_600_000) / STARVE_MS;
+  if (hunger < Math.min(gain, 0.02)) return no('eat', label, 'Ты сыт');
+  return ok('eat', label);
 }
 
 /** Сколько полен даёт сваленное дерево — в одном месте с ценой действия. */
 export const logsFromTree = (): number => TREE_LOGS;
+
+/**
+ * Что на поляне сейчас можно тронуть.
+ *
+ * Единственное место, где срок жизни туши превращается в «есть она или нет»:
+ * геометрия про часы не знает, а помнить о них каждому вызову `nearest` нельзя —
+ * забудет первый же.
+ */
+export const reach = (s: PrologueSave, now: number): GladeState => ({
+  felled: s.felled,
+  arrows: s.arrows,
+  carcass: liveCarcass(s.hunt, now),
+  kit: s.kit,
+});
+
+/** Жив ли человек — и если нет, отчего умер. */
+export const death = (s: PrologueSave, now: number): Death => causeOfDeath(s.body, s.hearth, now);
+
+/** Сколько кусков даёт олень — интерфейсу, чтобы не считать это второй раз. */
+export const MEAT_PER_DEER = DEER_MEAT;

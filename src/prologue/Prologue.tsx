@@ -3,7 +3,7 @@ import { probe } from '@/debug';
 // Свой файл стилей, а не строки в общем: он уезжает вместе с чанком режима и
 // в первую загрузку игры не входит (почему — в самом файле).
 import './prologue.css';
-import { HEARTH_CAP } from './fire';
+import { deathWords } from './body';
 import { loadPrologue } from './save';
 import { PrologueScene, type PrologueView } from './scene';
 
@@ -30,6 +30,12 @@ import { PrologueScene, type PrologueView } from './scene';
  * `PrologueView` только когда в нём что-то изменилось (`scene.refresh`). Стик
  * ходьбы — исключение: он ездит за пальцем, и его сцена двигает сама, минуя
  * React, иначе React перерисовывался бы шестьдесят раз в секунду ради кружка.
+ *
+ * ТЕСНО ЛИ НА ЭКРАНЕ — вопрос, который решается тем, чего здесь **нет**.
+ * Полос три, но видно обычно две: полоса холода поднимается только когда с
+ * теплом что-то не так, а пока костёр горит и человек у огня — её нет вовсе.
+ * Так же и счётчики: чего нет в руках, того нет и на экране. Внизу всегда ровно
+ * две кнопки — действие и лук, — и ни одна из них не переезжает.
  */
 export function Prologue({ onExit }: { onExit: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -44,7 +50,21 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     if (!wrap) return;
     const canvas = document.createElement('canvas');
     canvas.className = 'pro-canvas';
-    wrap.appendChild(canvas);
+    /*
+     * ПЕРВЫМ УЗЛОМ, А НЕ ПОСЛЕДНИМ, И ЭТО НЕ МЕЛОЧЬ.
+     *
+     * Канву заводит эффект, а не разметка (причина — выше), и эффект приходит
+     * после первого рисования: `appendChild` клал её **последней**. А
+     * позиционированные соседи без своего слоя рисуются в порядке разметки —
+     * то есть непрозрачный холст закрывал собой всю надстройку целиком: полосы,
+     * счётчики, обе кнопки. Поймано глазами на 375 px: на экране была одна
+     * поляна и ни одной кнопки.
+     *
+     * Лечится это одним словом, а не слоями: холст — пол, надстройка над ним,
+     * и порядок разметки говорит это сам. Слои пришлось бы помнить каждому
+     * новому элементу, а `prepend` не надо помнить никому.
+     */
+    wrap.prepend(canvas);
     const scene = new PrologueScene(canvas, loadPrologue());
     sceneRef.current = scene;
     scene.onView = setView;
@@ -78,8 +98,13 @@ export function Prologue({ onExit }: { onExit: () => void }) {
   }, []);
 
   const act = useCallback(() => sceneRef.current?.doAct(), []);
+  const shoot = useCallback(() => sceneRef.current?.doBow(), []);
+  const eatCooked = useCallback(() => sceneRef.current?.eatMeal(false), []);
+  const eatRaw = useCallback(() => sceneRef.current?.eatMeal(true), []);
+  const again = useCallback(() => sceneRef.current?.reviveNow(), []);
 
-  const fuel = view ? view.fill * HEARTH_CAP : 0;
+  /** Полоса тревоги о холоде видна только тогда, когда с теплом что-то не так. */
+  const showCold = !!view && (view.coldFill > 0.005 || view.fireFill <= 0);
 
   return (
     <div className="pro" ref={wrapRef}>
@@ -93,22 +118,51 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         ← Выход
       </button>
 
-      <div className="pro-hearth">
-        <div className="pro-bar">
-          <i style={{ width: `${Math.round((view?.fill ?? 0) * 100)}%` }} />
-        </div>
-        <div className="pro-hearth-say">
-          Костёр: {view?.words ?? '…'}
-          {fuel > 0 && <span className="pro-dim"> · {fuel.toFixed(1)} из {HEARTH_CAP} полен</span>}
-        </div>
+      {/* Три полосы одной меркой: сколько ещё хватит. Слово справа отвечает на
+          тот вопрос, который игрок вправду задаёт, — успею ли вернуться. */}
+      <div className="pro-vitals">
+        <Vital icon="🔥" kind="fire" fill={view?.fireFill ?? 0} words={view?.fireWords ?? '…'} />
+        <Vital icon="🍗" kind="fed" fill={view?.fedFill ?? 1} words={view?.fedWords ?? '…'} />
+        {showCold && (
+          <Vital
+            icon="❄️"
+            kind={view?.warming ? 'thaw' : 'cold'}
+            fill={view?.coldFill ?? 0}
+            words={view?.coldWords ?? ''}
+          />
+        )}
       </div>
 
+      {/* Что в руках. Чего нет — того и на экране нет: пустые счётчики съедали бы
+          ширину, которой на 360 px и так впритык. Мясо при этом кнопка: есть
+          можно где угодно, подходить не к чему. */}
       <div className="pro-hands">
-        {view?.axe && <span>🪓 топор</span>}
-        <span>🪵 дров: {view?.logs ?? 0}</span>
+        {view?.axe && <span>🪓</span>}
+        {view?.bow && <span>🏹 {view.quiver}</span>}
+        {!!view?.logs && <span>🪵 {view.logs}</span>}
+        {!!view?.cooked && (
+          <button className="pro-bite" onClick={eatCooked} disabled={!view.eatCooked.can} title={view.eatCooked.why}>
+            🍗 {view.cooked}
+          </button>
+        )}
+        {!!view?.raw && (
+          <button className="pro-bite raw" onClick={eatRaw} disabled={!view.eatRaw.can} title={view.eatRaw.why}>
+            🥩 {view.raw}
+          </button>
+        )}
       </div>
 
-      {view && view.chops > 0 && <div className="pro-chops">Ещё ударов: {view.chops}</div>}
+      {view && view.busy !== '' && (
+        <div className="pro-chops">
+          {view.busy}
+          {view.busyLeft > 0 && `: ${view.busyLeft}`}
+        </div>
+      )}
+
+      {/* Перекрестье появляется только с натянутым луком — и это единственное
+          место в игре, где оно честно: тап не целится, а стрела летит ровно
+          сюда. Стояло бы всегда — обещало бы прицел там, где его нет. */}
+      {view?.drawn && <div className="pro-cross" aria-hidden="true" />}
 
       <div className="pro-act">
         {/* Правило то же, что у стройки и писем: кнопка, которая не сработает,
@@ -116,16 +170,59 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         <button className="pro-do" onClick={act} disabled={!view?.offer.can}>
           {view?.offer.label ?? 'Осмотрись'}
         </button>
-        {view && !view.offer.can && <div className="pro-why">{view.offer.why}</div>}
+        {/* Лук — своя кнопка, и стоит она под большим пальцем той руки, которая
+            смотрит: целиться и пускать одной рукой. */}
+        <button
+          className={`pro-bow${view?.drawn ? ' drawn' : ''}`}
+          onClick={shoot}
+          disabled={!view?.shot.can}
+          title={view?.shot.why}
+        >
+          {view?.drawn ? '➹' : '🏹'}
+        </button>
       </div>
+      {view && !view.offer.can && <div className="pro-why">{view.offer.why}</div>}
 
       {hint && (
         <div className="pro-hint">
           <b>Слева — идти, справа — смотреть.</b>
-          <span>Тап — действие: подойди к пню за топором, свали дерево, положи дрова в костёр.</span>
-          <span className="pro-dim">На ПК: WASD или стрелки, мышью тянуть, пробел — действие.</span>
+          <span>Тап — действие над тем, к чему подошёл: топор на колоде, пожитки у палатки, дрова в костёр.</span>
+          <span>Лук — своей кнопкой: натянуть, навести взглядом, пустить. Оленя тапом не достать.</span>
+          <span className="pro-dim">На ПК: WASD или стрелки, мышью тянуть, пробел — действие, F — лук.</span>
         </div>
       )}
+
+      {/* Смерть — экран поверх всего, и он называет причину. Молча начатое
+          заново утро игрок прочитал бы как сбой, а не как свою ошибку. */}
+      {view?.dead && (
+        <div className="pro-dead">
+          <b>{deathWords(view.dead)}</b>
+          <span>
+            {view.dead === 'cold'
+              ? 'Костёр прогорел, и греться стало нечем. Уходя, оставляй в очаге дров.'
+              : 'Запас кончился раньше, чем ты вернулся. Мясо жарится на костре и хранится дольше сырого.'}
+          </span>
+          <span className="pro-dim">
+            Новое утро: очаг разожжён, топор и лук при тебе. Запас мяса пропал — его придётся добыть.
+          </span>
+          <button className="pro-do" onClick={again}>
+            Снова
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Одна строка тревог: значок, полоса, срок словами. Три штуки одинаковые. */
+function Vital({ icon, kind, fill, words }: { icon: string; kind: string; fill: number; words: string }) {
+  return (
+    <div className={`pro-vital ${kind}`}>
+      <i className="pro-vital-ico">{icon}</i>
+      <div className="pro-bar">
+        <i style={{ width: `${Math.round(Math.max(0, Math.min(1, fill)) * 100)}%` }} />
+      </div>
+      <em>{words}</em>
     </div>
   );
 }

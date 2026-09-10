@@ -99,18 +99,57 @@
   font-size: 14px;
 }
 
-/* Костёр наверху по центру: он и есть всё, что игрок обязан видеть постоянно. */
-.pro-hearth {
+/*
+ * Три полосы наверху: костёр, сытость, тепло. Одна мерка на все три — «сколько
+ * ещё хватит», — и одно слово справа, отвечающее на вопрос «успею ли
+ * вернуться». Полосой этот вопрос не выражается: у костра шаг в шесть часов, и
+ * за заход она не двигается вовсе.
+ *
+ * Строк видно обычно две: холод показывается только когда с теплом что-то не
+ * так (см. `Prologue.tsx`). Пустая полоса тревоги — это строка, которая ничего
+ * не сообщает и при этом занимает ширину; на 360 px такого позволить нельзя.
+ */
+.pro-vitals {
   position: absolute;
-  top: calc(var(--safe-top) + 10px);
+  /* Второй строкой: первую делят кнопка выхода и счётчики в руках. Ставить
+     полосы туда же значило бы наехать на выход — что и вышло с первого раза. */
+  top: calc(var(--safe-top) + 10px + var(--tap) + 6px);
   left: 50%;
   transform: translateX(-50%);
-  width: min(240px, 56vw);
-  text-align: center;
+  width: min(300px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   pointer-events: none;
 }
 
+.pro-vital {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pro-vital-ico {
+  font-style: normal;
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.pro-vital em {
+  flex: 0 0 auto;
+  min-width: 54px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text);
+  text-align: right;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
 .pro-bar {
+  flex: 1 1 auto;
   height: 8px;
   border-radius: 4px;
   background: rgba(26, 20, 16, 0.7);
@@ -125,11 +164,22 @@
   transition: width 0.3s;
 }
 
-.pro-hearth-say {
-  margin-top: 5px;
-  font-size: 12px;
-  color: var(--text);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+/*
+ * Цвет говорит, что за полоса. Две первые — запас: полные это хорошо. Третья —
+ * тревога: полная это плохо, и потому она синяя и появляется только тогда,
+ * когда есть о чём тревожиться. Зелёный отсвет у неё значит «отогревается» —
+ * это единственное, что игрок вправду делает с холодом.
+ */
+.pro-vital.fed .pro-bar i {
+  background: linear-gradient(90deg, #6f8f3f, #9cbc55);
+}
+
+.pro-vital.cold .pro-bar i {
+  background: linear-gradient(90deg, #4b6f9b, #8fb6dc);
+}
+
+.pro-vital.thaw .pro-bar i {
+  background: linear-gradient(90deg, #4b6f9b, #cf9a55);
 }
 
 .pro-dim {
@@ -141,12 +191,37 @@
   top: calc(var(--safe-top) + 10px);
   right: calc(var(--safe-right) + 10px);
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  /* Счётчики ничего не нажимают, а мясо — кнопка: у неё свой `pointer-events`. */
   pointer-events: none;
+}
+
+/*
+ * Кусок мяса — кнопка на самом счётчике, а не отдельная строка внизу: есть
+ * можно где угодно, подходить не к чему, и заводить ради этого третью кнопку в
+ * нижнем ряду значило бы отнять место у двух настоящих.
+ */
+.pro-bite {
+  pointer-events: auto;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(26, 20, 16, 0.72);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.pro-bite.raw {
+  color: var(--muted);
+}
+
+.pro-bite:disabled {
+  opacity: 0.55;
 }
 
 .pro-chops {
@@ -171,16 +246,19 @@
   left: 50%;
   bottom: calc(var(--safe-bottom) + 16px);
   transform: translateX(-50%);
+  width: min(344px, calc(100vw - 24px));
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 10px;
 }
 
 .pro-do {
+  flex: 0 1 auto;
   min-height: 52px;
-  min-width: 170px;
-  padding: 0 20px;
+  min-width: 150px;
+  max-width: 100%;
+  padding: 0 16px;
   border: 0;
   border-radius: var(--radius);
   background: var(--accent);
@@ -188,6 +266,11 @@
   font: inherit;
   font-size: 16px;
   font-weight: 700;
+  /* Слово на кнопке не переносится: «Подложить / дров» в две строки читается
+     как две кнопки. Длинные надписи ужимаются буквой, а не высотой. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pro-do:disabled {
@@ -195,10 +278,96 @@
   color: var(--muted);
 }
 
+/*
+ * Лук — вторая и последняя кнопка нижнего ряда. Справа она потому, что там же
+ * лежит палец, которым смотрят: навёл и пустил одной рукой, не отпуская
+ * взгляда. Натянутая, она меняет и цвет, и знак — «сейчас пустит» должно быть
+ * видно, не читая.
+ */
+.pro-bow {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 52px;
+  border: 0;
+  border-radius: var(--radius);
+  background: rgba(60, 48, 38, 0.9);
+  color: var(--text);
+  font: inherit;
+  font-size: 21px;
+  line-height: 1;
+}
+
+.pro-bow.drawn {
+  background: var(--accent-2);
+  color: var(--accent-text);
+}
+
+.pro-bow:disabled {
+  opacity: 0.45;
+}
+
+/*
+ * Перекрестье. Стоит ровно в середине холста и появляется только с натянутым
+ * луком: стрела летит туда, куда смотрят, и в эту минуту середина экрана
+ * впервые что-то значит.
+ */
+.pro-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(243, 233, 216, 0.9);
+  box-shadow: 0 0 0 1.5px rgba(26, 20, 16, 0.55), 0 0 10px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
 .pro-why {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 74px);
+  transform: translateX(-50%);
   font-size: 12px;
   color: var(--muted);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/*
+ * Экран смерти. Он перекрывает и сцену, и обе кнопки — играть больше нечем, — и
+ * называет причину словами: молча начатое заново утро игрок прочитал бы как
+ * сбой, а не как свою ошибку.
+ */
+.pro-dead {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 26px;
+  text-align: center;
+  background: rgba(14, 11, 9, 0.86);
+}
+
+.pro-dead b {
+  font-size: 24px;
+  letter-spacing: 0.5px;
+}
+
+.pro-dead span {
+  max-width: 300px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pro-dead .pro-do {
+  margin-top: 8px;
 }
 
 .pro-hint {

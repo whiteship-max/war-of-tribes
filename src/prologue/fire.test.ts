@@ -83,22 +83,22 @@ describe('подкладывание дров', () => {
 
 describe('сколько ещё гореть — словами', () => {
   it('срок называется тем, чем игрок его меряет', () => {
-    expect(burnWords({ fuel: HEARTH_CAP, at: 0 }, 0)).toBe('хватит на двое суток');
-    expect(burnWords({ fuel: 5, at: 0 }, 0)).toBe('хватит на сутки');
-    expect(burnWords({ fuel: 2, at: 0 }, 0)).toBe('хватит на 12 ч');
+    expect(burnWords({ fuel: HEARTH_CAP, at: 0 }, 0)).toBe('двое суток');
+    expect(burnWords({ fuel: 5, at: 0 }, 0)).toBe('сутки');
+    expect(burnWords({ fuel: 2, at: 0 }, 0)).toBe('12 ч');
     // Секунда спустя всё ещё двенадцать: часы округляются, а не отбрасываются.
-    expect(burnWords({ fuel: 2, at: 0 }, 1000)).toBe('хватит на 12 ч');
+    expect(burnWords({ fuel: 2, at: 0 }, 1000)).toBe('12 ч');
     // Сорок два часа — «сутки»: в эту сторону ошибаться безопаснее.
-    expect(burnWords({ fuel: 7, at: 0 }, 0)).toBe('хватит на сутки');
-    expect(burnWords({ fuel: 0.1, at: 0 }, 0)).toBe('хватит на 36 мин');
+    expect(burnWords({ fuel: 7, at: 0 }, 0)).toBe('сутки');
+    expect(burnWords({ fuel: 0.1, at: 0 }, 0)).toBe('36 мин');
     expect(burnWords({ fuel: 0, at: 0 }, 0)).toBe('погас');
   });
 
-  it('«хватит на 0 мин» не говорится никогда', () => {
+  it('«0 мин» не говорится никогда', () => {
     // Ноль минут — это «погас», и говорить его иначе значит врать дважды.
     for (let f = 0.0001; f < 0.05; f += 0.0007) {
       const s = burnWords({ fuel: f, at: 0 }, 0);
-      expect(s === 'погас' || /хватит на [1-9]/.test(s), s).toBe(true);
+      expect(s === 'погас' || /^[1-9]/.test(s), s).toBe(true);
     }
   });
 });

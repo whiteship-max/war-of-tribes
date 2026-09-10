@@ -23,7 +23,15 @@ import {
   yawTo,
 } from './glade';
 
-const NONE = TREES.map(() => 0);
+/**
+ * Нетронутая поляна для `nearest`: лес цел, стрел нет, туши нет, пожитки
+ * разобраны. Пожитки — нарочно: иначе палатка попадала бы в каждую проверку
+ * про костёр и дерево, а эти проверки не про неё.
+ */
+const NONE = { felled: TREES.map(() => 0), arrows: [], carcass: null, kit: true };
+
+/** Та же поляна, но с заданными пнями. */
+const felledAt = (felled: number[]) => ({ ...NONE, felled });
 
 describe('поляна расставлена', () => {
   it('всё стоит внутри поляны и никто ни на ком', () => {
@@ -46,7 +54,7 @@ describe('поляна расставлена', () => {
   });
 
   it('игрок входит на свободное место и лицом к делу', () => {
-    const free = slide(START.x, START.z, blockers(NONE, 0));
+    const free = slide(START.x, START.z, blockers(NONE.felled, 0));
     expect(free.x).toBeCloseTo(START.x, 6);
     expect(free.z).toBeCloseTo(START.z, 6);
     // Первое, что он видит, — колода с топором: с неё начинается вся цепочка.
@@ -110,8 +118,8 @@ describe('до чего дотянулись — то и сделаем', () => 
     const t = TREES[0];
     const d = Math.hypot(t.x, t.z);
     const k = (d - TREE_R - BODY_R) / d;
-    expect(nearest(t.x * k, t.z * k, felled, 1000)).toBeNull();
-    expect(nearest(t.x * k, t.z * k, felled, 1000 + REGROW_MS)?.kind).toBe('tree');
+    expect(nearest(t.x * k, t.z * k, felledAt(felled), 1000)).toBeNull();
+    expect(nearest(t.x * k, t.z * k, felledAt(felled), 1000 + REGROW_MS)?.kind).toBe('tree');
   });
 });
 
@@ -133,12 +141,12 @@ describe('пень зарастает по времени, а не по тику
 
 describe('в преграды не входят, а обходят их', () => {
   it('шаг в костёр выталкивает наружу', () => {
-    const p = slide(0.1, 0.1, blockers(NONE, 0));
+    const p = slide(0.1, 0.1, blockers(NONE.felled, 0));
     expect(Math.hypot(p.x, p.z)).toBeCloseTo(FIRE.r + BODY_R, 6);
   });
 
   it('ровно в середине преграды направления нет, но и застрять нельзя', () => {
-    const p = slide(FIRE.x, FIRE.z, blockers(NONE, 0));
+    const p = slide(FIRE.x, FIRE.z, blockers(NONE.felled, 0));
     expect(Number.isFinite(p.x) && Number.isFinite(p.z)).toBe(true);
     expect(Math.hypot(p.x - FIRE.x, p.z - FIRE.z)).toBeCloseTo(FIRE.r + BODY_R, 6);
   });
@@ -148,7 +156,7 @@ describe('в преграды не входят, а обходят их', () => 
     const t = TREES[0];
     let x = t.x - 2;
     let z = t.z - 0.4;
-    const blocks = blockers(NONE, 0);
+    const blocks = blockers(NONE.felled, 0);
     let moved = 0;
     for (let i = 0; i < 60; i++) {
       const p = slide(x + 0.08, z, blocks);
@@ -162,7 +170,7 @@ describe('в преграды не входят, а обходят их', () => 
   });
 
   it('за край поляны не уйти', () => {
-    const p = slide(100, 100, blockers(NONE, 0));
+    const p = slide(100, 100, blockers(NONE.felled, 0));
     expect(Math.hypot(p.x, p.z)).toBeCloseTo(GLADE_R, 6);
   });
 
