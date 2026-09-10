@@ -423,6 +423,22 @@ async function report(): Promise<void> {
     if (await tab.eval<boolean>('JSON.stringify(!!(window.__scene && window.__game))')) break;
     if (i > 100) throw new Error('сцена не поднялась за 30 с — смотри вывод «в странице:» выше');
   }
+  // Стартовый экран закрывает канву целиком, и до него ни один след не дойдёт:
+  // `free()` увидит поверх канвы его, а не сцену, и все постройки уйдут в
+  // «под разметкой». Игрок это нажатие делает сам; стенд мерит не его, поэтому
+  // жмёт кнопку прямо, а не касанием. Не нашли кнопку — это находка, а не
+  // помеха: значит стартовый экран переделали, и стенд надо чинить.
+  const entered = await tab.eval<string>(`(() => {
+    const go = document.querySelector('.start-go');
+    if (!go) return JSON.stringify(document.querySelector('.start') ? 'экран есть, кнопки нет' : 'нет экрана');
+    go.click();
+    return JSON.stringify('вошли');
+  })()`);
+  if (entered === 'экран есть, кнопки нет') throw new Error('стартовый экран без кнопки «.start-go» — стенд надо чинить');
+  await sleep(200);
+  if (await tab.eval<boolean>("JSON.stringify(!!document.querySelector('.start'))")) {
+    throw new Error('стартовый экран не ушёл после нажатия — следы дошли бы до него, а не до деревни');
+  }
   await tab.eval<string>(PROBE.replace('LEVEL_WANTED', String(LEVEL)));
   const maxLevel: Record<string, number> = {};
   for (const def of BUILDINGS) maxLevel[def.id] = def.maxLevel ?? 10;

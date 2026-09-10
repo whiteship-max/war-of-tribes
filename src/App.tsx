@@ -22,6 +22,7 @@ import { Letters } from './ui/Letters';
 import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
 import { SceneCurtain } from './ui/SceneCurtain';
+import { StartScreen } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { WorldPanel } from './ui/panels/WorldPanel';
 import { MarchesPanel } from './ui/panels/MarchesPanel';
@@ -68,6 +69,15 @@ export function App() {
   const bootWorld = useWorld((g) => g.boot);
   // Содержимое шторки переживает закрытие, чтобы она не уезжала пустой.
   const [shown, setShown] = useState<SheetView | null>(null);
+  /**
+   * Вошёл ли игрок в партию. До этого поверх всего стоит стартовый экран.
+   *
+   * Состояние местное, а не в сторе, нарочно: снаружи на стартовый экран ничто
+   * не ведёт и вернуться на него нельзя — он бывает один раз за запуск. Полю в
+   * общем сторе тут делать нечего (сравни с `townTab`: тот в сторе именно
+   * потому, что на него ведёт ссылка из справки о морали).
+   */
+  const [started, setStarted] = useState(false);
   const appRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -159,6 +169,17 @@ export function App() {
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}
       <SyncModal />
+      {/*
+        Стартовый экран поверх всего, включая окна: пока игрок не вошёл, ему
+        нечего решать про партию, в которую он ещё не зашёл. Вопрос второй
+        вкладки, отброшенное старое сохранение, итог офлайна — всё это дождётся
+        входа и будет задано по одному, а не стопкой поверх заставки.
+
+        Появляется он вместе с приложением, то есть когда игра уже готова, и
+        снимается мгновенно — тем же движением, каким снимается экран загрузки
+        под ним.
+      */}
+      {!started && <StartScreen onEnter={() => setStarted(true)} />}
     </div>
   );
 }

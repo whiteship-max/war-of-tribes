@@ -9,7 +9,7 @@
 // 3. выключенный звук не грузит вовсе, а сборка без файлов работает молча.
 //
 // Всё это видно только по вызовам, поэтому среда подменяется счётчиком.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from '@/battle/sim';
@@ -226,8 +226,18 @@ describe('рычаг на музыку один на всю игру', () => {
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
 
   it('пишет настройку ровно одно место интерфейса — раздел настроек', () => {
-    for (const f of ['ui/battle/BattleReplay.tsx', 'ui/panels/ReportPanel.tsx']) {
-      expect(read(f), f).not.toContain('setSoundOn');
+    // Список файлов был на двоих — на те, откуда рычаг убирали. Со вторым местом
+    // показа (стартовый экран) перечисление перестало годиться: правило обязано
+    // ловить и тот файл, о котором никто не подумал. Поэтому читается весь `ui`.
+    const walk = (dir: string): string[] =>
+      readdirSync(join(SRC, dir), { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name.endsWith('.tsx') ? [`${dir}/${e.name}`] : [],
+      );
+    const files = walk('ui');
+    expect(files.length).toBeGreaterThan(20);
+    for (const f of files) {
+      if (f === 'ui/parts/Settings.tsx') continue;
+      expect(read(f), `${f}: второй рычаг на звук`).not.toContain('setSoundOn');
     }
     expect(read('ui/parts/Settings.tsx')).toContain('setSoundOn');
   });

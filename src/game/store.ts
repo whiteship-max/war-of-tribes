@@ -102,6 +102,15 @@ export interface GameStore {
   offlineSeconds: number;
   /** Найденное сохранение было старого формата и отброшено — игроку об этом говорят прямо. */
   legacyReset: boolean;
+  /**
+   * Сохранения на устройстве не было: партия началась только что.
+   *
+   * Здесь оно затем, что стартовому экрану надо выбрать единственную честную
+   * кнопку — «Начать игру» или «Продолжить», — а знает об этом только `loadGame`,
+   * и знает ровно один раз, на запуске. Отброшенное старое сохранение (`legacy`)
+   * тоже даёт свежую партию: продолжать там нечего.
+   */
+  fresh: boolean;
   sheet: SheetView | null;
   /**
    * Открыта карта мира. Диорама при этом не просто стоит, а выгружена целиком:
@@ -185,6 +194,7 @@ export const useGame = create<GameStore>((set, get) => ({
   ready: false,
   offlineSeconds: 0,
   legacyReset: false,
+  fresh: true,
   sheet: null,
   mapOpen: false,
   curtain: null,
@@ -304,7 +314,7 @@ export const useGame = create<GameStore>((set, get) => ({
     // знает, а визитке нужны готовые значения. Свой выбор игрока это не трогает —
     // он лежит рядом и приоритетнее (см. profile/identity).
     setTelegramIdentity(state, tgDisplayName(), tgUser()?.photo_url ?? null);
-    set({ s: state, ready: true, offlineSeconds, legacyReset: legacy });
+    set({ s: state, ready: true, offlineSeconds, legacyReset: legacy, fresh });
     // Старое сохранение к новой партии не подходит: его место сразу занимает новая.
     if (legacy) get().save();
     // Синхронизация начинается после того, как игра уже пошла, и ничего не

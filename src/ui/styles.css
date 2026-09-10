@@ -3428,6 +3428,41 @@ body {
   background: var(--accent-text);
 }
 
+/* Строки настроек столбиком: без зазора вторая села бы на первую вплотную. */
+.set-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/*
+ * Строка-сообщение: тот же вид, что и у переключателя, но не кнопка. Нажимать
+ * нечего — язык один, — и притворяться нажимаемой ей нельзя: выключенный выбор
+ * читается как «скоро будет», а «скоро» здесь никем не назначено.
+ */
+.set-row.static {
+  cursor: default;
+}
+
+/*
+ * Флаг полосками, а не эмодзи. Пара региональных индикаторов (🇷🇺) на Windows
+ * не рисуется вовсе — вместо флага встают буквы «RU», — а флаг здесь и есть всё
+ * сообщение. Три полоски рисуются одинаково везде.
+ */
+.flag {
+  display: block;
+  width: 18px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.flag-ru {
+  background: linear-gradient(180deg, #f4f1ea 0 33.3%, #2f4f9e 33.3% 66.6%, #c33 66.6% 100%);
+}
+
 .profile-head {
   display: flex;
   align-items: flex-start;
@@ -4323,4 +4358,135 @@ body.replaying .app > *:not(.canvas-wrap) {
 .spare .row {
   display: flex;
   gap: 8px;
+}
+
+/* ---------- Стартовый экран ---------- */
+/*
+ * Продолжение экрана загрузки, а не второй экран: тот же арт, та же присказка,
+ * то же место на экране. Экран загрузки лежит в `index.html` со слоем 100 и
+ * снимается по первому кадру диорамы — под ним к этому времени уже стоит
+ * этот, слоем ниже. Игрок видит не смену экранов, а исчезновение полоски и
+ * появление кнопки.
+ *
+ * Слой 70 — выше всего в игре, включая занавес перехода (60) и ролик о бое (40),
+ * и ниже экрана загрузки (100). Порядок этих трёх чисел и есть весь переход.
+ *
+ * Числа арта — те же, что в `index.html`, и это не дублирование правила, а его
+ * условие: разъедутся `object-position` или высота затемнения — и передача
+ * станет видна прыжком картинки. Ровно поэтому они и стоят рядом с этим
+ * объяснением, а не выведены в переменную, которую поправят с одной стороны.
+ */
+.start {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 24px 24px calc(var(--safe-bottom) + 28px);
+  background: var(--bg);
+  /* Отсвет костра — на случай, если арт не приехал: тот же, что у экрана загрузки. */
+  background-image: radial-gradient(60% 34% at 50% 74%, rgba(255, 154, 58, 0.22), rgba(255, 154, 58, 0) 70%);
+  overflow: hidden;
+  text-align: center;
+}
+
+.start-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Вождь и костёр остаются в кадре при обеих ориентациях — разбор в index.html. */
+  object-position: 31% 22%;
+}
+
+.start-scrim {
+  position: absolute;
+  inset: auto 0 0;
+  height: 52%;
+  background: linear-gradient(180deg, rgba(26, 20, 16, 0) 0%, rgba(26, 20, 16, 0.82) 58%, rgba(26, 20, 16, 0.96) 100%);
+}
+
+.start-body {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.start-name {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  /* Отступ съедает межбуквенный интервал последней буквы — иначе слово стоит криво. */
+  text-indent: 0.22em;
+  color: var(--text);
+}
+
+/*
+ * Присказка стоит там же, где стояла на экране загрузки, и теми же буквами.
+ * Пустой она не бывает у живого клиента, но бывает у теста и у страницы,
+ * открытой без экрана загрузки, — тогда строка просто схлопывается.
+ */
+.start-say {
+  margin: 0 0 6px;
+  max-width: 22em;
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.start-say:empty {
+  display: none;
+}
+
+.start-go {
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.start-go:active {
+  filter: brightness(0.92);
+}
+
+.start-more {
+  width: 100%;
+  min-height: var(--tap);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(26, 20, 16, 0.5);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+/*
+ * Окно настроек лежит внутри стартового экрана, поэтому его слой (20) считается
+ * от него же: свой stacking context у `.start` есть — position + z-index.
+ *
+ * Выравнивание сбрасывается нарочно: у стартового экрана строки по центру, а
+ * настройки — тот же компонент, что в профиле, и выглядеть он обязан там и тут
+ * одинаково. Иначе «один компонент в двух местах» верно только в исходнике.
+ */
+.start .modal-backdrop {
+  position: fixed;
+}
+
+.start .modal {
+  text-align: left;
 }
