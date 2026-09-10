@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import type { SaveCard, SaveRecord } from '../../netlify/lib/contract';
+import type { CastleClaim, SaveCard, SaveRecord } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { armySize, dayOf, population } from '@/game/derived';
 import { power } from '@/profile/power';
@@ -17,7 +17,7 @@ import { profileName } from '@/profile/identity';
 import { browserStorage } from '@/world/local/state';
 import { device } from './session';
 
-export type { SaveCard, SaveRecord };
+export type { CastleClaim, SaveCard, SaveRecord };
 
 export const cardOf = (s: GameState): SaveCard => ({
   name: profileName(s.profile),
@@ -38,4 +38,16 @@ export function snapshotOf(s: GameState): SaveRecord {
     world: browserStorage.read(),
     card: cardOf(s),
   };
+}
+
+/**
+ * Что игрок сообщает о себе общему реестру замков. Три числа из той же описи:
+ * своей формулы мощи или населения здесь нет ни одной, и заводить её нельзя —
+ * иначе соседи видели бы одну мощь, а профиль показывал другую.
+ *
+ * Координат тут нет и быть не может: где стоит замок, решает сервер.
+ */
+export function claimOf(s: GameState): CastleClaim {
+  const card = cardOf(s);
+  return { name: card.name, power: card.power, pop: card.pop };
 }
