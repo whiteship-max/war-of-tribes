@@ -7,22 +7,30 @@
 // живых игроков. Код племён, дипломатии, писем и осад при этом на месте —
 // разбирать его будем отдельно; здесь просто некому в нём участвовать.
 //
-// Расстановка по-прежнему детерминирована по сиду: один сид — те же логова и тот
-// же замок. **Порядок обращений к `rng` — часть мира.** Мир не хранится, он
-// пересобирается из сида на каждой загрузке: переставь здесь два вызова местами,
-// и у всех, кто уже играет, логова окажутся в других местах.
+// Расстановка по-прежнему детерминирована по сиду. **Порядок обращений к `rng` —
+// часть мира.** Мир не хранится, он пересобирается из сида на каждой загрузке:
+// переставь здесь два вызова местами, и у всех, кто уже играет, логова окажутся
+// в других местах.
+//
+// Замок игрока из этого правила вышел: где он стоит, решает не сид, а общий
+// реестр (`netlify/functions/castles.mts`), и клетка приезжает сюда аргументом.
+// Своё место осталось на случай, когда сервера нет вовсе, — и считает его то же
+// правило, что и сервер (`settle.placeCastle`), а не второе, здешнее. Поток
+// случайных чисел у него **свой** (`seed ^ HOME_SALT`): иначе число попыток,
+// потраченных на поиск дома, двигало бы логова у порога — а они лежат в
+// сохранении по идентификаторам, и сдвиг означал бы сожжённое логово, ожившее
+// на новом месте.
 import type { ResourceId } from '@/game/types';
 import { seeded } from '@/game/sim/random';
 import type { Coord, SettlementId, TribeId } from './types';
 import { coordKey, distance, terrainFactor } from './geo';
-import { buildable, reachableLand, terrainAt } from './geography';
+import { buildable } from './geography';
+import { placeCastle } from './settle';
 import {
   AI_RANGE,
   BARBARIAN_BLOCK,
   HOME_SIGHT,
   BARBARIAN_CHANCE,
-  HOME_LAND_RADIUS,
-  HOME_LAND_SHARE,
   LAIR_ANCHOR_HOME,
   LAIR_ANCHOR_FAR,
   LAIR_ANCHOR_RANGE,
@@ -30,7 +38,6 @@ import {
   LAIR_NEAR_CAP,
   LAIR_REACH_FACTOR,
   LAIR_SETTLE_GAP,
-  MAINLAND_MIN,
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from './data/tuning';
@@ -85,7 +92,19 @@ const clamp = (v: number, min: number, max: number): number => Math.min(max, Mat
 const habitable = (seed: number, x: number, y: number): boolean =>
   x >= lo.x && y >= lo.y && x < hi.x && y < hi.y && buildable(seed, x, y);
 
-export function generateWorld(seed: number): WorldGen {
+/**
+ * Соль для потока случайных чисел, которым ищется дом. Отдельный поток нужен
+ * затем, чтобы число потраченных на поиск попыток не двигало всё, что берётся
+ * из `rng` после него.
+ */
+const HOME_SALT = 0x5c1f;
+
+/**
+ * Мир по сиду. `home` — клетка замка игрока, когда она уже известна: её даёт
+ * общий реестр, и тогда искать её здесь нечего. Без неё дом ищется тем же
+ * правилом, каким его нашёл бы сервер, — игра без сети обязана расселять так же.
+ */
+export function generateWorld(seed: number, home?: Coord): WorldGen {
   const rng = seeded(seed);
   const int = (min: number, max: number): number => min + Math.floor(rng() * (max - min + 1));
 
@@ -117,27 +136,20 @@ export function generateWorld(seed: number): WorldGen {
     }
   }
 
-  // 2. Замок игрока. Прежде он вставал рядом с чужим двором — обжитая область
-  // была видна с первого взгляда. Дворов не осталось, поэтому правило другое и
-  // выражено через саму землю: клетка пригодна, не пустыня и стоит на материке.
-  // Сорок процентов настоящей карты — море, и без последней проверки первая
-  // партия рано или поздно начиналась бы на скале посреди Атлантики.
-  let home: Coord | null = null;
-  for (let attempt = 0; attempt < 400 && !home; attempt++) {
-    const x = Math.round(lo.x + rng() * (WORLD_SIZE - 1));
-    const y = Math.round(lo.y + rng() * (WORLD_SIZE - 1));
-    if (!habitable(seed, x, y)) continue;
-    if (terrainAt(seed, x, y) === 'desert') continue;
-    // Сначала дешёвая мерка по кругу, и только на прошедших — обход суши: он
-    // стоит тысячи клеток, и гонять его на каждую пробу из четырёхсот незачем.
-    if (landShare(seed, x, y) < HOME_LAND_SHARE) continue;
-    if (reachableLand(seed, x, y, MAINLAND_MIN) < MAINLAND_MIN) continue;
-    if (settlements.some((s) => distance(s, { x, y }) < LAIR_HOME_GAP)) continue;
-    home = { x, y };
+  // 2. Замок игрока. Клетку либо назвали снаружи (её выбрал общий реестр), либо
+  // её ищет то же правило, что и на сервере, — второго правила расселения в
+  // игре нет (`settle.placeCastle`).
+  const at: Coord = home ?? placeCastle(seeded((seed ^ HOME_SALT) >>> 0), []);
+
+  // Логова, случайно легшие у самого порога, убираются. Раньше от них уходил
+  // сам поиск дома; теперь дом приходит первым, и посторониться должны они.
+  // Логово в шести клетках от ворот — это не сложность, а набег на второй
+  // минуте партии.
+  for (let i = settlements.length - 1; i >= 0; i--) {
+    if (distance(settlements[i], at) >= LAIR_HOME_GAP) continue;
+    byKey.delete(coordKey(settlements[i].x, settlements[i].y));
+    settlements.splice(i, 1);
   }
-  // Не нашлось за четыреста попыток — берём первую пригодную клетку материка.
-  // Молча вставать в геометрический центр сетки нельзя: там может быть море.
-  if (!home) home = firstMainland(seed);
 
   // 3. Логова у порога. Мир и так заводит их по ходу партии (`spawnLair`), но
   // ждать за это первые полчаса нечего: без ботов логово — единственная цель на
@@ -153,14 +165,14 @@ export function generateWorld(seed: number): WorldGen {
     for (let attempt = 0; attempt < 60; attempt++) {
       const a = rng() * Math.PI * 2;
       const r = LAIR_HOME_GAP + rng() * (far - LAIR_HOME_GAP);
-      const x = Math.round(home.x + Math.cos(a) * r);
-      const y = Math.round(home.y + Math.sin(a) * r);
+      const x = Math.round(at.x + Math.cos(a) * r);
+      const y = Math.round(at.y + Math.sin(a) * r);
       if (!habitable(seed, x, y) || byKey.has(coordKey(x, y))) continue;
-      if (distance({ x, y }, home) < LAIR_HOME_GAP) continue;
+      if (distance({ x, y }, at) < LAIR_HOME_GAP) continue;
       if (settlements.some((o) => distance(o, { x, y }) < LAIR_SETTLE_GAP)) continue;
       // До первой цели идут посуху. На настоящей карте у замка на берегу
       // ближайшее место через залив: по прямой десять клеток, по времени полчаса.
-      if (terrainFactor(seed, home, { x, y }) >= LAIR_REACH_FACTOR) continue;
+      if (terrainFactor(seed, at, { x, y }) >= LAIR_REACH_FACTOR) continue;
       addLair(x, y);
       break;
     }
@@ -168,38 +180,7 @@ export function generateWorld(seed: number): WorldGen {
 
   // Союзного племени нет, потому что нет племён. Поле остаётся ради договора с
   // остальным миром: он спрашивает его в десятке мест и переживёт пустую строку.
-  return { seed, size: WORLD_SIZE, origin: { ...WORLD_ORIGIN }, tribes, settlements, byKey, home, allyTribe: 't0' };
-}
-
-/**
- * Доля суши вокруг клетки — дешёвая отбраковка перед обходом материка. Четыреста
- * проб, три сотни клеток каждая; настоящий обход (`reachableLand`) стоит тысячи и
- * гонять его на всё подряд незачем.
- */
-function landShare(seed: number, x: number, y: number): number {
-  let land = 0;
-  let all = 0;
-  const r = HOME_LAND_RADIUS;
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) {
-      if (dx * dx + dy * dy > r * r) continue;
-      all++;
-      if (terrainAt(seed, x + dx, y + dy) !== 'water') land++;
-    }
-  }
-  return all > 0 ? land / all : 0;
-}
-
-/** Первая пригодная клетка материка. Запасной путь, и он обязан быть на земле. */
-function firstMainland(seed: number): Coord {
-  for (let y = lo.y; y < hi.y; y++) {
-    for (let x = lo.x; x < hi.x; x++) {
-      if (!habitable(seed, x, y)) continue;
-      if (reachableLand(seed, x, y, MAINLAND_MIN) < MAINLAND_MIN) continue;
-      return { x, y };
-    }
-  }
-  throw new Error('Атлас мира: материка не нашлось ни в одной клетке.');
+  return { seed, size: WORLD_SIZE, origin: { ...WORLD_ORIGIN }, tribes, settlements, byKey, home: at, allyTribe: 't0' };
 }
 
 /**

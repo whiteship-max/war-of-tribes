@@ -6,7 +6,7 @@
 // игроков делает сервер (`netlify/functions/castles.mts`), а серверу нужна
 // земля: замок на острове в две клетки — это игрок, с которым никто никогда не
 // встретится. Затянуть в функцию `geography.ts` нельзя: он берёт типы из
-// `./types`, а тот тянет `@/game/*` и `@/battle`, которых у серверного проекта
+// `./types`, а тот тянет `@/game` и `@/battle`, которых у серверного проекта
 // типов нет вовсе (`netlify/tsconfig.json`: ни `paths`, ни DOM). Скопировать
 // правило на вторую сторону — значит завести вторую правду о том, где кончается
 // суша, и разойтись с ней в первый же день.
@@ -22,7 +22,7 @@
 // подписях остался ради полутора десятков мест вызова.
 import { ATLAS_TERRAIN } from './atlas/data';
 import { ATLAS_RIDGE, ATLAS_RIVER, atlasCell, atlasTerrain } from './atlas/atlas';
-import { WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
+import { PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
 
 /**
  * Клетка мира. Тип объявлен здесь, а не взят из `world/types`: этот модуль
@@ -163,7 +163,7 @@ export function reachableLand(x: number, y: number, cap: number): number {
  * (`geo.terrainFactor`), и по той же причине: при фиксированном числе проб
  * пролив растворился бы в длине.
  */
-export function waterShare(a: Spot, b: Spot, perCell = 2): number {
+export function waterShare(a: Spot, b: Spot, perCell = PATH_SAMPLES_PER_CELL): number {
   const d = Math.hypot(a.x - b.x, a.y - b.y);
   const samples = Math.max(3, Math.round(d * perCell));
   let water = 0;

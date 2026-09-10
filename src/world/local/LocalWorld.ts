@@ -252,7 +252,7 @@ import {
 export const HOME_ID: SettlementId = 'home';
 
 /** Набег, который пришёлся на время без игрока, не состоится: игра остаётся лёгкой. */
-const AWAY_GRACE = 20_000;
+export const AWAY_GRACE = 20_000;
 
 export interface LocalWorldOptions {
   /** Сид мира. По умолчанию берётся из сохранения, иначе случайный. */

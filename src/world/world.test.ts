@@ -3,7 +3,7 @@ import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { armySize, commandCap, defense, soldierPower } from '@/game/derived';
 import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
-import { LocalWorld } from './local/LocalWorld';
+import { AWAY_GRACE, LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
 import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet } from './geography';
@@ -866,11 +866,21 @@ describe('мягкость мира', () => {
   });
 
   it('набег, пришедшийся на отсутствие игрока, не состоится', async () => {
-    const { world, advance, at } = makeWorld(202);
+    const { world, advance, at, now } = makeWorld(202);
     await world.sync(profile());
-    advance(40 * 60_000);
-    const pulse = await world.sync(profile());
-    const raid = pulse.marches.find((m) => m.hostile);
+    // Нужен набег, который на момент последнего пульса ещё **в пути**: отпуск
+    // засчитывается по времени с прошлого взгляда игрока (`AWAY_GRACE`), и
+    // отряд, которому до ворот осталось меньше этого, придёт по-настоящему —
+    // игрок ведь только что смотрел. Раньше здесь брался первый попавшийся
+    // набег, и то, что он оказывался далёким, зависело от того, куда сид
+    // поставил деревню. Дом теперь ставит реестр, а не сид, — и предпосылку
+    // надо не предполагать, а обеспечивать.
+    let raid: MarchView | undefined;
+    for (let tries = 0; tries < 12 && !raid; tries++) {
+      advance(20 * 60_000);
+      const pulse = await world.sync(profile());
+      raid = pulse.marches.find((m) => m.hostile && m.arriveAt - now() > AWAY_GRACE);
+    }
     if (!raid) return;
 
     // Игрок закрыл игру и вернулся, когда всё давно прошло.
