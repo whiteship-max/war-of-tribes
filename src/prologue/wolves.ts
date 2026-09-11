@@ -38,7 +38,7 @@
  * Модуль чистый: ни DOM, ни three, ни React, ни часов, ни случайности.
  */
 import { WOUNDS_FATAL } from './body';
-import { GLADE_R, WOLF_R, hash } from './glade';
+import { GLADE_R, WOLF_R, byHouse, hash } from './glade';
 import { SKY_MS, isNight } from './sky';
 
 const H = 3_600_000;
@@ -219,9 +219,14 @@ export const wolfSpot = (now: number, n: number): { x: number; z: number } => {
  *
  * Одна чистая функция на всю игру, и спрашивают её двое — сцена (куда шагнуть) и
  * тест (не подходит ли к огню). Второй правды об этом между ними быть не должно.
+ *
+ * Второе место, куда волк не войдёт, — достроенный дом (`house`): укрытие от
+ * волков — половина того, зачем дом строят. Круг тот же, что круг под крышей
+ * (`glade.byHouse`), и держится при любом огне: дом нужен ровно тогда, когда
+ * костёр погас.
  */
-export const wolfKeepsOut = (x: number, z: number, lit: boolean): boolean =>
-  lit && Math.hypot(x, z) < WOLF_FIRE_R;
+export const wolfKeepsOut = (x: number, z: number, lit: boolean, house = false): boolean =>
+  (lit && Math.hypot(x, z) < WOLF_FIRE_R) || (house && byHouse(x, z));
 
 /**
  * Может ли волк, стоящий здесь, укусить человека, стоящего там.
@@ -237,8 +242,11 @@ export const wolfCanBite = (
   px: number,
   pz: number,
   lit: boolean,
+  house = false,
 ): boolean =>
-  !wolfKeepsOut(px, pz, lit) && !wolfKeepsOut(wx, wz, lit) && Math.hypot(px - wx, pz - wz) <= WOLF_BITE_R;
+  !wolfKeepsOut(px, pz, lit, house) &&
+  !wolfKeepsOut(wx, wz, lit, house) &&
+  Math.hypot(px - wx, pz - wz) <= WOLF_BITE_R;
 
 /** На какой высоте у волка корпус — по нему и целятся. Ниже оленя: волк ниже. */
 export const WOLF_BODY_Y = 0.62;

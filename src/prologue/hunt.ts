@@ -132,6 +132,11 @@ export interface Pt {
 export interface Carcass extends Pt {
   /** Сколько кусков уже забрали. */
   taken: number;
+  /**
+   * Снята ли шкура. Снимают её, когда мясо срезано: шкура — на одежду, и она не
+   * должна заслонять собой еду у того, кто пришёл за едой.
+   */
+  skinned: boolean;
 }
 
 /**
@@ -170,9 +175,11 @@ export const deerInMs = (hunt: Hunt, now: number): number =>
 export const deerHome = (hunt: Hunt): Pt =>
   DEER_SPOTS[Math.floor(hash(hunt.killedAt * 0.001, 17) * DEER_SPOTS.length) % DEER_SPOTS.length];
 
-/** Пропала ли туша: растащили до конца или пролежала своё. */
+/** Пропала ли туша: взяли всё — мясо и шкуру — или пролежала своё. */
 export const carcassGone = (hunt: Hunt, now: number): boolean =>
-  !hunt.carcass || hunt.carcass.taken >= DEER_MEAT || now - hunt.killedAt >= CARCASS_MS;
+  !hunt.carcass ||
+  (hunt.carcass.taken >= DEER_MEAT && hunt.carcass.skinned) ||
+  now - hunt.killedAt >= CARCASS_MS;
 
 /** Туша, с которой ещё есть что взять. `null` — брать нечего. */
 export const liveCarcass = (hunt: Hunt, now: number): Carcass | null =>
@@ -182,6 +189,12 @@ export const liveCarcass = (hunt: Hunt, now: number): Carcass | null =>
 export const carcassLeft = (hunt: Hunt, now: number): number => {
   const c = liveCarcass(hunt, now);
   return c ? DEER_MEAT - c.taken : 0;
+};
+
+/** Осталась ли на туше шкура, которую можно снять. */
+export const hideLeft = (hunt: Hunt, now: number): boolean => {
+  const c = liveCarcass(hunt, now);
+  return !!c && !c.skinned;
 };
 
 /** Сколько туше осталось лежать, миллисекунды. */
@@ -257,10 +270,12 @@ export function arrowHits(
 /**
  * Стрелы: сколько в колчане и сколько лежит на поляне.
  *
- * Всё, что с ними делают, — три действия, и живут они здесь, а не в сцене,
- * ровно ради одного обещания: **стрела не размножается и не пропадает.** Сумма
- * «в колчане плюс на земле плюс одна в полёте» не меняется никогда, и проверить
- * это можно только там, где эти три действия и написаны.
+ * Всё, что с ними делают, — четыре действия, и живут они здесь, а не в сцене,
+ * ровно ради одного обещания: **стрела не размножается и не пропадает сама.**
+ * Три действия — выстрел, приземление, подбор — сумму «в колчане плюс на земле
+ * плюс одна в полёте» не меняют никогда; четвёртое, строгание, прибавляет ровно
+ * столько, сколько выстрогано из полена, и больше ни одно. Проверить это можно
+ * только там, где все четыре и написаны.
  */
 export interface Arrows {
   quiver: number;
@@ -279,6 +294,16 @@ export const pickArrow = (a: Arrows, i: number): Arrows =>
   i < 0 || i >= a.arrows.length
     ? a
     : { quiver: a.quiver + 1, arrows: a.arrows.filter((_, k) => k !== i) };
+
+/**
+ * Выстрогать стрелы — четвёртое действие и единственное, что меняет сумму.
+ *
+ * Прибавляет ровно столько, сколько сказано, и только в колчан: воткнувшиеся в
+ * землю от строгания не множатся. Потолок колчана решает не это действие, а
+ * `craft.carveRoom` — здесь только арифметика.
+ */
+export const carveArrows = (a: Arrows, n: number): Arrows =>
+  n <= 0 ? a : { quiver: a.quiver + Math.floor(n), arrows: a.arrows };
 
 /** Сколько стрел у человека, не считая летящей. */
 export const arrowsAll = (a: Arrows): number => a.quiver + a.arrows.length;

@@ -172,7 +172,7 @@ describe('пожитки, туша и стрелы', () => {
   });
 
   it('с туши срезают по куску, и видно, сколько осталось', () => {
-    const s = state({ hunt: { killedAt: 0, carcass: { x: 3, z: 3, taken: 2 } } });
+    const s = state({ hunt: { killedAt: 0, carcass: { x: 3, z: 3, taken: 2, skinned: false } } });
     expect(offer(s, AT_CARCASS, 0)).toMatchObject({ deed: 'butcher', can: true });
     expect(offer(s, AT_CARCASS, 0).label).toBe(`Срезать мясо (${DEER_MEAT - 2})`);
   });

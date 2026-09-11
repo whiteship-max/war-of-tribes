@@ -66,7 +66,7 @@ export interface Blocker {
  * знает только кадр (`wolves.ts`, шапка), поэтому его положение приезжает в
  * `GladeState` снаружи, от сцены, а не выводится из записи.
  */
-export type SpotKind = 'tree' | 'fire' | 'axe' | 'tent' | 'carcass' | 'arrow' | 'wolf';
+export type SpotKind = 'tree' | 'fire' | 'axe' | 'tent' | 'carcass' | 'arrow' | 'wolf' | 'house';
 
 export interface Spot {
   kind: SpotKind;
@@ -95,6 +95,37 @@ export const byFire = (x: number, z: number): boolean => Math.hypot(x - FIRE.x, 
 
 /** Палатка: у костра, вход к огню. */
 export const TENT = { x: -3.3, z: -2.5, r: 1.5, rot: Math.atan2(3.3, 2.5) };
+
+/**
+ * Где встанет дом: у опушки по ту сторону от палатки, дверью к огню.
+ *
+ * Место выбрано по трём условиям, и все три — тесты. Дом не стоит ни на ком:
+ * между ним и любым деревом проходит человек. Из точки, где игрок входит в
+ * режим, дом не в досягаемости: первое, что предлагает поляна, по-прежнему
+ * огонь. И середина дома — внутри круга, куда при горящем костре не входит
+ * волк (`wolves.WOLF_FIRE_R`): путь от огня к двери не идёт мимо стаи, а когда
+ * огня нет, круг дома держит волков сам (`wolves.wolfKeepsOut`).
+ *
+ * Число записано, а не считается, — по той же причине, по какой записаны
+ * деревья: место постройки это факт, и в диффе должно быть видно, куда она
+ * переехала.
+ */
+export const HOUSE = { x: -4.4, z: 3.4, r: 1.8, rot: Math.atan2(4.4, -3.4) };
+
+/**
+ * Круг, в котором человек под крышей.
+ *
+ * Не своё число, а сумма двух записанных — край дома плюс досягаемость, ровно
+ * как круг тепла у огня (`WARM_R`). Значит, под крышей ровно там, откуда кладут
+ * бревно в стену: объяснять это игроку не нужно, он выучит это первой же
+ * стройкой. Заведи здесь своё число — появится полоса, где бревно кладётся, а
+ * крыши нет, или наоборот, и ни то, ни другое ничем не объяснимо.
+ */
+export const HOUSE_SHELTER_R = HOUSE.r + REACH;
+
+/** Под крышей ли человек, стоящий здесь. Достроен ли дом, это не говорит — только место. */
+export const byHouse = (x: number, z: number): boolean =>
+  Math.hypot(x - HOUSE.x, z - HOUSE.z) <= HOUSE_SHELTER_R;
 
 /** Пень с топором: с другой стороны костра, чтобы первый шаг был шагом. */
 export const AXE_STUMP = { x: 2.5, z: 2.2, r: 0.5 };
@@ -167,12 +198,14 @@ export const standing = (felledAt: number, now: number): boolean =>
  * Пень преградой не считается: через него перешагивают, и упираться в
  * невидимую тумбу посреди поляны игрок не должен.
  */
-export function blockers(felled: readonly number[], now: number): Blocker[] {
+export function blockers(felled: readonly number[], now: number, house = false): Blocker[] {
   const out: Blocker[] = [
     { x: FIRE.x, z: FIRE.z, r: FIRE.r },
     { x: TENT.x, z: TENT.z, r: TENT.r },
     { x: AXE_STUMP.x, z: AXE_STUMP.z, r: AXE_STUMP.r },
   ];
+  // Дом становится преградой с первого бревна: разметку переступают, сруб — нет.
+  if (house) out.push({ x: HOUSE.x, z: HOUSE.z, r: HOUSE.r });
   TREES.forEach((t, i) => {
     if (standing(felled[i] ?? 0, now)) out.push({ x: t.x, z: t.z, r: TREE_R });
   });
@@ -195,8 +228,16 @@ export interface GladeState {
   arrows: readonly { x: number; z: number }[];
   /** Туша, с которой ещё есть что взять. */
   carcass: { x: number; z: number } | null;
-  /** Разобраны ли пожитки у палатки. */
-  kit: boolean;
+  /**
+   * Есть ли у палатки дело: пожитки не разобраны или есть шкура на одежду.
+   *
+   * Палатка — цель тапа только тогда, когда тап что-то сделает. Иначе она
+   * отнимала бы нажатие у костра рядом (он в двух шагах), а погашенная надпись
+   * «пусто» у самого огня читалась бы помехой, а не подсказкой.
+   */
+  tent: boolean;
+  /** Строится ли дом: пока не достроен, место стройки — цель тапа. */
+  house: boolean;
   /**
    * Где стоят волки. Приезжает из сцены, а не из записи: их положение живёт во
    * времени кадров (`wolves.ts`). Пустой список — обычное дело.
@@ -234,7 +275,8 @@ export function nearest(px: number, pz: number, w: GladeState, now: number): Spo
   w.wolves.forEach((v, i) => test('wolf', v.x, v.z, WOLF_R, i));
   test('fire', FIRE.x, FIRE.z, FIRE.r, -1);
   test('axe', AXE_STUMP.x, AXE_STUMP.z, AXE_STUMP.r, -1);
-  if (!w.kit) test('tent', TENT.x, TENT.z, TENT.r, -1);
+  if (w.tent) test('tent', TENT.x, TENT.z, TENT.r, -1);
+  if (w.house) test('house', HOUSE.x, HOUSE.z, HOUSE.r, -1);
   if (w.carcass) test('carcass', w.carcass.x, w.carcass.z, 0.55, -1);
   w.arrows.forEach((a, i) => test('arrow', a.x, a.z, 0, i));
   TREES.forEach((t, i) => {

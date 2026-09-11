@@ -1,7 +1,7 @@
 /**
  * Предыстория: что она стоит и проходится ли она пальцем.
  *
- * Отчёт отвечает на пять вопросов, и все пять — измерением, а не мнением:
+ * Отчёт отвечает на шесть вопросов, и все шесть — измерением, а не мнением:
  *
  *   кадр     сколько миллисекунд стоит кадр поляны на телефонном экране
  *            (375×812 @2) и на широком (1280×800 @1), сколько в нём вызовов
@@ -12,6 +12,9 @@
  *            не вызовом метода;
  *   волки    выходят ли они ночью, кружат ли на виду и отбиваются ли топором —
  *            тем же настоящим касанием;
+ *   ремесло  снимается ли шкура, шьётся ли одежда, строгаются ли стрелы и
+ *            ложатся ли брёвна в дом — тем же касанием; и чего ремесло стоит
+ *            беготни и что даёт взамен — числом из тех же формул, что у игры;
  *   сцена    остаётся ли в игре ровно одна живая сцена — и возвращается ли
  *            диорама деревни после выхода из режима.
  *
@@ -55,8 +58,9 @@ import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
 import { BURN_FULL_MS, HEARTH_CAP, LOG_HOURS, LOG_MS } from '../src/prologue/fire';
-import { CHOPS_TO_FELL, GLADE_R, REACH, TREES, TREE_LOGS, WALK_SPEED, WARM_R } from '../src/prologue/glade';
-import { CHILL_H, CHILL_MS, MEAT_FED_H, RAW_SHARE, STARVE_H, WARM_MIN, WOUNDS_FATAL, WOUND_HEAL_H, coldDeadAt, newBody } from '../src/prologue/body';
+import { AXE_STUMP, CHOPS_TO_FELL, GLADE_R, HOUSE, REACH, REGROW_MS, TENT, TREES, TREE_LOGS, WALK_SPEED, WARM_R } from '../src/prologue/glade';
+import { CHILL_H, CHILL_MS, COAT_CHILL, MEAT_FED_H, RAW_SHARE, STARVE_H, WARM_MIN, WOUNDS_FATAL, WOUND_HEAL_H, coldDeadAt, newBody, type Body } from '../src/prologue/body';
+import { ARROWS_PER_LOG, HOUSE_LOGS, HOUSE_PER_STAGE, HOUSE_STAGES, QUIVER_MAX } from '../src/prologue/craft';
 import { newHearth } from '../src/prologue/fire';
 import { ARROWS_START, CARCASS_H, DEER_ALERT, DEER_FLEE, DEER_GAP_H, DEER_MEAT, DEER_SLEEP_FLEE } from '../src/prologue/hunt';
 import { ROAST_COST } from '../src/prologue/act';
@@ -203,6 +207,10 @@ const PROBE = `
         shotCan: v.shot.can,
         drawn: v.drawn,
         dead: v.dead,
+        hides: v.hides,
+        coat: v.coat,
+        house: p.craft().house,
+        roof: p.craft().roof,
         arrows: p.arrowCount(),
         chops: v.busyLeft,
       });
@@ -855,27 +863,38 @@ async function report(): Promise<void> {
   // подкладывается: топор и лук уже в руках — иначе мерили бы не ту поляну, что
   // видит игрок после первого захода, и отбиваться от стаи было бы нечем.
   console.log('\n4. Ночь, непогода, волки (телефон 375×812)\n');
-  const kitSave = `(() => {
+  /**
+   * Запись с топором и луком — и тем, что сверху подложит раздел (`over`).
+   * Туша, подложенная записью, свежая: срок у неё считается от минуты загрузки.
+   */
+  const kitSave = (over: Record<string, unknown> = {}): string => `(() => {
     const now = Date.now();
-    localStorage.setItem('tribe.prologue.v1', JSON.stringify({
+    const save = Object.assign({
       v: 1, hearth: { fuel: 6, at: now }, body: { hunger: 0.2, cold: 0, hurt: 0, at: now },
       hunt: { killedAt: 0, carcass: null }, logs: 0, axe: true, kit: true, quiver: ${ARROWS_START},
       arrows: [], meat: { cooked: 2, raw: 0 }, felled: [${TREES.map(() => 0).join(',')}], wolvesBeatenAt: 0,
-    }));
+    }, ${JSON.stringify(over)});
+    if (save.fuel !== undefined) { save.hearth = { fuel: save.fuel, at: now }; delete save.fuel; }
+    if (save.hunt.carcass) save.hunt.killedAt = now;
+    localStorage.setItem('tribe.prologue.v1', JSON.stringify(save));
     return JSON.stringify('ok');
   })()`;
 
-  /** Перейти в минуту `at` и открыть поляну с топором и луком в руках. */
-  const into = async (at: number): Promise<void> => {
+  /**
+   * Перейти в минуту `at` и открыть поляну с топором и луком в руках.
+   *
+   * `hint` — снять подсказку тапом у костра. С пустыми руками тап там ничего не
+   * делает, а с дровами положил бы их в очаг — поэтому разделы, которые несут
+   * дрова, снимают подсказку первым шагом или взглядом.
+   */
+  const into = async (at: number, over: Record<string, unknown> = {}, hint = true): Promise<void> => {
     await clock(at + 1500);
     await fresh();
-    await tab.eval<string>(kitSave);
+    await tab.eval<string>(kitSave(over));
     await enter();
     await screen(SCREENS[0]);
     await sleep(700);
-    // Первое касание снимает подсказку. У костра с пустыми руками оно ничего не
-    // делает: предложение «Подложить дров» погашено, дров нет.
-    await tap(190, 300);
+    if (hint) await tap(190, 300);
   };
 
   const measure = async (name: string): Promise<void> => {
@@ -1000,7 +1019,148 @@ async function report(): Promise<void> {
   await measure('снег');
   await shoot('5-снег');
 
-  console.log('\n5. Бюджет кадра (настоящий WebGL, ANGLE)\n');
+  // ---------- 5. Ремесло ----------
+  //
+  // Числа — из тех же формул, что у игры: сколько дров уходит на сутки отлучки
+  // раздетым под небом и одетым в доме, и через сколько дней дом окупает свои
+  // брёвна. Потом тем же настоящим касанием: шкура, одежда, стрелы, стройка.
+  console.log('\n5. Ремесло: дом, одежда, стрелы\n');
+  const perVisit = TREES.length * TREE_LOGS;
+  const hearthDay = Math.ceil((24 * H * BURN_MEAN) / LOG_MS);
+  const roastLogs = DEER_MEAT * ROAST_COST;
+  const toHouse = perVisit - hearthDay - roastLogs;
+  /** «бревно», «бревна», «брёвен» — по числу. */
+  const logWord = (n: number): string => {
+    const d = n % 10;
+    const h = n % 100;
+    if (d === 1 && h !== 11) return 'бревно';
+    if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return 'бревна';
+    return 'брёвен';
+  };
+  row('дом', `${HOUSE_LOGS} ${logWord(HOUSE_LOGS)}`, `${HOUSE_STAGES} ступеней по ${HOUSE_PER_STAGE}; укрывает только достроенный`);
+  row('в дом за заход', `${toHouse} ${logWord(toHouse)}`, `${perVisit} с поляны − ${hearthDay} на очаг на сутки − ${roastLogs} на жарку оленя`);
+  row('заходов на дом', num(HOUSE_LOGS / toHouse, 1), `быстрее двух не выйдет: на поляне ${perVisit} ${logWord(perVisit)}, лес отрастает за ${REGROW_MS / H} ч`);
+  row('одежда', `холод ×${COAT_CHILL}`, 'одна шкура: снимают с разделанной туши, шьют у палатки');
+  row('стрелы', `${ARROWS_PER_LOG} из полена`, `колчан до ${QUIVER_MAX}; строгают у колоды`);
+  const kinds: [string, Partial<Body>][] = [
+    ['под небом раздетым', {}],
+    ['под небом одетым', { coat: true }],
+    ['в доме раздетым', { roof: true }],
+    ['в доме одетым', { roof: true, coat: true }],
+  ];
+  /** Без огня до смерти — в среднем по кольцу. */
+  const noFire = (over: Partial<Body>): number => {
+    let sum = 0;
+    let n = 0;
+    for (let t0 = 0; t0 < RING_MS; t0 += 20_000, n++) {
+      sum += coldDeadAt({ ...newBody(t0), warm: false, ...over }, { fuel: 0, at: t0 }) - t0;
+    }
+    return sum / n;
+  };
+  /** Сколько дров оставить в очаге, чтобы сутки отлучки не убили: среднее и худшее по кольцу. */
+  const dayLogs = (over: Partial<Body>): { mean: number; worst: number } => {
+    let sum = 0;
+    let worst = 0;
+    let n = 0;
+    for (let t0 = 0; t0 < RING_MS; t0 += 20_000, n++) {
+      const lives = (f: number): boolean => coldDeadAt({ ...newBody(t0), ...over }, { fuel: f, at: t0 }) - t0 >= 24 * H;
+      let lo = 0;
+      let hi = HEARTH_CAP;
+      for (let i = 0; i < 32; i++) {
+        const mid = (lo + hi) / 2;
+        if (lives(mid)) hi = mid;
+        else lo = mid;
+      }
+      sum += hi;
+      worst = Math.max(worst, hi);
+    }
+    return { mean: sum / n, worst };
+  };
+  console.log('');
+  const days: number[] = [];
+  for (const [name, over] of kinds) {
+    const logs = dayLogs(over);
+    days.push(logs.mean);
+    row(name, `без огня ${num(noFire(over) / H)} ч`, `дров на сутки отлучки ${num(logs.mean, 2)} в среднем, ${num(logs.worst, 2)} в худший час кольца`);
+  }
+  const saved = days[0] - days[3];
+  row('сбережение дома с одеждой', `${num(saved, 2)} полена в сутки`, `дом окупает свои ${HOUSE_LOGS} ${logWord(HOUSE_LOGS)} за ${num(HOUSE_LOGS / saved, 0)} суток отлучек`);
+  console.log('');
+
+  const dayWindow = (span: number): number =>
+    moment(Date.now() + 10_000, span, (t) => !isNight(t) && weatherAt(t) === 'clear' && packAt(t, 0) === 0);
+  const HIDE_AT = { x: 2.0, z: -3.4 };
+  await into(dayWindow(75_000), { logs: 13, fuel: HEARTH_CAP, hunt: { carcass: { ...HIDE_AT, taken: DEER_MEAT, skinned: false } } }, false);
+  const craftFrom = Date.now();
+  if (await walkTo(HIDE_AT.x, HIDE_AT.z, 'Снять шкуру')) {
+    await tap(190, 400);
+    await sleep(BUTCHER_WAIT);
+  }
+  const skinned = await state();
+  const carcassLeft = await tab.eval<{ x: number; z: number } | null>('window.__probe.carcass()');
+  step('с разделанной туши снята шкура', skinned.hides === 1, `шкур в руках ${skinned.hides}, туша ${carcassLeft ? 'лежит' : 'ушла'}`);
+  if (await walkTo(TENT.x, TENT.z, 'Сшить одежду')) await tap(190, 400);
+  const sewn = await state();
+  step('у палатки сшита одежда', sewn.coat === true && sewn.hides === 0, `одет: ${sewn.coat ? 'да' : 'нет'}, шкур ${sewn.hides}`);
+  const logsBefore = sewn.logs as unknown as number;
+  if (await walkTo(AXE_STUMP.x, AXE_STUMP.z, 'Строгать стрелы')) await tap(190, 400);
+  const carved = await state();
+  step(
+    'у колоды выстроганы стрелы',
+    carved.quiver === ARROWS_START + ARROWS_PER_LOG && carved.logs === logsBefore - 1,
+    `стрел ${carved.quiver} (было ${ARROWS_START}), дров ${carved.logs} (было ${logsBefore})`,
+  );
+  if (await walkTo(HOUSE.x, HOUSE.z, 'Ставить дом')) await tap(190, 400);
+  const built = await state();
+  step('брёвна легли в дом ровно по счёту', built.house === carved.logs && built.logs === 0, `в доме ${built.house}, в руках ${built.logs}`);
+  console.log(`\n  Шкура, одежда, стрелы и первая стройка заняли ${num((Date.now() - craftFrom) / 1000, 0)} с настоящими часами.\n`);
+  await turnTo(HOUSE.x, HOUSE.z);
+  await shoot(`6-стройка-${built.house}`);
+
+  /** Дойти до точки, не глядя на надписи: снимку нужен вид, а не дело. */
+  const goTo = async (tx: number, tz: number): Promise<void> => {
+    for (let i = 0; i < 12; i++) {
+      const now = await state();
+      const d = Math.hypot(tx - (now.x as unknown as number), tz - (now.z as unknown as number));
+      if (d < 0.7) return;
+      await turnTo(tx, tz);
+      await walk(Math.min(640, d * 260));
+    }
+  };
+
+  // Ступени стройки — глазами, с шести метров лицом к дому: с места входа сруб
+  // стоит в двух шагах и закрывает собой весь кадр — так вышло с первого
+  // снимка. Замер кадра — у достроенного: это самая тяжёлая поляна ремесла.
+  const VIEW = { x: 1.4, z: 5.2 };
+  for (const logs of SHOTS ? [0, HOUSE_PER_STAGE * 2, HOUSE_PER_STAGE * 4, HOUSE_LOGS] : [HOUSE_LOGS]) {
+    await into(dayWindow(45_000), { house: logs }, false);
+    await goTo(VIEW.x, VIEW.z);
+    await turnTo(HOUSE.x, HOUSE.z);
+    if (logs === HOUSE_LOGS) await measure('день, дом в кадре');
+    await shoot(`6-дом-${logs}`);
+  }
+  let under = false;
+  for (let i = 0; i < 14 && !under; i++) {
+    const now = await state();
+    if (now.roof === true) {
+      under = true;
+      break;
+    }
+    await turnTo(HOUSE.x, HOUSE.z);
+    await walk(300);
+  }
+  step('в достроенном доме — под крышей', under, under ? 'дошёл до сруба, крыша над головой' : 'до крыши не дошёл');
+
+  if (SHOTS) {
+    // Худший случай для ширины: в руках всё, что бывает разом.
+    await into(dayWindow(30_000), { logs: 12, hides: 1, meat: { cooked: 3, raw: 6 } }, false);
+    // Подсказку снимает взгляд, а не тап: короткий сдвиг пальца засчитался бы
+    // тапом и пожарил бы мясо у костра — так и вышло с первого снимка.
+    await look(40);
+    await shoot('7-руки-полные');
+  }
+
+  console.log('\n6. Бюджет кадра (настоящий WebGL, ANGLE)\n');
   console.log(
     `  ${pad('состояние', 28)} ${pad('кадров', 7)} ${pad('в секунду', 10)} ${pad('медиана', 8)} ${pad('p95', 7)} ${pad('худший', 7)} ${pad('вызовов', 8)} треугольников`,
   );

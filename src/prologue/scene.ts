@@ -22,12 +22,13 @@
  * только число начнут копить в кадре, оно разойдётся с формулой у первого же
  * игрока, свернувшего аппку.
  *
- * ДВА МЕСТА, ГДЕ КАДР ВСЁ-ТАКИ КАСАЕТСЯ ЗАПИСИ, И ОБА — СОБЫТИЯМИ, А НЕ
- * ВЕЛИЧИНАМИ. Первое: человек пересёк круг у костра (`warmth`) — от этого
- * зависит, растёт холод или убывает, и пересечение закрывает отрезок ровно так
- * же, как подложенные дрова. Второе: стрела долетела (`arrowStep`) — полёт
- * живёт в кадрах целиком, а записью становится одна точка, куда она воткнулась.
- * В обоих случаях кадр только **замечает мгновение**; считает по-прежнему
+ * ТРИ РОДА МЕСТ, ГДЕ КАДР ВСЁ-ТАКИ КАСАЕТСЯ ЗАПИСИ, И ВСЕ — СОБЫТИЯМИ, А НЕ
+ * ВЕЛИЧИНАМИ. Первое: человек пересёк круг — у костра или под крышей дома
+ * (`warmth`); от этого зависит, растёт холод или убывает и с какой скоростью, и
+ * пересечение закрывает отрезок ровно так же, как подложенные дрова. Второе:
+ * стрела долетела (`arrowStep`) — полёт живёт в кадрах целиком, а записью
+ * становится одна точка, куда она воткнулась. Третье: волк укусил (`wolfStep`).
+ * Во всех случаях кадр только **замечает мгновение**; считает по-прежнему
  * формула, и пересчитать тот же промежуток по частям — значит получить то же
  * число (`body.test.ts`).
  *
@@ -61,11 +62,14 @@ import {
   CHOP_MS,
   EYE,
   GLADE_R,
+  HOUSE,
+  HOUSE_SHELTER_R,
   START,
   TREES,
   WALK_SPEED,
   blockers,
   byFire,
+  byHouse,
   hash,
   nearest,
   slide,
@@ -108,8 +112,10 @@ import {
   hungerWords,
   hurtFill,
   hurtWords,
+  setRoof,
   setWarm,
   warming,
+  wearCoat,
   type Death,
 } from './body';
 import {
@@ -121,6 +127,7 @@ import {
   DEER_RUN,
   DEER_WALK,
   arrowByCarcass,
+  carveArrows,
   deerSleeps,
   fleeRange,
   arrowHits,
@@ -156,11 +163,13 @@ import {
   deer as deerModel,
   forest,
   gladeGround,
+  house as houseModel,
   stump,
   tent,
   wolf as wolfModel,
 } from './models';
 import { KIT_MEAT, revive as reviveSave, savePrologue, type PrologueSave } from './save';
+import { ARROWS_PER_LOG, COAT_HIDES, buildTake, houseDone } from './craft';
 
 /**
  * Что показывает надстройка над сценой. Пересобирается только когда меняется.
@@ -187,6 +196,10 @@ export interface PrologueView {
   quiver: number;
   cooked: number;
   raw: number;
+  /** Шкура в руках: есть ли из чего шить. */
+  hides: number;
+  /** Одет ли: надстройка ставит одежду значком у полосы холода. */
+  coat: boolean;
   /** Что предлагает то, рядом с чем стоим. */
   offer: Offer;
   /** Что предлагает лук: натянуть, пустить или почему нельзя. */
@@ -344,7 +357,11 @@ const SPOT_WORDS: Record<Spot['kind'], string> = {
   carcass: 'туша',
   arrow: 'стрела',
   wolf: 'волк',
+  house: 'дом',
 };
+
+/** Что делается руками и длится: рубка, разделка, шкура, замах в драке. */
+type Work = 'chop' | 'butcher' | 'skin' | 'fight';
 
 /** Что делает зверь. Живёт во времени сцены и никуда не пишется. */
 type Beast = { x: number; z: number; yaw: number; homeX: number; homeZ: number; fleeUntil: number; fleeYaw: number; gait: number };
@@ -415,6 +432,8 @@ function same(a: PrologueView, b: PrologueView): boolean {
     a.quiver === b.quiver &&
     a.cooked === b.cooked &&
     a.raw === b.raw &&
+    a.hides === b.hides &&
+    a.coat === b.coat &&
     a.drawn === b.drawn &&
     a.busy === b.busy &&
     a.busyLeft === b.busyLeft &&
@@ -452,6 +471,9 @@ export class PrologueScene {
   private deerLegsB: THREE.Object3D | null = null;
   private beast: Beast = { x: 0, z: 0, yaw: 0, homeX: 0, homeZ: 0, fleeUntil: 0, fleeYaw: 0, gait: 0 };
   private carcass: THREE.Object3D | null = null;
+  /** Сруб и сколько брёвен в нём показано: пересобирается только на стройке. */
+  private house: THREE.Object3D | null = null;
+  private houseShown = -1;
 
   /** Стая. Пусто — обычное дело: волки приходят не каждую ночь. */
   private pack: Wolf[] = [];
@@ -516,12 +538,13 @@ export class PrologueScene {
   /**
    * Что делается прямо сейчас и когда начато — время сцены.
    *
-   * Дел, которые длятся, ровно два: удар топором и снятие куска с туши. Оба
-   * живут в кадрах и никуда не пишутся: брошенное на середине дерево при
-   * следующем заходе стоит целым, а недорезанная туша — целой. В сохранении
-   * лежит только то, что случилось, а не то, что начинали.
+   * Дел, которые длятся, три: удар топором, снятие куска с туши и снятие
+   * шкуры (замах в драке — картинка, см. `act`). Все живут в кадрах и никуда
+   * не пишутся: брошенное на середине дерево при следующем заходе стоит целым,
+   * а недорезанная туша — целой. В сохранении лежит только то, что случилось,
+   * а не то, что начинали.
    */
-  private work: { kind: 'chop' | 'butcher' | 'fight'; at: number } | null = null;
+  private work: { kind: Work; at: number } | null = null;
 
   private savedAt = 0;
   private viewedAt = 0;
@@ -591,6 +614,7 @@ export class PrologueScene {
     this.syncAxe();
     this.syncBow();
     this.syncArrows();
+    this.syncHouse();
     this.syncBeast(true);
     this.syncPack(performance.now());
 
@@ -730,9 +754,11 @@ export class PrologueScene {
   /**
    * Сделать то, что предлагает поляна.
    *
-   * Дел, которые длятся, два — удар топором и снятие куска с туши, — и оба
-   * заводятся здесь одинаково: `work` с отметкой кадрового времени. Остальное
-   * случается сразу.
+   * Дел, которые длятся, три — удар топором, снятие куска с туши и снятие
+   * шкуры, — и все заводятся здесь одинаково: `work` с отметкой кадрового
+   * времени. Остальное случается сразу, и ремесло тоже: стройка, шитьё и
+   * строгание — тапом, а не работой. Их цена уже заплачена деревом и шкурой, а
+   * ожидание сверху было бы беготнёй, которую ремесло обещало снимать.
    */
   private act(): void {
     const now = serverNow();
@@ -776,6 +802,33 @@ export class PrologueScene {
       this.save.meat.cooked += n;
       return this.done();
     }
+    if (what.deed === 'build') {
+      // В стену уходит ровно то, что ушло из рук (`craft.buildTake`): дом не
+      // растёт ни на полено больше и не строится из воздуха.
+      const put = buildTake(this.save.house, this.save.logs);
+      if (put <= 0) return;
+      this.save.logs -= put;
+      this.save.house += put;
+      this.syncHouse();
+      // Первое бревно делает место стройки преградой: стоявший на разметке
+      // выходит из сруба сразу, а не с первым шагом.
+      const p = slide(this.px, this.pz, blockers(this.save.felled, now, true));
+      this.px = p.x;
+      this.pz = p.z;
+      return this.done();
+    }
+    if (what.deed === 'sew') {
+      this.save.hides -= COAT_HIDES;
+      this.save.body = wearCoat(this.save.body, this.save.hearth, now);
+      return this.done();
+    }
+    if (what.deed === 'carve') {
+      // Полено из рук — две стрелы в колчан: единственное действие, которое
+      // меняет число стрел (`hunt.carveArrows`).
+      this.save.logs -= 1;
+      this.stow(carveArrows(this.save, ARROWS_PER_LOG));
+      return this.done();
+    }
     if (this.work) return;
     /*
      * Волк. Валится с одного удара и **сразу**, а не по концу замаха: зверь в
@@ -789,8 +842,8 @@ export class PrologueScene {
       this.refresh();
       return;
     }
-    if (what.deed === 'butcher') {
-      this.work = { kind: 'butcher', at: performance.now() };
+    if (what.deed === 'butcher' || what.deed === 'skin') {
+      this.work = { kind: what.deed, at: performance.now() };
       this.refresh();
       return;
     }
@@ -809,10 +862,18 @@ export class PrologueScene {
     this.refresh();
   }
 
-  /** Дело доделано: удар состоялся или кусок срезан. */
-  private landWork(kind: 'chop' | 'butcher' | 'fight'): void {
+  /** Дело доделано: удар состоялся, кусок срезан или шкура снята. */
+  private landWork(kind: Work): void {
     // Драка уже случилась в тот кадр, когда по ней тапнули: замах — картинка.
     if (kind === 'fight') return this.done();
+    if (kind === 'skin') {
+      const c = liveCarcass(this.save.hunt, serverNow());
+      if (!c || c.skinned) return this.done();
+      c.skinned = true;
+      this.save.hides += 1;
+      this.syncBeast(false);
+      return this.done();
+    }
     if (kind === 'butcher') {
       const now = serverNow();
       const c = liveCarcass(this.save.hunt, now);
@@ -961,6 +1022,20 @@ export class PrologueScene {
     });
   }
 
+  /**
+   * Сруб: сколько брёвен в записи, столько и видно.
+   *
+   * Пересобирается только когда число изменилось — то есть на стройке, по тапу.
+   * Модель склеена в один меш (`models.house`), и пересборка стоит меньше кадра.
+   */
+  private syncHouse(): void {
+    if (this.houseShown === this.save.house) return;
+    this.houseShown = this.save.house;
+    if (this.house) this.drop(this.house);
+    this.house = houseModel(this.save.house);
+    this.scene.add(this.house);
+  }
+
   /** Где топор: в колоде или в руке. */
   private syncAxe(): void {
     if (this.save.axe) {
@@ -1094,9 +1169,10 @@ export class PrologueScene {
   /**
    * Записать новое состояние стрел и переставить те, что в траве.
    *
-   * Одна дверь на все три случая — выстрел, приземление, подбор, — потому что
-   * обещание у них общее: стрел не становится ни больше, ни меньше. Считает это
-   * `hunt.ts` чистыми операциями; сцене остаётся положить ответ на место.
+   * Одна дверь на все четыре случая — выстрел, приземление, подбор и
+   * строгание, — потому что обещание у них общее: стрел не становится ни больше,
+   * ни меньше, кроме выстроганных. Считает это `hunt.ts` чистыми операциями;
+   * сцене остаётся положить ответ на место.
    */
   private stow(next: { quiver: number; arrows: readonly Pt[] }): void {
     this.save.quiver = next.quiver;
@@ -1158,7 +1234,7 @@ export class PrologueScene {
       const cos = Math.cos(this.yaw);
       const dx = (-sin * walk.forward + cos * walk.strafe) * WALK_SPEED * dt;
       const dz = (-cos * walk.forward - sin * walk.strafe) * WALK_SPEED * dt;
-      const p = slide(this.px + dx, this.pz + dz, blockers(this.save.felled, serverNow()));
+      const p = slide(this.px + dx, this.pz + dz, blockers(this.save.felled, serverNow(), this.save.house > 0));
       this.px = p.x;
       this.pz = p.z;
       this.bob += speed * dt * 9;
@@ -1213,8 +1289,14 @@ export class PrologueScene {
    */
   private warmth(): void {
     const warm = byFire(this.px, this.pz);
-    if (warm === this.save.body.warm) return;
-    this.save.body = setWarm(this.save.body, this.save.hearth, serverNow(), warm);
+    // Крыша — второй такой круг, и устроена она так же: пересёк — отрезок
+    // закрыт. Крышей она становится только у достроенного дома: сруб без крыши
+    // не укрывает.
+    const roof = houseDone(this.save.house) && byHouse(this.px, this.pz);
+    if (warm === this.save.body.warm && roof === this.save.body.roof) return;
+    const now = serverNow();
+    const b = setWarm(this.save.body, this.save.hearth, now, warm);
+    this.save.body = setRoof(b, this.save.hearth, now, roof);
     this.persist(true);
   }
 
@@ -1274,7 +1356,9 @@ export class PrologueScene {
       this.restAxe();
       return;
     }
-    const span = w.kind === 'butcher' ? BUTCHER_MS : CHOP_MS;
+    // Нож, а не топор: кусок и шкуру снимают без замаха.
+    const knife = w.kind === 'butcher' || w.kind === 'skin';
+    const span = knife ? BUTCHER_MS : CHOP_MS;
     const k = (t - w.at) / span;
     if (k >= 1) {
       this.work = null;
@@ -1283,7 +1367,7 @@ export class PrologueScene {
       return;
     }
     const a = this.axeInHand;
-    if (!a || w.kind === 'butcher') return;
+    if (!a || knife) return;
     // Подъём, удар, возврат — три доли одного замаха.
     const up = Math.min(1, k / 0.35);
     const hit = Math.max(0, Math.min(1, (k - 0.35) / 0.25));
@@ -1408,7 +1492,8 @@ export class PrologueScene {
   private wolfStep(dt: number, t: number, now: number): void {
     if (!this.pack.length) return;
     const lit = burning(this.save.hearth, now);
-    const safe = wolfKeepsOut(this.px, this.pz, lit);
+    const home = houseDone(this.save.house);
+    const safe = wolfKeepsOut(this.px, this.pz, lit, home);
     const glow = darkness(now) > EYES_FROM;
     if (safe) this.stalkFrom = 0;
     else if (!this.stalkFrom) this.stalkFrom = t;
@@ -1443,13 +1528,9 @@ export class PrologueScene {
           speed = this.wolfGo(w, tx, tz, WOLF_TROT, dt);
         }
       }
-      // К горящему костру не подходят ни при каком шаге: правило одно на сцену
-      // и на тест, и живёт оно в `wolves.ts`.
-      if (wolfKeepsOut(w.x, w.z, lit)) {
-        const r = Math.hypot(w.x, w.z) || 1;
-        w.x = (w.x / r) * WOLF_FIRE_R;
-        w.z = (w.z / r) * WOLF_FIRE_R;
-      }
+      // К горящему костру и в достроенный дом не подходят ни при каком шаге:
+      // правило одно на сцену и на тест, и живёт оно в `wolves.ts`.
+      this.keepOut(w, lit, home);
       const edge = Math.hypot(w.x, w.z);
       if (edge > WOLF_EDGE) {
         w.x = (w.x / edge) * WOLF_EDGE;
@@ -1460,11 +1541,36 @@ export class PrologueScene {
       w.obj.position.set(w.x, Math.abs(Math.sin(w.gait)) * (rushing ? 0.05 : 0.015), w.z);
       w.obj.rotation.y = w.yaw;
       if (w.legs) w.legs.rotation.x = speed > 0 ? Math.sin(w.gait) * (rushing ? 0.7 : 0.35) : 0;
-      if (!safe && rush && wolfCanBite(w.x, w.z, this.px, this.pz, lit)) {
+      if (!safe && rush && wolfCanBite(w.x, w.z, this.px, this.pz, lit, home)) {
         // Укус. Дальше отскакивает и кружит заново вся стая (`stalkAfterBite`).
         this.stalkFrom = stalkAfterBite(t);
         this.save.body = bite(this.save.body, this.save.hearth, now);
         this.done();
+      }
+    }
+  }
+
+  /**
+   * Вытолкнуть волка из кругов, куда ему нельзя.
+   *
+   * Кругов два — у горящего огня и у достроенного дома, — и они перекрываются:
+   * вытолкнутый из одного может оказаться в другом. Поэтому толчков несколько за
+   * кадр, пока правило (`wolfKeepsOut`) не скажет «снаружи».
+   */
+  private keepOut(w: Wolf, lit: boolean, home: boolean): void {
+    for (let k = 0; k < 4 && wolfKeepsOut(w.x, w.z, lit, home); k++) {
+      const r = Math.hypot(w.x, w.z);
+      if (lit && r < WOLF_FIRE_R) {
+        const s = WOLF_FIRE_R / (r || 1);
+        w.x *= s;
+        w.z *= s;
+      }
+      if (home && byHouse(w.x, w.z)) {
+        const dx = w.x - HOUSE.x;
+        const dz = w.z - HOUSE.z;
+        const s = (HOUSE_SHELTER_R + 0.01) / (Math.hypot(dx, dz) || 1);
+        w.x = HOUSE.x + dx * s;
+        w.z = HOUSE.z + dz * s;
       }
     }
   }
@@ -1698,7 +1804,7 @@ export class PrologueScene {
   private hitBeast(): void {
     const now = serverNow();
     const at = { x: this.beast.x, z: this.beast.z };
-    this.save.hunt = { killedAt: now, carcass: { x: at.x, z: at.z, taken: 0 } };
+    this.save.hunt = { killedAt: now, carcass: { x: at.x, z: at.z, taken: 0, skinned: false } };
     // Стрела остаётся рядом с тушей: мясо и стрелу берут порознь, иначе
     // `nearest` выбирал бы между ними за игрока.
     this.stow(landArrow(this.save, arrowByCarcass(at, this.save.arrows.length)));
@@ -1796,12 +1902,14 @@ export class PrologueScene {
       quiver: s.quiver,
       cooked: s.meat.cooked,
       raw: s.meat.raw,
+      hides: s.hides,
+      coat: s.body.coat,
       offer: offer(s, this.aim(), now),
       shot: bowOffer(s, this.drawn),
       eatCooked: meal(s, hunger, false),
       eatRaw: meal(s, hunger, true),
       drawn: this.drawn,
-      busy: busy === 'chop' ? 'Ещё ударов' : busy === 'butcher' ? 'Срезает' : busy === 'fight' ? 'Отбивается' : '',
+      busy: busy === 'chop' ? 'Ещё ударов' : busy === 'butcher' ? 'Срезает' : busy === 'skin' ? 'Снимает шкуру' : busy === 'fight' ? 'Отбивается' : '',
       busyLeft: busy === 'chop' && this.chopTree >= 0 ? this.chopsLeft : 0,
       dead: death(s, now),
     };
@@ -1877,6 +1985,11 @@ export class PrologueScene {
   /** Сколько стрел лежит на поляне — замеру: их не должно становиться больше. */
   arrowCount(): number {
     return this.save.arrows.length;
+  }
+
+  /** Сколько брёвен в доме и под крышей ли человек — замеру: стенд строит пальцем. */
+  craft(): { house: number; roof: boolean } {
+    return { house: this.save.house, roof: this.save.body.roof };
   }
 
   /** Показания для замера: вызовы отрисовки и треугольники. */

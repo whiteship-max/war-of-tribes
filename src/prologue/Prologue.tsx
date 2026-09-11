@@ -132,9 +132,12 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       <div className="pro-vitals">
         <Vital icon="🔥" kind="fire" fill={view?.fireFill ?? 0} words={view?.fireWords ?? '…'} />
         <Vital icon="🍗" kind="fed" fill={view?.fedFill ?? 1} words={view?.fedWords ?? '…'} />
+        {/* Одетому значок полосы холода — одежда: холод давит слабее, и видно это
+            ровно там, где он давит. Отдельной метки «одет» нет — пока человек у
+            огня, ей было бы нечего сказать, а ширина на 360 px и так впритык. */}
         {showCold && (
           <Vital
-            icon="❄️"
+            icon={view?.coat ? '🧥' : '❄️'}
             kind={view?.warming ? 'thaw' : 'cold'}
             fill={view?.coldFill ?? 0}
             words={view?.coldWords ?? ''}
@@ -177,6 +180,8 @@ export function Prologue({ onExit }: { onExit: () => void }) {
             и здесь это поймано глазами — квадрат и был). Топор и лук старше и
             рисуются везде. */}
         {!!view?.logs && <span>дрова {view.logs}</span>}
+        {/* Шкура бывает в руках одна и недолго: снял — неси к палатке. */}
+        {!!view?.hides && <span>шкура</span>}
         {!!view?.cooked && (
           <button className="pro-bite" onClick={eatCooked} disabled={!view.eatCooked.can} title={view.eatCooked.why}>
             🍗 {view.cooked}
@@ -226,6 +231,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           <span>Тап — действие над тем, к чему подошёл: топор на колоде, пожитки у палатки, дрова в костёр.</span>
           <span>Лук — своей кнопкой: натянуть, навести взглядом, пустить. Оленя тапом не достать.</span>
           <span>Костёр держит волков в стороне: пока горит — не подойдут. За дровами ходить страшнее ночью.</span>
+          <span>Брёвна — в дом у опушки, полено у колоды — в стрелы, шкура оленя — в одежду у палатки.</span>
           <span className="pro-dim">На ПК: WASD или стрелки, мышью тянуть, пробел — действие, F — лук.</span>
         </div>
       )}

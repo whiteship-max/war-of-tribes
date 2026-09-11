@@ -37,6 +37,7 @@ import {
   deerLive,
   deerSleeps,
   fleeRange,
+  hideLeft,
   landArrow,
   liveCarcass,
   newHunt,
@@ -246,17 +247,30 @@ describe('стрела не размножается и не пропадает'
 
 describe('туша: мясо забирается не разом и лежит не вечно', () => {
   it('кусок за куском, и всего их шесть', () => {
-    const hunt: Hunt = { killedAt: 0, carcass: { x: 1, z: 1, taken: 0 } };
+    const hunt: Hunt = { killedAt: 0, carcass: { x: 1, z: 1, taken: 0, skinned: false } };
     expect(carcassLeft(hunt, 0)).toBe(DEER_MEAT);
     hunt.carcass!.taken = DEER_MEAT - 1;
     expect(carcassLeft(hunt, 0)).toBe(1);
     hunt.carcass!.taken = DEER_MEAT;
-    expect(liveCarcass(hunt, 0)).toBe(null);
     expect(carcassLeft(hunt, 0)).toBe(0);
   });
 
+  it('мясо сперва, шкура потом — и только взятое всё уносит тушу', () => {
+    // Растащенная до последнего куска туша не пропадает, пока на ней шкура:
+    // иначе шкуру было бы не снять вовсе, а одежду — не сшить.
+    const hunt: Hunt = { killedAt: 0, carcass: { x: 1, z: 1, taken: DEER_MEAT, skinned: false } };
+    expect(liveCarcass(hunt, 0)).not.toBe(null);
+    expect(hideLeft(hunt, 0)).toBe(true);
+    hunt.carcass!.skinned = true;
+    expect(hideLeft(hunt, 0)).toBe(false);
+    expect(liveCarcass(hunt, 0)).toBe(null);
+    // А пролежавшая своё пропадает и со шкурой: срок у туши один.
+    const old: Hunt = { killedAt: 0, carcass: { x: 1, z: 1, taken: 0, skinned: false } };
+    expect(hideLeft(old, CARCASS_MS)).toBe(false);
+  });
+
   it('пролежав своё, пропадает вместе с недобранным мясом', () => {
-    const hunt: Hunt = { killedAt: 0, carcass: { x: 1, z: 1, taken: 2 } };
+    const hunt: Hunt = { killedAt: 0, carcass: { x: 1, z: 1, taken: 2, skinned: false } };
     expect(liveCarcass(hunt, CARCASS_MS - 1)).not.toBe(null);
     expect(liveCarcass(hunt, CARCASS_MS)).toBe(null);
     expect(carcassLeftMs(hunt, 0)).toBe(CARCASS_MS);

@@ -16,7 +16,9 @@
  *   `offer`  — тап и большая кнопка внизу: **не целится**, а бьёт по
  *              ближайшему в досягаемости. Так взяли топор, свалили дерево,
  *              положили дрова, срезали мясо, подобрали стрелу и отбились
- *              топором от волка — тот единственный зверь, который подошёл сам;
+ *              топором от волка — тот единственный зверь, который подошёл сам.
+ *              Ремесло — той же дверью: бревно в дом, шкура с туши, одежда у
+ *              палатки, стрелы у колоды;
  *   `bow`    — своя кнопка: натянуть и пустить. **Целится**, и летит стрела
  *              туда, куда смотрят;
  *   `meal`   — своя кнопка на счётчике мяса: поесть можно где угодно и когда
@@ -30,7 +32,8 @@
 import { HEARTH_CAP, fuelAt } from './fire';
 import { STARVE_MS, causeOfDeath, type Death } from './body';
 import { TREE_LOGS, type GladeState, type Spot } from './glade';
-import { DEER_MEAT, carcassLeft, liveCarcass, type Pt } from './hunt';
+import { DEER_MEAT, carcassLeft, hideLeft, liveCarcass, type Pt } from './hunt';
+import { ARROWS_PER_LOG, COAT_HIDES, HOUSE_LOGS, carveRoom } from './craft';
 import type { PrologueSave } from './save';
 
 /**
@@ -49,6 +52,10 @@ export type Deed =
   | 'butcher'
   | 'take-arrow'
   | 'fight'
+  | 'build'
+  | 'skin'
+  | 'sew'
+  | 'carve'
   | 'draw'
   | 'shoot'
   | 'eat'
@@ -91,10 +98,35 @@ const FULL_ENOUGH = 3_600_000 / STARVE_MS;
 export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
   if (!spot) return NOTHING;
   if (spot.kind === 'axe') {
-    return s.axe ? no(null, 'Топор у тебя', 'Топор уже в руках') : ok('take-axe', 'Взять топор');
+    if (!s.axe) return ok('take-axe', 'Взять топор');
+    // Колода с взятым топором — место, где строгают стрелы. Дело у неё одно, и
+    // погашенная надпись говорит, чего для него не хватает.
+    if (!s.kit) return no(null, 'Колода', 'Лука нет — стрелы строгать незачем');
+    if (!carveRoom(s.quiver)) return no('carve', 'Строгать стрелы', 'Колчан полон');
+    if (s.logs <= 0) return no('carve', 'Строгать стрелы', 'Нужно полено');
+    return ok('carve', `Строгать стрелы (+${ARROWS_PER_LOG})`);
   }
   if (spot.kind === 'tent') {
-    return s.kit ? no(null, 'Пусто', 'Пожитки разобраны') : ok('take-kit', 'Взять лук и запас');
+    if (!s.kit) return ok('take-kit', 'Взять лук и запас');
+    // Палатка — место, где шьют. Целью тапа она становится, только когда шить
+    // есть из чего (`reach`), но правило здесь полное: `offer` не знает, откуда
+    // его позвали.
+    if (s.body.coat) return no(null, 'Одежда на тебе', 'Одежда уже сшита');
+    if (s.hides < COAT_HIDES) return no('sew', 'Сшить одежду', 'Нужна шкура оленя');
+    return ok('sew', 'Сшить одежду');
+  }
+  /*
+   * Дом. Стройка идёт той же дверью, что дрова в очаг: тап кладёт в стену все
+   * поленья, какие влезают, — шесть тапов по одному и тому же были бы работой,
+   * а не решением. Без топора сруб не рубят; без дров класть нечего — и кнопка
+   * говорит, сколько уже стоит, чтобы цель была видна с первого подхода.
+   */
+  if (spot.kind === 'house') {
+    if (s.house >= HOUSE_LOGS) return no(null, 'Дом стоит', 'Дом достроен');
+    const label = `Ставить дом (${s.house}/${HOUSE_LOGS})`;
+    if (!s.axe) return no('build', label, 'Нужен топор');
+    if (s.logs <= 0) return no('build', label, 'Нужны дрова: полено — бревно');
+    return ok('build', label);
   }
   if (spot.kind === 'arrow') {
     return ok('take-arrow', 'Подобрать стрелу');
@@ -113,7 +145,16 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
   }
   if (spot.kind === 'carcass') {
     const left = carcassLeft(s.hunt, now);
-    return left > 0 ? ok('butcher', `Срезать мясо (${left})`) : no(null, 'Ничего не осталось', 'Туша пуста');
+    if (left > 0) return ok('butcher', `Срезать мясо (${left})`);
+    // Мясо сперва, шкура потом: снимают её с разделанной туши, и так она не
+    // заслоняет собой еду у того, кто пришёл за едой.
+    if (!hideLeft(s.hunt, now)) return no(null, 'Ничего не осталось', 'Туша пуста');
+    // Шкура идёт на одну одежду и больше ни на что: лишняя висела бы в руках
+    // счётчиком без дела. Туша с ненужной шкурой лежит свой срок и сходит сама —
+    // следующий олень от неё не зависит (`hunt.deerLive`).
+    if (s.body.coat) return no(null, 'Шкура не нужна', 'Одежда уже сшита');
+    if (s.hides >= COAT_HIDES) return no(null, 'Шкура не нужна', 'Шкура уже есть — шей у палатки');
+    return ok('skin', 'Снять шкуру');
   }
   if (spot.kind === 'tree') {
     return s.axe ? ok('chop', 'Рубить') : no('chop', 'Рубить', 'Нужен топор');
@@ -200,7 +241,9 @@ export const reach = (s: PrologueSave, now: number, wolves: readonly Pt[] = []):
   felled: s.felled,
   arrows: s.arrows,
   carcass: liveCarcass(s.hunt, now),
-  kit: s.kit,
+  // У палатки есть дело, только пока пожитки не разобраны или есть из чего шить.
+  tent: !s.kit || (!s.body.coat && s.hides >= COAT_HIDES),
+  house: s.house < HOUSE_LOGS,
   // Волки приезжают снаружи, из сцены: в записи их нет, и быть не может —
   // где они стоят, знает только кадр.
   wolves,

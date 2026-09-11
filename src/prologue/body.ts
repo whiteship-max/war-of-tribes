@@ -63,6 +63,14 @@
  * пока её нет на человеке, — по тому же правилу, по которому не видно полосы
  * холода, пока с теплом всё хорошо.
  *
+ * ОДЕЖДА И КРЫША — ТОЖЕ НЕ НОВЫЕ СКОРОСТИ, А МНОЖИТЕЛИ К ТОЙ ЖЕ. Одежда
+ * замедляет остывание ровно на `COAT_CHILL` где угодно; крыша снимает небо —
+ * под ней ночь и снег не студят сильнее, и холодовые часы идут как погожие. Ни
+ * то, ни другое не греет: у огня греет огонь, и отогрев от них не зависит.
+ * Крыша — отметка того же рода, что `warm`: в памяти её ведёт сцена по кругу у
+ * дома, на диск она ложится тем, что даёт стоянка, — ночует ли человек в
+ * достроенном доме.
+ *
  * Модуль чистый: ни DOM, ни three, ни React, ни часов.
  */
 import { HEARTH_CAP, LOG_MS, spanWords, type Hearth } from './fire';
@@ -106,11 +114,21 @@ export const WOUND_HEAL_H = 6;
 export const WOUND_MS = WOUND_HEAL_H * H;
 
 /**
+ * Во сколько раз медленнее стынет одетый.
+ *
+ * Шесть десятых — и ровно эту цифру обещает одежда, и тест держит её ровно, а не
+ * «около»: без огня под открытым небом одетый живёт не пять с половиной часов, а
+ * девять с лишним, в доме — тринадцать с третью. Отогрев одежда не ускоряет: у
+ * огня греет огонь.
+ */
+export const COAT_CHILL = 0.6;
+
+/**
  * Что человек помнит о себе между заходами.
  *
- * Четыре числа и отметка. Больше в нём ничего нет и быть не должно: «сколько
- * осталось», «через сколько умрёт», «мёрзнет ли», «заживёт ли» — всё это
- * считается отсюда при чтении.
+ * Четыре числа и три отметки. Больше в нём ничего нет и быть не должно:
+ * «сколько осталось», «через сколько умрёт», «мёрзнет ли», «заживёт ли» — всё
+ * это считается отсюда при чтении.
  */
 export interface Body {
   /** Голод в минуту `at`: 0 — сыт, 1 — умер. */
@@ -119,6 +137,8 @@ export interface Body {
   cold: number;
   /** Ран в минуту `at`: `WOUNDS_FATAL` — загрызли. Заживают сами. */
   hurt: number;
+  /** Одет ли в шкуру. Хранится как есть: одежда — вещь, а не место. */
+  coat: boolean;
   /** Когда это было, по `serverNow()`. */
   at: number;
   /**
@@ -129,12 +149,28 @@ export interface Body {
    * а не по кадрам.
    */
   warm: boolean;
+  /**
+   * Под крышей ли он в минуту `at`.
+   *
+   * Как и `warm`, **не хранится как есть**: на диск ложится тем, что даёт
+   * стоянка, — ночует ли человек в достроенном доме (`camp`), — а в памяти её
+   * ведёт сцена, по кругу у дома.
+   */
+  roof: boolean;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
-/** Свежий человек: сыт, в тепле, у огня, цел. */
-export const newBody = (now: number): Body => ({ hunger: 0, cold: 0, hurt: 0, at: now, warm: true });
+/** Свежий человек: сыт, в тепле, у огня, цел, раздет и не под крышей. */
+export const newBody = (now: number): Body => ({
+  hunger: 0,
+  cold: 0,
+  hurt: 0,
+  coat: false,
+  at: now,
+  warm: true,
+  roof: false,
+});
 
 /**
  * Когда погаснет костёр.
@@ -167,6 +203,22 @@ export function hurtAt(b: Body, now: number): number {
 }
 
 /**
+ * Сколько холода набирается за промежуток вдали от огня.
+ *
+ * Крыша снимает небо — время идёт как погожее; одежда снимает долю. Одна
+ * функция на `coldAt` и `coldDeadAt`, и другой быть не должно: разойдись они —
+ * полоса называла бы один срок, а умирал бы человек в другой.
+ */
+const chillGain = (b: Body, from: number, to: number): number =>
+  ((b.roof ? Math.max(0, to - from) : chilledMs(from, to)) * (b.coat ? COAT_CHILL : 1)) / CHILL_MS;
+
+/** В какую минуту от `from` наберётся `gain` холода — обратная к `chillGain`. */
+const chillReach = (b: Body, from: number, gain: number): number => {
+  const need = (gain * CHILL_MS) / (b.coat ? COAT_CHILL : 1);
+  return b.roof ? from + need : chillUntil(from, need);
+};
+
+/**
  * Сколько холода сейчас.
  *
  * Отрезок от `b.at` до `now` ломается **не больше одного раза** — в минуту, в
@@ -196,7 +248,7 @@ export function coldAt(b: Body, h: Hearth, now: number): number {
     //
     // Отогрев идёт по настоящим часам, остывание — по холодовым: у огня греет
     // огонь, а стынет человек тем быстрее, чем хуже ночь и погода.
-    c = clamp(c + (b.warm && lit ? -(to - from) / WARM_MS : chilledMs(from, to) / CHILL_MS), 0, 1);
+    c = clamp(c + (b.warm && lit ? -(to - from) / WARM_MS : chillGain(b, from, to)), 0, 1);
     if (c >= 1) return 1;
   }
   return c;
@@ -231,13 +283,13 @@ export function coldDeadAt(b: Body, h: Hearth): number {
       // Стынет при живом огне — значит, стоит вдали от него. Успеет ли срок
       // выйти до гашения, спрашиваем у того же кольца: холодовые часы идут
       // неровно, и «сколько осталось» линейкой тут не отмерить.
-      const when = chillUntil(t, (1 - c) * CHILL_MS);
+      const when = chillReach(b, t, 1 - c);
       if (when <= out) return when;
-      c = clamp(c + chilledMs(t, out) / CHILL_MS, 0, 1);
+      c = clamp(c + chillGain(b, t, out), 0, 1);
     }
     t = out;
   }
-  return chillUntil(t, (1 - c) * CHILL_MS);
+  return chillReach(b, t, 1 - c);
 }
 
 /** Сколько осталось до голодной смерти, миллисекунды. */
@@ -297,6 +349,8 @@ export function anchor(b: Body, h: Hearth, now: number): Body {
     // остаться записью из будущего, а не подарить человеку прожитое заново.
     at: Math.max(b.at, now),
     warm: b.warm,
+    coat: b.coat,
+    roof: b.roof,
   };
 }
 
@@ -332,12 +386,32 @@ export const setWarm = (b: Body, h: Hearth, now: number, warm: boolean): Body =>
   warm === b.warm ? b : { ...anchor(b, h, now), warm };
 
 /**
+ * Человек вошёл под крышу дома или вышел из-под неё.
+ *
+ * Событие того же рода, что круг у огня: отрезок закрывается прежней скоростью,
+ * дальше считает новая. В кадрах не копится ничего.
+ */
+export const setRoof = (b: Body, h: Hearth, now: number, roof: boolean): Body =>
+  roof === b.roof ? b : { ...anchor(b, h, now), roof };
+
+/** Надеть сшитую одежду. До минуты `now` стыл раздетым, дальше — одетым. */
+export const wearCoat = (b: Body, h: Hearth, now: number): Body => ({ ...anchor(b, h, now), coat: true });
+
+/**
  * Отметка «человек на стоянке» — та, что уезжает на диск.
  *
  * Пройденное вдали от огня закрывается честно (`anchor`), а всё, что случится
  * дальше, считается по стоянке. Почему так — в шапке файла.
+ *
+ * Стоянка — это огонь и, если дом достроен, крыша над головой: ночует человек
+ * в доме. `roof` передаёт тот, кто знает про дом (`save.ts`), — телу про стройку
+ * знать незачем.
  */
-export const camp = (b: Body, h: Hearth, now: number): Body => ({ ...anchor(b, h, now), warm: true });
+export const camp = (b: Body, h: Hearth, now: number, roof = false): Body => ({
+  ...anchor(b, h, now),
+  warm: true,
+  roof,
+});
 
 /** Сколько часов сытости даёт кусок жареного мяса. */
 export const MEAT_FED_H = 8;

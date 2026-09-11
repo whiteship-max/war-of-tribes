@@ -12,6 +12,7 @@ import {
   BODY_R,
   FIRE,
   GLADE_R,
+  HOUSE,
   REACH,
   REGROW_MS,
   START,
@@ -27,11 +28,11 @@ import {
 } from './glade';
 
 /**
- * Нетронутая поляна для `nearest`: лес цел, стрел нет, туши нет, пожитки
- * разобраны. Пожитки — нарочно: иначе палатка попадала бы в каждую проверку
- * про костёр и дерево, а эти проверки не про неё.
+ * Нетронутая поляна для `nearest`: лес цел, стрел нет, туши нет, у палатки и у
+ * дома дела нет. Нарочно: иначе палатка и стройка попадали бы в каждую проверку
+ * про костёр и дерево, а эти проверки не про них.
  */
-const NONE = { felled: TREES.map(() => 0), arrows: [], carcass: null, kit: true, wolves: [] };
+const NONE = { felled: TREES.map(() => 0), arrows: [], carcass: null, tent: false, house: false, wolves: [] };
 
 /** Та же поляна, но с заданными пнями. */
 const felledAt = (felled: number[]) => ({ ...NONE, felled });
@@ -42,6 +43,7 @@ describe('поляна расставлена', () => {
       { x: FIRE.x, z: FIRE.z, r: FIRE.r },
       { x: TENT.x, z: TENT.z, r: TENT.r },
       { x: AXE_STUMP.x, z: AXE_STUMP.z, r: AXE_STUMP.r },
+      { x: HOUSE.x, z: HOUSE.z, r: HOUSE.r },
       ...TREES.map((t) => ({ ...t, r: TREE_R })),
     ];
     for (const a of all) {

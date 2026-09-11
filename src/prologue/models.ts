@@ -20,7 +20,8 @@ import { PALETTE } from '@/render/palette';
 import { KIT, LEGACY } from '@/render/materials';
 import * as K from '@/render/kit';
 import { makeFarTree, makeLog, makeRock, makeStump, makeTree, vnoise } from '@/render/terrain';
-import { AXE_STUMP, FIRE, GLADE_R, TENT, TREES, hash } from './glade';
+import { AXE_STUMP, FIRE, GLADE_R, HOUSE, TENT, TREES, hash } from './glade';
+import { HOUSE_LOGS } from './craft';
 
 /** Докуда тянется земля. Дальше туман, и края диска не видно. */
 const GROUND_R = 44;
@@ -324,6 +325,109 @@ export function tent(): THREE.Group {
   }
   g.add(K.assemble(parts));
   put(g, TENT.x, TENT.z, TENT.rot);
+  return g;
+}
+
+/** Треугольник фронтона: тонкий, двусторонний, в плоскости ZY. */
+function gableEnd(w: number, h: number, paint: K.Paint, x: number, y: number): K.Part {
+  const geo = new THREE.BufferGeometry();
+  const hw = w / 2;
+  // Обе стороны двумя треугольниками: тело склейки рисует только лицевую.
+  const p = [0, 0, -hw, 0, 0, hw, 0, h, 0, 0, 0, hw, 0, 0, -hw, 0, h, 0];
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  geo.computeVertexNormals();
+  return K.place(geo, paint, x, y, 0);
+}
+
+/**
+ * Дом: сруб, в котором ровно столько брёвен, сколько в него положено.
+ *
+ * СЧЁТ ВИДЕН ПО БРЕВНУ, А НЕ ПО СТУПЕНЯМ. Каждое бревно лежит на своём месте по
+ * номеру, и порядок не меняется: восемь венцов по четыре бревна, потом крыша —
+ * десять плах, по очереди на оба ската. Ступени стройки (`craft.houseStage`) —
+ * не шесть моделей, а то, докуда дошёл счёт: положивший двенадцать брёвен
+ * видит двенадцать.
+ *
+ * Дверной проём — в стене, что смотрит на огонь: передние брёвна нижних шести
+ * венцов лежат двумя половинами, и проём растёт вместе со стеной. Достроенный
+ * дом закрывается пологом из шкуры — по нему видно, что дом готов, а не просто
+ * покрыт.
+ *
+ * До первого бревна на месте стоят четыре колышка: цель видна с первого
+ * захода, иначе «Ставить дом» над пустой травой читалось бы загадкой.
+ *
+ * Пересобирается целиком на каждой стройке — стройка это тап, а не кадр, — и
+ * склеен в один меш, как палатка.
+ */
+export function house(logs: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'house';
+  const parts: K.Part[] = [];
+  const bark = K.paintOf('trunk');
+  const end = K.paintOf('cut');
+  const plank = K.paintOf('timber');
+  const n = Math.max(0, Math.min(HOUSE_LOGS, Math.floor(logs)));
+  const half = 1.15;
+  const len = half * 2 + 0.36;
+  const r = 0.11;
+  const course = 0.2;
+  const walls = 32;
+  const doorHalf = 0.36;
+  const doorCourses = 6;
+
+  if (n === 0) {
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) parts.push(K.cyl(0.035, 0.045, 0.55, plank, 5, sx * half, 0.27, sz * half));
+    }
+  }
+
+  for (let i = 0; i < Math.min(n, walls); i++) {
+    const c = Math.floor(i / 4);
+    const side = i % 4;
+    if (side === 1 || side === 3) {
+      // Боковые стены на полвенца выше: так брёвна сцепляются в углах, как у сруба.
+      const x = side === 1 ? half : -half;
+      const y = r + c * course + course / 2;
+      parts.push(K.cyl(r, r, len, bark, 6, x, y, 0, { x: Math.PI / 2 }));
+      for (const sz of [-1, 1]) parts.push(K.cyl(r * 0.85, r * 0.85, 0.02, end, 6, x, y, sz * (len / 2 + 0.01), { x: Math.PI / 2 }));
+      continue;
+    }
+    const z = side === 2 ? half : -half;
+    const y = r + c * course;
+    if (side === 2 && c < doorCourses) {
+      // Передняя стена с проёмом: полбревна слева и полбревна справа — это одно бревно.
+      const piece = len / 2 - doorHalf;
+      for (const sx of [-1, 1]) {
+        parts.push(K.cyl(r, r, piece, bark, 6, sx * (doorHalf + piece / 2), y, z, { z: Math.PI / 2 }));
+      }
+    } else {
+      parts.push(K.cyl(r, r, len, bark, 6, 0, y, z, { z: Math.PI / 2 }));
+    }
+    for (const sx of [-1, 1]) parts.push(K.cyl(r * 0.85, r * 0.85, 0.02, end, 6, sx * (len / 2 + 0.01), y, z, { z: Math.PI / 2 }));
+  }
+
+  const roof = n - walls;
+  if (roof > 0) {
+    const eave = r + 7 * course + course / 2 + r;
+    const rise = 0.95;
+    const run = half + 0.25;
+    const slope = Math.atan2(rise, run);
+    const width = Math.hypot(rise, run) / 5;
+    // Фронтоны закрывают торцы, как только легла первая плаха: без них сквозь
+    // крышу видно небо, и она читается навесом.
+    for (const sx of [-1, 1]) parts.push(gableEnd(run * 2, rise, plank, sx * (half + 0.02), eave - 0.04));
+    for (let j = 0; j < roof; j++) {
+      const s = j % 2 === 0 ? 1 : -1;
+      const t = (Math.floor(j / 2) + 0.5) / 5;
+      parts.push(K.box(len + 0.3, 0.07, width + 0.02, plank, 0, eave + rise * t, s * run * (1 - t), { x: s * slope }));
+    }
+  }
+  if (n >= HOUSE_LOGS) {
+    parts.push(K.box(doorHalf * 2 - 0.04, doorCourses * course, 0.04, K.paintOf('hide'), 0, (doorCourses * course) / 2, half + 0.02));
+  }
+
+  g.add(K.assemble(parts));
+  put(g, HOUSE.x, HOUSE.z, HOUSE.rot);
   return g;
 }
 

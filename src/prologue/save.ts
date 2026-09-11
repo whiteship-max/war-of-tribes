@@ -34,6 +34,7 @@
 import { serverNow } from '@/net/clock';
 import { newHearth, type Hearth } from './fire';
 import { WOUNDS_FATAL, camp, newBody, type Body } from './body';
+import { HOUSE_LOGS, houseDone } from './craft';
 import { TREES } from './glade';
 import { newHunt, type Hunt, type Pt } from './hunt';
 
@@ -82,6 +83,16 @@ export interface PrologueSave {
    * делают — время кадров и в запись не идёт вовсе.
    */
   wolvesBeatenAt: number;
+  /**
+   * Сколько брёвен уже стоит в доме.
+   *
+   * Одно целое число на весь дом, и второго не нужно: из него выводится и
+   * ступень стройки, и то, достроен ли дом, и укрытие. Растёт ровно на
+   * положенное из рук (`craft.buildTake`) и не убывает ничем.
+   */
+  house: number;
+  /** Шкур в руках: снятых с туши и ещё не сшитых. */
+  hides: number;
 }
 
 /** Новая предыстория: костёр початый, топор на пне, пожитки у палатки, лес цел. */
@@ -99,6 +110,8 @@ export function freshPrologue(now = serverNow()): PrologueSave {
     meat: { cooked: 0, raw: 0 },
     felled: TREES.map(() => 0),
     wolvesBeatenAt: 0,
+    house: 0,
+    hides: 0,
   };
 }
 
@@ -128,13 +141,18 @@ export function freshPrologue(now = serverNow()): PrologueSave {
  * быть не должно. Тишина даётся при любой смерти, не только от волков: разбирать
  * тут нечего, а объяснять игроку, почему после голода волки есть, а после зубов
  * нет, — тем более.
+ *
+ * ДОМ И ОДЕЖДА ОСТАЮТСЯ, ШКУРЫ В РУКАХ — НЕТ. Дом стоит на земле, а земле всё
+ * равно, кто по ней ходит; одежда на человеке — вещь, как топор и лук. Шкура в
+ * руках — запас, как мясо и дрова, и пропадает вместе с ними.
  */
 export function revive(s: PrologueSave, now = serverNow()): PrologueSave {
   return {
     ...s,
     hearth: newHearth(now),
-    body: newBody(now),
+    body: { ...newBody(now), coat: s.body.coat },
     logs: 0,
+    hides: 0,
     meat: { cooked: 0, raw: 0 },
     // Стрелы собраны с поляны все до одной: их число — величина, которая не
     // меняется ни от чего, кроме нашей ошибки (`hunt.test.ts` это и стережёт).
@@ -184,16 +202,25 @@ export function loadPrologue(now = serverNow()): PrologueSave {
         hunger: Math.min(1, Math.max(0, num(p.body?.hunger, 0))),
         cold: Math.min(1, Math.max(0, num(p.body?.cold, 0))),
         hurt: Math.min(WOUNDS_FATAL, Math.max(0, num(p.body?.hurt, 0))),
+        coat: p.body?.coat === true,
         at: num(p.body?.at, now),
         // Отметка «грелся» с диска не читается вовсе — её там и нет: между
         // заходами человек на стоянке, и почему так, написано в `body.ts`.
         warm: true,
+        // И крыша — та же стоянка: достроен дом — ночевал в нём.
+        roof: houseDone(Math.min(HOUSE_LOGS, count(p.house))),
       },
       hunt: {
         killedAt: num(p.hunt?.killedAt, 0),
         carcass:
           p.hunt?.carcass && Number.isFinite(p.hunt.carcass.x) && Number.isFinite(p.hunt.carcass.z)
-            ? { x: p.hunt.carcass.x, z: p.hunt.carcass.z, taken: count(p.hunt.carcass.taken) }
+            ? {
+                x: p.hunt.carcass.x,
+                z: p.hunt.carcass.z,
+                taken: count(p.hunt.carcass.taken),
+                // Туша из записи, сделанной до шкур, лежит со шкурой: её можно снять.
+                skinned: p.hunt.carcass.skinned === true,
+              }
             : null,
       },
       logs: count(p.logs),
@@ -206,6 +233,8 @@ export function loadPrologue(now = serverNow()): PrologueSave {
       // стать больше, и лишние обязаны оказаться стоящими, а не undefined.
       felled: TREES.map((_, i) => num(p.felled?.[i], 0)),
       wolvesBeatenAt: num(p.wolvesBeatenAt, 0),
+      house: Math.min(HOUSE_LOGS, count(p.house)),
+      hides: count(p.hides),
     };
   } catch {
     return fresh;
@@ -225,7 +254,7 @@ export function loadPrologue(now = serverNow()): PrologueSave {
  */
 export function savePrologue(s: PrologueSave, now = serverNow()): void {
   try {
-    const out: PrologueSave = { ...s, body: camp(s.body, s.hearth, now) };
+    const out: PrologueSave = { ...s, body: camp(s.body, s.hearth, now, houseDone(s.house)) };
     localStorage.setItem(KEY, JSON.stringify(out));
   } catch {
     /* некуда писать — значит, играем эту сессию и всё */

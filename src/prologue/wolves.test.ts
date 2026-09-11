@@ -269,7 +269,7 @@ describe('смерть от волков не раньше, чем их можн
     const px = 0;
     const pz = 10;
     const w = { x: px, z: pz + WOLF_BITE_R };
-    const state = { felled: TREES.map(() => 0), arrows: [], carcass: null, kit: true, wolves: [w] };
+    const state = { felled: TREES.map(() => 0), arrows: [], carcass: null, tent: false, house: false, wolves: [w] };
     expect(nearest(px, pz, state, 0)?.kind).toBe('wolf');
     expect(WOLF_BITE_R).toBeLessThan(REACH + WOLF_R);
     // И встаёт бросившийся ближе, чем кусает: иначе он замирал бы в шаге от
