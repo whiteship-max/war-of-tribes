@@ -15,6 +15,7 @@
  * палатка — единственная рукотворная вещь в кадре, и потому читается сразу.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PALETTE } from '@/render/palette';
 import { KIT, LEGACY } from '@/render/materials';
 import * as K from '@/render/kit';
@@ -572,4 +573,294 @@ export function bow(): THREE.Mesh {
   m.name = 'bow';
   m.castShadow = false;
   return m;
+}
+
+/**
+ * Шкура волка, светлое подпалое брюхо и тёмная морда.
+ *
+ * Шкура светлее, чем была: тёмно-серый волк под луной сливался с травой в одно
+ * пятно. Серый волк и есть светло-серый — ночью он ловит тот немногий свет, что
+ * есть, а днём остаётся волком, а не собакой.
+ */
+const WOLF_COAT = 0x6e685f;
+const WOLF_BELLY = 0x9a9285;
+const WOLF_MUZZLE = 0x2f2b26;
+
+/** Высота в холке. Заметно ниже оленя (1.24) — и по силуэту это первое, что видно. */
+const WOLF_H = 0.84;
+
+/**
+ * Волк: корпус с головой и четыре ноги.
+ *
+ * ДВА МЕША, А НЕ ЧЕТЫРЕ, КАК У ОЛЕНЯ, И ЭТО РАЗНИЦА ПО ДЕЛУ, А НЕ ЭКОНОМИЯ.
+ * Оленю голова отведена отдельным мешем потому, что он **стоит** — пасётся,
+ * поднимает голову, — и неподвижный склеенный зверь читался бы чучелом. Волк
+ * не стоит никогда: он либо рысит по кругу, либо бросается. Голову он при этом
+ * несёт низко и ровно — это и есть весь его силуэт, и сказать ею нечего.
+ *
+ * Ноги одним мешем на все четыре: пёс идёт **намётом**, то есть передняя пара и
+ * задняя ходят вместе, а не враздрай, как у пасущегося оленя. Значит одного
+ * поворота хватает на всё, и это не упрощение, а то, как оно и бывает.
+ *
+ * Плата — два вызова отрисовки на волка днём и три ночью, когда горят глаза:
+ * шесть на ночную пару. Замер (`prologue:report`) — восемнадцать вызовов на
+ * ночную поляну со стаей в кадре против семнадцати на дневную с тушей.
+ */
+export function wolf(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'wolf';
+  const c = coat(WOLF_COAT);
+  const belly = coat(WOLF_BELLY);
+  const dark = coat(WOLF_MUZZLE);
+
+  const body: K.Part[] = [
+    // Корпус — два бруса: грудь выше и шире паха. У волка это наоборот, чем у
+    // оленя, и разница видна силуэтом даже в тридцать пикселей.
+    K.box(0.34, 0.38, 0.58, c, 0, WOLF_H - 0.2, 0.1),
+    K.box(0.3, 0.32, 0.42, c, 0, WOLF_H - 0.24, -0.36),
+    K.box(0.28, 0.14, 0.56, belly, 0, WOLF_H - 0.38, 0.08),
+    // Шея вперёд и вниз: голова на уровне спины, а не над ней.
+    K.cyl(0.12, 0.14, 0.34, c, 6, 0, WOLF_H - 0.1, 0.36, { x: -1.15 }),
+    K.box(0.17, 0.17, 0.26, c, 0, WOLF_H - 0.12, 0.56),
+    K.box(0.1, 0.1, 0.18, dark, 0, WOLF_H - 0.16, 0.72),
+    // Хвост — полено книзу: поднятый хвост читается собакой, опущенный волком.
+    K.cyl(0.06, 0.03, 0.42, c, 5, 0, WOLF_H - 0.3, -0.66, { x: 0.9 }),
+  ];
+  for (const sx of [-1, 1]) {
+    // Уши стоймя и врозь: по ним зверя видно с любой стороны.
+    body.push(K.box(0.04, 0.13, 0.08, c, sx * 0.08, WOLF_H + 0.01, 0.5, { z: sx * 0.28 }));
+  }
+  const torso = K.assemble(body);
+  torso.name = 'torso';
+
+  const legs: K.Part[] = [];
+  for (const sx of [-1, 1]) {
+    for (const z of [-0.32, 0.28]) {
+      legs.push(K.cyl(0.05, 0.035, 0.46, c, 5, sx * 0.12, -0.23, z));
+      legs.push(K.box(0.06, 0.05, 0.11, dark, sx * 0.12, -0.44, z + 0.02));
+    }
+  }
+  const feet = K.assemble(legs);
+  feet.name = 'legs';
+  feet.position.y = WOLF_H - 0.38;
+
+  /*
+   * Глаза: две точки светящимся материалом, одним мешем на пару.
+   *
+   * Светящееся склейке не поддаётся — у него свой материал, не тело с цветом в
+   * вершинах, — поэтому глаза отдельно, ровно как пламя костра. Цвет — жёлтое
+   * нутро огня из палитры: глаза не светятся сами, они возвращают костёр. Видны
+   * только ночью (сцена гасит их днём), и платит за них ночь — один вызов на
+   * волка, и только когда он есть.
+   */
+  const eyeParts = [-1, 1].map((sx) => {
+    const box = new THREE.BoxGeometry(0.06, 0.045, 0.02);
+    box.translate(sx * 0.05, WOLF_H - 0.07, 0.695);
+    return box;
+  });
+  const eyes = new THREE.Mesh(mergeGeometries(eyeParts), LEGACY.fireInner);
+  for (const part of eyeParts) part.dispose();
+  eyes.name = 'eyes';
+  eyes.castShadow = false;
+  eyes.visible = false;
+  g.add(torso, feet, eyes);
+  return g;
+}
+
+/** Сколько капель и снежинок в поле. Поровну: одна непогода за раз. */
+const DROPS = 300;
+
+/** Докуда стоит поле: поляна вся в нём, и ходить из-под дождя некуда. */
+const DROP_R = 15;
+
+/** Докуда поднимается. Выше не видно — там туман и кроны. */
+const DROP_TOP = 11;
+
+/**
+ * Дождевая черта: длина и снос ветром, метры.
+ *
+ * ДОЖДЬ — ЧЕРТОЙ, А НЕ ТОЧКОЙ. Первой версией капля была точкой, как снежинка, и
+ * на снимке дождь вышел редкими бледными квадратами — то есть снегом. Дождь
+ * глаз узнаёт по штриху: капля летит быстрее, чем длится кадр, и видна следом.
+ */
+const RAIN_LEN = 0.55;
+const RAIN_SLANT = 0.08;
+
+/**
+ * Полуширина черты — доля расстояния до глаза.
+ *
+ * ЧЕРТА — ДВА ТРЕУГОЛЬНИКА, А НЕ ОТРЕЗОК ЛИНИИ, И ЭТО ПРО ВЕС, А НЕ ПРО ВИД.
+ * Отрезками (`THREE.LineSegments`) дождь выглядел ровно так, как надо, но линии
+ * в игре не рисует больше никто, и их классы уехали в общий чанк `three` — то
+ * есть в первую загрузку, на 0.6 КБ, ради дождя в режиме, куда игрок может не
+ * зайти ни разу. Поймала это опись сборки. Треугольники рисует тот же `Mesh`,
+ * что и всё остальное.
+ *
+ * Ширина растёт с расстоянием нарочно: так черта держит полтора-два пикселя и
+ * у лица, и у опушки, а не толстеет вблизи в полосу.
+ */
+const RAIN_WIDTH = 0.0008;
+
+/** Ближе этого к глазу черту не рисуем: у лица это не капля, а царапина на стекле. */
+const RAIN_NEAR = 1.2;
+
+/**
+ * Размер снежинки — в пикселях экрана, а не в метрах.
+ *
+ * Снежинка в метрах у самого глаза вырастала в белый квадрат шириной в палец —
+ * на снимке 375 px такой и стоял. Снег у лица не должен закрывать поляну;
+ * постоянный размер на экране это и даёт, а издалека снег и так мелкий.
+ */
+const FLAKE_PX = 3;
+
+/**
+ * Дождь и снег.
+ *
+ * ДВЕ СИСТЕМЫ, НО ВИДНА ВСЕГДА ОДНА — И ВЫЗОВ ОТРИСОВКИ ОДИН. Дождь — черты из
+ * треугольников, развёрнутые к взгляду; снег — точки. Одной системой их не
+ * свести: у точки и черты разная геометрия. Зато погода одна за раз, и
+ * невидимая система не рисуется вовсе.
+ *
+ * ПОЛЕ СТОИТ В МИРЕ, А НЕ ЕДЕТ ЗА КАМЕРОЙ, и это стоило одной строки, а даёт
+ * всё: капли, привязанные к голове, не отстают от шага, поэтому идти под таким
+ * дождём — как идти в стеклянной колбе. Поляна тринадцать метров в радиусе, поле
+ * пятнадцать — накрывает целиком и без хитростей.
+ *
+ * Разброс — `glade.hash`, как весь остальной мир этой папки. `Math.random`
+ * здесь нет ни одного.
+ */
+export class Precip {
+  readonly root = new THREE.Group();
+  private rain: THREE.Mesh;
+  private flakes: THREE.Points;
+  private rainMat: THREE.MeshBasicMaterial;
+  private snowMat: THREE.PointsMaterial;
+  /** Своя скорость у каждой капли: одинаковые падают стеной. */
+  private speed = new Float32Array(DROPS);
+  /** Где висит капля: по земле место постоянное, падает только высота. */
+  private dropX = new Float32Array(DROPS);
+  private dropY = new Float32Array(DROPS);
+  private dropZ = new Float32Array(DROPS);
+
+  constructor() {
+    const dots = new Float32Array(DROPS * 3);
+    for (let i = 0; i < DROPS; i++) {
+      const a = hash(i, 3) * Math.PI * 2;
+      const r = Math.sqrt(hash(i, 5)) * DROP_R;
+      this.dropX[i] = Math.cos(a) * r;
+      this.dropY[i] = hash(i, 7) * DROP_TOP;
+      this.dropZ[i] = Math.sin(a) * r;
+      dots.set([this.dropX[i], this.dropY[i], this.dropZ[i]], i * 3);
+      this.speed[i] = 0.7 + hash(i, 9) * 0.6;
+    }
+    // Шесть вершин на черту: два треугольника без индекса. Раскладывает их
+    // `update`, развернув к взгляду, — до первого кадра они вырождены в ноль.
+    const rainGeo = new THREE.BufferGeometry();
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(DROPS * 18), 3));
+    const dotGeo = new THREE.BufferGeometry();
+    dotGeo.setAttribute('position', new THREE.BufferAttribute(dots, 3));
+    // Туман ни дождь, ни снег не берут: они и так у самого лица, а выцветшая
+    // капля читается грязью на стекле.
+    this.rainMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.fog,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    this.snowMat = new THREE.PointsMaterial({
+      color: PALETTE.snowflake,
+      size: FLAKE_PX,
+      sizeAttenuation: false,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+    });
+    this.rain = new THREE.Mesh(rainGeo, this.rainMat);
+    this.rain.castShadow = false;
+    this.rain.receiveShadow = false;
+    this.flakes = new THREE.Points(dotGeo, this.snowMat);
+    for (const o of [this.rain, this.flakes]) {
+      o.frustumCulled = false;
+      o.visible = false;
+      this.root.add(o);
+    }
+  }
+
+  /**
+   * Подвинуть непогоду.
+   *
+   * `wet` — насколько она вступила: 0 — сухо, 1 — в полную силу. Плавно, а не
+   * рывком: дождь, начавшийся в один кадр, читается сбоем картинки. `ex`, `ez`
+   * и `yaw` — где стоит и куда смотрит глаз: к нему черты и разворачиваются.
+   */
+  update(dt: number, mode: 'rain' | 'snow', wet: number, ex: number, ez: number, yaw: number): void {
+    const on = wet > 0.01;
+    this.rain.visible = on && mode === 'rain';
+    this.flakes.visible = on && mode === 'snow';
+    if (!on) return;
+    if (mode === 'rain') {
+      this.rainMat.opacity = wet * 0.6;
+      const attr = this.rain.geometry.attributes.position as THREE.BufferAttribute;
+      const p = attr.array as Float32Array;
+      // Правая ось взгляда по земле: вдоль неё черта и получает ширину.
+      const rx = Math.cos(yaw);
+      const rz = -Math.sin(yaw);
+      for (let i = 0; i < DROPS; i++) {
+        let y = this.dropY[i] - this.speed[i] * 13 * dt;
+        if (y < 0) y += DROP_TOP;
+        this.dropY[i] = y;
+        const x = this.dropX[i];
+        const z = this.dropZ[i];
+        const d = Math.hypot(x - ex, z - ez);
+        const hw = d < RAIN_NEAR ? 0 : RAIN_WIDTH * d;
+        const ox = rx * hw;
+        const oz = rz * hw;
+        const tx = x - RAIN_SLANT;
+        const ty = y + RAIN_LEN;
+        const o = i * 18;
+        p[o] = x - ox;
+        p[o + 1] = y;
+        p[o + 2] = z - oz;
+        p[o + 3] = x + ox;
+        p[o + 4] = y;
+        p[o + 5] = z + oz;
+        p[o + 6] = tx + ox;
+        p[o + 7] = ty;
+        p[o + 8] = z + oz;
+        p[o + 9] = x - ox;
+        p[o + 10] = y;
+        p[o + 11] = z - oz;
+        p[o + 12] = tx + ox;
+        p[o + 13] = ty;
+        p[o + 14] = z + oz;
+        p[o + 15] = tx - ox;
+        p[o + 16] = ty;
+        p[o + 17] = z - oz;
+      }
+      attr.needsUpdate = true;
+      return;
+    }
+    this.snowMat.opacity = wet * 0.85;
+    const attr = this.flakes.geometry.attributes.position as THREE.BufferAttribute;
+    const p = attr.array as Float32Array;
+    for (let i = 0; i < DROPS; i++) {
+      p[i * 3 + 1] -= this.speed[i] * 1.1 * dt;
+      // Снег сносит боком, а дождь идёт своей чертой: у капли своя инерция.
+      p[i * 3] += Math.sin(p[i * 3 + 1] * 0.7 + i) * dt * 0.4;
+      if (p[i * 3 + 1] < 0) p[i * 3 + 1] += DROP_TOP;
+    }
+    attr.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.rain.geometry.dispose();
+    this.flakes.geometry.dispose();
+    this.rainMat.dispose();
+    this.snowMat.dispose();
+  }
 }

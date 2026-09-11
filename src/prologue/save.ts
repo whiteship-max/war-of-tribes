@@ -33,7 +33,7 @@
  */
 import { serverNow } from '@/net/clock';
 import { newHearth, type Hearth } from './fire';
-import { camp, newBody, type Body } from './body';
+import { WOUNDS_FATAL, camp, newBody, type Body } from './body';
 import { TREES } from './glade';
 import { newHunt, type Hunt, type Pt } from './hunt';
 
@@ -74,6 +74,14 @@ export interface PrologueSave {
    * Стоит оно сейчас или уже отросло, считает `glade.standing`.
    */
   felled: number[];
+  /**
+   * Когда отбили последнюю стаю волков. 0 — ни разу.
+   *
+   * Одно число на всех волков, и второго не нужно: из него выводится и тишина
+   * после драки, и то, что стая ушла (`wolves.packAt`). Где они стоят и что
+   * делают — время кадров и в запись не идёт вовсе.
+   */
+  wolvesBeatenAt: number;
 }
 
 /** Новая предыстория: костёр початый, топор на пне, пожитки у палатки, лес цел. */
@@ -90,6 +98,7 @@ export function freshPrologue(now = serverNow()): PrologueSave {
     arrows: [],
     meat: { cooked: 0, raw: 0 },
     felled: TREES.map(() => 0),
+    wolvesBeatenAt: 0,
   };
 }
 
@@ -112,6 +121,13 @@ export function freshPrologue(now = serverNow()): PrologueSave {
  * КОСТЁР РАЗЖИГАЕТСЯ ЗАНОВО на два полена — столько же, сколько у новой поляны.
  * Проснуться у холодного очага значило бы начать новое утро с той же смерти:
  * холод пошёл бы расти с первой секунды, а дров в руках нет.
+ *
+ * И ПО ТОЙ ЖЕ ПРИЧИНЕ НОВОЕ УТРО НАЧИНАЕТСЯ ТИХИМ: волки уходят на `WOLF_GAP_MS`,
+ * как после отбитой стаи. Иначе загрызенный открывал бы глаза в двух шагах от
+ * той же пары зубов — а это и есть замкнутая петля смертей, которой в режиме
+ * быть не должно. Тишина даётся при любой смерти, не только от волков: разбирать
+ * тут нечего, а объяснять игроку, почему после голода волки есть, а после зубов
+ * нет, — тем более.
  */
 export function revive(s: PrologueSave, now = serverNow()): PrologueSave {
   return {
@@ -124,6 +140,7 @@ export function revive(s: PrologueSave, now = serverNow()): PrologueSave {
     // меняется ни от чего, кроме нашей ошибки (`hunt.test.ts` это и стережёт).
     quiver: s.quiver + s.arrows.length,
     arrows: [],
+    wolvesBeatenAt: now,
   };
 }
 
@@ -166,6 +183,7 @@ export function loadPrologue(now = serverNow()): PrologueSave {
       body: {
         hunger: Math.min(1, Math.max(0, num(p.body?.hunger, 0))),
         cold: Math.min(1, Math.max(0, num(p.body?.cold, 0))),
+        hurt: Math.min(WOUNDS_FATAL, Math.max(0, num(p.body?.hurt, 0))),
         at: num(p.body?.at, now),
         // Отметка «грелся» с диска не читается вовсе — её там и нет: между
         // заходами человек на стоянке, и почему так, написано в `body.ts`.
@@ -187,6 +205,7 @@ export function loadPrologue(now = serverNow()): PrologueSave {
       // Длина списка идёт от нынешней поляны, а не от записи: деревьев могло
       // стать больше, и лишние обязаны оказаться стоящими, а не undefined.
       felled: TREES.map((_, i) => num(p.felled?.[i], 0)),
+      wolvesBeatenAt: num(p.wolvesBeatenAt, 0),
     };
   } catch {
     return fresh;

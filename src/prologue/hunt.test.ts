@@ -23,6 +23,7 @@ import {
   CARCASS_MS,
   DEER_ALERT,
   DEER_FLEE,
+  DEER_SLEEP_FLEE,
   DEER_GAP_MS,
   DEER_MEAT,
   DEER_RUN,
@@ -34,6 +35,8 @@ import {
   deerHome,
   deerInMs,
   deerLive,
+  deerSleeps,
+  fleeRange,
   landArrow,
   liveCarcass,
   newHunt,
@@ -43,6 +46,8 @@ import {
 } from './hunt';
 import { EYE, GLADE_R, REACH, WALK_SPEED } from './glade';
 import { freshPrologue, revive } from './save';
+import { DAY_SHARE, SKY_MS, isNight } from './sky';
+import { WOLF_GAP_MS, packAt } from './wolves';
 
 const H = 3_600_000;
 
@@ -90,6 +95,32 @@ describe('олень: есть ли он — считается на чтени�
       expect(Math.hypot(p.x, p.z)).toBeGreaterThan(DEER_FLEE);
       expect(Math.hypot(p.x, p.z)).toBeLessThan(GLADE_R);
     }
+  });
+});
+
+describe('ночью зверь спит', () => {
+  it('спит ровно тогда, когда на поляне ночь, — и считается это на чтении', () => {
+    // Одна дверь на сцену и на тест: `deerSleeps` смотрит на то же небо, что и
+    // свет, и второго «ночь ли сейчас» у зверя быть не должно.
+    for (let t = 0; t < SKY_MS * 3; t += 3_700) {
+      expect(deerSleeps(t), `${t}`).toBe(isNight(t));
+      expect(fleeRange(t), `${t}`).toBe(isNight(t) ? DEER_SLEEP_FLEE : DEER_FLEE);
+    }
+    expect(deerSleeps(DAY_SHARE * SKY_MS * 0.5)).toBe(false);
+    expect(deerSleeps(DAY_SHARE * SKY_MS + 1000)).toBe(true);
+  });
+
+  it('спящий подпускает ближе, но рукой его всё равно не взять', () => {
+    /*
+     * НОЧЬЮ ОХОТА ЛЕГЧЕ — И НИ НА ШАГ ЛЕГЧЕ, ЧЕМ ЭТО ДОПУСТИМО.
+     *
+     * Спящий зверь срывается вдвое ближе: это вторая половина ночи, та, ради
+     * которой её стоит играть. Но тап достаёт на 2.1 м, и между ним и
+     * четырьмя метрами обязан остаться запас — иначе спящего оленя брали бы
+     * рукой, лук перестал бы быть нужен, а тап начал бы целиться.
+     */
+    expect(DEER_SLEEP_FLEE).toBeLessThan(DEER_FLEE);
+    expect(DEER_SLEEP_FLEE).toBeGreaterThan(REACH * 1.8);
   });
 });
 
@@ -192,6 +223,24 @@ describe('стрела не размножается и не пропадает'
     const next = revive(s, 0);
     expect(next.quiver).toBe(3);
     expect(next.arrows).toEqual([]);
+  });
+
+  it('новое утро начинается тихим: волки уходят, как после отбитой стаи', () => {
+    // Иначе загрызенный открывал бы глаза в двух шагах от той же пары зубов —
+    // это и есть замкнутая петля смертей, которой в режиме быть не должно.
+    // Ищем ночь, в которую стая есть, и умираем в ней.
+    let night = 0;
+    for (let t = 0; t < 400 * SKY_MS; t += 5000) {
+      if (packAt(t, 0) > 0 && isNight(t)) {
+        night = t;
+        break;
+      }
+    }
+    expect(packAt(night, 0)).toBeGreaterThan(0);
+    const next = revive(freshPrologue(0), night);
+    expect(next.wolvesBeatenAt).toBe(night);
+    expect(packAt(night, next.wolvesBeatenAt)).toBe(0);
+    expect(packAt(night + WOLF_GAP_MS - 1, next.wolvesBeatenAt)).toBe(0);
   });
 });
 

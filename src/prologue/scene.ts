@@ -54,6 +54,7 @@ import { disposeGeometries } from '@/render/kit';
 import { swallowGhostClick } from '@/gestures';
 import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
+import { wolfHowl } from '@/sound/howl';
 import { Keys, KEY_BOW, PITCH_LIMIT, STICK_FULL, Sticks, mergeWalk, type Walk } from './controls';
 import {
   CHOPS_TO_FELL,
@@ -71,14 +72,42 @@ import {
   standing,
   type Spot,
 } from './glade';
-import { hearthFill, burnWords, feed, logsTaken, spend } from './fire';
+import { hearthFill, burnWords, burning, feed, logsTaken, spend } from './fire';
 import {
+  darkness,
+  gloom,
+  isNight,
+  nextWeather,
+  sunAt,
+  weatherAt,
+  weatherWords,
+} from './sky';
+import {
+  HOWL_LEAD_MS,
+  WOLF_EDGE,
+  WOLF_FIRE_R,
+  WOLF_RUSH,
+  WOLF_STALK_R,
+  WOLF_STOP,
+  WOLF_TROT,
+  packAt,
+  stalkAfterBite,
+  wolfCanBite,
+  wolfHit,
+  wolfKeepsOut,
+  wolfRushes,
+  wolfSpot,
+} from './wolves';
+import {
+  bite,
   coldFill,
   coldWords,
   eat,
   fedFill,
   hungerAt,
   hungerWords,
+  hurtFill,
+  hurtWords,
   setWarm,
   warming,
   type Death,
@@ -89,10 +118,11 @@ import {
   BUTCHER_MS,
   DEER_ALERT,
   DEER_CALM_MS,
-  DEER_FLEE,
   DEER_RUN,
   DEER_WALK,
   arrowByCarcass,
+  deerSleeps,
+  fleeRange,
   arrowHits,
   arrowLanding,
   deerHome,
@@ -115,6 +145,7 @@ import {
   type Offer,
 } from './act';
 import {
+  Precip,
   arrow as arrowModel,
   axe as axeModel,
   bow as bowModel,
@@ -127,6 +158,7 @@ import {
   gladeGround,
   stump,
   tent,
+  wolf as wolfModel,
 } from './models';
 import { KIT_MEAT, revive as reviveSave, savePrologue, type PrologueSave } from './save';
 
@@ -162,6 +194,15 @@ export interface PrologueView {
   /** Еда: жареное и сырое, каждое своей кнопкой на счётчике. */
   eatCooked: Offer;
   eatRaw: Offer;
+  /** Раны: полоса тревоги, как у холода. Пустая — цел. */
+  hurtFill: number;
+  hurtWords: string;
+  /** Ночь ли сейчас: надстройка приглушает свои цвета вместе с небом. */
+  night: boolean;
+  /** Что с погодой — словом. Пусто, когда ясно и портиться нечему. */
+  weather: string;
+  /** Сколько волков на поляне. Ноль — строки о них нет вовсе. */
+  wolves: number;
   /** Натянут ли лук: по этому надстройка ставит перекрестье. */
   drawn: boolean;
   /** Что делаем и сколько раз осталось: рубка или разделка. Пусто — ничего. */
@@ -172,15 +213,58 @@ export interface PrologueView {
 }
 
 /**
- * Время суток на поляне.
+ * Как часто перекладывается свет.
  *
- * Ранний вечер и никакого хода часов: солнце низко и тепло, костёр читается
- * огнём, а тени длинные и лежат поперёк поляны. Ночь была бы честнее к замыслу
- * («поддерживай огонь»), но в ней не видно ни модели, ни силуэта, а этот кусок —
- * про то, играется ли это пальцем. Ход суток появится вместе с голодом и
- * холодом, не раньше.
+ * ЧАСЫ НА ПОЛЯНЕ ТЕПЕРЬ ИДУТ, и `applyDayNight` зовётся не один раз, а по мере
+ * хода круга. Каждый кадр звать его незачем: он раскладывает лампы и переливает
+ * четыре цвета, а круг суток длиной в четыре минуты за кадр проходит три
+ * десятитысячных. Две тысячных — это полсекунды хода: на глаз незаметно, а
+ * работы в двести раз меньше.
+ *
+ * Порог второй, по хмурости: небо темнеет перед непогодой быстрее, чем ходит
+ * солнце, и ждать от него полсекунды нельзя.
  */
-const SOLAR = 0.47;
+const SKY_STEP = 0.002;
+const GLOOM_STEP = 0.015;
+
+/**
+ * Туман поляны: где начинается и где добирает цвет.
+ *
+ * `WET` — то же в дождь. Видно в дождь заметно хуже, и это единственное, чем
+ * непогода трогает картинку помимо капель: серое небо и близкий край видимости
+ * читаются ненастьем сразу, без единого слова на экране.
+ */
+const FOG_NEAR = 22;
+const FOG_FAR = 52;
+const FOG_FAR_WET = 30;
+
+/** За сколько секунд непогода набирает и отпускает силу. Рывком читалась бы сбоем. */
+const WET_FADE = 2.4;
+
+/**
+ * Чем серится небо в ненастье: у дождя и у снега своё.
+ *
+ * Цвет из палитры, а не «по месту»: это правило всей графики игры, и погода —
+ * не повод его обойти. Первой версией небо в обе непогоды тянулось к дыму — и
+ * дождливое небо на снимке вышло **светлее** погожего, то есть читалось не
+ * ненастьем, а туманным утром. Дождю нужен тёмный камень, снегу — светлый дым:
+ * снежное небо и правда белёсое.
+ */
+const RAIN_TINT = new THREE.Color(PALETTE.stoneDark);
+const SNOW_TINT = new THREE.Color(PALETTE.smoke);
+
+/**
+ * С какой глубины ночи у волков горят глаза.
+ *
+ * Треть — это сумерки: днём светящиеся глаза — нелепость, а ночью без них волк
+ * на снимке оказался тёмным ящиком на тёмной траве. «Показать издалека» ночью
+ * можно только светом, а свет у поляны один — отражённый глазами огонь.
+ */
+const EYES_FROM = 0.3;
+
+/** Сколько ждать между воями и насколько разбрасывать этот срок. */
+const HOWL_GAP_MS = 14_000;
+const HOWL_SPREAD_MS = 12_000;
 
 /** Сколько поляны накрывает коробка теней. Ровно поляна: лес теней не отбрасывает. */
 const SHADOW_HALF = 20;
@@ -259,10 +343,32 @@ const SPOT_WORDS: Record<Spot['kind'], string> = {
   tent: 'палатка',
   carcass: 'туша',
   arrow: 'стрела',
+  wolf: 'волк',
 };
 
 /** Что делает зверь. Живёт во времени сцены и никуда не пишется. */
 type Beast = { x: number; z: number; yaw: number; homeX: number; homeZ: number; fleeUntil: number; fleeYaw: number; gait: number };
+
+/**
+ * Волк в кадре. Тоже целиком время сцены: в записи о нём одно число, и то не о
+ * нём, а о том, когда стаю отбили (`wolves.ts`, шапка).
+ */
+interface Wolf {
+  obj: THREE.Group;
+  legs: THREE.Object3D | null;
+  /** Глаза: светятся ночью и только ночью. */
+  eyes: THREE.Object3D | null;
+  x: number;
+  z: number;
+  yaw: number;
+  /** Куда он тянется, пока человек в безопасности: своё место у опушки. */
+  homeX: number;
+  homeZ: number;
+  /** В какую сторону кружит: двое не должны идти ноздря в ноздрю. */
+  spin: number;
+  /** Фаза намёта. */
+  gait: number;
+}
 
 /** Стрела в полёте: тоже целиком время сцены — приземлившись, она станет записью. */
 interface Flight {
@@ -298,6 +404,11 @@ function same(a: PrologueView, b: PrologueView): boolean {
     a.fedWords === b.fedWords &&
     a.coldWords === b.coldWords &&
     a.warming === b.warming &&
+    Math.abs(a.hurtFill - b.hurtFill) < 0.002 &&
+    a.hurtWords === b.hurtWords &&
+    a.night === b.night &&
+    a.weather === b.weather &&
+    a.wolves === b.wolves &&
     a.logs === b.logs &&
     a.axe === b.axe &&
     a.bow === b.bow &&
@@ -341,6 +452,42 @@ export class PrologueScene {
   private deerLegsB: THREE.Object3D | null = null;
   private beast: Beast = { x: 0, z: 0, yaw: 0, homeX: 0, homeZ: 0, fleeUntil: 0, fleeYaw: 0, gait: 0 };
   private carcass: THREE.Object3D | null = null;
+
+  /** Стая. Пусто — обычное дело: волки приходят не каждую ночь. */
+  private pack: Wolf[] = [];
+  /**
+   * Сколько волков этой стаи уже положили.
+   *
+   * Нужно затем, чтобы убитый не появлялся обратно в следующем же кадре:
+   * `packAt` отвечает, сколько волков **в стае**, а не сколько их осталось. Как
+   * только положили всех, минута уезжает в запись (`wolvesBeatenAt`), и счётчик
+   * обнуляется — дальше тишину держит уже формула.
+   */
+  private downed = 0;
+  /** Когда провыть в следующий раз. Время сцены: звук выхода не переживает. */
+  private howlAt = 0;
+  /**
+   * С какой минуты стая кружит вокруг человека. 0 — не кружит, человек у огня.
+   *
+   * **Один отсчёт на всю стаю**, а не по отсчёту на волка: бросается и кусает
+   * один, укусил — отскакивает вся стая (`wolves.wolfRushes`). Отсюда и
+   * обещание «раньше `EARLIEST_DEATH_MS` не загрызут» — для пары так же, как для
+   * одиночки. Начинается отсчёт не с выхода стаи из леса, а с той минуты, в
+   * которую человек вышел из круга у костра: окно «увидел и решил» игрок
+   * получает **каждый раз**, а не однажды за ночь.
+   */
+  private stalkFrom = 0;
+
+  /** Непогода: дождь чертами и снег точками, видна одна за раз. */
+  private precip = new Precip();
+  /** Насколько непогода вступила, 0..1. Картинка, а не величина. */
+  private wet = 0;
+  /** Что именно идёт. Держится, пока непогода дотухает: ясной погоде вида нет. */
+  private wetKind: 'rain' | 'snow' = 'rain';
+  /** Что уже разложено светом — по этому видно, надо ли перекладывать. */
+  private skySolar = -1;
+  private skyGloom = -1;
+
   /** Стрелы в траве — по одной на запись в сохранении. */
   private stuck: THREE.Object3D[] = [];
   private flight: Flight | null = null;
@@ -374,7 +521,7 @@ export class PrologueScene {
    * следующем заходе стоит целым, а недорезанная туша — целой. В сохранении
    * лежит только то, что случилось, а не то, что начинали.
    */
-  private work: { kind: 'chop' | 'butcher'; at: number } | null = null;
+  private work: { kind: 'chop' | 'butcher' | 'fight'; at: number } | null = null;
 
   private savedAt = 0;
   private viewedAt = 0;
@@ -405,7 +552,7 @@ export class PrologueScene {
      * Теперь дымка начинается там, где кончается поляна, и добирает цвет к
      * самому краю земли — деревья за спиной у ближних остаются деревьями.
      */
-    this.scene.fog = new THREE.Fog(PALETTE.fog, 22, 52);
+    this.scene.fog = new THREE.Fog(PALETTE.fog, FOG_NEAR, FOG_FAR);
 
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 90);
     this.camera.position.set(this.px, EYE, this.pz);
@@ -429,10 +576,13 @@ export class PrologueScene {
     this.smoke = new Smoke(SMOKE_LOOK);
     this.scene.add(this.smoke.points);
 
-    // Солнце ставится один раз: час на поляне не идёт, а `applyDayNight` только
-    // раскладывает лампы и цвета по этому часу — звать его каждый кадр значило
-    // бы считать одно и то же шестьдесят раз в секунду.
-    applyDayNight(this.rig, this.scene, SOLAR, this.season);
+    // Часы поляны идут, и свет за ними — но не каждый кадр, а по мере хода
+    // круга (`SKY_STEP`). Первый раз обязательно здесь: до первого кадра сцена
+    // уже может попасть на снимок, а ночь, разложенная кадром позже, читалась
+    // бы вспышкой.
+    this.applySky(serverNow());
+
+    this.scene.add(this.precip.root);
 
     // Камера состоит в графе сцены: иначе топор, висящий на ней, не обойдётся
     // обходом и не нарисуется вовсе.
@@ -442,6 +592,7 @@ export class PrologueScene {
     this.syncBow();
     this.syncArrows();
     this.syncBeast(true);
+    this.syncPack(performance.now());
 
     this.resize();
     this.wire();
@@ -470,6 +621,11 @@ export class PrologueScene {
   }
 
   private onDown = (e: PointerEvent): void => {
+    // Нажатие — это и есть тот жест, которым открывается звук: в вебвью
+    // Telegram он сам не откроется. При выключенной музыке `arm` не делает
+    // ничего и не качает ни байта, поэтому звать его можно свободно; `await`
+    // здесь нельзя ни одного — активация теряется.
+    wolfHowl.arm();
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -561,7 +717,9 @@ export class PrologueScene {
   /** По чему сейчас работает тап. Досягаемость, а не прицел (см. `controls.ts`). */
   private aim(): Spot | null {
     const now = serverNow();
-    return nearest(this.px, this.pz, reach(this.save, now), now);
+    // Волки едут в поляну отсюда: где они стоят, знает только кадр, и второго
+    // источника этому нет и быть не может.
+    return nearest(this.px, this.pz, reach(this.save, now, this.pack), now);
   }
 
   /** Мёртвому не делают ничего: экран смерти стоит поверх всего, и это не запрет, а правда. */
@@ -619,6 +777,18 @@ export class PrologueScene {
       return this.done();
     }
     if (this.work) return;
+    /*
+     * Волк. Валится с одного удара и **сразу**, а не по концу замаха: зверь в
+     * шаге от лица ждать не станет, и «ударил, а он ещё кусает» игрок прочтёт
+     * поломкой. Замах при этом идёт своим чередом — он тут украшение, и это
+     * единственное дело режима, где картинка отстаёт от записи, а не наоборот.
+     */
+    if (what.deed === 'fight') {
+      this.slay(spot.index, now);
+      this.work = { kind: 'fight', at: performance.now() };
+      this.refresh();
+      return;
+    }
     if (what.deed === 'butcher') {
       this.work = { kind: 'butcher', at: performance.now() };
       this.refresh();
@@ -640,7 +810,9 @@ export class PrologueScene {
   }
 
   /** Дело доделано: удар состоялся или кусок срезан. */
-  private landWork(kind: 'chop' | 'butcher'): void {
+  private landWork(kind: 'chop' | 'butcher' | 'fight'): void {
+    // Драка уже случилась в тот кадр, когда по ней тапнули: замах — картинка.
+    if (kind === 'fight') return this.done();
     if (kind === 'butcher') {
       const now = serverNow();
       const c = liveCarcass(this.save.hunt, now);
@@ -756,6 +928,10 @@ export class PrologueScene {
     this.syncBow();
     this.syncArrows();
     this.syncBeast(true);
+    // `revive` уводит волков на `WOLF_GAP_MS` — иначе загрызенный открывал бы
+    // глаза в двух шагах от той же пары зубов (объяснение — в `save.ts`).
+    this.downed = 0;
+    this.syncPack(performance.now());
     this.done();
   }
 
@@ -994,10 +1170,16 @@ export class PrologueScene {
     const sway = speed > 0 ? Math.sin(this.bob) * 0.035 : 0;
     this.camera.position.set(this.px, EYE + sway, this.pz);
 
+    const now = serverNow();
     this.warmth();
     this.swing(t);
     this.aimBow(t);
-    this.beastStep(dt, t);
+    this.applySky(now);
+    this.weatherStep(dt, now);
+    this.beastStep(dt, t, now);
+    this.syncPack(t);
+    this.wolfStep(dt, t, now);
+    this.howlStep(t, now);
     this.arrowStep(dt);
     this.fire(t, dt);
     this.stick();
@@ -1092,7 +1274,7 @@ export class PrologueScene {
       this.restAxe();
       return;
     }
-    const span = w.kind === 'chop' ? CHOP_MS : BUTCHER_MS;
+    const span = w.kind === 'butcher' ? BUTCHER_MS : CHOP_MS;
     const k = (t - w.at) / span;
     if (k >= 1) {
       this.work = null;
@@ -1101,7 +1283,7 @@ export class PrologueScene {
       return;
     }
     const a = this.axeInHand;
-    if (!a || w.kind !== 'chop') return;
+    if (!a || w.kind === 'butcher') return;
     // Подъём, удар, возврат — три доли одного замаха.
     const up = Math.min(1, k / 0.35);
     const hit = Math.max(0, Math.min(1, (k - 0.35) / 0.25));
@@ -1146,6 +1328,229 @@ export class PrologueScene {
   }
 
   /**
+   * Сколько волков должно стоять на поляне — и столько и ставит.
+   *
+   * Сколько их в стае, решает формула (`wolves.packAt`); сколько осталось —
+   * формула минус положенные (`downed`). Разводить это надо: `packAt` отвечает
+   * на вопрос «какая эта ночь», а не «кого ещё не убили», и без вычитания
+   * зарубленный волк появлялся бы обратно в следующем же кадре.
+   */
+  private syncPack(t: number): void {
+    const now = serverNow();
+    const size = packAt(now, this.save.wolvesBeatenAt);
+    if (size <= 0) this.downed = 0;
+    const want = Math.max(0, size - this.downed);
+    while (this.pack.length > want) {
+      const w = this.pack.pop();
+      if (w) this.drop(w.obj);
+    }
+    if (want > 0 && this.pack.length === 0) {
+      // Стая только что вышла — вой обязан прийти раньше зубов.
+      this.howlAt = t + HOWL_LEAD_MS;
+      this.stalkFrom = 0;
+    }
+    while (this.pack.length < want) {
+      const n = this.pack.length;
+      const home = wolfSpot(now, n);
+      const g = wolfModel();
+      g.position.set(home.x, 0, home.z);
+      this.scene.add(g);
+      this.pack.push({
+        obj: g,
+        legs: g.getObjectByName('legs') ?? null,
+        eyes: g.getObjectByName('eyes') ?? null,
+        x: home.x,
+        z: home.z,
+        yaw: 0,
+        homeX: home.x,
+        homeZ: home.z,
+        spin: n % 2 === 0 ? 1 : -1,
+        gait: 0,
+      });
+    }
+  }
+
+  /** Волка положили: убрать из стаи и, если это был последний, записать минуту. */
+  private slay(i: number, now: number): void {
+    const w = this.pack[i];
+    if (!w) return;
+    this.drop(w.obj);
+    this.pack.splice(i, 1);
+    this.downed += 1;
+    if (this.downed >= packAt(now, this.save.wolvesBeatenAt)) {
+      // Стая отбита. Дальше тишину держит формула, а не этот счётчик.
+      this.save.wolvesBeatenAt = now;
+      this.downed = 0;
+    }
+    this.persist(true);
+  }
+
+  /**
+   * Волки.
+   *
+   * ВРЕМЯ СЦЕНЫ ЦЕЛИКОМ, кроме одного события — укуса (`body.bite`), и оно
+   * устроено так же, как пересечённый круг у костра и долетевшая стрела: кадр
+   * замечает мгновение, величину считает формула.
+   *
+   * Состояний три, и они не про волка, а про **человека**:
+   *
+   *   человек у огня   волк бродит у своей опушки и к костру не подходит вовсе
+   *                    (`wolfKeepsOut`). Отсчёт кружения сброшен;
+   *   человек вышел    волк кружит вокруг него на `WOLF_STALK_R` — семь секунд,
+   *                    на виду и с воем. Это и есть всё предупреждение;
+   *   время вышло      бросается. Догнать человека он может (`WOLF_RUSH` против
+   *                    2.6 м/с), но у костра всё равно остановится.
+   *
+   * Отсчёт начинается с минуты, в которую человек вышел из круга, а не с выхода
+   * волка из леса: значит окно «увидел и решил» игрок получает каждый раз, а не
+   * однажды за ночь.
+   */
+  private wolfStep(dt: number, t: number, now: number): void {
+    if (!this.pack.length) return;
+    const lit = burning(this.save.hearth, now);
+    const safe = wolfKeepsOut(this.px, this.pz, lit);
+    const glow = darkness(now) > EYES_FROM;
+    if (safe) this.stalkFrom = 0;
+    else if (!this.stalkFrom) this.stalkFrom = t;
+    for (let i = this.pack.length - 1; i >= 0; i--) {
+      const w = this.pack[i];
+      if (w.eyes) w.eyes.visible = glow;
+      // Спрашивается на каждом волке заново, а не один раз до цикла: укусивший
+      // сдвигает отсчёт, и остальные в том же кадре уже не бросаются.
+      const rush = wolfRushes(this.stalkFrom, t);
+      let speed = 0;
+      if (safe) {
+        // Бродит у своей опушки — по той же кривой из двух синусов, что и
+        // пасущийся олень: на глаз она не повторяется, а стоит нисколько.
+        const s = t / 1000;
+        const tx = w.homeX + Math.sin(s * 0.21 + i) * 2.4;
+        const tz = w.homeZ + Math.sin(s * 0.13 + i * 2.1) * 2;
+        speed = this.wolfGo(w, tx, tz, WOLF_TROT, dt);
+      } else {
+        if (rush) {
+          // К человеку, но не сквозь него: встаёт в `WOLF_STOP` — оттуда и
+          // кусает, а камера не оказывается внутри волка.
+          const dx = this.px - w.x;
+          const dz = this.pz - w.z;
+          const d = Math.hypot(dx, dz) || 1;
+          const go = Math.max(0, d - WOLF_STOP);
+          speed = this.wolfGo(w, w.x + (dx / d) * go, w.z + (dz / d) * go, WOLF_RUSH, dt);
+        } else {
+          // Кружит: держится на своём радиусе и обходит человека боком.
+          const a = Math.atan2(w.z - this.pz, w.x - this.px) + w.spin * dt * 0.5;
+          const tx = this.px + Math.cos(a) * WOLF_STALK_R;
+          const tz = this.pz + Math.sin(a) * WOLF_STALK_R;
+          speed = this.wolfGo(w, tx, tz, WOLF_TROT, dt);
+        }
+      }
+      // К горящему костру не подходят ни при каком шаге: правило одно на сцену
+      // и на тест, и живёт оно в `wolves.ts`.
+      if (wolfKeepsOut(w.x, w.z, lit)) {
+        const r = Math.hypot(w.x, w.z) || 1;
+        w.x = (w.x / r) * WOLF_FIRE_R;
+        w.z = (w.z / r) * WOLF_FIRE_R;
+      }
+      const edge = Math.hypot(w.x, w.z);
+      if (edge > WOLF_EDGE) {
+        w.x = (w.x / edge) * WOLF_EDGE;
+        w.z = (w.z / edge) * WOLF_EDGE;
+      }
+      w.gait += speed * dt * 4.2;
+      const rushing = speed > WOLF_TROT;
+      w.obj.position.set(w.x, Math.abs(Math.sin(w.gait)) * (rushing ? 0.05 : 0.015), w.z);
+      w.obj.rotation.y = w.yaw;
+      if (w.legs) w.legs.rotation.x = speed > 0 ? Math.sin(w.gait) * (rushing ? 0.7 : 0.35) : 0;
+      if (!safe && rush && wolfCanBite(w.x, w.z, this.px, this.pz, lit)) {
+        // Укус. Дальше отскакивает и кружит заново вся стая (`stalkAfterBite`).
+        this.stalkFrom = stalkAfterBite(t);
+        this.save.body = bite(this.save.body, this.save.hearth, now);
+        this.done();
+      }
+    }
+  }
+
+  /** Шагнуть волком к точке. Возвращает скорость шага — по ней идёт намёт. */
+  private wolfGo(w: Wolf, tx: number, tz: number, speed: number, dt: number): number {
+    const dx = tx - w.x;
+    const dz = tz - w.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.05) return 0;
+    const step = Math.min(len, speed * dt);
+    w.x += (dx / len) * step;
+    w.z += (dz / len) * step;
+    // Модель волка смотрит вдоль +Z, как и олень: поворот тот же.
+    w.yaw = Math.atan2(dx, dz);
+    return speed;
+  }
+
+  /**
+   * Вой.
+   *
+   * ЗВУК ЖИВЁТ В КАДРЕ, И ЭТО НЕ РАЗМЫВАЕТ ГРАНИЦУ, А ПОДТВЕРЖДАЕТ ЕЁ: воя нет
+   * в сохранении и быть не может — он не переживает даже сворачивания вкладки.
+   * На чтении считается **есть ли волки**, а провыть некому, если их нет.
+   *
+   * Идёт он через общий переключатель звука и молчит, пока игрок не включил его
+   * сам: выключенный звук не открывает контекста вовсе (`sound/howl.ts`).
+   */
+  private howlStep(t: number, now: number): void {
+    if (!this.pack.length || t < this.howlAt) return;
+    const seed = Math.floor(now / 1000);
+    wolfHowl.howl(seed);
+    this.howlAt = t + HOWL_GAP_MS + hash(seed, 99) * HOWL_SPREAD_MS;
+  }
+
+  /**
+   * Непогода: дождь чертами, снег точками — одна видна за раз.
+   *
+   * Сила набирается и отпускается за `WET_FADE` — это картинка и только она.
+   * Что дождь делает с очагом и снег с холодом, считают формулы (`sky.ts`), и
+   * этому кадру о них знать нечего.
+   */
+  private weatherStep(dt: number, now: number): void {
+    const here = weatherAt(now);
+    if (here !== 'clear') this.wetKind = here;
+    const want = here === 'clear' ? 0 : 1;
+    const step = dt / WET_FADE;
+    this.wet = want > this.wet ? Math.min(want, this.wet + step) : Math.max(want, this.wet - step);
+    this.precip.update(dt, this.wetKind, this.wet, this.px, this.pz, this.yaw);
+  }
+
+  /**
+   * Свет по часу поляны и по погоде.
+   *
+   * `applyDayNight` — общий на всю игру риг, и про погоду он не знает нарочно:
+   * он раскладывает лампы по часу, а ненастье гасится **поверх** него. Иначе
+   * пришлось бы учить деревню и бой понятию «хмурится», которого у них нет.
+   *
+   * Перекладывается не каждый кадр, а по порогу: круг суток за кадр проходит
+   * три десятитысячных, и переливать четыре цвета шестьдесят раз в секунду ради
+   * этого незачем.
+   */
+  private applySky(now: number): void {
+    const solar = sunAt(now);
+    const g = gloom(now);
+    if (Math.abs(solar - this.skySolar) < SKY_STEP && Math.abs(g - this.skyGloom) < GLOOM_STEP) return;
+    this.skySolar = solar;
+    this.skyGloom = g;
+    applyDayNight(this.rig, this.scene, solar, this.season);
+    const fog = this.scene.fog as THREE.Fog;
+    if (g <= 0) {
+      fog.far = FOG_FAR;
+      return;
+    }
+    this.rig.sun.intensity *= 1 - 0.55 * g;
+    this.rig.hemi.intensity *= 1 - 0.2 * g;
+    // Какая непогода: та, что идёт, или та, что вот-вот придёт.
+    const here = weatherAt(now);
+    const tint = (here === 'clear' ? nextWeather(now) : here) === 'snow' ? SNOW_TINT : RAIN_TINT;
+    (this.scene.background as THREE.Color).lerp(tint, g * 0.5);
+    fog.color.lerp(tint, g * 0.5);
+    // В дождь край видимости придвигается: лес тонет в серой мороси.
+    fog.far = FOG_FAR - (FOG_FAR - FOG_FAR_WET) * g;
+  }
+
+  /**
    * Олень.
    *
    * ВСЁ ЭТО — ВРЕМЯ СЦЕНЫ, И НИ ОДНО ЧИСЛО ОТСЮДА НЕ ПОПАДАЕТ В СОХРАНЕНИЕ.
@@ -1161,14 +1566,18 @@ export class PrologueScene {
    * игрок, а не бросок кости. Для охоты этого довольно: угадать нечего, потому
    * что зверь отвечает на твоё же движение.
    */
-  private beastStep(dt: number, t: number): void {
+  private beastStep(dt: number, t: number, now: number): void {
     const d = this.deer;
     if (!d) return;
     const b = this.beast;
     const gap = Math.hypot(this.px - b.x, this.pz - b.z);
     const s = t / 1000;
+    // Ночью зверь спит: срывается вдвое ближе и никуда не бродит. Считается это
+    // на чтении (`hunt.deerSleeps`), кадр только смотрит на ответ.
+    const asleep = deerSleeps(now);
+    const flee = fleeRange(now);
 
-    if (gap < DEER_FLEE && t > b.fleeUntil) {
+    if (gap < flee && t > b.fleeUntil) {
       // Сорвался: бежит от человека и не разбирает дороги, пока не отдышится.
       b.fleeUntil = t + DEER_CALM_MS;
       b.fleeYaw = Math.atan2(b.x - this.px, b.z - this.pz);
@@ -1191,6 +1600,10 @@ export class PrologueScene {
       b.x += dx * speed * dt;
       b.z += dz * speed * dt;
       b.yaw = Math.atan2(dx, dz);
+    } else if (asleep) {
+      // Спит: стоит на месте, голову не поднимает. Разбудить его можно только
+      // подойдя — и тогда сработает ветка выше, а не эта.
+      b.yaw += Math.sin(s * 0.3) * dt * 0.2;
     } else if (gap > DEER_ALERT) {
       // Пасётся: бродит вокруг своего места по кривой из двух синусов.
       const tx = b.homeX + Math.sin(s * 0.17) * 3.0;
@@ -1228,7 +1641,7 @@ export class PrologueScene {
     if (this.deerLegsB) this.deerLegsB.rotation.x = -swing;
     // Голова: опущена в траву, пока пасётся, и вскинута, как только заметил.
     if (this.deerHead) {
-      const want = gap > DEER_ALERT && !fleeing ? 0.82 : -0.05;
+      const want = asleep && !fleeing ? 0.98 : gap > DEER_ALERT && !fleeing ? 0.82 : -0.05;
       this.deerHead.rotation.x += (want - this.deerHead.rotation.x) * Math.min(1, dt * 7);
     }
   }
@@ -1250,9 +1663,33 @@ export class PrologueScene {
     f.z += f.dz * step;
     f.obj.position.set(f.x, f.y, f.z);
     if (this.deer && arrowHits(f.x, f.y, f.z, this.beast)) return this.hitBeast();
+    // Волк — вторая цель стрелы, и порядок между ними ни на что не влияет: зверь
+    // и волк не бывают в одной точке.
+    for (let i = 0; i < this.pack.length; i++) {
+      const w = this.pack[i];
+      if (wolfHit(f.x, f.y, f.z, w.x, w.z)) return this.hitWolf(i);
+    }
     if (f.flown < f.range && f.y > 0.05) return;
     // Долетела: воткнулась в землю там, где кончился полёт.
     this.stow(landArrow(this.save, f.land));
+    this.dropFlight();
+    this.done();
+  }
+
+  /**
+   * Стрела нашла волка.
+   *
+   * Одной стрелы довольно, как и одного удара топором: волк — не крепость, а
+   * опасность, и второй выстрел в него был бы не сложностью, а задержкой. Стрела
+   * ложится рядом с телом тем же правилом, каким ложится у туши, — иначе
+   * `nearest` выбирал бы между мясом и стрелой за игрока.
+   */
+  private hitWolf(i: number): void {
+    const now = serverNow();
+    const w = this.pack[i];
+    const at = { x: w.x, z: w.z };
+    this.slay(i, now);
+    this.stow(landArrow(this.save, arrowByCarcass(at, this.save.arrows.length)));
     this.dropFlight();
     this.done();
   }
@@ -1295,9 +1732,27 @@ export class PrologueScene {
       this.flameInner.scale.setScalar(size);
       this.flameInner.rotation.y = -s * 3;
     }
-    this.fireLight.intensity = alive ? (0.45 + fill * 0.9) * (0.92 + Math.sin(s * 13) * 0.08) : 0;
+    /*
+     * НОЧЬЮ КОСТЁР — ЕДИНСТВЕННЫЙ СВЕТ, и держится это здесь, одним
+     * множителем. Днём отсвет почти не виден (солнце ярче в разы), ночью он и
+     * есть освещение поляны: без прибавки огонь ночью читался бы рисунком, а не
+     * огнём, а с прибавкой втрое — тёплой лужей на холодном лунном фоне, ровно
+     * как у деревни (`render/lighting.fireIntensity`).
+     */
+    const night = darkness(now);
+    this.fireLight.intensity = alive
+      ? (0.45 + fill * 0.9) * (1 + night * 2.2) * (0.92 + Math.sin(s * 13) * 0.08)
+      : 0;
     this.smoke.points.visible = alive;
-    if (alive) this.smoke.update(dt, 0);
+    if (alive) {
+      this.smoke.update(dt, 0);
+      // Ночью дым почти не виден: светит ему только сам огонь, а серые клубы на
+      // тёмном небе рисовались квадратами, а не дымом, — поймано снимком.
+      // Плотность у дыма общая с деревней и лежит в материале, поэтому гасится
+      // она после `update`, который её выставляет каждый кадр.
+      const smokeMat = this.smoke.points.material as THREE.PointsMaterial;
+      smokeMat.opacity *= 1 - night * 0.85;
+    }
   }
 
   /** Раз в несколько секунд складываем пару чисел на диск. */
@@ -1330,6 +1785,11 @@ export class PrologueScene {
       coldFill: coldFill(s.body, s.hearth, now),
       coldWords: coldWords(s.body, s.hearth, now),
       warming: warming(s.body, s.hearth, now),
+      hurtFill: hurtFill(s.body, now),
+      hurtWords: hurtWords(s.body, now),
+      night: isNight(now),
+      weather: weatherWords(now),
+      wolves: this.pack.length,
       logs: s.logs,
       axe: s.axe,
       bow: s.kit,
@@ -1341,7 +1801,7 @@ export class PrologueScene {
       eatCooked: meal(s, hunger, false),
       eatRaw: meal(s, hunger, true),
       drawn: this.drawn,
-      busy: busy === 'chop' ? 'Ещё ударов' : busy === 'butcher' ? 'Срезает' : '',
+      busy: busy === 'chop' ? 'Ещё ударов' : busy === 'butcher' ? 'Срезает' : busy === 'fight' ? 'Отбивается' : '',
       busyLeft: busy === 'chop' && this.chopTree >= 0 ? this.chopsLeft : 0,
       dead: death(s, now),
     };
@@ -1398,6 +1858,16 @@ export class PrologueScene {
     return this.deer ? { x: this.beast.x, z: this.beast.z } : null;
   }
 
+  /**
+   * Где стоят волки — замеру.
+   *
+   * Тем же правилом, что зверь: их положение живёт во времени кадров, второго
+   * источника у него нет, и стенд обязан спрашивать сцену, а не считать сам.
+   */
+  wolvesAt(): { x: number; z: number }[] {
+    return this.pack.map((w) => ({ x: w.x, z: w.z }));
+  }
+
   /** Где лежит туша — замеру: к ней надо дойти, а лежит она там, где упал зверь. */
   carcassAt(): { x: number; z: number } | null {
     const c = liveCarcass(this.save.hunt, serverNow());
@@ -1440,6 +1910,8 @@ export class PrologueScene {
     disposeGeometries(this.scene);
     this.smoke.points.geometry.dispose();
     (this.smoke.points.material as THREE.Material).dispose();
+    // Непогода — тоже не меш: обход её не видит, и убирается она руками.
+    this.precip.dispose();
     this.scene.clear();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

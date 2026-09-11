@@ -7,7 +7,7 @@
  * он повторяет такой тап вслепую и решает, что игра сломана.
  */
 import { describe, expect, it } from 'vitest';
-import { ROAST_COST, bow, death, meal, offer, roastCount } from './act';
+import { ROAST_COST, bow, death, meal, offer, reach, roastCount } from './act';
 import { HEARTH_CAP } from './fire';
 import { AXE_STUMP, FIRE, TENT, TREES, TREE_LOGS, type Spot, type SpotKind } from './glade';
 import { DEER_MEAT } from './hunt';
@@ -226,5 +226,30 @@ describe('смерть — это чтение, а не событие', () => {
     const s = state();
     expect(offer(s, AT_AXE, 100 * 3_600_000).can).toBe(true);
     expect(death(s, 100 * 3_600_000)).not.toBe(null);
+  });
+});
+
+describe('волк: первая дверь, и без топора — правда, а не тишина', () => {
+  const AT_WOLF: Spot = { kind: 'wolf', x: 5, z: 5, index: 0 };
+
+  it('с топором — отбиться', () => {
+    expect(offer(state({ axe: true }), AT_WOLF, 0)).toMatchObject({ deed: 'fight', can: true, why: '' });
+  });
+
+  it('без топора кнопка гаснет и говорит, что делать', () => {
+    // Неприятная правда лучше молчащей кнопки: отбиваться нечем, и ответ один.
+    const o = offer(state(), AT_WOLF, 0);
+    expect(o.can).toBe(false);
+    expect(o.deed).toBe('fight');
+    expect(o.why).toContain('огню');
+  });
+
+  it('волки приезжают в поляну из сцены, а не из записи', () => {
+    // В сохранении волков нет и быть не может: где они стоят, знает только кадр.
+    const s = state();
+    expect(reach(s, 0).wolves).toEqual([]);
+    const pack = [{ x: 1, z: 2 }];
+    expect(reach(s, 0, pack).wolves).toBe(pack);
+    expect(Object.keys(s)).not.toContain('wolves');
   });
 });

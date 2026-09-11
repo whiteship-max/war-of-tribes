@@ -4,6 +4,8 @@
  * Числа тут — факты, и проверять их надо таблицей, а не разглядыванием сцены:
  * ровно тем же способом, каким проверяется план посёлка (`render/plan.test.ts`).
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   AXE_STUMP,
@@ -16,6 +18,7 @@ import {
   TENT,
   TREES,
   TREE_R,
+  WOLF_R,
   blockers,
   nearest,
   slide,
@@ -28,7 +31,7 @@ import {
  * разобраны. Пожитки — нарочно: иначе палатка попадала бы в каждую проверку
  * про костёр и дерево, а эти проверки не про неё.
  */
-const NONE = { felled: TREES.map(() => 0), arrows: [], carcass: null, kit: true };
+const NONE = { felled: TREES.map(() => 0), arrows: [], carcass: null, kit: true, wolves: [] };
 
 /** Та же поляна, но с заданными пнями. */
 const felledAt = (felled: number[]) => ({ ...NONE, felled });
@@ -188,5 +191,44 @@ describe('куда смотреть', () => {
     expect(yawTo(0, 0, 0, -1)).toBeCloseTo(0, 9);
     expect(yawTo(0, 0, -1, 0)).toBeCloseTo(Math.PI / 2, 9);
     expect(yawTo(0, 0, 1, 0)).toBeCloseTo(-Math.PI / 2, 9);
+  });
+});
+
+describe('волк — цель тапа, потому что подходит сам', () => {
+  it('волк в досягаемости достаётся тапу, как дерево', () => {
+    // Стоит человек в поле, в шаге от него волк: тап — это удар, а не прицел.
+    // Место выбрано чистым — ни дерева, ни костра в досягаемости, — иначе
+    // проверялось бы не «волк — цель», а «кто из двух ближе» (тест третий).
+    const px = 0;
+    const pz = 10;
+    expect(nearest(px, pz, NONE, 0)).toBe(null);
+    const got = nearest(px, pz, { ...NONE, wolves: [{ x: px + 1.2, z: pz }] }, 0);
+    expect(got).toMatchObject({ kind: 'wolf', index: 0 });
+  });
+
+  it('у костра при равных расстояниях тап достаётся зубам, а не дровам', () => {
+    // Волк сам выбирает, куда встать, и встать он может ровно так, чтобы
+    // оказаться в досягаемости вместе с очагом. Тогда удар важнее полена.
+    const px = FIRE.x + FIRE.r + 1;
+    const w = { x: px + 1 + WOLF_R, z: 0 };
+    expect(Math.hypot(px - w.x, 0) - WOLF_R).toBeCloseTo(Math.hypot(px - FIRE.x, 0) - FIRE.r, 9);
+    expect(nearest(px, 0, { ...NONE, wolves: [w] }, 0)?.kind).toBe('wolf');
+  });
+
+  it('дальше руки волк тапом не достаётся: удар — не выстрел', () => {
+    const w = { x: 6, z: 6 };
+    const got = nearest(w.x + WOLF_R + REACH + 0.2, w.z, { ...NONE, wolves: [w] }, 0);
+    expect(got?.kind).not.toBe('wolf');
+  });
+
+  it('оленя в списке по-прежнему нет вовсе', () => {
+    // Тип цели — это и есть правило «тап не целится». Олень в нём появился бы
+    // только вместе с дверью, которой в игре нет. Читается сам тип в исходнике:
+    // список, написанный в тесте, проверял бы тест, а не игру.
+    const src = readFileSync(join(__dirname, 'glade.ts'), 'utf8');
+    const line = src.split('\n').find((l) => l.startsWith('export type SpotKind'));
+    expect(line).toBeDefined();
+    expect(line).toContain("'wolf'");
+    expect(line).not.toContain('deer');
   });
 });

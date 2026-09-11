@@ -15,7 +15,8 @@
  *
  *   `offer`  — тап и большая кнопка внизу: **не целится**, а бьёт по
  *              ближайшему в досягаемости. Так взяли топор, свалили дерево,
- *              положили дрова, срезали мясо, подобрали стрелу;
+ *              положили дрова, срезали мясо, подобрали стрелу и отбились
+ *              топором от волка — тот единственный зверь, который подошёл сам;
  *   `bow`    — своя кнопка: натянуть и пустить. **Целится**, и летит стрела
  *              туда, куда смотрят;
  *   `meal`   — своя кнопка на счётчике мяса: поесть можно где угодно и когда
@@ -29,7 +30,7 @@
 import { HEARTH_CAP, fuelAt } from './fire';
 import { STARVE_MS, causeOfDeath, type Death } from './body';
 import { TREE_LOGS, type GladeState, type Spot } from './glade';
-import { DEER_MEAT, carcassLeft, liveCarcass } from './hunt';
+import { DEER_MEAT, carcassLeft, liveCarcass, type Pt } from './hunt';
 import type { PrologueSave } from './save';
 
 /**
@@ -47,6 +48,7 @@ export type Deed =
   | 'roast'
   | 'butcher'
   | 'take-arrow'
+  | 'fight'
   | 'draw'
   | 'shoot'
   | 'eat'
@@ -96,6 +98,18 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
   }
   if (spot.kind === 'arrow') {
     return ok('take-arrow', 'Подобрать стрелу');
+  }
+  /*
+   * Волк. Единственная цель первой двери, которая подошла сама, — и потому
+   * единственный зверь в этом списке (почему так, написано в `wolves.ts`).
+   *
+   * Без топора кнопка гаснет и говорит правду, а правда неприятная: отбиваться
+   * нечем, и ответ один — уйти к огню. Врать тут нельзя ни в какую сторону:
+   * «отбиться руками» было бы обещанием, которого игра не держит, а молчащая
+   * кнопка — тем «ничего не произошло», которого в режиме не бывает.
+   */
+  if (spot.kind === 'wolf') {
+    return s.axe ? ok('fight', 'Отбиться топором') : no('fight', 'Отбиться', 'Нужен топор — беги к огню');
   }
   if (spot.kind === 'carcass') {
     const left = carcassLeft(s.hunt, now);
@@ -182,11 +196,14 @@ export const logsFromTree = (): number => TREE_LOGS;
  * геометрия про часы не знает, а помнить о них каждому вызову `nearest` нельзя —
  * забудет первый же.
  */
-export const reach = (s: PrologueSave, now: number): GladeState => ({
+export const reach = (s: PrologueSave, now: number, wolves: readonly Pt[] = []): GladeState => ({
   felled: s.felled,
   arrows: s.arrows,
   carcass: liveCarcass(s.hunt, now),
   kit: s.kit,
+  // Волки приезжают снаружи, из сцены: в записи их нет, и быть не может —
+  // где они стоят, знает только кадр.
+  wolves,
 });
 
 /** Жив ли человек — и если нет, отчего умер. */

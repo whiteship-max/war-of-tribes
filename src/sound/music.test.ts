@@ -228,15 +228,24 @@ describe('рычаг на музыку один на всю игру', () => {
   it('пишет настройку ровно одно место интерфейса — раздел настроек', () => {
     // Список файлов был на двоих — на те, откуда рычаг убирали. Со вторым местом
     // показа (стартовый экран) перечисление перестало годиться: правило обязано
-    // ловить и тот файл, о котором никто не подумал. Поэтому читается весь `ui`.
-    const walk = (dir: string): string[] =>
+    // ловить и тот файл, о котором никто не подумал.
+    //
+    // Поэтому читаются целиком **три** папки, а не одна. `ui` — там показывают
+    // настройку; `prologue` — там появился третий звук (вой волка), и своя
+    // галочка «выть или нет» была бы ровно тем вторым рычагом, ради которого
+    // правило и написано; `sound` — там живут машинки, и запись настройки из
+    // машинки означала бы, что подсистема правит настройку игрока сама.
+    const walk = (dir: string, ext: string[]): string[] =>
       readdirSync(join(SRC, dir), { withFileTypes: true }).flatMap((e) =>
-        e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name.endsWith('.tsx') ? [`${dir}/${e.name}`] : [],
+        e.isDirectory() ? walk(`${dir}/${e.name}`, ext) : ext.some((x) => e.name.endsWith(x)) ? [`${dir}/${e.name}`] : [],
       );
-    const files = walk('ui');
-    expect(files.length).toBeGreaterThan(20);
+    const files = [...walk('ui', ['.tsx']), ...walk('prologue', ['.ts', '.tsx']), ...walk('sound', ['.ts'])].filter(
+      (f) => !f.endsWith('.test.ts') && !f.endsWith('.test.tsx'),
+    );
+    expect(files.length).toBeGreaterThan(30);
     for (const f of files) {
-      if (f === 'ui/parts/Settings.tsx') continue;
+      // Сама настройка — не рычаг, а его хранилище: `setSoundOn` в ней и объявлен.
+      if (f === 'ui/parts/Settings.tsx' || f === 'sound/settings.ts') continue;
       expect(read(f), `${f}: второй рычаг на звук`).not.toContain('setSoundOn');
     }
     expect(read('ui/parts/Settings.tsx')).toContain('setSoundOn');

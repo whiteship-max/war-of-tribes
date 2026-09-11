@@ -1,14 +1,17 @@
 /**
  * Предыстория: что она стоит и проходится ли она пальцем.
  *
- * Отчёт отвечает на четыре вопроса, и все четыре — измерением, а не мнением:
+ * Отчёт отвечает на пять вопросов, и все пять — измерением, а не мнением:
  *
  *   кадр     сколько миллисекунд стоит кадр поляны на телефонном экране
  *            (375×812 @2) и на широком (1280×800 @1), сколько в нём вызовов
- *            отрисовки и треугольников;
+ *            отрисовки и треугольников — днём, ночью со стаей, в дождь и в снег;
  *   память   сколько занимает поляна и остаётся ли она после выхода;
  *   палец    проходится ли цепочка «дойти до топора → свалить дерево →
- *            положить дрова» **настоящим касанием**, а не вызовом метода;
+ *            положить дрова → подстрелить → пожарить» **настоящим касанием**, а
+ *            не вызовом метода;
+ *   волки    выходят ли они ночью, кружат ли на виду и отбиваются ли топором —
+ *            тем же настоящим касанием;
  *   сцена    остаётся ли в игре ровно одна живая сцена — и возвращается ли
  *            диорама деревни после выхода из режима.
  *
@@ -19,35 +22,81 @@
  *
  * ПАЛЕЦ ТОЖЕ НАСТОЯЩИЙ: `Input.dispatchTouchEvent` при включённой тач-эмуляции —
  * тот же путь, что у живого касания (настоящие `pointerId`, настоящий захват,
- * настоящая склейка движений кадрами). Часы не подменены. Иначе стенд проверял
- * бы собственные вызовы, а не управление: ровно этим прежний стенд следа пальца
- * и обманывал, показывая 21 из 21 при потерянном каждом втором тапе.
+ * настоящая склейка движений кадрами). Иначе стенд проверял бы собственные
+ * вызовы, а не управление: ровно этим прежний стенд следа пальца и обманывал,
+ * показывая 21 из 21 при потерянном каждом втором тапе.
+ *
+ * ЧАСЫ СТРАНИЦЫ СДВИНУТЫ, А НЕ ПОДМЕНЕНЫ, И ЭТО ТОЖЕ УСЛОВИЕ. С появлением
+ * суток, погоды и волков то, что видит стенд, зависит от того, в какую минуту
+ * его запустили: ночью со стаей прогулка к дереву кончилась бы укусом, и
+ * «цепочка сорвалась» было бы фактом о часах, а не об игре. Поэтому до загрузки
+ * страницы `Date.now` получает **постоянную** прибавку (`clock`): время идёт с
+ * настоящей скоростью, выбирается только минута. Это законно ровно потому, что
+ * весь режим — чистая функция от `serverNow()`: сдвиг переносит небо, погоду и
+ * стаю в нужную минуту и не трогает больше ничего. Нужная минута ищется теми же
+ * функциями, которыми считает игра (`sky.ts`, `wolves.ts`), а не угадывается.
  *
  * ЧЕГО НЕ МЕРЯЕТ:
- *   вид        картинку отсюда не показать; за внешним видом — глазами;
+ *   вид        картинку отсюда не оценить; но снять её можно — `SHOTS=папка`
+ *              кладёт снимки 375 и 360 px в каждом состоянии, смотреть глазами;
+ *   звук       вой синтезируется, а слышен он только ухом; стенд проверяет, что
+ *              молчит, пока звук выключен, — это тест, а не отчёт;
  *   вебвью     это Chrome, а не клиент Телеграма: перехват жеста клиентом здесь
  *              не воспроизвести, и на такой случай в игре стоит журнал касаний;
  *   удобство   стенд говорит «дошёл» и «сколько раз», а не «приятно ли». На это
  *              отвечает человек с телефоном в руках, и заменить его нечем.
  *
  * Запуск: npm run prologue:report
- * Переменные: SECONDS=6, PORT / CDP_PORT, CHROME=путь\\к\\chrome.exe, HEAD=1.
+ * Переменные: SECONDS=6, SHOTS=папка, PORT / CDP_PORT, CHROME=путь\\к\\chrome.exe, HEAD=1.
  */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import { BURN_FULL_MS, HEARTH_CAP, LOG_HOURS } from '../src/prologue/fire';
+import { BURN_FULL_MS, HEARTH_CAP, LOG_HOURS, LOG_MS } from '../src/prologue/fire';
 import { CHOPS_TO_FELL, GLADE_R, REACH, TREES, TREE_LOGS, WALK_SPEED, WARM_R } from '../src/prologue/glade';
-import { CHILL_H, MEAT_FED_H, RAW_SHARE, STARVE_H, WARM_MIN } from '../src/prologue/body';
-import { ARROWS_START, CARCASS_H, DEER_ALERT, DEER_FLEE, DEER_GAP_H, DEER_MEAT } from '../src/prologue/hunt';
+import { CHILL_H, CHILL_MS, MEAT_FED_H, RAW_SHARE, STARVE_H, WARM_MIN, WOUNDS_FATAL, WOUND_HEAL_H, coldDeadAt, newBody } from '../src/prologue/body';
+import { newHearth } from '../src/prologue/fire';
+import { ARROWS_START, CARCASS_H, DEER_ALERT, DEER_FLEE, DEER_GAP_H, DEER_MEAT, DEER_SLEEP_FLEE } from '../src/prologue/hunt';
 import { ROAST_COST } from '../src/prologue/act';
 import { LOOK_PER_PX, STICK_DEAD, STICK_FULL } from '../src/prologue/controls';
+import {
+  BURN_MEAN,
+  CHILL_MEAN,
+  DAY_SHARE,
+  NIGHT_CHILL,
+  OMEN_MS,
+  RAIN_BURN,
+  RING,
+  RING_MS,
+  SKY_MS,
+  SNOW_CHILL,
+  SPELL_MS,
+  isNight,
+  weatherAt,
+} from '../src/prologue/sky';
+import {
+  EARLIEST_BITE_MS,
+  EARLIEST_DEATH_MS,
+  HOWL_LEAD_MS,
+  WOLF_BITE_GAP,
+  WOLF_DAYS,
+  WOLF_DAY_PACK,
+  WOLF_FIRE_R,
+  WOLF_NIGHTS,
+  WOLF_NIGHT_PACK,
+  WOLF_STALK_MS,
+  packAt,
+} from '../src/prologue/wolves';
 import { TAP_MS, TAP_SLIP } from '../src/gestures';
 
 const PORT = Number(process.env.PORT ?? 4195);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9338);
 /** Сколько секунд кадров снимать на каждый экран. */
 const SECONDS = Number(process.env.SECONDS ?? 6);
+/** Куда класть снимки. Пусто — не снимать: снимки нужны глазам, а не приёмке. */
+const SHOTS = process.env.SHOTS ?? '';
 
 /** Сколько ждать после тапа по туше: движение длится, и торопить его нельзя. */
 const BUTCHER_WAIT = 1000;
@@ -56,6 +105,12 @@ const BUTCHER_WAIT = 1000;
 const SCREENS = [
   { name: 'телефон 375×812 @2', w: 375, h: 812, dpr: 2, mobile: true },
   { name: 'ПК 1280×800 @1', w: 1280, h: 800, dpr: 1, mobile: false },
+];
+
+/** Два узких телефона для снимков: 375 — самый частый, 360 — самый тесный. */
+const SHOT_SIZES = [
+  { w: 375, h: 812 },
+  { w: 360, h: 780 },
 ];
 
 interface Frames {
@@ -78,9 +133,9 @@ interface Chain {
 /**
  * Что подкладывается в страницу.
  *
- * Своих сведений о сцене здесь нет: положение игрока, дрова и топор
- * спрашиваются у самой сцены через `window.__pro`. Стенд только считает кадры и
- * водит пальцем.
+ * Своих сведений о сцене здесь нет: положение игрока, дрова, топор, волки и
+ * небо спрашиваются у самой сцены через `window.__pro`. Стенд только считает
+ * кадры и водит пальцем.
  */
 const PROBE = `
 (() => {
@@ -119,7 +174,7 @@ const PROBE = `
         triangles: st.triangles,
       });
     },
-    /** Где игрок, что у него в руках и что предлагает поляна. */
+    /** Где игрок, что у него в руках, что предлагает поляна и что вокруг. */
     state() {
       const p = pro();
       const v = p.snapshot();
@@ -137,6 +192,10 @@ const PROBE = `
         words: v.fireWords,
         fed: v.fedWords,
         cold: v.coldWords,
+        hurt: v.hurtFill,
+        night: v.night,
+        weather: v.weather,
+        wolves: v.wolves,
         label: v.offer.label,
         can: v.offer.can,
         why: v.offer.why,
@@ -157,9 +216,18 @@ const PROBE = `
     deer() {
       return JSON.stringify(pro().deerAt());
     },
+    /** Где стоят волки. Тоже у сцены: их положение живёт только в кадрах. */
+    wolves() {
+      return JSON.stringify(pro().wolvesAt());
+    },
     /** Где лежит туша. Тоже у сцены: она одна знает, где упал зверь. */
     carcass() {
       return JSON.stringify(pro().carcassAt());
+    },
+    /** Стоит ли на экране строка о небе и что в ней написано. */
+    sky() {
+      const el = document.querySelector('.pro-sky');
+      return JSON.stringify(el ? el.textContent : '');
     },
     /**
      * Холст обязан быть ПЕРВЫМ узлом надстройки.
@@ -179,10 +247,7 @@ const PROBE = `
     /**
      * Видна ли надстройка, а не закрыта ли она холстом.
      *
-     * Проверка завелась не от хорошей жизни: холст заводит эффект, поэтому в
-     * разметке он оказывался ПОСЛЕДНИМ и закрывал собой все кнопки разом.
-     * Тесты этого не видят вовсе, а стенд, который жмёт кнопки вызовом, не
-     * увидел бы тоже. Спрашиваем то же, что видит палец.
+     * Спрашиваем то же, что видит палец: какой узел лежит в середине кнопки.
      */
     onTop(sel) {
       const el = document.querySelector(sel);
@@ -225,12 +290,38 @@ const ROOF = `
 const pad = (s: string, n: number): string => (s.length >= n ? s : s + ' '.repeat(n - s.length));
 const num = (v: number, n = 1): string => v.toFixed(n);
 const yes = (ok: boolean): string => (ok ? 'да' : 'НЕТ');
+const H = 3_600_000;
+const clockWords = (ms: number): string => `${Math.floor(ms / 60_000)} мин ${Math.round((ms % 60_000) / 1000)} с`;
 
 const chain: Chain[] = [];
 const step = (name: string, ok: boolean, said: string): void => {
   chain.push({ step: name, ok, said });
   console.log(`  ${pad(name, 40)} ${pad(yes(ok), 4)} ${said}`);
 };
+
+/**
+ * Первая минута не раньше `from`, начиная с которой `ok` держится `span` подряд.
+ *
+ * Ищется теми же функциями, которыми считает игра, а не угадывается: небо,
+ * погода и стая — чистые функции от времени, и значит нужную минуту можно
+ * назвать заранее. Шагом в секунду: у неба границы в сотни секунд.
+ */
+function moment(from: number, span: number, ok: (t: number, into: number) => boolean): number {
+  let t = Math.ceil(from / 1000) * 1000;
+  const give = from + 30 * 24 * H;
+  while (t < give) {
+    let bad = -1;
+    for (let u = t; u <= t + span; u += 1000) {
+      if (!ok(u, u - t)) {
+        bad = u;
+        break;
+      }
+    }
+    if (bad < 0) return t;
+    t = bad + 1000;
+  }
+  throw new Error('за месяц не нашлось такой минуты — кольцо погод или стаю поменяли?');
+}
 
 async function main(): Promise<void> {
   const vite = await createVite({
@@ -256,18 +347,10 @@ async function main(): Promise<void> {
     console.log(`\nСорвалось: ${bad.map((c) => c.step).join(', ')}`);
     process.exitCode = 1;
   } else {
-    console.log('\nЦепочка проходится настоящим касанием, живая сцена в игре одна.');
+    console.log('\nЦепочка проходится настоящим касанием, стая отбивается топором, живая сцена в игре одна.');
   }
 }
 
-/**
- * Сколько кадров в секунду даёт **сама машина** — на пустой странице.
- *
- * Без этого числа замер сцены нечитаем. Кадры отдаёт не игра, а окно: на той же
- * машине пустой about:blank выдавал то 60.0, то 56.5 — и «57.4 у поляны» в
- * первом случае значит просадку, а во втором потолок. Считать разницу
- * регрессией сцены, не спросив у окна, значит чинить не то.
- */
 /**
  * Сколько кадров в секунду даёт **сама машина** — на пустой странице.
  *
@@ -294,7 +377,7 @@ async function ceiling(): Promise<{ fps: number; median: number }> {
 async function report(): Promise<void> {
   const roof = await ceiling();
   const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
-  const screen = async (s: (typeof SCREENS)[number]): Promise<void> => {
+  const screen = async (s: { w: number; h: number; dpr: number; mobile: boolean }): Promise<void> => {
     await tab.send('Emulation.setDeviceMetricsOverride', {
       width: s.w,
       height: s.h,
@@ -304,31 +387,80 @@ async function report(): Promise<void> {
   };
   await screen(SCREENS[0]);
   await tab.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-  // Начинаем с чистого листа: и партия, и предыстория. Иначе стенд мерил бы
-  // чужой костёр и чужие пни из localStorage.
-  await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
-  await tab.send('Page.reload');
 
-  for (let i = 0; ; i++) {
-    await sleep(300);
-    if (await tab.eval<boolean>("JSON.stringify(!!document.querySelector('.start-alt'))")) break;
-    if (i > 100) throw new Error('стартовый экран не поднялся за 30 с — смотри вывод «в странице:» выше');
-  }
+  /*
+   * Часы страницы. Прибавка постоянная и ставится до первой строки кода
+   * страницы — иначе игра успела бы прочесть настоящее время и сохранить его.
+   * Каждое новое состояние — новая прибавка и перезагрузка с чистого листа.
+   */
+  let clockId = '';
+  let shift = 0;
+  /** Сколько сейчас на часах страницы: настоящее время плюс прибавка. */
+  const pageNow = (): number => Date.now() + shift;
+  const clock = async (pageAt: number): Promise<void> => {
+    if (clockId) await tab.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: clockId });
+    shift = Math.round(pageAt - Date.now());
+    const added = await tab.send<{ identifier: string }>('Page.addScriptToEvaluateOnNewDocument', {
+      source: `(() => { const real = Date.now.bind(Date); const shift = ${shift}; Date.now = () => real() + shift; })();`,
+    });
+    clockId = added.identifier;
+  };
+
+  /** Перезагрузить с чистого листа и дождаться стартового экрана. */
+  const fresh = async (): Promise<void> => {
+    await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
+    await tab.send('Page.reload');
+    for (let i = 0; ; i++) {
+      await sleep(300);
+      if (await tab.eval<boolean>("JSON.stringify(!!document.querySelector('.start-alt'))")) break;
+      if (i > 100) throw new Error('стартовый экран не поднялся за 30 с — смотри вывод «в странице:» выше');
+    }
+  };
+
+  /** Открыть предысторию кнопкой и подложить щуп. */
+  const enter = async (): Promise<void> => {
+    await tab.eval<string>("(() => { document.querySelector('.start-alt').click(); return JSON.stringify('ok'); })()");
+    for (let i = 0; ; i++) {
+      await sleep(200);
+      if (await tab.eval<boolean>('JSON.stringify(!!window.__pro)')) break;
+      if (i > 100) throw new Error('предыстория не открылась за 20 с');
+    }
+    await tab.eval<string>(PROBE);
+    await sleep(800);
+  };
+
+  /** Снимок экрана в двух узких размерах. Только если попросили. */
+  const shoot = async (name: string): Promise<void> => {
+    if (!SHOTS) return;
+    mkdirSync(SHOTS, { recursive: true });
+    for (const s of SHOT_SIZES) {
+      await screen({ w: s.w, h: s.h, dpr: 2, mobile: true });
+      // Холст меняет размер по ResizeObserver — кадр-другой ему на это.
+      await sleep(900);
+      const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(join(SHOTS, `${name}-${s.w}.png`), Buffer.from(shot.data, 'base64'));
+    }
+    await screen(SCREENS[0]);
+    await sleep(500);
+  };
+
+  /*
+   * Минута для цепочки: погожий день без единого волка, а следом за ним и ночь
+   * без стаи. Цепочка с замером кадров занимает около полутора минут; день —
+   * две с половиной. Стая, вышедшая на опушку посреди прогулки к дереву,
+   * сорвала бы цепочку фактом о часах, а не об игре.
+   */
+  const now0 = Date.now() + 10_000;
+  const dawn = moment(now0, SKY_MS - 5000, (t, into) =>
+    packAt(t, 0) === 0 && (into > 110_000 || (!isNight(t) && weatherAt(t) === 'clear')),
+  );
+  await clock(dawn + 1500);
+  await fresh();
   const before = await tab.eval<number>("JSON.stringify(document.querySelectorAll('canvas').length)");
   const heapVillage = await tab.eval<number>(
     'JSON.stringify(performance.memory ? performance.memory.usedJSHeapSize : 0)',
   );
-
-  // Кнопку жмём прямо: стенд мерит не её, а то, что за ней. Не нашлась — это
-  // находка, а не помеха: значит, стартовый экран переделали.
-  await tab.eval<string>("(() => { document.querySelector('.start-alt').click(); return JSON.stringify('ok'); })()");
-  for (let i = 0; ; i++) {
-    await sleep(200);
-    if (await tab.eval<boolean>('JSON.stringify(!!window.__pro)')) break;
-    if (i > 100) throw new Error('предыстория не открылась за 20 с');
-  }
-  await tab.eval<string>(PROBE);
-  await sleep(800);
+  await enter();
 
   const state = (): Promise<Record<string, number & string & boolean>> =>
     tab.eval('window.__probe.state()');
@@ -343,26 +475,59 @@ async function report(): Promise<void> {
 
   // ---------- 0. Числа режима ----------
   //
-  // Считаются из самих констант, а не переписываются в отчёт руками: число,
-  // которому никто не верит, хуже отсутствующего.
+  // Считаются из самих констант и тех же функций, которыми считает игра, а не
+  // переписываются в отчёт руками: число, которому никто не верит, хуже
+  // отсутствующего.
   console.log('0. Сколько чего хватает\n');
-  const row = (a: string, b: string, c = ''): void => console.log(`  ${pad(a, 30)} ${pad(b, 20)} ${c}`);
-  row('полено', `${LOG_HOURS} ч`, `дерево даёт ${TREE_LOGS} полена = ${TREE_LOGS * LOG_HOURS} ч огня`);
-  row('полный очаг', `${BURN_FULL_MS / 3_600_000} ч`, `${HEARTH_CAP} полен`);
-  row('без еды', `${STARVE_H} ч`, 'ровно столько же, сколько горит полный очаг');
-  row('без огня', `${CHILL_H} ч`, `отогревается за ${WARM_MIN} мин; круг у костра ${WARM_R.toFixed(2)} м`);
+  const row = (a: string, b: string, c = ''): void => console.log(`  ${pad(a, 30)} ${pad(b, 22)} ${c}`);
+  row('полено', `${LOG_HOURS} ч погожих`, `дерево даёт ${TREE_LOGS} полена = ${TREE_LOGS * LOG_HOURS} ч огня`);
+  row('полный очаг', `${BURN_FULL_MS / H} ч погожих`, `${HEARTH_CAP} полен; по погоде в среднем ${num(BURN_FULL_MS / H / BURN_MEAN)} ч`);
+  row('без еды', `${STARVE_H} ч`, 'погода голода не трогает');
+  row('без огня', `${CHILL_H} ч холодовых`, `по погоде в среднем ${num(CHILL_H / CHILL_MEAN)} ч; отогрев ${WARM_MIN} мин; круг у костра ${WARM_R.toFixed(2)} м`);
   row('кусок жареного мяса', `${MEAT_FED_H} ч`, `сырой втрое хуже: ${num(MEAT_FED_H * RAW_SHARE * 60, 0)} мин`);
   row('олень', `${DEER_MEAT} кусков = ${DEER_MEAT * MEAT_FED_H} ч`, 'ровно полный живот');
   row('жарка оленя целиком', `${DEER_MEAT * ROAST_COST} полена`, 'то есть ровно одно дерево');
   row('следующий олень', `${DEER_GAP_H} ч`, `туша лежит ${CARCASS_H} ч`);
   row('стрел в колчане', String(ARROWS_START), 'подбираются, поэтому не кончаются насовсем');
-  row('замечает / срывается', `${DEER_ALERT} / ${DEER_FLEE} м`, `тап достаёт на ${REACH} м — вчетверо ближе`);
+  row('замечает / срывается', `${DEER_ALERT} / ${DEER_FLEE} м`, `спящий — с ${DEER_SLEEP_FLEE} м; тап достаёт на ${REACH} м`);
   console.log('');
-  const logsPerDay = 24 / LOG_HOURS;
+  // Самая ранняя смерть на новой поляне — прогоном по всем фазам кольца, а не
+  // на бумаге: погода входит в оба слагаемых.
+  let earliest = Infinity;
+  for (let t0 = 0; t0 < RING_MS; t0 += 10_000) {
+    earliest = Math.min(earliest, coldDeadAt(newBody(t0), newHearth(t0)) - t0);
+  }
+  row('самая ранняя смерть', `${num(earliest / H)} ч`, 'новая поляна, от холода; было 20 ч до погоды');
+  const logsPerDay = (24 * H * BURN_MEAN) / LOG_MS;
   const meatPerDay = 24 / MEAT_FED_H;
-  row('на сутки нужно дров', `${logsPerDay} полена`, `${num(logsPerDay / TREE_LOGS, 1)} дерева`);
+  row('на сутки нужно дров', `${num(logsPerDay, 2)} полена`, `${num(logsPerDay / TREE_LOGS, 2)} дерева (без погоды было 4 полена)`);
   row('и еды', `${meatPerDay} куска`, `${num(meatPerDay / DEER_MEAT, 2)} оленя`);
   console.log('');
+  console.log('0б. Небо и волки\n');
+  row('круг суток', clockWords(SKY_MS), `день ${clockWords(DAY_SHARE * SKY_MS)}, ночь ${clockWords((1 - DAY_SHARE) * SKY_MS)}`);
+  // Застаёт ли трёхминутный заход и день, и ночь — с любой секунды круга.
+  let both = true;
+  for (let t0 = 0; t0 < SKY_MS && both; t0 += 1000) {
+    let d = false;
+    let n = false;
+    for (let t = t0; t <= t0 + 180_000; t += 1000) {
+      if (isNight(t)) n = true;
+      else d = true;
+    }
+    both = d && n;
+  }
+  row('заход 3 мин застаёт', both ? 'и день, и ночь' : 'НЕ ОБА', 'проверено с каждой секунды круга');
+  const share = (k: string): string => `${num((RING.filter((w) => w === k).length / RING.length) * 100, 0)}%`;
+  row('кольцо погод', `${RING.length} × ${clockWords(SPELL_MS)}`, `= ${clockWords(RING_MS)}; ясно ${share('clear')}, дождь ${share('rain')}, снег ${share('snow')}`);
+  row('дождь', `очаг горит ×${RAIN_BURN}`, `небо хмурится за ${OMEN_MS / 1000} с; средняя ставка горения ${num(BURN_MEAN, 3)}`);
+  row('ночь / снег', `стынут ×${NIGHT_CHILL} / ×${SNOW_CHILL}`, `вместе ×${num(NIGHT_CHILL * SNOW_CHILL, 2)}; средняя ставка холода ${num(CHILL_MEAN, 3)}`);
+  row('волки днём / ночью', `${WOLF_DAY_PACK} / ${WOLF_NIGHT_PACK}`, `в ${num(WOLF_DAYS * 100, 0)}% дней и ${num(WOLF_NIGHTS * 100, 0)}% ночей`);
+  row('у горящего огня', `не ближе ${WOLF_FIRE_R} м`, 'все деревья за этим кругом');
+  row('от выхода из круга', `кружат ${WOLF_STALK_MS / 1000} с`, `вой через ${HOWL_LEAD_MS / 1000} с; укус раз в ${WOLF_BITE_GAP / 1000} с`);
+  row('смерть от волков', `не раньше ${EARLIEST_DEATH_MS / 1000} с`, `${WOUNDS_FATAL} укуса; первый — не раньше ${EARLIEST_BITE_MS / 1000} с; рана заживает ${WOUND_HEAL_H} ч`);
+  row('без огня до смерти', `${num(CHILL_MS / H / CHILL_MEAN, 2)} ч`, 'в среднем по кольцу');
+  console.log('');
+
   // ---------- 1. Палец ----------
   await screen(SCREENS[0]);
   await sleep(600);
@@ -425,6 +590,7 @@ async function report(): Promise<void> {
     start.label === 'Подложить дров' && !start.can && start.logs === 0,
     `«${start.label}» — ${start.why || 'можно'}, костёр ${start.words}`,
   );
+  step('часы страницы на погожем дне', !start.night && start.weather === '' && start.wolves === 0, `ночь: ${start.night ? 'да' : 'нет'}, погода: «${start.weather}», волков: ${start.wolves}`);
 
   // Идём к колоде с топором. Куда смотреть, стенд не подбирает: игрок при входе
   // уже повёрнут к ней (`START.yaw`), и если это перестанет быть так, шаг сорвётся.
@@ -444,6 +610,8 @@ async function report(): Promise<void> {
   await tap(190, 400);
   const took = await state();
   step('тап взял топор', took.axe === true, `в руках: ${took.axe ? 'топор' : 'ничего'}`);
+  // Первый снимок — днём, с топором в руке: подсказка ушла с первым касанием.
+  await shoot('1-день');
 
   // Ищем дерево: поворачиваемся и идём, пока поляна не предложит рубку.
   let turns = 0;
@@ -655,26 +823,11 @@ async function report(): Promise<void> {
     await sleep(700);
     await tab.eval<string>('window.__probe.start()');
     await sleep(SECONDS * 1000);
-    budget.push([s.name, await tab.eval<Frames>('window.__probe.stop()')]);
+    budget.push([`день, ${s.name}`, await tab.eval<Frames>('window.__probe.stop()')]);
   }
   const heapGlade = await tab.eval<number>('window.__probe.heap()');
-
-  console.log('\n2. Бюджет кадра (настоящий WebGL, ANGLE)\n');
-  console.log(
-    `  ${pad('экран', 20)} ${pad('кадров', 7)} ${pad('в секунду', 10)} ${pad('медиана', 8)} ${pad('p95', 7)} ${pad('худший', 7)} ${pad('вызовов', 8)} треугольников`,
-  );
-  for (const [name, f] of budget) {
-    console.log(
-      `  ${pad(name, 20)} ${pad(String(f.frames), 7)} ${pad(num(f.fps), 10)} ${pad(num(f.median, 2), 8)} ${pad(num(f.p95, 2), 7)} ${pad(num(f.worst, 2), 7)} ${pad(String(f.calls), 8)} ${f.triangles}`,
-    );
-  }
-  console.log(
-    `\n  Потолок самой машины (пустая страница): ${num(roof.fps)} в секунду, медиана ${num(roof.median, 2)} мс.`,
-  );
-  console.log('  Бюджет кадра при шестидесяти — 16.7 мс; поляна обязана держаться потолка, а не числа 60.');
-  console.log(
-    `  Память: деревня ${(heapVillage / 1048576).toFixed(1)} МБ, поляна ${(heapGlade / 1048576).toFixed(1)} МБ.`,
-  );
+  const afterDay = await state();
+  step('день не кончился посреди замера', !afterDay.night && afterDay.wolves === 0, `ночь: ${afterDay.night ? 'да' : 'нет'}, волков: ${afterDay.wolves}`);
 
   // ---------- 3. Одна живая сцена ----------
   console.log('\n3. Живая сцена одна, диорама возвращается\n');
@@ -696,6 +849,176 @@ async function report(): Promise<void> {
   const twice = await tab.eval<number>("JSON.stringify(document.querySelectorAll('canvas').length)");
   step('второй заход ничего не оставил', twice === 1, `холстов после двух кругов: ${twice}`);
 
+  // ---------- 4. Ночь, непогода, волки ----------
+  //
+  // Каждое состояние — своя минута и перезагрузка с чистого листа. Запись
+  // подкладывается: топор и лук уже в руках — иначе мерили бы не ту поляну, что
+  // видит игрок после первого захода, и отбиваться от стаи было бы нечем.
+  console.log('\n4. Ночь, непогода, волки (телефон 375×812)\n');
+  const kitSave = `(() => {
+    const now = Date.now();
+    localStorage.setItem('tribe.prologue.v1', JSON.stringify({
+      v: 1, hearth: { fuel: 6, at: now }, body: { hunger: 0.2, cold: 0, hurt: 0, at: now },
+      hunt: { killedAt: 0, carcass: null }, logs: 0, axe: true, kit: true, quiver: ${ARROWS_START},
+      arrows: [], meat: { cooked: 2, raw: 0 }, felled: [${TREES.map(() => 0).join(',')}], wolvesBeatenAt: 0,
+    }));
+    return JSON.stringify('ok');
+  })()`;
+
+  /** Перейти в минуту `at` и открыть поляну с топором и луком в руках. */
+  const into = async (at: number): Promise<void> => {
+    await clock(at + 1500);
+    await fresh();
+    await tab.eval<string>(kitSave);
+    await enter();
+    await screen(SCREENS[0]);
+    await sleep(700);
+    // Первое касание снимает подсказку. У костра с пустыми руками оно ничего не
+    // делает: предложение «Подложить дров» погашено, дров нет.
+    await tap(190, 300);
+  };
+
+  const measure = async (name: string): Promise<void> => {
+    await tab.eval<string>('window.__probe.start()');
+    await sleep(SECONDS * 1000);
+    budget.push([name, await tab.eval<Frames>('window.__probe.stop()')]);
+  };
+
+  // Ночь со стаей и ясным небом: восемьдесят секунд подряд, чтобы хватило и на
+  // замер, и на драку.
+  const night = moment(Date.now() + 10_000, 80_000, (t) => isNight(t) && packAt(t, 0) === WOLF_NIGHT_PACK && weatherAt(t) === 'clear');
+  await into(night);
+  const atNight = await state();
+  step('ночь: стая вышла на опушку', atNight.night === true && atNight.wolves === WOLF_NIGHT_PACK, `ночь: ${atNight.night ? 'да' : 'нет'}, волков ${atNight.wolves}`);
+  const skyLine = await tab.eval<string>('window.__probe.sky()');
+  step('о ночи и волках сказано на экране', skyLine.includes('ночь') && skyLine.includes('волки'), `строка: «${skyLine}»`);
+  // Сперва — лицом к стае: мерить ночь со стаей за спиной значило бы мерить не
+  // то, что в кадре. Так и было в первой версии отчёта, и числа выходили ночью
+  // дешевле, чем днём.
+  const pack = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
+  if (pack.length) await turnTo(pack[0].x, pack[0].z);
+  await measure('ночь, стая в кадре');
+  const safe = await state();
+  const packNow = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
+  const nearestWolf = Math.min(...packNow.map((w) => Math.hypot(w.x, w.z)));
+  step('у горящего костра волки не подходят', nearestWolf >= WOLF_FIRE_R && safe.hurt === 0, `ближайший в ${num(nearestWolf)} м от огня, ран: ${safe.hurt}`);
+  await shoot('2-ночь-стая');
+  // И лицом к огню: ночью костёр обязан быть единственным светом, а это видно
+  // только глазами.
+  if (SHOTS) {
+    await turnTo(0, 0);
+    await shoot('2б-ночь-костёр');
+  }
+
+  // Выходим из круга у огня — стая начинает кружить. Идём на открытое место,
+  // где нет ни дерева, ни костра в досягаемости: там тап достанется волку.
+  const outFrom = Date.now();
+  for (let i = 0; i < 10; i++) {
+    const now = await state();
+    if (Math.hypot(now.x as unknown as number, now.z as unknown as number) > WOLF_FIRE_R + 1.2) break;
+    const dx = -1.2 - (now.x as unknown as number);
+    const dz = 9.6 - (now.z as unknown as number);
+    const wantDeg = (Math.atan2(-dx, -dz) * 180) / Math.PI;
+    const haveDeg = ((now.yaw as unknown as number) * 180) / Math.PI;
+    const turn = ((wantDeg - haveDeg + 540) % 360) - 180;
+    if (Math.abs(turn) > 10) await look(Math.max(-100, Math.min(100, turn)));
+    await walk(500);
+  }
+  const outside = await state();
+  step('вышел из круга у огня', Math.hypot(outside.x as unknown as number, outside.z as unknown as number) > WOLF_FIRE_R, `${num(Math.hypot(outside.x as unknown as number, outside.z as unknown as number))} м от огня`);
+  // Снимок посреди кружения: стая на виду, но ещё не бросилась.
+  await sleep(1500);
+  const circling = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
+  if (circling.length) await turnTo(circling[0].x, circling[0].z);
+  await shoot('3-волки-кружат');
+
+  // Драка. Ждём, пока предложение не станет «Отбиться», и бьём — тапом, как
+  // игрок. Время на ответ стенду то же, что человеку: ни мгновения форы.
+  let slain = 0;
+  let firstBite = -1;
+  let hurtMax = 0;
+  const fightTill = Date.now() + 25_000;
+  while (Date.now() < fightTill) {
+    const now = await state();
+    const hurt = now.hurt as unknown as number;
+    if (hurt > 0 && firstBite < 0) firstBite = Date.now() - outFrom;
+    hurtMax = Math.max(hurtMax, hurt);
+    if (now.dead) break;
+    if ((now.wolves as unknown as number) === 0) break;
+    if (String(now.label).startsWith('Отбиться') && now.can === true) {
+      const had = now.wolves as unknown as number;
+      await tap(190, 400);
+      const was = await state();
+      if ((was.wolves as unknown as number) < had) slain++;
+      continue;
+    }
+    await sleep(60);
+  }
+  const fought = await state();
+  step('топором отбился от стаи', slain > 0 && !fought.dead, `положено ${slain} из ${WOLF_NIGHT_PACK}, ран ${num(hurtMax * WOUNDS_FATAL, 2)} из ${WOUNDS_FATAL}, ${fought.dead ? 'ЗАГРЫЗЛИ' : 'жив'}`);
+  step('первый укус — не раньше срока', firstBite < 0 || firstBite >= EARLIEST_BITE_MS, firstBite < 0 ? 'не укусили ни разу' : `первый укус через ${num(firstBite / 1000)} с после выхода`);
+  const quiet = await state();
+  step('отбитая стая ушла', (quiet.wolves as unknown as number) === 0, `волков на поляне: ${quiet.wolves}`);
+
+  /*
+   * Дождь: сперва небо хмурится, потом льёт. Минута — начало дождливого спелла,
+   * перед которым день, и без волков; заходим за двадцать секунд до первой
+   * капли. «Видеть, что портится, а не узнавать постфактум» проверяется только
+   * так — глазами на снимке и словом в строке.
+   */
+  const noWolves = (a: number, b: number): boolean => {
+    for (let u = a; u <= b; u += 1000) if (packAt(u, 0) !== 0) return false;
+    return true;
+  };
+  let rainStart = Math.ceil((Date.now() + 60_000) / SPELL_MS) * SPELL_MS;
+  for (let guard = 0; ; guard++) {
+    if (guard > 40_000) throw new Error('не нашлось дождя после погожего дня — кольцо погод поменяли?');
+    const fits =
+      weatherAt(rainStart + 1) === 'rain' &&
+      weatherAt(rainStart - 1) !== 'rain' &&
+      !isNight(rainStart - OMEN_MS) &&
+      !isNight(rainStart + 20_000) &&
+      noWolves(rainStart - OMEN_MS, rainStart + 25_000);
+    if (fits) break;
+    rainStart += SPELL_MS;
+  }
+  await into(rainStart - 22_000);
+  const omen = await state();
+  step('перед дождём небо хмурится', omen.weather === 'хмурится', `за ${num((rainStart - pageNow()) / 1000)} с до дождя: «${omen.weather}»`);
+  await shoot('4а-хмурится');
+  while (pageNow() < rainStart + 3000) await sleep(250);
+  const wet = await state();
+  step('дождь: льёт и сказано словом', wet.weather === 'дождь', `погода: «${wet.weather}», костёр ${wet.words}`);
+  await measure('дождь');
+  await shoot('4-дождь');
+
+  const snow = moment(Date.now() + 10_000, 35_000, (t) => weatherAt(t) === 'snow' && !isNight(t) && packAt(t, 0) === 0);
+  await into(snow);
+  await sleep(2600);
+  const cold = await state();
+  step('снег: идёт и сказано словом', cold.weather === 'снег', `погода: «${cold.weather}»`);
+  await measure('снег');
+  await shoot('5-снег');
+
+  console.log('\n5. Бюджет кадра (настоящий WebGL, ANGLE)\n');
+  console.log(
+    `  ${pad('состояние', 28)} ${pad('кадров', 7)} ${pad('в секунду', 10)} ${pad('медиана', 8)} ${pad('p95', 7)} ${pad('худший', 7)} ${pad('вызовов', 8)} треугольников`,
+  );
+  for (const [name, f] of budget) {
+    console.log(
+      `  ${pad(name, 28)} ${pad(String(f.frames), 7)} ${pad(num(f.fps), 10)} ${pad(num(f.median, 2), 8)} ${pad(num(f.p95, 2), 7)} ${pad(num(f.worst, 2), 7)} ${pad(String(f.calls), 8)} ${f.triangles}`,
+    );
+  }
+  console.log(
+    `\n  Потолок самой машины (пустая страница): ${num(roof.fps)} в секунду, медиана ${num(roof.median, 2)} мс.`,
+  );
+  console.log('  Бюджет кадра при шестидесяти — 16.7 мс; поляна обязана держаться потолка, а не числа 60.');
+  console.log(
+    `  Память: деревня ${(heapVillage / 1048576).toFixed(1)} МБ, поляна ${(heapGlade / 1048576).toFixed(1)} МБ.`,
+  );
+  if (SHOTS) console.log(`  Снимки 375 и 360 px: ${SHOTS}`);
+
+  if (clockId) await tab.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: clockId });
   tab.close();
 }
 
