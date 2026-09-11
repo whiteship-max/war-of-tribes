@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { WOUNDS_FATAL, bite, causeOfDeath, newBody, type Body } from './body';
+import { WOLF_BITES, bite, causeOfDeath, newBody, type Body } from './body';
 import type { Hearth } from './fire';
 import { FIRE, GLADE_R, REACH, TREES, WALK_SPEED, WARM_R, WOLF_R, nearest } from './glade';
 import { DAY_SHARE, SKY_MS, isNight } from './sky';
@@ -185,7 +185,8 @@ describe('у горящего костра волков нет', () => {
  */
 function worst(pack: number, outside: (t: number) => boolean, until: number): { bites: number[]; dead: number; from: number } {
   let stalkFrom = 0;
-  let body: Body = newBody(0);
+  // Вне круга у огня — как и в сцене: отметку «грелся» там снимает `scene.warmth`.
+  let body: Body = { ...newBody(0), warm: false };
   const bites: number[] = [];
   let dead = -1;
   let from = -1;
@@ -211,19 +212,21 @@ function worst(pack: number, outside: (t: number) => boolean, until: number): { 
 }
 
 describe('смерть от волков не раньше, чем их можно заметить', () => {
-  it('первый укус — не раньше семи секунд, смерть — ровно на тринадцатой, для любой стаи', () => {
+  it('первый укус — не раньше семи секунд, смерть — ровно на двадцать второй, для любой стаи', () => {
     /*
      * ГЛАВНЫЙ ТЕСТ ВОЛКОВ.
      *
      * Первым прогоном он упал, и по делу: пока у каждого волка был свой отсчёт,
      * ночная пара кусала разом на седьмой секунде и добивала на десятой. Срок
-     * «тринадцать секунд» оставался правдой для одиночки и враньём для пары.
-     * Лечится это правилом стаи — бросается один, отскакивают все, — и тест
-     * держит его для одиночки, пары и тройки, которой в игре нет.
+     * оставался правдой для одиночки и враньём для пары. Лечится это правилом
+     * стаи — бросается один, отскакивают все, — и тест держит его для одиночки,
+     * пары и тройки, которой в игре нет. Укусов до смерти теперь шесть, а не три:
+     * семь секунд кружения и пять отскоков по три — двадцать две.
      */
     for (const pack of [1, 2, 3]) {
       const { bites, dead, from } = worst(pack, (t) => t >= 1000, 40_000);
-      expect(bites.length, `стая ${pack}`).toBeGreaterThanOrEqual(WOUNDS_FATAL);
+      expect(EARLIEST_DEATH_MS).toBe(22_000);
+      expect(bites.length, `стая ${pack}`).toBeGreaterThanOrEqual(WOLF_BITES);
       expect(bites[0] - from, `стая ${pack}`).toBeGreaterThanOrEqual(EARLIEST_BITE_MS);
       expect(dead - from, `стая ${pack}`).toBeGreaterThanOrEqual(EARLIEST_DEATH_MS);
       // Не просто «не раньше», а ровно: число в `wolves.ts` — это срок, а не

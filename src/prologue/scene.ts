@@ -119,20 +119,24 @@ import {
 } from './wolves';
 import {
   bite,
-  coldFill,
-  coldWords,
+  draining,
   eat,
   fedFill,
+  fedWords,
+  harmAt,
+  healing,
+  healthFill,
+  healthWords,
   hungerAt,
-  hungerWords,
-  hurtFill,
-  hurtWords,
   setRoof,
   setWarm,
   warming,
+  warmthFill,
+  warmthWords,
   wearCoat,
   type Death,
 } from './body';
+import { pack as things, packKey, type Item } from './pack';
 import {
   ARROWS_START,
   ARROW_SPEED,
@@ -225,31 +229,27 @@ export interface PrologueView {
   /** Сытость, 0..1: полоса запаса. */
   fedFill: number;
   fedWords: string;
-  /** Холод, 0..1: полоса тревоги, а не запаса. Пустая — всё хорошо. */
-  coldFill: number;
-  coldWords: string;
-  /** Греется ли прямо сейчас — надстройка красит полосу иначе. */
+  /** Тепло, 0..1: полоса запаса — уходит вдали от огня, возвращается у огня. */
+  warmthFill: number;
+  warmthWords: string;
+  /** Греется ли прямо сейчас — надстройка красит полосу тепла иначе. */
   warming: boolean;
-  logs: number;
-  axe: boolean;
-  bow: boolean;
-  quiver: number;
-  cooked: number;
-  raw: number;
-  /** Шкура в руках: есть ли из чего шить. */
-  hides: number;
-  /** Одет ли: надстройка ставит одежду значком у полосы холода. */
-  coat: boolean;
+  /** Здоровье, 0..1, и что с ним — словами. */
+  healthFill: number;
+  healthWords: string;
+  /** Тает ли здоровье: какая-то нужда пуста. Надстройка красит полосу тревогой. */
+  draining: boolean;
+  /** Заживает ли здоровье: ранен, в покое, нужды закрыты. */
+  healing: boolean;
+  /** Вещи — ровно то, что есть (`pack.ts`). */
+  items: readonly Item[];
   /** Что предлагает то, рядом с чем стоим. */
   offer: Offer;
   /** Что предлагает лук: натянуть, пустить или почему нельзя. */
   shot: Offer;
-  /** Еда: жареное и сырое, каждое своей кнопкой на счётчике. */
+  /** Еда: жареное и сырое, каждое своей кнопкой у мяса в вещах. */
   eatCooked: Offer;
   eatRaw: Offer;
-  /** Раны: полоса тревоги, как у холода. Пустая — цел. */
-  hurtFill: number;
-  hurtWords: string;
   /** Ночь ли сейчас: надстройка приглушает свои цвета вместе с небом. */
   night: boolean;
   /** Что с погодой — словом. Пусто, когда ясно и портиться нечему. */
@@ -292,8 +292,11 @@ export interface PrologueView {
   hugging: boolean;
 }
 
-/** Какая карточка открыта над сценой. Время сцены: выход из режима её не помнит. */
-export type Panel = '' | 'guest' | 'wife' | 'name' | 'kin';
+/**
+ * Какая карточка открыта над сценой: разговор, родословная или вещи. Одна за раз.
+ * Время сцены: выход из режима её не помнит.
+ */
+export type Panel = '' | 'guest' | 'wife' | 'name' | 'kin' | 'pack';
 
 /**
  * Как часто перекладывается свет.
@@ -339,6 +342,27 @@ const SNOW_GROW_MS = 30_000;
 const SNOW_MELT_MS = 60_000;
 const WET_GROW_MS = 12_000;
 const WET_DRY_MS = 70_000;
+
+/**
+ * Сколько снега лежит на ветках и крышах зимой без снегопада.
+ *
+ * Не весь: снегопад обязан быть виден и тем, что ветки белеют сильнее, — иначе
+ * между «идёт снег» и «лежит снег» не было бы разницы нигде, кроме хлопьев.
+ */
+const WINTER_SNOW = 0.6;
+
+/**
+ * С какого тепла кадр подёргивается инеем и до какого инея доходит.
+ *
+ * Иней — картинка из полосы тепла, а не своя величина: сцена переводит в него то
+ * же число, что стоит на полосе. С семи десятых тепла он появляется у краёв, к
+ * одной десятой закрывает края кадра целиком, а середину не трогает никогда —
+ * сквозь иней надо видеть, куда идёшь. Пришедший к огню замёрзшим застаёт его с
+ * первого кадра вполсилы: первой версией при четырёх десятых тепла его на снимке
+ * было не разглядеть, и «холод давит сразу» держалось одной полосой.
+ */
+const FROST_FROM = 0.7;
+const FROST_FULL = 0.1;
 
 /** С какой любви у жены тёплое лицо. Сама любовь считается в `kin.love`, здесь только порог показа. */
 const WARM_FROM = 60;
@@ -684,24 +708,19 @@ function same(a: PrologueView, b: PrologueView): boolean {
   return (
     Math.abs(a.fireFill - b.fireFill) < 0.002 &&
     Math.abs(a.fedFill - b.fedFill) < 0.002 &&
-    Math.abs(a.coldFill - b.coldFill) < 0.002 &&
+    Math.abs(a.warmthFill - b.warmthFill) < 0.002 &&
+    Math.abs(a.healthFill - b.healthFill) < 0.002 &&
     a.fireWords === b.fireWords &&
     a.fedWords === b.fedWords &&
-    a.coldWords === b.coldWords &&
+    a.warmthWords === b.warmthWords &&
+    a.healthWords === b.healthWords &&
     a.warming === b.warming &&
-    Math.abs(a.hurtFill - b.hurtFill) < 0.002 &&
-    a.hurtWords === b.hurtWords &&
+    a.draining === b.draining &&
+    a.healing === b.healing &&
     a.night === b.night &&
     a.weather === b.weather &&
     a.wolves === b.wolves &&
-    a.logs === b.logs &&
-    a.axe === b.axe &&
-    a.bow === b.bow &&
-    a.quiver === b.quiver &&
-    a.cooked === b.cooked &&
-    a.raw === b.raw &&
-    a.hides === b.hides &&
-    a.coat === b.coat &&
+    packKey(a.items) === packKey(b.items) &&
     a.drawn === b.drawn &&
     a.busy === b.busy &&
     a.busyLeft === b.busyLeft &&
@@ -923,6 +942,12 @@ export class PrologueScene {
    */
   hugEl: HTMLElement | null = null;
 
+  /**
+   * Иней по краям кадра. Двигает его сцена, минуя React: число у него то же, что у
+   * полосы тепла, и второй раз его не считает никто (`frostShow`).
+   */
+  frostEl: HTMLElement | null = null;
+
   constructor(
     private canvas: HTMLCanvasElement,
     private save: PrologueSave,
@@ -944,9 +969,12 @@ export class PrologueScene {
 
     this.rig = createLightRig(this.scene);
     fitShadow(this.rig, SHADOW_HALF);
-    // Сезон общий на всю игру — материалы одни, — поэтому поляна ставит свою
-    // весну мгновенно, а деревня вернёт свою тем же `jump` при пересборке.
-    this.season.jump('spring');
+    // ПРЕДЫСТОРИЯ ИДЁТ ЗИМОЙ. Сезон общий на всю игру — материалы одни, — поэтому
+    // поляна ставит свою зиму мгновенно, до того как снять копии материалов
+    // (`surfaces.adopt` ниже берёт цвет уже зимним), а деревня вернёт свой сезон тем
+    // же `jump` при пересборке. Цвета зимы — те же, что у деревни (`SEASON_OVERRIDES`):
+    // своей второй зимы у поляны нет.
+    this.season.jump('winter');
 
     // Небо — первым: купол рисуется раньше всего и глубину не пишет.
     this.scene.add(this.dome.root);
@@ -1372,7 +1400,8 @@ export class PrologueScene {
   eatMeal(raw: boolean): void {
     const now = serverNow();
     if (!this.alive(now)) return;
-    if (!meal(this.save, hungerAt(this.save.body, now), raw).can) return;
+    const body = this.save.body;
+    if (!meal(this.save, hungerAt(body, now), harmAt(body, this.save.hearth, now), raw).can) return;
     this.save.body = eat(this.save.body, this.save.hearth, now, raw);
     if (raw) this.save.meat.raw -= 1;
     else this.save.meat.cooked -= 1;
@@ -1502,7 +1531,21 @@ export class PrologueScene {
     return '';
   }
 
-  /** Закрыть карточку: разговор или родословную. */
+  /**
+   * Вещи: открыть окно или закрыть, если открыто.
+   *
+   * Карточка одна за раз — окно вещей встаёт на место разговора, а не поверх: две
+   * карточки над одним рядом кнопок закрывали бы полэкрана и друг друга. Мёртвому и
+   * посреди объятия вещей нет, как нет и разговора.
+   */
+  togglePack(): void {
+    if (!this.alive(serverNow()) || this.hugAt) return;
+    this.panel = this.panel === 'pack' ? '' : 'pack';
+    this.said = '';
+    this.refresh();
+  }
+
+  /** Закрыть карточку: разговор, родословную или вещи. */
   closePanel(): void {
     if (!this.panel) return;
     this.panel = '';
@@ -2225,7 +2268,8 @@ export class PrologueScene {
     this.wet = want > this.wet ? Math.min(want, this.wet + step) : Math.max(want, this.wet - step);
     this.precip.update(dt, this.wetKind, this.wet, this.px, this.pz, this.yaw);
     // Снег на ветках и мокрая земля — из того же кольца погод, а не накоплением.
-    this.surfaces.u.snow.value = this.cover(now, 'snow', SNOW_GROW_MS, SNOW_MELT_MS);
+    // Зимой снег лежит на ветках всегда, снегопад только добавляет (`WINTER_SNOW`).
+    this.surfaces.u.snow.value = Math.max(WINTER_SNOW, this.cover(now, 'snow', SNOW_GROW_MS, SNOW_MELT_MS));
     this.surfaces.u.wet.value = this.cover(now, 'rain', WET_GROW_MS, WET_DRY_MS);
     // Ветер порывами: два синуса разных частот, в дождь сильнее, в снег тише.
     const s = t / 1000;
@@ -2712,9 +2756,12 @@ export class PrologueScene {
   /** Карточка закрывается сама, когда от разговора ушли: шаг назад — нет, уход — да. */
   private panelStep(now: number): void {
     if (!this.panel) return;
+    // Вещи при себе, где ни стой: окно вещей закрывает только смерть — и сам игрок.
     const gone = !this.alive(now)
       ? true
-      : this.panel === 'kin'
+      : this.panel === 'pack'
+        ? false
+        : this.panel === 'kin'
         ? Math.hypot(this.px - HOUSE.x, this.pz - HOUSE.z) - HOUSE.r > REACH + TALK_SLACK
         : !this.mate || Math.hypot(this.px - this.mate.x, this.pz - this.mate.z) - MATE_R > REACH + TALK_SLACK;
     if (!gone) return;
@@ -2822,32 +2869,28 @@ export class PrologueScene {
     const now = serverNow();
     const s = this.save;
     const hunger = hungerAt(s.body, now);
+    const harm = harmAt(s.body, s.hearth, now);
     const busy = this.work?.kind ?? '';
     return {
       fireFill: hearthFill(s.hearth, now),
       fireWords: burnWords(s.hearth, now),
       fedFill: fedFill(s.body, now),
-      fedWords: hungerWords(s.body, now),
-      coldFill: coldFill(s.body, s.hearth, now),
-      coldWords: coldWords(s.body, s.hearth, now),
+      fedWords: fedWords(s.body, now),
+      warmthFill: warmthFill(s.body, s.hearth, now),
+      warmthWords: warmthWords(s.body, s.hearth, now),
       warming: warming(s.body, s.hearth, now),
-      hurtFill: hurtFill(s.body, now),
-      hurtWords: hurtWords(s.body, now),
+      healthFill: healthFill(s.body, s.hearth, now),
+      healthWords: healthWords(s.body, s.hearth, now),
+      draining: draining(s.body, s.hearth, now),
+      healing: healing(s.body, s.hearth, now),
       night: isNight(now),
       weather: weatherWords(now),
       wolves: this.pack.length,
-      logs: s.logs,
-      axe: s.axe,
-      bow: s.kit,
-      quiver: s.quiver,
-      cooked: s.meat.cooked,
-      raw: s.meat.raw,
-      hides: s.hides,
-      coat: s.body.coat,
+      items: things(s),
       offer: offer(s, this.aim(), now),
       shot: bowOffer(s, this.drawn),
-      eatCooked: meal(s, hunger, false),
-      eatRaw: meal(s, hunger, true),
+      eatCooked: meal(s, hunger, harm, false),
+      eatRaw: meal(s, hunger, harm, true),
       drawn: this.drawn,
       busy: busy === 'chop' ? 'Ещё ударов' : busy === 'butcher' ? 'Срезает' : busy === 'skin' ? 'Снимает шкуру' : busy === 'fight' ? 'Отбивается' : '',
       busyLeft: busy === 'chop' && this.chopTree >= 0 ? this.chopsLeft : 0,
@@ -2881,9 +2924,28 @@ export class PrologueScene {
    */
   private refresh(): void {
     const next = this.snapshot();
+    this.frostShow(next.dead ? 0 : next.warmthFill);
     if (this.shown && same(this.shown, next)) return;
     this.shown = next;
     this.onView?.(next);
+  }
+
+  /**
+   * Иней по краям кадра — из того же числа, что на полосе тепла.
+   *
+   * Пишется в разметку только когда поменялся на сотую: полоса тепла ползёт часами,
+   * и стиль, переписанный каждые сто двадцать миллисекунд, стоил бы пересчёта слоя
+   * ни за что. Невидимый иней снят со слоя вовсе — поверх холста он ничего не стоит.
+   */
+  private frostShow(warmth: number): void {
+    const el = this.frostEl;
+    if (!el) return;
+    const k = THREE.MathUtils.clamp((FROST_FROM - warmth) / (FROST_FROM - FROST_FULL), 0, 1);
+    const v = Math.round(smooth(k) * 100) / 100;
+    if (el.dataset.k === String(v)) return;
+    el.dataset.k = String(v);
+    el.style.opacity = v.toFixed(2);
+    el.style.visibility = v > 0 ? 'visible' : 'hidden';
   }
 
   /** Кнопка действия в надстройке — та же дверь, что и тап по сцене. */
@@ -2952,6 +3014,28 @@ export class PrologueScene {
   /** Сколько брёвен в доме и под крышей ли человек — замеру: стенд строит пальцем. */
   craft(): { house: number; roof: boolean } {
     return { house: this.save.house, roof: this.save.body.roof };
+  }
+
+  /**
+   * Что в руках — замеру, из самой записи.
+   *
+   * Надстройка этих чисел больше не показывает россыпью: они живут в окне вещей
+   * (`pack.ts`). Стенду же нужны числа, а не разметка окна, — и берёт он их у
+   * сцены, а не считает сам.
+   */
+  hands(): { logs: number; axe: boolean; bow: boolean; quiver: number; cooked: number; raw: number; hides: number; coat: boolean; harm: number } {
+    const s = this.save;
+    return {
+      logs: s.logs,
+      axe: s.axe,
+      bow: s.kit,
+      quiver: s.quiver,
+      cooked: s.meat.cooked,
+      raw: s.meat.raw,
+      hides: s.hides,
+      coat: s.body.coat,
+      harm: harmAt(s.body, s.hearth, serverNow()),
+    };
   }
 
   /** Где женщина — замеру. Её место живёт в кадрах, как у зверя, и второго источника нет. */

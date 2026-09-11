@@ -149,19 +149,25 @@ describe('мясо жарится только на огне', () => {
 describe('есть можно и сырым, но плохо', () => {
   it('оба куска предлагаются, пока голод есть', () => {
     const s = state({ meat: { cooked: 1, raw: 1 } });
-    expect(meal(s, 0.5, false).can).toBe(true);
-    expect(meal(s, 0.5, true).can).toBe(true);
+    expect(meal(s, 0.5, 0, false).can).toBe(true);
+    expect(meal(s, 0.5, 0, true).can).toBe(true);
   });
 
-  it('на полный живот не едят, и сказано почему', () => {
+  it('на полный живот при полном здоровье не едят, и сказано почему', () => {
     const s = state({ meat: { cooked: 1, raw: 1 } });
-    expect(meal(s, 0, false)).toMatchObject({ can: false, why: 'Ты сыт' });
+    expect(meal(s, 0, 0, false)).toMatchObject({ can: false, why: 'Ты сыт и цел' });
+  });
+
+  it('раненый ест и сытым: мясо возвращает здоровье', () => {
+    const s = state({ meat: { cooked: 1, raw: 1 } });
+    expect(meal(s, 0, 1, false).can).toBe(true);
+    expect(meal(s, 0, 1, true).can).toBe(true);
   });
 
   it('чего нет, того и не съесть', () => {
     const s = state({ meat: { cooked: 0, raw: 0 } });
-    expect(meal(s, 0.9, false).why).toBe('Жареного мяса нет');
-    expect(meal(s, 0.9, true).why).toBe('Сырого мяса нет');
+    expect(meal(s, 0.9, 3, false).why).toBe('Жареного мяса нет');
+    expect(meal(s, 0.9, 3, true).why).toBe('Сырого мяса нет');
   });
 });
 
@@ -211,12 +217,13 @@ describe('тап не целится, выстрел целится — и эт�
 });
 
 describe('смерть — это чтение, а не событие', () => {
-  it('новая поляна жива, а прогоревшая ночь без дров — нет', () => {
+  it('новая поляна жива и через сутки, а прогоревший очаг без дров убивает на третьи', () => {
     const s = state();
     expect(death(s, 0)).toBe(null);
     expect(death(s, 60_000)).toBe(null);
-    // Двенадцать часов горит начальный очаг, восемь — стынет человек.
-    expect(death(s, 20 * 3_600_000)).toBe('cold');
+    // Начальный очаг горит полсуток и меньше, дальше сутки тепла и полсуток здоровья.
+    expect(death(s, 24 * 3_600_000)).toBe(null);
+    expect(death(s, 50 * 3_600_000)).toBe('cold');
   });
 
   it('мёртвому поляна ничего не предлагает — но это решает сцена, а не `offer`', () => {

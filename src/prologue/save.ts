@@ -37,7 +37,7 @@
  */
 import { serverNow } from '@/net/clock';
 import { keepHearth, newHearth, type Hearth } from './fire';
-import { WOUNDS_FATAL, camp, newBody, type Body } from './body';
+import { ARRIVAL_COLD, WOLF_BITES, camp, newBody, type Body } from './body';
 import { HOUSE_LOGS, houseDone } from './craft';
 import { TREES } from './glade';
 import { newHunt, type Hunt, type Pt } from './hunt';
@@ -129,7 +129,8 @@ export function freshPrologue(now = serverNow()): PrologueSave {
   return {
     v: PROLOGUE_VERSION,
     hearth: newHearth(now),
-    body: newBody(now),
+    // Зима с первого кадра: человек пришёл к огню через лес и холод принёс с собой.
+    body: newBody(now, ARRIVAL_COLD),
     hunt: newHunt(),
     logs: 0,
     axe: false,
@@ -186,12 +187,17 @@ export function freshPrologue(now = serverNow()): PrologueSave {
  * уже отказались с топором и луком, — а шкала, обнулённая за чужой зуб,
  * превратила бы любовь в ставку. Очаг нового утра она и разжигает: бережёт его
  * по-прежнему она.
+ *
+ * ЗДОРОВЬЕ ВОЗВРАЩАЕТСЯ ЦЕЛИКОМ, ТЕПЛО — КАК У ПРИШЕДШЕГО. Новое утро зимнее:
+ * человек открывает глаза у разожжённого огня замёрзшим (`ARRIVAL_COLD`), ровно
+ * как в первый раз, и греется у него. Сытость полная: пустой кладовой после
+ * смерти хватает, голодное утро сверх неё было бы второй платой за одно.
  */
 export function revive(s: PrologueSave, now = serverNow()): PrologueSave {
   return {
     ...s,
     hearth: newHearth(now, s.wife !== null),
-    body: { ...newBody(now), coat: s.body.coat },
+    body: { ...newBody(now, ARRIVAL_COLD), coat: s.body.coat },
     logs: 0,
     hides: 0,
     meat: { cooked: 0, raw: 0 },
@@ -204,6 +210,9 @@ export function revive(s: PrologueSave, now = serverNow()): PrologueSave {
 }
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/** Сколько ран было смертью в записи до полосы здоровья. Нужно одному разбору старой записи. */
+const OLD_WOUNDS = 3;
 
 const count = (v: unknown): number => Math.max(0, Math.floor(num(v, 0)));
 
@@ -267,7 +276,13 @@ export function loadPrologue(now = serverNow()): PrologueSave {
       body: {
         hunger: Math.min(1, Math.max(0, num(p.body?.hunger, 0))),
         cold: Math.min(1, Math.max(0, num(p.body?.cold, 0))),
-        hurt: Math.min(WOUNDS_FATAL, Math.max(0, num(p.body?.hurt, 0))),
+        // Урон — в укусах. Запись до здоровья держала раны (`hurt`, смерть на
+        // трёх), и доля до смерти переезжает как есть: две раны из трёх — четыре
+        // укуса из шести. Иначе вчерашний израненный проснулся бы сегодня целым.
+        harm: Math.min(
+          WOLF_BITES,
+          Math.max(0, num(p.body?.harm, num((p.body as { hurt?: unknown } | undefined)?.hurt, 0) * (WOLF_BITES / OLD_WOUNDS))),
+        ),
         coat: p.body?.coat === true,
         at: num(p.body?.at, now),
         // Отметка «грелся» с диска не читается вовсе — её там и нет: между

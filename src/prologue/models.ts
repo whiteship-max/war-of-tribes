@@ -391,14 +391,14 @@ export function blob(rx: number, rz: number): THREE.Mesh {
 }
 
 /**
- * Подлесок: трава пучками, цветы, камни, валежник и кусты.
+ * Подлесок: сухая трава пучками, камни, валежник и кусты.
  *
- * РЕДКО, НО ВЕЗДЕ. Поляна без него — зелёный лист бумаги, на котором стоят
+ * РЕДКО, НО ВЕЗДЕ. Поляна без него — белый лист бумаги, на котором стоят
  * вещи; с ним у земли появляется масштаб, и шаг читается шагом. Пучок — три
  * травинки треугольниками, куст — две приплюснутые шапки, камень наполовину в
- * земле.
+ * земле. Зимой трава — солома из-под снега, а цветов нет.
  *
- * Двумя мешами, и разделено это ветром: трава и цветы качаются (`surface` роль
+ * Двумя мешами, и разделено это ветром: трава качается (`surface` роль
  * `tuft`), камни, валежник и кусты — нет. Всё остальное — одно тело с цветом в
  * вершинах, один вызов отрисовки на меш. Места, где ходят и работают, чисты:
  * очаг, палатка, колода, дом и место женщины у огня.
@@ -427,7 +427,8 @@ export function undergrowth(): { sway: THREE.Mesh; still: THREE.Mesh } {
     if (!free(x, z)) continue;
     const y = height(x, z);
     const h = 0.18 + hash(i, 205) * 0.2;
-    const paint = tint(mix(PALETTE.grassDark, PALETTE.grassLight, hash(i, 207)));
+    // Зима: из-под снега торчит сухая трава — солома, а не зелень.
+    const paint = tint(mix(PALETTE.thatch, PALETTE.trunk, 0.15 + hash(i, 207) * 0.45));
     for (let b = 0; b < 3; b++) {
       const ba = hash(i, 209 + b) * Math.PI * 2;
       const lean = 0.25 + hash(i, 213 + b) * 0.35;
@@ -446,11 +447,7 @@ export function undergrowth(): { sway: THREE.Mesh; still: THREE.Mesh } {
       geo.computeVertexNormals();
       sway.push(K.place(geo, paint, x, y, z, undefined, { base, y0: y, y1: y + h }));
     }
-    // Цветок на каждый девятый пучок: белый, жёлтый или ягодный — пятно цвета у ног.
-    if (i % 9 === 0 && r < 12.5) {
-      const petal = [PALETTE.plaster, PALETTE.thatch, PALETTE.berry][i % 3];
-      sway.push(K.place(new THREE.IcosahedronGeometry(0.035, 0), tint(petal), x + 0.05, y + h * 0.9, z));
-    }
+    // Цветов зимой нет: пятно цвета у ног — сухие метёлки, а не лепестки.
   }
 
   for (let i = 0; i < 18; i++) {
@@ -489,7 +486,9 @@ export function undergrowth(): { sway: THREE.Mesh; still: THREE.Mesh } {
     // Путь гостьи от опушки к огню не зарастает: она идёт по нему при игроке.
     if (!free(x, z) || Math.hypot(x - GUEST_FROM.x, z - GUEST_FROM.z) < 2.2) continue;
     const s = 0.8 + hash(i, 265) * 0.5;
-    const leaf = tint(mix(PALETTE.bush, PALETTE.leaves, hash(i, 267)));
+    // Зима: куст под снегом — зелень едва проглядывает. Ярко-зелёный ком на белом
+    // читался весной, забытой посреди зимы (поймано снимком первого кадра).
+    const leaf = tint(mix(mix(PALETTE.bush, PALETTE.leaves, hash(i, 267)), PALETTE.snowflake, 0.62));
     const y = height(x, z);
     for (let k = 0; k < 2; k++) {
       const geo = new THREE.IcosahedronGeometry(0.42 * s * (1 - k * 0.25), 0);

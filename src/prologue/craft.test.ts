@@ -18,14 +18,15 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROAST_COST, offer, reach } from './act';
 import {
-  CHILL_MS,
   COAT_CHILL,
+  COLD_MS,
   WARM_MS,
   camp,
   causeOfDeath,
   coldAt,
-  coldDeadAt,
-  coldLeftMs,
+  coldEmptyAt,
+  deadAt,
+  lifeLeftMs,
   newBody,
   setRoof,
   wearCoat,
@@ -60,7 +61,7 @@ import {
 } from './glade';
 import { ARROWS_START, DEER_MEAT, arrowsAll, carveArrows, type Hunt } from './hunt';
 import { freshPrologue, loadPrologue, revive, savePrologue, type PrologueSave } from './save';
-import { BURN_MEAN, RING_MS, chilledMs } from './sky';
+import { BURN_MEAN, CHILL_MEAN, RING_MS, chilledMs } from './sky';
 import { WOLF_BITE_R, WOLF_FIRE_R, WOLF_SPOTS, wolfCanBite, wolfKeepsOut } from './wolves';
 
 const H = 3_600_000;
@@ -155,34 +156,34 @@ describe('одежда: холод давит ровно на COAT_CHILL сла�
     }
   });
 
-  it('срок без огня одетому длиннее ровно настолько же — по холодовым часам', () => {
+  it('полоса тепла одетого длиннее ровно настолько же — по средним часам холода', () => {
     for (let t0 = 0; t0 < RING_MS; t0 += 61_000) {
       const h: Hearth = { fuel: 0, at: t0 };
-      expect(chilledMs(t0, coldDeadAt(away(t0), h))).toBeCloseTo(CHILL_MS, 3);
-      expect(chilledMs(t0, coldDeadAt(away(t0, { coat: true }), h)) * COAT_CHILL).toBeCloseTo(CHILL_MS, 3);
+      expect(chilledMs(t0, coldEmptyAt(away(t0), h)) / CHILL_MEAN).toBeCloseTo(COLD_MS, 3);
+      expect((chilledMs(t0, coldEmptyAt(away(t0, { coat: true }), h)) / CHILL_MEAN) * COAT_CHILL).toBeCloseTo(COLD_MS, 3);
     }
   });
 
-  it('без огня: в доме — восемь часов, в доме одетым — тринадцать с третью, одетым под небом — девять с лишним', () => {
+  it('тепло без огня: под небом — сутки, одетым — сорок часов, в доме — тридцать четыре, в доме одетым — пятьдесят шесть', () => {
     let sum = 0;
     let n = 0;
     for (let t0 = 0; t0 < RING_MS; t0 += 97_000) {
       const h: Hearth = { fuel: 0, at: t0 };
-      expect(coldDeadAt(away(t0, { roof: true }), h) - t0).toBeCloseTo(CHILL_MS, 3);
-      expect(coldDeadAt(away(t0, { roof: true, coat: true }), h) - t0).toBeCloseTo(CHILL_MS / COAT_CHILL, 3);
-      const sky = coldDeadAt(away(t0, { coat: true }), h) - t0;
-      expect(sky / H).toBeGreaterThan(8.5);
+      // Под крышей небо не давит: ставка ясного дня, и срок ровный с любой минуты.
+      expect(coldEmptyAt(away(t0, { roof: true }), h) - t0).toBeCloseTo(COLD_MS * CHILL_MEAN, 3);
+      expect(coldEmptyAt(away(t0, { roof: true, coat: true }), h) - t0).toBeCloseTo((COLD_MS * CHILL_MEAN) / COAT_CHILL, 3);
+      const sky = coldEmptyAt(away(t0, { coat: true }), h) - t0;
+      expect(Math.abs(sky - COLD_MS / COAT_CHILL)).toBeLessThan(2.5 * 60_000);
       sum += sky;
       n++;
     }
-    expect(sum / n / H).toBeGreaterThan(9);
-    expect(sum / n / H).toBeLessThan(10);
+    expect(sum / n / H).toBeCloseTo(40, 1);
   });
 
   it('крыша снимает небо: ночь и снег под ней студят как погожий день', () => {
     const gain = (s: { at: number; until: number }): number => coldAt(away(s.at, { roof: true }), OUT, s.until);
     const day = gain(CLEAR_DAY);
-    expect(day).toBeCloseTo((CLEAR_DAY.until - CLEAR_DAY.at) / CHILL_MS, 12);
+    expect(day).toBeCloseTo((CLEAR_DAY.until - CLEAR_DAY.at) / CHILL_MEAN / COLD_MS, 12);
     expect(gain(CLEAR_NIGHT)).toBeCloseTo(day, 12);
     expect(gain(SNOW_DAY)).toBeCloseTo(day, 12);
   });
@@ -200,9 +201,9 @@ describe('одежда: холод давит ровно на COAT_CHILL сла�
     const mid = CLEAR_DAY.at + 40_000;
     const dressed = wearCoat(away(CLEAR_DAY.at), OUT, mid);
     expect(dressed).toMatchObject({ at: mid, coat: true });
-    expect(dressed.cold).toBeCloseTo(40_000 / CHILL_MS, 12);
+    expect(dressed.cold).toBeCloseTo(40_000 / CHILL_MEAN / COLD_MS, 12);
     const rest = coldAt(dressed, OUT, CLEAR_DAY.until) - dressed.cold;
-    expect(rest).toBeCloseTo(((CLEAR_DAY.until - mid) * COAT_CHILL) / CHILL_MS, 12);
+    expect(rest).toBeCloseTo(((CLEAR_DAY.until - mid) * COAT_CHILL) / CHILL_MEAN / COLD_MS, 12);
   });
 
   it('крыша закрывает отрезок так же, как круг у огня', () => {
@@ -216,10 +217,10 @@ describe('одежда: холод давит ровно на COAT_CHILL сла�
       for (let t0 = 0; t0 < RING_MS; t0 += 131_000) {
         const h: Hearth = { fuel: 2, at: t0 };
         const b: Body = { ...newBody(t0), ...over };
-        const dead = coldDeadAt(b, h);
+        const dead = deadAt(b, h);
         expect(causeOfDeath(b, h, dead - 60_000), JSON.stringify(over)).toBe(null);
-        expect(causeOfDeath(b, h, dead + 60_000), JSON.stringify(over)).toBe('cold');
-        expect(coldLeftMs(b, h, t0) + t0).toBeCloseTo(dead, 6);
+        expect(causeOfDeath(b, h, dead + 60_000), JSON.stringify(over)).not.toBe(null);
+        expect(lifeLeftMs(b, h, t0) + t0).toBeCloseTo(dead, 6);
       }
     }
   });

@@ -1,10 +1,12 @@
-import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { probe } from '@/debug';
 // Свой файл стилей, а не строки в общем: он уезжает вместе с чанком режима и
 // в первую загрузку игры не входит (почему — в самом файле).
 import './prologue.css';
 import { deathWords } from './body';
+import { IconArrows, IconAxe, IconBow, IconCoat, IconFrost, IconHeart, IconHide, IconLogs, IconMeat, IconPack, IconRaw } from './icons';
 import { HEIR_MAX, LOVE_DAYS, heirName } from './kin';
+import type { ItemId } from './pack';
 import { loadPrologue } from './save';
 import { PrologueScene, type PrologueView } from './scene';
 
@@ -29,21 +31,21 @@ import { PrologueScene, type PrologueView } from './scene';
  *
  * Надстройка над сценой перерисовывается не каждый кадр: сцена присылает
  * `PrologueView` только когда в нём что-то изменилось (`scene.refresh`). Стик
- * ходьбы и затемнение объятия — исключения: они живут кадрами, и их сцена
- * двигает сама, минуя React, иначе React перерисовывался бы шестьдесят раз в
- * секунду ради кружка.
+ * ходьбы, затемнение объятия и иней по краям — исключения: они живут кадрами, и
+ * их сцена двигает сама, минуя React.
  *
- * ТЕСНО ЛИ НА ЭКРАНЕ — вопрос, который решается тем, чего здесь **нет**.
- * Полос три, но видно обычно две: полоса холода поднимается только когда с
- * теплом что-то не так, а пока костёр горит и человек у огня — её нет вовсе.
- * Так же и счётчики: чего нет в руках, того нет и на экране. Внизу всегда ровно
- * две кнопки — действие и лук, — и ни одна из них не переезжает. Карточка
- * разговора встаёт над ними, а не на их место, и только пока разговор идёт.
+ * ТЕСНО ЛИ НА ЭКРАНЕ — вопрос, который решается тем, как стоит то, что есть.
+ * Полос три, и видны они всегда, но **полная полоса молчит**: тонкая, тусклая и
+ * без слова. Говорит полоса, когда есть о чём — тепло уходит, живот пустеет,
+ * здоровье тает или заживает, — и тогда она ярче, толще и называет срок. Всё, что
+ * в руках, живёт в окне вещей, а не россыпью счётчиков. Внизу три кнопки —
+ * действие, лук и вещи, — и ни одна из них не переезжает.
  */
 export function Prologue({ onExit }: { onExit: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef<HTMLDivElement>(null);
   const hugRef = useRef<HTMLDivElement>(null);
+  const frostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<PrologueScene | null>(null);
   const [view, setView] = useState<PrologueView | null>(null);
   /** Показывать ли подсказку об управлении. Уходит с первого касания сцены. */
@@ -62,9 +64,9 @@ export function Prologue({ onExit }: { onExit: () => void }) {
      * Канву заводит эффект, а не разметка (причина — выше), и эффект приходит
      * после первого рисования: `appendChild` клал её **последней**. А
      * позиционированные соседи без своего слоя рисуются в порядке разметки —
-     * то есть непрозрачный холст закрывал собой всю надстройку целиком: полосы,
-     * счётчики, обе кнопки. Поймано глазами на 375 px: на экране была одна
-     * поляна и ни одной кнопки.
+     * то есть непрозрачный холст закрывал собой всю надстройку целиком: полосы и
+     * кнопки. Поймано глазами на 375 px: на экране была одна поляна и ни одной
+     * кнопки.
      *
      * Лечится это одним словом, а не слоями: холст — пол, надстройка над ним,
      * и порядок разметки говорит это сам. Слои пришлось бы помнить каждому
@@ -76,6 +78,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     scene.onView = setView;
     scene.stickEl = stickRef.current;
     scene.hugEl = hugRef.current;
+    scene.frostEl = frostRef.current;
     // Первую надпись берём сразу, не дожидаясь кадра: в скрытом вебвью кадра не
     // будет вовсе, и игрок увидел бы многоточие вместо костра.
     setView(scene.snapshot());
@@ -97,6 +100,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       scene.onView = null;
       scene.stickEl = null;
       scene.hugEl = null;
+      scene.frostEl = null;
       // Порядок тот же, что у диорамы: сцена прибирается при канве, ещё лежащей
       // в разметке, и только потом канва уходит.
       scene.dispose();
@@ -115,6 +119,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
   const giveMeat = useCallback(() => sceneRef.current?.shareMeat(), []);
   const hug = useCallback(() => sceneRef.current?.hug(), []);
   const closePanel = useCallback(() => sceneRef.current?.closePanel(), []);
+  const togglePack = useCallback(() => sceneRef.current?.togglePack(), []);
 
   /**
    * Имя — одним правилом на кнопку, на Enter и на запись: `kin.heirName`.
@@ -131,19 +136,15 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     if (sceneRef.current?.nameHeir(draft) === '') setDraft('');
   };
 
-  /** Полоса тревоги о холоде видна только тогда, когда с теплом что-то не так. */
-  const showCold = !!view && (view.coldFill > 0.005 || view.fireFill <= 0);
-  /**
-   * Полоса ран — по тому же правилу: её нет, пока человек цел.
-   *
-   * Это и есть ответ на «не стало ли тесно»: полос теперь четыре, а видно
-   * по-прежнему две. Третья поднимается, когда с теплом плохо, четвёртая —
-   * когда достали зубами; вместе они бывают ровно в худшую минуту режима, и
-   * тогда это не теснота, а то, что игроку и надо прочесть.
-   */
-  const showHurt = !!view && view.hurtFill > 0.005;
   /** Какая карточка на экране. Мёртвому и посреди объятия — никакой. */
   const card = view && !view.dead && !view.hugging ? view.panel : '';
+  /** Почему мясо в вещах не съесть — одна строка на оба куска: причина у них одна. */
+  const eatWhy =
+    view && card === 'pack' && !view.eatCooked.can && !view.eatRaw.can && view.items.some((i) => i.id === 'cooked' || i.id === 'raw')
+      ? view.items.some((i) => i.id === 'cooked')
+        ? view.eatCooked.why
+        : view.eatRaw.why
+      : '';
 
   return (
     <div className="pro" ref={wrapRef}>
@@ -153,41 +154,49 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         <i />
       </div>
 
-      <button className="pro-out" onClick={onExit}>
-        ← Выход
-      </button>
+      {/* Иней по краям кадра — первым слоем над холстом и под всей надстройкой:
+          полосы и кнопки обязаны читаться поверх него. Прозрачность ставит сцена. */}
+      <div className="pro-frost" ref={frostRef} aria-hidden="true" />
 
-      {/* Три полосы одной меркой: сколько ещё хватит. Слово справа отвечает на
-          тот вопрос, который игрок вправду задаёт, — успею ли вернуться. */}
+      {/* Три полосы слева сверху, на тёмной подложке: на светлом снегу белое по
+          белому не читается, а подложка держит их на любом кадре. */}
       <div className="pro-vitals">
-        <Vital icon="🔥" kind="fire" fill={view?.fireFill ?? 0} words={view?.fireWords ?? '…'} />
-        <Vital icon="🍗" kind="fed" fill={view?.fedFill ?? 1} words={view?.fedWords ?? '…'} />
-        {/* Одетому значок полосы холода — одежда: холод давит слабее, и видно это
-            ровно там, где он давит. Отдельной метки «одет» нет — пока человек у
-            огня, ей было бы нечего сказать, а ширина на 360 px и так впритык. */}
-        {showCold && (
-          <Vital
-            icon={view?.coat ? '🧥' : '❄️'}
-            kind={view?.warming ? 'thaw' : 'cold'}
-            fill={view?.coldFill ?? 0}
-            words={view?.coldWords ?? ''}
-          />
-        )}
-        {/* Раны. Значок — крест, а не капля: 🩸 из Emoji 12.0, и на части систем
-            вместо неё встанет пустой квадрат — та же беда, что уже поймана с
-            поленом. Крест старше всех эмодзи и рисуется везде. */}
-        {showHurt && <Vital icon="✚" kind="hurt" fill={view?.hurtFill ?? 0} words={view?.hurtWords ?? ''} />}
+        <Vital
+          kind="health"
+          label="Здоровье"
+          icon={<IconHeart />}
+          fill={view?.healthFill ?? 1}
+          words={view?.healthWords ?? ''}
+          mood={view ? healthMood(view) : 'calm'}
+        />
+        <Vital
+          kind="warmth"
+          label="Тепло"
+          icon={<IconFrost />}
+          fill={view?.warmthFill ?? 1}
+          words={view?.warmthWords ?? ''}
+          mood={view ? warmthMood(view) : 'calm'}
+        />
+        <Vital
+          kind="fed"
+          label="Сытость"
+          icon={<IconMeat />}
+          fill={view?.fedFill ?? 1}
+          words={view?.fedWords ?? ''}
+          mood={view ? fedMood(view) : 'calm'}
+        />
         {/*
-            Что вокруг: ночь, непогода, волки. Появляется по частям и целиком
-            пропадает в погожий день — то же правило, что у полос.
+            Костёр и что вокруг: огонь, ночь, непогода, волки. Костёр — строкой, а не
+            полосой: у него один вопрос, «на сколько хватит», и ответ на него — срок
+            (у полосы очага шаг в шесть часов, за заход она не двигается).
 
-            Ночь названа словом нарочно, хотя её и видно глазом: видно
-            **темноту**, а не то, что от неё стынут быстрее и что зверь спит. А
-            про волков молчать нельзя вовсе — их и заводили затем, чтобы игрок
-            успел решить.
+            Ночь названа словом нарочно, хотя её и видно глазом: видно **темноту**,
+            а не то, что от неё стынут быстрее и что зверь спит. А про волков молчать
+            нельзя вовсе — их и заводили затем, чтобы игрок успел решить.
         */}
-        {view && (view.night || view.weather !== '' || view.wolves > 0) && (
+        {view && (
           <div className="pro-sky">
+            <span className={view.fireFill > 0 ? 'fire' : 'fire out'}>🔥 {view.fireWords}</span>
             {view.night && <span>🌙 ночь</span>}
             {view.weather !== '' && (
               <span className={view.weather === 'хмурится' ? 'soon' : 'wet'}>
@@ -199,30 +208,9 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         )}
       </div>
 
-      {/* Что в руках. Чего нет — того и на экране нет: пустые счётчики съедали бы
-          ширину, которой на 360 px и так впритык. Мясо при этом кнопка: есть
-          можно где угодно, подходить не к чему. */}
-      <div className="pro-hands">
-        {view?.axe && <span>🪓</span>}
-        {view?.bow && <span>🏹 {view.quiver}</span>}
-        {/* Дрова — словом, а не значком: 🪵 из Emoji 13.0, и на части систем
-            вместо полена рисуется пустой квадрат (об этом сказано в CLAUDE.md,
-            и здесь это поймано глазами — квадрат и был). Топор и лук старше и
-            рисуются везде. */}
-        {!!view?.logs && <span>дрова {view.logs}</span>}
-        {/* Шкура бывает в руках одна и недолго: снял — неси к палатке. */}
-        {!!view?.hides && <span>шкура</span>}
-        {!!view?.cooked && (
-          <button className="pro-bite" onClick={eatCooked} disabled={!view.eatCooked.can} title={view.eatCooked.why}>
-            🍗 {view.cooked}
-          </button>
-        )}
-        {!!view?.raw && (
-          <button className="pro-bite raw" onClick={eatRaw} disabled={!view.eatRaw.can} title={view.eatRaw.why}>
-            🥩 {view.raw}
-          </button>
-        )}
-      </div>
+      <button className="pro-out" onClick={onExit}>
+        Выход →
+      </button>
 
       {view && view.busy !== '' && (
         <div className="pro-chops">
@@ -257,18 +245,66 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           >
             {view?.drawn ? '➹' : '🏹'}
           </button>
+          {/* Вещи — справа снизу, последней: окно, а не действие, и нажимают его
+              реже двух других. Мёртвому вещей нет — поверх стоит экран смерти. */}
+          <button
+            className={`pro-pack${card === 'pack' ? ' open' : ''}`}
+            onClick={togglePack}
+            aria-label="Вещи"
+            aria-expanded={card === 'pack'}
+            disabled={!view || !!view.dead}
+          >
+            <IconPack />
+          </button>
         </div>
       )}
-      {view && !view.offer.can && !view.hugging && <div className="pro-why">{view.offer.why}</div>}
+      {view && !view.offer.can && !view.hugging && card === '' && <div className="pro-why">{view.offer.why}</div>}
 
       {hint && !view?.dead && card === '' && (
         <div className="pro-hint">
           <b>Слева — идти, справа — смотреть.</b>
           <span>Тап — действие над тем, к чему подошёл: топор на колоде, пожитки у палатки, дрова в костёр.</span>
           <span>Лук — своей кнопкой: натянуть, навести взглядом, пустить. Оленя тапом не достать.</span>
-          <span>Костёр держит волков в стороне: пока горит — не подойдут. За дровами ходить страшнее ночью.</span>
-          <span>Брёвна — в дом у опушки, полено у колоды — в стрелы, шкура оленя — в одежду у палатки.</span>
+          <span>Зима: вдали от огня уходит тепло, а за ним здоровье. Костёр греет и держит волков в стороне.</span>
+          <span>Вещи и еда — кнопкой справа внизу. Мясо возвращает здоровье.</span>
           <span className="pro-dim">На ПК: WASD или стрелки, мышью тянуть, пробел — действие, F — лук.</span>
+        </div>
+      )}
+
+      {/* Вещи: ровно то, что есть (`pack.ts`). Из окна не применяется ничего,
+          кроме еды: дверь еды жила на счётчике мяса и переехала вместе с ним. */}
+      {view && card === 'pack' && (
+        <div className="pro-card pro-inv" role="dialog" aria-label="Вещи">
+          <button className="pro-x" onClick={closePanel} aria-label="Закрыть">
+            ✕
+          </button>
+          <b className="pro-who">Вещи</b>
+          {view.items.length === 0 ? (
+            <p className="pro-say">Пусто. Топор — на колоде у костра, лук и запас еды — у палатки.</p>
+          ) : (
+            <ul>
+              {view.items.map((it) => {
+                const food = it.id === 'cooked' ? view.eatCooked : it.id === 'raw' ? view.eatRaw : null;
+                return (
+                  <li key={it.id} className={it.worn ? 'worn' : ''}>
+                    <i className={`pro-inv-ico ${it.id}`}>{ITEM_ICON[it.id]}</i>
+                    <span className="pro-inv-name">
+                      {it.name}
+                      {it.note !== '' && <small>{it.note}</small>}
+                    </span>
+                    {it.worn && <em className="pro-inv-worn">надета</em>}
+                    {it.counted && <b className="pro-inv-n">×{it.count}</b>}
+                    {food && (
+                      <button className="pro-eat" onClick={it.id === 'raw' ? eatRaw : eatCooked} disabled={!food.can}>
+                        Съесть
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {eatWhy !== '' && <span className="pro-card-why">{eatWhy}</span>}
         </div>
       )}
 
@@ -419,10 +455,10 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           <b>{deathWords(view.dead)}</b>
           <span>
             {view.dead === 'cold'
-              ? 'Костёр прогорел, и греться стало нечем. Уходя, оставляй в очаге дров — в дождь он горит втрое быстрее.'
+              ? 'Тепло ушло, а за ним и здоровье. Костёр возвращает тепло за двадцать минут — уходя, оставляй в очаге дров: в дождь он горит втрое быстрее.'
               : view.dead === 'wolf'
                 ? 'Стая догнала. У горящего костра волки не подходят, а с топором в руках от одного можно отбиться.'
-                : 'Запас кончился раньше, чем ты вернулся. Мясо жарится на костре и хранится дольше сырого.'}
+                : 'Запас кончился раньше, чем ты вернулся, и голод доел здоровье. Мясо жарится на костре и втрое сытнее сырого.'}
           </span>
           <span className="pro-dim">
             Новое утро: очаг разожжён, топор и лук при тебе. Запас мяса пропал — его придётся добыть.
@@ -436,15 +472,86 @@ export function Prologue({ onExit }: { onExit: () => void }) {
   );
 }
 
-/** Одна строка тревог: значок, полоса, срок словами. Три штуки одинаковые. */
-function Vital({ icon, kind, fill, words }: { icon: string; kind: string; fill: number; words: string }) {
+/** Значок у каждой вещи. Таблица, а не ветвление: новая вещь без значка не соберётся. */
+const ITEM_ICON: Record<ItemId, ReactNode> = {
+  axe: <IconAxe />,
+  bow: <IconBow />,
+  arrows: <IconArrows />,
+  cooked: <IconMeat />,
+  raw: <IconRaw />,
+  logs: <IconLogs />,
+  hides: <IconHide />,
+  coat: <IconCoat />,
+};
+
+/**
+ * Как стоит полоса.
+ *
+ *   calm  полная — молчит: тонкая, тусклая, без слова. Видно, что она есть, и
+ *         только;
+ *   ok    не полная и ничего не делает — ярче, со сроком;
+ *   good  возвращается: греется у огня, заживает;
+ *   low   меньше четверти — срок тревожным цветом;
+ *   bad   пуста или тает здоровье — тревога.
+ */
+type Mood = 'calm' | 'ok' | 'good' | 'low' | 'bad';
+
+/** Ниже четверти полоса тревожится. */
+const LOW = 0.25;
+
+/**
+ * С какой полноты полоса считается полной и молчит.
+ *
+ * Мерка у всех одна — «час до полного», и потому числа разные: сытость уходит за
+ * двое суток (час — две сотых), тепло вдали от огня — за сутки (четыре сотых),
+ * здоровье заживает за двое (две сотых). Полоса, на которой не хватает меньше
+ * часа, игроку ничего не говорит.
+ */
+const FED_FULL = 1 - 1 / 48;
+const WARMTH_FULL = 1 - 1 / 24;
+const HEALTH_FULL = 1 - 1 / 48;
+
+const healthMood = (v: PrologueView): Mood =>
+  v.draining ? 'bad' : v.healing ? 'good' : v.healthFill >= HEALTH_FULL ? 'calm' : v.healthFill < LOW ? 'low' : 'ok';
+
+const warmthMood = (v: PrologueView): Mood =>
+  v.warmthFill <= 0
+    ? 'bad'
+    : v.warmthFill >= WARMTH_FULL
+      ? 'calm'
+      : v.warming
+        ? 'good'
+        : v.warmthFill < LOW
+          ? 'low'
+          : 'ok';
+
+const fedMood = (v: PrologueView): Mood =>
+  v.fedFill <= 0 ? 'bad' : v.fedFill >= FED_FULL ? 'calm' : v.fedFill < LOW ? 'low' : 'ok';
+
+/** Одна полоса: значок, полоса, срок словами. Три штуки одинаковые. */
+function Vital({
+  kind,
+  label,
+  icon,
+  fill,
+  words,
+  mood,
+}: {
+  kind: string;
+  label: string;
+  icon: ReactNode;
+  fill: number;
+  words: string;
+  mood: Mood;
+}) {
+  const pct = Math.round(Math.max(0, Math.min(1, fill)) * 100);
   return (
-    <div className={`pro-vital ${kind}`}>
+    <div className={`pro-vital ${kind} ${mood}`} role="img" aria-label={`${label}: ${pct}%${words ? `, ${words}` : ''}`}>
       <i className="pro-vital-ico">{icon}</i>
       <div className="pro-bar">
-        <i style={{ width: `${Math.round(Math.max(0, Math.min(1, fill)) * 100)}%` }} />
+        <i style={{ width: `${pct}%` }} />
       </div>
-      <em>{words}</em>
+      <em>{mood === 'calm' ? '' : words}</em>
     </div>
   );
 }

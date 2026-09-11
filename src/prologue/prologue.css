@@ -85,10 +85,11 @@
   border: 1.5px solid rgba(243, 233, 216, 0.5);
 }
 
+/* Выход — справа сверху: левый верх заняли полосы. */
 .pro-out {
   position: absolute;
   top: calc(var(--safe-top) + 8px);
-  left: calc(var(--safe-left) + 8px);
+  right: calc(var(--safe-right) + 8px);
   min-height: var(--tap);
   padding: 0 14px;
   border: 1px solid var(--line);
@@ -100,52 +101,66 @@
 }
 
 /*
- * Три полосы наверху: костёр, сытость, тепло. Одна мерка на все три — «сколько
- * ещё хватит», — и одно слово справа, отвечающее на вопрос «успею ли
- * вернуться». Полосой этот вопрос не выражается: у костра шаг в шесть часов, и
- * за заход она не двигается вовсе.
+ * Три полосы слева сверху: здоровье, тепло, сытость. Одна мерка на все три —
+ * запас: полная хорошо, пустая плохо, — и одно слово справа: срок.
  *
- * Строк видно обычно две: холод показывается только когда с теплом что-то не
- * так (см. `Prologue.tsx`). Пустая полоса тревоги — это строка, которая ничего
- * не сообщает и при этом занимает ширину; на 360 px такого позволить нельзя.
+ * ВИДНЫ ВСЕГДА, НО ПОЛНАЯ МОЛЧИТ. Прежде полоса холода появлялась только при
+ * беде, и первая беда встречала игрока полосой, которой он ни разу не видел.
+ * Теперь полосы стоят с первого кадра, а полная — тонкая, тусклая и без слова
+ * (`calm`): видно, что она есть, и только. Заговорила — стала ярче, толще и
+ * назвала срок. Глаз узнаёт место полосы раньше, чем она понадобится, а мозолить
+ * его полной полосе нечем.
+ *
+ * ПОДЛОЖКА ТЁМНАЯ И СВОЯ. Поляна зимняя, снег под ногами светлый, и полоса,
+ * лежащая прямо на кадре, читалась бы белым по белому, стоит опустить взгляд.
+ * Подложка держит цвет полосы на любом кадре — на снегу, на небе и ночью.
  */
 .pro-vitals {
   position: absolute;
-  /* Второй строкой: первую делят кнопка выхода и счётчики в руках. Ставить
-     полосы туда же значило бы наехать на выход — что и вышло с первого раза. */
-  top: calc(var(--safe-top) + 10px + var(--tap) + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(300px, calc(100vw - 24px));
+  top: calc(var(--safe-top) + 8px);
+  left: calc(var(--safe-left) + 8px);
+  width: 176px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  padding: 8px 10px 7px;
+  border: 1px solid rgba(243, 233, 216, 0.14);
+  border-radius: 12px;
+  background: rgba(18, 14, 11, 0.62);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
   pointer-events: none;
 }
 
+/* Сетка, а не ряд: слово справа держит свою ширину и пустым, и полосы всех трёх строк равной длины. */
 .pro-vital {
-  display: flex;
+  display: grid;
+  grid-template-columns: 16px 1fr 46px;
   align-items: center;
-  gap: 6px;
+  column-gap: 7px;
+  min-height: 15px;
+  transition: opacity 0.4s;
 }
 
 .pro-vital-ico {
-  font-style: normal;
-  font-size: 13px;
-  line-height: 1;
+  display: block;
   width: 16px;
-  text-align: center;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  height: 16px;
+}
+
+/* Значок рисунком (`icons.tsx`): одноцветный, цвет берёт у строки. */
+.pro-ico {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .pro-vital em {
-  flex: 0 0 auto;
-  min-width: 54px;
   font-style: normal;
   font-size: 11px;
+  line-height: 1;
   color: var(--text);
   text-align: right;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
 }
 
 .pro-bar {
@@ -164,62 +179,107 @@
   transition: width 0.3s;
 }
 
+.pro-vital .pro-bar {
+  height: 8px;
+  background: rgba(8, 6, 5, 0.7);
+  border-color: rgba(243, 233, 216, 0.18);
+  transition: height 0.3s;
+}
+
+/* Полная молчит: тусклая, тонкая, без слова. */
+.pro-vital.calm {
+  opacity: 0.5;
+}
+
+.pro-vital.calm .pro-bar {
+  height: 4px;
+}
+
 /*
- * Цвет говорит, что за полоса. Две первые — запас: полные это хорошо. Третья —
- * тревога: полная это плохо, и потому она синяя и появляется только тогда,
- * когда есть о чём тревожиться. Зелёный отсвет у неё значит «отогревается» —
- * это единственное, что игрок вправду делает с холодом.
+ * Цвет говорит, что за полоса, и значок того же цвета: здоровье красное, тепло
+ * ледяное, сытость зелёная — ни одну не спутать ни с другой, ни со снегом.
  */
+.pro-vital.health .pro-vital-ico {
+  color: #e8806c;
+}
+
+.pro-vital.health .pro-bar i {
+  background: linear-gradient(90deg, #a23f33, #e8806c);
+}
+
+.pro-vital.warmth .pro-vital-ico {
+  color: #a9cdea;
+}
+
+.pro-vital.warmth .pro-bar i {
+  background: linear-gradient(90deg, #4f78a6, #a9cdea);
+}
+
+.pro-vital.fed .pro-vital-ico {
+  color: #a8c75e;
+}
+
 .pro-vital.fed .pro-bar i {
-  background: linear-gradient(90deg, #6f8f3f, #9cbc55);
+  background: linear-gradient(90deg, #6f8f3f, #a8c75e);
 }
 
-.pro-vital.cold .pro-bar i {
-  background: linear-gradient(90deg, #4b6f9b, #8fb6dc);
+/* Возвращается — греется у огня, заживает: тёплый отсвет, единственное, что игрок с полосой делает. */
+.pro-vital.good em {
+  color: #c4de94;
 }
 
-.pro-vital.thaw .pro-bar i {
-  background: linear-gradient(90deg, #4b6f9b, #cf9a55);
+.pro-vital.warmth.good .pro-bar i {
+  background: linear-gradient(90deg, #4f78a6, #e2a860);
+}
+
+/* Меньше четверти — срок тревожным цветом. */
+.pro-vital.low em {
+  color: #f2c47c;
+}
+
+/* Пуста или тает здоровье — тревога, и значок тоже. */
+.pro-vital.bad em,
+.pro-vital.bad .pro-vital-ico {
+  color: #ff8f78;
+}
+
+.pro-vital.bad .pro-bar {
+  border-color: rgba(255, 143, 120, 0.75);
 }
 
 /*
- * Раны — третья по счёту полоса тревоги и вторая по смыслу: полная это плохо.
- * Красная, чтобы её нельзя было спутать с синим холодом: холод лечится
- * возвращением к огню, рана — временем, и путать эти два ответа нельзя.
- */
-.pro-vital.hurt .pro-bar i {
-  background: linear-gradient(90deg, #8a3a30, #c4634f);
-}
-
-/*
- * Что вокруг: ночь, непогода, волки. Третьей строкой, под полосами, и по тем же
- * правилам: ничего не нажимает и появляется только когда есть о чём сказать.
- *
- * Строка узкая нарочно — на 360 px три метки в ней укладываются в одну линию, а
- * четвёртой не будет: больше про поляну сказать нечего.
+ * Костёр и что вокруг — строкой под полосами, в той же подложке: огонь, ночь,
+ * непогода, волки. Ничего не нажимает. Костёр стоит всегда — его срок нужен
+ * каждому, кто собрался уйти; остальное появляется, когда есть о чём сказать.
+ * Меток бывает четыре, и на узком экране строка переносится внутри подложки, а не
+ * наезжает на соседей.
  */
 .pro-sky {
-  /* Внутри той же колонки, что полосы, а не своим `absolute` с отступом
-     числом: полос бывает от двух до четырёх, и любой посчитанный отступ
-     наехал бы на них ровно в тот момент, когда поднялись все четыре. */
   display: flex;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 2px;
+  flex-wrap: wrap;
+  gap: 2px 9px;
+  margin-top: 1px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(243, 233, 216, 0.1);
   font-size: 11px;
+  line-height: 1.3;
 }
 
 .pro-sky span {
-  padding: 2px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(26, 20, 16, 0.66);
   color: var(--text);
   white-space: nowrap;
 }
 
-/* Непогода холодная, её примета — синева; «хмурится» тусклее, потому что это
-   ещё не она, а обещание. Волки — тревога, и красное здесь то же, что у ран. */
+/* Огонь горит — тёплым, погас — тревогой. Непогода холодная, её примета — синева;
+   «хмурится» тусклее, потому что это ещё не она, а обещание. Волки — тревога. */
+.pro-sky span.fire {
+  color: #f2c47c;
+}
+
+.pro-sky span.fire.out {
+  color: #ff8f78;
+}
+
 .pro-sky span.wet {
   color: #a9c6e2;
 }
@@ -229,50 +289,30 @@
 }
 
 .pro-sky span.wolf {
-  color: #dd8a76;
-  border-color: rgba(196, 99, 79, 0.6);
+  color: #ff9f8a;
 }
 
 .pro-dim {
   color: var(--muted);
 }
 
-.pro-hands {
-  position: absolute;
-  top: calc(var(--safe-top) + 10px);
-  right: calc(var(--safe-right) + 10px);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  /* Счётчики ничего не нажимают, а мясо — кнопка: у неё свой `pointer-events`. */
-  pointer-events: none;
-}
-
 /*
- * Кусок мяса — кнопка на самом счётчике, а не отдельная строка внизу: есть
- * можно где угодно, подходить не к чему, и заводить ради этого третью кнопку в
- * нижнем ряду значило бы отнять место у двух настоящих.
+ * Иней по краям кадра — картинка из полосы тепла (`scene.frostShow`), а не своя
+ * величина. Середину не трогает никогда: сквозь иней надо видеть, куда идёшь.
+ * Невидимый снят со слоя (`visibility`), и поверх холста не стоит ничего.
  */
-.pro-bite {
-  pointer-events: auto;
-  min-height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(26, 20, 16, 0.72);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-}
-
-.pro-bite.raw {
-  color: var(--muted);
-}
-
-.pro-bite:disabled {
-  opacity: 0.55;
+.pro-frost {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 76% 62% at 50% 45%,
+    rgba(214, 229, 241, 0) 50%,
+    rgba(214, 229, 241, 0.5) 76%,
+    rgba(242, 247, 251, 0.95) 100%
+  );
 }
 
 .pro-chops {
@@ -297,11 +337,11 @@
   left: 50%;
   bottom: calc(var(--safe-bottom) + 16px);
   transform: translateX(-50%);
-  width: min(344px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 20px));
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .pro-do {
@@ -354,6 +394,31 @@
 }
 
 .pro-bow:disabled {
+  opacity: 0.45;
+}
+
+/*
+ * Вещи — третья кнопка нижнего ряда, крайняя справа: окно, а не действие, и
+ * нажимают его реже двух других. Открытое окно подсвечивает кнопку — видно, чем
+ * его закрыть.
+ */
+.pro-pack {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  padding: 13px;
+  border: 0;
+  border-radius: var(--radius);
+  background: rgba(60, 48, 38, 0.9);
+  color: var(--text);
+}
+
+.pro-pack.open {
+  background: var(--accent-2);
+  color: var(--accent-text);
+}
+
+.pro-pack:disabled {
   opacity: 0.45;
 }
 
@@ -679,6 +744,108 @@
 }
 
 /*
+ * Окно вещей — та же карточка, что разговор, и на том же месте: над нижним рядом.
+ * Строка вещи: значок, имя, отметка «надета», число — и у мяса «Съесть».
+ */
+.pro-inv ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pro-inv li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.pro-inv li:last-child {
+  border-bottom: 0;
+}
+
+.pro-inv-ico {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  color: var(--text);
+}
+
+.pro-inv-ico.axe {
+  color: #c9d0d8;
+}
+
+.pro-inv-ico.bow,
+.pro-inv-ico.logs {
+  color: #c08a52;
+}
+
+.pro-inv-ico.arrows {
+  color: #dccaa2;
+}
+
+.pro-inv-ico.cooked {
+  color: #d39258;
+}
+
+.pro-inv-ico.raw {
+  color: #dc7474;
+}
+
+.pro-inv-ico.hides,
+.pro-inv-ico.coat {
+  color: #caa47c;
+}
+
+.pro-inv-name {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.pro-inv-name small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pro-inv-worn {
+  padding: 1px 8px;
+  border: 1px solid rgba(196, 222, 148, 0.6);
+  border-radius: 999px;
+  color: #c4de94;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.pro-inv-n {
+  min-width: 30px;
+  font-size: 14px;
+  text-align: right;
+}
+
+.pro-eat {
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pro-eat:disabled {
+  background: rgba(60, 48, 38, 0.82);
+  color: var(--muted);
+}
+
+/*
  * Объятие: затемнение и знак над всей надстройкой, но под экраном смерти.
  * Прозрачность им ставит сцена (`scene.hugShow`), здесь только вид.
  */
@@ -732,21 +899,11 @@
 }
 
 /*
- * Узкий телефон в худшую минуту: топор, лук, дрова, шкура, жареное и сырое в
- * руках разом. На 360 px счётчики упирались в кнопку выхода — снимок показал
- * наезд на шесть пикселей, и появился он вместе со шкурой. Ужимаются промежутки
- * и поля, а не счётчики: чего нет в руках, того и так нет на экране, а то, что
- * есть, игрок обязан видеть целиком.
+ * Узкий телефон. Счётчиков в руках, упиравшихся в кнопку выхода, больше нет —
+ * вещи живут в своём окне; ужимаются поля карточек и кнопки выхода, чтобы полосы
+ * слева и выход справа стояли с запасом и на 360 px.
  */
 @media (max-width: 370px) {
-  .pro-hands {
-    gap: 4px;
-  }
-
-  .pro-bite {
-    padding: 0 7px;
-  }
-
   .pro-out {
     padding: 0 10px;
   }

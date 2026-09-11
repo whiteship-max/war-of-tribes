@@ -77,7 +77,23 @@ import {
   WALK_SPEED,
   WARM_R,
 } from '../src/prologue/glade';
-import { CHILL_H, CHILL_MS, COAT_CHILL, MEAT_FED_H, RAW_SHARE, STARVE_H, WARM_MIN, WOUNDS_FATAL, WOUND_HEAL_H, coldDeadAt, newBody, type Body } from '../src/prologue/body';
+import {
+  ARRIVAL_COLD,
+  COAT_CHILL,
+  COLD_H,
+  HEALTH_H,
+  HEAL_H,
+  MEAT_FED_H,
+  MEAT_HEAL,
+  RAW_SHARE,
+  STARVE_H,
+  WARM_MIN,
+  WOLF_BITES,
+  coldEmptyAt,
+  deadAt,
+  newBody,
+  type Body,
+} from '../src/prologue/body';
 import { ARROWS_PER_LOG, HOUSE_LOGS, HOUSE_PER_STAGE, HOUSE_STAGES, QUIVER_MAX } from '../src/prologue/craft';
 import {
   BOND_KINDS,
@@ -245,17 +261,23 @@ const PROBE = `
         x: p.where().x,
         z: p.where().z,
         yaw: p.where().yaw,
-        logs: v.logs,
-        axe: v.axe,
-        bow: v.bow,
-        quiver: v.quiver,
-        cooked: v.cooked,
-        raw: v.raw,
+        logs: p.hands().logs,
+        axe: p.hands().axe,
+        bow: p.hands().bow,
+        quiver: p.hands().quiver,
+        cooked: p.hands().cooked,
+        raw: p.hands().raw,
         fill: v.fireFill,
         words: v.fireWords,
         fed: v.fedWords,
-        cold: v.coldWords,
-        hurt: v.hurtFill,
+        fedFill: v.fedFill,
+        warmth: v.warmthFill,
+        warmthWords: v.warmthWords,
+        health: v.healthFill,
+        healthWords: v.healthWords,
+        harm: p.hands().harm,
+        items: v.items.map((i) => i.id).join(','),
+        worn: v.items.filter((i) => i.worn).map((i) => i.id).join(','),
         night: v.night,
         weather: v.weather,
         wolves: v.wolves,
@@ -266,8 +288,8 @@ const PROBE = `
         shotCan: v.shot.can,
         drawn: v.drawn,
         dead: v.dead,
-        hides: v.hides,
-        coat: v.coat,
+        hides: p.hands().hides,
+        coat: p.hands().coat,
         house: p.craft().house,
         roof: p.craft().roof,
         arrows: p.arrowCount(),
@@ -369,6 +391,54 @@ const PROBE = `
     sky() {
       const el = document.querySelector('.pro-sky');
       return JSON.stringify(el ? el.textContent : '');
+    },
+    /**
+     * Полосы, выход и нижний ряд глазами разметки: где стоят, не наезжают ли друг на
+     * друга и держит ли подложка цвет. Белое по белому на снегу тест не увидит —
+     * а прозрачность подложки увидит.
+     */
+    layout() {
+      const r = (s) => {
+        const e = document.querySelector(s);
+        if (!e) return null;
+        const b = e.getBoundingClientRect();
+        return { l: b.left, t: b.top, r: b.right, b: b.bottom };
+      };
+      const plate = document.querySelector('.pro-vitals');
+      return JSON.stringify({
+        vitals: r('.pro-vitals'),
+        out: r('.pro-out'),
+        act: r('.pro-act'),
+        pack: r('.pro-pack'),
+        card: r('.pro-card'),
+        bg: plate ? getComputedStyle(plate).backgroundColor : '',
+        rows: Array.from(document.querySelectorAll('.pro-vital')).map((e) => e.className.replace('pro-vital ', '')),
+        vw: innerWidth,
+        vh: innerHeight,
+      });
+    },
+    /** Насколько кадр подёрнут инеем: то же число, что на полосе тепла. */
+    frost() {
+      const el = document.querySelector('.pro-frost');
+      return JSON.stringify(el ? Number(el.style.opacity || 0) : -1);
+    },
+    /** Окно вещей глазами разметки: строки, числа, отметки «надета» и кнопки еды. */
+    inv() {
+      const card = document.querySelector('.pro-inv');
+      if (!card) return JSON.stringify(null);
+      const rows = Array.from(card.querySelectorAll('li')).map((li) => {
+        const name = li.querySelector('.pro-inv-name');
+        const n = li.querySelector('.pro-inv-n');
+        const eat = li.querySelector('.pro-eat');
+        return {
+          name: name && name.firstChild ? String(name.firstChild.textContent).trim() : '',
+          n: n ? n.textContent : '',
+          worn: !!li.querySelector('.pro-inv-worn'),
+          eat: eat ? (eat.disabled ? 'погашена' : 'можно') : '',
+        };
+      });
+      const why = card.querySelector('.pro-card-why');
+      return JSON.stringify({ rows, empty: !!card.querySelector('.pro-say'), why: why ? why.textContent : '' });
     },
     /**
      * Холст обязан быть ПЕРВЫМ узлом надстройки.
@@ -488,7 +558,7 @@ async function main(): Promise<void> {
     console.log(`\nСорвалось: ${bad.map((c) => c.step).join(', ')}`);
     process.exitCode = 1;
   } else {
-    console.log('\nЦепочка проходится настоящим касанием, стая отбивается топором, род проходится пальцем, живая сцена в игре одна.');
+    console.log('\nЦепочка проходится настоящим касанием, вещи открываются кнопкой, стая отбивается топором, род проходится пальцем, живая сцена в игре одна.');
   }
 }
 
@@ -623,8 +693,9 @@ async function report(): Promise<void> {
   const row = (a: string, b: string, c = ''): void => console.log(`  ${pad(a, 30)} ${pad(b, 22)} ${c}`);
   row('полено', `${LOG_HOURS} ч погожих`, `дерево даёт ${TREE_LOGS} полена = ${TREE_LOGS * LOG_HOURS} ч огня`);
   row('полный очаг', `${BURN_FULL_MS / H} ч погожих`, `${HEARTH_CAP} полен; по погоде в среднем ${num(BURN_FULL_MS / H / BURN_MEAN)} ч`);
-  row('без еды', `${STARVE_H} ч`, 'погода голода не трогает');
-  row('без огня', `${CHILL_H} ч холодовых`, `по погоде в среднем ${num(CHILL_H / CHILL_MEAN)} ч; отогрев ${WARM_MIN} мин; круг у костра ${WARM_R.toFixed(2)} м`);
+  row('сытость', `${STARVE_H} ч`, `потом здоровье — ${HEALTH_H} ч; погода голода не трогает`);
+  row('тепло без огня', `${COLD_H} ч в среднем`, `потом здоровье — ${HEALTH_H} ч ровно; отогрев ${WARM_MIN} мин; круг у костра ${WARM_R.toFixed(2)} м`);
+  row('здоровье', `${WOLF_BITES} укусов`, `кусок жареного — ${MEAT_HEAL} укус обратно, сырого — треть; само — за ${HEAL_H} ч у огня и под крышей`);
   row('кусок жареного мяса', `${MEAT_FED_H} ч`, `сырой втрое хуже: ${num(MEAT_FED_H * RAW_SHARE * 60, 0)} мин`);
   row('олень', `${DEER_MEAT} кусков = ${DEER_MEAT * MEAT_FED_H} ч`, 'ровно полный живот');
   row('жарка оленя целиком', `${DEER_MEAT * ROAST_COST} полена`, 'то есть ровно одно дерево');
@@ -635,14 +706,19 @@ async function report(): Promise<void> {
   // Самая ранняя смерть на новой поляне — прогоном по всем фазам кольца, а не
   // на бумаге: погода входит в оба слагаемых.
   let earliest = Infinity;
+  let careless = 0;
+  let carelessN = 0;
   for (let t0 = 0; t0 < RING_MS; t0 += 10_000) {
-    earliest = Math.min(earliest, coldDeadAt(newBody(t0), newHearth(t0)) - t0);
+    earliest = Math.min(earliest, deadAt(newBody(t0, ARRIVAL_COLD), newHearth(t0)) - t0);
+    careless += deadAt({ ...newBody(t0), warm: false }, { fuel: 0, at: t0 }) - t0;
+    carelessN++;
   }
-  row('самая ранняя смерть', `${num(earliest / H)} ч`, 'новая поляна, от холода; было 20 ч до погоды');
-  const logsPerDay = (24 * H * BURN_MEAN) / LOG_MS;
+  row('от беспечности до смерти', `${num(careless / carelessN / H, 2)} ч`, `без огня, раздетым под небом: ${COLD_H} ч тепла и ${HEALTH_H} ч здоровья (было 5.65 ч)`);
+  row('самая ранняя смерть', `${num(earliest / H)} ч`, 'новая поляна, от холода (было 14 ч)');
+  row('пришёл к огню', `тепла ${num((1 - ARRIVAL_COLD) * 100, 0)}%`, `зима с первого кадра; у огня тепло возвращается за ${num(ARRIVAL_COLD * WARM_MIN, 0)} мин`);
   const meatPerDay = 24 / MEAT_FED_H;
-  row('на сутки нужно дров', `${num(logsPerDay, 2)} полена`, `${num(logsPerDay / TREE_LOGS, 2)} дерева (без погоды было 4 полена)`);
-  row('и еды', `${meatPerDay} куска`, `${num(meatPerDay / DEER_MEAT, 2)} оленя`);
+  row('сутки отлучки', 'дров не нужно', `тепла хватает на ${COLD_H} ч; дрова нужны отлучке дольше полутора суток (было 5.7 полена)`);
+  row('и еды на сутки', `${meatPerDay} куска`, `${num(meatPerDay / DEER_MEAT, 2)} оленя`);
   console.log('');
   console.log('0б. Небо и волки\n');
   row('круг суток', clockWords(SKY_MS), `день ${clockWords(DAY_SHARE * SKY_MS)}, ночь ${clockWords((1 - DAY_SHARE) * SKY_MS)}`);
@@ -665,8 +741,7 @@ async function report(): Promise<void> {
   row('волки днём / ночью', `${WOLF_DAY_PACK} / ${WOLF_NIGHT_PACK}`, `в ${num(WOLF_DAYS * 100, 0)}% дней и ${num(WOLF_NIGHTS * 100, 0)}% ночей`);
   row('у горящего огня', `не ближе ${WOLF_FIRE_R} м`, 'все деревья за этим кругом');
   row('от выхода из круга', `кружат ${WOLF_STALK_MS / 1000} с`, `вой через ${HOWL_LEAD_MS / 1000} с; укус раз в ${WOLF_BITE_GAP / 1000} с`);
-  row('смерть от волков', `не раньше ${EARLIEST_DEATH_MS / 1000} с`, `${WOUNDS_FATAL} укуса; первый — не раньше ${EARLIEST_BITE_MS / 1000} с; рана заживает ${WOUND_HEAL_H} ч`);
-  row('без огня до смерти', `${num(CHILL_MS / H / CHILL_MEAN, 2)} ч`, 'в среднем по кольцу');
+  row('смерть от волков', `не раньше ${EARLIEST_DEATH_MS / 1000} с`, `${WOLF_BITES} укусов целому; первый — не раньше ${EARLIEST_BITE_MS / 1000} с`);
   console.log('');
 
   // ---------- 1. Палец ----------
@@ -753,6 +828,37 @@ async function report(): Promise<void> {
     `«${start.label}» — ${start.why || 'можно'}, костёр ${start.words}`,
   );
   step('часы страницы на погожем дне', !start.night && start.weather === '' && start.wolves === 0, `ночь: ${start.night ? 'да' : 'нет'}, погода: «${start.weather}», волков: ${start.wolves}`);
+
+  // Зима с первого кадра: пришедший к огню замёрз — полоса тепла неполная и
+  // растёт у огня, а края кадра подёрнуты инеем. Видно это обязано быть сразу.
+  const frostAt = await tab.eval<number>('window.__probe.frost()');
+  const warmth0 = start.warmth as unknown as number;
+  step(
+    'холод давит с первого кадра',
+    warmth0 < 1 - ARRIVAL_COLD + 0.05 && frostAt > 0.2 && start.warmthWords === 'греется',
+    `тепла ${num(warmth0 * 100, 0)}% («${start.warmthWords}»), иней ${num(frostAt, 2)}`,
+  );
+
+  /** Пересекаются ли два прямоугольника разметки. */
+  type Box = { l: number; t: number; r: number; b: number } | null;
+  const overlaps = (a: Box, b: Box): boolean => !!a && !!b && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  type Layout = { vitals: Box; out: Box; act: Box; pack: Box; card: Box; bg: string; rows: string[]; vw: number; vh: number };
+  for (const s of SHOT_SIZES) {
+    await screen({ w: s.w, h: s.h, dpr: 2, mobile: true });
+    await sleep(700);
+    const L = await tab.eval<Layout>('window.__probe.layout()');
+    const alpha = Number((L.bg.match(/rgba\([^)]*,\s*([\d.]+)\)/) ?? [])[1] ?? 1);
+    const inside = !!L.vitals && !!L.act && !!L.pack && L.vitals.l >= 0 && L.act.l >= 0 && L.act.r <= L.vw && L.pack.r <= L.vw;
+    step(
+      `${s.w} px: три полосы слева сверху, ни на что не наезжают`,
+      L.rows.length === 3 && !overlaps(L.vitals, L.out) && !overlaps(L.vitals, L.act) && inside && alpha >= 0.5,
+      `полосы ${Math.round(L.vitals?.l ?? -1)}–${Math.round(L.vitals?.r ?? -1)} px, выход с ${Math.round(L.out?.l ?? -1)} px; подложка ${L.bg}; нижний ряд ${Math.round(L.act?.l ?? -1)}–${Math.round(L.act?.r ?? -1)} из ${L.vw}`,
+    );
+  }
+  await screen(SCREENS[0]);
+  await sleep(500);
+  // Три полосы на снегу — глазами, пока подсказка ещё стоит: первый кадр захода.
+  await shoot('1а-вход-полосы');
 
   // Идём к колоде с топором. Куда смотреть, стенд не подбирает: игрок при входе
   // уже повёрнут к ней (`START.yaw`), и если это перестанет быть так, шаг сорвётся.
@@ -1054,6 +1160,49 @@ async function report(): Promise<void> {
 
   console.log(`\n  Круг «нарубить — подстрелить — пожарить» занял ${num((Date.now() - loopFrom) / 1000, 0)} с настоящими часами.`);
 
+  // ---------- 1в. Вещи ----------
+  //
+  // Окно открывается кнопкой справа внизу — касанием, как всё остальное, — и
+  // показывает ровно то, что у человека есть. Сытому и целому есть незачем:
+  // кнопка еды гаснет и говорит причину.
+  console.log('');
+  type Inv = { rows: { name: string; n: string; worn: boolean; eat: string }[]; empty: boolean; why: string } | null;
+  const pressSel = async (sel: string): Promise<boolean> => {
+    const box = await tab.eval<{ x: number; y: number } | null>(`window.__probe.box(${JSON.stringify(sel)})`);
+    if (!box) return false;
+    await send('touchStart', [{ id: 7, x: box.x, y: box.y }]);
+    await sleep(80);
+    await send('touchEnd', []);
+    await sleep(260);
+    return true;
+  };
+  await pressSel('.pro-pack');
+  const inv = await tab.eval<Inv>('window.__probe.inv()');
+  const had = await state();
+  const expectedRows = [
+    had.axe && 'Топор',
+    had.bow && 'Лук',
+    (had.quiver as unknown as number) > 0 && 'Стрелы',
+    (had.cooked as unknown as number) > 0 && 'Жареное мясо',
+    (had.raw as unknown as number) > 0 && 'Сырое мясо',
+    (had.logs as unknown as number) > 0 && 'Дрова',
+    (had.hides as unknown as number) > 0 && 'Шкура',
+    had.coat && 'Одежда из шкуры',
+  ].filter(Boolean);
+  step(
+    'вещи открылись кнопкой: ровно то, что есть',
+    !!inv && inv.rows.map((r) => r.name).join('|') === expectedRows.join('|') && had.panel === 'pack',
+    `строк ${inv?.rows.length ?? 0}: ${inv?.rows.map((r) => `${r.name}${r.n ? ` ${r.n}` : ''}`).join(', ') ?? 'окна нет'}`,
+  );
+  const meatRow = inv?.rows.find((r) => r.eat !== '');
+  step(
+    'сытому и целому есть незачем — кнопка гаснет и говорит',
+    !!meatRow && meatRow.eat === 'погашена' && inv?.why === 'Ты сыт и цел',
+    meatRow ? `«Съесть» ${meatRow.eat}; «${inv?.why}»` : 'мяса в вещах нет',
+  );
+  await pressSel('.pro-pack');
+  step('вещи закрываются той же кнопкой', (await state()).panel === '', `карточка: ${(await state()).panel || 'нет'}`);
+
   // ---------- 2. Кадр ----------
   //
   // Меряется ПОСЛЕ цепочки нарочно: к этой минуте по поляне ходит олень (или
@@ -1105,7 +1254,7 @@ async function report(): Promise<void> {
   const kitSave = (over: Record<string, unknown> = {}): string => `(() => {
     const now = Date.now();
     const save = Object.assign({
-      v: 1, hearth: { fuel: 6, at: now }, body: { hunger: 0.2, cold: 0, hurt: 0, at: now },
+      v: 1, hearth: { fuel: 6, at: now }, body: { hunger: 0.2, cold: 0, harm: 0, at: now },
       hunt: { killedAt: 0, carcass: null }, logs: 0, axe: true, kit: true, quiver: ${ARROWS_START},
       arrows: [], meat: { cooked: 2, raw: 0 }, felled: [${TREES.map(() => 0).join(',')}], wolvesBeatenAt: 0,
     }, ${JSON.stringify(over)});
@@ -1159,7 +1308,7 @@ async function report(): Promise<void> {
   const safe = await state();
   const packNow = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
   const nearestWolf = Math.min(...packNow.map((w) => Math.hypot(w.x, w.z)));
-  step('у горящего костра волки не подходят', nearestWolf >= WOLF_FIRE_R && safe.hurt === 0, `ближайший в ${num(nearestWolf)} м от огня, ран: ${safe.hurt}`);
+  step('у горящего костра волки не подходят', nearestWolf >= WOLF_FIRE_R && safe.harm === 0, `ближайший в ${num(nearestWolf)} м от огня, урона: ${safe.harm}`);
   await shoot('2-ночь-стая');
   // И лицом к огню: ночью костёр обязан быть единственным светом, а это видно
   // только глазами. Замер здесь же: огонь с отсветом, искрами и дымом, звёзды и
@@ -1198,8 +1347,16 @@ async function report(): Promise<void> {
   const fightTill = Date.now() + 25_000;
   while (Date.now() < fightTill) {
     const now = await state();
-    const hurt = now.hurt as unknown as number;
-    if (hurt > 0 && firstBite < 0) firstBite = Date.now() - outFrom;
+    const hurt = now.harm as unknown as number;
+    if (hurt > 0 && firstBite < 0) {
+      firstBite = Date.now() - outFrom;
+      // Укус волка — глазами: полоса здоровья опустилась на шестую, зверь в шаге.
+      if (SHOTS) {
+        mkdirSync(SHOTS, { recursive: true });
+        const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+        writeFileSync(join(SHOTS, '3б-укус-375.png'), Buffer.from(shot.data, 'base64'));
+      }
+    }
     hurtMax = Math.max(hurtMax, hurt);
     if (now.dead) break;
     if ((now.wolves as unknown as number) === 0) break;
@@ -1213,10 +1370,56 @@ async function report(): Promise<void> {
     await sleep(60);
   }
   const fought = await state();
-  step('топором отбился от стаи', slain > 0 && !fought.dead, `положено ${slain} из ${WOLF_NIGHT_PACK}, ран ${num(hurtMax * WOUNDS_FATAL, 2)} из ${WOUNDS_FATAL}, ${fought.dead ? 'ЗАГРЫЗЛИ' : 'жив'}`);
+  step('топором отбился от стаи', slain > 0 && !fought.dead, `положено ${slain} из ${WOLF_NIGHT_PACK}, урон ${num(hurtMax, 2)} из ${WOLF_BITES}, ${fought.dead ? 'ЗАГРЫЗЛИ' : 'жив'}`);
   step('первый укус — не раньше срока', firstBite < 0 || firstBite >= EARLIEST_BITE_MS, firstBite < 0 ? 'не укусили ни разу' : `первый укус через ${num(firstBite / 1000)} с после выхода`);
   const quiet = await state();
   step('отбитая стая ушла', (quiet.wolves as unknown as number) === 0, `волков на поляне: ${quiet.wolves}`);
+
+  // Мясо из вещей возвращает здоровье — ровно укус за жареный кусок, и настоящим касанием.
+  const bitten = await state();
+  if ((bitten.harm as unknown as number) > 0 && (bitten.cooked as unknown as number) > 0) {
+    await pressSel('.pro-pack');
+    const before = bitten.harm as unknown as number;
+    await pressSel('.pro-inv li .pro-eat');
+    const after = await state();
+    step(
+      'мясо из вещей вернуло здоровье — ровно укус',
+      Math.abs(before - (after.harm as unknown as number) - MEAT_HEAL) < 0.01 &&
+        (after.cooked as unknown as number) === (bitten.cooked as unknown as number) - 1,
+      `урон ${num(before, 2)} → ${num(after.harm as unknown as number, 2)}, жареного ${bitten.cooked} → ${after.cooked}`,
+    );
+    await pressSel('.pro-pack');
+  } else {
+    step('мясо из вещей вернуло здоровье — ровно укус', true, 'не укусили — лечить нечего');
+  }
+
+  if (SHOTS) {
+    // Укус на узком экране: погасший очаг ночью — стая подходит к самой стоянке, и
+    // стенд смотрит на ближайшего волка, пока тот не укусит.
+    const biteNight = moment(Date.now() + 10_000, 40_000, (t) => isNight(t) && packAt(t, 0) === WOLF_NIGHT_PACK && weatherAt(t) === 'clear');
+    await into(biteNight, { fuel: 0 }, false);
+    await screen({ w: 360, h: 780, dpr: 2, mobile: true });
+    await sleep(700);
+    const biteTill = Date.now() + 30_000;
+    while (Date.now() < biteTill) {
+      if (((await state()).harm as unknown as number) > 0) {
+        const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+        writeFileSync(join(SHOTS, '3б-укус-360.png'), Buffer.from(shot.data, 'base64'));
+        break;
+      }
+      const wolves = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
+      const me = await state();
+      const near = wolves.sort(
+        (a, b) =>
+          Math.hypot(a.x - (me.x as unknown as number), a.z - (me.z as unknown as number)) -
+          Math.hypot(b.x - (me.x as unknown as number), b.z - (me.z as unknown as number)),
+      )[0];
+      if (near && Math.hypot(near.x - (me.x as unknown as number), near.z - (me.z as unknown as number)) < 6) await turnTo(near.x, near.z);
+      await sleep(60);
+    }
+    await screen(SCREENS[0]);
+    await sleep(500);
+  }
 
   /*
    * Дождь: сперва небо хмурится, потом льёт. Минута — начало дождливого спелла,
@@ -1279,7 +1482,7 @@ async function report(): Promise<void> {
   row('дом', `${HOUSE_LOGS} ${logWord(HOUSE_LOGS)}`, `${HOUSE_STAGES} ступеней по ${HOUSE_PER_STAGE}; укрывает только достроенный`);
   row('в дом за заход', `${toHouse} ${logWord(toHouse)}`, `${perVisit} с поляны − ${hearthDay} на очаг на сутки − ${roastLogs} на жарку оленя`);
   row('заходов на дом', num(HOUSE_LOGS / toHouse, 1), `быстрее двух не выйдет: на поляне ${perVisit} ${logWord(perVisit)}, лес отрастает за ${REGROW_MS / H} ч`);
-  row('одежда', `холод ×${COAT_CHILL}`, 'одна шкура: снимают с разделанной туши, шьют у палатки');
+  row('одежда', `тепло уходит ×${COAT_CHILL}`, 'одна шкура: снимают с разделанной туши, шьют у палатки');
   row('стрелы', `${ARROWS_PER_LOG} из полена`, `колчан до ${QUIVER_MAX}; строгают у колоды`);
   const kinds: [string, Partial<Body>][] = [
     ['под небом раздетым', {}],
@@ -1287,23 +1490,34 @@ async function report(): Promise<void> {
     ['в доме раздетым', { roof: true }],
     ['в доме одетым', { roof: true, coat: true }],
   ];
-  /** Без огня до смерти — в среднем по кольцу. */
-  const noFire = (over: Partial<Body>): number => {
-    let sum = 0;
+  /** Без огня до смерти и до пустой полосы тепла — в среднем по кольцу. */
+  const noFire = (over: Partial<Body>): { dead: number; warmth: number } => {
+    let dead = 0;
+    let warmth = 0;
     let n = 0;
     for (let t0 = 0; t0 < RING_MS; t0 += 20_000, n++) {
-      sum += coldDeadAt({ ...newBody(t0), warm: false, ...over }, { fuel: 0, at: t0 }) - t0;
+      const b = { ...newBody(t0), warm: false, ...over };
+      dead += deadAt(b, { fuel: 0, at: t0 }) - t0;
+      warmth += coldEmptyAt(b, { fuel: 0, at: t0 }) - t0;
     }
-    return sum / n;
+    return { dead: dead / n, warmth: warmth / n };
   };
-  /** Сколько дров оставить в очаге, чтобы сутки отлучки не убили: среднее и худшее по кольцу. */
-  const dayLogs = (over: Partial<Body>, kept = false): { mean: number; worst: number } => {
+  /**
+   * Сколько дров оставить в очаге, чтобы отлучка в `hours` не убила: среднее и худшее по кольцу.
+   *
+   * Мерка — двое суток, а не сутки, и не по вкусу: сутки теперь переживаются вовсе без
+   * огня (тепла на сутки), и «дров на сутки» стало нулём у всех. Двое суток — полный
+   * живот; дольше отлучка упирается уже в голод, а не в дрова.
+   */
+  const AWAY_H = 48;
+  const awayLogs = (hours: number, over: Partial<Body>, kept = false): { mean: number; worst: number } => {
     let sum = 0;
     let worst = 0;
     let n = 0;
     for (let t0 = 0; t0 < RING_MS; t0 += 20_000, n++) {
       const lives = (f: number): boolean =>
-        coldDeadAt({ ...newBody(t0), ...over }, { fuel: f, at: t0, ...(kept ? { kept: true } : {}) }) - t0 >= 24 * H;
+        deadAt({ ...newBody(t0), ...over }, { fuel: f, at: t0, ...(kept ? { kept: true } : {}) }) - t0 >= hours * H;
+      if (lives(0)) continue;
       let lo = 0;
       let hi = HEARTH_CAP;
       for (let i = 0; i < 32; i++) {
@@ -1319,12 +1533,17 @@ async function report(): Promise<void> {
   console.log('');
   const days: number[] = [];
   for (const [name, over] of kinds) {
-    const logs = dayLogs(over);
+    const logs = awayLogs(AWAY_H, over);
+    const bare = noFire(over);
     days.push(logs.mean);
-    row(name, `без огня ${num(noFire(over) / H)} ч`, `дров на сутки отлучки ${num(logs.mean, 2)} в среднем, ${num(logs.worst, 2)} в худший час кольца`);
+    row(name, `без огня ${num(bare.dead / H)} ч`, `тепла ${num(bare.warmth / H)} ч; дров на двое суток отлучки ${num(logs.mean, 2)} в среднем, ${num(logs.worst, 2)} в худший час`);
   }
   const saved = days[0] - days[3];
-  row('сбережение дома с одеждой', `${num(saved, 2)} полена в сутки`, `дом окупает свои ${HOUSE_LOGS} ${logWord(HOUSE_LOGS)} за ${num(HOUSE_LOGS / saved, 0)} суток отлучек`);
+  row(
+    'сбережение дома с одеждой',
+    `${num(saved, 2)} полена на двое суток`,
+    saved > 0 ? `дом окупает свои ${HOUSE_LOGS} ${logWord(HOUSE_LOGS)} за ${num(HOUSE_LOGS / saved, 0)} отлучек на двое суток` : 'дровами дом не окупается вовсе',
+  );
   console.log('');
 
   const dayWindow = (span: number): number =>
@@ -1394,13 +1613,39 @@ async function report(): Promise<void> {
   step('в достроенном доме — под крышей', under, under ? 'дошёл до сруба, крыша над головой' : 'до крыши не дошёл');
 
   if (SHOTS) {
-    // Худший случай для ширины: в руках всё, что бывает разом.
-    await into(dayWindow(30_000), { logs: 12, hides: 1, meat: { cooked: 3, raw: 6 } }, false);
+    // Вещи полные: всё, что бывает разом, одежда надета, человек ранен — мясо в
+    // окне съедобно. Потом вещи пустые — у поляны, где ещё ничего не взято.
+    await into(
+      dayWindow(40_000),
+      {
+        logs: 12,
+        hides: 1,
+        quiver: 5,
+        arrows: [{ x: 3, z: 3 }, { x: -2, z: 5 }],
+        meat: { cooked: 3, raw: 6 },
+        body: { hunger: 0.35, cold: 0.1, harm: 2, coat: true },
+      },
+      false,
+    );
     // Подсказку снимает взгляд, а не тап: короткий сдвиг пальца засчитался бы
     // тапом и пожарил бы мясо у костра — так и вышло с первого снимка.
     await look(40);
-    await shoot('7-руки-полные');
+    await pressSel('.pro-pack');
+    await shoot('7-вещи-полно');
+    await into(dayWindow(40_000), { axe: false, kit: false, quiver: 0, meat: { cooked: 0, raw: 0 } }, false);
+    await look(40);
+    await pressSel('.pro-pack');
+    await shoot('7б-вещи-пусто');
+    // Три нужды в беде разом, на снегу: тепла нет, здоровье тает, живот почти пуст.
+    await into(dayWindow(40_000), { fuel: 0, body: { hunger: 0.9, cold: 1, harm: 2 } }, false);
+    await look(40);
+    await shoot('7в-полосы-беда');
   }
+  // Смерть от холода: запись замёрзшего — экран называет причину словами.
+  await into(dayWindow(20_000), { fuel: 0, body: { hunger: 0.3, cold: 1, harm: WOLF_BITES } }, false);
+  const frozen = await state();
+  step('смерть от холода: экран называет причину', frozen.dead === 'cold', `причина: ${frozen.dead || 'жив'}`);
+  await shoot('8-смерть-холод');
 
   // ---------- 6. Род ----------
   //
@@ -1419,12 +1664,12 @@ async function report(): Promise<void> {
   row('первая гостья', `через ${GUEST_FIRST_MS / 1000} с`, 'после последнего бревна; ждёт у огня, пока не ответят');
   row('после отказа', `через ${clockWords(GUEST_GAP_MS)}`, `сутки поляны; гостий по кругу ${GUESTS.length}`);
   row('хозяйка бережёт огонь', `горит ×${num(KEEP_BURN, 3)}`, `= 1 / ${num(BURN_MEAN, 3)}; полный очаг в среднем ${num(keptSum / ringN / H)} ч вместо ${num(plainSum / ringN / H)}`);
-  const homeOwn = dayLogs({ roof: true, coat: true });
-  const homeKept = dayLogs({ roof: true, coat: true }, true);
-  const skyOwn = dayLogs({});
-  const skyKept = dayLogs({}, true);
-  row('дров на сутки: в доме одетым', `${num(homeKept.mean, 2)} с хозяйкой`, `без неё ${num(homeOwn.mean, 2)}`);
-  row('дров на сутки: под небом раздетым', `${num(skyKept.mean, 2)} с хозяйкой`, `без неё ${num(skyOwn.mean, 2)}`);
+  const homeOwn = awayLogs(AWAY_H, { roof: true });
+  const homeKept = awayLogs(AWAY_H, { roof: true }, true);
+  const skyOwn = awayLogs(AWAY_H, {});
+  const skyKept = awayLogs(AWAY_H, {}, true);
+  row('дров на двое суток: под небом раздетым', `${num(skyKept.mean, 2)} с хозяйкой`, `без неё ${num(skyOwn.mean, 2)}`);
+  row('дров на двое суток: в доме раздетым', `${num(homeKept.mean, 2)} с хозяйкой`, `без неё ${num(homeOwn.mean, 2)}`);
   // Путь до ста — тем же прогоном, что держит тест: заход в четыре минуты с каждой
   // секунды суток поляны, в котором сделано всё, что можно засчитать.
   const loveDays = Math.ceil(LOVE_FULL / LOVE_STEP);
