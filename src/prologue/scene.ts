@@ -80,18 +80,27 @@ import {
   nearest,
   slide,
   standing,
+  VIEW_V_MIN,
+  viewFov,
   type Spot,
 } from './glade';
 import { hearthFill, burnWords, burning, feed, keepHearth, logsTaken, spend } from './fire';
 import {
+  SPELL_MS,
   darkness,
   gloom,
   isNight,
   nextWeather,
+  spellLeftMs,
   sunAt,
   weatherAt,
   weatherWords,
+  type Weather,
 } from './sky';
+import { Dome, newTone, toneAt } from './dome';
+import { Surfaces } from './surface';
+import { ADDITIVE, LOOKS, MOOD_BLINK, MOOD_CALM, MOOD_WARM, MOOD_WARY, bake, glowCanvas, mix, sleeveCanvas, type Mood } from './paint';
+import { arm as armModel, setMood, woman as womanModel } from './people';
 import {
   HOWL_LEAD_MS,
   WOLF_EDGE,
@@ -160,8 +169,11 @@ import {
 } from './act';
 import {
   Precip,
+  Shade,
+  Sparks,
   arrow as arrowModel,
   axe as axeModel,
+  blob,
   bow as bowModel,
   campfire,
   carcass as carcassModel,
@@ -170,15 +182,17 @@ import {
   deer as deerModel,
   forest,
   gladeGround,
+  groundShade,
   house as houseModel,
   stump,
   tent,
+  undergrowth,
   wolf as wolfModel,
-  woman as womanModel,
 } from './models';
 import { KIT_MEAT, revive as reviveSave, savePrologue, type PrologueSave } from './save';
 import { ARROWS_PER_LOG, COAT_HIDES, buildTake, houseDone } from './craft';
 import {
+  GUESTS,
   GUEST_NO,
   LOVE_DAYS,
   SHARED,
@@ -299,13 +313,39 @@ const GLOOM_STEP = 0.015;
 /**
  * Туман поляны: где начинается и где добирает цвет.
  *
+ * ДЫМКА — ЭТО ГЛУБИНА. Начинается она сразу за поляной и добирает цвет горизонта
+ * к краю земли: ближний ряд леса остаётся лесом, второй синеет, третий уходит в
+ * небо, — и стена в восемь метров читается чащей, а не декорацией. Цвет у неё —
+ * неба над кромкой леса (`dome.haze`), поэтому лес не упирается в небо краем, а
+ * растворяется в нём. Сама поляна (13 м) в дымку не попадает.
+ *
  * `WET` — то же в дождь. Видно в дождь заметно хуже, и это единственное, чем
- * непогода трогает картинку помимо капель: серое небо и близкий край видимости
+ * непогода трогает даль помимо капель: серое небо и близкий край видимости
  * читаются ненастьем сразу, без единого слова на экране.
  */
-const FOG_NEAR = 22;
-const FOG_FAR = 52;
+const FOG_NEAR = 12;
+const FOG_FAR = 50;
+const FOG_NEAR_WET = 6;
 const FOG_FAR_WET = 30;
+
+/**
+ * Снег на ветках и мокрая земля: за сколько набираются и сходят.
+ *
+ * Картинка, а не величина: сколько снега лежит, выводится из того, сколько идёт
+ * снегопад (`sky.spellLeftMs`), и в сохранение не попадает. Снег ложится за
+ * полминуты и сходит за минуту после; земля мокнет быстрее, чем сохнет.
+ */
+const SNOW_GROW_MS = 30_000;
+const SNOW_MELT_MS = 60_000;
+const WET_GROW_MS = 12_000;
+const WET_DRY_MS = 70_000;
+
+/** С какой любви у жены тёплое лицо. Сама любовь считается в `kin.love`, здесь только порог показа. */
+const WARM_FROM = 60;
+
+/** Раз в сколько миллисекунд женщина моргает и сколько длится моргание. */
+const BLINK_EVERY = 3900;
+const BLINK_MS = 140;
 
 /** За сколько секунд непогода набирает и отпускает силу. Рывком читалась бы сбоем. */
 const WET_FADE = 2.4;
@@ -321,6 +361,9 @@ const WET_FADE = 2.4;
  */
 const RAIN_TINT = new THREE.Color(PALETTE.stoneDark);
 const SNOW_TINT = new THREE.Color(PALETTE.smoke);
+
+/** Куда светит лампа рига — купол красит небо вокруг этого направления. */
+const SUN_DIR = new THREE.Vector3();
 
 /**
  * С какой глубины ночи у волков горят глаза.
@@ -338,18 +381,52 @@ const HOWL_SPREAD_MS = 12_000;
 /** Сколько поляны накрывает коробка теней. Ровно поляна: лес теней не отбрасывает. */
 const SHADOW_HALF = 20;
 
-/** Отсвет костра: тот же цвет и та же дальность, что у костра деревни. */
-const FIRE_RANGE = 14;
+/**
+ * Отсвет костра: докуда достаёт, как быстро гаснет с расстоянием и во сколько
+ * раз ярче ночью.
+ *
+ * НОЧЬЮ КОСТЁР — НАСТОЯЩИЙ СВЕТ, А НЕ ЛУЖА У НОГ. Прежний отсвет (дальность 14,
+ * спад 1.6, ночью ×3.2) заливал землю в двух шагах от огня до жёлтого, а стволы в
+ * семи метрах и стены дома в пяти оставались чёрными: огонь читался нарисованным.
+ * Числа выведены из того, что должно быть видно, а не подобраны: у ног (полтора
+ * метра) — около восьми десятых цвета поверхности, у лица женщины (три метра) —
+ * треть, у деревьев поляны (семь с половиной) — десятая. Отсюда мягкий спад 1.25
+ * и ночная прибавка втрое, а не яркость, выгорающая у самого огня.
+ */
+const FIRE_RANGE = 18;
+const FIRE_DECAY = 1.25;
+const FIRE_NIGHT = 2;
 
 /**
  * Дым костра: свои размеры, а не общие с деревней.
  *
  * `FIRE_LOOK` рассчитан на камеру деревни — она в двадцати метрах, и клуб в
- * тридцать сантиметров там читается дымом. Здесь камера в трёх метрах от огня,
- * и тот же клуб выходит бледным квадратом в полэкрана. Общую величину при этом
- * править нельзя — она про деревню; поэтому здесь своя.
+ * тридцать сантиметров там читается дымом. Здесь камера в трёх метрах от огня.
+ * Клуб рисуется мягким пятном (`paint.glowCanvas`), а не квадратом: квадраты
+ * висели по всему небу на первых снимках этой пачки. Пятно видно меньше своего
+ * квадрата, отсюда и размер больше прежнего.
  */
-const SMOKE_LOOK: SmokeLook = { size: 0.13, opacity: 0.09 };
+const SMOKE_LOOK: SmokeLook = { size: 0.5, opacity: 0.16 };
+
+/**
+ * Куда тянет ветер: дым, искры и волну по кронам. Направление одно на поляну,
+ * сила ходит порывами (`weatherStep`).
+ */
+const WIND_DIR = { x: 0.8, z: -0.6 };
+
+/**
+ * Руки игрока: куда от кулака уходит предплечье — к краю экрана, в осях камеры.
+ *
+ * Топор держат правой: локоть вниз, вправо и к себе. Лук — левой: опущенный держат
+ * у бедра, натянутый — на вытянутой руке, и предплечье смотрит почти на камеру.
+ * Числа подобраны снимками 375 px, как и места самих вещей.
+ */
+const ARM_AXE = { grip: [0, -0.005, 0.0], dir: [0.25, -0.9, 0.35], handle: [0, 0, -1] } as const;
+const ARM_BOW_LOW = { dir: [-0.15, -0.95, 0.3] } as const;
+const ARM_BOW_DRAWN = { dir: [-0.3, -0.55, 0.78] } as const;
+
+/** Насколько поднимается и опускается голова при ходьбе, метры. */
+const CAM_BOB = 0.025;
 
 /**
  * Где топор лежит в покое — от него же считается и замах.
@@ -361,11 +438,47 @@ const SMOKE_LOOK: SmokeLook = { size: 0.13, opacity: 0.09 };
  */
 const AXE_REST = { x: 0.22, y: -0.52, z: -0.95, rx: 0.9, ry: 0.35, rz: 0.2 };
 
+/** Насколько уменьшен топор в руке при прежних 72°; шире угол — на `viewK` больше. */
+const AXE_SCALE = 0.62;
+
+/** Где рука висит на вещи: место, поворот и размер в осях самой вещи. */
+type ArmPose = { p: THREE.Vector3; q: THREE.Quaternion; s: THREE.Vector3 };
+
+/**
+ * Посадить руку на вещь.
+ *
+ * Считается один раз, в осях вещи, из того, как вещь лежит в осях камеры: кулак —
+ * на месте хвата (`grip`, в осях вещи), предплечье — вдоль `dir` (в осях камеры, к
+ * краю экрана), ручка проходит сквозь кулак вдоль `handle` (в осях вещи). Дальше
+ * рука — ребёнок вещи и ходит вместе с ней: замах топора уводит и руку.
+ */
+function armPose(
+  rest: { x: number; y: number; z: number; rx: number; ry: number; rz: number },
+  scale: number,
+  grip: readonly number[],
+  dir: readonly number[],
+  handle: readonly number[],
+): ArmPose {
+  const item = new THREE.Matrix4().compose(
+    new THREE.Vector3(rest.x, rest.y, rest.z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rest.rx, rest.ry, rest.rz)),
+    new THREE.Vector3(scale, scale, scale),
+  );
+  const at = new THREE.Vector3(grip[0], grip[1], grip[2]).applyMatrix4(item);
+  const along = new THREE.Vector3(handle[0], handle[1], handle[2]).transformDirection(item);
+  const elbow = new THREE.Vector3(dir[0], dir[1], dir[2]).normalize().add(at);
+  const m = new THREE.Matrix4().lookAt(elbow, at, along).setPosition(at);
+  const pose: ArmPose = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3() };
+  item.invert().multiply(m).decompose(pose.p, pose.q, pose.s);
+  return pose;
+}
+
 /**
  * Лук в левой руке: опущенный и натянутый.
  *
  * Числа той же природы, что у топора, и подобраны тем же способом — на экране
- * 375×812, где по горизонтали остаётся ±18.5°. Опущенный лук стоит у левого
+ * 375×812 при прежних 72°, где по горизонтали оставалось ±18.5°; при нынешнем
+ * угле они раздвинуты на `viewK`, как у топора. Опущенный лук стоит у левого
  * края и повёрнут плашмя; натянутый выходит к середине и встаёт прямо, но не в
  * саму середину: перекрестье должно остаться видно, а рука — не заслонить
  * зверя, в которого целятся.
@@ -449,7 +562,7 @@ const HUG_BACK = 0.8;
  * котором скаты и фронтон едва различимы, — до кровли свет доходит ослабленным
  * расстоянием. С этим числом видно, что над головой потолок.
  */
-const HUG_GLOW = 4;
+const HUG_GLOW = 7;
 
 /** Сколько висит строка поверх сцены. Время сцены: выход её не помнит. */
 const NOTE_MS = 6500;
@@ -493,7 +606,13 @@ type Beast = { x: number; z: number; yaw: number; homeX: number; homeZ: number; 
  */
 interface Figure {
   obj: THREE.Group;
+  /** Тело с лицом: по нему меняется выражение (`people.setMood`). */
+  body: THREE.Mesh | null;
   arms: THREE.Object3D | null;
+  /** Пятно тени под ногами: наклон к огню оно не повторяет. */
+  blob: THREE.Object3D | null;
+  /** Которая это из гостий — по номеру облика. От него же её моргание. */
+  seed: number;
   x: number;
   z: number;
   yaw: number;
@@ -680,6 +799,61 @@ export class PrologueScene {
   /** Когда началось объятие, время сцены. 0 — не идёт. */
   private hugAt = 0;
 
+  /** Небо куполом: градиент, светило и звёзды (`dome.ts`), и цвет часа для него. */
+  private dome = new Dome();
+  private tone = newTone();
+  /** Свои копии материалов поляны: ветер в кронах, снег на ветках, мокрая земля. */
+  private surfaces = new Surfaces();
+  /** Сила ветра прямо сейчас — картинка: качает кроны, тянет дым и искры. */
+  private wind = 0.6;
+  /**
+   * Мягкое пятно света: отсвет костра, клубы дыма, искры и глаза волков.
+   * Печётся один раз при входе (`paint.glowCanvas`) и одно на всех.
+   */
+  private glowTex = bake(glowCanvas());
+  /** Рукава игрока: лён и мех. Сшита одежда — у рук меняется материал, а не рисунок. */
+  private sleeveTex = [bake(sleeveCanvas(false)), bake(sleeveCanvas(true))];
+  private sleeveMat = this.sleeveTex.map((map) => new THREE.MeshLambertMaterial({ map }));
+  /** Глаза волков ночью: пятно света цвета нутра огня. */
+  private eyeMat = new THREE.MeshBasicMaterial({
+    map: this.glowTex,
+    color: mix(PALETTE.fireInner, PALETTE.thatch, 0.3),
+    transparent: true,
+    blending: ADDITIVE,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+  });
+  /** Свечение над огнём: без него пламя — оранжевый конус, а не огонь. */
+  private fireGlow = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: this.glowTex,
+      color: PALETTE.fireLight,
+      blending: ADDITIVE,
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+    }),
+  );
+  private sparks = new Sparks(this.glowTex);
+  /**
+   * Во сколько раз шире прежних 72° угол обзора — по вертикали, в тангенсах.
+   * На это число раздвигаются вещи в руках: на экране они остаются там же и того
+   * же размера, каким их подобрали снимками.
+   */
+  private viewK = 1;
+  /** Насколько человек идёт, сглажено: по нему качаются вещи в руках. */
+  private walkK = 0;
+  private bobX = 0;
+  private bobY = 0;
+  /** Руки на топоре и на луке. Висят на вещах и ходят вместе с ними. */
+  private axeArm: THREE.Group | null = null;
+  private bowArm: THREE.Group | null = null;
+  private bowArmPose: { low: ArmPose; drawn: ArmPose } | null = null;
+  /** Какой рукав надет на руки сейчас: мех — когда сшита одежда. */
+  private armFur = false;
+
   /** Непогода: дождь чертами и снег точками, видна одна за раз. */
   private precip = new Precip();
   /** Насколько непогода вступила, 0..1. Картинка, а не величина. */
@@ -774,17 +948,41 @@ export class PrologueScene {
     // весну мгновенно, а деревня вернёт свою тем же `jump` при пересборке.
     this.season.jump('spring');
 
-    this.scene.add(gladeGround(), forest(), tent(), chopBlock());
-    const fire = campfire();
+    // Небо — первым: купол рисуется раньше всего и глубину не пишет.
+    this.scene.add(this.dome.root);
+    // Всё неподвижное — в свои копии материалов (`surface.ts`): кроны качает
+    // ветер, на ветки и крыши ложится снег, земля в дождь темнеет. Общие материалы
+    // деревни при этом не меняются.
+    const growth = undergrowth();
+    // Пятна тени — одним мешем на весь лес и на всё, что стоит на поляне.
+    const shade = new Shade();
+    this.scene.add(
+      this.surfaces.adopt(gladeGround()),
+      this.surfaces.adopt(forest(shade), 'crown'),
+      this.surfaces.adopt(tent()),
+      this.surfaces.adopt(chopBlock()),
+      this.surfaces.adopt(growth.sway, 'tuft'),
+      this.surfaces.adopt(growth.still),
+    );
+    groundShade(shade);
+    this.scene.add(shade.mesh());
+    const fire = this.surfaces.adopt(campfire());
     this.flame = fire.getObjectByName('flame') ?? null;
     this.flameInner = fire.getObjectByName('flameInner') ?? null;
     this.scene.add(fire);
 
-    this.fireLight = new THREE.PointLight(PALETTE.fireLight, 0.9, FIRE_RANGE, 1.6);
+    this.fireLight = new THREE.PointLight(PALETTE.fireLight, 0.9, FIRE_RANGE, FIRE_DECAY);
     this.fireLight.position.set(0, 0.9, 0);
     this.scene.add(this.fireLight);
+    this.fireGlow.position.set(FIRE.x, 0.62, FIRE.z);
+    this.fireGlow.visible = false;
+    this.scene.add(this.fireGlow, this.sparks.points);
 
     this.smoke = new Smoke(SMOKE_LOOK);
+    // Клуб дыма — мягкое пятно, а не квадрат точки: квадраты висели по всему небу.
+    const smokeMat = this.smoke.points.material as THREE.PointsMaterial;
+    smokeMat.map = this.glowTex;
+    smokeMat.needsUpdate = true;
     this.scene.add(this.smoke.points);
 
     // Часы поляны идут, и свет за ними — но не каждый кадр, а по мере хода
@@ -1320,7 +1518,7 @@ export class PrologueScene {
     TREES.forEach((t, i) => {
       const up = standing(this.save.felled[i] ?? 0, now);
       if (up && !this.trees[i]) {
-        this.trees[i] = choppable(i);
+        this.trees[i] = this.surfaces.adopt(choppable(i), 'crown');
         this.scene.add(this.trees[i]!);
       }
       if (!up && this.trees[i]) {
@@ -1328,7 +1526,7 @@ export class PrologueScene {
         this.trees[i] = null;
       }
       if (!up && !this.stumps[i]) {
-        this.stumps[i] = stump(t.x, t.z, i);
+        this.stumps[i] = this.surfaces.adopt(stump(t.x, t.z, i));
         this.scene.add(this.stumps[i]!);
       }
       if (up && this.stumps[i]) {
@@ -1343,12 +1541,13 @@ export class PrologueScene {
    *
    * Пересобирается только когда число изменилось — то есть на стройке, по тапу.
    * Модель склеена в один меш (`models.house`), и пересборка стоит меньше кадра.
+   * Материалы у него поляны (`surface.ts`): на крышу ложится снег.
    */
   private syncHouse(): void {
     if (this.houseShown === this.save.house) return;
     this.houseShown = this.save.house;
     if (this.house) this.drop(this.house);
-    this.house = houseModel(this.save.house);
+    this.house = this.surfaces.adopt(houseModel(this.save.house));
     this.scene.add(this.house);
   }
 
@@ -1372,12 +1571,25 @@ export class PrologueScene {
          * заслоняет полкадра), и держать ближе к середине (иначе уезжает за
          * край): при x = 0.42 и z = −1 топор оказывался ровно за кромкой экрана
          * и был не виден вовсе.
+         *
+         * Подобраны числа при прежних 72°. Угол на портрете теперь шире
+         * (`glade.viewFov`), и место с размером раздвинуты на `viewK`: на экране
+         * топор стоит там же и того же размера.
          */
-        a.scale.setScalar(0.62);
+        a.scale.setScalar(AXE_SCALE * this.viewK);
         a.castShadow = false;
         this.axeInHand = a;
         this.restAxe();
         this.camera.add(a);
+        // Рука на топорище: кулак на хвате, предплечье к правому нижнему углу.
+        const hand = armModel(this.sleeveMat[0]);
+        const pose = armPose(AXE_REST, AXE_SCALE, ARM_AXE.grip, ARM_AXE.dir, ARM_AXE.handle);
+        hand.position.copy(pose.p);
+        hand.quaternion.copy(pose.q);
+        hand.scale.copy(pose.s);
+        a.add(hand);
+        this.axeArm = hand;
+        this.dressArms();
       }
       return;
     }
@@ -1385,6 +1597,7 @@ export class PrologueScene {
       this.camera.remove(this.axeInHand);
       disposeGeometries(this.axeInHand);
       this.axeInHand = null;
+      this.axeArm = null;
     }
     if (!this.axeInBlock) {
       const a = axeModel();
@@ -1409,7 +1622,7 @@ export class PrologueScene {
     if (!this.save.kit) return;
     if (this.bowInHand) return;
     const b = bowModel();
-    b.scale.setScalar(BOW_SCALE);
+    b.scale.setScalar(BOW_SCALE * this.viewK);
     const nock = arrowModel();
     // Стрела своего размера, а не луковьего: она вложена в лук, и его
     // уменьшение пришлось бы делить. Лежит она вдоль −Z, то есть смотрит туда
@@ -1418,8 +1631,35 @@ export class PrologueScene {
     nock.visible = false;
     b.add(nock);
     this.nock = nock;
+    // Левая рука на рукояти. Где у неё локоть, у опущенного лука и у натянутого
+    // своё: опущенный держат у бедра, натянутый — на вытянутой руке.
+    const hand = armModel(this.sleeveMat[0]);
+    this.bowArmPose = {
+      low: armPose(BOW_LOW, BOW_SCALE, [0, 0, 0], ARM_BOW_LOW.dir, [0, 1, 0]),
+      drawn: armPose(BOW_DRAWN, BOW_SCALE, [0, 0, 0], ARM_BOW_DRAWN.dir, [0, 1, 0]),
+    };
+    b.add(hand);
+    this.bowArm = hand;
+    this.dressArms();
     this.bowInHand = b;
     this.camera.add(b);
+  }
+
+  /**
+   * Рукав на обеих руках: лён, пока одежда не сшита, и мех — когда сшита.
+   *
+   * Меняется материал, а не рисунок и не модель: оба рукава испечены при входе.
+   */
+  private dressArms(): void {
+    const fur = this.save.body.coat;
+    this.armFur = fur;
+    for (const hand of [this.axeArm, this.bowArm]) {
+      const mesh = hand?.children[0] as THREE.Mesh | undefined;
+      if (!mesh) continue;
+      mesh.material = this.sleeveMat[fur ? 1 : 0];
+      // Мех пышнее льна: рукав толще, длина та же.
+      mesh.scale.set(fur ? 1.14 : 1, fur ? 1.14 : 1, 1);
+    }
   }
 
   /** Стрелы в траве: по одной на запись. Их немного, поэтому просто пересобираем. */
@@ -1450,6 +1690,7 @@ export class PrologueScene {
     const live = deerLive(this.save.hunt, now);
     if (live && !this.deer) {
       const d = deerModel();
+      d.add(blob(0.4, 0.72));
       this.deerHead = d.getObjectByName('head') ?? null;
       this.deerLegsF = d.getObjectByName('legsFront') ?? null;
       this.deerLegsB = d.getObjectByName('legsBack') ?? null;
@@ -1563,19 +1804,31 @@ export class PrologueScene {
       this.pz = p.z;
       this.bob += speed * dt * 9;
     }
+    this.walkK += (Math.min(1, speed) - this.walkK) * Math.min(1, dt * 6);
+    // Вещи в руках качаются вдвое реже шага и заметнее камеры: качается рука, а не мир.
+    this.bobX = Math.sin(this.bob * 0.5) * 0.014 * this.walkK;
+    this.bobY = -Math.abs(Math.sin(this.bob * 0.5)) * 0.02 * this.walkK;
 
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
-    // Покачивание при ходьбе — мелкое: без него шаг не читается, с большим
-    // укачивает. Стоит оно нисколько: два синуса на кадр.
-    const sway = speed > 0 ? Math.sin(this.bob) * 0.035 : 0;
+    /*
+     * Покачивание при ходьбе — слабое, и проверено трезво, а не на глаз. Камера
+     * ходит только вверх-вниз, на `CAM_BOB` (два с половиной сантиметра), с
+     * частотой шага — полтора раза в секунду на полном ходу, — и без крена и
+     * кивка: укачивают поворот горизонта и кивок взгляда, а подъём головы на два
+     * сантиметра — это на трёх метрах меньше половины градуса. Сглажено ходом:
+     * остановка не обрывает качание рывком. Стоит нисколько: два синуса на кадр.
+     */
+    const sway = Math.sin(this.bob) * CAM_BOB * this.walkK;
     this.camera.position.set(this.px, EYE + sway, this.pz);
+    if (this.save.body.coat !== this.armFur) this.dressArms();
 
     const now = serverNow();
+    this.surfaces.u.time.value = t / 1000;
     this.warmth();
     this.swing(t);
     this.aimBow(t);
     this.applySky(now);
-    this.weatherStep(dt, now);
+    this.weatherStep(dt, t, now);
     this.beastStep(dt, t, now);
     this.syncPack(t);
     this.wolfStep(dt, t, now);
@@ -1589,6 +1842,8 @@ export class PrologueScene {
     // Последним нарочно: объятие перекладывает камеру и отсвет огня поверх того,
     // что разложили шаг и костёр.
     this.hugStep(t);
+    // Купол ездит за глазом — и за глазом под крышей в объятии тоже.
+    this.dome.follow(this.camera.position);
     this.stick();
     this.persist(false);
     // Кадровая пересборка надписи — единственная, которую можно проредить: всё
@@ -1670,7 +1925,8 @@ export class PrologueScene {
   private restAxe(): void {
     const a = this.axeInHand;
     if (!a) return;
-    a.position.set(AXE_REST.x, AXE_REST.y, AXE_REST.z);
+    // Раздвинуто на `viewK`: при шире угле топор стоит на экране там же, где стоял.
+    a.position.set((AXE_REST.x + this.bobX) * this.viewK, (AXE_REST.y + this.bobY) * this.viewK, AXE_REST.z);
     a.rotation.set(AXE_REST.rx, AXE_REST.ry, AXE_REST.rz);
   }
 
@@ -1704,7 +1960,7 @@ export class PrologueScene {
     const hit = Math.max(0, Math.min(1, (k - 0.35) / 0.25));
     const back = Math.max(0, (k - 0.6) / 0.4);
     a.rotation.set(AXE_REST.rx + up * 0.8 - hit * 2.4 + back * 1.6, AXE_REST.ry, AXE_REST.rz);
-    a.position.set(AXE_REST.x, AXE_REST.y + up * 0.22 - hit * 0.42 + back * 0.2, AXE_REST.z);
+    a.position.set(AXE_REST.x * this.viewK, (AXE_REST.y + up * 0.22 - hit * 0.42 + back * 0.2) * this.viewK, AXE_REST.z);
   }
 
   /**
@@ -1719,8 +1975,24 @@ export class PrologueScene {
     if (!b) return;
     const k = this.drawn ? Math.min(1, (t - this.drawAt) / DRAW_MS) : 0;
     const at = (lo: number, hi: number): number => lo + (hi - lo) * k;
-    b.position.set(at(BOW_LOW.x, BOW_DRAWN.x), at(BOW_LOW.y, BOW_DRAWN.y), at(BOW_LOW.z, BOW_DRAWN.z));
+    // Натянутый лук не качается: в него целятся.
+    const loose = 1 - k;
+    const v = this.viewK;
+    b.position.set(
+      (at(BOW_LOW.x, BOW_DRAWN.x) + this.bobX * loose) * v,
+      (at(BOW_LOW.y, BOW_DRAWN.y) + this.bobY * loose) * v,
+      at(BOW_LOW.z, BOW_DRAWN.z),
+    );
     b.rotation.set(at(BOW_LOW.rx, BOW_DRAWN.rx), at(BOW_LOW.ry, BOW_DRAWN.ry), at(BOW_LOW.rz, BOW_DRAWN.rz));
+    if (this.bowArm && this.bowArmPose) {
+      const { low, drawn } = this.bowArmPose;
+      // Опущенный лук держат у бедра, и кулак ниже края кадра: в углу экрана он
+      // читался комом, а не рукой. Рука появляется, когда лук поднимают.
+      this.bowArm.visible = k > 0.08;
+      this.bowArm.position.lerpVectors(low.p, drawn.p, k);
+      this.bowArm.quaternion.slerpQuaternions(low.q, drawn.q, k);
+      this.bowArm.scale.lerpVectors(low.s, drawn.s, k);
+    }
     if (this.nock) {
       this.nock.visible = this.drawn;
       /*
@@ -1767,7 +2039,8 @@ export class PrologueScene {
     while (this.pack.length < want) {
       const n = this.pack.length;
       const home = wolfSpot(now, n);
-      const g = wolfModel();
+      const g = wolfModel(this.eyeMat);
+      g.add(blob(0.3, 0.55));
       g.position.set(home.x, 0, home.z);
       this.scene.add(g);
       this.pack.push({
@@ -1944,13 +2217,41 @@ export class PrologueScene {
    * Что дождь делает с очагом и снег с холодом, считают формулы (`sky.ts`), и
    * этому кадру о них знать нечего.
    */
-  private weatherStep(dt: number, now: number): void {
+  private weatherStep(dt: number, t: number, now: number): void {
     const here = weatherAt(now);
     if (here !== 'clear') this.wetKind = here;
     const want = here === 'clear' ? 0 : 1;
     const step = dt / WET_FADE;
     this.wet = want > this.wet ? Math.min(want, this.wet + step) : Math.max(want, this.wet - step);
     this.precip.update(dt, this.wetKind, this.wet, this.px, this.pz, this.yaw);
+    // Снег на ветках и мокрая земля — из того же кольца погод, а не накоплением.
+    this.surfaces.u.snow.value = this.cover(now, 'snow', SNOW_GROW_MS, SNOW_MELT_MS);
+    this.surfaces.u.wet.value = this.cover(now, 'rain', WET_GROW_MS, WET_DRY_MS);
+    // Ветер порывами: два синуса разных частот, в дождь сильнее, в снег тише.
+    const s = t / 1000;
+    const gust = 0.5 + 0.5 * Math.sin(s * 0.37) * Math.sin(s * 0.23 + 1.7);
+    this.wind = (here === 'rain' ? 1 : here === 'snow' ? 0.55 : 0.62) * (0.55 + 0.45 * gust);
+    this.surfaces.u.wind.value = this.wind;
+  }
+
+  /**
+   * Насколько легла непогода: снег на ветки или сырость на землю, 0..1.
+   *
+   * ЧИТАЕТСЯ ИЗ ЧАСОВ, А НЕ КОПИТСЯ В КАДРАХ. Сколько уже идёт снегопад, знает
+   * кольцо погод (`sky.spellLeftMs`), и вошедший посреди снегопада застаёт ветки
+   * белыми, а не голыми. После непогоды покров сходит за `fade`. В сохранение не
+   * идёт ничего: это картинка.
+   */
+  private cover(now: number, kind: Weather, grow: number, fade: number): number {
+    const into = SPELL_MS - spellLeftMs(now);
+    const ease = (k: number): number => k * k * (3 - 2 * k);
+    if (weatherAt(now) === kind) {
+      let start = now - into;
+      for (let i = 0; i < 16 && weatherAt(start - 1) === kind; i++) start -= SPELL_MS;
+      return ease(Math.min(1, (now - start) / grow));
+    }
+    if (weatherAt(now - into - 1) !== kind) return 0;
+    return ease(Math.max(0, 1 - into / fade));
   }
 
   /**
@@ -1971,19 +2272,34 @@ export class PrologueScene {
     this.skySolar = solar;
     this.skyGloom = g;
     applyDayNight(this.rig, this.scene, solar, this.season);
-    const fog = this.scene.fog as THREE.Fog;
-    if (g <= 0) {
-      fog.far = FOG_FAR;
-      return;
-    }
+    // Цвет часа поверх рига: холодное утро, белый полдень, рыжий закат (`dome.ts`).
+    const tone = toneAt(solar, this.tone);
+    this.rig.sun.color.lerp(tone.light, tone.lightK);
+    /*
+     * Сумерки без солнца. Общий риг держит свет и после заката — деревне так
+     * длиннее вечер, — и на поляне красный свет из-под горизонта красил кроны в
+     * бежевое на розовом небе: лес выцветал, а не темнел. Здесь в сумерках лампа
+     * гаснет: солнце ушло, луна ещё не встала, и лес стоит силуэтом против зари.
+     * К глухой ночи свет возвращается — светит уже луна.
+     */
+    const elev = Math.sin(solar * Math.PI * 2);
+    const dusk = 1 - Math.min(1, Math.abs(elev + 0.08) / 0.15);
+    this.rig.sun.intensity *= 1 - 0.75 * dusk * dusk * (3 - 2 * dusk);
+    // И низкое солнце слабее полуденного: у рига оно светит в полную силу до самого
+    // горизонта, и кроны на закате выгорали в золото вместо того, чтобы теплеть.
+    if (elev > 0) this.rig.sun.intensity *= 0.7 + 0.3 * Math.min(1, elev / 0.3);
     this.rig.sun.intensity *= 1 - 0.55 * g;
     this.rig.hemi.intensity *= 1 - 0.2 * g;
     // Какая непогода: та, что идёт, или та, что вот-вот придёт.
     const here = weatherAt(now);
     const tint = (here === 'clear' ? nextWeather(now) : here) === 'snow' ? SNOW_TINT : RAIN_TINT;
-    (this.scene.background as THREE.Color).lerp(tint, g * 0.5);
-    fog.color.lerp(tint, g * 0.5);
+    this.dome.paint(tone, SUN_DIR.copy(this.rig.sun.position).normalize(), darkness(now), g, tint);
+    // Туман и фон — цвета неба у горизонта: лес уходит в небо, а не упирается в него.
+    const fog = this.scene.fog as THREE.Fog;
+    fog.color.copy(this.dome.haze);
+    (this.scene.background as THREE.Color).copy(this.dome.horizon);
     // В дождь край видимости придвигается: лес тонет в серой мороси.
+    fog.near = FOG_NEAR - (FOG_NEAR - FOG_NEAR_WET) * g;
     fog.far = FOG_FAR - (FOG_FAR - FOG_FAR_WET) * g;
   }
 
@@ -2170,25 +2486,41 @@ export class PrologueScene {
       this.flameInner.rotation.y = -s * 3;
     }
     /*
-     * НОЧЬЮ КОСТЁР — ЕДИНСТВЕННЫЙ СВЕТ, и держится это здесь, одним
-     * множителем. Днём отсвет почти не виден (солнце ярче в разы), ночью он и
-     * есть освещение поляны: без прибавки огонь ночью читался бы рисунком, а не
-     * огнём, а с прибавкой втрое — тёплой лужей на холодном лунном фоне, ровно
-     * как у деревни (`render/lighting.fireIntensity`).
+     * НОЧЬЮ КОСТЁР — НАСТОЯЩИЙ СВЕТ. Днём отсвет почти не виден (солнце ярче в
+     * разы), ночью он и есть освещение поляны: достаёт до стволов, до сруба и до
+     * лица у очага (`FIRE_NIGHT`, `FIRE_DECAY`). Дрожь — три синуса разных частот,
+     * и в яркости, и в месте: тени от огня живые, а не мигающие.
      */
     const night = darkness(now);
-    this.fireLight.intensity = alive
-      ? (0.45 + fill * 0.9) * (1 + night * 2.2) * (0.92 + Math.sin(s * 13) * 0.08)
-      : 0;
+    const flick = 1 + Math.sin(s * 13.1) * 0.1 + Math.sin(s * 23.7 + 1.3) * 0.06 + Math.sin(s * 7.3 + 2.1) * 0.05;
+    this.fireLight.intensity = alive ? (0.5 + fill * 0.9) * (1 + night * FIRE_NIGHT) * flick : 0;
+    this.fireLight.position.set(FIRE.x + Math.sin(s * 5.3) * 0.06, 0.85 + Math.sin(s * 8.1) * 0.05, FIRE.z + Math.cos(s * 6.7) * 0.06);
+    this.fireGlow.visible = alive;
+    if (alive) {
+      this.fireGlow.material.opacity = (0.12 + night * 0.58) * (0.85 + 0.15 * flick);
+      this.fireGlow.scale.setScalar((0.95 + fill * 0.85) * (0.96 + 0.04 * flick));
+    }
+    const wx = WIND_DIR.x * this.wind;
+    const wz = WIND_DIR.z * this.wind;
+    this.sparks.update(s, alive, 0.2 + night * 0.8, wx, wz, size);
     this.smoke.points.visible = alive;
     if (alive) {
       this.smoke.update(dt, 0);
-      // Ночью дым почти не виден: светит ему только сам огонь, а серые клубы на
-      // тёмном небе рисовались квадратами, а не дымом, — поймано снимком.
-      // Плотность у дыма общая с деревней и лежит в материале, поэтому гасится
-      // она после `update`, который её выставляет каждый кадр.
+      // Ночью дым почти не виден: светит ему только сам огонь. Плотность у дыма
+      // общая с деревней и лежит в материале, поэтому гасится она после `update`,
+      // который её выставляет каждый кадр.
       const smokeMat = this.smoke.points.material as THREE.PointsMaterial;
       smokeMat.opacity *= 1 - night * 0.85;
+      // Ветер тянет дым: чем выше клуб, тем дальше снесло. Место клуба `update`
+      // пишет заново каждый кадр, поэтому снос не копится.
+      const attr = this.smoke.points.geometry.attributes.position as THREE.BufferAttribute;
+      const p = attr.array as Float32Array;
+      for (let i = 0; i < attr.count; i++) {
+        const up = Math.max(0, p[i * 3 + 1] - 0.8) / 5.5;
+        p[i * 3] += wx * up * up * 2.4;
+        p[i * 3 + 2] += wz * up * up * 2.4;
+      }
+      attr.needsUpdate = true;
     }
   }
 
@@ -2204,20 +2536,68 @@ export class PrologueScene {
   private syncMate(fresh: boolean): void {
     const here = !!this.save.wife || guestHere(this.save, serverNow());
     if (here && !this.mate) {
-      const g = womanModel();
+      // Облик — той, кто это: жена остаётся той гостьей, которую приняли.
+      const seed = this.lookOf();
+      const g = womanModel(LOOKS[seed], seed);
       g.rotation.order = 'YXZ';
+      const shade = blob(0.36, 0.32);
+      g.add(shade);
       const at = fresh ? MATE_SPOT : GUEST_FROM;
       g.position.set(at.x, 0, at.z);
       this.scene.add(g);
-      this.mate = { obj: g, arms: g.getObjectByName('arms') ?? null, x: at.x, z: at.z, yaw: 0, bend: 0, gait: 0 };
+      this.mate = {
+        obj: g,
+        body: (g.getObjectByName('body') as THREE.Mesh | undefined) ?? null,
+        arms: g.getObjectByName('arms') ?? null,
+        blob: shade,
+        seed,
+        x: at.x,
+        z: at.z,
+        yaw: 0,
+        bend: 0,
+        gait: 0,
+      };
       if (!fresh) this.say('К огню вышла женщина.');
     }
     if (!here && this.mate) {
-      if (this.leaving) this.drop(this.leaving.obj);
+      if (this.leaving) this.dropFigure(this.leaving);
       this.leaving = this.mate;
       this.mate = null;
       if (this.panel === 'guest' || this.panel === 'wife' || this.panel === 'name') this.panel = '';
     }
+  }
+
+  /** Которая из гостий у огня: жена — по записанному имени, гостья — по числу отказов. */
+  private lookOf(): number {
+    const s = this.save;
+    if (s.wife) {
+      const name = s.wife.name;
+      const i = GUESTS.findIndex((g) => g.name === name);
+      return i < 0 ? 0 : i;
+    }
+    return Math.max(0, GUESTS.indexOf(guestOf(s.refused)));
+  }
+
+  /** Убрать женщину из кадра — вместе с её холстом и материалом. */
+  private dropFigure(f: Figure): void {
+    this.drop(f.obj);
+    (f.obj.userData.release as (() => void) | undefined)?.();
+  }
+
+  /**
+   * Лицо: какое выражение сейчас и не моргнула ли.
+   *
+   * Гостья настороже — чужой огонь, чужой человек. Жена спокойна, а когда любви
+   * много — теплеет. Выражение выводится из записи (`kin.love`), моргание — из
+   * времени сцены; ни то, ни другое никуда не пишется. Каждая моргает в свой
+   * черёд: две женщины, моргнувшие разом, читались бы механизмом.
+   */
+  private face(f: Figure, t: number, wary: boolean): void {
+    if (!f.body) return;
+    const cycle = BLINK_EVERY + f.seed * 370;
+    const blink = (t + f.seed * 1234) % cycle < BLINK_MS;
+    const mood: Mood = blink ? MOOD_BLINK : wary ? MOOD_WARY : love(this.save.bond) >= WARM_FROM ? MOOD_WARM : MOOD_CALM;
+    setMood(f.body, mood);
   }
 
   /**
@@ -2255,11 +2635,14 @@ export class PrologueScene {
       if (m.arms) m.arms.rotation.x += (arm - m.arms.rotation.x) * Math.min(1, dt * 6);
       m.obj.position.set(m.x, speed > 0 ? Math.abs(Math.sin(m.gait)) * 0.03 : 0, m.z);
       m.obj.rotation.set(m.bend, m.yaw, 0);
+      // Пятно тени лежит на земле, а не наклоняется к огню вместе с ней.
+      if (m.blob) m.blob.rotation.x = -m.bend;
+      this.face(m, t, !this.save.wife);
     }
     const l = this.leaving;
     if (!l) return;
     if (Math.hypot(GUEST_FROM.x - l.x, GUEST_FROM.z - l.z) < 0.3) {
-      this.drop(l.obj);
+      this.dropFigure(l);
       this.leaving = null;
       return;
     }
@@ -2267,6 +2650,7 @@ export class PrologueScene {
     if (l.arms) l.arms.rotation.x = Math.sin(l.gait) * 0.22;
     l.obj.position.set(l.x, Math.abs(Math.sin(l.gait)) * 0.03, l.z);
     l.obj.rotation.set(0, l.yaw, 0);
+    this.face(l, t, true);
   }
 
   /** Шагнуть женщиной к точке. Возвращает скорость шага — по ней идёт покачивание. */
@@ -2355,6 +2739,7 @@ export class PrologueScene {
       this.hugAt = 0;
       this.hugShow(0, 0);
       this.fireLight.position.set(0, 0.9, 0);
+      this.fireLight.decay = FIRE_DECAY;
       this.precip.root.visible = true;
       if (this.bowInHand) this.bowInHand.visible = true;
       this.refresh();
@@ -2374,8 +2759,9 @@ export class PrologueScene {
     if (this.bowInHand) this.bowInHand.visible = false;
     // Непогода стоит полем над всей поляной и крыши не знает: под ней дождя нет.
     this.precip.root.visible = !inside;
+    // Снаружи отсвет стоит у огня: его каждый кадр ставит `fire`, со своей дрожью.
     if (!inside) {
-      this.fireLight.position.set(0, 0.9, 0);
+      this.fireLight.decay = FIRE_DECAY;
       return;
     }
     // Конёк лежит вдоль оси X модели (`models.house`), повёрнутой вместе с домом;
@@ -2386,7 +2772,11 @@ export class PrologueScene {
     this.camera.rotation.set(smooth(ramp(k, HUG.cutIn, HUG.up)) * HUG_PITCH, HOUSE.rot - Math.PI / 2, 0, 'YXZ');
     // Под крышей темно, а новый источник света пересобрал бы материалы на кадр:
     // на время объятия в дом переходит тот же отсвет огня.
-    this.fireLight.position.set(HOUSE.x, 1.1, HOUSE.z);
+    // Свет — от пола, как от очага в доме, и с крутым спадом: низ стен тёплый, конёк
+    // тонет в темноте. С мягким спадом огня поляны сруб изнутри выходил ровным
+    // коричневым полем, в котором не видно ни венцов, ни скатов.
+    this.fireLight.position.set(HOUSE.x, 0.4, HOUSE.z);
+    this.fireLight.decay = 2;
     this.fireLight.intensity = Math.max(this.fireLight.intensity, HUG_GLOW);
   }
 
@@ -2508,7 +2898,12 @@ export class PrologueScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // Угол — от формы экрана: на портрете горизонталь не уже `VIEW_H_MIN` (`glade.viewFov`).
+    this.camera.fov = viewFov(w / h);
     this.camera.updateProjectionMatrix();
+    this.viewK = Math.tan((this.camera.fov * Math.PI) / 360) / Math.tan((VIEW_V_MIN * Math.PI) / 360);
+    if (this.axeInHand) this.axeInHand.scale.setScalar(AXE_SCALE * this.viewK);
+    if (this.bowInHand) this.bowInHand.scale.setScalar(BOW_SCALE * this.viewK);
   }
 
   /**
@@ -2610,6 +3005,17 @@ export class PrologueScene {
     (this.smoke.points.material as THREE.Material).dispose();
     // Непогода — тоже не меш: обход её не видит, и убирается она руками.
     this.precip.dispose();
+    // Всё, что поляна испекла и склонировала сама: холсты, копии материалов,
+    // купол, искры. Общие материалы деревни поляна не трогала — и не отдаёт.
+    for (const f of [this.mate, this.leaving]) if (f) (f.obj.userData.release as (() => void) | undefined)?.();
+    this.dome.dispose();
+    this.sparks.dispose();
+    this.surfaces.dispose();
+    this.glowTex.dispose();
+    for (const tex of this.sleeveTex) tex.dispose();
+    for (const mat of this.sleeveMat) mat.dispose();
+    this.eyeMat.dispose();
+    this.fireGlow.material.dispose();
     this.scene.clear();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

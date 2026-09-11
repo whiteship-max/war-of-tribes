@@ -15,13 +15,13 @@
  * палатка — единственная рукотворная вещь в кадре, и потому читается сразу.
  */
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PALETTE } from '@/render/palette';
 import { KIT, LEGACY } from '@/render/materials';
 import * as K from '@/render/kit';
 import { makeFarTree, makeLog, makeRock, makeStump, makeTree, vnoise } from '@/render/terrain';
-import { AXE_STUMP, FIRE, GLADE_R, HOUSE, TENT, TREES, hash } from './glade';
+import { AXE_STUMP, FIRE, GLADE_R, GUEST_FROM, HOUSE, MATE_SPOT, START, TENT, TREES, hash } from './glade';
 import { HOUSE_LOGS } from './craft';
+import { ADDITIVE, mix } from './paint';
 
 /** Докуда тянется земля. Дальше туман, и края диска не видно. */
 const GROUND_R = 44;
@@ -170,7 +170,7 @@ function put(o: THREE.Object3D, x: number, z: number, rotY = 0): void {
  * теней накрывает только поляну. Дальние деревья — дешёвой моделью
  * (`makeFarTree`, пять треугольников против сорока четырёх).
  */
-export function forest(): THREE.Group {
+export function forest(shade: Shade): THREE.Group {
   const g = new THREE.Group();
   g.name = 'forest';
   let n = 0;
@@ -188,9 +188,21 @@ export function forest(): THREE.Group {
       // прогалиной, и верхняя треть экрана оставалась пустым небом.
       const scale = 2.6 + hash(i * 5, r * 9) * 1.4;
       const far = rr > FAR_FROM;
-      const tree = far ? makeFarTree(scale, n) : makeTree(scale, n);
+      const kind = hash(i * 17, r * 3);
+      // Лес — не посадка из одной ёлки. Ближние кольца разбавлены лиственными и
+      // сухостоем: у них другой силуэт, и стена перестаёт быть рядом конусов.
+      const tree = far
+        ? makeFarTree(scale, n)
+        : kind < 0.13
+          ? broadleaf(scale * 0.82, n)
+          : kind < 0.18
+            ? snag(scale * 0.9, n)
+            : makeTree(scale, n);
       put(tree, x, z, hash(i, r) * Math.PI * 2);
+      vary(tree, i * 31 + r * 7);
       g.add(tree);
+      // Пятно тени под ближними: без него дерево, не отбрасывающее тени, висит над травой.
+      if (rr < 24) shade.add(x, z, 0.62 * scale * tree.scale.x, 0.62 * scale * tree.scale.x, hash(i, r * 2));
       n++;
     }
   }
@@ -203,6 +215,296 @@ export function forest(): THREE.Group {
     g.add(o);
   }
   return K.collapse(g, K.GROUND_AO, false);
+}
+
+/**
+ * Разный рост и наклон.
+ *
+ * Клоны одной ёлки читаются посадкой: одна высота, одна ширина, все стоят
+ * отвесно. Разброс по высоте — до полутора раз, по ширине — до трети, наклон —
+ * до четырёх градусов: больше читалось бы бурей, меньше не видно.
+ */
+function vary(o: THREE.Object3D, seed: number): void {
+  const w = 0.84 + hash(seed, 61) * 0.32;
+  o.scale.set(w, 0.8 + hash(seed, 63) * 0.45, w);
+  o.rotation.x = (hash(seed, 65) - 0.5) * 0.14;
+  o.rotation.z = (hash(seed, 67) - 0.5) * 0.14;
+}
+
+/**
+ * Лиственное дерево: ствол и три шапки кроны. Каждое третье — берёза: светлая
+ * кора с тёмными отметинами видна в лесу издалека и сама по себе даёт глубину.
+ */
+function broadleaf(s: number, variant: number): THREE.Group {
+  const g = new THREE.Group();
+  const birch = variant % 3 === 0;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * s, 0.11 * s, 1.6 * s, 6), birch ? LEGACY.plaster : LEGACY.trunk);
+  trunk.position.y = 0.8 * s;
+  g.add(trunk);
+  if (birch) {
+    for (let k = 0; k < 4; k++) {
+      const mark = new THREE.Mesh(new THREE.BoxGeometry(0.09 * s, 0.025 * s, 0.05 * s), LEGACY.dark);
+      const a = hash(variant, k + 70) * Math.PI * 2;
+      mark.position.set(Math.cos(a) * 0.08 * s, (0.3 + k * 0.28) * s, Math.sin(a) * 0.08 * s);
+      mark.rotation.y = -a;
+      g.add(mark);
+    }
+  }
+  const crown = birch ? LEGACY.leaves2 : LEGACY.bush;
+  for (let k = 0; k < 3; k++) {
+    const b = new THREE.Mesh(new THREE.IcosahedronGeometry((0.7 - k * 0.12) * s, 0), crown);
+    const a = k * 2.1 + variant;
+    const off = k === 0 ? 0 : 0.32 * s;
+    b.position.set(Math.cos(a) * off, (1.7 + k * 0.45) * s, Math.sin(a) * off);
+    b.scale.y = 0.82;
+    b.rotation.y = a;
+    g.add(b);
+  }
+  return g;
+}
+
+/** Сухостой: голый ствол с обломанными сучьями. Редкий — один на двадцать. */
+function snag(s: number, variant: number): THREE.Group {
+  const g = new THREE.Group();
+  const h = 2.4 * s;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.035 * s, 0.12 * s, h, 5), LEGACY.woodDark);
+  trunk.position.y = h / 2;
+  g.add(trunk);
+  for (let k = 0; k < 3; k++) {
+    const len = (0.5 - k * 0.1) * s;
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.012 * s, 0.03 * s, len, 4), LEGACY.woodDark);
+    const a = hash(variant, k + 80) * Math.PI * 2;
+    b.position.set(Math.cos(a) * len * 0.4, h * (0.45 + k * 0.17), Math.sin(a) * len * 0.4);
+    b.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9);
+    g.add(b);
+  }
+  return g;
+}
+
+/**
+ * Материал пятен тени: умножает то, что уже нарисовано под ним.
+ *
+ * Тот же приём, что у построек деревни (`materials.SHADE`), но свой экземпляр — и
+ * не из недоверия к общему: взятый по имени, общий дописал бы себя в экспорт
+ * чанка деревни, то есть в первую загрузку (то же самое про three — `paint.ADDITIVE`).
+ */
+const SHADE_MAT = new THREE.MeshBasicMaterial({
+  vertexColors: true,
+  blending: THREE.MultiplyBlending,
+  transparent: true,
+  depthWrite: false,
+  fog: false,
+  toneMapped: false,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -2,
+});
+
+/**
+ * Насколько темнее земля в середине пятна: контактное затемнение набора
+ * (`kit.GROUND_AO`), взятое в полную силу — в кубе. Своего числа нет нарочно: тень
+ * под деревом и затемнение у основания ствола — одна и та же тень, и холодная она
+ * по тому же правилу палитры (синий темнеет меньше красного).
+ */
+const SHADE_MID = K.GROUND_AO.base.map((c) => c * c * c);
+
+/**
+ * Пятна тени на земле — одним мешем на всё, что их под собой держит: лес, деревья
+ * поляны, палатку, колоду и место дома.
+ *
+ * Пятно умножает то, что уже нарисовано, поэтому нигде не даёт чёрного и одинаково
+ * ложится на траву днём и ночью. Середина — `SHADE_MID`, край сходит в единицу.
+ */
+export class Shade {
+  private pos: number[] = [];
+  private col: number[] = [];
+
+  add(x: number, z: number, rx: number, rz: number, rot = 0, y?: number): void {
+    const seg = 10;
+    const mid = SHADE_MID;
+    const half = SHADE_MID.map((c) => c + (1 - c) * 0.5);
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    const at = (a: number, k: number): number[] => {
+      const lx = Math.cos(a) * rx * k;
+      const lz = Math.sin(a) * rz * k;
+      const px = x + lx * cos - lz * sin;
+      const pz = z + lx * sin + lz * cos;
+      return [px, (y ?? height(px, pz)) + 0.03, pz];
+    };
+    const center = [x, (y ?? height(x, z)) + 0.03, z];
+    const put = (p: number[], c: readonly number[]): void => {
+      this.pos.push(p[0], p[1], p[2]);
+      this.col.push(c[0], c[1], c[2]);
+    };
+    for (let i = 0; i < seg; i++) {
+      const a0 = (i / seg) * Math.PI * 2;
+      const a1 = ((i + 1) / seg) * Math.PI * 2;
+      const i0 = at(a0, 0.55);
+      const i1 = at(a1, 0.55);
+      const o0 = at(a0, 1);
+      const o1 = at(a1, 1);
+      put(center, mid);
+      put(i1, half);
+      put(i0, half);
+      put(i0, half);
+      put(i1, half);
+      put(o1, [1, 1, 1]);
+      put(i0, half);
+      put(o1, [1, 1, 1]);
+      put(o0, [1, 1, 1]);
+    }
+  }
+
+  mesh(): THREE.Mesh {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    const m = new THREE.Mesh(geo, SHADE_MAT);
+    m.name = 'shade';
+    m.castShadow = false;
+    m.receiveShadow = false;
+    m.frustumCulled = false;
+    return m;
+  }
+}
+
+/**
+ * Пятна тени под тем, что стоит на поляне: деревьями для рубки, палаткой, колодой
+ * и местом дома. Места записаны в `glade.ts`, поэтому и пятна стоят там всегда —
+ * под срубленным деревом остаётся тень пня, под разметкой дома — вытоптанная земля.
+ */
+export function groundShade(s: Shade): void {
+  TREES.forEach((t, i) => s.add(t.x, t.z, 1.25, 1.25, hash(i, 91)));
+  s.add(TENT.x, TENT.z, 1.9, 1.7, -TENT.rot);
+  s.add(AXE_STUMP.x, AXE_STUMP.z, 0.75, 0.75);
+  s.add(HOUSE.x, HOUSE.z, 2.3, 2.1, -HOUSE.rot);
+}
+
+/** Пятно тени под тем, кто ходит: оленем, волком, женщиной. Едет вместе с ним. */
+export function blob(rx: number, rz: number): THREE.Mesh {
+  const s = new Shade();
+  s.add(0, 0, rx, rz, 0, -0.012);
+  const m = s.mesh();
+  m.name = 'blob';
+  return m;
+}
+
+/**
+ * Подлесок: трава пучками, цветы, камни, валежник и кусты.
+ *
+ * РЕДКО, НО ВЕЗДЕ. Поляна без него — зелёный лист бумаги, на котором стоят
+ * вещи; с ним у земли появляется масштаб, и шаг читается шагом. Пучок — три
+ * травинки треугольниками, куст — две приплюснутые шапки, камень наполовину в
+ * земле.
+ *
+ * Двумя мешами, и разделено это ветром: трава и цветы качаются (`surface` роль
+ * `tuft`), камни, валежник и кусты — нет. Всё остальное — одно тело с цветом в
+ * вершинах, один вызов отрисовки на меш. Места, где ходят и работают, чисты:
+ * очаг, палатка, колода, дом и место женщины у огня.
+ */
+export function undergrowth(): { sway: THREE.Mesh; still: THREE.Mesh } {
+  const sway: K.Part[] = [];
+  const still: K.Part[] = [];
+  const keep: readonly [number, number, number][] = [
+    [FIRE.x, FIRE.z, 1.9],
+    [TENT.x, TENT.z, 2.1],
+    [AXE_STUMP.x, AXE_STUMP.z, 1.0],
+    [HOUSE.x, HOUSE.z, 2.5],
+    [MATE_SPOT.x, MATE_SPOT.z, 0.8],
+    [START.x, START.z, 0.6],
+    ...TREES.map((t): [number, number, number] => [t.x, t.z, 0.55]),
+  ];
+  const free = (x: number, z: number): boolean => keep.every(([kx, kz, r]) => Math.hypot(x - kx, z - kz) > r);
+  const tint = (hex: number): K.Paint => ({ mat: KIT.body, tint: new THREE.Color(hex) });
+  const base = [0.62, 0.68, 0.74] as const;
+
+  for (let i = 0; i < 380; i++) {
+    const a = hash(i, 201) * Math.PI * 2;
+    const r = i < 250 ? 1.6 + Math.sqrt(hash(i, 203)) * 11.4 : 13.2 + hash(i, 203) * 8;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    if (!free(x, z)) continue;
+    const y = height(x, z);
+    const h = 0.18 + hash(i, 205) * 0.2;
+    const paint = tint(mix(PALETTE.grassDark, PALETTE.grassLight, hash(i, 207)));
+    for (let b = 0; b < 3; b++) {
+      const ba = hash(i, 209 + b) * Math.PI * 2;
+      const lean = 0.25 + hash(i, 213 + b) * 0.35;
+      const w = 0.035 + hash(i, 217) * 0.02;
+      const geo = new THREE.BufferGeometry();
+      const dx = Math.cos(ba);
+      const dz = Math.sin(ba);
+      const tip = h * (0.75 + 0.25 * hash(i, 219 + b));
+      geo.setAttribute(
+        'position',
+        new THREE.Float32BufferAttribute(
+          [-dz * w, 0, dx * w, dz * w, 0, -dx * w, dx * lean * tip * 0.5, tip, dz * lean * tip * 0.5],
+          3,
+        ),
+      );
+      geo.computeVertexNormals();
+      sway.push(K.place(geo, paint, x, y, z, undefined, { base, y0: y, y1: y + h }));
+    }
+    // Цветок на каждый девятый пучок: белый, жёлтый или ягодный — пятно цвета у ног.
+    if (i % 9 === 0 && r < 12.5) {
+      const petal = [PALETTE.plaster, PALETTE.thatch, PALETTE.berry][i % 3];
+      sway.push(K.place(new THREE.IcosahedronGeometry(0.035, 0), tint(petal), x + 0.05, y + h * 0.9, z));
+    }
+  }
+
+  for (let i = 0; i < 18; i++) {
+    const a = hash(i, 231) * Math.PI * 2;
+    const r = 5 + hash(i, 233) * 8.5;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    if (!free(x, z)) continue;
+    const s = 0.1 + hash(i, 235) * 0.16;
+    const rock = tint(mix(PALETTE.stone, PALETTE.stoneDark, hash(i, 237)));
+    const y = height(x, z);
+    still.push(
+      K.place(new THREE.DodecahedronGeometry(s, 0), rock, x, y + s * 0.35, z, { x: hash(i, 239) * 3, y: hash(i, 241) * 3 }, { base: [0.7, 0.72, 0.8], y0: y, y1: y + s }),
+    );
+  }
+
+  for (let i = 0; i < 12; i++) {
+    const a = hash(i, 251) * Math.PI * 2;
+    const r = 7 + hash(i, 253) * 6;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    if (!free(x, z)) continue;
+    const len = 0.6 + hash(i, 255) * 0.7;
+    const ya = hash(i, 257) * Math.PI;
+    const wood = tint(mix(PALETTE.woodDark, PALETTE.trunk, hash(i, 259)));
+    still.push(K.cyl(0.022, 0.035, len, wood, 5, x, height(x, z) + 0.04, z, { z: Math.PI / 2, y: ya }));
+    // Сучок в сторону — палка читается веткой, а не черенком.
+    still.push(K.cyl(0.01, 0.018, len * 0.35, wood, 4, x + Math.cos(ya) * len * 0.15, height(x, z) + 0.07, z - Math.sin(ya) * len * 0.15, { z: Math.PI / 2 - 0.6, y: ya + 0.8 }));
+  }
+
+  for (let i = 0; i < 16; i++) {
+    const a = ((i + hash(i, 261) * 0.7) / 16) * Math.PI * 2;
+    const r = 11.6 + hash(i, 263) * 2.2;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    // Путь гостьи от опушки к огню не зарастает: она идёт по нему при игроке.
+    if (!free(x, z) || Math.hypot(x - GUEST_FROM.x, z - GUEST_FROM.z) < 2.2) continue;
+    const s = 0.8 + hash(i, 265) * 0.5;
+    const leaf = tint(mix(PALETTE.bush, PALETTE.leaves, hash(i, 267)));
+    const y = height(x, z);
+    for (let k = 0; k < 2; k++) {
+      const geo = new THREE.IcosahedronGeometry(0.42 * s * (1 - k * 0.25), 0);
+      geo.scale(1.25, 0.7, 1);
+      still.push(K.place(geo, leaf, x + k * 0.35 * s, y + 0.26 * s + k * 0.12, z + k * 0.2 * s, { y: a }, { base: [0.66, 0.7, 0.76], y0: y, y1: y + 0.6 * s }));
+    }
+  }
+
+  const make = (parts: K.Part[], name: string): THREE.Mesh => {
+    const m = K.assemble(parts);
+    m.name = name;
+    m.castShadow = false;
+    return m;
+  };
+  return { sway: make(sway, 'grass'), still: make(still, 'litter') };
 }
 
 /**
@@ -486,6 +788,8 @@ export function choppable(index: number): THREE.Group {
   const t = TREES[index];
   const g = makeTree(2.3 + hash(index, 51) * 0.6, index);
   put(g, t.x, t.z, hash(index, 53) * Math.PI * 2);
+  // Тот же разброс роста и наклона, что у леса: семь деревьев поляны — тоже не клоны.
+  vary(g, index * 97 + 5);
   return K.collapse(g, K.GROUND_AO);
 }
 
@@ -546,6 +850,10 @@ function deerHead(): THREE.Mesh {
     K.box(0.13, 0.13, 0.18, coat(DEER_MUZZLE), 0, 0.42, 0.54, { x: 0.24 }),
   ];
   for (const sx of [-1, 1]) {
+    // Глаз: большой и тёмный, с бликом. Олень смотрит боком — глаза у него на
+    // боках головы, и именно по ним вскинутая голова читается живой, а не чучелом.
+    parts.push(K.box(0.018, 0.042, 0.058, coat(PALETTE.dark), sx * 0.097, 0.494, 0.407, { x: 0.24 }));
+    parts.push(K.box(0.02, 0.012, 0.016, coat(PALETTE.bone), sx * 0.1, 0.506, 0.418, { x: 0.24 }));
     // Уши торчат в стороны — их видно с любого ракурса, и вскинутая голова
     // читается даже когда зверь стоит боком.
     parts.push(K.box(0.05, 0.14, 0.09, c, sx * 0.12, 0.55, 0.3, { z: sx * 0.5 }));
@@ -710,12 +1018,14 @@ const WOLF_H = 0.84;
  * шесть на ночную пару. Замер (`prologue:report`) — восемнадцать вызовов на
  * ночную поляну со стаей в кадре против семнадцати на дневную с тушей.
  */
-export function wolf(): THREE.Group {
+export function wolf(glow: THREE.Material): THREE.Group {
   const g = new THREE.Group();
   g.name = 'wolf';
   const c = coat(WOLF_COAT);
   const belly = coat(WOLF_BELLY);
   const dark = coat(WOLF_MUZZLE);
+  // Жёлтый глаз днём — янтарь из палитры, смесью соломы и руды; зрачок тёмной щелью.
+  const amber = coat(mix(PALETTE.thatch, PALETTE.ore, 0.45));
 
   const body: K.Part[] = [
     // Корпус — два бруса: грудь выше и шире паха. У волка это наоборот, чем у
@@ -733,6 +1043,8 @@ export function wolf(): THREE.Group {
   for (const sx of [-1, 1]) {
     // Уши стоймя и врозь: по ним зверя видно с любой стороны.
     body.push(K.box(0.04, 0.13, 0.08, c, sx * 0.08, WOLF_H + 0.01, 0.5, { z: sx * 0.28 }));
+    body.push(K.box(0.042, 0.028, 0.012, amber, sx * 0.05, WOLF_H - 0.075, 0.694));
+    body.push(K.box(0.012, 0.026, 0.006, dark, sx * 0.05, WOLF_H - 0.075, 0.7));
   }
   const torso = K.assemble(body);
   torso.name = 'torso';
@@ -749,21 +1061,36 @@ export function wolf(): THREE.Group {
   feet.position.y = WOLF_H - 0.38;
 
   /*
-   * Глаза: две точки светящимся материалом, одним мешем на пару.
+   * Глаза ночью: два мягких пятна света одним мешем на пару.
    *
    * Светящееся склейке не поддаётся — у него свой материал, не тело с цветом в
-   * вершинах, — поэтому глаза отдельно, ровно как пламя костра. Цвет — жёлтое
-   * нутро огня из палитры: глаза не светятся сами, они возвращают костёр. Видны
-   * только ночью (сцена гасит их днём), и платит за них ночь — один вызов на
-   * волка, и только когда он есть.
+   * вершинах, — поэтому глаза отдельно, ровно как пламя костра. Пятно, а не
+   * точка: точка в два пикселя на опушке читалась соринкой, а пятно — взглядом из
+   * темноты. Цвет — жёлтое нутро огня: глаза не светятся сами, они возвращают
+   * костёр. Смотрят вперёд, вдоль морды: глаза зверя отсвечивают, когда он глядит
+   * на огонь и на человека у огня, а боком — нет. Днём их нет (сцена гасит), днём
+   * у волка жёлтые глаза в самой морде; платит за пятна ночь — вызов на волка.
    */
-  const eyeParts = [-1, 1].map((sx) => {
-    const box = new THREE.BoxGeometry(0.06, 0.045, 0.02);
-    box.translate(sx * 0.05, WOLF_H - 0.07, 0.695);
-    return box;
-  });
-  const eyes = new THREE.Mesh(mergeGeometries(eyeParts), LEGACY.fireInner);
-  for (const part of eyeParts) part.dispose();
+  const eyePos: number[] = [];
+  const eyeUv: number[] = [];
+  const spot = 0.07;
+  for (const sx of [-1, 1]) {
+    for (const [qx, qy] of [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, -1],
+      [1, 1],
+      [-1, 1],
+    ]) {
+      eyePos.push(sx * 0.05 + qx * spot, WOLF_H - 0.075 + qy * spot, 0.708);
+      eyeUv.push((qx + 1) / 2, (qy + 1) / 2);
+    }
+  }
+  const eyeGeo = new THREE.BufferGeometry();
+  eyeGeo.setAttribute('position', new THREE.Float32BufferAttribute(eyePos, 3));
+  eyeGeo.setAttribute('uv', new THREE.Float32BufferAttribute(eyeUv, 2));
+  const eyes = new THREE.Mesh(eyeGeo, glow);
   eyes.name = 'eyes';
   eyes.castShadow = false;
   eyes.visible = false;
@@ -771,58 +1098,83 @@ export function wolf(): THREE.Group {
   return g;
 }
 
-/** Где у женщины плечи: от них висят руки, и вокруг них они поворачиваются. */
-export const WOMAN_SHOULDER = 1.3;
+/** Сколько искр над костром. */
+const SPARKS = 30;
 
 /**
- * Женщина у огня: гостья, а потом жена.
+ * Искры: светящиеся точки, летящие от огня вверх и гаснущие на лету.
  *
- * ДВА МЕША: ТЕЛО И РУКИ. Тело — юбка до пят, рубаха, накидка из шкуры, голова с
- * повязкой и коса за спиной; юбка и коса — то, по чему силуэт читается с любой
- * стороны и с любого края поляны. Руки — отдельно, с осью в плечах: ими она
- * хлопочет у огня и опускает их, оборачиваясь к подошедшему. Больше двигать
- * нечем и незачем — наклон к огню сцена делает поворотом всей фигуры у земли.
- *
- * Цвета — из палитры по имени: красная повязка и пояс — единственное яркое на
- * поляне, кроме огня, и по ним её видно от опушки. Рост — полтора метра с
- * небольшим: ниже того, из чьих глаз смотрит камера (`EYE` = 1.62).
- *
- * Лицом вдоль +Z, как олень и волк: поворот сцена считает одинаково.
+ * ВРЕМЯ СЦЕНЫ ЦЕЛИКОМ И НИ ОДНОЙ СЛУЧАЙНОСТИ. Каждая искра ходит по своему кругу —
+ * взлетела, закрутилась, погасла, родилась снова, — и где она сейчас, выводится из
+ * времени кадра и `glade.hash` её номера. Ничего не копится и никуда не пишется.
+ * Одна система точек — один вызов отрисовки, и только пока огонь горит. Днём
+ * искры почти не видны, и это правда: их видно в темноте.
  */
-export function woman(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = 'woman';
-  const linen = coat(PALETTE.cloth);
-  const fur = coat(PALETTE.hide);
-  const skin = coat(PALETTE.skin);
-  const hair = coat(PALETTE.hair);
-  const red = coat(PALETTE.paintRed);
-  const body: K.Part[] = [
-    // Юбка расширяется книзу: самое крупное пятно фигуры.
-    K.cyl(0.19, 0.33, 0.86, linen, 8, 0, 0.43, 0),
-    K.cyl(0.2, 0.2, 0.06, red, 8, 0, 0.87, 0),
-    K.cyl(0.15, 0.19, 0.42, linen, 8, 0, 1.1, 0),
-    // Накидка из шкуры на плечах.
-    K.cyl(0.13, 0.25, 0.2, fur, 8, 0, 1.23, 0),
-    K.cyl(0.05, 0.06, 0.1, skin, 6, 0, 1.36, 0),
-    K.place(new THREE.SphereGeometry(0.105, 7, 5), skin, 0, 1.47, 0.01),
-    K.cyl(0.1, 0.11, 0.07, hair, 8, 0, 1.54, -0.01),
-    K.cyl(0.112, 0.112, 0.03, red, 8, 0, 1.505, 0),
-    // Коса за спиной: по ней женщину узнают и со спины.
-    K.cyl(0.032, 0.02, 0.52, hair, 5, 0, 1.2, -0.12, { x: 0.08 }),
-  ];
-  const torso = K.assemble(body);
-  torso.name = 'body';
-  const hands: K.Part[] = [];
-  for (const sx of [-1, 1]) {
-    hands.push(K.cyl(0.042, 0.036, 0.5, linen, 6, sx * 0.2, -0.25, 0));
-    hands.push(K.box(0.06, 0.08, 0.05, skin, sx * 0.2, -0.53, 0.01));
+export class Sparks {
+  readonly points: THREE.Points;
+  private mat: THREE.PointsMaterial;
+  private pos: THREE.BufferAttribute;
+  private col: THREE.BufferAttribute;
+  private hot = new THREE.Color(PALETTE.fireInner);
+  private cool = new THREE.Color(PALETTE.fire);
+
+  constructor(map: THREE.Texture) {
+    const geo = new THREE.BufferGeometry();
+    this.pos = new THREE.BufferAttribute(new Float32Array(SPARKS * 3), 3);
+    this.col = new THREE.BufferAttribute(new Float32Array(SPARKS * 3), 3);
+    geo.setAttribute('position', this.pos);
+    geo.setAttribute('color', this.col);
+    this.mat = new THREE.PointsMaterial({
+      size: 0.07,
+      map,
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      blending: ADDITIVE,
+      fog: false,
+      toneMapped: false,
+    });
+    // Где искры бывают: над огнём до четырёх метров и в полутора в стороны, куда
+    // сносит ветер. Сфера считается один раз по крайним точкам: каждый кадр её
+    // пересчитывать незачем, а без неё искры рисовались бы и с огнём за спиной.
+    const p = this.pos.array as Float32Array;
+    p.set([FIRE.x, 0.3, FIRE.z, FIRE.x, 4, FIRE.z, FIRE.x + 1.7, 2, FIRE.z, FIRE.x - 1.7, 2, FIRE.z, FIRE.x, 2, FIRE.z + 1.7, FIRE.x, 2, FIRE.z - 1.7]);
+    geo.computeBoundingSphere();
+    this.points = new THREE.Points(geo, this.mat);
+    this.points.name = 'sparks';
   }
-  const arms = K.assemble(hands);
-  arms.name = 'arms';
-  arms.position.y = WOMAN_SHOULDER;
-  g.add(torso, arms);
-  return g;
+
+  /**
+   * `s` — время сцены в секундах, `glow` — яркость (ночью выше), `size` — высота
+   * огня: полный очаг бросает искры выше. Ветер сносит их тем сильнее, чем выше.
+   */
+  update(s: number, on: boolean, glow: number, windX: number, windZ: number, size: number): void {
+    this.points.visible = on;
+    if (!on) return;
+    const p = this.pos.array as Float32Array;
+    const c = this.col.array as Float32Array;
+    for (let i = 0; i < SPARKS; i++) {
+      const period = 1.1 + hash(i, 501) * 1.4;
+      const k = (s / period + hash(i, 503)) % 1;
+      const rise = (1.2 + hash(i, 505) * 1.8) * size;
+      const a = hash(i, 507) * Math.PI * 2 + s * (1.4 + hash(i, 509) * 2);
+      const r = 0.05 + k * (0.16 + hash(i, 511) * 0.22);
+      p[i * 3] = FIRE.x + Math.cos(a) * r + windX * k * k * 1.4;
+      p[i * 3 + 1] = 0.45 + k * rise;
+      p[i * 3 + 2] = FIRE.z + Math.sin(a) * r + windZ * k * k * 1.4;
+      const fade = Math.min(1, k / 0.08) * (1 - k) ** 1.7 * glow;
+      c[i * 3] = (this.hot.r + (this.cool.r - this.hot.r) * k) * fade;
+      c[i * 3 + 1] = (this.hot.g + (this.cool.g - this.hot.g) * k) * fade;
+      c[i * 3 + 2] = (this.hot.b + (this.cool.b - this.hot.b) * k) * fade;
+    }
+    this.pos.needsUpdate = true;
+    this.col.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.points.geometry.dispose();
+    this.mat.dispose();
+  }
 }
 
 /** Сколько капель и снежинок в поле. Поровну: одна непогода за раз. */

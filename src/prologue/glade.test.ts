@@ -19,11 +19,16 @@ import {
   TENT,
   TREES,
   TREE_R,
+  VIEW_H_MIN,
+  VIEW_V_MAX,
+  VIEW_V_MIN,
   WOLF_R,
   blockers,
+  hFov,
   nearest,
   slide,
   standing,
+  viewFov,
   yawTo,
 } from './glade';
 
@@ -193,6 +198,41 @@ describe('куда смотреть', () => {
     expect(yawTo(0, 0, 0, -1)).toBeCloseTo(0, 9);
     expect(yawTo(0, 0, -1, 0)).toBeCloseTo(Math.PI / 2, 9);
     expect(yawTo(0, 0, 1, 0)).toBeCloseTo(-Math.PI / 2, 9);
+  });
+});
+
+describe('угол обзора', () => {
+  it('на портрете горизонталь больше не труба', () => {
+    // 375×812 и 360×780 — самые частые и самые тесные телефоны. Прежние 72° по
+    // вертикали давали на них 37° по горизонтали.
+    for (const [w, h] of [
+      [375, 812],
+      [360, 780],
+      [390, 844],
+    ]) {
+      const fov = viewFov(w / h);
+      expect(hFov(72, w / h), `${w}×${h} было`).toBeLessThan(40);
+      expect(hFov(fov, w / h), `${w}×${h} стало`).toBeGreaterThanOrEqual(VIEW_H_MIN - 1e-9);
+      expect(fov).toBeLessThanOrEqual(VIEW_V_MAX);
+    }
+  });
+
+  it('на широком экране не меняется ничего', () => {
+    expect(viewFov(1280 / 800)).toBe(VIEW_V_MIN);
+    expect(viewFov(812 / 375)).toBe(VIEW_V_MIN);
+  });
+
+  it('потолок держит даже экран-щель', () => {
+    expect(viewFov(0.25)).toBe(VIEW_V_MAX);
+  });
+
+  it('прицел угла не знает: стрела летит вдоль взгляда, а тап меряет метрами', () => {
+    // Держится устройством, и проверять надо устройство: ни правило попадания, ни
+    // досягаемость, ни поворот взгляда не читают угол камеры.
+    for (const file of ['hunt.ts', 'act.ts', 'controls.ts', 'wolves.ts']) {
+      const src = readFileSync(join(__dirname, file), 'utf8');
+      expect(src, `${file} зависит от угла обзора`).not.toMatch(/\bfov\b|viewFov/);
+    }
   });
 });
 
