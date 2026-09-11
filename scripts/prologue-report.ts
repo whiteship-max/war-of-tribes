@@ -1348,15 +1348,7 @@ async function report(): Promise<void> {
   while (Date.now() < fightTill) {
     const now = await state();
     const hurt = now.harm as unknown as number;
-    if (hurt > 0 && firstBite < 0) {
-      firstBite = Date.now() - outFrom;
-      // Укус волка — глазами: полоса здоровья опустилась на шестую, зверь в шаге.
-      if (SHOTS) {
-        mkdirSync(SHOTS, { recursive: true });
-        const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-        writeFileSync(join(SHOTS, '3б-укус-375.png'), Buffer.from(shot.data, 'base64'));
-      }
-    }
+    if (hurt > 0 && firstBite < 0) firstBite = Date.now() - outFrom;
     hurtMax = Math.max(hurtMax, hurt);
     if (now.dead) break;
     if ((now.wolves as unknown as number) === 0) break;
@@ -1375,51 +1367,62 @@ async function report(): Promise<void> {
   const quiet = await state();
   step('отбитая стая ушла', (quiet.wolves as unknown as number) === 0, `волков на поляне: ${quiet.wolves}`);
 
-  // Мясо из вещей возвращает здоровье — ровно укус за жареный кусок, и настоящим касанием.
-  const bitten = await state();
-  if ((bitten.harm as unknown as number) > 0 && (bitten.cooked as unknown as number) > 0) {
-    await pressSel('.pro-pack');
-    const before = bitten.harm as unknown as number;
-    await pressSel('.pro-inv li .pro-eat');
-    const after = await state();
-    step(
-      'мясо из вещей вернуло здоровье — ровно укус',
-      Math.abs(before - (after.harm as unknown as number) - MEAT_HEAL) < 0.01 &&
-        (after.cooked as unknown as number) === (bitten.cooked as unknown as number) - 1,
-      `урон ${num(before, 2)} → ${num(after.harm as unknown as number, 2)}, жареного ${bitten.cooked} → ${after.cooked}`,
-    );
-    await pressSel('.pro-pack');
-  } else {
-    step('мясо из вещей вернуло здоровье — ровно укус', true, 'не укусили — лечить нечего');
-  }
-
-  if (SHOTS) {
-    // Укус на узком экране: погасший очаг ночью — стая подходит к самой стоянке, и
-    // стенд смотрит на ближайшего волка, пока тот не укусит.
+  /*
+   * Укус и лечение — настоящим кадром и настоящим касанием. В драке выше стенд
+   * отбивается раньше, чем стая кусает, и проверка лечения на укушенном после
+   * драки проходила вхолостую: «не укусили — лечить нечего». Поэтому укус здесь
+   * устроен нарочно: погасший очаг ночью, стая подходит к самой стоянке, стенд
+   * смотрит на ближайшего волка, пока тот не укусит. Здоровье обязано упасть ровно
+   * на укус, а не на «почти укус» (шесть шестых в плавающей точке — не единица), и
+   * жареный кусок из вещей обязан вернуть его ровно обратно. Со снимками — на 375
+   * и 360 px; проверки — на первом.
+   */
+  for (const size of SHOTS ? SHOT_SIZES : SHOT_SIZES.slice(0, 1)) {
     const biteNight = moment(Date.now() + 10_000, 40_000, (t) => isNight(t) && packAt(t, 0) === WOLF_NIGHT_PACK && weatherAt(t) === 'clear');
     await into(biteNight, { fuel: 0 }, false);
-    await screen({ w: 360, h: 780, dpr: 2, mobile: true });
+    await screen({ w: size.w, h: size.h, dpr: 2, mobile: true });
     await sleep(700);
-    const biteTill = Date.now() + 30_000;
-    while (Date.now() < biteTill) {
-      if (((await state()).harm as unknown as number) > 0) {
-        const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-        writeFileSync(join(SHOTS, '3б-укус-360.png'), Buffer.from(shot.data, 'base64'));
-        break;
-      }
+    // Подсказку снимает взгляд: тап у погасшего очага с мясом в руках делал бы дело.
+    await look(40);
+    const biteFrom = Date.now();
+    let me = await state();
+    while (Date.now() < biteFrom + 30_000 && (me.harm as unknown as number) === 0) {
+      // Лицом к ближайшему всё время, а не только когда он в шаге: бросок идёт по
+      // прямой и быстрее доворота, и повернувшийся поздно стенд снимал укус без волка.
       const wolves = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
-      const me = await state();
       const near = wolves.sort(
         (a, b) =>
           Math.hypot(a.x - (me.x as unknown as number), a.z - (me.z as unknown as number)) -
           Math.hypot(b.x - (me.x as unknown as number), b.z - (me.z as unknown as number)),
       )[0];
-      if (near && Math.hypot(near.x - (me.x as unknown as number), near.z - (me.z as unknown as number)) < 6) await turnTo(near.x, near.z);
-      await sleep(60);
+      if (near) await turnTo(near.x, near.z);
+      await sleep(40);
+      me = await state();
     }
-    await screen(SCREENS[0]);
-    await sleep(500);
+    const harm = me.harm as unknown as number;
+    if (SHOTS && harm > 0) {
+      mkdirSync(SHOTS, { recursive: true });
+      const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(join(SHOTS, `3б-укус-${size.w}.png`), Buffer.from(shot.data, 'base64'));
+    }
+    if (size !== SHOT_SIZES[0]) continue;
+    step('волк укусил — здоровье упало ровно на укус', harm === 1, harm > 0 ? `урон ${harm} из ${WOLF_BITES} через ${num((Date.now() - biteFrom) / 1000)} с` : 'за 30 с не укусили');
+    // После укуса стая отскакивает на `WOLF_BITE_GAP`: двух касаний это не ждёт.
+    await pressSel('.pro-pack');
+    const before = await state();
+    await pressSel('.pro-inv li .pro-eat');
+    const after = await state();
+    step(
+      'мясо из вещей вернуло здоровье — ровно укус',
+      harm > 0 &&
+        Math.abs((before.harm as unknown as number) - (after.harm as unknown as number) - MEAT_HEAL) < 0.01 &&
+        (after.cooked as unknown as number) === (before.cooked as unknown as number) - 1,
+      `урон ${num(before.harm as unknown as number, 2)} → ${num(after.harm as unknown as number, 2)}, жареного ${before.cooked} → ${after.cooked}`,
+    );
+    await pressSel('.pro-pack');
   }
+  await screen(SCREENS[0]);
+  await sleep(500);
 
   /*
    * Дождь: сперва небо хмурится, потом льёт. Минута — начало дождливого спелла,
