@@ -21,7 +21,11 @@
  *
  * ВЕРСИЮ НОВЫЕ ПОЛЯ НЕ ПОДНИМАЮТ, и это то же правило, что у партии: голод,
  * холод, охота и мясо приезжают к старой записи со значениями по умолчанию, и
- * человек в ней оказывается сытым и в тепле. Иначе игрок, зашедший через
+ * человек в ней оказывается сытым и в тепле. Род — так же: у старой записи нет
+ * ни жены, ни сына, ни дней общей жизни, а достроенный в ней дом ждёт гостью
+ * сразу (`builtAt` = 0). Проверено разбором, а не на слово: `loadPrologue`
+ * читает каждое поле со своим умолчанием, и чужая версия для этого не нужна
+ * (`kin.test.ts`, «старая запись»). Иначе игрок, зашедший через
  * неделю, получил бы шкалы, отсчитанные от чужой минуты, — то есть умер бы за
  * то, что мы дописали код.
  *
@@ -32,11 +36,12 @@
  * случиться в любую минуту или не случиться вовсе.
  */
 import { serverNow } from '@/net/clock';
-import { newHearth, type Hearth } from './fire';
+import { keepHearth, newHearth, type Hearth } from './fire';
 import { WOUNDS_FATAL, camp, newBody, type Body } from './body';
 import { HOUSE_LOGS, houseDone } from './craft';
 import { TREES } from './glade';
 import { newHunt, type Hunt, type Pt } from './hunt';
+import { HEIR_MAX, newBond, type Bond, type Person, type Tally } from './kin';
 
 const KEY = 'tribe.prologue.v1';
 
@@ -93,6 +98,30 @@ export interface PrologueSave {
   house: number;
   /** Шкур в руках: снятых с туши и ещё не сшитых. */
   hides: number;
+  /**
+   * Минута, в которую достроен дом: от неё идёт первая гостья (`kin.guestAt`).
+   * 0 — не достроен или достроен до этой записи, и тогда гостья уже ждёт у огня.
+   */
+  builtAt: number;
+  /** Сколько гостий получили отказ и когда ушла последняя: от этой пары считается следующая. */
+  refused: number;
+  refusedAt: number;
+  /** Жена: имя и минута, с которой она живёт в доме. `null` — её нет. */
+  wife: Person | null;
+  /**
+   * Дни общей жизни по четырём делам — из них и только из них считается любовь
+   * (`kin.love`). Самой любви в записи нет: она выводится, а не хранится.
+   */
+  bond: Bond;
+  /**
+   * Сын: имя и минута, когда его назвали. `null` — не родился.
+   *
+   * ИМЯ ЛЕЖИТ ЗДЕСЬ ДЛЯ ОСНОВНОЙ ИГРЫ: позже оно станет именем правителя деревни.
+   * Сейчас его не читает никто, кроме родословной, и связи с партией нет, — но
+   * поле названо так, чтобы взять его можно было, не разбирая остального:
+   * `localStorage['tribe.prologue.v1']` → JSON → `heir.name` (docs/prologue.md).
+   */
+  heir: Person | null;
 }
 
 /** Новая предыстория: костёр початый, топор на пне, пожитки у палатки, лес цел. */
@@ -112,6 +141,12 @@ export function freshPrologue(now = serverNow()): PrologueSave {
     wolvesBeatenAt: 0,
     house: 0,
     hides: 0,
+    builtAt: 0,
+    refused: 0,
+    refusedAt: 0,
+    wife: null,
+    bond: newBond(),
+    heir: null,
   };
 }
 
@@ -145,11 +180,17 @@ export function freshPrologue(now = serverNow()): PrologueSave {
  * ДОМ И ОДЕЖДА ОСТАЮТСЯ, ШКУРЫ В РУКАХ — НЕТ. Дом стоит на земле, а земле всё
  * равно, кто по ней ходит; одежда на человеке — вещь, как топор и лук. Шкура в
  * руках — запас, как мясо и дрова, и пропадает вместе с ними.
+ *
+ * РОД ОСТАЁТСЯ ЦЕЛИКОМ: жена, дни общей жизни, сын, счёт отказов. Отнять жену за
+ * смерть значило бы замкнуть петлю смертей тем же способом, от которого здесь
+ * уже отказались с топором и луком, — а шкала, обнулённая за чужой зуб,
+ * превратила бы любовь в ставку. Очаг нового утра она и разжигает: бережёт его
+ * по-прежнему она.
  */
 export function revive(s: PrologueSave, now = serverNow()): PrologueSave {
   return {
     ...s,
-    hearth: newHearth(now),
+    hearth: newHearth(now, s.wife !== null),
     body: { ...newBody(now), coat: s.body.coat },
     logs: 0,
     hides: 0,
@@ -179,6 +220,26 @@ const points = (v: unknown): Pt[] => {
 };
 
 /**
+ * Человек из записи: имя — непустая строка. Битая запись — нет человека, а не падение.
+ *
+ * Правило «мусор не принимается» здесь заново не применяется, и нарочно: оно
+ * стоит на входе (`kin.heirName`), а правило, ужесточённое завтра, не должно
+ * молча стирать сына, названного вчера. Здесь только страховка от чужой строки.
+ */
+const person = (v: unknown): Person | null => {
+  const p = v as Partial<Person> | null;
+  if (!p || typeof p !== 'object' || typeof p.name !== 'string') return null;
+  const name = p.name.replace(/\s+/g, ' ').trim().slice(0, HEIR_MAX * 2);
+  return name ? { name, at: num(p.at, 0) } : null;
+};
+
+/** Дело общей жизни из записи. Не прочиталось — дней ноль, засчитывать можно сегодня же. */
+const tallyOf = (v: unknown): Tally => {
+  const t = v as Partial<Tally> | null;
+  return { n: count(t?.n), day: Math.floor(num(t?.day, -1)) };
+};
+
+/**
  * Прочитать сохранение.
  *
  * Всё, что не сошлось, молча заменяется свежим: чужая версия, битая строка,
@@ -192,12 +253,17 @@ export function loadPrologue(now = serverNow()): PrologueSave {
     if (!raw) return fresh;
     const p = JSON.parse(raw) as Partial<PrologueSave>;
     if (p?.v !== PROLOGUE_VERSION) return fresh;
+    const wife = person(p.wife);
+    const hearth: Hearth = {
+      fuel: num(p.hearth?.fuel, fresh.hearth.fuel),
+      at: num(p.hearth?.at, now),
+      ...(p.hearth?.kept === true ? { kept: true } : {}),
+    };
     return {
       v: PROLOGUE_VERSION,
-      hearth: {
-        fuel: num(p.hearth?.fuel, fresh.hearth.fuel),
-        at: num(p.hearth?.at, now),
-      },
+      // Жена в доме, а очаг записан без хозяйки, — такое бывает только у записи,
+      // собранной руками. Мера меняется с этой минуты, а не задним числом.
+      hearth: wife && !hearth.kept ? keepHearth(hearth, now) : hearth,
       body: {
         hunger: Math.min(1, Math.max(0, num(p.body?.hunger, 0))),
         cold: Math.min(1, Math.max(0, num(p.body?.cold, 0))),
@@ -235,6 +301,17 @@ export function loadPrologue(now = serverNow()): PrologueSave {
       wolvesBeatenAt: num(p.wolvesBeatenAt, 0),
       house: Math.min(HOUSE_LOGS, count(p.house)),
       hides: count(p.hides),
+      builtAt: num(p.builtAt, 0),
+      refused: count(p.refused),
+      refusedAt: num(p.refusedAt, 0),
+      wife,
+      bond: {
+        meal: tallyOf(p.bond?.meal),
+        hug: tallyOf(p.bond?.hug),
+        night: tallyOf(p.bond?.night),
+        wood: tallyOf(p.bond?.wood),
+      },
+      heir: person(p.heir),
     };
   } catch {
     return fresh;

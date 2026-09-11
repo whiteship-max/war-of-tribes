@@ -16,7 +16,11 @@
  *            ложатся ли брёвна в дом — тем же касанием; и чего ремесло стоит
  *            беготни и что даёт взамен — числом из тех же формул, что у игры;
  *   сцена    остаётся ли в игре ровно одна живая сцена — и возвращается ли
- *            диорама деревни после выхода из режима.
+ *            диорама деревни после выхода из режима;
+ *   род      выходит ли к достроенному дому женщина, не тупик ли отказ,
+ *            засчитываются ли мясо, дрова, объятие и ночь дома, уходит ли
+ *            камера под крышу и возвращается ли, принимается ли имя сына с
+ *            поднятой клавиатурой и показывает ли родословная ровно то, что есть.
  *
  * ЗДЕСЬ НАСТОЯЩИЙ WEBGL, и это условие, а не подробность. `tap:report` мерит
  * поведение при подделанном контексте — ему хватает, кадра там нет вовсе. Здесь
@@ -57,12 +61,38 @@ import { join } from 'node:path';
 import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import { BURN_FULL_MS, HEARTH_CAP, LOG_HOURS, LOG_MS } from '../src/prologue/fire';
-import { AXE_STUMP, CHOPS_TO_FELL, GLADE_R, HOUSE, REACH, REGROW_MS, TENT, TREES, TREE_LOGS, WALK_SPEED, WARM_R } from '../src/prologue/glade';
+import { BURN_FULL_MS, HEARTH_CAP, KEEP_BURN, LOG_HOURS, LOG_MS, burnLeftMs } from '../src/prologue/fire';
+import {
+  AXE_STUMP,
+  CHOPS_TO_FELL,
+  GLADE_R,
+  GUEST_FROM,
+  HOUSE,
+  MATE_SPOT,
+  REACH,
+  REGROW_MS,
+  TENT,
+  TREES,
+  TREE_LOGS,
+  WALK_SPEED,
+  WARM_R,
+} from '../src/prologue/glade';
 import { CHILL_H, CHILL_MS, COAT_CHILL, MEAT_FED_H, RAW_SHARE, STARVE_H, WARM_MIN, WOUNDS_FATAL, WOUND_HEAL_H, coldDeadAt, newBody, type Body } from '../src/prologue/body';
 import { ARROWS_PER_LOG, HOUSE_LOGS, HOUSE_PER_STAGE, HOUSE_STAGES, QUIVER_MAX } from '../src/prologue/craft';
+import {
+  BOND_KINDS,
+  GUESTS,
+  GUEST_FIRST_MS,
+  GUEST_GAP_MS,
+  HEIR_MAX,
+  HEIR_MIN,
+  LOVE_DAYS,
+  LOVE_FULL,
+  LOVE_STEP,
+  dayOf,
+} from '../src/prologue/kin';
 import { newHearth } from '../src/prologue/fire';
-import { ARROWS_START, CARCASS_H, DEER_ALERT, DEER_FLEE, DEER_GAP_H, DEER_MEAT, DEER_SLEEP_FLEE } from '../src/prologue/hunt';
+import { ARROWS_START, CARCASS_H, DEER_ALERT, DEER_BODY_R, DEER_FLEE, DEER_GAP_H, DEER_MEAT, DEER_SLEEP_FLEE } from '../src/prologue/hunt';
 import { ROAST_COST } from '../src/prologue/act';
 import { LOOK_PER_PX, STICK_DEAD, STICK_FULL } from '../src/prologue/controls';
 import {
@@ -134,6 +164,29 @@ interface Chain {
   said: string;
 }
 
+/** Поле имени глазами страницы: где стоит, в фокусе ли, что в нём и не уехала ли страница. */
+interface Field {
+  here: boolean;
+  focused: boolean;
+  value: string;
+  top: number;
+  bottom: number;
+  cardTop: number;
+  disabled: boolean;
+  why: string;
+  inner: number;
+  scroll: number;
+  vvTop: number;
+}
+
+/**
+ * Какую долю экрана в портрете занимает клавиатура вместе со строкой подсказок.
+ *
+ * 336 из 812 — клавиатура iPhone с полосой подсказок; у Gboard на Android того же
+ * порядка. Мерка нужна одна: поле имени обязано стоять выше неё на любом экране.
+ */
+const KEYBOARD_SHARE = 336 / 812;
+
 /**
  * Что подкладывается в страницу.
  *
@@ -147,6 +200,12 @@ const PROBE = `
   if (!pro()) throw new Error('нет window.__pro — предыстория не открыта или страница без ?probe=1');
   let stamps = [];
   let watching = false;
+  // Щелчки по луку считаются у окна на погружении и раньше всех: тогда видно,
+  // дошло ли касание до кнопки, даже если щелчок потом кто-то перехватит.
+  let bowClicks = 0;
+  window.addEventListener('click', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.pro-bow')) bowClicks++;
+  }, true);
   const tick = () => {
     if (!watching) return;
     stamps.push(performance.now());
@@ -213,12 +272,86 @@ const PROBE = `
         roof: p.craft().roof,
         arrows: p.arrowCount(),
         chops: v.busyLeft,
+        mate: v.mate,
+        mateName: v.mateName,
+        mateSays: v.mateSays,
+        panel: v.panel,
+        love: v.love,
+        nights: v.nights,
+        note: v.note,
+        hugging: v.hugging,
+        give: v.give.label,
+        giveCan: v.give.can,
+        giveWhy: v.give.why,
+        lineage: v.lineage.length,
+        refused: p.kin().refused,
+        wife: p.kin().wife,
+        heir: p.kin().heir,
+        kept: p.kin().kept,
+        camY: p.kin().camY,
+        camPitch: p.kin().camPitch,
       });
+    },
+    /** Где женщина у огня. У сцены: её место живёт в кадрах. */
+    mate() {
+      return JSON.stringify(pro().mateAt());
+    },
+    /** Середина узла надстройки — туда кладётся палец. */
+    box(sel) {
+      const el = document.querySelector(sel);
+      if (!el) return JSON.stringify(null);
+      const r = el.getBoundingClientRect();
+      return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) });
+    },
+    /** Поле имени и страница вокруг него: не уехало ли поле и не прыгнула ли страница. */
+    field() {
+      const input = document.querySelector('.pro-name input');
+      const card = document.querySelector('.pro-name');
+      const btn = document.querySelector('.pro-name button[type=submit]');
+      const why = document.querySelector('.pro-name .pro-card-why');
+      const box = document.querySelector('.pro');
+      const r = input ? input.getBoundingClientRect() : null;
+      const c = card ? card.getBoundingClientRect() : null;
+      const vv = window.visualViewport;
+      return JSON.stringify({
+        here: !!input,
+        focused: !!input && document.activeElement === input,
+        value: input ? input.value : '',
+        top: r ? r.top : -1,
+        bottom: r ? r.bottom : -1,
+        cardTop: c ? c.top : -1,
+        disabled: !!btn && btn.disabled,
+        why: why ? why.textContent : '',
+        inner: window.innerHeight,
+        scroll: (document.scrollingElement ? document.scrollingElement.scrollTop : 0) + window.scrollY + (box ? box.scrollTop : 0),
+        vvTop: vv ? vv.offsetTop : 0,
+      });
+    },
+    /** Затемнение и знак объятия: что сейчас на экране поверх сцены. */
+    veil() {
+      const el = document.querySelector('.pro-hug');
+      if (!el) return JSON.stringify(null);
+      return JSON.stringify({
+        veil: Number(el.children[0].style.opacity || 0),
+        heart: Number(el.children[1].style.opacity || 0),
+      });
+    },
+    /** Запись как она лежит на диске — тем же ключом, каким её возьмёт основная игра. */
+    saved() {
+      try {
+        return JSON.stringify(JSON.parse(localStorage.getItem('tribe.prologue.v1') || '{}'));
+      } catch (e) {
+        return JSON.stringify({});
+      }
     },
     /** Занята ли точка касания разметкой: под пальцем обязана быть канва. */
     free(x, y) {
       const el = document.elementFromPoint(x, y);
       return JSON.stringify(!!el && el.tagName === 'CANVAS');
+    },
+    /** Сколько щелчков дошло до кнопки лука с тех пор, как щуп подложен. */
+    bowClicks() {
+      return JSON.stringify(bowClicks);
     },
     /** Где сейчас зверь. Спрашиваем у сцены: второго источника у этого нет. */
     deer() {
@@ -355,7 +488,7 @@ async function main(): Promise<void> {
     console.log(`\nСорвалось: ${bad.map((c) => c.step).join(', ')}`);
     process.exitCode = 1;
   } else {
-    console.log('\nЦепочка проходится настоящим касанием, стая отбивается топором, живая сцена в игре одна.');
+    console.log('\nЦепочка проходится настоящим касанием, стая отбивается топором, род проходится пальцем, живая сцена в игре одна.');
   }
 }
 
@@ -577,15 +710,36 @@ async function report(): Promise<void> {
     await sleep(120);
   };
 
-  /** Тянуть взглядом: палец в правой половине, поворот на столько-то градусов. */
+  /**
+   * Тянуть взглядом: палец в правой половине, поворот на столько-то градусов.
+   *
+   * КОРОТКАЯ ТЯГА — НЕ ТАП, И ДЕРЖИТСЯ ЭТО ЗДЕСЬ, А НЕ У КАЖДОГО, КТО ЗОВЁТ ВЗГЛЯД.
+   * Разбор жеста честно засчитывает тапом касание, сошедшее меньше `TAP_SLIP`, а тап
+   * делает дело над тем, к чему подошли: доворот на десяток градусов у костра с
+   * дровами в руках клал их в огонь, у колоды — строгал из них стрелы. Нашёл это
+   * прогон рода: два полена, которые стенд нёс в общий очаг, ушли раньше, чем
+   * гостья стала женой, и день дров не засчитался. Поэтому короткая тяга сперва
+   * уводит палец вниз за порог тапа и возвращает обратно: наклон взгляда приходит
+   * к прежнему, а жест остаётся ведением. Длинной тяге это не нужно, и её путь
+   * не тронут.
+   */
   const look = async (deg: number): Promise<void> => {
     const px = Math.round(-deg / LOOK_PER_PX);
     const ox = 280;
     const oy = 400;
+    const dip = Math.abs(px) <= TAP_SLIP + 4 ? TAP_SLIP + 12 : 0;
     await send('touchStart', [{ id: 3, x: ox, y: oy }]);
+    for (let i = 1; dip > 0 && i <= 3; i++) {
+      await send('touchMove', [{ id: 3, x: ox, y: oy + (dip * i) / 3 }]);
+      await sleep(16);
+    }
     const steps = Math.max(4, Math.min(20, Math.abs(px) / 8));
     for (let i = 1; i <= steps; i++) {
-      await send('touchMove', [{ id: 3, x: ox + (px * i) / steps, y: oy }]);
+      await send('touchMove', [{ id: 3, x: ox + (px * i) / steps, y: oy + dip }]);
+      await sleep(16);
+    }
+    for (let i = 2; dip > 0 && i >= 0; i--) {
+      await send('touchMove', [{ id: 3, x: ox + px, y: oy + (dip * i) / 3 }]);
       await sleep(16);
     }
     await send('touchEnd', []);
@@ -730,6 +884,34 @@ async function report(): Promise<void> {
     }
   };
 
+  /**
+   * Навести взгляд на зверя перед выстрелом — точнее половины его ширины.
+   *
+   * Доворота с допуском в шесть градусов для лука мало, и нашлось это прогоном:
+   * олень в девяти метрах шириной в метр — это шесть градусов целиком, и доворот,
+   * остановившийся у края допуска, пускал стрелу мимо. Цепочка срывалась четырьмя
+   * промахами подряд или проходила с первого выстрела в зависимости от того, где
+   * остановился последний доворот, — то есть от тайминга стенда, а не от игры.
+   * Стрела летит ровно туда, куда смотрят, поэтому и смотреть стенд обязан точно,
+   * а где зверь, перечитывать на каждом довороте: он пасётся.
+   */
+  const aimAtDeer = async (): Promise<boolean> => {
+    for (let i = 0; i < 8; i++) {
+      const beast = await tab.eval<{ x: number; z: number } | null>('window.__probe.deer()');
+      if (!beast) return false;
+      const now = await state();
+      const dx = beast.x - (now.x as unknown as number);
+      const dz = beast.z - (now.z as unknown as number);
+      const tol = Math.max(0.75, ((Math.atan2(DEER_BODY_R, Math.hypot(dx, dz)) * 180) / Math.PI) * 0.5);
+      const wantDeg = (Math.atan2(-dx, -dz) * 180) / Math.PI;
+      const haveDeg = ((now.yaw as unknown as number) * 180) / Math.PI;
+      const turn = ((wantDeg - haveDeg + 540) % 360) - 180;
+      if (Math.abs(turn) <= tol) return true;
+      await look(Math.max(-100, Math.min(100, turn)));
+    }
+    return true;
+  };
+
   /** Нажать кнопку лука пальцем, а не вызовом: она такая же кнопка, как все. */
   const bowTap = async (): Promise<void> => {
     const box = await tab.eval<{ x: number; y: number } | null>(
@@ -740,6 +922,58 @@ async function report(): Promise<void> {
     await sleep(80);
     await send('touchEnd', []);
     await sleep(140);
+  };
+
+  /**
+   * Нажать лук и дождаться, что сцена это услышала: лук натянулся или стрела ушла.
+   *
+   * НАЖАТИЕ ЗАСЧИТЫВАЕТСЯ ПО СЦЕНЕ, А НЕ ПО ПАЛЬЦУ, — И НАШЁЛ ЭТО ПРОГОН. Стенд
+   * считал выстрелом своё нажатие, а прогон показал «один выстрел, в колчане 3,
+   * на земле 0»: стрела ещё летела, когда колчан пересчитывали. Так бывает ровно в
+   * одном случае — одно нажатие до сцены не дошло, лук остался натянутым, и
+   * следующее «натянуть» пустило стрелу: на щелчок по натянутому луку сцена
+   * стреляет всегда (`doBow`). Теперь нажатие ждёт ответа сцены, не дождалось —
+   * повторяется один раз, а потеря называется строкой отчёта вместе с тем, дошёл
+   * ли щелчок до кнопки (счётчик щупа), — молча её не спрятать.
+   */
+  const lostBow: string[] = [];
+  const bowPress = async (want: 'draw' | 'shoot', aim?: () => Promise<boolean>): Promise<boolean> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (aim && !(await aim())) return false;
+      const before = await state();
+      const clicks = await tab.eval<number>('window.__probe.bowClicks()');
+      await bowTap();
+      for (let t = 0; t < 12; t++) {
+        const now = await state();
+        const heard =
+          want === 'draw' ? now.drawn === true : (now.quiver as unknown as number) < (before.quiver as unknown as number);
+        if (heard) return true;
+        await sleep(50);
+      }
+      const came = (await tab.eval<number>('window.__probe.bowClicks()')) > clicks;
+      lostBow.push(
+        `«${want === 'draw' ? 'натянуть' : 'пустить'}» — ${came ? 'щелчок до кнопки дошёл, сцена не ответила' : 'щелчка по кнопке не было'}`,
+      );
+      await sleep(300);
+    }
+    return false;
+  };
+
+  /**
+   * Дождаться, что стрела больше не в воздухе.
+   *
+   * Попал или нет, решает долетевшая стрела, а не пауза после нажатия: пока она
+   * летит, в колчане её уже нет, а на земле ещё нет. Промах втыкает её в землю,
+   * попадание кладёт рядом с тушей (`hitBeast`), и в обоих случаях колчан с землёй
+   * снова дают полный счёт. Не дали за две секунды — стрела пропала, и это поймает
+   * шаг «стрела не размножилась».
+   */
+  const landed = async (): Promise<void> => {
+    for (let t = 0; t < 40; t++) {
+      const now = await state();
+      if ((now.quiver as unknown as number) + (now.arrows as unknown as number) === ARROWS_START) return;
+      await sleep(50);
+    }
   };
 
   const gotKit = await walkTo(-3.3, -2.5, 'Взять лук');
@@ -768,25 +1002,26 @@ async function report(): Promise<void> {
     const beast = await tab.eval<{ x: number; z: number } | null>('window.__probe.deer()');
     if (!beast) break;
     await turnTo(beast.x, beast.z);
-    await bowTap();
-    const drawn = await state();
-    if (drawn.drawn !== true) break;
-    // Целимся ещё раз: пока натягивали, зверь мог шагнуть.
-    const again = await tab.eval<{ x: number; z: number } | null>('window.__probe.deer()');
-    if (again) await turnTo(again.x, again.z);
-    await bowTap();
+    if (!(await bowPress('draw'))) break;
+    // Целимся ещё раз и точно: пока натягивали, зверь мог шагнуть.
+    if (!(await bowPress('shoot', aimAtDeer))) break;
     shots++;
-    await sleep(900);
-    hit = (await tab.eval<{ x: number; z: number } | null>('window.__probe.deer()')) === null;
+    await landed();
+    // Попадание засчитывает туша на поляне, а не то, что оленя больше не видно.
+    hit = (await tab.eval<{ x: number; z: number } | null>('window.__probe.carcass()')) !== null;
   }
+  await landed();
   const shotState = await state();
+  const shotQuiver = shotState.quiver as unknown as number;
+  const shotGround = shotState.arrows as unknown as number;
   step(
     'лук: натянул и пустил стрелу',
-    shots > 0 && (shotState.quiver as unknown as number) < ARROWS_START,
-    `выстрелов ${shots}, в колчане ${shotState.quiver}, на земле ${shotState.arrows}`,
+    shots > 0 && shotQuiver < ARROWS_START,
+    `выстрелов ${shots}, в колчане ${shotQuiver}, на земле ${shotGround}`,
   );
-  step('стрела не размножилась', (shotState.quiver as unknown as number) + (shotState.arrows as unknown as number) === ARROWS_START, `${shotState.quiver} + ${shotState.arrows} = ${ARROWS_START}`);
+  step('стрела не размножилась', shotQuiver + shotGround === ARROWS_START, `${shotQuiver} + ${shotGround} = ${shotQuiver + shotGround} из ${ARROWS_START}`);
   step('олень свален', hit, hit ? `с ${shots} выстрела` : `${shots} выстрелов мимо — зверь ушёл`);
+  if (lostBow.length) console.log(`  касание лука не дошло до сцены ${lostBow.length} раз: ${lostBow.join('; ')}`);
 
   // Туша: подходим по надписи, режем до конца.
   let cuts = 0;
@@ -876,6 +1111,10 @@ async function report(): Promise<void> {
     }, ${JSON.stringify(over)});
     if (save.fuel !== undefined) { save.hearth = { fuel: save.fuel, at: now }; delete save.fuel; }
     if (save.hunt.carcass) save.hunt.killedAt = now;
+    // Минута достроенного дома — от минуты загрузки: гостья придёт тогда, когда
+    // разделу нужно, а не когда повезёт. Отрицательное — дом «достроят» позже.
+    if (typeof save.builtAgo === 'number') { save.builtAt = now - save.builtAgo; delete save.builtAgo; }
+    if (save.kept) { save.hearth = Object.assign({}, save.hearth, { kept: true }); delete save.kept; }
     localStorage.setItem('tribe.prologue.v1', JSON.stringify(save));
     return JSON.stringify('ok');
   })()`;
@@ -1058,12 +1297,13 @@ async function report(): Promise<void> {
     return sum / n;
   };
   /** Сколько дров оставить в очаге, чтобы сутки отлучки не убили: среднее и худшее по кольцу. */
-  const dayLogs = (over: Partial<Body>): { mean: number; worst: number } => {
+  const dayLogs = (over: Partial<Body>, kept = false): { mean: number; worst: number } => {
     let sum = 0;
     let worst = 0;
     let n = 0;
     for (let t0 = 0; t0 < RING_MS; t0 += 20_000, n++) {
-      const lives = (f: number): boolean => coldDeadAt({ ...newBody(t0), ...over }, { fuel: f, at: t0 }) - t0 >= 24 * H;
+      const lives = (f: number): boolean =>
+        coldDeadAt({ ...newBody(t0), ...over }, { fuel: f, at: t0, ...(kept ? { kept: true } : {}) }) - t0 >= 24 * H;
       let lo = 0;
       let hi = HEARTH_CAP;
       for (let i = 0; i < 32; i++) {
@@ -1133,7 +1373,9 @@ async function report(): Promise<void> {
   // снимка. Замер кадра — у достроенного: это самая тяжёлая поляна ремесла.
   const VIEW = { x: 1.4, z: 5.2 };
   for (const logs of SHOTS ? [0, HOUSE_PER_STAGE * 2, HOUSE_PER_STAGE * 4, HOUSE_LOGS] : [HOUSE_LOGS]) {
-    await into(dayWindow(45_000), { house: logs }, false);
+    // Дом «достроен» через полчаса: гостья этого раздела не касается, и замер
+    // дома в кадре обязан остаться сравнимым с прошлыми — без женщины у огня.
+    await into(dayWindow(45_000), { house: logs, builtAgo: -30 * 60_000 }, false);
     await goTo(VIEW.x, VIEW.z);
     await turnTo(HOUSE.x, HOUSE.z);
     if (logs === HOUSE_LOGS) await measure('день, дом в кадре');
@@ -1160,7 +1402,357 @@ async function report(): Promise<void> {
     await shoot('7-руки-полные');
   }
 
-  console.log('\n6. Бюджет кадра (настоящий WebGL, ANGLE)\n');
+  // ---------- 6. Род ----------
+  //
+  // Числа — из тех же констант и формул, что у игры. Потом тем же настоящим
+  // касанием: гостья выходит к достроенному дому, отказ, другая через сутки
+  // поляны, согласие, мясо, дрова в общий очаг, объятие, ночь дома, имя сына с
+  // поднятой клавиатурой и родословная на каждой из трёх ступеней.
+  console.log('\n6. Род: гостья, жена, любовь, имя сына\n');
+  let keptSum = 0;
+  let plainSum = 0;
+  let ringN = 0;
+  for (let t0 = 0; t0 < RING_MS; t0 += 20_000, ringN++) {
+    keptSum += burnLeftMs({ fuel: HEARTH_CAP, at: t0, kept: true }, t0);
+    plainSum += burnLeftMs({ fuel: HEARTH_CAP, at: t0 }, t0);
+  }
+  row('первая гостья', `через ${GUEST_FIRST_MS / 1000} с`, 'после последнего бревна; ждёт у огня, пока не ответят');
+  row('после отказа', `через ${clockWords(GUEST_GAP_MS)}`, `сутки поляны; гостий по кругу ${GUESTS.length}`);
+  row('хозяйка бережёт огонь', `горит ×${num(KEEP_BURN, 3)}`, `= 1 / ${num(BURN_MEAN, 3)}; полный очаг в среднем ${num(keptSum / ringN / H)} ч вместо ${num(plainSum / ringN / H)}`);
+  const homeOwn = dayLogs({ roof: true, coat: true });
+  const homeKept = dayLogs({ roof: true, coat: true }, true);
+  const skyOwn = dayLogs({});
+  const skyKept = dayLogs({}, true);
+  row('дров на сутки: в доме одетым', `${num(homeKept.mean, 2)} с хозяйкой`, `без неё ${num(homeOwn.mean, 2)}`);
+  row('дров на сутки: под небом раздетым', `${num(skyKept.mean, 2)} с хозяйкой`, `без неё ${num(skyOwn.mean, 2)}`);
+  // Путь до ста — тем же прогоном, что держит тест: заход в четыре минуты с каждой
+  // секунды суток поляны, в котором сделано всё, что можно засчитать.
+  const loveDays = Math.ceil(LOVE_FULL / LOVE_STEP);
+  let bestSession = 0;
+  for (let s0 = 0; s0 < SKY_MS; s0 += 1_000) {
+    const span = 4 * 60_000;
+    const touched = dayOf(s0 + span - 1) - dayOf(s0) + 1;
+    let nights = 0;
+    for (let c = dayOf(s0) - 1; c <= dayOf(s0 + span) + 1; c++) {
+      if (c * SKY_MS + DAY_SHARE * SKY_MS < s0 + span && (c + 1) * SKY_MS > s0) nights++;
+    }
+    bestSession = Math.max(bestSession, touched * 3 + nights);
+  }
+  row('любовь', `${LOVE_STEP} за день дела`, `до ${LOVE_FULL} — ${loveDays} дней; дело идёт в счёт не больше ${LOVE_DAYS} дней`);
+  row('заходов до ста', `от ${Math.ceil(loveDays / bestSession)}, обычно ${loveDays / BOND_KINDS.length}`, `заход в 4 мин даёт до ${bestSession} дней, обычно ${BOND_KINDS.length}`);
+  row('имя сына', `${HEIR_MIN}–${HEIR_MAX} букв`, 'лежит в tribe.prologue.v1 → heir.name');
+  console.log('');
+
+  const mateAt = (): Promise<{ x: number; z: number } | null> => tab.eval('window.__probe.mate()');
+  const field = (): Promise<Field> => tab.eval('window.__probe.field()');
+  const onDisk = (): Promise<{ refusedAt?: number; heir?: { name?: string } }> => tab.eval('window.__probe.saved()');
+  const veil = async (): Promise<{ veil: number; heart: number }> =>
+    (await tab.eval<{ veil: number; heart: number } | null>('window.__probe.veil()')) ?? { veil: 0, heart: 0 };
+
+  /** Нажать узел надстройки пальцем — касанием в его середину, а не вызовом. */
+  const tapBox = async (sel: string, id = 5): Promise<boolean> => {
+    const box = await tab.eval<{ x: number; y: number } | null>(`window.__probe.box(${JSON.stringify(sel)})`);
+    if (!box) return false;
+    await send('touchStart', [{ id, x: box.x, y: box.y }]);
+    await sleep(80);
+    await send('touchEnd', []);
+    await sleep(180);
+    return true;
+  };
+
+  /** Ждать, пока условие не станет правдой, но не дольше срока. */
+  const waitFor = async (ok: () => Promise<boolean>, ms: number): Promise<boolean> => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (await ok()) return true;
+      await sleep(40);
+    }
+    return ok();
+  };
+
+  /** Снимок как есть, без смены экрана: объятие и клавиатура не ждут пересборки холста. */
+  const capture = async (name: string): Promise<void> => {
+    if (!SHOTS) return;
+    mkdirSync(SHOTS, { recursive: true });
+    const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(join(SHOTS, `${name}.png`), Buffer.from(shot.data, 'base64'));
+  };
+
+  /** Перезагрузить, не стирая записи, — вернуться на ту же поляну в новую минуту. */
+  const reopen = async (): Promise<void> => {
+    await tab.send('Page.reload');
+    for (let i = 0; ; i++) {
+      await sleep(300);
+      if (await tab.eval<boolean>("JSON.stringify(!!document.querySelector('.start-alt'))")) break;
+      if (i > 100) throw new Error('стартовый экран не поднялся за 30 с');
+    }
+    await enter();
+    await screen(SCREENS[0]);
+    await sleep(700);
+  };
+
+  /** Подойти к жене и заговорить. */
+  const openTalk = async (want: string): Promise<boolean> => {
+    const m = await mateAt();
+    if (!m || !(await walkTo(m.x, m.z, 'Говорить'))) return false;
+    await tap(190, 400);
+    return (await state()).panel === want;
+  };
+
+  /** Буква с клавиатуры — настоящим событием клавиши, как палец по кнопке ПК. */
+  const typeKey = async (ch: string): Promise<void> => {
+    const code = ch === ' ' ? 'Space' : `Key${ch.toUpperCase()}`;
+    const vk = ch === ' ' ? 32 : ch.toUpperCase().charCodeAt(0);
+    await tab.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ch, code, text: ch, unmodifiedText: ch, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+    await tab.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+    await sleep(40);
+  };
+
+  /** Заменить всё, что в поле: выделить и напечатать поверх (пусто — стереть). */
+  const setField = async (text: string): Promise<void> => {
+    await tab.eval<string>("(() => { const i = document.querySelector('.pro-name input'); if (i) { i.focus(); i.select(); } return JSON.stringify('ok'); })()");
+    if (text) {
+      await tab.send('Input.insertText', { text });
+    } else {
+      await tab.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+      await tab.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+    }
+    await sleep(150);
+  };
+
+  const clearDay = (t: number): boolean => !isNight(t) && weatherAt(t) === 'clear' && packAt(t, 0) === 0;
+
+  // Приход: дом достроен за четыре секунды до положенного — гостья выходит при человеке.
+  await into(dayWindow(80_000), { house: HOUSE_LOGS, builtAgo: GUEST_FIRST_MS - 4_000, fuel: 6, logs: 2 }, false);
+  const came = await waitFor(async () => (await state()).mate === 'guest', 9_000);
+  const arrival = await state();
+  step('к достроенному дому вышла женщина', came && String(arrival.note).includes('вышла'), `у огня: ${arrival.mate || 'никого'}; строка: «${arrival.note}»`);
+  if (SHOTS) {
+    await turnTo(GUEST_FROM.x, GUEST_FROM.z);
+    await shoot('8а-приход');
+  }
+  const reachedFire = await waitFor(async () => {
+    const m = await mateAt();
+    return !!m && Math.hypot(m.x - MATE_SPOT.x, m.z - MATE_SPOT.z) < 0.1;
+  }, 16_000);
+  const walked = await mateAt();
+  step('дошла от опушки до огня', reachedFire, walked ? `стоит в ${num(Math.hypot(walked.x - MATE_SPOT.x, walked.z - MATE_SPOT.z), 2)} м от своего места у очага` : 'пропала');
+
+  // Родословная до жены.
+  if (await walkTo(HOUSE.x, HOUSE.z, 'Родословная')) await tap(190, 400);
+  const kin1 = await state();
+  step('родословная до жены: один человек', kin1.panel === 'kin' && kin1.lineage === 1, `карточка: ${kin1.panel || 'нет'}, строк ${kin1.lineage}`);
+  await shoot('12-род-1');
+  await tapBox('.pro-card .pro-x');
+
+  // Разговор с гостьей и отказ.
+  const asked = (await openTalk('guest')) ? await state() : await state();
+  const guestCard = await tab.eval<string>("JSON.stringify(document.querySelector('.pro-card') ? document.querySelector('.pro-card').textContent : '')");
+  step(
+    'тап по гостье открыл разговор, и беда сказана словами',
+    asked.panel === 'guest' && guestCard.includes(GUESTS[0].name) && guestCard.includes('Пустишь'),
+    `карточка: ${asked.panel || 'нет'}; «${String(asked.mateSays).slice(0, 44)}…»`,
+  );
+  await shoot('9-гостья');
+  await tapBox('.pro-card .pro-row .pro-btn:not(.main)');
+  const refusedNow = await state();
+  step(
+    'отказ: ушла, и сказано её словами',
+    refusedNow.refused === 1 && refusedNow.mate === '' && refusedNow.panel === '' && String(refusedNow.note).includes('пойду дальше'),
+    `отказов ${refusedNow.refused}, у огня ${refusedNow.mate || 'никого'}; «${refusedNow.note}»`,
+  );
+
+  // Отказ — не тупик: та же запись, минута через сутки поляны.
+  const rec = await onDisk();
+  await clock(moment((rec.refusedAt ?? 0) + GUEST_GAP_MS + 2_000, 70_000, clearDay) + 1_500);
+  await reopen();
+  const other = await state();
+  step(
+    'отказ не тупик: через сутки поляны пришла другая',
+    other.mate === 'guest' && other.mateName === GUESTS[1].name,
+    `у огня ${other.mateName || 'никого'}, ушла ${GUESTS[0].name}`,
+  );
+
+  // Согласие.
+  if (await openTalk('guest')) await tapBox('.pro-card .pro-row .pro-btn.main');
+  const wedNow = await state();
+  step(
+    'согласие: жена в доме, и очаг бережёт она',
+    wedNow.wife === GUESTS[1].name && wedNow.kept === true && wedNow.panel === 'wife',
+    `жена ${wedNow.wife || 'нет'}, очаг ${wedNow.kept ? 'бережёт' : 'НЕ бережёт'}; «${wedNow.mateSays}»`,
+  );
+  await shoot('10-жена');
+
+  // Мясо, потом дрова в общий очаг.
+  await tapBox('.pro-card .pro-row .pro-btn:not(.main)');
+  const shared = await state();
+  step(
+    'дать мясо: разделённая еда засчитана один раз за сутки',
+    shared.love === LOVE_STEP && shared.giveCan === false && shared.giveWhy === 'Сегодня уже ели вместе',
+    `любовь ${shared.love}; «${shared.give}» — ${shared.giveWhy || 'можно'}`,
+  );
+  await tapBox('.pro-card .pro-x');
+  if (await walkTo(0, 0, 'Подложить')) await tap(190, 300);
+  const woodNow = await state();
+  step('дрова в общий очаг засчитаны', woodNow.love === LOVE_STEP * 2 && woodNow.logs === 0, `любовь ${woodNow.love}, дров в руках ${woodNow.logs}`);
+
+  // Объятие: взгляд под крышу и вверх, знак, обычный вид — там же, где стоял.
+  let pitchTop = 0;
+  let heartTop = 0;
+  let inside = 0;
+  const hugFrom = (await openTalk('wife')) ? await state() : null;
+  if (hugFrom) {
+    await tapBox('.pro-card .pro-row .pro-btn.main');
+    const t0 = Date.now();
+    while (Date.now() - t0 < 5_000) {
+      const k = await state();
+      const v = await veil();
+      pitchTop = Math.max(pitchTop, k.camPitch as unknown as number);
+      heartTop = Math.max(heartTop, v.heart);
+      if (Math.abs((k.camY as unknown as number) - 1.2) < 0.01) inside++;
+      if (!k.hugging && Date.now() - t0 > 600) break;
+      await sleep(30);
+    }
+  }
+  const hugAfter = await state();
+  step('объятие: камера ушла под крышу и вверх, знак встал', !!hugFrom && pitchTop > 0.7 && heartTop > 0.9 && inside > 0, `взгляд до ${num((pitchTop * 180) / Math.PI, 0)}°, знак ${num(heartTop, 2)}, кадров под крышей в выборке ${inside}`);
+  step(
+    'после объятия — обычный вид там же, где стоял',
+    !!hugFrom && !hugAfter.hugging && hugAfter.x === hugFrom.x && hugAfter.z === hugFrom.z && hugAfter.yaw === hugFrom.yaw && Math.abs((hugAfter.camY as unknown as number) - 1.62) < 0.05,
+    `глаза на ${num(hugAfter.camY as unknown as number, 2)} м, человек ${hugFrom && hugAfter.x === hugFrom.x && hugAfter.z === hugFrom.z ? 'не сдвинулся' : 'СДВИНУЛСЯ'}`,
+  );
+  step('объятие засчитано', hugAfter.love === LOVE_STEP * 3, `любовь ${hugAfter.love}`);
+  for (const s of SHOTS ? SHOT_SIZES : []) {
+    await screen({ w: s.w, h: s.h, dpr: 2, mobile: true });
+    await sleep(900);
+    if (!(await openTalk('wife'))) continue;
+    await tapBox('.pro-card .pro-row .pro-btn.main');
+    if (await waitFor(async () => (await veil()).heart > 0.95, 3_000)) await capture(`11-объятие-${s.w}`);
+    await waitFor(async () => !(await state()).hugging, 4_000);
+  }
+  await screen(SCREENS[0]);
+  await sleep(500);
+
+  // Родословная после согласия.
+  if (await walkTo(HOUSE.x, HOUSE.z, 'Родословная')) await tap(190, 400);
+  const kin2 = await state();
+  step('родословная после согласия: ты и жена', kin2.panel === 'kin' && kin2.lineage === 2, `карточка: ${kin2.panel || 'нет'}, строк ${kin2.lineage}`);
+  await shoot('12-род-2');
+  await tapBox('.pro-card .pro-x');
+
+  // Ночь застала дома: вход ночью на ту же поляну — у огня, где встаёт человек.
+  const wedSave = { house: HOUSE_LOGS, builtAgo: H, wife: { name: GUESTS[1].name, at: 1 }, kept: true };
+  await into(moment(Date.now() + 10_000, 20_000, (t) => isNight(t)), wedSave, false);
+  const nightKept = await waitFor(async () => (await state()).nights === 1, 3_000);
+  const nightNow = await state();
+  step('ночь застала дома — засчитана', nightKept && nightNow.love === LOVE_STEP, `ночей ${nightNow.nights}, любовь ${nightNow.love}`);
+
+  // Имя сына: любовь уже на ста — жена спрашивает сама.
+  const fullBond = { meal: { n: LOVE_DAYS, day: 0 }, hug: { n: LOVE_DAYS, day: 0 }, night: { n: 6, day: 0 }, wood: { n: 0, day: -1 } };
+  await into(dayWindow(100_000), { ...wedSave, bond: fullBond }, false);
+  const ask = (await openTalk('name')) ? await state() : await state();
+  step('любовь дошла до ста — спрашивает, как назвать сына', ask.panel === 'name' && ask.love === LOVE_FULL, `карточка ${ask.panel || 'нет'}, любовь ${ask.love}; «${ask.mateSays}»`);
+  await shoot('13-имя');
+  await tapBox('.pro-name input', 6);
+  const focus = await field();
+  step('поле имени берёт фокус касанием', focus.focused, `в фокусе: ${focus.focused ? 'поле' : 'НЕ поле'}`);
+
+  const still = await state();
+  for (const ch of ['w', 'a', 's', 'd', ' ', 'e', 'f']) await typeKey(ch);
+  await sleep(300);
+  const moved = await state();
+  const typed = await field();
+  step(
+    'W, A, S, D, пробел, E и F — буквы, а не шаг, действие и лук',
+    typed.value === 'wasd ef' && moved.x === still.x && moved.z === still.z && moved.yaw === still.yaw && !moved.drawn,
+    `в поле «${typed.value}», человек ${moved.x === still.x && moved.z === still.z ? 'на месте' : 'СДВИНУЛСЯ'}, лук ${moved.drawn ? 'НАТЯНУТ' : 'опущен'}`,
+  );
+  await setField('123');
+  const junk = await field();
+  await setField('');
+  const blank = await field();
+  step(
+    'пустое и мусор не принимаются, и сказано почему',
+    junk.disabled && junk.why === 'Только буквы' && blank.disabled && blank.why === 'Впиши имя',
+    `«123» — ${junk.why || 'ПРИНЯТО'}; пусто — ${blank.why || 'ПРИНЯТО'}`,
+  );
+  await setField('ратибор');
+
+  // Клавиатура, сжимающая окно (Android): вьюпорт едет двумя десятками кадров и по
+  // дороге проскакивает высоту 66 px — так его и отдавал Телеграм.
+  const kb = (h: number): number => Math.round(h * KEYBOARD_SHARE);
+  const frames: number[] = [];
+  for (let i = 1; i <= 20; i++) frames.push(Math.round(812 - (kb(812) * i) / 20));
+  frames.splice(2, 0, 66);
+  let jumps = 0;
+  for (const h of frames) {
+    await tab.send('Emulation.setDeviceMetricsOverride', { width: 375, height: h, deviceScaleFactor: 2, mobile: true });
+    await sleep(24);
+    const f = await field();
+    if (f.scroll !== 0 || f.vvTop !== 0) jumps++;
+  }
+  await sleep(400);
+  const squeezed = await field();
+  step(
+    'окно сжалось под клавиатуру — поле видно, страница на месте',
+    squeezed.focused && squeezed.cardTop >= 0 && squeezed.bottom <= 812 - kb(812) - 8 && squeezed.scroll === 0 && jumps === 0 && squeezed.value === 'ратибор',
+    `поле ${num(squeezed.top, 0)}–${num(squeezed.bottom, 0)} px в окне ${squeezed.inner}; сдвигов страницы ${jumps} за ${frames.length} кадров вьюпорта`,
+  );
+  await capture('13-имя-клавиатура-сжато-375');
+  if (SHOTS) {
+    await tab.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780 - kb(780), deviceScaleFactor: 2, mobile: true });
+    await sleep(600);
+    await capture('13-имя-клавиатура-сжато-360');
+  }
+
+  // Клавиатура поверх страницы (iOS): окно прежнее, нижние сорок процентов закрыты.
+  const overlaid: string[] = [];
+  let underKeyboard = false;
+  for (const s of SHOT_SIZES) {
+    await tab.send('Emulation.setDeviceMetricsOverride', { width: s.w, height: s.h, deviceScaleFactor: 2, mobile: true });
+    await sleep(600);
+    await tab.eval<string>(
+      `(() => { const k = document.createElement('div'); k.id = 'fake-kb'; k.textContent = 'клавиатура'; k.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:${kb(s.h)}px;background:#c9ccd1;color:#4a4d52;font:15px sans-serif;display:flex;align-items:center;justify-content:center;z-index:9999'; document.body.appendChild(k); return JSON.stringify('ok'); })()`,
+    );
+    const f = await field();
+    if (!f.focused || f.bottom > s.h - kb(s.h) - 8 || f.scroll !== 0) underKeyboard = true;
+    overlaid.push(`${s.w} px: низ поля ${num(f.bottom, 0)} при верхе клавиатуры ${s.h - kb(s.h)}`);
+    await capture(`13б-имя-клавиатура-поверх-${s.w}`);
+    await tab.eval<string>("(() => { const k = document.getElementById('fake-kb'); if (k) k.remove(); return JSON.stringify('ok'); })()");
+  }
+  step('клавиатура поверх — поле выше неё на 375 и на 360 px', !underKeyboard, overlaid.join('; '));
+  await screen(SCREENS[0]);
+  await sleep(500);
+
+  await tapBox('.pro-name button[type=submit]');
+  const named = await state();
+  const record = await onDisk();
+  const fieldGone = await field();
+  step(
+    'имя принято и лежит в записи: tribe.prologue.v1 → heir.name',
+    named.heir === 'Ратибор' && record.heir?.name === 'Ратибор' && named.panel === '' && !fieldGone.here,
+    `сын: ${named.heir || 'нет'}; в записи: ${record.heir?.name ?? 'нет'}; «${named.note}»`,
+  );
+
+  // Родословная после рождения.
+  if (await walkTo(HOUSE.x, HOUSE.z, 'Родословная')) await tap(190, 400);
+  const kin3 = await state();
+  step('родословная после рождения: ты, жена и сын', kin3.panel === 'kin' && kin3.lineage === 3, `карточка: ${kin3.panel || 'нет'}, строк ${kin3.lineage}`);
+  await shoot('14-род-3');
+  await tapBox('.pro-card .pro-x');
+
+  // Кадр: жена у очага в кадре — и объятие целиком, пока камера под крышей.
+  await goTo(0.6, 2.6);
+  await turnTo(MATE_SPOT.x, MATE_SPOT.z);
+  await measure('день, жена у очага в кадре');
+  if (await openTalk('wife')) {
+    await tab.eval<string>('window.__probe.start()');
+    await tapBox('.pro-card .pro-row .pro-btn.main');
+    await waitFor(async () => !(await state()).hugging, 5_000);
+    budget.push(['объятие, под крышей', await tab.eval<Frames>('window.__probe.stop()')]);
+  }
+
+  console.log('\n7. Бюджет кадра (настоящий WebGL, ANGLE)\n');
   console.log(
     `  ${pad('состояние', 28)} ${pad('кадров', 7)} ${pad('в секунду', 10)} ${pad('медиана', 8)} ${pad('p95', 7)} ${pad('худший', 7)} ${pad('вызовов', 8)} треугольников`,
   );

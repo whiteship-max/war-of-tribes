@@ -11,7 +11,7 @@
  * правило от этого не меняется — проваливающихся нажатий не бывает, и «ничего
  * не произошло» игрок читать не должен.
  *
- * ДВЕРЕЙ ТРИ, И ОНИ РАЗВЕДЕНЫ НАРОЧНО.
+ * ДВЕРЕЙ ЧЕТЫРЕ, И ОНИ РАЗВЕДЕНЫ НАРОЧНО.
  *
  *   `offer`  — тап и большая кнопка внизу: **не целится**, а бьёт по
  *              ближайшему в досягаемости. Так взяли топор, свалили дерево,
@@ -22,7 +22,12 @@
  *   `bow`    — своя кнопка: натянуть и пустить. **Целится**, и летит стрела
  *              туда, куда смотрят;
  *   `meal`   — своя кнопка на счётчике мяса: поесть можно где угодно и когда
- *              угодно, подходить не к чему.
+ *              угодно, подходить не к чему;
+ *   `talk`   — карточка разговора с женщиной у огня: принять или отказать,
+ *              дать мясо, обнять, назвать сына. Открывает её первая дверь —
+ *              подошёл и тапнул, — а дела в ней свои, и цены у них свои
+ *              (`share`). Своя дверь нужна потому, что это не «сделай с тем, к
+ *              чему подошёл», а выбор между несколькими делами сразу.
  *
  * Смешивать первую со второй нельзя ни в какую сторону. Тап по зверю не
  * работает, потому что зверь не подпускает; выстрел «по ближайшему» не работает,
@@ -34,13 +39,14 @@ import { STARVE_MS, causeOfDeath, type Death } from './body';
 import { TREE_LOGS, type GladeState, type Spot } from './glade';
 import { DEER_MEAT, carcassLeft, hideLeft, liveCarcass, type Pt } from './hunt';
 import { ARROWS_PER_LOG, COAT_HIDES, HOUSE_LOGS, carveRoom } from './craft';
+import { LOVE_DAYS, counts, loveFull } from './kin';
 import type { PrologueSave } from './save';
 
 /**
  * Что именно делает действие. `null` — делать нечего.
  *
- * Один список на все три двери, а не три коротких: сцена выполняет их одним
- * разбором, и разведи их по типам — появился бы четвёртый способ что-то
+ * Один список на все четыре двери, а не четыре коротких: сцена выполняет их
+ * одним разбором, и разведи их по типам — появился бы ещё один способ что-то
  * сделать, о котором забыли бы при первой правке.
  */
 export type Deed =
@@ -59,6 +65,13 @@ export type Deed =
   | 'draw'
   | 'shoot'
   | 'eat'
+  | 'talk'
+  | 'kin'
+  | 'accept'
+  | 'refuse'
+  | 'share'
+  | 'hug'
+  | 'name'
   | null;
 
 export interface Offer {
@@ -122,7 +135,10 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
    * говорит, сколько уже стоит, чтобы цель была видна с первого подхода.
    */
   if (spot.kind === 'house') {
-    if (s.house >= HOUSE_LOGS) return no(null, 'Дом стоит', 'Дом достроен');
+    // Достроенный дом — то место, где записан род: тап по нему открывает
+    // родословную. Делать с ним больше нечего, и погашенная «Дом стоит» была бы
+    // кнопкой, которая ничего не значит.
+    if (s.house >= HOUSE_LOGS) return ok('kin', 'Родословная');
     const label = `Ставить дом (${s.house}/${HOUSE_LOGS})`;
     if (!s.axe) return no('build', label, 'Нужен топор');
     if (s.logs <= 0) return no('build', label, 'Нужны дрова: полено — бревно');
@@ -143,6 +159,12 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
   if (spot.kind === 'wolf') {
     return s.axe ? ok('fight', 'Отбиться топором') : no('fight', 'Отбиться', 'Нужен топор — беги к огню');
   }
+  /*
+   * Женщина у огня. Подошёл — заговорил; что сказать, решается уже в разговоре
+   * (`talk`), и гасить эту кнопку нечем: говорить можно всегда — и с гостьей, и
+   * с женой, и мёртвому здесь ничего не предлагают по другой причине (сцена).
+   */
+  if (spot.kind === 'mate') return ok('talk', 'Говорить');
   if (spot.kind === 'carcass') {
     const left = carcassLeft(s.hunt, now);
     if (left > 0) return ok('butcher', `Срезать мясо (${left})`);
@@ -227,6 +249,28 @@ export function meal(s: PrologueSave, hunger: number, raw: boolean): Offer {
   return ok('eat', label);
 }
 
+/**
+ * Что предлагает «Дать мясо» в разговоре с женой.
+ *
+ * Разделённая еда — одно из четырёх дел, из которых растёт любовь, и платится
+ * она настоящим куском из запаса. Поэтому запрещено ровно бессмысленное — то же
+ * правило, по которому нельзя есть на полный живот (`meal`): отдать кусок в
+ * сутки, когда еда уже засчитана, или сверх того, что мясо вообще может дать
+ * любви. Это был бы выброшенный запас, и кнопка говорит об этом до нажатия.
+ *
+ * Отдаётся сперва сырое: жареное — запас на отлучку, и отдавать его первым
+ * значило бы урезать сутки, за которые игрок и так платит мясом.
+ */
+export function share(s: PrologueSave, now: number): Offer {
+  const label = 'Дать мясо';
+  if (!s.wife) return no(null, label, 'Некого угостить');
+  if (s.meat.cooked + s.meat.raw <= 0) return no('share', label, 'Мяса нет');
+  if (loveFull(s.bond)) return no('share', label, 'Любовь и так полна');
+  if (s.bond.meal.n >= LOVE_DAYS) return no('share', label, 'Одним мясом любви не прибавишь');
+  if (!counts(s.bond.meal, now)) return no('share', label, 'Сегодня уже ели вместе');
+  return ok('share', label);
+}
+
 /** Сколько полен даёт сваленное дерево — в одном месте с ценой действия. */
 export const logsFromTree = (): number => TREE_LOGS;
 
@@ -237,16 +281,24 @@ export const logsFromTree = (): number => TREE_LOGS;
  * геометрия про часы не знает, а помнить о них каждому вызову `nearest` нельзя —
  * забудет первый же.
  */
-export const reach = (s: PrologueSave, now: number, wolves: readonly Pt[] = []): GladeState => ({
+export const reach = (
+  s: PrologueSave,
+  now: number,
+  wolves: readonly Pt[] = [],
+  mate: Pt | null = null,
+): GladeState => ({
   felled: s.felled,
   arrows: s.arrows,
   carcass: liveCarcass(s.hunt, now),
   // У палатки есть дело, только пока пожитки не разобраны или есть из чего шить.
   tent: !s.kit || (!s.body.coat && s.hides >= COAT_HIDES),
-  house: s.house < HOUSE_LOGS,
+  // У дома дело есть всегда: пока строится — стройка, достроен — родословная.
+  house: true,
   // Волки приезжают снаружи, из сцены: в записи их нет, и быть не может —
   // где они стоят, знает только кадр.
   wolves,
+  // Женщина — тем же путём: есть ли она, решает род, где она — кадр.
+  mate,
 });
 
 /** Жив ли человек — и если нет, отчего умер. */

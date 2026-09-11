@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TAP_MOVE, TAP_MS, TAP_SLIP } from '@/gestures';
-import { Keys, LOOK_RAD_PER_PX, PITCH_LIMIT, STICK_DEAD, STICK_FULL, Sticks, mergeWalk } from './controls';
+import { Keys, LOOK_RAD_PER_PX, PITCH_LIMIT, STICK_DEAD, STICK_FULL, Sticks, mergeWalk, typing } from './controls';
 
 /** Экран телефона: все числа ниже — с него. */
 const W = 375;
@@ -269,6 +269,33 @@ describe('клавиши на ПК', () => {
     k.down('KeyW');
     k.clear();
     expect(k.walk()).toEqual({ forward: 0, strafe: 0 });
+  });
+});
+
+describe('буквы в поле — не шаг, не действие и не лук', () => {
+  it('поле ввода узнаётся по двум свойствам, без DOM', () => {
+    expect(typing({ tagName: 'INPUT' })).toBe(true);
+    expect(typing({ tagName: 'input' })).toBe(true);
+    expect(typing({ tagName: 'TEXTAREA' })).toBe(true);
+    expect(typing({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+    expect(typing({ tagName: 'CANVAS' })).toBe(false);
+    expect(typing({ tagName: 'BUTTON' })).toBe(false);
+    expect(typing({})).toBe(false);
+    expect(typing(null)).toBe(false);
+    expect(typing(undefined)).toBe(false);
+    expect(typing('INPUT')).toBe(false);
+  });
+
+  it('сцена спрашивает это раньше, чем гасит клавишу', () => {
+    // Иначе W, A, S, D, E, F и пробел — на русской раскладке «ц», «ф», «ы», «в»,
+    // «у» и «а» — не печатались бы в имени сына вовсе: `preventDefault` съел бы
+    // их раньше поля, а «а» ещё и натягивала бы лук.
+    const src = strip(readFileSync(join(__dirname, 'scene.ts'), 'utf8'));
+    const at = src.indexOf('private onKeyDown');
+    expect(at).toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf('};', at));
+    expect(body).toMatch(/if \(typing\(e\.target\)\) return;/);
+    expect(body.indexOf('typing(')).toBeLessThan(body.indexOf('preventDefault'));
   });
 });
 

@@ -303,6 +303,25 @@ export const KEY_ACT = ['Space', 'KeyE', 'Enter'];
  */
 export const KEY_BOW = 'KeyF';
 
+/**
+ * Печатает ли человек в поле — тогда клавиши не шаг и не действие.
+ *
+ * Имя сына вводят с клавиатуры, и на ПК W, A, S, D, пробел, E и F — это буквы
+ * имени, а не ходьба, действие и лук. Без этой проверки сцена гасила бы их
+ * `preventDefault`, и напечатать нельзя было бы половину имён: на русской
+ * раскладке это «ц», «ф», «ы», «в», «у» и «а». Хуже того, буква «а» натягивала бы
+ * лук, а пробел между словами клал бы дрова в костёр.
+ *
+ * Принимает что угодно и смотрит только на два свойства — поэтому проверяется
+ * тестом без DOM.
+ */
+export const typing = (target: unknown): boolean => {
+  const el = target as { tagName?: unknown; isContentEditable?: unknown } | null;
+  if (!el || typeof el !== 'object') return false;
+  const tag = typeof el.tagName === 'string' ? el.tagName.toUpperCase() : '';
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+};
+
 /** Складывает ходьбу пальцем и клавишами: держать можно и то, и другое. */
 export function mergeWalk(a: Walk, b: Walk): Walk {
   const forward = a.forward + b.forward;

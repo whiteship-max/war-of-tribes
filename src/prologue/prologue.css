@@ -441,6 +441,297 @@
 }
 
 /*
+ * Строка поверх сцены: встреча после отлучки, ответ гостьи, новость о роде.
+ *
+ * Над кнопками и под полосами, в трети высоты: ниже — наезжала бы на карточку
+ * разговора, выше — на полосы, когда поднялись все четыре. Ничего не нажимает:
+ * это слово, а не окно, и закрывать его незачем.
+ */
+.pro-note {
+  position: absolute;
+  left: 50%;
+  top: 36%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(26, 20, 16, 0.78);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
+/*
+ * Карточка разговора — гостья, жена, родословная.
+ *
+ * Над нижним рядом кнопок, на месте подсказки: кнопки остаются на своих местах и
+ * не переезжают, а сама женщина, к которой подошли, стоит выше карточки — в
+ * середине кадра. Слой свой, но ниже экрана смерти.
+ */
+.pro-card {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 96px);
+  transform: translateX(-50%);
+  z-index: 1;
+  width: min(340px, calc(100vw - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(26, 20, 16, 0.9);
+  text-align: left;
+}
+
+/*
+ * Карточка имени — у верхнего края, над затемнением.
+ *
+ * Поле ввода обязано стоять выше любой клавиатуры: в портрете она занимает до
+ * половины экрана вместе со строкой подсказок. У верхнего края поле не уезжает
+ * под неё ни когда окно сжимается (Android), ни когда клавиатура ложится поверх
+ * (iOS), и странице незачем прыгать к нему.
+ */
+.pro-card.top {
+  top: calc(var(--safe-top) + 8px);
+  bottom: auto;
+  z-index: 4;
+}
+
+.pro-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: rgba(14, 11, 9, 0.74);
+}
+
+.pro-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+}
+
+.pro-who {
+  padding-right: 36px;
+  font-size: 16px;
+}
+
+.pro-who em {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pro-say {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pro-row {
+  display: flex;
+  gap: 8px;
+}
+
+.pro-btn {
+  flex: 1 1 0;
+  min-height: var(--tap);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(60, 48, 38, 0.9);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pro-btn.main {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.pro-btn:disabled {
+  opacity: 0.5;
+}
+
+.pro-card-why,
+.pro-card-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Причина под полем имени держит строку всегда: пустая не должна дёргать карточку. */
+.pro-name .pro-card-why {
+  min-height: 16px;
+}
+
+.pro-love {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.pro-love span {
+  color: var(--muted);
+}
+
+.pro-love em {
+  min-width: 26px;
+  font-style: normal;
+  text-align: right;
+}
+
+/* Любовь — не запас и не тревога, и цвет у неё свой: не огонь, не сытость, не рана. */
+.pro-love .pro-bar i {
+  background: linear-gradient(90deg, #8a3a52, #d0607a);
+}
+
+.pro-tally {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.pro-tally span {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Засчитано в эти сутки поляны. */
+.pro-tally span.on {
+  color: var(--text);
+  border-color: rgba(208, 96, 122, 0.75);
+}
+
+.pro-ask {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/*
+ * Поле имени.
+ *
+ * Шестнадцать пикселей — не вкус: мельче iOS сама приближает страницу к полю при
+ * фокусе, и экран разъезжается. И выделение текста здесь включено обратно: вся
+ * поляна его запрещает, а поле, унаследовавшее запрет, на iOS не ставит курсор.
+ */
+.pro-name input {
+  width: 100%;
+  height: var(--tap);
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(14, 11, 9, 0.92);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
+}
+
+.pro-kin ol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 96px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pro-kin li {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.pro-kin li b {
+  font-size: 15px;
+}
+
+.pro-kin li span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/*
+ * Объятие: затемнение и знак над всей надстройкой, но под экраном смерти.
+ * Прозрачность им ставит сцена (`scene.hugShow`), здесь только вид.
+ */
+.pro-hug {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pro-hug-veil {
+  position: absolute;
+  inset: 0;
+  background: #0e0b09;
+  opacity: 0;
+}
+
+/* Знак — квадрат, повёрнутый ребром, и два круга: так он одинаков на любой системе. */
+.pro-heart {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  background: #d4515b;
+  opacity: 0;
+  transform: rotate(45deg) scale(0.7);
+  box-shadow: 0 0 24px rgba(212, 81, 91, 0.45);
+}
+
+.pro-heart::before,
+.pro-heart::after {
+  content: '';
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: inherit;
+}
+
+.pro-heart::before {
+  left: -28px;
+  top: 0;
+}
+
+.pro-heart::after {
+  left: 0;
+  top: -28px;
+}
+
+/*
  * Узкий телефон в худшую минуту: топор, лук, дрова, шкура, жареное и сырое в
  * руках разом. На 360 px счётчики упирались в кнопку выхода — снимок показал
  * наезд на шесть пикселей, и появился он вместе со шкурой. Ужимаются промежутки
@@ -458,5 +749,13 @@
 
   .pro-out {
     padding: 0 10px;
+  }
+
+  .pro-card {
+    padding: 10px 12px 12px;
+  }
+
+  .pro-tally span {
+    padding: 2px 4px;
   }
 }

@@ -73,7 +73,7 @@
  *
  * Модуль чистый: ни DOM, ни three, ни React, ни часов.
  */
-import { HEARTH_CAP, LOG_MS, spanWords, type Hearth } from './fire';
+import { HEARTH_CAP, LOG_MS, burnRate, spanWords, type Hearth } from './fire';
 import { burnUntil, chillUntil, chilledMs } from './sky';
 
 const H = 3_600_000;
@@ -179,9 +179,12 @@ export const newBody = (now: number): Body => ({
  * единого действия игрока, — и потому его надо уметь назвать числом, а не
  * ловить тиком. Пустой очаг не гаснет «в момент `at`»: он уже погас, и времени
  * до этого у нас не записано (см. `fuelAt` — до `h.at` он отдаёт что записано).
+ *
+ * Мера прогорания — та же, что у полосы (`fire.burnRate`): бережёт очаг хозяйка —
+ * гаснет он позже, и холод обязан узнать об этом из того же числа.
  */
 export const fireOutAt = (h: Hearth): number =>
-  h.fuel > 0 ? burnUntil(h.at, Math.min(h.fuel, HEARTH_CAP) * LOG_MS) : -Infinity;
+  h.fuel > 0 ? burnUntil(h.at, (Math.min(h.fuel, HEARTH_CAP) * LOG_MS) / burnRate(h)) : -Infinity;
 
 /** Сколько голода сейчас. Растёт всегда и не убывает сам никогда. */
 export function hungerAt(b: Body, now: number): number {

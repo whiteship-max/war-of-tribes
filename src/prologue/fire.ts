@@ -40,12 +40,18 @@
  * обратим, поэтому полоса называет **настоящий** срок вместе с дождём, который
  * в него войдёт (`burnLeftMs` через `sky.burnUntil`). Тика по-прежнему нет.
  *
+ * ХОЗЯЙКА ТОЖЕ НИЧЕГО ЗДЕСЬ НЕ ЛОМАЕТ. Пока в доме живёт жена, очаг горит
+ * медленнее (`KEEP_BURN`), и это третье число пары — не новая скорость, а
+ * множитель к той же, записанный в самом очаге (`Hearth.kept`). Переезжает он
+ * событием: в минуту, когда она осталась, отрезок закрывается (`keepHearth`), и
+ * прошлое сгорело прежней мерой, а будущее горит новой.
+ *
  * ЧЕГО ЗДЕСЬ НЕТ И ЧЕГО НЕЛЬЗЯ ЗАВОДИТЬ: связи с деревней и сервера.
  *
  * Модуль чистый: ни DOM, ни three, ни React, ни часов. «Сейчас» ему передают
  * числом — ровно так же, как ежедневке передают номер дня.
  */
-import { burnUntil, burnedMs } from './sky';
+import { BURN_MEAN, burnUntil, burnedMs } from './sky';
 
 /** Сколько часов горит одно полено. */
 export const LOG_HOURS = 6;
@@ -85,15 +91,48 @@ export interface Hearth {
   fuel: number;
   /** Когда это было, по `serverNow()`. */
   at: number;
+  /**
+   * Бережёт ли очаг хозяйка — с минуты `at` и дальше.
+   *
+   * Лежит в самом очаге, а не выводится из того, есть ли жена, и не по
+   * небрежности: тогда каждой функции костра пришлось бы знать про род, а
+   * отрезок, начатый до её прихода, горел бы задним числом её мерой. Здесь
+   * множитель меняется только вместе с отметкой (`keepHearth`).
+   */
+  kept?: boolean;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
 /**
+ * Во сколько раз медленнее прогорает очаг, пока его бережёт хозяйка.
+ *
+ * ЧИСЛО ВЫВЕДЕНО, А НЕ ПОДОБРАНО: это обратная к средней ставке горения по
+ * кольцу погод. Погода отняла у полного очага «двое суток» — дождь жжёт втрое,
+ * и в среднем по кольцу выходит тридцать четыре часа. Хозяйка возвращает ровно
+ * это: подгребает угли, прикрывает очаг от дождя, — и полный очаг с ней в
+ * среднем горит столько же, сколько горел до погоды, то есть двое суток. Правило
+ * «двое суток на полном очаге и полном животе» снова правда в любую погоду.
+ *
+ * Больше этого числа она не делает ничего, и это условие: дров она не рубит и
+ * огня из ничего не берёт — иначе очаг перестал бы быть заботой вовсе.
+ */
+export const KEEP_BURN = 1 / BURN_MEAN;
+
+/** Мера прогорания этого очага: хозяйская или обычная. */
+export const burnRate = (h: Hearth): number => (h.kept ? KEEP_BURN : 1);
+
+/** Отметка «бережёт» переезжает вместе с парой: у нового отрезка та же мера. */
+const keep = (h: Hearth): Pick<Hearth, 'kept'> => (h.kept ? { kept: true } : {});
+
+/**
  * Свежий очаг. Не полный: полный костёр не оставлял бы игроку дела, а весь
  * первый кусок — про то, чтобы дойти до дерева, срубить и подложить.
+ *
+ * `kept` — разжигает ли его хозяйка: новое утро после смерти начинается у того
+ * же очага, и если в доме жена, беречь его она не перестаёт.
  */
-export const newHearth = (now: number): Hearth => ({ fuel: 2, at: now });
+export const newHearth = (now: number, kept = false): Hearth => ({ fuel: 2, at: now, ...(kept ? { kept: true } : {}) });
 
 /**
  * Сколько полен в костре сейчас.
@@ -104,8 +143,17 @@ export const newHearth = (now: number): Hearth => ({ fuel: 2, at: now });
  * ровно то, что записано, — не больше).
  */
 export function fuelAt(h: Hearth, now: number): number {
-  return clamp(h.fuel - burnedMs(h.at, now) / LOG_MS, 0, HEARTH_CAP);
+  return clamp(h.fuel - (burnedMs(h.at, now) * burnRate(h)) / LOG_MS, 0, HEARTH_CAP);
 }
+
+/**
+ * Хозяйка осталась: с этой минуты очаг бережёт она.
+ *
+ * Событие того же рода, что подложенные дрова: отрезок закрывается прежней
+ * мерой, отметка переезжает на текущую минуту, дальше горит новой. Сколько дров
+ * в очаге в эту минуту, не меняется ни на волос.
+ */
+export const keepHearth = (h: Hearth, now: number): Hearth => ({ fuel: fuelAt(h, now), at: Math.max(h.at, now), kept: true });
 
 /** Горит ли костёр. Ноль дров — погас. */
 export const burning = (h: Hearth, now: number): boolean => fuelAt(h, now) > 0;
@@ -125,7 +173,7 @@ export const hearthFill = (h: Hearth, now: number): number => fuelAt(h, now) / H
  */
 export const burnLeftMs = (h: Hearth, now: number): number => {
   const fuel = fuelAt(h, now);
-  return fuel <= 0 ? 0 : Math.max(0, burnUntil(now, fuel * LOG_MS) - now);
+  return fuel <= 0 ? 0 : Math.max(0, burnUntil(now, (fuel * LOG_MS) / burnRate(h)) - now);
 };
 
 /**
@@ -137,7 +185,7 @@ export const burnLeftMs = (h: Hearth, now: number): number => {
  */
 export function feed(h: Hearth, now: number, logs: number): Hearth {
   const have = fuelAt(h, now);
-  return { fuel: clamp(have + Math.max(0, logs), 0, HEARTH_CAP), at: now };
+  return { fuel: clamp(have + Math.max(0, logs), 0, HEARTH_CAP), at: now, ...keep(h) };
 }
 
 /** Сколько полен из предложенных костёр вправду принял: остальные не влезли. */
@@ -155,7 +203,7 @@ export function logsTaken(h: Hearth, now: number, logs: number): number {
  */
 export function spend(h: Hearth, now: number, logs: number): Hearth {
   const have = fuelAt(h, now);
-  return { fuel: clamp(have - Math.max(0, logs), 0, HEARTH_CAP), at: now };
+  return { fuel: clamp(have - Math.max(0, logs), 0, HEARTH_CAP), at: now, ...keep(h) };
 }
 
 /**

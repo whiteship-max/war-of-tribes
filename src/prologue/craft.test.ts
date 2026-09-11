@@ -299,7 +299,7 @@ describe('кнопка ремесла гаснет и говорит причи�
   const AT_CARCASS: Spot = { kind: 'carcass', x: 3, z: 3, index: -1 };
   const hunt = (taken: number, skinned = false): Hunt => ({ killedAt: 0, carcass: { x: 3, z: 3, taken, skinned } });
 
-  it('дом: без топора, без дров, достроен — у каждого своя причина', () => {
+  it('дом: без топора и без дров — своя причина, а достроенный открывает род', () => {
     expect(offer(S({ logs: 5 }), AT_HOUSE, 0)).toMatchObject({ deed: 'build', can: false, why: 'Нужен топор' });
     const bare = offer(S({ axe: true }), AT_HOUSE, 0);
     expect(bare).toMatchObject({ deed: 'build', can: false });
@@ -309,7 +309,13 @@ describe('кнопка ремесла гаснет и говорит причи�
       can: true,
       label: `Ставить дом (14/${HOUSE_LOGS})`,
     });
-    expect(offer(S({ axe: true, logs: 3, house: HOUSE_LOGS }), AT_HOUSE, 0)).toMatchObject({ deed: null, can: false });
+    // Строить больше нечего, но у дома есть дело: в нём записан род (`kin.ts`).
+    // Бревно в достроенный дом по-прежнему не ложится — рук тап не трогает.
+    expect(offer(S({ axe: true, logs: 3, house: HOUSE_LOGS }), AT_HOUSE, 0)).toMatchObject({
+      deed: 'kin',
+      can: true,
+      label: 'Родословная',
+    });
   });
 
   it('шкура снимается с разделанной туши и только пока нужна', () => {
@@ -338,13 +344,14 @@ describe('кнопка ремесла гаснет и говорит причи�
     expect(offer(S({ logs: 1 }), AT_AXE, 0).deed).toBe('take-axe');
   });
 
-  it('палатка и стройка — цели тапа, только когда у них есть дело', () => {
+  it('палатка — цель тапа, только когда у неё есть дело, а у дома дело есть всегда', () => {
     expect(reach(S(), 0).tent).toBe(true);
     expect(reach(S({ kit: true }), 0).tent).toBe(false);
     expect(reach(S({ kit: true, hides: COAT_HIDES }), 0).tent).toBe(true);
     expect(reach(dressed(S({ kit: true, hides: COAT_HIDES })), 0).tent).toBe(false);
+    // Строится — стройка; достроен — родословная. Пустым тапом дом не бывает.
     expect(reach(S({ house: HOUSE_LOGS - 1 }), 0).house).toBe(true);
-    expect(reach(S({ house: HOUSE_LOGS }), 0).house).toBe(false);
+    expect(reach(S({ house: HOUSE_LOGS }), 0).house).toBe(true);
   });
 });
 

@@ -56,14 +56,20 @@ import { swallowGhostClick } from '@/gestures';
 import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
 import { wolfHowl } from '@/sound/howl';
-import { Keys, KEY_BOW, PITCH_LIMIT, STICK_FULL, Sticks, mergeWalk, type Walk } from './controls';
+import { Keys, KEY_BOW, PITCH_LIMIT, STICK_FULL, Sticks, mergeWalk, typing, type Walk } from './controls';
 import {
+  BODY_R,
   CHOPS_TO_FELL,
   CHOP_MS,
   EYE,
+  FIRE,
   GLADE_R,
+  GUEST_FROM,
   HOUSE,
   HOUSE_SHELTER_R,
+  MATE_R,
+  MATE_SPOT,
+  REACH,
   START,
   TREES,
   WALK_SPEED,
@@ -76,7 +82,7 @@ import {
   standing,
   type Spot,
 } from './glade';
-import { hearthFill, burnWords, burning, feed, logsTaken, spend } from './fire';
+import { hearthFill, burnWords, burning, feed, keepHearth, logsTaken, spend } from './fire';
 import {
   darkness,
   gloom,
@@ -149,6 +155,7 @@ import {
   offer,
   reach,
   roastCount,
+  share,
   type Offer,
 } from './act';
 import {
@@ -167,9 +174,28 @@ import {
   stump,
   tent,
   wolf as wolfModel,
+  woman as womanModel,
 } from './models';
 import { KIT_MEAT, revive as reviveSave, savePrologue, type PrologueSave } from './save';
 import { ARROWS_PER_LOG, COAT_HIDES, buildTake, houseDone } from './craft';
+import {
+  GUEST_NO,
+  LOVE_DAYS,
+  SHARED,
+  WIFE_YES,
+  counts,
+  guestHere,
+  guestOf,
+  heirName,
+  lineage,
+  love,
+  loveFull,
+  tally,
+  welcome,
+  wifeSays,
+  type BondKind,
+  type KinLine,
+} from './kin';
 
 /**
  * Что показывает надстройка над сценой. Пересобирается только когда меняется.
@@ -223,7 +249,37 @@ export interface PrologueView {
   busyLeft: number;
   /** Жив ли человек. Не `null` — поверх всего встаёт экран с причиной. */
   dead: Death;
+  /** Какая карточка открыта: гостья, жена, имя сына, родословная. Пусто — никакой. */
+  panel: Panel;
+  /** Кто у огня: гостья, жена или никого. */
+  mate: '' | 'guest' | 'wife';
+  /** Её имя и что она говорит сейчас. */
+  mateName: string;
+  mateSays: string;
+  /** Любовь, 0..100 — выводится из дней общей жизни (`kin.love`). */
+  love: number;
+  /** Сколько дней засчитано по каждому делу; в счёт идёт не больше `LOVE_DAYS`. */
+  meals: number;
+  hugs: number;
+  nights: number;
+  woods: number;
+  /** Засчитано ли дело в эти сутки поляны — карточка ставит отметку. */
+  mealToday: boolean;
+  hugToday: boolean;
+  nightToday: boolean;
+  woodToday: boolean;
+  /** «Дать мясо»: можно ли и почему нет. */
+  give: Offer;
+  /** Родословная — ровно те строки, что есть (`kin.lineage`). */
+  lineage: readonly KinLine[];
+  /** Строка поверх сцены: встреча, ответ, новость. Пусто — ничего. */
+  note: string;
+  /** Идёт ли объятие: надстройка прячет кнопки, пока камера под крышей. */
+  hugging: boolean;
 }
+
+/** Какая карточка открыта над сценой. Время сцены: выход из режима её не помнит. */
+export type Panel = '' | 'guest' | 'wife' | 'name' | 'kin';
 
 /**
  * Как часто перекладывается свет.
@@ -348,6 +404,70 @@ const SAVE_EVERY = 4000;
  */
 const VIEW_EVERY = 120;
 
+/** Сколько идёт объятие, миллисекунды. Время сцены целиком. */
+const HUG_MS = 3200;
+
+/**
+ * Доли объятия: когда гаснет кадр, когда камера под крышей, когда виден знак.
+ *
+ * Затемнение закрывает оба перескока камеры — из-под неба под крышу и обратно:
+ * переезд на глазах читался бы сбоем картинки, а не приёмом. Взгляд к потолку
+ * поднимается уже под крышей, плавно, — это и есть «камера уходит вверх».
+ */
+const HUG = {
+  dim: 0.08,
+  cutIn: 0.18,
+  clear: 0.28,
+  up: 0.46,
+  heartIn: 0.4,
+  heartOut: 0.74,
+  redim: 0.76,
+  cutOut: 0.86,
+  back: 0.96,
+};
+
+/** Докуда поднимается взгляд под крышей: на фронтон и сходящиеся над ним скаты. */
+const HUG_PITCH = 0.8;
+
+/** На какой высоте под крышей камера: ниже глаз стоящего — в доме сидят. */
+const HUG_EYE = 1.2;
+
+/**
+ * На сколько камера отступает от середины дома к одному фронтону — лицом к другому.
+ *
+ * ЛИЦОМ ВДОЛЬ КОНЬКА, А НЕ ПОПЕРЁК, и это поймано снимком. Смотревшая поперёк
+ * камера упиралась в один скат, и потолок выходил ровным коричневым полем, в
+ * котором дома не узнать. Вдоль конька в кадре оба ската сходятся над головой, а
+ * впереди стоит треугольник фронтона над венцами стены: это читается потолком.
+ */
+const HUG_BACK = 0.8;
+
+/**
+ * Насколько ярок отсвет огня под крышей на время объятия.
+ *
+ * Своё число, а не отсвет костра как есть: с ним снимок вышел тёмным полем, в
+ * котором скаты и фронтон едва различимы, — до кровли свет доходит ослабленным
+ * расстоянием. С этим числом видно, что над головой потолок.
+ */
+const HUG_GLOW = 4;
+
+/** Сколько висит строка поверх сцены. Время сцены: выход её не помнит. */
+const NOTE_MS = 6500;
+
+/** Шаг женщины, м/с. Спокойный: она пришла, а не бежит. */
+const MATE_WALK = 1.1;
+
+/** С какого расстояния она оборачивается к подошедшему и перестаёт хлопотать у огня. */
+const MATE_NEAR = 4.5;
+
+/**
+ * Насколько дальше досягаемости карточка разговора ещё держится открытой.
+ *
+ * Шаг назад разговора не обрывает — обрывает уход. Без запаса карточка мигала бы
+ * у самой границы досягаемости, пока палец чуть водит стик.
+ */
+const TALK_SLACK = 0.6;
+
 /** Как то, до чего дотянулись, называется в журнале касаний. */
 const SPOT_WORDS: Record<Spot['kind'], string> = {
   tree: 'дерево',
@@ -358,6 +478,7 @@ const SPOT_WORDS: Record<Spot['kind'], string> = {
   arrow: 'стрела',
   wolf: 'волк',
   house: 'дом',
+  mate: 'женщина',
 };
 
 /** Что делается руками и длится: рубка, разделка, шкура, замах в драке. */
@@ -365,6 +486,22 @@ type Work = 'chop' | 'butcher' | 'skin' | 'fight';
 
 /** Что делает зверь. Живёт во времени сцены и никуда не пишется. */
 type Beast = { x: number; z: number; yaw: number; homeX: number; homeZ: number; fleeUntil: number; fleeYaw: number; gait: number };
+
+/**
+ * Женщина в кадре. Целиком время сцены: в записи о ней имя и минута, а где она
+ * стоит, куда смотрит и как наклонилась к огню, не переживает выхода.
+ */
+interface Figure {
+  obj: THREE.Group;
+  arms: THREE.Object3D | null;
+  x: number;
+  z: number;
+  yaw: number;
+  /** Наклон к огню: хлопочет — наклонилась, говорит — выпрямилась. */
+  bend: number;
+  /** Фаза шага. */
+  gait: number;
+}
 
 /**
  * Волк в кадре. Тоже целиком время сцены: в записи о нём одно число, и то не о
@@ -404,6 +541,18 @@ interface Flight {
 /** Одинаковы ли два предложения — по тому, что видно на кнопке. */
 const sameOffer = (a: Offer, b: Offer): boolean => a.label === b.label && a.can === b.can && a.why === b.why;
 
+/** Родословная одной строкой — сравнивать её надо по значению, как и всё остальное. */
+const kinKey = (lines: readonly KinLine[]): string => lines.map((l) => `${l.who}:${l.name}:${l.note}`).join('|');
+
+/** Доля отрезка `[a, b]`, пройденная к `k`: до него ноль, после — единица. */
+const ramp = (k: number, a: number, b: number): number => THREE.MathUtils.clamp((k - a) / (b - a), 0, 1);
+
+const smooth = (k: number): number => k * k * (3 - 2 * k);
+
+/** Повернуться к углу коротким путём — долей `k` за шаг. */
+const turnToward = (from: number, to: number, k: number): number =>
+  from + Math.atan2(Math.sin(to - from), Math.cos(to - from)) * Math.min(1, k);
+
 /**
  * Изменилось ли то, что показано.
  *
@@ -438,6 +587,23 @@ function same(a: PrologueView, b: PrologueView): boolean {
     a.busy === b.busy &&
     a.busyLeft === b.busyLeft &&
     a.dead === b.dead &&
+    a.panel === b.panel &&
+    a.mate === b.mate &&
+    a.mateName === b.mateName &&
+    a.mateSays === b.mateSays &&
+    a.love === b.love &&
+    a.meals === b.meals &&
+    a.hugs === b.hugs &&
+    a.nights === b.nights &&
+    a.woods === b.woods &&
+    a.mealToday === b.mealToday &&
+    a.hugToday === b.hugToday &&
+    a.nightToday === b.nightToday &&
+    a.woodToday === b.woodToday &&
+    a.note === b.note &&
+    a.hugging === b.hugging &&
+    kinKey(a.lineage) === kinKey(b.lineage) &&
+    sameOffer(a.give, b.give) &&
     sameOffer(a.offer, b.offer) &&
     sameOffer(a.shot, b.shot) &&
     sameOffer(a.eatCooked, b.eatCooked) &&
@@ -500,6 +666,20 @@ export class PrologueScene {
    */
   private stalkFrom = 0;
 
+  /** Женщина у огня: гостья или жена. Есть ли она — решает род, где стоит — кадр. */
+  private mate: Figure | null = null;
+  /** Гостья, получившая отказ: уходит к опушке и пропадает. Только картинка. */
+  private leaving: Figure | null = null;
+  /** Какая карточка открыта. Время сцены: выход из режима её не помнит. */
+  private panel: Panel = '';
+  /** Что она ответила только что — держится, пока открыта карточка. */
+  private said = '';
+  /** Строка поверх сцены и до какого кадра она стоит. */
+  private note = '';
+  private noteUntil = 0;
+  /** Когда началось объятие, время сцены. 0 — не идёт. */
+  private hugAt = 0;
+
   /** Непогода: дождь чертами и снег точками, видна одна за раз. */
   private precip = new Precip();
   /** Насколько непогода вступила, 0..1. Картинка, а не величина. */
@@ -561,6 +741,14 @@ export class PrologueScene {
    */
   stickEl: HTMLElement | null = null;
 
+  /**
+   * Затемнение и знак объятия. Двигает их сцена, минуя React, — по той же
+   * причине, что стик: они живут кадрами, и доли объятия у камеры и у затемнения
+   * обязаны быть одним числом, а не двумя таблицами — в коде и в стилях.
+   * Первый ребёнок — затемнение, второй — знак.
+   */
+  hugEl: HTMLElement | null = null;
+
   constructor(
     private canvas: HTMLCanvasElement,
     private save: PrologueSave,
@@ -617,6 +805,13 @@ export class PrologueScene {
     this.syncHouse();
     this.syncBeast(true);
     this.syncPack(performance.now());
+    this.syncMate(true);
+    // Встреча: что стало с огнём, пока человека не было, — первой строкой.
+    // Отлучка — сколько прошло с последней записи: отметка человека на диске и
+    // есть минута, в которую его видели здесь последний раз.
+    const met = serverNow();
+    const hello = welcome(this.save, this.save.hearth, met, met - this.save.body.at);
+    if (hello) this.say(hello);
 
     this.resize();
     this.wire();
@@ -699,6 +894,9 @@ export class PrologueScene {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    // Имя сына печатают в поле, и буквы имени — не шаг и не действие: без этой
+    // строки «а» натягивала бы лук, а пробел клал бы дрова (`controls.typing`).
+    if (typing(e.target)) return;
     if (e.repeat) return;
     if (this.keys.down(e.code)) {
       e.preventDefault();
@@ -743,7 +941,12 @@ export class PrologueScene {
     const now = serverNow();
     // Волки едут в поляну отсюда: где они стоят, знает только кадр, и второго
     // источника этому нет и быть не может.
-    return nearest(this.px, this.pz, reach(this.save, now, this.pack), now);
+    return nearest(this.px, this.pz, reach(this.save, now, this.pack, this.matePt()), now);
+  }
+
+  /** Где женщина — поляне: тап по ней заговаривает. Уходящая с отказом не в счёт. */
+  private matePt(): Pt | null {
+    return this.mate ? { x: this.mate.x, z: this.mate.z } : null;
   }
 
   /** Мёртвому не делают ничего: экран смерти стоит поверх всего, и это не запрет, а правда. */
@@ -763,9 +966,18 @@ export class PrologueScene {
   private act(): void {
     const now = serverNow();
     if (!this.alive(now)) return;
+    // Пока идёт объятие, камера не у человека, и делать ему нечего.
+    if (this.hugAt) return;
     const spot = this.aim();
     const what = offer(this.save, spot, now);
     if (!what.can || !spot) return;
+    if (what.deed === 'talk') return this.talk();
+    if (what.deed === 'kin') {
+      this.panel = 'kin';
+      this.said = '';
+      this.refresh();
+      return;
+    }
     if (what.deed === 'take-axe') {
       this.save.axe = true;
       this.syncAxe();
@@ -791,6 +1003,8 @@ export class PrologueScene {
       if (put <= 0) return;
       this.save.hearth = feed(this.save.hearth, now, put);
       this.save.logs -= put;
+      // Дрова в общий очаг — «достроенное вместе»: дом стоит, а очаг держат вдвоём.
+      this.together('wood', now);
       return this.done();
     }
     if (what.deed === 'roast') {
@@ -809,6 +1023,8 @@ export class PrologueScene {
       if (put <= 0) return;
       this.save.logs -= put;
       this.save.house += put;
+      // Легло последнее бревно — от этой минуты идёт первая гостья (`kin.guestAt`).
+      if (houseDone(this.save.house)) this.save.builtAt = now;
       this.syncHouse();
       // Первое бревно делает место стройки преградой: стоявший на разметке
       // выходит из сруба сразу, а не с первым шагом.
@@ -993,7 +1209,107 @@ export class PrologueScene {
     // глаза в двух шагах от той же пары зубов (объяснение — в `save.ts`).
     this.downed = 0;
     this.syncPack(performance.now());
+    // Род остаётся (`save.revive`), а разговор и объятие — нет: они жили кадрами.
+    this.panel = '';
+    this.said = '';
+    this.hugAt = 0;
+    this.hugShow(0, 0);
+    this.fireLight.position.set(0, 0.9, 0);
     this.done();
+  }
+
+  // ---------- Род ----------
+
+  /** Заговорить с женщиной у огня: с гостьей — о том, откуда она; с женой — о доме и сыне. */
+  private talk(): void {
+    const s = this.save;
+    this.said = '';
+    this.panel = !s.wife ? 'guest' : !s.heir && loveFull(s.bond) ? 'name' : 'wife';
+    this.refresh();
+  }
+
+  /**
+   * Принять гостью. С этой минуты она жена и бережёт огонь.
+   *
+   * Мера очага меняется событием, а не задним числом: отрезок закрывается прежней
+   * мерой, дальше горит её (`fire.keepHearth`).
+   */
+  acceptGuest(): void {
+    const now = serverNow();
+    const s = this.save;
+    if (!this.alive(now) || this.panel !== 'guest' || s.wife || !guestHere(s, now)) return;
+    s.wife = { name: guestOf(s.refused).name, at: now };
+    s.hearth = keepHearth(s.hearth, now);
+    this.panel = 'wife';
+    this.said = WIFE_YES;
+    this.done();
+  }
+
+  /** Отказать. Она уходит к опушке; следующая придёт через сутки поляны (`kin.GUEST_GAP_MS`). */
+  refuseGuest(): void {
+    const now = serverNow();
+    const s = this.save;
+    if (!this.alive(now) || this.panel !== 'guest' || s.wife || !guestHere(s, now)) return;
+    const g = guestOf(s.refused);
+    s.refused += 1;
+    s.refusedAt = now;
+    this.panel = '';
+    this.said = '';
+    this.say(`${g.name}: «${GUEST_NO}»`);
+    this.syncMate(false);
+    this.done();
+  }
+
+  /** Дать жене мясо — разделённая еда. Цена и запреты — `act.share`. */
+  shareMeat(): void {
+    const now = serverNow();
+    const s = this.save;
+    if (!this.alive(now) || this.panel !== 'wife' || !share(s, now).can) return;
+    if (s.meat.raw > 0) s.meat.raw -= 1;
+    else s.meat.cooked -= 1;
+    this.said = SHARED;
+    this.together('meal', now);
+    this.done();
+  }
+
+  /** Обнять. Камера уходит под крышу и вверх, знак, обычный вид — и больше ничего (`hugStep`). */
+  hug(): void {
+    const now = serverNow();
+    if (!this.alive(now) || this.panel !== 'wife' || !this.save.wife || this.hugAt) return;
+    this.panel = '';
+    this.said = '';
+    this.drawn = false;
+    this.hugAt = performance.now();
+    this.together('hug', now);
+    this.done();
+  }
+
+  /**
+   * Назвать сына. Возвращает причину отказа; пусто — имя принято и записано.
+   *
+   * Правило имени одно — `kin.heirName`, — и спрашивается оно здесь ещё раз, а не
+   * берётся на веру у кнопки: погашенную кнопку обходит Enter в поле.
+   */
+  nameHeir(raw: string): string {
+    const now = serverNow();
+    const s = this.save;
+    const named = heirName(raw);
+    if (named.why) return named.why;
+    if (!this.alive(now) || !s.wife || s.heir || !loveFull(s.bond)) return 'Рано';
+    s.heir = { name: named.name, at: now };
+    this.panel = '';
+    this.said = '';
+    this.say(`Родился сын — ${named.name}. Род записан в доме.`);
+    this.done();
+    return '';
+  }
+
+  /** Закрыть карточку: разговор или родословную. */
+  closePanel(): void {
+    if (!this.panel) return;
+    this.panel = '';
+    this.said = '';
+    this.refresh();
   }
 
   // ---------- Сцена ----------
@@ -1222,10 +1538,15 @@ export class PrologueScene {
 
   private step(dt: number, t: number): void {
     const look = this.sticks.takeLook();
-    this.yaw += look.yaw;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -PITCH_LIMIT, PITCH_LIMIT);
+    // Пока идёт объятие, взгляд и шаг не принимаются: камера не у человека, и
+    // сдвинутый за эти три секунды взгляд вернулся бы не туда, откуда уходил.
+    const held = this.hugAt > 0;
+    if (!held) {
+      this.yaw += look.yaw;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -PITCH_LIMIT, PITCH_LIMIT);
+    }
 
-    const walk: Walk = mergeWalk(this.sticks.walk(), this.keys.walk());
+    const walk: Walk = held ? { forward: 0, strafe: 0 } : mergeWalk(this.sticks.walk(), this.keys.walk());
     const speed = Math.hypot(walk.forward, walk.strafe);
     if (speed > 0) {
       // Экранное «вперёд» — туда, куда смотрит голова, но по земле: задранный
@@ -1234,7 +1555,10 @@ export class PrologueScene {
       const cos = Math.cos(this.yaw);
       const dx = (-sin * walk.forward + cos * walk.strafe) * WALK_SPEED * dt;
       const dz = (-cos * walk.forward - sin * walk.strafe) * WALK_SPEED * dt;
-      const p = slide(this.px + dx, this.pz + dz, blockers(this.save.felled, serverNow(), this.save.house > 0));
+      const blocks = blockers(this.save.felled, serverNow(), this.save.house > 0);
+      // Сквозь женщину не проходят: камера внутри человека — не разговор, а сбой.
+      if (this.mate) blocks.push({ x: this.mate.x, z: this.mate.z, r: MATE_R });
+      const p = slide(this.px + dx, this.pz + dz, blocks);
       this.px = p.x;
       this.pz = p.z;
       this.bob += speed * dt * 9;
@@ -1256,8 +1580,15 @@ export class PrologueScene {
     this.syncPack(t);
     this.wolfStep(dt, t, now);
     this.howlStep(t, now);
+    this.syncMate(false);
+    this.mateStep(dt, t, now);
+    this.homeNight(now);
+    this.panelStep(now);
     this.arrowStep(dt);
     this.fire(t, dt);
+    // Последним нарочно: объятие перекладывает камеру и отсвет огня поверх того,
+    // что разложили шаг и костёр.
+    this.hugStep(t);
     this.stick();
     this.persist(false);
     // Кадровая пересборка надписи — единственная, которую можно проредить: всё
@@ -1861,6 +2192,225 @@ export class PrologueScene {
     }
   }
 
+  /**
+   * Кто стоит у огня — и столько и ставит.
+   *
+   * Есть ли женщина, решает род на чтении (`kin.guestHere`, жена в записи); откуда
+   * она взялась в кадре — сцена. Застал её, войдя, — стоит у очага (`fresh`):
+   * пришла, пока человека не было. Пришла при нём — выходит из леса и идёт к огню.
+   * Получила отказ — уходит тем же путём, и это уже только картинка: в записи её
+   * нет с той минуты, когда прозвучал отказ.
+   */
+  private syncMate(fresh: boolean): void {
+    const here = !!this.save.wife || guestHere(this.save, serverNow());
+    if (here && !this.mate) {
+      const g = womanModel();
+      g.rotation.order = 'YXZ';
+      const at = fresh ? MATE_SPOT : GUEST_FROM;
+      g.position.set(at.x, 0, at.z);
+      this.scene.add(g);
+      this.mate = { obj: g, arms: g.getObjectByName('arms') ?? null, x: at.x, z: at.z, yaw: 0, bend: 0, gait: 0 };
+      if (!fresh) this.say('К огню вышла женщина.');
+    }
+    if (!here && this.mate) {
+      if (this.leaving) this.drop(this.leaving.obj);
+      this.leaving = this.mate;
+      this.mate = null;
+      if (this.panel === 'guest' || this.panel === 'wife' || this.panel === 'name') this.panel = '';
+    }
+  }
+
+  /**
+   * Женщина в кадре: идёт к очагу, хлопочет у него, оборачивается к подошедшему.
+   *
+   * ВСЁ ЭТО ВРЕМЯ СЦЕНЫ. Хлопочет она, только когда есть над чем: жена у горящего
+   * огня, и человек не рядом. У погасшего очага стоит лицом к нему и ждёт дров;
+   * гостья к чужому огню не притрагивается. Подошёл человек — выпрямляется и
+   * поворачивается к нему: это и есть «встречает», сказанное телом, а не словом.
+   */
+  private mateStep(dt: number, t: number, now: number): void {
+    const m = this.mate;
+    if (m) {
+      const toSpot = Math.hypot(MATE_SPOT.x - m.x, MATE_SPOT.z - m.z);
+      const toMe = Math.hypot(this.px - m.x, this.pz - m.z);
+      let speed = 0;
+      // В человека она не входит: встала и ждёт, пока он отойдёт с дороги.
+      if (toSpot > 0.05 && toMe > MATE_R + BODY_R + 0.25) speed = this.mateGo(m, MATE_SPOT.x, MATE_SPOT.z, dt);
+      const near = toMe < MATE_NEAR;
+      const tend = speed === 0 && !near && !!this.save.wife && burning(this.save.hearth, now);
+      if (speed === 0) {
+        const want = near ? Math.atan2(this.px - m.x, this.pz - m.z) : Math.atan2(FIRE.x - m.x, FIRE.z - m.z);
+        m.yaw = turnToward(m.yaw, want, dt * 3);
+      }
+      m.bend += ((tend ? 0.28 : 0) - m.bend) * Math.min(1, dt * 4);
+      const s = t / 1000;
+      const arm =
+        speed > 0
+          ? Math.sin(m.gait) * 0.22
+          : tend
+            ? -0.85 + Math.sin(s * 2.2) * 0.2
+            : near && this.save.wife
+              ? -0.18
+              : Math.sin(s * 1.3) * 0.03;
+      if (m.arms) m.arms.rotation.x += (arm - m.arms.rotation.x) * Math.min(1, dt * 6);
+      m.obj.position.set(m.x, speed > 0 ? Math.abs(Math.sin(m.gait)) * 0.03 : 0, m.z);
+      m.obj.rotation.set(m.bend, m.yaw, 0);
+    }
+    const l = this.leaving;
+    if (!l) return;
+    if (Math.hypot(GUEST_FROM.x - l.x, GUEST_FROM.z - l.z) < 0.3) {
+      this.drop(l.obj);
+      this.leaving = null;
+      return;
+    }
+    this.mateGo(l, GUEST_FROM.x, GUEST_FROM.z, dt);
+    if (l.arms) l.arms.rotation.x = Math.sin(l.gait) * 0.22;
+    l.obj.position.set(l.x, Math.abs(Math.sin(l.gait)) * 0.03, l.z);
+    l.obj.rotation.set(0, l.yaw, 0);
+  }
+
+  /** Шагнуть женщиной к точке. Возвращает скорость шага — по ней идёт покачивание. */
+  private mateGo(f: Figure, tx: number, tz: number, dt: number): number {
+    const dx = tx - f.x;
+    const dz = tz - f.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.05) return 0;
+    const step = Math.min(len, MATE_WALK * dt);
+    f.x += (dx / len) * step;
+    f.z += (dz / len) * step;
+    f.yaw = Math.atan2(dx, dz);
+    f.gait += step * 5.5;
+    return MATE_WALK;
+  }
+
+  /**
+   * Засчитать дело общей жизни — если в эти сутки поляны оно ещё не засчитано.
+   *
+   * Любовь при этом не считается здесь ни на волос: копятся дни (`kin.tally`),
+   * любовь из них выводится (`kin.love`). Дошла до ста — жена хочет что-то
+   * сказать, и об этом говорится сразу: в открытом разговоре — самим разговором,
+   * без него — строкой поверх сцены.
+   */
+  private together(kind: BondKind, now: number): void {
+    const w = this.save.wife;
+    if (!w) return;
+    const was = loveFull(this.save.bond);
+    const next = tally(this.save.bond[kind], now);
+    if (next === this.save.bond[kind]) return;
+    this.save.bond = { ...this.save.bond, [kind]: next };
+    if (was || this.save.heir || !loveFull(this.save.bond)) return;
+    if (this.panel === 'wife') {
+      this.panel = 'name';
+      this.said = '';
+    } else {
+      this.say(`${w.name} хочет тебе что-то сказать.`);
+    }
+  }
+
+  /**
+   * Ночь застала дома — четвёртое место, где кадр касается записи, и тоже событием.
+   *
+   * «Пережитая вместе ночь» — ночь, которую человек встретил у своего огня или под
+   * своей крышей, пока в доме жена. Где он стоит, знает только кадр — ровно как в
+   * `warmth`, — поэтому кадр замечает мгновение, а в запись ложится одно:
+   * засчитанный день (`kin.tally`), не чаще раза в сутки поляны. Ночи, прошедшие
+   * без игрока, не засчитываются: вместе — значит вместе.
+   */
+  private homeNight(now: number): void {
+    const s = this.save;
+    if (!s.wife || !isNight(now) || !counts(s.bond.night, now)) return;
+    if (!byFire(this.px, this.pz) && !byHouse(this.px, this.pz)) return;
+    if (!this.alive(now)) return;
+    this.together('night', now);
+    this.done();
+  }
+
+  /** Карточка закрывается сама, когда от разговора ушли: шаг назад — нет, уход — да. */
+  private panelStep(now: number): void {
+    if (!this.panel) return;
+    const gone = !this.alive(now)
+      ? true
+      : this.panel === 'kin'
+        ? Math.hypot(this.px - HOUSE.x, this.pz - HOUSE.z) - HOUSE.r > REACH + TALK_SLACK
+        : !this.mate || Math.hypot(this.px - this.mate.x, this.pz - this.mate.z) - MATE_R > REACH + TALK_SLACK;
+    if (!gone) return;
+    this.panel = '';
+    this.said = '';
+    this.refresh();
+  }
+
+  /**
+   * Объятие: кадр гаснет, камера оказывается под крышей и поднимает взгляд к
+   * потолку, над ним встаёт знак, кадр гаснет снова — и обычный вид.
+   *
+   * ПРИЁМ ИЗВЕСТНЫЙ, И НИЧЕГО СВЕРХ НЕГО: ни фигур под крышей, ни слов. Время сцены
+   * целиком. В запись ложится одно — день объятия (`together`), и ложится он в
+   * минуту нажатия. Где человек стоит, объятие не меняет: уходит под крышу и
+   * возвращается камера, а он остаётся там, где стоял.
+   */
+  private hugStep(t: number): void {
+    if (!this.hugAt) return;
+    const k = (t - this.hugAt) / HUG_MS;
+    if (k >= 1) {
+      this.hugAt = 0;
+      this.hugShow(0, 0);
+      this.fireLight.position.set(0, 0.9, 0);
+      this.precip.root.visible = true;
+      if (this.bowInHand) this.bowInHand.visible = true;
+      this.refresh();
+      return;
+    }
+    const inside = k >= HUG.cutIn && k < HUG.cutOut;
+    const veil =
+      k < HUG.cutIn
+        ? ramp(k, HUG.dim, HUG.cutIn)
+        : inside
+          ? Math.max(1 - ramp(k, HUG.cutIn, HUG.clear), ramp(k, HUG.redim, HUG.cutOut))
+          : 1 - ramp(k, HUG.cutOut, HUG.back);
+    const sign = ramp(k, HUG.heartIn, HUG.heartIn + 0.06) * (1 - ramp(k, HUG.heartOut - 0.06, HUG.heartOut));
+    this.hugShow(veil, sign);
+    // Вещи в руках висят на камере: под крышей с топором у лица не обнимаются.
+    if (this.axeInHand) this.axeInHand.visible = false;
+    if (this.bowInHand) this.bowInHand.visible = false;
+    // Непогода стоит полем над всей поляной и крыши не знает: под ней дождя нет.
+    this.precip.root.visible = !inside;
+    if (!inside) {
+      this.fireLight.position.set(0, 0.9, 0);
+      return;
+    }
+    // Конёк лежит вдоль оси X модели (`models.house`), повёрнутой вместе с домом;
+    // камера без поворота смотрит вдоль −Z, отсюда четверть оборота в рыскании.
+    const ax = Math.cos(HOUSE.rot);
+    const az = -Math.sin(HOUSE.rot);
+    this.camera.position.set(HOUSE.x - ax * HUG_BACK, HUG_EYE, HOUSE.z - az * HUG_BACK);
+    this.camera.rotation.set(smooth(ramp(k, HUG.cutIn, HUG.up)) * HUG_PITCH, HOUSE.rot - Math.PI / 2, 0, 'YXZ');
+    // Под крышей темно, а новый источник света пересобрал бы материалы на кадр:
+    // на время объятия в дом переходит тот же отсвет огня.
+    this.fireLight.position.set(HOUSE.x, 1.1, HOUSE.z);
+    this.fireLight.intensity = Math.max(this.fireLight.intensity, HUG_GLOW);
+  }
+
+  /** Затемнение и знак объятия: сцена двигает их сама, по долям одного числа. */
+  private hugShow(veil: number, sign: number): void {
+    const el = this.hugEl;
+    if (!el) return;
+    el.style.visibility = veil > 0 || sign > 0 ? 'visible' : 'hidden';
+    const dim = el.children[0] as HTMLElement | undefined;
+    const heart = el.children[1] as HTMLElement | undefined;
+    if (dim) dim.style.opacity = veil.toFixed(3);
+    if (heart) {
+      heart.style.opacity = sign.toFixed(3);
+      heart.style.transform = `rotate(45deg) scale(${(0.7 + sign * 0.3).toFixed(3)})`;
+    }
+  }
+
+  /** Строка поверх сцены: встреча, ответ, новость. Висит `NOTE_MS` и уходит сама. */
+  private say(text: string): void {
+    this.note = text;
+    this.noteUntil = performance.now() + NOTE_MS;
+    this.refresh();
+  }
+
   /** Раз в несколько секунд складываем пару чисел на диск. */
   private persist(force: boolean): void {
     const t = performance.now();
@@ -1912,6 +2462,23 @@ export class PrologueScene {
       busy: busy === 'chop' ? 'Ещё ударов' : busy === 'butcher' ? 'Срезает' : busy === 'skin' ? 'Снимает шкуру' : busy === 'fight' ? 'Отбивается' : '',
       busyLeft: busy === 'chop' && this.chopTree >= 0 ? this.chopsLeft : 0,
       dead: death(s, now),
+      panel: this.panel,
+      mate: s.wife ? 'wife' : this.mate ? 'guest' : '',
+      mateName: s.wife?.name ?? (this.mate ? guestOf(s.refused).name : ''),
+      mateSays: this.said || (s.wife ? wifeSays(s, s.hearth, now) : this.mate ? guestOf(s.refused).story : ''),
+      love: love(s.bond),
+      meals: Math.min(s.bond.meal.n, LOVE_DAYS),
+      hugs: Math.min(s.bond.hug.n, LOVE_DAYS),
+      nights: Math.min(s.bond.night.n, LOVE_DAYS),
+      woods: Math.min(s.bond.wood.n, LOVE_DAYS),
+      mealToday: !counts(s.bond.meal, now),
+      hugToday: !counts(s.bond.hug, now),
+      nightToday: !counts(s.bond.night, now),
+      woodToday: !counts(s.bond.wood, now),
+      give: share(s, now),
+      lineage: lineage(s.wife, s.heir),
+      note: performance.now() < this.noteUntil ? this.note : '',
+      hugging: this.hugAt > 0,
     };
   }
 
@@ -1990,6 +2557,24 @@ export class PrologueScene {
   /** Сколько брёвен в доме и под крышей ли человек — замеру: стенд строит пальцем. */
   craft(): { house: number; roof: boolean } {
     return { house: this.save.house, roof: this.save.body.roof };
+  }
+
+  /** Где женщина — замеру. Её место живёт в кадрах, как у зверя, и второго источника нет. */
+  mateAt(): { x: number; z: number } | null {
+    return this.matePt();
+  }
+
+  /** Род и камера объятия — замеру: стенд проверяет, что взгляд ушёл под крышу и вернулся. */
+  kin(): { refused: number; wife: string; heir: string; love: number; kept: boolean; camY: number; camPitch: number } {
+    return {
+      refused: this.save.refused,
+      wife: this.save.wife?.name ?? '',
+      heir: this.save.heir?.name ?? '',
+      love: love(this.save.bond),
+      kept: this.save.hearth.kept === true,
+      camY: this.camera.position.y,
+      camPitch: this.camera.rotation.x,
+    };
   }
 
   /** Показания для замера: вызовы отрисовки и треугольники. */

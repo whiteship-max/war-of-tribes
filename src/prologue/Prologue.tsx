@@ -1,9 +1,10 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { probe } from '@/debug';
 // Свой файл стилей, а не строки в общем: он уезжает вместе с чанком режима и
 // в первую загрузку игры не входит (почему — в самом файле).
 import './prologue.css';
 import { deathWords } from './body';
+import { HEIR_MAX, LOVE_DAYS, heirName } from './kin';
 import { loadPrologue } from './save';
 import { PrologueScene, type PrologueView } from './scene';
 
@@ -28,22 +29,27 @@ import { PrologueScene, type PrologueView } from './scene';
  *
  * Надстройка над сценой перерисовывается не каждый кадр: сцена присылает
  * `PrologueView` только когда в нём что-то изменилось (`scene.refresh`). Стик
- * ходьбы — исключение: он ездит за пальцем, и его сцена двигает сама, минуя
- * React, иначе React перерисовывался бы шестьдесят раз в секунду ради кружка.
+ * ходьбы и затемнение объятия — исключения: они живут кадрами, и их сцена
+ * двигает сама, минуя React, иначе React перерисовывался бы шестьдесят раз в
+ * секунду ради кружка.
  *
  * ТЕСНО ЛИ НА ЭКРАНЕ — вопрос, который решается тем, чего здесь **нет**.
  * Полос три, но видно обычно две: полоса холода поднимается только когда с
  * теплом что-то не так, а пока костёр горит и человек у огня — её нет вовсе.
  * Так же и счётчики: чего нет в руках, того нет и на экране. Внизу всегда ровно
- * две кнопки — действие и лук, — и ни одна из них не переезжает.
+ * две кнопки — действие и лук, — и ни одна из них не переезжает. Карточка
+ * разговора встаёт над ними, а не на их место, и только пока разговор идёт.
  */
 export function Prologue({ onExit }: { onExit: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef<HTMLDivElement>(null);
+  const hugRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<PrologueScene | null>(null);
   const [view, setView] = useState<PrologueView | null>(null);
   /** Показывать ли подсказку об управлении. Уходит с первого касания сцены. */
   const [hint, setHint] = useState(true);
+  /** Имя сына, пока его печатают. Это поле ввода, а не игра: в запись оно не идёт. */
+  const [draft, setDraft] = useState('');
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
@@ -69,6 +75,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     sceneRef.current = scene;
     scene.onView = setView;
     scene.stickEl = stickRef.current;
+    scene.hugEl = hugRef.current;
     // Первую надпись берём сразу, не дожидаясь кадра: в скрытом вебвью кадра не
     // будет вовсе, и игрок увидел бы многоточие вместо костра.
     setView(scene.snapshot());
@@ -89,6 +96,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       canvas.removeEventListener('pointerdown', drop);
       scene.onView = null;
       scene.stickEl = null;
+      scene.hugEl = null;
       // Порядок тот же, что у диорамы: сцена прибирается при канве, ещё лежащей
       // в разметке, и только потом канва уходит.
       scene.dispose();
@@ -102,6 +110,26 @@ export function Prologue({ onExit }: { onExit: () => void }) {
   const eatCooked = useCallback(() => sceneRef.current?.eatMeal(false), []);
   const eatRaw = useCallback(() => sceneRef.current?.eatMeal(true), []);
   const again = useCallback(() => sceneRef.current?.reviveNow(), []);
+  const accept = useCallback(() => sceneRef.current?.acceptGuest(), []);
+  const refuse = useCallback(() => sceneRef.current?.refuseGuest(), []);
+  const giveMeat = useCallback(() => sceneRef.current?.shareMeat(), []);
+  const hug = useCallback(() => sceneRef.current?.hug(), []);
+  const closePanel = useCallback(() => sceneRef.current?.closePanel(), []);
+
+  /**
+   * Имя — одним правилом на кнопку, на Enter и на запись: `kin.heirName`.
+   * Причина стоит под полем всегда, а не всплывает после нажатия: кнопка, которая
+   * не сработает, гаснет и говорит почему.
+   */
+  const named = heirName(draft);
+  const nameSon = (e: FormEvent): void => {
+    e.preventDefault();
+    if (named.why) return;
+    // Клавиатуру убираем до того, как поле уйдёт из разметки: на iOS фокус,
+    // оставшийся на вынутом узле, держит клавиатуру над пустым местом.
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    if (sceneRef.current?.nameHeir(draft) === '') setDraft('');
+  };
 
   /** Полоса тревоги о холоде видна только тогда, когда с теплом что-то не так. */
   const showCold = !!view && (view.coldFill > 0.005 || view.fireFill <= 0);
@@ -114,6 +142,8 @@ export function Prologue({ onExit }: { onExit: () => void }) {
    * тогда это не теснота, а то, что игроку и надо прочесть.
    */
   const showHurt = !!view && view.hurtFill > 0.005;
+  /** Какая карточка на экране. Мёртвому и посреди объятия — никакой. */
+  const card = view && !view.dead && !view.hugging ? view.panel : '';
 
   return (
     <div className="pro" ref={wrapRef}>
@@ -201,31 +231,37 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         </div>
       )}
 
+      {/* Строка поверх сцены: встреча после отлучки, ответ гостьи, новость о
+          роде. Ничего не нажимает и уходит сама — время её держит сцена. */}
+      {view && !view.dead && view.note !== '' && <div className="pro-note">{view.note}</div>}
+
       {/* Перекрестье появляется только с натянутым луком — и это единственное
           место в игре, где оно честно: тап не целится, а стрела летит ровно
           сюда. Стояло бы всегда — обещало бы прицел там, где его нет. */}
       {view?.drawn && <div className="pro-cross" aria-hidden="true" />}
 
-      <div className="pro-act">
-        {/* Правило то же, что у стройки и писем: кнопка, которая не сработает,
-            гаснет и говорит причину. Проваливающихся нажатий не бывает. */}
-        <button className="pro-do" onClick={act} disabled={!view?.offer.can}>
-          {view?.offer.label ?? 'Осмотрись'}
-        </button>
-        {/* Лук — своя кнопка, и стоит она под большим пальцем той руки, которая
-            смотрит: целиться и пускать одной рукой. */}
-        <button
-          className={`pro-bow${view?.drawn ? ' drawn' : ''}`}
-          onClick={shoot}
-          disabled={!view?.shot.can}
-          title={view?.shot.why}
-        >
-          {view?.drawn ? '➹' : '🏹'}
-        </button>
-      </div>
-      {view && !view.offer.can && <div className="pro-why">{view.offer.why}</div>}
+      {!view?.hugging && (
+        <div className="pro-act">
+          {/* Правило то же, что у стройки и писем: кнопка, которая не сработает,
+              гаснет и говорит причину. Проваливающихся нажатий не бывает. */}
+          <button className="pro-do" onClick={act} disabled={!view?.offer.can}>
+            {view?.offer.label ?? 'Осмотрись'}
+          </button>
+          {/* Лук — своя кнопка, и стоит она под большим пальцем той руки, которая
+              смотрит: целиться и пускать одной рукой. */}
+          <button
+            className={`pro-bow${view?.drawn ? ' drawn' : ''}`}
+            onClick={shoot}
+            disabled={!view?.shot.can}
+            title={view?.shot.why}
+          >
+            {view?.drawn ? '➹' : '🏹'}
+          </button>
+        </div>
+      )}
+      {view && !view.offer.can && !view.hugging && <div className="pro-why">{view.offer.why}</div>}
 
-      {hint && !view?.dead && (
+      {hint && !view?.dead && card === '' && (
         <div className="pro-hint">
           <b>Слева — идти, справа — смотреть.</b>
           <span>Тап — действие над тем, к чему подошёл: топор на колоде, пожитки у палатки, дрова в костёр.</span>
@@ -235,6 +271,146 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           <span className="pro-dim">На ПК: WASD или стрелки, мышью тянуть, пробел — действие, F — лук.</span>
         </div>
       )}
+
+      {/* Гостья у огня: кто она и откуда — её словами, и два ответа. Отказ не
+          тупик и не наказание: следующая придёт через сутки поляны. */}
+      {view && card === 'guest' && (
+        <div className="pro-card" role="dialog" aria-label="Гостья у огня">
+          <button className="pro-x" onClick={closePanel} aria-label="Отойти">
+            ✕
+          </button>
+          <b className="pro-who">{view.mateName}</b>
+          <p className="pro-say">«{view.mateSays}»</p>
+          <div className="pro-row">
+            <button className="pro-btn main" onClick={accept}>
+              Принять
+            </button>
+            <button className="pro-btn" onClick={refuse}>
+              Отказать
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Жена. Любовь — полосой и из чего она растёт: четыре дела, каждое раз в
+          сутки поляны, и засчитанное сегодня подсвечено. Число без объяснения
+          игрок читал бы шкалой кормёжки, а она про общую жизнь. */}
+      {view && card === 'wife' && (
+        <div className="pro-card" role="dialog" aria-label="Жена">
+          <button className="pro-x" onClick={closePanel} aria-label="Отойти">
+            ✕
+          </button>
+          <b className="pro-who">
+            {view.mateName} <em>жена</em>
+          </b>
+          <p className="pro-say">«{view.mateSays}»</p>
+          <div className="pro-love">
+            <span>любовь</span>
+            <div className="pro-bar">
+              <i style={{ width: `${Math.round(Math.max(0, Math.min(100, view.love)))}%` }} />
+            </div>
+            <em>{view.love}</em>
+          </div>
+          <div className="pro-tally">
+            <span className={view.mealToday ? 'on' : ''} title="разделённая еда">
+              🍗 {view.meals}/{LOVE_DAYS}
+            </span>
+            <span className={view.hugToday ? 'on' : ''} title="объятия">
+              🤗 {view.hugs}/{LOVE_DAYS}
+            </span>
+            <span className={view.nightToday ? 'on' : ''} title="ночи дома">
+              🌙 {view.nights}/{LOVE_DAYS}
+            </span>
+            <span className={view.woodToday ? 'on' : ''} title="дрова в общий очаг">
+              🔥 {view.woods}/{LOVE_DAYS}
+            </span>
+          </div>
+          <span className="pro-card-note">раз в сутки: еда, объятие, ночь дома, дрова</span>
+          <div className="pro-row">
+            <button className="pro-btn" onClick={giveMeat} disabled={!view.give.can}>
+              {view.give.label}
+            </button>
+            <button className="pro-btn main" onClick={hug}>
+              Обнять
+            </button>
+          </div>
+          {!view.give.can && <span className="pro-card-why">{view.give.why}</span>}
+        </div>
+      )}
+
+      {/*
+          Имя сына. КАРТОЧКА НАВЕРХУ, А НЕ ВНИЗУ, И ЭТО ПРО КЛАВИАТУРУ. Вебвью
+          поднимает её по-разному: Android сжимает окно, iOS кладёт клавиатуру
+          поверх и двигает страницу к полю. Поле, стоящее у верхнего края, не
+          уезжает под клавиатуру ни в том, ни в другом случае, и страницу двигать
+          к нему незачем. Под карточкой — затемнение: пока печатают, сцена не
+          берёт касаний, а её прыжки вслед за сжатым окном не видны.
+      */}
+      {view && card === 'name' && (
+        <>
+          <div className="pro-veil" />
+          <form className="pro-card top pro-name" onSubmit={nameSon} role="dialog" aria-label="Имя сына">
+            <button type="button" className="pro-x" onClick={closePanel} aria-label="Позже">
+              ✕
+            </button>
+            <b className="pro-who">{view.mateName}</b>
+            <p className="pro-say">«{view.mateSays}»</p>
+            <label className="pro-ask" htmlFor="pro-heir">
+              Как назвать сына?
+            </label>
+            <input
+              id="pro-heir"
+              name="heir"
+              type="text"
+              value={draft}
+              maxLength={HEIR_MAX}
+              placeholder="Имя"
+              inputMode="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="words"
+              spellCheck={false}
+              enterKeyHint="done"
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            <span className="pro-card-why">{named.why}</span>
+            <div className="pro-row">
+              <button type="submit" className="pro-btn main" disabled={named.why !== ''}>
+                Назвать
+              </button>
+              <button type="button" className="pro-btn" onClick={closePanel}>
+                Позже
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+
+      {/* Родословная: ровно те строки, что есть. Пустых мест «на вырост» нет —
+          они обещали бы то, чего игрок ещё не сделал. */}
+      {view && card === 'kin' && (
+        <div className="pro-card pro-kin" role="dialog" aria-label="Родословная">
+          <button className="pro-x" onClick={closePanel} aria-label="Закрыть">
+            ✕
+          </button>
+          <b className="pro-who">Род</b>
+          <ol>
+            {view.lineage.map((line) => (
+              <li key={line.who}>
+                <b>{line.name}</b>
+                <span>{line.note}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Объятие: затемнение и знак. Прозрачность им ставит сцена по долям
+          объятия — теми же числами, по которым уходит под крышу камера. */}
+      <div className="pro-hug" ref={hugRef} aria-hidden="true">
+        <i className="pro-hug-veil" />
+        <i className="pro-heart" />
+      </div>
 
       {/* Смерть — экран поверх всего, и он называет причину. Молча начатое
           заново утро игрок прочитал бы как сбой, а не как свою ошибку. */}
