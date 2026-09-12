@@ -104,7 +104,7 @@ import {
 import { Dome, newTone, toneAt } from './dome';
 import { Surfaces } from './surface';
 import { ADDITIVE, BOY_LOOK, LOOKS, MOOD_BLINK, MOOD_CALM, MOOD_WARM, MOOD_WARY, RAIDER_LOOK, bake, glowCanvas, mix, sleeveCanvas, type Mood } from './paint';
-import { RAIDER_HAND, arm as armModel, boy as boyModel, raider as raiderModel, setMood, skinOf, woman as womanModel, type Skin } from './people';
+import { arm as armModel, boy as boyModel, raider as raiderModel, setMood, skinOf, woman as womanModel, type Hold, type Skin } from './people';
 import {
   HOWL_LEAD_MS,
   WOLF_EDGE,
@@ -210,12 +210,14 @@ import {
   FOE_HIT,
   FOE_HIT_GAP,
   FOE_REACH,
+  FOE_TURN_MS,
   FOE_WALK,
   PASS_AFTER_MS,
   RAIDERS,
   RAIDERS_MELEE,
   RAID_AWAY,
   RAID_FROM,
+  RAID_MID,
   RAID_NOTE,
   RAID_SAYS,
   RAID_STAND,
@@ -495,6 +497,11 @@ const WIND_DIR = { x: 0.8, z: -0.6 };
  * Топор держат правой: локоть вниз, вправо и к себе. Лук — левой: опущенный держат
  * у бедра, натянутый — на вытянутой руке, и предплечье смотрит почти на камеру.
  * Числа подобраны снимками 375 px, как и места самих вещей.
+ *
+ * Хват у топора остался посередине топорища, и это не забывчивость: у камеры
+ * топор виден с полуметра, обух у него над кистью, и рука на нём читается. У
+ * пришедших из леса хват другой (`FOE_AXE`, у конца топорища) — их видно с пяти
+ * метров, и там решает угол, а не ладонь.
  */
 const ARM_AXE = { grip: [0, -0.005, 0.0], dir: [0.25, -0.9, 0.35], handle: [0, 0, -1] } as const;
 const ARM_BOW_LOW = { dir: [-0.15, -0.95, 0.3] } as const;
@@ -549,6 +556,120 @@ function armPose(
 }
 
 /**
+ * Вложить вещь в кулак: место хвата — в кулак, ось вещи — вдоль `along`.
+ *
+ * Обратная сторона `armPose`: там рука садится на вещь, потому что вещь висит на
+ * камере; здесь вещь садится в руку, потому что рука висит на плече. Считается
+ * один раз при сборке фигуры и дальше не стоит ничего — оружие становится
+ * ребёнком узла рук и ходит вместе с ним.
+ *
+ * `hold` — сколько от середины вещи до места хвата вдоль её −Z: у топора кулак
+ * у самого конца топорища, у лука — на рукояти, то есть в середине.
+ */
+function inHand(item: THREE.Object3D, h: Hold, hold: number, scale: number): void {
+  const q = new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().lookAt(new THREE.Vector3(), h.along, h.up),
+  );
+  item.quaternion.copy(q);
+  item.scale.setScalar(scale);
+  item.position.copy(h.at).sub(new THREE.Vector3(0, 0, hold * scale).applyQuaternion(q));
+}
+
+/** Куда смотрит вещь в осях фигуры — из пары «ось вещи, её верх». */
+function facing(t: { along: readonly number[]; up: readonly number[] }): THREE.Quaternion {
+  return new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().lookAt(
+      new THREE.Vector3(),
+      new THREE.Vector3(t.along[0], t.along[1], t.along[2]).normalize(),
+      new THREE.Vector3(t.up[0], t.up[1], t.up[2]).normalize(),
+    ),
+  );
+}
+
+/**
+ * Где кулак на вещи, в её собственных осях, и во сколько раз она уменьшена.
+ *
+ * Топорище модели лежит вдоль Z: обух у −Z, конец топорища у +Z. Держат его у
+ * конца, а не за середину, — иначе в руке оказывается не топор, а молоток.
+ * Лук держат за рукоять, а она у него в начале координат.
+ */
+const FOE_AXE = { hold: 0.3, scale: 0.78 };
+const FOE_BOW = { hold: 0, scale: 1.15 };
+
+/**
+ * Углы узла рук пришедшего: стоит, идёт, замахивается, бьёт, целится.
+ *
+ * Один угол на обе руки — узел-то один, — и этого хватает ровно потому, что
+ * поза рук уже вылеплена геометрией (`people.RAIDER_ARMS`): плечи поворачивают
+ * то, что и так держит топор или лук. Поворот по X: **минус** поднимает руки
+ * вперёд и через верх, плюс уводит их назад.
+ *
+ * ЗАМАХ И УДАР ОБА ОТРИЦАТЕЛЬНЫЕ, И ЗНАКИ ЗДЕСЬ СЧИТАНЫ, А НЕ УГАДАНЫ. Топор
+ * торчит из кулака продолжением руки (вниз и вперёд), значит обух ходит по той
+ * же дуге и дальше по ней: рука, поднятая вперёд и вверх (−1.95), ставит топор
+ * над головой, а опущенная вперёд (−0.25) проносит его сверху вниз перед собой.
+ * Это и есть «от плеча, а не от кисти».
+ *
+ * Не до отвеса (−2.45), хотя топор оттуда выше: поднятые стоймя обе руки читаются
+ * не замахом, а поднятыми руками — узел-то один, и вторая рука идёт за первой.
+ * По диагонали видно и топор, и то, что он сейчас упадёт.
+ *
+ * Положительные углы дают обратное — и это было первой версией: топор уходил за
+ * спину вниз, а на ударе взлетал наверх. На снимке замаха не было вовсе.
+ */
+const FOE_POSE = { stand: 0.06, swing: -1.95, hit: -0.25, aim: -0.75, carry: 0.55 };
+
+/**
+ * Как лук лежит в кисти: опущенный и поднятый.
+ *
+ * ОПУЩЕННЫЙ ПОКАЗЫВАЕТ ДУГУ, ПОДНЯТЫЙ — НЕТ, И ЭТО НЕ НЕДОСМОТР. Лук — плоская
+ * вещь: дуга и тетива лежат в одной плоскости со стрелой. Направь его точно на
+ * смотрящего — и от него останется вертикальная чёрточка в полторы точки
+ * шириной: так он и выглядит с той стороны, откуда в тебя целятся. Пока он
+ * опущен, разворачивать его ничто не мешает, и он показывает дугу — по ней лук и
+ * узнают. В прицеле его держат три вещи: поднятые руки, стрела на тетиве и
+ * лёгкий завал (`up` не отвесно), от которого видно край дуги.
+ *
+ * Числа — в осях самой фигуры; поворот плеч сцена отыгрывает сама, иначе с
+ * опущенной рукой лук лёг бы плашмя поперёк бедра.
+ */
+const FOE_BOW_CARRY = { along: [0.97, 0, 0.24], up: [0.28, 0.96, 0] } as const;
+const FOE_BOW_AIM = { along: [0.2, 0.05, 0.98], up: [0.34, 0.94, 0] } as const;
+
+/** Сколько идёт замах и сколько — удар, миллисекунды. Время сцены целиком. */
+const FOE_SWING_MS = 420;
+const FOE_HIT_MS = 260;
+
+/**
+ * Насколько он заходит внутрь своей досягаемости, выйдя в створ.
+ *
+ * Створ стоит **ближе** `FOE_REACH`, а не ровно на нём, и это не запас на всякий
+ * случай. Шаг останавливается с точностью до восьми сантиметров, и, встав ровно
+ * на черте, он в половине случаев оказывается на сантиметр дальше — а дальше
+ * черты он не бьёт. Поймано прогоном: подходил, вставал и не бил ни разу.
+ */
+const FOE_STEP_IN = 0.3;
+
+const BOW_CARRY_Q = facing(FOE_BOW_CARRY);
+const BOW_AIM_Q = facing(FOE_BOW_AIM);
+
+/**
+ * Развернуть лук в кисти: `k` — насколько он поднят, 0 опущен, 1 в прицеле.
+ *
+ * Поворот плеч отыгрывается здесь же и целиком: лук висит на руке, а смотреть
+ * обязан туда, куда сказано в осях фигуры. Умножением слева, а не записью в
+ * `rotation.x`: углы Эйлера у лука свои — хват его сам по себе полкруга, — и
+ * запись в один из трёх стирает два других.
+ */
+const _axis = new THREE.Vector3(1, 0, 0);
+const _turn = new THREE.Quaternion();
+const _want = new THREE.Quaternion();
+function aimBowInHand(bow: THREE.Object3D, k: number, shoulder: number): void {
+  _want.slerpQuaternions(BOW_CARRY_Q, BOW_AIM_Q, k);
+  bow.quaternion.copy(_want).premultiply(_turn.setFromAxisAngle(_axis, -shoulder));
+}
+
+/**
  * Лук в левой руке: опущенный и натянутый.
  *
  * Числа той же природы, что у топора, и подобраны тем же способом — на экране
@@ -558,7 +679,7 @@ function armPose(
  * саму середину: перекрестье должно остаться видно, а рука — не заслонить
  * зверя, в которого целятся.
  */
-const BOW_LOW = { x: -0.26, y: -0.46, z: -0.86, rx: 0.15, ry: 0.5, rz: 0.85 };
+const BOW_LOW = { x: -0.18, y: -0.38, z: -0.86, rx: 0.15, ry: 0.5, rz: 0.85 };
 const BOW_DRAWN = { x: -0.125, y: -0.12, z: -0.70, rx: 0, ry: 0.85, rz: 0.04 };
 
 /** За сколько миллисекунд лук выходит из опущенного в натянутый. Время сцены. */
@@ -731,21 +852,38 @@ interface Wolf {
 interface Foe {
   obj: THREE.Group;
   body: THREE.Mesh | null;
+  /** Узел рук — и на нём же висит оружие: оно его ребёнок, а не ребёнок туловища. */
   arms: THREE.Object3D | null;
-  /** Топор или лук в руке. */
+  /**
+   * Топор или лук.
+   *
+   * Держать его за руку — это `arms.add`, а поле здесь только затем, чтобы
+   * убрать его из кадра, когда хозяина положили. Где он висит, сказано **один**
+   * раз, при сборке (`inHand`): два места, где сказано, где топор, — это два
+   * места, где он разойдётся с рукой, и один раз он уже разошёлся.
+   */
   weapon: THREE.Object3D | null;
+  /** Стрела на тетиве: есть только у лучника и видна только с поднятым луком. */
+  nock: THREE.Object3D | null;
   /** С луком — значит, он из тех двоих, кто стреляет. */
   bow: boolean;
   x: number;
   z: number;
   yaw: number;
   gait: number;
+  /** Куда он встал, услышав «стой»: своё место в ватаге. */
+  standX: number;
+  standZ: number;
   /** Номер в ватаге: от него идёт и рост, и черёд моргать. */
   seed: number;
   /** Положен топором: лежит и больше ничего не делает. */
   down: boolean;
   /** Когда ударил в последний раз, время сцены. */
   hitAt: number;
+  /** Когда начал замах: от этого числа и идёт вся рука. 0 — не замахивается. */
+  swingAt: number;
+  /** Насколько лук поднят: 0 опущен и показывает дугу, 1 наведён. */
+  level: number;
 }
 
 /** Стрела в полёте: тоже целиком время сцены — приземлившись, она станет записью. */
@@ -970,8 +1108,17 @@ export class PrologueScene {
   private raidAt = 0;
   /** Когда игрок ответил пришедшим. 0 — ещё не ответил. */
   private answerAt = 0;
-  /** Сколько длится драка: укорачивается, когда положили всех троих. */
+  /** Сколько длится драка: укорачивается, когда трое отдрались. */
   private fightMs: number = BEAT.fightMs;
+  /**
+   * Чей сейчас черёд сходиться и когда он начался.
+   *
+   * Номер в ватаге, а не «сколько положено»: положенный и отошедший кончают
+   * черёд одинаково, и считать их порознь значило бы завести две правды о том,
+   * кто сейчас дерётся.
+   */
+  private turn = 0;
+  private turnAt = 0;
   /** Какой такт шёл в прошлом кадре: по смене такта делается то, что делается раз. */
   private beat: Beat | '' = '';
   /** Затемнение перехода «вышел из палатки»: когда началось, время сцены. */
@@ -1784,6 +1931,10 @@ export class PrologueScene {
   answerRaid(): void {
     if (this.save.end.stage !== 'raid' || this.answerAt) return;
     this.answerAt = performance.now();
+    // Черёд первого начинается с ответа, а не с начала режима: отсчёт от нуля
+    // объявлял бы его истёкшим в тот же кадр, и первый сходился бы вторым.
+    this.turn = 0;
+    this.turnAt = this.answerAt;
     this.panel = '';
     this.said = '';
     this.drawn = false;
@@ -2347,9 +2498,15 @@ export class PrologueScene {
     b.rotation.set(at(BOW_LOW.rx, BOW_DRAWN.rx), at(BOW_LOW.ry, BOW_DRAWN.ry), at(BOW_LOW.rz, BOW_DRAWN.rz));
     if (this.bowArm && this.bowArmPose) {
       const { low, drawn } = this.bowArmPose;
-      // Опущенный лук держат у бедра, и кулак ниже края кадра: в углу экрана он
-      // читался комом, а не рукой. Рука появляется, когда лук поднимают.
-      this.bowArm.visible = k > 0.08;
+      /*
+       * РУКА НА ЛУКЕ ВИДНА ВСЕГДА, И ОПУЩЕННОМУ ОНА НУЖНА БОЛЬШЕ, ЧЕМ
+       * ПОДНЯТОМУ. Прежде её прятали, пока лук внизу, — и опущенный лук висел
+       * сам по себе рядом с краем экрана, ровно как оружие у пришедших висело
+       * рядом с телом. Прятали при этом не причину: кулак читался комом оттого,
+       * что стоял в самом углу кадра. Лук подвинут внутрь на четыре сотых — и
+       * кулак с обшлагом встали в кадр целиком.
+       */
+      this.bowArm.visible = true;
       this.bowArm.position.lerpVectors(low.p, drawn.p, k);
       this.bowArm.quaternion.slerpQuaternions(low.q, drawn.q, k);
       this.bowArm.scale.lerpVectors(low.s, drawn.s, k);
@@ -3182,6 +3339,8 @@ export class PrologueScene {
     this.raidAt = performance.now();
     this.answerAt = 0;
     this.fightMs = BEAT.fightMs;
+    this.turn = 0;
+    this.turnAt = 0;
     this.beat = '';
     this.panel = '';
     this.said = '';
@@ -3193,34 +3352,67 @@ export class PrologueScene {
     if (!this.foeSkin) this.foeSkin = skinOf(RAIDER_LOOK, 3);
     for (let i = 0; i < RAIDERS; i++) {
       const at = RAID_FROM[i];
+      const stand = RAID_STAND[i];
+      // Троим топор, двоим лук: по этому их и различают в кадре.
+      const bow = i >= RAIDERS_MELEE;
       // Рост — из того же хеша, что и весь разброс поляны: случайности здесь нет
       // ни одной, и ватага у всех игроков одна и та же.
       const tall = 0.94 + hash(i, 91) * 0.12;
-      const g = raiderModel(this.foeSkin.mat, tall);
+      const g = raiderModel(this.foeSkin.mat, tall, bow);
       g.rotation.order = 'YXZ';
       g.add(blob(0.34, 0.3));
       g.position.set(at.x, 0, at.z);
-      // Троим топор, двоим лук: по этому их и различают в кадре.
-      const bow = i >= RAIDERS_MELEE;
+      const arms = g.getObjectByName('arms') ?? null;
+      /*
+       * Оружие ложится в кулак и становится ребёнком рук.
+       *
+       * Отсюда всё остальное бесплатно: шаг качает руку — качается и топор,
+       * замах уводит плечо — уходит и обух, лучник поднимает руки — поднимается
+       * и лук. Ни одной строки в цикле кадров на это не тратится.
+       */
       const weapon = bow ? bowModel() : axeModel();
-      weapon.scale.setScalar(bow ? 0.9 : 0.8);
-      weapon.position.set(RAIDER_HAND.x, RAIDER_HAND.y * tall, RAIDER_HAND.z);
-      weapon.rotation.set(bow ? 0 : -0.5, bow ? Math.PI / 2 : 0, bow ? 0.2 : 0.4);
-      g.add(weapon);
+      const hold = arms?.userData.hold as Hold | undefined;
+      const how = bow ? FOE_BOW : FOE_AXE;
+      if (arms && hold) {
+        inHand(weapon, hold, how.hold, how.scale);
+        arms.add(weapon);
+      } else {
+        g.add(weapon);
+      }
+      /*
+       * Стрела на тетиве — своя, и видно её только с поднятым луком.
+       *
+       * До того лук опущен и стрела у него в пальцах, а не на тетиве: это и есть
+       * вся разница между «держит» и «целится», и показать её нечем, кроме неё.
+       * Пока она спрятана, вызова отрисовки она не стоит.
+       */
+      let nock: THREE.Object3D | null = null;
+      if (bow && arms) {
+        nock = arrowModel();
+        nock.scale.setScalar(0.62 / how.scale);
+        nock.position.set(0, 0, 0.2);
+        nock.visible = false;
+        weapon.add(nock);
+      }
       this.scene.add(g);
       this.foes.push({
         obj: g,
         body: (g.getObjectByName('body') as THREE.Mesh | undefined) ?? null,
-        arms: g.getObjectByName('arms') ?? null,
+        arms,
         weapon,
+        nock,
         bow,
         x: at.x,
         z: at.z,
         yaw: 0,
         gait: 0,
+        standX: stand.x,
+        standZ: stand.z,
         seed: i,
         down: false,
         hitAt: 0,
+        swingAt: 0,
+        level: 0,
       });
     }
     this.say(RAID_NOTE);
@@ -3242,12 +3434,10 @@ export class PrologueScene {
     f.obj.rotation.set(-Math.PI / 2, f.yaw, 0);
     f.obj.position.y = 0.05;
     if (f.weapon) f.weapon.visible = false;
-    // Всех троих положили — драка кончилась, и ждать её срока незачем: двое с
-    // луками поднимают их сразу.
+    // Всех троих положили — драка кончилась, и ждать чужих черёдов незачем: двое
+    // с луками поднимают их сразу.
     const standing = this.foes.filter((o) => !o.bow && !o.down).length;
-    if (standing === 0 && this.answerAt) {
-      this.fightMs = Math.min(this.fightMs, performance.now() - this.answerAt + 900);
-    }
+    if (standing === 0) this.fightOver(performance.now());
   }
 
   /**
@@ -3318,11 +3508,7 @@ export class PrologueScene {
   private raidStep(dt: number, t: number, now: number): void {
     if (!this.answerAt) {
       const ms = t - this.raidAt;
-      for (let i = 0; i < this.foes.length; i++) {
-        const f = this.foes[i];
-        const at = RAID_STAND[i];
-        this.foeGo(f, at.x, at.z, dt, t);
-      }
+      for (const f of this.foes) this.foeGo(f, f.standX, f.standZ, dt, t);
       /*
        * ЧЕЛОВЕК ПОВОРАЧИВАЕТСЯ К НИМ САМ, И БЕЗ ЭТОГО СЦЕНЫ НЕТ ВОВСЕ. Пятую
        * доску кладут лицом к срубу, то есть спиной к опушке: первый снимок
@@ -3330,12 +3516,14 @@ export class PrologueScene {
        * стояла строка «из леса вышли пятеро» и не было видно никого. Услышав
        * пятерых, человек оборачивается — это и делает сцена. Медленно: рывком
        * голова не поворачивается, и за четыре секунды прихода он успевает.
+       *
+       * Оборачивается он на **середину ватаги** (`RAID_MID`), а не на старшего.
+       * Со старшим в середине кадра лучники оставались за краем экрана, и вся
+       * постановка «двое позади» не значила ничего: позади чего, если их не
+       * видно? Середина держит в кадре всех пятерых разом.
        */
-      const lead = this.foes[0];
-      if (lead) {
-        this.yaw = turnToward(this.yaw, yawTo(this.px, this.pz, lead.x, lead.z), dt * 1.8);
-        this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
-      }
+      this.yaw = turnToward(this.yaw, yawTo(this.px, this.pz, RAID_MID.x, RAID_MID.z), dt * 1.8);
+      this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
       if (ms >= BEAT.talk && this.panel !== 'raid') {
         this.panel = 'raid';
         this.said = '';
@@ -3363,31 +3551,79 @@ export class PrologueScene {
     this.blindShow(this.blindK(b, into));
   }
 
-  /** Драка: трое идут к человеку и бьют, двое стоят с луками. */
+  /**
+   * Драка: топорники сходятся **по одному**, двое с луками стоят и смотрят.
+   *
+   * ЧЕРЁД — ЭТО И ЕСТЬ ВСЯ ПОСТАНОВКА. Трое, бросившиеся разом, — куча, в
+   * которой не видно ни одного; по одному — три коротких схватки, и каждую видно
+   * целиком. Черёд кончается тем, что его положили, — или сроком (`FOE_TURN_MS`),
+   * и тогда он отходит к своим, а вперёд выходит следующий: иначе бездействие
+   * игрока собирало бы кучу обратно.
+   *
+   * Кончились черёда — кончилась драка, и лучники поднимают луки. Стрелы летят
+   * после того, как перед ними никого не осталось: раньше они били бы по своим.
+   */
   private foeFight(dt: number, t: number, now: number): void {
+    // Чей сейчас черёд: положенный не держит его ни секунды.
+    const active = this.foes[this.turn];
+    if (active && (active.down || t - this.turnAt >= FOE_TURN_MS)) {
+      this.turn++;
+      this.turnAt = t;
+      if (this.turn >= RAIDERS_MELEE) this.fightOver(t);
+    }
     for (let i = 0; i < this.foes.length; i++) {
       const f = this.foes[i];
       if (f.down) continue;
       if (f.bow) {
-        this.foeFace(f, dt);
+        // Лучники стоят всю драку и только смотрят: у них лук, а перед ними свои.
+        this.foeGo(f, f.standX, f.standZ, dt, t);
+        continue;
+      }
+      if (i !== this.turn) {
+        // Не его черёд — стоит у своих. Отошедший возвращается на своё место сам.
+        this.foeGo(f, f.standX, f.standZ, dt, t);
         continue;
       }
       const d = Math.hypot(this.px - f.x, this.pz - f.z);
       if (d > FOE_REACH) {
-        this.foeGo(f, this.px, this.pz, dt, t);
+        /*
+         * ВЫХОДИТ ОН ПЕРЕД ЧЕЛОВЕКОМ, А НЕ «НА ЧЕЛОВЕКА», И ЭТО ВИДНО ТОЛЬКО НА
+         * СНИМКЕ. Идя по прямой от своего места, он подходит вплотную под тем же
+         * углом, под каким стоял, — а вплотную фигура занимает сорок градусов, и
+         * с краю ватаги от неё в кадре остаётся плечо. Поэтому шаг вперёд он
+         * делает **в створ**: на `FOE_REACH` от человека по направлению к
+         * середине ватаги — туда, куда человек и смотрит (`RAID_MID`).
+         */
+        const dx = RAID_MID.x - this.px;
+        const dz = RAID_MID.z - this.pz;
+        const len = Math.hypot(dx, dz) || 1;
+        const step = FOE_REACH - FOE_STEP_IN;
+        this.foeGo(f, this.px + (dx / len) * step, this.pz + (dz / len) * step, dt, t);
         continue;
       }
-      this.foeFace(f, dt);
+      this.foeFace(f, dt, t);
       if (t - f.hitAt < FOE_HIT_GAP) continue;
       f.hitAt = t;
+      f.swingAt = t;
       // Удар — событие, ровно как укус волка: отрезок закрывается формулой, урон
       // растёт на удар, отметка переезжает. Убить он не может — в финале не
-      // умирают (`act.death`), — и бьёт он в двенадцать раз слабее зубов.
+      // умирают (`act.death`), — и вся драка стоит около четверти полосы.
       this.save.body = bite(this.save.body, this.save.hearth, now, FOE_HIT);
-      if (f.arms) f.arms.rotation.x = -1.5;
       this.persist(true);
       this.refresh();
     }
+  }
+
+  /**
+   * Драка кончилась — лучники поднимают луки.
+   *
+   * Срок драки подрезается на месте, а не ждёт своих четырнадцати секунд: стоять
+   * у тел было бы нелепо. Кончиться она может двумя путями — всех положили или
+   * все трое отходили своё, — и путь для такта не значит ничего.
+   */
+  private fightOver(t: number): void {
+    if (!this.answerAt) return;
+    this.fightMs = Math.min(this.fightMs, t - this.answerAt + 700);
   }
 
   /** После драки: целятся, стреляют, подходят к своим и уводят. */
@@ -3396,9 +3632,11 @@ export class PrologueScene {
       const f = this.foes[i];
       if (f.down) continue;
       if (b === 'aim' || b === 'loose' || b === 'fall') {
-        this.foeFace(f, dt);
-        // Лук поднят: руки вперёд и вверх. Топорники стоят.
-        if (f.bow && f.arms) f.arms.rotation.x += (-1.35 - f.arms.rotation.x) * Math.min(1, dt * 6);
+        // Топорники отходят к своим: перед луками не стоят. Это и есть та
+        // минута, ради которой двое ждали позади, — а стрелять сквозь своих им
+        // было бы нечем.
+        if (!f.bow) this.foeGo(f, f.standX, f.standZ, dt, t);
+        else this.foeFace(f, dt, t);
         continue;
       }
       // Кого берёт этот: первый лучник — жену, второй — сына. Считается по самим
@@ -3444,11 +3682,57 @@ export class PrologueScene {
     this.face(who, t, true);
   }
 
-  /** Повернуться лицом к человеку. */
-  private foeFace(f: Foe, dt: number): void {
+  /** Повернуться лицом к человеку. Руки при этом делают то, что положено такту. */
+  private foeFace(f: Foe, dt: number, t: number): void {
     f.yaw = turnToward(f.yaw, Math.atan2(this.px - f.x, this.pz - f.z), dt * 4);
     f.obj.rotation.set(0, f.yaw, 0);
-    if (f.arms) f.arms.rotation.x += (0 - f.arms.rotation.x) * Math.min(1, dt * 4);
+    this.foeArms(f, dt, t, 0);
+  }
+
+  /**
+   * Руки пришедшего: стоит — опущены, идёт — качаются, бьёт — замах и удар,
+   * целится — подняты и лук натянут.
+   *
+   * ОДИН УГОЛ НА ОБЕ РУКИ, И ЭТОГО ХВАТАЕТ. Поза рук уже вылеплена геометрией
+   * (`people.RAIDER_ARMS`) — топор в правой, лук в левой, локоть лучника у
+   * подбородка; плечи только поворачивают то, что и так держит вещь. Оружие едет
+   * вместе с ними, потому что висит на них.
+   *
+   * `gait` — насколько он сейчас идёт: 0 стоит, 1 шагает. Качание берётся от
+   * шага, а не от часов: остановившийся замирает, а не машет руками стоя.
+   */
+  private foeArms(f: Foe, dt: number, t: number, gait: number): void {
+    const arms = f.arms;
+    if (!arms) return;
+    let want: number;
+    if (f.bow) {
+      // Лучник: лук опущен, пока перед ним свои; поднят — в такты прицела и
+      // выстрела. Стрела ложится на тетиву ровно тогда же.
+      const up = this.beat === 'aim' || this.beat === 'loose' || this.beat === 'fall';
+      want = up ? FOE_POSE.aim : FOE_POSE.carry + Math.sin(f.gait) * 0.16 * gait;
+      if (f.nock) f.nock.visible = up && this.beat !== 'loose';
+      f.level += ((up ? 1 : 0) - f.level) * Math.min(1, dt * 6);
+      if (f.weapon) aimBowInHand(f.weapon, f.level, arms.rotation.x);
+    } else {
+      // Топорник: замах от плеча и удар, а между ними — шаг или покой.
+      const since = f.swingAt ? t - f.swingAt : Infinity;
+      if (since < FOE_SWING_MS + FOE_HIT_MS) {
+        /*
+         * ЗАМАХ СТАВИТСЯ НАПРЯМУЮ, А НЕ ЧЕРЕЗ СГЛАЖИВАНИЕ, И ЭТО НАШЁЛ ЗАМЕР.
+         * Замах — сам по себе кривая, и короткая: четыре десятых секунды
+         * вверх и четверть вниз. Догоняя её сглаживанием, рука отставала и не
+         * доходила даже до четверти пути — на снимке от замаха оставалось
+         * подрагивание. Сглаживают то, у чего нет своей кривой: покой и шаг.
+         */
+        arms.rotation.x =
+          since < FOE_SWING_MS
+            ? FOE_POSE.stand + (FOE_POSE.swing - FOE_POSE.stand) * smooth(since / FOE_SWING_MS)
+            : FOE_POSE.swing + (FOE_POSE.hit - FOE_POSE.swing) * smooth((since - FOE_SWING_MS) / FOE_HIT_MS);
+        return;
+      }
+      want = FOE_POSE.stand + Math.sin(f.gait) * 0.3 * gait;
+    }
+    arms.rotation.x += (want - arms.rotation.x) * Math.min(1, dt * 9);
   }
 
   /** Шагнуть пришедшим к точке. Возвращает скорость — по ней идёт покачивание. */
@@ -3457,7 +3741,7 @@ export class PrologueScene {
     const dz = tz - f.z;
     const len = Math.hypot(dx, dz);
     if (len < 0.08) {
-      this.foeFace(f, dt);
+      this.foeFace(f, dt, t);
       f.obj.position.set(f.x, 0, f.z);
       return 0;
     }
@@ -3466,7 +3750,7 @@ export class PrologueScene {
     f.z += (dz / len) * step;
     f.yaw = turnToward(f.yaw, Math.atan2(dx, dz), dt * 5);
     f.gait += step * 4.6;
-    if (f.arms) f.arms.rotation.x = Math.sin(f.gait) * 0.24;
+    this.foeArms(f, dt, t, 1);
     f.obj.position.set(f.x, Math.abs(Math.sin(f.gait)) * 0.035, f.z);
     f.obj.rotation.set(0, f.yaw, 0);
     this.face(f, t, true);
@@ -3952,6 +4236,11 @@ export class PrologueScene {
     beat: string;
     foes: number;
     downed: number;
+    /** Чей сейчас черёд сходиться: по нему и видно, что дерутся по одному. */
+    turn: number;
+    /** Где человек и где каждый из пришедших — стенду, чтобы мерить расстояния. */
+    me: { x: number; z: number };
+    at: { x: number; z: number; bow: boolean; down: boolean }[];
     sonAt: { x: number; z: number } | null;
     camY: number;
   } {
@@ -3965,6 +4254,9 @@ export class PrologueScene {
       beat: this.answerAt ? this.beat : this.raidAt ? 'come' : '',
       foes: this.foes.length,
       downed: this.foes.filter((f) => f.down).length,
+      turn: this.turn,
+      me: { x: this.px, z: this.pz },
+      at: this.foes.map((f) => ({ x: f.x, z: f.z, bow: f.bow, down: f.down })),
       sonAt: this.son ? { x: this.son.x, z: this.son.z } : null,
       camY: this.camera.position.y,
     };

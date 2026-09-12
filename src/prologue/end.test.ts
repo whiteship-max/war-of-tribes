@@ -1,8 +1,14 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BEAT,
   BOARDS,
   FOE_HIT,
+  FOE_HIT_GAP,
+  FOE_REACH,
+  FOE_TURN_MS,
+  FOE_WALK,
   OVER_NOTE,
   OVER_SAYS,
   PASSED,
@@ -10,6 +16,7 @@ import {
   RAIDERS_MELEE,
   RAID_AWAY,
   RAID_FROM,
+  RAID_MID,
   RAID_SAYS,
   RAID_STAND,
   SON_SAYS,
@@ -45,6 +52,7 @@ import {
   TENT,
   TREES,
   TREE_R,
+  VIEW_H_MIN,
   nearest,
 } from './glade';
 import { WOLF_BITES } from './body';
@@ -167,10 +175,25 @@ describe('в финале не умирают, и это правило', () => 
 
   it('удар разбойника втрое с лишним слабее волчьего укуса', () => {
     expect(FOE_HIT).toBeLessThan(1 / 3);
-    // За всю драку втроём они снимают заметную часть полосы, но не всю.
-    const hits = Math.floor((BEAT.fightMs / 1700) * RAIDERS_MELEE);
-    expect(hits * FOE_HIT).toBeGreaterThan(WOLF_BITES * 0.1);
-    expect(hits * FOE_HIT).toBeLessThan(WOLF_BITES * 0.6);
+    /*
+     * Цена драки считается по **одному** бьющему, а не по троим: сходятся они
+     * по очереди (`FOE_TURN_MS`), и в каждую минуту перед человеком стоит один.
+     * Потолок — если бы он не отходил ни на секунду; пол — половина череда в
+     * касании, вторая уходит на подход.
+     */
+    const most = Math.floor(BEAT.fightMs / FOE_HIT_GAP);
+    expect(most * FOE_HIT).toBeLessThan(WOLF_BITES * 0.6);
+    const likely = Math.floor(FOE_TURN_MS / 2 / FOE_HIT_GAP) * RAIDERS_MELEE;
+    expect(likely * FOE_HIT).toBeGreaterThan(WOLF_BITES * 0.1);
+  });
+
+  it('драка — это три череда, и срок её из них и выведен', () => {
+    expect(BEAT.fightMs).toBe(RAIDERS_MELEE * FOE_TURN_MS);
+    // Черёда хватает, чтобы дойти от своего места до человека и успеть ударить.
+    const walk = (5.2 - FOE_REACH) / (FOE_WALK / 1000);
+    expect(FOE_TURN_MS).toBeGreaterThan(walk + FOE_HIT_GAP);
+    // И драка не длиннее той, что была до очереди: смотреть её столько же.
+    expect(BEAT.fightMs).toBeLessThanOrEqual(14_000);
   });
 });
 
@@ -270,6 +293,63 @@ describe('где что стоит', () => {
     }
   });
 
+  /**
+   * Где стоит человек, когда кладёт пятую доску.
+   *
+   * Не круглое число, а то, что получается: он подходит к срубу с юга, от
+   * палатки, и останавливается, едва поляна предложит доску — то есть на
+   * `REACH` от края сруба. Ближе он тоже может подойти, поэтому проверяется
+   * не точка, а весь отрезок подхода.
+   */
+  const LAY = { x: SON_HOUSE.x - 0.1, z: SON_HOUSE.z - SON_HOUSE.r - REACH };
+
+  it('лучники стоят заведомо дальше, чем достаёт топор, а топорники — в пяти шагах', () => {
+    const melee = RAID_STAND.slice(0, RAIDERS_MELEE);
+    const bows = RAID_STAND.slice(RAIDERS_MELEE);
+    expect(bows).toHaveLength(RAIDERS - RAIDERS_MELEE);
+    // Топор достаёт на `REACH` от края чужого круга, то есть на столько от середины.
+    const axe = REACH + MATE_R;
+    for (const b of bows) {
+      const d = Math.hypot(b.x - LAY.x, b.z - LAY.z);
+      expect(d, `${b.x},${b.z}`).toBeGreaterThan(axe * 2.5);
+    }
+    for (const m of melee) {
+      const d = Math.hypot(m.x - LAY.x, m.z - LAY.z);
+      expect(d, `${m.x},${m.z}`).toBeGreaterThan(axe);
+      expect(d, `${m.x},${m.z}`).toBeLessThan(6);
+    }
+    // И позади: каждый лучник дальше любого топорника.
+    const far = Math.max(...melee.map((m) => Math.hypot(m.x - LAY.x, m.z - LAY.z)));
+    for (const b of bows) expect(Math.hypot(b.x - LAY.x, b.z - LAY.z)).toBeGreaterThan(far + 2);
+  });
+
+  it('лучник не бывает целью топора ни на каком расстоянии — это устройство, а не числа', () => {
+    const s = kin({ end: st('raid') });
+    // Поляна получает **только** тех, у кого топор: так их и подаёт сцена
+    // (`scene.foePts`). Подойди человек к лучнику вплотную — цели всё равно нет.
+    const bow = RAID_STAND[RAIDERS - 1];
+    const glade = reach(s, NOW, [], null, null, [{ x: bow.x, z: bow.z }]);
+    expect(glade.foes).toHaveLength(1);
+    const near = nearest(bow.x, bow.z + MATE_R + BODY_R, glade, NOW);
+    expect(near?.kind).toBe('foe');
+    // А без переданных целей вплотную к месту лучника тапу достаётся не он.
+    const empty = reach(s, NOW, [], null, null, []);
+    expect(nearest(bow.x, bow.z + MATE_R + BODY_R, empty, NOW)?.kind).not.toBe('foe');
+  });
+
+  it('все пятеро укладываются в кадр: середина ватаги держит их в пятидесяти градусах', () => {
+    // Поляна смотрит углом не уже `VIEW_H_MIN` по горизонтали, то есть ±25°.
+    const mid = Math.atan2(RAID_MID.x - LAY.x, RAID_MID.z - LAY.z);
+    for (const p of RAID_STAND) {
+      const a = Math.atan2(p.x - LAY.x, p.z - LAY.z);
+      const off = Math.abs(((a - mid + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      expect((off * 180) / Math.PI, `${p.x},${p.z}`).toBeLessThan(VIEW_H_MIN / 2);
+    }
+    // Середина считается из мест, а не пишется рядом с ними.
+    expect(RAID_MID.x).toBeCloseTo(RAID_STAND.reduce((a, p) => a + p.x, 0) / RAIDERS, 6);
+    expect(RAID_MID.z).toBeCloseTo(RAID_STAND.reduce((a, p) => a + p.z, 0) / RAIDERS, 6);
+  });
+
   it('выходят и уводят они по открытому: не там, где стоит дом, и не там, где пришла гостья', () => {
     // Востоком: старый дом на западе, гостья приходила с юго-востока.
     for (const p of [...RAID_FROM, RAID_AWAY]) {
@@ -288,6 +368,44 @@ describe('где что стоит', () => {
       const cz = from.z + (dz / len) * t;
       expect(Math.hypot(cx - b.x, cz - b.z), `${b.x},${b.z}`).toBeGreaterThan(b.r + 0.6);
     }
+  });
+});
+
+describe('оружие висит на руке, а не рядом с телом', () => {
+  const strip = (src: string): string =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const scene = strip(readFileSync(join(__dirname, 'scene.ts'), 'utf8'));
+  const people = strip(readFileSync(join(__dirname, 'people.ts'), 'utf8'));
+
+  /*
+   * ПОЧЕМУ ТЕСТ ПО ИСХОДНИКУ, А НЕ ПО КАДРУ. Как оружие держат, видно только
+   * глазами — снимки в docs/prologue.md, раздел 18. Но от чего оно висело рядом
+   * с телом, видно в коде: топор был ребёнком туловища и числами задан на нём
+   * (`RAIDER_HAND`), а руки при этом качались отдельно. Вернуть это можно одной
+   * строкой, и вернувшееся будет выглядеть ровно так же неубедительно.
+   */
+  it('оружие — ребёнок узла рук, и числами на туловище его больше не ставят', () => {
+    expect(scene).toContain('arms.add(weapon)');
+    expect(scene, 'вернулся хват числами на туловище').not.toContain('RAIDER_HAND');
+    expect(people, 'вернулся хват числами на туловище').not.toContain('RAIDER_HAND');
+  });
+
+  it('где кулак, сказано один раз — самой позой рук', () => {
+    // Хват отдаёт `limb`, слепивший руку; второго места с местом кулака нет.
+    expect(people).toContain('userData.hold');
+    expect(people).toMatch(/at:\s*bow\s*\?\s*leftFist\s*:\s*rightFist/);
+  });
+
+  it('поза рук у лучника и у топорника разная, и обе лежат таблицей', () => {
+    expect(people).toContain('RAIDER_ARMS');
+    const table = people.slice(people.indexOf('const RAIDER_ARMS'));
+    expect(table).toMatch(/axe:\s*\{/);
+    expect(table).toMatch(/bow:\s*\{/);
+    // Лучнику нужен локоть: прямая рука до тетивы не дотягивается.
+    const bowArm = table.slice(table.indexOf('bow:'), table.indexOf('} as const'));
+    expect((bowArm.match(/dir:/g) ?? []).length).toBeGreaterThan(2);
   });
 });
 

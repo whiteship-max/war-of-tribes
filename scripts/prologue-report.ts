@@ -69,6 +69,7 @@ import {
   GLADE_R,
   GUEST_FROM,
   HOUSE,
+  MATE_R,
   MATE_SPOT,
   REACH,
   REGROW_MS,
@@ -116,6 +117,8 @@ import { ROAST_COST } from '../src/prologue/act';
 import {
   BEAT,
   BOARDS,
+  FOE_REACH,
+  FOE_TURN_MS,
   OVER_SAYS,
   PASSED,
   RAIDERS,
@@ -924,6 +927,15 @@ async function report(): Promise<void> {
   step('тап взял топор', took.axe === true, `в руках: ${took.axe ? 'топор' : 'ничего'}`);
   // Первый снимок — днём, с топором в руке: подсказка ушла с первым касанием.
   await shoot('1-день');
+  /*
+   * Руки крупно — единственное, чем проверяется хват, и смотрятся они глазами.
+   * Взгляд опущен: при обычном наклоне рука уходит под нижний ряд кнопок, и на
+   * снимке остаётся один обшлаг. Числа хвата — `ARM_AXE` и `ARM_BOW_LOW` сцены.
+   */
+  await tab.eval<string>('(() => { window.__pro.pitch = -0.34; return JSON.stringify("ok"); })()');
+  await sleep(400);
+  await shoot('1б-руки-топор');
+  await tab.eval<string>('(() => { window.__pro.pitch = -0.06; return JSON.stringify("ok"); })()');
 
   // Ищем дерево: поворачиваемся и идём, пока поляна не предложит рубку.
   let turns = 0;
@@ -1148,11 +1160,17 @@ async function report(): Promise<void> {
   // Стреляем в зверя. Он не подпускает ближе `DEER_FLEE`, поэтому и лук нужен.
   let hit = false;
   let shots = 0;
+  let drawnShot = false;
   for (let i = 0; i < ARROWS_START && !hit; i++) {
     const beast = await tab.eval<{ x: number; z: number } | null>('window.__probe.deer()');
     if (!beast) break;
     await turnTo(beast.x, beast.z);
     if (!(await bowPress('draw'))) break;
+    // Натянутый лук со стрелой на тетиве — снимком, один раз за прогон.
+    if (!drawnShot) {
+      drawnShot = true;
+      await shoot('5б-руки-лук');
+    }
     // Целимся ещё раз и точно: пока натягивали, зверь мог шагнуть.
     if (!(await bowPress('shoot', aimAtDeer))) break;
     shots++;
@@ -2065,6 +2083,9 @@ async function report(): Promise<void> {
     beat: string;
     foes: number;
     downed: number;
+    turn: number;
+    me: { x: number; z: number };
+    at: { x: number; z: number; bow: boolean; down: boolean }[];
     sonAt: { x: number; z: number } | null;
     camY: number;
     end: string;
@@ -2280,25 +2301,65 @@ async function report(): Promise<void> {
    */
   await measure('финал: пятеро, жена и сын в кадре');
 
+  /*
+   * ДРАКА ПО ОЧЕРЕДИ — ЭТО ТО, ЧТО МЕРИТСЯ, А НЕ ТО, ЧТО ОБЕЩАЕТСЯ. Читая код,
+   * «сходятся по одному» не проверить: черёд кончается тремя разными путями, и
+   * куча собирается обратно не в правиле, а в кадре. Поэтому стенд смотрит всю
+   * схватку насквозь и считает три вещи: сколько топорников разом стояло
+   * вплотную, насколько близко подпустило лучников и сколько секунд она шла.
+   */
+  const AXE_REACH = REACH + MATE_R;
+  const NEAR = FOE_REACH + 0.5;
+  const fightFrom = Date.now();
   await tapBox('.pro-card .pro-row .pro-btn.main');
-  await sleep(2600);
+  await sleep(1800);
   const melee = await fin();
   step(
-    'трое пошли в драку, двое остались с луками',
-    melee.beat === 'fight' && !melee.watching,
-    `такт «${melee.beat}», можно отбиться: ${yes(melee.can && melee.label.startsWith('Отбиться'))}`,
+    'пошёл первый, остальные стоят: двое с луками и двое своего череда',
+    melee.beat === 'fight' && !melee.watching && melee.can && melee.label.startsWith('Отбиться'),
+    `такт «${melee.beat}», черёд ${melee.turn + 1}, на кнопке «${melee.label}»`,
   );
-  await capture('22-бой-с-тремя');
-
-  // Отбиваемся, пока до них дотягивается топор: положенные ложатся и не встают.
-  for (let i = 0; i < 14; i++) {
+  let mostNear = 0;
+  let closestBow = Infinity;
+  let sawTurn = 0;
+  let fightMs = 0;
+  const closed = new Set<number>();
+  for (let i = 0; i < 200; i++) {
     const now = await fin();
-    if (now.beat !== 'fight' || now.downed >= RAIDERS_MELEE) break;
+    if (now.beat !== 'fight') {
+      fightMs = Date.now() - fightFrom;
+      break;
+    }
+    const me = now.me;
+    const d = (p: { x: number; z: number }): number => Math.hypot(p.x - me.x, p.z - me.z);
+    mostNear = Math.max(mostNear, now.at.filter((f) => !f.bow && !f.down && d(f) <= NEAR).length);
+    for (const f of now.at) if (f.bow) closestBow = Math.min(closestBow, d(f));
+    sawTurn = Math.max(sawTurn, now.turn);
+    // Снимок на каждом черёде: первый сходится, за ним второй, потом третий.
+    const who = now.at.findIndex((f) => !f.bow && !f.down && d(f) <= NEAR);
+    if (who >= 0 && !closed.has(who)) {
+      closed.add(who);
+      await capture(`22${'абв'[closed.size - 1] ?? closed.size}-сходится-${closed.size}`);
+    }
     if (now.can && now.label.startsWith('Отбиться')) await tap(190, 400);
-    else await sleep(400);
+    else await sleep(300);
   }
   const beaten = await fin();
   step('топор кладёт пришедшего с одного удара', beaten.downed >= 1, `положено ${beaten.downed} из ${RAIDERS_MELEE}`);
+  step(
+    'сходятся по одному: вплотную ни разу не стояло двое',
+    mostNear === 1,
+    `разом вплотную ${mostNear}, черёдов пройдено ${sawTurn + 1} из ${RAIDERS_MELEE}`,
+  );
+  step(
+    'до лучников топором не достать: они всю драку дальше вытянутой руки',
+    closestBow > AXE_REACH * 2,
+    `ближайший лучник в ${num(closestBow)} м, топор достаёт на ${num(AXE_REACH)} м`,
+  );
+  console.log(
+    `
+  Схватка: ${num(fightMs / 1000)} с при трёх черёдах по ${num(FOE_TURN_MS / 1000)} с; без единого удара игрока — ${num(BEAT.fightMs / 1000)} с.`,
+  );
 
   await untilBeat('loose', 25_000);
   await capture('23-выстрел');

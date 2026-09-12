@@ -1015,6 +1015,11 @@ export function arrow(): THREE.Mesh {
  * Дуга набрана короткими отрезками по окружности — гнуть геометрию тут нечем, а
  * восьми отрезков хватает, чтобы на вытянутой руке она читалась дугой, а не
  * многоугольником. Плечи лука лежат в плоскости XY, тетива идёт по хорде.
+ *
+ * Плечо в семнадцать миллиметров, а не в тринадцать, и это не украшение. Тот же
+ * лук держат пришедшие из леса, а стоят они в восьми метрах: тринадцать
+ * миллиметров на таком удалении — это одна точка экрана, то есть лука в кадре
+ * нет вовсе. Вблизи разница не видна: у камеры лук уменьшен вчетверо.
  */
 export function bow(): THREE.Mesh {
   const wood = coat(0x7d5a34);
@@ -1028,12 +1033,12 @@ export function bow(): THREE.Mesh {
   for (let i = 0; i < n; i++) {
     const a = -span / 2 + (span * (i + 0.5)) / n;
     parts.push(
-      K.cyl(0.013, 0.016, (r * span) / n + 0.012, wood, 4, 0, Math.sin(a) * r, r * (1 - Math.cos(a)), { x: a }),
+      K.cyl(0.017, 0.021, (r * span) / n + 0.012, wood, 4, 0, Math.sin(a) * r, r * (1 - Math.cos(a)), { x: a }),
     );
   }
   const tipY = Math.sin(span / 2) * r;
   const tipZ = r * (1 - Math.cos(span / 2));
-  parts.push(K.cyl(0.005, 0.005, tipY * 2, string, 3, 0, 0, tipZ));
+  parts.push(K.cyl(0.006, 0.006, tipY * 2, string, 3, 0, 0, tipZ));
   const m = K.assemble(parts);
   m.name = 'bow';
   m.castShadow = false;
