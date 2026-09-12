@@ -52,7 +52,7 @@ import {
   viewRect,
   zoomAt,
 } from './grid';
-import { drawFrame } from './frame';
+import { dropPaper, drawFrame } from './frame';
 import { dropTiles } from './ground';
 import { dropBitmaps } from './tiles';
 import { type Look, dropSprites, silhouetteUrl } from './village';
@@ -354,6 +354,7 @@ export function WorldMap() {
     dropBitmaps();
     dropSprites();
     dropPaint();
+    dropPaper();
     dropFog();
     dropZones();
   }, [seed]);
@@ -391,6 +392,18 @@ export function WorldMap() {
     // без браузера нечем, поэтому мерить это можно только здесь и только под
     // `?probe=1` — в игре от строки остаётся проверка булева.
     if (PROBE) (window as unknown as { __bakeAgent?: typeof bakeAgent }).__bakeAgent = bakeAgent;
+
+    // Камера наружу — стенду снимков (`npm run map:shots`). Он ставит кадр на
+    // названную клетку и масштаб и снимает картинку: «до» и «после» сравнивают
+    // одним и тем же кадром, а водить пальцем до той же точки нечем. Поводок и
+    // потолок отдаления при этом на месте — через тот же `hold`, что и жест:
+    // стенд снимает карту, а не другой её режим. Только под `?probe=1`.
+    if (PROBE) {
+      (window as unknown as { __mapCam?: (x: number, y: number, scale: number) => void }).__mapCam = (x, y, scale) => {
+        cam.current = hold({ cx: x + 0.5, cy: y + 0.5, scale });
+        setZoomedIn(modeFor(cam.current.scale) === 'detail');
+      };
+    }
 
     let raf = 0;
     const frame = (): void => {

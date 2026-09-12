@@ -13,9 +13,20 @@ import type { SightDisc } from '@/world/fog';
 import { PALETTE } from './const';
 import { type Camera, type Viewport, toScreen, viewRect } from './grid';
 
-/** Насколько темно. Ноль — открыто и просматривается прямо сейчас. */
-const SHROUD = 0.34;
-const UNKNOWN = 0.82;
+/**
+ * Насколько темно. Ноль — открыто и просматривается прямо сейчас.
+ *
+ * Неразведанное — не выключенный свет, а **незаполненная часть чертежа**, и
+ * держится это тремя вещами разом. Цвет тёплый и не чёрный: чёрное читается
+ * дыркой, тёплое — бумагой в тени. Поверх фона ложится зерно пергамента
+ * (`frame.drawPaper` рисуется после тумана), и оно на неразведанном ровно то
+ * же, что на разведанном, — лист один. И у самой границы знания дымка чуть
+ * светлее (`EDGE`): чернила не обрываются стеной, они сходят на нет.
+ */
+const SHROUD = 0.3;
+const UNKNOWN = 0.84;
+/** Насколько светлее дымка у самой кромки знания. */
+const EDGE = 0.16;
 
 /**
  * Запас клеток вокруг экрана. Растр переживает мелкие сдвиги пальцем: пока
@@ -61,12 +72,20 @@ function bake(x0: number, y0: number, w: number, h: number, discs: SightDisc[], 
   if (!ctx) return null;
   const img = ctx.createImageData(w, h);
   const data = img.data;
-  const [r, g, b] = rgba(PALETTE.void, 1);
+  const [r, g, b] = rgba(PALETTE.edge, 1);
   const shroud = Math.round(SHROUD * 255);
   const unknown = Math.round(UNKNOWN * 255);
+  const edge = Math.round((UNKNOWN - EDGE) * 255);
+  // Разведанность читается один раз на клетку: у кромки её спрашивают и у
+  // соседей, и второе чтение того же `exploredAt` стоило бы вчетверо дороже.
+  const known = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) known[y * w + x] = exploredAt(x0 + x, y0 + y) ? 1 : 0;
+  }
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
+      const k = y * w + x;
+      const i = k * 4;
       const wx = x0 + x;
       const wy = y0 + y;
       data[i] = r;
@@ -76,8 +95,22 @@ function bake(x0: number, y0: number, w: number, h: number, discs: SightDisc[], 
       // тот же миг, — и ждать подтверждения от куска карты нечего: куски едут с
       // задержкой, а нарисованная земля печётся из сида сразу, и на этой
       // разнице по экрану шла бы бурая волна при каждом заходе на карту.
-      if (cellInSight(discs, wx, wy)) data[i + 3] = 0;
-      else data[i + 3] = exploredAt(wx, wy) ? shroud : unknown;
+      if (cellInSight(discs, wx, wy)) {
+        data[i + 3] = 0;
+        continue;
+      }
+      if (known[k]) {
+        data[i + 3] = shroud;
+        continue;
+      }
+      // Кромка знания: неразведанная клетка, у которой разведанный сосед. Здесь
+      // дымка светлее — рисунок сходит на нет, а не упирается в стену.
+      const near =
+        (x > 0 && known[k - 1]) ||
+        (x < w - 1 && known[k + 1]) ||
+        (y > 0 && known[k - w]) ||
+        (y < h - 1 && known[k + w]);
+      data[i + 3] = near ? edge : unknown;
     }
   }
   ctx.putImageData(img, 0, 0);

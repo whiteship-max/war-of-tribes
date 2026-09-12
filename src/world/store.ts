@@ -7,7 +7,7 @@ import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/n
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
-import { probe, revealWorld, takeCosts } from '@/debug';
+import { probe, revealWorld, takeBakes, takeCosts } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, awayTroops, playerProfile, syncAway, syncSiege } from './bridge';
@@ -733,9 +733,10 @@ export const useWorld = create<WorldStore>((set, get) => ({
  * рисование меряется на числе, которого игра не даёт, а не на том, что выпало.
  */
 if (probe() && typeof window !== 'undefined') {
-  const w = window as unknown as { __world?: typeof useWorld; __mapPerf?: () => number[] };
+  const w = window as unknown as { __world?: typeof useWorld; __mapPerf?: () => number[]; __mapBakes?: () => number[] };
   w.__world = useWorld;
   w.__mapPerf = takeCosts;
+  w.__mapBakes = takeBakes;
 }
 
 /**

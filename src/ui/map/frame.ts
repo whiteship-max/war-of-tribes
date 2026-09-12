@@ -14,6 +14,7 @@ import { formatLeft, marchPosition, secondsLeft } from '@/world/geo';
 import { RELATION_META } from '@/world/data/meta';
 import type { Coord, MarchView, Rect, SettlementView } from '@/world/types';
 import { chunkBitmap } from './tiles';
+import { grainTile, vignette } from './paint';
 import { LABEL_FROM, PALETTE } from './const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from './grid';
 import { GRID } from './palette';
@@ -244,6 +245,42 @@ const SPOT_R = 20;
 const SPOT_GROW = 26;
 const SPOT_MS = 1600;
 
+// ---------- Бумага ----------
+
+/**
+ * Узор зерна. Считается один раз на контекст: `createPattern` из готового холста
+ * — операция дешёвая, но звать её шестьдесят раз в секунду незачем.
+ */
+let grain: CanvasPattern | null = null;
+
+/**
+ * Лист, на котором всё это нарисовано: зерно пергамента и затемнение к краям.
+ *
+ * Это последнее, что отделяет карту от поля с фигурками, и стоит оно двух
+ * заливок на кадр. Закону кадра это не противоречит: и зерно, и затемнение —
+ * готовые холсты, испечённые один раз (`paint.ts`), а в кадре от них остаётся
+ * заливка узором и `drawImage`. Ни пути, ни градиента здесь не создаётся.
+ *
+ * Ложится **поверх тумана и под всё движущееся**. Поверх тумана — потому что
+ * неразведанное от этого перестаёт быть выключенным светом и становится
+ * незаполненной частью чертежа: бумага на нём та же, что и на разведанном.
+ * Под движущимся — потому что зерно на таймере чужой армии это не бумага, а
+ * грязь на стекле.
+ */
+function drawPaper(ctx: CanvasRenderingContext2D, vp: Viewport): void {
+  if (!grain) grain = ctx.createPattern(grainTile(), 'repeat');
+  if (grain) {
+    ctx.fillStyle = grain;
+    ctx.fillRect(0, 0, vp.w, vp.h);
+  }
+  ctx.drawImage(vignette(), 0, 0, vp.w, vp.h);
+}
+
+/** Новый мир — новые заготовки: узор держит ссылку на прежний холст зерна. */
+export function dropPaper(): void {
+  grain = null;
+}
+
 // ---------- Кадр ----------
 
 /**
@@ -291,6 +328,10 @@ export function drawFrame(
   // Туман ложится поверх земли и поселений, но под всё, что движется: крыша под
   // дымкой — это и есть смысл слоя, а таймер чужой армии важнее любой дымки.
   drawFog(ctx, cam, vp);
+
+  // Бумага поверх тумана: разведанное и неразведанное лежат на одном листе, и
+  // край знания читается краем рисунка, а не выключенным светом.
+  drawPaper(ctx, vp);
 
   // Походы поверх земли и поселений: их таймер важнее любой крыши. Живой обзор
   // считается один раз на кадр: это круг у деревни плюс стоящий лазутчик, то

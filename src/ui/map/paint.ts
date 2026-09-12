@@ -88,64 +88,173 @@ export function grassPatch(kind: number): HTMLCanvasElement {
   return c;
 }
 
-// ---------- Ёлки ----------
+// ---------- Деревья ----------
 
 /**
- * Ёлка ростом чуть выше клетки: на ближнем масштабе она должна читаться силуэтом,
- * а не зелёной точкой. Ширина и число ярусов гуляют по видам, иначе лес выглядит
- * штампованным узором, а не лесом.
+ * Дерево ростом чуть выше клетки: на ближнем масштабе оно должно читаться
+ * силуэтом, а не зелёной точкой.
+ *
+ * Пород две, и это не прихоть. Одинаковые ёлки ровным шагом читались посадкой, а
+ * не лесом; хвоя под Дубровником — ещё и неправдой. Север хвойный, юг
+ * лиственный, решает это место (`scatter.coniferAt`), а не дерево.
+ *
+ * Внутри породы шесть видов, и у каждого свой **тон**, а не только своя форма.
+ * Форма разводит силуэты, тон разводит массу: лес одного цвета читается узором,
+ * каким бы разным ни был контур каждого дерева.
  */
 const TREE_W = Math.round(TILE_BAKE * 0.72);
 const TREE_H = Math.round(TILE_BAKE * 1.06);
-const treeSprites: (HTMLCanvasElement | null)[] = Array(TREE_KINDS).fill(null);
+const treeSprites: (HTMLCanvasElement | null)[] = Array(TREE_KINDS * 2).fill(null);
 
-export function treeSprite(kind: number): HTMLCanvasElement {
-  const i = ((kind % TREE_KINDS) + TREE_KINDS) % TREE_KINDS;
-  const have = treeSprites[i];
-  if (have) return have;
-  const c = makeCanvas(TREE_W, TREE_H);
-  const ctx = ctxOf(c);
+/** Тёмный и светлый тон вида. Светлый ложится на левую половину — свет слева. */
+const toneOf = (conifer: boolean, i: number): [string, string] =>
+  conifer
+    ? [PALETTE.conifer[i] ?? PALETTE.tree, PALETTE.coniferLit[i] ?? PALETTE.treeLight]
+    : [PALETTE.broadleaf[i] ?? PALETTE.tree, PALETTE.broadleafLit[i] ?? PALETTE.treeLight];
 
+/** Ствол общий для обеих пород: на двадцати пикселях его и так почти не видно. */
+function trunk(ctx: CanvasRenderingContext2D, from: number, w: number): void {
+  ctx.fillStyle = PALETTE.trunk;
+  ctx.fillRect(TREE_W / 2 - w / 2, TREE_H * from, w, TREE_H * (1 - from));
+}
+
+/** Левую половину фигуры красим светлым — объём без градиента. */
+function lit(ctx: CanvasRenderingContext2D, dark: string, light: string, top: number, bottom: number): void {
+  ctx.fillStyle = dark;
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = light;
+  ctx.fillRect(0, top, TREE_W * 0.46, bottom - top);
+  ctx.restore();
+}
+
+function conifer(ctx: CanvasRenderingContext2D, i: number): void {
+  const [dark, light] = toneOf(true, i);
   // Вид задаётся тремя числами: сколько ярусов, насколько крона узкая и куда
   // наклонена. Шесть сочетаний глаз уже не различает как повтор.
   const tiers = 3 + (i % 2);
   const narrow = 0.78 + (i % 3) * 0.08;
   const lean = ((i % 3) - 1) * 0.05;
-
   const cx = TREE_W / 2;
-  const trunkW = Math.max(2, TREE_W * 0.1);
-  const trunkTop = TREE_H * 0.74;
-
-  ctx.fillStyle = '#3a2a1c';
-  ctx.fillRect(cx - trunkW / 2, trunkTop, trunkW, TREE_H - trunkTop);
-
+  trunk(ctx, 0.74, Math.max(2, TREE_W * 0.1));
   // Ярусы снизу вверх: нижний самый широкий, каждый следующий уже и выше.
   for (let t = 0; t < tiers; t++) {
     const k = t / tiers;
     const halfW = (TREE_W / 2) * narrow * (1 - k * 0.55);
     const baseY = TREE_H * (0.8 - k * 0.21);
     const topY = baseY - TREE_H * 0.3;
-    const tipX = cx + lean * TREE_W * (1 - k);
     ctx.beginPath();
-    ctx.moveTo(tipX, topY);
+    ctx.moveTo(cx + lean * TREE_W * (1 - k), topY);
     ctx.lineTo(cx + halfW, baseY);
     ctx.lineTo(cx - halfW, baseY);
     ctx.closePath();
-    // Правая половина темнее: свет в игре падает слева, как и в сцене посёлка.
-    ctx.fillStyle = PALETTE.tree;
-    ctx.fill();
-    ctx.save();
-    ctx.clip();
-    ctx.fillStyle = PALETTE.treeLight;
-    ctx.fillRect(cx - halfW, topY, halfW * 0.85, baseY - topY);
-    ctx.restore();
+    lit(ctx, dark, light, topY, baseY);
   }
+}
 
-  treeSprites[i] = c;
+/**
+ * Лиственное: крона из нескольких перекрывающихся шапок. Опознаётся оно не
+ * породой листа — на двадцати пикселях его нет, — а тем, что крона **круглая и
+ * шире ствола**, тогда как у хвойного она треугольная и острая.
+ */
+function broadleaf(ctx: CanvasRenderingContext2D, i: number): void {
+  const [dark, light] = toneOf(false, i);
+  const cx = TREE_W / 2;
+  const wide = 0.4 + (i % 3) * 0.035;
+  const tall = 0.3 + (i % 2) * 0.05;
+  trunk(ctx, 0.72, Math.max(2, TREE_W * 0.11));
+  const lobes: [number, number, number][] = [
+    [0, 0.45, 1],
+    [-0.26, 0.56, 0.72],
+    [0.27, 0.58, 0.68],
+    [0.04, 0.33, 0.66],
+  ];
+  const top = TREE_H * 0.14;
+  const bottom = TREE_H * 0.78;
+  ctx.beginPath();
+  for (const [dx, dy, k] of lobes) {
+    ctx.moveTo(cx + dx * TREE_W + TREE_W * wide * k, TREE_H * dy);
+    ctx.ellipse(cx + dx * TREE_W, TREE_H * dy, TREE_W * wide * k, TREE_H * tall * k, 0, 0, Math.PI * 2);
+  }
+  lit(ctx, dark, light, top, bottom);
+}
+
+export function treeSprite(kind: number, isConifer: boolean): HTMLCanvasElement {
+  const i = ((kind % TREE_KINDS) + TREE_KINDS) % TREE_KINDS;
+  const slot = i + (isConifer ? 0 : TREE_KINDS);
+  const have = treeSprites[slot];
+  if (have) return have;
+  const c = makeCanvas(TREE_W, TREE_H);
+  const ctx = ctxOf(c);
+  if (isConifer) conifer(ctx, i);
+  else broadleaf(ctx, i);
+  treeSprites[slot] = c;
   return c;
 }
 
-/** Тень под ёлкой: без неё лес висит над травой. */
+// ---------- Общий тон: зерно и затемнение к краям ----------
+
+/**
+ * Зерно пергамента. Это карта, а не поле: у неё есть бумага, и её должно быть
+ * немного видно. Пятно нарочно слабое и **двустороннее** — и светлые крупинки, и
+ * тёмные: односторонний крап читался бы грязью на стекле, а не фактурой листа.
+ *
+ * Кладётся повторяющимся узором на весь кадр одной заливкой. Это не спор с
+ * законом кадра: узор печётся один раз и живёт вечно, а в кадре остаётся одна
+ * заливка — ровно та же цена, что у `drawImage`.
+ */
+const GRAIN_PX = 96;
+let grainSprite: HTMLCanvasElement | null = null;
+
+export function grainTile(): HTMLCanvasElement {
+  if (grainSprite) return grainSprite;
+  const c = makeCanvas(GRAIN_PX, GRAIN_PX);
+  const ctx = ctxOf(c);
+  const img = ctx.createImageData(GRAIN_PX, GRAIN_PX);
+  const d = img.data;
+  // Свой генератор, а не `Math.random`: зерно обязано быть одним и тем же от
+  // запуска к запуску — иначе снимок «до» и снимок «после» разойдутся на шуме.
+  let s = 0x9e3779b1;
+  for (let i = 0; i < GRAIN_PX * GRAIN_PX; i++) {
+    s = (Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x9e3779b1) >>> 0;
+    const v = (s >>> 8) & 255;
+    const up = v > 127;
+    d[i * 4] = up ? 236 : 24;
+    d[i * 4 + 1] = up ? 226 : 20;
+    d[i * 4 + 2] = up ? 200 : 14;
+    // Слабое и неровное: часть крупинок не видна вовсе, и узор не читается сеткой.
+    d[i * 4 + 3] = (v % 7) * 3;
+  }
+  ctx.putImageData(img, 0, 0);
+  grainSprite = c;
+  return c;
+}
+
+/**
+ * Затемнение к краям кадра. Оно делает из экрана **лист**: середина освещена,
+ * края уходят в тень. Печётся квадратом и растягивается на экран — от этого
+ * круг становится эллипсом по форме экрана, что и нужно.
+ */
+const VIGNETTE_PX = 256;
+let vignetteSprite: HTMLCanvasElement | null = null;
+
+export function vignette(): HTMLCanvasElement {
+  if (vignetteSprite) return vignetteSprite;
+  const c = makeCanvas(VIGNETTE_PX, VIGNETTE_PX);
+  const ctx = ctxOf(c);
+  const r = VIGNETTE_PX / 2;
+  const g = ctx.createRadialGradient(r, r, r * 0.42, r, r, r * 0.96);
+  g.addColorStop(0, 'rgba(14, 10, 7, 0)');
+  g.addColorStop(0.62, 'rgba(14, 10, 7, 0.07)');
+  g.addColorStop(1, 'rgba(14, 10, 7, 0.33)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, VIGNETTE_PX, VIGNETTE_PX);
+  vignetteSprite = c;
+  return c;
+}
+
+/** Тень под деревом: без неё лес висит над травой. */
 let shadowSprite: HTMLCanvasElement | null = null;
 
 export function treeShadow(): HTMLCanvasElement {
@@ -172,6 +281,8 @@ export const treeSize = (): { w: number; h: number } => ({ w: TREE_W, h: TREE_H 
 export function dropPaint(): void {
   discSprite = null;
   shadowSprite = null;
+  grainSprite = null;
+  vignetteSprite = null;
   grassSprites.fill(null);
   treeSprites.fill(null);
 }

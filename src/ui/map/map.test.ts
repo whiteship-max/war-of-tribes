@@ -34,8 +34,23 @@ import {
   visibleCells,
   zoomAt,
 } from './grid';
-import { FADE_HI, FADE_LO, SCALE_DETAIL, SCALE_MAX, SCALE_MIN, SCALE_OVERVIEW, SCALE_START, TILE_CACHE, TILE_CELLS, TREE_FREE_R } from './const';
-import { type Sample, fieldAt, forestAt, stampsFor, treesIn } from './scatter';
+import {
+  CONIFER_NORTH,
+  CONIFER_SOUTH,
+  FADE_HI,
+  FADE_LO,
+  RELIEF_PER_CELL,
+  SCALE_DETAIL,
+  SCALE_MAX,
+  SCALE_MIN,
+  SCALE_OVERVIEW,
+  SCALE_START,
+  TILE_CACHE,
+  TILE_CELLS,
+  TREE_FREE_R,
+} from './const';
+import { type Sample, coniferAt, fieldAt, forestAt, groveAt, stampsFor, treesIn, waterShare } from './scatter';
+import { RIDGE_LIFT, cellHeight, lattice, shadePixels } from './relief';
 import { BUCKETS, STAGE_SHAPE, clearRadius, layout, pickBucket, ringOf, spriteKey, variantOf } from './village';
 import {
   AGENT_BUCKETS,
@@ -96,9 +111,11 @@ describe('декор земли детерминирован по сиду', () 
   });
 
   it('другой сид даёт другую картинку', () => {
-    // Ищем участок, где в обоих мирах есть что рисовать: пустая трава совпала бы
-    // и у разных сидов, и тест прошёл бы вхолостую.
-    const wide: Rect = { x: WORLD_ORIGIN.x + 40, y: WORLD_ORIGIN.y + 40, w: 40, h: 40 };
+    // Участок берётся заведомо лесной — вокруг дома. Пустая трава совпала бы и у
+    // разных сидов, и тест прошёл бы вхолостую; а с тех пор как деревья растут
+    // купами, на редколесье целый участок может выйти прогалиной у одного сида
+    // и лесом у другого — это уже не «другая картинка», а «нет картинки».
+    const wide: Rect = { x: HOME.x - 20, y: HOME.y - 20, w: 40, h: 40 };
     const a = treesIn(SEED, wide, sampleFor(SEED));
     const b = treesIn(SEED + 1, wide, sampleFor(SEED + 1));
     expect(a.length).toBeGreaterThan(0);
@@ -874,5 +891,142 @@ describe('агенты на карте различаются силуэтом',
     expect(at({ busyUntil: now - 1 })).toBe(true);
     // Наблюдающий лазутчик занят именно этим, и дёргать его незачем.
     expect(at({ watching: true })).toBe(false);
+  });
+});
+
+describe('рельеф: свет по высоте', () => {
+  const ridgeNone = () => false;
+
+  it('высота выводится из класса клетки, а хребет поднимает поверх него', () => {
+    expect(cellHeight('hills', false)).toBeGreaterThan(cellHeight('plain', false));
+    expect(cellHeight('water', false)).toBeLessThan(0);
+    expect(cellHeight('hills', true)).toBeCloseTo(cellHeight('hills', false) + RIDGE_LIFT);
+    // Клетки нет — за краем сетки открытое море, а не нулевая высота.
+    expect(cellHeight(null, false)).toBe(cellHeight('water', false));
+  });
+
+  it('решётка детерминирована по сиду, а другой сид даёт другой рельеф', () => {
+    const rect = { x: HOME.x, y: HOME.y, w: 4, h: 4 };
+    const a = lattice(SEED, rect, sampleFor(SEED), ridgeNone);
+    const b = lattice(SEED, rect, sampleFor(SEED), ridgeNone);
+    expect([...b.h]).toEqual([...a.h]);
+    const c = lattice(SEED + 1, rect, sampleFor(SEED + 1), ridgeNone);
+    expect([...c.h]).not.toEqual([...a.h]);
+  });
+
+  it('шва между тайлами нет: в общей точке два соседа считают одну высоту', () => {
+    // Две решётки, сдвинутые на две клетки: общая часть обязана совпасть до бита,
+    // иначе на стыке тайлов по свету пойдёт ступенька.
+    const left = lattice(SEED, { x: HOME.x, y: HOME.y, w: 4, h: 4 }, sampleFor(SEED), ridgeNone);
+    const right = lattice(SEED, { x: HOME.x + 2, y: HOME.y, w: 4, h: 4 }, sampleFor(SEED), ridgeNone);
+    const shift = Math.round(2 * RELIEF_PER_CELL);
+    let checked = 0;
+    for (let j = 0; j < left.n; j++) {
+      for (let i = shift; i < left.n; i++) {
+        expect(left.h[j * left.n + i]).toBeCloseTo(right.h[j * right.n + (i - shift)], 6);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('горы выходят изрезаннее равнины, а вода гладкая', () => {
+    const spread = (t: 'plain' | 'hills' | 'water'): number => {
+      const flat: Sample = () => t;
+      const lat = lattice(SEED, { x: 100, y: 100, w: 6, h: 6 }, flat, ridgeNone);
+      const all = [...lat.h];
+      return Math.max(...all) - Math.min(...all);
+    };
+    expect(spread('hills')).toBeGreaterThan(spread('plain'));
+    expect(spread('plain')).toBeGreaterThan(0);
+    // Рябь на дне выдала бы себя сквозь отмель — под водой её нет вовсе.
+    expect(spread('water')).toBe(0);
+  });
+
+  it('свет падает слева-сверху: склон к свету светлеет, отвёрнутый темнеет', () => {
+    // Ровный скат вниз-вправо: высота растёт с x и с y. По правилу света такой
+    // склон обращён к свету целиком, и краска на нём обязана быть светлой.
+    const n = 9;
+    const lat = { n, x0: 0, y0: 0, step: 0.1, h: new Float32Array(n * n) };
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) lat.h[j * n + i] = (i + j) * 0.05;
+    const size = n - 2;
+    const px = new Uint8ClampedArray(size * size * 4);
+    shadePixels(lat, px, 1, size);
+    const mid = ((size >> 1) * size + (size >> 1)) * 4;
+    const lit = (px[mid] + px[mid + 1] + px[mid + 2]) / 3;
+    // Тот же скат наоборот — склон от света, краска тёмная.
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) lat.h[j * n + i] = -(i + j) * 0.05;
+    shadePixels(lat, px, 1, size);
+    const dark = (px[mid] + px[mid + 1] + px[mid + 2]) / 3;
+    expect(lit).toBeGreaterThan(dark);
+    expect(px[mid + 3]).toBeGreaterThan(0);
+  });
+
+  it('ровная земля света не получает вовсе', () => {
+    const n = 9;
+    const lat = { n, x0: 0, y0: 0, step: 0.1, h: new Float32Array(n * n) };
+    lat.h.fill(0.07);
+    const size = n - 2;
+    const px = new Uint8ClampedArray(size * size * 4);
+    shadePixels(lat, px, 1, size);
+    for (let i = 0; i < size * size; i++) expect(px[i * 4 + 3]).toBe(0);
+  });
+});
+
+describe('лес растёт купами, а порода — от места', () => {
+  it('купа меняется плавно и не привязана к клетке', () => {
+    // Тридцать клеток — это десяток периодов купы: на пяти разброс мог бы выйти
+    // случайно малым, и тест ловил бы удачу, а не свойство.
+    const along: number[] = [];
+    for (let i = 0; i <= 120; i++) along.push(groveAt(SEED, HOME.x + i * 0.25, HOME.y));
+    // Плавно: соседние пробы в четверть клетки не прыгают через полшкалы.
+    for (let i = 1; i < along.length; i++) expect(Math.abs(along[i] - along[i - 1])).toBeLessThan(0.5);
+    // И при этом гуляет: постоянная величина не сделала бы ни гущи, ни прогалины.
+    expect(Math.max(...along) - Math.min(...along)).toBeGreaterThan(0.4);
+  });
+
+  it('в лесу есть и гуща, и прогалина, а не ровный ковёр', () => {
+    const wide: Rect = { x: HOME.x - 20, y: HOME.y - 20, w: 40, h: 40 };
+    const perCell = new Map<string, number>();
+    for (const t of treesIn(SEED, wide, sampleFor(SEED))) {
+      const k = `${Math.floor(t.x)}|${Math.floor(t.y)}`;
+      perCell.set(k, (perCell.get(k) ?? 0) + 1);
+    }
+    const counts = [...perCell.values()];
+    expect(counts.length).toBeGreaterThan(20);
+    expect(Math.max(...counts)).toBeGreaterThan(Math.min(...counts) + 1);
+  });
+
+  it('север хвойный, юг лиственный, а в горах хвоя растёт и на юге', () => {
+    const plain: Sample = () => 'plain';
+    const hills: Sample = () => 'hills';
+    // Розыгрыш в середине шкалы: севернее порога он даёт хвою, южнее — нет.
+    expect(coniferAt(0, CONIFER_NORTH - 50, plain, 0.5)).toBe(true);
+    expect(coniferAt(0, CONIFER_SOUTH + 50, plain, 0.5)).toBe(false);
+    // Юг, но горы: хвоя возвращается — и это то же одно правило, а не второе.
+    expect(coniferAt(0, CONIFER_SOUTH + 50, hills, 0.5)).toBe(true);
+  });
+
+  it('порода — свойство места: на одной клетке она не мечется от дерева к дереву', () => {
+    // Далеко на севере вся клетка обязана быть хвойной при любом розыгрыше.
+    for (const roll of [0, 0.25, 0.5, 0.75, 0.99]) {
+      expect(coniferAt(0, CONIFER_NORTH - 200, () => 'plain', roll)).toBe(true);
+    }
+  });
+});
+
+describe('глубина выводится из того, далеко ли до земли', () => {
+  it('открытое море глубже прибрежной воды', () => {
+    const water: Sample = () => 'water';
+    expect(waterShare(0, 0, water, 8)).toBe(1);
+    // Берег по одной стороне — доля заметно меньше единицы.
+    const coast: Sample = (_x, y) => (y > 0 ? 'water' : 'plain');
+    expect(waterShare(0, 0, coast, 8)).toBeLessThan(0.6);
+  });
+
+  it('за краем сетки — открытое море, а не суша', () => {
+    // Мир кончается берегом: клетка без данных обязана считаться водой, иначе у
+    // кромки карты глубина внезапно становится отмелью.
+    expect(waterShare(0, 0, () => null, 4)).toBe(1);
   });
 });

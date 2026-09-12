@@ -316,7 +316,28 @@ const PROBE = `
     });
     return JSON.stringify(rows);
   };
+  /**
+   * Бросок карты: камера ползёт по спирали вокруг дома, и под неё всё время
+   * подъезжают свежие тайлы. Это единственный способ померить выпечку — стоя на
+   * месте карта не печёт ничего, а чувствуется выпечка ровно в броске.
+   */
+  window.__fly = (on) => {
+    if (window.__flyRaf) cancelAnimationFrame(window.__flyRaf);
+    window.__flyRaf = 0;
+    if (!on) return JSON.stringify('off');
+    const home = W().getState().info.home;
+    let t = 0;
+    const step = () => {
+      t++;
+      const a = t * 0.03;
+      window.__mapCam(home.x + Math.cos(a) * (3 + t * 0.06), home.y + Math.sin(a) * (3 + t * 0.06), 44);
+      window.__flyRaf = requestAnimationFrame(step);
+    };
+    window.__flyRaf = requestAnimationFrame(step);
+    return JSON.stringify('on');
+  };
   window.__take = () => JSON.stringify(window.__mapPerf());
+  window.__bakes = () => JSON.stringify(window.__mapBakes());
   window.__ready = () => JSON.stringify({ map: window.__game.getState().mapOpen, world: !!window.__world });
   return JSON.stringify('ok');
 })()
@@ -399,7 +420,7 @@ const FEATURE_MIN = 2;
 /** Размеры, на которых меряются силуэты. Ниже пола `agentUnit` — нарочно. */
 const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
 
-async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[] }> {
+async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]; flown: Flight }> {
   const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');
@@ -421,7 +442,51 @@ async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]
   for (const view of VIEWS) out.push(...(await frames(tab, view, counts)));
   tab.close();
   await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
-  return { shots: out, looks };
+  return { shots: out, looks, flown: await flight() };
+}
+
+/** Что стоит выпечка тайла и что от неё видно в кадре при броске карты. */
+interface Flight {
+  /** Времена выпечки одного тайла, мс. */
+  bakes: number[];
+  /** Времена кадров во время броска, мс. */
+  frames: number[];
+}
+
+/**
+ * Бросок карты на телефонном кадре. Меряются две разные вещи сразу: сколько
+ * стоит испечь тайл и что от этого видно в кадре. Второе много меньше первого —
+ * тайл печётся раз на десятки кадров, — и путать их нельзя.
+ *
+ * Камера здесь отпущена (`window.__mapCam` ходит через тот же поводок, что и
+ * жест, а страница открыта с `worldview=open`): под поводком она уходит от дома
+ * на полэкрана и свежих тайлов почти не просит, то есть мерить было бы нечего.
+ * Земля от флага не меняется — меняется только туман.
+ */
+async function flight(): Promise<Flight> {
+  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1&worldview=open`);
+  await tab.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+  await sleep(4000);
+  await tab.eval<string>(PROBE);
+  await tab.eval<string>('(() => { window.__game.getState().openMap(); return JSON.stringify("ok"); })()');
+  for (let i = 0; i < 100; i++) {
+    await sleep(100);
+    const r = await tab.eval<{ map: boolean; world: boolean }>('window.__ready()');
+    if (r.map && r.world) break;
+  }
+  await tab.eval<string>('window.__freeze()');
+  // Первый экран земли печётся сразу после входа: это разовая работа, и мешать
+  // её с броском нельзя — мерить надо установившийся ход.
+  await sleep(2500);
+  await tab.eval<number[]>('window.__take()');
+  await tab.eval<number[]>('window.__bakes()');
+  await tab.eval<string>('window.__fly(true)');
+  await sleep(SECONDS * 2000);
+  const out = { frames: await tab.eval<number[]>('window.__take()'), bakes: await tab.eval<number[]>('window.__bakes()') };
+  await tab.eval<string>('window.__fly(false)');
+  tab.close();
+  await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
+  return out;
 }
 
 // ---------- Печать ----------
@@ -459,8 +524,9 @@ async function main(): Promise<void> {
   const chrome = await launchChrome(DEBUG_PORT, ['--window-size=1400,900', '--force-device-scale-factor=1']);
   let shots: Shot[] = [];
   let looks: Look[] = [];
+  let flown: Flight = { bakes: [], frames: [] };
   try {
-    ({ shots, looks } = await measure(counts));
+    ({ shots, looks, flown } = await measure(counts));
   } finally {
     chrome.kill();
     server.close();
@@ -483,6 +549,23 @@ async function main(): Promise<void> {
   console.log('Худший случай мира стоит:', worst.map((s) => `${s.view.split(' ')[0]} ${s.cost.toFixed(2)} мс`).join(', ') + '.');
   console.log('Бюджет кадра при шестидесяти в секунду — 16.7 мс, и в нём лежит не только карта.');
   console.log('Кадров нет вовсе — значит страница не рисовалась: см. CLAUDE.md, «Стенд в проде».');
+
+  console.log('\n=== бросок карты: выпечка тайла ===\n');
+  console.log('Земля печётся по тайлу за кадр, и это самая дорогая работа карты. В медиану');
+  console.log('кадра она не попадает вовсе — тайл печётся раз на десятки кадров, — поэтому');
+  console.log('меряется отдельно: камера ползёт по спирали, и под неё подъезжают свежие тайлы.\n');
+  console.log(`${pad('что', 22)} ${pad('штук', 6)} ${pad('медиана', 8)} ${pad('p95', 8)} макс`);
+  for (const [name, a] of [
+    ['выпечка тайла', flown.bakes],
+    ['кадр в броске', flown.frames],
+  ] as [string, number[]][]) {
+    console.log(
+      `${pad(name, 22)} ${String(a.length).padStart(5)} ${num(median(a), 8)} ${num(pct(a, 0.95), 8)} ${num(Math.max(0, ...a), 8)}`,
+    );
+  }
+  console.log('\nВыпечка не обязана влезать в кадр целиком: она одна на кадр, а полоса перехода');
+  console.log('подобрана под кэш. Но вдвое подорожавшая выпечка — это вдвое длиннее рывок при');
+  console.log('броске карты, и увидеть его можно только здесь: в медиане кадра его нет.');
 
   console.log('\n=== агенты: различимы ли четверо без подписей ===\n');
   console.log('Подписи под фигурами убраны, и опознание держится только на форме. Пятно —');

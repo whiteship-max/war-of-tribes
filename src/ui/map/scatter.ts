@@ -1,4 +1,4 @@
-// Декор нарисованной земли: где стоят ёлки и какой формы вода и холмы.
+// Декор нарисованной земли: где стоят деревья и какой формы вода и холмы.
 //
 // Ландшафт приходит клетками (`RegionChunk.terrain`), а выглядеть должен
 // непрерывным. Поэтому клетка здесь — не квадрат, который красят, а источник
@@ -11,7 +11,13 @@
 // одинаковые числа — на этом держится обещание «один сид — одна картинка».
 import type { Terrain } from '@/world/types';
 import {
+  CONIFER_HILLS,
+  CONIFER_NORTH,
+  CONIFER_SOUTH,
   FIELD_LEVEL,
+  GLADE_BELOW,
+  GROVE_PERIOD,
+  GROVE_SWING,
   STAMPS_PER_CELL,
   STAMP_JITTER,
   STAMP_R_MAX,
@@ -43,6 +49,7 @@ const SALT = {
   tree: 4073,
   steppe: 5087,
   desert: 6089,
+  grove: 7103,
 } as const;
 
 /**
@@ -117,16 +124,65 @@ export function fieldAt(seed: number, wx: number, wy: number, kind: Terrain, sam
 
 export const isInside = (field: number): boolean => field >= FIELD_LEVEL;
 
-/** Все штампы вида, способные задеть область. Столько их и рисуют при выпечке. */
-export function stampsFor(seed: number, rect: { x: number; y: number; w: number; h: number }, kind: Terrain, sample: Sample): Stamp[] {
+/**
+ * Плавная ступень. Общая на весь декор земли — ею сглаживают и купу леса, и
+ * высоту рельефа: без неё билинейная выборка даёт видимые грани по узлам, и
+ * обеим она нужна по одной и той же причине. Второй копии быть не должно.
+ */
+export const smooth = (t: number): number => t * t * (3 - 2 * t);
+
+/**
+ * Все штампы вида, способные задеть область. Столько их и рисуют при выпечке.
+ *
+ * `pick` отбирает клетки внутри вида, не меняя ни формы штампов, ни их
+ * координат: так из одной и той же воды получаются отмель и глубина, и край у
+ * них — одна и та же линия, а не две похожие.
+ */
+export function stampsFor(
+  seed: number,
+  rect: { x: number; y: number; w: number; h: number },
+  kind: Terrain,
+  sample: Sample,
+  pick?: Flag,
+): Stamp[] {
   const out: Stamp[] = [];
   for (let y = Math.floor(rect.y) - REACH; y < rect.y + rect.h + REACH; y++) {
     for (let x = Math.floor(rect.x) - REACH; x < rect.x + rect.w + REACH; x++) {
       if (sample(x, y) !== kind) continue;
+      if (pick && !pick(x, y)) continue;
       for (const s of stampsAt(seed, x, y, kind)) out.push(s);
     }
   }
   return out;
+}
+
+/**
+ * Доля воды вокруг клетки в радиусе `r`. Отсюда берётся глубина: «далеко ли до
+ * земли» — единственный вопрос, на который карта может ответить честно, высот
+ * дна в данных нет и взяться им неоткуда.
+ *
+ * Считается по кругу, а не по квадрату: квадратное окно дало бы на ровном берегу
+ * ступеньку в углу, и глубина пошла бы уголками.
+ */
+export function waterShare(x: number, y: number, sample: Sample, r: number): number {
+  let sum = 0;
+  let total = 0;
+  const r2 = r * r;
+  // Через клетку, а не подряд. Спрашивают это на каждой клетке воды в тайле, и
+  // сплошной обход круга в восемь клеток стоил бы двадцати тысяч чтений мира на
+  // выпечку — при том что ответ («далеко ли до земли») от пропущенной клетки не
+  // меняется: берег шириной в одну клетку посреди моря карту не рисует.
+  for (let dy = -r; dy <= r; dy += 2) {
+    for (let dx = -r; dx <= r; dx += 2) {
+      if (dx * dx + dy * dy > r2) continue;
+      total++;
+      const t = sample(x + dx, y + dy);
+      // За краем сетки — открытое море: мир кончается берегом, а не пустотой,
+      // и глубина у кромки карты обязана быть глубиной.
+      if (t === null || t === 'water') sum++;
+    }
+  }
+  return total === 0 ? 0 : sum / total;
 }
 
 // ---------- Линии местности: реки, хребты, тракты ----------
@@ -202,19 +258,57 @@ const inClearing = (px: number, py: number, clearings: Clearing[]): boolean =>
   });
 
 export interface Tree {
-  /** Мировые координаты с дробной частью: ёлки не выстраиваются по сетке. */
+  /** Мировые координаты с дробной частью: деревья не выстраиваются по сетке. */
   x: number;
   y: number;
-  /** Номер модели в атласе. */
+  /** Номер модели в атласе своей породы. */
   kind: number;
-  /** Множитель размера: одинаковые ёлки читаются как узор, а не как лес. */
+  /** Хвойное ли. Порода решается местом, а не деревом: юг не хвойный. */
+  conifer: boolean;
+  /** Множитель размера: одинаковые деревья читаются как узор, а не как лес. */
   size: number;
 }
 
+function groveNoise(seed: number, x: number, y: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const tx = smooth(x - ix);
+  const ty = smooth(y - iy);
+  const a = hash(seed, ix, iy, SALT.grove);
+  const b = hash(seed, ix + 1, iy, SALT.grove);
+  const c = hash(seed, ix, iy + 1, SALT.grove);
+  const d = hash(seed, ix + 1, iy + 1, SALT.grove);
+  return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+}
+
 /**
- * Ёлки одной клетки. Число берётся из сглаженной доли леса, а дробная часть
- * разыгрывается хешем: без этого плотность росла бы ступенями и граница леса
- * снова стала бы видна клетками.
+ * Насколько густо стоит лес в этой точке, 0..1. Это и есть разница между лесом и
+ * посадкой: доля леса из данных говорит «здесь лес», а купа говорит, где он
+ * гуще, где реже и где прогалина. Период крупнее клетки нарочно — купа обязана
+ * переходить через границу клетки, иначе рисунок снова разложится по сетке.
+ */
+export const groveAt = (seed: number, x: number, y: number): number =>
+  groveNoise(seed, x / GROVE_PERIOD, y / GROVE_PERIOD);
+
+/**
+ * Хвойное ли дерево в этой точке. Порода — свойство места: север хвойный, юг
+ * лиственный, между ними пояс, в котором она разыгрывается хешем; в горах хвоя
+ * растёт и на юге. Прямой порог по широте читался бы границей государства, а не
+ * сменой леса, — отсюда и пояс, и розыгрыш внутри него.
+ */
+export function coniferAt(x: number, y: number, sample: Sample, roll: number): boolean {
+  const south = Math.min(1, Math.max(0, (y - CONIFER_NORTH) / (CONIFER_SOUTH - CONIFER_NORTH)));
+  const hills = sample(x, y) === 'hills' ? CONIFER_HILLS : 0;
+  // Сравнение нестрогое: на самом севере `south` равен нулю, и строгое «больше»
+  // оставило бы там лиственным ровно нулевой розыгрыш. Полшага на краю шкалы
+  // ничего не решают, а дыра в правиле — решает.
+  return roll >= south - hills;
+}
+
+/**
+ * Деревья одной клетки. Число берётся из сглаженной доли леса, умноженной на
+ * купу, а дробная часть разыгрывается хешем: без этого плотность росла бы
+ * ступенями и граница леса снова стала бы видна клетками.
  */
 export function treesInCell(
   seed: number,
@@ -226,23 +320,31 @@ export function treesInCell(
 ): Tree[] {
   const density = forestAt(x, y, sample);
   if (density <= 0) return [];
-  const n = Math.floor(density * TREES_PER_CELL + hash(seed, x, y, SALT.count));
   const out: Tree[] = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < TREES_PER_CELL; i++) {
     const salt = SALT.tree + i * 11;
     const px = x + hash(seed, x, y, salt);
     const py = y + hash(seed, x, y, salt + 1);
-    // Ёлка в воде — грубая ошибка: клякса накрывает часть соседней клетки,
+    // Купа решается в точке самого дерева, а не в середине клетки: иначе гуща
+    // обрывалась бы по клеткам — ровно то, от чего лес и уводят.
+    const grove = groveAt(seed, px, py);
+    if (grove < GLADE_BELOW) continue;
+    const thick = density * (1 - GROVE_SWING / 2 + GROVE_SWING * grove);
+    if (i >= thick * TREES_PER_CELL + hash(seed, x, y, SALT.count)) continue;
+    // Дерево в воде — грубая ошибка: клякса накрывает часть соседней клетки,
     // а лес в ней остаётся лесом. Отбраковка идёт по тому же полю, что и берег.
     if (isInside(fieldAt(seed, px, py, 'water', sample))) continue;
     if (inClearing(px, py, clearings)) continue;
-    // Ёлка посреди тракта или в русле — такая же грубая ошибка, как ёлка в озере.
+    // Дерево посреди тракта или в русле — такая же грубая ошибка, как в озере.
     if (blocked?.(Math.floor(px), Math.floor(py))) continue;
     out.push({
       x: px,
       y: py,
       kind: Math.floor(hash(seed, x, y, salt + 2) * TREE_KINDS) % TREE_KINDS,
-      size: 0.85 + hash(seed, x, y, salt + 3) * 0.3,
+      conifer: coniferAt(x, y, sample, hash(seed, x, y, salt + 4)),
+      // На опушке дерево крупнее, в гуще мельче: так купа читается массой, а не
+      // россыпью одинаковых значков.
+      size: (0.62 + hash(seed, x, y, salt + 3) * 0.42) * (1.14 - grove * 0.28),
     });
   }
   return out;

@@ -14,10 +14,16 @@ import type { Rect, SettlementView } from '@/world/types';
 import { cachedChunk, chunkKeysIn, loadedIn, featuresAt as cachedFeatures, terrainAt as cachedTerrain } from '@/world/cache';
 import { FEATURE } from '@/world/geography';
 import {
+  BANK_SHRINK,
+  DEEP_ALPHA,
+  DEEP_LOOK,
+  DEEP_SHARE,
   NODE_R,
   PALETTE,
+  RELIEF_PER_CELL,
   RIDGE_R,
   RIVER_R,
+  SURF_SHRINK,
   TRACK_R,
   VERGE_R,
   TILE_BAKE,
@@ -30,8 +36,13 @@ import {
   TREE_FREE_R,
 } from './const';
 import { type TileId, tileOrigin } from './grid';
-import { type Clearing, type Flag, type Sample, type Stamp, hash, lineStamps, stampsFor, treesIn } from './scatter';
+import { type Clearing, type Flag, type Sample, type Stamp, hash, lineStamps, stampsFor, treesIn, waterShare } from './scatter';
+import { lattice as latticeOf, shadePixels } from './relief';
 import { grassPatch, makeCanvas, softDisc, treeShadow, treeSize, treeSprite } from './paint';
+import { bakeCost, probe } from '@/debug';
+
+/** Замер выпечки включён только флагом адреса — в игре это одна проверка булева. */
+const PROBE = probe();
 
 interface Tile {
   canvas: HTMLCanvasElement;
@@ -138,6 +149,8 @@ function paintStamps(
   toPx: ToPx,
   shrink: number,
   alpha: number,
+  /** Внутренний край. Задан — рисуется не пятно, а кайма между ним и `shrink`. */
+  inner?: number,
 ): void {
   if (stamps.length === 0) return;
 
@@ -151,11 +164,23 @@ function paintStamps(
   mc.globalCompositeOperation = 'lighter';
 
   const disc = softDisc();
-  for (const s of stamps) {
-    const r = s.r * shrink * TILE_BAKE;
-    if (r <= 0) continue;
-    const [sx, sy] = toPx(s.x, s.y);
-    mc.drawImage(disc, sx - r, sy - r, r * 2, r * 2);
+  const lay = (k: number): void => {
+    for (const s of stamps) {
+      const r = s.r * k * TILE_BAKE;
+      if (r <= 0) continue;
+      const [sx, sy] = toPx(s.x, s.y);
+      mc.drawImage(disc, sx - r, sy - r, r * 2, r * 2);
+    }
+  };
+  lay(shrink);
+
+  // Кайма, а не пятно. Нужна ровно там, где полоса обязана лежать **по урезу** и
+  // ни на шаг внутрь: прибой, нарисованный пятном, проступает сквозь узкую реку
+  // (в ней поле едва переходит порог, и вода не закрывает подложку целиком) —
+  // река выходит в светлую клетку. Вычитание внутренней части это и снимает.
+  if (inner !== undefined) {
+    mc.globalCompositeOperation = 'destination-out';
+    lay(inner);
   }
 
   // Красим накопленную маску на месте: второй холст под это не нужен.
@@ -167,6 +192,40 @@ function paintStamps(
   target.globalAlpha = alpha;
   target.drawImage(mask, 0, 0);
   target.globalAlpha = 1;
+}
+
+// ---------- Рельеф ----------
+
+/** Холст под краску рельефа. Один на все тайлы: печётся-то по одному за кадр. */
+let shadeCanvas: HTMLCanvasElement | null = null;
+let shadeImage: ImageData | null = null;
+
+/**
+ * Свет и тень по высоте на весь тайл.
+ *
+ * Считается по редкой решётке и растягивается с билинейным сглаживанием, а не
+ * по пикселю: свет по склону меняется плавно, и узел на шесть device-пикселей
+ * от следующего даёт ровно ту же картинку вчетверо дешевле. Решётка берётся с
+ * запасом в клетку с каждой стороны — уклон считается разностью соседних узлов,
+ * и без запаса по кромке тайла шла бы полоса без света.
+ *
+ * В кадре это ничего не стоит: слой запечён внутрь тайла, как и всё остальное.
+ */
+function paintRelief(ctx: CanvasRenderingContext2D, seed: number, o: { x: number; y: number }): void {
+  const span = TILE_CELLS + TILE_BLEED * 2;
+  const lat = latticeOf(
+    seed,
+    { x: o.x - TILE_BLEED - 1, y: o.y - TILE_BLEED - 1, w: span + 2, h: span + 2 },
+    sample,
+    has(FEATURE.ridge),
+  );
+  const size = Math.round(span * RELIEF_PER_CELL);
+  if (!shadeCanvas) shadeCanvas = makeCanvas(size, size);
+  const sc = ctxOf(shadeCanvas);
+  if (!shadeImage) shadeImage = sc.createImageData(size, size);
+  shadePixels(lat, shadeImage.data, RELIEF_PER_CELL, size);
+  sc.putImageData(shadeImage, 0, 0);
+  ctx.drawImage(shadeCanvas, 0, 0, TILE_PX, TILE_PX);
 }
 
 // ---------- Выпечка ----------
@@ -209,10 +268,17 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   ctx.clearRect(0, 0, TILE_PX, TILE_PX);
   ctx.imageSmoothingEnabled = true;
 
-  // Открытое море — один прямоугольник вместо полутора тысяч дисков.
+  // Открытое море — два прямоугольника вместо полутора тысяч дисков. Второй —
+  // глубина: до берега отсюда дальше любого запаса, значит это открытая вода, и
+  // она обязана быть того же тона, каким её красит прибрежный тайл у своей
+  // дальней кромки. Иначе на стыке пошла бы ступенька по цвету.
   if (allWater(pad)) {
     ctx.fillStyle = PALETTE.water;
     ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+    ctx.globalAlpha = DEEP_ALPHA;
+    ctx.fillStyle = PALETTE.deep;
+    ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+    ctx.globalAlpha = 1;
     return { canvas, usedFrame: 0 };
   }
 
@@ -263,21 +329,39 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   paintStamps(ctx, desert, PALETTE.desert, toPx, 1, 0.9);
   paintStamps(ctx, desert, PALETTE.desertLight, toPx, 0.6, 0.5);
 
-  // 5. Вода: широкая отмель и тёмное тело внутри неё.
-  const water = stampsFor(seed, pad, 'water', sample);
-  paintStamps(ctx, water, PALETTE.shallow, toPx, 1, 0.95);
-  paintStamps(ctx, water, PALETTE.water, toPx, 0.74, 1);
+  // 5. Рельеф: свет и тень по высоте. Ложится на всю землю разом и **до воды** —
+  // море потом накроет собой дно, и рябь по нему не пойдёт. Это самый сильный
+  // слой на тайле: без него всё остальное рисуется на плоской заливке.
+  paintRelief(ctx, seed, o);
 
-  // 6. Местность поверх ландшафта. Порядок здесь — это правила словами: хребет
+  // 6. Вода четырьмя тонами. Прибой выходит на сушу, отмель садится ровно по
+  // урезу, тело внутри неё, глубина — там, где до берега далеко. Все четыре
+  // считаются из одного поля и одних штампов, поэтому их края — одна линия.
+  const water = stampsFor(seed, pad, 'water', sample);
+  paintStamps(ctx, water, PALETTE.surf, toPx, SURF_SHRINK, 0.5, 1);
+  paintStamps(ctx, water, PALETTE.shallow, toPx, 1, 0.95);
+  paintStamps(ctx, water, PALETTE.water, toPx, 0.88, 1);
+  const open: Flag = (x, y) => waterShare(x, y, sample, DEEP_LOOK) >= DEEP_SHARE;
+  paintStamps(ctx, stampsFor(seed, pad, 'water', sample, open), PALETTE.deep, toPx, 0.9, DEEP_ALPHA);
+
+  // 7. Местность поверх ландшафта. Порядок здесь — это правила словами: хребет
   // лежит на холмах, река режет всё, переправа ложится поверх реки (мост и виден
   // как то, что реку перекрывает), тракт идёт последним и проходит по мосту.
-  paintStamps(ctx, lineStamps(pad, hasOnly(FEATURE.ridge, FEATURE.pass), RIDGE_R), PALETTE.ridge, toPx, 1, 0.85);
-  paintStamps(ctx, lineStamps(pad, hasOnly(FEATURE.ridge, FEATURE.pass), RIDGE_R), PALETTE.ridgeLight, toPx, 0.55, 0.6);
+  // Хребет вблизи — **гребень**, а не бурая полоса поперёк гор. Полосу рисовали,
+  // пока земля была плоской и другого способа сказать «здесь горы» не было;
+  // теперь массу гор держит рельеф, и тёмная лента поверх него читается шрамом.
+  // Осталась от неё узкая тень у подножия и светлый камень по самому гребню.
+  const crest = lineStamps(pad, hasOnly(FEATURE.ridge, FEATURE.pass), RIDGE_R);
+  paintStamps(ctx, crest, PALETTE.ridge, toPx, 1, 0.28);
+  paintStamps(ctx, crest, PALETTE.ridgeLight, toPx, 0.5, 0.5);
   paintStamps(ctx, lineStamps(pad, has(FEATURE.pass), NODE_R), PALETTE.pass, toPx, 1, 0.7);
 
+  // Река лежит в берегах, а не поверх зелени: сначала сырая пойма вдвое шире
+  // русла, потом светлая вода, потом тёмная стремнина.
   const river = lineStamps(pad, has(FEATURE.river), RIVER_R);
-  paintStamps(ctx, river, PALETTE.river, toPx, 1.35, 0.9);
-  paintStamps(ctx, river, PALETTE.riverDeep, toPx, 0.85, 1);
+  paintStamps(ctx, river, PALETTE.bank, toPx, BANK_SHRINK, 0.45);
+  paintStamps(ctx, river, PALETTE.river, toPx, 1.15, 0.9);
+  paintStamps(ctx, river, PALETTE.riverDeep, toPx, 0.8, 1);
   paintStamps(ctx, lineStamps(pad, has(FEATURE.ford), NODE_R), PALETTE.ford, toPx, 1, 0.9);
   paintStamps(ctx, lineStamps(pad, has(FEATURE.bridge), NODE_R), PALETTE.bridge, toPx, 1, 0.95);
 
@@ -285,10 +369,11 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
   paintStamps(ctx, lineStamps(pad, has(FEATURE.road), VERGE_R), PALETTE.verge, toPx, 1, 0.3);
   paintStamps(ctx, lineStamps(pad, has(FEATURE.track), TRACK_R), PALETTE.road, toPx, 1, 0.9);
 
-  // 7. Ёлки. Двор поселения красит его собственный спрайт, а тайлу от поселения
-  // нужно только место, чтобы не сажать туда лес. Берутся с запасом в две
-  // клетки: дерево за краем тайла заходит внутрь кроной, и без запаса по границе
-  // шла бы линия срезанных верхушек.
+  // 8. Деревья. Двор поселения красит его собственный спрайт, а тайлу от
+  // поселения нужно только место, чтобы не сажать туда лес. Берутся с запасом в
+  // две клетки: дерево за краем тайла заходит внутрь кроной, и без запаса по
+  // границе шла бы линия срезанных верхушек. Порода решается местом, а не
+  // деревом (`scatter.coniferAt`): юг не хвойный.
   const clearings = clearingsOf(settlementsAround(pad));
   const treeRect: Rect = { x: o.x - 2, y: o.y - 2, w: TILE_CELLS + 4, h: TILE_CELLS + 4 };
   const shadow = treeShadow();
@@ -299,7 +384,7 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
     const w = tw * t.size;
     const h = th * t.size;
     ctx.drawImage(shadow, sx - w * 0.5, sy - w * 0.14, w, w * 0.3);
-    ctx.drawImage(treeSprite(t.kind), sx - w / 2, sy - h * 0.88, w, h);
+    ctx.drawImage(treeSprite(t.kind, t.conifer), sx - w / 2, sy - h * 0.88, w, h);
   }
 
   return { canvas, usedFrame: 0 };
@@ -351,8 +436,16 @@ export function prepareTiles(seed: number, want: TileId[], frame: number): void 
   for (const { tx, ty } of want) {
     if (tiles.has(key(tx, ty))) continue;
     if (budget <= 0) break;
+    // Цена выпечки — своё число, а не доля кадра: в медиану кадра она не попадает
+    // вовсе (тайл печётся раз на десятки кадров), а чувствуется именно рывком.
+    // Под `?probe=1` её снимает `npm run map:report`; в игре остаётся проверка булева.
+    const t0 = PROBE ? performance.now() : 0;
     const baked = bake(seed, tx, ty);
+    // Считается только состоявшаяся выпечка. Отказ по неприехавшим кускам стоит
+    // обхода сетки и возврата, и в среднем такие отказы утопили бы настоящее
+    // число: их за бросок набирается больше, чем самих тайлов.
     if (!baked) continue;
+    if (PROBE) bakeCost(performance.now() - t0);
     baked.usedFrame = frame;
     tiles.set(key(tx, ty), baked);
     budget--;

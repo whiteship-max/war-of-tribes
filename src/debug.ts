@@ -60,3 +60,28 @@ export function takeCosts(): number[] {
   COSTS.length = 0;
   return out;
 }
+
+/**
+ * Сколько стоит испечь один тайл земли (`npm run map:report`, раздел «выпечка»).
+ *
+ * Меряется отдельно от кадра нарочно: в кадр выпечка попадает раз на несколько
+ * десятков кадров, и в медиане её не видно вовсе, а чувствуется она ровно там,
+ * где её не видно в медиане, — рывком при броске карты. Бюджет тут свой и
+ * жёсткий: тайл печётся один за кадр, и кадр у телефона 16.7 мс.
+ *
+ * Живёт рядом с `frameCost` и по той же причине: `ui/map/ground.ts` про замер
+ * знать не обязан, а стенду нужен один общий адрес.
+ */
+const BAKES: number[] = [];
+
+export function bakeCost(ms: number): void {
+  BAKES.push(ms);
+  if (BAKES.length > COSTS_MAX) BAKES.shift();
+}
+
+/** Снять накопленное и начать сначала. Стенд зовёт это через `window.__mapBakes`. */
+export function takeBakes(): number[] {
+  const out = BAKES.slice();
+  BAKES.length = 0;
+  return out;
+}
