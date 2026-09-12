@@ -442,10 +442,10 @@ export function anchor(b: Body, h: Hearth, now: number): Body {
  * горящего огня и под крышей, а туда волк не входит и оттуда не кусает
  * (`wolves.wolfCanBite`). Значит шесть укусов подряд — это ровно шесть целых.
  */
-export const bite = (b: Body, h: Hearth, now: number): Body => {
+export const bite = (b: Body, h: Hearth, now: number, much = 1): Body => {
   const a = anchor(b, h, now);
   if (a.harm >= WOLF_BITES) return a;
-  return { ...a, harm: Math.min(WOLF_BITES, a.harm + 1) };
+  return { ...a, harm: Math.min(WOLF_BITES, a.harm + Math.max(0, much)) };
 };
 
 /** Человек вошёл в круг у костра или вышел из него. */

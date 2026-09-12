@@ -105,7 +105,7 @@ export interface Blocker {
  * огню), поэтому её место приезжает от сцены. Есть ли она вообще — правило рода
  * (`kin.guestHere`, жена в записи), и сцена просто не отдаёт места, если её нет.
  */
-export type SpotKind = 'tree' | 'fire' | 'axe' | 'tent' | 'carcass' | 'arrow' | 'wolf' | 'house' | 'mate';
+export type SpotKind = 'tree' | 'fire' | 'axe' | 'tent' | 'carcass' | 'arrow' | 'wolf' | 'house' | 'mate' | 'son' | 'frame' | 'foe';
 
 export interface Spot {
   kind: SpotKind;
@@ -188,6 +188,17 @@ export const byHouse = (x: number, z: number): boolean =>
 export const MATE_SPOT = { x: 2.26, z: -2.26 };
 
 /**
+ * Где стоит сын в финале — рядом с матерью, но не за её спиной.
+ *
+ * Место выбрано теми же пятью условиями, что и её (`MATE_SPOT`), и проверено
+ * тем же тестом: у огня, вне круга костра, между ним и любой преградой поляны
+ * проходит человек, и подошедший к матери получает разговор с ней, а не с ним.
+ * Метр с лишним между ними — ровно столько, чтобы тап доставался тому, к кому
+ * подошли.
+ */
+export const SON_SPOT = { x: 0.9, z: -3.3 };
+
+/**
  * Откуда гостья выходит из леса и куда уходит, получив отказ.
  *
  * На той же прямой от огня, что и её место, у самой опушки: путь отсюда до
@@ -207,6 +218,20 @@ export const GUEST_FROM = { x: 8.77, z: -8.77 };
  * метре с четвертью: видно лицо и плечи, и говорить так естественно.
  */
 export const MATE_R = 0.9;
+
+/**
+ * Где встанет дом сына — место последнего дела человека (`end.ts`).
+ *
+ * По ту сторону огня от старого дома, у самой опушки: отец ставит сыну свой дом,
+ * а не пристройку к своему. Условия те же, какими проверены дом и деревья, и все
+ * они тесты: между срубом и любой преградой поляны проходит человек, из точки
+ * входа до него не дотянуться, и сам он целиком внутри поляны.
+ *
+ * Число записано, а не считается, — по той же причине, по какой записаны дом и
+ * деревья: место постройки это факт, и в диффе должно быть видно, куда оно
+ * переехало.
+ */
+export const SON_HOUSE = { x: -0.2, z: 6.9, r: 1.2 };
 
 /** Пень с топором: с другой стороны костра, чтобы первый шаг был шагом. */
 export const AXE_STUMP = { x: 2.5, z: 2.2, r: 0.5 };
@@ -279,7 +304,7 @@ export const standing = (felledAt: number, now: number): boolean =>
  * Пень преградой не считается: через него перешагивают, и упираться в
  * невидимую тумбу посреди поляны игрок не должен.
  */
-export function blockers(felled: readonly number[], now: number, house = false): Blocker[] {
+export function blockers(felled: readonly number[], now: number, house = false, frame = false): Blocker[] {
   const out: Blocker[] = [
     { x: FIRE.x, z: FIRE.z, r: FIRE.r },
     { x: TENT.x, z: TENT.z, r: TENT.r },
@@ -287,6 +312,8 @@ export function blockers(felled: readonly number[], now: number, house = false):
   ];
   // Дом становится преградой с первого бревна: разметку переступают, сруб — нет.
   if (house) out.push({ x: HOUSE.x, z: HOUSE.z, r: HOUSE.r });
+  // И дом сына — тем же правилом, с первой доски.
+  if (frame) out.push({ x: SON_HOUSE.x, z: SON_HOUSE.z, r: SON_HOUSE.r });
   TREES.forEach((t, i) => {
     if (standing(felled[i] ?? 0, now)) out.push({ x: t.x, z: t.z, r: TREE_R });
   });
@@ -329,6 +356,18 @@ export interface GladeState {
    * Пусто — у огня никого (гостья ещё не пришла или ушла с отказом).
    */
   mate?: { x: number; z: number } | null;
+  /**
+   * Где стоит сын. Тем же путём, что мать и волки: есть ли он — правило финала
+   * (`end.familyHere`), где он стоит — кадр.
+   */
+  son?: { x: number; z: number } | null;
+  /** Идёт ли стройка дома сына: пока идёт, место — цель тапа. */
+  frame?: boolean;
+  /**
+   * Где стоят пришедшие из леса. Тем же путём, что волки: в записи их нет, и
+   * быть не может. Пустой список — обычное дело: они приходят один раз.
+   */
+  foes?: readonly { x: number; z: number }[];
 }
 
 /**
@@ -361,14 +400,19 @@ export function nearest(px: number, pz: number, w: GladeState, now: number): Spo
     bestD = d;
     best = { kind, x, z, index };
   };
+  // Разбойники — тем же правилом и по той же причине, что волки: они подходят
+  // сами, и топор в финале достаётся тому, кто ближе.
+  w.foes?.forEach((v, i) => test('foe', v.x, v.z, MATE_R, i));
   w.wolves.forEach((v, i) => test('wolf', v.x, v.z, WOLF_R, i));
   // Сразу за волком и по той же причине: она подвижна и сама выбирает, где
   // встать, — при равном расстоянии тап достаётся ей, а не очагу за её спиной.
   if (w.mate) test('mate', w.mate.x, w.mate.z, MATE_R, -1);
+  if (w.son) test('son', w.son.x, w.son.z, MATE_R, -1);
   test('fire', FIRE.x, FIRE.z, FIRE.r, -1);
   test('axe', AXE_STUMP.x, AXE_STUMP.z, AXE_STUMP.r, -1);
   if (w.tent) test('tent', TENT.x, TENT.z, TENT.r, -1);
   if (w.house) test('house', HOUSE.x, HOUSE.z, HOUSE.r, -1);
+  if (w.frame) test('frame', SON_HOUSE.x, SON_HOUSE.z, SON_HOUSE.r, -1);
   if (w.carcass) test('carcass', w.carcass.x, w.carcass.z, 0.55, -1);
   w.arrows.forEach((a, i) => test('arrow', a.x, a.z, 0, i));
   TREES.forEach((t, i) => {

@@ -10,6 +10,7 @@ import { SceneDoctor } from '../parts/SceneDoctor';
 import { TouchDoctor } from '../parts/TouchDoctor';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
+import { CHEAT_MARK } from '@/cheats';
 
 /**
  * «Задания» — две страницы.
@@ -107,6 +108,11 @@ function QuestList() {
       <Chronicle />
 
       <h3>Служебное</h3>
+      {/* Метка партии, где применяли коды. Стоит здесь, а не только в летописи:
+          летопись живёт месяц и старую строку выбрасывает, а метка — навсегда
+          (`src/cheats.ts`). Непомеченная партия не показывает ничего: пустая
+          строка «кодов не было» была бы шумом в каждой честной партии. */}
+      {s.cheated && <div className="desc cheat-mark">{CHEAT_MARK}</div>}
       <button className="btn ghost wide" onClick={replayTutorial}>
         Пройти обучение заново
       </button>

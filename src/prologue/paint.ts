@@ -82,6 +82,16 @@ export interface Look {
   /** Передник поверх понёвы. */
   apron: boolean;
   freckles: boolean;
+  /**
+   * Стрижен коротко: шапка волос вместо прядей по щекам.
+   *
+   * Нужно мальчику и мужчинам: длинные пряди по сторонам лица — это и есть то,
+   * по чему женщину узнают в двадцать пикселей, и оставлять их сыну значило бы
+   * рисовать вторую мать.
+   */
+  crop?: boolean;
+  /** Борода: цвет. Нет поля — безбородый. */
+  beard?: number;
 }
 
 export const LOOKS: readonly Look[] = [
@@ -98,6 +108,49 @@ export const LOOKS: readonly Look[] = [
   // Дарина: пепельно-русая, серо-голубые узкие, синеватая крашенина с красным шитьём.
   { hair: C.thatchDark, eyes: C.water, shape: 'narrow', brow: 'arched', skin: mix(C.skin, C.bone, 0.15), shirt: mix(C.paintBlue, C.cloth, 0.55), stitch: C.paintRed, skirt: C.stoneDark, band: C.cloth, apron: false, freckles: false },
 ];
+
+/**
+ * Сын. Рыжеватый, стриженый, в веснушках — и в той же рубахе, что у матери:
+ * шьёт её она. Лицо то же, что у всех, потому что рисовать его нечем другим —
+ * и не надо: мальчика от женщины отличают стрижка и рост.
+ */
+export const BOY_LOOK: Look = {
+  hair: C.ore,
+  eyes: C.leather,
+  shape: 'round',
+  brow: 'soft',
+  skin: mix(C.skin, C.bone, 0.2),
+  shirt: C.cloth,
+  stitch: C.paintRed,
+  skirt: C.woodDark,
+  band: C.paintRed,
+  apron: false,
+  freckles: true,
+  crop: true,
+};
+
+/**
+ * Пришедшие из леса. Один облик на всех пятерых, и это решение: они — ватага,
+ * и узнавать их по лицам игроку не надо. Тёмные, бородатые, в некрашеной
+ * дерюге — всё, что должно читаться, читается силуэтом и цветом.
+ *
+ * Платят за это одним холстом на пятерых вместо пяти (`people.raiders`).
+ */
+export const RAIDER_LOOK: Look = {
+  hair: C.hair,
+  eyes: C.stone,
+  shape: 'narrow',
+  brow: 'straight',
+  skin: mix(C.skin, C.wood, 0.3),
+  shirt: mix(C.leather, C.cloth, 0.4),
+  stitch: C.stoneDark,
+  skirt: C.woodDark,
+  band: C.stoneDark,
+  apron: false,
+  freckles: false,
+  crop: true,
+  beard: mix(C.hair, C.wood, 0.25),
+};
 
 /** Выражения лица — клетки атласа по порядку. */
 export const MOOD_CALM = 0;
@@ -302,12 +355,22 @@ function drawFace(g: CanvasRenderingContext2D, ox: number, look: Look, mood: Moo
     }
   }
 
+  // Борода — поверх рта и скул, но под глазами: она закрывает нижнюю треть лица
+  // и ничего не говорит о выражении. Есть она только у тех, у кого названа.
+  if (look.beard !== undefined) beard(g, look.beard, seed);
+
   // Глаза и брови.
   for (const sx of [-1, 1]) {
     eye(g, 64 + sx * 17, 60, sx, look, m, lash);
     brow(g, 64 + sx * 17, 60, sx, look, m);
   }
   g.restore();
+
+  if (look.crop) {
+    crop(g, look, seed);
+    g.restore();
+    return;
+  }
 
   // Волосы: пробор, пряди по бокам — они же закрывают уши.
   g.fillStyle = css(look.hair);
@@ -337,6 +400,70 @@ function drawFace(g: CanvasRenderingContext2D, ox: number, look: Look, mood: Moo
     g.stroke();
   }
   g.restore();
+}
+
+/**
+ * Короткая стрижка: шапка волос с неровным краем, без прядей по щекам.
+ *
+ * Ею отличаются сын и пришедшие. Уши она не закрывает — их на голове и нет:
+ * сфера головы гладкая, а уши в двадцать пикселей всё равно не читаются.
+ */
+function crop(g: CanvasRenderingContext2D, look: Look, seed: number): void {
+  g.fillStyle = css(look.hair);
+  g.beginPath();
+  g.moveTo(-2, -2);
+  g.lineTo(130, -2);
+  g.lineTo(130, 48);
+  g.bezierCurveTo(114, 42, 102, 28, 88, 33);
+  g.bezierCurveTo(78, 36, 72, 29, 64, 31);
+  g.bezierCurveTo(56, 29, 50, 36, 40, 33);
+  g.bezierCurveTo(26, 28, 14, 42, -2, 48);
+  g.closePath();
+  g.fill();
+  const light = mix(look.hair, C.bone, 0.3);
+  const dark = mix(look.hair, C.dark, 0.45);
+  g.lineWidth = 1;
+  for (let i = 0; i < 18; i++) {
+    const k = hash(i, seed * 17 + 7);
+    g.strokeStyle = css(i % 3 === 0 ? light : dark, 0.4);
+    g.beginPath();
+    const x0 = 8 + i * 7;
+    g.moveTo(x0, 0);
+    g.quadraticCurveTo(x0 + (k - 0.5) * 14, 20, x0 + (k - 0.5) * 26, 34 + k * 10);
+    g.stroke();
+  }
+}
+
+/**
+ * Борода: от скул к подбородку, с усами над верхней губой.
+ *
+ * Рот из-под неё виден — иначе выражение исчезло бы вместе с ним, а лица в
+ * атласе четыре как раз затем, чтобы выражение было.
+ */
+function beard(g: CanvasRenderingContext2D, color: number, seed: number): void {
+  g.fillStyle = css(color);
+  g.beginPath();
+  g.moveTo(40, 70);
+  g.bezierCurveTo(35, 96, 46, 122, 64, 124);
+  g.bezierCurveTo(82, 122, 93, 96, 88, 70);
+  g.bezierCurveTo(85, 86, 76, 97, 64, 98);
+  g.bezierCurveTo(52, 97, 43, 86, 40, 70);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.ellipse(64, 84, 14, 4.6, 0, 0, Math.PI * 2);
+  g.fill();
+  const dark = mix(color, C.dark, 0.45);
+  g.strokeStyle = css(dark, 0.45);
+  g.lineWidth = 1;
+  for (let i = 0; i < 16; i++) {
+    const k = hash(i, seed * 23 + 11);
+    const x0 = 42 + i * 3;
+    g.beginPath();
+    g.moveTo(x0, 88 + k * 6);
+    g.quadraticCurveTo(x0 + (k - 0.5) * 6, 104, 64 + (x0 - 64) * 0.4, 116 - k * 8);
+    g.stroke();
+  }
 }
 
 /** Глаз: белок, радужка, зрачок, блик, веко с ресницами и складка над ним. */
@@ -627,11 +754,15 @@ function rhomb(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, s
 }
 
 /**
- * Атлас женщины: четыре лица, рубаха, понёва, мех и образцы.
+ * Атлас человека: четыре лица, рубаха, понёва, мех и образцы.
  *
- * `seed` — номер гостьи: разброс прядей и веснушек у каждой свой и у всех один.
+ * Один на всех, кого рисует `people.ts`: женщину, сына и пришедших. Отличаются
+ * они не атласом, а `Look` — стрижкой, бородой и цветами, — и геометрией.
+ *
+ * `seed` — номер человека: разброс прядей, веснушек и бороды у каждого свой и у
+ * всех один.
  */
-export function womanAtlas(look: Look, seed: number): HTMLCanvasElement {
+export function personAtlas(look: Look, seed: number): HTMLCanvasElement {
   const { c, g } = canvas(ATLAS_W, ATLAS_H);
   for (const mood of [MOOD_CALM, MOOD_WARY, MOOD_WARM, MOOD_BLINK] as const) drawFace(g, mood * FACE_CELL, look, mood, seed);
   drawShirt(g, look);

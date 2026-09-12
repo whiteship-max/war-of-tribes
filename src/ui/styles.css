@@ -4514,3 +4514,142 @@ body.replaying .app > *:not(.canvas-wrap) {
 .start .modal {
   text-align: left;
 }
+
+/* ---------- Кнопка кодов ---------- */
+/*
+ * Инструмент проверки, и живёт он в общем файле, а не в стилях предыстории, по
+ * той же причине, по какой общий у них компонент: разметка одна на два режима, и
+ * второй копии правил быть не должно. Стоит это полкилобайта первой загрузки —
+ * плата за временную вещь, которая уходит целиком одним `CHEATS_ON = false`
+ * (`src/cheats.ts`): нет компонента — нет и этих правил на экране.
+ *
+ * Место у кнопки одно на оба режима — правый нижний угол, — но отсчитывается
+ * оно от разного: в деревне от нижней навигации, на поляне от ряда действия.
+ */
+.cheat {
+  position: absolute;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.cheat-village {
+  right: calc(var(--safe-right) + 8px);
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 8px);
+}
+
+/*
+ * На поляне — над рядом «действие, лук, вещи»: угол под ним занят вещами, и
+ * отнимать у них место нельзя. Слой выше надстройки режима, но ниже экрана
+ * смерти: мёртвому код не набирают.
+ */
+.cheat-prologue {
+  right: 10px;
+  bottom: calc(var(--safe-bottom) + 78px);
+}
+
+.cheat-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(26, 20, 16, 0.72);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cheat-btn.open {
+  background: var(--accent-2);
+  color: var(--accent-text);
+}
+
+/* Помеченная партия видна и по кнопке: искать строку в панели не надо. */
+.cheat-btn.marked {
+  border-color: #b4483a;
+  color: #e6a79c;
+}
+
+.cheat-card {
+  width: min(260px, calc(100vw - 24px));
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 11px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.cheat-card b {
+  font-size: 14px;
+}
+
+.cheat-note,
+.cheat-said,
+.cheat-mark {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.cheat-said {
+  color: var(--text);
+}
+
+.cheat-mark {
+  color: #e6a79c;
+}
+
+/* Шрифт поля — 16 px: мельче iOS сам приближает страницу к полю, и экран
+   разъезжается. То же правило, что у поля имени сына в предыстории. */
+.cheat-card input {
+  min-height: var(--tap);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.cheat-card ul {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cheat-card li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cheat-card li b {
+  font-size: 12px;
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+}
+
+/*
+ * Осадная панель уступает кнопке кодов место — тем же приёмом, каким она сама
+ * отнимает ширину у писем (`.siege ~ .letters`). Работает это только пока кнопка
+ * в разметке: выключили коды — и правило не применяется ни к чему.
+ */
+.cheat ~ .siege {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 46px);
+}

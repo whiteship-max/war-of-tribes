@@ -40,6 +40,7 @@ import { TREE_LOGS, type GladeState, type Spot } from './glade';
 import { DEER_MEAT, carcassLeft, hideLeft, liveCarcass, type Pt } from './hunt';
 import { ARROWS_PER_LOG, COAT_HIDES, HOUSE_LOGS, carveRoom } from './craft';
 import { LOVE_DAYS, counts, loveFull } from './kin';
+import { BOARDS, TASK_BUILD, TASK_SON, TASK_WIFE, TASK_WOOD, endOn, frameDone, type EndState } from './end';
 import type { PrologueSave } from './save';
 
 /**
@@ -72,6 +73,9 @@ export type Deed =
   | 'share'
   | 'hug'
   | 'name'
+  | 'board'
+  | 'fight-foe'
+  | 'feed-son'
   | null;
 
 export interface Offer {
@@ -154,6 +158,24 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
     return ok('take-arrow', 'Подобрать стрелу');
   }
   /*
+   * Дом сына — последнее дело человека (`end.ts`). Доски лежат у сруба, носить
+   * их не надо, и потому гасить кнопку нечем: пока дом не готов, она кладёт
+   * доску; готов — цели тапа у него больше нет вовсе (`reach`).
+   */
+  if (spot.kind === 'frame') {
+    return ok('board', `${TASK_BUILD} (${Math.min(BOARDS, s.end.boards)}/${BOARDS})`);
+  }
+  /*
+   * Пришедшие из леса. Та же дверь и то же правило, что у волка: они подошли
+   * сами, и «сделай с тем, к чему подошёл» — это удар топором. Без топора
+   * кнопка говорит правду, и правда здесь та же неприятная: отбиваться нечем.
+   */
+  if (spot.kind === 'foe') {
+    return s.axe ? ok('fight-foe', 'Отбиться топором') : no('fight-foe', 'Отбиться', 'Нужен топор');
+  }
+  // Сын. Дверь разговора, как у матери: что сказать, решается уже в карточке.
+  if (spot.kind === 'son') return ok('talk', 'Говорить');
+  /*
    * Волк. Единственная цель первой двери, которая подошла сама, — и потому
    * единственный зверь в этом списке (почему так, написано в `wolves.ts`).
    *
@@ -202,6 +224,13 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
    */
   const fuel = fuelAt(s.hearth, now);
   const roomForLogs = fuel < HEARTH_CAP - 0.001;
+  /*
+   * В финале очаг сперва просит дров, и это не догадка о желании игрока, а
+   * задание, которое стоит у него на экране словами. Без этой строки жарка
+   * сырого мяса — а оно у человека в руках почти всегда — отнимала бы нажатие у
+   * единственного дела ступени, и «подложить дров» нельзя было бы выполнить.
+   */
+  if (!s.end.wood && s.end.stage === 'family' && s.logs > 0 && roomForLogs) return ok('feed', 'Подложить дров');
   if (s.meat.raw > 0 && fuel >= ROAST_COST) return ok('roast', `Пожарить мясо (${roastCount(s, now)})`);
   if (s.logs > 0 && roomForLogs) return ok('feed', 'Подложить дров');
   if (s.meat.raw > 0) {
@@ -274,10 +303,34 @@ export function share(s: PrologueSave, now: number): Offer {
   const label = 'Дать мясо';
   if (!s.wife) return no(null, label, 'Некого угостить');
   if (s.meat.cooked + s.meat.raw <= 0) return no('share', label, 'Мяса нет');
+  /*
+   * В финале еда — задание ступени, а не дело общей жизни: любовь давно полна, и
+   * все обычные запреты сказали бы «незачем» ровно там, где это единственное,
+   * что игрока просят сделать. Поэтому ветка стоит **до** них, а не вместо: вне
+   * финала правило прежнее до последней строки.
+   */
+  if (s.end.stage === 'family') {
+    return s.end.wife ? no('share', label, 'Она уже поела') : ok('share', label);
+  }
   if (loveFull(s.bond)) return no('share', label, 'Любовь и так полна');
   if (s.bond.meal.n >= LOVE_DAYS) return no('share', label, 'Одним мясом любви не прибавишь');
   if (!counts(s.bond.meal, now)) return no('share', label, 'Сегодня уже ели вместе');
   return ok('share', label);
+}
+
+/**
+ * Что предлагает «Дать мясо» сыну.
+ *
+ * Своя функция, а не ветка в `share`: мать и сын — разные люди, и запреты у них
+ * разные. У сына их ровно два — есть ли мясо и не ел ли он уже; шкалы общей
+ * жизни у него нет и не будет (`docs/prologue.md`, чего нет).
+ */
+export function feedSon(s: PrologueSave): Offer {
+  const label = 'Дать мясо';
+  if (!s.heir) return no(null, label, 'Некого угостить');
+  if (s.end.son) return no('feed-son', label, 'Он уже поел');
+  if (s.meat.cooked + s.meat.raw <= 0) return no('feed-son', label, 'Мяса нет');
+  return ok('feed-son', label);
 }
 
 /** Сколько полен даёт сваленное дерево — в одном месте с ценой действия. */
@@ -295,6 +348,8 @@ export const reach = (
   now: number,
   wolves: readonly Pt[] = [],
   mate: Pt | null = null,
+  son: Pt | null = null,
+  foes: readonly Pt[] = [],
 ): GladeState => ({
   felled: s.felled,
   arrows: s.arrows,
@@ -308,10 +363,32 @@ export const reach = (
   wolves,
   // Женщина — тем же путём: есть ли она, решает род, где она — кадр.
   mate,
+  // Сын и пришедшие — тоже от сцены, и по той же причине.
+  son,
+  foes,
+  // Дом сына — цель тапа, только пока он строится: у готового дела нет.
+  frame: s.end.stage === 'build' && !frameDone(s.end),
 });
 
-/** Жив ли человек — и если нет, отчего умер. */
-export const death = (s: PrologueSave, now: number): Death => causeOfDeath(s.body, s.hearth, now);
+/**
+ * Жив ли человек — и если нет, отчего умер.
+ *
+ * В ФИНАЛЕ НЕ УМИРАЮТ ОТ ГОЛОДА И ХОЛОДА, И ЭТО ПРАВИЛО, А НЕ ПОБЛАЖКА. Финал —
+ * не партия, а последняя сцена: человек в ней делает три дела и кладёт пять
+ * досок, и «замёрз, пока клал вторую» отняло бы у него не игру, а конец
+ * истории. Умирает он в ней один раз и от стрелы, и смерть эта записана
+ * тактами (`end.beatOf`), а не шкалой. Волки по той же причине в финал не
+ * приходят вовсе (`scene.syncPack`).
+ */
+export const death = (s: PrologueSave, now: number): Death =>
+  endOn(s.end) ? null : causeOfDeath(s.body, s.hearth, now);
+
+/** Что показывает строка задания финала. Пусто — задания нет. */
+export const endTask = (e: EndState): string => {
+  if (e.stage === 'family') return !e.wood ? TASK_WOOD : !e.wife ? TASK_WIFE : !e.son ? TASK_SON : '';
+  if (e.stage === 'build') return `${TASK_BUILD}: ${Math.min(BOARDS, e.boards)}/${BOARDS}`;
+  return '';
+};
 
 /** Сколько кусков даёт олень — интерфейсу, чтобы не считать это второй раз. */
 export const MEAT_PER_DEER = DEER_MEAT;

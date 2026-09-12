@@ -110,7 +110,7 @@ describe('рисунки печёт вход, а не кадр', () => {
     // перерисовкой.
     const scene = strip(readFileSync(join(__dirname, 'scene.ts'), 'utf8'));
     const loop = scene.slice(scene.indexOf('private step('), scene.indexOf('private warmth('));
-    for (const word of ['womanAtlas', 'sleeveCanvas', 'glowCanvas', 'bake(', 'needsUpdate = true']) {
+    for (const word of ['personAtlas', 'sleeveCanvas', 'glowCanvas', 'bake(', 'needsUpdate = true']) {
       expect(loop, `в кадре печётся: ${word}`).not.toContain(word);
     }
   });

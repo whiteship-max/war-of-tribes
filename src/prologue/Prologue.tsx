@@ -4,6 +4,9 @@ import { probe } from '@/debug';
 // в первую загрузку игры не входит (почему — в самом файле).
 import './prologue.css';
 import { deathWords } from './body';
+import { OVER_NOTE, OVER_SAYS, PASSED, RAID_ANSWER } from './end';
+import { CheatPanel } from '@/ui/CheatPanel';
+import { CHEAT_MARK_GLADE } from '@/cheats';
 import { IconArrows, IconAxe, IconBow, IconCoat, IconFrost, IconHeart, IconHide, IconLogs, IconMeat, IconPack, IconRaw } from './icons';
 import { HEIR_MAX, LOVE_DAYS, heirName } from './kin';
 import type { ItemId } from './pack';
@@ -46,6 +49,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
   const stickRef = useRef<HTMLDivElement>(null);
   const hugRef = useRef<HTMLDivElement>(null);
   const frostRef = useRef<HTMLDivElement>(null);
+  const blindRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<PrologueScene | null>(null);
   const [view, setView] = useState<PrologueView | null>(null);
   /** Показывать ли подсказку об управлении. Уходит с первого касания сцены. */
@@ -79,6 +83,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     scene.stickEl = stickRef.current;
     scene.hugEl = hugRef.current;
     scene.frostEl = frostRef.current;
+    scene.blindEl = blindRef.current;
     // Первую надпись берём сразу, не дожидаясь кадра: в скрытом вебвью кадра не
     // будет вовсе, и игрок увидел бы многоточие вместо костра.
     setView(scene.snapshot());
@@ -101,6 +106,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       scene.stickEl = null;
       scene.hugEl = null;
       scene.frostEl = null;
+      scene.blindEl = null;
       // Порядок тот же, что у диорамы: сцена прибирается при канве, ещё лежащей
       // в разметке, и только потом канва уходит.
       scene.dispose();
@@ -120,6 +126,10 @@ export function Prologue({ onExit }: { onExit: () => void }) {
   const hug = useCallback(() => sceneRef.current?.hug(), []);
   const closePanel = useCallback(() => sceneRef.current?.closePanel(), []);
   const togglePack = useCallback(() => sceneRef.current?.togglePack(), []);
+  const feedSon = useCallback(() => sceneRef.current?.feedSonMeat(), []);
+  const passOn = useCallback(() => sceneRef.current?.passOn(), []);
+  const answerRaid = useCallback(() => sceneRef.current?.answerRaid(), []);
+  const applyCode = useCallback((code: string) => sceneRef.current?.cheat(code) ?? '', []);
 
   /**
    * Имя — одним правилом на кнопку, на Enter и на запись: `kin.heirName`.
@@ -136,8 +146,11 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     if (sceneRef.current?.nameHeir(draft) === '') setDraft('');
   };
 
-  /** Какая карточка на экране. Мёртвому и посреди объятия — никакой. */
-  const card = view && !view.dead && !view.hugging ? view.panel : '';
+  /**
+   * Какая карточка на экране. Мёртвому, посреди объятия и посреди последней
+   * сцены — никакой: там игрок уже ничего не решает.
+   */
+  const card = view && !view.dead && !view.hugging && !view.watching ? view.panel : '';
   /** Почему мясо в вещах не съесть — одна строка на оба куска: причина у них одна. */
   const eatWhy =
     view && card === 'pack' && !view.eatCooked.can && !view.eatRaw.can && view.items.some((i) => i.id === 'cooked' || i.id === 'raw')
@@ -228,7 +241,11 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           сюда. Стояло бы всегда — обещало бы прицел там, где его нет. */}
       {view?.drawn && <div className="pro-cross" aria-hidden="true" />}
 
-      {!view?.hugging && (
+      {/* Что просят сделать сейчас (`end.ts`). Строка, а не окно: задание не
+          закрывает поляну и не требует нажатия. */}
+      {view && view.task !== '' && !view.watching && <div className="pro-task">{view.task}</div>}
+
+      {!view?.hugging && !view?.watching && (
         <div className="pro-act">
           {/* Правило то же, что у стройки и писем: кнопка, которая не сработает,
               гаснет и говорит причину. Проваливающихся нажатий не бывает. */}
@@ -258,7 +275,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           </button>
         </div>
       )}
-      {view && !view.offer.can && !view.hugging && card === '' && <div className="pro-why">{view.offer.why}</div>}
+      {view && !view.offer.can && !view.hugging && !view.watching && card === '' && <div className="pro-why">{view.offer.why}</div>}
 
       {hint && !view?.dead && card === '' && (
         <div className="pro-hint">
@@ -430,6 +447,9 @@ export function Prologue({ onExit }: { onExit: () => void }) {
             ✕
           </button>
           <b className="pro-who">Род</b>
+          {/* Метка поляны, где применяли коды. Родословная — единственное место
+              поляны, где записано, что было: летописи здесь нет. */}
+          {view.cheated && <span className="pro-card-why">{CHEAT_MARK_GLADE}</span>}
           <ol>
             {view.lineage.map((line) => (
               <li key={line.who}>
@@ -441,12 +461,86 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         </div>
       )}
 
+      {/* Сын. Карточка та же, что у матери, но короче: шкалы у него нет и не
+          будет, дел одно — поел или нет (`docs/prologue.md`, чего нет). */}
+      {view && card === 'son' && (
+        <div className="pro-card" role="dialog" aria-label="Сын">
+          <button className="pro-x" onClick={closePanel} aria-label="Отойти">
+            ✕
+          </button>
+          <b className="pro-who">
+            {view.mateName} <em>сын</em>
+          </b>
+          <p className="pro-say">«{view.mateSays}»</p>
+          <div className="pro-row">
+            <button className="pro-btn main" onClick={feedSon} disabled={!view.give.can}>
+              {view.give.label}
+            </button>
+          </div>
+          {!view.give.can && <span className="pro-card-why">{view.give.why}</span>}
+        </div>
+      )}
+
+      {/* Те, кто пришёл из леса. Ответ один: это его дом, его жена и его сын. */}
+      {view && card === 'raid' && (
+        <div className="pro-card pro-raid" role="dialog" aria-label="Разбойники">
+          <b className="pro-who">Пятеро из леса</b>
+          <p className="pro-say">«{view.mateSays}»</p>
+          <div className="pro-row">
+            <button className="pro-btn main" onClick={answerRaid}>
+              {RAID_ANSWER}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Объятие: затемнение и знак. Прозрачность им ставит сцена по долям
           объятия — теми же числами, по которым уходит под крышу камера. */}
       <div className="pro-hug" ref={hugRef} aria-hidden="true">
         <i className="pro-hug-veil" />
         <i className="pro-heart" />
       </div>
+
+      {/*
+          Меркнущее зрение последней сцены: дымка по краям, два века и чернота.
+          Все четыре двигает сцена, минуя React (`scene.blindShow`), — по той же
+          причине, что стик и объятие: доли у век и у камеры обязаны быть одним
+          числом, а не двумя таблицами.
+      */}
+      <div className="pro-blind" ref={blindRef} aria-hidden="true">
+        <i className="pro-haze" />
+        <i className="pro-lid top" />
+        <i className="pro-lid bot" />
+        <i className="pro-black" />
+      </div>
+
+      {/* «Прошло много дней…». Ждёт человека, а не часов: он переводит дух. */}
+      {view?.end === 'passed' && (
+        <div className="pro-passed" onClick={passOn} role="button" tabIndex={0}>
+          <b>{PASSED}</b>
+          <span className="pro-dim">коснись экрана</span>
+        </div>
+      )}
+
+      {/* Конец. Что будет с сыном, не сказано, и говорить это здесь нечем. */}
+      {view?.end === 'over' && (
+        <div className="pro-passed over">
+          <b>{OVER_SAYS}</b>
+          <span>{OVER_NOTE}</span>
+          {/* Имя сына — последнее, что стоит на чёрном экране, и стоит оно одно:
+              ради него весь род и писался (`docs/prologue.md`, раздел 19). */}
+          {view.sonName !== '' && <em className="pro-heir">{view.sonName}</em>}
+          <button className="pro-do" onClick={onExit}>
+            В меню
+          </button>
+        </div>
+      )}
+
+      {/* Кнопка кодов — тот же компонент, что в деревне (`ui/CheatPanel.tsx`).
+          Пока идёт последняя сцена, её нет: там ничего не набирают. */}
+      {!view?.watching && view?.end !== 'over' && (
+        <CheatPanel where="prologue" marked={view?.cheated === true} onApply={applyCode} />
+      )}
 
       {/* Смерть — экран поверх всего, и он называет причину. Молча начатое
           заново утро игрок прочитал бы как сбой, а не как свою ошибку. */}

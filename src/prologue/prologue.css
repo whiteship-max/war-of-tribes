@@ -916,3 +916,124 @@
     padding: 2px 4px;
   }
 }
+
+/* ---------- Финал ---------- */
+/*
+ * Всё, что здесь двигается, двигает сцена, минуя React (`scene.blindShow`) — по
+ * той же причине, что стик ходьбы и затемнение объятия: доли у век, у дымки и у
+ * камеры обязаны быть одним числом, а не двумя таблицами — в коде и в стилях.
+ */
+
+/* Что просят сделать сейчас. Строка под полосами, а не окно: задание не
+   закрывает поляну и ничего не нажимает. */
+.pro-task {
+  position: absolute;
+  top: calc(var(--safe-top) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(220px, calc(100vw - 210px));
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: rgba(18, 14, 11, 0.66);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Карточка пришедших: крестика у неё нет — от этого разговора не отходят. */
+.pro-raid {
+  border-color: #8c3a2e;
+}
+
+/*
+ * Меркнущее зрение. Четыре слоя в одном узле: дымка по краям, два века и
+ * чернота. Ничего не нажимают — под ними сцена, и трогать её уже нечем.
+ */
+.pro-blind {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pro-blind > i {
+  position: absolute;
+  display: block;
+}
+
+.pro-haze {
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(ellipse at 50% 52%, rgba(0, 0, 0, 0) 26%, rgba(6, 4, 3, 0.62) 62%, rgba(3, 2, 2, 0.96) 100%);
+}
+
+/* Веки: две шторки сверху и снизу. Высоту им ставит сцена. */
+.pro-lid {
+  left: 0;
+  right: 0;
+  height: 0;
+  background: #050403;
+}
+
+.pro-lid.top {
+  top: 0;
+  border-bottom: 1px solid rgba(40, 26, 20, 0.8);
+}
+
+.pro-lid.bot {
+  bottom: 0;
+  border-top: 1px solid rgba(40, 26, 20, 0.8);
+}
+
+.pro-black {
+  inset: 0;
+  opacity: 0;
+  background: #050403;
+}
+
+/*
+ * Чёрный экран: «Прошло много дней…» и конец режима. Одна строка на нём и
+ * больше ничего — в этом весь приём.
+ */
+.pro-passed {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 30px;
+  text-align: center;
+  background: #050403;
+  color: var(--text);
+}
+
+.pro-passed b {
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+}
+
+.pro-passed span {
+  max-width: 280px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.pro-passed.over b {
+  font-size: 23px;
+}
+
+/* Имя сына на последнем экране: одно, крупно и без подписи. */
+.pro-passed .pro-heir {
+  font-size: 17px;
+  font-style: normal;
+  letter-spacing: 2px;
+  color: var(--accent);
+}

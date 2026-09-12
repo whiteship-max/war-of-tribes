@@ -42,6 +42,7 @@ import { HOUSE_LOGS, houseDone } from './craft';
 import { TREES } from './glade';
 import { newHunt, type Hunt, type Pt } from './hunt';
 import { HEIR_MAX, newBond, type Bond, type Person, type Tally } from './kin';
+import { BOARDS, newEnd, type EndStage, type EndState } from './end';
 
 const KEY = 'tribe.prologue.v1';
 
@@ -122,6 +123,22 @@ export interface PrologueSave {
    * `localStorage['tribe.prologue.v1']` → JSON → `heir.name` (docs/prologue.md).
    */
   heir: Person | null;
+  /**
+   * Финал: на какой он ступени и что на ней сделано (`end.ts`).
+   *
+   * Шесть маленьких полей, ни одного срока и ни одной доли. Всё, что тянется, —
+   * приход разбойников, драка, падение, уход в лес — живёт в кадрах: вышел
+   * посреди последней сцены, вернулся к её началу, и это решение, а не пропуск.
+   */
+  end: EndState;
+  /**
+   * На этой поляне применяли коды (`src/cheats.ts`).
+   *
+   * Метка навсегда и переживает смерть: она о том, что было. Нужна она не
+   * игроку, а нам — чтобы через месяц по накрученной поляне не мерили, за
+   * сколько заходов строится дом.
+   */
+  cheated: boolean;
 }
 
 /** Новая предыстория: костёр початый, топор на пне, пожитки у палатки, лес цел. */
@@ -148,6 +165,8 @@ export function freshPrologue(now = serverNow()): PrologueSave {
     wife: null,
     bond: newBond(),
     heir: null,
+    end: newEnd(),
+    cheated: false,
   };
 }
 
@@ -248,6 +267,25 @@ const tallyOf = (v: unknown): Tally => {
   return { n: count(t?.n), day: Math.floor(num(t?.day, -1)) };
 };
 
+/** Ступени финала — списком, чтобы чужая строка не оказалась ступенью. */
+const STAGES: readonly EndStage[] = ['none', 'passed', 'family', 'build', 'raid', 'over'];
+
+/**
+ * Финал из записи. Не прочиталось — финала нет, и это верно: у записи, сделанной
+ * до него, его и не было.
+ */
+const endOf = (v: unknown): EndState => {
+  const e = v as Partial<EndState> | null;
+  const stage = STAGES.includes(e?.stage as EndStage) ? (e!.stage as EndStage) : 'none';
+  return {
+    stage,
+    wood: e?.wood === true,
+    wife: e?.wife === true,
+    son: e?.son === true,
+    boards: Math.min(BOARDS, count(e?.boards)),
+  };
+};
+
 /**
  * Прочитать сохранение.
  *
@@ -327,6 +365,8 @@ export function loadPrologue(now = serverNow()): PrologueSave {
         wood: tallyOf(p.bond?.wood),
       },
       heir: person(p.heir),
+      end: endOf(p.end),
+      cheated: p.cheated === true,
     };
   } catch {
     return fresh;

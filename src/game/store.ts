@@ -17,6 +17,8 @@ import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 import { provideClaim, rosterBoot } from '@/net/roster';
 import { claimOf } from '@/net/snapshot';
+import { CHEAT_NO, cheatOf } from '@/cheats';
+import { applyCheat } from './sim/cheat';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -178,6 +180,14 @@ export interface GameStore {
   skipTutorial: () => void;
   /** Отладка: пройти обучение заново. */
   replayTutorial: () => void;
+  /**
+   * Набранный код (`src/cheats.ts`). Возвращает строку ответа — её показывает
+   * сама панель, а не тост: игрок смотрит в поле, в которое только что печатал.
+   *
+   * Отдельно от `act`, и не для порядка: `act` — это действие игрока в игре, у
+   * него тост на отказ и шаг обучения на успех. Код в игру не входит вовсе.
+   */
+  cheat: (code: string) => string;
   save: () => void;
   reset: () => void;
 }
@@ -423,6 +433,18 @@ export const useGame = create<GameStore>((set, get) => ({
     restartTutorial(s);
     set({ s: { ...s }, sheet: null });
     get().save();
+  },
+
+  cheat: (code) => {
+    const found = cheatOf(code, 'village');
+    if (!found) return CHEAT_NO;
+    const s = get().s;
+    const said = applyCheat(s, found.id);
+    set({ s: { ...s } });
+    // На диск сразу: метка партии не должна ждать автосохранения, иначе
+    // закрытая через секунду вкладка оставит накрученную партию непомеченной.
+    get().save();
+    return said;
   },
 
   save: () => {

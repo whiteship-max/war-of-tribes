@@ -32,6 +32,7 @@ import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 import { villageMusic } from './sound/web';
 import { probe } from './debug';
+import { CheatPanel } from './ui/CheatPanel';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -79,6 +80,8 @@ export function App() {
   const closeSheet = useGame((g) => g.closeSheet);
   const toast = useGame((g) => g.toast);
   const init = useGame((g) => g.init);
+  const cheat = useGame((g) => g.cheat);
+  const cheated = useGame((g) => g.s.cheated);
   const mapOpen = useGame((g) => g.mapOpen);
   const bootWorld = useWorld((g) => g.boot);
   // Содержимое шторки переживает закрытие, чтобы она не уезжала пустой.
@@ -174,6 +177,10 @@ export function App() {
           выходят. Обе панели живут в деревне и по одним правилам видимости.
           Порядок здесь нужен стилям: пока осада на экране, столбик писем
           уступает ей ширину селектором `.siege ~ .letters`. */}
+      {/* Кнопка кодов — раньше осады нарочно: по этому порядку стиль и отодвигает
+          осадную панель вверх (`.cheat ~ .siege`), а выключенные коды не рисуют
+          ничего, и панель возвращается на своё место сама. */}
+      {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <SiegeBanner />}
       {!mapOpen && <Letters />}
       <Sheet open={sheet !== null} onClose={closeSheet}>

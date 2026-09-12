@@ -29,7 +29,7 @@ import {
   faceRect,
   rectUv,
   swatchUv,
-  womanAtlas,
+  personAtlas,
   type Look,
   type Mood,
 } from './paint';
@@ -113,9 +113,8 @@ interface Face {
 export function woman(look: Look, seed: number): THREE.Group {
   const g = new THREE.Group();
   g.name = 'woman';
-  const map = bake(womanAtlas(look, seed));
-  const mat = new THREE.MeshLambertMaterial({ map, side: THREE.DoubleSide });
-  mat.name = 'woman';
+  const skin = skinOf(look, seed);
+  const mat = skin.mat;
 
   const parts: THREE.BufferGeometry[] = [];
   // Лицо — первым: его вершины идут первыми в склейке, и выражение переписывает ровно их.
@@ -181,10 +180,185 @@ export function woman(look: Look, seed: number): THREE.Group {
   arms.castShadow = true;
   g.add(body, arms);
   // Холст и материал — свои у каждой женщины: уходя из кадра, она их отдаёт.
-  g.userData.release = (): void => {
-    map.dispose();
-    mat.dispose();
+  g.userData.release = skin.release;
+  return g;
+}
+
+/**
+ * Холст и материал одного облика.
+ *
+ * ОТДЕЛЬНО ОТ ФИГУРЫ НАРОЧНО. У женщины и у сына холст свой — они разные люди, и
+ * лица у них разные. А пришедших из леса пятеро, и печь пять одинаковых холстов
+ * значило бы платить пятью текстурами за то, чего никто не различит: они ватага,
+ * и узнают их силуэтом. Поэтому сцена печёт им один холст и отдаёт его всем
+ * пятерым (`raider`), а отдаёт обратно один раз.
+ */
+export interface Skin {
+  mat: THREE.MeshLambertMaterial;
+  release: () => void;
+}
+
+export function skinOf(look: Look, seed: number): Skin {
+  const map = bake(personAtlas(look, seed));
+  const mat = new THREE.MeshLambertMaterial({ map, side: THREE.DoubleSide });
+  mat.name = 'person';
+  return {
+    mat,
+    release: (): void => {
+      map.dispose();
+      mat.dispose();
+    },
   };
+}
+
+/** Где у сына плечи. */
+export const BOY_SHOULDER = 0.82;
+
+/**
+ * Сын у огня.
+ *
+ * Тот же способ, что у матери, и те же клетки атласа: лицо перекладкой
+ * развёртки, рубаха и мех — рисунком. Отличается он ростом (метр с небольшим
+ * против её полутора с лишним), стрижкой вместо косы и портами вместо понёвы —
+ * тем, что видно в двадцать пикселей. Рубаха на нём материнская: шьёт её она.
+ */
+export function boy(look: Look, seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'boy';
+  const skin = skinOf(look, seed);
+  const mat = skin.mat;
+  const headY = 0.99;
+  const headR = 0.1;
+
+  const parts: THREE.BufferGeometry[] = [];
+  // Лицо первым — по нему сцена меняет выражение (`setMood`).
+  const face = new THREE.SphereGeometry(headR * 1.004, 20, 12, Math.PI / 2 - FACE_PHI / 2, FACE_PHI, FACE_T0, FACE_T1 - FACE_T0);
+  into(face, rectUv(faceRect(MOOD_CALM)));
+  const faceCount = face.attributes.position.count;
+  parts.push(set(face, 0, headY, 0));
+  const hair = swatchUv('hair');
+  parts.push(set(flat(new THREE.SphereGeometry(headR, 14, 10, Math.PI / 2 + FACE_PHI / 2, Math.PI * 2 - FACE_PHI), hair), 0, headY, 0));
+  parts.push(set(flat(new THREE.SphereGeometry(headR * 1.002, 14, 3, Math.PI / 2 - FACE_PHI / 2, FACE_PHI, 0, FACE_T0 + 0.01), hair), 0, headY, 0));
+  parts.push(
+    set(flat(new THREE.SphereGeometry(headR * 0.996, 14, 3, Math.PI / 2 - FACE_PHI / 2, FACE_PHI, FACE_T1 - 0.01, Math.PI - FACE_T1 + 0.01), swatchUv('neck')), 0, headY, 0),
+  );
+  // Вихор на макушке: стриженая голова без него — шар.
+  parts.push(set(flat(new THREE.SphereGeometry(headR * 1.06, 16, 6, 0, Math.PI * 2, 0, 0.36 * Math.PI), hair), 0, headY - 0.004, -0.006));
+  parts.push(set(flat(new THREE.CylinderGeometry(0.042, 0.05, 0.08, 8), swatchUv('neck')), 0, 0.9, 0));
+  // Рубаха до середины бедра, подпоясанная.
+  const shirt = new THREE.CylinderGeometry(0.105, 0.135, 0.36, 14, 1, false);
+  into(shirt, rectUv({ x: REGION.shirt.x, y: REGION.shirt.y, w: REGION.shirt.w, h: 100 }));
+  parts.push(set(shirt, 0, 0.7, 0, { y: Math.PI }));
+  const belt = new THREE.CylinderGeometry(0.14, 0.14, 0.045, 14, 1, true);
+  into(belt, rectUv({ x: REGION.skirt.x, y: REGION.skirt.y, w: REGION.skirt.w, h: 10 }));
+  parts.push(set(belt, 0, 0.54, 0, { y: Math.PI }));
+  // Порты: две ноги, а не подол, — по ним мальчика и отличают от матери.
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.CylinderGeometry(0.055, 0.045, 0.5, 8, 1, true);
+    into(leg, rectUv({ x: REGION.skirt.x, y: REGION.skirt.y + 40, w: REGION.skirt.w, h: 60 }));
+    parts.push(set(leg, sx * 0.058, 0.27, 0));
+    parts.push(set(flat(new THREE.BoxGeometry(0.07, 0.05, 0.13), swatchUv('hairDark')), sx * 0.058, 0.025, 0.02));
+  }
+
+  const geo = weld(parts);
+  const body = new THREE.Mesh(geo, mat);
+  body.name = 'body';
+  body.castShadow = true;
+  body.receiveShadow = true;
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  const base = new Float32Array(faceCount);
+  for (let i = 0; i < faceCount; i++) base[i] = uv.getX(i);
+  body.userData.face = { count: faceCount, base, mood: MOOD_CALM } satisfies Face;
+
+  const hands: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1]) {
+    const sleeve = new THREE.CylinderGeometry(0.033, 0.028, 0.34, 8, 1, true);
+    into(sleeve, rectUv({ x: 0, y: REGION.shirt.y + 18, w: 64, h: REGION.shirt.h - 18 }));
+    hands.push(set(sleeve, sx * 0.13, -0.17, 0));
+    hands.push(set(flat(new THREE.SphereGeometry(0.026, 7, 5).scale(0.85, 1.35, 0.75), swatchUv('skin')), sx * 0.13, -0.36, 0.01));
+  }
+  const arms = new THREE.Mesh(weld(hands), mat);
+  arms.name = 'arms';
+  arms.position.y = BOY_SHOULDER;
+  arms.castShadow = true;
+  g.add(body, arms);
+  g.userData.release = skin.release;
+  return g;
+}
+
+/** Где у пришедшего плечи и где его рука: сюда сцена вешает топор или лук. */
+export const RAIDER_SHOULDER = 1.36;
+export const RAIDER_HAND = { x: 0.27, y: 1.04, z: 0.12 };
+
+/**
+ * Пришедший из леса.
+ *
+ * Материал общий на всех пятерых и приходит снаружи (`skinOf`): они ватага, и
+ * пять холстов ради пяти одинаковых лиц — плата ни за что. Различает их рост и
+ * то, что в руках: троим сцена даёт топор, двоим лук.
+ *
+ * Лицом вдоль +Z, как женщина, олень и волк.
+ */
+export function raider(mat: THREE.MeshLambertMaterial, tall: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'raider';
+  const headY = 1.52 * tall;
+  const headR = 0.117;
+
+  const parts: THREE.BufferGeometry[] = [];
+  const face = new THREE.SphereGeometry(headR * 1.004, 20, 12, Math.PI / 2 - FACE_PHI / 2, FACE_PHI, FACE_T0, FACE_T1 - FACE_T0);
+  into(face, rectUv(faceRect(MOOD_CALM)));
+  const faceCount = face.attributes.position.count;
+  parts.push(set(face, 0, headY, 0));
+  const hair = swatchUv('hair');
+  parts.push(set(flat(new THREE.SphereGeometry(headR, 14, 10, Math.PI / 2 + FACE_PHI / 2, Math.PI * 2 - FACE_PHI), hair), 0, headY, 0));
+  parts.push(set(flat(new THREE.SphereGeometry(headR * 1.002, 14, 3, Math.PI / 2 - FACE_PHI / 2, FACE_PHI, 0, FACE_T0 + 0.01), hair), 0, headY, 0));
+  parts.push(
+    set(flat(new THREE.SphereGeometry(headR * 0.996, 14, 3, Math.PI / 2 - FACE_PHI / 2, FACE_PHI, FACE_T1 - 0.01, Math.PI - FACE_T1 + 0.01), swatchUv('neck')), 0, headY, 0),
+  );
+  parts.push(set(flat(new THREE.SphereGeometry(headR * 1.07, 16, 6, 0, Math.PI * 2, 0, 0.34 * Math.PI), hair), 0, headY - 0.004, -0.008));
+  parts.push(set(flat(new THREE.CylinderGeometry(0.058, 0.07, 0.12, 10), swatchUv('neck')), 0, headY - 0.13, 0));
+  // Плечи шире бёдер — тем и отличается мужчина от женщины в силуэте.
+  const shirt = new THREE.CylinderGeometry(0.21, 0.17, 0.54, 16, 1, false);
+  into(shirt, rectUv({ x: REGION.shirt.x, y: REGION.shirt.y, w: REGION.shirt.w, h: 100 }));
+  parts.push(set(shirt, 0, headY - 0.43, 0, { y: Math.PI }));
+  // Меховая накидка на плечах: по ней ватагу видно от опушки.
+  const cape = new THREE.CylinderGeometry(0.17, 0.26, 0.2, 18, 1, true, Math.PI / 6, (Math.PI * 5) / 3);
+  into(cape, rectUv(REGION.fur));
+  parts.push(set(cape, 0, headY - 0.22, 0));
+  const belt = new THREE.CylinderGeometry(0.18, 0.18, 0.055, 16, 1, true);
+  into(belt, rectUv({ x: REGION.skirt.x, y: REGION.skirt.y, w: REGION.skirt.w, h: 10 }));
+  parts.push(set(belt, 0, headY - 0.73, 0, { y: Math.PI }));
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.CylinderGeometry(0.082, 0.066, 0.78, 8, 1, true);
+    into(leg, rectUv({ x: REGION.skirt.x, y: REGION.skirt.y + 40, w: REGION.skirt.w, h: 60 }));
+    parts.push(set(leg, sx * 0.085, headY - 1.14, 0));
+    parts.push(set(flat(new THREE.BoxGeometry(0.1, 0.06, 0.19), swatchUv('hairDark')), sx * 0.085, headY - 1.5, 0.03));
+  }
+
+  const geo = weld(parts);
+  const body = new THREE.Mesh(geo, mat);
+  body.name = 'body';
+  body.castShadow = true;
+  body.receiveShadow = true;
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  const base = new Float32Array(faceCount);
+  for (let i = 0; i < faceCount; i++) base[i] = uv.getX(i);
+  body.userData.face = { count: faceCount, base, mood: MOOD_CALM } satisfies Face;
+
+  const hands: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1]) {
+    const sleeve = new THREE.CylinderGeometry(0.05, 0.04, 0.52, 9, 1, true);
+    into(sleeve, rectUv({ x: 0, y: REGION.shirt.y + 18, w: 64, h: REGION.shirt.h - 18 }));
+    hands.push(set(sleeve, sx * 0.22, -0.26, 0));
+    hands.push(set(flat(new THREE.SphereGeometry(0.038, 8, 6).scale(0.85, 1.35, 0.75), swatchUv('skin')), sx * 0.22, -0.55, 0.01));
+  }
+  const arms = new THREE.Mesh(weld(hands), mat);
+  arms.name = 'arms';
+  arms.position.y = RAIDER_SHOULDER * tall;
+  arms.castShadow = true;
+  g.add(body, arms);
+  // Холста своего у него нет — он общий, и отдаёт его сцена один раз.
   return g;
 }
 

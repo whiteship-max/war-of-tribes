@@ -19,8 +19,9 @@ import { PALETTE } from '@/render/palette';
 import { KIT, LEGACY } from '@/render/materials';
 import * as K from '@/render/kit';
 import { makeFarTree, makeLog, makeRock, makeStump, makeTree, vnoise } from '@/render/terrain';
-import { AXE_STUMP, FIRE, GLADE_R, GUEST_FROM, HOUSE, MATE_SPOT, START, TENT, TREES, hash } from './glade';
+import { AXE_STUMP, FIRE, GLADE_R, GUEST_FROM, HOUSE, MATE_SPOT, SON_HOUSE, START, TENT, TREES, hash } from './glade';
 import { HOUSE_LOGS } from './craft';
+import { BOARDS } from './end';
 import { ADDITIVE, mix } from './paint';
 
 /** Докуда тянется земля. Дальше туман, и края диска не видно. */
@@ -729,6 +730,59 @@ export function house(logs: number): THREE.Group {
 
   g.add(K.assemble(parts));
   put(g, HOUSE.x, HOUSE.z, HOUSE.rot);
+  return g;
+}
+
+/**
+ * Дом сына: разметка, стопка досок рядом и то, что уже легло.
+ *
+ * Это не второй сруб, и строить его до конца никто не будет: на пятой доске
+ * приходят из леса (`end.ts`). Поэтому он и выглядит начатым — четыре колышка,
+ * первый венец и убывающая стопка тёса рядом: видно, что человек начал, и видно,
+ * сколько он успел.
+ *
+ * Стопка убывает ровно на то, что легло: доска не берётся из воздуха, и обратное
+ * было бы видно глазом на первом же кадре.
+ */
+export function frame(boards: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'frame';
+  const parts: K.Part[] = [];
+  const plank = K.paintOf('plank');
+  const timber = K.paintOf('timber');
+  const n = Math.max(0, Math.min(BOARDS, Math.floor(boards)));
+  const half = 0.72;
+  const len = half * 2 + 0.22;
+  const t = 0.09;
+
+  // Колышки по углам: разметка, с которой человек и начинает.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) parts.push(K.cyl(0.032, 0.042, 0.42, timber, 5, sx * half, 0.21, sz * half));
+  }
+  // Что легло: венец по кругу, доска за доской, против часовой от передней стены.
+  for (let i = 0; i < n; i++) {
+    const course = Math.floor(i / 4);
+    const side = i % 4;
+    const y = t / 2 + course * (t + 0.01);
+    if (side === 1 || side === 3) {
+      parts.push(K.box(t, t, len, timber, (side === 1 ? 1 : -1) * half, y, 0));
+    } else {
+      parts.push(K.box(len, t, t, timber, 0, y, (side === 2 ? 1 : -1) * half));
+    }
+  }
+  // Стопка нетёсаных досок рядом: столько, сколько ещё не легло.
+  for (let i = 0; i < BOARDS - n; i++) {
+    parts.push(K.box(len, t * 0.8, 0.22, plank, half + 0.5, t * 0.4 + i * (t * 0.8 + 0.012), -0.1, { y: 0.08 }));
+  }
+  // Щепа: место, где тешут, видно и без человека.
+  for (let i = 0; i < 5; i++) {
+    const a = hash(i, 71) * Math.PI * 2;
+    const r = 0.9 + hash(i, 73) * 0.4;
+    parts.push(K.box(0.14, 0.02, 0.05, K.paintOf('cut'), Math.cos(a) * r, 0.01, Math.sin(a) * r, { y: hash(i, 77) * 3 }));
+  }
+
+  g.add(K.assemble(parts));
+  put(g, SON_HOUSE.x, SON_HOUSE.z, Math.atan2(SON_HOUSE.x, -SON_HOUSE.z));
   return g;
 }
 
