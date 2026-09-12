@@ -1166,10 +1166,20 @@ async function report(): Promise<void> {
     if (!beast) break;
     await turnTo(beast.x, beast.z);
     if (!(await bowPress('draw'))) break;
-    // Натянутый лук со стрелой на тетиве — снимком, один раз за прогон.
+    /*
+     * Натянутый лук со стрелой на тетиве — снимком, один раз за прогон.
+     *
+     * Взгляд опущен, как и у топора: целятся в зверя, а зверь бывает на фоне
+     * палатки — первый такой снимок вышел «рука на фоне бурой стены», и по нему
+     * хват не разобрать. Прицел от этого не страдает: перед выстрелом
+     * `aimAtDeer` наводит заново.
+     */
     if (!drawnShot) {
       drawnShot = true;
+      await tab.eval<string>('(() => { window.__pro.pitch = -0.30; return JSON.stringify("ok"); })()');
+      await sleep(400);
       await shoot('5б-руки-лук');
+      await tab.eval<string>('(() => { window.__pro.pitch = -0.06; return JSON.stringify("ok"); })()');
     }
     // Целимся ещё раз и точно: пока натягивали, зверь мог шагнуть.
     if (!(await bowPress('shoot', aimAtDeer))) break;

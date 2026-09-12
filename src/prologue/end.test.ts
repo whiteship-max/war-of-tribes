@@ -398,6 +398,12 @@ describe('оружие висит на руке, а не рядом с тело�
     expect(people).toMatch(/at:\s*bow\s*\?\s*leftFist\s*:\s*rightFist/);
   });
 
+  it('в цели тапа сцена подаёт только тех, у кого топор', () => {
+    // Устройство, а не расстояние: этим лучник и недосягаем при любом шаге
+    // игрока. Проверяется по исходнику — кадром это не видно.
+    expect(scene).toMatch(/foeList\s*=[\s\S]{0,160}!f\.bow/);
+  });
+
   it('поза рук у лучника и у топорника разная, и обе лежат таблицей', () => {
     expect(people).toContain('RAIDER_ARMS');
     const table = people.slice(people.indexOf('const RAIDER_ARMS'));
