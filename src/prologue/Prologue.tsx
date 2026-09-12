@@ -150,7 +150,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
    * Какая карточка на экране. Мёртвому, посреди объятия и посреди последней
    * сцены — никакой: там игрок уже ничего не решает.
    */
-  const card = view && !view.dead && !view.hugging && !view.watching ? view.panel : '';
+  const card = view && !view.dead && !view.hugging && (!view.watching || view.panel === 'raid') ? view.panel : '';
   /** Почему мясо в вещах не съесть — одна строка на оба куска: причина у них одна. */
   const eatWhy =
     view && card === 'pack' && !view.eatCooked.can && !view.eatRaw.can && view.items.some((i) => i.id === 'cooked' || i.id === 'raw')
@@ -172,7 +172,14 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       <div className="pro-frost" ref={frostRef} aria-hidden="true" />
 
       {/* Три полосы слева сверху, на тёмной подложке: на светлом снегу белое по
-          белому не читается, а подложка держит их на любом кадре. */}
+          белому не читается, а подложка держит их на любом кадре.
+
+          Пока идёт последняя сцена, их нет: человек умирает не от голода и не от
+          холода (`act.death`), и полоса «заживает» над уходящим сыном была бы не
+          сведением, а помехой. */}
+      {/* `hidden` тут не годится: у полос свой `display: flex`, и он сильнее
+          браузерного правила для скрытого узла. Убираем из разметки целиком. */}
+      {view?.watching !== true && (
       <div className="pro-vitals">
         <Vital
           kind="health"
@@ -220,6 +227,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           </div>
         )}
       </div>
+      )}
 
       <button className="pro-out" onClick={onExit}>
         Выход →
@@ -277,7 +285,9 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       )}
       {view && !view.offer.can && !view.hugging && !view.watching && card === '' && <div className="pro-why">{view.offer.why}</div>}
 
-      {hint && !view?.dead && card === '' && (
+      {/* Подсказка об управлении — только на обычной поляне: финал не то место,
+          где учат ходить, а чёрный экран она перечеркнула бы собой. */}
+      {hint && !view?.dead && card === '' && view?.end === 'none' && (
         <div className="pro-hint">
           <b>Слева — идти, справа — смотреть.</b>
           <span>Тап — действие над тем, к чему подошёл: топор на колоде, пожитки у палатки, дрова в костёр.</span>

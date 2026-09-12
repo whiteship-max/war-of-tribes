@@ -65,12 +65,15 @@ import { BURN_FULL_MS, HEARTH_CAP, KEEP_BURN, LOG_HOURS, LOG_MS, burnLeftMs } fr
 import {
   AXE_STUMP,
   CHOPS_TO_FELL,
+  FIRE,
   GLADE_R,
   GUEST_FROM,
   HOUSE,
   MATE_SPOT,
   REACH,
   REGROW_MS,
+  SON_HOUSE,
+  SON_SPOT,
   TENT,
   TREES,
   TREE_LOGS,
@@ -110,6 +113,18 @@ import {
 import { newHearth } from '../src/prologue/fire';
 import { ARROWS_START, CARCASS_H, DEER_ALERT, DEER_BODY_R, DEER_FLEE, DEER_GAP_H, DEER_MEAT, DEER_SLEEP_FLEE } from '../src/prologue/hunt';
 import { ROAST_COST } from '../src/prologue/act';
+import {
+  BEAT,
+  BOARDS,
+  OVER_SAYS,
+  PASSED,
+  RAIDERS,
+  RAIDERS_MELEE,
+  RAID_SAYS,
+  SON_THANKS,
+  WIFE_THANKS,
+  finaleMs,
+} from '../src/prologue/end';
 import { LOOK_PER_PX, STICK_DEAD, STICK_FULL } from '../src/prologue/controls';
 import {
   BURN_MEAN,
@@ -348,6 +363,35 @@ const PROBE = `
         scroll: (document.scrollingElement ? document.scrollingElement.scrollTop : 0) + window.scrollY + (box ? box.scrollTop : 0),
         vvTop: vv ? vv.offsetTop : 0,
       });
+    },
+    /**
+     * Финал глазами сцены и глазами разметки.
+     *
+     * Ступень, такт и положение фигур — у самой сцены (pro().finale): они
+     * живут в кадрах, и второго источника у них нет. Чёрный экран, карточка и
+     * меркнущее зрение — из разметки: стенд обязан видеть то же, что игрок.
+     */
+    fin() {
+      const v = pro().snapshot();
+      const black = document.querySelector('.pro-passed');
+      const card = document.querySelector('.pro-card');
+      const blind = document.querySelector('.pro-blind');
+      return JSON.stringify(Object.assign(pro().finale(), {
+        end: v.end,
+        task: v.task,
+        watching: v.watching,
+        panel: v.panel,
+        says: v.mateSays,
+        who: v.mateName,
+        label: v.offer.label,
+        can: v.offer.can,
+        busy: v.busy,
+        black: black ? black.textContent : '',
+        card: card ? card.textContent : '',
+        haze: blind ? Number(blind.children[0].style.opacity || 0) : -1,
+        lid: blind ? parseFloat(blind.children[1].style.height || '0') : -1,
+        dark: blind ? Number(blind.children[3].style.opacity || 0) : -1,
+      }));
     },
     /** Затемнение и знак объятия: что сейчас на экране поверх сцены. */
     veil() {
@@ -1888,6 +1932,26 @@ async function report(): Promise<void> {
   await shoot('12-род-2');
   await tapBox('.pro-card .pro-x');
 
+  /*
+   * Кадр: жена у очага — и объятие целиком, пока камера под крышей.
+   *
+   * МЕРИТСЯ ЭТО ЗДЕСЬ, А НЕ ПОСЛЕ ИМЕНИ СЫНА, И ПРИЧИНА В ФИНАЛЕ. Имя сына
+   * начинает его: через `PASS_AFTER_MS` поверх поляны встаёт чёрный экран, и
+   * касания с этой минуты достаются ему, а не сцене. Мерить кадр под чёрным
+   * экраном нечего, а объятие после имени открыть уже нечем. Заодно оба числа
+   * остаются сравнимыми с прошлыми прогонами: у очага стоит жена и только она —
+   * в финале рядом с ней стоял бы ещё и сын.
+   */
+  await goTo(0.6, 2.6);
+  await turnTo(MATE_SPOT.x, MATE_SPOT.z);
+  await measure('день, жена у очага в кадре');
+  if (await openTalk('wife')) {
+    await tab.eval<string>('window.__probe.start()');
+    await tapBox('.pro-card .pro-row .pro-btn.main');
+    await waitFor(async () => !(await state()).hugging, 5_000);
+    budget.push(['объятие, под крышей', await tab.eval<Frames>('window.__probe.stop()')]);
+  }
+
   // Ночь застала дома: вход ночью на ту же поляну — у огня, где встаёт человек.
   const wedSave = { house: HOUSE_LOGS, builtAgo: H, wife: { name: GUESTS[1].name, at: 1 }, kept: true };
   await into(moment(Date.now() + 10_000, 20_000, (t) => isNight(t)), wedSave, false);
@@ -1982,23 +2046,328 @@ async function report(): Promise<void> {
     `сын: ${named.heir || 'нет'}; в записи: ${record.heir?.name ?? 'нет'}; «${named.note}»`,
   );
 
-  // Родословная после рождения.
+  // ---------- 8. Финал ----------
+  //
+  // ПРОХОД ЦЕЛИКОМ И НАСТОЯЩИМ ПАЛЬЦЕМ: от чёрного экрана «Прошло много дней…»
+  // до чёрного экрана конца. Всё, что игрок делает руками, стенд делает
+  // касанием, а не вызовом; всё, что делает сцена, он только ждёт и снимает.
+  //
+  // Снимки здесь — `capture`, а не `shoot`: `shoot` переключает ширину экрана и
+  // ждёт пересборки холста почти три секунды, а последняя сцена идёт по часам и
+  // ждать не станет. Ширина одна — 375 px, та самая, на которой её и смотрят.
+  console.log('\n8. Финал: семья, дом сыну и те, кто пришёл из леса\n');
+  interface Fin {
+    stage: string;
+    wood: boolean;
+    wife: boolean;
+    son: boolean;
+    boards: number;
+    beat: string;
+    foes: number;
+    downed: number;
+    sonAt: { x: number; z: number } | null;
+    camY: number;
+    end: string;
+    task: string;
+    watching: boolean;
+    panel: string;
+    says: string;
+    who: string;
+    label: string;
+    can: boolean;
+    busy: string;
+    black: string;
+    card: string;
+    haze: number;
+    lid: number;
+    dark: number;
+  }
+  const fin = (): Promise<Fin> => tab.eval<Fin>('window.__probe.fin()');
+  const untilBeat = (b: string, ms = 30_000): Promise<boolean> => waitFor(async () => (await fin()).beat === b, ms);
+  /**
+   * Далеко ли ушёл — от места, где он стоял, а не от огня.
+   *
+   * От огня мерить нельзя: путь на восток сперва проходит мимо него, и
+   * расстояние до огня успевает и убыть, и вырасти. Мерка «от своего места»
+   * растёт всегда, и растёт она ровно тем, что нужно назвать, — уходит он или
+   * стоит.
+   */
+  const far = (p: { x: number; z: number } | null): number => (p ? Math.hypot(p.x - SON_SPOT.x, p.z - SON_SPOT.z) : 0);
+
+  // Погожий день: финал занимает около двух минут, и большая его часть —
+  // последняя сцена, которую смотрят, а не играют. Ночь ей не мешает ничем, но
+  // снимки на свету честнее показывают то, ради чего всё и делалось.
+  const noonAt = moment(Date.now() + 10_000, 90_000, (t) => !isNight(t) && weatherAt(t) === 'clear');
+  const whole = { n: LOVE_DAYS, day: -1 };
+  await into(
+    noonAt,
+    {
+      house: HOUSE_LOGS,
+      builtAgo: 120_000,
+      kept: true,
+      wife: { name: 'Ведана', at: noonAt - 120_000 },
+      heir: { name: 'Ратибор', at: noonAt - 1000 },
+      bond: { meal: whole, hug: whole, night: whole, wood: whole },
+      meat: { cooked: 3, raw: 1 },
+      logs: 3,
+      fuel: 1.2,
+    },
+    // Подсказку снимать тапом нельзя: поверх поляны стоит чёрный экран, и точка
+    // касания занята им. Снимет её то же касание, которым открывают поляну.
+    false,
+  );
+
+  const passed = await fin();
+  step(
+    'вход с названным сыном: чёрный экран «Прошло много дней…»',
+    passed.end === 'passed' && passed.black.includes(PASSED),
+    `ступень «${passed.end}», на экране «${passed.black.trim().slice(0, 40)}»`,
+  );
+  await capture('15-прошло-много-дней');
+
+  await tapBox('.pro-passed');
+  await sleep(800);
+  const family = await fin();
+  step(
+    'касание открывает поляну: у огня жена и сын, задание на экране',
+    family.stage === 'family' && family.sonAt !== null && family.task !== '',
+    `ступень «${family.stage}», сын ${family.sonAt ? 'есть' : 'НЕТ'}, задание «${family.task}»`,
+  );
+  await capture('16-семья-у-костра');
+
+  /*
+   * Родословная после рождения — здесь, а не сразу за именем.
+   *
+   * Сразу за именем её не открыть: через `PASS_AFTER_MS` поверх поляны встаёт
+   * чёрный экран. А в финале дом на месте и тап по нему по-прежнему открывает
+   * род — это и проверяется: конец режима не отнимает у игрока ничего из того,
+   * что он успел записать.
+   */
   if (await walkTo(HOUSE.x, HOUSE.z, 'Родословная')) await tap(190, 400);
   const kin3 = await state();
-  step('родословная после рождения: ты, жена и сын', kin3.panel === 'kin' && kin3.lineage === 3, `карточка: ${kin3.panel || 'нет'}, строк ${kin3.lineage}`);
+  step(
+    'родословная после рождения: ты, жена и сын — и в финале она на месте',
+    kin3.panel === 'kin' && kin3.lineage === 3,
+    `карточка: ${kin3.panel || 'нет'}, строк ${kin3.lineage}`,
+  );
   await shoot('14-род-3');
   await tapBox('.pro-card .pro-x');
 
-  // Кадр: жена у очага в кадре — и объятие целиком, пока камера под крышей.
-  await goTo(0.6, 2.6);
-  await turnTo(MATE_SPOT.x, MATE_SPOT.z);
-  await measure('день, жена у очага в кадре');
-  if (await openTalk('wife')) {
-    await tab.eval<string>('window.__probe.start()');
-    await tapBox('.pro-card .pro-row .pro-btn.main');
-    await waitFor(async () => !(await state()).hugging, 5_000);
-    budget.push(['объятие, под крышей', await tab.eval<Frames>('window.__probe.stop()')]);
+  // Дрова в очаг — первая из трёх просьб ступени.
+  const gotFire = await walkTo(FIRE.x, FIRE.z, 'Подложить дров');
+  if (gotFire) await tap(190, 400);
+  const wooded = await fin();
+  step(
+    'дрова подложены: в финале очаг просит их раньше жарки',
+    gotFire && wooded.wood,
+    `дошёл: ${yes(gotFire)}, дрова: ${yes(wooded.wood)}, дальше «${wooded.task}»`,
+  );
+
+  // Жена. Карточка её словами, «Дать мясо» — первая кнопка ряда.
+  const toWife = await openTalk('wife');
+  await capture('17-разговор-с-женой');
+  if (toWife) await tapBox('.pro-card .pro-row .pro-btn');
+  await sleep(400);
+  const fedWife = await fin();
+  step(
+    'жена накормлена и благодарит своими словами',
+    toWife && fedWife.wife && fedWife.says === WIFE_THANKS,
+    `карточка: ${yes(toWife)}, «${fedWife.says}»`,
+  );
+  await capture('17б-жена-благодарит');
+  await tapBox('.pro-card .pro-x');
+
+  /*
+   * Сын. Та же дверь разговора, своя карточка: у него одно дело.
+   *
+   * ПОДХОДИТЬ К НЕМУ НАДО ОТ ОГНЯ, А НЕ ОТ МАТЕРИ, и это про игру, а не про
+   * стенд. «Говорить» предлагают оба, и у матери, рядом с которой стенд только
+   * что стоял, тап законно достаётся ей: поляна отдаёт ближайшего. Поэтому
+   * сперва шаг назад к огню, а оттуда — к сыну: на этом пути он и есть
+   * ближайший. Если карточка всё-таки материнская, стенд закрывает её и делает
+   * ещё шаг — то же сделал бы и человек.
+   */
+  const boy = (await fin()).sonAt;
+  let toSon = false;
+  if (boy) {
+    await goTo(FIRE.x + (boy.x - FIRE.x) * 0.55, FIRE.z + (boy.z - FIRE.z) * 0.55);
+    for (let i = 0; i < 4 && !toSon; i++) {
+      await turnTo(boy.x, boy.z);
+      await tap(190, 400);
+      toSon = (await fin()).panel === 'son';
+      if (toSon) break;
+      await tapBox('.pro-card .pro-x');
+      await walk(180);
+    }
   }
+  const sonCard = await fin();
+  await capture('18-разговор-с-сыном');
+  if (toSon) await tapBox('.pro-card .pro-row .pro-btn.main');
+  await sleep(500);
+  const fedSon = await fin();
+  await capture('18б-сын-благодарит');
+  step(
+    'сын накормлен и благодарит отца',
+    toSon && sonCard.who === 'Ратибор' && fedSon.son,
+    `карточка «${sonCard.who}», ответ «${fedSon.says}»`,
+  );
+  step('благодарит он теми же словами, что лежат в разборе', fedSon.says === SON_THANKS, `«${fedSon.says}»`);
+  // «Спасибо» стоит в той же карточке, которую закроет следующая ступень:
+  // выдержка в сцене нужна затем, чтобы его успели прочесть, и стенд её ждёт.
+  const held = await waitFor(async () => (await fin()).stage === 'build', 8_000);
+
+  // Новый дом. Человек выходит из палатки, задание сменилось.
+  await sleep(1200);
+  const build = await fin();
+  step('«Семья» кончилась не сразу: благодарность сына успевает дочитаться', held, `ступень «${build.stage}»`);
+  step(
+    'вышел из палатки: новое задание — дом сыну',
+    build.stage === 'build' && build.task.includes(String(BOARDS)),
+    `задание «${build.task}», досок ${build.boards}`,
+  );
+  const toFrame = await walkTo(SON_HOUSE.x, SON_HOUSE.z, 'Ставить дом');
+  for (let i = 0; i < BOARDS - 1 && toFrame; i++) {
+    await tap(190, 400);
+    await sleep(750);
+  }
+  const laid = await fin();
+  step(
+    'четыре доски легли, пятая ещё нет',
+    toFrame && laid.boards === BOARDS - 1 && laid.stage === 'build',
+    `дошёл: ${yes(toFrame)}, досок ${laid.boards}/${BOARDS}`,
+  );
+  await capture('19-дом-сыну');
+
+  // Пятая доска — и из леса выходят пятеро.
+  if (toFrame) await tap(190, 400);
+  await sleep(1000);
+  const raid = await fin();
+  step(
+    'на пятой доске пришли пятеро',
+    raid.stage === 'raid' && raid.foes === RAIDERS,
+    `ступень «${raid.stage}», пришедших ${raid.foes}`,
+  );
+  await capture('20-пришли-пятеро');
+
+  // Граница времени: последняя сцена живёт в кадрах, и вернувшийся смотрит её
+  // сначала. Это записано в документе, и проверять это надо, а не обещать.
+  await reopen();
+  await sleep(1000);
+  const again = await fin();
+  step(
+    'вышел посреди последней сцены — вернулся к её началу',
+    again.stage === 'raid' && again.foes === RAIDERS && again.beat === 'come',
+    `ступень «${again.stage}», пришедших ${again.foes}, такт «${again.beat}»`,
+  );
+
+  // Разговор: они требуют, ответ один.
+  const talked = await waitFor(async () => (await fin()).panel === 'raid', 14_000);
+  const demand = await fin();
+  step(
+    'старший требует отдать всё, и ответ один',
+    talked && demand.card.includes(RAID_SAYS.slice(0, 24)),
+    `карточка «${demand.card.trim().slice(0, 60)}»`,
+  );
+  await capture('21-разговор-с-разбойниками');
+
+  /*
+   * Самый тяжёлый кадр поляны — здесь, и мерить его надо здесь.
+   *
+   * В нём разом стоят все семеро людей (пятеро пришедших, жена и сын), сруб
+   * сына, старый дом, очаг с искрами и лес: больше народу в кадре не бывает
+   * нигде. Разговор ждёт игрока, а не часов, — значит замер можно вести сколько
+   * нужно, и такт от этого не убежит.
+   */
+  await measure('финал: пятеро, жена и сын в кадре');
+
+  await tapBox('.pro-card .pro-row .pro-btn.main');
+  await sleep(2600);
+  const melee = await fin();
+  step(
+    'трое пошли в драку, двое остались с луками',
+    melee.beat === 'fight' && !melee.watching,
+    `такт «${melee.beat}», можно отбиться: ${yes(melee.can && melee.label.startsWith('Отбиться'))}`,
+  );
+  await capture('22-бой-с-тремя');
+
+  // Отбиваемся, пока до них дотягивается топор: положенные ложатся и не встают.
+  for (let i = 0; i < 14; i++) {
+    const now = await fin();
+    if (now.beat !== 'fight' || now.downed >= RAIDERS_MELEE) break;
+    if (now.can && now.label.startsWith('Отбиться')) await tap(190, 400);
+    else await sleep(400);
+  }
+  const beaten = await fin();
+  step('топор кладёт пришедшего с одного удара', beaten.downed >= 1, `положено ${beaten.downed} из ${RAIDERS_MELEE}`);
+
+  await untilBeat('loose', 25_000);
+  await capture('23-выстрел');
+  const shot = await fin();
+  step('двое оставшихся пустили стрелы', shot.beat === 'loose' || shot.beat === 'fall', `такт «${shot.beat}»`);
+
+  await untilBeat('fall', 10_000);
+  await sleep(BEAT.fall * 0.8);
+  const fell = await fin();
+  await capture('24-падение');
+  step(
+    'герой упал: камера у земли, и решать ему больше нечего',
+    // Стоящий смотрит с 1.62 м; упавший — вдвое ниже. Точное число — `FALL_EYE`
+    // сцены, и сверять его тут нечем: такт падения ещё идёт.
+    fell.camY < 1.0 && fell.watching,
+    `глаз на ${num(fell.camY, 2)} м вместо 1.62, смотрит: ${yes(fell.watching)}`,
+  );
+
+  await untilBeat('take', 12_000);
+  await sleep(BEAT.take * 0.7);
+  await capture('25-подошли-к-своим');
+
+  await untilBeat('lead', 12_000);
+  await sleep(BEAT.lead * 0.25);
+  const led = await fin();
+  await capture('26-уводят');
+  step(
+    'жену и сына уводят, а не убивают: они идут и они живы',
+    led.beat === 'lead' && led.sonAt !== null && led.haze > 0,
+    `сын отошёл на ${num(far(led.sonAt))} м, зрение меркнет на ${num(led.haze, 2)}`,
+  );
+  await sleep(BEAT.lead * 0.6);
+  const away = await fin();
+  await capture('27-сын-уходит-вдаль');
+  step(
+    'последний кадр — уходящий сын: он дальше, чем был',
+    far(away.sonAt) > far(led.sonAt) + 1,
+    `было ${num(far(led.sonAt))} м от своего места, стало ${num(far(away.sonAt))} м`,
+  );
+
+  await untilBeat('blind', 16_000);
+  await sleep(BEAT.blind * 0.3);
+  const eyes = await fin();
+  await capture('28-глаза-закрываются');
+  step(
+    'веки сходятся, но не разом: между ними ещё видно',
+    eyes.lid > 0 && eyes.lid < 50,
+    `веко на ${num(eyes.lid, 1)}% высоты, дымка ${num(eyes.haze, 2)}`,
+  );
+
+  const over = await waitFor(async () => (await fin()).end === 'over', 14_000);
+  await sleep(500);
+  const done = await fin();
+  await capture('29-чёрный-экран');
+  step(
+    'чёрный экран, строка и имя сына',
+    over && done.black.includes(OVER_SAYS) && done.black.includes('Ратибор'),
+    `«${done.black.trim().replace(/\s+/g, ' ').slice(0, 70)}»`,
+  );
+  const kept = await tab.eval<{ end?: { stage?: string }; heir?: { name?: string } }>('window.__probe.saved()');
+  step(
+    'в записи — ступень «кончено» и имя, которое возьмёт основная игра',
+    kept.end?.stage === 'over' && kept.heir?.name === 'Ратибор',
+    `end.stage: ${kept.end?.stage ?? 'нет'}, heir.name: ${kept.heir?.name ?? 'нет'}`,
+  );
+  console.log(
+    `\n  Последняя сцена после ответа: ${num(finaleMs(BEAT.fightMs) / 1000)} с; с приходом и разговором — на ${num(BEAT.talk / 1000)} с больше.`,
+  );
+  if (SHOTS) console.log('  Снимки финала — 375 px, по одному на кадр: от «Прошло много дней…» до чёрного экрана.');
 
   console.log('\n7. Бюджет кадра (настоящий WebGL, ANGLE)\n');
   console.log(

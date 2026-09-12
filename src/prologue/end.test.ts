@@ -34,6 +34,7 @@ import {
   BODY_R,
   FIRE,
   GLADE_R,
+  GUEST_FROM,
   HOUSE,
   MATE_R,
   MATE_SPOT,
@@ -269,9 +270,24 @@ describe('где что стоит', () => {
     }
   });
 
-  it('выходят они не оттуда, откуда приходила гостья: из леса за спиной у дома', () => {
-    for (const p of RAID_FROM) expect(p.x, `${p.x}`).toBeLessThan(0);
-    expect(RAID_AWAY.x).toBeLessThan(0);
+  it('выходят и уводят они по открытому: не там, где стоит дом, и не там, где пришла гостья', () => {
+    // Востоком: старый дом на западе, гостья приходила с юго-востока.
+    for (const p of [...RAID_FROM, RAID_AWAY]) {
+      expect(p.x, `${p.x},${p.z}`).toBeGreaterThan(0);
+      expect(Math.hypot(p.x - GUEST_FROM.x, p.z - GUEST_FROM.z), `${p.x},${p.z}`).toBeGreaterThan(4);
+    }
+    // И между местом, где человек ставит сруб, и опушкой ухода ничто не стоит:
+    // ни дом, ни дерево. Последний кадр режима загородить нечем.
+    const from = { x: SON_HOUSE.x, z: SON_HOUSE.z - REACH };
+    const dx = RAID_AWAY.x - from.x;
+    const dz = RAID_AWAY.z - from.z;
+    const len = Math.hypot(dx, dz);
+    for (const b of [HOUSE, ...TREES.map((t) => ({ ...t, r: TREE_R }))]) {
+      const t = Math.max(0, Math.min(len, ((b.x - from.x) * dx + (b.z - from.z) * dz) / len));
+      const cx = from.x + (dx / len) * t;
+      const cz = from.z + (dz / len) * t;
+      expect(Math.hypot(cx - b.x, cz - b.z), `${b.x},${b.z}`).toBeGreaterThan(b.r + 0.6);
+    }
   });
 });
 

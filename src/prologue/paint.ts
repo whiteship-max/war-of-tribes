@@ -446,12 +446,16 @@ function beard(g: CanvasRenderingContext2D, color: number, seed: number): void {
   g.moveTo(40, 70);
   g.bezierCurveTo(35, 96, 46, 122, 64, 124);
   g.bezierCurveTo(82, 122, 93, 96, 88, 70);
-  g.bezierCurveTo(85, 86, 76, 97, 64, 98);
-  g.bezierCurveTo(52, 97, 43, 86, 40, 70);
+  // Внутренний край поднят к самой губе: между ним и усами остаётся щель рта, а
+  // не светлая полоса во всё лицо. Первый снимок с опущенным краем дал пятерых
+  // ухмыляющихся разбойников — щель читалась оскалом.
+  g.bezierCurveTo(85, 84, 76, 92, 64, 93);
+  g.bezierCurveTo(52, 92, 43, 84, 40, 70);
   g.closePath();
   g.fill();
+  // Усы сходятся с бородой у углов рта и закрывают верхнюю губу.
   g.beginPath();
-  g.ellipse(64, 84, 14, 4.6, 0, 0, Math.PI * 2);
+  g.ellipse(64, 85, 14, 6.2, 0, 0, Math.PI * 2);
   g.fill();
   const dark = mix(color, C.dark, 0.45);
   g.strokeStyle = css(dark, 0.45);

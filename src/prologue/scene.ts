@@ -672,8 +672,8 @@ const SPOT_WORDS: Record<Spot['kind'], string> = {
   foe: 'разбойник',
 };
 
-/** Что делается руками и длится: рубка, разделка, шкура, замах в драке. */
-type Work = 'chop' | 'butcher' | 'skin' | 'fight';
+/** Что делается руками и длится: рубка, разделка, шкура, замах в драке, доска. */
+type Work = 'chop' | 'butcher' | 'skin' | 'fight' | 'board';
 
 /** Что делает зверь. Живёт во времени сцены и никуда не пишется. */
 type Beast = { x: number; z: number; yaw: number; homeX: number; homeZ: number; fleeUntil: number; fleeYaw: number; gait: number };
@@ -843,9 +843,26 @@ function same(a: PrologueView, b: PrologueView): boolean {
  */
 const DIM_MS = 900;
 
-/** Где глаз упавшего и куда он смотрит: с земли и чуть вверх. */
-const FALL_EYE = 0.34;
-const FALL_PITCH = 0.18;
+/**
+ * Сколько стоит поляна после третьего дела, прежде чем человек выйдет из палатки.
+ *
+ * Три секунды: сын благодарит в той же карточке, в которой его накормили, и
+ * следующая ступень её закроет. Меньше — «спасибо, отец» не успевает прочесть
+ * никто; это и показал прогон.
+ */
+const FAMILY_HOLD = 3000;
+
+/**
+ * Где глаз упавшего и куда он смотрит: с земли и чуть вверх.
+ *
+ * НЕ У САМОЙ ЗЕМЛИ, И ЭТО ПОКАЗАЛ СНИМОК. С тридцати сантиметров весь кадр
+ * занимали двое положенных в драке: они падают там, где стояли, — то есть в двух
+ * шагах от человека, — и уходящего сына за ними не видно вовсе. Восемьдесят пять
+ * сантиметров — человек, упавший на бок и приподнявшийся на локте: и падение
+ * читается, и последний кадр режима не загорожен телами.
+ */
+const FALL_EYE = 0.85;
+const FALL_PITCH = 0.1;
 
 /**
  * Как закрываются веки: дважды приоткрываются и только потом смыкаются.
@@ -959,6 +976,8 @@ export class PrologueScene {
   private beat: Beat | '' = '';
   /** Затемнение перехода «вышел из палатки»: когда началось, время сцены. */
   private dimAt = 0;
+  /** Когда сделаны все три дела «Семьи»: благодарность сына обязана дочитаться. */
+  private doneAt = 0;
   /** Стрелы последней сцены: две, и они не запись — картинка. */
   private shots: THREE.Object3D[] = [];
   /**
@@ -1355,11 +1374,17 @@ export class PrologueScene {
    * Где стоят пришедшие — поляне, и только те, кого можно тронуть.
    *
    * Положенные из списка выпадают: топор по лежащему — то самое «ничего не
-   * произошло», которого в режиме не бывает. Стрелки не выпадают: их можно
-   * достать, пока идёт драка, — и это единственное, чем игрок может им ответить.
+   * произошло», которого в режиме не бывает.
+   *
+   * И ЛУЧНИКОВ В НЁМ НЕТ ВОВСЕ, ЭТО РЕШЕНИЕ. Они стоят поодаль и в драку не
+   * идут: достать их нечем, и в этом вся сцена — трое заняли руки, двое
+   * выстрелили. Позволь топору доставать и их — и сцена стала бы боем, который
+   * можно выиграть, а выиграть его нельзя. Это ещё и чинит порядок: те двое,
+   * что уводят жену и сына, обязаны дожить до этой минуты, а положенный лучник
+   * не увёл бы никого.
    */
   private foePts(): Pt[] {
-    this.foeList = !this.answerAt || this.beat !== 'fight' ? [] : this.foes.filter((f) => !f.down);
+    this.foeList = !this.answerAt || this.beat !== 'fight' ? [] : this.foes.filter((f) => !f.down && !f.bow);
     return this.foeList.map((f) => ({ x: f.x, z: f.z }));
   }
 
@@ -1380,8 +1405,10 @@ export class PrologueScene {
   private act(): void {
     const now = serverNow();
     if (!this.alive(now)) return;
-    // Пока идёт объятие, камера не у человека, и делать ему нечего.
-    if (this.hugAt) return;
+    // Пока идёт объятие, камера не у человека, и делать ему нечего. Пока идёт
+    // последняя сцена — то же самое: он смотрит (`watching`), и «Родословная» под
+    // пальцем посреди прихода пятерых была бы не действием, а недосмотром.
+    if (this.hugAt || this.watching()) return;
     const spot = this.aim();
     const what = offer(this.save, spot, now);
     if (!what.can || !spot) return;
@@ -1396,9 +1423,9 @@ export class PrologueScene {
       if (e.stage !== 'build' || frameDone(e)) return;
       this.save.end = { ...e, boards: e.boards + 1 };
       this.syncFrame();
-      this.work = { kind: 'chop', at: performance.now() };
-      this.chopTree = -1;
-      this.chopsLeft = 1;
+      // Свой вид работы, а не чужая рубка: замах тот же, а слово над сценой
+      // должно быть своё — «ещё ударов» у доски значило бы не то.
+      this.work = { kind: 'board', at: performance.now() };
       if (frameDone(this.save.end)) this.beginRaid();
       return this.done();
     }
@@ -1443,6 +1470,10 @@ export class PrologueScene {
       this.save.logs -= put;
       // Дрова в общий очаг — «достроенное вместе»: дом стоит, а очаг держат вдвоём.
       this.together('wood', now);
+      // В финале это же движение закрывает первую из трёх просьб ступени.
+      if (this.save.end.stage === 'family' && !this.save.end.wood) {
+        this.save.end = { ...this.save.end, wood: true };
+      }
       return this.done();
     }
     if (what.deed === 'roast') {
@@ -1518,8 +1549,9 @@ export class PrologueScene {
 
   /** Дело доделано: удар состоялся, кусок срезан или шкура снята. */
   private landWork(kind: Work): void {
-    // Драка уже случилась в тот кадр, когда по ней тапнули: замах — картинка.
-    if (kind === 'fight') return this.done();
+    // Драка и доска уже случились в тот кадр, когда по ним тапнули: замах —
+    // картинка, и класть по ней нечего.
+    if (kind === 'fight' || kind === 'board') return this.done();
     if (kind === 'skin') {
       const c = liveCarcass(this.save.hunt, serverNow());
       if (!c || c.skinned) return this.done();
@@ -2104,7 +2136,7 @@ export class PrologueScene {
     // Пока идёт объятие, разговор с пришедшими или последняя сцена, взгляд и шаг
     // не принимаются: камера не у человека — или человек уже ничего не решает, и
     // сдвинутый за эти секунды взгляд вернулся бы не туда, откуда уходил.
-    const held = this.hugAt > 0 || this.panel === 'raid' || this.watching();
+    const held = this.hugAt > 0 || (this.save.end.stage === 'raid' && !this.answerAt) || this.watching();
     if (!held) {
       this.yaw += look.yaw;
       this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -PITCH_LIMIT, PITCH_LIMIT);
@@ -3018,8 +3050,10 @@ export class PrologueScene {
    * драка, игрок ещё решает, и отнимать у него ход нельзя.
    */
   private watching(): boolean {
-    if (this.save.end.stage !== 'raid' || !this.answerAt) return false;
-    return this.beat === 'fall' || this.beat === 'take' || this.beat === 'lead' || this.beat === 'blind' || this.beat === 'over';
+    if (this.save.end.stage !== 'raid') return false;
+    // Решает он ровно в один такт — в драку. Всё остальное, с той минуты, как
+    // пятеро вышли из леса, он смотрит: рук у него на это нет.
+    return !this.answerAt || this.beat !== 'fight';
   }
 
   /**
@@ -3090,6 +3124,7 @@ export class PrologueScene {
     const now = serverNow();
     const s = this.save;
     s.end = { ...s.end, stage: 'family', wood: false, wife: false, son: false };
+    this.doneAt = 0;
     s.body = { ...newBody(now), coat: s.body.coat };
     // Очаг низкий нарочно: «подложить дров» — задание, и оно обязано быть
     // выполнимым. Полный очаг сказал бы «и так полон» на первое же нажатие.
@@ -3203,8 +3238,9 @@ export class PrologueScene {
     const f = this.foeList[i];
     if (!f || f.down) return;
     f.down = true;
-    f.obj.rotation.set(-Math.PI / 2.2, f.yaw, 0);
-    f.obj.position.y = 0.16;
+    // Плашмя и низко: приподнятое тело загораживает собой последний кадр.
+    f.obj.rotation.set(-Math.PI / 2, f.yaw, 0);
+    f.obj.position.y = 0.05;
     if (f.weapon) f.weapon.visible = false;
     // Всех троих положили — драка кончилась, и ждать её срока незачем: двое с
     // луками поднимают их сразу.
@@ -3245,7 +3281,15 @@ export class PrologueScene {
     if (e.stage === 'passed' || e.stage === 'over') return;
     this.kinStep(dt, t);
     if (e.stage === 'family') {
-      if (familyDone(e)) this.beginBuild();
+      /*
+       * Сделаны все три дела — но не сию секунду дальше. Сын благодарит в той же
+       * карточке, в которой его накормили, и `beginBuild` её закрывает: без
+       * выдержки его «спасибо» не успевал прочесть никто. Поймано прогоном, а не
+       * рассуждением — стенд снял карточку и увидел в ней слова жены.
+       */
+      if (!familyDone(e)) return;
+      if (!this.doneAt) this.doneAt = t;
+      else if (t - this.doneAt >= FAMILY_HOLD) this.beginBuild();
       return;
     }
     if (e.stage === 'build') return;
@@ -3278,6 +3322,19 @@ export class PrologueScene {
         const f = this.foes[i];
         const at = RAID_STAND[i];
         this.foeGo(f, at.x, at.z, dt, t);
+      }
+      /*
+       * ЧЕЛОВЕК ПОВОРАЧИВАЕТСЯ К НИМ САМ, И БЕЗ ЭТОГО СЦЕНЫ НЕТ ВОВСЕ. Пятую
+       * доску кладут лицом к срубу, то есть спиной к опушке: первый снимок
+       * прихода вышел с деревьями во весь кадр и без единой фигуры — на экране
+       * стояла строка «из леса вышли пятеро» и не было видно никого. Услышав
+       * пятерых, человек оборачивается — это и делает сцена. Медленно: рывком
+       * голова не поворачивается, и за четыре секунды прихода он успевает.
+       */
+      const lead = this.foes[0];
+      if (lead) {
+        this.yaw = turnToward(this.yaw, yawTo(this.px, this.pz, lead.x, lead.z), dt * 1.8);
+        this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
       }
       if (ms >= BEAT.talk && this.panel !== 'raid') {
         this.panel = 'raid';
@@ -3344,26 +3401,33 @@ export class PrologueScene {
         if (f.bow && f.arms) f.arms.rotation.x += (-1.35 - f.arms.rotation.x) * Math.min(1, dt * 6);
         continue;
       }
+      // Кого берёт этот: первый лучник — жену, второй — сына. Считается по самим
+      // лучникам, а не по номеру в ватаге: номер сместился бы от одного
+      // положенного, и уводить сына стало бы некому.
+      const who = f.bow ? (this.foes.filter((o) => o.bow).indexOf(f) === 0 ? this.mate : this.son) : null;
       if (b === 'take') {
         // Двое с луками идут к жене и сыну; остальные стоят.
-        if (!f.bow) continue;
-        const who = i === RAIDERS_MELEE ? this.mate : this.son;
         if (who) this.foeGo(f, who.x + 0.9, who.z + 0.2, dt, t);
         continue;
       }
       // Уводят. Жена и сын идут рядом с теми, кто их взял.
       this.foeGo(f, RAID_AWAY.x, RAID_AWAY.z, dt, t);
-      if (!f.bow) continue;
-      const who = i === RAIDERS_MELEE ? this.mate : this.son;
-      if (!who) continue;
-      this.leadAway(who, f, dt, t);
+      if (who) this.leadAway(who, f, dt, t);
     }
   }
 
-  /** Ведомый идёт за тем, кто его взял, и оборачивается назад — на поляну. */
+  /**
+   * Ведомый идёт **рядом** с тем, кто его взял, а не позади него.
+   *
+   * Сбоку, а не в затылок, и это со снимка: идущий следом сын оказывался за
+   * спиной у ведущего и пропадал из кадра целиком — а это последнее, что человек
+   * видит. Сторона считается от того, куда ведущий идёт: поперёк его хода,
+   * поэтому пара остаётся парой на любом повороте.
+   */
   private leadAway(who: Figure, by: Foe, dt: number, t: number): void {
-    const tx = by.x + 0.85;
-    const tz = by.z + 0.25;
+    const side = 0.85;
+    const tx = by.x + Math.cos(by.yaw) * side;
+    const tz = by.z - Math.sin(by.yaw) * side;
     const dx = tx - who.x;
     const dz = tz - who.z;
     const len = Math.hypot(dx, dz);
@@ -3681,7 +3745,18 @@ export class PrologueScene {
       eatCooked: meal(s, hunger, harm, false),
       eatRaw: meal(s, hunger, harm, true),
       drawn: this.drawn,
-      busy: busy === 'chop' ? 'Ещё ударов' : busy === 'butcher' ? 'Срезает' : busy === 'skin' ? 'Снимает шкуру' : busy === 'fight' ? 'Отбивается' : '',
+      busy:
+        busy === 'chop'
+          ? 'Ещё ударов'
+          : busy === 'butcher'
+            ? 'Срезает'
+            : busy === 'skin'
+              ? 'Снимает шкуру'
+              : busy === 'fight'
+                ? 'Отбивается'
+                : busy === 'board'
+                  ? 'Кладёт доску'
+                  : '',
       busyLeft: busy === 'chop' && this.chopTree >= 0 ? this.chopsLeft : 0,
       dead: death(s, now),
       panel: this.panel,
