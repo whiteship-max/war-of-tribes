@@ -60,7 +60,7 @@ import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { dropParties } from './party';
-import { agentIdle } from './agent';
+import { agentIdle, bakeAgent } from './agent';
 import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
@@ -177,9 +177,10 @@ const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
 
 /**
  * Что с агентом сейчас — **второй** строкой в его строке панели, под именем.
- * Именем он и подписан: где он, игрок видит на карте, а вот который из четырёх
- * это — нет. На полотне подпись под фигурой поэтому одна и только имя
- * (`drawFigureLabels`), а сроки и «дома» живут здесь, где для них есть ширина.
+ * Панель теперь единственное место, где имена агентов вообще написаны: с полотна
+ * подписи ушли, и который из четырёх это — говорит силуэт (`agent.ts`). Где он
+ * стоит, игрок и так видит; а сроки и «дома» живут здесь, где для них есть
+ * ширина.
  */
 function figureState(f: FigureView, now: number): string {
   if (f.phase === 'down') return `выбыл, ${formatLeft(secondsLeft(f.downUntil, now))}`;
@@ -382,6 +383,14 @@ export function WorldMap() {
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
+
+    // Кисть агента наружу — стенду (`npm run map:report`, раздел «агенты»). Он
+    // печёт четыре силуэта своими руками и считает, насколько их пятна
+    // совпадают: с уходом подписей это единственное, чем держится опознание, а
+    // держится оно или нет — вопрос числа, а не мнения. Растеризовать пути
+    // без браузера нечем, поэтому мерить это можно только здесь и только под
+    // `?probe=1` — в игре от строки остаётся проверка булева.
+    if (PROBE) (window as unknown as { __bakeAgent?: typeof bakeAgent }).__bakeAgent = bakeAgent;
 
     let raf = 0;
     const frame = (): void => {
@@ -748,13 +757,28 @@ export function WorldMap() {
         </div>
         {/* Переход по координатам — часть свободного обзора: игроку он ни к чему,
             камера всё равно не уйдёт дальше поводка своих. */}
-        {FREE_CAMERA ? (
+        {FREE_CAMERA && (
           <button className={`wm-btn${jumpOpen ? ' active' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
             ⌖
           </button>
-        ) : (
-          <span className="wm-btn ghost" aria-hidden="true" />
         )}
+        {/* Легенда — в правом верхнем углу, единственном пустом месте карты.
+            Пустого места на 360 px не бывает про запас: внизу и так три ряда, а
+            справа сверху не стояло ничего, кроме распорки под кнопку отладки.
+            Сама легенда при этом осталась внизу — это лист, а не выпадашка, и
+            листы в этой игре выезжают снизу (`Sheet`). Место в правом низу она
+            по-прежнему делит с панелью агентов, поэтому они и закрывают друг
+            друга. */}
+        <button
+          className={`wm-btn${legendOpen ? ' active' : ''}`}
+          onClick={() => {
+            setLegendOpen((v) => !v);
+            setAgentsOpen(false);
+          }}
+          aria-label="Легенда"
+        >
+          ℹ️
+        </button>
       </div>
 
       {jumpOpen && (
@@ -797,11 +821,13 @@ export function WorldMap() {
           </div>
         )}
 
-        {/* Агенты в сворачиваемой панели, а не строкой на весь низ: место в
-            правом нижнем углу одно, и делят его с легендой по очереди — открыл
-            одну, закрылась другая. Свёрнутой панель обязана отвечать на один
-            вопрос: есть ли кому дать приказ. Отвечают четыре значка (тусклый —
-            занят, почти погасший — выбыл) и число свободных. */}
+        {/* Агенты — уголок в правом низу, а не полоса со словом «Агенты». Слово
+            ушло по той же мерке, что подписи с полотна: место оно занимало, а
+            отвечало на вопрос, которого никто не задаёт — что это за четыре
+            значка, видно по самим значкам. Осталось то, ради чего свёрнутая
+            панель и существует: **есть ли кому дать приказ**. Отвечают четыре
+            значка (тусклый — занят, почти погасший — выбыл) и число свободных.
+            Раскрытая занимает прежнюю ширину: там имена и сроки. */}
         <div className="wm-agents">
           {agentsOpen && (
             <div className="wm-agent-list">
@@ -840,7 +866,6 @@ export function WorldMap() {
                 </i>
               ))}
             </span>
-            <b>Агенты</b>
             {freeAgents > 0 && <em>{freeAgents}</em>}
           </button>
         </div>
@@ -932,16 +957,6 @@ export function WorldMap() {
         </button>
         <button className="wm-btn" onClick={toggleZoom} aria-label="Сменить масштаб">
           {zoomedIn ? '🔭' : '🔍'}
-        </button>
-        <button
-          className={`wm-btn${legendOpen ? ' active' : ''}`}
-          onClick={() => {
-            setLegendOpen((v) => !v);
-            setAgentsOpen(false);
-          }}
-          aria-label="Легенда"
-        >
-          ℹ️
         </button>
       </div>
     </div>

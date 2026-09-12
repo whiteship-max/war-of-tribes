@@ -44,6 +44,7 @@ import { launchChrome, sleep, Tab } from './lib/chrome';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import type { MarchView, PlayerProfile } from '@/world/types';
 import { PARTY_STEPS, partyMen, sizeOf, type PartySize } from '@/ui/map/party';
+import { AGENT_MIN } from '@/ui/map/agent';
 
 const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4191);
@@ -223,6 +224,98 @@ const PROBE = `
     });
     return JSON.stringify('ok');
   };
+  /**
+   * Насколько силуэты агентов похожи друг на друга. Подписей под фигурами нет,
+   * и опознание держится только на форме — а «держится» это или нет, вопрос
+   * числа, а не мнения.
+   *
+   * Меряется двумя мерками сразу, и обе нужны.
+   *
+   *   пятно     совпадение залитых силуэтов (IoU) по всем шести парам. Порог
+   *             тот же, что у видов бойцов в трёхмерной сцене (SAME = 0.85,
+   *             render/units.test.ts): выше него две фигуры — одно пятно;
+   *   признак   то, чем они разведены по замыслу: полководец выше всех,
+   *             лазутчик уже всех, разведчик шире всего в шляпе (доля высоты,
+   *             на которой лежит самая широкая строка, у него близка к
+   *             единице), дипломат — у ног. Признак, ставший меньше двух
+   *             пикселей, — это не признак: столько съедает сглаживание.
+   *
+   * Печём напрямую (window.__bakeAgent), мимо корзин: надо видеть и то, что
+   * было бы ниже пола agentUnit, — иначе запас не назвать числом. Обратных
+   * кавычек в этой строке быть не может: она сама шаблонная, и любая из них
+   * рвёт файл (ошибка вылезет за сотни строк отсюда).
+   */
+  window.__silhouettes = (sizes) => {
+    const KINDS = ['scout', 'diplomat', 'spy', 'general'];
+    const grab = (kind, px) => {
+      const sp = window.__bakeAgent({ kind, west: false }, px, 1);
+      const cv = sp.canvas;
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      const W = cv.width;
+      const H = cv.height;
+      const m = new Uint8Array(W * H);
+      const rowW = new Array(H).fill(0);
+      let top = -1;
+      for (let y = 0; y < H; y++) {
+        let l = W;
+        let r = -1;
+        for (let x = 0; x < W; x++) {
+          if (d[(y * W + x) * 4 + 3] > 100) {
+            m[y * W + x] = 1;
+            if (x < l) l = x;
+            if (x > r) r = x;
+          }
+        }
+        rowW[y] = r < 0 ? 0 : r - l + 1;
+        if (r >= 0 && top < 0) top = y;
+      }
+      // Ниже линии земли лежит тень: в силуэт фигуры она не входит.
+      const g = Math.round(sp.ay);
+      let wide = 0;
+      let wideY = top;
+      for (let y = top; y < g - 1; y++) if (rowW[y] > wide) { wide = rowW[y]; wideY = y; }
+      return { m, h: g - top, wide, at: (g - wideY) / Math.max(1, g - top) };
+    };
+    const iou = (a, b) => {
+      let i = 0;
+      let u = 0;
+      for (let k = 0; k < a.m.length; k++) {
+        const x = a.m[k];
+        const y = b.m[k];
+        if (x | y) u++;
+        if (x & y) i++;
+      }
+      return u ? i / u : 1;
+    };
+    const rows = sizes.map((px) => {
+      const f = {};
+      for (const k of KINDS) f[k] = grab(k, px);
+      let worst = 0;
+      let pair = '';
+      for (let i = 0; i < KINDS.length; i++) {
+        for (let j = i + 1; j < KINDS.length; j++) {
+          const v = iou(f[KINDS[i]], f[KINDS[j]]);
+          if (v > worst) { worst = v; pair = KINDS[i] + '/' + KINDS[j]; }
+        }
+      }
+      const others = KINDS.filter((k) => k !== 'general');
+      return {
+        px,
+        iou: worst,
+        pair,
+        // Полководец выше следующего за ним — на сколько пикселей.
+        taller: f.general.h - Math.max(...others.map((k) => f[k].h)),
+        // Лазутчик уже следующего за ним.
+        thinner: Math.min(...KINDS.filter((k) => k !== 'spy').map((k) => f[k].wide)) - f.spy.wide,
+        // Доля высоты, на которой у разведчика лежит самая широкая строка:
+        // единица — макушка, ноль — земля. Шляпа обязана держать её у верха.
+        hat: f.scout.at,
+        // У дипломата та же доля обязана лежать у самой земли: он колокол.
+        hem: f.diplomat.at,
+      };
+    });
+    return JSON.stringify(rows);
+  };
   window.__take = () => JSON.stringify(window.__mapPerf());
   window.__ready = () => JSON.stringify({ map: window.__game.getState().mapOpen, world: !!window.__world });
   return JSON.stringify('ok');
@@ -283,7 +376,30 @@ async function frames(tab: Tab, view: (typeof VIEWS)[number], counts: number[]):
   return out;
 }
 
-async function measure(counts: number[]): Promise<Shot[]> {
+/** Строка таблицы силуэтов: сколько пикселей на единицу и что из этого вышло. */
+interface Look {
+  px: number;
+  iou: number;
+  pair: string;
+  taller: number;
+  thinner: number;
+  hat: number;
+  hem: number;
+}
+
+/**
+ * Порог слияния — тот же, что у видов бойцов в трёхмерной сцене (`SAME` в
+ * `render/units.test.ts`). Одна мерка на два разных силуэта в одной игре:
+ * второй порог означал бы и второе мнение о том, что такое «одно пятно».
+ */
+const SAME = 0.85;
+/** Признак мельче двух пикселей — это не признак: столько съедает сглаживание. */
+const FEATURE_MIN = 2;
+
+/** Размеры, на которых меряются силуэты. Ниже пола `agentUnit` — нарочно. */
+const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
+
+async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[] }> {
   const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');
@@ -297,11 +413,15 @@ async function measure(counts: number[]): Promise<Shot[]> {
   }
   await tab.eval<string>('window.__freeze()');
 
+  // Силуэты меряются до кадров: они ничего не двигают и не зависят от вида
+  // экрана — это чистая выпечка, — а после прогонов вкладка уже закрыта.
+  const looks = await tab.eval<Look[]>(`window.__silhouettes(${JSON.stringify(LOOK_SIZES)})`);
+
   const out: Shot[] = [];
   for (const view of VIEWS) out.push(...(await frames(tab, view, counts)));
   tab.close();
   await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
-  return out;
+  return { shots: out, looks };
 }
 
 // ---------- Печать ----------
@@ -338,8 +458,9 @@ async function main(): Promise<void> {
   const server = serveDist();
   const chrome = await launchChrome(DEBUG_PORT, ['--window-size=1400,900', '--force-device-scale-factor=1']);
   let shots: Shot[] = [];
+  let looks: Look[] = [];
   try {
-    shots = await measure(counts);
+    ({ shots, looks } = await measure(counts));
   } finally {
     chrome.kill();
     server.close();
@@ -362,6 +483,35 @@ async function main(): Promise<void> {
   console.log('Худший случай мира стоит:', worst.map((s) => `${s.view.split(' ')[0]} ${s.cost.toFixed(2)} мс`).join(', ') + '.');
   console.log('Бюджет кадра при шестидесяти в секунду — 16.7 мс, и в нём лежит не только карта.');
   console.log('Кадров нет вовсе — значит страница не рисовалась: см. CLAUDE.md, «Стенд в проде».');
+
+  console.log('\n=== агенты: различимы ли четверо без подписей ===\n');
+  console.log('Подписи под фигурами убраны, и опознание держится только на форме. Пятно —');
+  console.log(`совпадение залитых силуэтов по худшей паре (порог ${SAME}, тот же, что у видов`);
+  console.log('бойцов в трёхмерной сцене). Признак — то, чем они разведены по замыслу, в');
+  console.log(`пикселях; меньше ${FEATURE_MIN} px признаком считать нельзя, столько съедает сглаживание.\n`);
+  console.log(
+    `${pad('px/ед.', 7)} ${pad('пятно', 7)} ${pad('худшая пара', 20)} ${pad('вождь выше', 11)} ${pad('шпион уже', 10)} ${pad('шляпа@', 7)} подол@`,
+  );
+  for (const l of looks) {
+    const flag = l.iou >= SAME || l.taller < FEATURE_MIN || l.thinner < FEATURE_MIN ? '  ←' : '';
+    console.log(
+      `${String(l.px).padStart(6)} ${num(l.iou, 7, 3)} ${pad(l.pair, 20)} ${String(l.taller).padStart(9)} ${String(l.thinner).padStart(10)} ${num(l.hat, 7)} ${num(l.hem, 6)}${flag}`,
+    );
+  }
+  // Где кончается различимость. Пол `agentUnit` — то, ниже чего карта фигуру не
+  // рисует никогда; запас между ним и этой границей и есть ответ на вопрос
+  // «на каком приближении четверо сливаются».
+  const bad = looks.filter((l) => l.iou >= SAME || l.taller < FEATURE_MIN || l.thinner < FEATURE_MIN);
+  const edge = bad.length > 0 ? Math.max(...bad.map((l) => l.px)) : 0;
+  console.log(`\nШляпа@ — доля высоты, на которой у разведчика лежит самая широкая строка (1 —`);
+  console.log('макушка, 0 — земля): у него она обязана быть у верха, у дипломата — у самой земли.');
+  console.log(
+    edge > 0
+      ? `Различие пропадает на ${edge} px на единицу и ниже.`
+      : 'Ни на одном из мерянных размеров признаки не пропали.',
+  );
+  console.log(`Карта не рисует агента мельче ${AGENT_MIN} px на единицу (agentUnit), а это ${edge > 0 ? (AGENT_MIN / edge).toFixed(1) : '—'}-кратный запас:`);
+  console.log('при любом отдалении фигура остаётся своего размера, тает под ней только земля.');
 }
 
 void main();

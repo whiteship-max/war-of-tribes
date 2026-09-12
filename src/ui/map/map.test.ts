@@ -42,11 +42,13 @@ import {
   AGENT_MAX,
   AGENT_MIN,
   FAN_STEP,
+  SPAN_W as AGENT_SPAN_W,
   agentBucket,
   agentIdle,
   agentKey,
   agentUnit,
   fanOffsets,
+  lineAt,
 } from './agent';
 import { FIGURE_IDS } from '@/world/data/figures';
 import {
@@ -772,12 +774,46 @@ describe('агенты на карте различаются силуэтом',
     expect([...src.matchAll(/PARTY_OWN/g)].length).toBe(2);
   });
 
-  it('имя под фигурой печётся, а не раскладывается за кадр', () => {
-    const src = read('figures.ts');
+  it('имён агентов на полотне нет — ни спрайтом, ни строкой', () => {
+    // Подпись под фигурой отвечала на вопрос, на который обязан отвечать силуэт,
+    // а стояла меткой на местности: четверо дома писали лесенку из четырёх строк
+    // поверх собственной деревни. Убрана целиком, вместе с машинкой подписей, —
+    // иначе через месяц её вернут «потому что она уже есть».
+    const fig = read('figures.ts');
+    expect(fig).not.toMatch(/labelSprite/);
+    expect(fig).not.toMatch(/f\.name/);
     // `fillText` в кадре осталось ровно одно — таймер прибытия, он меняется
-    // каждую секунду. Имена не меняются вовсе, и им место в спрайте.
-    expect(src).toMatch(/labelSprite\(spot\.f\.name/);
-    expect([...src.matchAll(/fillText\(/g)].length).toBe(1);
+    // каждую секунду, и печь его нельзя.
+    expect([...fig.matchAll(/fillText\(/g)].length).toBe(1);
+    // Кадр карты имена агентов тоже не рисует: рисовальщика подписей нет вовсе.
+    expect(read('frame.ts')).not.toMatch(/drawFigureLabels/);
+    expect(read('agent.ts')).not.toMatch(/labelSprite|bakeLabel/);
+  });
+
+  it('имя агента при этом читается — в панели, в подсказке и в приказах', () => {
+    // Убрать подпись с полотна можно только потому, что имя есть где прочесть.
+    // Пропади оно и оттуда — четыре силуэта стали бы безымянными навсегда.
+    const map = read('WorldMap.tsx');
+    expect(map).toMatch(/<b>\{f\.name\}<\/b>/);
+    expect(map).toMatch(/FIGURE_BY_ID\[picked\]\.name/);
+    expect(read('ActionMenu.tsx')).toMatch(/def\.name/);
+  });
+
+  it('контур толще на мелкой корзине и тоньше на крупной', () => {
+    // Постоянная доля даёт на нижней корзине полпикселя, и силуэт распадается
+    // ровно там, где контур нужнее всего. Внизу он толще в долях и тот же на
+    // экране: доля × корзина — это пиксели, и они не должны падать ниже волоска.
+    for (const b of AGENT_BUCKETS) expect(lineAt(b) * b).toBeGreaterThanOrEqual(0.84);
+    expect(lineAt(AGENT_MIN)).toBeGreaterThan(lineAt(AGENT_MAX));
+    // Вверху лестницы доля перестаёт расти: иначе крупная фигура обросла бы
+    // жирным контуром вместо рисунка.
+    expect(lineAt(AGENT_MAX)).toBe(lineAt(1000));
+  });
+
+  it('разводит фигуры шире, чем сама фигура', () => {
+    // Иначе четверо дома касаются друг друга, а трогать соседа силуэту нельзя:
+    // с уходом подписей соседство — единственное, что мешает узнать каждого.
+    expect(FAN_STEP).toBeGreaterThan(AGENT_SPAN_W);
   });
 
   it('ключ выпечки различает всё, от чего зависит картинка', () => {

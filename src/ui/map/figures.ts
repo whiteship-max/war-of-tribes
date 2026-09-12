@@ -3,13 +3,17 @@
 //
 // **Каждый агент узнаётся силуэтом** (`agent.ts`), а не цветом и не значком в
 // одинаковом кружке: разведчик низкий и в широкой шляпе, дипломат — колокол
-// подола, лазутчик — узкий шип капюшона, полководец — плечи и гребень. Кружки с
+// подола, лазутчик узок и завален назад, полководец — плечи и гребень. Кружки с
 // эмодзи, стоявшие здесь раньше, различались только глифом, а глиф на двадцати
 // пикселях — пятно.
 //
-// Спрайт **испечён** и стоит один `drawImage`; подпись под фигурой — тоже
-// спрайт. Раскладка текста в браузере дороже копирования картинки, и платить за
-// неё шестьдесят раз в секунду не за что: имён четыре, и они не меняются.
+// Спрайт **испечён** и стоит один `drawImage`. Подписи под фигурой нет и заводить
+// её обратно нельзя: имя стояло меткой на местности — четверо дома давали лесенку
+// из четырёх строк поверх собственной деревни, — а отвечало оно на тот самый
+// вопрос, на который обязан отвечать силуэт. Кто это, читается формой; как его
+// зовут, говорят панель агентов, подсказка про фигуру в руке и шапка меню
+// приказов. Совпадение силуэтов после этого меряется числом: `npm run map:report`,
+// раздел «агенты».
 //
 // Полководец с войском рисуется **колонной** (`party.ts`), а сам он встаёт в
 // хвосте её (или сбоку от лагеря) — не поверх и не над. Это не украшение: армия
@@ -20,7 +24,7 @@ import { formatLeft, secondsLeft } from '@/world/geo';
 import { figurePosition } from '@/world/store';
 import type { FigureView } from '@/world/types';
 import { type Camera, type Viewport, toScreen } from './grid';
-import { LABEL_H, agentUnit, drawAgent, dropAgents, fanOffsets, labelSprite } from './agent';
+import { agentUnit, drawAgent, dropAgents, fanOffsets } from './agent';
 import { drawHeading, drawParty, lookOf as partyLook, partyMen } from './party';
 
 /** Цвет фигуры — тот же, что у своего поселения: это всё «своё». */
@@ -194,63 +198,6 @@ export function drawFigures(
     }
     if (chosen) drawPicked(ctx, ax, py, unit);
     drawAgent(ctx, { kind: f.id, west }, unit, dpr, ax, py);
-  }
-}
-
-// ---------- Подписи ----------
-
-/** Занятое подписью место. Тот же прямоугольник, каким меряются имена дворов. */
-export interface Slot {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** Насколько подпись опускается, наткнувшись на занятое место, и сколько раз. */
-const STACK_STEP = LABEL_H;
-const STACK_TRIES = 4;
-
-const hits = (box: Slot, taken: Slot[]): boolean =>
-  taken.some((b) => box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y);
-
-/**
- * Подпись под фигурой — **кто это**, а не где он. «Дома» и «в поле» игрок и так
- * видит: фигура нарисована ровно там, где стоит. А вот который из четырёх это —
- * силуэт говорит быстро, но не безошибочно, и имя закрывает остаток.
- *
- * Наезжать подписям нельзя, и обрезать их на полуслове — тоже (это мы уже
- * чинили в письмах). Поэтому подпись, наткнувшаяся на занятое место, **опускается
- * строкой ниже** и пробует снова: четверо дома дают четыре строки лесенкой, а
- * не кашу. Не нашла места и после четырёх попыток — не рисуется вовсе, тем же
- * правилом, каким молчат имена тесно стоящих дворов.
- *
- * Место она делит с именами поселений (общий `taken`), и зовут её **после** них:
- * своя деревня называется первой, агенты пристраиваются под ней.
- */
-export function drawFigureLabels(
-  ctx: CanvasRenderingContext2D,
-  cam: Camera,
-  vp: Viewport,
-  figures: FigureView[],
-  now: number,
-  dpr: number,
-  taken: Slot[],
-): void {
-  for (const spot of spotsOf(cam, vp, figures, now)) {
-    if (spot.ax < 0 || spot.py < 0 || spot.ax > vp.w || spot.py > vp.h) continue;
-    const sprite = labelSprite(spot.f.name, dpr);
-    let top = spot.py + Math.max(5, spot.unit * 0.17);
-    let box: Slot = { x: spot.ax - sprite.w / 2, y: top, w: sprite.w, h: sprite.h };
-    let tries = 0;
-    while (hits(box, taken) && tries < STACK_TRIES) {
-      top += STACK_STEP;
-      box = { ...box, y: top };
-      tries++;
-    }
-    if (hits(box, taken)) continue;
-    taken.push(box);
-    ctx.drawImage(sprite.canvas, box.x, top, sprite.w, sprite.h);
   }
 }
 
