@@ -18,8 +18,8 @@ import * as THREE from 'three';
 import { PALETTE } from '@/render/palette';
 import { KIT, LEGACY } from '@/render/materials';
 import * as K from '@/render/kit';
-import { makeFarTree, makeLog, makeRock, makeStump, makeTree, vnoise } from '@/render/terrain';
-import { AXE_STUMP, FIRE, GLADE_R, GUEST_FROM, HOUSE, MATE_SPOT, SON_HOUSE, START, TENT, TREES, hash } from './glade';
+import { makeFarTree, makeLog, makeRock, makeTree, vnoise } from '@/render/terrain';
+import { AXE_STUMP, EYE_CLEAR, FIRE, GLADE_R, GUEST_FROM, HOUSE, MATE_SPOT, SON_HOUSE, START, TENT, TREES, hash } from './glade';
 import { HOUSE_LOGS } from './craft';
 import { BOARDS } from './end';
 import { ADDITIVE, mix } from './paint';
@@ -29,6 +29,42 @@ const GROUND_R = 44;
 
 /** Откуда начинается лес: сразу за кромкой поляны. */
 const FOREST_FROM = GLADE_R + 1.2;
+
+/**
+ * Откуда кладётся валежник и камни у кромки.
+ *
+ * Своё число, а не край леса: прежде камень в обхват оказывался на 12.3 м при
+ * досягаемости человека 13 — сквозь него проходили насквозь. Теперь место
+ * выведено из того же правила, что и всё на поляне: тело человека (`BODY_R`) плюс
+ * самое длинное, что тут лежит, — бревно в два с лишним метра, то есть 1.2 от
+ * своей середины.
+ */
+const LITTER_FROM = GLADE_R + 1.6;
+
+/**
+ * Насколько далеко от своей оси торчит самое широкое, что есть у дерева.
+ *
+ * ЭТО И ЕСТЬ ВСЯ ПОЧИНКА СТЕНЫ ЛЕСА, И ОНА УСТРОЙСТВОМ, А НЕ ПОДБОРОМ ЧИСЛА.
+ * Человек доходит до самого края поляны (`GLADE_R`), а крона ближней ели свисает
+ * внутрь на два с половиной метра и начинается ниже головы: глаз оказывался
+ * внутри хвои, и жалоба «камера лезет в дерево» была ровно об этом. Отодвинуть
+ * кольцо на метр не помогает — числа мест выводятся из хеша, и следующая правка
+ * пригонит дерево обратно; поэтому каждое дерево само отходит настолько, чтобы
+ * до края поляны от его кроны оставался просвет (`edgeKeep`).
+ *
+ * Мерка нарочно грубая — самая широкая часть, без разбора высот: дерево, чья
+ * крона и так выше головы, отойдёт лишний метр, и в кадре этого не видно, а
+ * правило остаётся в одну строку и не врёт ни в одном частном случае.
+ */
+function treeReach(kind: 'spruce' | 'broadleaf' | 'snag', scale: number, wide: number): number {
+  if (kind === 'broadleaf') return 1.02 * scale * 0.82 * wide;
+  if (kind === 'snag') return 0.42 * scale * 0.9 * wide;
+  return 0.75 * scale * wide;
+}
+
+/** Ближе этого дерево такого размера у кромки не встанет. */
+const edgeKeep = (kind: 'spruce' | 'broadleaf' | 'snag', scale: number, wide: number): number =>
+  GLADE_R + EYE_CLEAR + treeReach(kind, scale, wide);
 
 /** Докуда его сажаем. Дальше он всё равно в тумане. */
 const FOREST_TO = 38;
@@ -180,27 +216,31 @@ export function forest(shade: Shade): THREE.Group {
     const count = Math.max(8, Math.round(r * 0.75));
     for (let i = 0; i < count; i++) {
       const a = ((i + hash(r * 13, i * 7) * 0.9) / count) * Math.PI * 2;
-      const rr = r + (hash(r * 3, i * 11) - 0.5) * 1.6;
-      if (rr < FOREST_FROM) continue;
-      const x = Math.cos(a) * rr;
-      const z = Math.sin(a) * rr;
+      const jitter = r + (hash(r * 3, i * 11) - 0.5) * 1.6;
+      if (jitter < FOREST_FROM) continue;
       // Рост настоящий: восемь-одиннадцать метров. Прежние трёхметровые читались
       // не лесом, а живой изгородью — поляна от этого казалась полем, а не
       // прогалиной, и верхняя треть экрана оставалась пустым небом.
       const scale = 2.6 + hash(i * 5, r * 9) * 1.4;
+      const pick = hash(i * 17, r * 3);
+      const kind = pick < 0.13 ? 'broadleaf' : pick < 0.18 ? 'snag' : 'spruce';
+      const shape = varyOf(i * 31 + r * 7);
+      // Отходит ровно настолько, чтобы его крона не свисала человеку в лицо.
+      const rr = Math.max(jitter, edgeKeep(kind, scale, shape.wide));
+      const x = Math.cos(a) * rr;
+      const z = Math.sin(a) * rr;
       const far = rr > FAR_FROM;
-      const kind = hash(i * 17, r * 3);
       // Лес — не посадка из одной ёлки. Ближние кольца разбавлены лиственными и
       // сухостоем: у них другой силуэт, и стена перестаёт быть рядом конусов.
       const tree = far
         ? makeFarTree(scale, n)
-        : kind < 0.13
+        : kind === 'broadleaf'
           ? broadleaf(scale * 0.82, n)
-          : kind < 0.18
+          : kind === 'snag'
             ? snag(scale * 0.9, n)
             : makeTree(scale, n);
       put(tree, x, z, hash(i, r) * Math.PI * 2);
-      vary(tree, i * 31 + r * 7);
+      applyVary(tree, shape);
       g.add(tree);
       // Пятно тени под ближними: без него дерево, не отбрасывающее тени, висит над травой.
       if (rr < 24) shade.add(x, z, 0.62 * scale * tree.scale.x, 0.62 * scale * tree.scale.x, hash(i, r * 2));
@@ -210,7 +250,7 @@ export function forest(shade: Shade): THREE.Group {
   // Пара камней и валежник у кромки: опушка не должна быть рядом одинаковых конусов.
   for (let i = 0; i < 9; i++) {
     const a = (i / 9) * Math.PI * 2 + 0.4;
-    const rr = FOREST_FROM - 0.5 - hash(i, 3) * 1.4;
+    const rr = LITTER_FROM + hash(i, 3) * 1.2;
     const o = i % 3 === 0 ? makeRock(0.7 + hash(i, 5) * 0.6) : makeLog(1.4 + hash(i, 7), i);
     put(o, Math.cos(a) * rr, Math.sin(a) * rr, hash(i, 9) * Math.PI * 2);
     g.add(o);
@@ -224,12 +264,31 @@ export function forest(shade: Shade): THREE.Group {
  * Клоны одной ёлки читаются посадкой: одна высота, одна ширина, все стоят
  * отвесно. Разброс по высоте — до полутора раз, по ширине — до трети, наклон —
  * до четырёх градусов: больше читалось бы бурей, меньше не видно.
+ *
+ * Считается отдельно от применения, и это не украшательство: от ширины зависит,
+ * насколько дерево отходит от кромки (`edgeKeep`), — то есть знать её надо
+ * ДО того, как дерево поставлено.
  */
-function vary(o: THREE.Object3D, seed: number): void {
-  const w = 0.84 + hash(seed, 61) * 0.32;
-  o.scale.set(w, 0.8 + hash(seed, 63) * 0.45, w);
-  o.rotation.x = (hash(seed, 65) - 0.5) * 0.14;
-  o.rotation.z = (hash(seed, 67) - 0.5) * 0.14;
+interface Vary {
+  wide: number;
+  tall: number;
+  tiltX: number;
+  tiltZ: number;
+}
+
+function varyOf(seed: number): Vary {
+  return {
+    wide: 0.84 + hash(seed, 61) * 0.32,
+    tall: 0.8 + hash(seed, 63) * 0.45,
+    tiltX: (hash(seed, 65) - 0.5) * 0.14,
+    tiltZ: (hash(seed, 67) - 0.5) * 0.14,
+  };
+}
+
+function applyVary(o: THREE.Object3D, v: Vary): void {
+  o.scale.set(v.wide, v.tall, v.wide);
+  o.rotation.x = v.tiltX;
+  o.rotation.z = v.tiltZ;
 }
 
 /**
@@ -829,21 +888,71 @@ export function axe(): THREE.Mesh {
   return m;
 }
 
-/** Пень на месте сваленного дерева. Деревня рисует такие же. */
-export function stump(x: number, z: number, seed: number): THREE.Group {
-  const g = makeStump(0.9 + hash(seed, 41) * 0.3);
-  put(g, x, z, hash(seed, 43) * Math.PI * 2);
-  return K.collapse(g, K.GROUND_AO);
-}
+/**
+ * Ниже этой высоты у дерева поляны нет ничего, кроме ствола.
+ *
+ * САМОЕ ВАЖНОЕ ЧИСЛО ЭТОГО ФАЙЛА, И ВЫВЕДЕНО ОНО ИЗ ЖАЛОБЫ. К этим семи
+ * деревьям подходят вплотную — рубить, — и круг преграды держит тело в метре с
+ * третью от ствола (`glade.TREE_R` + `glade.BODY_R`). Крона же начиналась на
+ * высоте груди (замер: нижнее кольцо хвои на 1.26–1.6 м) и доставала на два с
+ * половиной метра от ствола: глаз оказывался внутри неё, ближняя плоскость
+ * камеры срезала хвою, и в кадре была вывернутая наизнанку зелень. Расширить
+ * круг было нельзя — от его края считается досягаемость тапа, — значит крону
+ * надо поднять над головой, и ровно это здесь и сделано.
+ *
+ * 2.4 м — рост человека (`glade.EYE` = 1.62) плюс просвет (`glade.EYE_CLEAR`)
+ * плюс запас на завал: кольцо хвои в два с половиной метра, наклонённое на пять
+ * сотых радиана, опускается низким краем ещё на четырнадцать сантиметров.
+ * Проверяется замером по всей поляне, а не расчётом: `npm run prologue:report`.
+ *
+ * Заодно это и разница между деревом поляны и стеной леса: у обжитой стоянки
+ * нижние ветви давно ушли в огонь, и дерево, которое можно свалить, видно с
+ * первого взгляда.
+ */
+const CROWN_FROM = 2.4;
 
-/** Дерево, которое можно свалить: то же, что в лесу, но со своей тенью. */
+/**
+ * Дерево, которое можно свалить.
+ *
+ * Наружная группа — место и то, куда оно валится; внутри сам ствол с кроной. Два
+ * уровня нарочно: падение и рост сцена крутит снаружи (`glade.treeLook`), а
+ * разброс роста, ширины и завала запечён внутри — иначе одно перетирало бы другое.
+ */
 export function choppable(index: number): THREE.Group {
   const t = TREES[index];
-  const g = makeTree(2.3 + hash(index, 51) * 0.6, index);
-  put(g, t.x, t.z, hash(index, 53) * Math.PI * 2);
-  // Тот же разброс роста и наклона, что у леса: семь деревьев поляны — тоже не клоны.
-  vary(g, index * 97 + 5);
-  return K.collapse(g, K.GROUND_AO);
+  // Рост и высота кроны — из хеша поляны: семь деревьев не клоны, а случайности
+  // здесь нет ни одной.
+  const s = 2.2 + hash(index, 51) * 1.0;
+  const from = CROWN_FROM + hash(index, 59) * 0.55;
+  const inner = makeTree(s, index);
+  for (const part of inner.children) {
+    const mesh = part as THREE.Mesh;
+    if (mesh.geometry.type === 'ConeGeometry') {
+      // Крона целиком выше `from`: у `makeTree` её низ на 0.65 от роста.
+      mesh.position.y += from - 0.65 * s;
+    } else {
+      // Ствол дотягивается до кроны: поднятая крона на коротком стволе висела бы
+      // в воздухе. И он потоньше: подойдя вплотную (метр с третью от оси), игрок
+      // смотрит ровно на него, и ствол в обхват заполняет собой весь кадр —
+      // пятьдесят три градуса из пятидесяти. Восемьдесят процентов толщины дают
+      // сорок шесть: по краям остаётся поляна, и видно, где стоишь.
+      const tall = (from + 0.3) / (0.8 * s);
+      mesh.scale.set(0.8, tall, 0.8);
+      mesh.position.y *= tall;
+    }
+  }
+  // Ширина и завал — тот же разброс, что у леса, но без растяжки по высоте: она
+  // опустила бы крону обратно к голове.
+  const w = 0.86 + hash(index, 61) * 0.3;
+  inner.scale.set(w, 1, w);
+  inner.rotation.set((hash(index, 65) - 0.5) * 0.1, hash(index, 53) * Math.PI * 2, (hash(index, 67) - 0.5) * 0.1);
+  K.collapse(inner, K.GROUND_AO);
+  const g = new THREE.Group();
+  g.name = 'tree';
+  g.rotation.order = 'YXZ';
+  g.add(inner);
+  put(g, t.x, t.z);
+  return g;
 }
 
 /** Высота земли в точке — сцене, чтобы ставить упавший ствол и щепу. */
@@ -1021,26 +1130,49 @@ export function arrow(): THREE.Mesh {
  * миллиметров на таком удалении — это одна точка экрана, то есть лука в кадре
  * нет вовсе. Вблизи разница не видна: у камеры лук уменьшен вчетверо.
  */
-export function bow(): THREE.Mesh {
+const BOW_R = 0.62;
+const BOW_SPAN = 2.0;
+
+/** Где концы плеч лука в его собственных осях: от них и натягивается тетива. */
+export const BOW_TIP = {
+  y: Math.sin(BOW_SPAN / 2) * BOW_R,
+  z: BOW_R * (1 - Math.cos(BOW_SPAN / 2)),
+};
+
+export function bow(taut = true): THREE.Mesh {
   const wood = coat(0x7d5a34);
-  const string = coat(0xd8cdb4);
   const parts: K.Part[] = [];
-  const r = 0.62;
-  const span = 2.0;
   const n = 8;
   // Дуга в плоскости YZ: плечи уходят вверх и вниз, а концы наклонены к
   // стрелку — тетива обязана оказаться с его стороны, иначе лук вывернут.
   for (let i = 0; i < n; i++) {
-    const a = -span / 2 + (span * (i + 0.5)) / n;
+    const a = -BOW_SPAN / 2 + (BOW_SPAN * (i + 0.5)) / n;
     parts.push(
-      K.cyl(0.017, 0.021, (r * span) / n + 0.012, wood, 4, 0, Math.sin(a) * r, r * (1 - Math.cos(a)), { x: a }),
+      K.cyl(0.017, 0.021, (BOW_R * BOW_SPAN) / n + 0.012, wood, 4, 0, Math.sin(a) * BOW_R, BOW_R * (1 - Math.cos(a)), { x: a }),
     );
   }
-  const tipY = Math.sin(span / 2) * r;
-  const tipZ = r * (1 - Math.cos(span / 2));
-  parts.push(K.cyl(0.006, 0.006, tipY * 2, string, 3, 0, 0, tipZ));
+  // Тетива прямая — у того, кто просто держит лук. У стрелка она своя, из двух
+  // плеч (`bowLimb`): натянутая тетива это буква V, а не хорда, и склеить её в
+  // общий меш нельзя — она двигается.
+  if (taut) parts.push(K.cyl(0.006, 0.006, BOW_TIP.y * 2, coat(0xd8cdb4), 3, 0, 0, BOW_TIP.z));
   const m = K.assemble(parts);
   m.name = 'bow';
+  m.castShadow = false;
+  return m;
+}
+
+/**
+ * Половина тетивы: отрезок от конца плеча до хвоста стрелы.
+ *
+ * Цилиндр вдоль Y единичной длины с началом в нижнем конце — сцене остаётся
+ * повернуть его к хвосту стрелы и растянуть по длине (`scene.bendString`).
+ * Два таких плеча и есть натянутая тетива; прямой её рисует сам лук.
+ */
+export function bowLimb(): THREE.Mesh {
+  // Через набор, а не голым материалом: цвет у него запечён в вершины, и меш без
+  // атрибута цвета на общем материале набора вышел бы чёрным.
+  const m = K.assemble([K.cyl(0.006, 0.006, 1, coat(0xd8cdb4), 3, 0, 0.5, 0)]);
+  m.name = 'string';
   m.castShadow = false;
   return m;
 }

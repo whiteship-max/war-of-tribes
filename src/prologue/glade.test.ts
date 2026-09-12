@@ -18,6 +18,9 @@ import {
   START,
   TENT,
   TREES,
+  TREE_FALL_MS,
+  TREE_GONE_MS,
+  TREE_GROW_MS,
   TREE_R,
   VIEW_H_MIN,
   VIEW_V_MAX,
@@ -28,6 +31,8 @@ import {
   nearest,
   slide,
   standing,
+  treeLook,
+  treeThere,
   viewFov,
   yawTo,
 } from './glade';
@@ -133,7 +138,7 @@ describe('до чего дотянулись — то и сделаем', () => 
   });
 });
 
-describe('пень зарастает по времени, а не по тику', () => {
+describe('дерево возвращается по времени, а не по тику', () => {
   it('стоит, свалено, отросло', () => {
     expect(standing(0, 0)).toBe(true);
     expect(standing(1000, 1000)).toBe(false);
@@ -142,10 +147,57 @@ describe('пень зарастает по времени, а не по тику
   });
 
   it('поляна не кончается: последнее дерево когда-нибудь вернётся', () => {
-    // Семь пней и погасший костёр — тупик, из которого игрок не выйдет ничем.
+    // Семь пустых мест и погасший костёр — тупик, из которого игрок не выйдет ничем.
     const all = TREES.map(() => 1);
-    expect(blockers(all, 1).length).toBe(3);
+    const gone = 1 + TREE_FALL_MS + TREE_GONE_MS;
+    expect(blockers(all, gone).length).toBe(3);
     expect(blockers(all, 1 + REGROW_MS).length).toBe(3 + TREES.length);
+  });
+
+  it('поляна не лысеет и не зарастает: мест ровно семь, и больше не бывает', () => {
+    // Возврат щедрее расхода: место отдаёт TREE_LOGS полена за REGROW_MS, а
+    // горящий очаг съедает одно за LOG_HOURS. Здесь — что потолок один и тот же
+    // в любую минуту: ни восьмого дерева, ни пустой поляны навсегда.
+    const all = TREES.map(() => 1000);
+    for (const at of [0, 1, TREE_FALL_MS, REGROW_MS - 1, REGROW_MS + 1, REGROW_MS * 3]) {
+      const up = TREES.filter((_, i) => standing(all[i], 1000 + at)).length;
+      expect(up).toBe(at >= REGROW_MS ? TREES.length : 0);
+      expect(up).toBeLessThanOrEqual(TREES.length);
+    }
+    expect(blockers(TREES.map(() => 0), 0).length).toBe(3 + TREES.length);
+  });
+
+  it('валится, уходит и вырастает — и всё это одна отметка времени', () => {
+    const at = 5000;
+    // Стоит.
+    expect(treeLook(0, at)).toEqual({ lean: 0, fade: 1, grow: 1 });
+    // Падает: наклон растёт от нуля до единицы и никуда не пишется.
+    expect(treeLook(at, at).lean).toBe(0);
+    expect(treeLook(at, at + TREE_FALL_MS / 2).lean).toBeCloseTo(0.5, 6);
+    expect(treeLook(at, at + TREE_FALL_MS).lean).toBe(1);
+    // Лежит и уходит.
+    expect(treeLook(at, at + TREE_FALL_MS + TREE_GONE_MS / 2).fade).toBeCloseTo(0.5, 6);
+    // Унесли: на месте пусто, и это видно и по `treeThere`.
+    const empty = at + TREE_FALL_MS + TREE_GONE_MS;
+    expect(treeLook(at, empty).fade).toBe(0);
+    expect(treeThere(at, empty)).toBe(false);
+    expect(treeThere(at, at + TREE_FALL_MS)).toBe(true);
+    // Растёт: от ничего до полного роста, и ни в один миг не возникает разом.
+    expect(treeLook(at, at + REGROW_MS).grow).toBe(0);
+    expect(treeLook(at, at + REGROW_MS + TREE_GROW_MS / 2).grow).toBeCloseTo(0.5, 6);
+    expect(treeLook(at, at + REGROW_MS + TREE_GROW_MS).grow).toBe(1);
+    expect(treeLook(at, at + REGROW_MS + TREE_GROW_MS * 10)).toEqual({ lean: 0, fade: 1, grow: 1 });
+  });
+
+  it('вернулся раньше, чем дерево упало, — оно падает с той же секунды', () => {
+    // Срок падения выводится из `felled[i]`, а не из времени сцены: поля «на
+    // какой я секунде падения» в записи нет и заводить его нельзя.
+    const at = 100_000;
+    const half = treeLook(at, at + TREE_FALL_MS * 0.4).lean;
+    expect(half).toBeGreaterThan(0);
+    expect(half).toBeLessThan(1);
+    // Часы назад не идут: отрицательный возраст читается как «стоит».
+    expect(treeLook(at, at - 1000).lean).toBe(0);
   });
 });
 
@@ -184,12 +236,22 @@ describe('в преграды не входят, а обходят их', () => 
     expect(Math.hypot(p.x, p.z)).toBeCloseTo(GLADE_R, 6);
   });
 
-  it('пень преградой не считается: через него перешагивают', () => {
+  it('на месте унесённого дерева пусто: там ходят', () => {
+    // Пня больше не остаётся, и это не косметика: он был единственной вещью на
+    // поляне без круга — «через пень перешагивают», — и камера заходила ровно в него.
     const felled = TREES.map(() => 1);
+    const gone = 1 + TREE_FALL_MS + TREE_GONE_MS;
     const t = TREES[0];
-    const p = slide(t.x, t.z, blockers(felled, 1));
+    const p = slide(t.x, t.z, blockers(felled, gone));
     expect(p.x).toBeCloseTo(t.x, 6);
     expect(p.z).toBeCloseTo(t.z, 6);
+  });
+
+  it('падающее дерево — ещё преграда: комель стоит на месте', () => {
+    const felled = TREES.map(() => 1);
+    const t = TREES[0];
+    const p = slide(t.x, t.z, blockers(felled, 1 + TREE_FALL_MS / 2));
+    expect(Math.hypot(p.x - t.x, p.z - t.z)).toBeCloseTo(TREE_R + BODY_R, 6);
   });
 });
 

@@ -64,6 +64,7 @@ import { launchChrome, sleep, Tab } from './lib/chrome';
 import { BURN_FULL_MS, HEARTH_CAP, KEEP_BURN, LOG_HOURS, LOG_MS, burnLeftMs } from '../src/prologue/fire';
 import {
   AXE_STUMP,
+  BODY_R,
   CHOPS_TO_FELL,
   FIRE,
   GLADE_R,
@@ -72,14 +73,20 @@ import {
   MATE_R,
   MATE_SPOT,
   REACH,
+  EYE,
+  EYE_CLEAR,
   REGROW_MS,
   SON_HOUSE,
   SON_SPOT,
   TENT,
   TREES,
+  TREE_FALL_MS,
+  TREE_GONE_MS,
+  TREE_GROW_MS,
   TREE_LOGS,
   WALK_SPEED,
   WARM_R,
+  standing,
 } from '../src/prologue/glade';
 import {
   ARRIVAL_COLD,
@@ -116,6 +123,7 @@ import { ARROWS_START, CARCASS_H, DEER_ALERT, DEER_BODY_R, DEER_FLEE, DEER_GAP_H
 import { ROAST_COST } from '../src/prologue/act';
 import {
   BEAT,
+  BLINKS,
   BOARDS,
   FOE_REACH,
   FOE_TURN_MS,
@@ -234,6 +242,8 @@ const PROBE = `
   if (!pro()) throw new Error('нет window.__pro — предыстория не открыта или страница без ?probe=1');
   let stamps = [];
   let watching = false;
+  let tape = [];
+  let taping = false;
   // Щелчки по луку считаются у окна на погружении и раньше всех: тогда видно,
   // дошло ли касание до кнопки, даже если щелчок потом кто-то перехватит.
   let bowClicks = 0;
@@ -413,6 +423,139 @@ const PROBE = `
         return JSON.stringify({});
       }
     },
+
+    /**
+     * Ближайшая к глазу геометрия во всей достижимой поляне.
+     *
+     * ЭТО ПРОВЕРКА ЖАЛОБЫ «КАМЕРА ЛЕЗЕТ ВНУТРЬ», И МЕРИТ ОНА ИМЕННО ЕЁ. Круги
+     * преград держат тело; смотрит же человек глазом, и глаз — точка, до которой
+     * от коры может остаться ноль. Поэтому берётся сетка точек по всей поляне,
+     * каждая приводится тем же «slide», каким ходит игрок, и от глаза в ней
+     * считается расстояние до ближайшего треугольника мира.
+     *
+     * Что мерить, говорит сама сцена («pro.solids()»): небо, вещь в руке,
+     * непогода, искры и всё живое из списка исключены ею, а не здесь.
+     * Треугольники разложены по клеткам метр на метр — иначе на каждую из
+     * тысяч точек пришлось бы перебирать все шестнадцать тысяч.
+     */
+    clearance(step, eye, far, cx, cz) {
+      const tris = [];
+      for (const o of pro().solids()) {
+        o.updateWorldMatrix(true, false);
+        const pos = o.geometry && o.geometry.attributes && o.geometry.attributes.position;
+        if (!pos) continue;
+        const idx = o.geometry.index;
+        const n = idx ? idx.count : pos.count;
+        const e = o.matrixWorld.elements;
+        let group = o.name;
+        for (let up = o.parent; up && !group; up = up.parent) group = up.name;
+        const at = (i) => {
+          const j = idx ? idx.getX(i) : i;
+          const x = pos.getX(j), y = pos.getY(j), z = pos.getZ(j);
+          return [
+            e[0]*x + e[4]*y + e[8]*z + e[12],
+            e[1]*x + e[5]*y + e[9]*z + e[13],
+            e[2]*x + e[6]*y + e[10]*z + e[14],
+          ];
+        };
+        for (let i = 0; i + 2 < n; i += 3) tris.push([at(i), at(i + 1), at(i + 2), group || 'без имени']);
+      }
+      const grid = new Map();
+      const key = (i, j) => i + ',' + j;
+      for (const t of tris) {
+        const i0 = Math.floor(Math.min(t[0][0], t[1][0], t[2][0]));
+        const i1 = Math.floor(Math.max(t[0][0], t[1][0], t[2][0]));
+        const j0 = Math.floor(Math.min(t[0][2], t[1][2], t[2][2]));
+        const j1 = Math.floor(Math.max(t[0][2], t[1][2], t[2][2]));
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+          const k = key(i, j);
+          let arr = grid.get(k);
+          if (!arr) grid.set(k, (arr = []));
+          arr.push(t);
+        }
+      }
+      const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+      const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+      const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+      const len = (a) => Math.hypot(a[0], a[1], a[2]);
+      // Расстояние от точки до треугольника: разбор по семи областям Эберли.
+      const near = (p, a, b, c) => {
+        const ab = sub(b, a), ac = sub(c, a), ap = sub(p, a);
+        const d1 = dot(ab, ap), d2 = dot(ac, ap);
+        if (d1 <= 0 && d2 <= 0) return len(ap);
+        const bp = sub(p, b);
+        const d3 = dot(ab, bp), d4 = dot(ac, bp);
+        if (d3 >= 0 && d4 <= d3) return len(bp);
+        const vc = d1*d4 - d3*d2;
+        if (vc <= 0 && d1 >= 0 && d3 <= 0) return len(sub(p, [a[0]+ab[0]*(d1/(d1-d3)), a[1]+ab[1]*(d1/(d1-d3)), a[2]+ab[2]*(d1/(d1-d3))]));
+        const cp = sub(p, c);
+        const d5 = dot(ab, cp), d6 = dot(ac, cp);
+        if (d6 >= 0 && d5 <= d6) return len(cp);
+        const vb = d5*d2 - d1*d6;
+        if (vb <= 0 && d2 >= 0 && d6 <= 0) return len(sub(p, [a[0]+ac[0]*(d2/(d2-d6)), a[1]+ac[1]*(d2/(d2-d6)), a[2]+ac[2]*(d2/(d2-d6))]));
+        const va = d3*d6 - d5*d4;
+        if (va <= 0 && (d4-d3) >= 0 && (d5-d6) >= 0) {
+          const w = (d4-d3) / ((d4-d3) + (d5-d6));
+          return len(sub(p, [b[0]+(c[0]-b[0])*w, b[1]+(c[1]-b[1])*w, b[2]+(c[2]-b[2])*w]));
+        }
+        const nn = cross(ab, ac);
+        const l = len(nn);
+        return l < 1e-12 ? len(ap) : Math.abs(dot(nn, ap)) / l;
+      };
+      const worst = new Map();
+      let all = { d: 99, who: 'ничего', x: 0, z: 0 };
+      let points = 0;
+      for (let x = cx - far; x <= cx + far; x += step) {
+        for (let z = cz - far; z <= cz + far; z += step) {
+          if (Math.hypot(x - cx, z - cz) > far) continue;
+          const p = pro().walkTo(x, z);
+          points++;
+          const ci = Math.floor(p.x), cj = Math.floor(p.z);
+          let best = 99, who = 'ничего';
+          for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+            const arr = grid.get(key(ci+di, cj+dj));
+            if (!arr) continue;
+            for (const t of arr) {
+              const d = near([p.x, eye, p.z], t[0], t[1], t[2]);
+              if (d < best) { best = d; who = t[3]; }
+            }
+          }
+          const had = worst.get(who);
+          if (!had || best < had.d) worst.set(who, { d: best, x: p.x, z: p.z });
+          if (best < all.d) all = { d: best, who, x: p.x, z: p.z };
+        }
+      }
+      const rows = [];
+      for (const [who, v] of worst) rows.push({ who, d: v.d, x: Math.round(v.x * 100) / 100, z: Math.round(v.z * 100) / 100 });
+      rows.sort((a, b) => a.d - b.d);
+      return JSON.stringify({ tris: tris.length, points, worst: all, rows });
+    },
+    /**
+     * Запись век кадр за кадром.
+     *
+     * Моргание короче, чем круг опроса через отладочный порт: смыкание 140 мс,
+     * закрыты 60. Спрашивая с той стороны, его можно не застать ни разу — и
+     * «морганий нет» было бы фактом о стенде. Поэтому веки пишутся в странице,
+     * на каждом кадре, а стенд забирает ленту целиком и считает по ней.
+     */
+    lids(on) {
+      if (on) {
+        tape = [];
+        taping = true;
+        const tick = () => {
+          if (!taping) return;
+          const el = document.querySelector('.pro-blind');
+          const top = el && el.children[1];
+          tape.push([Math.round(performance.now()), top ? parseFloat(top.style.height || '0') : -1]);
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        return JSON.stringify('ok');
+      }
+      taping = false;
+      return JSON.stringify(tape);
+    },
+
     /** Занята ли точка касания разметкой: под пальцем обязана быть канва. */
     free(x, y) {
       const el = document.elementFromPoint(x, y);
@@ -791,6 +934,91 @@ async function report(): Promise<void> {
   row('смерть от волков', `не раньше ${EARLIEST_DEATH_MS / 1000} с`, `${WOLF_BITES} укусов целому; первый — не раньше ${EARLIEST_BITE_MS / 1000} с`);
   console.log('');
 
+  // ---------- 0в. Столкновение: куда лезет камера ----------
+  //
+  // Отвечает на жалобу «камера оказалась внутри пня» — и отвечает про ВСЁ, что
+  // стоит на поляне, а не про пень. Мерка одна: сколько остаётся от глаза до
+  // ближайшего треугольника мира в самой неудачной точке, куда игрок может
+  // встать. Ниже ближней плоскости камеры (0.05 м) видно изнанку; ниже
+  // `EYE_CLEAR` экран заполняет одно пятно, и это тоже «внутри».
+  console.log('0в. Столкновение: докуда глаз подпускает мир\n');
+  {
+    /*
+     * Высоты глаза три, и обходы у них разные.
+     *
+     * Стоящий и идущий ходят по всей поляне — их и надо мерить целиком. Упавший
+     * же лежит в одном известном месте: он кладёт пятую доску у сруба сына и
+     * падает там, где стоял (`SON_HOUSE`). Гонять его глаз по всей поляне
+     * значило бы требовать просвета там, куда он не попадает никогда, — и
+     * первым же кустом у кромки объявить поломку там, где её нет.
+     */
+    const eyes: { name: string; y: number; cx: number; cz: number; far: number }[] = [
+      { name: 'глаз стоящего', y: EYE, cx: 0, cz: 0, far: GLADE_R + 1 },
+      { name: 'он же в шаге (качание)', y: EYE - 0.025, cx: 0, cz: 0, far: GLADE_R + 1 },
+      { name: 'глаз упавшего (у сруба)', y: 0.85, cx: SON_HOUSE.x, cz: SON_HOUSE.z, far: SON_HOUSE.r + BODY_R + REACH },
+    ];
+    let worstAll = Infinity;
+    for (const e of eyes) {
+      const c = await tab.eval<{
+        tris: number;
+        points: number;
+        worst: { d: number; who: string; x: number; z: number };
+        rows: { who: string; d: number; x: number; z: number }[];
+      }>(`window.__probe.clearance(0.25, ${e.y}, ${num(e.far, 2)}, ${num(e.cx, 2)}, ${num(e.cz, 2)})`);
+      worstAll = Math.min(worstAll, c.worst.d);
+      console.log(
+        `  ${pad(e.name, 24)} худшее ${num(c.worst.d, 2)} м у «${c.worst.who}» в (${num(c.worst.x, 1)}, ${num(c.worst.z, 1)}) — ${c.points} точек, ${c.tris} треугольников`,
+      );
+      for (const r of c.rows.slice(0, 5)) console.log(`      ${pad(r.who, 12)} ${num(r.d, 2)} м  в (${num(r.x, 1)}, ${num(r.z, 1)})`);
+    }
+    console.log('  Трава и кусты в счёт идут наравне со стеной: сквозь них ходят, но глаз в них тоже не лезет.');
+    step('глаз не заходит в геометрию', worstAll > 0.05, `худшее по всем высотам ${num(worstAll, 2)} м при ближней плоскости 0.05`);
+    step('и не утыкается в неё', worstAll >= EYE_CLEAR * 0.9, `просвет ${num(worstAll, 2)} м при мерке ${EYE_CLEAR} м`);
+  }
+  console.log('');
+
+  // ---------- 0г. Поляна: сколько деревьев и как быстро возвращаются ----------
+  console.log('0г. Поляна не лысеет и не зарастает\n');
+  {
+    const perHour = (TREES.length * TREE_LOGS) / (REGROW_MS / H);
+    const burn = 1 / LOG_HOURS;
+    row('мест под деревья', String(TREES.length), 'больше не бывает никогда: потолок — это и есть «не зарастает»');
+    row('срубленное', `падает ${TREE_FALL_MS / 1000} с`, `и уходит за ${TREE_GONE_MS / 1000} с; пня не остаётся`);
+    row('новое на том же месте', `через ${REGROW_MS / H} ч`, `встаёт за ${TREE_GROW_MS / 1000} с, на чтении из одной отметки`);
+    row('поляна отдаёт', `${num(perHour, 2)} полена в час`, `очаг съедает ${num(burn, 2)} — запас в ${num(perHour / burn, 0)} раз`);
+    row('свалить все семь', `${TREES.length * TREE_LOGS} полен`, `= ${TREES.length * TREE_LOGS * LOG_HOURS} ч огня; голой поляна стоит не дольше ${REGROW_MS / H} ч`);
+    /*
+     * ПРОГОН, А НЕ РАССУЖДЕНИЕ. Играем месяц: очаг ест полено за `LOG_HOURS`,
+     * человек валит дерево, когда дрова в руках кончились. Считаем две вещи —
+     * заставал ли он поляну без единого дерева и оставался ли без дров.
+     */
+    const felled = TREES.map(() => 0);
+    let logs = 0;
+    let cut = 0;
+    let bald = 0;
+    let dry = 0;
+    const MONTH = 30 * 24 * H;
+    for (let t = 0; t <= MONTH; t += 60_000) {
+      logs -= 1 / (LOG_HOURS * 60);
+      const up = TREES.filter((_, i) => standing(felled[i], t)).length;
+      if (up > TREES.length) throw new Error('деревьев стало больше, чем мест');
+      if (up === 0) bald += 1;
+      if (logs <= 0) {
+        const free = TREES.findIndex((_, i) => standing(felled[i], t));
+        if (free < 0) dry += 1;
+        else {
+          felled[free] = t;
+          logs += TREE_LOGS;
+          cut++;
+        }
+      }
+    }
+    row('месяц игры «жгу и рублю»', `${cut} деревьев`, `поляна без единого дерева ${bald} мин из ${MONTH / 60_000}, без дров ${dry} мин`);
+    row('срубил всё разом', `${TREES.length * TREE_LOGS} полен в руках`, `= ${TREES.length * TREE_LOGS * LOG_HOURS} ч огня; следующее дерево через ${REGROW_MS / H} ч`);
+    step('поляна не кончается: рубит, сколько жжёт, и не остаётся ни без дерева, ни без дров', bald === 0 && dry === 0, `пусто ${bald} мин, без дров ${dry} мин за месяц`);
+  }
+  console.log('');
+
   // ---------- 1. Палец ----------
   await screen(SCREENS[0]);
   await sleep(600);
@@ -958,18 +1186,30 @@ async function report(): Promise<void> {
   );
 
   if (found) {
+    // Вплотную к дереву, глаз задран: сюда и заходила камера, пока крона
+    // начиналась на высоте груди. Смотреть глазами — число даёт раздел 0б.
+    await tab.eval<string>('(() => { window.__pro.pitch = 0.26; return JSON.stringify("ok"); })()');
+    await sleep(400);
+    await shoot('1в-вплотную-к-дереву');
+    await tab.eval<string>('(() => { window.__pro.pitch = -0.06; return JSON.stringify("ok"); })()');
     for (let i = 0; i < CHOPS_TO_FELL; i++) {
       await tap(190, 400);
       // Замах длится, и следующий удар до его конца не принимается — это правило,
       // а не задержка стенда: ждём столько же, сколько ждёт игрок.
       await sleep(750);
     }
+    // Падение: полторы секунды от последнего удара, и снимок — на его середине.
+    await sleep(TREE_FALL_MS * 0.45);
+    await shoot('1г-дерево-валится');
     const felled = await state();
     step(
       `${CHOPS_TO_FELL} тапа свалили дерево`,
       felled.logs === 3,
       `дров в руках: ${felled.logs}, у дерева теперь «${felled.label}»`,
     );
+    // И место, где оно стояло: пня там нет — на этом и была жалоба.
+    await sleep(TREE_FALL_MS + TREE_GONE_MS);
+    await shoot('1д-место-пусто');
   }
 
   // Возвращаемся к костру. Он в середине поляны, значит идти надо на неё.
@@ -2393,6 +2633,9 @@ async function report(): Promise<void> {
   await capture('25-подошли-к-своим');
 
   await untilBeat('lead', 12_000);
+  // Веки пишутся с первого кадра «уводят» и до чёрного экрана: моргание короче
+  // круга опроса, и застать его отсюда нельзя — только лентой из страницы.
+  await tab.eval<string>('window.__probe.lids(true)');
   await sleep(BEAT.lead * 0.25);
   const led = await fin();
   await capture('26-уводят');
@@ -2414,6 +2657,7 @@ async function report(): Promise<void> {
   await sleep(BEAT.blind * 0.3);
   const eyes = await fin();
   await capture('28-глаза-закрываются');
+
   step(
     'веки сходятся, но не разом: между ними ещё видно',
     eyes.lid > 0 && eyes.lid < 50,
@@ -2429,6 +2673,50 @@ async function report(): Promise<void> {
     over && done.black.includes(OVER_SAYS) && done.black.includes('Ратибор'),
     `«${done.black.trim().replace(/\s+/g, ' ').slice(0, 70)}»`,
   );
+  /*
+   * МОРГАНИЕ — САМЫЙ ВАЖНЫЙ КАДР РЕЖИМА, И МЕРИТСЯ ОН ЛЕНТОЙ, А НЕ ГЛАЗОМ.
+   * Жалоба была прямой: «непонятно, что герой моргает». Понятно это ровно тогда,
+   * когда веки СМЫКАЮТСЯ ДО КОНЦА и между смыканиями РАСКРЫВАЮТСЯ ДО КОНЦА, —
+   * и ни то, ни другое не проверить, спрашивая страницу раз в сотню
+   * миллисекунд. Лента пишется на каждом кадре, здесь по ней и считается: сколько
+   * раз веки сходились целиком и открывались ли глаза между ними.
+   */
+  // Кадры, в которых слоя век нет вовсе (−1), в счёт не идут: на чёрном экране
+  // финала его уже сняли, и «веки открылись» там значило бы не то.
+  const tape = (await tab.eval<[number, number][]>('window.__probe.lids(false)')).filter(([, lid]) => lid >= 0);
+  const SHUT_AT = 51;
+  const OPEN_AT = 1;
+  let blinks = 0;
+  let openBetween = 0;
+  let shut = false;
+  let sawOpen = true;
+  let last = 0;
+  for (const [t, lid] of tape) {
+    last = t;
+    if (lid >= SHUT_AT && !shut) {
+      shut = true;
+      if (sawOpen) blinks++;
+      sawOpen = false;
+    }
+    if (lid <= OPEN_AT && shut) {
+      shut = false;
+      sawOpen = true;
+      openBetween++;
+    }
+  }
+  const tail = tape.filter(([t]) => t > last - 800);
+  const endShut = tail.length > 0 && tail.every(([, lid]) => lid >= SHUT_AT);
+  step(
+    'моргает отчётливо: веки сходятся до конца, и таких раз около пяти',
+    blinks >= 5,
+    `полных смыканий ${blinks} за ${num((last - tape[0][0]) / 1000)} с ленты в ${tape.length} кадров`,
+  );
+  step(
+    'между морганиями глаза открыты, а не приоткрыты',
+    openBetween >= BLINKS.length - 1,
+    `полных раскрытий ${openBetween}; между ними и видно, как уводят сына`,
+  );
+  step('и в конце закрываются насовсем', endShut, endShut ? 'последние 0.8 с ленты веки сомкнуты' : 'в конце веки не сомкнуты');
   const kept = await tab.eval<{ end?: { stage?: string }; heir?: { name?: string } }>('window.__probe.saved()');
   step(
     'в записи — ступень «кончено» и имя, которое возьмёт основная игра',

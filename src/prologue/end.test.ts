@@ -3,6 +3,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BEAT,
+  BLINKS,
+  BLINK_HELD,
+  BLINK_LAST_AT,
+  BLINK_LAST_MS,
+  BLINK_OPEN,
+  BLINK_SHUT,
   BOARDS,
   FOE_HIT,
   FOE_HIT_GAP,
@@ -32,6 +38,7 @@ import {
   finaleMs,
   frameDone,
   newEnd,
+  vision,
   type Beat,
   type EndState,
 } from './end';
@@ -464,5 +471,85 @@ describe('что финал помнит между заходами', () => {
     expect(loadPrologue(NOW).end).toEqual(newEnd());
     store.set('tribe.prologue.v1', JSON.stringify({ v: 1, hearth: { fuel: 3, at: NOW - 5 }, end: { stage: 'победа', boards: 99 } }));
     expect(loadPrologue(NOW).end).toEqual({ ...newEnd(), boards: BOARDS });
+  });
+});
+
+describe('моргание перед концом: пять раз, и между ними видно сцену', () => {
+  /** Веки на `since` от начала «уводят» — сквозь тот же `vision`, каким смотрит сцена. */
+  const lid = (since: number): number =>
+    since < BEAT.lead ? vision('lead', since).lid : vision('blind', since - BEAT.lead).lid;
+
+  it('морганий ровно пять, и каждое смыкает веки до конца', () => {
+    // «Непонятно, что герой моргает» — жалоба была ровно об этом: веки сходились
+    // на 0.8 и приоткрывались до четверти. Моргание — это полное смыкание и
+    // полное раскрытие, и меньшее читается миганием темноты, а не глазами.
+    expect(BLINKS.length).toBe(5);
+    for (const at of BLINKS) {
+      expect(lid(at)).toBeCloseTo(0, 6);
+      expect(lid(at + BLINK_SHUT)).toBe(1);
+      expect(lid(at + BLINK_SHUT + BLINK_HELD)).toBe(1);
+      expect(lid(at + BLINK_SHUT + BLINK_HELD + BLINK_OPEN)).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('между морганиями глаза открыты, а не приоткрыты', () => {
+    for (let i = 0; i + 1 < BLINKS.length; i++) {
+      const gap = BLINKS[i + 1] - (BLINKS[i] + BLINK_SHUT + BLINK_HELD + BLINK_OPEN);
+      // Пауза заметная: меньше полусекунды читалось бы дрожью, а не паузой.
+      expect(gap).toBeGreaterThan(500);
+      const mid = BLINKS[i] + BLINK_SHUT + BLINK_HELD + BLINK_OPEN + gap / 2;
+      expect(lid(mid)).toBe(0);
+    }
+  });
+
+  it('моргания успевают уложиться в «уводят» и последнее смыкание идёт после них', () => {
+    // Между ними видно то, ради чего сцена и написана: как уводят сына. Значит все
+    // пять обязаны случиться ДО последнего смыкания, а не после.
+    for (const at of BLINKS) expect(at + BLINK_SHUT + BLINK_HELD + BLINK_OPEN).toBeLessThan(BLINK_LAST_AT);
+    // И само смыкание обязано успеть до конца сцены: недосмотренное закрытие
+    // оборвалось бы чёрным экраном на полуслове.
+    expect(BLINK_LAST_AT + BLINK_LAST_MS).toBeLessThan(BEAT.lead + BEAT.blind);
+  });
+
+  it('последнее смыкание плавное и насовсем', () => {
+    const from = BLINK_LAST_AT;
+    let last = -1;
+    for (let k = 0; k <= 1.001; k += 0.05) {
+      const v = lid(from + BLINK_LAST_MS * k);
+      expect(v).toBeGreaterThanOrEqual(last);
+      last = v;
+    }
+    expect(lid(from + BLINK_LAST_MS)).toBe(1);
+    // И больше не открывается: до самого конца сцены веки сомкнуты.
+    for (let t = from + BLINK_LAST_MS; t <= BEAT.lead + BEAT.blind; t += 100) expect(lid(t)).toBe(1);
+  });
+
+  it('дымка растёт ровно и не закрывает кадр раньше времени', () => {
+    const track: number[] = [];
+    for (const [b, span] of [
+      ['fall', BEAT.fall],
+      ['take', BEAT.take],
+      ['lead', BEAT.lead],
+      ['blind', BEAT.blind],
+    ] as const) {
+      for (let t = 0; t <= span; t += span / 10) track.push(vision(b, t).haze);
+    }
+    for (let i = 1; i < track.length; i++) expect(track[i]).toBeGreaterThanOrEqual(track[i - 1] - 1e-9);
+    // До «уводят» зрение ещё почти цело, к концу — почти ничего.
+    expect(vision('fall', 0).haze).toBeLessThan(0.2);
+    expect(vision('lead', BEAT.lead / 2).haze).toBeLessThan(0.65);
+    expect(vision('blind', BEAT.blind).haze).toBeGreaterThan(0.9);
+    // А до падения зрение не меркнет вовсе: драка идёт открытыми глазами.
+    expect(vision('fight', 0)).toEqual({ haze: 0, lid: 0, black: 0 });
+    expect(vision('aim', 500).haze).toBe(0);
+  });
+
+  it('сомкнувшиеся веки оставляют чёрный экран, а не щель', () => {
+    expect(vision('lead', 0).black).toBe(0);
+    expect(vision('blind', BEAT.blind).black).toBe(1);
+    // Чернота приходит не раньше, чем веки почти сошлись: иначе она погасила бы
+    // сцену прежде самого моргания.
+    const early = vision('blind', BLINK_LAST_AT - BEAT.lead + BLINK_LAST_MS * 0.4);
+    expect(early.black).toBe(0);
   });
 });

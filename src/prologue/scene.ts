@@ -82,7 +82,8 @@ import {
   hash,
   nearest,
   slide,
-  standing,
+  treeLook,
+  treeThere,
   yawTo,
   VIEW_V_MIN,
   viewFov,
@@ -185,7 +186,9 @@ import {
   arrow as arrowModel,
   axe as axeModel,
   blob,
+  BOW_TIP,
   bow as bowModel,
+  bowLimb,
   campfire,
   carcass as carcassModel,
   choppable,
@@ -194,9 +197,9 @@ import {
   forest,
   frame as frameModel,
   gladeGround,
+  groundAt,
   groundShade,
   house as houseModel,
-  stump,
   tent,
   undergrowth,
   wolf as wolfModel,
@@ -232,8 +235,10 @@ import {
   familyDone,
   familyHere,
   frameDone,
+  vision,
   type Beat,
   type EndStage,
+  type Vision,
 } from './end';
 import { applyCheat } from './cheat';
 import { CHEAT_NO, cheatOf } from '@/cheats';
@@ -504,11 +509,33 @@ const WIND_DIR = { x: 0.8, z: -0.6 };
  * метров, и там решает угол, а не ладонь.
  */
 const ARM_AXE = { grip: [0, -0.005, 0.0], dir: [0.25, -0.9, 0.35], handle: [0, 0, -1] } as const;
-const ARM_BOW_LOW = { dir: [-0.15, -0.95, 0.3] } as const;
-const ARM_BOW_DRAWN = { dir: [-0.3, -0.55, 0.78] } as const;
+/*
+ * ЛУК ДЕРЖАТ ЛЕВОЙ, И ВИДНО ЭТО ПО ПРЕДПЛЕЧЬЮ, А НЕ ПО КУЛАКУ. Кулак слеплен
+ * одинаковым на обе руки — он призма вокруг ручки, — значит «левая это или
+ * правая» игрок читает ровно по тому, в какой край кадра уходит рука. Прежнее
+ * направление (−0.3, −0.55, 0.78) вело её почти на камеру: рука выходила из
+ * середины груди, и лук читался «в правой». Теперь она уходит в левый край
+ * (−0.85), и сомнений нет.
+ */
+const ARM_BOW_LOW = { dir: [-0.85, -0.6, 0.25] } as const;
+const ARM_BOW_DRAWN = { dir: [-0.9, -0.42, 0.3] } as const;
+/** А тетиву тянет правая, и она уходит в правый край — у скулы. */
+const ARM_BOW_PULL = { dir: [0.9, -0.5, 0.28] } as const;
 
 /** Насколько поднимается и опускается голова при ходьбе, метры. */
 const CAM_BOB = 0.025;
+
+/**
+ * Падение дерева: докуда его заваливает и как оно потом уходит с поляны.
+ *
+ * Не до отвеса (1.57), а на 1.48 — восемьдесят пять градусов: дерево в обхват
+ * ложится на свои же ветки, и вогнанное ровно в землю читалось бы вбитым в неё.
+ * Уход — вниз и в уменьшение: так дешевле всего (прозрачность стоила бы своей
+ * копии материала и новой программы шейдера на каждое дерево) и так не видно шва.
+ */
+const LEAN_MAX = 1.48;
+const GONE_SCALE = 0.12;
+const GONE_SINK = 1.4;
 
 /**
  * Где топор лежит в покое — от него же считается и замах.
@@ -636,6 +663,9 @@ const FOE_POSE = { stand: 0.06, swing: -1.95, hit: -0.25, aim: -0.75, carry: 0.5
 const FOE_BOW_CARRY = { along: [0.97, 0, 0.24], up: [0.28, 0.96, 0] } as const;
 const FOE_BOW_AIM = { along: [0.2, 0.05, 0.98], up: [0.34, 0.94, 0] } as const;
 
+/** Сколько валится положенный, миллисекунды. Время сцены целиком. */
+const FOE_DOWN_MS = 450;
+
 /** Сколько идёт замах и сколько — удар, миллисекунды. Время сцены целиком. */
 const FOE_SWING_MS = 420;
 const FOE_HIT_MS = 260;
@@ -670,29 +700,91 @@ function aimBowInHand(bow: THREE.Object3D, k: number, shoulder: number): void {
 }
 
 /**
- * Лук в левой руке: опущенный и натянутый.
+ * Лук в левой руке: только что вынутый и натянутый.
  *
- * Числа той же природы, что у топора, и подобраны тем же способом — на экране
- * 375×812 при прежних 72°, где по горизонтали оставалось ±18.5°; при нынешнем
- * угле они раздвинуты на `viewK`, как у топора. Опущенный лук стоит у левого
- * края и повёрнут плашмя; натянутый выходит к середине и встаёт прямо, но не в
- * саму середину: перекрестье должно остаться видно, а рука — не заслонить
- * зверя, в которого целятся.
+ * Числа той же природы, что у топора, и подобраны тем же способом — снимками
+ * 375×812; при нынешнем угле они раздвинуты на `viewK`, как у топора.
+ *
+ * ПОВОРОТ ПО Y БЫЛ 0.85 — СОРОК ДЕВЯТЬ ГРАДУСОВ, — И ЭТО И ЕСТЬ «НЕ ТОЙ
+ * СТОРОНОЙ». Лук — плоская вещь: дуга, тетива и стрела лежат в одной плоскости.
+ * Развернув его на полсотни градусов, мы вынули стрелу из этой плоскости, и её
+ * пришлось возвращать обратным поворотом — то есть стрела шла сквозь лук, а не
+ * по тетиве. Плоскость лука обязана СОДЕРЖАТЬ направление выстрела, значит
+ * поворот у неё маленький: ровно тот завал, с которым лучник и держит лук, чтобы
+ * видеть цель над кулаком. Отсюда 0.3 — семнадцать градусов; на них стрела
+ * ложится на тетиву, а дуга остаётся видна дугой.
+ *
+ * `rz` — тот же завал по крену, `rx` — чуть задранное верхнее плечо: так лук
+ * держат, и так он не закрывает перекрестье.
  */
-const BOW_LOW = { x: -0.18, y: -0.38, z: -0.86, rx: 0.15, ry: 0.5, rz: 0.85 };
-const BOW_DRAWN = { x: -0.125, y: -0.12, z: -0.70, rx: 0, ry: 0.85, rz: 0.04 };
-
-/** За сколько миллисекунд лук выходит из опущенного в натянутый. Время сцены. */
-const DRAW_MS = 260;
+const BOW_LOW = { x: -0.23, y: -0.49, z: -1.12, rx: 0.12, ry: 0.45, rz: 0.5 };
+const BOW_DRAWN = { x: -0.11, y: -0.18, z: -1.05, rx: 0.04, ry: 0.5, rz: 0.12 };
 
 /**
- * Насколько уменьшен лук в руке.
+ * Где в осях лука лежит хвост стрелы: на тетиве и при полном натяге.
  *
- * Меньше топора, и не по прихоти: топор висит сбоку и заслоняет угол, а
- * натянутый лук выходит к середине — туда, где игрок целится. Дуга в полэкрана
- * закрывала бы собой зверя, ради которого её и подняли.
+ * ТЕТИВА У ЛУКА НА +Z, ТО ЕСТЬ К СЕБЕ, и это не выбор, а сама модель
+ * (`models.bow`): плечи уходят вверх и вниз, концы наклонены к стрелку. Значит
+ * хвост стрелы едет по +Z — назад, к скуле, — а наконечник остаётся у дуги.
+ * Больше, чем на треть длины лука, тянуть нельзя: кулак уехал бы за камеру.
  */
-const BOW_SCALE = 0.38;
+const NOCK_REST = [-0.02, 0.02, 0.31] as const;
+const NOCK_FULL = [-0.04, -0.02, 0.62] as const;
+
+/** За сколько миллисекунд лук выходит из-за спины в натянутый — и уходит обратно. */
+const DRAW_MS = 300;
+
+/**
+ * Насколько вещь опускается за нижний край кадра, когда её убирают.
+ *
+ * В РУКАХ ТОЛЬКО ТО, ЧЕМ СЕЙЧАС РАБОТАЮТ, и это вся правка: топор и лук висели
+ * в кадре разом — один справа, другой слева, — и это было первым, на что
+ * пожаловались с телефона. Теперь по луку топор уходит вниз, а по опущенному
+ * луку вниз уходит лук; второе оружие из кадра не видно вовсе.
+ *
+ * Число — в тех же единицах, что места вещей (их множит `viewK`), и оно с
+ * запасом: нижний край кадра у топора на −0.69, у лука на −0.81, и 1.1 уводит
+ * за него и саму вещь, и руку на ней при любом угле обзора.
+ */
+const STOW_DROP = 1.1;
+
+/** Какую долю перехода вещь тратит на выход из кадра и вход в него. */
+const STOW_SHARE = 0.4;
+
+/**
+ * Насколько уменьшен лук в руке — и как далеко он от глаза.
+ *
+ * ОБА ЧИСЛА ПРАВЯТСЯ ВМЕСТЕ, ПОТОМУ ЧТО НА ЭКРАНЕ ОНИ ОДНО. Лук был вчетверо
+ * меньше настоящего и висел в шестидесяти сантиметрах от глаза; на экране это
+ * тот же размер, что теперь, но **тянуть его было некуда**: хват уезжал за
+ * камеру на первых же сантиметрах натяга, и тетиву не тянул никто. Теперь он
+ * крупнее и дальше — метр с небольшим, — и рука с тетивой уходит к скуле по
+ * четверти метра, оставаясь в кадре.
+ *
+ * Дальше метра его не отодвинуть, и это не вкус: вещь в руке живёт в осях
+ * камеры и **проверяется глубиной наравне с миром**. Ближайшая преграда, к
+ * которой пускает круг, — ствол дерева в 1.35 м (`glade.TREE_R` + `BODY_R`);
+ * лук, отодвинутый дальше, ушёл бы за кору.
+ */
+const BOW_SCALE = 0.6;
+
+/**
+ * Во сколько раз стрела уменьшена в руке — своим числом, а не луковьим.
+ *
+ * Длиннее, чем кажется нужным, и это считано: при натяге хвост уезжает к скуле
+ * на четверть метра, и стрела короче этого просто не достаёт наконечником до
+ * дуги — в кадре выходит обломок между кулаком и луком.
+ */
+const ARROW_IN_BOW = 0.6;
+
+/**
+ * От середины стрелы до её хвоста в осях лука.
+ *
+ * Считается, а не пишется: стрела вложена в лук и делит его уменьшение, а хвост
+ * у неё в 0.34 от середины. Напиши число рядом — и оно разойдётся с луком при
+ * первой же правке его размера.
+ */
+const ARROW_TAIL = 0.34 * (ARROW_IN_BOW / BOW_SCALE);
 
 /** Как часто складываем на диск. Записывать каждый кадр незачем: пара чисел. */
 const SAVE_EVERY = 4000;
@@ -878,6 +970,8 @@ interface Foe {
   seed: number;
   /** Положен топором: лежит и больше ничего не делает. */
   down: boolean;
+  /** Когда его положили, время сцены: по этой отметке он и валится. 0 — стоит. */
+  downAt: number;
   /** Когда ударил в последний раз, время сцены. */
   hitAt: number;
   /** Когда начал замах: от этого числа и идёт вся рука. 0 — не замахивается. */
@@ -1002,20 +1096,12 @@ const FAMILY_HOLD = 3000;
 const FALL_EYE = 0.85;
 const FALL_PITCH = 0.1;
 
-/**
- * Как закрываются веки: дважды приоткрываются и только потом смыкаются.
- *
- * Ровно в эти доли секунды человек и видит, как уводят сына, — а закрывшиеся
- * разом глаза были бы просто затемнением. `u` — доля такта, ответ — насколько
- * веки сошлись, 0..1.
- */
-function blink(u: number): number {
-  if (u < 0.18) return smooth(u / 0.18) * 0.8;
-  if (u < 0.3) return 0.8 - smooth((u - 0.18) / 0.12) * 0.55;
-  if (u < 0.5) return 0.25 + smooth((u - 0.3) / 0.2) * 0.65;
-  if (u < 0.62) return 0.9 - smooth((u - 0.5) / 0.12) * 0.5;
-  return 0.4 + smooth((u - 0.62) / 0.38) * 0.6;
-}
+/** Рабочие числа для натяжения тетивы: считается каждый кадр, а мусора быть не должно. */
+const _cord = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
+
+/** Открытые глаза: и до последней сцены, и в её начале зрение не меркнет. */
+const NO_VISION: Vision = { haze: 0, lid: 0, black: 0 };
 
 export class PrologueScene {
   private renderer: THREE.WebGLRenderer;
@@ -1028,9 +1114,24 @@ export class PrologueScene {
   private flame: THREE.Object3D | null = null;
   private flameInner: THREE.Object3D | null = null;
 
-  /** Деревья и пни — по одному объекту на место; меняются местами при рубке. */
+  /**
+   * Деревья — по объекту на место; срубленное валится, уходит и вырастает заново.
+   *
+   * Пней больше нет: они были единственной вещью на поляне без круга преграды —
+   * «через пень перешагивают», — и потому камера заходила ровно в них. Место при
+   * этом осталось: там и вырастет новое (`glade.treeLook`).
+   */
   private trees: (THREE.Object3D | null)[] = TREES.map(() => null);
-  private stumps: (THREE.Object3D | null)[] = TREES.map(() => null);
+
+  /**
+   * Куда валится каждое дерево — от человека, азимутом.
+   *
+   * Единственное, что знает о падении только кадр, и это нарочно: срок падения
+   * выводится из `felled[i]`, а направление живёт столько же, сколько сама сцена.
+   * Умолчание — прочь от середины поляны: так падает то, чьё падение мы не видели
+   * (вышел и вернулся за две секунды), и падает оно наружу, а не в костёр.
+   */
+  private fallDir: number[] = TREES.map((t) => Math.atan2(t.x, t.z));
   private axeInBlock: THREE.Object3D | null = null;
   private axeInHand: THREE.Object3D | null = null;
   private bowInHand: THREE.Object3D | null = null;
@@ -1188,6 +1289,13 @@ export class PrologueScene {
   private axeArm: THREE.Group | null = null;
   private bowArm: THREE.Group | null = null;
   private bowArmPose: { low: ArmPose; drawn: ArmPose } | null = null;
+  /** Правая на тетиве: она тянет, и видно её только с поднятым луком. */
+  private bowPull: THREE.Group | null = null;
+  private bowPullPose: { low: ArmPose; drawn: ArmPose } | null = null;
+  /** Насколько топор опущен за нижний край кадра: 0 в руке, `STOW_DROP` убран. */
+  private axeStow = 0;
+  /** Два плеча тетивы: сцена натягивает их между концами лука и хвостом стрелы. */
+  private bowCord: THREE.Mesh[] = [];
   /** Какой рукав надет на руки сейчас: мех — когда сшита одежда. */
   private armFur = false;
 
@@ -1206,8 +1314,15 @@ export class PrologueScene {
   private flight: Flight | null = null;
   /** Натянут ли лук. Время сцены: выход опускает его сам собой. */
   private drawn = false;
-  /** Когда начали натягивать, время сцены. Только для картинки. */
-  private drawAt = 0;
+  /**
+   * Насколько лук поднят: 0 — за спиной и в кадре его нет, 1 — натянут.
+   *
+   * Величина, а не отметка времени, и это нарочно: прежде доля считалась от
+   * `drawAt` и на отпускании **обрывалась в ноль** — лук исчезал из кадра в один
+   * кадр. Теперь она ходит в обе стороны с одной скоростью, и по ней же уходит из
+   * кадра топор: смена оружия — одно движение, а не два события.
+   */
+  private bowK = 0;
 
   private sticks = new Sticks();
   private keys = new Keys();
@@ -1559,6 +1674,9 @@ export class PrologueScene {
     const spot = this.aim();
     const what = offer(this.save, spot, now);
     if (!what.can || !spot) return;
+    // Взялся за дело — опустил лук: руки нужны обе, и держать натянутый лук,
+    // рубя дерево, нельзя. Топор при этом поднимается сам, той же сменой.
+    this.drawn = false;
     if (what.deed === 'talk') return this.talk(spot.kind === 'son');
     /*
      * Доска в дом сына. Дверь та же, что у бревна в свой дом, и правило то же:
@@ -1726,6 +1844,11 @@ export class PrologueScene {
     if (i < 0) return;
     this.save.felled[i] = serverNow();
     this.save.logs += logsFromTree();
+    // Валится оно ОТ человека, и решается это здесь, в кадре удара: рубящий стоит
+    // в метре с третью от ствола, и дерево, падающее на него, кладёт камеру внутрь
+    // комля. В записи этого нет и не нужно — падение живёт полторы секунды.
+    const t = TREES[i];
+    this.fallDir[i] = Math.atan2(t.x - this.px, t.z - this.pz);
     this.syncTrees();
     this.done();
   }
@@ -1744,7 +1867,6 @@ export class PrologueScene {
     if (!what.can) return;
     if (what.deed === 'draw') {
       this.drawn = true;
-      this.drawAt = performance.now();
       this.refresh();
       return;
     }
@@ -2021,23 +2143,28 @@ export class PrologueScene {
   private syncTrees(): void {
     const now = serverNow();
     TREES.forEach((t, i) => {
-      const up = standing(this.save.felled[i] ?? 0, now);
-      if (up && !this.trees[i]) {
+      const at = this.save.felled[i] ?? 0;
+      const there = treeThere(at, now);
+      if (there && !this.trees[i]) {
         this.trees[i] = this.surfaces.adopt(choppable(i), 'crown');
         this.scene.add(this.trees[i]!);
       }
-      if (!up && this.trees[i]) {
+      if (!there && this.trees[i]) {
         this.drop(this.trees[i]!);
         this.trees[i] = null;
       }
-      if (!up && !this.stumps[i]) {
-        this.stumps[i] = this.surfaces.adopt(stump(t.x, t.z, i));
-        this.scene.add(this.stumps[i]!);
-      }
-      if (up && this.stumps[i]) {
-        this.drop(this.stumps[i]!);
-        this.stumps[i] = null;
-      }
+      const o = this.trees[i];
+      if (!o) return;
+      const look = treeLook(at, now);
+      // Валится оно от человека, и это единственное, чего в записи нет: куда
+      // упало — кадр, и жить этому знанию столько же, сколько самому падению.
+      o.rotation.y = this.fallDir[i];
+      o.rotation.x = look.lean * LEAN_MAX;
+      // Уносят поленьями: лежащее уходит вниз и уменьшается. Дешевле прозрачности
+      // (она стоила бы своей копии материала и новой программы на каждое дерево) и
+      // честнее мгновенного исчезновения, на которое и жаловались.
+      o.scale.setScalar(Math.max(0.001, look.grow * (GONE_SCALE + (1 - GONE_SCALE) * look.fade)));
+      o.position.y = groundAt(t.x, t.z) - (1 - look.fade) * GONE_SINK;
     });
   }
 
@@ -2088,12 +2215,9 @@ export class PrologueScene {
         this.camera.add(a);
         // Рука на топорище: кулак на хвате, предплечье к правому нижнему углу.
         const hand = armModel(this.sleeveMat[0]);
-        const pose = armPose(AXE_REST, AXE_SCALE, ARM_AXE.grip, ARM_AXE.dir, ARM_AXE.handle);
-        hand.position.copy(pose.p);
-        hand.quaternion.copy(pose.q);
-        hand.scale.copy(pose.s);
         a.add(hand);
         this.axeArm = hand;
+        this.poseHands();
         this.dressArms();
       }
       return;
@@ -2117,37 +2241,78 @@ export class PrologueScene {
   }
 
   /**
-   * Лук в левой руке — и стрела на тетиве, пока он натянут.
+   * Лук: рукоять в левой, тетива к себе, стрела на тетиве, правая тянет у скулы.
    *
-   * Висит на камере, как топор: обе вещи — часть взгляда, а не мира. Стрела на
-   * тетиве — отдельный меш нарочно: её видно только с натянутым луком, и это
-   * единственное, чем показ отличает «держит» от «целится».
+   * Висит на камере, как топор: обе вещи — часть взгляда, а не мира. Рук на нём
+   * две, и обе нужны. Прежде была одна — на рукояти, — а тетиву не тянул никто:
+   * натянутый лук стоял сам по себе, и «держит» от «целится» отличала одна
+   * стрела. Вторая рука стоит вызова отрисовки, и платится он только пока
+   * целятся: опущенный лук из кадра убран целиком (`STOW_DROP`), и в обычном
+   * кадре его нет вовсе — вместе с рукой это на два вызова меньше, чем было.
    */
   private syncBow(): void {
     if (!this.save.kit) return;
     if (this.bowInHand) return;
-    const b = bowModel();
+    // Тетива у стрелка своя, из двух плеч: натянутая — это буква V, а склеенная
+    // в общий меш хорда осталась бы прямой, и рука висела бы рядом с ней.
+    const b = bowModel(false);
     b.scale.setScalar(BOW_SCALE * this.viewK);
+    for (let i = 0; i < 2; i++) {
+      const limb = bowLimb();
+      b.add(limb);
+      this.bowCord.push(limb);
+    }
     const nock = arrowModel();
     // Стрела своего размера, а не луковьего: она вложена в лук, и его
-    // уменьшение пришлось бы делить. Лежит она вдоль −Z, то есть смотрит туда
-    // же, куда камера, — поворачивать её не надо ничем.
-    nock.scale.setScalar(0.5 / BOW_SCALE);
+    // уменьшение пришлось бы делить (`ARROW_IN_BOW`). Лежит она вдоль −Z, то есть
+    // смотрит туда же, куда камера, — поворачивать её не надо ничем.
+    nock.scale.setScalar(ARROW_IN_BOW / BOW_SCALE);
     nock.visible = false;
     b.add(nock);
     this.nock = nock;
-    // Левая рука на рукояти. Где у неё локоть, у опущенного лука и у натянутого
-    // своё: опущенный держат у бедра, натянутый — на вытянутой руке.
+    // Левая рука на рукояти. Где у неё локоть, у вынутого лука и у натянутого
+    // своё: вынутый держат у бедра, натянутый — на вытянутой руке.
     const hand = armModel(this.sleeveMat[0]);
-    this.bowArmPose = {
-      low: armPose(BOW_LOW, BOW_SCALE, [0, 0, 0], ARM_BOW_LOW.dir, [0, 1, 0]),
-      drawn: armPose(BOW_DRAWN, BOW_SCALE, [0, 0, 0], ARM_BOW_DRAWN.dir, [0, 1, 0]),
-    };
     b.add(hand);
     this.bowArm = hand;
+    // Правая — на хвосте стрелы: там же, где тетива, и едет она вместе с ней.
+    const pull = armModel(this.sleeveMat[0]);
+    pull.visible = false;
+    b.add(pull);
+    this.bowPull = pull;
+    this.poseHands();
     this.dressArms();
     this.bowInHand = b;
+    b.visible = false;
     this.camera.add(b);
+  }
+
+  /**
+   * Пересчитать посадку рук на вещах.
+   *
+   * УМЕНЬШЕНИЕ ВЕЩИ СЮДА ВХОДИТ ЦЕЛИКОМ, ВМЕСТЕ С `viewK`, и это не педантизм.
+   * Рука — ребёнок вещи и делит её уменьшение; `armPose` возвращает обратное
+   * число, чтобы рука осталась своего размера. Считай его от голого `BOW_SCALE`
+   * — и на узком экране, где угол шире, кулак выйдет на треть крупнее нужного, а
+   * хват на тетиве уедет к самому глазу. Отсюда и пересчёт при `resize`: угол там
+   * меняется, значит меняется и `viewK`.
+   */
+  private poseHands(): void {
+    const v = this.viewK;
+    if (this.axeArm) {
+      const pose = armPose(AXE_REST, AXE_SCALE * v, ARM_AXE.grip, ARM_AXE.dir, ARM_AXE.handle);
+      this.axeArm.position.copy(pose.p);
+      this.axeArm.quaternion.copy(pose.q);
+      this.axeArm.scale.copy(pose.s);
+    }
+    this.bowArmPose = {
+      low: armPose(BOW_LOW, BOW_SCALE * v, [0, 0, 0], ARM_BOW_LOW.dir, [0, 1, 0]),
+      drawn: armPose(BOW_DRAWN, BOW_SCALE * v, [0, 0, 0], ARM_BOW_DRAWN.dir, [0, 1, 0]),
+    };
+    this.bowPullPose = {
+      low: armPose(BOW_DRAWN, BOW_SCALE * v, NOCK_REST, ARM_BOW_PULL.dir, [0, 1, 0]),
+      drawn: armPose(BOW_DRAWN, BOW_SCALE * v, NOCK_FULL, ARM_BOW_PULL.dir, [0, 1, 0]),
+    };
   }
 
   /**
@@ -2158,7 +2323,7 @@ export class PrologueScene {
   private dressArms(): void {
     const fur = this.save.body.coat;
     this.armFur = fur;
-    for (const hand of [this.axeArm, this.bowArm]) {
+    for (const hand of [this.axeArm, this.bowArm, this.bowPull]) {
       const mesh = hand?.children[0] as THREE.Mesh | undefined;
       if (!mesh) continue;
       mesh.material = this.sleeveMat[fur ? 1 : 0];
@@ -2335,8 +2500,11 @@ export class PrologueScene {
     this.surfaces.u.time.value = t / 1000;
     this.warmth();
     this.swing(t);
-    this.aimBow(t);
+    this.aimBow(dt);
     this.applySky(now);
+    // Деревья — каждый кадр: падение, уход и рост читаются из одной отметки
+    // (`glade.treeLook`), и пропущенный кадр был бы рывком в середине падения.
+    this.syncTrees();
     this.weatherStep(dt, t, now);
     this.beastStep(dt, t, now);
     this.syncPack(t);
@@ -2438,7 +2606,11 @@ export class PrologueScene {
     const a = this.axeInHand;
     if (!a) return;
     // Раздвинуто на `viewK`: при шире угле топор стоит на экране там же, где стоял.
-    a.position.set((AXE_REST.x + this.bobX) * this.viewK, (AXE_REST.y + this.bobY) * this.viewK, AXE_REST.z);
+    a.position.set(
+      (AXE_REST.x + this.bobX) * this.viewK,
+      (AXE_REST.y + this.bobY - this.axeStow) * this.viewK,
+      AXE_REST.z,
+    );
     a.rotation.set(AXE_REST.rx, AXE_REST.ry, AXE_REST.rz);
   }
 
@@ -2472,64 +2644,117 @@ export class PrologueScene {
     const hit = Math.max(0, Math.min(1, (k - 0.35) / 0.25));
     const back = Math.max(0, (k - 0.6) / 0.4);
     a.rotation.set(AXE_REST.rx + up * 0.8 - hit * 2.4 + back * 1.6, AXE_REST.ry, AXE_REST.rz);
-    a.position.set(AXE_REST.x * this.viewK, (AXE_REST.y + up * 0.22 - hit * 0.42 + back * 0.2) * this.viewK, AXE_REST.z);
+    a.position.set(
+      AXE_REST.x * this.viewK,
+      (AXE_REST.y + up * 0.22 - hit * 0.42 + back * 0.2 - this.axeStow) * this.viewK,
+      AXE_REST.z,
+    );
   }
 
   /**
-   * Лук в руке: опущен или поднят.
+   * Лук в руке: достают его, целятся или убирают.
    *
-   * Переход занимает четверть секунды, и это не украшение: мгновенно
-   * появившийся посреди экрана лук игрок читает как сбой картинки, а не как
-   * своё действие. Число никуда не пишется — время сцены целиком.
+   * ОДНА ВЕЛИЧИНА НА ВСЮ СМЕНУ ОРУЖИЯ, И ХОДИТ ОНА В ОБЕ СТОРОНЫ. Прежде доля
+   * натяжения считалась от отметки `drawAt` и на отпускании обрывалась в ноль:
+   * лук прыгал из натянутого в опущенный за один кадр, а топор в тот же кадр
+   * возникал обратно. Теперь `bowK` ползёт к своей цели с одной скоростью в обе
+   * стороны, и по нему считается всё: место лука, обе руки на нём, стрела на
+   * тетиве и то, насколько ушёл вниз топор.
+   *
+   * Долей перехода разведены две разные вещи (`STOW_SHARE`): сперва вещь ВЫХОДИТ
+   * в кадр, потом НАТЯГИВАЕТСЯ. Смешай их — и лук поехал бы к скуле, ещё не
+   * появившись из-за нижнего края.
    */
-  private aimBow(t: number): void {
+  private aimBow(dt: number): void {
+    const want = this.drawn ? 1 : 0;
+    const speed = dt * (1000 / DRAW_MS);
+    this.bowK = want > this.bowK ? Math.min(want, this.bowK + speed) : Math.max(want, this.bowK - speed);
+    const k = this.bowK;
+    const v = this.viewK;
+    // Топор уходит вниз первым и целиком: в руках только то, чем работают.
+    const axeDown = smooth(Math.min(1, k / STOW_SHARE));
+    this.axeStow = axeDown * STOW_DROP;
+    if (this.axeInHand) this.axeInHand.visible = axeDown < 1;
     const b = this.bowInHand;
     if (!b) return;
-    const k = this.drawn ? Math.min(1, (t - this.drawAt) / DRAW_MS) : 0;
-    const at = (lo: number, hi: number): number => lo + (hi - lo) * k;
+    b.visible = k > 0;
+    if (k <= 0) return;
+    // Лук выходит из-за края, пока топор ещё падает, — и только потом тянется.
+    const out = smooth(Math.min(1, k / STOW_SHARE));
+    const draw = smooth(Math.max(0, (k - STOW_SHARE * 0.75) / (1 - STOW_SHARE * 0.75)));
+    const at = (lo: number, hi: number): number => lo + (hi - lo) * draw;
     // Натянутый лук не качается: в него целятся.
-    const loose = 1 - k;
-    const v = this.viewK;
+    const loose = 1 - draw;
     b.position.set(
       (at(BOW_LOW.x, BOW_DRAWN.x) + this.bobX * loose) * v,
-      (at(BOW_LOW.y, BOW_DRAWN.y) + this.bobY * loose) * v,
+      (at(BOW_LOW.y, BOW_DRAWN.y) + this.bobY * loose - (1 - out) * STOW_DROP) * v,
       at(BOW_LOW.z, BOW_DRAWN.z),
     );
     b.rotation.set(at(BOW_LOW.rx, BOW_DRAWN.rx), at(BOW_LOW.ry, BOW_DRAWN.ry), at(BOW_LOW.rz, BOW_DRAWN.rz));
     if (this.bowArm && this.bowArmPose) {
       const { low, drawn } = this.bowArmPose;
       /*
-       * РУКА НА ЛУКЕ ВИДНА ВСЕГДА, И ОПУЩЕННОМУ ОНА НУЖНА БОЛЬШЕ, ЧЕМ
-       * ПОДНЯТОМУ. Прежде её прятали, пока лук внизу, — и опущенный лук висел
-       * сам по себе рядом с краем экрана, ровно как оружие у пришедших висело
-       * рядом с телом. Прятали при этом не причину: кулак читался комом оттого,
-       * что стоял в самом углу кадра. Лук подвинут внутрь на четыре сотых — и
-       * кулак с обшлагом встали в кадр целиком.
+       * РУКА НА РУКОЯТИ ВИДНА ВСЕГДА, ПОКА ВИДЕН САМ ЛУК. Прятать её нельзя:
+       * висящий сам по себе лук — то же самое, чем страдало оружие у пришедших,
+       * пока стояло на туловище числами, а не на руке.
        */
       this.bowArm.visible = true;
-      this.bowArm.position.lerpVectors(low.p, drawn.p, k);
-      this.bowArm.quaternion.slerpQuaternions(low.q, drawn.q, k);
-      this.bowArm.scale.lerpVectors(low.s, drawn.s, k);
+      this.bowArm.position.lerpVectors(low.p, drawn.p, draw);
+      this.bowArm.quaternion.slerpQuaternions(low.q, drawn.q, draw);
+      this.bowArm.scale.lerpVectors(low.s, drawn.s, draw);
     }
+    if (this.bowPull && this.bowPullPose) {
+      const { low, drawn } = this.bowPullPose;
+      // Правая приходит к тетиве вместе со стрелой и тянет её к скуле.
+      this.bowPull.visible = draw > 0;
+      this.bowPull.position.lerpVectors(low.p, drawn.p, draw);
+      this.bowPull.quaternion.slerpQuaternions(low.q, drawn.q, draw);
+      this.bowPull.scale.lerpVectors(low.s, drawn.s, draw);
+    }
+    // Тетива тянется за хвостом стрелы: два плеча от концов лука к одной точке.
+    const cx = NOCK_REST[0] + (NOCK_FULL[0] - NOCK_REST[0]) * draw;
+    const cy = NOCK_REST[1] + (NOCK_FULL[1] - NOCK_REST[1]) * draw;
+    const cz = NOCK_REST[2] + (NOCK_FULL[2] - NOCK_REST[2]) * draw;
+    this.bendString(cx, cy, cz);
     if (this.nock) {
-      this.nock.visible = this.drawn;
+      this.nock.visible = draw > 0;
       /*
        * Стрела смотрит туда же, куда камера, а не туда, куда повёрнут лук.
        *
-       * Лук развёрнут к экрану нарочно: дуга, стоящая к игроку ребром, читается
-       * палкой, а не луком — она же и есть окружность в плоскости взгляда.
-       * Но стрела лежит НА тетиве и обязана указывать в цель, иначе картинка
-       * врёт о том, куда полетит. Разворот у них поэтому взаимно гасится: лук
-       * повёрнут по Y, стрела — на столько же обратно.
+       * Завал у лука маленький нарочно (`BOW_DRAWN.ry`), и потому этот обратный
+       * поворот теперь тоже маленький: стрела лежит в плоскости лука, то есть на
+       * тетиве, и при этом указывает в цель. Прежде поворот был сорок девять
+       * градусов, и стрела шла сквозь лук поперёк тетивы.
        */
       this.nock.rotation.y = -b.rotation.y;
-      // Стрела уходит назад по мере натяжения: тетива тянется к щеке, а
-      // наконечник остаётся у самой дуги — так держат натянутый лук.
-      this.nock.position.set(-0.17 * k, 0.02, 0.05 + k * 0.3);
+      // Хвост едет от тетивы к скуле (`NOCK_REST` → `NOCK_FULL`), наконечник
+      // остаётся у дуги. Хват — это ХВОСТ, а меш ставится серединой, поэтому
+      // отступ идёт вдоль оси самой стрелы, а не лука: иначе при завале лука
+      // стрела уезжает с тетивы.
+      const ax = Math.sin(b.rotation.y) * ARROW_TAIL;
+      const az = Math.cos(b.rotation.y) * ARROW_TAIL;
+      this.nock.position.set(cx + ax, cy, cz - az);
     }
-    // Топор с натянутым луком в руках не держат. Прятать его надо не ради
-    // правды жизни, а ради кадра: он висит там же, где целятся.
-    if (this.axeInHand) this.axeInHand.visible = !this.drawn;
+  }
+
+  /**
+   * Натянуть тетиву к хвосту стрелы: два плеча от концов лука в одну точку.
+   *
+   * Считается в осях самого лука, где концы плеч — постоянные числа
+   * (`models.BOW_TIP`). Цилиндр у плеча единичной длины и растёт вверх от своего
+   * начала, поэтому всё сводится к «повернуть с +Y на нужное направление и
+   * растянуть по длине»: ни одной новой геометрии на кадр.
+   */
+  private bendString(x: number, y: number, z: number): void {
+    for (let i = 0; i < this.bowCord.length; i++) {
+      const limb = this.bowCord[i];
+      const ty = i === 0 ? BOW_TIP.y : -BOW_TIP.y;
+      _cord.set(x, y - ty, z - BOW_TIP.z);
+      const len = _cord.length() || 1e-4;
+      limb.position.set(0, ty, BOW_TIP.z);
+      limb.quaternion.setFromUnitVectors(_up, _cord.divideScalar(len));
+      limb.scale.set(1, len, 1);
+    }
   }
 
   /**
@@ -3294,7 +3519,12 @@ export class PrologueScene {
     this.pitch = -0.06;
     this.panel = '';
     this.said = '';
-    this.blindShow(0);
+    this.blindShow(NO_VISION);
+    // Из чёрного экрана «Прошло много дней…» поляна ПРОЯВЛЯЕТСЯ, а не возникает:
+    // тот же приём и тот же срок, что у выхода из палатки и у объятия. Без него
+    // чёрный экран снимался в один кадр вместе с самой ступенью, и семья у огня
+    // появлялась разом — с женой, сыном и полным светом.
+    this.dimAt = performance.now();
     this.syncEnd(true);
     this.say(FAMILY_NOTE);
     this.done();
@@ -3345,7 +3575,7 @@ export class PrologueScene {
     this.panel = '';
     this.said = '';
     this.drawn = false;
-    this.blindShow(0);
+    this.blindShow(NO_VISION);
     for (const f of this.foes) this.drop(f.obj);
     this.foes = [];
     this.foeList = [];
@@ -3410,6 +3640,7 @@ export class PrologueScene {
         standZ: stand.z,
         seed: i,
         down: false,
+        downAt: 0,
         hitAt: 0,
         swingAt: 0,
         level: 0,
@@ -3430,10 +3661,11 @@ export class PrologueScene {
     const f = this.foeList[i];
     if (!f || f.down) return;
     f.down = true;
-    // Плашмя и низко: приподнятое тело загораживает собой последний кадр.
-    f.obj.rotation.set(-Math.PI / 2, f.yaw, 0);
-    f.obj.position.y = 0.05;
-    if (f.weapon) f.weapon.visible = false;
+    // ПАДАЕТ ОН ЗА ПОЛСЕКУНДЫ, А НЕ В ОДИН КАДР. Прежде тело ложилось плашмя
+    // мгновенно — в двух метрах от лица это читалось не удачным ударом, а сбоем
+    // картинки. Само падение кладёт `foeDownStep` по этой отметке; здесь только её
+    // начало, потому что «положен» он **сразу**: правило волка целиком.
+    f.downAt = performance.now();
     // Всех троих положили — драка кончилась, и ждать чужих черёдов незачем: двое
     // с луками поднимают их сразу.
     const standing = this.foes.filter((o) => !o.bow && !o.down).length;
@@ -3547,8 +3779,9 @@ export class PrologueScene {
     const into = ms - beatFrom(b, this.fightMs);
     if (b === 'fight') this.foeFight(dt, t, now);
     else this.foeAfter(b, into, dt, t);
+    this.foeDownStep(t);
     this.endCamera(b, into);
-    this.blindShow(this.blindK(b, into));
+    this.blindShow(vision(b, into));
   }
 
   /**
@@ -3611,6 +3844,27 @@ export class PrologueScene {
       this.save.body = bite(this.save.body, this.save.hearth, now, FOE_HIT);
       this.persist(true);
       this.refresh();
+    }
+  }
+
+  /**
+   * Положенный валится — за полсекунды, а не в один кадр.
+   *
+   * Здесь и только здесь: в `foeFight` и `foeAfter` положенный пропускается
+   * сразу (`down`), и падать ему было негде. Отметка `downAt` — время сцены, как
+   * и всё в этой сцене; в записи о ней нет ни поля.
+   */
+  private foeDownStep(t: number): void {
+    for (const f of this.foes) {
+      if (!f.downAt) continue;
+      const k = smooth(Math.min(1, (t - f.downAt) / FOE_DOWN_MS));
+      // Плашмя и низко: приподнятое тело загораживает собой последний кадр.
+      f.obj.rotation.set(-(Math.PI / 2) * k, f.yaw, 0);
+      f.obj.position.y = 0.05 * k;
+      // Топор уходит из кадра последним движением падения — под самим телом, где
+      // его и не видно. Убирать его раньше нельзя: пропавшее в воздухе оружие
+      // читается пропажей, а не падением.
+      if (f.weapon) f.weapon.visible = k < 1;
     }
   }
 
@@ -3814,38 +4068,26 @@ export class PrologueScene {
     if (this.shots.length) this.dropShots();
   }
 
-  /** Насколько померкло зрение на этом такте. */
-  private blindK(b: Beat, into: number): number {
-    if (b === 'fall') return 0.1 + 0.15 * Math.min(1, into / BEAT.fall);
-    if (b === 'take') return 0.25 + 0.12 * Math.min(1, into / BEAT.take);
-    if (b === 'lead') return 0.37 + 0.23 * Math.min(1, into / BEAT.lead);
-    if (b === 'blind' || b === 'over') return 0.6 + 0.4 * Math.min(1, into / BEAT.blind);
-    return 0;
-  }
-
   /**
    * Меркнущее зрение: дымка по краям, веки и чернота.
    *
-   * Веки закрываются не разом: дважды приоткрываются — и в эти доли секунды
-   * человек и видит, как сын уходит вдаль. Кривая одна и живёт здесь, а не в
-   * стилях: доли у век и у дымки обязаны быть одним числом.
+   * Кривая живёт не здесь, а в `end.vision` — там же, где такты, — и это не
+   * порядок ради порядка: пять морганий и последнее смыкание проверяются тестом,
+   * а сцену тест не поднимает. Здесь только перекладка в разметку.
    */
-  private blindShow(k: number): void {
+  private blindShow(v: Vision): void {
     const el = this.blindEl;
     if (!el) return;
-    const haze = Math.min(0.92, k * 1.5);
-    const u = Math.max(0, (k - 0.6) / 0.4);
-    const lid = k < 0.6 ? 0 : blink(u);
-    const black = Math.max(0, (k - 0.94) / 0.06);
-    el.style.visibility = k > 0 ? 'visible' : 'hidden';
+    const on = v.haze > 0 || v.lid > 0 || v.black > 0;
+    el.style.visibility = on ? 'visible' : 'hidden';
     const dim = el.children[0] as HTMLElement | undefined;
     const top = el.children[1] as HTMLElement | undefined;
     const bot = el.children[2] as HTMLElement | undefined;
     const out = el.children[3] as HTMLElement | undefined;
-    if (dim) dim.style.opacity = haze.toFixed(3);
-    if (top) top.style.height = `${(lid * 52).toFixed(2)}%`;
-    if (bot) bot.style.height = `${(lid * 52).toFixed(2)}%`;
-    if (out) out.style.opacity = black.toFixed(3);
+    if (dim) dim.style.opacity = v.haze.toFixed(3);
+    if (top) top.style.height = `${(v.lid * 52).toFixed(2)}%`;
+    if (bot) bot.style.height = `${(v.lid * 52).toFixed(2)}%`;
+    if (out) out.style.opacity = v.black.toFixed(3);
   }
 
   /** Затемнение перехода «вышел из палатки»: тот же узел, четвёртым ребёнком. */
@@ -4142,6 +4384,8 @@ export class PrologueScene {
     this.viewK = Math.tan((this.camera.fov * Math.PI) / 360) / Math.tan((VIEW_V_MIN * Math.PI) / 360);
     if (this.axeInHand) this.axeInHand.scale.setScalar(AXE_SCALE * this.viewK);
     if (this.bowInHand) this.bowInHand.scale.setScalar(BOW_SCALE * this.viewK);
+    // Руки садятся на вещи заново: их посадка зависит от того же `viewK`.
+    this.poseHands();
   }
 
   /**
@@ -4274,6 +4518,54 @@ export class PrologueScene {
   }
 
   /** Показания для замера: вызовы отрисовки и треугольники. */
+  /**
+   * Куда встанет человек, шагнувший в эту точку, — стенду.
+   *
+   * Тем же `slide` и с теми же преградами, какими ходит игрок: стенд обязан
+   * обходить поляну так же, как обходит её палец, а не по своему представлению
+   * о том, куда пускают.
+   */
+  walkTo(x: number, z: number): { x: number; z: number } {
+    const now = serverNow();
+    return slide(x, z, blockers(this.save.felled, now, this.save.house > 0, this.save.end.boards > 0));
+  }
+
+  /**
+   * Что на поляне стоит и во что нельзя влезать — стенду, который мерит просвет
+   * до глаза (`npm run prologue:report`, раздел «столкновение»).
+   *
+   * СПИСОК СОБИРАЕТ СЦЕНА, А НЕ СТЕНД, и это то же правило, по которому стенд не
+   * держит своих сведений о поляне. Отсеять надо ровно то, что преградой не
+   * является и являться не может: небо (оно ездит за глазом), вещь в руке (она
+   * часть взгляда), непогоду, искры и дым (сквозь них и ходят) и всё живое —
+   * зверь убегает, волк подходит сам, а люди стоят своими кругами (`MATE_R`).
+   * Догадайся об этом стенд сам — он мерил бы расстояние до снежинки.
+   */
+  solids(): THREE.Object3D[] {
+    const skip = new Set<THREE.Object3D>();
+    const hide = (o: THREE.Object3D | null | undefined): void => {
+      o?.traverse((n) => skip.add(n));
+    };
+    hide(this.camera);
+    hide(this.dome.root);
+    hide(this.precip.root);
+    hide(this.sparks.points);
+    hide(this.smoke.points);
+    hide(this.fireGlow);
+    hide(this.deer);
+    hide(this.carcass);
+    for (const w of this.pack) hide(w.obj);
+    hide(this.mate?.obj);
+    hide(this.leaving?.obj);
+    hide(this.son?.obj);
+    for (const f of this.foes) hide(f.obj);
+    const out: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && !skip.has(o)) out.push(o);
+    });
+    return out;
+  }
+
   stats(): { calls: number; triangles: number } {
     const r = this.renderer.info.render;
     return { calls: r.calls, triangles: r.triangles };
