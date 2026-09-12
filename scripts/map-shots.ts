@@ -25,9 +25,8 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { PINNED_HOME as HOME, PINNED_SEED as SEED, cellAt as at, openPinnedMap } from './lib/pinned';
 import { LocalWorld } from '@/world/local/LocalWorld';
-import { cellOf } from '@/world/atlas/project';
-import { WORLD_ORIGIN } from '@/world/data/tuning';
 import { SCALE_DETAIL, SCALE_OVERVIEW, SCALE_START } from '@/ui/map/const';
 
 const DIST = fileURLToPath(new URL('../dist', import.meta.url));
@@ -69,16 +68,8 @@ function serveDist(): Server {
 
 // ---------- Где снимаем ----------
 
-/** Клетка мира по долготе и широте. Земля настоящая, значит и адреса настоящие. */
-function at(lon: number, lat: number): { x: number; y: number } {
-  const c = cellOf(lon, lat);
-  return { x: Math.round(c.col) + WORLD_ORIGIN.x, y: Math.round(c.row) + WORLD_ORIGIN.y };
-}
-
-/** Дом закреплён: Бавария, лес с равниной и рекой рядом. */
-const HOME = at(11.5, 48.5);
-/** Сид закреплён тем же и по той же причине: иначе соседи и логова переезжают. */
-const SEED = 20260912;
+// Мир закреплён общей дверью (`lib/pinned.ts`): тот же сид и дом, что у замера
+// выпечки в `map:report`, — снимки и числа смотрят на одну и ту же землю.
 
 interface Spot {
   name: string;
@@ -133,24 +124,13 @@ async function lairNear(): Promise<{ x: number; y: number }> {
 // ---------- Что подкладывается странице ----------
 
 /**
- * Мир закрепляется сохранением до загрузки страницы: сид и дом постоянные,
- * иначе два прогона показали бы разную землю.
- *
- * `__freeze` подменяет пульс пустышкой — отряды и фигуры перестают ползти между
- * кадрами, и снимки одного места в двух прогонах совпадают до пикселя там, где
- * ничего не правили.
+ * Мир закрепляет и пульс замораживает общая дверь (`lib/pinned.ts`): отряды и
+ * фигуры перестают ползти между кадрами, и снимки одного места в двух прогонах
+ * совпадают до пикселя там, где ничего не правили. Своё у стенда одно — где дом.
  */
 const PROBE = `
 (() => {
-  const W = () => window.__world;
-  window.__freeze = () => {
-    W().setState({ pulse: async () => {} });
-    return JSON.stringify('ok');
-  };
-  window.__ready = () => JSON.stringify({ map: window.__game.getState().mapOpen, world: !!window.__world && !!W().getState().info });
-  window.__home = () => JSON.stringify(W().getState().info.home);
-  /** Дом, если мир уже собран. Спрашивается сразу после загрузки — карты ещё нет. */
-  window.__homeOrNull = () => JSON.stringify(window.__world ? (W().getState().info || {}).home || null : null);
+  window.__home = () => JSON.stringify(window.__world.getState().info.home);
   return JSON.stringify('ok');
 })()
 `;
@@ -171,55 +151,11 @@ async function shoot(tab: Tab, name: string): Promise<void> {
  */
 const SETTLE_MS = 3000;
 
-/**
- * Кладёт закреплённое сохранение мира и перезагружает страницу.
- *
- * Зовётся в цикле, и не по перестраховке: вкладка открывается сразу на адресе
- * игры, игра успевает построить свой мир со случайным сидом и записать его —
- * иногда раньше нашей записи, иногда позже. Гонка настоящая, ловится она одним
- * вопросом («тот ли дом?»), и лечится повтором.
- */
-async function seedWorld(tab: Tab): Promise<void> {
-  await tab.eval<string>(
-    `(() => { try { localStorage.clear(); localStorage.setItem('tribe.world.v1', ${JSON.stringify(
-      JSON.stringify({ v: 8, seed: SEED, home: HOME }),
-    )}); } catch (e) {} return JSON.stringify('ok'); })()`,
-  );
-  await tab.send('Page.reload');
-  await sleep(4500);
-}
-
 async function open(server: Server, url: string): Promise<Tab> {
   void server;
   const tab = await Tab.open(DEBUG_PORT, url);
-  for (let attempt = 1; ; attempt++) {
-    await seedWorld(tab);
-    await tab.eval<string>(PROBE);
-    // Стартовый экран закрывает собой всё, и `openMap` его не снимает: в игру
-    // входят кнопкой. Нажимаем ту же самую — стенд ходит теми же дверями, что и
-    // игрок, а не заводит себе вторую.
-    await tab.eval<string>(
-      '(() => { const b = document.querySelector(".start-go"); if (b) b.click(); return JSON.stringify(!!b); })()',
-    );
-    await sleep(1200);
-    // Проводка первых шагов затемняет весь экран «дыркой» вокруг подсказки — на
-    // снимке земли от этого не видно вовсе. Снимаем её той же кнопкой
-    // «Пропустить», что и игрок.
-    await tab.eval<string>('(() => { window.__game.getState().skipTutorial(); return JSON.stringify("ok"); })()');
-    await tab.eval<string>('(() => { window.__game.getState().openMap(); return JSON.stringify("ok"); })()');
-    for (let i = 0; i < 120; i++) {
-      await sleep(100);
-      const r = await tab.eval<{ map: boolean; world: boolean }>('window.__ready()');
-      if (r.map && r.world) break;
-    }
-    const at = await tab.eval<{ x: number; y: number } | null>('window.__homeOrNull()');
-    if (at && at.x === HOME.x && at.y === HOME.y) break;
-    if (attempt >= 3) {
-      throw new Error(`мир не закрепился: дом ${at ? `${at.x}|${at.y}` : 'не приехал'} вместо ${HOME.x}|${HOME.y}`);
-    }
-    console.log(`  (мир уехал на ${at ? `${at.x}|${at.y}` : '—'}, кладём сохранение заново)`);
-  }
-  await tab.eval<string>('window.__freeze()');
+  await openPinnedMap(tab, { onLog: (line) => console.log(line) });
+  await tab.eval<string>(PROBE);
   await tab.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
   await sleep(SETTLE_MS);
   return tab;
@@ -235,12 +171,6 @@ async function run(server: Server, fog: boolean, spots: Spot[], lair: { x: numbe
   const url = `http://127.0.0.1:${PORT}/?probe=1${fog ? '' : '&worldview=open'}`;
   const tab = await open(server, url);
   const home = await tab.eval<{ x: number; y: number }>('window.__home()');
-  // Мир обязан быть тем же, что закреплён в сохранении. Разошлось — снимки «до»
-  // и «после» показывают разную землю, и сравнивать их нельзя; молчать об этом
-  // хуже, чем упасть.
-  if (home.x !== HOME.x || home.y !== HOME.y) {
-    console.log(`  ! дом уехал: ${home.x}|${home.y} вместо ${HOME.x}|${HOME.y} — сохранение не подхватилось`);
-  }
   try {
     for (const s of spots) {
       const p = s.place === 'home' ? home : s.place === 'lair' ? lair : s.place;

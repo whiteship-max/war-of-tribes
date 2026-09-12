@@ -41,6 +41,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { PINNED_HOME, PINNED_SEED, openPinnedMap } from './lib/pinned';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import type { MarchView, PlayerProfile } from '@/world/types';
 import { PARTY_STEPS, partyMen, sizeOf, type PartySize } from '@/ui/map/party';
@@ -318,24 +319,56 @@ const PROBE = `
   };
   /**
    * Бросок карты: камера ползёт по спирали вокруг дома, и под неё всё время
-   * подъезжают свежие тайлы. Это единственный способ померить выпечку — стоя на
-   * месте карта не печёт ничего, а чувствуется выпечка ровно в броске.
+   * подъезжают свежие тайлы. Заодно пишутся интервалы между кадрами — это и
+   * есть «дёргается или нет»; цена выпечки сама по себе этого не говорит.
+   *
+   * Камера ведётся часами, а не счётом кадров. Со счётом кадров медленный
+   * прогон проходит меньше земли за те же секунды, а земля разная: открытое
+   * море печётся почти даром, лес дорого, и прогоны переставали быть сравнимы.
    */
   window.__fly = (on) => {
     if (window.__flyRaf) cancelAnimationFrame(window.__flyRaf);
     window.__flyRaf = 0;
     if (!on) return JSON.stringify('off');
     const home = W().getState().info.home;
-    let t = 0;
+    window.__dts = [];
+    const t0 = performance.now();
+    let prev = t0;
     const step = () => {
-      t++;
-      const a = t * 0.03;
-      window.__mapCam(home.x + Math.cos(a) * (3 + t * 0.06), home.y + Math.sin(a) * (3 + t * 0.06), 44);
+      const now = performance.now();
+      window.__dts.push(now - prev);
+      prev = now;
+      const s = (now - t0) / 1000;
+      const a = s * 1.8;
+      window.__mapCam(home.x + Math.cos(a) * (3 + s * 3.6), home.y + Math.sin(a) * (3 + s * 3.6), 44);
       window.__flyRaf = requestAnimationFrame(step);
     };
     window.__flyRaf = requestAnimationFrame(step);
     return JSON.stringify('on');
   };
+  /** Те же интервалы кадров, но камера стоит. */
+  window.__still = (on) => {
+    if (window.__stillRaf) cancelAnimationFrame(window.__stillRaf);
+    window.__stillRaf = 0;
+    if (!on) return JSON.stringify('off');
+    window.__dts = [];
+    let prev = performance.now();
+    const step = () => {
+      const now = performance.now();
+      window.__dts.push(now - prev);
+      prev = now;
+      window.__stillRaf = requestAnimationFrame(step);
+    };
+    window.__stillRaf = requestAnimationFrame(step);
+    return JSON.stringify('on');
+  };
+  /** Камера домой: и бросок, и стоянка обязаны начинаться с одного места. */
+  window.__athome = () => {
+    const home = W().getState().info.home;
+    window.__mapCam(home.x + 3, home.y, 44);
+    return JSON.stringify('ok');
+  };
+  window.__dtsTake = () => JSON.stringify(window.__dts || []);
   window.__take = () => JSON.stringify(window.__mapPerf());
   window.__bakes = () => JSON.stringify(window.__mapBakes());
   window.__ready = () => JSON.stringify({ map: window.__game.getState().mapOpen, world: !!window.__world });
@@ -420,7 +453,7 @@ const FEATURE_MIN = 2;
 /** Размеры, на которых меряются силуэты. Ниже пола `agentUnit` — нарочно. */
 const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
 
-async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]; flown: Flight }> {
+async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]; flown: Flight[] }> {
   const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');
@@ -445,45 +478,72 @@ async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]
   return { shots: out, looks, flown: await flight() };
 }
 
-/** Что стоит выпечка тайла и что от неё видно в кадре при броске карты. */
+/** Что стоит выпечка тайла и что от неё видно в кадре — при броске и стоя. */
 interface Flight {
-  /** Времена выпечки одного тайла, мс. */
+  /** Во сколько раз замедлен процессор: 1 — эта машина, 4 — мерка под телефон. */
+  slow: number;
+  /** Времена выпечки одного тайла за бросок, мс. */
   bakes: number[];
-  /** Времена кадров во время броска, мс. */
-  frames: number[];
+  /** Интервалы между кадрами при броске, мс. */
+  fly: number[];
+  /** Интервалы между кадрами, когда камера стоит, мс. */
+  still: number[];
+  /** Сколько тайлов испеклось, пока камера стояла. Не ноль — кэш перепекает кольцо. */
+  stillBakes: number;
 }
 
 /**
- * Бросок карты на телефонном кадре. Меряются две разные вещи сразу: сколько
- * стоит испечь тайл и что от этого видно в кадре. Второе много меньше первого —
- * тайл печётся раз на десятки кадров, — и путать их нельзя.
- *
- * Камера здесь отпущена (`window.__mapCam` ходит через тот же поводок, что и
- * жест, а страница открыта с `worldview=open`): под поводком она уходит от дома
- * на полэкрана и свежих тайлов почти не просит, то есть мерить было бы нечего.
- * Земля от флага не меняется — меняется только туман.
+ * Замедления процессора. Телефон изображается ими (`Emulation.setCPUThrottlingRate`),
+ * и это не телефон: четыре — обычная мерка DevTools под телефон средней руки.
+ * Растеризацию холста в процессе GPU замедление не тормозит, поэтому эти числа —
+ * про работу процессора в выпечке, а не про пиксели (docs/world-map.md).
  */
-async function flight(): Promise<Flight> {
+const SLOWS = [1, 4];
+
+/**
+ * Бросок карты и стоянка на телефонном кадре, на **закреплённом мире**
+ * (`lib/pinned.ts`). Без закрепления каждый прогон летал над своей землёй, и
+ * числа двух коммитов сравнивать было нельзя — однажды так и сравнили.
+ *
+ * Камера отпущена (`worldview=open`): под поводком она уходит от дома на
+ * полэкрана и свежих тайлов почти не просит. Земля от флага не меняется.
+ *
+ * Стоянка меряется после броска нарочно: бросок подгружает куски вокруг, и
+ * только тогда кольцо запаса вокруг экрана может печься — ровно как у игрока,
+ * который уже поводил карту. Если кольцо не помещается в кэш, стоящая карта
+ * печёт по тайлу на кадр, и это видно в строке «кадр стоя».
+ */
+async function flight(): Promise<Flight[]> {
   const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1&worldview=open`);
   await tab.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
-  await sleep(4000);
+  await openPinnedMap(tab, { onLog: (line) => console.log(line) });
   await tab.eval<string>(PROBE);
-  await tab.eval<string>('(() => { window.__game.getState().openMap(); return JSON.stringify("ok"); })()');
-  for (let i = 0; i < 100; i++) {
-    await sleep(100);
-    const r = await tab.eval<{ map: boolean; world: boolean }>('window.__ready()');
-    if (r.map && r.world) break;
-  }
-  await tab.eval<string>('window.__freeze()');
   // Первый экран земли печётся сразу после входа: это разовая работа, и мешать
   // её с броском нельзя — мерить надо установившийся ход.
   await sleep(2500);
-  await tab.eval<number[]>('window.__take()');
-  await tab.eval<number[]>('window.__bakes()');
-  await tab.eval<string>('window.__fly(true)');
-  await sleep(SECONDS * 2000);
-  const out = { frames: await tab.eval<number[]>('window.__take()'), bakes: await tab.eval<number[]>('window.__bakes()') };
-  await tab.eval<string>('window.__fly(false)');
+  const out: Flight[] = [];
+  for (const slow of SLOWS) {
+    await tab.send('Emulation.setCPUThrottlingRate', { rate: slow });
+    await tab.eval<string>('window.__athome()');
+    await tab.eval<number[]>('window.__bakes()');
+    await tab.eval<string>('window.__fly(true)');
+    await sleep(SECONDS * 2000);
+    const fly = await tab.eval<number[]>('window.__dtsTake()');
+    const bakes = await tab.eval<number[]>('window.__bakes()');
+    await tab.eval<string>('window.__fly(false)');
+    // Домой и пауза: после броска вокруг камеры допекается свежий экран, и без
+    // паузы «стоя» мерило бы его, а не стоянку.
+    await tab.eval<string>('window.__athome()');
+    await sleep(4000);
+    await tab.eval<number[]>('window.__bakes()');
+    await tab.eval<string>('window.__still(true)');
+    await sleep(2000);
+    const still = await tab.eval<number[]>('window.__dtsTake()');
+    await tab.eval<string>('window.__still(false)');
+    const stillBakes = (await tab.eval<number[]>('window.__bakes()')).length;
+    out.push({ slow, bakes, fly, still, stillBakes });
+  }
+  await tab.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   tab.close();
   await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
   return out;
@@ -524,7 +584,7 @@ async function main(): Promise<void> {
   const chrome = await launchChrome(DEBUG_PORT, ['--window-size=1400,900', '--force-device-scale-factor=1']);
   let shots: Shot[] = [];
   let looks: Look[] = [];
-  let flown: Flight = { bakes: [], frames: [] };
+  let flown: Flight[] = [];
   try {
     ({ shots, looks, flown } = await measure(counts));
   } finally {
@@ -551,21 +611,27 @@ async function main(): Promise<void> {
   console.log('Кадров нет вовсе — значит страница не рисовалась: см. CLAUDE.md, «Стенд в проде».');
 
   console.log('\n=== бросок карты: выпечка тайла ===\n');
-  console.log('Земля печётся по тайлу за кадр, и это самая дорогая работа карты. В медиану');
-  console.log('кадра она не попадает вовсе — тайл печётся раз на десятки кадров, — поэтому');
-  console.log('меряется отдельно: камера ползёт по спирали, и под неё подъезжают свежие тайлы.\n');
-  console.log(`${pad('что', 22)} ${pad('штук', 6)} ${pad('медиана', 8)} ${pad('p95', 8)} макс`);
-  for (const [name, a] of [
-    ['выпечка тайла', flown.bakes],
-    ['кадр в броске', flown.frames],
-  ] as [string, number[]][]) {
-    console.log(
-      `${pad(name, 22)} ${String(a.length).padStart(5)} ${num(median(a), 8)} ${num(pct(a, 0.95), 8)} ${num(Math.max(0, ...a), 8)}`,
-    );
+  console.log(`Мир закреплён (дом ${PINNED_HOME.x}|${PINNED_HOME.y}, сид ${PINNED_SEED}): прогоны разных коммитов летают над одной землёй.`);
+  console.log('Земля печётся по тайлу за кадр, и в медиану кадра выпечка не попадает вовсе — поэтому');
+  console.log('меряется отдельно: камера ползёт по спирали, под неё подъезжают свежие тайлы.');
+  console.log('«Длинный» кадр — дольше 25 мс, то есть хотя бы один пропущенный. ×4 — замедление');
+  console.log('процессора, мерка под телефон средней руки; растеризацию на GPU оно не тормозит.\n');
+  console.log(`${pad('×', 3)} ${pad('что', 16)} ${pad('штук', 6)} ${pad('медиана', 8)} ${pad('p95', 8)} ${pad('макс', 8)} прочее`);
+  for (const f of flown) {
+    const long = f.fly.filter((d) => d > 25).length;
+    const share = f.fly.length ? Math.round((100 * long) / f.fly.length) : 0;
+    const line = (name: string, a: number[], tail: string): void =>
+      console.log(
+        `${pad(String(f.slow), 3)} ${pad(name, 16)} ${String(a.length).padStart(5)} ${num(median(a), 8)} ${num(pct(a, 0.95), 8)} ${num(Math.max(0, ...a), 8)} ${tail}`,
+      );
+    line('выпечка тайла', f.bakes, '');
+    line('кадр в броске', f.fly, `длинных ${share}%`);
+    line('кадр стоя', f.still, `выпечек стоя за 2 с: ${f.stillBakes}`);
   }
-  console.log('\nВыпечка не обязана влезать в кадр целиком: она одна на кадр, а полоса перехода');
-  console.log('подобрана под кэш. Но вдвое подорожавшая выпечка — это вдвое длиннее рывок при');
-  console.log('броске карты, и увидеть его можно только здесь: в медиане кадра его нет.');
+  console.log('\nВыпечка не обязана влезать в кадр целиком: она одна на кадр. Но выпечка около кадра');
+  console.log('на ×4 — это рывок при броске на телефоне, и на этой машине его не видно.');
+  console.log('Выпечек стоя не ноль — кэш перепекает кольцо запаса вокруг экрана по тайлу на кадр');
+  console.log('(docs/world-map.md, «Кольцо запаса перепекается каждый кадр»).');
 
   console.log('\n=== агенты: различимы ли четверо без подписей ===\n');
   console.log('Подписи под фигурами убраны, и опознание держится только на форме. Пятно —');
