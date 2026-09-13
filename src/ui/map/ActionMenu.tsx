@@ -16,6 +16,7 @@ import { actionsOf } from '@/world/data/spy';
 import { SPY_HELD } from '@/world/data/tuning';
 import { RELATION_META } from '@/world/data/meta';
 import { CAMP_LEAVE } from '@/world/siege';
+import { worksWords } from '@/world/works';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { RESOURCE_IDS } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
@@ -242,7 +243,7 @@ export function ActionMenu() {
               <b>Ударить по лагерю</b>
               <i>
                 {here
-                  ? `«${card.siege.byName}» стоят здесь с ${new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Разобьёшь — осада снята.`
+                  ? `«${card.siege.byName}» стоят здесь с ${new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Разобьёшь — осада снята. ${worksWords(card.siege.since, worldNow())}`
                   : 'Доведи полководца — и лагерь можно сбить.'}
               </i>
             </span>
@@ -253,7 +254,7 @@ export function ActionMenu() {
         {menu.agent === 'general' && card?.siege?.mine && (
           <div className="am-plain">
             ⛺ Здесь стоит наш лагерь. Пока он стоит, других дел у полководца нет; сколько у них
-            хлеба — узнаем вместе с ними.
+            хлеба — узнаем вместе с ними. {worksWords(card.siege.since, worldNow())}
           </div>
         )}
 

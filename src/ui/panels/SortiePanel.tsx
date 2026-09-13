@@ -10,15 +10,17 @@
 // атака.
 //
 // Прогноза исхода нет — как и везде в этой игре. Известно ровно то, что можно
-// увидеть со стены: сколько людей в лагере и что он встретит вылазку готовым.
-import { Fragment, useMemo, useState } from 'react';
+// увидеть со стены: сколько людей в лагере и насколько он укрепился — а значит,
+// сколько из выбранных пробьются к рогаткам. Это не исход, а условие боя, и
+// считает его та же функция, что и сам бой (`world/works.sortieForecast`).
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf, standingTroops } from '@/world/muster';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
-import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { formatLeft, secondsLeft } from '@/world/geo';
-import { SORTIE_CAMP_BONUS } from '@/world/data/tuning';
+import { sortieForecast } from '@/world/works';
 import type { TroopId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -71,6 +73,15 @@ export function SortiePanel() {
   const standing = useMemo(() => troopTotal(standingTroops(s.army, away)), [s, away]);
   const [picked, setPicked] = useState<TroopStack>({});
   const [busy, setBusy] = useState(false);
+  const [, retick] = useState(0);
+
+  // Рогатки растут, пока игрок выбирает состав: число прохода обязано идти вместе
+  // с часами, а не застыть на минуте, в которую открыли панель.
+  useEffect(() => {
+    if (!siege) return;
+    const t = setInterval(() => retick((v) => v + 1), 1000);
+    return () => clearInterval(t);
+  }, [siege]);
 
   const men = troopTotal(picked);
   const stay = troopTotal(home) - men + standing;
@@ -89,6 +100,10 @@ export function SortiePanel() {
       </div>
     );
   }
+
+  const now = worldNow();
+  const fc = sortieForecast(siege, kindsOf(picked), now);
+  const pass = fc.now.pass;
 
   const go = async (): Promise<void> => {
     setBusy(true);
@@ -111,24 +126,33 @@ export function SortiePanel() {
         <div className="body">
           <div className="name">Вылазка</div>
           <div className="lvl">
-            «{siege.byName}» у ворот · до голода {formatLeft(secondsLeft(siege.starvesAt, worldNow()))}
+            «{siege.byName}» у ворот · до голода {formatLeft(secondsLeft(siege.starvesAt, now))}
           </div>
         </div>
       </div>
 
       {/*
         Единственное, что игрок знает о бое заранее, — и знать это он обязан:
-        вылазка бьёт в готовый лагерь. Прятать прибавку в число на экране отчёта
-        значило бы, что решение принимается вслепую там, где вслепую оно
-        приниматься не должно.
+        лагерь укрепляется, и время работает против города. Спрятать это в отчёт
+        значило бы, что решение «выйти сейчас или собраться» принимается вслепую,
+        а непонятный проигрыш читается как несправедливый.
       */}
-      <div className="card danger">
-        <div className="ico">⚠️</div>
+      <div className={`card${fc.now.works > 0 ? ' danger' : ''}`}>
+        <div className="ico">⛺</div>
         <div className="body">
-          <div className="title">Лагерь встретит готовым</div>
+          <div className="title">
+            {fc.now.works <= 0 ? 'Рогаток ещё нет' : fc.now.works < 1 ? 'Лагерь укрепляется' : 'Рогатки дозрели'}
+          </div>
           <div className="desc">
-            Рогатки выставлены, дозоры стоят: в бою он считается на{' '}
-            {Math.round(SORTIE_CAMP_BONUS * 100)}% сильнее, чем тот же отряд в чистом поле.
+            {fc.now.works <= 0
+              ? `Лагерь только встал: к бою пройдут все, кого выпустишь.`
+              : `Рогатки, ров и частокол достроены на ${Math.floor(fc.now.works * 100)}%: к бою пробьётся не больше ${pass} бойцов строя.`}
+            {fc.now.works < 1 &&
+              ` Дозреют через ${formatLeft(secondsLeft(fc.ripeAt, now))} — тогда не больше ${fc.ripePass}. С каждой минутой проход уже.`}
+            {men > 0 &&
+              (fc.now.passed < fc.now.went
+                ? ` В выбранном отряде ${fc.now.went} бойцов строя — к рогаткам пробьются ${fc.now.passed}, остальные в бою не будут.`
+                : ` Выбранный отряд — ${fc.now.went} бойцов строя — пройдёт весь.`)}
           </div>
         </div>
       </div>

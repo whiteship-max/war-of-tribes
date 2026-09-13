@@ -237,6 +237,7 @@ describe('осада: дебаф на выработку', () => {
       starvesAt: START + 120_000,
       garrison: 7,
       foodAtStart: 6000,
+      campMen: 6,
     };
     expect(syncSiege(s, view, START)).toBe(true);
     expect(s.siege?.until).toBeCloseTo(500 + 120, 6);

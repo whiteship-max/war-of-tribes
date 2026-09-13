@@ -4161,6 +4161,14 @@ body.replaying .app > *:not(.canvas-wrap) {
   margin-top: 3px;
 }
 
+/* Укрепления лагеря: время работает против города, и это стоит над кнопкой вылазки. */
+.siege-works {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  color: #e0a35a;
+}
+
 /* ---------- Прибор: что было со сценой ---------- */
 
 /*

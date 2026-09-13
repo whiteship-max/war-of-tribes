@@ -124,7 +124,6 @@ import {
   CAMP_LEAVE,
   PLAYER_CAMP,
   SIEGE_BLOCK,
-  campMen,
   immuneUntil,
   openSiege,
   ourCamp,
@@ -167,6 +166,7 @@ import type { FaithId } from '@/game/types';
 import { ORDER_TEXT } from '@/game/data/order';
 import { fitSetup, resolveField, type FieldOutcome } from '../battle';
 import { awayOf, defendersOf, homeOf, standingShare, standingTroops, weakest } from '../muster';
+import { campPass, campWorks, throughText, throughWorks, type Through } from '../works';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
@@ -238,7 +238,6 @@ import {
   SIEGE_SORTIE_AT,
   SIEGE_SORTIE_RATIO,
   SIEGE_TOWN_EAT_MAN,
-  SORTIE_CAMP_BONUS,
   SUPPORT_STAY,
   TRADE_GOLD_PER_SETTLEMENT,
   TRIBUTE_PER_SETTLEMENT,
@@ -843,6 +842,7 @@ export class LocalWorld implements WorldApi {
       starvesAt: starvesAt(w),
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
+      campMen: this.campArmy(w)?.men ?? 0,
     };
   }
 
@@ -866,35 +866,25 @@ export class LocalWorld implements WorldApi {
    * жило и раньше, — в марше у чужого лагеря и при полководце у нашего, — и
    * вторым числом в окне осады не дублируется.
    *
-   * `guard` — лагерь обороняется. Вылазка бьёт в готовое: рогатки выставлены,
-   * дозоры стоят, — и прибавка идёт числом бойцов (`campMen`), а не отдельной
-   * строкой в ядре боя: иначе у боя появилась бы вторая правда о том, сколько
-   * кого в строю, и журнал перестал бы сходиться с потерями.
+   * Лагерь в бою — ровно те, кто в нём стоит. Прибавки людей за готовность у
+   * него нет: его крепость — укрепления (`world/works`), и они не добавляют ему
+   * бойцов, а не пускают к нему наших.
    */
-  private campArmy(
-    w: SiegeWindow,
-    guard: boolean,
-  ): {
+  private campArmy(w: SiegeWindow): {
     kinds: Stack;
     gear: Partial<Record<UnitKind, number>>;
     resolve?: number;
     setup: ArmySetup | null;
-    /** Сколько бойцов строя стоит в лагере — с прибавкой, если он готов. */
+    /** Сколько бойцов строя стоит в лагере. */
     men: number;
     power: number;
     name: string;
   } | null {
-    const bonus = guard ? SORTIE_CAMP_BONUS : 0;
     if (ourCamp(w)) {
       const troops = this.save.figures.general.troops ?? {};
       const men = troopTotal(troops);
       if (men <= 0) return null;
       const kinds = kindsOf(troops);
-      if (bonus > 0) {
-        for (const k of Object.keys(kinds) as UnitKind[]) {
-          if (kinds[k] > 0) kinds[k] = campMen(kinds[k], bonus);
-        }
-      }
       return {
         kinds,
         gear: this.ownGear(troops),
@@ -908,15 +898,11 @@ export class LocalWorld implements WorldApi {
     const m = this.save.marches.find((x) => x.id === w.campId);
     if (!m) return null;
     const party = raidingParty(this.save.seed, m.id, m.power);
-    const kinds = { ...party.kinds };
-    if (bonus > 0) kinds.infantry += campMen(stackTotal(kinds), bonus) - stackTotal(kinds);
     return {
-      kinds,
+      kinds: { ...party.kinds },
       gear: party.gear,
-      // С прибавкой у лагеря людей больше, чем в его расстановке, — пресет
-      // выбирается заново по тем же людям, а не растягивается на новых.
-      setup: bonus > 0 ? null : party.setup,
-      men: stackTotal(kinds),
+      setup: party.setup,
+      men: stackTotal(party.kinds),
       power: m.power,
       name: m.fromName,
     };
@@ -926,24 +912,56 @@ export class LocalWorld implements WorldApi {
    * Кто бы ни ударил по лагерю — вылазка осаждённого, выручка соседей или наш
    * полководец, — считается это здесь и одним боем. Разводить их по трём местам
    * значило бы завести три правды о том, насколько лагерь крепок.
+   *
+   * Укрепления действуют на всех одинаково: в бой входят только те, кто прошёл
+   * через рогатки (`world/works`), — доля строя от каждого рода, той же функцией,
+   * которой панель вылазки считает «пробьются N из M» до нажатия. Остальные стоят
+   * у рогаток: не убивают и не гибнут, и в бою их нет.
+   *
+   * `fought` и `all` — сколько бойцов строя дралось и сколько вышло; `share` —
+   * их доля. Потери в бою — доля от дравшихся, и переводить её на весь отряд
+   * надо через неё, а не прямо.
    */
   private campBattle(
     id: SettlementId,
     at: number,
     seed: number,
-    attacker: { kinds: Stack; gear: Partial<Record<UnitKind, number>>; resolve?: number; setup: ArmySetup | null },
-    guard: boolean,
-  ): { field: FieldOutcome; camp: NonNullable<ReturnType<LocalWorld['campArmy']>> } | null {
+    attacker:
+      | { own: TroopStack; setup: ArmySetup | null }
+      | { kinds: Stack; gear: Partial<Record<UnitKind, number>>; setup: ArmySetup | null },
+  ): {
+    field: FieldOutcome;
+    camp: NonNullable<ReturnType<LocalWorld['campArmy']>>;
+    /** Кто прошёл через рогатки — у любого нападающего, своего и чужого. */
+    through: Through;
+    fought: number;
+    all: number;
+    share: number;
+  } | null {
     const w = this.siegeOf(id, at);
     if (!w) return null;
-    const camp = this.campArmy(w, guard);
+    const camp = this.campArmy(w);
     if (!camp) return null;
+    const own = 'own' in attacker;
+    const through = throughWorks(camp.men, siegeSince(w), at, own ? kindsOf(attacker.own) : attacker.kinds);
+    const fighting = {
+      kinds: through.kinds,
+      // Доля строя одинакова у каждого рода, поэтому и снаряжение у прошедших
+      // то же, что у всего отряда.
+      gear: own ? this.ownGear(attacker.own) : attacker.gear,
+      resolve: own ? this.ownResolve() : undefined,
+      // Расстановка писалась на весь отряд, а дерётся его часть: пресет
+      // выбирается по тем, кто прошёл, а не растягивается на стоящих у рогаток.
+      setup: through.passed < through.went ? null : attacker.setup,
+    };
+    const fought = through.passed;
+    const all = through.went;
     const field = resolveField({
       seed,
-      attacker,
+      attacker: fighting,
       defender: { kinds: camp.kinds, gear: camp.gear, setup: camp.setup },
     });
-    return { field, camp };
+    return { field, camp, through, fought, all, share: all > 0 ? fought / all : 0 };
   }
 
   /**
@@ -1296,23 +1314,28 @@ export class LocalWorld implements WorldApi {
     const w = this.siegeOf(id, at);
     const s = this.byId.get(id);
     if (!w || !s) return;
-    const camp = this.campArmy(w, true);
+    const camp = this.campArmy(w);
     if (!camp) return;
     const power = this.powerNow(s, at);
     // Сравниваются **бойцы строя**, а не мощь с мощью: у лагеря игрока мощь
     // считается головами найма на среднюю силу бойца, а у поселения — своей
-    // меркой, и сравнивать их напрямую значило бы сравнивать разное.
-    if (menOfPower(power) < camp.men * SIEGE_SORTIE_RATIO) return;
+    // меркой, и сравнивать их напрямую значило бы сравнивать разное. И
+    // сравниваются те, кто пройдёт через рогатки, а не весь гарнизон: стоящие у
+    // рогаток не дерутся.
+    const pass = campPass(camp.men, campWorks(siegeSince(w), at));
+    if (Math.min(menOfPower(power), pass) < camp.men * SIEGE_SORTIE_RATIO) return;
     const g = garrisonOf(this.save.seed, s.id, power, s.castle);
-    const out = this.campBattle(id, at, this.warSeed().seed, { kinds: g.kinds, gear: g.gear, setup: g.setup }, true);
+    const out = this.campBattle(id, at, this.warSeed().seed, { kinds: g.kinds, gear: g.gear, setup: g.setup });
     if (!out) return;
     this.resolveSortieOn(id, at, out.field, `Из ${s.name} вышли на вылазку.`);
     // Гарнизон вышел и поредел: часы голода города считаются заново — один раз,
-    // здесь, в самом событии.
-    const gone = Math.round(menOfPower(power) * out.field.attackerLoss);
+    // здесь, в самом событии. Потери — доля от дравшихся, на весь гарнизон она
+    // переводится через долю тех, кто прошёл к рогаткам.
+    const lossOfAll = out.field.attackerLoss * out.share;
+    const gone = Math.round(menOfPower(power) * lossOfAll);
     const prev = this.damageOf(id, at);
     this.save.damage[id] = {
-      loss: Math.min(0.95, prev + out.field.attackerLoss * (1 - prev)),
+      loss: Math.min(0.95, prev + lossOfAll * (1 - prev)),
       at: this.liveAt(id, at),
     };
     this.resiege(id, at, -gone);
@@ -1355,7 +1378,7 @@ export class LocalWorld implements WorldApi {
     if (!w || !town) return;
     // Один отряд на выручку за раз: второй превратил бы фон в толчею.
     if (this.save.marches.some((m) => m.relief === id)) return;
-    if (!this.campArmy(w, false)) return;
+    if (!this.campArmy(w)) return;
     const byTribe = this.byId.get(w.byId)?.tribeId ?? null;
 
     let best: GenSettlement | null = null;
@@ -1401,8 +1424,9 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Отряд выручки дошёл до лагеря. Бой — тот же, что у вылазки, только лагерь
-   * бьют снаружи и врасплох: прибавки за готовность у него здесь нет.
+   * Отряд выручки дошёл до лагеря. Бой — тот же, что у вылазки, и укрепления
+   * лагеря действуют на выручку так же: снаружи через рогатки проходит столько
+   * же, сколько изнутри.
    */
   private resolveRelief(m: StoredMarch, at: number): void {
     const id = m.relief as SettlementId;
@@ -1416,7 +1440,6 @@ export class LocalWorld implements WorldApi {
       at,
       m.seed,
       { kinds: party.kinds, gear: party.gear, setup: party.setup },
-      false,
     );
     if (!out) return;
     const ours = ourCamp(w);
@@ -1435,13 +1458,18 @@ export class LocalWorld implements WorldApi {
       sent: { warrior: campLost + troopTotal(this.save.figures.general.troops ?? {}) },
       lost: campLost > 0 ? { warrior: campLost } : {},
       enemyPower: Math.round(m.power),
-      enemyLost: Math.round(m.power * out.field.attackerLoss),
+      // Потери — доля от дравшихся, а дралась только прошедшая через рогатки часть.
+      enemyLost: Math.round(m.power * out.field.attackerLoss * out.share),
       loot: null,
       intel: null,
       battle: null,
-      text: out.field.won
-        ? `${m.fromName} пришли на выручку ${target.name} и сбили наш лагерь. Осада снята.`
-        : `${m.fromName} пришли на выручку ${target.name} и были отбиты. Осада стоит.`,
+      text:
+        (out.field.won
+          ? `${m.fromName} пришли на выручку ${target.name} и сбили наш лагерь. Осада снята.`
+          : `${m.fromName} пришли на выручку ${target.name} и были отбиты. Осада стоит.`) +
+        (out.share < 1
+          ? ` Через рогатки к бою прошли ${out.fought} бойцов строя из ${out.all}.`
+          : ''),
       read: false,
     });
   }
@@ -1523,16 +1551,12 @@ export class LocalWorld implements WorldApi {
     if (men === 0) return { error: 'Выходить некому: отряд пустой.', reportId: null, won: false };
 
     const seed = marchSeed(this.save.seed, this.save.nextMarch++);
-    const out = this.campBattle(
-      HOME_ID,
-      now,
-      seed,
-      { kinds: kindsOf(going), gear: this.ownGear(going), resolve: this.ownResolve(), setup },
-      true,
-    );
+    const out = this.campBattle(HOME_ID, now, seed, { own: going, setup });
     if (!out) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
-    const { field, camp } = out;
+    const { field, camp, through } = out;
 
+    // Потери боя — только из дравшихся, и снимаются они с отряда тем же правилом,
+    // что у любого боя: по родам, слабые первыми.
     const lostTroops = field.result ? troopLosses(going, field.result.sides.attacker.losses) : {};
     const lostMen = troopTotal(lostTroops);
     const campLost = this.resolveSortieOn(HOME_ID, now, field, 'Мы вышли на вылазку.');
@@ -1542,6 +1566,8 @@ export class LocalWorld implements WorldApi {
           us: 'attacker',
           preset: field.preset.attacker,
           result: field.result,
+          // Состав — пропорция лиц для показа; сколько дралось, говорит сам бой
+          // (`result`): прошедшие через рогатки — та же доля от каждого рода.
           troops: { attacker: { ...going }, defender: troopsOfKinds(camp.kinds, camp.gear) },
           // Бой у своих ворот: место снимается там же, где стоит деревня.
           place: this.placeOf(this.save.home),
@@ -1563,9 +1589,11 @@ export class LocalWorld implements WorldApi {
       loot: null,
       intel: null,
       battle: record,
-      text: field.won
-        ? `Дружина вышла из ворот и разметала лагерь. Осада снята, город снова ест.`
-        : `Лагерь встретил вылазку готовым (${Math.round(SORTIE_CAMP_BONUS * 100)}% сверху за рогатки и дозоры). Отбились, но и им досталось: ${campLost} чел. Осада стоит.`,
+      through: { went: through.went, passed: through.passed },
+      text:
+        (field.won
+          ? `Дружина вышла из ворот и разметала лагерь. Осада снята, город снова ест.`
+          : `Лагерь отбился. Осада стоит, но и им досталось: ${campLost} чел.`) + throughText(through),
       read: false,
     });
     this.addEffect({
@@ -3645,16 +3673,9 @@ export class LocalWorld implements WorldApi {
     const troops = f.troops ?? {};
     const men = troopTotal(troops);
     const seed = marchSeed(this.save.seed, this.save.nextMarch++);
-    const guard = id === HOME_ID;
-    const out = this.campBattle(
-      id,
-      at,
-      seed,
-      { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), setup: null },
-      guard,
-    );
+    const out = this.campBattle(id, at, seed, { own: troops, setup: null });
     if (!out) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
-    const { field, camp } = out;
+    const { field, camp, through } = out;
 
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
     const left: TroopStack = {};
@@ -3696,9 +3717,11 @@ export class LocalWorld implements WorldApi {
       loot: null,
       intel: null,
       battle: record,
-      text: field.won
-        ? `Лагерь ${camp.name} разметан, осада снята.`
-        : `Лагерь ${camp.name} отбился${guard ? ` (${Math.round(SORTIE_CAMP_BONUS * 100)}% сверху за готовность)` : ''}. Осада стоит, но и им досталось: ${campLost} чел.`,
+      through: { went: through.went, passed: through.passed },
+      text:
+        (field.won
+          ? `Лагерь ${camp.name} разметан, осада снята.`
+          : `Лагерь ${camp.name} отбился. Осада стоит, но и им досталось: ${campLost} чел.`) + throughText(through),
       read: false,
     });
     this.addEffect({

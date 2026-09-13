@@ -242,6 +242,21 @@ export function ReportBody({ report }: { report: Report }) {
           <span className="name">Ушли</span>
           <span className="val">{unitsText(report.sent)}</span>
         </div>
+        {/*
+          Бой у рогаток лагеря: сколько из вышедших вообще дрались. Без этой
+          строки проигрыш сотни против пятерых читался бы как несправедливый —
+          а дрались в нём трое. Число записал мир в минуту боя, тем же расчётом,
+          которым панель вылазки обещала его до нажатия.
+        */}
+        {report.through && report.through.passed < report.through.went && (
+          <div className="mod">
+            <span className="ico">⛺</span>
+            <span className="name">Пробились к рогаткам, бойцов строя</span>
+            <span className="val">
+              {report.through.passed} из {report.through.went}
+            </span>
+          </div>
+        )}
         <div className="mod">
           <span className="ico"><Icon name="ui-grave" glyph="🪦" /></span>
           <span className="name">Не вернулись</span>

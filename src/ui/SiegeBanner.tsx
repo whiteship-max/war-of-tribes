@@ -6,6 +6,7 @@ import { bondedTotal } from '@/game/derived';
 import { SIEGE_ROUT } from '@/world/data/tuning';
 import { useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
+import { worksShort } from '@/world/works';
 import { Icon } from '@/ui/icons/Icon';
 
 /**
@@ -91,6 +92,12 @@ export function SiegeBanner() {
         {bondedTotal(s) > 0 ? ', уведут невольников' : ''}. Случится и без тебя.
       </div>
       {/*
+        Рогатки растут, и время работает против города: это видно здесь же, над
+        кнопкой, где решают, выходить ли сейчас. Слова и числа — из `world/works`,
+        той же меркой, которой их считает бой.
+      */}
+      <div className="siege-works">{worksShort(siege.since, worldNow())}</div>
+      {/*
         Вылазка — единственное, что игрок может сделать из-под осады сам, и
         поэтому кнопка тут одна. Состав выбирается на своём экране: выпускать
         весь гарнизон одним нажатием — не решение, а ловушка.
@@ -98,7 +105,7 @@ export function SiegeBanner() {
       <button className="siege-sortie" onClick={openSortie}>
         ⚔️ Вылазка
       </button>
-      <div className="siege-note">Выйти и сбить лагерь. Он встретит готовым.</div>
+      <div className="siege-note">Выйти и сбить лагерь, пока рогатки не дозрели.</div>
     </div>
   );
 }

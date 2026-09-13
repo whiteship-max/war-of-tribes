@@ -12,6 +12,7 @@ import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CAMP_LEAVE } from '@/world/siege';
+import { worksWords } from '@/world/works';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
@@ -557,6 +558,9 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               ? 'Приток в городе срезан, хлеб убывает. Сколько его осталось — не узнать: узнаем вместе с ними. Уведёшь полководца — осада снята.'
               : 'Под этими стенами уже стоит чужой лагерь. Разобьёшь его — осада снята.'}
           </p>
+          {/* Укрепления лагеря видны глазами — и нашего, и чужого. Читаются из
+              той же отметки `since`, той же функцией, что и бой у лагеря. */}
+          <p className="note">{worksWords(card.siege.since, worldNow())}</p>
         </>
       )}
 

@@ -13,36 +13,39 @@
 //     можно») считается на тех же самых пришедших отрядах, поэтому сравнение
 //     честное, а не по двум разным прогонам.
 //
-//  2. **Прибавка лагерю.** Вылазка бьёт в готовое, и без прибавки она была бы
-//     бесплатной кнопкой: лагерь и так слабее обороны — иначе он бы штурмовал.
-//     Раздел «вылазка» гоняет настоящее ядро боя на настоящих составах и
-//     печатает долю побед по отношению сил, а заодно проверяет, не выгоднее ли
-//     ходить малыми вылазками вместо одной большой (от ответа зависит, нужен
-//     ли откат).
+//  2. **Укрепления лагеря.** Без них вылазка — бесплатная кнопка: лагерь и так
+//     слабее обороны, иначе он бы штурмовал, а настоящие осады стоят против
+//     гарнизона в семь–сто семьдесят раз больше лагеря. Укрепления сужают
+//     проход (`world/works`): раздел «проход» печатает долю побед от пропуска на
+//     человека лагеря, раздел «во времени» гоняет настоящий мир и вылазку от
+//     минуты постановки лагеря, раздел «частые вылазки» проверяет, не стачивают
+//     ли лагерь малыми заходами (от ответа зависит, нужен ли откат).
 //
 //   npx vite-node scripts/siege-report.ts
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { resolveField } from '@/world/battle';
 import { menOfPower, raidingParty } from '@/world/garrison';
-import { campMen } from '@/world/siege';
-import { gearOf, kindsOf, troopLosses, type TroopStack } from '@/game/battle/kinds';
+import { campPass, campWorks, passKinds } from '@/world/works';
+import { awayOf, homeOf } from '@/world/muster';
+import { gearOf, kindsOf, type TroopStack } from '@/game/battle/kinds';
 import { stackTotal } from '@/battle';
 import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
+  CAMP_WORKS_PASS,
+  CAMP_WORKS_RIPE,
   SIEGE_CHANCE,
   SIEGE_COOLDOWN,
   SIEGE_IF_BELOW,
   SIEGE_RELIEF_AT,
   SIEGE_ROUT,
   SIEGE_SORTIE_RATIO,
-  SORTIE_CAMP_BONUS,
 } from '@/world/data/tuning';
 import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
 import { playerProfile } from '@/world/bridge';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
-import { productionPerDay, storageCap, hiddenStash } from '@/game/derived';
+import { commandCap, housingCapacity, productionPerDay, storageCap, hiddenStash } from '@/game/derived';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { GameState } from '@/game/types';
 
@@ -118,34 +121,20 @@ async function frequency(seed: number, defense: number, army: TroopStack): Promi
 // ---------------------------------------------------------------- вылазка ---
 
 /**
- * Один бой вылазки — теми же составами, что строит мир: гарнизон игрока против
- * отряда лагеря, раздутого прибавкой за готовность (`campMen`). Своей арифметики
- * у отчёта нет: он зовёт те же функции, что и `LocalWorld.campArmy`.
+ * Один бой у рогаток — теми же функциями, что строит мир: отряд проходит через
+ * пропуск (`passKinds`), лагерь — ровно те, кто в нём стоит (`raidingParty`).
+ * Своей арифметики прохода у отчёта нет.
  */
-function sortieOnce(
-  seed: number,
-  going: TroopStack,
-  campPower: number,
-  bonus: number,
-): { won: boolean; ourLoss: number; campLoss: number } {
+function sortieOnce(seed: number, going: TroopStack, campPower: number, pass: number): boolean {
   const party = raidingParty(seed, `camp${seed}`, campPower);
-  const kinds = { ...party.kinds };
-  if (bonus > 0) kinds.infantry += campMen(stackTotal(kinds), bonus) - stackTotal(kinds);
   const field = resolveField({
     seed,
     // Снаряжение вылазки — своё, из видов бойцов: ровно то же, что кладёт мир
     // (`ownGear`). Забудь его — и отряд выйдет голым против кованого лагеря.
-    attacker: { kinds: kindsOf(going), gear: gearOf(going), setup: null },
-    defender: { kinds, gear: party.gear, setup: bonus > 0 ? null : party.setup },
+    attacker: { kinds: passKinds(kindsOf(going), pass), gear: gearOf(going), setup: null },
+    defender: { kinds: party.kinds, gear: party.gear, setup: party.setup },
   });
-  const lost = field.result ? troopLosses(going, field.result.sides.attacker.losses) : {};
-  // Обе убыли — в бойцах строя, а не в головах найма: латник весит восьмерых, и
-  // считать размен по головам значило бы врать в восемь раз.
-  return {
-    won: field.won,
-    ourLoss: stackTotal(kindsOf(lost)),
-    campLoss: Math.round(stackTotal(kinds) * field.defenderLoss),
-  };
+  return field.won;
 }
 
 /**
@@ -164,13 +153,13 @@ const party = (men: number): TroopStack => {
   return out;
 };
 
-/** Мощь лагеря. `menOfPower` переводит её в бойцов строя — с ними и сравниваем. */
-const CAMP_POWER = 240;
-const CAMP_MEN = menOfPower(CAMP_POWER);
-
-const BONUSES = [0, 0.15, 0.25, 0.4, 0.6];
-/** Отношение «наш отряд к лагерю» по бойцам строя. */
-const RATIOS = [0.8, 1, 1.25, 1.6];
+/**
+ * Мощь лагерей — те, что встречаются в игре: набеги упираются в силу логова, и
+ * лагеря под стенами стоят силой 10…22 (5…11 бойцов строя) на любом уровне Статуи.
+ */
+const CAMP_POWERS = [10, 16, 22];
+/** Пропуск на человека лагеря: бесконечность — рогаток нет. */
+const PASSES = [Infinity, 1.6, 1.25, 1, 0.8, 0.6, CAMP_WORKS_PASS];
 const TRIES = 40;
 
 // ------------------------------------------------------------------ печать ---
@@ -212,65 +201,250 @@ for (const town of TOWNS) {
 console.log(`всего:    ${totalCame} прихода, осад было бы ${totalOld} (${pct(totalOld, totalCame)}), стало ${totalNew} (${pct(totalNew, totalCame)})`);
 
 console.log('');
-console.log(`--- вылазка: прибавка лагерю (сейчас SORTIE_CAMP_BONUS = ${SORTIE_CAMP_BONUS}) ---`);
-console.log('прибавка  ' + RATIOS.map((r) => `×${r}`.padStart(7)).join('') + '   средний размен');
-for (const bonus of BONUSES) {
+console.log(`--- проход через рогатки: доля побед вылазки (дозревшие рогатки — ${CAMP_WORKS_PASS} на человека) ---`);
+console.log('пропуск на человека  ' + CAMP_POWERS.map((p) => `лагерь ${p}`.padStart(11)).join(''));
+for (const per of PASSES) {
   const cells: string[] = [];
-  let ours = 0;
-  let theirs = 0;
-  for (const ratio of RATIOS) {
+  for (const power of CAMP_POWERS) {
+    const men = menOfPower(power);
+    // Отряд заведомо больше пропуска — вдесятеро больше лагеря, как у настоящих осад.
+    const going = party(men * 10);
+    const pass = per === Infinity ? Infinity : Math.max(1, Math.round(men * per));
     let won = 0;
-    for (let i = 0; i < TRIES; i++) {
-      const r = sortieOnce(1000 + i * 7, party(Math.round(CAMP_MEN * ratio)), CAMP_POWER, bonus);
-      if (r.won) won++;
-      ours += r.ourLoss;
-      theirs += r.campLoss;
-    }
-    cells.push(pct(won, TRIES).padStart(7));
+    for (let i = 0; i < TRIES; i++) if (sortieOnce(1000 + i * 7 + power, going, power, pass)) won++;
+    cells.push(pct(won, TRIES).padStart(11));
   }
-  const mark = Math.abs(bonus - SORTIE_CAMP_BONUS) < 1e-9 ? ' ←' : '';
-  console.log(`${String(bonus).padEnd(9)} ${cells.join('')}   ${(theirs / Math.max(1, ours)).toFixed(2)}${mark}`);
+  const mark = per === CAMP_WORKS_PASS ? ' ← дозрели' : per === Infinity ? ' ← рогаток нет' : '';
+  console.log(`${(per === Infinity ? '∞' : String(per)).padEnd(20)} ${cells.join('')}${mark}`);
 }
-console.log('строки — прибавка лагерю, столбцы — во сколько раз вылазка крупнее лагеря;');
-console.log('в клетке — доля побед вылазки, справа — сколько чужих за одного своего.');
+console.log('строки — сколько бойцов строя нападающих входит в бой на человека лагеря;');
+console.log('столбцы — мощь лагеря; вылазка вдесятеро больше лагеря, лишние стоят у рогаток.');
+
+// ------------------------------------------------ укрепления во времени ---
+//
+// Настоящий мир и настоящая вылазка (`LocalWorld.sortie`): для каждого уровня
+// Статуи мир крутится до первой осады, сохранение замораживается, и дальше для
+// каждой задержки мир поднимается из того же сохранения заново. Лагерь, гарнизон
+// и еда в каждой пробе одни и те же; меняется только время.
+
+const LEVELS = [1, 5, 10];
+const DELAYS = [0, 4, 8, 12, 16, 20, 24, 28, 36, 44, 52, 60];
+const TOWN_SEEDS = [11, 42, 77, 101, 202, 303, 404, 505];
+const VARIANTS = 3;
+const TOWN_MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
+
+/** Посёлок уровня L: жильё на 90%, склад полон, войско — две вместимости Статуи. */
+function townAt(level: number): GameState {
+  const g = createInitialState();
+  for (const b of g.buildings) b.level = level;
+  g.pop = Math.round(housingCapacity(g) * 0.9);
+  const n = commandCap(g) * 2;
+  let left = n;
+  const ids = Object.keys(TOWN_MIX) as (keyof TroopStack)[];
+  ids.forEach((id, i) => {
+    const k = i === ids.length - 1 ? left : Math.round((n * (TOWN_MIX[id] ?? 0)) / 10);
+    g.army[id] = k;
+    left -= k;
+  });
+  autoAssign(g);
+  for (const r of RESOURCE_IDS) g.resources[r] = storageCap(g);
+  return g;
+}
+
+function memory(data: string | null = null) {
+  return {
+    read: (): string | null => data,
+    write: (json: string): void => {
+      data = json;
+    },
+  };
+}
+
+interface Frozen {
+  seed: number;
+  save: string;
+  since: number;
+  starvesAt: number;
+  campPower: number;
+  g: GameState;
+}
+
+async function freezeSiege(seed: number, level: number): Promise<Frozen | null> {
+  const g = townAt(level);
+  let now = 1_700_000_000_000;
+  const store = memory();
+  const world = new LocalWorld({ seed, now: () => now, storage: store });
+  for (let i = 0; i < 6 * 180; i++) {
+    now += 20_000;
+    const r = await world.sync(playerProfile(g));
+    if (!r.siege) continue;
+    const save = store.read() as string;
+    const parsed = JSON.parse(save);
+    const camp = parsed.marches.find((x: { id: string }) => x.id === parsed.sieges.home.campId);
+    return { seed, save, since: r.siege.since, starvesAt: r.siege.starvesAt, campPower: camp.power, g };
+  }
+  return null;
+}
+
+/** Поднять замороженный мир на минуте `at`. Сид боя сдвигается номером варианта. */
+async function thaw(fz: Frozen, at: number, variant: number) {
+  let now = at;
+  const save = JSON.parse(fz.save);
+  save.nextMarch = (save.nextMarch ?? 0) + variant * 7;
+  const world = new LocalWorld({ seed: fz.seed, now: () => now, storage: memory(JSON.stringify(save)) });
+  const pulse = await world.sync(playerProfile(fz.g));
+  return {
+    world,
+    pulse,
+    garrison: homeOf(fz.g.army, awayOf(pulse.marches, pulse.figures)),
+    later: (ms: number): void => {
+      now += ms;
+    },
+    now: (): number => now,
+  };
+}
+
+/** Часть гарнизона по видам — чтобы в строю было около `men` бойцов строя. */
+function sliceOf(g: TroopStack, men: number): TroopStack {
+  const f = Math.min(1, men / Math.max(1, stackTotal(kindsOf(g))));
+  const out: TroopStack = {};
+  let most: keyof TroopStack | null = null;
+  for (const [id, n] of Object.entries(g) as [keyof TroopStack, number][]) {
+    const k = Math.round((n ?? 0) * f);
+    if (k > 0) out[id] = k;
+    if ((n ?? 0) > 0 && (most === null || (n ?? 0) > (g[most] ?? 0))) most = id;
+  }
+  // Отряд меньше одного бойца не выходит: выходит один — самого многочисленного вида.
+  if (Object.keys(out).length === 0 && most !== null) out[most] = 1;
+  return out;
+}
+
+/**
+ * Самый малый отряд из гарнизона, который заполняет проход целиком: наборы в
+ * пропорции посёлка, пока в строю не станет не меньше пропуска.
+ */
+function fillPass(g: TroopStack, pass: number): TroopStack {
+  for (let k = 1; ; k++) {
+    const out: TroopStack = {};
+    for (const [id, n] of Object.entries(TOWN_MIX) as [keyof TroopStack, number][]) {
+      const take = Math.min(g[id] ?? 0, n * k);
+      if (take > 0) out[id] = take;
+    }
+    if (stackTotal(kindsOf(out)) >= pass || stackTotal(kindsOf(out)) >= stackTotal(kindsOf(g))) return out;
+  }
+}
 
 console.log('');
-console.log('--- нужен ли откат: одна большая вылазка против нескольких малых ---');
-console.log('способ                        побед   своих   чужих   размен');
-{
-  const CAMP = CAMP_POWER;
-  for (const parts of [1, 2, 4]) {
-    let won = 0;
-    let ours = 0;
-    let theirs = 0;
-    for (let i = 0; i < TRIES; i++) {
-      // Один и тот же гарнизон, разбитый на `parts` заходов. Лагерь между
-      // заходами слабеет ровно так же, как в игре (`wearCamp`).
-      let camp = CAMP;
-      // Весь наличный гарнизон — столько же бойцов строя, сколько в лагере.
-      const men = CAMP_MEN;
-      let lifted = false;
-      for (let k = 0; k < parts && !lifted; k++) {
-        const r = sortieOnce(2000 + i * 13 + k, party(Math.round(men / parts)), camp, SORTIE_CAMP_BONUS);
-        ours += r.ourLoss;
-        theirs += r.campLoss;
-        // Лагерь между заходами слабеет ровно так же, как в игре (`wearCamp`).
-        camp = Math.max(1, camp * (1 - r.campLoss / Math.max(1, menOfPower(camp))));
-        if (r.won) lifted = true;
+console.log(`--- укрепления во времени: вылазка от минуты постановки лагеря (дозревают за ${CAMP_WORKS_RIPE / MIN} мин) ---`);
+console.log('настоящий мир, LocalWorld.sortie; «весь» — весь гарнизон, «×2» — отряд вдвое больше лагеря');
+const frozenByLevel = new Map<number, Frozen[]>();
+for (const level of LEVELS) {
+  const frozen: Frozen[] = [];
+  for (const seed of TOWN_SEEDS) {
+    const fz = await freezeSiege(seed, level);
+    if (fz) frozen.push(fz);
+  }
+  frozenByLevel.set(level, frozen);
+  if (frozen.length === 0) {
+    console.log(`Статуя L${level}: осады не случилось`);
+    continue;
+  }
+  const pw = frozen.map((f) => f.campPower);
+  const win = frozen.map((f) => (f.starvesAt - f.since) / MIN);
+  const gMen = stackTotal(kindsOf(homeOf(frozen[0].g.army, awayOf([], []))));
+  console.log(
+    `Статуя L${level}: осад ${frozen.length}, лагеря ${Math.min(...pw).toFixed(1)}…${Math.max(...pw).toFixed(1)} мощи ` +
+      `(${menOfPower(Math.min(...pw))}…${menOfPower(Math.max(...pw))} бойцов строя), гарнизон ${gMen}, ` +
+      `окно голода ${Math.min(...win).toFixed(1)}…${Math.max(...win).toFixed(1)} мин`,
+  );
+  console.log('  Δ, мин  ' + DELAYS.map((d) => String(d).padStart(5)).join(''));
+  for (const kind of ['весь', '×2'] as const) {
+    const cells: string[] = [];
+    for (const d of DELAYS) {
+      let won = 0;
+      let n = 0;
+      for (const fz of frozen) {
+        const at = fz.since + d * MIN;
+        if (at >= fz.starvesAt) continue;
+        for (let v = 0; v < VARIANTS; v++) {
+          const t = await thaw(fz, at, v);
+          if (!t.pulse.siege) continue;
+          const going = kind === 'весь' ? t.garrison : sliceOf(t.garrison, 2 * menOfPower(fz.campPower));
+          const res = await t.world.sortie(going);
+          if (res.error) throw new Error(res.error);
+          n++;
+          if (res.won) won++;
+        }
       }
-      if (lifted) won++;
+      cells.push((n ? pct(won, n) : '—').padStart(5));
+    }
+    console.log(`  ${kind.padEnd(6)} ${cells.join('')}`);
+  }
+}
+
+// ------------------------------------------------------ частые вылазки ---
+//
+// Отката у вылазки нет, и прежний довод («дробление проигрывает по всем
+// столбцам») мерили без укреплений. Через узкий проход дерутся одни и те же
+// двое-трое, сколько бы ни вышло, — проигранная вылазка стоит дёшево, а лагерь
+// теряет свою долю каждый раз. Здесь это меряется настоящим миром: одна вылазка
+// всем гарнизоном против череды малых, отданных подряд.
+
+console.log('');
+console.log('--- частые вылазки: стачивают ли лагерь малые заходы (настоящий мир, Статуя L5) ---');
+console.log('способ                    Δ, мин  сняли осаду  заходов (сред.)  своих легло  людей в лагере: было → стало');
+const SPAM_MAX = 30;
+for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
+  for (const way of ['одна всем гарнизоном', 'подряд по пропуску', 'подряд по одному'] as const) {
+    let lifted = 0;
+    let tries = 0;
+    let lost = 0;
+    let runs = 0;
+    let campBefore = 0;
+    let campAfter = 0;
+    for (const fz of frozenByLevel.get(5) ?? []) {
+      for (let v = 0; v < VARIANTS; v++) {
+        const t = await thaw(fz, fz.since + d * MIN, v);
+        if (!t.pulse.siege) continue;
+        runs++;
+        campBefore += t.pulse.siege.campMen;
+        let menLeft = t.pulse.siege.campMen;
+        let k = 0;
+        let won = false;
+        const limit = way === 'одна всем гарнизоном' ? 1 : SPAM_MAX;
+        while (k < limit && !won) {
+          const view = (await t.world.sync(playerProfile(fz.g))).siege;
+          if (!view) break;
+          menLeft = view.campMen;
+          const going: TroopStack =
+            way === 'одна всем гарнизоном'
+              ? t.garrison
+              : way === 'подряд по одному'
+                ? { spearman: 1 }
+                : fillPass(t.garrison, campPass(view.campMen, campWorks(view.since, t.now())));
+          const res = await t.world.sortie(going);
+          if (res.error) throw new Error(res.error);
+          k++;
+          const rep = (await t.world.reports()).find((r) => r.id === res.reportId);
+          lost += rep?.lost.warrior ?? 0;
+          won = res.won;
+          if (won) menLeft = 0;
+          // Подряд, но не в одну миллисекунду: рука нажимает раз в несколько секунд.
+          t.later(3000);
+        }
+        tries += k;
+        if (won) lifted++;
+        campAfter += menLeft;
+      }
     }
     console.log(
-      `${(parts === 1 ? 'одна вылазка целиком' : `${parts} вылазки по ${Math.round(100 / parts)}%`).padEnd(29)} ${pct(
-        won,
-        TRIES,
-      ).padStart(5)}   ${String(ours).padStart(5)}   ${String(theirs).padStart(5)}   ${(
-        theirs / Math.max(1, ours)
-      ).toFixed(2)}`,
+      `${way.padEnd(25)} ${String(d).padStart(6)}  ${pct(lifted, runs).padStart(11)}  ${(tries / Math.max(1, runs)).toFixed(1).padStart(15)}  ${String(lost).padStart(11)}  ${(campBefore / Math.max(1, runs)).toFixed(1)} → ${(campAfter / Math.max(1, runs)).toFixed(1)}`,
     );
   }
-  console.log('если дробление выигрывает по всем трём столбцам — нужен откат; если нет — не нужен.');
 }
+console.log(`${TOWN_SEEDS.length} осад × ${VARIANTS} сида боя; «подряд» — до снятия осады или ${SPAM_MAX} заходов, по три секунды между ними.`);
+console.log('«по пропуску» — самый малый отряд, который заполняет проход этой минуты; «по одному» — один копейщик.');
+console.log('Если «подряд» снимает осаду там, где «одна всем» не снимает, — лагерь стачивается дроблением.');
 
 // ------------------------------------------------------- осада игроком ---
 
