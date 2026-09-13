@@ -27,11 +27,12 @@ import { resolveField } from '@/world/battle';
 import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, campWorks, passKinds } from '@/world/works';
 import { awayOf, homeOf } from '@/world/muster';
-import { gearOf, kindsOf, type TroopStack } from '@/game/battle/kinds';
+import { gearOf, kindsOf, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { stackTotal } from '@/battle';
 import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
+  CAMP_GATE_CLEAR,
   CAMP_WORKS_PASS,
   CAMP_WORKS_RIPE,
   SIEGE_CHANCE,
@@ -384,20 +385,24 @@ for (const level of LEVELS) {
 
 // ------------------------------------------------------ частые вылазки ---
 //
-// Отката у вылазки нет, и прежний довод («дробление проигрывает по всем
-// столбцам») мерили без укреплений. Через узкий проход дерутся одни и те же
-// двое-трое, сколько бы ни вышло, — проигранная вылазка стоит дёшево, а лагерь
-// теряет свою долю каждый раз. Здесь это меряется настоящим миром: одна вылазка
-// всем гарнизоном против череды малых, отданных подряд.
+// Отката у вылазки нет и не будет: проход — поток (`CAMP_GATE_CLEAR`), и
+// семнадцать вылазок за минуту проводят к рогаткам столько же, сколько одна.
+// Здесь это меряется настоящим миром: одна вылазка всем гарнизоном против череды
+// заходов подряд и против волны, разнесённой на десять минут.
 
 console.log('');
-console.log('--- частые вылазки: стачивают ли лагерь малые заходы (настоящий мир, Статуя L5) ---');
-console.log('способ                    Δ, мин  сняли осаду  заходов (сред.)  своих легло  людей в лагере: было → стало');
+console.log('--- частые вылазки: проход — поток, дробление его не обгоняет (настоящий мир, Статуя L5) ---');
+console.log(
+  `проход освобождается за ${CAMP_GATE_CLEAR / MIN} мин; «отказ» — к рогаткам сейчас не пробиться, боя не было`,
+);
+console.log('способ                    Δ, мин  сняли осаду  заходов  отказов  к рогаткам  своих легло  людей в лагере: было → стало');
 const SPAM_MAX = 30;
 for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
-  for (const way of ['одна всем гарнизоном', 'подряд по пропуску', 'подряд по одному'] as const) {
+  for (const way of ['одна всем гарнизоном', 'подряд всем', 'подряд по пропуску', 'подряд по одному', 'волна через 10 мин'] as const) {
     let lifted = 0;
     let tries = 0;
+    let refused = 0;
+    let passed = 0;
     let lost = 0;
     let runs = 0;
     let campBefore = 0;
@@ -409,42 +414,57 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
         runs++;
         campBefore += t.pulse.siege.campMen;
         let menLeft = t.pulse.siege.campMen;
+        // Гарнизон дома — за вычетом павших в прежних заходах этого же прогона.
+        let home: TroopStack = { ...t.garrison };
         let k = 0;
         let won = false;
-        const limit = way === 'одна всем гарнизоном' ? 1 : SPAM_MAX;
+        const limit = way === 'одна всем гарнизоном' ? 1 : way === 'волна через 10 мин' ? 2 : SPAM_MAX;
         while (k < limit && !won) {
           const view = (await t.world.sync(playerProfile(fz.g))).siege;
           if (!view) break;
           menLeft = view.campMen;
           const going: TroopStack =
-            way === 'одна всем гарнизоном'
-              ? t.garrison
-              : way === 'подряд по одному'
-                ? { spearman: 1 }
-                : fillPass(t.garrison, campPass(view.campMen, campWorks(view.since, t.now())));
+            way === 'подряд по одному'
+              ? { spearman: Math.min(1, home.spearman ?? 0) }
+              : way === 'подряд по пропуску'
+                ? fillPass(home, campPass(view.campMen, campWorks(view.since, t.now())))
+                : home;
           const res = await t.world.sortie(going);
-          if (res.error) throw new Error(res.error);
           k++;
-          const rep = (await t.world.reports()).find((r) => r.id === res.reportId);
-          lost += rep?.lost.warrior ?? 0;
-          won = res.won;
-          if (won) menLeft = 0;
-          // Подряд, но не в одну миллисекунду: рука нажимает раз в несколько секунд.
-          t.later(3000);
+          if (res.error) {
+            if (!/К рогаткам сейчас не пробиться/.test(res.error)) throw new Error(res.error);
+            refused++;
+          } else {
+            const rep = (await t.world.reports()).find((r) => r.id === res.reportId);
+            lost += rep?.lost.warrior ?? 0;
+            passed += rep?.through?.passed ?? 0;
+            const eff = (await t.world.sync(playerProfile(fz.g))).effects.find((e) => e.id === `${res.reportId}-eff`);
+            home = troopsAfter(home, eff?.lostTroops ?? {});
+            won = res.won;
+            if (won) menLeft = 0;
+          }
+          // Подряд — раз в три секунды, рука нажимает не чаще; волна — через десять минут.
+          t.later(way === 'волна через 10 мин' ? CAMP_GATE_CLEAR : 3000);
         }
+        // Остаток лагеря — после последнего захода, одной меркой у всех строк.
+        const last = (await t.world.sync(playerProfile(fz.g))).siege;
+        menLeft = won || !last ? 0 : last.campMen;
         tries += k;
         if (won) lifted++;
         campAfter += menLeft;
       }
     }
+    const per = (x: number): string => (x / Math.max(1, runs)).toFixed(1);
     console.log(
-      `${way.padEnd(25)} ${String(d).padStart(6)}  ${pct(lifted, runs).padStart(11)}  ${(tries / Math.max(1, runs)).toFixed(1).padStart(15)}  ${String(lost).padStart(11)}  ${(campBefore / Math.max(1, runs)).toFixed(1)} → ${(campAfter / Math.max(1, runs)).toFixed(1)}`,
+      `${way.padEnd(25)} ${String(d).padStart(6)}  ${pct(lifted, runs).padStart(11)}  ${per(tries).padStart(7)}  ${per(refused).padStart(7)}  ${per(passed).padStart(10)}  ${String(lost).padStart(11)}  ${per(campBefore)} → ${per(campAfter)}`,
     );
   }
 }
-console.log(`${TOWN_SEEDS.length} осад × ${VARIANTS} сида боя; «подряд» — до снятия осады или ${SPAM_MAX} заходов, по три секунды между ними.`);
-console.log('«по пропуску» — самый малый отряд, который заполняет проход этой минуты; «по одному» — один копейщик.');
-console.log('Если «подряд» снимает осаду там, где «одна всем» не снимает, — лагерь стачивается дроблением.');
+console.log(
+  `${TOWN_SEEDS.length} осад × ${VARIANTS} сида боя; «подряд» — до снятия осады или ${SPAM_MAX} заходов, по три секунды между ними; «к рогаткам» — бойцов строя в среднем за прогон.`,
+);
+console.log('«по пропуску» — самый малый отряд, заполняющий проход; «по одному» — один копейщик; «волна» — два захода всем, второй через десять минут.');
+console.log('Строки «подряд» обязаны не обгонять «одну всем»: проход пропускает поток, а не порцию на заход.');
 
 // ------------------------------------------------------- осада игроком ---
 

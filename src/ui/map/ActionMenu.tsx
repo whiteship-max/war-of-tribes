@@ -243,7 +243,7 @@ export function ActionMenu() {
               <b>Ударить по лагерю</b>
               <i>
                 {here
-                  ? `«${card.siege.byName}» стоят здесь с ${new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Разобьёшь — осада снята. ${worksWords(card.siege.since, worldNow())}`
+                  ? `«${card.siege.byName}» стоят здесь с ${new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Разобьёшь — осада снята. ${worksWords(card.siege.since, worldNow(), card.siege.gateAt)}`
                   : 'Доведи полководца — и лагерь можно сбить.'}
               </i>
             </span>
@@ -254,7 +254,7 @@ export function ActionMenu() {
         {menu.agent === 'general' && card?.siege?.mine && (
           <div className="am-plain">
             ⛺ Здесь стоит наш лагерь. Пока он стоит, других дел у полководца нет; сколько у них
-            хлеба — узнаем вместе с ними. {worksWords(card.siege.since, worldNow())}
+            хлеба — узнаем вместе с ними. {worksWords(card.siege.since, worldNow(), card.siege.gateAt)}
           </div>
         )}
 

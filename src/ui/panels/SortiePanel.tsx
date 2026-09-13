@@ -20,7 +20,7 @@ import { awayOf, homeOf, standingTroops } from '@/world/muster';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { formatLeft, secondsLeft } from '@/world/geo';
-import { sortieForecast } from '@/world/works';
+import { gateBusyText, refusedAtGate, sortieForecast } from '@/world/works';
 import type { TroopId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -104,6 +104,9 @@ export function SortiePanel() {
   const now = worldNow();
   const fc = sortieForecast(siege, kindsOf(picked), now);
   const pass = fc.now.pass;
+  // Проход — поток: занят прошедшими раньше — пропустит меньше, а то и никого.
+  // Отказ виден до нажатия и гасит кнопку; мир откажет теми же словами.
+  const refused = men > 0 && refusedAtGate(fc.now);
 
   const go = async (): Promise<void> => {
     setBusy(true);
@@ -147,6 +150,9 @@ export function SortiePanel() {
             {fc.now.works <= 0
               ? `Лагерь только встал: к бою пройдут все, кого выпустишь.`
               : `Рогатки, ров и частокол достроены на ${Math.floor(fc.now.works * 100)}%: к бою пробьётся не больше ${pass} бойцов строя.`}
+            {fc.now.works > 0 &&
+              fc.now.free < 1 &&
+              ` Проход занят прошедшими раньше: сейчас пропустит ${fc.now.room}, освободится через ${formatLeft(secondsLeft(fc.clearAt, now))} — тогда не больше ${fc.clearPass}.`}
             {fc.now.works < 1 &&
               ` Дозреют через ${formatLeft(secondsLeft(fc.ripeAt, now))} — тогда не больше ${fc.ripePass}. С каждой минутой проход уже.`}
             {men > 0 &&
@@ -212,7 +218,8 @@ export function SortiePanel() {
         </button>
       </div>
 
-      <button className="btn wide" disabled={busy || men === 0} onClick={() => void go()}>
+      {refused && <p className="note bad">{gateBusyText(fc.now.waitMs)}</p>}
+      <button className="btn wide" disabled={busy || men === 0 || refused} onClick={() => void go()}>
         ⚔️ Выйти {men > 0 ? `(${men})` : ''}
       </button>
 

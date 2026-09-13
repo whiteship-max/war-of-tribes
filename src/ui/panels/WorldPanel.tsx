@@ -560,7 +560,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           </p>
           {/* Укрепления лагеря видны глазами — и нашего, и чужого. Читаются из
               той же отметки `since`, той же функцией, что и бой у лагеря. */}
-          <p className="note">{worksWords(card.siege.since, worldNow())}</p>
+          <p className="note">{worksWords(card.siege.since, worldNow(), card.siege.gateAt)}</p>
         </>
       )}
 

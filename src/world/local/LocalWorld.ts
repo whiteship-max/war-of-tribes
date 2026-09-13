@@ -166,7 +166,7 @@ import type { FaithId } from '@/game/types';
 import { ORDER_TEXT } from '@/game/data/order';
 import { fitSetup, resolveField, type FieldOutcome } from '../battle';
 import { awayOf, defendersOf, homeOf, standingShare, standingTroops, weakest } from '../muster';
-import { campPass, campWorks, throughText, throughWorks, type Through } from '../works';
+import { gateBusyText, refusedAtGate, throughText, throughWorks, type Through } from '../works';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
@@ -806,6 +806,9 @@ export class LocalWorld implements WorldApi {
       since: same ? siegeSince(same) : at,
       sortied: same?.sortied,
       relieved: same?.relieved,
+      // Проход той же осады остаётся занятым и после пересчёта часов голода; у
+      // новой осады (`same` пусто) он свободен.
+      gateAt: same?.gateAt,
     });
     this.save.sieges[id] = w;
     // Срок стоянки лагеря и есть час голода: падение разбирает та же очередь
@@ -843,6 +846,7 @@ export class LocalWorld implements WorldApi {
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
       campMen: this.campArmy(w)?.men ?? 0,
+      ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
     };
   }
 
@@ -858,6 +862,9 @@ export class LocalWorld implements WorldApi {
       mine: ourCamp(w),
       byName: ourCamp(w) ? 'Наша дружина' : (this.byId.get(w.byId)?.name ?? 'Чужаки'),
       since: siegeSince(w),
+      // Занят ли проход, видно глазами — как и сам лагерь. Поля нет, пока по
+      // лагерю не били.
+      ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
     };
   }
 
@@ -918,6 +925,11 @@ export class LocalWorld implements WorldApi {
    * которой панель вылазки считает «пробьются N из M» до нажатия. Остальные стоят
    * у рогаток: не убивают и не гибнут, и в бою их нет.
    *
+   * Проход один на всех, кто лезет через рогатки: вылазка, выручка и удар
+   * полководца берут из одной занятости — отметки `gateAt` в окне осады. Пишется
+   * она здесь и больше нигде, в самом событии боя; вышли, а пробиться некому —
+   * боя нет, и отметка не трогается (`refused`).
+   *
    * `fought` и `all` — сколько бойцов строя дралось и сколько вышло; `share` —
    * их доля. Потери в бою — доля от дравшихся, и переводить её на весь отряд
    * надо через неё, а не прямо.
@@ -929,21 +941,24 @@ export class LocalWorld implements WorldApi {
     attacker:
       | { own: TroopStack; setup: ArmySetup | null }
       | { kinds: Stack; gear: Partial<Record<UnitKind, number>>; setup: ArmySetup | null },
-  ): {
-    field: FieldOutcome;
-    camp: NonNullable<ReturnType<LocalWorld['campArmy']>>;
-    /** Кто прошёл через рогатки — у любого нападающего, своего и чужого. */
-    through: Through;
-    fought: number;
-    all: number;
-    share: number;
-  } | null {
-    const w = this.siegeOf(id, at);
-    if (!w) return null;
-    const camp = this.campArmy(w);
-    if (!camp) return null;
+  ):
+    | {
+        refused: false;
+        field: FieldOutcome;
+        camp: NonNullable<ReturnType<LocalWorld['campArmy']>>;
+        /** Кто прошёл через рогатки — у любого нападающего, своего и чужого. */
+        through: Through;
+        fought: number;
+        all: number;
+        share: number;
+      }
+    | { refused: true; through: Through }
+    | null {
     const own = 'own' in attacker;
-    const through = throughWorks(camp.men, siegeSince(w), at, own ? kindsOf(attacker.own) : attacker.kinds);
+    const gate = this.campGate(id, at, own ? kindsOf(attacker.own) : attacker.kinds);
+    if (!gate) return null;
+    const { w, camp, through } = gate;
+    if (refusedAtGate(through)) return { refused: true, through };
     const fighting = {
       kinds: through.kinds,
       // Доля строя одинакова у каждого рода, поэтому и снаряжение у прошедших
@@ -961,7 +976,29 @@ export class LocalWorld implements WorldApi {
       attacker: fighting,
       defender: { kinds: camp.kinds, gear: camp.gear, setup: camp.setup },
     });
-    return { field, camp, through, fought, all, share: all > 0 ? fought / all : 0 };
+    // Прошедшие заняли свою долю прохода. Окно то же, что в сохранении: снимет
+    // осаду победа — отметка уйдёт вместе с окном; устоит лагерь — пересчёт часов
+    // голода перенесёт её в новое окно той же осады.
+    if (through.gateAt === undefined) delete w.gateAt;
+    else w.gateAt = through.gateAt;
+    return { refused: false, field, camp, through, fought, all, share: all > 0 ? fought / all : 0 };
+  }
+
+  /**
+   * Что пройдёт через рогатки лагеря под `id` в минуту `at` — без боя и без записи.
+   * Им спрашивают до боя: бот, решая, выходить ли, и игрок, которому отказывают
+   * раньше, чем тронут сид похода.
+   */
+  private campGate(
+    id: SettlementId,
+    at: number,
+    kinds: Stack,
+  ): { w: SiegeWindow; camp: NonNullable<ReturnType<LocalWorld['campArmy']>>; through: Through } | null {
+    const w = this.siegeOf(id, at);
+    if (!w) return null;
+    const camp = this.campArmy(w);
+    if (!camp) return null;
+    return { w, camp, through: throughWorks(camp.men, siegeSince(w), at, kinds, w.gateAt) };
   }
 
   /**
@@ -1322,11 +1359,11 @@ export class LocalWorld implements WorldApi {
     // меркой, и сравнивать их напрямую значило бы сравнивать разное. И
     // сравниваются те, кто пройдёт через рогатки, а не весь гарнизон: стоящие у
     // рогаток не дерутся.
-    const pass = campPass(camp.men, campWorks(siegeSince(w), at));
-    if (Math.min(menOfPower(power), pass) < camp.men * SIEGE_SORTIE_RATIO) return;
     const g = garrisonOf(this.save.seed, s.id, power, s.castle);
+    const gate = this.campGate(id, at, g.kinds);
+    if (!gate || Math.min(menOfPower(power), gate.through.room) < camp.men * SIEGE_SORTIE_RATIO) return;
     const out = this.campBattle(id, at, this.warSeed().seed, { kinds: g.kinds, gear: g.gear, setup: g.setup });
-    if (!out) return;
+    if (!out || out.refused) return;
     this.resolveSortieOn(id, at, out.field, `Из ${s.name} вышли на вылазку.`);
     // Гарнизон вышел и поредел: часы голода города считаются заново — один раз,
     // здесь, в самом событии. Потери — доля от дравшихся, на весь гарнизон она
@@ -1441,7 +1478,8 @@ export class LocalWorld implements WorldApi {
       m.seed,
       { kinds: party.kinds, gear: party.gear, setup: party.setup },
     );
-    if (!out) return;
+    // Проход занят — выручка к рогаткам не пробилась и ушла ни с чем.
+    if (!out || out.refused) return;
     const ours = ourCamp(w);
     const campLost = this.resolveSortieOn(id, at, out.field, `${m.fromName} пришли на выручку осаждённым.`);
     if (!ours) return;
@@ -1550,9 +1588,14 @@ export class LocalWorld implements WorldApi {
     const men = troopTotal(going);
     if (men === 0) return { error: 'Выходить некому: отряд пустой.', reportId: null, won: false };
 
+    // Проход занят — отказ до боя, и сид похода не тратится.
+    const gate = this.campGate(HOME_ID, now, kindsOf(going));
+    if (gate && refusedAtGate(gate.through)) {
+      return { error: gateBusyText(gate.through.waitMs), reportId: null, won: false };
+    }
     const seed = marchSeed(this.save.seed, this.save.nextMarch++);
     const out = this.campBattle(HOME_ID, now, seed, { own: going, setup });
-    if (!out) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
+    if (!out || out.refused) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
     const { field, camp, through } = out;
 
     // Потери боя — только из дравшихся, и снимаются они с отряда тем же правилом,
@@ -3672,9 +3715,14 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures.general;
     const troops = f.troops ?? {};
     const men = troopTotal(troops);
+    // Тот же проход, что у вылазки: занят — отказ до боя.
+    const gate = this.campGate(id, at, kindsOf(troops));
+    if (gate && refusedAtGate(gate.through)) {
+      return { error: gateBusyText(gate.through.waitMs), reportId: null, won: false };
+    }
     const seed = marchSeed(this.save.seed, this.save.nextMarch++);
     const out = this.campBattle(id, at, seed, { own: troops, setup: null });
-    if (!out) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
+    if (!out || out.refused) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
     const { field, camp, through } = out;
 
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};

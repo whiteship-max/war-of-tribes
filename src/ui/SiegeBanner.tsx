@@ -96,7 +96,7 @@ export function SiegeBanner() {
         кнопкой, где решают, выходить ли сейчас. Слова и числа — из `world/works`,
         той же меркой, которой их считает бой.
       */}
-      <div className="siege-works">{worksShort(siege.since, worldNow())}</div>
+      <div className="siege-works">{worksShort(siege.since, worldNow(), siege.gateAt)}</div>
       {/*
         Вылазка — единственное, что игрок может сделать из-под осады сам, и
         поэтому кнопка тут одна. Состав выбирается на своём экране: выпускать

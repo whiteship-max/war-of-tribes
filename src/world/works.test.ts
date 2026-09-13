@@ -1,12 +1,22 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { stackTotal, UNIT_KINDS } from '@/battle';
+import { stackTotal, UNIT_KINDS, type Stack } from '@/battle';
 import { kindsOf, type TroopStack } from '@/game/battle/kinds';
 import { LocalWorld } from './local/LocalWorld';
 import { menOfPower } from './garrison';
-import { CAMP_WORKS_PASS, CAMP_WORKS_RIPE } from './data/tuning';
-import { campPass, campWorks, passKinds, sortieForecast, throughWorks, worksRipeAt } from './works';
+import { CAMP_GATE_CLEAR, CAMP_WORKS_PASS, CAMP_WORKS_RIPE } from './data/tuning';
+import {
+  campPass,
+  campWorks,
+  gateBusyText,
+  gateFree,
+  passKinds,
+  refusedAtGate,
+  sortieForecast,
+  throughWorks,
+  worksRipeAt,
+} from './works';
 import type { PlayerProfile, WorldPulse } from './types';
 
 const START = 1_700_000_000_000;
@@ -78,6 +88,7 @@ type CampBattle = (
   seed: number,
   attacker: { own: TroopStack; setup: null },
 ) => {
+  refused: boolean;
   field: { won: boolean; result: { sides: { attacker: { total: { initial: number } }; defender: { total: { initial: number } } } } | null };
   camp: { men: number; kinds: Record<string, number> };
   through: { kinds: Record<string, number>; went: number; passed: number };
@@ -85,6 +96,20 @@ type CampBattle = (
 
 const campBattle = (w: LocalWorld): CampBattle =>
   (w as unknown as { campBattle: CampBattle }).campBattle.bind(w);
+
+/** Окно осады деревни в сохранении мира — прямо то, что пишет бой. */
+const homeWindow = (w: LocalWorld): { gateAt?: number } =>
+  (w as unknown as { save: { sieges: Record<string, { gateAt?: number }> } }).save.sieges.home;
+
+/**
+ * Освободить проход перед точкой замера. Тесты ниже меряют укрепление во времени,
+ * сотни боёв на одном мире подряд, — а каждый бой занимает проход. Без этого точка
+ * мерила бы не рогатки своей минуты, а очередь за предыдущими боями; поток
+ * проверяется своими тестами.
+ */
+const freeGate = (w: LocalWorld): void => {
+  delete homeWindow(w).gateAt;
+};
 
 describe('укрепления лагеря: чистая функция времени', () => {
   const SINCE = START + 17 * MIN;
@@ -176,8 +201,10 @@ describe('укрепления лагеря: бой, голод и то, что 
     for (let d = 0; d <= CAMP_WORKS_RIPE / MIN; d += 2) {
       let won = 0;
       for (let i = 0; i < SEEDS; i++) {
+        freeGate(world);
         const out = battle('home', fz.siege.since + d * MIN, 9000 + i * 131, { own: GARRISON, setup: null });
         expect(out, `на ${d} мин лагерь обязан стоять`).not.toBeNull();
+        expect(out!.refused, `на ${d} мин проход свободен`).toBe(false);
         if (out!.field.won) won++;
       }
       wins.push(won);
@@ -198,7 +225,9 @@ describe('укрепления лагеря: бой, голод и то, что 
     const camp = save.marches.find((m) => m.id === save.sieges.home.campId)!;
     expect(pulse.siege!.campMen, 'панель видит тот же лагерь').toBe(menOfPower(camp.power));
     for (const d of [0, 7, 14, 28, 31]) {
+      freeGate(world);
       const out = battle('home', fz.siege.since + d * MIN, 777 + d, { own: GARRISON, setup: null })!;
+      expect(out.refused, `${d} мин: проход свободен`).toBe(false);
       expect(out.camp.men, `${d} мин`).toBe(menOfPower(camp.power));
       // Мерка — сам бой: сколько стояло в лагере в его начале.
       expect(out.field.result!.sides.defender.total.initial, `${d} мин`).toBe(out.camp.men);
@@ -277,4 +306,229 @@ describe('укрепления лагеря: бой, голод и то, что 
     expect(panel).toMatch(/sortieForecast\(siege, kindsOf\(picked\), now\)/);
     expect(panel).not.toMatch(/passTroops|campPass|campWorks|throughWorks|CAMP_WORKS/);
   }, 180_000);
+});
+
+describe('проход через рогатки — поток, а не порция', () => {
+  const SINCE = START + 17 * MIN;
+  /** Дозревшие рогатки: пропуск больше не сужается, и поток считается точно. */
+  const RIPE = SINCE + CAMP_WORKS_RIPE;
+  const MEN = 11;
+
+  it('свободная доля растёт со временем до единицы, а старое окно без отметки свободно', () => {
+    expect(gateFree(undefined, RIPE), 'нет отметки — проход свободен').toBe(1);
+    const gateAt = RIPE + CAMP_GATE_CLEAR;
+    let prev = -1;
+    for (let t = RIPE; t <= gateAt + 60_000; t += 15_000) {
+      const f = gateFree(gateAt, t);
+      expect(f).toBeGreaterThanOrEqual(0);
+      expect(f).toBeLessThanOrEqual(1);
+      expect(f, `${(t - RIPE) / 1000} с`).toBeGreaterThanOrEqual(prev);
+      prev = f;
+    }
+    expect(gateFree(gateAt, RIPE)).toBe(0);
+    expect(gateFree(gateAt, RIPE + CAMP_GATE_CLEAR / 2)).toBeCloseTo(0.5, 9);
+    expect(gateFree(gateAt, gateAt)).toBe(1);
+  });
+
+  it('дробление не проводит к рогаткам больше потока — как ни дели', () => {
+    const pass = campPass(MEN, 1);
+    const going = kindsOf(GARRISON);
+    const T = 90_000;
+    const ways: [string, number, Stack][] = [
+      ['одна всем', T + 1, going],
+      ['всем каждые 3 с', 3_000, going],
+      ['всем каждые 30 с', 30_000, going],
+      ['по одному каждые 3 с', 3_000, { spear: 1, infantry: 0, archer: 0, cavalry: 0 }],
+    ];
+    const totals: Record<string, number> = {};
+    for (const [name, step, g] of ways) {
+      let gateAt: number | undefined;
+      let total = 0;
+      for (let t = RIPE; t <= RIPE + T; t += step) {
+        // Граница области: рогатки дозрели на каждой точке, пропуск постоянен.
+        expect(campWorks(SINCE, t), `${name}: точка до дозревания`).toBe(1);
+        const th = throughWorks(MEN, SINCE, t, g, gateAt);
+        total += th.passed;
+        gateAt = th.gateAt;
+        if (gateAt !== undefined) {
+          expect(gateAt - t, `${name}: проход занят дольше полного`).toBeLessThanOrEqual(CAMP_GATE_CLEAR + 1e-6);
+        }
+      }
+      totals[name] = total;
+      // Предел потока: полный пропуск сразу плюс то, что освободилось за T.
+      expect(total, `${name}: ${JSON.stringify(totals)}`).toBeLessThanOrEqual(
+        Math.floor(pass * (1 + T / CAMP_GATE_CLEAR)),
+      );
+    }
+    expect(totals['одна всем']).toBe(pass);
+  });
+
+  it('частые вылазки подряд проводят не больше потока и получают отказ до боя', async () => {
+    const fz = await freeze(7);
+    const at = fz.siege.since + CAMP_WORKS_RIPE;
+    expect(at, 'минута внутри окна голода').toBeLessThan(fz.siege.starvesAt - 60_000);
+    const { world, set } = await thaw(fz, at);
+    const first = await world.sortie(GARRISON);
+    expect(first.error).toBeNull();
+    const firstPassed = (await world.reports()).find((r) => r.id === first.reportId)!.through!.passed;
+    expect(firstPassed).toBeGreaterThan(0);
+    let passedAfter = 0;
+    let refusals = 0;
+    for (let i = 1; i <= 20; i++) {
+      const t = at + i * 3_000;
+      set(t);
+      const view = (await world.sync(holdout)).siege!;
+      const fc = sortieForecast(view, kindsOf(GARRISON), t);
+      const res = await world.sortie(GARRISON);
+      if (res.error) {
+        refusals++;
+        // Отказ до боя — те же слова, что панель показала до нажатия.
+        expect(res.error).toBe(gateBusyText(fc.now.waitMs));
+        expect(res.reportId).toBeNull();
+      } else {
+        passedAfter += (await world.reports()).find((r) => r.id === res.reportId)!.through!.passed;
+      }
+    }
+    expect(refusals, 'проход занят — вылазки подряд получают отказ').toBeGreaterThan(0);
+    // Шестьдесят секунд — шестая часть потока; больше неё не прошло.
+    const pass = campPass(fz.siege.campMen, 1);
+    expect(passedAfter, `за минуту после первой прошло ${passedAfter}`).toBeLessThanOrEqual(
+      Math.floor((pass * 60_000) / CAMP_GATE_CLEAR),
+    );
+  }, 120_000);
+
+  it('волна через десять минут проходит целиком: проход освободился сам, без пульсов', async () => {
+    const fz = await freeze(7);
+    const at = fz.siege.since + 14 * MIN;
+    const again = at + CAMP_GATE_CLEAR;
+    expect(again, 'вторая волна внутри окна голода').toBeLessThan(fz.siege.starvesAt);
+    // Первая волна — два копейщика: она заведомо не снимает осаду и занимает проход.
+    let first = null as Awaited<ReturnType<typeof thaw>> | null;
+    for (let v = 0; v < 10 && !first; v++) {
+      const t = await thaw(fz, at, v);
+      const res = await t.world.sortie({ spearman: 2 });
+      if (res.error === null && !res.won) first = t;
+    }
+    expect(first, 'нашёлся сид, где первая волна отбита').toBeTruthy();
+    const { world, set } = first!;
+    expect(homeWindow(world).gateAt, 'проход занят').toBeGreaterThan(at);
+    // Ни одного пульса за десять минут — офлайн.
+    set(again);
+    const view = (await world.sync(holdout)).siege!;
+    expect(view, 'осада стоит').toBeTruthy();
+    // Вторая волна — без копейщиков: первая могла их недосчитаться.
+    const wave: TroopStack = { legionary: 40, archer: 20 };
+    const fc = sortieForecast(view, kindsOf(wave), again);
+    expect(fc.now.free, 'через десять минут проход свободен целиком').toBe(1);
+    const res = await world.sortie(wave);
+    expect(res.error).toBeNull();
+    const r = (await world.reports()).find((x) => x.id === res.reportId)!;
+    expect(r.through?.passed, 'вторая волна прошла полным пропуском').toBe(Math.min(fc.now.went, fc.now.pass));
+  }, 120_000);
+
+  it('окно без отметки — как в старом сохранении — читается свободным проходом', async () => {
+    const fz = await freeze(7);
+    const at = fz.siege.since + CAMP_WORKS_RIPE;
+    const { world } = await thaw(fz, at);
+    expect(homeWindow(world).gateAt, 'сохранение без отметки').toBeUndefined();
+    const view = (await world.sync(holdout)).siege!;
+    const fc = sortieForecast(view, kindsOf(GARRISON), at);
+    expect(fc.now.free).toBe(1);
+    const res = await world.sortie(GARRISON);
+    expect(res.error).toBeNull();
+    const r = (await world.reports()).find((x) => x.id === res.reportId)!;
+    expect(r.through?.passed).toBe(campPass(view.campMen, 1));
+  }, 120_000);
+
+  it('проход один: вылазка и удар полководца берут из одной занятости', async () => {
+    let now = START;
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: memory() });
+    await world.sync(holdout);
+    // Дружина собирается дома заранее: во время осады её уже не вывести.
+    expect(await world.setGarrison({ legionary: 20 })).toBeNull();
+    const g = (await world.figures()).find((f) => f.id === 'general')!;
+    now = Math.max(now, g.readyAt);
+    await world.sync(holdout);
+    let siege: WorldPulse['siege'] = null;
+    for (let i = 0; i < 3000 && !siege; i++) {
+      now += 20_000;
+      siege = (await world.sync(holdout)).siege;
+    }
+    expect(siege, 'осада встала').toBeTruthy();
+    now = siege!.since + CAMP_WORKS_RIPE;
+    expect(now, 'минута внутри окна голода').toBeLessThan(siege!.starvesAt);
+    await world.sync(holdout);
+    // Вылазка из гарнизона занимает проход целиком…
+    expect((await world.sortie({ legionary: 20, spearman: 30, archer: 20 })).error).toBeNull();
+    expect(homeWindow(world).gateAt).toBeGreaterThan(now);
+    now += 3_000;
+    await world.sync(holdout);
+    // …и полководцу, бьющему от своих ворот, пройти уже некому — те же слова.
+    const hit = await world.attack({ setup: null });
+    expect(hit.error ?? '', 'удар полководца упёрся в тот же проход').toMatch(/К рогаткам сейчас не пробиться/);
+    expect(hit.reportId).toBeNull();
+  }, 120_000);
+
+  it('снятая осада уносит проход с собой: у новой осады он свободен', async () => {
+    let now = START;
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: memory() });
+    const siegeNow = async (): Promise<NonNullable<WorldPulse['siege']>> => {
+      for (let i = 0; i < 6000; i++) {
+        now += 20_000;
+        const p = await world.sync(holdout);
+        if (p.siege) return p.siege;
+      }
+      throw new Error('осады так и не случилось');
+    };
+    await world.sync(holdout);
+    const first = await siegeNow();
+    now = first.since + CAMP_WORKS_RIPE;
+    await world.sync(holdout);
+    const lost = await world.sortie({ spearman: 1 });
+    expect(lost.error).toBeNull();
+    expect(lost.won, 'один копейщик на дозревших рогатках не снимает осаду').toBe(false);
+    const busy = homeWindow(world).gateAt;
+    expect(busy, 'проход первой осады занят').toBeGreaterThan(now);
+    // Город доеден — окно снято.
+    now = Math.ceil((await world.sync(holdout)).siege!.starvesAt);
+    expect((await world.sync(holdout)).siege).toBeNull();
+    const second = await siegeNow();
+    expect(second.since).toBeGreaterThan(first.since);
+    expect(homeWindow(world).gateAt, 'новая осада начинает со свободного прохода').toBeUndefined();
+    expect(second.gateAt).toBeUndefined();
+  }, 240_000);
+
+  it('панель показывает занятость прохода той же функцией, что и бой', async () => {
+    const fz = await freeze(7);
+    let checked = 0;
+    let refusedSeen = 0;
+    for (const d of [16, 28]) {
+      const at = fz.siege.since + d * MIN;
+      const { world, set } = await thaw(fz, at);
+      const picks: TroopStack[] = [{ spearman: 2 }, { spearman: 12, archer: 5 }, GARRISON, GARRISON];
+      for (const [k, going] of picks.entries()) {
+        const t = at + k * 20_000;
+        expect(t, 'точка внутри окна голода').toBeLessThan(fz.siege.starvesAt);
+        set(t);
+        const view = (await world.sync(holdout)).siege;
+        if (!view) break;
+        const fc = sortieForecast(view, kindsOf(going), t);
+        const res = await world.sortie(going);
+        const label = `${d} мин, заход ${k}`;
+        checked++;
+        if (refusedAtGate(fc.now)) {
+          refusedSeen++;
+          expect(res.error, label).toBe(gateBusyText(fc.now.waitMs));
+          continue;
+        }
+        expect(res.error, label).toBeNull();
+        const r = (await world.reports()).find((x) => x.id === res.reportId)!;
+        expect(r.through, label).toEqual({ went: fc.now.went, passed: fc.now.passed });
+        expect(r.battle!.result.sides.attacker.total.initial, label).toBe(fc.now.passed);
+        if (!res.won) expect(homeWindow(world).gateAt, `${label}: отметка боя`).toBe(fc.now.gateAt);
+      }
+    }
+    expect(checked).toBeGreaterThan(4);
+    expect(refusedSeen, 'в прогоне был и отказ — проверено и его слово').toBeGreaterThan(0);
+  }, 120_000);
 });
