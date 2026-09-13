@@ -14,7 +14,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, defenseLock, worldNow } from '@/world/store';
 import { defense, fervour, homeArmy } from '@/game/derived';
-import { awayTroops, homeTroops, militiaArchers, militiaMen } from '@/world/bridge';
+import { militiaArchers, militiaMen } from '@/world/bridge';
+import { awayOf, homeOf } from '@/world/muster';
 import { heroInfo, heroReady } from '@/game/derived';
 import { KIND_META } from '@/battle';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -71,9 +72,9 @@ export function BattlePanel({ targetId }: Props) {
   const figures = useWorld((g) => g.figures);
   const strike = useWorld((g) => g.attack);
   const general = figures.find((f) => f.id === 'general');
-  const away = useMemo(() => awayTroops(marches, figures), [marches, figures]);
+  const away = useMemo(() => awayOf(marches, figures), [marches, figures]);
   // В бою расставляют то, что при полководце; дома — весь гарнизон.
-  const home = useMemo(() => (attack ? (general?.troops ?? {}) : homeTroops(s, away)), [s, away, attack, general]);
+  const home = useMemo(() => (attack ? (general?.troops ?? {}) : homeOf(s.army, away)), [s, away, attack, general]);
   const lock = defenseLock(marches, worldNow());
 
   const [picked, setPicked] = useState<TroopStack>(() => ({ ...home }));

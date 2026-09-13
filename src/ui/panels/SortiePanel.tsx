@@ -14,7 +14,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
-import { awayTroops, homeTroops } from '@/world/bridge';
+import { awayOf, homeOf } from '@/world/muster';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { formatLeft, secondsLeft } from '@/world/geo';
@@ -64,8 +64,8 @@ export function SortiePanel() {
   const figures = useWorld((g) => g.figures);
   const sortie = useWorld((g) => g.sortie);
 
-  const away = useMemo(() => awayTroops(marches, figures), [marches, figures]);
-  const home = useMemo(() => homeTroops(s, away), [s, away]);
+  const away = useMemo(() => awayOf(marches, figures), [marches, figures]);
+  const home = useMemo(() => homeOf(s.army, away), [s, away]);
   const [picked, setPicked] = useState<TroopStack>({});
   const [busy, setBusy] = useState(false);
 

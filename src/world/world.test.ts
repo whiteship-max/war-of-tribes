@@ -17,7 +17,8 @@ import { garrisonOf } from './garrison';
 import { defenseLock } from './store';
 import { presetFormation, toArmySetup } from '@/game/battle/formation';
 import type { ArmySetup, Stack } from '@/battle';
-import { awayTroops, homeTroops, playerProfile, syncAway, toOutcome } from './bridge';
+import { playerProfile, syncAway, toOutcome } from './bridge';
+import { awayOf, homeOf } from './muster';
 import { FogMap, fogSaveBytes } from './fog';
 import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave } from './local/state';
 import { castOfRecord, troopsOfKinds } from '@/game/battle/faces';
@@ -1676,7 +1677,7 @@ describe('фигуры на карте', () => {
     expect(defense(s)).toBeLessThan(before);
     // Дома остаётся ополчение: частокол, башня и сами жители.
     expect(defense(s)).toBeGreaterThan(0);
-    expect(troopTotal(homeTroops(s, awayTroops(pulse.marches, pulse.figures)))).toBe(0);
+    expect(troopTotal(homeOf(s.army, awayOf(pulse.marches, pulse.figures)))).toBe(0);
   });
 
   it('дипломат подписывает договор, и племя перестаёт ходить в набеги', async () => {

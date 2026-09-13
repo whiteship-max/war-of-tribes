@@ -10,7 +10,8 @@ import { haptic } from '@/telegram/webapp';
 import { probe, revealWorld, takeBakes, takeCosts, takeGaps } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld } from './local/LocalWorld';
-import { applyEffects, awayTroops, playerProfile, syncAway, syncSiege } from './bridge';
+import { applyEffects, playerProfile, syncAway, syncSiege } from './bridge';
+import { awayOf } from './muster';
 import { syncFaith } from '@/game/sim/faith';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
@@ -303,9 +304,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
     if (!hasWorldApi()) return;
     const game = useGame.getState();
     // Кто сейчас не дома, знает мир: походы и войско при полководце. Слепок
-    // деревни собирается уже без них, иначе дом оборонялся бы теми, кто стоит
-    // в поле у чужих ворот.
-    const away = awayTroops(get().marches, get().figures);
+    // везёт всё войско, а гарнизон мир считает сам; списки с прошлого пульса
+    // нужны здесь только расстановке обороны (`playerProfile`).
+    const away = awayOf(get().marches, get().figures);
     const pulse = await worldApi().sync(playerProfile(game.s, away));
 
     // Последствия походов применяются раньше, чем пересчитываются ушедшие: в

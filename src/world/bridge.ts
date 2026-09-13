@@ -3,9 +3,8 @@
 // Мир получает отсюда слепок деревни (сколько людей, чем обороняется, что можно
 // унести) и отдаёт сюда последствия походов. Дальше вниз связи нет: симуляция
 // племени не знает про координаты, а мир — про жителей и склад.
-import type { GameState, TroopId } from '@/game/types';
+import type { GameState } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
-import { TROOP_IDS } from '@/game/data/troops';
 import {
   bondedTotal,
   buildingOfType,
@@ -24,7 +23,7 @@ import {
   townFoodPerDay,
   warningSeconds,
 } from '@/game/derived';
-import { BATTLE_MAN, type TroopStack } from '@/game/battle/kinds';
+import { BATTLE_MAN } from '@/game/battle/kinds';
 import { clampFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
 import { troopTotal } from '@/game/battle/kinds';
 import {
@@ -33,6 +32,7 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
+import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
 import type {
   FigureView,
   HomeEffect,
@@ -49,49 +49,6 @@ import type {
  * племя про мировые часы.
  */
 const DAYS_PER_HOUR = 3_600_000 / (DAY_LENGTH * 1000);
-
-/**
- * Кто из дружины сейчас не дома, по видам. Складывается из двух списков мира, и
- * только из них: отряды в пути и войско при полководце. Своего поля в состоянии
- * племени у этого числа нет — иначе оно завелось бы дважды и разошлось.
- */
-export function awayTroops(marches: MarchView[], figures: FigureView[] = []): TroopStack {
-  const out: TroopStack = {};
-  const add = (stack: TroopStack | undefined): void => {
-    for (const [id, n] of Object.entries(stack ?? {}) as [TroopId, number][]) {
-      if ((n ?? 0) > 0) out[id] = (out[id] ?? 0) + n;
-    }
-  };
-  for (const m of marches) if (m.own) add(m.troops);
-  for (const f of figures) if (f.phase !== 'home') add(f.troops);
-  return out;
-}
-
-/**
- * Гарнизон дома по видам бойцов: ушедшие в обороне не участвуют.
- *
- * Тех, про кого известно, кто именно ушёл (войско при полководце, состав
- * похода), вычитают поимённо по видам. Остаток — те, кто числится одним числом
- * `warriorsAway`, — снимается со слабых, так же как они гибнут (`removeSoldiers`).
- */
-export function homeTroops(s: GameState, away: TroopStack = {}): TroopStack {
-  const out: TroopStack = {};
-  let known = 0;
-  for (const id of TROOP_IDS) {
-    const gone = Math.min(Math.max(0, s.army?.[id] ?? 0), Math.max(0, away[id] ?? 0));
-    known += gone;
-    out[id] = Math.max(0, s.army?.[id] ?? 0) - gone;
-  }
-  let rest = Math.max(0, s.warriorsAway - known);
-  for (const id of TROOP_IDS) {
-    const gone = Math.min(out[id] ?? 0, rest);
-    rest -= gone;
-    const left = (out[id] ?? 0) - gone;
-    if (left > 0) out[id] = left;
-    else delete out[id];
-  }
-  return out;
-}
 
 /**
  * Ополчение: та часть обороны, которую дают не бойцы, а частокол, башня и сами
@@ -116,11 +73,16 @@ export const militiaArchers = (s: GameState): number => {
 /**
  * Слепок деревни для мира. Считается заново перед каждым обращением.
  *
- * `away` — кто сейчас не дома по видам: приходит из мира (походы и войско при
- * полководце). Без него гарнизон в слепке был бы больше настоящего, и деревня
- * оборонялась бы теми, кто стоит в поле у чужих ворот.
+ * Войско едет в слепке **целиком**, а не гарнизоном: кто из него дома, мир
+ * считает сам, по своим спискам и в ту минуту, когда решает (`world/muster`).
+ * Гарнизон, посчитанный здесь, отставал бы на пульс — слепок собирается по
+ * спискам мира с прошлого пульса, а дружина уходит к полководцу между ними, — и
+ * мир, поверивший ему, отдавал бы тех же бойцов второй раз.
+ *
+ * `away` — кто не дома, по тем же спискам: по нему здесь подрезается только
+ * расстановка обороны. Её в бою мир подрежет ещё раз, по настоящему гарнизону.
  */
-export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfile {
+export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerProfile {
   const units = sendableUnits(s);
   // Склад едет в мир целиком, а рядом — вместимость тайника числом. Вычитать
   // одно из другого заранее нельзя: делит добычу общее правило (`spoils.plunder`),
@@ -133,12 +95,11 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
   const stash = hiddenStash(s);
   const stock: Loot = {};
   for (const r of RESOURCE_IDS) stock[r] = Math.max(0, Math.floor(s.resources[r]));
-  const army = homeTroops(s, away);
   // Расстановка обороны подрезается по тому, кто сейчас дома: часть могла уйти
   // в поход или погибнуть, а нанятые с прошлого раза встают в резерв.
   let defenseSetup = null;
   if (s.defenseFormation) {
-    const { formation, extra } = clampFormation(s.defenseFormation, army);
+    const { formation, extra } = clampFormation(s.defenseFormation, homeOf(s.army, away));
     const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
     const archers = militiaArchers(s);
     defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers, null, fervour(s));
@@ -150,8 +111,10 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     // Мощь одного бойца — среднее по составу армии: мир считает отряд числами,
     // а состав знает только племя.
     warriorPower: soldierPower(s),
-    units: { warrior: units.warrior, scout: units.scout },
-    army,
+    // Воинов здесь нет: сколько их дома, мир считает из `army` сам. Число,
+    // посчитанное здесь, было бы вторым ответом на тот же вопрос.
+    units: { scout: units.scout },
+    army: { ...s.army },
     militia: militiaMen(s),
     militiaArchers: militiaArchers(s),
     // Час и время года: мир их не толкует, он ставит их отметкой на записи боя,
@@ -191,22 +154,22 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
 }
 
 /**
- * Сколько людей сейчас в походе. Число не хранится дважды: оно выводится из списка
- * походов, поэтому потерянное сохранение мира не оставит деревню без армии навсегда.
+ * Сколько людей сейчас не дома. Число не хранится дважды: оно выводится из списков
+ * мира, поэтому потерянное сохранение мира не оставит деревню без армии навсегда.
+ *
+ * Бойцы считаются тем же правилом, каким мир считает гарнизон (`world/muster`):
+ * войско при полководце не дома в любой фазе, и у своих ворот тоже, — иначе
+ * оборона деревни держалась бы теми же людьми, что стоят в его строю.
  */
 export function syncAway(s: GameState, marches: MarchView[], figures: FigureView[] = []): boolean {
-  let warriors = 0;
+  const warriors = awayMen(awayOf(marches, figures));
   let scouts = 0;
   let heroSeen = false;
   for (const m of marches) {
     if (!m.own) continue;
-    warriors += m.units.warrior ?? 0;
     scouts += m.units.scout ?? 0;
     if (s.hero.marchId === m.id) heroSeen = true;
   }
-  // Войско при полководце — тоже войско в поле: пока оно с ним, дома его нет,
-  // и оборона деревни считается по ополчению, стенам и башням.
-  for (const f of figures) if (f.phase !== 'home') warriors += troopTotal(f.troops);
   // Герой тоже выводится из списка походов, а не хранится дважды: поход мог
   // кончиться без последствия (отозвали, цель исчезла) — тогда герой просто дома.
   // Гибель разбирает `applyExpedition`, и вызывают его раньше этого места.

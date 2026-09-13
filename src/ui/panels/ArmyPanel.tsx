@@ -45,7 +45,7 @@ export function ArmyPanel() {
       </div>
       <div className="mod">
         <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
-        <span className="name">В походе</span>
+        <span className="name">При полководце и в походе</span>
         <span className={`val${away > 0 ? ' neg' : ''}`}>{away}</span>
       </div>
       {training > 0 && (

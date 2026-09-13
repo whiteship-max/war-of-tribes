@@ -14,7 +14,7 @@ import {
   type Stack,
   type UnitKind,
 } from '@/battle';
-import { gearOf, kindsOf, troopLosses, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { gearOf, kindsOf, troopLosses, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
@@ -165,7 +165,8 @@ import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import type { FaithId } from '@/game/types';
 import { ORDER_TEXT } from '@/game/data/order';
-import { resolveField, type FieldOutcome } from '../battle';
+import { fitSetup, resolveField, type FieldOutcome } from '../battle';
+import { awayOf, homeOf, weakest } from '../muster';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
@@ -755,7 +756,9 @@ export class LocalWorld implements WorldApi {
       const p = this.save.profile;
       return {
         food: p?.food ?? 0,
-        garrison: troopTotal(p?.army ?? {}) + extraMen,
+        // Рты за стеной — гарнизон в эту минуту, а не войско из слепка: дружина
+        // при полководце ест у него, а не в осаждённом городе.
+        garrison: troopTotal(this.garrison(now)) + extraMen,
         townPerHour: p?.foodPerHour ?? 0,
         perManPerHour: p?.soldierFoodPerHour ?? 0,
       };
@@ -776,11 +779,11 @@ export class LocalWorld implements WorldApi {
    * пересчитать: пересчёт — то же открытие, только с новой отметкой времени и
    * от остатка еды на неё.
    *
-   * `extraMen` — те, кого слепок ещё не считает домашними: дружина, дошедшая до
-   * ворот в эту самую минуту, или, наоборот, вышедшие на вылазку и не
-   * вернувшиеся (тогда число отрицательное). Слепок приходит в начале пульса, а
-   * событие разбирается уже внутри него; без поправки часы голода соврали бы на
-   * целый пульс в чью-то пользу.
+   * `extraMen` — поправка к гарнизону чужого города: его люди выводятся из мощи,
+   * и вышедшие на вылазку и не вернувшиеся в ней ещё не учтены (число
+   * отрицательное). У своей деревни поправки не бывает: её гарнизон мир считает
+   * в эту самую минуту (`garrison`) — дружина, дошедшая до ворот, вернувшаяся от
+   * полководца или полёгшая на вылазке, в нём уже есть или уже нет.
    *
    * Начало осады и её одноразовые события при пересчёте не двигаются: осада
    * идёт та же, меняются только часы.
@@ -816,6 +819,9 @@ export class LocalWorld implements WorldApi {
    * событии: пересчёт на каждое изменение и был бы тем самым тиком, которого у
    * осады нет. Поводов четыре — дружина дошла домой, передача войска вернула её
    * в гарнизон, вылазка вышла и не вернулась, лагерь потерял людей.
+   *
+   * Зовётся **после** того, как событие изменило войско: гарнизон своей деревни
+   * читается в эту минуту, и поправка ему не нужна.
    */
   private resiege(id: SettlementId, now: number, extraMen = 0): void {
     const w = this.siegeOf(id, now);
@@ -1174,7 +1180,10 @@ export class LocalWorld implements WorldApi {
   /** Пал наш город. Всё, что при этом происходит, — здесь и больше нигде. */
   private homeFalls(w: SiegeWindow, at: number): void {
     const p = this.save.profile;
-    const army = p?.army ?? {};
+    // Расходится гарнизон, а не всё войско: дружина при полководце в городе не
+    // голодала, и рассеивать её вместе с ним значило бы снять людей, которых
+    // полководец по-прежнему держит в строю.
+    const army = this.garrison(at);
     // Гарнизон рассеян: люди с оружием из взятого голодом города расходятся.
     const routed: TroopStack = {};
     for (const id of TROOP_IDS) {
@@ -1493,7 +1502,9 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     const w = this.homeSiege(now);
     if (!w) return { error: 'Под стенами никого: выходить не на кого.', reportId: null, won: false };
-    const home = this.save.profile?.army ?? {};
+    // Выходят из гарнизона, а дружина при полководце — не гарнизон, даже когда
+    // он стоит у своих ворот (`world/muster`).
+    const home = this.garrison(now);
     const going: TroopStack = {};
     for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
       const n = Math.max(0, Math.floor(raw ?? 0));
@@ -1518,9 +1529,6 @@ export class LocalWorld implements WorldApi {
     const lostTroops = field.result ? troopLosses(going, field.result.sides.attacker.losses) : {};
     const lostMen = troopTotal(lostTroops);
     const campLost = this.resolveSortieOn(HOME_ID, now, field, 'Мы вышли на вылазку.');
-    // Осада снята победой — считать часы голода больше не по чему. Не снята —
-    // гарнизон стал меньше на потери, и часы идут от него.
-    if (!field.won) this.resiege(HOME_ID, now, -lostMen);
 
     const record: BattleRecord | null = field.result
       ? {
@@ -1564,6 +1572,10 @@ export class LocalWorld implements WorldApi {
       text: field.won ? 'Вылазка сняла осаду.' : 'Вылазка отбита: лагерь стоит.',
       good: field.won,
     });
+    // Осада снята победой — считать часы голода больше не по чему. Не снята —
+    // гарнизон стал меньше на потери, и часы идут от него. Потери к этой минуте
+    // уже списаны (`addEffect`), поэтому поправки не нужно.
+    if (!field.won) this.resiege(HOME_ID, now);
     this.write();
     return { error: null, reportId, won: field.won };
   }
@@ -1905,6 +1917,20 @@ export class LocalWorld implements WorldApi {
 
   private addEffect(e: HomeEffect): void {
     this.save.effects.push(e);
+    this.bury(e.lostTroops);
+  }
+
+  /**
+   * Павших мир списывает со своего знания о войске сразу, а не на следующем
+   * слепке. Племя узнает о них только на пульсе, а гарнизон — всё войско минус
+   * ушедшие — мир читает в ту же минуту: без этого убитых на вылазке можно было
+   * бы тут же отдать полководцу, а павших при полководце — ещё раз посчитать
+   * дома, потому что из его строя они уже вычеркнуты, а из слепка ещё нет.
+   */
+  private bury(lost: TroopStack | undefined): void {
+    const p = this.save.profile;
+    if (!p || !lost || troopTotal(lost) === 0) return;
+    this.save.profile = { ...p, army: troopsAfter(p.army ?? {}, lost) };
   }
 
   private remove(m: StoredMarch): void {
@@ -2513,8 +2539,9 @@ export class LocalWorld implements WorldApi {
     if (!m.own) return;
     // Отряд, вышедший до осады, доходит как ни в чём не бывало и вливается в
     // гарнизон — а это меняет число едоков за стеной, и часы голода считаются
-    // заново. Один раз, здесь, в самом событии.
-    this.resiege(HOME_ID, at, troopTotal(m.troops ?? {}) || Math.max(0, m.units.warrior ?? 0));
+    // заново. Один раз, здесь, в самом событии: отряд уже снят со списка, и
+    // гарнизон его считает.
+    this.resiege(HOME_ID, at);
     const loot = m.loot && Object.keys(m.loot).length > 0 ? m.loot : null;
     this.addEffect({
       id: `${m.id}-home`,
@@ -3066,8 +3093,9 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     // Гарнизон дома: бойцы племени плюс ополчение — частокол, башня и сами жители.
     // Ополчение в расстановке не участвует: пехота растекается по фронту сама,
-    // а стрелков башни ставит во вторую линию `toArmySetup`.
-    const home = profile?.army ?? {};
+    // а стрелков башни ставит во вторую линию `toArmySetup`. Дружины при
+    // полководце здесь нет, даже если он стоит у своих ворот (`world/muster`).
+    const home = this.garrison(at);
     const militia = Math.max(0, Math.round(profile?.militia ?? 0));
     // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род.
     const archers = Math.min(militia, Math.max(0, Math.round(profile?.militiaArchers ?? 0)));
@@ -3075,8 +3103,11 @@ export class LocalWorld implements WorldApi {
     homeKinds.infantry += militia - archers;
     homeKinds.archer += archers;
     // Оборона, запертая за пять минут до прихода: менять её было уже нельзя.
+    // Заперта расстановка, а не люди в ней: ушедшего после этого к полководцу
+    // она в строй у частокола не вернёт — в строю не больше, чем стоит дома.
     const frozen = this.save.frozenDefense;
-    const setup = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);
+    const planned = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);
+    const setup = planned ? fitSetup(planned, homeKinds) : null;
     const field = resolveField({
       seed: m.seed,
       attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
@@ -3097,11 +3128,16 @@ export class LocalWorld implements WorldApi {
         }
       : null;
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
-    const warriors = profile?.units.warrior ?? 0;
+    const warriors = troopTotal(home);
     // Ополчение гибнет наравне со всеми, но списываются только бойцы: жителей
     // набег не уносит — за них отвечают мораль и разграбленный склад.
-    const troopsLost = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
-    const warriorsLost = Math.min(warriors, troopTotal(troopsLost) || Math.round(warriors * outcome.defenderLoss));
+    const spread = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
+    const warriorsLost = Math.min(warriors, troopTotal(spread) || Math.round(warriors * outcome.defenderLoss));
+    // Погибают те, кто стоял у частокола. Потери, которые не легли ни на один
+    // вид гарнизона, называются поимённо здесь же — со слабых, — а не числом:
+    // числом племя сняло бы их со всей дружины и могло задеть тех, кто при
+    // полководце.
+    const troopsLost = troopTotal(spread) > 0 ? spread : weakest(home, warriorsLost);
     // Симметрия: прорвавшийся набег чистит наш склад тем же правилом и той же
     // функцией, какой мы чистим чужие дворы, — всё, кроме тайника, и не больше,
     // чем поднимет отряд. Считается это здесь, **после** проверки `AWAY_GRACE`:
@@ -4081,12 +4117,24 @@ export class LocalWorld implements WorldApi {
     for (const [id, n] of Object.entries(order.units) as [keyof UnitStack, number][]) {
       const count = Math.max(0, Math.floor(n ?? 0));
       if (count <= 0) continue;
-      const have = profile.units[id] ?? 0;
+      // Воины уходят из гарнизона — того, что стоит дома в эту минуту. Разведчики —
+      // свободные руки деревни, и сколько их, знает только слепок.
+      const have = id === 'warrior' ? troopTotal(this.garrison(now)) : (profile.units[id] ?? 0);
       if (count > have) return { error: `Столько людей нет дома: ${id === 'scout' ? 'разведчиков' : 'воинов'}.`, march: null };
       units[id] = count;
       size += count;
     }
     if (size === 0) return { error: 'Отряд пустой.', march: null };
+    // Названный состав уходит из гарнизона поимённо — тех же видов и не больше,
+    // чем их стоит дома: иначе отряд увёл бы бойцов, которые стоят в строю у
+    // полководца.
+    const troops = order.troops && troopTotal(order.troops) > 0 ? { ...order.troops } : undefined;
+    if (troops) {
+      const garrison = this.garrison(now);
+      if (TROOP_IDS.some((t) => (troops[t] ?? 0) > (garrison[t] ?? 0))) {
+        return { error: 'Столько бойцов дома нет.', march: null };
+      }
+    }
     if (order.mission === 'raid') {
       // Единственный способ ударить — полководец у цели. Оставлять рядом второй
       // путь значило бы, что правило «армия ходит только с ним» держится на
@@ -4124,7 +4172,7 @@ export class LocalWorld implements WorldApi {
       arriveAt: now + Math.round(seconds * 1000),
       phase: 'out',
       power: stackPower(units, profile.warriorPower),
-      troops: order.troops && troopTotal(order.troops) > 0 ? { ...order.troops } : undefined,
+      troops,
       setup: order.setup ?? null,
       loot: null,
     };
@@ -4288,8 +4336,8 @@ export class LocalWorld implements WorldApi {
    *
    * `troops` — каким войско должно стать. Разница с нынешним и есть то, что
    * переходит из деревни к полководцу или обратно, поэтому взять больше, чем
-   * стоит дома, нельзя: дома — это `profile.army`, и в нём уже нет тех, кто при
-   * полководце.
+   * стоит дома, нельзя. Дома — это гарнизон (`garrison`), и тех, кто уже при
+   * полководце, в нём нет: он стоит у своих ворот, но его дружина — не гарнизон.
    */
   async setGarrison(troops: TroopStack | null): Promise<string | null> {
     const now = this.clock();
@@ -4303,7 +4351,7 @@ export class LocalWorld implements WorldApi {
     if (!this.touching(this.figureAt(f, now))?.home) {
       return 'Забрать дружину можно только у своей деревни.';
     }
-    const home = this.save.profile?.army ?? {};
+    const home = this.garrison(now);
     const held = f.troops ?? {};
     const next: TroopStack = {};
     for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
@@ -4349,6 +4397,61 @@ export class LocalWorld implements WorldApi {
   private commandCap = (): number => Math.max(0, Math.round(this.save.profile?.command ?? 0));
 
   /**
+   * Гарнизон деревни в эту минуту, по видам: всё войско племени, каким его знает
+   * мир, минус дружина полководца — где бы он ни стоял и пока идёт передача, — и
+   * свои отряды в пути. Правило одно с мостом (`world/muster`).
+   *
+   * Считается здесь, а не приезжает слепком: слепок собирается раз в пульс, а
+   * дружина уходит к полководцу, гибнет и возвращается между пульсами. Гарнизон,
+   * поверенный слепку, отставал бы ровно на то, что случилось с последнего
+   * пульса, — и отставал бы в сторону «дома больше, чем есть».
+   */
+  private garrison(now: number): TroopStack {
+    const f = this.save.figures.general;
+    this.settleHandover(f, now);
+    return homeOf(this.save.profile?.army ?? {}, awayOf(this.save.marches, [f]));
+  }
+
+  /**
+   * Полководец не держит бойцов, которых у племени нет. Сверка идёт на каждом
+   * слепке, и это не проверка приказа, а учёт: откуда бы ни взялся лишний боец в
+   * строю — из сохранения, где дружину успели удвоить, из партии, начатой
+   * заново при старом мире, или из пути, о котором ещё никто не подумал, — в
+   * бой он не пойдёт. Сколько вычеркнули, игрок узнаёт строкой в летописи.
+   */
+  private muster(at: number): void {
+    const f = this.save.figures.general;
+    const held = f.troops ?? {};
+    if (troopTotal(held) === 0) return;
+    // Сколько каждого вида полководец вообще может держать: всё войско минус
+    // свои отряды в пути — тем же правилом, каким считается гарнизон.
+    const room = homeOf(this.save.profile?.army ?? {}, awayOf(this.save.marches, []));
+    const cut = (t: TroopStack): TroopStack => {
+      const out: TroopStack = {};
+      for (const id of TROOP_IDS) {
+        const n = Math.min(Math.max(0, t[id] ?? 0), room[id] ?? 0);
+        if (n > 0) out[id] = n;
+      }
+      return out;
+    };
+    const kept = cut(held);
+    const gone = troopTotal(held) - troopTotal(kept);
+    if (gone === 0) return;
+    f.troops = troopTotal(kept) > 0 ? kept : undefined;
+    if (f.handover) f.handover = { ...f.handover, troops: cut(f.handover.troops) };
+    this.addEffect({
+      id: `muster-${at}`,
+      lost: {},
+      resources: {},
+      prestige: 0,
+      morale: 0,
+      battle: null,
+      text: `Дружину полководца сверили с казармами: ${gone} чел. числились в ней сверх того, что есть у племени, и вычеркнуты.`,
+      good: false,
+    });
+  }
+
+  /**
    * Передача дружины кончается сама, по времени: срок наступил — состав стал
    * тем, о котором договорились. Это приведение при чтении, а не тик: офлайн
    * даёт ровно то же, что непрерывная игра.
@@ -4356,13 +4459,13 @@ export class LocalWorld implements WorldApi {
   private settleHandover(f: StoredFigure, now: number): void {
     if (!f.handover || now < f.handover.until) return;
     const next = f.handover.troops;
-    // Сколько вернулось в гарнизон. Слепок деревни этих людей ещё не считает
-    // домашними, поэтому под осадой их приходится назвать поимённо — и часы
-    // голода пересчитываются, как от любого другого подкрепления.
+    // Сколько вернулось в гарнизон. Под осадой часы голода пересчитываются, как
+    // от любого другого подкрепления, — после того, как люди сняты с полководца:
+    // гарнизон читается в эту минуту и их уже считает.
     const back = Math.max(0, troopTotal(f.troops ?? {}) - troopTotal(next));
     f.troops = troopTotal(next) > 0 ? { ...next } : undefined;
     f.handover = undefined;
-    if (back > 0) this.resiege(HOME_ID, now, back);
+    if (back > 0) this.resiege(HOME_ID, now);
   }
 
   async attack(order: AttackOrder): Promise<AttackResult> {
@@ -4857,7 +4960,12 @@ export class LocalWorld implements WorldApi {
     // Реестр приезжает по своему сроку — раз в минуту и только пока открыта
     // карта; здесь его просто перечитывают. Дешёвая операция: пара сотен строк.
     this.adoptCastles();
-    this.save.profile = profile;
+    // Слепок собран до того, как племя узнало о последствиях, которые ещё лежат
+    // здесь неотданными: павших в них мир списывает с войска сам (`bury`).
+    let army = profile.army ?? {};
+    for (const e of this.save.effects) if (e.lostTroops) army = troopsAfter(army, e.lostTroops);
+    this.save.profile = { ...profile, army };
+    this.muster(now);
     this.lockDefense(now, profile);
     this.advance(now);
     const reports = this.fresh;

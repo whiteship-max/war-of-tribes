@@ -507,8 +507,9 @@ describe('осада: подкрепление и часы голода', () => 
   it('дружину вернуть можно, и часы голода принимают новых едоков', async () => {
     const w = makeWorld(7);
     // Дружина уже при полководце: дома её нет, и осада считает пустой гарнизон.
-    const away = holdout({ army: {} });
-    await w.world.sync(holdout());
+    // Слепок везёт всё войско, как и везде: кто из него дома, мир считает сам.
+    const away = holdout();
+    await w.world.sync(away);
     expect(await w.world.setGarrison({ spearman: 10 })).toBeNull();
     const g = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
     w.at(g.readyAt);

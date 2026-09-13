@@ -19,7 +19,7 @@ import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
-import { awayTroops, homeTroops } from '@/world/bridge';
+import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { Icon } from '@/ui/icons/Icon';
@@ -48,7 +48,7 @@ function GarrisonEditor() {
   const setGarrison = useWorld((g) => g.setGarrison);
   const general = figures.find((f) => f.id === 'general');
   const held: TroopStack = general?.troops ?? {};
-  const home = homeTroops(s, awayTroops(marches, figures));
+  const home = homeOf(s.army, awayOf(marches, figures));
   const [want, setWant] = useState<TroopStack>(held);
   const [busy, setBusy] = useState(false);
 
@@ -64,10 +64,13 @@ function GarrisonEditor() {
   const cap = general.capacity;
   const over = Math.max(0, total - cap);
   const gathering = general.readyAt > worldNow();
-  // Пока полководец стоит в деревне, его дружина её защищает; уйдёт — не будет.
-  // Игрок обязан видеть это число до того, как он уйдёт, а не в отчёте после.
+  // Дружина при полководце деревню не защищает — ни в поле, ни у своих ворот:
+  // боец стоит ровно в одном месте (`world/muster`). Игрок обязан видеть, какой
+  // станет оборона, до того, как отдаст людей, а не в отчёте после. Число
+  // считает та же `defense`, что и всегда, — только для дружины, которую он
+  // выбрал, а не своей арифметикой рядом.
   const def = defense(s);
-  const after = Math.max(0, def - total * soldierPower(s));
+  const after = defense({ ...s, warriorsAway: Math.max(0, s.warriorsAway - troopTotal(held) + total) });
   const apply = async (next: TroopStack | null): Promise<void> => {
     setBusy(true);
     const err = await setGarrison(next);
@@ -138,7 +141,7 @@ function GarrisonEditor() {
         </div>
         <div className="mod total">
           <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
-          <span className="name">Уйдёт с ним — оборона станет</span>
+          <span className="name">С такой дружиной оборона станет</span>
           <span className={`val ${after < def * 0.5 ? 'neg' : ''}`}>
             {Math.round(def)} → {Math.round(after)}
           </span>
@@ -157,8 +160,8 @@ function GarrisonEditor() {
         </button>
       </div>
       <p className="note">
-        Пока дружина при полководце в поле, деревню защищают только частокол, башня и сами жители.
-        Сбор и роспуск занимают время: войско не перескакивает между ролями.
+        Дружина при полководце деревню не защищает — ни в поле, ни у своих ворот: дома остаются частокол,
+        башня, жители и те, кого он не взял. Сбор и роспуск занимают время: войско не перескакивает между ролями.
       </p>
     </>
   );

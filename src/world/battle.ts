@@ -6,6 +6,8 @@
 // потерь в старой форме: на них держатся добыча, урон гарнизону и последствия
 // для деревни, и переписывать их из-за нового ядра незачем.
 import {
+  SECTORS,
+  UNIT_KINDS,
   quickAttack,
   simulateBattle,
   stackTotal,
@@ -13,6 +15,7 @@ import {
   type BattleResult,
   type Intel as BattleIntel,
   type QuickPresetId,
+  type Sector,
   type Stack,
   type UnitKind,
 } from '@/battle';
@@ -53,6 +56,34 @@ export interface FieldOutcome {
   result: BattleResult | null;
   /** Каким пресетом пошла сторона, если расстановку ей не задавали. */
   preset: { attacker: QuickPresetId | null; defender: QuickPresetId | null };
+}
+
+/**
+ * Расстановка, в которой не больше бойцов каждого рода, чем есть в строю.
+ *
+ * Расстановку собирают заранее — оборону племя присылает слепком раз в пульс, а
+ * за пять минут до набега мир её запирает, — а бойцы за это время уходят к
+ * полководцу. Запирается порядок, а не люди: без подрезки ушедший стоял бы и у
+ * частокола по старой расстановке, и в строю полководца.
+ *
+ * Лишние снимаются с конца — резерв, потом тыл, потом фронт: стена держится до
+ * последнего. Расстановка, собранная из тех же людей, не меняется вовсе:
+ * `toArmySetup` округляет род целиком, `kindsOf` — каждый вид отдельно, а вес
+ * бойца в строю — целое или половинка, поэтому сумма по видам никогда не меньше.
+ * Держит это тест, а не комментарий (`world/muster.test.ts`).
+ */
+export function fitSetup(setup: ArmySetup, have: Stack): ArmySetup {
+  const sectors = Object.fromEntries(SECTORS.map((id) => [id, { ...setup.sectors[id] }])) as Record<Sector, Stack>;
+  for (const k of UNIT_KINDS) {
+    let over = SECTORS.reduce((n, id) => n + sectors[id][k], 0) - Math.max(0, have[k]);
+    for (let i = SECTORS.length - 1; i >= 0 && over > 0; i--) {
+      const sector = sectors[SECTORS[i]];
+      const take = Math.min(sector[k], over);
+      sector[k] -= take;
+      over -= take;
+    }
+  }
+  return { ...setup, sectors };
 }
 
 /** Сид для расстановки стороны: у нападающего и обороняющегося он не должен совпасть. */
