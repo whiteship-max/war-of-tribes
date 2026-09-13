@@ -29,9 +29,9 @@ import {
   TILE_BAKE,
   TILE_BAKES_PER_FRAME,
   TILE_BLEED,
-  TILE_CACHE,
   TILE_CELLS,
   TILE_MARGIN,
+  TILE_POOL,
   TILE_PX,
   TREE_FREE_R,
 } from './const';
@@ -39,23 +39,27 @@ import { type TileId, tileOrigin } from './grid';
 import { type Clearing, type Flag, type Sample, type Stamp, hash, lineStamps, stampsFor, treesIn, waterShare } from './scatter';
 import { lattice as latticeOf, shadePixels } from './relief';
 import { grassPatch, makeCanvas, softDisc, treeShadow, treeSize, treeSprite } from './paint';
+import { TileCache } from './tilecache';
 import { bakeCost, probe } from '@/debug';
 
 /** Замер выпечки включён только флагом адреса — в игре это одна проверка булева. */
 const PROBE = probe();
 
-interface Tile {
-  canvas: HTMLCanvasElement;
-  /** Номер кадра, в котором тайл последний раз рисовали, — по нему вытесняем. */
-  usedFrame: number;
-}
-
-const tiles = new Map<string, Tile>();
 /** Отселённые холсты переиспользуются: иначе при броске карты дёргается аллокатор. */
 const pool: HTMLCanvasElement[] = [];
 let scratch: HTMLCanvasElement | null = null;
 
-const key = (tx: number, ty: number): string => `${tx}:${ty}`;
+/**
+ * Вытесненный холст — в пул, пока в пуле есть место, иначе на свалку. Без
+ * обнуления размера Safari держит подложку до сборки мусора.
+ */
+function release(canvas: HTMLCanvasElement): void {
+  if (pool.length < TILE_POOL) pool.push(canvas);
+  else canvas.width = 0;
+}
+
+/** Правило, что держать и что вытеснять, живёт в `tilecache.ts` — без холста и под тестом. */
+const tiles = new TileCache<HTMLCanvasElement>(release);
 
 const sample: Sample = (x, y) => cachedTerrain(x, y);
 
@@ -251,7 +255,7 @@ function allWater(pad: Rect): boolean {
   return true;
 }
 
-function bake(seed: number, tx: number, ty: number): Tile | null {
+function bake(seed: number, tx: number, ty: number): HTMLCanvasElement | null {
   const pad = paddedRect(tx, ty);
   if (!ready(pad)) return null;
 
@@ -279,7 +283,7 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
     ctx.fillStyle = PALETTE.deep;
     ctx.fillRect(0, 0, TILE_PX, TILE_PX);
     ctx.globalAlpha = 1;
-    return { canvas, usedFrame: 0 };
+    return canvas;
   }
 
   const lo = -Math.ceil(TILE_BLEED) - 1;
@@ -387,55 +391,30 @@ function bake(seed: number, tx: number, ty: number): Tile | null {
     ctx.drawImage(treeSprite(t.kind, t.conifer), sx - w / 2, sy - h * 0.88, w, h);
   }
 
-  return { canvas, usedFrame: 0 };
+  return canvas;
 }
 
 // ---------- Кэш ----------
 
-function release(t: Tile): void {
-  if (pool.length < 4) pool.push(t.canvas);
-  // Без обнуления размера Safari держит подложку до сборки мусора.
-  else t.canvas.width = 0;
-}
+/** Последний запрос кадра и ёмкость — только для щупа стенда ниже. */
+let lastWant = 0;
+let lastCapacity = 0;
 
-function evict(frame: number): void {
-  while (tiles.size > TILE_CACHE) {
-    let oldestKey: string | null = null;
-    let oldest = Infinity;
-    for (const [k, t] of tiles) {
-      // Нарисованное в этом кадре не выбрасываем: иначе тайл выкинут и тут же
-      // испекут заново, и так каждый кадр.
-      if (t.usedFrame === frame) continue;
-      if (t.usedFrame < oldest) {
-        oldest = t.usedFrame;
-        oldestKey = k;
-      }
-    }
-    if (!oldestKey) return;
-    const gone = tiles.get(oldestKey);
-    tiles.delete(oldestKey);
-    if (gone) release(gone);
-  }
-}
-
-/** Готовый тайл или null, если его ещё не испекли. Отметка кадра нужна вытеснению. */
-export function tileAt(tx: number, ty: number, frame: number): HTMLCanvasElement | null {
-  const t = tiles.get(key(tx, ty));
-  if (!t) return null;
-  t.usedFrame = frame;
-  return t.canvas;
+/** Готовый тайл или null, если его ещё не испекли — тогда сквозь него виден обзор. */
+export function tileAt(tx: number, ty: number): HTMLCanvasElement | null {
+  return tiles.get(tx, ty);
 }
 
 /**
- * Печёт недостающие тайлы — не больше `TILE_BAKES_PER_FRAME` за кадр. Бюджет
- * жёсткий: одна выпечка это несколько миллисекунд, две подряд уже видны рывком
- * при броске карты.
+ * Кадр земли: пометить запрос, испечь недостающее — не больше
+ * `TILE_BAKES_PER_FRAME` за кадр, — вытеснить сверх ёмкости. Бюджет жёсткий: одна
+ * выпечка это несколько миллисекунд, две подряд уже видны рывком при броске карты.
+ *
+ * Сколько держать, решает не этот файл: ёмкость приходит от кадра (`cacheFor`),
+ * а правило вытеснения — из `tilecache.ts`.
  */
-export function prepareTiles(seed: number, want: TileId[], frame: number): void {
-  let budget = TILE_BAKES_PER_FRAME;
-  for (const { tx, ty } of want) {
-    if (tiles.has(key(tx, ty))) continue;
-    if (budget <= 0) break;
+export function prepareTiles(seed: number, want: TileId[], frame: number, capacity: number): void {
+  tiles.frame(want, frame, capacity, TILE_BAKES_PER_FRAME, (tx, ty) => {
     // Цена выпечки — своё число, а не доля кадра: в медиану кадра она не попадает
     // вовсе (тайл печётся раз на десятки кадров), а чувствуется именно рывком.
     // Под `?probe=1` её снимает `npm run map:report`; в игре остаётся проверка булева.
@@ -444,19 +423,28 @@ export function prepareTiles(seed: number, want: TileId[], frame: number): void 
     // Считается только состоявшаяся выпечка. Отказ по неприехавшим кускам стоит
     // обхода сетки и возврата, и в среднем такие отказы утопили бы настоящее
     // число: их за бросок набирается больше, чем самих тайлов.
-    if (!baked) continue;
-    if (PROBE) bakeCost(performance.now() - t0);
-    baked.usedFrame = frame;
-    tiles.set(key(tx, ty), baked);
-    budget--;
-  }
-  evict(frame);
+    if (baked && PROBE) bakeCost(performance.now() - t0);
+    return baked;
+  });
+  lastWant = want.length;
+  lastCapacity = capacity;
+}
+
+/** Что кадр просил и сколько кэш держит — стенду (`npm run map:report`), под `?probe=1`. */
+if (PROBE && typeof window !== 'undefined') {
+  (window as unknown as { __mapTiles?: () => unknown }).__mapTiles = () => ({
+    size: tiles.size,
+    want: lastWant,
+    capacity: lastCapacity,
+    pool: pool.length,
+  });
 }
 
 /** Новый мир или долгий уход в обзор: держать два десятка холстов незачем. */
 export function dropTiles(): void {
-  for (const t of tiles.values()) t.canvas.width = 0;
-  tiles.clear();
+  tiles.drop((canvas) => {
+    canvas.width = 0;
+  });
   for (const c of pool) c.width = 0;
   pool.length = 0;
   if (scratch) {

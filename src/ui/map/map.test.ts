@@ -29,11 +29,18 @@ import {
   toWorld,
   tileRangeFor,
   tilesIn,
+  TILE_CEILING,
   TILE_LAST,
+  cacheFor,
+  frameQueue,
+  tileMemory,
+  tileRequest,
   viewRect,
   visibleCells,
+  worstRequest,
   zoomAt,
 } from './grid';
+import { TileCache } from './tilecache';
 import {
   CONIFER_NORTH,
   CONIFER_SOUTH,
@@ -45,8 +52,8 @@ import {
   SCALE_MIN,
   SCALE_OVERVIEW,
   SCALE_START,
-  TILE_CACHE,
   TILE_CELLS,
+  TILE_PROMISE,
   TREE_FREE_R,
 } from './const';
 import { type Sample, coniferAt, fieldAt, forestAt, groveAt, stampsFor, treesIn, waterShare } from './scatter';
@@ -235,17 +242,162 @@ describe('перетаскивание', () => {
     expect(tiles.length).toBeGreaterThan(0);
   });
 
-  it('кэш тайлов не меньше того, что помещается на экран', () => {
-    // Кэш меньше видимого — это не экономия, а вечная перевыпечка: тайл
-    // вытесняют раньше, чем он пригодится, и следующий кадр печёт его снова.
-    // Проверяем весь рабочий диапазон нарисованного слоя, а не только удобный
-    // ближний масштаб: на широком экране и у нижнего края полосы перехода
-    // тайлов больше всего.
-    const tall: Viewport = { w: 430, h: 932 };
-    for (const scale of [FADE_LO, 30, 34, SCALE_DETAIL, 70]) {
-      for (const vp of [VP, tall]) {
-        const need = tilesIn(tileRangeFor(viewRect({ cx: HOME.x, cy: HOME.y, scale }, vp))).length;
-        expect(need).toBeLessThanOrEqual(TILE_CACHE);
+});
+
+describe('кэш земли держит то, что кадр просит, — и стоя не печёт ничего', () => {
+  // Прежнее правило было «кэш не меньше экрана», и проверяло его одно положение
+  // камеры. Экрана мало: кадр просит экран с запасом, и в 46% положений запас в
+  // кэш не влезал — тайл вытеснялся, следующий кадр пёк его снова, и так у
+  // неподвижной карты по выпечке на кадр. Здесь проверяется не число, а сам
+  // кэш на тех же функциях, что у кадра: `frameQueue`, `cacheFor`, `TileCache`.
+  const PHONES: Viewport[] = [{ w: 360, h: 640 }, { w: 375, h: 812 }, VP, TILE_PROMISE];
+  const BAND = [FADE_LO + 0.01, 38, FADE_HI, SCALE_START, SCALE_DETAIL, SCALE_MAX];
+  // Середина мира, чтобы край карты не обрезал тайлы и не делал запрос легче.
+  const MID = { x: WORLD_ORIGIN.x + 396, y: WORLD_ORIGIN.y + 396 };
+  // Сдвиги в пределах одного тайла с шагом, не кратным клетке: ровная сетка
+  // сдвигов обошла бы как раз те совпадения с сеткой тайлов, на которых и было худо.
+  const OFFSETS = Array.from({ length: 10 }, (_, k) => (k * 0.61) % TILE_CELLS);
+
+  /** Кадры без холста: тот же запрос, та же обрезка, тот же кэш, что у `drawGround`. */
+  function stand(cam: Camera, vp: Viewport, frames: number): { bakes: number[]; size: number } {
+    const capacity = cacheFor(vp);
+    const plan = frameQueue(viewRect(cam, vp), capacity);
+    const cache = new TileCache<object>(() => {});
+    const bakes: number[] = [];
+    for (let f = 1; f <= frames && plan; f++) {
+      bakes.push(cache.frame(plan.queue, f, capacity, 1, () => ({})));
+    }
+    return { bakes, size: cache.size };
+  }
+
+  it('ёмкость не меньше запроса ни в одном положении камеры', () => {
+    for (const vp of PHONES) {
+      const capacity = cacheFor(vp);
+      for (const scale of BAND) {
+        for (const ox of OFFSETS) {
+          for (const oy of OFFSETS) {
+            const r = tileRequest(viewRect({ cx: MID.x + ox, cy: MID.y + oy, scale }, vp));
+            expect(r.shown.length + r.spare.length, `${vp.w}×${vp.h} при ${scale}`).toBeLessThanOrEqual(capacity);
+          }
+        }
+      }
+    }
+  });
+
+  it('ёмкость выведена точно: столько кадр и просит в худшем положении', () => {
+    // Не «с запасом на глаз»: лишняя ёмкость — это память, которую держат зря.
+    // Сдвиги по 1/16 клетки попадают и в точные совпадения краёв с сеткой.
+    for (const vp of PHONES) {
+      let worst = 0;
+      for (let i = 0; i < 96; i++) {
+        for (let j = 0; j < 96; j++) {
+          const rect = viewRect({ cx: MID.x + i / 16, cy: MID.y + j / 16, scale: FADE_LO }, vp);
+          const r = tileRequest(rect);
+          worst = Math.max(worst, r.shown.length + r.spare.length);
+        }
+      }
+      expect(worstRequest(vp), `${vp.w}×${vp.h}`).toBe(worst);
+    }
+  });
+
+  it('неподвижная камера, раз испёкши запрос, не печёт больше ничего', () => {
+    for (const vp of PHONES) {
+      const capacity = cacheFor(vp);
+      for (const scale of BAND) {
+        for (const ox of OFFSETS) {
+          for (const oy of OFFSETS) {
+            const { bakes, size } = stand({ cx: MID.x + ox, cy: MID.y + oy, scale }, vp, capacity + 60);
+            // Первые кадры печут запрос по тайлу за кадр, дальше — ни одного.
+            const late = bakes.slice(capacity).reduce((a, b) => a + b, 0);
+            expect(late, `${vp.w}×${vp.h} при ${scale}, сдвиг ${ox.toFixed(2)}|${oy.toFixed(2)}`).toBe(0);
+            expect(size).toBeLessThanOrEqual(capacity);
+          }
+        }
+      }
+    }
+  });
+
+  it('проверка не пустая: движущаяся камера печёт, а кэш не пухнет', () => {
+    const vp = TILE_PROMISE;
+    const capacity = cacheFor(vp);
+    const cache = new TileCache<object>(() => {});
+    let baked = 0;
+    for (let f = 1; f <= 900; f++) {
+      const cam = { cx: MID.x + f * 0.08, cy: MID.y + f * 0.05, scale: FADE_HI };
+      const plan = frameQueue(viewRect(cam, vp), capacity);
+      if (!plan) continue;
+      baked += cache.frame(plan.queue, f, capacity, 1, () => ({}));
+      expect(cache.size).toBeLessThanOrEqual(capacity);
+    }
+    expect(baked).toBeGreaterThan(capacity);
+  });
+
+  it('запрошенное кадром кэш не вытесняет, даже когда его больше ёмкости', () => {
+    // Обрезает запрос кадр; кэш этого не обещает, но и выбрасывать живое не смеет:
+    // лишний тайл в памяти лучше выброшенного и испечённого следующим кадром.
+    const released: object[] = [];
+    const cache = new TileCache<object>((v) => released.push(v));
+    const want = Array.from({ length: 6 }, (_, i) => ({ tx: i, ty: 0 }));
+    for (let f = 1; f <= 6; f++) cache.frame(want, f, 3, 1, () => ({}));
+    expect(cache.size).toBe(6);
+    expect(released).toEqual([]);
+    // Запрос ушёл — вытесняется то, что больше не просят, до ёмкости.
+    cache.frame([{ tx: 100, ty: 0 }], 7, 3, 1, () => ({}));
+    expect(cache.size).toBe(3);
+  });
+
+  it('запас отрезается с дальнего края и одинаково от кадра к кадру', () => {
+    const rect = viewRect({ cx: MID.x + 1.3, cy: MID.y + 2.7, scale: FADE_HI }, VP);
+    const a = tileRequest(rect);
+    const b = tileRequest(rect);
+    expect(b).toEqual(a);
+    // Ни один тайл запаса не лежит на экране, и все они рядом с ним.
+    const onScreen = new Set(a.shown.map((t) => `${t.tx}:${t.ty}`));
+    expect(a.spare.every((t) => !onScreen.has(`${t.tx}:${t.ty}`))).toBe(true);
+    const plan = frameQueue(rect, a.shown.length + 1);
+    expect(plan?.queue.length).toBe(a.shown.length + 1);
+    expect(plan?.queue[a.shown.length]).toEqual(a.spare[0]);
+  });
+
+  it('экран больше обещанного памяти сверх потолка не получает', () => {
+    for (const vp of [{ w: 768, h: 1024 }, { w: 1280, h: 800 }, { w: 1920, h: 1080 }, { w: 3840, h: 2160 }]) {
+      expect(cacheFor(vp)).toBeLessThanOrEqual(TILE_CEILING);
+      expect(tileMemory(vp)).toBeLessThanOrEqual(tileMemory(TILE_PROMISE));
+      // И при этом стоя не печёт: запрос обрезается под потолок, а если не влезает
+      // даже экран — нарисованного слоя на этом масштабе нет вовсе.
+      const plan = frameQueue(viewRect({ cx: MID.x + 0.4, cy: MID.y + 0.4, scale: FADE_HI }, vp), cacheFor(vp));
+      if (plan) expect(plan.queue.length).toBeLessThanOrEqual(cacheFor(vp));
+    }
+  });
+
+  it('кадр просит у кэша только через frameQueue, и ёмкость у него одна', () => {
+    // Читается исходник: всё, что проверено выше, держится на том, что кадр
+    // спрашивает теми же функциями. Собери он запрос сам — из `tileRangeFor` с
+    // «кольцом» — и тесты выше проверяли бы одно, а рисовалось бы другое. Ровно
+    // так и жило прежнее правило: число рядом с запросом, а не из него.
+    const read = (f: string): string =>
+      readFileSync(join(process.cwd(), 'src/ui/map', f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const detail = read('detail.ts');
+    expect(detail).toMatch(/frameQueue\(viewRect\(cam, vp\), capacity\)/);
+    expect(detail).toMatch(/capacityValue = cacheFor\(vp\)/);
+    expect(detail).not.toMatch(/tileRangeFor|tilesIn\(/);
+    // Своего числа тайлов в кэше нет нигде в карте: ни в выпечке, ни в кадре.
+    for (const f of ['detail.ts', 'ground.ts', 'tilecache.ts', 'const.ts', 'frame.ts']) {
+      expect(read(f), f).not.toMatch(/TILE_CACHE/);
+    }
+    expect(read('ground.ts')).toMatch(/tiles\.frame\(want, frame, capacity/);
+  });
+
+  it('на обещанном экране нарисованный слой есть на всём рабочем диапазоне', () => {
+    // Прежний предохранитель сравнивал экран с числом; теперь экран и запас
+    // сравниваются с ёмкостью, выведенной из них же, — и на обещанном экране
+    // кадр не отказывается от нарисованного слоя ни на одном масштабе полосы.
+    for (const scale of [FADE_LO + 0.01, 34, SCALE_DETAIL, 70]) {
+      for (const ox of OFFSETS) {
+        const rect = viewRect({ cx: MID.x + ox, cy: MID.y + ox * 1.7, scale }, TILE_PROMISE);
+        expect(frameQueue(rect, cacheFor(TILE_PROMISE))).not.toBeNull();
       }
     }
   });

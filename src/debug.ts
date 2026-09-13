@@ -85,3 +85,23 @@ export function takeBakes(): number[] {
   BAKES.length = 0;
   return out;
 }
+
+/**
+ * Сколько тайлов экрана в кадре ещё не испечены — сквозь них виден пиксельный
+ * обзор (`npm run map:report`, раздел «бросок карты»). Это цена тонкого запаса
+ * вокруг экрана: чем он уже, тем меньше кэш и тем чаще кромка выезжает обзором.
+ * Решать, какой запас, без этого числа нечем.
+ */
+const GAPS: number[] = [];
+
+export function shownGaps(n: number): void {
+  GAPS.push(n);
+  if (GAPS.length > COSTS_MAX) GAPS.shift();
+}
+
+/** Снять накопленное и начать сначала. Стенд зовёт это через `window.__mapGaps`. */
+export function takeGaps(): number[] {
+  const out = GAPS.slice();
+  GAPS.length = 0;
+  return out;
+}

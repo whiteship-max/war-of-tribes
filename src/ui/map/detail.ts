@@ -6,20 +6,22 @@
 import type { MarchView, Rect, SettlementView } from '@/world/types';
 import { loadedIn } from '@/world/cache';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
-import { TILE_CACHE } from './const';
 import { GRID } from './palette';
 import {
   type Camera,
-  type TileId,
   type Viewport,
+  cacheFor,
+  frameQueue,
   tileQuad,
-  tileRangeFor,
-  tilesIn,
   toScreen,
   viewRect,
 } from './grid';
 import { TILE_SRC, prepareTiles, tileAt } from './ground';
 import { type Look, type MarkerKind, drawMarkers, drawSettlement, variantOf } from './village';
+import { probe, shownGaps } from '@/debug';
+
+/** Счёт недопечённого на экране включён только флагом адреса. */
+const PROBE = probe();
 
 /** Сетка подписана только по пятёркам: на каждой клетке цифры сливаются в шум. */
 const GRID_STEP = 5;
@@ -43,32 +45,50 @@ export function drawGround(
   frame: number,
   alpha: number,
 ): void {
-  const rect = viewRect(cam, vp);
-  const shown = tilesIn(tileRangeFor(rect));
-  // Предохранитель: если на экран просится больше тайлов, чем влезает в кэш,
-  // рисовать землю нельзя вовсе. Иначе тайлы начнут вытеснять друг друга и
-  // печься заново каждый кадр — самый дорогой из возможных исходов. Полоса
-  // перехода подобрана так, что сюда попадает только её самый край, где
-  // нарисованный слой всё равно почти прозрачен; вместо него виден обзор.
-  if (shown.length > TILE_CACHE) return;
-  // Кольцо вокруг экрана печётся заранее, но в очереди стоит после видимого:
-  // бюджет выпечки один тайл за кадр, и тратить его на запас нельзя.
-  const ring = tilesIn(tileRangeFor(rect, 1));
-  const seen = new Set(shown.map((t) => `${t.tx}:${t.ty}`));
-  const queue: TileId[] = [...shown, ...ring.filter((t) => !seen.has(`${t.tx}:${t.ty}`))];
-  prepareTiles(seed, queue, frame);
+  const capacity = capacityOf(vp);
+  const plan = frameQueue(viewRect(cam, vp), capacity);
+  // Экран не влезает в ёмкость даже без запаса — так бывает только на экране
+  // больше обещанного (`TILE_PROMISE`) на мелких масштабах: у планшета у самого
+  // края полосы перехода, у большого монитора и выше неё. Тогда нарисованного
+  // слоя на этом масштабе нет, вместо него виден обзор. Печь по кругу то, что не
+  // влезает, нельзя.
+  if (!plan) return;
+  // В очереди экран и запас, ближние к экрану первыми. На обещанном экране и
+  // меньше запас влезает целиком: ёмкость из него и выведена.
+  prepareTiles(seed, plan.queue, frame, capacity);
 
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.globalAlpha = alpha;
-  for (const { tx, ty } of shown) {
-    const canvas = tileAt(tx, ty, frame);
+  let gaps = 0;
+  for (const { tx, ty } of plan.shown) {
+    const canvas = tileAt(tx, ty);
     // Тайла ещё нет — сквозь него виден пиксельный обзор. Дырки не бывает.
-    if (!canvas) continue;
+    if (!canvas) {
+      gaps++;
+      continue;
+    }
     const q = tileQuad(cam, vp, tx, ty);
     ctx.drawImage(canvas, TILE_SRC.x, TILE_SRC.y, TILE_SRC.size, TILE_SRC.size, q.x, q.y, q.w, q.h);
   }
   ctx.restore();
+  // Сколько тайлов экрана ещё не испечены: цена тонкого запаса. Под `?probe=1` её
+  // снимает `npm run map:report`; в игре остаётся проверка булева.
+  if (PROBE) shownGaps(gaps);
+}
+
+/**
+ * Ёмкость кэша для этого экрана. Считается от размера полотна и пересчитывается
+ * только при его смене — от камеры она не зависит, а кадров шестьдесят в секунду.
+ */
+let capacityVp = { w: -1, h: -1 };
+let capacityValue = 0;
+function capacityOf(vp: Viewport): number {
+  if (vp.w !== capacityVp.w || vp.h !== capacityVp.h) {
+    capacityVp = { w: vp.w, h: vp.h };
+    capacityValue = cacheFor(vp);
+  }
+  return capacityValue;
 }
 
 // ---------- Сетка координат ----------

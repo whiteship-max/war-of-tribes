@@ -7,7 +7,7 @@
 import type { Coord, Rect } from '@/world/types';
 import type { Reach } from '@/world/fog';
 import { WORLD_ORIGIN, WORLD_SIZE, ZOOM_MARGIN } from '@/world/data/tuning';
-import { FADE_HI, FADE_LO, SCALE_MAX, SCALE_MIN, TILE_CELLS } from './const';
+import { FADE_HI, FADE_LO, SCALE_MAX, SCALE_MIN, SPARE_CELLS, TILE_CELLS, TILE_POOL, TILE_PROMISE, TILE_PX } from './const';
 
 export interface Camera {
   /** Мировая клетка под серединой экрана. */
@@ -232,6 +232,131 @@ export function tilesIn(range: TileRange): TileId[] {
   }
   return out;
 }
+
+// ---------- Что кадр просит у кэша земли ----------
+
+/**
+ * Запрос кадра к кэшу земли: экран и запас вокруг него.
+ *
+ * Это **единственное** место, где сказано, сколько тайлов кадр держит живыми. Из
+ * него же выводится ёмкость кэша (`cacheFor`): прежде ёмкость была числом рядом
+ * с запросом, и число держало экран, а запас — нет. Два определения одного и
+ * того же расходятся молча; одно — не может.
+ */
+export interface TileRequest {
+  /** Тайлы экрана: их кадр рисует. */
+  shown: TileId[];
+  /**
+   * Запас вокруг экрана: печётся заранее и не рисуется. Ближние к экрану идут
+   * первыми — когда места мало, отрезается дальний край запаса, а не ближний.
+   */
+  spare: TileId[];
+}
+
+/** Расстояние от тайла до прямоугольника, в клетках. Внутри — ноль. */
+function tileGap(t: TileId, rect: Rect): number {
+  const o = tileOrigin(t.tx, t.ty);
+  const dx = Math.max(rect.x - (o.x + TILE_CELLS), 0, o.x - (rect.x + rect.w));
+  const dy = Math.max(rect.y - (o.y + TILE_CELLS), 0, o.y - (rect.y + rect.h));
+  return Math.hypot(dx, dy);
+}
+
+export function tileRequest(rect: Rect): TileRequest {
+  const inner = tileRangeFor(rect);
+  const outer = tileRangeFor({
+    x: rect.x - SPARE_CELLS,
+    y: rect.y - SPARE_CELLS,
+    w: rect.w + SPARE_CELLS * 2,
+    h: rect.h + SPARE_CELLS * 2,
+  });
+  const spare = tilesIn(outer).filter(
+    (t) => t.tx < inner.tx0 || t.tx > inner.tx1 || t.ty < inner.ty0 || t.ty > inner.ty1,
+  );
+  // Порядок полный и не зависит от порядка обхода: у неподвижной камеры отрезанный
+  // край запаса обязан быть одним и тем же от кадра к кадру, иначе он пёкся бы
+  // по очереди — та же перепечка, только по кругу.
+  spare.sort((a, b) => tileGap(a, rect) - tileGap(b, rect) || a.ty - b.ty || a.tx - b.tx);
+  return { shown: tilesIn(inner), spare };
+}
+
+/**
+ * Очередь кадра к кэшу: экран, потом запас — сколько влезет в ёмкость. `null` —
+ * экран не влезает даже без запаса: так бывает только на экране больше
+ * обещанного на мелких масштабах, и нарисованного слоя там нет.
+ *
+ * Отрезать живёт здесь, а не в кадре: по этой же функции тест гоняет кэш и
+ * проверяет, что неподвижная камера не печёт ничего. Проверка по своей копии
+ * обрезки проверяла бы копию.
+ */
+export function frameQueue(rect: Rect, capacity: number): { shown: TileId[]; queue: TileId[] } | null {
+  const { shown, spare } = tileRequest(rect);
+  if (shown.length > capacity) return null;
+  return { shown, queue: [...shown, ...spare.slice(0, capacity - shown.length)] };
+}
+
+/**
+ * Где по одной оси меняется число накрытых тайлов, если сдвигать область в
+ * пределах одного тайла. Число это кусочно-постоянно и прыгает ровно тогда, когда
+ * край области — с запасом или без — переходит границу тайла. Поэтому худший
+ * случай ищется не перебором положений, а в точках перелома и между ними: так он
+ * точный, а не «достаточно густо проверенный».
+ */
+function breakpoints(len: number): number[] {
+  const edges = [0, len, -SPARE_CELLS, len + SPARE_CELLS];
+  const cuts = new Set<number>([0]);
+  for (const e of edges) cuts.add((((-e % TILE_CELLS) + TILE_CELLS) % TILE_CELLS));
+  const sorted = [...cuts].sort((a, b) => a - b);
+  const out = [...sorted];
+  for (let i = 0; i < sorted.length; i++) {
+    const next = i + 1 < sorted.length ? sorted[i + 1] : TILE_CELLS;
+    out.push((sorted[i] + next) / 2);
+  }
+  return out;
+}
+
+/**
+ * Сколько тайлов кадр может попросить на этом экране в худшем положении камеры.
+ *
+ * Считается у нижнего края полосы перехода: ниже нарисованного слоя нет вовсе, а
+ * выше экран накрывает меньше клеток, и просить больше кадр не может. Считает
+ * тот же `tileRequest`, которым просит кадр, — формулы рядом с ним здесь нет.
+ */
+export function worstRequest(vp: Viewport): number {
+  const w = vp.w / FADE_LO;
+  const h = vp.h / FADE_LO;
+  // Середина мира: у края карту обрезает её граница, и тайлов там меньше.
+  const bx = WORLD_ORIGIN.x + Math.floor(TILE_LAST / 2) * TILE_CELLS;
+  const by = WORLD_ORIGIN.y + Math.floor(TILE_LAST / 2) * TILE_CELLS;
+  let worst = 0;
+  for (const ox of breakpoints(w)) {
+    for (const oy of breakpoints(h)) {
+      const r = tileRequest({ x: bx + ox, y: by + oy, w, h });
+      worst = Math.max(worst, r.shown.length + r.spare.length);
+    }
+  }
+  return worst;
+}
+
+/**
+ * Потолок кэша земли в тайлах: столько кадр просит на обещанном экране
+ * (`TILE_PROMISE`). Экран больше обещанного памяти сверх этого не получает — он
+ * теряет запас, а на мелких масштабах и нарисованный слой (числа — у `TILE_PROMISE`).
+ */
+export const TILE_CEILING = worstRequest(TILE_PROMISE);
+
+/**
+ * Ёмкость кэша земли для этого экрана: сколько кадр просит в худшем положении
+ * камеры, но не больше потолка. Числа, подобранного однажды, здесь нет — поменяй
+ * запас, полосу перехода или сторону тайла, и ёмкость пересчитается сама.
+ */
+export const cacheFor = (vp: Viewport): number => Math.min(worstRequest(vp), TILE_CEILING);
+
+/**
+ * Сколько памяти земля может занять на этом экране, в байтах: ёмкость кэша, пул
+ * запасных холстов и черновик для клякс. У холста 2D подложка ровно ширина ×
+ * высота × 4 байта, так что это не оценка, а счёт.
+ */
+export const tileMemory = (vp: Viewport): number => (cacheFor(vp) + TILE_POOL + 1) * TILE_PX * TILE_PX * 4;
 
 /** Клетка внутри тайла? Нужна тестам покрытия и отбраковке декора. */
 export const tileHasCell = (tx: number, ty: number, x: number, y: number): boolean => {
