@@ -120,7 +120,13 @@ export function deserialize(json: string): GameState | null {
       // normalizeAssignments ниже.
       workers: { ...(data.workers ?? {}) },
       freeJobs: { ...(data.freeJobs ?? {}) },
-      market: { day: 0, bought: {}, ...(data.market ?? {}) },
+      // Невольники на местах — такой же словарь назначений, и по той же причине
+      // берутся как есть. Сохранение, записанное до невольников, приезжает без
+      // поля — тогда пустой словарь, и порядок наведёт тот же normalizeAssignments.
+      bondedWork: { ...(data.bondedWork ?? {}) },
+      // Счёт проданного за день появился позже счёта купленного: у старого
+      // сохранения его нет, и он начинается пустым, а не undefined.
+      market: { day: 0, bought: {}, sold: {}, ...(data.market ?? {}) },
       // Изучение округи мержится по полям по той же причине, что рынок и
       // ежедневка: спред `...data` на уровень ниже не спускается.
       survey: { ...base.survey, ...(data.survey ?? {}) },

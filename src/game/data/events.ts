@@ -5,7 +5,14 @@
 // Люди приходят и уходят толпой. Поимённых жителей в игре нет, поэтому событие
 // про человека — это событие про группу: беженцы у ворот, бродячая артель, мор.
 import type { GameState, ResourceId } from '../types';
-import { DAY_LENGTH, FAITH_REFUSAL_STRAIN, RESOURCE_IDS, RESOURCE_META, RITE_DAYS } from '../constants';
+import {
+  DAY_LENGTH,
+  FAITH_REFUSAL_STRAIN,
+  MUTINY_SUPPRESS_MORALE,
+  RESOURCE_IDS,
+  RESOURCE_META,
+  RITE_DAYS,
+} from '../constants';
 import {
   buildingOfType,
   currentSite,
@@ -18,6 +25,8 @@ import {
   housingCapacity,
   isSite,
   jobCounts,
+  mutinyAnswerLeft,
+  mutinyForecast,
   population,
   seasonOf,
   storageCap,
@@ -25,9 +34,11 @@ import {
 } from '../derived';
 import { resolveBattle } from '../sim/battle';
 import { addStrain, beginRite, grantRelic, riteInfo } from '../sim/faith';
+import { mutinyPay, mutinyRelease, mutinySuppress } from '../sim/mutiny';
 import { addPop, killPop } from '../sim/population';
 import { chance, rnd } from '../sim/random';
 import { log } from '../sim/log';
+import { MUTINY_EVENT, ORDER_TEXT } from './order';
 
 /** Что вариант просит отдать. Золото — не ресурс, но плата бывает и в нём. */
 export type EventCost = Partial<Record<ResourceId | 'gold', number>>;
@@ -63,6 +74,15 @@ export interface EventDef {
   options: EventOption[];
   /** Вес выбора (0 — событие сейчас невозможно). */
   weight: (s: GameState) => number;
+  /**
+   * Событие, которое не ждёт вечно: сколько секунд осталось на ответ и что
+   * случится без него. null — ждёт, как все. Разрешает такое окно само не окно,
+   * а шаг симуляции (`sim/tick.ts`), и срок у него идёт только при игроке.
+   *
+   * Заведено ради мятежа: окно, которое можно держать открытым сколько угодно,
+   * держало бы невольников за работой без всякого исхода.
+   */
+  deadline?: (s: GameState) => { left: number; text: string } | null;
 }
 
 /**
@@ -509,6 +529,54 @@ export const EVENTS: EventDef[] = [
           s.morale = Math.min(100, s.morale + 4);
           return 'Чужого не тронули. Люди довольны, что их не гонят, — а в храме стало пусто.';
         },
+      },
+    ],
+  },
+  {
+    id: MUTINY_EVENT,
+    icon: ORDER_TEXT.mutiny.icon,
+    title: ORDER_TEXT.mutiny.title,
+    // Лёг мятеж туда же, куда ересь: в эту таблицу, с выбором. Своей механики у
+    // него нет — ни бунта деревни (его в игре нет вовсе), ни окна мира. Отличие
+    // одно: случаем он не выпадает (вес ноль), его поднимает срок ропота
+    // (`sim/mutiny.unrestTick`), и ответа окно ждёт не вечно.
+    text: (s) => {
+      const f = mutinyForecast(s);
+      return ORDER_TEXT.mutiny.text(f.bonded, f.guards);
+    },
+    weight: () => 0,
+    deadline: (s) => {
+      const left = mutinyAnswerLeft(s);
+      return left === null ? null : { left, text: ORDER_TEXT.mutiny.silence };
+    },
+    options: [
+      {
+        // Первым и бесплатным нарочно: ровно это случится, если не ответить.
+        label: ORDER_TEXT.mutiny.suppress,
+        hint: (s) => {
+          const f = mutinyForecast(s);
+          return ORDER_TEXT.mutiny.suppressHint({
+            holds: f.holds,
+            flee: f.flee,
+            leave: f.leave,
+            morale: MUTINY_SUPPRESS_MORALE,
+          });
+        },
+        apply: (s) => mutinySuppress(s),
+      },
+      {
+        label: ORDER_TEXT.mutiny.release,
+        hint: (s) => ORDER_TEXT.mutiny.releaseHint(mutinyForecast(s).bonded),
+        apply: (s) => mutinyRelease(s),
+      },
+      {
+        label: ORDER_TEXT.mutiny.pay,
+        hint: ORDER_TEXT.mutiny.payHint,
+        cost: (s) => {
+          const f = mutinyForecast(s);
+          return { food: f.payFood, gold: f.payGold };
+        },
+        apply: (s) => mutinyPay(s),
       },
     ],
   },

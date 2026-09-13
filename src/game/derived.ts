@@ -17,6 +17,7 @@ import type {
 import {
   BASE_DEFENSE,
   BASE_HOUSING,
+  BONDED_OUTPUT,
   FEAST_COOLDOWN_DAYS,
   FEAST_COOLDOWN_PER_LEVEL,
   FEAST_DAYS,
@@ -36,6 +37,17 @@ import {
   MORALE_BASE,
   MORALE_OUTPUT_LOW,
   MORALE_OUTPUT_SPAN,
+  MUTINY_ANSWER,
+  MUTINY_FUSE,
+  MUTINY_PAY_FOOD,
+  MUTINY_PAY_GOLD,
+  MUTINY_SUPPRESS_FLEE,
+  MUTINY_TOWN_LEAVE,
+  ORDER_HOUSEHOLD,
+  ORDER_PER_GUARD,
+  ORDER_PER_TOWNSMAN,
+  ORDER_UNREST,
+  ORDER_WARN,
   PIETY_BASE,
   PIETY_HERESY,
   PIETY_HERESY_MORALE,
@@ -72,6 +84,8 @@ import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
+  BONDED_GOOD,
+  BONDED_SALE,
   CARAVAN_BASE,
   CARAVAN_PER_LEVEL,
   GOODS,
@@ -83,6 +97,7 @@ import {
   offerFor,
   type GoodDef,
 } from './data/market';
+import { MUTINY_EVENT, ORDER_TEXT } from './data/order';
 import {
   FIRST_WINTER_SOFTEN,
   FREEZING_MORALE_PENALTY,
@@ -156,6 +171,43 @@ export function busyCount(s: GameState): number {
 /** Свободные руки: те, кого видно у костра и кем строят. */
 export const idleCount = (s: GameState): number => Math.max(0, s.pop - busyCount(s));
 
+// ---------- Невольники на местах ----------
+//
+// Устроены ровно как жители: число в посёлке (`s.bonded`) и число в каждом
+// здании (`s.bondedWork`). Места у них общие с вольными — сколько рук стоит в
+// здании, спрашивают у `handsCount`, а не складывают два числа по месту вызова.
+
+/** Невольников в посёлке. */
+export const bondedTotal = (s: GameState): number => Math.max(0, Math.floor(s.bonded ?? 0));
+
+/** Сколько невольников стоит в этом здании. Назначение — число, как у жителей. */
+export const bondedCount = (s: GameState, buildingId: number): number =>
+  Math.max(0, Math.floor(s.bondedWork?.[buildingId] ?? 0));
+
+/** Сколько рук на местах здания: вольные и невольники вместе. Места у них общие. */
+export const handsCount = (s: GameState, buildingId: number): number =>
+  workerCount(s, buildingId) + bondedCount(s, buildingId);
+
+/** Ставят ли невольников на работу этого здания (`JobDef.bonded`). */
+export const takesBonded = (b: Building): boolean => {
+  const job = BUILDING_BY_ID[b.type].job;
+  return Boolean(job && JOB_BY_ID[job].bonded);
+};
+
+/** Сколько невольников стоит по зданиям. */
+export function bondedBusy(s: GameState): number {
+  let n = 0;
+  for (const b of s.buildings) n += bondedCount(s, b.id);
+  return n;
+}
+
+/** Невольники без места: они на стройке, как свободные руки. */
+export const bondedIdle = (s: GameState): number => Math.max(0, bondedTotal(s) - bondedBusy(s));
+
+/** Сколько невольников ведут торговцы: заплачено, но в посёлке их ещё нет. */
+export const bondedIncoming = (s: GameState): number =>
+  (s.caravans ?? []).reduce((n, c) => n + (c.good === 'bonded' ? Math.max(0, c.count) : 0), 0);
+
 /**
  * Пассивный эффект здания с учётом уровня: база + прибавка за каждый уровень сверх
  * того, с которого эффект вообще появляется (`since`). У большинства зданий это
@@ -224,7 +276,8 @@ export type Attention = 'idle' | 'order' | 'slot' | 'upgrade';
 export function buildingAttention(s: GameState, b: Building): Attention | null {
   if (isSite(b)) return null;
   const slots = buildingSlots(b);
-  const n = slots > 0 ? workerCount(s, b.id) : 0;
+  // Двор, где работают одни невольники, не стоит без рабочих: руки на местах есть.
+  const n = slots > 0 ? handsCount(s, b.id) : 0;
   // Простаивающая кузница — первое, что надо сказать про неё: кузнецы стоят у
   // холодного горна, и каждая минута такого простоя это потерянная минута.
   // Стоит выше «есть свободное место»: пустой горн дороже пустого места.
@@ -304,8 +357,20 @@ export const taxIncomePerDay = (s: GameState): number =>
 /** Уровень рынка. */
 export const marketLevel = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
 
-/** Что стоит на прилавке сегодня. Пусто, пока нет рынка. */
-export const marketOffer = (s: GameState): GoodDef[] => offerFor(dayOf(s.time), marketLevel(s), GOODS);
+/**
+ * Что стоит на прилавке сегодня. Пусто, пока нет рынка.
+ *
+ * Невольничий ряд стоит всегда и места в круговороте товаров не занимает: он
+ * добавляется к прилавку дня последней строкой, а не тянется из перемешанного
+ * списка. Продать невольников — рычаг против мятежа, и рычаг, который есть
+ * через день, рычагом не является. Ассортимент прочего от этого не меняется ни
+ * на товар.
+ */
+export const marketOffer = (s: GameState): GoodDef[] => {
+  const level = marketLevel(s);
+  if (level <= 0) return [];
+  return [...offerFor(dayOf(s.time), level, GOODS), BONDED_GOOD];
+};
 
 /**
  * Сколько единиц товара уже взяли с прилавка сегодня. Счётчик от прошлого дня
@@ -327,6 +392,26 @@ export const marketLeft = (s: GameState, def: GoodDef): number =>
 /** Цена следующей единицы с учётом того, сколько уже скупили за день. */
 export const marketPrice = (s: GameState, def: GoodDef): number =>
   goodPrice(def, marketLevel(s), marketBought(s, def.id));
+
+/** Сколько невольников уже продано торговцам сегодня. Счёт от прошлого дня не считается. */
+export const marketSold = (s: GameState, id: GoodId): number => {
+  if (!s.market || s.market.day !== dayOf(s.time)) return 0;
+  return Math.max(0, s.market.sold?.[id] ?? 0);
+};
+
+/**
+ * Сколько невольников торговцы возьмут сегодня. Столько же, сколько приводят за
+ * день: уводят не больше, чем могут прокормить в дороге.
+ */
+export const bondedSaleLeft = (s: GameState): number =>
+  marketLevel(s) <= 0 ? 0 : Math.max(0, marketStock(s, BONDED_GOOD) - marketSold(s, 'bonded'));
+
+/**
+ * Почём торговцы берут одного невольника. Всегда заметно ниже цены, по которой
+ * они его приводят, и без роста за день: купить и тут же продать — это отдать
+ * торговцам разницу, а не заработать на ней.
+ */
+export const bondedSalePrice = (): number => Math.floor(BONDED_GOOD.price * BONDED_SALE);
 
 /** Во что обойдётся партия из `count` единиц. Считается поштучно. */
 export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
@@ -369,6 +454,10 @@ function bestYieldPerWorker(r: ResourceId): number {
 }
 
 export function selfCost(def: GoodDef): number {
+  // Людей своим трудом не производят: прирост племени бесплатен и медленен, и
+  // сравнивать цену невольника с ним не с чем. Его цена меряется его же работой —
+  // окупаемостью, и считает её `npm run order:report`, а держит тест.
+  if (def.kind === 'bonded') return 0;
   if (def.resource) {
     const per = bestYieldPerWorker(def.resource);
     return per > 0 ? bestTaxPerPop() / per : 0;
@@ -774,14 +863,26 @@ function cutBySiege(s: GameState, out: Resources): Resources {
   return out;
 }
 
+/**
+ * Выработка одного здания без осады: вольные и невольники на его местах.
+ *
+ * Невольники идут той же строкой — та же таблица профессии, тот же множитель
+ * места, сезона, морали, веры и указа, — и только на свою долю (`BONDED_OUTPUT`).
+ * Второго расчёта выработки под них нет и заводить его нельзя: две формулы
+ * одного и того же разойдутся при первой правке одной из них.
+ */
+function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifiers): void {
+  const job = BUILDING_BY_ID[b.type].job;
+  if (!job) return;
+  const mult = workerMultiplier(s, job, b, mods);
+  addYield(out, job, workerCount(s, b.id), mult);
+  addYield(out, job, bondedCount(s, b.id), mult * BONDED_OUTPUT);
+}
+
 /** Валовое производство за игровой день. */
 export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
-  for (const b of s.buildings) {
-    const job = BUILDING_BY_ID[b.type].job;
-    if (!job) continue;
-    addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
-  }
+  for (const b of s.buildings) yardYield(s, out, b, mods);
   for (const job of FREE_JOBS) {
     addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
   }
@@ -791,8 +892,7 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
 /** Что производит одно здание за день — для его собственной панели. */
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
-  const job = BUILDING_BY_ID[b.type].job;
-  if (job) addYield(out, job, workerCount(s, b.id), workerMultiplier(s, job, b, mods));
+  yardYield(s, out, b, mods);
   return cutBySiege(s, out);
 }
 
@@ -817,6 +917,10 @@ export function townFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(
   let total = 0;
   const counts = jobCounts(s);
   for (const job of JOBS) total += counts[job.id] * (job.foodMultiplier ?? 1);
+  // Невольники едят по головам, как все: из того же котла, по тому же пайку и
+  // с тем же зимним множителем. Под осадой они заперты в городе вместе со всеми
+  // и едят из осаждённого амбара — часы голода от них короче.
+  total += bondedTotal(s);
   return total * mods.food * rationOf(s).food;
 }
 
@@ -861,7 +965,9 @@ export function townHallBuildMult(s: GameState): number {
 export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Ушедшие разведчиками — те же свободные жители: пока они в пути, стройка идёт без них.
   const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
-  return (idle * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
+  // Невольники без места — на стройке, тем же трудом и на ту же долю, что в поле.
+  const bonded = bondedIdle(s) * BONDED_OUTPUT;
+  return ((idle + bonded) * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
 }
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
@@ -1329,14 +1435,176 @@ export function buildingTitle(s: GameState, type: BuildingTypeId): string {
 /** Сбор веры за игровой день: десятина в казну (плюс) или закят из неё (минус). */
 export const faithGoldPerDay = (s: GameState): number => faithTilt(s).goldPerPop * population(s);
 
+// ---------- Порядок в городе ----------
+//
+// Порядок отвечает на один вопрос: удержит ли власть невольников. Своего поля в
+// состоянии у него нет — он считается при чтении, как набожность, — поэтому не
+// может разойтись со своими слагаемыми и не требует ни тика, ни догона.
+//
+// Считается он отношением: сколько невольников держит надзор — сами дворы,
+// стража дома и спокойные горожане — против того, сколько их есть. Надзор равен
+// числу невольников — порядок 50. Без невольников держать некого, и порядок
+// полный при любом гарнизоне и любой морали: мятежа без невольников не бывает.
+//
+// От морали порядок отличается по существу, а не подписью. Мораль — довольны ли
+// горожане: от неё выработка и прирост. Порядок — удержит ли власть тех, у кого
+// воли нет: от него мятеж. Мораль входит в порядок одним слагаемым (спокойные
+// горожане держат невольников), а порядок в мораль не входит никак. Это две
+// разные величины об одном городе, а не две правды об одном вопросе.
+
+/** Слагаемое надзора: кто и скольких невольников держит. */
+export interface OrderLine {
+  id: 'household' | 'guards' | 'town';
+  icon: string;
+  name: string;
+  /** Скольких невольников держит это слагаемое. */
+  value: number;
+  /** Откуда взялось число — живыми величинами этой партии. */
+  hint: string;
+}
+
+export interface OrderBreakdown {
+  lines: OrderLine[];
+  /** Надзор: скольких невольников держат все слагаемые вместе. */
+  hold: number;
+  /** Сколько невольников. */
+  bonded: number;
+  /** Порядок, 0..100. */
+  value: number;
+}
+
+/**
+ * Разбор порядка по слагаемым. `extraBonded` — сколько невольников прибавится:
+ * рынок показывает, каким станет порядок **до** покупки, и считает он это той же
+ * функцией, а не своей.
+ */
+export function orderBreakdown(s: GameState, extraBonded = 0): OrderBreakdown {
+  const T = ORDER_TEXT.lines;
+  const guards = homeArmy(s);
+  const pop = Math.max(0, s.pop);
+  const lines: OrderLine[] = [
+    { id: 'household', icon: T.household.icon, name: T.household.name, value: ORDER_HOUSEHOLD, hint: T.household.hint },
+    {
+      id: 'guards',
+      icon: T.guards.icon,
+      name: T.guards.name,
+      value: guards * ORDER_PER_GUARD,
+      hint: T.guards.hint(guards, ORDER_PER_GUARD),
+    },
+    {
+      id: 'town',
+      icon: T.town.icon,
+      name: T.town.name,
+      // Недовольный горожанин невольников не держит: при морали M он держит
+      // M/100 от того, что держит довольный. Сюда мораль и входит — одним
+      // слагаемым, и больше нигде.
+      value: pop * ORDER_PER_TOWNSMAN * (Math.max(0, Math.min(100, s.morale)) / 100),
+      hint: T.town.hint(pop, ORDER_PER_TOWNSMAN, s.morale),
+    },
+  ];
+  const hold = lines.reduce((n, l) => n + l.value, 0);
+  const bonded = Math.max(0, bondedTotal(s) + extraBonded);
+  const value = bonded <= 0 ? 100 : (100 * hold) / (hold + bonded);
+  return { lines, hold, bonded, value };
+}
+
+/** Порядок в городе, 0..100. */
+export const orderValue = (s: GameState): number => orderBreakdown(s).value;
+
+/**
+ * Ступень порядка. `none` — невольников нет; `shaky` — их больше, чем держит
+ * надзор; `unrest` — ропот, и срок до мятежа идёт.
+ */
+export type OrderState = 'none' | 'calm' | 'shaky' | 'unrest';
+
+export function orderState(s: GameState): OrderState {
+  const o = orderBreakdown(s);
+  if (o.bonded <= 0) return 'none';
+  if (o.value < ORDER_UNREST) return 'unrest';
+  if (o.value < ORDER_WARN) return 'shaky';
+  return 'calm';
+}
+
+/** Мятеж на столе: окно ждёт ответа. */
+export const mutinyOpen = (s: GameState): boolean => s.activeEvent?.defId === MUTINY_EVENT;
+
+/**
+ * Секунд до мятежа, пока идёт ропот. null — ропота нет: порядок выше порога, или
+ * мятеж уже поднялся и ждёт ответа. Срок идёт только при игроке, поэтому здесь
+ * он читается из накопленного ропота, а не из часов.
+ */
+export function unrestLeft(s: GameState): number | null {
+  if (mutinyOpen(s) || orderState(s) !== 'unrest') return null;
+  return Math.max(0, MUTINY_FUSE - Math.max(0, s.unrest ?? 0));
+}
+
+/** Секунд, которые окно мятежа ещё ждёт ответа. null — окна нет. */
+export function mutinyAnswerLeft(s: GameState): number | null {
+  if (!mutinyOpen(s)) return null;
+  return Math.max(0, MUTINY_FUSE + MUTINY_ANSWER - Math.max(0, s.unrest ?? 0));
+}
+
+/** Что сделает мятеж прямо сейчас — всё, что игрок обязан знать до него. */
+export interface MutinyForecast {
+  /** Сколько невольников поднимется. */
+  bonded: number;
+  /** Бойцов дома и их мощь. */
+  guards: number;
+  power: number;
+  /**
+   * Скольких невольников стража подавит. Мятежник бьётся, как житель на стене
+   * (`VILLAGER_DEFENSE`): число про то, чего стоит безоружный в драке, в игре
+   * одно, и второго под мятеж не заводится.
+   */
+  crush: number;
+  /** Подавит ли стража мятеж прямо сейчас. */
+  holds: boolean;
+  /** Сколько невольников сбежит, если подавит. */
+  flee: number;
+  /** Сколько горожан уйдёт, если не подавит. */
+  leave: number;
+  /** Во что обойдётся раздача: еда и золото на голову. */
+  payFood: number;
+  payGold: number;
+}
+
+export function mutinyForecast(s: GameState): MutinyForecast {
+  const bonded = bondedTotal(s);
+  const power = homeArmyPower(s);
+  const crush = Math.floor(power / VILLAGER_DEFENSE);
+  const pop = Math.max(0, s.pop);
+  const heads = pop + bonded;
+  return {
+    bonded,
+    guards: homeArmy(s),
+    power,
+    crush,
+    holds: bonded <= crush,
+    flee: Math.round(bonded * MUTINY_SUPPRESS_FLEE),
+    leave: Math.round(pop * MUTINY_TOWN_LEAVE),
+    payFood: Math.ceil(heads * MUTINY_PAY_FOOD),
+    payGold: Math.ceil(heads * MUTINY_PAY_GOLD),
+  };
+}
+
 // ---------- Тревоги ----------
 
 export interface Alert {
   id: string;
   icon: string;
   text: string;
+  /**
+   * Вторая строка — цена того, о чём тревога. Нужна там, где срок и цена
+   * обязаны стоять рядом: уходить из игры решают, глядя на срок.
+   */
+  sub?: string;
   /** Куда ведёт тап: тип здания, панель которого стоит открыть. */
   goto?: BuildingTypeId;
+  /**
+   * Куда ведёт тап, если чинят это не в здании: справка о порядке. Строкой, а не
+   * типом раздела шторки, — симуляция про шторку не знает.
+   */
+  open?: 'order';
 }
 
 /**
@@ -1354,6 +1622,23 @@ export function alerts(s: GameState): Alert[] {
   if (heat > 0) {
     if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дрова кончились — племя мёрзнет', goto: 'storage' });
     else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров хватит меньше чем на день', goto: 'storage' });
+  }
+  // Порядок. Второй механики под мятеж нет — как и под ересь: строка тревоги,
+  // ропот со сроком и событие с выбором. Цена стоит второй строкой прямо под
+  // сроком — так же, как у голода под осадой: решение уходить из игры принимают,
+  // глядя на срок, и цена обязана стоять рядом с ним. Пока мятеж ждёт ответа,
+  // строки нет: всё сказано в самом окне.
+  const order = orderState(s);
+  if (order === 'unrest' && !mutinyOpen(s)) {
+    out.push({
+      id: 'unrest',
+      icon: ORDER_TEXT.mutiny.icon,
+      text: ORDER_TEXT.unrestAlert(unrestLeft(s) ?? MUTINY_FUSE),
+      sub: ORDER_TEXT.priceShort(mutinyForecast(s).holds),
+      open: 'order',
+    });
+  } else if (order === 'shaky') {
+    out.push({ id: 'order', icon: ORDER_TEXT.icon, text: ORDER_TEXT.shakyAlert(orderValue(s)), open: 'order' });
   }
   // Кузнецы у холодного горна. Не «умирают», но час такого простоя стоит игроку
   // ровно часа: заказ он закрывает одним тапом, а не заметив — теряет вечер.

@@ -2,14 +2,17 @@ import type { Building, GameState } from '@/game/types';
 import { useGame } from '@/game/store';
 import { MAX_BUILDING_LEVEL, SLOTS_PER_LEVEL } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
+import { ORDER_TEXT } from '@/game/data/order';
 import {
   ATTENTION_META,
+  bondedCount,
   buildRate,
   buildingAttention,
   buildingHousing,
   buildingSlots,
   buildingStat,
   buildingTitle,
+  handsCount,
   isSite,
   townHallBuildMult,
   upgradeInfo,
@@ -47,7 +50,13 @@ export function etaText(sec: number | null): string {
 function rowFacts(s: GameState, b: Building): string {
   const def = BUILDING_BY_ID[b.type];
   const slots = buildingSlots(b);
-  if (slots > 0) return `Рабочих: ${workerCount(s, b.id)}/${slots}`;
+  if (slots > 0) {
+    // Невольники стоят на тех же местах: занятые места — это все руки, а не одни вольные.
+    const bonded = bondedCount(s, b.id);
+    return bonded > 0
+      ? `Рабочих: ${handsCount(s, b.id)}/${slots} · ${ORDER_TEXT.bondedIcon} ${bonded}`
+      : `Рабочих: ${workerCount(s, b.id)}/${slots}`;
+  }
   const facts: string[] = [];
   if (b.type === 'town_hall') facts.push(`стройка ×${townHallBuildMult(s).toFixed(2)}`);
   const housing = buildingHousing(b);

@@ -83,7 +83,7 @@ export function createInitialState(): GameState {
     // Тестовый запас алмазов: он существует, чтобы можно было проверить трату,
     // пока покупки нет. Начисляет алмазы одно место на всю игру — creditGems.
     gems: TEST_GEMS,
-    market: { day: 0, bought: {} },
+    market: { day: 0, bought: {}, sold: {} },
     caravans: [],
     // Ноль — 1 января 1970: он не совпадёт ни с каким сегодняшним номером,
     // и новая партия честно читается как «сегодня ещё не играли».
@@ -91,6 +91,11 @@ export function createInitialState(): GameState {
     pop: START_POP,
     workers: {},
     freeJobs: {},
+    // Невольников в новой партии нет: их покупают на рынке и приводят из павших
+    // городов. Поля со значением по умолчанию версию сохранения не поднимают.
+    bonded: 0,
+    bondedWork: {},
+    unrest: 0,
     buildings: [],
     completedQuests: [],
     activeEvent: null,

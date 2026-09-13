@@ -1,5 +1,17 @@
 import { useGame } from '@/game/store';
-import { armySize, dayOf, dayFraction, housingCapacity, seasonOf, seasonProgress, solarPhase } from '@/game/derived';
+import {
+  armySize,
+  bondedTotal,
+  dayOf,
+  dayFraction,
+  housingCapacity,
+  orderValue,
+  seasonOf,
+  seasonProgress,
+  solarPhase,
+} from '@/game/derived';
+import { ORDER_WARN } from '@/game/constants';
+import { ORDER_TEXT } from '@/game/data/order';
 import { SEASON_META } from '@/game/data/seasons';
 import { useWorld } from '@/world/store';
 import { ProfileButton } from './ProfileButton';
@@ -53,10 +65,16 @@ export function TopBar() {
   const morale = Math.round(s.morale);
   const army = armySize(s);
   const tab = sheet?.kind === 'tab' ? sheet.tab : null;
+  // Порядок стоит в строке только пока есть невольники: без них держать некого,
+  // порядок всегда сто, и ячейка с вечной сотней отъедала бы место у дружины.
+  const order = bondedTotal(s) > 0 ? Math.round(orderValue(s)) : null;
 
   return (
     <div className="topbar">
-      <div className="hud-bar">
+      {/* С ячейкой порядка строка тесная: на 360 px шестая ячейка съела бы подпись
+          сезона. Поэтому пока она стоит, подписи дня и дружины прячутся — значок
+          дня и число дружины говорят то же самое, а сезон остаётся словом. */}
+      <div className={`hud-bar${order !== null ? ' with-order' : ''}`}>
         <span className="cell" title={`День ${day}, ${part.label}`}>
           <span className="ic">
             <Icon name={part.name} glyph={part.glyph} />
@@ -101,6 +119,21 @@ export function TopBar() {
           </span>
           <b>{morale}</b>
         </button>
+        {order !== null && (
+          <>
+            <span className="sep" />
+            <button
+              className={`cell tap order${order < ORDER_WARN ? ' warn' : ''}${tab === 'order' ? ' active' : ''}`}
+              onClick={() => openTab('order')}
+              title="Порядок в городе: удержит ли власть невольников. Нажми, чтобы увидеть, кто их держит и что будет при мятеже."
+            >
+              <span className="ic">
+                <Icon name="hud-order" glyph={ORDER_TEXT.icon} />
+              </span>
+              <b>{order}</b>
+            </button>
+          </>
+        )}
         <span className="sep" />
         <button
           className={`cell tap army${tab === 'army' ? ' active' : ''}`}

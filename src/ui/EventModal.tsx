@@ -1,5 +1,6 @@
 import { useGame } from '@/game/store';
 import { EVENT_BY_ID, eventBlock, eventCost, eventText, optionHint } from '@/game/data/events';
+import { clockText } from '@/game/data/order';
 import { Cost } from '@/ui/parts/Cost';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -42,6 +43,9 @@ export function EventModal() {
   if (!s.activeEvent) return null;
   const def = EVENT_BY_ID[s.activeEvent.defId];
   if (!def) return null;
+  // Окно, которое не ждёт вечно, говорит об этом до ответа: сколько осталось и
+  // что будет без ответа. Молча разрешившееся окно было бы подвохом.
+  const deadline = def.deadline?.(s) ?? null;
 
   return (
     <div className="modal-backdrop">
@@ -51,6 +55,11 @@ export function EventModal() {
         </div>
         <h2>{def.title}</h2>
         <p>{eventText(def, s)}</p>
+        {deadline && (
+          <p className="deadline">
+            {deadline.text}: <b>{clockText(deadline.left)}</b>
+          </p>
+        )}
         <div className="options">
           {def.options.map((o, i) => {
             const block = eventBlock(o, s);

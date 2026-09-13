@@ -1,10 +1,25 @@
 // Кто где работает. Люди одинаковы, поэтому назначение — это число: сколько
 // человек стоит в здании (`s.workers`) и сколько занято вольным сбором
 // (`s.freeJobs`). Остальные свободны и видны у костра.
+//
+// Невольники встают на те же места и теми же числами (`s.bondedWork`): места у
+// здания общие, и сколько рук на них стоит, спрашивают у `handsCount`. Второй
+// системы занятости здесь нет — это второе число на тех же местах.
 import type { GameState, JobId } from '../types';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { FREE_JOBS, JOB_BY_ID } from '../data/jobs';
-import { buildingById, buildingSlots, freeJobCount, idleCount, workerCount } from '../derived';
+import {
+  bondedCount,
+  bondedIdle,
+  bondedTotal,
+  buildingById,
+  buildingSlots,
+  freeJobCount,
+  handsCount,
+  idleCount,
+  takesBonded,
+  workerCount,
+} from '../derived';
 
 /** Ставит `n` человек на свободные места здания. Берёт сколько влезет, но не меньше одного. */
 export function assignWorker(s: GameState, buildingId: number, n = 1): string | null {
@@ -12,7 +27,8 @@ export function assignWorker(s: GameState, buildingId: number, n = 1): string | 
   if (!b) return 'Здание не найдено.';
   const def = BUILDING_BY_ID[b.type];
   if (!def.job) return 'В этом здании не работают.';
-  const room = buildingSlots(b) - workerCount(s, b.id);
+  // Места общие: занятое невольником не отдаётся вольному поверх него.
+  const room = buildingSlots(b) - handsCount(s, b.id);
   if (room <= 0) return 'Все места заняты — нужен уровень выше.';
   const free = idleCount(s);
   if (free <= 0) return 'Нет свободных жителей.';
@@ -28,6 +44,34 @@ export function unassignWorker(s: GameState, buildingId: number, n = 1): string 
   const have = workerCount(s, b.id);
   if (have <= 0) return 'Здесь никто не работает.';
   s.workers[b.id] = have - Math.min(Math.max(1, Math.floor(n)), have);
+  return null;
+}
+
+/**
+ * Ставит `n` невольников на места здания — тем же рядом шага, что и вольных.
+ * Только туда, где работу дают невольникам (`JobDef.bonded`), и только на
+ * свободные места: занятое вольным не отнимается.
+ */
+export function assignBonded(s: GameState, buildingId: number, n = 1): string | null {
+  const b = buildingById(s, buildingId);
+  if (!b) return 'Здание не найдено.';
+  if (!takesBonded(b)) return 'На эту работу невольников не ставят.';
+  const room = buildingSlots(b) - handsCount(s, b.id);
+  if (room <= 0) return 'Все места заняты — нужен уровень выше.';
+  const free = bondedIdle(s);
+  if (free <= 0) return 'Свободных невольников нет.';
+  const take = Math.min(Math.max(1, Math.floor(n)), room, free);
+  s.bondedWork[b.id] = bondedCount(s, b.id) + take;
+  return null;
+}
+
+/** Снимает `n` невольников со здания — они уходят на стройку. */
+export function unassignBonded(s: GameState, buildingId: number, n = 1): string | null {
+  const b = buildingById(s, buildingId);
+  if (!b) return 'Здание не найдено.';
+  const have = bondedCount(s, b.id);
+  if (have <= 0) return 'Невольников здесь нет.';
+  s.bondedWork[b.id] = have - Math.min(Math.max(1, Math.floor(n)), have);
   return null;
 }
 
@@ -61,6 +105,8 @@ export function changeFreeJob(s: GameState, job: JobId, delta: number): string |
  */
 export function normalizeAssignments(s: GameState): void {
   s.pop = Math.max(0, Math.floor(s.pop));
+  s.bonded = Math.max(0, Math.floor(s.bonded ?? 0));
+  if (!s.bondedWork) s.bondedWork = {};
 
   // Висячих записей быть не должно: снесённое здание не держит рабочих.
   const alive = new Set(s.buildings.map((b) => b.id));
@@ -68,10 +114,23 @@ export function normalizeAssignments(s: GameState): void {
     const id = Number(key);
     if (!alive.has(id)) delete s.workers[id];
   }
+  for (const key of Object.keys(s.bondedWork)) {
+    const id = Number(key);
+    if (!alive.has(id)) delete s.bondedWork[id];
+  }
   for (const b of s.buildings) {
     const slots = buildingSlots(b);
+    // Невольник на работе, которую невольникам не дают, не стоит нигде.
+    if (!takesBonded(b) && bondedCount(s, b.id) > 0) delete s.bondedWork[b.id];
+    // Мест стало меньше (упал уровень) — первыми уходят невольники: вольного
+    // ради невольника с места не сгоняют.
+    const bonded = bondedCount(s, b.id);
+    const over = workerCount(s, b.id) + bonded - slots;
+    if (over > 0 && bonded > 0) s.bondedWork[b.id] = bonded - Math.min(bonded, over);
+    if (bondedCount(s, b.id) <= 0) delete s.bondedWork[b.id];
     const have = workerCount(s, b.id);
-    if (have > slots) s.workers[b.id] = slots;
+    const room = slots - bondedCount(s, b.id);
+    if (have > room) s.workers[b.id] = room;
     else if (have <= 0) delete s.workers[b.id];
   }
   for (const job of FREE_JOBS) {
@@ -101,6 +160,21 @@ export function normalizeAssignments(s: GameState): void {
     s.workers[b.id] = workerCount(s, b.id) - take;
     over -= take;
   }
+
+  // И невольников может оказаться меньше, чем стоит по местам: тем же порядком,
+  // с самого многолюдного здания.
+  let bondedOver = -bondedIdleRaw(s);
+  while (bondedOver > 0) {
+    const staffed = s.buildings
+      .filter((b) => bondedCount(s, b.id) > 0)
+      .sort((a, b) => bondedCount(s, b.id) - bondedCount(s, a.id));
+    if (staffed.length === 0) break;
+    const b = staffed[0];
+    const take = Math.min(bondedCount(s, b.id), bondedOver);
+    s.bondedWork[b.id] = bondedCount(s, b.id) - take;
+    if (s.bondedWork[b.id] <= 0) delete s.bondedWork[b.id];
+    bondedOver -= take;
+  }
 }
 
 /** Свободные руки без нижней отсечки: отрицательное значение — перебор назначений. */
@@ -111,11 +185,18 @@ function idleCountRaw(s: GameState): number {
   return s.pop - busy;
 }
 
+/** Невольники без места, без нижней отсечки: отрицательное — перебор назначений. */
+function bondedIdleRaw(s: GameState): number {
+  let busy = 0;
+  for (const b of s.buildings) busy += bondedCount(s, b.id);
+  return bondedTotal(s) - busy;
+}
+
 /** Рассаживает свободные руки по пустым слотам, по кругу и понемногу. */
 export function autoAssign(s: GameState): void {
   for (const b of s.buildings) {
     if (!BUILDING_BY_ID[b.type].job) continue;
-    const room = buildingSlots(b) - workerCount(s, b.id);
+    const room = buildingSlots(b) - handsCount(s, b.id);
     if (room <= 0) continue;
     const free = idleCount(s);
     if (free <= 0) return;

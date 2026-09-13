@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { tutorialActive } from '@/game/data/tutorial';
 import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
+import { bondedTotal } from '@/game/derived';
 import { SIEGE_ROUT } from '@/world/data/tuning';
 import { useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
@@ -80,8 +81,14 @@ export function SiegeBanner() {
         Доля рассеянного гарнизона берётся из той же константы, которой её
         считает мир: своей арифметики у панели нет.
       */}
+      {/*
+        Невольников победитель уводит тем же правилом, каким уводим их мы из
+        павшего чужого города (`world/spoils.lead`), — и об этом сказано здесь
+        же, пока падение ещё не наступило. Без невольников строка прежняя.
+      */}
       <div className="siege-fall">
-        Кончится хлеб — уйдёт {rout}% гарнизона, склад вычистят до тайника. Случится и без тебя.
+        Кончится хлеб — уйдёт {rout}% гарнизона, склад вычистят до тайника
+        {bondedTotal(s) > 0 ? ', уведут невольников' : ''}. Случится и без тебя.
       </div>
       {/*
         Вылазка — единственное, что игрок может сделать из-под осады сам, и

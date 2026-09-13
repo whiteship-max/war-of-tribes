@@ -18,6 +18,9 @@ import {
 } from '../constants';
 import { FREE_JOBS } from '../data/jobs';
 import {
+  bondedCount,
+  bondedIdle,
+  bondedTotal,
   faithTilt,
   foodConsumptionPerDay,
   freeJobCount,
@@ -65,6 +68,46 @@ export function losePop(s: GameState, n: number): number {
     if (staffed.length === 0) break;
     const b = staffed[0];
     s.workers[b.id] = workerCount(s, b.id) - 1;
+    left -= 1;
+  }
+  return gone;
+}
+
+// ---------- Невольники ----------
+//
+// Прибавляются и убывают тем же порядком, что жители: число, а не список, и
+// убыль снимается сначала с тех, кто без места, потом с самого многолюдного
+// здания. Прироста у невольников нет — ни рождений, ни ухода от низкой морали:
+// они приходят с рынка и из павших городов, а уходят проданными, отпущенными,
+// уведёнными и при мятеже.
+
+/** Прибавляет невольников в посёлок. Без места они встают на стройку. */
+export function addBonded(s: GameState, n: number): number {
+  const add = Math.max(0, Math.round(n));
+  if (add > 0) s.bonded = bondedTotal(s) + add;
+  return add;
+}
+
+/**
+ * Убирает невольников из посёлка. Первыми уходят те, кто на стройке, потом с
+ * мест — с самого многолюдного здания: так уведённые не оставляют одну
+ * каменоломню пустой, пока в поле толпа.
+ */
+export function loseBonded(s: GameState, n: number): number {
+  let left = Math.min(Math.max(0, Math.round(n)), bondedTotal(s));
+  const gone = left;
+  // Сначала — без места: их с места снимать не надо.
+  left -= Math.min(left, bondedIdle(s));
+  s.bonded = bondedTotal(s) - gone;
+  while (left > 0) {
+    const staffed = s.buildings
+      .filter((b) => bondedCount(s, b.id) > 0)
+      .sort((a, b) => bondedCount(s, b.id) - bondedCount(s, a.id));
+    if (staffed.length === 0) break;
+    const b = staffed[0];
+    const next = bondedCount(s, b.id) - 1;
+    if (next > 0) s.bondedWork[b.id] = next;
+    else delete s.bondedWork[b.id];
     left -= 1;
   }
   return gone;

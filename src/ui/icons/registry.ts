@@ -101,7 +101,7 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'spy', ids: SPY_ACTIONS.map((a) => a.id), source: 'SPY_ACTIONS' },
   // --- дальше словарь интерфейса: своей таблицы в игре у него нет ---
   { prefix: 'nav', ids: ['people', 'quests'], source: 'BottomNav' },
-  { prefix: 'hud', ids: ['pop', 'army', 'map'], source: 'TopBar' },
+  { prefix: 'hud', ids: ['pop', 'army', 'map', 'order'], source: 'TopBar' },
   { prefix: 'mood', ids: ['good', 'mid', 'bad'], source: 'ступени морали в TopBar' },
   { prefix: 'day', ids: ['morning', 'evening', 'night'], source: 'время суток в TopBar' },
   { prefix: 'alert', ids: ['starving', 'freezing', 'raid', 'locked'], source: 'AlertBar' },

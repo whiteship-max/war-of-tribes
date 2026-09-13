@@ -12,6 +12,7 @@ import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
 import { PopPanel } from './ui/panels/PopPanel';
 import { MoralePanel } from './ui/panels/MoralePanel';
+import { OrderPanel } from './ui/panels/OrderPanel';
 import { ArmyPanel } from './ui/panels/ArmyPanel';
 import { ProfilePanel } from './ui/panels/ProfilePanel';
 import { WinterModal } from './ui/WinterModal';
@@ -67,6 +68,8 @@ function SheetContent({ view }: { view: SheetView }) {
       return <PopPanel />;
     case 'morale':
       return <MoralePanel />;
+    case 'order':
+      return <OrderPanel />;
     case 'army':
       return <ArmyPanel />;
     case 'profile':

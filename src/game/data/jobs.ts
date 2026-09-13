@@ -13,6 +13,12 @@ export interface JobDef {
   freeRange?: boolean;
   /** Множитель потребления еды. */
   foodMultiplier?: number;
+  /**
+   * На эту работу ставят невольников — на те же места, что вольных. Только там,
+   * где труд тяжёлый и под присмотром: поле, лес, камень, руда, скот. Оружия
+   * невольнику не дают (охотник, кузнец), к службе и мастерству не ставят.
+   */
+  bonded?: boolean;
 }
 
 export const JOBS: JobDef[] = [
@@ -25,6 +31,7 @@ export const JOBS: JobDef[] = [
     yield: { food: 10 },
     building: 'gathering',
     freeRange: true,
+    bonded: true,
   },
   {
     id: 'hunter',
@@ -43,6 +50,7 @@ export const JOBS: JobDef[] = [
     yield: { wood: 9 },
     building: 'sawmill',
     freeRange: true,
+    bonded: true,
   },
   {
     id: 'stonecutter',
@@ -52,6 +60,7 @@ export const JOBS: JobDef[] = [
     yield: { stone: 5 },
     building: 'quarry',
     freeRange: true,
+    bonded: true,
   },
   {
     id: 'miner',
@@ -60,6 +69,7 @@ export const JOBS: JobDef[] = [
     description: 'Достаёт медную и железную руду. Нужен рудник.',
     yield: { copper: 2, iron: 0.8 },
     building: 'mine',
+    bonded: true,
   },
   {
     id: 'farmer',
@@ -68,6 +78,7 @@ export const JOBS: JobDef[] = [
     description: 'Выращивает урожай. Нужна ферма.',
     yield: { food: 13 },
     building: 'farm',
+    bonded: true,
   },
   {
     id: 'herder',
@@ -76,6 +87,7 @@ export const JOBS: JobDef[] = [
     description: 'Держит скот. Зима стаду почти не мешает — оно зимует в загоне.',
     yield: { food: 6, hides: 1.4 },
     building: 'pen',
+    bonded: true,
   },
   {
     id: 'crafter',
@@ -111,3 +123,9 @@ export const JOB_BY_ID: Record<JobId, JobDef> = Object.fromEntries(JOBS.map((j) 
 
 /** Профессии «вольного сбора» — их раздают у костра, когда профильного здания ещё нет. */
 export const FREE_JOBS: JobId[] = JOBS.filter((j) => j.freeRange).map((j) => j.id);
+
+/**
+ * Работы, на которые ставят невольников. Только в здании: вольного сбора у них
+ * нет — в поле без присмотра невольник не работник.
+ */
+export const BONDED_JOBS: JobId[] = JOBS.filter((j) => j.bonded && j.building).map((j) => j.id);

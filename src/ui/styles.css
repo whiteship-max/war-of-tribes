@@ -4669,3 +4669,113 @@ body.replaying .app > *:not(.canvas-wrap) {
 .cheat ~ .siege {
   bottom: calc(var(--nav-h) + var(--safe-bottom) + 46px);
 }
+
+/* ---------- Порядок в городе и невольники ---------- */
+
+/*
+ * Вторая строка тревоги — цена того, о чём тревога. Стоит прямо под сроком, как
+ * строка «чем кончится» под часами голода в осадной панели: уходить из игры
+ * решают, глядя на срок, и цена обязана стоять рядом с ним.
+ */
+.alert .txt .alert-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+/* Шкала порядка с двумя метками — порогами тревоги и ропота. */
+.progress.order-bar {
+  position: relative;
+  overflow: visible;
+  height: 8px;
+  margin: 4px 0 10px;
+}
+
+.progress.order-bar > div {
+  background: var(--good);
+}
+
+.progress.order-bar.shaky > div {
+  background: var(--accent);
+}
+
+.progress.order-bar.unrest > div {
+  background: var(--bad);
+}
+
+.progress.order-bar .mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text);
+  opacity: 0.45;
+}
+
+.mod.order-clock .val {
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+}
+
+/* Окно, которое ждёт ответа не вечно: срок и то, что будет без ответа. */
+.modal p.deadline {
+  margin-top: -6px;
+  color: var(--bad);
+  font-size: 13px;
+}
+
+.modal p.deadline b {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Невольничий ряд на рынке. Столбиком, а не строкой, как у товара: на 360 px в
+ * строку не помещаются разом цена, ряд шага, кнопка и то, каким станет порядок, —
+ * а порядок обязан стоять рядом с кнопкой, до нажатия.
+ */
+.card.bonded-trade {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.bonded-trade .bonded-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bonded-trade .bonded-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bonded-trade .bonded-line .cost {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.bonded-trade .note {
+  margin-bottom: 0;
+}
+
+/*
+ * Строка состояния с ячейкой порядка. Шесть ячеек на 360 px не помещаются с
+ * подписями: сжимался бы сезон, а подпись дня наезжала бы на него. Пока ячейка
+ * порядка стоит (а стоит она только при невольниках), промежутки ужимаются, а
+ * подписи дня и дружины уходят — значок дня и число дружины их повторяют.
+ */
+.hud-bar.with-order {
+  gap: 4px;
+}
+
+.hud-bar.with-order > .cell:first-child i,
+.hud-bar.with-order .cell.tap.army i {
+  display: none;
+}

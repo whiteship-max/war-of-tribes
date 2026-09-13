@@ -5,11 +5,21 @@ import type { Building, EquipmentId, GameState, LogEntry, ResourceId } from '../
 import { RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { healShare, heroDownSeconds, homeArmy, idleCount, isOutsideWall, storageCap, workerCount } from '../derived';
+import {
+  bondedCount,
+  handsCount,
+  healShare,
+  heroDownSeconds,
+  homeArmy,
+  idleCount,
+  isOutsideWall,
+  storageCap,
+} from '../derived';
 import { removeSoldiers } from './army';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
-import { addPop, losePop } from './population';
+import { ORDER_TEXT } from '../data/order';
+import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log } from './log';
 import { loseRelic } from './faith';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
@@ -52,6 +62,12 @@ export interface ExpeditionOutcome {
   arms?: number;
   /** Логово сожжено этим походом: его считает профиль. */
   lair?: boolean;
+  /**
+   * Невольники: плюс — приведены из павшего города, минус — уведены из нашего.
+   * Кого и сколько, решает мир одним правилом на обе стороны
+   * (`world/spoils.lead`); племя только прибавляет или убавляет число.
+   */
+  bonded?: number;
   text: string;
   kind: LogEntry['kind'];
 }
@@ -104,19 +120,23 @@ export function sackOutskirts(s: GameState, severity: number): string[] {
   // Дворов трогается от одного до трёх — по тому, насколько плохо кончился бой.
   const count = 1 + Math.floor(hurt * 2.99);
   // Цель выбирается не случайно: чужие идут туда, где людно, — там и добро,
-  // и работа. При равенстве вперёд идёт двор постарше.
+  // и работа. При равенстве вперёд идёт двор постарше. Людно — это все руки на
+  // местах: невольники в поле стоят там же, где вольные.
   const yards: Building[] = s.buildings
     .filter((b) => isOutsideWall(b.type))
-    .sort((a, b) => workerCount(s, b.id) - workerCount(s, a.id) || b.level - a.level);
+    .sort((a, b) => handsCount(s, b.id) - handsCount(s, a.id) || b.level - a.level);
 
   const names: string[] = [];
   for (const b of yards.slice(0, count)) {
-    const men = workerCount(s, b.id);
+    const men = handsCount(s, b.id);
     // Уровень теряет только самый людный двор и только при заметном разоре:
     // снимать по уровню со всего хозяйства за каждый набег — это не игра, а налог.
     const burn = names.length === 0 && hurt >= 0.5 && b.level > 1;
     if (men === 0 && !burn) continue;
     s.workers[b.id] = 0;
+    // Невольников набег не уводит — уводит их только победитель павшего города.
+    // Со двора их сгоняет так же, как вольных: двор стоит, пока их не вернут.
+    if (bondedCount(s, b.id) > 0) delete s.bondedWork[b.id];
     if (burn) b.level -= 1;
     names.push(`${BUILDING_BY_ID[b.type].name}${burn ? ' (−1 уровень)' : ''}`);
   }
@@ -192,6 +212,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Выкупленные пленные возвращаются в племя людьми, а не в строй: боец
   // потерян, снаряжение потрачено, человек жив — то же правило, что у лазарета.
   if (o.pop && o.pop > 0) addPop(s, Math.round(o.pop));
+  // Невольники из павшего города — и уведённые из нашего. Число решил мир.
+  const bondedIn = o.bonded && o.bonded > 0 ? addBonded(s, o.bonded) : 0;
+  const bondedOut = o.bonded && o.bonded < 0 ? loseBonded(s, -o.bonded) : 0;
   if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
   const arms = takeArms(s, o.arms ?? 0);
   recordLoot(s, brought, Math.max(0, o.gold));
@@ -224,6 +247,8 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
     log(s, `Разорено за стеной: ${sacked.join(', ')}. Люди разбежались по домам.`, 'bad');
   }
   if (relicLost) log(s, `${relicLost} унесли из храма. Приход осиротел.`, 'bad');
+  if (bondedOut > 0) log(s, ORDER_TEXT.ledAway(bondedOut), 'bad');
+  if (bondedIn > 0) log(s, ORDER_TEXT.broughtIn(bondedIn), 'info');
   if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
   const armsText = Object.entries(arms)
     .map(([id, n]) => `${EQUIPMENT_BY_ID[id as EquipmentId].name.toLowerCase()} — ${n}`)

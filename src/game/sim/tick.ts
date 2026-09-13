@@ -28,7 +28,9 @@ import { BUILDING_BY_ID } from '../data/buildings';
 import { QUESTS } from '../data/quests';
 import { pickEvent } from '../data/events';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
+import { MUTINY_EVENT } from '../data/order';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
+import { mutinySilence, unrestTick } from './mutiny';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
@@ -43,7 +45,13 @@ export interface TickOptions {
   offline?: boolean;
 }
 
-export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
+/**
+ * Шаг симуляции. Возвращает текст того, что разрешилось без игрока, пока он
+ * смотрел на экран: окно мятежа, оставленное без ответа. Показать это некому,
+ * кроме оболочки, — поэтому текст отдаётся наружу, а не пишется в состояние.
+ */
+export function tick(s: GameState, dt: number, opts: TickOptions = {}): string | null {
+  let settled: string | null = null;
   const dayBefore = Math.floor(s.time / DAY_LENGTH);
   const seasonBefore = seasonIndex(s.time);
   s.time += dt;
@@ -180,19 +188,40 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     log(s, `Задание выполнено: ${q.title}.`, 'quest');
   }
 
-  // 8. Случайные события (только онлайн).
-  if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) {
+  // 7б. Ропот и мятеж. Порядок считается при чтении; здесь идёт только срок,
+  // и только при игроке — офлайн-догон его не двигает (см. sim/mutiny).
+  const unrest = unrestTick(s, dt, !opts.offline);
+  if (unrest === 'silence') {
+    // Окно мятежа осталось без ответа: стража выходит сама. Разрешается оно тем
+    // же путём, что и ответ игрока, — счёт, следующее событие, строка летописи.
+    settled = mutinySilence(s);
+    s.activeEvent = null;
+    s.stats.eventsResolved++;
+    scheduleNextEvent(s);
+    log(s, `Мятеж: ${settled}`, 'bad');
+  }
+
+  // 8. События. Мятеж случаем не выпадает: его поднимает срок ропота, и первым —
+  // на столе не должно лежать ничего, что заслонит его.
+  if (unrest === 'raise' && !s.activeEvent) {
+    s.activeEvent = { defId: MUTINY_EVENT, at: s.time };
+  } else if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) {
     // Пока идёт проводка первых шагов, модалка события накрыла бы подсветку.
     s.nextEventAt = Math.max(s.nextEventAt, s.time + 20);
   } else if (!s.activeEvent && s.time >= s.nextEventAt) {
     if (opts.offline) {
       s.nextEventAt = s.time + 20 + rnd() * 20;
+    } else if (s.unrest > 0) {
+      // Пока идёт ропот, случайных окон нет: волки или ярмарка накрыли бы собой
+      // и срок, и цену, а мятеж встал бы в очередь за ними.
+      s.nextEventAt = s.time + 20;
     } else {
       const e = pickEvent(s);
       if (e) s.activeEvent = { defId: e.id, at: s.time };
       else s.nextEventAt = s.time + rndInt(EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
     }
   }
+  return settled;
 }
 
 /** Догоняет офлайн-время фиксированным шагом. */

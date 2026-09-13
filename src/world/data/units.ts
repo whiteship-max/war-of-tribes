@@ -15,6 +15,11 @@ export interface UnitDef {
   attack: number;
   /** Сколько добра уносит с собой при удачном набеге. */
   carry: number;
+  /**
+   * Скольких невольников уводит с собой из павшего города. Тот же род числа, что
+   * `carry`: верхний предел, а не доля, — малый отряд большой город не уведёт.
+   */
+  escort: number;
   /** Откуда берётся: воины — из воинов, разведчики — из свободных жителей. */
   from: 'warrior' | 'idle';
 }
@@ -29,6 +34,7 @@ export const UNITS: UnitDef[] = [
     speed: 9,
     attack: 0,
     carry: 0,
+    escort: 0,
     from: 'idle',
   },
   {
@@ -50,6 +56,10 @@ export const UNITS: UnitDef[] = [
     // 248 — правило «победитель забирает всё, кроме тайника» при таком обозе не
     // работало вовсе, и тайник был украшением.
     carry: 750,
+    // Скольких невольников ведёт один боец. Меряное (`npm run order:report`,
+    // раздел «падение города»): лагерь, севший под стенами, мал — он садится,
+    // только когда штурм безнадёжен, — и уводит заметную часть, а не всех.
+    escort: 5,
     from: 'warrior',
   },
 ];
@@ -74,3 +84,7 @@ export function stackSpeed(units: { [k in UnitId]?: number }): number {
 /** Сколько добра отряд способен унести. */
 export const stackCarry = (units: { [k in UnitId]?: number }): number =>
   UNITS.reduce((n, u) => n + (units[u.id] ?? 0) * u.carry, 0);
+
+/** Скольких невольников отряд способен увести. */
+export const stackEscort = (units: { [k in UnitId]?: number }): number =>
+  UNITS.reduce((n, u) => n + (units[u.id] ?? 0) * u.escort, 0);

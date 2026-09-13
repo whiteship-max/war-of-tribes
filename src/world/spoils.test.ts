@@ -10,7 +10,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { distance } from './geo';
-import { plunder, asLoss } from './spoils';
+import { lead, plunder, asLoss } from './spoils';
+import { stackEscort } from './data/units';
 import { AI_STASH_SHARE, LOOT_PER_POP, LOOT_REFILL } from './data/tuning';
 import { BUILDINGS } from '@/game/data/buildings';
 import { UPGRADE_GROWTH, RESOURCE_IDS } from '@/game/constants';
@@ -95,6 +96,29 @@ describe('дележ склада — чистая функция', () => {
   it('потеря — то же взятое со знаком минус, и ничего больше', () => {
     const s = plunder(stock, 100, Infinity);
     expect(asLoss(s.taken)).toEqual({ food: -900, wood: -500, stone: -300 });
+  });
+});
+
+// ------------------------------------------------ невольники павшего города ---
+
+describe('кого уводит победитель — чистая функция', () => {
+  it('уводят невольников, скольких устережёт отряд, и остаток остаётся хозяину', () => {
+    expect(lead(40, 100)).toEqual({ taken: 40, left: 0 });
+    expect(lead(400, stackEscort({ warrior: 30 }))).toEqual({
+      taken: stackEscort({ warrior: 30 }),
+      left: 400 - stackEscort({ warrior: 30 }),
+    });
+    // Одинаковый вход — одинаковый выход: ни часов, ни кости.
+    expect(lead(123, 77)).toEqual(lead(123, 77));
+  });
+
+  it('пустой город, пустой отряд и дробные числа дележа не ломают', () => {
+    expect(lead(0, 500)).toEqual({ taken: 0, left: 0 });
+    expect(lead(50, 0)).toEqual({ taken: 0, left: 50 });
+    expect(lead(-5, 10)).toEqual({ taken: 0, left: 0 });
+    expect(lead(10.9, 4.7)).toEqual({ taken: 4, left: 6 });
+    // Разведчик невольников не ведёт: он в драку не лезет и обоза не держит.
+    expect(stackEscort({ scout: 20 })).toBe(0);
   });
 });
 
@@ -312,6 +336,27 @@ describe('одно правило на обе стороны', () => {
     // И ни одного второго дележа: пропорция считается только в `spoils.ts`.
     const spoils = readFileSync(path.resolve('src/world/spoils.ts'), 'utf8');
     expect(spoils).toContain('export function plunder');
+  });
+
+  it('невольников уводят одной функцией — и у нашей деревни, и у чужого города', () => {
+    // Симметрия проверяется буквально: `lead` зовут ровно два места, падение
+    // нашего города и падение чужого, и других уводов в мире нет.
+    const fall = src.slice(src.indexOf('private siegeFalls'), src.indexOf('private nextSiegeAt'));
+    expect(fall).toMatch(/private siegeFalls[\s\S]*?lead\(/);
+    expect(fall).toMatch(/private homeFalls[\s\S]*?lead\(/);
+    expect((src.match(/\blead\(/g) ?? []).length).toBe(2);
+    expect(readFileSync(path.resolve('src/world/spoils.ts'), 'utf8')).toContain('export function lead');
+    // И предел у обеих сторон один: скольких устережёт отряд.
+    expect((fall.match(/stackEscort\(/g) ?? []).length).toBe(2);
+  });
+
+  it('чужой двор, павший под чужим же лагерем, нашу деревню не трогает', () => {
+    // Раньше в падение нашего города вёл любой не наш лагерь — и война соседей
+    // между собой рассеяла бы наш гарнизон, вычистила склад и увела невольников.
+    // Проверка стоит на самом городе.
+    const fall = src.slice(src.indexOf('private siegeFalls'), src.indexOf('private homeFalls'));
+    expect(fall).toContain('if (id === HOME_ID) return this.homeFalls(w, at);');
+    expect(fall).not.toMatch(/if \(!ours\) return this\.homeFalls/);
   });
 
   it('у слепка деревни нет заранее вычтенного склада', () => {

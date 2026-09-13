@@ -17,6 +17,7 @@
     "siege:report": "vite-node scripts/siege-report.ts",
     "lair:report": "vite-node scripts/lair-report.ts",
     "sack:report": "vite-node scripts/sack-report.ts",
+    "order:report": "vite-node scripts/order-report.ts",
     "tap:report": "vite-node scripts/tap-report.ts",
     "prologue:report": "vite-node scripts/prologue-report.ts",
     "map:report": "vite-node scripts/map-report.ts",

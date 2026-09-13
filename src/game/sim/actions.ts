@@ -21,9 +21,10 @@ import { scheduleNextEvent } from './tick';
 import { log } from './log';
 import { recordSpent } from '@/profile/stats';
 
-export { assignWorker, changeFreeJob, unassignWorker } from './workers';
+export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
 export { cancelForge, forgeCheck, startForge } from './smithy';
-export { buyGoods, cancelCaravan, marketCheck } from './market';
+export { buyGoods, cancelCaravan, marketCheck, saleCheck, sellBonded } from './market';
+export { releaseBonded } from './mutiny';
 export { cancelRecruit, startRecruit } from './army';
 export { cancelSurvey, startSurvey, surveyInfo } from './survey';
 export { dailyReward, dailyStatus, finishDaily, startDaily } from './daily';

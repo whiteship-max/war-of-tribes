@@ -22,10 +22,11 @@ import { applyCheat } from './sim/cheat';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
- * `season`, `pop`, `morale` и `army` — справочные экраны кнопок верхней строки:
- * в нижнюю навигацию они не попадают, открываются только оттуда.
+ * `season`, `pop`, `morale`, `order` и `army` — справочные экраны кнопок верхней
+ * строки: в нижнюю навигацию они не попадают, открываются только оттуда (и
+ * `order` — ещё из строки тревоги, которая про порядок).
  */
-export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'army' | 'profile';
+export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'order' | 'army' | 'profile';
 
 /**
  * Вкладки ратуши. Живут в сторе, а не в самой панели: на «Управление» ведут
@@ -346,9 +347,13 @@ export const useGame = create<GameStore>((set, get) => ({
     loopStarted = true;
     setInterval(() => {
       const s = get().s;
-      tick(s, TICK_MS / 1000);
+      // Окно мятежа, оставленное без ответа, разрешает шаг симуляции, а не
+      // игрок, — и сказать игроку, чем кончилось, может только оболочка: тем же
+      // окном итога, каким кончается ответ.
+      const settled = tick(s, TICK_MS / 1000);
       advanceTutorial(s, tutorialUi(get()));
-      set({ s: { ...s } });
+      set(settled ? { s: { ...s }, eventResult: settled } : { s: { ...s } });
+      if (settled) get().save();
     }, TICK_MS);
     setInterval(() => get().save(), AUTOSAVE_MS);
     document.addEventListener('visibilitychange', () => {

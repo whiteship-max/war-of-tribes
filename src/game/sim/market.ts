@@ -12,15 +12,22 @@
 import type { Caravan, GameState, GoodId } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { GOOD_BY_ID, type GoodDef } from '../data/market';
+import { ORDER_TEXT } from '../data/order';
 import {
+  bondedSaleLeft,
+  bondedSalePrice,
+  bondedTotal,
   caravanSeconds,
   dayOf,
   marketBought,
   marketCost,
   marketLeft,
+  marketLevel,
   marketOffer,
+  marketSold,
   storageCap,
 } from '../derived';
+import { addBonded, loseBonded } from './population';
 import { log } from './log';
 
 /**
@@ -33,6 +40,7 @@ export function rollMarketDay(s: GameState): void {
   if (s.market.day === day) return;
   s.market.day = day;
   s.market.bought = {};
+  s.market.sold = {};
 }
 
 export interface MarketCheck {
@@ -92,7 +100,58 @@ export function buyGoods(s: GameState, good: GoodId, count = 1): string | null {
   // упиралась в запасной предел `LOG_MAX` за неделю, и ступень «за месяц»
   // показывала пять дней вместо месяца — молча, потому что обещание месяца
   // нигде не проверялось. Замерено `npm run log:report`, раздел «торговый день».
-  log(s, `Рынок: заказано ${def.name.toLowerCase()} — ${check.count}. Телега вышла за ворота.`, 'info', `market:order:${def.id}`);
+  // Про людей «телега вышла за ворота» не пишут: их приводят, а не привозят.
+  const text =
+    def.kind === 'bonded'
+      ? ORDER_TEXT.market.ordered(check.count)
+      : `Рынок: заказано ${def.name.toLowerCase()} — ${check.count}. Телега вышла за ворота.`;
+  log(s, text, 'info', `market:order:${def.id}`);
+  return null;
+}
+
+export interface SaleCheck {
+  count: number;
+  /** Сколько золота ляжет в казну. */
+  gold: number;
+  /** Сколько ещё возьмут торговцы сегодня. */
+  left: number;
+  /** Почему нельзя; null — можно. */
+  blocked: string | null;
+}
+
+/**
+ * Продажа невольников торговцам. Единственное, что на рынке продают: прилавок
+ * работает на ввоз, а люди — тот товар, который можно и вывести, и выводят его
+ * как рычаг против мятежа.
+ *
+ * Цена ниже покупной и не растёт за день, а берут торговцы не больше дневного
+ * запаса ряда (`bondedSaleLeft`): купить и перепродать — это отдать разницу.
+ */
+export function saleCheck(s: GameState, count: number): SaleCheck {
+  const n = Math.max(1, Math.floor(count));
+  const left = bondedSaleLeft(s);
+  const gold = bondedSalePrice() * n;
+  let blocked: string | null = null;
+  if (marketLevel(s) <= 0) blocked = ORDER_TEXT.market.noMarket;
+  else if (bondedTotal(s) < n) blocked = ORDER_TEXT.market.noBonded;
+  else if (left <= 0) blocked = ORDER_TEXT.market.soldOut;
+  else if (n > left) blocked = ORDER_TEXT.market.onlyLeft(left);
+  return { count: n, gold, left, blocked };
+}
+
+/**
+ * Продаёт невольников торговцам. Золото ложится сразу, люди уходят сразу — ждать
+ * им нечего. Уходят первыми те, кто без места, потом с самого многолюдного двора.
+ */
+export function sellBonded(s: GameState, count = 1): string | null {
+  rollMarketDay(s);
+  const check = saleCheck(s, count);
+  if (check.blocked) return check.blocked;
+  const gone = loseBonded(s, check.count);
+  const gold = bondedSalePrice() * gone;
+  s.gold += gold;
+  s.market.sold = { ...(s.market.sold ?? {}), bonded: marketSold(s, 'bonded') + gone };
+  log(s, ORDER_TEXT.market.sold(gone, gold), 'info', 'market:sold:bonded');
   return null;
 }
 
@@ -109,7 +168,12 @@ export function cancelCaravan(s: GameState, id: number): string | null {
   s.gold += c.gold;
   s.market.bought[c.good] = Math.max(0, marketBought(s, c.good) - c.count);
   s.caravans.splice(idx, 1);
-  log(s, `Рынок: караван с ${(def?.name ?? 'товаром').toLowerCase()} отозван, ${c.gold} золота вернулось в казну.`);
+  log(
+    s,
+    def?.kind === 'bonded'
+      ? ORDER_TEXT.market.cancelled(c.gold)
+      : `Рынок: караван с ${(def?.name ?? 'товаром').toLowerCase()} отозван, ${c.gold} золота вернулось в казну.`,
+  );
   return null;
 }
 
@@ -129,6 +193,13 @@ export function cancelCaravan(s: GameState, id: number): string | null {
 function unload(s: GameState, c: Caravan): void {
   const def = GOOD_BY_ID[c.good];
   if (!def) return;
+  if (def.kind === 'bonded') {
+    // Приведённых вместимость склада не касается; без места они встают на
+    // стройку, а на работы их ставят в панели двора. Строки о приходе нет по
+    // той же причине, что у телеги с добром: заказ сделан на глазах у игрока.
+    addBonded(s, c.count);
+    return;
+  }
   if (def.resource) {
     const cap = storageCap(s);
     const before = s.resources[def.resource];

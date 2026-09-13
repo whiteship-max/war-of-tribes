@@ -19,8 +19,13 @@ import {
   starvesAt,
   type SiegeWindow,
 } from './siege';
-import { SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
+import { AI_BONDED_SHARE, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
+import { lead } from './spoils';
+import { stackEscort } from './data/units';
 import { syncSiege } from './bridge';
+import { troopTotal } from '@/game/battle/kinds';
+import type { GenSettlement } from './gen';
+import type { WorldSave } from './local/state';
 import type { FigureView, PlayerProfile, SettlementView, WorldPulse } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
 
@@ -325,6 +330,37 @@ describe('осада в мире: лагерь, голод и падение', (
     expect((await w.world.letters()).some((l) => l.kind === 'siege')).toBe(false);
   }, 60_000);
 
+  it('павший город лишается невольников: уводят скольких устережёт лагерь, и об этом сказано', async () => {
+    const w = makeWorld(7);
+    const p = holdout({ bonded: 400 });
+    await w.world.sync(p);
+    const pulse = await besiege(w, p);
+    const at = pulse.siege!.starvesAt;
+    const camp = pulse.marches.find((m) => !m.own && m.siege)!;
+    expect(camp, 'лагерь стоит у ворот').toBeTruthy();
+    const expected = lead(400, stackEscort(camp.units));
+    expect(expected.taken).toBeGreaterThan(0);
+
+    w.at(Math.ceil(at));
+    const after = await w.world.sync(p);
+    const effect = after.effects.find((e) => e.text.includes('Осада'));
+    // Минус — увели у нас, и ровно столько, сколько даёт общее правило.
+    expect(effect?.bonded).toBe(-expected.taken);
+    const report = after.reports.find((r) => r.title === 'Хлеб кончился');
+    expect(report?.text).toContain(String(expected.taken));
+  }, 60_000);
+
+  it('город без невольников при падении никого не теряет', async () => {
+    const w = makeWorld(7);
+    const p = holdout();
+    await w.world.sync(p);
+    const at = (await besiege(w, p)).siege!.starvesAt;
+    w.at(Math.ceil(at));
+    const effect = (await w.world.sync(p)).effects.find((e) => e.text.includes('Осада'));
+    expect(effect).toBeTruthy();
+    expect(effect?.bonded ?? 0).toBe(0);
+  }, 60_000);
+
   it('павший город нельзя осадить снова, пока держится неприкосновенность', async () => {
     const w = makeWorld(7);
     const p = holdout();
@@ -620,6 +656,44 @@ describe('осада: приказ игрока — та же осада, что
       return;
     }
     throw new Error('город так и не пал');
+  }, 120_000);
+
+  it('чужой город, взятый голодом, отдаёт невольников тем же правилом, каким отдаёт наш', async () => {
+    const w = makeWorld(7);
+    const p = host();
+    const target = await marchGeneral(w, p);
+    expect(await w.world.besiege()).toBeNull();
+    const save = (w.world as unknown as { save: WorldSave }).save;
+    const peek = w.world as unknown as {
+      bondedOf(s: GenSettlement, now: number): number;
+      popNow(s: GenSettlement, now: number): number;
+      gen: { settlements: GenSettlement[] };
+    };
+    const town = peek.gen.settlements.find((x) => x.id === target.id)!;
+
+    // Доводим осаду до последнего пульса перед падением: вылазка и выручка к
+    // этому времени разобраны, и следующим событием будет только голод.
+    for (let i = 0; i < 900; i++) {
+      const win = save.sieges[target.id];
+      expect(win, 'осада не должна сняться сама').toBeTruthy();
+      if (starvesAt(win) - w.now() <= 30_000) break;
+      w.advance(20_000);
+      await w.world.sync(p);
+    }
+    const fallAt = starvesAt(save.sieges[target.id]);
+    // У бота невольники — доля его людей, выведенная при чтении, как тайник из склада.
+    const bonded = peek.bondedOf.call(w.world, town, fallAt);
+    expect(bonded).toBe(Math.round(peek.popNow.call(w.world, town, fallAt) * AI_BONDED_SHARE));
+    const men = troopTotal(save.figures.general.troops ?? {});
+    const expected = lead(bonded, stackEscort({ warrior: men }));
+    expect(expected.taken, 'проверка не пустая: уводить есть кого').toBeGreaterThan(0);
+
+    w.at(Math.ceil(fallAt));
+    const pulse = await w.world.sync(p);
+    const gain = pulse.effects.find((e) => e.text.includes('сдался голоду'));
+    expect(gain, 'падение приезжает последствием').toBeTruthy();
+    // Плюс — привели мы, и ровно столько, сколько даёт общее правило.
+    expect(gain?.bonded ?? 0).toBe(expected.taken);
   }, 120_000);
 });
 

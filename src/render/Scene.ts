@@ -5,6 +5,7 @@ import {
   buildingAttention,
   caravanProgress,
   dayFraction,
+  handsCount,
   isSite,
   seasonOf,
   solarPhase,
@@ -1392,12 +1393,14 @@ export class TribeScene {
       // Склад — исключение по запасам, кузница — по заказам: кузнецы у горна
       // без заказа не работают, и горн у них холодный. Это и есть тот признак
       // простоя, который игрок обязан заметить со сцены, не открывая панели.
+      // Двор, где работают одни невольники, работает: признак зажигают руки на
+      // местах, а не то, вольные ли это руки.
       const busy =
         b.type === 'storage'
           ? full
           : b.type === 'smithy'
             ? workerCount(s, b.id) > 0 && (s.forge?.length ?? 0) > 0
-            : workerCount(s, b.id) > 0;
+            : handsCount(s, b.id) > 0;
       const view = this.buildings.get(b.id);
       if (view?.glow) view.glow.visible = busy;
       if (!busy) continue;

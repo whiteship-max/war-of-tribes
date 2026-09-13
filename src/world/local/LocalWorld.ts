@@ -159,11 +159,12 @@ import {
 } from '../letters';
 import { LETTER_KIND_BY_ID, goodsText } from '../data/letters';
 import { BARBARIAN_NAMES, RELATION_META, stageOf } from '../data/meta';
-import { stackCarry, stackSize } from '../data/units';
-import { asLoss, plunder, type Spoils } from '../spoils';
+import { stackCarry, stackEscort, stackSize } from '../data/units';
+import { asLoss, lead, plunder, type Spoils } from '../spoils';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import type { FaithId } from '@/game/types';
+import { ORDER_TEXT } from '@/game/data/order';
 import { resolveField, type FieldOutcome } from '../battle';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
@@ -213,6 +214,7 @@ import {
   SPY_CAUGHT_ATTITUDE,
   SPY_HELD,
   SUPPORT_ATTITUDE,
+  AI_BONDED_SHARE,
   AI_STASH_SHARE,
   LOOT_PER_POP,
   LOOT_REFILL,
@@ -1090,22 +1092,37 @@ export class LocalWorld implements WorldApi {
     this.save.siegeImmune[id] = immuneUntil(at);
     const ours = ourCamp(w);
     this.liftSiege(id, at);
-    if (!ours) return this.homeFalls(w, at);
+    // Пал наш город — это `homeFalls`, и больше ничего. Раньше сюда вёл любой
+    // не наш лагерь, и падение чужого двора под чужим же лагерем (война соседей)
+    // рассеяло бы наш гарнизон и вычистило наш склад. Проверка стоит на самом
+    // городе, а не на лагере.
+    if (id === HOME_ID) return this.homeFalls(w, at);
 
-    // Чужой город доели мы. Гарнизон разошёлся ровно так же, как расходится
-    // наш: та же доля и тот же смысл, — а разница в том, кому достаётся склад.
+    // Чужой город доели — мы или его соседи. Гарнизон разошёлся ровно так же,
+    // как расходится наш: та же доля и тот же смысл, — а разница в том, кому
+    // достаётся склад.
     const s = this.byId.get(id);
     if (!s) return;
     const prev = this.damageOf(id, at);
+    // Невольников двора считаем до того, как рассеянный гарнизон убавит его
+    // людей: у логова народ выводится из силы, а сила — из побитого гарнизона.
+    const bondedThere = this.bondedOf(s, at);
     this.save.damage[id] = {
       loss: Math.min(0.95, prev + SIEGE_ROUT * (1 - prev)),
       at: this.liveAt(id, at),
     };
+    // Война соседей между собой: игроку не достаётся ничего, и отчёта ему нет —
+    // это не его бой.
+    if (!ours) return;
     const f = this.save.figures.general;
     const men = troopTotal(f.troops ?? {});
     const gold = Math.round(this.castleGold(s, at) * SIEGE_ROUT);
     const took = this.takeLoot(s, at, stackCarry({ warrior: men }));
     const goods = took.takenTotal;
+    // Невольников павшего города уводит победитель — тем же правилом, каким
+    // уводят наших из павшей деревни (`lead`), и тем же пределом: скольких
+    // устережёт дружина.
+    const led = lead(bondedThere, stackEscort({ warrior: men }));
     const spoils: Loot | null =
       gold > 0 ? { ...took.taken, gold } : goods > 0 ? took.taken : null;
     this.addReport({
@@ -1125,7 +1142,7 @@ export class LocalWorld implements WorldApi {
       battle: null,
       text: `В ${s.name} кончился хлеб. Гарнизон разошёлся, склад вычистили на ${goods} добра.${
         took.hiddenTotal > 0 ? ` В их тайнике осталось ${took.hiddenTotal}.` : ''
-      }${gold > 0 ? ` Казна: ${gold} золота.` : ''} Лагерь снят.`,
+      }${gold > 0 ? ` Казна: ${gold} золота.` : ''}${led.taken > 0 ? ` ${ORDER_TEXT.ledAway(led.taken)}` : ''} Лагерь снят.`,
       read: false,
     });
     this.addEffect({
@@ -1137,10 +1154,21 @@ export class LocalWorld implements WorldApi {
       // Настоящего боя не было ни у нас, ни у них: город взяли голодом, и
       // записывать это в битвы значило бы считать то, чего не случилось.
       battle: null,
+      bonded: led.taken > 0 ? led.taken : undefined,
       text: `Осада ${s.name} кончилась: город сдался голоду.`,
       good: true,
     });
     this.moveAttitude(id, ATTACK_ATTITUDE, at);
+  }
+
+  /**
+   * Сколько невольников держит чужой двор. Своих невольников у бота в мире нет:
+   * это доля его населения (`AI_BONDED_SHARE`), выведенная при чтении, ровно как
+   * тайник выводится из склада. Уводят их только при падении города, и новая
+   * осада того же города встанет не раньше, чем кончится неприкосновенность.
+   */
+  private bondedOf(s: GenSettlement, now: number): number {
+    return Math.max(0, Math.round(this.popNow(s, now) * AI_BONDED_SHARE));
   }
 
   /** Пал наш город. Всё, что при этом происходит, — здесь и больше нигде. */
@@ -1159,6 +1187,10 @@ export class LocalWorld implements WorldApi {
     // же, что у прорвавшегося набега, и функция та же (`spoils.plunder`).
     const spoils = this.plunderHome(p ?? null, stackCarry(camp?.units ?? {}));
     const taken = spoils.takenTotal;
+    // Невольников уводят тем же правилом, каким уводим их мы из павшего чужого
+    // города (`lead`), и тем же пределом — скольких устережёт отряд лагеря.
+    // Сколько их у нас, мир знает из слепка; сколько у бота — выводит из людей.
+    const led = lead(p?.bonded ?? 0, stackEscort(camp?.units ?? {}));
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Чужаки';
 
     this.addReport({
@@ -1176,7 +1208,7 @@ export class LocalWorld implements WorldApi {
       hidden: spoils.hiddenTotal,
       intel: null,
       battle: null,
-      text: `Голод сделал за ${from} всю работу: гарнизон разошёлся, склад вычистили на ${taken} добра.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''} Лагерь снят.`,
+      text: `Голод сделал за ${from} всю работу: гарнизон разошёлся, склад вычистили на ${taken} добра.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''}${led.taken > 0 ? ` ${ORDER_TEXT.ledAway(led.taken)}` : ''} Лагерь снят.`,
       read: false,
     });
     this.addEffect({
@@ -1189,6 +1221,7 @@ export class LocalWorld implements WorldApi {
       // Настоящего боя не было: город взяли голодом, и записывать это в
       // проигранные битвы значило бы считать то, чего не случилось.
       battle: null,
+      bonded: led.taken > 0 ? -led.taken : undefined,
       text: `Осада ${from} доела деревню: гарнизон рассеян, склад вычищен.`,
       good: false,
     });

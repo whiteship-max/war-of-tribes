@@ -18,6 +18,7 @@ import { iconName } from '@/ui/icons/registry';
 export function AlertBar() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
+  const openTab = useGame((g) => g.openTab);
   const openDefense = useGame((g) => g.openDefense);
   const marches = useWorld((g) => g.marches);
   const eventResult = useGame((g) => g.eventResult);
@@ -67,12 +68,20 @@ export function AlertBar() {
       })}
       {list.map((a) => {
         const target = a.goto ? buildingOfType(s, a.goto) : null;
+        // Порядок чинят не в здании: тревога ведёт в справку, где сказано, кто
+        // держит невольников и какие рычаги есть.
+        const tab = a.open;
+        const go = tab ? () => openTab(tab) : target ? () => openBuilding(target.id) : null;
         return (
-          <button key={a.id} className="alert" onClick={() => target && openBuilding(target.id)} disabled={!target}>
+          <button key={a.id} className="alert" onClick={() => go?.()} disabled={!go}>
             <span className="ic">
               <Icon name={iconName('alert', a.id)} glyph={a.icon} />
             </span>
-            <span className="txt">{a.text}</span>
+            <span className="txt">
+              {a.text}
+              {/* Цена — второй строкой прямо под сроком: так же, как у голода под осадой. */}
+              {a.sub && <small className="alert-sub">{a.sub}</small>}
+            </span>
           </button>
         );
       })}

@@ -7,6 +7,7 @@ import type { GameState, TroopId } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
 import { TROOP_IDS } from '@/game/data/troops';
 import {
+  bondedTotal,
   buildingOfType,
   buildingStat,
   commandCap,
@@ -182,6 +183,10 @@ export function playerProfile(s: GameState, away: TroopStack = {}): PlayerProfil
     // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     stock,
     stash,
+    // Невольники: одно число, и мир читает его ровно в одном месте — когда
+    // город пал от голода и победитель уводит их тем же правилом, каким уводим
+    // мы (`world/spoils.lead`). Где они стоят и на каких работах, миру знать не надо.
+    bonded: bondedTotal(s),
   };
 }
 
@@ -261,6 +266,7 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     // отметку, во что превратить первое и что засчитать по второй — дело племени.
     arms: e.arms ?? 0,
     lair: e.lair ?? false,
+    bonded: e.bonded ?? 0,
     text: e.text,
     kind: e.good ? 'good' : 'bad',
   };

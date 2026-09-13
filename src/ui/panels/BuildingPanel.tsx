@@ -1,11 +1,22 @@
 import type { Building, JobId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { FREE_RANGE_MULT, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META, SLOTS_PER_LEVEL } from '@/game/constants';
+import {
+  BONDED_OUTPUT,
+  FREE_RANGE_MULT,
+  MAX_BUILDING_LEVEL,
+  RESOURCE_IDS,
+  RESOURCE_META,
+  SLOTS_PER_LEVEL,
+} from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { EQUIPMENT } from '@/game/data/equipment';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
+import { ORDER_TEXT } from '@/game/data/order';
 import {
   armyPower,
+  bondedCount,
+  bondedIdle,
+  bondedTotal,
   buildRate,
   buildingById,
   buildingHousing,
@@ -32,13 +43,23 @@ import {
   stashAt,
   storageCap,
   surveyRadius,
+  takesBonded,
   warningSeconds,
   upgradeInfo,
   workerCount,
   workerMultiplier,
 } from '@/game/derived';
-import { assignWorker, cancelUpgrade, changeFreeJob, startUpgrade, unassignWorker } from '@/game/sim/actions';
+import {
+  assignBonded,
+  assignWorker,
+  cancelUpgrade,
+  changeFreeJob,
+  startUpgrade,
+  unassignBonded,
+  unassignWorker,
+} from '@/game/sim/actions';
 import { Cost } from '../parts/Cost';
+import { Steps } from '../parts/Steps';
 import { TownHall } from '../parts/TownHall';
 import { Smithy } from '../parts/Smithy';
 import { Market } from '../parts/Market';
@@ -149,50 +170,12 @@ export function BuildingPanel({ id }: { id: number }) {
 // ---------- Слоты рабочих ----------
 
 /**
- * Ряд шага: −10 −1 [число] +1 +10. Поимённых жителей нет, люди одинаковы, поэтому
- * назначение — это число, а не список карточек: на потолке уровней в поле стоит
- * сотня человек, и сотню строк по одной на голову никто читать не станет.
- */
-function Steps({
-  value,
-  max,
-  spare,
-  step,
-  addTut,
-  onChange,
-}: {
-  value: number;
-  max: number;
-  spare: number;
-  step: number;
-  addTut?: string;
-  onChange: (delta: number) => void;
-}) {
-  const room = Math.max(0, max - value);
-  const canAdd = room > 0 && spare > 0;
-  return (
-    <div className="stepper wide-steps">
-      <button disabled={value <= 0} onClick={() => onChange(-step)} aria-label={`Снять ${step}`}>
-        −{step}
-      </button>
-      <button disabled={value <= 0} onClick={() => onChange(-1)} aria-label="Снять">
-        −
-      </button>
-      <span className="n">{value}</span>
-      <button data-tut={addTut} disabled={!canAdd} onClick={() => onChange(1)} aria-label="Поставить">
-        +
-      </button>
-      <button disabled={!canAdd} onClick={() => onChange(step)} aria-label={`Поставить ${step}`}>
-        +{step}
-      </button>
-    </div>
-  );
-}
-
-/**
  * Рабочие здания. Мест столько, сколько даёт уровень; кого именно поставить —
  * вопроса нет: личного навыка у жителя не осталось, его роль взял на себя сам
  * уровень постройки, поднимая выработку каждому рабочему.
+ *
+ * Невольники встают на те же места вторым рядом шага — там, где работу дают
+ * невольникам. Места общие: сколько занял один ряд, столько не достанется другому.
  */
 function WorkerSlots({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
@@ -202,14 +185,19 @@ function WorkerSlots({ b }: { b: Building }) {
   const job = JOB_BY_ID[def.job];
   const slots = buildingSlots(b);
   const workers = workerCount(s, b.id);
+  const bonded = bondedCount(s, b.id);
   const free = idleCount(s);
+  const hands = workers + bonded;
+  // Ряд невольников показывается там, где их ставят, и только когда есть кого
+  // ставить или кто-то уже стоит: пустой ряд у посёлка без невольников — шум.
+  const bondedRow = takesBonded(b) && (bondedTotal(s) > 0 || bonded > 0);
 
   return (
     <>
       <h3>
         <Icon name={`job-${job.id}`} glyph={job.icon} /> {job.name}
         <span className="muted">
-          {workers}/{slots || '—'}
+          {bonded > 0 ? `${workers} + ${bonded}` : workers}/{slots || '—'}
         </span>
       </h3>
       <div className="card">
@@ -222,15 +210,15 @@ function WorkerSlots({ b }: { b: Building }) {
             <span className="count">свободных: {free}</span>
           </div>
           <div className="desc">
-            {slots > workers
-              ? `Свободных мест: ${slots - workers}. Следующий уровень добавит ещё ${def.slotsPerLevel ?? SLOTS_PER_LEVEL}.`
+            {slots > hands
+              ? `Свободных мест: ${slots - hands}. Следующий уровень добавит ещё ${def.slotsPerLevel ?? SLOTS_PER_LEVEL}.`
               : 'Все места заняты — нужен уровень выше.'}
           </div>
         </div>
       </div>
       <Steps
         value={workers}
-        max={slots}
+        max={slots - bonded}
         spare={free}
         step={10}
         addTut="slot-add"
@@ -238,6 +226,32 @@ function WorkerSlots({ b }: { b: Building }) {
           act((st) => (d > 0 ? assignWorker(st, b.id, d) : unassignWorker(st, b.id, -d)))
         }
       />
+      {bondedRow && (
+        <>
+          <div className="card">
+            <div className="ico">{ORDER_TEXT.bondedIcon}</div>
+            <div className="body">
+              <div className="title">
+                Невольников на местах
+                <span className="count">без места: {bondedIdle(s)}</span>
+              </div>
+              <div className="desc">
+                Места общие с вольными. Невольник даёт {Math.round(BONDED_OUTPUT * 100)}% того, что вольный на том же месте, и
+                ест наравне со всеми.
+              </div>
+            </div>
+          </div>
+          <Steps
+            value={bonded}
+            max={slots - workers}
+            spare={bondedIdle(s)}
+            step={10}
+            onChange={(d) =>
+              act((st) => (d > 0 ? assignBonded(st, b.id, d) : unassignBonded(st, b.id, -d)))
+            }
+          />
+        </>
+      )}
     </>
   );
 }
@@ -441,6 +455,7 @@ function GenericData({ b }: { b: Building }) {
   const prod = buildingProduction(s, b);
   const produced = RESOURCE_IDS.filter((r) => prod[r] > 0.01);
   const workers = workerCount(s, b.id);
+  const bonded = bondedCount(s, b.id);
   const jobDef = def.job ? JOB_BY_ID[def.job] : null;
 
   // Строка «что даёт посёлку»: имя значка, эмодзи на его месте, название, величина.
@@ -510,7 +525,7 @@ function GenericData({ b }: { b: Building }) {
             </div>
           ) : (
             <div className="note">
-              {workers === 0
+              {workers + bonded === 0
                 ? 'Здание стоит без рабочих — поставь кого-нибудь на место.'
                 : 'Это здание не даёт ресурсов напрямую.'}
             </div>
@@ -522,6 +537,14 @@ function GenericData({ b }: { b: Building }) {
               </span>
               <span className="name">Рабочих: {workers}</span>
               <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>
+            </div>
+          )}
+          {/* Та же выработка на ту же долю: множитель берётся тот же, а не свой. */}
+          {bonded > 0 && (
+            <div className="mod">
+              <span className="ico">{ORDER_TEXT.bondedIcon}</span>
+              <span className="name">Невольников: {bonded}</span>
+              <span className="val">×{(workerMultiplier(s, jobDef.id, b) * BONDED_OUTPUT).toFixed(2)} каждый</span>
             </div>
           )}
           <div className="note">
