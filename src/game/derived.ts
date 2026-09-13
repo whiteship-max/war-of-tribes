@@ -608,6 +608,11 @@ export interface FeastInfo {
   left: number;
   /** Секунд до следующего пира; 0 — можно прямо сейчас. */
   cooldown: number;
+  /**
+   * Сколько секунд после пира бочки стоят пустыми при нынешнем трактире —
+   * полный откат, а не остаток. Его и укорачивает уровень.
+   */
+  wait: number;
   /** Почему нельзя; null — можно. */
   blocked: string | null;
 }
@@ -633,7 +638,7 @@ export function feastInfo(s: GameState): FeastInfo {
   else if (left > 0) blocked = 'Пир и так идёт.';
   else if (cooldown > 0) blocked = `Бочки пусты: ещё ${Math.ceil(cooldown / DAY_LENGTH)} дн.`;
   else if (s.gold < cost) blocked = `Не хватает золота: нужно ${cost}.`;
-  return { bonus, cost, left, cooldown, blocked };
+  return { bonus, cost, left, cooldown, wait, blocked };
 }
 
 /** Прибавка к морали от идущего пира. Ноль, если пира нет. */
@@ -710,18 +715,23 @@ export const recruitsQueued = (s: GameState): number =>
   (s.recruits ?? []).reduce((n, o) => n + Math.max(0, o.count - o.done), 0);
 
 /**
- * Скорость обучения в казармах: работа в секунду. Зависит только от уровня казарм —
+ * Скорость обучения в казармах: работа в секунду. Зависит от уровня казарм —
  * учения идут своим чередом, без рабочих и без сезона. Растёт она быстрее выработки
  * зданий, потому что умножается ещё и на сам уровень: дружина в сотни бойцов при
  * линейном росте набиралась бы часами.
+ *
+ * **Вид бойца обязателен.** Скорости «казарм вообще» у игры нет: всадник учится
+ * с множителем конюшни, пеший — без. Пока вид был необязательным, очередь казарм
+ * и карточка вида считали срок без него и показывали всаднику 13 секунд там, где
+ * очередь шла 5. Теперь такой срок просто не собирается.
  */
-export function recruitRate(s: GameState, troop?: TroopId): number {
+export function recruitRate(s: GameState, troop: TroopId): number {
   const b = buildingOfType(s, 'barracks');
   if (!b) return 0;
   const base = RECRUIT_WORK * b.level * levelOutputMult(b.level);
   // Конюшня ускоряет только конницу: это её экономический след, а не общая
-  // прибавка казармам. Без вида бойца считается голая скорость казарм.
-  return troop && TROOP_BY_ID[troop].mounted ? base * cavalryTrain(s) : base;
+  // прибавка казармам.
+  return TROOP_BY_ID[troop].mounted ? base * cavalryTrain(s) : base;
 }
 
 // ---------- Кузница ----------
@@ -1133,6 +1143,12 @@ export interface MoraleBreakdown {
    * же — после приведения к шкале: до неё она бы утонула (см. moraleBreakdown).
    */
   feast: number;
+  /**
+   * Прибавка от обряда в храме. Ложится туда же, где пир, но это другое число и
+   * другое здание: пока они лежали одним полем, справка о морали подписывала
+   * обряд без пира «Пиром в трактире».
+   */
+  rite: number;
   /** Итог: к какой морали стремится племя. */
   target: number;
 }
@@ -1184,7 +1200,7 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
     'priests',
     '🕯️',
     'Жрецы в церкви',
-    Math.min(PRIEST_MORALE_CAP, priests * PRIEST_MORALE),
+    priestMorale(s),
     `${priests} чел. по +${PRIEST_MORALE}, потолок +${PRIEST_MORALE_CAP}`,
     true,
   );
@@ -1226,7 +1242,8 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   // Обряд ложится там же, где пир, и по той же причине: до `Math.min` он утонул
   // бы в посёлке на потолке уровней, где постоянных источников морали и так
   // больше, чем вмещает сотня.
-  const feast = feastMorale(s) + riteMorale(s);
+  const feast = feastMorale(s);
+  const rite = riteMorale(s);
   return {
     base: MORALE_BASE,
     lines,
@@ -1234,12 +1251,22 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
     clamped,
     tax,
     feast,
-    target: Math.max(0, Math.min(100, clamped - tax + feast)),
+    rite,
+    target: Math.max(0, Math.min(100, clamped - tax + feast + rite)),
   };
 }
 
 /** К какой морали стремится племя при текущих условиях. */
 export const moraleTarget = (s: GameState): number => moraleBreakdown(s).target;
+
+/**
+ * Что служители храма дают морали: по голове и до потолка. Уровень храма их не
+ * усиливает — места служителей упираются в потолок раньше, чем кончаются уровни.
+ * Отдельной функцией, потому что это число читает не только разбор морали, но и
+ * кнопка улучшения: замер «что дадут новые места» обязан считать ровно этим.
+ */
+export const priestMorale = (s: GameState): number =>
+  Math.min(PRIEST_MORALE_CAP, jobCounts(s).priest * PRIEST_MORALE);
 
 // ---------- Вера и набожность ----------
 //
@@ -1347,7 +1374,7 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
     'priests',
     '🕯️',
     'Служители прихода',
-    Math.min(PIETY_PRIEST_CAP, priests * PIETY_PER_PRIEST),
+    priestPiety(s),
     `${priests} чел. по +${PIETY_PER_PRIEST}, потолок +${PIETY_PRIEST_CAP}`,
     true,
   );
@@ -1382,6 +1409,13 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
 
 /** Набожность деревни, 0..100. */
 export const piety = (s: GameState): number => pietyBreakdown(s).value;
+
+/**
+ * Что служители дают набожности: по голове и до потолка, как у морали. Пока мир
+ * не назвал веру, набожности не считается вовсе — и служители ничего не дают.
+ */
+export const priestPiety = (s: GameState): number =>
+  faithOf(s) === null ? 0 : Math.min(PIETY_PRIEST_CAP, jobCounts(s).priest * PIETY_PER_PRIEST);
 
 /** Вера трещит: набожность упала ниже порога. */
 export const heresy = (s: GameState): boolean => faithOf(s) !== null && piety(s) < PIETY_HERESY;

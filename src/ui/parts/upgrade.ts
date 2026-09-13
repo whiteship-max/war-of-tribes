@@ -1,71 +1,418 @@
+// Что даст следующий уровень — замером, а не по полю здания.
+//
+// Кнопка улучшения не пишет чисел от себя. Она прогоняет настоящий расчёт игры
+// дважды — на нынешнем уровне здания и на следующем — и называет разницу. Всё,
+// что лежит между полем здания и местом, где игра это поле читает, входит в
+// замер само: потолок лазарета, множитель веры на обороне, места в храме,
+// которым больше нечего дать. А у Статуи и ратуши главное число встаёт на кнопку
+// просто потому, что оно изменилось.
+//
+// Прежде подпись брала разность поля (`buildingStat`, `perLevel`) и врала ровно
+// там, где игра читает не поле, а функцию от него: лазарет обещал +4 % сверх
+// потолка в 35 %, храм — «+10 % к выработке» служителям, которых уровень не
+// усиливает, Дозор — «+1 мин» при настоящих +40 с. Правило теперь одно, и держат
+// его тесты (`upgrade.test.ts`): в этом файле нет ни одного чтения поля здания,
+// а каждое число подписи совпадает с замером на каждом уровне каждого здания.
+//
+// Чего в замере нет, и почему. Всё это проходит, а уровень остаётся:
+// - сезона и осады: рабочий меряется без них. Ферма, улучшенная в декабре, в мае
+//   родит больше, и кнопка не имеет права сказать «ничего не даст» из-за зимы;
+// - потолка шкалы морали и набожности: сотня — свойство посёлка, а не здания, и
+//   о том, что она уже полна, говорят справка о морали и храм;
+// - того, кто сейчас стоит на местах: места и работа на них меряются так, будто
+//   их заняли, — иначе у пустого двора уровень «ничего бы не давал».
 import type { Building, GameState } from '@/game/types';
-import { RECRUIT_WORK } from '@/game/constants';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { OFFER_PER_LEVEL } from '@/game/data/market';
-import { buildingHousing, buildingSlots, buildingStat, levelOutputMult, stashAt } from '@/game/derived';
+import { DAY_LENGTH, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { GOOD_BY_ID } from '@/game/data/market';
+import type { SeasonModifiers } from '@/game/data/seasons';
+import { SURVEY_MAX } from '@/game/data/survey';
+import { TROOPS } from '@/game/data/troops';
+import {
+  buildingProduction,
+  buildingSlots,
+  caravanSeconds,
+  commandCap,
+  crafterBuildRate,
+  defense,
+  faithTilt,
+  feastInfo,
+  forgeRate,
+  healShare,
+  heroMen,
+  hiddenStash,
+  housingCapacity,
+  intelKeen,
+  jobMultiplier,
+  marketOffer,
+  marketStock,
+  moraleBreakdown,
+  mountGear,
+  pietyBreakdown,
+  priestMorale,
+  priestPiety,
+  recruitRate,
+  storageCap,
+  taxIncomePerDay,
+  townHallBuildMult,
+  warningSeconds,
+} from '@/game/derived';
+import { popGrowth } from '@/game/sim/population';
+import { surveyInfo } from '@/game/sim/survey';
+import { militiaArchers } from '@/world/bridge';
+import { plural } from './plural';
+
+/** Одна прибавка: что меряли, сколько было и станет, и как это сказано. */
+export interface UpgradeGain {
+  /** Какая величина. */
+  id: string;
+  /** Величина на нынешнем уровне и на следующем — прочитанная у игры. */
+  before: number;
+  after: number;
+  /** Слова на кнопке. */
+  text: string;
+  /**
+   * Числа, стоящие в словах, по порядку. Отдельным полем, чтобы тест сверял их
+   * с замером, а не разбирал русскую фразу обратно.
+   */
+  numbers: number[];
+}
+
+/** Уровень, который не меняет ни одной величины, говорит это прямо — до оплаты. */
+export const NOTHING_GAINED = 'Этот уровень ничего не прибавит.';
+
+/** Что сказать о разнице. null — на подписи её не видно. */
+type Said = { text: string; numbers: number[] } | null;
+
+interface Gauge {
+  id: string;
+  /** Прочесть величину у игры: функцией симуляции над всем посёлком, и только. */
+  read: (s: GameState) => number;
+  say: (before: number, after: number) => Said;
+}
+
+/** Число для подписи: от десятка — целое, до десятка — с десятыми. */
+export const shown = (x: number): number => (Math.abs(x) >= 10 ? Math.round(x) : Math.round(x * 10) / 10);
+
+const sign = (x: number): string => (x < 0 ? '−' : '+');
+
+/** «+24 к защите»: разница в единицах самой величины. */
+const more =
+  (label: string) =>
+  (before: number, after: number): Said => {
+    const d = shown(after - before);
+    return d === 0 ? null : { text: `${sign(d)}${Math.abs(d)} ${label}`, numbers: [Math.abs(d)] };
+  };
 
 /**
- * Что именно даст следующий уровень — у склада и у лесопилки это разные вещи.
- * Прибавка считается разностью настоящих величин, а не берётся из `perLevel`:
- * у ратуши жильё появляется не с первого уровня.
+ * «+8% к скорости стройки»: насколько величина станет больше, чем сейчас, а не
+ * шаг от базы. Ратуша десятого уровня строит в 1.72 раза быстрее первого, но
+ * с девятого на десятый стройка ускоряется на 5 %, а не на 8, — и на кнопке
+ * должно стоять то, что игрок получит.
  */
-export function upgradeGain(s: GameState, b: Building, toLevel: number): string {
-  const def = BUILDING_BY_ID[b.type];
-  const at = (level: number): Building => ({ ...b, level });
-  const parts: string[] = [];
-  if (def.job) {
-    const step = Math.round((levelOutputMult(toLevel) - levelOutputMult(b.level)) * 100);
-    const slots = buildingSlots(at(toLevel)) - buildingSlots(at(b.level));
-    parts.push(`+${slots} ${slots === 1 ? 'рабочее место' : 'рабочих мест'}`, `+${step}% к выработке`);
-  }
-  const housing = buildingHousing(at(toLevel)) - buildingHousing(at(b.level));
-  if (housing) parts.push(`+${housing} к жилью`);
-  const stats: [
-    keyof typeof def &
-      ('storage' | 'defense' | 'morale' | 'archers' | 'heal' | 'intel' | 'train' | 'hidden' | 'feast' | 'hero'),
-    string,
-  ][] = [
-    ['storage', 'к вместимости склада'],
-    ['defense', 'к защите'],
-    ['morale', 'к морали'],
-    ['archers', 'стрелков ополчения на стене'],
-    ['heal', '% потерь вернётся ранеными'],
-    ['intel', '% к стойкости разведданных'],
-    ['train', '% к скорости учений конницы'],
-    ['feast', 'к морали от пира'],
-    ['hero', 'бойцов за героем'],
-  ];
-  for (const [key, label] of stats) {
-    const d = buildingStat(at(toLevel), key) - buildingStat(at(b.level), key);
-    if (d) parts.push(`+${d} ${label}`);
-  }
-  // Главное, что даёт уровень казармам и рынку, в пассивы не попадает: скорость
-  // учений и прилавок считаются своими формулами. Без этих строк на кнопке
-  // улучшения казарм стояла бы одна защита, а рынка — одна мораль.
-  if (b.type === 'barracks') {
-    const rate = (level: number): number => RECRUIT_WORK * level * levelOutputMult(level);
-    const gain = Math.round((rate(toLevel) / Math.max(0.001, rate(b.level)) - 1) * 100);
-    parts.push(`+${gain}% к скорости учений`);
-  }
-  if (b.type === 'watch') {
-    const warn = buildingStat(at(toLevel), 'warn') - buildingStat(at(b.level), 'warn');
-    if (warn) parts.push(`+${Math.round(warn / 60)} мин к предупреждению о набеге`);
-  }
-  if (b.type === 'stable') {
-    const gear = Math.floor(buildingStat(at(toLevel), 'mountGear')) - Math.floor(buildingStat(at(b.level), 'mountGear'));
-    if (gear) parts.push(`+${gear} ступень снаряжения всадникам`);
-  }
-  // Тайник растёт не линейно, поэтому его прибавку не вывести из `perLevel` —
-  // и это главный довод его строить, он обязан стоять на кнопке числом.
-  if (b.type === 'cache') {
-    const gain = stashAt(toLevel) - stashAt(b.level);
-    if (gain > 0) parts.push(`+${gain} к спрятанному от набега (станет ${stashAt(toLevel)})`);
-  }
-  if (b.type === 'tavern') parts.push('короче перерыв между пирами');
-  if (b.type === 'market') {
-    const goods = OFFER_PER_LEVEL * (toLevel - b.level);
-    if (goods) parts.push(`+${goods} ${goods === 1 ? 'товар' : 'товара'} на прилавке`);
-    parts.push('больше дневного запаса и короче дорога каравана');
-  }
-  return parts.length > 0 ? parts.join(', ') : 'Здание станет крепче';
+const grow =
+  (label: string) =>
+  (before: number, after: number): Said => {
+    if (before <= 0) return null;
+    const p = Math.round((after / before - 1) * 100);
+    return p === 0 ? null : { text: `${sign(p)}${Math.abs(p)}% ${label}`, numbers: [Math.abs(p)] };
+  };
+
+/** Пеший и конный вид: учения меряются по тем, кого учат, — скорости «казарм вообще» у игры нет. */
+const FOOT = TROOPS.find((t) => !t.mounted)!.id;
+const MOUNTED = TROOPS.find((t) => t.mounted)!.id;
+
+/** Сезон без поправок: улучшение переживает сезон, и рабочий меряется без него. */
+const STILL: SeasonModifiers = { jobs: {}, build: 1, morale: 0, food: 1, heating: 0 };
+
+/**
+ * Всё, что уровень здания может сдвинуть в посёлке, — по одной двери в симуляцию
+ * на величину. Порядок — порядок слов на кнопке. Какое здание что двигает, здесь не
+ * записано нигде: это выясняет замер.
+ */
+const GAUGES: Gauge[] = [
+  { id: 'build', read: townHallBuildMult, say: grow('к скорости стройки') },
+  { id: 'housing', read: housingCapacity, say: more('к жилью') },
+  { id: 'storage', read: storageCap, say: more('к вместимости склада') },
+  { id: 'recruit', read: (s) => recruitRate(s, FOOT), say: grow('к скорости учений') },
+  {
+    // Конница отдельно от пехоты: у неё свой множитель поверх казарм. Меряется
+    // отношением, поэтому уровень казарм, ускоряющий всех одинаково, его не двигает.
+    id: 'cavalry',
+    read: (s) => recruitRate(s, MOUNTED) / Math.max(1e-9, recruitRate(s, FOOT)),
+    say: grow('к скорости учений конницы'),
+  },
+  {
+    id: 'mountGear',
+    read: mountGear,
+    say: (b, a) => {
+      const d = a - b;
+      return d <= 0 ? null : { text: `+${d} ${plural(d, 'ступень', 'ступени', 'ступеней')} снаряжения всадникам`, numbers: [d] };
+    },
+  },
+  { id: 'defense', read: defense, say: more('к защите') },
+  { id: 'archers', read: militiaArchers, say: more('стрелков ополчения на стене') },
+  {
+    // Бойцы строя — мерка боя, а не головы: латник в строю весит восьмерых дубинщиков.
+    id: 'hero',
+    read: heroMen,
+    say: (b, a) => {
+      const d = a - b;
+      return d <= 0 ? null : { text: `+${d} ${plural(d, 'боец', 'бойца', 'бойцов')} строя за героем`, numbers: [d] };
+    },
+  },
+  {
+    // А здесь головы любого вида: латник в дружине полководца — один.
+    id: 'command',
+    read: commandCap,
+    say: (b, a) => {
+      const d = a - b;
+      return d <= 0
+        ? null
+        : { text: `+${d} ${plural(d, 'боец', 'бойца', 'бойцов')} в дружину полководца (станет ${a})`, numbers: [d, a] };
+    },
+  },
+  {
+    // Доля, у которой главное — сколько станет: 35 % вместо 32 %.
+    id: 'heal',
+    read: healShare,
+    say: (b, a) => {
+      const pa = Math.round(a * 100);
+      const pb = Math.round(b * 100);
+      return pa === pb ? null : { text: `${pa}% потерь вернётся ранеными вместо ${pb}%`, numbers: [pa, pb] };
+    },
+  },
+  { id: 'warning', read: warningSeconds, say: more('с к предупреждению о набеге') },
+  {
+    // Уровень Дозора — потолок ступени изучения, а не её источник.
+    id: 'survey',
+    read: (s) => Math.min(SURVEY_MAX, surveyInfo(s).level),
+    say: (b, a) => (a <= b ? null : { text: `изучение округи до ${a} ступени`, numbers: [a] }),
+  },
+  { id: 'intel', read: intelKeen, say: grow('к стойкости разведданных') },
+  {
+    id: 'stash',
+    read: hiddenStash,
+    say: (b, a) => (a <= b ? null : { text: `+${a - b} к спрятанному от набега (станет ${a})`, numbers: [a - b, a] }),
+  },
+  { id: 'feast', read: (s) => feastInfo(s).bonus, say: more('к морали от пира') },
+  {
+    id: 'feastWait',
+    read: (s) => feastInfo(s).wait,
+    say: (b, a) => {
+      const d = shown((b - a) / DAY_LENGTH);
+      if (d === 0) return null;
+      return { text: `перерыв между пирами ${d > 0 ? 'короче' : 'длиннее'} на ${Math.abs(d)} дн.`, numbers: [Math.abs(d)] };
+    },
+  },
+  {
+    id: 'goods',
+    read: (s) => marketOffer(s).length,
+    say: (b, a) => {
+      const d = a - b;
+      return d <= 0 ? null : { text: `+${d} ${plural(d, 'товар', 'товара', 'товаров')} на прилавке`, numbers: [d] };
+    },
+  },
+  { id: 'stock', read: (s) => marketStock(s, GOOD_BY_ID.food), say: more('еды в дневном запасе рынка') },
+  {
+    id: 'caravan',
+    read: caravanSeconds,
+    say: (b, a) => {
+      const d = shown(b - a);
+      if (d === 0) return null;
+      return { text: `дорога каравана ${d > 0 ? 'короче' : 'длиннее'} на ${Math.abs(d)} с`, numbers: [Math.abs(d)] };
+    },
+  },
+  // Мораль и набожность — до потолка шкалы (см. шапку). Сюда же ложится и то, что
+  // уровень двигает не сам: наклон веры у храма, теснота у жилья.
+  { id: 'morale', read: (s) => moraleBreakdown(s).raw, say: more('к морали') },
+  { id: 'piety', read: (s) => pietyBreakdown(s).raw, say: more('к набожности') },
+  // Наклон веры. Храм растит его целиком, вместе с ценой, и цена обязана стоять
+  // на кнопке так же, как дар: закят уводит золото, пост — выработку.
+  { id: 'gold', read: taxIncomePerDay, say: more('золота в день') },
+  // С сезоном без поправок множитель у всех профессий один — берётся любая.
+  { id: 'output', read: (s) => jobMultiplier(s, 'woodcutter', STILL), say: grow('к выработке всех профессий') },
+  { id: 'learning', read: (s) => surveyInfo(s).learning, say: grow('к скорости изучения округи') },
+  { id: 'growth', read: (s) => popGrowth(s).faith, say: grow('к приросту населения') },
+  { id: 'fervour', read: (s) => faithTilt(s).fervour, say: more('к стойкости дружины в обряд') },
+];
+
+/**
+ * Посёлок, где у здания другой уровень и на его местах стоят `hands` вольных, —
+ * и больше ничего не отличается. `hands` не задан — люди остаются, как стояли.
+ * Уровень ставится так же, как его ставит конец стройки: число и пустые леса.
+ */
+function variant(s: GameState, b: Building, level: number, hands?: number): { s: GameState; b: Building } {
+  const building: Building = { ...b, level, work: 0, workRequired: 0 };
+  const buildings = s.buildings.map((x) => (x.id === b.id ? building : x));
+  if (hands === undefined) return { s: { ...s, buildings }, b: building };
+  return {
+    s: { ...s, buildings, workers: { ...s.workers, [b.id]: hands }, bondedWork: { ...s.bondedWork, [b.id]: 0 } },
+    b: building,
+  };
 }
+
+/**
+ * Где игра читает труд тех, кто стоит на местах. Не таблица профессий, а двери в
+ * симуляцию: выработка двора по ресурсам, труд мастерской, работа горна и
+ * служители — те же функции, из которых разборы морали и набожности берут свои
+ * строки. Осады в замере нет — как и сезона.
+ */
+const WORK_LABELS: string[] = [
+  ...RESOURCE_IDS.map((r) => `${RESOURCE_META[r].icon} в день`),
+  'к скорости стройки',
+  'к ковке',
+  'к морали',
+  'к набожности',
+];
+
+function workOf(s: GameState, b: Building): number[] {
+  const calm: GameState = { ...s, siege: null };
+  const made = buildingProduction(calm, b, STILL);
+  return [
+    ...RESOURCE_IDS.map((r) => made[r]),
+    crafterBuildRate(calm, STILL),
+    forgeRate(calm, STILL),
+    priestMorale(calm),
+    priestPiety(calm),
+  ];
+}
+
+/** Что дают `hands` человек на местах здания этого уровня: разница с пустыми местами. */
+function handsWork(s: GameState, b: Building, level: number, hands: number): number[] {
+  const on = variant(s, b, level, hands);
+  const off = variant(s, b, level, 0);
+  const a = workOf(on.s, on.b);
+  const z = workOf(off.s, off.b);
+  return a.map((v, i) => v - z[i]);
+}
+
+const EPS = 1e-9;
+
+/**
+ * Растит ли уровень работу одного рабочего этого здания. У двора, мастерской и
+ * кузницы — растит; служителя храма уровень не усиливает: он держит мораль и
+ * набожность головой. Меряется так же, как кнопка, — трудом одного на двух уровнях.
+ */
+export function levelLiftsHand(s: GameState, b: Building): boolean {
+  if (buildingSlots(b) <= 0) return false;
+  const low = handsWork(s, b, 1, 1);
+  const high = handsWork(s, b, 2, 1);
+  return low.some((v, i) => v > EPS && Math.abs(high[i] - v) > EPS);
+}
+
+/**
+ * Дадут ли что-нибудь свободные места здания, если их занять. У двора — всегда;
+ * у храма, где служители уже упёрлись в потолок, — нет, и панель не должна звать
+ * туда людей. Меряется тем же трудом, что кнопка.
+ */
+export function spareSlotsHelp(s: GameState, b: Building, hands: number): boolean {
+  const slots = buildingSlots(b);
+  if (hands >= slots) return false;
+  const full = handsWork(s, b, b.level, slots);
+  const now = handsWork(s, b, b.level, hands);
+  return full.some((v, i) => v - now[i] > EPS);
+}
+
+/**
+ * Места и работа на них. Места меряются занятыми: сколько новых и дают ли они
+ * хоть что-нибудь, если их занять. Работник меряется одним: насколько больше он
+ * сделает на новом уровне.
+ */
+function workGains(s: GameState, b: Building, to: number): UpgradeGain[] {
+  const slotsNow = buildingSlots(b);
+  const slotsNext = buildingSlots({ ...b, level: to });
+  if (slotsNext <= 0) return [];
+  const out: UpgradeGain[] = [];
+
+  // Один работник на двух уровнях. Главная величина — та, что сдвинулась сильнее.
+  const one = handsWork(s, b, b.level, 1);
+  const oneNext = handsWork(s, b, to, 1);
+  let lift = 0;
+  let main = -1;
+  one.forEach((v, i) => {
+    if (v <= EPS) return;
+    const p = Math.round((oneNext[i] / v - 1) * 100);
+    if (main < 0 || Math.abs(p) > Math.abs(lift)) {
+      lift = p;
+      main = i;
+    }
+  });
+
+  const added = slotsNext - slotsNow;
+  if (added > 0) {
+    const full = handsWork(s, b, to, slotsNext);
+    const old = handsWork(s, b, to, slotsNow);
+    const gain = full.map((v, i) => v - old[i]);
+    if (gain.some((g) => g > EPS)) {
+      // Что места дают сверх «каждый рабочий +N %»: у служителей уровень не
+      // множит труд, и их прибавка названа числом — вместе с потолком, в который
+      // она упирается.
+      const flat = gain
+        .map((g, i) => ({ g: shown(g), i }))
+        .filter(({ g, i }) => g !== 0 && !(one[i] > EPS && Math.round((oneNext[i] / one[i] - 1) * 100) !== 0));
+      const places = `+${added} ${plural(added, 'рабочее место', 'рабочих места', 'рабочих мест')}`;
+      out.push({
+        id: 'slots',
+        before: slotsNow,
+        after: slotsNext,
+        text: flat.length > 0
+          ? `${places} — на них ещё ${flat.map(({ g, i }) => `${sign(g)}${Math.abs(g)} ${WORK_LABELS[i]}`).join(' и ')}`
+          : places,
+        numbers: [added, ...flat.map(({ g }) => Math.abs(g))],
+      });
+    } else {
+      out.push({
+        id: 'idleSlots',
+        before: slotsNow,
+        after: slotsNext,
+        text: 'новые рабочие места ничего не прибавят',
+        numbers: [],
+      });
+    }
+  }
+
+  if (main >= 0 && lift !== 0) {
+    out.push({
+      id: 'hand',
+      before: one[main],
+      after: oneNext[main],
+      text: `каждый рабочий ${sign(lift)}${Math.abs(lift)}%`,
+      numbers: [Math.abs(lift)],
+    });
+  }
+  return out;
+}
+
+/** Показания посёлка по всем величинам замера, в порядке `GAUGES`. */
+export type Readings = number[];
+
+/**
+ * Показания посёлка как он есть. У всех строк списка построек они общие — леса на
+ * здании не двигают ни одной величины, — поэтому список считает их один раз на
+ * отрисовку и отдаёт каждой строке: разборы морали и набожности — самое дорогое,
+ * что есть в замере.
+ */
+export const readVillage = (s: GameState): Readings => GAUGES.map((g) => g.read(s));
+
+/**
+ * Все прибавки уровня `to` против нынешнего — замером. Пусто — уровень ничего не
+ * даёт. `now` — показания этого же посёлка (`readVillage(s)`), если они уже есть.
+ */
+export function upgradeGains(s: GameState, b: Building, to: number, now: Readings = readVillage(s)): UpgradeGain[] {
+  const next = variant(s, b, to).s;
+  const out: UpgradeGain[] = [];
+  GAUGES.forEach((g, i) => {
+    const before = now[i];
+    const after = g.read(next);
+    const said = g.say(before, after);
+    if (said) out.push({ id: g.id, before, after, ...said });
+  });
+  return [...out, ...workGains(s, b, to)];
+}
+
+/** Прибавки одной строкой на кнопку. Нет ни одной — так и сказано. */
+export const gainText = (gains: UpgradeGain[]): string =>
+  gains.length > 0 ? gains.map((g) => g.text).join(', ') : NOTHING_GAINED;
+
+/** Что даст уровень — одной строкой на кнопку. */
+export const upgradeGain = (s: GameState, b: Building, to: number): string => gainText(upgradeGains(s, b, to));

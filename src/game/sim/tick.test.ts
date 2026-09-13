@@ -175,9 +175,11 @@ describe('службы посёлка', () => {
   it('конюшня ускоряет только конницу и даёт ей ступень снаряжения с четвёртого уровня', () => {
     const s = withLevel('stable', 10);
     place(s, 'barracks', 5);
-    expect(recruitRate(s, 'rider')).toBeCloseTo(recruitRate(s) * cavalryTrain(s), 6);
+    expect(recruitRate(s, 'rider')).toBeCloseTo(recruitRate(s, 'clubman') * cavalryTrain(s), 6);
     // Пеший вид от конюшни не ускоряется ни на волос.
-    expect(recruitRate(s, 'clubman')).toBe(recruitRate(s));
+    const plain = withLevel('stable', 1);
+    place(plain, 'barracks', 5);
+    expect(recruitRate(s, 'clubman')).toBe(recruitRate(plain, 'clubman'));
     expect(cavalryTrain(s)).toBeGreaterThan(1);
 
     expect(mountGear(withLevel('stable', 3))).toBe(0);

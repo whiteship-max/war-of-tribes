@@ -6,7 +6,6 @@ import {
   MAX_BUILDING_LEVEL,
   RESOURCE_IDS,
   RESOURCE_META,
-  SLOTS_PER_LEVEL,
 } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { EQUIPMENT } from '@/game/data/equipment';
@@ -68,12 +67,22 @@ import { Tavern } from '../parts/Tavern';
 import { Statue } from '../parts/Statue';
 import { Watch } from '../parts/Watch';
 import { Temple } from '../parts/Temple';
-import { upgradeGain } from '../parts/upgrade';
+import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
+import { militiaArchers } from '@/world/bridge';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
+
+/** «2 мин 40 с»: срок без округления до минут. */
+function minSec(sec: number): string {
+  const total = Math.round(sec);
+  const m = Math.floor(total / 60);
+  const r = total % 60;
+  if (m === 0) return `${r} с`;
+  return r > 0 ? `${m} мин ${r} с` : `${m} мин`;
+}
 
 /** Одинаковая для всех зданий панель: шапка, слоты рабочих, свои данные, свои действия. */
 export function BuildingPanel({ id }: { id: number }) {
@@ -97,6 +106,9 @@ export function BuildingPanel({ id }: { id: number }) {
   const eta = rate > 0 ? Math.ceil((b.workRequired - b.work) / rate) : null;
   const canLevel = (def.maxLevel ?? MAX_BUILDING_LEVEL) > 1;
   const upEta = rate > 0 ? Math.ceil(up.work / rate) : null;
+  // Что даст следующий уровень — замером (`parts/upgrade.ts`). Нужен и строке под
+  // ценой, и рабочим местам: звать людей на места, от которых нет толку, нельзя.
+  const gains = b.level < maxLevelFor(b.type) ? upgradeGains(s, b, b.level + 1) : null;
 
   return (
     <div className="panel">
@@ -128,8 +140,8 @@ export function BuildingPanel({ id }: { id: number }) {
 
       {isOutsideWall(b.type) && (
         <div className="note">
-          ⚠️ Двор стоит за стеной. Прорвавшийся набег разгонит отсюда людей, а самому
-          богатому двору собьёт уровень — внутри стены такого не бывает.
+          ⚠️ Двор стоит за стеной. Прорвавшийся набег разгонит отсюда людей, а при тяжёлом
+          поражении самому людному двору собьёт уровень — внутри стены такого не бывает.
         </div>
       )}
 
@@ -156,12 +168,12 @@ export function BuildingPanel({ id }: { id: number }) {
         canLevel && (
           <div className="upgrade">
             <Cost cost={up.cost} work={up.work} eta={upEta} />
-            <div className="hint">{up.blocked ?? upgradeGain(s, b, up.level)}</div>
+            <div className="hint">{up.blocked ?? (gains ? gainText(gains) : null)}</div>
           </div>
         )
       )}
 
-      <WorkerSlots b={b} />
+      <WorkerSlots b={b} gains={gains} />
       <BuildingData b={b} />
     </div>
   );
@@ -176,8 +188,12 @@ export function BuildingPanel({ id }: { id: number }) {
  *
  * Невольники встают на те же места вторым рядом шага — там, где работу дают
  * невольникам. Места общие: сколько занял один ряд, столько не достанется другому.
+ *
+ * Про места говорится то, что покажет замер, а не их число: у храма, где
+ * служители уже упёрлись в потолок, места есть, а толку от них нет, и звать туда
+ * людей — или на следующий уровень ради мест — значит врать.
  */
-function WorkerSlots({ b }: { b: Building }) {
+function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const def = BUILDING_BY_ID[b.type];
@@ -188,6 +204,21 @@ function WorkerSlots({ b }: { b: Building }) {
   const bonded = bondedCount(s, b.id);
   const free = idleCount(s);
   const hands = workers + bonded;
+  const nextSlots = gains?.find((g) => g.id === 'slots') ?? null;
+  const nextIdle = gains?.some((g) => g.id === 'idleSlots') ?? false;
+  const next = nextSlots
+    ? `Следующий уровень добавит ещё ${nextSlots.after - nextSlots.before}.`
+    : nextIdle
+      ? 'Места следующего уровня ничего не прибавят.'
+      : '';
+  const spare = slots > hands;
+  const status = !spare
+    ? nextSlots
+      ? 'Все места заняты — нужен уровень выше.'
+      : `Все места заняты.${next ? ` ${next}` : ''}`
+    : spareSlotsHelp(s, b, hands)
+      ? `Свободных мест: ${slots - hands}.${next ? ` ${next}` : ''}`
+      : `Свободных мест: ${slots - hands}, но занять их незачем — то, что они дают, уже упёрлось в потолок.`;
   // Ряд невольников показывается там, где их ставят, и только когда есть кого
   // ставить или кто-то уже стоит: пустой ряд у посёлка без невольников — шум.
   const bondedRow = takesBonded(b) && (bondedTotal(s) > 0 || bonded > 0);
@@ -209,11 +240,7 @@ function WorkerSlots({ b }: { b: Building }) {
             Рабочих в здании
             <span className="count">свободных: {free}</span>
           </div>
-          <div className="desc">
-            {slots > hands
-              ? `Свободных мест: ${slots - hands}. Следующий уровень добавит ещё ${def.slotsPerLevel ?? SLOTS_PER_LEVEL}.`
-              : 'Все места заняты — нужен уровень выше.'}
-          </div>
+          <div className="desc">{status}</div>
         </div>
       </div>
       <Steps
@@ -457,6 +484,7 @@ function GenericData({ b }: { b: Building }) {
   const workers = workerCount(s, b.id);
   const bonded = bondedCount(s, b.id);
   const jobDef = def.job ? JOB_BY_ID[def.job] : null;
+  const lifts = jobDef !== null && levelLiftsHand(s, b);
 
   // Строка «что даёт посёлку»: имя значка, эмодзи на его месте, название, величина.
   // Имя стоит рядом с эмодзи, а не вместо: пока значка нет, показывается эмодзи.
@@ -471,14 +499,17 @@ function GenericData({ b }: { b: Building }) {
   if (morale) stats.push(['mood-good', '😊', 'К морали', `+${morale}`]);
   // Службы посёлка: у каждой одно число, и лучше показать его словами игрока,
   // а не названием поля. Числа берутся из тех же функций, что и логика.
-  const archers = buildingStat(b, 'archers');
-  if (archers) stats.push(['gear-bow', '🏹', 'Ополченцев выйдет стрелками', `${archers}`]);
+  // Стрелков столько, сколько их выйдет на деле (`militiaArchers`): поле башни
+  // упирается ещё и в само ополчение.
+  if (buildingStat(b, 'archers')) stats.push(['gear-bow', '🏹', 'Ополченцев выйдет стрелками', `${militiaArchers(s)}`]);
   if (b.type === 'infirmary') {
     stats.push(['ui-bandage', '🩹', 'Потерь вернётся ранеными', `${Math.round(healShare(s) * 100)}%`]);
   }
   if (b.type === 'watch') {
     stats.push(['ui-spyglass', '🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
-    stats.push(['ui-time', '⏳', 'Набег виден дольше на', `${Math.round(warningSeconds(s) / 60)} мин`]);
+    // Минуты с секундами, а не округлённые минуты: округление и было враньём
+    // кнопки — девять уровней обещали девять минут, а давали шесть.
+    stats.push(['ui-time', '⏳', 'Набег виден дольше на', minSec(warningSeconds(s))]);
     stats.push([
       'hud-map',
       '🗺️',
@@ -536,7 +567,7 @@ function GenericData({ b }: { b: Building }) {
                 <Icon name={`job-${jobDef.id}`} glyph={jobDef.icon} />
               </span>
               <span className="name">Рабочих: {workers}</span>
-              <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>
+              {lifts && <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>}
             </div>
           )}
           {/* Та же выработка на ту же долю: множитель берётся тот же, а не свой. */}
@@ -544,11 +575,18 @@ function GenericData({ b }: { b: Building }) {
             <div className="mod">
               <span className="ico">{ORDER_TEXT.bondedIcon}</span>
               <span className="name">Невольников: {bonded}</span>
-              <span className="val">×{(workerMultiplier(s, jobDef.id, b) * BONDED_OUTPUT).toFixed(2)} каждый</span>
+              {lifts && (
+                <span className="val">×{(workerMultiplier(s, jobDef.id, b) * BONDED_OUTPUT).toFixed(2)} каждый</span>
+              )}
             </div>
           )}
+          {/* Множитель уровня стоит только там, где игра им умножает. Служителя храма
+              уровень не усиливает — он держит мораль и набожность головой, до потолка, —
+              и «×1.40 от базы» у него было бы враньём (замер — `levelLiftsHand`). */}
           <div className="note">
-            Уровень {b.level}: каждый рабочий работает на ×{levelOutputMult(b.level).toFixed(2)} от базы.
+            {lifts
+              ? `Уровень ${b.level}: каждый рабочий работает на ×${levelOutputMult(b.level).toFixed(2)} от базы.`
+              : 'Уровень здания рабочих не усиливает: каждый даёт своё по голове, до потолка.'}
           </div>
         </>
       )}

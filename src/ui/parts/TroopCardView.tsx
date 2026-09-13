@@ -5,7 +5,8 @@ import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
-import { buildingOfType, recruitRate } from '@/game/derived';
+import { buildingOfType } from '@/game/derived';
+import { recruitCheck } from '@/game/sim/army';
 import { temperOf, troopCard } from '@/game/battle/describe';
 import { weightOf } from '@/game/battle/kinds';
 import { GEAR } from '@/battle';
@@ -46,8 +47,9 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
   const card = troopCard(troop);
   const { def, meta, morale, cost, stats } = card;
   const have = Math.max(0, s.army[troop] ?? 0);
-  const rate = recruitRate(s);
-  const eta = rate > 0 ? Math.ceil(cost.work / rate) : null;
+  // Срок одного бойца — тем же расчётом, что у кнопки найма: с его видом, а у
+  // всадника, значит, и с конюшней.
+  const eta = recruitCheck(s, troop, 1).eta;
   const barracks = buildingOfType(s, 'barracks');
   const smithy = buildingOfType(s, 'smithy');
   const outs = card.counters.filter((c) => c.dir === 'out');

@@ -60,8 +60,19 @@ export function MoralePanel() {
       hint: 'вычитается уже после потолка шкалы',
     });
   }
-  // Пир ложится туда же, где вычитается налог, — после потолка шкалы. В общий
-  // список он не попадает по той же причине: слагаемым до потолка он не является.
+  // Пир и обряд ложатся туда же, где вычитается налог, — после потолка шкалы. В
+  // общий список они не попадают по той же причине: слагаемыми до потолка они не
+  // являются. Строк две, а не одна: это два здания и два решения, и обряд без
+  // пира, подписанный «Пиром в трактире», отправлял игрока не в то здание.
+  if (b.rite > 0) {
+    up.unshift({
+      id: 'rite',
+      icon: '🕯️',
+      name: 'Обряд в приходе',
+      value: b.rite,
+      hint: 'прибавляется уже после потолка шкалы',
+    });
+  }
   if (b.feast > 0) {
     up.unshift({
       id: 'feast',
@@ -144,6 +155,13 @@ export function MoralePanel() {
           <span className="ico">🍺</span>
           <span className="name">Плюс пир в трактире</span>
           <span className="val pos">+{b.feast}</span>
+        </div>
+      )}
+      {b.rite > 0 && (
+        <div className="mod">
+          <span className="ico">🕯️</span>
+          <span className="name">Плюс обряд</span>
+          <span className="val pos">+{b.rite}</span>
         </div>
       )}
       <div className="mod total">

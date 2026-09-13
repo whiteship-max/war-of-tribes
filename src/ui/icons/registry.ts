@@ -93,7 +93,7 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   // тоже нет — рисунок без места мёртвый вес (разбор в OBJECTS.md).
   { prefix: 'maze', ids: ['key', 'door', 'chest'], source: 'клетки лабиринта' },
   { prefix: 'soc', ids: SOCIAL_LINKS.map((l) => l.id), source: 'SOCIAL_LINKS' },
-  // Шесть достижений из восьми берут уже нарисованное — см. ALIAS ниже.
+  // Шесть достижений из семи берут уже нарисованное — см. ALIAS ниже.
   { prefix: 'ach', ids: ACHIEVEMENTS.map((a) => a.id), source: 'ACHIEVEMENTS' },
   { prefix: 'state', ids: Object.keys(STANDING_META), source: 'STANDING_META' },
   { prefix: 'deal', ids: DEALS.map((d) => d.id), source: 'DEALS' },
@@ -137,14 +137,14 @@ const ALIAS: Record<string, IconName> = {
   // Наборы алмазов на витрине: горсть — это сам алмаз, сундук — общий сундук.
   'ui-handful': 'res-gem',
   'ui-chest': 'ui-crate',
-  // Достижения: шесть из восьми — про то, что уже нарисовано. Второго рисунка
-  // тому же событию заводить незачем (техзадание, 1.19).
+  // Достижения: шесть из семи — про то, что уже нарисовано. Второго рисунка
+  // тому же событию заводить незачем (техзадание, 1.19). «Взятого замка» среди
+  // них больше нет: замков на карте нет, и достижение убрано (data/quests.ts).
   'ach-first_gear': 'job-smith',
   'ach-first_scout': 'fig-scout',
   'ach-first_raid': 'hud-army',
   'ach-first_hunt': 'gear-bow',
   'ach-twenty_people': 'bld-houses',
-  'ach-castle': 'stage-castle',
   'ach-survivor': 'day-night',
 };
 

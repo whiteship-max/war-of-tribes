@@ -135,6 +135,19 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
 }
 
 /**
+ * Секунд до конца заказа, пока он первый в очереди. Скорость та же, какой идёт
+ * сама очередь (`recruitTick`): со своим видом бойца — у всадника, значит, и с
+ * конюшней. Своего подсчёта срока у панели казарм нет: он расходился с очередью
+ * ровно на множитель конюшни. null — казармы стоят.
+ */
+export function orderEta(s: GameState, order: RecruitOrder): number | null {
+  const rate = recruitRate(s, order.troop);
+  if (rate <= 0) return null;
+  const left = TROOP_BY_ID[order.troop].work * (order.count - order.done) - order.work;
+  return Math.ceil(Math.max(0, left) / rate);
+}
+
+/**
  * Шаг казарм: обучается только первый заказ в очереди. Остаток работы после
  * последнего бойца переходит следующему заказу — очередь не теряет время.
  */

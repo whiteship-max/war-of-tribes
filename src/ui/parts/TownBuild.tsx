@@ -1,6 +1,6 @@
 import type { Building, GameState } from '@/game/types';
 import { useGame } from '@/game/store';
-import { MAX_BUILDING_LEVEL, SLOTS_PER_LEVEL } from '@/game/constants';
+import { MAX_BUILDING_LEVEL } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
 import { ORDER_TEXT } from '@/game/data/order';
 import {
@@ -21,7 +21,7 @@ import {
 import { gemsOf, rushPrice, rushUpgrade } from '@/game/sim/gems';
 import { startUpgrade } from '@/game/sim/actions';
 import { Cost } from './Cost';
-import { upgradeGain } from './upgrade';
+import { gainText, readVillage, upgradeGains, type Readings, type UpgradeGain } from './upgrade';
 import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
@@ -73,16 +73,18 @@ function rowFacts(s: GameState, b: Building): string {
 
 /**
  * Цена уровня в людях — третий столбец после ресурсов и времени, как в ратуше
- * городских стратегий. Считается только для рабочих зданий: там новый уровень
- * и правда просит людей. У жилья величина обратная (места под крышей), и её не
- * дублируем — она уже стоит в строке «что даст уровень».
+ * городских стратегий. Стоит только там, где новые места и правда просят людей:
+ * берётся из того же замера, что строка «что даст уровень». Места, которым нечего
+ * дать (служители храма сверх потолка), людей не просят — и столбца у них нет.
+ * У жилья величина обратная (места под крышей), и её не дублируем — она уже стоит
+ * в строке «что даст уровень».
  */
-function peopleCell(b: Building): ReactNode {
-  const def = BUILDING_BY_ID[b.type];
-  if (!def.job) return null;
+function peopleCell(gains: UpgradeGain[]): ReactNode {
+  const slots = gains.find((g) => g.id === 'slots');
+  if (!slots) return null;
   return (
     <>
-      <Icon name="ui-person" glyph="👤" /> +{def.slotsPerLevel ?? SLOTS_PER_LEVEL}
+      <Icon name="ui-person" glyph="👤" /> +{slots.after - slots.before}
     </>
   );
 }
@@ -108,6 +110,9 @@ export function TownBuild() {
     .filter((b) => !isSite(b) && upgradeInfo(s, b).blocked !== null)
     .sort(byOrder);
   const mult = townHallBuildMult(s);
+  // Показания посёлка для строк «что даст уровень»: общие у всех строк, поэтому
+  // одни на отрисовку.
+  const base = readVillage(s);
 
   return (
     <>
@@ -134,7 +139,7 @@ export function TownBuild() {
 
       <h3>Постройки</h3>
       {ready.map((b) => (
-        <BuildRow key={b.id} b={b} rate={rate} />
+        <BuildRow key={b.id} b={b} rate={rate} base={base} />
       ))}
 
       {locked.length > 0 && (
@@ -211,7 +216,7 @@ function SiteRow({ b, first, rate }: { b: Building; first: boolean; rate: number
 }
 
 /** Постройка, которой можно дать новый уровень прямо сейчас. */
-function BuildRow({ b, rate }: { b: Building; rate: number }) {
+function BuildRow({ b, rate, base }: { b: Building; rate: number; base: Readings }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const openBuilding = useGame((g) => g.openBuilding);
@@ -219,7 +224,8 @@ function BuildRow({ b, rate }: { b: Building; rate: number }) {
   const up = upgradeInfo(s, b);
   const top = def.maxLevel ?? MAX_BUILDING_LEVEL;
   const attn = buildingAttention(s, b);
-  const people = peopleCell(b);
+  const gains = upgradeGains(s, b, up.level, base);
+  const people = peopleCell(gains);
   const eta = rate > 0 ? up.work / rate : null;
 
   return (
@@ -241,7 +247,7 @@ function BuildRow({ b, rate }: { b: Building; rate: number }) {
             </span>
           </span>
           <span className="desc">{rowFacts(s, b)}</span>
-          <span className="desc gain">{upgradeGain(s, b, up.level)}</span>
+          <span className="desc gain">{gainText(gains)}</span>
         </span>
       </button>
       <Cost

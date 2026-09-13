@@ -1,15 +1,22 @@
 import { useGame } from '@/game/store';
 import { DAY_LENGTH } from '@/game/constants';
-import { heroInfo } from '@/game/derived';
+import { commandCap, heroInfo } from '@/game/derived';
 import { setHeroKind } from '@/game/sim/actions';
 import { OWN_KINDS } from '@/game/battle/kinds';
 import { KIND_META } from '@/battle';
+import { count } from './plural';
 
 /**
  * Статуя Героя. Морали она не даёт нарочно — их в посёлке уже четыре источника;
- * она даёт племени имя. Всё, что здесь есть: кто он, где он и какой род ведёт.
- * Прогноза «насколько он усилит бой» нет, как и везде: показано только число
- * людей, которые за ним идут.
+ * она даёт племени имя. Здесь два числа и одно решение: сколько дружины уводит
+ * полководец, кто герой, где он и какой род ведёт. Прогноза «насколько он усилит
+ * бой» нет, как и везде: показано только число людей, которые за ним идут.
+ *
+ * Вместимость полководца стоит первой: это главное число здания — то, во что
+ * упирается любой поход, — и прежде его не было ни здесь, ни на кнопке улучшения,
+ * а только в редакторе дружины на карте. Единицы у двух чисел разные, и сказано
+ * это словами: за героем идут бойцы строя (латник весит восьмерых), а полководец
+ * уводит бойцов по головам, любого вида.
  */
 export function Statue() {
   const s = useGame((g) => g.s);
@@ -18,6 +25,16 @@ export function Statue() {
 
   return (
     <>
+      <h3>Полководец</h3>
+      <div className="mod total">
+        <span className="ico">⚔️</span>
+        <span className="name">
+          Уводит в поле
+          <em className="sub">по головам, любого вида: латник здесь один</em>
+        </span>
+        <span className="val pos">{count(commandCap(s), 'боец', 'бойца', 'бойцов')}</span>
+      </div>
+
       <h3>
         Герой <span className="muted">{info.name}</span>
       </h3>

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { SpareSave } from '../parts/Sync';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
-import { ACHIEVEMENTS, QUESTS } from '@/game/data/quests';
+import { ACHIEVEMENTS, QUESTS, questsDone } from '@/game/data/quests';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Chronicle } from '../parts/Chronicle';
 import { DailyPage } from '../parts/daily/DailyPage';
@@ -28,7 +28,7 @@ import { CHEAT_MARK } from '@/cheats';
 export function QuestsPanel() {
   const s = useGame((g) => g.s);
   const [page, setPage] = useState<'quests' | 'daily'>('quests');
-  const doneCount = s.completedQuests.length;
+  const doneCount = questsDone(s);
 
   return (
     <div className="panel">

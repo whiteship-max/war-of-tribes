@@ -1920,6 +1920,13 @@ export class LocalWorld implements WorldApi {
    * из мощи и сида (см. garrison.ts), поэтому разведка и бой видят одно и то же
    * войско, а не два разных. План, приказы и резерв в снимок не попадают — их
    * разведка не даёт, и вся неопределённость держится на этом.
+   *
+   * Стойкость (`keen`) пишется здесь, в момент разведки, по Дозору из слепка
+   * деревни: данные, собранные хорошим дозором, и остаются хорошими, а построенный
+   * потом Дозор старый снимок не молодит. Поле было объявлено и читалось
+   * (`intel.readIntel`), но записано не было ни разу — улучшение Дозора обещало
+   * стойкость разведданных и не давало её. Держит это тест «снимок несёт всё,
+   * что читает readIntel» в world.test.ts.
    */
   private snapshot(s: GenSettlement, now: number): Intel {
     const power = this.powerNow(s, now);
@@ -1928,6 +1935,7 @@ export class LocalWorld implements WorldApi {
     for (const id of [...FRONT, ...REAR]) formation[id] = { ...g.setup.sectors[id] };
     return {
       at: now,
+      keen: Math.max(1, this.save.profile?.intelKeen ?? 1),
       power,
       pop: this.popNow(s, now),
       // Разведка видит амбары, а не подпол: в снимок идёт открытая часть склада,

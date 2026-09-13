@@ -5,7 +5,7 @@ import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { setDecree, setRation } from './actions';
 import { forgeCheck, startForge } from './smithy';
-import { cancelRecruit, recruitCheck, startRecruit } from './army';
+import { cancelRecruit, orderEta, recruitCheck, recruitTick, startRecruit } from './army';
 import { assignWorker, changeFreeJob } from './workers';
 import { seeded, setRandom } from './random';
 import { DAY_LENGTH, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
@@ -21,6 +21,7 @@ import {
   idleCount,
   policyMoralePerDay,
   productionPerDay,
+  recruitRate,
 } from '../derived';
 
 beforeEach(() => setRandom(seeded(7)));
@@ -210,6 +211,43 @@ describe('казармы', () => {
     s.army.spearman = 5;
     expect(foodConsumptionPerDay(s)).toBeCloseTo(eat0 + 5 * 1.2, 5);
     expect(housingCapacity(s)).toBe(housing0);
+  });
+});
+
+describe('срок найма — это ход очереди', () => {
+  it('без вида бойца срок не собирается', () => {
+    const s = warband();
+    // Скорости «казарм вообще» у игры нет: всадник учится с конюшней, пеший — без.
+    // Пока вид был необязательным, очередь казарм и карточка вида считали срок без
+    // него. Станет вид снова необязательным — эта строка перестанет быть ошибкой
+    // типов, и `npm run typecheck` упадёт на лишней директиве.
+    // @ts-expect-error — вид бойца обязателен.
+    expect(() => recruitRate(s)).toThrow();
+  });
+
+  it('всадник с конюшней учится ровно столько, сколько написано в очереди и в карточке', () => {
+    // Казармы пятого уровня. Строка очереди и карточка вида считали срок без вида
+    // бойца и показывали всаднику 13 секунд при любой конюшне; кнопка найма и сама
+    // очередь всегда шли с конюшней.
+    for (const [stable, seconds] of [
+      [1, 11],
+      [4, 8],
+      [10, 5],
+    ] as const) {
+      const s = warband();
+      place(s, 'barracks', 5);
+      place(s, 'stable', stable);
+      s.recruits = [{ id: 1, troop: 'rider', count: 1, done: 0, work: 0, people: 1 }];
+      const eta = orderEta(s, s.recruits[0]);
+      expect(eta, `конюшня ${stable}: строка очереди`).toBe(seconds);
+      // Карточка вида и кнопка найма считают тем же расчётом.
+      expect(recruitCheck(s, 'rider', 1).eta, `конюшня ${stable}: карточка`).toBe(seconds);
+      // И сама очередь: секундой раньше боец не готов, в срок — готов.
+      recruitTick(s, seconds - 1);
+      expect(s.army.rider ?? 0, `конюшня ${stable}: раньше срока`).toBe(0);
+      recruitTick(s, 1);
+      expect(s.army.rider, `конюшня ${stable}: в срок`).toBe(1);
+    }
   });
 });
 

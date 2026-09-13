@@ -1,6 +1,13 @@
-// Задания: дорога от холодного горна к первому походу и дальше к замку.
+// Задания: дорога от холодного горна к первому походу и к большой дружине.
 // Посёлок стоит с первого дня, поэтому «построй» здесь нет — только армия,
 // снаряжение, разведка, походы и то, что их кормит: уровни, золото, люди.
+//
+// Задания на то, чего в мире нет, здесь быть не должно: недостижимое задание
+// занимает одно из трёх мест на экране навсегда, и значок на кнопке «Задания»
+// не гаснет никогда. Так было с «Взятым замком» — замков на карте нет (у логова
+// `castle: false`), и задание вместе с одноимённым достижением убрано. Вернуть их
+// заставит тест (`quests.test.ts`): в тот день, когда мир поставит замок,
+// задания на него обязаны появиться.
 import type { GameState, ResourceId } from '../types';
 import { armySize, buildingOfType, jobCounts } from '../derived';
 
@@ -116,7 +123,7 @@ export const QUESTS: QuestDef[] = [
   {
     id: 'gold_150',
     title: 'Полная казна',
-    description: 'Собери 1200 золота — налогом или из чужих замков.',
+    description: 'Собери 1200 золота: налог в ратуше, десятина прихода, продажа невольников на рынке.',
     check: (s) => s.gold >= 1200,
     progress: upTo((s) => s.gold, 1200),
     reward: { food: 400 },
@@ -138,13 +145,6 @@ export const QUESTS: QuestDef[] = [
     reward: { food: 600, wood: 300 },
   },
   {
-    id: 'castle',
-    title: 'Взятый замок',
-    description: 'Возьми замок и привези золото из его казны.',
-    check: (s) => (s.stats.castles ?? 0) >= 1,
-    reward: { wood: 640, stone: 640, food: 640 },
-  },
-  {
     id: 'army_25',
     title: 'Большая дружина',
     description: 'Доведи дружину до двухсот бойцов.',
@@ -155,6 +155,15 @@ export const QUESTS: QuestDef[] = [
 ];
 
 export const QUEST_BY_ID = Object.fromEntries(QUESTS.map((q) => [q.id, q])) as Record<string, QuestDef>;
+
+/**
+ * Сколько заданий из нынешнего списка выполнено. Считается по списку заданий, а не
+ * по длине записи о выполненных: в сохранениях остаются идентификаторы заданий,
+ * которых больше нет (так останется `castle` у тех, кто брал замок, пока замки
+ * были), и счёт выходил бы «17 из 16».
+ */
+export const questsDone = (s: GameState): number =>
+  QUESTS.filter((q) => s.completedQuests.includes(q.id)).length;
 
 export interface AchievementDef {
   id: string;
@@ -171,5 +180,4 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first_hunt', icon: '🏹', title: 'Первая охота', check: (s) => s.stats.hunts >= 1 },
   { id: 'survivor', icon: '🌙', title: 'Пережили 10 дней', check: (s) => s.time >= 10 * 60 },
   { id: 'twenty_people', icon: '🏘️', title: '200 жителей', check: (s) => s.pop >= 200 },
-  { id: 'castle', icon: '🏰', title: 'Взятый замок', check: (s) => (s.stats.castles ?? 0) >= 1 },
 ];

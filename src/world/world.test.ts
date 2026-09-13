@@ -1033,6 +1033,144 @@ describe('состав отряда и отчёт о бое', () => {
   });
 });
 
+describe('снимок разведки несёт всё, что читает readIntel', () => {
+  // Поле `keen` было объявлено, `readIntel` делил на него возраст снимка, Дозор
+  // обещал «разведданные стареют медленнее» — а записать его в снимок забыли, и
+  // заметил это только аудит зданий: читатель молча брал единицу. Тест проверяет
+  // правило, а не одно поле: всё, что читает читатель, обязан писать каждый, кто
+  // выпускает снимок, — разведчик походом, разведчик-фигура, лазутчик и бой.
+
+  const saveOf = (w: LocalWorld): { intel: Record<string, Intel> } =>
+    (w as unknown as { save: { intel: Record<string, Intel> } }).save;
+
+  /**
+   * Какие поля снимка читает `readIntel`. Не список руками: чтения записывает
+   * прокси — на свежем, стареющем и старом снимке, потому что у разных возрастов
+   * разные ветки чтения.
+   */
+  function fieldsRead(intel: Intel): Set<string> {
+    const read = new Set<string>();
+    const watched = new Proxy(intel, {
+      get(target, key, receiver) {
+        if (typeof key === 'string') read.add(key);
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    for (const age of [0, INTEL_EXACT + 1000, INTEL_ROUGH + 1000, INTEL_VAGUE + 1000]) readIntel(watched, intel.at + age);
+    return read;
+  }
+
+  /** Чего у снимка этого рода нет по устройству — и почему. Всё прочее обязано быть. */
+  const ABSENT: Record<string, string[]> = {
+    // Своими глазами: числа точные, вилки нет.
+    'разведчик походом': ['spread'],
+    'разведчик-фигура': ['spread'],
+    бой: ['spread'],
+    // Лазутчик считает головы из разговоров: вилка есть, построения он не видит.
+    лазутчик: ['formation'],
+  };
+
+  /** Дозор посёлка: снимки обязаны запомнить именно его. */
+  const KEEN = 1.7;
+
+  async function snapshots(): Promise<Record<string, Intel>> {
+    const out: Record<string, Intel> = {};
+    const p = profile({ intelKeen: KEEN, army: { clubman: 2 }, warriorPower: 1 });
+
+    // Разведчик походом.
+    {
+      const w = makeWorld(55);
+      await w.world.sync(p);
+      const target = await nearest(w.world);
+      const sent = await w.world.send({ target: target.id, mission: 'scout', units: { scout: 3 } });
+      w.at((sent.march as MarchView).arriveAt);
+      await w.world.sync(p);
+      out['разведчик походом'] = saveOf(w.world).intel[target.id];
+    }
+
+    // Разведчик-фигура: у ворот его могут схватить, поэтому ищется сид, где дошёл.
+    for (const seed of [55, 56, 57, 58, 59, 60, 61, 62]) {
+      const w = makeWorld(seed);
+      await w.world.sync(p);
+      const target = await nearest(w.world);
+      if ((await w.world.moveFigure('scout', { x: target.x, y: target.y })) !== null) continue;
+      const f = (await w.world.figures()).find((x) => x.id === 'scout') as FigureView;
+      w.at(f.arriveAt);
+      await w.world.sync(p);
+      const snap = saveOf(w.world).intel[target.id];
+      if (snap) {
+        out['разведчик-фигура'] = snap;
+        break;
+      }
+    }
+
+    // Лазутчик: дело повторяется, пока донесение не придёт.
+    {
+      const w = makeWorld(67);
+      await w.world.sync(p);
+      const target = await nearest(w.world);
+      expect(await w.world.moveFigure('spy', { x: target.x, y: target.y })).toBeNull();
+      const f = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+      w.at(f.arriveAt);
+      await w.world.sync(p);
+      for (let i = 0; i < 25 && !out['лазутчик']; i++) {
+        const spy = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+        if (spy.busyUntil > w.now()) w.at(spy.busyUntil);
+        await w.world.sync(p);
+        const res = await w.world.order('probe', target.id);
+        expect(res.error).toBeNull();
+        if (res.accepted) out['лазутчик'] = saveOf(w.world).intel[target.id];
+      }
+    }
+
+    // Бой полководца. Снимок берётся из отчёта: сожжённое логово свой снимок
+    // из сохранения уносит, а отчёт о бое его хранит.
+    {
+      const w = makeWorld(2024);
+      const target = await nearest(w.world);
+      const { pulse } = await raidWith(w, target, p);
+      const report = pulse.reports.find((r) => r.kind === 'raid');
+      if (report?.intel) out['бой'] = report.intel;
+    }
+    return out;
+  }
+
+  /** Снимки собираются один раз на оба теста: каждый род снимка — свой мир, прожитый до разведки или боя. */
+  let taken: Promise<Record<string, Intel>> | null = null;
+  const collected = (): Promise<Record<string, Intel>> => (taken ??= snapshots());
+
+  it('каждое поле, которое читает readIntel, есть в снимке разведчика, лазутчика и боя', async () => {
+    const snaps = await collected();
+    expect(Object.keys(snaps).sort(), 'все роды снимков получены').toEqual(Object.keys(ABSENT).sort());
+    for (const [source, snap] of Object.entries(snaps)) {
+      const read = fieldsRead(snap);
+      expect(read.size, source).toBeGreaterThan(3);
+      for (const field of read) {
+        if (ABSENT[source].includes(field)) continue;
+        expect((snap as unknown as Record<string, unknown>)[field], `${source}: поле «${field}» читается, но не пишется`).not.toBeUndefined();
+      }
+    }
+  }, 60_000);
+
+  it('Дозор держит обещание: снимок, собранный при Дозоре, стареет медленнее ровно во столько раз', async () => {
+    const snaps = await collected();
+    for (const [source, snap] of Object.entries(snaps)) {
+      expect(snap.keen, source).toBe(KEEN);
+      // Там, где без Дозора от снимка остался бы только порядок величины, с ним
+      // он ещё примерный — и грубеет в срок, умноженный ровно на стойкость. Эта
+      // ступень есть у всех четырёх родов: донесение лазутчика точным не бывает.
+      expect(readIntel(snap, snap.at + INTEL_ROUGH + 1000)?.precision, source).toBe('rough');
+      expect(readIntel(snap, snap.at + INTEL_ROUGH * KEEN - 1000)?.precision, source).toBe('rough');
+      expect(readIntel(snap, snap.at + INTEL_ROUGH * KEEN + 1000)?.precision, source).toBe('vague');
+      // У снимков своими глазами — и точная ступень тянется так же.
+      if (!snap.spread) {
+        expect(readIntel(snap, snap.at + INTEL_EXACT * KEEN - 1000)?.precision, source).toBe('exact');
+        expect(readIntel(snap, snap.at + INTEL_EXACT * KEEN + 1000)?.precision, source).toBe('rough');
+      }
+    }
+  }, 60_000);
+});
+
 describe('заморозка обороны', () => {
   const incoming = (arriveAt: number): MarchView => ({
     id: 'x',

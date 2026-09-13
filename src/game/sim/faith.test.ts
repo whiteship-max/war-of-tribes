@@ -21,6 +21,7 @@ import {
   PIETY_HERESY,
   RESOURCE_IDS,
   RITE_DAYS,
+  RITE_MORALE,
   STRAIN_DAYS,
 } from '../constants';
 import { FAITHS, FAITH_BY_ID, FAITH_IDS, OBSERVANCES, tiltAt } from '../data/faiths';
@@ -468,6 +469,20 @@ describe('праздники и святыня', () => {
     s.time += SEASON_DAYS * DAY_LENGTH;
     expect(riteInfo(s).blocked).toBeNull();
     expect(riteInfo(s).feast!.name).not.toBe(info.feast!.name);
+  });
+
+  it('обряд без пира — обряд, а не пир: в разборе морали это два разных числа', () => {
+    // Пока они лежали одним полем, справка о морали подписывала обряд «Пиром в
+    // трактире» и отправляла игрока не в то здание.
+    const s = village('pagan');
+    s.gold = 1_000_000;
+    const before = moraleBreakdown(s);
+    expect(holdRite(s)).toBeNull();
+    const during = moraleBreakdown(s);
+    expect(during.feast, 'пира не задавали').toBe(0);
+    expect(during.rite).toBe(RITE_MORALE);
+    // Цель сдвинулась ровно на обряд — до потолка шкалы.
+    expect(during.target).toBe(Math.min(100, before.target + RITE_MORALE));
   });
 
   it('святыня одна на веру и одинакова по силе у всех четырёх', () => {

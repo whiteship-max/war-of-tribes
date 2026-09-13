@@ -10,9 +10,8 @@ import {
   buildingOfType,
   defense,
   idleCount,
-  recruitRate,
 } from '@/game/derived';
-import { recruitCheck } from '@/game/sim/army';
+import { orderEta, recruitCheck } from '@/game/sim/army';
 import { cancelRecruit, startRecruit } from '@/game/sim/actions';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -30,7 +29,6 @@ export function Barracks() {
   const act = useGame((g) => g.act);
   const [counts, setCounts] = useState<Partial<Record<TroopId, number>>>({});
   const smithy = buildingOfType(s, 'smithy');
-  const rate = recruitRate(s);
   const free = idleCount(s);
 
   const setCount = (id: TroopId, n: number): void =>
@@ -62,8 +60,8 @@ export function Barracks() {
           <h3>Очередь найма</h3>
           {s.recruits.map((o, i) => {
             const def = TROOP_BY_ID[o.troop];
-            const left = def.work * (o.count - o.done) - o.work;
-            const eta = rate > 0 ? Math.ceil(Math.max(0, left) / rate) : null;
+            // Срок — той же скоростью, какой идёт очередь: с видом бойца и конюшней.
+            const eta = orderEta(s, o);
             const pct = Math.floor((o.work / def.work) * 100);
             return (
               <div className="card" key={o.id}>

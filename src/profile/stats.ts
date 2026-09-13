@@ -187,7 +187,7 @@ export function setAvatar(s: GameState, id: AvatarId): string | null {
 
 /**
  * Отказ от своего выбора: вернуть фото Telegram. Без этого выбор был бы
- * необратимым — а необратимых развилок в игре ровно одна, и это покровитель.
+ * необратимым — а необратимая развилка в игре одна, и это крещение.
  */
 export function clearAvatar(s: GameState): string | null {
   s.profile.avatarId = null;
