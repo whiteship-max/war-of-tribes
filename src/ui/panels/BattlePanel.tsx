@@ -15,7 +15,7 @@ import { useGame } from '@/game/store';
 import { useWorld, defenseLock, worldNow } from '@/world/store';
 import { defense, fervour, homeArmy } from '@/game/derived';
 import { militiaArchers, militiaMen } from '@/world/bridge';
-import { awayOf, homeOf } from '@/world/muster';
+import { awayOf, defendersOf, postureOf, standingTroops } from '@/world/muster';
 import { heroInfo, heroReady } from '@/game/derived';
 import { KIND_META } from '@/battle';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -73,8 +73,11 @@ export function BattlePanel({ targetId }: Props) {
   const strike = useWorld((g) => g.attack);
   const general = figures.find((f) => f.id === 'general');
   const away = useMemo(() => awayOf(marches, figures), [marches, figures]);
-  // В бою расставляют то, что при полководце; дома — весь гарнизон.
-  const home = useMemo(() => (attack ? (general?.troops ?? {}) : homeOf(s.army, away)), [s, away, attack, general]);
+  // В бою расставляют то, что при полководце; дома — всю оборону: гарнизон и
+  // дружину, если она собрана и стоит у своих ворот (`world/muster`).
+  const home = useMemo(() => (attack ? (general?.troops ?? {}) : defendersOf(s.army, away)), [s, away, attack, general]);
+  const standing = troopTotal(standingTroops(s.army, away));
+  const posture = general ? postureOf(general) : 'none';
   const lock = defenseLock(marches, worldNow());
 
   const [picked, setPicked] = useState<TroopStack>(() => ({ ...home }));
@@ -190,11 +193,22 @@ export function BattlePanel({ targetId }: Props) {
       <div className="body">
         <div className="name">Оборона деревни</div>
         <div className="lvl">
-          гарнизон {homeArmy(s)} · ополчение {militiaMen(s)}
+          в обороне {homeArmy(s)}
+          {standing > 0 ? ` (дружина ${standing})` : ''} · ополчение {militiaMen(s)}
         </div>
       </div>
     </div>
   );
+  // Дружина, которой в обороне нет, — строкой под шапкой: за эту разницу игрок
+  // платит, и узнавать о ней из отчёта после боя поздно.
+  const druzhinaNote =
+    attack || !general
+      ? null
+      : posture === 'gathering'
+        ? `Дружина полководца (${troopTotal(general.troops)}) в сборе: пока он идёт, она не стоит ни в гарнизоне, ни в обороне.`
+        : posture === 'engaged'
+          ? `Дружина полководца (${troopTotal(general.troops)}) занята — в пути или в поле, — и деревню не защищает.`
+          : null;
 
   return (
     <div className="panel">
@@ -220,8 +234,9 @@ export function BattlePanel({ targetId }: Props) {
       {attack && <IntelCard intel={card?.intel ?? null} name={card?.name ?? 'это место'} />}
 
       <h3>
-        Состав <small>{attack ? 'при полководце' : 'весь гарнизон'}</small>
+        Состав <small>{attack ? 'при полководце' : standing > 0 ? 'гарнизон и дружина у ворот' : 'весь гарнизон'}</small>
       </h3>
+      {druzhinaNote && <p className="note bad">{druzhinaNote}</p>}
       {troopTotal(home) === 0 ? (
         <div className="desc">
           {attack

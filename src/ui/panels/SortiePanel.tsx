@@ -14,7 +14,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
-import { awayOf, homeOf } from '@/world/muster';
+import { awayOf, homeOf, standingTroops } from '@/world/muster';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { formatLeft, secondsLeft } from '@/world/geo';
@@ -65,12 +65,15 @@ export function SortiePanel() {
   const sortie = useWorld((g) => g.sortie);
 
   const away = useMemo(() => awayOf(marches, figures), [marches, figures]);
+  // Выходят из гарнизона. Дружина, собранная у своих ворот, стену держит, но с
+  // вылазкой не выходит: за ворота её ведёт полководец своим приказом.
   const home = useMemo(() => homeOf(s.army, away), [s, away]);
+  const standing = useMemo(() => troopTotal(standingTroops(s.army, away)), [s, away]);
   const [picked, setPicked] = useState<TroopStack>({});
   const [busy, setBusy] = useState(false);
 
   const men = troopTotal(picked);
-  const stay = troopTotal(home) - men;
+  const stay = troopTotal(home) - men + standing;
 
   if (!siege) {
     return (
@@ -164,10 +167,16 @@ export function SortiePanel() {
           ))}
           <div className="mod total">
             <span className="ico">🏠</span>
-            <span className="name">Останется за стеной</span>
+            <span className="name">{standing > 0 ? `Останется за стеной, с дружиной ${standing}` : 'Останется за стеной'}</span>
             <span className={stay > 0 ? 'val' : 'val neg'}>{stay}</span>
           </div>
         </div>
+      )}
+      {standing > 0 && (
+        <p className="note">
+          Дружина полководца у ворот с вылазкой не выходит: она держит стену, а по лагерю бьёт приказом
+          полководца.
+        </p>
       )}
 
       <div className="cost">

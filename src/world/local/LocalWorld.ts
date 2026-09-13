@@ -166,7 +166,7 @@ import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garris
 import type { FaithId } from '@/game/types';
 import { ORDER_TEXT } from '@/game/data/order';
 import { fitSetup, resolveField, type FieldOutcome } from '../battle';
-import { awayOf, homeOf, weakest } from '../muster';
+import { awayOf, defendersOf, homeOf, standingShare, standingTroops, weakest } from '../muster';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
@@ -756,9 +756,10 @@ export class LocalWorld implements WorldApi {
       const p = this.save.profile;
       return {
         food: p?.food ?? 0,
-        // Рты за стеной — гарнизон в эту минуту, а не войско из слепка: дружина
-        // при полководце ест у него, а не в осаждённом городе.
-        garrison: troopTotal(this.garrison(now)) + extraMen,
+        // Рты за стеной — оборона в эту минуту, а не войско из слепка: гарнизон и
+        // дружина, собранная дома. Дружина в поле ест у полководца, а та, что
+        // идёт сбором, — ни у кого из осаждённых.
+        garrison: troopTotal(this.defenders(now).all) + extraMen,
         townPerHour: p?.foodPerHour ?? 0,
         perManPerHour: p?.soldierFoodPerHour ?? 0,
       };
@@ -781,9 +782,10 @@ export class LocalWorld implements WorldApi {
    *
    * `extraMen` — поправка к гарнизону чужого города: его люди выводятся из мощи,
    * и вышедшие на вылазку и не вернувшиеся в ней ещё не учтены (число
-   * отрицательное). У своей деревни поправки не бывает: её гарнизон мир считает
-   * в эту самую минуту (`garrison`) — дружина, дошедшая до ворот, вернувшаяся от
-   * полководца или полёгшая на вылазке, в нём уже есть или уже нет.
+   * отрицательное). У своей деревни поправки не бывает: её оборону мир считает
+   * в эту самую минуту (`defenders`) — отряд, дошедший до ворот, дружина,
+   * вставшая дома или ушедшая в сбор, полёгшие на вылазке в ней уже есть или уже
+   * нет.
    *
    * Начало осады и её одноразовые события при пересчёте не двигаются: осада
    * идёт та же, меняются только часы.
@@ -815,13 +817,14 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Гарнизон изменился — часы голода считаются заново. Один раз, в самом
+   * Оборона изменилась — часы голода считаются заново. Один раз, в самом
    * событии: пересчёт на каждое изменение и был бы тем самым тиком, которого у
-   * осады нет. Поводов четыре — дружина дошла домой, передача войска вернула её
-   * в гарнизон, вылазка вышла и не вернулась, лагерь потерял людей.
+   * осады нет. Поводы — отряд дошёл домой, передача дружины началась или
+   * кончилась, полководец с дружиной встал у своих ворот, вылазка или удар
+   * полководца по лагерю у своих ворот стоили людей, лагерь потерял людей.
    *
-   * Зовётся **после** того, как событие изменило войско: гарнизон своей деревни
-   * читается в эту минуту, и поправка ему не нужна.
+   * Зовётся **после** того, как событие изменило войско: оборона своей деревни
+   * читается в эту минуту, и поправка ей не нужна.
    */
   private resiege(id: SettlementId, now: number, extraMen = 0): void {
     const w = this.siegeOf(id, now);
@@ -1180,10 +1183,12 @@ export class LocalWorld implements WorldApi {
   /** Пал наш город. Всё, что при этом происходит, — здесь и больше нигде. */
   private homeFalls(w: SiegeWindow, at: number): void {
     const p = this.save.profile;
-    // Расходится гарнизон, а не всё войско: дружина при полководце в городе не
-    // голодала, и рассеивать её вместе с ним значило бы снять людей, которых
-    // полководец по-прежнему держит в строю.
-    const army = this.garrison(at);
+    // Расходится оборона, а не всё войско: гарнизон и дружина, если она собрана
+    // и стоит дома, — она голодала за той же стеной. Дружина в поле или в сборе
+    // в городе не голодала, и рассеивать её значило бы снять людей, которых
+    // полководец по-прежнему держит при себе.
+    const held = this.defenders(at);
+    const army = held.all;
     // Гарнизон рассеян: люди с оружием из взятого голодом города расходятся.
     const routed: TroopStack = {};
     for (const id of TROOP_IDS) {
@@ -1191,6 +1196,7 @@ export class LocalWorld implements WorldApi {
       if (gone > 0) routed[id] = gone;
     }
     const men = troopTotal(routed);
+    this.standingLost(held.garrison, held.standing, routed);
     const camp = this.save.marches.find((m) => m.id === w.campId);
     // Берут столько, сколько унесут, и всё, что не влезло в тайник: правило то
     // же, что у прорвавшегося набега, и функция та же (`spoils.plunder`).
@@ -1502,8 +1508,9 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     const w = this.homeSiege(now);
     if (!w) return { error: 'Под стенами никого: выходить не на кого.', reportId: null, won: false };
-    // Выходят из гарнизона, а дружина при полководце — не гарнизон, даже когда
-    // он стоит у своих ворот (`world/muster`).
+    // Выходят из гарнизона. Дружина, собранная дома, стену держит, но гарнизоном
+    // не становится (`world/muster`): за ворота она выходит своим приказом —
+    // полководец бьёт по лагерю (`breakCamp`).
     const home = this.garrison(now);
     const going: TroopStack = {};
     for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
@@ -2303,6 +2310,10 @@ export class LocalWorld implements WorldApi {
         f.phase = this.touching(f.to)?.home ? 'home' : 'field';
         this.onFigureArrived(id, at);
         if (this.save.figures[id].phase === 'down') continue;
+        // Полководец с дружиной встал у своих ворот — дружина вошла в оборону, и
+        // за стеной прибавилось ртов. Путь из осаждённого города заперт, а домой
+        // открыт, поэтому этот повод под осадой случается, а обратный — нет.
+        if (id === 'general' && f.phase === 'home') this.resiege(HOME_ID, at);
       }
       // Разведчик, стоящий у чужого поселения, считает войско заново, пока стоит:
       // это и есть его умение, и на нём держится ценность фигуры.
@@ -2853,6 +2864,8 @@ export class LocalWorld implements WorldApi {
     f.arriveAt = now;
     f.phase = this.touching(at)?.home ? 'home' : 'field';
     f.chase = undefined;
+    // Встал у своих ворот — дружина в обороне (см. `stepFigures`).
+    if (f.phase === 'home') this.resiege(HOME_ID, now);
     this.addEffect({
       id: `chase-lost-${now}`,
       lost: {},
@@ -3091,11 +3104,13 @@ export class LocalWorld implements WorldApi {
 
     const profile = this.save.profile;
     const party = raidingParty(this.save.seed, m.id, m.power);
-    // Гарнизон дома: бойцы племени плюс ополчение — частокол, башня и сами жители.
-    // Ополчение в расстановке не участвует: пехота растекается по фронту сама,
-    // а стрелков башни ставит во вторую линию `toArmySetup`. Дружины при
-    // полководце здесь нет, даже если он стоит у своих ворот (`world/muster`).
-    const home = this.garrison(at);
+    // Оборона дома: гарнизон, дружина, если она собрана и стоит у своих ворот, плюс
+    // ополчение — частокол, башня и сами жители. Ополчение в расстановке не
+    // участвует: пехота растекается по фронту сама, а стрелков башни ставит во
+    // вторую линию `toArmySetup`. Дружины в сборе, в пути, в поле и в лагере здесь
+    // нет, даже если полководец в двух шагах от ворот (`world/muster.postureOf`).
+    const held = this.defenders(at);
+    const home = held.all;
     const militia = Math.max(0, Math.round(profile?.militia ?? 0));
     // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род.
     const archers = Math.min(militia, Math.max(0, Math.round(profile?.militiaArchers ?? 0)));
@@ -3103,8 +3118,8 @@ export class LocalWorld implements WorldApi {
     homeKinds.infantry += militia - archers;
     homeKinds.archer += archers;
     // Оборона, запертая за пять минут до прихода: менять её было уже нельзя.
-    // Заперта расстановка, а не люди в ней: ушедшего после этого к полководцу
-    // она в строй у частокола не вернёт — в строю не больше, чем стоит дома.
+    // Заперта расстановка, а не люди в ней: ушедшего после этого в сбор или в
+    // поле она в строй у частокола не вернёт — в строю не больше, чем стоит дома.
     const frozen = this.save.frozenDefense;
     const planned = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);
     const setup = planned ? fitSetup(planned, homeKinds) : null;
@@ -3134,10 +3149,11 @@ export class LocalWorld implements WorldApi {
     const spread = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
     const warriorsLost = Math.min(warriors, troopTotal(spread) || Math.round(warriors * outcome.defenderLoss));
     // Погибают те, кто стоял у частокола. Потери, которые не легли ни на один
-    // вид гарнизона, называются поимённо здесь же — со слабых, — а не числом:
+    // вид обороны, называются поимённо здесь же — со слабых, — а не числом:
     // числом племя сняло бы их со всей дружины и могло задеть тех, кто при
-    // полководце.
+    // полководце в поле. Дружина у ворот теряет свою долю сразу.
     const troopsLost = troopTotal(spread) > 0 ? spread : weakest(home, warriorsLost);
+    this.standingLost(held.garrison, held.standing, troopsLost);
     // Симметрия: прорвавшийся набег чистит наш склад тем же правилом и той же
     // функцией, какой мы чистим чужие дворы, — всё, кроме тайника, и не больше,
     // чем поднимет отряд. Считается это здесь, **после** проверки `AWAY_GRACE`:
@@ -3648,8 +3664,6 @@ export class LocalWorld implements WorldApi {
     }
     const lostMen = men - troopTotal(left);
     const campLost = this.resolveSortieOn(id, at, field, 'Полководец ударил по лагерю.');
-    // Осада не снята — гарнизон города не менялся, а вот наши потери к нему не
-    // относятся: в лагере стояли не они. Пересчитывать часы голода не с чего.
     const target = id === HOME_ID ? null : this.byId.get(id);
     const place = target ? { id, name: target.name, x: target.x, y: target.y } : {
       id: HOME_ID,
@@ -3705,6 +3719,11 @@ export class LocalWorld implements WorldApi {
     } else {
       f.troops = left;
     }
+    // Под своими стенами дружина вышла из обороны на время боя и вернулась в неё
+    // поредевшей: осада не снята — рты за стеной стали другими, и часы голода
+    // считаются заново, здесь, в самом событии. У чужих стен наши потери к
+    // городу не относятся: в нём стояли не мы.
+    if (id === HOME_ID && !field.won) this.resiege(HOME_ID, at);
     this.write();
     return { error: null, reportId, won: field.won };
   }
@@ -4336,8 +4355,11 @@ export class LocalWorld implements WorldApi {
    *
    * `troops` — каким войско должно стать. Разница с нынешним и есть то, что
    * переходит из деревни к полководцу или обратно, поэтому взять больше, чем
-   * стоит дома, нельзя. Дома — это гарнизон (`garrison`), и тех, кто уже при
-   * полководце, в нём нет: он стоит у своих ворот, но его дружина — не гарнизон.
+   * стоит в гарнизоне, нельзя. Тех, кто уже при полководце, в гарнизоне нет:
+   * собранная дома дружина стоит в обороне, но гарнизоном не становится.
+   *
+   * Сбор — плата: пока он идёт, в `troops` числятся все, кого он касается, и в
+   * обороне их нет ни как гарнизона, ни как дружины (`world/muster.postureOf`).
    */
   async setGarrison(troops: TroopStack | null): Promise<string | null> {
     const now = this.clock();
@@ -4389,6 +4411,8 @@ export class LocalWorld implements WorldApi {
     const wait = Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN);
     f.troops = troopTotal(onRoad) > 0 ? onRoad : undefined;
     f.handover = { troops: next, until: now + wait };
+    // Дружина, стоявшая в обороне, ушла в сбор: за стеной её больше не кормят.
+    this.resiege(HOME_ID, now);
     this.write();
     return null;
   }
@@ -4409,7 +4433,36 @@ export class LocalWorld implements WorldApi {
   private garrison(now: number): TroopStack {
     const f = this.save.figures.general;
     this.settleHandover(f, now);
-    return homeOf(this.save.profile?.army ?? {}, awayOf(this.save.marches, [f]));
+    return homeOf(this.save.profile?.army ?? {}, awayOf(this.save.marches, [f], now));
+  }
+
+  /**
+   * Оборона деревни в эту минуту: гарнизон и дружина, если она собрана и стоит
+   * дома (`world/muster.postureOf`). Её читают все, кто спрашивает «кто держит
+   * стену»: бой у частокола, рты за стеной в осаде и рассеяние при падении. Кто
+   * выходит **из ворот** — вылазка, отряд, передача полководцу, — берёт только из
+   * гарнизона (`garrison`): дружина за ворота выходит своим приказом.
+   */
+  private defenders(now: number): { garrison: TroopStack; standing: TroopStack; all: TroopStack } {
+    const f = this.save.figures.general;
+    this.settleHandover(f, now);
+    const army = this.save.profile?.army ?? {};
+    const away = awayOf(this.save.marches, [f], now);
+    return { garrison: homeOf(army, away), standing: standingTroops(army, away), all: defendersOf(army, away) };
+  }
+
+  /**
+   * Оборона понесла потери — дружина, стоявшая в ней, теряет свою долю тут же:
+   * у частокола гибнут вместе (`standingShare`). Всё войско племени убудет по
+   * последствию, а при полководце вычёркиваются ровно павшие из дружины — иначе
+   * он держал бы людей, которых у племени уже нет, до сверки на следующем пульсе.
+   */
+  private standingLost(garrison: TroopStack, standing: TroopStack, lost: TroopStack): void {
+    const share = standingShare(garrison, standing, lost);
+    if (troopTotal(share) === 0) return;
+    const f = this.save.figures.general;
+    const left = troopsAfter(f.troops ?? {}, share);
+    f.troops = troopTotal(left) > 0 ? left : undefined;
   }
 
   /**
@@ -4459,13 +4512,13 @@ export class LocalWorld implements WorldApi {
   private settleHandover(f: StoredFigure, now: number): void {
     if (!f.handover || now < f.handover.until) return;
     const next = f.handover.troops;
-    // Сколько вернулось в гарнизон. Под осадой часы голода пересчитываются, как
-    // от любого другого подкрепления, — после того, как люди сняты с полководца:
-    // гарнизон читается в эту минуту и их уже считает.
-    const back = Math.max(0, troopTotal(f.troops ?? {}) - troopTotal(next));
+    // Сбор кончился: вернувшиеся встали в гарнизон, а собранная дружина — в
+    // оборону у своих ворот. Под осадой часы голода пересчитываются, как от
+    // любого другого подкрепления, — после того, как состав стал новым: оборона
+    // читается в эту минуту и их уже считает.
     f.troops = troopTotal(next) > 0 ? { ...next } : undefined;
     f.handover = undefined;
-    if (back > 0) this.resiege(HOME_ID, now);
+    this.resiege(HOME_ID, now);
   }
 
   async attack(order: AttackOrder): Promise<AttackResult> {

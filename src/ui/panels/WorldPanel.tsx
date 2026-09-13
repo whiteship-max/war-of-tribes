@@ -19,7 +19,7 @@ import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
-import { awayOf, homeOf } from '@/world/muster';
+import { awayOf, homeOf, postureOf } from '@/world/muster';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { Icon } from '@/ui/icons/Icon';
@@ -48,7 +48,8 @@ function GarrisonEditor() {
   const setGarrison = useWorld((g) => g.setGarrison);
   const general = figures.find((f) => f.id === 'general');
   const held: TroopStack = general?.troops ?? {};
-  const home = homeOf(s.army, awayOf(marches, figures));
+  const away = awayOf(marches, figures);
+  const home = homeOf(s.army, away);
   const [want, setWant] = useState<TroopStack>(held);
   const [busy, setBusy] = useState(false);
 
@@ -64,13 +65,27 @@ function GarrisonEditor() {
   const cap = general.capacity;
   const over = Math.max(0, total - cap);
   const gathering = general.readyAt > worldNow();
-  // Дружина при полководце деревню не защищает — ни в поле, ни у своих ворот:
-  // боец стоит ровно в одном месте (`world/muster`). Игрок обязан видеть, какой
-  // станет оборона, до того, как отдаст людей, а не в отчёте после. Число
-  // считает та же `defense`, что и всегда, — только для дружины, которую он
-  // выбрал, а не своей арифметикой рядом.
+  const posture = postureOf(general);
+  // Три состояния дружины, и за разницу между ними игрок платит: собранная и
+  // стоящая у своих ворот — в обороне вместе с гарнизоном; пока идёт сбор, эти
+  // люди не защищают никого; в поле — не защищают тоже (`world/muster`). Игрок
+  // обязан видеть обе цены до того, как отдаст приказ: сколько обороны стоит сам
+  // сбор и какой она станет, когда дружина соберётся. Считает та же `defense`,
+  // что и всегда, — только для выбранной дружины, а не своей арифметикой рядом.
   const def = defense(s);
-  const after = defense({ ...s, warriorsAway: Math.max(0, s.warriorsAway - troopTotal(held) + total) });
+  // Не в обороне сверх дружины: отряды в пути. Дружина, стоящая дома, в
+  // `warriorsAway` не входит; в сборе и в поле — входит вся.
+  const marchesOut = Math.max(0, s.warriorsAway - (posture === 'stands' ? 0 : troopTotal(held)));
+  // В сборе числятся все, кого он касается, — те же `max(было, станет)` по видам,
+  // что кладёт в дружину сам мир (`setGarrison`). Ничего не меняется — сбора нет.
+  let onRoad = 0;
+  let moved = 0;
+  for (const t of TROOP_IDS) {
+    onRoad += Math.max(held[t] ?? 0, want[t] ?? 0);
+    moved += Math.abs((held[t] ?? 0) - (want[t] ?? 0));
+  }
+  const during = defense({ ...s, warriorsAway: marchesOut + onRoad });
+  const after = defense({ ...s, warriorsAway: marchesOut });
   const apply = async (next: TroopStack | null): Promise<void> => {
     setBusy(true);
     const err = await setGarrison(next);
@@ -86,12 +101,19 @@ function GarrisonEditor() {
           {total} из {cap}
         </small>
       </h3>
-      {gathering && (
+      {gathering ? (
         <p className="note bad">
-          Дружина в дороге: {formatLeft(secondsLeft(general.readyAt, worldNow()))}. Пока она идёт,
-          деревню эти люди уже не защищают, а в бой ещё не годятся.
+          Идёт сбор: ещё {formatLeft(secondsLeft(general.readyAt, worldNow()))}. Пока он идёт, все{' '}
+          {troopTotal(held)} не защищают деревню ни как гарнизон, ни как дружина — и в бой не годятся.
         </p>
-      )}
+      ) : posture === 'stands' ? (
+        <p className="note">
+          Собрана и дома: {troopTotal(held)} стоят в обороне вместе с гарнизоном — у частокола, у амбара
+          и под рассеянием, если город падёт.
+        </p>
+      ) : posture === 'engaged' ? (
+        <p className="note bad">Дружина занята: пока полководец в пути или в поле, деревню она не защищает.</p>
+      ) : null}
       {rows.length === 0 ? (
         <div className="desc">Бойцов нет ни дома, ни при нём. Найми кого-нибудь в казармах.</div>
       ) : (
@@ -139,12 +161,19 @@ function GarrisonEditor() {
           <span className="name">Статуя держит</span>
           <span className={`val ${over > 0 ? 'neg' : ''}`}>{cap} бойцов</span>
         </div>
+        {moved > 0 && (
+          <div className="mod">
+            <span className="ico">⏳</span>
+            <span className="name">Пока идёт сбор, оборона</span>
+            <span className={`val ${during < def * 0.5 ? 'neg' : ''}`}>
+              {Math.round(def)} → {Math.round(during)}
+            </span>
+          </div>
+        )}
         <div className="mod total">
           <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
-          <span className="name">С такой дружиной оборона станет</span>
-          <span className={`val ${after < def * 0.5 ? 'neg' : ''}`}>
-            {Math.round(def)} → {Math.round(after)}
-          </span>
+          <span className="name">Соберётся и встанет дома — оборона</span>
+          <span className="val">{Math.round(after)}</span>
         </div>
       </div>
       <div className="wm-actions">
@@ -160,8 +189,10 @@ function GarrisonEditor() {
         </button>
       </div>
       <p className="note">
-        Дружина при полководце деревню не защищает — ни в поле, ни у своих ворот: дома остаются частокол,
-        башня, жители и те, кого он не взял. Сбор и роспуск занимают время: войско не перескакивает между ролями.
+        Дружина, собранная и стоящая у своих ворот, держит оборону вместе с гарнизоном. Пока идёт сбор или
+        роспуск, эти люди не защищают никого, а уведёшь полководца в поле — дома останутся частокол, башня,
+        жители и те, кого он не взял. Статуя ограничивает не оборону, а то, сколько бойцов можно вывести из
+        города.
       </p>
     </>
   );
@@ -178,6 +209,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const loading = useWorld((g) => g.cardLoading);
   const send = useWorld((g) => g.send);
   const figures = useWorld((g) => g.figures);
+  const marches = useWorld((g) => g.marches);
   const moveFigure = useWorld((g) => g.moveFigure);
   const attack = useWorld((g) => g.attack);
   const besiege = useWorld((g) => g.besiege);
@@ -288,7 +320,9 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
     );
   }
 
-  const have = sendableUnits(s);
+  // Отряд уходит из гарнизона: дружина, стоящая у ворот, в обороне, но за ворота
+  // гонцом не выходит — мир такой приказ не примет (`LocalWorld.send`).
+  const have = { ...sendableUnits(s), warrior: troopTotal(homeOf(s.army, awayOf(marches, figures))) };
   const strength = soldierPower(s);
   const def = defense(s);
   const picked = { warrior: pick.warrior ?? 0, scout: pick.scout ?? 0 };

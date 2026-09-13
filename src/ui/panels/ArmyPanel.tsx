@@ -7,7 +7,9 @@ import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
 import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
 import { KIND_META } from '@/battle';
-import { KIND_OF } from '@/game/battle/kinds';
+import { KIND_OF, troopTotal } from '@/game/battle/kinds';
+import { useWorld } from '@/world/store';
+import { postureOf } from '@/world/muster';
 import { moraleOf } from '@/game/battle/describe';
 import { CounterRing } from '../parts/CounterRing';
 import { TroopCardView } from '../parts/TroopCardView';
@@ -21,6 +23,10 @@ export function ArmyPanel() {
   const away = Math.max(0, s.warriorsAway);
   const home = homeArmy(s);
   const training = recruitsQueued(s);
+  // Где дружина — три состояния, и за разницу между ними игрок платит.
+  const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
+  const druzhina = troopTotal(general?.troops ?? {});
+  const posture = general ? postureOf(general) : 'none';
 
   if (open) return <TroopCardView troop={open} onBack={() => setOpen(null)} />;
 
@@ -34,18 +40,34 @@ export function ArmyPanel() {
         <span className="ico">🛡️</span>
         <span className="name">
           Защита поселения
-          <em className="sub">частокол, башня, жители и те бойцы, что дома</em>
+          <em className="sub">частокол, башня, жители, гарнизон и дружина, собранная дома</em>
         </span>
         <span className="val pos">{defense(s).toFixed(0)}</span>
       </div>
       <div className="mod">
         <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
-        <span className="name">Дома</span>
+        <span className="name">Дома, в обороне</span>
         <span className="val">{home}</span>
       </div>
+      {druzhina > 0 && (
+        <div className="mod">
+          <span className="ico">🎖️</span>
+          <span className="name">
+            Дружина полководца
+            <em className="sub">
+              {posture === 'stands'
+                ? 'собрана и дома — стоит в обороне'
+                : posture === 'gathering'
+                  ? 'идёт сбор — не защищает никого'
+                  : 'в пути или в поле — деревню не защищает'}
+            </em>
+          </span>
+          <span className={`val${posture === 'stands' ? '' : ' neg'}`}>{druzhina}</span>
+        </div>
+      )}
       <div className="mod">
         <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
-        <span className="name">При полководце и в походе</span>
+        <span className="name">Не в обороне: сбор, поле, походы</span>
         <span className={`val${away > 0 ? ' neg' : ''}`}>{away}</span>
       </div>
       {training > 0 && (

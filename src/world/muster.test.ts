@@ -5,12 +5,23 @@ import { deserialize, serialize } from '@/game/save';
 import { armySize } from '@/game/derived';
 import { seeded } from '@/game/sim/random';
 import { TROOP_IDS } from '@/game/data/troops';
-import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { presetFormation, toArmySetup } from '@/game/battle/formation';
 import type { GameState, TroopId } from '@/game/types';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from './bridge';
-import { NOBODY_AWAY, awayMen, awayOf, homeOf, weakest } from './muster';
+import {
+  NOBODY_AWAY,
+  awayMen,
+  awayOf,
+  defendersOf,
+  homeOf,
+  outMen,
+  postureOf,
+  standingShare,
+  standingTroops,
+  weakest,
+} from './muster';
 import { fitSetup } from './battle';
 import { distance } from './geo';
 import type { FigureView, MarchView, PlayerProfile, Report, SettlementView, WorldPulse } from './types';
@@ -41,25 +52,73 @@ const march = (over: Partial<MarchView>): MarchView => ({
   ...over,
 });
 
-describe('кто из дружины дома — одно правило', () => {
-  it('войско при полководце не дома ни в одной фазе, чужие отряды не в счёт', () => {
-    for (const phase of ['home', 'moving', 'field', 'down'] as const) {
-      const general = { phase, troops: { clubman: 10, archer: 4 } };
+describe('где стоит боец — одно правило', () => {
+  it('дружина не в гарнизоне ни в одной фазе, а в обороне — только собранная дома', () => {
+    const cases = [
+      { phase: 'home', readyAt: 0, posture: 'stands' },
+      { phase: 'home', readyAt: START + 5000, posture: 'gathering' },
+      { phase: 'moving', readyAt: 0, posture: 'engaged' },
+      { phase: 'field', readyAt: 0, posture: 'engaged' },
+      { phase: 'field', readyAt: START + 5000, posture: 'gathering' },
+      { phase: 'down', readyAt: 0, posture: 'engaged' },
+    ] as const;
+    for (const c of cases) {
+      const general = { phase: c.phase, readyAt: c.readyAt, troops: { clubman: 10, archer: 4 } };
+      expect(postureOf(general), `фаза ${c.phase}, сбор до ${c.readyAt}`).toBe(c.posture);
       const away = awayOf([march({ own: false, units: { warrior: 99 } })], [general]);
-      expect(away.troops, `полководец в фазе ${phase}: его дружина не дома`).toEqual({ clubman: 10, archer: 4 });
+      expect(away.troops, `фаза ${c.phase}: дружина не в гарнизоне`).toEqual({ clubman: 10, archer: 4 });
       expect(away.loose, 'чужой отряд в свои ушедшие не пишется').toBe(0);
-      expect(homeOf({ clubman: 10, archer: 10 }, away), `фаза ${phase}: дома только лучники`).toEqual({ archer: 6 });
+      const army = { clubman: 10, archer: 10 };
+      expect(homeOf(army, away), `фаза ${c.phase}: в гарнизоне только лучники`).toEqual({ archer: 6 });
+      const defenders = defendersOf(army, away);
+      expect(defenders, `фаза ${c.phase}: оборона`).toEqual(c.posture === 'stands' ? army : { archer: 6 });
+      expect(troopTotal(defenders) + outMen(away), `фаза ${c.phase}: в обороне и вне её — всё войско`).toBe(20);
     }
+    expect(postureOf({ phase: 'home', troops: {} }), 'пустая дружина').toBe('none');
+  });
+
+  it('минута спрашивается честно: сбор кончился — стоит, встал позже боя — не стоял', () => {
+    const f = { phase: 'home' as const, departAt: START + 10_000, handover: { until: START + 20_000 }, troops: { clubman: 3 } };
+    expect(postureOf(f, START + 15_000)).toBe('gathering');
+    expect(postureOf({ ...f, handover: null }, START + 5_000), 'встал у ворот после этой минуты').toBe('engaged');
+    expect(postureOf({ ...f, handover: null }, START + 10_000)).toBe('stands');
+    expect(postureOf({ ...f, readyAt: START + 20_000, handover: undefined }, START + 25_000), 'сбор кончился').toBe('stands');
   });
 
   it('отряд без состава снимается со слабых, и гарнизон не бывает отрицательным', () => {
-    const away = awayOf([march({ units: { warrior: 7 } })], [{ troops: { legionary: 50 } }]);
+    const away = awayOf([march({ units: { warrior: 7 } })], [{ phase: 'field', troops: { legionary: 50 } }]);
     expect(awayMen(away)).toBe(57);
     // Дубинщиков пять, копейщиков трое: семерых без имени снимают со слабого конца.
     expect(homeOf({ clubman: 5, spearman: 3, legionary: 20 }, away)).toEqual({ spearman: 1 });
     expect(weakest({ archer: 2, clubman: 1 }, 2)).toEqual({ clubman: 1, archer: 1 });
     expect(homeOf({}, away), 'в мире числится больше, чем есть: дома просто никого').toEqual({});
     expect(homeOf({ rider: 3 }, NOBODY_AWAY)).toEqual({ rider: 3 });
+    // Дружина из старого сохранения больше войска: в оборону встаёт не больше, чем есть.
+    const doubled = awayOf([], [{ phase: 'home', troops: { clubman: 110 } }]);
+    expect(standingTroops({ clubman: 10, archer: 10 }, doubled)).toEqual({ clubman: 10 });
+    expect(defendersOf({ clubman: 10, archer: 10 }, doubled)).toEqual({ clubman: 10, archer: 10 });
+  });
+
+  it('потери обороны делятся между гарнизоном и дружиной до бойца, и никто не теряет больше, чем стоял', () => {
+    const rng = seeded(4242);
+    for (let i = 0; i < 2000; i++) {
+      const garrison: TroopStack = {};
+      const standing: TroopStack = {};
+      const lost: TroopStack = {};
+      for (const id of TROOP_IDS) {
+        if (rng() < 0.6) garrison[id] = Math.floor(rng() * 30);
+        if (rng() < 0.6) standing[id] = Math.floor(rng() * 30);
+        lost[id] = Math.floor(rng() * ((garrison[id] ?? 0) + (standing[id] ?? 0) + 1));
+      }
+      const share = standingShare(garrison, standing, lost);
+      for (const id of TROOP_IDS) {
+        const s = share[id] ?? 0;
+        expect(s, `набор ${i}: ${id} дружина не теряет больше, чем стояло`).toBeLessThanOrEqual(standing[id] ?? 0);
+        expect((lost[id] ?? 0) - s, `набор ${i}: ${id} гарнизон не теряет больше, чем стояло`).toBeLessThanOrEqual(garrison[id] ?? 0);
+        expect((lost[id] ?? 0) - s, `набор ${i}: ${id}`).toBeGreaterThanOrEqual(0);
+      }
+    }
+    expect(standingShare({ clubman: 4 }, { clubman: 10 }, { clubman: 7 })).toEqual({ clubman: 5 });
   });
 
   it('расстановка из гарнизона подрезке не подлежит, а сверх гарнизона — снимается с конца', () => {
@@ -107,6 +166,17 @@ function memory(data: string | null = null) {
   };
 }
 
+const plus = (a: TroopStack, b: TroopStack): TroopStack => {
+  const out: TroopStack = {};
+  for (const id of TROOP_IDS) {
+    const n = (a[id] ?? 0) + (b[id] ?? 0);
+    if (n > 0) out[id] = n;
+  }
+  return out;
+};
+
+const NO_GENERAL = { phase: 'home', troops: {}, readyAt: 0, departAt: 0 } as unknown as FigureView;
+
 /**
  * Партия целиком: племя, мир с ручными часами и мост между ними. Пульс — ровно
  * тот, что в `world/store.pulse`: слепок по спискам с прошлого пульса, мир,
@@ -118,6 +188,12 @@ class Party {
   /** Сколько раз мир принял передачу дружины: тест, в котором не прошло ничего, ничего и не доказал. */
   taken = 0;
   battles = 0;
+  /** Сколько боёв у частокола дружина простояла в обороне. */
+  stood = 0;
+  /** Бои дружины, отданные приказом: номер отчёта → кто был при полководце до боя. */
+  ordered = new Map<string, TroopStack>();
+  /** Полководцу велено догонять: бой погони — тоже приказ. */
+  chased = false;
 
   private constructor(
     public s: GameState,
@@ -149,6 +225,7 @@ class Party {
     const next = new Party(s, new LocalWorld({ now: () => clock.now, storage: store }), store, clock, this.over);
     next.taken = this.taken;
     next.battles = this.battles;
+    next.stood = this.stood;
     return next;
   }
 
@@ -160,10 +237,16 @@ class Party {
     return (await this.world.figures()).find((f) => f.id === 'general') as FigureView;
   }
 
+  /** Полководец, каким его знает партия с последнего пульса или приказа. */
+  known(): FigureView {
+    return this.figures.find((f) => f.id === 'general') ?? NO_GENERAL;
+  }
+
   async pulse(step: string): Promise<WorldPulse> {
-    // Кто в эту минуту при полководце и сколько войска у племени — до пульса:
-    // бой пульса считался из них.
-    const held = (await this.general()).troops;
+    // Кто в эту минуту где и сколько войска у племени — до пульса: бои пульса
+    // считались из них. Полководец — тот, что пришёл прошлым пульсом или приказом:
+    // спросить мир заново значило бы свести передачу раньше, чем её сведёт пульс.
+    const before = this.known();
     const army: TroopStack = { ...this.s.army };
     const profile = { ...playerProfile(this.s, awayOf(this.marches, this.figures)), ...(this.over ?? {}) };
     const pulse = await this.world.sync(profile);
@@ -171,24 +254,55 @@ class Party {
     syncAway(this.s, pulse.marches, pulse.figures);
     this.marches = pulse.marches;
     this.figures = pulse.figures;
-    for (const r of pulse.reports) this.fought(r, step, army, held);
+    const after = this.known();
+    const sameTime = new Map<number, TroopStack>();
+    let ordered = false;
+    for (const r of pulse.reports) ordered = this.fought(r, step, army, before, after, sameTime) || ordered;
+    unbidden(pulse, step, before, after, ordered);
     holds(this, step);
     return pulse;
   }
 
-  /** Бой из отчёта: в строю не больше, чем стояло там, откуда выходили. */
-  fought(r: Report, step: string, army: TroopStack, held: TroopStack): void {
+  /**
+   * Бой из отчёта: в строю не больше, чем стояло там, откуда выходили, и дружина
+   * бьётся только там, куда её послали. Возвращает, был ли это бой по приказу.
+   */
+  fought(r: Report, step: string, army: TroopStack, before: FigureView, after: FigureView, sameTime: Map<number, TroopStack>): boolean {
     const b = r.battle;
-    if (!b) return;
+    const minus = (t: TroopStack): TroopStack => troopsAfter(army, t);
+    if (!b) {
+      if (r.title === 'Хлеб кончился') {
+        const stands = postureOf(after, r.at) === 'stands' && postureOf(before, r.at) !== 'gathering';
+        const pool = troopTotal(stands ? army : minus(before.troops));
+        expect(r.lost.warrior ?? 0, `${step}: голод рассеял больше, чем стояло в обороне`).toBeLessThanOrEqual(pool);
+      }
+      return false;
+    }
     this.battles++;
     const us = b.troops[b.us];
     const initial = b.result.sides[b.us].initial;
     const kinds = kindsOf(us);
-    const sortie = r.id.startsWith('sortie');
-    const atHome = b.us === 'defender' || sortie;
+    let pool: TroopStack;
+    let byOrder = false;
+    if (b.us === 'defender') {
+      // Дружина стоит у частокола, только если в минуту боя она собрана и дома.
+      const stands = postureOf(after, r.at) === 'stands' && postureOf(before, r.at) !== 'gathering';
+      if (stands && troopTotal(before.troops) > 0) this.stood++;
+      pool = stands ? army : minus(before.troops);
+    } else if (r.id.startsWith('sortie')) {
+      pool = minus(before.troops);
+    } else {
+      // Бой дружины: только приказом — ударом или погоней.
+      const order = this.ordered.get(r.id) ?? (r.id.startsWith('chase') && this.chased ? before.troops : null);
+      expect(order, `${step}: «${r.title}» — дружина в бою, куда её не посылали`).not.toBeNull();
+      pool = order ?? {};
+      byOrder = true;
+    }
+    const sum = plus(sameTime.get(r.at) ?? {}, us);
+    sameTime.set(r.at, sum);
     for (const id of TROOP_IDS) {
-      const pool = atHome ? (army[id] ?? 0) - (held[id] ?? 0) : (army[id] ?? 0);
-      expect(us[id] ?? 0, `${step}: «${r.title}» — ${id} в строю больше, чем ${atHome ? 'стояло дома' : 'было у племени'}`).toBeLessThanOrEqual(Math.max(0, pool));
+      expect(us[id] ?? 0, `${step}: «${r.title}» — ${id} в строю больше, чем стояло там, откуда выходили`).toBeLessThanOrEqual(Math.max(0, pool[id] ?? 0));
+      expect(sum[id] ?? 0, `${step}: ${id} в боях одной минуты больше, чем есть у племени`).toBeLessThanOrEqual(army[id] ?? 0);
     }
     const militia = b.militia?.[b.us] ?? { men: 0, archers: 0 };
     kinds.infantry += militia.men - militia.archers;
@@ -196,13 +310,30 @@ class Party {
     for (const k of UNIT_KINDS) {
       expect(initial[k], `${step}: «${r.title}» — ядро поставило в строй ${k} сверх записанного состава`).toBeLessThanOrEqual(kinds[k]);
     }
+    return byOrder;
   }
 
   async setGarrison(t: TroopStack | null, step: string): Promise<string | null> {
+    const size = armySize(this.s);
     const err = await this.world.setGarrison(t);
     if (!err) this.taken++;
-    await this.pulse(step);
+    this.figures = await this.world.figures();
+    const pulse = await this.pulse(step);
+    // Перенос — это перенос: племя не убывает и не прибывает от передачи.
+    if (pulse.effects.every((e) => !e.lostTroops && !e.lost.warrior)) {
+      expect(armySize(this.s), `${step}: передача изменила войско`).toBe(size);
+    }
     return err;
+  }
+
+  /** Удар полководца там, где он стоит. Кто был при нём до удара — для проверки строя. */
+  async strike(step: string): Promise<{ error: string | null; reportId: string | null; won: boolean }> {
+    const g = await this.general();
+    const res = await this.world.attack({ setup: null });
+    if (!res.error && res.reportId) this.ordered.set(res.reportId, { ...g.troops });
+    this.figures = await this.world.figures();
+    await this.pulse(`${step}${res.error ? ` (${res.error})` : ''}`);
+    return res;
   }
 
   /** Подождать: пульс каждые двадцать секунд, как в открытой игре. */
@@ -216,7 +347,7 @@ class Party {
   }
 
   async settle(step: string): Promise<void> {
-    const g = await this.general();
+    const g = this.figures.length > 0 ? this.known() : await this.general();
     while (this.now < g.readyAt) {
       this.clock.now = Math.min(g.readyAt, this.now + 20_000);
       await this.pulse(step);
@@ -226,9 +357,10 @@ class Party {
 
   async walk(to: { x: number; y: number }, step: string): Promise<string | null> {
     const err = await this.world.moveFigure('general', to);
+    this.figures = await this.world.figures();
     await this.pulse(step);
     if (err) return err;
-    const g = await this.general();
+    const g = this.known();
     while (this.now < g.arriveAt) {
       this.clock.now = Math.min(g.arriveAt, this.now + 20_000);
       await this.pulse(step);
@@ -246,39 +378,62 @@ class Party {
 
 /**
  * Само правило. Бойцов при полководце и в походах никогда не больше, чем есть у
- * племени, дома — ровно остальные, и племя считает ушедших тем же правилом, что
- * и мир. Проверяется после каждого пульса каждой последовательности.
+ * племени, в гарнизоне — ровно остальные, в обороне и вне её вместе — всё войско,
+ * и племя считает не стоящих в обороне тем же правилом, что и мир. Проверяется
+ * после каждого пульса каждой последовательности.
  */
 function holds(p: Party, step: string): void {
   const away = awayOf(p.marches, p.figures);
   for (const id of TROOP_IDS) {
     expect(away.troops[id] ?? 0, `${step}: ${id} при полководце и в походах больше, чем есть у племени`).toBeLessThanOrEqual(p.s.army[id]);
   }
-  expect(troopTotal(homeOf(p.s.army, away)) + awayMen(away), `${step}: дома и в поле вместе не всё войско`).toBe(armySize(p.s));
-  expect(p.s.warriorsAway, `${step}: племя считает ушедших не тем правилом, что мир`).toBe(awayMen(away));
+  expect(troopTotal(homeOf(p.s.army, away)) + awayMen(away), `${step}: в гарнизоне и вне его вместе не всё войско`).toBe(armySize(p.s));
+  expect(troopTotal(defendersOf(p.s.army, away)) + outMen(away), `${step}: в обороне и вне её вместе не всё войско`).toBe(armySize(p.s));
+  expect(p.s.warriorsAway, `${step}: племя считает не стоящих в обороне не тем правилом, что мир`).toBe(outMen(away));
 }
 
-/** Честный приказ — ровно тот, что даст панель: всех, кто дома, плюс тех, кто уже при нём. */
-const honest = (p: Party, g: FigureView): TroopStack => {
-  const home = homeOf(p.s.army, awayOf(p.marches, p.figures));
-  const out: TroopStack = {};
+/**
+ * Дружина вне обороны и вне осады не теряет людей сама собой: в бой её ведёт
+ * только приказ. Сбор и сверка с казармами меняют состав законно — их не судим.
+ */
+function unbidden(pulse: WorldPulse, step: string, before: FigureView, after: FigureView, ordered: boolean): void {
+  if (ordered || postureOf(before) !== 'engaged' || after.besieging) return;
+  // Дошёл до своих ворот и в том же пульсе встал в оборону: её потери законны.
+  if (after.phase === 'home' && pulse.reports.some((r) => r.kind === 'defense')) return;
+  if (pulse.effects.some((e) => e.text.includes('сверили с казармами'))) return;
   for (const id of TROOP_IDS) {
-    const n = (home[id] ?? 0) + (g.troops[id] ?? 0);
-    if (n > 0) out[id] = n;
+    expect(after.troops[id] ?? 0, `${step}: дружина в поле потеряла ${id} без приказа`).toBe(before.troops[id] ?? 0);
   }
-  return out;
-};
+}
+
+/** Честный приказ — ровно тот, что даст панель: всех, кто в гарнизоне, плюс тех, кто уже при нём. */
+const honest = (p: Party, g: FigureView): TroopStack => plus(homeOf(p.s.army, awayOf(p.marches, p.figures)), g.troops);
 
 const doubled = (t: TroopStack): TroopStack =>
   Object.fromEntries(Object.entries(t).map(([k, n]) => [k, (n ?? 0) * 2])) as TroopStack;
 
-const plus = (a: TroopStack, b: TroopStack): TroopStack => {
-  const out: TroopStack = {};
-  for (const id of TROOP_IDS) {
-    const n = (a[id] ?? 0) + (b[id] ?? 0);
-    if (n > 0) out[id] = n;
+/** Ждать, пока в пульсе не случится нужное: пульс каждые двадцать секунд. */
+const until = async (p: Party, step: string, done: (pulse: WorldPulse) => boolean): Promise<WorldPulse> => {
+  for (let i = 0; i < 3000; i++) {
+    p.clock.now += 20_000;
+    const pulse = await p.pulse(step);
+    if (done(pulse)) return pulse;
   }
-  return out;
+  throw new Error(`${step}: так и не дождались`);
+};
+
+/** Лагерь под своими стенами, по сохранению мира: рты за стеной на последнее открытие окна. */
+const siegeOnHome = (p: Party): { garrison: number } | null => {
+  const save = JSON.parse(p.store.read() as string) as { sieges: Record<string, { garrisonAtStart: number }> };
+  const w = save.sieges?.home;
+  return w ? { garrison: w.garrisonAtStart } : null;
+};
+
+/** Ближайший чужой отряд, идущий на деревню, по сохранению мира. */
+const raidOnHome = (p: Party): { id: string; arriveAt: number } | null => {
+  const save = JSON.parse(p.store.read() as string) as { marches: (MarchView & { own: boolean })[] };
+  const m = save.marches.filter((x) => !x.own && x.targetId === 'home' && x.phase === 'out').sort((a, b) => a.arriveAt - b.arriveAt)[0];
+  return m ? { id: m.id, arriveAt: m.arriveAt } : null;
 };
 
 describe('дома и в поле вместе не больше, чем есть у племени', () => {
@@ -299,8 +454,11 @@ describe('дома и в поле вместе не больше, чем ест�
         expect(await p.setGarrison(honest(p, await p.general()), `${tag}: собрать`), `${tag}: честный сбор проходит`).toBeNull();
         await again();
         await p.pulse(`${tag}: посреди сбора`);
+        expect(troopTotal(defendersOf(p.s.army, awayOf(p.marches, p.figures))), `${tag}: во время сбора в обороне никого из войска`).toBe(0);
         await p.settle(`${tag}: сбор идёт`);
         await again();
+        await p.pulse(`${tag}: собрана`);
+        expect(defendersOf(p.s.army, awayOf(p.marches, p.figures)), `${tag}: собрана и дома — в обороне всё войско ровно раз`).toEqual({ clubman: 10, archer: 6, legionary: 4 });
         // Полководец дома, дружина при нём: взять тех же ещё раз нельзя.
         const g = await p.general();
         expect(await p.setGarrison(doubled(g.troops), `${tag}: удвоить дома`), `${tag}: удвоить дома`).toBeTruthy();
@@ -315,6 +473,7 @@ describe('дома и в поле вместе не больше, чем ест�
         expect(await p.walk(field, `${tag}: в поход`)).toBeNull();
         await again();
         await p.pulse(`${tag}: стоит в поле`);
+        expect(troopTotal(defendersOf(p.s.army, awayOf(p.marches, p.figures))), `${tag}: полководец в поле — дружины в обороне нет`).toBe(0);
         expect(await p.setGarrison(doubled((await p.general()).troops), `${tag}: удвоить в поле`)).toBeTruthy();
         expect(await p.walk(info.home, `${tag}: обратно`)).toBeNull();
         await again();
@@ -342,53 +501,72 @@ describe('дома и в поле вместе не больше, чем ест�
     expect(troopTotal((await p.general()).troops), 'при полководце не больше, чем у племени').toBe(10);
     // Бой видит ровно их: удар по ближайшему логову.
     expect(await p.walk(await p.lair(), 'к логову')).toBeNull();
-    const res = await p.world.attack({ setup: null });
+    const res = await p.strike('удар');
     expect(res.error).toBeNull();
     const report = (await p.world.reports()).find((r) => r.id === res.reportId);
     expect(report?.battle?.result.sides.attacker.total.initial, 'в строю ядра десять, а не сто десять').toBe(10);
-    await p.pulse('после боя');
   }, 60_000);
 
-  it('случайные приказы, найм, бои и загрузки на трёх мирах', async () => {
+  it('случайные приказы, найм, погони, вылазки, удары и загрузки на четырёх мирах', async () => {
     const kinds: TroopId[] = ['clubman', 'spearman', 'archer', 'rider', 'legionary'];
     let taken = 0;
     let battles = 0;
-    for (const seed of [11, 42, 101]) {
+    let stood = 0;
+    for (const seed of [11, 42, 101, 7]) {
       const rng = seeded(seed * 7919);
       let p = Party.start(seed, { clubman: 12, spearman: 8, archer: 6, legionary: 3 });
       await p.pulse('старт');
       const info = await p.world.info();
       const lair = await p.lair();
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 90; i++) {
         const step = `мир ${seed}, шаг ${i}`;
         const roll = rng();
-        if (roll < 0.25) {
+        if (roll < 0.22) {
           // Передача бывает только дома: из поля полководец сначала возвращается.
           // Приказы — от честного до наглого, и принятый не должен нарушить правило.
           if ((await p.general()).phase === 'field') await p.walk(info.home, `${step}: домой за дружиной`);
           const g = await p.general();
           const asks = [honest(p, g), doubled(g.troops), plus(g.troops, p.s.army), { ...p.s.army }, weakest(honest(p, g), 5)];
           await p.setGarrison(asks[Math.floor(rng() * asks.length)], `${step}: передача`);
-        } else if (roll < 0.32) {
+        } else if (roll < 0.28) {
           if ((await p.general()).phase === 'field') await p.walk(info.home, `${step}: домой распускать`);
           await p.setGarrison(null, `${step}: роспуск`);
-        } else if (roll < 0.42) {
+        } else if (roll < 0.36) {
           await p.settle(`${step}: ждём передачу`);
-        } else if (roll < 0.57) {
+        } else if (roll < 0.48) {
           // Поход на логово целиком: дождаться дружины, дойти, ударить.
           await p.settle(`${step}: сбор перед походом`);
           await p.walk(lair, `${step}: к логову`);
-          const res = await p.world.attack({ setup: null });
-          await p.pulse(`${step}: удар${res.error ? ` (${res.error})` : ''}`);
-        } else if (roll < 0.63) {
+          await p.strike(`${step}: удар`);
+        } else if (roll < 0.53) {
           await p.walk({ x: info.home.x + 4, y: info.home.y + 3 }, `${step}: в поле`);
-        } else if (roll < 0.69) {
+        } else if (roll < 0.58) {
           await p.walk(info.home, `${step}: домой`);
+        } else if (roll < 0.63) {
+          // Погоня за набегом, если он идёт: бой в поле — только по этому приказу.
+          const raid = raidOnHome(p);
+          const err = raid ? await p.world.intercept(raid.id) : 'набега нет';
+          if (!err) p.chased = true;
+          p.figures = await p.world.figures();
+          await p.pulse(`${step}: погоня (${err ?? 'пошёл'})`);
+        } else if (roll < 0.72) {
+          // Под своими стенами лагерь: вылазка гарнизоном или удар полководца от ворот.
+          if (siegeOnHome(p)) {
+            if (rng() < 0.5) {
+              const res = await p.world.sortie(weakest(homeOf(p.s.army, awayOf(p.marches, p.figures)), 3));
+              p.figures = await p.world.figures();
+              await p.pulse(`${step}: вылазка${res.error ? ` (${res.error})` : ''}`);
+            } else {
+              await p.strike(`${step}: удар по лагерю от ворот`);
+            }
+          } else {
+            await p.pulse(`${step}: лагеря нет`);
+          }
         } else if (roll < 0.77) {
           const id = kinds[Math.floor(rng() * kinds.length)];
           p.s.army[id] += 1 + Math.floor(rng() * 5);
           await p.pulse(`${step}: наняли ${id}`);
-        } else if (roll < 0.85) {
+        } else if (roll < 0.82) {
           p = p.reload();
           await p.pulse(`${step}: загрузка`);
         } else {
@@ -397,75 +575,128 @@ describe('дома и в поле вместе не больше, чем ест�
       }
       taken += p.taken;
       battles += p.battles;
+      stood += p.stood;
     }
     // Последовательность, в которой мир ничего не принял и никто не бился, правила не проверила.
     expect(taken, 'передачи дружины проходили').toBeGreaterThanOrEqual(10);
     expect(battles, 'бои случались').toBeGreaterThanOrEqual(5);
-  }, 120_000);
+    expect(stood, 'дружина стояла у частокола').toBeGreaterThanOrEqual(1);
+  }, 180_000);
+});
 
-  /** Ждать, пока в пульсе не случится нужное: пульс каждые двадцать секунд. */
-  const until = async (p: Party, step: string, done: (pulse: WorldPulse) => boolean): Promise<WorldPulse> => {
-    for (let i = 0; i < 3000; i++) {
-      p.clock.now += 20_000;
-      const pulse = await p.pulse(step);
-      if (done(pulse)) return pulse;
-    }
-    throw new Error(`${step}: так и не дождались`);
-  };
-
-  it('вылазка выходит из гарнизона, а голод рассеивает гарнизон — дружина при полководце цела', async () => {
-    // Мир 11: первый же набег на крепкую для него деревню садится лагерем.
-    const p = Party.start(11, { clubman: 14 });
+describe('дружина в обороне: собрана и дома — один раз, в сборе и в деле — нисколько', () => {
+  /** Десять из четырнадцати при полководце, сбор кончился, полководец у ворот. */
+  const gathered = async (seed: number): Promise<Party> => {
+    const p = Party.start(seed, { clubman: 14 });
     await p.pulse('старт');
     expect(await p.setGarrison({ clubman: 10 }, 'сбор')).toBeNull();
     await p.settle('сбор');
-    await until(p, 'ждём лагерь', (pulse) => Boolean(pulse.siege));
-    const sortie = async (t: TroopStack): Promise<string | null> => {
+    expect(postureOf(p.known()), 'собрана и дома').toBe('stands');
+    return p;
+  };
+
+  it('у частокола: собранная дома — ровно один раз, ни нуля, ни дважды', async () => {
+    for (const seed of [42, 77]) {
+      const p = await gathered(seed);
+      const pulse = await until(p, `мир ${seed}: ждём боя у частокола`, (x) => x.reports.some((r) => r.id.endsWith('-defense')));
+      const fight = pulse.reports.find((r) => r.id.endsWith('-defense')) as Report;
+      expect(fight.battle?.troops.defender, `мир ${seed}: у частокола гарнизон четыре и дружина десять`).toEqual({ clubman: 14 });
+      expect(troopTotal(p.known().troops), `мир ${seed}: дружина при полководце та же`).toBe(10);
+    }
+  }, 60_000);
+
+  it('сбор — плата: пока он идёт, этих бойцов нет ни в гарнизоне, ни в обороне', async () => {
+    const p = Party.start(42, { clubman: 14 });
+    await p.pulse('старт');
+    // Отдать дружину так, чтобы набег пришёл посреди сбора.
+    const raid = await (async () => {
+      for (let i = 0; i < 3000; i++) {
+        p.clock.now += 5_000;
+        await p.pulse('ждём набег');
+        const r = raidOnHome(p);
+        if (r && r.arriveAt - p.now < 40_000) return r;
+      }
+      throw new Error('набега нет');
+    })();
+    expect(await p.setGarrison({ clubman: 10 }, 'сбор под набегом')).toBeNull();
+    expect(p.known().readyAt, 'сбор кончится позже набега').toBeGreaterThan(raid.arriveAt);
+    const pulse = await until(p, 'ждём боя', (x) => x.reports.some((r) => r.id === `${raid.id}-defense`));
+    const fight = pulse.reports.find((r) => r.id === `${raid.id}-defense`) as Report;
+    expect(fight.battle?.troops.defender ?? {}, 'у частокола только гарнизон').toEqual({ clubman: 4 });
+  }, 60_000);
+
+  it('занята: в пути, в поле и в погоне — у частокола её нет, даже у самых ворот', async () => {
+    const p = await gathered(42);
+    const info = await p.world.info();
+    expect(await p.walk({ x: info.home.x + 3, y: info.home.y + 2 }, 'встал в двух шагах от ворот')).toBeNull();
+    expect(postureOf(p.known()), 'в поле').toBe('engaged');
+    const pulse = await until(p, 'ждём боя', (x) => x.reports.some((r) => r.id.endsWith('-defense')));
+    const fight = pulse.reports.find((r) => r.id.endsWith('-defense')) as Report;
+    expect(fight.battle?.troops.defender ?? {}, 'полководец в поле — у частокола гарнизон').toEqual({ clubman: 4 });
+    expect(troopTotal(p.known().troops), 'в бой без приказа дружина не пошла').toBe(10);
+
+    // Погоня от своих ворот: пока полководец идёт к бою, у частокола его людей тоже нет.
+    const q = await gathered(77);
+    const raid = await (async () => {
+      for (let i = 0; i < 3000; i++) {
+        q.clock.now += 20_000;
+        await q.pulse('ждём набег');
+        const r = raidOnHome(q);
+        if (r) return r;
+      }
+      throw new Error('набега нет');
+    })();
+    const err = await q.world.intercept(raid.id);
+    expect(err, 'погоня принята').toBeNull();
+    q.chased = true;
+    q.figures = await q.world.figures();
+    await q.pulse('погоня');
+    expect(postureOf(q.known()), 'идёт к бою').toBe('engaged');
+    expect(q.s.warriorsAway, 'не в обороне — вся дружина').toBe(10);
+  }, 60_000);
+
+  it('осада: рты за стеной, голод и удар по лагерю от своих ворот', async () => {
+    const p = await gathered(11);
+    const siege = await until(p, 'ждём лагерь', (x) => Boolean(x.siege));
+    expect(siege.siege?.garrison, 'за стеной едят гарнизон и дружина').toBe(14);
+    const sortie = async (t: TroopStack): Promise<string> => {
       const res = await p.world.sortie(t);
+      p.figures = await p.world.figures();
       await p.pulse(`вылазка ${JSON.stringify(t)}`);
       return res.error ?? 'вылазка принята';
     };
-    expect(await sortie({ clubman: 10 }), 'дружина при полководце на вылазку не выходит').toMatch(/дома нет/);
+    expect(await sortie({ clubman: 10 }), 'дружина у ворот с вылазкой не выходит').toMatch(/дома нет/);
     expect(await sortie({ ...p.s.army }), 'всем войском — тоже').toMatch(/дома нет/);
-    await until(p, 'ждём голода', (pulse) => pulse.reports.some((r) => r.title === 'Хлеб кончился'));
-    expect(troopTotal((await p.general()).troops), 'дружина при полководце цела').toBe(10);
-    expect(p.s.army.clubman, 'рассеялась половина гарнизона — двое из четырёх').toBe(12);
 
-    // Мир 101: гарнизон выходит, и бой ставит в строй ровно его.
-    const q = Party.start(101, { clubman: 14 });
-    await q.pulse('старт');
-    expect(await q.setGarrison({ clubman: 10 }, 'сбор')).toBeNull();
-    await q.settle('сбор');
-    await until(q, 'ждём лагерь', (pulse) => Boolean(pulse.siege));
-    const battles = q.battles;
-    const res = await q.world.sortie({ clubman: 4 });
-    expect(res.error, 'гарнизон выходит').toBeNull();
-    await q.pulse('после вылазки');
-    expect(q.battles, 'вылазка дошла до боя и прошла проверку состава').toBe(battles + 1);
+    // Голод рассеивает оборону: половину из четырнадцати, и дружина теряет свою долю.
+    const fell = await until(p, 'ждём голода', (x) => x.reports.some((r) => r.title === 'Хлеб кончился'));
+    expect(fell.reports.find((r) => r.title === 'Хлеб кончился')?.lost.warrior, 'рассеялась половина обороны').toBe(7);
+    expect(p.s.army.clubman, 'осталось семеро').toBe(7);
+    expect(troopTotal(p.known().troops), 'из них при полководце пятеро: доля дружины — пять из семи').toBe(5);
+
+    // Мир 7: роспуск под осадой разрешён — и пока он идёт, эти люди за стеной не едят.
+    const r = await gathered(7);
+    await until(r, 'ждём лагерь', (x) => Boolean(x.siege));
+    expect(siegeOnHome(r)?.garrison, 'собрана — едят все').toBe(14);
+    expect(await r.setGarrison(null, 'роспуск под осадой')).toBeNull();
+    expect(siegeOnHome(r)?.garrison, 'в сборе не едят').toBe(4);
+    await r.settle('роспуск');
+    expect(siegeOnHome(r)?.garrison, 'вернулись в гарнизон — снова едят').toBe(14);
+
+    // Мир 101: собранная дружина бьёт по лагерю от своих ворот и возвращается в оборону.
+    const q = await gathered(101);
+    await until(q, 'ждём лагерь', (x) => Boolean(x.siege));
+    const res = await q.strike('удар по лагерю от ворот');
+    expect(res.error, 'удар принят').toBeNull();
+    const report = (await q.world.reports()).find((x) => x.id === res.reportId) as Report;
+    expect(report.battle?.troops.attacker, 'по лагерю бьёт дружина, без гарнизона').toEqual({ clubman: 10 });
+    const left = troopTotal(q.known().troops);
+    expect(defendersOf(q.s.army, awayOf(q.marches, q.figures)), 'после боя уцелевшие снова в обороне').toEqual({ clubman: 4 + left });
+    const camp = siegeOnHome(q);
+    if (camp) expect(camp.garrison, 'лагерь устоял: за стеной гарнизон и уцелевшая дружина').toBe(4 + left);
   }, 60_000);
 
-  it('павших мир списывает сразу: убитого на вылазке не выпустить второй раз ни до пульса, ни после', async () => {
-    const p = Party.start(11, { clubman: 14 });
-    await p.pulse('старт');
-    expect(await p.setGarrison({ clubman: 10 }, 'сбор')).toBeNull();
-    await p.settle('сбор');
-    await until(p, 'ждём лагерь', (pulse) => Boolean(pulse.siege));
-    // Один дубинщик против готового лагеря: не возвращается, а лагерь стоит.
-    const first = await p.world.sortie({ clubman: 1 });
-    expect(first.error).toBeNull();
-    expect(first.won, 'лагерь устоял').toBe(false);
-    expect((await p.world.reports()).find((r) => r.id === first.reportId)?.lost.warrior, 'вылазка стоила человека').toBe(1);
-    // До пульса: племя о павшем ещё не знает, а мир — уже.
-    const before = await p.world.sortie({ clubman: 4 });
-    expect(before.error ?? 'вылазка принята', 'павшего до пульса второй раз не выпустить').toMatch(/дома нет/);
-    // После пульса: слепок собран до того, как племя списало павшего.
-    await p.pulse('после вылазки');
-    const after = await p.world.sortie({ clubman: 4 });
-    expect(after.error ?? 'вылазка принята', 'и после пульса тоже').toMatch(/дома нет/);
-    await p.pulse('после второй попытки');
-  }, 60_000);
-
-  it('запертая расстановка не ставит к частоколу тех, кого после отметки отдали полководцу', async () => {
+  it('запертая расстановка ставит к частоколу дружину, собранную после отметки, один раз', async () => {
     // Мир 42: первый набег кончается боем у частокола, а не лагерем.
     const p = Party.start(42, { clubman: 10 });
     p.s.defenseFormation = presetFormation({ clubman: 10 }, 'defense');
@@ -481,14 +712,13 @@ describe('дома и в поле вместе не больше, чем ест�
     expect(await p.setGarrison({ clubman: 10 }, 'отдали после отметки')).toBeNull();
     const pulse = await until(p, 'ждём боя', (x) => x.reports.some((r) => r.id === `${raid}-defense`));
     const fight = pulse.reports.find((r) => r.id === `${raid}-defense`) as Report;
-    expect(frozenRaid() ?? JSON.parse(p.store.read() as string).frozenDefense?.marchId, 'бились по запертой').toBe(raid);
     expect(fight.battle, 'это бой, а не лагерь').toBeTruthy();
-    expect(troopTotal(fight.battle!.troops.defender), 'у частокола дружины нет').toBe(0);
-    // Сам состав ядра проверил пульс (`fought`): ополчение — да, дубинщики — нет.
-    expect(stackTotal(fight.battle!.result.sides.defender.initial)).toBeLessThanOrEqual(fight.battle!.militia!.defender.men);
+    // Сбор в десять человек короче пяти минут: к бою дружина собрана и стоит дома.
+    expect(fight.battle!.troops.defender, 'у частокола ровно десять, а не двадцать').toEqual({ clubman: 10 });
+    expect(stackTotal(fight.battle!.result.sides.defender.initial)).toBeLessThanOrEqual(10 + fight.battle!.militia!.defender.men);
   }, 60_000);
 
-  it('сохранение, где дружину успели удвоить, сверяется на первом же пульсе', async () => {
+  it('сохранение, где дружину успели удвоить, сверяется на первом же пульсе — до любого боя', async () => {
     const p = Party.start(11, { clubman: 10, archer: 10 }, false);
     await p.pulse('старт');
     expect(await p.setGarrison({ clubman: 10 }, 'сбор')).toBeNull();
@@ -501,6 +731,33 @@ describe('дома и в поле вместе не больше, чем ест�
     const pulse = await q.pulse('первый пульс после загрузки');
     expect(troopTotal((await q.general()).troops), 'лишних вычеркнули').toBe(10);
     expect(pulse.effects.some((e) => e.text.includes('сверили с казармами')), 'и сказали об этом строкой').toBe(true);
-    expect(homeOf(q.s.army, awayOf(q.marches, q.figures)), 'лучники дома не пропали').toEqual({ archer: 10 });
+    const away = awayOf(q.marches, q.figures);
+    expect(homeOf(q.s.army, away), 'лучники в гарнизоне не пропали').toEqual({ archer: 10 });
+    expect(defendersOf(q.s.army, away), 'в обороне всё войско ровно раз').toEqual({ clubman: 10, archer: 10 });
+    expect(q.s.warriorsAway).toBe(0);
+  }, 60_000);
+
+  it('удвоенное сохранение с набегом на подходе: у частокола не больше, чем есть у племени', async () => {
+    const p = await gathered(42);
+    await (async () => {
+      for (let i = 0; i < 3000; i++) {
+        p.clock.now += 20_000;
+        await p.pulse('ждём набег');
+        const r = raidOnHome(p);
+        if (r && r.arriveAt - p.now < 20_000) return;
+      }
+      throw new Error('набега нет');
+    })();
+    const save = JSON.parse(p.store.read() as string);
+    save.figures.general.troops = { clubman: 110 };
+    p.store.write(JSON.stringify(save));
+    const q = p.reload();
+    const pulse = await until(q, 'бой после загрузки', (x) => x.reports.some((r) => r.id.endsWith('-defense')));
+    const fight = pulse.reports.find((r) => r.id.endsWith('-defense')) as Report;
+    expect(fight.battle?.troops.defender, 'у частокола четырнадцать, а не сто четырнадцать').toEqual({ clubman: 14 });
+    // Сверка режет дружину до того, что есть у племени, — до всех четырнадцати:
+    // гарнизон пустеет, а в обороне по-прежнему четырнадцать, по разу каждый.
+    expect(troopTotal((await q.general()).troops)).toBe(14);
+    expect(homeOf(q.s.army, awayOf(q.marches, q.figures))).toEqual({});
   }, 60_000);
 });

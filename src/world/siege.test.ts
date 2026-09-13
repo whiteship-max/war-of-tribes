@@ -506,22 +506,29 @@ describe('осада: подкрепление и часы голода', () => 
 
   it('дружину вернуть можно, и часы голода принимают новых едоков', async () => {
     const w = makeWorld(7);
-    // Дружина уже при полководце: дома её нет, и осада считает пустой гарнизон.
-    // Слепок везёт всё войско, как и везде: кто из него дома, мир считает сам.
+    // Дружина при полководце, а полководец в поле: за стеной она не ест, и осада
+    // считает пустой гарнизон. Слепок везёт всё войско, как и везде: кто из него
+    // в обороне, мир считает сам.
     const away = holdout();
     await w.world.sync(away);
     expect(await w.world.setGarrison({ spearman: 10 })).toBeNull();
     const g = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
     w.at(g.readyAt);
     await w.world.sync(away);
+    const home = (await w.world.info()).home;
+    expect(await w.world.moveFigure('general', { x: home.x + 4, y: home.y + 3 })).toBeNull();
+    const out = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    w.at(out.arriveAt);
+    await w.world.sync(away);
 
     const empty = (await besiege(w, away)).siege!;
-    expect(empty.garrison, 'дома дружины нет').toBe(0);
+    expect(empty.garrison, 'дружина в поле — за стеной её нет').toBe(0);
 
-    // Вернуть её в осаждённый город можно: под запретом выход, а не вход.
-    expect(await w.world.setGarrison(null)).toBeNull();
-    const back = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    w.at(Math.max(w.now(), back.readyAt));
+    // Вернуться в осаждённый город можно: под запретом выход, а не вход. Встал у
+    // своих ворот — дружина в обороне и ест за стеной.
+    expect(await w.world.moveFigure('general', { ...home })).toBeNull();
+    const walking = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    w.at(Math.max(w.now(), walking.arriveAt));
     const pulse = await w.world.sync(away);
 
     expect(pulse.siege!.garrison, 'десять новых ртов за стеной').toBe(10);
@@ -529,6 +536,14 @@ describe('осада: подкрепление и часы голода', () => 
     const held = pulse.siege!.starvesAt - w.now();
     const alone = starvesAt(window({ now: w.now(), garrison: 0 })) - w.now();
     expect(held).toBeLessThan(alone);
+
+    // Роспуск в осаждённом городе: пока он идёт, эти люди не едят нигде, а
+    // вернувшись в гарнизон — едят снова.
+    expect(await w.world.setGarrison(null)).toBeNull();
+    expect((await w.world.sync(away)).siege!.garrison, 'в роспуске за стеной не едят').toBe(0);
+    const back = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    w.at(Math.max(w.now(), back.readyAt));
+    expect((await w.world.sync(away)).siege!.garrison, 'вернулись в гарнизон').toBe(10);
   }, 60_000);
 });
 

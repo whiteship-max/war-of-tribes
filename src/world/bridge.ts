@@ -32,7 +32,7 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
+import { NOBODY_AWAY, awayOf, defendersOf, outMen, type Away } from './muster';
 import type {
   FigureView,
   HomeEffect,
@@ -80,7 +80,8 @@ export const militiaArchers = (s: GameState): number => {
  * мир, поверивший ему, отдавал бы тех же бойцов второй раз.
  *
  * `away` — кто не дома, по тем же спискам: по нему здесь подрезается только
- * расстановка обороны. Её в бою мир подрежет ещё раз, по настоящему гарнизону.
+ * расстановка обороны — под гарнизон и дружину, собранную дома. В бою мир её
+ * подрежет ещё раз, по настоящей обороне в минуту боя.
  */
 export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerProfile {
   const units = sendableUnits(s);
@@ -95,11 +96,12 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
   const stash = hiddenStash(s);
   const stock: Loot = {};
   for (const r of RESOURCE_IDS) stock[r] = Math.max(0, Math.floor(s.resources[r]));
-  // Расстановка обороны подрезается по тому, кто сейчас дома: часть могла уйти
-  // в поход или погибнуть, а нанятые с прошлого раза встают в резерв.
+  // Расстановка обороны подрезается по тому, кто сейчас в обороне: часть могла
+  // уйти в поход, в сбор или погибнуть, а нанятые с прошлого раза и дружина,
+  // вставшая дома, встают в резерв.
   let defenseSetup = null;
   if (s.defenseFormation) {
-    const { formation, extra } = clampFormation(s.defenseFormation, homeOf(s.army, away));
+    const { formation, extra } = clampFormation(s.defenseFormation, defendersOf(s.army, away));
     const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
     const archers = militiaArchers(s);
     defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers, null, fervour(s));
@@ -154,15 +156,17 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
 }
 
 /**
- * Сколько людей сейчас не дома. Число не хранится дважды: оно выводится из списков
- * мира, поэтому потерянное сохранение мира не оставит деревню без армии навсегда.
+ * Сколько людей сейчас не в обороне. Число не хранится дважды: оно выводится из
+ * списков мира, поэтому потерянное сохранение мира не оставит деревню без армии
+ * навсегда.
  *
- * Бойцы считаются тем же правилом, каким мир считает гарнизон (`world/muster`):
- * войско при полководце не дома в любой фазе, и у своих ворот тоже, — иначе
- * оборона деревни держалась бы теми же людьми, что стоят в его строю.
+ * Бойцы считаются тем же правилом, каким мир считает оборону (`world/muster`):
+ * отряды в пути и дружина в сборе, в пути, в поле и в лагере — не в обороне;
+ * дружина, собранная и стоящая у своих ворот, — в ней, один раз, вместе с
+ * гарнизоном.
  */
 export function syncAway(s: GameState, marches: MarchView[], figures: FigureView[] = []): boolean {
-  const warriors = awayMen(awayOf(marches, figures));
+  const warriors = outMen(awayOf(marches, figures));
   let scouts = 0;
   let heroSeen = false;
   for (const m of marches) {

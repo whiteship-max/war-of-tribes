@@ -488,7 +488,10 @@ export const soldierPower = (s: GameState): number => {
   return n > 0 ? armyPower(s) / n : 0;
 };
 
-/** Бойцы, оставшиеся дома. Ушедшие в поход деревню не защищают. */
+/**
+ * Бойцы в обороне деревни: гарнизон и дружина, собранная у своих ворот. Отряды в
+ * пути и дружина в сборе и в поле деревню не защищают (`world/muster`).
+ */
 export const homeArmy = (s: GameState): number =>
   Math.max(0, armySize(s) - Math.max(0, s.warriorsAway));
 
