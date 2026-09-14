@@ -403,10 +403,13 @@ describe('одно правило на обе стороны', () => {
 
   it('все четыре места, где город взят, идут через дверь участи и через одну проверку ступени', () => {
     const code = stripComments(src);
+    // Метод ищется по имени, а не по видимости: часть читающих методов мира открыта
+    // наследнику (`NotifyingWorld`) как `protected`.
     const method = (name: string): string => {
-      const at = code.indexOf(`private ${name}(`);
+      const at = code.search(new RegExp(`(private|protected) ${name}\\(`));
       expect(at, `метод ${name}`).toBeGreaterThan(0);
-      return code.slice(at, code.indexOf('\n  private ', at + 10));
+      const rest = code.slice(at + 10).search(/\n {2}(private|protected) /);
+      return code.slice(at, rest < 0 ? undefined : at + 10 + rest);
     };
     // Наш город: прорвавшийся набег и голод — одной дверью и одними полями.
     for (const name of ['resolveIncoming', 'homeFalls']) {
