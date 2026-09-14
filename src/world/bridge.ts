@@ -32,7 +32,7 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import { NOBODY_AWAY, awayOf, defendersOf, outMen, type Away } from './muster';
+import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
 import type {
   FigureView,
   HomeEffect,
@@ -101,7 +101,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
   // вставшая дома, встают в резерв.
   let defenseSetup = null;
   if (s.defenseFormation) {
-    const { formation, extra } = clampFormation(s.defenseFormation, defendersOf(s.army, away));
+    const { formation, extra } = clampFormation(s.defenseFormation, homeOf(s.army, away));
     const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
     const archers = militiaArchers(s);
     defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers, null, fervour(s));
@@ -161,12 +161,12 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
  * навсегда.
  *
  * Бойцы считаются тем же правилом, каким мир считает оборону (`world/muster`):
- * отряды в пути и дружина в сборе, в пути, в поле и в лагере — не в обороне;
- * дружина, собранная и стоящая у своих ворот, — в ней, один раз, вместе с
- * гарнизоном.
+ * отряды в пути и дружина в сборе, в пути, в поле и в лагере — не в гарнизоне и
+ * не в обороне; дружина, собранная и стоящая у своих ворот, — в гарнизоне, один
+ * раз.
  */
 export function syncAway(s: GameState, marches: MarchView[], figures: FigureView[] = []): boolean {
-  const warriors = outMen(awayOf(marches, figures));
+  const warriors = awayMen(awayOf(marches, figures));
   let scouts = 0;
   let heroSeen = false;
   for (const m of marches) {

@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { figurePosition, incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
 import { troopTotal } from '@/game/battle/kinds';
+import { postureOf } from '@/world/muster';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { MISSION_BY_ID } from '@/world/data/meta';
 import { UNITS } from '@/world/data/units';
@@ -113,7 +114,7 @@ export function MarchesPanel() {
               </div>
               <div className="desc">
                 {where}
-                {men > 0 ? ' · войско при нём, дома его нет' : ''}
+                {men > 0 ? (postureOf(f) === 'stands' ? ' · дружина дома, в гарнизоне' : ' · войско при нём, дома его нет') : ''}
                 {/* Наблюдение — единственный живой обзор за кругом деревни, и
                     видно оно должно быть там же, где остальные состояния фигур. */}
                 {f.watching ? ' · 👁️ смотрит: приказы не отдаются' : ''}

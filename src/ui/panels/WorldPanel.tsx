@@ -20,7 +20,7 @@ import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
-import { awayOf, homeOf, postureOf } from '@/world/muster';
+import { awayOf, homeOf, postureOf, roomOf } from '@/world/muster';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { Icon } from '@/ui/icons/Icon';
@@ -49,8 +49,10 @@ function GarrisonEditor() {
   const setGarrison = useWorld((g) => g.setGarrison);
   const general = figures.find((f) => f.id === 'general');
   const held: TroopStack = general?.troops ?? {};
-  const away = awayOf(marches, figures);
-  const home = homeOf(s.army, away);
+  // Сколько можно держать при себе — всё войско, что не ушло отрядами: дома
+  // дружина уже в гарнизоне, и складывать её с ним второй раз нельзя. Тем же
+  // правилом отказывает мир (`world/muster.roomOf`).
+  const pool = roomOf(s.army, marches);
   const [want, setWant] = useState<TroopStack>(held);
   const [busy, setBusy] = useState(false);
 
@@ -59,7 +61,7 @@ function GarrisonEditor() {
   useEffect(() => setWant({ ...held }), [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!general) return null;
-  const rows = TROOP_IDS.filter((t) => (home[t] ?? 0) + (held[t] ?? 0) > 0);
+  const rows = TROOP_IDS.filter((t) => (pool[t] ?? 0) + (held[t] ?? 0) > 0);
   const total = troopTotal(want);
   // Вместимость — работа Статуи, и это главное ограничение похода: дома всегда
   // кто-то остаётся, потому что за собой всех не увести.
@@ -68,7 +70,7 @@ function GarrisonEditor() {
   const gathering = general.readyAt > worldNow();
   const posture = postureOf(general);
   // Три состояния дружины, и за разницу между ними игрок платит: собранная и
-  // стоящая у своих ворот — в обороне вместе с гарнизоном; пока идёт сбор, эти
+  // стоящая у своих ворот — часть гарнизона; пока идёт сбор, эти
   // люди не защищают никого; в поле — не защищают тоже (`world/muster`). Игрок
   // обязан видеть обе цены до того, как отдаст приказ: сколько обороны стоит сам
   // сбор и какой она станет, когда дружина соберётся. Считает та же `defense`,
@@ -109,8 +111,8 @@ function GarrisonEditor() {
         </p>
       ) : posture === 'stands' ? (
         <p className="note">
-          Собрана и дома: {troopTotal(held)} стоят в обороне вместе с гарнизоном — у частокола, у амбара
-          и под рассеянием, если город падёт.
+          Собрана и дома: {troopTotal(held)} — часть гарнизона: у частокола, у амбара, на вылазке и под
+          рассеянием, если город падёт.
         </p>
       ) : posture === 'engaged' ? (
         <p className="note bad">Дружина занята: пока полководец в пути или в поле, деревню она не защищает.</p>
@@ -124,7 +126,7 @@ function GarrisonEditor() {
           const room = Math.max(0, cap - total + (want[t] ?? 0));
           // «Всего» — про запас племени, а не про место в отряде: подпись не
           // должна врать, что лучников нет, когда их просто некуда взять.
-          const all = (home[t] ?? 0) + (held[t] ?? 0);
+          const all = pool[t] ?? 0;
           const max = Math.min(room, all);
           const n = want[t] ?? 0;
           const set = (v: number): void => setWant((w) => ({ ...w, [t]: Math.max(0, Math.min(max, v)) }));
@@ -190,7 +192,7 @@ function GarrisonEditor() {
         </button>
       </div>
       <p className="note">
-        Дружина, собранная и стоящая у своих ворот, держит оборону вместе с гарнизоном. Пока идёт сбор или
+        Дружина, собранная и стоящая у своих ворот, — часть гарнизона: держит стену и выходит на вылазку. Пока идёт сбор или
         роспуск, эти люди не защищают никого, а уведёшь полководца в поле — дома останутся частокол, башня,
         жители и те, кого он не взял. Статуя ограничивает не оборону, а то, сколько бойцов можно вывести из
         города.
@@ -560,7 +562,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           </p>
           {/* Укрепления лагеря видны глазами — и нашего, и чужого. Читаются из
               той же отметки `since`, той же функцией, что и бой у лагеря. */}
-          <p className="note">{worksWords(card.siege.since, worldNow(), card.siege.gateAt)}</p>
+          <p className="note">{worksWords(card.siege, worldNow())}</p>
         </>
       )}
 

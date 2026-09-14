@@ -2,21 +2,28 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stackTotal, UNIT_KINDS, type Stack } from '@/battle';
-import { kindsOf, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { seeded } from '@/game/sim/random';
 import { LocalWorld } from './local/LocalWorld';
 import { menOfPower } from './garrison';
-import { CAMP_GATE_CLEAR, CAMP_WORKS_PASS, CAMP_WORKS_RIPE } from './data/tuning';
+import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE } from './data/tuning';
 import {
   campPass,
-  campWorks,
+  sideWorks,
   gateBusyText,
   gateFree,
   passKinds,
   refusedAtGate,
   sortieForecast,
+  splitLosses,
+  strikeForecast,
   throughWorks,
+  woodCut,
   worksRipeAt,
+  SIDES,
+  type WoodPlan,
 } from './works';
+import { STRIKE_FROM_TOWN } from './siege';
 import type { PlayerProfile, WorldPulse } from './types';
 
 const START = 1_700_000_000_000;
@@ -42,6 +49,9 @@ const holdout: PlayerProfile = {
   soldierFoodPerHour: 60,
 };
 const GARRISON: TroopStack = { legionary: 40, spearman: 30, archer: 20 };
+/** Дружина, которую полководец увёл в поле до осады, и то, что осталось в городе. */
+const DRUZHINA: TroopStack = { legionary: 20 };
+const TOWN: TroopStack = { legionary: 20, spearman: 30, archer: 20 };
 
 function memory(data: string | null = null) {
   return {
@@ -72,6 +82,31 @@ async function freeze(seed: number): Promise<Frozen> {
   throw new Error('осады так и не случилось');
 }
 
+/**
+ * Мир до первой осады деревни, когда полководец с дружиной стоит в поле, в трёх
+ * клетках от ворот, — и его сохранение в эту минуту. Дружину он собирает дома
+ * заранее: во время осады из города её уже не вывести.
+ */
+async function freezeField(seed: number): Promise<Frozen> {
+  let now = START;
+  const store = memory();
+  const world = new LocalWorld({ seed, now: () => now, storage: store });
+  await world.sync(holdout);
+  expect(await world.setGarrison(DRUZHINA)).toBeNull();
+  now = Math.max(now, (await world.figures()).find((f) => f.id === 'general')!.readyAt);
+  await world.sync(holdout);
+  const info = await world.info();
+  expect(await world.moveFigure('general', { x: info.home.x + 3, y: info.home.y + 2 })).toBeNull();
+  now = (await world.figures()).find((f) => f.id === 'general')!.arriveAt;
+  await world.sync(holdout);
+  for (let i = 0; i < 3000; i++) {
+    now += 20_000;
+    const pulse = await world.sync(holdout);
+    if (pulse.siege) return { seed, save: store.read() as string, siege: pulse.siege };
+  }
+  throw new Error('осады так и не случилось');
+}
+
 /** Поднять замороженный мир на минуте `at`; `variant` сдвигает сид боя. */
 async function thaw(fz: Frozen, at: number, variant = 0) {
   let now = at;
@@ -86,20 +121,21 @@ type CampBattle = (
   id: string,
   at: number,
   seed: number,
-  attacker: { own: TroopStack; setup: null },
+  attacker: { front?: { own: TroopStack }; rear?: { own: TroopStack }; setup: null },
 ) => {
   refused: boolean;
   field: { won: boolean; result: { sides: { attacker: { total: { initial: number } }; defender: { total: { initial: number } } } } | null };
   camp: { men: number; kinds: Record<string, number> };
-  through: { kinds: Record<string, number>; went: number; passed: number };
+  front: { kinds: Record<string, number>; went: number; passed: number } | null;
+  rear: { kinds: Record<string, number>; went: number; passed: number } | null;
 } | null;
 
 const campBattle = (w: LocalWorld): CampBattle =>
   (w as unknown as { campBattle: CampBattle }).campBattle.bind(w);
 
 /** Окно осады деревни в сохранении мира — прямо то, что пишет бой. */
-const homeWindow = (w: LocalWorld): { gateAt?: number } =>
-  (w as unknown as { save: { sieges: Record<string, { gateAt?: number }> } }).save.sieges.home;
+const homeWindow = (w: LocalWorld): { gateAt?: number; rearGateAt?: number } =>
+  (w as unknown as { save: { sieges: Record<string, { gateAt?: number; rearGateAt?: number }> } }).save.sieges.home;
 
 /**
  * Освободить проход перед точкой замера. Тесты ниже меряют укрепление во времени,
@@ -109,6 +145,7 @@ const homeWindow = (w: LocalWorld): { gateAt?: number } =>
  */
 const freeGate = (w: LocalWorld): void => {
   delete homeWindow(w).gateAt;
+  delete homeWindow(w).rearGateAt;
 };
 
 describe('укрепления лагеря: чистая функция времени', () => {
@@ -116,15 +153,15 @@ describe('укрепления лагеря: чистая функция вре�
   const times = Array.from({ length: 80 }, (_, i) => SINCE - 5 * MIN + i * 30_000);
 
   it('тот же вход — тот же выход, в любом порядке вопросов', () => {
-    const forward = times.map((t) => campWorks(SINCE, t));
+    const forward = times.map((t) => sideWorks(SINCE, t, 'front'));
     // Порядок перемешан детерминированно: каждый седьмой шаг по кругу.
     const order = times.map((_, i) => (i * 7) % times.length);
     const shuffled: number[] = [];
-    for (const i of order) shuffled[i] = campWorks(SINCE, times[i]);
+    for (const i of order) shuffled[i] = sideWorks(SINCE, times[i], 'front');
     expect(shuffled).toEqual(forward);
     const going = kindsOf(GARRISON);
-    const again = times.map((t) => throughWorks(8, SINCE, t, going));
-    expect(times.map((t) => throughWorks(8, SINCE, t, going))).toEqual(again);
+    const again = times.map((t) => throughWorks('front', 8, SINCE, t, going));
+    expect(times.map((t) => throughWorks('front', 8, SINCE, t, going))).toEqual(again);
     expect(going).toEqual(kindsOf(GARRISON));
     // И вход не трогается: отряд остаётся тем, чем был.
     expect(GARRISON).toEqual({ legionary: 40, spearman: 30, archer: 20 });
@@ -133,24 +170,24 @@ describe('укрепления лагеря: чистая функция вре�
   it('укрепление не убывает, не превышает потолка и встаёт на нём', () => {
     let prev = -1;
     for (const t of times) {
-      const w = campWorks(SINCE, t);
+      const w = sideWorks(SINCE, t, 'front');
       expect(w).toBeGreaterThanOrEqual(0);
       expect(w).toBeLessThanOrEqual(1);
       expect(w, `на ${(t - SINCE) / MIN} мин укрепление убыло`).toBeGreaterThanOrEqual(prev);
       prev = w;
     }
-    expect(campWorks(SINCE, SINCE)).toBe(0);
-    expect(campWorks(SINCE, worksRipeAt(SINCE))).toBe(1);
-    expect(campWorks(SINCE, worksRipeAt(SINCE) + 10 * 60 * MIN)).toBe(1);
+    expect(sideWorks(SINCE, SINCE, 'front')).toBe(0);
+    expect(sideWorks(SINCE, worksRipeAt(SINCE, 'front'), 'front')).toBe(1);
+    expect(sideWorks(SINCE, worksRipeAt(SINCE, 'front') + 10 * 60 * MIN, 'front')).toBe(1);
     // Растёт по-настоящему: на полпути — половина, а не ноль и не единица.
-    expect(campWorks(SINCE, SINCE + CAMP_WORKS_RIPE / 2)).toBeCloseTo(0.5, 9);
+    expect(sideWorks(SINCE, SINCE + CAMP_WORKS_RIPE / 2, 'front')).toBeCloseTo(0.5, 9);
   });
 
   it('проход не расширяется со временем и на дозревших рогатках равен объявленному', () => {
     for (const men of [1, 5, 8, 11, 77, 424]) {
       let prev = Infinity;
       for (const t of times) {
-        const pass = campPass(men, campWorks(SINCE, t));
+        const pass = campPass(men, sideWorks(SINCE, t, 'front'));
         expect(pass, `${men} в лагере, ${(t - SINCE) / MIN} мин`).toBeLessThanOrEqual(prev);
         expect(pass).toBeGreaterThanOrEqual(1);
         prev = pass;
@@ -202,7 +239,7 @@ describe('укрепления лагеря: бой, голод и то, что 
       let won = 0;
       for (let i = 0; i < SEEDS; i++) {
         freeGate(world);
-        const out = battle('home', fz.siege.since + d * MIN, 9000 + i * 131, { own: GARRISON, setup: null });
+        const out = battle('home', fz.siege.since + d * MIN, 9000 + i * 131, { front: { own: GARRISON }, setup: null });
         expect(out, `на ${d} мин лагерь обязан стоять`).not.toBeNull();
         expect(out!.refused, `на ${d} мин проход свободен`).toBe(false);
         if (out!.field.won) won++;
@@ -226,13 +263,13 @@ describe('укрепления лагеря: бой, голод и то, что 
     expect(pulse.siege!.campMen, 'панель видит тот же лагерь').toBe(menOfPower(camp.power));
     for (const d of [0, 7, 14, 28, 31]) {
       freeGate(world);
-      const out = battle('home', fz.siege.since + d * MIN, 777 + d, { own: GARRISON, setup: null })!;
+      const out = battle('home', fz.siege.since + d * MIN, 777 + d, { front: { own: GARRISON }, setup: null })!;
       expect(out.refused, `${d} мин: проход свободен`).toBe(false);
       expect(out.camp.men, `${d} мин`).toBe(menOfPower(camp.power));
       // Мерка — сам бой: сколько стояло в лагере в его начале.
       expect(out.field.result!.sides.defender.total.initial, `${d} мин`).toBe(out.camp.men);
       // А у нападающих в бою — только прошедшие через рогатки.
-      expect(out.field.result!.sides.attacker.total.initial).toBe(out.through.passed);
+      expect(out.field.result!.sides.attacker.total.initial).toBe(out.front!.passed);
     }
     // И в исходниках прежней прибавки не осталось ни в игре, ни в отчётах.
     const files: string[] = [];
@@ -297,7 +334,7 @@ describe('укрепления лагеря: бой, голод и то, что 
         // Пропуск панели — пропуск боя: больше него в строю нападающих не было.
         expect(sides.total.initial, label).toBeLessThanOrEqual(fc.now.pass);
         if (fc.now.passed < fc.now.went) {
-          expect(report.text, label).toContain(`пробились ${fc.now.passed} бойцов строя из ${fc.now.went}`);
+          expect(report.text, label).toContain(`со стороны города ${fc.now.passed} из ${fc.now.went}`);
         }
       }
     }
@@ -346,8 +383,8 @@ describe('проход через рогатки — поток, а не пор�
       let total = 0;
       for (let t = RIPE; t <= RIPE + T; t += step) {
         // Граница области: рогатки дозрели на каждой точке, пропуск постоянен.
-        expect(campWorks(SINCE, t), `${name}: точка до дозревания`).toBe(1);
-        const th = throughWorks(MEN, SINCE, t, g, gateAt);
+        expect(sideWorks(SINCE, t, 'front'), `${name}: точка до дозревания`).toBe(1);
+        const th = throughWorks('front', MEN, SINCE, t, g, gateAt);
         total += th.passed;
         gateAt = th.gateAt;
         if (gateAt !== undefined) {
@@ -440,33 +477,46 @@ describe('проход через рогатки — поток, а не пор�
     expect(r.through?.passed).toBe(campPass(view.campMen, 1));
   }, 120_000);
 
-  it('проход один: вылазка и удар полководца берут из одной занятости', async () => {
-    let now = START;
-    const world = new LocalWorld({ seed: 7, now: () => now, storage: memory() });
-    await world.sync(holdout);
-    // Дружина собирается дома заранее: во время осады её уже не вывести.
-    expect(await world.setGarrison({ legionary: 20 })).toBeNull();
+  it('у каждой стороны свой проход, а два входа в одну сторону делят одну занятость', async () => {
+    // Путь «удар от своих ворот» ушёл: дома дружина — гарнизон. Живых входов теперь
+    // три: вылазка (фронт), удар полководца из поля (тыл) и гарнизон в совместном
+    // ударе (фронт). Два фронтовых входа обязаны делить одну занятость, тыловой —
+    // не замечать её.
+    const fz = await freezeField(7);
+    const at = fz.siege.since + CAMP_WORKS_RIPE;
+    const { world, set } = await thaw(fz, at);
+    const view = (await world.sync(holdout)).siege!;
+    expect(at + 2 * MIN, 'удар успевает до голода').toBeLessThan(view.starvesAt);
+    // Граница области: обе стороны стоят, фронт дозрел, тыл растёт — у обеих
+    // пропуск ýже вышедших, и занятость есть что делить.
+    expect(sideWorks(view.since, at, 'front')).toBe(1);
+    expect(sideWorks(view.since, at, 'rear')).toBeGreaterThan(0);
+
+    const before = await world.strikePlan('home', true);
+    expect(before.can, before.reason ?? '').toBe(true);
+    expect(before.rear.passed, 'тыл режет дружину').toBeLessThan(before.rear.went);
+    expect(before.front!.passed, 'фронт режет гарнизон').toBeLessThan(before.front!.went);
+    // Вылазка занимает фронт…
+    expect((await world.sortie(TOWN)).error).toBeNull();
+    expect(homeWindow(world).gateAt, 'фронт занят').toBeGreaterThan(at);
+    expect(homeWindow(world).rearGateAt, 'тыл вылазка не тронула').toBeUndefined();
+    const busy = await world.strikePlan('home', true);
+    // …тыл удара этого не заметил ни на бойца…
+    expect(busy.rear, 'тыл не сузился от занятого фронта').toEqual(before.rear);
+    // …а гарнизон, лезущий в тот же фронт, упёрся в ту же занятость.
+    expect(busy.front!.passed, 'второй вход во фронт делит занятость первого').toBeLessThan(before.front!.went);
+    expect(busy.front!.passed).toBeLessThan(before.front!.passed);
+    // Удар проходит: тыл свободен, и бой идёт.
+    expect(await world.strikeCamp('home', true)).toBeNull();
     const g = (await world.figures()).find((f) => f.id === 'general')!;
-    now = Math.max(now, g.readyAt);
+    set(g.arriveAt);
     await world.sync(holdout);
-    let siege: WorldPulse['siege'] = null;
-    for (let i = 0; i < 3000 && !siege; i++) {
-      now += 20_000;
-      siege = (await world.sync(holdout)).siege;
+    const r = (await world.reports()).find((x) => x.id.startsWith('camp'))!;
+    expect(r, 'удар случился').toBeTruthy();
+    expect(r.rearThrough?.passed, 'с тыла прошло столько, сколько обещано').toBeGreaterThan(0);
+    if (!r.won) {
+      expect(homeWindow(world).rearGateAt, 'тыл занят своим ударом').toBeGreaterThan(g.arriveAt);
     }
-    expect(siege, 'осада встала').toBeTruthy();
-    now = siege!.since + CAMP_WORKS_RIPE;
-    expect(now, 'минута внутри окна голода').toBeLessThan(siege!.starvesAt);
-    await world.sync(holdout);
-    // Вылазка из гарнизона занимает проход целиком…
-    expect((await world.sortie({ legionary: 20, spearman: 30, archer: 20 })).error).toBeNull();
-    expect(homeWindow(world).gateAt).toBeGreaterThan(now);
-    now += 3_000;
-    await world.sync(holdout);
-    // …и полководцу, бьющему от своих ворот, пройти уже некому — те же слова.
-    const hit = await world.attack({ setup: null });
-    expect(hit.error ?? '', 'удар полководца упёрся в тот же проход').toMatch(/К рогаткам сейчас не пробиться/);
-    expect(hit.reportId).toBeNull();
   }, 120_000);
 
   it('снятая осада уносит проход с собой: у новой осады он свободен', async () => {
@@ -530,5 +580,279 @@ describe('проход через рогатки — поток, а не пор�
     }
     expect(checked).toBeGreaterThan(4);
     expect(refusedSeen, 'в прогоне был и отказ — проверено и его слово').toBeGreaterThan(0);
+  }, 120_000);
+});
+
+describe('две стороны лагеря: древесина и проходы', () => {
+  const SINCE = START + 17 * MIN;
+  /**
+   * Правила выработки, на которых проверяются свойства: оба варианта бота, одна
+   * выработка игрока, разделённая по-разному, и выработка больше двух сторон.
+   */
+  const PLANS: WoodPlan[] = [
+    { front: 1, rear: 1 },
+    { front: 1, rear: 0.5 },
+    { front: 1, rear: 0 },
+    ...Array.from({ length: 11 }, (_, i) => ({ front: i / 10, rear: 1 - i / 10 })),
+    { front: 0.3, rear: 1.7 },
+  ];
+  const planName = (p: WoodPlan): string => `фронт ${p.front}, тыл ${p.rear}`;
+  /** От пяти минут до лагеря до десяти минут после того, как дозреет медленная сторона. */
+  const timesFor = (plan: WoodPlan, step = 20_000): number[] => {
+    const end = Math.max(worksRipeAt(SINCE, 'front', plan), worksRipeAt(SINCE, 'rear', plan)) + 10 * MIN;
+    const out: number[] = [];
+    for (let t = SINCE - 5 * MIN; t <= end; t += step) out.push(t);
+    return out;
+  };
+
+  it('готовность стороны — чистая функция времени и доли древесины: не убывает и не выше потолка', () => {
+    for (const plan of PLANS) {
+      for (const side of SIDES) {
+        const times = timesFor(plan);
+        const forward = times.map((t) => sideWorks(SINCE, t, side, plan));
+        const backward = [...times].reverse().map((t) => sideWorks(SINCE, t, side, plan)).reverse();
+        expect(backward, `${planName(plan)}, ${side}: порядок вопросов изменил ответ`).toEqual(forward);
+        let prev = -1;
+        let growing = 0;
+        for (const [i, w] of forward.entries()) {
+          const label = `${planName(plan)}, ${side}, ${(times[i] - SINCE) / MIN} мин`;
+          expect(w, label).toBeGreaterThanOrEqual(0);
+          expect(w, `${label}: выше потолка`).toBeLessThanOrEqual(1);
+          expect(w, `${label}: готовность убыла`).toBeGreaterThanOrEqual(prev);
+          if (w > 0 && w < 1) growing++;
+          prev = w;
+        }
+        // Граница области: сторона растёт на глазах и встаёт на потолке.
+        expect(growing, `${planName(plan)}, ${side}: точек роста`).toBeGreaterThan(10);
+        expect(prev, `${planName(plan)}, ${side}: дозрела к концу`).toBe(1);
+      }
+    }
+  });
+
+  it('вложенное во фронт и в тыл не больше нарубленного — и не пропадает, пока есть куда класть', () => {
+    let both = 0;
+    let spill = 0;
+    for (const plan of PLANS) {
+      for (const t of timesFor(plan)) {
+        const f = sideWorks(SINCE, t, 'front', plan);
+        const r = sideWorks(SINCE, t, 'rear', plan);
+        const cut = woodCut(SINCE, t, plan);
+        const label = `${planName(plan)}, ${(t - SINCE) / MIN} мин`;
+        expect(f + r, `${label}: вложено ${f + r} при нарубленном ${cut}`).toBeLessThanOrEqual(cut + 1e-9);
+        if (f < 1 && r < 1) {
+          // Обе стороны ещё принимают — всё нарубленное в них и лежит.
+          expect(f + r, `${label}: древесина пропала`).toBeCloseTo(cut, 9);
+          if (cut > 0) both++;
+        } else if (f < 1 || r < 1) {
+          // Одна дозрела: её доля ушла другой, а не в никуда.
+          expect(f + r, `${label}: доля дозревшей стороны пропала`).toBeCloseTo(Math.min(2, cut), 9);
+          spill++;
+        }
+      }
+    }
+    // Граница области: проверено и «обе растут», и «одна отдаёт другой».
+    expect(both).toBeGreaterThan(100);
+    expect(spill).toBeGreaterThan(100);
+  });
+
+  it('при фронте в единицу его готовность буква в букву прежняя — какой бы ни был тыл', () => {
+    for (const rear of [1, 0.5, 0]) {
+      const plan = { front: 1, rear };
+      for (let t = SINCE; t <= SINCE + CAMP_WORKS_RIPE + 2 * MIN; t += 1000) {
+        // Прежняя формула целиком, как она стояла до сторон (8c85c78).
+        const old = Math.min(1, Math.max(0, (t - SINCE) / CAMP_WORKS_RIPE));
+        expect(sideWorks(SINCE, t, 'front', plan), `тыл ${rear}, ${(t - SINCE) / 1000} с`).toBe(old);
+      }
+    }
+    // И то, чем играет мир, — фронт в единицу.
+    expect(sideWorks(SINCE, SINCE + 12 * MIN, 'front')).toBe((12 * MIN) / CAMP_WORKS_RIPE);
+  });
+
+  it('шанс пробиться не растёт с ростом готовности своей стороны', () => {
+    const going = kindsOf(GARRISON);
+    for (const plan of PLANS) {
+      for (const side of SIDES) {
+        for (const men of [5, 11]) {
+          const ripe = worksRipeAt(SINCE, side, plan);
+          let prevPassed = Infinity;
+          let prevWorks = -1;
+          let tighter = 0;
+          for (let t = SINCE; t <= ripe; t += 15_000) {
+            const works = sideWorks(SINCE, t, side, plan);
+            // Граница области: до дозревания своей стороны готовность растёт.
+            expect(works, `${planName(plan)}, ${side}`).toBeGreaterThanOrEqual(prevWorks);
+            const th = throughWorks(side, men, SINCE, t, going);
+            if (plan.front === CAMP_WOOD.front && plan.rear === CAMP_WOOD.rear) {
+              expect(th.works, 'мир играет этим же правилом').toBe(works);
+            }
+            const passed = passKinds(going, campPass(men, works));
+            expect(stackTotal(passed), `${planName(plan)}, ${side}, лагерь ${men}, ${(t - SINCE) / MIN} мин: пробилось больше, чем раньше`).toBeLessThanOrEqual(prevPassed);
+            if (stackTotal(passed) < prevPassed && prevPassed < Infinity) tighter++;
+            prevPassed = stackTotal(passed);
+            prevWorks = works;
+          }
+          expect(tighter, `${planName(plan)}, ${side}, лагерь ${men}: проход сужался`).toBeGreaterThan(0);
+        }
+      }
+    }
+    // Проход стороны читает только свою отметку: чужая занятость на него не влияет.
+    for (const stamp of [undefined, SINCE + 30 * MIN, SINCE + 40 * MIN]) {
+      const cast = strikeForecast({ since: SINCE, campMen: 8, gateAt: stamp }, SINCE + 30 * MIN, going, going);
+      expect(cast.rear, `фронт занят до ${stamp}`).toEqual(strikeForecast({ since: SINCE, campMen: 8 }, SINCE + 30 * MIN, going, null).rear);
+    }
+  });
+
+  it('удар с тыла: шанс не растёт по мере того, как тыл строится, — ни на одном шаге', async () => {
+    const fz = await freeze(7);
+    const { world } = await thaw(fz, fz.siege.since);
+    const battle = campBattle(world);
+    const SEEDS = 40;
+    const wins: number[] = [];
+    // До дозревания тыла и не дальше конца окна голода: за ним лагеря нет, и
+    // «ноль побед» ничего не доказывал бы.
+    const end = Math.min(worksRipeAt(fz.siege.since, 'rear'), fz.siege.starvesAt - MIN);
+    for (let d = 0; fz.siege.since + d * MIN <= end; d += 2) {
+      const at = fz.siege.since + d * MIN;
+      expect(at, `${d} мин внутри окна голода`).toBeLessThan(fz.siege.starvesAt);
+      expect(sideWorks(fz.siege.since, at, 'rear'), `${d} мин: тыл ещё растёт`).toBeLessThanOrEqual(1);
+      let won = 0;
+      for (let i = 0; i < SEEDS; i++) {
+        freeGate(world);
+        const out = battle('home', at, 5000 + i * 97, { rear: { own: GARRISON }, setup: null });
+        expect(out, `на ${d} мин лагерь обязан стоять`).not.toBeNull();
+        expect(out!.refused, `на ${d} мин тыл свободен`).toBe(false);
+        expect(out!.front, 'во фронт никто не лез').toBeNull();
+        if (out!.field.won) won++;
+      }
+      wins.push(won);
+    }
+    for (let i = 1; i < wins.length; i++) {
+      expect(wins[i], `шаг ${i * 2} мин: ${wins.join(' ')}`).toBeLessThanOrEqual(wins[i - 1]);
+    }
+    expect(wins.length, 'точек в области хватает').toBeGreaterThan(8);
+    expect(wins[0] / SEEDS, wins.join(' ')).toBeGreaterThanOrEqual(0.9);
+    // Кривая не плоская: к концу области тыл уже держит.
+    expect(wins[wins.length - 1], wins.join(' ')).toBeLessThan(wins[0]);
+  }, 120_000);
+
+  it('потери совместного удара делятся по сторонам: никто не гибнет дважды и не остаётся жив за другого', () => {
+    const rng = seeded(20260914);
+    for (let i = 0; i < 3000; i++) {
+      const front: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+      const rear: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+      const lost: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+      for (const k of UNIT_KINDS) {
+        if (rng() < 0.7) front[k] = Math.floor(rng() * 40);
+        if (rng() < 0.7) rear[k] = Math.floor(rng() * 40);
+        lost[k] = Math.floor(rng() * (front[k] + rear[k] + 1));
+      }
+      const split = splitLosses(lost, front, rear);
+      for (const k of UNIT_KINDS) {
+        const label = `набор ${i}, ${k}`;
+        expect(split.front[k], `${label}: со стороны города легло больше, чем прошло`).toBeLessThanOrEqual(front[k]);
+        expect(split.rear[k], `${label}: с тыла легло больше, чем прошло`).toBeLessThanOrEqual(rear[k]);
+        expect(split.front[k]).toBeGreaterThanOrEqual(0);
+        expect(split.rear[k]).toBeGreaterThanOrEqual(0);
+        expect(split.front[k] + split.rear[k], `${label}: потери не сошлись`).toBe(lost[k]);
+      }
+    }
+  });
+
+  it('совместный удар: план, бой и запись — одни и те же люди, и никто дважды', async () => {
+    const fz = await freezeField(7);
+    let joint = 0;
+    for (const d of [0, 6, 12, 18, 24]) {
+      const at = fz.siege.since + d * MIN;
+      const { world, set } = await thaw(fz, at);
+      const plan = await world.strikePlan('home', true);
+      const label = `${d} мин`;
+      expect(plan.can, `${label}: ${plan.reason}`).toBe(true);
+      expect(plan.front, `${label}: гарнизон позван`).not.toBeNull();
+      // Граница области: оба отряда в плане, и вышедших с тыла ровно дружина.
+      expect(plan.rear.went, label).toBe(stackTotal(kindsOf(DRUZHINA)));
+      expect(plan.front!.went, label).toBe(stackTotal(kindsOf(TOWN)));
+      expect(plan.rear.passed + plan.front!.passed, `${label}: прошло больше, чем вышло`).toBeLessThanOrEqual(plan.rear.went + plan.front!.went);
+      expect(await world.strikeCamp('home', true)).toBeNull();
+      const g = (await world.figures()).find((f) => f.id === 'general')!;
+      expect(g.arriveAt, `${label}: приход внутри окна голода`).toBeLessThan(fz.siege.starvesAt);
+      set(g.arriveAt);
+      const pulse = await world.sync(holdout);
+      const r = (await world.reports()).find((x) => x.id.startsWith('camp'))!;
+      expect(r, `${label}: бой случился`).toBeTruthy();
+      // Никто дважды: со стороны города вышел гарнизон без дружины, с тыла — дружина
+      // без гарнизона, и в сумме не больше, чем есть войска.
+      expect(r.through!.went, `${label}: со стороны города вышел кто-то сверх гарнизона`).toBe(stackTotal(kindsOf(TOWN)));
+      expect(r.rearThrough!.went, `${label}: с тыла вышел кто-то сверх дружины`).toBe(stackTotal(kindsOf(DRUZHINA)));
+      expect(r.through!.went + r.rearThrough!.went, `${label}: вышло больше, чем есть войска`).toBeLessThanOrEqual(stackTotal(kindsOf(GARRISON)));
+      // То, что видел игрок, — то, что посчитал бой.
+      expect(r.rearThrough, label).toEqual(plan.rear);
+      expect(r.through, label).toEqual(plan.front);
+      expect(r.battle!.result.sides.attacker.total.initial, `${label}: в бою не те, кто прошёл`).toBe(plan.rear.passed + plan.front!.passed);
+      // Никто дважды: павшие — не больше, чем стояло в городе и при полководце, и
+      // доля дружины снята с дружины, остальное — с гарнизона.
+      const effect = pulse.effects.find((e) => e.id === `${r.id}-eff`)!;
+      const lost = effect.lostTroops ?? {};
+      const after = (await world.figures()).find((f) => f.id === 'general')!;
+      const druzhinaLost = troopsAfter(DRUZHINA, after.troops ?? {});
+      for (const id of Object.keys({ ...TOWN, ...DRUZHINA }) as (keyof TroopStack)[]) {
+        const town = (lost[id] ?? 0) - (druzhinaLost[id] ?? 0);
+        expect(town, `${label}, ${id}: гарнизон «потерял» меньше нуля`).toBeGreaterThanOrEqual(0);
+        expect(town, `${label}, ${id}: гарнизон потерял больше, чем вышло`).toBeLessThanOrEqual(TOWN[id] ?? 0);
+      }
+      expect(troopTotal(lost), label).toBe(r.lost.warrior ?? 0);
+      joint++;
+    }
+    expect(joint).toBe(5);
+  }, 180_000);
+
+  it('удар гаснет, когда пробиться некому, и кнопка меню читает это из плана', async () => {
+    const fz = await freezeField(7);
+    const at = fz.siege.since + 20 * MIN;
+    const { world } = await thaw(fz, at);
+    // Граница области: тыл растёт, пропуск ýже дружины — проход есть чем занять.
+    expect(sideWorks(fz.siege.since, at, 'rear')).toBeGreaterThan(0);
+    expect(at + 2 * MIN).toBeLessThan(fz.siege.starvesAt);
+    const free = await world.strikePlan('home', false);
+    expect(free.can, free.reason ?? '').toBe(true);
+    // Тыл занимают целиком тем же боем, каким бьёт полководец.
+    const out = campBattle(world)('home', at, 4242, { rear: { own: GARRISON }, setup: null });
+    expect(out?.refused).toBe(false);
+    if (out!.field.won) return; // осада снята — занимать нечего; сид подобран так, что не бывает
+    const busy = await world.strikePlan('home', false);
+    expect(busy.can, 'тыл занят — удар гаснет до приказа').toBe(false);
+    expect(busy.reason).toMatch(/К рогаткам сейчас не пробиться/);
+    expect((await world.strikeCamp('home', false)) ?? 'приказ принят', 'и приказ отказывает теми же словами').toMatch(/К рогаткам сейчас не пробиться/);
+    // Гарнизон со стороны города пройти может: фронт свободен — и удар снова доступен.
+    const joint = await world.strikePlan('home', true);
+    expect(joint.can, 'фронт свободен — с гарнизоном пробиться есть кому').toBe(true);
+    const menu = readFileSync(path.join(process.cwd(), 'src/ui/map/ActionMenu.tsx'), 'utf8');
+    expect(menu, 'кнопка удара гаснет по плану').toMatch(/disabled=\{!menu\.strike\?\.can\}/);
+  }, 120_000);
+
+  it('полководец в городе удара не отдаёт: его дружина — гарнизон и выходит вылазкой', async () => {
+    let now = START;
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: memory() });
+    await world.sync(holdout);
+    expect(await world.setGarrison(DRUZHINA)).toBeNull();
+    now = Math.max(now, (await world.figures()).find((f) => f.id === 'general')!.readyAt);
+    let siege: WorldPulse['siege'] = null;
+    for (let i = 0; i < 3000 && !siege; i++) {
+      now += 20_000;
+      siege = (await world.sync(holdout)).siege;
+    }
+    expect(siege, 'осада встала при дружине дома').toBeTruthy();
+    // Граница области: полководец дома, дружина собрана, лагерь под стенами.
+    const g = (await world.figures()).find((f) => f.id === 'general')!;
+    expect(g.phase).toBe('home');
+    expect(troopTotal(g.troops)).toBe(20);
+    expect((await world.strikePlan('home', false)).reason).toBe(STRIKE_FROM_TOWN);
+    expect((await world.strikePlan('home', true)).reason).toBe(STRIKE_FROM_TOWN);
+    expect(await world.strikeCamp('home', true)).toBe(STRIKE_FROM_TOWN);
+    expect((await world.attack({ setup: null })).error).toBe(STRIKE_FROM_TOWN);
+    // А вылазкой дружина выходит вместе с остальными — отдельного приказа нет.
+    const res = await world.sortie(GARRISON);
+    expect(res.error).toBeNull();
+    const r = (await world.reports()).find((x) => x.id === res.reportId)!;
+    expect(r.battle!.troops.attacker, 'на вылазку вышел весь гарнизон вместе с дружиной').toEqual(GARRISON);
   }, 120_000);
 });

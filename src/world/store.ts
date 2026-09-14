@@ -42,6 +42,7 @@ import type {
   FigureId,
   FigureView,
   InterceptPlan,
+  StrikePlan,
   LetterView,
   MarchOrder,
   MarchView,
@@ -87,6 +88,13 @@ export interface ActionMenuState {
   march: MarchView | null;
   /** Где и когда встретимся, если приказать сейчас. null — цели нет. */
   plan: InterceptPlan | null;
+  /**
+   * Удар полководца по лагерю под целью, если приказать сейчас: кто пробьётся с
+   * тыла и, если зовут гарнизон, со стороны города. null — не спрашивали.
+   */
+  strike: StrikePlan | null;
+  /** Зовут ли гарнизон в совместный удар — галочка в меню. */
+  strikeGarrison: boolean;
 }
 
 export interface WorldStore {
@@ -203,6 +211,10 @@ export interface WorldStore {
   openChase: (march: MarchView) => Promise<void>;
   /** Вести полководца на перехват. Возвращает текст ошибки или null. */
   intercept: () => Promise<string | null>;
+  /** Перечитать план удара по лагерю под целью меню; `garrison` — галочка. */
+  loadStrike: (garrison: boolean) => Promise<void>;
+  /** Полководец идёт бить лагерь под целью меню. Текст ошибки или null. */
+  strikeCamp: () => Promise<string | null>;
   closeMenu: () => void;
   /** Перечитать строки меню: после приказа цена, шанс и причины уже другие. */
   refreshOrders: () => Promise<void>;
@@ -547,6 +559,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
         card: null,
         march,
         plan: null,
+        strike: null,
+        strikeGarrison: false,
       },
       orders: [],
     });
@@ -560,6 +574,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const menu = get().menu;
     if (!menu || menu.target !== view.id) return;
     set({ menu: { ...menu, card }, orders });
+    if (agent === 'general' && card?.siege && !card.siege.mine) void get().loadStrike(false);
   },
 
   openChase: async (march) => {
@@ -574,6 +589,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
         card: null,
         march,
         plan: null,
+        strike: null,
+        strikeGarrison: false,
       },
       orders: [],
     });
@@ -597,6 +614,30 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
     haptic('medium');
     await get().pulse();
+    return null;
+  },
+
+  loadStrike: async (garrison) => {
+    const menu = get().menu;
+    if (!menu?.target) return;
+    set({ menu: { ...menu, strikeGarrison: garrison } });
+    const strike = await worldApi().strikePlan(menu.target, garrison);
+    const now = get().menu;
+    if (!now || now.target !== menu.target || now.strikeGarrison !== garrison) return;
+    set({ menu: { ...now, strike } });
+  },
+
+  strikeCamp: async () => {
+    const menu = get().menu;
+    if (!menu?.target) return 'Цель не выбрана.';
+    const err = await worldApi().strikeCamp(menu.target, menu.strikeGarrison);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
     return null;
   },
 

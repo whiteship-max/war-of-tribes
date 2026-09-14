@@ -30,6 +30,7 @@ import type {
   SendResult,
   SettlementCard,
   SettlementId,
+  StrikePlan,
   TribeInfo,
   WorldInfo,
   WorldPulse,
@@ -116,6 +117,22 @@ export interface WorldApi {
 
   /** Вести полководца на перехват. null — пошёл, иначе текст ошибки. */
   intercept(marchId: string): Promise<string | null>;
+
+  /**
+   * Удар по лагерю под поселением `target` до приказа: сколько идти и кто
+   * пробьётся к рогаткам в минуту прихода. `garrison` — зовут ли гарнизон из
+   * своего города во фронт (только у лагеря под своим городом). Недоступно —
+   * приходит причина.
+   */
+  strikePlan(target: SettlementId, garrison: boolean): Promise<StrikePlan>;
+
+  /**
+   * Полководец из поля идёт бить лагерь под `target`: дружина — в тыл, гарнизон,
+   * если зовут, — во фронт, бой один, в минуту прихода. Полководец в городе такого
+   * приказа не отдаёт: дома его дружина — гарнизон, и её путь за ворота — вылазка.
+   * null — пошёл (или уже ударил, если стоял у лагеря), иначе текст ошибки.
+   */
+  strikeCamp(target: SettlementId, garrison: boolean): Promise<string | null>;
 
   /** Дипломат подписывает договор с племенем поселения, у которого стоит. */
   negotiate(deal: DealId): Promise<string | null>;

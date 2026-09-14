@@ -67,8 +67,8 @@ export function SortiePanel() {
   const sortie = useWorld((g) => g.sortie);
 
   const away = useMemo(() => awayOf(marches, figures), [marches, figures]);
-  // Выходят из гарнизона. Дружина, собранная у своих ворот, стену держит, но с
-  // вылазкой не выходит: за ворота её ведёт полководец своим приказом.
+  // Выходят из гарнизона — а в нём и дружина, если полководец в городе: дома она
+  // часть гарнизона и за ворота выходит этой же вылазкой (`world/muster`).
   const home = useMemo(() => homeOf(s.army, away), [s, away]);
   const standing = useMemo(() => troopTotal(standingTroops(s.army, away)), [s, away]);
   const [picked, setPicked] = useState<TroopStack>({});
@@ -84,7 +84,7 @@ export function SortiePanel() {
   }, [siege]);
 
   const men = troopTotal(picked);
-  const stay = troopTotal(home) - men + standing;
+  const stay = troopTotal(home) - men;
 
   if (!siege) {
     return (
@@ -144,12 +144,12 @@ export function SortiePanel() {
         <div className="ico">⛺</div>
         <div className="body">
           <div className="title">
-            {fc.now.works <= 0 ? 'Рогаток ещё нет' : fc.now.works < 1 ? 'Лагерь укрепляется' : 'Рогатки дозрели'}
+            {fc.now.works <= 0 ? 'Со стороны города рогаток нет' : fc.now.works < 1 ? 'Со стороны города рогатки растут' : 'Со стороны города рогатки дозрели'}
           </div>
           <div className="desc">
             {fc.now.works <= 0
               ? `Лагерь только встал: к бою пройдут все, кого выпустишь.`
-              : `Рогатки, ров и частокол достроены на ${Math.floor(fc.now.works * 100)}%: к бою пробьётся не больше ${pass} бойцов строя.`}
+              : `Со стороны города рогатки, ров и частокол достроены на ${Math.floor(fc.now.works * 100)}%: к бою пробьётся не больше ${pass} бойцов строя.`}
             {fc.now.works > 0 &&
               fc.now.free < 1 &&
               ` Проход занят прошедшими раньше: сейчас пропустит ${fc.now.room}, освободится через ${formatLeft(secondsLeft(fc.clearAt, now))} — тогда не больше ${fc.clearPass}.`}
@@ -197,15 +197,15 @@ export function SortiePanel() {
           ))}
           <div className="mod total">
             <span className="ico">🏠</span>
-            <span className="name">{standing > 0 ? `Останется за стеной, с дружиной ${standing}` : 'Останется за стеной'}</span>
+            <span className="name">Останется за стеной</span>
             <span className={stay > 0 ? 'val' : 'val neg'}>{stay}</span>
           </div>
         </div>
       )}
       {standing > 0 && (
         <p className="note">
-          Дружина полководца у ворот с вылазкой не выходит: она держит стену, а по лагерю бьёт приказом
-          полководца.
+          Полководец в городе, и его дружина ({standing}) — часть гарнизона: она в списке выше и выходит
+          вылазкой вместе с остальными.
         </p>
       )}
 

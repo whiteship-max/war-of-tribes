@@ -248,10 +248,20 @@ export function ReportBody({ report }: { report: Report }) {
           а дрались в нём трое. Число записал мир в минуту боя, тем же расчётом,
           которым панель вылазки обещала его до нажатия.
         */}
-        {report.through && report.through.passed < report.through.went && (
+        {/* Сторон у лагеря две, и строк по сторонам — столько, сколько с них лезли. */}
+        {report.rearThrough && (report.rearThrough.passed < report.rearThrough.went || (report.through && report.through.passed < report.through.went)) && (
           <div className="mod">
             <span className="ico">⛺</span>
-            <span className="name">Пробились к рогаткам, бойцов строя</span>
+            <span className="name">Пробились с тыла, бойцов строя</span>
+            <span className="val">
+              {report.rearThrough.passed} из {report.rearThrough.went}
+            </span>
+          </div>
+        )}
+        {report.through && (report.through.passed < report.through.went || (report.rearThrough && report.rearThrough.passed < report.rearThrough.went)) && (
+          <div className="mod">
+            <span className="ico">⛺</span>
+            <span className="name">Пробились {report.rearThrough ? 'со стороны города' : 'к рогаткам'}, бойцов строя</span>
             <span className="val">
               {report.through.passed} из {report.through.went}
             </span>

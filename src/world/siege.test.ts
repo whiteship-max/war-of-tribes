@@ -404,10 +404,15 @@ describe('осада: из города не выступают', () => {
     const src = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
     const moves = src.match(/phase = 'moving'/g) ?? [];
     const pushes = src.match(/marches\.push\(/g) ?? [];
-    expect(moves.length, 'фигура трогается с места ровно в двух местах').toBe(2);
+    expect(moves.length, 'фигура трогается с места ровно в трёх местах').toBe(3);
     expect(pushes.length, 'поход заводится ровно в четырёх местах').toBe(4);
     // И все четыре приказа, ведущие в эти места, спрашивают одну и ту же дверь.
     expect((src.match(/this\.siegeBlock\(now\)/g) ?? []).length).toBe(4);
+    // Третье место — удар по лагерю из поля — из города не выводит по учёту, а не
+    // по двери: дома дружина — гарнизон (`fieldTroops`), и бить из поля некому.
+    const strike = src.slice(src.indexOf('private strikeCheck('), src.indexOf('async strikePlan('));
+    expect(strike, 'удар из поля спрашивает, в поле ли дружина').toMatch(/fieldTroops\(f, now\)/);
+    expect(strike).toMatch(/STRIKE_FROM_TOWN/);
   });
 
   it('гонец, фигура, дружина и перехват — все получают отказ с причиной', async () => {
@@ -790,26 +795,34 @@ describe('осада: вылазка', () => {
 });
 
 describe('осада: лагерь как цель на карте', () => {
-  it('удар по лагерю снимает осаду, и бьёт по нему тот же бой, что и вылазка', async () => {
-    // Полководец с дружиной стоит дома, когда под стены садится чужой лагерь.
-    // Ударить по нему он может тем же приказом, каким бьёт любую цель.
+  it('удар по лагерю из поля снимает осаду, и бьёт по нему тот же бой, что и вылазка', async () => {
+    // Полководец с дружиной стоит в поле, когда под стены садится чужой лагерь.
+    // Ударить по нему он может приказом издалека: бой — в минуту прихода, с тыла.
     const w = makeWorld(7);
     const p = holdout({ army: { legionary: 40, spearman: 30, archer: 20 } });
     await w.world.sync(p);
-    // Дружину он берёт заранее: во время осады её из города уже не вывести —
-    // это тот же выход, только другим приказом.
+    // Дружину он берёт заранее и выводит в поле: во время осады из города её не вывести.
     expect(await w.world.setGarrison({ legionary: 40, spearman: 30, archer: 20 })).toBeNull();
     const g = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
     w.at(Math.max(w.now(), g.readyAt));
+    await w.world.sync(p);
+    const info = await w.world.info();
+    expect(await w.world.moveFigure('general', { x: info.home.x + 3, y: info.home.y + 2 })).toBeNull();
+    w.at((await w.world.figures()).find((f) => f.id === 'general')!.arriveAt);
     await w.world.sync(p);
 
     const start = await besiege(w, p);
     expect(start.siege).toBeTruthy();
 
-    const hit = await w.world.attack({ setup: null });
-    expect(hit.error).toBeNull();
-    expect(hit.won, 'дружина сильнее лагеря').toBe(true);
-    expect((await w.world.sync(p)).siege, 'разбитый лагерь снимает осаду').toBeNull();
+    expect(await w.world.strikeCamp('home', false)).toBeNull();
+    const moving = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    expect(moving.arriveAt, 'дойдёт до голода').toBeLessThan(start.siege!.starvesAt);
+    w.at(moving.arriveAt);
+    const after = await w.world.sync(p);
+    const hit = (await w.world.reports()).find((r) => r.id.startsWith('camp'));
+    expect(hit, 'бой в минуту прихода').toBeTruthy();
+    expect(hit!.won, 'дружина сильнее лагеря').toBe(true);
+    expect(after.siege, 'разбитый лагерь снимает осаду').toBeNull();
   }, 60_000);
 });
 

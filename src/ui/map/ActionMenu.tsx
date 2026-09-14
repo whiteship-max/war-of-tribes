@@ -43,6 +43,8 @@ export function ActionMenu() {
   const attack = useWorld((g) => g.attack);
   const besiege = useWorld((g) => g.besiege);
   const intercept = useWorld((g) => g.intercept);
+  const strikeCamp = useWorld((g) => g.strikeCamp);
+  const loadStrike = useWorld((g) => g.loadStrike);
   const watch = useWorld((g) => g.watch);
   const showToast = useGame((g) => g.showToast);
   const openBattle = useGame((g) => g.openBattle);
@@ -222,39 +224,64 @@ export function ActionMenu() {
           })}
 
         {/*
-          Лагерь под стенами — цель, а не декорация. Чужой лагерь бьют тем, что
-          при полководце, и бой этот тот же самый, каким осаждённые ходят на
-          вылазку: правда о том, насколько крепок лагерь, одна.
+          Лагерь под стенами — цель, а не декорация. Полководец бьёт его из поля, с
+          тыла, приказом издалека: бой — в минуту прихода. Под своим городом можно
+          позвать и гарнизон — он полезет со стороны города, и бой будет один. Кто
+          пробьётся с каждой стороны, считает мир той же функцией, что и бой, и
+          кнопка гаснет, когда пробиться некому, — как «Выйти» у вылазки.
         */}
         {menu.agent === 'general' && card?.siege && !card.siege.mine && (
-          <button
-            className={`am-row${here && troopTotal(figure?.troops ?? {}) > 0 ? '' : ' off'}`}
-            disabled={!here || troopTotal(figure?.troops ?? {}) === 0}
-            onClick={() => {
-              void (async () => {
-                const err = await attack({ setup: null });
-                showToast(err ?? 'Дружина ударила по лагерю. Отчёт в походах.');
-                if (!err) closeMenu();
-              })();
-            }}
-          >
-            <span className="ico">⛺</span>
-            <span className="body">
-              <b>Ударить по лагерю</b>
-              <i>
-                {here
-                  ? `«${card.siege.byName}» стоят здесь с ${new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Разобьёшь — осада снята. ${worksWords(card.siege.since, worldNow(), card.siege.gateAt)}`
-                  : 'Доведи полководца — и лагерь можно сбить.'}
-              </i>
-            </span>
-          </button>
+          <>
+            <button
+              className={`am-row${menu.strike?.can ? '' : ' off'}`}
+              disabled={!menu.strike?.can}
+              onClick={() => {
+                void (async () => {
+                  const err = await strikeCamp();
+                  showToast(err ?? (menu.strike?.seconds ? 'Полководец пошёл бить лагерь.' : 'Дружина ударила по лагерю. Отчёт в походах.'));
+                  if (!err) closeMenu();
+                })();
+              }}
+            >
+              <span className="ico">⛺</span>
+              <span className="body">
+                <b>Ударить по лагерю</b>
+                <i>
+                  {!menu.strike
+                    ? 'Считаем проход…'
+                    : !menu.strike.can
+                      ? menu.strike.reason
+                      : `${menu.strike.seconds > 0 ? `Дойдёт через ${formatLeft(menu.strike.seconds)}. ` : ''}С тыла пробьются ${menu.strike.rear.passed} из ${menu.strike.rear.went} бойцов строя${
+                          menu.strike.front
+                            ? `, со стороны города — ${menu.strike.front.passed} из ${menu.strike.front.went}`
+                            : ''
+                        }${menu.strike.seconds > 0 ? ' — если до прихода проход не займут' : ''}. Разобьёшь — осада снята.`}
+                </i>
+                <em>
+                  <span className="am-chance">«{card.siege.byName}» с {new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+                </em>
+              </span>
+            </button>
+            {menu.strike?.garrisonable && (
+              <label className="am-plain">
+                <input
+                  type="checkbox"
+                  checked={menu.strikeGarrison}
+                  onChange={(e) => void loadStrike(e.target.checked)}
+                />{' '}
+                Подключить гарнизон: выйдет весь и полезет со стороны города, дружина — с тыла, бой один.
+                Дерутся только пробившиеся, остальные постоят у рогаток и вернутся за стену.
+              </label>
+            )}
+            <div className="am-plain">{worksWords(card.siege, worldNow())}</div>
+          </>
         )}
 
         {/* Наш лагерь: он же и всё, чем сейчас занят полководец. */}
         {menu.agent === 'general' && card?.siege?.mine && (
           <div className="am-plain">
             ⛺ Здесь стоит наш лагерь. Пока он стоит, других дел у полководца нет; сколько у них
-            хлеба — узнаем вместе с ними. {worksWords(card.siege.since, worldNow(), card.siege.gateAt)}
+            хлеба — узнаем вместе с ними. {worksWords(card.siege, worldNow())}
           </div>
         )}
 

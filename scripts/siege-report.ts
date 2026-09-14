@@ -25,14 +25,15 @@
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { resolveField } from '@/world/battle';
 import { menOfPower, raidingParty } from '@/world/garrison';
-import { campPass, campWorks, passKinds } from '@/world/works';
+import { campPass, passKinds, sideWorks } from '@/world/works';
 import { awayOf, homeOf } from '@/world/muster';
-import { gearOf, kindsOf, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { gearOf, kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { stackTotal } from '@/battle';
 import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
   CAMP_GATE_CLEAR,
+  CAMP_WOOD,
   CAMP_WORKS_PASS,
   CAMP_WORKS_RIPE,
   SIEGE_CHANCE,
@@ -383,6 +384,191 @@ for (const level of LEVELS) {
   }
 }
 
+// ------------------------------------------------- удар полководца с тыла ---
+//
+// У лагеря две стороны: вылазка и выручка лезут со стороны города, полководец из
+// поля — с тыла, и проход у каждой свой. Здесь меряется, что это даёт обороняющемуся:
+// настоящий мир, полководец с дружиной (вместимость Статуи) стоит в поле в трёх
+// клетках от ворот, когда лагерь садится, а гарнизон — две вместимости — в городе.
+// Для каждой минуты мир поднимается из того же сохранения, и приказ отдаётся так,
+// чтобы полководец пришёл к этой минуте.
+//
+// Строки: «вылазка» — весь гарнизон со стороны города; «с тыла» — одна дружина;
+// «с гарнизоном» — совместный удар, бой один. Сравнивать «с тыла» с «вылазкой» —
+// и есть вопрос о поблажке ботам: тыл, закрытый так же, как фронт, делает удар
+// полководца таким же безнадёжным, как вылазку.
+
+const FIELD_DELAYS = [0, 4, 8, 12, 16, 20, 24, 28, 36];
+
+async function freezeField(seed: number, level: number): Promise<Frozen | null> {
+  const g = townAt(level);
+  // Войско — три вместимости: одна уходит в дружину, две остаются гарнизоном.
+  const cap = commandCap(g);
+  const ids = Object.keys(TOWN_MIX) as (keyof TroopStack)[];
+  const split = (n: number): TroopStack => {
+    const out: TroopStack = {};
+    let left = n;
+    ids.forEach((id, i) => {
+      const k = i === ids.length - 1 ? left : Math.round((n * (TOWN_MIX[id] ?? 0)) / 10);
+      out[id] = k;
+      left -= k;
+    });
+    return out;
+  };
+  const all = split(cap * 3);
+  for (const id of ids) g.army[id] = all[id] ?? 0;
+  let now = 1_700_000_000_000;
+  const store = memory();
+  const world = new LocalWorld({ seed, now: () => now, storage: store });
+  await world.sync(playerProfile(g));
+  const err = await world.setGarrison(split(cap));
+  if (err) throw new Error(err);
+  now = Math.max(now, (await world.figures()).find((f) => f.id === 'general')!.readyAt);
+  await world.sync(playerProfile(g));
+  const info = await world.info();
+  const moveErr = await world.moveFigure('general', { x: info.home.x + 3, y: info.home.y + 2 });
+  if (moveErr) throw new Error(moveErr);
+  now = (await world.figures()).find((f) => f.id === 'general')!.arriveAt;
+  await world.sync(playerProfile(g));
+  for (let i = 0; i < 6 * 180; i++) {
+    now += 20_000;
+    const r = await world.sync(playerProfile(g));
+    if (!r.siege) continue;
+    const save = store.read() as string;
+    const parsed = JSON.parse(save);
+    const camp = parsed.marches.find((x: { id: string }) => x.id === parsed.sieges.home.campId);
+    return { seed, save, since: r.siege.since, starvesAt: r.siege.starvesAt, campPower: camp.power, g };
+  }
+  return null;
+}
+
+interface FieldOutcomeRow {
+  n: number;
+  won: number;
+}
+
+/** Чем кончился проваленный совместный удар: что стало с городом. */
+interface JointFail {
+  runs: number;
+  fails: number;
+  garrisonWent: number;
+  garrisonFell: number;
+  townLeft: number;
+  townEmpty: number;
+  druzhinaHome: number;
+  generalDown: number;
+}
+
+const woodLine = `древесина лагеря (CAMP_WOOD): фронт ${CAMP_WOOD.front}, тыл ${CAMP_WOOD.rear} стороны за ${CAMP_WORKS_RIPE / MIN} мин; фронт дозревает к ${(CAMP_WORKS_RIPE / MIN).toFixed(0)}-й минуте, тыл — к ${((CAMP_WORKS_RIPE / MIN) * (CAMP_WOOD.rear >= CAMP_WOOD.front ? 1 / CAMP_WOOD.rear : 2 / (CAMP_WOOD.front + CAMP_WOOD.rear))).toFixed(1)}-й`;
+
+console.log('');
+console.log('--- стороны лагеря: вылазка со стороны города, удар полководца с тыла (настоящий мир) ---');
+console.log(woodLine);
+console.log('минута — когда полководец приходит к лагерю (приказ отдан из поля в трёх клетках); «вылазка» — весь гарнизон в ту же минуту');
+const travels = new Map<Frozen, number>();
+const jointFail: JointFail = { runs: 0, fails: 0, garrisonWent: 0, garrisonFell: 0, townLeft: 0, townEmpty: 0, druzhinaHome: 0, generalDown: 0 };
+for (const level of LEVELS) {
+  const frozen: Frozen[] = [];
+  for (const seed of TOWN_SEEDS) {
+    const fz = await freezeField(seed, level);
+    if (fz) frozen.push(fz);
+  }
+  if (frozen.length === 0) {
+    console.log(`Статуя L${level}: осады не случилось`);
+    continue;
+  }
+  const probe = await thaw(frozen[0], frozen[0].since, 0);
+  const general = probe.pulse.figures.find((f) => f.id === 'general')!;
+  const win = frozen.map((f) => (f.starvesAt - f.since) / MIN);
+  console.log(
+    `Статуя L${level}: осад ${frozen.length}, дружина ${troopTotal(general.troops)} чел. (${stackTotal(kindsOf(general.troops))} строя), ` +
+      `гарнизон ${stackTotal(kindsOf(probe.garrison))} строя, окно голода ${Math.min(...win).toFixed(1)}…${Math.max(...win).toFixed(1)} мин`,
+  );
+  console.log('  приход, мин      ' + FIELD_DELAYS.map((d) => String(d).padStart(5)).join(''));
+  const rows: Record<'вылазка' | 'с тыла' | 'с гарнизоном', FieldOutcomeRow[]> = { вылазка: [], 'с тыла': [], 'с гарнизоном': [] };
+  for (const d of FIELD_DELAYS) {
+    const cells = { вылазка: { n: 0, won: 0 }, 'с тыла': { n: 0, won: 0 }, 'с гарнизоном': { n: 0, won: 0 } };
+    for (const fz of frozen) {
+      const arrive = fz.since + d * MIN;
+      if (arrive >= fz.starvesAt) continue;
+      for (let v = 0; v < VARIANTS; v++) {
+        // Вылазка — в минуту прихода, тем же сохранением.
+        {
+          const t = await thaw(fz, arrive, v);
+          if (t.pulse.siege) {
+            const res = await t.world.sortie(t.garrison);
+            if (res.error && !/К рогаткам сейчас не пробиться/.test(res.error)) throw new Error(res.error);
+            cells['вылазка'].n++;
+            if (res.won) cells['вылазка'].won++;
+          }
+        }
+        for (const joint of [false, true]) {
+          // Приказ отдаётся так, чтобы прийти к минуте `arrive`: дорога — из плана.
+          let travel = travels.get(fz);
+          if (travel === undefined) {
+            const look = await thaw(fz, fz.since, 0);
+            travel = (await look.world.strikePlan('home', false)).seconds * 1000;
+            travels.set(fz, travel);
+          }
+          const orderAt = Math.max(fz.since, arrive - travel);
+          const t = await thaw(fz, orderAt, v);
+          if (!t.pulse.siege) continue;
+          const garrisonBefore = t.garrison;
+          const err = await t.world.strikeCamp('home', joint);
+          if (err) throw new Error(`L${level} ${d} мин: ${err}`);
+          const g = (await t.world.figures()).find((f) => f.id === 'general')!;
+          t.later(g.arriveAt - t.now());
+          const after = await t.world.sync(playerProfile(fz.g));
+          const rep = (await t.world.reports()).find((r) => r.id.startsWith('camp'));
+          const key = joint ? 'с гарнизоном' : 'с тыла';
+          if (!rep) {
+            // Боя не было: проход занят или осада кончилась до прихода — считается неудачей.
+            const miss = after.effects.find((e) => e.id.startsWith('strike-miss'));
+            if (!miss) throw new Error(`L${level} ${d} мин: ни боя, ни отказа`);
+            cells[key].n++;
+            continue;
+          }
+          cells[key].n++;
+          if (rep.won) cells[key].won++;
+          if (joint) {
+            jointFail.runs++;
+            if (!rep.won) {
+              jointFail.fails++;
+              const eff = after.effects.find((e) => e.id === `${rep.id}-eff`);
+              const lost = eff?.lostTroops ?? {};
+              const fig = after.figures.find((f) => f.id === 'general')!;
+              const druzhinaLost = troopTotal(general.troops) - troopTotal(fig.troops);
+              const townFell = troopTotal(lost) - Math.max(0, druzhinaLost);
+              // Город после провала — по правилу учёта, на армии после потерь.
+              const army = troopsAfter(fz.g.army, lost);
+              const townAfter = homeOf(army, awayOf(after.marches, after.figures.map((f) => (f.id === 'general' ? { ...f, phase: 'field' as const } : f))));
+              jointFail.garrisonWent += troopTotal(garrisonBefore);
+              jointFail.garrisonFell += townFell;
+              jointFail.townLeft += troopTotal(townAfter);
+              if (troopTotal(townAfter) === 0) jointFail.townEmpty++;
+              if (fig.phase === 'home' && troopTotal(fig.troops) > 0) jointFail.druzhinaHome++;
+              if (fig.phase === 'down') jointFail.generalDown++;
+            }
+          }
+        }
+      }
+    }
+    for (const k of Object.keys(rows) as (keyof typeof rows)[]) rows[k].push(cells[k]);
+  }
+  for (const k of Object.keys(rows) as (keyof typeof rows)[]) {
+    console.log(`  ${k.padEnd(15)} ${rows[k].map((c) => (c.n ? pct(c.won, c.n) : '—').padStart(5)).join('')}`);
+  }
+}
+console.log('');
+console.log('--- провал совместного удара: что остаётся в городе ---');
+const per = (x: number): string => (x / Math.max(1, jointFail.fails)).toFixed(1);
+console.log(
+  `совместных ударов ${jointFail.runs}, провалов ${jointFail.fails}; на провал: гарнизона вышло ${per(jointFail.garrisonWent)} чел., ` +
+    `легло ${per(jointFail.garrisonFell)}, осталось в городе без дружины ${per(jointFail.townLeft)}; ` +
+    `город без гарнизона — ${jointFail.townEmpty} раз из ${jointFail.fails}; дружина вернулась домой живой — ${jointFail.druzhinaHome}, полководец выбыл — ${jointFail.generalDown}`,
+);
+console.log('«осталось в городе без дружины» — гарнизон после боя; уцелевшая дружина, придя домой, встаёт в гарнизон сама.');
+
 // ------------------------------------------------------ частые вылазки ---
 //
 // Отката у вылазки нет и не будет: проход — поток (`CAMP_GATE_CLEAR`), и
@@ -427,7 +613,7 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
             way === 'подряд по одному'
               ? { spearman: Math.min(1, home.spearman ?? 0) }
               : way === 'подряд по пропуску'
-                ? fillPass(home, campPass(view.campMen, campWorks(view.since, t.now())))
+                ? fillPass(home, campPass(view.campMen, sideWorks(view.since, t.now(), 'front')))
                 : home;
           const res = await t.world.sortie(going);
           k++;
