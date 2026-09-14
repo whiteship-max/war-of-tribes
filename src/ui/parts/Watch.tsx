@@ -1,6 +1,7 @@
 import { useGame } from '@/game/store';
 import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
 import { cancelSurvey, startSurvey, surveyInfo } from '@/game/sim/actions';
+import { surveySeconds } from '@/game/sim/survey';
 import { Cost } from './Cost';
 
 /**
@@ -61,7 +62,11 @@ export function Watch() {
         </div>
       ) : info.next ? (
         <div className="upgrade">
-          <Cost cost={info.next.cost} work={info.next.seconds} eta={info.next.seconds} />
+          <Cost
+            cost={info.next.cost}
+            work={surveySeconds(info.next, info.learning)}
+            eta={surveySeconds(info.next, info.learning)}
+          />
           <button
             className="btn wide"
             data-tut="survey-start"
@@ -94,7 +99,7 @@ export function Watch() {
                   ? step.effect
                   : locked
                     ? `Нужен Дозор ${step.n} уровня — сейчас ${info.level}.`
-                    : `${step.seconds} с разъездов.`}
+                    : `${surveySeconds(step, info.learning)} с разъездов.`}
               </div>
             </div>
           </div>

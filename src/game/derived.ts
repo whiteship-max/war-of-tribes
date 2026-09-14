@@ -971,6 +971,16 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   return ((idle + bonded) * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
 }
 
+/**
+ * Сколько мастерская прибавляет к скорости стройки на самом деле: вклад ремесленников
+ * под теми же множителями сезона и ратуши, что и вся стройка (`buildRate`). Панель
+ * мастерской писала голый `crafterBuildRate` — у ратуши десятого уровня 8.0/с там, где
+ * в стройку шло 13.8/с. Сходство с `buildRate` держит тест: сумма без мастерской и
+ * этого вклада обязана давать полную скорость.
+ */
+export const crafterBuildShare = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
+  crafterBuildRate(s, mods) * mods.build * townHallBuildMult(s);
+
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
   for (const r of RESOURCE_IDS) if ((cost[r] ?? 0) > s.resources[r]) return false;
   return true;

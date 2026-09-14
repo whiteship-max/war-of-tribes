@@ -2,8 +2,17 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
-import { buildRate, buildingOfType, isSite, townHallBuildMult, upgradeInfo } from '../derived';
-import { RESOURCE_IDS, TEST_GEMS } from '../constants';
+import {
+  buildRate,
+  buildingOfType,
+  crafterBuildRate,
+  crafterBuildShare,
+  isSite,
+  seasonMods,
+  townHallBuildMult,
+  upgradeInfo,
+} from '../derived';
+import { BUILDER_RATE, RESOURCE_IDS, TEST_GEMS } from '../constants';
 import { startUpgrade } from './actions';
 import { creditGems, gemsOf, rushPrice, rushUpgrade } from './gems';
 import { DAILY_GAMES } from '../data/daily';
@@ -313,6 +322,29 @@ describe('ратуша ускоряет стройку', () => {
     const top = townHallBuildMult(s);
     expect(top).toBeGreaterThan(1.5);
     expect(buildRate(s)).toBeCloseTo(base * top, 5);
+  });
+
+  it('вклад мастерской, который пишет её панель, — ровно та доля, которую она добавляет к стройке', () => {
+    const s = createInitialState();
+    buildingOfType(s, 'town_hall')!.level = 10;
+    const shop = buildingOfType(s, 'workshop')!;
+    shop.level = 3;
+    s.pop = 200;
+    s.workers[shop.id] = 10;
+    // Точка внутри области: множитель ратуши не единица, ремесленники есть.
+    expect(townHallBuildMult(s)).toBeGreaterThan(1);
+    expect(crafterBuildRate(s)).toBeGreaterThan(0);
+    const full = buildRate(s);
+    const share = crafterBuildShare(s);
+    s.workers[shop.id] = 0;
+    // Сняли ремесленников — они стали свободными руками: их простой труд вычитается отдельно.
+    const withoutShop = buildRate(s) - 10 * BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s);
+    expect(full - withoutShop).toBeCloseTo(share, 6);
+    expect(share).toBeGreaterThan(crafterBuildRate({ ...s, workers: { ...s.workers, [shop.id]: 10 } }));
+    // Панель мастерской пишет именно эту долю, а не голую выработку ремесленников.
+    const panel = readFileSync(join(__dirname, '..', '..', 'ui', 'panels', 'BuildingPanel.tsx'), 'utf8');
+    expect(panel, 'BuildingPanel.tsx: голый crafterBuildRate').not.toMatch(/\bcrafterBuildRate\b/);
+    expect(panel).toMatch(/\bcrafterBuildShare\(/);
   });
 
   it('с высокой ратушей то же улучшение строится заметно быстрее', () => {

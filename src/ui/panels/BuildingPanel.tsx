@@ -28,7 +28,7 @@ import {
   intelKeen,
   currentSite,
   defense,
-  crafterBuildRate,
+  crafterBuildShare,
   freeJobCount,
   housingCapacity,
   idleCount,
@@ -534,7 +534,7 @@ function GenericData({ b }: { b: Building }) {
       stats.push(['ui-crate', '📦', `На ${b.level + 1} уровне`, `${next} (+${next - now})`]);
     }
   }
-  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildRate(s).toFixed(1)}/с`]);
+  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildShare(s).toFixed(1)}/с`]);
   if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
   if (housing) stats.push(['hud-pop', '👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);
   if (def_) stats.push(['hud-army', '⚔️', 'Защита посёлка', defense(s).toFixed(0)]);

@@ -9,8 +9,9 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { formatLeft } from '@/world/geo';
 import { hungerLeft } from '@/ui/parts/hunger';
+import { sideReady } from '@/ui/parts/campSide';
 import { formatEstimate } from '@/world/intel';
 import { CAMP_LEAVE, STORM_LIFTS } from '@/world/siege';
 import { FATE_META } from '@/world/data/fates';
@@ -133,11 +134,7 @@ export function CampPanel() {
             <div className="mod" key={side}>
               <span className="ico">{side === 'front' ? '🏘️' : '🌾'}</span>
               <span className="name">{SIDE_NAME[side]}</span>
-              <span className="val">
-                {t.works >= 1
-                  ? 'дозрели'
-                  : `${Math.floor(t.works * 100)}%${t.ripeAt < Infinity ? `, дозреют через ${formatLeft(secondsLeft(t.ripeAt, now))}` : ', не растут'}`}
-              </span>
+              <span className="val">{sideReady(t, now)}</span>
             </div>
           );
         })}

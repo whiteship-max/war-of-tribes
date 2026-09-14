@@ -1,10 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { SURVEY_MAX, SURVEY_STEPS, surveyRadiusOf } from '../data/survey';
 import { buildingOfType, storageCap, surveyRadius } from '../derived';
-import { cancelSurvey, startSurvey, surveyInfo } from './survey';
+import { cancelSurvey, startSurvey, surveyInfo, surveySeconds } from './survey';
 
 /** Посёлок с богатым складом и Дозором нужного уровня: цена ступеней не мешает. */
 function rich(watchLevel: number): GameState {
@@ -105,5 +107,22 @@ describe('Дозор: изучение округи', () => {
     catchUp(s, SURVEY_STEPS[0].seconds + 2);
     const lines = s.log.filter((l) => l.text.startsWith('Дозор:'));
     expect(lines).toHaveLength(2); // «пошли» и «изучена»
+  });
+
+  it('срок ступени у панели и у постановки один — с ускорением от веры', () => {
+    const s = rich(SURVEY_MAX);
+    s.faith.id = 'islam';
+    const church = buildingOfType(s, 'church');
+    if (church) church.level = SURVEY_MAX;
+    const info = surveyInfo(s);
+    // Точка внутри области правила: вера и правда ускоряет разъезды.
+    expect(info.learning, 'медресе ускоряет').toBeGreaterThan(1);
+    const step = info.next!;
+    expect(startSurvey(s)).toBeNull();
+    expect(s.survey.until - s.survey.startedAt, 'поставлено на обещанный срок').toBe(surveySeconds(step, info.learning));
+    expect(surveySeconds(step, info.learning)).toBeLessThan(step.seconds);
+    // Панель Дозора сырого срока ступени не пишет: только через ту же функцию.
+    const panel = readFileSync(join(__dirname, '..', '..', 'ui', 'parts', 'Watch.tsx'), 'utf8');
+    expect(panel, 'Watch.tsx: срок ступени без веры').not.toMatch(/\.seconds\b/);
   });
 });

@@ -75,6 +75,14 @@ export function surveyInfo(s: GameState): SurveyInfo {
   };
 }
 
+/**
+ * Сколько секунд идёт ступень у этой деревни: срок ступени, делённый на ускорение
+ * от веры. Одна формула на постановку ступени и на панель Дозора — прежде панель
+ * писала срок без веры, и у мечети десятого уровня обещала 90 с там, где ставилось 62.
+ */
+export const surveySeconds = (step: SurveyStep, learning: number): number =>
+  Math.max(1, Math.round(step.seconds / learning));
+
 /** Ставит следующую ступень в работу. Плата снимается сразу — как за стройку. */
 export function startSurvey(s: GameState): string | null {
   const info = surveyInfo(s);
@@ -85,7 +93,7 @@ export function startSurvey(s: GameState): string | null {
   // Делится это здесь, при постановке ступени, а не при чтении: ступень
   // доводится из отметки `until`, и менять её задним числом было бы враньём —
   // уклад мог смениться, пока разъезды в поле.
-  const seconds = Math.max(1, Math.round(step.seconds / info.learning));
+  const seconds = surveySeconds(step, info.learning);
   s.survey = { done: info.done, startedAt: s.time, until: s.time + seconds };
   log(s, `Дозор: разъезды пошли изучать округу (ступень ${step.n}).`);
   return null;

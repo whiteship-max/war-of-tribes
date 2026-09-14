@@ -16,8 +16,9 @@ import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { kindsOf, troopTotal } from '@/game/battle/kinds';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { formatLeft } from '@/world/geo';
 import { hungerLeft } from '@/ui/parts/hunger';
+import { sideReady } from '@/ui/parts/campSide';
 import { profileCity } from '@/profile/identity';
 import { FATE_META } from '@/world/data/fates';
 import { SIDES, SIDE_NAME, WEAK_HINT, campSides, gateBusyText, refusedAtGate, sortieForecast, weakSide } from '@/world/works';
@@ -151,10 +152,7 @@ export function SiegePanel() {
             <div className="mod" key={side}>
               <span className="ico">{side === 'front' ? '🏘️' : '🌾'}</span>
               <span className="name">
-                {SIDE_NAME[side]}:{' '}
-                {t.works >= 1
-                  ? 'рогатки дозрели'
-                  : `${Math.floor(t.works * 100)}%${t.ripeAt < Infinity ? `, дозреют через ${formatLeft(secondsLeft(t.ripeAt, now))}` : ''}`}
+                {SIDE_NAME[side]}: {sideReady(t, now)}
               </span>
               <span className="val">
                 {t.room >= 1 ? `пройдут ${t.room < Infinity ? t.room : 'все'}` : `свободно через ${formatLeft(t.waitMs / 1000)}`}
