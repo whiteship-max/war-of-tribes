@@ -19,7 +19,7 @@
 //     доставки (минута расписания).
 //
 //   npx vite-node scripts/notify-report.ts
-import { LocalWorld } from '@/world/local/LocalWorld';
+import { NotifyingWorld } from '@/world/local/NotifyingWorld';
 import { distance } from '@/world/geo';
 import { seeded } from '@/game/sim/random';
 import { createInitialState } from '@/game/state';
@@ -84,7 +84,7 @@ interface Leave {
   raidLater: boolean;
 }
 
-async function nearest(world: LocalWorld): Promise<SettlementView | null> {
+async function nearest(world: NotifyingWorld): Promise<SettlementView | null> {
   const info = await world.info();
   const chunk = await world.region({ x: info.home.x - 30, y: info.home.y - 30, w: 60, h: 60 });
   const list = chunk.settlements.filter((s) => !s.mine);
@@ -94,7 +94,7 @@ async function nearest(world: LocalWorld): Promise<SettlementView | null> {
 /** Одна партия автопилотом с уходами в случайные минуты. */
 async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]> {
   let now = START;
-  const world = new LocalWorld({ seed, now: () => now, storage: null });
+  const world = new NotifyingWorld({ seed, now: () => now, storage: null });
   const p = profile(town.defense);
   const rng = seeded(seed * 7919 + town.defense);
   const leaves: Leave[] = [];
@@ -249,7 +249,7 @@ for (const level of [1, 5, 10]) {
   let atBirth = 0;
   for (const seed of SEEDS) {
     let now = START;
-    const world = new LocalWorld({ seed, now: () => now, storage: null });
+    const world = new NotifyingWorld({ seed, now: () => now, storage: null });
     const p = profile(220, warning);
     await world.sync(p);
     const seen = new Set<string>();

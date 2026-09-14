@@ -40,12 +40,13 @@ describe('замок клиента: выключенное выключено',
     for (const f of walk(SRC)) {
       if (f.endsWith(path.join('net', 'notify.ts'))) continue;
       for (const line of strip(readFileSync(f, 'utf8')).split('\n')) {
-        if (!/\bnotifyBoot\(|\bnotifyDrafts\(|\.notices\(\)/.test(line)) continue;
+        if (!/\bnotifyBoot\(|\bnotifyDrafts\(|\.notices\(\)|\bnew NotifyingWorld\(/.test(line)) continue;
         calls.push(path.relative(SRC, f).replace(/\\/g, '/'));
         expect(line, `${f}: вызов без замка`).toMatch(/^\s*if \(NOTIFY_ON\) /);
       }
     }
-    expect(calls.sort()).toEqual(['game/store.ts', 'world/store.ts']);
+    // Запуск клиента, мир с черновиками и черновики после пульса.
+    expect(calls.sort()).toEqual(['game/store.ts', 'world/store.ts', 'world/store.ts']);
   });
 
   it('выключенный модуль не трогает ни сети, ни страницы', () => {

@@ -10,7 +10,8 @@ import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
 import { probe, revealWorld, takeBakes, takeCosts, takeGaps } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
-import { LocalWorld } from './local/LocalWorld';
+import { LocalWorld, type LocalWorldOptions } from './local/LocalWorld';
+import { NotifyingWorld } from './local/NotifyingWorld';
 import { applyEffects, playerProfile, syncAway, syncSiege } from './bridge';
 import { awayOf } from './muster';
 import { syncFaith } from '@/game/sim/faith';
@@ -66,6 +67,18 @@ import type { ArmySetup } from '@/battle';
 
 /** Как часто мир опрашивается. Достаточно редко, чтобы не мешать симуляции племени. */
 const PULSE_MS = 2000;
+
+/** Мир, составляющий черновики уведомлений. Есть, только пока открыт замок `NOTIFY_ON`. */
+let notifying: NotifyingWorld | null = null;
+
+/**
+ * Завести мир. С открытым замком — тот, что умеет составлять черновики уведомлений; с
+ * закрытым сборщик выбрасывает эту ветку вместе с классом (`world/local/NotifyingWorld.ts`).
+ */
+function openWorld(opts: LocalWorldOptions): LocalWorld {
+  if (NOTIFY_ON) return (notifying = new NotifyingWorld(opts));
+  return new LocalWorld(opts);
+}
 
 /**
  * Замки живых игроков для мира. Перевод одной строки: реестр говорит про
@@ -307,7 +320,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       // неудача возвращается значением, — и первого кадра игры оно не касается:
       // деревня к этому времени давно на экране.
       await rosterReady();
-      const world = new LocalWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles });
+      const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles });
       // Реестр назвал другую клетку, чем та, на которой партия шла без него.
       // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
       if (world.movedByRoster) {
@@ -367,7 +380,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       now: pulse.now,
     });
     // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира.
-    if (NOTIFY_ON) void worldApi().notices().then((d) => notifyDrafts(d.items, pulse.now));
+    if (NOTIFY_ON) void notifying?.notices().then((d) => notifyDrafts(d.items, pulse.now));
     // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.
@@ -759,7 +772,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   resetWorld: async () => {
     clearCache();
     setWorldApi(
-      new LocalWorld({
+      openWorld({
         seed: Math.floor(Math.random() * 0x7fffffff),
         reveal: revealWorld(),
         // Начать заново — это про свой мир, а не про общий: замок остаётся там,

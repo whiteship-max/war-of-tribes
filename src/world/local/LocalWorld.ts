@@ -206,10 +206,8 @@ import {
   strikeForecast,
   throughText,
   woodShare,
-  worksRipeAt,
   type Through,
 } from '../works';
-import { draftNotices, sightFrom, type Break, type Drafts, type NoticeWorld } from '../notice';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
@@ -334,9 +332,9 @@ type CampPart = { own: TroopStack } | { kinds: Stack; gear: Partial<Record<UnitK
 
 export class LocalWorld implements WorldApi {
   private gen: WorldGen;
-  private save: WorldSave;
-  private byId = new Map<SettlementId, GenSettlement>();
-  private clock: () => number;
+  protected save: WorldSave;
+  protected byId = new Map<SettlementId, GenSettlement>();
+  protected clock: () => number;
   private storage: WorldStorage | null;
   /**
    * Отчёты, появившиеся с прошлого пульса. Копятся и между вызовами `sync`:
@@ -762,7 +760,7 @@ export class LocalWorld implements WorldApi {
    * Осада деревни, если она идёт прямо сейчас. Считается при чтении из одного
    * окна: ни флага «осаждён», ни тика, который его снимет, в мире нет.
    */
-  private homeSiege(now: number): SiegeWindow | null {
+  protected homeSiege(now: number): SiegeWindow | null {
     return this.siegeOf(HOME_ID, now);
   }
 
@@ -910,7 +908,7 @@ export class LocalWorld implements WorldApi {
    * доступна, иначе умолчанием (`spoils.fateAt`). Одна проверка на все места, где город
    * взят, — и на окно, которое называет участь заранее.
    */
-  private fateFor(declared: Fate | undefined, id: SettlementId, at: number): Fate {
+  protected fateFor(declared: Fate | undefined, id: SettlementId, at: number): Fate {
     return fateAt(declared, id === HOME_ID ? 'player' : 'world', this.save.burnImmune[id], at);
   }
 
@@ -2319,7 +2317,7 @@ export class LocalWorld implements WorldApi {
    * больше `DEFENSE_FREEZE` — иначе набег появляется уже запертым; Дозор игрока
    * только прибавляет сверху, укоротить предупреждение он не может.
    */
-  private warningMs(): number {
+  protected warningMs(): number {
     return AI_WARNING_BASE + Math.max(0, this.save.profile?.warning ?? 0) * 1000;
   }
 
@@ -2453,7 +2451,7 @@ export class LocalWorld implements WorldApi {
    * Круг деревни здесь **не растягивается** изучением округи: изученный радиус
    * открывает землю, и только.
    */
-  private sightDiscs(now: number): SightDisc[] {
+  protected sightDiscs(now: number): SightDisc[] {
     const out: SightDisc[] = [{ x: this.save.home.x, y: this.save.home.y, r: HOME_SIGHT }];
     for (const id of FIGURE_IDS) {
       const f = this.save.figures[id];
@@ -2537,7 +2535,7 @@ export class LocalWorld implements WorldApi {
   // ---------- Фигуры ----------
 
   /** Поселение, у которого фигура стоит вплотную. HOME_ID — своё. */
-  private touching(at: Coord): { id: SettlementId; name: string; home: boolean } | null {
+  protected touching(at: Coord): { id: SettlementId; name: string; home: boolean } | null {
     if (distance(at, this.save.home) <= FIGURE_TOUCH) {
       return { id: HOME_ID, name: 'Наша деревня', home: true };
     }
@@ -5631,86 +5629,6 @@ export class LocalWorld implements WorldApi {
 
   async persist(): Promise<void> {
     this.write();
-  }
-
-  // ---------- Уведомления ----------
-
-  /**
-   * Черновики уведомлений на эту минуту (docs/NOTIFY.md). Только чтение: ни пульса, ни
-   * сведения передачи дружины, ни записи — список составляется из того, что уже лежит в
-   * сохранении, и зовут его сразу после пульса.
-   */
-  async notices(): Promise<Drafts> {
-    const now = this.clock();
-    return draftNotices(this.noticeWorld(now), now);
-  }
-
-  /**
-   * Факты для черновиков. Здесь, а не в `notice.ts`, по одной причине: разрывы названы по
-   * местам этого класса, где окно или поход пересчитываются, и держать их список надо
-   * рядом с этими местами. Новый повод для `resiege` без строки здесь — это уведомление,
-   * которое однажды соврёт; ловит это тест «разрыв держит правду» (`notice.test.ts`).
-   */
-  private noticeWorld(now: number): NoticeWorld {
-    const save = this.save;
-    const breaks: Break[] = [];
-
-    // Свой отряд доходит домой и вливается в гарнизон. Раньше всего — у идущего назад; у
-    // идущего туда и у стоящего в чужих стенах берётся нижняя граница: молчание, пришедшее
-    // раньше нужного, правды не портит.
-    for (const m of save.marches) {
-      if (!m.own) continue;
-      const at =
-        m.phase === 'back'
-          ? m.arriveAt
-          : m.phase === 'stay'
-            ? (m.stayUntil ?? m.arriveAt)
-            : m.arriveAt + Math.max(0, m.arriveAt - m.departAt);
-      breaks.push({ kind: 'march-home', at });
-    }
-
-    const g = save.figures.general;
-    if (g.handover) breaks.push({ kind: 'handover', at: g.handover.until });
-    if (g.phase === 'moving') {
-      if (g.chase) breaks.push({ kind: 'chase', at: g.arriveAt, march: g.chase.marchId });
-      else if (g.strike?.id === HOME_ID) breaks.push({ kind: 'strike', at: g.arriveAt });
-      else if (this.touching(g.to)?.home) breaks.push({ kind: 'general-home', at: g.arriveAt });
-    }
-
-    const m = save.marches.find((x) => !x.own && x.targetId === HOME_ID && x.phase === 'out' && !x.relief);
-    const raid: NoticeWorld['raid'] = m
-      ? {
-          id: m.id,
-          from: m.fromName,
-          fate: this.fateFor(m.fate, HOME_ID, m.arriveAt),
-          departAt: m.departAt,
-          arriveAt: m.arriveAt,
-          // Та же минута, с которой отряд показывает `visibleMarches`: донесение Дозора или
-          // живой обзор — что раньше.
-          seenFrom: Math.min(m.arriveAt - this.warningMs(), sightFrom(m, this.sightDiscs(now))),
-          freezeAt: m.arriveAt - DEFENSE_FREEZE,
-        }
-      : null;
-
-    const w = this.homeSiege(now);
-    let siege: NoticeWorld['siege'] = null;
-    if (w && !ourCamp(w)) {
-      const since = siegeSince(w);
-      const ripe = (side: 'front' | 'rear'): number | null => {
-        const t = worksRipeAt(since, side, w.wood);
-        return Number.isFinite(t) ? t : null;
-      };
-      siege = {
-        campId: w.campId,
-        from: this.byId.get(w.byId)?.name ?? 'Чужаки',
-        fate: this.fateFor(w.fate, HOME_ID, starvesAt(w)),
-        since,
-        starvesAt: starvesAt(w),
-        frontAt: ripe('front'),
-        rearAt: ripe('rear'),
-      };
-    }
-    return { raid, siege, breaks };
   }
 
 }

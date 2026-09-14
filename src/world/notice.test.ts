@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LocalWorld, HOME_ID } from './local/LocalWorld';
+import { NotifyingWorld } from './local/NotifyingWorld';
 import type { StoredMarch, WorldSave } from './local/state';
 import type { PlayerProfile, WorldPulse } from './types';
 import { BREAD_LEAD_SHARE, WORKS_FIRE_SHARE, draftNotices, sightFrom, type NoticeWorld } from './notice';
@@ -357,7 +358,7 @@ async function thaw(fz: Frozen, at: number, kind: Inject) {
   let now = at;
   const save = JSON.parse(fz.save) as WorldSave;
   inject(save, kind, fz.since);
-  const world = new LocalWorld({ seed: fz.seed, now: () => now, storage: memory(JSON.stringify(save)) });
+  const world = new NotifyingWorld({ seed: fz.seed, now: () => now, storage: memory(JSON.stringify(save)) });
   const pulse = await world.sync(holdout);
   return { world, pulse, set: (t: number): void => void (now = t) };
 }
@@ -445,7 +446,7 @@ describe('разрыв держит правду', () => {
     for (const seed of [202, 404, 606]) {
       let now = START;
       const store = memory();
-      const world = new LocalWorld({ seed, now: () => now, storage: store });
+      const world = new NotifyingWorld({ seed, now: () => now, storage: store });
       await world.sync(profile());
       let item: NoticeItem | undefined;
       for (let i = 0; i < 400 && !item; i++) {
