@@ -163,7 +163,7 @@ export function CampPanel() {
       <FatePick options={camp.fates} value={chosen} onChange={setPick} />
 
       <h3>Осадные орудия</h3>
-      <p className="note">Осадных орудий у лагеря пока нет, строить их негде. Они придут следующей пачкой.</p>
+      <p className="note">Осадных орудий у лагеря нет: строить их негде.</p>
 
       <h3>Что делать</h3>
       <button

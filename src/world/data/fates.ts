@@ -25,6 +25,9 @@ export const FATE_META: Record<Fate, FateMeta> = {
 /**
  * Что потерял взятый город — одной строкой для отчёта проигравшему. Начинается с
  * заглавной и кончается точкой; к ней дописывают, кто и как взял город.
+ *
+ * Про сгоревшую стройку строки нет нарочно: что строилось, знает племя, а не мир, и
+ * пишет это оно само — только когда стройка была (`expedition.burnWorks`).
  */
 export function lossText(f: Fate, r: FateResult): string {
   const gold = r.lost.gold ?? 0;
@@ -33,7 +36,7 @@ export function lossText(f: Fate, r: FateResult): string {
   if (f === 'burn') {
     const pop = r.scattered.pop > 0 ? ` Разошлись ${r.scattered.pop} ${townsWord(r.scattered.pop)}.` : '';
     const bonded = r.scattered.bonded > 0 ? ` Разбежались ${r.scattered.bonded} ${bondedWord(r.scattered.bonded)}.` : '';
-    return `Сгорело ${goods} добра${gold > 0 ? ` и ${gold} золота` : ''}.${hidden}${pop}${bonded} Недостроенное сгорело.`;
+    return `Сгорело ${goods} добра${gold > 0 ? ` и ${gold} золота` : ''}.${hidden}${pop}${bonded}`;
   }
   const people = [
     r.ledBonded.taken > 0 ? `${r.ledBonded.taken} ${bondedWord(r.ledBonded.taken)}` : '',
