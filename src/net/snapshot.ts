@@ -13,7 +13,7 @@ import type { CastleClaim, SaveCard, SaveRecord } from '../../netlify/lib/contra
 import { serialize } from '@/game/save';
 import { armySize, dayOf, population } from '@/game/derived';
 import { power } from '@/profile/power';
-import { profileName } from '@/profile/identity';
+import { cityName, profileName } from '@/profile/identity';
 import { browserStorage } from '@/world/local/state';
 import { device } from './session';
 
@@ -49,5 +49,7 @@ export function snapshotOf(s: GameState): SaveRecord {
  */
 export function claimOf(s: GameState): CastleClaim {
   const card = cardOf(s);
-  return { name: card.name, power: card.power, pop: card.pop };
+  // Имя города едет очищенным, а не названное — пустой строкой: «Безымянный город» соседи
+  // подставят сами тем же умолчанием, и в реестре не лягут тысячи одинаковых имён.
+  return { name: card.name, city: cityName(s.profile.city) ?? '', power: card.power, pop: card.pop };
 }

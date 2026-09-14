@@ -15,6 +15,8 @@ import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
 import { FATE_DEFAULT } from '@/world/spoils';
 import { FATE_META } from '@/world/data/fates';
+import { FELL_WORDS } from '@/ui/map/siegemark';
+import { hungerLeft } from '@/ui/parts/hunger';
 import { FatePick } from '@/ui/parts/FatePick';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
@@ -309,7 +311,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <div className="bhead">
           <div className="ico">🔥</div>
           <div className="body">
-            <div className="name">{card.name}</div>
+            <div className="name one-line">{card.name}</div>
             <div className="lvl">Пепелище</div>
           </div>
           <span className="wm-coord-tag">{formatCoord(card)}</span>
@@ -395,7 +397,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           />
         </div>
         <div className="body">
-          <div className="name">{card.name}</div>
+          <div className="name one-line">{card.name}</div>
           <div className="lvl">
             {card.castle ? 'Замок' : stage.name} ·{' '}
             <span style={{ color: relation.color }}>{relation.name}</span>
@@ -565,6 +567,16 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               <span className="name">Объявлено</span>
               <span className="val">{FATE_META[card.siege.fate].name.toLowerCase()}</span>
             </div>
+            {/* Часы голода — только участнику осады, и те же, что в окне осады: мир отдаёт
+                их одним чтением (`hungerOf`), слова одни (`hungerLeft`). Со стороны
+                амбар не виден, и строки нет. */}
+            {card.siege.starvesAt !== undefined && (
+              <div className="mod">
+                <span className="ico">⏳</span>
+                <span className="name">{card.mine ? 'Своей еды хватит на' : 'Еды в городе хватит на'}</span>
+                <span className={`val ${card.mine ? 'neg' : 'pos'}`}>{hungerLeft(card.siege.starvesAt, worldNow())}</span>
+              </div>
+            )}
           </div>
           {card.siege.mine || card.mine ? (
             <button className="btn wide" onClick={card.mine ? openSiege : openCamp}>
@@ -577,6 +589,17 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             </>
           )}
         </>
+      )}
+
+      {/* Город взят — тот же знак, что под его именем на карте, и сходит он тем же сроком. */}
+      {card.fell && (
+        <div className="mod-list">
+          <div className="mod">
+            <span className="ico">{FATE_META[card.fell.fate].icon}</span>
+            <span className="name">Город взят: {FELL_WORDS[card.fell.fate]}</span>
+            <span className="val">{formatLeft(Math.max(0, (worldNow() - card.fell.at) / 1000))} назад</span>
+          </div>
+        </div>
       )}
 
       {/* Разорение — след нашей же победы. Часов у чужого двора нет и здесь: их

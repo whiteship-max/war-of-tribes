@@ -37,6 +37,7 @@ import type {
   FallForecast,
   Fate,
   FateOption,
+  FellMark,
   FigureId,
   OrderActionId,
   FigureView,
@@ -49,6 +50,7 @@ import type {
   LetterFrom,
   LetterView,
   Loot,
+  MapSiege,
   MarchOrder,
   MarchView,
   OrderOption,
@@ -110,6 +112,7 @@ import {
   travelTime,
 } from '../geo';
 import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
+import { cityName, cityOr } from '../../../netlify/lib/contract';
 import { WATCHER, liveSight, standing } from '../sight';
 import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
@@ -280,6 +283,7 @@ import {
   SIEGE_SORTIE_RATIO,
   SIEGE_TOWN_EAT_MAN,
   SUPPORT_STAY,
+  FALL_MARK,
   TRADE_GOLD_PER_SETTLEMENT,
   TRIBUTE_PER_SETTLEMENT,
   WORLD_ORIGIN,
@@ -497,7 +501,10 @@ export class LocalWorld implements WorldApi {
       // Имя тоже живые данные. Владелец волен переименоваться, и показывать
       // новое имя поверх снимка недельной давности значило бы врать о том,
       // когда мы туда смотрели.
-      name: visible ? c.name : (seen?.owner ?? 'Чей-то замок'),
+      // Город называет владелец (`PlayerCastle.city`, очищено на входе в мир); не назвал —
+      // у него, как у всех, «Безымянный город». Вне обзора — имя из снимка, а у снимка из
+      // старого сохранения его нет: тогда имя вождя, как было.
+      name: visible ? cityOr(c.city) : (cityName(seen?.name) ?? seen?.owner ?? 'Чей-то замок'),
       stage: visible ? stageOf(c.power, c.pop) : (seen?.stage ?? 'camp'),
       relation: 'neutral',
       owner: visible ? c.name : (seen?.owner ?? null),
@@ -515,6 +522,9 @@ export class LocalWorld implements WorldApi {
       marching: false,
       ruin: false,
       sacked: false,
+      // Между игроками не происходит ничего: ни осад, ни взятых городов.
+      besieged: null,
+      fell: null,
     };
   }
 
@@ -890,7 +900,7 @@ export class LocalWorld implements WorldApi {
       byId: w.byId,
       byName: this.byId.get(w.byId)?.name ?? 'Чужаки',
       since: siegeSince(w),
-      starvesAt: starvesAt(w),
+      starvesAt: this.hunger(w),
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
       campMen: this.campArmy(w)?.men ?? 0,
@@ -954,11 +964,14 @@ export class LocalWorld implements WorldApi {
   /**
    * Лагерь под стенами для карточки поселения — взгляд со стороны: лагерь, его
    * рогатки и объявленная участь видны, амбар — нет. Часы голода видят участники
-   * осады: осаждённый в своём окне, осаждающий — в окне лагеря (`camp`).
+   * осады — и видят их везде одинаково: в своём окне, в окне лагеря и здесь, в
+   * карточке, одним чтением (`hungerOf`). Прежде карточка молчала и у участника, и
+   * два места говорили об одной осаде разное.
    */
   private cardSiege(id: SettlementId, now: number): CardSiege | null {
     const w = this.siegeOf(id, now);
     if (!w) return null;
+    const hunger = this.hungerOf(id, now);
     return {
       mine: ourCamp(w),
       byName: ourCamp(w) ? 'Наша дружина' : (this.byId.get(w.byId)?.name ?? 'Чужаки'),
@@ -969,6 +982,8 @@ export class LocalWorld implements WorldApi {
       ...(w.rearGateAt !== undefined ? { rearGateAt: w.rearGateAt } : {}),
       ...(w.wood !== undefined ? { wood: w.wood } : {}),
       fate: this.fateFor(w.fate, id, now),
+      // Часы голода — участникам осады и тем же чтением, что в обоих окнах осады.
+      ...(hunger !== null ? { starvesAt: hunger } : {}),
     };
   }
 
@@ -1276,7 +1291,7 @@ export class LocalWorld implements WorldApi {
       at,
       kind: 'defense',
       title: 'Город в осаде',
-      target: { id: HOME_ID, name: 'Наша деревня', x: this.save.home.x, y: this.save.home.y },
+      target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
       won: false,
       sent: {},
       lost: {},
@@ -1336,6 +1351,7 @@ export class LocalWorld implements WorldApi {
     // «Осадить»: склад и казна до тайника, сколько поднимет дружина, а на ступени,
     // уводящей людей, — невольники и горожане, скольких она устережёт.
     const declared = this.fateFor(w.fate, id, at);
+    this.markFall(id, declared, at);
     const took = this.takeLoot(s, at, stackCarry({ warrior: men }), bondedThere, stackEscort({ warrior: men }), declared, popThere);
     this.leadFrom(id, popThere, took, at);
     const gain = winnerGain(took);
@@ -1417,6 +1433,7 @@ export class LocalWorld implements WorldApi {
     // лагерь: тот же дележ склада и казны, что у прорвавшегося набега, тот же увод,
     // те же постройки. Соль выбора построек — сид мира и минута падения.
     const declared = this.fateFor(w.fate, HOME_ID, at);
+    this.markFall(HOME_ID, declared, at);
     const spoils = this.fateHome(p ?? null, stackCarry(camp?.units ?? {}), stackEscort(camp?.units ?? {}), at, declared);
     const loss = homeLoss(spoils);
     if (FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
@@ -1427,7 +1444,7 @@ export class LocalWorld implements WorldApi {
       at,
       kind: 'defense',
       title: 'Хлеб кончился',
-      target: { id: HOME_ID, name: 'Наша деревня', x: this.save.home.x, y: this.save.home.y },
+      target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
       won: false,
       sent: { warrior: Math.round(troopTotal(army)) },
       lost: men > 0 ? { warrior: men } : {},
@@ -1806,7 +1823,7 @@ export class LocalWorld implements WorldApi {
       at: now,
       kind: 'defense',
       title: field.won ? `Вылазка удалась: ${camp.name}` : `Вылазка отбита: ${camp.name}`,
-      target: { id: HOME_ID, name: 'Наша деревня', x: this.save.home.x, y: this.save.home.y },
+      target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
       won: field.won,
       sent: { warrior: men },
       lost: lostMen > 0 ? { warrior: lostMen } : {},
@@ -2111,6 +2128,8 @@ export class LocalWorld implements WorldApi {
       // вне его — из последнего снимка. Помнить разорённым отстроившийся двор
       // так же неверно, как помнить его численность, и врёт это одинаково.
       sacked: visible ? this.isSacked(s.id, now) : (seen?.sacked ?? false),
+      besieged: this.mapSiege(s.id, now, visible),
+      fell: this.fellOf(s.id, now),
     };
   }
 
@@ -2141,6 +2160,9 @@ export class LocalWorld implements WorldApi {
       ruin: true,
       // Пепелище не «разорено»: разорять там больше нечего и некого.
       sacked: false,
+      // У пепелища нет ни лагеря, ни участи: след говорит сам за себя.
+      besieged: null,
+      fell: null,
     };
   }
 
@@ -2150,7 +2172,7 @@ export class LocalWorld implements WorldApi {
       id: HOME_ID,
       x: this.save.home.x,
       y: this.save.home.y,
-      name: 'Наша деревня',
+      name: this.homeName(),
       stage: stageOf(p?.defense ?? 0, p?.pop ?? 0),
       relation: 'self',
       owner: p?.name ?? 'Ты',
@@ -2167,6 +2189,73 @@ export class LocalWorld implements WorldApi {
       marching: this.save.marches.some((m) => m.own && m.phase === 'out'),
       ruin: false,
       sacked: false,
+      besieged: this.mapSiege(HOME_ID, now, true),
+      fell: this.fellOf(HOME_ID, now),
+    };
+  }
+
+  /**
+   * Имя своего города — одно на карту, отчёты, походы и письма. Слепок везёт его из
+   * сохранения племени, и мир читает его только через очистку договора: сохранение мира
+   * лежит на диске и на сервере, и строке в нём верить нельзя.
+   */
+  protected homeName(): string {
+    return cityOr(this.save.profile?.city);
+  }
+
+  /**
+   * Знак павшего города на минуту `now`: запись, если она ещё не сошла (`FALL_MARK`).
+   * Чистое чтение — ни тика, ни уборки: запись старше срока просто не показывается.
+   */
+  private fellOf(id: SettlementId, now: number): FellMark | null {
+    const rec = this.save.falls[id];
+    return rec && now >= rec.at && now < rec.at + FALL_MARK ? { fate: rec.fate, at: rec.at } : null;
+  }
+
+  /** Город взят: запомнить участь для знака на карте. Новое падение перезаписывает старое. */
+  private markFall(id: SettlementId, fate: Fate, at: number): void {
+    this.save.falls[id] = { fate, at };
+  }
+
+  /**
+   * Участник ли игрок этой осады: осаждён его город или под стенами стоит его лагерь.
+   * Одна проверка на всё, что показывает осаду изнутри, — часы голода в карточке, в окне
+   * обороняющегося и в окне лагеря, и конец рогаток на карте.
+   */
+  private siegeInsider(id: SettlementId, w: SiegeWindow): boolean {
+    return id === HOME_ID || ourCamp(w);
+  }
+
+  /**
+   * Часы голода — **одно** чтение окна на все места, где игрок их видит: окно
+   * обороняющегося (`siegeView`), окно лагеря (`camp`) и карточка города (`cardSiege`).
+   * null — осады нет или игрок в ней не участвует: со стороны амбар не виден.
+   */
+  private hungerOf(id: SettlementId, now: number): number | null {
+    const w = this.siegeOf(id, now);
+    return w && this.siegeInsider(id, w) ? this.hunger(w) : null;
+  }
+
+  /** Сама минута голода из окна. Звать напрямую можно только там, где участие уже известно. */
+  private hunger(w: SiegeWindow): number {
+    return starvesAt(w);
+  }
+
+  /**
+   * Осада глазами карты: рогатки вокруг города. Видна участнику всегда, остальным — только
+   * в живом обзоре, тем же правилом, что численность и разорение. Срок голода едет только
+   * участнику (`hungerOf`): по нему рогатки сходят с карты в минуту падения, а со стороны
+   * эту минуту знать неоткуда.
+   */
+  private mapSiege(id: SettlementId, now: number, visible: boolean): MapSiege | null {
+    const w = this.siegeOf(id, now);
+    if (!w) return null;
+    if (!this.siegeInsider(id, w) && !visible) return null;
+    const hunger = this.hungerOf(id, now);
+    return {
+      since: siegeSince(w),
+      ...(w.wood !== undefined ? { wood: w.wood } : {}),
+      ...(hunger !== null ? { starvesAt: hunger } : {}),
     };
   }
 
@@ -2524,6 +2613,7 @@ export class LocalWorld implements WorldApi {
         stage: stageOf(c.power, c.pop),
         relation: 'neutral',
         owner: c.name,
+        name: cityOr(c.city),
         tribeId: null,
         pop: c.pop,
         power: c.power,
@@ -2537,7 +2627,7 @@ export class LocalWorld implements WorldApi {
   /** Поселение, у которого фигура стоит вплотную. HOME_ID — своё. */
   protected touching(at: Coord): { id: SettlementId; name: string; home: boolean } | null {
     if (distance(at, this.save.home) <= FIGURE_TOUCH) {
-      return { id: HOME_ID, name: 'Наша деревня', home: true };
+      return { id: HOME_ID, name: this.homeName(), home: true };
     }
     let best: GenSettlement | null = null;
     let bestDist = FIGURE_TOUCH;
@@ -2971,6 +3061,9 @@ export class LocalWorld implements WorldApi {
     // Сжигается логово после того, как из него всё вынесли: сожжённое уже не
     // отдаёт ни добра, ни разведданных — их брать не у кого.
     if (burned) this.burnLair(target, at);
+    // Взятый, но не сожжённый город получает знак участи. Сожжённое логово знака не
+    // получает: вместо него на карте пепелище, и оно говорит само за себя.
+    else if (took) this.markFall(target.id, this.fateFor(declared, target.id, at), at);
     // Выигранный набег на поселение оставляет разорение: сжечь чужой двор нельзя
     // (он чужой, а позже будет человеческий), но и стоять нетронутым после
     // победы он не должен. Ставится это **после** добычи: разоряют то, что не
@@ -3474,13 +3567,14 @@ export class LocalWorld implements WorldApi {
       : null;
     const loss = spoils ? homeLoss(spoils) : null;
     if (spoils && FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
+    if (spoils) this.markFall(HOME_ID, declared, at);
 
     this.addReport({
       id: `${m.id}-defense`,
       at,
       kind: 'defense',
       title: outcome.won ? FATE_META[declared].title : 'Нападение отбито',
-      target: { id: HOME_ID, name: 'Наша деревня', x: this.save.home.x, y: this.save.home.y },
+      target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
       won: !outcome.won,
       sent: { warrior: warriors },
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
@@ -3821,7 +3915,7 @@ export class LocalWorld implements WorldApi {
       ...l,
       title: def.title,
       icon: def.icon,
-      body: def.body(l, goods),
+      body: def.body(l, goods, this.homeName()),
       from: this.letterFrom(l),
       choices,
       seconds: Math.max(0, (l.until - now) / 1000),
@@ -3913,7 +4007,7 @@ export class LocalWorld implements WorldApi {
       from: { x: src.x, y: src.y },
       to: { ...home },
       fromName: src.name,
-      toName: 'Наша деревня',
+      toName: this.homeName(),
       departAt: now,
       arriveAt: now + travel,
       phase: 'out',
@@ -4088,7 +4182,7 @@ export class LocalWorld implements WorldApi {
     const target = id === HOME_ID ? null : this.byId.get(id);
     const place = target ? { id, name: target.name, x: target.x, y: target.y } : {
       id: HOME_ID,
-      name: 'Наша деревня',
+      name: this.homeName(),
       x: this.save.home.x,
       y: this.save.home.y,
     };
@@ -4614,7 +4708,7 @@ export class LocalWorld implements WorldApi {
       targetId: target.id,
       from: { ...home },
       to: { x: target.x, y: target.y },
-      fromName: 'Наша деревня',
+      fromName: this.homeName(),
       toName: target.name,
       departAt: now,
       arriveAt: now + Math.round(seconds * 1000),
@@ -5051,7 +5145,7 @@ export class LocalWorld implements WorldApi {
       byId: w.byId,
       byName: 'Наша дружина',
       since: siegeSince(w),
-      starvesAt: starvesAt(w),
+      starvesAt: this.hunger(w),
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
       campMen: this.campArmy(w)?.men ?? 0,

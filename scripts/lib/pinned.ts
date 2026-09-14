@@ -54,14 +54,25 @@ const PIN_PROBE = `
  */
 export async function openPinnedMap(
   tab: Tab,
-  opts: { home?: { x: number; y: number }; seed?: number; onLog?: (s: string) => void } = {},
+  opts: {
+    home?: { x: number; y: number };
+    seed?: number;
+    onLog?: (s: string) => void;
+    /**
+     * Готовое сохранение мира вместо пустого — для замеров на мире, где что-то уже
+     * случилось (осада, взятый город). Сид и дом в нём обязаны быть закреплёнными: по
+     * ним и проверяется, что мир не уехал.
+     */
+    world?: string;
+  } = {},
 ): Promise<void> {
   const home = opts.home ?? PINNED_HOME;
   const seed = opts.seed ?? PINNED_SEED;
+  const world = opts.world ?? JSON.stringify({ v: 8, seed, home });
   for (let attempt = 1; ; attempt++) {
     await tab.eval<string>(
       `(() => { try { localStorage.clear(); localStorage.setItem('tribe.world.v1', ${JSON.stringify(
-        JSON.stringify({ v: 8, seed, home }),
+        world,
       )}); } catch (e) {} return JSON.stringify('ok'); })()`,
     );
     await tab.send('Page.reload');

@@ -476,7 +476,7 @@ describe('длинные имена', () => {
     for (const kind of DECISIONS) {
       const def = LETTER_KIND_BY_ID[kind];
       const l = letter({ kind, fromName: name, againstId: 's2', againstName: 'Сосед', men: 3, cost: { food: 9 } });
-      const said = `${def.body(l, 'еда 9')} ${def.silence(l)}`;
+      const said = `${def.body(l, 'еда 9', 'Город')} ${def.silence(l)}`;
       expect(said.includes(name), `${kind} — кто прислал, сказано словами`).toBe(true);
     }
   });

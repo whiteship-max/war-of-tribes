@@ -18,6 +18,8 @@ import {
 } from './grid';
 import { TILE_SRC, prepareTiles, tileAt } from './ground';
 import { type Look, type MarkerKind, drawMarkers, drawSettlement, variantOf } from './village';
+import { drawWorks, worksStand, worksStep } from './siegemark';
+import { sideWorks } from '@/world/works';
 import { probe, shownGaps } from '@/debug';
 
 /** Счёт недопечённого на экране включён только флагом адреса. */
@@ -199,6 +201,11 @@ const lookOf = (s: SettlementView): Look => ({
  * Поселения нарисованного слоя. Значок — одна копия испечённого спрайта, метки
  * состояния поверх него тремя дугами: они меняются каждую секунду и в спрайт не
  * запекаются.
+ *
+ * Осаждённый город обнимают рогатки: задняя половина кольца ложится под двор, передняя —
+ * поверх, два копирования испечённого (`siegemark.ts`). Готовность сторон — та же
+ * `works.sideWorks`, что считает бой и окна осады, на минуту кадра: рогатки растут на
+ * глазах, а не раз в кусок карты.
  */
 export function drawVillages(
   ctx: CanvasRenderingContext2D,
@@ -220,7 +227,13 @@ export function drawVillages(
     // Спрайт занимает около трёх клеток: за экраном его можно не рисовать, но
     // запас нужен, иначе крыши будут выскакивать на границе.
     if (sx < -px * 2 || sy < -px * 2 || sx > vp.w + px * 2 || sy > vp.h + px * 2) continue;
+    const siege = s.besieged && worksStand(s.besieged.starvesAt, now) ? s.besieged : null;
+    // Нет долей — лагерь рубит по правилу бота: это умолчание самой `sideWorks`.
+    const front = siege ? worksStep(sideWorks(siege.since, now, 'front', siege.wood)) : 0;
+    const rear = siege ? worksStep(sideWorks(siege.since, now, 'rear', siege.wood)) : 0;
+    if (siege) drawWorks(ctx, front, rear, 'back', px, dpr, sx, sy);
     drawSettlement(ctx, lookOf(s), px, dpr, sx, sy);
+    if (siege) drawWorks(ctx, front, rear, 'front', px, dpr, sx, sy);
     const kinds = markers.get(s.id);
     if (kinds) drawMarkers(ctx, sx, sy, px, kinds, now);
   }

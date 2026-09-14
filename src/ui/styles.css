@@ -831,6 +831,8 @@ body {
   z-index: 30;
   max-width: 84%;
   text-align: center;
+  /* Имя города пишет игрок, и слово в сорок букв без пробела иначе вылезло бы за экран. */
+  overflow-wrap: anywhere;
   animation: toast-in 0.15s ease;
 }
 
@@ -1190,6 +1192,20 @@ body {
 .bhead .name {
   font-size: 17px;
   font-weight: 600;
+}
+
+/*
+ * Одна строка с многоточием. Им помечено каждое место, где стоит имя поселения —
+ * сгенерированное или названное игроком: имя города пишет игрок, до сорока знаков, и без
+ * этого слово в сорок широких букв разъехало бы шапку панели вбок (держит тест
+ * «имя не ломает подписи», `ui/cityname.test.ts`).
+ */
+.one-line {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bhead .lvl {
@@ -1961,6 +1977,12 @@ body {
 /* Строка с силуэтом поселения: картинка вместо цветного квадрата или эмодзи. */
 .wm-leg-shape {
   min-height: 56px;
+}
+
+.wm-leg-fell img {
+  height: 16px;
+  width: auto;
+  flex: 0 0 auto;
 }
 
 .wm-leg-shape img {
@@ -3541,6 +3563,14 @@ body {
 .profile-head .name em {
   font-style: normal;
   font-size: 12px;
+  color: var(--muted);
+}
+
+/* Имя города под именем вождя: мельче и приглушённее, в одну строку. */
+.profile-head .name.city {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
 }
 

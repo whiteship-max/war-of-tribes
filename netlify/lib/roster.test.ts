@@ -21,6 +21,7 @@ const NOW = 1_700_000_000_000;
 
 const claim = (over: Partial<CastleClaim> = {}): CastleClaim => ({
   name: 'Вождь',
+  city: '',
   power: 4200,
   pop: 310,
   ...over,
@@ -80,11 +81,11 @@ describe('игрок пишет только свою строку', () => {
 describe('тело запроса не назначает места', () => {
   it('координаты не проезжают в реестр ни под каким именем', () => {
     const c = readClaim({ name: 'Вождь', power: 10, pop: 20, x: 1, y: 2, seenAt: 5, id: 'чужой' });
-    expect(Object.keys(c!).sort()).toEqual(['name', 'pop', 'power']);
+    expect(Object.keys(c!).sort()).toEqual(['city', 'name', 'pop', 'power']);
   });
 
   it('числа приводятся, строкой в них не подставить ничего', () => {
-    expect(readClaim({ name: 5, power: '99', pop: -3 })).toEqual({ name: '', power: 0, pop: 0 });
+    expect(readClaim({ name: 5, power: '99', pop: -3 })).toEqual({ name: '', city: '', power: 0, pop: 0 });
     expect(readClaim({ name: 'и'.repeat(200), power: 1e30, pop: 1e30 })!.name).toBe('');
   });
 

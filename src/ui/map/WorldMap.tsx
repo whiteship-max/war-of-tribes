@@ -36,7 +36,7 @@ import {
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from '@/world/data/tuning';
-import type { Coord, FigureView } from '@/world/types';
+import type { Coord, Fate, FigureView } from '@/world/types';
 import { formatLeft, secondsLeft } from '@/world/geo';
 import { PALETTE, SCALE_DETAIL, SCALE_MIN, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
 import {
@@ -60,6 +60,7 @@ import { dropPaint } from './paint';
 import { dropFog } from './fog';
 import { dropZones } from './zones';
 import { dropParties } from './party';
+import { FELL_WORDS, WORKS_STEPS, dropSiegeMarks, fellUrl, worksUrl } from './siegemark';
 import { agentIdle, bakeAgent } from './agent';
 import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
@@ -379,7 +380,10 @@ export function WorldMap() {
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
       // Окно уехало на другой монитор — испечённое осталось в прежней плотности.
-      if (changed) dropSprites();
+      if (changed) {
+        dropSprites();
+        dropSiegeMarks();
+      }
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -447,6 +451,7 @@ export function WorldMap() {
       // печутся они за доли миллисекунды.
       dropParties();
       dropFigures();
+      dropSiegeMarks();
     };
     // Полотно живёт весь показ карты: данные оно берёт из стора само.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -901,6 +906,28 @@ export function WorldMap() {
               <img src={silhouetteUrl(row.look)} alt="" />
               <span>
                 {row.name} {row.note && <em>{row.note}</em>}
+              </span>
+            </div>
+          ))}
+          {/* Осада и взятые города — теми же картинками, что на полотне (`siegemark.ts`). */}
+          <h3>Осада и взятые города</h3>
+          <div className="wm-leg-row wm-leg-shape">
+            <img src={worksUrl(WORKS_STEPS, 0)} alt="" />
+            <span>
+              Рогатки со стороны города <em>ближний ряд, колья к городу: так бьют вылазку</em>
+            </span>
+          </div>
+          <div className="wm-leg-row wm-leg-shape">
+            <img src={worksUrl(0, WORKS_STEPS)} alt="" />
+            <span>
+              Рогатки с тыла <em>дальний ряд, колья в поле: так встречают полководца; редкий ряд — ещё строят</em>
+            </span>
+          </div>
+          {(Object.keys(FELL_WORDS) as Fate[]).map((fate) => (
+            <div className="wm-leg-row wm-leg-fell" key={fate}>
+              <img src={fellUrl(fate)} alt="" />
+              <span>
+                <em>город взят и {FELL_WORDS[fate]}; знак сходит через сутки</em>
               </span>
             </div>
           ))}

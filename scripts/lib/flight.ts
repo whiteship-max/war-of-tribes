@@ -107,10 +107,16 @@ const FLIGHT_PROBE = `
  * камерой (`worldview=open`): под поводком камера уходит от дома на полэкрана и
  * свежих тайлов почти не просит. Земля от флага не меняется.
  */
-export async function measureFlight(port: number, url: string, onLog: (s: string) => void): Promise<Flight[]> {
+export async function measureFlight(
+  port: number,
+  url: string,
+  onLog: (s: string) => void,
+  /** Готовое сохранение мира (`openPinnedMap`): замер на мире с осадой и взятым городом. */
+  opts: { world?: string } = {},
+): Promise<Flight[]> {
   const tab = await Tab.open(port, url);
   await tab.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
-  await openPinnedMap(tab, { onLog });
+  await openPinnedMap(tab, { onLog, world: opts.world });
   await tab.eval<string>(FLIGHT_PROBE);
   // Первый экран земли печётся сразу после входа: это разовая работа, и мешать
   // её с броском нельзя — мерить надо установившийся ход.

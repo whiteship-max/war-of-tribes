@@ -34,6 +34,7 @@ import {
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
 import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
+import { profileCity } from '@/profile/identity';
 import type {
   FigureView,
   HomeEffect,
@@ -109,6 +110,9 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
   }
   return {
     name: 'Наше племя',
+    // Имя города — очищенное и с умолчанием: мир называет им дом на карте, в отчётах и в
+    // письмах, и второго способа его узнать у мира нет.
+    city: profileCity(s.profile),
     pop: s.pop,
     defense: defense(s),
     // Мощь одного бойца — среднее по составу армии: мир считает отряд числами,

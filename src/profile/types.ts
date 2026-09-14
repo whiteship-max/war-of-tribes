@@ -63,6 +63,13 @@ export interface ProfileCard {
 export interface ProfileState {
   /** Имя, заданное игроком. null — берём из Telegram, нет и там — «Вождь». */
   name: string | null;
+  /**
+   * Имя города, которое назвал игрок, уже очищенное (`contract.cityName`). Необязательное:
+   * сохранение, записанное до имён городов, приезжает без поля, и `SAVE_VERSION` от него не
+   * растёт — читается оно только через `identity.profileCity`, которое подставит имя по
+   * умолчанию.
+   */
+  city?: string | null;
   /** Аватар, выбранный игроком. null — фото Telegram, нет и его — `DEFAULT_AVATAR`. */
   avatarId: AvatarId | null;
   /**

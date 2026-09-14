@@ -18,7 +18,7 @@
  */
 import { placeCastle, settleRandom, type Spot } from '../../src/world/settle.js';
 import { ATLAS_HASH } from '../../src/world/atlas/data.js';
-import type { CastleClaim, CastleRow, CastleView, RosterFile } from './contract.js';
+import { cityName, type CastleClaim, type CastleRow, type CastleView, type RosterFile } from './contract.js';
 
 /**
  * Сколько замков помещается в реестр и как долго держится замок того, кто не
@@ -62,6 +62,8 @@ export function readRoster(raw: unknown): RosterFile {
       x: Math.round(c.x),
       y: Math.round(c.y),
       name: typeof c.name === 'string' ? c.name : '',
+      // Имя города чистится и на чтении: строка могла лечь до правила об имени.
+      ...(cityName(c.city) ? { city: cityName(c.city) as string } : {}),
       power: Math.max(0, Math.floor(Number(c.power) || 0)),
       pop: Math.max(0, Math.floor(Number(c.pop) || 0)),
       seenAt: Math.max(0, Math.floor(Number(c.seenAt) || 0)),
@@ -117,7 +119,15 @@ export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: n
     epoch: file.epoch,
     rows: {
       ...file.rows,
-      [key]: { x: at.x, y: at.y, name: claim.name, power: claim.power, pop: claim.pop, seenAt: now },
+      [key]: {
+        x: at.x,
+        y: at.y,
+        name: claim.name,
+        ...(cityName(claim.city) ? { city: cityName(claim.city) as string } : {}),
+        power: claim.power,
+        pop: claim.pop,
+        seenAt: now,
+      },
     },
   };
 }
@@ -157,6 +167,9 @@ export function prune(file: RosterFile, now: number, keep: string): RosterFile {
 export function worthWriting(file: RosterFile, key: string, claim: CastleClaim, now: number, quiet: number): boolean {
   const had = file.rows[key];
   if (!had) return true;
-  if (had.name !== claim.name || had.power !== claim.power || had.pop !== claim.pop) return true;
+  const sameCity = (cityName(had.city) ?? '') === (cityName(claim.city) ?? '');
+  if (had.name !== claim.name || !sameCity || had.power !== claim.power || had.pop !== claim.pop) {
+    return true;
+  }
   return now - had.seenAt >= quiet;
 }

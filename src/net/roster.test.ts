@@ -66,7 +66,7 @@ afterEach(() => {
 /** Свежий запуск игры: новый экземпляр модуля, которому показали, что о себе слать. */
 async function tab(): Promise<typeof import('./roster')> {
   const mod = await import('./roster');
-  mod.provideClaim(() => ({ name: 'Вождь', power: 4200, pop: 310 }));
+  mod.provideClaim(() => ({ name: 'Вождь', city: 'Ольховец', power: 4200, pop: 310 }));
   return mod;
 }
 
@@ -77,10 +77,10 @@ describe('замок появляется при первом входе', () =>
     expect(r.castleCell()).toBeNull();
     await r.rosterBoot();
     expect(H.apiPut).toHaveBeenCalledTimes(1);
-    // В теле — три числа о себе и ни одной координаты: место не выбирают.
+    // В теле — имена и два числа о себе и ни одной координаты: место не выбирают.
     const [path, body] = H.apiPut.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe('/api/castles');
-    expect(Object.keys(body).sort()).toEqual(['name', 'pop', 'power']);
+    expect(Object.keys(body).sort()).toEqual(['city', 'name', 'pop', 'power']);
     expect(r.castleCell()).toEqual({ x: 900, y: 1000 });
   });
 

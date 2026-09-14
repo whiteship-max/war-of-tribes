@@ -19,11 +19,13 @@ import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { FIGURE_BY_ID } from './data/figures';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
 import { heroReady } from '@/game/derived';
+import { cityName } from '../../netlify/lib/contract';
 import { marchPosition } from './geo';
 import {
   cachedChunk,
   chunkKeysIn,
   chunkRect,
+  ageChunks,
   clearCache,
   clearPending,
   isPending,
@@ -61,6 +63,7 @@ import type {
   Terrain,
   TribeInfo,
   WorldInfo,
+  WorldPulse,
 } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { ArmySetup } from '@/battle';
@@ -87,7 +90,26 @@ function openWorld(opts: LocalWorldOptions): LocalWorld {
  * Мир про сеть по-прежнему не знает ничего: ему приносят готовые строки.
  */
 const worldCastles = (): PlayerCastle[] =>
-  castles().map((c) => ({ id: c.id, x: c.x, y: c.y, name: c.name, power: c.power, pop: c.pop, seenAt: c.seenAt }));
+  castles().map((c) => ({
+    id: c.id,
+    x: c.x,
+    y: c.y,
+    name: c.name,
+    // Строка реестра — чужие руки: имя города очищается ещё раз на входе в мир.
+    ...(cityName(c.city) ? { city: cityName(c.city) as string } : {}),
+    power: c.power,
+    pop: c.pop,
+    seenAt: c.seenAt,
+  }));
+
+/**
+ * Подпись того, от чего зависят рогатки на карте: осада своего города и свой лагерь.
+ * Сменилась — или пульс принёс новый отчёт (всякое взятие города его пишет), — куски
+ * карты перезапрашиваются (`ageChunks`).
+ */
+let lastLook: string | null = null;
+const siegeLook = (p: WorldPulse): string =>
+  `${p.siege?.since ?? '-'}|${p.figures.some((f) => f.id === 'general' && f.besieging) ? 1 : 0}`;
 
 /** Открытое меню приказов: агент, клетка и то, что мир знает про цель. */
 export interface ActionMenuState {
@@ -370,6 +392,12 @@ export const useWorld = create<WorldStore>((set, get) => ({
       // игрок не закроет и не откроет панель заново.
       if (get().reports.length > 0) void get().loadReports();
     }
+
+    // Осада началась или кончилась, город взят — поселения на карте выглядят иначе, и
+    // держать куски до их срока значило бы показывать вчерашний город.
+    const look = siegeLook(pulse);
+    if (lastLook !== null && (look !== lastLook || pulse.reports.length > 0)) ageChunks();
+    lastLook = look;
 
     clockOffset = pulse.now - serverNow();
     set({

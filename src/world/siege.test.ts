@@ -607,10 +607,10 @@ describe('осада: приказ игрока — та же осада, что
     const card = await w.world.settlement(target.id);
     expect(card?.siege, 'лагерь под стенами виден').toBeTruthy();
     expect(card?.siege?.mine, 'и он наш').toBe(true);
-    // Карточка города часов голода не несёт: снаружи лагерь виден, амбар — нет.
-    // Сколько хлеба у города, осаждающий читает в окне своего лагеря (`camp()`) —
-    // так решил владелец, заводя окна осады; карточка остаётся взглядом со стороны.
-    expect(Object.keys(card?.siege ?? {})).toEqual(['mine', 'byName', 'since', 'wood', 'fate']);
+    // Участник осады видит часы голода и в карточке — те же, что в окне своего лагеря:
+    // прежде карточка молчала, и два места говорили об одной осаде разное. Совпадение на
+    // любом состоянии держит `world/hunger.test.ts`; здесь — что поле на месте.
+    expect(Object.keys(card?.siege ?? {})).toEqual(['mine', 'byName', 'since', 'wood', 'fate', 'starvesAt']);
     // Полководец занят: пока лагерь стоит, других дел у него нет.
     const fig = (await w.world.figures()).find((f) => f.id === 'general');
     expect(fig?.besieging).toBe(target.id);

@@ -17,6 +17,8 @@ import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { kindsOf, troopTotal } from '@/game/battle/kinds';
 import { formatLeft, secondsLeft } from '@/world/geo';
+import { hungerLeft } from '@/ui/parts/hunger';
+import { profileCity } from '@/profile/identity';
 import { FATE_META } from '@/world/data/fates';
 import { SIDES, SIDE_NAME, WEAK_HINT, campSides, gateBusyText, refusedAtGate, sortieForecast, weakSide } from '@/world/works';
 import type { FallForecast, Fate } from '@/world/types';
@@ -102,7 +104,7 @@ export function SiegePanel() {
           <Icon name="letter-siege" glyph="⛺" />
         </div>
         <div className="body">
-          <div className="name">Город в осаде</div>
+          <div className="name one-line">«{profileCity(s.profile)}» в осаде</div>
           <div className="lvl">
             «{siege.byName}» у ворот · в лагере {siege.campMen} {plural(siege.campMen, 'боец', 'бойца', 'бойцов')} строя
           </div>
@@ -123,7 +125,7 @@ export function SiegePanel() {
         <div className="mod total">
           <span className="ico">⏳</span>
           <span className="name">Своей еды хватит на</span>
-          <span className="val neg">{formatLeft(secondsLeft(siege.starvesAt, now))}</span>
+          <span className="val neg">{hungerLeft(siege.starvesAt, now)}</span>
         </div>
         <div className="mod">
           <span className="ico">🍞</span>

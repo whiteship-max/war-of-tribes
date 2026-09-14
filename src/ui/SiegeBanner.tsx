@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { tutorialActive } from '@/game/data/tutorial';
 import { useWorld, worldNow } from '@/world/store';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { hungerLeft } from '@/ui/parts/hunger';
 import { FATE_META } from '@/world/data/fates';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -51,7 +51,7 @@ export function SiegeBanner() {
       </div>
       <div className="siege-who">«{siege.byName}» у ворот</div>
       <div className="siege-clock">
-        До голода <b>{formatLeft(secondsLeft(siege.starvesAt, worldNow()))}</b>
+        До голода <b>{hungerLeft(siege.starvesAt, worldNow())}</b>
       </div>
       {/*
         Чем кончится голод — сказано рядом с часами, потому что решение уходить из

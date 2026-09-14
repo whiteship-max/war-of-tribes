@@ -23,6 +23,7 @@ import { drawFog } from './fog';
 import { drawZones } from './zones';
 import { drawFigures } from './figures';
 import { drawHeading, drawParty, lookOf as partyLook } from './party';
+import { drawFarRing, drawFell, fellShown, fittedLabel, worksStand } from './siegemark';
 
 /** Занятые подписями места текущего кадра: соседи не пишут имена друг на друга. */
 interface Box {
@@ -58,10 +59,18 @@ function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, 
   ctx.restore();
 }
 
-/** Обзорный значок: цветная точка отношения. Вблизи её сменяет нарисованный. */
-function drawDot(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, s: SettlementView): void {
+/**
+ * Обзорный значок: цветная точка отношения. Вблизи её сменяет нарисованный.
+ *
+ * Осаждённая точка — в зубчатом кольце (`siegemark.drawFarRing`): на дальнем виде рядов
+ * рогаток не разобрать, но «этот город в осаде» обязано читаться именно отсюда, издалека.
+ */
+function drawDot(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, s: SettlementView, dpr: number, now: number): void {
   const [sx, sy] = toScreen(cam, vp, s.x + 0.5, s.y + 0.5);
-  if (sx < -cam.scale * 2 || sy < -cam.scale * 2 || sx > vp.w + cam.scale || sy > vp.h + cam.scale) return;
+  if (sx < -cam.scale * 2 - 16 || sy < -cam.scale * 2 - 16 || sx > vp.w + cam.scale + 16 || sy > vp.h + cam.scale + 16) return;
+  if (s.besieged && worksStand(s.besieged.starvesAt, now)) {
+    drawFarRing(ctx, dpr, sx, sy, Math.max(10, Math.min(18, cam.scale * 1.4)));
+  }
   const r = Math.max(2.5, Math.min(9, cam.scale * 0.42) * (s.mine ? 1.15 : 0.85));
   ctx.beginPath();
   ctx.arc(sx, sy, r, 0, Math.PI * 2);
@@ -72,7 +81,18 @@ function drawDot(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, s: Se
   ctx.stroke();
 }
 
-/** Подпись под значком. Если место занято соседом, имя не рисуется вовсе. */
+const overlaps = (box: Box, taken: Box[]): boolean =>
+  taken.some((b) => box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y);
+
+/**
+ * Подпись под значком. Если место занято соседом, имя не рисуется вовсе.
+ *
+ * Имя вписано в `LABEL_MAX_PX` с многоточием (`siegemark.fittedLabel`): имя своего
+ * города пишет игрок, и сорок широких букв иначе легли бы подписью на трёх соседей.
+ *
+ * Под именем — знак павшего города, если он ещё держится. Знак важнее имени: занято место
+ * под именем соседом — имя уступает, знак встаёт на его место.
+ */
 function drawLabel(
   ctx: CanvasRenderingContext2D,
   cam: Camera,
@@ -80,25 +100,30 @@ function drawLabel(
   s: SettlementView,
   near: number,
   taken: Box[],
+  dpr: number,
+  now: number,
 ): void {
   const [sx, sy] = toScreen(cam, vp, s.x + 0.5, s.y + 0.5);
   if (sx < 0 || sy < 0 || sx > vp.w || sy > vp.h) return;
   // Вблизи имя отходит вниз: под ним двор поселения, а не пустая трава.
-  const top = sy + Math.max(6, cam.scale * (0.5 + near * 0.7));
+  let top = sy + Math.max(6, cam.scale * (0.5 + near * 0.7));
   ctx.font = '11px system-ui, sans-serif';
-  const width = ctx.measureText(s.name).width;
+  const name = fittedLabel(ctx, s.name);
+  const width = ctx.measureText(name).width;
   const box: Box = { x: sx - width / 2 - 2, y: top, w: width + 4, h: 13 };
-  for (const b of taken) {
-    if (box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y) return;
+  if (!overlaps(box, taken)) {
+    taken.push(box);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(10, 8, 6, 0.85)';
+    ctx.strokeText(name, sx, top);
+    ctx.fillStyle = s.mine ? s.color : '#e7dcc9';
+    ctx.fillText(name, sx, top);
+    top += 14;
   }
-  taken.push(box);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(10, 8, 6, 0.85)';
-  ctx.strokeText(s.name, sx, top);
-  ctx.fillStyle = s.mine ? s.color : '#e7dcc9';
-  ctx.fillText(s.name, sx, top);
+  if (!fellShown(s.fell, now)) return;
+  taken.push(drawFell(ctx, s.fell.fate, dpr, sx, top));
 }
 
 /**
@@ -320,7 +345,7 @@ export function drawFrame(
   if (far > 0) {
     ctx.save();
     ctx.globalAlpha = far;
-    for (const s of inView) drawDot(ctx, cam, vp, s);
+    for (const s of inView) drawDot(ctx, cam, vp, s, dpr, now);
     ctx.restore();
   }
   if (near > 0) drawVillages(ctx, cam, vp, inView, dpr, near, markersOf(state.marches), now);
@@ -346,7 +371,7 @@ export function drawFrame(
     const taken: Box[] = [];
     // Своя деревня подписывается первой: её имя важнее чужих.
     for (const s of [...inView].sort((a, b) => Number(b.mine) - Number(a.mine))) {
-      drawLabel(ctx, cam, vp, s, near, taken);
+      drawLabel(ctx, cam, vp, s, near, taken, dpr, now);
     }
   }
 

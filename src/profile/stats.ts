@@ -15,7 +15,7 @@ import type { GameState, ResourceId } from '@/game/types';
 import { RESOURCE_IDS, emptyResources } from '@/game/constants';
 import { dayOf } from '@/game/derived';
 import type { ProfileDay, ProfileState } from './types';
-import { DEFAULT_AVATAR, cleanName, profileAvatar, profileName, profilePhoto } from './identity';
+import { DEFAULT_AVATAR, cityName, cleanName, profileAvatar, profileName, profilePhoto } from './identity';
 import { power } from './power';
 
 /** Сколько суточных корзин держим. Старше — выпадает; счёт по возрасту, не по числу. */
@@ -174,6 +174,16 @@ export const recentDays = (s: GameState): ProfileDay[] => s.profile.days.slice()
 export function setName(s: GameState, name: string): string | null {
   s.profile.name = cleanName(name);
   refreshCard(s);
+  return null;
+}
+
+/**
+ * Имя города. Очищается одной дверью договора (`cityName`): пустое, из одних пробелов или
+ * из одних невидимых знаков — не имя, и тогда город снова «Безымянный». Визитку имя города
+ * не трогает: в ней имя вождя.
+ */
+export function setCity(s: GameState, raw: string): string | null {
+  s.profile.city = cityName(raw);
   return null;
 }
 

@@ -20,6 +20,7 @@ import { awayOf, homeOf, standingTroops } from '@/world/muster';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { formatLeft, secondsLeft } from '@/world/geo';
+import { hungerLeft } from '@/ui/parts/hunger';
 import { gateBusyText, refusedAtGate, sortieForecast } from '@/world/works';
 import type { TroopId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
@@ -129,7 +130,7 @@ export function SortiePanel() {
         <div className="body">
           <div className="name">Вылазка</div>
           <div className="lvl">
-            «{siege.byName}» у ворот · до голода {formatLeft(secondsLeft(siege.starvesAt, now))}
+            «{siege.byName}» у ворот · до голода {hungerLeft(siege.starvesAt, now)}
           </div>
         </div>
       </div>

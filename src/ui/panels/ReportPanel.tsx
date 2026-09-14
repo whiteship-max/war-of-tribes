@@ -192,6 +192,8 @@ export function ReportBody({ report }: { report: Report }) {
       <h2>
         {sum ? sum.title : report.title} <small>{formatCoord(report.target)}</small>
       </h2>
+      {/* Где это было — именем. У своего города это имя, которое назвал игрок. */}
+      <div className="desc one-line">{report.target.name}</div>
       <div className="desc">{report.text}</div>
 
       {sum && ours && foes && (

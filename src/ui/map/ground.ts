@@ -400,6 +400,15 @@ function bake(seed: number, tx: number, ty: number): HTMLCanvasElement | null {
 let lastWant = 0;
 let lastCapacity = 0;
 
+/**
+ * Сколько тайлов испечено с запуска. Счётчик, а не замер: целое на выпечку ничего не
+ * стоит, а тест «рогатки и знаки участи не прибавили ни одной выпечки» (`siegemark.test.ts`)
+ * читает именно его — через настоящий кадр, а не через рассуждение о том, что спрайт
+ * поверх тайла тайла не касается.
+ */
+let bakedTotal = 0;
+export const tileBakes = (): number => bakedTotal;
+
 /** Готовый тайл или null, если его ещё не испекли — тогда сквозь него виден обзор. */
 export function tileAt(tx: number, ty: number): HTMLCanvasElement | null {
   return tiles.get(tx, ty);
@@ -424,6 +433,7 @@ export function prepareTiles(seed: number, want: TileId[], frame: number, capaci
     // обхода сетки и возврата, и в среднем такие отказы утопили бы настоящее
     // число: их за бросок набирается больше, чем самих тайлов.
     if (baked && PROBE) bakeCost(performance.now() - t0);
+    if (baked) bakedTotal++;
     return baked;
   });
   lastWant = want.length;

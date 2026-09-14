@@ -9,6 +9,9 @@
 import type { Avatar, AvatarId } from '@/data/avatars';
 import { AVATARS } from '@/data/avatars';
 import type { ProfileState } from './types';
+import { DEFAULT_CITY, cityName, cityOr } from '../../netlify/lib/contract';
+
+export { DEFAULT_CITY, cityName };
 
 /** Кем игрок выходит, пока не выбрал сам и пока Telegram молчит. */
 export const DEFAULT_AVATAR: AvatarId = '01_swordsman';
@@ -22,6 +25,13 @@ export const cleanName = (v: string | null | undefined): string | null => {
   const t = (v ?? '').replace(/\s+/g, ' ').trim();
   return t.length > 0 ? t.slice(0, NAME_MAX) : null;
 };
+
+/**
+ * Имя своего города для показа: названное игроком или «Безымянный город». Поле читается
+ * только здесь и только через очистку договора (`cityOr`) — сохранение могло прийти с
+ * сервера от другой сборки, и доверять лежащей в нём строке нельзя.
+ */
+export const profileCity = (p: Pick<ProfileState, 'city'>): string => cityOr(p.city);
 
 /** Вид из набора по идентификатору. Набор непустой, поэтому что-то вернётся всегда. */
 export const avatarById = (id: AvatarId | null): Avatar =>

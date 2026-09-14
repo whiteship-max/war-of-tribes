@@ -50,6 +50,20 @@ export function putChunk(key: string, chunk: RegionChunk, now: number): void {
   chunks.set(key, { ...chunk, key, fetchedAt: now });
 }
 
+/**
+ * Все куски считать устаревшими, **не выбрасывая**: карта рисует прежнее, пока не
+ * приедет новое, и перезапрашивает их первым же кадром. Зовётся, когда пульс принёс
+ * событие, меняющее вид поселений, — город осадили, лагерь снят, город взят. Иначе
+ * рогатки и знак участи появлялись бы на карте со сроком куска (`CHUNK_TTL`), то есть
+ * до трёх четвертей минуты после отчёта.
+ *
+ * Земли это не касается: тайлы испечены по клеткам, а не по кускам, и перепекать их
+ * нечего (`ui/map/ground.ts`).
+ */
+export function ageChunks(): void {
+  for (const c of chunks.values()) c.fetchedAt = -Infinity;
+}
+
 export function chunkAt(x: number, y: number): CachedChunk | null {
   return chunks.get(chunkKey(indexOf(x, WORLD_ORIGIN.x), indexOf(y, WORLD_ORIGIN.y))) ?? null;
 }

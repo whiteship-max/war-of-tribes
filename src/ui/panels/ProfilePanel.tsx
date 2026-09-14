@@ -17,8 +17,9 @@ import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import type { ResourceId } from '@/game/types';
-import { NAME_MAX, cardSrc, faceSrc, profileAvatar, profileName } from '@/profile/identity';
-import { PROFILE_DAYS, setName } from '@/profile/stats';
+import { NAME_MAX, cardSrc, cityName, faceSrc, profileAvatar, profileCity, profileName } from '@/profile/identity';
+import { PROFILE_DAYS, setCity, setName } from '@/profile/stats';
+import { CITY_MAX } from '../../../netlify/lib/contract';
 import { buildingsPower, power, troopsPower } from '@/profile/power';
 import { AvatarPicker } from '../parts/AvatarPicker';
 import { Settings } from '../parts/Settings';
@@ -64,6 +65,8 @@ export function ProfilePanel() {
   const [picking, setPicking] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
+  const [naming, setNaming] = useState(false);
+  const [cityDraft, setCityDraft] = useState('');
 
   const p = s.profile;
   const t = p.totals;
@@ -81,6 +84,20 @@ export function ProfilePanel() {
     act((st) => setName(st, draft));
     save();
     setRenaming(false);
+  };
+
+  // Имя города правится рядом с именем вождя тем же приёмом. Черновик — сырой ввод,
+  // очищает его одна дверь (`setCity` → `contract.cityName`), а в поле ввода подставлено
+  // ровно то, что лежит в сохранении: правят своё, а не «Безымянный город».
+  const startCity = (): void => {
+    setCityDraft(cityName(p.city) ?? '');
+    setNaming(true);
+  };
+
+  const commitCity = (): void => {
+    act((st) => setCity(st, cityDraft));
+    save();
+    setNaming(false);
   };
 
   // Выбор лица — не отдельный раздел шторки: снаружи на него ничего не ведёт,
@@ -132,6 +149,30 @@ export function ProfilePanel() {
           ) : (
             <button className="name" onClick={startRename} title="Сменить имя">
               {profileName(p)} <em>✎</em>
+            </button>
+          )}
+          {/* Имя города видят все — на карте, в отчётах, в письмах и соседи через реестр
+              замков. Поэтому оно под именем вождя, а не в настройках. */}
+          {naming ? (
+            <div className="rename">
+              <input
+                value={cityDraft}
+                maxLength={CITY_MAX}
+                autoFocus
+                placeholder={profileCity(p)}
+                onChange={(e) => setCityDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitCity();
+                  if (e.key === 'Escape') setNaming(false);
+                }}
+              />
+              <button className="btn" onClick={commitCity}>
+                Готово
+              </button>
+            </div>
+          ) : (
+            <button className="name city one-line" onClick={startCity} title="Назвать город">
+              {profileCity(p)} <em>✎ город</em>
             </button>
           )}
           <div className="power">

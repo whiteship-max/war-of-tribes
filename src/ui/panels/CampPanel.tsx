@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
+import { hungerLeft } from '@/ui/parts/hunger';
 import { formatEstimate } from '@/world/intel';
 import { CAMP_LEAVE, STORM_LIFTS } from '@/world/siege';
 import { FATE_META } from '@/world/data/fates';
@@ -98,7 +99,7 @@ export function CampPanel() {
       <div className="bhead">
         <div className="ico">{camp.castle ? CASTLE_ICON : stage.icon}</div>
         <div className="body">
-          <div className="name">{camp.targetName}</div>
+          <div className="name one-line">{camp.targetName}</div>
           <div className="lvl">
             {kind} · {walls}
           </div>
@@ -115,7 +116,7 @@ export function CampPanel() {
         <div className="mod total">
           <span className="ico">⏳</span>
           <span className="name">Еды в городе хватит на</span>
-          <span className="val pos">{formatLeft(secondsLeft(camp.starvesAt, now))}</span>
+          <span className="val pos">{hungerLeft(camp.starvesAt, now)}</span>
         </div>
         <div className="mod">
           <span className="ico">🍞</span>
