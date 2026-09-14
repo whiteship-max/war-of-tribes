@@ -74,6 +74,86 @@ describe('личность берётся только из подписи', () 
   });
 });
 
+describe('исходящие: ключ только из подписи или из метки индекса', () => {
+  const notify = strip(readFileSync(join(ROOT, 'functions', 'notify.mts'), 'utf8'));
+  const deliver = strip(readFileSync(join(ROOT, 'lib', 'deliver.ts'), 'utf8'));
+
+  it('приём списка: ключ собирается один раз и только из проверенного', () => {
+    expect(notify).toMatch(/if \(!auth\.ok\) return deny\(401/);
+    const assigns = [...notify.matchAll(/\bkey\s*=\s*([^;]+);/g)].map((m) => m[1].trim());
+    expect(assigns).toEqual(['saveKeyOf(auth.user)']);
+    const calls = [...notify.matchAll(/store\(\)\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    expect(calls.length).toBeGreaterThan(2);
+    expect([...new Set(calls)]).toEqual(['key']);
+    // В индекс кладутся только метки, собранные из того же ключа (`markOf(item, player)`).
+    expect([...new Set([...notify.matchAll(/due\(\)\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]))]).toEqual(['mark']);
+    expect(notify).toMatch(/accept\(rec, put, key, now\)/);
+  });
+
+  /**
+   * У прохода доставки подписи нет. Ключ записи исходящих в нём берётся ровно из одного
+   * места — из имени метки — и проверяется видом `tg-<число>` до первого чтения. Строка
+   * `io.notify.getWithMetadata(body.userId…)` выглядела бы невинно, поэтому её ловит правило.
+   */
+  it('проход доставки: ключ игрока только из метки, и в запись ходят только по нему', () => {
+    const assigns = [...deliver.matchAll(/\bconst player\s*=\s*([^;]+);/g)].map((m) => m[1].trim());
+    expect(assigns).toEqual(['blob.key.slice(minute.length + 1)']);
+    expect(deliver).toMatch(/if \(!PLAYER_KEY\.test\(player\)\)/);
+    const calls = [...deliver.matchAll(/io\.notify\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    expect(calls.length).toBe(2);
+    expect([...new Set(calls)]).toEqual(['player']);
+  });
+
+  it('хранилища исходящих трогают ровно приём и доставка', () => {
+    const touching = files()
+      .filter((f) => /tribe-notify/.test(strip(readFileSync(f, 'utf8'))))
+      .map((f) => f.slice(ROOT.length + 1).replace(/\\/g, '/'))
+      .sort();
+    expect(touching).toEqual(['functions/deliver.mts', 'functions/notify.mts']);
+  });
+
+  /**
+   * Замок сервера на доставку: адаптеров в этой пачке нет ни одного. Ни исходящего
+   * запроса, ни адреса Bot API — проход пишет «ушло бы», и больше ничего. Появится адаптер —
+   * этот тест правится вместе с ним, а не обходится.
+   */
+  it('доставка ничего не отправляет: ни запроса наружу, ни адреса Telegram', () => {
+    const guilty = files().filter((f) => /\bfetch\s*\(|api\.telegram\.org|sendMessage/.test(strip(readFileSync(f, 'utf8'))));
+    expect(guilty).toEqual([]);
+  });
+});
+
+describe('сервер разбирает ровно две записи', () => {
+  /**
+   * «Сервер хранит и раздаёт, а не судит» расширено вслух ровно один раз: кроме реестра
+   * замков, сервер читает исходящие уведомления (CLAUDE.md, «Личность игрока»). Третья
+   * разбирающая запись обязана упереться сюда.
+   *
+   * Что считается разбором. Всё, что достаётся из хранилища, — `x.data`. Сохранение партии
+   * сервер отдаёт обратно как есть (`parseJson` без читателя — в `save.mts`, и только там:
+   * конверт записи, номер и время, но не партия). Всё остальное обязано пройти через
+   * читателя записи — и читателей ровно два.
+   */
+  it('читателей хранимого ровно два: реестр и исходящие', () => {
+    const readers = new Set<string>();
+    const bare: string[] = [];
+    for (const f of files()) {
+      const code = strip(readFileSync(f, 'utf8'));
+      const uses = [...code.matchAll(/\b\w+\.data\b/g)].length;
+      const wrapped = [...code.matchAll(/(\w+)\(\s*\w+\s*\?\s*parseJson\(\s*String\(\s*\w+\.data\s*\)\s*\)\s*:\s*null\s*\)/g)];
+      for (const m of wrapped) readers.add(m[1]);
+      const plain = [...code.matchAll(/parseJson(?:<[^>]*>)?\(\s*String\(\s*\w+\.data\s*\)\s*\)/g)].length - wrapped.length;
+      if (plain > 0) bare.push(f.slice(ROOT.length + 1).replace(/\\/g, '/'));
+      // Мимо этих двух форм хранимое не достаётся ни в одном файле.
+      const seen = [...code.matchAll(/parseJson(?:<[^>]*>)?\(\s*String\(\s*\w+\.data\s*\)\s*\)/g)].length;
+      const passthrough = [...code.matchAll(/data:\s*String\(\s*found\.data\s*\)/g)].length;
+      expect(uses, `${f}: хранимое достаётся мимо разбора`).toBe(seen + passthrough);
+    }
+    expect([...readers].sort()).toEqual(['readNotify', 'readRoster']);
+    expect(bare).toEqual(['functions/save.mts']);
+  });
+});
+
 describe('токен бота не утекает', () => {
   it('его читают в одном месте', () => {
     const guilty = files().filter(
