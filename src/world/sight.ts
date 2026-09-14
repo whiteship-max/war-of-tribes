@@ -20,6 +20,7 @@
 // правды о том, кто наблюдает, между ними быть не должно.
 import type { FigureId, FigurePhase } from './types';
 import { FIGURE_BY_ID } from './data/figures';
+import { type Placed, placeOf } from './shelter';
 
 /**
  * Единственная фигура, дающая живой обзор. Не «список наблюдателей»: лазутчик у
@@ -37,9 +38,12 @@ export const standing = (phase: FigurePhase): boolean => phase === 'field' || ph
  * Наблюдение включается **приказом** (`watching`), а не само собой: пока
  * лазутчик смотрит, он не выведывает войско и не поднимает бунт. Это и есть
  * решение — смотреть или действовать.
+ *
+ * Укрывшийся в городе не смотрит никуда: его нет на карте (`world/shelter`), и
+ * живого обзора из-за стены он не даёт — даже если отметка наблюдения осталась.
  */
-export function liveSight(id: FigureId, phase: FigurePhase, watching: boolean | undefined): number {
-  if (id !== WATCHER || !watching) return 0;
-  if (phase === 'down' || !standing(phase)) return 0;
+export function liveSight(id: FigureId, f: Placed & { watching?: boolean }): number {
+  if (id !== WATCHER || !f.watching) return 0;
+  if (placeOf(f) !== 'map' || !standing(f.phase)) return 0;
   return FIGURE_BY_ID[id].sight;
 }

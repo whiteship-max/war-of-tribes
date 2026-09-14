@@ -219,6 +219,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const figures = useWorld((g) => g.figures);
   const marches = useWorld((g) => g.marches);
   const moveFigure = useWorld((g) => g.moveFigure);
+  const shelter = useWorld((g) => g.shelter);
   const attack = useWorld((g) => g.attack);
   const besiege = useWorld((g) => g.besiege);
   const negotiate = useWorld((g) => g.negotiate);
@@ -242,12 +243,35 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const home = useWorld((g) => g.info?.home ?? null);
   const homeDist = home ? Math.hypot(home.x - x, home.y - y) : 0;
 
-  /** Кнопки «вести сюда»: одна на фигуру, кроме тех, что уже здесь. */
+  /**
+   * Кнопки «вести сюда»: одна на фигуру, кроме тех, что уже здесь. Укрывшийся в
+   * своём городе у своих же ворот и так стоит — в карточке своего города у него
+   * вместо «вести» выход.
+   */
   const lead = (standing: FigureId[]): JSX.Element => (
     <div className="wm-actions">
       {FIGURES.filter((d) => !standing.includes(d.id)).map((d) => {
         const f = figures.find((v) => v.id === d.id);
         const down = f?.phase === 'down';
+        if (card?.mine && f?.place === 'city') {
+          return (
+            <button
+              key={d.id}
+              className="btn ghost"
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  const err = await shelter(d.id, false);
+                  setBusy(false);
+                  showToast(err ?? `${d.name} вышел из города и встал у ворот.`);
+                })();
+              }}
+            >
+              <Icon name={`fig-${d.id}`} glyph={d.icon} /> {d.name}: выйти из города
+            </button>
+          );
+        }
         return (
           <button
             key={d.id}

@@ -1,8 +1,13 @@
-// Три фигуры, свои походы и отчёты. Отсюда фигуру и отряд отзывают, здесь же
+// Четыре фигуры, свои походы и отчёты. Отсюда фигуру и отряд отзывают, здесь же
 // видно, кто идёт на нас.
 //
 // Список фигур стоит первым нарочно: армия ходит только с полководцем, и вопрос
-// «где он сейчас» на этом экране главный.
+// «где он сейчас» на этом экране главный. Это и **единственный** список агентов
+// на карте: угол агентов в правом низу убран как вторая кнопка под то же дело, и
+// всё, что умел только он, переехало сюда — поставить камеру на агента и взять
+// его в руку («На карте»). Без этого разведчик, ушедший за поводок деревни,
+// оставался бы без приказов: тапнуть его на карте нельзя, пока камера до него
+// не дотянется, а дотянуться она может только от него самого.
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { figurePosition, incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
@@ -74,7 +79,11 @@ export function MarchesPanel() {
   const select = useWorld((g) => g.select);
   const figures = useWorld((g) => g.figures);
   const recallFigure = useWorld((g) => g.recallFigure);
+  const shelter = useWorld((g) => g.shelter);
+  const setAnchor = useWorld((g) => g.setAnchor);
+  const pickFigure = useWorld((g) => g.pick);
   const showToast = useGame((g) => g.showToast);
+  const closeSheet = useGame((g) => g.closeSheet);
 
   useEffect(() => {
     void loadReports().then(() => void markRead());
@@ -95,13 +104,15 @@ export function MarchesPanel() {
         const cell = { x: Math.round(at.x), y: Math.round(at.y) };
         const men = troopTotal(f.troops);
         const where =
-          f.phase === 'down'
+          f.place === 'down'
             ? `выбыл, вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}`
-            : f.phase === 'moving'
-              ? `в пути · ${formatLeft(secondsLeft(f.arriveAt, worldNow()))}`
-              : f.atHome
-                ? 'дома'
-                : (f.atName ?? 'в поле');
+            : f.place === 'city'
+              ? 'укрылся в городе, на карте его нет'
+              : f.phase === 'moving'
+                ? `в пути · ${formatLeft(secondsLeft(f.arriveAt, worldNow()))}`
+                : f.atHome
+                  ? 'дома'
+                  : (f.atName ?? 'в поле');
         return (
           <div className={`card${f.phase === 'down' ? ' lost' : ''}`} key={f.id}>
             <div className="ico">
@@ -120,12 +131,38 @@ export function MarchesPanel() {
                 {f.watching ? ' · 👁️ смотрит: приказы не отдаются' : ''}
               </div>
               <div className="cost">
-                {f.phase !== 'down' && (
+                {f.place !== 'down' && (
                   <button className="mini text" onClick={() => void select(cell)}>
                     {formatCoord(cell)}
                   </button>
                 )}
-                {f.phase !== 'down' && !f.atHome && (
+                {/* Камера на агента и агент в руку — то, что умел только угол
+                    агентов. Шторка закрывается: взяв агента, смотрят на землю. */}
+                {f.place === 'map' && (
+                  <button
+                    className="mini text"
+                    onClick={() => {
+                      setAnchor(f.id);
+                      pickFigure(f.id);
+                      closeSheet();
+                    }}
+                  >
+                    На карте
+                  </button>
+                )}
+                {f.place === 'city' && (
+                  <button
+                    className="mini text"
+                    onClick={() => {
+                      void shelter(f.id, false).then((err) =>
+                        showToast(err ?? `${f.name} вышел из города и встал у ворот.`),
+                      );
+                    }}
+                  >
+                    Выйти из города
+                  </button>
+                )}
+                {f.place === 'map' && !f.atHome && (
                   <button
                     className="mini text"
                     onClick={() => {

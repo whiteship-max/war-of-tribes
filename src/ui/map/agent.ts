@@ -2,7 +2,7 @@
 //
 // Устроено ровно как отряды (`party.ts`), и по той же причине — **закон кадра**:
 // чистая часть (`agentKey`, `agentBucket`, `agentUnit`, `fanOffsets`,
-// `agentIdle`, `lineAt`) без canvas, выпечка (`bakeAgent`) на смене вида,
+// `lineAt`) без canvas, выпечка (`bakeAgent`) на смене вида,
 // направления и корзины, кадр — один `drawImage` на фигуру.
 //
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@
 // Стороны у ключа выпечки нет, и это не упущение: чужих фигур на карте не
 // бывает вовсе (мир отдаёт только своих агентов), а писать код под сторону,
 // которой нет, — это заводить вторую правду заранее.
-import type { FigureId, FigurePhase } from '@/world/types';
+import type { FigureId } from '@/world/types';
 import { PARTY_OWN } from './palette';
 
 type C = CanvasRenderingContext2D;
@@ -110,22 +110,6 @@ export function fanOffsets(cells: string[]): number[] {
  * что мешает узнать каждого по форме.
  */
 export const FAN_STEP = 0.78;
-
-/**
- * Свободен ли агент — то есть **требует ли он внимания**. Дошёл и стоит без
- * дела, приказ отработан, наблюдать не поставлен. Это единственное, что
- * свёрнутая панель агентов обязана сообщать не открываясь.
- *
- * Наблюдающий лазутчик занят: он именно этим и занят, и дёргать его незачем.
- */
-export function agentIdle(
-  f: { phase: FigurePhase; busyUntil: number; watching: boolean },
-  now: number,
-): boolean {
-  if (f.phase === 'down' || f.phase === 'moving') return false;
-  if (f.watching) return false;
-  return f.busyUntil <= now;
-}
 
 // ---------- Габариты ----------
 

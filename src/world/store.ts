@@ -224,6 +224,11 @@ export interface WorldStore {
    * приказывает — и наоборот: смотреть или действовать и есть решение.
    */
   watch: (on: boolean) => Promise<string | null>;
+  /**
+   * Агент входит в свой город (`on`) или выходит. Вошедший пропадает с карты —
+   * из руки и с камеры тоже: держать камеру на том, кого не рисуют, нечем.
+   */
+  shelter: (id: FigureId, on: boolean) => Promise<string | null>;
   /** Полководец забирает гарнизон или возвращает его домой. */
   setGarrison: (troops: TroopStack | null) => Promise<string | null>;
   /** Полководец бьёт по цели, у которой стоит. */
@@ -528,6 +533,21 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
     await get().pulse();
     // Приказы лазутчика после этого другие: наблюдатель не работает.
+    await get().refreshOrders();
+    return null;
+  },
+
+  shelter: async (id, on) => {
+    const err = await worldApi().shelter(id, on);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    if (on) {
+      const g = get();
+      set({ picked: g.picked === id ? null : g.picked, anchor: g.anchor === id ? 'home' : g.anchor });
+    }
+    await get().pulse();
     await get().refreshOrders();
     return null;
   },
@@ -923,15 +943,15 @@ function reachAround(x: number, y: number, chunks: number): Reach {
 }
 
 /**
- * Точка, к которой привязана камера. Выбывшая фигура якорем быть не может —
- * её на карте нет, — и камера в этом случае возвращается к деревне сама, а не
- * зависает над пустым полем.
+ * Точка, к которой привязана камера. Выбывшая и укрывшаяся в городе фигура
+ * якорем быть не может — её на карте нет, — и камера в этом случае возвращается
+ * к деревне сама, а не зависает над пустым полем.
  */
 export function cameraAnchor(now: number): CameraAnchor | null {
   const g = useWorld.getState();
   const home = g.info?.home;
   const at = g.anchor === 'home' ? null : g.figures.find((x) => x.id === g.anchor);
-  const live = at && at.phase !== 'down' ? at : null;
+  const live = at && at.place === 'map' ? at : null;
   const spot = live ? figurePosition(live, now) : home ? { x: home.x, y: home.y } : null;
   if (!spot) return null;
   const cell = { x: Math.floor(spot.x), y: Math.floor(spot.y) };
@@ -966,10 +986,14 @@ useGame.subscribe((g, prev) => {
 /** Клетка в чьём-то обзоре прямо сейчас. */
 export const cellInSight = (discs: SightDisc[], x: number, y: number): boolean => inSight(discs, x + 0.5, y + 0.5);
 
-/** Фигура, стоящая на этой клетке (или вплотную к ней). Для карточки клетки. */
+/**
+ * Фигура, стоящая на этой клетке (или вплотную к ней). Для карточки клетки и
+ * тапа по карте. Укрывшейся в городе здесь нет: на карте её не видно, и взять
+ * её в руку тапом по земле нельзя.
+ */
 export function figuresOn(x: number, y: number, now: number): FigureView[] {
   return useWorld.getState().figures.filter((f) => {
-    if (f.phase === 'down') return false;
+    if (f.place !== 'map') return false;
     const at = figurePosition(f, now);
     return Math.round(at.x) === x && Math.round(at.y) === y;
   });

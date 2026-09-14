@@ -49,6 +49,7 @@ export function ActionMenu() {
   const besiege = useWorld((g) => g.besiege);
   const intercept = useWorld((g) => g.intercept);
   const watch = useWorld((g) => g.watch);
+  const shelter = useWorld((g) => g.shelter);
   const showToast = useGame((g) => g.showToast);
   const openBattle = useGame((g) => g.openBattle);
   const openSiege = useGame((g) => g.openSiege);
@@ -69,6 +70,22 @@ export function ActionMenu() {
 
   // Полководец в лагере: увести его можно, но это и есть снятие осады.
   const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && !here;
+  // Агент укрылся в своём городе: на карте его нет, и вести его «сюда», к своим же
+  // воротам, нечего — отсюда он только выходит.
+  const inCity = figure?.place === 'city';
+  const ownCity = Boolean(card?.mine);
+  const homeInside = inCity && ownCity;
+
+  const hide = async (on: boolean): Promise<void> => {
+    const err = await shelter(menu.agent, on);
+    showToast(
+      err ??
+        (on
+          ? `${def.name} укрылся в городе: на карте его нет, выйдет по твоему слову.`
+          : `${def.name} вышел из города и встал у ворот.`),
+    );
+    if (!err) closeMenu();
+  };
 
   const lead = async (): Promise<void> => {
     const err = await moveFigure(menu.agent, menu.cell);
@@ -415,6 +432,33 @@ export function ActionMenu() {
           </button>
         )}
 
+        {/*
+          Свой город — укрыться в нём или выйти. Входят от своих ворот, и если агент
+          не у них, строка это говорит, а не пропадает. Укрывшийся не работает: не
+          смотрит, не открывает землю и не стоит ни у чьих ворот.
+        */}
+        {ownCity && figure && figure.place !== 'down' && (
+          <button
+            className={`am-row${inCity || here ? '' : ' off'}`}
+            disabled={!inCity && !here}
+            onClick={() => void hide(!inCity)}
+          >
+            <span className="ico">🏰</span>
+            <span className="body">
+              <b>{inCity ? 'Выйти из города' : 'Укрыться в городе'}</b>
+              <i>
+                {inCity
+                  ? 'Встанет у ворот — там же, откуда вошёл, — и снова будет на карте.'
+                  : here
+                    ? 'Уйдёт за стену и пропадёт с карты: не смотрит и не работает, пока не выйдет.'
+                    : figure.phase === 'moving'
+                      ? 'Ещё в пути: в город входят от своих ворот.'
+                      : `Входят от своих ворот: доведи ${def.one} домой.`}
+              </i>
+            </span>
+          </button>
+        )}
+
         {menu.target === null && menu.march === null && (
           <div className="am-plain">Здесь никто не живёт. Приказывать некому — но пройти можно.</div>
         )}
@@ -424,18 +468,20 @@ export function ActionMenu() {
           этом здесь, до нажатия: цена приказа, которая выясняется после него, —
           это не цена, а подвох.
         */}
-        <button className="am-row lead" disabled={here} onClick={() => void lead()}>
+        <button className="am-row lead" disabled={here || homeInside} onClick={() => void lead()}>
           <span className="ico">
             <Icon name={`fig-${def.id}`} glyph={def.icon} />
           </span>
           <span className="body">
-            <b>{here ? `${def.name} уже здесь` : `Вести ${def.one} сюда`}</b>
+            <b>{here || homeInside ? `${def.name} уже здесь` : `Вести ${def.one} сюда`}</b>
             <i>
-              {here
-                ? 'Дальше приказывай отсюда.'
-                : leavingCamp
-                  ? CAMP_LEAVE
-                  : 'Идти будет столько, сколько велит дорога.'}
+              {homeInside
+                ? 'Он в городе: выведи его строкой выше.'
+                : here
+                  ? 'Дальше приказывай отсюда.'
+                  : leavingCamp
+                    ? CAMP_LEAVE
+                    : 'Идти будет столько, сколько велит дорога.'}
             </i>
           </span>
         </button>

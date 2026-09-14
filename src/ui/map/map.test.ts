@@ -66,7 +66,6 @@ import {
   FAN_STEP,
   SPAN_W as AGENT_SPAN_W,
   agentBucket,
-  agentIdle,
   agentKey,
   agentUnit,
   fanOffsets,
@@ -959,11 +958,13 @@ describe('агенты на карте различаются силуэтом',
     expect(read('agent.ts')).not.toMatch(/labelSprite|bakeLabel/);
   });
 
-  it('имя агента при этом читается — в панели, в подсказке и в приказах', () => {
+  it('имя агента при этом читается — в походах, в подсказке и в приказах', () => {
     // Убрать подпись с полотна можно только потому, что имя есть где прочесть.
     // Пропади оно и оттуда — четыре силуэта стали бы безымянными навсегда.
+    // Список агентов на карте один — «Походы»: угол агентов убран как вторая
+    // кнопка под то же дело.
     const map = read('WorldMap.tsx');
-    expect(map).toMatch(/<b>\{f\.name\}<\/b>/);
+    expect(readFileSync(join(process.cwd(), 'src/ui/panels/MarchesPanel.tsx'), 'utf8')).toMatch(/\{f\.name\}/);
     expect(map).toMatch(/FIGURE_BY_ID\[picked\]\.name/);
     expect(read('ActionMenu.tsx')).toMatch(/def\.name/);
   });
@@ -1029,20 +1030,6 @@ describe('агенты на карте различаются силуэтом',
     const mixed = fanOffsets(['5|5', '6|6', '5|5']);
     expect(mixed[1]).toBe(0);
     expect(mixed[0]).toBeCloseTo(-mixed[2]);
-  });
-
-  it('внимания требует тот, кто дошёл и стоит без дела', () => {
-    const now = 1_000_000;
-    const at = (o: Partial<{ phase: 'home' | 'moving' | 'field' | 'down'; busyUntil: number; watching: boolean }>) =>
-      agentIdle({ phase: 'home', busyUntil: 0, watching: false, ...o }, now);
-    expect(at({})).toBe(true);
-    expect(at({ phase: 'field' })).toBe(true);
-    expect(at({ phase: 'moving' })).toBe(false);
-    expect(at({ phase: 'down' })).toBe(false);
-    expect(at({ busyUntil: now + 5000 })).toBe(false);
-    expect(at({ busyUntil: now - 1 })).toBe(true);
-    // Наблюдающий лазутчик занят именно этим, и дёргать его незачем.
-    expect(at({ watching: true })).toBe(false);
   });
 });
 

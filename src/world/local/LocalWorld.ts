@@ -114,6 +114,7 @@ import {
 import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
 import { cityName, cityOr } from '../../../netlify/lib/contract';
 import { WATCHER, liveSight, standing } from '../sight';
+import { canShelter, placeOf } from '../shelter';
 import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
@@ -2545,7 +2546,7 @@ export class LocalWorld implements WorldApi {
     for (const id of FIGURE_IDS) {
       const f = this.save.figures[id];
       if (!f) continue;
-      const r = liveSight(id, f.phase, f.watching);
+      const r = liveSight(id, f);
       if (r <= 0) continue;
       const at = this.figureAt(f, now);
       out.push({ x: at.x, y: at.y, r });
@@ -2565,7 +2566,9 @@ export class LocalWorld implements WorldApi {
     this.fog.revealDisc(save.home, this.homeReveal());
     for (const id of FIGURE_IDS) {
       const f = save.figures[id];
-      if (!f || f.phase === 'down') continue;
+      // Укрывшийся в городе на местность не смотрит: его нет на карте. Круг
+      // деревни при этом открывает его клетку и так.
+      if (!f || placeOf(f) !== 'map') continue;
       this.fog.revealPath(this.figureAt(f, from), this.figureAt(f, now), FIGURE_BY_ID[id].sight);
     }
     for (const m of save.marches) {
@@ -4611,12 +4614,15 @@ export class LocalWorld implements WorldApi {
     };
   }
 
-  /** Какие фигуры стоят вплотную к этой цели. */
+  /**
+   * Какие фигуры стоят вплотную к этой цели. Укрывшаяся в городе не стоит нигде:
+   * у своих ворот её нет, и приказывать ей оттуда нельзя, пока не выйдет.
+   */
   private figuresAt(id: SettlementId, now: number): FigureId[] {
     const out: FigureId[] = [];
     for (const fid of FIGURE_IDS) {
       const f = this.save.figures[fid];
-      if (!f || f.phase === 'down' || f.phase === 'moving') continue;
+      if (!f || placeOf(f) !== 'map' || f.phase === 'moving') continue;
       if (this.touching(this.figureAt(f, now))?.id === id) out.push(fid);
     }
     return out;
@@ -4769,6 +4775,7 @@ export class LocalWorld implements WorldApi {
       name: def.name,
       icon: def.icon,
       phase: f.phase,
+      place: placeOf(f),
       at,
       from: { ...f.from },
       to: { ...f.to },
@@ -4783,7 +4790,7 @@ export class LocalWorld implements WorldApi {
       // Наблюдение — приказ, а не свойство фигуры: пока лазутчик смотрит, он не
       // работает, и обратное тоже верно. Панель обязана показывать, что сейчас.
       watching: Boolean(f.watching),
-      watchSight: liveSight(id, f.phase, f.watching),
+      watchSight: liveSight(id, f),
       troops: { ...troops },
       power: troopTotal(troops) * (this.save.profile?.warriorPower ?? 1),
       capacity: id === 'general' ? this.commandCap() : 0,
@@ -4864,9 +4871,40 @@ export class LocalWorld implements WorldApi {
     }
     const busy = Math.max(0, (f.busyUntil ?? 0) - now);
     if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
+    if (on && placeOf(f) === 'city') return 'Из-за стены не наблюдают: выведи лазутчика из города.';
     if (on && !standing(f.phase)) return 'Наблюдают стоя: доведи лазутчика до места, откуда смотреть.';
     if (Boolean(f.watching) === on) return null;
     f.watching = on;
+    this.write();
+    return null;
+  }
+
+  /**
+   * Агент входит в свой город и укрывается — или выходит обратно. Место у него
+   * одно (`world/shelter`): клетку вход не меняет, и выходит агент ровно туда, откуда
+   * вошёл. Входят стоя у своих ворот; с дороги и из поля — нет.
+   *
+   * Укрывшийся честно не работает: не смотрит (наблюдение снимается на входе), не
+   * открывает местность, не стоит ни у чьих ворот и дружину не собирает. Выйти можно
+   * всегда, и под осадой тоже: из города к своим воротам — не выход за стены.
+   * Пойти куда-нибудь — тоже выход: любой путь переписывает отметку стоянки сам.
+   */
+  async shelter(id: FigureId, on: boolean): Promise<string | null> {
+    const now = this.clock();
+    const f = this.save.figures[id];
+    const def = FIGURE_BY_ID[id];
+    const place = placeOf(f);
+    if (place === 'down') {
+      return `${def.name} выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`;
+    }
+    if ((place === 'city') === on) return null;
+    if (on && !canShelter(f)) {
+      return f.phase === 'moving'
+        ? `${def.name} ещё в пути: в город входят от своих ворот.`
+        : `В город входят от своих ворот: доведи ${def.one} домой.`;
+    }
+    f.sheltered = on ? f.departAt : undefined;
+    if (on && id === WATCHER) f.watching = false;
     this.write();
     return null;
   }
@@ -4893,6 +4931,7 @@ export class LocalWorld implements WorldApi {
     this.settleHandover(f, now);
     if (f.phase === 'down') return 'Полководец выбыл.';
     if (f.phase === 'moving') return 'Полководец в пути — войско к нему не подойдёт.';
+    if (placeOf(f) === 'city') return 'Полководец укрылся в городе: выведи его к воротам — и собирай дружину.';
     if (f.handover) {
       return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
     }

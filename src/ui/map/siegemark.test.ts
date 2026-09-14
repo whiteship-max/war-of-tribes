@@ -9,16 +9,16 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { putChunk, chunkKey, chunkRect, clearCache } from '@/world/cache';
+import { putChunk, chunkKey, clearCache } from '@/world/cache';
 import { useWorld } from '@/world/store';
 import { CHUNK, FALL_MARK, WORLD_ORIGIN } from '@/world/data/tuning';
-import { TERRAIN_ORDER } from '@/world/data/terrain';
 import { CAMP_WORKS_RIPE } from '@/world/data/tuning';
-import type { Fate, RegionChunk, SettlementView } from '@/world/types';
+import type { Fate, SettlementView } from '@/world/types';
 import { SCALE_START, TREE_FREE_R } from './const';
 import { cacheFor } from './grid';
 import { drawFrame } from './frame';
 import { dropTiles, tileBakes } from './ground';
+import { fakeCanvasEnv, waterChunk } from './fakecanvas';
 import {
   FELL_WORDS,
   FRONT_R,
@@ -151,64 +151,6 @@ describe('подпись поселения вписывается, а не ра
 });
 
 // ---------- Земля: сколько печётся ----------
-
-/**
- * Холст-заглушка. Всё, что кадр зовёт, принимается и запоминается ровно настолько,
- * насколько кадр это читает: размеры, `createImageData` с настоящим буфером,
- * `measureText` с шириной. Рисования нет — считается не картинка, а выпечки.
- */
-function fakeCanvasEnv(): { created: () => number; restore: () => void } {
-  let created = 0;
-  const ctx = (): unknown => {
-    const store: Record<string | symbol, unknown> = {};
-    const special: Record<string, unknown> = {
-      createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(0, w * h * 4)) }),
-      getImageData: (_x: number, _y: number, w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(0, w * h * 4)) }),
-      measureText: (s: string) => ({ width: String(s).length * 6 }),
-      createPattern: () => ({}),
-      createLinearGradient: () => ({ addColorStop: () => {} }),
-      createRadialGradient: () => ({ addColorStop: () => {} }),
-      getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
-    };
-    return new Proxy(store, {
-      get: (t, k) => (k in t ? t[k] : typeof k === 'string' && k in special ? special[k] : () => {}),
-      set: (t, k, v) => {
-        t[k] = v;
-        return true;
-      },
-    });
-  };
-  const doc = {
-    createElement: () => {
-      created++;
-      const c = ctx();
-      return { width: 1, height: 1, getContext: () => c, toDataURL: () => 'data:' };
-    },
-  };
-  const had = (globalThis as { document?: unknown }).document;
-  (globalThis as { document?: unknown }).document = doc;
-  return {
-    created: () => created,
-    restore: () => {
-      (globalThis as { document?: unknown }).document = had;
-    },
-  };
-}
-
-/** Кусок карты: открытая вода (тайл печётся быстрым путём), всё разведано. */
-function waterChunk(cx: number, cy: number, settlements: SettlementView[]): RegionChunk {
-  const rect = chunkRect(cx, cy);
-  const n = rect.w * rect.h;
-  const inside = settlements.filter((s) => s.x >= rect.x && s.y >= rect.y && s.x < rect.x + rect.w && s.y < rect.y + rect.h);
-  return {
-    rect,
-    terrain: new Uint8Array(n).fill(TERRAIN_ORDER.indexOf('water')),
-    explored: new Uint8Array(n).fill(1),
-    features: new Uint8Array(n),
-    influence: new Uint8Array(n),
-    settlements: inside,
-  };
-}
 
 const START = 1_800_000_000_000;
 const MID = { cx: 12, cy: 12 };

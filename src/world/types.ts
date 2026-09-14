@@ -7,6 +7,7 @@ import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { ArmySetup, BattleResult, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
+import type { FigurePlace } from './shelter';
 
 /**
  * Участь взятого города — что выбрал победитель: ограбить, ограбить и увести людей,
@@ -737,6 +738,12 @@ export interface FigureView {
   name: string;
   icon: string;
   phase: FigurePhase;
+  /**
+   * На карте она, укрылась в своём городе или выбыла — ровно одно из трёх
+   * (`world/shelter.placeOf`). Карта рисует, берёт в руку и держит камеру только
+   * у той, что `map`; укрывшаяся стоит у своих ворот и выйдет туда же.
+   */
+  place: FigurePlace;
   /** Где она сейчас: в пути — точка между `from` и `to`. */
   at: Coord;
   from: Coord;
