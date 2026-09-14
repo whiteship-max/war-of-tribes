@@ -35,9 +35,11 @@ import {
 import type {
   AnchorId,
   AttackOrder,
+  CampView,
   Coord,
   DealId,
   DealView,
+  Fate,
   OrderActionId,
   FigureId,
   FigureView,
@@ -88,13 +90,6 @@ export interface ActionMenuState {
   march: MarchView | null;
   /** Где и когда встретимся, если приказать сейчас. null — цели нет. */
   plan: InterceptPlan | null;
-  /**
-   * Удар полководца по лагерю под целью, если приказать сейчас: кто пробьётся с
-   * тыла и, если зовут гарнизон, со стороны города. null — не спрашивали.
-   */
-  strike: StrikePlan | null;
-  /** Зовут ли гарнизон в совместный удар — галочка в меню. */
-  strikeGarrison: boolean;
 }
 
 export interface WorldStore {
@@ -153,6 +148,11 @@ export interface WorldStore {
    * (`bridge.syncSiege`).
    */
   siege: SiegeView | null;
+  /**
+   * Наш лагерь под чужим городом — окно осаждающего. Перечитывается тем же пульсом,
+   * пока полководец держит осаду: часы голода и рогатки идут сами. null — лагеря нет.
+   */
+  camp: CampView | null;
   /** Время мира на последнем пульсе. */
   now: number;
   selected: Coord | null;
@@ -194,11 +194,18 @@ export interface WorldStore {
   /** Полководец бьёт по цели, у которой стоит. */
   attack: (order: AttackOrder) => Promise<string | null>;
   /**
-   * Полководец садится в осаду под целью, у которой стоит. Пока лагерь стоит,
-   * эта дружина занята, а приказ увести её снимает осаду — и панель говорит об
-   * этом до приказа (`CAMP_LEAVE`), а не после.
+   * Полководец садится в осаду под целью, у которой стоит, и объявляет участь. Пока
+   * лагерь стоит, эта дружина занята, а приказ увести её снимает осаду — и панель
+   * говорит об этом до приказа (`CAMP_LEAVE`), а не после. У своего лагеря — объявить
+   * участь заново.
    */
-  besiege: () => Promise<string | null>;
+  besiege: (fate?: Fate) => Promise<string | null>;
+  /** Снять свою осаду. */
+  retreat: () => Promise<string | null>;
+  /** Поделить древесину своего лагеря: доля фронту. */
+  setWood: (share: number) => Promise<string | null>;
+  /** Перечитать окно осаждающего. */
+  loadCamp: () => Promise<void>;
   /**
    * Вылазка из осаждённой деревни выбранным составом. Возвращает номер отчёта —
    * его сразу и открывают: у боя всегда есть что показать.
@@ -211,10 +218,13 @@ export interface WorldStore {
   openChase: (march: MarchView) => Promise<void>;
   /** Вести полководца на перехват. Возвращает текст ошибки или null. */
   intercept: () => Promise<string | null>;
-  /** Перечитать план удара по лагерю под целью меню; `garrison` — галочка. */
-  loadStrike: (garrison: boolean) => Promise<void>;
-  /** Полководец идёт бить лагерь под целью меню. Текст ошибки или null. */
-  strikeCamp: () => Promise<string | null>;
+  /**
+   * План удара полководца по лагерю под `target`: кто пробьётся с тыла и, если зовут
+   * гарнизон, со стороны города. Считает мир той же функцией, что и бой.
+   */
+  strikePlan: (target: SettlementId, garrison: boolean) => Promise<StrikePlan>;
+  /** Полководец идёт бить лагерь под `target`. Текст ошибки или null. */
+  strikeCamp: (target: SettlementId, garrison: boolean) => Promise<string | null>;
   closeMenu: () => void;
   /** Перечитать строки меню: после приказа цена, шанс и причины уже другие. */
   refreshOrders: () => Promise<void>;
@@ -277,6 +287,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   spotlight: null,
   letterBack: null,
   siege: null,
+  camp: null,
   now: serverNow(),
   selected: null,
   card: null,
@@ -358,6 +369,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.
     void get().loadLetters();
+    // Окно осаждающего живёт тем же пульсом, пока лагерь стоит; снят — окна нет.
+    if (pulse.figures.some((f) => f.id === 'general' && f.besieging)) void get().loadCamp();
+    else if (get().camp) set({ camp: null });
     if (get().selected && get().card) void get().refreshCard();
     // Открытое меню живёт теми же пульсами: в причинах отказа стоят отсчёты
     // («дипломат занят ещё 3:00»), и замерший на месте отсчёт читается как
@@ -503,8 +517,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  besiege: async () => {
-    const err = await worldApi().besiege();
+  besiege: async (fate) => {
+    const err = await worldApi().besiege(fate);
     if (err) {
       haptic('error');
       return err;
@@ -513,6 +527,33 @@ export const useWorld = create<WorldStore>((set, get) => ({
     await get().pulse();
     await get().refreshCard();
     return null;
+  },
+
+  retreat: async () => {
+    const err = await worldApi().retreat();
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
+  setWood: async (share) => {
+    const err = await worldApi().setWood(share);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().loadCamp();
+    return null;
+  },
+
+  loadCamp: async () => {
+    set({ camp: await worldApi().camp() });
   },
 
   sortie: async (troops, setup = null) => {
@@ -559,8 +600,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
         card: null,
         march,
         plan: null,
-        strike: null,
-        strikeGarrison: false,
       },
       orders: [],
     });
@@ -574,7 +613,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const menu = get().menu;
     if (!menu || menu.target !== view.id) return;
     set({ menu: { ...menu, card }, orders });
-    if (agent === 'general' && card?.siege && !card.siege.mine) void get().loadStrike(false);
   },
 
   openChase: async (march) => {
@@ -589,8 +627,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
         card: null,
         march,
         plan: null,
-        strike: null,
-        strikeGarrison: false,
       },
       orders: [],
     });
@@ -617,20 +653,10 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  loadStrike: async (garrison) => {
-    const menu = get().menu;
-    if (!menu?.target) return;
-    set({ menu: { ...menu, strikeGarrison: garrison } });
-    const strike = await worldApi().strikePlan(menu.target, garrison);
-    const now = get().menu;
-    if (!now || now.target !== menu.target || now.strikeGarrison !== garrison) return;
-    set({ menu: { ...now, strike } });
-  },
+  strikePlan: (target, garrison) => worldApi().strikePlan(target, garrison),
 
-  strikeCamp: async () => {
-    const menu = get().menu;
-    if (!menu?.target) return 'Цель не выбрана.';
-    const err = await worldApi().strikeCamp(menu.target, menu.strikeGarrison);
+  strikeCamp: async (target, garrison) => {
+    const err = await worldApi().strikeCamp(target, garrison);
     if (err) {
       haptic('error');
       return err;
@@ -757,6 +783,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       openLetter: null,
       spotlight: null,
       letterBack: null,
+      camp: null,
       menu: null,
       orders: [],
       chunks: get().chunks + 1,

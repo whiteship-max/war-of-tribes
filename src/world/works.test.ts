@@ -9,18 +9,23 @@ import { menOfPower } from './garrison';
 import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE } from './data/tuning';
 import {
   campPass,
+  campSides,
   sideWorks,
   gateBusyText,
   gateFree,
   passKinds,
+  playerWood,
+  rebaseWood,
   refusedAtGate,
   sortieForecast,
   splitLosses,
   strikeForecast,
   throughWorks,
   woodCut,
+  woodShare,
   worksRipeAt,
   SIDES,
+  WOOD_SHARES,
   type WoodPlan,
 } from './works';
 import { STRIKE_FROM_TOWN } from './siege';
@@ -218,9 +223,17 @@ describe('укрепления лагеря: чистая функция вре�
     expect(passKinds(going, 8).infantry, 'тяжёлые проходят и в узкий проход').toBeGreaterThan(0);
   });
 
-  it('укрепления не знают ни голода, ни окна осады, и окно — о них', () => {
-    const siege = readFileSync(path.join(process.cwd(), 'src/world/siege.ts'), 'utf8');
-    expect(siege).not.toMatch(/works/);
+  it('укрепления не знают ни голода, ни окна осады, и окно о них хранит только доли древесины', () => {
+    // Прежде окно не упоминало укреплений вовсе. С панелью долей игрок меняет их
+    // посреди осады, а вложенное к минуте смены должно остаться вложенным: доли и
+    // база лежат в окне (`SiegeWindow.wood`) — одним типом, без единой функции
+    // укреплений. Готовность по-прежнему не хранится и не тикает.
+    const siege = readFileSync(path.join(process.cwd(), 'src/world/siege.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const imports = [...siege.matchAll(/^import[^;]*from\s+'\.\/works';$/gm)].map((m) => m[0]);
+    expect(imports).toEqual(["import type { WoodPlan } from './works';"]);
+    expect(siege.replace(imports[0], '')).not.toMatch(/sideWorks|campPass|throughWorks|gateFree|passKinds|worksRipeAt|woodCut/);
     const works = readFileSync(path.join(process.cwd(), 'src/world/works.ts'), 'utf8').replace(/\/\/.*$/gm, '');
     expect(works).not.toMatch(/starvesAt|consumptionPerHour|foodAtStart/);
   });
@@ -825,8 +838,14 @@ describe('две стороны лагеря: древесина и проход
     // Гарнизон со стороны города пройти может: фронт свободен — и удар снова доступен.
     const joint = await world.strikePlan('home', true);
     expect(joint.can, 'фронт свободен — с гарнизоном пробиться есть кому').toBe(true);
-    const menu = readFileSync(path.join(process.cwd(), 'src/ui/map/ActionMenu.tsx'), 'utf8');
-    expect(menu, 'кнопка удара гаснет по плану').toMatch(/disabled=\{!menu\.strike\?\.can\}/);
+    // Удар по лагерю в окне осады и в меню полководца — одна часть, и гаснет она по плану.
+    const strike = readFileSync(path.join(process.cwd(), 'src/ui/parts/CampStrike.tsx'), 'utf8');
+    expect(strike, 'кнопка удара гаснет по плану').toMatch(/disabled=\{busy \|\| !plan\?\.can\}/);
+    for (const where of ['src/ui/map/ActionMenu.tsx', 'src/ui/panels/SiegePanel.tsx']) {
+      const code = readFileSync(path.join(process.cwd(), where), 'utf8');
+      expect(code, `${where} зовёт общую часть удара`).toMatch(/<CampStrike /);
+      expect(code, `${where} считает план сам`).not.toMatch(/strikePlan\(/);
+    }
   }, 120_000);
 
   it('полководец в городе удара не отдаёт: его дружина — гарнизон и выходит вылазкой', async () => {
@@ -855,4 +874,182 @@ describe('две стороны лагеря: древесина и проход
     const r = (await world.reports()).find((x) => x.id === res.reportId)!;
     expect(r.battle!.troops.attacker, 'на вылазку вышел весь гарнизон вместе с дружиной').toEqual(GARRISON);
   }, 120_000);
+});
+
+describe('доли древесины: смена посреди осады, и окна видят то же, что бой', () => {
+  const SINCE = START + 17 * MIN;
+  /** Правило бота, прежнее окно без долей и три доли игрока — от чего меняют. */
+  const FROM: (WoodPlan | undefined)[] = [undefined, CAMP_WOOD, playerWood(1), playerWood(0.5), playerWood(0)];
+
+  /** Готовность стороны по кусочкам: до первой смены — `a`, до второй — `b`, дальше — `c`. */
+  const piecewise = (t: number, side: 'front' | 'rear', steps: { at: number; plan: WoodPlan | undefined }[]): number => {
+    let plan = steps[0].plan;
+    for (const s of steps) if (t >= s.at) plan = s.plan;
+    return sideWorks(SINCE, t, side, plan);
+  };
+
+  it('смена долей в любую минуту готовности не отнимает: не убывает на всём пути и не выходит за нарубленное', () => {
+    let paths = 0;
+    let moved = 0;
+    for (const from of FROM) {
+      for (const m1 of [0, 6, 19, 31, 44]) {
+        for (const s1 of WOOD_SHARES) {
+          for (const m2 of [m1 + 4, m1 + 23]) {
+            for (const s2 of [0, 1]) {
+              const at1 = SINCE + m1 * MIN;
+              const at2 = SINCE + m2 * MIN;
+              const p1 = rebaseWood(SINCE, at1, from, s1);
+              const p2 = rebaseWood(SINCE, at2, p1, s2);
+              const steps = [
+                { at: SINCE, plan: from },
+                { at: at1, plan: p1 },
+                { at: at2, plan: p2 },
+              ];
+              const label = `от ${from ? `${from.front}/${from.rear}` : 'бота'}, ${m1} мин → ${s1}, ${m2} мин → ${s2}`;
+              for (const side of SIDES) {
+                // В минуту смены готовность та же, что была до неё, до последнего знака.
+                expect(sideWorks(SINCE, at1, side, p1), `${label}, ${side}: первая смена`).toBeCloseTo(sideWorks(SINCE, at1, side, from), 12);
+                expect(sideWorks(SINCE, at2, side, p2), `${label}, ${side}: вторая смена`).toBeCloseTo(sideWorks(SINCE, at2, side, p1), 12);
+              }
+              let prev = { front: -1, rear: -1 };
+              for (let t = SINCE; t <= at2 + 90 * MIN; t += 60_000) {
+                const f = piecewise(t, 'front', steps);
+                const r = piecewise(t, 'rear', steps);
+                const at = `${label}, ${(t - SINCE) / MIN} мин`;
+                expect(f, `${at}: фронт убыл`).toBeGreaterThanOrEqual(prev.front - 1e-12);
+                expect(r, `${at}: тыл убыл`).toBeGreaterThanOrEqual(prev.rear - 1e-12);
+                expect(Math.max(f, r), `${at}: выше потолка`).toBeLessThanOrEqual(1);
+                if (t >= at2) {
+                  expect(f + r, `${at}: вложено больше нарубленного`).toBeLessThanOrEqual(woodCut(SINCE, t, p2) + 1e-9);
+                  if (f < 1 && r < 1) expect(f + r, `${at}: древесина пропала`).toBeCloseTo(woodCut(SINCE, t, p2), 9);
+                }
+                if (f > prev.front + 1e-9 || r > prev.rear + 1e-9) moved++;
+                prev = { front: f, rear: r };
+              }
+              paths++;
+            }
+          }
+        }
+      }
+    }
+    expect(paths).toBe(5 * 5 * 5 * 2 * 2);
+    // Граница области: стороны на этих путях росли, а не стояли на потолке с начала.
+    expect(moved).toBeGreaterThan(paths * 10);
+  });
+
+  it('срок дозревания — та минута, когда готовность впервые встаёт на единицу, и после смены долей тоже', () => {
+    let checked = 0;
+    for (const from of FROM) {
+      for (const m of [0, 9, 22, 40]) {
+        for (const share of WOOD_SHARES) {
+          const plan = rebaseWood(SINCE, SINCE + m * MIN, from, share);
+          for (const side of SIDES) {
+            const ripe = worksRipeAt(SINCE, side, plan);
+            const label = `от ${from ? `${from.front}/${from.rear}` : 'бота'}, ${m} мин → ${share}, ${side}`;
+            if (!(ripe < Infinity)) {
+              expect(sideWorks(SINCE, SINCE + 1000 * MIN, side, plan), `${label}: «никогда», а дозрела`).toBeLessThan(1);
+              continue;
+            }
+            expect(sideWorks(SINCE, ripe + 1, side, plan), `${label}: после срока`).toBe(1);
+            if (ripe > (plan.at ?? SINCE)) {
+              expect(sideWorks(SINCE, ripe - 1000, side, plan), `${label}: до срока`).toBeLessThan(1);
+              checked++;
+            }
+          }
+        }
+      }
+    }
+    // Граница области: большинство сторон дозревает после смены, а не до неё.
+    expect(checked).toBeGreaterThan(100);
+  });
+
+  it('окно обороняющегося: стороны лагеря и проход — те же, что у вылазки и у удара полководца', async () => {
+    const fz = await freezeField(7);
+    let points = 0;
+    for (const d of [0, 7, 15, 24, 30]) {
+      const at = fz.siege.since + d * MIN;
+      expect(at, `${d} мин внутри окна голода`).toBeLessThan(fz.siege.starvesAt);
+      const { world, pulse } = await thaw(fz, at);
+      const view = pulse.siege!;
+      const sides = campSides(view, at);
+      // Фронт — тем же расчётом, что панель вылазки, а панель вылазки — тем, что бой (выше).
+      const fc = sortieForecast(view, kindsOf(TOWN), at).now;
+      expect({ works: sides.front.works, pass: sides.front.pass, room: sides.front.room }, `${d} мин, фронт`).toEqual({
+        works: fc.works,
+        pass: fc.pass,
+        room: fc.room,
+      });
+      // Тыл — сам бой по лагерю в эту минуту.
+      const out = campBattle(world)('home', at, 9000 + d, { rear: { own: DRUZHINA }, setup: null });
+      expect(out?.refused, `${d} мин: тыл свободен`).toBe(false);
+      const rear = out!.rear as unknown as { works: number; pass: number; room: number };
+      expect({ works: sides.rear.works, pass: sides.rear.pass, room: sides.rear.room }, `${d} мин, тыл`).toEqual({
+        works: rear.works,
+        pass: rear.pass,
+        room: rear.room,
+      });
+      points++;
+    }
+    expect(points).toBe(5);
+  }, 120_000);
+
+  it('окно осаждающего: доли, сменённые посреди осады, бой по лагерю читает те же', async () => {
+    let now = START;
+    const store = memory();
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: store });
+    const host: PlayerProfile = { ...holdout, defense: 900, army: { ...GARRISON }, command: 200 };
+    await world.sync(host);
+    expect(await world.setGarrison({ ...GARRISON })).toBeNull();
+    now = Math.max(now, (await world.figures()).find((f) => f.id === 'general')!.readyAt);
+    await world.sync(host);
+    const info = await world.info();
+    const chunk = await world.region({ x: info.home.x - 24, y: info.home.y - 24, w: 48, h: 48 });
+    const target = chunk.settlements.filter((s) => !s.mine).sort((a, b) => Math.hypot(a.x - info.home.x, a.y - info.home.y) - Math.hypot(b.x - info.home.x, b.y - info.home.y))[0];
+    expect(target, 'есть кого осадить').toBeTruthy();
+    expect(await world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
+    now = (await world.figures()).find((f) => f.id === 'general')!.arriveAt;
+    await world.sync(host);
+    expect(await world.besiege()).toBeNull();
+    const since = (await world.camp())!.since;
+    // Горстка: бьётся о рогатки и не снимает лагерь, так что точки идут одна за другой.
+    const enemy = { kinds: kindsOf({ spearman: 8 }), gear: {} };
+    let points = 0;
+    for (const [m, share] of [[4, 0.5], [9, 0], [16, 0.75], [21, 1]] as const) {
+      now = since + m * MIN;
+      await world.sync(host);
+      const camp0 = await world.camp();
+      if (!camp0) break;
+      expect(await world.setWood(share)).toBeNull();
+      for (const later of [0, 3, 8]) {
+        now = since + (m + later) * MIN + 1000;
+        const camp = await world.camp();
+        if (!camp) break;
+        expect(woodShare(camp.wood), 'окно видит свою долю').toBe(share);
+        const sides = campSides(camp, now);
+        for (const side of SIDES) {
+          delete (world as unknown as { save: { sieges: Record<string, { gateAt?: number; rearGateAt?: number }> } }).save.sieges[target.id].gateAt;
+          delete (world as unknown as { save: { sieges: Record<string, { gateAt?: number; rearGateAt?: number }> } }).save.sieges[target.id].rearGateAt;
+          const out = campBattle(world)(target.id, now, 7000 + points, { [side]: enemy, setup: null } as never);
+          const label = `${m} мин → ${share}, +${later} мин, ${side}`;
+          expect(out?.refused, label).toBe(false);
+          const t = out![side] as unknown as { works: number; pass: number };
+          expect({ works: sides[side].works, pass: sides[side].pass }, label).toEqual({ works: t.works, pass: t.pass });
+          // Граница области: доли игрока разошлись с правилом бота — иначе совпадение окна
+          // с боем держалось бы и без того, чтобы кто-то из них читал доли.
+          if (Math.abs(sideWorks(camp.since, now, side, CAMP_WOOD) - sides[side].works) > 1e-9) points++;
+        }
+        if ((await world.camp()) === null) break;
+      }
+    }
+    expect(points, 'доли игрока разошлись с правилом бота хоть в одной точке').toBeGreaterThan(4);
+  }, 120_000);
+
+  it('окна осады своей арифметики не держат: зовут расчёт мира и только его', () => {
+    for (const where of ['src/ui/panels/SiegePanel.tsx', 'src/ui/panels/CampPanel.tsx', 'src/ui/SiegeBanner.tsx']) {
+      const code = readFileSync(path.join(process.cwd(), where), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+      expect(code, `${where}: арифметика прохода`).not.toMatch(/\b(sideWorks|campPass|passKinds|throughWorks|gateFree|gateRoom|passPerMan)\(/);
+      expect(code, `${where}: арифметика голода и участи`).not.toMatch(/\b(starvesAt|consumptionPerHour|plunder|fate|lead)\(/);
+      expect(code, `${where}: числа из настроек`).not.toMatch(/CAMP_WORKS|CAMP_WOOD|PLAYER_CAMP_WOOD|SIEGE_ROUT|FALL_|BURN_|LED_POP/);
+    }
+  });
 });

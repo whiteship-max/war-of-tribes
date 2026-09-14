@@ -75,7 +75,10 @@ import {
 } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
 import { BASE_STORAGE_CAP, DAY_LENGTH, RESOURCE_IDS, UPGRADE_GROWTH } from '@/game/constants';
-import { FATE_NOW, fallSeed, fate, homeLoss, plunder } from '@/world/spoils';
+import { FATE_DEFAULT, FATE_IDS, HEAD_CARRY, fallSeed, fate, homeLoss, plunder } from '@/world/spoils';
+import { FATE_META } from '@/world/data/fates';
+import { bondedTotal } from '@/game/derived';
+import type { Fate } from '@/world/types';
 import { applyEffects, playerProfile } from '@/world/bridge';
 import { seeded, setRandom } from '@/game/sim/random';
 import type { GameState, ResourceId } from '@/game/types';
@@ -398,11 +401,10 @@ console.log('=== ЧТО УНЕСЁТ ПРОРВАВШИЙСЯ НАБЕГ ===');
 console.log('Полный склад, набег прорвался. Уносится ровно то, что не спрятано, и не больше,');
 console.log('чем поднимет чужой отряд, — а он не сильнее объявленной доли нашей обороны.');
 console.log('');
-console.log('**Прорваться набег может только при игроке**, и это не оговорка, а условие');
-console.log('таблицы. Набег, чей приход пришёлся на время без пульса, не состоится вовсе');
-console.log('(`AWAY_GRACE`, 20 с от прошлого пульса): марш снимается, взамен ложится отчёт');
-console.log('«Набег не состоялся». Так что читать таблицу как «столько теряют за ночь»');
-console.log('нельзя — она про игрока, который в игре и бой проиграл.');
+console.log('**Прорваться набег может и без игрока.** Правило отсутствия снято решением владельца');
+console.log('(docs/DEFEAT_LADDER.md): отряд, чей приход пришёлся на время без пульса, доходит и');
+console.log('разбирается тем же боем, что при игроке. Так что таблица читается и как «столько');
+console.log('теряют за ночь» — если за ночь дошёл отряд, способный прорваться.');
 console.log('');
 console.log(' уровни   склад целиком   тайник   открыто   обоз набега   унесут   доля склада');
 
@@ -446,10 +448,8 @@ console.log('  Читается так: тайник спасает не всё 
 console.log('  игра предлагает не тайник, а второе решение — потратить: заложить улучшение,');
 console.log('  поставить заказ в кузницу, набрать бойцов. Потраченного не унесут.');
 console.log('');
-console.log('  Мимо защиты отсутствия ведёт ровно один путь, и он не набег: осада, которая');
-console.log('  началась при игроке и доела город без него (`homeFalls` — единственный');
-console.log('  вызов дележа, куда `prevSeen` не передаётся). Что это стоит и почему так');
-console.log('  оставлено — npm run siege:report, раздел «цена падения», и docs/siege.md.');
+console.log('  Второй путь к складу — осада: лагерь садится и доедает город, в игре хозяин или');
+console.log('  нет. Что это стоит — npm run siege:report, раздел «цена падения», и docs/siege.md.');
 console.log('');
 
 // ------------------------------------------------------------- месть ---
@@ -566,10 +566,11 @@ function strike(s: GameState, blow: Blow, seed: number): { fell: number; rebuild
   // Чистая выработка до удара — ею и меряется отстройка: сколько минут копить узкий припас.
   const net = netPerDay(s);
   const r = fate({
-    fate: FATE_NOW,
+    fate: FATE_DEFAULT,
     stock: blow.stock ? p.stock : {},
     gold: blow.stock ? (p.gold ?? 0) : 0,
     stash: p.stash,
+    pop: p.pop,
     bonded: p.bonded ?? 0,
     // Обоз не мешает: отряд, взявший город, уносит всё открытое (docs/sack.md).
     carry: Infinity,
@@ -627,13 +628,60 @@ const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floo
 const stageName = (h: number): string => (h === 0 ? '0' : h < 1 ? `${h * 60} мин` : `${h} ч`);
 
 console.log('=== ЛЕСТНИЦА: ЧТО СТОИТ ВЗЯТЫЙ ГОРОД ===');
-console.log('Участь сейчас одна — «ограбить»: склад и казна до тайника, сколько унесёт обоз,');
-console.log(`и ${FALL_BUILDINGS} построек (кроме тайника) теряют по ${FALL_LEVELS} уровню, не ниже первого.`);
-console.log('Невольники остаются. Автопилот pop:report, копия на этапе, участь настоящим путём');
-console.log('(слепок → spoils.fate → homeLoss → applyEffects), догон тем же сидом событий.');
+console.log('Ступеней три, и выбирает её победитель приказом. Отставание ниже меряется на первой —');
+console.log(`«ограбить»: склад и казна до тайника, сколько унесёт обоз, и ${FALL_BUILDINGS} построек (кроме тайника)`);
+console.log(`теряют по ${FALL_LEVELS} уровню, не ниже первого; невольники остаются. Цену всех трёх ступеней на тех же`);
+console.log('этапах — таблица «три ступени» в конце раздела. Автопилот pop:report, копия на этапе, участь');
+console.log('настоящим путём (слепок → spoils.fate → homeLoss → applyEffects), догон тем же сидом событий.');
 console.log('Отставание — насколько позже тронутая партия дошла до того, где нетронутая стояла');
 console.log('через час. Ноль — не стоило ничего; минуты в минус — шум автопилота.');
 console.log('');
+
+/** Что город потерял на одной ступени — замером на копии посёлка. */
+type StepLoss = { fate: Fate; goods: number; gold: number; ledPop: number; ledBonded: number; scatter: number; levels: number; works: number };
+
+/**
+ * Три ступени на одной копии этапа: слепок, дверь участи, поля последствия, применение —
+ * и потеря, замеренная на посёлке. Обоз и конвой не мешают: так документ считал и
+ * «уведено горожан», и «ресурсов на отстройку».
+ */
+function ladderSteps(snap: GameState, seed: number): StepLoss[] {
+  return FATE_IDS.map((f) => {
+    const s = structuredClone(snap);
+    const p = playerProfile(s);
+    const r = fate({
+      fate: f,
+      stock: p.stock,
+      gold: p.gold ?? 0,
+      stash: p.stash,
+      pop: p.pop,
+      bonded: p.bonded ?? 0,
+      carry: Infinity,
+      escort: Infinity,
+      levels: p.levels,
+      seed,
+    });
+    const goods0 = RESOURCE_IDS.reduce((n, x) => n + s.resources[x], 0);
+    const gold0 = s.gold;
+    const pop0 = s.pop;
+    const bonded0 = bondedTotal(s);
+    const levels0 = s.buildings.reduce((n, b) => n + b.level, 0);
+    const works0 = s.buildings.filter((b) => b.workRequired > 0).length;
+    applyEffects(s, [{ id: 'лестница', lost: {}, prestige: 0, morale: 0, battle: null, text: 'Город взят.', good: false, ...homeLoss(r) }]);
+    const popLost = pop0 - s.pop;
+    const bondedLost = bonded0 - bondedTotal(s);
+    return {
+      fate: f,
+      goods: Math.round(goods0 - RESOURCE_IDS.reduce((n, x) => n + s.resources[x], 0)),
+      gold: gold0 - s.gold,
+      ledPop: Math.min(popLost, r.ledPop.taken),
+      ledBonded: Math.min(bondedLost, r.ledBonded.taken),
+      scatter: popLost - Math.min(popLost, r.ledPop.taken) + bondedLost - Math.min(bondedLost, r.ledBonded.taken),
+      levels: levels0 - s.buildings.reduce((n, b) => n + b.level, 0),
+      works: works0 - s.buildings.filter((b) => b.workRequired > 0).length,
+    };
+  });
+}
 
 type LadderRow = {
   stage: number;
@@ -649,6 +697,7 @@ type LadderRow = {
   narrow: number[];
   hunger: number | null;
   raid: number | null;
+  steps: StepLoss[];
 };
 const ladder: LadderRow[] = [];
 {
@@ -680,7 +729,8 @@ const ladder: LadderRow[] = [];
       stage: h,
       levelAvg: levelSum(snap) / snap.buildings.length,
       pop: snap.pop,
-      open: fate({ fate: FATE_NOW, stock: p.stock, gold: 0, stash: p.stash, bonded: 0, carry: Infinity, escort: 0, seed: 0 }).takenTotal,
+      open: fate({ fate: FATE_DEFAULT, stock: p.stock, gold: 0, stash: p.stash, pop: 0, bonded: 0, carry: Infinity, escort: 0, seed: 0 }).takenTotal,
+      steps: ladderSteps(snap, fallSeed(1, stage * 1000)),
       stash: p.stash,
       goldHour: taxIncomePerDay(moderate) * (3600 / DAY_LENGTH),
       plunderOnly: tryBlow({ stock: true, levels: false, morale: 0 }, 0).lag,
@@ -732,7 +782,7 @@ console.log('  Казна: игрок копил час умеренного н�
 console.log(' этап     налог умеренный, зол./ч   казна   тайник   унесено   минут налога на возврат');
 for (const r of ladder) {
   const gold = Math.round(r.goldHour);
-  const took = fate({ fate: FATE_NOW, stock: {}, gold, stash: r.stash, bonded: 0, carry: Infinity, escort: 0, seed: 0 }).taken.gold ?? 0;
+  const took = fate({ fate: FATE_DEFAULT, stock: {}, gold, stash: r.stash, pop: 0, bonded: 0, carry: Infinity, escort: 0, seed: 0 }).taken.gold ?? 0;
   console.log(
     `  ${pad(stageName(r.stage), 6)}  ${pad(gold, 24)}  ${pad(gold, 6)}  ${pad(r.stash, 7)}  ${pad(took, 8)}  ${pad(Math.round((took / Math.max(1, r.goldHour)) * 60), 22)}`,
   );
@@ -742,4 +792,37 @@ console.log('  Тайник прячет столько же золота, ск�
 console.log('  той же дверью, тем же обозом. Час налога возвращается за час налога минус тайник;');
 console.log('  копивший сутки теряет сутки. Потолка у этой потери нет, и это единственное место');
 console.log('  участи, где цена зависит от того, как игрок жил (docs/DEFEAT_LADDER.md, 3.2).');
+console.log('');
+
+console.log('  Три ступени на тех же этапах: что город потерял, замером на копии посёлка.');
+console.log('  Обоз и конвой победителя не мешают. «Добро» — склад без казны; «ушло» — горожане и');
+console.log('  невольники, разошедшиеся без победителя; «стройка» — сгоревших улучшений в работе.');
+console.log(`  «Тяжелее» — ступень стоит городу не меньше предыдущей по каждой мере; вторая против первой —`);
+console.log(`  в мере лестницы, где уведённый человек — ${HEAD_CARRY} добра (место в обозе).`);
+console.log(' этап     ступень         добро    казна   уведено горож./невольн.   ушло   уровней   стройка   тяжелее');
+let ladderMonotone = true;
+for (const r of ladder) {
+  let prev: StepLoss | null = null;
+  for (const st of r.steps) {
+    let heavier = '—';
+    if (prev) {
+      const ppl = (x: StepLoss): number => x.ledPop + x.ledBonded + x.scatter;
+      const common = ppl(st) >= ppl(prev) && st.levels >= prev.levels && st.works >= prev.works;
+      const goods =
+        FATE_IDS.indexOf(st.fate) === 1
+          ? st.goods + st.gold + HEAD_CARRY * (st.ledPop + st.ledBonded) >= prev.goods + prev.gold
+          : st.goods + st.gold >= prev.goods + prev.gold;
+      heavier = common && goods ? 'да' : 'НЕТ';
+      if (heavier !== 'да') ladderMonotone = false;
+    }
+    console.log(
+      `  ${pad(prev ? '' : stageName(r.stage), 6)}  ${FATE_META[st.fate].name.padEnd(14)}  ${pad(st.goods, 7)}  ${pad(st.gold, 6)}  ${pad(`${st.ledPop}/${st.ledBonded}`, 24)}  ${pad(st.scatter, 5)}  ${pad(st.levels, 8)}  ${pad(st.works, 8)}  ${pad(heavier, 8)}`,
+    );
+    prev = st;
+  }
+}
+console.log('');
+console.log(`  Лестница монотонна на всех этапах: ${ladderMonotone ? 'да' : 'НЕТ — смотри строки выше'}.`);
+console.log('  Невольников у автопилота нет — он их не покупает, — поэтому уведены только горожане.');
+console.log('  Казна у автопилота — то, что он не потратил: копившему игроку разница выше (таблица казны).');
 console.log('');

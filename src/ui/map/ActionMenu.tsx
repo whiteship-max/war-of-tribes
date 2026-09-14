@@ -8,6 +8,7 @@
 // Правило показа одно: **недоступное действие показано и объяснено**, а не
 // спрятано. Игрок обязан видеть, чего ему не хватает — дойти, дождаться,
 // накопить, — а не гадать, куда делась кнопка.
+import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { FIGURE_BY_ID, FIGURES } from '@/world/data/figures';
@@ -15,14 +16,18 @@ import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { actionsOf } from '@/world/data/spy';
 import { SPY_HELD } from '@/world/data/tuning';
 import { RELATION_META } from '@/world/data/meta';
+import { FATE_META } from '@/world/data/fates';
+import { FATE_DEFAULT } from '@/world/spoils';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
 import { RESOURCE_IDS } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
-import type { Loot, OrderActionId, OrderOption } from '@/world/types';
+import type { Fate, Loot, OrderActionId, OrderOption } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
+import { CampStrike } from '@/ui/parts/CampStrike';
+import { FatePick } from '@/ui/parts/FatePick';
 
 /** Просит ли приказ хоть что-нибудь со склада. */
 const isPaid = (cost: Loot): boolean => RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0) || (cost.gold ?? 0) > 0;
@@ -43,11 +48,15 @@ export function ActionMenu() {
   const attack = useWorld((g) => g.attack);
   const besiege = useWorld((g) => g.besiege);
   const intercept = useWorld((g) => g.intercept);
-  const strikeCamp = useWorld((g) => g.strikeCamp);
-  const loadStrike = useWorld((g) => g.loadStrike);
   const watch = useWorld((g) => g.watch);
   const showToast = useGame((g) => g.showToast);
   const openBattle = useGame((g) => g.openBattle);
+  const openSiege = useGame((g) => g.openSiege);
+  const openCamp = useGame((g) => g.openCamp);
+  // Участь объявляется приказом — ударом или осадой; новая цель — новый выбор.
+  const [fate, setFate] = useState<Fate>(FATE_DEFAULT);
+  const target = menu?.target ?? null;
+  useEffect(() => setFate(FATE_DEFAULT), [target]);
 
   if (!menu) return null;
   const def = FIGURE_BY_ID[menu.agent];
@@ -224,76 +233,74 @@ export function ActionMenu() {
           })}
 
         {/*
-          Лагерь под стенами — цель, а не декорация. Полководец бьёт его из поля, с
-          тыла, приказом издалека: бой — в минуту прихода. Под своим городом можно
-          позвать и гарнизон — он полезет со стороны города, и бой будет один. Кто
-          пробьётся с каждой стороны, считает мир той же функцией, что и бой, и
-          кнопка гаснет, когда пробиться некому, — как «Выйти» у вылазки.
+          Осада своего города — окно осады, а не строка меню: всё, что про неё можно
+          знать и сделать, собрано там, и удар полководца с тыла тоже.
         */}
-        {menu.agent === 'general' && card?.siege && !card.siege.mine && (
+        {menu.agent === 'general' && card?.siege && !card.siege.mine && card.mine && (
+          <button
+            className="am-row"
+            onClick={() => {
+              closeMenu();
+              openSiege();
+            }}
+          >
+            <span className="ico">⛺</span>
+            <span className="body">
+              <b>Окно осады</b>
+              <i>
+                «{card.siege.byName}» у ворот. Объявлено: {FATE_META[card.siege.fate].name.toLowerCase()}. Там же — удар
+                полководца с тыла и вылазка.
+              </i>
+            </span>
+          </button>
+        )}
+
+        {/*
+          Чужой лагерь под чужим городом — цель, а не декорация. Полководец бьёт его из
+          поля, с тыла, приказом издалека: бой — в минуту прихода. Кто пробьётся,
+          считает мир той же функцией, что и бой, и кнопка гаснет, когда пробиться
+          некому, — та же часть, что в окне осады своего города.
+        */}
+        {menu.agent === 'general' && card?.siege && !card.siege.mine && !card.mine && (
           <>
-            <button
-              className={`am-row${menu.strike?.can ? '' : ' off'}`}
-              disabled={!menu.strike?.can}
-              onClick={() => {
-                void (async () => {
-                  const err = await strikeCamp();
-                  showToast(err ?? (menu.strike?.seconds ? 'Полководец пошёл бить лагерь.' : 'Дружина ударила по лагерю. Отчёт в походах.'));
-                  if (!err) closeMenu();
-                })();
-              }}
-            >
-              <span className="ico">⛺</span>
-              <span className="body">
-                <b>Ударить по лагерю</b>
-                <i>
-                  {!menu.strike
-                    ? 'Считаем проход…'
-                    : !menu.strike.can
-                      ? menu.strike.reason
-                      : `${menu.strike.seconds > 0 ? `Дойдёт через ${formatLeft(menu.strike.seconds)}. ` : ''}С тыла пробьются ${menu.strike.rear.passed} из ${menu.strike.rear.went} бойцов строя${
-                          menu.strike.front
-                            ? `, со стороны города — ${menu.strike.front.passed} из ${menu.strike.front.went}`
-                            : ''
-                        }${menu.strike.seconds > 0 ? ' — если до прихода проход не займут' : ''}. Разобьёшь — осада снята.`}
-                </i>
-                <em>
-                  <span className="am-chance">«{card.siege.byName}» с {new Date(card.siege.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
-                </em>
-              </span>
-            </button>
-            {menu.strike?.garrisonable && (
-              <label className="am-plain">
-                <input
-                  type="checkbox"
-                  checked={menu.strikeGarrison}
-                  onChange={(e) => void loadStrike(e.target.checked)}
-                />{' '}
-                Подключить гарнизон: выйдет весь и полезет со стороны города, дружина — с тыла, бой один.
-                Дерутся только пробившиеся, остальные постоят у рогаток и вернутся за стену.
-              </label>
-            )}
+            <CampStrike target={card.id} onDone={closeMenu} />
             <div className="am-plain">{worksWords(card.siege, worldNow())}</div>
           </>
         )}
 
-        {/* Наш лагерь: он же и всё, чем сейчас занят полководец. */}
+        {/* Наш лагерь: он же и всё, чем сейчас занят полководец. Приказы — в окне лагеря. */}
         {menu.agent === 'general' && card?.siege?.mine && (
-          <div className="am-plain">
-            ⛺ Здесь стоит наш лагерь. Пока он стоит, других дел у полководца нет; сколько у них
-            хлеба — узнаем вместе с ними. {worksWords(card.siege, worldNow())}
-          </div>
+          <button
+            className="am-row"
+            onClick={() => {
+              closeMenu();
+              openCamp();
+            }}
+          >
+            <span className="ico">⛺</span>
+            <span className="body">
+              <b>Окно осады</b>
+              <i>
+                Здесь стоит наш лагерь, объявлено: {FATE_META[card.siege.fate].name.toLowerCase()}. Хлеб города,
+                стороны лагеря, древесина, штурм и отступление — там.
+              </i>
+            </span>
+          </button>
         )}
 
         {/* Полководец: удар отсюда же, чтобы не гонять игрока по экранам. */}
-        {menu.agent === 'general' && menu.target !== null && card && !card.mine && (
+        {menu.agent === 'general' && menu.target !== null && card && !card.mine && !card.siege?.mine && (
           <>
+            {/* Участь объявляется этим же приказом: и ударом, и осадой. Строки выбора —
+                не приказы, и сказано это над ними. */}
+            {card.fates.length > 0 && <div className="am-note">Участь города — её объявит удар или осада ниже:</div>}
+            <FatePick options={card.fates} value={fate} onChange={setFate} />
             <button
               className={`am-row${card.can.raid ? '' : ' off'}`}
               disabled={!card.can.raid}
               onClick={() => {
                 void (async () => {
-                  const err = await attack({ setup: null });
+                  const err = await attack({ setup: null, fate });
                   showToast(err ?? 'Дружина ударила. Отчёт в походах.');
                   if (!err) closeMenu();
                 })();
@@ -334,7 +341,7 @@ export function ActionMenu() {
               disabled={!card.can.besiege}
               onClick={() => {
                 void (async () => {
-                  const err = await besiege();
+                  const err = await besiege(fate);
                   showToast(err ?? `Дружина обложила ${card.name}. ${CAMP_LEAVE}`);
                   if (!err) closeMenu();
                 })();
@@ -345,7 +352,7 @@ export function ActionMenu() {
                 <b>Осадить</b>
                 <i>
                   {card.can.besiege
-                    ? `Встать лагерем и ждать, когда кончится хлеб. Сколько его — не узнать. ${CAMP_LEAVE}`
+                    ? `Встать лагерем и ждать, когда кончится хлеб; осаждённый видит участь сразу. ${CAMP_LEAVE}`
                     : card.siege
                       ? 'Под этими стенами уже стоит лагерь.'
                       : figure?.besieging

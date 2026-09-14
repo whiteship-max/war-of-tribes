@@ -39,46 +39,118 @@
 // осады — `gateAt` у фронта, `rearGateAt` у тыла; пишет их только бой у лагеря, в
 // самом событии, а свободная доля выводится при чтении. Тика нет.
 import { stackTotal, UNIT_KINDS, type Stack } from '@/battle';
-import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE } from './data/tuning';
+import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from './data/tuning';
 
 /** Сторона лагеря. Фронт — к городу, тыл — в поле. Не путать с `Side` боя: там нападающий и защитник. */
 export type CampSide = 'front' | 'rear';
 export const SIDES: readonly CampSide[] = ['front', 'rear'];
 
-/** Сколько сторон лагерь достраивает за `CAMP_WORKS_RIPE` в каждую сторону. */
+/**
+ * Сколько сторон лагерь достраивает за `CAMP_WORKS_RIPE` в каждую сторону — и, если
+ * доли меняли посреди осады, с какой минуты они идут и что к ней уже было вложено.
+ *
+ * Смена долей не переписывает прошлое. Готовность — функция времени, и спроси её
+ * новыми долями от постановки лагеря — вложенное во фронт за двадцать минут
+ * исчезло бы в ту секунду, когда игрок передвинул долю в тыл. Поэтому смена
+ * записывает, что было в её минуту (`base` на `at`), и дальше растёт от этого. Это
+ * тот же приём, что у часов голода: одно событие — одно новое окно, тика нет.
+ */
 export interface WoodPlan {
   readonly front: number;
   readonly rear: number;
+  /** С какой минуты идут эти доли. Нет поля — с постановки лагеря. */
+  readonly at?: number;
+  /** Готовность сторон в минуту `at`. */
+  readonly base?: { readonly front: number; readonly rear: number };
 }
 
-/** Сколько `CAMP_WORKS_RIPE` прошло с постановки лагеря; до неё — ноль. */
-const spans = (since: number, at: number): number => Math.max(0, at - since) / CAMP_WORKS_RIPE;
+/** Откуда растёт готовность и что в ней уже лежит. */
+function start(since: number, side: CampSide, plan: WoodPlan) {
+  const from = Math.max(since, plan.at ?? since);
+  const clamp = (v: number | undefined): number => Math.min(1, Math.max(0, v ?? 0));
+  return {
+    from,
+    ownBase: clamp(plan.base?.[side]),
+    otherBase: clamp(plan.base?.[side === 'front' ? 'rear' : 'front']),
+    own: Math.max(0, side === 'front' ? plan.front : plan.rear),
+    other: Math.max(0, side === 'front' ? plan.rear : plan.front),
+  };
+}
+
+/**
+ * Сколько `CAMP_WORKS_RIPE` прошло с минуты, от которой растёт готовность. Раньше неё
+ * спрашивать не у кого: прежние доли не хранятся, и отвечает база.
+ */
+const spans = (from: number, at: number): number => Math.max(0, at - from) / CAMP_WORKS_RIPE;
 
 /** Нарубленная древесина, в сторонах: столько сторон можно было бы обнести. */
-export const woodCut = (since: number, at: number, plan: WoodPlan = CAMP_WOOD): number =>
-  (Math.max(0, plan.front) + Math.max(0, plan.rear)) * spans(since, at);
+export const woodCut = (since: number, at: number, plan: WoodPlan = CAMP_WOOD): number => {
+  const s = start(since, 'front', plan);
+  return s.ownBase + s.otherBase + (s.own + s.other) * spans(s.from, at);
+};
 
 /**
  * Насколько достроена сторона, 0..1. Своя доля выработки идёт в неё, пока другая
  * сторона не дозрела; дозрела — её доля переходит сюда. Растёт от постановки
- * лагеря и встаёт на единице. При `plan.front = 1` готовность фронта — ровно
- * `(t − встал) / CAMP_WORKS_RIPE`, та же, что до сторон.
+ * лагеря (или от последней смены долей, со вложенного к ней) и встаёт на единице.
+ * При `plan.front = 1` готовность фронта — ровно `(t − встал) / CAMP_WORKS_RIPE`,
+ * та же, что до сторон.
  */
 export function sideWorks(since: number, at: number, side: CampSide, plan: WoodPlan = CAMP_WOOD): number {
-  const x = spans(since, at);
-  const own = Math.max(0, side === 'front' ? plan.front : plan.rear);
-  const other = Math.max(0, side === 'front' ? plan.rear : plan.front);
-  if (other * x < 1) return Math.min(1, own * x);
-  return Math.min(1, (own + other) * x - 1);
+  const s = start(since, side, plan);
+  const x = spans(s.from, at);
+  // Когда дозреет другая сторона: её остаток на её долю; дозрела уже — с самого начала.
+  const otherRipe = s.otherBase >= 1 ? 0 : s.other > 0 ? (1 - s.otherBase) / s.other : Infinity;
+  if (x <= otherRipe) return Math.min(1, s.ownBase + s.own * x);
+  return Math.min(1, s.ownBase + s.own * x + s.other * (x - otherRipe));
 }
 
 /** Когда сторона дозреет. Бесконечность — никогда: в неё не кладут ничего. */
 export function worksRipeAt(since: number, side: CampSide, plan: WoodPlan = CAMP_WOOD): number {
-  const own = Math.max(0, side === 'front' ? plan.front : plan.rear);
-  const other = Math.max(0, side === 'front' ? plan.rear : plan.front);
-  if (own <= 0 && other <= 0) return Infinity;
-  const x = own >= other ? 1 / own : 2 / (own + other);
-  return since + x * CAMP_WORKS_RIPE;
+  const s = start(since, side, plan);
+  if (s.ownBase >= 1) return s.from;
+  const otherRipe = s.otherBase >= 1 ? 0 : s.other > 0 ? (1 - s.otherBase) / s.other : Infinity;
+  const alone = s.own > 0 ? (1 - s.ownBase) / s.own : Infinity;
+  if (alone <= otherRipe) return s.from + alone * CAMP_WORKS_RIPE;
+  if (s.own + s.other <= 0) return Infinity;
+  return s.from + ((1 - s.ownBase + s.other * otherRipe) / (s.own + s.other)) * CAMP_WORKS_RIPE;
+}
+
+/**
+ * Доли, которые игрок может отдать фронту, по порядку: всё во фронт, три четверти,
+ * поровну, четверть, всё в тыл. Шагом, а не ползунком: на 375 px пять кнопок читаются,
+ * а ползунок на дольку процента — нет.
+ */
+export const WOOD_SHARES: readonly number[] = [1, 0.75, 0.5, 0.25, 0];
+
+/** Доли лагеря игрока, если фронту отдана доля `share`. */
+export const playerWood = (share: number): WoodPlan => {
+  const f = Math.min(1, Math.max(0, share));
+  return { front: f * PLAYER_CAMP_WOOD, rear: (1 - f) * PLAYER_CAMP_WOOD };
+};
+
+/** Какую долю фронту отдаёт этот план; null — план не из шагов игрока (лагерь бота, старое окно). */
+export const woodShare = (plan: WoodPlan | undefined): number | null => {
+  if (!plan) return null;
+  for (const share of WOOD_SHARES) {
+    const p = playerWood(share);
+    if (Math.abs(p.front - plan.front) < 1e-9 && Math.abs(p.rear - plan.rear) < 1e-9) return share;
+  }
+  return null;
+};
+
+/**
+ * Сменить доли в минуту `at`: вложенное к ней становится базой, новые доли идут от
+ * неё. Готовность ни одной стороны в эту минуту не меняется — меняется только то, как
+ * она растёт дальше.
+ */
+export function rebaseWood(since: number, at: number, from: WoodPlan | undefined, share: number): WoodPlan {
+  const was = from ?? CAMP_WOOD;
+  return {
+    ...playerWood(share),
+    at: Math.max(since, at),
+    base: { front: sideWorks(since, at, 'front', was), rear: sideWorks(since, at, 'rear', was) },
+  };
 }
 
 /**
@@ -156,11 +228,18 @@ export function gateAfter(gateAt: number | undefined, at: number, passed: number
  * доля растёт, поэтому ответ ищется посекундно, а не формулой; искать дальше полного
  * освобождения незачем — тогда свободен весь пропуск, а он не меньше одного.
  */
-export function gateWait(side: CampSide, campMen: number, since: number, at: number, gateAt: number | undefined): number {
+export function gateWait(
+  side: CampSide,
+  campMen: number,
+  since: number,
+  at: number,
+  gateAt: number | undefined,
+  plan: WoodPlan = CAMP_WOOD,
+): number {
   if (gateAt === undefined || gateAt <= at) return 0;
   for (let ms = 0; ms < gateAt - at; ms += 1000) {
     const t = at + ms;
-    if (gateRoom(campPass(campMen, sideWorks(since, t, side)), gateFree(gateAt, t)) >= 1) return ms;
+    if (gateRoom(campPass(campMen, sideWorks(since, t, side, plan)), gateFree(gateAt, t)) >= 1) return ms;
   }
   return Math.ceil(gateAt - at);
 }
@@ -191,10 +270,10 @@ export interface Through {
 
 /**
  * Что будет с отрядом у рогаток стороны `side` лагеря из `campMen` бойцов строя,
- * вставшего в `since`, если подойти в минуту `at`, когда проход этой стороны занят
- * до `gateAt`. Этой функцией считают и бой (`LocalWorld.campBattle`), и панели до
- * нажатия — второй арифметики прохода нет, и показанное число не может разойтись
- * с тем, кто дрался.
+ * вставшего в `since` и рубящего по `plan`, если подойти в минуту `at`, когда проход
+ * этой стороны занят до `gateAt`. Этой функцией считают и бой (`LocalWorld.campBattle`),
+ * и окна до нажатия — второй арифметики прохода нет, и показанное число не может
+ * разойтись с тем, кто дрался.
  */
 export function throughWorks(
   side: CampSide,
@@ -203,8 +282,9 @@ export function throughWorks(
   at: number,
   going: Stack,
   gateAt?: number,
+  plan: WoodPlan = CAMP_WOOD,
 ): Through {
-  const works = sideWorks(since, at, side);
+  const works = sideWorks(since, at, side, plan);
   const pass = campPass(campMen, works);
   const free = gateFree(gateAt, at);
   const room = gateRoom(pass, free);
@@ -220,7 +300,7 @@ export function throughWorks(
     went: stackTotal(passKinds(going, Infinity)),
     passed,
     gateAt: gateAfter(gateAt, at, passed, pass),
-    waitMs: room >= 1 ? 0 : gateWait(side, campMen, since, at, gateAt),
+    waitMs: room >= 1 ? 0 : gateWait(side, campMen, since, at, gateAt, plan),
   };
 }
 
@@ -287,13 +367,19 @@ export interface SortieForecast {
   clearPass: number;
 }
 
-/** То, что мир отдаёт наружу об осаде: из этого считают панели. */
+/** То, что мир отдаёт наружу об осаде: из этого считают окна. */
 export interface CampSight {
   since: number;
   campMen: number;
   gateAt?: number;
   rearGateAt?: number;
+  /** Доли древесины; нет поля — правило бота (`CAMP_WOOD`). */
+  wood?: WoodPlan;
 }
+
+/** Отметка прохода стороны в окне осады. */
+const gateOf = (siege: Pick<CampSight, 'gateAt' | 'rearGateAt'>, side: CampSide): number | undefined =>
+  side === 'front' ? siege.gateAt : siege.rearGateAt;
 
 /**
  * Прогноз прохода для панели вылазки: вылазка лезет во фронт. Исхода боя он не
@@ -302,12 +388,13 @@ export interface CampSight {
  */
 export function sortieForecast(siege: CampSight, going: Stack, at: number): SortieForecast {
   const clearAt = Math.max(at, siege.gateAt ?? at);
+  const plan = siege.wood ?? CAMP_WOOD;
   return {
-    now: throughWorks('front', siege.campMen, siege.since, at, going, siege.gateAt),
-    ripeAt: worksRipeAt(siege.since, 'front'),
+    now: throughWorks('front', siege.campMen, siege.since, at, going, siege.gateAt, plan),
+    ripeAt: worksRipeAt(siege.since, 'front', plan),
     ripePass: campPass(siege.campMen, 1),
     clearAt,
-    clearPass: campPass(siege.campMen, sideWorks(siege.since, clearAt, 'front')),
+    clearPass: campPass(siege.campMen, sideWorks(siege.since, clearAt, 'front', plan)),
   };
 }
 
@@ -322,53 +409,71 @@ export function strikeForecast(
   rear: Stack,
   front: Stack | null,
 ): { rear: Through; front: Through | null } {
+  const plan = siege.wood ?? CAMP_WOOD;
   return {
-    rear: throughWorks('rear', siege.campMen, siege.since, at, rear, siege.rearGateAt),
-    front: front ? throughWorks('front', siege.campMen, siege.since, at, front, siege.gateAt) : null,
+    rear: throughWorks('rear', siege.campMen, siege.since, at, rear, siege.rearGateAt, plan),
+    front: front ? throughWorks('front', siege.campMen, siege.since, at, front, siege.gateAt, plan) : null,
   };
+}
+
+/** Одна сторона лагеря для окна осады — что с ней сейчас. */
+export interface SideSight {
+  side: CampSide;
+  /** Готовность, 0..1. */
+  works: number;
+  /** Когда дозреет; бесконечность — в неё не кладут ничего. */
+  ripeAt: number;
+  /** Пропуск при свободном проходе, бойцов строя. */
+  pass: number;
+  /** Сколько пропустит прямо сейчас. */
+  room: number;
+  /** Через сколько пропустит хоть одного, мс. */
+  waitMs: number;
+}
+
+/**
+ * Обе стороны лагеря для окон осады — осаждающего и обороняющегося. Строится той же
+ * `throughWorks`, которой считает бой, только без отряда: окну нужна сама сторона —
+ * готовность, срок и проход, — а кто полезет, решает приказ.
+ */
+export function campSides(siege: CampSight, at: number): Record<CampSide, SideSight> {
+  const plan = siege.wood ?? CAMP_WOOD;
+  const one = (side: CampSide): SideSight => {
+    const t = throughWorks(side, siege.campMen, siege.since, at, { spear: 0, infantry: 0, archer: 0, cavalry: 0 }, gateOf(siege, side), plan);
+    return {
+      side,
+      works: t.works,
+      ripeAt: worksRipeAt(siege.since, side, plan),
+      pass: t.pass,
+      room: t.room,
+      waitMs: t.waitMs,
+    };
+  };
+  return { front: one('front'), rear: one('rear') };
 }
 
 /** Минуты словами: «через N мин», не меньше одной. */
 const mins = (ms: number): number => Math.max(1, Math.ceil(ms / 60_000));
 
 /** Как сторона называется в строке панели. */
-const NAME: Record<CampSide, string> = { front: 'Со стороны города', rear: 'С тыла' };
-
-/** Одна сторона коротко: готовность, срок дозревания, занятость прохода. */
-function sideShort(side: CampSide, since: number, at: number, gateAt: number | undefined): string {
-  const works = sideWorks(since, at, side);
-  const busy = gateFree(gateAt, at) < 1 && gateAt !== undefined ? `, проход свободен через ${mins(gateAt - at)} мин` : '';
-  if (works <= 0) return `${NAME[side]}: рогаток нет${busy}`;
-  if (works >= 1) return `${NAME[side]}: рогатки дозрели${busy}`;
-  return `${NAME[side]}: ${Math.floor(works * 100)}%, дозреют через ${mins(worksRipeAt(since, side) - at)} мин${busy}`;
-}
+export const SIDE_NAME: Record<CampSide, string> = { front: 'Со стороны города', rear: 'С тыла' };
 
 /**
  * Что из этого следует для обороняющегося — только когда стороны разные. Одинаково
  * крепкие стороны подсказки не дают, и выдумывать её нельзя.
  */
-export function weakSide(since: number, at: number): CampSide | null {
-  const f = sideWorks(since, at, 'front');
-  const r = sideWorks(since, at, 'rear');
+export function weakSide(since: number, at: number, plan: WoodPlan = CAMP_WOOD): CampSide | null {
+  const f = sideWorks(since, at, 'front', plan);
+  const r = sideWorks(since, at, 'rear', plan);
   if (Math.abs(f - r) < 0.05) return null;
   return f < r ? 'front' : 'rear';
 }
 
-const HINT: Record<CampSide, string> = {
-  front: 'Со стороны города слабее: бить вылазкой сейчас.',
-  rear: 'Тыл слабее: его бьёт полководец из поля.',
+/** Подсказка обороняющемуся по слабой стороне — одни слова на окно и на карту. */
+export const WEAK_HINT: Record<CampSide, string> = {
+  front: 'Со стороны города слабее: бей вылазкой сейчас.',
+  rear: 'Тыл слабее: зови полководца — он бьёт с тыла из поля.',
 };
-
-/** Коротко, для тесной панели осады в углу деревни: по строке на сторону и подсказка. */
-export function worksShort(siege: CampSight, at: number): string[] {
-  const out = [
-    sideShort('front', siege.since, at, siege.gateAt),
-    sideShort('rear', siege.since, at, siege.rearGateAt),
-  ];
-  const weak = weakSide(siege.since, at);
-  if (weak) out.push(HINT[weak]);
-  return out;
-}
 
 /** Проход словами — хвост к строкам ниже; пусто, когда проход свободен. */
 function gateTail(gateAt: number | undefined, at: number): string {
@@ -381,17 +486,19 @@ function gateTail(gateAt: number | undefined, at: number): string {
  * сколько в нём людей: карточка на карте, меню полководца. Проход поэтому назван
  * долей — сколько нападающих на каждого в лагере.
  */
-function sideWords(side: CampSide, since: number, at: number, gateAt: number | undefined): string {
-  const works = sideWorks(since, at, side);
-  if (works <= 0) return `${NAME[side]} рогаток ещё нет: к бою пройдут все.${gateTail(gateAt, at)}`;
+function sideWords(side: CampSide, since: number, at: number, gateAt: number | undefined, plan: WoodPlan): string {
+  const works = sideWorks(since, at, side, plan);
+  if (works <= 0) return `${SIDE_NAME[side]} рогаток ещё нет: к бою пройдут все.${gateTail(gateAt, at)}`;
   const num = (v: number): string => (v >= 10 ? String(Math.round(v)) : v.toFixed(1).replace('.', ','));
   const share = `к бою пройдут не больше ${num(passPerMan(works))} бойцов строя на каждого в лагере`;
-  if (works >= 1) return `${NAME[side]} рогатки дозрели: ${share}.${gateTail(gateAt, at)}`;
-  const left = mins(worksRipeAt(since, side) - at);
-  return `${NAME[side]} рогатки достроены на ${Math.floor(works * 100)}%: ${share}. Дозреют через ${left} мин — тогда ${num(CAMP_WORKS_PASS)}.${gateTail(gateAt, at)}`;
+  if (works >= 1) return `${SIDE_NAME[side]} рогатки дозрели: ${share}.${gateTail(gateAt, at)}`;
+  const ripe = worksRipeAt(since, side, plan);
+  const when = ripe < Infinity ? ` Дозреют через ${mins(ripe - at)} мин — тогда ${num(CAMP_WORKS_PASS)}.` : ' Дальше не растут: сюда не рубят.';
+  return `${SIDE_NAME[side]} рогатки достроены на ${Math.floor(works * 100)}%: ${share}.${when}${gateTail(gateAt, at)}`;
 }
 
 /** Обе стороны лагеря словами. */
 export function worksWords(siege: Omit<CampSight, 'campMen'>, at: number): string {
-  return `${sideWords('front', siege.since, at, siege.gateAt)} ${sideWords('rear', siege.since, at, siege.rearGateAt)}`;
+  const plan = siege.wood ?? CAMP_WOOD;
+  return `${sideWords('front', siege.since, at, siege.gateAt, plan)} ${sideWords('rear', siege.since, at, siege.rearGateAt, plan)}`;
 }

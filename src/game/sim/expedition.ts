@@ -15,6 +15,7 @@ import {
   homeArmy,
   idleCount,
   isOutsideWall,
+  isSite,
   storageCap,
 } from '../derived';
 import { removeSoldiers } from './army';
@@ -65,11 +66,19 @@ export interface ExpeditionOutcome {
   /** Логово сожжено этим походом: его считает профиль. */
   lair?: boolean;
   /**
-   * Невольники: плюс — приведены из взятого города, минус — уведены из нашего.
-   * Кого и сколько, решает мир одной дверью участи на обе стороны
-   * (`world/spoils.fate`); племя только прибавляет или убавляет число.
+   * Невольники: плюс — приведены из взятого города, минус — уведены из нашего или
+   * разбежались с пожарища. Кого и сколько, решает мир одной дверью участи на обе
+   * стороны (`world/spoils.fate`); племя только прибавляет или убавляет число.
    */
   bonded?: number;
+  /**
+   * Сколько горожан ушло из взятого города — уведены или разошлись. Мир решил число;
+   * племя снимает его тем же порядком, что голод и мятеж (`losePop`), и последний
+   * житель не уходит никогда.
+   */
+  popLost?: number;
+  /** Город сожжён: улучшения в работе сгорают без возврата. Тайника это не касается. */
+  burned?: boolean;
   /**
    * Наш город взят: на какие постройки пришёлся удар и с какого уровня на
    * какой. Выбрал их мир одной дверью участи (`world/spoils.fate`) в минуту
@@ -97,6 +106,21 @@ export const FALL_SPARED: BuildingTypeId[] = ['cache'];
 export function fallPool(s: GameState): Record<string, number> {
   const out: Record<string, number> = {};
   for (const b of s.buildings) if (!FALL_SPARED.includes(b.type)) out[b.type] = b.level;
+  return out;
+}
+
+/**
+ * Сжигает улучшения в работе: заплачено вперёд, построено не было, возврата нет.
+ * Тайник не горит — ни уровнем, ни стройкой (`FALL_SPARED`). Возвращает, что сгорело.
+ */
+export function burnWorks(s: GameState): BuildingTypeId[] {
+  const out: BuildingTypeId[] = [];
+  for (const b of s.buildings) {
+    if (FALL_SPARED.includes(b.type) || !isSite(b)) continue;
+    b.work = 0;
+    b.workRequired = 0;
+    out.push(b.type);
+  }
   return out;
 }
 
@@ -293,6 +317,8 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Невольники из павшего города — и уведённые из нашего. Число решил мир.
   const bondedIn = o.bonded && o.bonded > 0 ? addBonded(s, o.bonded) : 0;
   const bondedOut = o.bonded && o.bonded < 0 ? loseBonded(s, -o.bonded) : 0;
+  // Горожане взятого города: уведены или разошлись. Последний житель остаётся.
+  const popOut = o.popLost && o.popLost > 0 ? losePop(s, Math.min(Math.round(o.popLost), Math.max(0, s.pop - 1))) : 0;
   if (o.gold) s.gold = Math.max(0, s.gold + o.gold);
   const arms = takeArms(s, o.arms ?? 0);
   recordLoot(s, brought, Math.max(0, o.gold));
@@ -308,6 +334,8 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];
+  // Город сожжён: сперва сгорает то, что строилось, — потом падают уровни.
+  const burnedWorks = o.burned ? burnWorks(s) : [];
   // Город взят: постройки теряют уровни, которые выбрала дверь участи.
   const levelsLost = o.fallen ? fallBuildings(s, o.fallen) : [];
   // Реликвию уносят вместе с остальным: она вещь, а не обещание, и цена ей —
@@ -329,6 +357,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (relicLost) log(s, `${relicLost} унесли из храма. Приход осиротел.`, 'bad');
   if (bondedOut > 0) log(s, ORDER_TEXT.ledAway(bondedOut), 'bad');
   if (bondedIn > 0) log(s, ORDER_TEXT.broughtIn(bondedIn), 'info');
+  if (popOut > 0) log(s, `Горожан не стало в городе: ${popOut} чел.`, 'bad');
+  if (burnedWorks.length > 0) {
+    log(s, `Сгорело недостроенное: ${burnedWorks.map((t) => buildingTitle(s, t)).join(', ')}. Заплаченное не вернуть.`, 'bad');
+  }
   if (o.fallen && o.fallen.length > 0) {
     log(s, `Постройки потеряли уровни: ${levelLossText(s, levelsLost, o.fallen.length)}.`, 'bad');
   }

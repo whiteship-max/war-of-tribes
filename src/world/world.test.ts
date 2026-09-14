@@ -3,7 +3,7 @@ import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { armySize, commandCap, defense, soldierPower } from '@/game/derived';
 import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
-import { AWAY_GRACE, LocalWorld } from './local/LocalWorld';
+import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
 import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet } from './geography';
@@ -866,33 +866,47 @@ describe('мягкость мира', () => {
     }
   });
 
-  it('набег, пришедшийся на отсутствие игрока, не состоится', async () => {
-    const { world, advance, at, now } = makeWorld(202);
-    await world.sync(profile());
-    // Нужен набег, который на момент последнего пульса ещё **в пути**: отпуск
-    // засчитывается по времени с прошлого взгляда игрока (`AWAY_GRACE`), и
-    // отряд, которому до ворот осталось меньше этого, придёт по-настоящему —
-    // игрок ведь только что смотрел. Раньше здесь брался первый попавшийся
-    // набег, и то, что он оказывался далёким, зависело от того, куда сид
-    // поставил деревню. Дом теперь ставит реестр, а не сид, — и предпосылку
-    // надо не предполагать, а обеспечивать.
-    let raid: MarchView | undefined;
-    for (let tries = 0; tries < 12 && !raid; tries++) {
-      advance(20 * 60_000);
-      const pulse = await world.sync(profile());
-      raid = pulse.marches.find((m) => m.hostile && m.arriveAt - now() > AWAY_GRACE);
+  it('набег, пришедшийся на отсутствие игрока, состоится — так же, как при игроке', async () => {
+    // Правило отсутствия снято решением владельца (docs/DEFEAT_LADDER.md): враг
+    // подходит и берёт город, в игре хозяин или нет. Проверяется не «что-то
+    // случилось», а то, что случилось **то же самое**: один и тот же отряд доходит до
+    // ворот в мире, куда игрок заглядывал каждые двадцать секунд, и в мире, куда он
+    // не заглядывал вовсе, — и исход у обоих один.
+    let checked = 0;
+    for (const seed of [202, 404, 606]) {
+      const online = makeWorld(seed);
+      const offline = makeWorld(seed);
+      await online.world.sync(profile());
+      await offline.world.sync(profile());
+      let raid: MarchView | undefined;
+      for (let tries = 0; tries < 12 && !raid; tries++) {
+        online.advance(20 * 60_000);
+        offline.advance(20 * 60_000);
+        const pulse = await online.world.sync(profile());
+        await offline.world.sync(profile());
+        // Граница области: отряд ещё в пути дольше одного пульса — иначе «отсутствия»
+        // между последним взглядом и приходом не было бы вовсе.
+        raid = pulse.marches.find((m) => m.hostile && m.phase === 'out' && m.arriveAt - online.now() > 60_000);
+      }
+      if (!raid) continue;
+      const end = raid.arriveAt + 30 * 60_000;
+      while (online.now() < end) {
+        online.advance(20_000);
+        await online.world.sync(profile());
+      }
+      offline.at(end);
+      await offline.world.sync(profile());
+      const about = (w: LocalWorld) =>
+        w.reports().then((rs) => rs.filter((r) => r.id.startsWith(`${raid!.id}-`)).map((r) => ({ id: r.id, title: r.title, text: r.text })));
+      const seen = await about(online.world);
+      const missed = await about(offline.world);
+      expect(missed.length, `сид ${seed}: отряд дошёл и без игрока`).toBeGreaterThan(0);
+      expect(missed.some((r) => r.id.endsWith('-skip')), `сид ${seed}: «не состоялся» не бывает`).toBe(false);
+      expect(missed[missed.length - 1], `сид ${seed}: исход без игрока тот же, что при нём`).toEqual(seen[seen.length - 1]);
+      checked++;
     }
-    if (!raid) return;
-
-    // Игрок закрыл игру и вернулся, когда всё давно прошло.
-    at(raid.arriveAt + 30 * 60_000);
-    const later = await world.sync(profile());
-    expect(later.marches.some((m) => m.hostile && m.id === raid.id)).toBe(false);
-    const report = later.reports.find((r) => r.id === `${raid.id}-skip`);
-    expect(report?.title).toBe('Набег не состоялся');
-    // Никто ничего не потерял.
-    expect(later.effects.every((e) => Object.keys(e.lost).length === 0)).toBe(true);
-  });
+    expect(checked, 'хоть один мир дал набег в пути').toBeGreaterThan(0);
+  }, 120_000);
 });
 
 describe('последствия для племени', () => {
@@ -1218,8 +1232,8 @@ describe('заморозка обороны', () => {
   /**
    * Прогон набега ИИ на деревню с заданной обороной. `switchAt` — момент, в
    * который игрок присылает другую расстановку: до отметки её обязаны принять,
-   * после — нет. Пульсы идут часто: набег, пришедшийся на отсутствие игрока,
-   * не состоится, и редким опросом до боя не дойти.
+   * после — нет. Пульсы идут часто: расстановку присылает слепок, и сменить её
+   * можно только пульсом — редким опросом отметку заморозки не поймать.
    */
   async function defendWith(early: ArmySetup, late: ArmySetup, switchBeforeMs: number) {
     const w = makeWorld(303);

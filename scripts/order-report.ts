@@ -78,7 +78,8 @@ import {
   workerMultiplier,
 } from '@/game/derived';
 import { LocalWorld } from '@/world/local/LocalWorld';
-import { FATES, FATE_NOW, lead, plunder } from '@/world/spoils';
+import { FATES, FATE_DEFAULT, HEAD_CARRY, lead, plunder } from '@/world/spoils';
+import { FATE_META } from '@/world/data/fates';
 import { stackEscort } from '@/world/data/units';
 import { AI_BONDED_SHARE, AI_POWER_SHARE, AI_POWER_VS_DEFENSE, LAIR_CAP, LAIR_ANCHOR_FAR, SIEGE_IF_BELOW } from '@/world/data/tuning';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
@@ -329,7 +330,7 @@ async function siegeRun(seed: number, hours: number) {
     const walking = (await world.figures()).find((f) => f.id === 'general');
     now = Math.max(now, walking?.arriveAt ?? now);
     await world.sync(p);
-    const err = await world.besiege();
+    const err = await world.besiege('captives');
     if (err) {
       immune.add(target.id);
       now += MIN;
@@ -357,9 +358,9 @@ async function siegeRun(seed: number, hours: number) {
 console.log('=== ВОЙНА ПРОТИВ ХОЗЯЙСТВА: откуда невольники дешевле ===');
 console.log('Мерка одна — невольников за реальный час. Полководец в прогоне ничего не делает, кроме');
 console.log('осад: идёт к ближайшему логову, берёт его голодом, идёт дальше. Это верхняя граница войны.');
-console.log(`У бота невольники — доля его людей (AI_BONDED_SHARE = ${AI_BONDED_SHARE}). Уводит их только ступень`);
-console.log(`участи «увести людей»; сейчас участь одна — «ограбить» (${FATE_NOW}), и невольники остаются (FATES.${FATE_NOW}.bonded = ${FATES[FATE_NOW].bonded}).`);
-console.log('Прогон оставлен как есть: ступень, уводящая людей, померится им же, одной строкой в FATES.');
+console.log(`У бота невольники — доля его людей (AI_BONDED_SHARE = ${AI_BONDED_SHARE}). Полководец объявляет ступень`);
+console.log(`«увести людей» (FATES.captives): уводит невольников логова и ${pct(FATES.captives.ledPop)} его людей, скольких`);
+console.log(`устережёт дружина, и за каждого увозит на ${HEAD_CARRY} добра меньше. «Ограбить» не увёл бы никого.`);
 console.log('');
 console.log('  сид   осад/ч   невольников за осаду   невольников/ч');
 let warTotal = 0;
@@ -531,8 +532,8 @@ console.log('');
 // ---------------------------------------------------------- падение ---
 
 console.log('=== ПАДЕНИЕ ГОРОДА: скольких увёл бы лагерь ===');
-console.log(`Сейчас — никого: участь «ограбить» (${FATE_NOW}) невольников не уводит. Таблица — конвой лагеря, то есть`);
-console.log('предел ступени «увести людей», когда она появится.');
+console.log(`На ступени «${FATE_META[FATE_DEFAULT].name.toLowerCase()}» — никого, и так берут город логова: другой ступени они не объявляют.`);
+console.log('Таблица — конвой лагеря, то есть предел ступени «увести людей», если её объявит тот, кто осадил.');
 console.log('Лагерь садится под стенами, только когда штурм безнадёжен: его мощь ниже доли обороны');
 console.log(`(SIEGE_IF_BELOW = ${SIEGE_IF_BELOW}). Он же не сильнее доли логова (AI_POWER_SHARE ${AI_POWER_SHARE}) и доли обороны`);
 console.log(`(AI_POWER_VS_DEFENSE ${AI_POWER_VS_DEFENSE}). Отряд — один воин на три мощи; ведёт каждый ${stackEscort({ warrior: 1 })} невольников.`);

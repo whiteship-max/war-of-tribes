@@ -1,0 +1,56 @@
+// Лестница участи словами: как называется ступень и что о ней пишет отчёт.
+//
+// Считать здесь нечего: числа приходят готовыми из двери участи (`spoils.fate`), и
+// модуль только расставляет их по строкам. Слова о людях — уведённых и
+// разошедшихся — берутся у `game/data/order.ts`: тон этих строк один на всю игру и
+// проверяется тестом, который читает и тот модуль, и этот.
+import type { Fate } from '../types';
+import { ORDER_TEXT, bondedWord, townsWord } from '@/game/data/order';
+import type { FateResult } from '../spoils';
+
+export interface FateMeta {
+  /** Название ступени — одно на выбор, окно и отчёт. */
+  name: string;
+  icon: string;
+  /** Заголовок отчёта проигравшему, когда город взят приступом. */
+  title: string;
+}
+
+export const FATE_META: Record<Fate, FateMeta> = {
+  plunder: { name: 'Ограбить', icon: '💰', title: 'Деревню разграбили' },
+  captives: { name: 'Увести людей', icon: '⛓️', title: 'Деревню разграбили и увели людей' },
+  burn: { name: 'Сжечь', icon: '🔥', title: 'Деревню сожгли' },
+};
+
+/**
+ * Что потерял взятый город — одной строкой для отчёта проигравшему. Начинается с
+ * заглавной и кончается точкой; к ней дописывают, кто и как взял город.
+ */
+export function lossText(f: Fate, r: FateResult): string {
+  const gold = r.lost.gold ?? 0;
+  const goods = r.lostTotal - gold;
+  const hidden = r.hiddenTotal > 0 ? ` В тайнике уцелело ${r.hiddenTotal}.` : '';
+  if (f === 'burn') {
+    const pop = r.scattered.pop > 0 ? ` Разошлись ${r.scattered.pop} ${townsWord(r.scattered.pop)}.` : '';
+    const bonded = r.scattered.bonded > 0 ? ` Разбежались ${r.scattered.bonded} ${bondedWord(r.scattered.bonded)}.` : '';
+    return `Сгорело ${goods} добра${gold > 0 ? ` и ${gold} золота` : ''}.${hidden}${pop}${bonded} Недостроенное сгорело.`;
+  }
+  const people = [
+    r.ledBonded.taken > 0 ? `${r.ledBonded.taken} ${bondedWord(r.ledBonded.taken)}` : '',
+    r.ledPop.taken > 0 ? `${r.ledPop.taken} ${townsWord(r.ledPop.taken)}` : '',
+  ].filter(Boolean);
+  const led = people.length > 0 ? ` Увели ${people.join(' и ')}.` : '';
+  return `Склад вычистили на ${goods} добра${gold > 0 ? `, казну — на ${gold} золота` : ''}.${hidden}${led}`;
+}
+
+/** Что досталось победителю — одной строкой для отчёта о взятом городе. */
+export function gainText(r: FateResult): string {
+  const gold = r.taken.gold ?? 0;
+  const goods = r.takenTotal - gold;
+  const led = r.ledBonded.taken + r.ledPop.taken;
+  return (
+    (goods > 0 ? ` Взято: ${goods} добра.` : '') +
+    (gold > 0 ? ` Казна: ${gold} золота.` : '') +
+    (led > 0 ? ` ${ORDER_TEXT.broughtIn(led)}` : '')
+  );
+}

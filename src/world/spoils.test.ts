@@ -10,17 +10,46 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { distance } from './geo';
-import { FATES, FATE_NOW, fallSeed, fate, homeLoss, lead, plunder, asLoss, type FateInput } from './spoils';
-import { stackEscort } from './data/units';
-import { AI_STASH_SHARE, FALL_BUILDINGS, FALL_LEVELS, LOOT_PER_POP, LOOT_REFILL } from './data/tuning';
+import {
+  FATES,
+  FATE_DEFAULT,
+  FATE_IDS,
+  HEAD_CARRY,
+  burnImmune,
+  burnImmuneUntil,
+  fallSeed,
+  fate,
+  fateAt,
+  fateBlock,
+  homeLoss,
+  lead,
+  plunder,
+  asLoss,
+  winnerGain,
+  type FateInput,
+  type FateResult,
+} from './spoils';
+import { UNIT_BY_ID, stackEscort } from './data/units';
+import {
+  AI_STASH_SHARE,
+  BURN_IMMUNE,
+  BURN_LEVELS,
+  BURN_POP_SHARE,
+  FALL_BUILDINGS,
+  FALL_LEVELS,
+  LED_POP_SHARE,
+  LOOT_PER_POP,
+  LOOT_REFILL,
+} from './data/tuning';
 import { applyEffects, playerProfile } from './bridge';
 import { FALL_SPARED, fallBuildings, fallPool, fallenText } from '@/game/sim/expedition';
 import { BUILDINGS } from '@/game/data/buildings';
 import { UPGRADE_GROWTH, RESOURCE_IDS } from '@/game/constants';
 import { createInitialState } from '@/game/state';
-import { hiddenStash, maxLevelFor, stashAt, storageCap, upgradeCost } from '@/game/derived';
+import { bondedTotal, hiddenStash, maxLevelFor, stashAt, storageCap, upgradeCost } from '@/game/derived';
+import type { GameState } from '@/game/types';
 import type { GenSettlement } from './gen';
-import type { HomeEffect, Loot, PlayerProfile, SettlementView } from './types';
+import type { Fate, HomeEffect, Loot, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
 
 /**
@@ -355,17 +384,24 @@ describe('одно правило на обе стороны', () => {
     expect(importers.plunder, 'делит склад кто-то кроме двери участи и мятежа').toEqual(['src/game/sim/mutiny.ts']);
     expect(importers.lead, 'уводит людей кто-то кроме двери участи').toEqual([]);
 
-    // Внутри модуля дележа оба правила зовёт только сама дверь.
+    // Внутри модуля дележа оба правила зовёт только сама дверь — на всех трёх ступенях.
     const spoils = stripComments(readFileSync(path.resolve('src/world/spoils.ts'), 'utf8'));
     const door = spoils.slice(spoils.indexOf('export function fate('), spoils.indexOf('function pickFallen('));
     const calls = (code: string, fn: string): number => (code.match(new RegExp(`(?<!function )\\b${fn}\\(`, 'g')) ?? []).length;
     expect(calls(spoils, 'plunder'), '`plunder` зовут вне двери').toBe(calls(door, 'plunder'));
     expect(calls(spoils, 'lead'), '`lead` зовут вне двери').toBe(calls(door, 'lead'));
+    // Добро делится один раз на любой ступени — и грабёж, и пожар одним дележом.
     expect(calls(door, 'plunder')).toBe(1);
-    expect(calls(door, 'lead')).toBe(1);
+    // Людей уводят дважды — невольников города и горожан, — и оба раза тем же `lead`.
+    expect(calls(door, 'lead')).toBe(2);
+    // Ступени три, и что делает каждая, дверь читает из таблицы один раз, а не
+    // ветками по имени ступени.
+    expect(Object.keys(FATES).sort()).toEqual(['burn', 'captives', 'plunder']);
+    expect((door.match(/FATES\[/g) ?? []).length, 'правило ступени читается в двери один раз').toBe(1);
+    expect(door, 'дверь ветвится по имени ступени').not.toMatch(/'(plunder|captives|burn)'/);
   });
 
-  it('все четыре места, где город взят, идут через дверь участи', () => {
+  it('все четыре места, где город взят, идут через дверь участи и через одну проверку ступени', () => {
     const code = stripComments(src);
     const method = (name: string): string => {
       const at = code.indexOf(`private ${name}(`);
@@ -377,17 +413,25 @@ describe('одно правило на обе стороны', () => {
       expect(method(name), `${name} идёт мимо двери`).toMatch(/this\.fateHome\(/);
       expect(method(name), `${name} собирает потерю сам`).toMatch(/homeLoss\(/);
     }
-    // Чужой двор: наш набег и наш лагерь.
+    // Чужой двор: наш набег и наш лагерь — и победителю достаётся одной функцией.
     for (const name of ['attackAt', 'siegeFalls']) {
       expect(method(name), `${name} идёт мимо двери`).toMatch(/this\.takeLoot\(/);
+      expect(method(name), `${name} собирает добычу сам`).toMatch(/winnerGain\(/);
     }
+    // Ступень у всех четырёх — объявленная, пропущенная через одну проверку.
+    for (const name of ['resolveIncoming', 'homeFalls', 'attackAt', 'siegeFalls']) {
+      expect(method(name), `${name} берёт ступень мимо проверки`).toMatch(/this\.fateFor\(/);
+    }
+    expect(method('fateFor')).toMatch(/\bfateAt\(/);
     expect(method('takeLoot')).toMatch(/this\.fateOf\(/);
     expect(method('fateOf')).toMatch(/\bfate\(\{/);
     expect(method('fateHome')).toMatch(/\bfate\(\{/);
-    // Вызовов самой двери в мире ровно два — чужой двор и наш город, и ступень
-    // у обоих одна и та же, нынешняя.
+    // Вызовов самой двери в мире ровно два — чужой двор и наш город, и ступень у
+    // обоих приходит аргументом, а не написана на месте.
     expect((code.match(/\bfate\(\{/g) ?? []).length).toBe(2);
-    expect((code.match(/fate: FATE_NOW/g) ?? []).length).toBe(2);
+    expect((code.match(/fate: declared,/g) ?? []).length).toBe(2);
+    // Ступеней мир по имени не знает: что делает каждая, читается из таблицы двери.
+    expect(code, 'мир ветвится по имени ступени').not.toMatch(/'(plunder|captives|burn)'/);
   });
 
   it('чужой двор, павший под чужим же лагерем, нашу деревню не трогает', () => {
@@ -412,10 +456,11 @@ describe('одно правило на обе стороны', () => {
 // ------------------------------------------------ участь взятого города ---
 
 const input = (over: Partial<FateInput> = {}): FateInput => ({
-  fate: FATE_NOW,
+  fate: FATE_DEFAULT,
   stock: { food: 900, wood: 300 },
   gold: 0,
   stash: 0,
+  pop: 0,
   bonded: 0,
   carry: Infinity,
   escort: 0,
@@ -500,16 +545,18 @@ describe('казна делится тем же правилом, что скл�
 
 describe('невольники при ступени «ограбить» остаются', () => {
   it('ни одна ступень без увода людей невольников не берёт, сколько бы их ни было и чем бы ни стерегли', () => {
-    const keeps = (Object.keys(FATES) as (keyof typeof FATES)[]).filter((f) => !FATES[f].bonded);
-    expect(keeps, 'нынешняя ступень — без увода людей').toContain(FATE_NOW);
+    const keeps = FATE_IDS.filter((f) => !FATES[f].bonded && !FATES[f].scatterBonded);
+    expect(keeps, 'ограбить — без увода людей').toEqual(['plunder']);
     for (const f of keeps) {
       for (const bonded of [1, 40, 400]) {
         for (const escort of [5, 400, 5000]) {
           // Граница области: `lead` увёл бы хоть кого-то.
           expect(lead(bonded, escort).taken).toBeGreaterThan(0);
-          const r = fate(input({ fate: f, bonded, escort }));
-          expect(r.led, `${f}: невольников ${bonded}, конвой ${escort}`).toEqual({ taken: 0, left: bonded });
+          const r = fate(input({ fate: f, bonded, escort, pop: 200 }));
+          expect(r.ledBonded, `${f}: невольников ${bonded}, конвой ${escort}`).toEqual({ taken: 0, left: bonded });
+          expect(r.ledPop.taken, `${f}: горожан не уводят`).toBe(0);
           expect(homeLoss(r).bonded, 'в последствие увод не уезжает').toBeUndefined();
+          expect(homeLoss(r).popLost, 'и горожане не уходят').toBeUndefined();
         }
       }
     }
@@ -627,6 +674,297 @@ describe('падение уровней у племени', () => {
     }
     expect(cacheWouldFall, 'без исключения тайник попадал бы под удар').toBeGreaterThan(0);
     expect(drops).toBeGreaterThan(0);
+  });
+});
+
+// ------------------------------------------------ лестница целиком ---
+
+/**
+ * Посёлки, на которых проверяется лестница: разный размер, у каждой постройки свой
+ * уровень (часть — на первом, чтобы дно было где задеть), тайник выше первого и со
+ * своей стройкой, ещё одна стройка в работе, невольники и казна.
+ */
+function ladderTown(k: number): GameState {
+  const s = createInitialState();
+  s.buildings.forEach((b, i) => {
+    if (b.type === 'cache') b.level = 3 + (k % 3);
+    else if (b.type === 'storage') b.level = 10;
+    else b.level = (i + k) % 5 === 0 ? 1 : 2 + ((i + k) % 7);
+  });
+  const cache = s.buildings.find((b) => b.type === 'cache')!;
+  cache.work = 40;
+  cache.workRequired = 400;
+  const smithy = s.buildings.find((b) => b.type === 'smithy')!;
+  smithy.work = 10;
+  smithy.workRequired = 900;
+  s.pop = 40 + 170 * k;
+  s.bonded = 12 + 25 * k;
+  s.gold = 800 + 2500 * k;
+  const cap = storageCap(s);
+  RESOURCE_IDS.forEach((r, i) => {
+    s.resources[r] = Math.min(cap, 700 + (i + 1) * 900 * (k + 1));
+  });
+  return s;
+}
+
+interface Loss {
+  goods: number;
+  pop: number;
+  bonded: number;
+  levels: number;
+  works: number;
+}
+
+const measure = (s: GameState): Loss => ({
+  goods: RESOURCE_IDS.reduce((n, r) => n + s.resources[r], 0) + s.gold,
+  pop: s.pop,
+  bonded: bondedTotal(s),
+  levels: s.buildings.reduce((n, b) => n + b.level, 0),
+  works: s.buildings.filter((b) => b.workRequired > 0).length,
+});
+
+/**
+ * Участь настоящим путём: слепок деревни, дверь участи, поля последствия, применение
+ * к племени — и потеря, **замеренная на посёлке**, а не прочитанная из результата двери.
+ */
+function strikeTown(s0: GameState, f: Fate, carry: number, escort: number, seed: number): { r: FateResult; loss: Loss; after: GameState } {
+  const s = structuredClone(s0);
+  const p = playerProfile(s);
+  const r = fate({
+    fate: f,
+    stock: p.stock,
+    gold: p.gold ?? 0,
+    stash: p.stash,
+    pop: p.pop,
+    bonded: p.bonded ?? 0,
+    carry,
+    escort,
+    levels: p.levels,
+    seed,
+  });
+  const before = measure(s);
+  const effect: HomeEffect = { id: 't', lost: {}, prestige: 0, morale: 0, battle: null, text: 'т', good: false, ...homeLoss(r) };
+  applyEffects(s, [effect]);
+  const after = measure(s);
+  return {
+    r,
+    after: s,
+    loss: {
+      goods: before.goods - after.goods,
+      pop: before.pop - after.pop,
+      bonded: before.bonded - after.bonded,
+      levels: before.levels - after.levels,
+      works: before.works - after.works,
+    },
+  };
+}
+
+/** Конвои, которыми берут город: обоз не мешает; мешает людям; мешает и добру. */
+const CONVOYS: [number, number][] = [
+  [Infinity, Infinity],
+  [60_000, 40],
+  [3_000, 6],
+];
+
+describe('лестница монотонна: каждая следующая ступень стоит городу не меньше предыдущей', () => {
+  it('на одном и том же входе — замером на посёлке, по людям, невольникам, уровням, стройке и добру', () => {
+    let points = 0;
+    const strict = { people: 0, levels: 0, works: 0, goods: 0 };
+    for (let k = 0; k < 4; k++) {
+      const town = ladderTown(k);
+      for (const [carry, escort] of CONVOYS) {
+        for (let seed = 1; seed <= 4; seed++) {
+          const [a, b, c] = FATE_IDS.map((f) => strikeTown(town, f, carry, escort, seed));
+          const [l1, l2, l3] = [a.loss, b.loss, c.loss];
+          const label = `посёлок ${k}, обоз ${carry}, конвой ${escort}, соль ${seed}`;
+          // Граница области: у города есть что брать, кого уводить и что жечь.
+          expect(a.r.lostTotal, `${label}: открытого склада нет`).toBeGreaterThan(0);
+          expect(b.r.ledBonded.taken + b.r.ledPop.taken, `${label}: вторая ступень не уводит никого`).toBeGreaterThan(0);
+          expect(c.r.fallen.some((x) => x.to < x.from), `${label}: третьей нечего ронять`).toBe(true);
+
+          // Вторая против первой: людей и невольников не меньше, уровни и стройка те же. Добра
+          // уносят меньше — но ровно на место людей в обозе, и в мере лестницы (человек —
+          // `HEAD_CARRY` добра) город теряет не меньше.
+          expect(l2.pop, `${label}: горожане`).toBeGreaterThanOrEqual(l1.pop);
+          expect(l2.bonded, `${label}: невольники`).toBeGreaterThanOrEqual(l1.bonded);
+          expect(l2.levels, `${label}: уровни`).toBeGreaterThanOrEqual(l1.levels);
+          expect(l2.works, `${label}: стройка`).toBeGreaterThanOrEqual(l1.works);
+          expect(l2.goods + HEAD_CARRY * (l2.pop + l2.bonded), `${label}: добро в мере лестницы`).toBeGreaterThanOrEqual(l1.goods);
+          // Третья против второй: не меньше ни в чём — и в добре тоже, без всякого курса.
+          expect(l3.pop, `${label}: сожжение — горожане`).toBeGreaterThanOrEqual(l2.pop);
+          expect(l3.bonded, `${label}: сожжение — невольники`).toBeGreaterThanOrEqual(l2.bonded);
+          expect(l3.levels, `${label}: сожжение — уровни`).toBeGreaterThanOrEqual(l2.levels);
+          expect(l3.works, `${label}: сожжение — стройка`).toBeGreaterThanOrEqual(l2.works);
+          expect(l3.goods, `${label}: сожжение — добро`).toBeGreaterThanOrEqual(l2.goods);
+
+          if (l2.pop + l2.bonded > l1.pop + l1.bonded) strict.people++;
+          if (l3.levels > l2.levels) strict.levels++;
+          if (l3.works > l2.works) strict.works++;
+          if (l3.goods > l2.goods) strict.goods++;
+          points++;
+        }
+      }
+    }
+    expect(points).toBe(48);
+    // Лестница — не три одинаковые ступени: разница есть, и она там, где её обещали.
+    expect(strict.people, 'вторая уводит людей').toBe(points);
+    expect(strict.levels, 'третья роняет больше уровней').toBe(points);
+    expect(strict.works, 'третья жжёт стройку').toBe(points);
+    expect(strict.goods, 'третья сжигает больше, чем уносит обоз второй').toBeGreaterThan(0);
+  });
+});
+
+describe('постройки: ниже первого не падает ничто, тайник не падает ни на одной ступени', () => {
+  it('на всех трёх ступенях, всех солях и посёлках — замером', () => {
+    let floorHit = 0;
+    let cacheWouldFall = 0;
+    for (let k = 0; k < 4; k++) {
+      const town = ladderTown(k);
+      const cache = town.buildings.find((b) => b.type === 'cache')!;
+      for (const f of FATE_IDS) {
+        for (let seed = 1; seed <= 12; seed++) {
+          const { after } = strikeTown(town, f, Infinity, Infinity, seed);
+          const label = `${f}, посёлок ${k}, соль ${seed}`;
+          for (const b of after.buildings) expect(b.level, `${label}: ${b.type}`).toBeGreaterThanOrEqual(1);
+          const kept = after.buildings.find((b) => b.type === 'cache')!;
+          expect(kept.level, `${label}: уровень тайника`).toBe(cache.level);
+          expect([kept.work, kept.workRequired], `${label}: стройка тайника`).toEqual([cache.work, cache.workRequired]);
+          // Граница области: удар пришёлся на постройку, которой ниже некуда.
+          for (const b of town.buildings) {
+            if (b.type === 'cache') continue;
+            const now = after.buildings.find((x) => x.id === b.id)!;
+            if (now.level === 1 && b.level - FATES[f].levels < 1 && b.level !== now.level) floorHit++;
+          }
+          // Граница области: не будь тайник вынут из списка, удар пришёлся бы и на него.
+          const all = Object.fromEntries(town.buildings.map((b) => [b.type, b.level]));
+          if (fate(input({ fate: f, levels: all, seed })).fallen.some((x) => x.id === 'cache')) cacheWouldFall++;
+        }
+      }
+    }
+    expect(floorHit, 'дно задевали').toBeGreaterThan(0);
+    expect(cacheWouldFall, 'без исключения тайник попадал бы под удар').toBeGreaterThan(0);
+  });
+
+  it('сожжение: все постройки по два уровня вместо пяти по одному, недостроенное сгорает, кроме тайника', () => {
+    const town = ladderTown(2);
+    const { r, after } = strikeTown(town, 'burn', Infinity, Infinity, 5);
+    const pool = Object.keys(playerProfile(town).levels ?? {});
+    expect(r.fallen.map((x) => x.id).sort(), 'удар на всех, а не на пяти').toEqual([...pool].sort());
+    for (const x of r.fallen) expect(x.to).toBe(Math.max(1, x.from - BURN_LEVELS));
+    expect(after.buildings.find((b) => b.type === 'smithy')!.workRequired, 'стройка кузницы сгорела').toBe(0);
+    // Возврата нет: склад после пожара — ровно тайник, без половины заплаченного.
+    const p = playerProfile(town);
+    for (const res of RESOURCE_IDS) expect(Math.floor(after.resources[res]), res).toBe(Math.min(p.stock[res] ?? 0, p.stash));
+  });
+});
+
+describe('уведённые вычитаются из добычи ровно один раз, по курсу обоза', () => {
+  it('курс — не новое число: воин везёт `carry` добра или ведёт `escort` людей', () => {
+    expect(HEAD_CARRY).toBe(UNIT_BY_ID.warrior.carry / UNIT_BY_ID.warrior.escort);
+    expect(HEAD_CARRY).toBe(150);
+  });
+
+  it('добыча второй ступени — обоз, но не больше открытого склада минус место людей; город теряет ровно взятое', () => {
+    let points = 0;
+    const region = { convoyFree: 0, partial: 0, convoyBinds: 0 };
+    const STOCKS: Loot[] = [{ food: 900, wood: 300 }, { food: 5000, iron: 2200, stone: 1300 }, { wood: 40_000, food: 30_000 }];
+    for (const stock of STOCKS) {
+      for (const gold of [0, 1200]) {
+        for (const stash of [0, 150]) {
+          for (const carry of [Infinity, 2500, 30_000]) {
+            for (const escort of [3, 20, 400]) {
+              for (const [pop, bonded] of [[30, 2], [400, 40], [2000, 300]] as const) {
+                const base = input({ stock, gold, stash, carry, escort, pop, bonded });
+                const open = fate({ ...base, fate: 'plunder', carry: Infinity }).takenTotal;
+                const r = fate({ ...base, fate: 'captives' });
+                const led = r.ledBonded.taken + r.ledPop.taken;
+                const label = `склад ${JSON.stringify(stock)}, казна ${gold}, тайник ${stash}, обоз ${carry}, конвой ${escort}, люди ${pop}/${bonded}`;
+                // Граница области: уводят хоть кого-то — иначе вычитать нечего.
+                expect(led, label).toBeGreaterThan(0);
+                expect(r.lessGoods, `${label}: курс`).toBe(HEAD_CARRY * led);
+                expect(r.takenTotal, `${label}: взято`).toBe(Math.min(carry, Math.max(0, open - HEAD_CARRY * led)));
+                // Ровно один раз и на обе стороны: что взял победитель, то и потерял город.
+                expect(winnerGain(r).resources).toEqual(r.taken);
+                expect(sum(homeLoss(r).resources), `${label}: город потерял не то, что взяли`).toBe(r.takenTotal);
+                expect(winnerGain(r).bonded).toBe(led);
+                if (carry >= open) region.convoyFree++;
+                if (HEAD_CARRY * led > 0 && HEAD_CARRY * led < open) region.partial++;
+                if (carry < open - HEAD_CARRY * led) region.convoyBinds++;
+                points++;
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(points).toBe(324);
+    // Граница области: и там, где обоз не мешает (вычитание из обоза дало бы другое
+    // число), и там, где место людей съедает часть склада, и там, где режет сам обоз.
+    expect(region.convoyFree).toBeGreaterThan(0);
+    expect(region.partial).toBeGreaterThan(0);
+    expect(region.convoyBinds).toBeGreaterThan(0);
+  });
+
+  it('невольники уходят первыми, горожане — тем конвоем, что остался, и не больше доли', () => {
+    for (const escort of [5, 30, 90, 1000]) {
+      const r = fate(input({ fate: 'captives', pop: 200, bonded: 40, escort }));
+      expect(r.ledBonded.taken, `конвой ${escort}`).toBe(Math.min(40, escort));
+      expect(r.ledPop.taken, `конвой ${escort}`).toBe(Math.min(Math.floor(200 * LED_POP_SHARE), Math.max(0, escort - 40)));
+    }
+  });
+});
+
+describe('сожжение: горожане, невольники и победитель', () => {
+  it('победителю ничего; горожан расходится объявленная доля, последний остаётся; невольники — все', () => {
+    for (const pop of [1, 2, 5, 37, 800]) {
+      for (const bonded of [0, 9, 300]) {
+        const r = fate(input({ fate: 'burn', pop, bonded, gold: 500, stash: 10, carry: 100, escort: 100 }));
+        const label = `люди ${pop}, невольники ${bonded}`;
+        expect(r.taken, label).toEqual({});
+        expect(r.takenTotal).toBe(0);
+        expect(winnerGain(r), label).toEqual({ resources: {} });
+        // Огню обоз не нужен: сгорает всё сверх тайника, а не столько, сколько поднял бы отряд.
+        expect(r.lostTotal, label).toBe(fate(input({ pop, bonded, gold: 500, stash: 10, carry: Infinity })).takenTotal);
+        expect(r.scattered.pop, label).toBe(Math.min(Math.max(0, pop - 1), Math.floor(pop * BURN_POP_SHARE)));
+        expect(r.scattered.bonded, label).toBe(bonded);
+        expect(r.ledBonded.taken + r.ledPop.taken, label).toBe(0);
+      }
+    }
+  });
+});
+
+describe('защита от цепочки: сожжённый город сутки не сжечь, а ограбить можно', () => {
+  const AT = START + 5 * 3_600_000;
+
+  it('срок — ровно сутки, и держится он до последней секунды', () => {
+    const until = burnImmuneUntil(AT);
+    expect(until - AT).toBe(BURN_IMMUNE);
+    expect(BURN_IMMUNE).toBe(24 * 3_600_000);
+    const inside = [AT, AT + 1, AT + 3_600_000, AT + 12 * 3_600_000, until - 1000, until - 1];
+    for (const t of inside) {
+      // Граница области: минута внутри суток.
+      expect(burnImmune(until, t), `${(t - AT) / 1000} с`).toBe(true);
+      expect(fateBlock('burn', 'player', until, t), `${(t - AT) / 1000} с: жечь`).not.toBeNull();
+      expect(fateAt('burn', 'player', until, t), `${(t - AT) / 1000} с: падение`).toBe(FATE_DEFAULT);
+      expect(fateBlock('plunder', 'player', until, t)).toBeNull();
+      expect(fateBlock('captives', 'player', until, t)).toBeNull();
+      expect(fateAt('captives', 'player', until, t)).toBe('captives');
+    }
+    expect(fateBlock('burn', 'player', until, until)).toBeNull();
+    expect(fateAt('burn', 'player', until, until)).toBe('burn');
+    expect(fateBlock('burn', 'player', undefined, AT), 'не жгли — не защищено').toBeNull();
+  });
+});
+
+describe('сожжение не предлагается логову и двору мира', () => {
+  it('ни в какую минуту и ни при какой защите, а грабёж и увод людей — да', () => {
+    for (const until of [undefined, START, START + BURN_IMMUNE]) {
+      expect(fateBlock('burn', 'world', until, START), `защита ${until}`).not.toBeNull();
+      expect(fateAt('burn', 'world', until, START)).toBe(FATE_DEFAULT);
+      expect(fateBlock('plunder', 'world', until, START)).toBeNull();
+      expect(fateBlock('captives', 'world', until, START)).toBeNull();
+    }
+    expect(FATE_IDS.filter((f) => !FATES[f].vsWorld)).toEqual(['burn']);
   });
 });
 

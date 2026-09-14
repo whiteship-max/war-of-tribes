@@ -13,12 +13,15 @@ import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo'
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
+import { FATE_DEFAULT } from '@/world/spoils';
+import { FATE_META } from '@/world/data/fates';
+import { FatePick } from '@/ui/parts/FatePick';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
-import type { FigureId, Mission, UnitStack } from '@/world/types';
+import type { Fate, FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
 import { awayOf, homeOf, postureOf, roomOf } from '@/world/muster';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
@@ -218,14 +221,19 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const besiege = useWorld((g) => g.besiege);
   const negotiate = useWorld((g) => g.negotiate);
   const openMenu = useWorld((g) => g.openMenu);
+  const openSiege = useGame((g) => g.openSiege);
+  const openCamp = useGame((g) => g.openCamp);
   const [mission, setMission] = useState<Mission | null>(null);
   const [pick, setPick] = useState<UnitStack>({});
   const [busy, setBusy] = useState(false);
+  // Участь города объявляется ударом или осадой — этим же выбором.
+  const [fate, setFate] = useState<Fate>(FATE_DEFAULT);
 
-  // Новая клетка — новый выбор: состав отряда от прошлой цели тут ни при чём.
+  // Новая клетка — новый выбор: состав отряда и участь от прошлой цели тут ни при чём.
   useEffect(() => {
     setMission(null);
     setPick({});
+    setFate(FATE_DEFAULT);
   }, [x, y]);
 
   const here = { x, y };
@@ -351,7 +359,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
    */
   const quickStrike = async (): Promise<void> => {
     setBusy(true);
-    const err = await attack({ setup: null });
+    const err = await attack({ setup: null, fate });
     setBusy(false);
     showToast(err ?? 'Дружина ударила. Отчёт в походах.');
   };
@@ -536,10 +544,10 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
       )}
 
       {/*
-        Лагерь под стенами. Часов голода здесь нет и быть не может: сколько
-        хлеба у чужого города, игрок не знает — ни глазами, ни разведкой. Он
-        видит, что осада идёт, и узнает о её конце вместе с городом. Свою осаду
-        он видит с часами, но в другом месте и по своему складу.
+        Лагерь под стенами. У своего города и у своего лагеря это вход в окно осады:
+        всё, что про осаду знают и что с ней делают, собрано там, — и здесь это не
+        повторяется. Чужой лагерь под чужим городом — строкой: сколько стоит и как
+        укрепился, той же функцией, что и бой у лагеря.
       */}
       {card.siege && (
         <>
@@ -550,19 +558,24 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               <span className="name">
                 {card.siege.mine ? 'Наш лагерь у стен, стоит' : `Лагерь «${card.siege.byName}», стоит`}
               </span>
-              {/* Сколько лагерь уже стоит, а не сколько ему осталось: срок знает
-                  только тот, чей это склад. */}
               <span className="val">{formatLeft(Math.max(0, (worldNow() - card.siege.since) / 1000))}</span>
             </div>
+            <div className="mod">
+              <span className="ico">{FATE_META[card.siege.fate].icon}</span>
+              <span className="name">Объявлено</span>
+              <span className="val">{FATE_META[card.siege.fate].name.toLowerCase()}</span>
+            </div>
           </div>
-          <p className="note">
-            {card.siege.mine
-              ? 'Приток в городе срезан, хлеб убывает. Сколько его осталось — не узнать: узнаем вместе с ними. Уведёшь полководца — осада снята.'
-              : 'Под этими стенами уже стоит чужой лагерь. Разобьёшь его — осада снята.'}
-          </p>
-          {/* Укрепления лагеря видны глазами — и нашего, и чужого. Читаются из
-              той же отметки `since`, той же функцией, что и бой у лагеря. */}
-          <p className="note">{worksWords(card.siege, worldNow())}</p>
+          {card.siege.mine || card.mine ? (
+            <button className="btn wide" onClick={card.mine ? openSiege : openCamp}>
+              ⛺ Окно осады
+            </button>
+          ) : (
+            <>
+              <p className="note">Под этими стенами уже стоит чужой лагерь. Разобьёшь его — осада снята.</p>
+              <p className="note">{worksWords(card.siege, worldNow())}</p>
+            </>
+          )}
         </>
       )}
 
@@ -716,7 +729,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             </button>
           </>
         )}
-        {card.can.raid && (
+        {/* Участь объявляется ударом или осадой — выбирают её прямо над ними. */}
+        {(card.can.raid || card.can.besiege) && !card.siege?.mine && (
+          <FatePick options={card.fates} value={fate} onChange={setFate} />
+        )}
+        {card.can.raid && !card.siege?.mine && (
           <>
             {/* Полководец здесь и войско при нём — только теперь и можно ударить. */}
             <button className="btn wide" disabled={busy} onClick={() => void quickStrike()}>
@@ -735,7 +752,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             onClick={() => {
               void (async () => {
                 setBusy(true);
-                const err = await besiege();
+                const err = await besiege(fate);
                 setBusy(false);
                 showToast(err ?? `Дружина обложила ${card.name}. ${CAMP_LEAVE}`);
               })();

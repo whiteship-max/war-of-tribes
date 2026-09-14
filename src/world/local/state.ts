@@ -12,6 +12,7 @@ import type {
   Coord,
   DealId,
   DiploRecord,
+  Fate,
   Letter,
   FigureId,
   FigurePhase,
@@ -117,6 +118,12 @@ export interface StoredMarch {
    * заданий была бы враньём. Отличается выручка от набега ровно этим полем.
    */
   relief?: SettlementId;
+  /**
+   * Какую участь отряд объявил деревне, на которую идёт. Переезжает в окно осады, если
+   * отряд сел лагерем, и читается прорвавшимся набегом. Нет поля — «ограбить»: так
+   * ходят логова, и так читается отряд из сохранения до лестницы.
+   */
+  fate?: Fate;
 }
 
 /**
@@ -261,8 +268,6 @@ export interface WorldSave {
   effects: HomeEffect[];
   /** Последний слепок деревни игрока: им обороняется дом, пока игрока нет. */
   profile: PlayerProfile | null;
-  /** Когда игрок последний раз выходил на связь. */
-  seenAt: number;
   /**
    * Оборона, запертая за пять минут до прихода чужой армии (раздел 8 документа).
    * Latch, а не флаг: слепок деревни приходит каждый пульс, и без него защитник
@@ -319,6 +324,14 @@ export interface WorldSave {
    * падения; всё остальное про него — чистая функция (`siegeImmune`).
    */
   siegeImmune: Record<SettlementId, number>;
+  /**
+   * До какого момента сожжённый город нельзя сжечь снова. Ставится в минуту
+   * сожжения; всё остальное про него — чистая функция (`spoils.burnImmune`), тем же
+   * приёмом, что `siegeImmune`. Грабёж и увод людей она не закрывает. Версию
+   * сохранения поле не поднимает: `parseWorldSave` мержит прочитанное поверх новой
+   * партии, и старое сохранение приезжает с пустым словарём.
+   */
+  burnImmune: Record<SettlementId, number>;
   /**
    * Раньше этого момента под поселением не встаёт новый лагерь ИИ. Не то же,
    * что `siegeImmune`: тот ставится только падением города, а остывание — любым
@@ -462,7 +475,6 @@ export function createWorldSave(
     nextAiAt: now + 10 * 60_000,
     effects: [],
     profile: null,
-    seenAt: now,
     frozenDefense: null,
     fog: {},
     fogAt: now,
@@ -478,6 +490,7 @@ export function createWorldSave(
     sacks: {},
     sieges: {},
     siegeImmune: {},
+    burnImmune: {},
     siegeAgainAt: {},
     nextWarAt: now + 12 * 60_000,
     nextWar: 1,

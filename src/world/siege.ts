@@ -9,7 +9,8 @@
 //
 // Фоновой работы за осадой нет и заводить её нельзя. Стоит завести тик — и
 // придётся отвечать на вопрос, что делать с часами, пока игрок спал.
-import type { SettlementId } from './types';
+import type { Fate, SettlementId } from './types';
+import type { WoodPlan } from './works';
 import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER } from './data/tuning';
 
 /** Час в миллисекундах: расход еды считается в час, окно живёт в мс. */
@@ -83,6 +84,19 @@ export interface SiegeWindow {
    * с одной стороны, другую не занимает. Всё остальное — как у `gateAt`.
    */
   rearGateAt?: number;
+  /**
+   * Какую участь осаждающий объявил приказом «Осадить». Лежит в окне, а не в
+   * приказе: город падает в минуту голода, часто без осаждающего в игре, и падение
+   * читает участь отсюда. Осаждённый видит её с первой минуты. Нет поля — «ограбить»:
+   * так садится лагерь бота и так читается окно из сохранения до лестницы.
+   */
+  fate?: Fate;
+  /**
+   * Древесина лагеря: доли сторон и то, что вложено к последней смене долей
+   * (`world/works.WoodPlan`). Делит их только лагерь игрока, в окне осады; нет поля —
+   * лагерь рубит по правилу бота (`CAMP_WOOD`).
+   */
+  wood?: WoodPlan;
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -136,6 +150,9 @@ export function openSiege(at: {
   /** Занятость проходов той же осады: переносится при пересчёте, а не при новой. */
   gateAt?: number;
   rearGateAt?: number;
+  /** Объявленная участь и доли древесины: у той же осады переносятся при пересчёте. */
+  fate?: Fate;
+  wood?: WoodPlan;
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -146,6 +163,8 @@ export function openSiege(at: {
     relieved: at.relieved,
     ...(at.gateAt !== undefined ? { gateAt: at.gateAt } : {}),
     ...(at.rearGateAt !== undefined ? { rearGateAt: at.rearGateAt } : {}),
+    ...(at.fate !== undefined ? { fate: at.fate } : {}),
+    ...(at.wood !== undefined ? { wood: at.wood } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),
@@ -222,3 +241,9 @@ export const STRIKE_FROM_TOWN = 'Полководец в городе: его д
 
 /** Что случится, если увести полководца из лагеря. Одна строка на все точки. */
 export const CAMP_LEAVE = 'Уведёшь полководца — осада снята, и город снова ест.';
+
+/**
+ * Что случится, если из лагеря пойти на приступ. Штурм — это бой с гарнизоном, а
+ * не продолжение осады: лагерь снимается до боя, и сказано это до приказа.
+ */
+export const STORM_LIFTS = 'Штурм снимает осаду: возьмёшь город — будет объявленная участь, отобьют — лагеря больше нет.';

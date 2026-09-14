@@ -19,15 +19,17 @@ import {
   starvesAt,
   type SiegeWindow,
 } from './siege';
-import { AI_BONDED_SHARE, FALL_BUILDINGS, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
-import { FATE_NOW, fallSeed, fate, lead } from './spoils';
+import { AI_BONDED_SHARE, BURN_IMMUNE, FALL_BUILDINGS, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
+import { FATE_DEFAULT, FATE_IDS, burnImmuneUntil, fallSeed, fate, lead } from './spoils';
 import { stackCarry, stackEscort } from './data/units';
-import { applyEffects, syncSiege } from './bridge';
+import { applyEffects, playerProfile, syncSiege } from './bridge';
+import { bondedTotal } from '@/game/derived';
+import type { GameState } from '@/game/types';
 import { fallPool, fallenText } from '@/game/sim/expedition';
 import { troopTotal } from '@/game/battle/kinds';
 import type { GenSettlement } from './gen';
 import type { WorldSave } from './local/state';
-import type { FigureView, PlayerProfile, SettlementView, WorldPulse } from './types';
+import type { Fate, FigureView, PlayerProfile, SettlementView, SiegeView, WorldPulse } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
 
 /**
@@ -231,7 +233,7 @@ describe('осада: дебаф на выработку', () => {
   it('мост переводит мировые часы в игровые, а не кладёт их в состояние', () => {
     const s = createInitialState();
     s.time = 500;
-    const view = {
+    const view: SiegeView = {
       byId: 'S1',
       byName: 'Соседи',
       since: START,
@@ -239,6 +241,9 @@ describe('осада: дебаф на выработку', () => {
       garrison: 7,
       foodAtStart: 6000,
       campMen: 6,
+      fate: FATE_DEFAULT,
+      fall: { goods: 0, gold: 0, hidden: 0, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 0, levels: 0, burnsWorks: false, routed: 0 },
+      palisade: 1,
     };
     expect(syncSiege(s, view, START)).toBe(true);
     expect(s.siege?.until).toBeCloseTo(500 + 120, 6);
@@ -602,9 +607,10 @@ describe('осада: приказ игрока — та же осада, что
     const card = await w.world.settlement(target.id);
     expect(card?.siege, 'лагерь под стенами виден').toBeTruthy();
     expect(card?.siege?.mine, 'и он наш').toBe(true);
-    // Часов голода у чужого города игрок не видит: сколько там хлеба, он не
-    // знает ни глазами, ни разведкой — узнает вместе с ними.
-    expect(Object.keys(card?.siege ?? {})).toEqual(['mine', 'byName', 'since']);
+    // Карточка города часов голода не несёт: снаружи лагерь виден, амбар — нет.
+    // Сколько хлеба у города, осаждающий читает в окне своего лагеря (`camp()`) —
+    // так решил владелец, заводя окна осады; карточка остаётся взглядом со стороны.
+    expect(Object.keys(card?.siege ?? {})).toEqual(['mine', 'byName', 'since', 'wood', 'fate']);
     // Полководец занят: пока лагерь стоит, других дел у него нет.
     const fig = (await w.world.figures()).find((f) => f.id === 'general');
     expect(fig?.besieging).toBe(target.id);
@@ -647,14 +653,21 @@ describe('осада: приказ игрока — та же осада, что
     expect((await w.world.figures()).find((f) => f.id === 'general')?.besieging).toBeNull();
   }, 60_000);
 
-  it('армия в лагере занята: ни удара по городу, ни перехвата', async () => {
+  it('армия в лагере занята: перехвата нет, а удар по осаждённому городу — это штурм, и он снимает лагерь', async () => {
+    // Прежде из-под своей осады не били вовсе. Окно осаждающего завело три приказа —
+    // отступить, штурмовать, осаждать (решение владельца), — и штурм это удар по тому
+    // самому городу: лагерь снимается до боя, а другие дела полководцу по-прежнему
+    // заказаны.
     const w = makeWorld(7);
     const p = host();
-    await marchGeneral(w, p);
+    const target = await marchGeneral(w, p);
     expect(await w.world.besiege()).toBeNull();
-    const hit = await w.world.attack({ setup: null });
-    expect(hit.error, 'бить город из-под собственной осады нельзя').toContain('осаду');
     expect(await w.world.intercept('m1')).toContain('осаду');
+    expect((await w.world.camp())?.targetId, 'окно лагеря видит свой город').toBe(target.id);
+    const hit = await w.world.attack({ setup: null });
+    expect(hit.error, 'штурм своего осаждённого города — приказ, а не отказ').toBeNull();
+    expect((await w.world.settlement(target.id))?.siege, 'штурм снял лагерь').toBeNull();
+    expect((await w.world.figures()).find((f) => f.id === 'general')?.besieging ?? null).toBeNull();
   }, 60_000);
 
   it('город падает от голода, и добыча едет домой', async () => {
@@ -692,7 +705,7 @@ describe('осада: приказ игрока — та же осада, что
     expect(await w.world.besiege()).toBeNull();
     const save = (w.world as unknown as { save: WorldSave }).save;
     const peek = w.world as unknown as {
-      bondedOf(s: GenSettlement, now: number): number;
+      bondedAt(pop: number): number;
       popNow(s: GenSettlement, now: number): number;
       gen: { settlements: GenSettlement[] };
     };
@@ -709,7 +722,7 @@ describe('осада: приказ игрока — та же осада, что
     }
     const fallAt = starvesAt(save.sieges[target.id]);
     // У бота невольники — доля его людей, выведенная при чтении, как тайник из склада.
-    const bonded = peek.bondedOf.call(w.world, town, fallAt);
+    const bonded = peek.bondedAt.call(w.world, peek.popNow.call(w.world, town, fallAt));
     expect(bonded).toBe(Math.round(peek.popNow.call(w.world, town, fallAt) * AI_BONDED_SHARE));
     const men = troopTotal(save.figures.general.troops ?? {});
     // Граница области: уводить есть кого и есть чем стеречь — иначе ноль ниже
@@ -868,39 +881,47 @@ describe('осада: частота от ИИ', () => {
 
 describe('осада: цена падения известна заранее', () => {
   const banner = readFileSync(path.join(process.cwd(), 'src/ui/SiegeBanner.tsx'), 'utf8');
+  const panel = readFileSync(path.join(process.cwd(), 'src/ui/panels/SiegePanel.tsx'), 'utf8');
 
-  it('панель говорит, чем кончится голод, и говорит это рядом с часами', () => {
-    // Падение случается и в отсутствие игрока — `homeFalls` единственный вызов
-    // дележа склада, куда `prevSeen` не передаётся, и закрыто это нарочно
-    // (docs/sack.md, «Отсутствие не защищает от голода»). Раз так, цена обязана
-    // стоять там, где принимают решение уходить, — под счётчиком голода.
+  it('плашка говорит, чем кончится голод, рядом с часами, а окно — подробно и до действий', () => {
+    // Падение случается и в отсутствие игрока, и цена обязана стоять там, где
+    // принимают решение уходить, — под счётчиком голода. Плашка — вход в окно: в ней
+    // объявленная участь; в окне — что именно город потеряет.
     expect(banner).toContain('siege-fall');
-    expect(banner).toMatch(/Кончится хлеб/);
-    expect(banner).toMatch(/тайник/);
-    // Порядок: сначала «сколько осталось», потом «чем кончится», потом кнопка.
+    expect(banner).toMatch(/Объявлено/);
+    // Порядок: сначала «сколько осталось», потом «чем кончится», потом вход в окно.
     expect(banner.indexOf('siege-clock')).toBeLessThan(banner.indexOf('siege-fall'));
-    expect(banner.indexOf('siege-fall')).toBeLessThan(banner.indexOf('siege-sortie'));
+    expect(banner.indexOf('siege-fall')).toBeLessThan(banner.indexOf('siege-open'));
+    // В окне цена стоит первой после шапки, раньше часов и раньше действий.
+    expect(panel).toMatch(/Кончится хлеб/);
+    expect(panel).toMatch(/тайник/);
+    expect(panel.indexOf('Объявлено:')).toBeLessThan(panel.indexOf('Своей еды хватит на'));
+    expect(panel.indexOf('Своей еды хватит на')).toBeLessThan(panel.indexOf('Что делать'));
   });
 
-  it('доля рассеянного гарнизона берётся из константы, а не написана словами', () => {
-    // То же правило, что у строки дебафа: своей арифметики у панели нет, иначе
-    // она однажды покажет не то, что делает мир.
-    expect(banner).toContain('SIEGE_ROUT');
-    expect(banner).not.toMatch(/уйдёт 50/);
+  it('что уйдёт при падении, окно берёт из мира, а не пишет словами', () => {
+    // То же правило, что у строки дебафа: своей арифметики у окна нет, иначе оно
+    // однажды покажет не то, что делает мир. Доля рассеянного гарнизона и потеря
+    // склада приезжают готовыми (`SiegeView.fall`).
+    expect(panel).toContain('siege.fall');
+    expect(panel).not.toMatch(/SIEGE_ROUT|FALL_BUILDINGS|FALL_LEVELS|BURN_|LED_POP/);
+    expect(panel).not.toMatch(/уйдёт 50/);
   });
 
-  it('защита отсутствия закрывает набег и не закрывает падение — это решение', () => {
-    const src = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
-    // Набег в отсутствие игрока не состоится: проверка стоит в `resolveIncoming`
-    // и раньше, чем лагерь успеет сесть.
-    expect(src).toMatch(/resolveIncoming[\s\S]{0,400}?AWAY_GRACE/);
-    expect(src.indexOf('AWAY_GRACE')).toBeLessThan(src.indexOf('this.beginSiege(m, at)'));
-    // А падение — состоится: `prevSeen` в эту цепочку не передаётся вовсе.
-    // Закрой это, и лучшей игрой под осадой станет «закрыть приложение».
-    const fall = src.slice(src.indexOf('private homeFalls'), src.indexOf('private nextSiegeAt'));
-    expect(fall).toContain('fateHome');
-    expect(fall).not.toContain('AWAY_GRACE');
-    expect(fall).not.toContain('prevSeen');
+  it('правила отсутствия нет нигде: враг подходит и осаждает, в игре хозяин или нет', () => {
+    // Прежде набег, пришедшийся на время без игрока, не состоялся бы, и осада без
+    // игрока не начиналась (`AWAY_GRACE` в `resolveIncoming` до `beginSiege`). Правило
+    // снято решением владельца (docs/DEFEAT_LADDER.md). Держит это не только чтение
+    // кода: то же самое проверяет прогон в `world.test.ts` — набег, пришедшийся на
+    // отсутствие, кончается так же, как при игроке.
+    const code = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(code, 'правило отсутствия вернулось').not.toMatch(/AWAY_GRACE|prevSeen|seenAt\s*=|save\.seenAt/);
+    // Приход отряда и падение города не спрашивают, когда игрок смотрел в последний раз.
+    const incoming = code.slice(code.indexOf('private resolveIncoming('), code.indexOf('private letterCandidates('));
+    expect(incoming.indexOf('this.beginSiege(m, at)'), 'лагерь садится первым делом').toBeGreaterThan(0);
+    expect(incoming.slice(0, incoming.indexOf('this.beginSiege(m, at)'))).not.toMatch(/return/);
   });
 });
 
@@ -952,10 +973,11 @@ describe('участь взятого города в мире: казна и п
 
     // Казна — тем же дележом, что склад: дверь, прогнанная на тех же числах.
     const expected = fate({
-      fate: FATE_NOW,
+      fate: FATE_DEFAULT,
       stock: p.stock,
       gold: s.gold,
       stash: p.stash,
+      pop: p.pop,
       bonded: 0,
       carry: stackCarry(camp.units),
       escort: stackEscort(camp.units),
@@ -1013,4 +1035,191 @@ describe('участь взятого города в мире: казна и п
     expect(first?.fallen?.length, 'город пал и в первом мире').toBe(FALL_BUILDINGS);
     expect(second?.fallen).toEqual(first?.fallen);
   }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// Лестница в мире: объявленная участь, защита от цепочки, окно обороняющегося.
+// ---------------------------------------------------------------------------
+
+/**
+ * Дождаться осады, отряд которой объявил участь `fate`. Живых соперников на карте
+ * нет, и логово объявляет «ограбить» всегда; чужой город, объявивший вторую или
+ * третью ступень, здесь заводится руками — полем отряда в сохранении, тем самым,
+ * которое заполнил бы приказ живого игрока.
+ */
+async function besiegeDeclaring(w: ReturnType<typeof makeWorld>, p: PlayerProfile, declared: Fate): Promise<WorldPulse> {
+  const save = (w.world as unknown as { save: WorldSave }).save;
+  for (let i = 0; i < 4000; i++) {
+    w.advance(20_000);
+    for (const m of save.marches) if (!m.own && m.targetId === 'home' && m.phase === 'out') m.fate = declared;
+    const pulse = await w.world.sync(p);
+    if (pulse.siege) return pulse;
+  }
+  throw new Error('осады так и не случилось');
+}
+
+/** Посёлок под осадой: постройки выше первого, стройка в работе, люди, невольники, казна. */
+function besiegedTown(): GameState {
+  const s = createInitialState();
+  s.buildings.forEach((b, i) => {
+    b.level = b.type === 'cache' ? 2 : b.type === 'storage' ? 10 : 2 + (i % 7);
+  });
+  const smithy = s.buildings.find((b) => b.type === 'smithy')!;
+  smithy.work = 5;
+  smithy.workRequired = 700;
+  s.pop = 320;
+  s.bonded = 45;
+  s.gold = 7000;
+  for (const r of RESOURCE_IDS) s.resources[r] = 4000;
+  return s;
+}
+
+/** Слепок такого посёлка, который штурмовать бессмысленно: отряд садится лагерем. */
+const besiegedProfile = (s: GameState): PlayerProfile => ({
+  ...playerProfile(s),
+  defense: 100_000,
+  army: {},
+  command: 100,
+  food: 6000,
+  foodPerHour: 6000,
+  soldierFoodPerHour: 60,
+});
+
+describe('лестница в мире: объявлено при приказе, видно осаждённому, сделано при падении', () => {
+  it('окно обороняющегося называет ровно то, что племя потеряет, — замером на посёлке, на всех трёх ступенях', async () => {
+    for (const declared of FATE_IDS) {
+      const s = besiegedTown();
+      const p = besiegedProfile(s);
+      const w = makeWorld(7);
+      await w.world.sync(p);
+      const start = await besiegeDeclaring(w, p, declared);
+      const at = Math.ceil(start.siege!.starvesAt);
+      // Окно — за секунду до голода: слепок и лагерь те же, что будут в минуту падения.
+      w.at(at - 1000);
+      const view = (await w.world.sync(p)).siege!;
+      expect(view.fate, `${declared}: осаждённый видит объявленное`).toBe(declared);
+      w.at(at);
+      const after = await w.world.sync(p);
+      const effect = after.effects.find((e) => e.id.endsWith('-fell'))!;
+      const report = after.reports.find((r) => r.id.endsWith('-fell'))!;
+      expect(effect, `${declared}: город пал`).toBeTruthy();
+
+      const before = { goods: RESOURCE_IDS.reduce((n, r) => n + s.resources[r], 0) + s.gold, pop: s.pop, bonded: bondedTotal(s) };
+      const works = s.buildings.filter((b) => b.workRequired > 0).length;
+      applyEffects(s, [effect]);
+      const lost = {
+        goods: before.goods - (RESOURCE_IDS.reduce((n, r) => n + s.resources[r], 0) + s.gold),
+        pop: before.pop - s.pop,
+        bonded: before.bonded - bondedTotal(s),
+      };
+      const f = view.fall;
+      // Граница области: каждой ступени есть что сделать с этим посёлком.
+      expect(f.goods + f.gold, `${declared}: брать нечего`).toBeGreaterThan(0);
+      expect(f.buildings, `${declared}: ронять нечего`).toBeGreaterThan(0);
+      expect(lost.goods, `${declared}: добро`).toBe(f.goods + f.gold);
+      expect(lost.pop, `${declared}: горожане`).toBe(f.ledPop + f.scatterPop);
+      expect(lost.bonded, `${declared}: невольники`).toBe(f.ledBonded + f.scatterBonded);
+      expect(report.fallen!.length, `${declared}: сколько построек под ударом`).toBe(f.buildings);
+      expect(works - s.buildings.filter((b) => b.workRequired > 0).length > 0, `${declared}: стройка`).toBe(f.burnsWorks);
+      expect(effect.lost.warrior ?? 0, `${declared}: гарнизон`).toBe(f.routed);
+      if (declared !== 'plunder') expect(lost.pop + lost.bonded, `${declared}: людей не стало`).toBeGreaterThan(0);
+    }
+  }, 240_000);
+
+  it('сожжённый город сутки не сжечь: следующая осада с тем же объявлением кончается грабежом', async () => {
+    const s = besiegedTown();
+    const p = besiegedProfile(s);
+    const w = makeWorld(7);
+    const save = (w.world as unknown as { save: WorldSave }).save;
+    await w.world.sync(p);
+
+    const first = await besiegeDeclaring(w, p, 'burn');
+    const firstAt = Math.ceil(first.siege!.starvesAt);
+    w.at(firstAt);
+    const burned = await w.world.sync(p);
+    const fell = burned.effects.find((e) => e.id.endsWith('-fell'))!;
+    expect(fell.burned, 'первый раз — сожгли').toBe(true);
+    expect(save.burnImmune.home, 'защита на сутки от минуты пожара').toBe(burnImmuneUntil(firstAt));
+
+    const second = await besiegeDeclaring(w, p, 'burn');
+    // Граница области: вторая осада встала и падёт внутри суток после пожара.
+    const secondAt = Math.ceil(second.siege!.starvesAt);
+    expect(secondAt, 'вторая осада — внутри суток').toBeLessThan(firstAt + BURN_IMMUNE);
+    // Осаждённый видит не объявленное впустую, а то, что случится.
+    expect(second.siege!.fate).toBe(FATE_DEFAULT);
+    w.at(secondAt);
+    const robbed = await w.world.sync(p);
+    const again = robbed.effects.find((e) => e.id.endsWith('-fell'))!;
+    const report = robbed.reports.find((r) => r.id.endsWith('-fell'))!;
+    expect(again.burned, 'второй раз не сожгли').toBeUndefined();
+    expect(report.fallen!.length, 'пять построек, а не все').toBe(FALL_BUILDINGS);
+    expect(again.resources, 'а ограбили — можно').not.toEqual({});
+    // Защита не продлилась грабежом: срок тот же, от первого пожара.
+    expect(save.burnImmune.home).toBe(burnImmuneUntil(firstAt));
+  }, 240_000);
+
+  it('логову сжечь не объявить ни осадой, ни ударом, ни заново у своего лагеря — а увести людей можно', async () => {
+    const w = makeWorld(7);
+    const p = host();
+    const target = await marchGeneral(w, p);
+    const card = await w.world.settlement(target.id);
+    const burn = card!.fates.find((o) => o.id === 'burn')!;
+    expect(burn.can, 'строка сожжения погашена').toBe(false);
+    expect(burn.reason).toMatch(/Сжечь можно только город игрока/);
+    expect(card!.fates.filter((o) => o.can).map((o) => o.id)).toEqual(['plunder', 'captives']);
+    expect(await w.world.besiege('burn')).toBe(burn.reason);
+    expect((await w.world.attack({ setup: null, fate: 'burn' })).error).toBe(burn.reason);
+
+    expect(await w.world.besiege('captives')).toBeNull();
+    const camp = await w.world.camp();
+    expect(camp?.fate, 'объявлено приказом').toBe('captives');
+    expect(await w.world.besiege('burn'), 'и заново у своего лагеря — тоже нет').toBe(burn.reason);
+    expect((await w.world.camp())?.fate).toBe('captives');
+    // Объявить заново мягче — можно, и окно видит это сразу.
+    expect(await w.world.besiege('plunder')).toBeNull();
+    expect((await w.world.camp())?.fate).toBe('plunder');
+  }, 60_000);
+
+  it('уведённые из логова приезжают невольниками — скольких увела дверь по людям логова до разгрома', async () => {
+    const w = makeWorld(7);
+    const p = host();
+    const target = await marchGeneral(w, p);
+    const save = (w.world as unknown as { save: WorldSave }).save;
+    expect(await w.world.besiege('captives')).toBeNull();
+    const peek = w.world as unknown as {
+      popNow(s: GenSettlement, now: number): number;
+      bondedAt(pop: number): number;
+      gen: { settlements: GenSettlement[] };
+    };
+    const town = peek.gen.settlements.find((x) => x.id === target.id)!;
+    for (let i = 0; i < 900; i++) {
+      const win = save.sieges[target.id];
+      expect(win, 'осада не должна сняться сама').toBeTruthy();
+      if (starvesAt(win) - w.now() <= 30_000) break;
+      w.advance(20_000);
+      await w.world.sync(p);
+    }
+    const fallAt = Math.ceil(starvesAt(save.sieges[target.id]));
+    const men = troopTotal(save.figures.general.troops ?? {});
+    const pop = peek.popNow.call(w.world, town, fallAt);
+    // Людей уводят по населению логова до того, как рассеянный гарнизон его убавит, —
+    // той же дверью, конвоем той дружины, что стоит лагерем. Склад на увод не влияет.
+    const expected = fate({
+      fate: 'captives',
+      stock: {},
+      gold: 0,
+      stash: 0,
+      pop,
+      bonded: peek.bondedAt.call(w.world, pop),
+      carry: Infinity,
+      escort: stackEscort({ warrior: men }),
+      seed: fallSeed(7, fallAt),
+    });
+    // Граница области: уводят хоть кого-то, и горожан тоже.
+    expect(expected.ledPop.taken, 'горожан уводят').toBeGreaterThan(0);
+    w.at(fallAt);
+    const pulse = await w.world.sync(p);
+    const gain = pulse.effects.find((e) => e.text.includes('сдался голоду'))!;
+    expect(gain.bonded, 'уведённые — невольниками').toBe(expected.ledBonded.taken + expected.ledPop.taken);
+  }, 120_000);
 });

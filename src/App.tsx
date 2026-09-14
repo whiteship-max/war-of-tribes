@@ -29,6 +29,8 @@ import { WorldPanel } from './ui/panels/WorldPanel';
 import { MarchesPanel } from './ui/panels/MarchesPanel';
 import { BattlePanel } from './ui/panels/BattlePanel';
 import { SortiePanel } from './ui/panels/SortiePanel';
+import { SiegePanel } from './ui/panels/SiegePanel';
+import { CampPanel } from './ui/panels/CampPanel';
 import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 import { villageMusic } from './sound/web';
@@ -56,6 +58,8 @@ function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'battle') return <BattlePanel targetId={view.target} />;
   if (view.kind === 'defense') return <BattlePanel />;
   if (view.kind === 'sortie') return <SortiePanel />;
+  if (view.kind === 'siege') return <SiegePanel />;
+  if (view.kind === 'camp') return <CampPanel />;
   if (view.kind === 'report') return <ReportPanel id={view.id} />;
   switch (view.tab) {
     case 'people':

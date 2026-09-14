@@ -705,6 +705,11 @@ describe('тон: буднично, без одобрения и без глум
     code('src/ui/parts/Market.tsx', 'function BondedRow', 'function GoodRow'),
     code('src/ui/panels/BuildingPanel.tsx', 'function WorkerSlots', 'function BuildingData'),
     code('src/game/sim/mutiny.ts'),
+    // Лестница участи говорит об уведённых и разошедшихся — тем же тоном.
+    code('src/world/data/fates.ts'),
+    code('src/ui/parts/FatePick.tsx'),
+    code('src/ui/panels/SiegePanel.tsx'),
+    code('src/game/sim/expedition.ts', 'export function applyExpedition'),
   ];
 
   it('ни похвалы сделке, ни шутки, ни подробностей насилия', () => {

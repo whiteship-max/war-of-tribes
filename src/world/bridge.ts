@@ -160,8 +160,8 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // решает племя (`expedition.fallPool`, без тайника).
     levels: fallPool(s),
     // Невольники: одно число, и мир читает его ровно в одном месте — в двери
-    // участи взятого города (`world/spoils.fate`), на той ступени, что уводит
-    // людей. Где они стоят и на каких работах, миру знать не надо.
+    // участи взятого города (`world/spoils.fate`): их уводят на ступени «увести
+    // людей» и они разбегаются с пожарища. Где они стоят, миру знать не надо.
     bonded: bondedTotal(s),
   };
 }
@@ -245,6 +245,10 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     arms: e.arms ?? 0,
     lair: e.lair ?? false,
     bonded: e.bonded ?? 0,
+    // Горожане взятого города и сгоревшие стройки: числа и отметку решила дверь
+    // участи, племя только снимает.
+    popLost: e.popLost ?? 0,
+    burned: e.burned ?? false,
     // Какие постройки взятого города теряют уровень: список выбран в минуту
     // события, племя его только применяет.
     fallen: e.fallen,

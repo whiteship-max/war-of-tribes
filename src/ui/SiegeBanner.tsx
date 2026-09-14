@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { tutorialActive } from '@/game/data/tutorial';
-import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
-import { FALL_BUILDINGS, FALL_LEVELS, SIEGE_ROUT } from '@/world/data/tuning';
 import { useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
-import { worksShort } from '@/world/works';
+import { FATE_META } from '@/world/data/fates';
 import { Icon } from '@/ui/icons/Icon';
 
 /**
@@ -15,16 +13,17 @@ import { Icon } from '@/ui/icons/Icon';
  * туда шестую стопку значило бы, что осаду разбирают тем же движением, что и
  * гонца с грамотой. Осаду не разбирают — из-под неё выходят.
  *
- * Числа здесь живые и все до одного считаны не тут: срок идёт по мировым часам
- * (`starvesAt` — их отметка), доля срезанного притока берётся из констант, по
- * которым его режет сама симуляция (`derived.siegeYield`). Своей арифметики у
- * панели нет и быть не должно — иначе она однажды покажет не то, что происходит.
+ * Плашка — вход в окно осады (`panels/SiegePanel`), а не второе окно: всё, что
+ * про осаду можно знать и сделать, собрано там. Здесь остаётся ровно то, что
+ * решает, закрыть ли игру: сколько осталось и чем кончится. Числа живые и
+ * посчитаны не тут — срок идёт по мировым часам (`starvesAt`), участь приезжает
+ * из мира уже проверенной.
  */
 export function SiegeBanner() {
   const s = useGame((g) => g.s);
   const eventResult = useGame((g) => g.eventResult);
   const mapOpen = useGame((g) => g.mapOpen);
-  const openSortie = useGame((g) => g.openSortie);
+  const openSiege = useGame((g) => g.openSiege);
   const siege = useWorld((g) => g.siege);
   const [, retick] = useState(0);
 
@@ -40,9 +39,7 @@ export function SiegeBanner() {
   // а модалка события делит слой с чем угодно поверх неё.
   if (!siege || mapOpen || tutorialActive(s) || s.activeEvent || eventResult) return null;
 
-  const left = secondsLeft(siege.starvesAt, worldNow());
-  const cut = Math.round((1 - SIEGE_YIELD) * 100);
-  const rout = Math.round(SIEGE_ROUT * 100);
+  const meta = FATE_META[siege.fate];
 
   return (
     <div className="siege">
@@ -53,64 +50,21 @@ export function SiegeBanner() {
         <b>Город в осаде</b>
       </div>
       <div className="siege-who">«{siege.byName}» у ворот</div>
-      {/*
-        Дебаф одной строкой, а не таблицей: панель обязана быть маленькой —
-        слева в том же ярусе стоит столбик писем, и на 375 px на двоих места
-        ровно столько. Числа при этом всё равно из констант, которыми режет
-        симуляция, а не написаны словами в разметке.
-      */}
-      <div className="siege-cut">
-        Хлеб {SIEGE_FOOD_YIELD === 0 ? 'не идёт' : `×${SIEGE_FOOD_YIELD}`}, прочее −{cut}%
-      </div>
-      {/*
-        Главное число панели — оно же и весь размен: гарнизон, который не дал
-        чужим пойти на приступ, ест из того же амбара и приближает эту отметку.
-        Поэтому он и стоит здесь, рядом со сроком, а не отдельной строкой.
-      */}
       <div className="siege-clock">
-        До голода <b>{formatLeft(left)}</b>
+        До голода <b>{formatLeft(secondsLeft(siege.starvesAt, worldNow()))}</b>
       </div>
-      <div className="siege-eat">Гарнизон {siege.garrison} — он и ест</div>
       {/*
-        Чем кончится голод — сказано здесь и заранее, рядом с часами, потому что
-        решение уходить из игры принимают, глядя на эти часы. Осада не начинается
-        без игрока: он видел лагерь, видел срок и имел вылазку. А вот кончиться
-        она может без него — и это должно быть известно до того, как он закроет
-        игру, а не после (см. docs/siege.md, «Падение города»).
-
-        Доля рассеянного гарнизона берётся из той же константы, которой её
-        считает мир: своей арифметики у панели нет.
-      */}
-      {/*
-        Участь взятого города — та же дверь, что у прорвавшегося набега
-        (`world/spoils.fate`): склад и казна до тайника и пять построек по уровню.
-        Числа — из тех же констант, которыми её считает мир. Невольников ступень
-        «ограбить» не уводит, и строка о них не говорит.
+        Чем кончится голод — сказано рядом с часами, потому что решение уходить из
+        игры принимают, глядя на эти часы. Враг подходит и осаждает, в игре хозяин
+        или нет, и кончиться осада может без него — это должно быть известно до
+        того, как он закроет игру, а не после. Подробно — в окне осады.
       */}
       <div className="siege-fall">
-        Кончится хлеб — уйдёт {rout}% гарнизона, склад и казну вычистят до тайника, {FALL_BUILDINGS}{' '}
-        построек потеряют {FALL_LEVELS === 1 ? 'по уровню' : `по ${FALL_LEVELS} уровня`}. Случится и без тебя.
+        {meta.icon} Объявлено: {meta.name.toLowerCase()}. Случится и без тебя.
       </div>
-      {/*
-        Рогатки растут, и время работает против города: это видно здесь же, над
-        кнопкой, где решают, выходить ли сейчас. Сторон две — со стороны города бьёт
-        вылазка, с тыла полководец из поля, — и какая слабее, это и есть подсказка.
-        Слова и числа — из `world/works`, той же меркой, которой их считает бой.
-      */}
-      {worksShort(siege, worldNow()).map((line) => (
-        <div className="siege-works" key={line}>
-          {line}
-        </div>
-      ))}
-      {/*
-        Вылазка — единственное, что игрок может сделать из-под осады сам, и
-        поэтому кнопка тут одна. Состав выбирается на своём экране: выпускать
-        весь гарнизон одним нажатием — не решение, а ловушка.
-      */}
-      <button className="siege-sortie" onClick={openSortie}>
-        ⚔️ Вылазка
+      <button className="siege-open" onClick={openSiege}>
+        ⛺ Окно осады
       </button>
-      <div className="siege-note">Выйти и сбить лагерь, пока рогатки не дозрели.</div>
     </div>
   );
 }

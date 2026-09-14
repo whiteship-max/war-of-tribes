@@ -466,7 +466,11 @@ describe('симметрия: разорение чужого двора и св
     }
   }, 240_000);
 
-  it('нет игрока — нет набега, а значит и склад цел', async () => {
+  it('нет игрока — набег всё равно доходит, и склад делит тот же бой, что при игроке', async () => {
+    // Прежде здесь стояло обратное: «нет игрока — нет набега». Правило отсутствия
+    // снято решением владельца (docs/DEFEAT_LADDER.md): враг подходит, в игре хозяин
+    // или нет. Держит тест то, что осталось от прежнего обещания, — отсутствие не
+    // делает набег ни хуже, ни лучше: отряд приходит и разбирается своим боем.
     const w = makeWorld(5);
     const p = profile({ pop: 120, defense: 30, army: {}, units: { warrior: 0, scout: 0 }, command: 0 });
     // Дожидаемся вышедшего отряда — и пропадаем: пульса нет до самого прихода.
@@ -478,13 +482,20 @@ describe('симметрия: разорение чужого двора и св
     }
     expect(raidId, 'набег вышел').toBeTruthy();
     const raid = saveOf(w.world).marches.find((m) => m.id === raidId)!;
+    // Граница области: до прихода больше одного пульса — отсутствие было.
+    expect(raid.arriveAt - w.now()).toBeGreaterThan(10_000);
 
     w.at(raid.arriveAt + HOUR);
     const pulse = await w.world.sync(p);
-    expect(pulse.effects.some((e) => e.battle === 'lost'), 'бой не состоялся').toBe(false);
-    for (const e of pulse.effects) expect(Object.keys(e.resources).length).toBe(0);
-    const skipped = pulse.reports.find((r) => r.title === 'Набег не состоялся');
-    expect(skipped, 'набег просто не состоялся').toBeTruthy();
+    expect(pulse.reports.some((r) => r.title === 'Набег не состоялся'), '«не состоялся» не бывает').toBe(false);
+    const met = pulse.reports.find((r) => r.id === `${raidId}-defense` || r.id === `${raidId}-siege`);
+    expect(met, 'отряд дошёл и встретил заслон').toBeTruthy();
+    // Прорвался — склад ушёл в последствие тем же отчётом; отбит — не ушло ничего.
+    const effect = pulse.effects.find((e) => e.id === `${raidId}-defense`);
+    if (met!.id.endsWith('-defense')) {
+      expect(effect, 'у боя есть последствие').toBeTruthy();
+      expect(effect!.resources).toEqual(met!.won ? {} : (met!.loot ?? {}));
+    }
   }, 240_000);
 });
 

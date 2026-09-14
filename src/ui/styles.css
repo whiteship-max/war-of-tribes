@@ -4099,10 +4099,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 }
 
 .siege-who,
-.siege-cut,
-.siege-eat,
-.siege-fall,
-.siege-note {
+.siege-fall {
   font-size: 10px;
   line-height: 1.3;
   color: var(--muted);
@@ -4115,15 +4112,10 @@ body.replaying .app > *:not(.canvas-wrap) {
   text-overflow: ellipsis;
 }
 
-.siege-cut {
-  color: #e06b5a;
-}
-
 /*
- * Цена голода. Стоит после счётчика нарочно: сначала «сколько осталось», потом
- * «чем кончится», — в этом порядке игрок и думает, решая, уходить ли. Цвет
- * приглушённее, чем у строки дебафа: дебаф идёт уже сейчас, а это ещё не
- * случилось и случиться не обязано.
+ * Объявленная участь. Стоит после счётчика нарочно: сначала «сколько осталось»,
+ * потом «чем кончится», — в этом порядке игрок и думает, решая, уходить ли. Цвет
+ * приглушённый: это ещё не случилось и случиться не обязано.
  */
 .siege-fall {
   margin-top: 4px;
@@ -4142,7 +4134,8 @@ body.replaying .app > *:not(.canvas-wrap) {
   color: var(--text);
 }
 
-.siege-sortie {
+/* Вход в окно осады: всё остальное про осаду — там. */
+.siege-open {
   width: 100%;
   min-height: var(--tap);
   margin-top: 6px;
@@ -4153,20 +4146,45 @@ body.replaying .app > *:not(.canvas-wrap) {
   font-size: 13px;
 }
 
-.siege-sortie:disabled {
-  opacity: 0.45;
+/* ---------- Участь города и древесина лагеря ---------- */
+
+/*
+ * Три строки участи — те же строки, что у приказов в меню полководца (`.am-row`):
+ * игрок узнаёт их как приказы, потому что это и есть часть приказа. Выбранная
+ * отмечена рамкой, а не цветом: цвет в этих строках уже занят погасшими.
+ */
+.fate-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
-.siege-note {
-  margin-top: 3px;
+.fate-row {
+  width: 100%;
 }
 
-/* Укрепления лагеря: время работает против города, и это стоит над кнопкой вылазки. */
-.siege-works {
-  margin-top: 4px;
-  font-size: 10px;
-  line-height: 1.3;
-  color: #e0a35a;
+.fate-row.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Доли древесины: пять кнопок шагом, переносятся на узком экране. */
+.fate-shares {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.fate-shares .mini {
+  min-height: var(--tap);
+  flex: 1 1 30%;
+}
+
+.fate-shares .mini.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 /* ---------- Прибор: что было со сценой ---------- */

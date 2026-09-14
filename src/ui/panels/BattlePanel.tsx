@@ -43,6 +43,9 @@ import { SectorEditor } from '../battle/SectorEditor';
 import { OrdersPicker, PlanPicker, ReservePicker } from '../battle/Tactics';
 import { IntelCard } from '../battle/IntelCard';
 import { Icon } from '@/ui/icons/Icon';
+import { FatePick } from '@/ui/parts/FatePick';
+import { FATE_DEFAULT } from '@/world/spoils';
+import type { Fate } from '@/world/types';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString());
 
@@ -86,6 +89,8 @@ export function BattlePanel({ targetId }: Props) {
   );
   const [sel, setSel] = useState<Sector | 'rest' | null>(null);
   const [busy, setBusy] = useState(false);
+  // Участь города объявляется этим же ударом.
+  const [fate, setFate] = useState<Fate>(FATE_DEFAULT);
 
   // Оборона правится «на месте»: у неё нет кнопки «отправить», и настройка,
   // не доехавшая до сохранения, пропала бы при закрытии шторки.
@@ -160,6 +165,7 @@ export function BattlePanel({ targetId }: Props) {
     if (heroGoes) act((g) => { g.hero.marchId = 'general'; return null; });
     const err = await strike({
       setup: toArmySetup(final, 0, 0, heroGoes ? { kind: hero.kind, men: hero.men } : null, fervour(s)),
+      fate,
     });
     setBusy(false);
     if (err) {
@@ -386,6 +392,9 @@ export function BattlePanel({ targetId }: Props) {
           >
             💾 Сохранить нынешнюю схему
           </button>
+
+          <h3>Участь города</h3>
+          <FatePick options={card?.fates ?? []} value={fate} onChange={setFate} />
 
           <button className="btn wide" disabled={busy || sent === 0} onClick={() => void doStrike()}>
             ⚔️ Ударить {troopsLine(picked)}

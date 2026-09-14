@@ -50,9 +50,19 @@ export type SheetView =
   /** Оборона своей деревни — та же панель без цели и дороги. */
   | { kind: 'defense' }
   /**
-   * Вылазка из осаждённой деревни: кого выпускаем за ворота. Открывается только
-   * из панели осады и живёт в деревне, а не на карте, — из-под осады выходят
-   * там, где стоят.
+   * Окно осады глазами обороняющегося: кто стоит, чем кончится, чем ответить. Входов
+   * два — плашка осады в деревне и меню полководца у своего города на карте, — а окно
+   * одно.
+   */
+  | { kind: 'siege' }
+  /**
+   * Окно осады глазами осаждающего: наш лагерь под чужим городом. Живёт на карте:
+   * открывается по лагерю — из карточки города и меню полководца.
+   */
+  | { kind: 'camp' }
+  /**
+   * Вылазка из осаждённой деревни: кого выпускаем за ворота. Открывается из окна
+   * осады и живёт в деревне, а не на карте, — из-под осады выходят там, где стоят.
    */
   | { kind: 'sortie' }
   /** Отчёт о бое с журналом по фазам. */
@@ -155,8 +165,12 @@ export interface GameStore {
   openBattle: (target: string) => void;
   /** Оборона деревни: расстановка, план, резерв, приказы. */
   openDefense: () => void;
-  /** Открыть вылазку. Ведёт сюда одна кнопка — из панели осады. */
+  /** Открыть вылазку. Ведёт сюда одна кнопка — из окна осады. */
   openSortie: () => void;
+  /** Окно осады своего города. */
+  openSiege: () => void;
+  /** Окно своего лагеря под чужим городом. */
+  openCamp: () => void;
   /** Отчёт о бое. */
   openReport: (id: string) => void;
   closeSheet: () => void;
@@ -269,7 +283,9 @@ export const useGame = create<GameStore>((set, get) => ({
   closeMap: () => {
     const cur = get().sheet;
     // Карточки карты живут только вместе с картой.
-    const onMap = cur && (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'battle' || cur.kind === 'report');
+    const onMap =
+      cur &&
+      (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'battle' || cur.kind === 'report' || cur.kind === 'camp');
     const keep = cur && !onMap ? cur : null;
     // Домой — мгновенно и без занавеса: диорама всё это время стояла на месте.
     set({ mapOpen: false, sheet: keep, curtain: null });
@@ -304,6 +320,16 @@ export const useGame = create<GameStore>((set, get) => ({
   openSortie: () => {
     haptic('light');
     set({ sheet: { kind: 'sortie' } });
+  },
+
+  openSiege: () => {
+    haptic('light');
+    set({ sheet: { kind: 'siege' } });
+  },
+
+  openCamp: () => {
+    haptic('light');
+    set({ sheet: { kind: 'camp' } });
   },
 
   openReport: (id) => set({ sheet: { kind: 'report', id } }),

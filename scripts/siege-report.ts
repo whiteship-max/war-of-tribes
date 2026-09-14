@@ -45,6 +45,7 @@ import {
 } from '@/world/data/tuning';
 import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
 import { playerProfile } from '@/world/bridge';
+import { FATE_META } from '@/world/data/fates';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
 import { commandCap, housingCapacity, productionPerDay, storageCap, hiddenStash, upgradeCost } from '@/game/derived';
@@ -106,11 +107,9 @@ async function frequency(seed: number, defense: number, army: TroopStack): Promi
     for (const r of pulse.reports as Report[]) {
       if (r.kind !== 'defense' || seen.has(r.id)) continue;
       seen.add(r.id);
-      // «Набег не состоялся» — это отряд, пришедший без игрока; в счёт он не
-      // идёт ни в старом правиле, ни в новом.
-      if (r.title === 'Набег не состоялся') continue;
       const siege = r.title === 'Город в осаде';
-      const battle = r.title === 'Нападение отбито' || r.title === 'Деревню разграбили';
+      // Прорвавшийся набег называется по объявленной участи; логова объявляют «ограбить».
+      const battle = r.title === 'Нападение отбито' || Object.values(FATE_META).some((m) => m.title === r.title);
       if (!siege && !battle) continue;
       out.came++;
       if (siege) out.sieges++;
@@ -773,10 +772,8 @@ const goodsPerHour = (g: GameState): number =>
 
 console.log('');
 console.log('--- цена падения: что стоит голод и что стоит дебаф до него ---');
-console.log('Осада начинается только при игроке (проверка `AWAY_GRACE` стоит раньше `beginSiege`),');
-console.log('а кончиться может без него: `homeFalls` — единственный вызов дележа, куда');
-console.log('`prevSeen` не передаётся. Это решение владельца, а не недосмотр: закрой его —');
-console.log('и лучшей игрой под осадой станет «закрыть приложение».');
+console.log('Осада начинается и кончается, в игре хозяин или нет: правило отсутствия снято решением');
+console.log('владельца (docs/DEFEAT_LADDER.md). Логово объявляет «ограбить» — эта участь и в таблице.');
 console.log('');
 console.log(' ур   склад   тайник     окно   дебаф за окно   унесено   доля склада   отстроится   гарнизон   постройки (ур. / добра на отстройку)');
 
