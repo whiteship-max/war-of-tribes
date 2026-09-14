@@ -37,6 +37,7 @@ import type {
   WorldInfo,
   WorldPulse,
 } from './types';
+import type { Drafts } from './notice';
 
 export interface WorldApi {
   /** Размер сетки, сид, где стоит деревня игрока. */
@@ -204,6 +205,12 @@ export interface WorldApi {
 
   /** Сохранить состояние мира (локальная реализация — в localStorage). */
   persist(): Promise<void>;
+
+  /**
+   * Черновики уведомлений на эту минуту: что сервер скажет игроку, пока его нет, и
+   * почему остального сказать нельзя (docs/NOTIFY.md). Только чтение, зовут после пульса.
+   */
+  notices(): Promise<Drafts>;
 }
 
 let current: WorldApi | null = null;

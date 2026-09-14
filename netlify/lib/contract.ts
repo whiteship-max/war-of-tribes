@@ -205,3 +205,180 @@ export function readClaim(v: unknown): CastleClaim | null {
     pop: cap(r.pop, CASTLE_LIMITS.pop),
   };
 }
+
+// ---------- Исходящие уведомления ----------
+//
+// Третья запись, которую держит сервер, и вторая, которую он читает (docs/NOTIFY.md,
+// раздел 3). Читает он не партию, а поручение: «в такую-то минуту скажи вот это,
+// если игрока нет». Ничего не проверяет о мире, ничего не начисляет. Составляет
+// поручение клиент из сохранения мира (`src/world/notice.ts`), сервер только
+// проверяет форму и держит до срока.
+
+/**
+ * Белый список видов. **Три и только три**, и тест держит их поимённо: вида «вернись в
+ * игру», «стройка готова», «награда ждёт» здесь быть не может — это напоминания игры о
+ * себе, а не о городе, и именно из-за них уведомления выключают целиком, вместе с
+ * осадой. Новый вид — правкой этой строки и теста, и никак иначе.
+ */
+export const NOTICE_KINDS = ['raid', 'siege-works', 'siege-bread'] as const;
+export type NoticeKind = (typeof NOTICE_KINDS)[number];
+
+/** Участь, объявленная городу, — теми же именами, что `Fate` мира. */
+export const NOTICE_FATES = ['plunder', 'captives', 'burn'] as const;
+export type NoticeFate = (typeof NOTICE_FATES)[number];
+
+/**
+ * Числа для слов. Только то, что до `until` само не двигается: имя двора, участь и
+ * отметки времени, уже записанные в сохранении мира. Запаса, мощи, потерь здесь нет и
+ * быть не может — они устаревают сами (docs/NOTIFY.md, раздел 4, правило 3).
+ */
+export interface NoticeFacts {
+  /** Откуда пришли: имя двора. Строка до `NOTICE_LIMITS.name`, без разметки. */
+  from: string;
+  fate: NoticeFate;
+  /** О какой минуте пункт: приход отряда у набега, конец хлеба у осады. */
+  about: number;
+  /** Набег: когда запрётся оборона. */
+  freezeAt?: number;
+  /** Осада: когда достроятся рогатки со стороны города и со стороны поля. */
+  frontAt?: number;
+  rearAt?: number;
+}
+
+/** Пункт исходящих. Ключ — имя момента, а не время: по нему не уходит второй раз. */
+export interface NoticeItem {
+  key: string;
+  kind: NoticeKind;
+  /** С какой минуты пункт годится к отправке. */
+  fireAt: number;
+  /** До какой минуты он годен: после неё ответить уже нечем. */
+  until: number;
+  p: NoticeFacts;
+}
+
+/** Настройки игрока. Каналов в них нет: каналы — следующая пачка. */
+export interface NotifyPrefs {
+  /** Отряд на подходе. */
+  raid: boolean;
+  /** Осада: рогатки и хлеб одной строкой. */
+  siege: boolean;
+  /** Тихие часы: минуты суток в поясе игрока, `from` может быть больше `to` (через полночь). */
+  quiet: { on: boolean; from: number; to: number };
+  /** Не больше в сутки. */
+  perDay: 3 | 6 | 10;
+  /** Пояс игрока (`Intl…timeZone`). Пустая строка — UTC. */
+  tz: string;
+}
+
+export const DEFAULT_PREFS: NotifyPrefs = {
+  raid: true,
+  siege: true,
+  quiet: { on: true, from: 23 * 60, to: 8 * 60 },
+  perDay: 6,
+  tz: '',
+};
+
+/** Потолки формы. Поддельный клиент может навредить только себе — и то в этих пределах. */
+export const NOTICE_LIMITS = {
+  items: 8,
+  /** Дальше этого `fireAt` не принимается: столько не длится ни одно окно. */
+  ahead: 12 * 60 * 60_000,
+  name: 40,
+  key: 96,
+  /** Насколько часы, по которым составлен список, могут разойтись с серверными. */
+  skew: 2 * 60_000,
+  /** Чаще этого список одного игрока не принимается. */
+  putEvery: 5_000,
+} as const;
+
+/** Что клиент кладёт на `/api/notify`. Всё необязательно: присутствие ходит и без списка. */
+export interface NotifyPut {
+  /** Серверное «сейчас» клиента в минуту составления списка. Нужно, только если есть список. */
+  computedAt?: number;
+  items?: NoticeItem[];
+  /** Игрок здесь (страница видна) или ушёл. Время ставит сервер. */
+  present?: boolean;
+  prefs?: NotifyPrefs;
+}
+
+/** Ответ `/api/notify`: состояние без самих пунктов и без журнала отправленного. */
+export interface NotifyState {
+  now: number;
+  gen: number;
+  items: number;
+  away: number | null;
+  prefs: NotifyPrefs;
+}
+
+/** Имя двора без разметки: ни угловых скобок, ни знаков выделения, ни управляющих символов. */
+const PLAIN = /^[^\p{Cc}<>`*_[\]\\]+$/u;
+
+/**
+ * Имя двора в пригодном для списка виде: без разметки и не длиннее потолка. Зовёт его
+ * клиент, составляя черновики, — иначе одно странное имя стоило бы отказа всему списку.
+ */
+export const plainName = (s: string): string =>
+  s.replace(/[\p{Cc}<>`*_[\]\\]/gu, '').slice(0, NOTICE_LIMITS.name).trim() || '—';
+
+const oneOf = <T extends string>(list: readonly T[], v: unknown): T | null =>
+  typeof v === 'string' && (list as readonly string[]).includes(v) ? (v as T) : null;
+
+/**
+ * Разбор списка, пришедшего от клиента. Как и у записи партии: лишнее выбрасывается,
+ * а нарушение формы — отказ всему списку, а не обрезка. Список, из которого молча
+ * выпал пункт, говорил бы игроку меньше, чем клиент думает, что сказал.
+ *
+ * `now` — серверные часы: `fireAt` дальше двенадцати часов от них не принимается.
+ */
+export function readNotices(v: unknown, now: number): NoticeItem[] | null {
+  if (!Array.isArray(v) || v.length > NOTICE_LIMITS.items) return null;
+  const out: NoticeItem[] = [];
+  const keys = new Set<string>();
+  for (const raw of v) {
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as Record<string, unknown>;
+    const kind = oneOf(NOTICE_KINDS, r.kind);
+    const key = str(r.key, NOTICE_LIMITS.key);
+    const fireAt = num(r.fireAt);
+    const until = num(r.until);
+    if (!kind || !key || !key.startsWith(`${kind}:`) || keys.has(key)) return null;
+    if (fireAt === null || until === null || fireAt >= until || fireAt > now + NOTICE_LIMITS.ahead) return null;
+    const p = (r.p ?? {}) as Record<string, unknown>;
+    const from = str(p.from, NOTICE_LIMITS.name);
+    const fate = oneOf(NOTICE_FATES, p.fate);
+    const about = num(p.about);
+    if (!from || !PLAIN.test(from) || !fate || about === null) return null;
+    const facts: NoticeFacts = { from, fate, about };
+    for (const f of ['freezeAt', 'frontAt', 'rearAt'] as const) {
+      if (p[f] === undefined) continue;
+      const n = num(p[f]);
+      if (n === null) return null;
+      facts[f] = n;
+    }
+    keys.add(key);
+    out.push({ key, kind, fireAt, until, p: facts });
+  }
+  return out;
+}
+
+/** Разбор настроек: неизвестное и кривое — умолчание, а не отказ. */
+export function readPrefs(v: unknown): NotifyPrefs {
+  const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  const q = (r.quiet && typeof r.quiet === 'object' ? r.quiet : {}) as Record<string, unknown>;
+  const minute = (raw: unknown, dflt: number): number => {
+    const n = num(raw);
+    return n === null ? dflt : Math.min(1439, Math.max(0, Math.floor(n)));
+  };
+  const per = num(r.perDay);
+  return {
+    raid: typeof r.raid === 'boolean' ? r.raid : DEFAULT_PREFS.raid,
+    siege: typeof r.siege === 'boolean' ? r.siege : DEFAULT_PREFS.siege,
+    quiet: {
+      on: typeof q.on === 'boolean' ? q.on : DEFAULT_PREFS.quiet.on,
+      from: minute(q.from, DEFAULT_PREFS.quiet.from),
+      to: minute(q.to, DEFAULT_PREFS.quiet.to),
+    },
+    perDay: per === 3 || per === 6 || per === 10 ? per : DEFAULT_PREFS.perDay,
+    tz: str(r.tz, 64) ?? DEFAULT_PREFS.tz,
+  };
+}
