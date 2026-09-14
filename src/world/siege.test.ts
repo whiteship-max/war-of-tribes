@@ -19,10 +19,11 @@ import {
   starvesAt,
   type SiegeWindow,
 } from './siege';
-import { AI_BONDED_SHARE, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
-import { lead } from './spoils';
-import { stackEscort } from './data/units';
-import { syncSiege } from './bridge';
+import { AI_BONDED_SHARE, FALL_BUILDINGS, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
+import { FATE_NOW, fallSeed, fate, lead } from './spoils';
+import { stackCarry, stackEscort } from './data/units';
+import { applyEffects, syncSiege } from './bridge';
+import { fallPool, fallenText } from '@/game/sim/expedition';
 import { troopTotal } from '@/game/battle/kinds';
 import type { GenSettlement } from './gen';
 import type { WorldSave } from './local/state';
@@ -331,7 +332,10 @@ describe('осада в мире: лагерь, голод и падение', (
     expect((await w.world.letters()).some((l) => l.kind === 'siege')).toBe(false);
   }, 60_000);
 
-  it('павший город лишается невольников: уводят скольких устережёт лагерь, и об этом сказано', async () => {
+  it('павший голодом город невольников не теряет: ступень «ограбить» людей не уводит', async () => {
+    // Прежде падение голодом уводило невольников всегда, а прорвавшийся набег —
+    // никогда: два пути, два правила. Решено владельцем: уводит их только ступень
+    // участи, уводящая людей, а её в игре пока нет (docs/DEFEAT_LADDER.md).
     const w = makeWorld(7);
     const p = holdout({ bonded: 400 });
     await w.world.sync(p);
@@ -339,16 +343,17 @@ describe('осада в мире: лагерь, голод и падение', (
     const at = pulse.siege!.starvesAt;
     const camp = pulse.marches.find((m) => !m.own && m.siege)!;
     expect(camp, 'лагерь стоит у ворот').toBeTruthy();
-    const expected = lead(400, stackEscort(camp.units));
-    expect(expected.taken).toBeGreaterThan(0);
+    // Граница области: увести было бы кого и было бы кому. Без этого «никого
+    // не увели» получалось бы и от пустого конвоя.
+    expect(lead(400, stackEscort(camp.units)).taken, 'конвой лагеря увёл бы невольников').toBeGreaterThan(0);
 
     w.at(Math.ceil(at));
     const after = await w.world.sync(p);
     const effect = after.effects.find((e) => e.text.includes('Осада'));
-    // Минус — увели у нас, и ровно столько, сколько даёт общее правило.
-    expect(effect?.bonded).toBe(-expected.taken);
+    expect(effect, 'город пал').toBeTruthy();
+    expect(effect?.bonded ?? 0, 'невольники остаются при ступени «ограбить»').toBe(0);
     const report = after.reports.find((r) => r.title === 'Хлеб кончился');
-    expect(report?.text).toContain(String(expected.taken));
+    expect(report?.text).not.toContain('Уведено');
   }, 60_000);
 
   it('город без невольников при падении никого не теряет', async () => {
@@ -680,7 +685,7 @@ describe('осада: приказ игрока — та же осада, что
     throw new Error('город так и не пал');
   }, 120_000);
 
-  it('чужой город, взятый голодом, отдаёт невольников тем же правилом, каким отдаёт наш', async () => {
+  it('чужой город, взятый голодом, невольников не отдаёт — тем же правилом, каким не отдаёт наш', async () => {
     const w = makeWorld(7);
     const p = host();
     const target = await marchGeneral(w, p);
@@ -707,15 +712,15 @@ describe('осада: приказ игрока — та же осада, что
     const bonded = peek.bondedOf.call(w.world, town, fallAt);
     expect(bonded).toBe(Math.round(peek.popNow.call(w.world, town, fallAt) * AI_BONDED_SHARE));
     const men = troopTotal(save.figures.general.troops ?? {});
-    const expected = lead(bonded, stackEscort({ warrior: men }));
-    expect(expected.taken, 'проверка не пустая: уводить есть кого').toBeGreaterThan(0);
+    // Граница области: уводить есть кого и есть чем стеречь — иначе ноль ниже
+    // получался бы без всякого правила.
+    expect(lead(bonded, stackEscort({ warrior: men })).taken, 'дружина увела бы невольников').toBeGreaterThan(0);
 
     w.at(Math.ceil(fallAt));
     const pulse = await w.world.sync(p);
     const gain = pulse.effects.find((e) => e.text.includes('сдался голоду'));
     expect(gain, 'падение приезжает последствием').toBeTruthy();
-    // Плюс — привели мы, и ровно столько, сколько даёт общее правило.
-    expect(gain?.bonded ?? 0).toBe(expected.taken);
+    expect(gain?.bonded ?? 0, 'ступень «ограбить» людей не уводит и у чужого города').toBe(0);
   }, 120_000);
 });
 
@@ -893,8 +898,119 @@ describe('осада: цена падения известна заранее', 
     // А падение — состоится: `prevSeen` в эту цепочку не передаётся вовсе.
     // Закрой это, и лучшей игрой под осадой станет «закрыть приложение».
     const fall = src.slice(src.indexOf('private homeFalls'), src.indexOf('private nextSiegeAt'));
-    expect(fall).toContain('plunderHome');
+    expect(fall).toContain('fateHome');
     expect(fall).not.toContain('AWAY_GRACE');
     expect(fall).not.toContain('prevSeen');
   });
+});
+
+describe('участь взятого города в мире: казна и пять построек', () => {
+  /** Настоящий посёлок: каждая постройка выше первого уровня, тайника не касается ничто. */
+  const town = () => {
+    const s = createInitialState();
+    s.buildings.forEach((b, i) => {
+      b.level = b.type === 'cache' ? 1 : 2 + (i % 8);
+    });
+    s.gold = 9000;
+    return s;
+  };
+
+  /** Мир с хранилищем в памяти: сохранение можно перечитать вторым миром. */
+  function storedWorld(seed: number, box: { json: string | null }, start = START) {
+    let now = start;
+    const world = new LocalWorld({
+      seed,
+      now: () => now,
+      storage: { read: () => box.json, write: (json) => void (box.json = json) },
+    });
+    return {
+      world,
+      at: (t: number): void => {
+        now = t;
+      },
+      advance: (ms: number): void => {
+        now += ms;
+      },
+      now: (): number => now,
+    };
+  }
+
+  it('падение голодом уносит казну тем же правилом и роняет ровно те постройки, что названы в отчёте', async () => {
+    const s = town();
+    const w = makeWorld(7);
+    const p = holdout({ gold: s.gold, levels: fallPool(s), stock: { food: 600, wood: 400 } });
+    await w.world.sync(p);
+    const pulse = await besiege(w, p);
+    const camp = pulse.marches.find((m) => !m.own && m.siege)!;
+    const at = Math.ceil(pulse.siege!.starvesAt);
+
+    w.at(at);
+    const after = await w.world.sync(p);
+    const report = after.reports.find((r) => r.title === 'Хлеб кончился')!;
+    const effect = after.effects.find((e) => e.text.includes('Осада'))!;
+    expect(report, 'город пал').toBeTruthy();
+
+    // Казна — тем же дележом, что склад: дверь, прогнанная на тех же числах.
+    const expected = fate({
+      fate: FATE_NOW,
+      stock: p.stock,
+      gold: s.gold,
+      stash: p.stash,
+      bonded: 0,
+      carry: stackCarry(camp.units),
+      escort: stackEscort(camp.units),
+      levels: p.levels,
+      seed: fallSeed(7, at),
+    });
+    // Граница области: обоз лагеря что-то уносит из казны.
+    expect(expected.taken.gold ?? 0, 'обоз лагеря берёт из казны').toBeGreaterThan(0);
+    expect(effect.resources.gold).toBe(-(expected.taken.gold ?? 0));
+    expect(report.loot?.gold).toBe(-(expected.taken.gold ?? 0));
+
+    // Список в отчёте — тот же, что уехал в последствие, и тот же, что выбрала дверь.
+    expect(report.fallen).toEqual(expected.fallen);
+    expect(effect.fallen).toEqual(expected.fallen);
+    // Граница области: все пять ударов пришлись выше первого уровня.
+    expect(report.fallen!.filter((f) => f.to < f.from).length).toBe(FALL_BUILDINGS);
+
+    // Замер настоящим применением: какие уровни на деле сошли с посёлка.
+    const before = new Map(s.buildings.map((b) => [b.type as string, b.level]));
+    const goldBefore = s.gold;
+    applyEffects(s, [effect]);
+    const measured = s.buildings
+      .filter((b) => b.level !== before.get(b.type))
+      .map((b) => ({ id: b.type as string, from: before.get(b.type)!, to: b.level }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    expect(measured).toEqual([...report.fallen!].sort((a, b) => a.id.localeCompare(b.id)));
+    expect(s.gold).toBe(goldBefore - (expected.taken.gold ?? 0));
+    expect(s.buildings.find((b) => b.type === 'cache')!.level).toBe(1);
+    // Проигравший читает список поимённо — одними словами в отчёте и в летописи.
+    const words = fallenText(s, report.fallen!);
+    expect(words.split(', ').length).toBe(FALL_BUILDINGS);
+    expect(s.log.some((l) => l.text === `Постройки потеряли уровни: ${words}.`)).toBe(true);
+  }, 60_000);
+
+  it('перечитанное сохранение мира даёт тот же список построек', async () => {
+    const s = town();
+    const box = { json: null as string | null };
+    const a = storedWorld(7, box);
+    const p = holdout({ gold: s.gold, levels: fallPool(s) });
+    await a.world.sync(p);
+    const siege = await besiege(a as unknown as ReturnType<typeof makeWorld>, p);
+    const at = Math.ceil(siege.siege!.starvesAt);
+    a.at(at - 60_000);
+    await a.world.sync(p);
+    const saved = box.json;
+    expect(saved, 'сохранение записано').toBeTruthy();
+
+    a.at(at);
+    const first = (await a.world.sync(p)).reports.find((r) => r.title === 'Хлеб кончился');
+    // Второй мир поднимается из той же строки и доживает до той же минуты.
+    const again = { json: saved };
+    const b = storedWorld(7, again, at - 60_000);
+    b.at(at);
+    const second = (await b.world.sync(p)).reports.find((r) => r.title === 'Хлеб кончился');
+    expect(first?.fallen?.length, 'город пал и в первом мире').toBe(FALL_BUILDINGS);
+    expect(second?.fallen).toEqual(first?.fallen);
+  }, 60_000);
 });

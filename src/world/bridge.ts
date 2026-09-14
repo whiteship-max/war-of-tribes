@@ -28,6 +28,7 @@ import { clampFormation, stashUnplaced, toArmySetup } from '@/game/battle/format
 import { troopTotal } from '@/game/battle/kinds';
 import {
   applyExpedition,
+  fallPool,
   sendableUnits,
   setAway,
   type ExpeditionOutcome,
@@ -145,12 +146,22 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     faith: faithOf(s),
     fervour: fervour(s),
     defenseSetup,
-    // Золото в слепок не кладём: чужой набег уносит со склада, а не из казны.
     stock,
     stash,
-    // Невольники: одно число, и мир читает его ровно в одном месте — когда
-    // город пал от голода и победитель уводит их тем же правилом, каким уводим
-    // мы (`world/spoils.lead`). Где они стоят и на каких работах, миру знать не надо.
+    // Казна едет рядом со складом, а не в нём: платят из них разными дверями,
+    // а делит их победитель одним правилом (`spoils.fate`) — тайник прячет
+    // столько же золота, сколько зерна. Прежде здесь стояло «золото в слепок не
+    // кладём: набег казну не уносит»; это правило отменено решением владельца
+    // (docs/DEFEAT_LADDER.md) вместе со следствием: копить опасно всё, кроме
+    // снаряжения.
+    gold: Math.max(0, Math.floor(s.gold)),
+    // Уровни построек, которые может задеть падение города. Мир не знает, что это
+    // за постройки: выбирает из списка дверь участи, а какие туда входят,
+    // решает племя (`expedition.fallPool`, без тайника).
+    levels: fallPool(s),
+    // Невольники: одно число, и мир читает его ровно в одном месте — в двери
+    // участи взятого города (`world/spoils.fate`), на той ступени, что уводит
+    // людей. Где они стоят и на каких работах, миру знать не надо.
     bonded: bondedTotal(s),
   };
 }
@@ -234,6 +245,9 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     arms: e.arms ?? 0,
     lair: e.lair ?? false,
     bonded: e.bonded ?? 0,
+    // Какие постройки взятого города теряют уровень: список выбран в минуту
+    // события, племя его только применяет.
+    fallen: e.fallen,
     text: e.text,
     kind: e.good ? 'good' : 'bad',
   };

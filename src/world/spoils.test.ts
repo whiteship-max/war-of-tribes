@@ -5,20 +5,22 @@
 // и ни одна единица не теряется по дороге. Вторая гоняет настоящий `LocalWorld`:
 // склад чужого двора после набега пуст **по факту**, тайник у бота и у игрока
 // разбирает один и тот же код, а разведка не выдаёт того, чего видеть нельзя.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { distance } from './geo';
-import { lead, plunder, asLoss } from './spoils';
+import { FATES, FATE_NOW, fallSeed, fate, homeLoss, lead, plunder, asLoss, type FateInput } from './spoils';
 import { stackEscort } from './data/units';
-import { AI_STASH_SHARE, LOOT_PER_POP, LOOT_REFILL } from './data/tuning';
+import { AI_STASH_SHARE, FALL_BUILDINGS, FALL_LEVELS, LOOT_PER_POP, LOOT_REFILL } from './data/tuning';
+import { applyEffects, playerProfile } from './bridge';
+import { FALL_SPARED, fallBuildings, fallPool, fallenText } from '@/game/sim/expedition';
 import { BUILDINGS } from '@/game/data/buildings';
 import { UPGRADE_GROWTH, RESOURCE_IDS } from '@/game/constants';
 import { createInitialState } from '@/game/state';
 import { hiddenStash, maxLevelFor, stashAt, storageCap, upgradeCost } from '@/game/derived';
 import type { GenSettlement } from './gen';
-import type { Loot, PlayerProfile, SettlementView } from './types';
+import type { HomeEffect, Loot, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
 
 /**
@@ -33,6 +35,10 @@ const MIN = 60_000;
 const START = 1_700_000_000_000;
 
 const sum = (loot: Loot): number => Object.values(loot).reduce((n, v) => n + Math.abs(v ?? 0), 0);
+
+/** Код без комментариев: тест по исходнику спрашивает то, что исполняется, а не то, что о нём сказано. */
+const stripComments = (code: string): string =>
+  code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
 // ------------------------------------------------ правило дележа ---
 
@@ -327,27 +333,61 @@ describe('склад чужого двора', () => {
 describe('одно правило на обе стороны', () => {
   const src = readFileSync(path.resolve('src/world/local/LocalWorld.ts'), 'utf8');
 
-  it('обе двери — чужой двор и наша деревня — ходят через общую функцию', () => {
-    // Не «похоже написано», а буквально одна функция: своей арифметики дележа
-    // ни у той, ни у другой стороны быть не должно. Одностороннее правило игрок
-    // раскусит за день, а две копии одного правила разъедутся при первой правке.
-    expect(src).toMatch(/private takeLoot[\s\S]{0,900}?plunder\(/);
-    expect(src).toMatch(/private plunderHome[\s\S]{0,900}?plunder\(/);
-    // И ни одного второго дележа: пропорция считается только в `spoils.ts`.
-    const spoils = readFileSync(path.resolve('src/world/spoils.ts'), 'utf8');
-    expect(spoils).toContain('export function plunder');
+  it('дележ склада и увод людей зовутся только из двери участи', () => {
+    // Не «похоже написано», а буквально одна дверь. Кто импортирует `plunder`
+    // или `lead` из модуля дележа, тот и делит; таких мест два: сама дверь и
+    // мятеж — у мятежа нет победителя, и участью он не является.
+    const importers: Record<'plunder' | 'lead', string[]> = { plunder: [], lead: [] };
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const p = path.join(dir, name);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+          const code = stripComments(readFileSync(p, 'utf8'));
+          const rel = path.relative(process.cwd(), p).split(path.sep).join('/');
+          for (const m of code.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"][^'"]*spoils['"]/g)) {
+            for (const fn of ['plunder', 'lead'] as const) if (new RegExp(`\\b${fn}\\b`).test(m[1])) importers[fn].push(rel);
+          }
+        }
+      }
+    };
+    walk(path.resolve('src'));
+    expect(importers.plunder, 'делит склад кто-то кроме двери участи и мятежа').toEqual(['src/game/sim/mutiny.ts']);
+    expect(importers.lead, 'уводит людей кто-то кроме двери участи').toEqual([]);
+
+    // Внутри модуля дележа оба правила зовёт только сама дверь.
+    const spoils = stripComments(readFileSync(path.resolve('src/world/spoils.ts'), 'utf8'));
+    const door = spoils.slice(spoils.indexOf('export function fate('), spoils.indexOf('function pickFallen('));
+    const calls = (code: string, fn: string): number => (code.match(new RegExp(`(?<!function )\\b${fn}\\(`, 'g')) ?? []).length;
+    expect(calls(spoils, 'plunder'), '`plunder` зовут вне двери').toBe(calls(door, 'plunder'));
+    expect(calls(spoils, 'lead'), '`lead` зовут вне двери').toBe(calls(door, 'lead'));
+    expect(calls(door, 'plunder')).toBe(1);
+    expect(calls(door, 'lead')).toBe(1);
   });
 
-  it('невольников уводят одной функцией — и у нашей деревни, и у чужого города', () => {
-    // Симметрия проверяется буквально: `lead` зовут ровно два места, падение
-    // нашего города и падение чужого, и других уводов в мире нет.
-    const fall = src.slice(src.indexOf('private siegeFalls'), src.indexOf('private nextSiegeAt'));
-    expect(fall).toMatch(/private siegeFalls[\s\S]*?lead\(/);
-    expect(fall).toMatch(/private homeFalls[\s\S]*?lead\(/);
-    expect((src.match(/\blead\(/g) ?? []).length).toBe(2);
-    expect(readFileSync(path.resolve('src/world/spoils.ts'), 'utf8')).toContain('export function lead');
-    // И предел у обеих сторон один: скольких устережёт отряд.
-    expect((fall.match(/stackEscort\(/g) ?? []).length).toBe(2);
+  it('все четыре места, где город взят, идут через дверь участи', () => {
+    const code = stripComments(src);
+    const method = (name: string): string => {
+      const at = code.indexOf(`private ${name}(`);
+      expect(at, `метод ${name}`).toBeGreaterThan(0);
+      return code.slice(at, code.indexOf('\n  private ', at + 10));
+    };
+    // Наш город: прорвавшийся набег и голод — одной дверью и одними полями.
+    for (const name of ['resolveIncoming', 'homeFalls']) {
+      expect(method(name), `${name} идёт мимо двери`).toMatch(/this\.fateHome\(/);
+      expect(method(name), `${name} собирает потерю сам`).toMatch(/homeLoss\(/);
+    }
+    // Чужой двор: наш набег и наш лагерь.
+    for (const name of ['attackAt', 'siegeFalls']) {
+      expect(method(name), `${name} идёт мимо двери`).toMatch(/this\.takeLoot\(/);
+    }
+    expect(method('takeLoot')).toMatch(/this\.fateOf\(/);
+    expect(method('fateOf')).toMatch(/\bfate\(\{/);
+    expect(method('fateHome')).toMatch(/\bfate\(\{/);
+    // Вызовов самой двери в мире ровно два — чужой двор и наш город, и ступень
+    // у обоих одна и та же, нынешняя.
+    expect((code.match(/\bfate\(\{/g) ?? []).length).toBe(2);
+    expect((code.match(/fate: FATE_NOW/g) ?? []).length).toBe(2);
   });
 
   it('чужой двор, павший под чужим же лагерем, нашу деревню не трогает', () => {
@@ -366,6 +406,227 @@ describe('одно правило на обе стороны', () => {
     const bridge = readFileSync(path.resolve('src/world/bridge.ts'), 'utf8');
     expect(bridge).not.toContain('const resources: Loot');
     expect(bridge).toContain('const stash = hiddenStash(s)');
+  });
+});
+
+// ------------------------------------------------ участь взятого города ---
+
+const input = (over: Partial<FateInput> = {}): FateInput => ({
+  fate: FATE_NOW,
+  stock: { food: 900, wood: 300 },
+  gold: 0,
+  stash: 0,
+  bonded: 0,
+  carry: Infinity,
+  escort: 0,
+  seed: 1,
+  ...over,
+});
+
+/** Уровни всех построек, кроме тайника: каждая выше первого, иначе падать нечему. */
+const tall = (): Record<string, number> =>
+  Object.fromEntries(
+    BUILDINGS.filter((b) => !FALL_SPARED.includes(b.id)).map((b, i) => [b.id, 2 + (i % 8)]),
+  );
+
+describe('казна делится тем же правилом, что склад', () => {
+  const STOCKS: Loot[] = [{ food: 900, wood: 300 }, { stone: 50 }, { food: 4000, iron: 1200, hides: 7 }];
+  const GOLDS = [300, 1000, 7777];
+  const STASHES = [0, 100, 250];
+
+  it('золото — восьмой припас: делится так же, как делился бы припас того же размера', () => {
+    let points = 0;
+    for (const stock of STOCKS) {
+      for (const gold of GOLDS) {
+        for (const stash of STASHES) {
+          for (const carry of [Infinity, 200, 900]) {
+            const r = fate(input({ stock, gold, stash, carry }));
+            // Тот же склад, где вместо казны лежит столько же воска: припаса,
+            // которого на складе нет. Дверь обязана поделить казну так же.
+            const same = plunder({ ...stock, wax: gold } as Loot, stash, carry);
+            const wax = (same.taken as Record<string, number>).wax ?? 0;
+            expect(r.taken.gold ?? 0, `казна ${gold}, тайник ${stash}, обоз ${carry}`).toBe(wax);
+            expect(r.takenTotal).toBe(same.takenTotal);
+            points++;
+          }
+        }
+      }
+    }
+    expect(points).toBe(81);
+  });
+
+  it('тайник прячет столько же золота, сколько зерна', () => {
+    for (const gold of GOLDS) {
+      for (const stash of STASHES.filter((n) => n > 0)) {
+        // Граница области: казна больше тайника, иначе прятать нечего и брать тоже.
+        expect(gold).toBeGreaterThan(stash);
+        const r = fate(input({ stock: { food: gold }, gold, stash }));
+        expect(r.taken.gold, `казна ${gold}, тайник ${stash}`).toBe(gold - stash);
+        expect(r.taken.food, 'зерна того же размера уносят столько же').toBe(gold - stash);
+        expect(r.hiddenTotal).toBe(stash * 2);
+      }
+    }
+  });
+
+  it('обоз поднимает золото наравне с добром и не больше, чем поднимает', () => {
+    for (const gold of GOLDS) {
+      for (const carry of [200, 900]) {
+        const open = 1200 + gold;
+        // Граница области: обоз меньше открытого — только тогда он что-то режет.
+        expect(carry).toBeLessThan(open);
+        const r = fate(input({ gold, carry }));
+        expect(r.takenTotal, `обоз ${carry}, казна ${gold}`).toBe(carry);
+        expect(r.taken.gold ?? 0, 'золото не выносят сверх доли обоза').toBeLessThan(gold);
+        expect(r.taken.gold ?? 0, 'и не оставляют целиком').toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('потеря казны доезжает до племени минусом, и казна убывает ровно на взятое', () => {
+    const s = createInitialState();
+    s.gold = 5000;
+    for (const b of s.buildings) if (b.type === 'cache') b.level = 3;
+    const p = playerProfile(s);
+    expect(p.gold).toBe(5000);
+    const r = fate(input({ stock: p.stock, gold: p.gold ?? 0, stash: p.stash, carry: 2000 }));
+    // Граница области: казна больше тайника, и обоз её частично берёт.
+    expect(r.taken.gold ?? 0).toBeGreaterThan(0);
+    const effect: HomeEffect = { id: 't', lost: {}, prestige: 0, morale: 0, battle: null, text: 'т', good: false, ...homeLoss(r) };
+    expect(effect.resources.gold).toBe(-(r.taken.gold ?? 0));
+    applyEffects(s, [effect]);
+    expect(s.gold).toBe(5000 - (r.taken.gold ?? 0));
+  });
+});
+
+describe('невольники при ступени «ограбить» остаются', () => {
+  it('ни одна ступень без увода людей невольников не берёт, сколько бы их ни было и чем бы ни стерегли', () => {
+    const keeps = (Object.keys(FATES) as (keyof typeof FATES)[]).filter((f) => !FATES[f].bonded);
+    expect(keeps, 'нынешняя ступень — без увода людей').toContain(FATE_NOW);
+    for (const f of keeps) {
+      for (const bonded of [1, 40, 400]) {
+        for (const escort of [5, 400, 5000]) {
+          // Граница области: `lead` увёл бы хоть кого-то.
+          expect(lead(bonded, escort).taken).toBeGreaterThan(0);
+          const r = fate(input({ fate: f, bonded, escort }));
+          expect(r.led, `${f}: невольников ${bonded}, конвой ${escort}`).toEqual({ taken: 0, left: bonded });
+          expect(homeLoss(r).bonded, 'в последствие увод не уезжает').toBeUndefined();
+        }
+      }
+    }
+  });
+});
+
+describe('пять построек — выбор из данных события', () => {
+  it('тот же вход — тот же список, и порядок, в каком собран список уровней, не важен', () => {
+    const levels = tall();
+    const reversed = Object.fromEntries(Object.entries(levels).reverse());
+    for (let seed = 0; seed < 60; seed++) {
+      const a = fate(input({ levels, seed }));
+      expect(a.fallen, `соль ${seed}`).toEqual(fate(input({ levels, seed })).fallen);
+      expect(a.fallen, `соль ${seed}, ключи в обратном порядке`).toEqual(fate(input({ levels: reversed, seed })).fallen);
+      expect(a.fallen.length).toBe(FALL_BUILDINGS);
+      expect(new Set(a.fallen.map((f) => f.id)).size, 'одна постройка дважды').toBe(FALL_BUILDINGS);
+    }
+  });
+
+  it('список выводится из соли, а не стоит один на всех', () => {
+    const levels = tall();
+    const lists = new Set<string>();
+    for (let seed = 0; seed < 60; seed++) lists.add(fate(input({ levels, seed })).fallen.map((f) => f.id).join());
+    expect(lists.size).toBeGreaterThan(40);
+    // И каждая постройка из списка хоть раз под удар попадает: перестановка, а не срез.
+    const hit = new Set<string>();
+    for (let seed = 0; seed < 400; seed++) for (const f of fate(input({ levels, seed })).fallen) hit.add(f.id);
+    expect([...hit].sort()).toEqual(Object.keys(levels).sort());
+  });
+
+  it('соль — из сида мира и минуты события', () => {
+    const at = START + 3 * 3_600_000;
+    expect(fallSeed(7, at)).toBe(fallSeed(7, at));
+    expect(fallSeed(7, at + 999), 'та же секунда').toBe(fallSeed(7, at));
+    expect(fallSeed(7, at + 60_000)).not.toBe(fallSeed(7, at));
+    expect(fallSeed(8, at)).not.toBe(fallSeed(7, at));
+  });
+
+  it('в выборе ни одна постройка не падает ниже первого уровня', () => {
+    let floor = 0;
+    let fell = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      // Половина построек на первом уровне: удар на них приходится — и ниже не роняет.
+      const levels = Object.fromEntries(Object.entries(tall()).map(([id, n], i) => [id, i % 2 ? 1 : n]));
+      for (const f of fate(input({ levels, seed })).fallen) {
+        expect(f.to, `${f.id} с ${f.from}`).toBe(Math.max(1, f.from - FALL_LEVELS));
+        expect(f.to).toBeGreaterThanOrEqual(1);
+        if (f.from === 1) floor++;
+        else fell++;
+      }
+    }
+    // Граница области: удары пришлись и на первый уровень, и выше.
+    expect(floor).toBeGreaterThan(0);
+    expect(fell).toBeGreaterThan(0);
+  });
+});
+
+describe('падение уровней у племени', () => {
+  /** Посёлок, где каждая постройка выше первого уровня, а тайник — пятого. */
+  const town = () => {
+    const s = createInitialState();
+    s.buildings.forEach((b, i) => {
+      b.level = b.type === 'cache' ? 5 : 2 + (i % 8);
+    });
+    return s;
+  };
+
+  it('тайника в списке для мира нет', () => {
+    const s = town();
+    expect(Object.keys(fallPool(s)).length).toBe(s.buildings.length - FALL_SPARED.length);
+    for (const id of FALL_SPARED) expect(fallPool(s), `${id} в списке`).not.toHaveProperty(id);
+  });
+
+  it('племя не роняет тайник, даже если старый список мира его назвал', () => {
+    const s = town();
+    const smithy = s.buildings.find((b) => b.type === 'smithy')!;
+    smithy.level = 2;
+    const lost = fallBuildings(s, [
+      { id: 'cache', from: 5, to: 4 },
+      { id: 'smithy', from: 2, to: -3 },
+    ]);
+    expect(s.buildings.find((b) => b.type === 'cache')!.level, 'тайник').toBe(5);
+    expect(smithy.level, 'ниже первого не роняет и кривой список').toBe(1);
+    expect(lost).toEqual([{ type: 'smithy', from: 2, to: 1 }]);
+  });
+
+  it('через настоящий путь: тайник цел, ниже первого никто, и снято ровно то, что названо', () => {
+    let cacheWouldFall = 0;
+    let drops = 0;
+    for (let seed = 0; seed < 80; seed++) {
+      const s = town();
+      if (seed % 3 === 0) for (const b of s.buildings) if (b.type !== 'cache' && b.level % 2) b.level = 1;
+      const before = new Map(s.buildings.map((b) => [b.type, b.level]));
+      const p = playerProfile(s);
+      // Граница области: не будь тайник вынут из списка, на этой соли удар пришёлся бы и на него.
+      const all = Object.fromEntries(s.buildings.map((b) => [b.type, b.level]));
+      if (fate(input({ levels: all, seed })).fallen.some((f) => f.id === 'cache')) cacheWouldFall++;
+
+      const r = fate(input({ stock: p.stock, gold: p.gold ?? 0, stash: p.stash, levels: p.levels, seed }));
+      const effect: HomeEffect = { id: 't', lost: {}, prestige: 0, morale: 0, battle: null, text: 'т', good: false, ...homeLoss(r) };
+      applyEffects(s, [effect]);
+
+      const measured = s.buildings
+        .filter((b) => b.level !== before.get(b.type))
+        .map((b) => ({ id: b.type as string, from: before.get(b.type)!, to: b.level }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const named = r.fallen.filter((f) => f.to < f.from).sort((a, b) => a.id.localeCompare(b.id));
+      expect(measured, `соль ${seed}`).toEqual(named);
+      for (const b of s.buildings) expect(b.level, `${b.type}, соль ${seed}`).toBeGreaterThanOrEqual(1);
+      expect(s.buildings.find((b) => b.type === 'cache')!.level, `тайник, соль ${seed}`).toBe(5);
+      // И летопись называет те же постройки теми же числами.
+      const line = s.log.find((l) => l.text.startsWith('Постройки потеряли уровни'));
+      expect(line?.text, `соль ${seed}`).toBe(`Постройки потеряли уровни: ${fallenText(s, r.fallen)}.`);
+      drops += measured.length;
+    }
+    expect(cacheWouldFall, 'без исключения тайник попадал бы под удар').toBeGreaterThan(0);
+    expect(drops).toBeGreaterThan(0);
   });
 });
 

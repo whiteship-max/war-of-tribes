@@ -162,7 +162,7 @@ import {
 import { LETTER_KIND_BY_ID, goodsText } from '../data/letters';
 import { BARBARIAN_NAMES, RELATION_META, stageOf } from '../data/meta';
 import { stackCarry, stackEscort, stackSize } from '../data/units';
-import { asLoss, lead, plunder, type Spoils } from '../spoils';
+import { FATE_NOW, fallSeed, fate, homeLoss, type FateResult } from '../spoils';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import type { FaithId } from '@/game/types';
@@ -1201,8 +1201,9 @@ export class LocalWorld implements WorldApi {
 
   /**
    * Голод сделал своё: город пал. Владелец при этом не меняется — такой механики
-   * в игре нет и заводить её здесь незачем. Осада отнимает припасы и дружину,
-   * а не посёлок: ни одно здание она не трогает.
+   * в игре нет и заводить её здесь незачем. Что теряет взятый город, решает одна
+   * дверь участи (`spoils.fate`): у нашего города это склад, казна и пять
+   * построек по уровню, у двора мира — склад и казна (построек у него нет).
    *
    * Одно место на обе стороны: падение своего города и падение чужого идут
    * отсюда, и расходятся они ровно в том, кому достаётся добыча и кто получает
@@ -1238,15 +1239,14 @@ export class LocalWorld implements WorldApi {
     if (!ours) return;
     const f = this.save.figures.general;
     const men = troopTotal(f.troops ?? {});
-    const gold = Math.round(this.castleGold(s, at) * SIEGE_ROUT);
-    const took = this.takeLoot(s, at, stackCarry({ warrior: men }));
-    const goods = took.takenTotal;
-    // Невольников павшего города уводит победитель — тем же правилом, каким
-    // уводят наших из павшей деревни (`lead`), и тем же пределом: скольких
-    // устережёт дружина.
-    const led = lead(bondedThere, stackEscort({ warrior: men }));
-    const spoils: Loot | null =
-      gold > 0 ? { ...took.taken, gold } : goods > 0 ? took.taken : null;
+    // Участь города — та же дверь, что у нашей деревни: склад и казна до
+    // тайника, сколько поднимет дружина, и невольники — только на той ступени,
+    // что уводит людей (сейчас такой нет, и они остаются).
+    const took = this.takeLoot(s, at, stackCarry({ warrior: men }), bondedThere, stackEscort({ warrior: men }));
+    const gold = took.taken.gold ?? 0;
+    const goods = took.takenTotal - gold;
+    const led = took.led;
+    const spoils: Loot | null = took.takenTotal > 0 ? took.taken : null;
     this.addReport({
       id: `siege-${id}-${at}`,
       at,
@@ -1286,8 +1286,9 @@ export class LocalWorld implements WorldApi {
   /**
    * Сколько невольников держит чужой двор. Своих невольников у бота в мире нет:
    * это доля его населения (`AI_BONDED_SHARE`), выведенная при чтении, ровно как
-   * тайник выводится из склада. Уводят их только при падении города, и новая
-   * осада того же города встанет не раньше, чем кончится неприкосновенность.
+   * тайник выводится из склада. Уводят их только на ступени участи, уводящей
+   * людей (`spoils.FATES`); сейчас такой ступени нет, и число это доезжает до
+   * двери участи, но из неё не уходит никто.
    */
   private bondedOf(s: GenSettlement, now: number): number {
     return Math.max(0, Math.round(this.popNow(s, now) * AI_BONDED_SHARE));
@@ -1311,14 +1312,14 @@ export class LocalWorld implements WorldApi {
     const men = troopTotal(routed);
     this.standingLost(held.own, held.standing, routed);
     const camp = this.save.marches.find((m) => m.id === w.campId);
-    // Берут столько, сколько унесут, и всё, что не влезло в тайник: правило то
-    // же, что у прорвавшегося набега, и функция та же (`spoils.plunder`).
-    const spoils = this.plunderHome(p ?? null, stackCarry(camp?.units ?? {}));
-    const taken = spoils.takenTotal;
-    // Невольников уводят тем же правилом, каким уводим их мы из павшего чужого
-    // города (`lead`), и тем же пределом — скольких устережёт отряд лагеря.
-    // Сколько их у нас, мир знает из слепка; сколько у бота — выводит из людей.
-    const led = lead(p?.bonded ?? 0, stackEscort(camp?.units ?? {}));
+    // Участь взятого города — одна дверь на оба пути поражения: тот же дележ
+    // склада и казны, что у прорвавшегося набега, тот же увод и те же пять
+    // построек по уровню. Соль выбора построек — сид мира и минута падения.
+    const spoils = this.fateHome(p ?? null, stackCarry(camp?.units ?? {}), stackEscort(camp?.units ?? {}), at);
+    const gold = spoils.taken.gold ?? 0;
+    const taken = spoils.takenTotal - gold;
+    const led = spoils.led;
+    const loss = homeLoss(spoils);
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Чужаки';
 
     this.addReport({
@@ -1332,24 +1333,24 @@ export class LocalWorld implements WorldApi {
       lost: men > 0 ? { warrior: men } : {},
       enemyPower: Math.round(camp?.power ?? 0),
       enemyLost: null,
-      loot: taken > 0 ? asLoss(spoils.taken) : null,
+      loot: spoils.takenTotal > 0 ? loss.resources : null,
       hidden: spoils.hiddenTotal,
       intel: null,
       battle: null,
-      text: `Голод сделал за ${from} всю работу: гарнизон разошёлся, склад вычистили на ${taken} добра.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''}${led.taken > 0 ? ` ${ORDER_TEXT.ledAway(led.taken)}` : ''} Лагерь снят.`,
+      ...(loss.fallen ? { fallen: loss.fallen } : {}),
+      text: `Голод сделал за ${from} всю работу: гарнизон разошёлся, склад вычистили на ${taken} добра${gold > 0 ? `, казну — на ${gold} золота` : ''}.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''}${led.taken > 0 ? ` ${ORDER_TEXT.ledAway(led.taken)}` : ''} Лагерь снят.`,
       read: false,
     });
     this.addEffect({
       id: `${w.campId}-fell`,
       lost: men > 0 ? { warrior: men } : {},
       lostTroops: men > 0 ? routed : undefined,
-      resources: asLoss(spoils.taken),
       prestige: 0,
       morale: -12,
       // Настоящего боя не было: город взяли голодом, и записывать это в
       // проигранные битвы значило бы считать то, чего не случилось.
       battle: null,
-      bonded: led.taken > 0 ? -led.taken : undefined,
+      ...loss,
       text: `Осада ${from} доела деревню: гарнизон рассеян, склад вычищен.`,
       good: false,
     });
@@ -2172,9 +2173,9 @@ export class LocalWorld implements WorldApi {
     return out;
   }
 
-  /** Что видно разведке: склад двора за вычетом того, что в тайнике. */
+  /** Что видно разведке: склад и казна двора за вычетом того, что в тайнике. */
   private lootOpen(s: GenSettlement, now: number): number {
-    return plunder(this.lootStock(s, now), this.lootStash(s, now), Infinity).takenTotal;
+    return this.fateOf(s, now, Infinity, 0, 0).takenTotal;
   }
 
   /**
@@ -2225,30 +2226,58 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Что победитель выносит из чужого двора. Считает это то же правило, что и у
-   * нашей деревни (`spoils.plunder`): всё, кроме тайника, но не больше, чем
-   * поднимет отряд. Второй арифметики добычи в игре нет.
+   * Участь чужого двора, ничего не трогая: склад, казна и тайник двора — в дверь
+   * участи (`spoils.fate`). Построек у двора мира нет, поэтому уровни не падают.
    */
-  private takeLoot(s: GenSettlement, now: number, carry: number): Spoils {
+  private fateOf(s: GenSettlement, now: number, carry: number, bonded: number, escort: number): FateResult {
+    return fate({
+      fate: FATE_NOW,
+      stock: this.lootStock(s, now),
+      gold: this.castleGold(s, now),
+      stash: this.lootStash(s, now),
+      bonded,
+      carry,
+      escort,
+      seed: fallSeed(this.save.seed, now),
+    });
+  }
+
+  /**
+   * Что победитель выносит из чужого двора. Считает это та же дверь участи, что
+   * и у нашей деревни (`spoils.fate`): всё, кроме тайника, но не больше, чем
+   * поднимет отряд, — склад и казну одним дележом. Второй арифметики добычи в
+   * игре нет.
+   */
+  private takeLoot(s: GenSettlement, now: number, carry: number, bonded = 0, escort = 0): FateResult {
     const avail = this.lootAvailable(s, now);
-    const spoils = plunder(this.lootStock(s, now), this.lootStash(s, now), carry);
+    const spoils = this.fateOf(s, now, carry, bonded, escort);
     const cap = Math.max(1, this.lootCap(s, now));
     // На складе остаётся тайник и то, что не подняли: отметка ставится так,
     // чтобы наполнение пошло именно с этого места, а не с нуля и не с полного.
-    const left = Math.max(0, avail - spoils.takenTotal);
+    // Казна складом не считается и отметку не сдвигает.
+    const left = Math.max(0, avail - (spoils.takenTotal - (spoils.taken.gold ?? 0)));
     this.save.looted[s.id] = this.liveAt(s.id, now) - Math.min(1, left / cap) * LOOT_REFILL;
     return spoils;
   }
 
   /**
-   * Что чужаки унесут у игрока. Считает это общее правило (`spoils.plunder`) —
-   * то же самое, которым игрок обчищает чужие дворы: склад минус тайник, но не
-   * больше, чем отряд поднимет. Своей арифметики у этой стороны нет и быть не
-   * должно; отличаются стороны только тем, откуда берутся склад и тайник.
+   * Участь нашего взятого города. Считает её та же дверь (`spoils.fate`), что
+   * и участь чужого двора; отличаются стороны только тем, откуда берутся склад,
+   * казна, тайник и постройки — у игрока всё это в слепке. Соль выбора построек —
+   * сид мира и минута падения: одно событие, один список.
    */
-  private plunderHome(profile: PlayerProfile | null, carry: number): Spoils {
-    if (!profile) return { taken: {}, takenTotal: 0, hiddenTotal: 0, spilledTotal: 0 };
-    return plunder(profile.stock ?? {}, profile.stash ?? 0, carry);
+  private fateHome(profile: PlayerProfile | null, carry: number, escort: number, at: number): FateResult {
+    return fate({
+      fate: FATE_NOW,
+      stock: profile?.stock ?? {},
+      gold: Math.max(0, Math.floor(profile?.gold ?? 0)),
+      stash: profile?.stash ?? 0,
+      bonded: profile?.bonded ?? 0,
+      carry,
+      escort,
+      levels: profile?.levels ?? {},
+      seed: fallSeed(this.save.seed, at),
+    });
   }
 
   // ---------- Туман войны ----------
@@ -2778,17 +2807,13 @@ export class LocalWorld implements WorldApi {
     // будет уже не у кого, и запас логова поэтому не восстанавливается.
     const burned = isLair(target) && field.won;
     const arms = burned ? lairArms(defense) : 0;
-    // Золото берут до добра: доля казны соразмерна тому, сколько гарнизона выбили.
-    const gold = field.won ? Math.round(this.castleGold(target, at) * field.defenderLoss) : 0;
-    // Победитель выгребает склад дочиста — всё, кроме тайника, и не больше, чем
-    // отряд поднимет. Правило то же, что у набега на нашу деревню, и функция та
-    // же: одностороннего дележа в игре нет.
-    const took = field.won
-      ? this.takeLoot(target, at, stackCarry({ warrior: survivors }))
-      : { taken: {} as Loot, takenTotal: 0, hiddenTotal: 0, spilledTotal: 0 };
-    const goods = took.takenTotal;
-    const spoils: Loot | null =
-      gold > 0 ? { ...took.taken, gold } : goods > 0 ? took.taken : null;
+    // Победитель выгребает склад и казну дочиста — всё, кроме тайника, и не
+    // больше, чем отряд поднимет. Дверь та же, что у набега на нашу деревню:
+    // одностороннего дележа в игре нет.
+    const took = field.won ? this.takeLoot(target, at, stackCarry({ warrior: survivors })) : null;
+    const gold = took?.taken.gold ?? 0;
+    const goods = (took?.takenTotal ?? 0) - gold;
+    const spoils: Loot | null = took && took.takenTotal > 0 ? took.taken : null;
     // Сжигается логово после того, как из него всё вынесли: сожжённое уже не
     // отдаёт ни добра, ни разведданных — их брать не у кого.
     if (burned) this.burnLair(target, at);
@@ -2801,7 +2826,7 @@ export class LocalWorld implements WorldApi {
     }
     const lootText =
       (goods > 0 ? ` Взято: ${goods} добра.` : '') +
-      (took.hiddenTotal > 0 ? ` В тайнике у них осталось ${took.hiddenTotal}.` : '') +
+      (took && took.hiddenTotal > 0 ? ` В тайнике у них осталось ${took.hiddenTotal}.` : '') +
       (arms > 0 ? ` Оружия: ${arms}.` : '') +
       (gold > 0 ? ` Казна замка: ${gold} золота.` : '');
     const record: BattleRecord | null = field.result
@@ -2834,7 +2859,7 @@ export class LocalWorld implements WorldApi {
       enemyPower: Math.round(defense),
       enemyLost,
       loot: spoils,
-      hidden: took.hiddenTotal,
+      hidden: took?.hiddenTotal ?? 0,
       intel,
       battle: record,
       text: burned
@@ -3306,14 +3331,15 @@ export class LocalWorld implements WorldApi {
     // полководце в поле. Дружина у ворот теряет свою долю сразу.
     const troopsLost = troopTotal(spread) > 0 ? spread : weakest(home, warriorsLost);
     this.standingLost(held.own, held.standing, troopsLost);
-    // Симметрия: прорвавшийся набег чистит наш склад тем же правилом и той же
-    // функцией, какой мы чистим чужие дворы, — всё, кроме тайника, и не больше,
-    // чем поднимет отряд. Считается это здесь, **после** проверки `AWAY_GRACE`:
-    // пока игрока нет, набег не состоится вовсе, а значит и терять нечего.
-    const spoils = outcome.won
-      ? this.plunderHome(profile, stackCarry(attackerLeft))
-      : { taken: {}, takenTotal: 0, hiddenTotal: 0, spilledTotal: 0 };
-    const taken = spoils.takenTotal;
+    // Прорвались — город взят, и его участь решает та же дверь, какой мы делим
+    // чужие дворы и какой голод делит наш город (`spoils.fate`): склад и казна до
+    // тайника, сколько поднимет отряд, и пять построек по уровню. Считается это
+    // здесь, **после** проверки `AWAY_GRACE`: пока игрока нет, набег не состоится
+    // вовсе, а значит и терять нечего.
+    const spoils = outcome.won ? this.fateHome(profile, stackCarry(attackerLeft), stackEscort(attackerLeft), at) : null;
+    const loss = spoils ? homeLoss(spoils) : null;
+    const gold = spoils?.taken.gold ?? 0;
+    const taken = (spoils?.takenTotal ?? 0) - gold;
 
     this.addReport({
       id: `${m.id}-defense`,
@@ -3326,12 +3352,13 @@ export class LocalWorld implements WorldApi {
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       enemyPower: Math.round(m.power),
       enemyLost: Math.round(m.power * outcome.attackerLoss),
-      loot: taken > 0 ? asLoss(spoils.taken) : null,
-      hidden: outcome.won ? spoils.hiddenTotal : 0,
+      loot: spoils && loss && spoils.takenTotal > 0 ? loss.resources : null,
+      hidden: spoils?.hiddenTotal ?? 0,
       intel: null,
       battle: record,
-      text: outcome.won
-        ? `${m.fromName} прорвались через заслон и вычистили склад: унесено ${taken} добра.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''}`
+      ...(loss?.fallen ? { fallen: loss.fallen } : {}),
+      text: spoils
+        ? `${m.fromName} прорвались через заслон и вычистили склад: унесено ${taken} добра${gold > 0 ? ` и ${gold} золота` : ''}.${spoils.hiddenTotal > 0 ? ` В тайнике уцелело ${spoils.hiddenTotal}.` : ''}${spoils.led.taken > 0 ? ` ${ORDER_TEXT.ledAway(spoils.led.taken)}` : ''}`
         : `${m.fromName} отбиты у частокола.`,
       read: false,
     });
@@ -3350,7 +3377,8 @@ export class LocalWorld implements WorldApi {
       id: `${m.id}-defense`,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       lostTroops: troopsLost,
-      resources: asLoss(spoils.taken),
+      resources: {},
+      ...loss,
       prestige: outcome.won ? 0 : 3,
       morale: outcome.won ? -10 : 5,
       battle: outcome.won ? 'lost' : 'won',
@@ -4240,8 +4268,8 @@ export class LocalWorld implements WorldApi {
         power: estimate(p?.defense ?? 0, 'exact'),
         pop: estimate(p?.pop ?? 0, 'exact'),
         // Свой склад игрок видит целиком, и «можно взять» здесь — то, что
-        // унесли бы у него: весь склад за вычетом собственного тайника.
-        loot: estimate(plunder(p?.stock ?? {}, p?.stash ?? 0, Infinity).takenTotal, 'exact'),
+        // унесли бы у него: весь склад и казна за вычетом собственного тайника.
+        loot: estimate(this.fateHome(p ?? null, Infinity, 0, now).takenTotal, 'exact'),
         intel: null,
         figuresHere: this.figuresAt(HOME_ID, now),
         deals: [],

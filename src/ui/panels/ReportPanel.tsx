@@ -21,6 +21,7 @@ import { setBattleWatch } from '@/game/battle/actions';
 import { BattleReplay } from '@/ui/battle/BattleReplay';
 import { battleMusic } from '@/sound/web';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { fallenText } from '@/game/sim/expedition';
 import { UNITS } from '@/world/data/units';
 import { formatCoord } from '@/world/geo';
 import type { BattleRecord, Loot, Report, UnitStack } from '@/world/types';
@@ -180,6 +181,7 @@ export function ReportPanel({ id }: { id: string }) {
 
 /** Итог словами: три категории исхода, потери обеих сторон, ключевые события. */
 export function ReportBody({ report }: { report: Report }) {
+  const s = useGame((g) => g.s);
   const rec = report.battle;
   const sum = rec ? summarize(rec.result, rec.us) : null;
   const ours = rec ? rec.result.sides[rec.us].total : null;
@@ -284,6 +286,17 @@ export function ReportBody({ report }: { report: Report }) {
             <span className="ico"><Icon name="ui-loot" glyph="📦" /></span>
             <span className="name">Добыча</span>
             <span className="val">{lootText(report.loot)}</span>
+          </div>
+        )}
+        {/*
+          Город взят: какие постройки потеряли уровень, поимённо. Строка та же,
+          что легла в летопись, и из того же списка, который применило племя.
+        */}
+        {report.fallen && report.fallen.length > 0 && (
+          <div className="mod">
+            <span className="ico">🏚️</span>
+            <span className="name">Постройки</span>
+            <span className="val">{fallenText(s, report.fallen)}</span>
           </div>
         )}
       </div>

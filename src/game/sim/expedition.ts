@@ -1,12 +1,14 @@
 // Последствия походов для племени. Мир считает исход боя сам; сюда приезжает
 // готовый итог, и племя применяет его к себе. Про карту, соседей и координаты
 // эта сторона по-прежнему ничего не знает.
-import type { Building, EquipmentId, GameState, LogEntry, ResourceId } from '../types';
+import type { Building, BuildingTypeId, EquipmentId, GameState, LogEntry, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
 import {
   bondedCount,
+  buildingOfType,
+  buildingTitle,
   handsCount,
   healShare,
   heroDownSeconds,
@@ -63,13 +65,93 @@ export interface ExpeditionOutcome {
   /** Логово сожжено этим походом: его считает профиль. */
   lair?: boolean;
   /**
-   * Невольники: плюс — приведены из павшего города, минус — уведены из нашего.
-   * Кого и сколько, решает мир одним правилом на обе стороны
-   * (`world/spoils.lead`); племя только прибавляет или убавляет число.
+   * Невольники: плюс — приведены из взятого города, минус — уведены из нашего.
+   * Кого и сколько, решает мир одной дверью участи на обе стороны
+   * (`world/spoils.fate`); племя только прибавляет или убавляет число.
    */
   bonded?: number;
+  /**
+   * Наш город взят: на какие постройки пришёлся удар и с какого уровня на
+   * какой. Выбрал их мир одной дверью участи (`world/spoils.fate`) в минуту
+   * события; племя ничего не выбирает, а только снимает уровни (`fallBuildings`).
+   * `id` — тип постройки.
+   */
+  fallen?: { id: string; from: number; to: number }[];
   text: string;
   kind: LogEntry['kind'];
+}
+
+/**
+ * Какие постройки не теряют уровня при взятии города. Тайник — и это решение,
+ * а не недосмотр: у него нет дела, кроме поражения. Обесценься он ровно в ту
+ * минуту, когда нужен, — его незачем было бы строить. По той же причине он не
+ * горит при сожжении (docs/DEFEAT_LADDER.md).
+ */
+export const FALL_SPARED: BuildingTypeId[] = ['cache'];
+
+/**
+ * Какие постройки может задеть падение города — все, кроме `FALL_SPARED`, с их
+ * уровнями. Список уезжает в мир слепком (`PlayerProfile.levels`), и мир
+ * выбирает из него, не зная, что это за постройки.
+ */
+export function fallPool(s: GameState): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const b of s.buildings) if (!FALL_SPARED.includes(b.type)) out[b.type] = b.level;
+  return out;
+}
+
+/** Постройка, на деле потерявшая уровень, — для летописи и отчёта. */
+export interface LevelLoss {
+  type: BuildingTypeId;
+  from: number;
+  to: number;
+}
+
+/**
+ * Снимает уровни, выбранные дверью участи. Каждой выбранной постройке — ровно
+ * столько, сколько сказано (`from − to`), от её нынешнего уровня и не ниже
+ * первого: сносить здание нельзя, зданий по одному. `FALL_SPARED` проверяется и
+ * здесь, а не только в списке для мира: старый слепок в сохранении мира мог
+ * уехать без него.
+ *
+ * Улучшение, шедшее на такой постройке, не отменяется: оно закончится на
+ * уровень ниже, чем было заказано, — заплачено было вперёд.
+ */
+export function fallBuildings(s: GameState, fallen: { id: string; from: number; to: number }[]): LevelLoss[] {
+  const out: LevelLoss[] = [];
+  for (const f of fallen) {
+    const type = f.id as BuildingTypeId;
+    if (FALL_SPARED.includes(type)) continue;
+    const b = buildingOfType(s, type);
+    const drop = Math.max(0, Math.floor(f.from - f.to));
+    if (!b || drop <= 0) continue;
+    const from = b.level;
+    b.level = Math.max(1, b.level - drop);
+    if (b.level < from) out.push({ type, from, to: b.level });
+  }
+  return out;
+}
+
+/**
+ * Список словами — один на летопись и на отчёт: «Кузница 6 → 5, Склад 4 → 3».
+ * `struck` — на сколько построек пришёлся удар: те, что стоят на первом уровне,
+ * названы числом, а не опущены молча, иначе «пять построек» в правиле и три в
+ * списке читались бы как ошибка.
+ */
+export function levelLossText(s: GameState, lost: LevelLoss[], struck = lost.length): string {
+  const names = lost.map((l) => `${buildingTitle(s, l.type)} ${l.from} → ${l.to}`).join(', ');
+  const floor = Math.max(0, struck - lost.length);
+  if (floor === 0) return names;
+  const rest = `${floor} ${floor === 1 ? 'стоит' : 'стоят'} на первом уровне, ниже некуда`;
+  return names ? `${names}; ещё ${rest}` : `все ${rest}`;
+}
+
+/** То, что уехало в отчёт мира (`Report.fallen`), — теми же словами, что в летописи. */
+export function fallenText(s: GameState, fallen: { id: string; from: number; to: number }[]): string {
+  const lost: LevelLoss[] = fallen
+    .filter((f) => f.to < f.from)
+    .map((f) => ({ type: f.id as BuildingTypeId, from: f.from, to: f.to }));
+  return levelLossText(s, lost, fallen.length);
 }
 
 /**
@@ -111,8 +193,9 @@ export function takeArms(s: GameState, arms: number): Partial<Record<EquipmentId
  * наружу. Что именно стоит снаружи, знает `isOutsideWall`, а не план поселения.
  *
  * Разор устроен так: работники разбегаются по всем разорённым дворам — двор
- * стоит, пока игрок не вернёт туда людей, — а самый людный из них теряет ещё и
- * уровень. Не ниже первого: сносить здание набегом нельзя, зданий по одному.
+ * стоит, пока игрок не вернёт туда людей. Уровней набег здесь не снимает: у
+ * падения уровней один источник — участь взятого города (`fallBuildings`), а
+ * разбежавшиеся работники — последствие боя у стены, а не участи.
  */
 export function sackOutskirts(s: GameState, severity: number): string[] {
   const hurt = Math.max(0, Math.min(1, severity));
@@ -128,17 +211,12 @@ export function sackOutskirts(s: GameState, severity: number): string[] {
 
   const names: string[] = [];
   for (const b of yards.slice(0, count)) {
-    const men = handsCount(s, b.id);
-    // Уровень теряет только самый людный двор и только при заметном разоре:
-    // снимать по уровню со всего хозяйства за каждый набег — это не игра, а налог.
-    const burn = names.length === 0 && hurt >= 0.5 && b.level > 1;
-    if (men === 0 && !burn) continue;
+    if (handsCount(s, b.id) === 0) continue;
     s.workers[b.id] = 0;
-    // Невольников набег не уводит — уводит их только победитель павшего города.
-    // Со двора их сгоняет так же, как вольных: двор стоит, пока их не вернут.
+    // Невольников набег не уводит — уводит их только ступень участи, уводящая
+    // людей. Со двора их сгоняет так же, как вольных: двор стоит, пока их не вернут.
     if (bondedCount(s, b.id) > 0) delete s.bondedWork[b.id];
-    if (burn) b.level -= 1;
-    names.push(`${BUILDING_BY_ID[b.type].name}${burn ? ' (−1 уровень)' : ''}`);
+    names.push(BUILDING_BY_ID[b.type].name);
   }
   return names;
 }
@@ -230,6 +308,8 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];
+  // Город взят: постройки теряют уровни, которые выбрала дверь участи.
+  const levelsLost = o.fallen ? fallBuildings(s, o.fallen) : [];
   // Реликвию уносят вместе с остальным: она вещь, а не обещание, и цена ей —
   // ровно та, что её можно потерять. Тайник её не прячет: святыню держат в
   // храме на виду, иначе она не значила бы для прихода ничего.
@@ -249,7 +329,11 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (relicLost) log(s, `${relicLost} унесли из храма. Приход осиротел.`, 'bad');
   if (bondedOut > 0) log(s, ORDER_TEXT.ledAway(bondedOut), 'bad');
   if (bondedIn > 0) log(s, ORDER_TEXT.broughtIn(bondedIn), 'info');
+  if (o.fallen && o.fallen.length > 0) {
+    log(s, `Постройки потеряли уровни: ${levelLossText(s, levelsLost, o.fallen.length)}.`, 'bad');
+  }
   if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
+  if (o.gold < 0) log(s, `Из казны унесли золота: ${Math.round(-o.gold)}.`, 'bad');
   const armsText = Object.entries(arms)
     .map(([id, n]) => `${EQUIPMENT_BY_ID[id as EquipmentId].name.toLowerCase()} — ${n}`)
     .join(', ');
