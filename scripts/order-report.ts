@@ -78,7 +78,7 @@ import {
   workerMultiplier,
 } from '@/game/derived';
 import { LocalWorld } from '@/world/local/LocalWorld';
-import { lead, plunder } from '@/world/spoils';
+import { FATES, FATE_NOW, lead, plunder } from '@/world/spoils';
 import { stackEscort } from '@/world/data/units';
 import { AI_BONDED_SHARE, AI_POWER_SHARE, AI_POWER_VS_DEFENSE, LAIR_CAP, LAIR_ANCHOR_FAR, SIEGE_IF_BELOW } from '@/world/data/tuning';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
@@ -357,8 +357,9 @@ async function siegeRun(seed: number, hours: number) {
 console.log('=== ВОЙНА ПРОТИВ ХОЗЯЙСТВА: откуда невольники дешевле ===');
 console.log('Мерка одна — невольников за реальный час. Полководец в прогоне ничего не делает, кроме');
 console.log('осад: идёт к ближайшему логову, берёт его голодом, идёт дальше. Это верхняя граница войны.');
-console.log(`У бота невольники — доля его людей (AI_BONDED_SHARE = ${AI_BONDED_SHARE}); уводят их тем же правилом,`);
-console.log('каким уводят наших, — скольких устережёт дружина.');
+console.log(`У бота невольники — доля его людей (AI_BONDED_SHARE = ${AI_BONDED_SHARE}). Уводит их только ступень`);
+console.log(`участи «увести людей»; сейчас участь одна — «ограбить» (${FATE_NOW}), и невольники остаются (FATES.${FATE_NOW}.bonded = ${FATES[FATE_NOW].bonded}).`);
+console.log('Прогон оставлен как есть: ступень, уводящая людей, померится им же, одной строкой в FATES.');
 console.log('');
 console.log('  сид   осад/ч   невольников за осаду   невольников/ч');
 let warTotal = 0;
@@ -387,10 +388,16 @@ for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
 }
 console.log('');
 console.log(`  Война в среднем: ${n1(warAvg)} невольников за час — у полководца, который больше ничего не делает.`);
-console.log('  Казна посёлка того же часа покупает их на порядок больше — и дружину при этом никуда');
-console.log('  не уводит. Война не выгоднее хозяйства и здесь, как не выгоднее она и грабежом: логово');
-console.log('  держит горстку людей, осада с дорогой идёт около получаса, а полководец всё это время');
-console.log('  не бьёт и не ловит.');
+if (warAvg === 0) {
+  console.log('  Ноль — не сбой прогона, а ступень «ограбить»: невольников она не уводит ни у кого.');
+  console.log('  Рынок остаётся единственным источником невольников. Сколько давала война, пока падение');
+  console.log('  голодом уводило их всегда, — docs/order.md, раздел 6.');
+} else {
+  console.log('  Казна посёлка того же часа покупает их на порядок больше — и дружину при этом никуда');
+  console.log('  не уводит. Война не выгоднее хозяйства и здесь, как не выгоднее она и грабежом: логово');
+  console.log('  держит горстку людей, осада с дорогой идёт около получаса, а полководец всё это время');
+  console.log('  не бьёт и не ловит.');
+}
 console.log('');
 
 // ------------------------------------------------------ срок до мятежа ---
@@ -523,12 +530,14 @@ console.log('');
 
 // ---------------------------------------------------------- падение ---
 
-console.log('=== ПАДЕНИЕ ГОРОДА: скольких уводит лагерь ===');
+console.log('=== ПАДЕНИЕ ГОРОДА: скольких увёл бы лагерь ===');
+console.log(`Сейчас — никого: участь «ограбить» (${FATE_NOW}) невольников не уводит. Таблица — конвой лагеря, то есть`);
+console.log('предел ступени «увести людей», когда она появится.');
 console.log('Лагерь садится под стенами, только когда штурм безнадёжен: его мощь ниже доли обороны');
 console.log(`(SIEGE_IF_BELOW = ${SIEGE_IF_BELOW}). Он же не сильнее доли логова (AI_POWER_SHARE ${AI_POWER_SHARE}) и доли обороны`);
 console.log(`(AI_POWER_VS_DEFENSE ${AI_POWER_VS_DEFENSE}). Отряд — один воин на три мощи; ведёт каждый ${stackEscort({ warrior: 1 })} невольников.`);
 console.log('');
-console.log(' ур   оборона дома   самый крупный лагерь, воинов   уведут до   невольников на пороге тревоги');
+console.log(' ур   оборона дома   самый крупный лагерь, воинов   увёл бы до   невольников на пороге тревоги');
 const lairMax = LAIR_ANCHOR_FAR * LAIR_CAP;
 for (const level of LEVELS) {
   const s = stage(level);
@@ -537,9 +546,10 @@ for (const level of LEVELS) {
   const hold = Math.floor(orderBreakdown(s).hold);
   const led = lead(hold, stackEscort({ warrior: men }));
   console.log(
-    `  ${pad(level, 2)}   ${pad(Math.round(defense(s)), 12)}   ${pad(men, 29)}   ${pad(led.taken, 9)}   ${pad(hold, 29)}`,
+    `  ${pad(level, 2)}   ${pad(Math.round(defense(s)), 12)}   ${pad(men, 29)}   ${pad(led.taken, 10)}   ${pad(hold, 29)}`,
   );
 }
 console.log('');
-console.log('Логова малы, и лагерь уводит заметную часть невольников, а не всех: у малого отряда');
-console.log('на всех не хватит сторожей. Правило одно и у нас, и у бота (`world/spoils.lead`).');
+console.log('Логова малы, и лагерь увёл бы заметную часть невольников, а не всех: у малого отряда');
+console.log('на всех не хватит сторожей. Правило одно и у нас, и у бота (`world/spoils.lead`), и зовёт его');
+console.log('только дверь участи — на той ступени, что уводит людей.');

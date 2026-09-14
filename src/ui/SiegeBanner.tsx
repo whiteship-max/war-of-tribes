@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { tutorialActive } from '@/game/data/tutorial';
 import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
-import { bondedTotal } from '@/game/derived';
-import { SIEGE_ROUT } from '@/world/data/tuning';
+import { FALL_BUILDINGS, FALL_LEVELS, SIEGE_ROUT } from '@/world/data/tuning';
 import { useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
 import { worksShort } from '@/world/works';
@@ -83,13 +82,14 @@ export function SiegeBanner() {
         считает мир: своей арифметики у панели нет.
       */}
       {/*
-        Невольников победитель уводит тем же правилом, каким уводим их мы из
-        павшего чужого города (`world/spoils.lead`), — и об этом сказано здесь
-        же, пока падение ещё не наступило. Без невольников строка прежняя.
+        Участь взятого города — та же дверь, что у прорвавшегося набега
+        (`world/spoils.fate`): склад и казна до тайника и пять построек по уровню.
+        Числа — из тех же констант, которыми её считает мир. Невольников ступень
+        «ограбить» не уводит, и строка о них не говорит.
       */}
       <div className="siege-fall">
-        Кончится хлеб — уйдёт {rout}% гарнизона, склад вычистят до тайника
-        {bondedTotal(s) > 0 ? ', уведут невольников' : ''}. Случится и без тебя.
+        Кончится хлеб — уйдёт {rout}% гарнизона, склад и казну вычистят до тайника, {FALL_BUILDINGS}{' '}
+        построек потеряют {FALL_LEVELS === 1 ? 'по уровню' : `по ${FALL_LEVELS} уровня`}. Случится и без тебя.
       </div>
       {/*
         Рогатки растут, и время работает против города: это видно здесь же, над

@@ -47,7 +47,8 @@ import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
 import { playerProfile } from '@/world/bridge';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
-import { commandCap, housingCapacity, productionPerDay, storageCap, hiddenStash } from '@/game/derived';
+import { commandCap, housingCapacity, productionPerDay, storageCap, hiddenStash, upgradeCost } from '@/game/derived';
+import { BUILDINGS } from '@/game/data/buildings';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { GameState } from '@/game/types';
 
@@ -777,7 +778,7 @@ console.log('а кончиться может без него: `homeFalls` — �
 console.log('`prevSeen` не передаётся. Это решение владельца, а не недосмотр: закрой его —');
 console.log('и лучшей игрой под осадой станет «закрыть приложение».');
 console.log('');
-console.log(' ур   склад   тайник     окно   дебаф за окно   унесено   доля склада   отстроится   гарнизон');
+console.log(' ур   склад   тайник     окно   дебаф за окно   унесено   доля склада   отстроится   гарнизон   постройки (ур. / добра на отстройку)');
 
 for (const level of [1, 3, 5, 7, 10]) {
   const g = tribeAt(level);
@@ -809,8 +810,19 @@ for (const level of [1, 3, 5, 7, 10]) {
   );
   const army = Object.values(g.army).reduce((n, v) => n + (v ?? 0), 0);
   const refill = (taken / Math.max(1, goodsPerHour(g))) * 60;
+  // Пять построек по уровню — из того списка, что уехал в последствие, и по цене
+  // тех самых улучшений, которые придётся заказать заново.
+  let levels = 0;
+  let rebuild = 0;
+  for (const f of pulse.effects.flatMap((e) => e.fallen ?? [])) {
+    const def = BUILDINGS.find((d) => d.id === f.id);
+    for (let l = f.to + 1; l <= f.from && def; l++) {
+      levels++;
+      rebuild += Object.values(upgradeCost(def, l)).reduce((n, v) => n + (v ?? 0), 0);
+    }
+  }
   console.log(
-    `  ${String(level).padStart(2)}  ${String(total).padStart(6)}  ${String(hiddenStash(g) * RESOURCE_IDS.length).padStart(6)}  ${(window / MIN).toFixed(1).padStart(6)}м  ${String(Math.round(debuff)).padStart(14)}  ${String(taken).padStart(8)}  ${`${Math.round((taken / total) * 100)}%`.padStart(11)}  ${`${refill.toFixed(1)} мин`.padStart(10)}  ${`−${routed} из ${army}`.padStart(9)}`,
+    `  ${String(level).padStart(2)}  ${String(total).padStart(6)}  ${String(hiddenStash(g) * RESOURCE_IDS.length).padStart(6)}  ${(window / MIN).toFixed(1).padStart(6)}м  ${String(Math.round(debuff)).padStart(14)}  ${String(taken).padStart(8)}  ${`${Math.round((taken / total) * 100)}%`.padStart(11)}  ${`${refill.toFixed(1)} мин`.padStart(10)}  ${`−${routed} из ${army}`.padStart(9)}   ${`−${levels} / ${rebuild}`.padStart(15)}`,
   );
 }
 console.log('');
@@ -822,5 +834,7 @@ console.log('Вывод, ради которого раздел и заведё�
 console.log('добра, взятого при падении, а взятое хозяйство возвращает за считанные минуты.');
 console.log('Падение по-прежнему мягче ожидания — значит пол по времени, который удлиняет');
 console.log('окно ради отсрочки падения, ухудшал бы ровно тот случай, ради которого заводится.');
-console.log('Изменилось одно: «падение последствий не имеет» больше не верно — половина');
-console.log('гарнизона расходится, и это не отстраивается само.');
+console.log('Изменилось два: «падение последствий не имеет» больше не верно — половина');
+console.log('гарнизона расходится, и это не отстраивается само; и пять построек теряют по уровню,');
+console.log('кроме тайника (одна дверь участи с прорвавшимся набегом, `spoils.fate`). На первом уровне');
+console.log('падать нечему. Во что это обходится во времени партии — sack:report, раздел «лестница».');

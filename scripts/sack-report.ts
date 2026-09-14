@@ -28,6 +28,12 @@
 //     бесконечную кару. Раздел «месть» печатает, сколько войн разом бывает,
 //     как часто и какой силы из них выходят набеги и чем это кончается.
 //
+//  4. **Цена взятого города.** Склад держит минуты выработки, люди удваиваются
+//     за двадцать минут, и до пяти построек по уровню грабёж не стоил
+//     проигравшему ничего. Раздел «лестница» меряет, чем он стал, на семи этапах
+//     партии тем же автопилотом, что `pop:report`, и сколько уходит казны
+//     (docs/DEFEAT_LADDER.md).
+//
 //   npx vite-node scripts/sack-report.ts
 //   HOURS=3 npx vite-node scripts/sack-report.ts
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
@@ -48,6 +54,8 @@ import {
   LOOT_REFILL,
   REVENGE_ATTITUDE,
   REVENGE_WARS_MAX,
+  FALL_BUILDINGS,
+  FALL_LEVELS,
   REVOLT_DURATION,
   SACK_DURATION,
   SACK_POWER_LOSS,
@@ -58,17 +66,23 @@ import { autoAssign } from '@/game/sim/workers';
 import {
   defense,
   maxLevelFor,
+  netPerDay,
   productionPerDay,
   stashAt,
+  taxIncomePerDay,
   storageCap,
   upgradeCost,
 } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
 import { BASE_STORAGE_CAP, DAY_LENGTH, RESOURCE_IDS, UPGRADE_GROWTH } from '@/game/constants';
-import { plunder } from '@/world/spoils';
+import { FATE_NOW, fallSeed, fate, homeLoss, plunder } from '@/world/spoils';
+import { applyEffects, playerProfile } from '@/world/bridge';
+import { seeded, setRandom } from '@/game/sim/random';
+import type { GameState, ResourceId } from '@/game/types';
+import { build, staff } from './autopilot';
 import { stackCarry } from '@/world/data/units';
 import type { WorldSave } from '@/world/local/state';
-import type { Loot, PlayerProfile, SettlementView } from '@/world/types';
+import type { HomeEffect, Loot, PlayerProfile, SettlementView } from '@/world/types';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -510,4 +524,222 @@ for (let i = 0; i < 200; i++) {
   console.log(`  Разорение двора: ${save.sacks[target.id] ? 'есть' : 'нет'}.`);
   console.log(`  Разорение нашей деревни: ${save.sacks[HOME_ID] ? 'есть' : 'нет'}.`);
 }
+console.log('');
+
+// ------------------------------------------------ лестница: взятый город ---
+
+/**
+ * Во что обходится взятый город — тем же способом, каким мерился расчёт
+ * docs/DEFEAT_LADDER.md: автопилот `pop:report` ведёт партию, на семи этапах с
+ * неё снимается копия, к копии применяется участь, и автопилот ведёт её дальше.
+ * Участь применяется настоящим путём — слепок деревни (`playerProfile`), дверь
+ * участи (`spoils.fate`), поля последствия (`homeLoss`) и `applyEffects`, — а не
+ * своей арифметикой: отчёт, считающий участь сам, мерил бы свою копию правила.
+ *
+ * Отставание — насколько позже тронутая партия дошла до того, где нетронутая
+ * стояла через час (сумма уровней и люди). Сид событий у обеих копий один, поэтому
+ * ноль значит «не стоило ничего», а минуты в минус — шум автопилота.
+ */
+const LADDER_STAGES = [0, 0.5, 1, 2, 3, 4.5, 6.5];
+/** Шаг симуляции автопилота, с: как в расчёте документа (у pop:report — 1). */
+const LADDER_SIM = 3;
+const LADDER_STEP = 15;
+const LADDER_GOAL = 3600;
+const LADDER_HORIZON = 5 * 3600;
+/** Соли выбора пяти построек на этап: цена зависит от того, какие попались. */
+const LADDER_SEEDS = [1, 2, 3, 4, 5];
+
+const ladderRun = (s: GameState, seconds: number): void => {
+  for (let t = 0; t < seconds; t += LADDER_STEP) {
+    staff(s);
+    build(s);
+    catchUp(s, LADDER_STEP, LADDER_SIM);
+  }
+};
+const levelSum = (s: GameState): number => s.buildings.reduce((n, b) => n + b.level, 0);
+
+type Blow = { stock: boolean; levels: boolean; morale: number; sacked?: number };
+
+/** Применить к копии участь взятого города — ту, что сейчас в игре, частями или целиком. */
+function strike(s: GameState, blow: Blow, seed: number): { fell: number; rebuild: number; narrow: number } {
+  const p = playerProfile(s);
+  // Чистая выработка до удара — ею и меряется отстройка: сколько минут копить узкий припас.
+  const net = netPerDay(s);
+  const r = fate({
+    fate: FATE_NOW,
+    stock: blow.stock ? p.stock : {},
+    gold: blow.stock ? (p.gold ?? 0) : 0,
+    stash: p.stash,
+    bonded: p.bonded ?? 0,
+    // Обоз не мешает: отряд, взявший город, уносит всё открытое (docs/sack.md).
+    carry: Infinity,
+    escort: Infinity,
+    levels: blow.levels ? p.levels : undefined,
+    seed,
+  });
+  const before = new Map(s.buildings.map((b) => [b.id, b.level]));
+  const effect: HomeEffect = {
+    id: 'лестница',
+    lost: {},
+    prestige: 0,
+    morale: blow.morale,
+    battle: blow.sacked ? 'lost' : null,
+    sacked: blow.sacked,
+    text: 'Город взят.',
+    good: false,
+    ...homeLoss(r),
+  };
+  applyEffects(s, [effect]);
+  let fell = 0;
+  let rebuild = 0;
+  const need: Partial<Record<ResourceId, number>> = {};
+  for (const b of s.buildings) {
+    const was = before.get(b.id) ?? b.level;
+    for (let l = b.level + 1; l <= was; l++) {
+      fell++;
+      const c = upgradeCost(BUILDINGS.find((d) => d.id === b.type)!, l);
+      for (const r of RESOURCE_IDS) {
+        need[r] = (need[r] ?? 0) + (c[r] ?? 0);
+        rebuild += c[r] ?? 0;
+      }
+    }
+  }
+  // Игровой день — реальная минута: чистая выработка за день и есть выработка за минуту.
+  const narrow = Math.max(0, ...RESOURCE_IDS.map((r) => (need[r] ?? 0) / Math.max(1, net[r])));
+  return { fell, rebuild, narrow };
+}
+
+/** Через сколько секунд после копии тронутая партия догнала цель; null — не догнала за горизонт. */
+function reach(s: GameState, goalLevels: number, goalPop: number, stageSeed: number): number | null {
+  setRandom(seeded(stageSeed));
+  for (let t = 0; t < LADDER_HORIZON; t += LADDER_STEP) {
+    staff(s);
+    build(s);
+    catchUp(s, LADDER_STEP, LADDER_SIM);
+    if (levelSum(s) >= goalLevels && s.pop >= goalPop) return t + LADDER_STEP;
+  }
+  return null;
+}
+
+const lagText = (sec: number | null): string =>
+  sec === null ? `>${LADDER_HORIZON / 3600 - 1} ч` : `${Math.round((sec - LADDER_GOAL) / 60)} мин`;
+const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+const stageName = (h: number): string => (h === 0 ? '0' : h < 1 ? `${h * 60} мин` : `${h} ч`);
+
+console.log('=== ЛЕСТНИЦА: ЧТО СТОИТ ВЗЯТЫЙ ГОРОД ===');
+console.log('Участь сейчас одна — «ограбить»: склад и казна до тайника, сколько унесёт обоз,');
+console.log(`и ${FALL_BUILDINGS} построек (кроме тайника) теряют по ${FALL_LEVELS} уровню, не ниже первого.`);
+console.log('Невольники остаются. Автопилот pop:report, копия на этапе, участь настоящим путём');
+console.log('(слепок → spoils.fate → homeLoss → applyEffects), догон тем же сидом событий.');
+console.log('Отставание — насколько позже тронутая партия дошла до того, где нетронутая стояла');
+console.log('через час. Ноль — не стоило ничего; минуты в минус — шум автопилота.');
+console.log('');
+
+type LadderRow = {
+  stage: number;
+  levelAvg: number;
+  pop: number;
+  open: number;
+  stash: number;
+  goldHour: number;
+  plunderOnly: number | null;
+  levelsLag: number[];
+  fell: number[];
+  rebuild: number[];
+  narrow: number[];
+  hunger: number | null;
+  raid: number | null;
+};
+const ladder: LadderRow[] = [];
+{
+  setRandom(seeded(1));
+  const base = createInitialState();
+  base.tutorialDone = true;
+  let clock = 0;
+  for (const h of LADDER_STAGES) {
+    const stage = h * 3600;
+    setRandom(seeded(7 + stage));
+    ladderRun(base, stage - clock);
+    clock = stage;
+    const snap = structuredClone(base);
+    const stageSeed = 1000 + stage;
+    const free = structuredClone(snap);
+    setRandom(seeded(stageSeed));
+    ladderRun(free, LADDER_GOAL);
+    const goalL = levelSum(free);
+    const goalP = free.pop;
+    const p = playerProfile(snap);
+    const tryBlow = (blow: Blow, seed: number) => {
+      const c = structuredClone(snap);
+      const hit = strike(c, blow, seed);
+      return { ...hit, lag: reach(c, goalL, goalP, stageSeed) };
+    };
+    const levels = LADDER_SEEDS.map((k) => tryBlow({ stock: false, levels: true, morale: 0 }, fallSeed(k, stage * 1000)));
+    const moderate = { ...snap, tax: 'moderate' } as GameState;
+    ladder.push({
+      stage: h,
+      levelAvg: levelSum(snap) / snap.buildings.length,
+      pop: snap.pop,
+      open: fate({ fate: FATE_NOW, stock: p.stock, gold: 0, stash: p.stash, bonded: 0, carry: Infinity, escort: 0, seed: 0 }).takenTotal,
+      stash: p.stash,
+      goldHour: taxIncomePerDay(moderate) * (3600 / DAY_LENGTH),
+      plunderOnly: tryBlow({ stock: true, levels: false, morale: 0 }, 0).lag,
+      levelsLag: levels.map((x) => (x.lag === null ? Infinity : x.lag)),
+      fell: levels.map((x) => x.fell),
+      rebuild: levels.map((x) => x.rebuild),
+      narrow: levels.map((x) => x.narrow),
+      hunger: tryBlow({ stock: true, levels: true, morale: -12 }, fallSeed(1, stage * 1000)).lag,
+      raid: tryBlow({ stock: true, levels: true, morale: -10, sacked: 1 }, fallSeed(1, stage * 1000)).lag,
+    });
+  }
+}
+
+console.log(' этап     ур.ср   люди   открыто склада   только склад   пять уровней (медиана, мин–макс)   голод целиком   набег целиком');
+for (const r of ladder) {
+  const lags = r.levelsLag.map((x) => (x === Infinity ? null : x));
+  const shown = lags.map((x) => (x === null ? Infinity : Math.round((x - LADDER_GOAL) / 60)));
+  const med = median(shown);
+  console.log(
+    `  ${pad(stageName(r.stage), 6)}  ${pad(r.levelAvg.toFixed(1), 5)}  ${pad(r.pop, 5)}  ${pad(r.open, 15)}  ${pad(lagText(r.plunderOnly), 13)}  ${pad(`${med === Infinity ? '—' : `${med} мин`} (${Math.min(...shown)}…${Math.max(...shown)})`, 32)}  ${pad(lagText(r.hunger), 14)}  ${pad(lagText(r.raid), 14)}`,
+  );
+}
+console.log('');
+console.log('  «Только склад» — участь без падения уровней: это ровно та цена, которую взятый');
+console.log('  город стоил до пяти построек (казна автопилоту не нужна и отставания не даёт).');
+console.log('  «Голод» и «набег» — участь целиком: склад, казна, пять построек и мораль (−12 и −10);');
+console.log('  у набега ещё и разбежавшиеся со всех трёх дворов за стеной работники (разор 1.0).');
+console.log('  Сверка с расчётом документа: сожжение (−2 уровня всем, 80 % людей) там стоило');
+console.log('  25–154 мин на тех же этапах — пять построек по уровню обязаны быть заметно легче.');
+console.log('');
+
+console.log('  Что стоят пять уровней в добре:');
+console.log(' этап     снято уровней (по солям)   ресурсов на отстройку (медиана)   узкий припас, минут чистой выработки (по солям)');
+for (const r of ladder) {
+  const cost = median(r.rebuild);
+  console.log(
+    `  ${pad(stageName(r.stage), 6)}  ${pad(r.fell.join(' '), 25)}  ${pad(cost, 32)}  ${pad(r.narrow.map((m) => m.toFixed(0)).join(' '), 30)}`,
+  );
+}
+console.log('');
+console.log('  «Снято уровней» меньше пяти там, где удар пришёлся на постройку первого уровня:');
+console.log('  у новичка всё на первом, отнимать нечего. Отстройка — сумма цен снятых улучшений.');
+console.log('  Держит её не сумма, а узкий припас — камень, железо или дерево: сколько минут его');
+console.log('  чистой выработки нужно накопить на все снятые уровни. Столбец и есть порядок отставания');
+console.log('  на потолке; очередь стройки на пять заказов при этом — одна–две минуты.');
+console.log('');
+
+console.log('  Казна: игрок копил час умеренного налога, город взят.');
+console.log(' этап     налог умеренный, зол./ч   казна   тайник   унесено   минут налога на возврат');
+for (const r of ladder) {
+  const gold = Math.round(r.goldHour);
+  const took = fate({ fate: FATE_NOW, stock: {}, gold, stash: r.stash, bonded: 0, carry: Infinity, escort: 0, seed: 0 }).taken.gold ?? 0;
+  console.log(
+    `  ${pad(stageName(r.stage), 6)}  ${pad(gold, 24)}  ${pad(gold, 6)}  ${pad(r.stash, 7)}  ${pad(took, 8)}  ${pad(Math.round((took / Math.max(1, r.goldHour)) * 60), 22)}`,
+  );
+}
+console.log('');
+console.log('  Тайник прячет столько же золота, сколько каждого припаса, и уносится остальное —');
+console.log('  той же дверью, тем же обозом. Час налога возвращается за час налога минус тайник;');
+console.log('  копивший сутки теряет сутки. Потолка у этой потери нет, и это единственное место');
+console.log('  участи, где цена зависит от того, как игрок жил (docs/DEFEAT_LADDER.md, 3.2).');
 console.log('');
