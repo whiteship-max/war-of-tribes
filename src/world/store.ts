@@ -4,6 +4,7 @@
 import { create } from 'zustand';
 import { serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
+import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
@@ -365,6 +366,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
       unread: pulse.unread,
       now: pulse.now,
     });
+    // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира.
+    if (NOTIFY_ON) void worldApi().notices().then((d) => notifyDrafts(d.items, pulse.now));
     // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.

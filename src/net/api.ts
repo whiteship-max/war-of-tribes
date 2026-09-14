@@ -82,5 +82,10 @@ async function call<T>(path: string, init: RequestInit & { auth?: boolean } = {}
 export const apiGet = <T>(path: string, opts: { auth?: boolean } = {}): Promise<ApiResult<T>> =>
   call<T>(path, { method: 'GET', auth: opts.auth });
 
-export const apiPut = <T>(path: string, body: unknown): Promise<ApiResult<T>> =>
-  call<T>(path, { method: 'PUT', body: JSON.stringify(body) });
+/**
+ * `keepalive` — запрос обязан пережить выгрузку страницы: так уходит отметка «игрок ушёл»
+ * при скрытии. Тело такого запроса браузер ограничивает 64 КБ; партия туда не влезает и
+ * так не отправляется, а список уведомлений весит килобайт.
+ */
+export const apiPut = <T>(path: string, body: unknown, opts: { keepalive?: boolean } = {}): Promise<ApiResult<T>> =>
+  call<T>(path, { method: 'PUT', body: JSON.stringify(body), keepalive: opts.keepalive });

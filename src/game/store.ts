@@ -16,6 +16,7 @@ import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 import { provideClaim, rosterBoot } from '@/net/roster';
+import { NOTIFY_ON, notifyBoot } from '@/net/notify';
 import { claimOf } from '@/net/snapshot';
 import { CHEAT_NO, cheatOf } from '@/cheats';
 import { applyCheat } from './sim/cheat';
@@ -359,6 +360,9 @@ export const useGame = create<GameStore>((set, get) => ({
     // отдают доступ к состоянию, а не наоборот, — иначе импорты замкнулись бы
     // в кольцо.
     provideGame(() => get().s);
+    // Присутствие — первым сетевым вызовом, раньше партии и реестра: вернувшийся игрок не
+    // должен ни секунды числиться ушедшим (docs/NOTIFY.md, раздел 4). Выключено — ни запроса.
+    if (NOTIFY_ON) notifyBoot();
     // `fresh` — сохранения на диске не было. Тогда серверную партию берут без
     // вопроса; была своя — спрашивают, какую оставить.
     void syncBoot(!fresh);
