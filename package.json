@@ -15,6 +15,7 @@
     "settle:report": "vite-node scripts/settle-report.ts",
     "raid:report": "vite-node scripts/raid-report.ts",
     "siege:report": "vite-node scripts/siege-report.ts",
+    "notify:report": "vite-node scripts/notify-report.ts",
     "lair:report": "vite-node scripts/lair-report.ts",
     "sack:report": "vite-node scripts/sack-report.ts",
     "order:report": "vite-node scripts/order-report.ts",
