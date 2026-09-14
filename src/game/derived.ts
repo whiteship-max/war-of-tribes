@@ -498,10 +498,6 @@ export const homeArmy = (s: GameState): number =>
 /** Мощь тех, кто дома: доля полной мощи по числу оставшихся. */
 export const homeArmyPower = (s: GameState): number => homeArmy(s) * soldierPower(s);
 
-/** Сколько людей сейчас вне деревни: они не защищают её и не строят. */
-export const awayCount = (s: GameState): number =>
-  Math.max(0, s.warriorsAway) + Math.max(0, s.scoutsAway);
-
 /**
  * Оборона деревни. Армия в походе сюда не входит — это и есть цена похода:
  * пока отряд в пути, дом стоит открытым.
@@ -592,14 +588,6 @@ export const stashAt = (level: number): number =>
 export const hiddenStash = (s: GameState): number => {
   const b = buildingOfType(s, 'cache');
   return b ? stashAt(b.level) : 0;
-};
-
-/** Что осталось бы на складе после самого удачного для чужих набега. */
-export const safeResources = (s: GameState): Resources => {
-  const hidden = hiddenStash(s);
-  const out = emptyResources();
-  for (const r of RESOURCE_IDS) out[r] = Math.min(s.resources[r], hidden);
-  return out;
 };
 
 export interface FeastInfo {
@@ -855,12 +843,12 @@ function addYield(out: Resources, job: JobId, n: number, mult: number): void {
 }
 
 /**
- * Осада идёт прямо сейчас? Считается при чтении из одного окна, как всё
- * остальное про осаду (см. `world/siege.ts`), и меряется **игровым** временем:
- * так офлайн-догон снимает осаду ровно там, где она кончилась.
+ * Осада идёт прямо сейчас? Ровно тогда, когда мир её положил: срок считает он
+ * (`world/siege.ts`), а снимает поле мост (`bridge.syncSiege`). Своего срока здесь
+ * нет — сверка с часами племени была второй правдой о том же. Офлайн-догон, у
+ * которого мира нет, снимает поле сам по переведённому сроку (`sim/tick`).
  */
-export const underSiege = (s: GameState): boolean =>
-  s.siege !== null && s.time < s.siege.until;
+export const underSiege = (s: GameState): boolean => s.siege !== null;
 
 /**
  * Во сколько раз осада срезала приток этого ресурса. Единственное место, где
@@ -929,7 +917,7 @@ export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seas
 export function townFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   let total = 0;
   const counts = jobCounts(s);
-  for (const job of JOBS) total += counts[job.id] * (job.foodMultiplier ?? 1);
+  for (const job of JOBS) total += counts[job.id];
   // Невольники едят по головам, как все: из того же котла, по тому же пайку и
   // с тем же зимним множителем. Под осадой они заперты в городе вместе со всеми
   // и едят из осаждённого амбара — часы голода от них короче.
@@ -985,14 +973,6 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
   for (const r of RESOURCE_IDS) if ((cost[r] ?? 0) > s.resources[r]) return false;
-  return true;
-}
-
-/** Хватает ли снаряжения на складе. */
-export function hasEquipment(s: GameState, need: Partial<Record<EquipmentId, number>>): boolean {
-  for (const [id, n] of Object.entries(need)) {
-    if ((s.equipment?.[id as EquipmentId] ?? 0) < (n ?? 0)) return false;
-  }
   return true;
 }
 

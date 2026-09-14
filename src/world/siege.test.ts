@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS, SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
 import { productionPerDay, underSiege } from '@/game/derived';
-import { tick } from '@/game/sim/tick';
+import { catchUp, tick } from '@/game/sim/tick';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
 import { distance } from './geo';
@@ -184,7 +184,7 @@ describe('осада: окно и часы голода', () => {
 describe('осада: дебаф на выработку', () => {
   const besieged = (until: number) => {
     const s = createInitialState();
-    s.siege = { byName: 'Соседи', until, garrison: 10 };
+    s.siege = { byName: 'Соседи', until };
     return s;
   };
 
@@ -203,19 +203,64 @@ describe('осада: дебаф на выработку', () => {
     expect(productionPerDay(besieged(free.time + 600))).toEqual(b);
   });
 
-  it('осада кончается сама по игровому времени, а не по пульсу мира', () => {
+  it('при игроке осаду снимает мир, а не свой срок племени', () => {
+    // Срок голода, переведённый в игровое время, уже прошёл: точка там, где две правды
+    // о сроке и расходились бы — часы племени говорят «кончилась», мир ещё не сказал.
     const s = besieged(100);
     s.time = 99;
-    expect(underSiege(s)).toBe(true);
-    s.time = 100;
+    tick(s, 2);
+    expect(s.time, 'точка за отметкой срока').toBeGreaterThanOrEqual(100);
+    expect(underSiege(s), 'поле лежит — осада идёт').toBe(true);
+    expect(productionPerDay(s).food).toBe(0);
+    // Снимает её пульс мира — и срез кончается тем же пульсом.
+    syncSiege(s, null, START);
     expect(underSiege(s)).toBe(false);
-    // Догон офлайна проходит через ту же отметку и снимает дебаф ровно на ней.
     expect(productionPerDay(s).food).toBeGreaterThan(0);
+  });
+
+  it('офлайн-догон, у которого мира нет, снимает осаду по сроку голода — ровно на нём', () => {
+    const s = besieged(100);
+    s.time = 90;
+    catchUp(s, 8, 2);
+    expect(s.time, 'до отметки').toBeLessThan(100);
+    expect(underSiege(s)).toBe(true);
+    catchUp(s, 2, 2);
+    expect(s.time, 'на отметке').toBe(100);
+    expect(s.siege, 'догон снял поле сам').toBeNull();
+    expect(productionPerDay(s).food).toBeGreaterThan(0);
+  });
+
+  it('срок осады у племени читает одно место — догон; при игроке его не сверяет никто', () => {
+    // Вторая правда о сроке заводится одной строкой: сверкой `s.time` с `siege.until`
+    // в производных или в панели. Поэтому перечисляются все чтения срока по всему `src`.
+    const root = path.join(__dirname, '..');
+    const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const p = path.join(dir, name);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(p);
+      }
+    };
+    walk(root);
+    const code = new Map(files.map((f) => [path.relative(root, f).split(path.sep).join('/'), strip(readFileSync(f, 'utf8'))]));
+    const reads = /siege[?!]?\.until\b/;
+    const readers = [...code].filter(([, src]) => reads.test(src)).map(([f]) => f);
+    expect(readers.sort()).toEqual(['game/sim/tick.ts', 'world/bridge.ts']);
+    // В тике — только за флагом догона.
+    const line = (code.get('game/sim/tick.ts') ?? '').split('\n').find((l) => reads.test(l)) ?? '';
+    expect(line, 'срок в тике читается только в догоне').toMatch(/opts\.offline/);
+    // Производная осады на часы не смотрит.
+    const derived = code.get('game/derived.ts') ?? '';
+    const body = derived.slice(derived.indexOf('export const underSiege'), derived.indexOf('export const siegeYield'));
+    expect(body, 'underSiege найдена').toMatch(/underSiege/);
+    expect(body, 'underSiege сверяет срок').not.toMatch(/\btime\b|until/);
   });
 
   it('склад не уходит в минус: осада режет приток, а не разоряет задним числом', () => {
     const s = createInitialState();
-    s.siege = { byName: 'Соседи', until: s.time + 100_000, garrison: 10 };
+    s.siege = { byName: 'Соседи', until: s.time + 100_000 };
     // Амбар пуст, племя большое: под осадой еда не придёт вовсе.
     for (const r of RESOURCE_IDS) s.resources[r] = 0;
     for (let i = 0; i < 200; i++) tick(s, 1);
@@ -224,7 +269,7 @@ describe('осада: дебаф на выработку', () => {
     // А накопленное осада не отнимает: то, что лежало, лежит — минус только
     // обычный расход, который был бы и без неё.
     const rich = createInitialState();
-    rich.siege = { byName: 'Соседи', until: rich.time + 100_000, garrison: 10 };
+    rich.siege = { byName: 'Соседи', until: rich.time + 100_000 };
     const before = rich.resources.stone;
     tick(rich, 1);
     expect(rich.resources.stone).toBeGreaterThanOrEqual(before);
@@ -247,7 +292,8 @@ describe('осада: дебаф на выработку', () => {
     };
     expect(syncSiege(s, view, START)).toBe(true);
     expect(s.siege?.until).toBeCloseTo(500 + 120, 6);
-    expect(s.siege?.garrison).toBe(7);
+    // В племя едут имя и срок — и ничего больше: гарнизон окно осады берёт у мира.
+    expect(Object.keys(s.siege ?? {}).sort()).toEqual(['byName', 'until']);
     // Пульс идёт каждые две секунды: без изменений он не должен ничего трогать.
     expect(syncSiege(s, view, START)).toBe(false);
     expect(syncSiege(s, null, START)).toBe(true);

@@ -491,7 +491,7 @@ describe('рабочие и места', () => {
     const winter = clone(spring);
     winter.time = SEASON_SECONDS * 3 + 1;
     const siege = clone(spring);
-    siege.siege = { byName: 'Логово', until: siege.time + 600, garrison: 10 };
+    siege.siege = { byName: 'Логово', until: siege.time + 600 };
     expect(SIEGE_YIELD).toBeLessThan(1);
     for (const def of BUILDINGS.filter((d) => d.job && d.outside)) {
       if (buildingOfType(spring, def.id)!.level >= maxLevelFor(def.id)) continue;

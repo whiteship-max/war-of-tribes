@@ -1,5 +1,6 @@
 import { useGame } from '@/game/store';
 import { JOB_BY_ID } from '@/game/data/jobs';
+import { YARDS } from '@/game/data/yards';
 import { SEASONS, SEASON_DAYS, SEASON_META, type SeasonModifiers } from '@/game/data/seasons';
 import {
   heatingWoodPerDay,
@@ -34,7 +35,8 @@ const pct = (m: number): string => {
   return `${d > 0 ? '+' : ''}${d}%`;
 };
 
-const JOB_ORDER: JobId[] = ['gatherer', 'hunter', 'farmer', 'herder', 'woodcutter', 'stonecutter', 'miner'];
+/** Профессии дворов в порядке показа: сначала те, что кормят, потом сырьё — порядком таблицы дворов. */
+const JOB_ORDER: JobId[] = [...YARDS.filter((y) => y.yield.food), ...YARDS.filter((y) => !y.yield.food)].map((y) => y.job);
 
 function linesOf(mods: SeasonModifiers): Line[] {
   const out: Line[] = [];

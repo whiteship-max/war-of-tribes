@@ -411,7 +411,3 @@ export function BattlePanel({ targetId }: Props) {
     </div>
   );
 }
-
-export function DefensePanel() {
-  return <BattlePanel />;
-}

@@ -4,7 +4,7 @@
 //
 // Прогноза исхода и шансов на победу тут нет и быть не может. Показав вероятность,
 // мы убили бы и разведку, и блеф.
-import { FRONT, KIND_META, REAR, SECTOR_NAME, UNIT_KINDS, stackTotal, type Stack } from '@/battle';
+import { FRONT, KIND_META, REAR, SECTOR_NAME, UNIT_KINDS, type Stack } from '@/battle';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import type { IntelReading } from '@/world/types';
 
@@ -107,15 +107,3 @@ export function IntelCard({ intel, name }: { intel: IntelReading | null; name: s
     </>
   );
 }
-
-/** Что мы знаем о составе — для выбора пресета быстрой атаки. */
-export const intelKinds = (intel: IntelReading | null): Partial<Stack> | undefined => {
-  if (!intel?.kinds) return undefined;
-  const out: Partial<Stack> = {};
-  for (const k of UNIT_KINDS) {
-    const e = intel.kinds[k];
-    if (!e || e.precision === 'unknown') continue;
-    out[k] = e.value ?? Math.round((e.min + e.max) / 2);
-  }
-  return stackTotal({ spear: 0, infantry: 0, archer: 0, cavalry: 0, ...out }) > 0 ? out : undefined;
-};

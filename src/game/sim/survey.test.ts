@@ -3,7 +3,7 @@ import type { GameState } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
 import { SURVEY_MAX, SURVEY_STEPS, surveyRadiusOf } from '../data/survey';
-import { buildingOfType, surveyRadius } from '../derived';
+import { buildingOfType, storageCap, surveyRadius } from '../derived';
 import { cancelSurvey, startSurvey, surveyInfo } from './survey';
 
 /** Посёлок с богатым складом и Дозором нужного уровня: цена ступеней не мешает. */
@@ -62,6 +62,9 @@ describe('Дозор: изучение округи', () => {
   it('цена снимается на старте, отмена возвращает половину', () => {
     const s = rich(1);
     const step = SURVEY_STEPS[0];
+    // Возврат ложится на склад под потолок вместимости (`pay.refund`), поэтому
+    // мерить его надо на складе, где место есть: у `rich` запасы выше потолка.
+    s.resources.wood = storageCap(s) - 1000;
     const before = s.resources.wood;
     startSurvey(s);
     expect(s.resources.wood).toBe(before - (step.cost.wood ?? 0));

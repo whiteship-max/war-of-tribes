@@ -154,8 +154,6 @@ export const QUESTS: QuestDef[] = [
   },
 ];
 
-export const QUEST_BY_ID = Object.fromEntries(QUESTS.map((q) => [q.id, q])) as Record<string, QuestDef>;
-
 /**
  * Сколько заданий из нынешнего списка выполнено. Считается по списку заданий, а не
  * по длине записи о выполненных: в сохранениях остаются идентификаторы заданий,

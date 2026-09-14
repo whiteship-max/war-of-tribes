@@ -7,10 +7,10 @@ import type { EquipmentId, GameState, RecruitOrder, ResourceId, TroopId } from '
 import { RESOURCE_IDS } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { canAfford, idleCount, recruitRate, recruitsQueued, storageCap } from '../derived';
+import { canAfford, idleCount, recruitRate, recruitsQueued } from '../derived';
 import { addPop, losePop } from './population';
 import { log } from './log';
-import { recordSpent } from '@/profile/stats';
+import { pay, refund } from './pay';
 
 /** Сколько всего стоит партия бойцов в ресурсах. */
 export function recruitCost(troop: TroopId, count: number): Partial<Record<ResourceId, number>> {
@@ -97,8 +97,7 @@ export function startRecruit(s: GameState, troop: TroopId, count = 1): string | 
   if (check.blocked) return check.blocked;
   const n = check.count;
 
-  for (const r of RESOURCE_IDS) s.resources[r] -= check.cost[r] ?? 0;
-  recordSpent(s, check.cost);
+  pay(s, check.cost);
   for (const [id, need] of Object.entries(check.gear)) {
     s.equipment[id as EquipmentId] -= need ?? 0;
   }
@@ -119,11 +118,7 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
   const left = Math.max(0, order.count - order.done);
   const def = TROOP_BY_ID[order.troop];
 
-  const cap = storageCap(s);
-  for (const r of RESOURCE_IDS) {
-    const n = def.cost[r];
-    if (n) s.resources[r] = Math.min(cap, s.resources[r] + n * left);
-  }
+  refund(s, def.cost, left);
   for (const [id, n] of Object.entries(def.gear)) {
     if (n) s.equipment[id as EquipmentId] = (s.equipment[id as EquipmentId] ?? 0) + n * left;
   }

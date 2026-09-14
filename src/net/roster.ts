@@ -286,16 +286,3 @@ export function stopPulling(): void {
   pullTimer = null;
 }
 
-/** Для тестов: вернуть дверь в исходное. */
-export function resetRoster(): void {
-  cache = null;
-  claim = null;
-  over = false;
-  settled = null;
-  ready = null;
-  stopPulling();
-  if (pushTimer) clearInterval(pushTimer);
-  pushTimer = null;
-  talking = false;
-  useRoster.setState({ state: 'off', why: '', at: null, count: 0 });
-}

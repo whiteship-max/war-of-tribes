@@ -372,10 +372,3 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
 
 /** Можно ли этой вкладке писать партию — на диск и на сервер. */
 export const mayWrite = (): boolean => useSync.getState().state !== 'taken';
-
-/** Отправить партию прямо сейчас: игрок сделал что-то важное или уходит. */
-export const syncNow = (): void => {
-  const st = useSync.getState().state;
-  if (st === 'off' || st === 'taken') return;
-  void push(readMeta()?.etag ?? null);
-};

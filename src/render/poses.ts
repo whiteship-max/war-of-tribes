@@ -174,8 +174,3 @@ export function poseFigure(f: Figure, action: Action, t: number): void {
   }
   f.capeSwing = Math.sin(u * 2.2) * 0.025 + Math.abs(f.legSwing) * 0.18 + Math.max(0, f.torsoTilt) * 0.25;
 }
-
-/** Двигает падение вперёд. Упавший остаётся лежать: доля не откатывается. */
-export function advanceFall(f: Figure, dt: number, seconds = 0.8): void {
-  f.down = Math.min(1, f.down + dt / seconds);
-}

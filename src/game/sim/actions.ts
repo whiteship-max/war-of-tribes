@@ -1,8 +1,8 @@
 // Действия игрока. Каждое возвращает null при успехе или текст ошибки.
-import type { GameState, JobId, ResourceId } from '../types';
+import type { GameState } from '../types';
 import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
-import { FEAST_DAYS, RESOURCE_IDS } from '../constants';
+import { FEAST_DAYS } from '../constants';
 import type { UnitKind } from '@/battle';
 import {
   buildingById,
@@ -10,16 +10,14 @@ import {
   feastSeconds,
   heroInfo,
   isSite,
-  storageCap,
   upgradeCost,
   upgradeInfo,
 } from '../derived';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { EVENT_BY_ID, eventBlock, payEventCost } from '../data/events';
-import { JOB_BY_ID } from '../data/jobs';
 import { scheduleNextEvent } from './tick';
 import { log } from './log';
-import { recordSpent } from '@/profile/stats';
+import { pay, refund } from './pay';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
 export { cancelForge, forgeCheck, startForge } from './smithy';
@@ -28,20 +26,6 @@ export { releaseBonded } from './mutiny';
 export { cancelRecruit, startRecruit } from './army';
 export { cancelSurvey, startSurvey, surveyInfo } from './survey';
 export { dailyReward, dailyStatus, finishDaily, startDaily } from './daily';
-
-function pay(s: GameState, cost: Partial<Record<ResourceId, number>>): void {
-  for (const r of RESOURCE_IDS) s.resources[r] -= cost[r] ?? 0;
-  recordSpent(s, cost);
-}
-
-/** Возвращает долю потраченного на улучшение обратно на склад. */
-function refund(s: GameState, cost: Partial<Record<ResourceId, number>>, k: number): void {
-  const cap = storageCap(s);
-  for (const r of RESOURCE_IDS) {
-    const n = cost[r];
-    if (n) s.resources[r] = Math.min(cap, s.resources[r] + Math.floor(n * k));
-  }
-}
 
 /** Улучшение — стройка: стоит ресурсов, занимает труд и идёт в общей очереди. */
 export function startUpgrade(s: GameState, buildingId: number): string | null {
@@ -154,5 +138,3 @@ export function setTax(s: GameState, id: TaxId): string | null {
   log(s, `Налог: ${def.name.toLowerCase()}.`);
   return null;
 }
-
-export const jobName = (job: JobId): string => JOB_BY_ID[job].name;

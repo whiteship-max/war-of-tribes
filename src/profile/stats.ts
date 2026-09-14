@@ -160,9 +160,6 @@ export function refreshCard(s: GameState): void {
   bucket(s).power = now;
 }
 
-/** Корзины по возрастанию дня — то, что показывает панель. */
-export const recentDays = (s: GameState): ProfileDay[] => s.profile.days.slice();
-
 // ---------- Имя и лицо ----------
 //
 // Пишутся здесь, а не в identity.ts, по той же причине, по какой здесь пишется

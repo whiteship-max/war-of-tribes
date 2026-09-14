@@ -2,7 +2,7 @@
 // Ядро (`src/battle/`) про племя не знает и знать не должно — отображение живёт
 // здесь. Обратная зависимость запрещена: отсюда в ядро только типы.
 import type { EquipmentId, TroopId } from '../types';
-import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '../data/troops';
+import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { GEAR, UNIT_KINDS, type Stack, type UnitKind } from '@/battle';
 
 /** Кто из племени каким родом выходит в поле. Все четыре рода закрыты. */
@@ -53,8 +53,6 @@ export type TroopStack = Partial<Record<TroopId, number>>;
 
 export const troopTotal = (t: TroopStack): number =>
   TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0), 0);
-
-export const emptyTroops = (): TroopStack => ({});
 
 /** Состав в родах боя — то, что понимает ядро. */
 export function kindsOf(t: TroopStack): Stack {
@@ -165,8 +163,3 @@ export function troopsAfter(t: TroopStack, lost: TroopStack): TroopStack {
   }
   return out;
 }
-
-/** Иконка и имя вида — для строк вида «🔱 8». */
-export const TROOP_ICON: Record<TroopId, string> = Object.fromEntries(
-  TROOPS.map((t) => [t.id, t.icon]),
-) as Record<TroopId, string>;

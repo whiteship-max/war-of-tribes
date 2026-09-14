@@ -39,11 +39,6 @@ export const bootStage = (name: BootStage): void => api()?.stage(name);
 
 export const bootDone = (): void => api()?.done();
 
-export const bootFail = (why: string): void => api()?.fail(why);
-
-/** Виден ли экран сейчас — по нему решают, нужен ли кадр перед долгой работой. */
-export const bootVisible = (): boolean => api()?.visible() ?? false;
-
 /**
  * Присказка этого захода — та самая, что стояла на экране загрузки.
  *

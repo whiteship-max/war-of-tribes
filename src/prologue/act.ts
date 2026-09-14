@@ -37,7 +37,7 @@
 import { HEARTH_CAP, fuelAt } from './fire';
 import { HEAL_MS, STARVE_MS, WOLF_BITES, causeOfDeath, type Death } from './body';
 import { TREE_LOGS, type GladeState, type Spot } from './glade';
-import { DEER_MEAT, carcassLeft, hideLeft, liveCarcass, type Pt } from './hunt';
+import { carcassLeft, hideLeft, liveCarcass, type Pt } from './hunt';
 import { ARROWS_PER_LOG, COAT_HIDES, HOUSE_LOGS, carveRoom } from './craft';
 import { LOVE_DAYS, counts, loveFull } from './kin';
 import { BOARDS, TASK_BUILD, TASK_SON, TASK_WIFE, TASK_WOOD, endOn, frameDone, type EndState } from './end';
@@ -389,6 +389,3 @@ export const endTask = (e: EndState): string => {
   if (e.stage === 'build') return `${TASK_BUILD}: ${Math.min(BOARDS, e.boards)}/${BOARDS}`;
   return '';
 };
-
-/** Сколько кусков даёт олень — интерфейсу, чтобы не считать это второй раз. */
-export const MEAT_PER_DEER = DEER_MEAT;

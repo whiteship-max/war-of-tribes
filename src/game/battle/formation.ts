@@ -60,8 +60,6 @@ export function placedTroops(f: Formation): TroopStack {
   return out;
 }
 
-export const sectorSize = (f: Formation, id: Sector): number => troopTotal(f.sectors[id]);
-
 /** Разница «взято минус расставлено»: те, кого игрок ещё не разложил. */
 export function unplacedTroops(picked: TroopStack, f: Formation): TroopStack {
   const placed = placedTroops(f);

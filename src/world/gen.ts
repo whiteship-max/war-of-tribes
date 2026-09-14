@@ -86,8 +86,6 @@ export interface WorldGen {
 const lo = WORLD_ORIGIN;
 const hi = { x: WORLD_ORIGIN.x + WORLD_SIZE, y: WORLD_ORIGIN.y + WORLD_SIZE };
 
-const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
-
 /** Клетка внутри мира и пригодна под двор: не вода, не русло, не хребет. */
 const habitable = (seed: number, x: number, y: number): boolean =>
   x >= lo.x && y >= lo.y && x < hi.x && y < hi.y && buildable(seed, x, y);
@@ -198,11 +196,6 @@ export function popOf(s: GenSettlement, elapsedMs: number, cap: number): number 
   const hours = Math.max(0, elapsedMs) / 3_600_000;
   return Math.round(s.basePop * Math.min(cap, 1 + s.growth * hours * 0.5));
 }
-
-export const clampCoord = (c: Coord): Coord => ({
-  x: clamp(Math.round(c.x), lo.x, hi.x - 1),
-  y: clamp(Math.round(c.y), lo.y, hi.y - 1),
-});
 
 /**
  * Логово — варварский лагерь. Признак один и выводится из данных: племени у

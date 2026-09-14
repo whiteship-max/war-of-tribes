@@ -958,9 +958,6 @@ export function choppable(index: number): THREE.Group {
 /** Высота земли в точке — сцене, чтобы ставить упавший ствол и щепу. */
 export const groundAt = height;
 
-/** Цвет отсвета костра — тот же, что у деревни. */
-export const FIRE_LIGHT = PALETTE.fireLight;
-
 /**
  * Краска по цвету палитры, у которого нет своего материала.
  *

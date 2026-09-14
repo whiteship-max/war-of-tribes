@@ -125,10 +125,6 @@ export const starvesAt = (w: SiegeWindow): number =>
 export const siegeActive = (w: SiegeWindow | undefined, now: number): boolean =>
   Boolean(w && now < starvesAt(w));
 
-/** Сколько осталось до голода, мс. Ноль — еда кончилась. */
-export const siegeLeft = (w: SiegeWindow, now: number): number =>
-  Math.max(0, starvesAt(w) - now);
-
 /**
  * Новое окно. Единственный способ его завести — и он же единственный способ
  * пересчитать: пересчёт это то же открытие, только с новой отметкой времени и

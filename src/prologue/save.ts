@@ -393,17 +393,3 @@ export function savePrologue(s: PrologueSave, now = serverNow()): void {
   }
 }
 
-/** Начать предысторию заново — служебное, для проверки с телефона. */
-export function resetPrologue(): void {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    /* нечего убирать */
-  }
-}
-
-/** Сколько стрел у человека всего: в колчане и на земле. Величина неизменная. */
-export const arrowsTotal = (s: PrologueSave): number => s.quiver + s.arrows.length;
-
-/** Сколько кусков мяса всего. */
-export const meatTotal = (s: PrologueSave): number => s.meat.cooked + s.meat.raw;

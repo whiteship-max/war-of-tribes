@@ -361,9 +361,6 @@ export function tgUserId(): number | null {
   return typeof id === 'number' && Number.isFinite(id) ? id : null;
 }
 
-/** Код из ссылки, по которой запустили аппку. Пусто — запустили обычным путём. */
-export const startParam = (): string | null => tg()?.initDataUnsafe?.start_param ?? null;
-
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);

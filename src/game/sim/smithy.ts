@@ -20,10 +20,9 @@
 import type { EquipmentId, ForgeOrder, GameState, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from '../data/equipment';
-import { canAfford, forgeRate, storageCap } from '../derived';
-import type { SeasonModifiers } from '../data/seasons';
+import { canAfford, forgeRate } from '../derived';
 import { log } from './log';
-import { recordSpent } from '@/profile/stats';
+import { pay, refund } from './pay';
 
 /** Сколько ресурсов стоит партия предметов. */
 export function forgeCost(item: EquipmentId, count: number): Partial<Record<ResourceId, number>> {
@@ -66,8 +65,7 @@ export function startForge(s: GameState, item: EquipmentId, count = 1): string |
   if (!EQUIPMENT_BY_ID[item]) return 'Такого снаряжения нет.';
   const check = forgeCheck(s, item, count);
   if (check.blocked) return check.blocked;
-  for (const r of RESOURCE_IDS) s.resources[r] -= check.cost[r] ?? 0;
-  recordSpent(s, check.cost);
+  pay(s, check.cost);
   const order: ForgeOrder = { id: s.nextId++, item, count: check.count, done: 0, work: 0 };
   s.forge.push(order);
   // В летопись заказ не пишется: игрок сам его поставил, очередь у него перед
@@ -90,13 +88,7 @@ export function cancelForge(s: GameState, orderId: number): string | null {
   const left = Math.max(0, order.count - order.done);
   // Начатый предмет — тот, над которым уже стучали молотом.
   const started = order.work > 0 && left > 0 ? 1 : 0;
-  const whole = left - started;
-  const cap = storageCap(s);
-  for (const r of RESOURCE_IDS) {
-    const n = def.cost[r];
-    if (!n) continue;
-    s.resources[r] = Math.min(cap, s.resources[r] + n * whole + Math.floor((n * started) / 2));
-  }
+  refund(s, def.cost, left - started + started / 2);
   s.forge.splice(i, 1);
   log(s, `Кузница: заказ отменён — ${def.name.toLowerCase()}.`, 'info', `forge:cancel:${order.item}`);
   return null;
@@ -109,7 +101,7 @@ export function cancelForge(s: GameState, orderId: number): string | null {
  * Материалов здесь не спрашивают: за заказ уже заплачено. Это и есть смысл
  * платы вперёд — заказ не может встать посреди дела.
  */
-export function forgeTick(s: GameState, dt: number, _mods: SeasonModifiers): void {
+export function forgeTick(s: GameState, dt: number): void {
   const order = s.forge?.[0];
   if (!order) return;
   const def = EQUIPMENT_BY_ID[order.item];

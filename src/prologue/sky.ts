@@ -373,6 +373,3 @@ export const chillUntil = (from: number, need: number): number => reach(from, ne
 
 /** Сколько отрезков в кольце — отчёту и тесту: разбиение обязано быть видно. */
 export const RING_SPANS = SPANS.length;
-
-/** Кольцо отрезками — только отчёту. Игре хватает интегралов. */
-export const ringSpans = (): readonly Span[] => SPANS;

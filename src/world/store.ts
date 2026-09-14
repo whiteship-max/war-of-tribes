@@ -16,7 +16,6 @@ import { applyEffects, playerProfile, syncAway, syncSiege } from './bridge';
 import { awayOf } from './muster';
 import { syncFaith } from '@/game/sim/faith';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
-import { FIGURE_BY_ID } from './data/figures';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
 import { heroReady } from '@/game/derived';
 import { cityName } from '../../netlify/lib/contract';
@@ -975,9 +974,6 @@ export function figuresOn(x: number, y: number, now: number): FigureView[] {
     return Math.round(at.x) === x && Math.round(at.y) === y;
   });
 }
-
-/** Как называется фигура — карте и панелям, чтобы не тянуть конфиг по одной. */
-export const figureName = (id: FigureId): string => FIGURE_BY_ID[id].name;
 
 /**
  * Чужой отряд, стоящий сейчас на этой клетке. Ищется по положению, выведенному

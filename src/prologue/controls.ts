@@ -289,9 +289,6 @@ const KEY_WALK: Record<string, Walk | undefined> = {
   ArrowRight: { forward: 0, strafe: 1 },
 };
 
-/** Клавиши действия: то же, что тап пальцем. */
-export const KEY_ACT = ['Space', 'KeyE', 'Enter'];
-
 /**
  * Клавиша лука — своя, и не рядом с действием.
  *

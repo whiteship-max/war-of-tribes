@@ -23,7 +23,7 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, type FeastDef } from '../data/faiths';
 import { SEASON_META } from '../data/seasons';
 import { faithOf, heresy, population, seasonIndex, seasonOf, strainNow } from '../derived';
 import { log } from './log';
-import { recordSpent } from '@/profile/stats';
+import { pay } from './pay';
 
 // ---------- Обряд ----------
 
@@ -82,9 +82,8 @@ export function beginRite(s: GameState): void {
 export function holdRite(s: GameState): string | null {
   const info = riteInfo(s);
   if (info.blocked) return info.blocked;
-  s.resources.food -= info.food;
+  pay(s, { food: info.food });
   s.gold -= info.gold;
-  recordSpent(s, { food: info.food });
   beginRite(s);
   const feast = info.feast as FeastDef;
   log(s, `${feast.name}: ${feast.text}`, 'good');

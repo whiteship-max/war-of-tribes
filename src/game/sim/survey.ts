@@ -10,11 +10,10 @@
 //    уровня; здание даёт право, изучение даёт результат. Второй шкалы «уровень
 //    сам открывает карту» быть не должно.
 import type { GameState } from '../types';
-import { RESOURCE_IDS } from '../constants';
 import { SURVEY_MAX, surveyStep, type SurveyStep } from '../data/survey';
 import { buildingOfType, canAfford, faithTilt } from '../derived';
 import { log } from './log';
-import { recordSpent } from '@/profile/stats';
+import { pay, refund } from './pay';
 
 export interface SurveyInfo {
   /** Сколько ступеней уже изучено. */
@@ -81,8 +80,7 @@ export function startSurvey(s: GameState): string | null {
   const info = surveyInfo(s);
   if (info.blocked) return info.blocked;
   const step = info.next as SurveyStep;
-  for (const r of RESOURCE_IDS) s.resources[r] -= step.cost[r] ?? 0;
-  recordSpent(s, step.cost);
+  pay(s, step.cost);
   // Медресе учит счёту и письму, и разъезды возвращаются с грамотой быстрее.
   // Делится это здесь, при постановке ступени, а не при чтении: ступень
   // доводится из отметки `until`, и менять её задним числом было бы враньём —
@@ -96,18 +94,14 @@ export function startSurvey(s: GameState): string | null {
 /**
  * Отмена изучения. Возвращается половина припаса — та же цена отказа, что и у
  * брошенного улучшения (`cancelUpgrade`): разъезды уже в поле, съеденного не
- * вернуть, а сбрую и вешки привезут обратно.
+ * вернуть, а сбрую и вешки привезут обратно. На полный склад сверх вместимости
+ * не ложится ничего — тем же правилом (`pay.refund`).
  */
 export function cancelSurvey(s: GameState): string | null {
   const st = s.survey;
   if (!st || st.until <= 0) return 'Изучение не идёт.';
   const step = surveyStep(st.done + 1);
-  if (step) {
-    for (const r of RESOURCE_IDS) {
-      const n = step.cost[r];
-      if (n) s.resources[r] += Math.floor(n / 2);
-    }
-  }
+  if (step) refund(s, step.cost, 0.5);
   s.survey = { done: st.done, startedAt: 0, until: 0 };
   log(s, 'Дозор: разъезды отозваны, округа осталась неизученной.', 'bad');
   return null;

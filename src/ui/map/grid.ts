@@ -358,12 +358,6 @@ export const cacheFor = (vp: Viewport): number => Math.min(worstRequest(vp), TIL
  */
 export const tileMemory = (vp: Viewport): number => (cacheFor(vp) + TILE_POOL + 1) * TILE_PX * TILE_PX * 4;
 
-/** Клетка внутри тайла? Нужна тестам покрытия и отбраковке декора. */
-export const tileHasCell = (tx: number, ty: number, x: number, y: number): boolean => {
-  const o = tileOrigin(tx, ty);
-  return x >= o.x && y >= o.y && x < o.x + TILE_CELLS && y < o.y + TILE_CELLS;
-};
-
 /** Куда лечь копии тайла на экране, в CSS-пикселях, уже округлённое. */
 export interface Quad {
   x: number;

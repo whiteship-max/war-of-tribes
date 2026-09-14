@@ -200,14 +200,15 @@ export function syncAway(s: GameState, marches: MarchView[], figures: FigureView
 }
 
 /**
- * Осада из мира в племя. Мир считает её в своих часах, племя живёт игровым
- * временем — перевод один и стоит здесь, как и всё, что знают друг о друге эти
- * две стороны.
+ * Осада из мира в племя. Мир её кладёт и снимает; племя при игроке своего срока
+ * не сверяет — осада идёт, пока поле лежит (`derived.underSiege`).
  *
- * Переводится **остаток**, а не отметка: `starvesAt` — мировые миллисекунды, и
- * положить их в состояние племени значило бы, что тик и офлайн-догон сравнивают
- * секунды партии с часами устройства. Остаток же одинаков в обеих шкалах —
- * игровая секунда идёт ровно секунду.
+ * Срок голода едет рядом, переведённым в игровое время, и нужен ровно одному
+ * читателю — офлайн-догону, у которого мира нет (`sim/tick`). Переводится
+ * **остаток**, а не отметка: `starvesAt` — мировые миллисекунды, и положить их в
+ * состояние племени значило бы, что догон сравнивает секунды партии с часами
+ * устройства. Остаток же одинаков в обеих шкалах — игровая секунда идёт ровно
+ * секунду.
  *
  * Возвращает `true`, если что-то изменилось: пульс идёт каждые две секунды, и
  * перерисовывать по нему экран без причины не за что.
@@ -219,13 +220,9 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
     return true;
   }
   const until = s.time + Math.max(0, (view.starvesAt - now) / 1000);
-  const same =
-    s.siege !== null &&
-    s.siege.byName === view.byName &&
-    s.siege.garrison === view.garrison &&
-    Math.abs(s.siege.until - until) < 1;
+  const same = s.siege !== null && s.siege.byName === view.byName && Math.abs(s.siege.until - until) < 1;
   if (same) return false;
-  s.siege = { byName: view.byName, until, garrison: view.garrison };
+  s.siege = { byName: view.byName, until };
   return true;
 }
 

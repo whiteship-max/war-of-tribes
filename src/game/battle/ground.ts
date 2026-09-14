@@ -10,7 +10,6 @@
 // когда журнал приедет с сервера, — и «сервер прислал, клиент показал»
 // превратилось бы в «сервер прислал, клиент дочитал у себя».
 import type { Ground } from '@/battle';
-import { DAY_LENGTH } from '../constants';
 import { dayFraction, seasonOf } from '../derived';
 
 /** Что под ногами. Тот же набор, что у раскадровки: второго словаря заводить нечего. */
@@ -132,6 +131,3 @@ export function hourName(g: Ground): string {
   if (u < 0.85) return 'под вечер';
   return 'на закате';
 }
-
-/** Сколько игрового времени в сутках — по нему стенд подбирает час для кадра. */
-export const DAY_SECONDS = DAY_LENGTH;

@@ -57,6 +57,11 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   s.time += dt;
   const dayAfter = Math.floor(s.time / DAY_LENGTH);
 
+  // Осаду снимает мир своим пульсом. В догоне пульса нет: он идёт до того, как мир
+  // вообще открылся, — и здесь, и только здесь, осада снимается по сроку голода,
+  // который мир назвал последним (`SiegeState.until`).
+  if (opts.offline && s.siege && s.time >= s.siege.until) s.siege = null;
+
   // Мир мог измениться между тиками (сгорела хижина, кончилась стройка) —
   // сначала приводим в порядок, кто где работает, потом считаем по этим данным.
   normalizeAssignments(s);
@@ -123,7 +128,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
 
   // 3. Кузница и казармы. Кузнец кует снаряжение, казармы превращают свободных
   // жителей в бойцов — обе очереди идут своим чередом, как стройка.
-  forgeTick(s, dt, mods);
+  forgeTick(s, dt);
   recruitTick(s, dt);
   // Изучение округи в Дозоре: не работа, а срок. Одна сверка отметки с часами —
   // поэтому офлайн-догон проходит мимо неё ровно так же, как непрерывная игра.

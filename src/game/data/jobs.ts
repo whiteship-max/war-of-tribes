@@ -1,4 +1,5 @@
 import type { BuildingTypeId, JobId, ResourceId } from '../types';
+import { YARDS } from './yards';
 
 export interface JobDef {
   id: JobId;
@@ -11,8 +12,6 @@ export interface JobDef {
   building?: BuildingTypeId;
   /** Профессия доступна и без здания — «вольным сбором» вполсилы. */
   freeRange?: boolean;
-  /** Множитель потребления еды. */
-  foodMultiplier?: number;
   /**
    * На эту работу ставят невольников — на те же места, что вольных. Только там,
    * где труд тяжёлый и под присмотром: поле, лес, камень, руда, скот. Оружия
@@ -23,72 +22,20 @@ export interface JobDef {
 
 export const JOBS: JobDef[] = [
   { id: 'idle', name: 'Свободен', icon: '🔨', description: 'Свободные жители улучшают здания и отдыхают у костра.', yield: {} },
-  {
-    id: 'gatherer',
-    name: 'Собиратель',
-    icon: '🍇',
-    description: 'Собирает ягоды и коренья рядом с лагерем.',
-    yield: { food: 10 },
-    building: 'gathering',
-    freeRange: true,
-    bonded: true,
-  },
-  {
-    id: 'hunter',
-    name: 'Охотник',
-    icon: '🏹',
-    description: 'Приносит мясо, шкуры и кости — с копьём и луком, как положено.',
-    yield: { food: 14, hides: 2.4, bones: 2 },
-    building: 'hunter_hut',
-    freeRange: true,
-  },
-  {
-    id: 'woodcutter',
-    name: 'Лесоруб',
-    icon: '🪓',
-    description: 'Рубит лес на краю поселения.',
-    yield: { wood: 9 },
-    building: 'sawmill',
-    freeRange: true,
-    bonded: true,
-  },
-  {
-    id: 'stonecutter',
-    name: 'Каменотёс',
-    icon: '⛏️',
-    description: 'Добывает камень у скал.',
-    yield: { stone: 5 },
-    building: 'quarry',
-    freeRange: true,
-    bonded: true,
-  },
-  {
-    id: 'miner',
-    name: 'Рудокоп',
-    icon: '💎',
-    description: 'Достаёт медную и железную руду. Нужен рудник.',
-    yield: { copper: 2, iron: 0.8 },
-    building: 'mine',
-    bonded: true,
-  },
-  {
-    id: 'farmer',
-    name: 'Фермер',
-    icon: '🌾',
-    description: 'Выращивает урожай. Нужна ферма.',
-    yield: { food: 13 },
-    building: 'farm',
-    bonded: true,
-  },
-  {
-    id: 'herder',
-    name: 'Пастух',
-    icon: '🐐',
-    description: 'Держит скот. Зима стаду почти не мешает — оно зимует в загоне.',
-    yield: { food: 6, hides: 1.4 },
-    building: 'pen',
-    bonded: true,
-  },
+  // Семь дворов за стеной — одной таблицей (`data/yards.ts`): здание, профессия и сезон
+  // двора описаны там одной строкой, а не здесь, в зданиях и в сезонах врозь.
+  ...YARDS.map(
+    (y): JobDef => ({
+      id: y.job,
+      name: y.name,
+      icon: y.icon,
+      description: y.description,
+      yield: y.yield,
+      building: y.building,
+      ...(y.freeRange ? { freeRange: true } : {}),
+      ...(y.bonded ? { bonded: true } : {}),
+    }),
+  ),
   {
     id: 'crafter',
     name: 'Ремесленник',

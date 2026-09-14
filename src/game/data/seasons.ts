@@ -2,6 +2,7 @@
 // логика (derived.ts, sim/tick.ts) только читает эту таблицу.
 import type { JobId, Season } from '../types';
 import { DAY_LENGTH } from '../constants';
+import { yardSeason } from './yards';
 
 /** Сколько игровых дней длится один сезон. 5 × 60 сек = 5 минут реального времени. */
 export const SEASON_DAYS = 5;
@@ -27,10 +28,12 @@ export interface SeasonModifiers {
   heating: number;
 }
 
+// Множители профессий — строки дворов (`data/yards.ts`): сезон двора лежит рядом с его
+// выработкой, а сюда собирается по сезону.
 export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
   // Весна — рост: земля оттаяла, зелень пошла.
   spring: {
-    jobs: { gatherer: 1.15, farmer: 1.2 },
+    jobs: yardSeason('spring'),
     build: 1,
     morale: 0,
     food: 1,
@@ -38,7 +41,7 @@ export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
   },
   // Лето — пик: длинный день, но зверь разбредается по лесам.
   summer: {
-    jobs: { farmer: 1.35, gatherer: 1.25, woodcutter: 1.1, stonecutter: 1.1, miner: 1.1, hunter: 0.9 },
+    jobs: yardSeason('summer'),
     build: 1.1,
     morale: 2,
     food: 1,
@@ -46,16 +49,15 @@ export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
   },
   // Осень — окно запаса: жатва и нагулявший жир зверь. Тут копят на зиму.
   autumn: {
-    jobs: { farmer: 1.5, hunter: 1.2, gatherer: 1.1, woodcutter: 1.15 },
+    jobs: yardSeason('autumn'),
     build: 1,
     morale: 0,
     food: 1,
     heating: 0,
   },
-  // Зима — испытание: поле мертво, добыча просела, дрова горят.
-  // Скот зимует в загоне и почти не проседает — ради этого животноводство и изучают.
+  // Зима — испытание: поле мертво, добыча просела, дрова горят. Скот зимует в загоне.
   winter: {
-    jobs: { farmer: 0, gatherer: 0.4, hunter: 0.75, woodcutter: 0.8, stonecutter: 0.65, miner: 0.7, herder: 0.9 },
+    jobs: yardSeason('winter'),
     build: 0.7,
     morale: -6,
     food: 1.4,

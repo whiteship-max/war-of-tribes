@@ -71,9 +71,6 @@ export function fromBase64(text: string, size: number): Uint8Array {
 
 const chunkKey = (cx: number, cy: number): string => `${cx}:${cy}`;
 
-/** Сколько кусков по стороне мира. Последний может выходить за край — это нормально. */
-export const FOG_CHUNKS = Math.ceil(WORLD_SIZE / CHUNK);
-
 export const inWorldCell = (x: number, y: number): boolean =>
   x >= WORLD_ORIGIN.x &&
   y >= WORLD_ORIGIN.y &&

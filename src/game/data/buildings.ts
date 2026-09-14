@@ -1,4 +1,5 @@
 import type { BuildingTypeId, JobId, ResourceId } from '../types';
+import { yardBuilding } from './yards';
 
 /** Пассивные эффекты здания — растут не множителем, а прибавкой за уровень. */
 export interface BuildingStats {
@@ -77,6 +78,9 @@ export interface BuildingDef extends BuildingStats {
    * и штольня стоят там, где ресурс, и чужой набег дотягивается ровно до них
    * (см. sim/expedition.sackOutskirts). План поселения ставит такие здания на
    * четвёртое кольцо, и тест сверяет обе стороны.
+   *
+   * Руками не ставится: за стеной стоят ровно дворы, и поле кладёт строка двора
+   * (`data/yards.yardBuilding`) вместе с профессией.
    */
   outside?: boolean;
 }
@@ -144,8 +148,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Место, куда сносят ягоды и коренья. Даёт работу собирателям.',
     cost: { wood: 119 },
     work: 245,
-    job: 'gatherer',
-    outside: true,
+    ...yardBuilding('gathering'),
   },
   {
     id: 'sawmill',
@@ -154,8 +157,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Пилы, козлы и штабель брёвен. Даёт работу лесорубам.',
     cost: { wood: 140 },
     work: 301,
-    job: 'woodcutter',
-    outside: true,
+    ...yardBuilding('sawmill'),
   },
   {
     id: 'quarry',
@@ -164,8 +166,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Разработка у скал. Даёт работу каменотёсам.',
     cost: { wood: 119, stone: 63 },
     work: 364,
-    job: 'stonecutter',
-    outside: true,
+    ...yardBuilding('quarry'),
   },
   {
     id: 'hunter_hut',
@@ -174,8 +175,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Сушила для шкур и стойка для копий. Даёт работу охотникам.',
     cost: { wood: 168, bones: 49 },
     work: 420,
-    job: 'hunter',
-    outside: true,
+    ...yardBuilding('hunter_hut'),
   },
   {
     id: 'mine',
@@ -184,8 +184,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Штольня в скале: медь и железо.',
     cost: { wood: 476, stone: 364 },
     work: 1092,
-    job: 'miner',
-    outside: true,
+    ...yardBuilding('mine'),
   },
   {
     id: 'workshop',
@@ -204,8 +203,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Поле под ячмень. Каждый уровень — новая полоса и дюжина рук на ней.',
     cost: { wood: 364, stone: 63 },
     work: 728,
-    job: 'farmer',
-    outside: true,
+    ...yardBuilding('farm'),
   },
   {
     id: 'pen',
@@ -214,8 +212,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Козы и овцы под присмотром пастуха. Зима стаду почти не помеха.',
     cost: { wood: 476, hides: 63 },
     work: 728,
-    job: 'herder',
-    outside: true,
+    ...yardBuilding('pen'),
   },
   {
     id: 'church',

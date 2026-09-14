@@ -92,12 +92,5 @@ export function inviteLink(id: number | null): string | null {
   return `https://t.me/${BOT_USERNAME}/${MINI_APP_NAME}?startapp=${refCode(id)}`;
 }
 
-/** Кто пригласил — из `startapp`. Пока некому это записать, но код уже приходит. */
-export function inviterFrom(param: string | null): number | null {
-  if (!param || !param.startsWith('r')) return null;
-  const n = parseInt(param.slice(1), 36);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 /** Что предлагают вместе со ссылкой. */
 export const INVITE_TEXT = 'Веду племя в TRIBE. Ставь своё — посмотрим, чьё войско крепче.';
