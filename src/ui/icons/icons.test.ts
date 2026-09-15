@@ -28,6 +28,16 @@ const files = readdirSync(SRC)
 const returned = returnedNames();
 const colors = allowedColors();
 
+/**
+ * Срок для проверок, которые растрируют весь набор (`sharp`, полторы сотни файлов).
+ * Одни они идут около секунды, но стандартные пять секунд vitest — срок не на работу, а
+ * на процессор: под двумя прогонами разом (или рядом с отчётами во втором worktree)
+ * они идут до четырнадцати секунд и падали по сроку, а не по утверждению. Так выглядел
+ * плавающий тест, которого не могли назвать: десять прогонов подряд чисты, пять прогонов
+ * вдвоём — восемь падений из десяти, всегда эти две проверки и всегда «timed out».
+ */
+const RASTER_ALL = 60_000;
+
 describe('накладная собрана из данных игры', () => {
   it('в списке нет ни одного имени, написанного руками дважды', () => {
     expect(new Set(ICON_MANIFEST).size).toBe(ICON_MANIFEST.length);
@@ -237,7 +247,7 @@ describe('тон: значок читается и на тёмной панел�
       if (tone === null) return;
       expect(toneFaults(`${name}.svg`, tone).faults, name).toEqual([]);
     }
-  });
+  }, RASTER_ALL);
 });
 
 describe('один предмет — два значка', () => {
@@ -316,5 +326,5 @@ describe('один предмет — два значка', () => {
       shots.push({ name, mask, paint });
     }
     expect(findTwins(shots, allowedPairs())).toEqual([]);
-  });
+  }, RASTER_ALL);
 });
