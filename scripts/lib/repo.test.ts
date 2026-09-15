@@ -16,10 +16,12 @@ describe('замыкания отчётов на этом репозитории
     return o;
   };
 
-  it('отчёты — это команды `*:report`, и их семнадцать', () => {
+  it('отчёты — это команды `*:report`, и их шестнадцать', () => {
     const scripts = Object.keys(setup.scripts).filter((s) => s.endsWith(':report'));
     expect(found.filter((o) => o.kind === 'report').map((o) => `${o.name}:report`)).toEqual(scripts);
-    expect(scripts).toHaveLength(17);
+    expect(scripts).toHaveLength(16);
+    // Стенд предыстории — не отчёт приёмки: он выведен из списка суффиксом (CLAUDE.md, правило 9).
+    expect(Object.keys(setup.scripts)).toContain('prologue:stand');
   });
 
   it('ни у одного отчёта и у самого подсчёта нет сомнений — иначе выбор всегда был бы полным', () => {

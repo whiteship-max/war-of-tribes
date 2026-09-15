@@ -21,7 +21,7 @@
     "sack:report": "vite-node scripts/sack-report.ts",
     "order:report": "vite-node scripts/order-report.ts",
     "tap:report": "vite-node scripts/tap-report.ts",
-    "prologue:report": "vite-node scripts/prologue-report.ts",
+    "prologue:stand": "vite-node scripts/prologue-stand.ts",
     "map:report": "vite-node scripts/map-report.ts",
     "figure:report": "vite-node scripts/figure-report.ts",
     "battle:sweep": "vite-node scripts/battle-sweep.ts",
