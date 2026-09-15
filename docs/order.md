@@ -119,8 +119,8 @@
 Проданными, отпущенными («уходят своей дорогой»: жителями посёлка отпущенные не
 становятся — иначе «купить и отпустить» было бы покупкой населения за золото),
 сбежавшими при подавленном мятеже и все разом — при мятеже, который стража не удержала.
-Набег, прорвавшийся за стену, невольников не уводит: он сгоняет их со двора, как и
-вольных.
+Бой у стены сам невольников не уводит — он сгоняет их со двора, как и вольных
+(`sackOutskirts`); уводит их только участь «увести людей», каким бы путём город ни пал.
 
 ---
 
@@ -415,7 +415,7 @@
   двора.
 - `src/world/spoils.ts` — `lead` и дверь участи `fate` с таблицей `FATES`; `src/world/data/units.ts` — `escort`, `stackEscort`;
   `src/world/data/tuning.ts` — `AI_BONDED_SHARE`.
-- `src/world/local/LocalWorld.ts` — `siegeFalls`, `homeFalls`, `fateHome`, `takeLoot`, `bondedOf`.
+- `src/world/local/LocalWorld.ts` — `siegeFalls`, `homeFalls`, `fateHome`, `takeLoot`, `bondedAt`, `leadFrom`.
 - `src/world/bridge.ts`, `src/world/types.ts` — `PlayerProfile.bonded`, `HomeEffect.bonded`.
 - `src/ui/panels/OrderPanel.tsx` — справка о порядке; `src/ui/panels/PeoplePanel.tsx` —
   раздел «Невольники»; `src/ui/panels/BuildingPanel.tsx` — второй ряд шага;
