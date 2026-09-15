@@ -33,7 +33,8 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import { onslaughtOf, sightBonusOf, stealthOf } from '@/game/sim/agents';
+import { onslaughtOf, retiring, sightBonusOf, stealthOf, veilOf } from '@/game/sim/agents';
+import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
 import type {
@@ -74,15 +75,34 @@ export const militiaArchers = (s: GameState): number => {
 };
 
 /** Прибавки навыков агентов для слепка: только ненулевые. */
-function skills(s: GameState): Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth'> {
-  const out: Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth'> = {};
+function skills(s: GameState): Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth' | 'veil'> {
+  const out: Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth' | 'veil'> = {};
   const onslaught = onslaughtOf(s);
   const sightBonus = sightBonusOf(s);
   const stealth = stealthOf(s);
+  const veil = veilOf(s);
   if (onslaught > 0) out.onslaught = onslaught;
   if (sightBonus > 0) out.sightBonus = sightBonus;
   if (stealth > 0) out.stealth = stealth;
+  if (veil < 1) out.veil = veil;
   return out;
+}
+
+/**
+ * Кто стоит на местах агентов — для мира: номер человека, пустует ли место, пора ли на
+ * покой. Мир людей не знает и возраста не считает. Место с человеком номер ноль, не
+ * пустое и не уходящее, не едет вовсе: слепок новой партии тот же, что до смертных.
+ */
+function people(s: GameState): Pick<PlayerProfile, 'agents'> {
+  const out: NonNullable<PlayerProfile['agents']> = {};
+  for (const id of FIGURE_IDS) {
+    const p = s.agents[id];
+    const row: { person: number; vacant?: true; retiring?: true } = { person: p.person };
+    if (p.vacant) row.vacant = true;
+    if (retiring(s, id)) row.retiring = true;
+    if (row.person > 0 || row.vacant || row.retiring) out[id] = row;
+  }
+  return Object.keys(out).length > 0 ? { agents: out } : {};
 }
 
 /**
@@ -162,6 +182,8 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Ноль не едет вовсе: слепок агентов первого уровня обязан быть тем же, что
     // до опыта, байт в байт, — он лежит в сохранении мира.
     ...skills(s),
+    // Места агентов: кто на них и кому пора на покой. Мир ведёт фигуры, племя — людей.
+    ...people(s),
     // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
     // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
     // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
@@ -275,6 +297,7 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     // Дело и гибель агента: опыт пишет племя, мир только сообщает событие.
     deed: e.deed,
     fell: e.fell,
+    retired: e.retired,
     text: e.text,
     kind: e.good ? 'good' : 'bad',
   };

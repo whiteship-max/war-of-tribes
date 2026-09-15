@@ -97,3 +97,17 @@ export const SEASON_DAYLIGHT: Record<Season, number> = {
   autumn: 0.48,
   winter: 0.36,
 };
+
+/** Время суток: так его видит строка состояния и так его считает гибель агента. */
+export type DayPart = 'morning' | 'day' | 'evening' | 'night';
+
+/**
+ * Где по фазе солнца кончается каждое время суток (0 — рассвет, 0.5 — закат). Одна
+ * таблица на значок в строке состояния и на риск тайного дела: ночь, которую игрок
+ * видит сверху экрана, обязана быть той же ночью, что прячет лазутчика.
+ */
+export const DAY_PART_UNTIL: Readonly<Record<Exclude<DayPart, 'night'>, number>> = {
+  morning: 0.08,
+  day: 0.42,
+  evening: 0.58,
+};

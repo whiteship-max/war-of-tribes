@@ -18,6 +18,7 @@ import type {
   FigureView,
   IntelReading,
   InterceptPlan,
+  LeadPlan,
   LetterAnswerId,
   LetterView,
   MarchOrder,
@@ -63,8 +64,17 @@ export interface WorldApi {
   /** Три фигуры игрока: где они, что при них, когда придут. */
   figures(): Promise<FigureView[]>;
 
-  /** Вести фигуру в клетку. null — пошла, иначе текст ошибки. */
-  moveFigure(id: FigureId, to: Coord): Promise<string | null>;
+  /**
+   * Вести фигуру в клетку. null — пошла, иначе текст ошибки. `shownAt` — минута плана,
+   * который игрок видел (`leadPlan.at`): риск разведчика замораживается ровно по нему.
+   */
+  moveFigure(id: FigureId, to: Coord, shownAt?: number): Promise<string | null>;
+
+  /**
+   * Что будет, если вести фигуру в клетку: сколько идти и чем рискует разведчик у
+   * ворот — до приказа, той же функцией, что заморозит риск при отправке.
+   */
+  leadPlan(id: FigureId, to: Coord): Promise<LeadPlan>;
 
   /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
   recallFigure(id: FigureId): Promise<string | null>;
@@ -175,7 +185,7 @@ export interface WorldApi {
    * одинаковых условиях даёт один и тот же ответ, и место этой функции потом
    * займёт живой игрок.
    */
-  order(action: OrderActionId, target: SettlementId): Promise<OrderResult>;
+  order(action: OrderActionId, target: SettlementId, shownAt?: number): Promise<OrderResult>;
 
   /**
    * Письма, ждущие решения. Порядок — тот, в каком их разбирают: первым лежит

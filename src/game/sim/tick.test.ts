@@ -31,7 +31,6 @@ import {
   feastInfo,
   feastMorale,
   healShare,
-  heroDownSeconds,
   heroInfo,
   heroMen,
   heroReady,
@@ -283,9 +282,14 @@ describe('герой', () => {
     return s;
   };
 
-  it('у племени есть имя с первого дня, и статуя решает, сколько людей идёт за ним', () => {
+  it('герой — это полководец: имя у него одно, и статуя решает, сколько людей идёт за ним', () => {
     const s = createInitialState();
-    expect(s.hero.name.length).toBeGreaterThan(3);
+    // Имя даёт вера, а её называет мир первым пульсом: до него имени нет и взять его неоткуда.
+    expect(s.agents.general.name).toBeNull();
+    s.faith.id = 'orthodox';
+    tick(s, 1);
+    expect(s.agents.general.name?.length ?? 0).toBeGreaterThan(3);
+    expect('name' in s.hero, 'второго имени у героя нет').toBe(false);
     expect(heroReady(s)).toBe(true);
     expect(heroMen(withLevel('statue', 10))).toBeGreaterThan(heroMen(withLevel('statue', 1)));
     // Статуя не источник морали: их в посёлке и так четыре.
@@ -323,7 +327,7 @@ describe('герой', () => {
     expect(heroInfo(big).retrainCost).toBeGreaterThan(cost * 10);
   });
 
-  it('павший герой возвращается через время, а не исчезает навсегда', () => {
+  it('проигранный бой своего срока «ранен» герою не ставит: жив ли он, решает мир — он и есть полководец', () => {
     const s = withLevel('statue', 3);
     s.hero.marchId = 'm1';
     s.army.clubman = 10;
@@ -332,18 +336,21 @@ describe('герой', () => {
       warriorsLost: 10, scoutsLost: 0, resources: {}, gold: 0, prestige: 0, morale: -5,
       battle: 'lost', text: 'Отряд разбит.', kind: 'bad',
     });
-    // Из похода он вернулся, но лежит: имя у племени остаётся, героя не теряют.
     expect(s.hero.marchId).toBeNull();
-    expect(s.hero.name.length).toBeGreaterThan(3);
-    expect(heroReady(s)).toBe(false);
-    expect(s.hero.downUntil).toBe(s.time + heroDownSeconds());
-    s.time = s.hero.downUntil;
-    expect(heroReady(s)).toBe(true);
-    // Смена рода, пока он ранен, запрещена — и панель говорит почему.
-    const hurt = withLevel('statue', 3);
-    hurt.gold = 10_000;
-    hurt.hero.downUntil = hurt.time + 100;
-    expect(setHeroKind(hurt, 'archer')).not.toBeNull();
+    expect(heroReady(s), 'без вести о гибели он в строю').toBe(true);
+    expect(s.agents.general.vacant).toBe(false);
+    // Весть о гибели — одна дверь на полководца и героя.
+    applyExpedition(s, {
+      warriorsLost: 0, scoutsLost: 0, resources: {}, gold: 0, prestige: 0, morale: -4,
+      battle: null, text: '', kind: 'bad',
+      fell: { agent: 'general', person: 0, peril: 0.25, where: 'под Логовом', why: [] },
+    });
+    expect(s.agents.general.vacant).toBe(true);
+    // В походе смена рода запрещена — и панель говорит почему.
+    const away = withLevel('statue', 3);
+    away.gold = 10_000;
+    away.hero.marchId = 'm2';
+    expect(setHeroKind(away, 'archer')).not.toBeNull();
   });
 
   it('победа героя не калечит', () => {

@@ -11,7 +11,6 @@ import {
   buildingTitle,
   handsCount,
   healShare,
-  heroDownSeconds,
   homeArmy,
   idleCount,
   isOutsideWall,
@@ -24,8 +23,9 @@ import type { TroopStack } from '../battle/kinds';
 import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log } from './log';
-import { recordDeed, recordFall, type Deed } from './agents';
-import type { FigureId } from '@/world/types';
+import { recordDeath, recordDeed, recordRetire, type Deed } from './agents';
+import { hireWhere } from './hire';
+import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 
@@ -90,8 +90,10 @@ export interface ExpeditionOutcome {
   fallen?: { id: string; from: number; to: number }[];
   /** Дело агента карты: опыт запишет `sim/agents.recordDeed`. */
   deed?: Deed;
-  /** Агент карты выбыл: `sim/agents.recordFall`. */
-  fell?: FigureId;
+  /** Агент карты погиб: `sim/agents.recordDeath`. Строка прежнего вида (до смертных агентов) не читается. */
+  fell?: HomeEffect['fell'] | string;
+  /** Агент карты ушёл на покой: `sim/agents.recordRetire`. */
+  retired?: HomeEffect['retired'];
   /** Строка летописи. Пустая — у последствия нет события, только дело агента. */
   text: string;
   kind: LogEntry['kind'];
@@ -349,18 +351,17 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // ровно та, что её можно потерять. Тайник её не прячет: святыню держат в
   // храме на виду, иначе она не значила бы для прихода ничего.
   const relicLost = o.sacked ? loseRelic(s) : null;
-  // Герой возвращается вместе с отрядом. Разбитый отряд приносит его на щите —
-  // но не насовсем: имя у племени остаётся, а через несколько дней и сам герой.
-  const heroFell = o.battle === 'lost' && s.hero.marchId !== null;
-  if (o.battle !== null && s.hero.marchId !== null) {
-    s.hero.marchId = null;
-    if (heroFell) s.hero.downUntil = s.time + heroDownSeconds();
-  }
+  // Герой возвращается вместе с отрядом. Жив ли он — решает мир: герой и есть
+  // полководец, и разбитого его выхаживает или хоронит одна дверь (`fell`).
+  if (o.battle !== null && s.hero.marchId !== null) s.hero.marchId = null;
 
   if (o.text) log(s, o.text, o.kind);
   // Дело — сразу после строки события: уровень, взятый боем, стоит рядом с самим боем.
   if (o.deed) recordDeed(s, o.deed);
-  if (o.fell) recordFall(s, o.fell);
+  // Весть о гибели — объектом с номером человека. Строкой её слал мир до смертных
+  // агентов, и значила она «выбыл на десять минут»: убивать по ней нельзя.
+  if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));
+  if (o.retired) recordRetire(s, o.retired, (a) => hireWhere(s, a));
   if (sacked.length > 0) {
     log(s, `Разорено за стеной: ${sacked.join(', ')}. Люди разбежались по домам.`, 'bad');
   }
@@ -383,5 +384,4 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen} чел.`, 'bad');
   if (wounded > 0) log(s, `В лазарете выходили раненых: ${wounded} чел. вернулись в племя.`, 'good');
-  if (heroFell) log(s, `${s.hero.name} пал в бою. Его выходят и поставят в строй снова.`, 'bad');
 }

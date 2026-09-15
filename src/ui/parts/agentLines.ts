@@ -8,6 +8,9 @@ import { MAX_AGENT_LEVEL } from '@/game/data/agents';
 import { onslaughtAt, sightBonusAt, stealthAt } from '@/game/sim/agents';
 import type { TroopStack } from '@/game/battle/kinds';
 import { onslaughtRows, revealSight, slipShare, type OnslaughtRow } from '@/world/agents';
+import { PERIL_FAR } from '@/world/data/tuning';
+import { perilOf, perilShare, perilText, routPeril, veilAt, type PerilCase } from '@/world/peril';
+import type { FigureId } from '@/world/types';
 import { count } from './plural';
 
 /** Прибавка по родам словами: «копья +6, конница ничего». */
@@ -84,4 +87,34 @@ export function stealthLine(level: number): string {
     (next !== null ? ` Со следующим кружком — ${next} %.` : '') +
     ' Шанс дела не меняется: им владеет Дозор.'
   );
+}
+
+/**
+ * Обстановка ровно посередине каждого множителя: полуспелая цель, утро, весна, одна
+ * отметка в памяти, полпути до дальнего края. Карточка меряет на ней не риск дела —
+ * его покажет меню приказа, — а то, **во сколько раз** уровень двигает гибель.
+ */
+const MIDDLE: PerilCase = { veil: 1, ripeness: 0.5, villageTime: 0, visits: 1, distance: PERIL_FAR / 2 };
+
+/**
+ * Гибель агента словами — замером тех же функций, что решают исход (`world/peril`).
+ * Точного числа карточка не называет: оно зависит от цели, часа и времени года и стоит
+ * в меню приказа перед каждым делом.
+ */
+export function deathLine(id: FigureId, level: number): string {
+  if (id === 'diplomat') return 'На деле не гибнет: во враждебном дворе его хватают, а не убивают; уходит только на покой.';
+  if (id === 'general') {
+    const near = perilText(perilShare(routPeril(0)));
+    const far = perilText(perilShare(routPeril(PERIL_FAR)));
+    return `Гибнет, только если его дружину перебьют до последнего: у своих ворот — ${near}, в ${count(PERIL_FAR, 'клетке', 'клетках', 'клетках')} от дома — ${far}. Шанс проиграть бой не показывается нигде.`;
+  }
+  if (id === 'scout') {
+    return 'Гибнет только у поселений с часовыми — там же его и хватают; своего рычага против гибели у разведчика нет, кроме выбора цели. Риск стоит в «Вести сюда».';
+  }
+  const now = perilShare(perilOf({ ...MIDDLE, veil: veilAt(level) }));
+  const base = perilShare(perilOf({ ...MIDDLE, veil: veilAt(1) }));
+  const times = base > 0 ? Math.round((base / now) * 10) / 10 : 1;
+  return level <= 1
+    ? 'Гибнет на деле — риск стоит в меню приказа. Скрытность со вторым кружком начнёт его снижать.'
+    : `Гибнет на деле — риск стоит в меню приказа; скрытность уже режет его в ${String(times).replace('.', ',')} раза против первого кружка. Дозор гибели не касается: он владеет шансом дела.`;
 }

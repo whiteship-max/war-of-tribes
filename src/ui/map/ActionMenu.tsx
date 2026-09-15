@@ -20,7 +20,10 @@ import { FATE_META } from '@/world/data/fates';
 import { FATE_DEFAULT } from '@/world/spoils';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
-import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
+import { distance, formatCoord, formatLeft, secondsLeft } from '@/world/geo';
+import { perilShare, perilText, routPeril } from '@/world/peril';
+import { personName } from '@/game/sim/agents';
+import { hireWhere } from '@/game/sim/hire';
 import { RESOURCE_IDS } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
 import type { Fate, Loot, OrderActionId, OrderOption } from '@/world/types';
@@ -42,6 +45,8 @@ export function ActionMenu() {
   const menu = useWorld((g) => g.menu);
   const orders = useWorld((g) => g.orders);
   const figures = useWorld((g) => g.figures);
+  const info = useWorld((g) => g.info);
+  const s = useGame((g) => g.s);
   const closeMenu = useWorld((g) => g.closeMenu);
   const moveFigure = useWorld((g) => g.moveFigure);
   const order = useWorld((g) => g.order);
@@ -88,10 +93,22 @@ export function ActionMenu() {
   };
 
   const lead = async (): Promise<void> => {
-    const err = await moveFigure(menu.agent, menu.cell);
+    // Минута плана, который игрок видел: риск у ворот заморозится ровно по нему.
+    const err = await moveFigure(menu.agent, menu.cell, menu.lead?.at);
     showToast(err ?? (leavingCamp ? `Осада снята: ${def.name} ушёл от стен.` : `${def.name} пошёл к ${formatCoord(menu.cell)}.`));
     if (!err) closeMenu();
   };
+
+  /**
+   * Гибель полководца — условно: «если дружину перебьют». Безусловный риск выдал бы
+   * шанс поражения делением, а его не показывают нигде. Число — та же `routPeril` от
+   * дали места боя, по которой мир решает исход.
+   */
+  const routLine = (spot: { x: number; y: number } | null): string | null =>
+    menu.agent === 'general' && info && spot
+      ? `Если дружину перебьют до последнего, ${personName(s, 'general')} погибнет с шансом ${perilText(perilShare(routPeril(distance(info.home, spot))))}.`
+      : null;
+  const vacant = figure?.place === 'vacant';
 
   const give = async (id: OrderActionId): Promise<void> => {
     const res = await order(id);
@@ -115,6 +132,13 @@ export function ActionMenu() {
             ✕
           </button>
         </div>
+
+        {vacant && (
+          <div className="am-warn">
+            Места {def.one} некому занять: {figure?.gone === 'retired' ? 'ушёл на покой' : 'погиб'}. Нанять {hireWhere(s, menu.agent)} —
+            приказы появятся, когда встанет новый.
+          </div>
+        )}
 
         {/* Отношения с этим двором: состояние, число и характер владельца. */}
         {diplo && standing && temper && card && (
@@ -189,6 +213,7 @@ export function ActionMenu() {
                       <span className="am-risk">им идти {formatLeft(menu.plan.targetSeconds)}</span>
                     </em>
                   )}
+                  {menu.plan?.can && menu.plan.at && <i className="am-risk">{routLine(menu.plan.at)}</i>}
                 </span>
               </button>
             ) : (
@@ -231,12 +256,18 @@ export function ActionMenu() {
                     {chance && <span className="am-chance">{chance}</span>}
                     <span className="am-time">⏳ {formatLeft(o.seconds)}</span>
                     {!isPaid(o.cost) && <span className="am-free">даром</span>}
+                    {menu.agent === 'spy' && o.peril !== null && (
+                      // Два числа раздельно: удастся ли дело — выше, уцелеет ли лазутчик —
+                      // здесь. Шансом владеет Дозор, гибелью — скрытность и обстановка.
+                      <span className="am-risk">гибель {perilText(o.peril)}</span>
+                    )}
                     {menu.agent === 'spy' && (
                       // Цена лазутчика — не добро, а риск, и она обязана стоять
                       // рядом с шансом, а не прятаться в описании.
                       <span className="am-risk">провал: задержат на {formatLeft(SPY_HELD / 1000)}</span>
                     )}
                   </em>
+                  {o.perilWhy.length > 0 && <i className="am-risk">{o.perilWhy.join(' · ')}</i>}
                   {/*
                     Дар и вира — та же плата, что дань в письме, и показывается
                     она так же: значок, сколько просят и сколько этого есть.
@@ -331,6 +362,7 @@ export function ActionMenu() {
                     ? `Тем, что при нём: ${troopTotal(figure?.troops ?? {})} бойцов. Расстановку выберет пресет.`
                     : card.note}
                 </i>
+                {card.can.raid && <i className="am-risk">{routLine(card)}</i>}
               </span>
             </button>
             <button
@@ -376,6 +408,7 @@ export function ActionMenu() {
                         ? 'Полководец уже держит осаду — второй лагерь ему не поставить.'
                         : card.note}
                 </i>
+                {card.can.besiege && <i className="am-risk">{routLine(card)}</i>}
               </span>
             </button>
           </>
@@ -481,8 +514,21 @@ export function ActionMenu() {
                   ? 'Дальше приказывай отсюда.'
                   : leavingCamp
                     ? CAMP_LEAVE
-                    : 'Идти будет столько, сколько велит дорога.'}
+                    : menu.lead
+                      ? `Идти ${formatLeft(menu.lead.seconds)}.`
+                      : 'Идти будет столько, сколько велит дорога.'}
             </i>
+            {/* Разведчик у ворот с часовыми: схватят ли и погибнет ли — двумя числами, до
+                приказа. Риск замораживается в минуту отправки по этому же плану. */}
+            {!here && !homeInside && menu.agent === 'scout' && menu.lead && menu.lead.caught > 0 && (
+              <em>
+                <span className="am-risk">часовые: схватят {Math.round(menu.lead.caught * 100)}%</span>
+                <span className="am-risk">гибель {perilText(menu.lead.peril)}</span>
+              </em>
+            )}
+            {!here && !homeInside && menu.agent === 'scout' && menu.lead && menu.lead.perilWhy.length > 0 && (
+              <i className="am-risk">{menu.lead.perilWhy.join(' · ')}</i>
+            )}
           </span>
         </button>
 

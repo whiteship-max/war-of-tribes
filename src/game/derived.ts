@@ -22,7 +22,6 @@ import {
   FEAST_COOLDOWN_PER_LEVEL,
   FEAST_DAYS,
   FEAST_GOLD_PER_POP,
-  HERO_DOWN_DAYS,
   HERO_RETRAIN_PER_POP,
   INFIRMARY_HEAL_CAP,
   BASE_STORAGE_CAP,
@@ -99,12 +98,14 @@ import {
 } from './data/market';
 import { MUTINY_EVENT, ORDER_TEXT } from './data/order';
 import {
+  DAY_PART_UNTIL,
   FIRST_WINTER_SOFTEN,
   FREEZING_MORALE_PENALTY,
   HEATING_CAMPFIRE,
   HEATING_SHELTERED,
   SEASONS,
   SEASON_DAYLIGHT,
+  type DayPart,
   SEASON_DAYS,
   SEASON_META,
   SEASON_MODIFIERS,
@@ -656,12 +657,14 @@ export const heroMen = (s: GameState): number => Math.round(statOf(s, 'statue', 
  */
 export const commandCap = (s: GameState): number => Math.round(statOf(s, 'statue', 'command'));
 
-/** Герой дома и здоров — значит, пойдёт со следующим походом. */
-export const heroReady = (s: GameState): boolean =>
-  s.hero.marchId === null && s.hero.downUntil <= s.time;
+/**
+ * Герой дома — значит, пойдёт со следующим походом. Своего срока «ранен» у героя
+ * больше нет: он и есть полководец, и вне строя его держит мир (разбит — десять
+ * минут, погиб — место пустует, и тогда похода нет вовсе).
+ */
+export const heroReady = (s: GameState): boolean => s.hero.marchId === null;
 
 export interface HeroInfo {
-  name: string;
   kind: UnitKind;
   /** Сколько бойцов строя он приводит в свой род. */
   men: number;
@@ -669,8 +672,6 @@ export interface HeroInfo {
   ready: boolean;
   /** В походе прямо сейчас. */
   away: boolean;
-  /** Секунд игрового времени до возвращения после гибели; 0 — он в строю. */
-  down: number;
   /** Во что обойдётся смена рода войск. */
   retrainCost: number;
   /** Почему нельзя сменить род; null — можно. */
@@ -679,27 +680,21 @@ export interface HeroInfo {
 
 export function heroInfo(s: GameState): HeroInfo {
   const h = s.hero;
-  const down = Math.max(0, h.downUntil - s.time);
   const away = h.marchId !== null;
   const retrainCost = Math.ceil(HERO_RETRAIN_PER_POP * population(s));
   let blocked: string | null = null;
   if (away) blocked = 'Герой в походе.';
-  else if (down > 0) blocked = `Герой ранен: ${Math.ceil(down / DAY_LENGTH)} дн.`;
   else if (s.gold < retrainCost) blocked = `Не хватает золота: нужно ${retrainCost}.`;
   return {
-    name: h.name,
     kind: h.kind,
     men: heroMen(s),
-    ready: !away && down <= 0,
+    ready: !away,
     away,
-    down,
     retrainCost,
     blocked,
   };
 }
 
-/** Сколько лежит павший герой. Он не пропадает совсем — только выбывает на время. */
-export const heroDownSeconds = (): number => HERO_DOWN_DAYS * DAY_LENGTH;
 
 /** Сколько бойцов ждёт своей очереди в казармах. */
 export const recruitsQueued = (s: GameState): number =>
@@ -1692,4 +1687,13 @@ export const dayFraction = (time: number): number => (time % DAY_LENGTH) / DAY_L
 export function solarPhase(frac: number, season: Season): number {
   const light = SEASON_DAYLIGHT[season];
   return frac < light ? (frac / light) * 0.5 : 0.5 + ((frac - light) / (1 - light)) * 0.5;
+}
+
+/** Время суток в эту игровую секунду — по тем же границам, что значок строки состояния. */
+export function dayPartAt(time: number): DayPart {
+  const solar = solarPhase(dayFraction(time), seasonOf(time));
+  if (solar < DAY_PART_UNTIL.morning) return 'morning';
+  if (solar < DAY_PART_UNTIL.day) return 'day';
+  if (solar < DAY_PART_UNTIL.evening) return 'evening';
+  return 'night';
 }

@@ -12,7 +12,7 @@
 // натиск — и это тоже подписано. Вопроса «кто главный» у игрока быть не должно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, commandCap, fervour, heroInfo, heroMen, mountGear } from '@/game/derived';
+import { buildingOfType, commandCap, fervour, heroMen, mountGear } from '@/game/derived';
 import {
   DEED_GAP,
   DEED_XP,
@@ -25,13 +25,15 @@ import {
   slotsOpen,
 } from '@/game/data/agents';
 import { itemIn } from '@/game/data/items';
-import { agentLevel, circlesText, fallLoss, regear, regearBlock } from '@/game/sim/agents';
+import { ageOf, agentLevel, circlesText, personName, regear, regearBlock, retireAt, yearsOf } from '@/game/sim/agents';
+import { hireWhere } from '@/game/sim/hire';
+import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
 import { ownedItems } from '@/net/owned';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { distance, formatLeft, terrainFactor, travelTime } from '@/world/geo';
 import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId, FigureView } from '@/world/types';
-import { onslaughtLines, sightLine, stealthLine } from './agentLines';
+import { deathLine, onslaughtLines, sightLine, stealthLine } from './agentLines';
 import { count } from './plural';
 
 const ORDINAL = ['', 'первый', 'второй', 'третий', 'четвёртый', 'пятый'];
@@ -70,7 +72,9 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
   }, [id]);
 
   const statue = buildingOfType(s, 'statue')?.level ?? 0;
-  const hero = heroInfo(s);
+  const vacant = progress.vacant;
+  const years = yearsOf(s, id);
+  const toRest = Math.max(0, RETIRE_AGE - ageOf(s, id));
 
   let road: string | null = null;
   if (f && info && f.place === 'map' && !f.atHome) {
@@ -89,8 +93,33 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
       </button>
       <h2>
         {def.name}
-        {id === 'general' ? ` — ${hero.name}` : ''} <small>уровень {level}</small>
+        {!vacant && progress.name ? ` — ${personName(s, id)}` : ''} {!vacant && <small>уровень {level}</small>}
       </h2>
+
+      {vacant ? (
+        <div className="note warn">
+          Место пустует: {def.name.toLowerCase()} погиб или ушёл на покой, а новый не нанят. Нанимают{' '}
+          {hireWhere(s, id)}; новичок начинает с первого уровня.
+          {progress.hiring ? ` Найм идёт: придёт ${progress.hiring.name ?? 'новичок'}.` : ''}
+        </div>
+      ) : (
+        <>
+          <h3>Жизнь</h3>
+          <div className="mod">
+            <span className="ico">⌛</span>
+            <span className="name">Возраст</span>
+            <span className={`val${years >= RETIRE_WARN ? ' neg' : ''}`}>
+              {count(years, 'год', 'года', 'лет')} · {toRest > 0 ? `до покоя ${count(Math.ceil(toRest), 'год', 'года', 'лет')}` : 'дожил до покоя'}
+            </span>
+          </div>
+          <div className="note">
+            {toRest > 0
+              ? `В ${RETIRE_AGE} лет бросит дело и уйдёт на покой, как дойдёт до своих ворот. Стареет только пока идут часы деревни: ${formatLeft(Math.max(0, retireAt(s, id) - s.time))} игрового времени.`
+              : 'Дел больше не берёт: идёт домой, у своих ворот уйдёт на покой.'}{' '}
+            {deathLine(id, level)}
+          </div>
+        </>
+      )}
 
       {skill ? (
         <>
@@ -126,9 +155,7 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
       <div className="note">
         За удачное дело {DEED_XP.ok}, за неудачное {DEED_XP.fail}, и не чаще раза в{' '}
         {count(Math.round(DEED_GAP / 60_000), 'минуту', 'минуты', 'минут')}. Купить опыт нельзя.
-        {id !== 'spy'
-          ? ` Если выбудет — потеряет ${fallLoss(progress.xp) > 0 ? `${fallLoss(progress.xp)} опыта` : 'ничего'}: путь к следующему уровню, не больше половины шага; взятый уровень остаётся.`
-          : ' Лазутчик не выбывает: его задерживают.'}
+        {' Опыт — этого человека: погибнет или уйдёт на покой — уйдёт и опыт, новичок начнёт с нуля. Задержание опыта не отнимает.'}
       </div>
 
       <h3>Скорость</h3>
@@ -155,8 +182,8 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
             <span className="val pos">{heroMen(s)} строя</span>
           </div>
           <div className="note">
-            Полководец и герой Статуи — один человек. Сколько он уводит и чего стоит сам, решает
-            Статуя; натиск — его {ORDINAL[level]} уровень.
+            Полководец и герой Статуи — один человек, и смертен он так же. Сколько он уводит и
+            чего стоит сам, решает Статуя; натиск — его {ORDINAL[level]} уровень.
           </div>
         </>
       )}

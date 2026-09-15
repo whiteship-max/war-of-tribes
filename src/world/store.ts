@@ -18,6 +18,7 @@ import { syncFaith } from '@/game/sim/faith';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
 import { heroReady } from '@/game/derived';
+import { freshSeed } from '@/game/sim/random';
 import { cityName } from '../../netlify/lib/contract';
 import { marchPosition } from './geo';
 import {
@@ -47,6 +48,7 @@ import type {
   FigureId,
   FigureView,
   InterceptPlan,
+  LeadPlan,
   StrikePlan,
   LetterView,
   MarchOrder,
@@ -125,6 +127,11 @@ export interface ActionMenuState {
   march: MarchView | null;
   /** Где и когда встретимся, если приказать сейчас. null — цели нет. */
   plan: InterceptPlan | null;
+  /**
+   * Что будет, если вести агента сюда: сколько идти и чем рискует разведчик у ворот.
+   * null — ещё не посчитано. Живёт пульсами, как строки приказов.
+   */
+  lead: LeadPlan | null;
 }
 
 export interface WorldStore {
@@ -216,8 +223,11 @@ export interface WorldStore {
   pick: (id: FigureId | null) => void;
   /** Переставить камеру на своё поселение или на одну из фигур. */
   setAnchor: (id: AnchorId) => void;
-  /** Вести выбранную фигуру в клетку. Возвращает текст ошибки или null. */
-  moveFigure: (id: FigureId, to: Coord) => Promise<string | null>;
+  /**
+   * Вести выбранную фигуру в клетку. Возвращает текст ошибки или null. `shownAt` —
+   * минута плана из меню: риск разведчика заморозится ровно по показанному.
+   */
+  moveFigure: (id: FigureId, to: Coord, shownAt?: number) => Promise<string | null>;
   recallFigure: (id: FigureId) => Promise<string | null>;
   /**
    * Поставить лазутчика наблюдателем или снять. Пока он смотрит, он не
@@ -270,6 +280,8 @@ export interface WorldStore {
   refreshOrders: () => Promise<void>;
   /** Перечитать план перехвата: цель идёт, и точка встречи с ней уезжает. */
   loadPlan: (marchId: string) => Promise<void>;
+  /** Перечитать план «вести сюда»: время и риск у ворот. */
+  loadLead: () => Promise<void>;
   /** Отдать приказ дипломату по цели открытого меню. */
   order: (action: OrderActionId) => Promise<OrderResult>;
   /** Перечитать стол писем. Мир заодно разберёт сроки: считаем при чтении. */
@@ -379,7 +391,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       useGame.getState().world((s) => applyEffects(s, pulse.effects));
       // Последствие без строки — одно дело агента (разведчик дошёл до логова): это
       // не событие, и телефон вздрагивать из-за него не должен.
-      if (pulse.effects.some((e) => e.text)) haptic('medium');
+      if (pulse.effects.some((e) => e.text || e.fell || e.retired)) haptic('medium');
     }
     // Число ушедших выводится из походов: правим состояние на месте, перерисовку
     // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.
@@ -430,6 +442,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // План перехвата тем более: цель идёт, и точка встречи уезжает вместе с ней.
     const chased = get().menu?.march;
     if (chased) void get().loadPlan(chased.id);
+    if (get().menu) void get().loadLead();
   },
 
   ensureRegion: (rect) => {
@@ -506,8 +519,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   setAnchor: (id) => set({ anchor: id, picked: id === 'home' ? null : get().picked }),
 
-  moveFigure: async (id, to) => {
-    const err = await worldApi().moveFigure(id, to);
+  moveFigure: async (id, to, shownAt) => {
+    const err = await worldApi().moveFigure(id, to, shownAt);
     if (err) {
       haptic('error');
       return err;
@@ -665,11 +678,14 @@ export const useWorld = create<WorldStore>((set, get) => ({
         card: null,
         march,
         plan: null,
+        lead: null,
       },
       orders: [],
     });
     // Точка встречи считается до подтверждения — она и есть половина решения.
     if (march) void get().loadPlan(march.id);
+    // Сколько идти и чем рискует разведчик у ворот — тоже до подтверждения.
+    void get().loadLead();
     if (!view) return;
     const [card, orders] = await Promise.all([
       worldApi().settlement(view.id),
@@ -692,6 +708,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
         card: null,
         march,
         plan: null,
+        lead: null,
       },
       orders: [],
     });
@@ -703,6 +720,15 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const menu = get().menu;
     if (!menu || menu.march?.id !== marchId) return;
     set({ menu: { ...menu, plan } });
+  },
+
+  loadLead: async () => {
+    const menu = get().menu;
+    if (!menu) return;
+    const lead = await worldApi().leadPlan(menu.agent, menu.cell);
+    const now = get().menu;
+    if (!now || now.agent !== menu.agent || now.cell.x !== menu.cell.x || now.cell.y !== menu.cell.y) return;
+    set({ menu: { ...now, lead } });
   },
 
   intercept: async () => {
@@ -749,7 +775,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
   order: async (action) => {
     const menu = get().menu;
     if (!menu?.target) return { error: 'Цель не выбрана.', accepted: false, diplomacy: null, text: '' };
-    const res = await worldApi().order(action, menu.target);
+    // Минута, на которую посчитаны показанные шанс и гибель: приказ идёт ровно по ним.
+    const shown = get().orders.find((o) => o.id === action)?.at;
+    const res = await worldApi().order(action, menu.target, shown);
     haptic(res.error ? 'error' : res.accepted ? 'medium' : 'light');
     // Пульс раньше перечитывания: последствие приказа (плата, мораль) должно
     // лечь на племя до того, как меню покажет новые цены.
@@ -822,7 +850,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     clearCache();
     setWorldApi(
       openWorld({
-        seed: Math.floor(Math.random() * 0x7fffffff),
+        seed: freshSeed(),
         reveal: revealWorld(),
         // Начать заново — это про свой мир, а не про общий: замок остаётся там,
         // где о нём знают соседи, и переезжать ему некуда.

@@ -36,7 +36,8 @@ import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
 import { marketTick } from './market';
 import { recruitTick } from './army';
-import { rnd, rndInt } from './random';
+import { settleHires } from './hire';
+import { roll, rollInt } from './roll';
 import { log, trimLog } from './log';
 import { recordProduced, refreshCard } from '@/profile/stats';
 
@@ -65,6 +66,10 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   // Мир мог измениться между тиками (сгорела хижина, кончилась стройка) —
   // сначала приводим в порядок, кто где работает, потом считаем по этим данным.
   normalizeAssignments(s);
+
+  // Места агентов: нанятый пришёл — встаёт на место; безымянным — имя, как только
+  // мир назвал веру. Возраст не тикает: он выводится из этих же часов при чтении.
+  settleHires(s);
 
   // Сезон читается один раз за тик и дальше передаётся вниз: все множители из одной таблицы.
   const mods = seasonMods(s);
@@ -215,7 +220,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
     s.nextEventAt = Math.max(s.nextEventAt, s.time + 20);
   } else if (!s.activeEvent && s.time >= s.nextEventAt) {
     if (opts.offline) {
-      s.nextEventAt = s.time + 20 + rnd() * 20;
+      s.nextEventAt = s.time + 20 + roll(s) * 20;
     } else if (s.unrest > 0) {
       // Пока идёт ропот, случайных окон нет: волки или ярмарка накрыли бы собой
       // и срок, и цену, а мятеж встал бы в очередь за ними.
@@ -223,7 +228,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
     } else {
       const e = pickEvent(s);
       if (e) s.activeEvent = { defId: e.id, at: s.time };
-      else s.nextEventAt = s.time + rndInt(EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
+      else s.nextEventAt = s.time + rollInt(s, EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
     }
   }
   return settled;
@@ -240,5 +245,5 @@ export function catchUp(s: GameState, seconds: number, step = 1): void {
 }
 
 export const scheduleNextEvent = (s: GameState): void => {
-  s.nextEventAt = s.time + rndInt(EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
+  s.nextEventAt = s.time + rollInt(s, EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
 };

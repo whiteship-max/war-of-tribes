@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { formatLeft } from '@/world/geo';
+import { perilText } from '@/world/peril';
 import type { SettlementId, StrikePlan } from '@/world/types';
 
 export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: () => void }) {
@@ -51,6 +52,10 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
                     plan.front ? `, со стороны города — ${plan.front.passed} из ${plan.front.went}` : ''
                   }${plan.seconds > 0 ? ' — если до прихода проход не займут' : ''}. Разобьёшь — осада снята.`}
           </i>
+          {plan?.can && (
+            // Условно и только так: шанс поражения не показывается нигде.
+            <i className="am-risk">Если дружину перебьют до последнего, полководец погибнет с шансом {perilText(plan.rout)}.</i>
+          )}
         </span>
       </button>
       {plan?.garrisonable && (

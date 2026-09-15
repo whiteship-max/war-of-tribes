@@ -36,7 +36,7 @@ import { resolveBattle } from '../sim/battle';
 import { addStrain, beginRite, grantRelic, riteInfo } from '../sim/faith';
 import { mutinyPay, mutinyRelease, mutinySuppress } from '../sim/mutiny';
 import { addPop, killPop } from '../sim/population';
-import { chance, rnd } from '../sim/random';
+import { chance, roll } from '../sim/roll';
 import { log } from '../sim/log';
 import { MUTINY_EVENT, ORDER_TEXT } from './order';
 
@@ -336,7 +336,7 @@ export const EVENTS: EventDef[] = [
             s.morale = Math.min(100, s.morale + 4);
             return 'Шаманы обошли дворы. Хворь отступила, племя воодушевлено.';
           }
-          if (chance(0.5)) {
+          if (chance(s, 0.5)) {
             const n = killPop(s, crowd(s, 0.04, 3), 'мор');
             return `Без жреца обряда не вышло. Мор унёс ${people(n)}.`;
           }
@@ -355,7 +355,7 @@ export const EVENTS: EventDef[] = [
         label: 'Ничего не делать',
         hint: 'Риск',
         apply: (s) => {
-          if (chance(0.5)) {
+          if (chance(s, 0.5)) {
             const n = killPop(s, crowd(s, 0.05, 4), 'мор');
             s.morale = Math.max(0, s.morale - 5);
             return `Мор прошёл по посёлку и унёс ${people(n)}. Племя скорбит.`;
@@ -667,10 +667,10 @@ export function pickEvent(s: GameState): EventDef | null {
   const weighted = EVENTS.map((e) => [e, e.weight(s)] as const).filter(([, w]) => w > 0);
   const total = weighted.reduce((a, [, w]) => a + w, 0);
   if (total <= 0) return null;
-  let roll = rnd() * total;
+  let left = roll(s) * total;
   for (const [e, w] of weighted) {
-    roll -= w;
-    if (roll <= 0) return e;
+    left -= w;
+    if (left <= 0) return e;
   }
   return weighted[weighted.length - 1][0];
 }

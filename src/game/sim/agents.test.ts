@@ -16,27 +16,24 @@ import {
   DEED_GAP,
   DEED_XP,
   LEVEL_XP,
-  MAX_AGENT_LEVEL,
   ONSLAUGHT_PER_CIRCLE,
   SIGHT_PER_CIRCLE,
   STEALTH_PER_CIRCLE,
   XP_CAP,
   circlesOf,
-  levelOf,
 } from '../data/agents';
 import {
   agentLevel,
   emptyAgents,
-  fallLoss,
   mergeAgents,
   onslaughtOf,
   recordDeed,
-  recordFall,
   regear,
   sightBonusOf,
   stealthOf,
 } from './agents';
 import { applyEffects, playerProfile } from '@/world/bridge';
+import { hireAgent } from './hire';
 import { FIGURE_IDS } from '@/world/data/figures';
 import type { ItemId } from '../data/items';
 
@@ -64,15 +61,17 @@ describe('уровень и кружки выводятся из опыта', ()
     expect([...seen].sort(), 'прогон прошёл все пять уровней').toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('в партии нет ни уровня, ни кружков — только опыт, отметка дела и ячейки', () => {
+  const FIELDS = ['age0', 'bornAt', 'deedAt', 'hiring', 'name', 'person', 'slots', 'vacant', 'xp'];
+
+  it('в партии нет ни уровня, ни кружков, ни возраста — только опыт, человек и ячейки', () => {
     const s = createInitialState();
-    for (const id of FIGURE_IDS) expect(Object.keys(s.agents[id]).sort()).toEqual(['deedAt', 'slots', 'xp']);
+    for (const id of FIGURE_IDS) expect(Object.keys(s.agents[id]).sort()).toEqual(FIELDS);
     // И записанное в сохранение «чужое» поле уровня ничего не решает: уровень — из опыта.
     const json = JSON.parse(serialize(s));
-    json.agents.general = { xp: 25, deedAt: null, slots: [null, null, null], level: 5, circles: 5 };
+    json.agents.general = { ...json.agents.general, xp: 10, level: 5, circles: 5, age: 59 };
     const back = deserialize(JSON.stringify(json))!;
     expect(agentLevel(back, 'general')).toBe(2);
-    expect(Object.keys(back.agents.general).sort()).toEqual(['deedAt', 'slots', 'xp']);
+    expect(Object.keys(back.agents.general).sort()).toEqual(FIELDS);
   });
 });
 
@@ -123,54 +122,59 @@ describe('опыт не убывает сам и не растёт быстре�
   it('уровень, взятый делом, пишется в летопись один раз', () => {
     const s = createInitialState();
     const t = 1_700_000_000_000;
-    for (let i = 0; i < 10; i++) recordDeed(s, { agent: 'scout', ok: true, at: t + i * DEED_GAP });
-    expect(s.agents.scout.xp).toBe(20);
+    for (let i = 0; i < 5; i++) recordDeed(s, { agent: 'scout', ok: true, at: t + i * DEED_GAP });
+    expect(s.agents.scout.xp).toBe(10);
+    expect(LEVEL_XP[1], 'точка внутри области: пять удач переходят порог второго уровня и не доходят до третьего').toBeLessThanOrEqual(10);
+    expect(LEVEL_XP[2]).toBeGreaterThan(10);
     expect(s.log.filter((e) => e.text.startsWith('Разведчик дошёл до второго уровня'))).toHaveLength(1);
   });
 });
 
-describe('гибель отнимает не больше половины шага до следующего уровня', () => {
-  it('на каждом опыте ниже потолка: уровень не падает, потеря не больше полушага и не больше пути', () => {
-    let pathBinds = 0;
-    let halfBinds = 0;
-    for (let xp = 0; xp < XP_CAP; xp++) {
-      const level = byTable(xp);
-      expect(level, 'точка внутри области: есть следующий уровень').toBeLessThan(MAX_AGENT_LEVEL);
-      const floor = LEVEL_XP[level - 1];
-      const step = LEVEL_XP[level] - floor;
-      const s = createInitialState();
-      s.agents.general.xp = xp;
-      const loss = recordFall(s, 'general');
-      expect(loss, `потеря на опыте ${xp}`).toBeLessThanOrEqual(step / 2);
-      expect(loss, `потеря на опыте ${xp}`).toBeLessThanOrEqual(xp - floor);
-      expect(byTable(s.agents.general.xp), `уровень после гибели на опыте ${xp}`).toBe(level);
-      // Теряется ровно путь к уровню, пока он не длиннее полушага.
-      expect(loss).toBe(Math.min(xp - floor, Math.floor(step / 2)));
-      if (xp - floor < step / 2) pathBinds++;
-      if (xp - floor > step / 2) halfBinds++;
-    }
-    expect(pathBinds, 'есть точки, где путь короче полушага').toBeGreaterThan(0);
-    expect(halfBinds, 'есть точки, где полушаг короче пути').toBeGreaterThan(0);
+describe('гибель забирает человека, а не часть пути', () => {
+  const fell = (agent: 'scout' | 'spy' | 'general', person: number) => ({
+    id: `f-${agent}-${person}`,
+    lost: {},
+    resources: {},
+    prestige: 0,
+    morale: -4,
+    battle: null,
+    fell: { agent, person, peril: 0.042, where: 'у Логова', why: ['день: заметнее'] },
+    text: '',
+    good: false,
   });
 
-  it('на пятом уровне пути нет, и гибель не отнимает ничего', () => {
-    expect(fallLoss(XP_CAP)).toBe(0);
-    expect(levelOf(XP_CAP)).toBe(MAX_AGENT_LEVEL);
-  });
-});
-
-describe('дело и гибель приходят из мира последствием', () => {
-  it('племя записывает опыт по полям последствия, а строку летописи — только если она есть', () => {
+  it('весть о гибели освобождает место того, о ком она, — и только его', () => {
     const s = createInitialState();
-    const t = 1_700_000_000_000;
-    s.agents.scout.xp = 30;
-    const logged = s.log.length;
-    applyEffects(s, [
-      { id: 'a', lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, deed: { agent: 'scout', ok: true, at: t }, text: '', good: true },
-    ]);
-    expect(s.agents.scout.xp).toBe(32);
-    expect(s.log.length, 'пустая строка в летопись не пишется').toBe(logged);
-    // Задержание: дело-неудача без `fell` — опыт только растёт.
+    s.agents.spy.xp = 40;
+    s.agents.spy.name = 'Ян Хромой';
+    applyEffects(s, [fell('spy', 0)]);
+    expect(s.agents.spy.vacant, 'погибший освободил место').toBe(true);
+    expect(s.log.some((e) => e.text.startsWith('Лазутчик Ян Хромой погиб у Логова') && e.text.includes('4,2 %')), 'строка летописи называет кого и риск').toBe(true);
+    // Вторая весть о том же — ничего: место уже пустое.
+    const lines = s.log.length;
+    applyEffects(s, [fell('spy', 0)]);
+    expect(s.log.length).toBe(lines);
+  });
+
+  it('весть, пришедшая после найма, нового не убивает, и его дел за погибшего не засчитывает', () => {
+    const s = createInitialState();
+    s.faith.id = 'catholic';
+    applyEffects(s, [fell('scout', 0)]);
+    s.gold = 10_000;
+    expect(hireAgent(s, 'scout')).toBeNull();
+    tick(s, s.agents.scout.hiring!.until - s.time);
+    expect(s.agents.scout.vacant).toBe(false);
+    expect(s.agents.scout.person, 'новый человек — новый номер').toBe(1);
+    expect(s.agents.scout.xp, 'новичок начинает с нуля').toBe(0);
+    applyEffects(s, [fell('scout', 0)]);
+    expect(s.agents.scout.vacant, 'весть о прежнем нового не трогает').toBe(false);
+    expect(recordDeed(s, { agent: 'scout', ok: true, at: 1_700_000_000_000, person: 0 }), 'дело прежнего не засчитывается').toBe(0);
+    expect(recordDeed(s, { agent: 'scout', ok: true, at: 1_700_000_000_000, person: 1 })).toBe(DEED_XP.ok);
+  });
+
+  it('задержание места не освобождает: дело-неудача, опыт при нём', () => {
+    const s = createInitialState();
+    s.agents.scout.xp = 10;
     applyEffects(s, [
       {
         id: 'b',
@@ -179,18 +183,21 @@ describe('дело и гибель приходят из мира последс
         prestige: 0,
         morale: -4,
         battle: null,
-        deed: { agent: 'scout', ok: false, at: t + DEED_GAP },
+        deed: { agent: 'scout', ok: false, at: 1_700_000_000_000, person: 0 },
         text: 'Разведчик попался часовым у логова. Отпустят не скоро.',
         good: false,
       },
     ]);
-    expect(s.agents.scout.xp).toBe(33);
-    // Гибель: `fell`. 33 — путь к третьему уровню 13 при полушаге 20: теряется весь путь.
-    applyEffects(s, [
-      { id: 'c', lost: {}, resources: {}, prestige: 0, morale: -4, battle: null, fell: 'scout', text: 'Разведчик пал.', good: false },
-    ]);
-    expect(s.agents.scout.xp).toBe(LEVEL_XP[1]);
-    expect(agentLevel(s, 'scout')).toBe(2);
+    expect(s.agents.scout.xp).toBe(11);
+    expect(s.agents.scout.vacant).toBe(false);
+  });
+
+  it('старая весть строкой («выбыл на десять минут») не убивает никого', () => {
+    const s = createInitialState();
+    s.agents.scout.xp = 30;
+    applyEffects(s, [{ ...fell('scout', 0), fell: 'scout' as never }]);
+    expect(s.agents.scout.vacant).toBe(false);
+    expect(s.agents.scout.xp).toBe(30);
   });
 });
 
@@ -205,7 +212,7 @@ describe('агент первого уровня — это сегодняшни
       expect(old.agents[id].slots).toEqual([null, null, null]);
     }
     const p = playerProfile(old);
-    expect(['onslaught', 'sightBonus', 'stealth'].filter((k) => k in p), 'слепок первого уровня не везёт полей навыка').toEqual([]);
+    expect(['onslaught', 'sightBonus', 'stealth', 'veil', 'agents'].filter((k) => k in p), 'слепок первого уровня не везёт полей навыка и мест').toEqual([]);
     // Опыт копится, но пока уровень первый — слепок тот же, байт в байт.
     old.agents.general.xp = LEVEL_XP[1] - 1;
     expect(JSON.stringify(playerProfile(old))).toBe(JSON.stringify(p));
@@ -218,7 +225,7 @@ describe('агент первого уровня — это сегодняшни
       general: { xp: -5, deedAt: 'вчера', slots: [{ id: 'меч', onslaught: 99 }, 'меч', 7] },
       spy: { xp: 10_000 },
     });
-    expect(merged.general).toEqual({ xp: 0, deedAt: null, slots: [null, 'меч', null] });
+    expect(merged.general).toEqual({ ...emptyAgents().general, xp: 0, deedAt: null, slots: [null, 'меч', null] });
     expect(merged.spy.xp).toBe(XP_CAP);
     expect(merged.scout).toEqual(emptyAgents().scout);
   });

@@ -1,7 +1,7 @@
 import type { GameState } from '../types';
 import { BATTLE_MORALE_LOSS, BATTLE_MORALE_WIN } from '../constants';
 import { defense } from '../derived';
-import { rnd } from './random';
+import { roll } from './roll';
 import { famineToll, killPop } from './population';
 import { log } from './log';
 import { recordBattle, recordRaidLoss } from '@/profile/stats';
@@ -16,7 +16,7 @@ export interface BattleResult {
  * Потери и награды применяются к состоянию сразу.
  */
 export function resolveBattle(s: GameState, enemyPower: number, enemyName: string): BattleResult {
-  const ours = defense(s) * (0.85 + rnd() * 0.3);
+  const ours = defense(s) * (0.85 + roll(s) * 0.3);
   const won = ours >= enemyPower;
   if (won) {
     recordBattle(s, 'won');
@@ -33,7 +33,7 @@ export function resolveBattle(s: GameState, enemyPower: number, enemyName: strin
   recordRaidLoss(s, { food: foodLost });
   let text = `Не удалось сдержать: ${enemyName}. Потеряно ${foodLost} еды.`;
   // Проигранная стычка стоит людей — доли посёлка, а не одного безымянного жителя.
-  const fallen = killPop(s, Math.ceil(famineToll(s) * (0.5 + rnd())), 'бой');
+  const fallen = killPop(s, Math.ceil(famineToll(s) * (0.5 + roll(s))), 'бой');
   if (fallen > 0) text += ` Не вернулись из боя: ${fallen} чел.`;
   log(s, text, 'bad');
   return { won, text };

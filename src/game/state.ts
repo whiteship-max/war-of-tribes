@@ -4,12 +4,22 @@ import { TEST_GEMS } from './constants';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
-import { heroName } from './data/names';
+import { freshSeed } from './sim/random';
 import { emptyProfile, refreshCard } from '@/profile/stats';
 import { emptyAgents } from './sim/agents';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
+ *
+ * Версия 13 — смертные агенты: у каждого места человек с именем и возрастом
+ * (`AgentProgress.person`, `name`, `bornAt`, `age0`, `vacant`, `hiring`), у партии —
+ * свой сид (`seed`, `rolls`, `hires`), у героя больше нет ни имени (оно у полководца),
+ * ни своего срока «ранен» (`downUntil`). Умолчаний тут мало, и поднимает версию
+ * возраст: `bornAt` по умолчанию — ноль, и в старой партии с большим `s.time` все
+ * четверо оказались бы старше шестидесяти и ушли бы на покой на первом же пульсе.
+ * Ступень 12 → 13 считает начало службы из самой партии — «наняты сегодня», — отдаёт
+ * имя героя полководцу, выводит сид из самого сохранения и переводит опыт на новые
+ * пороги так, чтобы уровень не сдвинулся.
  *
  * Версия 12 — вера деревни (`s.faith`) вместо покровителя (`s.patron`). Само по
  * себе новое поле версию не поднимает — `deserialize` мержит его поверх новой
@@ -46,7 +56,7 @@ import { emptyAgents } from './sim/agents';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -65,7 +75,7 @@ const START_POP = 30;
  * центр игры — карта, армия и бой. Стартовые запасы рассчитаны так, чтобы первые
  * копьё и боец делались без ожидания, но на дружину пришлось работать.
  */
-export function createInitialState(): GameState {
+export function createInitialState(seed: number = freshSeed()): GameState {
   const s: GameState = {
     version: SAVE_VERSION,
     time: 0,
@@ -117,11 +127,16 @@ export function createInitialState(): GameState {
       relic: null,
       converted: false,
     },
-    // Герой стоит у своей статуи с первого дня, как и всё остальное. Имя даётся
-    // один раз за партию; род войск игрок меняет в Статуе за золото.
-    hero: { name: heroName(Math.random), kind: 'infantry', downUntil: 0, marchId: null },
-    // Агенты карты начинают первым уровнем — ровно сегодняшними, — и с пустыми руками.
+    // Герой стоит у своей статуи с первого дня, как и всё остальное. Он и есть
+    // полководец: имя у них одно и лежит у агента. Род войск меняют в Статуе.
+    hero: { kind: 'infantry', marchId: null },
+    // Агенты карты начинают первым уровнем и с пустыми руками. Имён у них пока нет:
+    // набор выбирает вера, а её называет мир первым пульсом (`sim/hire.settleHires`).
     agents: emptyAgents(),
+    // Корень случайности партии: кость событий и имена агентов. Один раз на партию.
+    seed,
+    rolls: 0,
+    hires: 0,
     starvation: 0,
     freezing: 0,
     winterWarnedYear: 0,

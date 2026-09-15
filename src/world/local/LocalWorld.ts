@@ -2,7 +2,7 @@
 // Реализует WorldApi — тот же интерфейс, что потом реализует HttpWorld. Всё, что
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
-import { seeded } from '@/game/sim/random';
+import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
 import { serverNow } from '@/net/clock';
 import {
   FRONT,
@@ -44,6 +44,7 @@ import type {
   Intel,
   IntelReading,
   InterceptPlan,
+  LeadPlan,
   Letter,
   LetterAnswerId,
   LetterFrom,
@@ -89,6 +90,7 @@ import {
   lairLoot,
   lairPhase,
   lairPop,
+  lairRipeness,
   lairPower,
   lairRaidWeight,
   ruinLeft,
@@ -115,6 +117,7 @@ import { cityName, cityOr } from '../../../netlify/lib/contract';
 import { WATCHER, liveSight, standing } from '../sight';
 import { canShelter, placeOf } from '../shelter';
 import { generalResolve, ownGearOf, revealSight, slipped } from '../agents';
+import { diesAt, perilOf, perilShare, perilText, perilWhy, routPeril, recentVisits, type PerilCase } from '../peril';
 import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
@@ -127,6 +130,7 @@ import {
   revoltWindow,
   spyChance,
   spyOutcome,
+  spyDeathRoll,
   spySeed,
   SPY_SLIP_TEXT,
 } from '../spy';
@@ -231,7 +235,9 @@ import {
   DEAL_PAYOUT,
   DEFENSE_FREEZE,
   FIGURE_DOWN,
+  FIGURE_SCOUT_CATCH,
   FIGURE_SCOUT_COVER,
+  PERIL_MEMORY,
   FIGURE_TOUCH,
   FAITH_AROUND,
   HOME_SIGHT,
@@ -334,6 +340,18 @@ export interface LocalWorldOptions {
 
 const UNKNOWN = { precision: 'unknown' as const, value: null, min: 0, max: 0 };
 
+/** Соль кости гибели разбитого полководца: своё число из сида того же боя. */
+const ROUT_SALT = 0x726f7574;
+
+/** Схватили ли часовые разведчика: первая кость прихода легла ниже доли поимки. */
+export const caughtAt = (roll: number, caught: number): boolean => roll < caught;
+
+/**
+ * Сколько живут числа, показанные в меню приказа: приказ, отданный позже, считается
+ * заново. Меню перечитывается каждым пульсом, так что десяти секунд хватает с запасом.
+ */
+const SHOWN_FRESH = 10_000;
+
 /** Кто лезет через рогатки одной стороны лагеря: свои поимённо или чужие родами. */
 type CampPart = { own: TroopStack } | { kinds: Stack; gear: Partial<Record<UnitKind, number>> };
 
@@ -386,7 +404,7 @@ export class LocalWorld implements WorldApi {
     this.storage = opts.storage === undefined ? browserStorage : opts.storage;
     this.provide = opts.castles ?? null;
     const stored = parseWorldSave(this.storage?.read() ?? null);
-    const seed = opts.seed ?? stored?.seed ?? Math.floor(Math.random() * 0x7fffffff);
+    const seed = opts.seed ?? stored?.seed ?? freshSeed();
     // Дом решается раньше всего остального: от него зависят и логова у порога,
     // и то, годится ли вообще сохранение. Порядок — реестр, потом сохранение,
     // потом сид; спорить с реестром сохранение не может.
@@ -422,6 +440,7 @@ export class LocalWorld implements WorldApi {
 
   private write(): void {
     this.save.fog = this.fog.toJSON();
+    this.forgetVisits(this.clock());
     this.storage?.write(JSON.stringify(this.save));
   }
 
@@ -1216,7 +1235,15 @@ export class LocalWorld implements WorldApi {
       }
       if (troopTotal(left) === 0) {
         f.troops = undefined;
-        this.downFigure('general', at, 'потерял всю дружину под чужими стенами.');
+        const besieged = this.ourSiege(at);
+        const town = besieged ? this.byId.get(besieged) : undefined;
+        this.defeatGeneral(
+          at,
+          'потерял всю дружину под чужими стенами.',
+          town ? `под ${town.name}` : 'под чужими стенами',
+          town ? { id: town.id, name: town.name, x: town.x, y: town.y } : this.homeSpot(),
+          mixSeed(this.save.seed, Math.floor(at / 1000)),
+        );
       } else {
         f.troops = left;
         if (gone > 0) {
@@ -1710,7 +1737,8 @@ export class LocalWorld implements WorldApi {
   async besiege(fateId: Fate = FATE_DEFAULT): Promise<string | null> {
     const now = this.clock();
     const f = this.save.figures.general;
-    if (f.phase === 'down') return 'Полководец выбыл.';
+    const off = this.offDuty('general', now) ?? this.retiringBlock('general');
+    if (off) return off;
     if (f.phase === 'moving') return 'Полководец ещё в пути.';
     this.settleHandover(f, now);
     if (f.handover) {
@@ -2674,8 +2702,8 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Уводит фигуру с карты домой на `FIGURE_DOWN` — общая часть гибели и
-   * задержания. Что это стоило, решают двери ниже, и цена у них разная.
+   * Уводит фигуру с карты домой на `FIGURE_DOWN` — общая часть гибели, задержания и
+   * разгрома. Что это стоило, решают двери ниже, и цена у них разная.
    */
   private offMap(id: FigureId, at: number): TroopStack {
     const f = this.save.figures[id];
@@ -2685,19 +2713,52 @@ export class LocalWorld implements WorldApi {
     f.departAt = at;
     f.arriveAt = at;
     f.downUntil = at + FIGURE_DOWN;
+    f.watching = false;
+    f.strike = undefined;
+    f.chase = undefined;
+    f.peril = undefined;
     const lost = f.troops ?? {};
     f.troops = undefined;
+    f.handover = undefined;
     return lost;
   }
 
   /**
-   * Отправляет фигуру домой павшей: насовсем её потерять нельзя. Гибель стоит
-   * опыта — племя снимет его само (`HomeEffect.fell`). Это единственное место, где
-   * последствие несёт `fell`: задержание идёт своей дверью (`holdFigure`), и
-   * свести их обратно в один вызов не даёт тест (`world/agents.test.ts`).
+   * Гибель агента: человек погиб, место пустует, пока племя не наймёт нового. Это
+   * **единственное место**, где последствие несёт `fell`: задержание идёт своей дверью
+   * (`holdFigure`), разгром уцелевшего полководца — своей (`routFigure`), и свести их
+   * обратно в один вызов не даёт тест (`world/agents.test.ts`).
+   *
+   * В последствии — номер человека: весть о гибели придёт в племя поздно и убить
+   * обязана погибшего, а не нанятого после. И тот риск, что был показан до приказа, —
+   * тем же числом, чтобы отчёт о гибели говорил правду о том, чем рисковали.
    */
-  private downFigure(id: FigureId, at: number, text: string): void {
+  private downFigure(id: FigureId, at: number, death: { peril: number; where: string; why: string[]; spot: Report['target'] }): void {
+    const f = this.save.figures[id];
+    const person = f.person ?? 0;
     const lost = this.offMap(id, at);
+    f.held = false;
+    f.busyUntil = 0;
+    f.gone = { person, at, why: 'died' };
+    const def = FIGURE_BY_ID[id];
+    const why = death.why.length > 0 ? ` ${death.why.join(', ')}.` : '';
+    this.addReport({
+      id: `fig-${id}-died-${at}`,
+      at,
+      kind: id === 'general' ? 'raid' : 'scout',
+      title: `${def.name} погиб`,
+      target: { ...death.spot },
+      won: false,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: `${def.name} погиб ${death.where}.${why} Перед приказом гибель стояла ${perilText(death.peril)}. Место пустует.`,
+      read: false,
+    });
     this.addEffect({
       id: `fig-${id}-${at}`,
       lost: {},
@@ -2706,8 +2767,9 @@ export class LocalWorld implements WorldApi {
       prestige: 0,
       morale: -4,
       battle: null,
-      fell: id,
-      text: `${FIGURE_BY_ID[id].name} ${text} Вернётся не скоро.`,
+      fell: { agent: id, person, peril: death.peril, where: death.where, why: death.why },
+      // Строку летописи пишет племя: только оно знает, как звали погибшего.
+      text: '',
       good: false,
     });
   }
@@ -2716,11 +2778,13 @@ export class LocalWorld implements WorldApi {
    * Задержание — не гибель: пойманного держат и отпускают домой, опыт при нём.
    * Цена — дело-неудача (`deed`), лицо, которое цель запомнила (отношение
    * `SPY_CAUGHT_ATTITUDE`, как у замеченного лазутчика), и прежние десять минут вне
-   * строя. Мораль дома пока та же, что у гибели: развести и её — решение вместе
-   * со смертностью агентов (docs/PROMISES_DEBT.md).
+   * строя. Мораль дома пока та же, что у гибели: развести и её — решение владельца
+   * (docs/PROMISES_DEBT.md).
    */
   private holdFigure(id: FigureId, target: GenSettlement, at: number, text: string, deed: NonNullable<HomeEffect['deed']>): void {
+    const f = this.save.figures[id];
     this.offMap(id, at);
+    f.held = true;
     this.moveAttitude(target.id, SPY_CAUGHT_ATTITUDE, at);
     this.addEffect({
       id: `fig-${id}-${at}`,
@@ -2736,6 +2800,106 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Разбит, но жив: полководца, чью дружину перебили, выхаживают дома десять минут.
+   * Опыт при нём, место не пустует. Гибели здесь нет — её решает `defeatGeneral`.
+   */
+  private routFigure(id: FigureId, at: number, text: string): void {
+    const lost = this.offMap(id, at);
+    this.save.figures[id].held = false;
+    this.addEffect({
+      id: `fig-${id}-${at}`,
+      lost: {},
+      lostTroops: troopTotal(lost) > 0 ? lost : undefined,
+      resources: {},
+      prestige: 0,
+      morale: -4,
+      battle: null,
+      text: `${FIGURE_BY_ID[id].name} ${text} Уцелел — вернётся не скоро.`,
+      good: false,
+    });
+  }
+
+  /**
+   * Дружину полководца перебили до последнего бойца: гибнет ли он сам. Кость — своё
+   * число из сида того же боя, после ядра, и ядро боя про неё не знает. Риск — тот же
+   * `routPeril` от дали места боя, что стоит в меню до приказа («если дружину
+   * перебьют»): одна функция на показ и на исход.
+   */
+  private defeatGeneral(at: number, text: string, where: string, spot: Report['target'], seed: number): void {
+    const peril = perilShare(routPeril(distance(this.save.home, spot)));
+    if (diesAt(seeded(mixSeed(seed, ROUT_SALT))(), peril)) {
+      this.downFigure('general', at, { peril, where, why: ['дружину перебили до последнего'], spot });
+      return;
+    }
+    this.routFigure('general', at, text);
+  }
+
+  /** Наш агент побывал у цели по делу: отметка в памяти для гибели следующего. */
+  private markVisit(id: SettlementId, at: number): void {
+    const book = (this.save.visited ??= {});
+    book[id] = [...(book[id] ?? []), at];
+  }
+
+  /** Память цели короткая: отметки старше окна выбрасываются при записи. */
+  private forgetVisits(now: number): void {
+    const book = this.save.visited;
+    if (!book) return;
+    for (const [id, marks] of Object.entries(book)) {
+      const kept = marks.filter((at) => now - at < PERIL_MEMORY);
+      if (kept.length > 0) book[id] = kept;
+      else delete book[id];
+    }
+  }
+
+  /**
+   * Игровое время деревни в эту мировую минуту. Мир часов деревни не ведёт: он берёт
+   * последний слепок (`profile.time`) и прибавляет, сколько прошло с его прихода. Этим
+   * и считаются час и время года тайного дела.
+   */
+  private villageTime(at: number): number {
+    const p = this.save.profile;
+    if (!p || typeof p.time !== 'number') return 0;
+    return p.time + Math.max(0, at - (this.save.profileAt ?? at)) / 1000;
+  }
+
+  /** Спелость цели для гибели: логово — по своему возрасту, замок — всегда настороже. */
+  private ripenessOf(s: GenSettlement, at: number): number {
+    if (isLair(s)) return lairRipeness(this.lairRec(s.id), at);
+    return s.castle ? 1 : 0.5;
+  }
+
+  /**
+   * Обстановка тайного дела у цели в эту минуту — всё, из чего гибель считается.
+   * Скрытность — только у лазутчика: у разведчика своего рычага против гибели нет,
+   * кроме выбора цели. Дозора здесь нет ни одним числом.
+   */
+  private perilCase(id: FigureId, s: GenSettlement, at: number): PerilCase {
+    return {
+      veil: id === 'spy' ? Math.max(0, Math.min(1, this.save.profile?.veil ?? 1)) : 1,
+      ripeness: this.ripenessOf(s, at),
+      villageTime: this.villageTime(at),
+      visits: recentVisits(this.save.visited?.[s.id], at),
+      distance: distance(this.save.home, s),
+    };
+  }
+
+  /**
+   * Что ждёт разведчика у ворот, если отправить его сейчас к клетке `to` с приходом в
+   * `arriveAt`: схватят ли и погибнет ли. Считается на минуту прихода — её мир знает в
+   * минуту отправки, — и этой же функцией риск замораживается на фигуре
+   * (`StoredFigure.peril`): показанное до приказа и применённое на приходе — одно и то же.
+   */
+  private scoutPlan(to: Coord, arriveAt: number): { target: GenSettlement | null; caught: number; peril: number; why: string[] } {
+    const near = this.touching(to);
+    const target = near && !near.home ? (this.byId.get(near.id) ?? null) : null;
+    if (!target || !this.alive(target, arriveAt)) return { target, caught: 0, peril: 0, why: [] };
+    // Часовые есть только у поселения, которое сильнее разведчика, — в минуту прихода.
+    if (this.powerNow(target, arriveAt) <= FIGURE_SCOUT_COVER) return { target, caught: 0, peril: 0, why: [] };
+    const c = this.perilCase('scout', target, arriveAt);
+    return { target, caught: FIGURE_SCOUT_CATCH, peril: perilShare(perilOf(c)), why: perilWhy(c) };
+  }
+
+  /**
    * Шаг фигур: прибытие, возвращение павших и то, что фигура делает, стоя на
    * месте. Положение здесь не двигается — оно выведено из времени, и двигать
    * его тиком значило бы получить два разных ответа онлайн и офлайн.
@@ -2745,9 +2909,12 @@ export class LocalWorld implements WorldApi {
       const f = this.save.figures[id];
       if (!f) continue;
       if (f.phase === 'down') {
-        if (now < f.downUntil) continue;
+        // Пустое место не возвращается само: вернётся нанятый, когда его назовёт слепок.
+        if (f.gone || now < f.downUntil) continue;
+        const held = Boolean(f.held);
         f.phase = 'home';
         f.downUntil = 0;
+        f.held = false;
         f.from = { ...this.save.home };
         f.to = { ...this.save.home };
         f.departAt = now;
@@ -2759,7 +2926,7 @@ export class LocalWorld implements WorldApi {
           prestige: 0,
           morale: 2,
           battle: null,
-          text: `${FIGURE_BY_ID[id].name} снова в строю.`,
+          text: held ? `${FIGURE_BY_ID[id].name}а отпустили: снова в строю.` : `${FIGURE_BY_ID[id].name} снова в строю.`,
           good: true,
         });
         continue;
@@ -2825,10 +2992,31 @@ export class LocalWorld implements WorldApi {
     const target = near && !near.home ? this.byId.get(near.id) : null;
     if (!target) return;
     const rng = seeded(marchSeed(this.save.seed, Math.floor(f.departAt / 1000)));
+    const person = f.person ?? 0;
     if (id === 'scout') {
-      const power = this.powerNow(target, at);
-      if (power > FIGURE_SCOUT_COVER && rng() < 0.25) {
-        this.holdFigure(id, target, at, `попался часовым у ${target.name}.`, { agent: 'scout', ok: false, at });
+      // Риск заморожен в минуту отправки — на эту же минуту прихода и у этой же цели.
+      // Фигура, отправленная до смертных агентов, приходит без него: прежний бросок
+      // часовых по мощи в минуту прихода, гибели нет.
+      const frozen = f.peril && f.peril.target === target.id && f.peril.at === at ? f.peril : null;
+      f.peril = undefined;
+      const caught = frozen ? frozen.caught : this.powerNow(target, at) > FIGURE_SCOUT_COVER ? FIGURE_SCOUT_CATCH : 0;
+      const peril = frozen?.peril ?? 0;
+      // Две кости одного броска: первая — часовые, вторая — гибель. Они независимы, и
+      // потому на кнопке стоят двумя числами.
+      const isCaught = caughtAt(rng(), caught);
+      const dies = diesAt(rng(), peril);
+      // Заход засчитан в память цели — любым исходом, и после того, как его риск решён.
+      this.markVisit(target.id, at);
+      if (dies) {
+        // Погиб. Схватили его перед этим или он успел пересчитать войско — видно по
+        // первой кости: лицо запомнили, или донесение дошло.
+        if (isCaught) this.moveAttitude(target.id, SPY_CAUGHT_ATTITUDE, at);
+        else this.save.intel[target.id] = this.snapshot(target, at);
+        this.downFigure(id, at, { peril, where: `у ${target.name}`, why: frozen?.why ?? [], spot: { id: target.id, name: target.name, x: target.x, y: target.y } });
+        return;
+      }
+      if (isCaught) {
+        this.holdFigure(id, target, at, `попался часовым у ${target.name}.`, { agent: 'scout', ok: false, at, person });
         return;
       }
       this.save.intel[target.id] = this.snapshot(target, at);
@@ -2841,14 +3029,16 @@ export class LocalWorld implements WorldApi {
         prestige: 0,
         morale: 0,
         battle: null,
-        deed: { agent: 'scout', ok: true, at },
+        deed: { agent: 'scout', ok: true, at, person },
         text: '',
         good: true,
       });
       return;
     }
+    // Дипломата во враждебном дворе хватают, а не убивают: гибели у него нет, он уходит
+    // только на покой. Спит — враждебных дворов на карте нет.
     if (id === 'diplomat' && this.relationOf(target) === 'enemy' && rng() < 0.3) {
-      this.downFigure(id, at, `схвачен во враждебном ${target.name}.`);
+      this.holdFigure(id, target, at, `схвачен во враждебном ${target.name}.`, { agent: 'diplomat', ok: false, at, person });
     }
   }
 
@@ -3227,7 +3417,7 @@ export class LocalWorld implements WorldApi {
 
     if (survivors === 0) {
       f.troops = undefined;
-      this.downFigure('general', at, `разбит под ${target.name}.`);
+      this.defeatGeneral(at, `разбит под ${target.name}.`, `под ${target.name}`, { id: target.id, name: target.name, x: target.x, y: target.y }, seed);
     } else {
       f.troops = left;
     }
@@ -3262,10 +3452,11 @@ export class LocalWorld implements WorldApi {
   private planChase(m: StoredMarch, now: number): { meet: Meeting | null; reason: string | null } {
     const f = this.save.figures.general;
     this.settleHandover(f, now);
-    if (f.phase === 'down') {
+    const off = this.offDuty('general', now) ?? this.retiringBlock('general');
+    if (off) {
       return {
         meet: null,
-        reason: `Полководец выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`,
+        reason: off,
       };
     }
     if (f.handover) {
@@ -3485,7 +3676,7 @@ export class LocalWorld implements WorldApi {
 
     if (survivors === 0) {
       f.troops = undefined;
-      this.downFigure('general', at, `разбит в поле у ${formatCoord(spot)}.`);
+      this.defeatGeneral(at, `разбит в поле у ${formatCoord(spot)}.`, `в поле у ${formatCoord(spot)}`, { id: m.fromId, name: m.fromName, x: spot.x, y: spot.y }, seed);
     } else {
       f.troops = left;
       const stop = this.figureAt(f, at);
@@ -4143,7 +4334,8 @@ export class LocalWorld implements WorldApi {
     | { error: string }
     | { error: null; f: StoredFigure; force: TroopStack; to: Coord; seconds: number } {
     const f = this.save.figures.general;
-    if (f.phase === 'down') return { error: 'Полководец выбыл.' };
+    const off = this.offDuty('general', now) ?? this.retiringBlock('general');
+    if (off) return { error: off };
     this.settleHandover(f, now);
     if (f.handover) return { error: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'Войска при полководце нет.' };
@@ -4168,9 +4360,10 @@ export class LocalWorld implements WorldApi {
   async strikePlan(id: SettlementId, garrison: boolean): Promise<StrikePlan> {
     const now = this.clock();
     const garrisonable = id === HOME_ID;
+    const rout = perilShare(routPeril(distance(this.save.home, this.campSpot(id))));
     const check = this.strikeCheck(id, now);
     if (check.error !== null) {
-      return { can: false, reason: check.error, seconds: 0, rear: { went: 0, passed: 0 }, front: null, garrisonable };
+      return { can: false, reason: check.error, seconds: 0, rear: { went: 0, passed: 0 }, front: null, garrisonable, rout };
     }
     const { force, seconds } = check;
     const arriveAt = now + seconds * 1000;
@@ -4180,7 +4373,7 @@ export class LocalWorld implements WorldApi {
     // панели, а число — тем же `campGate`, которым считает бой.
     const gate = this.campGate(id, arriveAt, { rear: kindsOf(force), front: going ? kindsOf(going) : undefined });
     if (!gate?.rear) {
-      return { can: false, reason: 'Под этими стенами лагеря нет.', seconds, rear: { went: 0, passed: 0 }, front: null, garrisonable };
+      return { can: false, reason: 'Под этими стенами лагеря нет.', seconds, rear: { went: 0, passed: 0 }, front: null, garrisonable, rout };
     }
     const cast = { rear: gate.rear, front: gate.front };
     const refused = refusedAtGate(cast.rear, cast.front);
@@ -4191,7 +4384,19 @@ export class LocalWorld implements WorldApi {
       rear: { went: cast.rear.went, passed: cast.rear.passed },
       front: cast.front ? { went: cast.front.went, passed: cast.front.passed } : null,
       garrisonable,
+      rout,
     };
+  }
+
+  /** Где стоит лагерь под городом — место боя полководца с ним, для дали его гибели. */
+  private campSpot(id: SettlementId): Report['target'] {
+    const town = this.byId.get(id);
+    return town ? { id: town.id, name: town.name, x: town.x, y: town.y } : this.homeSpot();
+  }
+
+  /** Свой город местом отчёта. */
+  private homeSpot(): Report['target'] {
+    return { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y };
   }
 
   async strikeCamp(id: SettlementId, garrison: boolean): Promise<string | null> {
@@ -4326,7 +4531,7 @@ export class LocalWorld implements WorldApi {
     if (troopTotal(left) === 0) {
       f.troops = undefined;
       f.strike = undefined;
-      this.downFigure('general', at, `положил дружину на лагерь ${camp.name}.`);
+      this.defeatGeneral(at, `положил дружину на лагерь ${camp.name}.`, `у лагеря ${camp.name}`, this.campSpot(id), seed);
     } else {
       f.troops = left;
     }
@@ -4872,6 +5077,10 @@ export class LocalWorld implements WorldApi {
       atName: near?.name ?? null,
       atHome: near?.home ?? false,
       downUntil: f.downUntil,
+      // Держат ли его: разведчика — с карты, лазутчика — на месте, пока идёт срок.
+      held: Boolean(f.held) && !f.gone && (f.phase === 'down' ? now < f.downUntil : (f.busyUntil ?? 0) > now),
+      gone: f.gone?.why ?? null,
+      retiring: this.isRetiring(id),
       busyUntil: Math.max(0, f.busyUntil ?? 0),
       // Наблюдение — приказ, а не свойство фигуры: пока лазутчик смотрит, он не
       // работает, и обратное тоже верно. Панель обязана показывать, что сейчас.
@@ -4892,14 +5101,14 @@ export class LocalWorld implements WorldApi {
     return FIGURE_IDS.map((id) => this.viewFigure(id, now));
   }
 
-  async moveFigure(id: FigureId, to: Coord): Promise<string | null> {
+  async moveFigure(id: FigureId, to: Coord, shownAt?: number): Promise<string | null> {
     const now = this.clock();
     const f = this.save.figures[id];
     const def = FIGURE_BY_ID[id];
-    if (f.phase === 'down') {
-      const left = Math.ceil(Math.max(0, f.downUntil - now) / 1000);
-      return `${def.name} выбыл: вернётся через ${Math.ceil(left / 60)} мин.`;
-    }
+    const off = this.offDuty(id, now);
+    if (off) return off;
+    // Дожившему до покоя дорога одна — домой.
+    if (this.isRetiring(id) && !this.touching(clampToWorld(to))?.home) return this.retiringBlock(id);
     // Занятая фигура с места не сходит. Для лазутчика это и есть цена провала:
     // его задержали, и увести его нельзя, пока не отпустят. Для дипломата —
     // то же правило: посреди переговоров он не уходит.
@@ -4925,7 +5134,20 @@ export class LocalWorld implements WorldApi {
       const camp = this.ourSiege(now);
       if (camp) this.leaveCamp(camp, now);
     }
-    const seconds = travelTime(dist, terrainFactor(this.save.seed, from, target), def.speed);
+    this.walk(id, target, now, shownAt);
+    this.write();
+    return null;
+  }
+
+  /**
+   * Отправить фигуру в путь — без проверок, их сделал приказ. Здесь же разведчику
+   * замораживается риск у ворот цели: на минуту прихода, которая решена сейчас, и на
+   * ту обстановку, которую игрок видел в меню (`shownAt`, если меню свежее).
+   */
+  private walk(id: FigureId, target: Coord, now: number, shownAt?: number): void {
+    const f = this.save.figures[id];
+    const from = this.figureAt(f, now);
+    const seconds = travelTime(distance(from, target), terrainFactor(this.save.seed, from, target), FIGURE_BY_ID[id].speed);
     f.from = from;
     f.to = target;
     f.departAt = now;
@@ -4937,8 +5159,69 @@ export class LocalWorld implements WorldApi {
     // бы само собой на новом месте и запирало бы приказы там, где игрок его не
     // ставил: приказ, который молча станет чем-то другим, хуже отказа.
     if (id === WATCHER) f.watching = false;
-    this.write();
-    return null;
+    f.peril = undefined;
+    if (id !== 'scout') return;
+    // Обстановка — на минуту прихода, отсчитанную от той минуты, что игрок видел в
+    // меню: иначе ночь, наступившая между показом и нажатием, переписала бы риск.
+    const shown = this.shownAt(shownAt, now);
+    const plan = this.scoutPlan(target, shown + (f.arriveAt - now));
+    if (plan.target) {
+      f.peril = { target: plan.target.id, at: f.arriveAt, caught: plan.caught, peril: plan.peril, why: plan.why };
+    }
+  }
+
+  /** Минута, на которую считать показанное: та, что была в меню, если оно свежее. */
+  private shownAt(shownAt: number | undefined, now: number): number {
+    return shownAt !== undefined && Number.isFinite(shownAt) && now - shownAt >= 0 && now - shownAt <= SHOWN_FRESH ? shownAt : now;
+  }
+
+  /**
+   * Что будет, если вести агента к клетке: сколько идти и — у разведчика — чем он
+   * рискует у ворот. Той же функцией риск замораживается при отправке (`walk`).
+   */
+  async leadPlan(id: FigureId, to: Coord): Promise<LeadPlan> {
+    const now = this.clock();
+    const f = this.save.figures[id];
+    const target = clampToWorld(to);
+    const from = this.figureAt(f, now);
+    const seconds = travelTime(distance(from, target), terrainFactor(this.save.seed, from, target), FIGURE_BY_ID[id].speed);
+    const plan = id === 'scout' ? this.scoutPlan(target, now + Math.round(seconds * 1000)) : null;
+    return {
+      seconds,
+      target: plan?.target?.id ?? null,
+      caught: plan?.caught ?? 0,
+      peril: plan?.peril ?? 0,
+      perilWhy: plan?.why ?? [],
+      at: now,
+    };
+  }
+
+  /**
+   * Почему агента нет в строю — одной фразой на все приказы. null — в строю. Пустое
+   * место, задержание и разгром звучат по-разному: это разные вещи, и игрок должен
+   * знать, которая из них.
+   */
+  private offDuty(id: FigureId, now: number): string | null {
+    const f = this.save.figures[id];
+    const def = FIGURE_BY_ID[id];
+    if (f.gone) {
+      return f.gone.why === 'died'
+        ? `${def.name} погиб: место пустует, пока не наймут нового.`
+        : `${def.name} ушёл на покой: место пустует, пока не наймут нового.`;
+    }
+    if (f.phase !== 'down') return null;
+    const left = formatLeft(Math.max(0, f.downUntil - now) / 1000);
+    return f.held ? `${def.name}а держат под стражей: отпустят через ${left}.` : `${def.name} вне строя: вернётся через ${left}.`;
+  }
+
+  /** Человеку на месте шестьдесят — так говорит слепок деревни: мир возраста не знает. */
+  private isRetiring(id: FigureId): boolean {
+    return Boolean(this.save.profile?.agents?.[id]?.retiring) && !this.save.figures[id].gone;
+  }
+
+  /** Отказ дожившему до покоя. null — не дожил. */
+  private retiringBlock(id: FigureId): string | null {
+    return this.isRetiring(id) ? `${FIGURE_BY_ID[id].name} дожил до покоя: дел больше не берёт и идёт домой.` : null;
   }
 
   /** Домой — обычный переход, по тем же правилам: своей арифметики у него нет. */
@@ -4951,10 +5234,8 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     const id = WATCHER;
     const f = this.save.figures[id];
-    const def = FIGURE_BY_ID[id];
-    if (f.phase === 'down') {
-      return `${def.name} выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`;
-    }
+    const off = this.offDuty(id, now) ?? (on ? this.retiringBlock(id) : null);
+    if (off) return off;
     const busy = Math.max(0, (f.busyUntil ?? 0) - now);
     if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
     if (on && placeOf(f) === 'city') return 'Из-за стены не наблюдают: выведи лазутчика из города.';
@@ -4980,9 +5261,8 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures[id];
     const def = FIGURE_BY_ID[id];
     const place = placeOf(f);
-    if (place === 'down') {
-      return `${def.name} выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`;
-    }
+    const off = this.offDuty(id, now);
+    if (off) return off;
     if ((place === 'city') === on) return null;
     if (on && !canShelter(f)) {
       return f.phase === 'moving'
@@ -5015,7 +5295,8 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     const f = this.save.figures.general;
     this.settleHandover(f, now);
-    if (f.phase === 'down') return 'Полководец выбыл.';
+    const off = this.offDuty('general', now);
+    if (off) return off;
     if (f.phase === 'moving') return 'Полководец в пути — войско к нему не подойдёт.';
     if (placeOf(f) === 'city') return 'Полководец укрылся в городе: выведи его к воротам — и собирай дружину.';
     if (f.handover) {
@@ -5153,6 +5434,101 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Места агентов по слепку деревни. Мир людей не знает — он знает номер человека на
+   * месте, пустует ли оно и пора ли человеку на покой, — и приводит фигуры к этому:
+   *
+   * - **новый номер** — новый человек встаёт у своих ворот чистым: ни дружины, ни дела,
+   *   ни стоянки, ни риска прошлого;
+   * - **место пустует**, а фигура жива — её убирает: партия знает о пустом месте раньше
+   *   мира (последствие легло, а сохранение мира потеряно);
+   * - **пора на покой** — дожил до шестидесяти: стоящий в поле идёт домой, дошедший до
+   *   своих ворот уходит (`HomeEffect.retired`). В пути и вне строя — ждёт.
+   *
+   * Весть о гибели, ещё не дошедшая до партии, пустого места не отменяет: номер тот же,
+   * и фигура остаётся пустой, пока слепок не назовёт нового.
+   */
+  private seatAgents(now: number): void {
+    const people = this.save.profile?.agents ?? {};
+    for (const id of FIGURE_IDS) {
+      const f = this.save.figures[id];
+      const want = people[id];
+      const person = want?.person ?? 0;
+      if (person !== (f.person ?? 0)) {
+        this.freshFigure(id, now, person, want?.vacant === true);
+        continue;
+      }
+      if (want?.vacant && !f.gone) {
+        this.offMap(id, now);
+        f.held = false;
+        f.busyUntil = 0;
+        f.gone = { person, at: now, why: 'retired' };
+        continue;
+      }
+      if (want?.retiring && !f.gone) this.retireStep(id, now);
+    }
+  }
+
+  /** Новый человек на месте: у своих ворот и с чистыми руками — или пустое место под его номером. */
+  private freshFigure(id: FigureId, now: number, person: number, vacant: boolean): void {
+    const home = { ...this.save.home };
+    const f: StoredFigure = {
+      phase: vacant ? 'down' : 'home',
+      from: home,
+      to: { ...home },
+      departAt: now,
+      arriveAt: now,
+      downUntil: 0,
+      person,
+    };
+    if (vacant) f.gone = { person, at: now, why: 'retired' };
+    // Лагерь уходит вместе с прежним полководцем: осада без него не стоит.
+    if (id === 'general') {
+      const camp = this.ourSiege(now);
+      if (camp) this.leaveCamp(camp, now);
+    }
+    this.save.figures[id] = f;
+  }
+
+  /**
+   * Дожил до покоя. Дошёл до своих ворот (или стоит в городе) — уходит, и дружина
+   * остаётся гарнизоном: она ему не своя, а племени. Стоит в поле и свободен — идёт
+   * домой сам: иначе шестидесятилетний лазутчик стал бы вечным наблюдателем, а
+   * разведчик — вечным даровым донесением у логова. В пути, занятый и вне строя —
+   * ждёт.
+   */
+  private retireStep(id: FigureId, now: number): void {
+    const f = this.save.figures[id];
+    this.settleHandover(f, now);
+    if (f.phase === 'down' || f.phase === 'moving' || f.handover) return;
+    if ((f.busyUntil ?? 0) > now) return;
+    if (f.phase === 'field') {
+      if (id === 'general') {
+        const camp = this.ourSiege(now);
+        if (camp) this.leaveCamp(camp, now);
+      }
+      this.walk(id, { ...this.save.home }, now);
+      return;
+    }
+    const person = f.person ?? 0;
+    this.offMap(id, now);
+    f.held = false;
+    f.busyUntil = 0;
+    f.gone = { person, at: now, why: 'retired' };
+    this.addEffect({
+      id: `fig-${id}-retired-${now}`,
+      lost: {},
+      resources: {},
+      prestige: 0,
+      morale: 0,
+      battle: null,
+      retired: { agent: id, person },
+      // Строку летописи пишет племя: только оно знает, как звали ушедшего.
+      text: '',
+      good: true,
+    });
+  }
+
+  /**
    * Передача дружины кончается сама, по времени: срок наступил — состав стал
    * тем, о котором договорились. Это приведение при чтении, а не тик: офлайн
    * даёт ровно то же, что непрерывная игра.
@@ -5172,7 +5548,8 @@ export class LocalWorld implements WorldApi {
   async attack(order: AttackOrder): Promise<AttackResult> {
     const now = this.clock();
     const f = this.save.figures.general;
-    if (f.phase === 'down') return { error: 'Полководец выбыл.', reportId: null, won: false };
+    const off = this.offDuty('general', now) ?? this.retiringBlock('general');
+    if (off) return { error: off, reportId: null, won: false };
     if (f.phase === 'moving') return { error: 'Полководец ещё в пути.', reportId: null, won: false };
     this.settleHandover(f, now);
     if (f.handover) {
@@ -5335,7 +5712,8 @@ export class LocalWorld implements WorldApi {
   async negotiate(deal: DealId): Promise<string | null> {
     const now = this.clock();
     const f = this.save.figures.diplomat;
-    if (f.phase === 'down') return 'Дипломат выбыл.';
+    const off = this.offDuty('diplomat', now) ?? this.retiringBlock('diplomat');
+    if (off) return off;
     if (f.phase === 'moving') return 'Дипломат ещё в пути.';
     const near = this.touching(this.figureAt(f, now));
     const target = near && !near.home ? this.byId.get(near.id) : null;
@@ -5430,9 +5808,8 @@ export class LocalWorld implements WorldApi {
   private agentBlock(id: FigureId, target: GenSettlement, now: number): string | null {
     const f = this.save.figures[id];
     const def = FIGURE_BY_ID[id];
-    if (f.phase === 'down') {
-      return `${def.name} выбыл: вернётся через ${formatLeft(Math.max(0, f.downUntil - now) / 1000)}.`;
-    }
+    const off = this.offDuty(id, now) ?? this.retiringBlock(id);
+    if (off) return off;
     if (f.phase === 'moving') return `${def.name} ещё в пути.`;
     if (this.touching(this.figureAt(f, now))?.id !== target.id) {
       return `Слишком далеко: ${def.one} надо довести к самым воротам.`;
@@ -5460,9 +5837,9 @@ export class LocalWorld implements WorldApi {
   }
 
   /** Меню приказов для агента. У разведчика и полководца своих приказов нет. */
-  private orderOptions(agent: FigureId, target: GenSettlement, now: number): OrderOption[] {
+  private orderOptions(agent: FigureId, target: GenSettlement, now: number, at = now): OrderOption[] {
     if (agent === 'diplomat') return this.diploOptions(target, now);
-    if (agent === 'spy') return this.spyOptions(target, now);
+    if (agent === 'spy') return this.spyOptions(target, now, at);
     return [];
   }
 
@@ -5508,6 +5885,10 @@ export class LocalWorld implements WorldApi {
         chance,
         cost,
         seconds: Math.round(def.busy / 1000),
+        // Переговоры не губят: дипломат уходит только на покой.
+        peril: null,
+        perilWhy: [],
+        at: now,
       };
     });
   }
@@ -5517,11 +5898,12 @@ export class LocalWorld implements WorldApi {
    * и от тех же трёх входов: уровень лазутчика (Дозор игрока), стража цели и
    * расстояние. Показанный шанс и есть тот, по которому потом бросается кость.
    */
-  private spyOptions(target: GenSettlement, now: number): OrderOption[] {
+  private spyOptions(target: GenSettlement, now: number, at = now): OrderOption[] {
     const common = this.agentBlock('spy', target, now);
     const keen = Math.max(1, this.save.profile?.intelKeen ?? 1);
-    const guard = guardOf(this.powerNow(target, now), target.castle);
+    const guard = guardOf(this.powerNow(target, at), target.castle);
     const away = distance(this.save.home, target);
+    const risk = this.spyPeril(target, at);
     return SPY_ACTIONS.map((def) => {
       const chance = spyChance({ action: def.id, keen, guard, distance: away });
       let reason = common;
@@ -5539,8 +5921,21 @@ export class LocalWorld implements WorldApi {
         // Лазутчик не платит добром: он платит риском.
         cost: {},
         seconds: Math.round(def.busy / 1000),
+        peril: risk.peril,
+        perilWhy: risk.why,
+        at,
       };
     });
+  }
+
+  /**
+   * Гибель лазутчика на деле у этой цели в эту минуту — замером той двери, что решит
+   * исход (`peril.diesAt`). Своей функцией, а не строкой в приказах: у шанса дела один
+   * владелец (Дозор), у гибели — другой, и в одном теле им тесно.
+   */
+  private spyPeril(target: GenSettlement, at: number): { peril: number; why: string[] } {
+    const c = this.perilCase('spy', target, at);
+    return { peril: perilShare(perilOf(c)), why: perilWhy(c) };
   }
 
   async orders(agent: FigureId, target: SettlementId): Promise<OrderOption[]> {
@@ -5557,17 +5952,19 @@ export class LocalWorld implements WorldApi {
    * лазутчика, — и зерно у обеих выведено из условий дела, а не из счётчика
    * обращений: второе нажатие при тех же условиях даёт тот же ответ.
    */
-  async order(action: OrderActionId, target: SettlementId): Promise<OrderResult> {
+  async order(action: OrderActionId, target: SettlementId, shownAt?: number): Promise<OrderResult> {
     const now = this.clock();
     const s = this.byId.get(target);
     const fail = (error: string): OrderResult => ({ error, accepted: false, diplomacy: null, text: '' });
     if (!s) return fail('Цель не найдена.');
     const agent = ORDER_AGENT[action];
     if (!agent) return fail('Такого приказа нет.');
-    const opt = this.orderOptions(agent, s, now).find((o) => o.id === action);
+    // Шанс и гибель — на ту минуту, что игрок видел в меню, если оно свежее: приказ
+    // исполняется ровно по показанным числам. Запреты — на сейчас.
+    const opt = this.orderOptions(agent, s, now, this.shownAt(shownAt, now)).find((o) => o.id === action);
     if (!opt) return fail('Такого приказа нет.');
     if (!opt.can) return fail(opt.reason ?? 'Сейчас нельзя.');
-    if (agent === 'spy') return this.spyOrder(action as 'probe' | 'revolt', s, now, opt.chance ?? 0);
+    if (agent === 'spy') return this.spyOrder(action as 'probe' | 'revolt', s, now, opt.chance ?? 0, opt.peril ?? 0, opt.perilWhy);
 
     const diplo = action as DiploActionId;
     const rec = this.diploOf(target, now);
@@ -5643,13 +6040,19 @@ export class LocalWorld implements WorldApi {
    * лицо — отношение падает. Потерять агента насовсем значило бы превратить
    * механику в наказание, а не в риск.
    */
-  private spyOrder(action: 'probe' | 'revolt', s: GenSettlement, now: number, chance: number): OrderResult {
+  private spyOrder(action: 'probe' | 'revolt', s: GenSettlement, now: number, chance: number, peril: number, why: string[]): OrderResult {
     const rec = this.diploOf(s.id, now);
-    const seed = spySeed(this.save.seed, s.id, action, chance, rec.attitude);
-    const out = spyOutcome(chance, seed, action);
-    // Скрытность решает не исход, а то, заметили ли провал, — тем же броском.
-    const quiet = !out.success && slipped(out.miss, this.save.profile?.stealth ?? 0);
     const f = this.save.figures.spy;
+    const person = f.person ?? 0;
+    const seed = spySeed(this.save.seed, s.id, action, chance, rec.attitude, person);
+    const out = spyOutcome(chance, seed, action);
+    // Гибель — своя кость: в её зерне нет шанса дела, поэтому ни удача, ни Дозор её не
+    // двигают. Решает её та же дверь, что посчитала число в меню (`peril.diesAt`).
+    const dies = diesAt(spyDeathRoll(this.save.seed, s.id, now, person), peril);
+    // Заход засчитан в память цели — любым исходом, и после того, как его риск решён.
+    this.markVisit(s.id, now);
+    // Скрытность решает не исход, а то, заметили ли провал, — тем же броском.
+    const quiet = !out.success && !dies && slipped(out.miss, this.save.profile?.stealth ?? 0);
     f.busyUntil = now + (out.success || quiet ? SPY_BUSY : SPY_HELD);
     f.held = !out.success && !quiet;
 
@@ -5658,7 +6061,7 @@ export class LocalWorld implements WorldApi {
       // Не вышло, но ушёл тихо: не держат, дома не горюют, цель насторожилась.
       this.moveAttitude(s.id, SPY_SLIP_ATTITUDE, now);
     } else if (!out.success) {
-      // Его заметили — и запомнили. Это и есть цена провала вместо гибели.
+      // Его заметили — и запомнили. Это и есть цена провала, когда он не погиб.
       this.moveAttitude(s.id, SPY_CAUGHT_ATTITUDE, now);
     } else if (action === 'probe') {
       // Донесение — тот же снимок, что и у разведчика, но с вилкой и без
@@ -5697,10 +6100,14 @@ export class LocalWorld implements WorldApi {
       prestige: out.success && action === 'revolt' ? 2 : 0,
       morale: out.success ? 1 : quiet ? 0 : -2,
       battle: null,
-      deed: { agent: 'spy', ok: out.success, at: now },
+      deed: { agent: 'spy', ok: out.success, at: now, person },
       text: `${s.name}: ${text}`,
       good: out.success,
     });
+    // Погиб на деле: дело сделано или нет — видно выше, а человека больше нет.
+    if (dies) {
+      this.downFigure('spy', now, { peril, where: `у ${s.name}`, why, spot: { id: s.id, name: s.name, x: s.x, y: s.y } });
+    }
     this.write();
     return {
       error: null,
@@ -5792,6 +6199,8 @@ export class LocalWorld implements WorldApi {
     let army = profile.army ?? {};
     for (const e of this.save.effects) if (e.lostTroops) army = troopsAfter(army, e.lostTroops);
     this.save.profile = { ...profile, army };
+    this.save.profileAt = now;
+    this.seatAgents(now);
     this.muster(now);
     this.lockDefense(now, profile);
     this.advance(now);

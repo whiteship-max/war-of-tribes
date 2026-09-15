@@ -189,8 +189,8 @@ describe('викторина: разбор из журнала боя', () => {
 describe('викторина: чистота модуля', () => {
   /**
    * Один сид — один уровень у всех игроков и у будущего сервера. Держится это
-   * на единственном источнике случайности: `seeded`. `rnd`/`pick`/`chance` из
-   * sim/random подменяются тестами (`setRandom`), `Math.random` не повторяется
+   * на единственном источнике случайности: `seeded`. Кость партии (`roll`/`chance` из
+   * sim/random) у каждой партии своя и подменяется тестами (`setRandom`), `Math.random` не повторяется
    * вовсе, а `seededRng` живёт в ядре боя, куда ходят только через `@/battle`.
    */
   it('в модуле нет ни одного источника случайности, кроме seeded', () => {
@@ -199,7 +199,7 @@ describe('викторина: чистота модуля', () => {
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     expect(src).not.toMatch(/Math\.random/);
     expect(src).not.toMatch(/\bseededRng\b/);
-    expect(src).not.toMatch(/\b(rnd|rndInt|pick|chance)\s*\(/);
+    expect(src).not.toMatch(/\b(roll|rollInt|chance|freshSeed)\s*\(/);
     expect(src).toMatch(/\bseeded\s*\(/);
     // Дверь в ядро боя одна: глубоких импортов мимо неё быть не должно.
     expect(src).not.toMatch(/from '@\/battle\//);

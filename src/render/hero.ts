@@ -11,6 +11,7 @@
 // силуэт на площади. Своего у героя только рост и плащ.
 import type { GameState } from '@/game/types';
 import { heroReady } from '@/game/derived';
+import { seated } from '@/game/sim/agents';
 import { TROOPS_OF_KIND } from '@/game/battle/kinds';
 import { RING_RADIUS, PLAN, facingCenter } from './plan';
 import { Figure } from './figures';
@@ -18,11 +19,11 @@ import { poseFigure } from './poses';
 import { dressHero } from './units';
 
 /**
- * Виден ли герой в сцене. Ушёл в поход или лежит после боя — площадь пуста, и
- * это самый честный способ показать игроку, что его сейчас нет: считать дни в
- * панели он не станет, а пустое место у статуи заметит.
+ * Виден ли герой в сцене. Ушёл в поход или места некому занять (он и есть полководец,
+ * и смертен так же) — площадь пуста, и это самый честный способ показать игроку, что
+ * его сейчас нет: считать дни в панели он не станет, а пустое место у статуи заметит.
  */
-export const heroShown = (s: GameState): boolean => heroReady(s);
+export const heroShown = (s: GameState): boolean => heroReady(s) && seated(s, 'general');
 
 /** Где стоит: перед своей статуей, лицом к костру. */
 export function heroSpot(): { x: number; z: number; rot: number } {

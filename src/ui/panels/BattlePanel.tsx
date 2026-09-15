@@ -17,6 +17,7 @@ import { defense, fervour, homeArmy } from '@/game/derived';
 import { militiaArchers, militiaMen } from '@/world/bridge';
 import { awayOf, homeOf, postureOf, standingTroops } from '@/world/muster';
 import { heroInfo, heroReady } from '@/game/derived';
+import { personName } from '@/game/sim/agents';
 import { KIND_META } from '@/battle';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
@@ -296,7 +297,7 @@ export function BattlePanel({ targetId }: Props) {
         <div className="mod-list">
           <div className="mod total">
             <span className="ico">🛡️</span>
-            <span className="name">{hero.name} ведёт {KIND_META[hero.kind].name.toLowerCase()}</span>
+            <span className="name">{personName(s, 'general')} ведёт {KIND_META[hero.kind].name.toLowerCase()}</span>
             <span className="val pos">+{hero.men}</span>
           </div>
         </div>

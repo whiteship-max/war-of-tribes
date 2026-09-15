@@ -1,8 +1,7 @@
 import { useGame } from '@/game/store';
-import { DAY_LENGTH } from '@/game/constants';
 import { commandCap, heroInfo } from '@/game/derived';
 import { setHeroKind } from '@/game/sim/actions';
-import { agentLevel } from '@/game/sim/agents';
+import { agentLevel, personName, seated } from '@/game/sim/agents';
 import { OWN_KINDS } from '@/game/battle/kinds';
 import { KIND_META } from '@/battle';
 import { count } from './plural';
@@ -23,6 +22,8 @@ export function Statue() {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const info = heroInfo(s);
+  const name = personName(s, 'general');
+  const here = seated(s, 'general');
 
   return (
     <>
@@ -38,19 +39,20 @@ export function Statue() {
       {/* Герой и полководец на карте — один человек. Сколько он уводит и чего стоит
           сам, решает Статуя; его уровень даёт натиск — это в карточке агента. */}
       <div className="note">
-        Это он же водит дружину по карте: {info.name}, уровень {agentLevel(s, 'general')}. Сколько он
-        уводит и за скольких стоит сам, решает Статуя, а натиск даёт его опыт — карточка в «Походах».
+        {here
+          ? `Это он же водит дружину по карте: ${name}, уровень ${agentLevel(s, 'general')}. Сколько он уводит и за скольких стоит сам, решает Статуя, а натиск даёт его опыт — карточка в «Походах».`
+          : 'Полководца нет: место пустует, и дружина из деревни не выходит. Нанимают его здесь же, ниже.'}
       </div>
 
       <h3>
-        Герой <span className="muted">{info.name}</span>
+        Герой <span className="muted">{here ? name : 'места никто не занял'}</span>
       </h3>
       <div className="note">
-        {info.away
-          ? 'Ушёл с походом. Пока он в пути, площадь у статуи пуста.'
-          : info.down > 0
-            ? `Ранен и лежит: вернётся в строй через ${Math.ceil(info.down / DAY_LENGTH)} дн. Погибнуть навсегда он не может.`
-            : 'Стоит у своей статуи и уйдёт со следующим набегом — с одним за раз.'}
+        {!here
+          ? 'Герой и полководец — один человек, и он смертен: погиб или ушёл на покой — вести некому, пока не наймут нового.'
+          : info.away
+            ? 'Ушёл с походом. Пока он в пути, площадь у статуи пуста.'
+            : 'Стоит у своей статуи и уйдёт со следующим набегом — с одним за раз. Смертен, как полководец: это он и есть.'}
       </div>
       <div className="mod">
         <span className="ico">{info.ready ? '🛡️' : info.away ? '🏇' : '🩹'}</span>

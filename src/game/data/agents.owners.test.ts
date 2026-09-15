@@ -108,7 +108,7 @@ describe('агенты пятого уровня не сдвигают ни од
     return s;
   };
 
-  it('в племени и в слепке для мира — меняются только три прибавки навыка', () => {
+  it('в племени и в слепке для мира — меняются только прибавки навыка', () => {
     const a = createInitialState();
     const b = maxed();
     for (const [name, fn] of Object.entries({ commandCap, heroMen, intelKeen, warningSeconds, surveyRadius, defense, fervour, mountGear, healShare })) {
@@ -119,7 +119,8 @@ describe('агенты пятого уровня не сдвигают ни од
     const changed = [...new Set([...Object.keys(pa), ...Object.keys(pb)])].filter(
       (k) => JSON.stringify(pa[k]) !== JSON.stringify(pb[k]),
     );
-    expect(changed.sort()).toEqual(['onslaught', 'sightBonus', 'stealth']);
+    // Четыре поля и все — навык: натиск, зоркость и скрытность дважды — в провале и в гибели.
+    expect(changed.sort()).toEqual(['onslaught', 'sightBonus', 'stealth', 'veil']);
   });
 
   it('в мире: шанс лазутчика, вместимость полководца, предупреждение и живой обзор те же', async () => {

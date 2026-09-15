@@ -18,6 +18,7 @@ import { EVENT_BY_ID, eventBlock, payEventCost } from '../data/events';
 import { scheduleNextEvent } from './tick';
 import { log } from './log';
 import { pay, refund } from './pay';
+import { personName } from './agents';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
 export { cancelForge, forgeCheck, startForge } from './smithy';
@@ -84,7 +85,7 @@ export function setHeroKind(s: GameState, kind: UnitKind): string | null {
   if (info.blocked) return info.blocked;
   s.gold -= info.retrainCost;
   s.hero.kind = kind;
-  log(s, `${s.hero.name} встал во главе другого рода. Плата — ${info.retrainCost} золота.`);
+  log(s, `${personName(s, 'general')} встал во главе другого рода. Плата — ${info.retrainCost} золота.`);
   return null;
 }
 

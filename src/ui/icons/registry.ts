@@ -26,6 +26,7 @@ import { SPY_ACTIONS } from '@/world/data/spy';
 import { RESOURCE_IDS } from '@/game/constants';
 import { ATTENTION_META } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
+import { DAY_PART_UNTIL } from '@/game/data/seasons';
 import { EQUIPMENT_IDS } from '@/game/data/equipment';
 import { JOBS } from '@/game/data/jobs';
 import { SEASON_META } from '@/game/data/seasons';
@@ -188,11 +189,15 @@ export const MOOD_STEPS: readonly { from: number; name: IconName; glyph: string 
 
 export const moodOf = (morale: number) => MOOD_STEPS.find((step) => morale >= step.from) ?? MOOD_STEPS[2];
 
-/** Время суток по фазе солнца. Лето и день делят одно солнце — см. ALIAS. */
+/**
+ * Время суток по фазе солнца. Лето и день делят одно солнце — см. ALIAS. Границы — из
+ * таблицы игры (`DAY_PART_UNTIL`): по ним же считается риск тайного дела, и ночь в
+ * строке состояния обязана быть той же ночью, что прячет лазутчика.
+ */
 export const DAY_PARTS: readonly { until: number; name: IconName; glyph: string; label: string }[] = [
-  { until: 0.08, name: 'day-morning', glyph: '🌅', label: 'утро' },
-  { until: 0.42, name: 'season-sun', glyph: '☀️', label: 'день' },
-  { until: 0.58, name: 'day-evening', glyph: '🌇', label: 'вечер' },
+  { until: DAY_PART_UNTIL.morning, name: 'day-morning', glyph: '🌅', label: 'утро' },
+  { until: DAY_PART_UNTIL.day, name: 'season-sun', glyph: '☀️', label: 'день' },
+  { until: DAY_PART_UNTIL.evening, name: 'day-evening', glyph: '🌇', label: 'вечер' },
   { until: Infinity, name: 'day-night', glyph: '🌙', label: 'ночь' },
 ];
 

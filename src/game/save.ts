@@ -7,7 +7,11 @@ import { createInitialState, SAVE_VERSION } from './state';
 import { catchUp } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
-import { mergeAgents } from './sim/agents';
+import { mergeAgents, nameAgents } from './sim/agents';
+import { AGENT_AGE0, LEVEL_XP } from './data/agents';
+import { FIGURE_IDS } from '@/world/data/figures';
+import { hashId } from '@/world/diplomacy';
+import { cityName } from '../../netlify/lib/contract';
 import type { ProfileState } from '@/profile/types';
 import { refreshCard } from '@/profile/stats';
 import { rescueFromCloud } from '@/telegram/cloud-rescue';
@@ -54,7 +58,7 @@ const mergeProfile = (base: ProfileState, saved?: Partial<ProfileState>): Profil
  *
  * Прогресс не пропадает молча — о приведении сказано в летописи.
  */
-function migrate(s: GameState, from: number): void {
+function migrate(s: GameState, from: number, data: SavedState): void {
   if (from >= SAVE_VERSION) return;
   // 8 → 9: профиля не было вовсе. Статистику задним числом взять неоткуда, и
   // она начинается с нулей; мощь и визитка, наоборот, выводятся из посёлка и
@@ -76,6 +80,8 @@ function migrate(s: GameState, from: number): void {
   // сказать игроку, что его выбора больше нет. Молчать нельзя — выбор был
   // необратимым и давал настоящую прибавку.
   if (from < 12) delete (s as { patron?: unknown }).patron;
+  // 12 → 13: агенты смертны и стареют, у партии свой сид.
+  if (from < 13) mortalAgents(s, data);
   // Строка про грамоту вождя — про восьмёрку, и обязана быть под своим условием:
   // без него сохранение десятой версии узнавало бы о заведении профиля, который
   // у него давно есть.
@@ -86,6 +92,64 @@ function migrate(s: GameState, from: number): void {
     log(s, 'Покровитель племени отпущен: волк, медведь и орёл ушли в предания вместе со своими прибавками.', 'bad');
     log(s, 'Вместо них у деревни вера — та же, что у всей округи. Загляни в храм: там теперь и устав, и обряд.', 'info');
   }
+  if (from < 13) {
+    log(
+      s,
+      `Агенты получили имена и возраст: считаются нанятыми сегодня, опыт при них. Теперь они смертны — гибнут на деле и уходят на покой в шестьдесят; место нанимают заново.`,
+      'info',
+    );
+  }
+}
+
+/** Пороги опыта до смертных агентов: по ним лежит опыт в сохранении двенадцатой версии. */
+const OLD_LEVEL_XP = [0, 20, 60, 130, 240] as const;
+
+/**
+ * Опыт по прежним порогам — на новые, так, чтобы уровень не сдвинулся, а путь к
+ * следующему остался той же долей шага. Потолок остаётся потолком.
+ */
+export function rescaleXp(old: number): number {
+  const xp = Math.max(0, Number.isFinite(old) ? old : 0);
+  const top = OLD_LEVEL_XP.length - 1;
+  if (xp >= OLD_LEVEL_XP[top]) return LEVEL_XP[top];
+  let level = 0;
+  while (level < top - 1 && xp >= OLD_LEVEL_XP[level + 1]) level++;
+  const frac = (xp - OLD_LEVEL_XP[level]) / (OLD_LEVEL_XP[level + 1] - OLD_LEVEL_XP[level]);
+  return LEVEL_XP[level] + Math.floor(frac * (LEVEL_XP[level + 1] - LEVEL_XP[level]));
+}
+
+/**
+ * Ступень 12 → 13. Умолчания здесь не хватает: `bornAt` = 0 в партии с большим
+ * `s.time` сделал бы всех четверых стариками, и на первом же пульсе они ушли бы на
+ * покой. Поэтому служба начинается **сейчас**: агенты считаются нанятыми в минуту
+ * загрузки, в `AGENT_AGE0` лет, с тем опытом, что был.
+ *
+ * Сид партии тоже выводится из неё самой, а не берётся у устройства: одно и то же
+ * сохранение, загруженное дважды до первой записи, обязано получить одних и тех же
+ * агентов. Имя героя переходит полководцу — это один человек, и игрок знает его по
+ * имени.
+ */
+function mortalAgents(s: GameState, data: SavedState): void {
+  const oldHero = (data.hero ?? {}) as { name?: unknown };
+  s.seed = hashId(`${String(oldHero.name ?? '')}|${data.lastSaved ?? 0}|${data.time ?? 0}|${data.nextId ?? 0}`) & 0x7fffffff;
+  s.rolls = 0;
+  s.hires = 0;
+  // Опыт — сырой, из сохранения: слияние уже подрезало его под новый потолок, и
+  // четвёртый уровень по прежним порогам приехал бы третьим.
+  const oldAgents = (data.agents ?? {}) as Partial<Record<string, { xp?: unknown }>>;
+  for (const id of FIGURE_IDS) {
+    const p = s.agents[id];
+    const raw = oldAgents[id]?.xp;
+    p.xp = rescaleXp(typeof raw === 'number' ? raw : 0);
+    p.person = 0;
+    p.bornAt = s.time;
+    p.age0 = AGENT_AGE0;
+    p.vacant = false;
+    p.hiring = null;
+    p.name = id === 'general' ? cityName(oldHero.name) : null;
+  }
+  // Остальным трём — имена по вере, если мир её уже называл; нет — назовёт первым пульсом.
+  nameAgents(s);
 }
 
 /**
@@ -149,6 +213,15 @@ export function deserialize(json: string): GameState | null {
       // каждое поле читается с проверкой. Партия, записанная до опыта, приезжает
       // агентами первого уровня — ровно сегодняшними, — и версию это не поднимает.
       agents: mergeAgents(data.agents),
+      // Герой мержится по полям и только теми, что у него остались: имя ушло к
+      // полководцу, свой срок «ранен» — к миру (он и есть разбитый полководец).
+      hero: {
+        kind: data.hero?.kind ?? base.hero.kind,
+        marchId: typeof data.hero?.marchId === 'string' ? data.hero.marchId : null,
+      },
+      seed: typeof data.seed === 'number' && Number.isFinite(data.seed) ? data.seed >>> 0 : base.seed,
+      rolls: typeof data.rolls === 'number' && Number.isFinite(data.rolls) ? Math.max(0, Math.floor(data.rolls)) : 0,
+      hires: typeof data.hires === 'number' && Number.isFinite(data.hires) ? Math.max(0, Math.floor(data.hires)) : 0,
     } as GameState;
     // Здание, добавленное в BUILDINGS после того, как сохранение записали,
     // должно появиться в посёлке само — так же, как оно появляется в новой партии
@@ -160,7 +233,7 @@ export function deserialize(json: string): GameState | null {
       s.buildings.push({ id: s.nextId++, type: def.id, level: 1, work: 0, workRequired: 0 });
     }
     normalizeAssignments(s);
-    migrate(s, from);
+    migrate(s, from, data);
     // Летопись старого сохранения могла копиться по прежнему правилу «последние
     // 80 записей» и растянуться на полгода игрового времени. Приводим её к тому
     // же месяцу, что и у новой партии, прямо на загрузке.

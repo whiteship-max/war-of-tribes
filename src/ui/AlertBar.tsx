@@ -4,6 +4,10 @@ import { alerts, buildingOfType } from '@/game/derived';
 import { tutorialActive } from '@/game/data/tutorial';
 import { defenseLock, incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
+import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
+import { HIRE_AT } from '@/game/data/hire';
+import { hireWhere } from '@/game/sim/hire';
+import type { BuildingTypeId } from '@/game/types';
 import { lettersVisible } from './Letters';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
@@ -41,7 +45,17 @@ export function AlertBar() {
   }, [raids.length]);
 
   const list = alerts(s);
-  if (list.length === 0 && raids.length === 0) return null;
+  // Пустые места агентов, на которые не идёт найм: строка на здание, где нанимают.
+  // Своего поля тревоги у них нет — `derived` про людей на местах не знает нарочно
+  // (`agents.owners.test.ts`), — поэтому строка собирается здесь, из `s.agents`.
+  const empty = new Map<BuildingTypeId, string[]>();
+  for (const id of FIGURE_IDS) {
+    const p = s.agents[id];
+    if (!p.vacant || p.hiring) continue;
+    const at = HIRE_AT[id];
+    empty.set(at, [...(empty.get(at) ?? []), FIGURE_BY_ID[id].name.toLowerCase()]);
+  }
+  if (list.length === 0 && raids.length === 0 && empty.size === 0) return null;
 
   return (
     // На карте строка встаёт вплотную под её шапку, а не туда, где стоит в
@@ -62,6 +76,19 @@ export function AlertBar() {
             <span className="txt">
               Набег: {m.fromName} · {formatLeft(secondsLeft(m.arriveAt, worldNow()))}
               {frozen ? ' · оборона заперта' : ''}
+            </span>
+          </button>
+        );
+      })}
+      {[...empty.entries()].map(([type, who]) => {
+        const b = buildingOfType(s, type);
+        const general = who.includes(FIGURE_BY_ID.general.name.toLowerCase());
+        return (
+          <button key={`vacant-${type}`} className="alert" onClick={() => b && openBuilding(b.id)} disabled={!b}>
+            <span className="ic">{general ? '🎖️' : '👣'}</span>
+            <span className="txt">
+              Место пустует: {who.join(', ')} — нанять {hireWhere(s, FIGURE_IDS.find((id) => HIRE_AT[id] === type) ?? 'scout')}
+              {general ? ' · армия не выходит' : ''}
             </span>
           </button>
         );

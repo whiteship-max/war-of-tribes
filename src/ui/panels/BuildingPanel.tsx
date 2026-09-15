@@ -66,6 +66,7 @@ import { Barracks } from '../parts/Barracks';
 import { Tavern } from '../parts/Tavern';
 import { Statue } from '../parts/Statue';
 import { Watch } from '../parts/Watch';
+import { AgentPlaces } from '../parts/AgentPlaces';
 import { Temple } from '../parts/Temple';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
@@ -326,12 +327,14 @@ function BuildingData({ b }: { b: Building }) {
         <>
           <GenericData b={b} />
           <Statue />
+          <AgentPlaces ids={['general']} />
         </>
       );
     case 'watch':
       return (
         <>
           <GenericData b={b} />
+          <AgentPlaces ids={['scout', 'spy']} />
           <Watch />
         </>
       );
@@ -340,6 +343,7 @@ function BuildingData({ b }: { b: Building }) {
         <>
           <GenericData b={b} />
           <Temple />
+          <AgentPlaces ids={['diplomat']} />
         </>
       );
     default:

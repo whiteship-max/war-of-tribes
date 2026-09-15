@@ -20,7 +20,8 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import type { Loot, MarchView, Report, ReportKind, UnitStack } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { AgentCard } from '@/ui/parts/AgentCard';
-import { agentLevel } from '@/game/sim/agents';
+import { agentLevel, personName, yearsOf } from '@/game/sim/agents';
+import { hireWhere } from '@/game/sim/hire';
 import type { FigureId } from '@/world/types';
 
 /** Иконка отчёта: набег, разведка, поддержка или оборона дома. */
@@ -111,9 +112,19 @@ export function MarchesPanel() {
         const at = figurePosition(f, worldNow());
         const cell = { x: Math.round(at.x), y: Math.round(at.y) };
         const men = troopTotal(f.troops);
+        // Задержан и выбыл — разные вещи, и говорить «выбыл» о пойманном, которого через
+        // десять минут отпустят, значит врать игроку.
         const where =
-          f.place === 'down'
-            ? `выбыл, вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}`
+          f.place === 'vacant'
+            ? `${f.gone === 'retired' ? 'ушёл на покой' : 'погиб'} — место пустует, нанять ${hireWhere(s, f.id)}`
+            : f.place === 'down'
+            ? f.held
+              ? `задержан, отпустят через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}`
+              : `разбит, вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}`
+            : f.held && f.busyUntil > worldNow()
+              ? `задержан у ${f.atName ?? 'чужих ворот'}, отпустят через ${formatLeft(secondsLeft(f.busyUntil, worldNow()))}`
+            : f.retiring
+              ? 'дожил до покоя: идёт домой, у ворот уйдёт'
             : f.place === 'city'
               ? 'укрылся в городе, на карте его нет'
               : f.phase === 'moving'
@@ -130,7 +141,8 @@ export function MarchesPanel() {
               {/* Тело строки ведёт в карточку агента; кнопки ниже остаются кнопками строки. */}
               <div className="title" role="button" onClick={() => setCard(f.id)}>
                 {f.name}
-                <span className="count">ур. {agentLevel(s, f.id)} ›</span>
+                {f.place !== 'vacant' && s.agents[f.id].name ? ` ${personName(s, f.id)}` : ''}
+                {f.place !== 'vacant' && <span className="count">ур. {agentLevel(s, f.id)} · {yearsOf(s, f.id)} л. ›</span>}
                 {men > 0 && <span className="count">дружина {men}</span>}
               </div>
               <div className="desc">
@@ -141,7 +153,7 @@ export function MarchesPanel() {
                 {f.watching ? ' · 👁️ смотрит: приказы не отдаются' : ''}
               </div>
               <div className="cost">
-                {f.place !== 'down' && (
+                {f.place !== 'down' && f.place !== 'vacant' && (
                   <button className="mini text" onClick={() => void select(cell)}>
                     {formatCoord(cell)}
                   </button>

@@ -1119,19 +1119,31 @@ describe('снимок разведки несёт всё, что читает r
       }
     }
 
-    // Лазутчик: дело повторяется, пока донесение не придёт.
+    // Лазутчик: дело повторяется, пока донесение не придёт. Лазутчик смертен: погиб —
+    // слепок называет следующего, и новый идёт к той же цели.
     {
       const w = makeWorld(67);
+      let person = 0;
+      const hired = (): PlayerProfile => ({ ...p, ...(person > 0 ? { agents: { spy: { person } } } : {}) });
+      const walk = async (): Promise<void> => {
+        await w.world.sync(hired());
+        expect(await w.world.moveFigure('spy', { x: target.x, y: target.y })).toBeNull();
+        const f = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+        w.at(f.arriveAt);
+        await w.world.sync(hired());
+      };
       await w.world.sync(p);
       const target = await nearest(w.world);
-      expect(await w.world.moveFigure('spy', { x: target.x, y: target.y })).toBeNull();
-      const f = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
-      w.at(f.arriveAt);
-      await w.world.sync(p);
+      await walk();
       for (let i = 0; i < 25 && !out['лазутчик']; i++) {
-        const spy = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+        let spy = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+        if (spy.place === 'vacant') {
+          person++;
+          await walk();
+          spy = (await w.world.figures()).find((x) => x.id === 'spy') as FigureView;
+        }
         if (spy.busyUntil > w.now()) w.at(spy.busyUntil);
-        await w.world.sync(p);
+        await w.world.sync(hired());
         const res = await w.world.order('probe', target.id);
         expect(res.error).toBeNull();
         if (res.accepted) out['лазутчик'] = saveOf(w.world).intel[target.id];

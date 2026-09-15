@@ -62,6 +62,11 @@ export function spyChance(ctx: SpyContext): number {
  *
  * Отношение входит в зерно нарочно: пойманный лазутчик роняет его, и следующая
  * попытка — уже другое дело, а не то же самое во второй раз.
+ *
+ * Номер человека входит тоже, но **только когда он больше нуля**: отношение у логова
+ * упирается в −100 и перестаёт двигаться, и новый лазутчик на месте погибшего получил
+ * бы ту же кость — и погиб бы там же. У того, с кем партия началась, номер ноль, и зёрна
+ * сегодняшних партий не меняются ни на бит.
  */
 export function spySeed(
   seed: number,
@@ -69,8 +74,21 @@ export function spySeed(
   action: SpyActionId,
   chance: number,
   attitude: number,
+  person = 0,
 ): number {
-  return hashId(`${seed}|${id}|spy:${action}|${Math.round(chance * 100)}|${Math.round(attitude)}`);
+  const who = person > 0 ? `|p${Math.floor(person)}` : '';
+  return hashId(`${seed}|${id}|spy:${action}|${Math.round(chance * 100)}|${Math.round(attitude)}${who}`);
+}
+
+/**
+ * Кость гибели лазутчика — своя, и шанса дела в её зерне нет нарочно: иначе Дозор,
+ * поднявший шанс, перебрасывал бы и гибель, и «Дозор не трогает гибель» было бы правдой
+ * только в среднем. В зерне — цель, минута дела и номер человека: каждая попытка
+ * бросает гибель заново, а при тех же условиях и в ту же минуту — одинаково при любом
+ * Дозоре. Решает её `peril.diesAt`.
+ */
+export function spyDeathRoll(seed: number, id: string, at: number, person = 0): number {
+  return seeded(hashId(`${seed}|${id}|spy:death|${Math.floor(at / 1000)}|p${Math.max(0, Math.floor(person))}`))();
 }
 
 export interface SpyOutcome {

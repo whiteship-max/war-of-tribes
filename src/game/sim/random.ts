@@ -1,14 +1,20 @@
-// Генератор случайных чисел с возможностью подмены (для тестов).
-let generator: () => number = Math.random;
-
-export const rnd = (): number => generator();
-export const rndInt = (min: number, max: number): number => min + Math.floor(rnd() * (max - min + 1));
-export const chance = (p: number): boolean => rnd() < p;
-export const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rnd() * arr.length)];
-
-export function setRandom(fn: () => number): void {
-  generator = fn;
-}
+// Случайность игры — сеяная, и дверей у неё две.
+//
+// 1. **Кость партии** — `roll(s)` в `sim/roll.ts`: события деревни, короткая стычка у
+//    стены. Поток выводится из сида партии (`s.seed`) и числа уже брошенных костей
+//    (`s.rolls`), и оба лежат в сохранении — поэтому перезагрузка не перебрасывает
+//    кость, а одна и та же партия даёт один и тот же ход событий на любом устройстве.
+// 2. **Корень сида** — `freshSeed()`: единственное место, где игра спрашивает
+//    случайность у устройства. Зовут его ровно дважды на жизнь партии — когда
+//    заводится новая партия и когда собирается новый мир. Всё остальное выводится
+//    из этих двух чисел.
+//
+// `Math.random` в игровой логике нет нигде, и это тест по всему `src`
+// (`random.test.ts`): бросок, который нельзя повторить, нельзя ни проверить, ни
+// показать игроку заранее, ни однажды посчитать на сервере.
+//
+// Модуль без единого импорта нарочно: его читает серверная функция расселения
+// (`world/settle.ts`), а её проект типов не знает ни `@/`, ни типов игры.
 
 /** Простой детерминированный генератор (mulberry32). */
 export function seeded(seed: number): () => number {
@@ -21,3 +27,38 @@ export function seeded(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/** Смешать сид с номером: разные номера дают далёкие друг от друга потоки. */
+export const mixSeed = (seed: number, n: number): number =>
+  (Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) >>> 0, 0x85ebca6b) ^ n) >>> 0;
+
+/** Сколько раз корень сида брали без генератора устройства: хоть так, но разные. */
+let fallback = 0;
+
+/**
+ * Новый сид — корень всей случайности партии или мира. Берётся у криптографического
+ * генератора устройства: он есть и в браузере, и в вебвью Telegram, и в Node. Там, где
+ * его нет вовсе, сид выводится из счётчика: партии на таком устройстве будут похожи
+ * друг на друга, но игра останется детерминированной, и `Math.random` не понадобится.
+ *
+ * Число 31-битное, как и прежний сид мира: оно ездит в сохранениях и не должно
+ * разойтись со старыми.
+ */
+export function freshSeed(): number {
+  const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint32Array) => Uint32Array } }).crypto;
+  if (c?.getRandomValues) return c.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff;
+  return mixSeed(0x5eed, fallback++) & 0x7fffffff;
+}
+
+/**
+ * Подмена кости партии для тестов и отчётов: пока она стоит, `roll` берёт числа у неё,
+ * а не у партии. В игре её не ставит никто.
+ */
+let override: (() => number) | null = null;
+
+export function setRandom(fn: (() => number) | null): void {
+  override = fn;
+}
+
+/** Подменённая кость, если её поставили. Читает её одна `sim/roll.roll`. */
+export const overridden = (): (() => number) | null => override;

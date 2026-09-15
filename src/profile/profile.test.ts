@@ -119,7 +119,9 @@ describe('сейв профиля', () => {
     expect(g.freeJobs.gatherer).toBe(6);
     expect(g.completedQuests).toEqual(['first_hunt', 'first_scout']);
     expect(g.stats.battlesWon).toBe(3);
-    expect(g.hero.name).toBe('Радим Хмурый');
+    // Имя героя перешло полководцу — это один человек (ступень 12 → 13).
+    expect(g.agents.general.name).toBe('Радим Хмурый');
+    expect('name' in g.hero).toBe(false);
     expect(g.tutorialDone).toBe(true);
     // Покровитель (`"patron": "wolf"` в сейве) с двенадцатой версии не
     // существует: ступень 11 → 12 его отпускает, чтобы он не ездил в сохранении

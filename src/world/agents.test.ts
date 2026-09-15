@@ -10,9 +10,8 @@
 // - зоркость — только земля, которую разведчик открывает по пути;
 // - первый уровень — все прибавки нулевые, и мир ведёт себя по-старому;
 // - поимка разведчика — приход к поселению мощью больше `FIGURE_SCOUT_COVER` при
-//   броске часовых ниже четверти; опыт — те его значения, на которых гибель
-//   отняла бы хоть что-то (иначе «не теряет» проходило бы даром);
-// - гибель — опыт с непустым путём к следующему уровню.
+//   броске часовых ниже четверти; опыт — ниже потолка, где дело-неудача ещё прибавляет;
+// - гибель — дверь, после которой место пустует до нового номера в слепке.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BattleInput, Stack } from '@/battle';
 
@@ -31,8 +30,8 @@ vi.mock('@/battle', async (orig) => {
 import { DEFAULT_ORDERS, MORALE, PLAN_IDS, UNIT_KINDS, emptySectors, emptyStack, startMorale } from '@/battle';
 import { createInitialState } from '@/game/state';
 import { kindsOf, type TroopStack } from '@/game/battle/kinds';
-import { fallLoss, onslaughtAt, onslaughtOf } from '@/game/sim/agents';
-import { DEED_XP, LEVEL_XP, MAX_AGENT_LEVEL, XP_CAP, levelOf } from '@/game/data/agents';
+import { onslaughtAt, onslaughtOf } from '@/game/sim/agents';
+import { DEED_XP, LEVEL_XP, XP_CAP } from '@/game/data/agents';
 import { seeded } from '@/game/sim/random';
 import { onslaughtLines } from '@/ui/parts/agentLines';
 import { readFileSync } from 'node:fs';
@@ -71,7 +70,7 @@ type Inner = {
   resolveStrike(id: string, at: number, withGarrison: boolean): { error: string | null };
   spyOrder(action: 'probe', s: GenSettlement, now: number, chance: number): { accepted: boolean };
   powerNow(s: GenSettlement, now: number): number;
-  downFigure(id: FigureId, at: number, text: string): void;
+  downFigure(id: FigureId, at: number, death: { peril: number; where: string; why: string[]; spot: { id: string; name: string; x: number; y: number } }): void;
 };
 
 function makeWorld(seed = 11) {
@@ -333,7 +332,8 @@ describe('скрытность решает, заметили ли провал,
     const out: Record<string, { held: boolean; busy: number; attitude: number; morale: number }> = {};
     for (const stealth of [0, 1]) {
       const w = makeWorld();
-      const p = tribeProfile(1, stealth > 0 ? { stealth } : {});
+      // Гибель выключена скрытностью-множителем ноль: здесь меряется только, заметили ли.
+      const p = tribeProfile(1, { ...(stealth > 0 ? { stealth } : {}), veil: 0 });
       await w.world.sync(p);
       const lair = nearestLair(w);
       // Шанс в пять процентов: провал почти наверняка — и это утверждается.
@@ -348,7 +348,8 @@ describe('скрытность решает, заметили ли провал,
         attitude: w.inner.save.diplomacy[lair.id]?.attitude ?? 0,
         morale: eff.morale,
       };
-      expect(eff.deed).toEqual({ agent: 'spy', ok: false, at: w.now() });
+      expect(eff.deed).toEqual({ agent: 'spy', ok: false, at: w.now(), person: 0 });
+      expect(pulse.effects.some((e) => e.fell), 'точка внутри области: лазутчик жив').toBe(false);
     }
     expect(out[0]).toMatchObject({ held: true, busy: SPY_HELD, morale: -2 });
     expect(out[1]).toMatchObject({ held: false, busy: SPY_BUSY, morale: 0 });
@@ -447,25 +448,26 @@ async function scoutArrives(w: ReturnType<typeof makeWorld>, p: PlayerProfile, c
   return { eff: eff!, at, attitude: (save.diplomacy[lair.id]?.attitude ?? 0) - before };
 }
 
-/** Опыт, на котором гибель отняла бы хоть что-то: вне этих точек «не теряет» зелёное даром. */
-const FALL_BITES = Array.from({ length: XP_CAP }, (_, xp) => xp).filter((xp) => fallLoss(xp) > 0);
-
 describe('поимка разведчика — задержание, а не гибель', () => {
-  it('пойманный разведчик не теряет опыта ни при каком его значении: только дело-неудача', async () => {
+  it('пойманный разведчик не теряет опыта ни при каком его значении: только дело-неудача, место при нём', async () => {
     const w = makeWorld();
     const { eff, at } = await scoutArrives(w, tribeProfile(1), true);
-    expect(eff.deed).toEqual({ agent: 'scout', ok: false, at });
+    expect(eff.deed).toEqual({ agent: 'scout', ok: false, at, person: 0 });
+    expect(eff.fell, 'задержание — не гибель').toBeUndefined();
     const f = w.inner.save.figures.scout;
     expect(f.phase, 'держат вне карты').toBe('down');
+    expect(f.held, 'и держат, а не хоронят').toBe(true);
     expect(f.downUntil, 'прежние десять минут').toBe(at + FIGURE_DOWN);
-    const points = FALL_BITES.map((xp) => xp - DEED_XP.fail).filter((xp) => xp >= 0);
-    expect(points.length, 'точек внутри области много').toBeGreaterThan(100);
-    for (const xp of points) {
-      expect(fallLoss(xp + DEED_XP.fail), `точка внутри области: гибель на опыте ${xp + DEED_XP.fail} отняла бы`).toBeGreaterThan(0);
+    const view = (await w.world.figures()).find((v) => v.id === 'scout')!;
+    expect(view.place, 'в «Походах» — вне строя, не пустое место').toBe('down');
+    expect(view.held, 'в «Походах» — задержан, а не «выбыл»').toBe(true);
+    for (let xp = 0; xp < XP_CAP; xp++) {
+      expect(xp + DEED_XP.fail, `точка внутри области: опыт ${xp} не упирается в потолок`).toBeLessThanOrEqual(XP_CAP);
       const s = createInitialState();
       s.agents.scout.xp = xp;
       applyEffects(s, [eff]);
       expect(s.agents.scout.xp, `пойманный разведчик с опытом ${xp} потерял прогресс`).toBe(xp + DEED_XP.fail);
+      expect(s.agents.scout.vacant, `пойманный разведчик с опытом ${xp} освободил место`).toBe(false);
     }
   });
 
@@ -479,31 +481,29 @@ describe('поимка разведчика — задержание, а не г
 });
 
 describe('гибель — своя дверь', () => {
-  it('разбитый полководец несёт fell, и племя снимает путь к уровню, не больше полушага', async () => {
+  it('гибель несёт fell с номером человека, место пустует, пока слепок не назовёт нового', async () => {
     const w = makeWorld();
     const p = tribeProfile(1);
     await w.world.sync(p);
-    w.inner.downFigure('general', w.now(), 'разбит у логова.');
-    const eff = (await w.world.sync(p)).effects.find((e) => e.id === `fig-general-${w.now()}`) as HomeEffect;
-    expect(eff?.fell, 'последствие гибели несёт fell').toBe('general');
-    let pathBinds = 0;
-    let halfBinds = 0;
-    for (const xp of FALL_BITES) {
-      const level = levelOf(xp);
-      expect(level, `точка внутри области: у опыта ${xp} есть следующий уровень`).toBeLessThan(MAX_AGENT_LEVEL);
-      const floor = LEVEL_XP[level - 1];
-      const half = Math.floor((LEVEL_XP[level] - floor) / 2);
-      expect(xp - floor, `точка внутри области: путь на опыте ${xp} не пуст`).toBeGreaterThan(0);
-      const s = createInitialState();
-      s.agents.general.xp = xp;
-      applyEffects(s, [eff]);
-      expect(xp - s.agents.general.xp, `гибель на опыте ${xp}`).toBe(Math.min(xp - floor, half));
-      expect(levelOf(s.agents.general.xp), `уровень после гибели на опыте ${xp}`).toBe(level);
-      if (xp - floor < half) pathBinds++;
-      if (xp - floor > half) halfBinds++;
-    }
-    expect(pathBinds, 'есть точки, где путь короче полушага').toBeGreaterThan(0);
-    expect(halfBinds, 'есть точки, где полушаг короче пути').toBeGreaterThan(0);
+    const home = w.inner.save.home;
+    w.inner.downFigure('general', w.now(), { peril: 0.25, where: 'под Логовом', why: [], spot: { id: 'x', name: 'Логово', x: home.x, y: home.y } });
+    const pulse = await w.world.sync(p);
+    const eff = pulse.effects.find((e) => e.id === `fig-general-${w.now()}`) as HomeEffect;
+    expect(eff?.fell, 'последствие гибели несёт fell').toEqual({ agent: 'general', person: 0, peril: 0.25, where: 'под Логовом', why: [] });
+    expect(pulse.figures.find((f) => f.id === 'general')!.place, 'место пустует').toBe('vacant');
+    // Пустое место не возвращается само ни через десять минут, ни через час.
+    w.advance(60 * MIN);
+    expect((await w.world.sync(p)).figures.find((f) => f.id === 'general')!.place).toBe('vacant');
+    const s = createInitialState();
+    s.agents.general.xp = 40;
+    applyEffects(s, [eff]);
+    expect(s.agents.general.vacant).toBe(true);
+    // Нанятый — новый номер в слепке — встаёт у своих ворот чистым.
+    const next = await w.world.sync({ ...p, agents: { general: { person: 1 } } });
+    const g = next.figures.find((f) => f.id === 'general')!;
+    expect(g.place).toBe('map');
+    expect(g.atHome).toBe(true);
+    expect(w.inner.save.figures.general.person).toBe(1);
   });
 
   it('поимка и гибель — две двери: fell пишет одна гибель, и сводить их в один вызов нельзя', () => {
@@ -526,15 +526,25 @@ describe('гибель — своя дверь', () => {
     // Последствие агента с fell — ровно одно на весь мир, и оно в двери гибели.
     const fells = src.match(/\bfell:(?!\s*(?:null\b|this\.))/g) ?? [];
     expect(fells, 'fell агента пишется ровно в одном месте').toHaveLength(1);
-    expect(down, 'и это место — гибель').toMatch(/\bfell:\s*id\b/);
+    expect(down, 'и это место — гибель').toMatch(/\bfell:\s*\{\s*agent:\s*id\b/);
     expect(hold, 'задержание не пишет fell').not.toMatch(/\bfell\b/);
     expect(hold, 'задержание не зовёт гибель').not.toMatch(/downFigure\(/);
     expect(down, 'гибель не зовёт задержание').not.toMatch(/holdFigure\(/);
     // Одна дверь на оба исхода — флажком или необязательной ценой — это и есть «свести».
     expect(down, 'у гибели нет ни дела, ни цели: ей нечего различать').not.toMatch(/\bdeed\b|moveAttitude|\?\s*:/);
+    // У разведчика у ворот две ветки, и каждая зовёт свою дверь: кость гибели — гибель,
+    // кость часовых — задержание. Обе — до своего `return`.
     const scout = src.slice(src.indexOf("if (id === 'scout') {", src.indexOf('private onFigureArrived(')));
-    const catchSite = scout.slice(0, scout.indexOf('return;'));
+    const branch = (head: string): string => {
+      const from = scout.indexOf(head);
+      expect(from, `ветка ${head} есть`).toBeGreaterThan(0);
+      return scout.slice(from, scout.indexOf('return;', from));
+    };
+    const catchSite = branch('if (isCaught) {');
+    const deathSite = branch('if (dies) {');
     expect(catchSite, 'часовые разведчика — задержание').toMatch(/this\.holdFigure\(/);
     expect(catchSite, 'часовые разведчика — не гибель').not.toMatch(/downFigure\(/);
+    expect(deathSite, 'кость гибели — гибель').toMatch(/this\.downFigure\(/);
+    expect(deathSite, 'кость гибели — не задержание').not.toMatch(/holdFigure\(/);
   });
 });
