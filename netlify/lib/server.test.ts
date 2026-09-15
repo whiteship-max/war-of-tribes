@@ -22,6 +22,8 @@ const files = (): string[] => {
   };
   walk(join(ROOT, 'lib'));
   walk(join(ROOT, 'functions'));
+  // Замороженное не выкладывается, но замки на него действуют: вернётся оно тем же кодом.
+  walk(join(ROOT, 'frozen'));
   return out;
 };
 
@@ -109,7 +111,24 @@ describe('исходящие: ключ только из подписи или �
       .filter((f) => /tribe-notify/.test(strip(readFileSync(f, 'utf8'))))
       .map((f) => f.slice(ROOT.length + 1).replace(/\\/g, '/'))
       .sort();
-    expect(touching).toEqual(['functions/deliver.mts', 'functions/notify.mts']);
+    expect(touching).toEqual(['frozen/deliver.mts', 'functions/notify.mts']);
+  });
+
+  /**
+   * Доставка заморожена: 1 440 проходов в сутки не отправляли ничего. Функция лежит вне
+   * `functions/` — платформа собирает только эту папку, — и расписания в выкладке нет ни у
+   * кого. Снять одно `schedule` было бы хуже: функция без него и без `path` отвечает всякому
+   * по `/.netlify/functions/<имя>`. Размораживают переносом файла обратно (шапка
+   * `frozen/deliver.mts`) — и этот тест правится тем же коммитом.
+   */
+  it('доставка заморожена: в выкладке нет ни одной функции по расписанию', () => {
+    const deployed = readdirSync(join(ROOT, 'functions')).filter((n) => /\.m?tsx?$/.test(n));
+    expect(deployed.length).toBeGreaterThan(0);
+    const scheduled = deployed.filter((n) => /\bschedule\s*:/.test(strip(readFileSync(join(ROOT, 'functions', n), 'utf8'))));
+    expect(scheduled).toEqual([]);
+    expect(deployed).not.toContain('deliver.mts');
+    // Сам проход цел и расписание при нём: разморозка — перенос файла, а не переписывание.
+    expect(strip(readFileSync(join(ROOT, 'frozen', 'deliver.mts'), 'utf8'))).toMatch(/schedule: '\* \* \* \* \*'/);
   });
 
   /**
