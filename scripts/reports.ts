@@ -185,6 +185,8 @@ async function main(): Promise<void> {
   for (const o of selected) {
     console.log(`\n━━━ ${o.name}:report ━━━`);
     const key = closureKey(o.name, tree, o.closure);
+    // Прошлый прогон того же замыкания — если он есть, это повтор, и совпасть он обязан.
+    const prev = load(ROOT, o.name, key);
     const r = await runTraced(ROOT, `npm run --silent ${o.name}:report`, path.join(os.tmpdir(), `tribe-${o.name}.trace`));
     const missed = unexplained(r.read, o.closure, setup.vite.outDir, tree);
     save(ROOT, {
@@ -215,6 +217,15 @@ async function main(): Promise<void> {
         console.log(`\n  сдвиг против ${before.meta.commit} (строки без замеров; «−» было, «+» стало):`);
         for (const s of d.slice(0, 40)) console.log(s.before ? `  − ${s.was}` : `  + ${s.now}`);
         if (d.length > 40) console.log(`  …и ещё ${d.length - 40}`);
+      }
+    }
+    if (prev && bk !== key) {
+      const d = shifts(prev.output, r.output);
+      verdict += d.length === 0 ? `; повтор ${prev.meta.commit} совпал` : `; ПОВТОР ${prev.meta.commit} РАЗОШЁЛСЯ: ${d.length} стр.`;
+      if (d.length > 0) {
+        console.log(`
+  расхождение с прошлым прогоном того же замыкания (${prev.meta.at}):`);
+        for (const x of d.slice(0, 20)) console.log(x.before ? `  − ${x.was}` : `  + ${x.now}`);
       }
     }
     rows.push({ name: o.name, seconds: r.seconds, exit: r.exit, missed, verdict });
