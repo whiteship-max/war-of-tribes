@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CHEATS, CHEATS_ON, CHEAT_MARK, CHEAT_NO, cheatOf, cheatsOf } from './cheats';
+import { CHEATS, CHEATS_ON, CHEAT_MARK, CHEAT_NO, cheatOf, cheatsOf, matchCheat } from './cheats';
 import { createInitialState } from './game/state';
 import { storageCap } from './game/derived';
 import { RESOURCE_IDS } from './game/constants';
@@ -24,16 +24,16 @@ describe('коды: список и разбор', () => {
       expect(c.code, c.code).toMatch(/^[a-z]{3,12}$/);
       expect(c.what.length, c.code).toBeGreaterThan(20);
     }
-    expect(cheatsOf('village').map((c) => c.code)).toEqual(['tribe']);
-    expect(cheatsOf('prologue').map((c) => c.code)).toEqual(['glade', 'home']);
+    expect(CHEATS.filter((c) => c.where === 'village').map((c) => c.code)).toEqual(['tribe']);
+    expect(CHEATS.filter((c) => c.where === 'prologue').map((c) => c.code)).toEqual(['glade', 'home']);
   });
 
   it('пробелы и регистр не в счёт, чужой режим не в счёт, лишнее — не код', () => {
-    expect(cheatOf('  TrIbE ', 'village')?.id).toBe('tribe');
-    expect(cheatOf('tribe', 'prologue')).toBeNull();
-    expect(cheatOf('home', 'village')).toBeNull();
-    expect(cheatOf('', 'village')).toBeNull();
-    expect(cheatOf('tribes', 'village')).toBeNull();
+    expect(matchCheat('  TrIbE ', 'village')?.id).toBe('tribe');
+    expect(matchCheat('tribe', 'prologue')).toBeNull();
+    expect(matchCheat('home', 'village')).toBeNull();
+    expect(matchCheat('', 'village')).toBeNull();
+    expect(matchCheat('tribes', 'village')).toBeNull();
   });
 
   /**
@@ -47,8 +47,22 @@ describe('коды: список и разбор', () => {
     const list = src.indexOf('export const cheatsOf');
     expect(src.slice(where, where + 300)).toContain('CHEATS_ON');
     expect(src.slice(list, list + 200)).toContain('CHEATS_ON');
-    // Пока он поднят, коды в игре есть. Опустят — этот тест и скажет, что их нет.
-    expect(CHEATS_ON).toBe(true);
+  });
+
+  /**
+   * Коды опущены для игроков: кнопку видели все, а правило CLAUDE.md требует снять их
+   * до посторонних. Проверяется не значением выключателя, а тем, что видно снаружи: обе
+   * двери молчат на каждый настоящий код. Поднимут выключатель для проверки дальнего
+   * куска — этот тест упадёт, и в коммит такое не уйдёт незамеченным.
+   */
+  it('для игроков коды выключены: ни списка, ни узнанного кода', () => {
+    expect(cheatsOf('village')).toEqual([]);
+    expect(cheatsOf('prologue')).toEqual([]);
+    for (const c of CHEATS) {
+      expect(matchCheat(c.code, c.where), c.code).not.toBeNull();
+      expect(cheatOf(c.code, c.where), c.code).toBeNull();
+    }
+    expect(CHEATS_ON).toBe(false);
   });
 });
 

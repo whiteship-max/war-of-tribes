@@ -42,7 +42,7 @@
  * помеченной партии при этом остаётся: она о том, что было, а не о том, что
  * можно.
  */
-export const CHEATS_ON = true;
+export const CHEATS_ON = false;
 
 /** Где код работает. Деревня и поляна — разные игры с разным состоянием. */
 export type CheatWhere = 'village' | 'prologue';
@@ -105,6 +105,15 @@ export const cheatsOf = (where: CheatWhere): readonly Cheat[] =>
  */
 export function cheatOf(raw: string, where: CheatWhere): Cheat | null {
   if (!CHEATS_ON) return null;
+  return matchCheat(raw, where);
+}
+
+/**
+ * Разбор набранного без выключателя. Наружу игра зовёт только `cheatOf` — здесь то,
+ * что проверяют тесты: при опущенном выключателе правила разбора иначе было бы не
+ * проверить вовсе, а поднимать его ради теста значило бы держать коды включёнными.
+ */
+export function matchCheat(raw: string, where: CheatWhere): Cheat | null {
   const text = String(raw ?? '').trim().toLowerCase();
   if (text === '') return null;
   return CHEATS.find((c) => c.where === where && c.code === text) ?? null;
