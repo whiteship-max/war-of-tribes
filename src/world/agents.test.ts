@@ -8,7 +8,11 @@
 // - потолок — роды, у которых стартовая мораль с натиском упирается в сотню;
 // - скрытность — только провалы: у удачи она не спрашивается;
 // - зоркость — только земля, которую разведчик открывает по пути;
-// - первый уровень — все прибавки нулевые, и мир ведёт себя по-старому.
+// - первый уровень — все прибавки нулевые, и мир ведёт себя по-старому;
+// - поимка разведчика — приход к поселению мощью больше `FIGURE_SCOUT_COVER` при
+//   броске часовых ниже четверти; опыт — те его значения, на которых гибель
+//   отняла бы хоть что-то (иначе «не теряет» проходило бы даром);
+// - гибель — опыт с непустым путём к следующему уровню.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BattleInput, Stack } from '@/battle';
 
@@ -27,21 +31,31 @@ vi.mock('@/battle', async (orig) => {
 import { DEFAULT_ORDERS, MORALE, PLAN_IDS, UNIT_KINDS, emptySectors, emptyStack, startMorale } from '@/battle';
 import { createInitialState } from '@/game/state';
 import { kindsOf, type TroopStack } from '@/game/battle/kinds';
-import { onslaughtAt, onslaughtOf } from '@/game/sim/agents';
-import { LEVEL_XP } from '@/game/data/agents';
+import { fallLoss, onslaughtAt, onslaughtOf } from '@/game/sim/agents';
+import { DEED_XP, LEVEL_XP, MAX_AGENT_LEVEL, XP_CAP, levelOf } from '@/game/data/agents';
 import { seeded } from '@/game/sim/random';
 import { onslaughtLines } from '@/ui/parts/agentLines';
+import { readFileSync } from 'node:fs';
 import { HOME_ID, LocalWorld } from './local/LocalWorld';
 import type { StoredMarch, WorldSave } from './local/state';
-import { playerProfile } from './bridge';
+import { applyEffects, playerProfile } from './bridge';
 import { FIGURE_BY_ID, FIGURE_IDS } from './data/figures';
-import { SPY_BUSY, SPY_CAUGHT_ATTITUDE, SPY_HELD, SPY_SLIP_ATTITUDE } from './data/tuning';
+import {
+  FIGURE_DOWN,
+  FIGURE_SCOUT_COVER,
+  LAIR_RIPE,
+  SPY_BUSY,
+  SPY_CAUGHT_ATTITUDE,
+  SPY_HELD,
+  SPY_SLIP_ATTITUDE,
+} from './data/tuning';
+import { marchSeed } from './combat';
 import { generalResolve, onslaughtRows, ownGearOf, revealSight, slipShare, slipped } from './agents';
 import { spyOutcome } from './spy';
 import { distance } from './geo';
 import { PLAYER_CAMP } from './siege';
 import type { GenSettlement } from './gen';
-import type { PlayerProfile } from './types';
+import type { FigureId, HomeEffect, PlayerProfile } from './types';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -56,6 +70,8 @@ type Inner = {
   campBattle(id: string, at: number, seed: number, attack: object): unknown;
   resolveStrike(id: string, at: number, withGarrison: boolean): { error: string | null };
   spyOrder(action: 'probe', s: GenSettlement, now: number, chance: number): { accepted: boolean };
+  powerNow(s: GenSettlement, now: number): number;
+  downFigure(id: FigureId, at: number, text: string): void;
 };
 
 function makeWorld(seed = 11) {
@@ -365,7 +381,7 @@ describe('зоркость — только земля разведчика', ()
 });
 
 describe('дела агентов едут из мира событием', () => {
-  it('разведчик у логова — дело без строки летописи; попался — дело-неудача и гибель', async () => {
+  it('разведчик у логова — дело без строки летописи', async () => {
     const w = makeWorld();
     const p = tribeProfile(1);
     await w.world.sync(p);
@@ -397,5 +413,128 @@ describe('дела агентов едут из мира событием', () =
       const pb = await b.world.sync(zero);
       expect(JSON.stringify({ ...pb, now: 0 })).toBe(JSON.stringify({ ...pa, now: 0 }));
     }
+  });
+});
+
+/**
+ * Приводит разведчика к спелому логову так, чтобы бросок часовых лёг, куда просят:
+ * `caught` — ниже четверти, иначе не ниже. Бросок посеян секундой, поэтому
+ * подбирается минута прихода, а не подкручивается мир. Что точка там, где просили, —
+ * утверждается: и часовые у логова, и сам исход.
+ */
+async function scoutArrives(w: ReturnType<typeof makeWorld>, p: PlayerProfile, caught: boolean) {
+  await w.world.sync(p);
+  const save = w.inner.save;
+  const lair = nearestLair(w);
+  // Бросок читает `departAt` уже после того, как шаг фигур переписал его минутой
+  // прихода: подбирать приходится приход.
+  const roll = (ms: number): number => seeded(marchSeed(save.seed, Math.floor(ms / 1000)))();
+  while (roll(w.now()) < 0.25 !== caught) w.advance(1000);
+  const at = w.now();
+  save.lairs[lair.id] = { bornAt: at - LAIR_RIPE, burnedAt: 0 };
+  expect(w.inner.powerNow(lair, at), 'у спелого логова есть часовые').toBeGreaterThan(FIGURE_SCOUT_COVER);
+  const f = save.figures.scout;
+  f.phase = 'moving';
+  f.from = { ...save.home };
+  f.to = { x: lair.x, y: lair.y };
+  f.departAt = at - 2 * MIN;
+  f.arriveAt = at;
+  const before = save.diplomacy[lair.id]?.attitude ?? 0;
+  const pulse = await w.world.sync(p);
+  const eff = pulse.effects.find((e) => e.deed?.agent === 'scout');
+  expect(eff, 'разведчик дошёл, и дело приехало последствием').toBeDefined();
+  expect(eff!.deed!.ok, caught ? 'часовые поймали' : 'часовые не поймали').toBe(!caught);
+  return { eff: eff!, at, attitude: (save.diplomacy[lair.id]?.attitude ?? 0) - before };
+}
+
+/** Опыт, на котором гибель отняла бы хоть что-то: вне этих точек «не теряет» зелёное даром. */
+const FALL_BITES = Array.from({ length: XP_CAP }, (_, xp) => xp).filter((xp) => fallLoss(xp) > 0);
+
+describe('поимка разведчика — задержание, а не гибель', () => {
+  it('пойманный разведчик не теряет опыта ни при каком его значении: только дело-неудача', async () => {
+    const w = makeWorld();
+    const { eff, at } = await scoutArrives(w, tribeProfile(1), true);
+    expect(eff.deed).toEqual({ agent: 'scout', ok: false, at });
+    const f = w.inner.save.figures.scout;
+    expect(f.phase, 'держат вне карты').toBe('down');
+    expect(f.downUntil, 'прежние десять минут').toBe(at + FIGURE_DOWN);
+    const points = FALL_BITES.map((xp) => xp - DEED_XP.fail).filter((xp) => xp >= 0);
+    expect(points.length, 'точек внутри области много').toBeGreaterThan(100);
+    for (const xp of points) {
+      expect(fallLoss(xp + DEED_XP.fail), `точка внутри области: гибель на опыте ${xp + DEED_XP.fail} отняла бы`).toBeGreaterThan(0);
+      const s = createInitialState();
+      s.agents.scout.xp = xp;
+      applyEffects(s, [eff]);
+      expect(s.agents.scout.xp, `пойманный разведчик с опытом ${xp} потерял прогресс`).toBe(xp + DEED_XP.fail);
+    }
+  });
+
+  it('поимка роняет отношение цели ровно на SPY_CAUGHT_ATTITUDE, как у замеченного лазутчика; удача — не трогает', async () => {
+    const caught = await scoutArrives(makeWorld(), tribeProfile(1), true);
+    expect(caught.attitude, 'отношение за поимку').toBe(SPY_CAUGHT_ATTITUDE);
+    expect(caught.eff.morale, 'мораль дома — прежняя цена').toBe(-4);
+    const counted = await scoutArrives(makeWorld(), tribeProfile(1), false);
+    expect(counted.attitude, 'пересчитал и ушёл — отношение то же').toBe(0);
+  });
+});
+
+describe('гибель — своя дверь', () => {
+  it('разбитый полководец несёт fell, и племя снимает путь к уровню, не больше полушага', async () => {
+    const w = makeWorld();
+    const p = tribeProfile(1);
+    await w.world.sync(p);
+    w.inner.downFigure('general', w.now(), 'разбит у логова.');
+    const eff = (await w.world.sync(p)).effects.find((e) => e.id === `fig-general-${w.now()}`) as HomeEffect;
+    expect(eff?.fell, 'последствие гибели несёт fell').toBe('general');
+    let pathBinds = 0;
+    let halfBinds = 0;
+    for (const xp of FALL_BITES) {
+      const level = levelOf(xp);
+      expect(level, `точка внутри области: у опыта ${xp} есть следующий уровень`).toBeLessThan(MAX_AGENT_LEVEL);
+      const floor = LEVEL_XP[level - 1];
+      const half = Math.floor((LEVEL_XP[level] - floor) / 2);
+      expect(xp - floor, `точка внутри области: путь на опыте ${xp} не пуст`).toBeGreaterThan(0);
+      const s = createInitialState();
+      s.agents.general.xp = xp;
+      applyEffects(s, [eff]);
+      expect(xp - s.agents.general.xp, `гибель на опыте ${xp}`).toBe(Math.min(xp - floor, half));
+      expect(levelOf(s.agents.general.xp), `уровень после гибели на опыте ${xp}`).toBe(level);
+      if (xp - floor < half) pathBinds++;
+      if (xp - floor > half) halfBinds++;
+    }
+    expect(pathBinds, 'есть точки, где путь короче полушага').toBeGreaterThan(0);
+    expect(halfBinds, 'есть точки, где полушаг короче пути').toBeGreaterThan(0);
+  });
+
+  it('поимка и гибель — две двери: fell пишет одна гибель, и сводить их в один вызов нельзя', () => {
+    const src = readFileSync(new URL('./local/LocalWorld.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    const body = (name: string): string => {
+      const start = src.indexOf(`private ${name}(`);
+      expect(start, `дверь ${name} есть`).toBeGreaterThan(0);
+      const open = src.indexOf('{', src.indexOf(')', start));
+      let depth = 0;
+      for (let i = open; i < src.length; i++) {
+        if (src[i] === '{') depth++;
+        if (src[i] === '}' && --depth === 0) return src.slice(start, i + 1);
+      }
+      throw new Error(name);
+    };
+    const down = body('downFigure');
+    const hold = body('holdFigure');
+    // Последствие агента с fell — ровно одно на весь мир, и оно в двери гибели.
+    const fells = src.match(/\bfell:(?!\s*(?:null\b|this\.))/g) ?? [];
+    expect(fells, 'fell агента пишется ровно в одном месте').toHaveLength(1);
+    expect(down, 'и это место — гибель').toMatch(/\bfell:\s*id\b/);
+    expect(hold, 'задержание не пишет fell').not.toMatch(/\bfell\b/);
+    expect(hold, 'задержание не зовёт гибель').not.toMatch(/downFigure\(/);
+    expect(down, 'гибель не зовёт задержание').not.toMatch(/holdFigure\(/);
+    // Одна дверь на оба исхода — флажком или необязательной ценой — это и есть «свести».
+    expect(down, 'у гибели нет ни дела, ни цели: ей нечего различать').not.toMatch(/\bdeed\b|moveAttitude|\?\s*:/);
+    const scout = src.slice(src.indexOf("if (id === 'scout') {", src.indexOf('private onFigureArrived(')));
+    const catchSite = scout.slice(0, scout.indexOf('return;'));
+    expect(catchSite, 'часовые разведчика — задержание').toMatch(/this\.holdFigure\(/);
+    expect(catchSite, 'часовые разведчика — не гибель').not.toMatch(/downFigure\(/);
   });
 });

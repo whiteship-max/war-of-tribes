@@ -2674,13 +2674,11 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Отправляет фигуру домой павшей: насовсем её потерять нельзя. Опыт агента
-   * племя поправит само (`HomeEffect.fell`); `deed` — если выбыл он на деле, за
-   * которое опыт всё равно положен (разведчик, попавшийся часовым).
+   * Уводит фигуру с карты домой на `FIGURE_DOWN` — общая часть гибели и
+   * задержания. Что это стоило, решают двери ниже, и цена у них разная.
    */
-  private downFigure(id: FigureId, at: number, text: string, deed?: HomeEffect['deed']): void {
+  private offMap(id: FigureId, at: number): TroopStack {
     const f = this.save.figures[id];
-    const def = FIGURE_BY_ID[id];
     f.phase = 'down';
     f.from = { ...this.save.home };
     f.to = { ...this.save.home };
@@ -2689,6 +2687,17 @@ export class LocalWorld implements WorldApi {
     f.downUntil = at + FIGURE_DOWN;
     const lost = f.troops ?? {};
     f.troops = undefined;
+    return lost;
+  }
+
+  /**
+   * Отправляет фигуру домой павшей: насовсем её потерять нельзя. Гибель стоит
+   * опыта — племя снимет его само (`HomeEffect.fell`). Это единственное место, где
+   * последствие несёт `fell`: задержание идёт своей дверью (`holdFigure`), и
+   * свести их обратно в один вызов не даёт тест (`world/agents.test.ts`).
+   */
+  private downFigure(id: FigureId, at: number, text: string): void {
+    const lost = this.offMap(id, at);
     this.addEffect({
       id: `fig-${id}-${at}`,
       lost: {},
@@ -2697,9 +2706,31 @@ export class LocalWorld implements WorldApi {
       prestige: 0,
       morale: -4,
       battle: null,
-      ...(deed ? { deed } : {}),
       fell: id,
-      text: `${def.name} ${text} Вернётся не скоро.`,
+      text: `${FIGURE_BY_ID[id].name} ${text} Вернётся не скоро.`,
+      good: false,
+    });
+  }
+
+  /**
+   * Задержание — не гибель: пойманного держат и отпускают домой, опыт при нём.
+   * Цена — дело-неудача (`deed`), лицо, которое цель запомнила (отношение
+   * `SPY_CAUGHT_ATTITUDE`, как у замеченного лазутчика), и прежние десять минут вне
+   * строя. Мораль дома пока та же, что у гибели: развести и её — решение вместе
+   * со смертностью агентов (docs/PROMISES_DEBT.md).
+   */
+  private holdFigure(id: FigureId, target: GenSettlement, at: number, text: string, deed: NonNullable<HomeEffect['deed']>): void {
+    this.offMap(id, at);
+    this.moveAttitude(target.id, SPY_CAUGHT_ATTITUDE, at);
+    this.addEffect({
+      id: `fig-${id}-${at}`,
+      lost: {},
+      resources: {},
+      prestige: 0,
+      morale: -4,
+      battle: null,
+      deed,
+      text: `${FIGURE_BY_ID[id].name} ${text} Отпустят не скоро.`,
       good: false,
     });
   }
@@ -2777,8 +2808,10 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Что случается в момент прибытия. Бросок один и посеян временем выхода, а не
-   * порядком разбора событий: иначе онлайн и офлайн дали бы разные исходы.
+   * Что случается в момент прибытия. Бросок один и посеян отметкой фигуры, а не
+   * порядком разбора событий: иначе онлайн и офлайн дали бы разные исходы. К этой
+   * минуте `stepFigures` уже переписал `departAt` приходом, так что сеет бросок
+   * **минута прихода**, а не выхода.
    */
   private onFigureArrived(id: FigureId, at: number): void {
     const f = this.save.figures[id];
@@ -2795,7 +2828,7 @@ export class LocalWorld implements WorldApi {
     if (id === 'scout') {
       const power = this.powerNow(target, at);
       if (power > FIGURE_SCOUT_COVER && rng() < 0.25) {
-        this.downFigure(id, at, `попался часовым у ${target.name}.`, { agent: 'scout', ok: false, at });
+        this.holdFigure(id, target, at, `попался часовым у ${target.name}.`, { agent: 'scout', ok: false, at });
         return;
       }
       this.save.intel[target.id] = this.snapshot(target, at);

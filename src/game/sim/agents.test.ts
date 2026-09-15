@@ -170,6 +170,7 @@ describe('дело и гибель приходят из мира последс
     ]);
     expect(s.agents.scout.xp).toBe(32);
     expect(s.log.length, 'пустая строка в летопись не пишется').toBe(logged);
+    // Задержание: дело-неудача без `fell` — опыт только растёт.
     applyEffects(s, [
       {
         id: 'b',
@@ -179,12 +180,15 @@ describe('дело и гибель приходят из мира последс
         morale: -4,
         battle: null,
         deed: { agent: 'scout', ok: false, at: t + DEED_GAP },
-        fell: 'scout',
-        text: 'Разведчик попался часовым. Вернётся не скоро.',
+        text: 'Разведчик попался часовым у логова. Отпустят не скоро.',
         good: false,
       },
     ]);
-    // 32 + 1 = 33, путь к третьему уровню 13 при полушаге 20: теряется весь путь.
+    expect(s.agents.scout.xp).toBe(33);
+    // Гибель: `fell`. 33 — путь к третьему уровню 13 при полушаге 20: теряется весь путь.
+    applyEffects(s, [
+      { id: 'c', lost: {}, resources: {}, prestige: 0, morale: -4, battle: null, fell: 'scout', text: 'Разведчик пал.', good: false },
+    ]);
     expect(s.agents.scout.xp).toBe(LEVEL_XP[1]);
     expect(agentLevel(s, 'scout')).toBe(2);
   });
