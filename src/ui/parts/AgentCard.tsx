@@ -10,6 +10,7 @@
 // Полководец и герой Статуи — один человек. Сколько он уводит и за скольких
 // стоит сам, решает Статуя, и это стоит здесь с подписью «откуда»; уровень даёт
 // натиск — и это тоже подписано. Вопроса «кто главный» у игрока быть не должно.
+import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
 import { buildingOfType, commandCap, fervour, heroInfo, heroMen, mountGear } from '@/game/derived';
 import {
@@ -30,7 +31,6 @@ import { FIGURE_BY_ID } from '@/world/data/figures';
 import { distance, formatLeft, terrainFactor, travelTime } from '@/world/geo';
 import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId, FigureView } from '@/world/types';
-import { Icon } from '@/ui/icons/Icon';
 import { onslaughtLines, sightLine, stealthLine } from './agentLines';
 import { count } from './plural';
 
@@ -62,6 +62,12 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
   const next = nextLevelXp(progress.xp);
   const floor = LEVEL_XP[levelOf(progress.xp) - 1];
   const owned = ownedItems();
+  // Карточка открывается из середины списка: без этого шторка осталась бы прокручена к
+  // тому месту, где стояла строка агента, и шапка карточки уехала бы за край.
+  const top = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    top.current?.scrollIntoView({ block: 'start' });
+  }, [id]);
 
   const statue = buildingOfType(s, 'statue')?.level ?? 0;
   const hero = heroInfo(s);
@@ -77,12 +83,12 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
   const slotWhy = block ?? (owned.length === 0 ? 'Надеть нечего: предметов у тебя пока нет.' : null);
 
   return (
-    <div className="panel">
+    <div className="panel" ref={top}>
       <button className="btn ghost back" onClick={onBack}>
         ← Походы
       </button>
       <h2>
-        <Icon name={`fig-${id}`} glyph={def.icon} /> {def.name}
+        {def.name}
         {id === 'general' ? ` — ${hero.name}` : ''} <small>уровень {level}</small>
       </h2>
 
