@@ -31,7 +31,6 @@ import {
   COST_PASS,
   COST_RIDGE,
   COST_RIVER,
-  COST_ROAD,
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from '@/world/data/tuning';
@@ -117,7 +116,7 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
       sacked: false,
     },
     name: 'Замок',
-    note: 'крепость с казной, бывает при любой стадии',
+    note: 'город живого игрока, бывает при любой стадии',
   },
   {
     look: {
@@ -145,20 +144,19 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
     name: 'Пепелище',
     note: 'сожжённое логово; занять нельзя, след сойдёт сам',
   },
-  {
-    look: {
-      stage: 'village',
-      relation: 'neutral',
-      mine: false,
-      variant: 0,
-      castle: false,
-      ruin: false,
-      sacked: true,
-    },
-    name: 'Разорено',
-    note: 'набег на него выигран: хозяйство стоит, гарнизон поредел, брать нечего',
-  },
 ];
+
+/**
+ * Легенда говорит только о том, что на карте бывает сегодня. На ней логова и замки живых
+ * игроков, и больше ничего: союзников и врагов нет (договариваться не с кем), разорённых
+ * дворов нет (логово на победе сгорает), владений нет (зоны влияния считаются от станов, а
+ * станов нет), сожжённых городов нет («сжечь» миру не предлагается), трактов нет (они
+ * соединяли станы). Механики целы и спят (`grep -rn waitsForPlayers src`); строки о них
+ * вернутся вместе с живыми соседями. Легенда, обещающая то, чего игрок не встретит, учит его
+ * неправде — «Тракт ×0.62» висел в ней, когда трактов в мире не было ни одного.
+ */
+const SHOWN_RELATIONS = RELATION_ORDER.filter((r) => r !== 'ally' && r !== 'enemy');
+const SHOWN_FATES = (Object.keys(FELL_WORDS) as Fate[]).filter((f) => f !== 'burn');
 
 /**
  * Местность поверх ландшафта. Числа берутся из тех же констант, что и расчёт
@@ -171,7 +169,6 @@ const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
   { color: PALETTE.ford, name: 'Брод', note: `×${COST_FORD}: ноги мокрые, зато не крюк` },
   { color: PALETTE.ridge, name: 'Хребет', note: `×${COST_RIDGE} — в холмах через него не лезут` },
   { color: PALETTE.pass, name: 'Перевал', note: `×${COST_PASS}: единственный проход через хребет` },
-  { color: PALETTE.road, name: 'Тракт', note: `×${COST_ROAD} — дорога между станами племён` },
 ];
 
 export function WorldMap() {
@@ -783,7 +780,7 @@ export function WorldMap() {
       {legendOpen && (
         <div className="wm-legend">
           <h3>Кто на карте</h3>
-          {RELATION_ORDER.map((r) => (
+          {SHOWN_RELATIONS.map((r) => (
             <div className="wm-leg-row" key={r}>
               {/* Форма несёт смысл, цвет её подтверждает: цветной квадратик,
                   который стоял здесь раньше, на цветовую слепоту не рассчитан вовсе. */}
@@ -814,7 +811,7 @@ export function WorldMap() {
               Рогатки с тыла <em>дальний ряд, колья в поле: так встречают полководца; редкий ряд — ещё строят</em>
             </span>
           </div>
-          {(Object.keys(FELL_WORDS) as Fate[]).map((fate) => (
+          {SHOWN_FATES.map((fate) => (
             <div className="wm-leg-row wm-leg-fell" key={fate}>
               <img src={fellUrl(fate)} alt="" />
               <span>
@@ -860,14 +857,6 @@ export function WorldMap() {
               </span>
             </div>
           ))}
-
-          <h3>Владения</h3>
-          <div className="wm-leg-row">
-            <i style={{ background: RELATION_META.enemy.color, opacity: 0.45 }} />
-            <span>
-              Земля племени <em>цветом по разведанному; в тумане не видно ничего</em>
-            </span>
-          </div>
 
           <button className="btn ghost wide" onClick={() => setLegendOpen(false)}>
             Понятно
