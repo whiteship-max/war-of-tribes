@@ -25,12 +25,10 @@
 // облаком, а войдя в круг у деревни, обретает людей и знамя. Ровно так же
 // работает и весь остальной второй слой.
 import { PARTY_FOE, PARTY_OWN, type PartyPalette } from './palette';
+import { SQUASH, TAU } from './village';
 
 type C = CanvasRenderingContext2D;
 
-const TAU = Math.PI * 2;
-/** То же сплющивание, что у поселений: карта смотрит на землю почти сверху. */
-const SQUASH = 0.62;
 /** Толщина контуров в долях клетки — она и держит силуэт на мелком масштабе. */
 const LINE = 0.022;
 

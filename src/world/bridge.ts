@@ -5,6 +5,7 @@
 // племени не знает про координаты, а мир — про жителей и склад.
 import type { GameState } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
+import { HOUR_MS } from '@/game/time';
 import {
   bondedTotal,
   buildingOfType,
@@ -53,7 +54,7 @@ import type {
  * быть один и стоять здесь, на самом мосту: мир про `DAY_LENGTH` не знает, а
  * племя про мировые часы.
  */
-const DAYS_PER_HOUR = 3_600_000 / (DAY_LENGTH * 1000);
+const DAYS_PER_HOUR = HOUR_MS / (DAY_LENGTH * 1000);
 
 /**
  * Ополчение: та часть обороны, которую дают не бойцы, а частокол, башня и сами

@@ -4,13 +4,10 @@
 // остаётся чистой функцией от состояния, `tick` про ежедневку не знает вовсе, а
 // тесты обходятся без подмены глобального времени.
 import type { GameState, ResourceId } from '../types';
-import { RESOURCE_IDS } from '../constants';
+import { RESOURCE_IDS, START_POP } from '../constants';
 import { DAILY_GAME_BY_ID, dailyGameOf, dailySeed, type DailyGameId } from '../data/daily';
 import { population, storageCap } from '../derived';
 import { log } from './log';
-
-/** Посёлок, под который писались базовые числа наград, — тот же, что у событий. */
-const REFERENCE_POP = 30;
 
 /**
  * Потолок одной награды — доля вместимости склада. Он не про баланс, а про
@@ -79,7 +76,8 @@ export function dailyStatus(s: GameState, day: number): DailyStatus {
  * возвращаемого значения физически не может нести ни то, ни другое.
  */
 export function dailyReward(s: GameState, game: DailyGameId): Partial<Record<ResourceId, number>> {
-  const k = Math.max(1, population(s) / REFERENCE_POP);
+  // Базовые числа наград писались под стартовый посёлок — тот же, что у событий.
+  const k = Math.max(1, population(s) / START_POP);
   const cap = Math.floor(storageCap(s) * DAILY_CAP_SHARE);
   const out: Partial<Record<ResourceId, number>> = {};
   for (const r of RESOURCE_IDS) {

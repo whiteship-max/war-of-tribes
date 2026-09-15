@@ -24,7 +24,7 @@ export const ATLAS_RIDGE = 16;
 export const ATLAS_CLASS = 7;
 
 /** Индекс воды в `ATLAS_TERRAIN`. За краем карты — открытое море. */
-const WATER = ATLAS_TERRAIN.indexOf('water');
+export const ATLAS_WATER = ATLAS_TERRAIN.indexOf('water');
 
 function fromBase64(text: string): Uint8Array {
   const bin = atob(text);
@@ -89,7 +89,7 @@ export const atlasSize = (): number => ATLAS_SIZE;
  * За краем сетки — открытое море: мир кончается берегом, а не пустотой.
  */
 export function atlasCell(col: number, row: number): number {
-  if (col < 0 || row < 0 || col >= ATLAS_SIZE || row >= ATLAS_SIZE) return WATER;
+  if (col < 0 || row < 0 || col >= ATLAS_SIZE || row >= ATLAS_SIZE) return ATLAS_WATER;
   return atlas()[row * ATLAS_SIZE + col];
 }
 

@@ -42,12 +42,9 @@
 // которой нет, — это заводить вторую правду заранее.
 import type { FigureId } from '@/world/types';
 import { PARTY_OWN } from './palette';
+import { SQUASH, TAU } from './village';
 
 type C = CanvasRenderingContext2D;
-
-const TAU = Math.PI * 2;
-/** То же сплющивание, что у отрядов и поселений: карта смотрит почти сверху. */
-const SQUASH = 0.62;
 
 // ---------- Чистая часть ----------
 

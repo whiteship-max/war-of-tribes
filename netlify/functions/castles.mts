@@ -27,7 +27,7 @@
 import type { Config, Context } from '@netlify/functions';
 import { getStore } from '@netlify/blobs';
 import { readInitData, saveKeyOf } from '../lib/initdata.js';
-import { allow, botToken, deny, json, parseJson, readBody } from '../lib/http.js';
+import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody } from '../lib/http.js';
 import { readClaim, type RosterFile, type RosterResponse } from '../lib/contract.js';
 import { prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../lib/roster.js';
 
@@ -60,9 +60,6 @@ const MIN_WRITE_MS = 10_000;
  * не доезжала бы до отметки.
  */
 const QUIET_MS = 4 * 60_000;
-
-/** Сколько раз пытаться выиграть право переписать общее значение. */
-const WRITE_TRIES = 4;
 
 /** Запросов в минуту на игрока. Игре нужен один в минуту на чтение. */
 const PER_MINUTE = 40;

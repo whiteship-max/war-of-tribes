@@ -1,6 +1,6 @@
 import type { Building, BuildingTypeId, GameState } from './types';
 import { serverNow } from '@/net/clock';
-import { TEST_GEMS } from './constants';
+import { START_POP, TEST_GEMS } from './constants';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
@@ -65,9 +65,6 @@ const built = (s: GameState, type: BuildingTypeId): Building => ({
   work: 0,
   workRequired: 0,
 });
-
-/** Сколько человек в племени на старте. Крыш хватает ещё примерно на столько же. */
-const START_POP = 30;
 
 /**
  * Новая партия: посёлок стоит целиком, включая стену, всё первого уровня.

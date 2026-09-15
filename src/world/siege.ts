@@ -12,9 +12,7 @@
 import type { Fate, SettlementId } from './types';
 import type { WoodPlan } from './works';
 import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER } from './data/tuning';
-
-/** Час в миллисекундах: расход еды считается в час, окно живёт в мс. */
-const HOUR = 3_600_000;
+import { HOUR_MS as HOUR } from '../game/time';
 
 /**
  * Окно осады. Всё, что здесь лежит, заморожено в момент, когда окно открылось:

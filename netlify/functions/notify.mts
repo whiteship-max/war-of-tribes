@@ -24,7 +24,7 @@
 import type { Config, Context } from '@netlify/functions';
 import { getStore } from '@netlify/blobs';
 import { readInitData, saveKeyOf } from '../lib/initdata.js';
-import { allow, botToken, deny, json, parseJson, readBody } from '../lib/http.js';
+import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody } from '../lib/http.js';
 import type { NotifyPut } from '../lib/contract.js';
 import { accept, readNotify, stateOf } from '../lib/notify.js';
 
@@ -32,9 +32,6 @@ export const config: Config = { path: '/api/notify' };
 
 /** Запросов в минуту на игрока — грубое сито; настоящий предел списка — в самой записи. */
 const PER_MINUTE = 30;
-
-/** Сколько раз пытаться выиграть запись у прохода доставки. */
-const WRITE_TRIES = 4;
 
 /** Список короткий: восемь пунктов — это пара килобайт. */
 const MAX_NOTIFY_BYTES = 16 * 1024;

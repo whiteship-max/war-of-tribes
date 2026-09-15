@@ -96,6 +96,8 @@ describe('земля и расселение собираются серверн
     const names = [...all].map((f) => f.slice(ROOT.length + 1).replace(/\\/g, '/')).sort();
     expect(names).toEqual([
       'game/sim/random.ts',
+      // Единицы времени в мс (`tuning.ts` берёт минуту и час): модуль без единого импорта.
+      'game/time.ts',
       'world/atlas/atlas.ts',
       'world/atlas/data.ts',
       'world/data/tuning.ts',

@@ -12,6 +12,7 @@ import {
   RESOURCE_IDS,
   RESOURCE_META,
   RITE_DAYS,
+  START_POP,
 } from '../constants';
 import {
   buildingOfType,
@@ -86,13 +87,11 @@ export interface EventDef {
 }
 
 /**
- * Посёлок, под который писались числа событий. Всё, что событие даёт или отнимает,
- * умножается на то, во сколько раз нынешнее племя больше этого — иначе к концу
- * партии награда события тонет в дневной выработке.
+ * Всё, что событие даёт или отнимает, умножается на то, во сколько раз нынешнее
+ * племя больше стартового (`START_POP` — под него числа событий и писались), —
+ * иначе к концу партии награда события тонет в дневной выработке.
  */
-const REFERENCE_POP = 30;
-
-const scale = (s: GameState): number => Math.max(1, population(s) / REFERENCE_POP);
+const scale = (s: GameState): number => Math.max(1, population(s) / START_POP);
 
 /** Число под нынешний размер посёлка. */
 const amount = (s: GameState, n: number): number => Math.max(1, Math.round(n * scale(s)));

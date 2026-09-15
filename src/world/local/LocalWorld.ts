@@ -220,7 +220,7 @@ import {
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
-import { estimate, precisionOf, readIntel } from '../intel';
+import { UNKNOWN, estimate, precisionOf, readIntel } from '../intel';
 import {
   AI_MIN_POP,
   CASTLE_GOLD_PER_POWER,
@@ -340,8 +340,6 @@ export interface LocalWorldOptions {
    */
   reveal?: boolean;
 }
-
-const UNKNOWN = { precision: 'unknown' as const, value: null, min: 0, max: 0 };
 
 /** Соль кости гибели разбитого полководца: своё число из сида того же боя. */
 const ROUT_SALT = 0x726f7574;

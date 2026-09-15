@@ -16,6 +16,7 @@
 import type { FigureId } from '@/world/types';
 import { DAY_LENGTH } from '../constants';
 import { YEAR_DAYS } from './seasons';
+import { MINUTE_MS } from '../time';
 
 /**
  * Сколько опыта всего нужно, чтобы стоять на уровне: первый — даром, пятый — 60.
@@ -43,7 +44,7 @@ export const DEED_XP = { ok: 2, fail: 1 } as const;
  * быстрый путь к уровню. Пять минут не режут ни одного честного дела: круг
  * полководца до логова и боя — от пяти минут.
  */
-export const DEED_GAP = 5 * 60_000;
+export const DEED_GAP = 5 * MINUTE_MS;
 
 /** Профильный навык. У дипломата его нет, пока ему не с кем говорить. */
 export type SkillId = 'onslaught' | 'sight' | 'stealth';
@@ -123,7 +124,7 @@ export const AGENT_AGE0 = 24;
 /** В этом возрасте агент бросает дело: возвращается домой и уходит на покой. */
 export const RETIRE_AGE = 60;
 /** С этого возраста карточка предупреждает, что покой близко. */
-export const RETIRE_WARN = 57;
+export const RETIRE_WARN = RETIRE_AGE - 3;
 
 
 /** Мест под вещи у каждого агента. Открыты не все: см. `slotsOpen`. */

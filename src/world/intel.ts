@@ -19,7 +19,7 @@ export function precisionOf(ageMs: number): Precision {
   return 'unknown';
 }
 
-const UNKNOWN: Estimate = { precision: 'unknown', value: null, min: 0, max: 0 };
+export const UNKNOWN: Estimate = { precision: 'unknown', value: null, min: 0, max: 0 };
 
 /**
  * Число с той точностью, которая осталась. Границы диапазона считаются от самого

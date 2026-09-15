@@ -21,7 +21,7 @@
 // (см. `atlas/`), и сид не решает про неё ничего. У `geography.ts` он в
 // подписях остался ради полутора десятков мест вызова.
 import { ATLAS_TERRAIN } from './atlas/data';
-import { ATLAS_RIDGE, ATLAS_RIVER, atlasCell, atlasTerrain } from './atlas/atlas';
+import { ATLAS_RIDGE, ATLAS_RIVER, ATLAS_WATER, atlasCell, atlasTerrain } from './atlas/atlas';
 import { PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
 
 /**
@@ -34,7 +34,6 @@ export interface Spot {
   y: number;
 }
 
-const WATER = ATLAS_TERRAIN.indexOf('water');
 const DESERT = ATLAS_TERRAIN.indexOf('desert');
 
 /** Клетка внутри сетки мира. За её краем — открытое море. */
@@ -45,7 +44,7 @@ export const inWorldCell = (x: number, y: number): boolean =>
 export const terrainCodeAt = (x: number, y: number): number =>
   atlasTerrain(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y);
 
-export const isWaterAt = (x: number, y: number): boolean => terrainCodeAt(x, y) === WATER;
+export const isWaterAt = (x: number, y: number): boolean => terrainCodeAt(x, y) === ATLAS_WATER;
 
 export const isDesertAt = (x: number, y: number): boolean => terrainCodeAt(x, y) === DESERT;
 

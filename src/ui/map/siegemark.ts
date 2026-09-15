@@ -22,12 +22,10 @@
 import type { Fate, FellMark } from '@/world/types';
 import { FALL_MARK } from '@/world/data/tuning';
 import { FELL_MARK, SIEGE_WORKS } from './palette';
+import { SQUASH, TAU, pickBucket } from './village';
 
 type C = CanvasRenderingContext2D;
 
-const TAU = Math.PI * 2;
-/** То же сплющивание, что у дворов и отрядов. */
-const SQUASH = 0.62;
 const LINE = 0.024;
 
 // ---------- Чистая часть ----------
@@ -165,9 +163,7 @@ const SPAN_H = 2.4;
 const ANCHOR_X = 1.6;
 const ANCHOR_Y = 1.3;
 
-/** Корзины — те же, что у дворов (`village.BUCKETS`): рогатки растягиваются вместе с ними. */
-const BUCKETS = [22, 30, 40, 52, 64];
-const bucketOf = (px: number): number => BUCKETS.find((b) => b >= px) ?? BUCKETS[BUCKETS.length - 1];
+// Корзины — те же, что у дворов (`village.BUCKETS`, `pickBucket`): рогатки растягиваются вместе с ними.
 
 /** Одна жердь: тёмный контур и тело. Контур держит её на нижней корзине. */
 function pole(ctx: C, x0: number, y0: number, x1: number, y1: number, body: string): void {
@@ -278,7 +274,7 @@ export function drawWorks(
   cx: number,
   cy: number,
 ): void {
-  const bucket = bucketOf(px);
+  const bucket = pickBucket(px);
   const sprite = remember(worksKey(front, rear, half, bucket, dpr), () => bakeWorks(front, rear, half, bucket, dpr));
   const k = px / bucket;
   ctx.drawImage(sprite, cx - ANCHOR_X * bucket * k, cy - ANCHOR_Y * bucket * k, SPAN_W * bucket * k, SPAN_H * bucket * k);

@@ -84,5 +84,11 @@ export function allow(key: string, perMinute: number): boolean {
   return true;
 }
 
+/**
+ * Сколько раз функция пытается выиграть запись поверх ETag, прежде чем отказать. Одно число
+ * на всех, кто переписывает общую запись: реестр замков и исходящие уведомления.
+ */
+export const WRITE_TRIES = 4;
+
 /** Токен бота из окружения. В репозитории его нет и быть не может. */
 export const botToken = (): string => process.env.TELEGRAM_BOT_TOKEN ?? '';
