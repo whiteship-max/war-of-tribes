@@ -29,6 +29,14 @@ const upTo = (have: (s: GameState) => number, n: number) => (s: GameState): [num
 const levelOf = (s: GameState, type: Parameters<typeof buildingOfType>[1]): number =>
   buildingOfType(s, type)?.level ?? 0;
 
+/**
+ * ИДЕНТИФИКАТОР ЗАДАНИЯ — КЛЮЧ В СОХРАНЕНИИ, А НЕ ПОДПИСЬ. Он лежит в `s.completedQuests` и
+ * переименованию не подлежит без ступени сохранения: партия, выполнившая задание под старым
+ * именем, получила бы награду второй раз. Поэтому четыре имени расходятся с тем, что задание
+ * на самом деле проверяет, — они остались от прежних порогов, а пороги выросли вместе с
+ * масштабом посёлка. Правда о задании — в `title`, `description` и `check`; рядом с каждым
+ * таким именем это сказано комментарием.
+ */
 export const QUESTS: QuestDef[] = [
   {
     id: 'smith_at_work',
@@ -82,6 +90,7 @@ export const QUESTS: QuestDef[] = [
     reward: { food: 320 },
   },
   {
+    // Имя от прежнего порога: проверяет пятьдесят бойцов.
     id: 'army_10',
     title: 'Полсотни бойцов',
     description: 'Доведи дружину до пятидесяти человек.',
@@ -121,6 +130,7 @@ export const QUESTS: QuestDef[] = [
     reward: { hides: 320 },
   },
   {
+    // Имя от прежнего порога: проверяет 1200 золота.
     id: 'gold_150',
     title: 'Полная казна',
     description: 'Собери 1200 золота: налог в ратуше, десятина прихода, продажа невольников на рынке.',
@@ -137,6 +147,7 @@ export const QUESTS: QuestDef[] = [
     reward: { stone: 480 },
   },
   {
+    // Имя от прежнего порога: проверяет двести жителей.
     id: 'pop_20',
     title: 'Двести душ',
     description: 'Доведи население до 200: людей на дружину берут с площади.',
@@ -145,6 +156,7 @@ export const QUESTS: QuestDef[] = [
     reward: { food: 600, wood: 300 },
   },
   {
+    // Имя от прежнего порога: проверяет двести бойцов.
     id: 'army_25',
     title: 'Большая дружина',
     description: 'Доведи дружину до двухсот бойцов.',
@@ -170,6 +182,11 @@ export interface AchievementDef {
   check: (s: GameState) => boolean;
 }
 
+/**
+ * У достижений идентификатор — только ключ разметки и имя значка (`ach-<id>`): в сохранении их
+ * нет, они считаются `check` при чтении. Поэтому врущее имя здесь можно было поправить
+ * (`twenty_people` проверяло двести жителей — теперь `pop_200`), а у заданий — нельзя.
+ */
 export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first_gear', icon: '⚒️', title: 'Первое снаряжение', check: (s) => Object.values(s.equipment ?? {}).some((n) => n > 0) },
   { id: 'first_scout', icon: '👣', title: 'Первая разведка', check: (s) => (s.stats.scouted ?? 0) >= 1 },
@@ -177,5 +194,5 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first_win', icon: '🏆', title: 'Первая победа', check: (s) => s.stats.battlesWon >= 1 },
   { id: 'first_hunt', icon: '🏹', title: 'Первая охота', check: (s) => s.stats.hunts >= 1 },
   { id: 'survivor', icon: '🌙', title: 'Пережили 10 дней', check: (s) => s.time >= 10 * 60 },
-  { id: 'twenty_people', icon: '🏘️', title: '200 жителей', check: (s) => s.pop >= 200 },
+  { id: 'pop_200', icon: '🏘️', title: '200 жителей', check: (s) => s.pop >= 200 },
 ];

@@ -145,7 +145,7 @@ const ALIAS: Record<string, IconName> = {
   'ach-first_scout': 'fig-scout',
   'ach-first_raid': 'hud-army',
   'ach-first_hunt': 'gear-bow',
-  'ach-twenty_people': 'bld-houses',
+  'ach-pop_200': 'bld-houses',
   'ach-survivor': 'day-night',
 };
 
