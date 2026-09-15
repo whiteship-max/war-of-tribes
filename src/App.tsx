@@ -22,7 +22,6 @@ import { TutorialOverlay } from './ui/TutorialOverlay';
 import { Letters } from './ui/Letters';
 import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
-import { SceneCurtain } from './ui/SceneCurtain';
 import { StartScreen } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { WorldPanel } from './ui/panels/WorldPanel';
@@ -200,7 +199,6 @@ export function App() {
       <LegacyModal />
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
-      <SceneCurtain />
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}

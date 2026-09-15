@@ -33,9 +33,9 @@ describe('замыкания отчётов на этом репозитории
     expect(world.built).toBe(false);
   });
 
-  it('отчёт со страницей тянет разметку, вход, стили, картинки и публичную папку', () => {
+  it('отчёт со страницей тянет разметку, вход, стили и публичную папку', () => {
     const tap = report('tap').closure;
-    expect([...tap.files]).toEqual(expect.arrayContaining(['index.html', 'src/main.tsx', 'src/ui/styles.css', 'src/prologue/prologue.css', 'src/ui/art/curtain-march.webp']));
+    expect([...tap.files]).toEqual(expect.arrayContaining(['index.html', 'src/main.tsx', 'src/ui/styles.css', 'src/prologue/prologue.css']));
     expect([...tap.dirs]).toContain('public/');
   });
 

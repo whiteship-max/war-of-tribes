@@ -152,9 +152,8 @@ function manifest() {
   // статическим `import` (ленивые куски — стенды, ролик о бое, предыстория с её стилями —
   // сюда не попадают сами). Что они не протекли в первую загрузку модулями, держит сборка
   // (`lazyDoorsPlugin` в vite.config.ts). Остальное — по месту: музыка и лица качаются по
-  // ходу партии, арт перехода — на первый вход на карту, заставка входит — её тянет экран
-  // загрузки, пусть и после первого кадра.
-  const LATER = [/^assets\/(music|avatars)\//, /^assets\/curtain-/];
+  // ходу партии, заставка входит — её тянет экран загрузки, пусть и после первого кадра.
+  const LATER = [/^assets\/(music|avatars)\//];
   const html = readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const firstCode = new Set();
   const reach = (rel) => {

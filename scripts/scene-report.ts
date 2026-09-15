@@ -3,8 +3,9 @@
  *
  * Отчёт заведён под другой вопрос — «выгружать ли диораму на время карты» — и
  * ответил на него отрицательно: см. docs/loading.md, часть 2. Разделение сцен
- * откатано, а стенд остался: те же три величины надо знать и без него, и ровно
- * ими решается, нужен ли занавес на первом входе на карту.
+ * откатано, а стенд остался: те же три величины надо знать и без него. Ими же
+ * решилось, что занавес на первом входе на карту не нужен: вход быстрее порога
+ * его показа, и занавес убран.
  *
  * Меряется:
  *
@@ -98,7 +99,6 @@ const PROBE = `
     JSON.stringify({
       took: window.__t,
       map: g().mapOpen,
-      curtain: g().curtain,
       heap: performance.memory.usedJSHeapSize,
       canvases: document.querySelectorAll('canvas').length,
       marks: performance.getEntriesByType('mark').map((m) => [m.name, Math.round(m.startTime)]),
@@ -115,7 +115,6 @@ const PROBE = `
 interface PageState {
   took: number;
   map: boolean;
-  curtain: string | null;
   heap: number;
   canvases: number;
   marks: Array<[string, number]>;

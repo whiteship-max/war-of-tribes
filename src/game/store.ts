@@ -72,36 +72,6 @@ export type SheetView =
 const TICK_MS = 500;
 const AUTOSAVE_MS = 15000;
 
-/**
- * Занавес перехода — арт поверх всего, пока экран не готов.
- *
- * Висит он ровно в одном месте: **первый вход на карту за сессию**. Там и правда
- * есть чего ждать — печётся земля, туман и владения, и это единственный переход,
- * который заметно дольше остальных. Все прочие мгновенные, и занавес на них был
- * бы не объяснением, а морганием.
- *
- * Возврат домой занавеса не знает вовсе: диорама никуда не девалась.
- */
-/**
- * Вид занавеса. Назван по случаю, а не по картинке: раньше он звался `march`
- * по арту «дружина за воротами», арт сменился на костёр, и имя стало врать.
- * Случай же остался один — первый вход на карту.
- */
-export type Curtain = 'map';
-
-/**
- * Предел, после которого занавес снимается сам.
- *
- * Не механизм, а страховка. Поднимает занавес тот, кто нарисовал первый кадр
- * новой сцены, — и это правильно: время сборки не константа, а свойство
- * телефона. Но занавес перехватывает нажатия, и если кадр по какой-то причине
- * не придёт, игрок останется заперт под картинкой навсегда. Шесть секунд —
- * заведомо больше самой долгой сборки (медиана возврата домой ≈ 0.33 с,
- * `npm run scene:report`), так что в обычной игре этот таймер не срабатывает
- * никогда, а в необычной рвётся занавес, а не партия.
- */
-const CURTAIN_MAX_MS = 6000;
-
 /** Что открыто — обучение засчитывает шаги и по интерфейсу, не только по состоянию. */
 const tutorialUi = (g: GameStore): TutorialUi => ({
   building: g.sheet?.kind === 'building' ? g.sheet.id : null,
@@ -131,8 +101,6 @@ export interface GameStore {
    * держать в памяти обе сцены разом незачем (docs/loading.md, часть 2).
    */
   mapOpen: boolean;
-  /** Арт перехода поверх всего, пока одна сцена умирает, а другая собирается. */
-  curtain: Curtain | null;
   /** Какая вкладка открыта в ратуше. */
   townTab: TownTab;
   toast: string | null;
@@ -152,12 +120,6 @@ export interface GameStore {
   /** Карта мира вместо сцены. */
   openMap: () => void;
   closeMap: () => void;
-  /**
-   * Занавес поднят: новая сцена нарисовала первый кадр. Зовут те, кто этот кадр
-   * и нарисовал, — `GameCanvas` и `WorldMap`. Своего таймера у занавеса нет
-   * нарочно: время сборки сцены не константа, а свойство телефона.
-   */
-  curtainUp: () => void;
   /** Карточка клетки карты в нижней шторке. */
   openWorldTile: (x: number, y: number) => void;
   /** Список своих походов и отчётов. */
@@ -209,10 +171,6 @@ export interface GameStore {
 }
 
 let loopStarted = false;
-/** Номер перехода: страховка снимает только свой занавес, а не следующий. */
-let curtainNo = 0;
-/** Карту в этой сессии уже открывали: второй раз печь землю не надо, и ждать нечего. */
-let mapSeen = false;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useGame = create<GameStore>((set, get) => ({
@@ -223,7 +181,6 @@ export const useGame = create<GameStore>((set, get) => ({
   fresh: true,
   sheet: null,
   mapOpen: false,
-  curtain: null,
   townTab: 'build',
   toast: null,
   eventResult: null,
@@ -258,26 +215,12 @@ export const useGame = create<GameStore>((set, get) => ({
   setTownTab: (tab) => set({ townTab: tab }),
 
   openMap: () => {
-    if (get().curtain) return;
     haptic('light');
-    if (mapSeen) {
-      // Второй и всякий следующий раз — мгновенно: земля уже испечена, диорама
-      // никуда не девалась, ждать нечего.
-      set({ mapOpen: true, sheet: null });
-      get().syncTutorial();
-      return;
-    }
-    mapSeen = true;
-    // Занавес заводится сразу, а показывается — только если переход затянулся
-    // (порог держит сам `SceneCurtain`). Раньше срока он не «спрятан на всякий
-    // случай»: пока он в разметке, браузер тянет арт, и к моменту показа тот уже
-    // на месте. Иначе на медленном телефоне — а это и есть единственный случай,
-    // когда занавес вообще нужен, — игрок увидел бы подпись на пустом чёрном.
-    const no = ++curtainNo;
-    setTimeout(() => {
-      if (curtainNo === no) get().curtainUp();
-    }, CURTAIN_MAX_MS);
-    set({ mapOpen: true, sheet: null, curtain: 'map' });
+    // Мгновенно, и в первый раз тоже: диорама никуда не девалась, а первая
+    // выпечка земли укладывается в десятки миллисекунд (`npm run scene:report`).
+    // Занавеса с артом на этот случай больше нет: при пороге показа в 240 мс он
+    // не показывался практически никогда (docs/loading.md, раздел 3).
+    set({ mapOpen: true, sheet: null });
     get().syncTutorial();
   },
 
@@ -288,16 +231,8 @@ export const useGame = create<GameStore>((set, get) => ({
       cur &&
       (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'battle' || cur.kind === 'report' || cur.kind === 'camp');
     const keep = cur && !onMap ? cur : null;
-    // Домой — мгновенно и без занавеса: диорама всё это время стояла на месте.
-    set({ mapOpen: false, sheet: keep, curtain: null });
-    curtainNo++;
-  },
-
-  curtainUp: () => {
-    if (!get().curtain) return;
-    // Страховке больше нечего снимать: следующий переход заведёт свой номер.
-    curtainNo++;
-    set({ curtain: null });
+    // Домой — мгновенно: диорама всё это время стояла на месте.
+    set({ mapOpen: false, sheet: keep });
   },
 
   openWorldTile: (x, y) => {
@@ -491,9 +426,6 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   reset: () => {
-    // Новая партия — новый мир: первый вход на карту снова стоит времени, и
-    // занавес снова уместен.
-    mapSeen = false;
     clearSave();
     set({ s: createInitialState(), sheet: null, eventResult: null, offlineSeconds: 0 });
     get().save();

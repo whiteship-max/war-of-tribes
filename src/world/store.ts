@@ -803,9 +803,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // Места нет — показывать нечего, и кнопки в таком письме тоже нет.
     if (!cell) return;
     useGame.getState().openMap();
-    // Переход мог и не состояться — карта не открывается поверх идущего
-    // занавеса. Тогда и карточку закрывать не за чем: игрок остался бы разом
-    // без карты и без письма.
+    // Переход мог и не состояться. Тогда и карточку закрывать не за чем: игрок
+    // остался бы разом без карты и без письма.
     if (!useGame.getState().mapOpen) return;
     haptic('light');
     set({ spotlight: cell, letterBack: id, openLetter: null });
