@@ -101,6 +101,13 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   }
 }
 
+/**
+ * Сколько догонять после записи — одна формула на догон и на ступень, которой нужно знать,
+ * где кончится догон: служба приведённых агентов начинается в минуту входа, а не раньше.
+ */
+export const offlineSeconds = (lastSaved: number): number =>
+  Math.min(Math.max(0, Math.floor((serverNow() - lastSaved) / 1000)), MAX_OFFLINE_SECONDS);
+
 /** Пороги опыта до смертных агентов: по ним лежит опыт в сохранении двенадцатой версии. */
 const OLD_LEVEL_XP = [0, 20, 60, 130, 240] as const;
 
@@ -122,7 +129,9 @@ export function rescaleXp(old: number): number {
  * Ступень 12 → 13. Умолчания здесь не хватает: `bornAt` = 0 в партии с большим
  * `s.time` сделал бы всех четверых стариками, и на первом же пульсе они ушли бы на
  * покой. Поэтому служба начинается **сейчас**: агенты считаются нанятыми в минуту
- * загрузки, в `AGENT_AGE0` лет, с тем опытом, что был.
+ * входа — после догона офлайна, который загрузка сделает следом, — в `AGENT_AGE0` лет, с
+ * тем опытом, что был. Иначе четыре часа догона при нынешнем годе в двадцать минут
+ * состарили бы их на двенадцать лет за то время, когда они ещё не старели.
  *
  * Сид партии тоже выводится из неё самой, а не берётся у устройства: одно и то же
  * сохранение, загруженное дважды до первой записи, обязано получить одних и тех же
@@ -142,7 +151,7 @@ function mortalAgents(s: GameState, data: SavedState): void {
     const raw = oldAgents[id]?.xp;
     p.xp = rescaleXp(typeof raw === 'number' ? raw : 0);
     p.person = 0;
-    p.bornAt = s.time;
+    p.bornAt = s.time + offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow());
     p.age0 = AGENT_AGE0;
     p.vacant = false;
     p.hiring = null;
@@ -330,8 +339,7 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
     log(state, 'Партия поднята из облака Telegram: на этом устройстве её не было.');
   }
 
-  const elapsed = Math.max(0, Math.floor((serverNow() - state.lastSaved) / 1000));
-  const offline = Math.min(elapsed, MAX_OFFLINE_SECONDS);
+  const offline = offlineSeconds(state.lastSaved);
   if (offline > 5) {
     await hooks.onOffline?.(offline);
     catchUp(state, offline, 2);

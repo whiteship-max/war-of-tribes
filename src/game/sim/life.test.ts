@@ -9,7 +9,8 @@
 //   все четверо были бы старше шестидесяти.
 import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, rescaleXp, serialize } from '../save';
+import { deserialize, offlineSeconds, rescaleXp, serialize } from '../save';
+import { serverNow } from '@/net/clock';
 import { catchUp, tick } from './tick';
 import { seeded } from './random';
 import { ageOf, agentLevel, retiring } from './agents';
@@ -169,6 +170,14 @@ describe('ступень сохранения 12 → 13', () => {
       expect(s.agents[id].name, `${id}: имя дано`).not.toBeNull();
     }
     expect(s.agents.general.name, 'имя героя перешло полководцу').toBe('Радим Хмурый');
+    // Служба начинается в минуту входа — после догона офлайна, а не до него.
+    const away = JSON.parse(json) as Record<string, unknown>;
+    away.lastSaved = serverNow() - 3 * 3600_000;
+    const late = deserialize(JSON.stringify(away))!;
+    const offline = offlineSeconds(away.lastSaved as number);
+    expect(offline, 'точка внутри области: догонять есть что').toBeGreaterThan(3600);
+    catchUp(late, offline, 10);
+    for (const id of FIGURE_IDS) expect(ageOf(late, id), `${id}: догон не состарил`).toBeCloseTo(AGENT_AGE0, 6);
     expect(s.log.some((e) => e.text.startsWith('Агенты получили имена и возраст'))).toBe(true);
   });
 
