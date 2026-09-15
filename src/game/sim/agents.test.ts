@@ -201,7 +201,7 @@ describe('агент первого уровня — это сегодняшни
       expect(old.agents[id].slots).toEqual([null, null, null]);
     }
     const p = playerProfile(old);
-    expect('onslaught' in p || 'sightBonus' in p || 'stealth' in p).toBe(false);
+    expect(['onslaught', 'sightBonus', 'stealth'].filter((k) => k in p), 'слепок первого уровня не везёт полей навыка').toEqual([]);
     // Опыт копится, но пока уровень первый — слепок тот же, байт в байт.
     old.agents.general.xp = LEVEL_XP[1] - 1;
     expect(JSON.stringify(playerProfile(old))).toBe(JSON.stringify(p));
@@ -240,7 +240,8 @@ describe('ячейки: переодеться можно только дома'
       const s = createInitialState();
       s.agents.scout.slots[0] = 'сапоги' as ItemId;
       const err = regear(s, 'scout', 0, null, where, []);
-      expect(err, `отказ в фазе ${where.phase}`).toMatch(/переодева|переодеться/);
+      expect(err, `отказ в фазе ${where.phase}`).not.toBeNull();
+      expect(err).toMatch(/переодева|переодеться/);
       expect(s.agents.scout.slots[0]).toBe('сапоги');
     }
   });

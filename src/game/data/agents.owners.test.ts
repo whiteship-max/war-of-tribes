@@ -31,6 +31,7 @@ import { playerProfile } from '@/world/bridge';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import type { PlayerProfile } from '@/world/types';
+import { SPY_CHANCE_MAX, SPY_CHANCE_MIN } from '@/world/data/tuning';
 
 const SRC = join(__dirname, '..', '..');
 const read = (p: string): string =>
@@ -130,7 +131,7 @@ describe('агенты пятого уровня не сдвигают ни од
       units: { warrior: 10, scout: 4 },
       army: { spearman: 12 },
       command: 60,
-      intelKeen: 1.5,
+      intelKeen: 1,
       warning: 40,
       stock: { food: 120 },
       stash: 0,
@@ -144,9 +145,17 @@ describe('агенты пятого уровня не сдвигают ни од
         warningMs(): number;
         sightDiscs(t: number): unknown;
       };
-      const target = inner.gen.settlements[0].id;
-      const chances = (await w.orders('spy', target)).map((o) => o.chance);
+      // Цель, у которой шанс не прижат ни к полу, ни к потолку: у прижатого шанса
+      // множитель от навыка не был бы виден, и сравнение проходило бы даром.
+      const all: { id: string; c: number[] }[] = [];
+      for (const s of inner.gen.settlements) {
+        all.push({ id: s.id, c: (await w.orders('spy', s.id)).map((o) => o.chance ?? 0) });
+      }
+      const free = all.find((x) => x.c.every((c) => c > SPY_CHANCE_MIN && c < SPY_CHANCE_MAX / 2));
+      expect(free, 'точка внутри области: шанс не прижат').toBeDefined();
+      const chances = free!.c;
       return {
+        target: free!.id,
         chances,
         capacity: pulse.figures.map((f) => f.capacity),
         warning: inner.warningMs(),

@@ -24,7 +24,7 @@ vi.mock('@/battle', async (orig) => {
   };
 });
 
-import { PLAN_IDS, UNIT_KINDS, emptyStack, startMorale } from '@/battle';
+import { DEFAULT_ORDERS, MORALE, PLAN_IDS, UNIT_KINDS, emptySectors, emptyStack, startMorale } from '@/battle';
 import { createInitialState } from '@/game/state';
 import { kindsOf, type TroopStack } from '@/game/battle/kinds';
 import { onslaughtAt, onslaughtOf } from '@/game/sim/agents';
@@ -226,28 +226,42 @@ describe('карточка и бой считают одно и то же', () =
   it('прибавка по родам — минимум по планам той функцией ядра, с той стойкостью и тем снаряжением, что ушли в бой', async () => {
     const w = makeWorld();
     const level = 3;
-    const p = tribeProfile(level, { fervour: 6, mountGear: 1 });
+    // Обряд подобран так, чтобы потолок морали кусал конницу: иначе карточка сошлась бы
+    // с боем и при чужом снаряжении, и сравнение ничего бы не доказывало.
+    const rite = 10;
+    const p = tribeProfile(level, { fervour: rite, mountGear: 1 });
     await w.world.sync(p);
     stand(w, nearestLair(w));
     const mark = H.inputs.length;
     await w.world.attack({ setup: null });
     const input = battleSince(mark);
-    const card = onslaughtRows(RETINUE, 1, 6, onslaughtAt(1), onslaughtAt(level));
+    const card = onslaughtRows(RETINUE, 1, rite, onslaughtAt(1), onslaughtAt(level));
     const kinds = kindsOf(RETINUE);
+    const full = onslaughtAt(level) - onslaughtAt(1);
     expect(card.map((r) => r.kind)).toEqual(UNIT_KINDS.filter((k) => kinds[k] > 0));
+    let bitten = 0;
+    let given = 0;
     for (const row of card) {
       const pure: Stack = { ...emptyStack(), [row.kind]: kinds[row.kind] };
+      // Прибавка по планам — самим ядром, со снаряжением и стойкостью из настоящего боя.
       const gains = PLAN_IDS.map(
         (plan) =>
           startMorale({ ...input.attacker, plan }, pure) -
-          startMorale({ ...input.attacker, plan, resolve: generalResolve(6, onslaughtAt(1)) }, pure),
+          startMorale({ ...input.attacker, plan, resolve: generalResolve(rite, onslaughtAt(1)) }, pure),
       );
-      expect(row.got, `${row.kind}: карточка против боя`).toBeCloseTo(Math.min(...gains), 1);
+      const worst = Math.min(...gains);
+      if (worst < full) bitten++;
+      if (worst > 0) given++;
+      expect(row.got, `${row.kind}: карточка против боя`).toBeCloseTo(worst, 1);
       // И в том плане, которым бой действительно пошёл, прибавка не меньше обещанной.
       const real =
-        startMorale(input.attacker, pure) - startMorale({ ...input.attacker, resolve: generalResolve(6, 0) }, pure);
-      expect(real).toBeGreaterThanOrEqual(row.got - 0.05);
+        startMorale(input.attacker, pure) - startMorale({ ...input.attacker, resolve: generalResolve(rite, onslaughtAt(1)) }, pure);
+      expect(real, `${row.kind}: план боя`).toBeGreaterThanOrEqual(row.got - 0.05);
     }
+    // Точки внутри области, по бою, а не по карточке: потолок кусает хоть один род, и хоть
+    // одному натиск прибавляет. Обряд подобран так, чтобы кусала конница.
+    expect(bitten, 'точка внутри области: потолок кусает хоть один род').toBeGreaterThan(0);
+    expect(given, 'и хоть одному роду натиск прибавляет').toBeGreaterThan(0);
   });
 
   it('когда потолок съедает натиск, карточка так и говорит: кружок ничего не прибавит', () => {
@@ -255,10 +269,15 @@ describe('карточка и бой считают одно и то же', () =
     // планом «оборона» уже сотня. Точка внутри области — проверяется числом.
     const riders: TroopStack = { rider: 20 };
     const rite = 12;
+    // Область — по ядру, а не по карточке: при плане «оборона» мораль всадников с
+    // натиском второго уровня уже сотня, то есть третьему кружку расти некуда.
+    const pure: Stack = { ...emptyStack(), cavalry: kindsOf(riders).cavalry };
+    const setup = { sectors: emptySectors(), plan: 'defense' as const, orders: DEFAULT_ORDERS, reserve: { kind: 'morale' as const }, gear: ownGearOf(riders, 1) };
+    expect(startMorale({ ...setup, resolve: generalResolve(rite, onslaughtAt(2)) }, pure), 'точка внутри области: мораль уже у потолка').toBe(MORALE.max);
     const rows = onslaughtRows(riders, 1, rite, onslaughtAt(2), onslaughtAt(3));
     expect(rows).toHaveLength(1);
     expect(rows[0].full, 'натиск что-то обещает').toBeGreaterThan(0);
-    expect(rows[0].got, 'точка внутри области: потолок съел всё').toBe(0);
+    expect(rows[0].got, 'карточка: потолок съел всё').toBe(0);
     const lines = onslaughtLines(2, riders, 1, rite);
     expect(lines.next).toBe('Следующий кружок этой дружине ничего не прибавит: потолок морали.');
     expect(lines.troops).toMatch(/не прибавляет ничего/);
