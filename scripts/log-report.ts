@@ -145,7 +145,9 @@ function report(title: string, s: GameState): void {
  */
 function play(hours: number, offline: boolean, trade = false): GameState {
   setRandom(seeded(7));
-  const s = createInitialState();
+  // Сид партии закреплён тем же числом: без него партия бралась от `freshSeed`, и имя
+  // полководца, а с ним длина сохранения, плавали от прогона к прогону на знак-другой.
+  const s = createInitialState(7);
   s.tutorialDone = true;
   let nextHire = 0;
   let tradeDay = -1;

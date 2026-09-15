@@ -23,6 +23,7 @@
  * выпечки её не видит (docs/world-map.md): эти числа про работу процессора.
  */
 import { sleep, Tab } from './chrome';
+import { measure as live } from './measured';
 import { openPinnedMap } from './pinned';
 
 /** Замедления процессора: эта машина, телефон средней руки, слабый телефон. */
@@ -169,7 +170,7 @@ export function printFlight(flown: Flight[], log: (s: string) => void = console.
   for (const f of flown) {
     const row = (name: string, a: number[], tail: string): void =>
       log(
-        `${pad(String(f.slow), 3)} ${pad(name, 14)} ${String(a.length).padStart(5)} ${num(median(a), 8)} ${num(pct(a, 0.95), 8)} ${num(Math.max(0, ...a), 8)} ${tail}`,
+        `${pad(String(f.slow), 3)} ${pad(name, 14)} ${live(String(a.length).padStart(5))} ${live(num(median(a), 8))} ${live(num(pct(a, 0.95), 8))} ${live(num(Math.max(0, ...a), 8))} ${tail}`,
       );
     const long = f.fly.length ? Math.round((100 * f.fly.filter((d) => d > LONG_FRAME).length) / f.fly.length) : 0;
     const holes = f.gaps ? f.gaps.filter((g) => g > 0).length : null;
@@ -178,10 +179,10 @@ export function printFlight(flown: Flight[], log: (s: string) => void = console.
     row(
       'кадр в броске',
       f.fly,
-      `длинных ${long}%` + (holeShare === null ? '' : `, кадров с обзором на экране ${holeShare}%`),
+      `длинных ${live(long)}%` + (holeShare === null ? '' : `, кадров с обзором на экране ${live(holeShare)}%`),
     );
     const stillLong = f.still.length ? Math.round((100 * f.still.filter((d) => d > LONG_FRAME).length) / f.still.length) : 0;
     const cache = f.cache ? `; кадр просит ${f.cache.want}, кэш держит ${f.cache.size} из ${f.cache.capacity}` : '';
-    row('кадр стоя', f.still, `длинных ${stillLong}%, выпечек стоя ${f.stillBakes}${cache}`);
+    row('кадр стоя', f.still, `длинных ${live(stillLong)}%, выпечек стоя ${f.stillBakes}${cache}`);
   }
 }

@@ -33,12 +33,17 @@
  * драйвер, живой three, живая пересборка. Поэтому стенд отвечает «да/нет» по
  * каждому случаю и возвращает ненулевой код, если хоть один сорвался.
  *
+ * Кадры за окно и журнал с отметками секунд стоят в выводе в `‹…›` (`lib/measured.ts`): они
+ * плавают от прогона к прогону и при сверке не сравниваются. Приговор «да/НЕТ» по каждому
+ * случаю, номера сцен, размеры холста и буфера — свойства кода и обязаны совпасть.
+ *
  * Запуск: npm run revive:report
  * Переменные: PORT / CDP_PORT, CHROME=путь\к\chrome.exe, HEAD=1 (видимое окно).
  */
 import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { measure as live } from './lib/measured';
 import { RESTORE_WAIT } from '../src/render/Scene';
 import { STALL_MS, type Note, type Vitals } from '../src/scenelog';
 
@@ -211,7 +216,7 @@ async function report(): Promise<void> {
   };
 
   const first = await state();
-  console.log(`\nБраузер: настоящий WebGL, экран ${WIDTH}×${HEIGHT} @2, кадров на старте ${first.frames}`);
+  console.log(`\nБраузер: настоящий WebGL, экран ${WIDTH}×${HEIGHT} @2, кадров на старте ${live(first.frames)}`);
   console.log(`Срок ожидания контекста — ${RESTORE_WAIT} мс, порог остановки — ${STALL_MS} мс.\n`);
 
   // ---------- 1. Потеря и возврат ----------
@@ -221,14 +226,14 @@ async function report(): Promise<void> {
   const lost = await state();
   const lostFrames = await drawing(300);
   check('контекст потерян и сцена это видит', lost.lost, `приборы: lost=${lost.lost}, луп: ${lost.blocks.join(',') || 'идёт'}`);
-  check('кадры в мёртвый контекст не рисуются', lostFrames === 0, `кадров за 300 мс: ${lostFrames}`);
+  check('кадры в мёртвый контекст не рисуются', lostFrames === 0, `кадров за 300 мс: ${live(lostFrames)}`);
 
   await go('restore()');
   await sleep(700);
   const back = await state();
   const backFrames = await drawing();
   check('контекст вернулся', !back.lost, `lost=${back.lost}`);
-  check('кадры пошли снова', backFrames > 5, `кадров за 400 мс: ${backFrames}`);
+  check('кадры пошли снова', backFrames > 5, `кадров за 400 мс: ${live(backFrames)}`);
   check('диорама та же, пересборки не потребовалось', back.tag === first.tag, `сцена №${back.tag}`);
   check(
     'буфер на месте',
@@ -246,7 +251,7 @@ async function report(): Promise<void> {
   const rebuiltFrames = await drawing();
   check('сцена пересобрана заново', rebuilt.tag !== back.tag, `была №${back.tag}, стала №${rebuilt.tag}`);
   check('у новой сцены живой контекст', !rebuilt.lost, `lost=${rebuilt.lost}`);
-  check('кадры идут', rebuiltFrames > 5, `кадров за 400 мс: ${rebuiltFrames}`);
+  check('кадры идут', rebuiltFrames > 5, `кадров за 400 мс: ${live(rebuiltFrames)}`);
   // Свою ссылку стенд роняет до подсчёта: считаем утечки игры, а не свои.
   await go('forget()');
   const alive = await tab.alive('window.__scene');
@@ -258,13 +263,13 @@ async function report(): Promise<void> {
   await sleep(200);
   const hidden = await state();
   const hiddenFrames = await drawing(500);
-  check('кадров в скрытой странице нет', hiddenFrames === 0, `кадров за 500 мс: ${hiddenFrames}`);
+  check('кадров в скрытой странице нет', hiddenFrames === 0, `кадров за 500 мс: ${live(hiddenFrames)}`);
   check('причина названа', hidden.blocks.includes('hidden'), `луп: ${hidden.blocks.join(',') || 'идёт'}`);
 
   await go('hide(false)');
   await sleep(300);
   const shown = await drawing();
-  check('при возвращении кадры идут снова', shown > 5, `кадров за 400 мс: ${shown}`);
+  check('при возвращении кадры идут снова', shown > 5, `кадров за 400 мс: ${live(shown)}`);
 
   // ---------- 4. Размер, поменявшийся в фоне ----------
   console.log('\n4. Холст поменялся, пока страница была скрыта');
@@ -317,7 +322,9 @@ async function report(): Promise<void> {
   const notes = await tab.eval<Note[]>('window.__revive.log()');
   const t0 = notes[0]?.at ?? 0;
   for (const n of notes) {
-    console.log(`  +${((n.at - t0) / 1000).toFixed(1)}s ${pad(n.kind, 9)} ${n.note ?? ''}`);
+    // Журнал — живая лента: сколько в нём записей и в какую секунду, решает гонка событий
+    // (строка «tg вьюпорт» то приходит, то нет). Сравнивается приговор по случаям выше.
+    console.log(`  ${live(`+${((n.at - t0) / 1000).toFixed(1)}s ${pad(n.kind, 9)} ${n.note ?? ''}`)}`);
   }
 }
 

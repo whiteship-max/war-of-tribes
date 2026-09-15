@@ -16,6 +16,10 @@
  *            конец перехода это момент, когда полотно нарисовано;
  *   память   куча в деревне и с открытой картой, живых диорам после кругов.
  *
+ * Всё, что меряется часами и кучей, стоит в выводе в `‹…›` (`lib/measured.ts`): это плавает от
+ * прогона к прогону и при сверке не сравнивается. Остальное — число диорам, холстов,
+ * геометрий, кругов — свойство кода и обязано совпасть буква в букву.
+ *
  * Запуск: npm run scene:report   (нужен собранный dist: npm run build)
  * Переменные: ROUNDS=10  PORT=4190  CHROME=путь\к\chrome.exe  HEAD=1 (видимое окно)
  *
@@ -29,6 +33,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { measure as live } from './lib/measured';
 import { generateWorld } from '../src/world/gen';
 
 const DIST = fileURLToPath(new URL('../dist', import.meta.url));
@@ -228,7 +233,7 @@ async function main(): Promise<void> {
     const at = (name: string): number | null => p.marks.find((m) => m[0] === name)?.[1] ?? null;
     const stage = (name: string): string => {
       const v = at(name);
-      return v === null ? '—' : `${v} мс`;
+      return v === null ? '—' : `${live(v)} мс`;
     };
 
     console.log('\nОЖИДАНИЕ: ЗАПУСК, МИР, КАРТА');
@@ -242,18 +247,18 @@ async function main(): Promise<void> {
     console.log(`    готово                      ${stage('tribe-ready')}`);
 
     console.log('\n  Генерация мира (чистая функция, без браузера)');
-    console.log(`    первый вызов                ${world.first.toFixed(1)} мс`);
-    console.log(`    медиана из двенадцати       ${world.median.toFixed(1)} мс`);
+    console.log(`    первый вызов                ${live(world.first.toFixed(1))} мс`);
+    console.log(`    медиана из двенадцати       ${live(world.median.toFixed(1))} мс`);
 
     console.log('\n  Вход на карту и возврат (до нарисованного кадра)');
-    console.log(`    первый вход за сессию       ${ms(p.firstOpen)} мс`);
-    console.log(`    следующие входы, медиана    ${ms(median(p.opens))} мс   (${p.opens.map(ms).join(' ')})`);
-    console.log(`    возврат домой, медиана      ${ms(median(p.closes))} мс   (${p.closes.map(ms).join(' ')})`);
+    console.log(`    первый вход за сессию       ${live(ms(p.firstOpen))} мс`);
+    console.log(`    следующие входы, медиана    ${live(ms(median(p.opens)))} мс   (${live(p.opens.map(ms).join(' '))})`);
+    console.log(`    возврат домой, медиана      ${live(ms(median(p.closes)))} мс   (${live(p.closes.map(ms).join(' '))})`);
 
     console.log('\n  Память');
-    console.log(`    куча в деревне              ${mb(p.village)} МБ`);
-    console.log(`    куча с открытой картой      ${mb(p.map)} МБ`);
-    console.log(`    куча после кругов           ${mb(p.after)} МБ`);
+    console.log(`    куча в деревне              ${live(mb(p.village))} МБ`);
+    console.log(`    куча с открытой картой      ${live(mb(p.map))} МБ`);
+    console.log(`    куча после кругов           ${live(mb(p.after))} МБ`);
     console.log(`    живых диорам                ${p.scenesAlive}   (обязана быть одна)`);
     console.log(`    холстов                     ${p.canvases}`);
     if (p.villageMem) {

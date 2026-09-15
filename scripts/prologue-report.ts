@@ -53,6 +53,11 @@
  *   удобство   стенд говорит «дошёл» и «сколько раз», а не «приятно ли». На это
  *              отвечает человек с телефоном в руках, и заменить его нечем.
  *
+ * Всё, что зависит от настоящих часов и кадров, стоит в выводе в `‹…›` (`lib/measured.ts`):
+ * расстояния, до которых дошёл палец, секунды кругов, кадры, вызовы и треугольники бюджета,
+ * куча, и то, успел ли волк укусить за время драки. При сверке это не сравнивается.
+ * Приговор «да/НЕТ», числа круга из разборов и что лежит в записи — обязаны совпасть.
+ *
  * Запуск: npm run prologue:report
  * Переменные: SECONDS=6, SHOTS=папка, PORT / CDP_PORT, CHROME=путь\\к\\chrome.exe, HEAD=1.
  */
@@ -61,6 +66,7 @@ import { join } from 'node:path';
 import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { measure as live } from './lib/measured';
 import { BURN_FULL_MS, HEARTH_CAP, KEEP_BURN, LOG_HOURS, LOG_MS, burnLeftMs } from '../src/prologue/fire';
 import {
   AXE_STUMP,
@@ -1147,7 +1153,7 @@ async function report(): Promise<void> {
   step(
     'дошёл до топора пешком',
     atAxe.label === 'Взять топор' && atAxe.can === true,
-    `${steps} нажатий стика, ${num(Math.hypot(atAxe.x, atAxe.z))} м от костра`,
+    `${live(steps)} нажатий стика, ${live(num(Math.hypot(atAxe.x, atAxe.z)))} м от костра`,
   );
 
   await tap(190, 400);
@@ -1182,7 +1188,7 @@ async function report(): Promise<void> {
   step(
     'дошёл до дерева',
     found,
-    found ? `${turns + 1} заходов, стоит в ${num(Math.hypot(atTree.x, atTree.z))} м от костра` : 'не нашёл дерева',
+    found ? `${live(turns + 1)} заходов, стоит в ${live(num(Math.hypot(atTree.x, atTree.z)))} м от костра` : 'не нашёл дерева',
   );
 
   if (found) {
@@ -1233,7 +1239,7 @@ async function report(): Promise<void> {
   step(
     'вернулся к костру',
     atFire.label === 'Подложить дров' && atFire.can === true,
-    `${back} заходов, ${num(Math.hypot(atFire.x, atFire.z))} м от середины`,
+    `${live(back)} заходов, ${live(num(Math.hypot(atFire.x, atFire.z)))} м от середины`,
   );
 
   const fillBefore = atFire.fill as unknown as number;
@@ -1470,7 +1476,7 @@ async function report(): Promise<void> {
     `жареного ${roasted.cooked} (было ${kit.cooked}), сырого ${roasted.raw}, костёр ${roasted.words}`,
   );
 
-  console.log(`\n  Круг «нарубить — подстрелить — пожарить» занял ${num((Date.now() - loopFrom) / 1000, 0)} с настоящими часами.`);
+  console.log(`\n  Круг «нарубить — подстрелить — пожарить» занял ${live(num((Date.now() - loopFrom) / 1000, 0))} с настоящими часами.`);
 
   // ---------- 1в. Вещи ----------
   //
@@ -1620,7 +1626,7 @@ async function report(): Promise<void> {
   const safe = await state();
   const packNow = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
   const nearestWolf = Math.min(...packNow.map((w) => Math.hypot(w.x, w.z)));
-  step('у горящего костра волки не подходят', nearestWolf >= WOLF_FIRE_R && safe.harm === 0, `ближайший в ${num(nearestWolf)} м от огня, урона: ${safe.harm}`);
+  step('у горящего костра волки не подходят', nearestWolf >= WOLF_FIRE_R && safe.harm === 0, `ближайший в ${live(num(nearestWolf))} м от огня, урона: ${safe.harm}`);
   await shoot('2-ночь-стая');
   // И лицом к огню: ночью костёр обязан быть единственным светом, а это видно
   // только глазами. Замер здесь же: огонь с отсветом, искрами и дымом, звёзды и
@@ -1644,7 +1650,7 @@ async function report(): Promise<void> {
     await walk(500);
   }
   const outside = await state();
-  step('вышел из круга у огня', Math.hypot(outside.x as unknown as number, outside.z as unknown as number) > WOLF_FIRE_R, `${num(Math.hypot(outside.x as unknown as number, outside.z as unknown as number))} м от огня`);
+  step('вышел из круга у огня', Math.hypot(outside.x as unknown as number, outside.z as unknown as number) > WOLF_FIRE_R, `${live(num(Math.hypot(outside.x as unknown as number, outside.z as unknown as number)))} м от огня`);
   // Снимок посреди кружения: стая на виду, но ещё не бросилась.
   await sleep(1500);
   const circling = await tab.eval<{ x: number; z: number }[]>('window.__probe.wolves()');
@@ -1674,8 +1680,8 @@ async function report(): Promise<void> {
     await sleep(60);
   }
   const fought = await state();
-  step('топором отбился от стаи', slain > 0 && !fought.dead, `положено ${slain} из ${WOLF_NIGHT_PACK}, урон ${num(hurtMax, 2)} из ${WOLF_BITES}, ${fought.dead ? 'ЗАГРЫЗЛИ' : 'жив'}`);
-  step('первый укус — не раньше срока', firstBite < 0 || firstBite >= EARLIEST_BITE_MS, firstBite < 0 ? 'не укусили ни разу' : `первый укус через ${num(firstBite / 1000)} с после выхода`);
+  step('топором отбился от стаи', slain > 0 && !fought.dead, `положено ${slain} из ${WOLF_NIGHT_PACK}, урон ${live(num(hurtMax, 2))} из ${WOLF_BITES}, ${fought.dead ? 'ЗАГРЫЗЛИ' : 'жив'}`);
+  step('первый укус — не раньше срока', firstBite < 0 || firstBite >= EARLIEST_BITE_MS, live(firstBite < 0 ? 'не укусили ни разу' : `первый укус через ${num(firstBite / 1000)} с после выхода`));
   const quiet = await state();
   step('отбитая стая ушла', (quiet.wolves as unknown as number) === 0, `волков на поляне: ${quiet.wolves}`);
 
@@ -1718,7 +1724,7 @@ async function report(): Promise<void> {
       writeFileSync(join(SHOTS, `3б-укус-${size.w}.png`), Buffer.from(shot.data, 'base64'));
     }
     if (size !== SHOT_SIZES[0]) continue;
-    step('волк укусил — здоровье упало ровно на укус', harm === 1, harm > 0 ? `урон ${harm} из ${WOLF_BITES} через ${num((Date.now() - biteFrom) / 1000)} с` : 'за 30 с не укусили');
+    step('волк укусил — здоровье упало ровно на укус', harm === 1, harm > 0 ? `урон ${harm} из ${WOLF_BITES} через ${live(num((Date.now() - biteFrom) / 1000))} с` : 'за 30 с не укусили');
     // После укуса стая отскакивает на `WOLF_BITE_GAP`: двух касаний это не ждёт.
     await pressSel('.pro-pack');
     const before = await state();
@@ -1760,7 +1766,7 @@ async function report(): Promise<void> {
   }
   await into(rainStart - 22_000);
   const omen = await state();
-  step('перед дождём небо хмурится', omen.weather === 'хмурится', `за ${num((rainStart - pageNow()) / 1000)} с до дождя: «${omen.weather}»`);
+  step('перед дождём небо хмурится', omen.weather === 'хмурится', `за ${live(num((rainStart - pageNow()) / 1000))} с до дождя: «${omen.weather}»`);
   await shoot('4а-хмурится');
   while (pageNow() < rainStart + 3000) await sleep(250);
   const wet = await state();
@@ -1887,7 +1893,7 @@ async function report(): Promise<void> {
   if (await walkTo(HOUSE.x, HOUSE.z, 'Ставить дом')) await tap(190, 400);
   const built = await state();
   step('брёвна легли в дом ровно по счёту', built.house === carved.logs && built.logs === 0, `в доме ${built.house}, в руках ${built.logs}`);
-  console.log(`\n  Шкура, одежда, стрелы и первая стройка заняли ${num((Date.now() - craftFrom) / 1000, 0)} с настоящими часами.\n`);
+  console.log(`\n  Шкура, одежда, стрелы и первая стройка заняли ${live(num((Date.now() - craftFrom) / 1000, 0))} с настоящими часами.\n`);
   await turnTo(HOUSE.x, HOUSE.z);
   await shoot(`6-стройка-${built.house}`);
 
@@ -2096,7 +2102,7 @@ async function report(): Promise<void> {
     return !!m && Math.hypot(m.x - MATE_SPOT.x, m.z - MATE_SPOT.z) < 0.1;
   }, 16_000);
   const walked = await mateAt();
-  step('дошла от опушки до огня', reachedFire, walked ? `стоит в ${num(Math.hypot(walked.x - MATE_SPOT.x, walked.z - MATE_SPOT.z), 2)} м от своего места у очага` : 'пропала');
+  step('дошла от опушки до огня', reachedFire, walked ? `стоит в ${live(num(Math.hypot(walked.x - MATE_SPOT.x, walked.z - MATE_SPOT.z), 2))} м от своего места у очага` : 'пропала');
 
   // Родословная до жены.
   if (await walkTo(HOUSE.x, HOUSE.z, 'Родословная')) await tap(190, 400);
@@ -2175,7 +2181,7 @@ async function report(): Promise<void> {
     }
   }
   const hugAfter = await state();
-  step('объятие: камера ушла под крышу и вверх, знак встал', !!hugFrom && pitchTop > 0.7 && heartTop > 0.9 && inside > 0, `взгляд до ${num((pitchTop * 180) / Math.PI, 0)}°, знак ${num(heartTop, 2)}, кадров под крышей в выборке ${inside}`);
+  step('объятие: камера ушла под крышу и вверх, знак встал', !!hugFrom && pitchTop > 0.7 && heartTop > 0.9 && inside > 0, `взгляд до ${live(num((pitchTop * 180) / Math.PI, 0))}°, знак ${live(num(heartTop, 2))}, кадров под крышей в выборке ${live(inside)}`);
   step(
     'после объятия — обычный вид там же, где стоял',
     !!hugFrom && !hugAfter.hugging && hugAfter.x === hugFrom.x && hugAfter.z === hugFrom.z && hugAfter.yaw === hugFrom.yaw && Math.abs((hugAfter.camY as unknown as number) - 1.62) < 0.05,
@@ -2276,7 +2282,7 @@ async function report(): Promise<void> {
   step(
     'окно сжалось под клавиатуру — поле видно, страница на месте',
     squeezed.focused && squeezed.cardTop >= 0 && squeezed.bottom <= 812 - kb(812) - 8 && squeezed.scroll === 0 && jumps === 0 && squeezed.value === 'ратибор',
-    `поле ${num(squeezed.top, 0)}–${num(squeezed.bottom, 0)} px в окне ${squeezed.inner}; сдвигов страницы ${jumps} за ${frames.length} кадров вьюпорта`,
+    `поле ${num(squeezed.top, 0)}–${num(squeezed.bottom, 0)} px в окне ${squeezed.inner}; сдвигов страницы ${jumps} за ${live(frames.length)} кадров вьюпорта`,
   );
   await capture('13-имя-клавиатура-сжато-375');
   if (SHOTS) {
@@ -2599,16 +2605,16 @@ async function report(): Promise<void> {
   step(
     'сходятся по одному: вплотную ни разу не стояло двое',
     mostNear === 1,
-    `разом вплотную ${mostNear}, черёдов пройдено ${sawTurn + 1} из ${RAIDERS_MELEE}`,
+    `разом вплотную ${live(mostNear)}, черёдов пройдено ${live(sawTurn + 1)} из ${RAIDERS_MELEE}`,
   );
   step(
     'до лучников топором не достать: они всю драку дальше вытянутой руки',
     closestBow > AXE_REACH * 2,
-    `ближайший лучник в ${num(closestBow)} м, топор достаёт на ${num(AXE_REACH)} м`,
+    `ближайший лучник в ${live(num(closestBow))} м, топор достаёт на ${num(AXE_REACH)} м`,
   );
   console.log(
     `
-  Схватка: ${num(fightMs / 1000)} с при трёх черёдах по ${num(FOE_TURN_MS / 1000)} с; без единого удара игрока — ${num(BEAT.fightMs / 1000)} с.`,
+  Схватка: ${live(num(fightMs / 1000))} с при трёх черёдах по ${num(FOE_TURN_MS / 1000)} с; без единого удара игрока — ${num(BEAT.fightMs / 1000)} с.`,
   );
 
   await untilBeat('loose', 25_000);
@@ -2625,7 +2631,7 @@ async function report(): Promise<void> {
     // Стоящий смотрит с 1.62 м; упавший — вдвое ниже. Точное число — `FALL_EYE`
     // сцены, и сверять его тут нечем: такт падения ещё идёт.
     fell.camY < 1.0 && fell.watching,
-    `глаз на ${num(fell.camY, 2)} м вместо 1.62, смотрит: ${yes(fell.watching)}`,
+    `глаз на ${live(num(fell.camY, 2))} м вместо 1.62, смотрит: ${yes(fell.watching)}`,
   );
 
   await untilBeat('take', 12_000);
@@ -2642,7 +2648,7 @@ async function report(): Promise<void> {
   step(
     'жену и сына уводят, а не убивают: они идут и они живы',
     led.beat === 'lead' && led.sonAt !== null && led.haze > 0,
-    `сын отошёл на ${num(far(led.sonAt))} м, зрение меркнет на ${num(led.haze, 2)}`,
+    `сын отошёл на ${live(num(far(led.sonAt)))} м, зрение меркнет на ${live(num(led.haze, 2))}`,
   );
   await sleep(BEAT.lead * 0.6);
   const away = await fin();
@@ -2650,7 +2656,7 @@ async function report(): Promise<void> {
   step(
     'последний кадр — уходящий сын: он дальше, чем был',
     far(away.sonAt) > far(led.sonAt) + 1,
-    `было ${num(far(led.sonAt))} м от своего места, стало ${num(far(away.sonAt))} м`,
+    `было ${live(num(far(led.sonAt)))} м от своего места, стало ${live(num(far(away.sonAt)))} м`,
   );
 
   await untilBeat('blind', 16_000);
@@ -2661,7 +2667,7 @@ async function report(): Promise<void> {
   step(
     'веки сходятся, но не разом: между ними ещё видно',
     eyes.lid > 0 && eyes.lid < 50,
-    `веко на ${num(eyes.lid, 1)}% высоты, дымка ${num(eyes.haze, 2)}`,
+    `веко на ${live(num(eyes.lid, 1))}% высоты, дымка ${live(num(eyes.haze, 2))}`,
   );
 
   const over = await waitFor(async () => (await fin()).end === 'over', 14_000);
@@ -2709,12 +2715,12 @@ async function report(): Promise<void> {
   step(
     'моргает отчётливо: веки сходятся до конца, и таких раз около пяти',
     blinks >= 5,
-    `полных смыканий ${blinks} за ${num((last - tape[0][0]) / 1000)} с ленты в ${tape.length} кадров`,
+    `полных смыканий ${live(blinks)} за ${live(num((last - tape[0][0]) / 1000))} с ленты в ${live(tape.length)} кадров`,
   );
   step(
     'между морганиями глаза открыты, а не приоткрыты',
     openBetween >= BLINKS.length - 1,
-    `полных раскрытий ${openBetween}; между ними и видно, как уводят сына`,
+    `полных раскрытий ${live(openBetween)}; между ними и видно, как уводят сына`,
   );
   step('и в конце закрываются насовсем', endShut, endShut ? 'последние 0.8 с ленты веки сомкнуты' : 'в конце веки не сомкнуты');
   const kept = await tab.eval<{ end?: { stage?: string }; heir?: { name?: string } }>('window.__probe.saved()');
@@ -2730,19 +2736,19 @@ async function report(): Promise<void> {
 
   console.log('\n7. Бюджет кадра (настоящий WebGL, ANGLE)\n');
   console.log(
-    `  ${pad('состояние', 28)} ${pad('кадров', 7)} ${pad('в секунду', 10)} ${pad('медиана', 8)} ${pad('p95', 7)} ${pad('худший', 7)} ${pad('вызовов', 8)} треугольников`,
+    `  ${pad('состояние', 28)} ${pad('кадров', 9)} ${pad('в секунду', 12)} ${pad('медиана', 10)} ${pad('p95', 9)} ${pad('худший', 9)} ${pad('вызовов', 10)} треугольников`,
   );
   for (const [name, f] of budget) {
     console.log(
-      `  ${pad(name, 28)} ${pad(String(f.frames), 7)} ${pad(num(f.fps), 10)} ${pad(num(f.median, 2), 8)} ${pad(num(f.p95, 2), 7)} ${pad(num(f.worst, 2), 7)} ${pad(String(f.calls), 8)} ${f.triangles}`,
+      `  ${pad(name, 28)} ${pad(live(f.frames), 9)} ${pad(live(num(f.fps)), 12)} ${pad(live(num(f.median, 2)), 10)} ${pad(live(num(f.p95, 2)), 9)} ${pad(live(num(f.worst, 2)), 9)} ${pad(live(f.calls), 10)} ${live(f.triangles)}`,
     );
   }
   console.log(
-    `\n  Потолок самой машины (пустая страница): ${num(roof.fps)} в секунду, медиана ${num(roof.median, 2)} мс.`,
+    `\n  Потолок самой машины (пустая страница): ${live(num(roof.fps))} в секунду, медиана ${live(num(roof.median, 2))} мс.`,
   );
   console.log('  Бюджет кадра при шестидесяти — 16.7 мс; поляна обязана держаться потолка, а не числа 60.');
   console.log(
-    `  Память: деревня ${(heapVillage / 1048576).toFixed(1)} МБ, поляна ${(heapGlade / 1048576).toFixed(1)} МБ.`,
+    `  Память: деревня ${live((heapVillage / 1048576).toFixed(1))} МБ, поляна ${live((heapGlade / 1048576).toFixed(1))} МБ.`,
   );
   if (SHOTS) console.log(`  Снимки 375 и 360 px: ${SHOTS}`);
 

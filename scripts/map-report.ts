@@ -40,6 +40,10 @@
 // успел сгенерировать, — а он держит один чужой отряд на деревню и один мимо
 // неё, и толчеи в нём не бывает по устройству.
 //
+// Миллисекунды, кадры и доли длинных кадров стоят в выводе в `‹…›` (`lib/measured.ts`):
+// при сверке они не сравниваются. Люди на карте, пороги лестницы, запрос кадра к кэшу,
+// выпечки стоя и различимость агентов — свойства кода и обязаны совпасть.
+//
 // Запуск: npm run map:report   (нужен собранный dist: npm run build)
 // Переменные: PORT=4191  CDP_PORT=9334  CHROME=путь\к\chrome.exe  HEAD=1  SECONDS=3
 import { createServer, type Server } from 'node:http';
@@ -47,6 +51,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { measure as live } from './lib/measured';
 import { PINNED_HOME, PINNED_SEED } from './lib/pinned';
 import { type Flight, measureFlight, printFlight } from './lib/flight';
 import { TILE_CEILING, cacheFor, tileMemory, worstRequest } from '@/ui/map/grid';
@@ -489,14 +494,14 @@ async function main(): Promise<void> {
   for (const s of shots) {
     const per = s.parties > 0 ? (s.cost / s.parties).toFixed(3).padStart(12) : ''.padStart(12);
     console.log(
-      `${pad(s.view, 18)} ${String(s.parties).padStart(7)} ${String(s.frames).padStart(7)} ${num(s.median, 8)} ${num(s.p95, 8)} ${num(s.max, 8)} ${num(s.cost, 8)} ${per}`,
+      `${pad(s.view, 18)} ${String(s.parties).padStart(7)} ${live(String(s.frames).padStart(7))} ${live(num(s.median, 8))} ${live(num(s.p95, 8))} ${live(num(s.max, 8))} ${live(num(s.cost, 8))} ${per.trim() ? live(per) : per}`,
     );
   }
   const worst = shots.filter((s) => s.parties === counts[1]);
   console.log('\nСмотреть надо на столбец «отряды» — медиану минус медиану пустого кадра того же');
   console.log('прогона. Абсолютное время гуляет на три-четыре десятых от того, чем занята машина,');
   console.log('а весь кадр стоит около миллисекунды; разница же внутри прогона повторяется.');
-  console.log('Худший случай мира стоит:', worst.map((s) => `${s.view.split(' ')[0]} ${s.cost.toFixed(2)} мс`).join(', ') + '.');
+  console.log('Худший случай мира стоит:', worst.map((s) => `${s.view.split(' ')[0]} ${live(s.cost.toFixed(2))} мс`).join(', ') + '.');
   console.log('Бюджет кадра при шестидесяти в секунду — 16.7 мс, и в нём лежит не только карта.');
   console.log('Кадров нет вовсе — значит страница не рисовалась: см. CLAUDE.md, «Стенд в проде».');
 
