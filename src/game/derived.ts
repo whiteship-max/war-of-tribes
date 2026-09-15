@@ -1048,7 +1048,7 @@ export function heatingWoodPerDay(s: GameState, mods: SeasonModifiers = seasonMo
   const pop = s.pop;
   const roofed = Math.min(pop, roofCapacity(s));
   const open = pop - roofed;
-  // Общий костёр греет весь посёлок и срезает расход.
+  // Скидка на весь посёлок (`HEATING_CAMPFIRE`) — всегда: костра она не спрашивает.
   return (roofed * HEATING_SHELTERED + open) * mods.heating * HEATING_CAMPFIRE;
 }
 

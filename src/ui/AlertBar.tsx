@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { alerts, buildingOfType } from '@/game/derived';
 import { tutorialActive } from '@/game/data/tutorial';
-import { defenseLock, incomingMarches, useWorld, worldNow } from '@/world/store';
+import { incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { HIRE_AT } from '@/game/data/hire';
@@ -11,6 +11,7 @@ import type { BuildingTypeId } from '@/game/types';
 import { lettersVisible } from './Letters';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
+import { useLockWords } from '@/ui/parts/defenseLock';
 
 /**
  * Критические состояния всплывают поверх любого экрана: голод, остывший очаг и
@@ -35,6 +36,9 @@ export function AlertBar() {
     ? new Set(letters.filter((l) => l.marchId).map((l) => l.marchId))
     : new Set<string | undefined>();
   const raids = incomingMarches(marches).filter((m) => !lettered.has(m.id));
+  // Замок один на всю оборону и считается по всем отрядам, а не по строке: строка
+  // второго набега не может сказать «открыто», пока расстановка заперта первым.
+  const lock = useLockWords();
   const [, retick] = useState(0);
 
   // Пока кто-то идёт на нас, счётчик должен тикать каждую секунду сам.
@@ -66,16 +70,15 @@ export function AlertBar() {
     <div className={`alerts${mapOpen ? ' on-map' : ''}${tutorialActive(s) ? ' with-tut' : ''}`}>
       {raids.map((m) => {
         // Тап ведёт туда, где это чинят: к расстановке обороны. После отметки
-        // «минус 5 минут» она заперта — и панель говорит об этом прямо.
-        const frozen = defenseLock([m], worldNow()).frozen;
+        // «минус 5 минут» она заперта — и строка говорит об этом словами общего замка.
         return (
           <button key={m.id} className="alert raid" onClick={openDefense}>
             <span className="ic">
-              <Icon name={frozen ? 'alert-locked' : 'alert-raid'} glyph={frozen ? '🔒' : '⚔️'} />
+              <Icon name={lock.frozen ? 'alert-locked' : 'alert-raid'} glyph={lock.frozen ? '🔒' : '⚔️'} />
             </span>
             <span className="txt">
               Набег: {m.fromName} · {formatLeft(secondsLeft(m.arriveAt, worldNow()))}
-              {frozen ? ' · оборона заперта' : ''}
+              {lock.short ? ` · ${lock.short}` : ''}
             </span>
           </button>
         );

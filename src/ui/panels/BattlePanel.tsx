@@ -12,9 +12,9 @@
 // знает плана и резерва противника, и вся неопределённость держится на этом.
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
-import { useWorld, defenseLock, worldNow } from '@/world/store';
+import { useWorld, worldNow } from '@/world/store';
 import { defense, fervour, homeArmy } from '@/game/derived';
-import { militiaArchers, militiaMen } from '@/world/bridge';
+import { militiaArchers, militiaFoot, militiaMen } from '@/world/bridge';
 import { awayOf, homeOf, postureOf, standingTroops } from '@/world/muster';
 import { heroInfo, heroReady } from '@/game/derived';
 import { personName } from '@/game/sim/agents';
@@ -44,6 +44,7 @@ import { SectorEditor } from '../battle/SectorEditor';
 import { OrdersPicker, PlanPicker, ReservePicker } from '../battle/Tactics';
 import { IntelCard } from '../battle/IntelCard';
 import { Icon } from '@/ui/icons/Icon';
+import { useLockWords } from '@/ui/parts/defenseLock';
 import { FatePick } from '@/ui/parts/FatePick';
 import { FATE_DEFAULT } from '@/world/spoils';
 import type { Fate } from '@/world/types';
@@ -82,7 +83,8 @@ export function BattlePanel({ targetId }: Props) {
   const home = useMemo(() => (attack ? (general?.troops ?? {}) : homeOf(s.army, away)), [s, away, attack, general]);
   const standing = troopTotal(standingTroops(s.army, away));
   const posture = general ? postureOf(general) : 'none';
-  const lock = defenseLock(marches, worldNow());
+  const words = useLockWords();
+  const lock = words.lock;
 
   const [picked, setPicked] = useState<TroopStack>(() => ({ ...home }));
   const [formation, setFormation] = useState<Formation>(() =>
@@ -230,9 +232,7 @@ export function BattlePanel({ targetId }: Props) {
               <span className="count">{formatLeft(secondsLeft(lock.march.arriveAt, worldNow()))}</span>
             </div>
             <div className="desc">
-              {locked
-                ? 'Оборона заперта: меньше пяти минут до удара, строй уже не переставить.'
-                : 'Чужая армия в пути. Менять оборону можно до отметки «минус 5 минут».'}
+              {words.long}
             </div>
           </div>
         </div>
@@ -281,7 +281,7 @@ export function BattlePanel({ targetId }: Props) {
           <div className="mod total">
             <span className="ico">🪵</span>
             <span className="name">Ополчение (частокол и жители)</span>
-            <span className="val">{militiaMen(s) - militiaArchers(s)}</span>
+            <span className="val">{militiaFoot(s)}</span>
           </div>
           {militiaArchers(s) > 0 && (
             <div className="mod total">
@@ -330,7 +330,7 @@ export function BattlePanel({ targetId }: Props) {
           onClose={() => setSel(null)}
         />
       )}
-      {sel !== null && locked && <p className="note bad">Оборона заперта — расстановку уже не изменить.</p>}
+      {sel !== null && locked && <p className="note bad">{words.long}</p>}
 
       <h3>План боя</h3>
       <PlanPicker

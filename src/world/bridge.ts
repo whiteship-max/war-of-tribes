@@ -24,7 +24,8 @@ import {
   warningSeconds,
 } from '@/game/derived';
 import { BATTLE_MAN } from '@/game/battle/kinds';
-import { clampFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
+import { clampFormation, emptyFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
+import { SECTORS, type Sector } from '@/battle';
 import { troopTotal } from '@/game/battle/kinds';
 import {
   applyExpedition,
@@ -73,6 +74,23 @@ export const militiaArchers = (s: GameState): number => {
   if (!tower) return 0;
   return Math.min(militiaMen(s), Math.max(0, Math.round(buildingStat(tower, 'archers'))));
 };
+
+/** Сколько ополченцев выходит пехотой: всё ополчение, кроме тех, кого башня поставила стрелками. */
+export const militiaFoot = (s: GameState): number => militiaMen(s) - militiaArchers(s);
+
+/**
+ * Где ополчение встаёт в расстановке обороны — замером, тем же переводом, каким его
+ * ставит слепок (`toArmySetup` в `playerProfile`), только на пустой расстановке: так
+ * в секторах остаётся одно ополчение. Своей таблицы «пехота во фронт, стрелки во
+ * вторую линию» у интерфейса нет — спросит сюда, а ответит перевод.
+ */
+export function militiaPlaces(s: GameState): { foot: Sector[]; archers: Sector[] } {
+  const setup = toArmySetup(emptyFormation(), militiaFoot(s), militiaArchers(s));
+  return {
+    foot: SECTORS.filter((id) => setup.sectors[id].infantry > 0),
+    archers: SECTORS.filter((id) => setup.sectors[id].archer > 0),
+  };
+}
 
 /** Прибавки навыков агентов для слепка: только ненулевые. */
 function skills(s: GameState): Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth' | 'veil'> {
@@ -138,8 +156,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
   if (s.defenseFormation) {
     const { formation, extra } = clampFormation(s.defenseFormation, homeOf(s.army, away));
     const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
-    const archers = militiaArchers(s);
-    defenseSetup = toArmySetup(fitted, militiaMen(s) - archers, archers, null, fervour(s));
+    defenseSetup = toArmySetup(fitted, militiaFoot(s), militiaArchers(s), null, fervour(s));
   }
   return {
     name: 'Наше племя',

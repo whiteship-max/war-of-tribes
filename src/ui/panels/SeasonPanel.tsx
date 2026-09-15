@@ -10,12 +10,12 @@ import {
   seasonModsFor,
   seasonOf,
   seasonProgress,
-  winterForecast,
   yearOf,
 } from '@/game/derived';
-import type { JobId } from '@/game/types';
+import type { GameState, JobId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
+import { WinterForecast } from '@/ui/parts/Provisions';
 
 /** Строка списка множителей: что растёт, что падает. */
 interface Line {
@@ -38,7 +38,20 @@ const pct = (m: number): string => {
 /** Профессии дворов в порядке показа: сначала те, что кормят, потом сырьё — порядком таблицы дворов. */
 const JOB_ORDER: JobId[] = [...YARDS.filter((y) => y.yield.food), ...YARDS.filter((y) => !y.yield.food)].map((y) => y.job);
 
-function linesOf(mods: SeasonModifiers): Line[] {
+/**
+ * Дрова на одного человека в день — замером настоящего расчёта отопления, а не множителем
+ * сезона: между множителем и поленницей стоят крыша и скидка на весь посёлок
+ * (`seasons.HEATING_CAMPFIRE`), и прежняя строка «1.20 на человека» была дороже правды
+ * на эту скидку. Под крышей — один житель при нынешних крышах, без крыши — один житель
+ * без единой постройки.
+ */
+function heatPerHead(s: GameState, mods: SeasonModifiers): string {
+  const roofed = heatingWoodPerDay({ ...s, pop: 1 }, mods);
+  const open = heatingWoodPerDay({ ...s, pop: 1, buildings: [] }, mods);
+  return `${roofed.toFixed(2)} под крышей, ${open.toFixed(2)} без неё`;
+}
+
+function linesOf(s: GameState, mods: SeasonModifiers): Line[] {
   const out: Line[] = [];
   for (const job of JOB_ORDER) {
     const m = mods.jobs[job];
@@ -59,8 +72,8 @@ function linesOf(mods: SeasonModifiers): Line[] {
   if (mods.heating > 0)
     out.push({
       icon: '🔥',
-      label: 'Дрова на очаг',
-      text: `${mods.heating.toFixed(2)} на человека в день`,
+      label: 'Дрова на человека в день',
+      text: heatPerHead(s, mods),
       good: false,
     });
   // Пустой список читается хуже, чем явная строчка «всё как обычно».
@@ -68,10 +81,10 @@ function linesOf(mods: SeasonModifiers): Line[] {
   return out;
 }
 
-function ModList({ mods }: { mods: SeasonModifiers }) {
+function ModList({ s, mods }: { s: GameState; mods: SeasonModifiers }) {
   return (
     <div className="mod-list">
-      {linesOf(mods).map((l) => (
+      {linesOf(s, mods).map((l) => (
         <div className="mod" key={l.label}>
           <span className="ico">{l.icon}</span>
           <span className="name">{l.label}</span>
@@ -91,7 +104,6 @@ export function SeasonPanel() {
   const meta = SEASON_META[season];
   const mods = seasonModsFor(season, year);
   const next = seasonAfter(season);
-  const forecast = winterForecast(s);
   const heat = heatingWoodPerDay(s);
 
   return (
@@ -111,7 +123,7 @@ export function SeasonPanel() {
       )}
 
       <h3>Что меняет сезон</h3>
-      <ModList mods={mods} />
+      <ModList s={s} mods={mods} />
 
       {heat > 0 && (
         <div className="mod total">
@@ -121,30 +133,11 @@ export function SeasonPanel() {
         </div>
       )}
 
-      {(season === 'autumn' || season === 'winter') && (
-        <>
-          <h3>{season === 'autumn' ? 'Хватит ли на зиму' : 'Хватит ли до весны'}</h3>
-          <div className="mod-list">
-            <div className="mod">
-              <span className="ico">🍖</span>
-              <span className="name">Еда</span>
-              <span className={`val ${forecast.food.ok ? 'pos' : 'neg'}`}>
-                {Math.floor(forecast.food.days * 10) / 10} из {forecast.winterDays} дн.
-              </span>
-            </div>
-            <div className="mod">
-              <span className="ico">🌲</span>
-              <span className="name">Дрова</span>
-              <span className={`val ${forecast.wood.ok ? 'pos' : 'neg'}`}>
-                {Math.floor(forecast.wood.days * 10) / 10} из {forecast.winterDays} дн.
-              </span>
-            </div>
-          </div>
-        </>
-      )}
+      {/* Прогноз зимы — тот же компонент, что на складе. */}
+      {(season === 'autumn' || season === 'winter') && <WinterForecast />}
 
       <h3>Дальше: {SEASON_META[next].name}</h3>
-      <ModList mods={seasonModsFor(next, next === 'spring' ? year + 1 : year)} />
+      <ModList s={s} mods={seasonModsFor(next, next === 'spring' ? year + 1 : year)} />
 
       <h3>Круг года</h3>
       <div className="season-wheel">

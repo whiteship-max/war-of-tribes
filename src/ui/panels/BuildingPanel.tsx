@@ -68,10 +68,11 @@ import { Statue } from '../parts/Statue';
 import { Watch } from '../parts/Watch';
 import { AgentPlaces } from '../parts/AgentPlaces';
 import { Temple } from '../parts/Temple';
+import { Walls } from '../parts/Walls';
+import { FoodLeft, WinterForecast } from '../parts/Provisions';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
-import { militiaArchers } from '@/world/bridge';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
@@ -141,8 +142,8 @@ export function BuildingPanel({ id }: { id: number }) {
 
       {isOutsideWall(b.type) && (
         <div className="note">
-          ⚠️ Двор стоит за стеной. Прорвавшийся набег разгонит отсюда людей, а при тяжёлом
-          поражении самому людному двору собьёт уровень — внутри стены такого не бывает.
+          ⚠️ Двор стоит за стеной. Прорвавшийся набег разгонит отсюда людей: двор встанет, пока их не
+          вернёшь. Внутри стены людей со двора набег не сгоняет.
         </div>
       )}
 
@@ -322,6 +323,14 @@ function BuildingData({ b }: { b: Building }) {
           <Tavern />
         </>
       );
+    case 'palisade':
+    case 'tower':
+      return (
+        <>
+          <GenericData b={b} />
+          <Walls b={b} />
+        </>
+      );
     case 'statue':
       return (
         <>
@@ -459,6 +468,9 @@ function StorageData() {
         );
       })}
 
+      <FoodLeft />
+      <WinterForecast />
+
       <h3>
         Снаряжение <span className="muted">вместимость не расходует</span>
       </h3>
@@ -478,6 +490,9 @@ function StorageData() {
     </>
   );
 }
+
+/** Частокол и башня: итог обороны у них показывает раздел «Оборона», а не список ниже. */
+const WALLS: Building['type'][] = ['palisade', 'tower'];
 
 /** Обычное здание: что оно производит и что даёт посёлку. */
 function GenericData({ b }: { b: Building }) {
@@ -503,9 +518,8 @@ function GenericData({ b }: { b: Building }) {
   if (morale) stats.push(['mood-good', '😊', 'К морали', `+${morale}`]);
   // Службы посёлка: у каждой одно число, и лучше показать его словами игрока,
   // а не названием поля. Числа берутся из тех же функций, что и логика.
-  // Стрелков столько, сколько их выйдет на деле (`militiaArchers`): поле башни
-  // упирается ещё и в само ополчение.
-  if (buildingStat(b, 'archers')) stats.push(['gear-bow', '🏹', 'Ополченцев выйдет стрелками', `${militiaArchers(s)}`]);
+  // Стрелки башни и итог обороны у частокола и башни — в разделе «Оборона»
+  // (`parts/Walls`): там они стоят рядом с ополчением и дверью к расстановке.
   if (b.type === 'infirmary') {
     stats.push(['ui-bandage', '🩹', 'Потерь вернётся ранеными', `${Math.round(healShare(s) * 100)}%`]);
   }
@@ -541,7 +555,7 @@ function GenericData({ b }: { b: Building }) {
   if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildShare(s).toFixed(1)}/с`]);
   if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
   if (housing) stats.push(['hud-pop', '👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);
-  if (def_) stats.push(['hud-army', '⚔️', 'Защита посёлка', defense(s).toFixed(0)]);
+  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', 'Защита посёлка', defense(s).toFixed(0)]);
 
   return (
     <>

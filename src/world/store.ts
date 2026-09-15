@@ -1030,6 +1030,15 @@ export function figuresOn(x: number, y: number, now: number): FigureView[] {
 }
 
 /**
+ * Стоит ли фигура у своих ворот — тем же признаком, по которому мир кладёт её в
+ * `figuresHere` своей деревни: на карте, не в пути, вплотную к дому. Нужен тем, кто
+ * карточки своего замка не открывал, — Статуе с редактором дружины. Сверяет признак с
+ * миром тест (`ui/parts/GarrisonEditor.test.ts`).
+ */
+export const atGates = (f: FigureView | undefined): boolean =>
+  Boolean(f && f.place === 'map' && f.phase !== 'moving' && f.atHome);
+
+/**
  * Чужой отряд, стоящий сейчас на этой клетке. Ищется по положению, выведенному
  * из времени, — так же, как он и рисуется на полотне.
  */
@@ -1062,12 +1071,19 @@ export interface DefenseLock {
   march: MarchView | null;
   /** Секунд до прихода. */
   seconds: number;
+  /** Секунд до того, как расстановка запрётся. Ноль — уже заперта или отряда нет. */
+  freezeIn: number;
   frozen: boolean;
 }
 
 export function defenseLock(marches: MarchView[], now: number): DefenseLock {
   const m = incomingMarches(marches)[0] ?? null;
-  if (!m) return { march: null, seconds: 0, frozen: false };
+  if (!m) return { march: null, seconds: 0, freezeIn: 0, frozen: false };
   const left = m.arriveAt - now;
-  return { march: m, seconds: Math.max(0, left / 1000), frozen: left <= DEFENSE_FREEZE };
+  return {
+    march: m,
+    seconds: Math.max(0, left / 1000),
+    freezeIn: Math.max(0, (left - DEFENSE_FREEZE) / 1000),
+    frozen: left <= DEFENSE_FREEZE,
+  };
 }

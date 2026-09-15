@@ -29,6 +29,7 @@ export function Barracks() {
   const act = useGame((g) => g.act);
   const [counts, setCounts] = useState<Partial<Record<TroopId, number>>>({});
   const smithy = buildingOfType(s, 'smithy');
+  const palisade = buildingOfType(s, 'palisade');
   const free = idleCount(s);
 
   const setCount = (id: TroopId, n: number): void =>
@@ -49,6 +50,13 @@ export function Barracks() {
         <span className="name">Защита поселения</span>
         <span className="val">{defense(s).toFixed(0)}</span>
       </div>
+      {/* Как дружина встретит набег, решают у стены: там раздел «Оборона» и вход в
+          расстановку. Второго экрана здесь нет — только дверь туда. */}
+      {palisade && (
+        <button className="btn ghost wide" onClick={() => openBuilding(palisade.id)}>
+          🛡️ Оборона — у частокола
+        </button>
+      )}
       <div className="mod">
         <span className="ico">🔨</span>
         <span className="name">Свободных жителей</span>

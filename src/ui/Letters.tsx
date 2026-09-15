@@ -8,6 +8,7 @@ import type { LetterView } from '@/world/types';
 import type { GameState } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
+import { useLockWords } from '@/ui/parts/defenseLock';
 
 /**
  * Столбик писем слева внизу и открытое письмо.
@@ -134,6 +135,7 @@ function LetterCard({ letter }: { letter: LetterView }) {
   const answer = useWorld((g) => g.answerLetter);
   const openMap = useGame((g) => g.openMap);
   const openDefense = useGame((g) => g.openDefense);
+  const lock = useLockWords();
   const left = formatLeft(Math.max(0, (letter.until - worldNow()) / 1000));
 
   return (
@@ -196,7 +198,9 @@ function LetterCard({ letter }: { letter: LetterView }) {
                 }}
               >
                 <span>Оборона</span>
-                <small>Расставить тех, кто дома</small>
+                {/* Заперта ли расстановка — словами общего замка: «расставить» после
+                    отметки было бы обещанием, которое экран тут же отзовёт. */}
+                <small>{lock.frozen ? lock.short : ['Расставить тех, кто дома', lock.short].filter(Boolean).join(' · ')}</small>
               </button>
             </>
           )}

@@ -4,7 +4,9 @@ import { setHeroKind } from '@/game/sim/actions';
 import { agentLevel, personName, seated } from '@/game/sim/agents';
 import { OWN_KINDS } from '@/game/battle/kinds';
 import { KIND_META } from '@/battle';
+import { atGates, useWorld } from '@/world/store';
 import { count } from './plural';
+import { GarrisonEditor } from './GarrisonEditor';
 
 /**
  * Статуя Героя. Морали она не даёт нарочно — их в посёлке уже четыре источника;
@@ -24,6 +26,7 @@ export function Statue() {
   const info = heroInfo(s);
   const name = personName(s, 'general');
   const here = seated(s, 'general');
+  const general = useWorld((g) => g.figures).find((f) => f.id === 'general');
 
   return (
     <>
@@ -43,6 +46,18 @@ export function Statue() {
           ? `Это он же водит дружину по карте: ${name}, уровень ${agentLevel(s, 'general')}. Сколько он уводит и за скольких стоит сам, решает Статуя, а натиск даёт его опыт — карточка в «Походах».`
           : 'Полководца нет: место пустует, и дружина из деревни не выходит. Нанимают его здесь же, ниже.'}
       </div>
+
+      {/* Состав дружины — тот же редактор, что на карточке своего замка: мир один, отказы
+          его словами. Показан, пока полководец у ворот; увели его с открытой панелью —
+          «Отдать» получит отказ мира, а на следующем пульсе редактор уйдёт сам. */}
+      {here && (atGates(general) ? (
+        <GarrisonEditor />
+      ) : (
+        <div className="note">
+          Состав дружины меняют, пока полководец стоит у своих ворот. Сейчас его там нет — где он, видно в
+          «Походах».
+        </div>
+      ))}
 
       <h3>
         Герой <span className="muted">{here ? name : 'места никто не занял'}</span>
