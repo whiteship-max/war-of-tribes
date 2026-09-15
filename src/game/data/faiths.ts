@@ -24,8 +24,6 @@
 import type { FaithId, ObservanceId, Season } from '../types';
 import { MAX_BUILDING_LEVEL } from '../constants';
 
-export const FAITH_IDS: readonly FaithId[] = ['catholic', 'orthodox', 'islam', 'pagan'];
-
 /** Праздник: настоящее имя и одна строка о том, что в этот день делают. */
 export interface FeastDef {
   name: string;

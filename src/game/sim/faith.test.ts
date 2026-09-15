@@ -24,7 +24,7 @@ import {
   RITE_MORALE,
   STRAIN_DAYS,
 } from '../constants';
-import { FAITHS, FAITH_BY_ID, FAITH_IDS, OBSERVANCES, tiltAt } from '../data/faiths';
+import { FAITHS, FAITH_BY_ID, OBSERVANCES, tiltAt } from '../data/faiths';
 import { BUILDING_BY_ID } from '../data/buildings';
 import {
   defense,
@@ -46,6 +46,8 @@ import { popGrowth } from './population';
 import { surveyInfo, startSurvey } from './survey';
 import { quickSetup, simulateBattle, type ArmySetup, type Stack } from '@/battle';
 import { SEASON_DAYS } from '../data/seasons';
+
+const FAITH_IDS = FAITHS.map((f) => f.id);
 
 /**
  * Расстановка для прогона. Собирается тем же `quickSetup`, каким её собирает

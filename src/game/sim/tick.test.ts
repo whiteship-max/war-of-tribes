@@ -43,7 +43,6 @@ import {
   idleCount as _idleCount,
   isOutsideWall,
   moraleTarget,
-  OUTSIDE_TYPES,
   storageCap,
   winterForecast,
   workerCount,
@@ -368,7 +367,7 @@ describe('герой', () => {
 
 describe('стена и хозяйство за ней', () => {
   it('снаружи стоит ровно производство, и план поселения говорит то же самое', () => {
-    expect(OUTSIDE_TYPES.slice().sort()).toEqual(
+    expect(BUILDINGS.map((d) => d.id).filter(isOutsideWall).sort()).toEqual(
       ['farm', 'gathering', 'hunter_hut', 'mine', 'pen', 'quarry', 'sawmill'].sort(),
     );
     // Внутри — жильё, власть, склад, ремесло и оборона: до них набег не доходит.

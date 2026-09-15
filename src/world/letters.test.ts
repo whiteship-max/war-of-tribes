@@ -22,7 +22,7 @@ import {
   type LetterCandidate,
 } from './letters';
 import { LETTER_KIND_BY_ID, RHUMB_WORDS } from './data/letters';
-import { BARBARIAN_NAMES, PLACE_FIRST, PLACE_SECOND, TRIBE_NAMES } from './data/meta';
+import { BARBARIAN_NAMES } from './data/meta';
 import { rhumbOf } from './geo';
 import {
   LETTER_PAUSE_MAX,
@@ -431,17 +431,26 @@ describe('сохранение мира', () => {
 
 /**
  * Самое длинное имя поселения, какое вообще может сгенерироваться. Считается из
- * тех же списков, из которых имена и собирает `generateWorld`, — вписать сюда
+ * того же списка, из которого имена и берёт `generateWorld`, — вписать сюда
  * строку значило бы, что тест устареет молча при первом же новом слове.
+ *
+ * Список один: на карте одни логова. Прежде здесь мерились ещё имена стана и
+ * «Ольхового брода» — списков, которые генерация давно не зовёт, то есть имена,
+ * которые сгенерироваться не могут. Чтобы мерка снова не ушла за область, тест
+ * ниже сверяет, что генерация берёт имена ровно отсюда.
  */
 function longestName(): string {
-  const longest = (list: string[]): string => list.reduce((a, b) => (b.length > a.length ? b : a));
-  const place = `${longest(PLACE_FIRST)} ${longest(PLACE_SECOND)}`;
-  const capital = `${longest(TRIBE_NAMES.map((t) => t.split(' ').pop() ?? t))}, стан`;
-  return longest([place, capital, longest(BARBARIAN_NAMES)]);
+  return BARBARIAN_NAMES.reduce((a, b) => (b.length > a.length ? b : a));
 }
 
 describe('длинные имена', () => {
+  it('мерка внутри области: имена поселений генерация берёт ровно из этого списка', () => {
+    const gen = readFileSync(join(__dirname, 'gen.ts'), 'utf8');
+    const lists = [...gen.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/data\/meta'/g)].map((m) => m[1].trim());
+    expect(lists).toEqual(['BARBARIAN_NAMES']);
+    expect(gen).toMatch(/makeLair\([^;]*BARBARIAN_NAMES\[/);
+  });
+
   it('в подписи выбора имени нет ни у одного вида писем', () => {
     const name = longestName();
     const against = longestName();

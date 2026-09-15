@@ -145,13 +145,6 @@ export function levelOf(xp: number): number {
  */
 export const circlesOf = (xp: number): number => levelOf(xp);
 
-/** Кружков сверх первого — от них и считается действие навыка. */
-export const extraCircles = (xp: number): number => circlesOf(xp) - 1;
-
-/** Порог уровня (опыт, с которого он начинается). */
-export const levelFloor = (level: number): number =>
-  LEVEL_XP[Math.max(1, Math.min(MAX_AGENT_LEVEL, Math.floor(level))) - 1];
-
 /** Порог следующего уровня. null — дальше расти некуда. */
 export function nextLevelXp(xp: number): number | null {
   const level = levelOf(xp);

@@ -5,11 +5,13 @@
 // всех одна, и узнаваемые места дают ожидаемую веру.
 import { describe, expect, it } from 'vitest';
 import { FAITH_REGIONS, faithAt, faithAttitude, faithPressure, regionAt } from './faith';
-import { FAITH_IDS } from '@/game/data/faiths';
+import { FAITHS } from '@/game/data/faiths';
 import { cellOf, lonLatOf } from './atlas/project';
 import { WORLD_ORIGIN } from './data/tuning';
 import { isWaterAt } from './land';
 import type { FaithId } from '@/game/types';
+
+const FAITH_IDS = FAITHS.map((f) => f.id);
 
 /** Настоящее место → клетка мира. Города в игре только мерка, как в world:report. */
 function at(lon: number, lat: number): { x: number; y: number } {
