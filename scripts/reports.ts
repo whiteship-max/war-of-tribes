@@ -223,8 +223,7 @@ async function main(): Promise<void> {
       const d = shifts(prev.output, r.output);
       verdict += d.length === 0 ? `; повтор ${prev.meta.commit} совпал` : `; ПОВТОР ${prev.meta.commit} РАЗОШЁЛСЯ: ${d.length} стр.`;
       if (d.length > 0) {
-        console.log(`
-  расхождение с прошлым прогоном того же замыкания (${prev.meta.at}):`);
+        console.log(`\n  расхождение с прошлым прогоном того же замыкания (${prev.meta.at}):`);
         for (const x of d.slice(0, 20)) console.log(x.before ? `  − ${x.was}` : `  + ${x.now}`);
       }
     }
