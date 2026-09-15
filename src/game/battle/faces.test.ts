@@ -9,7 +9,8 @@ import { UNIT_KINDS, type Stack } from '@/battle';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopId } from '../types';
 import { KIND_OF, gearOfTroop, kindsOf, type TroopStack } from './kinds';
-import { MILITIA, castOfRecord, facesOf, facesTotal, troopOfKind, troopsOfKinds, wearOf } from './faces';
+import { MILITIA, facesOf, facesTotal, troopOfKind, troopsOfKinds, wearOf } from './faces';
+import { castOfRecord } from './cast';
 
 const fight = (a: TroopStack, d: TroopStack, seed = 7) =>
   simulateBattle({ seed, attacker: quickSetup(kindsOf(a)), defender: quickSetup(kindsOf(d)) });

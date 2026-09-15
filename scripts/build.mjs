@@ -147,17 +147,26 @@ function manifest() {
   // с числами его вывода и с теми, что записаны в CLAUDE.md, иначе сверять их нечем.
   const kb = (n) => `${(n / 1000).toFixed(1)} КБ`;
 
-  // Что качает первый заход в игру. Стенд грузится только по ?showcase=, ролик о бое —
-  // только на просмотр боя, предыстория — по кнопке со стартового экрана (и код, и её
-  // стили), арт перехода — на первый вход на карту, музыка и лица — по ходу
-  // партии. Заставка входит: её тянет экран загрузки, пусть и после первого кадра.
-  const LATER = [
-    /^assets\/(music|avatars)\//,
-    /^assets\/showcase-/,
-    /^assets\/battle-stand-/,
-    /^assets\/curtain-/,
-    /^assets\/Prologue-/,
-  ];
+  // Что качает первый заход в игру. Код и стили считаются, а не угадываются по имени:
+  // первая загрузка — это то, на что ссылается index.html, и всё, что оттуда достижимо
+  // статическим `import` (ленивые куски — стенды, ролик о бое, предыстория с её стилями —
+  // сюда не попадают сами). Что они не протекли в первую загрузку модулями, держит сборка
+  // (`lazyDoorsPlugin` в vite.config.ts). Остальное — по месту: музыка и лица качаются по
+  // ходу партии, арт перехода — на первый вход на карту, заставка входит — её тянет экран
+  // загрузки, пусть и после первого кадра.
+  const LATER = [/^assets\/(music|avatars)\//, /^assets\/curtain-/];
+  const html = readFileSync(path.join(DIST, 'index.html'), 'utf8');
+  const firstCode = new Set();
+  const reach = (rel) => {
+    if (firstCode.has(rel) || !existsSync(path.join(DIST, rel))) return;
+    firstCode.add(rel);
+    if (!rel.endsWith('.js')) return;
+    const code = readFileSync(path.join(DIST, rel), 'utf8');
+    // Статический импорт в собранном чанке: `import{a as b}from"./x.js"` или `import"./x.js"`.
+    // `import("./x.js")` сюда не подходит — после `import` стоит скобка.
+    for (const m of code.matchAll(/\bimport\s*(?:[\w$*{}\s,]+from\s*)?"\.\/([^"]+\.js)"/g)) reach(`assets/${m[1]}`);
+  };
+  for (const link of linksOf(html)) if (/\.(js|css)$/.test(link)) reach(link);
 
   const rows = [];
   const walk = (dir, base) => {
@@ -171,7 +180,8 @@ function manifest() {
       const buf = readFileSync(file);
       // По сети сжимаемое едет gzip'ом, картинки и звук — как есть.
       const wire = /\.(js|css|html|svg|md)$/.test(name) ? gzipSync(buf).length : buf.length;
-      rows.push({ name: rel, size: buf.length, gz: /\.(js|css|html|svg)$/.test(name) ? wire : 0, wire, first: !LATER.some((re) => re.test(rel)) });
+      const first = /\.(js|css)$/.test(name) ? firstCode.has(rel) : !LATER.some((re) => re.test(rel));
+      rows.push({ name: rel, size: buf.length, gz: /\.(js|css|html|svg)$/.test(name) ? wire : 0, wire, first });
     }
   };
   walk(DIST, '');

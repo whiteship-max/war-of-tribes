@@ -9,10 +9,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { simulateBattle } from '@/battle/sim';
 import { quickSetup } from '@/battle/setup';
-import { PLAIN_GROUND, type BattleResult } from '@/battle';
+import type { BattleResult } from '@/battle';
+import { PLAIN_GROUND } from '@/battle/replay';
 import { DAY_LENGTH } from '../constants';
 import { seasonOf } from '../derived';
-import { castOfRecord } from './faces';
+import { castOfRecord } from './cast';
 import { NOON, REPLAY_ARC, groundName, groundOf, hourName, solarOfTime, type BattlePlace } from './ground';
 
 const fight = (seed = 7): BattleResult =>

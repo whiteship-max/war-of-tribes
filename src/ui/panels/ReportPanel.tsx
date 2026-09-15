@@ -6,7 +6,8 @@
 // доступен повторно: раз кадры выводятся из журнала, повтор ничего не стоит и
 // обязан совпасть с первым показом до кадра. Журнал по фазам остаётся под
 // кнопками: ролик показывает, текст объясняет.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { createPortal } from 'react-dom';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import {
@@ -18,7 +19,6 @@ import {
   type Side,
 } from '@/battle';
 import { setBattleWatch } from '@/game/battle/actions';
-import { BattleReplay } from '@/ui/battle/BattleReplay';
 import { battleMusic } from '@/sound/web';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { fallenText } from '@/game/sim/expedition';
@@ -53,6 +53,58 @@ export function lopsidedness(rec: BattleRecord): number {
 }
 
 const other = (side: Side): Side => (side === 'attacker' ? 'defender' : 'attacker');
+
+type ReplayProps = { rec: BattleRecord; onDone: () => void };
+
+/**
+ * Ролик о бое едет отдельным куском и только по «Смотреть бой».
+ *
+ * По умолчанию его не смотрит никто (`battleWatch` выключен), а весил он в чанке
+ * игры около тринадцати килобайт: проигрыватель журнала, сцена поля, строй, стрелы.
+ * Режим, в который игрок может не зайти ни разу, не имеет права стоить ему ни байта
+ * на старте — то же правило, что у предыстории (`App.tsx`). Держит это приёмка
+ * сборки (`scripts/build.mjs`): куска ролика нет или его имена грузятся сразу —
+ * сборка падает.
+ *
+ * Музыка боя сюда не переезжает: её контекст открывается прямо в обработчике
+ * нажатия (`battleMusic.arm()`), а `import()` жест теряет.
+ *
+ * Не `lazy`, а своя загрузка — потому что кусок может не приехать: игра работает без
+ * сети, и бой без сети случается. Упавший `lazy` без границы ошибок уронил бы всё
+ * приложение; здесь он честно говорит, что ролика нет, а отчёт под ним остаётся.
+ */
+const loadReplay = () => import('@/ui/battle/BattleReplay');
+
+function Replay({ rec, onDone }: ReplayProps) {
+  const [play, setPlay] = useState<ComponentType<ReplayProps> | 'wait' | 'lost'>('wait');
+  useEffect(() => {
+    let live = true;
+    loadReplay().then(
+      (m) => live && setPlay(() => m.BattleReplay),
+      () => live && setPlay('lost'),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (typeof play !== 'string') {
+    const Play = play;
+    return <Play rec={rec} onDone={onDone} />;
+  }
+  return createPortal(
+    <div className="replay">
+      <div className="replay-caption">
+        {play === 'wait' ? 'Ролик загружается…' : 'Ролик не загрузился — нет связи. Итог и журнал остались в отчёте.'}
+      </div>
+      <div className="replay-controls">
+        <button className="btn" onClick={onDone}>
+          {play === 'wait' ? 'Пропустить' : 'Закрыть'}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 /** Журнал по фазам: заголовок фазы, под ним её события. */
 function Journal({ rec }: { rec: BattleRecord }) {
@@ -160,7 +212,7 @@ export function ReportPanel({ id }: { id: string }) {
             </button>
           </div>
           {playing && (
-            <BattleReplay key={report.id} rec={rec} onDone={() => setPlaying(false)} />
+            <Replay key={report.id} rec={rec} onDone={() => setPlaying(false)} />
           )}
           {lopsided && !watch && (
             <p className="note">

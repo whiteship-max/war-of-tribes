@@ -8,11 +8,11 @@
 //
 // Второй таблицы «род показывается таким-то видом» в рендере быть не должно.
 // Она врала бы ровно тогда, когда игрок собрал что-то другое.
-import { UNIT_KINDS, buildCast, type BattleResult, type Cast, type Face, type Side, type Stack, type UnitKind } from '@/battle';
+import { UNIT_KINDS, type Stack, type UnitKind } from '@/battle';
+import type { Face } from '@/battle/replay';
 import { TROOP_BY_ID } from '../data/troops';
 import type { TroopId } from '../types';
 import { KIND_OF, TROOPS_OF_KIND, gearOfTroop, type TroopStack } from './kinds';
-import { groundOf, type BattlePlace } from './ground';
 
 /**
  * Метка того, кто стоит в строю: вид бойца племени или ополчение. Ополчение —
@@ -111,22 +111,5 @@ export function wearOf(id: string, kind: UnitKind): Wear {
 /** Сколько всего людей описано метками: по нему видно, что состав ничего не потерял. */
 export const facesTotal = (faces: Face[]): number => faces.reduce((n, f) => n + f.men, 0);
 
-/**
- * Раскадровка ролика из записи боя: состав сторон превращается в метки, место и
- * час — в землю и свет, и дальше картинке хватает одной раскадровки. Единственная
- * дверь из записи боя в показ — чтобы «сервер прислал, клиент показал» осталось
- * одним вызовом.
- */
-export function castOfRecord(
-  result: BattleResult,
-  us: Side,
-  troops: Record<Side, TroopStack>,
-  militia?: Record<Side, { men: number; archers: number }>,
-  place?: BattlePlace,
-): Cast {
-  const side = (id: Side): Face[] =>
-    facesOf({ troops: troops[id] ?? {}, militia: militia?.[id]?.men, militiaArchers: militia?.[id]?.archers });
-  // Земля и свет — тем же ходом, что и состав: из записи боя чистой функцией.
-  // Места нет (старая запись) — ровное поле в полдень, но со своим сидом.
-  return buildCast(result, us, { attacker: side('attacker'), defender: side('defender') }, groundOf(place, result.seed));
-}
+// Раскадровка из записи боя (`castOfRecord`) живёт в `cast.ts`: метками пользуется
+// мир, а раскадровкой — только ролик, и в одном модуле они не лежат (см. там).

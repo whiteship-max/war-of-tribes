@@ -24,7 +24,7 @@ import { configureRenderer } from '@/render/lighting';
 import { ReplayPlayer } from '@/render/battle/player';
 import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
-import { castOfRecord } from '@/game/battle/faces';
+import { castOfRecord } from '@/game/battle/cast';
 import { battleMusic, villageMusic } from '@/sound/web';
 import type { BattleRecord } from '@/world/types';
 

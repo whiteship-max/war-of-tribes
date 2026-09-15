@@ -7,31 +7,7 @@ export { quickSetup, quickAttack, presetWeights, QUICK_PRESETS, QUICK_PRESET_IDS
 export { describeEvent, SECTOR_NAME, PHASE_NAME, SIDE_NAME } from './log';
 export * from './names';
 export { summarize, ourWord, VERDICT_TITLE, KEYS_MAX, type BattleSummary, type ReportLine } from './report';
-// Режиссура ролика: чистая функция от журнала, как и сам бой. Симуляции она не
-// зовёт, кубиков не бросает — это держит тест, читающий исходники.
-export {
-  buildCast,
-  frameAt,
-  figureCount,
-  shotAtTime,
-  placedAt,
-  sectorSpot,
-  laneOf as replayLaneOf,
-  rowOf as replayRowOf,
-  FIELD,
-  FIGURE_CAP,
-  MUSTER_FIGURES,
-  PLAIN_GROUND,
-  SKIP,
-  type Cast,
-  type CastSector,
-  type CameraShot,
-  type Control,
-  type Face,
-  type FaceCount,
-  type Frame,
-  type Ground,
-  type Keyframe,
-  type Mark,
-  type SectorFrame,
-} from './replay';
+// Режиссуры ролика (`./replay`) в этой двери нет нарочно: ролик едет своим куском
+// по «Смотреть бой», а модуль, названный здесь, сборщик кладёт в первую загрузку
+// вместе с ядром. Её зовут прямо — `@/battle/replay`. Она по-прежнему чистая
+// функция от журнала: симуляции не зовёт и кубиков не бросает (тест по исходникам).
