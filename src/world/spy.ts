@@ -81,6 +81,12 @@ export interface SpyOutcome {
    * У провала нулевая: доносить нечего.
    */
   spread: number;
+  /**
+   * Где легла кость в зоне провала, 0..1: ноль — у самой черты шанса, единица —
+   * в дальнем углу. У удачи ноль. Им скрытность решает, заметили ли провал
+   * (`world/agents.slipped`), — тем же броском, без второго.
+   */
+  miss: number;
   text: string;
 }
 
@@ -92,6 +98,7 @@ export function spyOutcome(chance: number, seed: number, action: SpyActionId): S
     return {
       success: false,
       spread: 0,
+      miss: chance >= 1 ? 0 : clamp((roll - chance) / (1 - chance), 0, 1),
       text:
         action === 'probe'
           ? 'Лазутчика заметили у ворот. Он вернулся ни с чем, и его запомнили.'
@@ -104,6 +111,7 @@ export function spyOutcome(chance: number, seed: number, action: SpyActionId): S
   return {
     success: true,
     spread: action === 'probe' ? spread : 0,
+    miss: 0,
     text:
       action === 'probe'
         ? margin > 0.5
@@ -112,6 +120,12 @@ export function spyOutcome(chance: number, seed: number, action: SpyActionId): S
         : 'В поселении бунт. Работы встали, гарнизон занят своими.',
   };
 }
+
+/** Слова провала, которого не заметили (скрытность лазутчика). */
+export const SPY_SLIP_TEXT: Record<SpyActionId, string> = {
+  probe: 'Пересчитать войско не вышло, но лазутчика не заметили: ушёл тихо. У ворот теперь смотрят внимательнее.',
+  revolt: 'Сговор не сложился, но лазутчика не выдали: ушёл тихо. В поселении насторожились.',
+};
 
 /** Окно бунта от момента, когда он начался. */
 export const revoltWindow = (at: number): { since: number; until: number } => ({

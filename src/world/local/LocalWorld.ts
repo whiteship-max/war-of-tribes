@@ -6,7 +6,6 @@ import { seeded } from '@/game/sim/random';
 import { serverNow } from '@/net/clock';
 import {
   FRONT,
-  GEAR,
   REAR,
   UNIT_KINDS,
   emptyStack,
@@ -15,7 +14,7 @@ import {
   type Stack,
   type UnitKind,
 } from '@/battle';
-import { gearOf, kindsOf, troopLosses, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf, troopLosses, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
@@ -115,6 +114,7 @@ import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
 import { cityName, cityOr } from '../../../netlify/lib/contract';
 import { WATCHER, liveSight, standing } from '../sight';
 import { canShelter, placeOf } from '../shelter';
+import { generalResolve, ownGearOf, revealSight, slipped } from '../agents';
 import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
@@ -128,6 +128,7 @@ import {
   spyChance,
   spyOutcome,
   spySeed,
+  SPY_SLIP_TEXT,
 } from '../spy';
 import { haltElapsed, sackActive, sackLook, sackPower, sackWindow } from '../sack';
 import {
@@ -258,6 +259,7 @@ import {
   REVOLT_POWER_LOSS,
   SPY_BUSY,
   SPY_CAUGHT_ATTITUDE,
+  SPY_SLIP_ATTITUDE,
   SPY_HELD,
   SUPPORT_ATTITUDE,
   AI_BONDED_SHARE,
@@ -1015,7 +1017,8 @@ export class LocalWorld implements WorldApi {
       return {
         kinds,
         gear: this.ownGear(troops),
-        resolve: this.ownResolve(),
+        // Наш лагерь держит дружина полководца — это его бой, и натиск в нём есть.
+        resolve: this.generalResolve(),
         setup: null,
         men: stackTotal(kinds),
         power: men * (this.save.profile?.warriorPower ?? 1),
@@ -1066,7 +1069,17 @@ export class LocalWorld implements WorldApi {
     id: SettlementId,
     at: number,
     seed: number,
-    attack: { front?: CampPart; rear?: CampPart; setup: ArmySetup | null },
+    attack: {
+      front?: CampPart;
+      rear?: CampPart;
+      setup: ArmySetup | null;
+      /**
+       * В бою дружина полководца — удар из поля, в одиночку или вместе с
+       * гарнизоном. Бой один, поэтому натиск ложится на весь нападающий. Вылазка
+       * и выручка идут без полководца: у них натиска нет.
+       */
+      general?: boolean;
+    },
   ):
     | {
         refused: false;
@@ -1114,12 +1127,14 @@ export class LocalWorld implements WorldApi {
       attacker: {
         kinds,
         gear,
-        resolve: own ? this.ownResolve() : undefined,
+        resolve: own ? (attack.general ? this.generalResolve() : this.ownResolve()) : undefined,
         // Расстановка писалась на весь отряд одной стороны, а дерётся его часть или
         // две стороны разом: тогда пресет выбирается по тем, кто прошёл.
         setup: parts.length === 1 && fought === all ? attack.setup : null,
       },
-      defender: { kinds: camp.kinds, gear: camp.gear, setup: camp.setup },
+      // Стойкость лагеря: у нашего — дружина полководца (обряд и натиск), у чужого
+      // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.
+      defender: { kinds: camp.kinds, gear: camp.gear, resolve: camp.resolve, setup: camp.setup },
     });
     // Прошедшие заняли свою долю прохода своей стороны. Окно то же, что в
     // сохранении: снимет осаду победа — отметки уйдут вместе с окном; устоит
@@ -2429,13 +2444,18 @@ export class LocalWorld implements WorldApi {
     return Math.max(0, this.save.profile?.fervour ?? 0);
   }
 
+  /**
+   * Стойкость в бою, который **ведёт полководец**: обряд плюс натиск
+   * (`world/agents.generalResolve`). Зовут её только бои полководца — удар по
+   * двору, перехват, удар по лагерю и наш лагерь, по которому бьют. Оборона
+   * деревни и вылазка берут `ownResolve`: их ведёт гарнизон, и натиск туда не идёт.
+   */
+  private generalResolve(): number {
+    return generalResolve(this.save.profile?.fervour ?? 0, this.save.profile?.onslaught ?? 0);
+  }
+
   private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
-    const gear = gearOf(troops);
-    const bonus = Math.max(0, Math.round(this.save.profile?.mountGear ?? 0));
-    if (bonus > 0 && gear.cavalry !== undefined) {
-      gear.cavalry = Math.min(GEAR.max, gear.cavalry + bonus);
-    }
-    return gear;
+    return ownGearOf(troops, this.save.profile?.mountGear ?? 0);
   }
 
   /**
@@ -2569,7 +2589,7 @@ export class LocalWorld implements WorldApi {
       // Укрывшийся в городе на местность не смотрит: его нет на карте. Круг
       // деревни при этом открывает его клетку и так.
       if (!f || placeOf(f) !== 'map') continue;
-      this.fog.revealPath(this.figureAt(f, from), this.figureAt(f, now), FIGURE_BY_ID[id].sight);
+      this.fog.revealPath(this.figureAt(f, from), this.figureAt(f, now), this.revealOf(id));
     }
     for (const m of save.marches) {
       if (!m.own) continue;
@@ -2644,8 +2664,21 @@ export class LocalWorld implements WorldApi {
     return best ? { id: best.id, name: best.name, home: false } : null;
   }
 
-  /** Отправляет фигуру домой павшей: насовсем её потерять нельзя. */
-  private downFigure(id: FigureId, at: number, text: string): void {
+  /**
+   * Радиус, которым фигура открывает землю: свой обзор плюс зоркость у
+   * разведчика (`world/agents.revealSight`). Только земля: живой обзор считает
+   * `sight.liveSight`, и зоркости он не знает.
+   */
+  private revealOf(id: FigureId): number {
+    return revealSight(id, this.save.profile?.sightBonus ?? 0);
+  }
+
+  /**
+   * Отправляет фигуру домой павшей: насовсем её потерять нельзя. Опыт агента
+   * племя поправит само (`HomeEffect.fell`); `deed` — если выбыл он на деле, за
+   * которое опыт всё равно положен (разведчик, попавшийся часовым).
+   */
+  private downFigure(id: FigureId, at: number, text: string, deed?: HomeEffect['deed']): void {
     const f = this.save.figures[id];
     const def = FIGURE_BY_ID[id];
     f.phase = 'down';
@@ -2664,6 +2697,8 @@ export class LocalWorld implements WorldApi {
       prestige: 0,
       morale: -4,
       battle: null,
+      ...(deed ? { deed } : {}),
+      fell: id,
       text: `${def.name} ${text} Вернётся не скоро.`,
       good: false,
     });
@@ -2760,10 +2795,23 @@ export class LocalWorld implements WorldApi {
     if (id === 'scout') {
       const power = this.powerNow(target, at);
       if (power > FIGURE_SCOUT_COVER && rng() < 0.25) {
-        this.downFigure(id, at, `попался часовым у ${target.name}.`);
+        this.downFigure(id, at, `попался часовым у ${target.name}.`, { agent: 'scout', ok: false, at });
         return;
       }
       this.save.intel[target.id] = this.snapshot(target, at);
+      // Дошёл и пересчитал — дело разведчика. Строки в летописи оно не стоит: ходка к
+      // логову не событие для деревни, а опыт племя запишет и без неё.
+      this.addEffect({
+        id: `fig-scout-deed-${target.id}-${at}`,
+        lost: {},
+        resources: {},
+        prestige: 0,
+        morale: 0,
+        battle: null,
+        deed: { agent: 'scout', ok: true, at },
+        text: '',
+        good: true,
+      });
       return;
     }
     if (id === 'diplomat' && this.relationOf(target) === 'enemy' && rng() < 0.3) {
@@ -3002,7 +3050,7 @@ export class LocalWorld implements WorldApi {
     const garrison = garrisonOf(this.save.seed, target.id, defense, target.castle);
     const field = resolveField({
       seed,
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), setup },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.generalResolve(), setup },
       defender: { kinds: garrison.kinds, gear: garrison.gear, setup: garrison.setup },
       intel: this.save.intel[target.id]?.kinds,
     });
@@ -3134,6 +3182,8 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 4 : 0,
       morale: field.won ? 4 : -6,
       battle: field.won ? 'won' : 'lost',
+      // Бой полководца — его дело. Пустой бой (некому было драться) делом не считается.
+      ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: burned
         ? `Логово ${target.name} (${formatCoord(target)}) сожжено.`
         : field.won
@@ -3332,7 +3382,7 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     const field = resolveField({
       seed,
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), setup: null },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.generalResolve(), setup: null },
       defender: { kinds: party.kinds, gear: party.gear, setup: party.setup },
     });
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
@@ -3384,6 +3434,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -5,
       battle: field.won ? 'won' : 'lost',
+      ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: field.won
         ? `Набег ${m.fromName} перехвачен в поле (${formatCoord(spot)}).`
         : `Перехват ${m.fromName} не удался.`,
@@ -4165,6 +4216,7 @@ export class LocalWorld implements WorldApi {
       rear: { own: troops },
       front: joint ? { own: going } : undefined,
       setup: null,
+      general: true,
     });
     if (!out || out.refused) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
     const { field, camp, front, rear } = out;
@@ -4233,6 +4285,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -4,
       battle: field.won ? 'won' : 'lost',
+      ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: field.won ? `Лагерь ${camp.name} разбит: осада снята.` : `Лагерь ${camp.name} устоял.`,
       good: field.won,
     });
@@ -4781,7 +4834,7 @@ export class LocalWorld implements WorldApi {
       to: { ...f.to },
       departAt: f.departAt,
       arriveAt: f.arriveAt,
-      sight: def.sight,
+      sight: this.revealOf(id),
       atId: near?.id ?? null,
       atName: near?.name ?? null,
       atHome: near?.home ?? false,
@@ -5561,12 +5614,17 @@ export class LocalWorld implements WorldApi {
     const rec = this.diploOf(s.id, now);
     const seed = spySeed(this.save.seed, s.id, action, chance, rec.attitude);
     const out = spyOutcome(chance, seed, action);
+    // Скрытность решает не исход, а то, заметили ли провал, — тем же броском.
+    const quiet = !out.success && slipped(out.miss, this.save.profile?.stealth ?? 0);
     const f = this.save.figures.spy;
-    f.busyUntil = now + (out.success ? SPY_BUSY : SPY_HELD);
-    f.held = !out.success;
+    f.busyUntil = now + (out.success || quiet ? SPY_BUSY : SPY_HELD);
+    f.held = !out.success && !quiet;
 
     let intel: Intel | null = null;
-    if (!out.success) {
+    if (quiet) {
+      // Не вышло, но ушёл тихо: не держат, дома не горюют, цель насторожилась.
+      this.moveAttitude(s.id, SPY_SLIP_ATTITUDE, now);
+    } else if (!out.success) {
       // Его заметили — и запомнили. Это и есть цена провала вместо гибели.
       this.moveAttitude(s.id, SPY_CAUGHT_ATTITUDE, now);
     } else if (action === 'probe') {
@@ -5581,6 +5639,7 @@ export class LocalWorld implements WorldApi {
 
     const def = SPY_ACTION_BY_ID[action];
     const title = out.success ? `${def.name}: ${s.name}` : `Провал у ${s.name}`;
+    const text = quiet ? SPY_SLIP_TEXT[action] : out.text;
     this.addReport({
       id: `spy-${s.id}-${action}-${now}`,
       at: now,
@@ -5595,7 +5654,7 @@ export class LocalWorld implements WorldApi {
       loot: null,
       intel,
       battle: null,
-      text: out.text,
+      text,
       read: false,
     });
     this.addEffect({
@@ -5603,9 +5662,10 @@ export class LocalWorld implements WorldApi {
       lost: {},
       resources: {},
       prestige: out.success && action === 'revolt' ? 2 : 0,
-      morale: out.success ? 1 : -2,
+      morale: out.success ? 1 : quiet ? 0 : -2,
       battle: null,
-      text: `${s.name}: ${out.text}`,
+      deed: { agent: 'spy', ok: out.success, at: now },
+      text: `${s.name}: ${text}`,
       good: out.success,
     });
     this.write();
@@ -5613,7 +5673,7 @@ export class LocalWorld implements WorldApi {
       error: null,
       accepted: out.success,
       diplomacy: this.diploView(s, now),
-      text: `${s.name}: ${out.text}`,
+      text: `${s.name}: ${text}`,
     };
   }
 

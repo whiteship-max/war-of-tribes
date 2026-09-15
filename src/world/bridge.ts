@@ -33,6 +33,7 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
+import { onslaughtOf, sightBonusOf, stealthOf } from '@/game/sim/agents';
 import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
 import type {
@@ -71,6 +72,18 @@ export const militiaArchers = (s: GameState): number => {
   if (!tower) return 0;
   return Math.min(militiaMen(s), Math.max(0, Math.round(buildingStat(tower, 'archers'))));
 };
+
+/** Прибавки навыков агентов для слепка: только ненулевые. */
+function skills(s: GameState): Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth'> {
+  const out: Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth'> = {};
+  const onslaught = onslaughtOf(s);
+  const sightBonus = sightBonusOf(s);
+  const stealth = stealthOf(s);
+  if (onslaught > 0) out.onslaught = onslaught;
+  if (sightBonus > 0) out.sightBonus = sightBonus;
+  if (stealth > 0) out.stealth = stealth;
+  return out;
+}
 
 /**
  * Слепок деревни для мира. Считается заново перед каждым обращением.
@@ -143,6 +156,12 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     mountGear: mountGear(s),
     // Статуя Героя: сколько дружины полководец уводит в поле.
     command: commandCap(s),
+    // Навыки агентов: три прибавки числами. Мир про уровни не знает, а кладёт
+    // каждую туда, где у неё своя дверь, — и ни одна не та, которой владеет
+    // здание: вместимость дружины остаётся у Статуи, шанс и старение — у Дозора.
+    // Ноль не едет вовсе: слепок агентов первого уровня обязан быть тем же, что
+    // до опыта, байт в байт, — он лежит в сохранении мира.
+    ...skills(s),
     // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
     // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
     // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
@@ -253,6 +272,9 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     // Какие постройки взятого города теряют уровень: список выбран в минуту
     // события, племя его только применяет.
     fallen: e.fallen,
+    // Дело и гибель агента: опыт пишет племя, мир только сообщает событие.
+    deed: e.deed,
+    fell: e.fell,
     text: e.text,
     kind: e.good ? 'good' : 'bad',
   };

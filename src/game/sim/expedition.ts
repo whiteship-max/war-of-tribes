@@ -24,6 +24,8 @@ import type { TroopStack } from '../battle/kinds';
 import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log } from './log';
+import { recordDeed, recordFall, type Deed } from './agents';
+import type { FigureId } from '@/world/types';
 import { loseRelic } from './faith';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 
@@ -86,6 +88,11 @@ export interface ExpeditionOutcome {
    * `id` — тип постройки.
    */
   fallen?: { id: string; from: number; to: number }[];
+  /** Дело агента карты: опыт запишет `sim/agents.recordDeed`. */
+  deed?: Deed;
+  /** Агент карты выбыл: `sim/agents.recordFall`. */
+  fell?: FigureId;
+  /** Строка летописи. Пустая — у последствия нет события, только дело агента. */
   text: string;
   kind: LogEntry['kind'];
 }
@@ -350,7 +357,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
     if (heroFell) s.hero.downUntil = s.time + heroDownSeconds();
   }
 
-  log(s, o.text, o.kind);
+  if (o.text) log(s, o.text, o.kind);
+  // Дело — сразу после строки события: уровень, взятый боем, стоит рядом с самим боем.
+  if (o.deed) recordDeed(s, o.deed);
+  if (o.fell) recordFall(s, o.fell);
   if (sacked.length > 0) {
     log(s, `Разорено за стеной: ${sacked.join(', ')}. Люди разбежались по домам.`, 'bad');
   }

@@ -188,8 +188,13 @@ const anchored = (stack: Stack): boolean => stack.infantry >= ANCHOR.infantrySha
  * Стартовая мораль группы: базовая мораль её родов, взвешенная числом людей,
  * плюс ступени снаряжения из кузницы, сдвиг плана и стойкость, с которой армия
  * вышла в поле (`setup.resolve` — ноль, если ничего такого не было).
+ *
+ * Открыта наружу ради одного читателя — карточки полководца: сколько натиска
+ * съест потолок морали, она меряет этой самой функцией, а не своей копией
+ * формулы. Ядро от этого чистым быть не перестаёт: функция по-прежнему ничего
+ * не знает ни об игре, ни о том, кто её зовёт.
  */
-function startMorale(setup: ArmySetup, stack: Stack): number {
+export function startMorale(setup: ArmySetup, stack: Stack): number {
   const total = stackTotal(stack);
   if (total <= 0) return 0;
   let m = 0;

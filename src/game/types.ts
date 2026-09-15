@@ -3,6 +3,8 @@ import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { BattlePlanTemplate, Formation } from './battle/formation';
 import type { UnitKind } from '@/battle';
 import type { ProfileState } from '@/profile/types';
+import type { FigureId } from '@/world/types';
+import type { ItemId } from './data/items';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -81,6 +83,25 @@ export type BuildingTypeId =
  * выбранный род войск. Погибнув, он не пропадает совсем — возвращается через
  * время: имя у племени остаётся, а вместе с ним и вложенные в статую уровни.
  */
+/**
+ * Что агент карты накопил за партию. Два числа и места под вещи — и ничего
+ * выводимого: уровня, кружков и действия навыка здесь нет.
+ */
+export interface AgentProgress {
+  /** Опыт всего. Не убывает сам; падает только от гибели, и не больше полушага. */
+  xp: number;
+  /**
+   * Мировое время последнего засчитанного дела, мс. null — дел ещё не было.
+   * По нему дело, пришедшее раньше `DEED_GAP`, опыта не даёт.
+   */
+  deedAt: number | null;
+  /**
+   * Места под вещи: **только имя** предмета или пусто. Что предмет даёт, знает
+   * таблица `data/items.ITEMS`, а есть ли он у игрока — `net/owned.ts`.
+   */
+  slots: (ItemId | null)[];
+}
+
 export interface Hero {
   /** Имя с прозвищем. Даётся один раз за партию и не меняется. */
   name: string;
@@ -441,6 +462,15 @@ export interface GameState {
   faith: FaithState;
   /** Герой племени: имя, род войск и состояние. См. Hero. */
   hero: Hero;
+  /**
+   * Опыт и вещи четырёх агентов карты. Живёт в партии, а не в сохранении мира:
+   * мир уже дважды собирался заново при смене своей версии и стёр бы недели
+   * опыта одной правкой формата. Уровень и кружки здесь не лежат — они
+   * выводятся из опыта (`data/agents.levelOf`). Поле с умолчанием версию не
+   * поднимает: старая партия приезжает агентами первого уровня, то есть ровно
+   * сегодняшними.
+   */
+  agents: Record<FigureId, AgentProgress>;
   starvation: number; // накопленное время голода, сек
   freezing: number; // накопленное время зимы без дров, сек
   /** Год, за который уже показали предупреждение о зиме (0 — ещё не показывали). */

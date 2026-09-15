@@ -8,7 +8,7 @@
 // его в руку («На карте»). Без этого разведчик, ушедший за поводок деревни,
 // оставался бы без приказов: тапнуть его на карте нельзя, пока камера до него
 // не дотянется, а дотянуться она может только от него самого.
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { figurePosition, incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
 import { troopTotal } from '@/game/battle/kinds';
@@ -19,6 +19,9 @@ import { UNITS } from '@/world/data/units';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import type { Loot, MarchView, Report, ReportKind, UnitStack } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
+import { AgentCard } from '@/ui/parts/AgentCard';
+import { agentLevel } from '@/game/sim/agents';
+import type { FigureId } from '@/world/types';
 
 /** Иконка отчёта: набег, разведка, поддержка или оборона дома. */
 const REPORT_ICON: Record<ReportKind, string> = {
@@ -84,6 +87,10 @@ export function MarchesPanel() {
   const pickFigure = useWorld((g) => g.pick);
   const showToast = useGame((g) => g.showToast);
   const closeSheet = useGame((g) => g.closeSheet);
+  const s = useGame((g) => g.s);
+  // Карточка агента — страница этой же панели, как вторая страница заданий: снаружи
+  // на неё ничего не ведёт, и закрытая шторка открывается снова на списке.
+  const [card, setCard] = useState<FigureId | null>(null);
 
   useEffect(() => {
     void loadReports().then(() => void markRead());
@@ -91,6 +98,7 @@ export function MarchesPanel() {
 
   const own = ownMarches(marches);
   const incoming = incomingMarches(marches);
+  if (card) return <AgentCard id={card} onBack={() => setCard(null)} />;
 
   return (
     <div className="panel">
@@ -115,12 +123,14 @@ export function MarchesPanel() {
                   : (f.atName ?? 'в поле');
         return (
           <div className={`card${f.phase === 'down' ? ' lost' : ''}`} key={f.id}>
-            <div className="ico">
+            <div className="ico" role="button" onClick={() => setCard(f.id)}>
               <Icon name={`fig-${f.id}`} glyph={f.icon} />
             </div>
             <div className="body">
-              <div className="title">
+              {/* Тело строки ведёт в карточку агента; кнопки ниже остаются кнопками строки. */}
+              <div className="title" role="button" onClick={() => setCard(f.id)}>
                 {f.name}
+                <span className="count">ур. {agentLevel(s, f.id)} ›</span>
                 {men > 0 && <span className="count">дружина {men}</span>}
               </div>
               <div className="desc">

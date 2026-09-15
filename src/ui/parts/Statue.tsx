@@ -2,6 +2,7 @@ import { useGame } from '@/game/store';
 import { DAY_LENGTH } from '@/game/constants';
 import { commandCap, heroInfo } from '@/game/derived';
 import { setHeroKind } from '@/game/sim/actions';
+import { agentLevel } from '@/game/sim/agents';
 import { OWN_KINDS } from '@/game/battle/kinds';
 import { KIND_META } from '@/battle';
 import { count } from './plural';
@@ -33,6 +34,12 @@ export function Statue() {
           <em className="sub">по головам, любого вида: латник здесь один</em>
         </span>
         <span className="val pos">{count(commandCap(s), 'боец', 'бойца', 'бойцов')}</span>
+      </div>
+      {/* Герой и полководец на карте — один человек. Сколько он уводит и чего стоит
+          сам, решает Статуя; его уровень даёт натиск — это в карточке агента. */}
+      <div className="note">
+        Это он же водит дружину по карте: {info.name}, уровень {agentLevel(s, 'general')}. Сколько он
+        уводит и за скольких стоит сам, решает Статуя, а натиск даёт его опыт — карточка в «Походах».
       </div>
 
       <h3>

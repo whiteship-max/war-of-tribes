@@ -7,6 +7,7 @@ import { createInitialState, SAVE_VERSION } from './state';
 import { catchUp } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
+import { mergeAgents } from './sim/agents';
 import type { ProfileState } from '@/profile/types';
 import { refreshCard } from '@/profile/stats';
 import { rescueFromCloud } from '@/telegram/cloud-rescue';
@@ -144,6 +145,10 @@ export function deserialize(json: string): GameState | null {
       battlePlans: data.battlePlans ?? [],
       stats: { ...base.stats, ...(data.stats ?? {}) },
       profile: mergeProfile(base.profile, data.profile),
+      // Агенты — словарь по агентам, как армия по видам: мержится поштучно, а
+      // каждое поле читается с проверкой. Партия, записанная до опыта, приезжает
+      // агентами первого уровня — ровно сегодняшними, — и версию это не поднимает.
+      agents: mergeAgents(data.agents),
     } as GameState;
     // Здание, добавленное в BUILDINGS после того, как сохранение записали,
     // должно появиться в посёлке само — так же, как оно появляется в новой партии

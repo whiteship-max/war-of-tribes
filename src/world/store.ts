@@ -377,7 +377,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // что павший — именно он (см. applyExpedition и syncAway).
     if (pulse.effects.length > 0) {
       useGame.getState().world((s) => applyEffects(s, pulse.effects));
-      haptic('medium');
+      // Последствие без строки — одно дело агента (разведчик дошёл до логова): это
+      // не событие, и телефон вздрагивать из-за него не должен.
+      if (pulse.effects.some((e) => e.text)) haptic('medium');
     }
     // Число ушедших выводится из походов: правим состояние на месте, перерисовку
     // сделает ближайший тик симуляции — лишний рендер каждые две секунды не нужен.

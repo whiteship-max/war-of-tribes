@@ -6,6 +6,7 @@ import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
 import { heroName } from './data/names';
 import { emptyProfile, refreshCard } from '@/profile/stats';
+import { emptyAgents } from './sim/agents';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
@@ -119,6 +120,8 @@ export function createInitialState(): GameState {
     // Герой стоит у своей статуи с первого дня, как и всё остальное. Имя даётся
     // один раз за партию; род войск игрок меняет в Статуе за золото.
     hero: { name: heroName(Math.random), kind: 'infantry', downUntil: 0, marchId: null },
+    // Агенты карты начинают первым уровнем — ровно сегодняшними, — и с пустыми руками.
+    agents: emptyAgents(),
     starvation: 0,
     freezing: 0,
     winterWarnedYear: 0,
