@@ -234,7 +234,10 @@ import {
   DEAL_DURATION,
   DEAL_PAYOUT,
   DEFENSE_FREEZE,
+  AGENT_DEATH_MORALE,
+  AGENT_HELD_MORALE,
   FIGURE_DOWN,
+  GENERAL_ROUT_MORALE,
   FIGURE_SCOUT_CATCH,
   FIGURE_SCOUT_COVER,
   PERIL_MEMORY,
@@ -2765,7 +2768,7 @@ export class LocalWorld implements WorldApi {
       lostTroops: troopTotal(lost) > 0 ? lost : undefined,
       resources: {},
       prestige: 0,
-      morale: -4,
+      morale: AGENT_DEATH_MORALE,
       battle: null,
       fell: { agent: id, person, peril: death.peril, where: death.where, why: death.why },
       // Строку летописи пишет племя: только оно знает, как звали погибшего.
@@ -2778,8 +2781,8 @@ export class LocalWorld implements WorldApi {
    * Задержание — не гибель: пойманного держат и отпускают домой, опыт при нём.
    * Цена — дело-неудача (`deed`), лицо, которое цель запомнила (отношение
    * `SPY_CAUGHT_ATTITUDE`, как у замеченного лазутчика), и прежние десять минут вне
-   * строя. Мораль дома пока та же, что у гибели: развести и её — решение владельца
-   * (docs/PROMISES_DEBT.md).
+   * строя. Мораль дома — цена задержания `AGENT_HELD_MORALE`, та же, что у замеченного
+   * лазутчика, и дешевле гибели.
    */
   private holdFigure(id: FigureId, target: GenSettlement, at: number, text: string, deed: NonNullable<HomeEffect['deed']>): void {
     const f = this.save.figures[id];
@@ -2791,7 +2794,7 @@ export class LocalWorld implements WorldApi {
       lost: {},
       resources: {},
       prestige: 0,
-      morale: -4,
+      morale: AGENT_HELD_MORALE,
       battle: null,
       deed,
       text: `${FIGURE_BY_ID[id].name} ${text} Отпустят не скоро.`,
@@ -2812,7 +2815,7 @@ export class LocalWorld implements WorldApi {
       lostTroops: troopTotal(lost) > 0 ? lost : undefined,
       resources: {},
       prestige: 0,
-      morale: -4,
+      morale: GENERAL_ROUT_MORALE,
       battle: null,
       text: `${FIGURE_BY_ID[id].name} ${text} Уцелел — вернётся не скоро.`,
       good: false,
@@ -6098,7 +6101,7 @@ export class LocalWorld implements WorldApi {
       lost: {},
       resources: {},
       prestige: out.success && action === 'revolt' ? 2 : 0,
-      morale: out.success ? 1 : quiet ? 0 : -2,
+      morale: out.success ? 1 : quiet ? 0 : AGENT_HELD_MORALE,
       battle: null,
       deed: { agent: 'spy', ok: out.success, at: now, person },
       text: `${s.name}: ${text}`,

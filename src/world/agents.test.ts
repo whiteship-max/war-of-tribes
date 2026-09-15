@@ -40,8 +40,11 @@ import type { StoredMarch, WorldSave } from './local/state';
 import { applyEffects, playerProfile } from './bridge';
 import { FIGURE_BY_ID, FIGURE_IDS } from './data/figures';
 import {
+  AGENT_DEATH_MORALE,
+  AGENT_HELD_MORALE,
   FIGURE_DOWN,
   FIGURE_SCOUT_COVER,
+  GENERAL_ROUT_MORALE,
   LAIR_RIPE,
   SPY_BUSY,
   SPY_CAUGHT_ATTITUDE,
@@ -71,6 +74,8 @@ type Inner = {
   spyOrder(action: 'probe', s: GenSettlement, now: number, chance: number): { accepted: boolean };
   powerNow(s: GenSettlement, now: number): number;
   downFigure(id: FigureId, at: number, death: { peril: number; where: string; why: string[]; spot: { id: string; name: string; x: number; y: number } }): void;
+  holdFigure(id: FigureId, target: GenSettlement, at: number, text: string, deed: NonNullable<HomeEffect['deed']>): void;
+  routFigure(id: FigureId, at: number, text: string): void;
 };
 
 function makeWorld(seed = 11) {
@@ -351,7 +356,7 @@ describe('скрытность решает, заметили ли провал,
       expect(eff.deed).toEqual({ agent: 'spy', ok: false, at: w.now(), person: 0 });
       expect(pulse.effects.some((e) => e.fell), 'точка внутри области: лазутчик жив').toBe(false);
     }
-    expect(out[0]).toMatchObject({ held: true, busy: SPY_HELD, morale: -2 });
+    expect(out[0]).toMatchObject({ held: true, busy: SPY_HELD, morale: AGENT_HELD_MORALE });
     expect(out[1]).toMatchObject({ held: false, busy: SPY_BUSY, morale: 0 });
     expect(out[0].attitude - out[1].attitude).toBe(SPY_CAUGHT_ATTITUDE - SPY_SLIP_ATTITUDE);
   });
@@ -474,9 +479,59 @@ describe('поимка разведчика — задержание, а не г
   it('поимка роняет отношение цели ровно на SPY_CAUGHT_ATTITUDE, как у замеченного лазутчика; удача — не трогает', async () => {
     const caught = await scoutArrives(makeWorld(), tribeProfile(1), true);
     expect(caught.attitude, 'отношение за поимку').toBe(SPY_CAUGHT_ATTITUDE);
-    expect(caught.eff.morale, 'мораль дома — прежняя цена').toBe(-4);
+    expect(caught.eff.morale, 'мораль дома — цена задержания').toBe(AGENT_HELD_MORALE);
     const counted = await scoutArrives(makeWorld(), tribeProfile(1), false);
     expect(counted.attitude, 'пересчитал и ушёл — отношение то же').toBe(0);
+  });
+});
+
+describe('мораль дома за агента: задержание дешевле гибели и разгрома', () => {
+  // Область: последствия трёх дверей. Каждая точка утверждает, что последствие пришло
+  // именно из своей двери (дело-неудача без гибели, гибель с fell, разгром без того и
+  // другого), иначе «одна цена» сравнивала бы не те события.
+  it('«задержан» стоит одинаково у разведчика, дипломата и лазутчика, и город это замечает', async () => {
+    const scout = (await scoutArrives(makeWorld(), tribeProfile(1), true)).eff;
+    expect(scout.deed?.ok, 'точка внутри области: разведчика задержали').toBe(false);
+    expect(scout.fell, 'точка внутри области: разведчик жив').toBeUndefined();
+
+    const dw = makeWorld();
+    await dw.world.sync(tribeProfile(1));
+    const lair = nearestLair(dw);
+    dw.inner.holdFigure('diplomat', lair, dw.now(), 'схвачен.', { agent: 'diplomat', ok: false, at: dw.now(), person: 0 });
+    const diplomat = (await dw.world.sync(tribeProfile(1))).effects.find((e) => e.deed?.agent === 'diplomat')!;
+    expect(dw.inner.save.figures.diplomat.held, 'точка внутри области: дипломата задержали').toBe(true);
+
+    const sw = makeWorld();
+    const p = tribeProfile(1, { veil: 0 });
+    await sw.world.sync(p);
+    expect(sw.inner.spyOrder('probe', nearestLair(sw), sw.now(), 0.05).accepted, 'точка внутри области: провал').toBe(false);
+    const spy = (await sw.world.sync(p)).effects.find((e) => e.deed?.agent === 'spy')!;
+    expect(sw.inner.save.figures.spy.held, 'точка внутри области: провал заметили, лазутчика держат').toBe(true);
+
+    expect(AGENT_HELD_MORALE, 'ноль не годится: город замечает, что его человека поймали').toBeLessThan(0);
+    expect(scout.morale, 'разведчик: цена задержания').toBe(AGENT_HELD_MORALE);
+    expect(diplomat.morale, 'дипломат: та же цена, что у разведчика').toBe(scout.morale);
+    expect(spy.morale, 'лазутчик: та же цена, что у разведчика').toBe(scout.morale);
+  });
+
+  it('гибель и разгром стоят дороже задержания', async () => {
+    const w = makeWorld();
+    const p = tribeProfile(1);
+    await w.world.sync(p);
+    const home = w.inner.save.home;
+    const spot = { id: 'x', name: 'Логово', x: home.x, y: home.y };
+    w.inner.downFigure('scout', w.now(), { peril: 0.05, where: 'у Логова', why: [], spot });
+    w.inner.routFigure('general', w.now(), 'разбит под Логовом.');
+    const effects = (await w.world.sync(p)).effects;
+    const death = effects.find((e) => e.fell?.agent === 'scout')!;
+    const rout = effects.find((e) => e.id === `fig-general-${w.now()}`)!;
+    expect(death, 'точка внутри области: гибель пришла с fell').toBeDefined();
+    expect(rout.fell, 'точка внутри области: разгром — не гибель').toBeUndefined();
+    expect(w.inner.save.figures.general.gone, 'точка внутри области: место полководца не пустует').toBeUndefined();
+    expect(death.morale, 'гибель').toBe(AGENT_DEATH_MORALE);
+    expect(rout.morale, 'разгром').toBe(GENERAL_ROUT_MORALE);
+    expect(death.morale, 'гибель дороже задержания').toBeLessThan(AGENT_HELD_MORALE);
+    expect(rout.morale, 'перебитая дружина дороже пойманного разведчика').toBeLessThan(AGENT_HELD_MORALE);
   });
 });
 
