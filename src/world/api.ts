@@ -61,7 +61,7 @@ export interface WorldApi {
   /** Отзыв похода. null — отозван, иначе текст ошибки. */
   recall(marchId: string): Promise<string | null>;
 
-  /** Три фигуры игрока: где они, что при них, когда придут. */
+  /** Фигуры игрока: где они, что при них, когда придут. */
   figures(): Promise<FigureView[]>;
 
   /**

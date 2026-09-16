@@ -2,7 +2,7 @@
 //
 // На каждом из четырёх мест стоит человек — с именем, возрастом, опытом и вещами, —
 // или место пустует. Человек смертен: гибнет на деле (`HomeEffect.fell`) и уходит на
-// покой в шестьдесят (`HomeEffect.retired`). Нового нанимают в здании (`sim/hire.ts`),
+// покой в возрасте `RETIRE_AGE` (`HomeEffect.retired`). Нового нанимают в здании (`sim/hire.ts`),
 // и начинает он **с нуля**: первый уровень, новое имя, молодой возраст — не
 // наследуется ничего.
 //
@@ -160,7 +160,7 @@ export const yearsOf = (s: GameState, agent: FigureId): number => Math.floor(age
 /** Дожил до покоя: бросает дело и уходит, как дойдёт до своих ворот. */
 export const retiring = (s: GameState, agent: FigureId): boolean => seated(s, agent) && ageOf(s, agent) >= RETIRE_AGE;
 
-/** Когда человеку на месте исполнится шестьдесят, игровое время. */
+/** Когда человеку на месте исполнится `RETIRE_AGE`, игровое время. */
 export function retireAt(s: GameState, agent: FigureId): number {
   const p = s.agents[agent];
   return p.bornAt + Math.max(0, RETIRE_AGE - p.age0) * AGENT_YEAR;
@@ -252,10 +252,10 @@ export interface Deed {
 }
 
 /**
- * Засчитать дело. Удача — два опыта, неудача — один; не чаще раза в `DEED_GAP`
+ * Засчитать дело. Удача и неудача дают опыт по `DEED_XP`; не чаще раза в `DEED_GAP`
  * на агента. Дело, пришедшее раньше срока (или раньше прошлого засчитанного),
  * опыта не даёт и отметку не двигает, — поэтому засчитанные дела всегда идут
- * по времени и не ближе пяти минут друг к другу. Возвращает, сколько опыта легло.
+ * по времени и не ближе `DEED_GAP` друг к другу. Возвращает, сколько опыта легло.
  */
 export function recordDeed(s: GameState, deed: Deed): number {
   const p = s.agents?.[deed.agent];
@@ -317,7 +317,7 @@ function vacate(s: GameState, agent: FigureId, person: number, end: LineageEntry
 /**
  * Положить ушедшего в родословную места. Зовёт её только `vacate` — единственная
  * дверь, через которую человек покидает место, — поэтому записи не бывает ни
- * дважды, ни мимо. Погибших помнят всех, ушедших на покой — со второго уровня;
+ * дважды, ни мимо. Погибших помнят всех, ушедших на покой — с уровня `LINEAGE_LEVEL`;
  * новые первыми, не больше потолка места.
  */
 function remember(s: GameState, agent: FigureId, end: LineageEntry['end']): void {
@@ -361,7 +361,7 @@ export function recordDeath(s: GameState, fell: NonNullable<HomeEffect['fell']>,
   return true;
 }
 
-/** Агент дошёл домой после шестидесяти и ушёл на покой. */
+/** Агент дошёл домой после `RETIRE_AGE` и ушёл на покой. */
 export function recordRetire(s: GameState, retired: NonNullable<HomeEffect['retired']>, where: HireWhere): boolean {
   const p = s.agents?.[retired.agent];
   if (!p) return false;

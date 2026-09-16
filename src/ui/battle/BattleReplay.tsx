@@ -62,7 +62,7 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
       ownWrap.appendChild(canvas);
       (document.querySelector('.app') ?? document.body).appendChild(ownWrap);
       own = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-      // Та же вилка плотности, что у диорамы: третий пиксель не виден, а филлрейт вдвое.
+      // Та же вилка плотности, что у диорамы: третий пиксель не виден, а филлрейт растёт квадратом плотности.
       own.setPixelRatio(Math.min(2, Math.max(1, window.devicePixelRatio || 1)));
       configureRenderer(own);
       renderer = own;

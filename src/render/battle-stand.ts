@@ -69,7 +69,7 @@ function placeOf(p: URLSearchParams): BattlePlace | undefined {
   if (marks.includes('road')) place.road = true;
   if (marks.includes('woods')) place.woods = true;
   // Час и время года приходят одним числом — игровым временем племени, ровно
-  // как в игре. Зима — это просто день из зимней пятидневки.
+  // как в игре. Зима — это просто день из зимнего сезона (`SEASON_DAYS`).
   const day = winter ? 15 : 0;
   place.time = (day + (hour === null ? 0.5 : hour / 24)) * DAY_LENGTH;
   return place;

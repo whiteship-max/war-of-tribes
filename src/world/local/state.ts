@@ -308,7 +308,7 @@ export interface WorldSave {
   /** Последний слепок деревни игрока: им обороняется дом, пока игрока нет. */
   profile: PlayerProfile | null;
   /**
-   * Оборона, запертая за пять минут до прихода чужой армии (раздел 8 документа).
+   * Оборона, запертая за `DEFENSE_FREEZE` до прихода чужой армии (раздел 8 документа).
    * Latch, а не флаг: слепок деревни приходит каждый пульс, и без него защитник
    * менял бы расстановку до самого удара.
    */
@@ -322,7 +322,7 @@ export interface WorldSave {
   fogAt: number;
   /** Живые данные о поселениях на момент последнего взгляда. */
   sightings: Record<SettlementId, Sighting>;
-  /** Три фигуры. Их ровно три, и других не бывает. */
+  /** Фигуры — по одной на каждый вид из `FIGURE_IDS`, и других не бывает. */
   figures: Record<FigureId, StoredFigure>;
   /** Договоры по племенам. */
   pacts: Record<TribeId, Partial<Record<DealId, Pact>>>;
@@ -577,7 +577,7 @@ export function createWorldSave(
   };
 }
 
-/** Фигура, стоящая дома. Все три начинают партию именно так. */
+/** Фигура, стоящая дома. Все фигуры начинают партию именно так. */
 export function homeFigure(home: Coord, now: number): StoredFigure {
   return {
     phase: 'home',

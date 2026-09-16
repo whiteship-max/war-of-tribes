@@ -35,7 +35,7 @@ export class BattleStage {
   readonly camera = new THREE.PerspectiveCamera(45, 1, 0.5, 200);
   private pool = new FigurePool();
   private blocks: SectorTroops[] = [];
-  /** Масса: знамёна, лес древков и пятно под строем. Три вызова на всё поле. */
+  /** Масса: знамёна, лес древков и пятно под строем. Вызов на набор (`MassView`), сколько бы ни было войска. */
   private mass: MassView;
   /** Залпы: все стрелы поля одним вызовом отрисовки. */
   private arrows = new ArrowStorm();

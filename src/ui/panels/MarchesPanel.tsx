@@ -113,7 +113,7 @@ export function MarchesPanel() {
         const cell = { x: Math.round(at.x), y: Math.round(at.y) };
         const men = troopTotal(f.troops);
         // Задержан и выбыл — разные вещи, и говорить «выбыл» о пойманном, которого через
-        // десять минут отпустят, значит врать игроку.
+        // `FIGURE_DOWN` отпустят (лазутчика — через `SPY_HELD`), значит врать игроку.
         const where =
           f.place === 'vacant'
             ? `${f.gone === 'retired' ? 'ушёл на покой' : 'погиб'} — место пустует, нанять ${hireWhere(s, f.id)}`

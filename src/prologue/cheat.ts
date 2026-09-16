@@ -25,7 +25,7 @@ import type { PrologueSave } from './save';
 /** Сколько полен в руках даёт код. Три дерева: хватит и очагу, и стройке. */
 export const CHEAT_LOGS = 9;
 
-/** Сколько мяса каждого вида. Шесть жареных — двое суток отлучки. */
+/** Сколько мяса каждого вида. Шесть жареных — полный живот на отлучку (`body.STARVE_H`). */
 export const CHEAT_MEAT = 6;
 
 /** Сколько шкур. Одной хватает на одежду, вторая — чтобы было видно счётчик. */
@@ -68,7 +68,7 @@ export function applyCheat(s: PrologueSave, id: CheatId, now: number): { save: P
         // (`kin.guestAt`), а не получает исключение.
         builtAt: now - GUEST_FIRST_MS,
         // Любовь в записи не хранится — хранятся дни общей жизни, и полными их
-        // кладёт код (`kin.love` из них и считает сто).
+        // кладёт код (`kin.love` из них и считает полную, `kin.LOVE_FULL`).
         bond: {
           meal: { n: LOVE_DAYS, day: -1 },
           hug: { n: LOVE_DAYS, day: -1 },

@@ -21,8 +21,8 @@ import { haptic } from '@/telegram/webapp';
  * requestAnimationFrame и вовсе стоит.
  */
 export function Archery({ seed, onDone }: { seed: number; onDone: (won: boolean) => void }) {
-  // useMemo, а не вызов в теле: панель перерисовывается на каждом кадре стора,
-  // дважды в секунду, а новый объект уровня каждый раз перезапускал бы цикл
+  // useMemo, а не вызов в теле: панель перерисовывается на каждом кадре стора
+  // (`TICK_MS`), а новый объект уровня каждый раз перезапускал бы цикл
   // отрисовки — бегунок дёргался бы на ровном месте.
   const lv = useMemo(() => archeryLevel(seed), [seed]);
   const [scores, setScores] = useState<number[]>([]);

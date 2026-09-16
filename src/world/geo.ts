@@ -9,8 +9,8 @@ import { MARCH_MIN_SECONDS, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } fr
 
 /**
  * Потолок числа замеров на один путь. Он не про баланс, а про то, чтобы поход
- * через всю карту не считался вечно; при шаге в полклетки на две сотни клеток
- * его не достать.
+ * через всю карту не считался вечно; достаёт его только путь длиннее
+ * `PATH_SAMPLES_MAX / PATH_SAMPLES_PER_CELL` клеток.
  */
 const PATH_SAMPLES_MAX = 600;
 

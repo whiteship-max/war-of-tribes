@@ -82,7 +82,8 @@ export function combatValue(troop: TroopId): number {
 /**
  * Вес одного бойца вида: сколько он весит в полевом строю (`weightOf` — тот же
  * перевод, которым пользуется бой) на то, чего этот строй стоит. Дубинщик —
- * единица измерения там и тут, латник весит восьмерых и стоек вдобавок.
+ * единица измерения там и тут, латник весит нескольких (`TroopDef.power` на `BATTLE_MAN`)
+ * и стоек вдобавок.
  */
 export const troopWeight = (troop: TroopId): number => weightOf(troop) * combatValue(troop);
 

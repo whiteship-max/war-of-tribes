@@ -4,7 +4,7 @@ import type { JobId, Season } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { yardSeason } from './yards';
 
-/** Сколько игровых дней длится один сезон. 5 × 60 сек = 5 минут реального времени. */
+/** Сколько игровых дней длится один сезон. В секундах реального времени — `SEASON_SECONDS`. */
 export const SEASON_DAYS = 5;
 
 export const SEASONS: Season[] = ['spring', 'summer', 'autumn', 'winter'];

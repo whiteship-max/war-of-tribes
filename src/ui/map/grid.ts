@@ -174,7 +174,7 @@ export function detailAlpha(scale: number): number {
 export function visibleCells(rect: Rect): Rect {
   const x0 = Math.max(WORLD_ORIGIN.x, Math.floor(rect.x));
   const y0 = Math.max(WORLD_ORIGIN.y, Math.floor(rect.y));
-  // Правый край исключающий: клетка 599 последняя, значит граница — 600.
+  // Правый край исключающий: последняя клетка — `WORLD_ORIGIN + WORLD_SIZE − 1`, значит граница — `WORLD_ORIGIN + WORLD_SIZE`.
   const x1 = Math.min(WORLD_ORIGIN.x + WORLD_SIZE, Math.ceil(rect.x + rect.w));
   const y1 = Math.min(WORLD_ORIGIN.y + WORLD_SIZE, Math.ceil(rect.y + rect.h));
   return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };

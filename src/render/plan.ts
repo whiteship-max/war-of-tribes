@@ -33,7 +33,7 @@ export const ROAD_HALF = 0.5;
 
 /**
  * Ворота. Угол выбран так, чтобы они смотрели в камеру при стартовом ракурсе
- * (азимут камеры — Math.atan2(9, 12)), и больше не меняется никогда.
+ * (азимут камеры — `AZIMUTH` в camera.ts), и больше не меняется никогда.
  */
 export const GATE_ANGLE = Math.atan2(0.8, 0.6);
 
@@ -48,7 +48,7 @@ export const RING_RADIUS: [number, number, number, number, number] = [0, 5, 8, 1
 /** Кольцо за стеной. Всё, что на нём стоит, уязвимо для набега. */
 export const OUTSIDE_RING = 4;
 
-/** Насколько подрастает постройка к десятому уровню (levelScale в buildings.ts). */
+/** Насколько подрастает постройка к последнему уровню, `MAX_BUILDING_LEVEL` (levelScale в buildings.ts). */
 const TOP_LEVEL_SCALE = 1 + 0.045 * (MAX_BUILDING_LEVEL - VISUAL_TIERS[1]);
 
 /**
@@ -91,7 +91,7 @@ const PLOT_MARGIN = 0.22;
 
 /**
  * Радиус площадки под здание. Считается по самой крупной ступени и по
- * десятому уровню — иначе к концу партии постройки вылезут за отведённое место.
+ * последнему уровню (`MAX_BUILDING_LEVEL`) — иначе к концу партии постройки вылезут за отведённое место.
  * Стартовые здания уровней не набирают, им хватает своей ступени.
  */
 export function plotRadius(type: BuildingTypeId): number {

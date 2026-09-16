@@ -8,7 +8,7 @@ import { LEGACY, type MatKey } from './materials';
 import * as K from './kit';
 import { PALETTE } from './palette';
 
-/** Визуальная ступень: 0 — уровни 1–3, 1 — 4–7, 2 — 8–10. */
+/** Визуальная ступень: 0 — ниже `VISUAL_TIERS[0]`, 1 — ниже `VISUAL_TIERS[1]`, 2 — дальше до потолка уровней. */
 export type Tier = 0 | 1 | 2;
 
 /** Уровень, с которого начинается каждая ступень. */

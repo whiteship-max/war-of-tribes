@@ -120,7 +120,7 @@ export function draftNotices(w: NoticeWorld, now: number): Drafts {
     else
       // Ключ — имя момента: этот отряд, вышедший в эту минуту. Номер один не годится:
       // «начать заново» заводит мир со счёта походов с нуля, и первый набег новой партии
-      // молчал бы двое суток, наткнувшись на отметку первого набега прежней.
+      // молчал бы `SENT_KEEP` (`netlify/lib/notify.ts`), наткнувшись на отметку первого набега прежней.
       put('raid', `raid:${raid.id}:${raid.departAt}`, raid.seenFrom, raid.freezeAt, {
         from: plainName(raid.from),
         fate: raid.fate,

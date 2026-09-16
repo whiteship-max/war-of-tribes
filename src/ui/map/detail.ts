@@ -224,7 +224,7 @@ export function drawVillages(
   ctx.imageSmoothingEnabled = true;
   for (const s of list) {
     const [sx, sy] = toScreen(cam, vp, s.x + 0.5, s.y + 0.5);
-    // Спрайт занимает около трёх клеток: за экраном его можно не рисовать, но
+    // Спрайт занимает несколько клеток (`SPAN_W` в `village.ts`): за экраном его можно не рисовать, но
     // запас нужен, иначе крыши будут выскакивать на границе.
     if (sx < -px * 2 || sy < -px * 2 || sx > vp.w + px * 2 || sy > vp.h + px * 2) continue;
     const siege = s.besieged && worksStand(s.besieged.starvesAt, now) ? s.besieged : null;

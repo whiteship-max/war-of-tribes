@@ -77,7 +77,7 @@ export function AlertBar() {
     <div className={`alerts${mapOpen ? ' on-map' : ''}${tutorialActive(s) ? ' with-tut' : ''}`}>
       {raids.map((m) => {
         // Тап ведёт туда, где это чинят: к расстановке обороны. После отметки
-        // «минус 5 минут» она заперта — и строка говорит об этом словами общего замка.
+        // «за `DEFENSE_FREEZE` до удара» она заперта — и строка говорит об этом словами общего замка.
         return (
           <button key={m.id} className="alert raid" onClick={openDefense}>
             <span className="ic">

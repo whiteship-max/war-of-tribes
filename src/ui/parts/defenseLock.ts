@@ -13,7 +13,7 @@ import { DEFENSE_FREEZE } from '@/world/data/tuning';
 import { formatLeft } from '@/world/geo';
 import { defenseLock, useWorld, worldNow, type DefenseLock } from '@/world/store';
 
-/** «5 мин» — за сколько до удара запирается расстановка. */
+/** `DEFENSE_FREEZE` словами, в минутах, — за сколько до удара запирается расстановка. */
 const FREEZE = `${Math.round(DEFENSE_FREEZE / 60_000)} мин`;
 
 export interface LockWords {

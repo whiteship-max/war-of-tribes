@@ -40,8 +40,8 @@ export const REAR_R = 1.38;
 export const FRONT_STAKES = 18;
 export const REAR_STAKES = 22;
 /**
- * Ступеней готовности. Рогатки дозревают за полчаса, и восемь ступеней — это перепечка
- * спрайта не чаще раза в три-четыре минуты на город, а не каждый кадр.
+ * Ступеней готовности. Рогатки дозревают за `CAMP_WORKS_RIPE`, и восемь ступеней — это
+ * перепечка спрайта не чаще раза в `CAMP_WORKS_RIPE / WORKS_STEPS` на город, а не каждый кадр.
  */
 export const WORKS_STEPS = 8;
 
@@ -85,7 +85,7 @@ export const worksStand = (starvesAt: number | undefined, now: number): boolean 
 
 /**
  * Знак участи ещё держится? Сходит мир (`LocalWorld.fellOf`), но кусок карты живёт своим
- * сроком, и без этой проверки знак пережил бы свои сутки на время куска. Мерка та же —
+ * сроком, и без этой проверки знак пережил бы свой срок на время куска. Мерка та же —
  * `FALL_MARK`, второго срока здесь нет.
  */
 export const fellShown = (fell: FellMark | null, now: number): fell is FellMark =>

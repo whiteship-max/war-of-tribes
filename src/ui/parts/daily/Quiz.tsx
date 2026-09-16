@@ -17,7 +17,7 @@ import { haptic } from '@/telegram/webapp';
  */
 export function Quiz({ seed, onDone }: { seed: number; onDone: (won: boolean) => void }) {
   // Перебор боёв стоит десятки миллисекунд — считаем один раз на сид, а не на
-  // каждый кадр стора: он дёргается дважды в секунду.
+  // каждый кадр стора: он дёргается каждый `TICK_MS`.
   const q = useMemo(() => quizQuestion(seed), [seed]);
   const [picked, setPicked] = useState<'ours' | 'theirs' | null>(null);
   const why = useMemo(() => (picked ? quizExplain(q) : null), [picked, q]);

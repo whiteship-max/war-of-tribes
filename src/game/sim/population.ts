@@ -205,7 +205,7 @@ export function growthTick(s: GameState, dt: number, mods?: SeasonModifiers): vo
 
 /**
  * Строка летописи о том, как за день изменилось племя. Пишется раз в игровой день,
- * а не на каждого человека: в посёлке на семьсот душ поимённые строки были бы шумом.
+ * а не на каждого человека: в посёлке на сотни душ поимённые строки были бы шумом.
  */
 export function logPopDay(s: GameState): void {
   const delta = s.pop - s.popDay;

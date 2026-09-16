@@ -12,7 +12,7 @@ import { count } from '../plural';
 import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 
-/** Порог свайпа: вдвое больше, чем у карты — здесь нет панорамы, и ложный свайп дороже. */
+/** Порог свайпа: больше, чем у карты (`TAP_MOVE`), — здесь нет панорамы, и ложный свайп дороже. */
 const SWIPE = 24;
 /** Сколько клеток проходит одна пробежка свайпом: до стены, развилки или предмета. */
 const RUN_MAX = 6;
@@ -21,7 +21,7 @@ const same = (a: Cell, b: Cell): boolean => a.x === b.x && a.y === b.y;
 
 /**
  * 🏰 Ключ и сундук. Рыцарь идёт к сундуку, дверь заперта, ключ где-то по дороге.
- * Полминуты — и это гонка, а не прогулка.
+ * `MAZE_SECONDS` — и это гонка, а не прогулка.
  *
  * Часы идут по стенным, а не по кадрам: в скрытой вкладке requestAnimationFrame
  * стоит, и таймер, живущий в кадре, в фоне не сработал бы вовсе. На время
@@ -30,8 +30,8 @@ const same = (a: Cell, b: Cell): boolean => a.x === b.x && a.y === b.y;
  */
 export function Maze({ seed, onDone }: { seed: number; onDone: (won: boolean) => void }) {
   // useMemo обязателен: генерация лабиринта — это Прим плюс поиск в ширину и до
-  // шестидесяти четырёх подсидов отбраковки. Панель перерисовывается дважды в
-  // секунду вместе с тиком стора, и без памяти всё это считалось бы заново на
+  // `MAZE_TRIES` подсидов отбраковки (`game/daily/maze.ts`). Панель перерисовывается
+  // на каждом тике стора (`TICK_MS`), и без памяти всё это считалось бы заново на
   // каждой перерисовке.
   const lv = useMemo(() => mazeLevel(seed), [seed]);
   const [at, setAt] = useState<Cell>(lv.start);
@@ -44,8 +44,8 @@ export function Maze({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
   const place = useRef<Cell>(lv.start);
   const key = useRef(false);
-  // Итог держим в ссылке: панель над нами перерисовывается дважды в секунду и
-  // каждый раз отдаёт новую функцию. Стой она в зависимостях, часы пересоздавались
+  // Итог держим в ссылке: панель над нами перерисовывается на каждом тике стора
+  // (`TICK_MS`) и каждый раз отдаёт новую функцию. Стой она в зависимостях, часы пересоздавались
   // бы вместе с ней, и отсчёт дёргался бы.
   const finish = useRef(onDone);
   finish.current = onDone;
@@ -154,7 +154,7 @@ export function Maze({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
     }
     if (d.moved) return;
     // Тап: шагаем только в соседнюю клетку. Автопуть по тапу в сундук решал бы
-    // игру за игрока, и полминуты перестали бы что-либо значить.
+    // игру за игрока, и `MAZE_SECONDS` перестали бы что-либо значить.
     const rect = e.currentTarget.getBoundingClientRect();
     const cell = rect.width / MAZE_N;
     const to = {

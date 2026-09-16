@@ -16,7 +16,7 @@
 // Скорость по-прежнему берётся у кузнецов (`forgeRate`): заказ — это обещание
 // сделать всё, а не обещание сделать быстро. Снял людей с горна — заказ стоит,
 // и панель об этом пишет. Офлайн заказ доводит `catchUp`, поэтому вернувшийся
-// через четыре часа застаёт готовое, а не первый меч.
+// после долгого отсутствия застаёт готовое, а не первый меч.
 import type { EquipmentId, ForgeOrder, GameState, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from '../data/equipment';

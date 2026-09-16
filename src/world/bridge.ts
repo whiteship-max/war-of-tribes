@@ -287,7 +287,7 @@ export function syncAway(s: GameState, marches: MarchView[], figures: FigureView
  * устройства. Остаток же одинаков в обеих шкалах — игровая секунда идёт ровно
  * секунду.
  *
- * Возвращает `true`, если что-то изменилось: пульс идёт каждые две секунды, и
+ * Возвращает `true`, если что-то изменилось: пульс идёт часто (`PULSE_MS` в `world/store.ts`), и
  * перерисовывать по нему экран без причины не за что.
  */
 export function syncSiege(s: GameState, view: SiegeView | null, now: number): boolean {

@@ -85,7 +85,7 @@ export const apiGet = <T>(path: string, opts: { auth?: boolean } = {}): Promise<
 /**
  * `keepalive` — запрос обязан пережить выгрузку страницы: так уходит отметка «игрок ушёл»
  * при скрытии. Тело такого запроса браузер ограничивает 64 КБ; партия туда не влезает и
- * так не отправляется, а список уведомлений весит килобайт.
+ * так не отправляется, а список уведомлений короток — пунктов в нём не больше `NOTICE_LIMITS.items`.
  */
 export const apiPut = <T>(path: string, body: unknown, opts: { keepalive?: boolean } = {}): Promise<ApiResult<T>> =>
   call<T>(path, { method: 'PUT', body: JSON.stringify(body), keepalive: opts.keepalive });
