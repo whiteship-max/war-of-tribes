@@ -2,8 +2,9 @@
 // против шаблона. Их читают и тесты (раздел 16 документа), и скрипт отчёта —
 // чтобы таблица в отчёте и утверждения в тестах считались по одним данным.
 import { simulateBattle } from './sim';
-import { quickSetup, quickAttack, emptySectors, stackOf } from './setup';
-import type { ArmySetup, BattleResult, Side, Stack } from './types';
+import { PLANS } from './config';
+import { DEFAULT_ORDERS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
+import { FRONT, REAR, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type Sector, type Side, type Stack } from './types';
 
 /** Одинаковая численность: «при прочих равных» — это про число людей. */
 export const ARMY_SIZE = 600;
@@ -159,4 +160,146 @@ export function gapAgainst(setup: ArmySetup, opponent: (seed: number) => ArmySet
     else if (r.winner !== 'draw') lost += 1;
   }
   return { gap: theirs / Math.max(1, own) - 1, lost, won };
+}
+
+// ---------- Перебор расстановок ----------
+//
+// Цена расстановки — насколько лучшая расстановка превосходит быструю атаку — меряется
+// здесь, кодом, который лежит в репозитории. Прежде это число («потолок ≈25%») жило
+// в тексте без перебора, и перебор, если он и был, однородных вкладов в один сектор не
+// видел: ровно там пряталась доминирующая расстановка. Поэтому оси сетки берут крайние
+// случаи нарочно — всё в один сектор фронта, все лучники в один сектор тыла, — и тест
+// держит, что они в сетке есть.
+
+/** Доли трёх секторов ряда слева направо со стороны своей армии. */
+export type Share3 = readonly [number, number, number];
+
+/** Как лечь пешей линии (пехота и копья) по фронту. `роды врозь` — пехота в центре, копья на флангах. */
+export const LINE_SHAPES = {
+  ровно: [1 / 3, 1 / 3, 1 / 3],
+  центр: [0.15, 0.7, 0.15],
+  фланги: [0.4, 0.2, 0.4],
+  'всё в центр': [0, 1, 0],
+  'всё на левый': [1, 0, 0],
+  'роды врозь': null,
+} as const satisfies Record<string, Share3 | null>;
+export type LineShape = keyof typeof LINE_SHAPES;
+
+/** Где лучники: тыл ровно, весь тыл за центром или за левым флангом, во фронте вместе с линией. */
+export const ARCHER_PLACES = ['тыл ровно', 'всё за центром', 'всё за левым', 'во фронте'] as const;
+export type ArcherPlace = (typeof ARCHER_PLACES)[number];
+
+/** Где конница и с каким приказом. */
+export const CAVALRY_PLACES = ['резерв: удар', 'резерв: обход', 'резерв: держать фланг', 'резерв: по лучникам', 'фронт ровно'] as const;
+export type CavalryPlace = (typeof CAVALRY_PLACES)[number];
+
+export const RESERVE_KINDS = ['immediate', 'weakest'] as const;
+
+export interface LayoutSpec {
+  line: LineShape;
+  archers: ArcherPlace;
+  cavalry: CavalryPlace;
+  plan: Plan;
+  reserve: (typeof RESERVE_KINDS)[number];
+}
+
+/** Делит `n` по долям, всё целое; остаток — сектору с наибольшей долей. */
+function spread(n: number, shares: Share3): [number, number, number] {
+  const out = shares.map((s) => Math.floor(n * s)) as [number, number, number];
+  const rest = n - out[0] - out[1] - out[2];
+  out[shares.indexOf(Math.max(...shares))] += rest;
+  return out;
+}
+
+const CAVALRY_ORDER: Record<CavalryPlace, CavalryOrder> = {
+  'резерв: удар': 'charge',
+  'резерв: обход': 'flank',
+  'резерв: держать фланг': 'hold-flank',
+  'резерв: по лучникам': 'attack-archers',
+  'фронт ровно': 'charge',
+};
+
+/** Расстановка армии по описанию. Кладёт армию целиком: ни один боец не остаётся за полем. */
+export function layoutOf(army: Partial<Stack>, spec: LayoutSpec): ArmySetup {
+  const a = stackOf(army);
+  const s = emptySectors();
+  const shape = LINE_SHAPES[spec.line];
+  const inf = spread(a.infantry, shape ?? [0.15, 0.7, 0.15]);
+  const spr = spread(a.spear, shape ?? [0.5, 0, 0.5]);
+  FRONT.forEach((id, i) => {
+    s[id].infantry = inf[i];
+    s[id].spear = spr[i];
+  });
+  const archers =
+    spec.archers === 'тыл ровно' ? spread(a.archer, [1 / 3, 1 / 3, 1 / 3]) : spec.archers === 'всё за центром' ? spread(a.archer, [0, 1, 0]) : spec.archers === 'всё за левым' ? spread(a.archer, [1, 0, 0]) : spread(a.archer, shape ?? [0.15, 0.7, 0.15]);
+  (spec.archers === 'во фронте' ? FRONT : REAR).forEach((id, i) => {
+    s[id].archer = archers[i];
+  });
+  if (spec.cavalry === 'фронт ровно') {
+    const cav = spread(a.cavalry, [1 / 3, 1 / 3, 1 / 3]);
+    FRONT.forEach((id, i) => {
+      s[id].cavalry = cav[i];
+    });
+  } else s.R.cavalry = a.cavalry;
+  return {
+    sectors: s,
+    plan: spec.plan,
+    orders: { ...DEFAULT_ORDERS, cavalry: CAVALRY_ORDER[spec.cavalry] },
+    reserve: { kind: spec.reserve },
+  };
+}
+
+export const layoutName = (spec: LayoutSpec): string => `${spec.line} | ${spec.archers} | ${spec.cavalry} | ${spec.plan} | ${spec.reserve}`;
+
+/** Вся сетка: произведение осей. */
+export function layoutGrid(): LayoutSpec[] {
+  const out: LayoutSpec[] = [];
+  for (const line of Object.keys(LINE_SHAPES) as LineShape[])
+    for (const archers of ARCHER_PLACES)
+      for (const cavalry of CAVALRY_PLACES)
+        for (const plan of Object.keys(PLANS) as Plan[])
+          for (const reserve of RESERVE_KINDS) out.push({ line, archers, cavalry, plan, reserve });
+  return out;
+}
+
+/**
+ * Однородный вклад: вся пешая линия в одном секторе фронта или все лучники в одном
+ * секторе тыла. Выводится из самой расстановки, а не из имени оси, — чтобы тест
+ * проверял то, что лежит на поле.
+ */
+export function homogeneous(setup: ArmySetup): boolean {
+  const one = (ids: readonly Sector[], kinds: Array<keyof Stack>): boolean => {
+    const loads = ids.map((id) => kinds.reduce((n, k) => n + setup.sectors[id][k], 0));
+    const total = loads.reduce((n, x) => n + x, 0);
+    return total > 0 && loads.filter((x) => x > 0).length === 1;
+  };
+  return one(FRONT, ['infantry', 'spear']) || one(REAR, ['archer']);
+}
+
+/**
+ * Удерживает ли `setup` поле против быстрой атаки армии, умноженной на `k`: доля
+ * удержанных из `n` боёв с обеих сторон поля. Мерка цены расстановки силой — при каком
+ * перевесе врага расстановка перестаёт удерживать поле.
+ */
+export function fieldVsScaledQuick(setup: (seed: number) => ArmySetup, k: number, n: number): number {
+  const enemyArmy = Object.fromEntries(Object.entries(BALANCED_ARMY).map(([kind, m]) => [kind, Math.round((m ?? 0) * k)])) as Partial<Stack>;
+  let held = 0;
+  for (let seed = 1; seed <= n; seed += 1) {
+    const attacks = seed % 2 === 1;
+    const own = setup(seed);
+    const foe = quickAttack(enemyArmy, seed).setup;
+    const r = simulateBattle({ seed, attacker: attacks ? own : foe, defender: attacks ? foe : own });
+    if (r.winner === (attacks ? 'attacker' : 'defender')) held += 1;
+  }
+  return held / n;
+}
+
+/** Перевес врага, при котором доля удержанного поля переходит через половину: делением отрезка. */
+export function holdPoint(setup: (seed: number) => ArmySetup, n: number, lo = 0.6, hi = 1.8, steps = 9): number {
+  for (let i = 0; i < steps; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (fieldVsScaledQuick(setup, mid, n) >= 0.5) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
 }

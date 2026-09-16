@@ -2,7 +2,7 @@
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
 import { simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, lossRatio, mirrored, quickOf } from '../src/battle/bench';
+import { ARCHER_PLACES, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, TUNED, gapAgainst, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -182,6 +182,73 @@ for (const c of COMPOSITIONS) {
   }
   const cap = hasLine(c.army) ? `потолок ${OVERSIZE_CAP.line}` : `без пешей линии, потолок ${OVERSIZE_CAP.noLine}`;
   console.log(`${pad(c.name, W)} размен ${(smallLoss / Math.max(1, bigLoss)).toFixed(2)} (${cap}), поле удержано ${wins}/${N}`);
+}
+
+console.log('\n=== Перебор расстановок: цена расстановки ===');
+{
+  // Сетка — `layoutGrid` из bench.ts, та же, что держат тесты. Две стадии: грубый отбор
+  // против каждого пресета, потом двадцать лучших — на тех же ста боях против быстрой
+  // атаки, что и разрыв настроенной армии выше. Раньше на месте этого раздела стояло
+  // «потолок ≈25 %» без кода; число отсюда — единственное, на которое можно ссылаться.
+  const grid = layoutGrid().map((spec) => ({ spec, setup: layoutOf(BALANCED_ARMY, spec) }));
+  const presets = QUICK_PRESET_IDS.map((id) => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)));
+  const homogeneousCount = grid.filter((g) => homogeneous(g.setup)).length;
+  console.log(
+    `расстановок ${grid.length}: линия ${Object.keys(LINE_SHAPES).length} × лучники ${ARCHER_PLACES.length} × конница ${CAVALRY_PLACES.length} × план ${Object.keys(PLANS).length} × резерв ${RESERVE_KINDS.length}; однородных вкладов в один сектор ${homogeneousCount}`,
+  );
+  const screened = grid.map((g) => {
+    let own = 0;
+    let theirs = 0;
+    let held = 0;
+    presets.forEach((foe, i) => {
+      for (const attacks of [true, false]) {
+        const seed = i * 2 + (attacks ? 1 : 2);
+        const r = simulateBattle({ seed, attacker: attacks ? g.setup : foe, defender: attacks ? foe : g.setup });
+        const me = attacks ? 'attacker' : 'defender';
+        own += r.sides[me].total.losses;
+        theirs += r.sides[attacks ? 'defender' : 'attacker'].total.losses;
+        if (r.winner === me) held += 1;
+      }
+    });
+    return { ...g, gap: theirs / Math.max(1, own) - 1, held };
+  });
+  screened.sort((a, b) => b.gap - a.gap);
+  const top = screened.slice(0, 20).map((g) => ({ ...g, full: gapAgainst(g.setup, quickOf, 100) }));
+  top.sort((a, b) => b.full.gap - a.full.gap);
+  console.log('десять лучших против быстрой атаки, 100 боёв (разрыв, побед, поражений):');
+  for (const g of top.slice(0, 10)) {
+    console.log(`  ${(g.full.gap * 100).toFixed(1).padStart(6)}%  ${pad(g.full.won, 3, true)} ${pad(g.full.lost, 3, true)}  ${homogeneous(g.setup) ? 'однородная ' : 'разложенная'}  ${layoutName(g.spec)}`);
+  }
+  const best = top[0];
+  const tuned = gapAgainst(TUNED, quickOf, 100);
+  console.log(`потолок: ${(best.full.gap * 100).toFixed(1)}% — ${layoutName(best.spec)}; настроенная TUNED: ${(tuned.gap * 100).toFixed(1)}%`);
+
+  // Доминирование — не разрыв против шаблонов, а поле против всего остального. Лучшая
+  // играет с каждой расстановкой сетки по бою; до правки рукопашной «всё в центр» держала
+  // поле 100 % против каждого разложенного семейства и уступала только однородным.
+  console.log('лучшая против всей сетки по формам линии (поле, размен):');
+  const byLine: Record<string, { held: number; n: number; own: number; theirs: number }> = {};
+  grid.forEach((g, i) => {
+    if (g.setup === best.setup) return;
+    const attacks = i % 2 === 0;
+    const r = simulateBattle({ seed: i + 1, attacker: attacks ? best.setup : g.setup, defender: attacks ? g.setup : best.setup });
+    const me = attacks ? 'attacker' : 'defender';
+    const f = (byLine[g.spec.line] ??= { held: 0, n: 0, own: 0, theirs: 0 });
+    f.n += 1;
+    if (r.winner === me) f.held += 1;
+    f.own += r.sides[me].total.losses;
+    f.theirs += r.sides[attacks ? 'defender' : 'attacker'].total.losses;
+  });
+  const whole = Object.values(byLine).every((f) => f.held === f.n);
+  for (const [line, f] of Object.entries(byLine)) {
+    console.log(`  против «${line}»: поле ${((100 * f.held) / f.n).toFixed(0)}%, размен ${(f.theirs / Math.max(1, f.own)).toFixed(2)}`);
+  }
+  console.log(whole ? 'ДОМИНИРУЕТ: держит поле против всей сетки' : 'поле против всей сетки не держит — доминирующей расстановки в сетке нет');
+
+  // Цена расстановки силой: при каком перевесе врага (быстрая атака армии ×k) расстановка
+  // удерживает поле в половине боёв. На этой мерке стоит разброс испытательного стенда.
+  const point = (setup: (seed: number) => ArmySetup): string => holdPoint(setup, 40).toFixed(3);
+  console.log(`точка поля (перевес врага, при котором удержано полполя, 40 боёв): лучшая ×${point(() => best.setup)}, TUNED ×${point(() => TUNED)}, быстрая атака ×${point((seed) => quickOf(seed * 7 + 3))}`);
 }
 
 if (process.env.SHOW) {

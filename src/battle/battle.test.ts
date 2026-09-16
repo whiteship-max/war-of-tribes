@@ -1,14 +1,14 @@
 // Раздел 16 документа — это список тестов. Здесь они все: доминирующего состава
 // нет, разрыв быстрой атаки в коридоре, кольцо работает, превосходство условно,
-// бой детерминирован, укладывается в 50–100 тиков, а журнал объясняет исход и не
-// врёт числам.
+// бой детерминирован, укладывается в границы, выведенные из фаз, а журнал объясняет
+// исход и не врёт числам.
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
 import { quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, lossRatio, mirrored, quickOf, setupOf } from './bench';
-import { PHASES, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Side, type Stack, type Winner } from './types';
+import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_MIN, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
+import { FRONT, PHASES, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Plan, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 
@@ -465,10 +465,39 @@ describe('детерминированность', () => {
 });
 
 describe('продолжительность', () => {
-  it('любой бой укладывается в 50–100 тиков и идёт по фазам без разрывов', () => {
-    for (const r of sampleBattles()) {
-      expect(r.ticks).toBeGreaterThanOrEqual(50);
-      expect(r.ticks).toBeLessThanOrEqual(100);
+  // Границы выводятся из фаз, а не записаны числом. Нижняя — самый ранний слом: стрелковая
+  // фаза зажата до минимума темпом планов, бой линий и мораль обрываются на своём минимуме,
+  // обходы и резерв пропущены, отступление и преследование идут целиком. Верхняя — стрелковая
+  // фаза на максимуме и все фазы до конца. Прежде тест держал «50–100»: пятьдесят было неверно
+  // (одна «агрессивная атака» против плана с нулевым темпом кончает бой на 48-м тике), и
+  // зелёным он оставался только потому, что таких пар в выборке не было; сто — на двадцать
+  // тиков выше настоящего максимума, и бой, растянувшийся до ста, прошёл бы.
+  const SHORTEST = RANGED_TICKS.min + PHASE_TICKS.approach + PHASE_TICKS.clash + PHASE_MIN.lines! + PHASE_MIN.morale! + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
+  const LONGEST = RANGED_TICKS.max + PHASES.filter((p) => p !== 'ranged').reduce((n, p) => n + PHASE_TICKS[p], 0);
+
+  /** Выборка с крайними темпами: каждая пара планов на нескольких парах составов. */
+  function tempoBattles(): BattleResult[] {
+    const out: BattleResult[] = [];
+    const plans = Object.keys(PLANS) as Plan[];
+    for (const a of plans) {
+      for (const b of plans) {
+        for (const [x, y] of [[0, 0], [4, 6], [0, 2], [2, 3]]) {
+          out.push(simulateBattle({ seed: x + y + 1, attacker: { ...COMPOSITIONS[x].setup, plan: a }, defender: { ...COMPOSITIONS[y].setup, plan: b } }));
+        }
+      }
+    }
+    return out;
+  }
+
+  it('любой бой укладывается в границы фаз, и выборка достаёт до обеих', () => {
+    const battles = [...sampleBattles(), ...tempoBattles()];
+    // Точки выборки лежат на самих границах: без этого тест проходил бы при любой
+    // регрессии в зазоре между выборкой и настоящим пределом.
+    expect(battles.some((r) => r.ticks === SHORTEST), `ни один бой не кончился на ${SHORTEST}-м тике`).toBe(true);
+    expect(battles.some((r) => r.ticks === LONGEST), `ни один бой не дошёл до ${LONGEST}-го тика`).toBe(true);
+    for (const r of battles) {
+      expect(r.ticks).toBeGreaterThanOrEqual(SHORTEST);
+      expect(r.ticks).toBeLessThanOrEqual(LONGEST);
       let next = 1;
       for (const span of r.phases) {
         expect(span.from).toBe(next);
@@ -482,6 +511,61 @@ describe('продолжительность', () => {
       for (const must of ['ranged', 'approach', 'clash', 'lines', 'morale', 'retreat', 'pursuit']) {
         expect(r.phases.some((p) => p.phase === must), must).toBe(true);
       }
+    }
+  });
+});
+
+describe('нет доминирующей расстановки', () => {
+  // «Всё в один сектор» держало поле против любой разложенной по фронту расстановки: группа
+  // в нескольких стычках разом била в полную силу в каждой, и обход умножал силу окружённого.
+  // Перебор, на котором прежде стояло «потолок ≈25 %», в репозитории не существовал, — поэтому
+  // здесь проверяется ровно то, что тогда пропало: однородные вклады против разложенных.
+  const grid = layoutGrid().map((spec) => ({ spec, setup: layoutOf(BALANCED_ARMY, spec) }));
+
+  it('перебор кладёт армию целиком и содержит однородные вклады в один сектор', () => {
+    for (const g of grid) expect(armyTotal(g.setup), layoutName(g.spec)).toEqual(stackOf(BALANCED_ARMY));
+    const lineIn = (setup: ArmySetup, id: 'A' | 'B'): boolean => setup.sectors[id].infantry + setup.sectors[id].spear === BALANCED_ARMY.infantry! + BALANCED_ARMY.spear!;
+    const archersIn = (setup: ArmySetup, id: 'D' | 'E'): boolean => setup.sectors[id].archer === BALANCED_ARMY.archer;
+    expect(grid.some((g) => lineIn(g.setup, 'B'))).toBe(true);
+    expect(grid.some((g) => lineIn(g.setup, 'A'))).toBe(true);
+    expect(grid.some((g) => archersIn(g.setup, 'E'))).toBe(true);
+    expect(grid.some((g) => archersIn(g.setup, 'D'))).toBe(true);
+    expect(grid.some((g) => lineIn(g.setup, 'B') && archersIn(g.setup, 'E'))).toBe(true);
+    // Признак однородности читает поле, а не имя оси.
+    for (const g of grid) {
+      const oneFront = FRONT.filter((id) => g.setup.sectors[id].infantry + g.setup.sectors[id].spear > 0).length === 1;
+      const oneRear = REAR.filter((id) => g.setup.sectors[id].archer > 0).length === 1;
+      expect(homogeneous(g.setup), layoutName(g.spec)).toBe(oneFront || oneRear);
+    }
+  });
+
+  it('всё в один сектор не держит поле против всех разложенных расстановок', () => {
+    // Кандидаты — пешая линия целиком в центре, с планами и конницей, при которых до правки
+    // она держала поле против каждой разложенной расстановки; соперники — каждая шестнадцатая
+    // разложенная расстановка сетки, того же состава и числа людей.
+    const plans: Plan[] = ['assault', 'aggressive', 'defense'];
+    const candidates = grid.filter(
+      (g) =>
+        g.spec.line === 'всё в центр' &&
+        g.spec.reserve === 'immediate' &&
+        plans.includes(g.spec.plan) &&
+        (g.spec.archers === 'во фронте' || g.spec.archers === 'всё за центром') &&
+        g.spec.cavalry !== 'фронт ровно' &&
+        g.spec.cavalry !== 'резерв: обход',
+    );
+    const opponents = grid.filter((g) => !homogeneous(g.setup)).filter((_, i) => i % 16 === 0);
+    expect(candidates.length).toBe(18);
+    expect(opponents.length).toBeGreaterThanOrEqual(25);
+    for (const c of candidates) expect(homogeneous(c.setup), layoutName(c.spec)).toBe(true);
+    for (const o of opponents) expect(armyTotal(o.setup)).toEqual(armyTotal(candidates[0].setup));
+    for (const c of candidates) {
+      let held = 0;
+      opponents.forEach((o, i) => {
+        const attacks = i % 2 === 0;
+        const r = simulateBattle({ seed: i + 1, attacker: attacks ? c.setup : o.setup, defender: attacks ? o.setup : c.setup });
+        if (r.winner === (attacks ? 'attacker' : 'defender')) held += 1;
+      });
+      expect(held, `«${layoutName(c.spec)}» держит поле против всех ${opponents.length} разложенных расстановок`).toBeLessThan(opponents.length);
     }
   });
 });
