@@ -19,7 +19,7 @@ import {
   starvesAt,
   type SiegeWindow,
 } from './siege';
-import { AI_BONDED_SHARE, BURN_IMMUNE, FALL_BUILDINGS, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IF_BELOW, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
+import { AI_BONDED_SHARE, BURN_IMMUNE, FALL_BUILDINGS, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
 import { FATE_DEFAULT, FATE_IDS, burnImmuneUntil, fallSeed, fate, lead } from './spoils';
 import { stackCarry, stackEscort } from './data/units';
 import { applyEffects, playerProfile, syncSiege } from './bridge';
@@ -31,6 +31,7 @@ import type { GenSettlement } from './gen';
 import type { WorldSave } from './local/state';
 import type { Fate, FigureView, PlayerProfile, SettlementView, SiegeView, WorldPulse } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
+import { shieldVillagers } from './lairs';
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
@@ -59,15 +60,18 @@ function makeWorld(seed = 7) {
 }
 
 /**
- * Слепок деревни, которую штурмовать бессмысленно. Оборона нарочно огромная:
- * мощь набега упирается в долю мощи соседа и оказывается заведомо ниже порога
- * `SIEGE_IF_BELOW` — то есть отряд гарантированно садится в осаду вместо
- * приступа. Так проверка не зависит от того, какой сосед выпал по сиду.
+ * Слепок деревни, которую штурмовать бессмысленно. Ополчение нарочно огромное: бой у
+ * стены любой такой набег проигрывает, и отряд садится в осаду вместо приступа
+ * (`LocalWorld.sitsDown`). Так проверка не зависит от того, какой сосед выпал по сиду.
  */
 const holdout = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
-  pop: 120,
+  // Жителей чуть выше защиты новичка: набег выходит, но мал (`lairs.lairShield`).
+  pop: shieldVillagers(0.1),
   defense: 100_000,
+  // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
+  // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
+  militia: 1000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { spearman: 10 },
@@ -331,10 +335,11 @@ describe('осада в мире: лагерь, голод и падение', (
     expect(letter?.until).toBe(siege.starvesAt);
   }, 60_000);
 
-  it('крепкий отряд по-прежнему идёт на приступ', async () => {
-    // Оборона обычная — набег в неё упирается и лезет на стену, как и раньше.
+  it('отряд, который прорвался бы, идёт на приступ, а не садится лагерем', async () => {
+    // Защищать некому — бой у стены набег выигрывает, и осады не бывает: лагерем
+    // садятся только те, кого отбили бы.
     const w = makeWorld(7);
-    const p = holdout({ defense: 1 });
+    const p = holdout({ defense: 1, militia: 0, army: { clubman: 1 } });
     await w.world.sync(p);
     for (let i = 0; i < 400; i++) {
       w.advance(20_000);
@@ -345,10 +350,19 @@ describe('осада в мире: лагерь, голод и падение', (
     throw new Error('боя так и не случилось');
   }, 60_000);
 
-  it('порог осады — про мощь, а не про сид: он записан числом', () => {
-    // Число живёт в одном месте и читается как доля обороны.
-    expect(SIEGE_IF_BELOW).toBeGreaterThan(0);
-    expect(SIEGE_IF_BELOW).toBeLessThan(1);
+  it('осаду решает бой, а не порог числом: одна дверь на набег и на войну дворов', () => {
+    const code = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    // Порога числом нет нигде в мире.
+    expect(code).not.toMatch(/SIEGE_IF_BELOW/);
+    // Решение одно, и зовут его ровно двое: набег на нас и война дворов.
+    expect(code.match(/private sitsDown\(/g)?.length).toBe(1);
+    expect(code.match(/this\.sitsDown\(/g)?.length).toBe(2);
+    const war = code.slice(code.indexOf('private resolveWar('), code.indexOf('private resolveWar(') + 1500);
+    expect(war).toContain('this.sitsDown(');
+    const begin = code.slice(code.indexOf('private beginSiege('), code.indexOf('private sitsDown('));
+    expect(begin).toContain('this.sitsDown(HOME_ID');
   });
 
   it('падение наступает ровно в starvesAt: ни раньше, ни позже', async () => {
@@ -892,15 +906,17 @@ describe('осада: лагерь как цель на карте', () => {
 describe('осада: частота от ИИ', () => {
   it('под теми же стенами лагерь не встаёт чаще, чем раз в остывание', async () => {
     const w = makeWorld(7);
-    const p = holdout();
+    const army = { legionary: 40, spearman: 30 };
+    const p = holdout({ army });
     await w.world.sync(p);
     const first = await besiege(w, p);
     const startedAt = first.siege!.since;
 
     // Снимаем осаду вылазкой — то есть без падения города, а значит и без
     // неприкосновенности. Остаётся только остывание, и держать оно обязано.
-    const res = await w.world.sortie({ spearman: 10 });
+    const res = await w.world.sortie(army);
     expect(res.error).toBeNull();
+    expect(res.won, 'вылазка сняла осаду — иначе остывание не проверяется').toBe(true);
 
     // До конца остывания второй лагерь под теми же стенами не встаёт.
     while (w.now() < startedAt + SIEGE_COOLDOWN - 60_000) {
@@ -910,10 +926,9 @@ describe('осада: частота от ИИ', () => {
     }
   }, 180_000);
 
-  it('порог осады — не единственное условие: доля и остывание объявлены числами', () => {
-    // Порог отвечает за смысл (штурм безнадёжен), доля и остывание — за
+  it('бой у стены — не единственное условие осады: доля и остывание объявлены числами', () => {
+    // Бой отвечает за смысл (штурм безнадёжен), доля и остывание — за
     // редкость. Разведены они нарочно и крутятся врозь.
-    expect(SIEGE_IF_BELOW).toBeGreaterThan(0);
     expect(SIEGE_CHANCE).toBeGreaterThan(0);
     expect(SIEGE_CHANCE).toBeLessThan(1);
     expect(SIEGE_COOLDOWN).toBeGreaterThan(SIEGE_IMMUNE / 2);
@@ -965,8 +980,8 @@ describe('осада: цена падения известна заранее', 
     expect(code, 'правило отсутствия вернулось').not.toMatch(/AWAY_GRACE|prevSeen|seenAt\s*=|save\.seenAt/);
     // Приход отряда и падение города не спрашивают, когда игрок смотрел в последний раз.
     const incoming = code.slice(code.indexOf('private resolveIncoming('), code.indexOf('private letterCandidates('));
-    expect(incoming.indexOf('this.beginSiege(m, at)'), 'лагерь садится первым делом').toBeGreaterThan(0);
-    expect(incoming.slice(0, incoming.indexOf('this.beginSiege(m, at)'))).not.toMatch(/return/);
+    expect(incoming.indexOf('this.beginSiege(m, at'), 'лагерь садится первым делом').toBeGreaterThan(0);
+    expect(incoming.slice(0, incoming.indexOf('this.beginSiege(m, at'))).not.toMatch(/return/);
   });
 });
 

@@ -40,12 +40,14 @@
 //
 //   npx vite-node scripts/sack-report.ts
 //   HOURS=3 npx vite-node scripts/sack-report.ts
+import { lairPower, lairRaid } from '@/world/lairs';
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
-  AI_POWER_VS_DEFENSE,
+  LAIR_ANCHOR_MID,
+  LAIR_RIPE,
   AI_WAR_PACE,
   AI_WAR_WEIGHT,
   AI_NEUTRAL_QUIET,
@@ -68,7 +70,6 @@ import { createInitialState } from '@/game/state';
 import { catchUp } from '@/game/sim/tick';
 import { autoAssign } from '@/game/sim/workers';
 import {
-  defense,
   maxLevelFor,
   netPerDay,
   productionPerDay,
@@ -425,28 +426,31 @@ for (const level of [1, 3, 5, 7, 10]) {
   // ополчение, частокол и башня без дружины — то есть случай «армия в поле».
   s.pop = Math.round(115 * (1 + (level - 1) * 0.7));
   autoAssign(s);
-  // Мощь набега упирается в долю обороны, а отряд из неё — тем же курсом, что
-  // и в мире (`scheduleAi`): один воин на три единицы мощи.
-  const men = Math.max(1, Math.round((defense(s) * AI_POWER_VS_DEFENSE) / 3));
+  // Мощь набега — дозревшее логово медианной опоры при жителях этого посёлка (`lairs.lairRaid`),
+  // а отряд из неё — тем же курсом, что и в мире (`scheduleAi`): один воин на три единицы мощи.
+  const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, s.pop), s.pop);
+  const open = plunder(stock, hide, Infinity).takenTotal;
+  if (raid <= 0) {
+    // Жителей меньше порога защиты новичка: логово посёлок не замечает, набега нет вовсе.
+    console.log(`  ${pad(level, 5)}   ${pad(total, 13)}  ${pad(hide * RESOURCE_IDS.length, 7)}  ${pad(open, 7)}  набега нет: ${s.pop} жителей — ниже порога защиты новичка`);
+    continue;
+  }
+  const men = Math.max(1, Math.round(raid / 3));
   const carry = stackCarry({ warrior: men });
   const spoils = plunder(stock, hide, carry);
-  const open = plunder(stock, hide, Infinity).takenTotal;
   console.log(
     `  ${pad(level, 5)}   ${pad(total, 13)}  ${pad(hide * RESOURCE_IDS.length, 7)}  ${pad(open, 7)}  ${pad(Math.round(carry), 12)}  ${pad(spoils.takenTotal, 7)}  ${pad(`${Math.round((spoils.takenTotal / total) * 100)}%`, 10)}`,
   );
 }
 console.log('');
-console.log('  «Обоз набега» — грузоподъёмность отряда, которого хватило бы прорваться:');
-console.log(`  ${Math.round(AI_POWER_VS_DEFENSE * 100)}% нашей обороны, переведённые в людей тем же курсом, что в мире.`);
-console.log('  Оборона взята по настоящему посёлку этого уровня и **без дружины** — то есть');
-console.log('  в самом уязвимом положении: армия в поле, дома ополчение, частокол и башня.');
-console.log('  Отсюда и калибровка обоза: отряд, которого едва хватило прорваться, уносит');
-console.log('  большую часть незапрятанного, но не всё.');
+console.log('  «Обоз набега» — грузоподъёмность набега дозревшего логова медианной опоры при жителях');
+console.log('  этого посёлка (`lairs.lairRaid`), переведённого в людей тем же курсом, что в мире. Посёлок —');
+console.log('  **без дружины**, то есть в самом уязвимом положении: армия в поле, дома ополчение, частокол и башня.');
+console.log('  Сила набега от обороны не зависит, поэтому обоз не меняется оттого, стоит ли дружина дома.');
 console.log('');
-console.log('  «Открыто» — всё, что не влезло в тайник: это и есть верхняя граница потери.');
-console.log('  Дружина дома — оборона выше, отряд больше, и обоз перестаёт мешать: тогда');
-console.log('  уносят ровно эту колонку, то есть от 75 до 92 % полного склада. Именно это и');
-console.log('  значит «теряешь ровно то, что не спрятал», и именно поэтому копить рискованно.');
+console.log('  «Открыто» — всё, что не влезло в тайник: это и есть верхняя граница потери, и её уносит');
+console.log('  прорвавшийся набег, когда обоз больше открытого. Именно это и значит «теряешь ровно то,');
+console.log('  что не спрятал», и именно поэтому копить рискованно.');
 console.log('');
 console.log('  Читается так: тайник спасает не всё и не должен. Тем, кто не хочет терять,');
 console.log('  игра предлагает не тайник, а второе решение — потратить: заложить улучшение,');
@@ -468,7 +472,7 @@ console.log('  Потолков четыре, и три из них стояли
 console.log(`    1. объявленных войн разом не больше ${REVENGE_WARS_MAX} (REVENGE_WARS_MAX, новое);`);
 console.log(`    2. шкала отношения заперта снизу на ${ATTITUDE_MIN}: злее некуда;`);
 console.log(
-  `    3. набег на нас один за раз и не сильнее ${Math.round(AI_POWER_VS_DEFENSE * 100)}% нашей обороны;`,
+  '    3. набег на нас один за раз и не сильнее логова, из которого вышел;',
 );
 console.log(
   `    4. чаще, чем раз в ${n1((AI_ATTACK_MIN * AI_WAR_PACE) / MIN)}–${n1((AI_ATTACK_MAX * AI_WAR_PACE) / MIN)} мин, из очереди набегов ничего не выходит.`,

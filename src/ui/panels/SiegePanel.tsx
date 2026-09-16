@@ -27,6 +27,8 @@ import { Icon } from '@/ui/icons/Icon';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
 import { bondedWord, townsWord } from '@/game/data/order';
+import { recruitRate } from '@/game/derived';
+import { TROOP_BY_ID } from '@/game/data/troops';
 
 const byLevels = (n: number): string => `по ${n} ${plural(n, 'уровню', 'уровня', 'уровней')}`;
 const goodsAndGold = (f: FallForecast): string => `${f.goods} добра${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
@@ -54,6 +56,28 @@ export function fallWords(fate: Fate, f: FallForecast): string[] {
   }
   if (f.routed > 0) out.push(`Разойдутся ${f.routed} ${plural(f.routed, 'боец', 'бойца', 'бойцов')} гарнизона.`);
   return out;
+}
+
+/**
+ * Пустой гарнизон — не тупик: вылазку делают бойцами, а дубинщика казармы нанимают за
+ * секунды. Погашенная кнопка без этой строки не говорила, что делать, и новичок сидел под
+ * лагерем до голода. Срок — тот же, что показывают казармы (`recruitRate`).
+ */
+function HireClubmen() {
+  const s = useGame((g) => g.s);
+  const openBuilding = useGame((g) => g.openBuilding);
+  const barracks = s.buildings.find((b) => b.type === 'barracks');
+  const rate = recruitRate(s, 'clubman');
+  if (!barracks || rate <= 0) return null;
+  const seconds = Math.max(1, Math.ceil(TROOP_BY_ID.clubman.work / rate));
+  return (
+    <>
+      <p className="note">Наймите дубинщиков: казармы учат одного за {seconds} с, и с ними можно выйти на вылазку.</p>
+      <button className="btn wide" data-tut="siege-barracks" onClick={() => openBuilding(barracks.id)}>
+        <Icon name="troop-clubman" glyph={TROOP_BY_ID.clubman.icon} /> В казармы
+      </button>
+    </>
+  );
 }
 
 export function SiegePanel() {
@@ -188,6 +212,7 @@ export function SiegePanel() {
         ⚔️ Вылазка{garrisonMen > 0 ? ` · со стороны города пробьются ${all.passed} из ${all.went}` : ''}
       </button>
       {sortieBlock && <p className="note bad">{sortieBlock}</p>}
+      {garrisonMen === 0 && <HireClubmen />}
       {homeId && <CampStrike target={homeId} />}
       <p className="note">Разбитый лагерь снимает осаду, и город снова ест.</p>
     </div>

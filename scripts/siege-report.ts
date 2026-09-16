@@ -38,7 +38,6 @@ import {
   CAMP_WORKS_RIPE,
   SIEGE_CHANCE,
   SIEGE_COOLDOWN,
-  SIEGE_IF_BELOW,
   SIEGE_RELIEF_AT,
   SIEGE_ROUT,
   SIEGE_SORTIE_RATIO,
@@ -64,7 +63,11 @@ const HOURS = 8;
 
 // ---------------------------------------------------------------- частота ---
 
-/** Три деревни: слабая, средняя и крепкая. Разница только в обороне. */
+/**
+ * Три деревни: слабая, средняя и крепкая. Разница — в войске дома: осаду решает бой у стены
+ * (`LocalWorld.sitsDown`), а число обороны в нём не участвует. Жителей у всех поровну, поэтому и
+ * набег из логова у всех один и тот же.
+ */
 const TOWNS = [
   { name: 'слабая', defense: 60, army: { clubman: 12 } as TroopStack },
   { name: 'средняя', defense: 220, army: { spearman: 20, archer: 10 } as TroopStack },
@@ -92,7 +95,7 @@ interface Counts {
   came: number;
   /** Из них сели лагерем. */
   sieges: number;
-  /** Из них **могли бы** сесть по одному порогу, без доли и остывания. */
+  /** Из них **могли бы** сесть — штурм не удался бы (сели лагерем или отбиты), без доли и остывания. */
   couldOld: number;
 }
 
@@ -116,8 +119,8 @@ async function frequency(seed: number, defense: number, army: TroopStack): Promi
       if (!siege && !battle) continue;
       out.came++;
       if (siege) out.sieges++;
-      // Старое правило целиком: садились всегда, когда штурм был безнадёжен.
-      if ((r.enemyPower ?? 0) < Math.max(1, defense) * SIEGE_IF_BELOW) out.couldOld++;
+      // Могли сесть все, кого отбили бы: и севшие лагерем, и отбитые у стены.
+      if (siege || r.title === 'Нападение отбито') out.couldOld++;
     }
   }
   return out;
@@ -173,14 +176,15 @@ const pct = (a: number, b: number): string => (b > 0 ? `${Math.round((a / b) * 1
 
 console.log('=== Осада числами ===');
 console.log(
-  `порог осады (SIEGE_IF_BELOW): ${SIEGE_IF_BELOW} · доля попыток (SIEGE_CHANCE): ${SIEGE_CHANCE} · ` +
+  `порог осады: штурм не удался бы (сухой прогон боя у стены) · доля попыток (SIEGE_CHANCE): ${SIEGE_CHANCE} · ` +
     `остывание (SIEGE_COOLDOWN): ${SIEGE_COOLDOWN / MIN} мин`,
 );
 console.log(`пауза между набегами ИИ: ${AI_ATTACK_MIN / MIN}…${AI_ATTACK_MAX / MIN} мин`);
 
 console.log('');
 console.log(`--- частота: набег или осада (${HOURS} ч на деревню, ${SEEDS.length} сидов) ---`);
-console.log('деревня   пришло   осад (было → стало)   доля осад: было → стало');
+console.log('«могли» — штурм не удался бы (сели лагерем или отбиты у стены); «сели» — с долей и остыванием.');
+console.log('деревня   пришло   осад (могли → сели)   доля осад: могли → сели');
 let totalCame = 0;
 let totalOld = 0;
 let totalNew = 0;
@@ -203,7 +207,7 @@ for (const town of TOWNS) {
     ).padStart(3)}          ${pct(old, came).padStart(5)} → ${pct(sieges, came)}`,
   );
 }
-console.log(`всего:    ${totalCame} прихода, осад было бы ${totalOld} (${pct(totalOld, totalCame)}), стало ${totalNew} (${pct(totalNew, totalCame)})`);
+console.log(`всего:    ${totalCame} прихода, осад могло быть ${totalOld} (${pct(totalOld, totalCame)}), село ${totalNew} (${pct(totalNew, totalCame)})`);
 
 console.log('');
 console.log(`--- проход через рогатки: доля побед вылазки (дозревшие рогатки — ${CAMP_WORKS_PASS} на человека) ---`);
@@ -593,7 +597,7 @@ console.log('«осталось в городе без дружины» — га
 // заходов подряд и против волны, разнесённой на десять минут.
 
 console.log('');
-console.log('--- частые вылазки: проход — поток, дробление его не обгоняет (настоящий мир, Статуя L5) ---');
+console.log('--- частые вылазки: проход — поток, дробление его не обгоняет (настоящий мир, Статуя L10) ---');
 console.log(
   `проход освобождается за ${CAMP_GATE_CLEAR / MIN} мин; «отказ» — к рогаткам сейчас не пробиться, боя не было`,
 );
@@ -609,7 +613,9 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
     let runs = 0;
     let campBefore = 0;
     let campAfter = 0;
-    for (const fz of frozenByLevel.get(5) ?? []) {
+    // Статуя L10: у посёлков мерки 1-го и 5-го уровня жителей меньше порога защиты новичка, логово их
+    // не замечает, и осады там не бывает (docs/lair_growth.md).
+    for (const fz of frozenByLevel.get(10) ?? []) {
       for (let v = 0; v < VARIANTS; v++) {
         const t = await thaw(fz, fz.since + d * MIN, v);
         if (!t.pulse.siege) continue;
@@ -758,8 +764,8 @@ function tribeAt(level: number): GameState {
   const g = createInitialState();
   for (const b of g.buildings) b.level = level;
   g.pop = Math.round(115 * (1 + (level - 1) * 0.7));
-  // Дружина дома и крупная: только тогда отряд не идёт на приступ, а садится
-  // лагерем (`SIEGE_IF_BELOW`). Осады против пустой деревни не бывает вовсе.
+  // Дружина дома и крупная: только тогда штурм не удался бы, и отряд садится лагерем
+  // (`LocalWorld.sitsDown`). Осады против пустой деревни не бывает вовсе.
   g.army = { ...g.army, spearman: Math.round(60 * level), legionary: Math.round(20 * level) };
   autoAssign(g);
   const cap = storageCap(g);
@@ -793,6 +799,8 @@ console.log('владельца (docs/DEFEAT_LADDER.md). Логово объяв
 console.log('');
 console.log(' ур   склад   тайник     окно   дебаф за окно   унесено   доля склада   отстроится   гарнизон   постройки (ур. / добра на отстройку)');
 
+/** Унесено при падении против дебафа за окно, по уровням: из этого отношения и вывод раздела. */
+const fallVsDebuff: string[] = [];
 for (const level of [1, 3, 5, 7, 10]) {
   const g = tribeAt(level);
   const w = clocked(7 + level);
@@ -834,20 +842,21 @@ for (const level of [1, 3, 5, 7, 10]) {
       rebuild += Object.values(upgradeCost(def, l)).reduce((n, v) => n + (v ?? 0), 0);
     }
   }
+  fallVsDebuff.push(`ур. ${level} — ${(taken / Math.max(1, debuff)).toFixed(2)}`);
   console.log(
     `  ${String(level).padStart(2)}  ${String(total).padStart(6)}  ${String(hiddenStash(g) * RESOURCE_IDS.length).padStart(6)}  ${(window / MIN).toFixed(1).padStart(6)}м  ${String(Math.round(debuff)).padStart(14)}  ${String(taken).padStart(8)}  ${`${Math.round((taken / total) * 100)}%`.padStart(11)}  ${`${refill.toFixed(1)} мин`.padStart(10)}  ${`−${routed} из ${army}`.padStart(9)}   ${`−${levels} / ${rebuild}`.padStart(15)}`,
   );
 }
 console.log('');
 console.log(`Гарнизон рассеивается на ${Math.round(SIEGE_ROUT * 100)}% (SIEGE_ROUT) — это и есть настоящая цена падения.`);
-console.log('Добра уносится мало и не потому, что мы его пожалели: лагерь садится только когда');
-console.log('он слабее заслона (`SIEGE_IF_BELOW`), а значит он мал, и обоз у него мал.');
+console.log('Сколько добра уносится, решает обоз лагеря: лагерь садится только когда штурм не удался бы');
+console.log('(`LocalWorld.sitsDown`), а его сила — набег логова при жителях этого посёлка.');
 console.log('');
-console.log('Вывод, ради которого раздел и заведён: **дебаф за окно стоит в разы больше**');
-console.log('добра, взятого при падении, а взятое хозяйство возвращает за считанные минуты.');
-console.log('Падение по-прежнему мягче ожидания — значит пол по времени, который удлиняет');
-console.log('окно ради отсрочки падения, ухудшал бы ровно тот случай, ради которого заводится.');
-console.log('Изменилось два: «падение последствий не имеет» больше не верно — половина');
+console.log(`Унесено при падении против дебафа за окно: ${fallVsDebuff.join(', ') || 'осад не было'}.`);
+console.log('Ради этого отношения раздел и заведён: ниже единицы падение мягче ожидания, и пол по времени,');
+console.log('удлиняющий окно ради отсрочки падения, ухудшал бы ровно тот случай, ради которого заводится;');
+console.log('выше единицы падение дороже ожидания, и вопрос о поле открыт заново.');
+console.log('Кроме добра: «падение последствий не имеет» не верно — половина');
 console.log('гарнизона расходится, и это не отстраивается само; и пять построек теряют по уровню,');
 console.log('кроме тайника (одна дверь участи с прорвавшимся набегом, `spoils.fate`). На первом уровне');
 console.log('падать нечему. Во что это обходится во времени партии — sack:report, раздел «лестница».');

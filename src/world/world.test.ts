@@ -46,6 +46,7 @@ import {
   WORLD_SIZE,
 } from './data/tuning';
 import type { Coord, FigureView, Intel, MarchView, PlayerProfile, SettlementCard, SettlementView } from './types';
+import { shieldVillagers } from './lairs';
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
@@ -82,8 +83,8 @@ function makeWorld(seed = 7) {
 
 const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
-  // Выше AI_MIN_POP: посёлок нового масштаба, набеги ИИ по нему идут.
-  pop: 120,
+  // Выше защиты новичка: набеги ИИ по нему идут (`lairs.lairShield`).
+  pop: shieldVillagers(0.1),
   defense: 30,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
@@ -2407,35 +2408,44 @@ describe('отряд полководца', () => {
   });
 
   it('полководец не теряется навсегда: разбитый возвращается сам', async () => {
-    const w = makeWorld(5);
-    // Горстка дубинщиков против целого поселения — заведомый разгром.
-    const p = profile({ warriorPower: 1, army: { clubman: 2 } });
-    await w.world.sync(p);
-    const info = await w.world.info();
-    const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
-    const strongest = chunk.settlements
-      .filter((s) => !s.mine)
-      .sort((a, b) => (b.seenPop ?? 0) - (a.seenPop ?? 0))[0];
+    // Правило — про разбитого и живого: погибший оставляет место пустым до найма, а
+    // уцелевший отряд не выбывает вовсе. Поэтому прогон идёт по мирам, пока не найдётся
+    // разгром без гибели, и такой обязан найтись — иначе тест проверял бы пустоту.
+    let checked = 0;
+    for (const seed of [5, 7, 11, 42, 77, 101, 202]) {
+      const w = makeWorld(seed);
+      // Горстка дубинщиков против целого поселения — заведомый разгром.
+      const p = profile({ warriorPower: 1, army: { clubman: 2 } });
+      await w.world.sync(p);
+      const info = await w.world.info();
+      const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
+      const strongest = chunk.settlements
+        .filter((s) => !s.mine)
+        .sort((a, b) => (b.seenPop ?? 0) - (a.seenPop ?? 0))[0];
+      if (!strongest) continue;
 
-    expect(await w.world.setGarrison({ clubman: 2 })).toBeNull();
-    w.at((await general(w)).readyAt);
-    await w.world.sync(p);
-    expect(await w.world.moveFigure('general', { x: strongest.x, y: strongest.y })).toBeNull();
-    w.at((await general(w)).arriveAt);
-    await w.world.sync(p);
-    const res = await w.world.attack({ setup: null });
-    expect(res.error).toBeNull();
+      expect(await w.world.setGarrison({ clubman: 2 })).toBeNull();
+      w.at((await general(w)).readyAt);
+      await w.world.sync(p);
+      if ((await w.world.moveFigure('general', { x: strongest.x, y: strongest.y })) !== null) continue;
+      w.at((await general(w)).arriveAt);
+      await w.world.sync(p);
+      const res = await w.world.attack({ setup: null });
+      expect(res.error).toBeNull();
 
-    const g = await general(w);
-    if (troopTotal(g.troops) > 0) return; // отряд уцелел — проверять нечего
-    expect(g.phase, 'разбитый выбывает, а не пропадает').toBe('down');
-    expect(g.downUntil).toBeGreaterThan(w.now());
-    w.at(g.downUntil + 1000);
-    await w.world.sync(p);
-    const back = await general(w);
-    expect(back.phase, 'и возвращается сам').not.toBe('down');
-    expect(back.downUntil).toBe(0);
-  });
+      const g = await general(w);
+      if (troopTotal(g.troops) > 0 || g.gone === 'died') continue;
+      expect(g.phase, 'разбитый выбывает, а не пропадает').toBe('down');
+      expect(g.downUntil).toBeGreaterThan(w.now());
+      w.at(g.downUntil + 1000);
+      await w.world.sync(p);
+      const back = await general(w);
+      expect(back.phase, `мир ${seed}: и возвращается сам`).not.toBe('down');
+      expect(back.downUntil).toBe(0);
+      checked++;
+    }
+    expect(checked, 'нашёлся разгром без гибели').toBeGreaterThan(0);
+  }, 120_000);
 });
 
 describe('перехват в поле', () => {

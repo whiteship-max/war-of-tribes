@@ -17,6 +17,7 @@ import { cityOr } from '../../netlify/lib/contract';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { Fate, FigureView, PlayerProfile, SettlementView, WorldPulse } from './types';
 import type { WorldSave } from './local/state';
+import { shieldVillagers } from './lairs';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -33,8 +34,12 @@ function memory(data: string | null = null) {
 /** Деревня, которую штурмовать бессмысленно: набег садится лагерем. */
 const holdout = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
-  pop: 120,
+  // Жителей чуть выше защиты новичка: набег выходит, но мал (`lairs.lairShield`).
+  pop: shieldVillagers(0.1),
   defense: 100_000,
+  // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
+  // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
+  militia: 1000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { spearman: 10 },

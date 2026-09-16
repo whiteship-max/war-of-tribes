@@ -87,13 +87,16 @@ import {
 } from '../gen';
 import {
   lairArms,
+  lairArmsBase,
   lairGold,
   lairLoot,
   lairPhase,
   lairPop,
   lairRipeness,
   lairPower,
+  lairRaid,
   lairRaidWeight,
+  lairShield,
   ruinLeft,
   type LairPhase,
   type LairRec,
@@ -226,10 +229,7 @@ import { placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
 import { UNKNOWN, estimate, precisionOf, readIntel } from '../intel';
 import {
-  AI_MIN_POP,
   CASTLE_GOLD_PER_POWER,
-  AI_POWER_SHARE,
-  AI_POWER_VS_DEFENSE,
   AI_RANGE,
   AI_WARNING_BASE,
   AI_ATTACK_MAX,
@@ -289,7 +289,6 @@ import {
   AI_WAR_SHARE,
   SIEGE_CHANCE,
   SIEGE_COOLDOWN,
-  SIEGE_IF_BELOW,
   SIEGE_RELIEF_AT,
   SIEGE_RELIEF_ATTITUDE,
   SIEGE_RELIEF_RANGE,
@@ -1368,26 +1367,11 @@ export class LocalWorld implements WorldApi {
    * сильнее пришедшего, никто не станет: он садится лагерем и берёт город тем,
    * чего у города конечное количество.
    *
-   * Кость здесь не про смысл, а про частоту. Смысл задаёт порог: осада
-   * случается ровно там, где штурм заведомо не удался бы. Но без ограничителя
-   * из этого следует, что крепкая деревня видит лагерь вместо набега почти
-   * всегда, — то есть вложение в стену наказывается исчезновением набега как
-   * события. Поэтому доля (`SIEGE_CHANCE`) и остывание (`SIEGE_COOLDOWN`)
-   * крутятся отдельно от порога: одно отвечает за «можно», другое за «часто ли».
+   * Решает `sitsDown` — одна дверь на набег и на войну дворов.
    */
-  private beginSiege(m: StoredMarch, at: number): boolean {
-    const p = this.save.profile;
-    if (!p) return false;
-    if (this.save.sieges[HOME_ID]) return false;
-    // Цепочку осад закрывает окно неприкосновенности: у павшего города пустой
-    // амбар, и вторая осада подряд повторила бы исход, не дав ни решения между.
-    if (siegeImmune(this.save.siegeImmune[HOME_ID], at)) return false;
-    // Остывание — то же самое, но после любого конца осады, а не только после
-    // падения: снял её игрок вылазкой или разбил лагерь союзник — лагерь под
-    // теми же стенами не встаёт снова раньше `SIEGE_COOLDOWN`.
-    if (at < (this.save.siegeAgainAt[HOME_ID] ?? 0)) return false;
-    if (m.power >= Math.max(1, p.defense) * SIEGE_IF_BELOW) return false;
-    if (seeded(m.seed)() >= SIEGE_CHANCE) return false;
+  private beginSiege(m: StoredMarch, at: number, field: FieldOutcome): boolean {
+    if (!this.save.profile) return false;
+    if (!this.sitsDown(HOME_ID, m, at, field)) return false;
 
     // Участь, которую отряд объявил, переезжает в окно: город падает в минуту голода,
     // и читает её оттуда. Древесины отряд не делит — рубит по правилу бота.
@@ -1416,6 +1400,31 @@ export class LocalWorld implements WorldApi {
       read: false,
     });
     return true;
+  }
+
+  /**
+   * Садится ли пришедший отряд в осаду вместо приступа. **Одна дверь** на набег на нас и на
+   * войну дворов между собой: двух правил решения об осаде в мире быть не должно.
+   *
+   * Смысл решает сам бой, а не порог числом: `field` — тот бой у стены, который случится,
+   * если отряд пойдёт на приступ, с тем же сидом. Прорвался бы — идёт на приступ, осады не
+   * бывает; отбили бы — лагерь. «Пробьёт ли» числом не выражается: при равной мощи от
+   * состава обороны зависит почти всё (docs/raid_ceiling.md, раздел 4).
+   *
+   * Кость не про смысл, а про частоту: без ограничителя крепкая деревня видела бы лагерь
+   * вместо набега почти всегда, то есть вложение в стену наказывалось бы исчезновением
+   * набега как события. Поэтому доля (`SIEGE_CHANCE`) и остывание (`SIEGE_COOLDOWN`)
+   * крутятся отдельно от боя: он отвечает за «можно», они — за «часто ли».
+   */
+  private sitsDown(id: SettlementId, m: StoredMarch, at: number, field: FieldOutcome): boolean {
+    if (this.save.sieges[id]) return false;
+    // Цепочку закрывает окно неприкосновенности: у павшего города пустой амбар, и вторая
+    // осада подряд повторила бы исход, не дав ни решения между.
+    if (siegeImmune(this.save.siegeImmune[id], at)) return false;
+    // Остывание — то же самое, но после любого конца осады, а не только после падения.
+    if (at < (this.save.siegeAgainAt[id] ?? 0)) return false;
+    if (field.won) return false;
+    return seeded(m.seed)() < SIEGE_CHANCE;
   }
 
   /**
@@ -2019,7 +2028,7 @@ export class LocalWorld implements WorldApi {
     const base =
       mirror ??
       (isLair(s)
-        ? lairPower(this.anchorOf(s), this.lairRec(s.id), this.liveAt(s.id, now))
+        ? lairPower(this.anchorOf(s), this.lairRec(s.id), this.liveAt(s.id, now), this.save.profile?.pop ?? 0)
         : powerOf(s, this.lived(s, now), POWER_GROWTH_CAP));
     // Пока идёт бунт, гарнизон занят своими: он слабее ровно на объявленную долю.
     const revolt = revoltPower(this.inRevolt(s.id, now));
@@ -2164,7 +2173,7 @@ export class LocalWorld implements WorldApi {
    * Потолков у мести четыре, и три из них стояли до этой задачи. Новый — только
    * `REVENGE_WARS_MAX`: больше стольких войн разом на голову не свалится. Прежние:
    * шкала отношения снизу заперта (`ATTITUDE_MIN`), то есть охотнее некуда; набег
-   * на нас один за раз и не сильнее `AI_POWER_VS_DEFENSE` доли обороны; чаще, чем
+   * на нас один за раз и не сильнее логова, из которого вышел; чаще, чем
    * `AI_ATTACK_MIN` × `AI_WAR_PACE`, из очереди ничего не выходит. Выход из мести —
    * дипломат: `peace` возвращает нейтралитет, и место в потолке освобождается.
    *
@@ -2455,6 +2464,20 @@ export class LocalWorld implements WorldApi {
   }
 
   // ---------- Добыча ----------
+
+  /**
+   * Оружие сожжённого логова. У предметов своя дверь: они считаются от прежней силы логова
+   * (опора и возраст, `lairs.lairArmsBase`), а не от выросшей с городом, — иначе логово
+   * десятого уровня раздавало бы тысячу предметов. Разгром и бунт при этом бьют по оружию
+   * той же долей, что по силе: `power` — сила в минуту боя.
+   */
+  private lairArmsAt(s: GenSettlement, at: number, power: number): number {
+    const rec = this.lairRec(s.id);
+    const t = this.liveAt(s.id, at);
+    const anchor = this.anchorOf(s);
+    const grown = lairPower(anchor, rec, t, this.save.profile?.pop ?? 0);
+    return lairArms((power * lairArmsBase(anchor, rec, t)) / Math.max(1, grown));
+  }
 
   /**
    * Полный склад двора. Не «сколько добра выпадет», а именно склад: столько
@@ -3443,7 +3466,7 @@ export class LocalWorld implements WorldApi {
     // набегами, которые оттуда шли. Разбирается это до добычи — брать её потом
     // будет уже не у кого, и запас логова поэтому не восстанавливается.
     const burned = isLair(target) && field.won;
-    const arms = burned ? lairArms(defense) : 0;
+    const arms = burned ? this.lairArmsAt(target, at, defense) : 0;
     // Победитель выгребает склад и казну дочиста — всё, кроме тайника, и не
     // больше, чем отряд поднимет. Дверь та же, что у набега на нашу деревню:
     // одностороннего дележа в игре нет.
@@ -3910,37 +3933,12 @@ export class LocalWorld implements WorldApi {
   private resolveIncoming(m: StoredMarch, at: number): void {
     // Враг подходит и берёт город, в игре его хозяин или нет: правило отсутствия
     // снято решением владельца (docs/DEFEAT_LADDER.md). Отряд дошёл и увидел заслон.
-    // Если тот заведомо крепче — на приступ никто не пойдёт: марш становится лагерем,
-    // и разбирать его будет уже осада.
-    if (this.beginSiege(m, at)) return;
+    // Бой у стены считается сразу: он же решает, пойдут ли на приступ. Отбили бы —
+    // марш может стать лагерем, и разбирать его будет уже осада.
+    const wall = this.wallField(m, at);
+    if (this.beginSiege(m, at, wall.field)) return;
     this.remove(m);
-
-    const profile = this.save.profile;
-    const party = raidingParty(this.save.seed, m.id, m.power);
-    // Оборона дома: гарнизон, дружина, если она собрана и стоит у своих ворот, плюс
-    // ополчение — частокол, башня и сами жители. Ополчение в расстановке не
-    // участвует: пехота растекается по фронту сама, а стрелков башни ставит во
-    // вторую линию `toArmySetup`. Дружины в сборе, в пути, в поле и в лагере здесь
-    // нет, даже если полководец в двух шагах от ворот (`world/muster.postureOf`).
-    const held = this.defenders(at);
-    const home = held.all;
-    const militia = Math.max(0, Math.round(profile?.militia ?? 0));
-    // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род.
-    const archers = Math.min(militia, Math.max(0, Math.round(profile?.militiaArchers ?? 0)));
-    const homeKinds = kindsOf(home);
-    homeKinds.infantry += militia - archers;
-    homeKinds.archer += archers;
-    // Оборона, запертая за `DEFENSE_FREEZE` до прихода: менять её было уже нельзя.
-    // Заперта расстановка, а не люди в ней: ушедшего после этого в сбор или в
-    // поле она в строй у частокола не вернёт — в строю не больше, чем стоит дома.
-    const frozen = this.save.frozenDefense;
-    const planned = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);
-    const setup = planned ? fitSetup(planned, homeKinds) : null;
-    const field = resolveField({
-      seed: m.seed,
-      attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
-      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), setup },
-    });
+    const { profile, party, held, home, militia, archers, setup, field } = wall;
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
     const record: BattleRecord | null = field.result
       ? {
@@ -3979,6 +3977,9 @@ export class LocalWorld implements WorldApi {
     const loss = spoils ? homeLoss(spoils) : null;
     if (spoils && FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
     if (spoils) this.markFall(HOME_ID, declared, at);
+    // Окно после падения — одно на оба пути: прорыв ставит его так же, как голод
+    // (`siegeFalls`), и пока оно стоит, нет ни осады, ни набега (`scheduleAi`).
+    if (spoils) this.save.siegeImmune[HOME_ID] = immuneUntil(at);
 
     this.addReport({
       id: `${m.id}-defense`,
@@ -4027,6 +4028,41 @@ export class LocalWorld implements WorldApi {
       text: outcome.won ? `Набег ${m.fromName} прорвался в деревню.` : `Набег ${m.fromName} отбит.`,
       good: !outcome.won,
     });
+  }
+
+  /**
+   * Бой у стены против пришедшего отряда — весь, как он случится, и ничего не трогая. Им
+   * решается и сам приступ (`resolveIncoming`), и садится ли отряд в осаду (`sitsDown`):
+   * это один и тот же бой с тем же сидом, и второй сборки сторон быть не должно.
+   */
+  private wallField(m: StoredMarch, at: number) {
+    const profile = this.save.profile;
+    const party = raidingParty(this.save.seed, m.id, m.power);
+    // Оборона дома: гарнизон, дружина, если она собрана и стоит у своих ворот, плюс
+    // ополчение — частокол, башня и сами жители. Ополчение в расстановке не
+    // участвует: пехота растекается по фронту сама, а стрелков башни ставит во
+    // вторую линию `toArmySetup`. Дружины в сборе, в пути, в поле и в лагере здесь
+    // нет, даже если полководец в двух шагах от ворот (`world/muster.postureOf`).
+    const held = this.defenders(at);
+    const home = held.all;
+    const militia = Math.max(0, Math.round(profile?.militia ?? 0));
+    // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род.
+    const archers = Math.min(militia, Math.max(0, Math.round(profile?.militiaArchers ?? 0)));
+    const homeKinds = kindsOf(home);
+    homeKinds.infantry += militia - archers;
+    homeKinds.archer += archers;
+    // Оборона, запертая за `DEFENSE_FREEZE` до прихода: менять её было уже нельзя.
+    // Заперта расстановка, а не люди в ней: ушедшего после этого в сбор или в
+    // поле она в строй у частокола не вернёт — в строю не больше, чем стоит дома.
+    const frozen = this.save.frozenDefense;
+    const planned = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);
+    const setup = planned ? fitSetup(planned, homeKinds) : null;
+    const field = resolveField({
+      seed: m.seed,
+      attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
+      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), setup },
+    });
+    return { profile, party, held, home, militia, archers, setup, field };
   }
 
   // ---------- Письма ----------
@@ -4335,12 +4371,21 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Мягкие набеги: редко, из ближних поселений и всегда с запасом времени на реакцию.
-   * Мощь набега упирается в оборону игрока — потерять всё за одну ночь нельзя.
+   * Набеги на деревню: редко, из ближних логов и всегда с запасом времени на реакцию.
+   * Набег — всё логово (`lairs.lairRaid`), а логово растёт от возраста и жителей города;
+   * от обороны игрока его сила не зависит ничем. Молодой город логово не замечает
+   * (`lairShield`), павший город не трогает до конца окна (`SIEGE_IMMUNE`).
    */
   private scheduleAi(now: number): void {
     const save = this.save;
     if (now < save.nextAiAt) return;
+    // Окно после падения — прорывом или голодом: набег не выходит, очередь сдвигается к
+    // концу окна.
+    const immune = save.siegeImmune[HOME_ID];
+    if (siegeImmune(immune, now)) {
+      save.nextAiAt = immune ?? now;
+      return;
+    }
     // Час, на который набег был назначен, а не тот, в который его разобрали.
     // Разница между ними и есть офлайн: пульс приходит когда придёт, а
     // назначенное время одно и то же на обеих дорогах. Всё, что зависит от
@@ -4360,7 +4405,8 @@ export class LocalWorld implements WorldApi {
     save.nextAiAt = now + pause * (atWar ? AI_WAR_PACE : 1);
 
     const profile = save.profile;
-    if (!profile || profile.pop < AI_MIN_POP) return;
+    // Защита новичка по зрелости: пока логово город не замечает, набега нет вовсе.
+    if (!profile || lairShield(profile.pop) <= 0) return;
     // Чужой отряд на деревню в мире один. Именно **на деревню**: соседи, идущие
     // друг на друга или на выручку осаждённому, к очереди набегов отношения не
     // имеют, и заслонять ими набег значило бы поставить набеги на игрока в
@@ -4399,10 +4445,7 @@ export class LocalWorld implements WorldApi {
         break;
       }
     }
-    const power = Math.max(
-      2,
-      Math.min(this.powerNow(src, now) * AI_POWER_SHARE, Math.max(3, profile.defense * AI_POWER_VS_DEFENSE)),
-    );
+    const power = Math.max(2, lairRaid(this.powerNow(src, now), profile.pop));
     const units: UnitStack = { warrior: Math.max(1, Math.round(power / 3)) };
     const seconds = marchSeconds(distance(src, home), terrainFactor(save.seed, src, home), units);
     const travel = Math.max(seconds * 1000, this.warningMs());
@@ -4749,19 +4792,6 @@ export class LocalWorld implements WorldApi {
       return;
     }
     const power = this.powerNow(target, at);
-    if (
-      !this.save.sieges[m.targetId] &&
-      !siegeImmune(this.save.siegeImmune[m.targetId], at) &&
-      at >= (this.save.siegeAgainAt[m.targetId] ?? 0) &&
-      m.power < Math.max(1, power) * SIEGE_IF_BELOW &&
-      seeded(m.seed)() < SIEGE_CHANCE
-    ) {
-      const w = this.openSiegeAt(m.targetId, m.fromId, m.id, at);
-      this.save.siegeAgainAt[m.targetId] = at + SIEGE_COOLDOWN;
-      m.phase = 'stay';
-      m.stayUntil = starvesAt(w);
-      return;
-    }
     const party = raidingParty(this.save.seed, m.id, m.power);
     const g = garrisonOf(this.save.seed, target.id, power, target.castle);
     const field = resolveField({
@@ -4769,6 +4799,13 @@ export class LocalWorld implements WorldApi {
       attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
       defender: { kinds: g.kinds, gear: g.gear, setup: g.setup },
     });
+    if (this.sitsDown(m.targetId, m, at, field)) {
+      const w = this.openSiegeAt(m.targetId, m.fromId, m.id, at);
+      this.save.siegeAgainAt[m.targetId] = at + SIEGE_COOLDOWN;
+      m.phase = 'stay';
+      m.stayUntil = starvesAt(w);
+      return;
+    }
     const prev = this.damageOf(target.id, at);
     this.save.damage[target.id] = {
       loss: Math.min(0.95, prev + field.defenderLoss * (1 - prev)),

@@ -32,6 +32,7 @@ import {
   LETTER_TTL,
 } from './data/tuning';
 import type { Letter, LetterKindId, PlayerProfile } from './types';
+import { shieldVillagers } from './lairs';
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
@@ -198,7 +199,8 @@ describe('письмо — чистая функция', () => {
 
 const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
-  pop: 120,
+  // Выше защиты новичка: набеги ИИ по нему идут (`lairs.lairShield`).
+  pop: shieldVillagers(0.1),
   defense: 30,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },

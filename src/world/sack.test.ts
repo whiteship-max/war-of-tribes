@@ -23,6 +23,7 @@ import {
 import type { GenSettlement } from './gen';
 import type { Loot, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
+import { shieldVillagers } from './lairs';
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
@@ -439,10 +440,10 @@ describe('симметрия: разорение чужого двора и св
   it('прорвавшийся набег чистит наш склад тем же правилом, что и мы — чужой', async () => {
     const w = makeWorld(5);
     // Беззащитная деревня со складом и тайником: набег прорвётся наверняка, но
-    // в осаду не сядет — отряд заведомо сильнее порога `SIEGE_IF_BELOW`.
+    // в осаду не сядет — штурм удался бы, и лагерем отряд не встаёт (`LocalWorld.sitsDown`).
     const stock = { food: 4000, wood: 4000, stone: 4000 };
     const p = profile({
-      pop: 120,
+      pop: shieldVillagers(0.1),
       defense: 30,
       army: {},
       units: { warrior: 0, scout: 0 },
@@ -470,7 +471,7 @@ describe('симметрия: разорение чужого двора и св
     // или нет. Держит тест то, что осталось от прежнего обещания, — отсутствие не
     // делает набег ни хуже, ни лучше: отряд приходит и разбирается своим боем.
     const w = makeWorld(5);
-    const p = profile({ pop: 120, defense: 30, army: {}, units: { warrior: 0, scout: 0 } });
+    const p = profile({ pop: shieldVillagers(0.1), defense: 30, army: {}, units: { warrior: 0, scout: 0 } });
     // Дожидаемся вышедшего отряда — и пропадаем: пульса нет до самого прихода.
     let raidId: string | null = null;
     for (let i = 0; i < 4000 && !raidId; i++) {

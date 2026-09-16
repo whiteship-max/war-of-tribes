@@ -7,6 +7,7 @@ import { BREAD_LEAD_SHARE, WORKS_FIRE_SHARE, draftNotices, sightFrom, type Notic
 import { inSight } from './fog';
 import { marchPosition } from './geo';
 import { NOTICE_KINDS, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
+import { shieldVillagers } from './lairs';
 
 const START = 1_700_000_000_000;
 const MINUTE = 60_000;
@@ -14,8 +15,8 @@ const HOUR = 60 * MINUTE;
 
 const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
-  // Выше AI_MIN_POP: без этого набегов на деревню нет вовсе, и тест проверял бы пустоту.
-  pop: 120,
+  // Выше защиты новичка: без этого набегов на деревню нет вовсе, и тест проверял бы пустоту.
+  pop: shieldVillagers(0.1),
   defense: 30,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
@@ -260,8 +261,12 @@ describe('черновики: вид, ключ, «когда» и «годно �
  */
 const holdout: PlayerProfile = {
   name: 'Тест',
-  pop: 120,
+  // Жителей чуть выше защиты новичка: набег выходит, но мал (`lairs.lairShield`).
+  pop: shieldVillagers(0.1),
   defense: 100_000,
+  // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
+  // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
+  militia: 1000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { legionary: 40, spearman: 30, archer: 20 },

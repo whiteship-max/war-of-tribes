@@ -25,6 +25,7 @@ import { fitSetup } from './battle';
 import { STRIKE_FROM_TOWN } from './siege';
 import { distance } from './geo';
 import type { FigureView, MarchView, PlayerProfile, Report, SettlementView, WorldPulse } from './types';
+import { shieldVillagers } from './lairs';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -215,9 +216,9 @@ class Party {
     for (const id of TROOP_IDS) s.army[id] = Math.max(0, army[id] ?? 0);
     const st = s.buildings.find((b) => b.type === 'statue');
     if (st) st.level = 10;
-    // Выше порога набегов: по деревне в тридцать душ набеги не ходят вовсе. Без
+    // Выше защиты новичка: по деревне в тридцать душ набеги не ходят вовсе. Без
     // набегов последовательность приказов не упирается в лагерь под стенами.
-    if (raids) s.pop = 200;
+    if (raids) s.pop = shieldVillagers(0.1);
     const clock = { now: START };
     const store = memory();
     return new Party(s, new LocalWorld({ seed, now: () => clock.now, storage: store }), store, clock);
@@ -434,10 +435,12 @@ const until = async (p: Party, step: string, done: (pulse: WorldPulse) => boolea
 };
 
 /** Лагерь под своими стенами, по сохранению мира: рты за стеной на последнее открытие окна. */
-const siegeOnHome = (p: Party): { garrison: number } | null => {
-  const save = JSON.parse(p.store.read() as string) as { sieges: Record<string, { garrisonAtStart: number }> };
+const siegeOnHome = (p: Party): { garrison: number; since: number } | null => {
+  const save = JSON.parse(p.store.read() as string) as {
+    sieges: Record<string, { garrisonAtStart: number; startedAt: number; sinceAt?: number }>;
+  };
   const w = save.sieges?.home;
-  return w ? { garrison: w.garrisonAtStart } : null;
+  return w ? { garrison: w.garrisonAtStart, since: w.sinceAt ?? w.startedAt } : null;
 };
 
 /** Ближайший чужой отряд, идущий на деревню, по сохранению мира. */
@@ -518,20 +521,34 @@ describe('дома и в поле вместе не больше, чем ест�
     expect(report?.battle?.result.sides.attacker.total.initial, 'в строю ядра десять, а не сто десять').toBe(10);
   }, 60_000);
 
-  it('случайные приказы, найм, погони, вылазки, удары и загрузки на четырёх мирах', async () => {
+  it('случайные приказы, найм, погони, вылазки, удары и загрузки на шести мирах', async () => {
     const kinds: TroopId[] = ['clubman', 'spearman', 'archer', 'rider', 'legionary'];
     let taken = 0;
     let battles = 0;
     let stood = 0;
     let sortied = 0;
-    for (const seed of [11, 42, 101, 7]) {
+    // Шесть миров, а не четыре: набег теперь стоит людей и часть их кончается прорывом с окном
+    // после него, и на четырёх мирах дружина ни разу не успевала встать у частокола.
+    for (const seed of [11, 42, 101, 7, 77, 202]) {
       const rng = seeded(seed * 7919);
       let p = Party.start(seed, { clubman: 12, spearman: 8, archer: 6, legionary: 3 });
       await p.pulse('старт');
       const info = await p.world.info();
       const lair = await p.lair();
+      // Осада под деревней теперь реже и короче: лагерем садится только набег, который
+      // частокол отбил бы. Чтобы вылазка не зависела от того, совпадёт ли осада с шагом
+      // «вылазка», на каждую застигнутую осаду прогон один раз выходит сразу.
+      const sortiedAt = new Set<number>();
       for (let i = 0; i < 90; i++) {
         const step = `мир ${seed}, шаг ${i}`;
+        const camp = siegeOnHome(p);
+        if (camp && !sortiedAt.has(camp.since)) {
+          sortiedAt.add(camp.since);
+          const res = await p.world.sortie(weakest(homeOf(p.s.army, awayOf(p.marches, p.figures)), 3));
+          p.figures = await p.world.figures();
+          if (!res.error) sortied++;
+          await p.pulse(`${step}: вылазка на застигнутую осаду${res.error ? ` (${res.error})` : ''}`);
+        }
         const roll = rng();
         if (roll < 0.22) {
           // Передача бывает только дома: из поля полководец сначала возвращается.
@@ -626,7 +643,11 @@ describe('дружина в обороне: собрана и дома — од�
       const pulse = await until(p, `мир ${seed}: ждём боя у частокола`, (x) => x.reports.some((r) => r.id.endsWith('-defense')));
       const fight = pulse.reports.find((r) => r.id.endsWith('-defense')) as Report;
       expect(fight.battle?.troops.defender, `мир ${seed}: у частокола гарнизон четыре и дружина десять`).toEqual({ clubman: 14 });
-      expect(troopTotal(p.known().troops), `мир ${seed}: дружина при полководце та же`).toBe(10);
+      // Бой стоит людей, и дружина теряет в нём свою долю — но только долю павших, ни одного
+      // больше: при полководце и в гарнизоне вместе ровно четырнадцать минус павшие.
+      const lost = troopTotal(pulse.effects.find((e) => e.id.endsWith('-defense'))?.lostTroops ?? {});
+      expect(troopTotal(p.known().troops), `мир ${seed}: дружина не больше прежней`).toBeLessThanOrEqual(10);
+      expect(troopTotal(p.s.army), `мир ${seed}: у племени четырнадцать минус павшие`).toBe(14 - lost);
     }
   }, 60_000);
 
@@ -817,9 +838,10 @@ describe('дружина в обороне: собрана и дома — од�
     const pulse = await until(q, 'бой после загрузки', (x) => x.reports.some((r) => r.id.endsWith('-defense')));
     const fight = pulse.reports.find((r) => r.id.endsWith('-defense')) as Report;
     expect(fight.battle?.troops.defender, 'у частокола четырнадцать, а не сто четырнадцать').toEqual({ clubman: 14 });
-    // Сверка режет дружину до того, что есть у племени, — до всех четырнадцати:
-    // в гарнизоне по-прежнему четырнадцать, по разу каждый, и все они — дружина.
-    expect(troopTotal((await q.general()).troops)).toBe(14);
-    expect(homeOf(q.s.army, awayOf(q.marches, q.figures))).toEqual({ clubman: 14 });
+    // Сверка режет дружину до того, что есть у племени, — до всех четырнадцати; бой
+    // забирает павших, и в гарнизоне остаются уцелевшие, по разу каждый, и все они — дружина.
+    const lost = troopTotal(pulse.effects.find((e) => e.id.endsWith('-defense'))?.lostTroops ?? {});
+    expect(troopTotal((await q.general()).troops)).toBe(14 - lost);
+    expect(homeOf(q.s.army, awayOf(q.marches, q.figures))).toEqual(14 - lost > 0 ? { clubman: 14 - lost } : {});
   }, 60_000);
 });

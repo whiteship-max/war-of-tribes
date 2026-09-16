@@ -30,6 +30,7 @@ import {
 } from './works';
 import { STRIKE_FROM_TOWN } from './siege';
 import type { PlayerProfile, WorldPulse } from './types';
+import { shieldVillagers } from './lairs';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -41,8 +42,12 @@ const MIN = 60_000;
  */
 const holdout: PlayerProfile = {
   name: 'Тест',
-  pop: 120,
+  // Жителей чуть выше защиты новичка: набег выходит, но мал (`lairs.lairShield`).
+  pop: shieldVillagers(0.1),
   defense: 100_000,
+  // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
+  // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
+  militia: 1000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { legionary: 40, spearman: 30, archer: 20 },
@@ -136,6 +141,21 @@ type CampBattle = (
 
 const campBattle = (w: LocalWorld): CampBattle =>
   (w as unknown as { campBattle: CampBattle }).campBattle.bind(w);
+
+/**
+ * Сколько из желаемого отряда стоит дома. Вылазка стоит людей: лагерь — это отбитый бы
+ * набег, а не пять человек, и павших мир списывает со своего знания о войске сразу. Тесты
+ * потока выпускают раз за разом тех, кто уцелел.
+ */
+const atHome = (w: LocalWorld, want: TroopStack): TroopStack => {
+  const army = (w as unknown as { save: { profile: PlayerProfile } }).save.profile.army ?? {};
+  const out: TroopStack = {};
+  for (const [id, n] of Object.entries(want) as [keyof TroopStack, number][]) {
+    const k = Math.min(n ?? 0, army[id] ?? 0);
+    if (k > 0) out[id] = k;
+  }
+  return out;
+};
 
 /** Окно осады деревни в сохранении мира — прямо то, что пишет бой. */
 const homeWindow = (w: LocalWorld): { gateAt?: number; rearGateAt?: number } =>
@@ -427,8 +447,9 @@ describe('проход через рогатки — поток, а не пор�
       const t = at + i * 3_000;
       set(t);
       const view = (await world.sync(holdout)).siege!;
-      const fc = sortieForecast(view, kindsOf(GARRISON), t);
-      const res = await world.sortie(GARRISON);
+      const going = atHome(world, GARRISON);
+      const fc = sortieForecast(view, kindsOf(going), t);
+      const res = await world.sortie(going);
       if (res.error) {
         refusals++;
         // Отказ до боя — те же слова, что панель показала до нажатия.
@@ -626,8 +647,9 @@ describe('проход через рогатки — поток, а не пор�
         set(t);
         const view = (await world.sync(holdout)).siege;
         if (!view) break;
-        const fc = sortieForecast(view, kindsOf(going), t);
-        const res = await world.sortie(going);
+        const out = atHome(world, going);
+        const fc = sortieForecast(view, kindsOf(out), t);
+        const res = await world.sortie(out);
         const label = `${d} мин, заход ${k}`;
         checked++;
         if (refusedAtGate(fc.now)) {

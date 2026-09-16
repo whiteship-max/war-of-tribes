@@ -80,7 +80,8 @@ import { LocalWorld } from '@/world/local/LocalWorld';
 import { FATES, FATE_DEFAULT, HEAD_CARRY, lead, plunder } from '@/world/spoils';
 import { FATE_META } from '@/world/data/fates';
 import { stackEscort } from '@/world/data/units';
-import { AI_BONDED_SHARE, AI_POWER_SHARE, AI_POWER_VS_DEFENSE, LAIR_CAP, LAIR_ANCHOR_FAR, SIEGE_IF_BELOW } from '@/world/data/tuning';
+import { AI_BONDED_SHARE, LAIR_ANCHOR_FAR, LAIR_RIPE } from '@/world/data/tuning';
+import { lairPower, lairRaid } from '@/world/lairs';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { PlayerProfile, SettlementView } from '@/world/types';
 
@@ -392,10 +393,9 @@ if (warAvg === 0) {
   console.log('  Рынок остаётся единственным источником невольников. Сколько давала война, пока падение');
   console.log('  голодом уводило их всегда, — docs/order.md, раздел 6.');
 } else {
-  console.log('  Казна посёлка того же часа покупает их на порядок больше — и дружину при этом никуда');
-  console.log('  не уводит. Война не выгоднее хозяйства и здесь, как не выгоднее она и грабежом: логово');
-  console.log('  держит горстку людей, осада с дорогой идёт около получаса, а полководец всё это время');
-  console.log('  не бьёт и не ловит.');
+  console.log('  Сравнивать — с колонкой «купит за час» того уровня посёлка, у которого полководец уводит людей: логово растёт');
+  console.log('  от жителей города (docs/lair_growth.md), и чем больше город, тем больше людей в логове. Полководец всё это время');
+  console.log('  не бьёт и не ловит, а дружина стоит под чужими стенами.');
 }
 console.log('');
 
@@ -532,15 +532,14 @@ console.log('');
 console.log('=== ПАДЕНИЕ ГОРОДА: скольких увёл бы лагерь ===');
 console.log(`На ступени «${FATE_META[FATE_DEFAULT].name.toLowerCase()}» — никого, и так берут город логова: другой ступени они не объявляют.`);
 console.log('Таблица — конвой лагеря, то есть предел ступени «увести людей», если её объявит тот, кто осадил.');
-console.log('Лагерь садится под стенами, только когда штурм безнадёжен: его мощь ниже доли обороны');
-console.log(`(SIEGE_IF_BELOW = ${SIEGE_IF_BELOW}). Он же не сильнее доли логова (AI_POWER_SHARE ${AI_POWER_SHARE}) и доли обороны`);
-console.log(`(AI_POWER_VS_DEFENSE ${AI_POWER_VS_DEFENSE}). Отряд — один воин на три мощи; ведёт каждый ${stackEscort({ warrior: 1 })} невольников.`);
+console.log('Лагерь садится под стенами, только когда штурм не удался бы (`LocalWorld.sitsDown`), и он не сильнее');
+console.log('набега, из которого встал: самого крупного — дозревшего дальнего логова при жителях этого посёлка');
+console.log(`(\`lairs.lairRaid\`). Отряд — один воин на три мощи; ведёт каждый ${stackEscort({ warrior: 1 })} невольников.`);
 console.log('');
 console.log(' ур   оборона дома   самый крупный лагерь, воинов   увёл бы до   невольников на пороге тревоги');
-const lairMax = LAIR_ANCHOR_FAR * LAIR_CAP;
 for (const level of LEVELS) {
   const s = stage(level);
-  const camp = Math.min(lairMax * AI_POWER_SHARE, defense(s) * SIEGE_IF_BELOW);
+  const camp = lairRaid(lairPower(LAIR_ANCHOR_FAR, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, s.pop), s.pop);
   const men = Math.max(1, Math.round(camp / 3));
   const hold = Math.floor(orderBreakdown(s).hold);
   const led = lead(hold, stackEscort({ warrior: men }));
@@ -549,6 +548,6 @@ for (const level of LEVELS) {
   );
 }
 console.log('');
-console.log('Логова малы, и лагерь увёл бы заметную часть невольников, а не всех: у малого отряда');
-console.log('на всех не хватит сторожей. Правило одно и у нас, и у бота (`world/spoils.lead`), и зовёт его');
+console.log('Сколько уведут, решает конвой лагеря: логово растёт вместе с городом, и сторожей у него столько,');
+console.log('сколько воинов. Правило одно и у нас, и у бота (`world/spoils.lead`), и зовёт его');
 console.log('только дверь участи — на той ступени, что уводит людей.');

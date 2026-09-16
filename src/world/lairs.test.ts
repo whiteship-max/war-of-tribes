@@ -11,9 +11,10 @@ import { describe, expect, it } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld, isLair, lairAnchor } from './gen';
 import { distance } from './geo';
-import { lairArms, lairLoot, lairPhase, lairPop, lairPower, lairRipeness, ruinLeft } from './lairs';
+import { lairArms, lairArmsBase, lairGold, lairLoot, lairPhase, lairPop, lairPower, lairRipeness, ruinLeft } from './lairs';
 import {
   AI_RANGE,
+  LAIR_ANCHOR_MID,
   LAIR_CAP,
   LAIR_NEAR_CAP,
   LAIR_RIPE,
@@ -32,57 +33,72 @@ const HOUR = 60 * MIN;
 const START = 1_700_000_000_000;
 
 const rec = (bornAt = 0, burnedAt = 0) => ({ bornAt, burnedAt });
+/** Жители города, от которых считается логово в чистых проверках. */
+const V = 400;
 
 // ------------------------------------------------ логово — чистая функция ---
 
 describe('логово — чистая функция от времени появления', () => {
   it('одинаковый вход даёт одинаковый выход, и никакой памяти между вызовами', () => {
     for (const age of [0, MIN, HOUR, LAIR_RIPE, LAIR_RIPE * 3]) {
-      const a = lairPower(50, rec(START), START + age);
-      const b = lairPower(50, rec(START), START + age);
+      const a = lairPower(50, rec(START), START + age, V);
+      const b = lairPower(50, rec(START), START + age, V);
       expect(a).toBe(b);
     }
   });
 
   it('растёт от объявленного начала к объявленному потолку', () => {
     const anchor = 50;
-    expect(lairPower(anchor, rec(START), START)).toBeCloseTo(anchor * LAIR_START, 6);
-    expect(lairPower(anchor, rec(START), START + LAIR_RIPE)).toBeCloseTo(anchor * LAIR_CAP, 6);
+    const ripe = lairPower(anchor, rec(START), START + LAIR_RIPE, V);
+    expect(lairPower(anchor, rec(START), START, V)).toBeCloseTo((ripe * LAIR_START) / LAIR_CAP, 6);
     // Свежее логово — самое слабое, что есть вокруг: слабее собственного потолка
     // заметно, иначе рост не был бы виден между заходами.
-    expect(lairPower(anchor, rec(START), START)).toBeLessThan(
-      lairPower(anchor, rec(START), START + LAIR_RIPE) * 0.75,
-    );
+    expect(lairPower(anchor, rec(START), START, V)).toBeLessThan(ripe * 0.75);
   });
 
   it('потолок держится, сколько бы ни прошло: месяц не крепче срока', () => {
     const anchor = 50;
-    const ripe = lairPower(anchor, rec(START), START + LAIR_RIPE);
+    const ripe = lairPower(anchor, rec(START), START + LAIR_RIPE, V);
     for (const days of [1, 3, 7, 30, 365]) {
-      expect(lairPower(anchor, rec(START), START + days * 24 * HOUR)).toBe(ripe);
+      expect(lairPower(anchor, rec(START), START + days * 24 * HOUR, V)).toBe(ripe);
     }
     expect(lairRipeness(rec(START), START + 365 * 24 * HOUR)).toBe(1);
   });
 
-  it('сила соразмерна опоре: вдвое крепче округа — вдвое крепче логово', () => {
-    expect(lairPower(100, rec(START), START + LAIR_RIPE)).toBeCloseTo(
-      lairPower(50, rec(START), START + LAIR_RIPE) * 2,
+  it('сила соразмерна опоре: вдвое дальше опора — вдвое крепче логово', () => {
+    expect(lairPower(100, rec(START), START + LAIR_RIPE, V)).toBeCloseTo(
+      lairPower(50, rec(START), START + LAIR_RIPE, V) * 2,
       6,
     );
   });
 
-  it('часы назад силы не убавляют: до появления логова его возраст ноль', () => {
-    expect(lairPower(50, rec(START), START - 10 * HOUR)).toBeCloseTo(50 * LAIR_START, 6);
+  it('город растёт — растёт и логово', () => {
+    let prev = 0;
+    for (const v of [0, 100, 306, 518, 755, 1000]) {
+      const p = lairPower(LAIR_ANCHOR_MID, rec(START), START + LAIR_RIPE, v);
+      expect(p, `${v} жителей`).toBeGreaterThan(prev);
+      prev = p;
+    }
   });
 
-  it('добыча и оружие растут вместе с силой', () => {
-    const weak = lairPower(50, rec(START), START);
-    const strong = lairPower(50, rec(START), START + LAIR_RIPE);
-    expect(lairLoot(strong)).toBeGreaterThan(lairLoot(weak));
-    expect(lairArms(strong)).toBeGreaterThan(lairArms(weak));
-    // Обе величины — прямая функция силы, а не своя лестница.
-    expect(lairLoot(strong) / lairLoot(weak)).toBeCloseTo(strong / weak, 1);
-    expect(lairPop(strong)).toBeGreaterThan(lairPop(weak));
+  it('часы назад силы не убавляют: до появления логова его возраст ноль', () => {
+    expect(lairPower(50, rec(START), START - 10 * HOUR, V)).toBeCloseTo(lairPower(50, rec(START), START, V), 6);
+  });
+
+  it('добро и золото растут с силой, а оружие — нет: у предметов своя дверь', () => {
+    const young = lairPower(50, rec(START), START, V);
+    const ripe = lairPower(50, rec(START), START + LAIR_RIPE, V);
+    expect(lairLoot(ripe)).toBeGreaterThan(lairLoot(young));
+    expect(lairGold(ripe)).toBeGreaterThan(lairGold(young));
+    expect(lairLoot(ripe) / lairLoot(young)).toBeCloseTo(ripe / young, 1);
+    expect(lairPop(ripe)).toBeGreaterThan(lairPop(young));
+    // Большой город растит логово вчетверо и больше — а оружия от этого не прибавляется
+    // ни одного: оно считается от опоры и возраста, где жителей нет.
+    const small = lairPower(50, rec(START), START + LAIR_RIPE, 100);
+    const big = lairPower(50, rec(START), START + LAIR_RIPE, 1000);
+    expect(big).toBeGreaterThan(small * 3);
+    expect(lairArms(lairArmsBase(50, rec(START), START + LAIR_RIPE))).toBe(lairArms(50 * LAIR_CAP));
+    expect(lairArms(lairArmsBase(50, rec(START), START))).toBeLessThan(lairArms(lairArmsBase(50, rec(START), START + LAIR_RIPE)));
   });
 
   it('пепелище живёт ровно объявленный срок и ни секундой дольше', () => {
@@ -290,7 +306,10 @@ describe('логова в мире', () => {
     for (const l of save.spawned) {
       const anchor = lairAnchor(save.home, l);
       const at = save.lairs[l.id].bornAt;
-      expect(lairPower(anchor, save.lairs[l.id], at)).toBeCloseTo(anchor * LAIR_START, 6);
+      expect(lairPower(anchor, save.lairs[l.id], at, p.pop)).toBeCloseTo(
+        (lairPower(anchor, save.lairs[l.id], at + LAIR_RIPE, p.pop) * LAIR_START) / LAIR_CAP,
+        6,
+      );
     }
   }, 120_000);
 
@@ -300,13 +319,14 @@ describe('логова в мире', () => {
     expect(lairs.length).toBeGreaterThan(0);
     const anchor = lairAnchor(gen.home, lairs[0]);
 
-    const weak = lairPower(anchor, rec(START), START);
-    const ripe = lairPower(anchor, rec(START), START + LAIR_RIPE);
+    const v = profile().pop;
+    const weak = lairPower(anchor, rec(START), START, v);
+    const ripe = lairPower(anchor, rec(START), START + LAIR_RIPE, v);
     // Слабое логово даёт заметно меньше выросшего — иначе расти было бы незачем.
     expect(lairLoot(ripe)).toBeGreaterThan(lairLoot(weak) * 1.5);
     // И даже выросшее не заменяет хозяйство: за то же время посёлок добывает
     // больше — это и есть граница, за которой производство стало бы декорацией.
-    expect(lairLoot(ripe) + lairArms(ripe) * 10).toBeLessThan(687 * 4);
+    expect(lairLoot(ripe) + lairArms(lairArmsBase(anchor, rec(START), START + LAIR_RIPE)) * 10).toBeLessThan(687 * 4);
   });
 
   it('оружие из логова ложится в снаряжение, а не на склад', () => {

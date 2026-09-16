@@ -30,6 +30,7 @@ import type { PlayerProfile, SettlementView } from '@/world/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import { SEEN_GRACE } from '../netlify/lib/notify';
 import { NOTICE_KINDS, type NoticeKind } from '../netlify/lib/contract';
+import { shieldVillagers } from '@/world/lairs';
 
 const MIN = 60_000;
 const START = 1_700_000_000_000;
@@ -45,15 +46,21 @@ const CRON_LAG = MIN;
 const ARMY: TroopStack = { legionary: 40, spearman: 30, archer: 20 };
 const DRUZHINA: TroopStack = { legionary: 20, spearman: 10 };
 
-/** Две деревни: крепкая (набег садится лагерем) и средняя (набег бьётся у стены). */
+/**
+ * Две деревни: крепкая (набег садится лагерем) и средняя (набег бьётся у стены). Садится ли отряд
+ * лагерем, решает бой у стены (`LocalWorld.sitsDown`), а не число обороны, — поэтому у крепкой
+ * ополчение, которое отобьёт любой такой набег, а у средней его нет.
+ */
 const TOWNS = [
-  { name: 'крепкая', defense: 100_000 },
-  { name: 'средняя', defense: 220 },
+  { name: 'крепкая', defense: 100_000, militia: 1000 },
+  { name: 'средняя', defense: 220, militia: 0 },
 ];
 
-const profile = (defense: number, warning = 120): PlayerProfile => ({
+const profile = (defense: number, warning = 120, militia = 0): PlayerProfile => ({
   name: 'Отчёт',
-  pop: 300,
+  // Жители выше порога защиты новичка: иначе логово деревню не замечает и набегов нет вовсе.
+  pop: shieldVillagers(0.5),
+  militia,
   defense,
   warriorPower: 12,
   units: { warrior: 40, scout: 6 },
@@ -94,7 +101,7 @@ async function nearest(world: NotifyingWorld): Promise<SettlementView | null> {
 async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]> {
   let now = START;
   const world = new NotifyingWorld({ seed, now: () => now, storage: null });
-  const p = profile(town.defense);
+  const p = profile(town.defense, 120, town.militia);
   const rng = seeded(seed * 7919 + town.defense);
   const leaves: Leave[] = [];
   await world.sync(p);

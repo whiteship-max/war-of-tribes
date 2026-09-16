@@ -14,9 +14,10 @@
 //
 //   npx vite-node scripts/raid-report.ts
 //
-// Раздел «потолок набегов» (что держит сила набега, что будет без потолка, новичок и оборона
-// средним бойцом) живёт в `raid-ceiling.ts` и печатается в конце, за ним — раздел «рост логова»
-// (`raid-lair-growth.ts`: от чего растёт сила набега, осада по сухому прогону, защита новичка).
+// Раздел «рост логова» (от чего растёт сила набега, осада по сухому прогону, защита новичка,
+// логово как цель) живёт в `raid-lair-growth.ts` и печатается в конце. Прежний раздел «потолок
+// набегов» мерил отвергнутый вариант «набег = оборона × k» и ушёл вместе с потолком: его числа —
+// снимок на коммите aec1117 (docs/raid_ceiling.md).
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
@@ -27,7 +28,6 @@ import {
   AI_RANGE,
 } from '@/world/data/tuning';
 import type { MarchView, PlayerProfile } from '@/world/types';
-import { ceilingSection } from './raid-ceiling';
 import { lairGrowthSection } from './raid-lair-growth';
 
 const MIN = 60_000;
@@ -200,5 +200,4 @@ for (const watch of WATCH) {
   if (worst.length > 0) console.log(`не успели: сиды ${worst.map((r) => r.seed).join(', ')}`);
 }
 
-await ceilingSection();
 await lairGrowthSection();

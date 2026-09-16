@@ -18,8 +18,8 @@
 //     войске не числились. Здесь своя арифметика — `foodShortfall` с прибавкой к расходу, —
 //     потому что раненых в игре ещё нет; подписана как таковая.
 //
-// Все числа — против нынешнего потолка набегов (`AI_POWER_SHARE`, `AI_POWER_VS_DEFENSE`):
-// решит его владелец — раздел гоняется заново целиком.
+// Все числа — против набегов из логов, растущих от жителей города (docs/lair_growth.md): поменяется
+// правило силы набега — раздел гоняется заново целиком.
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { applyEffects, playerProfile, syncAway, syncSiege } from '@/world/bridge';
 import { awayOf, homeOf } from '@/world/muster';
@@ -27,7 +27,7 @@ import { generateWorld, isLair, type GenSettlement } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import { mirrorPower } from '@/world/mirror';
-import { AI_POWER_SHARE, AI_POWER_VS_DEFENSE, AI_RANGE, SIEGE_ROUT } from '@/world/data/tuning';
+import { AI_RANGE, LAIR_STEP, SIEGE_ROUT } from '@/world/data/tuning';
 import type { WorldSave } from '@/world/local/state';
 import type { Coord, FigureView, MarchView } from '@/world/types';
 import { createInitialState } from '@/game/state';
@@ -248,7 +248,7 @@ async function play(level: number, seed: number, style: Style): Promise<Run> {
 export async function infirmarySection(): Promise<void> {
   console.log('');
   console.log('--- лазарет: сколько раненых бывает и что с ними можно сделать ---');
-  console.log(`Все числа — против нынешнего потолка набегов (AI_POWER_SHARE ${AI_POWER_SHARE}, AI_POWER_VS_DEFENSE ${AI_POWER_VS_DEFENSE}).`);
+  console.log(`Все числа — против набегов из логов, растущих от жителей города (ступень LAIR_STEP ${LAIR_STEP}, временная).`);
   console.log('');
 
   // 1. Что даёт лазарет сегодня.

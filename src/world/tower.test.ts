@@ -8,6 +8,7 @@ import { campSides, sideWorks } from './works';
 import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
 import type { PlayerProfile, WorldPulse } from './types';
 import type { TowerGun } from './bombard';
+import { shieldVillagers } from './lairs';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -16,8 +17,12 @@ const CATAPULT: TowerGun = { slow: 2 / 7, thin: 0.1, crew: 4, seats: 4 };
 /** Деревня, которую штурмовать бессмысленно, — тот же слепок, что у `works.test.ts`. Лучников дома двадцать. */
 const holdout: PlayerProfile = {
   name: 'Тест',
-  pop: 120,
+  // Жителей чуть выше защиты новичка: набег выходит, но мал (`lairs.lairShield`).
+  pop: shieldVillagers(0.1),
   defense: 100_000,
+  // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
+  // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
+  militia: 1000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { legionary: 40, spearman: 30, archer: 20 },

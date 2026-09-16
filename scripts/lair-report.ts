@@ -26,7 +26,7 @@
 //   HOURS=8 npx vite-node scripts/lair-report.ts
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { generateWorld, isLair, lairAnchor } from '@/world/gen';
-import { lairArms, lairGold, lairLoot, lairPhase, lairPop, lairPower } from '@/world/lairs';
+import { lairArms, lairArmsBase, lairGold, lairLoot, lairPhase, lairPop, lairPower, shieldVillagers } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import {
   AI_RANGE,
@@ -68,10 +68,13 @@ function sampleAnchor(seed: number): { anchor: number; away: number } | null {
 
 // ------------------------------------------------------------------- рост ---
 
-console.log('=== РОСТ: логово против соседей вокруг него ===');
-console.log('Опора — расстояние до замка игрока (`lairAnchor`): у порога слабее, вдали крепче.');
-console.log('Чужих дворов на общей карте нет — логово упирается в свой потолок навсегда.');
-console.log(`Оборона стартовой деревни без дружины — ${defense(createInitialState()).toFixed(0)}: с ней и сравнивать.`);
+/** Жители, при которых логово выходит в набег полной силой (`lairs.shieldVillagers`): по ним рост и добыча. */
+const GROWTH_VILLAGERS = shieldVillagers(1);
+
+console.log('=== РОСТ: логово по возрасту и по жителям города ===');
+console.log('Опора — расстояние до замка игрока (`lairAnchor`): у порога слабее, вдали крепче. Сила — от возраста');
+console.log('и от жителей города (`lairs.lairPower`): ниже — при жителях, с которых логово выходит в полную силу.');
+console.log(`Жителей: ${GROWTH_VILLAGERS}. Оборона стартовой деревни без дружины — ${defense(createInitialState()).toFixed(0)}.`);
 console.log('');
 console.log('  сид   опора   свежее   полсрока   потолок   до замка, кл');
 
@@ -80,16 +83,17 @@ for (const seed of SEEDS) {
   if (sample === null) continue;
   const { anchor, away } = sample;
   const rec = { bornAt: 0, burnedAt: 0 };
-  const fresh = lairPower(anchor, rec, 0);
-  const half = lairPower(anchor, rec, LAIR_RIPE / 2);
-  const ripe = lairPower(anchor, rec, LAIR_RIPE);
+  const fresh = lairPower(anchor, rec, 0, GROWTH_VILLAGERS);
+  const half = lairPower(anchor, rec, LAIR_RIPE / 2, GROWTH_VILLAGERS);
+  const ripe = lairPower(anchor, rec, LAIR_RIPE, GROWTH_VILLAGERS);
   console.log(
     `  ${pad(seed, 4)}  ${pad(n1(anchor), 6)}  ${pad(n1(fresh), 7)}  ${pad(n1(half), 9)}  ${pad(n1(ripe), 8)}  ${pad(n1(away), 13)}`,
   );
 }
 console.log('');
-console.log(`  Потолок = ${LAIR_CAP} опоры, начало = ${LAIR_START}; дорасти — ${n1(LAIR_RIPE / HOUR)} ч реального времени.`);
-console.log('  Потолок и есть обещание: сколько бы игрок ни отсутствовал, выше этой строки логово не станет.');
+console.log(`  Потолок по возрасту = ${LAIR_CAP} полной силы, начало = ${LAIR_START}; дорасти — ${n1(LAIR_RIPE / HOUR)} ч реального времени.`);
+console.log('  Потолок и есть обещание: сколько бы игрок ни отсутствовал, выше этой строки логово не станет, пока город');
+console.log('  не вырос; растёт город — растёт и потолок.');
 console.log('');
 
 // --------------------------------------------------------------- пепелище ---
@@ -156,10 +160,11 @@ for (const [name, k] of [
   ['полсрока', 0.5],
   ['у потолка', 1],
 ] as [string, number][]) {
-  const power = lairPower(anchor51, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE * k);
+  const power = lairPower(anchor51, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE * k, GROWTH_VILLAGERS);
   const loot = lairLoot(power);
   const gold = lairGold(power);
-  const arms = lairArms(power);
+  // Оружие — своя дверь: от опоры и возраста, жители его не растят (`lairs.lairArmsBase`).
+  const arms = lairArms(lairArmsBase(anchor51, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE * k));
   const worth = loot + armsCost(arms);
   const mins = arms / (forgeHour / 60);
   console.log(
@@ -360,6 +365,5 @@ for (const [style, rest] of [
   );
 }
 console.log('');
-console.log('  Мир не кончается: даже у охотника цели не переводятся — он жжёт заметно больше,');
-console.log('  чем стояло вначале. И не зарастает: в обычной партии их столько же, сколько');
-console.log('  рассыпала генерация, а выше потолка их не бывает никогда.');
+console.log('  Выше потолка живых логов не бывает никогда — это держит LAIR_NEAR_CAP. Сколько сжигает охотник, решает');
+console.log('  его войско: оно здесь не пополняется, а логово растёт от жителей города (docs/lair_growth.md).');

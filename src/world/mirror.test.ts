@@ -117,7 +117,12 @@ describe('стенд зеркального логова', () => {
       const lairs = w.gen.settlements.filter(isLair);
       expect(lairs.length).toBeGreaterThan(0);
       for (const s of lairs) {
-        const want = lairPower(lairAnchor(w.save.home, s), { bornAt: w.save.createdAt, burnedAt: 0 }, START);
+        const want = lairPower(
+          lairAnchor(w.save.home, s),
+          { bornAt: w.save.createdAt, burnedAt: 0 },
+          START,
+          w.save.profile?.pop ?? 0,
+        );
         expect(w.powerNow(s, START), `${seed}/${s.id}`).toBeCloseTo(want, 6);
       }
     }
