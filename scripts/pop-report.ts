@@ -27,6 +27,7 @@ import {
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
 import { build, staff } from './autopilot';
+import { upkeepSection } from './pop-upkeep';
 
 const HOURS = Number(process.env.HOURS ?? 10);
 /** Как часто автопилот принимает решения, игровых секунд. */
@@ -177,6 +178,8 @@ function main(): void {
         `склад держит ${storageCap(w)}`,
     );
   }
+
+  upkeepSection();
 }
 
 main();
