@@ -7,7 +7,7 @@ import { createInitialState, SAVE_VERSION } from './state';
 import { catchUp } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
-import { mergeAgents, nameAgents } from './sim/agents';
+import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { AGENT_AGE0, LEVEL_XP } from './data/agents';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { hashId } from '@/world/diplomacy';
@@ -222,6 +222,10 @@ export function deserialize(json: string): GameState | null {
       // каждое поле читается с проверкой. Партия, записанная до опыта, приезжает
       // агентами первого уровня — ровно сегодняшними, — и версию это не поднимает.
       agents: mergeAgents(data.agents),
+      // Родословная — по месту, каждая запись с проверкой и под потолком места.
+      // Партия до родословной приезжает с пустой: вспоминать ушедших задним
+      // числом не из чего, и версию это не поднимает.
+      lineage: mergeLineage(data.lineage),
       // Герой мержится по полям и только теми, что у него остались: имя ушло к
       // полководцу, свой срок «ранен» — к миру (он и есть разбитый полководец).
       hero: {

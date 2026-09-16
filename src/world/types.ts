@@ -8,6 +8,7 @@ import type { BattlePlace } from '@/game/battle/ground';
 import type { ArmySetup, BattleResult, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
 import type { FigurePlace } from './shelter';
+import type { TraitNumbers } from '@/game/data/traits';
 
 /**
  * Участь взятого города — что выбрал победитель: ограбить, ограбить и увести людей,
@@ -387,6 +388,11 @@ export interface OrderOption {
   peril: number | null;
   /** Две главные причины гибели словами. Пусто, когда гибели нет. */
   perilWhy: string[];
+  /**
+   * Сколько держат пойманного, секунд. Есть только у дел лазутчика: цена провала
+   * стоит рядом с шансом, и число это то же, каким мир задержит (`LocalWorld.spyTimes`).
+   */
+  held?: number;
   /**
    * Мировая минута, на которую посчитаны шанс и гибель, мс. Приказ, отданный с этой
    * отметкой, исполняется ровно по этим числам — показанное и есть применённое.
@@ -1286,6 +1292,13 @@ export interface PlayerProfile {
    * пустые и не уходящие, не едут вовсе — слепок новой партии тот же, что до смертных.
    */
   agents?: Partial<Record<FigureId, { person: number; vacant?: true; retiring?: true }>>;
+  /**
+   * Черты агентов — готовыми множителями: срок сбора дружины, обоз полководца,
+   * часовые разведчика, сколько лазутчик занят и сколько его держат. Мир не знает,
+   * что такое черта, как не знает, что такое уровень. Нет черт — поля нет вовсе, и
+   * слепок партии без черт тот же байт в байт.
+   */
+  traits?: TraitNumbers;
 }
 
 export interface TribeInfo {

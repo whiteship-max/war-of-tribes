@@ -14,7 +14,7 @@
 // Вещи меняются только дома. Место агента знает мир, поэтому переодевание
 // принимает его готовым (`Placed` из вида фигуры), а правило «дома» — одно на
 // игру и на карточку: `world/shelter.canRegear`.
-import type { AgentProgress, FaithId, GameState } from '../types';
+import type { AgentProgress, FaithId, GameState, LineageEntry, Tally } from '../types';
 import type { FigureId, HomeEffect } from '@/world/types';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { canRegear, placeOf, type Placed } from '@/world/shelter';
@@ -35,6 +35,16 @@ import {
   slotsOpen,
 } from '../data/agents';
 import { agentName } from '../data/names';
+import {
+  LINEAGE_KEEP,
+  LINEAGE_LEVEL,
+  TRAIT_BY_ID,
+  deedsOf,
+  isTraitId,
+  traitsOf,
+  type TraitId,
+  type TraitNumbers,
+} from '../data/traits';
 import { ITEMS, slotName, type ItemId } from '../data/items';
 import { cityName } from '../../../netlify/lib/contract';
 import { perilText, veilAt } from '@/world/peril';
@@ -50,6 +60,7 @@ const blank = (): AgentProgress => ({
   age0: AGENT_AGE0,
   vacant: false,
   hiring: null,
+  tally: { ok: 0, fail: 0, bled: 0, burned: 0 },
 });
 
 /** Агенты новой партии: первый уровень у всех, руки пустые, имён ещё нет — их назовёт вера. */
@@ -74,6 +85,8 @@ export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
     const r = raw as Partial<Record<keyof AgentProgress, unknown>>;
     const slots = Array.isArray(r.slots) ? r.slots : [];
     const h = r.hiring as Partial<Record<'until' | 'name' | 'age0', unknown>> | null | undefined;
+    const t = (r.tally ?? {}) as Partial<Record<keyof Tally, unknown>>;
+    const count = (v: unknown): number => (finite(v) ? Math.max(0, Math.floor(v)) : 0);
     out[id] = {
       xp: finite(r.xp) ? Math.max(0, Math.min(XP_CAP, r.xp)) : 0,
       deedAt: finite(r.deedAt) ? r.deedAt : null,
@@ -87,7 +100,44 @@ export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
         h && typeof h === 'object' && finite(h.until)
           ? { until: h.until, name: cityName(h.name), age0: finite(h.age0) ? h.age0 : AGENT_AGE0 }
           : null,
+      // Счёт дел появился позже опыта: у партии до черт его нет, и он начинается с
+      // нуля — задним числом побед от поражений не отличить.
+      tally: { ok: count(t.ok), fail: count(t.fail), bled: count(t.bled), burned: count(t.burned) },
     };
+  }
+  return out;
+}
+
+/**
+ * Родословная из сохранения: по месту, каждая запись с проверкой, не длиннее
+ * потолка места. Имя — через ту же очистку, что имя города; черта, которой в
+ * таблице больше нет, выбрасывается молча — она о прошлом и ничего не даёт.
+ */
+export function mergeLineage(saved: unknown): Partial<Record<FigureId, LineageEntry[]>> {
+  const out: Partial<Record<FigureId, LineageEntry[]>> = {};
+  if (!saved || typeof saved !== 'object') return out;
+  for (const id of FIGURE_IDS) {
+    const raw = (saved as Record<string, unknown>)[id];
+    if (!Array.isArray(raw) || LINEAGE_KEEP[id] <= 0) continue;
+    const rows: LineageEntry[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const r = item as Partial<Record<keyof LineageEntry, unknown>>;
+      const name = cityName(r.name);
+      if (!name || !finite(r.level) || !finite(r.deeds) || !finite(r.from) || !finite(r.to)) continue;
+      if (r.end !== 'fell' && r.end !== 'rest') continue;
+      rows.push({
+        name,
+        level: Math.max(1, Math.min(MAX_AGENT_LEVEL, Math.floor(r.level))),
+        deeds: Math.max(0, Math.floor(r.deeds)),
+        from: Math.max(0, Math.floor(r.from)),
+        to: Math.max(0, Math.floor(r.to)),
+        end: r.end,
+        traits: Array.isArray(r.traits) ? r.traits.filter(isTraitId) : [],
+      });
+      if (rows.length >= LINEAGE_KEEP[id]) break;
+    }
+    if (rows.length > 0) out[id] = rows;
   }
   return out;
 }
@@ -178,6 +228,9 @@ export const veilOf = (s: GameState): number => onPlace(s, 'spy', veilAt, 1);
 
 const ORDINAL = ['', 'первого', 'второго', 'третьего', 'четвёртого', 'пятого'];
 
+/** Уровень словом в родительном: «до второго уровня». */
+export const levelOfWord = (level: number): string => ORDINAL[Math.max(0, Math.min(MAX_AGENT_LEVEL, level))];
+
 /** Кружки словом-рисунком: ●●●○○. */
 export const circlesText = (level: number): string =>
   '●'.repeat(Math.max(0, Math.min(MAX_AGENT_LEVEL, level))) + '○'.repeat(Math.max(0, MAX_AGENT_LEVEL - level));
@@ -192,6 +245,10 @@ export interface Deed {
    * засчитывается. Нет поля — дело из сохранения до смертных агентов, и засчитывается.
    */
   person?: number;
+  /** Сколько бойцов дружины пало в этом деле. Есть только у боёв полководца. */
+  lost?: number;
+  /** Этим делом сожжено логово. */
+  lair?: boolean;
 }
 
 /**
@@ -206,8 +263,15 @@ export function recordDeed(s: GameState, deed: Deed): number {
   if (deed.person !== undefined && deed.person !== p.person) return 0;
   if (p.deedAt !== null && deed.at - p.deedAt < DEED_GAP) return 0;
   const before = p.xp;
+  const had = traitsOf(deed.agent, p.tally);
   p.deedAt = deed.at;
   p.xp = Math.min(XP_CAP, p.xp + (deed.ok ? DEED_XP.ok : DEED_XP.fail));
+  // Счёт дел — за той же проверкой срока, что опыт: черты не фармятся там, где не
+  // фармится опыт.
+  if (deed.ok) p.tally.ok += 1;
+  else p.tally.fail += 1;
+  p.tally.bled += Number.isFinite(deed.lost) ? Math.max(0, Math.floor(deed.lost as number)) : 0;
+  if (deed.lair) p.tally.burned += 1;
   const was = levelOf(before);
   const now = levelOf(p.xp);
   if (now > was) {
@@ -218,6 +282,17 @@ export function recordDeed(s: GameState, deed: Deed): number {
         (skill ? `: ${skill.name.toLowerCase()} ${circlesText(now)}.` : '.'),
       'good',
     );
+  }
+  const has = traitsOf(deed.agent, p.tally);
+  for (const id of has) {
+    if (had.includes(id)) continue;
+    const def = TRAIT_BY_ID[id];
+    log(s, `${titled(s, deed.agent)} прослыл: «${def.name}».`, def.good ? 'good' : 'bad');
+  }
+  for (const id of had) {
+    if (has.includes(id)) continue;
+    const def = TRAIT_BY_ID[id];
+    log(s, `${titled(s, deed.agent)} больше не слывёт: «${def.name}».`, def.good ? 'bad' : 'good');
   }
   return p.xp - before;
 }
@@ -230,12 +305,38 @@ export type HireWhere = (agent: FigureId) => string;
  * офлайна, после очереди событий, — и применяется только к тому, о ком она: место,
  * на котором уже стоит нанятый после, её не касается. Возвращает, освободилось ли.
  */
-function vacate(s: GameState, agent: FigureId, person: number): boolean {
+function vacate(s: GameState, agent: FigureId, person: number, end: LineageEntry['end']): boolean {
   const p = s.agents?.[agent];
   if (!p || p.vacant || p.person !== person) return false;
+  remember(s, agent, end);
   p.vacant = true;
   p.hiring = null;
   return true;
+}
+
+/**
+ * Положить ушедшего в родословную места. Зовёт её только `vacate` — единственная
+ * дверь, через которую человек покидает место, — поэтому записи не бывает ни
+ * дважды, ни мимо. Погибших помнят всех, ушедших на покой — со второго уровня;
+ * новые первыми, не больше потолка места.
+ */
+function remember(s: GameState, agent: FigureId, end: LineageEntry['end']): void {
+  const keep = LINEAGE_KEEP[agent];
+  if (keep <= 0) return;
+  const p = s.agents[agent];
+  const level = agentLevel(s, agent);
+  if (end === 'rest' && level < LINEAGE_LEVEL) return;
+  const entry: LineageEntry = {
+    name: p.name ?? FIGURE_BY_ID[agent].name,
+    level,
+    deeds: deedsOf(p.tally),
+    from: Math.floor(p.age0),
+    to: yearsOf(s, agent),
+    end,
+    traits: traitsOf(agent, p.tally),
+  };
+  if (!s.lineage) s.lineage = {};
+  s.lineage[agent] = [entry, ...(s.lineage[agent] ?? [])].slice(0, keep);
 }
 
 /**
@@ -249,7 +350,7 @@ export function recordDeath(s: GameState, fell: NonNullable<HomeEffect['fell']>,
   const level = agentLevel(s, fell.agent);
   const years = yearsOf(s, fell.agent);
   const who = titled(s, fell.agent);
-  if (!vacate(s, fell.agent, fell.person)) return false;
+  if (!vacate(s, fell.agent, fell.person, 'fell')) return false;
   const why = fell.why.length > 0 ? ` ${fell.why.join(', ')}.` : '';
   log(
     s,
@@ -266,7 +367,7 @@ export function recordRetire(s: GameState, retired: NonNullable<HomeEffect['reti
   if (!p) return false;
   const level = agentLevel(s, retired.agent);
   const who = titled(s, retired.agent);
-  if (!vacate(s, retired.agent, retired.person)) return false;
+  if (!vacate(s, retired.agent, retired.person, 'rest')) return false;
   log(
     s,
     `${who} ушёл на покой в ${RETIRE_AGE} лет, дослужив до ${ORDINAL[level]} уровня. ` +
@@ -289,6 +390,73 @@ export function seat(s: GameState, agent: FigureId, at: number, age0: number, na
   next.age0 = age0;
   next.name = name ?? drawName(s);
   s.agents[agent] = next;
+}
+
+// ---------- Что черта даёт ----------
+//
+// Черты не хранятся: они выводятся из счёта дел человека на месте. Пустое место
+// не даёт ничего — черта, как и навык, свойство человека, а не должности.
+
+/** Черты человека на месте. */
+export const traitsHeld = (s: GameState, agent: FigureId): TraitId[] =>
+  seated(s, agent) && s.agents?.[agent] ? traitsOf(agent, s.agents[agent].tally) : [];
+
+/**
+ * Сколько морали дома прибавит к исходу боя слава того, кто его вёл. Считается по
+ * чертам **до** этого боя: побеждал всегда — победа радует сильнее; бит — поражение
+ * горше. Первое поражение «Победоносного» прибавки не даёт и снимает черту.
+ */
+export function reputeMorale(s: GameState, deed: Deed): number {
+  const p = s.agents?.[deed.agent];
+  if (!p || p.vacant) return 0;
+  if (deed.person !== undefined && deed.person !== p.person) return 0;
+  let sum = 0;
+  for (const id of traitsHeld(s, deed.agent)) {
+    const e = TRAIT_BY_ID[id].effect;
+    sum += (deed.ok ? e.won : e.lost) ?? 0;
+  }
+  return sum;
+}
+
+/** Ключи множителей, которые черты отдают миру. */
+const WORLD_KEYS = ['muster', 'carry', 'catch', 'busy', 'held'] as const;
+
+/**
+ * Множители черт для мира — только те, что не единица. Мир получает их готовыми,
+ * как прибавки навыка: что такое черта, он не знает. Нет черт — пусто, и слепок
+ * партии без черт тот же байт в байт.
+ */
+export function traitNumbers(s: GameState): TraitNumbers {
+  const out: TraitNumbers = {};
+  for (const id of FIGURE_IDS) {
+    for (const t of traitsHeld(s, id)) {
+      const e = TRAIT_BY_ID[t].effect;
+      for (const key of WORLD_KEYS) {
+        const v = e[key];
+        if (v !== undefined) out[key] = (out[key] ?? 1) * v;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Новый полководец без дружины: пришёл на место, ещё не водил ни одного боя, а
+ * дружины при нём нет. Дружина прежнего осталась городу или пала с ним, и
+ * преемник сидит дома, пока игрок её не соберёт, — тихая потеря целой службы.
+ * Место знает мир, поэтому фигура приходит готовой (`FigureView`). Номер человека
+ * больше нуля — это не тот, с кем партия началась: первому дружину собирают по
+ * обучению, а не по тревоге.
+ */
+export function bareGeneral(
+  s: GameState,
+  view: { place: string; troops?: Partial<Record<string, number>> } | undefined,
+): boolean {
+  const p = s.agents?.general;
+  if (!p || p.vacant || p.person <= 0 || !view) return false;
+  if (deedsOf(p.tally) > 0) return false;
+  if (view.place !== 'map' && view.place !== 'city') return false;
+  return Object.values(view.troops ?? {}).every((n) => !n || n <= 0);
 }
 
 /** Уровень словом в именительном: «третий». */

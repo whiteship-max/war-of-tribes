@@ -109,6 +109,10 @@ export function settleHires(s: GameState): boolean {
     seat(s, id, hiring.until, hiring.age0, hiring.name);
     const p = s.agents[id];
     log(s, `${titled(s, id)} встал на место: ${yearsWord(Math.floor(p.age0))}, первый уровень.`, 'good');
+    // Дружина прежнего полководца осталась городу или пала с ним: новый приходит с
+    // пустыми руками и в поле не выйдет, пока её не соберут. Молча это стоило бы
+    // целой службы — поэтому сказано сразу, а тревога держится, пока не соберут.
+    if (id === 'general') log(s, 'Дружины при нём нет: собери её в Статуе, иначе он не выйдет в поле.', 'bad');
     changed = true;
   }
   return changed;

@@ -35,7 +35,7 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import { onslaughtOf, retiring, sightBonusOf, stealthOf, veilOf } from '@/game/sim/agents';
+import { onslaughtOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
@@ -105,6 +105,12 @@ function skills(s: GameState): Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 
   if (stealth > 0) out.stealth = stealth;
   if (veil < 1) out.veil = veil;
   return out;
+}
+
+/** Черты агентов для слепка: множители, только если они есть. */
+function traitsOut(s: GameState): Pick<PlayerProfile, 'traits'> {
+  const traits = traitNumbers(s);
+  return Object.keys(traits).length > 0 ? { traits } : {};
 }
 
 /**
@@ -202,6 +208,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     ...skills(s),
     // Места агентов: кто на них и кому пора на покой. Мир ведёт фигуры, племя — людей.
     ...people(s),
+    ...traitsOut(s),
     // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
     // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
     // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни

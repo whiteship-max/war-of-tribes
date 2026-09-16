@@ -5,6 +5,7 @@ import type { UnitKind } from '@/battle';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId } from '@/world/types';
 import type { ItemId } from './data/items';
+import type { TraitId } from './data/traits';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -84,8 +85,44 @@ export type BuildingTypeId =
  * время: имя у племени остаётся, а вместе с ним и вложенные в статую уровни.
  */
 /**
- * Что агент карты накопил за партию. Два числа и места под вещи — и ничего
- * выводимого: уровня, кружков и действия навыка здесь нет.
+ * Счёт дел человека на месте агента — то, из чего выводятся черты
+ * (`data/traits.traitsOf`). Пишет его та же дверь, что опыт (`sim/agents.recordDeed`),
+ * и только засчитанными делами. Начинается с нуля у каждого нового человека и у
+ * всех, кто стоял на месте до черт: задним числом побед от поражений не отличить.
+ */
+export interface Tally {
+  /** Удачных дел. */
+  ok: number;
+  /** Неудачных дел: проигранный бой, поимка часовыми, провал лазутчика. */
+  fail: number;
+  /** Сколько бойцов дружины пало в его боях. */
+  bled: number;
+  /** Сколько логов сожжено его боями. */
+  burned: number;
+}
+
+/**
+ * Ушедший с места: погиб или дослужил до покоя. Запись делается один раз, в ту
+ * минуту, когда место освободилось (`sim/agents.vacate`), и больше не меняется.
+ */
+export interface LineageEntry {
+  name: string;
+  /** До какого уровня дошёл. */
+  level: number;
+  /** Сколько дел засчитано. */
+  deeds: number;
+  /** С какого года служил. */
+  from: number;
+  /** До какого года служил. */
+  to: number;
+  end: 'fell' | 'rest';
+  /** Чем прослыл к концу службы. */
+  traits: TraitId[];
+}
+
+/**
+ * Что агент карты накопил за партию. Опыт, счёт дел и места под вещи — и ничего
+ * выводимого: уровня, кружков, черт и действия навыка здесь нет.
  */
 export interface AgentProgress {
   /**
@@ -126,6 +163,8 @@ export interface AgentProgress {
    * сразу, оно выводится из сида партии и номера найма. null — найма нет.
    */
   hiring: { until: number; name: string | null; age0: number } | null;
+  /** Счёт дел этого человека: из него выводятся черты. */
+  tally: Tally;
 }
 
 /**
@@ -493,6 +532,12 @@ export interface GameState {
    * (`data/agents.levelOf`, `sim/agents.ageOf`).
    */
   agents: Record<FigureId, AgentProgress>;
+  /**
+   * Родословная мест: кто стоял на месте до нынешнего, новые первыми. Помнят всех
+   * погибших и ушедших на покой не ниже второго уровня; потолок у каждого места
+   * свой (`data/traits.LINEAGE_KEEP`) — у Статуи шесть, у остальных ноль.
+   */
+  lineage: Partial<Record<FigureId, LineageEntry[]>>;
   /**
    * Сид партии — корень её случайности: кость событий (`sim/random.roll`) и имена
    * агентов. Заводится один раз, с новой партией (`sim/random.freshSeed`); у партии,

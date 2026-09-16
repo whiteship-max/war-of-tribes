@@ -14,7 +14,6 @@ import { useWorld, worldNow } from '@/world/store';
 import { FIGURE_BY_ID, FIGURES } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { actionsOf } from '@/world/data/spy';
-import { SPY_HELD } from '@/world/data/tuning';
 import { RELATION_META } from '@/world/data/meta';
 import { FATE_META } from '@/world/data/fates';
 import { FATE_DEFAULT } from '@/world/spoils';
@@ -261,10 +260,11 @@ export function ActionMenu() {
                       // здесь. Шансом владеет Дозор, гибелью — скрытность и обстановка.
                       <span className="am-risk">гибель {perilText(o.peril)}</span>
                     )}
-                    {menu.agent === 'spy' && (
+                    {menu.agent === 'spy' && o.held !== undefined && (
                       // Цена лазутчика — не добро, а риск, и она обязана стоять
-                      // рядом с шансом, а не прятаться в описании.
-                      <span className="am-risk">провал: задержат на {formatLeft(SPY_HELD / 1000)}</span>
+                      // рядом с шансом, а не прятаться в описании. Срок — тот, каким
+                      // мир задержит: черта «Отлёживается» его удлиняет.
+                      <span className="am-risk">провал: задержат на {formatLeft(o.held)}</span>
                     )}
                   </em>
                   {o.perilWhy.length > 0 && <i className="am-risk">{o.perilWhy.join(' · ')}</i>}

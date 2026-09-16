@@ -968,7 +968,8 @@ export class LocalWorld implements WorldApi {
   private fallForecast(w: SiegeWindow, at: number): FallForecast {
     const camp = this.save.marches.find((m) => m.id === w.campId);
     const f = this.fateFor(w.fate, HOME_ID, at);
-    const r = this.fateHome(this.save.profile, stackCarry(camp?.units ?? {}), stackEscort(camp?.units ?? {}), at, f);
+    const haul = this.haul(camp?.units ?? {}, false);
+    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, f);
     const gold = r.lost.gold ?? 0;
     return {
       goods: r.lostTotal - gold,
@@ -1397,7 +1398,8 @@ export class LocalWorld implements WorldApi {
     // уводящей людей, — невольники и горожане, скольких она устережёт.
     const declared = this.fateFor(w.fate, id, at);
     this.markFall(id, declared, at);
-    const took = this.takeLoot(s, at, stackCarry({ warrior: men }), bondedThere, stackEscort({ warrior: men }), declared, popThere);
+    const haul = this.haul({ warrior: men }, true);
+    const took = this.takeLoot(s, at, haul.carry, bondedThere, haul.escort, declared, popThere);
     this.leadFrom(id, popThere, took, at);
     const gain = winnerGain(took);
     const spoils: Loot | null = took.takenTotal > 0 ? took.taken : null;
@@ -1479,7 +1481,8 @@ export class LocalWorld implements WorldApi {
     // те же постройки. Соль выбора построек — сид мира и минута падения.
     const declared = this.fateFor(w.fate, HOME_ID, at);
     this.markFall(HOME_ID, declared, at);
-    const spoils = this.fateHome(p ?? null, stackCarry(camp?.units ?? {}), stackEscort(camp?.units ?? {}), at, declared);
+    const haul = this.haul(camp?.units ?? {}, false);
+    const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared);
     const loss = homeLoss(spoils);
     if (FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Чужаки';
@@ -2595,6 +2598,46 @@ export class LocalWorld implements WorldApi {
     return Math.max(HOME_SIGHT, Math.round(this.save.profile?.survey ?? 0));
   }
 
+  // ---------- Черты агентов: пять дверей ----------
+  //
+  // Черты приезжают из слепка готовыми множителями (`PlayerProfile.traits`), и у
+  // каждого числа, которое они двигают, в мире ровно одна дверь. Мир не знает, чья
+  // это черта и как её заслужили — только во сколько раз.
+
+  private traitOf(key: keyof NonNullable<PlayerProfile['traits']>): number {
+    const v = this.save.profile?.traits?.[key];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 1;
+  }
+
+  /**
+   * Сколько поднимет и скольких устережёт отряд победителя — одна дверь на все
+   * пять мест, где город взят. Обоз полководца (`ours`) множит черта «Обозный»;
+   * чужой отряд, взявший наш город, — никогда. Прежде `stackCarry` звали пять мест
+   * порознь, и черта, дошедшая до двух из них, разошлась бы с тремя молча.
+   */
+  private haul(units: UnitStack, ours: boolean): { carry: number; escort: number } {
+    const carry = stackCarry(units);
+    return { carry: ours ? carry * this.traitOf('carry') : carry, escort: stackEscort(units) };
+  }
+
+  /** Доля приходов, в которые часовые берут разведчика: «Неприметный» реже, «Примелькался» чаще. */
+  private scoutCatch(): number {
+    return Math.min(1, FIGURE_SCOUT_CATCH * this.traitOf('catch'));
+  }
+
+  /**
+   * Срок сбора и роспуска дружины: прежний потолок, умноженный на черту. Множится
+   * после потолка — «Мясника» ждут дольше и у дружины, которая и так упиралась в него.
+   */
+  private musterWait(moved: number): number {
+    return Math.round(Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN) * this.traitOf('muster'));
+  }
+
+  /** Сколько лазутчик занят после удачи или тихого провала и сколько его держат пойманного. */
+  private spyTimes(): { busy: number; held: number } {
+    return { busy: Math.round(SPY_BUSY * this.traitOf('busy')), held: Math.round(SPY_HELD * this.traitOf('held')) };
+  }
+
   /**
    * Живой обзор прямо сейчас: круг у своей деревни и стоящий лазутчик — больше
    * никто (см. world/sight.ts). Отряды и остальные фигуры открывают местность,
@@ -2911,7 +2954,7 @@ export class LocalWorld implements WorldApi {
     // Часовые есть только у поселения, которое сильнее разведчика, — в минуту прихода.
     if (this.powerNow(target, arriveAt) <= FIGURE_SCOUT_COVER) return { target, caught: 0, peril: 0, why: [] };
     const c = this.perilCase('scout', target, arriveAt);
-    return { target, caught: FIGURE_SCOUT_CATCH, peril: perilShare(perilOf(c)), why: perilWhy(c) };
+    return { target, caught: this.scoutCatch(), peril: perilShare(perilOf(c)), why: perilWhy(c) };
   }
 
   /**
@@ -3014,7 +3057,7 @@ export class LocalWorld implements WorldApi {
       // часовых по мощи в минуту прихода, гибели нет.
       const frozen = f.peril && f.peril.target === target.id && f.peril.at === at ? f.peril : null;
       f.peril = undefined;
-      const caught = frozen ? frozen.caught : this.powerNow(target, at) > FIGURE_SCOUT_COVER ? FIGURE_SCOUT_CATCH : 0;
+      const caught = frozen ? frozen.caught : this.powerNow(target, at) > FIGURE_SCOUT_COVER ? this.scoutCatch() : 0;
       const peril = frozen?.peril ?? 0;
       // Две кости одного броска: первая — часовые, вторая — гибель. Они независимы, и
       // потому на кнопке стоят двумя числами.
@@ -3333,13 +3376,14 @@ export class LocalWorld implements WorldApi {
     // Победитель выгребает склад и казну дочиста — всё, кроме тайника, и не
     // больше, чем отряд поднимет. Дверь та же, что у набега на нашу деревню:
     // одностороннего дележа в игре нет.
+    const haul = this.haul({ warrior: survivors }, true);
     const took = field.won
       ? this.takeLoot(
           target,
           at,
-          stackCarry({ warrior: survivors }),
+          haul.carry,
           this.bondedAt(popThere),
-          stackEscort({ warrior: survivors }),
+          haul.escort,
           this.fateFor(declared, target.id, at),
           popThere,
         )
@@ -3855,8 +3899,9 @@ export class LocalWorld implements WorldApi {
     // что отряд объявил: склад и казна до тайника, сколько поднимет отряд, люди и
     // постройки.
     const declared = this.fateFor(m.fate, HOME_ID, at);
+    const haul = this.haul(attackerLeft, false);
     const spoils = outcome.won
-      ? this.fateHome(profile, stackCarry(attackerLeft), stackEscort(attackerLeft), at, declared)
+      ? this.fateHome(profile, haul.carry, haul.escort, at, declared)
       : null;
     const loss = spoils ? homeLoss(spoils) : null;
     if (spoils && FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
@@ -5354,7 +5399,7 @@ export class LocalWorld implements WorldApi {
       if (both > 0) onRoad[id] = both;
     }
     if (moved === 0) return null;
-    const wait = Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN);
+    const wait = this.musterWait(moved);
     f.troops = troopTotal(onRoad) > 0 ? onRoad : undefined;
     f.handover = { troops: next, until: now + wait };
     // Дружина, стоявшая в обороне, ушла в сбор: за стеной её больше не кормят.
@@ -5701,7 +5746,8 @@ export class LocalWorld implements WorldApi {
    */
   private fateOptions(s: GenSettlement, now: number): FateOption[] {
     const men = troopTotal(this.save.figures.general.troops ?? {});
-    const escort = stackEscort({ warrior: men });
+    // Конвой — той же дверью, что у взятия: строка выбора и сам увод не расходятся.
+    const escort = this.haul({ warrior: men }, true).escort;
     const est = this.popEstimate(s, now);
     const [lo, hi] =
       est.precision === 'exact' && est.value !== null
@@ -5919,6 +5965,7 @@ export class LocalWorld implements WorldApi {
     const guard = guardOf(this.powerNow(target, at), target.castle);
     const away = distance(this.save.home, target);
     const risk = this.spyPeril(target, at);
+    const times = this.spyTimes();
     return SPY_ACTIONS.map((def) => {
       const chance = spyChance({ action: def.id, keen, guard, distance: away });
       let reason = common;
@@ -5935,9 +5982,10 @@ export class LocalWorld implements WorldApi {
         chance,
         // Лазутчик не платит добром: он платит риском.
         cost: {},
-        seconds: Math.round(def.busy / 1000),
+        seconds: Math.round(times.busy / 1000),
         peril: risk.peril,
         perilWhy: risk.why,
+        held: Math.round(times.held / 1000),
         at,
       };
     });
@@ -6068,7 +6116,8 @@ export class LocalWorld implements WorldApi {
     this.markVisit(s.id, now);
     // Скрытность решает не исход, а то, заметили ли провал, — тем же броском.
     const quiet = !out.success && !dies && slipped(out.miss, this.save.profile?.stealth ?? 0);
-    f.busyUntil = now + (out.success || quiet ? SPY_BUSY : SPY_HELD);
+    const times = this.spyTimes();
+    f.busyUntil = now + (out.success || quiet ? times.busy : times.held);
     f.held = !out.success && !quiet;
 
     let intel: Intel | null = null;

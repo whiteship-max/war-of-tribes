@@ -7,6 +7,7 @@ import { formatLeft, secondsLeft } from '@/world/geo';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
+import { bareGeneral } from '@/game/sim/agents';
 import type { BuildingTypeId } from '@/game/types';
 import { lettersVisible } from './Letters';
 import { Icon } from '@/ui/icons/Icon';
@@ -29,6 +30,7 @@ export function AlertBar() {
   const eventResult = useGame((g) => g.eventResult);
   const mapOpen = useGame((g) => g.mapOpen);
   const letters = useWorld((g) => g.letters);
+  const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
   // Про этот набег уже написано в письме, и оно стоит на том же экране: две
   // одинаковые строки — не забота, а шум. На карте письма нет, и строка тревог
   // остаётся единственным предупреждением — там она и показывается.
@@ -59,7 +61,12 @@ export function AlertBar() {
     const at = HIRE_AT[id];
     empty.set(at, [...(empty.get(at) ?? []), FIGURE_BY_ID[id].name.toLowerCase()]);
   }
-  if (list.length === 0 && raids.length === 0 && empty.size === 0) return null;
+  // Новый полководец без дружины: дружина прежнего осталась городу или пала с ним, и
+  // преемник сидит дома, пока её не соберут. Строка держится, пока не соберут или пока
+  // он не сходит в первый бой. Решает одно правило (`sim/agents.bareGeneral`).
+  const bare = bareGeneral(s, general);
+  const statue = buildingOfType(s, 'statue');
+  if (list.length === 0 && raids.length === 0 && empty.size === 0 && !bare) return null;
 
   return (
     // На карте строка встаёт вплотную под её шапку, а не туда, где стоит в
@@ -96,6 +103,12 @@ export function AlertBar() {
           </button>
         );
       })}
+      {bare && (
+        <button key="bare-general" className="alert" onClick={() => statue && openBuilding(statue.id)} disabled={!statue}>
+          <span className="ic">🎖️</span>
+          <span className="txt">Новый полководец без дружины — собрать в Статуе</span>
+        </button>
+      )}
       {list.map((a) => {
         const target = a.goto ? buildingOfType(s, a.goto) : null;
         // Порядок чинят не в здании: тревога ведёт в справку, где сказано, кто

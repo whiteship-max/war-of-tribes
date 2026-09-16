@@ -10,6 +10,10 @@
 // Полководец и герой Статуи — один человек. Сколько он уводит и за скольких
 // стоит сам, решает Статуя, и это стоит здесь с подписью «откуда»; уровень даёт
 // натиск — и это тоже подписано. Вопроса «кто главный» у игрока быть не должно.
+//
+// Карточка одна на два места: страница в «Походах» и раздел в Статуе. Во втором
+// (`embedded`) нет кнопки возврата и раздела «Что даёт Статуя» — то же число
+// стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
 import { buildingOfType, commandCap, fervour, heroMen, mountGear } from '@/game/derived';
@@ -25,7 +29,8 @@ import {
   slotsOpen,
 } from '@/game/data/agents';
 import { itemIn } from '@/game/data/items';
-import { ageOf, agentLevel, circlesText, personName, regear, regearBlock, retireAt, yearsOf } from '@/game/sim/agents';
+import { ageOf, agentLevel, circlesText, personName, regear, regearBlock, retireAt, traitsHeld, yearsOf } from '@/game/sim/agents';
+import { deedsOf } from '@/game/data/traits';
 import { hireWhere } from '@/game/sim/hire';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
 import { ownedItems } from '@/net/owned';
@@ -35,6 +40,7 @@ import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId, FigureView } from '@/world/types';
 import { deathLine, onslaughtLines, sightLine, stealthLine } from './agentLines';
 import { count } from './plural';
+import { traitLines } from './traitLines';
 
 const ORDINAL = ['', 'первый', 'второй', 'третий', 'четвёртый', 'пятый'];
 
@@ -51,7 +57,43 @@ function Onslaught({ level, f }: { level: number; f: FigureView }) {
   );
 }
 
-export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) {
+/**
+ * Черты человека: только те, что он держит, — каталога возможных нет. Каждая с тем,
+ * что даёт, и с тем, за что держится сейчас: черта на долях может и уйти.
+ */
+function Traits({ id }: { id: FigureId }) {
+  const s = useGame((g) => g.s);
+  const tally = s.agents[id].tally;
+  const lines = traitLines(traitsHeld(s, id), tally);
+  const n = deedsOf(tally);
+  return (
+    <>
+      <h3>Черты</h3>
+      {lines.length === 0 ? (
+        <div className="note">
+          {n === 0
+            ? 'Дел за ним пока нет — и слава о нём ещё не сложилась. Черты приходят делами, хорошие и дурные.'
+            : `Засчитано ${count(n, 'дело', 'дела', 'дел')}, но ничем особым он пока не прослыл. Черты приходят делами, хорошие и дурные, и уходят, если дела меняются.`}
+        </div>
+      ) : (
+        lines.map((l) => (
+          <div key={l.id}>
+            <div className="mod">
+              <span className="ico">{l.good ? '✦' : '✧'}</span>
+              <span className="name">{l.name}</span>
+              <span className={`val ${l.good ? 'pos' : 'neg'}`}>{l.good ? 'добрая слава' : 'дурная слава'}</span>
+            </div>
+            <div className="note">
+              {l.what} {l.why}
+            </div>
+          </div>
+        ))
+      )}
+    </>
+  );
+}
+
+export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBack?: () => void; embedded?: boolean }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const showToast = useGame((g) => g.showToast);
@@ -68,8 +110,8 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
   // тому месту, где стояла строка агента, и шапка карточки уехала бы за край.
   const top = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    top.current?.scrollIntoView({ block: 'start' });
-  }, [id]);
+    if (!embedded) top.current?.scrollIntoView({ block: 'start' });
+  }, [id, embedded]);
 
   const statue = buildingOfType(s, 'statue')?.level ?? 0;
   const vacant = progress.vacant;
@@ -87,14 +129,22 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
   const slotWhy = block ?? (owned.length === 0 ? 'Надеть нечего: предметов у тебя пока нет.' : null);
 
   return (
-    <div className="panel" ref={top}>
-      <button className="btn ghost back" onClick={onBack}>
-        ← Походы
-      </button>
-      <h2>
-        {def.name}
-        {!vacant && progress.name ? ` — ${personName(s, id)}` : ''} {!vacant && <small>уровень {level}</small>}
-      </h2>
+    <div className={embedded ? undefined : 'panel'} ref={top}>
+      {!embedded && onBack && (
+        <button className="btn ghost back" onClick={onBack}>
+          ← Походы
+        </button>
+      )}
+      {embedded ? (
+        <h3>
+          {progress.name ? personName(s, id) : def.name} <span className="muted">уровень {level}</span>
+        </h3>
+      ) : (
+        <h2>
+          {def.name}
+          {!vacant && progress.name ? ` — ${personName(s, id)}` : ''} {!vacant && <small>уровень {level}</small>}
+        </h2>
+      )}
 
       {vacant ? (
         <div className="note warn">
@@ -158,6 +208,8 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
         {' Опыт — этого человека: погибнет или уйдёт на покой — уйдёт и опыт, новичок начнёт с нуля. Задержание опыта не отнимает.'}
       </div>
 
+      {!vacant && <Traits id={id} />}
+
       <h3>Скорость</h3>
       <div className="mod">
         <span className="ico">🥾</span>
@@ -168,7 +220,7 @@ export function AgentCard({ id, onBack }: { id: FigureId; onBack: () => void }) 
         От уровня не растёт: время пути решают дорога и местность{road ? ` — ${road}` : ''}.
       </div>
 
-      {id === 'general' && (
+      {id === 'general' && !embedded && (
         <>
           <h3>Что даёт Статуя</h3>
           <div className="mod">

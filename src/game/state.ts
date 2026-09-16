@@ -130,6 +130,7 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     // Агенты карты начинают первым уровнем и с пустыми руками. Имён у них пока нет:
     // набор выбирает вера, а её называет мир первым пульсом (`sim/hire.settleHires`).
     agents: emptyAgents(),
+    lineage: {},
     // Корень случайности партии: кость событий и имена агентов. Один раз на партию.
     seed,
     rolls: 0,

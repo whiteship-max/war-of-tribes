@@ -61,14 +61,14 @@ describe('уровень и кружки выводятся из опыта', ()
     expect([...seen].sort(), 'прогон прошёл все пять уровней').toEqual([1, 2, 3, 4, 5]);
   });
 
-  const FIELDS = ['age0', 'bornAt', 'deedAt', 'hiring', 'name', 'person', 'slots', 'vacant', 'xp'];
+  const FIELDS = ['age0', 'bornAt', 'deedAt', 'hiring', 'name', 'person', 'slots', 'tally', 'vacant', 'xp'];
 
-  it('в партии нет ни уровня, ни кружков, ни возраста — только опыт, человек и ячейки', () => {
+  it('в партии нет ни уровня, ни кружков, ни возраста, ни черт — только опыт, счёт дел, человек и ячейки', () => {
     const s = createInitialState();
     for (const id of FIGURE_IDS) expect(Object.keys(s.agents[id]).sort()).toEqual(FIELDS);
     // И записанное в сохранение «чужое» поле уровня ничего не решает: уровень — из опыта.
     const json = JSON.parse(serialize(s));
-    json.agents.general = { ...json.agents.general, xp: 10, level: 5, circles: 5, age: 59 };
+    json.agents.general = { ...json.agents.general, xp: 10, level: 5, circles: 5, age: 59, traits: ['victor'] };
     const back = deserialize(JSON.stringify(json))!;
     expect(agentLevel(back, 'general')).toBe(2);
     expect(Object.keys(back.agents.general).sort()).toEqual(FIELDS);

@@ -68,7 +68,8 @@ const SKILL = /\b(?:agents?|onslaught\w*|sightBonus\w*|stealth\w*|revealSight|sl
 const OWNED = /\b(?:command\w*|hero\w*|heroMen|keen|intel\w*|spyChance|guardOf|warning\w*|survey\w*|defen[cs]e\w*|statOf|buildingStat|buildingOfType|heal\w*|capacity|roomOf|garrison\w*|militia\w*|expert|SPY_CHANCE\w*|SPY_PROBE\w*)\b/i;
 
 describe('навык не читает чисел, которыми владеет здание', () => {
-  const SKILL_FILES = ['game/data/agents.ts', 'game/sim/agents.ts', 'world/agents.ts'];
+  // Черты — тем же правилом: они лежат на свободных осях и не называют чисел здания.
+  const SKILL_FILES = ['game/data/agents.ts', 'game/data/traits.ts', 'game/sim/agents.ts', 'world/agents.ts'];
 
   it('в модулях навыка нет ни одного имени из чисел Статуи, Дозора и обороны', () => {
     for (const f of SKILL_FILES) {
@@ -166,7 +167,15 @@ describe('агенты пятого уровня не сдвигают ни од
       };
     };
     const a = await probe(base);
-    const b = await probe({ ...base, onslaught: 12, sightBonus: 4, stealth: 0.6 });
+    // Черты со всеми множителями разом: шанс, вместимость, предупреждение и живой обзор
+    // от них не двигаются так же, как от навыка.
+    const b = await probe({
+      ...base,
+      onslaught: 12,
+      sightBonus: 4,
+      stealth: 0.6,
+      traits: { muster: 1.5, carry: 1.15, catch: 1.32, busy: 0.75, held: 1.5 },
+    });
     expect(a.points, 'шанс лазутчика есть, то есть сравнение не пустое').toBeGreaterThan(0);
     expect(b).toEqual(a);
   });

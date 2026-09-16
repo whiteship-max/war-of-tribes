@@ -23,7 +23,7 @@ import type { TroopStack } from '../battle/kinds';
 import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log } from './log';
-import { recordDeath, recordDeed, recordRetire, type Deed } from './agents';
+import { recordDeath, recordDeed, recordRetire, reputeMorale, type Deed } from './agents';
 import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
@@ -337,7 +337,11 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Золото везут только из замков: привезли — значит, замок взят.
   if (o.gold > 0) s.stats.castles = (s.stats.castles ?? 0) + 1;
   if (o.prestige) s.prestige = Math.max(0, s.prestige + o.prestige);
-  if (o.morale) s.morale = Math.max(0, Math.min(100, s.morale + o.morale));
+  // Слава полководца ложится на мораль исхода боя: победы «Победоносного» радуют
+  // сильнее, поражения «Битого» горше. Считается по чертам до этого боя — поэтому
+  // до того, как дело попадёт в счёт.
+  const repute = o.deed ? reputeMorale(s, o.deed) : 0;
+  if (o.morale || repute) s.morale = Math.max(0, Math.min(100, s.morale + o.morale + repute));
   if (o.battle === 'won') recordBattle(s, 'won');
   if (o.battle === 'lost') recordBattle(s, 'lost');
 
@@ -357,7 +361,8 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
 
   if (o.text) log(s, o.text, o.kind);
   // Дело — сразу после строки события: уровень, взятый боем, стоит рядом с самим боем.
-  if (o.deed) recordDeed(s, o.deed);
+  // Павшие и сожжённое логово едут в счёт дел вместе с делом: из них выводятся черты.
+  if (o.deed) recordDeed(s, { ...o.deed, lost: o.warriorsLost, lair: o.lair });
   // Весть о гибели — объектом с номером человека. Строкой её слал мир до смертных
   // агентов, и значила она «выбыл на десять минут»: убивать по ней нельзя.
   if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));
