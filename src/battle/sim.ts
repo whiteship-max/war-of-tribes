@@ -761,10 +761,14 @@ class Battle {
           this.shoot(g, kiting.has(g), engaged, hits);
         }
       }
+      // Сколько противника у каждой группы во всех её стычках разом: боец бьёт один раз за тик,
+      // и группа, стоящая в нескольких стычках, делит свой удар между ними, а не бьёт в каждой целиком.
+      const facingMen = new Map<Group, number>();
+      for (const [g, foes] of engaged) facingMen.set(g, foes.reduce((n, f) => n + stackTotal(f.stack), 0));
       for (const c of contacts) {
-        this.melee(c.a, c.b, c.aFlank, c.bClosedAround, c.bRow, false, kiting, hits);
+        this.melee(c.a, c.b, c.aFlank, c.bClosedAround, c.bRow, false, kiting, facingMen, hits);
         // Ответ: позиция, сомкнутая со всех сторон, не считается обойдённой — копья там держат строй.
-        this.melee(c.b, c.a, false, false, c.aRow, c.aFlank && !c.bClosedAround, kiting, hits);
+        this.melee(c.b, c.a, false, false, c.aRow, c.aFlank && !c.bClosedAround, kiting, facingMen, hits);
       }
       this.apply(hits);
       this.collapse();
@@ -966,13 +970,22 @@ class Battle {
     }
   }
 
-  melee(from: Group[], to: Group[], flank: boolean, closedAround: boolean, toRow: Row, flanked: boolean, kiting: Set<Group>, hits: Hit[]): void {
+  /**
+   * Рукопашная `from` по `to` в одной стычке. Группа бьёт в эту стычку только ту долю
+   * своих людей, какую составляет здесь противник от всех, с кем она сейчас дерётся
+   * (`facingMen`): окружённый строй отбивается во все стороны, но тем же числом рук.
+   * Прежде доля не делилась, и группа, обойдённая с двух сторон, била трижды за тик —
+   * обход, задуманный наказанием за скученность, умножал силу окружённого.
+   */
+  melee(from: Group[], to: Group[], flank: boolean, closedAround: boolean, toRow: Row, flanked: boolean, kiting: Set<Group>, facingMen: Map<Group, number>, hits: Hit[]): void {
+    const here = to.reduce((n, t) => n + stackTotal(t.stack), 0);
     for (const g of from) {
       const s = this.sides[g.side];
       if (g.lane === null) continue;
+      const share = here / Math.max(here, facingMen.get(g) ?? here);
       for (const kind of UNIT_KINDS) {
-        const n = g.stack[kind];
-        if (n < EPS) continue;
+        if (g.stack[kind] < EPS) continue;
+        const n = g.stack[kind] * share;
         if (kind === 'archer' && kiting.has(g)) continue;
         let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g, kind) * this.jitter();
         if (kind === 'cavalry' && this.phase === 'clash' && !flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
