@@ -623,7 +623,7 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
             way === 'подряд по одному'
               ? { spearman: Math.min(1, home.spearman ?? 0) }
               : way === 'подряд по пропуску'
-                ? fillPass(home, campPass(view.campMen, sideWorks(view.since, t.now(), 'front')))
+                ? fillPass(home, campPass(view.builders, sideWorks(view.since, t.now(), 'front')))
                 : home;
           const res = await t.world.sortie(going);
           k++;

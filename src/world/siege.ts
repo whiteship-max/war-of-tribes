@@ -95,6 +95,14 @@ export interface SiegeWindow {
    * лагерь рубит по правилу бота (`CAMP_WOOD`).
    */
   wood?: WoodPlan;
+  /**
+   * Сколько бойцов строя ставили рогатки — люди лагеря в минуту, когда он встал. Рогатки
+   * держат те, кто их строил (`world/works.campPass`): убыль лагеря после этого проход не
+   * сужает. Пишется при открытии новой осады и переносится при пересчёте часов голода.
+   * Нет поля у окна из сохранения до этого правила — тогда строившими считаются те, кто
+   * стоит в лагере на минуту вопроса: другого числа у такого окна нет.
+   */
+  builders?: number;
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -147,6 +155,8 @@ export function openSiege(at: {
   /** Объявленная участь и доли древесины: у той же осады переносятся при пересчёте. */
   fate?: Fate;
   wood?: WoodPlan;
+  /** Кто ставил рогатки: у новой осады — лагерь в минуту постановки, у той же — переносится. */
+  builders?: number;
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -159,6 +169,7 @@ export function openSiege(at: {
     ...(at.rearGateAt !== undefined ? { rearGateAt: at.rearGateAt } : {}),
     ...(at.fate !== undefined ? { fate: at.fate } : {}),
     ...(at.wood !== undefined ? { wood: at.wood } : {}),
+    ...(at.builders !== undefined ? { builders: Math.max(0, Math.round(at.builders)) } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),

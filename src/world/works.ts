@@ -30,8 +30,12 @@
 // режь по головам, и тяжёлые не прошли бы никогда. Доля строя сохраняет отряд тем,
 // чем он был, — только меньше.
 //
-// Сила отряда входит в укрепление через проход, и только через него: рогатки держат
-// люди лагеря, поэтому пропуск — это доля от них.
+// Сила отряда входит в укрепление через проход, и только через него: **рогатки держат те,
+// кто их строил**, поэтому пропуск — доля от людей, ставивших лагерь (`SiegeWindow.builders`),
+// а не от живых на минуту вопроса. Иначе лагерь, у которого выбили людей, отбивался бы
+// лучше целого: проход сужался бы ровно во столько раз, во сколько лагерь слабеет, и на
+// пяти-шести людях это лотерея округления (docs/tower.md, раздел 2.2). Бить осаждающего
+// должно быть выгодно — любым способом, каким бы по лагерю ни били.
 //
 // **Проход — поток, а не порция.** Рогатки пропускают столько-то людей в единицу
 // времени: прошла часть пропуска — такая же часть прохода занята, и освобождается
@@ -154,19 +158,19 @@ export function rebaseWood(since: number, at: number, from: WoodPlan | undefined
 }
 
 /**
- * Сколько бойцов строя нападающих входит в бой на каждого человека в лагере.
+ * Сколько бойцов строя нападающих входит в бой на каждого, кто строил рогатки.
  * Недостроенные рогатки пропускают во столько раз больше, во сколько они не
  * достроены; пока стороны нет — без предела.
  */
 export const passPerMan = (works: number): number => (works > 0 ? CAMP_WORKS_PASS / works : Infinity);
 
 /**
- * Пропуск: сколько бойцов строя нападающих войдёт в бой с лагерем из `campMen`
- * бойцов строя. Бесконечность — предела нет. Не меньше одного: пройти к рогаткам
- * всегда может хоть кто-то.
+ * Пропуск: сколько бойцов строя нападающих войдёт в бой с лагерем, рогатки которого
+ * ставили `builders` бойцов строя. Бесконечность — предела нет. Не меньше одного:
+ * пройти к рогаткам всегда может хоть кто-то.
  */
-export const campPass = (campMen: number, works: number): number =>
-  works > 0 ? Math.max(1, Math.round(Math.max(0, campMen) * passPerMan(works))) : Infinity;
+export const campPass = (builders: number, works: number): number =>
+  works > 0 ? Math.max(1, Math.round(Math.max(0, builders) * passPerMan(works))) : Infinity;
 
 /**
  * Кто из отряда проходит через рогатки: одна и та же доля от каждого рода, пока в
@@ -223,14 +227,14 @@ export function gateAfter(gateAt: number | undefined, at: number, passed: number
 }
 
 /**
- * Через сколько пропустит хоть одного бойца проход стороны лагеря из `campMen`,
- * занятый до `gateAt`. Пропуск со временем сужается (рогатки растут), а свободная
+ * Через сколько пропустит хоть одного бойца проход стороны лагеря, построенной
+ * `builders` бойцами строя и занятый до `gateAt`. Пропуск со временем сужается (рогатки растут), а свободная
  * доля растёт, поэтому ответ ищется посекундно, а не формулой; искать дальше полного
  * освобождения незачем — тогда свободен весь пропуск, а он не меньше одного.
  */
 export function gateWait(
   side: CampSide,
-  campMen: number,
+  builders: number,
   since: number,
   at: number,
   gateAt: number | undefined,
@@ -239,7 +243,7 @@ export function gateWait(
   if (gateAt === undefined || gateAt <= at) return 0;
   for (let ms = 0; ms < gateAt - at; ms += 1000) {
     const t = at + ms;
-    if (gateRoom(campPass(campMen, sideWorks(since, t, side, plan)), gateFree(gateAt, t)) >= 1) return ms;
+    if (gateRoom(campPass(builders, sideWorks(since, t, side, plan)), gateFree(gateAt, t)) >= 1) return ms;
   }
   return Math.ceil(gateAt - at);
 }
@@ -269,15 +273,15 @@ export interface Through {
 }
 
 /**
- * Что будет с отрядом у рогаток стороны `side` лагеря из `campMen` бойцов строя,
- * вставшего в `since` и рубящего по `plan`, если подойти в минуту `at`, когда проход
+ * Что будет с отрядом у рогаток стороны `side` лагеря, который ставили `builders`
+ * бойцов строя, вставшего в `since` и рубящего по `plan`, если подойти в минуту `at`, когда проход
  * этой стороны занят до `gateAt`. Этой функцией считают и бой (`LocalWorld.campBattle`),
  * и окна до нажатия — второй арифметики прохода нет, и показанное число не может
  * разойтись с тем, кто дрался.
  */
 export function throughWorks(
   side: CampSide,
-  campMen: number,
+  builders: number,
   since: number,
   at: number,
   going: Stack,
@@ -285,7 +289,7 @@ export function throughWorks(
   plan: WoodPlan = CAMP_WOOD,
 ): Through {
   const works = sideWorks(since, at, side, plan);
-  const pass = campPass(campMen, works);
+  const pass = campPass(builders, works);
   const free = gateFree(gateAt, at);
   const room = gateRoom(pass, free);
   const kinds = passKinds(going, room);
@@ -300,7 +304,7 @@ export function throughWorks(
     went: stackTotal(passKinds(going, Infinity)),
     passed,
     gateAt: gateAfter(gateAt, at, passed, pass),
-    waitMs: room >= 1 ? 0 : gateWait(side, campMen, since, at, gateAt, plan),
+    waitMs: room >= 1 ? 0 : gateWait(side, builders, since, at, gateAt, plan),
   };
 }
 
@@ -370,7 +374,11 @@ export interface SortieForecast {
 /** То, что мир отдаёт наружу об осаде: из этого считают окна. */
 export interface CampSight {
   since: number;
-  campMen: number;
+  /**
+   * Сколько бойцов строя ставили рогатки: люди лагеря в минуту, когда он встал. От них
+   * считается пропуск (`campPass`), и убыль лагеря после этого его не сужает.
+   */
+  builders: number;
   gateAt?: number;
   rearGateAt?: number;
   /** Доли древесины; нет поля — правило бота (`CAMP_WOOD`). */
@@ -390,11 +398,11 @@ export function sortieForecast(siege: CampSight, going: Stack, at: number): Sort
   const clearAt = Math.max(at, siege.gateAt ?? at);
   const plan = siege.wood ?? CAMP_WOOD;
   return {
-    now: throughWorks('front', siege.campMen, siege.since, at, going, siege.gateAt, plan),
+    now: throughWorks('front', siege.builders, siege.since, at, going, siege.gateAt, plan),
     ripeAt: worksRipeAt(siege.since, 'front', plan),
-    ripePass: campPass(siege.campMen, 1),
+    ripePass: campPass(siege.builders, 1),
     clearAt,
-    clearPass: campPass(siege.campMen, sideWorks(siege.since, clearAt, 'front', plan)),
+    clearPass: campPass(siege.builders, sideWorks(siege.since, clearAt, 'front', plan)),
   };
 }
 
@@ -411,8 +419,8 @@ export function strikeForecast(
 ): { rear: Through; front: Through | null } {
   const plan = siege.wood ?? CAMP_WOOD;
   return {
-    rear: throughWorks('rear', siege.campMen, siege.since, at, rear, siege.rearGateAt, plan),
-    front: front ? throughWorks('front', siege.campMen, siege.since, at, front, siege.gateAt, plan) : null,
+    rear: throughWorks('rear', siege.builders, siege.since, at, rear, siege.rearGateAt, plan),
+    front: front ? throughWorks('front', siege.builders, siege.since, at, front, siege.gateAt, plan) : null,
   };
 }
 
@@ -439,7 +447,7 @@ export interface SideSight {
 export function campSides(siege: CampSight, at: number): Record<CampSide, SideSight> {
   const plan = siege.wood ?? CAMP_WOOD;
   const one = (side: CampSide): SideSight => {
-    const t = throughWorks(side, siege.campMen, siege.since, at, { spear: 0, infantry: 0, archer: 0, cavalry: 0 }, gateOf(siege, side), plan);
+    const t = throughWorks(side, siege.builders, siege.since, at, { spear: 0, infantry: 0, archer: 0, cavalry: 0 }, gateOf(siege, side), plan);
     return {
       side,
       works: t.works,
@@ -484,13 +492,13 @@ function gateTail(gateAt: number | undefined, at: number): string {
 /**
  * Одна сторона одной строкой для тех, кто смотрит на лагерь снаружи и не знает,
  * сколько в нём людей: карточка на карте, меню полководца. Проход поэтому назван
- * долей — сколько нападающих на каждого в лагере.
+ * долей — сколько нападающих на каждого, кто ставил лагерь.
  */
 function sideWords(side: CampSide, since: number, at: number, gateAt: number | undefined, plan: WoodPlan): string {
   const works = sideWorks(since, at, side, plan);
   if (works <= 0) return `${SIDE_NAME[side]} рогаток ещё нет: к бою пройдут все.${gateTail(gateAt, at)}`;
   const num = (v: number): string => (v >= 10 ? String(Math.round(v)) : v.toFixed(1).replace('.', ','));
-  const share = `к бою пройдут не больше ${num(passPerMan(works))} бойцов строя на каждого в лагере`;
+  const share = `к бою пройдут не больше ${num(passPerMan(works))} бойцов строя на каждого, кто ставил лагерь`;
   if (works >= 1) return `${SIDE_NAME[side]} рогатки дозрели: ${share}.${gateTail(gateAt, at)}`;
   const ripe = worksRipeAt(since, side, plan);
   const when = ripe < Infinity ? ` Дозреют через ${mins(ripe - at)} мин — тогда ${num(CAMP_WORKS_PASS)}.` : ' Дальше не растут: сюда не рубят.';
@@ -498,7 +506,7 @@ function sideWords(side: CampSide, since: number, at: number, gateAt: number | u
 }
 
 /** Обе стороны лагеря словами. */
-export function worksWords(siege: Omit<CampSight, 'campMen'>, at: number): string {
+export function worksWords(siege: Omit<CampSight, 'builders'>, at: number): string {
   const plan = siege.wood ?? CAMP_WOOD;
   return `${sideWords('front', siege.since, at, siege.gateAt, plan)} ${sideWords('rear', siege.since, at, siege.rearGateAt, plan)}`;
 }

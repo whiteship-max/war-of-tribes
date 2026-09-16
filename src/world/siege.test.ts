@@ -285,6 +285,7 @@ describe('осада: дебаф на выработку', () => {
       garrison: 7,
       foodAtStart: 6000,
       campMen: 6,
+      builders: 6,
       fate: FATE_DEFAULT,
       fall: { goods: 0, gold: 0, hidden: 0, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 0, levels: 0, burnsWorks: false, routed: 0 },
       palisade: 1,

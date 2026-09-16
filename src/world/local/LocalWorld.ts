@@ -892,7 +892,11 @@ export class LocalWorld implements WorldApi {
       rearGateAt: same?.rearGateAt,
       fate: same ? same.fate : fresh.fate,
       wood: same ? same.wood : fresh.wood,
+      builders: same ? same.builders : undefined,
     });
+    // Рогатки держат те, кто их строил: у новой осады это лагерь в минуту постановки.
+    // Спрашивается у того же `campArmy`, которым лагерь бьётся, — второго счёта людей нет.
+    if (!same) w.builders = this.campArmy(w)?.men;
     this.save.sieges[id] = w;
     // Срок стоянки лагеря и есть час голода: падение разбирает та же очередь
     // событий по времени, что и приход любого другого отряда.
@@ -929,6 +933,7 @@ export class LocalWorld implements WorldApi {
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
       campMen: this.campArmy(w)?.men ?? 0,
+      builders: this.buildersOf(w),
       ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
       ...(w.rearGateAt !== undefined ? { rearGateAt: w.rearGateAt } : {}),
       ...(w.wood !== undefined ? { wood: w.wood } : {}),
@@ -1059,6 +1064,15 @@ export class LocalWorld implements WorldApi {
       power: m.power,
       name: m.fromName,
     };
+  }
+
+  /**
+   * Сколько бойцов строя ставили рогатки этого лагеря — от них считается проход
+   * (`world/works.campPass`). Окно из сохранения до этого правила строивших не знает, и
+   * у него они — те, кто стоит в лагере сейчас: другого числа у такого окна нет.
+   */
+  private buildersOf(w: SiegeWindow): number {
+    return w.builders ?? this.campArmy(w)?.men ?? 0;
   }
 
   /**
@@ -1195,7 +1209,7 @@ export class LocalWorld implements WorldApi {
     const camp = this.campArmy(w);
     if (!camp) return null;
     const cast = strikeForecast(
-      { since: siegeSince(w), campMen: camp.men, gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: w.wood },
+      { since: siegeSince(w), builders: this.buildersOf(w), gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: w.wood },
       at,
       going.rear ?? emptyStack(),
       going.front ?? null,
@@ -5708,6 +5722,7 @@ export class LocalWorld implements WorldApi {
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
       campMen: this.campArmy(w)?.men ?? 0,
+      builders: this.buildersOf(w),
       ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
       ...(w.rearGateAt !== undefined ? { rearGateAt: w.rearGateAt } : {}),
       ...(w.wood !== undefined ? { wood: w.wood } : {}),

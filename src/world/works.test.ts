@@ -440,7 +440,7 @@ describe('проход через рогатки — поток, а не пор�
     }
     expect(refusals, 'проход занят — вылазки подряд получают отказ').toBeGreaterThan(0);
     // Шестьдесят секунд — шестая часть потока; больше неё не прошло.
-    const pass = campPass(fz.siege.campMen, 1);
+    const pass = campPass(fz.siege.builders, 1);
     expect(passedAfter, `за минуту после первой прошло ${passedAfter}`).toBeLessThanOrEqual(
       Math.floor((pass * 60_000) / CAMP_GATE_CLEAR),
     );
@@ -475,6 +475,58 @@ describe('проход через рогатки — поток, а не пор�
     expect(r.through?.passed, 'вторая волна прошла полным пропуском').toBe(Math.min(fc.now.went, fc.now.pass));
   }, 120_000);
 
+  it('рогатки держат те, кто их строил: лагерь, потерявший людей, проход не сужает', async () => {
+    // Область правила: осада стоит, рогатки фронта уже есть и ещё не всё окно голода
+    // прошло, а лагерь потерял людей — иначе «строившие» и «живые» совпадают и тест
+    // зелёный при любом коде.
+    const fz = await freeze(7);
+    const at = fz.siege.since + 14 * MIN;
+    let hit = null as Awaited<ReturnType<typeof thaw>> | null;
+    for (let v = 0; v < 20 && !hit; v++) {
+      const t = await thaw(fz, at, v);
+      const res = await t.world.sortie(GARRISON);
+      if (res.error !== null || res.won) continue;
+      const view = (await t.world.sync(holdout)).siege;
+      if (view && view.campMen < fz.siege.campMen) hit = t;
+    }
+    expect(hit, 'нашёлся сид, где вылазка отбита, а лагерь потерял людей').toBeTruthy();
+    const { world, set } = hit!;
+    const later = at + CAMP_GATE_CLEAR;
+    set(later);
+    const view = (await world.sync(holdout)).siege!;
+    expect(later, 'вторая вылазка внутри окна голода').toBeLessThan(view.starvesAt);
+    const works = sideWorks(view.since, later, 'front');
+    expect(works, 'рогатки фронта стоят').toBeGreaterThan(0);
+    expect(view.builders, 'строили столько, сколько встало лагерем').toBe(fz.siege.campMen);
+    expect(campPass(view.builders, works), 'строившие и живые дают разный пропуск').not.toBe(campPass(view.campMen, works));
+    const fc = sortieForecast(view, kindsOf(GARRISON), later);
+    expect(fc.now.free, 'проход освободился').toBe(1);
+    expect(fc.now.pass, 'пропуск — от строивших').toBe(campPass(view.builders, works));
+    const res = await world.sortie(GARRISON);
+    expect(res.error).toBeNull();
+    const r = (await world.reports()).find((x) => x.id === res.reportId)!;
+    expect(r.through?.passed, 'в бой прошло по пропуску строивших').toBe(Math.min(fc.now.went, campPass(view.builders, works)));
+  }, 120_000);
+
+  it('окно из сохранения до правила строивших не знает — проход от стоящих в лагере', async () => {
+    const fz = await freeze(7);
+    const at = fz.siege.since + CAMP_WORKS_RIPE;
+    const save = JSON.parse(fz.save);
+    expect(save.sieges.home.builders, 'новое окно пишет строивших').toBe(fz.siege.campMen);
+    // Старое окно: поля нет, а лагерь вдвое меньше, чем стоял бы при постановке.
+    delete save.sieges.home.builders;
+    const march = save.marches.find((m: { id: string }) => m.id === save.sieges.home.campId);
+    march.power = march.power / 2;
+    const { world, pulse } = await thaw({ ...fz, save: JSON.stringify(save) }, at);
+    const view = pulse.siege!;
+    expect(view.campMen, 'лагерь поредел').toBeLessThan(fz.siege.campMen);
+    expect(view.builders, 'строившими считаются стоящие').toBe(view.campMen);
+    const res = await world.sortie(GARRISON);
+    expect(res.error).toBeNull();
+    const r = (await world.reports()).find((x) => x.id === res.reportId)!;
+    expect(r.through?.passed).toBe(campPass(view.campMen, 1));
+  }, 120_000);
+
   it('окно без отметки — как в старом сохранении — читается свободным проходом', async () => {
     const fz = await freeze(7);
     const at = fz.siege.since + CAMP_WORKS_RIPE;
@@ -486,7 +538,7 @@ describe('проход через рогатки — поток, а не пор�
     const res = await world.sortie(GARRISON);
     expect(res.error).toBeNull();
     const r = (await world.reports()).find((x) => x.id === res.reportId)!;
-    expect(r.through?.passed).toBe(campPass(view.campMen, 1));
+    expect(r.through?.passed).toBe(campPass(view.builders, 1));
   }, 120_000);
 
   it('у каждой стороны свой проход, а два входа в одну сторону делят одну занятость', async () => {
@@ -709,8 +761,8 @@ describe('две стороны лагеря: древесина и проход
     }
     // Проход стороны читает только свою отметку: чужая занятость на него не влияет.
     for (const stamp of [undefined, SINCE + 30 * MIN, SINCE + 40 * MIN]) {
-      const cast = strikeForecast({ since: SINCE, campMen: 8, gateAt: stamp }, SINCE + 30 * MIN, going, going);
-      expect(cast.rear, `фронт занят до ${stamp}`).toEqual(strikeForecast({ since: SINCE, campMen: 8 }, SINCE + 30 * MIN, going, null).rear);
+      const cast = strikeForecast({ since: SINCE, builders: 8, gateAt: stamp }, SINCE + 30 * MIN, going, going);
+      expect(cast.rear, `фронт занят до ${stamp}`).toEqual(strikeForecast({ since: SINCE, builders: 8 }, SINCE + 30 * MIN, going, null).rear);
     }
   });
 
