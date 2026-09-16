@@ -13,6 +13,9 @@
 // гарнизона, а передача идёт время.
 //
 //   npx vite-node scripts/raid-report.ts
+//
+// Раздел «потолок набегов» (что держит сила набега, что будет без потолка, новичок и оборона
+// средним бойцом) живёт в `raid-ceiling.ts` и печатается в конце.
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
@@ -23,6 +26,7 @@ import {
   AI_RANGE,
 } from '@/world/data/tuning';
 import type { MarchView, PlayerProfile } from '@/world/types';
+import { ceilingSection } from './raid-ceiling';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1234, 2024, 4242, 7919];
@@ -193,3 +197,5 @@ for (const watch of WATCH) {
   const worst = part.filter((r) => !r.coldOk);
   if (worst.length > 0) console.log(`не успели: сиды ${worst.map((r) => r.seed).join(', ')}`);
 }
+
+await ceilingSection();
