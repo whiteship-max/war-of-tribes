@@ -192,6 +192,7 @@ import {
 import { FATE_META, gainText, lossText } from '../data/fates';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
+import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
 import { fitSetup, resolveField, type FieldOutcome } from '../battle';
 import {
@@ -1934,9 +1935,22 @@ export class LocalWorld implements WorldApi {
     // сути (втрое от базы за полтора суток) и считается от возраста мира, а
     // логово может завестись сегодня. Часы берутся собственные, как у соседей:
     // бунт останавливает и рост логова тоже.
-    const base = isLair(s)
-      ? lairPower(this.anchorOf(s), this.lairRec(s.id), this.liveAt(s.id, now))
-      : powerOf(s, this.lived(s, now), POWER_GROWTH_CAP);
+    // Испытательный стенд (`world/mirror.ts`): одно логово у порога зеркалит
+    // войско игрока вместо собственной кривой роста. По умолчанию выключен, и
+    // тогда сборщик выбрасывает и эту ветку, и весь модуль: ни байта в сборке.
+    const mirror = MIRROR_ON
+      ? mirrorPower(
+          { lairs: this.gen.settlements, home: this.save.home, seed: this.save.seed, profile: this.save.profile ?? null },
+          (x, t) => this.alive(x, t),
+          s,
+          now,
+        )
+      : null;
+    const base =
+      mirror ??
+      (isLair(s)
+        ? lairPower(this.anchorOf(s), this.lairRec(s.id), this.liveAt(s.id, now))
+        : powerOf(s, this.lived(s, now), POWER_GROWTH_CAP));
     // Пока идёт бунт, гарнизон занят своими: он слабее ровно на объявленную долю.
     const revolt = revoltPower(this.inRevolt(s.id, now));
     // Разорение бьёт по той же величине и тем же способом. Это **сверх** того,
