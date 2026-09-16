@@ -44,11 +44,14 @@ import {
   SIEGE_SORTIE_RATIO,
 } from '@/world/data/tuning';
 import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
-import { playerProfile } from '@/world/bridge';
+import { militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
-import { housingCapacity, productionPerDay, storageCap, hiddenStash, upgradeCost } from '@/game/derived';
+import { buildingStat, defense, housingCapacity, productionPerDay, selfCost, storageCap, hiddenStash, upgradeCost, wageOf } from '@/game/derived';
+import { TROOP_BY_ID } from '@/game/data/troops';
+import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
+import { GOOD_BY_ID } from '@/game/data/market';
 import { BUILDINGS } from '@/game/data/buildings';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { GameState } from '@/game/types';
@@ -842,3 +845,189 @@ console.log('Изменилось два: «падение последстви�
 console.log('гарнизона расходится, и это не отстраивается само; и пять построек теряют по уровню,');
 console.log('кроме тайника (одна дверь участи с прорвавшимся набегом, `spoils.fate`). На первом уровне');
 console.log('падать нечему. Во что это обходится во времени партии — sack:report, раздел «лестница».');
+
+// ------------------------------------------------ орудия башни: до кода ---
+//
+// Раздел заведён до кода башни (docs/tower.md), тем же порядком, каким заводилось
+// содержание войска: сначала числа, на которых стоит предложение, потом решение
+// владельца, потом код. Орудий в игре ещё нет, поэтому их действие здесь — модель,
+// а не мир: вылазка всем гарнизоном против лагеря из той же замороженной осады
+// (раздел «во времени»), у которого одно из двух чисел сдвинуто так, как сдвинуло бы
+// его орудие.
+//
+//  - «рогатки медленнее на c» — фронт рубится долей 1 − c (`sideWorks` с таким планом):
+//    так катапульта, бьющая по укреплениям, выглядит на чтении, без тика;
+//  - «лагерь тоньше на s» — мощь лагеря умножена на 1 − s, и из неё тем же
+//    `raidingParty` выводятся люди, пропуск (`campPass`) и строй в бою.
+//
+// Строка «без орудия» — та же модель без сдвига; сверять её надо со строкой «весь»
+// раздела «во времени», где дрался настоящий мир. Разойдутся — модели верить нельзя.
+
+const MODEL_SEEDS = 6;
+const SLOWS = [1 / 6, 2 / 7, 0.4];
+const THINS = [0.2, 0.4, 0.6, 0.8];
+/** Обстрел на часах рогаток при прежнем проходе: [доля рогаток, потолок выбитой доли лагеря]. */
+const GROWS: [number, number][] = [
+  [0, 0.1],
+  [0, 0.2],
+  [0, 0.3],
+  [2 / 7, 0.1],
+  [2 / 7, 0.2],
+];
+
+/**
+ * `thin` — доля мощи, выбитая к минуте вылазки; отрицательная — обстрел, копящийся на
+ * часах рогаток: к минуте `at` выбито `−thin × (at − встал) / CAMP_WORKS_RIPE`, и дальше
+ * `−thin` не растёт — потолок обстрела.
+ */
+function modelSortie(fz: Frozen, at: number, variant: number, slow: number, thin: number, keepPass = false): boolean {
+  const save = JSON.parse(fz.save);
+  const campId: string = save.sieges.home.campId;
+  const works = sideWorks(fz.since, at, 'front', { front: 1 - slow, rear: CAMP_WOOD.rear });
+  const share = thin >= 0 ? thin : -thin * Math.min(1, (at - fz.since) / CAMP_WORKS_RIPE);
+  const power = fz.campPower * (1 - share);
+  const camp = raidingParty(save.seed, campId, power);
+  // «Проход прежний» — рогатки держат столько же, сколько держали до обстрела: выбитые
+  // люди не сужают проход, а только не выходят к нему драться.
+  const pass = campPass(keepPass ? menOfPower(fz.campPower) : camp.men, works);
+  const garrison = homeOf(fz.g.army, awayOf([], []));
+  const field = resolveField({
+    seed: 9000 + variant * 13 + Math.floor((at - fz.since) / MIN),
+    attacker: { kinds: passKinds(kindsOf(garrison), pass), gear: gearOf(garrison), setup: null },
+    defender: { kinds: camp.kinds, gear: camp.gear, setup: camp.setup },
+  });
+  return field.won;
+}
+
+/** Доли побед по минутам и первая минута, с которой вылазка безнадёжна. */
+function modelRow(frozen: Frozen[], slow: number, thin: number, keepPass = false): { cells: string[]; hopeless: number | null } {
+  const cells: string[] = [];
+  let hopeless: number | null = null;
+  for (const d of DELAYS) {
+    let won = 0;
+    let n = 0;
+    for (const fz of frozen) {
+      const at = fz.since + d * MIN;
+      if (at >= fz.starvesAt) continue;
+      for (let v = 0; v < MODEL_SEEDS; v++) {
+        n++;
+        if (modelSortie(fz, at, v, slow, thin, keepPass)) won++;
+      }
+    }
+    cells.push((n ? pct(won, n) : '—').padStart(5));
+    if (n > 0 && won === 0 && hopeless === null) hopeless = d;
+    if (n > 0 && won > 0) hopeless = null;
+  }
+  return { cells, hopeless };
+}
+
+console.log('');
+console.log('--- орудия башни: числа до кода (docs/tower.md) ---');
+console.log('');
+console.log('башня сейчас — по уровню (посёлок раздела «во времени»: все постройки уровня L, войско две мерки)');
+/**
+ * Места лучников на башне — **предложение** docs/tower.md, а не правило игры: одно место
+ * на первом уровне и ещё одно каждые три уровня, так что на десятом их ровно столько,
+ * сколько людей в расчёте катапульты (раздел ниже).
+ */
+const SEATS = (level: number): number => 1 + Math.floor((level - 1) / 3);
+console.log(' ур  оборона башни  оборона посёлка  доля башни  ополчение  из них стрелков  лучников в войске  их доля в обороне  мест (предл.)  их доля в обороне  цена уровня (добра)');
+const tower = BUILDINGS.find((b) => b.id === 'tower')!;
+for (const level of [1, 5, 10]) {
+  const g = townAt(level);
+  const b = g.buildings.find((x) => x.type === 'tower')!;
+  const own = buildingStat(b, 'defense');
+  const all = defense(g);
+  const archers = g.army.archer ?? 0;
+  const archerPower = archers * TROOP_BY_ID.archer.power;
+  const price = Object.values(upgradeCost(tower, level)).reduce((n, v) => n + (v ?? 0), 0);
+  console.log(
+    `${String(level).padStart(3)}  ${String(own).padStart(13)}  ${String(Math.round(all)).padStart(15)}  ${`${((own / all) * 100).toFixed(1)}%`.padStart(10)}  ` +
+      `${String(militiaMen(g)).padStart(9)}  ${String(militiaArchers(g)).padStart(15)}  ${String(archers).padStart(17)}  ` +
+      `${`${((archerPower / all) * 100).toFixed(1)}%`.padStart(17)}  ${String(SEATS(level)).padStart(13)}  ` +
+      `${`${((SEATS(level) * TROOP_BY_ID.archer.power / all) * 100).toFixed(1)}%`.padStart(17)}  ${String(price).padStart(19)}`,
+  );
+}
+console.log('«стрелки» — ополченцы, которых башня уже ставит на стену с луком (`archers` башни, bridge.militiaArchers);');
+console.log('«цена уровня» — улучшение до этого уровня, все ресурсы одной суммой (upgradeCost).');
+
+console.log('');
+console.log('вылазка всем гарнизоном под орудием — модель на замороженных осадах раздела «во времени»');
+for (const level of LEVELS) {
+  const frozen = frozenByLevel.get(level) ?? [];
+  if (frozen.length === 0) continue;
+  const window = Math.min(...frozen.map((f) => (f.starvesAt - f.since) / MIN));
+  console.log(`Статуя L${level}: окно голода ${window.toFixed(1)} мин, осад ${frozen.length} × ${MODEL_SEEDS} сидов боя`);
+  console.log('  Δ, мин                   ' + DELAYS.map((d) => String(d).padStart(5)).join('') + '   безнадёжна с');
+  const base = modelRow(frozen, 0, 0);
+  const said = (h: number | null): string => (h === null ? 'не бывает в окне' : `${h}-й мин`);
+  console.log(`  без орудия               ${base.cells.join('')}   ${said(base.hopeless)}`);
+  for (const slow of SLOWS) {
+    const r = modelRow(frozen, slow, 0);
+    console.log(`  рогатки медленнее на ${slow.toFixed(2)} ${r.cells.join('')}   ${said(r.hopeless)}`);
+  }
+  for (const thin of THINS) {
+    const r = modelRow(frozen, 0, thin);
+    console.log(`  лагерь тоньше на ${thin.toFixed(1)}     ${r.cells.join('')}   ${said(r.hopeless)}`);
+  }
+  for (const thin of THINS) {
+    const r = modelRow(frozen, 0, thin, true);
+    console.log(`  тоньше на ${thin.toFixed(1)}, проход прежний ${r.cells.join('')}   ${said(r.hopeless)}`);
+  }
+  for (const [slow, grow] of GROWS) {
+    const r = modelRow(frozen, slow, -grow, true);
+    const name = `${slow > 0 ? `рогатки ${slow.toFixed(2)} + ` : ''}обстрел до ${grow.toFixed(1)}`;
+    console.log(`  ${name.padEnd(29)} ${r.cells.join('')}   ${said(r.hopeless)}`);
+  }
+  if (base.hopeless !== null) {
+    const step = DELAYS[1] - DELAYS[0];
+    const cMin = 1 - base.hopeless / (base.hopeless + step);
+    const cMax = 1 - base.hopeless / window;
+    const cTarget = 1 - base.hopeless / (CAMP_WORKS_RIPE / MIN);
+    console.log(
+      `  катапульта по рогаткам: заметно — безнадёжность сдвинута хотя бы на шаг замера (${step} мин): c ≥ ${cMin.toFixed(2)}; ` +
+        `не отменяет — безнадёжна раньше голода: c < ${cMax.toFixed(2)}; безнадёжна там, где сейчас дозревают рогатки: c = ${cTarget.toFixed(2)}`,
+    );
+  }
+}
+console.log('c — доля выработки фронта, которую съедает орудие; s — доля мощи лагеря, выбитая к минуте вылазки;');
+console.log(`«обстрел до S» — выбитая доля мощи лагеря растёт ровно со временем за ${CAMP_WORKS_RIPE / MIN} мин (часы рогаток) до S и дальше не растёт; проход прежний.`);
+
+console.log('');
+console.log('лучник против орудия: цена, с которой орудие сравнивается');
+{
+  const g = createInitialState();
+  const wage = wageOf(g, 'archer');
+  const sieges = Math.max(1, totalNew);
+  const hoursPerSiege = (HOURS * TOWNS.length * SEEDS.length) / sieges;
+  const daysPerSiege = (hoursPerSiege * 3600) / DAY_LENGTH;
+  const goodPrice = (r: string): number => {
+    const good = GOOD_BY_ID[r];
+    return good ? selfCost(good) : 0;
+  };
+  const archer = TROOP_BY_ID.archer;
+  let recruit = Object.entries(archer.cost).reduce((n, [r, v]) => n + goodPrice(r) * (v ?? 0), 0);
+  for (const [id, k] of Object.entries(archer.gear) as [keyof typeof EQUIPMENT_BY_ID, number][]) {
+    recruit += Object.entries(EQUIPMENT_BY_ID[id].cost).reduce((n, [r, v]) => n + goodPrice(r) * (v ?? 0) * k, 0);
+  }
+  console.log(
+    `жалованье лучника ${wage.toFixed(2)} золота в игровой день (умеренный налог новой партии); ` +
+      `осада — раз в ${hoursPerSiege.toFixed(2)} ч мира (раздел «частота»: ${sieges} осад за ${HOURS * TOWNS.length * SEEDS.length} ч), ` +
+      `это ${Math.round(daysPerSiege)} игровых дней при дне в ${DAY_LENGTH} с`,
+  );
+  console.log(
+    `наём лучника своим трудом (derived.selfCost по ресурсам и луку): ${recruit.toFixed(1)} золота; ` +
+      `лучник от осады до осады: ${(recruit + wage * daysPerSiege).toFixed(0)} золота`,
+  );
+  const inGold = (cost: Partial<Record<string, number>>): number =>
+    Object.entries(cost).reduce((n, [r, v]) => n + goodPrice(r) * (v ?? 0), 0);
+  const perSiege = recruit + wage * daysPerSiege;
+  for (const [name, level] of [['балиста', 5], ['катапульта', 10]] as const) {
+    const price = inGold(upgradeCost(tower, level));
+    const crew = Math.ceil(price / perSiege);
+    console.log(
+      `${name}: цена — улучшение башни до ${level}-го уровня, ${price.toFixed(0)} золота своим трудом; ` +
+        `расчёт, чьё жалованье от осады до осады не меньше цены: ${crew} (${(crew * perSiege).toFixed(0)} золота); мест на ${level}-м уровне: ${SEATS(level)}`,
+    );
+  }
+}
