@@ -57,13 +57,17 @@ export function staff(s: GameState): void {
   }
 }
 
-/** Что улучшать дальше: жильё, склад, потом самое отстающее. */
-export function build(s: GameState): void {
+/**
+ * Что улучшать дальше: жильё, склад, потом самое отстающее. `skip` — постройки, которых этот
+ * игрок не поднимает никогда (`raid:report` меряет им, во что обходится не поднимать ратушу);
+ * они выпадают из каждой ветки, а не обрывают её.
+ */
+export function build(s: GameState, skip: readonly BuildingTypeId[] = []): void {
   if (s.buildings.some(isSite)) return;
   const cap = housingCapacity(s);
   // Жильё — узкое место: пока селить некуда, племя стоит.
   if (s.pop >= cap - 20) {
-    for (const t of ['houses', 'town_hall'] as BuildingTypeId[]) {
+    for (const t of (['houses', 'town_hall'] as BuildingTypeId[]).filter((x) => !skip.includes(x))) {
       const b = buildingOfType(s, t)!;
       if (startUpgrade(s, b.id) === null) return;
     }
@@ -77,11 +81,11 @@ export function build(s: GameState): void {
   const slots = s.buildings.reduce((n, b) => n + buildingSlots(b), 0);
   if (slots < s.pop) {
     const byJob = [...s.buildings]
-      .filter((b) => BUILDING_BY_ID[b.type].job)
+      .filter((b) => BUILDING_BY_ID[b.type].job && !skip.includes(b.type))
       .sort((a, b) => a.level - b.level);
     for (const b of byJob) if (startUpgrade(s, b.id) === null) return;
   }
-  for (const b of [...s.buildings].sort((a, b) => a.level - b.level)) {
+  for (const b of s.buildings.filter((x) => !skip.includes(x.type)).sort((a, b) => a.level - b.level)) {
     if (startUpgrade(s, b.id) === null) return;
   }
 }

@@ -5,15 +5,16 @@
 // здесь меряется, от чего оно растёт и что из этого выходит. Меряется:
 //
 //  0. **Что такое опора сегодня** — из чего `gen.lairAnchor` её считает.
-//  1. **Мерка развития города** — какая величина из тех, что слепок деревни уже везёт в мир,
-//     лучше всего повторяет оборону посёлка мерки `siege:report`: на неё и опирается рост.
+//  1. **Мерка развития города** — средний уровень построек, ратуша или жители: все три слепок
+//     деревни уже везёт в мир. Что каждая прибавляет набегу за уровень постройки (не кормят ли
+//     логово укрепления), как они идут в живой партии и во что обходится не поднимать ратушу.
 //  2. **Ступени роста** — настоящий мир (`LocalWorld` с настоящим племенем и пульсом, как у
 //     `world/store`), где сила логова в досягаемости подставлена в экземпляр мира: сегодняшняя
-//     кривая логова (опора по расстоянию × дозревание) × ступень × линия развития из п. 1, а
+//     кривая логова (опора по расстоянию × дозревание) × ступень × линия развития по мерке, а
 //     отряд — всё логово. Осада — по сухому прогону того же боя у частокола (`wallHolds` ниже —
 //     копия сборки сторон из `LocalWorld.resolveIncoming`), окно после любого падения — одно.
 //  3. **Новичок** — партия с первой секунды и защита по развитию: логово не замечает город, пока
-//     средний уровень построек ниже порога, и доходит до полной силы к второму порогу.
+//     развитие по мерке ниже порога, и доходит до полной силы к второму порогу.
 //  4. **Логово как цель** — можно ли сжечь выросшее логово войском мерки и сколько оно отдаёт.
 //
 // Подстановки делаются в экземпляр мира и нигде больше: код игры не тронут.
@@ -47,7 +48,7 @@ import { tick } from '@/game/sim/tick';
 import { autoAssign } from '@/game/sim/workers';
 import { startRecruit } from '@/game/sim/army';
 import { seeded, setRandom } from '@/game/sim/random';
-import { armyPower, armySize, defense, housingCapacity, recruitRate, storageCap, taxIncomePerDay } from '@/game/derived';
+import { armyPower, armySize, buildingOfType, defense, housingCapacity, recruitRate, storageCap, taxIncomePerDay } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
 import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { GameState, TroopId } from '@/game/types';
@@ -92,11 +93,14 @@ function stackOf(n: number, mix: TroopStack = MIX): TroopStack {
   return out;
 }
 
-/** Посёлок уровня L: жильё на 90 %, склад полон, войско — `armyAt` по составу. Мерка `siege:report`. */
-function townAt(level: number): GameState {
+/**
+ * Посёлок уровня L: жильё на 90 %, склад полон, войско — `armyAt` по составу. Мерка `siege:report`.
+ * `over` — уровни отдельных построек поверх L (жители дорастают до новых крыш).
+ */
+function townAt(level: number, over: Record<string, number> = {}): GameState {
   const g = createInitialState(7);
   g.tutorialDone = true;
-  for (const b of g.buildings) b.level = level;
+  for (const b of g.buildings) b.level = over[b.type] ?? level;
   g.pop = Math.round(housingCapacity(g) * 0.9);
   for (const [id, n] of Object.entries(stackOf(armyAt(level)))) g.army[id as TroopId] = n ?? 0;
   autoAssign(g);
@@ -134,8 +138,17 @@ function fit(xs: number[], ys: number[]): { a: number; b: number; worst: number 
 
 // ---------- Модель ----------
 
+/**
+ * Чем мерить развитие города. Все три — поля слепка, которые мир получает уже сегодня:
+ * `level` — средний уровень построек (`levels`), `hall` — уровень ратуши (`levels.town_hall`),
+ * `pop` — жители (`pop`).
+ */
+type Base = 'level' | 'hall' | 'pop';
+const BASE_NAME: Record<Base, string> = { level: 'ср. уровень', hall: 'ратуша', pop: 'жители' };
+
 interface Growth {
   name: string;
+  base: Base;
   /** Набег при опоре медианного логова и полном дозревании — доля линии развития. null — игра как есть. */
   rho: number | null;
   /** Защита новичка по развитию: 0 ниже `from`, линейно до 1 к `full`. null — без защиты. */
@@ -147,12 +160,25 @@ interface Growth {
 interface Line {
   a: number;
   b: number;
+  /** Жители → уровень лестницы мерки: L ≈ popA × жители + popB. */
+  popA: number;
+  popB: number;
   /** Медианная опора логов в досягаемости: у неё набег равен ступени линии. */
   anchor: number;
 }
 
-const shieldOf = (g: Growth, level: number): number =>
-  g.shield ? Math.min(1, Math.max(0, (level - g.shield.from) / (g.shield.full - g.shield.from))) : 1;
+/**
+ * Развитие в единицах лестницы мерки. На лестнице все постройки одного уровня, и все три мерки
+ * дают L; расходятся они в живой партии.
+ */
+const devOf = (base: Base, line: Line, p: PlayerProfile | null | undefined): number => {
+  if (base === 'hall') return p?.levels?.town_hall ?? 1;
+  if (base === 'pop') return Math.max(0, line.popA * (p?.pop ?? 0) + line.popB);
+  return levelOf(p);
+};
+
+const shieldOf = (g: Growth, dev: number): number =>
+  g.shield ? Math.min(1, Math.max(0, (dev - g.shield.from) / (g.shield.full - g.shield.from))) : 1;
 
 /**
  * Сила логова по модели роста. `today` — сила логова в игре сегодня (опора по расстоянию ×
@@ -161,8 +187,8 @@ const shieldOf = (g: Growth, level: number): number =>
  * (раздел 4 — почему).
  */
 const grown = (g: Growth, line: Line, p: PlayerProfile, today: number): number => {
-  const level = levelOf(p);
-  return (today / line.anchor) * (g.rho ?? 1) * (line.a * level + line.b) * shieldOf(g, level);
+  const dev = devOf(g.base, line, p);
+  return (today / line.anchor) * (g.rho ?? 1) * (line.a * dev + line.b) * shieldOf(g, dev);
 };
 
 // ---------- Прогон ----------
@@ -267,7 +293,7 @@ async function play(o: Play): Promise<Run> {
       if (growth.rho !== null) {
         const src = w.gen.settlements.find((s: GenSettlement) => s.id === m.fromId);
         const power = w.powerNow(src, at);
-        if (shieldOf(growth, levelOf(profile)) <= 0) {
+        if (shieldOf(growth, devOf(growth.base, line, profile)) <= 0) {
           w.save.marches.splice(w.save.marches.indexOf(m), 1);
           continue;
         }
@@ -433,109 +459,191 @@ export async function lairGrowthSection(): Promise<void> {
   console.log('');
   console.log('--- 1. Мерка развития: что из слепка повторяет оборону посёлка мерки ---');
   console.log('Посёлок уровня L — мерка siege:report: все постройки уровня L, жильё на 90 %, войско 2 × (20 + 10 × (L − 1)) по составу MIX.');
-  console.log(' уровень  ср. уровень в слепке  жителей  людей с войском  оборона');
+  console.log('На этой лестнице ратуша — тоже L: средний уровень и ратуша на ней неразличимы, расходятся они в живой партии (раздел 1б).');
+  console.log(' уровень  ср. уровень в слепке  ратуша  жителей  людей с войском  оборона');
   const lv: number[] = [];
+  const hall: number[] = [];
+  const pops: number[] = [];
   const people: number[] = [];
   const defs: number[] = [];
   for (const l of LADDER) {
     const g = townAt(l);
     const p = playerProfile(g, awayOf([], []));
     lv.push(levelOf(p));
+    hall.push(p.levels?.town_hall ?? 1);
+    pops.push(p.pop);
     people.push(p.pop + troopTotal(p.army ?? {}));
     defs.push(defense(g));
-    console.log(` ${pad(l, 7)}  ${pad(levelOf(p).toFixed(1), 20)}  ${pad(p.pop, 7)}  ${pad(people[people.length - 1], 15)}  ${pad(Math.round(defense(g)), 7)}`);
+    console.log(` ${pad(l, 7)}  ${pad(levelOf(p).toFixed(1), 20)}  ${pad(hall[hall.length - 1], 6)}  ${pad(p.pop, 7)}  ${pad(people[people.length - 1], 15)}  ${pad(Math.round(defense(g)), 7)}`);
   }
   const byLevel = fit(lv, defs);
+  const byHall = fit(hall, defs);
+  const byPop = fit(pops, defs);
   const byPeople = fit(people, defs);
+  const popToLevel = fit(pops, LADDER);
   console.log(`Оборона ≈ ${byLevel.a.toFixed(1)} × ср. уровень + ${byLevel.b.toFixed(1)}; худшее отклонение ${pct(byLevel.worst)}.`);
-  console.log(`Оборона ≈ ${byPeople.a.toFixed(2)} × людей + ${byPeople.b.toFixed(1)}; худшее отклонение ${pct(byPeople.worst)}.`);
-  const line: Line = { a: byLevel.a, b: byLevel.b, anchor };
+  console.log(`Оборона ≈ ${byHall.a.toFixed(1)} × ратуша + ${byHall.b.toFixed(1)}; худшее отклонение ${pct(byHall.worst)}.`);
+  console.log(`Оборона ≈ ${byPop.a.toFixed(2)} × жителей + ${byPop.b.toFixed(1)}; худшее отклонение ${pct(byPop.worst)}.`);
+  console.log(`Оборона ≈ ${byPeople.a.toFixed(2)} × людей с войском + ${byPeople.b.toFixed(1)}; худшее отклонение ${pct(byPeople.worst)}.`);
+  console.log(`Жители в уровнях лестницы: L ≈ ${popToLevel.a.toFixed(4)} × жителей + ${popToLevel.b.toFixed(2)}; худшее отклонение ${pct(popToLevel.worst)}.`);
+  const line: Line = { a: byLevel.a, b: byLevel.b, popA: popToLevel.a, popB: popToLevel.b, anchor };
+  const RHO = 0.9;
+  const SHIELD = { from: 3, full: 6 };
+  /** Защита по жителям — в уровнях лестницы; жители опережают постройки, и порог стоит выше (раздел 3). */
+  const POP_SHIELD = { from: 5, full: 8 };
+  const villagersAt = (level: number): number => Math.round((level - line.popB) / line.popA);
+  console.log(`Защита по жителям ${POP_SHIELD.from}→${POP_SHIELD.full} уровней лестницы — это ${villagersAt(POP_SHIELD.from)}→${villagersAt(POP_SHIELD.full)} жителей.`);
+  console.log(`Набег ступени ${RHO.toFixed(2)} на лестнице по мерке (ср. уровень и ратуша на ней совпадают):`);
+  console.log(' уровень  оборона  по ср. уровню / ратуше  по жителям  жители к ср. уровню');
+  LADDER.forEach((l, i) => {
+    const byL = RHO * (line.a * l + line.b);
+    const byP = RHO * (line.a * (line.popA * pops[i] + line.popB) + line.b);
+    console.log(` ${pad(l, 7)}  ${pad(Math.round(defs[i]), 7)}  ${pad(Math.round(byL), 22)}  ${pad(Math.round(byP), 10)}  ${pad(pct(byP / byL), 19)}`);
+  });
   // Рост от развития не должен окольно наказывать за укрепления: уровень постройки, дающей
-  // оборону, обязан прибавлять обороны больше, чем он же прибавляет набегу.
+  // оборону, обязан прибавлять обороны больше, чем он же прибавляет набегу. Жители дорастают до
+  // новых крыш — поэтому посёлок собирается заново, а не правится одна постройка.
   const base = townAt(5);
-  const keys = Object.keys(playerProfile(base, awayOf([], [])).levels ?? {}).length;
-  const perLevel = (0.9 * line.a) / keys;
-  console.log(`Уровень любой постройки из ${keys} в слепке двигает средний уровень на 1/${keys}, набег ступени 0.90 — на ${perLevel.toFixed(1)}.`);
-  console.log('Постройки, чей уровень прибавляет обороны (посёлок уровня 5 → одна постройка на 6):');
+  const baseP = playerProfile(base, awayOf([], []));
+  const keys = Object.keys(baseP.levels ?? {}).length;
+  const raidAt = (b: Base, p: PlayerProfile): number => RHO * (line.a * devOf(b, line, p) + line.b);
+  console.log('');
+  console.log(`Что прибавляет уровень одной постройки: посёлок уровня 5 → эта постройка на 6, жители дорастают до крыш; набег ступени ${RHO.toFixed(2)} по каждой мерке (построек в слепке ${keys}).`);
+  console.log(' постройка        обороны  набега: ср. уровень  ратуша  жители');
   for (const b of base.buildings) {
-    const up = townAt(5);
-    const one = up.buildings.find((x) => x.type === b.type);
-    if (!one) continue;
-    one.level = 6;
+    const up = townAt(5, { [b.type]: 6 });
+    const upP = playerProfile(up, awayOf([], []));
     const gain = defense(up) - defense(base);
-    if (gain > 0.5) console.log(`  ${b.type}: обороны +${gain.toFixed(1)}, набега +${perLevel.toFixed(1)}`);
+    const raids = (['level', 'hall', 'pop'] as Base[]).map((x) => raidAt(x, upP) - raidAt(x, baseP));
+    if (gain <= 0.5 && raids.every((x) => x <= 0.5)) continue;
+    console.log(` ${b.type.padEnd(15)}  ${pad(gain.toFixed(1), 7)}  ${pad(raids[0].toFixed(1), 19)}  ${pad(raids[1].toFixed(1), 6)}  ${pad(raids[2].toFixed(1), 6)}`);
   }
   const g0 = createInitialState(7);
   console.log(
     `Посёлок без войска на той же лестнице — новая партия (ср. уровень 1): оборона ${Math.round(defense(g0))}, линия ${Math.round(line.a + line.b)} — ${pct(defense(g0) / (line.a + line.b))}.`,
   );
 
+  // 1б. Живая партия.
+  const NEW_HOURS = 6;
+  const HOURS_AT = [1, 2, 4, 6];
+  console.log('');
+  console.log(`--- 1б. Мерки в живой партии: автопилот pop:report, ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, без мира ---`);
+  console.log('«обычный» — автопилот как есть; «без ратуши» — тот же автопилот, который ратушу не поднимает никогда (build с skip).');
+  console.log(`«набег» — набег дозревшего логова медианной опоры по мерке: ступень ${RHO.toFixed(2)} × линия × защита (${SHIELD.from}→${SHIELD.full}, у жителей ${POP_SHIELD.from}→${POP_SHIELD.full}); «оборона» — посёлка без войска.`);
+  console.log(' партия       ч  ср. уровень  ратуша  жителей  жители в L  оборона  набег: ср. уровень  ратуша  жители');
+  const NO_HALL = ['town_hall'] as const;
+  for (const style of ['обычный', 'без ратуши'] as const) {
+    const rows: { lv: number; th: number; pop: number; e: number; def: number; raid: number[] }[][] = HOURS_AT.map(() => []);
+    for (const seed of NEW_SEEDS) {
+      setRandom(seeded(seed));
+      const g = createInitialState(seed);
+      g.tutorialDone = true;
+      for (let t = 1; t <= NEW_HOURS * 3600; t++) {
+        if (t % PULSE === 0) {
+          staff(g);
+          build(g, style === 'без ратуши' ? NO_HALL : []);
+        }
+        tick(g, 1);
+        const i = HOURS_AT.indexOf(t / 3600);
+        if (i >= 0) {
+          const p = playerProfile(g, awayOf([], []));
+          const raid = (['level', 'hall', 'pop'] as Base[]).map((b) => {
+            const dev = devOf(b, line, p);
+            const shield = b === 'pop' ? POP_SHIELD : SHIELD;
+            return RHO * (line.a * dev + line.b) * shieldOf({ name: '', base: b, rho: RHO, siege: 'dry', shield }, dev);
+          });
+          rows[i].push({ lv: levelOf(p), th: p.levels?.town_hall ?? 1, pop: p.pop, e: devOf('pop', line, p), def: defense(g), raid });
+        }
+      }
+      setRandom(null);
+    }
+    HOURS_AT.forEach((h, i) => {
+      const r = rows[i];
+      const m = (f: (x: (typeof r)[number]) => number): number => mean(r.map(f));
+      console.log(
+        ` ${style.padEnd(11)}  ${pad(h, 1)}  ${pad(m((x) => x.lv).toFixed(1), 11)}  ${pad(m((x) => x.th).toFixed(1), 6)}  ${pad(Math.round(m((x) => x.pop)), 7)}  ${pad(m((x) => x.e).toFixed(1), 10)}  ${pad(Math.round(m((x) => x.def)), 7)}  ${pad(Math.round(m((x) => x.raid[0])), 18)}  ${pad(Math.round(m((x) => x.raid[1])), 6)}  ${pad(Math.round(m((x) => x.raid[2])), 6)}`,
+      );
+    });
+  }
+
   // 2. Ступени.
   const HOURS = 4;
   const LEVELS = [1, 5, 10];
-  const NOW: Growth = { name: 'сейчас', rho: null, siege: 'old' };
-  const step = (rho: number, siege: Growth['siege'] = 'dry', shield: Growth['shield'] = null): Growth => ({
-    name: `${rho.toFixed(2)}${siege === 'old' ? ', порог 0.3' : ''}${shield ? `, защита ${shield.from}→${shield.full}` : ''}`,
+  const NOW: Growth = { name: 'сейчас', base: 'level', rho: null, siege: 'old' };
+  const step = (rho: number, b: Base = 'level', siege: Growth['siege'] = 'dry', shield: Growth['shield'] = null): Growth => ({
+    name: `${rho.toFixed(2)} ${BASE_NAME[b]}${siege === 'old' ? ', порог 0.3' : ''}${shield ? `, защита ${shield.from}→${shield.full}` : ''}`,
+    base: b,
     rho,
     siege,
     shield,
   });
   console.log('');
   console.log(`--- 2. Ступени роста: ${HOURS} ч на каждом из ${SEEDS.length} миров, посёлок уровня L стоит дома, на осаду — вылазкой ---`);
-  console.log('Логово = сегодняшняя сила логова / медианная опора × ступень × линия развития; отряд — всё логово. Логова дозрели до начала.');
+  console.log('Логово = сегодняшняя сила логова / медианная опора × ступень × линия развития по мерке; отряд — всё логово. Логова дозрели до начала.');
   console.log('Осада — если сухой прогон боя у частокола отбит (и кость SIEGE_CHANCE, остывание, окно — как в игре);');
   console.log(`«порог 0.3» — осада по сегодняшнему порогу SIEGE_IF_BELOW. После прорыва и после падения осадой — одно окно SIEGE_IMMUNE (${hm(SIEGE_IMMUNE)}): ни набега, ни осады.`);
   console.log('«набег / оборона» — доля обороны мерки (10-я…медиана…90-я); «потери, удержали» — доля бойцов дома, павших в удержанном бою, у боёв, где дома не меньше 10;');
-  console.log('«доля осад» — лагерей от всех пришедших; «падений/ч» — прорывы и падения осадой на мир.');
-  const header = ' ступень                ур  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  вылазки   падений осадой  падений/ч  потери, удержали  < половины  войско в конце';
-  const row = (name: string, level: number, t: ReturnType<typeof tally>): string =>
-    ` ${name.padEnd(22)} ${pad(level, 2)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.sorties, 8)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(t.half, 10)}  ${pad(t.armyEnd, 14)}`;
-  const ladder = async (steps: Growth[], levels: number[], refill: boolean): Promise<void> => {
+  console.log('«доля осад» — лагерей от всех пришедших; «падений/ч» — прорывы и падения осадой на мир. «ур» — уровень посёлка, «рат» — уровень ратуши.');
+  const header = ' ступень                          ур  рат  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  вылазки   падений осадой  падений/ч  потери, удержали  < половины  войско в конце';
+  const row = (name: string, level: number, th: number, t: ReturnType<typeof tally>): string =>
+    ` ${name.padEnd(32)} ${pad(level, 2)}  ${pad(th, 3)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.sorties, 8)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(t.half, 10)}  ${pad(t.armyEnd, 14)}`;
+  const ladder = async (steps: Growth[], towns: { level: number; hall?: number }[], refill: boolean): Promise<void> => {
     console.log(header);
     for (const s of steps) {
-      for (const level of levels) {
+      for (const { level, hall: th } of towns) {
+        const over: Record<string, number> = th === undefined ? {} : { town_hall: th };
         const runs: Run[] = [];
-        const ref = defense(townAt(level));
-        for (const seed of SEEDS) runs.push(await play({ g: townAt(level), seed, growth: s, line, hours: HOURS, ref, refill, ripe: true }));
-        console.log(row(s.name, level, tally(runs, HOURS)));
+        const ref = defense(townAt(level, over));
+        for (const seed of SEEDS) runs.push(await play({ g: townAt(level, over), seed, growth: s, line, hours: HOURS, ref, refill, ripe: true }));
+        console.log(row(s.name, level, th ?? level, tally(runs, HOURS)));
       }
     }
   };
+  const flat = LEVELS.map((level) => ({ level }));
   console.log('');
   console.log('Войско держат полным — пополняется между пульсами даром. Это граница «сколько стоит бой», а не найм: найм — следующий замер.');
-  await ladder([NOW, step(0.8), step(0.9), step(1), step(1.1), step(0.9, 'old')], LEVELS, true);
+  console.log('На лестнице ратуша равна уровню посёлка, и мерка «ратуша» даёт те же строки, что «ср. уровень».');
+  await ladder([NOW, step(0.8), step(0.9), step(1), step(1.1), step(0.9, 'level', 'old')], flat, true);
+  console.log('');
+  console.log('Мерка «жители» на той же лестнице:');
+  await ladder([step(RHO, 'pop')], flat, true);
+  console.log('');
+  console.log('Мерка «ратуша», когда ратуша отстаёт от посёлка или обгоняет его (посёлок уровня 5):');
+  await ladder([step(RHO, 'hall')], [{ level: 5, hall: 3 }, { level: 5, hall: 5 }, { level: 5, hall: 7 }], true);
   console.log('');
   console.log('Без найма — войско не пополняется:');
-  await ladder([step(0.9)], LEVELS, false);
-  const SHIELD = { from: 3, full: 6 };
+  await ladder([step(RHO)], flat, false);
   console.log('');
-  console.log(`Ступень 0.90 с защитой новичка ${SHIELD.from}→${SHIELD.full} (раздел 3) на посёлках мерки, войско держат полным:`);
-  await ladder([step(0.9, 'dry', SHIELD)], [3, 5], true);
+  console.log(`Ступень ${RHO.toFixed(2)} с защитой новичка (раздел 3) на посёлках мерки, войско держат полным:`);
+  await ladder([step(RHO, 'hall', 'dry', SHIELD)], [{ level: 3 }, { level: 5 }], true);
+  await ladder([step(RHO, 'pop', 'dry', POP_SHIELD)], [{ level: 5 }, { level: 8 }], true);
 
   // 3. Новичок.
-  const NEW_HOURS = 6;
   console.log('');
   console.log(`--- 3. Новичок: партия с первой секунды, ${NEW_HOURS} ч непрерывной игры, миры ${NEW_SEEDS.join(', ')} ---`);
   console.log('Племя ведёт автопилот pop:report. «без войска» — не нанимает никого; «нанимает на осаду» — на лагерь нанимает дубинщиков вдвое больше');
-  console.log('людей лагеря и выходит; «ополчение 10 %» — держит дубинщиков на десятую часть населения. Логова молоды: мир начинается с партией.');
-  console.log(`Защита «a→b»: логово не замечает город, пока средний уровень построек ниже a (набег не выходит), и доходит до полной силы к b.`);
-  console.log(`«сейчас» — игра как есть (набеги с населения AI_MIN_POP ${AI_MIN_POP}, осада по порогу 0.3).`);
+  console.log('людей лагеря и выходит; «ополчение 10 %» — держит дубинщиков на десятую часть населения; «ополчение, без ратуши» — то же, но ратушу');
+  console.log('автопилот не поднимает никогда. Логова молоды: мир начинается с партией.');
+  console.log('Защита «a→b»: логово не замечает город, пока развитие по мерке ниже a (набег не выходит), и доходит до полной силы к b.');
+  console.log(`«сейчас» — игра как есть (набеги с населения AI_MIN_POP ${AI_MIN_POP}, осада по порогу 0.3). «набег / оборона» — к обороне слепка в минуту выхода.`);
   const fresh = createInitialState(7);
   console.log(`Дубинщик на казармах новой партии нанимается за ${Math.round(TROOP_BY_ID.clubman.work / recruitRate(fresh, 'clubman'))} с (work / recruitRate). «окно голода» — от минуты, когда лагерь встал, до голода (siege.starvesAt), мин…макс.`);
-  const newbie: Growth[] = [NOW, step(0.9), step(0.9, 'dry', { from: 3, full: 6 }), step(0.9, 'dry', { from: 3, full: 8 })];
+  const newbie: Growth[] = [NOW, step(RHO, 'level', 'dry', SHIELD), step(RHO, 'hall', 'dry', SHIELD), step(RHO, 'pop', 'dry', SHIELD), step(RHO, 'pop', 'dry', POP_SHIELD)];
   const militia = (g: GameState): void => {
     const want = Math.round(g.pop * 0.1);
     const have = armySize(g) + g.recruits.reduce((n, r) => n + r.count - r.done, 0);
     if (want > have) startRecruit(g, 'clubman', want - have);
   };
-  for (const style of ['none', 'hire', 'militia'] as const) {
+  const STYLE_NAME = { none: 'без войска', hire: 'нанимает на осаду', militia: 'с ополчением 10 %', nohall: 'с ополчением 10 %, без ратуши' };
+  for (const style of ['none', 'hire', 'militia', 'nohall'] as const) {
     console.log('');
-    console.log(`Новичок ${style === 'none' ? 'без войска' : style === 'hire' ? 'нанимает на осаду' : 'с ополчением 10 %'}:`);
-    console.log(' ступень                      первое падение, мин…макс  прорвали  лагерей  окно голода        падений осадой  падений/ч  нанято  бойцов потеряно  люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч');
+    console.log(`Новичок ${STYLE_NAME[style]}:`);
+    console.log(' ступень                          набегов  набег / оборона  первое падение, мин…макс  прорвали  лагерей  окно голода        падений осадой  падений/ч  нанято  бойцов потеряно  люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  ратуша к 6 ч');
     for (const s of newbie) {
       const runs: Run[] = [];
       const pop: number[][] = [[], [], [], []];
       const lvl: number[][] = [[], [], [], []];
+      const th: number[] = [];
       for (const seed of NEW_SEEDS) {
         setRandom(seeded(seed));
         const g = createInitialState(seed);
@@ -550,14 +658,15 @@ export async function lairGrowthSection(): Promise<void> {
             hire: style === 'hire',
             grow: (x) => {
               staff(x);
-              build(x);
-              if (style === 'militia') militia(x);
+              build(x, style === 'nohall' ? NO_HALL : []);
+              if (style === 'militia' || style === 'nohall') militia(x);
             },
             hourly: (h, x) => {
-              const i = [1, 2, 4, 6].indexOf(h);
+              const i = HOURS_AT.indexOf(h);
               if (i < 0) return;
               pop[i].push(x.pop);
               lvl[i].push(sum(x.buildings.map((b) => b.level)) / x.buildings.length);
+              if (h === NEW_HOURS) th.push(buildingOfType(x, 'town_hall')?.level ?? 1);
             },
           }),
         );
@@ -568,7 +677,7 @@ export async function lairGrowthSection(): Promise<void> {
         ? `${hm(Math.min(...t.first))}…${hm(Math.max(...t.first))}${t.first.length < runs.length ? ` (${t.first.length} из ${runs.length})` : ''}`
         : 'нет';
       console.log(
-        ` ${s.name.padEnd(28)} ${pad(first, 24)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.hunger.length ? `${hm(Math.min(...t.hunger))}…${hm(Math.max(...t.hunger))}` : '—', 17)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.hired, 6)}  ${pad(t.lost, 15)}  ${pop.map((xs) => pad(Math.round(mean(xs)), 4)).join(' ').padEnd(20)}  ${lvl.map((xs) => pad(mean(xs).toFixed(1), 4)).join(' ')}`,
+        ` ${s.name.padEnd(32)} ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(first, 24)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.hunger.length ? `${hm(Math.min(...t.hunger))}…${hm(Math.max(...t.hunger))}` : '—', 17)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.hired, 6)}  ${pad(t.lost, 15)}  ${pop.map((xs) => pad(Math.round(mean(xs)), 4)).join(' ').padEnd(20)}  ${lvl.map((xs) => pad(mean(xs).toFixed(1), 4)).join(' ').padEnd(23)}  ${pad(mean(th).toFixed(1), 12)}`,
       );
     }
   }
@@ -584,7 +693,7 @@ export async function lairGrowthSection(): Promise<void> {
   for (const level of LEVELS) {
     const g = townAt(level);
     const troops = { ...g.army };
-    const raid = 0.9 * (line.a * level + line.b);
+    const raid = RHO * (line.a * level + line.b);
     for (const share of [AI_POWER_SHARE, 1]) {
       for (const r of [0, 0.5, 1]) {
         const ripe = (LAIR_START + (LAIR_CAP - LAIR_START) * r) / LAIR_CAP;
