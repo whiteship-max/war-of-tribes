@@ -299,7 +299,7 @@ describe('укрепления лагеря: бой, голод и то, что 
       expect(src, f).not.toMatch(/SORTIE_CAMP_BONUS|campMen\(/);
     }
     const lw = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
-    expect(lw).toMatch(/private campArmy\(w: SiegeWindow\)/);
+    expect(lw).toMatch(/private campArmy\(w: SiegeWindow, at: number\)/);
   }, 120_000);
 
   it('осада без вылазки даёт те же числа, что и до укреплений', async () => {

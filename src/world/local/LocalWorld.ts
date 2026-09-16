@@ -14,7 +14,7 @@ import {
   type Stack,
   type UnitKind,
 } from '@/battle';
-import { kindsOf, troopLosses, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { TROOPS_OF_KIND, kindsOf, troopLosses, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
@@ -192,6 +192,7 @@ import {
 } from '../spoils';
 import { FATE_META, gainText, lossText } from '../data/fates';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
+import { aimOf, firePlan, reaim, thinAt } from '../bombard';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
@@ -218,6 +219,7 @@ import {
   throughText,
   woodShare,
   type Through,
+  type WoodPlan,
 } from '../works';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { placeAt } from '../place';
@@ -893,10 +895,13 @@ export class LocalWorld implements WorldApi {
       fate: same ? same.fate : fresh.fate,
       wood: same ? same.wood : fresh.wood,
       builders: same ? same.builders : undefined,
+      fire: same?.fire,
     });
     // Рогатки держат те, кто их строил: у новой осады это лагерь в минуту постановки.
     // Спрашивается у того же `campArmy`, которым лагерь бьётся, — второго счёта людей нет.
-    if (!same) w.builders = this.campArmy(w)?.men;
+    if (!same) w.builders = this.campArmy(w, at)?.men;
+    // Окно открылось или пересчиталось — гарнизон мог смениться, а с ним расчёт на башне.
+    this.aimTower(id, w, at);
     this.save.sieges[id] = w;
     // Срок стоянки лагеря и есть час голода: падение разбирает та же очередь
     // событий по времени, что и приход любого другого отряда.
@@ -925,6 +930,8 @@ export class LocalWorld implements WorldApi {
   private siegeView(now: number): SiegeView | null {
     const w = this.homeSiege(now);
     if (!w) return null;
+    const camp = this.campArmy(w, now);
+    const wood = camp ? camp.wood : w.wood;
     return {
       byId: w.byId,
       byName: this.byId.get(w.byId)?.name ?? 'Чужаки',
@@ -932,11 +939,12 @@ export class LocalWorld implements WorldApi {
       starvesAt: this.hunger(w),
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
-      campMen: this.campArmy(w)?.men ?? 0,
-      builders: this.buildersOf(w),
+      campMen: camp?.men ?? 0,
+      builders: this.buildersOf(w, now),
+      ...(camp && w.fire ? { fire: { thin: camp.thin, cap: Math.max(w.fire.base, w.fire.thin), slow: w.fire.slow } } : {}),
       ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
       ...(w.rearGateAt !== undefined ? { rearGateAt: w.rearGateAt } : {}),
-      ...(w.wood !== undefined ? { wood: w.wood } : {}),
+      ...(wood !== undefined ? { wood } : {}),
       fate: this.fateFor(w.fate, HOME_ID, now),
       fall: this.fallForecast(w, now),
       palisade: this.save.profile?.levels?.palisade ?? 0,
@@ -1003,6 +1011,8 @@ export class LocalWorld implements WorldApi {
     const w = this.siegeOf(id, now);
     if (!w) return null;
     const hunger = this.hungerOf(id, now);
+    const camp = this.campArmy(w, now);
+    const wood = camp ? camp.wood : w.wood;
     return {
       mine: ourCamp(w),
       byName: ourCamp(w) ? 'Наша дружина' : (this.byId.get(w.byId)?.name ?? 'Чужаки'),
@@ -1011,7 +1021,7 @@ export class LocalWorld implements WorldApi {
       // этой стороне лагеря не били.
       ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
       ...(w.rearGateAt !== undefined ? { rearGateAt: w.rearGateAt } : {}),
-      ...(w.wood !== undefined ? { wood: w.wood } : {}),
+      ...(wood !== undefined ? { wood } : {}),
       fate: this.fateFor(w.fate, id, now),
       // Часы голода — участникам осады и тем же чтением, что в обоих окнах осады.
       ...(hunger !== null ? { starvesAt: hunger } : {}),
@@ -1027,7 +1037,7 @@ export class LocalWorld implements WorldApi {
    * него нет: его крепость — укрепления (`world/works`), и они не добавляют ему
    * бойцов, а не пускают к нему наших.
    */
-  private campArmy(w: SiegeWindow): {
+  private campArmy(w: SiegeWindow, at: number): {
     kinds: Stack;
     gear: Partial<Record<UnitKind, number>>;
     resolve?: number;
@@ -1036,12 +1046,23 @@ export class LocalWorld implements WorldApi {
     men: number;
     power: number;
     name: string;
+    /** Какая доля мощи лагеря выбита обстрелом с башни к минуте `at` (`world/bombard`). */
+    thin: number;
+    /** План рогаток под обстрелом: по нему лагерь рубит на самом деле. */
+    wood: WoodPlan | undefined;
   } | null {
+    // Обстрел прикладывается к лагерю здесь и только здесь: лагерь, которым бьются и
+    // который видно со стены, прорежён, а рогатки со стороны города рубятся медленнее.
+    // Хранимое войско лагеря не трогается — выбитое записывается одним разом, когда
+    // осада снята (`liftSiege`).
+    const thin = thinAt(w.fire, at);
+    const wood = firePlan(w.fire, w.wood);
     if (ourCamp(w)) {
       const troops = this.save.figures.general.troops ?? {};
       const men = troopTotal(troops);
       if (men <= 0) return null;
       const kinds = kindsOf(troops);
+      for (const k of UNIT_KINDS) kinds[k] = Math.round(kinds[k] * (1 - thin));
       return {
         kinds,
         gear: this.ownGear(troops),
@@ -1049,21 +1070,44 @@ export class LocalWorld implements WorldApi {
         resolve: this.generalResolve(),
         setup: null,
         men: stackTotal(kinds),
-        power: men * (this.save.profile?.warriorPower ?? 1),
+        power: men * (1 - thin) * (this.save.profile?.warriorPower ?? 1),
         name: 'наш лагерь',
+        thin,
+        wood,
       };
     }
     const m = this.save.marches.find((x) => x.id === w.campId);
     if (!m) return null;
-    const party = raidingParty(this.save.seed, m.id, m.power);
+    const power = m.power * (1 - thin);
+    const party = raidingParty(this.save.seed, m.id, power);
     return {
       kinds: { ...party.kinds },
       gear: party.gear,
       setup: party.setup,
       men: stackTotal(party.kinds),
-      power: m.power,
+      power,
       name: m.fromName,
+      thin,
+      wood,
     };
+  }
+
+  /**
+   * Башня бьёт по лагерю под своим городом с той силой, какую дают готовое орудие и
+   * лучники дома в минуту `at` (`bombard.aimOf`). Зовётся там, где сила может смениться:
+   * окно открылось или пересчиталось — гарнизон изменился — и на пульсе, где мир узнаёт,
+   * что орудие поставили или сняли. Под чужим городом башни нет, и обстрел там нулевой
+   * тем же кодом.
+   */
+  private aimTower(id: SettlementId, w: SiegeWindow, at: number): void {
+    const gun = id === HOME_ID && !ourCamp(w) ? this.save.profile?.tower : undefined;
+    const home = gun ? this.defenders(at).all : {};
+    const archers = TROOPS_OF_KIND.archer.reduce((n, t) => n + Math.max(0, home[t] ?? 0), 0);
+    const next = reaim(w.fire, w.wood, siegeSince(w), at, aimOf(gun, archers));
+    if (next.fire === undefined) delete w.fire;
+    else w.fire = next.fire;
+    if (next.wood === undefined) delete w.wood;
+    else w.wood = next.wood;
   }
 
   /**
@@ -1071,8 +1115,8 @@ export class LocalWorld implements WorldApi {
    * (`world/works.campPass`). Окно из сохранения до этого правила строивших не знает, и
    * у него они — те, кто стоит в лагере сейчас: другого числа у такого окна нет.
    */
-  private buildersOf(w: SiegeWindow): number {
-    return w.builders ?? this.campArmy(w)?.men ?? 0;
+  private buildersOf(w: SiegeWindow, at: number): number {
+    return w.builders ?? this.campArmy(w, at)?.men ?? 0;
   }
 
   /**
@@ -1206,10 +1250,10 @@ export class LocalWorld implements WorldApi {
   } | null {
     const w = this.siegeOf(id, at);
     if (!w) return null;
-    const camp = this.campArmy(w);
+    const camp = this.campArmy(w, at);
     if (!camp) return null;
     const cast = strikeForecast(
-      { since: siegeSince(w), builders: this.buildersOf(w), gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: w.wood },
+      { since: siegeSince(w), builders: this.buildersOf(w, at), gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: camp.wood },
       at,
       going.rear ?? emptyStack(),
       going.front ?? null,
@@ -1308,6 +1352,13 @@ export class LocalWorld implements WorldApi {
     delete this.save.sieges[id];
     this.save.siegeAgainAt[id] = at + SIEGE_COOLDOWN;
     const camp = this.save.marches.find((m) => m.id === w.campId);
+    // Выбитое обстрелом с башни записывается в войско лагеря одним разом, здесь: до этой
+    // минуты оно выводилось при чтении (`campArmy`), а окна, из которого выводить, больше нет.
+    const thin = thinAt(w.fire, at);
+    if (camp && thin > 0) {
+      camp.power = Math.max(1, camp.power * (1 - thin));
+      camp.units = stackAfter(camp.units, stackLosses(camp.units, thin));
+    }
     if (camp) this.turnHome(camp, at, null);
     return w;
   }
@@ -1591,7 +1642,7 @@ export class LocalWorld implements WorldApi {
     const w = this.siegeOf(id, at);
     const s = this.byId.get(id);
     if (!w || !s) return;
-    const camp = this.campArmy(w);
+    const camp = this.campArmy(w, at);
     if (!camp) return;
     const power = this.powerNow(s, at);
     // Сравниваются **бойцы строя**, а не мощь с мощью: у лагеря игрока мощь
@@ -1655,7 +1706,7 @@ export class LocalWorld implements WorldApi {
     if (!w || !town) return;
     // Один отряд на выручку за раз: второй превратил бы фон в толчею.
     if (this.save.marches.some((m) => m.relief === id)) return;
-    if (!this.campArmy(w)) return;
+    if (!this.campArmy(w, at)) return;
     const byTribe = this.byId.get(w.byId)?.tribeId ?? null;
 
     let best: GenSettlement | null = null;
@@ -2330,9 +2381,11 @@ export class LocalWorld implements WorldApi {
     if (!w) return null;
     if (!this.siegeInsider(id, w) && !visible) return null;
     const hunger = this.hungerOf(id, now);
+    // Рогатки на карте — те, что стоят на самом деле: под обстрелом фронт растёт медленнее.
+    const wood = this.campArmy(w, now)?.wood ?? w.wood;
     return {
       since: siegeSince(w),
-      ...(w.wood !== undefined ? { wood: w.wood } : {}),
+      ...(wood !== undefined ? { wood } : {}),
       ...(hunger !== null ? { starvesAt: hunger } : {}),
     };
   }
@@ -4423,7 +4476,7 @@ export class LocalWorld implements WorldApi {
     if (troopTotal(force) === 0) return { error: STRIKE_FROM_TOWN };
     if (this.ourSiege(now)) return { error: `${CAMP_BUSY} ${CAMP_LEAVE}` };
     const w = this.siegeOf(id, now);
-    const camp = w && !ourCamp(w) ? this.campArmy(w) : null;
+    const camp = w && !ourCamp(w) ? this.campArmy(w, now) : null;
     if (!w || !camp) return { error: 'Под этими стенами лагеря нет.' };
     const town = id === HOME_ID ? this.save.home : this.byId.get(id);
     if (!town) return { error: 'Цель не найдена.' };
@@ -5721,8 +5774,8 @@ export class LocalWorld implements WorldApi {
       starvesAt: this.hunger(w),
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
-      campMen: this.campArmy(w)?.men ?? 0,
-      builders: this.buildersOf(w),
+      campMen: this.campArmy(w, now)?.men ?? 0,
+      builders: this.buildersOf(w, now),
       ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
       ...(w.rearGateAt !== undefined ? { rearGateAt: w.rearGateAt } : {}),
       ...(w.wood !== undefined ? { wood: w.wood } : {}),
@@ -6280,6 +6333,10 @@ export class LocalWorld implements WorldApi {
     this.muster(now);
     this.lockDefense(now, profile);
     this.advance(now);
+    // Орудие поставили, сняли или башня стала ниже его уровня — мир узнаёт об этом на
+    // пульсе, и сила обстрела меняется в эту минуту (`aimTower`).
+    const besieged = this.homeSiege(now);
+    if (besieged) this.aimTower(HOME_ID, besieged, now);
     const reports = this.fresh;
     this.fresh = [];
     const effects = this.save.effects;

@@ -161,6 +161,23 @@ export function SiegePanel() {
           );
         })}
       </div>
+      {/* Третий ответ на осаду: башня бьёт по лагерю, не выходя за стены. Числа — из мира. */}
+      {siege.fire && (
+        <div className="mod-list">
+          <div className="mod">
+            <span className="ico">🗼</span>
+            <span className="name">
+              Башня бьёт по лагерю
+              {siege.fire.slow > 0 && (
+                <em className="sub">рогатки со стороны города растут медленнее на {Math.round(siege.fire.slow * 100)}%</em>
+              )}
+            </span>
+            <span className="val pos">
+              выбито {Math.round(siege.fire.thin * 100)}% из {Math.round(siege.fire.cap * 100)}%
+            </span>
+          </div>
+        </div>
+      )}
       <p className="note">
         «Пройдут» — сколько бойцов строя проход пропустит к бою сейчас; остальные постоят у рогаток.
         {weak ? ` ${WEAK_HINT[weak]}` : ''}

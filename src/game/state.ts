@@ -91,6 +91,8 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     forge: [],
     // Округа не изучена: деревня видит ровно свой круг обзора, дальше темнота.
     survey: { done: 0, startedAt: 0, until: 0 },
+    // Орудия на башне нет: балиста открывается с пятого уровня башни, катапульта — с десятого.
+    engine: { id: null, until: 0 },
     decree: 'none',
     ration: 'normal',
     // Умеренный налог с первой минуты: без налога казна ничего не собирает, и потолок

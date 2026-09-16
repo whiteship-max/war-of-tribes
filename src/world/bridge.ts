@@ -20,6 +20,7 @@ import {
   soldierFoodPerDay,
   soldierPower,
   surveyRadius,
+  towerSeats,
   townFoodPerDay,
   warningSeconds,
 } from '@/game/derived';
@@ -35,6 +36,7 @@ import {
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
 import { onslaughtOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
+import { readyEngine } from '@/game/sim/tower';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
@@ -90,6 +92,16 @@ export function militiaPlaces(s: GameState): { foot: Sector[]; archers: Sector[]
     foot: SECTORS.filter((id) => setup.sectors[id].infantry > 0),
     archers: SECTORS.filter((id) => setup.sectors[id].archer > 0),
   };
+}
+
+/**
+ * Орудие башни для слепка — только готовое: сила и расчёт из таблицы орудий и места на
+ * башне. Нет орудия — поля нет вовсе, и слепок деревни без башенного орудия тот же, что
+ * до орудий, байт в байт. Кто из лучников на башне, мир решает сам: это лучники дома.
+ */
+function tower(s: GameState): Pick<PlayerProfile, 'tower'> {
+  const engine = readyEngine(s);
+  return engine ? { tower: { slow: engine.slow, thin: engine.thin, crew: engine.crew, seats: towerSeats(s) } } : {};
 }
 
 /** Прибавки навыков агентов для слепка: только ненулевые. */
@@ -197,6 +209,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     survey: surveyRadius(s),
     intelKeen: intelKeen(s),
     mountGear: mountGear(s),
+    ...tower(s),
     // Статуя Героя: сколько дружины полководец уводит в поле.
     // Навыки агентов: три прибавки числами. Мир про уровни не знает, а кладёт
     // каждую туда, где у неё своя дверь, — и ни одна не та, которой владеет

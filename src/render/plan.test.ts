@@ -27,7 +27,6 @@ import {
   ROAD_THROUGH,
   SPARE_PLOTS,
   THROUGH_HALF,
-  TOWER_PLACE,
   isOutside,
   placeOf,
   plotRadius,
@@ -292,8 +291,8 @@ describe('план поселения', () => {
     const camera = Math.atan2(9, 12);
     expect(Math.sin(GATE_ANGLE)).toBeCloseTo(Math.cos(camera), 5);
     expect(Math.cos(GATE_ANGLE)).toBeCloseTo(Math.sin(camera), 5);
-    // Башня стоит сбоку от ворот, а не поперёк них.
-    const spot = spotAt(TOWER_PLACE.r, TOWER_PLACE.angle);
+    // Башня стоит ближе всех к воротам, но сбоку от въезда, а не поперёк него.
+    const spot = placeOf('tower');
     const d = distToSegment(
       spot.x,
       spot.z,
@@ -318,7 +317,7 @@ describe('план поселения', () => {
 
   it('у каждого здания, кроме стены, есть место в плане', () => {
     for (const def of BUILDINGS) {
-      if (def.id === 'palisade' || def.id === 'campfire' || def.id === 'tower') continue;
+      if (def.id === 'palisade' || def.id === 'campfire') continue;
       expect(PLAN[def.id], `${def.id} забыт в плане`).toBeTruthy();
     }
   });

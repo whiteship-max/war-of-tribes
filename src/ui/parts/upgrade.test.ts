@@ -38,6 +38,7 @@ import {
   recruitRate,
   storageCap,
   taxIncomePerDay,
+  towerSeats,
   townHallBuildMult,
   workerCount,
 } from '@/game/derived';
@@ -153,6 +154,7 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   mountGear: { kind: 'count', read: (s) => playerProfile(s).mountGear ?? 0 },
   defense: { kind: 'more', read: (s) => playerProfile(s).defense },
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
+  seats: { kind: 'more', read: towerSeats },
   hero: { kind: 'count', read: (s) => heroInfo(s).men },
   loyalty: { kind: 'plusAfter', read: payGraceDays },
   heal: { kind: 'share', read: healShare },

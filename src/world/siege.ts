@@ -11,6 +11,7 @@
 // придётся отвечать на вопрос, что делать с часами, пока игрок спал.
 import type { Fate, SettlementId } from './types';
 import type { WoodPlan } from './works';
+import type { Fire } from './bombard';
 import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
 
@@ -103,6 +104,12 @@ export interface SiegeWindow {
    * стоит в лагере на минуту вопроса: другого числа у такого окна нет.
    */
   builders?: number;
+  /**
+   * Обстрел лагеря с башни осаждённого города (`world/bombard`): сила и что выбито к
+   * минуте, когда она сменилась. Нет поля — башня не била. Переносится при пересчёте
+   * часов голода той же осады.
+   */
+  fire?: Fire;
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -157,6 +164,8 @@ export function openSiege(at: {
   wood?: WoodPlan;
   /** Кто ставил рогатки: у новой осады — лагерь в минуту постановки, у той же — переносится. */
   builders?: number;
+  /** Обстрел той же осады: переносится при пересчёте. */
+  fire?: Fire;
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -170,6 +179,7 @@ export function openSiege(at: {
     ...(at.fate !== undefined ? { fate: at.fate } : {}),
     ...(at.wood !== undefined ? { wood: at.wood } : {}),
     ...(at.builders !== undefined ? { builders: Math.max(0, Math.round(at.builders)) } : {}),
+    ...(at.fire !== undefined ? { fire: at.fire } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),

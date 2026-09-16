@@ -27,6 +27,7 @@ export { releaseBonded } from './mutiny';
 export { cancelRecruit, startRecruit } from './army';
 export { dismissSoldiers } from './upkeep';
 export { cancelSurvey, startSurvey, surveyInfo } from './survey';
+export { engineInfo, setEngine } from './tower';
 export { dailyReward, dailyStatus, finishDaily, startDaily } from './daily';
 
 /** Улучшение — стройка: стоит ресурсов, занимает труд и идёт в общей очереди. */

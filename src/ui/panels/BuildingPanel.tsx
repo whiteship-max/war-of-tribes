@@ -69,6 +69,7 @@ import { Watch } from '../parts/Watch';
 import { AgentPlaces } from '../parts/AgentPlaces';
 import { Temple } from '../parts/Temple';
 import { Walls } from '../parts/Walls';
+import { TowerEngine } from '../parts/TowerEngine';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
@@ -324,11 +325,18 @@ function BuildingData({ b }: { b: Building }) {
         </>
       );
     case 'palisade':
+      return (
+        <>
+          <GenericData b={b} />
+          <Walls b={b} />
+        </>
+      );
     case 'tower':
       return (
         <>
           <GenericData b={b} />
           <Walls b={b} />
+          <TowerEngine />
         </>
       );
     case 'statue':

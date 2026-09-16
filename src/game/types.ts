@@ -337,6 +337,22 @@ export interface SurveyState {
   until: number;
 }
 
+/** Орудие на башне (`data/engines.ts`). */
+export type EngineId = 'ballista' | 'catapult';
+
+/**
+ * Орудие башни. Ставится из отметки времени, как ступень изучения округи: здесь только
+ * какое и когда встанет, а готово ли — считается при чтении (`sim/tower.readyEngine`).
+ * Поле новое и необязательное по смыслу: партия, записанная до башни с орудиями,
+ * приезжает умолчанием, и версию сохранения это не поднимает.
+ */
+export interface EngineState {
+  /** Какое орудие стоит или ставится; null — башня без орудия. */
+  id: EngineId | null;
+  /** Игровое время, когда его поставят; до этой минуты башня молчит. */
+  until: number;
+}
+
 /** Чем кончилась сегодняшняя попытка. 'none' — сегодня ещё не начинали. */
 export type DailyResult = 'none' | 'lost' | 'won';
 
@@ -466,6 +482,8 @@ export interface GameState {
   forge: ForgeOrder[];
   /** Изучение округи в Дозоре: ступени и текущая работа. См. SurveyState. */
   survey: SurveyState;
+  /** Орудие на башне: какое и когда встанет. См. EngineState. */
+  engine: EngineState;
   /** Указ вождя: действует, пока выбран. */
   decree: DecreeId;
   /** Рацион племени. */

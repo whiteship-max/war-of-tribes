@@ -53,6 +53,7 @@ import {
   recruitRate,
   storageCap,
   taxIncomePerDay,
+  towerSeats,
   townHallBuildMult,
   warningSeconds,
 } from '@/game/derived';
@@ -151,6 +152,7 @@ const GAUGES: Gauge[] = [
   },
   { id: 'defense', read: defense, say: more('к защите') },
   { id: 'archers', read: militiaArchers, say: more('стрелков ополчения на стене') },
+  { id: 'seats', read: towerSeats, say: more('мест лучников на башне') },
   {
     // Бойцы строя — мерка боя, а не головы: латник в строю весит восьмерых дубинщиков.
     id: 'hero',

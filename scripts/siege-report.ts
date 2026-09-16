@@ -48,13 +48,14 @@ import { militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
-import { buildingStat, defense, housingCapacity, productionPerDay, selfCost, storageCap, hiddenStash, upgradeCost, wageOf } from '@/game/derived';
+import { buildingStat, defense, housingCapacity, productionPerDay, selfCost, storageCap, hiddenStash, towerSeats, upgradeCost, wageOf } from '@/game/derived';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { GOOD_BY_ID } from '@/game/data/market';
 import { BUILDINGS } from '@/game/data/buildings';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
-import type { GameState } from '@/game/types';
+import type { EngineId, GameState } from '@/game/types';
+import { ENGINE_BY_ID } from '@/game/data/engines';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303];
@@ -281,8 +282,10 @@ interface Frozen {
   g: GameState;
 }
 
-async function freezeSiege(seed: number, level: number): Promise<Frozen | null> {
+async function freezeSiege(seed: number, level: number, engine: EngineId | null = null): Promise<Frozen | null> {
   const g = townAt(level);
+  // Орудие готово с первой минуты: башня уровня L, расчёт — лучники гарнизона (TOWN_MIX).
+  if (engine) g.engine = { id: engine, until: 0 };
   let now = 1_700_000_000_000;
   const store = memory();
   const world = new LocalWorld({ seed, now: () => now, storage: store });
@@ -350,6 +353,8 @@ console.log('');
 console.log(`--- укрепления во времени: вылазка от минуты постановки лагеря (дозревают за ${CAMP_WORKS_RIPE / MIN} мин) ---`);
 console.log('настоящий мир, LocalWorld.sortie; «весь» — весь гарнизон, «×2» — отряд вдвое больше лагеря');
 const frozenByLevel = new Map<number, Frozen[]>();
+/** Строка «весь» по уровням — с ней сравниваются орудия башни в настоящем мире. */
+const wholeRow = new Map<number, string[]>();
 for (const level of LEVELS) {
   const frozen: Frozen[] = [];
   for (const seed of TOWN_SEEDS) {
@@ -391,6 +396,7 @@ for (const level of LEVELS) {
       cells.push((n ? pct(won, n) : '—').padStart(5));
     }
     console.log(`  ${kind.padEnd(6)} ${cells.join('')}`);
+    if (kind === 'весь') wholeRow.set(level, cells);
   }
 }
 
@@ -846,14 +852,14 @@ console.log('гарнизона расходится, и это не отстр�
 console.log('кроме тайника (одна дверь участи с прорвавшимся набегом, `spoils.fate`). На первом уровне');
 console.log('падать нечему. Во что это обходится во времени партии — sack:report, раздел «лестница».');
 
-// ------------------------------------------------ орудия башни: до кода ---
+// ------------------------------------------------------- орудия башни ---
 //
 // Раздел заведён до кода башни (docs/tower.md), тем же порядком, каким заводилось
 // содержание войска: сначала числа, на которых стоит предложение, потом решение
-// владельца, потом код. Орудий в игре ещё нет, поэтому их действие здесь — модель,
-// а не мир: вылазка всем гарнизоном против лагеря из той же замороженной осады
-// (раздел «во времени»), у которого одно из двух чисел сдвинуто так, как сдвинуло бы
-// его орудие.
+// владельца, потом код. Первая половина — модель, из которой числа орудий выведены:
+// вылазка всем гарнизоном против лагеря из той же замороженной осады (раздел «во
+// времени»), у которого одно из двух чисел сдвинуто так, как сдвинуло бы его орудие.
+// Вторая половина — те же орудия в настоящем мире.
 //
 //  - «рогатки медленнее на c» — фронт рубится долей 1 − c (`sideWorks` с таким планом):
 //    так катапульта, бьющая по укреплениям, выглядит на чтении, без тика;
@@ -922,16 +928,12 @@ function modelRow(frozen: Frozen[], slow: number, thin: number, keepPass = false
 }
 
 console.log('');
-console.log('--- орудия башни: числа до кода (docs/tower.md) ---');
+console.log('--- орудия башни (docs/tower.md) ---');
 console.log('');
 console.log('башня сейчас — по уровню (посёлок раздела «во времени»: все постройки уровня L, войско две мерки)');
-/**
- * Места лучников на башне — **предложение** docs/tower.md, а не правило игры: одно место
- * на первом уровне и ещё одно каждые три уровня, так что на десятом их ровно столько,
- * сколько людей в расчёте катапульты (раздел ниже).
- */
-const SEATS = (level: number): number => 1 + Math.floor((level - 1) / 3);
-console.log(' ур  оборона башни  оборона посёлка  доля башни  ополчение  из них стрелков  лучников в войске  их доля в обороне  мест (предл.)  их доля в обороне  цена уровня (добра)');
+/** Места лучников на башне этого уровня — правилом игры (`derived.towerSeats`). */
+const SEATS = (level: number): number => towerSeats(townAt(level));
+console.log(' ур  оборона башни  оборона посёлка  доля башни  ополчение  из них стрелков  лучников в войске  их доля в обороне  мест лучников  их доля в обороне  цена уровня (добра)');
 const tower = BUILDINGS.find((b) => b.id === 'tower')!;
 for (const level of [1, 5, 10]) {
   const g = townAt(level);
@@ -993,6 +995,55 @@ for (const level of LEVELS) {
 console.log('c — доля выработки фронта, которую съедает орудие; s — доля мощи лагеря, выбитая к минуте вылазки;');
 console.log(`«обстрел до S» — выбитая доля мощи лагеря растёт ровно со временем за ${CAMP_WORKS_RIPE / MIN} мин (часы рогаток) до S и дальше не растёт; проход прежний.`);
 
+// Орудия в игре есть — и та же кривая меряется настоящим миром: осада замораживается с
+// готовым орудием на башне (`GameState.engine`, слепок `PlayerProfile.tower`), вылазка —
+// `LocalWorld.sortie` всем гарнизоном, как в разделе «во времени», на тех же сидах. Модель
+// выше остаётся тем, из чего числа выведены; этот раздел — то, что из них получилось.
+console.log('');
+console.log('вылазка всем гарнизоном под орудием — настоящий мир (LocalWorld.sortie, орудие готово с постановки лагеря)');
+console.log('  Δ, мин                   ' + DELAYS.map((d) => String(d).padStart(5)).join('') + '   безнадёжна с');
+for (const [level, engine] of [
+  [5, 'ballista'],
+  [10, 'ballista'],
+  [10, 'catapult'],
+] as const) {
+  const frozen: Frozen[] = [];
+  for (const seed of TOWN_SEEDS) {
+    const fz = await freezeSiege(seed, level, engine);
+    if (fz) frozen.push(fz);
+  }
+  const base = wholeRow.get(level) ?? [];
+  console.log(`  L${level} без орудия (раздел «во времени») ${base.join('')}`);
+  const cells: string[] = [];
+  let hopeless: number | null = null;
+  let tail = 0;
+  for (const d of DELAYS) {
+    let won = 0;
+    let n = 0;
+    for (const fz of frozen) {
+      const at = fz.since + d * MIN;
+      if (at >= fz.starvesAt) continue;
+      for (let v = 0; v < VARIANTS; v++) {
+        const t = await thaw(fz, at, v);
+        if (!t.pulse.siege) continue;
+        const res = await t.world.sortie(t.garrison);
+        if (res.error && !/К рогаткам сейчас не пробиться/.test(res.error)) throw new Error(res.error);
+        n++;
+        if (res.won) won++;
+      }
+    }
+    cells.push((n ? pct(won, n) : '—').padStart(5));
+    if (n > 0 && won === 0 && hopeless === null) hopeless = d;
+    if (n > 0 && won > 0) {
+      hopeless = null;
+      if (d >= 24) tail = Math.max(tail, won / n);
+    }
+  }
+  const said = hopeless !== null ? `${hopeless}-й мин` : `хвост до ${Math.round(tail * 100)}%`;
+  console.log(`  L${level} ${ENGINE_BY_ID[engine].name.toLowerCase().padEnd(21)} ${cells.join('')}   ${said}`);
+}
+console.log('«хвост» — самая высокая доля побед с 24-й минуты: вылазка, не ставшая безнадёжной до голода.');
+
 console.log('');
 console.log('лучник против орудия: цена, с которой орудие сравнивается');
 {
@@ -1025,9 +1076,12 @@ console.log('лучник против орудия: цена, с которой
   for (const [name, level] of [['балиста', 5], ['катапульта', 10]] as const) {
     const price = inGold(upgradeCost(tower, level));
     const crew = Math.ceil(price / perSiege);
+    const id: EngineId = name === 'балиста' ? 'ballista' : 'catapult';
+    const inCode = ENGINE_BY_ID[id].crew;
     console.log(
       `${name}: цена — улучшение башни до ${level}-го уровня, ${price.toFixed(0)} золота своим трудом; ` +
-        `расчёт, чьё жалованье от осады до осады не меньше цены: ${crew} (${(crew * perSiege).toFixed(0)} золота); мест на ${level}-м уровне: ${SEATS(level)}`,
+        `расчёт, чьё жалованье от осады до осады не меньше цены: ${crew} (${(crew * perSiege).toFixed(0)} золота); мест на ${level}-м уровне: ${SEATS(level)}; ` +
+        `в коде (data/engines): ${inCode}${inCode === crew ? '' : ' — РАСХОДИТСЯ'}`,
     );
   }
 }

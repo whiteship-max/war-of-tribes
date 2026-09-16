@@ -7,6 +7,7 @@ import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { ArmySetup, BattleResult, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
+import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
 import type { TraitNumbers } from '@/game/data/traits';
 
@@ -203,6 +204,12 @@ export interface SiegeView {
    * держат те, кто их строил, а не те, кто жив сейчас.
    */
   builders: number;
+  /**
+   * Обстрел лагеря с нашей башни: сколько мощи лагеря выбито сейчас, до скольких дойдёт
+   * и насколько медленнее рубятся рогатки со стороны города. Нет поля — башня не бьёт.
+   * Считает мир той же дверью, какой лагерь бьётся (`LocalWorld.campArmy`).
+   */
+  fire?: { thin: number; cap: number; slow: number };
   /**
    * До какой минуты занят проход через рогатки фронта (со стороны города). Нет
    * поля — проход свободен. Это отметка окна осады как есть: свободную долю панель
@@ -1269,6 +1276,12 @@ export interface PlayerProfile {
   intelKeen?: number;
   /** Ступень снаряжения, которую конюшня добавляет коннице игрока. */
   mountGear?: number;
+  /**
+   * Орудие на башне, если оно поставлено и башне хватает уровня: сила и расчёт
+   * (`game/data/engines`) и места на башне. Сколько лучников дома, мир считает сам — по
+   * гарнизону (`world/muster`). Нет поля — башня молчит; версия мира не растёт.
+   */
+  tower?: TowerGun;
   /**
    * Натиск полководца: прибавка к стойкости **только в боях, которые он ведёт** —
    * удар по двору и логову, перехват, удар по лагерю, наш лагерь под чужими
