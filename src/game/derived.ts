@@ -81,6 +81,8 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } 
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
+import { DESERT_SHARE, UPKEEP_TEXT, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
+import { weightOf } from './battle/kinds';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
@@ -645,12 +647,125 @@ export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
  */
 export const heroMen = (s: GameState): number => Math.round(statOf(s, 'statue', 'hero'));
 
+// ---------- Содержание войска ----------
+//
+// Потолка дружины нет: войско держит цена. Каждый боец ест из общего котла и
+// получает жалованье из казны; нечем кормить или нечем платить — войско убывает
+// (`sim/upkeep.ts`). Здесь всё, что считается при чтении: жалованье, терпение,
+// доли неоплаченного и некормленного. Числа — `data/upkeep.ts`, замер —
+// `npm run pop:report`, раздел «Содержание войска».
+
 /**
- * Сколько бойцов полководец уводит с собой в поле. Растёт с уровнем Статуи и
- * ничем больше: это единственное ограничение похода, и оно же — причина, по
- * которой дома всегда кто-то остаётся.
+ * Какую долю жалованья платит деревня, чья вера раздаёт казну (закят): воин там
+ * не наёмник, а долг. Доля — ровно та, что остаётся от сбора с человека после
+ * раздачи: при ней деревня держит столько же войска, сколько соседи при том же
+ * налоге, на любом уровне храма и при любом налоге.
+ *
+ * Постоянной долей это сделать нельзя, и это замерено, а не предположено: закят
+ * растёт с уровнем храма, а сбор — с налогом, и доля, подобранная под умеренный
+ * налог на десятом уровне, на высоком налоге делает жалованье дешевле налога с
+ * головы — армию не держит уже ничто (раздел «Закят» в `pop:report`).
+ *
+ * Вера, которая собирает (десятина) или не трогает казну, платит полное жалованье.
+ * Раздаёт больше, чем собирает налог, — полное тоже: платить воинам нечем, и
+ * дешевле тут делать не от чего.
  */
-export const commandCap = (s: GameState): number => Math.round(statOf(s, 'statue', 'command'));
+export function wageShare(s: GameState): number {
+  const tax = taxOf(s).perPop * TAX_PER_POP;
+  const faith = faithTilt(s).goldPerPop;
+  if (faith >= 0 || tax + faith <= 0) return 1;
+  return Math.min(1, (tax + faith) / tax);
+}
+
+/** Жалованье одного бойца этого вида за игровой день, золотом. */
+export const wageOf = (s: GameState, troop: TroopId): number =>
+  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(troop)) * wageShare(s);
+
+/** Жалованье всего войска за игровой день. Новобранцев на учениях оно не касается. */
+export const wagesPerDay = (s: GameState): number =>
+  TROOP_IDS.reduce((sum, id) => sum + Math.max(0, s.army?.[id] ?? 0) * wageOf(s, id), 0);
+
+/** Сколько войску причитается сейчас: в отсрочку приведённой партии — ничего. */
+export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ? 0 : wagesPerDay(s));
+
+/** Сколько игровых дней войско терпит неуплату и голод. Работа Статуи — верность полководцу. */
+export const payGraceDays = (s: GameState): number => statOf(s, 'statue', 'loyalty');
+
+/**
+ * Какая доля войска не оплачена: нехватка, делённая на жалованье. Пока долга нет,
+ * неоплаченных нет — плата идёт из казны, сколько бы она ни убывала.
+ */
+export function unpaidShare(s: GameState): number {
+  if ((s.pay?.debt ?? 0) <= 0) return 0;
+  const due = wagesDue(s);
+  if (due <= 0) return 0;
+  return Math.max(0, Math.min(1, (due - taxIncomePerDay(s)) / due));
+}
+
+/**
+ * Нехватка еды, когда амбар пуст: кого нечем кормить. **Войско ест последним** —
+ * сначала посёлок, и голод у жителей начинается только тогда, когда нехватка
+ * больше того, что ест войско (`town`). Иначе за армию платил бы посёлок, и потолок
+ * по еде войска не касался бы вовсе.
+ */
+export function foodShortfall(s: GameState, mods: SeasonModifiers = seasonMods(s)): { army: number; town: boolean } {
+  if (s.resources.food > 0.5) return { army: 0, town: false };
+  const short = foodConsumptionPerDay(s, mods) - productionPerDay(s, mods).food;
+  if (short <= 0) return { army: 0, town: false };
+  const army = armySize(s) * soldierFoodPerDay(s, mods);
+  return { army: army > 0 ? Math.min(1, short / army) : 0, town: short > army };
+}
+
+export interface UpkeepInfo {
+  /** Жалованье войска за день по нынешнему составу. */
+  wages: number;
+  /** Сколько причитается сейчас: ноль в отсрочку. */
+  due: number;
+  /** Что дают казне налог и вера за день. */
+  income: number;
+  debt: number;
+  graceDays: number;
+  /** Сколько дней живой игры войско уже терпит. */
+  lateDays: number;
+  /** Дней до конца отсрочки; ноль — платят. */
+  amnestyDays: number;
+  /** Дней до пустой казны при нынешней нехватке; null — казна не убывает. */
+  treasuryDays: number | null;
+  unpaid: number;
+  unfed: number;
+  /** Почему войско терпит или уходит; null — не терпит. */
+  why: 'pay' | 'food' | null;
+  /** Сколько бойцов уходит за день, если терпение кончилось; ноль — не уходят. */
+  leavingPerDay: number;
+}
+
+/** Всё о содержании войска в эту минуту — для казарм, ратуши и тревоги. */
+export function upkeepInfo(s: GameState): UpkeepInfo {
+  const wages = wagesPerDay(s);
+  const due = wagesDue(s);
+  const income = taxIncomePerDay(s);
+  const unpaid = unpaidShare(s);
+  const unfed = foodShortfall(s).army;
+  const graceDays = payGraceDays(s);
+  const lateDays = (s.pay?.late ?? 0) / DAY_LENGTH;
+  const share = Math.max(unpaid, unfed);
+  const why = share <= 0 ? null : unpaid >= unfed ? 'pay' : 'food';
+  const gap = due - income;
+  return {
+    wages,
+    due,
+    income,
+    debt: s.pay?.debt ?? 0,
+    graceDays,
+    lateDays,
+    amnestyDays: Math.max(0, ((s.pay?.from ?? 0) - s.time) / DAY_LENGTH),
+    treasuryDays: gap > 0 && s.gold > 0 ? s.gold / gap : null,
+    unpaid,
+    unfed,
+    why,
+    leavingPerDay: why && lateDays >= graceDays ? DESERT_SHARE * share * armySize(s) : 0,
+  };
+}
 
 /**
  * Герой дома — значит, пойдёт со следующим походом. Своего срока «ранен» у героя
@@ -1632,13 +1747,37 @@ export function alerts(s: GameState): Alert[] {
   const out: Alert[] = [];
   const eat = foodConsumptionPerDay(s);
   const foodDays = s.resources.food / Math.max(1, eat);
-  if (s.resources.food <= 0.5) out.push({ id: 'starving', icon: '💀', text: 'Еда кончилась — племя голодает', goto: 'storage' });
+  const short = foodShortfall(s);
+  // Нечем кормить только войско — это тревога о войске, ниже; о голоде племени
+  // говорится, только когда нехватка дошла до посёлка.
+  if (s.resources.food <= 0.5 && (short.town || short.army === 0)) {
+    out.push({ id: 'starving', icon: '💀', text: 'Еда кончилась — племя голодает', goto: 'storage' });
+  }
   else if (foodDays < 1) out.push({ id: 'food', icon: '🍖', text: `Еда на исходе: меньше дня запаса`, goto: 'storage' });
 
   const heat = heatingWoodPerDay(s);
   if (heat > 0) {
     if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дрова кончились — племя мёрзнет', goto: 'storage' });
     else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров хватит меньше чем на день', goto: 'storage' });
+  }
+  // Войско. Одна строка на обе причины — неуплату и голод, — потому что и дверь у
+  // них одна (`sim/upkeep`). Сначала то, что уже идёт, потом срок, потом отсрочка,
+  // потом казна, которая вот-вот опустеет.
+  const up = upkeepInfo(s);
+  const flow = UPKEEP_TEXT.flowSub(up.due || up.wages, up.income);
+  if (up.why) {
+    const why = UPKEEP_TEXT.why[up.why];
+    const sub = up.why === 'food' ? UPKEEP_TEXT.foodSub : flow;
+    const goto: BuildingTypeId = up.why === 'food' ? 'storage' : 'barracks';
+    if (up.leavingPerDay > 0) {
+      out.push({ id: 'desert', icon: UPKEEP_TEXT.icon, text: UPKEEP_TEXT.leavingAlert(why, Math.max(1, Math.round(up.leavingPerDay))), sub, goto });
+    } else {
+      out.push({ id: 'desert-soon', icon: UPKEEP_TEXT.icon, text: UPKEEP_TEXT.graceAlert(why, Math.max(1, Math.ceil(up.graceDays - up.lateDays))), sub, goto });
+    }
+  } else if (up.amnestyDays > 0 && up.wages > up.income) {
+    out.push({ id: 'wages-soon', icon: UPKEEP_TEXT.icon, text: UPKEEP_TEXT.amnestyAlert(Math.ceil(up.amnestyDays)), sub: flow, goto: 'barracks' });
+  } else if (up.treasuryDays !== null && up.treasuryDays < up.graceDays) {
+    out.push({ id: 'treasury', icon: UPKEEP_TEXT.icon, text: UPKEEP_TEXT.treasuryAlert(Math.max(1, Math.ceil(up.treasuryDays))), sub: flow, goto: 'barracks' });
   }
   // Порядок. Второй механики под мятеж нет — как и под ересь: строка тревоги,
   // ропот со сроком и событие с выбором. Цена стоит второй строкой прямо под

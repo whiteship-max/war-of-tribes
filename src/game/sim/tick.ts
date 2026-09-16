@@ -11,6 +11,7 @@ import {
   buildRate,
   currentSite,
   foodConsumptionPerDay,
+  foodShortfall,
   heatingWoodPerDay,
   moraleTarget,
   policyMoralePerDay,
@@ -36,6 +37,7 @@ import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
 import { marketTick } from './market';
 import { recruitTick } from './army';
+import { upkeepTick } from './upkeep';
 import { settleHires } from './hire';
 import { roll, rollInt } from './roll';
 import { log, trimLog } from './log';
@@ -89,8 +91,15 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   recordProduced(s, gained);
   const eat = (foodConsumptionPerDay(s, mods) * dt) / DAY_LENGTH;
   s.resources.food -= eat;
-  if (s.resources.food < 0) {
-    s.resources.food = 0;
+  // Амбар пуст, только если еды на этом шаге не хватило, — а не «почти пуст»: порог
+  // тревоги (`derived.foodShortfall`) шагу не судья.
+  const empty = s.resources.food < 0;
+  if (empty) s.resources.food = 0;
+  // Амбар пуст — войско ест последним. Нехватку сначала несёт оно (уходит через
+  // дверь содержания, шагом ниже), и жители голодают только тогда, когда нехватка
+  // больше того, что ест войско: за армию посёлок больше не платит.
+  const hunger = empty ? foodShortfall(s, mods) : { army: 0, town: false };
+  if (hunger.town) {
     s.starvation += dt;
     if (s.starvation >= STARVATION_DEATH) {
       s.starvation = STARVATION_DEATH * 0.5;
@@ -142,6 +151,9 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   // 3б. Рынок: налог капает в казну, дневной прилавок обновляется со сменой дня,
   // вернувшиеся караваны разгружаются.
   marketTick(s, dt, taxIncomePerDay(s));
+  // 3в. Содержание войска: жалованье из казны, долг, терпение и уход — голодом или
+  // неуплатой, одной дверью. Уход только при игроке; долг копится и без него.
+  upkeepTick(s, dt, !opts.offline, hunger.army);
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
   const target = moraleTarget(s);

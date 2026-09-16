@@ -58,7 +58,6 @@ const profile = (defense: number, warning = 120): PlayerProfile => ({
   warriorPower: 12,
   units: { warrior: 40, scout: 6 },
   army: { ...ARMY },
-  command: 120,
   warning,
   stock: { food: 900, wood: 600 },
   stash: 0,

@@ -26,7 +26,7 @@
 //   HOURS=8 npx vite-node scripts/lair-report.ts
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { generateWorld, isLair, lairAnchor } from '@/world/gen';
-import { lairArms, lairLoot, lairPhase, lairPop, lairPower } from '@/world/lairs';
+import { lairArms, lairGold, lairLoot, lairPhase, lairPop, lairPower } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import {
   AI_RANGE,
@@ -148,7 +148,7 @@ console.log(`  Хозяйство: старт ${n1(perDay0)} ед./день, ч�
 console.log(`  За круг набега (${RAID_MINUTES} мин) это ${Math.round(perDay0 * RAID_MINUTES)} и ${Math.round(perDay2 * RAID_MINUTES)} ед.`);
 console.log(`  Склад стартовой деревни: ${storageCap(createInitialState())}. Кузница 1-го уровня: ${Math.round(forgeHour)} предметов в час.`);
 console.log('');
-console.log('  логово          мощь   народу   добра   оружия   оружие своей ковкой        доля круга');
+console.log('  логово          мощь   народу   добра   золота   оружия   оружие своей ковкой        доля круга');
 
 const anchor51 = sampleAnchor(51)?.anchor ?? 50;
 for (const [name, k] of [
@@ -158,14 +158,16 @@ for (const [name, k] of [
 ] as [string, number][]) {
   const power = lairPower(anchor51, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE * k);
   const loot = lairLoot(power);
+  const gold = lairGold(power);
   const arms = lairArms(power);
   const worth = loot + armsCost(arms);
   const mins = arms / (forgeHour / 60);
   console.log(
-    `  ${name.padEnd(14)}${pad(n1(power), 6)}  ${pad(lairPop(power), 7)}  ${pad(loot, 6)}  ${pad(arms, 7)}   ${`${armsCost(arms)} ед. и ${n1(mins)} мин горна`.padEnd(24)}  ${pad(`${Math.round((worth / (perDay2 * RAID_MINUTES)) * 100)}%`, 5)}`,
+    `  ${name.padEnd(14)}${pad(n1(power), 6)}  ${pad(lairPop(power), 7)}  ${pad(loot, 6)}  ${pad(gold, 7)}  ${pad(arms, 7)}   ${`${armsCost(arms)} ед. и ${n1(mins)} мин горна`.padEnd(24)}  ${pad(`${Math.round((worth / (perDay2 * RAID_MINUTES)) * 100)}%`, 5)}`,
   );
 }
 console.log('');
+console.log('  «Золота» — казна логова до тайника и обоза; сколько дней налога она стоит — `pop:report`.');
 console.log('  «Доля круга» — вся награда (добро плюс материалы взятого оружия) против того,');
 console.log('  что хозяйство даёт за это же время. Пока она заметно меньше половины, набег');
 console.log('  остаётся вылазкой за снаряжением, а не заменой производству.');
@@ -181,7 +183,6 @@ const profile = (): PlayerProfile =>
     warriorPower: 12,
     units: { warrior: 40, scout: 6 },
     army: { legionary: 40, spearman: 30, archer: 20 },
-    command: 400,
     warning: 120,
     stock: { food: 900, wood: 600 },
     stash: 0,

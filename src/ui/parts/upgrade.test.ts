@@ -32,6 +32,7 @@ import {
   marketStock,
   maxLevelFor,
   moraleBreakdown,
+  payGraceDays,
   pietyBreakdown,
   productionPerDay,
   recruitRate,
@@ -41,11 +42,11 @@ import {
   workerCount,
 } from '@/game/derived';
 import { applyExpedition } from '@/game/sim/expedition';
+import { tick } from '@/game/sim/tick';
 import { popGrowth } from '@/game/sim/population';
 import { surveyInfo } from '@/game/sim/survey';
 import { assignWorker } from '@/game/sim/workers';
 import { playerProfile } from '@/world/bridge';
-import { LocalWorld } from '@/world/local/LocalWorld';
 import { NOTHING_GAINED, gainText, readVillage, shown, upgradeGain, upgradeGains } from './upgrade';
 
 const stripComments = (code: string): string =>
@@ -153,7 +154,7 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   defense: { kind: 'more', read: (s) => playerProfile(s).defense },
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
   hero: { kind: 'count', read: (s) => heroInfo(s).men },
-  command: { kind: 'plusAfter', read: (s) => playerProfile(s).command ?? 0 },
+  loyalty: { kind: 'plusAfter', read: payGraceDays },
   heal: { kind: 'share', read: healShare },
   warning: { kind: 'more', read: (s) => playerProfile(s).warning ?? 0 },
   survey: { kind: 'upto', read: (s) => Math.min(SURVEY_MAX, surveyInfo(s).level) },
@@ -314,7 +315,7 @@ describe('кнопка видит каждое число здания, раст
     // которого что-то растёт с уровнем, и кнопка обязана это заметить.
     const STATS = [
       'housing', 'storage', 'defense', 'morale', 'archers', 'heal', 'intel', 'warn',
-      'train', 'mountGear', 'hidden', 'feast', 'hero', 'command',
+      'train', 'mountGear', 'hidden', 'feast', 'hero', 'loyalty',
     ] as const;
     const labels = (type: BuildingTypeId): string => {
       const out: string[] = [];
@@ -408,32 +409,37 @@ describe('лазарет', () => {
 });
 
 describe('Статуя', () => {
-  it('«станет N» — ровно столько бойцов мир отдаёт полководцу, а на одного больше — нет', async () => {
-    const START = 1_700_000_000_000;
-    /** Сколько бойцов мир согласился отдать полководцу при Статуе этого уровня. */
-    const limit = async (level: number): Promise<number> => {
+  it('«станет N дн.» — ровно через столько дней неуплаты войско начинает уходить', () => {
+    /** Через сколько игровых дней неуплаты ушёл первый боец при Статуе этого уровня. */
+    const firstLeave = (level: number): number => {
       const s = createInitialState();
       place(s, 'statue', level);
-      s.army.clubman = 500;
-      const p = playerProfile(s);
-      const refused = new LocalWorld({ seed: 11, now: () => START, storage: null });
-      await refused.sync(p);
-      const cap = p.command ?? 0;
-      expect(await refused.setGarrison({ clubman: cap + 1 }), `уровень ${level}: на одного больше`).toMatch(/Статуя держит/);
-      const taken = new LocalWorld({ seed: 11, now: () => START, storage: null });
-      await taken.sync(p);
-      expect(await taken.setGarrison({ clubman: cap }), `уровень ${level}: ровно по вместимости`).toBeNull();
-      return cap;
+      s.tutorialDone = true;
+      s.nextEventAt = Infinity;
+      s.tax = 'none';
+      s.gold = 0;
+      s.army.spearman = 100;
+      for (const r of RESOURCE_IDS) s.resources[r] = 5000;
+      const start = s.time;
+      for (let i = 0; i < 20 * DAY_LENGTH * 2; i++) {
+        tick(s, 0.5);
+        if (s.army.spearman < 100) return (s.time - start) / DAY_LENGTH;
+      }
+      return Infinity;
     };
-    const caps = new Map<number, number>();
-    for (let level = 1; level <= maxLevelFor('statue'); level++) caps.set(level, await limit(level));
     for (let level = 1; level < maxLevelFor('statue'); level++) {
       const s = createInitialState();
       const b = place(s, 'statue', level);
-      const gain = upgradeGains(s, b, level + 1).find((g) => g.id === 'command');
-      expect(gain?.numbers, `${level}→${level + 1}`).toEqual([caps.get(level + 1)! - caps.get(level)!, caps.get(level + 1)]);
+      const gain = upgradeGains(s, b, level + 1).find((g) => g.id === 'loyalty');
+      const after = firstLeave(level + 1);
+      const promised = gain!.numbers[1];
+      // Первый уходит чуть позже срока: сотне копейщиков нужно несколько секунд, чтобы
+      // доля ухода набрала целого бойца. Позже на десятую дня — уже неправда.
+      expect(after, `${level}→${level + 1}: уходить начали не раньше обещанного`).toBeGreaterThanOrEqual(promised);
+      expect(after, `${level}→${level + 1}: и не позже`).toBeLessThan(promised + 0.1);
+      expect(gain!.numbers[0], `${level}→${level + 1}`).toBe(promised - payGraceDays(s));
       // Единицы у двух чисел Статуи разные, и сказано это словами.
-      expect(gain?.text).toMatch(/бойц\S* в дружину полководца/);
+      expect(gain?.text).toMatch(/дн\. терпения войска/);
       expect(upgradeGain(s, b, level + 1)).toMatch(/строя за героем/);
     }
   });

@@ -70,7 +70,6 @@ describe('множитель из слепка доходит до действ�
     warriorPower: 3,
     units: { warrior: 20, scout: 4 },
     army: { spearman: 40 },
-    command: 60,
     intelKeen: 1,
     warning: 40,
     stock: { food: 120 },

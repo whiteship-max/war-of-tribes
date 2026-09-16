@@ -37,7 +37,6 @@ const holdout = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   defense: 100_000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
-  command: 100,
   army: { spearman: 10 },
   stock: { food: 600, wood: 400 },
   stash: 0,
@@ -135,7 +134,7 @@ describe('часы голода одни на карточку, окна оса�
     const store = memory();
     const world = new LocalWorld({ seed: 7, now: () => now, storage: store });
     const HOST: TroopStack = { legionary: 30, spearman: 24, archer: 16 };
-    const p = holdout({ defense: 900, army: { ...HOST }, command: 200 });
+    const p = holdout({ defense: 900, army: { ...HOST } });
     await world.sync(p);
     expect(await world.setGarrison({ ...HOST })).toBeNull();
     now = Math.max(now, ((await world.figures()).find((f) => f.id === 'general') as FigureView).readyAt);

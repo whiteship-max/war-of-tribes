@@ -41,7 +41,7 @@ async function scanForCastles(): Promise<boolean> {
   const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
   const profile: PlayerProfile = {
     name: 'Проба', pop: 120, defense: 30, warriorPower: 3, units: { warrior: 10, scout: 4 },
-    command: 60, stock: {}, stash: 0,
+    stock: {}, stash: 0,
   };
   for (let h = 0; h < 48; h++) {
     await world.sync(profile);

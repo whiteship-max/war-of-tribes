@@ -10,7 +10,6 @@ import {
   bondedTotal,
   buildingOfType,
   buildingStat,
-  commandCap,
   defense,
   hiddenStash,
   homeArmyPower,
@@ -199,7 +198,6 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     intelKeen: intelKeen(s),
     mountGear: mountGear(s),
     // Статуя Героя: сколько дружины полководец уводит в поле.
-    command: commandCap(s),
     // Навыки агентов: три прибавки числами. Мир про уровни не знает, а кладёт
     // каждую туда, где у неё своя дверь, — и ни одна не та, которой владеет
     // здание: вместимость дружины остаётся у Статуи, шанс и старение — у Дозора.
@@ -311,6 +309,7 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     // отметку, во что превратить первое и что засчитать по второй — дело племени.
     arms: e.arms ?? 0,
     lair: e.lair ?? false,
+    castle: e.castle ?? false,
     bonded: e.bonded ?? 0,
     // Горожане взятого города и сгоревшие стройки: числа и отметку решила дверь
     // участи, племя только снимает.

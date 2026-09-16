@@ -11,6 +11,13 @@ import { emptyAgents } from './sim/agents';
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
  *
+ * Версия 14 — содержание войска (`s.pay`): жалованье, долг, терпение и уход. Умолчания
+ * здесь мало, и поднимает версию начало платы: с `pay.from` = 0 партия, набравшая
+ * армию при потолке Статуи, начала бы платить с первой секунды и разбегаться при
+ * первом же входе, ничего о правиле не зная. Ступень 13 → 14 даёт отсрочку с минуты
+ * входа (`WAGE_AMNESTY_DAYS`) и говорит об этом в летописи. Налог приведённой
+ * партии не трогается: умеренный по умолчанию получает только новая.
+ *
  * Версия 13 — смертные агенты: у каждого места человек с именем и возрастом
  * (`AgentProgress.person`, `name`, `bornAt`, `age0`, `vacant`, `hiring`), у партии —
  * свой сид (`seed`, `rolls`, `hires`), у героя больше нет ни имени (оно у полководца),
@@ -56,7 +63,7 @@ import { emptyAgents } from './sim/agents';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -86,7 +93,10 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     survey: { done: 0, startedAt: 0, until: 0 },
     decree: 'none',
     ration: 'normal',
-    tax: 'none',
+    // Умеренный налог с первой минуты: без налога казна ничего не собирает, и потолок
+    // войска на старте — ноль. Копейщик из обучения прожил бы на стартовой казне три
+    // часа и ушёл, а игрок так и не узнал бы, что налог вообще есть.
+    tax: 'moderate',
     gold: 320,
     // Тестовый запас алмазов: он существует, чтобы можно было проверить трату,
     // пока покупки нет. Начисляет алмазы одно место на всю игру — creditGems.
@@ -104,6 +114,7 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     bonded: 0,
     bondedWork: {},
     unrest: 0,
+    pay: { debt: 0, late: 0, from: 0, gone: {} },
     buildings: [],
     completedQuests: [],
     activeEvent: null,

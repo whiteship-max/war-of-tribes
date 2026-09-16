@@ -51,7 +51,6 @@ const agent = (id: FigureId, place: FigurePlace): FigureView => ({
   watchSight: 0,
   troops: {},
   power: 0,
-  capacity: 0,
   besieging: null,
   readyAt: 0,
 });

@@ -202,7 +202,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   defense: 30,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
-  command: 60,
   stock: { food: 4000, wood: 4000, stone: 4000, hides: 4000, bones: 4000, copper: 4000, iron: 4000 },
   stash: 0,
   ...over,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { armySize, commandCap, defense, soldierPower } from '@/game/derived';
+import { armySize, defense, soldierPower } from '@/game/derived';
 import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
@@ -89,7 +89,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   units: { warrior: 10, scout: 4 },
   // Вместимость отряда — работа Статуи. Без неё полководец не уведёт никого,
   // и это правильно: в тестах она задаётся так же, как её даёт здание.
-  command: 60,
   stock: { food: 120, wood: 80 },
   stash: 0,
   ...over,
@@ -774,8 +773,6 @@ describe('замки', () => {
       warriorPower: 40,
       units: { warrior: 40 },
       army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
-      // Восемь десятков за собой уводит только высокая Статуя.
-      command: 100,
     });
     const { pulse } = await raidWith(w, castle, strong);
     const raid = pulse.reports.find((r) => r.kind === 'raid');
@@ -790,20 +787,32 @@ describe('замки', () => {
     expect(s.gold).toBeGreaterThan(0);
   });
 
-  it('обычное поселение золота не даёт', async () => {
+  it('сожжённое логово везёт золото, и взятым замком это не считается', async () => {
+    // Прежде здесь стояло «обычное поселение золота не даёт»: золото везли только из
+    // замков, и по золоту считали взятые замки. Решением владельца у логова своя казна
+    // (`LAIR_GOLD_PER_POWER`) — иначе «золото приходит из набегов» было бы обещанием
+    // без кода, — и замки считаются отметкой мира, а не по золоту.
     const w = makeWorld(11);
     const strong = profile({
       warriorPower: 40,
       units: { warrior: 40 },
       army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
-      command: 100,
     });
     await w.world.sync(strong);
     const target = await nearest(w.world);
     const gen = generateWorld(11).settlements.find((x) => x.id === target.id);
-    if (gen?.castle) return; // ближайшая цель оказалась замком — проверять нечего
+    // Точка внутри области: цель — логово, и отряд заведомо сильнее.
+    expect(gen?.castle, 'ближайшая цель — не замок').toBeFalsy();
     const { pulse } = await raidWith(w, target, strong);
-    for (const e of pulse.effects) expect(e.resources.gold ?? 0).toBe(0);
+    const raid = pulse.reports.find((r) => r.kind === 'raid');
+    expect(raid?.won, 'логово взято').toBe(true);
+    const gold = pulse.effects.reduce((n, e) => n + (e.resources.gold ?? 0), 0);
+    expect(gold, 'из логова везут золото').toBeGreaterThan(0);
+    const s = createInitialState();
+    const before = s.gold;
+    for (const e of pulse.effects) applyExpedition(s, toOutcome(e));
+    expect(s.gold - before, 'золото легло в казну').toBe(gold);
+    expect(s.stats.castles, 'логово — не замок').toBe(0);
   });
 });
 
@@ -2306,30 +2315,21 @@ describe('отряд полководца', () => {
   const general = async (w: ReturnType<typeof makeWorld>): Promise<FigureView> =>
     (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
 
-  it('вместимость выводится из уровня Статуи и ниоткуда больше', async () => {
+  it('потолка у дружины нет: полководец уводит всё войско, что дома', async () => {
+    // Потолок Статуи сменился ценой (data/upkeep.ts): войско держит казна и амбар, а
+    // не здание. Точка внутри области: войска больше, чем держала Статуя на потолке
+    // уровней (110), — иначе тест прошёл бы и при прежнем правиле.
     const s = createInitialState();
-    const statue = s.buildings.find((b) => b.type === 'statue');
-    expect(statue, 'Статуя стоит в посёлке с первого дня').toBeTruthy();
-    const first = commandCap(s);
-    expect(first).toBeGreaterThan(0);
-    statue!.level = 5;
-    const higher = commandCap(s);
-    expect(higher, 'выше статуя — больше дружины').toBeGreaterThan(first);
-    statue!.level = 10;
-    expect(commandCap(s)).toBeGreaterThan(higher);
-    // Мир получает это число слепком и не спрашивает, откуда оно.
-    expect(playerProfile(s).command).toBe(commandCap(s));
-  });
-
-  it('больше вместимости не увести, и об этом сказано числом', async () => {
+    expect(Object.keys(playerProfile(s)), 'в слепке для мира нет потолка дружины').not.toContain('command');
     const w = makeWorld(11);
-    const p = profile({ command: 8, army: { clubman: 20 } });
+    const p = profile({ army: { clubman: 500 } });
     await w.world.sync(p);
-    const err = await w.world.setGarrison({ clubman: 20 });
-    expect(err).toMatch(/8/);
-    expect(troopTotal((await general(w)).troops)).toBe(0);
-    // Ровно по вместимости — можно.
-    expect(await w.world.setGarrison({ clubman: 8 })).toBeNull();
+    expect(await w.world.setGarrison({ clubman: 500 })).toBeNull();
+    expect(troopTotal((await general(w)).troops)).toBe(500);
+    // Больше, чем есть дома, — по-прежнему нельзя: это учёт, а не потолок.
+    const other = makeWorld(11);
+    await other.world.sync(p);
+    expect(await other.world.setGarrison({ clubman: 501 })).toMatch(/дома нет/);
   });
 
   waitsForPlayers('передача занимает время в обе стороны, и в дороге войско не годится в бой', async () => {
@@ -2409,7 +2409,7 @@ describe('отряд полководца', () => {
   it('полководец не теряется навсегда: разбитый возвращается сам', async () => {
     const w = makeWorld(5);
     // Горстка дубинщиков против целого поселения — заведомый разгром.
-    const p = profile({ warriorPower: 1, army: { clubman: 2 }, command: 60 });
+    const p = profile({ warriorPower: 1, army: { clubman: 2 } });
     await w.world.sync(p);
     const info = await w.world.info();
     const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
@@ -2455,7 +2455,7 @@ describe('перехват в поле', () => {
 
   const army = { legionary: 30, spearman: 20, archer: 15, rider: 10 };
   const strong = (): PlayerProfile =>
-    profile({ warriorPower: 30, army, command: 100, units: { warrior: 40, scout: 4 } });
+    profile({ warriorPower: 30, army, units: { warrior: 40, scout: 4 } });
 
   it('точка и время встречи известны до приказа, а не после', async () => {
     const w = makeWorld(101);

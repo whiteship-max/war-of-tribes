@@ -16,7 +16,7 @@
 // стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, commandCap, fervour, heroMen, mountGear } from '@/game/derived';
+import { buildingOfType, fervour, heroMen, mountGear, payGraceDays } from '@/game/derived';
 import {
   DEED_GAP,
   DEED_XP,
@@ -225,8 +225,8 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           <h3>Что даёт Статуя</h3>
           <div className="mod">
             <span className="ico">⚔️</span>
-            <span className="name">Уводит в поле — Статуя {statue} ур.</span>
-            <span className="val pos">{count(commandCap(s), 'боец', 'бойца', 'бойцов')}</span>
+            <span className="name">Войско терпит неуплату — Статуя {statue} ур.</span>
+            <span className="val pos">{payGraceDays(s)} дн.</span>
           </div>
           <div className="mod">
             <span className="ico">🛡️</span>
@@ -234,8 +234,9 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
             <span className="val pos">{heroMen(s)} строя</span>
           </div>
           <div className="note">
-            Полководец и герой Статуи — один человек, и смертен он так же. Сколько он уводит и
-            чего стоит сам, решает Статуя; натиск — его {ORDINAL[level]} уровень.
+            Полководец и герой Статуи — один человек, и смертен он так же. Сколько терпит его
+            войско и чего стоит он сам, решает Статуя; натиск — его {ORDINAL[level]} уровень.
+            Уводит он сколько угодно: войско держит цена, а не здание.
           </div>
         </>
       )}

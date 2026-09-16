@@ -48,7 +48,7 @@ import { playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
-import { commandCap, housingCapacity, productionPerDay, storageCap, hiddenStash, upgradeCost } from '@/game/derived';
+import { housingCapacity, productionPerDay, storageCap, hiddenStash, upgradeCost } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { GameState } from '@/game/types';
@@ -74,7 +74,6 @@ const profile = (defense: number, army: TroopStack): PlayerProfile => ({
   warriorPower: 12,
   units: { warrior: 40, scout: 6 },
   army: { ...army },
-  command: 120,
   warning: 120,
   stock: { food: 900, wood: 600 },
   stash: 0,
@@ -235,12 +234,20 @@ const TOWN_SEEDS = [11, 42, 77, 101, 202, 303, 404, 505];
 const VARIANTS = 3;
 const TOWN_MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
 
-/** Посёлок уровня L: жильё на 90%, склад полон, войско — две вместимости Статуи. */
+/**
+ * Мерка войска посёлка этапа: 20 бойцов на первом уровне и по 10 за каждый следующий.
+ * Это прежняя вместимость Статуи — правилом игры она больше не является (войско держит
+ * цена), но все замеры осады сняты на этих составах, и сравниваются они между
+ * прогонами. Правило здесь — мерка отчёта, а не игры.
+ */
+const armyUnit = (level: number): number => 20 + 10 * (level - 1);
+
+/** Посёлок уровня L: жильё на 90%, склад полон, войско — две мерки. */
 function townAt(level: number): GameState {
   const g = createInitialState();
   for (const b of g.buildings) b.level = level;
   g.pop = Math.round(housingCapacity(g) * 0.9);
-  const n = commandCap(g) * 2;
+  const n = armyUnit(level) * 2;
   let left = n;
   const ids = Object.keys(TOWN_MIX) as (keyof TroopStack)[];
   ids.forEach((id, i) => {
@@ -402,8 +409,8 @@ const FIELD_DELAYS = [0, 4, 8, 12, 16, 20, 24, 28, 36];
 
 async function freezeField(seed: number, level: number): Promise<Frozen | null> {
   const g = townAt(level);
-  // Войско — три вместимости: одна уходит в дружину, две остаются гарнизоном.
-  const cap = commandCap(g);
+  // Войско — три мерки: одна уходит в дружину, две остаются гарнизоном.
+  const cap = armyUnit(level);
   const ids = Object.keys(TOWN_MIX) as (keyof TroopStack)[];
   const split = (n: number): TroopStack => {
     const out: TroopStack = {};

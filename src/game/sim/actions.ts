@@ -25,6 +25,7 @@ export { cancelForge, forgeCheck, startForge } from './smithy';
 export { buyGoods, cancelCaravan, marketCheck, saleCheck, sellBonded } from './market';
 export { releaseBonded } from './mutiny';
 export { cancelRecruit, startRecruit } from './army';
+export { dismissSoldiers } from './upkeep';
 export { cancelSurvey, startSurvey, surveyInfo } from './survey';
 export { dailyReward, dailyStatus, finishDaily, startDaily } from './daily';
 

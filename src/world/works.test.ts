@@ -45,7 +45,6 @@ const holdout: PlayerProfile = {
   defense: 100_000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
-  command: 100,
   army: { legionary: 40, spearman: 30, archer: 20 },
   stock: { food: 600, wood: 400 },
   stash: 0,
@@ -997,7 +996,7 @@ describe('доли древесины: смена посреди осады, и 
     let now = START;
     const store = memory();
     const world = new LocalWorld({ seed: 7, now: () => now, storage: store });
-    const host: PlayerProfile = { ...holdout, defense: 900, army: { ...GARRISON }, command: 200 };
+    const host: PlayerProfile = { ...holdout, defense: 900, army: { ...GARRISON } };
     await world.sync(host);
     expect(await world.setGarrison({ ...GARRISON })).toBeNull();
     now = Math.max(now, (await world.figures()).find((f) => f.id === 'general')!.readyAt);

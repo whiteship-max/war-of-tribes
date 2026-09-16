@@ -1,7 +1,8 @@
 // Состав дружины полководца — один компонент на два места: карточка своего замка на
 // карте и Статуя Героя в деревне. Состояние у мира одно (`world/store.setGarrison`),
 // отказы — его же словами, и своих слов о том, почему состав не поменять, здесь нет:
-// в пути, укрылся, дружина в дороге, осада, потолок Статуи — всё это говорит мир.
+// в пути, укрылся, дружина в дороге, осада — всё это говорит мир. Потолка у дружины нет:
+// войско держит цена (`data/upkeep.ts`), а не Статуя.
 // Прецедент показа в двух местах — настройки (`Settings`). Держит это тест по
 // исходнику (`GarrisonEditor.test.ts`): `setGarrison` зовёт ровно этот файл.
 import { useEffect, useState } from 'react';
@@ -40,10 +41,6 @@ export function GarrisonEditor() {
   if (!general) return null;
   const rows = TROOP_IDS.filter((t) => (pool[t] ?? 0) + (held[t] ?? 0) > 0);
   const total = troopTotal(want);
-  // Вместимость — работа Статуи, и это главное ограничение похода: дома всегда
-  // кто-то остаётся, потому что за собой всех не увести.
-  const cap = general.capacity;
-  const over = Math.max(0, total - cap);
   const gathering = general.readyAt > worldNow();
   const posture = postureOf(general);
   // Три состояния дружины, и за разницу между ними игрок платит: собранная и
@@ -77,9 +74,7 @@ export function GarrisonEditor() {
     <>
       <h3>
         Дружина при полководце{' '}
-        <small className={over > 0 ? 'bad' : undefined}>
-          {total} из {cap}
-        </small>
+        <small>{total}</small>
       </h3>
       {gathering ? (
         <p className="note bad">
@@ -98,13 +93,9 @@ export function GarrisonEditor() {
         <div className="desc">Бойцов нет ни дома, ни при нём. Найми кого-нибудь в казармах.</div>
       ) : (
         rows.map((t) => {
-          // Больше вместимости не набрать: шаг вверх упирается в неё, а не в
-          // ошибку после нажатия.
-          const room = Math.max(0, cap - total + (want[t] ?? 0));
-          // «Всего» — про запас племени, а не про место в отряде: подпись не
-          // должна врать, что лучников нет, когда их просто некуда взять.
+          // Шаг вверх упирается в тех, кто дома, а не в ошибку после нажатия.
           const all = pool[t] ?? 0;
-          const max = Math.min(room, all);
+          const max = all;
           const n = want[t] ?? 0;
           const set = (v: number): void => setWant((w) => ({ ...w, [t]: Math.max(0, Math.min(max, v)) }));
           return (
@@ -116,7 +107,6 @@ export function GarrisonEditor() {
                 {TROOP_BY_ID[t].name}{' '}
                 <i className="talent">
                   всего {all}
-                  {room === 0 && (want[t] ?? 0) === 0 ? ' · мест нет' : ''}
                 </i>
               </span>
               <div className="stepper">
@@ -136,11 +126,6 @@ export function GarrisonEditor() {
         })
       )}
       <div className="mod-list">
-        <div className="mod">
-          <span className="ico">🗿</span>
-          <span className="name">Статуя держит</span>
-          <span className={`val ${over > 0 ? 'neg' : ''}`}>{cap} бойцов</span>
-        </div>
         {moved > 0 && (
           <div className="mod">
             <span className="ico">⏳</span>
@@ -157,7 +142,7 @@ export function GarrisonEditor() {
         </div>
       </div>
       <div className="wm-actions">
-        <button className="btn wide" disabled={busy || gathering || over > 0} onClick={() => void apply(want)}>
+        <button className="btn wide" disabled={busy || gathering} onClick={() => void apply(want)}>
           🎖️ Отдать полководцу {total}
         </button>
         <button
@@ -171,8 +156,8 @@ export function GarrisonEditor() {
       <p className="note">
         Дружина, собранная и стоящая у своих ворот, — часть гарнизона: держит стену и выходит на вылазку. Пока идёт сбор или
         роспуск, эти люди не защищают никого, а уведёшь полководца в поле — дома останутся частокол, башня,
-        жители и те, кого он не взял. Статуя ограничивает не оборону, а то, сколько бойцов можно вывести из
-        города.
+        жители и те, кого он не взял. Увести можно всех: сколько войска держать, решает цена — еда и
+        жалованье, — а не Статуя.
       </p>
     </>
   );

@@ -1,6 +1,6 @@
 // Навык агента не второй источник числа, которым владеет здание.
 //
-// Вместимость дружины и то, за скольких стоит герой, — Статуя. Старение
+// Терпение войска к неуплате и то, за скольких стоит герой, — Статуя. Старение
 // разведданных, предупреждение о набеге, изучение округи и шанс лазутчика — Дозор.
 // Оборона — частокол, башня, казармы и храм. Мы месяц разгребали вторые правды (два
 // счётчика осады, четыре копии возврата цены, обещание Дозора, никуда не
@@ -16,13 +16,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import {
-  commandCap,
   defense,
   fervour,
   healShare,
   heroMen,
   intelKeen,
   mountGear,
+  payGraceDays,
   surveyRadius,
   warningSeconds,
 } from '../derived';
@@ -65,7 +65,7 @@ function bodyOf(src: string, name: string): string {
 const SKILL = /\b(?:agents?|onslaught\w*|sightBonus\w*|stealth\w*|revealSight|slipped|slipShare|generalResolve|circles\w*|agentLevel|levelOf|xp)\b/;
 
 /** Числа зданий: всё, чем навык мог бы стать второй правдой. */
-const OWNED = /\b(?:command\w*|hero\w*|heroMen|keen|intel\w*|spyChance|guardOf|warning\w*|survey\w*|defen[cs]e\w*|statOf|buildingStat|buildingOfType|heal\w*|capacity|roomOf|garrison\w*|militia\w*|expert|SPY_CHANCE\w*|SPY_PROBE\w*)\b/i;
+const OWNED = /\b(?:payGrace\w*|loyalty|hero\w*|heroMen|keen|intel\w*|spyChance|guardOf|warning\w*|survey\w*|defen[cs]e\w*|statOf|buildingStat|buildingOfType|heal\w*|capacity|roomOf|garrison\w*|militia\w*|expert|SPY_CHANCE\w*|SPY_PROBE\w*)\b/i;
 
 describe('навык не читает чисел, которыми владеет здание', () => {
   // Черты — тем же правилом: они лежат на свободных осях и не называют чисел здания.
@@ -88,9 +88,9 @@ describe('навык не читает чисел, которыми владее
       expect(hit, `${f}:${hit + 1} ${read(f).split('\n')[hit] ?? ''}`).toBe(-1);
     }
     const world = read('world/local/LocalWorld.ts');
-    // Шанс лазутчика, вместимость полководца, предупреждение, земля у дома, живой
-    // обзор, снимок разведки (keen), стойкость гарнизона и снаряжение.
-    for (const name of ['spyOptions', 'commandCap', 'warningMs', 'homeReveal', 'sightDiscs', 'snapshot', 'ownResolve', 'ownGear']) {
+    // Шанс лазутчика, предупреждение, земля у дома, живой обзор, снимок разведки
+    // (keen), стойкость гарнизона и снаряжение.
+    for (const name of ['spyOptions', 'warningMs', 'homeReveal', 'sightDiscs', 'snapshot', 'ownResolve', 'ownGear']) {
       expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(SKILL);
     }
     // Оборону деревни и вылазку ведёт гарнизон: натиска в них нет ни одним путём.
@@ -112,7 +112,7 @@ describe('агенты пятого уровня не сдвигают ни од
   it('в племени и в слепке для мира — меняются только прибавки навыка', () => {
     const a = createInitialState();
     const b = maxed();
-    for (const [name, fn] of Object.entries({ commandCap, heroMen, intelKeen, warningSeconds, surveyRadius, defense, fervour, mountGear, healShare })) {
+    for (const [name, fn] of Object.entries({ payGraceDays, heroMen, intelKeen, warningSeconds, surveyRadius, defense, fervour, mountGear, healShare })) {
       expect(fn(b), name).toBe(fn(a));
     }
     const pa = playerProfile(a) as unknown as Record<string, unknown>;
@@ -124,7 +124,7 @@ describe('агенты пятого уровня не сдвигают ни од
     expect(changed.sort()).toEqual(['onslaught', 'sightBonus', 'stealth', 'veil']);
   });
 
-  it('в мире: шанс лазутчика, вместимость полководца, предупреждение и живой обзор те же', async () => {
+  it('в мире: шанс лазутчика, предупреждение и живой обзор те же', async () => {
     const base: PlayerProfile = {
       name: 'Тест',
       pop: 120,
@@ -132,7 +132,6 @@ describe('агенты пятого уровня не сдвигают ни од
       warriorPower: 3,
       units: { warrior: 10, scout: 4 },
       army: { spearman: 12 },
-      command: 60,
       intelKeen: 1,
       warning: 40,
       stock: { food: 120 },
@@ -159,7 +158,6 @@ describe('агенты пятого уровня не сдвигают ни од
       return {
         target: free!.id,
         chances,
-        capacity: pulse.figures.map((f) => f.capacity),
         warning: inner.warningMs(),
         discs: JSON.stringify(inner.sightDiscs(now)),
         watch: pulse.figures.map((f) => f.watchSight),
@@ -167,7 +165,7 @@ describe('агенты пятого уровня не сдвигают ни од
       };
     };
     const a = await probe(base);
-    // Черты со всеми множителями разом: шанс, вместимость, предупреждение и живой обзор
+    // Черты со всеми множителями разом: шанс, предупреждение и живой обзор
     // от них не двигаются так же, как от навыка.
     const b = await probe({
       ...base,

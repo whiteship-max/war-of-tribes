@@ -87,6 +87,7 @@ import {
 } from '../gen';
 import {
   lairArms,
+  lairGold,
   lairLoot,
   lairPhase,
   lairPop,
@@ -1432,6 +1433,7 @@ export class LocalWorld implements WorldApi {
       // записывать это в битвы значило бы считать то, чего не случилось.
       battle: null,
       ...gain,
+      castle: s.castle || undefined,
       text: `Осада ${s.name} кончилась: город сдался голоду.`,
       good: true,
     });
@@ -2453,13 +2455,15 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Сколько золота лежит в замке сейчас. Восстанавливается тем же сроком, что и
-   * прочая добыча, поэтому дважды подряд один замок не обчистить.
+   * Сколько золота лежит в казне двора сейчас: у логова — от его силы
+   * (`lairs.lairGold`), у замка — от мощи. Восстанавливается тем же сроком, что и
+   * прочая добыча, поэтому дважды подряд одну казну не обчистить.
    */
-  private castleGold(s: GenSettlement, now: number): number {
-    if (!s.castle) return 0;
+  private treasury(s: GenSettlement, now: number): number {
     const last = this.save.looted[s.id] ?? this.save.createdAt - LOOT_REFILL;
     const refill = Math.min(1, Math.max(0, (this.liveAt(s.id, now) - last) / LOOT_REFILL));
+    if (isLair(s)) return Math.round(lairGold(this.powerNow(s, now)) * refill);
+    if (!s.castle) return 0;
     return Math.round(powerOf(s, this.lived(s, now), POWER_GROWTH_CAP) * CASTLE_GOLD_PER_POWER * refill);
   }
 
@@ -2522,7 +2526,7 @@ export class LocalWorld implements WorldApi {
     return fate({
       fate: declared,
       stock: this.lootStock(s, now),
-      gold: this.castleGold(s, now),
+      gold: this.treasury(s, now),
       stash: this.lootStash(s, now),
       pop,
       bonded,
@@ -3461,6 +3465,8 @@ export class LocalWorld implements WorldApi {
       // и её список мир не знает.
       arms: arms > 0 ? arms : undefined,
       lair: burned || undefined,
+      // Взятый замок считается отметкой, а не золотом: золото теперь везут и из логова.
+      castle: (field.won && target.castle) || undefined,
       prestige: field.won ? 4 : 0,
       morale: field.won ? 4 : -6,
       battle: field.won ? 'won' : 'lost',
@@ -5148,7 +5154,6 @@ export class LocalWorld implements WorldApi {
       watchSight: liveSight(id, f),
       troops: { ...troops },
       power: troopTotal(troops) * (this.save.profile?.warriorPower ?? 1),
-      capacity: id === 'general' ? this.commandCap() : 0,
       // Лагерь: пока он стоит, других дел у полководца нет, а приказ уйти
       // снимает осаду. Панель обязана сказать это до приказа, а не после.
       besieging: id === 'general' ? this.ourSiege(now) : null,
@@ -5381,11 +5386,6 @@ export class LocalWorld implements WorldApi {
       const blocked = this.siegeBlock(now);
       if (blocked) return blocked;
     }
-    const cap = this.commandCap();
-    if (troopTotal(next) > cap) {
-      return `Столько за собой не увести: Статуя держит ${cap} бойцов.`;
-    }
-
     // Сколько людей переходит из рук в руки — в обе стороны: время стоит и
     // сбор, и роспуск. Пока идут — они уже не в гарнизоне и ещё не в строю,
     // поэтому в `troops` числятся и уходящие, и возвращающиеся.
@@ -5407,9 +5407,6 @@ export class LocalWorld implements WorldApi {
     this.write();
     return null;
   }
-
-  /** Сколько бойцов полководец может вести: работа Статуи, число из слепка. */
-  private commandCap = (): number => Math.max(0, Math.round(this.save.profile?.command ?? 0));
 
   /**
    * Гарнизон деревни в эту минуту, по видам: всё войско племени, каким его знает

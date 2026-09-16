@@ -179,7 +179,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile =>
     warriorPower: 14,
     units: { warrior: 200, scout: 8 },
     army: { legionary: 120, spearman: 90, archer: 60 },
-    command: 2000,
     warning: 120,
     resources: { food: 2000, wood: 1500 },
     stock: { food: 2000, wood: 1500 },
@@ -311,7 +310,7 @@ describe('разорение чужого двора', () => {
   it('проигранный набег отношения портит, а двор не разоряет', async () => {
     const w = makeWorld(11);
     // Слабое племя: полководец ведёт горстку и заведомо проигрывает.
-    const p = profile({ army: { clubman: 3 }, defense: 40, pop: 60, command: 20 });
+    const p = profile({ army: { clubman: 3 }, defense: 40, pop: 60 });
     await w.world.sync(p);
     expect(await w.world.setGarrison({ clubman: 3 })).toBeNull();
     for (let i = 0; i < 200; i++) {
@@ -447,7 +446,6 @@ describe('симметрия: разорение чужого двора и св
       defense: 30,
       army: {},
       units: { warrior: 0, scout: 0 },
-      command: 0,
       stock,
       stash: 500,
     });
@@ -472,7 +470,7 @@ describe('симметрия: разорение чужого двора и св
     // или нет. Держит тест то, что осталось от прежнего обещания, — отсутствие не
     // делает набег ни хуже, ни лучше: отряд приходит и разбирается своим боем.
     const w = makeWorld(5);
-    const p = profile({ pop: 120, defense: 30, army: {}, units: { warrior: 0, scout: 0 }, command: 0 });
+    const p = profile({ pop: 120, defense: 30, army: {}, units: { warrior: 0, scout: 0 } });
     // Дожидаемся вышедшего отряда — и пропадаем: пульса нет до самого прихода.
     let raidId: string | null = null;
     for (let i = 0; i < 4000 && !raidId; i++) {

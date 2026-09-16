@@ -186,7 +186,6 @@ const raider = (): PlayerProfile =>
     warriorPower: 14,
     units: { warrior: 200, scout: 8 },
     army: { legionary: 120, spearman: 90, archer: 60 },
-    command: 2000,
     warning: 120,
     stock: { food: 2000, wood: 1500 },
     stash: 0,
@@ -496,7 +495,6 @@ const weak = raider();
 weak.army = { clubman: 3 };
 weak.defense = 40;
 weak.pop = 60;
-weak.command = 20;
 await w.world.sync(weak);
 await w.world.setGarrison({ clubman: 3 });
 for (let i = 0; i < 200; i++) {

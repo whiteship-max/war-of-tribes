@@ -245,7 +245,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile =>
     warriorPower: 14,
     units: { warrior: 200, scout: 8 },
     army: { legionary: 120, spearman: 90, archer: 60 },
-    command: 2000,
     warning: 120,
     stock: { food: 2000, wood: 1500 },
     stash: 0,

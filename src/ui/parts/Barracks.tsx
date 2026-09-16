@@ -10,9 +10,13 @@ import {
   buildingOfType,
   defense,
   idleCount,
+  upkeepInfo,
+  wageOf,
 } from '@/game/derived';
 import { orderEta, recruitCheck } from '@/game/sim/army';
-import { cancelRecruit, startRecruit } from '@/game/sim/actions';
+import { dismissCheck } from '@/game/sim/upkeep';
+import { cancelRecruit, dismissSoldiers, startRecruit } from '@/game/sim/actions';
+import { UPKEEP_TEXT } from '@/game/data/upkeep';
 import { Icon } from '@/ui/icons/Icon';
 
 /**
@@ -22,12 +26,18 @@ import { Icon } from '@/ui/icons/Icon';
  *
  * Тупика без объяснения быть не должно: если не хватает снаряжения, здесь
  * написано, чего именно, и рядом стоит кнопка перехода в кузницу.
+ *
+ * Здесь же цена, которой держится войско: жалованье в день против того, что даёт
+ * казна, долг и терпение, — и «распустить» для тех, кого казна не тянет. Своей
+ * арифметики у панели нет: всё считает `derived.upkeepInfo`.
  */
 export function Barracks() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const act = useGame((g) => g.act);
   const [counts, setCounts] = useState<Partial<Record<TroopId, number>>>({});
+  const [release, setRelease] = useState<Partial<Record<TroopId, number>>>({});
+  const up = upkeepInfo(s);
   const smithy = buildingOfType(s, 'smithy');
   const palisade = buildingOfType(s, 'palisade');
   const free = idleCount(s);
@@ -62,6 +72,48 @@ export function Barracks() {
         <span className="name">Свободных жителей</span>
         <span className={`val${free === 0 ? ' neg' : ''}`}>{free}</span>
       </div>
+
+      <h3>Жалованье</h3>
+      <div className="mod">
+        <span className="ico">{UPKEEP_TEXT.icon}</span>
+        <span className="name">
+          Войску в день
+          {up.amnestyDays > 0 && <em className="sub">платить начнут через {Math.ceil(up.amnestyDays)} дн.</em>}
+        </span>
+        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.wages)}</span>
+      </div>
+      <div className="mod">
+        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
+        <span className="name">Казна даёт в день — налог и вера</span>
+        <span className="val">{Math.round(up.income)}</span>
+      </div>
+      {up.debt > 0 && (
+        <div className="mod">
+          <span className="ico">📜</span>
+          <span className="name">Долг войску</span>
+          <span className="val neg">{Math.round(up.debt)}</span>
+        </div>
+      )}
+      <div className="mod">
+        <span className="ico">🗿</span>
+        <span className="name">Терпит неуплату и голод — Статуя</span>
+        <span className="val">{up.graceDays} дн.</span>
+      </div>
+      {up.why ? (
+        <p className="note bad">
+          Войску {UPKEEP_TEXT.why[up.why]}.{' '}
+          {up.leavingPerDay > 0
+            ? `Уходят — около ${Math.max(1, Math.round(up.leavingPerDay))} в день, равной долей каждого вида.`
+            : `Уходить начнут через ${Math.max(1, Math.ceil(up.graceDays - up.lateDays))} дн.`}{' '}
+          {up.why === 'pay'
+            ? 'Уход встанет, как только казна покроет жалованье: подними налог или распусти лишних.'
+            : 'Войско ест последним: уход встанет, когда амбару хватит на всех.'}
+        </p>
+      ) : up.treasuryDays !== null ? (
+        <p className="note">Жалованье больше дохода: казны хватит на {Math.max(1, Math.ceil(up.treasuryDays))} дн.</p>
+      ) : (
+        <p className="note">Нечем платить или нечем кормить — войско терпит, потом уходит. Без тебя уход ждёт, долг копится.</p>
+      )}
 
       {s.recruits.length > 0 && (
         <>
@@ -114,7 +166,7 @@ export function Barracks() {
               <div className="title">
                 {def.name}
                 <span className="count">
-                  в дружине: {have} · мощь {def.power}
+                  в дружине: {have} · мощь {def.power} · 💰 {wageOf(s, def.id).toFixed(2)}/д
                 </span>
               </div>
               <div className="desc">{def.description}</div>
@@ -167,6 +219,47 @@ export function Barracks() {
           </div>
         );
       })}
+
+      {armySize(s) > 0 && (
+        <>
+          <h3>Распустить по домам</h3>
+          <p className="note">
+            Люди вернутся в посёлок, снаряжение — на склад. Припас найма и время учений не вернуть.
+          </p>
+          {TROOPS.filter((def) => (s.army[def.id] ?? 0) > 0).map((def) => {
+            const n = Math.max(1, release[def.id] ?? 1);
+            const check = dismissCheck(s, def.id, n);
+            const set = (v: number): void =>
+              setRelease((c) => ({ ...c, [def.id]: Math.max(1, Math.min(Math.max(1, check.max), v)) }));
+            return (
+              <div className="slot pick" key={def.id}>
+                <span className="ico">
+                  <Icon name={`troop-${def.id}`} glyph={def.icon} />
+                </span>
+                <span className="who">
+                  {def.name} <i className="talent">дома {check.max} · −{Math.round(check.saves)} зол./д</i>
+                </span>
+                <div className="stepper">
+                  <button disabled={n <= 1} onClick={() => set(n - 1)}>
+                    −
+                  </button>
+                  <span className="n">{n}</span>
+                  <button disabled={n >= check.max} onClick={() => set(n + 1)}>
+                    +
+                  </button>
+                </div>
+                <button
+                  className="mini text"
+                  disabled={check.blocked !== null}
+                  onClick={() => act((st) => dismissSoldiers(st, def.id, n))}
+                >
+                  распустить
+                </button>
+              </div>
+            );
+          })}
+        </>
+      )}
     </>
   );
 }

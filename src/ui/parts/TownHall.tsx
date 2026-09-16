@@ -1,7 +1,7 @@
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
-import { buildingHousing, buildingStat, decreeOf, rationOf, taxIncomePerDay, taxOf, townHallBuildMult } from '@/game/derived';
+import { buildingHousing, buildingStat, decreeOf, rationOf, taxIncomePerDay, taxOf, townHallBuildMult, wagesDue } from '@/game/derived';
 import { setDecree, setRation, setTax } from '@/game/sim/actions';
 import { gemsOf } from '@/game/sim/gems';
 import { TownBuild } from './TownBuild';
@@ -128,10 +128,15 @@ function Manage({ b }: { b: Building }) {
         <span className="name">Золото</span>
         <span className="val pos">{Math.floor(s.gold)}</span>
       </div>
+      <div className="mod">
+        <span className="ico">⚔️</span>
+        <span className="name">Жалованье войску</span>
+        <span className={`val${wagesDue(s) > taxIncomePerDay(s) ? ' neg' : ''}`}>−{wagesDue(s).toFixed(1)} в день</span>
+      </div>
       <div className="note">
         Сбор идёт с людей: чем больше народу в посёлке, тем полнее казна. Платит за это
         мораль, а низкая мораль режет всю выработку — высокий налог выгоден в короткую,
-        а не как уклад.
+        а не как уклад. Из казны же платят войску: не хватит — оно начнёт уходить.
       </div>
 
       <h3>Налог</h3>

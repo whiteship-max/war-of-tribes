@@ -31,7 +31,6 @@ import {
   buildingProduction,
   buildingSlots,
   caravanSeconds,
-  commandCap,
   crafterBuildRate,
   defense,
   faithTilt,
@@ -47,6 +46,7 @@ import {
   marketStock,
   moraleBreakdown,
   mountGear,
+  payGraceDays,
   pietyBreakdown,
   priestMorale,
   priestPiety,
@@ -161,14 +161,13 @@ const GAUGES: Gauge[] = [
     },
   },
   {
-    // А здесь головы любого вида: латник в дружине полководца — один.
-    id: 'command',
-    read: commandCap,
+    // Терпение — игровые дни, по полдня за уровень: число мелкое, и главное в нём —
+    // сколько станет, как у тайника.
+    id: 'loyalty',
+    read: payGraceDays,
     say: (b, a) => {
       const d = a - b;
-      return d <= 0
-        ? null
-        : { text: `+${d} ${plural(d, 'боец', 'бойца', 'бойцов')} в дружину полководца (станет ${a})`, numbers: [d, a] };
+      return d <= 0 ? null : { text: `+${d} дн. терпения войска к неуплате и голоду (станет ${a})`, numbers: [d, a] };
     },
   },
   {

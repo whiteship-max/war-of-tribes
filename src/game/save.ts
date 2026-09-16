@@ -1,5 +1,7 @@
 import type { GameState } from './types';
-import { MAX_OFFLINE_SECONDS } from './constants';
+import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from './constants';
+import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
+import { taxIncomePerDay, wagesPerDay } from './derived';
 import { emptyArmy } from './data/troops';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
@@ -82,6 +84,14 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   if (from < 12) delete (s as { patron?: unknown }).patron;
   // 12 → 13: агенты смертны и стареют, у партии свой сид.
   if (from < 13) mortalAgents(s, data);
+  // 13 → 14: войску платят жалованье. Умолчания мало: с `pay.from` = 0 армия,
+  // набранная при потолке Статуи, платила бы с первой секунды и разбегалась бы при
+  // первом же входе, а игрок о правиле ещё не знал. Отсрочка — с минуты входа,
+  // после догона офлайна, как служба приведённых агентов. Налог не трогается.
+  if (from < 14) {
+    const entry = s.time + offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow());
+    s.pay = { debt: 0, late: 0, gone: {}, from: entry + WAGE_AMNESTY_DAYS * DAY_LENGTH };
+  }
   // Строка про грамоту вождя — про восьмёрку, и обязана быть под своим условием:
   // без него сохранение десятой версии узнавало бы о заведении профиля, который
   // у него давно есть.
@@ -98,6 +108,10 @@ function migrate(s: GameState, from: number, data: SavedState): void {
       `Агенты получили имена и возраст: считаются нанятыми сегодня, опыт при них. Теперь они смертны — гибнут на деле и уходят на покой в шестьдесят; место нанимают заново.`,
       'info',
     );
+  }
+  if (from < 14) {
+    log(s, 'Статуя больше не ограничивает дружину: полководец уводит сколько угодно. Войско держит цена — еда и жалованье.', 'info');
+    log(s, UPKEEP_TEXT.amnestyLog(wagesPerDay(s), taxIncomePerDay(s)), 'bad');
   }
 }
 
@@ -188,6 +202,10 @@ export function deserialize(json: string): GameState | null {
       equipment: { ...emptyEquipment(), ...(data.equipment ?? {}) },
       army: { ...emptyArmy(), ...(data.army ?? {}) },
       recruits: data.recruits ?? [],
+      // Содержание войска мержится по полям по той же причине, что рынок и вера:
+      // спред `...data` на уровень ниже не спускается. Партия младше четырнадцатой
+      // приезжает с умолчанием, а начало платы ей ставит ступень 13 → 14.
+      pay: { ...base.pay, ...(data.pay ?? {}), gone: { ...(data.pay?.gone ?? {}) } },
       forge: data.forge ?? [],
       // Назначения — словари счётчиков: их мержить нельзя, иначе исчезнувшее
       // здание оставило бы за собой рабочих. Берём как есть, а порядок наведёт

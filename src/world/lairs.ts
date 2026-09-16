@@ -13,6 +13,7 @@
 import {
   LAIR_ARMS_PER_POWER,
   LAIR_CAP,
+  LAIR_GOLD_PER_POWER,
   LAIR_LOOT_PER_POWER,
   LAIR_POWER_PER_MAN,
   LAIR_RAID_WEIGHT_RIPE,
@@ -75,6 +76,9 @@ export const lairPop = (power: number): number =>
 
 /** Сколько добра лежит в логове. Не восстанавливается: брать его второй раз негде. */
 export const lairLoot = (power: number): number => Math.max(1, Math.round(power * LAIR_LOOT_PER_POWER));
+
+/** Сколько золота в казне логова — сверх добра, отдельным ключом добычи. */
+export const lairGold = (power: number): number => Math.max(0, Math.round(power * LAIR_GOLD_PER_POWER));
 
 /** Сколько оружия. Что это будут за предметы, решает племя, а не мир. */
 export const lairArms = (power: number): number => Math.max(1, Math.round(power * LAIR_ARMS_PER_POWER));

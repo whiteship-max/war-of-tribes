@@ -638,7 +638,7 @@ describe('сохранение: новые поля версию не подни
     delete raw.market.sold;
     const s = deserialize(JSON.stringify(raw));
     expect(s).not.toBeNull();
-    expect(SAVE_VERSION).toBe(13);
+    expect(SAVE_VERSION).toBe(14);
     expect(s!.version).toBe(SAVE_VERSION);
     expect(s!.bonded).toBe(0);
     expect(s!.bondedWork).toEqual({});

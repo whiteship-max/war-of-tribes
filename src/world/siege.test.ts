@@ -70,7 +70,6 @@ const holdout = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   defense: 100_000,
   warriorPower: 3,
   units: { warrior: 10, scout: 4 },
-  command: 100,
   army: { spearman: 10 },
   stock: { food: 600, wood: 400 },
   stash: 0,
@@ -621,7 +620,6 @@ const host = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   ...holdout(),
   defense: 900,
   army: { ...HOST },
-  command: 200,
   ...over,
 });
 
@@ -1125,7 +1123,6 @@ const besiegedProfile = (s: GameState): PlayerProfile => ({
   ...playerProfile(s),
   defense: 100_000,
   army: {},
-  command: 100,
   food: 6000,
   foodPerHour: 6000,
   soldierFoodPerHour: 60,
