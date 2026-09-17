@@ -37,6 +37,7 @@ export type TroopId =
   | 'swordsman'
   | 'shieldman'
   | 'rider'
+  | 'knight'
   | 'legionary';
 export type Army = Record<TroopId, number>;
 

@@ -18,7 +18,6 @@
 // Модуль чистый: ни состояния, ни часов.
 import {
   DEFAULT_ORDERS,
-  GEAR,
   PLAN_IDS,
   UNIT_KINDS,
   emptySectors,
@@ -40,14 +39,12 @@ export const generalResolve = (fervour: number, onslaught: number): number =>
   Math.max(0, fervour) + Math.max(0, onslaught);
 
 /**
- * Снаряжение нашего отряда: кузница по видам бойцов плюс ступень, которую
- * конюшня добавляет коннице. Одна функция на бой и на замер карточки.
+ * Снаряжение нашего отряда: кузница по видам бойцов. Ступени «от конюшни» здесь больше нет —
+ * её место занял второй конный род: доспех на всаднике теперь вид, а не прибавка зданием
+ * (docs/stable.md, решение 7).
  */
-export function ownGearOf(troops: TroopStack, mountGear: number): Partial<Record<UnitKind, number>> {
-  const gear = gearOf(troops);
-  const bonus = Math.max(0, Math.round(mountGear));
-  if (bonus > 0 && gear.cavalry !== undefined) gear.cavalry = Math.min(GEAR.max, gear.cavalry + bonus);
-  return gear;
+export function ownGearOf(troops: TroopStack): Partial<Record<UnitKind, number>> {
+  return gearOf(troops);
 }
 
 /**
@@ -97,15 +94,9 @@ export interface OnslaughtRow {
  * сектор получает не меньше, чем самый стойкий род в нём: чем ниже средняя
  * мораль, тем дальше потолок.
  */
-export function onslaughtRows(
-  troops: TroopStack,
-  mountGear: number,
-  fervour: number,
-  from: number,
-  to: number,
-): OnslaughtRow[] {
+export function onslaughtRows(troops: TroopStack, fervour: number, from: number, to: number): OnslaughtRow[] {
   const kinds = kindsOf(troops);
-  const gear = ownGearOf(troops, mountGear);
+  const gear = ownGearOf(troops);
   const rFrom = generalResolve(fervour, from);
   const rTo = generalResolve(fervour, to);
   const rows: OnslaughtRow[] = [];

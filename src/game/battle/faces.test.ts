@@ -58,7 +58,7 @@ describe('чужое войско получает лица из своей же
       }
     }
     // Ровно того же правила держится и мост: одинокий род не пропадает.
-    const all = troopsOfKinds({ spear: 10, infantry: 10, archer: 10, cavalry: 10 });
+    const all = troopsOfKinds({ spear: 10, infantry: 10, archer: 10, cavalry: 10, heavy: 0 });
     expect(Object.values(all).reduce((a, b) => a + (b ?? 0), 0)).toBe(40);
   });
 });
@@ -136,4 +136,4 @@ describe('границы моста', () => {
   });
 });
 
-const empty = (): Stack => ({ spear: 0, infantry: 0, archer: 0, cavalry: 0 });
+const empty = (): Stack => ({ spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 });

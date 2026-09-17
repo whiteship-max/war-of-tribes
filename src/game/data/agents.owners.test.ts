@@ -21,7 +21,7 @@ import {
   healShare,
   heroMen,
   intelKeen,
-  mountGear,
+  stalls,
   payGraceDays,
   surveyRadius,
   warningSeconds,
@@ -112,7 +112,7 @@ describe('агенты пятого уровня не сдвигают ни од
   it('в племени и в слепке для мира — меняются только прибавки навыка', () => {
     const a = createInitialState();
     const b = maxed();
-    for (const [name, fn] of Object.entries({ payGraceDays, heroMen, intelKeen, warningSeconds, surveyRadius, defense, fervour, mountGear, healShare })) {
+    for (const [name, fn] of Object.entries({ payGraceDays, heroMen, intelKeen, warningSeconds, surveyRadius, defense, fervour, stalls, healShare })) {
       expect(fn(b), name).toBe(fn(a));
     }
     const pa = playerProfile(a) as unknown as Record<string, unknown>;

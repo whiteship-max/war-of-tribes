@@ -14,7 +14,7 @@
 // ростовой прямоугольный, гребень на шлеме и самый широкий корпус.
 import * as THREE from 'three';
 import type { TroopId } from '@/game/types';
-import { KIND_OF } from '@/game/battle/kinds';
+import { TROOP_BY_ID } from '@/game/data/troops';
 import { gearOfTroop, hasArmor, hasShield, weaponOf } from '@/game/battle/kinds';
 import { Figure, addSlot, gripFrame, type MountRig, type Rig } from './figures';
 import { FOLK_TINT, HERO_TINT, PALETTE } from './palette';
@@ -221,6 +221,7 @@ const SIZE: Record<TroopId, { height: number; build: number }> = {
   swordsman: { height: 1, build: 1 },
   shieldman: { height: 1, build: 1.08 },
   rider: { height: 1, build: 1 },
+  knight: { height: 1.03, build: 1.12 },
   legionary: { height: 1.05, build: 1.16 },
 };
 
@@ -311,7 +312,7 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
   // что видно на поле, — двух описаний одного бойца в игре быть не должно.
   const shield = hasShield(troop);
   const heavy = hasArmor(troop);
-  const mounted = KIND_OF[troop] === 'cavalry';
+  const mounted = TROOP_BY_ID[troop].mounted === true;
 
   if (mounted) dressHorse(f, b);
   const heldStart = f.slots.length;

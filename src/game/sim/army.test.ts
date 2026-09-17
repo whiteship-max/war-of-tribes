@@ -7,6 +7,7 @@ import { setDecree, setRation } from './actions';
 import { forgeCheck, startForge } from './smithy';
 import { cancelRecruit, orderEta, recruitCheck, recruitTick, startRecruit } from './army';
 import { assignWorker, changeFreeJob } from './workers';
+import { stalls } from '../derived';
 import { seeded, setRandom } from './random';
 import { DAY_LENGTH, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS } from '../data/seasons';
@@ -225,14 +226,13 @@ describe('срок найма — это ход очереди', () => {
     expect(() => recruitRate(s)).toThrow();
   });
 
-  it('всадник с конюшней учится ровно столько, сколько написано в очереди и в карточке', () => {
-    // Казармы пятого уровня. Строка очереди и карточка вида считали срок без вида
-    // бойца и показывали всаднику 13 секунд при любой конюшне; кнопка найма и сама
-    // очередь всегда шли с конюшней.
+  it('конницу учит конюшня, пеших — казармы, и очереди у них свои', () => {
+    // Срок найма головы — та же формула, что и прежде, только с уровнем конюшни: при равных
+    // уровнях он не изменился (docs/stable.md, решение 8).
     for (const [stable, seconds] of [
-      [1, 11],
-      [4, 8],
-      [10, 5],
+      [1, 72],
+      [4, 11],
+      [10, 2],
     ] as const) {
       const s = warband();
       place(s, 'barracks', 5);
@@ -248,6 +248,37 @@ describe('срок найма — это ход очереди', () => {
       recruitTick(s, 1);
       expect(s.army.rider, `конюшня ${stable}: в срок`).toBe(1);
     }
+  });
+
+  it('очередь конюшни не ждёт очередь казарм', () => {
+    const s = warband();
+    place(s, 'barracks', 10);
+    place(s, 'stable', 10);
+    // Граница: пеший заказ стоит первым и один бы держал всю очередь, будь она общей.
+    s.recruits = [
+      { id: 1, troop: 'clubman', count: 50, done: 0, work: 0, people: 50 },
+      { id: 2, troop: 'rider', count: 1, done: 0, work: 0, people: 1 },
+    ];
+    recruitTick(s, 5);
+    expect(s.recruits[0].done, 'пеший заказ идёт своим чередом').toBeGreaterThan(0);
+    expect(s.recruits[0].done, 'и не кончился').toBeLessThan(50);
+    expect(s.army.rider, 'всадник обучен, не дожидаясь пеших').toBe(1);
+  });
+
+  it('стойла — потолок конницы, и тяжёлую открывает уровень конюшни', () => {
+    const s = warband();
+    place(s, 'barracks', 10);
+    place(s, 'stable', 1);
+    s.pop = 200;
+    for (const r of RESOURCE_IDS) s.resources[r] = 9999;
+    for (const id of Object.keys(s.equipment) as (keyof typeof s.equipment)[]) s.equipment[id] = 999;
+    // Граница: жителей, добра и снаряжения хватает — мешают только стойла и уровень.
+    expect(recruitCheck(s, 'rider', 1).blocked, 'первое стойло свободно').toBeNull();
+    expect(recruitCheck(s, 'knight', 1).blocked, 'тяжёлая с 4 уровня').toContain('4 уровня');
+    s.army.rider = stalls(s);
+    expect(recruitCheck(s, 'rider', 1).blocked, 'стойла заняты').toContain('стойл');
+    place(s, 'stable', 4);
+    expect(recruitCheck(s, 'knight', 1).blocked, 'на 4 уровне куют латных').toBeNull();
   });
 });
 

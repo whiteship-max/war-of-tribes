@@ -42,10 +42,16 @@ export const KIND_META: Record<UnitKind, KindMeta> = {
     hint: 'Работают до сближения. В рукопашной почти бесполезны и быстро ломаются.',
   },
   cavalry: {
-    name: 'Конница',
+    name: 'Лёгкая конница',
     one: 'всадник',
     icon: '🐎',
-    hint: 'Режет лучников и заходит во фланг, но разбивается о сомкнутые копья.',
+    hint: 'Режет лучников и заходит во фланг, но в лоб не бьёт и разбивается о сомкнутые копья.',
+  },
+  heavy: {
+    name: 'Тяжёлая конница',
+    one: 'латный всадник',
+    icon: '🏇',
+    hint: 'Ломает строй в лоб и стоит под стрелами, но манёвра у неё нет — и сомкнутые копья держат её так же.',
   },
 };
 
@@ -111,6 +117,7 @@ export const ORDER_NAMES: Record<UnitKind, Record<string, string>> = {
   infantry: INFANTRY_ORDER_NAME,
   archer: ARCHER_ORDER_NAME,
   cavalry: CAVALRY_ORDER_NAME,
+  heavy: CAVALRY_ORDER_NAME,
 };
 
 export type ReserveKind = ReserveTrigger['kind'];

@@ -2598,7 +2598,7 @@ export class LocalWorld implements WorldApi {
   }
 
   private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
-    return ownGearOf(troops, this.save.profile?.mountGear ?? 0);
+    return ownGearOf(troops);
   }
 
   /**

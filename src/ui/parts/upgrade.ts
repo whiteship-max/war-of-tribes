@@ -46,7 +46,8 @@ import {
   marketOffer,
   marketStock,
   moraleBreakdown,
-  mountGear,
+  heavyOpen,
+  stalls,
   payGraceDays,
   pietyBreakdown,
   priestMorale,
@@ -143,13 +144,12 @@ const GAUGES: Gauge[] = [
     read: (s) => recruitRate(s, MOUNTED) / Math.max(1e-9, recruitRate(s, FOOT)),
     say: grow('к скорости учений конницы'),
   },
+  { id: 'stalls', read: stalls, say: more('стойл для конницы') },
   {
-    id: 'mountGear',
-    read: mountGear,
-    say: (b, a) => {
-      const d = a - b;
-      return d <= 0 ? null : { text: `+${d} ${plural(d, 'ступень', 'ступени', 'ступеней')} снаряжения всадникам`, numbers: [d] };
-    },
+    // Открытие вида: не число, а «можно нанимать» — уровень, на котором конюшня начинает ковать латных.
+    id: 'heavy',
+    read: (s) => (heavyOpen(s) ? 1 : 0),
+    say: (b, a) => (a > b ? { text: 'откроет латных всадников', numbers: [] } : null),
   },
   { id: 'defense', read: defense, say: more('к защите') },
   { id: 'archers', read: militiaArchers, say: more('стрелков ополчения на стене') },

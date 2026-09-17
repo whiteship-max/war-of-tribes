@@ -3,9 +3,19 @@
 // того, что ровно этот код потом запустит сервер, а клиент прогонит его же
 // для показа.
 
-/** Четыре рода войск полевого боя. Осадные — только против стен, их здесь нет. */
-export type UnitKind = 'spear' | 'infantry' | 'archer' | 'cavalry';
-export const UNIT_KINDS: readonly UnitKind[] = ['spear', 'infantry', 'archer', 'cavalry'];
+/**
+ * Пять родов войск полевого боя. Осадные — только против стен, их здесь нет.
+ *
+ * Конных родов два, и делит их доспех: `cavalry` — лёгкая, та половина конницы, что держится
+ * на скорости (лучники, фланг, погоня); `heavy` — тяжёлая, та, что держится на весе (ломает
+ * строй в лоб, стоит под стрелами, но манёвра у неё нет). Числа обеих — в `UNIT_STATS`,
+ * `COUNTER` и `TEMPER`; своих чисел у классов нет, они делят прежний профиль (docs/stable.md).
+ */
+export type UnitKind = 'spear' | 'infantry' | 'archer' | 'cavalry' | 'heavy';
+export const UNIT_KINDS: readonly UnitKind[] = ['spear', 'infantry', 'archer', 'cavalry', 'heavy'];
+
+/** Конные рода: всё, что верхом. Приказ у каждого свой, но оба — конница. */
+export const HORSE_KINDS: readonly UnitKind[] = ['cavalry', 'heavy'];
 
 /** Сколько кого. Внутри симуляции числа дробные, наружу — целые. */
 export type Stack = Record<UnitKind, number>;
@@ -35,6 +45,13 @@ export type InfantryOrder = 'hold-center' | 'advance' | 'support-weak-flank' | '
 
 export interface Orders {
   cavalry: CavalryOrder;
+  /**
+   * Приказ тяжёлой коннице: те же приказы, что у лёгкой, — но отдельно от неё. Поле
+   * необязательное, и читается оно одной дверью (`sim.horseOrder`): расстановка, записанная
+   * до появления второго конного рода — в сохранении партии, в слепке мира или в шаблоне, —
+   * приезжает без него, и тяжёлая идёт по приказу лёгкой.
+   */
+  heavy?: CavalryOrder;
   archer: ArcherOrder;
   spear: SpearOrder;
   infantry: InfantryOrder;

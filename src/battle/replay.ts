@@ -147,6 +147,7 @@ export const SHAFTS_PER_FIGURE: Record<UnitKind, number> = {
   infantry: 2,
   archer: 1.4,
   cavalry: 0,
+  heavy: 0,
 };
 
 /**

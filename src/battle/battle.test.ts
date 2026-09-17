@@ -4,7 +4,7 @@
 // исход и не врёт числам.
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
-import { quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
+import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_MIN, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
@@ -71,7 +71,7 @@ function sampleBattles(): BattleResult[] {
 describe('шаблон быстрой атаки', () => {
   it('раскладывает любой состав целиком и по правилу', () => {
     const s = quickSetup(BALANCED_ARMY);
-    expect(armyTotal(s)).toEqual({ spear: 150, infantry: 200, archer: 150, cavalry: 100 });
+    expect(armyTotal(s)).toEqual({ spear: 150, infantry: 200, archer: 150, cavalry: 100, heavy: 0 });
     // Центр пехотный, но фланги заякорены малой долей пехоты: без неё фланг ломается первым.
     expect(s.sectors.B.infantry).toBe(140);
     expect(s.sectors.A.infantry).toBe(30);
@@ -81,7 +81,7 @@ describe('шаблон быстрой атаки', () => {
     expect(s.sectors.D.archer + s.sectors.E.archer + s.sectors.F.archer).toBe(150);
     expect(s.sectors.R.cavalry).toBe(100);
     for (const army of [{ archer: 7 }, { cavalry: 3 }, { spear: 1 }, { infantry: 2, cavalry: 2 }]) {
-      expect(stackTotal(armyTotal(quickSetup(army)))).toBe(stackTotal({ spear: 0, infantry: 0, archer: 0, cavalry: 0, ...army }));
+      expect(stackTotal(armyTotal(quickSetup(army)))).toBe(stackTotal({ ...emptyStack(), ...army }));
     }
     // Некому держать фронт — конница выходит вперёд, а не ждёт в резерве.
     expect(quickSetup({ cavalry: 30 }).sectors.R.cavalry).toBe(0);
@@ -433,7 +433,7 @@ describe('мораль как характеристика войск', () => {
 
   it('снаряжение из кузницы делает войско стойче: та же армия со снаряжением выигрывает размен', () => {
     const plain = quickSetup(BALANCED_ARMY);
-    const geared = quickSetup(BALANCED_ARMY, { gear: { spear: GEAR.max, infantry: GEAR.max, archer: GEAR.max, cavalry: GEAR.max } });
+    const geared = quickSetup(BALANCED_ARMY, { gear: { spear: GEAR.max, infantry: GEAR.max, archer: GEAR.max, cavalry: GEAR.max, heavy: 0 } });
     let ratio = 0;
     const N = 12;
     for (let seed = 1; seed <= N; seed += 1) {

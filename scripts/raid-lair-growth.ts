@@ -398,7 +398,7 @@ export async function lairGrowthSection(): Promise<void> {
         const gar = garrisonOf(seed, `lair${seed}`, power, false);
         const f = resolveField({
           seed: seed * 7919,
-          attacker: { kinds: kindsOf(troops), gear: ownGearOf(troops, 0), resolve: 0, setup: null },
+          attacker: { kinds: kindsOf(troops), gear: ownGearOf(troops), resolve: 0, setup: null },
           defender: { kinds: gar.kinds, gear: gar.gear, setup: gar.setup },
         });
         if (f.won) won++;

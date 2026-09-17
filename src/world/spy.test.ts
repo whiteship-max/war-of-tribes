@@ -127,7 +127,7 @@ describe('донесение', () => {
       power: 100,
       pop: 40,
       loot: 60,
-      kinds: { spear: 50, infantry: 30, archer: 15, cavalry: 5 },
+      kinds: { spear: 50, infantry: 30, archer: 15, cavalry: 5, heavy: 0 },
       spread: 0.2,
     };
     const fresh = readIntel(intel, at + 1000);

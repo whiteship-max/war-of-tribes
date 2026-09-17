@@ -144,13 +144,13 @@ describe('где стоит боец — одно правило', () => {
 
     const setup: ArmySetup = toArmySetup(presetFormation({ spearman: 30, archer: 20 }, 'defense'));
     const copy = structuredClone(setup);
-    const cut = fitSetup(setup, { spear: 10, infantry: 0, archer: 20, cavalry: 0 });
+    const cut = fitSetup(setup, { spear: 10, infantry: 0, archer: 20, cavalry: 0, heavy: 0 });
     const total = (s: ArmySetup): Stack => {
-      const out: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+      const out: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 };
       for (const id of SECTORS) for (const k of UNIT_KINDS) out[k] += s.sectors[id][k];
       return out;
     };
-    expect(total(cut)).toEqual({ spear: 10, infantry: 0, archer: 20, cavalry: 0 });
+    expect(total(cut)).toEqual({ spear: 10, infantry: 0, archer: 20, cavalry: 0, heavy: 0 });
     // Снимают с конца: резерв и тыл пустеют раньше фронта.
     const front = cut.sectors.A.spear + cut.sectors.B.spear + cut.sectors.C.spear;
     expect(front, 'фронт держится до последнего').toBe(Math.min(10, setup.sectors.A.spear + setup.sectors.B.spear + setup.sectors.C.spear));

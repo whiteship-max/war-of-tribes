@@ -24,6 +24,7 @@ const ORDER_LIST: Record<UnitKind, Record<string, string>> = {
   infantry: INFANTRY_ORDER_NAME,
   archer: ARCHER_ORDER_NAME,
   cavalry: CAVALRY_ORDER_NAME,
+  heavy: CAVALRY_ORDER_NAME,
 };
 
 const PLAN_ICON: Record<Plan, string> = {
@@ -117,7 +118,7 @@ export function OrdersPicker({
         <OrderRow
           key={k}
           kind={k}
-          value={orders[k]}
+          value={k === 'heavy' ? orders.heavy ?? orders.cavalry : orders[k]}
           onChange={(v) => onChange({ ...orders, [k]: v } as Orders)}
         />
       ))}

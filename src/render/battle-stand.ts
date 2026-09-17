@@ -23,7 +23,7 @@
 // инструмент проверки, которому сама канва недоступна.
 import * as THREE from 'three';
 import { simulateBattle } from '@/battle/sim';
-import { quickSetup } from '@/battle/setup';
+import { emptyStack, quickSetup } from '@/battle/setup';
 import type { Act, Cast } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
@@ -145,7 +145,7 @@ export function mountReplayStand(p: URLSearchParams): void {
   const us = (p.get('us') as Side) ?? 'attacker';
   const mine = armyOf(men);
   const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
-  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { spear: 0, infantry: foe, archer: 0, cavalry: 0 }, seed);
+  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed);
   // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1`
   // показывает именно этот путь, а не поимённый).
   const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });

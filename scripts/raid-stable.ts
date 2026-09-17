@@ -47,7 +47,7 @@ import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { BATTLE_MAN, KIND_OF, gearOfTroop, kindsOf, troopPower, troopTotal, weightOf, type TroopStack } from '@/game/battle/kinds';
 import { createInitialState } from '@/game/state';
-import { defense, mountGear, recruitRate, wageOf } from '@/game/derived';
+import { defense, recruitRate, stalls, wageOf } from '@/game/derived';
 import { SOLDIER_FOOD } from '@/game/constants';
 import type { EquipmentId, ResourceId, TroopId } from '@/game/types';
 import { MIX, armyAt, openSky, townAt, type Inside } from './autopilot';
@@ -709,14 +709,14 @@ function numbersPart(worth: Worth, walls: ClassWall[], shares: ShareRow[]): void
   console.log('derived.cavalryTrain) — у мерки казармы и конюшня одного уровня L, поэтому «в конюшне той же формулой» даёт те же секунды. Игровых секунд на голову;');
   console.log('«все места» — места тяжёлой при пресете (выше), нанятые подряд.');
   const heavyCap = caps.get(`${HEAVY.name}, ${PRESET.name}`) ?? NaN;
-  console.log(` уровень  ${walls.map((c) => pad(c.profile.name, 9)).join('')}  ${pad('места', 6)}  ${pad('все места, тяжёлая', 19)}  ступень конюшни`);
+  console.log(` уровень  ${walls.map((c) => pad(c.profile.name, 9)).join('')}  ${pad('места', 6)}  ${pad('все места, тяжёлая', 19)}  стойл`);
   for (const L of LEVELS) {
     const s = townAt(L);
     const rate = recruitRate(s, 'rider');
     const cells = walls.map((c) => pad((med.work * c.worth * w7 / rate).toFixed(1), 9));
     const heavy = walls.find((c) => c.profile === HEAVY)!;
     const places = Number.isFinite(heavyCap) ? placesAt(heavyCap, L) : 0;
-    console.log(` ${pad(L, 7)}  ${cells.join('')}  ${pad(places, 6)}  ${pad(((places * med.work * heavy.worth * w7) / rate).toFixed(0), 19)}  ${pad(mountGear(s), 15)}`);
+    console.log(` ${pad(L, 7)}  ${cells.join('')}  ${pad(places, 6)}  ${pad(((places * med.work * heavy.worth * w7) / rate).toFixed(0), 19)}  ${pad(stalls(s), 15)}`);
   }
 }
 

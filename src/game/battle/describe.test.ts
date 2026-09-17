@@ -57,7 +57,7 @@ const counters = (m: object): Record<string, number> => m as Record<string, numb
 describe('карточка войск выводится из конфига', () => {
   it('правка множителя в COUNTER меняет строку карточки', () => {
     const before = countersOf('spear').find((l) => l.id === 'spear-cav-hold');
-    expect(before?.text).toBe(`${fmt(COUNTER.spear.cavalryHolding)} против конницы`);
+    expect(before?.text).toBe(`${fmt(COUNTER.spear.cavalryHolding)} против лёгкой конницы`);
 
     set(counters(COUNTER.spear), 'cavalryHolding', 3.7);
     const after = countersOf('spear').find((l) => l.id === 'spear-cav-hold');

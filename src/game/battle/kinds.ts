@@ -1,21 +1,30 @@
-// Мост между восемью видами бойцов племени и четырьмя родами полевого боя.
+// Мост между девятью видами бойцов племени и пятью родами полевого боя.
 // Ядро (`src/battle/`) про племя не знает и знать не должно — отображение живёт
 // здесь. Обратная зависимость запрещена: отсюда в ядро только типы.
 import type { EquipmentId, TroopId } from '../types';
-import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
-import { GEAR, UNIT_KINDS, type Stack, type UnitKind } from '@/battle';
+import { TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
+import { GEAR, UNIT_KINDS, emptyStack, type Stack, type UnitKind } from '@/battle';
 
-/** Кто из племени каким родом выходит в поле. Все четыре рода закрыты. */
-export const KIND_OF: Record<TroopId, UnitKind> = {
-  clubman: 'infantry',
-  spearman: 'spear',
-  archer: 'archer',
-  axeman: 'infantry',
-  swordsman: 'infantry',
-  shieldman: 'infantry',
-  rider: 'cavalry',
-  legionary: 'infantry',
-};
+/**
+ * Каким родом вид выходит в поле — **выводится из его снаряжения**, а не из таблицы рядом.
+ * Лук — лучники; верхом — конница, и класс её решает доспех (в доспехе — тяжёлая); одно
+ * копьё и больше ничего — копья; всё остальное — пехота.
+ *
+ * Правило, а не список: заведи вид с луком — он станет лучником сам. Рукописная таблица
+ * рядом с `TroopDef.gear` была бы второй правдой о том же бойце (docs/stable.md, раздел 1).
+ */
+export function kindOfTroop(def: TroopDef): UnitKind {
+  if (def.gear.bow) return 'archer';
+  if (def.mounted) return def.gear.armor ? 'heavy' : 'cavalry';
+  const items = Object.entries(def.gear).filter(([, n]) => (n ?? 0) > 0);
+  if (items.length === 1 && items[0][0] === 'spear') return 'spear';
+  return 'infantry';
+}
+
+/** Кто из племени каким родом выходит в поле. Все пять родов закрыты. */
+export const KIND_OF: Record<TroopId, UnitKind> = Object.fromEntries(
+  TROOP_IDS.map((id) => [id, kindOfTroop(TROOP_BY_ID[id])]),
+) as Record<TroopId, UnitKind>;
 
 /** Виды племени, выходящие этим родом, — в порядке списка казарм. */
 export const TROOPS_OF_KIND: Record<UnitKind, TroopId[]> = UNIT_KINDS.reduce(
@@ -65,7 +74,7 @@ export const troopPower = (t: TroopStack): number =>
 
 /** Состав в родах боя — то, что понимает ядро. */
 export function kindsOf(t: TroopStack): Stack {
-  const out: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+  const out: Stack = emptyStack();
   for (const id of TROOP_IDS) out[KIND_OF[id]] += menOf(id, Math.max(0, t[id] ?? 0));
   return out;
 }

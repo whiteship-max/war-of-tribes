@@ -38,7 +38,8 @@ import {
   hiddenStash,
   idleCount,
   intelKeen,
-  mountGear,
+  heavyOpen,
+  stalls,
   recruitRate,
   warningSeconds,
   idleCount as _idleCount,
@@ -172,19 +173,23 @@ describe('службы посёлка', () => {
     expect(warningSeconds(withLevel('watch', 1))).toBeGreaterThan(0);
   });
 
-  it('конюшня ускоряет только конницу и даёт ей ступень снаряжения с четвёртого уровня', () => {
+  it('конюшня учит конницу, открывает тяжёлую с четвёртого уровня и держит стойла', () => {
     const s = withLevel('stable', 10);
-    place(s, 'barracks', 5);
+    place(s, 'barracks', 10);
+    // Формула одна, уровень свой: при равных уровнях конница учится на множитель конюшни быстрее.
     expect(recruitRate(s, 'rider')).toBeCloseTo(recruitRate(s, 'clubman') * cavalryTrain(s), 6);
-    // Пеший вид от конюшни не ускоряется ни на волос.
+    // Пеший вид от конюшни не ускоряется ни на волос: его учат казармы.
     const plain = withLevel('stable', 1);
-    place(plain, 'barracks', 5);
+    place(plain, 'barracks', 10);
     expect(recruitRate(s, 'clubman')).toBe(recruitRate(plain, 'clubman'));
     expect(cavalryTrain(s)).toBeGreaterThan(1);
+    // А конница от уровня казарм — ни на волос: её учит конюшня.
+    expect(recruitRate(plain, 'rider')).toBeLessThan(recruitRate(s, 'rider'));
 
-    expect(mountGear(withLevel('stable', 3))).toBe(0);
-    expect(mountGear(withLevel('stable', 4))).toBe(1);
-    expect(mountGear(withLevel('stable', 10))).toBeGreaterThanOrEqual(1);
+    // Стойла и открытие тяжёлой — работа уровня; ступени снаряжения от конюшни больше нет.
+    expect(heavyOpen(withLevel('stable', 3))).toBe(false);
+    expect(heavyOpen(withLevel('stable', 4))).toBe(true);
+    expect(stalls(withLevel('stable', 10))).toBeGreaterThan(stalls(withLevel('stable', 1)));
   });
 
   it('тайник едет в мир числом, а вычитает его общее правило дележа', () => {

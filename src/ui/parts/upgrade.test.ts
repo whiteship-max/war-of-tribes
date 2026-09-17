@@ -33,10 +33,12 @@ import {
   marketStock,
   maxLevelFor,
   moraleBreakdown,
+  heavyOpen,
   payGraceDays,
   pietyBreakdown,
   productionPerDay,
   recruitRate,
+  stalls,
   storageCap,
   taxIncomePerDay,
   towerSeats,
@@ -152,7 +154,8 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   storage: { kind: 'more', read: storageCap },
   recruit: { kind: 'grow', read: (s) => recruitRate(s, 'legionary') },
   cavalry: { kind: 'grow', read: (s) => recruitRate(s, 'rider') / recruitRate(s, 'legionary') },
-  mountGear: { kind: 'count', read: (s) => playerProfile(s).mountGear ?? 0 },
+  stalls: { kind: 'count', read: (s) => stalls(s) },
+  heavy: { kind: 'count', read: (s) => (heavyOpen(s) ? 1 : 0) },
   defense: { kind: 'more', read: (s) => playerProfile(s).defense },
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
   seats: { kind: 'more', read: towerSeats },
@@ -319,7 +322,7 @@ describe('кнопка видит каждое число здания, раст
     // которого что-то растёт с уровнем, и кнопка обязана это заметить.
     const STATS = [
       'housing', 'storage', 'defense', 'morale', 'archers', 'heal', 'intel', 'warn',
-      'train', 'mountGear', 'hidden', 'feast', 'hero', 'loyalty',
+      'train', 'stalls', 'heavy', 'hidden', 'feast', 'hero', 'loyalty',
     ] as const;
     const labels = (type: BuildingTypeId): string => {
       const out: string[] = [];

@@ -22,7 +22,7 @@ import {
   soldierFoodPerDay,
   townFoodPerDay,
 } from '../derived';
-import { troopTotal, type TroopStack } from '../battle/kinds';
+import { BATTLE_MAN, troopPower, troopTotal, type TroopStack } from '../battle/kinds';
 import { applyExpedition, type ExpeditionOutcome } from './expedition';
 import { catchUp, tick } from './tick';
 import { woundsHome, woundsOfBattle } from './infirmary';
@@ -81,19 +81,22 @@ describe('раненый встаёт в строй тем же бойцом с�
     const pop = s.pop;
     const born = s.stats.born;
     const gear = { ...s.equipment };
-    const lost = { spearman: 40, archer: 20 };
+    // Потери такие, чтобы весь их строй поместился: место — боец строя, и копейщик занимает два.
+    const lost = { spearman: 16, archer: 8 };
     applyExpedition(s, battle(lost));
     const laidSpear = lying(s, 'spearman');
     const laidArcher = lying(s, 'archer');
     expect(laidSpear + laidArcher, 'точка внутри области: раненые легли').toBeGreaterThan(0);
-    expect(laidSpear + laidArcher, 'точка внутри области: мест хватило всем раненым').toBe(Math.round(60 * healShare(s)));
-    expect(laidSpear, 'ранены из павших этого вида, не больше').toBeLessThanOrEqual(40);
-    expect(laidArcher).toBeLessThanOrEqual(20);
-    expect(s.army.spearman).toBe(160);
+    // Граница: мест хватает — раненые лёгкие, и весь их строй помещается в лазарет.
+    expect(troopPower({ spearman: laidSpear, archer: laidArcher }) / BATTLE_MAN, 'строя легло').toBeLessThanOrEqual(infirmaryBeds(s));
+    expect(laidSpear + laidArcher, 'точка внутри области: мест хватило всем раненым').toBe(Math.round(24 * healShare(s)));
+    expect(laidSpear, 'ранены из павших этого вида, не больше').toBeLessThanOrEqual(16);
+    expect(laidArcher).toBeLessThanOrEqual(8);
+    expect(s.army.spearman).toBe(184);
 
     play(s, WOUND_DAYS * DAY_LENGTH + DT);
-    expect(s.army.spearman, 'копейщики вернулись копейщиками').toBe(160 + laidSpear);
-    expect(s.army.archer, 'лучники — лучниками').toBe(80 + laidArcher);
+    expect(s.army.spearman, 'копейщики вернулись копейщиками').toBe(184 + laidSpear);
+    expect(s.army.archer, 'лучники — лучниками').toBe(92 + laidArcher);
     expect(s.pop - (s.stats.born - born), 'раненый не становится жителем: посёлок вырос только приростом').toBe(pop);
     expect(s.equipment, 'снаряжение не куётся второй раз и не пропадает').toEqual(gear);
     expect(s.wounded).toEqual([]);
@@ -161,20 +164,23 @@ describe('срок: два игровых дня с минуты, когда л�
   it('раненые полководца лежат при нём: ни мест, ни срока, пока дружина не вернулась', () => {
     const s = town(10);
     s.army.legionary = 100;
-    applyExpedition(s, battle({ legionary: 40 }, { field: { legionary: 40 } }));
+    // Латник весит восемь бойцов строя: столько мест он и займёт, вернувшись (docs/stable.md).
+    applyExpedition(s, battle({ legionary: 8 }, { field: { legionary: 8 } }));
     const carried = s.wounded.filter((g) => g.until === null).reduce((n, g) => n + troopTotal(g.troops), 0);
-    expect(carried, 'точка внутри области: раненые при полководце').toBe(Math.round(40 * healShare(s)));
+    expect(carried, 'точка внутри области: раненые при полководце').toBe(Math.round(8 * healShare(s)));
     expect(bedsTaken(s), 'мест не занимают').toBe(0);
 
     play(s, 10 * WOUND_DAYS * DAY_LENGTH);
-    expect(s.army.legionary, 'дружина в поле — срок не идёт, сколько бы ни прошло').toBe(60);
+    expect(s.army.legionary, 'дружина в поле — срок не идёт, сколько бы ни прошло').toBe(92);
 
     woundsHome(s);
+    // Граница: мест на них хватает — иначе проверялось бы не «срок идёт с возвращения», а ёмкость.
+    expect(troopPower({ legionary: carried }) / BATTLE_MAN).toBeLessThanOrEqual(infirmaryBeds(s));
     expect(lying(s), 'вернулась — легли').toBe(carried);
     play(s, WOUND_DAYS * DAY_LENGTH - 2 * DT);
-    expect(s.army.legionary, 'срок идёт с возвращения').toBe(60);
+    expect(s.army.legionary, 'срок идёт с возвращения').toBe(92);
     play(s, 3 * DT);
-    expect(s.army.legionary).toBe(60 + carried);
+    expect(s.army.legionary).toBe(92 + carried);
   });
 
   it('дружина «вернулась» — у ворот, или её в поле больше нет', () => {

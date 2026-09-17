@@ -81,8 +81,8 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } 
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
-import { DESERT_SHARE, UPKEEP_TEXT, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
-import { troopPower, troopTotal, troopsAfter, weightOf, type TroopStack } from './battle/kinds';
+import { DESERT_SHARE, HORSE_MOUTHS, UPKEEP_TEXT, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
+import { BATTLE_MAN, gearOfTroop, troopPower, troopTotal, troopsAfter, weightOf, type TroopStack } from './battle/kinds';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
@@ -568,7 +568,12 @@ export function woundedStacks(s: GameState): { lying: TroopStack; carried: Troop
 }
 
 /** Сколько мест лазарета занято. Раненые при полководце мест не занимают, пока дружина в поле. */
-export const bedsTaken = (s: GameState): number => troopTotal(woundedStacks(s).lying);
+/**
+ * Сколько мест лазарета занято — **в бойцах строя**, а не в головах. Голова всадника весит
+ * семь бойцов строя, и по головам конница лечилась бы даром: чем дороже боец, тем выгоднее
+ * (docs/stable.md, решение 9). Ёмкость — та же, три на уровень.
+ */
+export const bedsTaken = (s: GameState): number => troopPower(woundedStacks(s).lying) / BATTLE_MAN;
 
 /**
  * Кто ест солдатский паёк, по видам: строй, новобранцы на учениях и раненые — в лазарете и при
@@ -591,10 +596,17 @@ export function soldierMouths(s: GameState): { army: TroopStack; recruits: Troop
   return { army, recruits, wounded };
 }
 
-/** Сколько ртов на солдатском пайке — сумма `soldierMouths`. */
+/**
+ * Сколько ртов на солдатском пайке. Конь — тоже рот: всадник и его конь едят за двоих, и это
+ * то же правило «кто ест — тот считается», только на конях (docs/stable.md, решение 5).
+ */
+export const mouthsOf = (t: TroopStack): number =>
+  TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * (TROOP_BY_ID[id].mounted ? HORSE_MOUTHS : 1), 0);
+
+/** Сколько ртов на солдатском пайке — сумма `soldierMouths` вместе с конями. */
 export function mouthCount(s: GameState): number {
   const m = soldierMouths(s);
-  return troopTotal(m.army) + troopTotal(m.recruits) + troopTotal(m.wounded);
+  return mouthsOf(m.army) + mouthsOf(m.recruits) + mouthsOf(m.wounded);
 }
 
 /**
@@ -625,8 +637,26 @@ export const surveyRadius = (s: GameState): number => surveyRadiusOf(s.survey?.d
 /** Во сколько раз быстрее учится конница благодаря конюшне. */
 export const cavalryTrain = (s: GameState): number => 1 + statOf(s, 'stable', 'train') / 100;
 
-/** Ступень снаряжения, которую конюшня добавляет всадникам в бою. */
-export const mountGear = (s: GameState): number => Math.floor(statOf(s, 'stable', 'mountGear'));
+/**
+ * Сколько коней держит конюшня — стойла, общие на оба конных рода.
+ *
+ * Это единственный потолок конницы, и он не украшение: прибавка конницы к войску растёт без
+ * насыщения, и без предела лучшее войско — одна конница. Предел выведен из замера: доля, на
+ * которой конница прибавляет войску одно решение — 15 %, разрыв настроенной армии и быстрой
+ * атаки (docs/stable.md, «Места»).
+ */
+export const stalls = (s: GameState): number => Math.round(statOf(s, 'stable', 'stalls'));
+
+/** Сколько коней уже занято: строй, учения и раненые — конь с всадником не расседлан. */
+export const stallsTaken = (s: GameState): number => {
+  const m = soldierMouths(s);
+  const mounted = (t: TroopStack): number =>
+    TROOP_IDS.reduce((n, id) => n + (TROOP_BY_ID[id].mounted ? Math.max(0, t[id] ?? 0) : 0), 0);
+  return mounted(m.army) + mounted(m.recruits) + mounted(m.wounded);
+};
+
+/** Открыта ли тяжёлая конница: её даёт уровень конюшни, и он же прежде давал ступень снаряжения. */
+export const heavyOpen = (s: GameState): boolean => statOf(s, 'stable', 'heavy') > 0;
 
 /**
  * Сколько единиц каждого припаса прячет Тайник этого уровня.
@@ -743,8 +773,16 @@ export function wageShare(s: GameState): number {
 }
 
 /** Жалованье одного бойца этого вида за игровой день, золотом. */
+/**
+ * Что на бойце надето, в вещах: предметы кузницы и конь под ним. Из этого считается часть
+ * жалованья — «платят и за снаряжение» (`WAGE_GEAR`, docs/stable.md, решение 4). Своей таблицы
+ * у правила нет: вещи берутся из `TroopDef.gear`, конь — из `mounted`.
+ */
+export const wageGear = (troop: TroopId): number =>
+  gearOfTroop(troop) + (TROOP_BY_ID[troop].mounted ? 1 : 0);
+
 export const wageOf = (s: GameState, troop: TroopId): number =>
-  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(troop)) * wageShare(s);
+  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(troop) + WAGE_GEAR * wageGear(troop)) * wageShare(s);
 
 /** Жалованье всего войска за игровой день. Новобранцев на учениях оно не касается. */
 export const wagesPerDay = (s: GameState): number =>
@@ -891,12 +929,13 @@ export const recruitsQueued = (s: GameState): number =>
  * очередь шла 5. Теперь такой срок просто не собирается.
  */
 export function recruitRate(s: GameState, troop: TroopId): number {
-  const b = buildingOfType(s, 'barracks');
+  // Конницу учат в конюшне, пеших — в казармах: у каждого здания своя очередь и свой уровень.
+  // Формула одна и та же, поэтому при равных уровнях срок найма головы прежний.
+  const mounted = TROOP_BY_ID[troop].mounted === true;
+  const b = buildingOfType(s, mounted ? 'stable' : 'barracks');
   if (!b) return 0;
   const base = RECRUIT_WORK * b.level * levelOutputMult(b.level);
-  // Конюшня ускоряет только конницу: это её экономический след, а не общая
-  // прибавка казармам.
-  return TROOP_BY_ID[troop].mounted ? base * cavalryTrain(s) : base;
+  return mounted ? base * cavalryTrain(s) : base;
 }
 
 // ---------- Кузница ----------

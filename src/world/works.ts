@@ -43,7 +43,7 @@
 // она за ту же часть `CAMP_GATE_CLEAR`. Хранится одна отметка на сторону в окне
 // осады — `gateAt` у фронта, `rearGateAt` у тыла; пишет их только бой у лагеря, в
 // самом событии, а свободная доля выводится при чтении. Тика нет.
-import { stackTotal, UNIT_KINDS, type Stack } from '@/battle';
+import { emptyStack, stackTotal, UNIT_KINDS, type Stack } from '@/battle';
 import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from './data/tuning';
 
 /** Сторона лагеря. Фронт — к городу, тыл — в поле. Не путать с `Side` боя: там нападающий и защитник. */
@@ -181,11 +181,11 @@ export const campPass = (builders: number, works: number): number =>
  * меньше одного бойца не пропускает никого.
  */
 export function passKinds(kinds: Stack, pass: number): Stack {
-  const all: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+  const all: Stack = emptyStack();
   for (const k of UNIT_KINDS) all[k] = Math.max(0, Math.floor(kinds[k] ?? 0));
   const total = stackTotal(all);
   if (!(pass < Infinity) || total <= pass) return all;
-  const out: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+  const out: Stack = emptyStack();
   const room = Math.floor(Math.max(0, pass));
   if (room < 1) return out;
   const ratio = room / total;
@@ -347,8 +347,8 @@ export function throughText(...ts: (Pick<Through, 'side' | 'went' | 'passed'> | 
  * потерь не больше прошедших: ни один боец не считается дважды.
  */
 export function splitLosses(lost: Stack, front: Stack, rear: Stack): { front: Stack; rear: Stack } {
-  const f: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
-  const r: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+  const f: Stack = emptyStack();
+  const r: Stack = emptyStack();
   for (const k of UNIT_KINDS) {
     const a = Math.max(0, front[k] ?? 0);
     const b = Math.max(0, rear[k] ?? 0);
@@ -448,7 +448,7 @@ export interface SideSight {
 export function campSides(siege: CampSight, at: number): Record<CampSide, SideSight> {
   const plan = siege.wood ?? CAMP_WOOD;
   const one = (side: CampSide): SideSight => {
-    const t = throughWorks(side, siege.builders, siege.since, at, { spear: 0, infantry: 0, archer: 0, cavalry: 0 }, gateOf(siege, side), plan);
+    const t = throughWorks(side, siege.builders, siege.since, at, emptyStack(), gateOf(siege, side), plan);
     return {
       side,
       works: t.works,

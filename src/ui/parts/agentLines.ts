@@ -30,12 +30,12 @@ export interface OnslaughtLines {
   deadKinds: UnitKind[];
 }
 
-export function onslaughtLines(level: number, troops: TroopStack, mountGear: number, fervour: number): OnslaughtLines {
+export function onslaughtLines(level: number, troops: TroopStack, fervour: number): OnslaughtLines {
   const now = onslaughtAt(level);
   const has = Object.values(troops).some((n) => (n ?? 0) > 0);
-  const rows = has && level > 1 ? onslaughtRows(troops, mountGear, fervour, onslaughtAt(1), now) : [];
+  const rows = has && level > 1 ? onslaughtRows(troops, fervour, onslaughtAt(1), now) : [];
   const next =
-    has && level < MAX_AGENT_LEVEL ? onslaughtRows(troops, mountGear, fervour, now, onslaughtAt(level + 1)) : [];
+    has && level < MAX_AGENT_LEVEL ? onslaughtRows(troops, fervour, now, onslaughtAt(level + 1)) : [];
   const rite = fervour > 0 ? ` Обряд храма даёт ещё +${fervour}, и потолок морали у них общий.` : '';
 
   let troopsLine: string | null = null;

@@ -48,6 +48,7 @@ import { seededRng, type Rng } from './rng';
 import { emptyStack, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
+  HORSE_KINDS,
   PHASES,
   REAR,
   SECTORS,
@@ -174,10 +175,24 @@ function power(groups: Group[]): number {
 
 const sum = (groups: Group[], kind: UnitKind): number => groups.reduce((n, g) => n + g.stack[kind], 0);
 
+/**
+ * Приказ конному роду. Дверь одна на оба: у тяжёлой поле приказа необязательное, и
+ * расстановка, записанная до второго конного рода, ведёт её приказом лёгкой.
+ */
+const horseOrder = (setup: ArmySetup, kind: UnitKind): CavalryOrder =>
+  kind === 'heavy' ? setup.orders.heavy ?? setup.orders.cavalry : setup.orders.cavalry;
+
 /** «Атаковать сразу» при плане «кавалерийский удар» — это и есть обход. */
-function cavalryOrder(setup: ArmySetup): CavalryOrder {
-  return setup.plan === 'cavalry-strike' && setup.orders.cavalry === 'charge' ? 'flank' : setup.orders.cavalry;
+function cavalryOrder(setup: ArmySetup, kind: UnitKind = 'cavalry'): CavalryOrder {
+  const o = horseOrder(setup, kind);
+  return setup.plan === 'cavalry-strike' && o === 'charge' ? 'flank' : o;
 }
+
+/** Ждёт ли конный род своего манёвра, а не идёт в строй сразу. */
+const waits = (o: CavalryOrder): boolean => o === 'flank' || o === 'attack-archers' || o === 'reserve' || o === 'pursue';
+
+/** Сколько в позиции конницы обоих родов. */
+const horses = (groups: Group[]): number => HORSE_KINDS.reduce((n, k) => n + sum(groups, k), 0);
 
 const spearsClosed = (setup: ArmySetup): boolean => SPEAR_ORDERS[setup.orders.spear].closed;
 
@@ -226,7 +241,6 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
 
 function buildGroups(side: Side, setup: ArmySetup): Group[] {
   const groups: Group[] = [];
-  const cav = cavalryOrder(setup);
   const push = (origin: Sector, stack: Stack, lane: Lane | null, row: Row, maneuver: CavalryOrder | null = null): void => {
     if (stackTotal(stack) <= 0) return;
     groups.push(newGroup(side, setup, origin, stack, lane, row, { maneuver }));
@@ -235,16 +249,20 @@ function buildGroups(side: Side, setup: ArmySetup): Group[] {
     const rest = { ...setup.sectors[sector] };
     const lane = laneOf(sector);
     const row = rowOf(sector);
-    if (rest.cavalry > 0 && (cav === 'flank' || cav === 'attack-archers' || cav === 'reserve' || cav === 'pursue')) {
+    // Конные рода разбираются по одному: приказ у каждого свой, и ждущая половина уходит
+    // в свою группу — иначе лёгкая с обходом утащила бы за собой тяжёлую с «атаковать сразу».
+    for (const kind of HORSE_KINDS) {
+      const cav = cavalryOrder(setup, kind);
+      if (rest[kind] <= 0 || !waits(cav)) continue;
       const cavRow: Row = cav === 'pursue' ? 'pursue' : cav === 'reserve' || row === 'reserve' ? 'reserve' : 'waiting';
-      push(sector, { ...emptyStack(), cavalry: rest.cavalry }, cavRow === 'reserve' ? null : lane, cavRow, cav);
-      rest.cavalry = 0;
+      push(sector, { ...emptyStack(), [kind]: rest[kind] }, cavRow === 'reserve' ? null : lane, cavRow, cav);
+      rest[kind] = 0;
     }
     if (rest.spear > 0 && setup.orders.spear === 'guard-archers' && row === 'front') {
       push(sector, { ...emptyStack(), spear: rest.spear }, lane, 'rear');
       rest.spear = 0;
     }
-    push(sector, rest, lane, row, row === 'reserve' && rest.cavalry > 0 ? cav : null);
+    push(sector, rest, lane, row, row === 'reserve' && horses([{ stack: rest } as Group]) > 0 ? cavalryOrder(setup) : null);
   }
   return groups;
 }
@@ -378,7 +396,7 @@ class Battle {
       if (rear.length === 0 && front.length === 0) continue;
       const archers = sum(rear, 'archer') + (maneuver === 'attack-archers' ? sum(front, 'archer') : 0);
       const spears = closed ? sum(rear, 'spear') : 0;
-      const others = sum(rear, 'infantry') + sum(rear, 'cavalry');
+      const others = sum(rear, 'infantry') + horses(rear);
       const score = archers - 3 * spears - 0.3 * others + (lane === home ? 0.01 : 0);
       if (score > bestScore) {
         bestScore = score;
@@ -528,11 +546,11 @@ class Battle {
     const enemy = this.sides[other(side)];
     for (const lane of [0, 1, 2] as Lane[]) {
       const d = (k: Kills[], a: UnitKind, b: UnitKind): number => k[lane][a][b];
-      const spearVsCav = d(s.kills, 'spear', 'cavalry') - d(s.killsAtPhase, 'spear', 'cavalry');
+      const spearVsCav = HORSE_KINDS.reduce((n, k) => n + d(s.kills, 'spear', k) - d(s.killsAtPhase, 'spear', k), 0);
       const eLane = facing(lane);
-      const cavVsSpear = enemy.kills[eLane].cavalry.spear - enemy.killsAtPhase[eLane].cavalry.spear;
+      const cavVsSpear = HORSE_KINDS.reduce((n, k) => n + enemy.kills[eLane][k].spear - enemy.killsAtPhase[eLane][k].spear, 0);
       // Событие только про настоящий удар: мелкий размен на стыке — не «остановили».
-      const enemyCavalry = SECTORS.reduce((n, id) => n + enemy.setup.sectors[id].cavalry, 0);
+      const enemyCavalry = SECTORS.reduce((n, id) => n + HORSE_KINDS.reduce((m, k) => m + enemy.setup.sectors[id][k], 0), 0);
       const notable = Math.max(EVENT_MIN, EVENT_SHARE * enemyCavalry);
       if (spearsClosed(s.setup) && spearVsCav >= notable && spearVsCav >= cavVsSpear) {
         const inFront = sum(this.at(side, lane, 'front'), 'spear') > 0;
@@ -545,7 +563,7 @@ class Battle {
           spearsLost: Math.round(cavVsSpear),
         });
       }
-      const cavVsArcher = d(s.kills, 'cavalry', 'archer') - d(s.killsAtPhase, 'cavalry', 'archer');
+      const cavVsArcher = HORSE_KINDS.reduce((n, k) => n + d(s.kills, k, 'archer') - d(s.killsAtPhase, k, 'archer'), 0);
       const enemyArchersRear = sum(this.at(enemy.id, eLane, 'rear'), 'archer');
       const enemyArchersFront = sum(this.at(enemy.id, eLane, 'front'), 'archer');
       const before = enemyArchersRear + enemyArchersFront + cavVsArcher;
@@ -811,10 +829,11 @@ class Battle {
         const enemy = other(side);
         const eLane = facing(g.lane);
         // Резерв с приказом «держать фланг» ждёт именно этого: выходит на полосу обхода навстречу.
-        if (this.sides[enemy].setup.orders.cavalry === 'hold-flank') {
+        if (HORSE_KINDS.some((k) => horseOrder(this.sides[enemy].setup, k) === 'hold-flank')) {
           let men = 0;
           for (const h of this.sides[enemy].groups) {
-            if (h.row !== 'reserve' || h.stack.cavalry < EPS || !alive(h)) continue;
+            if (h.row !== 'reserve' || !alive(h)) continue;
+            if (!HORSE_KINDS.some((k) => h.stack[k] >= EPS && horseOrder(this.sides[enemy].setup, k) === 'hold-flank')) continue;
             h.lane = eLane;
             h.row = 'front';
             men += stackTotal(h.stack);
@@ -824,12 +843,14 @@ class Battle {
         // Перехват: конница с приказом «держать фланг» или резерв, вошедший в эту полосу, —
         // единственные, кто разворачивается навстречу обходу. Остальные заняты фронтом.
         const holders = [...this.at(enemy, eLane, 'front'), ...this.at(enemy, eLane, 'rear')].filter(
-          (h) => (h.stack.cavalry >= EPS && this.sides[enemy].setup.orders.cavalry === 'hold-flank') || (h.origin === 'R' && h.row === 'front'),
+          (h) =>
+            HORSE_KINDS.some((k) => h.stack[k] >= EPS && horseOrder(this.sides[enemy].setup, k) === 'hold-flank') ||
+            (h.origin === 'R' && h.row === 'front'),
         );
         if (holders.length > 0) {
           for (const h of holders) intercepting.add(h);
           pair([g], holders, false, 'strike', holders[0].row);
-          if (g.stack.cavalry >= EPS) {
+          if (horses([g]) >= EPS) {
             this.once(`intercepted:${g.lane}`, this.sides[side], { id: 'cavalry-intercepted', side, target: laneSector(eLane, holders[0].row === 'front' ? 'front' : 'rear') });
           }
           continue;
@@ -895,7 +916,7 @@ class Battle {
     if (kind === 'spear') m *= SPEAR_ORDERS[s.setup.orders.spear].taken;
     else if (kind === 'infantry') m *= INFANTRY_ORDERS[s.setup.orders.infantry].taken;
     else if (kind === 'archer') m *= ARCHER_ORDERS[s.setup.orders.archer].taken;
-    else m *= CAVALRY_ORDERS[s.setup.orders.cavalry].taken;
+    else m *= CAVALRY_ORDERS[horseOrder(s.setup, kind)].taken;
     if (g.row === 'front' && !anchored(g.stack)) m *= ANCHOR.noInfantryDamageTaken;
     if (s.retreating) m *= RETREAT.taken;
     else if (s.broken) m *= MORALE.brokenTaken;
@@ -914,22 +935,28 @@ class Battle {
       if (target === 'spear') return COUNTER.archer.spear;
       if (target === 'infantry') return COUNTER.archer.infantry;
       if (target === 'cavalry') return COUNTER.archer.cavalry;
+      if (target === 'heavy') return COUNTER.archer.heavy;
       return 1;
     }
     const spearsHold = spearsClosed(attacker.setup) && !flanked;
+    const horse = target === 'cavalry' || target === 'heavy';
     switch (kind) {
       case 'spear':
-        if (target === 'cavalry') return spearsHold ? COUNTER.spear.cavalryHolding : COUNTER.spear.cavalryAdvancing;
+        if (horse) return spearsHold ? COUNTER.spear.cavalryHolding : COUNTER.spear.cavalryAdvancing;
         return flank ? FOOT_FLANK : 1;
-      case 'cavalry': {
+      case 'cavalry':
+      case 'heavy': {
+        // Своя половина кольца у каждого конного рода: лёгкая режет лучников и заходит во
+        // фланг, тяжёлая ломает строй в лоб. Сомкнутые копья держат обеих одинаково.
+        const c = COUNTER[kind];
         if (target === 'spear') {
           const closed = spearsClosed(targetSide.setup) && !targetBroken && (!flank || closedAround);
-          if (closed) return COUNTER.cavalry.spearClosed;
-          return flank ? COUNTER.cavalry.flank : 1;
+          if (closed) return c.spearClosed;
+          return flank ? c.flank : 1;
         }
-        if (target === 'archer') return Math.max(COUNTER.cavalry.archer, flank ? COUNTER.cavalry.flank : 0);
-        if (target === 'infantry') return flank ? COUNTER.cavalry.flank : COUNTER.cavalry.infantry;
-        return flank ? COUNTER.cavalry.flank : 1;
+        if (target === 'archer') return Math.max(c.archer, flank ? c.flank : 0);
+        if (target === 'infantry') return flank ? Math.max(c.flank, c.infantry) : c.infantry;
+        return flank ? c.flank : 1;
       }
       case 'infantry':
         return (flank ? FOOT_FLANK : 1) * COUNTER.infantry.all;
@@ -941,10 +968,11 @@ class Battle {
   /** Приоритет цели по приказу. */
   preference(attacker: SideState, kind: UnitKind, target: UnitKind): number {
     const o = attacker.setup.orders;
+    const horse = target === 'cavalry' || target === 'heavy';
     if (kind === 'archer' && o.archer === 'priority-infantry' && target === 'infantry') return TARGET_PRIORITY;
-    if (kind === 'archer' && o.archer === 'priority-cavalry' && target === 'cavalry') return TARGET_PRIORITY;
-    if (kind === 'spear' && o.spear === 'priority-cavalry' && target === 'cavalry') return TARGET_PRIORITY;
-    if (kind === 'cavalry' && o.cavalry === 'attack-archers' && target === 'archer') return TARGET_PRIORITY;
+    if (kind === 'archer' && o.archer === 'priority-cavalry' && horse) return TARGET_PRIORITY;
+    if (kind === 'spear' && o.spear === 'priority-cavalry' && horse) return TARGET_PRIORITY;
+    if ((kind === 'cavalry' || kind === 'heavy') && horseOrder(attacker.setup, kind) === 'attack-archers' && target === 'archer') return TARGET_PRIORITY;
     return 1;
   }
 
@@ -962,7 +990,7 @@ class Battle {
       m *= o === 'break-center' && g.lane !== 1 ? 1 : INFANTRY_ORDERS[o].dealt;
     }
     else if (kind === 'archer') m *= ARCHER_ORDERS[s.setup.orders.archer].dealt;
-    else m *= CAVALRY_ORDERS[s.setup.orders.cavalry].dealt;
+    else m *= CAVALRY_ORDERS[horseOrder(s.setup, kind)].dealt;
     if (s.broken) m *= MORALE.brokenDealt;
     if (s.retreating) m *= RETREAT.dealt;
     return m;
@@ -1007,8 +1035,10 @@ class Battle {
         const n = g.stack[kind] * share;
         if (kind === 'archer' && kiting.has(g)) continue;
         let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g, kind) * this.jitter();
-        if (kind === 'cavalry' && this.phase === 'clash' && !flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
-        if (kind === 'cavalry' && flank) p *= PLANS[s.setup.plan].strike;
+        // Удар с разбега — вес, и он у тяжёлой. Обход усиливается планом у любого конного рода:
+        // «кавалерийский удар» — про манёвр, а манёвр есть у обоих, пока им его приказали.
+        if (kind === 'heavy' && this.phase === 'clash' && !flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
+        if ((kind === 'cavalry' || kind === 'heavy') && flank) p *= PLANS[s.setup.plan].strike;
         this.distribute(s, kind, p, to, { flank, closedAround, flanked, ranged: false, frontal: !flank && toRow !== 'rear' }, kiting, g.lane, hits);
       }
     }
@@ -1108,9 +1138,9 @@ class Battle {
       else if (k === 'infantry') t = TEMPER.infantry.all;
       // Лучники под прикрытием сомкнутых копий той же позиции стреляют из-за строя, а не дерутся.
       else if (k === 'archer') t = this.engagedNow.has(g) && !closed ? TEMPER.archer.melee : TEMPER.archer.shooting;
-      else if (g.row === 'strike' || this.phase === 'clash') t = TEMPER.cavalry.charging;
-      else if (inLine && this.contact) t = TEMPER.cavalry.stalled;
-      else t = TEMPER.cavalry.waiting;
+      else if (g.row === 'strike' || this.phase === 'clash') t = TEMPER[k].charging;
+      else if (inLine && this.contact) t = TEMPER[k].stalled;
+      else t = TEMPER[k].waiting;
       m += n * t;
     }
     return m / total;
@@ -1269,7 +1299,7 @@ class Battle {
         for (const k of UNIT_KINDS) {
           if (g.stack[k] < EPS) continue;
           let rate = RETREAT.pursuitKills[k];
-          if (k === 'cavalry' && s.setup.orders.cavalry === 'pursue') rate *= RETREAT.pursueOrder;
+          if ((k === 'cavalry' || k === 'heavy') && horseOrder(s.setup, k) === 'pursue') rate *= RETREAT.pursueOrder;
           kills += g.stack[k] * rate * moraleDamageMult(s.morale);
         }
       }

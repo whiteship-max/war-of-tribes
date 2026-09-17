@@ -41,7 +41,8 @@ const KIND_GEN: Record<UnitKind, string> = {
   spear: 'копий',
   infantry: 'пехоты',
   archer: 'лучников',
-  cavalry: 'конницы',
+  cavalry: 'лёгкой конницы',
+  heavy: 'тяжёлой конницы',
 };
 
 /** Названия ситуаций характера рода (`TEMPER`): ключ таблицы → что происходит. */

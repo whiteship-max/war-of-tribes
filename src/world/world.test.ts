@@ -480,7 +480,7 @@ describe('разведданные стареют', () => {
 
 describe('бой', () => {
   const side = (kinds: Partial<Stack>) => ({
-    kinds: { spear: 0, infantry: 0, archer: 0, cavalry: 0, ...kinds },
+    kinds: { spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0, ...kinds },
     setup: null,
   });
 
@@ -1774,7 +1774,7 @@ describe('фигуры на карте', () => {
 });
 
 describe('запись боя: кто именно стоял в строю', () => {
-  const army: Stack = { spear: 150, infantry: 200, archer: 150, cavalry: 100 };
+  const army: Stack = { spear: 150, infantry: 200, archer: 150, cavalry: 100, heavy: 0 };
   const result = () =>
     resolveField({
       seed: 21,

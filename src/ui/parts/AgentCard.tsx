@@ -16,7 +16,7 @@
 // стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, fervour, heroMen, mountGear, payGraceDays } from '@/game/derived';
+import { buildingOfType, fervour, heroMen, payGraceDays } from '@/game/derived';
 import {
   DEED_GAP,
   DEED_XP,
@@ -47,7 +47,7 @@ const ORDINAL = ['', 'первый', 'второй', 'третий', 'четвё
 /** Что натиск делает сейчас и что сделает следующий кружок — замером на нынешней дружине. */
 function Onslaught({ level, f }: { level: number; f: FigureView }) {
   const s = useGame((g) => g.s);
-  const lines = onslaughtLines(level, f.troops, mountGear(s), fervour(s));
+  const lines = onslaughtLines(level, f.troops, fervour(s));
   return (
     <>
       <div className="note">{lines.now}</div>

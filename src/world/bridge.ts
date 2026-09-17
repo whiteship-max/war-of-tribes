@@ -16,7 +16,6 @@ import {
   faithOf,
   fervour,
   intelKeen,
-  mountGear,
   soldierFoodPerDay,
   surveyRadius,
   towerSeats,
@@ -208,7 +207,6 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // обзора он не даёт — открывает местность, и только.
     survey: surveyRadius(s),
     intelKeen: intelKeen(s),
-    mountGear: mountGear(s),
     ...tower(s),
     // Статуя Героя: сколько дружины полководец уводит в поле.
     // Навыки агентов: три прибавки числами. Мир про уровни не знает, а кладёт

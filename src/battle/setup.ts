@@ -5,8 +5,10 @@
 // настроенная армия. Настроенная армия должна выигрывать у быстрой атаки около
 // 15% по потерям — это держит тест.
 import { seededRng } from './rng';
+import type { CavalryOrder } from './types';
 import {
   FRONT,
+  HORSE_KINDS,
   REAR,
   SECTORS,
   UNIT_KINDS,
@@ -16,7 +18,7 @@ import {
   type Stack,
 } from './types';
 
-export const emptyStack = (): Stack => ({ spear: 0, infantry: 0, archer: 0, cavalry: 0 });
+export const emptyStack = (): Stack => ({ spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 });
 
 export const stackOf = (part: Partial<Stack>): Stack => ({ ...emptyStack(), ...part });
 
@@ -27,6 +29,7 @@ export const emptySectors = (): Record<Sector, Stack> =>
 
 export const DEFAULT_ORDERS: Orders = {
   cavalry: 'charge',
+  heavy: 'charge',
   archer: 'nearest',
   spear: 'hold-line',
   infantry: 'hold-center',
@@ -89,18 +92,33 @@ function rearArchers(sectors: Record<Sector, Stack>, a: Stack, shares: [number, 
   sectors.F.archer = dr;
 }
 
-/** Конница — в резерв; но если некому держать фронт, она идёт первой: ждать ей нечего. */
+/**
+ * Конница — в резерв; но если некому держать фронт, она идёт первой: ждать ей нечего.
+ * Оба конных рода кладутся одним правилом — в бою они конница, разные у них приказы.
+ */
 function cavalry(sectors: Record<Sector, Stack>, a: Stack): void {
   const frontEmpty = FRONT.every((id) => stackTotal(sectors[id]) === 0);
-  if (frontEmpty && a.cavalry > 0) {
-    const [l, mid, r] = split3(a.cavalry, [0.3, 0.4, 0.3]);
-    sectors.A.cavalry = l;
-    sectors.B.cavalry = mid;
-    sectors.C.cavalry = r;
-  } else {
-    sectors.R.cavalry = a.cavalry;
+  for (const kind of HORSE_KINDS) {
+    if (a[kind] <= 0) continue;
+    if (frontEmpty) {
+      const [l, mid, r] = split3(a[kind], [0.3, 0.4, 0.3]);
+      sectors.A[kind] = l;
+      sectors.B[kind] = mid;
+      sectors.C[kind] = r;
+    } else {
+      sectors.R[kind] = a[kind];
+    }
   }
 }
+
+/**
+ * Приказ лёгкой коннице в быстрой атаке — «атаковать лучников».
+ *
+ * Пресет обязан ставить род по назначению: лёгкая держится на скорости, и без манёвра она
+ * войску не прибавляет ничего (замер: 1.05 против 1.18 по полпути, docs/stable.md, раздел 4).
+ * Тяжёлой пресет оставляет свой приказ: ей манёвр не нужен, она работает при любом.
+ */
+const LIGHT_ORDER: CavalryOrder = 'attack-archers';
 
 export const QUICK_PRESETS: Record<QuickPresetId, QuickPreset> = {
   standard: {
@@ -114,7 +132,7 @@ export const QUICK_PRESETS: Record<QuickPresetId, QuickPreset> = {
       frontLine(sectors, a, [0.15, 0.7, 0.15], [0.5, 0, 0.5]);
       rearArchers(sectors, a, [0.3, 0.4, 0.3]);
       cavalry(sectors, a);
-      return { sectors, plan: 'envelop', orders: { ...DEFAULT_ORDERS }, reserve: { kind: 'weakest' } };
+      return { sectors, plan: 'envelop', orders: { ...DEFAULT_ORDERS, cavalry: LIGHT_ORDER }, reserve: { kind: 'weakest' } };
     },
   },
   'anti-cavalry': {
@@ -130,7 +148,7 @@ export const QUICK_PRESETS: Record<QuickPresetId, QuickPreset> = {
       return {
         sectors,
         plan: 'defense',
-        orders: { cavalry: 'attack-archers', archer: 'priority-cavalry', spear: 'priority-cavalry', infantry: 'hold-center' },
+        orders: { cavalry: LIGHT_ORDER, heavy: 'attack-archers', archer: 'priority-cavalry', spear: 'priority-cavalry', infantry: 'hold-center' },
         reserve: { kind: 'weakest' },
       };
     },
@@ -148,7 +166,7 @@ export const QUICK_PRESETS: Record<QuickPresetId, QuickPreset> = {
       return {
         sectors,
         plan: 'assault',
-        orders: { cavalry: 'charge', archer: 'support-center', spear: 'hold-line', infantry: 'break-center' },
+        orders: { cavalry: LIGHT_ORDER, heavy: 'charge', archer: 'support-center', spear: 'hold-line', infantry: 'break-center' },
         reserve: { kind: 'center-losing' },
       };
     },
@@ -166,7 +184,7 @@ export const QUICK_PRESETS: Record<QuickPresetId, QuickPreset> = {
       return {
         sectors,
         plan: 'defense',
-        orders: { cavalry: 'hold-flank', archer: 'nearest', spear: 'hold-line', infantry: 'hold-center' },
+        orders: { cavalry: LIGHT_ORDER, heavy: 'hold-flank', archer: 'nearest', spear: 'hold-line', infantry: 'hold-center' },
         reserve: { kind: 'weakest' },
       };
     },
@@ -208,7 +226,7 @@ export function presetWeights(intel?: Intel): Record<QuickPresetId, number> {
   const seen = stackOf(intel);
   const total = stackTotal(seen);
   if (total <= 0) return w;
-  if (seen.cavalry / total >= PRESET_WEIGHTS.cavalryShare) w['anti-cavalry'] += PRESET_WEIGHTS.cavalryBonus;
+  if ((seen.cavalry + seen.heavy) / total >= PRESET_WEIGHTS.cavalryShare) w['anti-cavalry'] += PRESET_WEIGHTS.cavalryBonus;
   if (seen.archer / total >= PRESET_WEIGHTS.archerShare) w['center-punch'] += PRESET_WEIGHTS.archerBonus;
   if (seen.infantry / total >= PRESET_WEIGHTS.infantryShare) w.defense += PRESET_WEIGHTS.infantryBonus;
   if (seen.spear / total >= PRESET_WEIGHTS.spearShare) w.standard += PRESET_WEIGHTS.spearBonus;

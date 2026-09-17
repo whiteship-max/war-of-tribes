@@ -12,6 +12,8 @@ import {
   type ArmySetup,
 } from '@/battle';
 import { RATIO_EVEN } from '@/battle/bench';
+import { createInitialState } from '../state';
+import { wageOf } from '../derived';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
   applyTemplate,
@@ -35,6 +37,7 @@ import {
   troopLosses,
   troopTotal,
   troopsAfter,
+  weightOf,
   type TroopStack,
 } from './kinds';
 
@@ -65,7 +68,7 @@ describe('перевод бойцов племени в роды боя', () => 
 
   it('потери рода списываются со слабых первыми и не уходят в минус', () => {
     const sent: TroopStack = { clubman: 4, legionary: 2 };
-    const lost = troopLosses(sent, { spear: 0, infantry: 6, archer: 0, cavalry: 0 });
+    const lost = troopLosses(sent, { spear: 0, infantry: 6, archer: 0, cavalry: 0, heavy: 0 });
     expect(lost.clubman).toBe(4);
     expect(lost.legionary ?? 0).toBe(0);
     const left = troopsAfter(sent, lost);
@@ -75,7 +78,7 @@ describe('перевод бойцов племени в роды боя', () => 
 
   it('потери больше отряда его не переворачивают', () => {
     const sent: TroopStack = { clubman: 3 };
-    const lost = troopLosses(sent, { spear: 0, infantry: 999, archer: 0, cavalry: 0 });
+    const lost = troopLosses(sent, { spear: 0, infantry: 999, archer: 0, cavalry: 0, heavy: 0 });
     expect(lost.clubman).toBe(3);
     expect(troopTotal(troopsAfter(sent, lost))).toBe(0);
   });
@@ -203,10 +206,13 @@ const meanRatio = (a: ArmySetup, b: ArmySetup): number => {
 };
 
 describe('конница племени', () => {
-  it('всадник выходит в поле конницей, и все четыре рода игроку доступны', () => {
+  it('всадник выходит лёгкой конницей, латный — тяжёлой, и все пять родов игроку доступны', () => {
     expect(kindsOf({ rider: 10 }).cavalry).toBe(menOf('rider', 10));
     expect(kindsOf({ rider: 10 }).infantry).toBe(0);
-    // Пустых родов у племени не осталось: приказы есть кому давать во всех четырёх.
+    // Класс решает доспех, а не таблица рядом: тот же конь под доспехом — уже тяжёлая конница.
+    expect(kindsOf({ knight: 10 }).heavy).toBe(menOf('knight', 10));
+    expect(kindsOf({ knight: 10 }).cavalry).toBe(0);
+    // Пустых родов у племени не осталось: приказы есть кому давать во всех пяти.
     expect([...OWN_KINDS].sort()).toEqual([...UNIT_KINDS].sort());
   });
 
@@ -216,19 +222,21 @@ describe('конница племени', () => {
     expect(gearOf({ rider: 5 }).cavalry).toBe(2);
   });
 
-  it('всадник дороже любого пешего и в ресурсах, и в снаряжении', () => {
-    const rider = TROOP_BY_ID.rider;
+  it('конница дороже пеших своего веса: конь, учения и жалованье за снаряжение', () => {
     const gearCount = (id: (typeof TROOP_IDS)[number]): number =>
       Object.values(TROOP_BY_ID[id].gear).reduce((n, v) => n + (v ?? 0), 0);
-    const foot = TROOP_IDS.filter((id) => id !== 'rider' && id !== 'legionary');
+    const s = createInitialState(7);
+    // Граница: сравниваем с пешими того же веса в строю — иначе «дороже» сошлось бы даром.
+    const foot = TROOP_IDS.filter((id) => !TROOP_BY_ID[id].mounted && weightOf(id) <= weightOf('rider'));
+    expect(foot.length).toBeGreaterThan(3);
     for (const id of foot) {
       const def = TROOP_BY_ID[id];
-      expect(Object.values(rider.cost).reduce((a, b) => a + b, 0)).toBeGreaterThan(
-        Object.values(def.cost).reduce((a, b) => a + b, 0),
-      );
-      expect(gearCount('rider')).toBeGreaterThanOrEqual(gearCount(id));
-      expect(rider.work).toBeGreaterThan(def.work);
+      expect(TROOP_BY_ID.rider.work, `учения: ${id}`).toBeGreaterThan(def.work);
+      // Доспех — вещь, и за неё платят: латный всадник дороже своего же лёгкого по жалованью.
+      expect(wageOf(s, 'knight'), `жалованье: ${id}`).toBeGreaterThan(wageOf(s, id));
     }
+    expect(wageOf(s, 'knight')).toBeGreaterThan(wageOf(s, 'rider'));
+    expect(gearCount('knight')).toBe(gearCount('rider') + 1);
   });
 
   it('кольцо работает в обе стороны: конница племени режет лучников и вязнет в копьях', () => {

@@ -286,7 +286,7 @@ describe('боевого перевеса одной веры над друго�
     const mine = fervour(ours);
     expect(mine).toBeGreaterThan(0);
 
-    const line: Stack = { infantry: 40, spear: 20, archer: 10, cavalry: 5 };
+    const line: Stack = { infantry: 40, spear: 20, archer: 10, cavalry: 5, heavy: 0 };
     const runs = FAITH_IDS.map(() =>
       simulateBattle({
         seed: 4242,
@@ -300,11 +300,11 @@ describe('боевого перевеса одной веры над друго�
   it('прогон: обряд помогает ровно одинаково против любого состава', () => {
     // И вторая сторона того же: прибавка работает всегда одна и та же, а не
     // «сильнее против неверных».
-    const line: Stack = { infantry: 40, spear: 20, archer: 10, cavalry: 5 };
+    const line: Stack = { infantry: 40, spear: 20, archer: 10, cavalry: 5, heavy: 0 };
     const foes: Stack[] = [
-      { infantry: 70, spear: 0, archer: 5, cavalry: 0 },
-      { infantry: 10, spear: 50, archer: 15, cavalry: 0 },
-      { infantry: 20, spear: 0, archer: 10, cavalry: 45 },
+      { infantry: 70, spear: 0, archer: 5, cavalry: 0, heavy: 0 },
+      { infantry: 10, spear: 50, archer: 15, cavalry: 0, heavy: 0 },
+      { infantry: 20, spear: 0, archer: 10, cavalry: 45, heavy: 0 },
     ];
     let helped = 0;
     for (const foe of foes) {

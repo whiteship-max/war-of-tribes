@@ -1,13 +1,18 @@
-// Казармы и войско. Боец — не житель с профессией «воин», а единица в счётчике:
+// Казармы, конюшня и войско. Боец — не житель с профессией «воин», а единица в счётчике:
 // нанятый уходит из рабочих совсем, не добывает и не даёт труд.
 //
 // Цена одного бойца: ресурсы + снаряжение + один свободный житель + время учений.
-// Очередь одна и идёт последовательно; отмена возвращает и добро, и людей.
+//
+// **Очередей две, и делит их здание, в котором учат.** Конницу нанимают только в конюшне
+// (docs/stable.md), пеших — в казармах; порядок внутри очереди прежний, заказы одной не ждут
+// другую. Второго поля в сохранении для этого нет: где учат вид, выводится из него самого
+// (`TroopDef.mounted`), и заказ, записанный до конюшни, сам оказывается в своей очереди.
 import type { EquipmentId, GameState, RecruitOrder, ResourceId, TroopId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
+import { KIND_OF } from '../battle/kinds';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { canAfford, idleCount, recruitRate, recruitsQueued } from '../derived';
+import { buildingOfType, canAfford, heavyOpen, idleCount, recruitRate, recruitsQueued, stalls, stallsTaken } from '../derived';
 import { addPop, losePop } from './population';
 import { log } from './log';
 import { pay, refund } from './pay';
@@ -34,6 +39,13 @@ export interface MissingGear {
   have: number;
   need: number;
 }
+
+/** Где учат этот вид: конницу — в конюшне, пеших — в казармах. */
+export const hiredAt = (troop: TroopId): 'stable' | 'barracks' => (TROOP_BY_ID[troop].mounted ? 'stable' : 'barracks');
+
+/** Заказы очереди того здания, где учат этот вид, в порядке очереди. */
+export const queueOf = (s: GameState, troop: TroopId): RecruitOrder[] =>
+  (s.recruits ?? []).filter((o) => hiredAt(o.troop) === hiredAt(troop));
 
 export interface RecruitCheck {
   def: TroopDef;
@@ -69,9 +81,15 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
   }
   const rate = recruitRate(s, troop);
   const work = def.work * n;
+  // Стойла: общий потолок обоих конных родов. Заняты строем, учениями и ранеными — конь
+  // с всадником не расседлан (`derived.stallsTaken`).
+  const stall = def.mounted ? Math.max(0, stalls(s) - stallsTaken(s)) : Infinity;
 
   let blocked: string | null = null;
-  if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
+  if (def.mounted && !buildingOfType(s, 'stable')) blocked = 'Конницу нанимают в конюшне.';
+  else if (def.mounted && KIND_OF[troop] === 'heavy' && !heavyOpen(s)) blocked = 'Латных всадников куют с 4 уровня конюшни.';
+  else if (stall < n) blocked = stall === 0 ? 'Все стойла заняты — нужен уровень конюшни.' : `Свободных стойл только ${stall}.`;
+  else if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
   else if (missing.length > 0) {
     blocked = `Не хватает: ${missing
       .map((m) => `${EQUIPMENT_BY_ID[m.id].name.toLowerCase()} ${m.need - m.have}`)
@@ -106,7 +124,7 @@ export function startRecruit(s: GameState, troop: TroopId, count = 1): string | 
 
   const order: RecruitOrder = { id: s.nextId++, troop, count: people, done: 0, work: 0, people };
   s.recruits.push(order);
-  log(s, `Казармы: набор — ${check.def.name.toLowerCase()}, ${people}.`);
+  log(s, `${hiredAt(troop) === 'stable' ? 'Конюшня' : 'Казармы'}: набор — ${check.def.name.toLowerCase()}, ${people}.`);
   return null;
 }
 
@@ -125,7 +143,7 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
   // Недоучившиеся возвращаются к костру свободными руками.
   addPop(s, Math.min(order.people, left));
   s.recruits.splice(idx, 1);
-  log(s, `Казармы: набор отменён — ${def.name.toLowerCase()}.`);
+  log(s, `${hiredAt(order.troop) === 'stable' ? 'Конюшня' : 'Казармы'}: набор отменён — ${def.name.toLowerCase()}.`);
   return null;
 }
 
@@ -142,29 +160,37 @@ export function orderEta(s: GameState, order: RecruitOrder): number | null {
   return Math.ceil(Math.max(0, left) / rate);
 }
 
+/** Первый в очереди своего здания — тот, кого учат прямо сейчас. */
+export const isTraining = (s: GameState, order: RecruitOrder): boolean => queueOf(s, order.troop)[0]?.id === order.id;
+
 /**
  * Шаг казарм: обучается только первый заказ в очереди. Остаток работы после
  * последнего бойца переходит следующему заказу — очередь не теряет время.
  */
 export function recruitTick(s: GameState, dt: number): void {
-  const order = s.recruits[0];
-  if (!order) return;
-  const rate = recruitRate(s, order.troop);
-  if (rate <= 0) return;
-  const def = TROOP_BY_ID[order.troop];
-  order.work += rate * dt;
-  while (order.work >= def.work && order.done < order.count) {
-    order.work -= def.work;
-    order.done++;
-    order.people = Math.max(0, order.people - 1);
-    s.army[order.troop] = (s.army[order.troop] ?? 0) + 1;
-    // По строке на бойца: заказ на полсотни — полсотни одинаковых строк.
-    log(s, `Казармы: обучен ${def.one}.`, 'good', `recruit:${order.troop}`);
-  }
-  if (order.done >= order.count) {
-    const rest = order.work;
-    s.recruits.shift();
-    if (s.recruits[0]) s.recruits[0].work += rest;
+  // Два здания — два первых заказа: конюшня учит конницу, казармы пеших, и ждать друг друга
+  // им незачем. Внутри очереди по-прежнему учится только первый.
+  for (const where of ['barracks', 'stable'] as const) {
+    const order = (s.recruits ?? []).find((o) => hiredAt(o.troop) === where);
+    if (!order) continue;
+    const rate = recruitRate(s, order.troop);
+    if (rate <= 0) continue;
+    const def = TROOP_BY_ID[order.troop];
+    order.work += rate * dt;
+    while (order.work >= def.work && order.done < order.count) {
+      order.work -= def.work;
+      order.done++;
+      order.people = Math.max(0, order.people - 1);
+      s.army[order.troop] = (s.army[order.troop] ?? 0) + 1;
+      // По строке на бойца: заказ на полсотни — полсотни одинаковых строк.
+      log(s, `${where === 'stable' ? 'Конюшня' : 'Казармы'}: обучен ${def.one}.`, 'good', `recruit:${order.troop}`);
+    }
+    if (order.done >= order.count) {
+      const rest = order.work;
+      s.recruits.splice(s.recruits.indexOf(order), 1);
+      const next = (s.recruits ?? []).find((o) => hiredAt(o.troop) === where);
+      if (next) next.work += rest;
+    }
   }
 }
 
@@ -187,8 +213,10 @@ export function loseRecruits(s: GameState, troop: TroopId, n: number): number {
     gone += take;
     if (o.count <= o.done) {
       const rest = o.work;
+      const head = queueOf(s, o.troop)[0]?.id === o.id;
       s.recruits.splice(i, 1);
-      if (i === 0 && s.recruits[0]) s.recruits[0].work += rest;
+      const next = queueOf(s, o.troop)[0];
+      if (head && next) next.work += rest;
     }
   }
   return gone;

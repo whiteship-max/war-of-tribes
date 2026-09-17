@@ -25,6 +25,7 @@ import {
   buildingTitle,
   cavalryTrain,
   healShare,
+  bedsTaken,
   infirmaryBeds,
   woundedStacks,
   intelKeen,
@@ -39,7 +40,9 @@ import {
   jobMultiplier,
   levelOutputMult,
   maxLevelFor,
-  mountGear,
+  heavyOpen,
+  stalls,
+  stallsTaken,
   netPerDay,
   stashAt,
   storageCap,
@@ -534,9 +537,12 @@ function GenericData({ b }: { b: Building }) {
   if (b.type === 'infirmary') {
     // Числа — из тех же чтений, что кладут раненых (`sim/infirmary`): доля, места, кто лежит, кто при полководце.
     const { lying, carried } = woundedStacks(s);
+    const heads = troopTotal(lying);
     const soon = (s.wounded ?? []).reduce((m, g) => (g.until === null ? m : Math.min(m, g.until)), Infinity);
     stats.push(['ui-bandage', '🩹', 'Павших ляжет ранеными', `${Math.round(healShare(s) * 100)}%`]);
-    stats.push(['ui-bandage', '🛏️', 'Мест занято', `${troopTotal(lying)} из ${infirmaryBeds(s)}`]);
+    // Место — боец строя: всадник занимает столько, сколько весит в бою (docs/stable.md).
+    stats.push(['ui-bandage', '🛏️', 'Мест занято (бойцов строя)', `${Math.round(bedsTaken(s))} из ${infirmaryBeds(s)}`]);
+    if (heads > 0) stats.push(['ui-bandage', '🩹', 'Лежит раненых', `${heads}`]);
     if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут в строй через', minSec(soon - s.time)]);
     if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых при полководце', `${troopTotal(carried)}`]);
   }
@@ -553,9 +559,9 @@ function GenericData({ b }: { b: Building }) {
     ]);
   }
   if (b.type === 'stable') {
+    stats.push(['troop-horse', '🐎', 'Стойла заняты', `${stallsTaken(s)} из ${stalls(s)}`]);
     stats.push(['troop-horse', '🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
-    const gear = mountGear(s);
-    stats.push(['gear-armor', '🎽', 'Снаряжение всадников', gear > 0 ? `+${gear} ступень` : 'с 4 уровня']);
+    stats.push(['troop-knight', '🏇', 'Латные всадники', heavyOpen(s) ? 'нанимают здесь' : 'с 4 уровня']);
   }
   // Тайник. Главный довод его строить — не «сколько прячет сейчас», а «сколько
   // будет», и оба числа стоят рядом, чтобы игроку не считать в уме. Всё, что

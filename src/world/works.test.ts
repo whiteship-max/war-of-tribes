@@ -406,7 +406,7 @@ describe('проход через рогатки — поток, а не пор�
       ['одна всем', T + 1, going],
       ['всем каждые 3 с', 3_000, going],
       ['всем каждые 30 с', 30_000, going],
-      ['по одному каждые 3 с', 3_000, { spear: 1, infantry: 0, archer: 0, cavalry: 0 }],
+      ['по одному каждые 3 с', 3_000, { spear: 1, infantry: 0, archer: 0, cavalry: 0, heavy: 0 }],
     ];
     const totals: Record<string, number> = {};
     for (const [name, step, g] of ways) {
@@ -823,9 +823,9 @@ describe('две стороны лагеря: древесина и проход
   it('потери совместного удара делятся по сторонам: никто не гибнет дважды и не остаётся жив за другого', () => {
     const rng = seeded(20260914);
     for (let i = 0; i < 3000; i++) {
-      const front: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
-      const rear: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
-      const lost: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };
+      const front: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 };
+      const rear: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 };
+      const lost: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 };
       for (const k of UNIT_KINDS) {
         if (rng() < 0.7) front[k] = Math.floor(rng() * 40);
         if (rng() < 0.7) rear[k] = Math.floor(rng() * 40);

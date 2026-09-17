@@ -14,7 +14,7 @@
 import type { GameState, TroopId, WoundGroup } from '../types';
 import { DAY_LENGTH, WOUND_DAYS } from '../constants';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
-import { troopTotal, type TroopStack } from '../battle/kinds';
+import { BATTLE_MAN, troopPower, troopTotal, type TroopStack } from '../battle/kinds';
 import { bedsTaken, healShare, infirmaryBeds } from '../derived';
 import { log } from './log';
 
@@ -56,14 +56,29 @@ const minus = (a: TroopStack, b: TroopStack): TroopStack => {
   return out;
 };
 
-/** Сколько мест свободно сейчас. */
+/** Сколько мест свободно сейчас — в бойцах строя (`derived.bedsTaken`). */
 export const freeBeds = (s: GameState): number => Math.max(0, infirmaryBeds(s) - bedsTaken(s));
+
+/**
+ * Сколько голов из `wounded` поместится на `room` мест: место — боец строя, а не голова, и
+ * всадник занимает столько же, сколько весит в бою (docs/stable.md, решение 9). Пропорция та
+ * же (`shareOf`), просто головы снимаются, пока состав не влезет: другого способа уложить
+ * смешанных раненых без второй арифметики нет.
+ */
+export function fitBeds(wounded: TroopStack, room: number): TroopStack {
+  const whole = troopTotal(wounded);
+  for (let heads = Math.min(whole, Math.floor(room * BATTLE_MAN)); heads > 0; heads--) {
+    const take = shareOf(wounded, heads);
+    if (troopPower(take) / BATTLE_MAN <= room + 1e-9) return take;
+  }
+  return {};
+}
 
 /** Уложить раненых в лазарет: сколько легло — на срок, остальные сверх мест не выжили. */
 function layDown(s: GameState, wounded: TroopStack): { laid: number; lost: number } {
   const whole = troopTotal(wounded);
   if (whole <= 0) return { laid: 0, lost: 0 };
-  const laid = shareOf(wounded, Math.min(whole, freeBeds(s)));
+  const laid = fitBeds(wounded, freeBeds(s));
   const n = troopTotal(laid);
   if (n > 0) s.wounded.push({ troops: laid, until: s.time + WOUND_DAYS * DAY_LENGTH });
   return { laid: n, lost: whole - n };
