@@ -207,11 +207,6 @@ export interface Play {
    * ополчение. Без крючка прогон тот же.
    */
   profile?: (p: PlayerProfile, g: GameState, away: Away) => void;
-  /**
-   * Вера, которую мир называет деревне, ложится в племя пульсом — как у `world/store` (`syncFaith`).
-   * Без флага деревня живёт без веры: так мерились разделы «Рост логова» и «Найм», и флаг их не трогает.
-   */
-  faith?: boolean;
 }
 
 /** Настоящее состояние мира: отчёт — прибор, ему положено видеть больше панели. */
@@ -288,7 +283,10 @@ export async function play(o: Play): Promise<Run> {
     }
     syncAway(g, p.marches, p.figures);
     syncSiege(g, p.siege, p.now);
-    if (o.faith) syncFaith(g, p.faith.id, p.faith.pressure);
+    // Вера, которую мир называет деревне, ложится в племя пульсом — как у `world/store`. Прежде
+    // автопилот её не брал, и замеры разделов «Рост логова» и «Найм» шли на деревне без веры
+    // (docs/defense_mix.md, раздел 6); вера, подставленная до прогона, не сменяется (`syncFaith`).
+    syncFaith(g, p.faith.id, p.faith.pressure);
     marches = p.marches;
     figures = p.figures;
     return p;

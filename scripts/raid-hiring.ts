@@ -373,7 +373,6 @@ interface Opts {
   after?: (x: { g: GameState; world: LocalWorld; now: number; figures: FigureView[] }) => Promise<void>;
   /** Крючки `play`, без них прогон тот же. */
   profile?: (p: PlayerProfile, g: GameState, away: Away) => void;
-  faith?: boolean;
 }
 
 export async function live(o: Opts): Promise<Out> {
@@ -409,7 +408,6 @@ export async function live(o: Opts): Promise<Out> {
     },
     hourly: o.hourly,
     profile: o.profile,
-    faith: o.faith,
     effect: (e, now) => {
       o.effect?.(e, now);
       if (e.id.endsWith('-defense') && e.battle === 'won') {

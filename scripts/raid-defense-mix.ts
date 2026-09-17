@@ -203,7 +203,7 @@ interface Watch {
   druzhinaCut: number;
 }
 
-async function liveRow(level: number, c: Case, faith: 'мир' | 'нет' | 'orthodox'): Promise<{ outs: Out[]; watch: Watch[] }> {
+async function liveRow(level: number, c: Case, faith: 'мир' | 'orthodox'): Promise<{ outs: Out[]; watch: Watch[] }> {
   const outs: Out[] = [];
   const watch: Watch[] = [];
   for (const seed of SEEDS) {
@@ -218,7 +218,6 @@ async function liveRow(level: number, c: Case, faith: 'мир' | 'нет' | 'ort
         style: 'meansHigh',
         hours: 4,
         ripe: true,
-        faith: faith !== 'нет',
         profile: (p: PlayerProfile, s: GameState, away: Away) => {
           const comp = byComposition(s, homeOf(s.army, away));
           const dc = defense(comp);
@@ -264,16 +263,15 @@ async function livePart(): Promise<void> {
     faiths.push(`${seed}: ${faithAt(w.save.home.x, w.save.home.y)}`);
   }
   console.log(`Вера земли под замком: ${faiths.join(', ')}.`);
-  console.log('Прогон — live раздела «Найм». «вера: нет» — как мерился «Найм» (мир веру называл, автопилот её не брал: syncFaith не звался); «мир» — вера, которую');
-  console.log('мир называет пульсом, как world/store; «orthodox» — вера подставлена до прогона, храм 10-го уровня. «увёл» — полководец в первые минуты');
+  console.log('Прогон — live раздела «Найм». «мир» — вера, которую мир называет пульсом, как world/store; «orthodox» — вера подставлена до прогона,');
+  console.log('храм 10-го уровня. «увёл» — полководец в первые минуты');
   console.log('забирает всех бойцов этих видов, что дома, и уходит на 4 клетки в поле до конца прогона. «набег / оборона» — к обороне слепка;');
   console.log('«ошибка обороны» — сверка: оборона слепка против обороны племени, у которого войско — те, кто дома, 10-я…медиана…90-я по пульсам;');
   console.log('«ополчение врозь» — пульсов, где ополчение или стрелки слепка и той же подстановки разошлись;');
   console.log('«дружина в конце» — средняя по мирам; «убыла в поле» — сумма по мирам: на сколько бойцов дружина стала меньше от пульса к пульсу, пока полководец стоял в поле.');
   console.log('Полководец в бой не ходит: убыль в поле — не потери боя.');
   console.log(' вера      случай                              набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  падений/ч  потери, удержали  войско дома: медиана  дружина в конце  убыла в поле  распущено  ошибка обороны  ополчение врозь');
-  const rows: { faith: 'мир' | 'нет' | 'orthodox'; c: Case }[] = [
-    { faith: 'нет', c: CASES[0] },
+  const rows: { faith: 'мир' | 'orthodox'; c: Case }[] = [
     { faith: 'мир', c: CASES[0] },
     { faith: 'мир', c: CASES[1] },
     { faith: 'мир', c: CASES[2] },
