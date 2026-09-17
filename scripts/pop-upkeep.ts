@@ -23,11 +23,13 @@ import {
   armySize,
   payGraceDays,
   productionPerDay,
+  recruitsQueued,
   seasonModsFor,
   soldierFoodPerDay,
   taxIncomePerDay,
   templeLevel,
   townFoodPerDay,
+  upkeepInfo,
   wageOf,
   wageShare,
   wagesDue,
@@ -388,6 +390,8 @@ export async function upkeepSection(): Promise<void> {
   });
   const hungryCeil = foodCeiling(hungry, 'winter');
   hungry.army.spearman = Math.round(hungryCeil * 3);
+  // Копия до стенда: `days` ведёт посёлок на месте, а стенду новобранцев нужен тот же первый день голода.
+  const hungryAt0 = clone(hungry);
   const died0 = hungry.stats.died;
   console.log(
     `\nГолод — та же дверь (этап «новичок», ${young.pop} жителей, зима — пять дней, амбар пуст, казна полна; зимой амбар кормит ` +
@@ -398,6 +402,40 @@ export async function upkeepSection(): Promise<void> {
   starve.forEach((s, k) => {
     console.log(`  ${pad([0, 2, 3, 4, 5][k], 4)} | ${pad(armySize(s), 6)} | ${pad(s.pop, 7)} | ${pad(s.stats.died - died0, 14)}`);
   });
+
+  // --- Голод и новобранцы ---
+  // Новобранцы на учениях едят солдатский паёк (`foodConsumptionPerDay`). Та же голодная деревня, что
+  // строкой выше, но войска вдвое больше, чем амбар кормит зимой (втрое — и нехватка перекрывает паёк
+  // войска целиком, доля упирается в потолок), плюс заказ в казармах: копейщики, чьи учения на эту зиму
+  // стоят (работа заказа обнуляется перед каждым шагом — так учатся те, кому учиться дольше голода).
+  // Меряется, кто уходит за их хлеб и сколько.
+  const lean = clone(hungryAt0);
+  lean.army.spearman = Math.round(hungryCeil * 2);
+  console.log(
+    `\nГолод и новобранцы — та же деревня, войско ${lean.army.spearman} (вдвое больше, чем амбар кормит зимой), в казармах ещё копейщики на учениях, учения на эту зиму стоят:`,
+  );
+  console.log('  новобранцев | день | войско | новобранцев | ушло из войска | умерло жителей | доля ухода в день');
+  for (const drafted of [0, Math.round(lean.army.spearman / 4), Math.round(lean.army.spearman / 2)]) {
+    const s = clone(lean);
+    s.recruits = drafted > 0 ? [{ id: 1, troop: 'spearman', count: drafted, done: 0, work: 0, people: drafted }] : [];
+    const army0 = armySize(s);
+    const dead0 = s.stats.died;
+    const row = (x: GameState, day: string): string =>
+      `  ${pad(drafted, 11)} | ${pad(day, 4)} | ${pad(armySize(x), 6)} | ${pad(recruitsQueued(x), 11)} | ${pad(army0 - armySize(x), 14)} | ${pad(x.stats.died - dead0, 14)} | ${pad(`${Math.round(upkeepInfo(x).unfed * DESERT_SHARE * 100)}%`, 17)}`;
+    const out: string[] = [];
+    // Зима кончается на пятом дне: последняя отметка — последний её шаг.
+    const steps = Math.floor((5 * DAY_LENGTH) / DT) - 1;
+    stand(s, {
+      dt: DT,
+      steps,
+      before: (x, i) => {
+        for (const o of x.recruits) o.work = 0;
+        if (i === 0 || i === Math.round((3 * DAY_LENGTH) / DT)) out.push(row(x, String(Math.round((i * DT) / DAY_LENGTH))));
+      },
+    });
+    out.push(row(s, '5'));
+    for (const line of out) console.log(line);
+  }
 
   // --- Начатые партии ---
   console.log(
