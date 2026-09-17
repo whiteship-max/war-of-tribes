@@ -78,7 +78,6 @@ const profile = (defense: number, army: TroopStack): PlayerProfile => ({
   name: 'Отчёт',
   pop: 400,
   defense,
-  warriorPower: 12,
   units: { warrior: 40, scout: 6 },
   army: { ...army },
   warning: 120,

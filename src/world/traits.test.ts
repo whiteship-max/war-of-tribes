@@ -67,7 +67,6 @@ describe('множитель из слепка доходит до действ�
     name: 'Тест',
     pop: 120,
     defense: 30,
-    warriorPower: 3,
     units: { warrior: 20, scout: 4 },
     army: { spearman: 40 },
     intelKeen: 1,

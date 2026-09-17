@@ -6,6 +6,7 @@ import { lairAnchor, isLair, type GenSettlement } from './gen';
 import { lairPower } from './lairs';
 import { distance } from './geo';
 import { AI_RANGE } from './data/tuning';
+import { TROOP_BY_ID } from '@/game/data/troops';
 import { MIRROR_ON, MIRROR_SPREAD, hostPower, mirrorAt, mirrorCoef, mirrorPower, type MirrorWorld } from './mirror';
 import type { PlayerProfile, SettlementId } from './types';
 
@@ -27,11 +28,10 @@ const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').rep
 /** Имена, которыми стенд виден снаружи своего файла. */
 const NAMES = /\bMIRROR_ON\b|\bMIRROR_SPREAD\b|\bmirrorPower\b|\bmirrorCoef\b|\bmirrorAt\b|\bhostPower\b|\bMirrorWorld\b/;
 
-const profile = (army: PlayerProfile['army'], warriorPower: number): PlayerProfile => ({
+const profile = (army: PlayerProfile['army']): PlayerProfile => ({
   name: 'Стенд',
   pop: 300,
   defense: 500,
-  warriorPower,
   army,
   units: { warrior: 0, scout: 4 },
   stock: { food: 200 },
@@ -113,7 +113,7 @@ describe('стенд зеркального логова', () => {
    */
   it('выключенный стенд не двигает силу ни одного логова', async () => {
     for (const seed of [11, 42, 77, 101]) {
-      const w = await world(seed, profile({ legionary: 60, archer: 40 }, 11));
+      const w = await world(seed, profile({ legionary: 60, archer: 40 }));
       const lairs = w.gen.settlements.filter(isLair);
       expect(lairs.length).toBeGreaterThan(0);
       for (const s of lairs) {
@@ -134,7 +134,7 @@ describe('стенд зеркального логова', () => {
    * прямо здесь, а не поднятым в коммите флагом.
    */
   it('включённый стенд зеркалит войско ближайшего живого логова, и только его', async () => {
-    const p = profile({ legionary: 60, archer: 40 }, 11);
+    const p = profile({ legionary: 60, archer: 40 });
     const w = await world(42, p);
     const host = hostOf(w);
     const alive = (s: GenSettlement, t: number): boolean => w.alive(s, t);
@@ -156,7 +156,7 @@ describe('стенд зеркального логова', () => {
 
   /** Сожгли зеркало — зеркалом становится следующее ближнее, а не никто. */
   it('сожжённое зеркало уступает место следующему', async () => {
-    const p = profile({ legionary: 60, archer: 40 }, 11);
+    const p = profile({ legionary: 60, archer: 40 });
     const w = await world(42, p);
     const host = hostOf(w);
     const burned = new Set<SettlementId>();
@@ -203,14 +203,15 @@ describe('стенд зеркального логова', () => {
   });
 
   /**
-   * Опора — то же произведение, каким мир считает силу нашего лагеря, и второго
+   * Опора — та же сумма мощи, какой мир считает силу нашего лагеря, и второго
    * счёта «насколько силён игрок» у стенда нет. Проверяется тем, что она и
    * вправду читается из войска слепка, а не из обороны.
    */
   it('опора — войско слепка, а не оборона', () => {
-    const p = profile({ legionary: 60, archer: 40 }, 11);
-    expect(hostPower(p)).toBe(100 * 11);
-    expect(hostPower({ ...p, defense: 99_999 })).toBe(100 * 11);
+    const p = profile({ legionary: 60, archer: 40 });
+    const want = 60 * TROOP_BY_ID.legionary.power + 40 * TROOP_BY_ID.archer.power;
+    expect(hostPower(p)).toBe(want);
+    expect(hostPower({ ...p, defense: 99_999 })).toBe(want);
     expect(hostPower({ ...p, army: {} })).toBe(0);
   });
 });

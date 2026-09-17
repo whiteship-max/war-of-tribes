@@ -18,7 +18,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   // Выше защиты новичка: без этого набегов на деревню нет вовсе, и тест проверял бы пустоту.
   pop: shieldVillagers(0.1),
   defense: 30,
-  warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   stock: { food: 120, wood: 80 },
   stash: 0,
@@ -267,7 +266,6 @@ const holdout: PlayerProfile = {
   // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
   // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
   militia: 1000,
-  warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { legionary: 40, spearman: 30, archer: 20 },
   stock: { food: 600, wood: 400 },

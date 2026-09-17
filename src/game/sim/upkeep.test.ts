@@ -376,8 +376,8 @@ describe('распустить', () => {
     const field = { ...save.figures.general.troops };
     expect(field, 'точка внутри области: латники и всадники в дружине').toEqual({ legionary: 10, rider: 6 });
     expect(save.figures.general.phase, 'точка внутри области: дружина в поле, а не дома').not.toBe('home');
-    expect(s.warriorsAway, 'мир числит дружину не дома').toBe(16);
-    const byNumber = armySize(s) - s.warriorsAway;
+    expect(s.away, 'мир числит дружину не дома').toEqual({ legionary: 10, rider: 6 });
+    const byNumber = armySize(s) - troopTotal(s.away);
     expect(byNumber, 'точка внутри области: числом дома больше, чем латников у племени').toBeGreaterThan(s.army.legionary);
 
     expect(homeTroops(s), 'дома — ровно те, кого полководец не увёл').toEqual({ clubman: 60 });

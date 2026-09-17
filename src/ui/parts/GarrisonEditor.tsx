@@ -10,10 +10,30 @@ import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { defense } from '@/game/derived';
 import { formatLeft, secondsLeft } from '@/world/geo';
-import { postureOf, roomOf } from '@/world/muster';
-import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { plus, postureOf, roomOf, type Posture } from '@/world/muster';
+import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import type { GameState } from '@/game/types';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { Icon } from '@/ui/icons/Icon';
+
+/**
+ * Какой будет оборона, пока идёт сбор, и когда дружина встанет дома. Считает та же
+ * `defense`, что и всегда, — на племени, у которого не дома ровно те, кого сбор
+ * касается, **по видам**: латник, ушедший в сбор, уносит мощь латника.
+ *
+ * Не в обороне сверх дружины — отряды в пути: дружина, стоящая дома, в `s.away` не
+ * входит, в сборе и в поле — входит вся. В сборе числятся все, кого он касается, —
+ * те же `max(было, станет)` по видам, что кладёт в дружину сам мир (`setGarrison`).
+ */
+export function musterDefense(s: GameState, held: TroopStack, want: TroopStack, posture: Posture): { during: number; after: number } {
+  const marches = troopsAfter(s.away, posture === 'stands' ? {} : held);
+  const onRoad: TroopStack = {};
+  for (const t of TROOP_IDS) onRoad[t] = Math.max(held[t] ?? 0, want[t] ?? 0);
+  return {
+    during: defense({ ...s, away: plus(marches, onRoad) }),
+    after: defense({ ...s, away: marches }),
+  };
+}
 
 /**
  * Что полководец держит при себе. Правится только вплотную к своей деревне: в
@@ -50,19 +70,10 @@ export function GarrisonEditor() {
   // сбор и какой она станет, когда дружина соберётся. Считает та же `defense`,
   // что и всегда, — только для выбранной дружины, а не своей арифметикой рядом.
   const def = defense(s);
-  // Не в обороне сверх дружины: отряды в пути. Дружина, стоящая дома, в
-  // `warriorsAway` не входит; в сборе и в поле — входит вся.
-  const marchesOut = Math.max(0, s.warriorsAway - (posture === 'stands' ? 0 : troopTotal(held)));
-  // В сборе числятся все, кого он касается, — те же `max(было, станет)` по видам,
-  // что кладёт в дружину сам мир (`setGarrison`). Ничего не меняется — сбора нет.
-  let onRoad = 0;
+  // Ничего не меняется — сбора нет.
   let moved = 0;
-  for (const t of TROOP_IDS) {
-    onRoad += Math.max(held[t] ?? 0, want[t] ?? 0);
-    moved += Math.abs((held[t] ?? 0) - (want[t] ?? 0));
-  }
-  const during = defense({ ...s, warriorsAway: marchesOut + onRoad });
-  const after = defense({ ...s, warriorsAway: marchesOut });
+  for (const t of TROOP_IDS) moved += Math.abs((held[t] ?? 0) - (want[t] ?? 0));
+  const { during, after } = musterDefense(s, held, want, posture);
   const apply = async (next: TroopStack | null): Promise<void> => {
     setBusy(true);
     const err = await setGarrison(next);

@@ -23,7 +23,6 @@ const holdout: PlayerProfile = {
   // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
   // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
   militia: 1000,
-  warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { legionary: 40, spearman: 30, archer: 20 },
   stock: { food: 600, wood: 400 },

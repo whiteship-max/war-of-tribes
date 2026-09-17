@@ -401,7 +401,7 @@ function holds(p: Party, step: string): void {
     expect(away.troops[id] ?? 0, `${step}: ${id} при полководце и в походах больше, чем есть у племени`).toBeLessThanOrEqual(p.s.army[id]);
   }
   expect(troopTotal(homeOf(p.s.army, away)) + awayMen(away), `${step}: в гарнизоне и вне его вместе не всё войско`).toBe(armySize(p.s));
-  expect(p.s.warriorsAway, `${step}: племя считает не стоящих в гарнизоне не тем правилом, что мир`).toBe(awayMen(away));
+  expect(troopTotal(p.s.away), `${step}: племя считает не стоящих в гарнизоне не тем правилом, что мир`).toBe(awayMen(away));
 }
 
 /**
@@ -698,7 +698,7 @@ describe('дружина в обороне: собрана и дома — од�
     q.figures = await q.world.figures();
     await q.pulse('погоня');
     expect(postureOf(q.known()), 'идёт к бою').toBe('engaged');
-    expect(q.s.warriorsAway, 'не в обороне — вся дружина').toBe(10);
+    expect(troopTotal(q.s.away), 'не в обороне — вся дружина').toBe(10);
   }, 60_000);
 
   it('осада: полководец в городе — его бойцы в гарнизоне один раз во всех ролях, и вылазка тоже', async () => {
@@ -756,7 +756,7 @@ describe('дружина в обороне: собрана и дома — од�
     // Граница области: полководец в поле, дружина занята и в гарнизоне её нет.
     expect(postureOf(p.known()), 'в поле').toBe('engaged');
     expect(homeOf(p.s.army, awayOf(p.marches, p.figures)), 'в городе только гарнизон').toEqual({ clubman: 4 });
-    expect(p.s.warriorsAway, 'не в гарнизоне — вся дружина').toBe(10);
+    expect(troopTotal(p.s.away), 'не в гарнизоне — вся дружина').toBe(10);
     const plan = await p.world.strikePlan('home', true);
     expect(plan.can, plan.reason ?? '').toBe(true);
     expect(await p.world.strikeCamp('home', true)).toBeNull();
@@ -817,7 +817,7 @@ describe('дружина в обороне: собрана и дома — од�
     expect(pulse.effects.some((e) => e.text.includes('сверили с казармами')), 'и сказали об этом строкой').toBe(true);
     const away = awayOf(q.marches, q.figures);
     expect(homeOf(q.s.army, away), 'в гарнизоне всё войско ровно раз, лучники не пропали').toEqual({ clubman: 10, archer: 10 });
-    expect(q.s.warriorsAway).toBe(0);
+    expect(troopTotal(q.s.away)).toBe(0);
   }, 60_000);
 
   it('удвоенное сохранение с набегом на подходе: у частокола не больше, чем есть у племени', async () => {

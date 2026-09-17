@@ -54,6 +54,15 @@ export type TroopStack = Partial<Record<TroopId, number>>;
 export const troopTotal = (t: TroopStack): number =>
   TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0), 0);
 
+/**
+ * Мощь состава — сумма мощи каждого бойца (`TroopDef.power`). Тот же вес, которым бой
+ * переводит бойца в строй (`menOf`), а набег — в людей (`garrison.menOfPower`). Мощь
+ * всего войска, тех, кто дома, дружины и лагеря считается этой дверью, а не средним на
+ * число: латник, ушедший в поле, уносит мощь латника, а не мощь среднего бойца.
+ */
+export const troopPower = (t: TroopStack): number =>
+  TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * TROOP_BY_ID[id].power, 0);
+
 /** Состав в родах боя — то, что понимает ядро. */
 export function kindsOf(t: TroopStack): Stack {
   const out: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0 };

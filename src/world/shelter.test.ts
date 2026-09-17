@@ -38,7 +38,6 @@ const profile = (): PlayerProfile => ({
   name: 'Тест',
   pop: 120,
   defense: 30,
-  warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { spearman: 12 },
   stock: { food: 120, wood: 80 },

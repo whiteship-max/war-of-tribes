@@ -256,6 +256,10 @@ export function deserialize(json: string): GameState | null {
       rolls: typeof data.rolls === 'number' && Number.isFinite(data.rolls) ? Math.max(0, Math.floor(data.rolls)) : 0,
       hires: typeof data.hires === 'number' && Number.isFinite(data.hires) ? Math.max(0, Math.floor(data.hires)) : 0,
     } as GameState;
+    // Кто не дома, прежде лежал числом (`warriorsAway`), теперь — по видам (`away`).
+    // Состав из числа не восстановить, и не нужно: мир кладёт его первым же пульсом, а
+    // до него всё войско дома. Старое поле никто не читает — оно не должно и ездить.
+    delete (s as { warriorsAway?: unknown }).warriorsAway;
     // Здание, добавленное в BUILDINGS после того, как сохранение записали,
     // должно появиться в посёлке само — так же, как оно появляется в новой партии
     // (CLAUDE.md, «Правила»). Иначе игрок с сохранением остался бы без него

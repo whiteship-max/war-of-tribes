@@ -189,7 +189,6 @@ const raider = (): PlayerProfile =>
     name: 'Отчёт',
     pop: 600,
     defense: 4000,
-    warriorPower: 14,
     units: { warrior: 200, scout: 8 },
     army: { legionary: 120, spearman: 90, archer: 60 },
     warning: 120,

@@ -20,8 +20,8 @@ export function ArmyPanel() {
   const openBuilding = useGame((g) => g.openBuilding);
   const [open, setOpen] = useState<TroopId | null>(null);
   const barracks = buildingOfType(s, 'barracks');
-  const away = Math.max(0, s.warriorsAway);
   const home = homeArmy(s);
+  const away = armySize(s) - home;
   const training = recruitsQueued(s);
   // Где дружина — три состояния, и за разницу между ними игрок платит.
   const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));

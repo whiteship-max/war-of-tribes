@@ -60,7 +60,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   name: 'Тест',
   pop: shieldVillagers(0.5),
   defense: 300,
-  warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { spearman: 10 },
   stock: { food: 600, wood: 400 },

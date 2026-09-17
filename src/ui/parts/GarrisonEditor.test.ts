@@ -15,7 +15,13 @@ import { describe, expect, it } from 'vitest';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { atGates } from '@/world/store';
 import { seeded } from '@/game/sim/random';
-import type { Coord, FigureView, PlayerProfile } from '@/world/types';
+import type { Coord, FigureView, MarchView, PlayerProfile } from '@/world/types';
+import { createInitialState } from '@/game/state';
+import { defense } from '@/game/derived';
+import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { playerProfile, syncAway } from '@/world/bridge';
+import { awayOf, postureOf, weakest } from '@/world/muster';
+import { musterDefense } from './GarrisonEditor';
 
 const UI = path.join(process.cwd(), 'src/ui');
 
@@ -57,7 +63,6 @@ describe('состав дружины: один редактор, два мес�
       name: 'Тест',
       pop: 120,
       defense: 30,
-      warriorPower: 3,
       units: { warrior: 10, scout: 4 },
       army: { spearman: 12 },
       stock: { food: 120, wood: 80 },
@@ -101,5 +106,46 @@ describe('состав дружины: один редактор, два мес�
     expect(yes).toBeGreaterThan(20);
     expect(no).toBeGreaterThan(20);
     expect(movingAtHome, 'точки «вышел, но ещё у дома» — там признак и ломается').toBeGreaterThan(3);
+  });
+
+  // Область правила: сбор уносит виды разной мощи — только там оборона «по числу» и «по
+  // составу» расходится. Две точки: сбор из пустых рук и пересбор дружины, стоящей дома;
+  // в каждой — во время сбора и после. Что точка внутри, проверяется утверждением.
+  it('панель сбора называет ту оборону, которую посчитает игра во время сбора и после', async () => {
+    const START = 1_700_000_000_000;
+    let now = START;
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
+    const s = createInitialState(7);
+    s.army.clubman = 40;
+    s.army.legionary = 12;
+    let last: { marches: MarchView[]; figures: FigureView[] } = { marches: [], figures: [] };
+    const pulse = async (): Promise<void> => {
+      const p = await world.sync(playerProfile(s, awayOf(last.marches, last.figures)));
+      syncAway(s, p.marches, p.figures);
+      last = { marches: p.marches, figures: p.figures };
+    };
+    const general = (): FigureView => last.figures.find((f) => f.id === 'general') as FigureView;
+    await pulse();
+    const steps: TroopStack[] = [
+      { legionary: 8, clubman: 2 },
+      { legionary: 3, clubman: 12 },
+    ];
+    for (const [i, want] of steps.entries()) {
+      const before = general();
+      const plan = musterDefense(s, { ...before.troops }, want, postureOf(before));
+      expect(postureOf(before), `шаг ${i}: точка внутри области — сбора ещё нет`).not.toBe('gathering');
+      expect(await world.setGarrison(want)).toBeNull();
+      await pulse();
+      const during = general();
+      expect(postureOf(during), `шаг ${i}: точка внутри области — идёт сбор`).toBe('gathering');
+      const byNumber = defense({ ...s, away: weakest(s.army, troopTotal(s.away)) });
+      expect(Math.abs(byNumber - defense(s)), `шаг ${i}: точка внутри области — числом вышло бы другое`).toBeGreaterThan(1);
+      expect(plan.during, `шаг ${i}: во время сбора панель и игра`).toBeCloseTo(defense(s), 9);
+      now = during.readyAt;
+      await pulse();
+      await pulse();
+      expect(postureOf(general()), `шаг ${i}: точка внутри области — собрана и дома`).toBe('stands');
+      expect(plan.after, `шаг ${i}: после сбора панель и игра`).toBeCloseTo(defense(s), 9);
+    }
   });
 });

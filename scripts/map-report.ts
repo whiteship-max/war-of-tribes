@@ -117,7 +117,6 @@ const profileFor = (st: (typeof STAGES)[number]): PlayerProfile => ({
   name: 'Стенд',
   pop: st.pop,
   defense: st.defense,
-  warriorPower: 12,
   units: { warrior: Math.round(st.defense / 4), scout: 6 },
   army: { legionary: Math.round(st.defense / 6) },
   warning: 120,

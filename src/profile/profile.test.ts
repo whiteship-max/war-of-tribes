@@ -112,6 +112,9 @@ describe('сейв профиля', () => {
     expect(g.resources.food).toBe(1580);
     expect(g.army.spearman).toBe(12);
     expect(g.army.legionary).toBe(3);
+    // Кто не дома, лежал числом; теперь — составом, и до первого пульса мира всё войско дома.
+    expect(g.away).toEqual({});
+    expect('warriorsAway' in g, 'старое числовое поле не ездит дальше').toBe(false);
     expect(g.equipment.spear).toBe(7);
     expect(buildingOfType(g, 'town_hall')!.level).toBe(4);
     expect(buildingOfType(g, 'houses')!.level).toBe(5);

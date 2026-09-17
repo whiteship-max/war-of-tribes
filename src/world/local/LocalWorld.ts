@@ -14,7 +14,7 @@ import {
   type Stack,
   type UnitKind,
 } from '@/battle';
-import { TROOPS_OF_KIND, kindsOf, troopLosses, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { TROOPS_OF_KIND, kindsOf, troopLosses, troopPower, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
@@ -1058,8 +1058,7 @@ export class LocalWorld implements WorldApi {
     const wood = firePlan(w.fire, w.wood);
     if (ourCamp(w)) {
       const troops = this.save.figures.general.troops ?? {};
-      const men = troopTotal(troops);
-      if (men <= 0) return null;
+      if (troopTotal(troops) <= 0) return null;
       const kinds = kindsOf(troops);
       for (const k of UNIT_KINDS) kinds[k] = Math.round(kinds[k] * (1 - thin));
       return {
@@ -1069,7 +1068,7 @@ export class LocalWorld implements WorldApi {
         resolve: this.generalResolve(),
         setup: null,
         men: stackTotal(kinds),
-        power: men * (1 - thin) * (this.save.profile?.warriorPower ?? 1),
+        power: troopPower(troops) * (1 - thin),
         name: 'наш лагерь',
         thin,
         wood,
@@ -5165,6 +5164,10 @@ export class LocalWorld implements WorldApi {
       units,
     );
     const id = `m${this.save.nextMarch}`;
+    // Воины идут своей мощью, а не средней: названный состав — им, без состава —
+    // слабыми из гарнизона, тем же правилом, каким их снимает `muster.homeOf`.
+    const warriors = units.warrior ?? 0;
+    const perWarrior = warriors > 0 ? troopPower(troops ?? weakest(held.own, warriors)) / warriors : 0;
     const march: StoredMarch = {
       id,
       seed: marchSeed(this.save.seed, this.save.nextMarch++),
@@ -5180,7 +5183,7 @@ export class LocalWorld implements WorldApi {
       departAt: now,
       arriveAt: now + Math.round(seconds * 1000),
       phase: 'out',
-      power: stackPower(units, profile.warriorPower),
+      power: stackPower(units, perWarrior),
       troops,
       setup: order.setup ?? null,
       loot: null,
@@ -5257,7 +5260,7 @@ export class LocalWorld implements WorldApi {
       watching: Boolean(f.watching),
       watchSight: liveSight(id, f),
       troops: { ...troops },
-      power: troopTotal(troops) * (this.save.profile?.warriorPower ?? 1),
+      power: troopPower(troops),
       // Лагерь: пока он стоит, других дел у полководца нет, а приказ уйти
       // снимает осаду. Панель обязана сказать это до приказа, а не после.
       besieging: id === 'general' ? this.ourSiege(now) : null,

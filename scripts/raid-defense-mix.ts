@@ -1,29 +1,25 @@
 // Оборона по составу — раздел `raid:report`.
 //
-// Долг (docs/PROMISES_DEBT.md, «Оборона дома и мощь дружины — средней мощью бойца»): племя знает, сколько
-// бойцов не дома (`s.warriorsAway`), но не знает, кто это, и мощь тех, кто дома, считает долей всей мощи
-// (`derived.homeArmyPower` = бойцов дома × средняя мощь всего войска). Когда дома всё войско, это одно и
-// то же; расходится, когда полководец увёл часть. Раздел меряет, **где это число что-то решает сегодня**,
-// когда набег больше не собирается из обороны (docs/lair_growth.md), и что станет с правилом «мощь дома —
-// сумма мощи тех, кто дома».
+// Долг закрыт (docs/defense_mix.md): мощь тех, кто дома, — сумма мощи тех, кто дома (`kinds.troopPower`
+// над `derived.homeTroops`), а не бойцов дома × средняя мощь всего войска. Числа «по среднему» в игре
+// больше не воспроизводятся: это снимок на коммите ce81e88, где раздел выводил их той же командой.
 //
-// «По составу» — одна подстановка, и она собрана из функций самой игры, а не своей арифметикой: племя,
-// у которого войско — ровно те, кто дома (`muster.homeOf`), и никто не в отлучке. Его `defense`,
-// `militiaMen`, `militiaArchers` и `mutinyForecast` — и есть число по составу: при всём войске дома
-// средняя мощь на число бойцов равна сумме мощи.
+// Раздел меряет **игру как она есть** и сверяет её с подстановкой, из которой правило выросло: племя, у
+// которого войско — ровно те, кто дома (`muster.homeOf`), и никто не в отлучке. Его `defense`, `militiaMen`,
+// `militiaArchers` и `mutinyForecast` — число по составу, собранное функциями самой игры. Сверка обязана
+// давать ноль: разошлась — в игре снова завелась вторая правда о том, кто дома.
 //
 // Разделы:
 //  1. **Что показывает число** — посёлок мерки, полководец увёл тяжёлых или лёгких: мощь дома, оборона,
-//     ополчение и стража против мятежа — по среднему и по составу; разрешает ли роспуск в казармах тех, кого
-//     дома нет.
+//     ополчение и стража против мятежа, сверка с подстановкой; кого разрешает распустить казарма.
 //  2. **Что число говорит о бое у стены** — настоящий бой (`LocalWorld.wallField`) на мире, где полководец
-//     увёл часть войска в поле: при какой силе набега прорывается половина набегов, в долях обеих оборон.
+//     увёл часть войска в поле: при какой силе набега прорывается половина набегов, в долях обороны.
 //  3. **Живые прогоны** — «по средствам, высокий налог» (docs/hiring.md) на посёлке мерки 10-го уровня, 4 ч ×
-//     5 миров: игра против подстановки по составу, случаи «всё дома», «увёл тяжёлых», «увёл лёгких»; вера
-//     мира и православная деревня (вера подставлена).
+//     5 миров, случаи «всё дома», «увёл тяжёлых», «увёл лёгких»; вера мира и православная деревня (вера
+//     подставлена).
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { awayTroops, militiaArchers, militiaMen, playerProfile, syncAway } from '@/world/bridge';
-import { awayMen, awayOf, homeOf, NOBODY_AWAY, type Away } from '@/world/muster';
+import { awayOf, homeOf, NOBODY_AWAY, type Away } from '@/world/muster';
 import { faithAt } from '@/world/faith';
 import { lairPower, lairRaid } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
@@ -61,7 +57,7 @@ const fieldAway = (troops: TroopStack): Away =>
 function byComposition(g: GameState, home: TroopStack): GameState {
   const army = { ...g.army };
   for (const id of TROOP_IDS) army[id] = Math.max(0, home[id] ?? 0);
-  return { ...g, army, warriorsAway: 0, away: {} };
+  return { ...g, army, away: {} };
 }
 
 const withFaith = (g: GameState, id: FaithId | null): GameState => {
@@ -77,24 +73,24 @@ function displayPart(): void {
   console.log('');
   console.log('--- 1. Что показывает число: посёлок мерки, полководец увёл часть войска в поле ---');
   console.log('Посёлок уровня L — мерка siege:report (войско 2 × (20 + 10 × (L − 1)) по составу MIX). «увёл» — все бойцы этих видов в дружине в поле:');
-  console.log('warriorsAway — сколько не дома (muster.awayOf → awayMen, как у syncAway). «по среднему» — функции игры; «по составу» — они же на племени,');
-  console.log('у которого войско — те, кто дома. «стража подавит» — mutinyForecast.crush: скольких невольников удержат бойцы дома.');
-  console.log(' ур  вера           случай                              дома  мощь дома: ср.  сост.  ошибка  оборона: ср.  сост.  ошибка  ополчение: ср.  сост.  стража подавит: ср.  сост.');
+  console.log('s.away — кто не дома по видам (muster.awayOf → bridge.awayTroops, как у syncAway). Числа — функции игры; «сверка» — совпали ли мощь дома,');
+  console.log('оборона, ополчение и стража с теми же функциями на племени, у которого войско — те, кто дома. «стража подавит» — mutinyForecast.crush.');
+  console.log(' ур  вера           случай                              дома  мощь дома  оборона  ополчение  стража подавит  сверка');
   for (const level of [5, 10]) {
     for (const faith of [null, 'orthodox'] as const) {
       for (const c of CASES) {
         const g = withFaith(townAt(level), faith);
         const away = fieldAway(pick(g.army, c.take));
-        g.warriorsAway = awayMen(away);
         g.away = awayTroops(g.army, away);
         const home = homeOf(g.army, away);
         const comp = byComposition(g, home);
-        const pa = homeArmyPower(g);
-        const pc = homeArmyPower(comp);
-        const da = defense(g);
-        const dc = defense(comp);
+        const same =
+          homeArmyPower(g) === homeArmyPower(comp) &&
+          defense(g) === defense(comp) &&
+          militiaMen(g) === militiaMen(comp) &&
+          mutinyForecast(g).crush === mutinyForecast(comp).crush;
         console.log(
-          ` ${pad(level, 2)}  ${(faith ?? 'без веры').padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(pa), 14)}  ${pad(Math.round(pc), 5)}  ${pad(signed(pc > 0 ? pa / pc - 1 : 0), 6)}  ${pad(Math.round(da), 12)}  ${pad(Math.round(dc), 5)}  ${pad(signed(da / dc - 1), 6)}  ${pad(militiaMen(g), 14)}  ${pad(militiaMen(comp), 5)}  ${pad(mutinyForecast(g).crush, 19)}  ${pad(mutinyForecast(comp).crush, 5)}`,
+          ` ${pad(level, 2)}  ${(faith ?? 'без веры').padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(homeArmyPower(g)), 9)}  ${pad(Math.round(defense(g)), 7)}  ${pad(militiaMen(g), 9)}  ${pad(mutinyForecast(g).crush, 14)}  ${same ? 'совпала' : 'РАЗОШЛАСЬ'}`,
         );
       }
     }
@@ -102,7 +98,6 @@ function displayPart(): void {
   const g = townAt(10);
   const taken = pick(g.army, ['legionary', 'rider']);
   const away = fieldAway(taken);
-  g.warriorsAway = awayMen(away);
   g.away = awayTroops(g.army, away);
   const home = homeOf(g.army, away);
   console.log('');
@@ -161,12 +156,11 @@ function breakShare(w: Inside, at: number, power: number): number {
 async function benchPart(): Promise<void> {
   console.log('');
   console.log(`--- 2. Что число говорит о бое у стены: LocalWorld.wallField, посёлок мерки 10-го уровня, ${BENCH_SEEDS} боёв на силу набега, мир ${SEEDS[0]} ---`);
-  console.log('Полководец уводит дружину и стоит в поле в четырёх клетках от ворот. Сила набега — доля обороны по составу с шагом 0.1;');
-  console.log('«полпути» — сила, при которой прорывается половина боёв (между соседними ступенями — линейно), в долях обеих оборон.');
+  console.log('Полководец уводит дружину и стоит в поле в четырёх клетках от ворот. Сила набега — доля обороны с шагом 0.1;');
+  console.log('«полпути» — сила, при которой прорывается половина боёв (между соседними ступенями — линейно), и она же в долях обороны.');
   console.log('«набег логова» — дозревшее логово медианной опоры при жителях посёлка (lairs.lairRaid), прорывов при нём.');
-  console.log('«по составу» у боя — ополчение и стрелки башни из подстановки по составу (оборона в бой не входит, входят только они).');
-  console.log('Где ополчение по среднему и по составу совпало, бой тот же до сида, и строка «по составу» не гоняется, а пишется «то же».');
-  console.log(' ур  вера           случай                              вариант       дома  оборона: ср.  сост.  ополчение  полпути  к ср.  к сост.  набег логова  прорывов при нём');
+  console.log('«сверка» — ополчение и стрелки башни в слепке мира против подстановки по составу (в бой из обороны входят только они).');
+  console.log(' ур  вера           случай                              дома  оборона  ополчение  полпути  к обороне  набег логова  прорывов при нём  сверка');
   for (const level of [10]) {
     for (const faith of [null, 'orthodox'] as const) {
       for (const c of CASES) {
@@ -175,36 +169,21 @@ async function benchPart(): Promise<void> {
         const w: Inside = world;
         const home = w.defenders(at).all as TroopStack;
         const comp = byComposition(g, home);
-        const da = defense(g);
-        const dc = defense(comp);
+        const d = defense(g);
         const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, g.pop), g.pop);
-        const was = { militia: w.save.profile.militia, archers: w.save.profile.militiaArchers };
-        for (const variant of ['игра', 'по составу'] as const) {
-          const same = militiaMen(comp) === was.militia && militiaArchers(comp) === was.archers;
-          if (variant === 'по составу' && same) {
-            console.log(` ${pad(level, 2)}  ${(faith ?? 'без веры').padEnd(13)}  ${c.name.padEnd(34)}  ${variant.padEnd(12)}  то же`);
-            continue;
-          }
-          if (variant === 'по составу') {
-            w.save.profile.militia = militiaMen(comp);
-            w.save.profile.militiaArchers = militiaArchers(comp);
-          } else {
-            w.save.profile.militia = was.militia;
-            w.save.profile.militiaArchers = was.archers;
-          }
-          const rates = SHARES.map((k) => breakShare(w, at, k * dc));
-          const i = rates.findIndex((r) => r >= 0.5);
-          let half = NaN;
-          if (i === 0) half = SHARES[0] * dc;
-          else if (i > 0) {
-            const t = (0.5 - rates[i - 1]) / (rates[i] - rates[i - 1]);
-            half = (SHARES[i - 1] + t * (SHARES[i] - SHARES[i - 1])) * dc;
-          }
-          const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : '—');
-          console.log(
-            ` ${pad(level, 2)}  ${(faith ?? 'без веры').padEnd(13)}  ${c.name.padEnd(34)}  ${variant.padEnd(12)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(da), 12)}  ${pad(Math.round(dc), 5)}  ${pad(w.save.profile.militia, 9)}  ${pad(Number.isFinite(half) ? Math.round(half) : '—', 7)}  ${pad(fmt(half / da), 5)}  ${pad(fmt(half / dc), 7)}  ${pad(Math.round(raid), 12)}  ${pad(pct(breakShare(w, at, raid)), 16)}`,
-          );
+        const same = militiaMen(comp) === w.save.profile.militia && militiaArchers(comp) === w.save.profile.militiaArchers;
+        const rates = SHARES.map((k) => breakShare(w, at, k * d));
+        const i = rates.findIndex((r) => r >= 0.5);
+        let half = NaN;
+        if (i === 0) half = SHARES[0] * d;
+        else if (i > 0) {
+          const t = (0.5 - rates[i - 1]) / (rates[i] - rates[i - 1]);
+          half = (SHARES[i - 1] + t * (SHARES[i] - SHARES[i - 1])) * d;
         }
+        const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : '—');
+        console.log(
+          ` ${pad(level, 2)}  ${(faith ?? 'без веры').padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(d), 7)}  ${pad(w.save.profile.militia, 9)}  ${pad(Number.isFinite(half) ? Math.round(half) : '—', 7)}  ${pad(fmt(half / d), 9)}  ${pad(Math.round(raid), 12)}  ${pad(pct(breakShare(w, at, raid)), 16)}  ${same ? 'совпала' : 'РАЗОШЛАСЬ'}`,
+        );
       }
     }
   }
@@ -224,7 +203,7 @@ interface Watch {
   druzhinaCut: number;
 }
 
-async function liveRow(level: number, c: Case, variant: 'игра' | 'по составу', faith: 'мир' | 'нет' | 'orthodox'): Promise<{ outs: Out[]; watch: Watch[] }> {
+async function liveRow(level: number, c: Case, faith: 'мир' | 'нет' | 'orthodox'): Promise<{ outs: Out[]; watch: Watch[] }> {
   const outs: Out[] = [];
   const watch: Watch[] = [];
   for (const seed of SEEDS) {
@@ -248,11 +227,6 @@ async function liveRow(level: number, c: Case, variant: 'игра' | 'по со�
           const mm = militiaMen(comp);
           const ma = militiaArchers(comp);
           if (mm !== p.militia || ma !== p.militiaArchers) x.militiaApart++;
-          if (variant === 'по составу') {
-            p.defense = dc;
-            p.militia = mm;
-            p.militiaArchers = ma;
-          }
         },
         after: async ({ g: s, world, now, figures }) => {
           const gen = figures.find((f) => f.id === 'general');
@@ -292,32 +266,30 @@ async function livePart(): Promise<void> {
   console.log(`Вера земли под замком: ${faiths.join(', ')}.`);
   console.log('Прогон — live раздела «Найм». «вера: нет» — как мерился «Найм» (мир веру называл, автопилот её не брал: syncFaith не звался); «мир» — вера, которую');
   console.log('мир называет пульсом, как world/store; «orthodox» — вера подставлена до прогона, храм 10-го уровня. «увёл» — полководец в первые минуты');
-  console.log('забирает всех бойцов этих видов, что дома, и уходит на 4 клетки в поле до конца прогона. «по составу» — подстановка в слепок перед');
-  console.log('каждым пульсом: оборона, ополчение и стрелки башни. «набег / оборона» — к обороне слепка того варианта; «ошибка обороны» — оборона слепка');
-  console.log('игры против обороны по составу, 10-я…медиана…90-я по пульсам; «ополчение врозь» — пульсов, где ополчение или стрелки разошлись;');
+  console.log('забирает всех бойцов этих видов, что дома, и уходит на 4 клетки в поле до конца прогона. «набег / оборона» — к обороне слепка;');
+  console.log('«ошибка обороны» — сверка: оборона слепка против обороны племени, у которого войско — те, кто дома, 10-я…медиана…90-я по пульсам;');
+  console.log('«ополчение врозь» — пульсов, где ополчение или стрелки слепка и той же подстановки разошлись;');
   console.log('«дружина в конце» — средняя по мирам; «убыла в поле» — сумма по мирам: на сколько бойцов дружина стала меньше от пульса к пульсу, пока полководец стоял в поле.');
   console.log('Полководец в бой не ходит: убыль в поле — не потери боя.');
-  console.log(' вера      случай                              вариант       набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  падений/ч  потери, удержали  войско дома: медиана  дружина в конце  убыла в поле  распущено  ошибка обороны  ополчение врозь');
-  const rows: { faith: 'мир' | 'нет' | 'orthodox'; c: Case; variants: ('игра' | 'по составу')[] }[] = [
-    { faith: 'нет', c: CASES[0], variants: ['игра'] },
-    { faith: 'мир', c: CASES[0], variants: ['игра'] },
-    { faith: 'мир', c: CASES[1], variants: ['игра', 'по составу'] },
-    { faith: 'мир', c: CASES[2], variants: ['игра', 'по составу'] },
-    { faith: 'orthodox', c: CASES[1], variants: ['игра', 'по составу'] },
-    { faith: 'orthodox', c: CASES[2], variants: ['игра', 'по составу'] },
+  console.log(' вера      случай                              набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  падений/ч  потери, удержали  войско дома: медиана  дружина в конце  убыла в поле  распущено  ошибка обороны  ополчение врозь');
+  const rows: { faith: 'мир' | 'нет' | 'orthodox'; c: Case }[] = [
+    { faith: 'нет', c: CASES[0] },
+    { faith: 'мир', c: CASES[0] },
+    { faith: 'мир', c: CASES[1] },
+    { faith: 'мир', c: CASES[2] },
+    { faith: 'orthodox', c: CASES[1] },
+    { faith: 'orthodox', c: CASES[2] },
   ];
   for (const r of rows) {
-    for (const variant of r.variants) {
-      const { outs, watch } = await liveRow(LEVEL, r.c, variant, r.faith);
-      const t = tally(
-        outs.map((o) => o.run),
-        HOURS,
-      );
-      const errs = watch.flatMap((x) => x.errors);
-      console.log(
-        ` ${r.faith.padEnd(8)}  ${r.c.name.padEnd(34)}  ${variant.padEnd(12)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(Math.round(q(outs.flatMap((o) => o.l.armyHome), 0.5)), 20)}  ${pad(Math.round(mean(watch.map((x) => x.druzhinaEnd))), 15)}  ${pad(sum(watch.map((x) => x.druzhinaCut)), 12)}  ${pad(sum(outs.map((o) => o.l.dismissed)), 9)}  ${pad(`${signed(q(errs, 0.1))}…${signed(q(errs, 0.5))}…${signed(q(errs, 0.9))}`, 14)}  ${pad(`${sum(watch.map((x) => x.militiaApart))} из ${sum(watch.map((x) => x.pulses))}`, 15)}`,
-      );
-    }
+    const { outs, watch } = await liveRow(LEVEL, r.c, r.faith);
+    const t = tally(
+      outs.map((o) => o.run),
+      HOURS,
+    );
+    const errs = watch.flatMap((x) => x.errors);
+    console.log(
+      ` ${r.faith.padEnd(8)}  ${r.c.name.padEnd(34)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(Math.round(q(outs.flatMap((o) => o.l.armyHome), 0.5)), 20)}  ${pad(Math.round(mean(watch.map((x) => x.druzhinaEnd))), 15)}  ${pad(sum(watch.map((x) => x.druzhinaCut)), 12)}  ${pad(sum(outs.map((o) => o.l.dismissed)), 9)}  ${pad(`${signed(q(errs, 0.1))}…${signed(q(errs, 0.5))}…${signed(q(errs, 0.9))}`, 14)}  ${pad(`${sum(watch.map((x) => x.militiaApart))} из ${sum(watch.map((x) => x.pulses))}`, 15)}`,
+    );
   }
   const g = withFaith(townAt(LEVEL), 'orthodox');
   console.log(`(Стойкость православной деревни с храмом ${LEVEL}-го уровня — ${faithTilt(g).steadfast.toFixed(2)}; бойцов в мерке ${armySize(g)}.)`);

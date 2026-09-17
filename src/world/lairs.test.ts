@@ -136,7 +136,6 @@ const profile = (): PlayerProfile =>
     name: 'Тест',
     pop: 300,
     defense: 900,
-    warriorPower: 12,
     units: { warrior: 40, scout: 6 },
     army: { legionary: 40, spearman: 30, archer: 20 },
     warning: 120,

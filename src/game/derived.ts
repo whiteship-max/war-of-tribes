@@ -82,7 +82,7 @@ import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DESERT_SHARE, UPKEEP_TEXT, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
-import { troopsAfter, weightOf, type TroopStack } from './battle/kinds';
+import { troopPower, troopTotal, troopsAfter, weightOf, type TroopStack } from './battle/kinds';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
@@ -489,30 +489,27 @@ export const armySize = (s: GameState): number =>
  * Мощь армии считается из состава отряда и ничего больше не учитывает:
  * снаряжение уже вложено в вид бойца. Эту же мощь берёт карта мира.
  */
-export const armyPower = (s: GameState): number =>
-  TROOP_IDS.reduce((n, id) => n + Math.max(0, s.army?.[id] ?? 0) * TROOP_BY_ID[id].power, 0);
-
-/** Средняя мощь бойца — по ней мир пересчитывает ушедший в поход отряд. */
-export const soldierPower = (s: GameState): number => {
-  const n = armySize(s);
-  return n > 0 ? armyPower(s) / n : 0;
-};
-
-/**
- * Бойцы в обороне деревни: гарнизон и дружина, собранная у своих ворот. Отряды в
- * пути и дружина в сборе и в поле деревню не защищают (`world/muster`).
- */
-export const homeArmy = (s: GameState): number =>
-  Math.max(0, armySize(s) - Math.max(0, s.warriorsAway));
+export const armyPower = (s: GameState): number => troopPower(s.army ?? {});
 
 /**
  * Кто дома, по видам: всё войско минус те, кого мир числит не в обороне (`s.away`).
  * Отрицательного не бывает: ушедшего, которого у племени уже нет, нет и дома.
  */
-export const homeTroops = (s: GameState): TroopStack => troopsAfter(s.army, s.away);
+export const homeTroops = (s: GameState): TroopStack => troopsAfter(s.army ?? {}, s.away ?? {});
 
-/** Мощь тех, кто дома: доля полной мощи по числу оставшихся. */
-export const homeArmyPower = (s: GameState): number => homeArmy(s) * soldierPower(s);
+/**
+ * Бойцы в обороне деревни: гарнизон и дружина, собранная у своих ворот. Отряды в
+ * пути и дружина в сборе и в поле деревню не защищают (`world/muster`).
+ */
+export const homeArmy = (s: GameState): number => troopTotal(homeTroops(s));
+
+/**
+ * Мощь тех, кто дома, — сумма мощи тех, кто дома (`kinds.troopPower`). Прежде она
+ * была долей всей мощи по числу оставшихся, и полководец, уведший латников, оставлял
+ * дома «средних бойцов»: показанная оборона выходила на 39 % выше настоящей, а
+ * уведший лёгких — на 31 % ниже (docs/defense_mix.md, раздел 1).
+ */
+export const homeArmyPower = (s: GameState): number => troopPower(homeTroops(s));
 
 /**
  * Оборона деревни. Армия в походе сюда не входит — это и есть цена похода:

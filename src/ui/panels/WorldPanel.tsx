@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { figuresOn, useWorld, worldNow } from '@/world/store';
-import { defense, soldierPower } from '@/game/derived';
+import { defense } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
@@ -28,6 +28,7 @@ import { TERRAIN_META } from '@/world/data/terrain';
 import type { Fate, FigureId, Mission, UnitStack } from '@/world/types';
 import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
 import { awayOf, homeOf } from '@/world/muster';
+import { awayTroops } from '@/world/bridge';
 import { troopTotal } from '@/game/battle/kinds';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -202,12 +203,19 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
 
   // Отряд уходит из гарнизона: дружина, стоящая у ворот, в обороне, но за ворота
   // гонцом не выходит — мир такой приказ не примет (`LocalWorld.send`).
-  const have = { ...sendableUnits(s), warrior: troopTotal(homeOf(s.army, awayOf(marches, figures))) };
-  const strength = soldierPower(s);
+  const who = awayOf(marches, figures);
+  const have = { ...sendableUnits(s), warrior: troopTotal(homeOf(s.army, who)) };
   const def = defense(s);
   const picked = { warrior: pick.warrior ?? 0, scout: pick.scout ?? 0 };
   const eta = marchSeconds(card.distance, card.terrainFactor, picked);
-  const defAfter = Math.max(0, def - picked.warrior * (strength + 0.25) - picked.scout * 0.25);
+  // Оборона после отправки — та же `defense`, только без ушедших: воины без состава
+  // уходят слабыми из гарнизона (`muster.homeOf`), как их снимет мир, разведчики —
+  // из жителей. Своей арифметики «минус средний боец» здесь нет.
+  const defAfter = defense({
+    ...s,
+    away: awayTroops(s.army, { ...who, loose: who.loose + picked.warrior }),
+    scoutsAway: s.scoutsAway + picked.scout,
+  });
   const standing = card.figuresHere;
   const general = figures.find((f) => f.id === 'general');
   const generalMen = troopTotal(general?.troops ?? {});

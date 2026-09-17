@@ -306,9 +306,9 @@ describe('порядок — чистая функция при чтении', (
     s.army.spearman = 20;
 
     // Ушедшие в поход не держат: гарнизон — это те, кто дома.
-    s.warriorsAway = 15;
+    s.away = { spearman: 15 };
     expect(orderValue(s), 'дружина в поле').toBeLessThan(base);
-    s.warriorsAway = 0;
+    s.away = {};
 
     s.bonded = 200;
     expect(orderValue(s), 'больше невольников').toBeLessThan(base);

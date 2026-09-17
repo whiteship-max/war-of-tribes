@@ -72,7 +72,6 @@ const holdout = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   // Ополчение, которое любой такой набег отобьёт: отряд садится лагерем, потому что
   // штурм не удался бы (`LocalWorld.sitsDown`), а не потому, что число обороны велико.
   militia: 1000,
-  warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   army: { spearman: 10 },
   stock: { food: 600, wood: 400 },

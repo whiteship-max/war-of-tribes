@@ -62,7 +62,6 @@ const profile = (defense: number, warning = 120, militia = 0): PlayerProfile => 
   pop: shieldVillagers(0.5),
   militia,
   defense,
-  warriorPower: 12,
   units: { warrior: 40, scout: 6 },
   army: { ...ARMY },
   warning,

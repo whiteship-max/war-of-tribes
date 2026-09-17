@@ -18,7 +18,6 @@ import {
   intelKeen,
   mountGear,
   soldierFoodPerDay,
-  soldierPower,
   surveyRadius,
   towerSeats,
   townFoodPerDay,
@@ -39,7 +38,7 @@ import {
 import { onslaughtOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
 import { readyEngine } from '@/game/sim/tower';
 import { FIGURE_IDS } from './data/figures';
-import { NOBODY_AWAY, awayMen, awayOf, homeOf, type Away } from './muster';
+import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
 import type {
   FigureView,
@@ -184,9 +183,6 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     city: profileCity(s.profile),
     pop: s.pop,
     defense: defense(s),
-    // Мощь одного бойца — среднее по составу армии: мир считает отряд числами,
-    // а состав знает только племя.
-    warriorPower: soldierPower(s),
     // Воинов здесь нет: сколько их дома, мир считает из `army` сам. Число,
     // посчитанное здесь, было бы вторым ответом на тот же вопрос.
     units: { scout: units.scout },
@@ -249,9 +245,8 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
 }
 
 /**
- * Сколько людей сейчас не в обороне. Число не хранится дважды: оно выводится из
- * списков мира, поэтому потерянное сохранение мира не оставит деревню без армии
- * навсегда.
+ * Кто сейчас не в обороне. Состав не хранится дважды: он выводится из списков
+ * мира, поэтому потерянное сохранение мира не оставит деревню без армии навсегда.
  *
  * Бойцы считаются тем же правилом, каким мир считает оборону (`world/muster`):
  * отряды в пути и дружина в сборе, в пути, в поле и в лагере — не в гарнизоне и
@@ -259,9 +254,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
  * раз.
  */
 export function syncAway(s: GameState, marches: MarchView[], figures: FigureView[] = []): boolean {
-  const who = awayOf(marches, figures);
-  const warriors = awayMen(who);
-  const troops = awayTroops(s.army, who);
+  const troops = awayTroops(s.army, awayOf(marches, figures));
   let scouts = 0;
   let heroSeen = false;
   for (const m of marches) {
@@ -274,8 +267,8 @@ export function syncAway(s: GameState, marches: MarchView[], figures: FigureView
   // Гибель разбирает `applyExpedition`, и вызывают его раньше этого места.
   const heroChanged = s.hero.marchId !== null && !heroSeen;
   if (heroChanged) s.hero.marchId = null;
-  if (s.warriorsAway === warriors && s.scoutsAway === scouts && sameStack(s.away, troops)) return heroChanged;
-  setAway(s, troops, warriors, scouts);
+  if (s.scoutsAway === scouts && sameStack(s.away, troops)) return heroChanged;
+  setAway(s, troops, scouts);
   return true;
 }
 

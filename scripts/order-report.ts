@@ -172,7 +172,7 @@ for (const level of LEVELS) {
   const home = orderBreakdown(s);
   const f = mutinyForecast(s);
   const away = stage(level);
-  away.warriorsAway = troopTotal(away.army);
+  away.away = { ...away.army };
   const field = orderBreakdown(away);
   console.log(
     `  ${pad(level, 2)}  ${pad(s.pop, 7)}  ${pad(troopTotal(s.army), 7)}   ${pad(Math.floor(home.hold), 9)}   ${pad(unrestAt(home.hold), 7)}   ${pad(pct(home.hold / s.pop), 11)}   ${pad(f.crush, 10)}   ${pad(Math.floor(field.hold), 7)} · ${unrestAt(field.hold)}`,
@@ -280,7 +280,6 @@ const host = (): PlayerProfile => ({
   name: 'Отчёт',
   pop: 400,
   defense: 900,
-  warriorPower: 12,
   units: { warrior: 70, scout: 6 },
   army: { ...HOST },
   warning: 120,
@@ -459,7 +458,7 @@ console.log('  положение                               тревога  
   s.morale = moraleTarget(s);
   s.bonded = Math.round(orderBreakdown(s).hold * 0.9);
   const m = watch(s, 20 * 60, (st, t) => {
-    if (t === 30) st.warriorsAway = troopTotal(st.army);
+    if (t === 30) st.away = { ...st.army };
   });
   console.log(
     `  дружина ушла в поле на 0:30                ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${pad(mm(m.silence), 4)}   ${span(m.warn, m.mutiny)}`,
@@ -470,7 +469,7 @@ console.log('  положение                               тревога  
   // и горожане, — и кончилась еда. Мораль ползёт вниз, спокойных горожан всё
   // меньше, голод забирает и самих горожан: порядок падает медленно, а не разом.
   const s = stage(5);
-  s.warriorsAway = troopTotal(s.army);
+  s.away = { ...s.army };
   s.morale = moraleTarget(s);
   s.bonded = Math.round(orderBreakdown(s).hold * 0.95);
   s.resources.food = 0;
@@ -516,7 +515,7 @@ for (const level of LEVELS) {
   const spoils = plunder(stock, hiddenStash(s), (f.leave + bonded) * MUTINY_CARRY);
   const away = stage(level);
   away.bonded = bonded;
-  away.warriorsAway = troopTotal(away.army);
+  away.away = { ...away.army };
   console.log(
     `  ${pad(level, 2)}  ${pad(s.pop, 7)}  ${pad(bonded, 11)}   ${pad(f.leave, 5)}   ${pad(spoils.takenTotal, 6)}   ${pad(pct(spoils.takenTotal / total), 11)}   ${pad(f.holds ? 'да' : 'нет', 14)}   ${pad(mutinyForecast(away).holds ? 'да' : 'нет', 16)}`,
   );

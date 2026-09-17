@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { armySize, defense, soldierPower } from '@/game/derived';
+import { armyPower, armySize, defense, faithTilt, homeArmyPower } from '@/game/derived';
 import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
@@ -23,9 +23,9 @@ import { FogMap, fogSaveBytes } from './fog';
 import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave } from './local/state';
 import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
-import { TROOP_IDS } from '@/game/data/troops';
+import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
-import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
+import { gearOfTroop, troopPower, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
   DEFENSE_FREEZE,
@@ -86,7 +86,6 @@ const profile = (over: Partial<PlayerProfile> = {}): PlayerProfile => ({
   // Выше защиты новичка: набеги ИИ по нему идут (`lairs.lairShield`).
   pop: shieldVillagers(0.1),
   defense: 30,
-  warriorPower: 3,
   units: { warrior: 10, scout: 4 },
   // Вместимость отряда — работа Статуи. Без неё полководец не уведёт никого,
   // и это правильно: в тестах она задаётся так же, как её даёт здание.
@@ -529,14 +528,51 @@ describe('армия в походе', () => {
     return s;
   };
 
-  it('не учитывается в обороне своей деревни', () => {
-    const s = withWarriors(5);
-    const full = defense(s);
-    s.warriorsAway = 3;
-    const left = defense(s);
-    // Уходят бойцы, а не жители: жительская четвертинка обороны остаётся дома.
-    expect(left).toBeCloseTo(full - 3 * soldierPower(s), 5);
-    expect(left).toBeLessThan(full);
+  // Область правила: войско из видов разной мощи, увод строго между нулём и всем
+  // войском, и уведённые по мощи не средние — только там среднее на число и сумма
+  // расходятся. Каждая точка проверяется утверждением. Путь настоящий: мир, сбор,
+  // поле, пульс.
+  it('мощь дома — сумма мощи тех, кто дома: ушедший латник уносит мощь латника', async () => {
+    const w = makeWorld(11);
+    const s = withWarriors(0);
+    s.army = { ...s.army, clubman: 40, legionary: 12 };
+    const fullPower = homeArmyPower(s);
+    const fullDefense = defense(s);
+    expect(fullPower, 'дома всё войско').toBe(armyPower(s));
+    let last: { marches: MarchView[]; figures: FigureView[] } = { marches: [], figures: [] };
+    const pulse = async (): Promise<void> => {
+      const p = await w.world.sync(playerProfile(s, awayOf(last.marches, last.figures)));
+      syncAway(s, p.marches, p.figures);
+      last = { marches: p.marches, figures: p.figures };
+    };
+    const general = async (): Promise<FigureView> => (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    await pulse();
+    expect(await w.world.setGarrison({ legionary: 8, clubman: 5 })).toBeNull();
+    w.at((await general()).readyAt);
+    await pulse();
+    const home = (await w.world.info()).home;
+    expect(await w.world.moveFigure('general', { x: home.x + 4, y: home.y })).toBeNull();
+    w.at((await general()).arriveAt);
+    await pulse();
+    await pulse();
+
+    const gone = troopTotal(s.away);
+    expect(s.away, 'не дома — дружина в поле, по видам').toEqual({ legionary: 8, clubman: 5 });
+    expect(gone, 'точка внутри области: ушли не никто').toBeGreaterThan(0);
+    expect(gone, 'точка внутри области: ушли не все').toBeLessThan(armySize(s));
+    expect(troopPower(s.away) / gone, 'точка внутри области: уведённые по мощи не средние').not.toBeCloseTo(
+      armyPower(s) / armySize(s),
+      1,
+    );
+    const legionary = TROOP_BY_ID.legionary.power;
+    const clubman = TROOP_BY_ID.clubman.power;
+    expect(homeArmyPower(s), 'мощь дома — сумма мощи тех, кто дома').toBe(4 * legionary + 35 * clubman);
+    expect(fullPower - homeArmyPower(s), 'ушедшие унесли свою мощь').toBe(8 * legionary + 5 * clubman);
+    // Оборона — та же мощь плюс то, что дают не бойцы: частокол, башня, жители.
+    expect(fullDefense - defense(s), 'оборона просела ровно на мощь ушедших').toBeCloseTo(
+      (8 * legionary + 5 * clubman) * (1 + faithTilt(s).steadfast),
+      6,
+    );
   });
 
   it('число ушедших выводится из списка походов', () => {
@@ -579,7 +615,7 @@ describe('армия в походе', () => {
     ];
     expect(syncAway(s, marches)).toBe(true);
     // Чужой отряд в свои потери не записывается.
-    expect(s.warriorsAway).toBe(4);
+    expect(s.away, 'ушедшие числом — со слабых, как их снимает гарнизон').toEqual({ spearman: 4 });
     expect(s.scoutsAway).toBe(1);
     expect(sendableUnits(s).warrior).toBe(2);
     // Повторный вызов ничего не меняет.
@@ -597,7 +633,7 @@ describe('армия в походе', () => {
 describe('походы в локальном мире', () => {
   it('полководец доводит армию до цели, бьёт и остаётся в поле', async () => {
     const w = makeWorld(11);
-    const p = profile({ warriorPower: 4, army: { clubman: 8, spearman: 6 } });
+    const p = profile({ army: { clubman: 8, spearman: 6 } });
     await w.world.sync(p);
     const target = await nearest(w.world);
 
@@ -625,7 +661,7 @@ describe('походы в локальном мире', () => {
   it('один и тот же поход с одним сидом даёт один и тот же результат боя', async () => {
     const run = async () => {
       const w = makeWorld(2024);
-      const p = profile({ warriorPower: 4, army: { clubman: 7 } });
+      const p = profile({ army: { clubman: 7 } });
       const target = await nearest(w.world);
       const { pulse } = await raidWith(w, target, p);
       return pulse.reports.find((r) => r.kind === 'raid');
@@ -718,7 +754,7 @@ describe('походы в локальном мире', () => {
   waitsForPlayers('набег поднимает враждебность всего племени', async () => {
     const w = makeWorld(23);
     const world = w.world;
-    const p = profile({ warriorPower: 4, army: { clubman: 6 } });
+    const p = profile({ army: { clubman: 6 } });
     await world.sync(p);
     const info = await world.info();
     const chunk = await world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
@@ -754,7 +790,7 @@ describe('замки', () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
     // Отряд заведомо слабее гарнизона замка: пара дубинщиков против крепости.
-    const weak = profile({ warriorPower: 1, units: { warrior: 2 }, army: { clubman: 2 } });
+    const weak = profile({ units: { warrior: 2 }, army: { clubman: 2 } });
     const { pulse } = await raidWith(w, castle, weak);
 
     const raid = pulse.reports.find((r) => r.kind === 'raid');
@@ -771,7 +807,6 @@ describe('замки', () => {
     const w = makeWorld(11);
     const castle = nearestCastle(11);
     const strong = profile({
-      warriorPower: 40,
       units: { warrior: 40 },
       army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
     });
@@ -795,7 +830,6 @@ describe('замки', () => {
     // без кода, — и замки считаются отметкой мира, а не по золоту.
     const w = makeWorld(11);
     const strong = profile({
-      warriorPower: 40,
       units: { warrior: 40 },
       army: { legionary: 30, archer: 20, rider: 10, spearman: 20 },
     });
@@ -994,7 +1028,7 @@ describe('состав отряда и отчёт о бое', () => {
   it('поход несёт состав, и потери списываются теми же видами', async () => {
     const w = makeWorld(77);
     const army = { spearman: 6, archer: 4, clubman: 4 };
-    const p = profile({ warriorPower: 4, units: { warrior: 14, scout: 4 }, army, militia: 10 });
+    const p = profile({ units: { warrior: 14, scout: 4 }, army, militia: 10 });
     await w.world.sync(p);
     const target = await nearest(w.world);
 
@@ -1022,7 +1056,7 @@ describe('состав отряда и отчёт о бое', () => {
     const army = { spearman: 8, archer: 6 };
     const run = async (setup: ArmySetup | null) => {
       const w = makeWorld(4242);
-      const p = profile({ warriorPower: 4, units: { warrior: 14, scout: 0 }, army });
+      const p = profile({ units: { warrior: 14, scout: 0 }, army });
       await w.world.sync(p);
       const target = await nearest(w.world);
       const { pulse } = await raidWith(w, target, p, setup);
@@ -1101,7 +1135,7 @@ describe('снимок разведки несёт всё, что читает r
 
   async function snapshots(): Promise<Record<string, Intel>> {
     const out: Record<string, Intel> = {};
-    const p = profile({ intelKeen: KEEN, army: { clubman: 2 }, warriorPower: 1 });
+    const p = profile({ intelKeen: KEEN, army: { clubman: 2 } });
 
     // Разведчик походом.
     {
@@ -1638,7 +1672,7 @@ describe('фигуры на карте', () => {
 
   waitsForPlayers('погибшая фигура не теряется насовсем, а возвращается через положенное время', async () => {
     const w = makeWorld(11);
-    const p = profile({ warriorPower: 1, units: { warrior: 1 }, army: { clubman: 1 } });
+    const p = profile({ units: { warrior: 1 }, army: { clubman: 1 } });
     const castle = generateWorld(11).settlements.filter((s) => s.castle)[0];
     // Один дубинщик против замка — полководца там и оставят.
     const { pulse } = await raidWith(w, castle, p);
@@ -1655,7 +1689,7 @@ describe('фигуры на карте', () => {
 
   it('полководец берёт и возвращает гарнизон только вплотную к своей деревне', async () => {
     const w = makeWorld(11);
-    const p = profile({ warriorPower: 4, army: { clubman: 6, archer: 4 } });
+    const p = profile({ army: { clubman: 6, archer: 4 } });
     await w.world.sync(p);
 
     // Дома — можно, но не мгновенно: дружина идёт из казарм к полководцу.
@@ -1710,7 +1744,7 @@ describe('фигуры на карте', () => {
 
     // Число ушедших выводится из фигур и походов, как и раньше — из походов.
     syncAway(s, pulse.marches, pulse.figures);
-    expect(s.warriorsAway).toBe(16);
+    expect(s.away).toEqual({ clubman: 10, spearman: 6 });
     expect(defense(s)).toBeLessThan(before);
     // Дома остаётся ополчение: частокол, башня и сами жители.
     expect(defense(s)).toBeGreaterThan(0);
@@ -2044,7 +2078,7 @@ describe('отношения с поселениями', () => {
 
   waitsForPlayers('набег роняет отношение с самим двором сильнее, чем с соседями по племени', async () => {
     const w = makeWorld(23);
-    const p = profile({ warriorPower: 4, army: { clubman: 6 } });
+    const p = profile({ army: { clubman: 6 } });
     await w.world.sync(p);
     const info = await w.world.info();
     const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
@@ -2287,7 +2321,7 @@ describe('лазутчик в мире', () => {
 
   waitsForPlayers('бунт не двигает прошлое: разбитый гарнизон под бунтом не отстраивается', async () => {
     const SEED = 83;
-    const p = profile({ warriorPower: 4, army: { clubman: 8 } });
+    const p = profile({ army: { clubman: 8 } });
     const w = makeWorld(SEED);
     await w.world.sync(p);
     const target = await neighbour(w.world);
@@ -2415,7 +2449,7 @@ describe('отряд полководца', () => {
     for (const seed of [5, 7, 11, 42, 77, 101, 202]) {
       const w = makeWorld(seed);
       // Горстка дубинщиков против целого поселения — заведомый разгром.
-      const p = profile({ warriorPower: 1, army: { clubman: 2 } });
+      const p = profile({ army: { clubman: 2 } });
       await w.world.sync(p);
       const info = await w.world.info();
       const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
@@ -2465,7 +2499,7 @@ describe('перехват в поле', () => {
 
   const army = { legionary: 30, spearman: 20, archer: 15, rider: 10 };
   const strong = (): PlayerProfile =>
-    profile({ warriorPower: 30, army, units: { warrior: 40, scout: 4 } });
+    profile({ army, units: { warrior: 40, scout: 4 } });
 
   it('точка и время встречи известны до приказа, а не после', async () => {
     const w = makeWorld(101);
