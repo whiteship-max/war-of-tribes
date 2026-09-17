@@ -36,6 +36,7 @@ import { DAY_LENGTH, RESOURCE_IDS, SOLDIER_FOOD } from '@/game/constants';
 import { TAX_PER_POP } from '@/game/data/policy';
 import { SEASONS, SEASON_SECONDS } from '@/game/data/seasons';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
+import { FAITH_BY_ID } from '@/game/data/faiths';
 import { QUESTS } from '@/game/data/quests';
 import { DESERT_SHARE, WAGE_AMNESTY_DAYS, WAGE_HEAD, WAGE_MAN } from '@/game/data/upkeep';
 import { weightOf } from '@/game/battle/kinds';
@@ -218,9 +219,11 @@ export async function upkeepSection(): Promise<void> {
   console.log(`\nКазна без войска (общий автопилот 6 ч в тихом мире ${WORLD}, стартовые 320, уклад прихода обычный; «вера мира» — та, что называет мир):`);
   console.log('  налог и вера           |    1 ч |    2 ч |    3 ч |    4 ч |    5 ч |    6 ч');
   let base: Run | null = null;
+  let untouched: Run | null = null;
   for (const [name, tax, faith] of runs) {
     const r = await play(tax, faith, 6);
     if (tax === 'moderate' && !faith) base = r;
+    if (tax === 'moderate' && faith && FAITH_BY_ID[faith].tilt.goldPerPop === 0) untouched = r;
     console.log(`  ${name.padEnd(22)} | ${r.gold.map((g) => pad(g, 6)).join(' | ')}`);
   }
   const stages = base!.stages;
@@ -445,10 +448,24 @@ export async function upkeepSection(): Promise<void> {
   // --- Золото логов ---
   // Логово растёт от жителей города, поэтому его казна считается на каждом этапе заново — от
   // жителей этого этапа. Мерка — сколько дней умеренного налога стоит казна.
+  //
+  // Этапы — деревня без закята, а не вера мира замера (решение владельца, docs/upkeep.md, раздел 5):
+  // доля, выведенная из дней налога, не должна зависеть от того, какую веру мир назвал дому замера.
+  // Какая это вера, решает таблица вер (`goldPerPop` ноль — ни десятины, ни закята), а не имя.
+  const plain = untouched!.stages;
+  // Вывод долей. Обещание, которое держалось до роста логов: дозревшее логово у дома стоит
+  // новичку столько дней налога, сколько стоило при опоре × 2. Доля золота на мощь выводится
+  // так, чтобы у новичка это число осталось тем же; добро — в прежнем отношении к золоту.
+  const wasGold = LAIR_ANCHOR_HOME * LAIR_CAP * WAS_GOLD_PER_POWER;
+  const powerOf = (pop: number): number => lairPower(LAIR_ANCHOR_HOME, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, pop);
   console.log('\nЗолото логов: казна логова до тайника и обоза — во сколько дней умеренного налога она стоит на каждом этапе.');
   console.log('  Логово растёт от жителей города (lairs.lairPower), поэтому и мощь, и казна — на жителях этапа. Сколько поднимет отряд, меряет `npm run lair:report`.');
-  const tithe = stages.map((s) => taxIncomePerDay(withPolicy(s, 'moderate', null)));
-  console.log('  жителей на этапе: ' + stages.map((s, i) => `${STAGES[i][0]} ${s.pop}`).join(', '));
+  console.log(
+    `  Этапы — деревня без закята: прогон с умеренным налогом и верой, которая казну не трогает (${plain[0].faith.id}). ` +
+      `Вера мира ${WORLD} (${stages[0].faith.id}) дала бы новичку ${stages[0].pop} жителей вместо ${plain[0].pop} и вывод ${(wasGold / powerOf(stages[0].pop)).toFixed(3)} золота на мощь.`,
+  );
+  const tithe = plain.map((s) => taxIncomePerDay(withPolicy(s, 'moderate', null)));
+  console.log('  жителей на этапе: ' + plain.map((s, i) => `${STAGES[i][0]} ${s.pop}`).join(', '));
   console.log('  логово               | ' + STAGES.map(([name]) => `${name.padStart(8)}: мощь золото дн.`).join(' | '));
   const lairs: [string, number, number][] = [
     ['у дома, свежее', LAIR_ANCHOR_HOME, 0],
@@ -456,19 +473,14 @@ export async function upkeepSection(): Promise<void> {
     ['дальнее, у потолка', LAIR_ANCHOR_FAR, 1],
   ];
   for (const [name, anchor, ripe] of lairs) {
-    const cells = stages.map((st, i) => {
+    const cells = plain.map((st, i) => {
       const power = lairPower(anchor, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE * ripe, st.pop);
       const gold = lairGold(power);
       return `${pad(Math.round(power), 14)} ${pad(gold, 6)} ${(gold / tithe[i]).toFixed(1).padStart(4)}`;
     });
     console.log(`  ${name.padEnd(20)} | ${cells.join(' | ')}`);
   }
-  // Вывод долей. Обещание, которое держалось до роста логов: дозревшее логово у дома стоит
-  // новичку столько дней налога, сколько стоило при опоре × 2. Доля золота на мощь выводится
-  // так, чтобы у новичка это число осталось тем же; добро — в прежнем отношении к золоту.
-  const newbie = stages[0];
-  const wasGold = LAIR_ANCHOR_HOME * LAIR_CAP * WAS_GOLD_PER_POWER;
-  const nowPower = lairPower(LAIR_ANCHOR_HOME, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, newbie.pop);
+  const nowPower = powerOf(plain[0].pop);
   const goldShare = wasGold / nowPower;
   const lootShare = goldShare * (WAS_LOOT_PER_POWER / WAS_GOLD_PER_POWER);
   console.log(
@@ -479,7 +491,7 @@ export async function upkeepSection(): Promise<void> {
   console.log(
     `  В игре: LAIR_GOLD_PER_POWER ${LAIR_GOLD_PER_POWER}, LAIR_LOOT_PER_POWER ${LAIR_LOOT_PER_POWER}; ` +
       `дозревшее логово медианной опоры (${LAIR_ANCHOR_MID}) на этапах — ` +
-      stages
+      plain
         .map((st, i) => {
           const power = lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, st.pop);
           return `${STAGES[i][0]} добро ${lairLoot(power)}, золото ${lairGold(power)} (${(lairGold(power) / tithe[i]).toFixed(1)} дн.)`;
