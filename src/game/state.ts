@@ -160,6 +160,7 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     // Под стенами никого: осада приезжает из мира, а не заводится тут.
     siege: null,
     warriorsAway: 0,
+    away: {},
     scoutsAway: 0,
     defenseFormation: null,
     battlePlans: [],

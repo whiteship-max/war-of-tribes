@@ -27,7 +27,8 @@ import {
 import { BATTLE_MAN } from '@/game/battle/kinds';
 import { clampFormation, emptyFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
 import { SECTORS, type Sector } from '@/battle';
-import { troopTotal } from '@/game/battle/kinds';
+import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { TROOP_IDS } from '@/game/data/troops';
 import {
   applyExpedition,
   fallPool,
@@ -258,7 +259,9 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
  * раз.
  */
 export function syncAway(s: GameState, marches: MarchView[], figures: FigureView[] = []): boolean {
-  const warriors = awayMen(awayOf(marches, figures));
+  const who = awayOf(marches, figures);
+  const warriors = awayMen(who);
+  const troops = awayTroops(s.army, who);
   let scouts = 0;
   let heroSeen = false;
   for (const m of marches) {
@@ -271,10 +274,19 @@ export function syncAway(s: GameState, marches: MarchView[], figures: FigureView
   // Гибель разбирает `applyExpedition`, и вызывают его раньше этого места.
   const heroChanged = s.hero.marchId !== null && !heroSeen;
   if (heroChanged) s.hero.marchId = null;
-  if (s.warriorsAway === warriors && s.scoutsAway === scouts) return heroChanged;
-  setAway(s, warriors, scouts);
+  if (s.warriorsAway === warriors && s.scoutsAway === scouts && sameStack(s.away, troops)) return heroChanged;
+  setAway(s, troops, warriors, scouts);
   return true;
 }
+
+/**
+ * Кто не дома, по видам: всё войско минус гарнизон (`muster.homeOf`). Так отряд,
+ * ушедший числом без состава, снимается со слабых ровно тем правилом, каким его
+ * снимает гарнизон, и племя с миром не расходятся в том, кто стоит у частокола.
+ */
+export const awayTroops = (army: TroopStack, who: Away): TroopStack => troopsAfter(army, homeOf(army, who));
+
+const sameStack = (a: TroopStack, b: TroopStack): boolean => TROOP_IDS.every((id) => (a[id] ?? 0) === (b[id] ?? 0));
 
 /**
  * Осада из мира в племя. Мир её кладёт и снимает; племя при игроке своего срока

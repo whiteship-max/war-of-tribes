@@ -22,7 +22,7 @@
 //     5 миров: игра против подстановки по составу, случаи «всё дома», «увёл тяжёлых», «увёл лёгких»; вера
 //     мира и православная деревня (вера подставлена).
 import { LocalWorld } from '@/world/local/LocalWorld';
-import { militiaArchers, militiaMen, playerProfile, syncAway } from '@/world/bridge';
+import { awayTroops, militiaArchers, militiaMen, playerProfile, syncAway } from '@/world/bridge';
 import { awayMen, awayOf, homeOf, NOBODY_AWAY, type Away } from '@/world/muster';
 import { faithAt } from '@/world/faith';
 import { lairPower, lairRaid } from '@/world/lairs';
@@ -61,7 +61,7 @@ const fieldAway = (troops: TroopStack): Away =>
 function byComposition(g: GameState, home: TroopStack): GameState {
   const army = { ...g.army };
   for (const id of TROOP_IDS) army[id] = Math.max(0, home[id] ?? 0);
-  return { ...g, army, warriorsAway: 0 };
+  return { ...g, army, warriorsAway: 0, away: {} };
 }
 
 const withFaith = (g: GameState, id: FaithId | null): GameState => {
@@ -86,6 +86,7 @@ function displayPart(): void {
         const g = withFaith(townAt(level), faith);
         const away = fieldAway(pick(g.army, c.take));
         g.warriorsAway = awayMen(away);
+        g.away = awayTroops(g.army, away);
         const home = homeOf(g.army, away);
         const comp = byComposition(g, home);
         const pa = homeArmyPower(g);
@@ -102,6 +103,7 @@ function displayPart(): void {
   const taken = pick(g.army, ['legionary', 'rider']);
   const away = fieldAway(taken);
   g.warriorsAway = awayMen(away);
+  g.away = awayTroops(g.army, away);
   const home = homeOf(g.army, away);
   console.log('');
   console.log('Роспуск в казармах: «распускают только тех, кто дома» (sim/upkeep.dismissCheck) — посёлок 10-го уровня, латники и всадники в поле:');

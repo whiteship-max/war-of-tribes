@@ -15,6 +15,7 @@ import { WAGE_AMNESTY_DAYS } from '../data/upkeep';
 import {
   armySize,
   faithTilt,
+  homeTroops,
   foodShortfall,
   housingCapacity,
   payGraceDays,
@@ -25,7 +26,13 @@ import {
   wagesPerDay,
 } from '../derived';
 import { catchUp, tick } from './tick';
-import { dismissSoldiers, upkeepTick } from './upkeep';
+import { dismissCheck, dismissSoldiers, upkeepTick } from './upkeep';
+import { LocalWorld } from '@/world/local/LocalWorld';
+import type { WorldSave } from '@/world/local/state';
+import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
+import { awayOf } from '@/world/muster';
+import type { FigureView, HomeEffect, MarchView } from '@/world/types';
+import { troopTotal } from '../battle/kinds';
 
 const DT = 0.5;
 
@@ -325,7 +332,7 @@ describe('распустить', () => {
   it('люди — в посёлок, снаряжение — на склад, и только те, кто дома', () => {
     const s = createInitialState();
     s.army.spearman = 10;
-    s.warriorsAway = 8;
+    s.away = { spearman: 8 };
     const pop = s.pop;
     const spears = s.equipment.spear;
     expect(dismissSoldiers(s, 'spearman', 3), 'дома только двое').toMatch(/2/);
@@ -333,6 +340,65 @@ describe('распустить', () => {
     expect(s.army.spearman).toBe(8);
     expect(s.pop).toBe(pop + 2);
     expect(s.equipment.spear).toBe(spears + 2);
+  });
+
+  // Область правила: вид, которого дома нет, а дома при этом стоит больше бойцов,
+  // чем у племени этого вида, — то есть проверка числом его пропустила бы. Точки
+  // проверяются утверждениями до роспуска. Путь настоящий: мир, дружина, поле, пульс.
+  it('дружина в поле не распускается — по виду, а не числом, — и мир её потом не вычёркивает', async () => {
+    const START = 1_700_000_000_000;
+    let now = START;
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
+    const save = (world as unknown as { save: WorldSave }).save;
+    const s = createInitialState(7);
+    s.army.clubman = 60;
+    s.army.legionary = 10;
+    s.army.rider = 6;
+    const effects: HomeEffect[] = [];
+    const last: { marches: MarchView[]; figures: FigureView[] } = { marches: [], figures: [] };
+    const pulse = async (): Promise<void> => {
+      const p = await world.sync(playerProfile(s, awayOf(last.marches, last.figures)));
+      applyEffects(s, p.effects);
+      effects.push(...p.effects);
+      syncAway(s, p.marches, p.figures);
+      last.marches = p.marches;
+      last.figures = p.figures;
+    };
+    await pulse();
+    expect(await world.setGarrison({ legionary: 10, rider: 6 })).toBeNull();
+    now = save.figures.general.handover!.until;
+    await pulse();
+    expect(await world.moveFigure('general', { x: save.home.x + 4, y: save.home.y })).toBeNull();
+    now = save.figures.general.arriveAt;
+    await pulse();
+    await pulse();
+
+    const field = { ...save.figures.general.troops };
+    expect(field, 'точка внутри области: латники и всадники в дружине').toEqual({ legionary: 10, rider: 6 });
+    expect(save.figures.general.phase, 'точка внутри области: дружина в поле, а не дома').not.toBe('home');
+    expect(s.warriorsAway, 'мир числит дружину не дома').toBe(16);
+    const byNumber = armySize(s) - s.warriorsAway;
+    expect(byNumber, 'точка внутри области: числом дома больше, чем латников у племени').toBeGreaterThan(s.army.legionary);
+
+    expect(homeTroops(s), 'дома — ровно те, кого полководец не увёл').toEqual({ clubman: 60 });
+    expect(dismissCheck(s, 'legionary', 10).max, 'латники в поле: распустить некого').toBe(0);
+    expect(dismissCheck(s, 'rider', 6).max, 'всадники в поле: распустить некого').toBe(0);
+    expect(dismissSoldiers(s, 'legionary', 10), 'отказ до нажатия, а не вычеркивание потом').not.toBeNull();
+    expect(dismissCheck(s, 'clubman', 60).max, 'дома стоящих распускают всех').toBe(60);
+    // Распустить всё, что разрешено, — и мир на следующих слепках дружину не тронул.
+    for (const id of TROOP_IDS) {
+      const max = dismissCheck(s, id, s.army[id] ?? 0).max;
+      if (max > 0) expect(dismissSoldiers(s, id, max)).toBeNull();
+    }
+    expect(s.army.clubman).toBe(0);
+    const before = effects.length;
+    await pulse();
+    await pulse();
+    expect(troopTotal(save.figures.general.troops ?? {}), 'дружина в поле цела').toBe(16);
+    expect(
+      effects.slice(before).some((e) => /сверили с казармами/.test(e.text)),
+      'сверки с казармами не было',
+    ).toBe(false);
   });
 });
 

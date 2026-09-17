@@ -267,8 +267,9 @@ export function sendableUnits(s: GameState): { warrior: number; scout: number } 
   };
 }
 
-/** Сколько людей числится в походе. Считается миром и переставляется целиком. */
-export function setAway(s: GameState, warriors: number, scouts: number): void {
+/** Сколько людей и кто из войска числится не дома. Считается миром и переставляется целиком. */
+export function setAway(s: GameState, away: TroopStack, warriors: number, scouts: number): void {
+  s.away = { ...away };
   s.warriorsAway = Math.max(0, Math.round(warriors));
   s.scoutsAway = Math.max(0, Math.round(scouts));
 }

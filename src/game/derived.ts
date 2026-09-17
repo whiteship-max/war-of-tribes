@@ -82,7 +82,7 @@ import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DESERT_SHARE, UPKEEP_TEXT, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
-import { weightOf } from './battle/kinds';
+import { troopsAfter, weightOf, type TroopStack } from './battle/kinds';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
@@ -504,6 +504,12 @@ export const soldierPower = (s: GameState): number => {
  */
 export const homeArmy = (s: GameState): number =>
   Math.max(0, armySize(s) - Math.max(0, s.warriorsAway));
+
+/**
+ * Кто дома, по видам: всё войско минус те, кого мир числит не в обороне (`s.away`).
+ * Отрицательного не бывает: ушедшего, которого у племени уже нет, нет и дома.
+ */
+export const homeTroops = (s: GameState): TroopStack => troopsAfter(s.army, s.away);
 
 /** Мощь тех, кто дома: доля полной мощи по числу оставшихся. */
 export const homeArmyPower = (s: GameState): number => homeArmy(s) * soldierPower(s);

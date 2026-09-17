@@ -25,7 +25,7 @@ import { DAY_LENGTH } from '../constants';
 import { DESERT_SHARE, UPKEEP_TEXT } from '../data/upkeep';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
-  armySize,
+  homeTroops,
   housingCapacity,
   payGraceDays,
   taxIncomePerDay,
@@ -108,18 +108,19 @@ export interface DismissCheck {
 
 /**
  * Можно ли распустить бойцов. Распускают только тех, кто дома: дружина в поле и
- * отряды в пути в казармы не заходят. Какие именно виды стоят дома, знает мир, а
- * племя — сколько всего не дома (`warriorsAway`), поэтому проверка здесь — по
- * числу; лишнего распущенного из дружины в поле мир вычеркнет сверкой на пульсе.
+ * отряды в пути в казармы не заходят. Дома ли, спрашивается **по виду**
+ * (`derived.homeTroops`), а не числом: латник в поле дубинщиком дома не
+ * становится. Прежде проверка шла по числу, и при латниках в дружине в поле
+ * пускала распустить всех латников — а мир на следующем слепке вычёркивал их из
+ * дружины (`LocalWorld.muster`): люди уходили из поля без единого боя.
  */
 export function dismissCheck(s: GameState, troop: TroopId, count: number): DismissCheck {
   const have = Math.max(0, s.army[troop] ?? 0);
-  const home = Math.max(0, armySize(s) - Math.max(0, s.warriorsAway));
-  const max = Math.min(have, home);
+  const max = Math.min(have, homeTroops(s)[troop] ?? 0);
   const n = Math.max(0, Math.floor(count));
   let blocked: string | null = null;
   if (have === 0) blocked = 'Таких бойцов нет.';
-  else if (max === 0) blocked = 'Дома никого нет: войско в поле.';
+  else if (max === 0) blocked = 'Дома таких нет: все в поле или в пути.';
   else if (n < 1) blocked = 'Сколько распустить?';
   else if (n > max) blocked = `Дома только ${max}.`;
   return { max, saves: wageOf(s, troop) * Math.min(n, max), blocked };

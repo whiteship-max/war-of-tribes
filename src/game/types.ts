@@ -1,6 +1,7 @@
 // Базовые типы состояния игры. Симуляция не зависит от рендера и UI.
 import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { BattlePlanTemplate, Formation } from './battle/formation';
+import type { TroopStack } from './battle/kinds';
 import type { UnitKind } from '@/battle';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId } from '@/world/types';
@@ -626,6 +627,14 @@ export interface GameState {
    * derived.defense и world/muster). Число кладёт мир каждым пульсом.
    */
   warriorsAway: number;
+  /**
+   * Те же бойцы не в обороне — по видам: кого именно нет дома. Кладёт мир тем же
+   * пульсом и тем же правилом (`world/muster`); отряд, ушедший числом без состава,
+   * здесь уже снят со слабых, как его снимает гарнизон. Дома — всё войско минус
+   * это (`derived.homeTroops`). Нужен тем, кому мало «сколько»: распускают только
+   * тех, кто дома, и латник в поле дубинщиком дома не становится.
+   */
+  away: TroopStack;
   /** Свободные жители, ушедшие разведчиками: они не строят. */
   scoutsAway: number;
   /**
