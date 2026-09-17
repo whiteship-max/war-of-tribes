@@ -19,8 +19,10 @@
 // набегов» мерил отвергнутый вариант «набег = оборона × k» и ушёл вместе с потолком: его числа —
 // снимок на коммите aec1117 (docs/raid_ceiling.md). Раздел «Оборона по составу» (долг среднего бойца: где он решает
 // сегодня и что станет с правилом «мощь дома — сумма мощи тех, кто дома») — `raid-defense-mix.ts`. Раздел
-// «Лазарет» (сколько раненых бывает, ёмкость, срок, еда — docs/infirmary.md) — `raid-infirmary.ts`, последним:
-// он читает прогоны «Найма» и своих, кроме полководца, жгущего логова, не гоняет.
+// «Лазарет» (сколько раненых бывает, ёмкость, срок, еда — docs/infirmary.md) — `raid-infirmary.ts`, после «Найма»:
+// он читает прогоны «Найма» и своих, кроме полководца, жгущего логова, не гоняет. Раздел «Конюшня» (чем отличаются рода
+// войск и какое место займут два класса конницы — docs/stable.md) — `raid-stable.ts`, самым последним: он на время замера
+// подменяет конфиг боя и возвращает его на место (держит `raid-stable.test.ts`).
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
@@ -35,6 +37,7 @@ import { lairGrowthSection } from './raid-lair-growth';
 import { hiringSection } from './raid-hiring';
 import { defenseMixSection } from './raid-defense-mix';
 import { infirmarySection } from './raid-infirmary';
+import { stableSection } from './raid-stable';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1234, 2024, 4242, 7919];
@@ -209,3 +212,4 @@ await lairGrowthSection();
 const hired = await hiringSection();
 await defenseMixSection();
 await infirmarySection(hired);
+await stableSection();
