@@ -28,13 +28,43 @@ import {
   homeTroops,
   housingCapacity,
   payGraceDays,
+  soldierMouths,
   taxIncomePerDay,
   unpaidShare,
   wageOf,
   wagesDue,
 } from '../derived';
 import { addPop } from './population';
+import { loseWounded } from './infirmary';
+import { loseRecruits } from './army';
+import type { TroopStack } from '../battle/kinds';
 import { log } from './log';
+
+/**
+ * Голодом уходит доля `rate` каждого вида из `stack`, дробь копится в `carry` до целого человека.
+ * Один счёт на раненых и новобранцев: у строя свой — у него два повода.
+ */
+function starve(
+  stack: TroopStack,
+  carry: Partial<Record<TroopId, number>>,
+  rate: number,
+  lose: (id: TroopId, n: number) => number,
+  each: (id: TroopId) => void,
+): void {
+  for (const id of TROOP_IDS) {
+    const have = stack[id] ?? 0;
+    if (have <= 0) {
+      delete carry[id];
+      continue;
+    }
+    const due = (carry[id] ?? 0) + have * rate;
+    const whole = Math.min(have, Math.floor(due));
+    carry[id] = due - whole;
+    if (whole <= 0) continue;
+    const gone = lose(id, whole);
+    for (let i = 0; i < gone; i++) each(id);
+  }
+}
 
 /**
  * Шаг содержания. Зовётся после того, как налог лёг в казну (`marketTick`), с тем,
@@ -87,6 +117,22 @@ export function upkeepTick(s: GameState, dt: number, online: boolean, unfed: num
     const one = TROOP_BY_ID[id].one;
     for (let i = 0; i < home; i++) log(s, UPKEEP_TEXT.desertedHome(one, why), 'bad', `desert:${id}:home`);
     for (let i = home; i < whole; i++) log(s, UPKEEP_TEXT.deserted(one, why), 'bad', `desert:${id}`);
+  }
+  // Раненые и новобранцы на учениях едят тот же паёк и делят ту же нехватку (`derived.soldierMouths`):
+  // кто ест — тот и считается. При голоде они уходят той же долей, что строй, но **всегда голодом и
+  // совсем**: жалованья им не положено, и повод «неуплата», возвращающий ушедшего жителем, к ним
+  // не относится, в каком бы поводе ни шёл шаг для строя (docs/infirmary.md, решение 4).
+  if (unfed > 0) {
+    const hungry = (DESERT_SHARE * unfed * dt) / DAY_LENGTH;
+    const mouths = soldierMouths(s);
+    pay.hurt ??= {};
+    pay.drafts ??= {};
+    starve(mouths.wounded, pay.hurt, hungry, (id, n) => loseWounded(s, id, n), (id) => {
+      log(s, UPKEEP_TEXT.woundedStarved(TROOP_BY_ID[id].one), 'bad', `starve:wounded:${id}`);
+    });
+    starve(mouths.recruits, pay.drafts, hungry, (id, n) => loseRecruits(s, id, n), (id) => {
+      log(s, UPKEEP_TEXT.draftStarved(TROOP_BY_ID[id].one), 'bad', `starve:draft:${id}`);
+    });
   }
   // Ушедшие уносят свою долю долга: сократилась нехватка — сократился и долг.
   // Сошлись доход и жалованье — долга не остаётся, и следующий наём начнёт с

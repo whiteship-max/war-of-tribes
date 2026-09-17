@@ -1311,6 +1311,8 @@ export class LocalWorld implements WorldApi {
             id: `camp-wear-${at}`,
             lost: { warrior: gone },
             lostTroops: lost,
+            // Лагерь — дружина в поле: раненые лежат при полководце (docs/infirmary.md).
+            field: lost,
             resources: {},
             prestige: 0,
             morale: -3,
@@ -1585,6 +1587,8 @@ export class LocalWorld implements WorldApi {
       id: `${w.campId}-fell`,
       lost: men > 0 ? { warrior: men } : {},
       lostTroops: men > 0 ? routed : undefined,
+      // Гарнизон рассеян, а не ранен: лазарет его не кладёт (docs/infirmary.md, решение 7).
+      routed: true,
       prestige: 0,
       morale: -12,
       // Настоящего боя не было: город взяли голодом, и записывать это в
@@ -2914,6 +2918,8 @@ export class LocalWorld implements WorldApi {
       id: `fig-${id}-${at}`,
       lost: {},
       lostTroops: troopTotal(lost) > 0 ? lost : undefined,
+      // Дружина погибшего полководца рассеяна, а не ранена.
+      routed: true,
       resources: {},
       prestige: 0,
       morale: AGENT_DEATH_MORALE,
@@ -2961,6 +2967,8 @@ export class LocalWorld implements WorldApi {
       id: `fig-${id}-${at}`,
       lost: {},
       lostTroops: troopTotal(lost) > 0 ? lost : undefined,
+      // Дружина разбитого полководца рассеяна, а не ранена.
+      routed: true,
       resources: {},
       prestige: 0,
       morale: GENERAL_ROUT_MORALE,
@@ -3546,6 +3554,8 @@ export class LocalWorld implements WorldApi {
       id: `${reportId}-battle`,
       lost: lostMen > 0 ? { warrior: lostMen } : {},
       lostTroops,
+      // Удар из поля: раненые лежат при полководце, пока дружина не вернётся.
+      field: lostTroops,
       // Обоз идёт домой сам: полководец остаётся в поле, а добыча ему не нужна.
       // Уведённые идут тем же обозом — невольниками.
       resources: spoils ?? {},
@@ -3808,6 +3818,8 @@ export class LocalWorld implements WorldApi {
       id: `${reportId}-eff`,
       lost: lostMen > 0 ? { warrior: lostMen } : {},
       lostTroops,
+      // Перехват в поле: раненые лежат при полководце, пока дружина не вернётся.
+      field: lostTroops,
       resources: {},
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -5,
@@ -4694,6 +4706,8 @@ export class LocalWorld implements WorldApi {
       id: `${reportId}-eff`,
       lost: lostMen + townMen > 0 ? { warrior: lostMen + townMen } : {},
       lostTroops: allLost,
+      // С тыла била дружина из поля: её раненые лежат при полководце; гарнизон из ворот — дома.
+      field: lostTroops,
       resources: {},
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -4,

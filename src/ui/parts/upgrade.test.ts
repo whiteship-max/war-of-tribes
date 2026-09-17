@@ -25,6 +25,7 @@ import {
   feastInfo,
   forgeInfo,
   healShare,
+  infirmaryBeds,
   heroInfo,
   housingCapacity,
   jobMultiplier,
@@ -42,7 +43,7 @@ import {
   townHallBuildMult,
   workerCount,
 } from '@/game/derived';
-import { applyExpedition } from '@/game/sim/expedition';
+import { woundsOfBattle } from '@/game/sim/infirmary';
 import { tick } from '@/game/sim/tick';
 import { popGrowth } from '@/game/sim/population';
 import { surveyInfo } from '@/game/sim/survey';
@@ -158,6 +159,7 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   hero: { kind: 'count', read: (s) => heroInfo(s).men },
   loyalty: { kind: 'plusAfter', read: payGraceDays },
   heal: { kind: 'share', read: healShare },
+  beds: { kind: 'plusAfter', read: infirmaryBeds },
   warning: { kind: 'more', read: (s) => playerProfile(s).warning ?? 0 },
   survey: { kind: 'upto', read: (s) => Math.min(SURVEY_MAX, surveyInfo(s).level) },
   intel: { kind: 'grow', read: (s) => playerProfile(s).intelKeen ?? 1 },
@@ -377,18 +379,17 @@ describe('кнопка видит каждое число здания, раст
 });
 
 describe('лазарет', () => {
-  it('прибавка на кнопке — это раненые, вернувшиеся из настоящего похода; сверх потолка уровень ничего не даёт', () => {
-    /** Какая доля из тысячи павших вернулась в племя при лазарете этого уровня. */
+  it('прибавка на кнопке — это раненые из настоящего боя; каждый уровень что-то прибавляет', () => {
+    /**
+     * Какая доля из тысячи павших ранена при лазарете этого уровня — настоящей дверью раненых. Мест на
+     * тысячу не хватит: ранены и легшие, и не выжившие сверх мест.
+     */
     const healed = (level: number): number => {
       const s = createInitialState();
       place(s, 'infirmary', level);
-      s.army.clubman = 1000;
-      const pop = s.pop;
-      applyExpedition(s, {
-        warriorsLost: 1000, scoutsLost: 0, resources: {}, gold: 0, prestige: 0, morale: 0,
-        battle: 'lost', text: '', kind: 'bad',
-      });
-      return (s.pop - pop) / 1000;
+      const c = woundsOfBattle(s, { clubman: 1000 }, undefined, false);
+      expect(c.noBed, `${level}: точка внутри области — мест меньше, чем раненых`).toBeGreaterThan(0);
+      return (c.laid + c.noBed) / 1000;
     };
     let nothing = 0;
     for (let level = 1; level < maxLevelFor('infirmary'); level++) {
@@ -405,8 +406,8 @@ describe('лазарет', () => {
         expect(gain?.numbers, `${level}→${level + 1}`).toEqual([after, before]);
       }
     }
-    // Потолок настоящий: уровни, которые ничего не дают, есть, и кнопка их называет.
-    expect(nothing).toBeGreaterThan(0);
+    // Решение владельца (docs/infirmary.md, 9.5): доля доходит до потолка ровно на десятом, пустых уровней нет.
+    expect(nothing).toBe(0);
   });
 });
 

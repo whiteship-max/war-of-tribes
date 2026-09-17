@@ -169,6 +169,32 @@ export function recruitTick(s: GameState, dt: number): void {
 }
 
 /**
+ * Снять `n` новобранцев вида `troop` с учений — голодом, совсем (`sim/upkeep`): люди уходят, заплаченное
+ * за набор не возвращается. Первыми уходят последние заказы: первый в очереди ближе всего к строю.
+ * Возвращает, сколько снято.
+ */
+export function loseRecruits(s: GameState, troop: TroopId, n: number): number {
+  let left = Math.max(0, Math.floor(n));
+  let gone = 0;
+  for (let i = s.recruits.length - 1; i >= 0 && left > 0; i--) {
+    const o = s.recruits[i];
+    if (o.troop !== troop) continue;
+    const take = Math.min(left, Math.max(0, o.count - o.done));
+    if (take <= 0) continue;
+    o.count -= take;
+    o.people = Math.max(0, o.people - take);
+    left -= take;
+    gone += take;
+    if (o.count <= o.done) {
+      const rest = o.work;
+      s.recruits.splice(i, 1);
+      if (i === 0 && s.recruits[0]) s.recruits[0].work += rest;
+    }
+  }
+  return gone;
+}
+
+/**
  * Снимает n бойцов с довольствия — слабые гибнут первыми. Возвращает,
  * сколько удалось снять. Так мир применяет потери похода.
  */

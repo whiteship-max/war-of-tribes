@@ -25,6 +25,8 @@ import {
   buildingTitle,
   cavalryTrain,
   healShare,
+  infirmaryBeds,
+  woundedStacks,
   intelKeen,
   currentSite,
   defense,
@@ -74,6 +76,7 @@ import { FoodLeft, WinterForecast } from '../parts/Provisions';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
+import { troopTotal } from '@/game/battle/kinds';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
@@ -529,7 +532,13 @@ function GenericData({ b }: { b: Building }) {
   // Стрелки башни и итог обороны у частокола и башни — в разделе «Оборона»
   // (`parts/Walls`): там они стоят рядом с ополчением и дверью к расстановке.
   if (b.type === 'infirmary') {
-    stats.push(['ui-bandage', '🩹', 'Потерь вернётся ранеными', `${Math.round(healShare(s) * 100)}%`]);
+    // Числа — из тех же чтений, что кладут раненых (`sim/infirmary`): доля, места, кто лежит, кто при полководце.
+    const { lying, carried } = woundedStacks(s);
+    const soon = (s.wounded ?? []).reduce((m, g) => (g.until === null ? m : Math.min(m, g.until)), Infinity);
+    stats.push(['ui-bandage', '🩹', 'Павших ляжет ранеными', `${Math.round(healShare(s) * 100)}%`]);
+    stats.push(['ui-bandage', '🛏️', 'Мест занято', `${troopTotal(lying)} из ${infirmaryBeds(s)}`]);
+    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут в строй через', minSec(soon - s.time)]);
+    if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых при полководце', `${troopTotal(carried)}`]);
   }
   if (b.type === 'watch') {
     stats.push(['ui-spyglass', '🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);

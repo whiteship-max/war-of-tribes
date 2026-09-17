@@ -60,6 +60,9 @@ export const UPKEEP_TEXT = {
   deserted: (one: string, why: string): string => `Ушёл из войска ${one}: ${why}.`,
   /** Ушёл неуплатой, а в посёлке нашлась крыша: остался жителем. */
   desertedHome: (one: string, why: string): string => `Ушёл из войска ${one}: ${why}. Остался в посёлке жителем.`,
+  /** Раненый и новобранец уходят только голодом и совсем: жалованья им не положено (docs/infirmary.md). */
+  woundedStarved: (one: string): string => `Ушёл из лазарета раненый ${one}: нечем кормить.`,
+  draftStarved: (one: string): string => `Ушёл с учений новобранец, ${one}: нечем кормить.`,
   dismissed: (one: string): string => `Распущен по домам ${one}.`,
   amnestyLog: (wages: number, income: number): string =>
     `Войску теперь платят жалованье — ${Math.round(wages)} золота в день, казна даёт ${Math.round(income)}. ` +

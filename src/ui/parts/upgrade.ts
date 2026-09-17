@@ -37,6 +37,7 @@ import {
   feastInfo,
   forgeRate,
   healShare,
+  infirmaryBeds,
   heroMen,
   hiddenStash,
   housingCapacity,
@@ -179,8 +180,14 @@ const GAUGES: Gauge[] = [
     say: (b, a) => {
       const pa = Math.round(a * 100);
       const pb = Math.round(b * 100);
-      return pa === pb ? null : { text: `${pa}% потерь вернётся ранеными вместо ${pb}%`, numbers: [pa, pb] };
+      return pa === pb ? null : { text: `${pa}% павших ляжет ранеными вместо ${pb}%`, numbers: [pa, pb] };
     },
+  },
+  {
+    // Места лазарета: сколько раненых он держит разом, главное — сколько станет.
+    id: 'beds',
+    read: infirmaryBeds,
+    say: (b, a) => (a <= b ? null : { text: `+${a - b} ${plural(a - b, 'место', 'места', 'мест')} в лазарете (станет ${a})`, numbers: [a - b, a] }),
   },
   { id: 'warning', read: warningSeconds, say: more('с к предупреждению о набеге') },
   {

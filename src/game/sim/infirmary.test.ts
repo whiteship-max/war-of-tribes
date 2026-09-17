@@ -1,0 +1,260 @@
+// Лазарет и «кто ест — тот считается» (docs/infirmary.md, решения 1–8).
+//
+// Тесты-свойства: каждая точка сначала утверждает, что она внутри области правила — раненые есть и
+// мест им хватает (или не хватает, если меряется ёмкость), срок не прошёл (или прошёл), голод идёт и
+// терпение Статуи кончилось. Иначе тест проходил бы даром (CLAUDE.md, правило 11). Шаг — настоящий
+// (`tick`, `catchUp`, `applyExpedition`), а не формула рядом.
+import { describe, expect, it } from 'vitest';
+import type { GameState, TroopId } from '../types';
+import { createInitialState } from '../state';
+import { DAY_LENGTH, RESOURCE_IDS, WOUND_DAYS } from '../constants';
+import { QUESTS } from '../data/quests';
+import {
+  armySize,
+  bedsTaken,
+  foodConsumptionPerDay,
+  foodShortfall,
+  healShare,
+  infirmaryBeds,
+  mouthCount,
+  payGraceDays,
+  productionPerDay,
+  soldierFoodPerDay,
+  townFoodPerDay,
+} from '../derived';
+import { troopTotal, type TroopStack } from '../battle/kinds';
+import { applyExpedition, type ExpeditionOutcome } from './expedition';
+import { catchUp, tick } from './tick';
+import { woundsHome, woundsOfBattle } from './infirmary';
+import { fieldWoundedHome } from '@/world/bridge';
+import type { FigureView } from '@/world/types';
+
+const DT = 0.5;
+
+function town(level: number): GameState {
+  const s = createInitialState(4242);
+  s.tutorialDone = true;
+  s.nextEventAt = Infinity;
+  s.completedQuests = QUESTS.map((q) => q.id);
+  for (const r of RESOURCE_IDS) s.resources[r] = 5000;
+  // Казна полна: здесь меряется лазарет, а не неуплата.
+  s.gold = 1e9;
+  const inf = s.buildings.find((b) => b.type === 'infirmary')!;
+  inf.level = level;
+  return s;
+}
+
+const battle = (lost: TroopStack, over: Partial<ExpeditionOutcome> = {}): ExpeditionOutcome => ({
+  warriorsLost: troopTotal(lost),
+  troopsLost: lost,
+  scoutsLost: 0,
+  resources: {},
+  gold: 0,
+  prestige: 0,
+  morale: 0,
+  battle: 'won',
+  text: '',
+  kind: 'bad',
+  ...over,
+});
+
+const lying = (s: GameState, id?: TroopId): number =>
+  s.wounded.filter((g) => g.until !== null).reduce((n, g) => n + (id ? (g.troops[id] ?? 0) : troopTotal(g.troops)), 0);
+
+/**
+ * Живая игра на `seconds` секунд; амбар держим полным, если не сказано иначе. Учения стоят: работа
+ * заказа обнуляется перед каждым шагом — новобранцы остаются новобранцами, сколько бы ни прошло.
+ */
+function play(s: GameState, seconds: number, feed = true): void {
+  for (let t = 0; t < seconds; t += DT) {
+    for (const o of s.recruits) o.work = 0;
+    tick(s, DT);
+    if (feed) s.resources.food = Math.max(s.resources.food, 5000);
+  }
+}
+
+describe('раненый встаёт в строй тем же бойцом со снаряжением', () => {
+  it('после срока войско возвращает ровно легших, по видам; посёлок и снаряжение не меняются', () => {
+    const s = town(10);
+    s.army.spearman = 200;
+    s.army.archer = 100;
+    const pop = s.pop;
+    const born = s.stats.born;
+    const gear = { ...s.equipment };
+    const lost = { spearman: 40, archer: 20 };
+    applyExpedition(s, battle(lost));
+    const laidSpear = lying(s, 'spearman');
+    const laidArcher = lying(s, 'archer');
+    expect(laidSpear + laidArcher, 'точка внутри области: раненые легли').toBeGreaterThan(0);
+    expect(laidSpear + laidArcher, 'точка внутри области: мест хватило всем раненым').toBe(Math.round(60 * healShare(s)));
+    expect(laidSpear, 'ранены из павших этого вида, не больше').toBeLessThanOrEqual(40);
+    expect(laidArcher).toBeLessThanOrEqual(20);
+    expect(s.army.spearman).toBe(160);
+
+    play(s, WOUND_DAYS * DAY_LENGTH + DT);
+    expect(s.army.spearman, 'копейщики вернулись копейщиками').toBe(160 + laidSpear);
+    expect(s.army.archer, 'лучники — лучниками').toBe(80 + laidArcher);
+    expect(s.pop - (s.stats.born - born), 'раненый не становится жителем: посёлок вырос только приростом').toBe(pop);
+    expect(s.equipment, 'снаряжение не куётся второй раз и не пропадает').toEqual(gear);
+    expect(s.wounded).toEqual([]);
+  });
+
+  it('рассеянные не ранены: падение голодом и разгром полководца лазарет не кладёт', () => {
+    const s = town(10);
+    s.army.spearman = 100;
+    applyExpedition(s, battle({ spearman: 50 }, { routed: true }));
+    expect(healShare(s), 'точка внутри области: лазарет есть').toBeGreaterThan(0);
+    expect(s.wounded).toEqual([]);
+    expect(s.stats.died).toBe(50);
+  });
+});
+
+describe('места: сверх мест раненые не выживают', () => {
+  it('места общие на все бои и освобождаются только сроком', () => {
+    const s = town(1);
+    const beds = infirmaryBeds(s);
+    expect(beds, 'три места на уровень').toBe(3);
+    s.army.clubman = 1000;
+    const first = woundsOfBattle(s, { clubman: 100 }, undefined, false);
+    expect(first.laid + first.noBed, 'точка внутри области: раненых больше мест').toBeGreaterThan(beds);
+    expect(first.laid).toBe(beds);
+    expect(bedsTaken(s)).toBe(beds);
+
+    // Второй бой, пока первые лежат: мест нет, и все его раненые не выживают.
+    const second = woundsOfBattle(s, { clubman: 100 }, undefined, false);
+    expect(second.laid, 'занятые места не отдаются второй раз').toBe(0);
+    expect(second.noBed).toBe(first.laid + first.noBed);
+
+    play(s, WOUND_DAYS * DAY_LENGTH + DT);
+    expect(bedsTaken(s), 'срок прошёл — места свободны').toBe(0);
+    const third = woundsOfBattle(s, { clubman: 100 }, undefined, false);
+    expect(third.laid).toBe(beds);
+  });
+
+  it('не выжившие сверх мест записаны погибшими, легшие — нет', () => {
+    const s = town(2);
+    s.army.clubman = 500;
+    applyExpedition(s, battle({ clubman: 300 }));
+    const laid = lying(s);
+    expect(laid, 'точка внутри области: мест меньше, чем раненых').toBe(infirmaryBeds(s));
+    expect(Math.round(300 * healShare(s))).toBeGreaterThan(laid);
+    expect(s.stats.died).toBe(300 - laid);
+  });
+});
+
+describe('срок: два игровых дня с минуты, когда легли', () => {
+  it('за шаг до срока лежат, на сроке встают — и в игре, и офлайн-догоном', () => {
+    for (const offline of [false, true]) {
+      const s = town(10);
+      s.army.spearman = 100;
+      applyExpedition(s, battle({ spearman: 30 }));
+      const laid = lying(s);
+      expect(laid, 'точка внутри области: легли').toBeGreaterThan(0);
+      const step = (sec: number) => (offline ? catchUp(s, sec, DT) : play(s, sec));
+      step(WOUND_DAYS * DAY_LENGTH - 2 * DT);
+      expect(s.army.spearman, `${offline ? 'догон' : 'игра'}: до срока в строю нет`).toBe(70);
+      step(3 * DT);
+      expect(s.army.spearman, `${offline ? 'догон' : 'игра'}: на сроке встали`).toBe(70 + laid);
+    }
+  });
+
+  it('раненые полководца лежат при нём: ни мест, ни срока, пока дружина не вернулась', () => {
+    const s = town(10);
+    s.army.legionary = 100;
+    applyExpedition(s, battle({ legionary: 40 }, { field: { legionary: 40 } }));
+    const carried = s.wounded.filter((g) => g.until === null).reduce((n, g) => n + troopTotal(g.troops), 0);
+    expect(carried, 'точка внутри области: раненые при полководце').toBe(Math.round(40 * healShare(s)));
+    expect(bedsTaken(s), 'мест не занимают').toBe(0);
+
+    play(s, 10 * WOUND_DAYS * DAY_LENGTH);
+    expect(s.army.legionary, 'дружина в поле — срок не идёт, сколько бы ни прошло').toBe(60);
+
+    woundsHome(s);
+    expect(lying(s), 'вернулась — легли').toBe(carried);
+    play(s, WOUND_DAYS * DAY_LENGTH - 2 * DT);
+    expect(s.army.legionary, 'срок идёт с возвращения').toBe(60);
+    play(s, 3 * DT);
+    expect(s.army.legionary).toBe(60 + carried);
+  });
+
+  it('дружина «вернулась» — у ворот, или её в поле больше нет', () => {
+    const general = (over: Partial<FigureView>): FigureView[] =>
+      [{ id: 'general', atHome: false, gone: null, downUntil: 0, ...over } as FigureView];
+    expect(fieldWoundedHome(general({}), 1000)).toBe(false);
+    expect(fieldWoundedHome(general({ atHome: true }), 1000)).toBe(true);
+    expect(fieldWoundedHome(general({ gone: 'died' }), 1000)).toBe(true);
+    expect(fieldWoundedHome(general({ downUntil: 5000 }), 1000)).toBe(true);
+    expect(fieldWoundedHome([], 1000)).toBe(true);
+  });
+});
+
+describe('кто ест — тот считается: строй, новобранцы и раненые', () => {
+  /** Посёлок, где на пайке и строй, и новобранцы на учениях, и раненые. */
+  function mouths(): GameState {
+    const s = town(10);
+    s.army.spearman = 300;
+    s.recruits = [{ id: 1, troop: 'spearman', count: 300, done: 0, work: 0, people: 300 }];
+    s.wounded = [{ troops: { spearman: 300 }, until: s.time + 1e9 }];
+    return s;
+  }
+
+  it('расход и делитель голода читают один список ртов', () => {
+    const s = mouths();
+    expect(mouthCount(s), 'точка внутри области: едят все три').toBe(900);
+    expect(foodConsumptionPerDay(s) - townFoodPerDay(s)).toBeCloseTo(900 * soldierFoodPerDay(s), 6);
+
+    // Амбар пуст, нехватка — треть пайка всех ртов: доля некормленных — треть, а не больше.
+    s.resources.food = 0;
+    const short = foodConsumptionPerDay(s) - productionPerDay(s).food;
+    expect(short, 'точка внутри области: нехватка есть').toBeGreaterThan(0);
+    expect(short, 'точка внутри области: доля не упёрлась в потолок').toBeLessThan(900 * soldierFoodPerDay(s));
+    expect(foodShortfall(s).army * 900 * soldierFoodPerDay(s)).toBeCloseTo(short, 6);
+  });
+
+  it('при голоде уходит одна и та же доля строя, новобранцев и раненых', () => {
+    const s = mouths();
+    s.resources.food = 0;
+    s.gold = 1e9;
+    const unfed = foodShortfall(s).army;
+    expect(unfed, 'точка внутри области: голод').toBeGreaterThan(0);
+    expect(unfed, 'точка внутри области: доля ниже потолка').toBeLessThan(1);
+    // Терпение Статуи — сначала: до него не уходит никто.
+    play(s, payGraceDays(s) * DAY_LENGTH + DT, false);
+    expect(armySize(s), 'до конца терпения строй на месте').toBe(300);
+    play(s, 3 * DAY_LENGTH, false);
+    const army = 300 - armySize(s);
+    const recruits = 300 - s.recruits.reduce((n, o) => n + o.count - o.done, 0);
+    const wounded = 300 - troopTotal(s.wounded[0]?.troops ?? {});
+    expect(army, 'точка внутри области: строй уходит').toBeGreaterThan(10);
+    expect(recruits, 'новобранцы уходят той же долей').toBeGreaterThanOrEqual(army - 1);
+    expect(recruits).toBeLessThanOrEqual(army + 1);
+    expect(wounded, 'раненые — той же долей').toBeGreaterThanOrEqual(army - 1);
+    expect(wounded).toBeLessThanOrEqual(army + 1);
+  });
+
+  it('раненые и новобранцы уходят голодом и совсем, даже когда повод шага — неуплата', () => {
+    const s = mouths();
+    s.recruits[0].count = 100;
+    s.recruits[0].people = 100;
+    s.wounded[0].troops.spearman = 100;
+    s.resources.food = 0;
+    s.gold = 0;
+    s.tax = 'none';
+    s.pay.debt = 1;
+    s.pop = 10;
+    const pop = s.pop;
+    const born = s.stats.born;
+    // Неуплата сильнее голода — ушедшие из строя возвращаются жителями, если есть крыша.
+    play(s, payGraceDays(s) * DAY_LENGTH + 3 * DAY_LENGTH, false);
+    const armyGone = 300 - armySize(s);
+    const woundedGone = 100 - troopTotal(s.wounded[0]?.troops ?? {});
+    const recruitsGone = 100 - s.recruits.reduce((n, o) => n + o.count - o.done, 0);
+    expect(armyGone / 300, 'точка внутри области: строй ушёл неуплатой — большей долей, чем голодом').toBeGreaterThan(woundedGone / 100);
+    expect(woundedGone, 'точка внутри области: раненые ушли голодом').toBeGreaterThan(0);
+    expect(recruitsGone, 'точка внутри области: новобранцы ушли голодом').toBeGreaterThan(0);
+    // Кто из ушедших остался жителем, дверь пишет в летопись по виду (`desert:<вид>:home`).
+    const stayed = s.log.filter((e) => e.group?.startsWith('desert:') && e.group.endsWith(':home')).reduce((n, e) => n + (e.n ?? 1), 0);
+    expect(stayed, 'точка внутри области: из строя ушли жителями').toBeGreaterThan(0);
+    expect(s.pop - pop - (s.stats.born - born), 'жителями стали ровно ушедшие из строя, ни одного раненого и новобранца').toBe(stayed);
+  });
+});

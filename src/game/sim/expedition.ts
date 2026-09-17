@@ -10,7 +10,6 @@ import {
   buildingOfType,
   buildingTitle,
   handsCount,
-  healShare,
   homeArmy,
   idleCount,
   isOutsideWall,
@@ -23,6 +22,7 @@ import type { TroopStack } from '../battle/kinds';
 import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log } from './log';
+import { woundLine, woundsOfBattle } from './infirmary';
 import { recordDeath, recordDeed, recordRetire, reputeMorale, type Deed } from './agents';
 import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
@@ -40,6 +40,10 @@ export interface ExpeditionOutcome {
    * списывал бы дубинщиков, оставшихся дома.
    */
   troopsLost?: TroopStack;
+  /** Сколько из `troopsLost` пало при полководце в поле: их раненые лягут, когда дружина вернётся. */
+  field?: TroopStack;
+  /** Потери рассеяны, а не ранены: падение голодом, разгром полководца. Раненых нет. */
+  routed?: boolean;
   /** Плюс — привезли добычу, минус — унесли у нас. */
   resources: Partial<Record<ResourceId, number>>;
   /**
@@ -284,6 +288,7 @@ function takeFallenScouts(s: GameState, n: number): number {
  */
 export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Бойцы гибнут по составу отряда; если состава нет (старый поход) — слабые первыми.
+  const before = { ...s.army };
   let soldiersLost = 0;
   if (o.troopsLost) {
     for (const id of TROOP_IDS) {
@@ -295,14 +300,14 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
     }
   }
   if (soldiersLost === 0) soldiersLost = removeSoldiers(s, o.warriorsLost);
+  const lost: TroopStack = {};
+  for (const id of TROOP_IDS) if ((before[id] ?? 0) > (s.army[id] ?? 0)) lost[id] = (before[id] ?? 0) - (s.army[id] ?? 0);
   const fallen = takeFallenScouts(s, o.scoutsLost);
 
-  // Лазарет: часть тех, кого считали убитыми, отлежится и вернётся в племя.
-  // Именно в племя, а не в строй: боец потерян, снаряжение потрачено, человек
-  // жив. Доля упирается в INFIRMARY_HEAL_CAP — война не должна дешеветь до нуля.
-  const wounded = Math.floor((soldiersLost + fallen) * healShare(s));
-  if (wounded > 0) addPop(s, wounded);
-  s.stats.died += Math.max(0, soldiersLost + fallen - wounded);
+  // Лазарет: доля павших ранена и встанет в строй тем же бойцом (`sim/infirmary`). Разведчики —
+  // не бойцы строя, и рассеянные не ранены: они погибшими и записываются.
+  const care = woundsOfBattle(s, lost, o.field, o.routed ?? false);
+  s.stats.died += Math.max(0, soldiersLost + fallen - care.laid - care.carried);
   recordTroopsLost(s, soldiersLost);
 
   const cap = storageCap(s);
@@ -390,5 +395,5 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (armsText) log(s, `Из логова принесли оружие: ${armsText}.`, 'good');
   if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen} чел.`, 'bad');
-  if (wounded > 0) log(s, `В лазарете выходили раненых: ${wounded} чел. вернулись в племя.`, 'good');
+  if (care.laid + care.carried + care.noBed > 0) log(s, woundLine(care), care.noBed > 0 ? 'bad' : 'info');
 }

@@ -38,6 +38,7 @@ import {
 import { onslaughtOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
 import { readyEngine } from '@/game/sim/tower';
 import { syncFaith } from '@/game/sim/faith';
+import { woundsHome } from '@/game/sim/infirmary';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
@@ -310,12 +311,25 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
   return true;
 }
 
+/**
+ * Пора ли раненым, лежащим при полководце, ложиться в лазарет (docs/infirmary.md, решение 6): дружина
+ * стоит у своих ворот — или её в поле больше нет (полководец погиб, разбит, места нет), и везти их
+ * дальше некому. Срок у них идёт с этой минуты.
+ */
+export function fieldWoundedHome(figures: readonly FigureView[], now: number): boolean {
+  const g = figures.find((f) => f.id === 'general');
+  return !g || g.gone !== null || g.downUntil > now || g.atHome;
+}
+
 /** Перевод мирового последствия в понятный племени итог. */
 export function toOutcome(e: HomeEffect): ExpeditionOutcome {
   return {
     warriorsLost: e.lost.warrior ?? 0,
     // Бой знает, кто именно погиб: списывать надо тех же, а не «слабых первыми».
     troopsLost: e.lostTroops,
+    // Где пали и ранены ли: бой в поле кладёт раненых при полководце, рассеянные не ранены.
+    field: e.field,
+    routed: e.routed ?? false,
     scoutsLost: e.lost.scout ?? 0,
     resources: e.resources,
     pop: e.pop ?? 0,
@@ -402,6 +416,8 @@ export async function tribePulse(
       applyEffects(s, [e]);
       hooks.after?.(e, s);
     }
+    // Раненые при полководце ложатся в лазарет, когда дружина вернулась к воротам.
+    if ((s.wounded ?? []).some((g) => g.until === null) && fieldWoundedHome(pulse.figures, pulse.now)) woundsHome(s);
     syncAway(s, pulse.marches, pulse.figures);
     syncSiege(s, pulse.siege, pulse.now);
     // Вера земли под замком и чужая вера вокруг. Первый ответ мира ставит веру новой партии — до

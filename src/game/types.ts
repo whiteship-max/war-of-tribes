@@ -466,6 +466,26 @@ export interface PayState {
   from: number;
   /** Дробный остаток ухода по видам: равная доля каждого вида копится до целого бойца. */
   gone: Partial<Record<TroopId, number>>;
+  /**
+   * Тот же остаток у раненых и у новобранцев на учениях: они едят солдатский паёк и при голоде
+   * уходят той же дверью (`sim/upkeep`). Необязательные — партия, записанная до лазарета,
+   * приезжает без них, и остаток начинается с нуля.
+   */
+  hurt?: Partial<Record<TroopId, number>>;
+  drafts?: Partial<Record<TroopId, number>>;
+}
+
+/**
+ * Раненые одного боя (docs/infirmary.md). Встают в строй того же вида со снаряжением: боец,
+ * его ковка и учения не потеряны. Пишет их одна дверь — `sim/infirmary.ts`.
+ */
+export interface WoundGroup {
+  troops: Partial<Record<TroopId, number>>;
+  /**
+   * Игровая секунда, когда встанут в строй. null — лежат при полководце в поле: срок и место в
+   * лазарете у них начинаются, когда дружина вернулась к своим воротам.
+   */
+  until: number | null;
 }
 
 export interface GameState {
@@ -557,6 +577,12 @@ export interface GameState {
   unrest: number;
   /** Содержание войска: долг жалованья, терпение и дробный остаток ухода (`sim/upkeep`). */
   pay: PayState;
+  /**
+   * Раненые: в лазарете и при полководце в поле (`sim/infirmary`). В войске они не числятся —
+   * не бьются, не стоят в обороне и жалованья не получают, — но едят солдатский паёк. Поле
+   * необязательно для старой партии: `deserialize` кладёт пустой список, версия не растёт.
+   */
+  wounded: WoundGroup[];
   buildings: Building[];
   completedQuests: string[];
   activeEvent: ActiveEvent | null;

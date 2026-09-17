@@ -546,12 +546,56 @@ export function statOf(s: GameState, type: BuildingTypeId, key: keyof BuildingSt
 export const towerSeats = (s: GameState): number => Math.floor(statOf(s, 'tower', 'seats') + 1e-9);
 
 /**
- * Какую долю потерь боя лазарет возвращает в племя ранеными, 0..`INFIRMARY_HEAL_CAP`.
+ * Какая доля павших в бою ранена и ляжет в лазарет, 0..`INFIRMARY_HEAL_CAP`.
  * Потолок здесь не украшение: без него война на высоком уровне перестала бы
  * стоить людей, а победа с непомерными потерями — быть непомерной.
  */
 export const healShare = (s: GameState): number =>
   Math.min(INFIRMARY_HEAL_CAP, statOf(s, 'infirmary', 'heal') / 100);
+
+/** Сколько раненых лазарет держит разом: поле здания целым вниз. */
+export const infirmaryBeds = (s: GameState): number => Math.floor(statOf(s, 'infirmary', 'beds') + 1e-9);
+
+/** Раненые по видам: в лазарете (`lying`) и при полководце в поле (`carried`). */
+export function woundedStacks(s: GameState): { lying: TroopStack; carried: TroopStack } {
+  const lying: TroopStack = {};
+  const carried: TroopStack = {};
+  for (const g of s.wounded ?? []) {
+    const to = g.until === null ? carried : lying;
+    for (const [id, n] of Object.entries(g.troops) as [TroopId, number][]) to[id] = (to[id] ?? 0) + n;
+  }
+  return { lying, carried };
+}
+
+/** Сколько мест лазарета занято. Раненые при полководце мест не занимают, пока дружина в поле. */
+export const bedsTaken = (s: GameState): number => troopTotal(woundedStacks(s).lying);
+
+/**
+ * Кто ест солдатский паёк, по видам: строй, новобранцы на учениях и раненые — в лазарете и при
+ * полководце. **Одна дверь на расход и на голод**: сколько войско съедает (`foodConsumptionPerDay`)
+ * и между кем делится нехватка (`foodShortfall`), считается по этому списку. Пока расход и голод
+ * считали каждый своих, новобранцы ели, но в делитель голода не входили, и за их хлеб уходили
+ * готовые бойцы (docs/infirmary.md, раздел 5).
+ */
+export function soldierMouths(s: GameState): { army: TroopStack; recruits: TroopStack; wounded: TroopStack } {
+  const army: TroopStack = {};
+  for (const id of TROOP_IDS) if ((s.army?.[id] ?? 0) > 0) army[id] = s.army[id];
+  const recruits: TroopStack = {};
+  for (const o of s.recruits ?? []) {
+    const left = Math.max(0, o.count - o.done);
+    if (left > 0) recruits[o.troop] = (recruits[o.troop] ?? 0) + left;
+  }
+  const { lying, carried } = woundedStacks(s);
+  const wounded: TroopStack = { ...lying };
+  for (const [id, n] of Object.entries(carried) as [TroopId, number][]) wounded[id] = (wounded[id] ?? 0) + n;
+  return { army, recruits, wounded };
+}
+
+/** Сколько ртов на солдатском пайке — сумма `soldierMouths`. */
+export function mouthCount(s: GameState): number {
+  const m = soldierMouths(s);
+  return troopTotal(m.army) + troopTotal(m.recruits) + troopTotal(m.wounded);
+}
 
 /**
  * Во сколько раз медленнее стареют разведданные. Единица — как без дозора.
@@ -733,7 +777,9 @@ export function foodShortfall(s: GameState, mods: SeasonModifiers = seasonMods(s
   if (s.resources.food > 0.5) return { army: 0, town: false };
   const short = foodConsumptionPerDay(s, mods) - productionPerDay(s, mods).food;
   if (short <= 0) return { army: 0, town: false };
-  const army = armySize(s) * soldierFoodPerDay(s, mods);
+  // Нехватка делится между всеми, кто ест солдатский паёк (`soldierMouths`), а не между строем:
+  // кто ест — тот и считается.
+  const army = mouthCount(s) * soldierFoodPerDay(s, mods);
   return { army: army > 0 ? Math.min(1, short / army) : 0, town: short > army };
 }
 
@@ -784,7 +830,9 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
     unpaid,
     unfed,
     why,
-    leavingPerDay: why && lateDays >= graceDays ? DESERT_SHARE * share * armySize(s) : 0,
+    // Строй уходит по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`).
+    leavingPerDay:
+      why && lateDays >= graceDays ? DESERT_SHARE * (share * armySize(s) + unfed * (mouthCount(s) - armySize(s))) : 0,
   };
 }
 
@@ -1028,10 +1076,9 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
  * иначе армия обходилась бы племени только людьми. Рацион множит весь расход.
  */
 export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
-  // Новобранцы на учениях уже не жители, но кормятся так же, как бойцы.
-  return (
-    townFoodPerDay(s, mods) + (armySize(s) + recruitsQueued(s)) * soldierFoodPerDay(s, mods)
-  );
+  // Новобранцы на учениях и раненые уже не жители, но кормятся так же, как бойцы: список ртов один
+  // на расход и на голод (`soldierMouths`).
+  return townFoodPerDay(s, mods) + mouthCount(s) * soldierFoodPerDay(s, mods);
 }
 
 /**

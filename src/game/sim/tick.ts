@@ -39,6 +39,7 @@ import { marketTick } from './market';
 import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { settleHires } from './hire';
+import { settleWounds } from './infirmary';
 import { roll, rollInt } from './roll';
 import { log, trimLog } from './log';
 import { recordProduced, refreshCard } from '@/profile/stats';
@@ -72,6 +73,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   // Места агентов: нанятый пришёл — встаёт на место; безымянным — имя, как только
   // мир назвал веру. Возраст не тикает: он выводится из этих же часов при чтении.
   settleHires(s);
+  // Раненые, чей срок прошёл, встают в строй. Не тик: отметка в группе и одна сверка с часами.
+  settleWounds(s);
 
   // Сезон читается один раз за тик и дальше передаётся вниз: все множители из одной таблицы.
   const mods = seasonMods(s);

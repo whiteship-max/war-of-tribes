@@ -237,6 +237,21 @@ describe('логова в мире', () => {
     expect(card?.ruinLeft).toBeGreaterThan(0);
   }, 120_000);
 
+  it('удар по логову — бой в поле: павшие дружины отданы как павшие при полководце', async () => {
+    // Лазарет кладёт раненых полководца при нём, а не в лазарет, пока дружина не вернулась
+    // (docs/infirmary.md, решение 6). Узнаёт он это из последствия, а не по имени боя.
+    const w = makeWorld(11);
+    const p = profile();
+    await bringGeneral(w, p);
+    const res = await w.world.attack({ setup: null });
+    expect(res.error).toBeNull();
+    const e = saveOf(w.world).effects.find((x) => x.id === `${res.reportId}-battle`);
+    const lost = Object.values(e?.lostTroops ?? {}).reduce((n, v) => n + (v ?? 0), 0);
+    expect(lost, 'точка внутри области: удар стоил людей').toBeGreaterThan(0);
+    expect(e?.field).toEqual(e?.lostTroops);
+    expect(e?.routed).toBeUndefined();
+  }, 120_000);
+
   it('пепелище исчезает ровно в срок, и клетка становится пустой', async () => {
     const w = makeWorld(11);
     const p = profile();

@@ -31,6 +31,7 @@ import {
   feastInfo,
   feastMorale,
   healShare,
+  infirmaryBeds,
   heroInfo,
   heroMen,
   heroReady,
@@ -117,7 +118,7 @@ describe('службы посёлка', () => {
     return s;
   };
 
-  it('лазарет возвращает часть потерь ранеными, но война не дешевеет до нуля', () => {
+  it('лазарет кладёт часть павших ранеными, но война не дешевеет до нуля', () => {
     for (const level of [1, 5, 10]) {
       const s = withLevel('infirmary', level);
       // Потолок обязателен: без него победа с непомерными потерями перестала бы
@@ -141,12 +142,13 @@ describe('службы посёлка', () => {
       text: 'Отряд разбит.',
       kind: 'bad',
     });
-    const healed = s.pop - pop;
-    // Раненые возвращаются в племя, а не в строй: боец потерян, человек жив.
+    // Раненые лежат в лазарете и встанут бойцами (`sim/infirmary`), а не жителями: посёлок не растёт.
+    expect(s.pop).toBe(pop);
     expect(s.army.clubman).toBe(0);
-    expect(healed).toBe(Math.floor(100 * healShare(s)));
-    expect(healed).toBeGreaterThan(0);
-    expect(s.stats.died).toBe(100 - healed);
+    const laid = s.wounded.reduce((n, g) => n + (g.troops.clubman ?? 0), 0);
+    expect(laid).toBe(Math.min(Math.round(100 * healShare(s)), infirmaryBeds(s)));
+    expect(laid).toBeGreaterThan(0);
+    expect(s.stats.died).toBe(100 - laid);
   });
 
   it('без лазарета из боя не возвращается никто', () => {

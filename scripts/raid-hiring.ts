@@ -56,12 +56,14 @@ import { ORDER_UNREST, ORDER_WARN, RESOURCE_IDS } from '@/game/constants';
 import {
   armySize,
   bondedIdle,
+  bedsTaken,
   bondedTotal,
   buildingOfType,
   buildingSlots,
   defense,
   handsCount,
   healShare,
+  infirmaryBeds,
   orderBreakdown,
   payGraceDays,
   productionPerDay,
@@ -71,7 +73,9 @@ import {
   upkeepInfo,
   wageOf,
   wagesPerDay,
+  woundedStacks,
 } from '@/game/derived';
+import { shareOf } from '@/game/sim/infirmary';
 import {
   FORGE_AHEAD,
   GAME,
@@ -129,6 +133,16 @@ interface HireLedger extends Ledger {
   /** Решений, на которых войску не хватало еды, и из них — где повод ухода назван неуплатой. */
   unfed: number;
   unfedAsPay: number;
+  /** Лазарет по решениям: наибольшее число занятых мест и решений с полным лазаретом. */
+  bedsPeak: number;
+  bedsFull: number;
+  /** Встало из лазарета в строй, ушло голодом из лазарета и с учений — по строкам летописи. */
+  risen: number;
+  starvedWounded: number;
+  starvedDrafts: number;
+  /** Раненые полководца, привезённые дружиной: легли и не хватило мест. */
+  broughtLaid: number;
+  broughtLost: number;
 }
 
 /**
@@ -148,8 +162,10 @@ export interface Fight {
   /** Уровень лазарета и его доля в эту минуту. */
   level: number;
   heal: number;
-  /** Вернулось жителями по нынешнему правилу (`applyExpedition`): потери минус записанные погибшими. */
-  back: number;
+  /** Ранены: легли в лазарет, остались при полководце, не хватило мест (`sim/infirmary`). */
+  laid: number;
+  carried: number;
+  noBed: number;
   /** Выработка еды посёлка в эту минуту, в игровой день. */
   food: number;
   /** Паёк бойца в эту минуту (`soldierFoodPerDay`) и среднее жалованье павшего (`wageOf` по составу павших), в игровой день. */
@@ -216,12 +232,25 @@ export async function live(o: Opts): Promise<Out> {
     growth: [] as number[],
     unfed: 0,
     unfedAsPay: 0,
+    bedsPeak: 0,
+    bedsFull: 0,
+    risen: 0,
+    starvedWounded: 0,
+    starvedDrafts: 0,
+    broughtLaid: 0,
+    broughtLost: 0,
   };
+  // Строки летописи, уже сосчитанные: склеенные растут счётчиком `n`.
+  const seen = new WeakMap<object, number>();
   // Кто вышел в бой: у стены — войско дома перед пульсом, у вылазки — кого выпустили.
   let homeBefore = 0;
   let sortieWent = 0;
-  let diedBefore = 0;
+  let wounds = { lying: 0, carried: 0 };
   let open: Fight | null = null;
+  const woundsNow = (s: GameState) => {
+    const w = woundedStacks(s);
+    return { lying: troopTotal(w.lying), carried: troopTotal(w.carried) };
+  };
   const flown = await pilot({
     g,
     seconds: o.hours * 3600,
@@ -246,6 +275,25 @@ export async function live(o: Opts): Promise<Out> {
           x.unfed++;
           if (u.why === 'pay') x.unfedAsPay++;
         }
+        const taken = bedsTaken(s);
+        x.bedsPeak = Math.max(x.bedsPeak, taken);
+        if (taken > 0 && taken >= infirmaryBeds(s)) x.bedsFull++;
+        for (const e of s.log) {
+          const n = e.n ?? 1;
+          const was = seen.get(e) ?? 0;
+          if (n <= was) continue;
+          seen.set(e, n);
+          if (e.group?.startsWith('wound:back:')) x.risen += n - was;
+          else if (e.group?.startsWith('starve:wounded:')) x.starvedWounded += n - was;
+          else if (e.group?.startsWith('starve:draft:')) x.starvedDrafts += n - was;
+          else if (was === 0) {
+            const m = /^Дружина привезла раненых: (\d+) легли[^,]*(?:, (\d+) не хватило)?/.exec(e.text);
+            if (m) {
+              x.broughtLaid += Number(m[1]);
+              x.broughtLost += Number(m[2] ?? 0);
+            }
+          }
+        }
       },
       hourly: o.hourly,
       profile: (p, s, away) => {
@@ -257,7 +305,18 @@ export async function live(o: Opts): Promise<Out> {
       },
       landed: (e, s) => {
         if (open === null) return;
-        open.back = Math.max(0, open.lost + (e.lost.scout ?? 0) - (s.stats.died - diedBefore));
+        const after = woundsNow(s);
+        open.laid = after.lying - wounds.lying;
+        open.carried = after.carried - wounds.carried;
+        // Ранены из павших дома той же раскладкой, что у игры: сколько из них не легло — «не хватило мест».
+        if (!e.routed) {
+          const home: TroopStack = {};
+          for (const [id, n] of Object.entries(open.lostBy) as [TroopId, number][]) {
+            const k = n - (e.field?.[id] ?? 0);
+            if (k > 0) home[id] = k;
+          }
+          open.noBed = Math.max(0, troopTotal(shareOf(home, troopTotal(home) * open.heal)) - open.laid);
+        }
         x.fights.push(open);
         open = null;
       },
@@ -268,8 +327,8 @@ export async function live(o: Opts): Promise<Out> {
           const kind = fightKind(e);
           const went = kind === 'стена: удержали' || kind === 'стена: прорыв' ? homeBefore : kind === 'вылазка' ? sortieWent : kind === 'удар полководца' ? (o.strikeWent?.() ?? 0) : 0;
           const inf = buildingOfType(g, 'infirmary');
-          diedBefore = g.stats.died;
-          open = { at: now, kind, lost, lostBy: { ...(e.lostTroops ?? {}) }, went, army: armySize(g), level: inf?.level ?? 0, heal: healShare(g), back: 0, food: productionPerDay(g).food, eat: soldierFoodPerDay(g), wage: sum((Object.entries(e.lostTroops ?? {}) as [TroopId, number][]).map(([id, n]) => n * wageOf(g, id))) / lost };
+          wounds = woundsNow(g);
+          open = { at: now, kind, lost, lostBy: { ...(e.lostTroops ?? {}) }, went, army: armySize(g), level: inf?.level ?? 0, heal: healShare(g), laid: 0, carried: 0, noBed: 0, food: productionPerDay(g).food, eat: soldierFoodPerDay(g), wage: sum((Object.entries(e.lostTroops ?? {}) as [TroopId, number][]).map(([id, n]) => n * wageOf(g, id))) / lost };
         }
         if (e.id.endsWith('-defense') && e.battle === 'won') {
           const lost = e.lostTroops ?? {};
