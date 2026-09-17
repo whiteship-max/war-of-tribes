@@ -293,6 +293,52 @@ describe('превосходство условно', () => {
 const fullLength = (r: BattleResult): number => r.phases.find((p) => p.phase === 'ranged')!.to + PHASES.filter((p) => p !== 'ranged').reduce((n, p) => n + PHASE_TICKS[p], 0);
 const endedEarly = (r: BattleResult): boolean => r.ticks < fullLength(r);
 
+describe('манёвр — только за своей линией', () => {
+  // Армия без линии в обходе была недосягаема: по ждущей коннице не стреляют и с ней не сходятся, и вся
+  // конница, которая в лоб проигрывала вдвое сильнейшему, «обходом» его била (docs/stable.md, раздел 3).
+  const CAV = 600;
+  const foe = (k: number): ArmySetup => quickSetup(Object.fromEntries(Object.entries(BALANCED_ARMY).map(([kind, n]) => [kind, Math.round((n ?? 0) * k)])));
+  const lineless = (cavalry: ArmySetup['orders']['cavalry']): ArmySetup =>
+    quickSetup({ cavalry: CAV }, { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry } });
+  const hasLineIn = (setup: ArmySetup): boolean => SECTORS.some((id) => setup.sectors[id].spear + setup.sectors[id].infantry + setup.sectors[id].archer > 0);
+
+  it('армия без линии с манёвром не выигрывает того, что проигрывает в лоб', () => {
+    const charge = lineless('charge');
+    // Граница: у армии нет ни одного пешего и лучника, и конница стоит на полосах, а не в резерве.
+    expect(hasLineIn(charge)).toBe(false);
+    expect(FRONT.reduce((n, id) => n + charge.sectors[id].cavalry, 0)).toBe(CAV);
+    for (const order of ['flank', 'attack-archers', 'pursue'] as const) {
+      const maneuver = lineless(order);
+      expect(hasLineIn(maneuver)).toBe(false);
+      for (let seed = 1; seed <= 12; seed += 1) {
+        const inFront = simulateBattle({ seed, attacker: charge, defender: foe(2) });
+        const around = simulateBattle({ seed, attacker: maneuver, defender: foe(2) });
+        // Граница: в лоб эта армия бой проигрывает — иначе «не выиграл больше» проверялось бы даром.
+        expect(inFront.winner, `${order}, сид ${seed}: в лоб`).toBe('defender');
+        expect(around.winner, `${order}, сид ${seed}: без линии манёвра нет`).toBe('defender');
+      }
+    }
+  });
+
+  it('за своей линией манёвр остаётся манёвром', () => {
+    // План натиска: охвата у пехоты нет, и заход во фланг может сделать только конница.
+    const screened = (cavalry: ArmySetup['orders']['cavalry']): ArmySetup =>
+      setupOf({ A: { infantry: 150, cavalry: 100 }, B: { infantry: 200 }, C: { infantry: 150, cavalry: 100 } }, { plan: 'assault', orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry } });
+    // Граница: конница стоит на полосах вместе с пехотой — её прикрывают.
+    expect(hasLineIn(screened('flank'))).toBe(true);
+    const turned = (cavalry: ArmySetup['orders']['cavalry']): number => {
+      let n = 0;
+      for (let seed = 1; seed <= 6; seed += 1) {
+        const r = simulateBattle({ seed, attacker: screened(cavalry), defender: foe(1) });
+        n += r.log.filter((e) => e.id === 'flank-turned' && e.by === 'attacker' && e.phase === 'flanking').length;
+      }
+      return n;
+    };
+    expect(turned('charge'), 'в лоб во фланг в фазе обходов не заходят').toBe(0);
+    expect(turned('flank'), 'за линией обход заходит во фланг').toBeGreaterThan(0);
+  });
+});
+
 describe('мораль по секторам', () => {
   it('бой обычно кончается отступлением, а не гонгом', () => {
     // Раньше 87% боёв шли до потолка тиков, а победителя объявляли по тому, кто впереди. Теперь сектора

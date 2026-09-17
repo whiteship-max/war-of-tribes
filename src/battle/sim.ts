@@ -722,6 +722,7 @@ class Battle {
       for (const g of this.sides[side].groups) g.lostTick = 0;
     }
     this.engagedNow = new Set();
+    for (const side of SIDES) this.expose(side);
     if (this.phase === 'pursuit') {
       this.pursue();
     } else {
@@ -775,6 +776,24 @@ class Battle {
       this.relocate();
     }
     this.updateMorale();
+  }
+
+  /**
+   * Ждать манёвра можно только за своей линией. Конница, ждущая обхода, удара по лучникам
+   * или преследования, стоит на своей полосе вне досягаемости: по ней не стреляют и с ней
+   * не сходятся — её прикрывает строй впереди. Нет на полосе своего строя, который держится
+   * (фронт или тыл, не смятый и не бегущий), — прикрывать некому, и эти всадники сами
+   * становятся линией: выходят во фронт и дерутся в лоб. Без этого армия без линии была
+   * недосягаема до своего удара и била логово вчетверо сильнее себя (docs/stable.md, раздел 3).
+   */
+  expose(side: Side): void {
+    const groups = this.sides[side].groups;
+    for (const g of groups) {
+      if ((g.row !== 'waiting' && g.row !== 'pursue') || g.lane === null || !alive(g)) continue;
+      const screened = groups.some((h) => h !== g && h.lane === g.lane && (h.row === 'front' || h.row === 'rear') && alive(h) && !h.fled && !h.routed);
+      if (screened) continue;
+      g.row = 'front';
+    }
   }
 
   /** Пары позиций, которые сейчас дерутся. */
