@@ -34,9 +34,8 @@
 //     партии общим автопилотом (`scripts/autopilot.ts`, мир тихий), и сколько уходит казны
 //     (docs/DEFEAT_LADDER.md).
 //
-//  5. **Лазарет.** Сколько бойцов игрок теряет в настоящем мире, какая ёмкость и какой
-//     срок из этого следуют и что раненый сделает с уходом войска. Раздел — отдельный
-//     модуль `sack-infirmary.ts` (docs/infirmary.md).
+// Лазарет жил здесь до перемера на мире, где бой стоит людей; теперь он раздел `raid:report`
+// (`raid-infirmary.ts`): он читает те же прогоны, что «Найм».
 //
 //   npx vite-node scripts/sack-report.ts
 //   HOURS=3 npx vite-node scripts/sack-report.ts
@@ -90,7 +89,6 @@ import { land, pilot, playedFor, player } from './autopilot';
 import { stackCarry } from '@/world/data/units';
 import type { WorldSave } from '@/world/local/state';
 import type { HomeEffect, Loot, PlayerProfile, SettlementView } from '@/world/types';
-import { infirmarySection } from './sack-infirmary';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -844,5 +842,3 @@ console.log(`  Лестница монотонна на всех этапах: $
 console.log('  Невольников у автопилота нет — он их не покупает, — поэтому уведены только горожане.');
 console.log('  Казна у автопилота — то, что он не потратил: копившему игроку разница выше (таблица казны).');
 console.log('');
-
-await infirmarySection();

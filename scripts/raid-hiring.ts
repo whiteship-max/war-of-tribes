@@ -48,6 +48,7 @@ import { LAIR_ANCHOR_MID, LAIR_POWER_BASE, LAIR_POWER_PER_LEVEL, LAIR_RIPE, LAIR
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { assignBonded } from '@/game/sim/workers';
 import { releaseBonded } from '@/game/sim/mutiny';
+import { popGrowth } from '@/game/sim/population';
 import { TROOP_IDS } from '@/game/data/troops';
 import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
@@ -56,15 +57,19 @@ import {
   armySize,
   bondedIdle,
   bondedTotal,
+  buildingOfType,
   buildingSlots,
   defense,
   handsCount,
+  healShare,
   orderBreakdown,
   payGraceDays,
   productionPerDay,
+  soldierFoodPerDay,
   takesBonded,
   taxIncomePerDay,
   upkeepInfo,
+  wageOf,
   wagesPerDay,
 } from '@/game/derived';
 import {
@@ -85,8 +90,8 @@ import {
 } from './autopilot';
 import { NEW_SEEDS, SEEDS, hm, mean, pad, pct, q, sum, tally } from './raid-lair-growth';
 
-type Style = 'means' | 'meansHigh' | 'feed' | 'builder';
-const STYLES: Style[] = ['means', 'meansHigh', 'feed', 'builder'];
+export type Style = 'means' | 'meansHigh' | 'feed' | 'builder';
+export const STYLES: Style[] = ['means', 'meansHigh', 'feed', 'builder'];
 export const NAME: Record<Style, string> = {
   means: 'по средствам',
   meansHigh: 'по средствам, высокий налог',
@@ -117,6 +122,55 @@ interface HireLedger extends Ledger {
   defs: number[];
   /** Восстановление после удержанного боя: сколько мс до прежнего числа дома; null — не успели. */
   restore: { at: number; target: number; lost: number; done: number | null; cost: number }[];
+  /** Каждый бой, стоивший бойцов, — для раздела «Лазарет» (`raid-infirmary.ts`). */
+  fights: Fight[];
+  /** Прирост жителей за игровой день по решениям (`popGrowth`). */
+  growth: number[];
+  /** Решений, на которых войску не хватало еды, и из них — где повод ухода назван неуплатой. */
+  unfed: number;
+  unfedAsPay: number;
+}
+
+/**
+ * Бой, стоивший бойцов, глазами лазарета. Пишется крючками прибора: прогон от них не меняется.
+ * `kind` — по имени последствия, которое мир собирает из того, что случилось.
+ */
+export interface Fight {
+  /** мс от начала прогона. */
+  at: number;
+  kind: FightKind;
+  lost: number;
+  lostBy: TroopStack;
+  /** Сколько бойцов вышло в бой; 0 — прибор этого не знает (падение, лагерь, разгром полководца). */
+  went: number;
+  /** Всё войско в минуту, когда последствие легло. */
+  army: number;
+  /** Уровень лазарета и его доля в эту минуту. */
+  level: number;
+  heal: number;
+  /** Вернулось жителями по нынешнему правилу (`applyExpedition`): потери минус записанные погибшими. */
+  back: number;
+  /** Выработка еды посёлка в эту минуту, в игровой день. */
+  food: number;
+  /** Паёк бойца в эту минуту (`soldierFoodPerDay`) и среднее жалованье павшего (`wageOf` по составу павших), в игровой день. */
+  eat: number;
+  wage: number;
+}
+
+export type FightKind = 'стена: удержали' | 'стена: прорыв' | 'вылазка' | 'удар по лагерю' | 'перехват' | 'удар полководца' | 'падение голодом' | 'наш лагерь' | 'разгром полководца' | 'прочее';
+
+export function fightKind(e: HomeEffect): FightKind {
+  if (e.id.endsWith('-defense')) return e.battle === 'won' ? 'стена: удержали' : 'стена: прорыв';
+  if (e.id.endsWith('-fell')) return 'падение голодом';
+  if (e.id.startsWith('camp-wear')) return 'наш лагерь';
+  if (e.id.startsWith('fig-')) return 'разгром полководца';
+  if (e.id.endsWith('-battle')) return 'удар полководца';
+  if (e.id.endsWith('-eff')) {
+    if (e.id.startsWith('sortie')) return 'вылазка';
+    if (e.id.startsWith('camp')) return 'удар по лагерю';
+    if (e.id.startsWith('chase')) return 'перехват';
+  }
+  return 'прочее';
 }
 
 export interface Out {
@@ -142,6 +196,8 @@ interface Opts {
   after?: (x: { g: GameState; world: LocalWorld; now: number; figures: FigureView[] }) => Promise<void>;
   /** Крючки прибора, без них прогон тот же. */
   profile?: (p: PlayerProfile, g: GameState, away: Away) => void;
+  /** Сколько бойцов было при полководце перед его последним ударом — знает тот, кто его ведёт. */
+  strikeWent?: () => number;
 }
 
 export async function live(o: Opts): Promise<Out> {
@@ -156,7 +212,16 @@ export async function live(o: Opts): Promise<Out> {
     pops: [] as number[],
     defs: [] as number[],
     restore: [] as HireLedger['restore'],
+    fights: [] as Fight[],
+    growth: [] as number[],
+    unfed: 0,
+    unfedAsPay: 0,
   };
+  // Кто вышел в бой: у стены — войско дома перед пульсом, у вылазки — кого выпустили.
+  let homeBefore = 0;
+  let sortieWent = 0;
+  let diedBefore = 0;
+  let open: Fight | null = null;
   const flown = await pilot({
     g,
     seconds: o.hours * 3600,
@@ -176,11 +241,36 @@ export async function live(o: Opts): Promise<Out> {
         x.pops.push(s.pop);
         x.defs.push(defense(s));
         x.income.push(u.income);
+        x.growth.push(popGrowth(s).perDay);
+        if (u.unfed > 0) {
+          x.unfed++;
+          if (u.why === 'pay') x.unfedAsPay++;
+        }
       },
       hourly: o.hourly,
-      profile: o.profile,
+      profile: (p, s, away) => {
+        homeBefore = troopTotal(homeOf(s.army, away));
+        o.profile?.(p, s, away);
+      },
+      sortie: (home) => {
+        sortieWent = troopTotal(home);
+      },
+      landed: (e, s) => {
+        if (open === null) return;
+        open.back = Math.max(0, open.lost + (e.lost.scout ?? 0) - (s.stats.died - diedBefore));
+        x.fights.push(open);
+        open = null;
+      },
       effect: (e, now) => {
         o.effect?.(e, now);
+        const lost = troopTotal(e.lostTroops ?? {});
+        if (lost > 0) {
+          const kind = fightKind(e);
+          const went = kind === 'стена: удержали' || kind === 'стена: прорыв' ? homeBefore : kind === 'вылазка' ? sortieWent : kind === 'удар полководца' ? (o.strikeWent?.() ?? 0) : 0;
+          const inf = buildingOfType(g, 'infirmary');
+          diedBefore = g.stats.died;
+          open = { at: now, kind, lost, lostBy: { ...(e.lostTroops ?? {}) }, went, army: armySize(g), level: inf?.level ?? 0, heal: healShare(g), back: 0, food: productionPerDay(g).food, eat: soldierFoodPerDay(g), wage: sum((Object.entries(e.lostTroops ?? {}) as [TroopId, number][]).map(([id, n]) => n * wageOf(g, id))) / lost };
+        }
         if (e.id.endsWith('-defense') && e.battle === 'won') {
           const lost = e.lostTroops ?? {};
           const n = troopTotal(lost);
@@ -245,7 +335,15 @@ function restoreLine(outs: Out[]): { n: number; done: string; late: number; gap:
   };
 }
 
-export async function hiringSection(): Promise<void> {
+/** Прогоны «Найма», которые читает раздел «Лазарет»: гонять их второй раз незачем. */
+export interface Hired {
+  /** Лестница мерки: ключ — `поведение:уровень`. */
+  ladder: Record<string, Out[]>;
+  /** Партия с первой секунды по поведениям. */
+  fresh: Record<Style, Out[]>;
+}
+
+export async function hiringSection(): Promise<Hired> {
   console.log('');
   console.log('=== Найм: игрок, который платит за войско ===');
   console.log('Прогон — общий автопилот (scripts/autopilot.ts), мир как есть. Посёлок живёт шагом игры (tick) при игроке: выработка, еда, налог, жалованье, уход войска.');
@@ -370,8 +468,10 @@ export async function hiringSection(): Promise<void> {
   console.log(`--- Б. Партия с первой секунды: ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит у всех ---`);
   console.log('Налог новой партии — высокий: её игрок по умолчанию — строка «по средствам, высокий налог».');
   console.log(' поведение                    набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  жителями  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на');
+  const fresh = {} as Record<Style, Out[]>;
   for (const style of STYLES) {
     const outs: Out[] = [];
+    fresh[style] = outs;
     const army: number[][] = [[], [], [], []];
     const pop: number[][] = [[], [], [], []];
     const lvl: number[][] = [[], [], [], []];
@@ -412,6 +512,7 @@ export async function hiringSection(): Promise<void> {
 
   // В. Уведённые люди.
   await captivesPart();
+  return { ladder, fresh };
 }
 
 // ---------- В. Уведённые люди ----------
