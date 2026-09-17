@@ -443,30 +443,55 @@ async function wallPart(): Promise<Worth> {
 
 // ---------- 5. Армия без линии в обходе ----------
 
-function holePart(): void {
+/** Армия раздела 5: конница на полосах фронта с приказом `order`, при `line` — и пехота долей `line` в тех же секторах. */
+function holeSetup(line: number, order: CavalryOrder, seed: number, n: number): { stack: Stack; setup: ArmySetup } {
+  const cav = Math.round(MEN * (1 - line));
+  const inf = MEN - cav;
+  const pure = quickAttack({ ...emptyStack(), cavalry: cav }, salt(seed, n)).setup;
+  const sectors = { ...pure.sectors };
+  const per = [Math.round(inf / 3), Math.round(inf / 3), inf - 2 * Math.round(inf / 3)];
+  (['A', 'B', 'C'] as const).forEach((id, i) => (sectors[id] = { ...sectors[id], infantry: sectors[id].infantry + per[i] }));
+  return { stack: { ...emptyStack(), cavalry: cav, infantry: inf }, setup: { ...pure, sectors, orders: { ...pure.orders, cavalry: order } } };
+}
+
+export function holePart(): void {
   console.log('');
-  console.log(`--- 5. Армия без линии в обходе: ядро, ${MEN} бойцов строя конницы (сегодня, ступень 2), ${LAIR_SEEDS} боёв, уклад логова — по имени отряда ---`);
-  console.log('Та же армия и тот же пресет, меняется только приказ коннице. «удар» — по гарнизону логова силой k × своей мощи: побед, ничьих, потери свои и логова;');
-  console.log('«оборона» — набег силой k: прорывов.');
-  console.log(' приказ              k  удар: побед  ничьих  свои  логова   оборона: прорывов');
-  const own: Side = { stack: { ...emptyStack(), cavalry: MEN }, gear: { cavalry: gearOfTroop('rider') } };
-  for (const o of [{ name: 'атаковать сразу', cavalry: 'charge' as const }, { name: 'обход', cavalry: 'flank' as const }, AT_ARCHERS]) {
-    for (const k of [1, 2, 4, 8]) {
-      let won = 0;
-      let draws = 0;
-      let lossOwn = 0;
-      let lossLair = 0;
-      for (let i = 1; i <= LAIR_SEEDS; i++) {
-        const seed = i * 7919;
-        const g = garrisonOf(seed, `bench${i}`, k * MEN * BATTLE_MAN);
-        const f = resolveField({ seed, attacker: { kinds: own.stack, gear: own.gear, setup: ordered(quickAttack(own.stack, salt(seed, 1)).setup, o) }, defender: { kinds: g.kinds, gear: g.gear, setup: g.setup } });
-        if (f.won) won++;
-        if (f.result?.winner === 'draw') draws++;
-        lossOwn += f.attackerLoss;
-        lossLair += f.defenderLoss;
+  console.log(`--- 5. Армия без линии в обходе: ядро, ${MEN} бойцов строя (конница сегодня, ступень 2), ${LAIR_SEEDS} боёв, уклад логова — по имени отряда ---`);
+  console.log('Конница стоит на полосах фронта (пресет армии из одной конницы); «линия 10 %» — в тех же секторах ещё пехота долей строя. Меняется только');
+  console.log('приказ коннице. «удар» — по гарнизону логова силой k × своей мощи: побед, ничьих, потери свои и логова; «оборона» — набег силой k: прорывов.');
+  console.log(' армия        приказ               k  удар: побед  ничьих  свои  логова   оборона: прорывов');
+  const orders: [string, CavalryOrder][] = [
+    ['атаковать сразу', 'charge'],
+    ['обход', 'flank'],
+    ['по лучникам', 'attack-archers'],
+    ['преследовать', 'pursue'],
+    ['в резерв', 'reserve'],
+  ];
+  for (const line of [0, 0.1]) {
+    for (const [name, order] of orders) {
+      for (const k of [1, 2, 4, 8]) {
+        let won = 0;
+        let draws = 0;
+        let lossOwn = 0;
+        let lossLair = 0;
+        let broke = 0;
+        for (let i = 1; i <= LAIR_SEEDS; i++) {
+          const seed = i * 7919;
+          const atk = holeSetup(line, order, seed, 1);
+          const g = garrisonOf(seed, `bench${i}`, k * MEN * BATTLE_MAN);
+          const f = resolveField({ seed, attacker: { kinds: atk.stack, gear: { cavalry: gearOfTroop('rider') }, setup: atk.setup }, defender: { kinds: g.kinds, gear: g.gear, setup: g.setup } });
+          if (f.won) won++;
+          if (f.result?.winner === 'draw') draws++;
+          lossOwn += f.attackerLoss;
+          lossLair += f.defenderLoss;
+          const def = holeSetup(line, order, seed, 2);
+          const p = raidingParty(seed, `bench${i}`, k * MEN * BATTLE_MAN);
+          if (resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear, setup: p.setup }, defender: { kinds: def.stack, gear: { cavalry: gearOfTroop('rider') }, setup: def.setup } }).won) broke++;
+        }
+        console.log(
+          ` ${padR(line > 0 ? `линия ${pct(line)}` : 'без линии', 11)}  ${padR(name, 17)}  ${pad(k, 2)}  ${pad(`${won}/${LAIR_SEEDS}`, 11)}  ${pad(draws, 6)}  ${pad(pct(lossOwn / LAIR_SEEDS), 4)}  ${pad(pct(lossLair / LAIR_SEEDS), 6)}   ${pad(pct(broke / LAIR_SEEDS), 17)}`,
+        );
       }
-      const broke = lairLoss(own, null, k, 'defend', o);
-      console.log(` ${padR(o.name, 17)}  ${pad(k, 2)}  ${pad(`${won}/${LAIR_SEEDS}`, 11)}  ${pad(draws, 6)}  ${pad(pct(lossOwn / LAIR_SEEDS), 4)}  ${pad(pct(lossLair / LAIR_SEEDS), 6)}   ${pad(pct(broke), 17)}`);
     }
   }
 }
