@@ -29,6 +29,7 @@ import {
 } from '@/world/data/tuning';
 import type { MarchView, PlayerProfile } from '@/world/types';
 import { lairGrowthSection } from './raid-lair-growth';
+import { hiringSection } from './raid-hiring';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1234, 2024, 4242, 7919];
@@ -201,3 +202,4 @@ for (const watch of WATCH) {
 }
 
 await lairGrowthSection();
+await hiringSection();

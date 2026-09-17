@@ -59,27 +59,27 @@ import type { BuildingTypeId, GameState, TroopId } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import { build, staff } from './autopilot';
 
-const MIN = 60_000;
+export const MIN = 60_000;
 const HOUR = 60 * MIN;
-const START = 1_700_000_000_000;
-const SEEDS = [7, 11, 42, 51, 77];
-const NEW_SEEDS = SEEDS.slice(0, 3);
+export const START = 1_700_000_000_000;
+export const SEEDS = [7, 11, 42, 51, 77];
+export const NEW_SEEDS = SEEDS.slice(0, 3);
 const LADDER = [1, 2, 3, 5, 7, 10];
 const PULSE = 30;
 /** Состав и мерка войска — те же, что у осады и лазарета. */
-const MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
+export const MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
 const armyAt = (level: number): number => 2 * (20 + 10 * (level - 1));
 const NO_HALL: readonly BuildingTypeId[] = ['town_hall'];
 
-const pad = (v: string | number, w: number): string => String(v).padStart(w);
-const pct = (x: number): string => `${Math.round(x * 100)}%`;
-const hm = (ms: number): string => {
+export const pad = (v: string | number, w: number): string => String(v).padStart(w);
+export const pct = (x: number): string => `${Math.round(x * 100)}%`;
+export const hm = (ms: number): string => {
   const m = Math.round(ms / MIN);
   return m >= 60 ? `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, '0')}` : `${m} мин`;
 };
-const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
-const mean = (xs: number[]): number => (xs.length ? sum(xs) / xs.length : 0);
-const q = (xs: number[], p: number): number => {
+export const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+export const mean = (xs: number[]): number => (xs.length ? sum(xs) / xs.length : 0);
+export const q = (xs: number[], p: number): number => {
   const s = xs.slice().sort((a, b) => a - b);
   return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : 0;
 };
@@ -102,7 +102,7 @@ function stackOf(n: number, mix: TroopStack = MIX): TroopStack {
  * Посёлок уровня L: жильё на 90 %, склад полон, войско — `armyAt` по составу. Мерка `siege:report`.
  * `over` — уровни отдельных построек поверх L (жители дорастают до новых крыш).
  */
-function townAt(level: number, over: Record<string, number> = {}): GameState {
+export function townAt(level: number, over: Record<string, number> = {}): GameState {
   const g = createInitialState(7);
   g.tutorialDone = true;
   for (const b of g.buildings) b.level = over[b.type] ?? level;
@@ -144,19 +144,21 @@ function fit(xs: number[], ys: number[]): { a: number; b: number; worst: number 
  * Как считается сила вышедшего набега. `rho` null и `shield` — игра как есть. Иначе ступень
  * `rho` вместо `LAIR_STEP`, а `shield: false` снимает защиту новичка (набег выходит полной силой).
  */
-interface Step {
+export interface Step {
   name: string;
   rho: number | null;
   shield: boolean;
 }
-const GAME: Step = { name: 'игра', rho: null, shield: true };
+export const GAME: Step = { name: 'игра', rho: null, shield: true };
 
-interface Wall {
+export interface Wall {
   held: boolean;
   home: number;
   lost: number;
+  /** Когда бой случился, мс от начала прогона. */
+  at: number;
 }
-interface Run {
+export interface Run {
   raids: number;
   ratio: number[];
   walls: Wall[];
@@ -173,7 +175,7 @@ interface Run {
   hunger: number[];
 }
 
-interface Play {
+export interface Play {
   g: GameState;
   seed: number;
   step: Step;
@@ -192,13 +194,20 @@ interface Play {
    */
   hire?: boolean;
   hourly?: (h: number, g: GameState) => void;
+  /**
+   * Последствие мира до того, как оно легло в племя: раздел найма (`raid-hiring.ts`) смотрит на
+   * него и подменяет в нём уведённых людей. Без крючка прогон тот же.
+   */
+  effect?: (e: HomeEffect, now: number) => void;
+  /** После каждого пульса, до ответа на осаду: раздел найма ведёт здесь полководца и считает войско. */
+  after?: (x: { g: GameState; world: LocalWorld; now: number; marches: MarchView[]; figures: FigureView[] }) => Promise<void> | void;
 }
 
 /** Настоящее состояние мира: отчёт — прибор, ему положено видеть больше панели. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Inside = any;
+export type Inside = any;
 
-async function play(o: Play): Promise<Run> {
+export async function play(o: Play): Promise<Run> {
   const { g, step } = o;
   let now = START;
   const world = new LocalWorld({ seed: o.seed, now: () => now, storage: memory() });
@@ -241,11 +250,12 @@ async function play(o: Play): Promise<Run> {
     homeBefore = troopTotal(homeOf(g.army, away));
     const p = await world.sync(playerProfile(g, away));
     for (const e of p.effects as HomeEffect[]) {
+      o.effect?.(e, p.now - START);
       applyEffects(g, [e]);
       const lost = troopTotal(e.lostTroops ?? {});
       run.lost += lost;
       if (e.id.endsWith('-defense') && e.battle) {
-        run.walls.push({ held: e.battle === 'won', home: homeBefore, lost });
+        run.walls.push({ held: e.battle === 'won', home: homeBefore, lost, at: p.now - START });
         if (e.battle === 'lost') run.losses.push(p.now - START);
       }
       if (e.id.endsWith('-fell')) {
@@ -282,6 +292,7 @@ async function play(o: Play): Promise<Run> {
       for (let i = 0; i < PULSE; i++) tick(g, 1);
     }
     const p = await pulse();
+    await o.after?.({ g, world, now: now - START, marches, figures });
     if (start > 0 && armySize(g) < start / 2) run.half += PULSE * 1000;
     if (p.siege) {
       const home = homeOf(g.army, awayOf(marches, figures));
@@ -309,7 +320,7 @@ async function play(o: Play): Promise<Run> {
 /** С какого числа бойцов дома доля павших в бою что-то значит. */
 const SHARE_FLOOR = 10;
 
-function tally(runs: Run[], hours: number) {
+export function tally(runs: Run[], hours: number) {
   const walls = runs.flatMap((r) => r.walls);
   const broke = walls.filter((x) => !x.held).length;
   const falls = sum(runs.map((r) => r.siegeFalls));
