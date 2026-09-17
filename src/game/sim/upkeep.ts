@@ -14,6 +14,11 @@
 //   неоплаченной или некормленной части войска, равной долей каждого вида;
 // - ушедшие уносят свою долю долга; сошлись доход и жалованье — долга нет, уход
 //   встаёт сам и ниже того, что казна тянет, войско не опускается;
+// - **ушедший неуплатой возвращается жителем, если в посёлке есть крыша**; нет места —
+//   уходит совсем. Снаряжение и время учений он не возвращает — этого наказания хватает:
+//   ошибка найма должна быть дорогой, а не необратимой (решение владельца, docs/hiring.md,
+//   раздел 9). Ушедший голодом уходит совсем: в посёлке, которому нечем кормить войско,
+//   лишний рот — не возврат, а следующий голод;
 // - казна погасила долг и войско сыто — терпение начинается заново.
 import type { GameState, TroopId } from '../types';
 import { DAY_LENGTH } from '../constants';
@@ -21,6 +26,7 @@ import { DESERT_SHARE, UPKEEP_TEXT } from '../data/upkeep';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
   armySize,
+  housingCapacity,
   payGraceDays,
   taxIncomePerDay,
   unpaidShare,
@@ -63,7 +69,8 @@ export function upkeepTick(s: GameState, dt: number, online: boolean, unfed: num
   if (share <= 0 || pay.late < payGraceDays(s) * DAY_LENGTH) return;
 
   const gapBefore = wagesDue(s) - taxIncomePerDay(s);
-  const why = UPKEEP_TEXT.why[unpaid >= unfed ? 'pay' : 'food'];
+  const unpaidLeave = unpaid >= unfed;
+  const why = UPKEEP_TEXT.why[unpaidLeave ? 'pay' : 'food'];
   const rate = (DESERT_SHARE * share * dt) / DAY_LENGTH;
   for (const id of TROOP_IDS) {
     const have = Math.max(0, s.army[id] ?? 0);
@@ -76,7 +83,10 @@ export function upkeepTick(s: GameState, dt: number, online: boolean, unfed: num
     pay.gone[id] = gone - whole;
     if (whole <= 0) continue;
     s.army[id] = have - whole;
-    for (let i = 0; i < whole; i++) log(s, UPKEEP_TEXT.deserted(TROOP_BY_ID[id].one, why), 'bad', `desert:${id}`);
+    const home = unpaidLeave ? addPop(s, Math.min(whole, Math.max(0, housingCapacity(s) - s.pop))) : 0;
+    const one = TROOP_BY_ID[id].one;
+    for (let i = 0; i < home; i++) log(s, UPKEEP_TEXT.desertedHome(one, why), 'bad', `desert:${id}:home`);
+    for (let i = home; i < whole; i++) log(s, UPKEEP_TEXT.deserted(one, why), 'bad', `desert:${id}`);
   }
   // Ушедшие уносят свою долю долга: сократилась нехватка — сократился и долг.
   // Сошлись доход и жалованье — долга не остаётся, и следующий наём начнёт с

@@ -352,6 +352,18 @@ export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.non
 export const taxIncomePerDay = (s: GameState): number =>
   taxOf(s).perPop * population(s) * TAX_PER_POP + faithGoldPerDay(s);
 
+/**
+ * Что даст и чего будет стоить налог `id` этому посёлку прямо сейчас — числами самой игры:
+ * сбор казны за день, мораль, к которой придёт племя, и множитель выработки при ней. Ратуша
+ * ставит это на кнопку налога: цену называют числом до выбора, а не словом. Считается тем же
+ * кодом, что игра, на посёлке с подменённым налогом — своей формулы здесь нет.
+ */
+export function taxQuote(s: GameState, id: TaxDef['id']): { gold: number; morale: number; output: number } {
+  const t: GameState = { ...s, tax: id };
+  const morale = moraleTarget(t);
+  return { gold: taxIncomePerDay(t), morale, output: moraleOutputMult(morale) };
+}
+
 /** Уровень рынка. */
 export const marketLevel = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
 

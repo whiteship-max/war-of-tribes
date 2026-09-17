@@ -1,7 +1,7 @@
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
-import { buildingHousing, buildingStat, decreeOf, rationOf, taxIncomePerDay, taxOf, townHallBuildMult, wagesDue } from '@/game/derived';
+import { buildingHousing, buildingStat, decreeOf, rationOf, taxIncomePerDay, taxOf, taxQuote, townHallBuildMult, wagesDue } from '@/game/derived';
 import { setDecree, setRation, setTax } from '@/game/sim/actions';
 import { gemsOf } from '@/game/sim/gems';
 import { TownBuild } from './TownBuild';
@@ -135,25 +135,31 @@ function Manage({ b }: { b: Building }) {
       </div>
       <div className="note">
         Сбор идёт с людей: чем больше народу в посёлке, тем полнее казна. Платит за это
-        мораль, а низкая мораль режет всю выработку — высокий налог выгоден в короткую,
-        а не как уклад. Из казны же платят войску: не хватит — оно начнёт уходить.
+        мораль, а мораль — выработкой: на каждой кнопке ниже сбор, мораль и выработка при
+        этом налоге. Из казны же платят войску: не хватит — оно начнёт уходить.
       </div>
 
       <h3>Налог</h3>
       <div className="choice">
-        {TAXES.map((t) => (
-          <button
-            key={t.id}
-            className={`choice-opt${tax.id === t.id ? ' on' : ''}`}
-            onClick={() => act((st) => setTax(st, t.id))}
-          >
-            <span className="ico">
-              <Icon name={`tax-${t.id}`} glyph={t.icon} />
-            </span>
-            <b>{t.name}</b>
-            <small>{t.effect}</small>
-          </button>
-        ))}
+        {TAXES.map((t) => {
+          const q = taxQuote(s, t.id);
+          return (
+            <button
+              key={t.id}
+              className={`choice-opt${tax.id === t.id ? ' on' : ''}`}
+              onClick={() => act((st) => setTax(st, t.id))}
+            >
+              <span className="ico">
+                <Icon name={`tax-${t.id}`} glyph={t.icon} />
+              </span>
+              <b>{t.name}</b>
+              <small>
+                {t.effect}
+                <br />+{q.gold.toFixed(1)} золота в день · мораль {Math.round(q.morale)} · выработка ×{q.output.toFixed(2)}
+              </small>
+            </button>
+          );
+        })}
       </div>
     </>
   );

@@ -12,10 +12,14 @@
 //  - **по средствам** — войско не дороже, чем тянет казна: жалованье после найма не больше дохода
 //    казны; казна пуста, а жалованье больше дохода — распускает лишних;
 //  - **по средствам, высокий налог** — то же при высоком налоге: так держит войско тот, кто воюет;
+//    с решения владельца по этому замеру это и налог новой партии (docs/hiring.md, раздел 9);
 //  - **всё, что прокормит** — нанимает, пока еды приходит не меньше, чем уходит (сезон нынешний),
 //    о казне не думает; не распускает;
 //  - **строит** — не пополняет войско, на лагерь нанимает дубинщиков (`play.hire`, как новичок
 //    «нанимает на осаду»); в партии с первой секунды — ещё и строит.
+//
+// Налог у поведений закреплён, а не взят у новой партии: высокий — у «высокого налога»,
+// умеренный — у остальных. Иначе смена налога по умолчанию молча сменила бы игроков замера.
 //
 // Состав найма — мерка `MIX`, снаряжение — из кузницы: у нанимающих кузница укомплектована
 // целиком, заказ — на недостачу, но не дальше `FORGE_AHEAD` работы вперёд (кузница берёт плату
@@ -138,6 +142,8 @@ interface Ledger {
   hired: number;
   dismissed: number;
   deserted: number;
+  /** Из ушедших — остались в посёлке жителями (ушли неуплатой, а крыша нашлась). */
+  returned: number;
   /** Причины ухода по пульсам, где войско уходило. */
   whyPay: number;
   whyFood: number;
@@ -164,6 +170,7 @@ const ledger = (): Ledger => ({
   hired: 0,
   dismissed: 0,
   deserted: 0,
+  returned: 0,
   whyPay: 0,
   whyFood: 0,
   spent: 0,
@@ -325,13 +332,14 @@ function answer(g: GameState, l: Ledger): void {
   resolveEvent(g, Math.max(0, i));
 }
 
-/** Сколько ушло голодом и неуплатой с прошлого раза — по строкам летописи со склейкой. */
+/** Сколько ушло голодом и неуплатой с прошлого раза и сколько из них осталось жителями — по строкам летописи со склейкой. */
 function countDeserted(g: GameState, l: Ledger): void {
   for (const e of g.log) {
     if (!e.group?.startsWith('desert:')) continue;
     const n = e.n ?? 1;
     const seen = l.seenLog.get(e) ?? 0;
     if (n > seen) l.deserted += n - seen;
+    if (n > seen && e.group.endsWith(':home')) l.returned += n - seen;
     l.seenLog.set(e, n);
   }
 }
@@ -368,7 +376,7 @@ interface Opts {
 async function live(o: Opts): Promise<Out> {
   const { g, style } = o;
   const l = ledger();
-  if (style === 'meansHigh') g.tax = 'high';
+  g.tax = style === 'meansHigh' ? 'high' : 'moderate';
   const run = await play({
     g,
     seed: o.seed,
@@ -480,17 +488,18 @@ export async function hiringSection(): Promise<void> {
   const LEVELS = [7, 8, 10];
   console.log('');
   console.log(`--- А. Лестница мерки: ${HOURS} ч на каждом из ${SEEDS.length} миров, посёлок уровня L живёт, уровни построек стоят, логова дозрели ---`);
-  console.log('Цена мерки: войско мерки против казны посёлка мерки в первую минуту (умеренный налог, как у новой партии):');
+  console.log('Цена мерки: войско мерки против казны посёлка мерки в первую минуту при умеренном налоге:');
   console.log(' ур  жителей  войско  жалованье/день  доход казны/день  жалованье к доходу  терпение Статуи, дн.');
   for (const level of LEVELS) {
     const g = townAt(level);
+    g.tax = 'moderate';
     console.log(
       ` ${pad(level, 2)}  ${pad(g.pop, 7)}  ${pad(armySize(g), 6)}  ${pad(Math.round(wagesPerDay(g)), 14)}  ${pad(Math.round(taxIncomePerDay(g)), 16)}  ${pad(pct(wagesPerDay(g) / taxIncomePerDay(g)), 18)}  ${pad(payGraceDays(g), 20)}`,
     );
   }
   console.log('Столбцы — как в разделе 2 выше; «даром» — строка «игра» оттуда же (войско держат полным даром, посёлок не живёт).');
-  console.log('«нанято» — ушло в казармы (у «строит» — дубинщики на лагерь); «ушло» — ушло голодом или неуплатой (дверь содержания); «распущено» — по средствам; «жалованье к доходу» — среднее по пульсам.');
-  console.log(' поведение                    ур  жителей в конце  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  вылазки   падений осадой  падений/ч  потери, удержали  < половины  войско дома: медиана  в конце  нанято  ушло  распущено  жалованье к доходу  долг в конце  найм встал на');
+  console.log('«нанято» — ушло в казармы (у «строит» — дубинщики на лагерь); «ушло» — ушло голодом или неуплатой (дверь содержания), «жителями» — из них остались в посёлке; «распущено» — по средствам; «жалованье к доходу» — среднее по пульсам.');
+  console.log(' поведение                    ур  жителей в конце  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  вылазки   падений осадой  падений/ч  потери, удержали  < половины  войско дома: медиана  в конце  нанято  ушло  жителями  распущено  жалованье к доходу  долг в конце  найм встал на');
   const ladder: Record<string, Out[]> = {};
   for (const level of LEVELS) {
     const ref = defense(townAt(level));
@@ -504,7 +513,7 @@ export async function hiringSection(): Promise<void> {
       );
       const l = outs.map((o) => o.l);
       console.log(
-        ` ${NAME[style].padEnd(27)} ${pad(level, 2)}  ${pad(Math.round(mean(outs.map((o) => o.g.pop))), 15)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.sorties, 8)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(t.half, 10)}  ${pad(Math.round(q(l.flatMap((x) => x.armyHome), 0.5)), 20)}  ${pad(t.armyEnd, 7)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(pct(mean(l.map((x) => mean(x.wages) / Math.max(1, mean(x.income))))), 18)}  ${pad(Math.round(mean(l.map((x) => x.debt))), 12)}  ${fmtStops(l)}`,
+        ` ${NAME[style].padEnd(27)} ${pad(level, 2)}  ${pad(Math.round(mean(outs.map((o) => o.g.pop))), 15)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.sorties, 8)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(t.half, 10)}  ${pad(Math.round(q(l.flatMap((x) => x.armyHome), 0.5)), 20)}  ${pad(t.armyEnd, 7)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.returned)), 8)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(pct(mean(l.map((x) => mean(x.wages) / Math.max(1, mean(x.income))))), 18)}  ${pad(Math.round(mean(l.map((x) => x.debt))), 12)}  ${fmtStops(l)}`,
       );
     }
   }
@@ -586,7 +595,8 @@ export async function hiringSection(): Promise<void> {
   const HOURS_AT = [1, 2, 4, 6];
   console.log('');
   console.log(`--- Б. Партия с первой секунды: ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит у всех ---`);
-  console.log(' поведение                    набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на');
+  console.log('Налог новой партии — высокий: её игрок по умолчанию — строка «по средствам, высокий налог».');
+  console.log(' поведение                    набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  жителями  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на');
   for (const style of STYLES) {
     const outs: Out[] = [];
     const army: number[][] = [[], [], [], []];
@@ -623,7 +633,7 @@ export async function hiringSection(): Promise<void> {
     const first = t.first.length ? `${hm(Math.min(...t.first))}…${hm(Math.max(...t.first))}${t.first.length < outs.length ? ` (${t.first.length} из ${outs.length})` : ''}` : 'нет';
     const row = (xs: number[][], f: (v: number) => string): string => xs.map((v) => pad(f(mean(v)), 4)).join(' ');
     console.log(
-      ` ${NAME[style].padEnd(27)} ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(first, 14)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(t.lost, 15)}  ${row(army, (v) => String(Math.round(v))).padEnd(19)}  ${row(pop, (v) => String(Math.round(v))).padEnd(20)}  ${row(lvl, (v) => v.toFixed(1)).padEnd(23)}  ${fmtStops(l)}`,
+      ` ${NAME[style].padEnd(27)} ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(first, 14)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.returned)), 8)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(t.lost, 15)}  ${row(army, (v) => String(Math.round(v))).padEnd(19)}  ${row(pop, (v) => String(Math.round(v))).padEnd(20)}  ${row(lvl, (v) => v.toFixed(1)).padEnd(23)}  ${fmtStops(l)}`,
     );
   }
 
@@ -793,7 +803,7 @@ async function captivesPart(): Promise<void> {
     const l = outs.map((o) => o.l);
     console.log('');
     console.log(`«${variant.name}»: осад ${sieges}, городов взято голодом ${falls}; уведено ${led} за ${HOURS} ч на ${SEEDS_C.length} мирах — ${(led / (HOURS * SEEDS_C.length)).toFixed(1)} в час; отпущено ${released}.`);
-    console.log(`  ропот (порядок ниже ${ORDER_UNREST} при невольниках) — ${pct(unrestPulses / Math.max(1, pulses))} пульсов; мятежей ${sum(l.map((x) => x.mutinies))}, стража удержала ${sum(l.map((x) => x.mutinyHeld))}; ушло войска ${sum(l.map((x) => x.deserted))}.`);
+    console.log(`  ропот (порядок ниже ${ORDER_UNREST} при невольниках) — ${pct(unrestPulses / Math.max(1, pulses))} пульсов; мятежей ${sum(l.map((x) => x.mutinies))}, стража удержала ${sum(l.map((x) => x.mutinyHeld))}; ушло войска ${sum(l.map((x) => x.deserted))}, из них жителями ${sum(l.map((x) => x.returned))}.`);
     console.log(`  дома: набегов ${t.raids}, прорвали ${t.broke}, падений/ч ${t.perHour}, потери, удержали ${t.held}.`);
     console.log('   ч  невольников  на работе  без места  порядок  жителей  войско  выработка/день');
     HOURS_AT.forEach((h, i) => {

@@ -21,11 +21,13 @@ import {
   marketLeft,
   marketOffer,
   marketStock,
+  moraleOutputMult,
   moraleTarget,
   productionPerDay,
   seasonModsFor,
   selfCost,
   taxIncomePerDay,
+  taxQuote,
   workerCount,
 } from '../derived';
 
@@ -190,6 +192,23 @@ describe('налог', () => {
     expect(mid.gold).toBeLessThan(high.gold);
     expect(mid.morale).toBeLessThan(none.morale);
     expect(mid.morale).toBeGreaterThan(high.morale);
+  });
+
+  it('цена на кнопке налога — те же числа, что игра насчитает при этом налоге', () => {
+    const s = city();
+    const was = s.tax;
+    for (const t of TAXES) {
+      const q = taxQuote(s, t.id);
+      expect(s.tax, 'подсказка налог не меняет').toBe(was);
+      const set = { ...s, tax: t.id };
+      expect(q.gold).toBe(taxIncomePerDay(set));
+      expect(q.morale).toBe(moraleTarget(set));
+      expect(q.output).toBe(moraleOutputMult(moraleTarget(set)));
+    }
+    const none = taxQuote(s, 'none');
+    const high = taxQuote(s, 'high');
+    expect(high.gold, 'точка внутри области: налог собирает').toBeGreaterThan(none.gold);
+    expect(high.morale, 'и стоит морали').toBeLessThan(none.morale);
   });
 
   it('последствия налога написаны на кнопке и сходятся с числами', () => {

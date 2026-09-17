@@ -58,6 +58,8 @@ export const UPKEEP_TEXT = {
   },
   /** Строка летописи на ушедшего — склеивается счётчиком по виду за сутки. */
   deserted: (one: string, why: string): string => `Ушёл из войска ${one}: ${why}.`,
+  /** Ушёл неуплатой, а в посёлке нашлась крыша: остался жителем. */
+  desertedHome: (one: string, why: string): string => `Ушёл из войска ${one}: ${why}. Остался в посёлке жителем.`,
   dismissed: (one: string): string => `Распущен по домам ${one}.`,
   amnestyLog: (wages: number, income: number): string =>
     `Войску теперь платят жалованье — ${Math.round(wages)} золота в день, казна даёт ${Math.round(income)}. ` +

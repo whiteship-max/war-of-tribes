@@ -16,6 +16,7 @@ import {
   armySize,
   faithTilt,
   foodShortfall,
+  housingCapacity,
   payGraceDays,
   taxIncomePerDay,
   wageOf,
@@ -24,7 +25,7 @@ import {
   wagesPerDay,
 } from '../derived';
 import { catchUp, tick } from './tick';
-import { dismissSoldiers } from './upkeep';
+import { dismissSoldiers, upkeepTick } from './upkeep';
 
 const DT = 0.5;
 
@@ -219,6 +220,66 @@ describe('голод: та же дверь, второй повод', () => {
   });
 });
 
+describe('ушедший неуплатой возвращается жителем, если есть крыша', () => {
+  // Шаг содержания зовётся напрямую: в полном шаге игры жители прибывают ещё и приростом,
+  // и «вернулся жителем» нельзя было бы отличить от «родился». Каждая точка утверждает,
+  // что она внутри области: терпение кончилось, войско уходит, повод — тот, что назван.
+  const DAYS = 20;
+  const leaving = (room: number | 'all', over: (s: GameState) => void = () => {}): { s: GameState; gone: number; came: number; gear: number } => {
+    const s = camp((st) => {
+      st.tax = 'moderate';
+      st.gold = 0;
+      st.army.spearman = 400;
+      // Крыш — на сотни: жилища десятого уровня.
+      for (const b of st.buildings) if (b.type === 'houses') b.level = 10;
+      st.pop = 60;
+    });
+    if (room !== 'all') s.pop = housingCapacity(s) - room;
+    s.pay.debt = 1000;
+    s.pay.late = payGraceDays(s) * DAY_LENGTH;
+    over(s);
+    const army = armySize(s);
+    const pop = s.pop;
+    const gear = s.equipment.spear;
+    const steps = Math.round((DAYS * DAY_LENGTH) / DT);
+    const unfed = s.gold > 0 ? 0.5 : 0;
+    for (let i = 0; i < steps; i++) upkeepTick(s, DT, true, unfed);
+    return { s, gone: army - armySize(s), came: s.pop - pop, gear: s.equipment.spear - gear };
+  };
+
+  it('крыш хватает на всех — каждый ушедший остаётся жителем', () => {
+    const { s, gone, came, gear } = leaving('all');
+    expect(housingCapacity(s) - s.pop, 'точка внутри области: крыши и после ухода остались').toBeGreaterThan(0);
+    expect(gone, 'точка внутри области: войско ушло').toBeGreaterThan(20);
+    expect(came, 'каждый ушедший неуплатой — житель').toBe(gone);
+    expect(gear, 'снаряжение не возвращается').toBe(0);
+  });
+
+  it('крыш нет — уходят совсем', () => {
+    const { gone, came } = leaving(0);
+    expect(gone, 'точка внутри области: войско ушло').toBeGreaterThan(20);
+    expect(came, 'без крыши житель не прибавляется').toBe(0);
+  });
+
+  it('крыш меньше, чем ушедших, — остаются ровно на свободные крыши', () => {
+    const { s, gone, came } = leaving(5);
+    expect(gone, 'точка внутри области: ушедших больше, чем крыш').toBeGreaterThan(5);
+    expect(came, 'остались ровно на свободные крыши').toBe(5);
+    expect(s.pop).toBe(housingCapacity(s));
+  });
+
+  it('ушедший голодом уходит совсем, даже при свободных крышах', () => {
+    const { s, gone, came } = leaving('all', (st) => {
+      st.gold = 1_000_000;
+      st.pay.debt = 0;
+    });
+    expect(s.pay.debt, 'точка внутри области: платить есть чем — повод голод').toBe(0);
+    expect(housingCapacity(s) - s.pop, 'крыши свободны').toBeGreaterThan(0);
+    expect(gone, 'точка внутри области: голодные ушли').toBeGreaterThan(20);
+    expect(came, 'голодный жителем не остаётся').toBe(0);
+  });
+});
+
 describe('закят: воин не наёмник, а долг', () => {
   it('мусульманская деревня держит столько же войска, сколько соседи, — при любом налоге и уровне храма', () => {
     for (const tax of ['moderate', 'high'] as const) {
@@ -300,10 +361,10 @@ describe('начатые партии', () => {
     expect(old.army.spearman, 'после отсрочки и срока — уходят').toBeLessThan(300);
   });
 
-  it('новая партия платит с первой секунды и начинает с умеренным налогом', () => {
+  it('новая партия платит с первой секунды и начинает с высоким налогом', () => {
     const s = createInitialState();
     expect(s.pay.from).toBe(0);
-    expect(s.tax).toBe('moderate');
+    expect(s.tax).toBe('high');
     expect(TROOP_IDS.every((id) => wageOf(s, id) > 0)).toBe(true);
   });
 });

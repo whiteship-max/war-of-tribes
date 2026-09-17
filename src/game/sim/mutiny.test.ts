@@ -610,6 +610,8 @@ describe('невольничий ряд — та же лавка, а не вто
 
   it('купить и тут же продать — отдать разницу торговцам, а не нажиться', () => {
     const s = town();
+    // Пока караван идёт, в казну капает налог; мерка здесь — торговля, а не сбор.
+    s.tax = 'none';
     const gold = s.gold;
     expect(buyGoods(s, 'bonded', 5)).toBeNull();
     catchUp(s, s.caravans[0].arriveAt - s.time + 1, 1);
