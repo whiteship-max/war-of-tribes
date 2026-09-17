@@ -6,7 +6,9 @@
 // налог как житель, и это видно само), еда — `productionPerDay`, `townFoodPerDay`,
 // `soldierFoodPerDay`, уход — настоящий шаг при игроке (`tick`), отсрочка старой
 // партии — настоящее чтение сохранения (`deserialize`). Посёлок на каждом этапе —
-// прогон автопилота. Своей арифметики здесь ровно два места, и оба подписаны:
+// прогон общего автопилота (`scripts/autopilot.ts`) в тихом мире: живая игра при игроке,
+// ответы на события, вера, которую мир называет деревне. Сроки ухода — стенд правила (`stand`):
+// время идёт на подготовленном посёлке, никто ничего не решает. Своей арифметики здесь ровно два места, и оба подписаны:
 // отвергнутые способы делить жалованье и постоянная доля закята — то, чего в игре нет
 // и что таблицей показано, почему нет.
 //
@@ -16,7 +18,6 @@ import type { FaithId, GameState, Season, TroopId } from '@/game/types';
 import type { TaxId } from '@/game/data/policy';
 import { createInitialState } from '@/game/state';
 import { deserialize, serialize } from '@/game/save';
-import { tick, catchUp } from '@/game/sim/tick';
 import { seeded, setRandom } from '@/game/sim/random';
 import {
   armySize,
@@ -48,7 +49,7 @@ import {
   LAIR_LOOT_PER_POWER,
   LAIR_RIPE,
 } from '@/world/data/tuning';
-import { build, staff } from './autopilot';
+import { pilot, player, stand } from './autopilot';
 
 /**
  * Казна и добро логова до роста от жителей (коммит 528a768): мощь — опора × дозревание,
@@ -95,22 +96,36 @@ interface Run {
   stages: GameState[];
 }
 
-/** Партия автопилотом с налогом и верой, без армии: казна по часам и посёлок на этапах. */
-function play(tax: TaxId, faith: FaithId | null, hours: number): Run {
+/** Мир партий раздела — тихий (набегов нет): он называет деревне веру, и больше ничего. */
+const WORLD = 7;
+
+/**
+ * Партия общим автопилотом с налогом, без армии: казна по часам и посёлок на этапах. `faith` — вера,
+ * поставленная до прогона (мир её не сменит); `null` — вера, которую называет мир.
+ */
+async function play(tax: TaxId, faith: FaithId | null, hours: number): Promise<Run> {
   setRandom(seeded(1));
   const s = createInitialState();
   s.tutorialDone = true;
-  s.tax = tax;
   s.faith.id = faith;
   const gold: number[] = [];
   const stages: GameState[] = [];
-  for (let t = STEP; t <= hours * 3600; t += STEP) {
-    staff(s);
-    build(s);
-    catchUp(s, STEP, 1);
-    if (t % 3600 === 0) gold.push(Math.round(s.gold));
-    for (const [, at] of STAGES) if (t === at) stages.push(clone(s));
-  }
+  await pilot({
+    g: s,
+    seconds: hours * 3600,
+    player: player(null, { tax }),
+    world: { seed: WORLD, pulse: STEP, raids: false },
+    economy: 'live',
+    tick: 1,
+    decide: STEP,
+    watch: {
+      after: ({ g, now }) => {
+        const t = Math.round(now / 1000);
+        if (t % 3600 === 0) gold.push(Math.round(g.gold));
+        for (const [, at] of STAGES) if (t === at) stages.push(clone(g));
+      },
+    },
+  });
   return { gold, stages };
 }
 
@@ -164,18 +179,23 @@ function live(s0: GameState, over: (s: GameState) => void): GameState {
 function days(s: GameState, marks: number[], opts: { feed?: boolean; on?: (s: GameState, day: number) => void } = {}): GameState[] {
   const out: GameState[] = [];
   const end = Math.max(...marks);
-  let day = 0;
-  for (let step = 0; day <= end + 1e-9; step++) {
-    day = (step * DT) / DAY_LENGTH;
-    if (step % Math.round(DAY_LENGTH / DT) === 0) opts.on?.(s, Math.round(day));
-    if (marks.some((m) => Math.abs(m - day) < DT / DAY_LENGTH / 2)) out.push(clone(s));
-    tick(s, DT);
-    if (opts.feed !== false) s.resources.food = Math.max(s.resources.food, 5000);
-  }
+  stand(s, {
+    dt: DT,
+    // Последний шаг — первый, на котором день уже перешёл за последнюю отметку.
+    steps: Math.floor(((end + 1e-9) * DAY_LENGTH) / DT) + 2,
+    before: (x, step) => {
+      const day = (step * DT) / DAY_LENGTH;
+      if (step % Math.round(DAY_LENGTH / DT) === 0) opts.on?.(x, Math.round(day));
+      if (marks.some((m) => Math.abs(m - day) < DT / DAY_LENGTH / 2)) out.push(clone(x));
+    },
+    after: (x) => {
+      if (opts.feed !== false) x.resources.food = Math.max(x.resources.food, 5000);
+    },
+  });
   return out;
 }
 
-export function upkeepSection(): void {
+export async function upkeepSection(): Promise<void> {
   const s0 = createInitialState();
   console.log('\n══════ Содержание войска ══════');
   console.log(
@@ -188,25 +208,26 @@ export function upkeepSection(): void {
 
   // --- Казна как есть ---
   const runs: [string, TaxId, FaithId | null][] = [
-    ['без налога', 'none', null],
-    ['умеренный', 'moderate', null],
-    ['высокий', 'high', null],
+    ['без налога, вера мира', 'none', null],
+    ['умеренный, вера мира', 'moderate', null],
+    ['высокий, вера мира', 'high', null],
     ['без налога, католики', 'none', 'catholic'],
     ['умеренный, католики', 'moderate', 'catholic'],
-    ['умеренный, ислам', 'moderate', 'islam'],
+    ['умеренный, язычники', 'moderate', 'pagan'],
   ];
-  console.log('\nКазна без войска (автопилот 6 ч, стартовые 320, уклад прихода обычный):');
+  console.log(`\nКазна без войска (общий автопилот 6 ч в тихом мире ${WORLD}, стартовые 320, уклад прихода обычный; «вера мира» — та, что называет мир):`);
   console.log('  налог и вера           |    1 ч |    2 ч |    3 ч |    4 ч |    5 ч |    6 ч');
   let base: Run | null = null;
   for (const [name, tax, faith] of runs) {
-    const r = play(tax, faith, 6);
+    const r = await play(tax, faith, 6);
     if (tax === 'moderate' && !faith) base = r;
     console.log(`  ${name.padEnd(22)} | ${r.gold.map((g) => pad(g, 6)).join(' | ')}`);
   }
   const stages = base!.stages;
+  console.log(`  (вера мира ${WORLD} — ${stages[0].faith.id ?? 'нет'})`);
 
   // --- Этапы ---
-  console.log('\nЭтапы партии (посёлок из прогона с умеренным налогом), доход казны за игровой день без армии:');
+  console.log('\nЭтапы партии (посёлок из прогона с умеренным налогом и верой мира), доход казны за игровой день без армии; «без веры» у дохода — та же копия с верой, снятой вручную:');
   console.log('  этап     | люди | храм | без нал. | умер. | выс. | умер.+католики | умер.+ислам');
   for (let i = 0; i < stages.length; i++) {
     const s = stages[i];

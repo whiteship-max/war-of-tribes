@@ -18,18 +18,19 @@
 //     5 миров, случаи «всё дома», «увёл тяжёлых», «увёл лёгких»; вера мира и православная деревня (вера
 //     подставлена).
 import { LocalWorld } from '@/world/local/LocalWorld';
-import { awayTroops, militiaArchers, militiaMen, playerProfile, syncAway } from '@/world/bridge';
+import { awayTroops, militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { awayOf, homeOf, NOBODY_AWAY, type Away } from '@/world/muster';
 import { faithAt } from '@/world/faith';
 import { lairPower, lairRaid } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
-import type { MarchView, FigureView, PlayerProfile } from '@/world/types';
+import type { PlayerProfile } from '@/world/types';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { armySize, defense, faithTilt, homeArmyPower, mutinyForecast } from '@/game/derived';
 import { dismissCheck } from '@/game/sim/upkeep';
 import type { FaithId, GameState, TroopId } from '@/game/types';
-import { SEEDS, START, mean, pad, pct, q, sum, tally, townAt, type Inside } from './raid-lair-growth';
+import { SEEDS, mean, pad, pct, q, sum, tally } from './raid-lair-growth';
+import { START, openSky, townAt, type Inside } from './autopilot';
 import { NAME, live, type Out } from './raid-hiring';
 
 interface Case {
@@ -112,35 +113,29 @@ function displayPart(): void {
 const BENCH_SEEDS = 40;
 const SHARES = Array.from({ length: 27 }, (_, i) => 0.2 + i * 0.1);
 
-/** Мир, где полководец увёл `take` в поле и стоит там. Возвращает мир и минуту боя. */
+/**
+ * Мир, где полководец увёл `take` в поле и стоит там. Возвращает мир и минуту боя. Время ведёт стенд, а
+ * мир и пульс — общие (`autopilot.openSky`), мир как есть, посёлок стоит.
+ */
 async function fieldWorld(g: GameState, seed: number, take: readonly TroopId[]): Promise<{ world: LocalWorld; at: number }> {
-  let now = START;
-  const world = new LocalWorld({ seed, now: () => now, storage: null });
-  const w: Inside = world;
-  let marches: MarchView[] = [];
-  let figures: FigureView[] = [];
-  const pulse = async (): Promise<void> => {
-    const p = await world.sync(playerProfile(g, awayOf(marches, figures)));
-    syncAway(g, p.marches, p.figures);
-    marches = p.marches;
-    figures = p.figures;
-  };
-  await pulse();
+  const sky = openSky(g, { seed, pulse: 30, raids: true });
+  const w: Inside = sky.world;
+  await sky.pulse();
   const troops = pick(g.army, take);
   if (troopTotal(troops) > 0) {
-    const err = await world.setGarrison(troops);
+    const err = await sky.world.setGarrison(troops);
     if (err) throw new Error(`setGarrison: ${err}`);
-    now = w.save.figures.general.handover.until;
-    await pulse();
+    sky.at(w.save.figures.general.handover.until);
+    await sky.pulse();
     const home = w.save.home;
-    const err2 = await world.moveFigure('general', { x: home.x + 4, y: home.y });
+    const err2 = await sky.world.moveFigure('general', { x: home.x + 4, y: home.y });
     if (err2) throw new Error(`moveFigure: ${err2}`);
-    now = w.save.figures.general.arriveAt;
-    await pulse();
+    sky.at(w.save.figures.general.arriveAt);
+    await sky.pulse();
     // Второй пульс: слепок, собранный по спискам мира с прошлого пульса, догоняет место дружины.
-    await pulse();
+    await sky.pulse();
   }
-  return { world, at: now };
+  return { world: sky.world, at: sky.now() };
 }
 
 /** Доля прорывов при силе набега `power`: настоящий бой у стены, ничего не трогая. */
@@ -160,12 +155,14 @@ async function benchPart(): Promise<void> {
   console.log('«полпути» — сила, при которой прорывается половина боёв (между соседними ступенями — линейно), и она же в долях обороны.');
   console.log('«набег логова» — дозревшее логово медианной опоры при жителях посёлка (lairs.lairRaid), прорывов при нём.');
   console.log('«сверка» — ополчение и стрелки башни в слепке мира против подстановки по составу (в бой из обороны входят только они).');
+  console.log('«вера мира» — вера, которую мир называет пульсом (у мира этого стенда — своя, печатается в разделе 3).');
   console.log(' ур  вера           случай                              дома  оборона  ополчение  полпути  к обороне  набег логова  прорывов при нём  сверка');
   for (const level of [10]) {
     for (const faith of [null, 'orthodox'] as const) {
       for (const c of CASES) {
         const g = withFaith(townAt(level), faith);
         const { world, at } = await fieldWorld(g, SEEDS[0], c.take);
+        const label = faith ?? 'вера мира';
         const w: Inside = world;
         const home = w.defenders(at).all as TroopStack;
         const comp = byComposition(g, home);
@@ -182,7 +179,7 @@ async function benchPart(): Promise<void> {
         }
         const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : '—');
         console.log(
-          ` ${pad(level, 2)}  ${(faith ?? 'без веры').padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(d), 7)}  ${pad(w.save.profile.militia, 9)}  ${pad(Number.isFinite(half) ? Math.round(half) : '—', 7)}  ${pad(fmt(half / d), 9)}  ${pad(Math.round(raid), 12)}  ${pad(pct(breakShare(w, at, raid)), 16)}  ${same ? 'совпала' : 'РАЗОШЛАСЬ'}`,
+          ` ${pad(level, 2)}  ${label.padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(d), 7)}  ${pad(w.save.profile.militia, 9)}  ${pad(Number.isFinite(half) ? Math.round(half) : '—', 7)}  ${pad(fmt(half / d), 9)}  ${pad(Math.round(raid), 12)}  ${pad(pct(breakShare(w, at, raid)), 16)}  ${same ? 'совпала' : 'РАЗОШЛАСЬ'}`,
         );
       }
     }

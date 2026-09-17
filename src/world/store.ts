@@ -12,9 +12,7 @@ import { probe, revealWorld, takeBakes, takeCosts, takeGaps } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi } from './api';
 import { LocalWorld, type LocalWorldOptions } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
-import { applyEffects, playerProfile, syncAway, syncSiege } from './bridge';
-import { awayOf } from './muster';
-import { syncFaith } from '@/game/sim/faith';
+import { tribePulse } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
 import { heroReady } from '@/game/derived';
@@ -377,33 +375,21 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   pulse: async () => {
     if (!hasWorldApi()) return;
-    const game = useGame.getState();
-    // Кто сейчас не дома, знает мир: походы и войско при полководце. Слепок
-    // везёт всё войско, а гарнизон мир считает сам; списки с прошлого пульса
-    // нужны здесь только расстановке обороны (`playerProfile`).
-    const away = awayOf(get().marches, get().figures);
-    const pulse = await worldApi().sync(playerProfile(game.s, away));
-
-    // Последствия походов применяются раньше, чем пересчитываются ушедшие: в
-    // момент прихода отряда герой ещё числится в походе, и по этому и понятно,
-    // что павший — именно он (см. applyExpedition и syncAway).
+    // Пульс племени — одна дверь на игру и на автопилот отчётов (`bridge.tribePulse`): слепок,
+    // последствия, ушедшие, осада и вера. Состояние правится на месте, по свежему объекту стора;
+    // перерисовку сделает ближайший тик симуляции — лишний рендер на каждый пульс (`PULSE_MS`)
+    // не нужен. Последствия — другое дело: их игрок должен увидеть сразу.
+    const pulse = await tribePulse(
+      worldApi(),
+      { get: () => useGame.getState().s, apply: (change) => change(useGame.getState().s) },
+      { marches: get().marches, figures: get().figures },
+    );
     if (pulse.effects.length > 0) {
-      useGame.getState().world((s) => applyEffects(s, pulse.effects));
+      useGame.getState().world(() => {});
       // Последствие без строки — одно дело агента (разведчик дошёл до логова): это
       // не событие, и телефон вздрагивать из-за него не должен.
       if (pulse.effects.some((e) => e.text || e.fell || e.retired)) haptic('medium');
     }
-    // Число ушедших выводится из походов: правим состояние на месте, перерисовку
-    // сделает ближайший тик симуляции — лишний рендер на каждый пульс (`PULSE_MS`) не нужен.
-    syncAway(game.s, pulse.marches, pulse.figures);
-    // Осада режет выработку в тике, поэтому она обязана доехать до состояния
-    // племени, а не остаться картинкой на экране карты.
-    syncSiege(game.s, pulse.siege, pulse.now);
-    // Вера земли под замком и чужая вера вокруг. Первый ответ мира ставит веру
-    // новой партии — до него храм честно говорит, что грамоты из округи ещё не
-    // пришли, и подставлять католичество «пока не знаем» нельзя: деревня под
-    // Вильнюсом сменила бы веру молча.
-    syncFaith(game.s, pulse.faith.id, pulse.faith.pressure);
     if (pulse.reports.length > 0) {
       useGame.getState().showToast(pulse.reports[0].title);
       // Список мог быть уже открыт: без этого свежий отчёт не появится, пока

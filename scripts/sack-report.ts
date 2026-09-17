@@ -31,7 +31,7 @@
 //  4. **Цена взятого города.** Склад держит минуты выработки, люди удваиваются
 //     за двадцать минут, и до пяти построек по уровню грабёж не стоил
 //     проигравшему ничего. Раздел «лестница» меряет, чем он стал, на семи этапах
-//     партии тем же автопилотом, что `pop:report`, и сколько уходит казны
+//     партии общим автопилотом (`scripts/autopilot.ts`, мир тихий), и сколько уходит казны
 //     (docs/DEFEAT_LADDER.md).
 //
 //  5. **Лазарет.** Сколько бойцов игрок теряет в настоящем мире, какая ёмкость и какой
@@ -67,7 +67,6 @@ import {
   SACK_POWER_LOSS,
 } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
-import { catchUp } from '@/game/sim/tick';
 import { autoAssign } from '@/game/sim/workers';
 import {
   maxLevelFor,
@@ -84,10 +83,10 @@ import { FATE_DEFAULT, FATE_IDS, HEAD_CARRY, fallSeed, fate, homeLoss, plunder }
 import { FATE_META } from '@/world/data/fates';
 import { bondedTotal } from '@/game/derived';
 import type { Fate } from '@/world/types';
-import { applyEffects, playerProfile } from '@/world/bridge';
+import { playerProfile } from '@/world/bridge';
 import { seeded, setRandom } from '@/game/sim/random';
 import type { GameState, ResourceId } from '@/game/types';
-import { build, staff } from './autopilot';
+import { land, pilot, playedFor, player } from './autopilot';
 import { stackCarry } from '@/world/data/units';
 import type { WorldSave } from '@/world/local/state';
 import type { HomeEffect, Loot, PlayerProfile, SettlementView } from '@/world/types';
@@ -174,12 +173,12 @@ console.log('');
 
 // ------------------------------------ час грабежа против часа хозяйства ---
 
-/** Что посёлок добывает за реальный час: игровой день — минута, значит их 60. */
-function perHour(hours: number): number {
-  const s = createInitialState();
-  autoAssign(s);
-  if (hours > 0) catchUp(s, hours * 3600);
-  autoAssign(s);
+/**
+ * Что посёлок добывает за реальный час: игровой день — минута, значит их 60. `hours` партии играет
+ * общий автопилот в тихом мире; выработка меряется на посёлке, расставленном `autoAssign`.
+ */
+async function perHour(hours: number): Promise<number> {
+  const s = await playedFor(hours);
   const per = productionPerDay(s);
   return RESOURCE_IDS.reduce((n, r) => n + Math.max(0, per[r] ?? 0), 0) * (3600 / DAY_LENGTH);
 }
@@ -308,13 +307,13 @@ console.log(
 );
 console.log('Победитель забирает остальное целиком — столько, сколько поднимет отряд.');
 console.log('');
-console.log(`  Хозяйство: старт ${Math.round(perHour(0))} ед./ч, через 2 ч партии ${Math.round(perHour(2))} ед./ч.`);
+console.log(`  Хозяйство: старт ${Math.round(await perHour(0))} ед./ч, через 2 ч партии ${Math.round(await perHour(2))} ед./ч (общий автопилот, мир тихий).`);
 console.log('');
 console.log('  сид   набегов/ч   за набег   первый двор   грабёж, ед./ч   к хозяйству   войн');
 
 let sumLoot = 0;
 let sumFarm = 0;
-const farm = perHour(2);
+const farm = await perHour(2);
 for (const seed of SEEDS) {
   const r = await plunderRun(seed, HOURS);
   sumLoot += r.loot;
@@ -554,13 +553,25 @@ const LADDER_GOAL = 3600;
 const LADDER_HORIZON = 5 * 3600;
 /** Соли выбора пяти построек на этап: цена зависит от того, какие попались. */
 const LADDER_SEEDS = [1, 2, 3, 4, 5];
+/** Мир лестницы — тихий: набегов нет, он называет посёлку веру и больше ничего не делает. */
+const LADDER_WORLD = 7;
 
-const ladderRun = (s: GameState, seconds: number): void => {
-  for (let t = 0; t < seconds; t += LADDER_STEP) {
-    staff(s);
-    build(s);
-    catchUp(s, LADDER_STEP, LADDER_SIM);
-  }
+/**
+ * Партия общим автопилотом: живая игра при игроке, ответы на события, вера мира. Решает раз в
+ * `LADDER_STEP`, шаг симуляции `LADDER_SIM`, пульс тихого мира — тем же тактом. `until` — цель.
+ */
+const ladderRun = async (s: GameState, seconds: number, until?: (x: GameState) => boolean): Promise<void> => {
+  if (seconds <= 0) return;
+  await pilot({
+    g: s,
+    seconds,
+    player: player(null),
+    world: { seed: LADDER_WORLD, pulse: LADDER_STEP, raids: false },
+    economy: 'live',
+    tick: LADDER_SIM,
+    decide: LADDER_STEP,
+    until,
+  });
 };
 const levelSum = (s: GameState): number => s.buildings.reduce((n, b) => n + b.level, 0);
 
@@ -596,7 +607,7 @@ function strike(s: GameState, blow: Blow, seed: number): { fell: number; rebuild
     good: false,
     ...homeLoss(r),
   };
-  applyEffects(s, [effect]);
+  land(s, [effect]);
   let fell = 0;
   let rebuild = 0;
   const need: Partial<Record<ResourceId, number>> = {};
@@ -617,15 +628,15 @@ function strike(s: GameState, blow: Blow, seed: number): { fell: number; rebuild
 }
 
 /** Через сколько секунд после копии тронутая партия догнала цель; null — не догнала за горизонт. */
-function reach(s: GameState, goalLevels: number, goalPop: number, stageSeed: number): number | null {
+async function reach(s: GameState, goalLevels: number, goalPop: number, stageSeed: number): Promise<number | null> {
   setRandom(seeded(stageSeed));
-  for (let t = 0; t < LADDER_HORIZON; t += LADDER_STEP) {
-    staff(s);
-    build(s);
-    catchUp(s, LADDER_STEP, LADDER_SIM);
-    if (levelSum(s) >= goalLevels && s.pop >= goalPop) return t + LADDER_STEP;
-  }
-  return null;
+  const t0 = s.time;
+  let hit: number | null = null;
+  await ladderRun(s, LADDER_HORIZON, (x) => {
+    if (levelSum(x) >= goalLevels && x.pop >= goalPop) hit = Math.round(x.time - t0);
+    return hit !== null;
+  });
+  return hit;
 }
 
 const lagText = (sec: number | null): string =>
@@ -637,8 +648,8 @@ console.log('=== ЛЕСТНИЦА: ЧТО СТОИТ ВЗЯТЫЙ ГОРОД ===
 console.log('Ступеней три, и выбирает её победитель приказом. Отставание ниже меряется на первой —');
 console.log(`«ограбить»: склад и казна до тайника, сколько унесёт обоз, и ${FALL_BUILDINGS} построек (кроме тайника)`);
 console.log(`теряют по ${FALL_LEVELS} уровню, не ниже первого; невольники остаются. Цену всех трёх ступеней на тех же`);
-console.log('этапах — таблица «три ступени» в конце раздела. Автопилот pop:report, копия на этапе, участь');
-console.log('настоящим путём (слепок → spoils.fate → homeLoss → applyEffects), догон тем же сидом событий.');
+console.log('этапах — таблица «три ступени» в конце раздела. Общий автопилот (мир тихий), копия на этапе, участь');
+console.log('настоящим путём (слепок → spoils.fate → homeLoss → последствие), игра дальше тем же сидом событий.');
 console.log('Отставание — насколько позже тронутая партия дошла до того, где нетронутая стояла');
 console.log('через час. Ноль — не стоило ничего; минуты в минус — шум автопилота.');
 console.log('');
@@ -673,7 +684,7 @@ function ladderSteps(snap: GameState, seed: number): StepLoss[] {
     const bonded0 = bondedTotal(s);
     const levels0 = s.buildings.reduce((n, b) => n + b.level, 0);
     const works0 = s.buildings.filter((b) => b.workRequired > 0).length;
-    applyEffects(s, [{ id: 'лестница', lost: {}, prestige: 0, morale: 0, battle: null, text: 'Город взят.', good: false, ...homeLoss(r) }]);
+    land(s, [{ id: 'лестница', lost: {}, prestige: 0, morale: 0, battle: null, text: 'Город взят.', good: false, ...homeLoss(r) }]);
     const popLost = pop0 - s.pop;
     const bondedLost = bonded0 - bondedTotal(s);
     return {
@@ -714,22 +725,23 @@ const ladder: LadderRow[] = [];
   for (const h of LADDER_STAGES) {
     const stage = h * 3600;
     setRandom(seeded(7 + stage));
-    ladderRun(base, stage - clock);
+    await ladderRun(base, stage - clock);
     clock = stage;
     const snap = structuredClone(base);
     const stageSeed = 1000 + stage;
     const free = structuredClone(snap);
     setRandom(seeded(stageSeed));
-    ladderRun(free, LADDER_GOAL);
+    await ladderRun(free, LADDER_GOAL);
     const goalL = levelSum(free);
     const goalP = free.pop;
     const p = playerProfile(snap);
-    const tryBlow = (blow: Blow, seed: number) => {
+    const tryBlow = async (blow: Blow, seed: number) => {
       const c = structuredClone(snap);
       const hit = strike(c, blow, seed);
-      return { ...hit, lag: reach(c, goalL, goalP, stageSeed) };
+      return { ...hit, lag: await reach(c, goalL, goalP, stageSeed) };
     };
-    const levels = LADDER_SEEDS.map((k) => tryBlow({ stock: false, levels: true, morale: 0 }, fallSeed(k, stage * 1000)));
+    const levels = [];
+    for (const k of LADDER_SEEDS) levels.push(await tryBlow({ stock: false, levels: true, morale: 0 }, fallSeed(k, stage * 1000)));
     const moderate = { ...snap, tax: 'moderate' } as GameState;
     ladder.push({
       stage: h,
@@ -739,13 +751,13 @@ const ladder: LadderRow[] = [];
       steps: ladderSteps(snap, fallSeed(1, stage * 1000)),
       stash: p.stash,
       goldHour: taxIncomePerDay(moderate) * (3600 / DAY_LENGTH),
-      plunderOnly: tryBlow({ stock: true, levels: false, morale: 0 }, 0).lag,
+      plunderOnly: (await tryBlow({ stock: true, levels: false, morale: 0 }, 0)).lag,
       levelsLag: levels.map((x) => (x.lag === null ? Infinity : x.lag)),
       fell: levels.map((x) => x.fell),
       rebuild: levels.map((x) => x.rebuild),
       narrow: levels.map((x) => x.narrow),
-      hunger: tryBlow({ stock: true, levels: true, morale: -12 }, fallSeed(1, stage * 1000)).lag,
-      raid: tryBlow({ stock: true, levels: true, morale: -10, sacked: 1 }, fallSeed(1, stage * 1000)).lag,
+      hunger: (await tryBlow({ stock: true, levels: true, morale: -12 }, fallSeed(1, stage * 1000))).lag,
+      raid: (await tryBlow({ stock: true, levels: true, morale: -10, sacked: 1 }, fallSeed(1, stage * 1000))).lag,
     });
   }
 }

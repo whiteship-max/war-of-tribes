@@ -4,8 +4,9 @@
 // полным даром: убитые возвращались между пульсами, казна и склад не платили ничего, а посёлок
 // не жил вовсе — ни выработки, ни жалованья, ни еды. Раздел меряет то же самое с игроком, который
 // **нанимает**: платит ресурсами найма, снаряжением из кузницы, свободными руками, временем казарм,
-// жалованьем из казны и едой — шагом самой игры (`tick`), при игроке. Прогон тот же — `play` из
-// раздела роста логова, — поэтому столбцы сравниваются с его таблицами напрямую.
+// жалованьем из казны и едой — шагом самой игры (`tick`), при игроке. Прогон — общий автопилот
+// (`scripts/autopilot.ts`), тот же, что у раздела роста логова, — поэтому столбцы сравниваются с его
+// таблицами напрямую.
 //
 // Поведения (у каждого — свои числа, усреднять их нельзя, это разные игроки):
 //
@@ -15,7 +16,7 @@
 //    с решения владельца по этому замеру это и налог новой партии (docs/hiring.md, раздел 9);
 //  - **всё, что прокормит** — нанимает, пока еды приходит не меньше, чем уходит (сезон нынешний),
 //    о казне не думает; не распускает;
-//  - **строит** — не пополняет войско, на лагерь нанимает дубинщиков (`play.hire`, как новичок
+//  - **строит** — не пополняет войско, на лагерь нанимает дубинщиков (`Player.siegeLevy`, как новичок
 //    «нанимает на осаду»); в партии с первой секунды — ещё и строит.
 //
 // Налог у поведений закреплён, а не взят у новой партии: высокий — у «высокого налога»,
@@ -27,10 +28,10 @@
 // бойцов проверяется настоящими `wagesPerDay`, `taxIncomePerDay`, `productionPerDay` и
 // `foodConsumptionPerDay` на том же посёлке с этими бойцами, а не своей арифметикой.
 //
-// События: автопилот раздела роста логова на события не отвечал, и первое же висело на столе до
-// конца прогона. Мятеж поднимается только на пустой стол, поэтому здесь на событие отвечают
-// первым бесплатным вариантом (он есть у каждого — тест `data/events.test.ts`), а на мятеж не
-// отвечают: окно ждёт `MUTINY_ANSWER`, и стража выходит сама.
+// События: на событие игрок отвечает первым бесплатным вариантом (он есть у каждого — тест
+// `data/events.test.ts`) — это делает общий автопилот у всех отчётов; прежде автопилот роста логова
+// не отвечал, и первое же событие висело до конца прогона, а мятеж поднимается только на пустой стол.
+// На мятеж не отвечают: окно ждёт `MUTINY_ANSWER`, и стража выходит сама.
 //
 // Разделы:
 //  А. Лестница мерки — посёлок уровня L живёт 4 ч, логова дозрели. Уровни построек стоят: мерка —
@@ -38,23 +39,16 @@
 //  Б. Партия с первой секунды, 6 ч, строит каждый.
 //  В. Уведённые люди: полководец с половиной войска берёт логова голодом на ступени «увести людей»,
 //     дома нанимают по средствам; что это делает с руками, порядком и мятежом за 6 ч.
-import type { EquipmentId, GameState, ResourceId, TroopId } from '@/game/types';
+import type { GameState, ResourceId, TroopId } from '@/game/types';
 import type { FigureView, HomeEffect, PlayerProfile } from '@/world/types';
 import { HOME_ID, type LocalWorld } from '@/world/local/LocalWorld';
 import { awayOf, homeOf, type Away } from '@/world/muster';
 import { lairArmsBase, lairPop, lairPower, lairShield } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_POWER_BASE, LAIR_POWER_PER_LEVEL, LAIR_RIPE, LAIR_STEP, SIEGE_IMMUNE } from '@/world/data/tuning';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
-import { startRecruit, recruitCost } from '@/game/sim/army';
-import { forgeCost, startForge } from '@/game/sim/smithy';
-import { dismissSoldiers } from '@/game/sim/upkeep';
-import { assignBonded, assignWorker } from '@/game/sim/workers';
+import { assignBonded } from '@/game/sim/workers';
 import { releaseBonded } from '@/game/sim/mutiny';
-import { resolveEvent } from '@/game/sim/actions';
-import { EVENT_BY_ID } from '@/game/data/events';
-import { MUTINY_EVENT } from '@/game/data/order';
-import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
-import { EQUIPMENT_IDS, EQUIPMENT_BY_ID } from '@/game/data/equipment';
+import { TROOP_IDS } from '@/game/data/troops';
 import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
 import { ORDER_UNREST, ORDER_WARN, RESOURCE_IDS } from '@/game/constants';
@@ -62,46 +56,34 @@ import {
   armySize,
   bondedIdle,
   bondedTotal,
-  buildingOfType,
   buildingSlots,
   defense,
-  foodConsumptionPerDay,
-  forgeRate,
   handsCount,
-  idleCount,
   orderBreakdown,
   payGraceDays,
   productionPerDay,
   takesBonded,
   taxIncomePerDay,
   upkeepInfo,
-  wageOf,
   wagesPerDay,
 } from '@/game/derived';
-import { build, staff } from './autopilot';
 import {
+  FORGE_AHEAD,
   GAME,
   MIN,
-  MIX,
-  NEW_SEEDS,
-  SEEDS,
   START,
-  hm,
-  mean,
-  pad,
-  pct,
-  play,
-  q,
-  sum,
-  tally,
+  pilot,
+  player,
   townAt,
+  unitCost,
   type Inside,
+  type Ledger,
+  type Player,
   type Run,
   type Step,
-} from './raid-lair-growth';
-
-/** Кузница заказывает недостачу, но не дальше стольких минут своей работы вперёд. */
-const FORGE_AHEAD = 10 * MIN;
+  type Stop,
+} from './autopilot';
+import { NEW_SEEDS, SEEDS, hm, mean, pad, pct, q, sum, tally } from './raid-lair-growth';
 
 type Style = 'means' | 'meansHigh' | 'feed' | 'builder';
 const STYLES: Style[] = ['means', 'meansHigh', 'feed', 'builder'];
@@ -112,250 +94,34 @@ export const NAME: Record<Style, string> = {
   builder: 'строит',
 };
 
-/** Что остановило найм на этом пульсе. */
-type Stop = 'цель' | 'казна' | 'еда' | 'руки' | 'снаряжение' | 'ресурсы';
-
-const queued = (g: GameState, id: TroopId): number =>
-  g.recruits.filter((r) => r.troop === id).reduce((n, r) => n + r.count - r.done, 0);
-
 /**
- * Держит ли посёлок ещё `n` бойцов вида `id` сверх нынешних и стоящих в очереди. Проверяется
- * замером: бойцы кладутся в состояние, читаются функции игры, состояние возвращается.
+ * Поведение — это игрок общего автопилота с параметрами, а не свой автопилот. Налог закреплён у
+ * поведения: высокий — у «высокого налога», умеренный — у остальных.
  */
-function affords(g: GameState, style: Style, id: TroopId, n: number): Stop | null {
-  const extra: Partial<Record<TroopId, number>> = {};
-  for (const t of TROOP_IDS) extra[t] = queued(g, t) + (t === id ? n : 0);
-  const was = { ...g.army };
-  const pop = g.pop;
-  for (const t of TROOP_IDS) g.army[t] += extra[t] ?? 0;
-  g.pop -= n;
-  let stop: Stop | null = null;
-  if (style === 'feed') {
-    if (productionPerDay(g).food < foodConsumptionPerDay(g)) stop = 'еда';
-  } else if (wagesPerDay(g) > taxIncomePerDay(g)) stop = 'казна';
-  Object.assign(g.army, was);
-  g.pop = pop;
-  return stop;
-}
+const playerOf = (style: Style, over: Partial<Player> = {}): Player =>
+  style === 'builder'
+    ? player(null, { tax: 'moderate', build: false, siegeLevy: true, ...over })
+    : player(style === 'feed' ? 'feed' : 'means', { tax: style === 'meansHigh' ? 'high' : 'moderate', build: false, ...over });
 
-interface Ledger {
-  hired: number;
-  dismissed: number;
-  deserted: number;
-  /** Из ушедших — остались в посёлке жителями (ушли неуплатой, а крыша нашлась). */
-  returned: number;
-  /** Причины ухода по пульсам, где войско уходило. */
+/** Счёт найма сверх того, что ведёт сам автопилот: жалованье, доход, дома и восстановление после боя. */
+interface HireLedger extends Ledger {
+  /** Причины ухода по решениям, где войско уходило. */
   whyPay: number;
   whyFood: number;
-  spent: number;
-  /** Ресурсы найма и ковки по видам. */
-  spentBy: Partial<Record<ResourceId, number>>;
-  stops: Partial<Record<Stop, number>>;
   wages: number[];
   income: number[];
   debt: number;
   armyHome: number[];
-  /** Жители и оборона посёлка по пульсам. */
+  /** Жители и оборона посёлка по решениям. */
   pops: number[];
   defs: number[];
   /** Восстановление после удержанного боя: сколько мс до прежнего числа дома; null — не успели. */
   restore: { at: number; target: number; lost: number; done: number | null; cost: number }[];
-  mutinies: number;
-  mutinyHeld: number;
-  seenLog: WeakMap<object, number>;
-  lastMutiny: number;
-}
-
-const ledger = (): Ledger => ({
-  hired: 0,
-  dismissed: 0,
-  deserted: 0,
-  returned: 0,
-  whyPay: 0,
-  whyFood: 0,
-  spent: 0,
-  spentBy: {},
-  stops: {},
-  wages: [],
-  income: [],
-  debt: 0,
-  armyHome: [],
-  pops: [],
-  defs: [],
-  restore: [],
-  mutinies: 0,
-  mutinyHeld: 0,
-  seenLog: new WeakMap(),
-  lastMutiny: -1,
-});
-
-const spend = (l: Ledger, cost: Partial<Record<ResourceId, number>>): void => {
-  for (const r of RESOURCE_IDS) {
-    const v = cost[r] ?? 0;
-    if (v <= 0) continue;
-    l.spent += v;
-    l.spentBy[r] = (l.spentBy[r] ?? 0) + v;
-  }
-};
-
-/** Сколько добра стоит один боец вида целиком: припас найма и снаряжение по цене ковки. */
-const unitCost = (id: TroopId): number => {
-  let n = sum(Object.values(recruitCost(id, 1)).map((v) => v ?? 0));
-  for (const [item, per] of Object.entries(TROOP_BY_ID[id].gear)) {
-    n += (per ?? 0) * sum(Object.values(forgeCost(item as EquipmentId, 1)).map((v) => v ?? 0));
-  }
-  return n;
-};
-
-/** Сколько бойцов каждого вида хочет мерка при общем числе `n`: та же раскладка, что у `townAt`. */
-function wantOf(n: number): TroopStack {
-  const out: TroopStack = {};
-  const ids = Object.keys(MIX) as TroopId[];
-  const whole = sum(ids.map((id) => MIX[id] ?? 0));
-  let left = n;
-  ids.forEach((id, i) => {
-    const k = i === ids.length - 1 ? left : Math.round((n * (MIX[id] ?? 0)) / whole);
-    out[id] = k;
-    left -= k;
-  });
-  return out;
-}
-
-/** Укомплектовать кузницу: у нанимающего горн не стоит на двух процентах племени. */
-function staffSmithy(g: GameState): void {
-  const b = buildingOfType(g, 'smithy');
-  if (!b) return;
-  const room = Math.min(buildingSlots(b) - handsCount(g, b.id), idleCount(g));
-  if (room > 0) assignWorker(g, b.id, room);
-}
-
-/** Самый большой n ≤ max, при котором `ok(n)`; ok монотонна. */
-function largest(max: number, ok: (n: number) => boolean): number {
-  let lo = 0;
-  let hi = Math.max(0, Math.floor(max));
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (ok(mid)) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
-}
-
-/** Нанять по поведению; что остановило найм, ложится в `l.stops`. */
-function hire(g: GameState, style: Style, l: Ledger): void {
-  if (style === 'builder') return;
-  // Цель — всё, что пустит лимит: сперва недостача мерки по видам, потом ещё круг.
-  const total = armySize(g) + TROOP_IDS.reduce((n, id) => n + queued(g, id), 0);
-  const want = wantOf(total + Math.max(10, Math.round(total * 0.25)));
-  let stop: Stop = 'цель';
-  for (const id of Object.keys(MIX) as TroopId[]) {
-    const deficit = Math.max(0, (want[id] ?? 0) - g.army[id] - queued(g, id));
-    if (deficit <= 0) continue;
-    const def = TROOP_BY_ID[id];
-    let n = Math.min(deficit, idleCount(g));
-    if (n < deficit) stop = 'руки';
-    for (const [item, per] of Object.entries(def.gear)) {
-      const can = Math.floor((g.equipment[item as EquipmentId] ?? 0) / (per ?? 1));
-      if (can < n) {
-        n = can;
-        stop = 'снаряжение';
-      }
-    }
-    const byLimit = largest(n, (k) => affords(g, style, id, k) === null);
-    if (byLimit < n) {
-      stop = affords(g, style, id, byLimit + 1) ?? stop;
-      n = byLimit;
-    }
-    const byGoods = largest(n, (k) => k === 0 || RESOURCE_IDS.every((r) => (recruitCost(id, k)[r] ?? 0) <= g.resources[r]));
-    if (byGoods < n) {
-      stop = 'ресурсы';
-      n = byGoods;
-    }
-    if (n <= 0) continue;
-    const cost = recruitCost(id, n);
-    if (startRecruit(g, id, n) === null) {
-      spend(l, cost);
-      l.hired += n;
-    }
-  }
-  l.stops[stop] = (l.stops[stop] ?? 0) + 1;
-
-  // Кузница: недостача снаряжения на круг найма, не дальше FORGE_AHEAD работы вперёд.
-  const rate = forgeRate(g);
-  if (rate <= 0) return;
-  let ahead = g.forge.reduce((w, o) => w + EQUIPMENT_BY_ID[o.item].work * (o.count - o.done) - o.work, 0);
-  for (const item of EQUIPMENT_IDS) {
-    let need = 0;
-    for (const id of Object.keys(MIX) as TroopId[]) {
-      const deficit = Math.max(0, (want[id] ?? 0) - g.army[id] - queued(g, id));
-      need += deficit * (TROOP_BY_ID[id].gear[item] ?? 0);
-    }
-    need -= (g.equipment[item] ?? 0) + g.forge.filter((o) => o.item === item).reduce((n, o) => n + o.count - o.done, 0);
-    const room = Math.floor((rate * (FORGE_AHEAD / 1000) - ahead) / EQUIPMENT_BY_ID[item].work);
-    const n = largest(Math.min(need, room), (k) => k === 0 || RESOURCE_IDS.every((r) => (forgeCost(item, k)[r] ?? 0) <= g.resources[r]));
-    if (n <= 0) continue;
-    const cost = forgeCost(item, n);
-    if (startForge(g, item, n) === null) {
-      spend(l, cost);
-      ahead += EQUIPMENT_BY_ID[item].work * n;
-    }
-  }
-}
-
-/** По средствам: казна пуста, а жалованье больше дохода — распустить лишних, дорогих первыми. */
-function trim(g: GameState, style: Style, l: Ledger): void {
-  if (style !== 'means' && style !== 'meansHigh') return;
-  if (g.gold > 0 || wagesPerDay(g) <= taxIncomePerDay(g)) return;
-  for (const id of [...TROOP_IDS].reverse()) {
-    while (g.army[id] > 0 && wagesPerDay(g) > taxIncomePerDay(g)) {
-      const over = wagesPerDay(g) - taxIncomePerDay(g);
-      const n = Math.max(1, Math.min(g.army[id], Math.ceil(over / wageOf(g, id))));
-      if (dismissSoldiers(g, id, n) !== null) break;
-      l.dismissed += n;
-    }
-  }
-}
-
-/** Ответить на событие первым бесплатным вариантом; мятеж ждёт своего срока. */
-function answer(g: GameState, l: Ledger): void {
-  const ev = g.activeEvent;
-  if (!ev) return;
-  if (ev.defId === MUTINY_EVENT) {
-    if (l.lastMutiny !== ev.at) {
-      l.lastMutiny = ev.at;
-      l.mutinies++;
-    }
-    return;
-  }
-  const def = EVENT_BY_ID[ev.defId];
-  const i = def ? def.options.findIndex((o) => !o.cost) : -1;
-  resolveEvent(g, Math.max(0, i));
-}
-
-/** Сколько ушло голодом и неуплатой с прошлого раза и сколько из них осталось жителями — по строкам летописи со склейкой. */
-function countDeserted(g: GameState, l: Ledger): void {
-  for (const e of g.log) {
-    if (!e.group?.startsWith('desert:')) continue;
-    const n = e.n ?? 1;
-    const seen = l.seenLog.get(e) ?? 0;
-    if (n > seen) l.deserted += n - seen;
-    if (n > seen && e.group.endsWith(':home')) l.returned += n - seen;
-    l.seenLog.set(e, n);
-  }
-}
-
-/** Мятеж кончился: удержала ли стража — по строке летописи, которой его закрыл шаг. */
-function countMutinyEnd(g: GameState, l: Ledger): void {
-  for (const e of g.log) {
-    if (!e.text.startsWith('Мятеж:') || l.seenLog.has(e)) continue;
-    l.seenLog.set(e, 1);
-    if (/разогнала/.test(e.text)) l.mutinyHeld++;
-  }
 }
 
 export interface Out {
   run: Run;
-  l: Ledger;
+  l: HireLedger;
   g: GameState;
 }
 
@@ -367,73 +133,77 @@ interface Opts {
   hours: number;
   ripe: boolean;
   ref?: number;
-  grow?: (g: GameState) => void;
+  /** Поднимает ли игрок уровни (партия с первой секунды — да, лестница мерки — нет). */
+  build?: boolean;
+  /** Своё действие отчёта — после расстановки, до найма. */
+  also?: (g: GameState) => void;
   hourly?: (h: number, g: GameState) => void;
   effect?: (e: HomeEffect, now: number) => void;
   after?: (x: { g: GameState; world: LocalWorld; now: number; figures: FigureView[] }) => Promise<void>;
-  /** Крючки `play`, без них прогон тот же. */
+  /** Крючки прибора, без них прогон тот же. */
   profile?: (p: PlayerProfile, g: GameState, away: Away) => void;
 }
 
 export async function live(o: Opts): Promise<Out> {
   const { g, style } = o;
-  const l = ledger();
-  g.tax = style === 'meansHigh' ? 'high' : 'moderate';
-  const run = await play({
+  const x = {
+    whyPay: 0,
+    whyFood: 0,
+    wages: [] as number[],
+    income: [] as number[],
+    debt: 0,
+    armyHome: [] as number[],
+    pops: [] as number[],
+    defs: [] as number[],
+    restore: [] as HireLedger['restore'],
+  };
+  const flown = await pilot({
     g,
-    seed: o.seed,
-    step: o.step ?? GAME,
-    hours: o.hours,
-    ref: o.ref,
-    ripe: o.ripe,
-    hire: style === 'builder',
-    grow: (x) => {
-      countDeserted(x, l);
-      countMutinyEnd(x, l);
-      answer(x, l);
-      staff(x);
-      o.grow?.(x);
-      if (style !== 'builder') staffSmithy(x);
-      trim(x, style, l);
-      hire(x, style, l);
-      const u = upkeepInfo(x);
-      if (u.leavingPerDay > 0) {
-        if (u.why === 'food') l.whyFood++;
-        else l.whyPay++;
-      }
-      l.wages.push(u.wages);
-      l.pops.push(x.pop);
-      l.defs.push(defense(x));
-      l.income.push(u.income);
-    },
-    hourly: o.hourly,
-    profile: o.profile,
-    effect: (e, now) => {
-      o.effect?.(e, now);
-      if (e.id.endsWith('-defense') && e.battle === 'won') {
-        const lost = e.lostTroops ?? {};
-        const n = troopTotal(lost);
-        if (n > 0) {
-          const cost = sum((Object.entries(lost) as [TroopId, number][]).map(([id, k]) => k * unitCost(id)));
-          l.restore.push({ at: now, target: -n, lost: n, done: null, cost });
+    seconds: o.hours * 3600,
+    player: playerOf(style, { build: o.build ? { skip: [] } : false, also: o.also }),
+    world: { seed: o.seed, pulse: 30, raids: true, ripe: o.ripe, step: o.step ?? GAME, ref: o.ref },
+    economy: 'live',
+    tick: 1,
+    decide: 30,
+    watch: {
+      decided: (s) => {
+        const u = upkeepInfo(s);
+        if (u.leavingPerDay > 0) {
+          if (u.why === 'food') x.whyFood++;
+          else x.whyPay++;
         }
-      }
-    },
-    after: async ({ g: x, world, now, marches, figures }) => {
-      const home = troopTotal(homeOf(x.army, awayOf(marches, figures)));
-      l.armyHome.push(home);
-      for (const r of l.restore) {
-        // Цель — сколько было дома до боя: потерянные плюс оставшиеся в минуту, когда бой лёг.
-        if (r.target < 0 && r.at <= now) r.target = home + r.lost;
-        else if (r.done === null && r.target > 0 && home >= r.target) r.done = now - r.at;
-      }
-      await o.after?.({ g: x, world, now, figures });
+        x.wages.push(u.wages);
+        x.pops.push(s.pop);
+        x.defs.push(defense(s));
+        x.income.push(u.income);
+      },
+      hourly: o.hourly,
+      profile: o.profile,
+      effect: (e, now) => {
+        o.effect?.(e, now);
+        if (e.id.endsWith('-defense') && e.battle === 'won') {
+          const lost = e.lostTroops ?? {};
+          const n = troopTotal(lost);
+          if (n > 0) {
+            const cost = sum((Object.entries(lost) as [TroopId, number][]).map(([id, k]) => k * unitCost(id)));
+            x.restore.push({ at: now, target: -n, lost: n, done: null, cost });
+          }
+        }
+      },
+      after: async ({ g: s, world, now, marches, figures }) => {
+        const home = troopTotal(homeOf(s.army, awayOf(marches, figures)));
+        x.armyHome.push(home);
+        for (const r of x.restore) {
+          // Цель — сколько было дома до боя: потерянные плюс оставшиеся в минуту, когда бой лёг.
+          if (r.target < 0 && r.at <= now) r.target = home + r.lost;
+          else if (r.done === null && r.target > 0 && home >= r.target) r.done = now - r.at;
+        }
+        await o.after?.({ g: s, world, now, figures });
+      },
     },
   });
-  countDeserted(g, l);
-  countMutinyEnd(g, l);
-  l.debt = g.pay.debt;
-  return { run, l, g };
+  x.debt = g.pay.debt;
+  return { run: flown.run, l: Object.assign(flown.ledger, x), g };
 }
 
 // ---------- Печать ----------
@@ -478,7 +248,7 @@ function restoreLine(outs: Out[]): { n: number; done: string; late: number; gap:
 export async function hiringSection(): Promise<void> {
   console.log('');
   console.log('=== Найм: игрок, который платит за войско ===');
-  console.log('Прогон — play раздела «Рост логова», мир как есть. Посёлок живёт шагом игры (tick) при игроке: выработка, еда, налог, жалованье, уход войска.');
+  console.log('Прогон — общий автопилот (scripts/autopilot.ts), мир как есть. Посёлок живёт шагом игры (tick) при игроке: выработка, еда, налог, жалованье, уход войска.');
   console.log('Поведения: «по средствам» — жалованье после найма не больше дохода казны, казна пуста и жалованье больше дохода — распускает;');
   console.log('«по средствам, высокий налог» — то же при высоком налоге; «всё, что прокормит» — нанимает, пока еды приходит не меньше, чем уходит (сезон нынешний),');
   console.log('о казне не думает и не распускает; «строит» — не пополняет войско, на лагерь нанимает дубинщиков (как новичок «нанимает на осаду»).');
@@ -616,7 +386,7 @@ export async function hiringSection(): Promise<void> {
           style,
           hours: NEW_HOURS,
           ripe: false,
-          grow: (x) => build(x),
+          build: true,
           hourly: (h, x) => {
             const i = HOURS_AT.indexOf(h);
             if (i < 0) return;
@@ -659,6 +429,11 @@ interface Led {
 }
 const LEDS: Led[] = [
   { name: 'по средствам: увести людей — игра', style: 'means', fate: 'captives', share: 1, arms: false, release: false },
+  // Умеренный налог с верой берёт логова голодом (docs/hiring.md, раздел 13): с чем сравнивать его улов —
+  // та же война без увода, и что стало бы с уводом ещё вдвое меньше или с отпуском до порядка 50.
+  { name: 'по средствам: ограбить (без увода)', style: 'means', fate: 'plunder', share: 1, arms: false, release: false },
+  { name: 'по средствам: увести людей, отпускает до порядка 50', style: 'means', fate: 'captives', share: 1, arms: false, release: true },
+  { name: 'по средствам: доходит половина уведённых', style: 'means', fate: 'captives', share: 0.5, arms: false, release: false },
   { name: 'высокий налог: ограбить (без увода)', style: 'meansHigh', fate: 'plunder', share: 1, arms: false, release: false },
   { name: 'высокий налог: увести людей — игра', style: 'meansHigh', fate: 'captives', share: 1, arms: false, release: false },
   { name: 'высокий налог: увести людей, отпускает до порядка 50', style: 'meansHigh', fate: 'captives', share: 1, arms: false, release: true },
@@ -715,7 +490,7 @@ async function captivesPart(): Promise<void> {
           style: variant.style,
           hours: HOURS,
           ripe: false,
-          grow: (x) => {
+          also: (x) => {
             // Уведённых — на работы, где есть место для невольников.
             for (const b of x.buildings) {
               if (bondedIdle(x) <= 0) break;

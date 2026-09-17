@@ -37,6 +37,7 @@ import {
 } from '@/game/sim/expedition';
 import { onslaughtOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
 import { readyEngine } from '@/game/sim/tower';
+import { syncFaith } from '@/game/sim/faith';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
@@ -47,6 +48,7 @@ import type {
   MarchView,
   PlayerProfile,
   SiegeView,
+  WorldPulse,
 } from './types';
 
 /**
@@ -347,4 +349,65 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
 
 export function applyEffects(s: GameState, effects: HomeEffect[]): void {
   for (const e of effects) applyExpedition(s, toOutcome(e));
+}
+
+/** Племя, с которым пульсует мир: откуда читать и как менять. */
+export interface PulseTribe {
+  get(): GameState;
+  /**
+   * Как менять состояние. Игра меняет его через стор (`useGame.world`), и стор подменяет объект
+   * копией, — поэтому всё, что пульс пишет в племя, пишется **одной** правкой по свежему объекту.
+   */
+  apply(change: (s: GameState) => void): void;
+}
+
+/** Крючки прибора: отчёт смотрит на пульс, но пульс от этого не меняется. */
+export interface PulseHooks {
+  /** Слепок перед отправкой в мир: отчёт может подменить в нём число. */
+  profile?: (p: PlayerProfile, away: Away) => void;
+  /** Последствие до того, как оно легло в племя. */
+  before?: (e: HomeEffect, now: number) => void;
+  /** Последствие после того, как легло. */
+  after?: (e: HomeEffect, s: GameState) => void;
+}
+
+/**
+ * Пульс племени — одна дверь на игру (`world/store`) и на автопилот отчётов (`scripts/autopilot.ts`):
+ * слепок → мир → последствия → кто не дома → осада → вера. Порядок и состав шагов у них не могут
+ * разойтись, потому что это один код. Пока кода было два, они разошлись: автопилот не брал веру,
+ * которую мир называет пульсом (docs/defense_mix.md, раздел 6), и мерил деревню без неё.
+ *
+ * Последствия ложатся раньше, чем пересчитываются ушедшие: в момент прихода отряда герой ещё
+ * числится в походе, и по этому и понятно, что павший — именно он (см. `applyExpedition` и
+ * `syncAway`). Всё, что пульс пишет в племя, пишется одной правкой (`PulseTribe.apply`): прежде
+ * стор применял последствия через `useGame.world`, который подменяет объект состояния копией, а
+ * ушедших и осаду писал полями старого объекта — и в пульсе с последствиями они терялись до
+ * следующего пульса (вера лежит во вложенном объекте, общем у копии, и не терялась).
+ *
+ * `last` — списки мира с прошлого пульса: по ним подрезается расстановка обороны в слепке.
+ */
+export async function tribePulse(
+  world: { sync(profile: PlayerProfile): Promise<WorldPulse> },
+  tribe: PulseTribe,
+  last: { marches: MarchView[]; figures: FigureView[] },
+  hooks: PulseHooks = {},
+): Promise<WorldPulse> {
+  const away = awayOf(last.marches, last.figures);
+  const profile = playerProfile(tribe.get(), away);
+  hooks.profile?.(profile, away);
+  const pulse = await world.sync(profile);
+  tribe.apply((s) => {
+    for (const e of pulse.effects) {
+      hooks.before?.(e, pulse.now);
+      applyEffects(s, [e]);
+      hooks.after?.(e, s);
+    }
+    syncAway(s, pulse.marches, pulse.figures);
+    syncSiege(s, pulse.siege, pulse.now);
+    // Вера земли под замком и чужая вера вокруг. Первый ответ мира ставит веру новой партии — до
+    // него храм честно говорит, что грамоты из округи ещё не пришли, и подставлять католичество
+    // «пока не знаем» нельзя: деревня под Вильнюсом сменила бы веру молча.
+    syncFaith(s, pulse.faith.id, pulse.faith.pressure);
+  });
+  return pulse;
 }

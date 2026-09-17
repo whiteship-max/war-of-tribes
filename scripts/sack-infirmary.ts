@@ -5,9 +5,10 @@
 // Меряется ровно то, что нужно предложению:
 //
 //  1. **Что лазарет даёт сегодня** — `healShare` по уровням, настоящей функцией игры.
-//  2. **Сколько бойцов игрок теряет в настоящем мире** — `LocalWorld` с настоящим племенем и
-//     пульсом, каким его гоняет `world/store` (слепок → последствия → `applyExpedition`),
-//     в трёх манерах игры. Потери и то, что вернул лазарет, читаются из самого племени.
+//  2. **Сколько бойцов игрок теряет в настоящем мире** — общий автопилот (`scripts/autopilot.ts`):
+//     `LocalWorld` с настоящим племенем и пульсом `bridge.tribePulse`, тем же, что у `world/store`,
+//     в трёх манерах игры. Посёлок мерки стоит (`economy: 'frozen'`): уровни, склад и войско — мерка.
+//     Потери и то, что вернул лазарет, читаются из самого племени.
 //  3. **Сколько он терял бы, если бы бой что-то решал** — та же охота полководца, но ближнее
 //     логово силой зеркалит войско игрока (`world/mirror.mirrorPower`, стенд `MIRROR_ON`).
 //     Стенд выключен для игроков, поэтому здесь он подставлен в экземпляр мира: сила логова
@@ -20,76 +21,38 @@
 //
 // Все числа — против набегов из логов, растущих от жителей города (docs/lair_growth.md): поменяется
 // правило силы набега — раздел гоняется заново целиком.
-import { LocalWorld } from '@/world/local/LocalWorld';
-import { applyEffects, playerProfile, syncAway, syncSiege } from '@/world/bridge';
-import { awayOf, homeOf } from '@/world/muster';
+import type { LocalWorld } from '@/world/local/LocalWorld';
 import { generateWorld, isLair, type GenSettlement } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import { mirrorPower } from '@/world/mirror';
 import { AI_RANGE, LAIR_STEP, SIEGE_ROUT } from '@/world/data/tuning';
 import type { WorldSave } from '@/world/local/state';
-import type { Coord, FigureView, MarchView } from '@/world/types';
+import type { Coord } from '@/world/types';
 import { createInitialState } from '@/game/state';
-import { autoAssign } from '@/game/sim/workers';
 import {
   armySize,
   buildingOfType,
   foodShortfall,
   forgeRate,
   healShare,
-  housingCapacity,
   recruitRate,
   soldierFoodPerDay,
-  storageCap,
   wageOf,
 } from '@/game/derived';
-import { DAY_LENGTH, INFIRMARY_HEAL_CAP, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
+import { DAY_LENGTH, INFIRMARY_HEAL_CAP, MAX_BUILDING_LEVEL } from '@/game/constants';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
-import type { GameState, TroopId } from '@/game/types';
+import type { TroopId } from '@/game/types';
+import { MIN, START, armyAt, pilot, player, townAt } from './autopilot';
 
-const MIN = 60_000;
-const START = 1_700_000_000_000;
 const HOURS = 4;
 const SEEDS = [7, 11, 42, 51, 77];
 const LEVELS = [1, 5, 10];
-/** Состав войска посёлка — тот же, что у осады (`siege:report`): замеры сравнимы между отчётами. */
-const MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
-/** Мерка войска посёлка уровня L — та же, что у `siege:report`: две прежние вместимости Статуи. */
-const armyAt = (level: number): number => 2 * (20 + 10 * (level - 1));
 
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 const pct = (x: number): string => `${Math.round(x * 100)}%`;
-
-/** Посёлок уровня L: жильё на 90 %, склад полон, войско — `armyAt` по `MIX`. */
-function townAt(level: number): GameState {
-  const g = createInitialState(7);
-  g.tutorialDone = true;
-  for (const b of g.buildings) b.level = level;
-  g.pop = Math.round(housingCapacity(g) * 0.9);
-  const n = armyAt(level);
-  let left = n;
-  const ids = Object.keys(MIX) as TroopId[];
-  ids.forEach((id, i) => {
-    const k = i === ids.length - 1 ? left : Math.round((n * (MIX[id] ?? 0)) / 10);
-    g.army[id] = k;
-    left -= k;
-  });
-  autoAssign(g);
-  for (const r of RESOURCE_IDS) g.resources[r] = storageCap(g);
-  return g;
-}
-
-function memory(data: string | null = null) {
-  return {
-    read: (): string | null => data,
-    write: (json: string): void => {
-      data = json;
-    },
-  };
-}
 
 /** Настоящее состояние мира: отчёт — прибор, ему положено видеть больше панели. */
 interface Inside {
@@ -147,100 +110,99 @@ function kindOf(id: string): string {
 
 async function play(level: number, seed: number, style: Style): Promise<Run> {
   const g = townAt(level);
-  let now = START;
-  const world = new LocalWorld({ seed, now: () => now, storage: memory() });
-  if (style === 'mirror') {
-    const w = inside(world);
-    const own = w.powerNow.bind(w);
-    w.powerNow = (s, at) =>
-      mirrorPower(
-        { lairs: w.gen.settlements, home: w.save.home, seed: w.save.seed, profile: w.save.profile ?? null },
-        (x, t) => w.alive(x, t),
-        s,
-        at,
-      ) ?? own(s, at);
-  }
-  let marches: MarchView[] = [];
-  let figures: FigureView[] = [];
   const run: Run = { fights: [], strikes: [], battles: 0, healed: 0, armyEnd: 0 };
   // Сколько вышло в бой — знает тот, кто послал: удар полководца и вылазка. У частокола и
   // падения выходит весь гарнизон, и доля «от вышедших» там не печатается.
   let strikeWent = 0;
   let sortieWent = 0;
-  const pulse = async () => {
-    const p = await world.sync(playerProfile(g, awayOf(marches, figures)));
-    run.battles += p.reports.filter((r) => r.battle).length;
-    for (const e of p.effects) {
-      const lost = troopTotal(e.lostTroops ?? {});
-      if (lost === 0) {
-        applyEffects(g, [e]);
-        continue;
-      }
-      const diedBefore = g.stats.died;
-      applyEffects(g, [e]);
-      // Лазарет возвращает раненых жителями; погибшими племя считает остальных.
-      run.healed += Math.max(0, lost + (e.lost.scout ?? 0) - (g.stats.died - diedBefore));
-      const kind = kindOf(e.id);
-      const went = kind === 'удар полководца' ? strikeWent : kind === 'бой у лагеря' ? sortieWent : 0;
-      run.fights.push({ kind, went, lost });
-    }
-    syncAway(g, p.marches, p.figures);
-    syncSiege(g, p.siege, p.now);
-    marches = p.marches;
-    figures = p.figures;
-    return p;
-  };
+  let diedBefore = 0;
   const whole = (): TroopStack => {
     const o: TroopStack = {};
     for (const [id, n] of Object.entries(g.army)) if ((n ?? 0) > 0) o[id as TroopId] = n;
     return o;
   };
-
-  await pulse();
   const hunting = style === 'hunt' || style === 'mirror';
-  if (hunting) await world.setGarrison(whole());
+  let mustered = false;
   let back = false;
   let lastFight = 0;
-  let lastSortie = 0;
-  const until = START + HOURS * 60 * MIN;
-  while (now < until) {
-    now += 20_000;
-    const p = await pulse();
-    if (style !== 'passive' && p.siege && now - lastSortie > 5 * MIN) {
-      const home = homeOf(g.army, awayOf(marches, figures));
-      if (troopTotal(home) > 0) {
+  await pilot({
+    g,
+    seconds: HOURS * 3600,
+    player: player(null, { staff: false, build: false, sortie: style !== 'passive' }),
+    world: {
+      seed,
+      pulse: 20,
+      raids: true,
+      setup:
+        style === 'mirror'
+          ? (w) => {
+              const own = w.powerNow.bind(w);
+              w.powerNow = (s: GenSettlement, at: number) =>
+                mirrorPower(
+                  { lairs: w.gen.settlements, home: w.save.home, seed: w.save.seed, profile: w.save.profile ?? null },
+                  (x, t) => w.alive(x, t),
+                  s,
+                  at,
+                ) ?? own(s, at);
+            }
+          : undefined,
+    },
+    economy: 'frozen',
+    tick: 1,
+    decide: 20,
+    watch: {
+      effect: () => {
+        diedBefore = g.stats.died;
+      },
+      landed: (e) => {
+        const lost = troopTotal(e.lostTroops ?? {});
+        if (lost === 0) return;
+        // Лазарет возвращает раненых жителями; погибшими племя считает остальных.
+        run.healed += Math.max(0, lost + (e.lost.scout ?? 0) - (g.stats.died - diedBefore));
+        const kind = kindOf(e.id);
+        const went = kind === 'удар полководца' ? strikeWent : kind === 'бой у лагеря' ? sortieWent : 0;
+        run.fights.push({ kind, went, lost });
+      },
+      sortie: (home) => {
         sortieWent = troopTotal(home);
-        await world.sortie(home);
-        lastSortie = now;
-      }
-    }
-    if (!hunting) continue;
-    const gen = figures.find((f) => f.id === 'general');
-    if (!gen || (gen.phase !== 'home' && gen.phase !== 'field') || gen.readyAt !== 0) continue;
-    // После боя — домой и забрать всё войско заново: так играет тот, кто не нанимает.
-    if (back) {
-      if (gen.phase !== 'home') await world.moveFigure('general', inside(world).save.home);
-      else {
-        await world.setGarrison(whole());
-        back = false;
-      }
-      continue;
-    }
-    if (now - lastFight < 10 * MIN) continue;
-    const target = nearestLair(world, now, gen.at);
-    if (!target) continue;
-    if (gen.at.x !== target.x || gen.at.y !== target.y) {
-      await world.moveFigure('general', target);
-      continue;
-    }
-    strikeWent = troopTotal(gen.troops ?? {});
-    const res = await world.attack({ setup: null });
-    if (!res.error) {
-      back = true;
-      lastFight = now;
-      run.strikes.push((now - START) / MIN);
-    }
-  }
+      },
+      after: async ({ world, now, figures, pulse }) => {
+        run.battles += pulse.reports.filter((r) => r.battle).length;
+        if (!hunting) return;
+        if (!mustered) {
+          mustered = true;
+          await world.setGarrison(whole());
+          return;
+        }
+        const gen = figures.find((f) => f.id === 'general');
+        if (!gen || (gen.phase !== 'home' && gen.phase !== 'field') || gen.readyAt !== 0) return;
+        // После боя — домой и забрать всё войско заново: так играет тот, кто не нанимает.
+        if (back) {
+          if (gen.phase !== 'home') await world.moveFigure('general', inside(world).save.home);
+          else {
+            await world.setGarrison(whole());
+            back = false;
+          }
+          return;
+        }
+        if (now - lastFight < 10 * MIN) return;
+        // `now` крючка — от начала прогона; отметки логов в сохранении мира — настоящие часы.
+        const target = nearestLair(world, START + now, gen.at);
+        if (!target) return;
+        if (gen.at.x !== target.x || gen.at.y !== target.y) {
+          await world.moveFigure('general', target);
+          return;
+        }
+        strikeWent = troopTotal(gen.troops ?? {});
+        const res = await world.attack({ setup: null });
+        if (!res.error) {
+          back = true;
+          lastFight = now;
+          run.strikes.push(now / MIN);
+        }
+      },
+    },
+  });
   run.armyEnd = armySize(g);
   return run;
 }

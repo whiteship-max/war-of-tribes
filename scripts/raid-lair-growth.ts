@@ -12,21 +12,20 @@
 //     что каждая прибавляет набегу за уровень постройки и как они идут в живой партии, в том числе
 //     у игрока, который ратушу не поднимает (`autopilot.build` с `skip`: поведение автопилота,
 //     влияющее на число, видно в отчёте).
-//  2. **Ступени** — настоящий мир (`LocalWorld` с племенем и пульсом, как у `world/store`) на
-//     посёлках мерки. Строка «игра» — мир как есть. Остальные ступени и «без защиты» — одна
+//  2. **Ступени** — настоящий мир с племенем и пульсом (общий автопилот `scripts/autopilot.ts`, пульс
+//     `bridge.tribePulse` — тот же, что у `world/store`) на посёлках мерки. Строка «игра» — мир как есть. Остальные ступени и «без защиты» — одна
 //     подстановка в экземпляр мира: сила вышедшего набега пересчитывается в минуту выхода.
 //  3. **Новичок** — партия с первой секунды, мир как есть.
 //  4. **Логово как цель** — сжигает ли логово войско мерки и что оно отдаёт.
-import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
-import { applyEffects, playerProfile, syncAway, syncSiege } from '@/world/bridge';
-import { awayOf, homeOf, type Away } from '@/world/muster';
-import { generateWorld, isLair, lairAnchor, type GenSettlement } from '@/world/gen';
+import { LocalWorld } from '@/world/local/LocalWorld';
+import { playerProfile } from '@/world/bridge';
+import { awayOf } from '@/world/muster';
+import { generateWorld, isLair, lairAnchor } from '@/world/gen';
 import { distance } from '@/world/geo';
 import { garrisonOf } from '@/world/garrison';
 import { resolveField } from '@/world/battle';
 import { ownGearOf } from '@/world/agents';
-import { lairArms, lairArmsBase, lairGold, lairLoot, lairPower, lairShield, shieldVillagers } from '@/world/lairs';
-import { starvesAt } from '@/world/siege';
+import { lairArms, lairArmsBase, lairGold, lairLoot, lairPower, shieldVillagers } from '@/world/lairs';
 import {
   AI_RANGE,
   LAIR_ANCHOR_FAR,
@@ -46,30 +45,21 @@ import {
   SIEGE_CHANCE,
   SIEGE_IMMUNE,
 } from '@/world/data/tuning';
-import type { FigureView, HomeEffect, MarchView, PlayerProfile } from '@/world/types';
+import type { PlayerProfile } from '@/world/types';
 import { createInitialState } from '@/game/state';
-import { tick } from '@/game/sim/tick';
-import { autoAssign } from '@/game/sim/workers';
-import { syncFaith } from '@/game/sim/faith';
 import { startRecruit } from '@/game/sim/army';
 import { seeded, setRandom } from '@/game/sim/random';
-import { armyPower, armySize, buildingOfType, defense, housingCapacity, idleCount, recruitRate, storageCap, taxIncomePerDay } from '@/game/derived';
-import { RESOURCE_IDS } from '@/game/constants';
-import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
-import type { BuildingTypeId, GameState, TroopId } from '@/game/types';
+import { armyPower, armySize, buildingOfType, defense, recruitRate, taxIncomePerDay } from '@/game/derived';
+import { kindsOf, troopTotal } from '@/game/battle/kinds';
+import type { BuildingTypeId, GameState } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
-import { build, staff } from './autopilot';
+import { GAME, HOUR, MIN, START, memory, pilot, player, townAt, type Inside, type Run, type Step } from './autopilot';
 
-export const MIN = 60_000;
-const HOUR = 60 * MIN;
-export const START = 1_700_000_000_000;
 export const SEEDS = [7, 11, 42, 51, 77];
 export const NEW_SEEDS = SEEDS.slice(0, 3);
 const LADDER = [1, 2, 3, 5, 7, 10];
+/** Пульс мира и такт решений автопилота в прогонах раздела, с. */
 const PULSE = 30;
-/** Состав и мерка войска — те же, что у осады и лазарета. */
-export const MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
-const armyAt = (level: number): number => 2 * (20 + 10 * (level - 1));
 const NO_HALL: readonly BuildingTypeId[] = ['town_hall'];
 
 export const pad = (v: string | number, w: number): string => String(v).padStart(w);
@@ -86,43 +76,6 @@ export const q = (xs: number[], p: number): number => {
 };
 const range = (xs: number[]): string => (xs.length ? `${pct(q(xs, 0.1))}…${pct(q(xs, 0.5))}…${pct(q(xs, 0.9))}` : '—');
 
-function stackOf(n: number, mix: TroopStack = MIX): TroopStack {
-  const out: TroopStack = {};
-  const ids = Object.keys(mix) as TroopId[];
-  const whole = ids.reduce((s, id) => s + (mix[id] ?? 0), 0);
-  let left = n;
-  ids.forEach((id, i) => {
-    const k = i === ids.length - 1 ? left : Math.round((n * (mix[id] ?? 0)) / whole);
-    out[id] = k;
-    left -= k;
-  });
-  return out;
-}
-
-/**
- * Посёлок уровня L: жильё на 90 %, склад полон, войско — `armyAt` по составу. Мерка `siege:report`.
- * `over` — уровни отдельных построек поверх L (жители дорастают до новых крыш).
- */
-export function townAt(level: number, over: Record<string, number> = {}): GameState {
-  const g = createInitialState(7);
-  g.tutorialDone = true;
-  for (const b of g.buildings) b.level = over[b.type] ?? level;
-  g.pop = Math.round(housingCapacity(g) * 0.9);
-  for (const [id, n] of Object.entries(stackOf(armyAt(level)))) g.army[id as TroopId] = n ?? 0;
-  autoAssign(g);
-  for (const r of RESOURCE_IDS) g.resources[r] = storageCap(g);
-  return g;
-}
-
-function memory(data: string | null = null) {
-  return {
-    read: (): string | null => data,
-    write: (json: string): void => {
-      data = json;
-    },
-  };
-}
-
 /** Средний уровень построек из слепка (`PlayerProfile.levels`, всё, кроме тайника). */
 const levelOf = (p: PlayerProfile | null | undefined): number => {
   const v = Object.values(p?.levels ?? {});
@@ -137,196 +90,6 @@ function fit(xs: number[], ys: number[]): { a: number; b: number; worst: number 
   const b = my - a * mx;
   const worst = Math.max(...xs.map((x, i) => Math.abs(a * x + b - ys[i]) / ys[i]));
   return { a, b, worst };
-}
-
-// ---------- Прогон ----------
-
-/**
- * Как считается сила вышедшего набега. `rho` null и `shield` — игра как есть. Иначе ступень
- * `rho` вместо `LAIR_STEP`, а `shield: false` снимает защиту новичка (набег выходит полной силой).
- */
-export interface Step {
-  name: string;
-  rho: number | null;
-  shield: boolean;
-}
-export const GAME: Step = { name: 'игра', rho: null, shield: true };
-
-export interface Wall {
-  held: boolean;
-  home: number;
-  lost: number;
-  /** Когда бой случился, мс от начала прогона. */
-  at: number;
-}
-export interface Run {
-  raids: number;
-  ratio: number[];
-  walls: Wall[];
-  sieges: number;
-  sorties: number;
-  sortieWins: number;
-  siegeFalls: number;
-  lost: number;
-  half: number;
-  armyEnd: number;
-  hired: number;
-  losses: number[];
-  /** Окно голода каждой осады в минуту, когда лагерь встал, мс. */
-  hunger: number[];
-}
-
-export interface Play {
-  g: GameState;
-  seed: number;
-  step: Step;
-  hours: number;
-  /** Оборона, от которой считать долю набега: мерка посёлка. Нет — оборона слепка. */
-  ref?: number;
-  /** Войско держат полным: пополнение между пульсами (без цены — это граница, а не найм). */
-  refill?: boolean;
-  /** Логова дозрели до начала прогона: мир живёт с тех пор `LAIR_RIPE`. */
-  ripe?: boolean;
-  grow?: (g: GameState) => void;
-  /**
-   * На осаду — нанять дубинщиков числом с мощь лагеря (втрое больше его людей: воин лагеря — три
-   * мощи), но не больше свободных рук: заказ
-   * сверх них игра отклоняет целиком, и стратегия, просившая всё разом, не нанимала никого.
-   */
-  hire?: boolean;
-  hourly?: (h: number, g: GameState) => void;
-  /**
-   * Последствие мира до того, как оно легло в племя: раздел найма (`raid-hiring.ts`) смотрит на
-   * него и подменяет в нём уведённых людей. Без крючка прогон тот же.
-   */
-  effect?: (e: HomeEffect, now: number) => void;
-  /** После каждого пульса, до ответа на осаду: раздел найма ведёт здесь полководца и считает войско. */
-  after?: (x: { g: GameState; world: LocalWorld; now: number; marches: MarchView[]; figures: FigureView[] }) => Promise<void> | void;
-  /**
-   * Слепок перед пульсом: раздел обороны по составу (`raid-defense-mix.ts`) подменяет в нём оборону и
-   * ополчение. Без крючка прогон тот же.
-   */
-  profile?: (p: PlayerProfile, g: GameState, away: Away) => void;
-}
-
-/** Настоящее состояние мира: отчёт — прибор, ему положено видеть больше панели. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Inside = any;
-
-export async function play(o: Play): Promise<Run> {
-  const { g, step } = o;
-  let now = START;
-  const world = new LocalWorld({ seed: o.seed, now: () => now, storage: memory() });
-  const w: Inside = world;
-  const run: Run = { raids: 0, ratio: [], walls: [], sieges: 0, sorties: 0, sortieWins: 0, siegeFalls: 0, lost: 0, half: 0, armyEnd: 0, hired: 0, losses: [], hunger: [] };
-
-  const schedule = w.scheduleAi.bind(w);
-  w.scheduleAi = (at: number) => {
-    const before = new Set(w.save.marches.map((m: Inside) => m.id));
-    const profile: PlayerProfile | undefined = w.save.profile;
-    // Без защиты: логово замечает город любой величины. Жители подменяются только на время
-    // решения «выходить ли» — сила набега ниже пересчитывается по настоящим.
-    const pop = profile?.pop ?? 0;
-    if (!step.shield && profile) profile.pop = Math.max(pop, shieldVillagers(1));
-    schedule(at);
-    if (profile) profile.pop = pop;
-    for (const m of w.save.marches) {
-      if (before.has(m.id) || m.own || m.targetId !== HOME_ID) continue;
-      if (step.rho !== null || !step.shield) {
-        const src = w.gen.settlements.find((s: GenSettlement) => s.id === m.fromId);
-        const shield = step.shield ? lairShield(pop) : 1;
-        m.power = Math.max(2, (w.powerNow(src, at) * (step.rho ?? LAIR_STEP) * shield) / LAIR_STEP);
-        m.units = { warrior: Math.max(1, Math.round(m.power / 3)) };
-      }
-      run.raids++;
-      const d = o.ref ?? profile?.defense ?? 0;
-      if (d > 0) run.ratio.push(m.power / d);
-    }
-  };
-  if (o.ripe) w.save.createdAt = START - LAIR_RIPE;
-
-  let marches: MarchView[] = [];
-  let figures: FigureView[] = [];
-  let homeBefore = 0;
-  const full = { ...g.army };
-  const seen = new Set<number>();
-  const pulse = async () => {
-    if (o.refill) Object.assign(g.army, full);
-    const away = awayOf(marches, figures);
-    homeBefore = troopTotal(homeOf(g.army, away));
-    const profile = playerProfile(g, away);
-    o.profile?.(profile, g, away);
-    const p = await world.sync(profile);
-    for (const e of p.effects as HomeEffect[]) {
-      o.effect?.(e, p.now - START);
-      applyEffects(g, [e]);
-      const lost = troopTotal(e.lostTroops ?? {});
-      run.lost += lost;
-      if (e.id.endsWith('-defense') && e.battle) {
-        run.walls.push({ held: e.battle === 'won', home: homeBefore, lost, at: p.now - START });
-        if (e.battle === 'lost') run.losses.push(p.now - START);
-      }
-      if (e.id.endsWith('-fell')) {
-        run.siegeFalls++;
-        run.losses.push(p.now - START);
-      }
-      if (e.id.startsWith('sortie') && e.id.endsWith('-eff')) {
-        run.sorties++;
-        if (e.battle === 'won') run.sortieWins++;
-      }
-    }
-    run.sieges += p.reports.filter((r) => r.kind === 'defense' && !r.battle && r.id.endsWith('-siege')).length;
-    const open = w.save.sieges[HOME_ID];
-    if (open && (open.sinceAt ?? open.startedAt) === open.startedAt && !seen.has(open.startedAt)) {
-      seen.add(open.startedAt);
-      run.hunger.push(starvesAt(open) - open.startedAt);
-    }
-    syncAway(g, p.marches, p.figures);
-    syncSiege(g, p.siege, p.now);
-    // Вера, которую мир называет деревне, ложится в племя пульсом — как у `world/store`. Прежде
-    // автопилот её не брал, и замеры разделов «Рост логова» и «Найм» шли на деревне без веры
-    // (docs/defense_mix.md, раздел 6); вера, подставленная до прогона, не сменяется (`syncFaith`).
-    syncFaith(g, p.faith.id, p.faith.pressure);
-    marches = p.marches;
-    figures = p.figures;
-    return p;
-  };
-
-  await pulse();
-  if (o.ripe) w.save.createdAt = START - LAIR_RIPE;
-  const start = armySize(g);
-  let lastSortie = 0;
-  let hour = 1;
-  while (now < START + o.hours * HOUR) {
-    now += PULSE * 1000;
-    if (o.grow) {
-      o.grow(g);
-      for (let i = 0; i < PULSE; i++) tick(g, 1);
-    }
-    const p = await pulse();
-    await o.after?.({ g, world, now: now - START, marches, figures });
-    if (start > 0 && armySize(g) < start / 2) run.half += PULSE * 1000;
-    if (p.siege) {
-      const home = homeOf(g.army, awayOf(marches, figures));
-      if (o.hire) {
-        const camp = w.save.marches.find((m: Inside) => m.id === w.save.sieges[HOME_ID]?.campId);
-        const want = camp ? Math.ceil(camp.power) : 0;
-        const have = troopTotal(home) + g.recruits.reduce((n, r) => n + r.count - r.done, 0);
-        const n = Math.min(want - have, idleCount(g));
-        if (n > 0 && startRecruit(g, 'clubman', n) === null) run.hired += n;
-      }
-      if (now - lastSortie > 5 * MIN && troopTotal(home) > 0) {
-        await world.sortie(home);
-        lastSortie = now;
-      }
-    }
-    if (o.hourly && now - START >= hour * HOUR) {
-      o.hourly(hour, g);
-      hour++;
-    }
-  }
-  run.armyEnd = armySize(g);
-  return run;
 }
 
 /** С какого числа бойцов дома доля павших в бою что-то значит. */
@@ -464,7 +227,7 @@ export async function lairGrowthSection(): Promise<void> {
   const NEW_HOURS = 6;
   const HOURS_AT = [1, 2, 4, 6];
   console.log('');
-  console.log(`--- 1б. Мерки в живой партии: автопилот pop:report, ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, без мира ---`);
+  console.log(`--- 1б. Мерки в живой партии: общий автопилот, ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир тихий (набегов нет) ---`);
   console.log('«обычный» — автопилот как есть; «без ратуши» — тот же автопилот, который ратушу не поднимает никогда (build с skip).');
   console.log(`«набег» — набег дозревшего логова медианной опоры по мерке: ступень ${LAIR_STEP.toFixed(2)} × линия × защита (у жителей ${LAIR_SHIELD_FROM}→${LAIR_SHIELD_FULL}, у уровня и ратуши — 3→6, как мерились до выбора); «оборона» — посёлка без войска.`);
   console.log(' партия       ч  ср. уровень  ратуша  жителей  жители в L  оборона  набег: ср. уровень  ратуша  жители');
@@ -474,23 +237,28 @@ export async function lairGrowthSection(): Promise<void> {
       setRandom(seeded(seed));
       const g = createInitialState(seed);
       g.tutorialDone = true;
-      for (let t = 1; t <= NEW_HOURS * 3600; t++) {
-        if (t % PULSE === 0) {
-          staff(g);
-          build(g, style === 'без ратуши' ? NO_HALL : []);
-        }
-        tick(g, 1);
-        const i = HOURS_AT.indexOf(t / 3600);
-        if (i >= 0) {
-          const p = playerProfile(g, awayOf([], []));
-          const raid = (['level', 'hall', 'pop'] as Base[]).map((b) => {
-            const dev = devOf(b, p);
-            const sh = b === 'pop' ? shieldAt(dev) : Math.min(1, Math.max(0, (dev - 3) / 3));
-            return raidAt(b, p) * sh;
-          });
-          rows[i].push({ lv: levelOf(p), th: p.levels?.town_hall ?? 1, pop: p.pop, e: devOf('pop', p), def: defense(g), raid });
-        }
-      }
+      await pilot({
+        g,
+        seconds: NEW_HOURS * 3600,
+        player: player(null, { build: { skip: style === 'без ратуши' ? NO_HALL : [] } }),
+        world: { seed, pulse: PULSE, raids: false },
+        economy: 'live',
+        tick: 1,
+        decide: PULSE,
+        watch: {
+          hourly: (h, x) => {
+            const i = HOURS_AT.indexOf(h);
+            if (i < 0) return;
+            const p = playerProfile(x, awayOf([], []));
+            const raid = (['level', 'hall', 'pop'] as Base[]).map((b) => {
+              const dev = devOf(b, p);
+              const sh = b === 'pop' ? shieldAt(dev) : Math.min(1, Math.max(0, (dev - 3) / 3));
+              return raidAt(b, p) * sh;
+            });
+            rows[i].push({ lv: levelOf(p), th: p.levels?.town_hall ?? 1, pop: p.pop, e: devOf('pop', p), def: defense(x), raid });
+          },
+        },
+      });
       setRandom(null);
     }
     HOURS_AT.forEach((h, i) => {
@@ -522,7 +290,21 @@ export async function lairGrowthSection(): Promise<void> {
       for (const level of levels) {
         const runs: Run[] = [];
         const ref = defense(townAt(level));
-        for (const seed of SEEDS) runs.push(await play({ g: townAt(level), seed, step: s, hours: HOURS, ref, refill, ripe: true }));
+        for (const seed of SEEDS) {
+          const flown = await pilot({
+            g: townAt(level),
+            seconds: HOURS * 3600,
+            // Посёлок мерки стоит: уровни, склад и войско такие, какими их поставил отчёт. Игрок
+            // только выходит на осаду вылазкой.
+            player: player(null, { staff: false, build: false }),
+            world: { seed, pulse: PULSE, raids: true, ripe: true, step: s, ref },
+            economy: 'frozen',
+            tick: 1,
+            decide: PULSE,
+            refill,
+          });
+          runs.push(flown.run);
+        }
         console.log(row(s.name, level, tally(runs, HOURS)));
       }
     }
@@ -540,7 +322,7 @@ export async function lairGrowthSection(): Promise<void> {
   // 3. Новичок.
   console.log('');
   console.log(`--- 3. Новичок: партия с первой секунды, ${NEW_HOURS} ч непрерывной игры, миры ${NEW_SEEDS.join(', ')}, мир как есть ---`);
-  console.log('Племя ведёт автопилот pop:report. «без войска» — не нанимает никого; «нанимает на осаду» — на лагерь нанимает дубинщиков втрое больше');
+  console.log('Племя ведёт общий автопилот (отвечает на события, берёт веру мира). «без войска» — не нанимает никого; «нанимает на осаду» — на лагерь нанимает дубинщиков втрое больше');
   console.log('людей лагеря, но не больше свободных рук (заказ сверх них игра отклоняет целиком), и выходит; «ополчение 10 %» — держит дубинщиков');
   console.log('на десятую часть населения; «ополчение, без ратуши» — то же, но ратушу');
   console.log('автопилот не поднимает никогда (build с skip). Логова молоды: мир начинается с партией. «набег / оборона» — к обороне слепка в минуту выхода.');
@@ -562,18 +344,19 @@ export async function lairGrowthSection(): Promise<void> {
       setRandom(seeded(seed));
       const g = createInitialState(seed);
       g.tutorialDone = true;
-      runs.push(
-        await play({
-          g,
-          seed,
-          step: GAME,
-          hours: NEW_HOURS,
-          hire: style === 'hire',
-          grow: (x) => {
-            staff(x);
-            build(x, style === 'nohall' ? NO_HALL : []);
-            if (style === 'militia' || style === 'nohall') militia(x);
-          },
+      const flown = await pilot({
+        g,
+        seconds: NEW_HOURS * 3600,
+        player: player(null, {
+          build: { skip: style === 'nohall' ? NO_HALL : [] },
+          siegeLevy: style === 'hire',
+          also: style === 'militia' || style === 'nohall' ? militia : undefined,
+        }),
+        world: { seed, pulse: PULSE, raids: true, step: GAME },
+        economy: 'live',
+        tick: 1,
+        decide: PULSE,
+        watch: {
           hourly: (h, x) => {
             const i = HOURS_AT.indexOf(h);
             if (i < 0) return;
@@ -581,8 +364,9 @@ export async function lairGrowthSection(): Promise<void> {
             lvl[i].push(sum(x.buildings.map((b) => b.level)) / x.buildings.length);
             if (h === NEW_HOURS) th.push(buildingOfType(x, 'town_hall')?.level ?? 1);
           },
-        }),
-      );
+        },
+      });
+      runs.push(flown.run);
       setRandom(null);
     }
     const t = tally(runs, NEW_HOURS);

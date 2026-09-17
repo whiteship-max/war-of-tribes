@@ -39,8 +39,8 @@ import {
   LAIR_START,
 } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
-import { catchUp } from '@/game/sim/tick';
-import { assignWorker, autoAssign } from '@/game/sim/workers';
+import { playedFor } from './autopilot';
+import { assignWorker } from '@/game/sim/workers';
 import { buildingOfType, buildingSlots, defense, forgeRate, productionPerDay, storageCap } from '@/game/derived';
 import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
@@ -107,12 +107,9 @@ console.log('');
 
 // ----------------------------------------------------------------- добыча ---
 
-/** Что посёлок добывает за игровой день (он же реальная минута) на разных сроках. */
-function production(hours: number): number {
-  const s = createInitialState();
-  autoAssign(s);
-  if (hours > 0) catchUp(s, hours * 3600);
-  autoAssign(s);
+/** Что посёлок добывает за игровой день (он же реальная минута) на разных сроках: партия общего автопилота в тихом мире. */
+async function production(hours: number): Promise<number> {
+  const s = await playedFor(hours);
   const per = productionPerDay(s);
   return RESOURCE_IDS.reduce((n, r) => n + Math.max(0, per[r] ?? 0), 0);
 }
@@ -140,8 +137,8 @@ function armsCost(count: number): number {
 /** Круг набега: довести полководца до логова и разбить его. Настоящий — из прогона ниже. */
 const RAID_MINUTES = 4;
 
-const perDay0 = production(0);
-const perDay2 = production(2);
+const perDay0 = await production(0);
+const perDay2 = await production(2);
 const forgeHour = forgePerHour();
 
 console.log('=== ДОБЫЧА: слабое логово / среднее / у потолка ===');

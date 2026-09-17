@@ -9,7 +9,6 @@
 //   HOURS=12 STEP=2 npm run pop:report
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { catchUp } from '@/game/sim/tick';
 import { assignWorker } from '@/game/sim/workers';
 import { seeded, setRandom } from '@/game/sim/random';
 import {
@@ -26,12 +25,17 @@ import {
 } from '@/game/derived';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
-import { build, staff } from './autopilot';
+import { pilot, player, staff } from './autopilot';
 import { upkeepSection } from './pop-upkeep';
 
 const HOURS = Number(process.env.HOURS ?? 10);
-/** Как часто автопилот принимает решения, игровых секунд. */
+/** Как часто автопилот принимает решения, игровых секунд; тем же тактом пульсует мир. */
 const STEP = Number(process.env.STEP ?? 15);
+/**
+ * Мир партии — тихий: логова набегов на дом не шлют. Отчёт меряет темп хозяйства при идеальной игре, и
+ * набег без войска у автопилота был бы не темпом, а грабежом. Веру деревне мир называет, как в игре.
+ */
+const WORLD = 7;
 
 const maxed = (s: GameState): boolean =>
   s.buildings.every((b) => b.level >= (BUILDING_BY_ID[b.type].maxLevel ?? MAX_BUILDING_LEVEL));
@@ -41,7 +45,7 @@ const hm = (sec: number): string => {
   return m >= 60 ? `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, '0')} мин` : `${m} мин`;
 };
 
-function main(): void {
+async function main(): Promise<void> {
   setRandom(seeded(1));
   const s = createInitialState();
   s.tutorialDone = true;
@@ -55,16 +59,13 @@ function main(): void {
   const winters: { year: number; before: number; after: number; food: number; wood: number }[] = [];
   let winter: { year: number; before: number } | null = null;
 
-  console.log(`Прогон ${HOURS} ч игрового времени, шаг автопилота ${STEP} с.\n`);
+  console.log(`Прогон ${HOURS} ч игрового времени, шаг автопилота ${STEP} с. Общий автопилот: живая игра при игроке, ответы на события,`);
+  console.log(`вера мира ${WORLD} (мир тихий: набегов на дом нет), налог партии как есть.\n`);
   console.log('  время | день | сезон  |  люди | жильё | места | ур.ср | еда/д | склад');
   console.log('  ------|------|--------|-------|-------|-------|-------|-------|-------');
 
   let nextReport = 0;
-  for (let t = 0; t < total; t += STEP) {
-    staff(s);
-    build(s);
-    catchUp(s, STEP, 1);
-
+  const each = (s: GameState): void => {
     for (const m of marks) if (!hit.has(m) && s.pop >= m) hit.set(m, s.time);
     if (allMaxed === null && maxed(s)) allMaxed = s.time;
     if (popCap === null && s.pop >= housingCapacity(s) - 5 && maxed(s)) popCap = s.time;
@@ -99,7 +100,18 @@ function main(): void {
       ];
       console.log(`  ${row.join(' | ')}`);
     }
-  }
+  };
+  const flown = await pilot({
+    g: s,
+    seconds: total,
+    player: player(null),
+    world: { seed: WORLD, pulse: STEP, raids: false },
+    economy: 'live',
+    tick: 1,
+    decide: STEP,
+    watch: { after: ({ g }) => each(g) },
+  });
+  console.log(`\nВера деревни: ${s.faith.id ?? 'нет'}; событий разобрано ответом игрока: ${flown.ledger.answered}.`);
 
   console.log('\nОтметки населения:');
   for (const m of marks) {
@@ -179,7 +191,7 @@ function main(): void {
     );
   }
 
-  upkeepSection();
+  await upkeepSection();
 }
 
-main();
+await main();

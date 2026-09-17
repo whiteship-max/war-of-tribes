@@ -119,8 +119,8 @@ export function awayOf(marches: readonly Marching[], figures: readonly Holding[]
 }
 
 /**
- * Сколько людей не в гарнизоне: отряды в пути и дружина не дома. Этим числом
- * живёт `s.warriorsAway`, по нему племя считает оборону: гарнизон и есть оборона.
+ * Сколько людей не в гарнизоне: отряды в пути и дружина не дома. Племя хранит тех же людей
+ * по видам (`s.away`, мост — `bridge.awayTroops`) и по ним считает оборону: гарнизон и есть оборона.
  */
 export const awayMen = (away: Away): number => troopTotal(away.troops) + Math.max(0, away.loose);
 

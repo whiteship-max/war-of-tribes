@@ -25,7 +25,7 @@
 //   HOURS=2 npm run order:report
 import type { GameState, JobId, ResourceId } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { tick } from '@/game/sim/tick';
+import { stand } from './autopilot';
 import { seeded, setRandom } from '@/game/sim/random';
 import {
   BONDED_OUTPUT,
@@ -407,21 +407,28 @@ interface Marks {
   silence: number | null;
 }
 
-/** Шагает настоящей симуляцией и отмечает первые минуты тревоги, ропота и мятежа. */
+/**
+ * Шагает настоящей симуляцией и отмечает первые минуты тревоги, ропота и мятежа. Это стенд правила
+ * (`autopilot.stand`): игрока нет, и на мятеж не отвечает никто — стража выходит сама по сроку.
+ */
 function watch(s: GameState, seconds: number, each?: (s: GameState, t: number) => void): Marks {
   const marks: Marks = { warn: null, unrest: null, mutiny: null, silence: null };
-  for (let t = 0; t <= seconds; t += 0.5) {
-    each?.(s, t);
-    const settled = tick(s, 0.5);
-    const v = orderValue(s);
-    if (marks.warn === null && s.bonded > 0 && v < ORDER_WARN) marks.warn = t;
-    if (marks.unrest === null && s.bonded > 0 && v < ORDER_UNREST) marks.unrest = t;
-    if (marks.mutiny === null && s.activeEvent?.defId === MUTINY_EVENT) marks.mutiny = t;
-    if (settled) {
-      marks.silence = t;
-      break;
-    }
-  }
+  stand(s, {
+    dt: 0.5,
+    steps: Math.floor(seconds / 0.5) + 1,
+    before: (x, i) => each?.(x, i * 0.5),
+    after: (x, i, settled) => {
+      const t = i * 0.5;
+      const v = orderValue(x);
+      if (marks.warn === null && x.bonded > 0 && v < ORDER_WARN) marks.warn = t;
+      if (marks.unrest === null && x.bonded > 0 && v < ORDER_UNREST) marks.unrest = t;
+      if (marks.mutiny === null && x.activeEvent?.defId === MUTINY_EVENT) marks.mutiny = t;
+      if (settled) {
+        marks.silence = t;
+        return true;
+      }
+    },
+  });
   return marks;
 }
 

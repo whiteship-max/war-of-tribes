@@ -7,87 +7,25 @@
 //
 //   npm run log:report
 //   HOURS=4 npm run log:report
-import type { GameState, JobId } from '@/game/types';
+import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { catchUp, tick } from '@/game/sim/tick';
-import { resolveEvent, startUpgrade } from '@/game/sim/actions';
 import { startForge } from '@/game/sim/smithy';
 import { startRecruit } from '@/game/sim/army';
 import { buyGoods } from '@/game/sim/market';
-import { assignWorker, changeFreeJob, unassignWorker } from '@/game/sim/workers';
 import { seeded, setRandom } from '@/game/sim/random';
 import { serialize } from '@/game/save';
 import { LOG_MAX, LOG_MAX_DAYS } from '@/game/sim/log';
-import {
-  buildingOfType,
-  dayOf,
-  housingCapacity,
-  idleCount,
-  isSite,
-  jobCounts,
-  marketLeft,
-  marketOffer,
-  storageCap,
-  workerCount,
-} from '@/game/derived';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS } from '@/game/constants';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { dayOf, marketLeft, marketOffer, storageCap } from '@/game/derived';
+import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from '@/game/constants';
+import { away, pilot, player } from './autopilot';
 
 const HOURS = Number(process.env.HOURS ?? 3);
 const STEP = Number(process.env.STEP ?? 15);
+/** Мир партии — тихий (набегов нет): летопись меряется у хозяйства, а веру деревне мир называет, как в игре. */
+const WORLD = 7;
 
 /** Предел тела запроса к серверу хранения — см. MAX_BODY_BYTES в netlify/lib/http.ts. */
 const BODY_LIMIT = 512 * 1024;
-
-const SHARE: [JobId, number][] = [
-  ['woodcutter', 0.22],
-  ['gatherer', 0.14],
-  ['farmer', 0.14],
-  ['hunter', 0.12],
-  ['stonecutter', 0.12],
-  ['miner', 0.08],
-  ['herder', 0.05],
-  ['crafter', 0.05],
-  ['smith', 0.02],
-  ['priest', 0.01],
-];
-
-const jobBuilding = (s: GameState, job: JobId) =>
-  s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job) ?? null;
-
-function staff(s: GameState): void {
-  const counts = jobCounts(s);
-  const spare = Math.max(2, Math.round(s.pop * 0.2));
-  for (const [job, share] of SHARE) {
-    const want = Math.max(0, Math.round((s.pop - spare) * share));
-    const have = counts[job];
-    const b = jobBuilding(s, job);
-    if (have > want) {
-      const over = have - want;
-      if (b && workerCount(s, b.id) > 0) unassignWorker(s, b.id, over);
-      else changeFreeJob(s, job, -over);
-    } else if (have < want) {
-      const need = Math.min(want - have, idleCount(s) - spare);
-      if (need > 0 && b) assignWorker(s, b.id, need);
-    }
-  }
-}
-
-function build(s: GameState): void {
-  if (s.buildings.some(isSite)) return;
-  if (s.pop >= housingCapacity(s) - 20) {
-    for (const t of ['houses', 'town_hall'] as const) {
-      if (startUpgrade(s, buildingOfType(s, t)!.id) === null) return;
-    }
-  }
-  const room = storageCap(s);
-  if (RESOURCE_IDS.some((r) => s.resources[r] >= room - 1)) {
-    if (startUpgrade(s, buildingOfType(s, 'storage')!.id) === null) return;
-  }
-  for (const b of [...s.buildings].sort((a, b) => a.level - b.level)) {
-    if (startUpgrade(s, b.id) === null) return;
-  }
-}
 
 /**
  * Размер строки в байтах UTF-8 (столько уедет по сети и столько займёт файл) и
@@ -143,7 +81,7 @@ function report(title: string, s: GameState): void {
  * ступень летописи ломалась молча. Кто чаще всех пишет, тот и должен быть в
  * отчёте.
  */
-function play(hours: number, offline: boolean, trade = false): GameState {
+async function play(hours: number, trade = false): Promise<GameState> {
   setRandom(seeded(7));
   // Сид партии закреплён тем же числом: без него партия бралась от `freshSeed`, и имя
   // полководца, а с ним длина сохранения, плавали от прогона к прогону на знак-другой.
@@ -151,9 +89,10 @@ function play(hours: number, offline: boolean, trade = false): GameState {
   s.tutorialDone = true;
   let nextHire = 0;
   let tradeDay = -1;
-  for (let t = 0; t < hours * 3600; t += STEP) {
-    staff(s);
-    build(s);
+  // Общий автопилот: живая игра при игроке — события поднимаются и игрок их разбирает (иначе
+  // одно повисшее событие затыкает все следующие), люди расставлены, посёлок строится. Своё у
+  // отчёта — только то, что пишет в летопись: кузница под заказом, наём и торговля.
+  const scribe = (s: GameState): void => {
     if (trade && dayOf(s.time) !== tradeDay) {
       tradeDay = dayOf(s.time);
       // Казна пополняется извне: считаем строки летописи, а не золото. У живого
@@ -176,15 +115,16 @@ function play(hours: number, offline: boolean, trade = false): GameState {
       startRecruit(s, 'spearman', 5);
       nextHire = s.time + 10 * DAY_LENGTH;
     }
-    if (offline) {
-      catchUp(s, STEP, 1);
-    } else {
-      // Живая игра: события поднимаются (offline их придерживает) и игрок их
-      // разбирает — иначе одно повисшее событие затыкает все следующие.
-      tick(s, STEP);
-      if (s.activeEvent) resolveEvent(s, 0);
-    }
-  }
+  };
+  await pilot({
+    g: s,
+    seconds: hours * 3600,
+    player: player(null, { also: scribe }),
+    world: { seed: WORLD, pulse: STEP, raids: false },
+    economy: 'live',
+    tick: STEP,
+    decide: STEP,
+  });
   return s;
 }
 
@@ -212,12 +152,13 @@ function peakDay(s: GameState): number {
   return [...n.values()].reduce((m, x) => Math.max(m, x), 0);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   console.log(`Летопись: прогон ${HOURS} ч игрового времени (${Math.round((HOURS * 3600) / DAY_LENGTH)} игровых дней).`);
   console.log(`Один игровой день = ${DAY_LENGTH} с реального времени.`);
   console.log(`Правило обрезки: старше ${LOG_MAX_DAYS} игровых дней выбрасывается, запасной предел ${LOG_MAX} записей.`);
 
-  const s = play(HOURS, false);
+  console.log(`Общий автопилот в тихом мире ${WORLD}: живая игра при игроке, ответы на события, вера мира, стройка.`);
+  const s = await play(HOURS);
   report(`Активная игра, ${HOURS} ч подряд:`, s);
   console.log('\n  Кто наполняет летопись:');
   for (const [text, n] of sources(s)) console.log(`  ${String(n).padStart(4)} × ${text}`);
@@ -226,12 +167,12 @@ function main(): void {
   // пишет в летопись за все пропущенные дни разом. Это худший случай для обрезки
   // по возрасту — проверять надо именно его.
   const offlineDays = Math.round(MAX_OFFLINE_SECONDS / DAY_LENGTH);
-  const o = play(HOURS, false);
-  catchUp(o, MAX_OFFLINE_SECONDS, 2);
+  const o = await play(HOURS);
+  away(o, MAX_OFFLINE_SECONDS, 2);
   report(`После офлайн-догона на ${MAX_OFFLINE_SECONDS / 3600} ч (${offlineDays} игровых дней):`, o);
 
   // Партия подлиннее: докуда доходит счётчик, если играть не отрываясь.
-  const long = play(HOURS * 3, false);
+  const long = await play(HOURS * 3);
   report(`Активная игра, ${HOURS * 3} ч подряд:`, long);
   console.log('\n  Кто наполняет летопись:');
   for (const [text, n] of sources(long)) console.log(`  ${String(n).padStart(4)} × ${text}`);
@@ -248,10 +189,10 @@ function main(): void {
   // Выбор между «поднять предел» (сохранение растёт на ~28 КБ, а оно уезжает на
   // сервер раз в минуту) и «рынок должен писать короче» —
   // решение владельца баланса, а не обрезки: и то, и другое здесь видно числами.
-  const trader = play(HOURS * 3, false, true);
+  const trader = await play(HOURS * 3, true);
   report(`Торговое племя, ${HOURS * 3} ч подряд (заказы каждый день):`, trader);
   console.log('\n  Кто наполняет летопись:');
   for (const [text, n] of sources(trader)) console.log(`  ${String(n).padStart(4)} × ${text}`);
 }
 
-main();
+await main();
