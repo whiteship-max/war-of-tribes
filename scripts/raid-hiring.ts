@@ -39,9 +39,9 @@
 //  В. Уведённые люди: полководец с половиной войска берёт логова голодом на ступени «увести людей»,
 //     дома нанимают по средствам; что это делает с руками, порядком и мятежом за 6 ч.
 import type { EquipmentId, GameState, ResourceId, TroopId } from '@/game/types';
-import type { FigureView, HomeEffect } from '@/world/types';
+import type { FigureView, HomeEffect, PlayerProfile } from '@/world/types';
 import { HOME_ID, type LocalWorld } from '@/world/local/LocalWorld';
-import { awayOf, homeOf } from '@/world/muster';
+import { awayOf, homeOf, type Away } from '@/world/muster';
 import { lairArmsBase, lairPop, lairPower, lairShield } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_POWER_BASE, LAIR_POWER_PER_LEVEL, LAIR_RIPE, LAIR_STEP, SIEGE_IMMUNE } from '@/world/data/tuning';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
@@ -105,7 +105,7 @@ const FORGE_AHEAD = 10 * MIN;
 
 type Style = 'means' | 'meansHigh' | 'feed' | 'builder';
 const STYLES: Style[] = ['means', 'meansHigh', 'feed', 'builder'];
-const NAME: Record<Style, string> = {
+export const NAME: Record<Style, string> = {
   means: 'по средствам',
   meansHigh: 'по средствам, высокий налог',
   feed: 'всё, что прокормит',
@@ -353,7 +353,7 @@ function countMutinyEnd(g: GameState, l: Ledger): void {
   }
 }
 
-interface Out {
+export interface Out {
   run: Run;
   l: Ledger;
   g: GameState;
@@ -371,9 +371,12 @@ interface Opts {
   hourly?: (h: number, g: GameState) => void;
   effect?: (e: HomeEffect, now: number) => void;
   after?: (x: { g: GameState; world: LocalWorld; now: number; figures: FigureView[] }) => Promise<void>;
+  /** Крючки `play`, без них прогон тот же. */
+  profile?: (p: PlayerProfile, g: GameState, away: Away) => void;
+  faith?: boolean;
 }
 
-async function live(o: Opts): Promise<Out> {
+export async function live(o: Opts): Promise<Out> {
   const { g, style } = o;
   const l = ledger();
   g.tax = style === 'meansHigh' ? 'high' : 'moderate';
@@ -405,6 +408,8 @@ async function live(o: Opts): Promise<Out> {
       l.income.push(u.income);
     },
     hourly: o.hourly,
+    profile: o.profile,
+    faith: o.faith,
     effect: (e, now) => {
       o.effect?.(e, now);
       if (e.id.endsWith('-defense') && e.battle === 'won') {

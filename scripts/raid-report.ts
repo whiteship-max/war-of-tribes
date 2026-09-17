@@ -17,7 +17,8 @@
 // Раздел «рост логова» (от чего растёт сила набега, осада по сухому прогону, защита новичка,
 // логово как цель) живёт в `raid-lair-growth.ts` и печатается в конце. Прежний раздел «потолок
 // набегов» мерил отвергнутый вариант «набег = оборона × k» и ушёл вместе с потолком: его числа —
-// снимок на коммите aec1117 (docs/raid_ceiling.md).
+// снимок на коммите aec1117 (docs/raid_ceiling.md). Раздел «Оборона по составу» (долг среднего бойца: где он решает
+// сегодня и что станет с правилом «мощь дома — сумма мощи тех, кто дома») — `raid-defense-mix.ts`, последним.
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
@@ -30,6 +31,7 @@ import {
 import type { MarchView, PlayerProfile } from '@/world/types';
 import { lairGrowthSection } from './raid-lair-growth';
 import { hiringSection } from './raid-hiring';
+import { defenseMixSection } from './raid-defense-mix';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1234, 2024, 4242, 7919];
@@ -203,3 +205,4 @@ for (const watch of WATCH) {
 
 await lairGrowthSection();
 await hiringSection();
+await defenseMixSection();

@@ -19,7 +19,7 @@
 //  4. **Логово как цель** — сжигает ли логово войско мерки и что оно отдаёт.
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
 import { applyEffects, playerProfile, syncAway, syncSiege } from '@/world/bridge';
-import { awayOf, homeOf } from '@/world/muster';
+import { awayOf, homeOf, type Away } from '@/world/muster';
 import { generateWorld, isLair, lairAnchor, type GenSettlement } from '@/world/gen';
 import { distance } from '@/world/geo';
 import { garrisonOf } from '@/world/garrison';
@@ -50,6 +50,7 @@ import type { FigureView, HomeEffect, MarchView, PlayerProfile } from '@/world/t
 import { createInitialState } from '@/game/state';
 import { tick } from '@/game/sim/tick';
 import { autoAssign } from '@/game/sim/workers';
+import { syncFaith } from '@/game/sim/faith';
 import { startRecruit } from '@/game/sim/army';
 import { seeded, setRandom } from '@/game/sim/random';
 import { armyPower, armySize, buildingOfType, defense, housingCapacity, idleCount, recruitRate, storageCap, taxIncomePerDay } from '@/game/derived';
@@ -201,6 +202,16 @@ export interface Play {
   effect?: (e: HomeEffect, now: number) => void;
   /** После каждого пульса, до ответа на осаду: раздел найма ведёт здесь полководца и считает войско. */
   after?: (x: { g: GameState; world: LocalWorld; now: number; marches: MarchView[]; figures: FigureView[] }) => Promise<void> | void;
+  /**
+   * Слепок перед пульсом: раздел обороны по составу (`raid-defense-mix.ts`) подменяет в нём оборону и
+   * ополчение. Без крючка прогон тот же.
+   */
+  profile?: (p: PlayerProfile, g: GameState, away: Away) => void;
+  /**
+   * Вера, которую мир называет деревне, ложится в племя пульсом — как у `world/store` (`syncFaith`).
+   * Без флага деревня живёт без веры: так мерились разделы «Рост логова» и «Найм», и флаг их не трогает.
+   */
+  faith?: boolean;
 }
 
 /** Настоящее состояние мира: отчёт — прибор, ему положено видеть больше панели. */
@@ -248,7 +259,9 @@ export async function play(o: Play): Promise<Run> {
     if (o.refill) Object.assign(g.army, full);
     const away = awayOf(marches, figures);
     homeBefore = troopTotal(homeOf(g.army, away));
-    const p = await world.sync(playerProfile(g, away));
+    const profile = playerProfile(g, away);
+    o.profile?.(profile, g, away);
+    const p = await world.sync(profile);
     for (const e of p.effects as HomeEffect[]) {
       o.effect?.(e, p.now - START);
       applyEffects(g, [e]);
@@ -275,6 +288,7 @@ export async function play(o: Play): Promise<Run> {
     }
     syncAway(g, p.marches, p.figures);
     syncSiege(g, p.siege, p.now);
+    if (o.faith) syncFaith(g, p.faith.id, p.faith.pressure);
     marches = p.marches;
     figures = p.figures;
     return p;
