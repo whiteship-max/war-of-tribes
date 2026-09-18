@@ -1,7 +1,8 @@
 // Снаряжение, войска и власть вождя: то, что игрок покупает людьми и железом.
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { BuildingTypeId, GameState } from '../types';
-import { createInitialState } from '../state';
+import { SAVE_VERSION, createInitialState } from '../state';
+import { deserialize, serialize } from '../save';
 import { catchUp, tick } from './tick';
 import { setDecree, setRation } from './actions';
 import { forgeCheck, startForge } from './smithy';
@@ -377,5 +378,27 @@ describe('указ и рацион', () => {
     catchUp(s, SEASON_DAYS * DAY_LENGTH * 8, 1);
     expect(s.pop).toBeGreaterThan(40);
     expect(s.pop).toBeLessThanOrEqual(housingCapacity(s));
+  });
+});
+
+describe('сохранение до конюшни', () => {
+  it('приезжает без ступени: латных нулём, всадники на месте, версия прежняя', () => {
+    // Сохранение, записанное до латных всадников, отличается ровно ключом: в словаре
+    // армии нет `knight`. Словари армии мержатся поверх новой партии (`save.deserialize`),
+    // поэтому ступени сохранения конюшня не требует. Проверено и настоящим сохранением,
+    // снятым кодом 77b1d55 (docs/stable.md, раздел 10).
+    const s = createInitialState(7);
+    s.army.rider = 5;
+    s.army.spearman = 3;
+    const old = JSON.parse(serialize(s)) as { version: number; army: Record<string, number> };
+    delete old.army.knight;
+    // Граница: сохранение действительно без нового вида — иначе проверялось бы даром.
+    expect('knight' in old.army).toBe(false);
+    const back = deserialize(JSON.stringify(old))!;
+    expect(back).not.toBeNull();
+    expect(old.version).toBe(SAVE_VERSION);
+    expect(back.army.knight).toBe(0);
+    expect(back.army.rider).toBe(5);
+    expect(back.army.spearman).toBe(3);
   });
 });
