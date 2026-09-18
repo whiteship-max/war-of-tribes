@@ -1,8 +1,8 @@
 // Балансные прогоны боя: таблица «кто кому проигрывает», кольцо контрров,
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
-import { simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { ARCHER_PLACES, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, LATTICE_STEP, answerlessOwnKind, compositionLattice, compositionName, latticeDuels, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, searchLayouts, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
+import { COVER, simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
+import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, latticeWorth, nonDecreasing, screenArmy, screenCurve, screenPoints, withCoverK, answerlessOwnKind, compositionLattice, compositionName, latticeDuels, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, searchLayouts, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -91,6 +91,32 @@ console.log(`\n=== Решётка составов: все составы из 6
   console.log(`никому не проигрывает: ${undefeated.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '— (тест «нет доминирующего состава» зелёный)'}`);
   const answerless = order.filter((i) => answerlessOwnKind(rows, i));
   console.log(`ответа без своего главного рода нет: ${answerless.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '—'}`);
+}
+
+console.log('\n=== Заслон: линия по силе (Battle.expose, COVER.K) ===');
+{
+  // Лёгкие ждут удара по лучникам за заслоном на тех же полосах (`bench.screenArmy`); ячейка —
+  // что армия стоит против всей решётки составов (`bench.latticeWorth`: геометрический размен,
+  // одним зеркальным боем на состав). Толщины — те, где заслон тоньше ждущих по силе боя
+  // (`bench.screenPoints`). `COVER.K` выводится здесь: наименьшее из сетки, при котором обе
+  // кривые не падают — тоньше заслон, не больше манёвра.
+  const foes = compositionLattice().map((a) => quickSetup(a));
+  const cell = (v: number): string => pad(v.toFixed(2), 7, true);
+  for (const screen of SCREEN_KINDS) {
+    const points = screenPoints(screen);
+    console.log(`заслон — ${screen}, лёгких ${points.map((m) => ARMY_SIZE - m).join('/')}; толщина заслона: ${points.map((m) => pad(m, 7, true)).join('')}`);
+    console.log(`  ${pad('в лоб (лёгкая «атаковать сразу»)', 38)}${points.map((m) => cell(latticeWorth(screenArmy(screen, m, 'charge'), foes))).join('')}`);
+    console.log(`  ${pad('прежнее правило: по наличию (K → 0)', 38)}${withCoverK(1e-9, () => points.map((m) => cell(latticeWorth(screenArmy(screen, m, 'attack-archers'), foes))).join(''))}`);
+  }
+  const ok: number[] = [];
+  for (const k of COVER_K_GRID) {
+    const curves = withCoverK(k, () => SCREEN_KINDS.map((screen) => screenCurve(screen, foes)));
+    const good = curves.every(nonDecreasing);
+    if (good) ok.push(k);
+    console.log(`  K ${pad(k.toFixed(2), 5)} ${curves.map((c, i) => `${SCREEN_KINDS[i]}:${c.map((p) => cell(p.worth)).join('')}`).join('   ')}  ${good ? 'не падают' : 'ПАДАЕТ'}`);
+  }
+  const derived = ok.length ? Math.min(...ok) : null;
+  console.log(`вывод: K = ${derived ?? 'НЕТ В СЕТКЕ'}; в конфиге COVER.K = ${COVER.K}${derived === COVER.K ? '' : ' — НЕ СОВПАДАЕТ С ВЫВОДОМ'}`);
 }
 
 console.log('\n=== Кольцо контрров при правильных приказах ===');

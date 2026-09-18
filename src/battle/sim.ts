@@ -13,6 +13,7 @@ import {
   ARCHER_ORDERS,
   CAVALRY_ORDERS,
   CLASH_CAVALRY_IMPACT,
+  COVER,
   CLASH_SPEAR_BRACE,
   COUNTER,
   ENVELOP,
@@ -102,6 +103,8 @@ interface Group {
   flankedTick: number;
   /** Потери группы за тик, взвешенные для морали. */
   lostTick: number;
+  /** Вышли из-за тонкой линии: из какой ждущей группы (`Battle.expose`). */
+  leftFrom?: Group;
 }
 
 type Kills = Record<UnitKind, Record<UnitKind, number>>;
@@ -166,12 +169,19 @@ const zeroKills = (): Kills =>
   Object.fromEntries(UNIT_KINDS.map((k) => [k, Object.fromEntries(UNIT_KINDS.map((t) => [t, 0]))])) as Kills;
 const cloneKills = (k: Kills[]): Kills[] => k.map((l) => JSON.parse(JSON.stringify(l)) as Kills);
 
-/** Сила позиции: чем оценивают, кто проигрывает полосу. */
-function power(groups: Group[]): number {
+/**
+ * Сила отряда: рукопашная на стойкость по родам. Ею бой меряет полосу — кто проигрывает, кого
+ * прикрывает линия. Открыта наружу ради стенда заслона (`bench.screenThinner`): «заслон тоньше
+ * ждущих» там считается этой же функцией, а не своей копией формулы.
+ */
+export function stackPower(stack: Stack): number {
   let p = 0;
-  for (const g of groups) for (const k of UNIT_KINDS) p += g.stack[k] * UNIT_STATS[k].melee * UNIT_STATS[k].toughness;
+  for (const k of UNIT_KINDS) p += stack[k] * UNIT_STATS[k].melee * UNIT_STATS[k].toughness;
   return p;
 }
+
+/** Сила позиции: чем оценивают, кто проигрывает полосу. */
+const power = (groups: Group[]): number => groups.reduce((p, g) => p + stackPower(g.stack), 0);
 
 const sum = (groups: Group[], kind: UnitKind): number => groups.reduce((n, g) => n + g.stack[kind], 0);
 
@@ -800,20 +810,49 @@ class Battle {
   }
 
   /**
-   * Ждать манёвра можно только за своей линией. Конница, ждущая обхода, удара по лучникам
-   * или преследования, стоит на своей полосе вне досягаемости: по ней не стреляют и с ней
-   * не сходятся — её прикрывает строй впереди. Нет на полосе своего строя, который держится
-   * (фронт или тыл, не смятый и не бегущий), — прикрывать некому, и эти всадники сами
-   * становятся линией: выходят во фронт и дерутся в лоб. Без этого армия без линии была
-   * недосягаема до своего удара и била логово вчетверо сильнее себя (docs/stable.md, раздел 3).
+   * Ждать манёвра можно только за своей линией, и прикрывает линия по своей силе, а не по
+   * тому, что она есть. Конница, ждущая обхода, удара по лучникам или преследования, стоит
+   * на своей полосе вне досягаемости: по ней не стреляют и с ней не сходятся — её прикрывает
+   * строй впереди (фронт или тыл полосы, не смятый и не бегущий). Прикрыть он может не больше
+   * `линия / COVER.K` силы ждущих (сила — `power`, та же мерка, какой бой меряет полосу);
+   * остальные сами становятся линией: выходят во фронт и дерутся в лоб. Линии нет вовсе —
+   * выходят все (docs/stable.md, раздел 3). Прежде линией считался любой строй на полосе, и
+   * сотня латных прикрывала пятьсот лёгких (docs/stable.md, раздел 12).
+   *
+   * Правило читается каждый тик: линия поредела — из-за неё выходят ещё. Вышедшие на полосе
+   * сами стоят в линии и прикрывают оставшихся, поэтому за один раз выходит ровно доля
+   * 1 − линия / (K × ждущие), и вышедшие из одной группы копятся в одной группе фронта.
    */
   expose(side: Side): void {
     const groups = this.sides[side].groups;
-    for (const g of groups) {
-      if ((g.row !== 'waiting' && g.row !== 'pursue') || g.lane === null || !alive(g)) continue;
-      const screened = groups.some((h) => h !== g && h.lane === g.lane && (h.row === 'front' || h.row === 'rear') && alive(h) && !h.fled && !h.routed);
-      if (screened) continue;
-      g.row = 'front';
+    for (const lane of [0, 1, 2] as Lane[]) {
+      const hidden = groups.filter((g) => (g.row === 'waiting' || g.row === 'pursue') && g.lane === lane && alive(g));
+      if (hidden.length === 0) continue;
+      const line = power(groups.filter((h) => h.lane === lane && (h.row === 'front' || h.row === 'rear') && alive(h) && !h.fled && !h.routed));
+      const share = 1 - line / (COVER.K * power(hidden));
+      if (share <= 0) continue;
+      for (const g of hidden) {
+        if (share >= 1) {
+          g.row = 'front';
+          continue;
+        }
+        const moved = emptyStack();
+        for (const k of UNIT_KINDS) {
+          moved[k] = g.stack[k] * share;
+          g.stack[k] -= moved[k];
+        }
+        const men = stackTotal(moved);
+        g.initial -= men;
+        const out = groups.find((h) => h.leftFrom === g && h.lane === lane && h.row === 'front' && !h.fled);
+        if (out) {
+          for (const k of UNIT_KINDS) out.stack[k] += moved[k];
+          out.initial += men;
+        } else {
+          const ng = newGroup(side, this.sides[side].setup, g.origin, moved, lane, 'front', { morale: g.morale });
+          ng.leftFrom = g;
+          groups.push(ng);
+        }
+      }
     }
   }
 

@@ -7,7 +7,7 @@ import { simulateBattle } from './sim';
 import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_MIN, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
 import { FRONT, HORSE_KINDS, PHASES, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Plan, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
@@ -348,6 +348,29 @@ describe('манёвр — только за своей линией', () => {
     expect(turned('charge'), 'в лоб во фланг в фазе обходов не заходят').toBe(0);
     expect(turned('flank'), 'за линией обход заходит во фланг').toBeGreaterThan(0);
   });
+});
+
+describe('линия по силе', () => {
+  // Заслон прикрывал по наличию: сотня латных впереди прятала пятьсот лёгких, и самый тонкий
+  // заслон был лучшим — чем меньше латных, тем больше лёгких за ними (docs/stable.md, раздел 12).
+  // Теперь линия прикрывает не больше `линия / COVER.K` силы ждущих (`Battle.expose`).
+  it('за заслоном тоньше ждущих манёвр не выигрывает от того, что заслон тоньше', () => {
+    const foes = compositionLattice().map((a) => quickSetup(a));
+    for (const screen of SCREEN_KINDS) {
+      const points = screenPoints(screen);
+      // Граница области: каждая точка — заслон тоньше ждущих по силе боя, и точек хватает на кривую.
+      expect(points.length, screen).toBeGreaterThanOrEqual(3);
+      for (const men of points) expect(screenThinner(screen, men), `${screen} ${men}`).toBe(true);
+      // Лёгкие ждут на полосах, а не в резерве: иначе заслон их не прикрывал бы вовсе.
+      const army = screenArmy(screen, points[0], 'attack-archers');
+      expect(army.sectors.R.cavalry + FRONT.reduce((n, id) => n + army.sectors[id].cavalry, 0)).toBe(ARMY_SIZE - points[0]);
+      expect(army.sectors.R.cavalry).toBe(0);
+      const curve = screenCurve(screen, foes);
+      for (let i = 1; i < curve.length; i += 1) {
+        expect(curve[i - 1].worth, `${screen}: заслон ${curve[i - 1].men} даёт манёвру больше, чем заслон ${curve[i].men}`).toBeLessThanOrEqual(curve[i].worth);
+      }
+    }
+  }, 120_000);
 });
 
 describe('мораль по секторам', () => {

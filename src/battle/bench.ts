@@ -1,8 +1,8 @@
 // Наборы для балансных проверок: составы, пары кольца, настроенная армия
 // против шаблона. Их читают и тесты (раздел 16 документа), и скрипт отчёта —
 // чтобы таблица в отчёте и утверждения в тестах считались по одним данным.
-import { simulateBattle } from './sim';
-import { PLANS } from './config';
+import { simulateBattle, stackPower } from './sim';
+import { COVER, PLANS } from './config';
 import { seededRng } from './rng';
 import { DEFAULT_ORDERS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
 import { KIND_META } from './names';
@@ -176,6 +176,76 @@ export function latticeDuels(armies: Array<Partial<Stack>> = compositionLattice(
  */
 export const answerlessOwnKind = (rows: LatticeRow[], i: number): boolean =>
   rows[i].lostTo.length > 0 && rows[i].lostTo.every((j) => mainKinds(rows[i].army).every((k) => (rows[j].army[k] ?? 0) > 0));
+
+// ---------- Заслон: линия по силе ----------
+//
+// Лёгкая, ждущая удара по лучникам, за заслоном на тех же полосах (`Battle.expose`). Прежде
+// заслон прикрывал по наличию, и самый тонкий был лучшим: чем меньше латных впереди, тем больше
+// лёгких за ними. Стенд меряет, что даёт манёвр при заслоне каждой толщины, — им выведен
+// `COVER.K`, и на нём стоит тест «линия по силе».
+
+/** Кто стоит заслоном: латные и пехота. Ждут — лёгкие. */
+export const SCREEN_KINDS: readonly UnitKind[] = ['heavy', 'infantry'];
+/** Шаг толщины заслона в бойцах строя. */
+export const SCREEN_STEP = 50;
+
+/** Армия `ARMY_SIZE`: заслон `men` рода `screen`, остальное — лёгкие; в каждом секторе фронта по трети того и другого. */
+export function screenArmy(screen: UnitKind, men: number, light: CavalryOrder): ArmySetup {
+  const third = (n: number): [number, number, number] => spread(n, [1 / 3, 1 / 3, 1 / 3]);
+  const s = third(men);
+  const w = third(ARMY_SIZE - men);
+  return setupOf(
+    { A: { [screen]: s[0], cavalry: w[0] }, B: { [screen]: s[1], cavalry: w[1] }, C: { [screen]: s[2], cavalry: w[2] } },
+    { orders: { ...DEFAULT_ORDERS, cavalry: light } },
+  );
+}
+
+/** Заслон тоньше ждущих — по той же силе, какой бой меряет линию (`sim.stackPower`). */
+export const screenThinner = (screen: UnitKind, men: number): boolean =>
+  stackPower(stackOf({ [screen]: men })) < stackPower(stackOf({ cavalry: ARMY_SIZE - men }));
+
+/** Толщины заслона шагом `SCREEN_STEP`, при которых он тоньше ждущих: область свойства. */
+export function screenPoints(screen: UnitKind): number[] {
+  const out: number[] = [];
+  for (let men = SCREEN_STEP; screenThinner(screen, men); men += SCREEN_STEP) out.push(men);
+  return out;
+}
+
+/**
+ * Что армия стоит против всей решётки составов: средний геометрический размен (чужие потери
+ * к своим), одним зеркальным боем на противника. Геометрический — чтобы один разгром не
+ * перевешивал десяток ровных боёв.
+ */
+export function latticeWorth(setup: ArmySetup, foes: ArmySetup[] = compositionLattice().map((a) => quickSetup(a))): number {
+  let log = 0;
+  for (const foe of foes) log += Math.log(mirrored(setup, foe, 1).lossRatio);
+  return Math.exp(log / foes.length);
+}
+
+/**
+ * Манёвр лёгкой за заслоном при нынешнем `COVER.K`: по толщинам `screenPoints`. Свойство:
+ * при заслоне тоньше ждущих ценность манёвра не падает с толщиной заслона.
+ */
+export function screenCurve(screen: UnitKind, foes?: ArmySetup[]): Array<{ men: number; worth: number }> {
+  return screenPoints(screen).map((men) => ({ men, worth: latticeWorth(screenArmy(screen, men, 'attack-archers'), foes) }));
+}
+
+/** Кривая не падает: тоньше заслон — не больше манёвра. */
+export const nonDecreasing = (curve: Array<{ worth: number }>): boolean => curve.every((p, i) => i === 0 || curve[i - 1].worth <= p.worth);
+
+/** Сетка `K`, из которой выводится `COVER.K`: наименьшее, при котором кривые обоих заслонов не падают. */
+export const COVER_K_GRID: readonly number[] = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1];
+
+/** Прогнать `fn` при другом `COVER.K` и вернуть его на место. */
+export function withCoverK<T>(k: number, fn: () => T): T {
+  const was = COVER.K;
+  COVER.K = k;
+  try {
+    return fn();
+  } finally {
+    COVER.K = was;
+  }
+}
 
 /** Кольцо: каждая пара при правильных приказах, `a` должен побеждать. */
 export const RING: Array<{ name: string; a: ArmySetup; b: ArmySetup }> = [
