@@ -3,8 +3,9 @@
 // чтобы таблица в отчёте и утверждения в тестах считались по одним данным.
 import { simulateBattle } from './sim';
 import { PLANS } from './config';
+import { seededRng } from './rng';
 import { DEFAULT_ORDERS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
-import { FRONT, REAR, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type Sector, type Side, type Stack } from './types';
+import { FRONT, HORSE_KINDS, REAR, type ArcherOrder, type ArmySetup, type BattleResult, type CavalryOrder, type InfantryOrder, type Plan, type ReserveTrigger, type Sector, type Side, type SpearOrder, type Stack } from './types';
 
 /** Одинаковая численность: «при прочих равных» — это про число людей. */
 export const ARMY_SIZE = 600;
@@ -28,6 +29,13 @@ export const COMPOSITIONS: Composition[] = [
   comp('конн+луки', { cavalry: 250, archer: 350 }),
   comp('пех+конн', { infantry: 400, cavalry: 200 }),
   comp('копья+конн', { spear: 350, cavalry: 250 }),
+  // Конных родов два (docs/stable.md): тяжёлая одна и в паре с пехотой — как лёгкая выше.
+  comp('тяжёлая', { heavy: 600 }),
+  comp('пех+тяж', { infantry: 400, heavy: 200 }),
+  // Масса лёгкой за тонким заслоном тяжёлой. Строка стоит не для красоты: из всех составов
+  // шагом 50 бойцов по пяти родам «сбаланс» бьют только такие — лёгкая ждёт удара по лучникам
+  // за заслоном, который её прикрывает (`Battle.expose`: линия — присутствие, а не сила).
+  comp('конн за заслоном', { cavalry: 500, heavy: 100 }),
 ];
 
 /** Чужие потери к своим: больше единицы — размен в свою пользу. */
@@ -113,32 +121,6 @@ export const RING: Array<{ name: string; a: ArmySetup; b: ArmySetup }> = [
 
 /** Армия для замера разрыва: одна и та же, на быстрой атаке и настроенная. */
 export const BALANCED_ARMY: Partial<Stack> = { spear: 150, infantry: 200, archer: 150, cavalry: 100 };
-
-/**
- * Настроенная армия — эталон разрыва: против быстрой атаки (случайный пресет по
- * сиду) выигрывает по потерям в коридоре, который держит тест (`npm run battle:report`,
- * раздел «Разрыв быстрой атаки»), и против каждого пресета в отдельности
- * не проигрывает. Фланги заякорены пехотой, натиск через центр, конница уходит
- * в обход, резерв — туда, где проигрываем. Лучшей из возможных она не является:
- * перебор расстановок (`layoutGrid`, раздел «Перебор расстановок» в `battle:report`)
- * находит на том же составе разрыв намного больше. Прежнее «перебор 192 расстановок показал потолок
- * ≈25%» стояло без кода и неверно.
- */
-export const TUNED: ArmySetup = setupOf(
-  { A: { infantry: 40, spear: 55 }, B: { infantry: 120, spear: 40 }, C: { infantry: 40, spear: 55 }, D: { archer: 45 }, E: { archer: 60 }, F: { archer: 45 }, R: { cavalry: 100 } },
-  { plan: 'assault', orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'flank' }, reserve: { kind: 'weakest' } },
-);
-
-/**
- * Известный контрер стандартного пресета: против него одного выигрывает намного
- * больше, но против случайного пресета — не больше настроенной армии
- * (`npm run battle:report`, раздел «Разрыв быстрой атаки»). Это и есть
- * смысл пресетов: контрить нечего, пока не знаешь, какой пришёл.
- */
-export const KNOWN_COUNTER: ArmySetup = setupOf(
-  { A: { infantry: 50, spear: 45 }, B: { infantry: 100, spear: 60 }, C: { infantry: 50, spear: 45 }, D: { archer: 60 }, E: { archer: 30 }, F: { archer: 60 }, R: { cavalry: 100 } },
-  { plan: 'assault', orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'hold-flank' }, reserve: { kind: 'immediate' } },
-);
 
 /** Быстрая атака той же армии: пресет по сиду боя. */
 export const quickOf = (seed: number): ArmySetup => quickAttack(BALANCED_ARMY, seed).setup;
@@ -238,16 +220,19 @@ export function layoutOf(army: Partial<Stack>, spec: LayoutSpec): ArmySetup {
   (spec.archers === 'во фронте' ? FRONT : REAR).forEach((id, i) => {
     s[id].archer = archers[i];
   });
-  if (spec.cavalry === 'фронт ровно') {
-    const cav = spread(a.cavalry, [1 / 3, 1 / 3, 1 / 3]);
-    FRONT.forEach((id, i) => {
-      s[id].cavalry = cav[i];
-    });
-  } else s.R.cavalry = a.cavalry;
+  // Оба конных рода — одним правилом и одним приказом: ось сетки — где конница, а не какая.
+  for (const k of HORSE_KINDS) {
+    if (spec.cavalry === 'фронт ровно') {
+      const cav = spread(a[k], [1 / 3, 1 / 3, 1 / 3]);
+      FRONT.forEach((id, i) => {
+        s[id][k] = cav[i];
+      });
+    } else s.R[k] = a[k];
+  }
   return {
     sectors: s,
     plan: spec.plan,
-    orders: { ...DEFAULT_ORDERS, cavalry: CAVALRY_ORDER[spec.cavalry] },
+    orders: { ...DEFAULT_ORDERS, cavalry: CAVALRY_ORDER[spec.cavalry], heavy: CAVALRY_ORDER[spec.cavalry] },
     reserve: { kind: spec.reserve },
   };
 }
@@ -278,6 +263,107 @@ export function homogeneous(setup: ArmySetup): boolean {
   };
   return one(FRONT, ['infantry', 'spear']) || one(REAR, ['archer']);
 }
+
+/**
+ * Настроенная армия — эталон разрыва: против быстрой атаки (случайный пресет по
+ * сиду) выигрывает по потерям в коридоре, который держит тест (`npm run battle:report`,
+ * раздел «Разрыв быстрой атаки»), и против каждого пресета в отдельности не
+ * проигрывает. Берётся из сетки перебора, а не пишется руками: пехота в центре,
+ * копья на флангах, лучники ровно в тылу, конница в резерве «держать фланг» — то же,
+ * что стандартный пресет, кроме приказа коннице и тыла лучников. Лучшей из возможных
+ * она не является: и сетка, и случайный поиск ниже находят разрыв намного больше.
+ *
+ * Прежний эталон (натиск, пехота с копьями вперемешку, конница «в обход») собирался под
+ * прежний конный род: после раскола конницы он дал 3.6 % и проигрывал стандартному
+ * пресету — пресет теперь ставит лёгкую бить лучников (docs/stable.md).
+ */
+export const TUNED_SPEC: LayoutSpec = { line: 'роды врозь', archers: 'тыл ровно', cavalry: 'резерв: держать фланг', plan: 'envelop', reserve: 'weakest' };
+export const TUNED: ArmySetup = layoutOf(BALANCED_ARMY, TUNED_SPEC);
+
+// ---------- Случайный поиск расстановок ----------
+//
+// Сетка меряет цену расстановки по осям, которые кто-то придумал; всё, что между осями, —
+// лучники во фронте вперемешку с линией, конница по фронту неровно, приказы копьям и
+// пехоте, — ей не видно. Поиск берёт расстановки наугад из сеяного генератора и отбирает
+// лучших против заданного противника. Сид закреплён: одни и те же расстановки на каждом
+// прогоне, и найденное можно переписать в эталон, не теряя происхождения.
+
+const SPEAR_ORDERS: readonly SpearOrder[] = ['hold-line', 'guard-archers', 'priority-cavalry', 'advance'];
+const INFANTRY_ORDERS: readonly InfantryOrder[] = ['hold-center', 'advance', 'support-weak-flank', 'break-center'];
+const ARCHER_ORDERS: readonly ArcherOrder[] = ['nearest', 'priority-infantry', 'priority-cavalry', 'keep-distance', 'support-center'];
+const HORSE_ORDERS: readonly CavalryOrder[] = ['charge', 'hold-flank', 'flank', 'attack-archers', 'pursue'];
+const RESERVES: readonly ReserveTrigger['kind'][] = ['immediate', 'weakest', 'center-losing', 'weak-flank', 'morale'];
+
+/** Сид поиска, число расстановок и боёв отбора: `battle:report`, раздел «Случайный поиск расстановок». */
+export const SEARCH = { seed: 12345, n: 2500, screen: 10 };
+
+/** Одна расстановка армии наугад: каждый род целиком, ни один боец не остаётся за полем. */
+export function randomLayout(army: Partial<Stack>, rng: () => number): ArmySetup {
+  const a = stackOf(army);
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)];
+  const split = (n: number): number[] => {
+    const w = [rng() ** 2, rng() ** 2, rng() ** 2];
+    const sum = w[0] + w[1] + w[2];
+    const out = w.map((x) => Math.floor((n * x) / sum));
+    out[0] += n - out[0] - out[1] - out[2];
+    return out;
+  };
+  const s = emptySectors();
+  const inf = split(a.infantry);
+  const spr = split(a.spear);
+  const arc = split(a.archer);
+  const archersFront = rng() < 0.2;
+  FRONT.forEach((id, i) => {
+    s[id].infantry = inf[i];
+    s[id].spear = spr[i];
+  });
+  (archersFront ? FRONT : REAR).forEach((id, i) => (s[id].archer = arc[i]));
+  const horseInReserve = rng() < 0.7;
+  for (const k of HORSE_KINDS) {
+    if (horseInReserve) s.R[k] = a[k];
+    else split(a[k]).forEach((n, i) => (s[FRONT[i]][k] += n));
+  }
+  const horse = pick(HORSE_ORDERS);
+  return {
+    sectors: s,
+    plan: pick(Object.keys(PLANS) as Plan[]),
+    orders: { spear: pick(SPEAR_ORDERS), infantry: pick(INFANTRY_ORDERS), archer: pick(ARCHER_ORDERS), cavalry: horse, heavy: horse },
+    reserve: { kind: pick(RESERVES) } as ReserveTrigger,
+  };
+}
+
+/** Все расстановки поиска с их разрывом против `opponent` на `SEARCH.screen` боях, лучшие первыми. */
+export function searchLayouts(opponent: (seed: number) => ArmySetup): Array<{ gap: number; setup: ArmySetup }> {
+  const rng = seededRng(SEARCH.seed);
+  const out: Array<{ gap: number; setup: ArmySetup }> = [];
+  for (let i = 0; i < SEARCH.n; i += 1) {
+    const setup = randomLayout(BALANCED_ARMY, rng);
+    out.push({ gap: gapAgainst(setup, opponent, SEARCH.screen).gap, setup });
+  }
+  return out.sort((x, y) => y.gap - x.gap);
+}
+
+/**
+ * Известный контрер стандартного пресета: против него одного выигрывает намного
+ * больше, но против случайного пресета — не больше настроенной армии
+ * (`npm run battle:report`, раздел «Разрыв быстрой атаки»). Это и есть
+ * смысл пресетов: контрить нечего, пока не знаешь, какой пришёл.
+ *
+ * Найден случайным поиском, но не тем, что закоммичен: щупом сессии 18.09.2026 с тем же
+ * генератором и другим порядком бросков. Закоммиченный поиск (раздел «Случайный поиск
+ * расстановок») среди первых двухсот контреров стандарта такого не находит: берущие у
+ * стандарта больше 40 % там либо сильны и против случайного пресета, либо почти бесполезны
+ * против него. Эталон держит свойство теста примером, а насколько он типичен, говорит тот
+ * раздел — с расколом конницы сильный контрер стандарта чаще всего силён против всех.
+ */
+export const KNOWN_COUNTER: ArmySetup = setupOf(
+  {
+    A: { spear: 41, infantry: 50, archer: 8, cavalry: 21 },
+    B: { spear: 56, infantry: 44, archer: 87, cavalry: 43 },
+    C: { spear: 53, infantry: 106, archer: 55, cavalry: 36 },
+  },
+  { plan: 'aggressive', orders: { spear: 'advance', infantry: 'hold-center', archer: 'nearest', cavalry: 'hold-flank', heavy: 'hold-flank' }, reserve: { kind: 'weak-flank' } },
+);
 
 /**
  * Удерживает ли `setup` поле против быстрой атаки армии, умноженной на `k`: доля

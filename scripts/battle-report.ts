@@ -2,7 +2,7 @@
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
 import { simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { ARCHER_PLACES, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, TUNED, gapAgainst, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
+import { ARCHER_PLACES, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, searchLayouts, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -138,7 +138,7 @@ console.log('\n=== Пресеты быстрой атаки ===');
 console.log('\n=== Разрыв быстрой атаки: настроенная против быстрой атаки (случайный пресет), 100 боёв ===');
 {
   const t = gapAgainst(TUNED, quickOf, 100);
-  console.log(`настроенная: разрыв ${(t.gap * 100).toFixed(1)}% (коридор 10–25%, цель 15%), побед ${t.won}/100, поражений ${t.lost}/100`);
+  console.log(`настроенная (${layoutName(TUNED_SPEC)}): разрыв ${(t.gap * 100).toFixed(1)}% (коридор 10–25%, цель 15%), побед ${t.won}/100, поражений ${t.lost}/100`);
   for (const id of QUICK_PRESET_IDS) {
     const g = gapAgainst(TUNED, () => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)), 40);
     console.log(`   против ${pad(id, 13)} ${(g.gap * 100).toFixed(1).padStart(6)}% (побед ${g.won}/40)`);
@@ -251,6 +251,62 @@ console.log('\n=== Перебор расстановок: цена расста�
   console.log(`точка поля (перевес врага, при котором удержано полполя, 40 боёв): лучшая ×${point(() => best.setup)}, TUNED ×${point(() => TUNED)}, быстрая атака ×${point((seed) => quickOf(seed * 7 + 3))}`);
 }
 
+console.log(`\n=== Случайный поиск расстановок: ${SEARCH.n} расстановок наугад (сид ${SEARCH.seed}), отбор против стандартного пресета по ${SEARCH.screen} боёв ===`);
+{
+  // Сетка видит только свои оси. Поиск — `bench.randomLayout`: лучники во фронте вперемешку
+  // с линией, конница неровно по фронту, приказы всем родам. Двенадцать лучших против
+  // стандарта перемериваются: против него на 60 боях, против быстрой атаки на 100 и против
+  // каждого пресета на 30. Здесь же ищется известный контрер с условиями теста: эталон
+  // (`bench.KNOWN_COUNTER`) найден щупом с другим порядком бросков, и строка ниже говорит, повторяет
+  // ли его закоммиченный поиск.
+  const std = (): ArmySetup => QUICK_PRESETS.standard.layout(stackOf(BALANCED_ARMY));
+  const all = searchLayouts(std);
+  const found = all.slice(0, 12);
+  const same = (a: ArmySetup, b: ArmySetup): boolean => JSON.stringify([a.sectors, a.plan, a.orders, a.reserve]) === JSON.stringify([b.sectors, b.plan, b.orders, b.reserve]);
+  const brief = (x: ArmySetup): string => {
+    const cell = (id: keyof ArmySetup['sectors']): string => {
+      const v = x.sectors[id];
+      return (['spear', 'infantry', 'archer', 'cavalry', 'heavy'] as const).filter((k) => v[k] > 0).map((k) => `${k[0]}${v[k]}`).join('') || '—';
+    };
+    const o = x.orders;
+    return `A ${cell('A')} B ${cell('B')} C ${cell('C')} | D ${cell('D')} E ${cell('E')} F ${cell('F')} | R ${cell('R')} | ${x.plan}, копья ${o.spear}, пехота ${o.infantry}, лучники ${o.archer}, конница ${o.cavalry}, резерв ${x.reserve.kind}`;
+  };
+  const measured = new Map<ArmySetup, { known: number; random: number; per: string[] }>();
+  const measure = (x: ArmySetup): { known: number; random: number; per: string[] } => {
+    const hit = measured.get(x);
+    if (hit) return hit;
+    const m = {
+      known: gapAgainst(x, std, 60).gap,
+      random: gapAgainst(x, quickOf, 100).gap,
+      per: QUICK_PRESET_IDS.map((id) => (gapAgainst(x, () => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)), 30).gap * 100).toFixed(0)),
+    };
+    measured.set(x, m);
+    return m;
+  };
+  const row = (m: ReturnType<typeof measure>, x: ArmySetup, n: number): string =>
+    ` ${pad(n, 4, true)}  ${(m.known * 100).toFixed(1).padStart(7)}%  ${(m.random * 100).toFixed(1).padStart(8)}%   ${m.per.map((v) => v.padStart(4)).join(' /')}   ${brief(x)}${same(x, KNOWN_COUNTER) ? '  ← KNOWN_COUNTER' : ''}`;
+  console.log(' место  стандарт  случайный  по пресетам: standard / anti-cavalry / center-punch / defense   расстановка');
+  found.forEach((f, i) => console.log(row(measure(f.setup), f.setup, i + 1)));
+  // Известный контрер — первый по отбору, у кого условия теста (`battle.test.ts`, «известный контрер»):
+  // против стандарта больше 40 %, против случайного пресета больше 5 % и не больше 25 % — и меньше
+  // половины того, что против стандарта.
+  const LIMIT = 200;
+  let counter = -1;
+  for (let i = 0; i < Math.min(LIMIT, all.length) && counter < 0; i++) {
+    const m = measure(all[i].setup);
+    if (m.known > 0.4 && m.random > 0.05 && m.random <= 0.25 && m.random < m.known / 2) {
+      counter = i;
+      if (i >= found.length) console.log(row(m, all[i].setup, i + 1));
+    }
+  }
+  if (counter < 0) console.log(`контрера стандарта с разрывом против случайного пресета в коридоре настроенной армии среди первых ${LIMIT} нет`);
+  else {
+    const x = all[counter].setup;
+    console.log(`контрер стандарта — место ${counter + 1}: первое, где против стандарта больше 40%, против случайного пресета от 5% до 25% и меньше половины того; ${same(x, KNOWN_COUNTER) ? 'это и есть KNOWN_COUNTER' : 'KNOWN_COUNTER С НИМ НЕ СОВПАЛ'}`);
+    console.log(`  ${JSON.stringify({ sectors: x.sectors, plan: x.plan, orders: x.orders, reserve: x.reserve })}`);
+  }
+}
+
 if (process.env.SHOW) {
   const [an, bn] = process.env.SHOW.split(':');
   const scale = Number(process.env.SCALE ?? 1);
@@ -259,7 +315,7 @@ if (process.env.SHOW) {
   const a = ca ? quickSetup(Object.fromEntries(Object.entries(ca.army).map(([k, n]) => [k, Math.round((n ?? 0) * scale)]))) : TUNED;
   const b = COMPOSITIONS.find((c) => c.name === bn)?.setup ?? quickOf(seed);
   const r: BattleResult = simulateBattle({ seed, attacker: a, defender: b });
-  const line = (s: Stack): string => `копья ${s.spear} пехота ${s.infantry} лучники ${s.archer} конница ${s.cavalry}`;
+  const line = (s: Stack): string => `копья ${s.spear} пехота ${s.infantry} лучники ${s.archer} лёгкая ${s.cavalry} тяжёлая ${s.heavy}`;
   console.log(`\n=== ${an} против ${bn}: ${r.winner} (${r.reason}), ${r.ticks} тиков, потери чужие/свои ${lossRatio(r, 'attacker').toFixed(2)} ===`);
   for (const side of ['attacker', 'defender'] as const) {
     const s = r.sides[side];

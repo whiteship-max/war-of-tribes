@@ -8,9 +8,12 @@ import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTot
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_MIN, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
-import { FRONT, PHASES, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Plan, type Side, type Stack, type Winner } from './types';
+import { FRONT, HORSE_KINDS, PHASES, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Plan, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
+
+/** Конница обоих родов: события журнала про коней пишет ядро по `HORSE_KINDS`, и сверять их надо так же. */
+const horse = (st: Stack): number => HORSE_KINDS.reduce((n, k) => n + st[k], 0);
 
 /** Все пары составов по нескольку сидов, с обеих сторон поля. `ratio` — средний размен a к b. */
 function allPairs(seeds: number): Array<{ a: string; b: string; ratio: number; results: BattleResult[] }> {
@@ -673,16 +676,16 @@ describe('журнал осмыслен', () => {
             break;
           case 'spears-held':
             expect(r.sides[e.side].initial.spear).toBeGreaterThan(0);
-            expect(r.sides[other(e.side)].initial.cavalry).toBeGreaterThan(0);
-            expect(e.cavalryLost).toBeLessThanOrEqual(r.sides[other(e.side)].losses.cavalry);
+            expect(horse(r.sides[other(e.side)].initial)).toBeGreaterThan(0);
+            expect(e.cavalryLost).toBeLessThanOrEqual(horse(r.sides[other(e.side)].losses));
             expect(e.cavalryLost).toBeGreaterThanOrEqual(e.spearsLost);
             break;
           case 'cavalry-broke-archers':
-            expect(r.sides[e.side].initial.cavalry).toBeGreaterThan(0);
+            expect(horse(r.sides[e.side].initial)).toBeGreaterThan(0);
             expect(e.archersLost).toBeLessThanOrEqual(r.sides[other(e.side)].losses.archer);
             break;
           case 'cavalry-intercepted':
-            expect(r.sides[e.side].initial.cavalry).toBeGreaterThan(0);
+            expect(horse(r.sides[e.side].initial)).toBeGreaterThan(0);
             break;
           case 'sector-collapsed': {
             expect(['A', 'B', 'C']).toContain(e.sector);
@@ -704,7 +707,7 @@ describe('журнал осмыслен', () => {
           case 'reserve-committed':
             expect(e.men).toBeGreaterThan(0);
             expect(e.men).toBeLessThanOrEqual(r.sides[e.side].total.initial);
-            expect(initialOf(e.side, 'R') > 0 || r.sides[e.side].initial.cavalry > 0).toBe(true);
+            expect(initialOf(e.side, 'R') > 0 || horse(r.sides[e.side].initial) > 0).toBe(true);
             break;
           case 'infantry-shifted':
             expect(r.sides[e.side].initial.infantry).toBeGreaterThanOrEqual(e.men);
