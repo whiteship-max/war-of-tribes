@@ -6,6 +6,7 @@ import { BATTLE_MAN } from '@/game/battle/kinds';
 import {
   QUICK_PRESETS,
   QUICK_PRESET_IDS,
+  UNIT_KINDS,
   emptyStack,
   type ArmySetup,
   type QuickPresetId,
@@ -21,15 +22,20 @@ interface StyleDef {
   shares: Partial<Record<UnitKind, number>>;
 }
 
+// Конница логов — тяжёлая (docs/stable.md, раздел 8): в подстановке логово с тяжёлой не сдвигало силы
+// набега (1.06 полпути, как с прежним всадником), а с лёгкой сдвигало.
 export const GARRISON_STYLES: Record<GarrisonStyle, StyleDef> = {
-  balanced: { name: 'смешанное войско', shares: { spear: 0.3, infantry: 0.35, archer: 0.2, cavalry: 0.15 } },
+  balanced: { name: 'смешанное войско', shares: { spear: 0.3, infantry: 0.35, archer: 0.2, heavy: 0.15 } },
   horde: { name: 'пешая орда', shares: { infantry: 0.7, archer: 0.3 } },
-  riders: { name: 'конная дружина', shares: { cavalry: 0.4, infantry: 0.35, archer: 0.25 } },
+  riders: { name: 'конная дружина', shares: { heavy: 0.4, infantry: 0.35, archer: 0.25 } },
   wall: { name: 'копейная стена', shares: { spear: 0.45, infantry: 0.3, archer: 0.25 } },
   bowmen: { name: 'лучный засад', shares: { archer: 0.45, infantry: 0.35, spear: 0.2 } },
 };
 
 const STYLE_IDS: GarrisonStyle[] = ['balanced', 'horde', 'riders', 'wall', 'bowmen'];
+
+/** Ступень снаряжения у всех родов отряда одна — по мощи. */
+const gearAt = (tier: number): Partial<Record<UnitKind, number>> => Object.fromEntries(UNIT_KINDS.map((k) => [k, tier]));
 
 /** Хеш строки с сидом: тот же вход — тот же уклад, без обращения к Math.random. */
 function hash(seed: number, text: string): number {
@@ -94,7 +100,7 @@ export function garrisonOf(seed: number, id: string, power: number, castle = fal
   const men = menOfPower(power);
   const kinds = split(men, GARRISON_STYLES[style].shares);
   const tier = gearTier(power, castle);
-  const gear: Partial<Record<UnitKind, number>> = { spear: tier, infantry: tier, archer: tier, cavalry: tier };
+  const gear = gearAt(tier);
   const preset = QUICK_PRESET_IDS[hash(seed, `${id}#plan`) % QUICK_PRESET_IDS.length];
   const setup = { ...QUICK_PRESETS[preset].layout(kinds), gear };
   return { style, kinds, men, gear, preset, setup };
@@ -109,7 +115,7 @@ export function raidingParty(seed: number, marchId: string, power: number): Garr
   const men = menOfPower(power);
   const kinds = split(men, GARRISON_STYLES[style].shares);
   const tier = gearTier(power, false);
-  const gear: Partial<Record<UnitKind, number>> = { spear: tier, infantry: tier, archer: tier, cavalry: tier };
+  const gear = gearAt(tier);
   const preset = QUICK_PRESET_IDS[hash(seed, `${marchId}!plan`) % QUICK_PRESET_IDS.length];
   const setup = { ...QUICK_PRESETS[preset].layout(kinds), gear };
   return { style, kinds, men, gear, preset, setup };
