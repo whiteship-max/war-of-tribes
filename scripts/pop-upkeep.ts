@@ -40,7 +40,7 @@ import { SEASONS, SEASON_SECONDS } from '@/game/data/seasons';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { FAITH_BY_ID } from '@/game/data/faiths';
 import { QUESTS } from '@/game/data/quests';
-import { DESERT_SHARE, WAGE_AMNESTY_DAYS, WAGE_HEAD, WAGE_MAN } from '@/game/data/upkeep';
+import { DESERT_SHARE, WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from '@/game/data/upkeep';
 import { weightOf } from '@/game/battle/kinds';
 import { lairGold, lairLoot, lairPower } from '@/world/lairs';
 import {
@@ -247,19 +247,22 @@ export async function upkeepSection(): Promise<void> {
   // --- Как делить жалованье ---
   const kinds: TroopId[] = ['clubman', 'spearman', 'legionary'];
   const cap = last(stages);
-  // Отвергнутые способы — своей арифметикой: в игре их нет, и показать их иначе нечем.
-  const schemes: [string, number, number][] = [
-    ['по силе 1.1', 0, 1.1],
-    ['по головам 2.2', 2.2, 0],
-    [`голова ${WAGE_HEAD} + сила ${WAGE_MAN} ← игра`, WAGE_HEAD, WAGE_MAN],
+  // Отвергнутые способы — своей арифметикой: в игре их нет, и показать их иначе нечем. Третья
+  // строка — формула игры без части за снаряжение (`WAGE_GEAR`), четвёртая — сама игра
+  // (`derived.wageOf`, со снаряжением): прежде третья называлась ценой игры, а считала без него.
+  const schemes: [string, ((s: GameState, k: TroopId) => number) | null][] = [
+    ['по силе 1.1', (_s, k) => TAX_PER_POP * 1.1 * weightOf(k)],
+    ['по головам 2.2', () => TAX_PER_POP * 2.2],
+    [`голова ${WAGE_HEAD} + сила ${WAGE_MAN}, без снаряжения`, (_s, k) => TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(k))],
+    [`← игра: и снаряжение ${WAGE_GEAR} (wageOf)`, null],
   ];
   console.log('\nКак делить жалованье: какую долю от жителей казна держит бойцами одного вида (этап «потолок»):');
-  console.log('  способ                      | налог     | ' + kinds.map((k) => TROOP_BY_ID[k].name.padStart(9)).join(' | '));
-  for (const [name, head, man] of schemes) {
+  console.log('  способ                                   | налог     | ' + kinds.map((k) => TROOP_BY_ID[k].name.padStart(9)).join(' | '));
+  for (const [name, wage] of schemes) {
     for (const tax of ['moderate', 'high'] as TaxId[]) {
       const s = withPolicy(cap, tax, null);
-      const cells = kinds.map((k) => share(goldCeiling(s, k, TAX_PER_POP * (head + man * weightOf(k))), s.pop).padStart(9));
-      console.log(`  ${name.padEnd(27)} | ${(tax === 'high' ? 'высокий' : 'умеренный').padEnd(9)} | ${cells.join(' | ')}`);
+      const cells = kinds.map((k) => share(wage ? goldCeiling(s, k, wage(s, k)) : goldCeiling(s, k), s.pop).padStart(9));
+      console.log(`  ${name.padEnd(40)} | ${(tax === 'high' ? 'высокий' : 'умеренный').padEnd(9)} | ${cells.join(' | ')}`);
     }
   }
   console.log('  По силе дубинщик при высоком налоге почти бесплатен; по головам латник стоит как дубинщик.');
