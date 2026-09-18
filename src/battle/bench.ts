@@ -5,7 +5,8 @@ import { simulateBattle } from './sim';
 import { PLANS } from './config';
 import { seededRng } from './rng';
 import { DEFAULT_ORDERS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
-import { FRONT, HORSE_KINDS, REAR, type ArcherOrder, type ArmySetup, type BattleResult, type CavalryOrder, type InfantryOrder, type Plan, type ReserveTrigger, type Sector, type Side, type SpearOrder, type Stack } from './types';
+import { KIND_META } from './names';
+import { FRONT, HORSE_KINDS, REAR, UNIT_KINDS, type ArcherOrder, type ArmySetup, type BattleResult, type CavalryOrder, type InfantryOrder, type Plan, type ReserveTrigger, type Sector, type Side, type SpearOrder, type Stack, type UnitKind } from './types';
 
 /** Одинаковая численность: «при прочих равных» — это про число людей. */
 export const ARMY_SIZE = 600;
@@ -99,6 +100,82 @@ export function setupOf(sectors: Partial<Record<keyof ArmySetup['sectors'], Part
   const base = quickSetup({});
   return { ...base, sectors: full, ...over, orders: { ...base.orders, ...(over.orders ?? {}) } };
 }
+
+// ---------- Решётка составов ----------
+//
+// Составы, подобранные руками, врут в обе стороны: список не содержит того, кто
+// доминирует, и содержит тех, кого доминирующий бьёт для красоты. Решётка берёт все
+// составы из `ARMY_SIZE` бойцов строя шагом `LATTICE_STEP` по всем родам ядра — род
+// добавили в `UNIT_KINDS`, и решётка знает его сама.
+
+/** Шаг решётки: 150 из 600 — 70 составов при пяти родах, 2415 пар. */
+export const LATTICE_STEP = 150;
+
+/** Все составы решётки: каждый род от нуля до всей армии шагом `step`, сумма — `total`. */
+export function compositionLattice(step = LATTICE_STEP, total = ARMY_SIZE): Array<Partial<Stack>> {
+  const out: Array<Partial<Stack>> = [];
+  const walk = (i: number, left: number, cur: Partial<Stack>): void => {
+    const kind = UNIT_KINDS[i];
+    if (i === UNIT_KINDS.length - 1) {
+      out.push({ ...cur, [kind]: left });
+      return;
+    }
+    for (let n = 0; n <= left; n += step) walk(i + 1, left - n, { ...cur, [kind]: n });
+  };
+  walk(0, total, {});
+  return out;
+}
+
+export const compositionName = (army: Partial<Stack>): string =>
+  UNIT_KINDS.filter((k) => (army[k] ?? 0) > 0)
+    .map((k) => `${KIND_META[k].name.toLowerCase()} ${army[k]}`)
+    .join(' + ');
+
+/** Самый многочисленный род состава; при равенстве — все равные. */
+export const mainKinds = (army: Partial<Stack>): UnitKind[] => {
+  const top = Math.max(...UNIT_KINDS.map((k) => army[k] ?? 0));
+  return UNIT_KINDS.filter((k) => (army[k] ?? 0) === top);
+};
+
+export interface LatticeRow {
+  army: Partial<Stack>;
+  /** Кого этот состав бьёт по размену (`RATIO_EVEN`) — номера в решётке. */
+  beats: number[];
+  /** Кому проигрывает по размену. */
+  lostTo: number[];
+}
+
+/**
+ * Каждый состав решётки против каждого, одним зеркальным боем на пару (`mirrored`, сид 1):
+ * `layout` — как состав встаёт в поле, по умолчанию стандартный
+ * пресет: расстановку решётка не меряет, для неё есть перебор ниже.
+ */
+export function latticeDuels(armies: Array<Partial<Stack>> = compositionLattice(), layout: (army: Partial<Stack>) => ArmySetup = (a) => quickSetup(a)): LatticeRow[] {
+  const setups = armies.map(layout);
+  const rows: LatticeRow[] = armies.map((army) => ({ army, beats: [], lostTo: [] }));
+  for (let i = 0; i < setups.length; i += 1) {
+    for (let j = i + 1; j < setups.length; j += 1) {
+      const r = mirrored(setups[i], setups[j], 1).lossRatio;
+      if (r >= RATIO_EVEN) {
+        rows[i].beats.push(j);
+        rows[j].lostTo.push(i);
+      } else if (r <= 1 / RATIO_EVEN) {
+        rows[j].beats.push(i);
+        rows[i].lostTo.push(j);
+      }
+    }
+  }
+  return rows;
+}
+
+/**
+ * Ответа без своего рода нет: всё, что бьёт этот состав, само построено на его главном
+ * роде. Так выглядит обязательный род — против массы тяжёлой помогает только тяжёлая.
+ * Решётка это видит, а утверждение «каждый кому-то проигрывает» — нет: тяжёлой есть
+ * кому проиграть, но все эти «кто» — тяжёлая.
+ */
+export const answerlessOwnKind = (rows: LatticeRow[], i: number): boolean =>
+  rows[i].lostTo.length > 0 && rows[i].lostTo.every((j) => mainKinds(rows[i].army).every((k) => (rows[j].army[k] ?? 0) > 0));
 
 /** Кольцо: каждая пара при правильных приказах, `a` должен побеждать. */
 export const RING: Array<{ name: string; a: ArmySetup; b: ArmySetup }> = [

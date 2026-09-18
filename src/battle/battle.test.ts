@@ -7,7 +7,7 @@ import { simulateBattle } from './sim';
 import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_MIN, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
 import { FRONT, HORSE_KINDS, PHASES, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Plan, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
@@ -96,20 +96,28 @@ describe('шаблон быстрой атаки', () => {
 });
 
 describe('нет доминирующего состава', () => {
-  it('каждый состав кому-нибудь проигрывает размен', () => {
-    // Порог — по размену, не по доле побед: поле держит тот, у кого дольше мораль, а платить
-    // за него можно больше, чем за поражение.
-    const pairs = allPairs(6);
-    const losesTo = new Map<string, string[]>();
-    for (const c of COMPOSITIONS) losesTo.set(c.name, []);
-    for (const p of pairs) {
-      if (p.ratio >= RATIO_EVEN) losesTo.get(p.b)!.push(p.a);
-      else if (p.ratio <= 1 / RATIO_EVEN) losesTo.get(p.a)!.push(p.b);
-    }
-    for (const c of COMPOSITIONS) {
-      expect(losesTo.get(c.name)!.length, `${c.name} не проигрывает размен никому`).toBeGreaterThan(0);
-    }
+  // Противники — вся решётка составов (`bench.compositionLattice`), а не список, подобранный
+  // руками: список не содержит того, кто доминирует, и промахивается мимо тех, кто его бьёт. Порог — по
+  // размену, не по доле побед: поле держит тот, у кого дольше мораль, а платить за него можно
+  // больше, чем за поражение. Дыру заслона ловит свой тест («линия по силе»), а не этот.
+  let rows: LatticeRow[] | null = null;
+  const lattice = (): LatticeRow[] => (rows ??= latticeDuels());
+
+  it('решётка — все составы по всем родам ядра, от нуля до всей армии', () => {
+    const armies = compositionLattice();
+    // Граница области: число составов — сочетания с повторениями, и каждый род хоть раз
+    // стоит армией целиком, — иначе «каждый кому-то проигрывает» проверялось бы не на всех.
+    const slots = ARMY_SIZE / LATTICE_STEP;
+    const choose = (n: number, k: number): number => (k === 0 ? 1 : (choose(n - 1, k - 1) * n) / k);
+    expect(armies.length).toBe(choose(slots + UNIT_KINDS.length - 1, UNIT_KINDS.length - 1));
+    for (const army of armies) expect(stackTotal(stackOf(army))).toBe(ARMY_SIZE);
+    for (const k of UNIT_KINDS) expect(armies.some((a) => a[k] === ARMY_SIZE), k).toBe(true);
   });
+
+  it('каждый состав решётки кому-нибудь проигрывает размен', () => {
+    const r = lattice();
+    for (const row of r) expect(row.lostTo.length, `${compositionName(row.army)} не проигрывает размен никому`).toBeGreaterThan(0);
+  }, 120_000);
 });
 
 describe('результат и цена', () => {

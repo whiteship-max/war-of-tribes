@@ -2,7 +2,7 @@
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
 import { simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { ARCHER_PLACES, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, searchLayouts, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
+import { ARCHER_PLACES, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, LATTICE_STEP, answerlessOwnKind, compositionLattice, compositionName, latticeDuels, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, searchLayouts, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -71,6 +71,26 @@ console.log('\nячейка: удержали поле / ничьих / отда
 console.log('выводы — по размену: проигрывает, если размен ≤ 1/1.05; удерживает поле дороже, чем противник, — победа с непомерными потерями');
 for (const c of COMPOSITIONS) {
   console.log(`${pad(c.name, W)} проигрывает размен: ${losesTo[c.name].join(', ') || '— НИКОМУ'}${costly[c.name].length ? `; держит поле с непомерными потерями против: ${costly[c.name].join(', ')}` : ''}`);
+}
+
+console.log(`\n=== Решётка составов: все составы из 600 бойцов строя шагом ${LATTICE_STEP} по всем родам, каждый против каждого одним зеркальным боем ===`);
+{
+  // Та же решётка, что держит тест «нет доминирующего состава» (`bench.latticeDuels`), стандартный
+  // пресет. Утверждение теста — «каждый кому-то проигрывает» — видит только строгое превосходство;
+  // строка «ответа без своего рода нет» видит обязательный род: всё, что бьёт состав, построено
+  // на его же главном роде.
+  const rows = latticeDuels(compositionLattice());
+  const n = rows.length;
+  const pct = (i: number): string => `${Math.round((100 * rows[i].beats.length) / (n - 1))}%`;
+  const order = [...rows.keys()].sort((a, b) => rows[b].beats.length - rows[a].beats.length);
+  console.log(`составов ${n}; десять, что бьют больше всех (бьёт, из ${n - 1}; кому проигрывает — и сколько бьёт он сам):`);
+  for (const i of order.slice(0, 10)) {
+    console.log(`  ${pad(compositionName(rows[i].army), 60)} ${pad(rows[i].beats.length, 3, true)} ${pad(pct(i), 4, true)}  проигрывает ${rows[i].lostTo.length}: ${rows[i].lostTo.map((j) => `${compositionName(rows[j].army)} (${pct(j)})`).join('; ')}`);
+  }
+  const undefeated = order.filter((i) => rows[i].lostTo.length === 0);
+  console.log(`никому не проигрывает: ${undefeated.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '— (тест «нет доминирующего состава» зелёный)'}`);
+  const answerless = order.filter((i) => answerlessOwnKind(rows, i));
+  console.log(`ответа без своего главного рода нет: ${answerless.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '—'}`);
 }
 
 console.log('\n=== Кольцо контрров при правильных приказах ===');
