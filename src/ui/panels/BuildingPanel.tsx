@@ -40,6 +40,7 @@ import {
   jobMultiplier,
   levelOutputMult,
   maxLevelFor,
+  heavyFrom,
   heavyOpen,
   stalls,
   stallsTaken,
@@ -68,6 +69,7 @@ import { TownHall } from '../parts/TownHall';
 import { Smithy } from '../parts/Smithy';
 import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
+import { Recruit } from '../parts/Recruit';
 import { Tavern } from '../parts/Tavern';
 import { Statue } from '../parts/Statue';
 import { Watch } from '../parts/Watch';
@@ -316,6 +318,13 @@ function BuildingData({ b }: { b: Building }) {
           <Barracks />
         </>
       );
+    case 'stable':
+      return (
+        <>
+          <GenericData b={b} />
+          <Recruit at="stable" />
+        </>
+      );
     case 'market':
       return (
         <>
@@ -561,7 +570,7 @@ function GenericData({ b }: { b: Building }) {
   if (b.type === 'stable') {
     stats.push(['troop-horse', '🐎', 'Стойла заняты', `${stallsTaken(s)} из ${stalls(s)}`]);
     stats.push(['troop-horse', '🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
-    stats.push(['troop-knight', '🏇', 'Латные всадники', heavyOpen(s) ? 'нанимают здесь' : 'с 4 уровня']);
+    stats.push(['troop-knight', '🏇', 'Латные всадники', heavyOpen(s) ? 'нанимают здесь' : `с ${heavyFrom()} уровня`]);
   }
   // Тайник. Главный довод его строить — не «сколько прячет сейчас», а «сколько
   // будет», и оба числа стоят рядом, чтобы игроку не считать в уме. Всё, что
