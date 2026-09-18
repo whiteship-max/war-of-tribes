@@ -1,7 +1,7 @@
 // Лазарет — раздел `raid:report`.
 //
 // Лазарет сделан по решениям владельца (docs/infirmary.md, раздел 9): раненый встаёт в строй тем же
-// бойцом, мест — три на уровень, лежат два игровых дня, раненые полководца лежат при нём до возвращения
+// бойцом, мест — 11 бойцов строя на уровень, лежат два игровых дня, раненые полководца лежат при нём до возвращения
 // дружины, рассеянные не ранены (`src/game/sim/infirmary.ts`). Раздел меряет, **что он сделал в игре**:
 // сколько павших ранено, сколько легло, скольким не хватило мест, сколько встало в строй и сколько добра
 // найма это сберегло. Числа до кода — снимок того же раздела на коммите 2fc77c9.
@@ -208,19 +208,47 @@ export async function infirmarySection(h: Hired): Promise<void> {
   // 3. Места.
   console.log('');
   console.log('Места по решениям игрока: «пик занятых» — по прогону, медиана…наибольший; «полный» — доля решений, на которых мест не оставалось;');
-  console.log('«раненых в бою» — ранено в одном бою (легли, при полководце, не хватило мест), 90-я доля и наибольшее.');
-  console.log(' поведение                    где     мест    пик занятых  полный  раненых в бою: 90-я доля  наибольшее');
+  console.log('«раненых в бою» — ранено в одном бою (легли, при полководце, не хватило мест), 90-я доля и наибольшее, в головах; «строя» — то же');
+  console.log('в бойцах строя: место в лазарете — боец строя (derived.bedsTaken), и мест и пик — тоже в них.');
+  console.log(' поведение                    где     мест    пик занятых  полный  раненых в бою: 90-я доля  наибольшее  строя: 90-я доля  наибольшее');
   for (const r of rows) {
     const peaks = r.outs.map((o) => o.l.bedsPeak);
     const decisions = total(r, (o) => o.l.growth.length);
     const w = fightsOf(r)
       .flat()
       .map((f) => f.laid + f.carried + f.noBed);
+    const men = fightsOf(r)
+      .flat()
+      .map((f) => f.woundMen);
     const beds = r.level === null ? 'растёт' : String(infirmaryBeds(townAt(r.level)));
     console.log(
-      ` ${r.name.padEnd(27)}  ${where(r).padEnd(6)}  ${pad(beds, 6)}  ${pad(`${Math.round(q(peaks, 0.5))}…${Math.max(0, ...peaks)}`, 11)}  ${pad(pct(total(r, (o) => o.l.bedsFull) / Math.max(1, decisions)), 6)}  ${pad(w.length ? Math.round(q(w, 0.9)) : '—', 24)}  ${pad(w.length ? Math.max(...w) : '—', 10)}`,
+      ` ${r.name.padEnd(27)}  ${where(r).padEnd(6)}  ${pad(beds, 6)}  ${pad(`${Math.round(q(peaks, 0.5))}…${Math.round(Math.max(0, ...peaks))}`, 11)}  ${pad(pct(total(r, (o) => o.l.bedsFull) / Math.max(1, decisions)), 6)}  ${pad(w.length ? Math.round(q(w, 0.9)) : '—', 24)}  ${pad(w.length ? Math.max(...w) : '—', 10)}  ${pad(men.length ? Math.round(q(men, 0.9)) : '—', 16)}  ${pad(men.length ? Math.round(Math.max(...men)) : '—', 10)}`,
     );
   }
+
+  // 3а. Ёмкость выводом (docs/infirmary.md, раздел 3): 90-я доля раненых одного боя, делённая на уровень лазарета,
+  // у игрока по умолчанию и у полководца, жгущего логова, на тех уровнях, где боёв с потерями не меньше десяти;
+  // наибольшее, вверх до целого. Условие: сверх мест теряется 0–5 % раненых — обещание «сверх мест — не выжили»
+  // иногда сбывается, а не всегда и не никогда. Единица — боец строя (решение владельца 9).
+  const RULE_ROWS = [NAME.meansHigh, HUNT];
+  const MIN_FIGHTS = 10;
+  console.log('');
+  console.log(`Ёмкость выводом: 90-я доля раненых одного боя в бойцах строя, делённая на уровень лазарета, — строки «${NAME.meansHigh}» и «${HUNT}»,`);
+  console.log(`уровни, где боёв с потерями не меньше ${MIN_FIGHTS}; наибольшее, вверх до целого. «сверх мест» — не хватило мест (в бою и по возвращении) к ранено, в головах.`);
+  let need = 0;
+  for (const r of rows) {
+    if (r.level === null || !RULE_ROWS.includes(r.name)) continue;
+    const all = fightsOf(r).flat();
+    const wounded = sum(all.map((f) => f.laid + f.carried + f.noBed));
+    const lostBeds = sum(all.map((f) => f.noBed)) + total(r, (o) => o.l.broughtLost);
+    const p90 = all.length ? q(all.map((f) => f.woundMen), 0.9) : 0;
+    const counts = all.length >= MIN_FIGHTS;
+    if (counts) need = Math.max(need, p90 / r.level);
+    console.log(
+      `  ${r.name.padEnd(27)}  ${where(r).padEnd(6)}  боёв ${pad(all.length, 4)}  90-я доля ${pad(p90.toFixed(1), 6)}  на уровень ${pad((p90 / r.level).toFixed(2), 5)}${counts ? '' : ' (не в счёт)'}  сверх мест ${pad(wounded > 0 ? pct(lostBeds / wounded) : '—', 4)} (${lostBeds} из ${wounded})`,
+    );
+  }
+  console.log(`  выводом: ${need.toFixed(2)} на уровень → ${Math.ceil(need - 1e-9)} мест на уровень; в игре — ${infirmaryBeds(townAt(1))} на первом, ${infirmaryBeds(townAt(MAX_BUILDING_LEVEL))} на десятом.`);
 
   // 4. Срок против промежутка и против найма.
   console.log('');

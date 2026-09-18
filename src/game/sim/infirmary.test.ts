@@ -9,6 +9,7 @@ import type { GameState, TroopId } from '../types';
 import { createInitialState } from '../state';
 import { DAY_LENGTH, RESOURCE_IDS, WOUND_DAYS } from '../constants';
 import { QUESTS } from '../data/quests';
+import { BUILDINGS } from '../data/buildings';
 import {
   armySize,
   bedsTaken,
@@ -116,21 +117,23 @@ describe('места: сверх мест раненые не выживают',
   it('места общие на все бои и освобождаются только сроком', () => {
     const s = town(1);
     const beds = infirmaryBeds(s);
-    expect(beds, 'три места на уровень').toBe(3);
-    s.army.clubman = 1000;
-    const first = woundsOfBattle(s, { clubman: 100 }, undefined, false);
+    expect(beds, 'мест на первом уровне — сколько дало здание').toBe(BUILDINGS.find((b) => b.id === 'infirmary')!.beds);
+    // Павших столько, чтобы раненых было вдвое больше мест: дубинщик — один боец строя.
+    const fall = Math.ceil((2 * beds) / healShare(s));
+    s.army.clubman = 10 * fall;
+    const first = woundsOfBattle(s, { clubman: fall }, undefined, false);
     expect(first.laid + first.noBed, 'точка внутри области: раненых больше мест').toBeGreaterThan(beds);
     expect(first.laid).toBe(beds);
     expect(bedsTaken(s)).toBe(beds);
 
     // Второй бой, пока первые лежат: мест нет, и все его раненые не выживают.
-    const second = woundsOfBattle(s, { clubman: 100 }, undefined, false);
+    const second = woundsOfBattle(s, { clubman: fall }, undefined, false);
     expect(second.laid, 'занятые места не отдаются второй раз').toBe(0);
     expect(second.noBed).toBe(first.laid + first.noBed);
 
     play(s, WOUND_DAYS * DAY_LENGTH + DT);
     expect(bedsTaken(s), 'срок прошёл — места свободны').toBe(0);
-    const third = woundsOfBattle(s, { clubman: 100 }, undefined, false);
+    const third = woundsOfBattle(s, { clubman: fall }, undefined, false);
     expect(third.laid).toBe(beds);
   });
 

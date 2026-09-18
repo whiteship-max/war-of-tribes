@@ -45,7 +45,7 @@ import { HOME_ID, type LocalWorld } from '@/world/local/LocalWorld';
 import { awayOf, homeOf, type Away } from '@/world/muster';
 import { lairArmsBase, lairPop, lairPower, lairShield } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_POWER_BASE, LAIR_POWER_PER_LEVEL, LAIR_RIPE, LAIR_STEP, SIEGE_IMMUNE } from '@/world/data/tuning';
-import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { BATTLE_MAN, troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { assignBonded } from '@/game/sim/workers';
 import { releaseBonded } from '@/game/sim/mutiny';
 import { popGrowth } from '@/game/sim/population';
@@ -166,6 +166,11 @@ export interface Fight {
   laid: number;
   carried: number;
   noBed: number;
+  /**
+   * Ранены в этом бою — в бойцах строя (место в лазарете — боец строя, `derived.bedsTaken`): доля павших дома и в
+   * поле той же раскладкой, что `sim/infirmary.woundsOfBattle`. 0 — потери рассеяны.
+   */
+  woundMen: number;
   /** Выработка еды посёлка в эту минуту, в игровой день. */
   food: number;
   /** Паёк бойца в эту минуту (`soldierFoodPerDay`) и среднее жалованье павшего (`wageOf` по составу павших), в игровой день. */
@@ -316,6 +321,13 @@ export async function live(o: Opts): Promise<Out> {
             if (k > 0) home[id] = k;
           }
           open.noBed = Math.max(0, troopTotal(shareOf(home, troopTotal(home) * open.heal)) - open.laid);
+          const field: TroopStack = {};
+          for (const [id, n] of Object.entries(open.lostBy) as [TroopId, number][]) {
+            const k = Math.min(n, e.field?.[id] ?? 0);
+            if (k > 0) field[id] = k;
+          }
+          const men = (x: TroopStack): number => troopPower(shareOf(x, troopTotal(x) * open!.heal)) / BATTLE_MAN;
+          open.woundMen = men(home) + men(field);
         }
         x.fights.push(open);
         open = null;
@@ -328,7 +340,7 @@ export async function live(o: Opts): Promise<Out> {
           const went = kind === 'стена: удержали' || kind === 'стена: прорыв' ? homeBefore : kind === 'вылазка' ? sortieWent : kind === 'удар полководца' ? (o.strikeWent?.() ?? 0) : 0;
           const inf = buildingOfType(g, 'infirmary');
           wounds = woundsNow(g);
-          open = { at: now, kind, lost, lostBy: { ...(e.lostTroops ?? {}) }, went, army: armySize(g), level: inf?.level ?? 0, heal: healShare(g), laid: 0, carried: 0, noBed: 0, food: productionPerDay(g).food, eat: soldierFoodPerDay(g), wage: sum((Object.entries(e.lostTroops ?? {}) as [TroopId, number][]).map(([id, n]) => n * wageOf(g, id))) / lost };
+          open = { at: now, kind, lost, lostBy: { ...(e.lostTroops ?? {}) }, went, army: armySize(g), level: inf?.level ?? 0, heal: healShare(g), laid: 0, carried: 0, noBed: 0, woundMen: 0, food: productionPerDay(g).food, eat: soldierFoodPerDay(g), wage: sum((Object.entries(e.lostTroops ?? {}) as [TroopId, number][]).map(([id, n]) => n * wageOf(g, id))) / lost };
         }
         if (e.id.endsWith('-defense') && e.battle === 'won') {
           const lost = e.lostTroops ?? {};

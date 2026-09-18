@@ -571,7 +571,7 @@ export function woundedStacks(s: GameState): { lying: TroopStack; carried: Troop
 /**
  * Сколько мест лазарета занято — **в бойцах строя**, а не в головах. Голова всадника весит
  * семь бойцов строя, и по головам конница лечилась бы даром: чем дороже боец, тем выгоднее
- * (docs/stable.md, решение 9). Ёмкость — та же, три на уровень.
+ * (docs/stable.md, решение 9). Ёмкость выведена в тех же единицах — 11 на уровень (`data/buildings.ts`).
  */
 export const bedsTaken = (s: GameState): number => troopPower(woundedStacks(s).lying) / BATTLE_MAN;
 
