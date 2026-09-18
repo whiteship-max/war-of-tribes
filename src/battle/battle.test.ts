@@ -7,7 +7,7 @@ import { simulateBattle } from './sim';
 import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_MIN, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
 import { FRONT, HORSE_KINDS, PHASES, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Plan, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
@@ -169,12 +169,14 @@ describe('разрыв быстрой атаки', () => {
     // Против одного известного шаблона контрер выигрывает вдвое и больше — это цена публичного
     // шаблона. Против быстрой атаки, где пресет неизвестен, его преимущество — не больше, чем у
     // любой настроенной армии.
-    const known = gapAgainst(KNOWN_COUNTER, () => QUICK_PRESETS.standard.layout(stackOf(BALANCED_ARMY)), 60);
+    // Условия — те же, по которым отчёт ищет контрера в закоммиченном поиске (`bench.counterHolds`).
+    const known = gapAgainst(KNOWN_COUNTER, standardOf, 60);
     const random = gapAgainst(KNOWN_COUNTER, quickOf, 100);
-    expect(known.gap).toBeGreaterThan(0.4);
-    expect(random.gap).toBeGreaterThan(0.05);
-    expect(random.gap).toBeLessThanOrEqual(0.25);
+    expect(known.gap).toBeGreaterThan(COUNTER_TERMS.known);
+    expect(random.gap).toBeGreaterThan(COUNTER_TERMS.randomLow);
+    expect(random.gap).toBeLessThanOrEqual(COUNTER_TERMS.randomHigh);
     expect(random.gap).toBeLessThan(known.gap / 2);
+    expect(counterHolds(known.gap, random.gap)).toBe(true);
   });
 });
 

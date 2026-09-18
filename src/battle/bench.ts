@@ -4,7 +4,7 @@
 import { simulateBattle, stackPower } from './sim';
 import { COVER, PLANS } from './config';
 import { seededRng } from './rng';
-import { DEFAULT_ORDERS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
+import { DEFAULT_ORDERS, QUICK_PRESETS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
 import { KIND_META } from './names';
 import { FRONT, HORSE_KINDS, REAR, UNIT_KINDS, type ArcherOrder, type ArmySetup, type BattleResult, type CavalryOrder, type InfantryOrder, type Plan, type ReserveTrigger, type Sector, type Side, type SpearOrder, type Stack, type UnitKind } from './types';
 
@@ -275,13 +275,14 @@ export const quickOf = (seed: number): ArmySetup => quickAttack(BALANCED_ARMY, s
 /**
  * Разрыв по потерям: `setup` против `opponent(seed)` на `n` боях с обеих сторон
  * поля. Больше нуля — `setup` теряет меньше. `lost` — сколько боёв `setup` проиграл.
+ * `from` — первый сид: перемер на новых сидах не повторяет боёв отбора.
  */
-export function gapAgainst(setup: ArmySetup, opponent: (seed: number) => ArmySetup, n: number): { gap: number; lost: number; won: number } {
+export function gapAgainst(setup: ArmySetup, opponent: (seed: number) => ArmySetup, n: number, from = 1): { gap: number; lost: number; won: number } {
   let own = 0;
   let theirs = 0;
   let lost = 0;
   let won = 0;
-  for (let seed = 1; seed <= n; seed += 1) {
+  for (let seed = from; seed < from + n; seed += 1) {
     const attacks = seed % 2 === 1;
     const foe = opponent(seed);
     const r = simulateBattle({ seed, attacker: attacks ? setup : foe, defender: attacks ? foe : setup });
@@ -441,8 +442,12 @@ const ARCHER_ORDERS: readonly ArcherOrder[] = ['nearest', 'priority-infantry', '
 const HORSE_ORDERS: readonly CavalryOrder[] = ['charge', 'hold-flank', 'flank', 'attack-archers', 'pursue'];
 const RESERVES: readonly ReserveTrigger['kind'][] = ['immediate', 'weakest', 'center-losing', 'weak-flank', 'morale'];
 
-/** Сид поиска, число расстановок и боёв отбора: `battle:report`, раздел «Случайный поиск расстановок». */
-export const SEARCH = { seed: 12345, n: 2500, screen: 10 };
+/**
+ * Поиск в два этапа: все `n` расстановок — отбор на `screen` боях, `finalists` лучших —
+ * перемер на `final` новых сидах с `finalFrom` (отбор на десяти боях выбирает и удачу: лучший
+ * по отбору почти всегда переоценён). `battle:report`, раздел «Случайный поиск расстановок».
+ */
+export const SEARCH = { seed: 12345, n: 2500, screen: 10, finalists: 20, final: 100, finalFrom: 1001 };
 
 /** Одна расстановка армии наугад: каждый род целиком, ни один боец не остаётся за полем. */
 export function randomLayout(army: Partial<Stack>, rng: () => number): ArmySetup {
@@ -479,29 +484,73 @@ export function randomLayout(army: Partial<Stack>, rng: () => number): ArmySetup
   };
 }
 
-/** Все расстановки поиска с их разрывом против `opponent` на `SEARCH.screen` боях, лучшие первыми. */
-export function searchLayouts(opponent: (seed: number) => ArmySetup): Array<{ gap: number; setup: ArmySetup }> {
+/** Все расстановки поиска по порядку: `i`-я — одна и та же на любом прогоне. */
+export function searchPool(): ArmySetup[] {
   const rng = seededRng(SEARCH.seed);
-  const out: Array<{ gap: number; setup: ArmySetup }> = [];
-  for (let i = 0; i < SEARCH.n; i += 1) {
-    const setup = randomLayout(BALANCED_ARMY, rng);
-    out.push({ gap: gapAgainst(setup, opponent, SEARCH.screen).gap, setup });
-  }
-  return out.sort((x, y) => y.gap - x.gap);
+  return Array.from({ length: SEARCH.n }, () => randomLayout(BALANCED_ARMY, rng));
+}
+
+export interface Finalist {
+  /** Номер в поиске (`searchPool`). */
+  index: number;
+  setup: ArmySetup;
+  /** Разрыв на отборе (`SEARCH.screen` боёв). */
+  screen: number;
+  /** Разрыв на перемере (`SEARCH.final` новых сидов). */
+  final: { gap: number; won: number; lost: number };
 }
 
 /**
- * Известный контрер стандартного пресета: против него одного выигрывает намного
- * больше, но против случайного пресета — не больше настроенной армии
- * (`npm run battle:report`, раздел «Разрыв быстрой атаки»). Это и есть
- * смысл пресетов: контрить нечего, пока не знаешь, какой пришёл.
+ * Два этапа против `opponent`: отбор всех расстановок поиска, `SEARCH.finalists` лучших —
+ * перемер на новых сидах. Возвращает финалистов, лучших по перемеру первыми, и место каждого
+ * на отборе (порядок `index` сохранён в `rank`).
+ */
+export function searchFinal(opponent: (seed: number) => ArmySetup): Array<Finalist & { rank: number }> {
+  const screened = searchPool()
+    .map((setup, index) => ({ index, setup, screen: gapAgainst(setup, opponent, SEARCH.screen).gap }))
+    .sort((x, y) => y.screen - x.screen)
+    .slice(0, SEARCH.finalists);
+  return screened
+    .map((f, rank) => ({ ...f, rank, final: gapAgainst(f.setup, opponent, SEARCH.final, SEARCH.finalFrom) }))
+    .sort((x, y) => y.final.gap - x.final.gap);
+}
+
+/** Стандартный пресет той же армии: против него ищется контрер. */
+export const standardOf = (): ArmySetup => QUICK_PRESETS.standard.layout(stackOf(BALANCED_ARMY));
+
+/**
+ * Условия известного контрера — те же, что держит тест: против стандарта больше 40 %, против
+ * случайного пресета от 5 % до 25 % и меньше половины того, что против стандарта. Контрер бьёт
+ * шаблон, который знает, и не бьёт быструю атаку сильнее настроенной армии.
+ */
+export const COUNTER_TERMS = { known: 0.4, randomLow: 0.05, randomHigh: 0.25 };
+export const counterHolds = (known: number, random: number): boolean =>
+  known > COUNTER_TERMS.known && random > COUNTER_TERMS.randomLow && random <= COUNTER_TERMS.randomHigh && random < known / 2;
+
+/**
+ * Финалисты поиска против стандарта с тем, выполняют ли они условия контрера (`counterHolds`)
+ * на новых сидах: против стандарта — перемер финала, против случайного пресета — `SEARCH.final`
+ * боёв с тех же сидов. Известный контрер — первый, кто выполняет; отчёт печатает каждого
+ * финалиста с обоими числами и то, какое условие не выполнено.
+ */
+export function counterSearch(): Array<Finalist & { rank: number; random: number; holds: boolean }> {
+  return searchFinal(standardOf).map((f) => {
+    const random = gapAgainst(f.setup, quickOf, SEARCH.final, SEARCH.finalFrom).gap;
+    return { ...f, random, holds: counterHolds(f.final.gap, random) };
+  });
+}
+
+/**
+ * Известный контрер стандартного пресета: против него одного выигрывает намного больше, но
+ * против случайного пресета — не больше настроенной армии (тест «известный контрер»). Смысл
+ * пресетов: контрить нечего, пока не знаешь, какой пришёл.
  *
- * Найден случайным поиском, но не тем, что закоммичен: щупом сессии 18.09.2026 с тем же
- * генератором и другим порядком бросков. Закоммиченный поиск (раздел «Случайный поиск
- * расстановок») среди первых двухсот контреров стандарта такого не находит: берущие у
- * стандарта больше 40 % там либо сильны и против случайного пресета, либо почти бесполезны
- * против него. Эталон держит свойство теста примером, а насколько он типичен, говорит тот
- * раздел — с расколом конницы сильный контрер стандарта чаще всего силён против всех.
+ * **Это пример щупа, а не вывод поиска.** Найден 18.09.2026 тем же генератором с другим
+ * порядком бросков; закоммиченный поиск (`counterSearch`, `battle:report`, раздел «Случайный
+ * поиск расстановок») расстановки с условиями теста среди своих финалистов не находит, и что
+ * именно у них не выполнено, печатает тот раздел. Как быть с тестом — решение владельца
+ * (docs/stable.md, раздел 12); до него пример держит свойство, а поиск честно говорит, что его
+ * не повторяет.
  */
 export const KNOWN_COUNTER: ArmySetup = setupOf(
   {

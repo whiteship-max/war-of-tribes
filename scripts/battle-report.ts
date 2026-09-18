@@ -2,7 +2,7 @@
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
 import { COVER, simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, latticeWorth, nonDecreasing, screenArmy, screenCurve, screenPoints, withCoverK, answerlessOwnKind, compositionLattice, compositionName, latticeDuels, KNOWN_COUNTER, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, searchLayouts, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
+import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, latticeWorth, nonDecreasing, screenArmy, screenCurve, screenPoints, withCoverK, answerlessOwnKind, compositionLattice, compositionName, latticeDuels, COUNTER_TERMS, KNOWN_COUNTER, standardOf, counterSearch, searchFinal, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -189,9 +189,9 @@ console.log('\n=== Разрыв быстрой атаки: настроенна�
     const g = gapAgainst(TUNED, () => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)), 40);
     console.log(`   против ${pad(id, 13)} ${(g.gap * 100).toFixed(1).padStart(6)}% (побед ${g.won}/40)`);
   }
-  const known = gapAgainst(KNOWN_COUNTER, () => QUICK_PRESETS.standard.layout(stackOf(BALANCED_ARMY)), 100);
+  const known = gapAgainst(KNOWN_COUNTER, standardOf, 100);
   const random = gapAgainst(KNOWN_COUNTER, quickOf, 100);
-  console.log(`известный контрер стандарта: против стандарта ${(known.gap * 100).toFixed(1)}%, против случайного пресета ${(random.gap * 100).toFixed(1)}% (цель ≈15%)`);
+  console.log(`известный контрер стандарта (KNOWN_COUNTER, пример щупа): против стандарта ${(known.gap * 100).toFixed(1)}%, против случайного пресета ${(random.gap * 100).toFixed(1)}% (цель ≈15%)`);
 }
 
 console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');
@@ -297,18 +297,11 @@ console.log('\n=== Перебор расстановок: цена расста�
   console.log(`точка поля (перевес врага, при котором удержано полполя, 40 боёв): лучшая ×${point(() => best.setup)}, TUNED ×${point(() => TUNED)}, быстрая атака ×${point((seed) => quickOf(seed * 7 + 3))}`);
 }
 
-console.log(`\n=== Случайный поиск расстановок: ${SEARCH.n} расстановок наугад (сид ${SEARCH.seed}), отбор против стандартного пресета по ${SEARCH.screen} боёв ===`);
+console.log(`\n=== Случайный поиск расстановок: ${SEARCH.n} наугад (сид ${SEARCH.seed}); отбор на ${SEARCH.screen} боях, ${SEARCH.finalists} лучших — на ${SEARCH.final} новых сидах с ${SEARCH.finalFrom} ===`);
 {
   // Сетка видит только свои оси. Поиск — `bench.randomLayout`: лучники во фронте вперемешку
-  // с линией, конница неровно по фронту, приказы всем родам. Двенадцать лучших против
-  // стандарта перемериваются: против него на 60 боях, против быстрой атаки на 100 и против
-  // каждого пресета на 30. Здесь же ищется известный контрер с условиями теста: эталон
-  // (`bench.KNOWN_COUNTER`) найден щупом с другим порядком бросков, и строка ниже говорит, повторяет
-  // ли его закоммиченный поиск.
-  const std = (): ArmySetup => QUICK_PRESETS.standard.layout(stackOf(BALANCED_ARMY));
-  const all = searchLayouts(std);
-  const found = all.slice(0, 12);
-  const same = (a: ArmySetup, b: ArmySetup): boolean => JSON.stringify([a.sectors, a.plan, a.orders, a.reserve]) === JSON.stringify([b.sectors, b.plan, b.orders, b.reserve]);
+  // с линией, конница неровно по фронту, приказы всем родам. Отбор на десяти боях выбирает и
+  // удачу, поэтому число берётся с перемера (`bench.searchFinal`), а не с отбора.
   const brief = (x: ArmySetup): string => {
     const cell = (id: keyof ArmySetup['sectors']): string => {
       const v = x.sectors[id];
@@ -317,39 +310,32 @@ console.log(`\n=== Случайный поиск расстановок: ${SEARC
     const o = x.orders;
     return `A ${cell('A')} B ${cell('B')} C ${cell('C')} | D ${cell('D')} E ${cell('E')} F ${cell('F')} | R ${cell('R')} | ${x.plan}, копья ${o.spear}, пехота ${o.infantry}, лучники ${o.archer}, конница ${o.cavalry}, резерв ${x.reserve.kind}`;
   };
-  const measured = new Map<ArmySetup, { known: number; random: number; per: string[] }>();
-  const measure = (x: ArmySetup): { known: number; random: number; per: string[] } => {
-    const hit = measured.get(x);
-    if (hit) return hit;
-    const m = {
-      known: gapAgainst(x, std, 60).gap,
-      random: gapAgainst(x, quickOf, 100).gap,
-      per: QUICK_PRESET_IDS.map((id) => (gapAgainst(x, () => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)), 30).gap * 100).toFixed(0)),
-    };
-    measured.set(x, m);
-    return m;
-  };
-  const row = (m: ReturnType<typeof measure>, x: ArmySetup, n: number): string =>
-    ` ${pad(n, 4, true)}  ${(m.known * 100).toFixed(1).padStart(7)}%  ${(m.random * 100).toFixed(1).padStart(8)}%   ${m.per.map((v) => v.padStart(4)).join(' /')}   ${brief(x)}${same(x, KNOWN_COUNTER) ? '  ← KNOWN_COUNTER' : ''}`;
-  console.log(' место  стандарт  случайный  по пресетам: standard / anti-cavalry / center-punch / defense   расстановка');
-  found.forEach((f, i) => console.log(row(measure(f.setup), f.setup, i + 1)));
-  // Известный контрер — первый по отбору, у кого условия теста (`battle.test.ts`, «известный контрер»):
-  // против стандарта больше 40 %, против случайного пресета больше 5 % и не больше 25 % — и меньше
-  // половины того, что против стандарта.
-  const LIMIT = 200;
-  let counter = -1;
-  for (let i = 0; i < Math.min(LIMIT, all.length) && counter < 0; i++) {
-    const m = measure(all[i].setup);
-    if (m.known > 0.4 && m.random > 0.05 && m.random <= 0.25 && m.random < m.known / 2) {
-      counter = i;
-      if (i >= found.length) console.log(row(m, all[i].setup, i + 1));
-    }
-  }
-  if (counter < 0) console.log(`контрера стандарта с разрывом против случайного пресета в коридоре настроенной армии среди первых ${LIMIT} нет`);
+  const pc = (v: number): string => `${(v * 100).toFixed(1)}%`.padStart(7);
+
+  console.log('потолок цены расстановки — против быстрой атаки (случайный пресет по сиду):');
+  console.log('   №  отбор  перемер  побед пораж   расстановка');
+  const ceiling = searchFinal(quickOf);
+  for (const f of ceiling) console.log(` ${pad(f.index, 4, true)} ${pc(f.screen)} ${pc(f.final.gap)}  ${pad(f.final.won, 4, true)} ${pad(f.final.lost, 5, true)}   ${brief(f.setup)}`);
+  const tuned = gapAgainst(TUNED, quickOf, SEARCH.final, SEARCH.finalFrom);
+  const bestScreen = [...ceiling].sort((x, y) => y.screen - x.screen)[0];
+  console.log(`потолок: ${pc(ceiling[0].final.gap).trim()} (№ ${ceiling[0].index}); лучший на отборе (№ ${bestScreen.index}) ${pc(bestScreen.screen).trim()} → на перемере ${pc(bestScreen.final.gap).trim()}; TUNED на тех же сидах ${pc(tuned.gap).trim()}`);
+
+  console.log('\nконтрер стандартного пресета: отбор и перемер против стандарта, против случайного пресета — те же новые сиды;');
+  console.log(`условия (bench.counterHolds): против стандарта больше ${COUNTER_TERMS.known * 100}%, против случайного от ${COUNTER_TERMS.randomLow * 100}% до ${COUNTER_TERMS.randomHigh * 100}% и меньше половины первого`);
+  console.log('   №  отбор  стандарт  случайный  случ/станд  условия   расстановка');
+  const counters = counterSearch();
+  for (const f of counters) console.log(` ${pad(f.index, 4, true)} ${pc(f.screen)} ${pc(f.final.gap)}  ${pc(f.random)}   ${(f.random / f.final.gap).toFixed(2).padStart(9)}   ${f.holds ? 'да ' : 'нет'}      ${brief(f.setup)}`);
+  const first = counters.find((f) => f.holds);
+  if (first) console.log(`контрер стандарта по условиям теста — № ${first.index} поиска: первый по перемеру, кто их выполняет`);
   else {
-    const x = all[counter].setup;
-    console.log(`контрер стандарта — место ${counter + 1}: первое, где против стандарта больше 40%, против случайного пресета от 5% до 25% и меньше половины того; ${same(x, KNOWN_COUNTER) ? 'это и есть KNOWN_COUNTER' : 'KNOWN_COUNTER С НИМ НЕ СОВПАЛ'}`);
-    console.log(`  ${JSON.stringify({ sectors: x.sectors, plan: x.plan, orders: x.orders, reserve: x.reserve })}`);
+    console.log(`контрера стандарта по условиям теста среди ${counters.length} финалистов нет; KNOWN_COUNTER теста — пример щупа, этим поиском не выводится`);
+    // Что именно не выполнено: знает ли поиск тех, кто бьёт стандарт намного сильнее случайного пресета.
+    const specific = counters.filter((f) => f.final.gap > COUNTER_TERMS.known && f.random < f.final.gap / 2);
+    console.log(
+      `  бьют стандарт больше ${COUNTER_TERMS.known * 100}% и случайный пресет меньше чем вполовину того: ${specific.map((f) => `№ ${f.index} — ${pc(f.final.gap).trim()} / ${pc(f.random).trim()}`).join('; ') || 'никто'}`,
+    );
+    if (specific.length) console.log(`  у них не выполнено: против случайного ${specific.map((f) => (f.random <= COUNTER_TERMS.randomLow ? `не больше ${COUNTER_TERMS.randomLow * 100}%` : `больше ${COUNTER_TERMS.randomHigh * 100}%`)).join('; ')}`);
+    else console.log('  всё, что бьёт стандарт больше 40 %, бьёт и случайный пресет не меньше чем вполовину того');
   }
 }
 
