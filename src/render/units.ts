@@ -314,7 +314,7 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
   const heavy = hasArmor(troop);
   const mounted = TROOP_BY_ID[troop].mounted === true;
 
-  if (mounted) dressHorse(f, b);
+  if (mounted) dressHorse(f, b, heavy ? cloth : null);
   const heldStart = f.slots.length;
 
   // Щит: ростовой у того, кто в доспехе, круглый у остальных. Это и разводит
@@ -433,8 +433,13 @@ export function mountRig(height = MAN_HEIGHT): MountRig {
  * Конь под фигурой: корпус, шея, голова, четыре ноги, хвост. Отдельной модели
  * у всадника нет — это то же тело, посаженное сверху, поэтому конь и добавляется
  * к фигуре, а не рисуется рядом.
+ *
+ * `caparison` — цвет попоны, `null` — без неё. Попона у коня того, кто в доспехе: латного
+ * всадника иначе не отличить от лёгкого — оба в шлеме, с копьём наперевес и на том же коне, а
+ * круглый щит против ростового с полуоборота прячется за корпус. Попона закрывает бочку и
+ * верх ног с любой стороны и красится стороной, как всё на бойце.
  */
-export function dressHorse(f: Figure, b: Body): void {
+export function dressHorse(f: Figure, b: Body, caparison: number | null = null): void {
   const h = b.rig.height;
   const m = mountRig(h);
   f.rig.mount = m;
@@ -471,6 +476,9 @@ export function dressHorse(f: Figure, b: Body): void {
   }
   addSlot(f, 'limb', 'tail', PALETTE.horseMane, [0, 0, 0], [h * 0.06, h * 0.34, h * 0.07]);
   addSlot(f, 'plate', 'root', PALETTE.leather, [0, m.backY + h * 0.015, -h * 0.02], [m.bodyW * 1.06, h * 0.045, h * 0.19]);
+  if (caparison !== null) {
+    addSlot(f, 'plate', 'root', caparison, [0, m.backY - m.barrelH / 2 - h * 0.1, 0], [m.bodyW * 1.14, m.barrelH + h * 0.24, m.bodyLen * 1.08]);
+  }
 }
 
 /** Одна лошадь без всадника — стенду, чтобы обмерить и посмотреть отдельно. */

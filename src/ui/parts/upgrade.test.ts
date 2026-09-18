@@ -105,7 +105,7 @@ const FIXTURES: [string, () => GameState][] = [
 
 // ---------- Замер со стороны игры ----------
 
-type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'seconds';
+type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'seconds' | 'opens';
 
 /** Числа, которые обязаны стоять на кнопке при такой разнице; null — разницы не видно. */
 function expectedNumbers(kind: Kind, before: number, after: number): number[] | null {
@@ -133,6 +133,9 @@ function expectedNumbers(kind: Kind, before: number, after: number): number[] | 
       const d = shown((before - after) / DAY_LENGTH);
       return d === 0 ? null : [Math.abs(d)];
     }
+    // Открытие — не число: на кнопке слова без чисел, и только на уровне, где оно наступает.
+    case 'opens':
+      return after > before ? [] : null;
     case 'seconds': {
       const d = shown(before - after);
       return d === 0 ? null : [Math.abs(d)];
@@ -155,7 +158,7 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   recruit: { kind: 'grow', read: (s) => recruitRate(s, 'legionary') },
   cavalry: { kind: 'grow', read: (s) => recruitRate(s, 'rider') / recruitRate(s, 'legionary') },
   stalls: { kind: 'count', read: (s) => stalls(s) },
-  heavy: { kind: 'count', read: (s) => (heavyOpen(s) ? 1 : 0) },
+  heavy: { kind: 'opens', read: (s) => (heavyOpen(s) ? 1 : 0) },
   defense: { kind: 'more', read: (s) => playerProfile(s).defense },
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
   seats: { kind: 'more', read: towerSeats },
@@ -322,7 +325,7 @@ describe('кнопка видит каждое число здания, раст
     // которого что-то растёт с уровнем, и кнопка обязана это заметить.
     const STATS = [
       'housing', 'storage', 'defense', 'morale', 'archers', 'heal', 'intel', 'warn',
-      'train', 'stalls', 'heavy', 'hidden', 'feast', 'hero', 'loyalty',
+      'train', 'stalls', 'heavyFrom', 'hidden', 'feast', 'hero', 'loyalty',
     ] as const;
     const labels = (type: BuildingTypeId): string => {
       const out: string[] = [];

@@ -99,7 +99,8 @@ function tribeProfile(level: number, over: Partial<PlayerProfile> = {}): PlayerP
   return { ...playerProfile(s), army: { spearman: 60, archer: 20, rider: 20 }, ...over };
 }
 
-const RETINUE: TroopStack = { spearman: 30, archer: 10, rider: 10 };
+// Конница в доспехе: ступень 3, которую прежде всаднику давала конюшня, — на ней потолок морали и кусается.
+const RETINUE: TroopStack = { spearman: 30, archer: 10, knight: 10 };
 
 /** Ставит полководца с дружиной в поле на клетке. */
 function stand(w: ReturnType<typeof makeWorld>, at: { x: number; y: number }, troops: TroopStack = RETINUE): void {
@@ -285,13 +286,13 @@ describe('карточка и бой считают одно и то же', () =
   });
 
   it('когда потолок съедает натиск, карточка так и говорит: кружок ничего не прибавит', () => {
-    // Всадники при конюшне на третьей ступени и строгом обряде: мораль рода с
-    // планом «оборона» уже сотня. Точка внутри области — проверяется числом.
-    const riders: TroopStack = { rider: 20 };
+    // Латные всадники (ступень 3) и строгий обряд: мораль рода с планом «оборона» уже
+    // сотня. Точка внутри области — проверяется числом.
+    const riders: TroopStack = { knight: 20 };
     const rite = 12;
     // Область — по ядру, а не по карточке: при плане «оборона» мораль всадников с
     // натиском второго уровня уже сотня, то есть третьему кружку расти некуда.
-    const pure: Stack = { ...emptyStack(), cavalry: kindsOf(riders).cavalry };
+    const pure: Stack = { ...emptyStack(), heavy: kindsOf(riders).heavy };
     const setup = { sectors: emptySectors(), plan: 'defense' as const, orders: DEFAULT_ORDERS, reserve: { kind: 'morale' as const }, gear: ownGearOf(riders) };
     expect(startMorale({ ...setup, resolve: generalResolve(rite, onslaughtAt(2)) }, pure), 'точка внутри области: мораль уже у потолка').toBe(MORALE.max);
     const rows = onslaughtRows(riders, rite, onslaughtAt(2), onslaughtAt(3));
@@ -302,8 +303,8 @@ describe('карточка и бой считают одно и то же', () =
     expect(lines.next).toBe('Следующий кружок этой дружине ничего не прибавит: потолок морали.');
     expect(lines.troops).toMatch(/не прибавляет ничего/);
     // Смешанная дружина: копьям прибавит, коннице — нет, и названо поимённо.
-    const mixed = onslaughtLines(2, { spearman: 20, rider: 20 }, rite);
-    expect(mixed.next).toMatch(/^Следующий кружок: копья \+3, конница ничего — дальше потолок морали\.$/);
+    const mixed = onslaughtLines(2, { spearman: 20, knight: 20 }, rite);
+    expect(mixed.next).toMatch(/^Следующий кружок: копья \+3, тяжёлая конница ничего — дальше потолок морали\.$/);
     // Без обряда тем же всадникам прибавка целиком: потолок здесь не выдуман.
     expect(onslaughtRows(riders, 0, onslaughtAt(2), onslaughtAt(3))[0].got).toBe(3);
   });

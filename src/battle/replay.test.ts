@@ -495,7 +495,9 @@ describe('потери по секторам: журнал знает, где в
         const end = UNIT_KINDS.reduce((n, k) => n + cell.final[k], 0);
         if (start <= 0) continue;
         const lost = r.phases.reduce((n, p) => n + (p.bySector?.[side]?.[sector] ?? 0), 0);
-        expect(lost, `${side}/${sector}`).toBeCloseTo(start - end, 0);
+        // Допуск — округление, и ничего сверх: итог сектора наружу целый (до ±0.5), а потеря фазы
+        // режется до десятых и ниже 0.05 не пишется (`lossBySector`, до ±0.05 на фазу).
+        expect(Math.abs(lost - (start - end)), `${side}/${sector}`).toBeLessThanOrEqual(0.5 + 0.05 * r.phases.length);
       }
     }
   });
@@ -877,10 +879,17 @@ describe('лес древков включается по видимому ра�
     let worst = 0;
     let peak = 0;
     let prev: number | null = null;
+    // Мерится там, где лес есть. У сектора одной конницы древков нет вовсе (`shaftsFor`), и доля
+    // леса у него — число, которому нечего показывать: лёгкая, скачущая из резерва на лучников,
+    // растёт в кадре быстрее пешего строя, и крутизна доли у неё ничего не гасит.
+    const forested = new Set(cast.sectors.filter((c) => c.shafts > 0).map((c) => `${c.side}/${c.sector}`));
+    expect(forested.size, 'граница: сектора с лесом в бою есть').toBeGreaterThan(0);
+    let checked = 0;
     for (let t = 0; t <= cast.seconds; t += step) {
       const f = frameAt(cast, Math.min(t, cast.seconds));
-      // Доля показанного леса у каждого сектора меняется плавно.
-      for (const s of f.sectors) {
+      // Доля показанного леса у каждого сектора с лесом меняется плавно.
+      for (const s of f.sectors.filter((x) => forested.has(`${x.side}/${x.sector}`))) {
+        checked++;
         const next = frameAt(cast, Math.min(t + step, cast.seconds)).sectors.find(
           (x) => x.side === s.side && x.sector === s.sector,
         )!;
@@ -895,6 +904,7 @@ describe('лес древков включается по видимому ра�
     // И самих древков за кадр уходит считанные штуки, а не весь лес разом.
     // Мерка относительная: хлопок — это доли, близкие к единице, а здесь
     // измерено около двадцатой части, и запас до предела двукратный.
+    expect(checked).toBeGreaterThan(0);
     expect(peak).toBeGreaterThan(100);
     expect(worst, `${worst} древков за кадр при ${peak} в лесу`).toBeLessThan(peak * 0.1);
   });

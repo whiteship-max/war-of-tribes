@@ -264,20 +264,23 @@ describe('конь', () => {
     expect(headY(mounted) - headY(foot)).toBeCloseTo(lift);
   });
 
+  // Кто верхом — не список, а поле вида (`TroopDef.mounted`): конных видов больше одного.
+  const MOUNTED = TROOP_IDS.filter((id) => TROOP_BY_ID[id].mounted === true);
+  const FOOT = TROOP_IDS.filter((id) => TROOP_BY_ID[id].mounted !== true);
+
   it('всадник несёт коня, пеший — нет', () => {
-    expect(soldier('rider').rig.mount).not.toBeNull();
-    for (const id of TROOP_IDS) {
-      if (id === 'rider') continue;
-      expect(soldier(id).rig.mount, `${id}`).toBeNull();
-    }
+    // Граница: конные и пешие виды есть оба — иначе цикл проверял бы пустое множество.
+    expect(MOUNTED.length).toBeGreaterThan(0);
+    expect(FOOT.length).toBeGreaterThan(0);
+    for (const id of MOUNTED) expect(soldier(id).rig.mount, `${id}`).not.toBeNull();
+    for (const id of FOOT) expect(soldier(id).rig.mount, `${id}`).toBeNull();
   });
 
-  it('всадник сидит почти вдвое выше пешего и даёт самое большое пятно на поле', () => {
-    expect(soldier('rider').rig.hipY).toBeGreaterThan(soldier('spearman').rig.hipY * 1.6);
-    const mine = area(silhouette(soldier('rider')));
-    for (const id of TROOP_IDS) {
-      if (id === 'rider') continue;
-      expect(mine, `всадник против ${id}`).toBeGreaterThan(area(silhouette(soldier(id))));
+  it('всадник сидит почти вдвое выше пешего и даёт на поле пятно больше любого пешего', () => {
+    for (const rider of MOUNTED) {
+      expect(soldier(rider).rig.hipY, rider).toBeGreaterThan(soldier('spearman').rig.hipY * 1.6);
+      const mine = area(silhouette(soldier(rider)));
+      for (const id of FOOT) expect(mine, `${rider} против ${id}`).toBeGreaterThan(area(silhouette(soldier(id))));
     }
   });
 

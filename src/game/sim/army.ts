@@ -12,7 +12,7 @@ import { RESOURCE_IDS } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
 import { KIND_OF } from '../battle/kinds';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { buildingOfType, canAfford, heavyOpen, idleCount, recruitRate, recruitsQueued, stalls, stallsTaken } from '../derived';
+import { buildingOfType, canAfford, heavyFrom, heavyOpen, idleCount, recruitRate, recruitsQueued, stalls, stallsTaken } from '../derived';
 import { addPop, losePop } from './population';
 import { log } from './log';
 import { pay, refund } from './pay';
@@ -87,7 +87,7 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
 
   let blocked: string | null = null;
   if (def.mounted && !buildingOfType(s, 'stable')) blocked = 'Конницу нанимают в конюшне.';
-  else if (def.mounted && KIND_OF[troop] === 'heavy' && !heavyOpen(s)) blocked = 'Латных всадников куют с 4 уровня конюшни.';
+  else if (def.mounted && KIND_OF[troop] === 'heavy' && !heavyOpen(s)) blocked = `Латных всадников куют с ${heavyFrom()} уровня конюшни.`;
   else if (stall < n) blocked = stall === 0 ? 'Все стойла заняты — нужен уровень конюшни.' : `Свободных стойл только ${stall}.`;
   else if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
   else if (missing.length > 0) {
