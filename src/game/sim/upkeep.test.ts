@@ -11,7 +11,9 @@ import { deserialize, serialize } from '../save';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { QUESTS } from '../data/quests';
-import { WAGE_AMNESTY_DAYS } from '../data/upkeep';
+import { WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN_UNGEARED } from '../data/upkeep';
+import { TAX_PER_POP } from '../data/policy';
+import { MIX } from '../../../scripts/autopilot';
 import {
   armySize,
   faithTilt,
@@ -32,7 +34,7 @@ import type { WorldSave } from '@/world/local/state';
 import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
 import { awayOf } from '@/world/muster';
 import type { FigureView, HomeEffect, MarchView } from '@/world/types';
-import { troopTotal } from '../battle/kinds';
+import { troopTotal, weightOf } from '../battle/kinds';
 
 const DT = 0.5;
 
@@ -85,6 +87,19 @@ describe('жалованье', () => {
     const leg = wageOf(s, 'legionary');
     expect(leg).toBeGreaterThan(club * 4);
     expect(leg).toBeLessThan(club * 8);
+  });
+
+  it('часть за снаряжение нейтральна по сумме: мерка платит столько же, сколько без неё', () => {
+    // Решение владельца (docs/stable.md, раздел 10): WAGE_GEAR назначает цену снаряжению, а не
+    // поднимает цену армии. Мерка — состав войска автопилота отчётов (scripts/autopilot.MIX).
+    const s = createInitialState();
+    for (const id of TROOP_IDS) s.army[id] = MIX[id] ?? 0;
+    expect(wageShare(s), 'точка внутри области: вера не режет жалованье').toBe(1);
+    expect(troopTotal(s.army), 'точка внутри области: мерка непуста').toBeGreaterThan(0);
+    expect(WAGE_GEAR, 'точка внутри области: часть за снаряжение есть').toBeGreaterThan(0);
+    const ungeared = TAX_PER_POP * TROOP_IDS.reduce((sum, id) => sum + (MIX[id] ?? 0) * (WAGE_HEAD + WAGE_MAN_UNGEARED * weightOf(id)), 0);
+    const now = wagesPerDay(s);
+    expect(Math.abs(now / ungeared - 1), `мерка: ${now.toFixed(3)} в день против ${ungeared.toFixed(3)} без части за снаряжение`).toBeLessThan(1e-3);
   });
 });
 

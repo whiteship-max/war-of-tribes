@@ -42,7 +42,7 @@ import { BATTLE_MAN, KIND_OF, gearOfTroop, kindsOf, troopPower, troopTotal, weig
 import { createInitialState } from '@/game/state';
 import { defense, recruitRate, stalls, wageGear, wageOf } from '@/game/derived';
 import { SOLDIER_FOOD } from '@/game/constants';
-import { HORSE_MOUTHS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from '@/game/data/upkeep';
+import { HORSE_MOUTHS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN, WAGE_MAN_UNGEARED } from '@/game/data/upkeep';
 import { TAX_PER_POP } from '@/game/data/policy';
 import type { EquipmentId, ResourceId, TroopId } from '@/game/types';
 import { MIX, armyAt, openSky, townAt, type Inside } from './autopilot';
@@ -565,10 +565,22 @@ async function classWallPart(): Promise<ClassWall[]> {
 // ---------- 7. Числа ----------
 
 /**
- * Жалованье вида на бойца строя за игровой день при части «за снаряжение» `g` — формулой `derived.wageOf` (деревня
- * без веры: `wageShare` единица), но с `g` на месте `WAGE_GEAR`: вывод этого числа и ищет, каким ему быть.
+ * Жалованье вида на бойца строя за игровой день при части «с бойца строя» `m` и «за снаряжение» `g` — формулой
+ * `derived.wageOf` (деревня без веры: `wageShare` единица), но с `m` и `g` на месте `WAGE_MAN` и `WAGE_GEAR`: вывод
+ * этих чисел и ищет, какими им быть.
  */
-const wageAt = (id: TroopId, g: number): number => (TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(id) + g * wageGear(id))) / weightOf(id);
+const wageAt = (id: TroopId, g: number, m: number = WAGE_MAN): number =>
+  (TAX_PER_POP * (WAGE_HEAD + m * weightOf(id) + g * wageGear(id))) / weightOf(id);
+
+/**
+ * `WAGE_MAN` до части за снаряжение. Жалованье мерки при нём — то, что часть за снаряжение обязана оставить прежним:
+ * она назначает цену снаряжению, а не поднимает цену армии (решение владельца, docs/stable.md, раздел 10).
+ */
+const WAGE_MAN_BEFORE = WAGE_MAN_UNGEARED;
+
+/** Жалованье мерки MIX за игровой день при `m` и `g` — сумма `wageAt` по составу. */
+const mixWage = (m: number, g: number): number =>
+  (Object.entries(MIX) as [TroopId, number][]).reduce((sum, [id, n]) => sum + n * wageAt(id, g, m) * weightOf(id), 0);
 
 function numbersPart(worth: Worth, shares: ShareRow[]): void {
   console.log('');
@@ -592,29 +604,57 @@ function numbersPart(worth: Worth, shares: ShareRow[]): void {
   // игры. Прочтений два, и печатаются оба. **Решение 4** — медиана той игры, где части за снаряжение ещё нет (так
   // считалось одобренное «5.39»): число ставит цель, и она от самого числа не зависит. **Неподвижная точка** —
   // медиана той игры, где часть уже есть: дорожают все, кто что-то носит, и медиана растёт вслед за числом.
+  //
+  // WAGE_MAN: жалованье нейтральное по сумме (решение владельца после конюшни) — мерка MIX платит столько же, сколько
+  // платила при `WAGE_MAN_BEFORE` без части за снаряжение. Два правила связаны: ниже `WAGE_MAN` — ниже и медиана «игры
+  // без части за снаряжение», то есть цель решения 4. Поэтому оба числа выводятся вместе — поочерёдно, пока не
+  // перестанут меняться.
   const heaviest = TROOPS.reduce((a, b) => (wageGear(b.id) > wageGear(a.id) ? b : a)).id;
-  const perStrength = (g: number): number[] => TROOPS.map((t) => wageAt(t.id, g) / strength(t.id));
-  const head = (x: number): number => wageAt(heaviest, x) * weightOf(heaviest);
-  const solveFor = (target: (g: number) => number): number => {
+  const perStrength = (g: number, m: number = WAGE_MAN): number[] => TROOPS.map((t) => wageAt(t.id, g, m) / strength(t.id));
+  const head = (x: number, m: number = WAGE_MAN): number => wageAt(heaviest, x, m) * weightOf(heaviest);
+  const solveFor = (target: (g: number) => number, m: number = WAGE_MAN): number => {
     let lo = 0;
     let hi = 2;
-    if (wageAt(heaviest, lo) / strength(heaviest) >= target(lo)) return 0;
+    if (wageAt(heaviest, lo, m) / strength(heaviest) >= target(lo)) return 0;
     for (let i = 0; i < 50; i++) {
       const mid = (lo + hi) / 2;
-      if (wageAt(heaviest, mid) / strength(heaviest) < target(mid)) lo = mid;
+      if (wageAt(heaviest, mid, m) / strength(heaviest) < target(mid)) lo = mid;
       else hi = mid;
     }
     return (lo + hi) / 2;
   };
   const decided = solveFor(() => median(perStrength(0)));
   const fixed = solveFor((g) => median(perStrength(g)));
+  // Нейтральность: MIX (m, g) = MIX (WAGE_MAN_BEFORE, 0); mixWage линейна по m.
+  const before = mixWage(WAGE_MAN_BEFORE, 0);
+  const neutralMan = (g: number): number => WAGE_MAN_BEFORE - (mixWage(WAGE_MAN_BEFORE, g) - before) / (mixWage(1, 0) - mixWage(0, 0));
+  let nm = WAGE_MAN_BEFORE;
+  let ng = 0;
+  let rounds = 0;
+  for (; rounds < 100; rounds++) {
+    const g = solveFor(() => median(perStrength(0, nm)), nm);
+    const m = neutralMan(g);
+    const still = Math.abs(g - ng) < 1e-9 && Math.abs(m - nm) < 1e-9;
+    ng = g;
+    nm = m;
+    if (still) break;
+  }
+  const dayOf = (id: TroopId, m: number, g: number): string => (wageAt(id, g, m) * weightOf(id)).toFixed(2);
   console.log('');
   console.log(`Жалованье за снаряжение (WAGE_GEAR, data/upkeep.ts): самый снаряжённый вид — ${TROOP_BY_ID[heaviest].name} (${wageGear(heaviest)} по derived.wageGear) —`);
   console.log('платит за единицу силы медиану по всем видам (решение 4). Делением отрезка [0, 2] в долях полного сбора с человека; ноль — вид и без');
-  console.log('этой части платит не меньше медианы.');
+  console.log(`этой части платит не меньше медианы. Ниже — при WAGE_MAN игры (${WAGE_MAN}).`);
   console.log(`  решение 4 (медиана без части за снаряжение): ${decided.toFixed(4)} — ${TROOP_BY_ID[heaviest].name} ${head(decided).toFixed(2)} в день, медиана ${median(perStrength(0)).toFixed(3)}`);
   console.log(`  неподвижная точка (медиана вместе с этой частью): ${fixed.toFixed(4)} — ${head(fixed).toFixed(2)} в день, медиана ${median(perStrength(fixed)).toFixed(3)}`);
-  console.log(`  в data/upkeep.ts: ${WAGE_GEAR} — ${head(WAGE_GEAR).toFixed(2)} в день`);
+  console.log('');
+  console.log(`Жалованье нейтральное по сумме: мерка MIX (${troopTotal(MIX)} голов) платит столько же, сколько при WAGE_MAN ${WAGE_MAN_BEFORE} без части за снаряжение —`);
+  console.log(`${before.toFixed(2)} в день; WAGE_MAN и WAGE_GEAR (решение 4) — вместе, поочерёдно до неподвижности (${rounds + 1} кругов).`);
+  console.log(`  нейтрально, решение 4: WAGE_MAN ${nm.toFixed(4)}, WAGE_GEAR ${ng.toFixed(4)} — мерка ${mixWage(nm, ng).toFixed(2)} в день, ${TROOP_BY_ID[heaviest].name} ${head(ng, nm).toFixed(2)}, медиана без части ${median(perStrength(0, nm)).toFixed(3)}`);
+  const keptMan = neutralMan(0.3547);
+  console.log(`  для сравнения — WAGE_GEAR 0.3547 (вывод при WAGE_MAN ${WAGE_MAN_BEFORE}) и нейтральный к нему WAGE_MAN ${keptMan.toFixed(4)}: ${TROOP_BY_ID[heaviest].name} ${head(0.3547, keptMan).toFixed(2)} в день,`);
+  console.log(`    на единицу силы ${(wageAt(heaviest, 0.3547, keptMan) / strength(heaviest)).toFixed(3)} при медиане без части ${median(perStrength(0, keptMan)).toFixed(3)}`);
+  console.log(`  в data/upkeep.ts: WAGE_MAN ${WAGE_MAN}, WAGE_GEAR ${WAGE_GEAR} — мерка ${mixWage(WAGE_MAN, WAGE_GEAR).toFixed(2)} в день, ${TROOP_BY_ID[heaviest].name} ${head(WAGE_GEAR).toFixed(2)}`);
+  console.log(`  в день по видам, до части (${WAGE_MAN_BEFORE}, 0) → в игре: ${TROOPS.map((t) => `${t.name} ${dayOf(t.id, WAGE_MAN_BEFORE, 0)} → ${dayOf(t.id, WAGE_MAN, WAGE_GEAR)}`).join(', ')}`);
 
   console.log('');
   console.log('Цена класса: слева — что стоит вид в игре (data/troops.ts, derived.wageOf), справа — медиана «на силу», умноженная на силу класса');
