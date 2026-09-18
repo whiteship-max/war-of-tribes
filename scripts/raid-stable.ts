@@ -589,31 +589,32 @@ function numbersPart(worth: Worth, shares: ShareRow[]): void {
   console.log(` ${padR('медиана', 16)}  ${pad('', 4)}  ${pad(med.goods.toFixed(1), 10)}  ${pad(med.forge.toFixed(0), 12)}  ${pad(med.work.toFixed(1), 12)}  ${pad(med.wage.toFixed(2), 14)}  ${pad(med.food.toFixed(2), 9)}`);
 
   // WAGE_GEAR: правило владельца (docs/stable.md, решение 4) — самый снаряжённый вид платит за единицу силы медиану
-  // игры. Медиана сама зависит от этой части (жалованье каждого вида её содержит), поэтому число — неподвижная точка:
-  // делением отрезка ищется g, при котором жалованье/силу самого снаряжённого вида равно медиане по всем видам.
+  // игры. Прочтений два, и печатаются оба. **Решение 4** — медиана той игры, где части за снаряжение ещё нет (так
+  // считалось одобренное «5.39»): число ставит цель, и она от самого числа не зависит. **Неподвижная точка** —
+  // медиана той игры, где часть уже есть: дорожают все, кто что-то носит, и медиана растёт вслед за числом.
   const heaviest = TROOPS.reduce((a, b) => (wageGear(b.id) > wageGear(a.id) ? b : a)).id;
-  const gap = (g: number): number => wageAt(heaviest, g) / strength(heaviest) - median(TROOPS.map((t) => wageAt(t.id, g) / strength(t.id)));
-  console.log('');
-  console.log('Жалованье за снаряжение (WAGE_GEAR, data/upkeep.ts): самый снаряжённый вид — у кого больше вещей по derived.wageGear, сейчас');
-  console.log(`${TROOP_BY_ID[heaviest].name} (${wageGear(heaviest)}), — платит за единицу силы медиану по всем видам. Медиана от числа тоже зависит, поэтому оно —`);
-  console.log('неподвижная точка: делением отрезка [0, 2] в долях полного сбора с человека.');
-  let lo = 0;
-  let hi = 2;
-  if (gap(lo) >= 0) {
-    // Жалованье не бывает меньше нуля: вид уже без этой части платит за силу не меньше медианы.
-    console.log(`  выведено: 0 — ${TROOP_BY_ID[heaviest].name} и без части за снаряжение платят за единицу силы выше медианы на ${f2(gap(lo))}; в data/upkeep.ts: ${WAGE_GEAR}.`);
-  } else if (gap(hi) < 0) console.log(`  неподвижной точки на отрезке нет: разность на концах ${f2(gap(lo))} и ${f2(gap(hi))}`);
-  else {
-    for (let i = 0; i < 40; i++) {
+  const perStrength = (g: number): number[] => TROOPS.map((t) => wageAt(t.id, g) / strength(t.id));
+  const head = (x: number): number => wageAt(heaviest, x) * weightOf(heaviest);
+  const solveFor = (target: (g: number) => number): number => {
+    let lo = 0;
+    let hi = 2;
+    if (wageAt(heaviest, lo) / strength(heaviest) >= target(lo)) return 0;
+    for (let i = 0; i < 50; i++) {
       const mid = (lo + hi) / 2;
-      if (gap(mid) < 0) lo = mid;
+      if (wageAt(heaviest, mid) / strength(heaviest) < target(mid)) lo = mid;
       else hi = mid;
     }
-    const g = (lo + hi) / 2;
-    const head = (x: number): number => wageAt(heaviest, x) * weightOf(heaviest);
-    console.log(`  выведено: ${g.toFixed(4)}; в data/upkeep.ts: ${WAGE_GEAR}. ${TROOP_BY_ID[heaviest].name} на голову в день: ${head(g).toFixed(2)} выведенным, ${head(WAGE_GEAR).toFixed(2)} записанным.`);
-    console.log(`  медиана жалованья на силу при выведенном: ${median(TROOPS.map((t) => wageAt(t.id, g) / strength(t.id))).toFixed(3)}; при записанном: ${median(TROOPS.map((t) => wageAt(t.id, WAGE_GEAR) / strength(t.id))).toFixed(3)}.`);
-  }
+    return (lo + hi) / 2;
+  };
+  const decided = solveFor(() => median(perStrength(0)));
+  const fixed = solveFor((g) => median(perStrength(g)));
+  console.log('');
+  console.log(`Жалованье за снаряжение (WAGE_GEAR, data/upkeep.ts): самый снаряжённый вид — ${TROOP_BY_ID[heaviest].name} (${wageGear(heaviest)} по derived.wageGear) —`);
+  console.log('платит за единицу силы медиану по всем видам (решение 4). Делением отрезка [0, 2] в долях полного сбора с человека; ноль — вид и без');
+  console.log('этой части платит не меньше медианы.');
+  console.log(`  решение 4 (медиана без части за снаряжение): ${decided.toFixed(4)} — ${TROOP_BY_ID[heaviest].name} ${head(decided).toFixed(2)} в день, медиана ${median(perStrength(0)).toFixed(3)}`);
+  console.log(`  неподвижная точка (медиана вместе с этой частью): ${fixed.toFixed(4)} — ${head(fixed).toFixed(2)} в день, медиана ${median(perStrength(fixed)).toFixed(3)}`);
+  console.log(`  в data/upkeep.ts: ${WAGE_GEAR} — ${head(WAGE_GEAR).toFixed(2)} в день`);
 
   console.log('');
   console.log('Цена класса: слева — что стоит вид в игре (data/troops.ts, derived.wageOf), справа — медиана «на силу», умноженная на силу класса');
