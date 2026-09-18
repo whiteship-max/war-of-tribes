@@ -262,7 +262,10 @@ function buildGroups(side: Side, setup: ArmySetup): Group[] {
       push(sector, { ...emptyStack(), spear: rest.spear }, lane, 'rear');
       rest.spear = 0;
     }
-    push(sector, rest, lane, row, row === 'reserve' && horses([{ stack: rest } as Group]) > 0 ? cavalryOrder(setup) : null);
+    // Манёвр группы — приказ того конного рода, что в ней остался: ждущие рода ушли своими
+    // группами выше, и приказ лёгкой, которой здесь нет, увёл бы латных бить лучников.
+    const mounted = HORSE_KINDS.find((k) => rest[k] > 0);
+    push(sector, rest, lane, row, row === 'reserve' && mounted ? cavalryOrder(setup, mounted) : null);
   }
   return groups;
 }
