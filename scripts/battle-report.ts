@@ -1,7 +1,8 @@
 // Балансные прогоны боя: таблица «кто кому проигрывает», кольцо контрров,
 // разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
-import { COVER, simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
+import { COUNTER, COVER, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
+import { stackPower } from '../src/battle/sim';
 import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, latticeWorth, nonDecreasing, screenArmy, screenCurve, screenPoints, withCoverK, answerlessOwnKind, compositionLattice, compositionName, latticeDuels, COUNTER_TERMS, KNOWN_COUNTER, standardOf, counterSearch, searchFinal, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
@@ -91,6 +92,98 @@ console.log(`\n=== Решётка составов: все составы из 6
   console.log(`никому не проигрывает: ${undefeated.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '— (тест «нет доминирующего состава» зелёный)'}`);
   const answerless = order.filter((i) => answerlessOwnKind(rows, i));
   console.log(`ответа без своего главного рода нет: ${answerless.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '—'}`);
+}
+
+console.log('\n=== Тяжёлая: откуда сила (решётка составов, стандартный пресет) ===');
+{
+  // Каждое число тяжёлой по очереди ставится на то, что стоит на той же оси у пехоты или у
+  // лёгкой (правило классов: своих чисел у тяжёлой нет, каждое взято у другого рода), и решётка
+  // перемеряется целиком. Отдельно — где пресет её ставит: в резерв или во фронт. Удар с разбега
+  // (`CLASH_CAVALRY_IMPACT`) — константа ядра, отсюда не подменяется и здесь не измерен.
+  const pure = UNIT_KINDS.map((k) => ({ k, setup: quickSetup({ [k]: ARMY_SIZE }) }));
+  const duel = (a: ArmySetup, b: ArmySetup): number => {
+    let r = 0;
+    for (let seed = 1; seed <= 6; seed += 1) r += mirrored(a, b, seed).lossRatio;
+    return r / 6;
+  };
+  const statLine = (k: 'heavy' | 'infantry' | 'cavalry'): string => {
+    const u = UNIT_STATS[k];
+    const c = k === 'infantry' ? COUNTER.infantry.all : COUNTER[k].infantry;
+    return `рукопашная ${u.melee}, стойкость ${u.toughness}, скорость ${u.speed}, мораль ${u.morale}, по пехоте ×${c}`;
+  };
+  console.log(`числа: тяжёлая — ${statLine('heavy')}; пехота — ${statLine('infantry')}; лёгкая — ${statLine('cavalry')}`);
+  console.log(`род против рода, ${ARMY_SIZE} на ${ARMY_SIZE}, быстрая атака, 6 сидов × обе стороны (размен строки): ${pure.map((p) => pad(p.k, 9, true)).join('')}`);
+  for (const a of pure) console.log(`  ${pad(a.k, 9)}${pure.map((b) => pad(a === b ? '—' : duel(a.setup, b.setup).toFixed(2), 9, true)).join('')}`);
+
+  const H = UNIT_STATS.heavy;
+  const HC = COUNTER.heavy as { infantry: number };
+  const HT = TEMPER.heavy;
+  const heavyFront = (army: Partial<Stack>): ArmySetup => {
+    const s = quickSetup(army);
+    const r = s.sectors.R.heavy;
+    if (r > 0) {
+      s.sectors.R.heavy = 0;
+      const l = Math.floor(r * 0.3);
+      const c = Math.floor(r * 0.3);
+      s.sectors.A.heavy += l;
+      s.sectors.B.heavy += r - l - c;
+      s.sectors.C.heavy += c;
+    }
+    return s;
+  };
+  // Резерв по той же мерке, что заслон: пресет держит в резерве не больше, чем прикрывает линия
+  // (`линия / COVER.K` силы, `stackPower`), остальное — во фронт. Это не правило боя, а расстановка
+  // перед ним: в бою резерв по-прежнему недосягаем, пока не введён, сколько бы его ни было.
+  const reserveCovered = (army: Partial<Stack>): ArmySetup => {
+    const s = quickSetup(army);
+    const line = stackPower(armyTotal({ ...s, sectors: { ...s.sectors, R: stackOf({}) } }));
+    const held = stackPower(s.sectors.R);
+    if (held <= 0 || held <= line / COVER.K) return s;
+    const share = 1 - line / COVER.K / held;
+    for (const k of UNIT_KINDS) {
+      const out = Math.round(s.sectors.R[k] * share);
+      if (out <= 0) continue;
+      s.sectors.R[k] -= out;
+      const l = Math.floor(out * 0.3);
+      const c = Math.floor(out * 0.3);
+      s.sectors.A[k] += l;
+      s.sectors.B[k] += out - l - c;
+      s.sectors.C[k] += c;
+    }
+    return s;
+  };
+  const variants: Array<{ name: string; set: () => () => void; layout?: (a: Partial<Stack>) => ArmySetup }> = [
+    { name: 'как есть', set: () => () => {} },
+    { name: 'рукопашная 1.3 → 1.0 (лёгкая)', set: () => ((H.melee = 1.0), () => (H.melee = 1.3)) },
+    { name: 'по пехоте ×1.3 → ×1.0 (лёгкая)', set: () => ((HC.infantry = 1.0), () => (HC.infantry = 1.3)) },
+    { name: 'рукопашная и по пехоте → 1.0', set: () => ((H.melee = 1.0), (HC.infantry = 1.0), () => ((H.melee = 1.3), (HC.infantry = 1.3))) },
+    { name: 'мораль 65 → 56 (пехота)', set: () => ((H.morale = 56), () => (H.morale = 65)) },
+    { name: 'стойкость 1.1 → 0.8 (лёгкая)', set: () => ((H.toughness = 0.8), () => (H.toughness = 1.1)) },
+    { name: 'остановленная 1.0 → 1.3 (лёгкая)', set: () => ((HT.stalled = 1.3), () => (HT.stalled = 1.0)) },
+    { name: 'на разгоне 0.6 → 1.0 (пехота)', set: () => ((HT.charging = 1.0), () => (HT.charging = 0.6)) },
+    { name: 'скорость 2 → 1 (копья)', set: () => ((H.speed = 1), () => (H.speed = 2)) },
+    { name: 'числа те же, пресет ставит её во фронт', set: () => () => {}, layout: heavyFront },
+    { name: 'числа те же, резерв не больше прикрытого', set: () => () => {}, layout: reserveCovered },
+    { name: 'рукопашная 1.0 и резерв не больше прикрытого', set: () => ((H.melee = 1.0), () => (H.melee = 1.3)), layout: reserveCovered },
+  ];
+  const lattice = compositionLattice();
+  const iOf = (army: Partial<Stack>): number => lattice.findIndex((a) => UNIT_KINDS.every((k) => (a[k] ?? 0) === (army[k] ?? 0)));
+  const watched = [{ infantry: 150, heavy: 450 }, { heavy: 600 }, { infantry: 300, heavy: 300 }].map(iOf);
+  console.log('что меняется (решётка целиком на каждую строку): лучший состав и сколько бьёт; с тяжёлой в первой десятке; ответа без своего рода нет у; ' + watched.map((i) => compositionName(lattice[i])).join(' / '));
+  for (const v of variants) {
+    const undo = v.set();
+    try {
+      const rows = latticeDuels(lattice, v.layout);
+      const n = rows.length;
+      const pct = (i: number): string => `${Math.round((100 * rows[i].beats.length) / (n - 1))}%`;
+      const order = [...rows.keys()].sort((a, b) => rows[b].beats.length - rows[a].beats.length);
+      const top10 = order.slice(0, 10).filter((i) => (rows[i].army.heavy ?? 0) > 0).length;
+      const answerless = order.filter((i) => answerlessOwnKind(rows, i));
+      console.log(`  ${pad(v.name, 40)} ${pad(compositionName(rows[order[0]].army), 50)} ${pad(pct(order[0]), 4, true)}  ${pad(top10, 2, true)}/10  ${pad(answerless.length, 2, true)}  ${watched.map((i) => pad(pct(i), 4, true)).join(' /')}`);
+    } finally {
+      undo();
+    }
+  }
 }
 
 console.log('\n=== Заслон: линия по силе (Battle.expose, COVER.K) ===');
