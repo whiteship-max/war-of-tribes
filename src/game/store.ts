@@ -27,7 +27,7 @@ import { applyCheat } from './sim/cheat';
  * строки: в нижнюю навигацию они не попадают, открываются только оттуда (и
  * `order` — ещё из строки тревоги, которая про порядок).
  */
-export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'order' | 'army' | 'profile';
+export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'order' | 'army';
 
 /**
  * Вкладки ратуши. Живут в сторе, а не в самой панели: на «Управление» ведут
