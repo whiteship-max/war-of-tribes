@@ -14,14 +14,12 @@
 //
 //   npx vite-node scripts/raid-report.ts
 //
-// Раздел «рост логова» (от чего растёт сила набега, осада по сухому прогону, защита новичка,
-// логово как цель) живёт в `raid-lair-growth.ts` и печатается в конце. Прежний раздел «потолок
-// набегов» мерил отвергнутый вариант «набег = оборона × k» и ушёл вместе с потолком: его числа —
-// снимок на коммите aec1117 (docs/raid_ceiling.md). Раздел «Оборона по составу» (долг среднего бойца: где он решает
-// сегодня и что станет с правилом «мощь дома — сумма мощи тех, кто дома») — `raid-defense-mix.ts`. Раздел
-// «Лазарет» (сколько раненых бывает, ёмкость, срок, еда — docs/infirmary.md) — `raid-infirmary.ts`, после «Найма»:
-// он читает прогоны «Найма» и своих, кроме полководца, жгущего логова, не гоняет. Раздел «Конюшня» (чем отличаются рода
-// войск и какое место заняли два класса конницы — docs/stable.md) — `raid-stable.ts`, самым последним.
+// Прежде в этом отчёте жили ещё пять разделов; они разведены отдельными отчётами, чтобы подсчёт по
+// диффу гнал только тот, чьё замыкание задето (docs/realm.md, раздел 8, «Цена разделов raid:report»):
+// «Рост логова» — `raid-growth:report`, «Найм» и «Лазарет» — `raid-hiring:report`, «Оборона по
+// составу» — `raid-mix:report`, «Конюшня» — `raid-stable:report`. Прежний раздел «потолок набегов»
+// мерил отвергнутый вариант «набег = оборона × k» и ушёл вместе с потолком: его числа — снимок на
+// коммите aec1117 (docs/raid_ceiling.md).
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
@@ -32,21 +30,6 @@ import {
   AI_RANGE,
 } from '@/world/data/tuning';
 import type { MarchView, PlayerProfile } from '@/world/types';
-import { lairGrowthSection } from './raid-lair-growth';
-import { hiringSection } from './raid-hiring';
-import { defenseMixSection } from './raid-defense-mix';
-import { infirmarySection } from './raid-infirmary';
-import { stableSection } from './raid-stable';
-import { measure } from './lib/measured';
-
-// Сколько стоит каждый раздел — замером в ‹…›: отчёт дорог (docs/realm.md, раздел 8), и
-// удешевлять его надо по числам, а не на глаз. Сверка содержимое скобок не сравнивает.
-const clock = { at: performance.now(), rows: [] as [string, number][] };
-const lap = (name: string): void => {
-  const now = performance.now();
-  clock.rows.push([name, (now - clock.at) / 1000]);
-  clock.at = now;
-};
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1234, 2024, 4242, 7919];
@@ -217,18 +200,3 @@ for (const watch of WATCH) {
   if (worst.length > 0) console.log(`не успели: сиды ${worst.map((r) => r.seed).join(', ')}`);
 }
 
-lap('Запас времени на перехват');
-await lairGrowthSection();
-lap('Рост логова');
-const hired = await hiringSection();
-lap('Найм');
-await defenseMixSection();
-lap('Оборона по составу');
-await infirmarySection(hired);
-lap('Лазарет');
-await stableSection();
-lap('Конюшня');
-
-console.log('');
-console.log('=== Сколько стоит каждый раздел ===');
-for (const [name, sec] of clock.rows) console.log(`  ${name.padEnd(28)} ${measure(`${sec.toFixed(0)} с`)}`);

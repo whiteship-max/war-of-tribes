@@ -16,10 +16,10 @@ describe('замыкания отчётов на этом репозитории
     return o;
   };
 
-  it('отчёты — это команды `*:report`, и их шестнадцать', () => {
+  it('отчёты — это команды `*:report`, и их двадцать', () => {
     const scripts = Object.keys(setup.scripts).filter((s) => s.endsWith(':report'));
     expect(found.filter((o) => o.kind === 'report').map((o) => `${o.name}:report`)).toEqual(scripts);
-    expect(scripts).toHaveLength(16);
+    expect(scripts).toHaveLength(20);
     // Стенд предыстории — не отчёт приёмки: он выведен из списка суффиксом (CLAUDE.md, правило 9).
     expect(Object.keys(setup.scripts)).toContain('prologue:stand');
   });
@@ -27,6 +27,31 @@ describe('замыкания отчётов на этом репозитории
   it('ни у одного отчёта и у самого подсчёта нет сомнений — иначе выбор всегда был бы полным', () => {
     const doubts = found.filter((o) => o.kind === 'report' || o.kind === 'selector').flatMap((o) => o.closure.doubts.map((d) => `${o.name}: ${d}`));
     expect(doubts).toEqual([]);
+  });
+
+  it('разделы бывшего raid:report разведены: правка одного раздела не гонит чужой', () => {
+    // Затем и разведены (docs/realm.md, раздел 8): замыкание — единственное, по чему подсчёт выбирает.
+    const entry: Record<string, string> = {
+      raid: 'scripts/raid-report.ts',
+      'raid-growth': 'scripts/raid-growth-report.ts',
+      'raid-hiring': 'scripts/raid-hiring-report.ts',
+      'raid-mix': 'scripts/raid-mix-report.ts',
+      'raid-stable': 'scripts/raid-stable-report.ts',
+    };
+    const sections: [string, string][] = [
+      ['raid-growth', 'scripts/raid-lair-growth.ts'],
+      ['raid-hiring', 'scripts/raid-hiring.ts'],
+      ['raid-hiring', 'scripts/raid-infirmary.ts'],
+      ['raid-mix', 'scripts/raid-defense-mix.ts'],
+      ['raid-stable', 'scripts/raid-stable.ts'],
+    ];
+    for (const [name, file] of Object.entries(entry)) expect([...report(name).closure.files], name).toContain(file);
+    for (const [name, file] of sections) {
+      const pulled = Object.keys(entry).filter((other) => [...report(other).closure.files].includes(file));
+      expect(pulled, file).toEqual([name]);
+    }
+    // Перехват — свой отчёт в полминуты: ни одного раздела и автопилота в нём нет.
+    expect([...report('raid').closure.files].filter((f) => f.startsWith('scripts/raid-') || f === 'scripts/autopilot.ts')).toEqual(['scripts/raid-report.ts']);
   });
 
   it('узловой отчёт тянет модули, данные и пакеты', () => {

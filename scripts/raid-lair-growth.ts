@@ -1,4 +1,4 @@
-// Рост логова — раздел `raid:report`.
+// Рост логова — отчёт `raid-growth:report` (прежде — раздел `raid:report`).
 //
 // Меряет игру как она есть после решения владельца (docs/lair_growth.md): набег — всё логово,
 // логово растёт от возраста и жителей города, молодой город логово не замечает, осаду решает бой
@@ -53,28 +53,14 @@ import { armyPower, armySize, buildingOfType, defense, recruitRate, taxIncomePer
 import { kindsOf, troopTotal } from '@/game/battle/kinds';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
-import { GAME, HOUR, MIN, START, memory, pilot, player, townAt, type Inside, type Run, type Step } from './autopilot';
+import { GAME, START, memory, pilot, player, townAt, type Inside, type Run, type Step } from './autopilot';
+import { NEW_SEEDS, SEEDS, hm, mean, pad, pct, q, sum, tally } from './raid-common';
 
-export const SEEDS = [7, 11, 42, 51, 77];
-export const NEW_SEEDS = SEEDS.slice(0, 3);
 const LADDER = [1, 2, 3, 5, 7, 10];
 /** Пульс мира и такт решений автопилота в прогонах раздела, с. */
 const PULSE = 30;
 const NO_HALL: readonly BuildingTypeId[] = ['town_hall'];
 
-export const pad = (v: string | number, w: number): string => String(v).padStart(w);
-export const pct = (x: number): string => `${Math.round(x * 100)}%`;
-export const hm = (ms: number): string => {
-  const m = Math.round(ms / MIN);
-  return m >= 60 ? `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, '0')}` : `${m} мин`;
-};
-export const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
-export const mean = (xs: number[]): number => (xs.length ? sum(xs) / xs.length : 0);
-export const q = (xs: number[], p: number): number => {
-  const s = xs.slice().sort((a, b) => a - b);
-  return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : 0;
-};
-const range = (xs: number[]): string => (xs.length ? `${pct(q(xs, 0.1))}…${pct(q(xs, 0.5))}…${pct(q(xs, 0.9))}` : '—');
 
 /** Средний уровень построек из слепка (`PlayerProfile.levels`, всё, кроме тайника). */
 const levelOf = (p: PlayerProfile | null | undefined): number => {
@@ -92,33 +78,6 @@ function fit(xs: number[], ys: number[]): { a: number; b: number; worst: number 
   return { a, b, worst };
 }
 
-/** С какого числа бойцов дома доля павших в бою что-то значит. */
-const SHARE_FLOOR = 10;
-
-export function tally(runs: Run[], hours: number) {
-  const walls = runs.flatMap((r) => r.walls);
-  const broke = walls.filter((x) => !x.held).length;
-  const falls = sum(runs.map((r) => r.siegeFalls));
-  const sieges = sum(runs.map((r) => r.sieges));
-  return {
-    raids: sum(runs.map((r) => r.raids)),
-    ratio: range(runs.flatMap((r) => r.ratio)),
-    walls: walls.length,
-    broke: walls.length ? pct(broke / walls.length) : '—',
-    sieges,
-    siegeShare: walls.length + sieges ? pct(sieges / (walls.length + sieges)) : '—',
-    sorties: `${sum(runs.map((r) => r.sortieWins))} из ${sum(runs.map((r) => r.sorties))}`,
-    falls,
-    perHour: ((broke + falls) / (hours * runs.length)).toFixed(2),
-    held: range(walls.filter((x) => x.held && x.home >= SHARE_FLOOR).map((x) => x.lost / x.home)),
-    half: pct(sum(runs.map((r) => r.half)) / (hours * HOUR * runs.length)),
-    armyEnd: Math.round(mean(runs.map((r) => r.armyEnd))),
-    lost: sum(runs.map((r) => r.lost)),
-    hired: sum(runs.map((r) => r.hired)),
-    first: runs.filter((r) => r.losses.length).map((r) => r.losses[0]),
-    hunger: runs.flatMap((r) => r.hunger),
-  };
-}
 
 // ---------- Печать ----------
 

@@ -1,4 +1,4 @@
-// Конюшня — раздел `raid:report` (docs/stable.md).
+// Конюшня — отчёт `raid-stable:report` (прежде — раздел `raid:report`; docs/stable.md).
 //
 // Чем отличаются рода войск в бою и какое место заняли два класса конницы — лёгкая (`rider`, род `cavalry`) и
 // тяжёлая (`knight`, род `heavy`). Классы живут в конфиге боя сами (правило «две половины прежнего конного
@@ -46,7 +46,7 @@ import { HORSE_MOUTHS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN, WAGE_MAN_UNGEARED } from 
 import { TAX_PER_POP } from '@/game/data/policy';
 import type { EquipmentId, ResourceId, TroopId } from '@/game/types';
 import { MIX, armyAt, openSky, townAt, type Inside } from './autopilot';
-import { SEEDS } from './raid-lair-growth';
+import { SEEDS } from './raid-common';
 
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 const padR = (v: string | number, w: number): string => String(v).padEnd(w);

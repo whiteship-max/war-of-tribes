@@ -1,4 +1,4 @@
-// Оборона по составу — раздел `raid:report`.
+// Оборона по составу — отчёт `raid-mix:report` (прежде — раздел `raid:report`).
 //
 // Долг закрыт (docs/defense_mix.md): мощь тех, кто дома, — сумма мощи тех, кто дома (`kinds.troopPower`
 // над `derived.homeTroops`), а не бойцов дома × средняя мощь всего войска. Числа «по среднему» в игре
@@ -29,9 +29,9 @@ import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { armySize, defense, faithTilt, homeArmyPower, mutinyForecast } from '@/game/derived';
 import { dismissCheck } from '@/game/sim/upkeep';
 import type { FaithId, GameState, TroopId } from '@/game/types';
-import { SEEDS, mean, pad, pct, q, sum, tally } from './raid-lair-growth';
+import { SEEDS, mean, pad, pct, q, sum, tally } from './raid-common';
 import { START, openSky, townAt, type Inside } from './autopilot';
-import { NAME, live, type Out } from './raid-hiring';
+import { NAME, live, type Out } from './raid-live';
 
 interface Case {
   name: string;

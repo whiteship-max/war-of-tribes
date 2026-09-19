@@ -1,4 +1,4 @@
-// Лазарет — раздел `raid:report`.
+// Лазарет — раздел отчёта `raid-hiring:report` (прежде — раздел `raid:report`).
 //
 // Лазарет сделан по решениям владельца (docs/infirmary.md, раздел 9): раненый встаёт в строй тем же
 // бойцом, мест — 11 бойцов строя на уровень, лежат два игровых дня, раненые полководца лежат при нём до возвращения
@@ -24,8 +24,9 @@ import { defense, healShare, infirmaryBeds } from '@/game/derived';
 import { DAY_LENGTH, INFIRMARY_HEAL_CAP, MAX_BUILDING_LEVEL, WOUND_DAYS } from '@/game/constants';
 import { DESERT_SHARE } from '@/game/data/upkeep';
 import { MIN, START, townAt, unitCost } from './autopilot';
-import { NAME, STYLES, live, type Fight, type FightKind, type Hired, type Out } from './raid-hiring';
-import { SEEDS, pad, pct, q, sum } from './raid-lair-growth';
+import { NAME, STYLES, live, type Fight, type FightKind, type Out } from './raid-live';
+import type { Hired } from './raid-hiring';
+import { SEEDS, pad, pct, q, sum } from './raid-common';
 
 const LEVELS = [7, 8, 10];
 const HOURS = 4;
