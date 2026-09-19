@@ -7,6 +7,7 @@ import { gemsOf } from '@/game/sim/gems';
 import { TownBuild } from './TownBuild';
 import { Gems } from './Gems';
 import { Icon } from '@/ui/icons/Icon';
+import { signed } from './signed';
 
 /**
  * Ратуша — сердце города, и в ней три дела, а не одно, поэтому у неё вкладки:
@@ -121,7 +122,7 @@ export function Manage({ b }: { b: Building }) {
       </div>
 
       <h3>
-        Казна <span className="muted">+{taxIncomePerDay(s).toFixed(1)} в день</span>
+        Казна <span className="muted">{signed(taxIncomePerDay(s))} в день</span>
       </h3>
       <div className="mod total">
         <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
@@ -155,7 +156,7 @@ export function Manage({ b }: { b: Building }) {
               <b>{t.name}</b>
               <small>
                 {t.effect}
-                <br />+{q.gold.toFixed(1)} золота в день · мораль {Math.round(q.morale)} · выработка ×{q.output.toFixed(2)}
+                <br />{signed(q.gold)} золота в день · мораль {Math.round(q.morale)} · выработка ×{q.output.toFixed(2)}
               </small>
             </button>
           );
