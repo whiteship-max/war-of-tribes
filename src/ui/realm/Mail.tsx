@@ -1,0 +1,228 @@
+// «Решения» — почта державы (docs/realm.md, раздел 2.5): всё, что пришло и ждёт
+// ответа, одним списком. Донесение открывается, ответ выбирается, исход виден
+// тут же. Первым лежит то, что раньше всего разрешится само.
+//
+// Экран не знает, откуда пришло донесение: событие посёлка и письмо мира
+// сведены в один вид (`dispatch.ts`), и отвечает он одной дверью
+// (`answerDispatch`). Прежних окон — модалки события и столбика писем в
+// деревне — больше нет: второй способ сказать то же самое разошёлся бы с первым.
+import { useEffect, useState } from 'react';
+import { useGame } from '@/game/store';
+import { serverNow } from '@/net/clock';
+import { useWorld, worldNow } from '@/world/store';
+import { RHUMB_WORDS } from '@/world/data/letters';
+import type { LetterView } from '@/world/types';
+import { Icon } from '@/ui/icons/Icon';
+import { Cost } from '@/ui/parts/Cost';
+import { useLockWords } from '@/ui/parts/defenseLock';
+import { dispatches, leftWords, type Dispatch } from './dispatch';
+import { useRealm } from './open';
+import { mailKeys, useSeen } from './unread';
+
+/**
+ * Единственная дверь ответа: отдаёт ответ хозяину донесения и возвращает исход
+ * словами. Событие закрывает партия (`sim/mail.resolveEvent`), письмо — мир
+ * (`answerLetter`); исход письма — та строка, что ляжет в летопись.
+ */
+async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | null> {
+  if (d.source === 'event') return useGame.getState().resolve(Number(choiceId));
+  if (!d.letterId) return null;
+  const err = await useWorld.getState().answerLetter(d.letterId, choiceId === 'yes' ? 'yes' : 'no');
+  if (err) return null;
+  return d.choices.find((c) => c.id === choiceId)?.hint ?? null;
+}
+
+export function Mail() {
+  const s = useGame((g) => g.s);
+  const letters = useWorld((w) => w.letters);
+  const open = useRealm((r) => r.mail);
+  const openMail = useRealm((r) => r.openMail);
+  const seen = useSeen((u) => u.seen);
+  const mark = useSeen((u) => u.mark);
+  const [done, setDone] = useState<{ title: string; text: string } | null>(null);
+  const [, retick] = useState(0);
+
+  const list = dispatches(s, letters, { tribe: serverNow(), world: worldNow() });
+  const live = mailKeys(
+    s.activeEvent,
+    letters.map((l) => l.id),
+  );
+  const current = list.find((d) => d.key === open) ?? null;
+
+  // Срок идёт сам: замерший счётчик читается как сломанный экран.
+  useEffect(() => {
+    if (list.length === 0) return;
+    const t = setInterval(() => retick((v) => v + 1), 1000);
+    return () => clearInterval(t);
+  }, [list.length]);
+
+  // Открытое — прочитано. Отметка ставится по факту показа, а не по нажатию:
+  // в донесение приводит и лупа письма, вернувшаяся с карты.
+  const shown = current?.key ?? null;
+  useEffect(() => {
+    if (shown && !useSeen.getState().seen.includes(shown)) mark(shown, live);
+    // `live` меняется вместе с почтой, а отметка нужна только при смене
+    // открытого: брать его в зависимости значило бы метить на каждом кадре.
+  }, [shown, mark]);
+
+  if (done) {
+    return (
+      <div className="panel dispatch">
+        <h3>{done.title}</h3>
+        <p className="dispatch-done">{done.text}</p>
+        <button className="btn wide" onClick={() => setDone(null)}>
+          К донесениям
+        </button>
+      </div>
+    );
+  }
+
+  if (current) {
+    return (
+      <DispatchCard
+        d={current}
+        letter={letters.find((l) => l.id === current.letterId) ?? null}
+        onBack={() => openMail(null)}
+        onAnswer={async (id) => {
+          const text = await answerDispatch(current, id);
+          openMail(null);
+          if (text) setDone({ title: current.title, text });
+        }}
+      />
+    );
+  }
+
+  if (list.length === 0) {
+    return (
+      <div className="panel dispatch-empty">
+        <div className="big">✉️</div>
+        <div className="note">
+          Донесений нет. Здесь копится то, что ждёт решения вождя: вести из посёлка и письма соседей. У каждого
+          донесения свой срок, и без ответа оно решится само.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <div className="mail-list">
+        {list.map((d) => {
+          const fresh = !seen.includes(d.key);
+          return (
+            <button key={d.key} className={`mail-row${fresh ? ' fresh' : ''}`} onClick={() => openMail(d.key)}>
+              <span className="ic">
+                <Icon name={d.iconName} glyph={d.icon} />
+              </span>
+              <span className="txt">
+                <b>{d.title}</b>
+                <small>
+                  <i className="who">{d.from ?? (d.warning ? 'Дозор' : 'Посёлок')}</i>
+                  {d.left !== null && <em>{leftWords(d.left)}</em>}
+                </small>
+              </span>
+              {fresh && <span className="new">новое</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Открытое донесение. Показывает всегда три вещи: что предлагают, что даст
+ * каждый ответ и **что будет, если промолчать**. Молчание — такой же исход, как
+ * ответ, и прятать его значило бы оставить игрока с последствием, о котором
+ * нигде не сказано.
+ */
+function DispatchCard({
+  d,
+  letter,
+  onBack,
+  onAnswer,
+}: {
+  d: Dispatch;
+  letter: LetterView | null;
+  onBack: () => void;
+  onAnswer: (id: string) => void;
+}) {
+  const spot = useWorld((w) => w.spotLetter);
+  const openMap = useGame((g) => g.openMap);
+  const openDefense = useGame((g) => g.openDefense);
+  const lock = useLockWords();
+  const raid = letter?.kind === 'raid';
+
+  return (
+    <div className="panel dispatch">
+      <div className="dispatch-ico">
+        <Icon name={d.iconName} glyph={d.icon} />
+      </div>
+      <h3>{d.title}</h3>
+      {letter && <FromLine letter={letter} onSpot={() => spot(letter.id)} />}
+      <p>{d.text}</p>
+      {/* Что просят одним числом на всё донесение — тем же `Cost`, что у стройки. */}
+      <Cost cost={d.cost} />
+      {d.left !== null && (
+        <p className="dispatch-left">
+          {d.leftText}: <b>{leftWords(d.left)}</b>
+        </p>
+      )}
+      <p className="dispatch-silence">{d.silence}</p>
+      <div className="options">
+        {d.choices.map((c) => {
+          const priced = Object.values(c.cost).some((n) => (n ?? 0) > 0);
+          return (
+            <button key={c.id} className="opt" disabled={c.block !== null} onClick={() => onAnswer(c.id)}>
+              <span>{c.label}</span>
+              {(c.block ?? c.hint) && <small>{c.block ?? c.hint}</small>}
+              {priced && <Cost cost={c.cost} />}
+            </button>
+          );
+        })}
+        {/* Предупреждение решается не здесь, и об этом сказано словами: две
+            двери — перехватить в поле или встретить у частокола. */}
+        {raid && (
+          <>
+            <button className="opt" onClick={() => openMap()}>
+              <span>На карту</span>
+              <small>Перехватить в поле, пока они идут</small>
+            </button>
+            <button className="opt" onClick={openDefense}>
+              <span>Оборона</span>
+              {/* Заперта ли расстановка — словами общего замка. */}
+              <small>{lock.frozen ? lock.short : ['Расставить тех, кто дома', lock.short].filter(Boolean).join(' · ')}</small>
+            </button>
+          </>
+        )}
+        <button className="btn ghost wide" onClick={onBack}>
+          {d.choices.length > 0 ? 'Отложить' : 'К донесениям'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Кто прислал письмо и где он. Имя переносится и не обрезается — длину его никто
+ * не обещал. Лупа ведёт на карту и есть ровно тогда, когда есть что показать:
+ * клетку мир отдаёт только разведанную; неразведанный двор назван румбом и
+ * расстоянием. Уйдёшь с карты — письмо откроется здесь же (`open.ts`).
+ */
+function FromLine({ letter, onSpot }: { letter: LetterView; onSpot: () => void }) {
+  const from = letter.from;
+  const where = from && !from.cell ? `${RHUMB_WORDS[from.rhumb]}, ${from.cells} кл. — место не разведано` : null;
+  return (
+    <div className="letter-from">
+      <span className="who">
+        {letter.fromName}
+        {where && <small>{where}</small>}
+      </span>
+      {from?.cell && (
+        <button className="spot" onClick={onSpot} aria-label="Показать на карте">
+          🔍
+        </button>
+      )}
+    </div>
+  );
+}

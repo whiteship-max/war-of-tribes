@@ -21,7 +21,6 @@ import { Icon } from '@/ui/icons/Icon';
  */
 export function SiegeBanner() {
   const s = useGame((g) => g.s);
-  const eventResult = useGame((g) => g.eventResult);
   const mapOpen = useGame((g) => g.mapOpen);
   const openSiege = useGame((g) => g.openSiege);
   const siege = useWorld((g) => g.siege);
@@ -35,9 +34,8 @@ export function SiegeBanner() {
     return () => clearInterval(t);
   }, [siege]);
 
-  // Те же правила видимости, что у писем: обучение ведёт новичка своим путём,
-  // а модалка события делит слой с чем угодно поверх неё.
-  if (!siege || mapOpen || tutorialActive(s) || s.activeEvent || eventResult) return null;
+  // Обучение ведёт новичка своим путём, и лишний слой поверх «дырки» ему мешает.
+  if (!siege || mapOpen || tutorialActive(s)) return null;
 
   const meta = FATE_META[siege.fate];
 

@@ -3,6 +3,8 @@ import type { GameState } from './types';
 import { createInitialState } from './state';
 import { tick } from './sim/tick';
 import { resolveEvent } from './sim/actions';
+import { mailStep } from './sim/mail';
+import { serverNow } from '@/net/clock';
 import { clearSave, loadGame, saveGame } from './save';
 import {
   advanceTutorial,
@@ -104,7 +106,6 @@ export interface GameStore {
   /** Какая вкладка открыта в ратуше. */
   townTab: TownTab;
   toast: string | null;
-  eventResult: string | null;
   /** Открывает раздел; повторный вызов того же — закрывает. */
   openTab: (tab: Tab) => void;
   /** Открывает панель здания. null — закрыть (тап по пустому месту). */
@@ -145,8 +146,8 @@ export interface GameStore {
    * Отдельно от act — это не действие игрока, здесь нет ни тоста, ни отклика.
    */
   world: (fn: (s: GameState) => void) => void;
-  resolve: (optionIndex: number) => void;
-  dismissResult: () => void;
+  /** Ответ на событие почты. Возвращает исход словами — его показывает само донесение. */
+  resolve: (optionIndex: number) => string | null;
   dismissOffline: () => void;
   dismissLegacy: () => void;
   dismissWinterWarning: () => void;
@@ -183,7 +184,6 @@ export const useGame = create<GameStore>((set, get) => ({
   mapOpen: false,
   townTab: 'build',
   toast: null,
-  eventResult: null,
 
   openTab: (tab) => {
     const cur = get().sheet;
@@ -312,13 +312,15 @@ export const useGame = create<GameStore>((set, get) => ({
     loopStarted = true;
     setInterval(() => {
       const s = get().s;
-      // Окно мятежа, оставленное без ответа, разрешает шаг симуляции, а не
-      // игрок, — и сказать игроку, чем кончилось, может только оболочка: тем же
-      // окном итога, каким кончается ответ.
+      // Донесение, оставленное без ответа, разрешает не игрок: мятеж — шаг
+      // симуляции своим сроком, прочие события — почта настоящими часами
+      // (`sim/mail`). Исход ложится в летопись, как у письма мира, и партия
+      // пишется на диск сразу: исход без игрока не должен теряться с вкладкой.
       const settled = tick(s, TICK_MS / 1000);
+      const lapsed = mailStep(s, serverNow());
       advanceTutorial(s, tutorialUi(get()));
-      set(settled ? { s: { ...s }, eventResult: settled } : { s: { ...s } });
-      if (settled) get().save();
+      set({ s: { ...s } });
+      if (settled || lapsed) get().save();
     }, TICK_MS);
     setInterval(() => get().save(), AUTOSAVE_MS);
     document.addEventListener('visibilitychange', () => {
@@ -359,11 +361,11 @@ export const useGame = create<GameStore>((set, get) => ({
     const { error, result } = resolveEvent(s, optionIndex);
     if (error) get().showToast(error);
     haptic('medium');
-    set({ s: { ...s }, eventResult: result });
+    set({ s: { ...s } });
     get().save();
+    return result;
   },
 
-  dismissResult: () => set({ eventResult: null }),
   dismissOffline: () => set({ offlineSeconds: 0 }),
   dismissLegacy: () => set({ legacyReset: false }),
 
@@ -427,7 +429,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   reset: () => {
     clearSave();
-    set({ s: createInitialState(), sheet: null, eventResult: null, offlineSeconds: 0 });
+    set({ s: createInitialState(), sheet: null, offlineSeconds: 0 });
     get().save();
   },
 }));

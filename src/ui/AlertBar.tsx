@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { alerts, buildingOfType } from '@/game/derived';
+import { alerts, buildingOfType, mutinyAnswerLeft } from '@/game/derived';
+import { ORDER_TEXT } from '@/game/data/order';
 import { tutorialActive } from '@/game/data/tutorial';
 import { incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
@@ -9,10 +10,11 @@ import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
 import { bareGeneral } from '@/game/sim/agents';
 import type { BuildingTypeId } from '@/game/types';
-import { lettersVisible } from './Letters';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { useLockWords } from '@/ui/parts/defenseLock';
+import { useRealm } from '@/ui/realm/open';
+import { eventKey } from '@/ui/realm/unread';
 
 /**
  * Критические состояния всплывают поверх любого экрана: голод, остывший очаг и
@@ -27,17 +29,15 @@ export function AlertBar() {
   const openTab = useGame((g) => g.openTab);
   const openDefense = useGame((g) => g.openDefense);
   const marches = useWorld((g) => g.marches);
-  const eventResult = useGame((g) => g.eventResult);
   const mapOpen = useGame((g) => g.mapOpen);
-  const letters = useWorld((g) => g.letters);
   const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
-  // Про этот набег уже написано в письме, и оно стоит на том же экране: две
-  // одинаковые строки — не забота, а шум. На карте письма нет, и строка тревог
-  // остаётся единственным предупреждением — там она и показывается.
-  const lettered = lettersVisible(s, eventResult, mapOpen)
-    ? new Set(letters.filter((l) => l.marchId).map((l) => l.marchId))
-    : new Set<string | undefined>();
-  const raids = incomingMarches(marches).filter((m) => !lettered.has(m.id));
+  // Письмо о набеге ждёт в почте державы, за гербом, а не на экране: строка
+  // тревоги остаётся предупреждением на виду — и в деревне, и на карте.
+  const raids = incomingMarches(marches);
+  // Мятеж ждёт ответа в почте, но срок у него — секунды, а не сутки: строка на
+  // виду ведёт прямо к нему. Прежде это делало окно поверх игры.
+  const openMail = useRealm((r) => r.openMail);
+  const mutinyLeft = mutinyAnswerLeft(s);
   // Замок один на всю оборону и считается по всем отрядам, а не по строке: строка
   // второго набега не может сказать «открыто», пока расстановка заперта первым.
   const lock = useLockWords();
@@ -66,7 +66,7 @@ export function AlertBar() {
   // он не сходит в первый бой. Решает одно правило (`sim/agents.bareGeneral`).
   const bare = bareGeneral(s, general);
   const statue = buildingOfType(s, 'statue');
-  if (list.length === 0 && raids.length === 0 && empty.size === 0 && !bare) return null;
+  if (list.length === 0 && raids.length === 0 && empty.size === 0 && !bare && mutinyLeft === null) return null;
 
   return (
     // На карте строка встаёт вплотную под её шапку, а не туда, где стоит в
@@ -75,6 +75,14 @@ export function AlertBar() {
     // местности, то есть чем-то, что стоит **там**; прижатая к шапке — тем, чем
     // и является: продолжением шапки.
     <div className={`alerts${mapOpen ? ' on-map' : ''}${tutorialActive(s) ? ' with-tut' : ''}`}>
+      {mutinyLeft !== null && s.activeEvent && (
+        <button key="mutiny" className="alert raid" onClick={() => s.activeEvent && openMail(eventKey(s.activeEvent))}>
+          <span className="ic">{ORDER_TEXT.mutiny.icon}</span>
+          <span className="txt">
+            {ORDER_TEXT.mutiny.title} — ответ в «Решениях» · {formatLeft(mutinyLeft)}
+          </span>
+        </button>
+      )}
       {raids.map((m) => {
         // Тап ведёт туда, где это чинят: к расстановке обороны. После отметки
         // «за `DEFENSE_FREEZE` до удара» она заперта — и строка говорит об этом словами общего замка.

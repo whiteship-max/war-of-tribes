@@ -35,12 +35,12 @@ export function WinterModal() {
   const s = useGame((g) => g.s);
   const dismiss = useGame((g) => g.dismissWinterWarning);
   const openSeason = useGame((g) => g.openTab);
-  const eventResult = useGame((g) => g.eventResult);
   const offline = useGame((g) => g.offlineSeconds);
   if (!s.winterWarning) return null;
-  // Модалки делят один слой: наложенное поверх события предупреждение закрыло бы
-  // собой выбор игрока. Флаг живёт в состоянии, поэтому просто ждём своей очереди.
-  if (s.activeEvent || eventResult || offline >= 60) return null;
+  // Модалки делят один слой: наложенное поверх окна офлайна предупреждение
+  // закрыло бы его. Флаг живёт в состоянии, поэтому просто ждём своей очереди.
+  // События больше не окно — они ждут в почте державы и слоя не занимают.
+  if (offline >= 60) return null;
 
   const f = winterForecast(s);
   const ready = f.food.ok && f.wood.ok;

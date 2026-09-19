@@ -29,7 +29,10 @@ import { OrderPanel } from '../panels/OrderPanel';
 import { ArmyPanel } from '../panels/ArmyPanel';
 import { ProfilePanel } from '../panels/ProfilePanel';
 import { CoatArt } from './Coat';
+import { Mail } from './Mail';
 import { useRealm, type RealmView } from './open';
+import { mailKeys, unreadCount, useSeen } from './unread';
+import { useWorld } from '@/world/store';
 import { REALM_TABS, type RealmTab } from './tabs';
 
 export function RealmMenu() {
@@ -39,6 +42,16 @@ export function RealmMenu() {
   const s = useGame((g) => g.s);
   const sheet = useGame((g) => g.sheet);
   const mapOpen = useGame((g) => g.mapOpen);
+  const letters = useWorld((w) => w.letters);
+  const seen = useSeen((u) => u.seen);
+  // Тот же счётчик, что на гербе: сколько ждущего ответа ещё не открывали.
+  const unread = unreadCount(
+    mailKeys(
+      s.activeEvent,
+      letters.map((l) => l.id),
+    ),
+    seen,
+  );
   const [top, setTop] = useState(0);
   const body = useRef<HTMLDivElement>(null);
 
@@ -97,6 +110,7 @@ export function RealmMenu() {
             onClick={() => go(t.id)}
           >
             {t.icon} {t.name}
+            {t.id === 'decisions' && unread > 0 && <span className="tab-count">{unread}</span>}
           </button>
         ))}
       </div>
@@ -126,6 +140,8 @@ function Section({ view }: { view: RealmView }) {
       );
     case 'army':
       return <Army />;
+    case 'decisions':
+      return <Mail />;
     default:
       return <Closed tab={view} />;
   }

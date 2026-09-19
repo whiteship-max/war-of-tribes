@@ -8,7 +8,10 @@
 // заведён заново — это знамя наших отрядов на карте (`PARTY_OWN`): игрок уже
 // знает его как «своё». Никаких настоящих гербов и чужих эмблем.
 import { PARTY_OWN } from '@/ui/map/palette';
+import { useGame } from '@/game/store';
+import { useWorld } from '@/world/store';
 import { useRealm } from './open';
+import { mailKeys, unreadCount, useSeen } from './unread';
 
 const P = PARTY_OWN;
 
@@ -36,14 +39,28 @@ export function CoatArt({ size }: { size: number }) {
 export function CoatButton() {
   const open = useRealm((r) => r.open);
   const show = useRealm((r) => r.show);
+  // Счётчик почты: сколько ждущего ответа ещё не открывали. Нажатие ведёт туда
+  // же, куда всегда, — в последний открытый раздел: счётчик зовёт, а не уводит,
+  // и то же число стоит на вкладке «Решения».
+  const ev = useGame((g) => g.s.activeEvent);
+  const letters = useWorld((w) => w.letters);
+  const seen = useSeen((u) => u.seen);
+  const unread = unreadCount(
+    mailKeys(
+      ev,
+      letters.map((l) => l.id),
+    ),
+    seen,
+  );
   return (
     <button
       className={`coat-btn${open ? ' active' : ''}`}
       onClick={() => show()}
-      title="Держава: правительство, стройка, вера, армия и настройки"
-      aria-label="Держава"
+      title="Держава: правительство, стройка, вера, армия, решения и настройки"
+      aria-label={unread > 0 ? `Держава, новых донесений: ${unread}` : 'Держава'}
     >
       <CoatArt size={36} />
+      {unread > 0 && <span className="coat-badge">{unread}</span>}
     </button>
   );
 }

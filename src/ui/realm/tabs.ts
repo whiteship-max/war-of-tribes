@@ -29,7 +29,7 @@ export const REALM_TABS: RealmTabDef[] = [
   { id: 'government', icon: '🏛️', name: 'Правительство', built: true },
   { id: 'building', icon: '🔨', name: 'Строительство', built: true },
   { id: 'tech', icon: '📚', name: 'Технологии', built: false },
-  { id: 'decisions', icon: '✉️', name: 'Решения', built: false },
+  { id: 'decisions', icon: '✉️', name: 'Решения', built: true },
   { id: 'stability', icon: '⚖️', name: 'Стабильность', built: false },
   { id: 'faith', icon: '⛪', name: 'Религия', built: true },
   { id: 'army', icon: '⚔️', name: 'Армия', built: true },

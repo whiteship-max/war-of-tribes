@@ -5,7 +5,6 @@ import { TopBar } from './ui/TopBar';
 import { AlertBar } from './ui/AlertBar';
 import { BottomNav } from './ui/BottomNav';
 import { Sheet } from './ui/Sheet';
-import { EventModal } from './ui/EventModal';
 import { PeoplePanel } from './ui/panels/PeoplePanel';
 import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
@@ -18,7 +17,6 @@ import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
-import { Letters } from './ui/Letters';
 import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
 import { StartScreen } from './ui/StartScreen';
@@ -183,18 +181,13 @@ export function App() {
       {mapOpen && <WorldMap />}
       {!mapOpen && <TopBar />}
       <AlertBar />
-      {/* Столбик писем живёт в деревне: на карте левый низ занят якорями и
-          кнопками, а письмо о набеге ведёт как раз на карту. */}
-      {/* Осада — в правом низу: слева письма, а осаду не разбирают, из-под неё
-          выходят. Обе панели живут в деревне и по одним правилам видимости.
-          Порядок здесь нужен стилям: пока осада на экране, столбик писем
-          уступает ей ширину селектором `.siege ~ .letters`. */}
+      {/* Осада — в правом низу деревни: её не разбирают, из-под неё выходят.
+          Письма и события ждут в почте державы («Решения» за гербом). */}
       {/* Кнопка кодов — раньше осады нарочно: по этому порядку стиль и отодвигает
           осадную панель вверх (`.cheat ~ .siege`), а выключенные коды не рисуют
           ничего, и панель возвращается на своё место сама. */}
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <SiegeBanner />}
-      {!mapOpen && <Letters />}
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && <SheetContent view={shown} />}
       </Sheet>
@@ -204,7 +197,6 @@ export function App() {
           <RealmMenu />
         </Suspense>
       )}
-      <EventModal />
       <WinterModal />
       <OfflineModal />
       <LegacyModal />

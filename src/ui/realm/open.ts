@@ -8,6 +8,8 @@
 // Раздел помнится и после закрытия: вернувшийся в меню попадает туда, где был.
 import { create } from 'zustand';
 import { useGame } from '@/game/store';
+import { useWorld } from '@/world/store';
+import { letterKey } from './unread';
 import type { RealmTab } from './tabs';
 
 /** Раздел меню или страница настроек (шестерёнка в шапке меню). */
@@ -20,6 +22,10 @@ interface RealmStore {
   show: (view?: RealmView) => void;
   hide: () => void;
   go: (view: RealmView) => void;
+  /** Открытое донесение в «Решениях» (ключ почты). null — виден список. */
+  mail: string | null;
+  /** Открыть «Решения» на донесении; null — на списке. */
+  openMail: (key: string | null) => void;
 }
 
 export const useRealm = create<RealmStore>((set) => ({
@@ -33,4 +39,20 @@ export const useRealm = create<RealmStore>((set) => ({
   },
   hide: () => set({ open: false }),
   go: (view) => set({ view }),
+  mail: null,
+  openMail: (key) => {
+    useRealm.getState().show('decisions');
+    set({ mail: key });
+  },
 }));
+
+// Лупа письма уводит на карту и, когда с карты уходят, возвращает письмо на
+// стол (`world/store.leaveMap` → `openLetter`). Стол писем теперь — почта
+// державы, поэтому вернувшееся письмо открывается здесь, в «Решениях», а поле
+// мира сразу гасится: второго места, где письмо лежит открытым, нет.
+useWorld.subscribe((w, prev) => {
+  if (!w.openLetter || w.openLetter === prev.openLetter) return;
+  const id = w.openLetter;
+  useWorld.getState().showLetter(null);
+  useRealm.getState().openMail(letterKey(id));
+});

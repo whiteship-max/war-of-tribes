@@ -1578,91 +1578,84 @@ body {
 }
 
 
-/* ---------- Письма ---------- */
+/* ---------- Почта державы («Решения») ---------- */
 
-/*
- * Столбик слева внизу, над нижней навигацией. Ширина взята так, чтобы на
- * 390 px справа оставалась половина экрана: там стоит посёлок, и тапать по
- * крышам игрок должен по-прежнему.
- *
- * `column-reverse` — не украшение: первым разбирают то, у чего срок ближе
- * всех, и лежать оно должно ближе всех к пальцу, то есть снизу. Порядок в
- * списке при этом остаётся честным — считает его мир.
- */
-.letters {
-  position: absolute;
-  left: calc(8px + var(--safe-left));
-  bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px);
-  z-index: 9;
-  width: min(226px, 60vw);
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 6px;
-  pointer-events: none;
+/* Счётчик непрочитанного на вкладке «Решения» — тот же, что на гербе. */
+.tab-count {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--bad);
+  color: var(--accent-text);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
 }
 
-.letter {
-  pointer-events: auto;
+/*
+ * Список донесений: первым то, что раньше всего разрешится само. Имя и срок —
+ * две ячейки, а не одна строка: на длинном имени («Логово разбойников»)
+ * многоточие съедало бы срок — то самое, ради чего в список и смотрят.
+ */
+.mail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mail-row {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   min-height: var(--tap);
-  padding: 5px 10px 5px 8px;
-  background: var(--panel);
+  padding: 6px 10px 6px 8px;
+  background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 10px;
   color: var(--text);
   text-align: left;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
 }
 
-/* Верхнее в стопке — то, что разберут первым, — читается как открытое. */
-.letter.first {
+.mail-row.fresh {
   border-color: var(--accent);
 }
 
-.letter.raid {
-  border-color: #b4483a;
-}
-
-.letter .ic {
-  font-size: 18px;
+.mail-row .ic {
+  font-size: 20px;
   line-height: 1;
   flex-shrink: 0;
 }
 
-.letter .txt {
+.mail-row .txt {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  flex: 1;
   min-width: 0;
 }
 
-.letter .txt b {
-  font-size: 12px;
+.mail-row .txt b {
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/*
- * Имя и срок — две ячейки, а не одна строка. В одной строке они делили место,
- * и на длинном имени («Логово разбойников») многоточие съедало сначала срок —
- * то самое, ради чего в столбик и смотрят. Теперь жмётся имя, а отсчёт стоит
- * целиком всегда.
- */
-.letter .txt small {
+.mail-row .txt small {
   display: flex;
   align-items: baseline;
   gap: 5px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   min-width: 0;
 }
 
-.letter .txt small .who {
+.mail-row .txt small .who {
   font-style: normal;
   min-width: 0;
   white-space: nowrap;
@@ -1670,12 +1663,97 @@ body {
   text-overflow: ellipsis;
 }
 
-.letter .txt small em {
+.mail-row .txt small em {
   font-style: normal;
   margin-left: auto;
   flex-shrink: 0;
   color: var(--text);
-  opacity: 0.75;
+  opacity: 0.8;
+}
+
+.mail-row .new {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.dispatch-empty {
+  text-align: center;
+}
+
+.dispatch-empty .big {
+  font-size: 38px;
+}
+
+/* Открытое донесение: значок, заголовок, текст, цена, срок, молчание, выбор. */
+.dispatch {
+  text-align: center;
+}
+
+.dispatch .dispatch-ico {
+  font-size: 38px;
+}
+
+.dispatch h3 {
+  margin: 6px 0;
+  font-size: 18px;
+}
+
+.dispatch > p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.dispatch .dispatch-done {
+  color: var(--text);
+}
+
+.dispatch .options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+/*
+ * Подпись выбора стоит под названием кнопки, а не справа: справа помещается
+ * «+40 еды», а не фраза с условием и не цена с запасом.
+ */
+.dispatch .opt {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+}
+
+.dispatch .opt:active {
+  border-color: var(--accent);
+}
+
+.dispatch .opt:disabled {
+  opacity: 0.55;
+}
+
+.dispatch .opt small {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.dispatch > .cost {
+  justify-content: center;
+  margin: 2px 0 10px;
 }
 
 /*
@@ -1683,7 +1761,7 @@ body {
  * его пришлось бы вычитывать, а из подписей выбора оно убрано совсем.
  * Переносится и не обрезается никогда — длину имени задают данные, а не мы.
  */
-.letter-card .letter-from {
+.dispatch .letter-from {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1695,7 +1773,7 @@ body {
   text-align: left;
 }
 
-.letter-card .letter-from .who {
+.dispatch .letter-from .who {
   flex: 1;
   min-width: 0;
   font-size: 13px;
@@ -1704,7 +1782,7 @@ body {
 }
 
 /* Неразведанное место: румб и расстояние вместо лупы — и сказано об этом прямо. */
-.letter-card .letter-from .who small {
+.dispatch .letter-from .who small {
   display: block;
   margin-top: 2px;
   font-size: 11px;
@@ -1712,7 +1790,7 @@ body {
   color: var(--muted);
 }
 
-.letter-card .letter-from .spot {
+.dispatch .letter-from .spot {
   flex-shrink: 0;
   width: var(--tap);
   height: var(--tap);
@@ -1724,55 +1802,28 @@ body {
   line-height: 1;
 }
 
-.letter-card .letter-from .spot:active {
+.dispatch .letter-from .spot:active {
   border-color: var(--accent);
 }
 
-/*
- * Подпись выбора у письма стоит под названием кнопки, а не справа от него.
- * Справа помещается «+40 еды», а не фраза с условием: на 360 px на строку
- * остаётся около двухсот пикселей, и предложение в них не входит никогда.
- */
-.letter-card .opt {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 3px;
-}
-
-.letter-card .opt small {
-  line-height: 1.35;
-}
-
-/*
- * Что просят и сколько этого есть — тем же `Cost`, что у стройки. Стоит по
- * центру, потому что относится к телу письма, которое тоже по центру, и с
- * запасом снизу: следом идёт срок гонца, и слипаться этим двум строкам нельзя.
- */
-.letter-card .cost {
-  justify-content: center;
-  margin: 2px 0 10px;
-}
-
-/* Сколько ждёт гонец — крупно: срок здесь такая же часть выбора, как цена. */
-.letter-card .letter-left {
+/* Сколько ждёт — на виду: срок здесь такая же часть выбора, как цена. */
+.dispatch .dispatch-left {
   margin: 0 0 4px;
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 13px;
 }
 
 /*
- * Что будет, если промолчать. Отдельной рамкой нарочно: это третий исход
- * письма наравне с «да» и «нет», и прятать его в мелкий текст значило бы
- * оставить игрока с последствием, о котором нигде не сказано.
+ * Что будет, если промолчать. Отдельной рамкой нарочно: это исход наравне с
+ * ответом, и прятать его в мелкий текст значило бы оставить игрока с
+ * последствием, о котором нигде не сказано.
  */
-.letter-card .letter-silence {
+.dispatch .dispatch-silence {
   margin: 0 0 10px;
   padding: 6px 8px;
   border-left: 2px solid #b4483a;
   background: var(--panel-2);
   border-radius: 0 8px 8px 0;
-  font-size: 11px;
-  color: var(--muted);
+  font-size: 12px;
   text-align: left;
 }
 
@@ -3222,6 +3273,28 @@ body {
   border-color: var(--accent);
 }
 
+/* Счётчик непрочитанного в почте державы — в углу герба, не сдвигая его. */
+.coat-btn {
+  position: relative;
+}
+
+.coat-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--bad);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  pointer-events: none;
+}
+
 /*
  * Меню державы — во весь экран под полоской ресурсов: верхний край ставит
  * `RealmMenu` по самой полоске, потому что её не закрывает ни одно окно. Слой
@@ -3964,17 +4037,6 @@ body.replaying .app > *:not(.canvas-wrap) {
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
 }
 
-/*
- * Столбик писем уступает осаде ширину — и только пока она на экране. Правило
- * живёт в стилях, а не в компонентах: соседство двух панелей это факт вёрстки,
- * и знать друг о друге в коде им незачем. Порядок в разметке (осада раньше
- * писем) выбран ради этого селектора; на вид он не влияет — обе панели
- * позиционированы.
- */
-.siege ~ .letters {
-  width: min(186px, 50vw);
-}
-
 .siege-head {
   display: flex;
   align-items: center;
@@ -4577,9 +4639,9 @@ body.replaying .app > *:not(.canvas-wrap) {
 }
 
 /*
- * Осадная панель уступает кнопке кодов место — тем же приёмом, каким она сама
- * отнимает ширину у писем (`.siege ~ .letters`). Работает это только пока кнопка
- * в разметке: выключили коды — и правило не применяется ни к чему.
+ * Осадная панель уступает кнопке кодов место — соседством в разметке, а не
+ * знанием друг о друге в коде. Работает это только пока кнопка в разметке:
+ * выключили коды — и правило не применяется ни к чему.
  */
 .cheat ~ .siege {
   bottom: calc(var(--nav-h) + var(--safe-bottom) + 46px);

@@ -35,7 +35,7 @@ function sources(dir: string): string[] {
 const rel = (abs: string): string => path.relative(UI, abs).split(path.sep).join('/');
 
 /** Четыре входа к расстановке и сам экран. */
-const ENTRIES = ['AlertBar.tsx', 'Letters.tsx', 'panels/WorldPanel.tsx', 'parts/Walls.tsx'];
+const ENTRIES = ['AlertBar.tsx', 'realm/Mail.tsx', 'panels/WorldPanel.tsx', 'parts/Walls.tsx'];
 const READERS = [...ENTRIES, 'panels/BattlePanel.tsx'];
 
 describe('замок обороны — одна дверь на все входы', () => {
