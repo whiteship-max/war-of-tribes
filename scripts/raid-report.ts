@@ -37,6 +37,16 @@ import { hiringSection } from './raid-hiring';
 import { defenseMixSection } from './raid-defense-mix';
 import { infirmarySection } from './raid-infirmary';
 import { stableSection } from './raid-stable';
+import { measure } from './lib/measured';
+
+// Сколько стоит каждый раздел — замером в ‹…›: отчёт дорог (docs/realm.md, раздел 8), и
+// удешевлять его надо по числам, а не на глаз. Сверка содержимое скобок не сравнивает.
+const clock = { at: performance.now(), rows: [] as [string, number][] };
+const lap = (name: string): void => {
+  const now = performance.now();
+  clock.rows.push([name, (now - clock.at) / 1000]);
+  clock.at = now;
+};
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1234, 2024, 4242, 7919];
@@ -207,8 +217,18 @@ for (const watch of WATCH) {
   if (worst.length > 0) console.log(`не успели: сиды ${worst.map((r) => r.seed).join(', ')}`);
 }
 
+lap('Запас времени на перехват');
 await lairGrowthSection();
+lap('Рост логова');
 const hired = await hiringSection();
+lap('Найм');
 await defenseMixSection();
+lap('Оборона по составу');
 await infirmarySection(hired);
+lap('Лазарет');
 await stableSection();
+lap('Конюшня');
+
+console.log('');
+console.log('=== Сколько стоит каждый раздел ===');
+for (const [name, sec] of clock.rows) console.log(`  ${name.padEnd(28)} ${measure(`${sec.toFixed(0)} с`)}`);
