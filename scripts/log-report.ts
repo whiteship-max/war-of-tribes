@@ -16,8 +16,12 @@ import { seeded, setRandom } from '@/game/sim/random';
 import { serialize } from '@/game/save';
 import { LOG_MAX, LOG_MAX_DAYS } from '@/game/sim/log';
 import { dayOf, marketLeft, marketOffer, storageCap } from '@/game/derived';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from '@/game/constants';
+import { DAY_LENGTH, EVENT_INTERVAL_MAX, EVENT_INTERVAL_MIN, MAX_OFFLINE_SECONDS } from '@/game/constants';
 import { away, pilot, player } from './autopilot';
+import { tick } from '@/game/sim/tick';
+import { EVENT_TTL, SILENCE_PREFIX, eventId, mailStep, resolveEvent } from '@/game/sim/mail';
+import { EVENT_BY_ID } from '@/game/data/events';
+import { LETTER_DECISIONS } from '@/world/letters';
 
 const HOURS = Number(process.env.HOURS ?? 3);
 const STEP = Number(process.env.STEP ?? 15);
@@ -195,4 +199,98 @@ async function main(): Promise<void> {
   for (const [text, n] of sources(trader)) console.log(`  ${String(n).padStart(4)} × ${text}`);
 }
 
+
+// Почта державы: сколько донесений-событий игрок видит за сутки и сколько решается
+// без него (docs/realm.md, раздел 8). События поднимаются только при игроке, раз в
+// EVENT_INTERVAL_MIN…MAX игровых секунд; стол держит LETTER_DECISIONS, срок — сутки
+// настоящими часами. Настоящее время здесь своё: заход идёт часами игры один к
+// одному, между заходами часы идут, а игра догоняет не больше MAX_OFFLINE_SECONDS.
+// Замер — модель игрока, а не игрок: заходы ровные, длина задана. Посёлок — тот, что
+// вырос за час общего автопилота; события выпадают по его весам.
+interface MailDay {
+  raised: number;
+  answered: number;
+  crowded: number;
+  expired: number;
+}
+
+const MAIL_DAYS = 3;
+
+function mailDay(base: GameState, visits: number, minutes: number, reads: boolean): MailDay & { left: number } {
+  const s = structuredClone(base);
+  s.inbox = [];
+  s.nextEventAt = s.time;
+  const all: MailDay = { raised: 0, answered: 0, crowded: 0, expired: 0 };
+  let last: MailDay = { ...all };
+  const seen = new Set<string>();
+  const silent = (): number => s.log.filter((l) => l.text.includes(SILENCE_PREFIX)).length;
+  const answerAll = (): void => {
+    if (!reads) return;
+    for (const ev of [...s.inbox]) {
+      const def = EVENT_BY_ID[ev.defId];
+      const i = def.options.findIndex((o) => !o.cost);
+      if (resolveEvent(s, Math.max(0, i), eventId(ev)).error === null) all.answered++;
+    }
+  };
+  const gap = (24 * 3600) / visits;
+  let now = 1_900_000_000_000;
+  for (let d = 0; d < MAIL_DAYS; d++) {
+    // Считаются последние сутки: к ним стол уже живёт, а не начинается пустым.
+    if (d === MAIL_DAYS - 1) last = { ...all, raised: seen.size };
+    for (let v = 0; v < visits; v++) {
+      // Заход: читающий игрок заглядывает в почту раз в минуту — счётчик на гербе
+      // зовёт, — и ещё раз перед уходом.
+      for (let t = 0; t < minutes * 60; t++) {
+        if (t % 60 === 0) answerAll();
+        let n = silent();
+        tick(s, 1);
+        all.crowded += silent() - n;
+        for (const ev of s.inbox) seen.add(eventId(ev));
+        now += 1000;
+        n = silent();
+        mailStep(s, now);
+        all.expired += silent() - n;
+      }
+      answerAll();
+      // Отлучка: часы идут, игра догоняет не больше MAX_OFFLINE_SECONDS, событий офлайн
+      // нет. Шаг догона крупный: он двигает только посёлок, по чьим весам выпадают события.
+      const off = gap - minutes * 60;
+      away(s, Math.min(off, MAX_OFFLINE_SECONDS), 30);
+      now += off * 1000;
+      const n = silent();
+      mailStep(s, now);
+      all.expired += silent() - n;
+    }
+  }
+  return {
+    raised: seen.size - last.raised,
+    answered: all.answered - last.answered,
+    crowded: all.crowded - last.crowded,
+    expired: all.expired - last.expired,
+    left: s.inbox.length,
+  };
+}
+
+async function mailSection(): Promise<void> {
+  console.log('\n=== ПОЧТА: сколько донесений в сутки и сколько решается без игрока ===');
+  console.log(`Стол — ${LETTER_DECISIONS} событий (как у писем мира), срок — ${EVENT_TTL / 3600000} ч настоящих;`);
+  console.log(`событие приходит раз в ${EVENT_INTERVAL_MIN}–${EVENT_INTERVAL_MAX} с игры и только при игроке. Счёт — ${MAIL_DAYS}-и сутки из ${MAIL_DAYS}.`);
+  const base = await play(1);
+  console.log('');
+  console.log('  заходов × минут   игрок              пришло   ответил   согнано столом   истекло   на столе к концу');
+  for (const [visits, minutes] of [
+    [3, 5],
+    [6, 5],
+    [2, 20],
+  ] as const) {
+    for (const reads of [true, false]) {
+      const r = mailDay(base, visits, minutes, reads);
+      console.log(
+        `  ${String(visits).padStart(6)} × ${String(minutes).padEnd(7)}  ${(reads ? 'разбирает почту' : 'не открывает').padEnd(17)}  ${String(r.raised).padStart(6)}   ${String(r.answered).padStart(7)}   ${String(r.crowded).padStart(14)}   ${String(r.expired).padStart(7)}   ${String(r.left).padStart(16)}`,
+      );
+    }
+  }
+}
+
 await main();
+await mailSection();
