@@ -3202,37 +3202,118 @@ body {
 /* ---------- Профиль: кнопка, шапка, выбор лица ---------- */
 
 /*
- * Кнопка профиля — только лицо. Имени рядом нет: игрок знает, как его зовут.
- * Кружок вписан в `--tap` (44 px), то есть цель под палец не уменьшилась вместе
- * с подписью, а освободившееся место не занято ничем — под ним сцена.
+ * Герб державы — вход в меню управления (docs/realm.md), слева сверху, на месте
+ * прежнего лица вождя. Цель под палец та же: квадрат в `--tap` (44 px).
  */
-.profile-btn {
+.coat-btn {
   pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: center;
   min-width: var(--tap);
   min-height: var(--tap);
-  padding: 3px;
+  padding: 2px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--text);
+  border-radius: 12px;
 }
 
-.profile-btn.active {
+.coat-btn.active {
   border-color: var(--accent);
 }
 
-.profile-btn .face {
+/*
+ * Меню державы — во весь экран под полоской ресурсов: верхний край ставит
+ * `RealmMenu` по самой полоске, потому что её не закрывает ни одно окно. Слой
+ * ниже затемнения окон (20): событие, пришедшее при открытом меню, встаёт
+ * поверх него, как поверх всего остального.
+ */
+.realm {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 19;
+  display: flex;
+  flex-direction: column;
+  /* Сплошной, а не `--panel`: меню во весь экран, и сцена сквозь него читалась бы шумом. */
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  padding: 8px calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left));
+}
+
+.realm-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.realm-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.realm-title i {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.realm-gear,
+.realm-close {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  object-fit: cover;
-  /* Лица нарезаны по 128 px: под кружок в 34 они уменьшаются, а не тянутся. */
+  min-width: var(--tap);
+  min-height: var(--tap);
   background: var(--panel-2);
   border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.realm-gear.active {
+  border-color: var(--accent);
+}
+
+.realm-tabs {
+  flex: 0 0 auto;
+}
+
+/* Закрытый раздел виден, но приглушён: это карта будущего, а не кнопка в никуда. */
+.realm-tabs button.closed {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.realm-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: calc(16px + var(--safe-bottom));
+}
+
+.realm-closed {
+  text-align: center;
+  padding-top: 32px;
+}
+
+.realm-closed h3 {
+  justify-content: center;
+}
+
+.realm-closed .big {
+  font-size: 40px;
+  opacity: 0.5;
+}
+
+.realm-slot {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 10px;
 }
 
 /* ---------- Настройки: строка с переключателем ---------- */

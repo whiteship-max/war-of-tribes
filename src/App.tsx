@@ -35,6 +35,7 @@ import { useWorld } from './world/store';
 import { villageMusic } from './sound/web';
 import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
+import { useRealm } from './ui/realm/open';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -49,6 +50,13 @@ import { CheatPanel } from './ui/CheatPanel';
  * повторно не едет. Поэтому нажатие стоит только своего чанка.
  */
 const Prologue = lazy(() => import('./prologue/Prologue').then((m) => ({ default: m.Prologue })));
+
+/**
+ * Меню державы — тоже свой кусок, по нажатию герба. Разделы в нём — те же
+ * компоненты, что у зданий, и в первой загрузке они уже есть; своим куском едет
+ * только сам дом меню, и платит за него тот, кто его открыл.
+ */
+const RealmMenu = lazy(() => import('./ui/realm/RealmMenu').then((m) => ({ default: m.RealmMenu })));
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -89,6 +97,7 @@ export function App() {
   const cheat = useGame((g) => g.cheat);
   const cheated = useGame((g) => g.s.cheated);
   const mapOpen = useGame((g) => g.mapOpen);
+  const realmOpen = useRealm((r) => r.open);
   const bootWorld = useWorld((g) => g.boot);
   // Содержимое шторки переживает закрытие, чтобы она не уезжала пустой.
   const [shown, setShown] = useState<SheetView | null>(null);
@@ -193,6 +202,11 @@ export function App() {
         {shown && <SheetContent view={shown} />}
       </Sheet>
       {!mapOpen && <BottomNav />}
+      {!mapOpen && realmOpen && (
+        <Suspense fallback={null}>
+          <RealmMenu />
+        </Suspense>
+      )}
       <EventModal />
       <WinterModal />
       <OfflineModal />

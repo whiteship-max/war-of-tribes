@@ -56,7 +56,7 @@ export function TownHall({ b }: { b: Building }) {
  * Указ, рацион и налог переключаются в любой момент и действуют, пока выбраны,
  * поэтому последствия написаны прямо на кнопке — выбор делают, уже зная цену.
  */
-function Manage({ b }: { b: Building }) {
+export function Manage({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const decree = decreeOf(s);

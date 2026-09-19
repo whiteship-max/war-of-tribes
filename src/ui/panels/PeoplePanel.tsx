@@ -80,7 +80,7 @@ function Army() {
  * рядом шага. Здесь видно, где они стоят, и здесь же их отпускают: одно дело —
  * одно место.
  */
-function Bonded() {
+export function Bonded() {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const openBuilding = useGame((g) => g.openBuilding);

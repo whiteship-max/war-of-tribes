@@ -29,7 +29,6 @@ export function Barracks() {
   const openBuilding = useGame((g) => g.openBuilding);
   const act = useGame((g) => g.act);
   const [release, setRelease] = useState<Partial<Record<TroopId, number>>>({});
-  const up = upkeepInfo(s);
   const palisade = buildingOfType(s, 'palisade');
   const free = idleCount(s);
 
@@ -61,47 +60,7 @@ export function Barracks() {
         <span className={`val${free === 0 ? ' neg' : ''}`}>{free}</span>
       </div>
 
-      <h3>Жалованье</h3>
-      <div className="mod">
-        <span className="ico">{UPKEEP_TEXT.icon}</span>
-        <span className="name">
-          Войску в день
-          {up.amnestyDays > 0 && <em className="sub">платить начнут через {Math.ceil(up.amnestyDays)} дн.</em>}
-        </span>
-        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.wages)}</span>
-      </div>
-      <div className="mod">
-        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
-        <span className="name">Казна даёт в день — налог и вера</span>
-        <span className="val">{Math.round(up.income)}</span>
-      </div>
-      {up.debt > 0 && (
-        <div className="mod">
-          <span className="ico">📜</span>
-          <span className="name">Долг войску</span>
-          <span className="val neg">{Math.round(up.debt)}</span>
-        </div>
-      )}
-      <div className="mod">
-        <span className="ico">🗿</span>
-        <span className="name">Терпит неуплату и голод — Статуя</span>
-        <span className="val">{up.graceDays} дн.</span>
-      </div>
-      {up.why ? (
-        <p className="note bad">
-          Войску {UPKEEP_TEXT.why[up.why]}.{' '}
-          {up.leavingPerDay > 0
-            ? `Уходят — около ${Math.max(1, Math.round(up.leavingPerDay))} в день, равной долей каждого вида.`
-            : `Уходить начнут через ${Math.max(1, Math.ceil(up.graceDays - up.lateDays))} дн.`}{' '}
-          {up.why === 'pay'
-            ? 'Уход встанет, как только казна покроет жалованье: подними налог или распусти лишних.'
-            : 'Войско ест последним: уход встанет, когда амбару хватит на всех.'}
-        </p>
-      ) : up.treasuryDays !== null ? (
-        <p className="note">Жалованье больше дохода: казны хватит на {Math.max(1, Math.ceil(up.treasuryDays))} дн.</p>
-      ) : (
-        <p className="note">Нечем платить или нечем кормить — войско терпит, потом уходит. Без тебя уход ждёт, долг копится.</p>
-      )}
+      <Upkeep />
 
       {/* Найм — часть здания: здесь пеших, конницу — в конюшне (`army.hiredAt`). */}
       <Recruit at="barracks" />
@@ -145,6 +104,62 @@ export function Barracks() {
             );
           })}
         </>
+      )}
+    </>
+  );
+}
+
+/**
+ * Жалованье: цена, которой держится войско, — в день против того, что даёт
+ * казна, долг и терпение. Один компонент на два показа: в казармах и во
+ * вкладке «Армия» меню державы. Своей арифметики нет: всё считает
+ * `derived.upkeepInfo`.
+ */
+export function Upkeep() {
+  const s = useGame((g) => g.s);
+  const up = upkeepInfo(s);
+  return (
+    <>
+      <h3>Жалованье</h3>
+      <div className="mod">
+        <span className="ico">{UPKEEP_TEXT.icon}</span>
+        <span className="name">
+          Войску в день
+          {up.amnestyDays > 0 && <em className="sub">платить начнут через {Math.ceil(up.amnestyDays)} дн.</em>}
+        </span>
+        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.wages)}</span>
+      </div>
+      <div className="mod">
+        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
+        <span className="name">Казна даёт в день — налог и вера</span>
+        <span className="val">{Math.round(up.income)}</span>
+      </div>
+      {up.debt > 0 && (
+        <div className="mod">
+          <span className="ico">📜</span>
+          <span className="name">Долг войску</span>
+          <span className="val neg">{Math.round(up.debt)}</span>
+        </div>
+      )}
+      <div className="mod">
+        <span className="ico">🗿</span>
+        <span className="name">Терпит неуплату и голод — Статуя</span>
+        <span className="val">{up.graceDays} дн.</span>
+      </div>
+      {up.why ? (
+        <p className="note bad">
+          Войску {UPKEEP_TEXT.why[up.why]}.{' '}
+          {up.leavingPerDay > 0
+            ? `Уходят — около ${Math.max(1, Math.round(up.leavingPerDay))} в день, равной долей каждого вида.`
+            : `Уходить начнут через ${Math.max(1, Math.ceil(up.graceDays - up.lateDays))} дн.`}{' '}
+          {up.why === 'pay'
+            ? 'Уход встанет, как только казна покроет жалованье: подними налог или распусти лишних.'
+            : 'Войско ест последним: уход встанет, когда амбару хватит на всех.'}
+        </p>
+      ) : up.treasuryDays !== null ? (
+        <p className="note">Жалованье больше дохода: казны хватит на {Math.max(1, Math.ceil(up.treasuryDays))} дн.</p>
+      ) : (
+        <p className="note">Нечем платить или нечем кормить — войско терпит, потом уходит. Без тебя уход ждёт, долг копится.</p>
       )}
     </>
   );

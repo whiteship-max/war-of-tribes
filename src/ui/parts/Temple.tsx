@@ -1,4 +1,6 @@
-// Храм: во что верит деревня и насколько крепко.
+// Храм: насколько крепко верит деревня — набожность, обряд, святыня, служители.
+// Во что она верит и что эта вера даёт державе — `RealmFaith` ниже, вкладка
+// «Религия» меню державы.
 //
 // Панель ничего не считает сама. Набожность и её слагаемые приходят из
 // `pietyBreakdown`, наклон веры — из `faithTilt`, цена и запрет обряда — из
@@ -26,6 +28,7 @@ import {
 } from '@/game/derived';
 import { baptismInfo, baptize, holdRite, riteInfo, setObservance, strainDaysLeft } from '@/game/sim/faith';
 import { Cost } from './Cost';
+import { useRealm } from '@/ui/realm/open';
 
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
 const days = (sec: number): number => Math.ceil(sec / DAY_LENGTH);
@@ -48,33 +51,33 @@ function Lines({ lines }: { lines: PietyLine[] }) {
   );
 }
 
+/** Вера ещё не названа: мир не сказал, где стоит замок. Одни слова на храм и меню. */
+function NoFaith() {
+  return (
+    <>
+      <h3>Вера</h3>
+      <div className="note">
+        Грамоты из округи ещё не пришли: вера у деревни та же, что у земли вокруг, а
+        где эта земля — знает карта. Загляни сюда, открыв карту мира хотя бы раз.
+      </div>
+    </>
+  );
+}
+
 export function Temple() {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
+  const showRealm = useRealm((r) => r.show);
   const def = faithDef(s);
 
   // Мир ещё не сказал, где стоит замок. Подставить веру «пока что» нельзя:
   // деревня под Вильнюсом на минуту оказалась бы католической и сменила бы веру
   // молча. Честнее сказать прямо — тем более что ждать тут секунды.
-  if (!def) {
-    return (
-      <>
-        <h3>Вера</h3>
-        <div className="note">
-          Грамоты из округи ещё не пришли: вера у деревни та же, что у земли вокруг, а
-          где эта земля — знает карта. Загляни сюда, открыв карту мира хотя бы раз.
-        </div>
-      </>
-    );
-  }
+  if (!def) return <NoFaith />;
 
   const b = pietyBreakdown(s);
   const value = Math.round(b.value);
-  const tilt = faithTilt(s);
-  const level = templeLevel(s);
-  const obs = observanceOf(s);
   const rite = riteInfo(s);
-  const bapt = baptismInfo(s);
   const heretical = value < PIETY_HERESY;
   const priests = jobCounts(s).priest;
 
@@ -83,23 +86,21 @@ export function Temple() {
 
   return (
     <>
-      <h3>Вера деревни</h3>
+      {/* Вера страны — какая она, что даёт, устав и крещение — живёт в меню державы,
+          вкладка «Религия»: это решения о державе, а не о здании. Здесь то, что
+          делают у храма: набожность прихода, обряд, святыня и служители. */}
       <div className="card">
         <div className="ico">{def.icon}</div>
         <div className="body">
           <div className="title">
             {def.name}
-            <span className="count">{def.temple.toLowerCase()} {level} ур.</span>
+            <span className="count">{def.temple.toLowerCase()} {templeLevel(s)} ур.</span>
           </div>
-          <div className="desc">{def.creed}</div>
         </div>
       </div>
-      {s.faith.converted && (
-        <div className="note">
-          Деревня приняла крещение и живёт по новому обряду. Обратной дороги нет — так это
-          и было: решение принимали раз.
-        </div>
-      )}
+      <button className="btn ghost wide" onClick={() => showRealm('faith')}>
+        ⛪ Вера державы: наклон, устав, крещение
+      </button>
 
       <h3>
         Набожность <span className="muted">{value} из 100</span>
@@ -127,6 +128,95 @@ export function Temple() {
       {s.faith.strain > 0 && strainDaysLeft(s) > 0 && (
         <div className="note">
           Надлом затянется за {Math.ceil(strainDaysLeft(s))} дн. — сам, без нашего участия.
+        </div>
+      )}
+
+      <h3>
+        Обряд <span className="muted">{SEASON_META[seasonOf(s.time)].name.toLowerCase()}</span>
+      </h3>
+      {rite.feast && (
+        <div className="card">
+          <div className="ico">{rite.feast.icon}</div>
+          <div className="body">
+            <div className="title">
+              {rite.feast.name}
+              <span className="count">{rite.left > 0 ? `идёт ещё ${days(rite.left)} дн.` : 'раз в сезон'}</span>
+            </div>
+            <div className="desc">{rite.feast.text}</div>
+          </div>
+        </div>
+      )}
+      <Cost cost={{ food: rite.food, gold: rite.gold }} />
+      <button className="btn wide" disabled={rite.blocked !== null} onClick={() => act((st) => holdRite(st))}>
+        Справить — набожность и настроение на {RITE_DAYS} дн.
+      </button>
+      {rite.blocked && <div className="hint">{rite.blocked}</div>}
+
+      <h3>Святыня</h3>
+      {s.faith.relic ? (
+        <div className="mod total">
+          <span className="ico">📿</span>
+          <span className="name">
+            {FAITH_BY_ID[s.faith.relic].relic}
+            <em className="sub">пока она в храме, приход крепче</em>
+          </span>
+          <span className="val pos">+8</span>
+        </div>
+      ) : (
+        <div className="note">
+          Своей святыни у прихода нет. Их не покупают и не куют — они приходят сами, с
+          купцом или из похода. Уносят их тоже: прорвавшийся набег вынесет реликвию вместе
+          со складом.
+        </div>
+      )}
+
+      <h3>
+        {def.priests} <span className="muted">{priests} чел.</span>
+      </h3>
+      <div className="note">
+        Служители держат набожность и настроение разом. Ставят их сюда же, рядовым числом —
+        ряд рабочих выше.
+      </div>
+    </>
+  );
+}
+
+/**
+ * Вера державы — вкладка «Религия» меню державы: какой веры деревня, что эта
+ * вера даёт и чего просит, устав прихода и крещение. Правило деления с храмом:
+ * сюда то, что решается раз на всю державу и меняет её целиком; у здания —
+ * то, что делают у храма руками и что держит приход (набожность, обряд,
+ * святыня, служители).
+ */
+export function RealmFaith() {
+  const s = useGame((g) => g.s);
+  const act = useGame((g) => g.act);
+  const def = faithDef(s);
+
+  if (!def) return <NoFaith />;
+
+  const tilt = faithTilt(s);
+  const level = templeLevel(s);
+  const obs = observanceOf(s);
+  const bapt = baptismInfo(s);
+
+  return (
+    <>
+      <h3>Вера деревни</h3>
+      <div className="card">
+        <div className="ico">{def.icon}</div>
+        <div className="body">
+          <div className="title">
+            {def.name}
+            <span className="count">{def.temple.toLowerCase()} {level} ур.</span>
+          </div>
+          <div className="desc">{def.creed}</div>
+        </div>
+      </div>
+      {s.faith.converted && (
+        <div className="note">
+          Деревня приняла крещение и живёт по новому обряду. Обратной дороги нет — так это
+          и было: решение принимали раз.
         </div>
       )}
 
@@ -226,45 +316,6 @@ export function Temple() {
         ))}
       </div>
 
-      <h3>
-        Обряд <span className="muted">{SEASON_META[seasonOf(s.time)].name.toLowerCase()}</span>
-      </h3>
-      {rite.feast && (
-        <div className="card">
-          <div className="ico">{rite.feast.icon}</div>
-          <div className="body">
-            <div className="title">
-              {rite.feast.name}
-              <span className="count">{rite.left > 0 ? `идёт ещё ${days(rite.left)} дн.` : 'раз в сезон'}</span>
-            </div>
-            <div className="desc">{rite.feast.text}</div>
-          </div>
-        </div>
-      )}
-      <Cost cost={{ food: rite.food, gold: rite.gold }} />
-      <button className="btn wide" disabled={rite.blocked !== null} onClick={() => act((st) => holdRite(st))}>
-        Справить — набожность и настроение на {RITE_DAYS} дн.
-      </button>
-      {rite.blocked && <div className="hint">{rite.blocked}</div>}
-
-      <h3>Святыня</h3>
-      {s.faith.relic ? (
-        <div className="mod total">
-          <span className="ico">📿</span>
-          <span className="name">
-            {FAITH_BY_ID[s.faith.relic].relic}
-            <em className="sub">пока она в храме, приход крепче</em>
-          </span>
-          <span className="val pos">+8</span>
-        </div>
-      ) : (
-        <div className="note">
-          Своей святыни у прихода нет. Их не покупают и не куют — они приходят сами, с
-          купцом или из похода. Уносят их тоже: прорвавшийся набег вынесет реликвию вместе
-          со складом.
-        </div>
-      )}
-
       {bapt.options.length > 0 && (
         <>
           <h3>Крещение</h3>
@@ -292,14 +343,6 @@ export function Temple() {
           {bapt.blocked && <div className="hint">{bapt.blocked}</div>}
         </>
       )}
-
-      <h3>
-        {def.priests} <span className="muted">{priests} чел.</span>
-      </h3>
-      <div className="note">
-        Служители держат набожность и настроение разом. Ставят их сюда же, рядовым числом —
-        ряд рабочих выше.
-      </div>
     </>
   );
 }
