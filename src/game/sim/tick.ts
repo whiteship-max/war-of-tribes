@@ -31,7 +31,8 @@ import { pickEvent } from '../data/events';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { MUTINY_EVENT } from '../data/order';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
-import { mutinySilence, unrestTick } from './mutiny';
+import { unrestTick } from './mutiny';
+import { lapseEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
@@ -217,19 +218,18 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   // и только при игроке — офлайн-догон его не двигает (см. sim/mutiny).
   const unrest = unrestTick(s, dt, !opts.offline);
   if (unrest === 'silence') {
-    // Окно мятежа осталось без ответа: стража выходит сама. Разрешается оно тем
-    // же путём, что и ответ игрока, — счёт, следующее событие, строка летописи.
-    settled = mutinySilence(s);
-    s.activeEvent = null;
-    s.stats.eventsResolved++;
-    scheduleNextEvent(s);
-    log(s, `Мятеж: ${settled}`, 'bad');
+    // Окно мятежа осталось без ответа: стража выходит сама — вариантом, который
+    // мятеж назвал своим молчанием. Дверь та же, что у ответа игрока (`sim/mail`).
+    settled = lapseEvent(s);
   }
 
   // 8. События. Мятеж случаем не выпадает: его поднимает срок ропота, и первым —
-  // на столе не должно лежать ничего, что заслонит его.
-  if (unrest === 'raise' && !s.activeEvent) {
-    s.activeEvent = { defId: MUTINY_EVENT, at: s.time };
+  // на столе не должно лежать ничего, что заслонит его. Событие ждёт в почте
+  // сутки, и ждущее не держит мятеж за дверью: оно разрешается своим молчанием,
+  // как лишнее письмо, согнанное со стола мира (`world/letters.crowdedOut`).
+  if (unrest === 'raise') {
+    if (s.activeEvent && s.activeEvent.defId !== MUTINY_EVENT) lapseEvent(s);
+    if (!s.activeEvent) s.activeEvent = { defId: MUTINY_EVENT, at: s.time };
   } else if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) {
     // Пока идёт проводка первых шагов, модалка события накрыла бы подсветку.
     s.nextEventAt = Math.max(s.nextEventAt, s.time + 20);
@@ -259,6 +259,5 @@ export function catchUp(s: GameState, seconds: number, step = 1): void {
   }
 }
 
-export const scheduleNextEvent = (s: GameState): void => {
-  s.nextEventAt = s.time + rollInt(s, EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
-};
+// Назначение следующего события живёт у двери, закрывающей событие (`sim/mail`).
+export { scheduleNextEvent } from './mail';

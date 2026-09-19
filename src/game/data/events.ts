@@ -84,6 +84,17 @@ export interface EventDef {
    * держало бы невольников за работой без всякого исхода.
    */
   deadline?: (s: GameState) => { left: number; text: string } | null;
+  /**
+   * Какой вариант случается, если игрок не ответил. Событие ждёт в почте
+   * державы (docs/realm.md, раздел 2.5), и молчание у него — такой же исход,
+   * как ответ: называет его само событие, а не список исключений рядом.
+   *
+   * Правило выбора одно: это вариант «никто ничего не решил» — беженцев не
+   * пустили, с волками бились те, кто был у ворот, пожар не тушили всем
+   * племенем. Он обязан ничего не стоить: молчание не платит со склада. Держит
+   * это тест (`sim/mail.test.ts`).
+   */
+  silence: number;
 }
 
 /**
@@ -135,6 +146,7 @@ const people = (n: number): string => {
 export const EVENTS: EventDef[] = [
   {
     id: 'refugees',
+    silence: 2,
     icon: '🚶',
     title: 'Беженцы у ворот',
     text: (s) =>
@@ -188,6 +200,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'wanderers',
+    silence: 2,
     icon: '🧰',
     title: 'Бродячая артель',
     text: (s) =>
@@ -228,6 +241,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'wolves',
+    silence: 0,
     icon: '🐺',
     title: 'Волки',
     text: (s) => `Стая волков кружит у поселения. Их ${amount(s, 3) + Math.floor(dayOf(s.time) / 4)}.`,
@@ -259,6 +273,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'berries',
+    silence: 0,
     icon: '🍇',
     title: 'Ягодная поляна',
     text: 'Собиратели нашли богатую ягодную поляну.',
@@ -276,6 +291,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'storm',
+    silence: 1,
     icon: '🌩️',
     title: 'Буря',
     text: 'Ночью налетела буря и повалила леса на стройке.',
@@ -302,6 +318,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'trade',
+    silence: 1,
     icon: '🤝',
     title: 'Соседи предлагают обмен',
     text: (s) => `Соседнее племя предлагает ${amount(s, 30)} еды за ${amount(s, 20)} древесины.`,
@@ -322,6 +339,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'sickness',
+    silence: 2,
     icon: '🤒',
     title: 'Мор',
     text: (s) => `По дворам пошла хворь. Слегло уже ${people(crowd(s, 0.04, 3))}.`,
@@ -366,6 +384,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'raiders',
+    silence: 1,
     icon: '⚔️',
     title: 'Разбойники',
     text: (s) => `Чужие воины требуют дань: ${amount(s, 25)} еды, иначе нападут.`,
@@ -397,6 +416,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'festival',
+    silence: 1,
     icon: '🎉',
     title: 'Приход зовёт на праздник',
     text: (s) => {
@@ -435,6 +455,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'rome_letter',
+    silence: 1,
     icon: '📜',
     title: 'Грамота из Рима',
     text: 'Легат привёз грамоту с печатью: святой престол собирает на поход и ждёт нашей доли. Отказавших запоминают.',
@@ -463,6 +484,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'rome_relief',
+    silence: 0,
     icon: '🕊️',
     title: 'Заступничество',
     text: 'Из дальнего аббатства пришёл обоз: о нашей беде услышали и прислали хлеба, не спросив ничего взамен.',
@@ -487,6 +509,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'heresy_split',
+    silence: 2,
     icon: '🔥',
     title: 'Раскол в приходе',
     // Имя служителя тут не склоняется нарочно: у четырёх вер это священник,
@@ -533,6 +556,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: MUTINY_EVENT,
+    silence: 0,
     icon: ORDER_TEXT.mutiny.icon,
     title: ORDER_TEXT.mutiny.title,
     // Лёг мятеж туда же, куда ересь: в эту таблицу, с выбором. Своей механики у
@@ -581,6 +605,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'relic_offer',
+    silence: 1,
     icon: '📿',
     title: 'Странник со святыней',
     text: (s) => {
@@ -611,6 +636,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'good_hunt',
+    silence: 0,
     icon: '🦌',
     title: 'Удачная охота',
     text: 'Охотники выследили стадо оленей.',
@@ -631,6 +657,7 @@ export const EVENTS: EventDef[] = [
   },
   {
     id: 'fire',
+    silence: 1,
     icon: '🔥',
     title: 'Пожар',
     text: 'Искра от костра попала на крышу одного из дворов!',

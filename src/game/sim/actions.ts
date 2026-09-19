@@ -14,8 +14,6 @@ import {
   upgradeInfo,
 } from '../derived';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { EVENT_BY_ID, eventBlock, payEventCost } from '../data/events';
-import { scheduleNextEvent } from './tick';
 import { log } from './log';
 import { pay, refund } from './pay';
 import { personName } from './agents';
@@ -56,25 +54,9 @@ export function cancelUpgrade(s: GameState, buildingId: number): string | null {
   return null;
 }
 
-export function resolveEvent(s: GameState, optionIndex: number): { error: string | null; result: string | null } {
-  if (!s.activeEvent) return { error: 'Нет активного события.', result: null };
-  const def = EVENT_BY_ID[s.activeEvent.defId];
-  const opt = def?.options[optionIndex];
-  if (!opt) return { error: 'Неверный выбор.', result: null };
-  // Цена списывается здесь, до `apply`, и отказ приходит отсюда же. Раньше
-  // каждый вариант брал со склада сам, а «хватает ли» никто не спрашивал:
-  // не хватило — молча платили тем, что было, и получали полную награду.
-  // Теперь цена одна на показ, на запрет и на списание.
-  const block = eventBlock(opt, s);
-  if (block) return { error: block, result: null };
-  payEventCost(opt, s);
-  const result = opt.apply(s);
-  s.activeEvent = null;
-  s.stats.eventsResolved++;
-  scheduleNextEvent(s);
-  log(s, `${def.title}: ${result}`);
-  return { error: null, result };
-}
+// Ответ на событие живёт у двери, закрывающей событие: у неё два повода —
+// ответ и молчание, — и второй не должен расходиться с первым (`sim/mail`).
+export { resolveEvent } from './mail';
 
 /**
  * Сменить роду войск, который ведёт герой. Плата — золото по числу ртов: развилка

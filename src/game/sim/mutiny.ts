@@ -33,7 +33,8 @@ export type UnrestStep = 'raise' | 'silence' | null;
  * - Порядок выше порога — ропот тает вдвое быстрее, чем копился: короткий провал
  *   не копится вечно, но и не забывается мгновенно.
  * - Порядок ниже порога — ропот копится, но только при игроке. Дошёл до срока —
- *   пора поднимать мятеж; если на столе другое событие, мятеж ждёт, а срок стоит.
+ *   пора поднимать мятеж; ждущее в почте событие разрешается своим молчанием
+ *   и стол освобождает (`tick`, `sim/mail.lapseEvent`).
  * - Мятеж на столе — идёт срок ответа, тоже только при игроке. Вышел — стража
  *   выходит сама.
  */
@@ -125,11 +126,6 @@ export function mutinyRelease(s: GameState): string {
 export function mutinyPay(s: GameState): string {
   settle(s);
   return ORDER_TEXT.mutiny.paid;
-}
-
-/** Окно мятежа осталось без ответа: стража выходит сама — тем же боем, что по приказу. */
-export function mutinySilence(s: GameState): string {
-  return `${ORDER_TEXT.mutiny.silenced} ${mutinySuppress(s)}`;
 }
 
 /**

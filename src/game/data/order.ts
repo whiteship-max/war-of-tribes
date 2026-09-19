@@ -132,7 +132,6 @@ export const ORDER_TEXT = {
     payHint: 'Ропот утихнет, но вернётся, если порядок не поднять',
     /** Что случится, если окно оставить без ответа. */
     silence: 'Не ответишь — стража выйдет сама',
-    silenced: 'Ответа не дождались — стража вышла сама.',
     held: (fled: number): string =>
       `Стража разогнала мятежников и вернула невольников к работе. Сбежало ${fled} ${bondedWord(fled)}; в городе неспокойно.`,
     fell: (f: { left: number; bonded: number; taken: number; hidden: number }): string =>

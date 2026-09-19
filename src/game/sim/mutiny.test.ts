@@ -73,6 +73,7 @@ import {
 } from '../derived';
 import { catchUp, tick } from './tick';
 import { resolveEvent } from './actions';
+import { SILENCE_PREFIX } from './mail';
 import {
   assignBonded,
   assignWorker,
@@ -405,7 +406,10 @@ describe('мятеж не наступает раньше, чем игрок м�
     // Открыли — идёт, и ровно столько, сколько объявлено.
     let settled: string | null = null;
     for (let i = 0; i < MUTINY_ANSWER / 0.5 && !settled; i++) settled = tick(s, 0.5);
-    expect(settled, 'окно разрешилось само и сказало чем').toContain(ORDER_TEXT.mutiny.silenced);
+    expect(settled, 'окно разрешилось само и сказало чем').not.toBeNull();
+    // Разрешилось молчанием мятежа — стража вышла, — и летопись говорит, что ответа не ждали.
+    expect(s.log[0].text).toContain(SILENCE_PREFIX);
+    expect(s.log[0].text).toContain(ORDER_TEXT.mutiny.suppress);
     expect(s.activeEvent).toBeNull();
     expect(s.unrest).toBe(0);
   });
