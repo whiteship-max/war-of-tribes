@@ -2,7 +2,7 @@
 // раздел 2.5; разбор — раздел 8).
 //
 // Источников два, и они не сливаются в одно хранилище нарочно: событие племени
-// лежит в партии (`GameState.activeEvent`), письмо — в сохранении мира
+// лежит в партии (`GameState.inbox`), письмо — в сохранении мира
 // (`WorldSave.letters`). Это два сохранения с двумя версиями, и переносить одно
 // в другое ради списка значило бы править формат обоих. Сводится не хранение, а
 // **вид**: заголовок, текст, варианты с ценой и тем, что они дадут, срок и то,
@@ -15,7 +15,8 @@
 // (`EventDef.silence`). Своего правила «что будет без ответа» у почты нет.
 import type { GameState } from '@/game/types';
 import { EVENT_BY_ID, eventBlock, eventCost, eventText, optionHint } from '@/game/data/events';
-import { eventLeft } from '@/game/sim/mail';
+import { eventId, eventLeft } from '@/game/sim/mail';
+import type { ActiveEvent } from '@/game/types';
 import type { LetterView } from '@/world/types';
 import type { Price } from '@/ui/parts/Cost';
 import { eventKey, letterKey } from './unread';
@@ -36,8 +37,9 @@ export interface Dispatch {
   /** Ключ в почте: у события — вид и минута прихода, у письма — его номер. */
   key: string;
   source: 'event' | 'letter';
-  /** Номер письма у письма; у события не нужен — оно одно. */
+  /** Номер письма у письма, имя события на столе у события (`sim/mail.eventId`). */
   letterId: string | null;
+  eventId: string | null;
   /** Имя значка и запасной эмодзи. */
   iconName: string;
   icon: string;
@@ -58,17 +60,17 @@ export interface Dispatch {
   warning: boolean;
 }
 
-/** Событие племени, ждущее ответа, — донесением. null — события нет. */
-export function eventDispatch(s: GameState, now: number): Dispatch | null {
-  const ev = s.activeEvent;
-  const def = ev ? EVENT_BY_ID[ev.defId] : undefined;
-  if (!ev || !def) return null;
+/** Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. */
+export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispatch | null {
+  const def = EVENT_BY_ID[ev.defId];
+  if (!def) return null;
   const quiet = def.options[def.silence];
   const quietHint = optionHint(quiet, s);
   return {
     key: eventKey(ev),
     source: 'event',
     letterId: null,
+    eventId: eventId(ev),
     iconName: `evt-${def.id}`,
     icon: def.icon,
     title: def.title,
@@ -82,7 +84,7 @@ export function eventDispatch(s: GameState, now: number): Dispatch | null {
       cost: eventCost(o, s),
       block: eventBlock(o, s),
     })),
-    left: eventLeft(s, now),
+    left: eventLeft(s, ev, now),
     // У события со своим сроком (мятеж) срок назван его словами; у остальных —
     // словами почты.
     leftText: def.deadline?.(s)?.text ?? 'Ждёт ответа',
@@ -97,6 +99,7 @@ export function letterDispatch(l: LetterView, now: number): Dispatch {
     key: letterKey(l.id),
     source: 'letter',
     letterId: l.id,
+    eventId: null,
     iconName: `letter-${l.kind}`,
     icon: l.icon,
     title: l.title,
@@ -124,8 +127,10 @@ export function dispatches(s: GameState, letters: LetterView[], now: { tribe: nu
   // Часов двое, как и хозяев: срок события ставила партия по `serverNow`, срок
   // письма — мир по своим (`worldNow`). Каждый срок читается своими часами.
   const list = letters.map((l) => letterDispatch(l, now.world));
-  const ev = eventDispatch(s, now.tribe);
-  if (ev) list.push(ev);
+  for (const ev of s.inbox) {
+    const d = eventDispatch(s, ev, now.tribe);
+    if (d) list.push(d);
+  }
   return list.sort((a, b) => (a.left ?? Infinity) - (b.left ?? Infinity));
 }
 

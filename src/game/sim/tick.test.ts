@@ -527,23 +527,23 @@ describe('симуляция', () => {
   it('офлайн-догон не запускает события', () => {
     const s = createInitialState();
     catchUp(s, 600, 2);
-    expect(s.activeEvent).toBeNull();
+    expect(s.inbox).toEqual([]);
   });
 
   it('обучение придерживает события, пока идёт', () => {
     const s = createInitialState();
     for (let i = 0; i < 200; i++) tick(s, 0.5);
-    expect(s.activeEvent).toBeNull();
+    expect(s.inbox).toEqual([]);
   });
 
   it('онлайн событие появляется и разрешается', () => {
     const s = createInitialState();
     finishTutorial(s);
     for (let i = 0; i < 200; i++) tick(s, 0.5);
-    expect(s.activeEvent).not.toBeNull();
+    expect(s.inbox).not.toEqual([]);
     const r = resolveEvent(s, 0);
     expect(r.error).toBeNull();
-    expect(s.activeEvent).toBeNull();
+    expect(s.inbox).toEqual([]);
     expect(s.nextEventAt).toBeGreaterThan(s.time);
   });
 
@@ -1111,7 +1111,7 @@ describe('сезоны', () => {
 
 /** Ставит событие активным и разрешает выбранный вариант. */
 function fireEvent(s: GameState, id: string, option: number): string {
-  s.activeEvent = { defId: id, at: s.time };
+  s.inbox = [{ defId: id, at: s.time }];
   const r = resolveEvent(s, option);
   expect(r.error).toBeNull();
   return r.result ?? '';

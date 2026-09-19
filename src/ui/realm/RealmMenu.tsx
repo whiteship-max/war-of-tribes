@@ -47,7 +47,7 @@ export function RealmMenu() {
   // Тот же счётчик, что на гербе: сколько ждущего ответа ещё не открывали.
   const unread = unreadCount(
     mailKeys(
-      s.activeEvent,
+      s.inbox,
       letters.map((l) => l.id),
     ),
     seen,

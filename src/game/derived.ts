@@ -1768,7 +1768,7 @@ export function orderState(s: GameState): OrderState {
 }
 
 /** Мятеж на столе: окно ждёт ответа. */
-export const mutinyOpen = (s: GameState): boolean => s.activeEvent?.defId === MUTINY_EVENT;
+export const mutinyOpen = (s: GameState): boolean => s.inbox.some((e) => e.defId === MUTINY_EVENT);
 
 /**
  * Секунд до мятежа, пока идёт ропот. null — ропота нет: порядок выше порога, или

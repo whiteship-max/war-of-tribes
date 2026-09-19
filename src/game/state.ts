@@ -63,7 +63,7 @@ import { emptyAgents } from './sim/agents';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -123,7 +123,7 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     wounded: [],
     buildings: [],
     completedQuests: [],
-    activeEvent: null,
+    inbox: [],
     nextEventAt: 50,
     morale: 60,
     prestige: 5,

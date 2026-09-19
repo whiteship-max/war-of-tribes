@@ -42,12 +42,12 @@ export function CoatButton() {
   // Счётчик почты: сколько ждущего ответа ещё не открывали. Нажатие ведёт туда
   // же, куда всегда, — в последний открытый раздел: счётчик зовёт, а не уводит,
   // и то же число стоит на вкладке «Решения».
-  const ev = useGame((g) => g.s.activeEvent);
+  const inbox = useGame((g) => g.s.inbox);
   const letters = useWorld((w) => w.letters);
   const seen = useSeen((u) => u.seen);
   const unread = unreadCount(
     mailKeys(
-      ev,
+      inbox,
       letters.map((l) => l.id),
     ),
     seen,

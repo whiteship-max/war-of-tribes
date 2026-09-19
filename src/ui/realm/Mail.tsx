@@ -25,7 +25,7 @@ import { mailKeys, useSeen } from './unread';
  * (`answerLetter`); исход письма — та строка, что ляжет в летопись.
  */
 async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | null> {
-  if (d.source === 'event') return useGame.getState().resolve(Number(choiceId));
+  if (d.source === 'event') return d.eventId ? useGame.getState().resolve(Number(choiceId), d.eventId) : null;
   if (!d.letterId) return null;
   const err = await useWorld.getState().answerLetter(d.letterId, choiceId === 'yes' ? 'yes' : 'no');
   if (err) return null;
@@ -44,7 +44,7 @@ export function Mail() {
 
   const list = dispatches(s, letters, { tribe: serverNow(), world: worldNow() });
   const live = mailKeys(
-    s.activeEvent,
+    s.inbox,
     letters.map((l) => l.id),
   );
   const current = list.find((d) => d.key === open) ?? null;

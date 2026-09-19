@@ -10,17 +10,18 @@
 // Сама почта (`Mail.tsx`, `dispatch.ts`) — в куске меню державы.
 import { create } from 'zustand';
 import type { ActiveEvent } from '@/game/types';
+import { eventId } from '@/game/sim/mail';
 
 const KEY = 'tribe.mail.seen';
 
 /** Ключ события в почте: вид и минута прихода — следующее событие того же вида будет новым. */
-export const eventKey = (ev: ActiveEvent): string => `event:${ev.defId}:${ev.at}`;
+export const eventKey = (ev: ActiveEvent): string => `event:${eventId(ev)}`;
 /** Ключ письма в почте. */
 export const letterKey = (id: string): string => `letter:${id}`;
 
 /** Ключи всего, что сейчас ждёт ответа. */
-export function mailKeys(ev: ActiveEvent | null, letterIds: string[]): string[] {
-  return [...letterIds.map(letterKey), ...(ev ? [eventKey(ev)] : [])];
+export function mailKeys(inbox: ActiveEvent[], letterIds: string[]): string[] {
+  return [...letterIds.map(letterKey), ...inbox.map(eventKey)];
 }
 
 function load(): string[] {

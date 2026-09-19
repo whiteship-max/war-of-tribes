@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { alerts, buildingOfType, mutinyAnswerLeft } from '@/game/derived';
-import { ORDER_TEXT } from '@/game/data/order';
+import { MUTINY_EVENT, ORDER_TEXT } from '@/game/data/order';
 import { tutorialActive } from '@/game/data/tutorial';
 import { incomingMarches, useWorld, worldNow } from '@/world/store';
 import { formatLeft, secondsLeft } from '@/world/geo';
@@ -38,6 +38,7 @@ export function AlertBar() {
   // виду ведёт прямо к нему. Прежде это делало окно поверх игры.
   const openMail = useRealm((r) => r.openMail);
   const mutinyLeft = mutinyAnswerLeft(s);
+  const mutiny = s.inbox.find((e) => e.defId === MUTINY_EVENT) ?? null;
   // Замок один на всю оборону и считается по всем отрядам, а не по строке: строка
   // второго набега не может сказать «открыто», пока расстановка заперта первым.
   const lock = useLockWords();
@@ -75,8 +76,8 @@ export function AlertBar() {
     // местности, то есть чем-то, что стоит **там**; прижатая к шапке — тем, чем
     // и является: продолжением шапки.
     <div className={`alerts${mapOpen ? ' on-map' : ''}${tutorialActive(s) ? ' with-tut' : ''}`}>
-      {mutinyLeft !== null && s.activeEvent && (
-        <button key="mutiny" className="alert raid" onClick={() => s.activeEvent && openMail(eventKey(s.activeEvent))}>
+      {mutinyLeft !== null && mutiny && (
+        <button key="mutiny" className="alert raid" onClick={() => openMail(eventKey(mutiny))}>
           <span className="ic">{ORDER_TEXT.mutiny.icon}</span>
           <span className="txt">
             {ORDER_TEXT.mutiny.title} — ответ в «Решениях» · {formatLeft(mutinyLeft)}

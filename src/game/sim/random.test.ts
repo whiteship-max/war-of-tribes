@@ -94,9 +94,11 @@ describe('кость партии повторяется', () => {
     // Окно события ждёт ответа — отвечаем последним вариантом: у каждого события
     // последний ничего не стоит, и ход игры не встаёт.
     const answer = (s: GameState): void => {
-      if (!s.activeEvent) return;
-      const def = EVENT_BY_ID[s.activeEvent.defId];
-      for (let k = def.options.length - 1; k >= 0 && s.activeEvent; k--) resolveEvent(s, k);
+      while (s.inbox.length > 0) {
+        const n = s.inbox.length;
+        const def = EVENT_BY_ID[s.inbox[0].defId];
+        for (let k = def.options.length - 1; k >= 0 && s.inbox.length === n; k--) resolveEvent(s, k);
+      }
     };
     for (let i = 0; i < 1800; i++) {
       tick(a, 2);

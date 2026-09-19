@@ -1,4 +1,4 @@
-import type { GameState } from './types';
+import type { ActiveEvent, GameState } from './types';
 import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
 import { taxIncomePerDay, wagesPerDay } from './derived';
@@ -109,9 +109,19 @@ function migrate(s: GameState, from: number, data: SavedState): void {
       'info',
     );
   }
+  // 14 → 15: событие ждало в одном поле, теперь их стол. Ждавшее событие
+  // переезжает на стол целиком — со сроком, если он был поставлен.
+  if (from < 15) {
+    const old = (s as { activeEvent?: ActiveEvent | null }).activeEvent;
+    s.inbox = old ? [old] : [];
+    delete (s as { activeEvent?: unknown }).activeEvent;
+  }
   if (from < 14) {
     log(s, 'Статуя больше не ограничивает дружину: полководец уводит сколько угодно. Войско держит цена — еда и жалованье.', 'info');
     log(s, UPKEEP_TEXT.amnestyLog(wagesPerDay(s), taxIncomePerDay(s)), 'bad');
+  }
+  if (from < 15) {
+    log(s, 'Вести посёлка ждут в «Решениях» за гербом, и ждать могут несколько сразу — у каждой свой срок в сутки.', 'info');
   }
 }
 

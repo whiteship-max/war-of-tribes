@@ -1,12 +1,6 @@
 // Главный шаг симуляции. Мутирует состояние на месте.
 import type { GameState } from '../types';
-import {
-  DAY_LENGTH,
-  EVENT_INTERVAL_MAX,
-  EVENT_INTERVAL_MIN,
-  RESOURCE_IDS,
-  STARVATION_DEATH,
-} from '../constants';
+import { DAY_LENGTH, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
 import {
   buildRate,
   currentSite,
@@ -32,7 +26,7 @@ import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { MUTINY_EVENT } from '../data/order';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { unrestTick } from './mutiny';
-import { lapseEvent } from './mail';
+import { eventId, lapseEvent, raiseEvent, scheduleNextEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
@@ -41,7 +35,7 @@ import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { settleHires } from './hire';
 import { settleWounds } from './infirmary';
-import { roll, rollInt } from './roll';
+import { roll } from './roll';
 import { log, trimLog } from './log';
 import { recordProduced, refreshCard } from '@/profile/stats';
 
@@ -220,20 +214,19 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   if (unrest === 'silence') {
     // Окно мятежа осталось без ответа: стража выходит сама — вариантом, который
     // мятеж назвал своим молчанием. Дверь та же, что у ответа игрока (`sim/mail`).
-    settled = lapseEvent(s);
+    const open = s.inbox.find((e) => e.defId === MUTINY_EVENT);
+    settled = open ? lapseEvent(s, eventId(open)) : null;
   }
 
-  // 8. События. Мятеж случаем не выпадает: его поднимает срок ропота, и первым —
-  // на столе не должно лежать ничего, что заслонит его. Событие ждёт в почте
-  // сутки, и ждущее не держит мятеж за дверью: оно разрешается своим молчанием,
-  // как лишнее письмо, согнанное со стола мира (`world/letters.crowdedOut`).
+  // 8. События. Мятеж случаем не выпадает: его поднимает срок ропота, и ложится
+  // он в свою ячейку стола — вести посёлка его не держат и им не сгоняются
+  // (`sim/mail.raiseEvent`).
   if (unrest === 'raise') {
-    if (s.activeEvent && s.activeEvent.defId !== MUTINY_EVENT) lapseEvent(s);
-    if (!s.activeEvent) s.activeEvent = { defId: MUTINY_EVENT, at: s.time };
+    raiseEvent(s, MUTINY_EVENT);
   } else if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) {
     // Пока идёт проводка первых шагов, модалка события накрыла бы подсветку.
     s.nextEventAt = Math.max(s.nextEventAt, s.time + 20);
-  } else if (!s.activeEvent && s.time >= s.nextEventAt) {
+  } else if (s.time >= s.nextEventAt) {
     if (opts.offline) {
       s.nextEventAt = s.time + 20 + roll(s) * 20;
     } else if (s.unrest > 0) {
@@ -241,9 +234,12 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
       // и срок, и цену, а мятеж встал бы в очередь за ними.
       s.nextEventAt = s.time + 20;
     } else {
+      // Событие ложится на стол, и следующее назначается от его прихода, а не от
+      // ответа: вести идут своим ходом, ответил на них игрок или нет. Стол полон —
+      // лишнее сгоняет ближайшее по сроку, как у писем мира.
       const e = pickEvent(s);
-      if (e) s.activeEvent = { defId: e.id, at: s.time };
-      else s.nextEventAt = s.time + rollInt(s, EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
+      if (e) raiseEvent(s, e.id);
+      scheduleNextEvent(s);
     }
   }
   return settled;
@@ -259,5 +255,5 @@ export function catchUp(s: GameState, seconds: number, step = 1): void {
   }
 }
 
-// Назначение следующего события живёт у двери, закрывающей событие (`sim/mail`).
+// Назначение следующего события живёт у почты (`sim/mail`).
 export { scheduleNextEvent } from './mail';

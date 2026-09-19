@@ -61,7 +61,7 @@ describe('цена события объявлена, а не спрятана �
         const cost = eventCost(o, s);
         if (!paid(o, s)) continue;
         const before = { ...s.resources, gold: s.gold };
-        s.activeEvent = { defId: e.id, at: s.time };
+        s.inbox = [{ defId: e.id, at: s.time }];
         const r = resolveEvent(s, i);
         expect(r.error, `${e.id}/${i}`).toBeNull();
         for (const res of RESOURCE_IDS) {
@@ -84,11 +84,11 @@ describe('цена события объявлена, а не спрятана �
         // проситься она будет ровно так же, только платить нечем.
         if (!paid(o, s)) continue;
         expect(eventBlock(o, s), `${e.id}/${i}`).not.toBeNull();
-        s.activeEvent = { defId: e.id, at: s.time };
+        s.inbox = [{ defId: e.id, at: s.time }];
         const r = resolveEvent(s, i);
         expect(r.error, `${e.id}/${i}`).not.toBeNull();
         // Событие осталось на экране, ничего не случилось и не списалось.
-        expect(s.activeEvent).not.toBeNull();
+        expect(s.inbox).not.toEqual([]);
         for (const res of RESOURCE_IDS) expect(s.resources[res]).toBe(0);
         expect(s.gold).toBe(0);
       }

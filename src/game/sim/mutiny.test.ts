@@ -363,7 +363,7 @@ describe('мятеж не наступает раньше, чем игрок м�
     expect(orderState(s)).toBe('unrest');
     catchUp(s, 4 * 3600, 2);
     expect(s.unrest).toBe(0);
-    expect(s.activeEvent?.defId).not.toBe(MUTINY_EVENT);
+    expect(s.inbox[0]?.defId).not.toBe(MUTINY_EVENT);
     // Горожан и невольников за четыре часа отсутствия не тронул никакой мятеж.
     expect(s.bonded).toBe(200);
   });
@@ -378,11 +378,11 @@ describe('мятеж не наступает раньше, чем игрок м�
     const steps = MUTINY_FUSE / 0.5;
     for (let i = 1; i < steps - 1; i++) {
       tick(s, 0.5);
-      expect(s.activeEvent, `шаг ${i}`).toBeNull();
+      expect(s.inbox, `шаг ${i}`).toEqual([]);
     }
     expect(unrestLeft(s)).toBeCloseTo(0.5, 6);
     tick(s, 0.5);
-    expect(s.activeEvent?.defId).toBe(MUTINY_EVENT);
+    expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
   });
 
   it('полусрока ропота мало: между офлайн-догонами срок стоит, а не копится', () => {
@@ -391,17 +391,17 @@ describe('мятеж не наступает раньше, чем игрок м�
     const half = s.unrest;
     catchUp(s, 2 * 3600, 2);
     expect(s.unrest).toBe(half);
-    expect(s.activeEvent).toBeNull();
+    expect(s.inbox).toEqual([]);
   });
 
   it('окно мятежа ждёт ответа срок, и только при игроке; без ответа стража выходит сама', () => {
     const s = restless();
     for (let i = 0; i < MUTINY_FUSE / 0.5; i++) tick(s, 0.5);
-    expect(s.activeEvent?.defId).toBe(MUTINY_EVENT);
+    expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
     expect(mutinyAnswerLeft(s)).toBe(MUTINY_ANSWER);
     // Игру закрыли с открытым окном — срок ответа не идёт.
     catchUp(s, 3600, 2);
-    expect(s.activeEvent?.defId).toBe(MUTINY_EVENT);
+    expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
     expect(mutinyAnswerLeft(s)).toBe(MUTINY_ANSWER);
     // Открыли — идёт, и ровно столько, сколько объявлено.
     let settled: string | null = null;
@@ -410,7 +410,7 @@ describe('мятеж не наступает раньше, чем игрок м�
     // Разрешилось молчанием мятежа — стража вышла, — и летопись говорит, что ответа не ждали.
     expect(s.log[0].text).toContain(SILENCE_PREFIX);
     expect(s.log[0].text).toContain(ORDER_TEXT.mutiny.suppress);
-    expect(s.activeEvent).toBeNull();
+    expect(s.inbox).toEqual([]);
     expect(s.unrest).toBe(0);
   });
 
@@ -428,7 +428,7 @@ describe('мятеж не наступает раньше, чем игрок м�
     s.nextEventAt = 0;
     for (let i = 0; i < 200; i++) {
       tick(s, 0.5);
-      expect(s.activeEvent).toBeNull();
+      expect(s.inbox).toEqual([]);
     }
   });
 });
@@ -493,7 +493,7 @@ describe('исход мятежа объявлен заранее и совпа�
   it('раздача снимает объявленную плату и гасит ропот, но надзор прежний — и ропот вернётся', () => {
     const s = restless();
     for (let i = 0; i < MUTINY_FUSE / 0.5; i++) tick(s, 0.5);
-    expect(s.activeEvent?.defId).toBe(MUTINY_EVENT);
+    expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
     const def = EVENT_BY_ID[MUTINY_EVENT];
     const pay = def.options.findIndex((o) => o.label === ORDER_TEXT.mutiny.pay);
     const cost = eventCost(def.options[pay], s);
@@ -505,7 +505,7 @@ describe('исход мятежа объявлен заранее и совпа�
     expect(orderState(s)).toBe('unrest');
     // Ничего не поменяли — через тот же срок мятеж снова на столе.
     for (let i = 0; i < MUTINY_FUSE / 0.5; i++) tick(s, 0.5);
-    expect(s.activeEvent?.defId).toBe(MUTINY_EVENT);
+    expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
   });
 
   it('у окна мятежа есть бесплатный выход, и первый вариант — тот, что случится без ответа', () => {
@@ -644,7 +644,8 @@ describe('сохранение: новые поля версию не подни
     delete raw.market.sold;
     const s = deserialize(JSON.stringify(raw));
     expect(s).not.toBeNull();
-    expect(SAVE_VERSION).toBe(14);
+    // Невольники версию не подняли: 14 — жалованье, 15 — стол событий почты (не их поля).
+    expect(SAVE_VERSION).toBe(15);
     expect(s!.version).toBe(SAVE_VERSION);
     expect(s!.bonded).toBe(0);
     expect(s!.bondedWork).toEqual({});

@@ -147,7 +147,7 @@ export interface GameStore {
    */
   world: (fn: (s: GameState) => void) => void;
   /** Ответ на событие почты. Возвращает исход словами — его показывает само донесение. */
-  resolve: (optionIndex: number) => string | null;
+  resolve: (optionIndex: number, id: string) => string | null;
   dismissOffline: () => void;
   dismissLegacy: () => void;
   dismissWinterWarning: () => void;
@@ -356,9 +356,9 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ s: { ...s } });
   },
 
-  resolve: (optionIndex) => {
+  resolve: (optionIndex, id) => {
     const s = get().s;
-    const { error, result } = resolveEvent(s, optionIndex);
+    const { error, result } = resolveEvent(s, optionIndex, id);
     if (error) get().showToast(error);
     haptic('medium');
     set({ s: { ...s } });

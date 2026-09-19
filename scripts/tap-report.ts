@@ -249,9 +249,8 @@ const PROBE = `
       watch();
       const g = state();
       g.openBuilding(null);
-      if (g.eventResult) g.dismissResult();
       const s = g.s;
-      s.activeEvent = null;
+      s.inbox = [];
       s.winterWarning = false;
       // Следующее событие отодвигается за горизонт прогона: снять уже открытое
       // мало — новое поднимется посреди следующего следа и накроет экран ровно

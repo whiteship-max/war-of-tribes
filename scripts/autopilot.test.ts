@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
+import { eventId } from '@/game/sim/mail';
 import { pilot, player, type Inside } from './autopilot';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -107,7 +108,7 @@ describe('автопилот один: прогоном', () => {
     g.tutorialDone = true;
     g.nextEventAt = 30;
     expect(g.faith.id, 'точка внутри области: у новой партии веры ещё нет').toBeNull();
-    let raised = 0;
+    const raised = new Set<string>();
     let open = 0;
     const flown = await pilot({
       g,
@@ -119,16 +120,18 @@ describe('автопилот один: прогоном', () => {
       decide: 30,
       watch: {
         after: ({ g: x }) => {
-          if (x.activeEvent && x.activeEvent.defId !== MUTINY_EVENT) raised++;
+          for (const e of x.inbox) if (e.defId !== MUTINY_EVENT) raised.add(eventId(e));
         },
         decided: (x) => {
-          if (x.activeEvent && x.activeEvent.defId !== MUTINY_EVENT) open++;
+          open += x.inbox.filter((e) => e.defId !== MUTINY_EVENT).length;
         },
       },
     });
-    expect(raised, 'точка внутри области: события поднимались').toBeGreaterThan(0);
+    expect(raised.size, 'точка внутри области: события поднимались').toBeGreaterThan(0);
     expect(open, 'событие висит после решения игрока').toBe(0);
-    expect(flown.ledger.answered, 'игрок разобрал поднявшиеся события').toBeGreaterThanOrEqual(raised);
+    // Пришедшее после последнего решения ещё ждёт на столе — его разберут следующим решением.
+    const waiting = g.inbox.filter((e) => e.defId !== MUTINY_EVENT).length;
+    expect(flown.ledger.answered + waiting, 'игрок разобрал поднявшиеся события').toBeGreaterThanOrEqual(raised.size);
     const home = (flown.world as Inside).save.home;
     expect(g.faith.id, 'вера пришла пульсом — та, что под замком').toBe(faithAt(home.x, home.y));
   });

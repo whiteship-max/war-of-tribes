@@ -41,6 +41,7 @@ import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { catchUp, tick } from '@/game/sim/tick';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
+import { eventId } from '@/game/sim/mail';
 import { assignWorker, autoAssign, changeFreeJob, unassignWorker } from '@/game/sim/workers';
 import { recruitCost, startRecruit } from '@/game/sim/army';
 import { forgeCost, startForge } from '@/game/sim/smithy';
@@ -377,20 +378,23 @@ function trim(g: GameState, l: Ledger): void {
   }
 }
 
-/** Ответить на событие первым бесплатным вариантом; мятеж ждёт своего срока — стража выходит сама. */
+/**
+ * Ответить на каждое ждущее событие первым бесплатным вариантом; мятеж ждёт своего
+ * срока — стража выходит сама.
+ */
 function answer(g: GameState, l: Ledger): void {
-  const ev = g.activeEvent;
-  if (!ev) return;
-  if (ev.defId === MUTINY_EVENT) {
-    if (l.lastMutiny !== ev.at) {
-      l.lastMutiny = ev.at;
-      l.mutinies++;
+  for (const ev of [...g.inbox]) {
+    if (ev.defId === MUTINY_EVENT) {
+      if (l.lastMutiny !== ev.at) {
+        l.lastMutiny = ev.at;
+        l.mutinies++;
+      }
+      continue;
     }
-    return;
+    const def = EVENT_BY_ID[ev.defId];
+    const i = def ? def.options.findIndex((o) => !o.cost) : -1;
+    if (resolveEvent(g, Math.max(0, i), eventId(ev)).error === null) l.answered++;
   }
-  const def = EVENT_BY_ID[ev.defId];
-  const i = def ? def.options.findIndex((o) => !o.cost) : -1;
-  if (resolveEvent(g, Math.max(0, i)).error === null) l.answered++;
 }
 
 /** Сколько ушло голодом и неуплатой с прошлого раза и сколько из них осталось жителями — по строкам летописи со склейкой. */

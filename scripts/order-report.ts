@@ -422,7 +422,7 @@ function watch(s: GameState, seconds: number, each?: (s: GameState, t: number) =
       const v = orderValue(x);
       if (marks.warn === null && x.bonded > 0 && v < ORDER_WARN) marks.warn = t;
       if (marks.unrest === null && x.bonded > 0 && v < ORDER_UNREST) marks.unrest = t;
-      if (marks.mutiny === null && x.activeEvent?.defId === MUTINY_EVENT) marks.mutiny = t;
+      if (marks.mutiny === null && x.inbox.some((e) => e.defId === MUTINY_EVENT)) marks.mutiny = t;
       if (settled) {
         marks.silence = t;
         return true;
@@ -453,7 +453,7 @@ console.log('  положение                               тревога  
   const hold = orderBreakdown(s).hold;
   const batch = Math.max(1, Math.round(hold / 8));
   const m = watch(s, 60 * 60, (st, t) => {
-    if (t % DAY_LENGTH === 0 && st.activeEvent === null) st.bonded += batch;
+    if (t % DAY_LENGTH === 0 && st.inbox.length === 0) st.bonded += batch;
   });
   console.log(
     `  покупка по ${pad(batch, 3)} в день                   ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${pad(mm(m.silence), 4)}   ${span(m.warn, m.mutiny)}`,

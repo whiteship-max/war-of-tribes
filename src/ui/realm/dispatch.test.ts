@@ -30,8 +30,8 @@ describe('донесение — один вид для события и пис
     const s = createInitialState();
     for (const id of ['refugees', 'fire', 'sickness']) {
       const def = EVENT_BY_ID[id];
-      s.activeEvent = { defId: id, at: 1, until: NOW + EVENT_TTL };
-      const d = eventDispatch(s, NOW)!;
+      s.inbox = [{ defId: id, at: 1, until: NOW + EVENT_TTL }];
+      const d = eventDispatch(s, s.inbox[0], NOW)!;
       expect(d.silence, id).toContain(def.options[def.silence].label);
       expect(d.choices.map((c) => c.label)).toEqual(def.options.map((o) => o.label));
     }
@@ -48,7 +48,7 @@ describe('донесение — один вид для события и пис
 
   it('первым лежит то, что раньше разрешится само, — у кого срок ближе', () => {
     const s = createInitialState();
-    s.activeEvent = { defId: 'storm', at: 1, until: NOW + EVENT_TTL };
+    s.inbox = [{ defId: 'storm', at: 1, until: NOW + EVENT_TTL }];
     const list = dispatches(s, [raid(NOW + 5 * 60_000)], { tribe: NOW, world: NOW });
     expect(list.map((d) => d.source)).toEqual(['letter', 'event']);
     const later = dispatches(s, [raid(NOW + 2 * EVENT_TTL)], { tribe: NOW, world: NOW });

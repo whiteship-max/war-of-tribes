@@ -390,7 +390,16 @@ export const LETTER_DECISIONS = LETTER_SLOTS - 1;
  * же самый отряд, севший у ворот, поэтому вместе они не лежат никогда.
  */
 export function crowdedOut<T extends Letter>(list: T[]): T | null {
-  const kickable = letterOrder(list).filter((l) => !isWarning(l.kind));
+  return kickFrom(list.filter((l) => !isWarning(l.kind)));
+}
+
+/**
+ * Само правило вытеснения, без знания о письмах: из того, что можно сгонять,
+ * при полном столе уходит то, у кого срок ближе всех (равный срок — кто пришёл
+ * раньше). Им же сгоняются события посёлка в почте державы (`game/sim/mail`):
+ * стол один по смыслу, и правило у него одно.
+ */
+export function kickFrom<T extends { until: number; at: number }>(kickable: T[]): T | null {
   if (kickable.length < LETTER_DECISIONS) return null;
-  return kickable[0] ?? null;
+  return [...kickable].sort((a, b) => a.until - b.until || a.at - b.at)[0] ?? null;
 }

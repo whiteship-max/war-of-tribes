@@ -596,7 +596,13 @@ export interface GameState {
   wounded: WoundGroup[];
   buildings: Building[];
   completedQuests: string[];
-  activeEvent: ActiveEvent | null;
+  /**
+   * События посёлка, ждущие ответа в почте державы (`sim/mail`). Их несколько: стол на
+   * `LETTER_DECISIONS` обычных событий плюс своя ячейка мятежу — тот же стол, что у писем
+   * мира, и лишнее сгоняется тем же правилом (`world/letters.kickFrom`). До пятнадцатой
+   * версии здесь было одно поле `activeEvent`, и новое событие ждало, пока ответят на прежнее.
+   */
+  inbox: ActiveEvent[];
   nextEventAt: number;
   morale: number; // 0..100
   prestige: number;
