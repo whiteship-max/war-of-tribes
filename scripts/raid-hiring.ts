@@ -203,11 +203,15 @@ export async function hiringSection(): Promise<Hired> {
   console.log('');
   console.log('Ступень под наймом: та же подстановка, что в разделе 2 (сила вышедшего набега пересчитана в минуту выхода), защита новичка оставлена.');
   console.log(`Строка ${LAIR_STEP.toFixed(2)} — игра, взята из таблицы выше.`);
+  // Строки 0.80 и 1.00 — замер, по которому выбирали LAIR_STEP (решено 17.09, docs/hiring.md, раздел 3): 40 прогонов по
+  // 4 ч из 160 в отчёте (лестница 60, ступени 40, партия с нуля 12, уведённые 33, полководец лазарета 15). Приёмка мерит принятую ступень; перебор — по STEP_SWEEP=1, как перебор чисел боя.
+  const SWEEP = Boolean(process.env.STEP_SWEEP);
+  if (!SWEEP) console.log('Строки 0.80 и 1.00 (замер, по которому выбрана ступень) — STEP_SWEEP=1 npm run raid-hiring:report.');
   console.log(' поведение                    ступень  ур  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  падений осадой  падений/ч  потери, удержали  войско дома: медиана  ушло');
   for (const level of STEP_LEVELS) {
     const ref = defense(townAt(level));
     for (const style of STEP_STYLES) {
-      for (const rho of [0.8, LAIR_STEP, 1]) {
+      for (const rho of SWEEP ? [0.8, LAIR_STEP, 1] : [LAIR_STEP]) {
         let outs = ladder[`${style}:${level}`];
         if (rho !== LAIR_STEP) {
           outs = [];

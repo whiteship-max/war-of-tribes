@@ -47,6 +47,7 @@ import { TAX_PER_POP } from '@/game/data/policy';
 import type { EquipmentId, ResourceId, TroopId } from '@/game/types';
 import { MIX, armyAt, openSky, townAt, type Inside } from './autopilot';
 import { SEEDS } from './raid-common';
+import { halfBand, spread } from './lib/halfband';
 
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 const padR = (v: string | number, w: number): string => String(v).padEnd(w);
@@ -146,24 +147,29 @@ interface Side {
 }
 
 /**
- * Доля боёв, проигранных стороной `own` против логова силой `k` × своей мощи: `defend` — набег прорвал,
- * `attack` — удар по гарнизону не удался. `style` null — уклад, какой выпал отряду по имени.
+ * Бои стороны `own` против логова силой `k` × своей мощи, по бою на сид: проигран ли — `defend`: набег прорвал,
+ * `attack`: удар по гарнизону не удался. `style` null — уклад, какой выпал отряду по имени.
  */
-function lairLoss(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', o: Order): number {
-  let lost = 0;
+function lairLosses(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', o: Order): boolean[] {
+  const out: boolean[] = [];
   const power = stackMen(own.stack) * BATTLE_MAN;
   for (let i = 1; i <= LAIR_SEEDS; i++) {
     const seed = i * 7919;
     const setup = (n: number): ArmySetup | null => (o.cavalry ? ordered(quickAttack(own.stack, salt(seed, n)).setup, o) : null);
     if (mode === 'defend') {
       const p = raidingParty(seed, style ? idOf(style, seed, i, 'raid') : `bench${i}`, k * power);
-      if (resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear, setup: p.setup }, defender: { kinds: own.stack, gear: own.gear, setup: setup(2) } }).won) lost++;
+      out.push(resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear, setup: p.setup }, defender: { kinds: own.stack, gear: own.gear, setup: setup(2) } }).won);
     } else {
       const g = garrisonOf(seed, style ? idOf(style, seed, i, 'lair') : `bench${i}`, k * power);
-      if (!resolveField({ seed, attacker: { kinds: own.stack, gear: own.gear, setup: setup(1) }, defender: { kinds: g.kinds, gear: g.gear, setup: g.setup } }).won) lost++;
+      out.push(!resolveField({ seed, attacker: { kinds: own.stack, gear: own.gear, setup: setup(1) }, defender: { kinds: g.kinds, gear: g.gear, setup: g.setup } }).won);
     }
   }
-  return lost / LAIR_SEEDS;
+  return out;
+}
+
+/** Доля проигранных из `lairLosses`. */
+function lairLoss(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', o: Order): number {
+  return lairLosses(own, style, k, mode, o).filter(Boolean).length / LAIR_SEEDS;
 }
 
 const stackMen = (s: Stack): number => Object.values(s).reduce((n, x) => n + x, 0);
@@ -515,6 +521,8 @@ interface ShareRow {
   order: Order;
   defend: number[];
   attack: number[];
+  /** Исходы боёв по ступеням силы — по бою на сид; из них граница раздела 6.3а. */
+  lost: Record<'defend' | 'attack', ((k: number) => boolean[])[]>;
 }
 
 function sharePart(): ShareRow[] {
@@ -525,17 +533,65 @@ function sharePart(): ShareRow[] {
   const rows: ShareRow[] = [];
   for (const horse of CLASSES) {
     for (const order of [PRESET, AT_ARCHERS]) {
-      const row: ShareRow = { name: `${horse.name}, ${order.name}`, horse, order, defend: [], attack: [] };
+      const row: ShareRow = { name: `${horse.name}, ${order.name}`, horse, order, defend: [], attack: [], lost: { defend: [], attack: [] } };
       for (const mode of ['defend', 'attack'] as const) {
-        const hs = CAV_SHARES.map((s) => halfPoint((k) => lairLoss(mixSide(s, horse), null, k, mode, order)));
+        // Исходы боёв запоминаются: из тех же боёв считается граница (раздел 6.3а), второй раз их не гоняют.
+        const lost = CAV_SHARES.map((s) => {
+          const memo = new Map<number, boolean[]>();
+          return (k: number): boolean[] => {
+            if (!memo.has(k)) memo.set(k, lairLosses(mixSide(s, horse), null, k, mode, order));
+            return memo.get(k)!;
+          };
+        });
+        const hs = lost.map((l) => halfPoint((k) => l(k).filter(Boolean).length / LAIR_SEEDS));
         row[mode] = hs;
+        row.lost[mode] = lost;
         console.log(` ${padR(`${row.name}: ${mode === 'defend' ? 'оборона' : 'удар'}`, 30)}${hs.map((h) => pad(f2(h), 7)).join('')}   ${hs.slice(1).map((h) => `${h >= hs[0] ? '+' : '−'}${Math.abs(Math.round((h / hs[0] - 1) * 100))}%`).join(' / ')}`);
       }
       rows.push(row);
     }
   }
+  bandPart(rows);
   return rows;
 }
+
+/** Сколько боёв на ступень взяла бы «Конюшня», будь их вдвое меньше: граница считается по первым из тех же боёв. */
+const HALF_SEEDS = LAIR_SEEDS / 2;
+
+/**
+ * Доверительная граница ячеек раздела 6.3 (`scripts/lib/halfband.ts`): при `LAIR_SEEDS` боях на ступень и при первых
+ * `HALF_SEEDS` из них. Ради неё и заведена: число боёв на точку уменьшать можно только тогда, когда видно, что доля
+ * побед от этого не станет шумом (docs/realm.md, раздел 8, «Цена разделов raid:report»).
+ * Граница прибавки — наихудшее сочетание краёв двух полпути; сиды у долей конницы общие, и настоящая граница разности уже.
+ */
+function bandPart(rows: ShareRow[]): void {
+  console.log('');
+  console.log(`--- 6.3а. Доверительная граница ячеек раздела 6.3: 95 %, Уилсон по ступеням силы, ${LAIR_SEEDS} боёв и первые ${HALF_SEEDS} из них ---`);
+  console.log('«±» — полуширина границы полпути в долях самого полпути, медиана и худшая по шести долям конницы. «прибавка при');
+  console.log(`${pct(CAV_SHARE)}» — как в 6.3 и её граница: низ — нижняя граница полпути при ${pct(CAV_SHARE)} к верхней при 0 %, верх — наоборот.`);
+  console.log(`Прибавка решает места конницы (раздел 7, порог — одно решение, ${pct(ONE_DECISION)}): граница, пересекающая порог, — места шумом.`);
+  console.log(` ${padR('класс и приказ', 30)}   ${pad(`± при ${LAIR_SEEDS}`, 14)}  ${pad(`± при ${HALF_SEEDS}`, 14)}  ${pad(`прибавка при ${pct(CAV_SHARE)}: ${LAIR_SEEDS} боёв`, 30)}  ${pad(`${HALF_SEEDS} боёв`, 18)}`);
+  const at = CAV_SHARES.indexOf(CAV_SHARE);
+  const all: Record<number, number[]> = { [LAIR_SEEDS]: [], [HALF_SEEDS]: [] };
+  for (const r of rows) {
+    for (const mode of ['defend', 'attack'] as const) {
+      const cells = (n: number): string => {
+        const bands = r.lost[mode].map((l) => halfBand(l, SHARES, n));
+        const s = bands.map(spread).sort((a, b) => a - b);
+        all[n].push(...s);
+        const gain = `${signedPct(bands[at].half / bands[0].half - 1)} [${signedPct(bands[at].lo / bands[0].hi - 1)}…${signedPct(bands[at].hi / bands[0].lo - 1)}]`;
+        return `${pad(`${pctOr(median(s))} / ${pctOr(s[s.length - 1])}`, 14)}|${gain}`;
+      };
+      const [s40, g40] = cells(LAIR_SEEDS).split('|');
+      const [s20, g20] = cells(HALF_SEEDS).split('|');
+      console.log(` ${padR(`${r.name}: ${mode === 'defend' ? 'оборона' : 'удар'}`, 30)}   ${s40}  ${s20}  ${pad(g40, 30)}  ${pad(g20, 18)}`);
+    }
+  }
+  console.log(`  медиана ± по всем ячейкам: ${pctOr(median(all[LAIR_SEEDS]))} при ${LAIR_SEEDS} боях, ${pctOr(median(all[HALF_SEEDS]))} при ${HALF_SEEDS}.`);
+}
+
+const pctOr = (x: number): string => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : '—');
+const signedPct = (x: number): string => (Number.isFinite(x) ? `${x >= 0 ? '+' : '−'}${Math.abs(Math.round(x * 100))}%` : '—');
 
 interface ClassWall {
   horse: HorseClass;
