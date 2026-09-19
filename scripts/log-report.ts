@@ -274,7 +274,7 @@ function mailDay(base: GameState, visits: number, minutes: number, reads: boolea
 async function mailSection(): Promise<void> {
   console.log('\n=== ПОЧТА: сколько донесений в сутки и сколько решается без игрока ===');
   console.log(`Стол — ${LETTER_DECISIONS} событий (как у писем мира), срок — ${EVENT_TTL / 3600000} ч настоящих;`);
-  console.log(`событие приходит раз в ${EVENT_INTERVAL_MIN}–${EVENT_INTERVAL_MAX} с игры и только при игроке. Счёт — ${MAIL_DAYS}-и сутки из ${MAIL_DAYS}.`);
+  console.log(`событие приходит раз в ${EVENT_INTERVAL_MIN}–${EVENT_INTERVAL_MAX} с игры и только при игроке. Счёт — последние сутки из ${MAIL_DAYS}.`);
   const base = await play(1);
   console.log('');
   console.log('  заходов × минут   игрок              пришло   ответил   согнано столом   истекло   на столе к концу');
