@@ -5,11 +5,23 @@ import { BUILDING_BY_ID } from '../data/buildings';
 import { EVENTS, EVENT_BY_ID, eventCost } from '../data/events';
 import { MUTINY_EVENT } from '../data/order';
 import type { GameState } from '../types';
-import { EVENT_TTL, SILENCE_PREFIX, eventId, eventLeft, lapseEvent, mailStep, raiseEvent, resolveEvent } from './mail';
+import {
+  AWAY_STEP,
+  EVENT_TTL,
+  SILENCE_PREFIX,
+  awayArrival,
+  eventId,
+  eventLeft,
+  lapseEvent,
+  mailAway,
+  mailStep,
+  raiseEvent,
+  resolveEvent,
+} from './mail';
 import { tick } from './tick';
 import { setRandom, seeded } from './random';
 import { LETTER_DECISIONS } from '@/world/letters';
-import { LETTER_SLOTS } from '@/world/data/tuning';
+import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_SLOTS } from '@/world/data/tuning';
 
 /**
  * Событие в почте державы: ждёт ответа настоящие сутки и без ответа разрешается
@@ -188,5 +200,95 @@ describe('стол: несколько донесений сразу, лишне
     expect(s.unrest).toBe(0);
     for (let i = 0; i < 2000 && s.inbox.length < 2; i++) tick(s, 0.5);
     expect(s.inbox.length, 'второе событие не пришло, пока ждёт первое').toBeGreaterThanOrEqual(2);
+  });
+});
+
+/**
+ * Вести в отлучке выводятся из времени: приход k стоит в абсолютной минуте, и стол
+ * при входе зависит только от того, сколько прошло, и от сида партии. Область правила
+ * — окно (последняя запись, вход], не глубже срока в сутки; при обучении и ропоте
+ * вестей нет. Точки выборки стоят по обе стороны настоящих приходов сетки, а не на
+ * произвольных минутах: иначе «ничего не пришло» проходило бы даром.
+ */
+describe('почта копится в отлучке — выводом из времени', () => {
+  const quiet = (): GameState => {
+    const s = rich();
+    s.seed = 424242;
+    return s;
+  };
+  // Первый приход сетки после T0 и следующий за ним.
+  const first = (seed: number): number => {
+    let k = Math.floor(T0 / AWAY_STEP);
+    while (awayArrival(seed, k) <= T0) k++;
+    return k;
+  };
+
+  it('соседние приходы лежат в 6–10 ч друг от друга — паузы писем', () => {
+    for (let k = 0; k < 200; k++) {
+      const gap = awayArrival(7, k + 1) - awayArrival(7, k);
+      expect(gap).toBeGreaterThanOrEqual(LETTER_PAUSE_MIN);
+      expect(gap).toBeLessThanOrEqual(LETTER_PAUSE_MAX);
+    }
+  });
+
+  it('весть приходит ровно в минуту своего прихода: миг до — стол пуст, в саму минуту — лежит', () => {
+    const k = first(424242);
+    const t = awayArrival(424242, k);
+    // Внутри области: приход внутри суток от записи.
+    expect(t - T0).toBeLessThan(EVENT_TTL);
+    const before = quiet();
+    expect(mailAway(before, T0, t - 1), 'пришло раньше своей минуты').toBe(0);
+    expect(before.inbox).toEqual([]);
+    const at = quiet();
+    expect(mailAway(at, T0, t), 'в свою минуту не пришло').toBe(1);
+    expect(at.inbox.length).toBe(1);
+    // Срок — от прихода, а не от входа. Вход нарочно на час позже прихода: в саму
+    // минуту прихода обе мерки совпали бы, и проверка прошла бы даром.
+    const late = quiet();
+    expect(mailAway(late, T0, t + HOUR)).toBe(1);
+    expect(late.inbox[0].until, 'срок — сутки от прихода, а не от входа').toBe(t + EVENT_TTL);
+  });
+
+  it('стол не зависит от того, сколько раз заглядывали: одна отлучка = две подряд', () => {
+    const k = first(424242);
+    const end = awayArrival(424242, k + 2) + HOUR;
+    // Внутри области: три прихода, и всё окно — в пределах суток.
+    expect(end - T0).toBeLessThan(EVENT_TTL);
+    const mid = awayArrival(424242, k + 1) - HOUR;
+    const once = quiet();
+    mailAway(once, T0, end);
+    const twice = quiet();
+    mailAway(twice, T0, mid);
+    mailAway(twice, mid, end);
+    // Внутри области: в окно легли три прихода сетки, и хотя бы один из них — на стол
+    // (того же вида второй раз не кладут, поэтому легших может быть меньше).
+    const grid = [k, k + 1, k + 2].map((i) => awayArrival(424242, i));
+    expect(grid.every((g) => g > T0 && g <= end)).toBe(true);
+    expect(once.inbox.length).toBeGreaterThan(0);
+    expect(twice.inbox).toEqual(once.inbox);
+    expect(twice.rolls, 'кость брошена разное число раз').toBe(once.rolls);
+  });
+
+  it('глубже суток окно не заходит: долгая отлучка не решает вести молчанием', () => {
+    const s = quiet();
+    const now = T0 + 7 * 24 * HOUR;
+    const n = mailAway(s, T0, now);
+    // Приходов за неделю — два десятка; на стол попадают только последние сутки.
+    expect(n, 'за сутки пришло больше, чем помещает сетка').toBeLessThanOrEqual(Math.ceil(EVENT_TTL / LETTER_PAUSE_MIN));
+    expect(n).toBeGreaterThan(0);
+    for (const ev of s.inbox) expect(ev.until! - EVENT_TTL, 'весть старше суток').toBeGreaterThan(now - EVENT_TTL);
+    expect(s.log.some((l) => l.text.includes(SILENCE_PREFIX)), 'отлучка решила весть молчанием').toBe(false);
+  });
+
+  it('при ропоте и при обучении вестей в отлучке нет — как при игроке', () => {
+    const k = first(424242);
+    const t = awayArrival(424242, k);
+    const restless = quiet();
+    restless.unrest = 1;
+    expect(mailAway(restless, T0, t)).toBe(0);
+    const novice = quiet();
+    novice.tutorialDone = false;
+    novice.time = 0;
+    expect(mailAway(novice, T0, t)).toBe(0);
   });
 });

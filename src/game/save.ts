@@ -7,6 +7,7 @@ import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { createInitialState, SAVE_VERSION } from './state';
 import { catchUp } from './sim/tick';
+import { mailAway } from './sim/mail';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
@@ -390,6 +391,10 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
     await hooks.onOffline?.(offline);
     catchUp(state, offline, 2);
   }
+  // Вести, пришедшие в отлучке, — выводом из времени, а не доигрыванием тиков
+  // (`sim/mail.mailAway`). После догона: кость партии и веса событий берутся у
+  // посёлка, каким он стал к входу.
+  mailAway(state, state.lastSaved, serverNow());
   return { state, offlineSeconds: offline, fresh: false, legacy: false };
 }
 

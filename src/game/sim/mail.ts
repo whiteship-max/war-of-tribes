@@ -18,9 +18,11 @@
 // Часов модуль не читает: «сейчас» приходит числом (`mailStep(s, now)`), как
 // день ежедневки. Шаг симуляции (`tick`) про настоящие часы не знает вовсе.
 import type { ActiveEvent, GameState } from '../types';
-import { EVENT_BY_ID, eventBlock, payEventCost, type EventDef } from '../data/events';
+import { EVENT_BY_ID, eventBlock, payEventCost, pickEvent, type EventDef } from '../data/events';
 import { EVENT_INTERVAL_MAX, EVENT_INTERVAL_MIN } from '../constants';
-import { LETTER_TTL } from '@/world/data/tuning';
+import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_TTL } from '@/world/data/tuning';
+import { hashId } from '@/world/diplomacy';
+import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { kickFrom } from '@/world/letters';
 import { MUTINY_EVENT } from '../data/order';
 import { rollInt } from './roll';
@@ -137,3 +139,55 @@ export function mailStep(s: GameState, now: number): boolean {
   }
   return lapsed;
 }
+
+/**
+ * Вести в отлучке. Пока игрока нет, `tick` событий не поднимает — и не должен: догон
+ * офлайна не доигрывает пропущенное. Но почта заведена затем, чтобы было зачем
+ * вернуться, и стол при входе **выводится из времени**, как всё остальное: сколько
+ * прошло настоящих часов и какие приходы легли на них по сетке партии.
+ *
+ * Сетка — числа пауз писем мира, нового не заведено: шаг — середина
+ * `LETTER_PAUSE_MIN`…`LETTER_PAUSE_MAX` (8 ч), приход ложится в начало своего шага
+ * со сдвигом до половины их разницы (0–2 ч), поэтому соседние приходы лежат в
+ * 6–10 ч друг от друга — ровно паузы писем.
+ * Приход k стоит в абсолютном времени и зависит только от сида партии и k: сколько
+ * раз и когда игрок заглядывал, на сетку не влияет (это тест).
+ */
+export const AWAY_STEP = (LETTER_PAUSE_MIN + LETTER_PAUSE_MAX) / 2;
+export const AWAY_JITTER = (LETTER_PAUSE_MAX - LETTER_PAUSE_MIN) / 2;
+
+/** Минута k-го прихода вести в отлучке, мс настоящего времени. */
+export const awayArrival = (seed: number, k: number): number =>
+  k * AWAY_STEP + (hashId(`${seed}|mail|${k}`) / 2 ** 32) * AWAY_JITTER;
+
+/**
+ * Положить на стол вести, пришедшие между `from` (последняя запись партии) и `now`
+ * (вход). Вид вести выбирает кость партии тем же `pickEvent`, что при игроке, срок —
+ * сутки от минуты прихода, и лишнее сгоняется тем же правилом стола.
+ *
+ * **Глубже срока в сутки окно не заходит** (`EVENT_TTL`): весть, пришедшая раньше,
+ * истекла бы, не показавшись ни разу, и её молчание было бы последствием, которого
+ * игрок не видел. Граница того же рода, что у догона хозяйства (`MAX_OFFLINE_SECONDS`):
+ * время сверх того, что игра показывает, не играется. Вести, лежавшие на столе до
+ * отлучки, истекают своим сроком — их игрок видел. Правила «нет вестей» тоже прежние:
+ * при обучении и при ропоте их нет. Возвращает, сколько вестей пришло.
+ */
+export function mailAway(s: GameState, from: number, now: number): number {
+  if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) return 0;
+  if (s.unrest > 0) return 0;
+  const start = Math.max(from, now - EVENT_TTL);
+  let n = 0;
+  for (let k = Math.floor((start - AWAY_JITTER) / AWAY_STEP); ; k++) {
+    const t = awayArrival(s.seed, k);
+    if (t > now) break;
+    if (t <= start) continue;
+    // До прихода — то, что истекло к его минуте, уходит своим молчанием.
+    mailStep(s, t);
+    const e = pickEvent(s);
+    if (!e || !raiseEvent(s, e.id)) continue;
+    s.inbox[s.inbox.length - 1].until = t + EVENT_TTL;
+    n++;
+  }
+  return n;
+}
+
