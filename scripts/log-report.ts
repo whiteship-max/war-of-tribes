@@ -17,9 +17,8 @@ import { serialize } from '@/game/save';
 import { LOG_MAX, LOG_MAX_DAYS } from '@/game/sim/log';
 import { dayOf, marketLeft, marketOffer, storageCap } from '@/game/derived';
 import { DAY_LENGTH, EVENT_INTERVAL_MAX, EVENT_INTERVAL_MIN, MAX_OFFLINE_SECONDS } from '@/game/constants';
-import { away, pilot, player } from './autopilot';
-import { tick } from '@/game/sim/tick';
-import { EVENT_TTL, SILENCE_PREFIX, eventId, mailStep, resolveEvent } from '@/game/sim/mail';
+import { away, pilot, player, stand } from './autopilot';
+import { AWAY_JITTER, AWAY_STEP, EVENT_TTL, eventId, mailAway, mailStep, resolveEvent } from '@/game/sim/mail';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { LETTER_DECISIONS } from '@/world/letters';
 
@@ -201,12 +200,13 @@ async function main(): Promise<void> {
 
 
 // Почта державы: сколько донесений-событий игрок видит за сутки и сколько решается
-// без него (docs/realm.md, раздел 8). События поднимаются только при игроке, раз в
-// EVENT_INTERVAL_MIN…MAX игровых секунд; стол держит LETTER_DECISIONS, срок — сутки
-// настоящими часами. Настоящее время здесь своё: заход идёт часами игры один к
-// одному, между заходами часы идут, а игра догоняет не больше MAX_OFFLINE_SECONDS.
-// Замер — модель игрока, а не игрок: заходы ровные, длина задана. Посёлок — тот, что
-// вырос за час общего автопилота; события выпадают по его весам.
+// без него (docs/realm.md, раздел 8). При игроке события поднимаются раз в
+// EVENT_INTERVAL_MIN…MAX игровых секунд; в отлучке стол выводится из времени по сетке
+// пауз писем (`sim/mail.mailAway`) — ровно так, как его выводит вход в игру. Стол
+// держит LETTER_DECISIONS, срок — сутки настоящими часами. Заход идёт часами игры
+// один к одному, между заходами часы идут, а хозяйство догоняет не больше
+// MAX_OFFLINE_SECONDS. Замер — модель игрока, а не игрок: заходы ровные, длина задана.
+// Посёлок — тот, что вырос за час общего автопилота; события выпадают по его весам.
 interface MailDay {
   raised: number;
   answered: number;
@@ -215,6 +215,41 @@ interface MailDay {
 }
 
 const MAIL_DAYS = 3;
+const MAIL_T0 = 1_900_000_000_000;
+
+/**
+ * Сколько вестей ушло со стола за шаг `step`, не будучи отвеченными. Считается по
+ * самому столу, а не по строкам летописи: летопись обрезается по возрасту и
+ * количеству, и счёт строк врал бы. Ответы сюда не попадают — `step` не отвечает.
+ */
+function dropped(s: GameState, step: () => void): number {
+  const before = new Set(s.inbox.map(eventId));
+  step();
+  const after = new Set(s.inbox.map(eventId));
+  let n = 0;
+  for (const id of before) if (!after.has(id)) n++;
+  return n;
+}
+
+/** Уйти на `off` секунд и вернуться: догон хозяйства и вести отлучки — как вход в игру. */
+function goAway(s: GameState, now: number, off: number): number {
+  away(s, Math.min(off, MAX_OFFLINE_SECONDS), 30);
+  const back = now + off * 1000;
+  mailAway(s, now, back);
+  mailStep(s, back);
+  return back;
+}
+
+/** Ответить на всё ждущее первым бесплатным вариантом. Возвращает, сколько отвечено. */
+function answerAll(s: GameState): number {
+  let n = 0;
+  for (const ev of [...s.inbox]) {
+    const def = EVENT_BY_ID[ev.defId];
+    const i = def.options.findIndex((o) => !o.cost);
+    if (resolveEvent(s, Math.max(0, i), eventId(ev)).error === null) n++;
+  }
+  return n;
+}
 
 function mailDay(base: GameState, visits: number, minutes: number, reads: boolean): MailDay & { left: number } {
   const s = structuredClone(base);
@@ -223,43 +258,45 @@ function mailDay(base: GameState, visits: number, minutes: number, reads: boolea
   const all: MailDay = { raised: 0, answered: 0, crowded: 0, expired: 0 };
   let last: MailDay = { ...all };
   const seen = new Set<string>();
-  const silent = (): number => s.log.filter((l) => l.text.includes(SILENCE_PREFIX)).length;
-  const answerAll = (): void => {
-    if (!reads) return;
-    for (const ev of [...s.inbox]) {
-      const def = EVENT_BY_ID[ev.defId];
-      const i = def.options.findIndex((o) => !o.cost);
-      if (resolveEvent(s, Math.max(0, i), eventId(ev)).error === null) all.answered++;
-    }
+  const look = (): void => {
+    for (const ev of s.inbox) seen.add(eventId(ev));
+  };
+  const read = (): void => {
+    if (reads) all.answered += answerAll(s);
   };
   const gap = (24 * 3600) / visits;
-  let now = 1_900_000_000_000;
+  let now = MAIL_T0;
   for (let d = 0; d < MAIL_DAYS; d++) {
     // Считаются последние сутки: к ним стол уже живёт, а не начинается пустым.
     if (d === MAIL_DAYS - 1) last = { ...all, raised: seen.size };
     for (let v = 0; v < visits; v++) {
       // Заход: читающий игрок заглядывает в почту раз в минуту — счётчик на гербе
-      // зовёт, — и ещё раз перед уходом.
-      for (let t = 0; t < minutes * 60; t++) {
-        if (t % 60 === 0) answerAll();
-        let n = silent();
-        tick(s, 1);
-        all.crowded += silent() - n;
-        for (const ev of s.inbox) seen.add(eventId(ev));
-        now += 1000;
-        n = silent();
-        mailStep(s, now);
-        all.expired += silent() - n;
-      }
-      answerAll();
-      // Отлучка: часы идут, игра догоняет не больше MAX_OFFLINE_SECONDS, событий офлайн
-      // нет. Шаг догона крупный: он двигает только посёлок, по чьим весам выпадают события.
-      const off = gap - minutes * 60;
-      away(s, Math.min(off, MAX_OFFLINE_SECONDS), 30);
-      now += off * 1000;
-      const n = silent();
-      mailStep(s, now);
-      all.expired += silent() - n;
+      // зовёт, — и ещё раз перед уходом. Шаг игры идёт через `stand`: вытеснение
+      // случается внутри него, поэтому до шага запоминается стол, а после —
+      // считается, что с него ушло.
+      let table = new Set<string>();
+      stand(s, {
+        dt: 1,
+        steps: minutes * 60,
+        before: (_, t) => {
+          look();
+          if (t % 60 === 0) read();
+          table = new Set(s.inbox.map(eventId));
+        },
+        after: () => {
+          const kept = new Set(s.inbox.map(eventId));
+          for (const id of table) if (!kept.has(id)) all.crowded++;
+          now += 1000;
+          all.expired += dropped(s, () => mailStep(s, now));
+          look();
+        },
+      });
+      read();
+      // В отлучке ушедшее со стола — сгонено или истекло; вместе это «решилось без игрока».
+      all.expired += dropped(s, () => {
+        now = goAway(s, now, gap - minutes * 60);
+      });
+      look();
     }
   }
   return {
@@ -271,13 +308,41 @@ function mailDay(base: GameState, visits: number, minutes: number, reads: boolea
   };
 }
 
+/**
+ * Что видит вернувшийся: сыграл заход в пять минут, разобрал почту (или нет), ушёл на
+ * `hours` и вернулся. Сколько вестей на столе, сколько решилось без него молчанием и
+ * что это сделало с посёлком — против того же посёлка, ушедшего так же, но без вестей.
+ */
+function mailReturn(
+  base: GameState,
+  hours: number,
+  seedShift: number,
+  cleared: boolean,
+): { table: number; silent: number; pop: number; stock: number } {
+  const s = structuredClone(base);
+  s.seed += seedShift;
+  s.inbox = [];
+  s.nextEventAt = s.time;
+  let now = MAIL_T0;
+  stand(s, { dt: 1, steps: 300, after: () => void (now += 1000) });
+  mailStep(s, now);
+  if (cleared) answerAll(s);
+  const bare = structuredClone(s);
+  bare.inbox = [];
+  away(bare, Math.min(hours * 3600, MAX_OFFLINE_SECONDS), 30);
+  const silent = dropped(s, () => goAway(s, now, hours * 3600));
+  const stock = (g: GameState): number => Object.values(g.resources).reduce((a, b) => a + b, 0);
+  return { table: s.inbox.length, silent, pop: s.pop - bare.pop, stock: Math.round(stock(s) - stock(bare)) };
+}
+
 async function mailSection(): Promise<void> {
   console.log('\n=== ПОЧТА: сколько донесений в сутки и сколько решается без игрока ===');
   console.log(`Стол — ${LETTER_DECISIONS} событий (как у писем мира), срок — ${EVENT_TTL / 3600000} ч настоящих;`);
-  console.log(`событие приходит раз в ${EVENT_INTERVAL_MIN}–${EVENT_INTERVAL_MAX} с игры и только при игроке. Счёт — последние сутки из ${MAIL_DAYS}.`);
+  console.log(`при игроке событие приходит раз в ${EVENT_INTERVAL_MIN}–${EVENT_INTERVAL_MAX} с игры, в отлучке — по сетке пауз писем`);
+  console.log(`(шаг ${AWAY_STEP / 3600000} ч, сдвиг до ${AWAY_JITTER / 3600000} ч), не глубже суток. Счёт — последние сутки из ${MAIL_DAYS}.`);
   const base = await play(1);
   console.log('');
-  console.log('  заходов × минут   игрок              пришло   ответил   согнано столом   истекло   на столе к концу');
+  console.log('  заходов × минут   игрок              пришло   ответил   согнано при игре   истекло или согнано в отлучке   на столе к концу');
   for (const [visits, minutes] of [
     [3, 5],
     [6, 5],
@@ -285,8 +350,29 @@ async function mailSection(): Promise<void> {
   ] as const) {
     for (const reads of [true, false]) {
       const r = mailDay(base, visits, minutes, reads);
+      const who = (reads ? 'разбирает почту' : 'не открывает').padEnd(17);
       console.log(
-        `  ${String(visits).padStart(6)} × ${String(minutes).padEnd(7)}  ${(reads ? 'разбирает почту' : 'не открывает').padEnd(17)}  ${String(r.raised).padStart(6)}   ${String(r.answered).padStart(7)}   ${String(r.crowded).padStart(14)}   ${String(r.expired).padStart(7)}   ${String(r.left).padStart(16)}`,
+        `  ${String(visits).padStart(6)} × ${String(minutes).padEnd(7)}  ${who}  ${String(r.raised).padStart(6)}   ${String(r.answered).padStart(7)}   ${String(r.crowded).padStart(16)}   ${String(r.expired).padStart(29)}   ${String(r.left).padStart(16)}`,
+      );
+    }
+  }
+
+  // Вернувшийся: восемь партий на отлучку (сид сдвинут), чтобы сетка легла по-разному.
+  // «Против той же отлучки без вестей» — разница с посёлком, который ушёл так же, но
+  // стол у которого пуст: то, что сделали вести и их молчания, а не догон хозяйства.
+  const SEEDS = 8;
+  for (const cleared of [true, false]) {
+    console.log(`\n  Вернулся после захода в 5 мин, ${cleared ? 'разобрав почту' : 'не разобрав почты'} (восемь сидов, мин…сред…макс):`);
+    console.log('  отлучка   на столе     решилось молчанием   жители против той же отлучки без вестей   склад против неё же');
+    for (const hours of [1, 8, 24, 72]) {
+      const runs = Array.from({ length: SEEDS }, (_, i) => mailReturn(base, hours, i + 1, cleared));
+      const span = (f: (r: (typeof runs)[number]) => number): string => {
+        const v = runs.map(f);
+        const avg = v.reduce((a, b) => a + b, 0) / v.length;
+        return `${Math.min(...v)}…${avg.toFixed(1)}…${Math.max(...v)}`;
+      };
+      console.log(
+        `  ${`${hours} ч`.padEnd(8)}  ${span((r) => r.table).padEnd(11)}  ${span((r) => r.silent).padEnd(19)}  ${span((r) => r.pop).padEnd(40)}  ${span((r) => r.stock)}`,
       );
     }
   }
