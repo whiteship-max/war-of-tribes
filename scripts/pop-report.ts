@@ -47,7 +47,9 @@ const hm = (sec: number): string => {
 
 async function main(): Promise<void> {
   setRandom(seeded(1));
-  const s = createInitialState();
+  // Сид партии закреплён: вести приходят по сетке от `s.seed` (`sim/mail.awayArrival`), а без сида партия
+  // берёт его у устройства (`freshSeed`) — и два прогона одного кода расходились (docs/time.md, раздел 16.10).
+  const s = createInitialState(7);
   s.tutorialDone = true;
   const total = HOURS * 3600;
 

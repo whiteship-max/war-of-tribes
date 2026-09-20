@@ -75,7 +75,9 @@ const ABSENCES = [8, 16, 24, 48, 96, 144];
 
 async function stages(): Promise<GameState[]> {
   setRandom(seeded(1));
-  const s = createInitialState();
+  // Сид партии закреплён: вести приходят по сетке от `s.seed` (`sim/mail.awayArrival`), а без сида партия
+  // берёт его у устройства (`freshSeed`) — и два прогона одного кода расходились (docs/time.md, раздел 16.10).
+  const s = createInitialState(7);
   s.tutorialDone = true;
   const out: GameState[] = [];
   await pilot({

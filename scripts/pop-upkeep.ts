@@ -109,7 +109,9 @@ const WORLD = 7;
  */
 async function play(tax: TaxId, faith: FaithId | null, hours: number): Promise<Run> {
   setRandom(seeded(1));
-  const s = createInitialState();
+  // Сид партии закреплён: вести приходят по сетке от `s.seed` (`sim/mail.awayArrival`), а без сида партия
+  // берёт его у устройства (`freshSeed`) — и два прогона одного кода расходились (docs/time.md, раздел 16.10).
+  const s = createInitialState(7);
   s.tutorialDone = true;
   s.faith.id = faith;
   const gold: number[] = [];
