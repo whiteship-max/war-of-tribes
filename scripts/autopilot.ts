@@ -663,11 +663,25 @@ export interface Flight {
   watch?: Watch;
 }
 
+/**
+ * Во что обошёлся прогон машине, мс настоящего времени: шаг племени, решения игрока и пульс мира порознь.
+ * Прибор `time:report` («цена живого прогона»): от того, что из трёх держит цену, зависит, во сколько
+ * обойдётся перемер после поворота шкалы времени (docs/time.md, раздел 6). На ход прогона не влияет.
+ */
+export interface Cost {
+  tick: number;
+  decide: number;
+  pulse: number;
+  ticks: number;
+  pulses: number;
+}
+
 export interface Flown {
   run: Run;
   ledger: Ledger;
   world: LocalWorld;
   g: GameState;
+  cost: Cost;
 }
 
 export async function pilot(o: Flight): Promise<Flown> {
@@ -681,9 +695,14 @@ export async function pilot(o: Flight): Promise<Flown> {
   const pulseMs = o.world.pulse * 1000;
   const run = sky.run;
 
+  const cost: Cost = { tick: 0, decide: 0, pulse: 0, ticks: 0, pulses: 0 };
   const beat = async (): Promise<WorldPulse> => {
     if (o.refill) Object.assign(g.army, full);
-    return sky.pulse();
+    const t0 = performance.now();
+    const p = await sky.pulse();
+    cost.pulse += performance.now() - t0;
+    cost.pulses++;
+    return p;
   };
 
   await beat();
@@ -697,10 +716,15 @@ export async function pilot(o: Flight): Promise<Flown> {
     if (o.economy === 'live') {
       for (let t = 0; t < o.world.pulse; t += o.tick) {
         if (clock % o.decide === 0) {
+          const d0 = performance.now();
           decide(g, p, l);
+          cost.decide += performance.now() - d0;
           watch.decided?.(g, l);
         }
+        const t0 = performance.now();
         tick(g, o.tick);
+        cost.tick += performance.now() - t0;
+        cost.ticks++;
         clock += o.tick;
       }
     }
@@ -732,7 +756,7 @@ export async function pilot(o: Flight): Promise<Flown> {
   countDeserted(g, l);
   countMutinyEnd(g, l);
   run.armyEnd = armySize(g);
-  return { run, ledger: l, world: sky.world, g };
+  return { run, ledger: l, world: sky.world, g, cost };
 }
 
 // ---------- Без игрока ----------
