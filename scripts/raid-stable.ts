@@ -47,7 +47,7 @@ import { TAX_PER_POP } from '@/game/data/policy';
 import type { EquipmentId, ResourceId, TroopId } from '@/game/types';
 import { MIX, armyAt, openSky, townAt, type Inside } from './autopilot';
 import { SEEDS } from './raid-common';
-import { halfBand, spread } from './lib/halfband';
+import { bootstrapHalves, halfBand, percentile, spread } from './lib/halfband';
 
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 const padR = (v: string | number, w: number): string => String(v).padEnd(w);
@@ -108,6 +108,14 @@ const MEN = 600;
 const salt = (seed: number, n: number): number => Math.imul(seed ^ n, 0x9e3779b1) >>> 0;
 const STYLES = Object.keys(GARRISON_STYLES) as GarrisonStyle[];
 const LAIR_SEEDS = 40;
+/**
+ * Боёв на точку в разделе 6.3: из него выводятся места конницы, и при сорока боях прибавка лежала целиком
+ * внутри своей границы (раздел 6.3а) — то есть места выводились из шума. Число правится переменной среды,
+ * чтобы перемерять границу, не трогая остальные разделы: `SHARE_FIGHTS=320 npm run raid-stable:report`.
+ */
+const SHARE_FIGHTS = Number(process.env.SHARE_FIGHTS ?? 160);
+/** Бросков перевыборки в границе: больше — та же граница, ровнее последняя цифра. */
+const BOOT_DRAWS = 400;
 const SHARES = Array.from({ length: 39 }, (_, i) => 0.2 + i * 0.1);
 
 /** Сила противника в долях своей мощи, при которой проигрываем половину боёв (линейно между ступенями). */
@@ -150,10 +158,10 @@ interface Side {
  * Бои стороны `own` против логова силой `k` × своей мощи, по бою на сид: проигран ли — `defend`: набег прорвал,
  * `attack`: удар по гарнизону не удался. `style` null — уклад, какой выпал отряду по имени.
  */
-function lairLosses(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', o: Order): boolean[] {
+function lairLosses(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', o: Order, fights = LAIR_SEEDS): boolean[] {
   const out: boolean[] = [];
   const power = stackMen(own.stack) * BATTLE_MAN;
-  for (let i = 1; i <= LAIR_SEEDS; i++) {
+  for (let i = 1; i <= fights; i++) {
     const seed = i * 7919;
     const setup = (n: number): ArmySetup | null => (o.cavalry ? ordered(quickAttack(own.stack, salt(seed, n)).setup, o) : null);
     if (mode === 'defend') {
@@ -527,8 +535,9 @@ interface ShareRow {
 
 function sharePart(): ShareRow[] {
   console.log('');
-  console.log(`--- 6.3. Доля конницы в войске: ядро, пеший остаток — по составу мерки MIX, ${LAIR_SEEDS} боёв на силу логова, уклад — по имени отряда ---`);
+  console.log(`--- 6.3. Доля конницы в войске: ядро, пеший остаток — по составу мерки MIX, ${SHARE_FIGHTS} боёв на силу логова, уклад — по имени отряда ---`);
   console.log('Ячейка — как в разделе 3; «прибавка» — к той же армии без конницы (столбец 0 %). Конница логова — какая выпала укладу.');
+  console.log(`Боёв здесь больше, чем в прочих разделах (${LAIR_SEEDS}): из этой таблицы выводятся места конницы, а при ${LAIR_SEEDS} боях прибавка лежала внутри своей границы (раздел 6.3а).`);
   console.log(` ${padR('класс и приказ', 30)}${CAV_SHARES.map((s) => pad(pct(s), 7)).join('')}   прибавка при ${CAV_SHARES.slice(1).map(pct).join(' / ')}`);
   const rows: ShareRow[] = [];
   for (const horse of CLASSES) {
@@ -539,11 +548,11 @@ function sharePart(): ShareRow[] {
         const lost = CAV_SHARES.map((s) => {
           const memo = new Map<number, boolean[]>();
           return (k: number): boolean[] => {
-            if (!memo.has(k)) memo.set(k, lairLosses(mixSide(s, horse), null, k, mode, order));
+            if (!memo.has(k)) memo.set(k, lairLosses(mixSide(s, horse), null, k, mode, order, SHARE_FIGHTS));
             return memo.get(k)!;
           };
         });
-        const hs = lost.map((l) => halfPoint((k) => l(k).filter(Boolean).length / LAIR_SEEDS));
+        const hs = lost.map((l) => halfPoint((k) => l(k).filter(Boolean).length / SHARE_FIGHTS));
         row[mode] = hs;
         row.lost[mode] = lost;
         console.log(` ${padR(`${row.name}: ${mode === 'defend' ? 'оборона' : 'удар'}`, 30)}${hs.map((h) => pad(f2(h), 7)).join('')}   ${hs.slice(1).map((h) => `${h >= hs[0] ? '+' : '−'}${Math.abs(Math.round((h / hs[0] - 1) * 100))}%`).join(' / ')}`);
@@ -555,39 +564,78 @@ function sharePart(): ShareRow[] {
   return rows;
 }
 
-/** Сколько боёв на ступень взяла бы «Конюшня», будь их вдвое меньше: граница считается по первым из тех же боёв. */
-const HALF_SEEDS = LAIR_SEEDS / 2;
+const LEVELS_1_10 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 /**
- * Доверительная граница ячеек раздела 6.3 (`scripts/lib/halfband.ts`): при `LAIR_SEEDS` боях на ступень и при первых
- * `HALF_SEEDS` из них. Ради неё и заведена: число боёв на точку уменьшать можно только тогда, когда видно, что доля
- * побед от этого не станет шумом (docs/realm.md, раздел 8, «Цена разделов raid:report»).
- * Граница прибавки — наихудшее сочетание краёв двух полпути; сиды у долей конницы общие, и настоящая граница разности уже.
+ * Доля конницы, на которой её прибавка к войску без конницы достигает одного решения: линейно между
+ * долями, `NaN` — не достигает до последней. Одна на раздел 7 (места) и на границу раздела 6.3а.
+ */
+function capOf(hs: number[]): number {
+  for (let i = 1; i < hs.length; i++) {
+    const g = hs[i] / hs[0] - 1;
+    if (g >= ONE_DECISION) {
+      const gp = hs[i - 1] / hs[0] - 1;
+      return CAV_SHARES[i - 1] + ((ONE_DECISION - gp) / Math.max(1e-9, g - gp)) * (CAV_SHARES[i] - CAV_SHARES[i - 1]);
+    }
+  }
+  return NaN;
+}
+
+/** Места конницы класса по уровням 1…10 при доле `cap`: столько всадников этого класса держит конюшня. */
+const placesAt = (horse: HorseClass, cap: number): number[] =>
+  LEVELS_1_10.map((L) => Math.round((armyAt(L) * (troopPower(MIX) / troopTotal(MIX)) * cap) / BATTLE_MAN / weightOf(horse.troop)));
+
+/** На скольких боях показывать границу: степени двойки до нынешнего числа боёв, и само число. */
+const bandSteps = (n: number): number[] => [...new Set([40, 80, 160, 320, n])].filter((x) => x <= n).sort((a, b) => a - b);
+
+/**
+ * Доверительная граница раздела 6.3 (`scripts/lib/halfband.ts`) — и главное, граница **мест конницы**:
+ * места выводятся из доли, на которой прибавка достигает одного решения, и если эта доля гуляет от
+ * перевыборки сидов, то места выведены из шума. Граница прибавки — парный бутстрап: на каждом броске
+ * один набор сидов идёт всем долям сразу, потому что бои у них на одних и тех же сидах, и конверт из
+ * краёв двух границ был бы шире правды.
  */
 function bandPart(rows: ShareRow[]): void {
   console.log('');
-  console.log(`--- 6.3а. Доверительная граница ячеек раздела 6.3: 95 %, Уилсон по ступеням силы, ${LAIR_SEEDS} боёв и первые ${HALF_SEEDS} из них ---`);
-  console.log('«±» — полуширина границы полпути в долях самого полпути, медиана и худшая по шести долям конницы. «прибавка при');
-  console.log(`${pct(CAV_SHARE)}» — как в 6.3 и её граница: низ — нижняя граница полпути при ${pct(CAV_SHARE)} к верхней при 0 %, верх — наоборот.`);
-  console.log(`Прибавка решает места конницы (раздел 7, порог — одно решение, ${pct(ONE_DECISION)}): граница, пересекающая порог, — места шумом.`);
-  console.log(` ${padR('класс и приказ', 30)}   ${pad(`± при ${LAIR_SEEDS}`, 14)}  ${pad(`± при ${HALF_SEEDS}`, 14)}  ${pad(`прибавка при ${pct(CAV_SHARE)}: ${LAIR_SEEDS} боёв`, 30)}  ${pad(`${HALF_SEEDS} боёв`, 18)}`);
+  console.log(`--- 6.3а. Граница прибавки и мест: 95 %, парный бутстрап по сидам, ${BOOT_DRAWS} бросков ---`);
+  console.log('«±» — полуширина границы полпути (Уилсон по ступеням) в долях самого полпути, медиана по шести долям конницы.');
+  console.log(`«прибавка при ${pct(CAV_SHARE)}» — как в 6.3, с границей. «доля решения» — доля конницы, на которой прибавка достигает ${pct(ONE_DECISION)}`);
+  console.log('(из неё считаются места, раздел 7), с границей; «нет» — не достигает до 60 %, в скобках — на скольких бросках из ста «нет».');
+  console.log(` ${padR('класс и приказ', 24)} ${pad('боёв', 5)}  ${pad('±', 7)}  ${pad(`прибавка при ${pct(CAV_SHARE)}`, 22)}  ${pad('доля решения', 24)}  места 10-го уровня`);
   const at = CAV_SHARES.indexOf(CAV_SHARE);
-  const all: Record<number, number[]> = { [LAIR_SEEDS]: [], [HALF_SEEDS]: [] };
   for (const r of rows) {
-    for (const mode of ['defend', 'attack'] as const) {
-      const cells = (n: number): string => {
-        const bands = r.lost[mode].map((l) => halfBand(l, SHARES, n));
-        const s = bands.map(spread).sort((a, b) => a - b);
-        all[n].push(...s);
-        const gain = `${signedPct(bands[at].half / bands[0].half - 1)} [${signedPct(bands[at].lo / bands[0].hi - 1)}…${signedPct(bands[at].hi / bands[0].lo - 1)}]`;
-        return `${pad(`${pctOr(median(s))} / ${pctOr(s[s.length - 1])}`, 14)}|${gain}`;
+    const curves = [...r.lost.defend, ...r.lost.attack];
+    for (const n of bandSteps(SHARE_FIGHTS)) {
+      const boot = bootstrapHalves(curves, SHARES, n, BOOT_DRAWS);
+      const sides = (xs: number[]): { d: number[]; a: number[] } => ({ d: xs.slice(0, CAV_SHARES.length), a: xs.slice(CAV_SHARES.length) });
+      const capBoth = (xs: number[]): number => {
+        const { d, a } = sides(xs);
+        const cd = capOf(d);
+        const ca = capOf(a);
+        return Math.min(Number.isFinite(cd) ? cd : Infinity, Number.isFinite(ca) ? ca : Infinity);
       };
-      const [s40, g40] = cells(LAIR_SEEDS).split('|');
-      const [s20, g20] = cells(HALF_SEEDS).split('|');
-      console.log(` ${padR(`${r.name}: ${mode === 'defend' ? 'оборона' : 'удар'}`, 30)}   ${s40}  ${s20}  ${pad(g40, 30)}  ${pad(g20, 18)}`);
+      const caps = boot.draws.map(capBoth);
+      const none = caps.filter((c) => !Number.isFinite(c)).length / caps.length;
+      const capPoint = capBoth(boot.point);
+      const capLo = percentile(caps, 0.025);
+      const capHi = percentile(caps, 0.975);
+      // Бросок, на котором хоть одно полпути ушло за последнюю ступень, прибавки не даёт: делить на
+      // бесконечность значит печатать «−100 %» там, где сказать нечего. Такие броски выбрасываются.
+      const gains = boot.draws
+        .filter((xs) => Number.isFinite(sides(xs).d[at]) && Number.isFinite(sides(xs).d[0]))
+        .map((xs) => sides(xs).d[at] / sides(xs).d[0] - 1);
+      const gain = sides(boot.point).d[at] / sides(boot.point).d[0] - 1;
+      const spreads = r.lost.defend.map((l) => spread(halfBand(l, SHARES, n)));
+      const share = (x: number): string => (Number.isFinite(x) ? pct(x) : 'нет');
+      const seats = (x: number): string => (Number.isFinite(x) ? String(placesAt(r.horse, x)[9]) : '—');
+      console.log(
+        ` ${padR(r.name, 24)} ${pad(n, 5)}  ${pad(pctOr(median(spreads)), 7)}  ${pad(`${signedPct(gain)} [${signedPct(percentile(gains, 0.025))}…${signedPct(percentile(gains, 0.975))}]`, 22)}  ${pad(
+          `${share(capPoint)} [${share(capLo)}…${share(capHi)}] (${Math.round(none * 100)})`,
+          24,
+        )}  ${seats(capPoint)} [${seats(capLo)}…${seats(capHi)}]`,
+      );
     }
   }
-  console.log(`  медиана ± по всем ячейкам: ${pctOr(median(all[LAIR_SEEDS]))} при ${LAIR_SEEDS} боях, ${pctOr(median(all[HALF_SEEDS]))} при ${HALF_SEEDS}.`);
 }
 
 const pctOr = (x: number): string => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : '—');
@@ -729,33 +777,22 @@ function numbersPart(worth: Worth, shares: ShareRow[]): void {
   console.log(`Места: доля конницы, на которой её прибавка к войску без конницы достигает одного решения (${pct(ONE_DECISION)}, разрыв настроенной армии и`);
   console.log('быстрой атаки), — по разделу 6.3, линейно между долями, меньшая из обороны и удара; не достигает до 60 % — «нет». Места уровня L — эта доля');
   console.log('бойцов строя войска мерки (autopilot.armyAt(L) голов по составу MIX), делённая на строя всадника класса. Справа — стойла в игре (derived.stalls).');
-  const capOf = (hs: number[]): number => {
-    for (let i = 1; i < hs.length; i++) {
-      const g = hs[i] / hs[0] - 1;
-      if (g >= ONE_DECISION) {
-        const gp = hs[i - 1] / hs[0] - 1;
-        return CAV_SHARES[i - 1] + ((ONE_DECISION - gp) / Math.max(1e-9, g - gp)) * (CAV_SHARES[i] - CAV_SHARES[i - 1]);
-      }
-    }
-    return NaN;
-  };
-  const mixPower = troopPower(MIX) / troopTotal(MIX);
-  const LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  console.log(`Граница этих долей — раздел 6.3а: места, выведенные из доли, у которой граница накрывает ${pct(ONE_DECISION)}, выведены из шума.`);
   for (const r of shares) {
     const d = capOf(r.defend);
     const a = capOf(r.attack);
     const cap = Math.min(Number.isFinite(d) ? d : Infinity, Number.isFinite(a) ? a : Infinity);
-    const places = Number.isFinite(cap) ? LEVELS.map((L) => Math.round((armyAt(L) * mixPower * cap) / BATTLE_MAN / weightOf(r.horse.troop))).join(' ') : '—';
+    const places = Number.isFinite(cap) ? placesAt(r.horse, cap).join(' ') : '—';
     console.log(`  ${padR(r.name, 24)} оборона ${Number.isFinite(d) ? pct(d) : 'нет'}, удар ${Number.isFinite(a) ? pct(a) : 'нет'}; места по уровням 1…10: ${places}`);
   }
-  console.log(`  стойла в игре по уровням 1…10: ${LEVELS.map((L) => stalls(townAt(L))).join(' ')}`);
+  console.log(`  стойла в игре по уровням 1…10: ${LEVELS_1_10.map((L) => stalls(townAt(L))).join(' ')}`);
 
   console.log('');
   console.log('Время найма: работа вида (data/troops.ts) при скорости учений конюшни уровня L (derived.recruitRate, у мерки все постройки уровня L).');
   console.log('Игровых секунд на голову; «все стойла тяжёлыми» — стойла уровня, нанятые подряд.');
   console.log(` уровень  ${CLASSES.map((c) => pad(c.name, 9)).join('')}  ${pad('стойл', 6)}  все стойла тяжёлыми`);
   const heavy = CLASSES.find((c) => c.kind === 'heavy')!;
-  for (const L of LEVELS) {
+  for (const L of LEVELS_1_10) {
     const s = townAt(L);
     const cells = CLASSES.map((c) => pad((TROOP_BY_ID[c.troop].work / recruitRate(s, c.troop)).toFixed(1), 9));
     console.log(` ${pad(L, 7)}  ${cells.join('')}  ${pad(stalls(s), 6)}  ${pad(((stalls(s) * TROOP_BY_ID[heavy.troop].work) / recruitRate(s, heavy.troop)).toFixed(0), 19)}`);
