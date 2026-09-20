@@ -299,15 +299,17 @@ export async function infirmarySection(h: Hired): Promise<void> {
 
   // 6. Голод.
   console.log('');
-  console.log('Голод: «нехватка еды» — решений, где войску не хватало еды (foodShortfall, делитель — все, кто ест солдатский паёк); «названо неуплатой» — из них,');
-  console.log(`где дверь содержания назвала повод неуплатой; «ушли из лазарета» и «ушли с учений» — голодом (доля ухода ${DESERT_SHARE} в день).`);
-  console.log(' поведение                    где     нехватка еды  названо неуплатой  ушли из лазарета  ушли с учений');
+  console.log('Голод: «нехватка еды» — решений, где войску не хватало еды (foodShortfall, делитель — все, кто ест солдатский паёк); «тревога: неуплата» — из них,');
+  console.log('где строка тревоги назвала больший повод неуплатой (строка одна на оба повода, `derived.upkeepInfo.why`). Дальше — судьба ушедших по строкам');
+  console.log(`летописи, которые пишет сама дверь: «ушло голодом» и «ушло неуплатой» из строя, «голодный жителем» обязан быть нулём — поводы делят уходящих,`);
+  console.log(`и жителем возвращается только неуплата. «ушли из лазарета» и «ушли с учений» — всегда голодом (доля ухода ${DESERT_SHARE} в день).`);
+  console.log(' поведение                    где     нехватка еды  тревога: неуплата  ушло голодом  ушло неуплатой  голодный жителем  ушли из лазарета  ушли с учений');
   for (const r of rows) {
     const decisions = total(r, (o) => o.l.growth.length);
     const unfed = total(r, (o) => o.l.unfed);
     const asPay = total(r, (o) => o.l.unfedAsPay);
     console.log(
-      ` ${r.name.padEnd(27)}  ${where(r).padEnd(6)}  ${pad(`${unfed} из ${decisions}`, 12)}  ${pad(unfed ? `${asPay} (${pct(asPay / unfed)})` : '—', 17)}  ${pad(total(r, (o) => o.l.starvedWounded), 16)}  ${pad(total(r, (o) => o.l.starvedDrafts), 13)}`,
+      ` ${r.name.padEnd(27)}  ${where(r).padEnd(6)}  ${pad(`${unfed} из ${decisions}`, 12)}  ${pad(unfed ? `${asPay} (${pct(asPay / unfed)})` : '—', 17)}  ${pad(total(r, (o) => o.l.starvedLine), 12)}  ${pad(total(r, (o) => o.l.paidLine), 14)}  ${pad(total(r, (o) => o.l.starvedHome), 16)}  ${pad(total(r, (o) => o.l.starvedWounded), 16)}  ${pad(total(r, (o) => o.l.starvedDrafts), 13)}`,
     );
   }
 }

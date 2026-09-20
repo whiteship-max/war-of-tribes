@@ -70,9 +70,17 @@ interface HireLedger extends Ledger {
   fights: Fight[];
   /** Прирост жителей за игровой день по решениям (`popGrowth`). */
   growth: number[];
-  /** Решений, на которых войску не хватало еды, и из них — где повод ухода назван неуплатой. */
+  /** Решений, на которых войску не хватало еды, и из них — где строка тревоги назвала повод неуплатой. */
   unfed: number;
   unfedAsPay: number;
+  /**
+   * Ушло из строя голодом и неуплатой — по строкам летописи, которые пишет сама дверь содержания
+   * (`desert:<вид>:food`, `desert:<вид>`, `desert:<вид>:home`). Голодом уходят совсем, поэтому
+   * `starvedHome` обязан быть нулём: поводы делят уходящих, и жителем возвращается только неуплата.
+   */
+  starvedLine: number;
+  paidLine: number;
+  starvedHome: number;
   /** Лазарет по решениям: наибольшее число занятых мест и решений с полным лазаретом. */
   bedsPeak: number;
   bedsFull: number;
@@ -177,6 +185,9 @@ export async function live(o: Opts): Promise<Out> {
     growth: [] as number[],
     unfed: 0,
     unfedAsPay: 0,
+    starvedLine: 0,
+    paidLine: 0,
+    starvedHome: 0,
     bedsPeak: 0,
     bedsFull: 0,
     risen: 0,
@@ -228,7 +239,12 @@ export async function live(o: Opts): Promise<Out> {
           const was = seen.get(e) ?? 0;
           if (n <= was) continue;
           seen.set(e, n);
-          if (e.group?.startsWith('wound:back:')) x.risen += n - was;
+          if (e.group?.startsWith('desert:')) {
+            if (e.group.endsWith(':food')) x.starvedLine += n - was;
+            else x.paidLine += n - was;
+            // Строка «остался в посёлке жителем» бывает только у неуплаты; голодная здесь — поломка правила.
+            if (e.group.endsWith(':home') && e.text.includes('нечем кормить')) x.starvedHome += n - was;
+          } else if (e.group?.startsWith('wound:back:')) x.risen += n - was;
           else if (e.group?.startsWith('starve:wounded:')) x.starvedWounded += n - was;
           else if (e.group?.startsWith('starve:draft:')) x.starvedDrafts += n - was;
           else if (was === 0) {
