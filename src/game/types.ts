@@ -484,6 +484,12 @@ export interface PayState {
    */
   hurt?: Partial<Record<TroopId, number>>;
   drafts?: Partial<Record<TroopId, number>>;
+  /**
+   * Остаток дроби у той части строя, что уходит **голодом**: у неё свой повод и своя судьба —
+   * жителем она не возвращается (`sim/upkeep`). Необязательный: партия, записанная до разделения
+   * поводов, приезжает без него, и остаток начинается с нуля.
+   */
+  starved?: Partial<Record<TroopId, number>>;
 }
 
 /**

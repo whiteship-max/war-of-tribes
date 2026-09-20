@@ -11,7 +11,7 @@ import { deserialize, serialize } from '../save';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { QUESTS } from '../data/quests';
-import { WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN_UNGEARED } from '../data/upkeep';
+import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN_UNGEARED } from '../data/upkeep';
 import { TAX_PER_POP } from '../data/policy';
 import { MIX } from '../../../scripts/autopilot';
 import {
@@ -22,6 +22,7 @@ import {
   housingCapacity,
   payGraceDays,
   taxIncomePerDay,
+  unpaidShare,
   wageOf,
   wageShare,
   wagesDue,
@@ -298,6 +299,59 @@ describe('ушедший неуплатой возвращается жител�
     expect(s.pay.debt, 'точка внутри области: платить есть чем — повод голод').toBe(0);
     expect(housingCapacity(s) - s.pop, 'крыши свободны').toBeGreaterThan(0);
     expect(gone, 'точка внутри области: голодные ушли').toBeGreaterThan(20);
+    expect(came, 'голодный жителем не остаётся').toBe(0);
+  });
+});
+
+describe('поводы делят уходящих, а не спорят за них', () => {
+  // Шаг, где нечем и платить, и кормить. Прежде повод назывался одним словом по большему из двух
+  // недостатков, и при долге больше голода **ушедший голодом возвращался жителем**. Точки внутри
+  // области утверждаются прямо: долг есть, голод есть, и доля долга больше голодной.
+  const mixed = (unfed: number, days = 6): { s: GameState; gone: number; came: number; byFood: number; byPay: number; unpaid: number } => {
+    const s = camp((st) => {
+      st.tax = 'moderate';
+      st.gold = 0;
+      st.army.spearman = 400;
+      for (const b of st.buildings) if (b.type === 'houses') b.level = 10;
+      st.pop = 60;
+    });
+    s.pay.debt = 1000;
+    s.pay.late = payGraceDays(s) * DAY_LENGTH;
+    const unpaid = unpaidShare(s);
+    const army = armySize(s);
+    const pop = s.pop;
+    const steps = Math.round((days * DAY_LENGTH) / DT);
+    for (let i = 0; i < steps; i++) upkeepTick(s, DT, true, unfed);
+    const lines = (why: string): number =>
+      s.log.filter((e) => e.text.includes('Ушёл из войска') && e.text.includes(why)).reduce((n, e) => n + (e.n ?? 1), 0);
+    return { s, gone: army - armySize(s), came: s.pop - pop, byFood: lines(UPKEEP_TEXT.why.food), byPay: lines(UPKEEP_TEXT.why.pay), unpaid };
+  };
+
+  it('долг больше голода: голодная часть уходит совсем и названа голодом, остальные — жителями', () => {
+    const unfed = 0.2;
+    const { s, gone, came, byFood, byPay, unpaid } = mixed(unfed);
+    expect(unpaid, 'точка внутри области: доля долга больше голодной').toBeGreaterThan(unfed);
+    expect(s.pay.debt, 'долг на месте — повод «неуплата» тоже в силе').toBeGreaterThan(0);
+    expect(gone, 'точка внутри области: войско ушло').toBeGreaterThan(20);
+    expect(housingCapacity(s) - s.pop, 'крыши свободны: вернуться было куда').toBeGreaterThan(0);
+    expect(byFood, 'часть ушедших названа голодом, а не вся неуплатой').toBeGreaterThan(0);
+    expect(byPay, 'часть ушедших названа неуплатой').toBeGreaterThan(0);
+    expect(byFood + byPay, 'каждый ушедший назван ровно одним поводом').toBe(gone);
+    expect(came, 'жителями вернулись только ушедшие неуплатой — голодные ушли совсем').toBe(byPay);
+    // Голодная часть — меньшая: доля долга больше голодной и в начале, и в конце отрезка,
+    // поэтому неуплатой уходит больше, чем голодом (перепутай части — это и упадёт).
+    expect(byPay, 'неуплатой ушло больше, чем голодом').toBeGreaterThan(byFood);
+    expect(unpaidShare(s), 'точка внутри области и в конце: доля долга всё ещё больше голодной').toBeGreaterThan(unfed);
+  });
+
+  it('голод больше долга: жителем не возвращается никто', () => {
+    const { s, gone, came, byFood, byPay, unpaid } = mixed(0.9);
+    expect(unpaid, 'точка внутри области: голодная доля больше долговой').toBeLessThan(0.9);
+    expect(s.pay.debt, 'долг при этом есть').toBeGreaterThan(0);
+    expect(gone, 'точка внутри области: войско ушло').toBeGreaterThan(20);
+    expect(housingCapacity(s) - s.pop, 'крыши свободны').toBeGreaterThan(0);
+    expect(byPay, 'неуплатой не ушёл никто: голод забрал всю уходящую долю').toBe(0);
+    expect(byFood, 'все названы голодом').toBe(gone);
     expect(came, 'голодный жителем не остаётся').toBe(0);
   });
 });

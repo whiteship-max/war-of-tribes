@@ -18,7 +18,10 @@
 //   уходит совсем. Снаряжение и время учений он не возвращает — этого наказания хватает:
 //   ошибка найма должна быть дорогой, а не необратимой (решение владельца, docs/hiring.md,
 //   раздел 9). Ушедший голодом уходит совсем: в посёлке, которому нечем кормить войско,
-//   лишний рот — не возврат, а следующий голод;
+//   лишний рот — не возврат, а следующий голод. **Поводы делят уходящих, а не спорят за них:**
+//   в шаге, где нечем и платить, и кормить, голодная часть (`unfed`) уходит совсем, а та, что
+//   сверх неё, — неуплатой и жителем. Строка тревоги при этом по-прежнему одна и называет
+//   больший из поводов (`derived.upkeepInfo.why`): у неё одно место и одно лечение;
 // - казна погасила долг и войско сыто — терпение начинается заново.
 import type { GameState, TroopId } from '../types';
 import { DAY_LENGTH } from '../constants';
@@ -99,38 +102,56 @@ export function upkeepTick(s: GameState, dt: number, online: boolean, unfed: num
   if (share <= 0 || pay.late < payGraceDays(s) * DAY_LENGTH) return;
 
   const gapBefore = wagesDue(s) - taxIncomePerDay(s);
-  const unpaidLeave = unpaid >= unfed;
-  const why = UPKEEP_TEXT.why[unpaidLeave ? 'pay' : 'food'];
-  const rate = (DESERT_SHARE * share * dt) / DAY_LENGTH;
+  // **Поводы не спорят за одного человека, а делят уходящих.** Уходит доля `share` — больший из двух
+  // недостатков; голодная его часть — это `unfed`, остальное недодано жалованьем. Прежде повод
+  // назывался одним словом на весь шаг, по большему из двух (`unpaid >= unfed` → «неуплата»), и в шаге,
+  // где нечем и платить, и кормить, **ушедший голодом возвращался жителем** вопреки правилу «ушедший
+  // голодом уходит совсем»: посёлку, которому нечем кормить войско, лишний рот — следующий голод.
+  // Случалось это редко (1 шаг из 65 с нехваткой еды, `npm run raid-hiring:report`, «Лазарет», «Голод»),
+  // но называлась неправда. Теперь у каждой части свой повод, свой остаток дроби и своя судьба.
+  const hungry = Math.min(share, unfed);
+  const owed = Math.max(0, share - hungry);
+  const rateOf = (part: number): number => (DESERT_SHARE * part * dt) / DAY_LENGTH;
+  /** Сколько целых бойцов уходит этой долей: дробь копится в своём остатке, а `cap` держит сумму обоих поводов. */
+  const draw = (carry: Partial<Record<TroopId, number>>, id: TroopId, have: number, cap: number, rate: number): number => {
+    const due = (carry[id] ?? 0) + have * rate;
+    const whole = Math.min(cap, Math.floor(due));
+    carry[id] = due - whole;
+    return whole;
+  };
+  pay.starved ??= {};
   for (const id of TROOP_IDS) {
     const have = Math.max(0, s.army[id] ?? 0);
     if (have <= 0) {
       delete pay.gone[id];
+      delete pay.starved[id];
       continue;
     }
-    const gone = (pay.gone[id] ?? 0) + have * rate;
-    const whole = Math.min(have, Math.floor(gone));
-    pay.gone[id] = gone - whole;
+    // Голод считается первым: он забирает своих совсем, и неуплате остаётся то, что сверх него.
+    const byFood = draw(pay.starved, id, have, have, rateOf(hungry));
+    const byPay = draw(pay.gone, id, have, have - byFood, rateOf(owed));
+    const whole = byFood + byPay;
     if (whole <= 0) continue;
     s.army[id] = have - whole;
-    const home = unpaidLeave ? addPop(s, Math.min(whole, Math.max(0, housingCapacity(s) - s.pop))) : 0;
+    const home = byPay > 0 ? addPop(s, Math.min(byPay, Math.max(0, housingCapacity(s) - s.pop))) : 0;
     const one = TROOP_BY_ID[id].one;
-    for (let i = 0; i < home; i++) log(s, UPKEEP_TEXT.desertedHome(one, why), 'bad', `desert:${id}:home`);
-    for (let i = home; i < whole; i++) log(s, UPKEEP_TEXT.deserted(one, why), 'bad', `desert:${id}`);
+    for (let i = 0; i < home; i++) log(s, UPKEEP_TEXT.desertedHome(one, UPKEEP_TEXT.why.pay), 'bad', `desert:${id}:home`);
+    for (let i = home; i < byPay; i++) log(s, UPKEEP_TEXT.deserted(one, UPKEEP_TEXT.why.pay), 'bad', `desert:${id}`);
+    for (let i = 0; i < byFood; i++) log(s, UPKEEP_TEXT.deserted(one, UPKEEP_TEXT.why.food), 'bad', `desert:${id}:food`);
   }
   // Раненые и новобранцы на учениях едят тот же паёк и делят ту же нехватку (`derived.soldierMouths`):
   // кто ест — тот и считается. При голоде они уходят той же долей, что строй, но **всегда голодом и
   // совсем**: жалованья им не положено, и повод «неуплата», возвращающий ушедшего жителем, к ним
   // не относится, в каком бы поводе ни шёл шаг для строя (docs/infirmary.md, решение 4).
   if (unfed > 0) {
-    const hungry = (DESERT_SHARE * unfed * dt) / DAY_LENGTH;
+    const starveRate = rateOf(unfed);
     const mouths = soldierMouths(s);
     pay.hurt ??= {};
     pay.drafts ??= {};
-    starve(mouths.wounded, pay.hurt, hungry, (id, n) => loseWounded(s, id, n), (id) => {
+    starve(mouths.wounded, pay.hurt, starveRate, (id, n) => loseWounded(s, id, n), (id) => {
       log(s, UPKEEP_TEXT.woundedStarved(TROOP_BY_ID[id].one), 'bad', `starve:wounded:${id}`);
     });
-    starve(mouths.recruits, pay.drafts, hungry, (id, n) => loseRecruits(s, id, n), (id) => {
+    starve(mouths.recruits, pay.drafts, starveRate, (id, n) => loseRecruits(s, id, n), (id) => {
       log(s, UPKEEP_TEXT.draftStarved(TROOP_BY_ID[id].one), 'bad', `starve:draft:${id}`);
     });
   }
