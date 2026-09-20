@@ -691,8 +691,8 @@ describe('сохранение: новые поля версию не подни
     delete raw.market.sold;
     const s = deserialize(JSON.stringify(raw));
     expect(s).not.toBeNull();
-    // Невольники версию не подняли: 14 — жалованье, 15 — стол событий почты (не их поля).
-    expect(SAVE_VERSION).toBe(15);
+    // Невольники версию не подняли: 14 — жалованье, 15 — стол событий почты, 16 — поворот времени (не их поля).
+    expect(SAVE_VERSION).toBe(16);
     expect(s!.version).toBe(SAVE_VERSION);
     expect(s!.bonded).toBe(0);
     expect(s!.bondedWork).toEqual({});

@@ -29,6 +29,7 @@ import {
   taxIncomePerDay,
   taxQuote,
   workerCount,
+  caravanSeconds,
 } from '../derived';
 
 beforeEach(() => setRandom(seeded(7)));
@@ -345,8 +346,11 @@ describe('караван', () => {
     expect(buyGoods(s, good, 5)).toBeNull();
     expect(s.gold).toBe(goldBefore - check.cost);
     expect(s.caravans).toHaveLength(1);
-    // Пока телега в пути, склад её груза не видит.
-    tick(s, 1, { offline: true });
+    // Пока телега в пути, склад её груза не видит. Дорога телеги — настоящие секунды, шаг — игровые:
+    // шаг короче дороги при любой шкале, и это утверждается.
+    const step = caravanSeconds(s) / 4;
+    expect(step, 'точка внутри области: шаг короче дороги').toBeLessThan(caravanSeconds(s));
+    tick(s, step, { offline: true });
     expect(s.resources.wood).toBeLessThanOrEqual(woodBefore + productionPerDay(s).wood);
     const carried = s.caravans[0].count;
     expect(carried).toBe(5);

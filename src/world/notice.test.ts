@@ -1,3 +1,4 @@
+import '@/game/pace.minute';
 import { describe, expect, it } from 'vitest';
 import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';

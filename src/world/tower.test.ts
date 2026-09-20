@@ -1,3 +1,4 @@
+import '@/game/pace.minute';
 // Башня бьёт по лагерю — в настоящем мире и через одну дверь (`LocalWorld.campArmy`).
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';

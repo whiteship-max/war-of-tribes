@@ -40,7 +40,7 @@ import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { absence, catchUp, tick } from '@/game/sim/tick';
-import { gameSeconds } from '@/game/pace';
+import { DAY_LENGTH, gameSeconds, realMs, realSeconds, timeScale } from '@/game/pace';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
 import { eventId, mailArrive, mailStep } from '@/game/sim/mail';
 import { assignWorker, autoAssign, changeFreeJob, unassignWorker } from '@/game/sim/workers';
@@ -73,7 +73,15 @@ import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID, EQUIPMENT_IDS } from '@/game/data/equipment';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 
-export const MIN = 60_000;
+/**
+ * Единицы отчётов на часах мира — **игровой день и шестьдесят игровых дней**, мс. Имена прежние (`MIN`,
+ * `HOUR`): при шкале времени 1 это настоящая минута и настоящий час, и все выводы отчётов до поворота
+ * шкалы сняты в них. После поворота сравнивать выводы можно только в игровом времени — ритм угрозы,
+ * хозяйство, лечение и осада идут им, — поэтому «мин» и «ч» в таблицах отчётов значат игровой день и
+ * шестьдесят игровых дней, о чём каждый прогон говорит строкой (`unitsNote`). Настоящее время мира
+ * (поход, сбор дружины, занятость агента) в этих единицах печатается мельче, чем было.
+ */
+export const MIN = realMs(DAY_LENGTH);
 export const HOUR = 60 * MIN;
 export const START = 1_700_000_000_000;
 
@@ -645,6 +653,7 @@ export function openSky(g: GameState, sky: Sky, watch: Watch = {}): OpenSky {
 /** Прогон игрока в мире. */
 export interface Flight {
   g: GameState;
+  /** Срок прогона — **игровых** секунд: столько проживает племя; мир за это время проживает `realMs(seconds)`. */
   seconds: number;
   player: Player;
   world: Sky;
@@ -686,7 +695,19 @@ export interface Flown {
   cost: Cost;
 }
 
+/** Пол пульса мира в отчётах, настоящих секунд. */
+export const PULSE_FLOOR = 60;
+
+let noted = false;
+/** Строка о единицах — один раз на процесс, и только когда игровой день не равен настоящей минуте. */
+function unitsNote(): void {
+  if (noted || timeScale() === 1) return;
+  noted = true;
+  console.log(`[единицы] шкала времени ×${timeScale()}: «мин» в этом отчёте — игровой день (${realSeconds(DAY_LENGTH) / 60} настоящих минут), «ч» — 60 игровых дней (${realSeconds(DAY_LENGTH)  / 60} настоящих часов); срок прогона задан игровым временем.`);
+}
+
 export async function pilot(o: Flight): Promise<Flown> {
+  unitsNote();
   const { g, player: p } = o;
   const watch = o.watch ?? {};
   const l = ledger();
@@ -694,7 +715,13 @@ export async function pilot(o: Flight): Promise<Flown> {
   const sky = openSky(g, o.world, watch);
   const w: Inside = sky.world;
   const full = { ...g.army };
-  const pulseMs = o.world.pulse * 1000;
+  // Пульс мира в отчётах — не чаще раза в настоящую минуту. После поворота шкалы тот же срок прогона — в
+  // тридцать раз больше настоящих секунд мира, и родной пульс отчётов (15–30 с) стоил бы приёмке втрое-
+  // вчетверо дороже; замером (`raid-growth` при ×30, пульс 30 против 60 — docs/time.md, раздел 17) выводы те же.
+  // В игровом времени минута — две игровые секунды: мельче, чем пульс отчётов был до поворота.
+  // PULSE — ручка замера, а не приёмки: ею пульс ставят любым.
+  const pulseSec = Number(process.env.PULSE) > 0 ? Number(process.env.PULSE) : Math.max(o.world.pulse, PULSE_FLOOR);
+  const pulseMs = pulseSec * 1000;
   const run = sky.run;
 
   const cost: Cost = { tick: 0, decide: 0, pulse: 0, ticks: 0, pulses: 0 };
@@ -714,12 +741,13 @@ export async function pilot(o: Flight): Promise<Flown> {
   let hour = 1;
   let clock = 0;
   let owed = 0;
-  while (sky.now() < START + o.seconds * 1000) {
+  // Срок прогона — игровое время: столько племя проживает, а настоящих секунд мира на это уходит по двери.
+  while (sky.now() < START + realMs(o.seconds)) {
     sky.at(sky.now() + pulseMs);
     if (o.economy === 'live') {
       // Пульс мира — настоящие секунды, шаг племени — игровые: сколько племя должно прожить за
       // пульс, говорит дверь времени (`game/pace`). Остаток меньше шага переходит следующему пульсу.
-      for (owed += gameSeconds(o.world.pulse); owed >= o.tick; owed -= o.tick) {
+      for (owed += gameSeconds(pulseSec); owed >= o.tick; owed -= o.tick) {
         if (clock % o.decide === 0) {
           const d0 = performance.now();
           decide(g, p, l);

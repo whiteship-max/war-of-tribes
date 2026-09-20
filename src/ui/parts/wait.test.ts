@@ -32,7 +32,7 @@ describe('сроки словами', () => {
     // @ts-expect-error — срок без названных часов в форматтер племени не проходит
     waitShort(real);
     // Законные пути: перевод дверью и явное «это игровые секунды».
-    expect(formatLeft(realSeconds(game))).toBe(formatLeft(40));
-    expect(waitShort(asGame(real))).toBe('40 с');
+    expect(formatLeft(realSeconds(game))).toBe(formatLeft(40 * timeScale()));
+    expect(waitShort(asGame(real))).toBe(`${40 * timeScale()} с`);
   });
 });

@@ -41,7 +41,7 @@ export function WinterModal() {
   // Модалки делят один слой: наложенное поверх окна офлайна предупреждение
   // закрыло бы его. Флаг живёт в состоянии, поэтому просто ждём своей очереди.
   // События больше не окно — они ждут в почте державы и слоя не занимают.
-  if (offline >= 60) return null;
+  if (offline >= 60 || s.paceNotice) return null;
 
   const f = winterForecast(s);
   const ready = f.food.ok && f.wood.ok;

@@ -1,3 +1,4 @@
+import '@/game/pace.minute';
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';

@@ -39,9 +39,12 @@ import { generateWorld, isLair } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import { AI_RANGE } from '@/world/data/tuning';
-import { HOUR, MIN, START, armyAt, away, gone, pilot, player, stackOf, type Cost, type Inside } from './autopilot';
+import { START, armyAt, away, gone, pilot, player, stackOf, type Cost, type Inside } from './autopilot';
+// Этот отчёт меряет настоящим временем — службу агента, отлучку, заходы, — поэтому часы и минуты у него
+// настоящие (`game/time`), а не единицы автопилота, которые после поворота шкалы стали игровыми днями.
+import { HOUR_MS as HOUR, MINUTE_MS as MIN } from '@/game/time';
 import { measure } from './lib/measured';
-import { dayRealSeconds, setTimeScale } from '@/game/pace';
+import { dayRealSeconds, gameSeconds, setTimeScale } from '@/game/pace';
 import { realSpan } from '@/game/span';
 import { GEM_DAY_SHARE, GEM_REAL_SECONDS, GEM_REF_RATE, rushPrice, rushWork } from '@/game/sim/gems';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
@@ -275,7 +278,8 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
 
   await pilot({
     g: s,
-    seconds: AGENTS_DAYS * 24 * 3600,
+    // Срок прогона автопилот берёт игровым временем; сутки службы — настоящие.
+    seconds: gameSeconds(AGENTS_DAYS * 24 * 3600),
     player: player(null, {
       build: false,
       sortie: false,

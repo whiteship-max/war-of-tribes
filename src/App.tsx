@@ -16,6 +16,7 @@ import { ArmyPanel } from './ui/panels/ArmyPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
+import { PaceModal } from './ui/PaceModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
 import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
@@ -200,6 +201,7 @@ export function App() {
       <WinterModal />
       <OfflineModal />
       <LegacyModal />
+      <PaceModal />
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и

@@ -1,3 +1,4 @@
+import '@/game/pace.minute';
 import { describe, expect, it } from 'vitest';
 import { SECTORS, UNIT_KINDS, stackTotal, type ArmySetup, type Stack } from '@/battle';
 import { createInitialState } from '@/game/state';

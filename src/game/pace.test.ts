@@ -6,7 +6,10 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createInitialState } from './state';
+import { createInitialState, SAVE_VERSION } from './state';
+import { deserialize, serialize } from './save';
+import { PACE_TEXT } from './data/pace';
+import { serverNow } from '@/net/clock';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from './constants';
 import { asGame, gameSeconds, gameSecondsOfMs, realMs, realSeconds, setTimeScale, timeScale } from './pace';
 import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds, liveStep } from './sim/tick';
@@ -39,11 +42,13 @@ const town = () => {
 };
 
 describe('шкала времени', () => {
-  it('для игроков шкала равна единице — до пачки поворота', () => {
-    expect(timeScale()).toBe(1);
+  it('для игроков шкала — тридцать: игровой день длится полчаса', () => {
+    expect(timeScale()).toBe(30);
+    expect(realSeconds(DAY_LENGTH)).toBe(30 * 60);
   });
 
   it('при единице перевод точен: ни одно число игры от двери не меняется', () => {
+    setTimeScale(1);
     for (const x of [0.5, 1, 2, 15, 0.1 + 0.2, 14400, 1e9 / 7]) {
       expect(gameSeconds(x)).toBe(x);
       expect(realSeconds(x)).toBe(x);
@@ -168,6 +173,37 @@ describe('игровая секунда не равна настоящей мо�
   });
 });
 
+// ---------- старая партия ----------
+
+describe('ступень сохранения 15 → 16: время пошло медленнее, а партия та же', () => {
+  it('состояние не пересчитывается — ни одна отметка времени; партии говорят об этом строкой и окном', () => {
+    const before = town();
+    before.time = 36_000;
+    before.feastUntil = 36_500;
+    before.feastAt = 36_100;
+    before.resources.wood = 777;
+    const raw = JSON.parse(serialize(before)) as Record<string, unknown>;
+    raw.version = 15;
+    raw.lastSaved = serverNow();
+    const s = deserialize(JSON.stringify(raw))!;
+    expect(s.version, 'точка внутри области: ступень пройдена').toBe(SAVE_VERSION);
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(16);
+    expect(s.paceNotice, 'окно ждёт показа').toBe(true);
+    expect(s.log[0].text).toBe(PACE_TEXT.log(daysSpan(1)));
+    // Всё остальное — буква в букву: те же игровые секунды, тот же склад.
+    const strip = (g: typeof s) => ({ ...g, version: 0, paceNotice: undefined, log: [], lastSaved: 0 });
+    // Сверка — с той же партией, прочитанной без ступени: чтение само приводит поля, ступень — ничего.
+    raw.version = SAVE_VERSION;
+    expect(strip(s)).toEqual(strip(deserialize(JSON.stringify(raw))!));
+  });
+
+  it('новой партии и партии нынешней версии окно не показывают', () => {
+    expect(createInitialState().paceNotice).toBeUndefined();
+    const s = deserialize(serialize(town()))!;
+    expect(s.paceNotice).toBeUndefined();
+  });
+});
+
 // ---------- по исходникам ----------
 
 const code = (abs: string): string =>
@@ -213,7 +249,7 @@ describe('дверь одна: по исходникам', () => {
     expect(tick, 'догон отлучки').toMatch(/catchUp\(s,\s*awayGameSeconds\(since, now\)/);
     expect(tick, 'и сам догон — через дверь').toMatch(/awayGameSeconds = [^;]*gameSeconds\(awaySeconds\(since, now\)\)/);
     const pilot = code(path.join(ROOT, 'scripts/autopilot.ts'));
-    expect(pilot, 'пульс мира → игровые секунды').toMatch(/gameSeconds\(o\.world\.pulse\)/);
+    expect(pilot, 'пульс мира → игровые секунды').toMatch(/gameSeconds\(pulseSec\)/);
   });
 
   it('игровое время с миллисекундами мира складывается только через дверь', () => {
@@ -236,8 +272,11 @@ describe('дверь одна: по исходникам', () => {
   it('шкалу подменяют только тесты — и прибор поворота', () => {
     const callers = [...SRC, ...sources(path.join(ROOT, 'scripts'))].filter((f) => rel(f) !== 'src/game/pace.ts' && /\bsetTimeScale\s*\(/.test(code(f)));
     // Единственное исключение названо: `time:report` меряет игру после поворота шкалы до поворота
-    // («Вернувшийся») и шкалу за собой возвращает. В игре (`src`) подмены нет нигде.
-    expect(callers.map(rel)).toEqual(['scripts/time-report.ts']);
+    // («Вернувшийся») и шкалу за собой возвращает. Второе — закрепление «день — минута» для тестов правил
+    // мира (`game/pace.minute.ts`): модуль берут только файлы тестов, и это проверено ниже.
+    expect(callers.map(rel).sort()).toEqual(['scripts/time-report.ts', 'src/game/pace.minute.ts']);
+    const all = [...SRC, ...sources(path.join(ROOT, 'scripts'))];
+    expect(all.filter((f) => /pace\.minute/.test(code(f)) && rel(f) !== 'src/game/pace.minute.ts').map(rel), 'кто в игре берёт закрепление').toEqual([]);
   });
 
   it('секунды, минуты и часы в интерфейсе печатает только `ui/parts/wait.ts`', () => {

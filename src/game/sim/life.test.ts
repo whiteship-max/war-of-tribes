@@ -172,7 +172,7 @@ describe('ступень сохранения 12 → 13', () => {
     expect(s.agents.general.name, 'имя героя перешло полководцу').toBe('Радим Хмурый');
     // Служба начинается в минуту входа — после догона офлайна, а не до него.
     const away = JSON.parse(json) as Record<string, unknown>;
-    away.lastSaved = serverNow() - 3 * 3600_000;
+    away.lastSaved = serverNow() - 20 * 3600_000;
     const late = deserialize(JSON.stringify(away))!;
     // Сколько догонять, считает та же дверь, что и ступень: под потолком догона в игровых днях.
     const offline = awayGameSeconds(away.lastSaved as number, serverNow());

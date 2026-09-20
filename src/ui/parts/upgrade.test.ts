@@ -9,7 +9,7 @@
 // изменилась, на кнопке стоит. Новое улучшение после этого соврать не сможет:
 // число без замера не пройдёт первую проверку, забытая величина — вторую.
 import { describe, expect, it } from 'vitest';
-import { asGame } from '@/game/pace';
+import { asGame, realSeconds } from '@/game/pace';
 import { waitDays, waitSpan } from './wait';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -139,8 +139,9 @@ function expectedNumbers(kind: Kind, before: number, after: number): number[] | 
     // Открытие — не число: на кнопке слова без чисел, и только на уровне, где оно наступает.
     case 'opens':
       return after > before ? [] : null;
+    // Дорога каравана — настоящие секунды: на кнопке они, а величина племени лежит игровыми.
     case 'seconds': {
-      const d = shown(before - after);
+      const d = shown(realSeconds(before - after));
       return d === 0 ? null : [Math.abs(d)];
     }
     // Срок племени, который игрок ждёт своими часами: на кнопке — настоящее время из модуля сроков.

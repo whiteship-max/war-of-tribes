@@ -21,6 +21,13 @@ import { SOCIAL_LINKS } from '../data/social';
 import { dailyReward } from './daily';
 import { tick } from './tick';
 
+/**
+ * Кошелёк для тестов достройки. Тестового запаса новой партии (`TEST_GEMS`) при боевой шкале времени не
+ * хватает ни на одну целую достройку: алмаз снимает десять настоящих секунд, а самое дешёвое улучшение ждут
+ * тринадцать минут (`npm run time:report`, раздел 5; вынесено владельцу — docs/time.md, раздел 17).
+ */
+const PURSE = 100_000;
+
 describe('алмазы', () => {
   it('новая партия начинается с тестового запаса, и он небольшой', () => {
     const s = createInitialState();
@@ -56,6 +63,7 @@ describe('алмазы', () => {
 
   it('достройка списывает и алмазы, и ресурсы — время покупается, ресурсы нет', () => {
     const s = createInitialState();
+    s.gems = PURSE;
     const hut = buildingOfType(s, 'houses')!;
     const cost = upgradeInfo(s, hut).cost;
     const wood = s.resources.wood;
@@ -66,13 +74,14 @@ describe('алмазы', () => {
 
     expect(hut.level).toBe(2);
     expect(isSite(hut)).toBe(false);
-    expect(gemsOf(s)).toBe(TEST_GEMS - price);
+    expect(gemsOf(s)).toBe(PURSE - price);
     expect(s.resources.wood).toBeCloseTo(wood - (cost.wood ?? 0), 5);
     expect(s.resources.stone).toBeCloseTo(stone - (cost.stone ?? 0), 5);
   });
 
   it('начатую стройку достройка вторым разом не оплачивает', () => {
     const s = createInitialState();
+    s.gems = PURSE;
     const hut = buildingOfType(s, 'houses')!;
     expect(startUpgrade(s, hut.id)).toBeNull();
     const wood = s.resources.wood;
@@ -84,6 +93,7 @@ describe('алмазы', () => {
 
   it('достройка не ломает очередь: следующая стройка становится первой сама', () => {
     const s = createInitialState();
+    s.gems = PURSE;
     const hut = buildingOfType(s, 'houses')!;
     const storage = buildingOfType(s, 'storage')!;
     expect(startUpgrade(s, hut.id)).toBeNull();
@@ -338,6 +348,7 @@ describe('алмаз — доля настоящих суток, а не игр�
 
   it('цена в алмазах растёт вместе с настоящим ожиданием: тот же труд при ×30 стоит в тридцать раз дороже', () => {
     const market = buildingOfType(createInitialState(), 'market')!;
+    setTimeScale(1);
     const base = rushPrice(market);
     expect(base, 'точка внутри области: цена выше пола').toBeGreaterThan(1);
     setTimeScale(30);

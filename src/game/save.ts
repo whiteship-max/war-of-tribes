@@ -1,6 +1,8 @@
 import type { ActiveEvent, GameState } from './types';
 import { DAY_LENGTH } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
+import { PACE_TEXT } from './data/pace';
+import { daysSpan } from './span';
 import { taxIncomePerDay, wagesPerDay } from './derived';
 import { emptyArmy } from './data/troops';
 import { BUILDINGS } from './data/buildings';
@@ -122,6 +124,12 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   }
   if (from < 15) {
     log(s, 'Вести посёлка ждут в «Решениях» за гербом, и ждать могут несколько сразу — у каждой свой срок в сутки.', 'info');
+  }
+  // 15 → 16: время пошло медленнее. Состояние не трогается — в партии лежат игровые секунды, и
+  // шкала у двери времени их смысла не меняет; выросли только настоящие сроки. Об этом и говорится.
+  if (from < 16) {
+    s.paceNotice = true;
+    log(s, PACE_TEXT.log(daysSpan(1)), 'info');
   }
 }
 
