@@ -44,6 +44,7 @@ import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
 import { measure as live } from './lib/measured';
+import { realSeconds } from '../src/game/pace';
 import { RESTORE_WAIT } from '../src/render/Scene';
 import { STALL_MS, type Note, type Vitals } from '../src/scenelog';
 
@@ -328,8 +329,11 @@ async function report(): Promise<void> {
   const c0 = await clock();
   await sleep(2000);
   const c1 = await clock();
-  const awake = (c1.game - c0.game) / ((c1.wall - c0.wall) / 1000);
-  check('наяву время племени идёт вровень с часами', Math.abs(awake - 1) < 0.35, `игровых секунд на настоящую: ${live(awake.toFixed(2))}`);
+  // Прожитое племенем переводится в настоящие секунды дверью времени (`game/pace`): вровень с часами —
+  // это одна настоящая секунда прожитого на настоящую секунду часов при любой шкале. Прежде стенд
+  // сравнивал игровые секунды с настоящими как есть и после поворота шкалы упал — на здоровой игре.
+  const awake = realSeconds(c1.game - c0.game) / ((c1.wall - c0.wall) / 1000);
+  check('наяву время племени идёт вровень с часами', Math.abs(awake - 1) < 0.35, `прожито настоящих секунд на настоящую секунду часов: ${live(awake.toFixed(2))}`);
   // Страница уходит в фон по-настоящему: вперёд выходит другая вкладка, и браузер придерживает
   // таймеры скрытой страницы (в Chrome — не чаще раза в секунду при шаге стора в полсекунды).
   const front = await Tab.open(DEBUG_PORT, 'about:blank');
@@ -341,12 +345,12 @@ async function report(): Promise<void> {
   const h1 = await clock();
   await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/activate/${tab.target}`);
   const wall = (h1.wall - h0.wall) / 1000;
-  const game = h1.game - h0.game;
+  const game = realSeconds(h1.game - h0.game);
   check('страница в фоне (иначе замер ниже ни о чём)', behind, `document.hidden = ${behind}`);
   check(
     'в фоне время племени не отстаёт от часов',
     wall - game < 2.5,
-    `в фоне прошло настоящих ${live(wall.toFixed(1))} с, игровых ${live(game.toFixed(1))} с, отстало на ${live((wall - game).toFixed(1))} с`,
+    `в фоне прошло настоящих ${live(wall.toFixed(1))} с, племя прожило (настоящими) ${live(game.toFixed(1))} с, отстало на ${live((wall - game).toFixed(1))} с`,
   );
 
   // ---------- Журнал ----------

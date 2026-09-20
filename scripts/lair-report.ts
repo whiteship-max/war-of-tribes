@@ -47,7 +47,7 @@ import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { ARMS_TROPHY } from '@/game/sim/expedition';
 import type { WorldSave } from '@/world/local/state';
 import type { PlayerProfile } from '@/world/types';
-import { dayRealSeconds, gameDaysOfMs } from '@/game/pace';
+import { dayRealSeconds, gameDaysOfMs, gameSeconds } from '@/game/pace';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -122,7 +122,7 @@ function forgePerHour(): number {
   if (!sm) return 0;
   assignWorker(s, sm.id, buildingSlots(sm));
   const avg = ARMS_TROPHY.reduce((n, id) => n + EQUIPMENT_BY_ID[id].work, 0) / ARMS_TROPHY.length;
-  return (3600 * forgeRate(s)) / avg;
+  return (gameSeconds(3600) * forgeRate(s)) / avg;
 }
 
 /** Во что обошлись бы взятые предметы, если ковать их самому. */
@@ -137,6 +137,8 @@ function armsCost(count: number): number {
 
 /** Круг набега: довести полководца до логова и разбить его. Настоящий — из прогона ниже. */
 const RAID_MINUTES = 4;
+/** Тот же круг в игровых днях — дверью времени: поход идёт настоящими минутами, хозяйство — игровыми днями. */
+const ROUND_DAYS = gameDaysOfMs(RAID_MINUTES * 60_000);
 
 const perDay0 = await production(0);
 const perDay2 = await production(2);
@@ -147,7 +149,7 @@ console.log('Мерка одна: что хозяйство наработает
 console.log(`с дневной выработкой бессмысленно — поход длится минуты, а игровой день ${dayRealSeconds()} секунд.`);
 console.log('');
 console.log(`  Хозяйство: старт ${n1(perDay0)} ед./день, через 2 ч партии ${n1(perDay2)}.`);
-console.log(`  За круг набега (${RAID_MINUTES} мин) это ${Math.round(perDay0 * RAID_MINUTES)} и ${Math.round(perDay2 * RAID_MINUTES)} ед.`);
+console.log(`  За круг набега (${RAID_MINUTES} мин) это ${Math.round(perDay0 * ROUND_DAYS)} и ${Math.round(perDay2 * ROUND_DAYS)} ед.`);
 console.log(`  Склад стартовой деревни: ${storageCap(createInitialState())}. Кузница 1-го уровня: ${Math.round(forgeHour)} предметов в час.`);
 console.log('');
 console.log('  логово          мощь   народу   добра   золота   оружия   оружие своей ковкой        доля круга');
@@ -166,7 +168,7 @@ for (const [name, k] of [
   const worth = loot + armsCost(arms);
   const mins = arms / (forgeHour / 60);
   console.log(
-    `  ${name.padEnd(14)}${pad(n1(power), 6)}  ${pad(lairPop(power), 7)}  ${pad(loot, 6)}  ${pad(gold, 7)}  ${pad(arms, 7)}   ${`${armsCost(arms)} ед. и ${n1(mins)} мин горна`.padEnd(24)}  ${pad(`${Math.round((worth / (perDay2 * RAID_MINUTES)) * 100)}%`, 5)}`,
+    `  ${name.padEnd(14)}${pad(n1(power), 6)}  ${pad(lairPop(power), 7)}  ${pad(loot, 6)}  ${pad(gold, 7)}  ${pad(arms, 7)}   ${`${armsCost(arms)} ед. и ${n1(mins)} мин горна`.padEnd(24)}  ${pad(`${Math.round((worth / (perDay2 * ROUND_DAYS)) * 100)}%`, 5)}`,
   );
 }
 console.log('');
