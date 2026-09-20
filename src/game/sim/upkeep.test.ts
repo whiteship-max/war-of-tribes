@@ -165,20 +165,35 @@ describe('терпение', () => {
     }
   });
 
-  it('без игрока долг копится, а уход ждёт; вернулся игрок — терпение с начала', () => {
+  // Область правила: казна пуста и налога нет (долг растёт каждый шаг), срок — дольше терпения.
+  it('терпение и уход зреют по времени, а не по присутствию: отлучка и игра дают одно войско', () => {
+    const make = () =>
+      camp((st) => {
+        st.tax = 'none';
+        st.gold = 0;
+        st.army.spearman = 200;
+      });
+    const present = make();
+    const absent = make();
+    const days = payGraceDays(present) + 3;
+    play(present, days);
+    catchUp(absent, days * DAY_LENGTH, DT);
+    expect(present.army.spearman, 'точка внутри области: срок дольше терпения — уход идёт').toBeLessThan(200);
+    expect(absent.army.spearman, 'в отлучке ушло столько же, сколько при игроке').toBe(present.army.spearman);
+    expect(absent.pay.late, 'и терпение шло теми же часами').toBeCloseTo(present.pay.late, 6);
+  });
+
+  it('до конца терпения в отлучке не уходит никто', () => {
     const s = camp((st) => {
       st.tax = 'none';
       st.gold = 0;
       st.army.spearman = 200;
     });
-    const wages = wagesDue(s);
-    catchUp(s, 10 * DAY_LENGTH, DT);
-    expect(s.army.spearman, 'во сне никто не ушёл').toBe(200);
-    expect(s.pay.debt, 'долг за десять дней').toBeGreaterThan(wages * 9.5);
-    expect(s.pay.late, 'терпение без игрока не идёт').toBe(0);
     const grace = payGraceDays(s);
-    play(s, grace - 0.05);
-    expect(s.army.spearman, 'после возвращения — сначала срок, а не уход').toBe(200);
+    expect(grace, 'точка внутри области: терпение есть').toBeGreaterThan(0.5);
+    catchUp(s, (grace - 0.05) * DAY_LENGTH, DT);
+    expect(s.pay.late, 'терпение идёт и без игрока').toBeGreaterThan(0);
+    expect(s.army.spearman).toBe(200);
   });
 
   it('казна погасила долг — уход встаёт, и терпение начинается заново', () => {
@@ -266,7 +281,7 @@ describe('ушедший неуплатой возвращается жител�
     const gear = s.equipment.spear;
     const steps = Math.round((DAYS * DAY_LENGTH) / DT);
     const unfed = s.gold > 0 ? 0.5 : 0;
-    for (let i = 0; i < steps; i++) upkeepTick(s, DT, true, unfed);
+    for (let i = 0; i < steps; i++) upkeepTick(s, DT, unfed);
     return { s, gone: army - armySize(s), came: s.pop - pop, gear: s.equipment.spear - gear };
   };
 
@@ -321,7 +336,7 @@ describe('поводы делят уходящих, а не спорят за н
     const army = armySize(s);
     const pop = s.pop;
     const steps = Math.round((days * DAY_LENGTH) / DT);
-    for (let i = 0; i < steps; i++) upkeepTick(s, DT, true, unfed);
+    for (let i = 0; i < steps; i++) upkeepTick(s, DT, unfed);
     const lines = (why: string): number =>
       s.log.filter((e) => e.text.includes('Ушёл из войска') && e.text.includes(why)).reduce((n, e) => n + (e.n ?? 1), 0);
     return { s, gone: army - armySize(s), came: s.pop - pop, byFood: lines(UPKEEP_TEXT.why.food), byPay: lines(UPKEEP_TEXT.why.pay), unpaid };

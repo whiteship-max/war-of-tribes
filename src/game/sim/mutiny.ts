@@ -28,29 +28,27 @@ import { recordRaidLoss } from '@/profile/stats';
 export type UnrestStep = 'raise' | 'silence' | null;
 
 /**
- * Шаг ропота. `online` — идёт живая игра, а не офлайн-догон.
+ * Шаг ропота. `present` — игрок при игре (живой шаг, а не догон отлучки).
  *
  * - Порядок выше порога — ропот тает вдвое быстрее, чем копился: короткий провал
  *   не копится вечно, но и не забывается мгновенно.
- * - Порядок ниже порога — ропот копится, но только при игроке. Дошёл до срока —
- *   пора поднимать мятеж; ждущее в почте событие разрешается своим молчанием
- *   и стол освобождает (`tick`, `sim/mail.lapseEvent`).
- * - Мятеж на столе — идёт срок ответа, тоже только при игроке. Вышел — стража
- *   выходит сама.
+ * - Порядок ниже порога — ропот копится. **Зреет он по времени, а не по присутствию**
+ *   (docs/time.md, раздел 14): при игроке и в догоне отлучки одинаково. Дошёл до срока —
+ *   мятеж ложится на стол.
+ * - Мятеж на столе — идёт срок ответа, и это **единственное, что идёт только при игроке**:
+ *   окно ответа существует затем, чтобы игрок выбрал, а без игрока выбирать некому. Мятеж,
+ *   созревший в отлучке, ждёт хозяина на столе; его молчание — «стража выходит сама» —
+ *   случается только при нём. Самая жёсткая потеря в игре во сне не приходит.
  */
-export function unrestTick(s: GameState, dt: number, online: boolean): UnrestStep {
+export function unrestTick(s: GameState, dt: number, present: boolean): UnrestStep {
   const unrest = Math.max(0, s.unrest ?? 0);
   if (mutinyOpen(s)) {
-    if (!online) return null;
+    if (!present) return null;
     s.unrest = Math.min(MUTINY_FUSE + MUTINY_ANSWER, unrest + dt);
     return s.unrest >= MUTINY_FUSE + MUTINY_ANSWER ? 'silence' : null;
   }
   if (orderState(s) !== 'unrest') {
     s.unrest = Math.max(0, unrest - dt * 2);
-    return null;
-  }
-  if (!online) {
-    s.unrest = Math.min(unrest, MUTINY_FUSE);
     return null;
   }
   s.unrest = Math.min(MUTINY_FUSE, unrest + dt);

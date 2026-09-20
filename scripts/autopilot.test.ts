@@ -26,7 +26,7 @@ const DOOR = path.join(SCRIPTS, 'autopilot.ts');
 
 /** Шаги, которые идут только через дверь: модуль (по хвосту пути) → имена. */
 const STEPS: [string, string[]][] = [
-  ['game/sim/tick', ['tick', 'catchUp']],
+  ['game/sim/tick', ['tick', 'catchUp', 'liveStep', 'absence']],
   ['world/bridge', ['tribePulse', 'syncAway', 'syncSiege', 'applyEffects']],
   ['game/sim/faith', ['syncFaith']],
   ['game/sim/expedition', ['applyExpedition', 'setAway']],
@@ -126,23 +126,23 @@ describe('автопилот один: прогоном', () => {
     expect(flown.cost.ticks, 'шагов племени — по игровым секундам, а не по настоящим').toBe(20);
   });
 
-  // Область правила: новая партия, у которой веры ещё нет, и прогон, в котором событие поднимается
-  // (`nextEventAt` в начале). Обе точки проверяются утверждением: без них «вера пришла» и «событие
+  // Область правила: новая партия, у которой веры ещё нет, и прогон, в котором весть приходит
+  // (сутки настоящего времени против сетки в восемь часов). Обе точки проверяются утверждением: без них «вера пришла» и «событие
   // разобрано» проходили бы даром.
   it('игрок отвечает на события и берёт веру, которую называет мир', async () => {
     const g = createInitialState(7);
     g.tutorialDone = true;
-    g.nextEventAt = 30;
     expect(g.faith.id, 'точка внутри области: у новой партии веры ещё нет').toBeNull();
     const raised = new Set<string>();
     let open = 0;
     const flown = await pilot({
       g,
-      seconds: 15 * 60,
+      // Вести приходят по сетке настоящих часов (шаг 8 ч): сутки прогона — три прихода.
+      seconds: 24 * 3600,
       player: player(null),
       world: { seed: 7, pulse: 30, raids: false },
       economy: 'live',
-      tick: 1,
+      tick: 30,
       decide: 30,
       watch: {
         after: ({ g: x }) => {

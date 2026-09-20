@@ -358,13 +358,18 @@ function restless(): GameState {
 }
 
 describe('мятеж не наступает раньше, чем игрок мог что-то сделать', () => {
-  it('офлайн-догон не поднимает мятеж и не двигает срок ропота', () => {
+  // Область правила: порядок ниже порога ропота всю отлучку (иначе ропот тает, а не зреет) и отлучка
+  // длиннее срока ропота. Обе точки утверждаются в тесте.
+  it('ропот зреет по времени, а не по присутствию: в отлучке мятеж ложится на стол, но без игрока не решается', () => {
     const s = restless();
-    expect(orderState(s)).toBe('unrest');
-    catchUp(s, 4 * 3600, 2);
-    expect(s.unrest).toBe(0);
-    expect(s.inbox[0]?.defId).not.toBe(MUTINY_EVENT);
-    // Горожан и невольников за четыре часа отсутствия не тронул никакой мятеж.
+    expect(orderState(s), 'точка внутри области: порядок ниже порога').toBe('unrest');
+    const away = 4 * 3600;
+    expect(away, 'точка внутри области: отлучка длиннее срока ропота и окна ответа').toBeGreaterThan(MUTINY_FUSE + MUTINY_ANSWER);
+    catchUp(s, away, 2);
+    expect(s.inbox.map((e) => e.defId), 'мятеж созрел без игрока').toContain(MUTINY_EVENT);
+    // Окно ответа — единственное, что идёт только при игроке: за часы отлучки оно не сдвинулось,
+    // и молчанием мятеж не решился — невольники и горожане на месте.
+    expect(mutinyAnswerLeft(s), 'срок ответа ждёт хозяина').toBe(MUTINY_ANSWER);
     expect(s.bonded).toBe(200);
   });
 
@@ -385,13 +390,18 @@ describe('мятеж не наступает раньше, чем игрок м�
     expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
   });
 
-  it('полусрока ропота мало: между офлайн-догонами срок стоит, а не копится', () => {
+  it('срок ропота один: половина при игроке и половина в отлучке складываются', () => {
     const s = restless();
     for (let i = 0; i < (MUTINY_FUSE / 2) / 0.5; i++) tick(s, 0.5);
-    const half = s.unrest;
-    catchUp(s, 2 * 3600, 2);
-    expect(s.unrest).toBe(half);
+    expect(s.unrest, 'точка внутри области: полсрока набрано, мятежа ещё нет').toBe(MUTINY_FUSE / 2);
     expect(s.inbox).toEqual([]);
+    // В отлучке — чуть меньше второй половины: мятежа ещё нет, срок вырос ровно на прошедшее.
+    catchUp(s, MUTINY_FUSE / 2 - 2, 2);
+    expect(s.unrest).toBe(MUTINY_FUSE - 2);
+    expect(s.inbox).toEqual([]);
+    // И ещё шаг отлучки — созрел.
+    catchUp(s, 2, 2);
+    expect(s.inbox.map((e) => e.defId)).toContain(MUTINY_EVENT);
   });
 
   it('окно мятежа ждёт ответа срок, и только при игроке; без ответа стража выходит сама', () => {

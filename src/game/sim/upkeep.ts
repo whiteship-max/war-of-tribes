@@ -72,9 +72,12 @@ function starve(
 /**
  * Шаг содержания. Зовётся после того, как налог лёг в казну (`marketTick`), с тем,
  * какую долю войска на этом шаге нечем кормить (`derived.foodShortfall`).
- * `online` — идёт живая игра, а не офлайн-догон.
+ *
+ * **Терпение и уход зреют по времени, а не по присутствию** (docs/time.md, раздел 14): шаг один — при игроке
+ * и в догоне отлучки. Прежде уход шёл только при игроке, и при медленном дне это значило «никогда»:
+ * четверть часа игры в сутки не набирали терпения Статуи и за неделю.
  */
-export function upkeepTick(s: GameState, dt: number, online: boolean, unfed: number): void {
+export function upkeepTick(s: GameState, dt: number, unfed: number): void {
   const pay = s.pay;
   const due = wagesDue(s);
   if (due > 0) {
@@ -97,7 +100,6 @@ export function upkeepTick(s: GameState, dt: number, online: boolean, unfed: num
     pay.late = 0;
     return;
   }
-  if (!online) return;
   pay.late += dt;
   if (share <= 0 || pay.late < payGraceDays(s) * DAY_LENGTH) return;
 

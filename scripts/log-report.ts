@@ -16,9 +16,9 @@ import { seeded, setRandom } from '@/game/sim/random';
 import { serialize } from '@/game/save';
 import { LOG_MAX, LOG_MAX_DAYS } from '@/game/sim/log';
 import { dayOf, marketLeft, marketOffer, storageCap } from '@/game/derived';
-import { DAY_LENGTH, EVENT_INTERVAL_MAX, EVENT_INTERVAL_MIN, MAX_OFFLINE_SECONDS } from '@/game/constants';
+import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from '@/game/constants';
 import { away, pilot, player, stand } from './autopilot';
-import { AWAY_JITTER, AWAY_STEP, EVENT_TTL, eventId, mailAway, mailStep, resolveEvent } from '@/game/sim/mail';
+import { AWAY_JITTER, AWAY_STEP, EVENT_TTL, eventId, mailArrive, mailStep, resolveEvent } from '@/game/sim/mail';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { LETTER_DECISIONS } from '@/world/letters';
 import { dayRealSeconds, gameSeconds } from '@/game/pace';
@@ -201,9 +201,8 @@ async function main(): Promise<void> {
 
 
 // Почта державы: сколько донесений-событий игрок видит за сутки и сколько решается
-// без него (docs/realm.md, раздел 8). При игроке события поднимаются раз в
-// EVENT_INTERVAL_MIN…MAX игровых секунд; в отлучке стол выводится из времени по сетке
-// пауз писем (`sim/mail.mailAway`) — ровно так, как его выводит вход в игру. Стол
+// без него (docs/realm.md, раздел 8). Вести приходят по сетке настоящих часов — одной на
+// присутствие и отлучку (`sim/mail.mailArrive`): зреют по времени, а не по присутствию. Стол
 // держит LETTER_DECISIONS, срок — сутки настоящими часами. Заход идёт часами игры
 // один к одному, между заходами часы идут, а хозяйство догоняет не больше
 // MAX_OFFLINE_SECONDS. Замер — модель игрока, а не игрок: заходы ровные, длина задана.
@@ -236,7 +235,7 @@ function dropped(s: GameState, step: () => void): number {
 function goAway(s: GameState, now: number, off: number): number {
   away(s, gameSeconds(Math.min(off, MAX_OFFLINE_SECONDS)), 30);
   const back = now + off * 1000;
-  mailAway(s, now, back);
+  mailArrive(s, now, back);
   mailStep(s, back);
   return back;
 }
@@ -288,6 +287,8 @@ function mailDay(base: GameState, visits: number, minutes: number, reads: boolea
           const kept = new Set(s.inbox.map(eventId));
           for (const id of table) if (!kept.has(id)) all.crowded++;
           now += 1000;
+          // Вести при игроке — тем же правилом, что в отлучке: окно этого шага.
+          mailArrive(s, now - 1000, now);
           all.expired += dropped(s, () => mailStep(s, now));
           look();
         },
@@ -339,8 +340,8 @@ function mailReturn(
 async function mailSection(): Promise<void> {
   console.log('\n=== ПОЧТА: сколько донесений в сутки и сколько решается без игрока ===');
   console.log(`Стол — ${LETTER_DECISIONS} событий (как у писем мира), срок — ${EVENT_TTL / 3600000} ч настоящих;`);
-  console.log(`при игроке событие приходит раз в ${EVENT_INTERVAL_MIN}–${EVENT_INTERVAL_MAX} с игры, в отлучке — по сетке пауз писем`);
-  console.log(`(шаг ${AWAY_STEP / 3600000} ч, сдвиг до ${AWAY_JITTER / 3600000} ч), не глубже суток. Счёт — последние сутки из ${MAIL_DAYS}.`);
+  console.log('вести приходят по сетке пауз писем — одной на присутствие и отлучку');
+  console.log(`(шаг ${AWAY_STEP / 3600000} ч, сдвиг до ${AWAY_JITTER / 3600000} ч), в отлучке не глубже суток. Счёт — последние сутки из ${MAIL_DAYS}.`);
   const base = await play(1);
   console.log('');
   console.log('  заходов × минут   игрок              пришло   ответил   согнано при игре   истекло или согнано в отлучке   на столе к концу');

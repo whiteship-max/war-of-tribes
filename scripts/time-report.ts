@@ -22,8 +22,10 @@ import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
 import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import {
+  armySize,
   buildingOfType,
   netPerDay,
+  orderValue,
   payGraceDays,
   productionPerDay,
   storageCap,
@@ -37,8 +39,12 @@ import { generateWorld, isLair } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import { AI_RANGE } from '@/world/data/tuning';
-import { HOUR, MIN, START, armyAt, away, pilot, player, stackOf, type Cost, type Inside } from './autopilot';
+import { HOUR, MIN, START, armyAt, away, gone, pilot, player, stackOf, type Cost, type Inside } from './autopilot';
 import { measure } from './lib/measured';
+import { dayRealSeconds, gameSeconds, setTimeScale } from '@/game/pace';
+import { SILENCE_PREFIX } from '@/game/sim/mail';
+import { MUTINY_EVENT } from '@/game/data/order';
+import { ageOf } from '@/game/sim/agents';
 
 const pad = (x: string | number, w: number): string => String(x).padStart(w);
 const n1 = (x: number): string => (Number.isFinite(x) ? x.toFixed(1) : '∞');
@@ -521,14 +527,72 @@ async function costSection(towns: GameState[]): Promise<void> {
   console.log('');
 }
 
+// ---------- 4. Вернувшийся ----------
+
+/** Отлучки, настоящих часов. Потолок догона — сутки: двое суток догоняются как одни. */
+const RETURNS = [8, 24, 48];
+const T_LEAVE = START;
+
+/**
+ * Что находит игрок, вернувшись через 8, 24 и 48 настоящих часов — **при шкале, принятой условно**
+ * (×30): это единственное место в `scripts/`, где шкала подменяется, и затем отчёт и заведён —
+ * померить игру после поворота до поворота. Считает настоящая дверь отлучки (`sim/tick.absence`):
+ * догон под потолком, терпение и уход войска, ропот, вести. Величины мира в замере не участвуют.
+ */
+function returnSection(towns: GameState[]): void {
+  console.log('=== 4. ВЕРНУВШИЙСЯ: 8, 24 И 48 ЧАСОВ ОТЛУЧКИ ПРИ ШКАЛЕ ×' + SCALE_NEXT + ' ===');
+  setTimeScale(SCALE_NEXT);
+  try {
+    console.log(`Дверь отлучки как в игре (\`sim/tick.absence\`), шкала ×${SCALE_NEXT}: игровой день — ${dayRealSeconds() / 60} мин, потолок догона —`);
+    console.log(`${MAX_OFFLINE_SECONDS / 3600} ч (${gameSeconds(MAX_OFFLINE_SECONDS) / DAY_LENGTH} игровых дней). Посёлок — этап из раздела 1, войско мерки, склад потрачен перед уходом (всё, кроме еды).`);
+    console.log('Три игрока: «казна этапа» — золото автопилота, налог партии; «пустая казна» — золота нет, налог умеренный,');
+    console.log('жалованье выше дохода; «с невольниками» — то же и невольников четыре десятых от жителей (без места).');
+    console.log('«войско» — осталось из скольких; «долг» — золота; «склад» — припасов из семи у потолка; «порядок» — число и');
+    console.log('ждёт ли мятеж на столе; «почта» — вестей на столе · решилось молчанием; «агент» — на сколько лет постарел полководец.');
+    console.log('  этап             | игрок           | отлучка | войско        |  долг | склад | порядок        | почта | агент');
+    for (const i of [2, 4]) {
+      for (const who of ['казна этапа', 'пустая казна', 'с невольниками'] as const) {
+        for (const hours of RETURNS) {
+          const s = clone(towns[i]);
+          const level = s.buildings.reduce((a, b) => a + b.level, 0) / s.buildings.length;
+          for (const [id, k] of Object.entries(stackOf(armyAt(Math.max(1, Math.round(level)))))) s.army[id as keyof typeof s.army] = k ?? 0;
+          for (const r of RESOURCE_IDS) if (r !== 'food') s.resources[r] = 0;
+          if (who !== 'казна этапа') {
+            s.gold = 0;
+            s.tax = 'moderate';
+          }
+          if (who === 'с невольниками') s.bonded = Math.round(s.pop * 0.4);
+          s.inbox = [];
+          const army0 = armySize(s);
+          const age0 = ageOf(s, 'general');
+          const silent0 = s.log.filter((e) => e.text.includes(SILENCE_PREFIX)).length;
+          gone(s, T_LEAVE, T_LEAVE + hours * HOUR);
+          const cap = storageCap(s);
+          const capped = RESOURCE_IDS.filter((r) => s.resources[r] >= cap - 1e-6).length;
+          const silent = s.log.filter((e) => e.text.includes(SILENCE_PREFIX)).length - silent0;
+          const mutiny = s.inbox.some((e) => e.defId === MUTINY_EVENT);
+          const mail = s.inbox.filter((e) => e.defId !== MUTINY_EVENT).length;
+          console.log(
+            `  ${STAGES[i][0].padEnd(16)} | ${who.padEnd(15)} | ${pad(hours, 5)} ч | ${`${armySize(s)} из ${army0}`.padStart(13)} | ${pad(Math.round(s.pay.debt), 5)} | ${pad(capped, 5)} | ${`${Math.round(orderValue(s))}${mutiny ? ', мятеж ждёт' : ''}`.padEnd(14)} | ${`${mail} · ${silent}`.padStart(5)} | ${pad(n1(ageOf(s, 'general') - age0), 5)}`,
+          );
+        }
+      }
+    }
+    console.log('');
+  } finally {
+    setTimeScale();
+  }
+}
+
 async function main(): Promise<void> {
   const towns = await stages();
   if (towns.length !== STAGES.length) throw new Error(`этапов снято ${towns.length} из ${STAGES.length}`);
   // SECTIONS=13 — только названные разделы: для работы над отчётом, приёмкой не является.
-  const on = (k: string): boolean => (process.env.SECTIONS ?? '123').includes(k);
+  const on = (k: string): boolean => (process.env.SECTIONS ?? '1234').includes(k);
   if (on('1')) fillSection(towns);
   if (on('2')) await agentsSection();
   if (on('3')) await costSection(towns);
+  if (on('4')) returnSection(towns);
 }
 
 await main();

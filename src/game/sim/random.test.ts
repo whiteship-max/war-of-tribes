@@ -17,6 +17,7 @@ import { setRandom } from './random';
 import { roll } from './roll';
 import { tick } from './tick';
 import { resolveEvent } from './actions';
+import { mailArrive } from './mail';
 import { EVENT_BY_ID } from '../data/events';
 
 const ROOT = join(__dirname, '..', '..');
@@ -100,9 +101,17 @@ describe('кость партии повторяется', () => {
         for (let k = def.options.length - 1; k >= 0 && s.inbox.length === n; k--) resolveEvent(s, k);
       }
     };
-    for (let i = 0; i < 1800; i++) {
-      tick(a, 2);
-      tick(b, 2);
+    // Вести приходят по настоящим часам (`mailArrive`): трое суток окнами по два часа — около девяти
+    // приходов сетки, и на каждом кость партии выбирает вид вести.
+    const T = 1_700_000_000_000;
+    const WINDOW = 2 * 3600_000;
+    for (let i = 0; i < 36; i++) {
+      for (let k = 0; k < 50; k++) {
+        tick(a, 2);
+        tick(b, 2);
+      }
+      mailArrive(a, T + i * WINDOW, T + (i + 1) * WINDOW);
+      mailArrive(b, T + i * WINDOW, T + (i + 1) * WINDOW);
       answer(a);
       answer(b);
     }

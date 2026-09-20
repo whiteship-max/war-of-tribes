@@ -19,13 +19,11 @@
 // день ежедневки. Шаг симуляции (`tick`) про настоящие часы не знает вовсе.
 import type { ActiveEvent, GameState } from '../types';
 import { EVENT_BY_ID, eventBlock, payEventCost, pickEvent, type EventDef } from '../data/events';
-import { EVENT_INTERVAL_MAX, EVENT_INTERVAL_MIN } from '../constants';
 import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_TTL } from '@/world/data/tuning';
 import { hashId } from '@/world/diplomacy';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { kickFrom } from '@/world/letters';
 import { MUTINY_EVENT } from '../data/order';
-import { rollInt } from './roll';
 import { log } from './log';
 
 /** Сколько событие ждёт ответа, мс настоящего времени. Одно число на всю почту. */
@@ -36,10 +34,6 @@ export const SILENCE_PREFIX = 'Ответа не дождались';
 
 /** Имя события на столе: вид и минута прихода. */
 export const eventId = (ev: ActiveEvent): string => `${ev.defId}:${ev.at}`;
-
-export const scheduleNextEvent = (s: GameState): void => {
-  s.nextEventAt = s.time + rollInt(s, EVENT_INTERVAL_MIN, EVENT_INTERVAL_MAX);
-};
 
 /**
  * Событие со своей ячейкой: мятеж. Его срок — секунды, и сгонять его наравне с
@@ -141,29 +135,32 @@ export function mailStep(s: GameState, now: number): boolean {
 }
 
 /**
- * Вести в отлучке. Пока игрока нет, `tick` событий не поднимает — и не должен: догон
- * офлайна не доигрывает пропущенное. Но почта заведена затем, чтобы было зачем
- * вернуться, и стол при входе **выводится из времени**, как всё остальное: сколько
- * прошло настоящих часов и какие приходы легли на них по сетке партии.
+ * Приход вестей. **Вести зреют по времени, а не по присутствию** (docs/time.md, раздел 14): шаг
+ * симуляции их не поднимает вовсе — ни при игроке, ни в догоне. Стол **выводится из времени**:
+ * сколько прошло настоящих часов и какие приходы легли на них по сетке партии. Сетка одна на
+ * живую игру (`sim/tick.liveStep` спрашивает окно своего шага) и на отлучку (`sim/tick.absence` —
+ * окно от последней записи до входа). Прежде при игроке вести шли своим счётом, раз в 70–140
+ * игровых секунд, а в отлучке — по этой сетке: пятиминутный заход приносил три вести, восемь
+ * часов отлучки — одну.
  *
  * Сетка — числа пауз писем мира, нового не заведено: шаг — середина
  * `LETTER_PAUSE_MIN`…`LETTER_PAUSE_MAX` (8 ч), приход ложится в начало своего шага
  * со сдвигом до половины их разницы (0–2 ч), поэтому соседние приходы лежат в
  * 6–10 ч друг от друга — ровно паузы писем.
  * Приход k стоит в абсолютном времени и зависит только от сида партии и k: сколько
- * раз и когда игрок заглядывал, на сетку не влияет (это тест).
+ * раз и когда игрок заглядывал и был ли он при игре, на сетку не влияет (это тест).
  */
 export const AWAY_STEP = (LETTER_PAUSE_MIN + LETTER_PAUSE_MAX) / 2;
 export const AWAY_JITTER = (LETTER_PAUSE_MAX - LETTER_PAUSE_MIN) / 2;
 
-/** Минута k-го прихода вести в отлучке, мс настоящего времени. */
+/** Минута k-го прихода вести, мс настоящего времени. */
 export const awayArrival = (seed: number, k: number): number =>
   k * AWAY_STEP + (hashId(`${seed}|mail|${k}`) / 2 ** 32) * AWAY_JITTER;
 
 /**
- * Положить на стол вести, пришедшие между `from` (последняя запись партии) и `now`
- * (вход). Вид вести выбирает кость партии тем же `pickEvent`, что при игроке, срок —
- * сутки от минуты прихода, и лишнее сгоняется тем же правилом стола.
+ * Положить на стол вести, пришедшие между `from` и `now` (настоящие мс): окно живого шага или
+ * отлучка от последней записи партии до входа. Вид вести выбирает кость партии (`pickEvent`),
+ * срок — сутки от минуты прихода, и лишнее сгоняется тем же правилом стола.
  *
  * **Глубже срока в сутки окно не заходит** (`EVENT_TTL`): весть, пришедшая раньше,
  * истекла бы, не показавшись ни разу, и её молчание было бы последствием, которого
@@ -172,7 +169,7 @@ export const awayArrival = (seed: number, k: number): number =>
  * отлучки, истекают своим сроком — их игрок видел. Правила «нет вестей» тоже прежние:
  * при обучении и при ропоте их нет. Возвращает, сколько вестей пришло.
  */
-export function mailAway(s: GameState, from: number, now: number): number {
+export function mailArrive(s: GameState, from: number, now: number): number {
   if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) return 0;
   if (s.unrest > 0) return 0;
   const start = Math.max(from, now - EVENT_TTL);

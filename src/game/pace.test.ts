@@ -212,9 +212,11 @@ describe('дверь одна: по исходникам', () => {
     expect(code(path.join(ROOT, 'src/world/local/LocalWorld.ts'))).toMatch(/gameSecondsOfMs\(/);
   });
 
-  it('шкалу подменяют только тесты', () => {
+  it('шкалу подменяют только тесты — и прибор поворота', () => {
     const callers = [...SRC, ...sources(path.join(ROOT, 'scripts'))].filter((f) => rel(f) !== 'src/game/pace.ts' && /\bsetTimeScale\s*\(/.test(code(f)));
-    expect(callers.map(rel)).toEqual([]);
+    // Единственное исключение названо: `time:report` меряет игру после поворота шкалы до поворота
+    // («Вернувшийся») и шкалу за собой возвращает. В игре (`src`) подмены нет нигде.
+    expect(callers.map(rel)).toEqual(['scripts/time-report.ts']);
   });
 
   it('секунды, минуты и часы в интерфейсе печатает только `ui/parts/wait.ts`', () => {

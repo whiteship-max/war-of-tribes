@@ -39,10 +39,10 @@ import { starvesAt } from '@/world/siege';
 import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
-import { catchUp, tick } from '@/game/sim/tick';
+import { absence, catchUp, tick } from '@/game/sim/tick';
 import { gameSeconds } from '@/game/pace';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
-import { eventId } from '@/game/sim/mail';
+import { eventId, mailArrive } from '@/game/sim/mail';
 import { assignWorker, autoAssign, changeFreeJob, unassignWorker } from '@/game/sim/workers';
 import { recruitCost, startRecruit } from '@/game/sim/army';
 import { forgeCost, startForge } from '@/game/sim/smithy';
@@ -731,6 +731,8 @@ export async function pilot(o: Flight): Promise<Flown> {
         cost.ticks++;
         clock += o.tick;
       }
+      // Вести приходят по настоящим часам мира — окно этого пульса (`sim/mail.mailArrive`), как в игре.
+      mailArrive(g, sky.now() - pulseMs, sky.now());
     }
     const pl = await beat();
     const now = sky.now();
@@ -809,6 +811,14 @@ export async function playedFor(hours: number): Promise<GameState> {
 /** Игрок ушёл на `seconds` **игровых** секунд: офлайн-догон шагом `step`, как при возвращении в игру. */
 export function away(g: GameState, seconds: number, step: number): void {
   catchUp(g, seconds, step);
+}
+
+/**
+ * Игрок ушёл в настоящую минуту `since` и вернулся в `now`: дверь отлучки как в игре (`sim/tick.absence`) —
+ * догон под потолком, терпение и уход войска, ропот, вести.
+ */
+export function gone(g: GameState, since: number, now: number): void {
+  absence(g, since, now);
 }
 
 /** Последствие без мира: отчёт прикладывает участь к копии посёлка. */

@@ -51,7 +51,7 @@ describe('классы величин времени: по исходникам'
       inTables: rows.filter((r) => r.cls === cls).reduce((n, r) => n + r.n, 0),
     });
     expect({ game: count('game'), real: count('real'), owner: count('owner'), days: dayConsts(ROOT).length }).toEqual({
-      game: { named: 37, inTables: 10 },
+      game: { named: 35, inTables: 10 },
       real: { named: 25, inTables: 0 },
       owner: { named: 7, inTables: 2 },
       days: 11,

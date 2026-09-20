@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Building, BuildingTypeId, GameState, JobId, Season } from '../types';
 import { createInitialState } from '../state';
-import { catchUp, tick } from './tick';
+import { catchUp, liveStep, tick } from './tick';
+import { AWAY_STEP, awayArrival } from './mail';
 import { startUpgrade, resolveEvent, setTax } from './actions';
 import { applyExpedition, sackOutskirts } from './expedition';
 import { setHeroKind, throwFeast } from './actions';
@@ -536,15 +537,18 @@ describe('симуляция', () => {
     expect(s.inbox).toEqual([]);
   });
 
-  it('онлайн событие появляется и разрешается', () => {
-    const s = createInitialState();
+  it('при игроке весть приходит живым шагом — по настоящим часам — и разрешается', () => {
+    const s = createInitialState(7);
     finishTutorial(s);
-    for (let i = 0; i < 200; i++) tick(s, 0.5);
-    expect(s.inbox).not.toEqual([]);
+    const at = awayArrival(s.seed, Math.floor(1_700_000_000_000 / AWAY_STEP) + 1);
+    // Три настоящие секунды до прихода и три после — живыми шагами по полсекунды.
+    for (let i = 1; i <= 5; i++) liveStep(s, 0.5, at - 3000 + i * 500);
+    expect(s.inbox, 'точка внутри области: до минуты прихода стол пуст').toEqual([]);
+    for (let i = 6; i <= 12; i++) liveStep(s, 0.5, at - 3000 + i * 500);
+    expect(s.inbox.length, 'весть пришла в свою минуту').toBe(1);
     const r = resolveEvent(s, 0);
     expect(r.error).toBeNull();
     expect(s.inbox).toEqual([]);
-    expect(s.nextEventAt).toBeGreaterThan(s.time);
   });
 
   it('задание выполняется и даёт награду', () => {

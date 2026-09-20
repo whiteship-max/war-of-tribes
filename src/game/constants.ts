@@ -7,7 +7,7 @@ import type { ResourceId, Resources } from './types';
 export { DAY_LENGTH } from './pace';
 import { DAY_LENGTH, gameRate, gameSec, realSec, sessionSec } from './pace';
 /** Максимум офлайн-прогресса при возвращении в игру. */
-export const MAX_OFFLINE_SECONDS = realSec(4 * 3600);
+export const MAX_OFFLINE_SECONDS = realSec(24 * 3600);
 
 // ---------- Население ----------
 //
@@ -62,8 +62,6 @@ export const START_POP = 30;
 
 export const BASE_STORAGE_CAP = 1200;
 export const BASE_HOUSING = 10;
-export const EVENT_INTERVAL_MIN = gameSec(70);
-export const EVENT_INTERVAL_MAX = gameSec(140);
 
 /**
  * Потолок уровня здания. Каждый тип строится ровно один раз, поэтому уровни —

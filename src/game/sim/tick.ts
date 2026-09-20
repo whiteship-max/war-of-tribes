@@ -22,12 +22,10 @@ import {
 import { COLD_DEATH, SEASON_DAYS, SEASON_META } from '../data/seasons';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { QUESTS } from '../data/quests';
-import { pickEvent } from '../data/events';
-import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { MUTINY_EVENT } from '../data/order';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { unrestTick } from './mutiny';
-import { eventId, lapseEvent, mailAway, raiseEvent, scheduleNextEvent } from './mail';
+import { eventId, lapseEvent, mailArrive, raiseEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
@@ -36,7 +34,6 @@ import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { settleHires } from './hire';
 import { settleWounds } from './infirmary';
-import { roll } from './roll';
 import { log, trimLog } from './log';
 import { recordProduced, refreshCard } from '@/profile/stats';
 
@@ -151,8 +148,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
   // вернувшиеся караваны разгружаются.
   marketTick(s, dt, taxIncomePerDay(s));
   // 3в. Содержание войска: жалованье из казны, долг, терпение и уход — голодом или
-  // неуплатой, одной дверью. Уход только при игроке; долг копится и без него.
-  upkeepTick(s, dt, !opts.offline, hunger.army);
+  // неуплатой, одной дверью. Долг, терпение и уход зреют по времени — при игроке и без него.
+  upkeepTick(s, dt, hunger.army);
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
   const target = moraleTarget(s);
@@ -219,30 +216,11 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
     settled = open ? lapseEvent(s, eventId(open)) : null;
   }
 
-  // 8. События. Мятеж случаем не выпадает: его поднимает срок ропота, и ложится
-  // он в свою ячейку стола — вести посёлка его не держат и им не сгоняются
-  // (`sim/mail.raiseEvent`).
-  if (unrest === 'raise') {
-    raiseEvent(s, MUTINY_EVENT);
-  } else if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) {
-    // Пока идёт проводка первых шагов, модалка события накрыла бы подсветку.
-    s.nextEventAt = Math.max(s.nextEventAt, s.time + 20);
-  } else if (s.time >= s.nextEventAt) {
-    if (opts.offline) {
-      s.nextEventAt = s.time + 20 + roll(s) * 20;
-    } else if (s.unrest > 0) {
-      // Пока идёт ропот, случайных окон нет: волки или ярмарка накрыли бы собой
-      // и срок, и цену, а мятеж встал бы в очередь за ними.
-      s.nextEventAt = s.time + 20;
-    } else {
-      // Событие ложится на стол, и следующее назначается от его прихода, а не от
-      // ответа: вести идут своим ходом, ответил на них игрок или нет. Стол полон —
-      // лишнее сгоняет ближайшее по сроку, как у писем мира.
-      const e = pickEvent(s);
-      if (e) raiseEvent(s, e.id);
-      scheduleNextEvent(s);
-    }
-  }
+  // 8. Мятеж случаем не выпадает: его поднимает срок ропота, и ложится он в свою ячейку
+  // стола — вести посёлка его не держат и им не сгоняются (`sim/mail.raiseEvent`).
+  // Сами вести шаг не поднимает: они приходят по сетке настоящих часов, одной на присутствие и
+  // отлучку (`sim/mail.mailArrive`), — зреют по времени, а не по присутствию.
+  if (unrest === 'raise') raiseEvent(s, MUTINY_EVENT);
   return settled;
 }
 
@@ -258,8 +236,17 @@ export function catchUp(s: GameState, seconds: number, step = 1): void {
 
 /** За сколько мораль заметно сдвигается к цели, игровых секунд. */
 export const MORALE_SETTLE = gameSec(20);
-/** Шаг догона офлайна, игровых секунд. */
+/** Шаг догона офлайна, игровых секунд, — самый мелкий. */
 export const CATCHUP_STEP = gameSec(2);
+/**
+ * Сколько шагов догон делает самое большее. Потолок отлучки — сутки, и при шкале времени, равной
+ * единице, это 43 200 шагов по две секунды — семь секунд стоящей страницы на входе. Длинная отлучка
+ * догоняется тем же числом шагов, что прежний потолок в четыре часа, шагом покрупнее; отлучка до
+ * четырёх часов идёт прежним шагом, буква в букву.
+ */
+export const CATCHUP_TICKS = 7200;
+/** Шаг догона для отлучки в `seconds` игровых секунд. */
+export const catchUpStep = (seconds: number): number => Math.max(CATCHUP_STEP, seconds / CATCHUP_TICKS);
 /**
  * Дольше этого между двумя шагами живой игры, настоящих секунд, — уже не шаг, а отлучка: таймер
  * страницы стоял (вкладка в фоне, свёрнутое вебвью, уснувший телефон), и игрока при этом не было.
@@ -273,14 +260,14 @@ export const awaySeconds = (since: number, now: number): number =>
 
 /**
  * Отлучка: игрока не было с настоящей минуты `since` по `now`. Догон хозяйства под потолком и
- * вести, пришедшие без игрока (`sim/mail.mailAway`), — одним правилом для входа в игру и для
+ * вести, пришедшие без игрока (`sim/mail.mailArrive`), — одним правилом для входа в игру и для
  * страницы, которая спала, не закрываясь. Отлучка меряется настоящими секундами, шаг догона —
  * игровыми: перевод один (`game/pace`).
  */
 export function absence(s: GameState, since: number, now: number): void {
   const real = awaySeconds(since, now);
-  if (real > AWAY_AFTER) catchUp(s, gameSeconds(real), CATCHUP_STEP);
-  mailAway(s, since, now);
+  if (real > AWAY_AFTER) catchUp(s, gameSeconds(real), catchUpStep(gameSeconds(real)));
+  mailArrive(s, since, now);
 }
 
 /**
@@ -294,10 +281,13 @@ export function absence(s: GameState, since: number, now: number): void {
  */
 export function liveStep(s: GameState, real: number, now: number): string | null {
   if (!(real > 0)) return null;
-  if (real <= AWAY_AFTER) return tick(s, gameSeconds(real));
+  if (real <= AWAY_AFTER) {
+    const settled = tick(s, gameSeconds(real));
+    // Вести приходят по настоящим часам — тем же правилом, что в отлучке: окно этого шага.
+    mailArrive(s, now - real * 1000, now);
+    return settled;
+  }
   absence(s, now - real * 1000, now);
   return null;
 }
 
-// Назначение следующего события живёт у почты (`sim/mail`).
-export { scheduleNextEvent } from './mail';
