@@ -29,6 +29,7 @@ import { plural } from '@/ui/parts/plural';
 import { bondedWord, townsWord } from '@/game/data/order';
 import { recruitRate } from '@/game/derived';
 import { TROOP_BY_ID } from '@/game/data/troops';
+import { waitShort } from '../parts/wait';
 
 const byLevels = (n: number): string => `по ${n} ${plural(n, 'уровню', 'уровня', 'уровней')}`;
 const goodsAndGold = (f: FallForecast): string => `${f.goods} добра${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
@@ -72,7 +73,7 @@ function HireClubmen() {
   const seconds = Math.max(1, Math.ceil(TROOP_BY_ID.clubman.work / rate));
   return (
     <>
-      <p className="note">Наймите дубинщиков: казармы учат одного за {seconds} с, и с ними можно выйти на вылазку.</p>
+      <p className="note">Наймите дубинщиков: казармы учат одного за {waitShort(seconds)}, и с ними можно выйти на вылазку.</p>
       <button className="btn wide" data-tut="siege-barracks" onClick={() => openBuilding(barracks.id)}>
         <Icon name="troop-clubman" glyph={TROOP_BY_ID.clubman.icon} /> В казармы
       </button>

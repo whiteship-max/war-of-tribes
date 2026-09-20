@@ -15,6 +15,7 @@ import { iconName } from '@/ui/icons/registry';
 import { useLockWords } from '@/ui/parts/defenseLock';
 import { useRealm } from '@/ui/realm/open';
 import { eventKey } from '@/ui/realm/unread';
+import { realSeconds } from '@/game/pace';
 
 /**
  * Критические состояния всплывают поверх любого экрана: голод, остывший очаг и
@@ -80,7 +81,7 @@ export function AlertBar() {
         <button key="mutiny" className="alert raid" onClick={() => openMail(eventKey(mutiny))}>
           <span className="ic">{ORDER_TEXT.mutiny.icon}</span>
           <span className="txt">
-            {ORDER_TEXT.mutiny.title} — ответ в «Решениях» · {formatLeft(mutinyLeft)}
+            {ORDER_TEXT.mutiny.title} — ответ в «Решениях» · {formatLeft(realSeconds(mutinyLeft))}
           </span>
         </button>
       )}

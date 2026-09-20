@@ -11,6 +11,7 @@ import { temperOf, troopCard } from '@/game/battle/describe';
 import { weightOf } from '@/game/battle/kinds';
 import { GEAR } from '@/battle';
 import { Icon } from '@/ui/icons/Icon';
+import { waitShort } from './wait';
 
 /** Полоска величины в своём потолке: мощь среди видов, мораль в шкале боя. */
 function Bar({
@@ -139,7 +140,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
           </span>
         ))}
         <span>👤 {cost.people}</span>
-        <span className="work">⏱ {eta !== null ? `~${eta} с` : `${cost.work} работы`}</span>
+        <span className="work">⏱ {eta !== null ? `~${waitShort(eta)}` : `${cost.work} работы`}</span>
       </div>
       {cost.gear.length > 0 && smithy && (
         <button className="btn ghost wide" onClick={() => openBuilding(smithy.id)}>

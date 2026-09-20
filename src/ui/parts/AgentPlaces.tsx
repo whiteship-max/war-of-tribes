@@ -15,6 +15,7 @@ import type { FigureId } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from './Cost';
 import { count } from './plural';
+import { realSeconds } from '@/game/pace';
 
 function Place({ id }: { id: FigureId }) {
   const s = useGame((g) => g.s);
@@ -71,7 +72,7 @@ function Place({ id }: { id: FigureId }) {
         <span className="name">
           {def.name}: место пустует
           <em className="sub">
-            придёт за {formatLeft(info.seconds)} ({count(Math.round(info.seconds / DAY_LENGTH), 'игровой день', 'игровых дня', 'игровых дней')}),{' '}
+            придёт за {formatLeft(realSeconds(info.seconds))} ({count(Math.round(info.seconds / DAY_LENGTH), 'игровой день', 'игровых дня', 'игровых дней')}),{' '}
             {count(Math.floor(info.age0), 'год', 'года', 'лет')}, с первого уровня
           </em>
         </span>
@@ -101,7 +102,7 @@ export function AgentPlaces({ ids }: { ids: FigureId[] }) {
       <div className="note">
         Погибший или ушедший на покой не возвращается — место нанимают заново, и новичок
         начинает с первого уровня. {info.building} {info.level} ур.: найм идёт{' '}
-        {formatLeft(info.seconds)}, новичку {count(Math.floor(info.age0), 'год', 'года', 'лет')}; выше уровень — быстрее
+        {formatLeft(realSeconds(info.seconds))}, новичку {count(Math.floor(info.age0), 'год', 'года', 'лет')}; выше уровень — быстрее
         и моложе.
       </div>
     </>

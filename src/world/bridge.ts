@@ -5,6 +5,7 @@
 // племени не знает про координаты, а мир — про жителей и склад.
 import type { GameState } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
+import { gameSecondsOfMs, realMs } from '@/game/pace';
 import { HOUR_MS } from '@/game/time';
 import {
   bondedTotal,
@@ -57,7 +58,7 @@ import type {
  * быть один и стоять здесь, на самом мосту: мир про `DAY_LENGTH` не знает, а
  * племя про мировые часы.
  */
-const DAYS_PER_HOUR = HOUR_MS / (DAY_LENGTH * 1000);
+const daysPerHour = (): number => HOUR_MS / realMs(DAY_LENGTH);
 
 /**
  * Ополчение: та часть обороны, которую дают не бойцы, а частокол, башня и сами
@@ -199,8 +200,8 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // с остальным. Два расхода — города и одного бойца — приезжают из того же
     // `foodConsumptionPerDay`, которым племя живёт всегда.
     food: Math.max(0, s.resources.food),
-    foodPerHour: townFoodPerDay(s) * DAYS_PER_HOUR,
-    soldierFoodPerHour: soldierFoodPerDay(s) * DAYS_PER_HOUR,
+    foodPerHour: townFoodPerDay(s) * daysPerHour(),
+    soldierFoodPerHour: soldierFoodPerDay(s) * daysPerHour(),
     // Дозор и конюшня: мир получает четыре числа и не спрашивает, откуда они.
     warning: warningSeconds(s),
     // Изученная округа: радиус земли, которую Дозор открыл навсегда. Живого
@@ -302,7 +303,8 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
     s.siege = null;
     return true;
   }
-  const until = s.time + Math.max(0, (view.starvesAt - now) / 1000);
+  // Срок голода мир называет настоящими миллисекундами, догон племени идёт игровыми секундами.
+  const until = s.time + gameSecondsOfMs(Math.max(0, view.starvesAt - now));
   const same = s.siege !== null && s.siege.byName === view.byName && Math.abs(s.siege.until - until) < 1;
   if (same) return false;
   s.siege = { byName: view.byName, until };

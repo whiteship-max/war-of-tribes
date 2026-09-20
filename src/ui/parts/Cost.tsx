@@ -3,6 +3,7 @@ import type { ResourceId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Icon } from '@/ui/icons/Icon';
+import { waitShort } from './wait';
 
 /** Чем можно расплатиться: склад плюс казна. Золото — не ресурс, но цена бывает и в нём. */
 export type Price = Partial<Record<ResourceId | 'gold', number>>;
@@ -64,7 +65,7 @@ export function Cost({ cost, work, eta, extra }: Props) {
       )}
       {work !== undefined && (
         <span className="work">
-          <Icon name="ui-time" glyph="⏱" /> {eta === undefined ? work : eta === null ? 'нет строителей' : `~${eta} с`}</span>
+          <Icon name="ui-time" glyph="⏱" /> {eta === undefined ? work : eta === null ? 'нет строителей' : `~${waitShort(eta)}`}</span>
       )}
       {extra}
     </div>

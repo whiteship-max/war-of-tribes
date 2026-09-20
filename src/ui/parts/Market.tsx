@@ -18,6 +18,7 @@ import {
 } from '@/game/derived';
 import { marketCheck, saleCheck } from '@/game/sim/market';
 import { buyGoods, cancelCaravan, sellBonded } from '@/game/sim/actions';
+import { waitShort } from './wait';
 
 /**
  * Рынок: за золото сюда привозят чужое добро.
@@ -38,7 +39,7 @@ export function Market() {
   return (
     <>
       <h3>
-        Казна <span className="muted">караван идёт ~{Math.round(caravanSeconds(s))} с</span>
+        Казна <span className="muted">караван идёт ~{waitShort(Math.round(caravanSeconds(s)))}</span>
       </h3>
       <div className="mod total">
         <span className="ico">💰</span>
@@ -83,7 +84,7 @@ function Caravans() {
             <div className="body">
               <div className="title">
                 {def?.name ?? 'Товар'} — {c.count}
-                <span className="count">~{left} с</span>
+                <span className="count">~{waitShort(left)}</span>
               </div>
               <div className="desc">
                 {def?.kind === 'bonded'

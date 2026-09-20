@@ -317,6 +317,38 @@ async function report(): Promise<void> {
     `холст ${restored.css.w}×${restored.css.h}, буфер ${restored.buffer.w}×${restored.buffer.h}`,
   );
 
+  // ---------- 6. Часы племени в спавшей странице ----------
+  // Время племени обязано быть функцией часов, а не счётом срабатываний таймера: страница, у
+  // которой браузер остановил таймеры (свёрнутое вебвью, вкладка в фоне), проснувшись, догоняет
+  // прошедшее теми же правилами, что при входе в игру (`sim/tick.liveStep`, docs/time.md).
+  console.log('');
+  console.log('6. Часы племени: страница спала, не закрываясь');
+  const clock = (): Promise<{ game: number; wall: number }> =>
+    tab.eval<{ game: number; wall: number }>('JSON.stringify({ game: window.__game.getState().s.time, wall: Date.now() })');
+  const c0 = await clock();
+  await sleep(2000);
+  const c1 = await clock();
+  const awake = (c1.game - c0.game) / ((c1.wall - c0.wall) / 1000);
+  check('наяву время племени идёт вровень с часами', Math.abs(awake - 1) < 0.35, `игровых секунд на настоящую: ${live(awake.toFixed(2))}`);
+  // Страница уходит в фон по-настоящему: вперёд выходит другая вкладка, и браузер придерживает
+  // таймеры скрытой страницы (в Chrome — не чаще раза в секунду при шаге стора в полсекунды).
+  const front = await Tab.open(DEBUG_PORT, 'about:blank');
+  await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/activate/${front.target}`);
+  await sleep(1500);
+  const behind = await tab.eval<boolean>('JSON.stringify(document.hidden)');
+  const h0 = await clock();
+  await sleep(10_000);
+  const h1 = await clock();
+  await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/activate/${tab.target}`);
+  const wall = (h1.wall - h0.wall) / 1000;
+  const game = h1.game - h0.game;
+  check('страница в фоне (иначе замер ниже ни о чём)', behind, `document.hidden = ${behind}`);
+  check(
+    'в фоне время племени не отстаёт от часов',
+    wall - game < 2.5,
+    `в фоне прошло настоящих ${live(wall.toFixed(1))} с, игровых ${live(game.toFixed(1))} с, отстало на ${live((wall - game).toFixed(1))} с`,
+  );
+
   // ---------- Журнал ----------
   console.log('\nЖурнал, как его прочтёт владелец с телефона:');
   const notes = await tab.eval<Note[]>('window.__revive.log()');

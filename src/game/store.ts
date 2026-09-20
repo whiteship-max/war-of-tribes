@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import type { GameState } from './types';
 import { createInitialState } from './state';
-import { tick } from './sim/tick';
+import { liveStep } from './sim/tick';
 import { resolveEvent } from './sim/actions';
 import { mailStep } from './sim/mail';
-import { serverNow } from '@/net/clock';
+import { clockDrift, serverNow } from '@/net/clock';
 import { clearSave, loadGame, saveGame } from './save';
 import {
   advanceTutorial,
@@ -310,13 +310,20 @@ export const useGame = create<GameStore>((set, get) => ({
     void rosterBoot();
     if (loopStarted) return;
     loopStarted = true;
+    // Прошедшее время меряется часами устройства без серверной поправки: поправка приезжает с
+    // ответом сервера и сдвигает «сейчас» скачком, а скачок не должен стать ни догоном, ни простоем.
+    const deviceNow = (): number => serverNow() - clockDrift();
+    let lastStep = deviceNow();
     setInterval(() => {
       const s = get().s;
+      const at = deviceNow();
+      const real = Math.max(0, (at - lastStep) / 1000);
+      lastStep = at;
       // Донесение, оставленное без ответа, разрешает не игрок: мятеж — шаг
       // симуляции своим сроком, прочие события — почта настоящими часами
       // (`sim/mail`). Исход ложится в летопись, как у письма мира, и партия
       // пишется на диск сразу: исход без игрока не должен теряться с вкладкой.
-      const settled = tick(s, TICK_MS / 1000);
+      const settled = liveStep(s, real, serverNow());
       const lapsed = mailStep(s, serverNow());
       advanceTutorial(s, tutorialUi(get()));
       set({ s: { ...s } });

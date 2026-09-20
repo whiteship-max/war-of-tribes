@@ -3,6 +3,7 @@ import { sceneLog, VERDICT_TEXT, type Note } from '@/scenelog';
 import { copyText, tgAbout } from '@/telegram/webapp';
 import { useGame } from '@/game/store';
 import { Icon } from '@/ui/icons/Icon';
+import { sinceMark } from './wait';
 
 /**
  * Что было со сценой — прибор, читаемый с телефона.
@@ -109,5 +110,5 @@ export function SceneDoctor() {
 /** Сколько прошло от первой записи: абсолютное время на телефоне ничего не скажет. */
 function when(n: Note, all: readonly Note[]): string {
   const t0 = all[0]?.at ?? n.at;
-  return `+${((n.at - t0) / 1000).toFixed(1)}с`;
+  return sinceMark(n.at - t0);
 }

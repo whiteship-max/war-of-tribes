@@ -11,6 +11,7 @@ import { haptic } from '@/telegram/webapp';
 import { count } from '../plural';
 import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
+import { realShort } from '../wait';
 
 /** Порог свайпа: больше, чем у карты (`TAP_MOVE`), — здесь нет панорамы, и ложный свайп дороже. */
 const SWIPE = 24;
@@ -182,7 +183,7 @@ export function Maze({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
     <>
       <div className="mg-head">
         <b>{hasKey ? 'Ключ у рыцаря — к сундуку' : 'Найди ключ, потом сундук'}</b>
-        <span className={`mg-clock${left <= 8 ? ' low' : ''}`}>{left.toFixed(1)} с</span>
+        <span className={`mg-clock${left <= 8 ? ' low' : ''}`}>{realShort(left)}</span>
       </div>
 
       <div

@@ -25,21 +25,13 @@ import { gainText, readVillage, upgradeGains, type Readings, type UpgradeGain } 
 import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
+import { waitEta } from './wait';
 
 const ORDER = new Map(BUILDINGS.map((d, i) => [d.id, i]));
 const byOrder = (a: Building, b: Building): number => (ORDER.get(a.type) ?? 99) - (ORDER.get(b.type) ?? 99);
 
 const canLevelUp = (type: Building['type']): boolean =>
   (BUILDING_BY_ID[type].maxLevel ?? MAX_BUILDING_LEVEL) > 1;
-
-/** Время в секундах словами: на 375 px «~2 м 10 с» читается, «~130 с» — нет. */
-export function etaText(sec: number | null): string {
-  if (sec === null) return 'нет строителей';
-  if (sec < 60) return `~${Math.ceil(sec)} с`;
-  const m = Math.floor(sec / 60);
-  const r = Math.round(sec % 60);
-  return r > 0 ? `~${m} м ${r} с` : `~${m} м`;
-}
 
 /**
  * Чем постройка занята сейчас — вторая строка в ряду. У рабочего здания это
@@ -200,7 +192,7 @@ function SiteRow({ b, first, rate }: { b: Building; first: boolean; rate: number
           <span className="title">
             {name}
             <i className="lvl-tag">→ {b.level + 1} ур.</i>
-            <span className="count">{first ? etaText(eta) : 'в очереди'}</span>
+            <span className="count">{first ? waitEta(eta) : 'в очереди'}</span>
           </span>
           <span className="desc">В лесах, но работает — {pct}%</span>
           <span className="progress">

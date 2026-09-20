@@ -1,13 +1,13 @@
 import type { ActiveEvent, GameState } from './types';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from './constants';
+import { DAY_LENGTH } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
 import { taxIncomePerDay, wagesPerDay } from './derived';
 import { emptyArmy } from './data/troops';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { createInitialState, SAVE_VERSION } from './state';
-import { catchUp } from './sim/tick';
-import { mailAway } from './sim/mail';
+import { AWAY_AFTER, absence, awaySeconds } from './sim/tick';
+import { gameSeconds } from './pace';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
@@ -90,7 +90,7 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   // первом же входе, а игрок о правиле ещё не знал. Отсрочка — с минуты входа,
   // после догона офлайна, как служба приведённых агентов. Налог не трогается.
   if (from < 14) {
-    const entry = s.time + offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow());
+    const entry = s.time + gameSeconds(offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow()));
     s.pay = { debt: 0, late: 0, gone: {}, from: entry + WAGE_AMNESTY_DAYS * DAY_LENGTH };
   }
   // Строка про грамоту вождя — про восьмёрку, и обязана быть под своим условием:
@@ -127,11 +127,10 @@ function migrate(s: GameState, from: number, data: SavedState): void {
 }
 
 /**
- * Сколько догонять после записи — одна формула на догон и на ступень, которой нужно знать,
+ * Сколько догонять после записи, **настоящих секунд**, — одна формула на догон и на ступень, которой нужно знать,
  * где кончится догон: служба приведённых агентов начинается в минуту входа, а не раньше.
  */
-export const offlineSeconds = (lastSaved: number): number =>
-  Math.min(Math.max(0, Math.floor((serverNow() - lastSaved) / 1000)), MAX_OFFLINE_SECONDS);
+export const offlineSeconds = (lastSaved: number): number => awaySeconds(lastSaved, serverNow());
 
 /** Пороги опыта до смертных агентов: по ним лежит опыт в сохранении двенадцатой версии. */
 const OLD_LEVEL_XP = [0, 20, 60, 130, 240] as const;
@@ -176,7 +175,7 @@ function mortalAgents(s: GameState, data: SavedState): void {
     const raw = oldAgents[id]?.xp;
     p.xp = rescaleXp(typeof raw === 'number' ? raw : 0);
     p.person = 0;
-    p.bornAt = s.time + offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow());
+    p.bornAt = s.time + gameSeconds(offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow()));
     p.age0 = AGENT_AGE0;
     p.vacant = false;
     p.hiring = null;
@@ -387,14 +386,12 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   }
 
   const offline = offlineSeconds(state.lastSaved);
-  if (offline > 5) {
-    await hooks.onOffline?.(offline);
-    catchUp(state, offline, 2);
-  }
-  // Вести, пришедшие в отлучке, — выводом из времени, а не доигрыванием тиков
-  // (`sim/mail.mailAway`). После догона: кость партии и веса событий берутся у
-  // посёлка, каким он стал к входу.
-  mailAway(state, state.lastSaved, serverNow());
+  if (offline > AWAY_AFTER) await hooks.onOffline?.(offline);
+  // Отлучка — одна дверь на вход в игру и на страницу, спавшую не закрываясь (`sim/tick.absence`):
+  // догон хозяйства под потолком, потом вести, пришедшие без игрока, — выводом из времени, а не
+  // доигрыванием тиков. Вести после догона: кость партии и веса событий берутся у посёлка, каким
+  // он стал к входу.
+  absence(state, state.lastSaved, serverNow());
   return { state, offlineSeconds: offline, fresh: false, legacy: false };
 }
 

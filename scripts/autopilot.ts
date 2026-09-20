@@ -40,6 +40,7 @@ import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { catchUp, tick } from '@/game/sim/tick';
+import { gameSeconds } from '@/game/pace';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
 import { eventId } from '@/game/sim/mail';
 import { assignWorker, autoAssign, changeFreeJob, unassignWorker } from '@/game/sim/workers';
@@ -711,10 +712,13 @@ export async function pilot(o: Flight): Promise<Flown> {
   let lastSortie = 0;
   let hour = 1;
   let clock = 0;
+  let owed = 0;
   while (sky.now() < START + o.seconds * 1000) {
     sky.at(sky.now() + pulseMs);
     if (o.economy === 'live') {
-      for (let t = 0; t < o.world.pulse; t += o.tick) {
+      // Пульс мира — настоящие секунды, шаг племени — игровые: сколько племя должно прожить за
+      // пульс, говорит дверь времени (`game/pace`). Остаток меньше шага переходит следующему пульсу.
+      for (owed += gameSeconds(o.world.pulse); owed >= o.tick; owed -= o.tick) {
         if (clock % o.decide === 0) {
           const d0 = performance.now();
           decide(g, p, l);
@@ -802,7 +806,7 @@ export async function playedFor(hours: number): Promise<GameState> {
   return s;
 }
 
-/** Игрок ушёл на `seconds`: офлайн-догон шагом `step`, как при возвращении в игру. */
+/** Игрок ушёл на `seconds` **игровых** секунд: офлайн-догон шагом `step`, как при возвращении в игру. */
 export function away(g: GameState, seconds: number, step: number): void {
   catchUp(g, seconds, step);
 }

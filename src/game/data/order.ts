@@ -11,6 +11,7 @@
 //
 // Модуль чистый: только слова и числа из аргументов. Считать здесь нечего —
 // числа приходят готовыми из `derived.ts` и `sim/mutiny.ts`.
+import { realSeconds } from '../pace';
 
 /** «N невольник / невольника / невольников». */
 export function bondedWord(n: number): string {
@@ -32,9 +33,9 @@ export function townsWord(n: number): string {
   return 'горожан';
 }
 
-/** Минуты и секунды для срока ропота: «2:05». */
+/** Минуты и секунды для срока ропота: «2:05». Срок идёт игровыми секундами, игрок ждёт настоящими. */
 export function clockText(sec: number): string {
-  const total = Math.max(0, Math.ceil(sec));
+  const total = Math.max(0, Math.ceil(realSeconds(sec)));
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${String(s).padStart(2, '0')}`;

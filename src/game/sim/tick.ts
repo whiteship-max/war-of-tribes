@@ -1,6 +1,7 @@
 // Главный шаг симуляции. Мутирует состояние на месте.
 import type { GameState } from '../types';
-import { DAY_LENGTH, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
+import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
+import { gameSeconds } from '../pace';
 import {
   buildRate,
   currentSite,
@@ -26,7 +27,7 @@ import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { MUTINY_EVENT } from '../data/order';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { unrestTick } from './mutiny';
-import { eventId, lapseEvent, raiseEvent, scheduleNextEvent } from './mail';
+import { eventId, lapseEvent, mailAway, raiseEvent, scheduleNextEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
@@ -253,6 +254,47 @@ export function catchUp(s: GameState, seconds: number, step = 1): void {
     tick(s, dt, { offline: true });
     left -= dt;
   }
+}
+
+/** Шаг догона офлайна, игровых секунд. */
+export const CATCHUP_STEP = 2;
+/**
+ * Дольше этого между двумя шагами живой игры, настоящих секунд, — уже не шаг, а отлучка: таймер
+ * страницы стоял (вкладка в фоне, свёрнутое вебвью, уснувший телефон), и игрока при этом не было.
+ * То же число, с которого вход в игру считает отлучку догоном (`save.loadGame`).
+ */
+export const AWAY_AFTER = 5;
+
+/** Сколько догонять за отлучку с `since` по `now` (настоящие мс), **настоящих секунд**, под потолком. */
+export const awaySeconds = (since: number, now: number): number =>
+  Math.min(Math.max(0, Math.floor((now - since) / 1000)), MAX_OFFLINE_SECONDS);
+
+/**
+ * Отлучка: игрока не было с настоящей минуты `since` по `now`. Догон хозяйства под потолком и
+ * вести, пришедшие без игрока (`sim/mail.mailAway`), — одним правилом для входа в игру и для
+ * страницы, которая спала, не закрываясь. Отлучка меряется настоящими секундами, шаг догона —
+ * игровыми: перевод один (`game/pace`).
+ */
+export function absence(s: GameState, since: number, now: number): void {
+  const real = awaySeconds(since, now);
+  if (real > AWAY_AFTER) catchUp(s, gameSeconds(real), CATCHUP_STEP);
+  mailAway(s, since, now);
+}
+
+/**
+ * Шаг живой игры: с прошлого шага прошло `real` настоящих секунд, сейчас `now`.
+ *
+ * **Время племени — функция часов, а не счёт срабатываний таймера.** Прежде цикл стора прибавлял
+ * полсекунды на каждое срабатывание `setInterval`, и страница, у которой браузер придержал или
+ * остановил таймеры, молча отставала от мира: автосохранение при этом ставило свежий `lastSaved`,
+ * и догона отставшее племя не получало до перезагрузки. Теперь шаг получает прошедшее время:
+ * короткий промежуток — обычный шаг при игроке, длинный — отлучка теми же правилами, что при входе.
+ */
+export function liveStep(s: GameState, real: number, now: number): string | null {
+  if (!(real > 0)) return null;
+  if (real <= AWAY_AFTER) return tick(s, gameSeconds(real));
+  absence(s, now - real * 1000, now);
+  return null;
 }
 
 // Назначение следующего события живёт у почты (`sim/mail`).

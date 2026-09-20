@@ -5,6 +5,7 @@ import { BUILDINGS } from '@/game/data/buildings';
 import { copyText, tgAbout } from '@/telegram/webapp';
 import { useGame } from '@/game/store';
 import { Icon } from '@/ui/icons/Icon';
+import { sinceMark } from './wait';
 
 /**
  * Что было под пальцем — прибор, читаемый с телефона.
@@ -121,5 +122,5 @@ function facts(t: Touch): string {
 /** Сколько прошло от первой записи: абсолютное время на телефоне ничего не скажет. */
 function when(t: Touch, all: readonly Touch[]): string {
   const t0 = all[0]?.at ?? t.at;
-  return `+${((t.at - t0) / 1000).toFixed(1)}с`;
+  return sinceMark(t.at - t0);
 }

@@ -1,0 +1,229 @@
+// Дверь времени (`game/pace.ts`): перевод настоящих секунд в игровые один, и стоит он везде, где
+// игровая секунда встречается с настоящей. При шкале 1 перевод неотличим от его отсутствия, и тест
+// на «перевод на месте» при ней зелёный даром — поэтому каждое свойство ниже снято при шкале,
+// отличной от единицы, и это утверждается в самом тесте, а не подразумевается (правило 11).
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it } from 'vitest';
+import { createInitialState } from './state';
+import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from './constants';
+import { gameSeconds, gameSecondsOfMs, realMs, realSeconds, setTimeScale, timeScale } from './pace';
+import { AWAY_AFTER, absence, awaySeconds, liveStep } from './sim/tick';
+import { clockText } from './data/order';
+import { townFoodPerDay } from './derived';
+import { playerProfile, syncSiege } from '@/world/bridge';
+import { awayOf } from '@/world/muster';
+import { LocalWorld } from '@/world/local/LocalWorld';
+import type { SiegeView } from '@/world/types';
+import { waitEta, waitShort } from '@/ui/parts/wait';
+import { HOUR_MS } from './time';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const NOW = 1_700_000_000_000;
+
+afterEach(() => setTimeScale());
+
+/** Свойство снимается только там, где перевод что-то меняет. */
+function scaled(k: number): void {
+  setTimeScale(k);
+  expect(timeScale(), 'точка внутри области: шкала отлична от единицы').not.toBe(1);
+}
+
+const town = () => {
+  const s = createInitialState(7);
+  s.tutorialDone = true;
+  s.nextEventAt = Infinity;
+  return s;
+};
+
+describe('шкала времени', () => {
+  it('для игроков шкала равна единице — до пачки поворота', () => {
+    expect(timeScale()).toBe(1);
+  });
+
+  it('при единице перевод точен: ни одно число игры от двери не меняется', () => {
+    for (const x of [0.5, 1, 2, 15, 0.1 + 0.2, 14400, 1e9 / 7]) {
+      expect(gameSeconds(x)).toBe(x);
+      expect(realSeconds(x)).toBe(x);
+      expect(gameSecondsOfMs(x * 1000)).toBe((x * 1000) / 1000);
+      expect(realMs(x)).toBe(x * 1000);
+    }
+  });
+
+  it('перевод туда и обратно — одно число', () => {
+    scaled(30);
+    expect(gameSeconds(3600)).toBe(120);
+    expect(realSeconds(120)).toBe(3600);
+    expect(gameSecondsOfMs(realMs(77))).toBeCloseTo(77, 9);
+    expect(() => setTimeScale(0)).toThrow();
+  });
+});
+
+describe('время племени — функция часов, а не счёт срабатываний', () => {
+  it('короткий шаг сдвигает время на прошедшее, делённое на шкалу', () => {
+    scaled(3);
+    const s = town();
+    const t0 = s.time;
+    expect(1.5, 'точка внутри области: это шаг, а не отлучка').toBeLessThanOrEqual(AWAY_AFTER);
+    liveStep(s, 1.5, NOW);
+    expect(s.time - t0, 'полторы настоящие секунды при шкале 3').toBeCloseTo(0.5, 9);
+  });
+
+  it('сколько раз сработал таймер, не важно: редкие шаги дают то же время, что частые', () => {
+    scaled(2);
+    const often = town();
+    const rarely = town();
+    for (let i = 0; i < 10; i++) liveStep(often, 0.5, NOW);
+    for (let i = 0; i < 2; i++) liveStep(rarely, 2.5, NOW);
+    expect(2.5, 'точка внутри области: редкий шаг — всё ещё шаг').toBeLessThanOrEqual(AWAY_AFTER);
+    expect(often.time, 'пять настоящих секунд').toBeCloseTo(2.5, 9);
+    expect(rarely.time, 'те же пять секунд двумя срабатываниями').toBeCloseTo(often.time, 9);
+  });
+
+  it('страница спала: промежуток длиннее порога — отлучка с догоном, а не потерянное время', () => {
+    scaled(3);
+    const s = town();
+    const t0 = s.time;
+    const real = 600;
+    expect(real, 'точка внутри области: это отлучка').toBeGreaterThan(AWAY_AFTER);
+    expect(real, 'и она под потолком догона').toBeLessThan(MAX_OFFLINE_SECONDS);
+    liveStep(s, real, NOW);
+    expect(s.time - t0, 'десять настоящих минут при шкале 3').toBeCloseTo(200, 6);
+  });
+
+  it('отлучка упирается в потолок догона, и потолок — в настоящих секундах', () => {
+    scaled(4);
+    const s = town();
+    const t0 = s.time;
+    const since = NOW - 3 * MAX_OFFLINE_SECONDS * 1000;
+    expect(awaySeconds(since, NOW)).toBe(MAX_OFFLINE_SECONDS);
+    absence(s, since, NOW);
+    expect(s.time - t0, 'потолок догона, делённый на шкалу').toBeCloseTo(MAX_OFFLINE_SECONDS / 4, 6);
+  });
+
+  it('нулевой и отрицательный промежуток времени не двигают', () => {
+    const s = town();
+    const t0 = s.time;
+    liveStep(s, 0, NOW);
+    liveStep(s, -5, NOW);
+    expect(s.time).toBe(t0);
+  });
+});
+
+describe('игровая секунда не равна настоящей молча', () => {
+  it('срок осады для догона: миллисекунды мира переведены в игровые секунды', () => {
+    scaled(4);
+    const s = town();
+    const view = { byId: 'x', byName: 'Лагерь', since: NOW, starvesAt: NOW + 80_000 } as unknown as SiegeView;
+    expect(syncSiege(s, view, NOW)).toBe(true);
+    expect(s.siege!.until - s.time, '80 настоящих секунд при шкале 4').toBeCloseTo(20, 9);
+  });
+
+  it('расход еды в час мира считается от настоящей длины игрового дня', () => {
+    scaled(2);
+    const s = town();
+    const p = playerProfile(s, awayOf([], []));
+    expect(townFoodPerDay(s), 'точка внутри области: город ест').toBeGreaterThan(0);
+    expect(p.foodPerHour).toBeCloseTo((townFoodPerDay(s) * HOUR_MS) / (DAY_LENGTH * 2 * 1000), 9);
+  });
+
+  it('часы деревни в мире: прошедшие миллисекунды мира прибавляются игровыми секундами', () => {
+    scaled(4);
+    const w = new LocalWorld({ seed: 7, now: () => NOW, storage: null }) as unknown as {
+      save: { profile: { time: number } | null; profileAt?: number };
+      villageTime(at: number): number;
+    };
+    w.save.profile = { time: 100 };
+    w.save.profileAt = NOW;
+    expect(w.villageTime(NOW + 8_000), 'восемь настоящих секунд при шкале 4').toBeCloseTo(102, 9);
+  });
+
+  it('срок ропота и сроки в панелях показаны настоящим временем', () => {
+    scaled(2);
+    expect(clockText(90)).toBe('3:00');
+    expect(waitShort(40)).toBe('80 с');
+    scaled(30);
+    expect(waitEta(40)).toBe('~20 м');
+  });
+});
+
+// ---------- по исходникам ----------
+
+const code = (abs: string): string =>
+  readFileSync(abs, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+
+function sources(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const abs = path.join(dir, name);
+    if (statSync(abs).isDirectory()) out.push(...sources(abs));
+    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name)) out.push(abs);
+  }
+  return out;
+}
+const rel = (abs: string): string => path.relative(ROOT, abs).split(path.sep).join('/');
+
+/** Имена, взятые файлом из шага симуляции (`game/sim/tick`). */
+function takenFromTick(src: string): string[] {
+  const out: string[] = [];
+  for (const m of src.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    if (!/(^|\/)sim\/tick$|^\.\/tick$/.test(m[2])) continue;
+    out.push(...m[1].split(',').map((x) => x.trim().split(/\s+as\s+/)[0]).filter(Boolean));
+  }
+  return out;
+}
+
+describe('дверь одна: по исходникам', () => {
+  const SRC = sources(path.join(ROOT, 'src'));
+
+  it('голый шаг (`tick`, `catchUp`) в src не берёт никто: время подают `liveStep` и `absence`', () => {
+    const takers = SRC.map((f) => ({ file: rel(f), names: takenFromTick(code(f)) })).filter((x) => x.names.length > 0);
+    // Точка внутри области: проверка видит тех, кто берёт шаг, — стор и сохранение.
+    expect(takers.map((x) => x.file)).toEqual(expect.arrayContaining(['src/game/store.ts', 'src/game/save.ts']));
+    const bare = takers.filter((x) => x.names.some((n) => n === 'tick' || n === 'catchUp')).map((x) => `${x.file}: ${x.names.join(', ')}`);
+    expect(bare, 'кто подаёт dt мимо двери').toEqual([]);
+  });
+
+  it('сам шаг переводит настоящие секунды дверью, и автопилот отчётов — тоже', () => {
+    const tick = code(path.join(ROOT, 'src/game/sim/tick.ts'));
+    expect(tick, 'живой шаг').toMatch(/tick\(s,\s*gameSeconds\(real\)\)/);
+    expect(tick, 'догон отлучки').toMatch(/catchUp\(s,\s*gameSeconds\(real\)/);
+    const pilot = code(path.join(ROOT, 'scripts/autopilot.ts'));
+    expect(pilot, 'пульс мира → игровые секунды').toMatch(/gameSeconds\(o\.world\.pulse\)/);
+  });
+
+  it('игровое время с миллисекундами мира складывается только через дверь', () => {
+    const files = SRC.filter((f) => /\/src\/(game|world)\//.test(f.split(path.sep).join('/')));
+    expect(files.length, 'точка внутри области: файлы найдены').toBeGreaterThan(50);
+    const silent: string[] = [];
+    for (const f of files) {
+      code(f)
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          if (/\b(s|p|g|state|profile)\.time\b/.test(line) && /\b1000\b/.test(line)) silent.push(`${rel(f)}:${i + 1}`);
+        });
+    }
+    expect(silent, 'строки, где игровая секунда молча равна настоящей').toEqual([]);
+    // Мутация, на которой тест обязан падать: мост и мир зовут дверь.
+    expect(code(path.join(ROOT, 'src/world/bridge.ts'))).toMatch(/gameSecondsOfMs\(/);
+    expect(code(path.join(ROOT, 'src/world/local/LocalWorld.ts'))).toMatch(/gameSecondsOfMs\(/);
+  });
+
+  it('шкалу подменяют только тесты', () => {
+    const callers = [...SRC, ...sources(path.join(ROOT, 'scripts'))].filter((f) => rel(f) !== 'src/game/pace.ts' && /\bsetTimeScale\s*\(/.test(code(f)));
+    expect(callers.map(rel)).toEqual([]);
+  });
+
+  it('секунды словом «с» в интерфейсе печатает только `ui/parts/wait.ts`', () => {
+    // «${x} с» и «{x} с» — число и единица; предлог «с» перед словом («с человека») сюда не попадает.
+    const unit = /\}\s*с(?![а-яёА-ЯЁ])(?!\s+[а-яё])/;
+    const ui = SRC.filter((f) => rel(f).startsWith('src/ui/'));
+    const hits = ui.filter((f) => code(f).split(/\r?\n/).some((line) => unit.test(line))).map(rel);
+    // Точка внутри области: сам модуль сроков под правило попадает, значит правило видит печать секунд.
+    expect(hits).toContain('src/ui/parts/wait.ts');
+    expect(hits.filter((f) => f !== 'src/ui/parts/wait.ts'), 'кто печатает секунды мимо модуля сроков').toEqual([]);
+  });
+});

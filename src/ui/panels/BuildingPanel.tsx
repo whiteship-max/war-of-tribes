@@ -78,6 +78,7 @@ import { Temple } from '../parts/Temple';
 import { Walls } from '../parts/Walls';
 import { TowerEngine } from '../parts/TowerEngine';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
+import { realMinSec, waitMinSec, waitShort } from '../parts/wait';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
@@ -85,15 +86,6 @@ import { troopTotal } from '@/game/battle/kinds';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
-
-/** «2 мин 40 с»: срок без округления до минут. */
-function minSec(sec: number): string {
-  const total = Math.round(sec);
-  const m = Math.floor(total / 60);
-  const r = total % 60;
-  if (m === 0) return `${r} с`;
-  return r > 0 ? `${m} мин ${r} с` : `${m} мин`;
-}
 
 /** Одинаковая для всех зданий панель: шапка, слоты рабочих, свои данные, свои действия. */
 export function BuildingPanel({ id }: { id: number }) {
@@ -164,7 +156,7 @@ export function BuildingPanel({ id }: { id: number }) {
           <div className="body">
             <div className="title">
               Улучшение до {b.level + 1} уровня
-              <span className="count">{inQueue ? 'в очереди' : eta !== null ? `~${eta} с` : 'нет строителей'}</span>
+              <span className="count">{inQueue ? 'в очереди' : eta !== null ? `~${waitShort(eta)}` : 'нет строителей'}</span>
             </div>
             <div className="desc">Здание в лесах, но работает: рабочие на местах, выработка идёт.</div>
             <div className="progress">
@@ -552,14 +544,14 @@ function GenericData({ b }: { b: Building }) {
     // Место — боец строя: всадник занимает столько, сколько весит в бою (docs/stable.md).
     stats.push(['ui-bandage', '🛏️', 'Мест занято (бойцов строя)', `${Math.round(bedsTaken(s))} из ${infirmaryBeds(s)}`]);
     if (heads > 0) stats.push(['ui-bandage', '🩹', 'Лежит раненых', `${heads}`]);
-    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут в строй через', minSec(soon - s.time)]);
+    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут в строй через', waitMinSec(soon - s.time)]);
     if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых при полководце', `${troopTotal(carried)}`]);
   }
   if (b.type === 'watch') {
     stats.push(['ui-spyglass', '🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
     // Минуты с секундами, а не округлённые минуты: округление и было враньём
     // кнопки — девять уровней обещали девять минут, а давали шесть.
-    stats.push(['ui-time', '⏳', 'Набег виден дольше на', minSec(warningSeconds(s))]);
+    stats.push(['ui-time', '⏳', 'Набег виден дольше на', realMinSec(warningSeconds(s))]);
     stats.push([
       'hud-map',
       '🗺️',

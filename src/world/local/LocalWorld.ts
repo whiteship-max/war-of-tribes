@@ -3,6 +3,7 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
+import { gameSecondsOfMs } from '@/game/pace';
 import { serverNow } from '@/net/clock';
 import {
   FRONT,
@@ -2566,6 +2567,8 @@ export class LocalWorld implements WorldApi {
    * только прибавляет сверху, укоротить предупреждение он не может.
    */
   protected warningMs(): number {
+    // `warning` — настоящие секунды: предупреждение игрок ждёт своими часами, как поход и заморозку
+    // обороны, и со шкалой времени оно не идёт (`game/pace`).
     return AI_WARNING_BASE + Math.max(0, this.save.profile?.warning ?? 0) * 1000;
   }
 
@@ -3012,13 +3015,14 @@ export class LocalWorld implements WorldApi {
 
   /**
    * Игровое время деревни в эту мировую минуту. Мир часов деревни не ведёт: он берёт
-   * последний слепок (`profile.time`) и прибавляет, сколько прошло с его прихода. Этим
+   * последний слепок (`profile.time`) и прибавляет, сколько прошло с его прихода, — настоящие
+   * миллисекунды мира переводит в игровые секунды дверь времени (`game/pace`). Этим
    * и считаются час и время года тайного дела.
    */
   private villageTime(at: number): number {
     const p = this.save.profile;
     if (!p || typeof p.time !== 'number') return 0;
-    return p.time + Math.max(0, at - (this.save.profileAt ?? at)) / 1000;
+    return p.time + gameSecondsOfMs(Math.max(0, at - (this.save.profileAt ?? at)));
   }
 
   /** Спелость цели для гибели: логово — по своему возрасту, замок — всегда настороже. */

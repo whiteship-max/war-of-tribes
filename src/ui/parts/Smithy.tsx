@@ -6,6 +6,7 @@ import { EQUIPMENT, EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { forgeInfo, workerCount } from '@/game/derived';
 import { cancelForge, forgeCheck, startForge } from '@/game/sim/actions';
 import { Icon } from '@/ui/icons/Icon';
+import { waitShort } from './wait';
 
 /**
  * Кузница: очередь заказов и ход работы.
@@ -65,7 +66,7 @@ export function Smithy({ b }: { b: Building }) {
                   <div className="title">
                     {def.name}
                     <span className="count">
-                      {o.done}/{o.count} · {i === 0 ? (eta !== null ? `~${eta} с` : 'стоит') : 'ждёт'}
+                      {o.done}/{o.count} · {i === 0 ? (eta !== null ? `~${waitShort(eta)}` : 'стоит') : 'ждёт'}
                     </span>
                   </div>
                   <div className="progress">
@@ -111,7 +112,7 @@ export function Smithy({ b }: { b: Building }) {
                     <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} /> {check.cost[r]}
                   </span>
                 ))}
-                <span>⏳ {check.eta !== null ? `${check.eta} с` : `${check.work}`}</span>
+                <span>⏳ {check.eta !== null ? waitShort(check.eta) : `${check.work}`}</span>
               </div>
             </div>
             <div className="troop-buy">

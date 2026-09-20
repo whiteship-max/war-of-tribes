@@ -12,11 +12,12 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
+import { setTimeScale, timeScale } from '@/game/pace';
 import { pilot, player, type Inside } from './autopilot';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -100,6 +101,31 @@ describe('автопилот один: по исходникам', () => {
 });
 
 describe('автопилот один: прогоном', () => {
+  afterEach(() => setTimeScale());
+
+  // Область правила: шкала отлична от единицы (при единице перевод неотличим от его отсутствия),
+  // и пульс короче шага племени в игровых секундах — остаток обязан перейти следующему пульсу.
+  it('пульс мира — настоящие секунды, племя за него проживает игровые: перевод у двери времени', async () => {
+    setTimeScale(30);
+    expect(timeScale(), 'точка внутри области: шкала отлична от единицы').not.toBe(1);
+    const g = createInitialState(7);
+    g.tutorialDone = true;
+    g.nextEventAt = Infinity;
+    const t0 = g.time;
+    const flown = await pilot({
+      g,
+      seconds: 10 * 60,
+      player: player(null, { staff: false, build: false }),
+      world: { seed: 7, pulse: 15, raids: false },
+      economy: 'live',
+      tick: 1,
+      decide: 15,
+    });
+    expect(15 / 30, 'точка внутри области: пульс короче шага племени').toBeLessThan(1);
+    expect(g.time - t0, 'десять настоящих минут при шкале 30 — двадцать игровых секунд').toBe(20);
+    expect(flown.cost.ticks, 'шагов племени — по игровым секундам, а не по настоящим').toBe(20);
+  });
+
   // Область правила: новая партия, у которой веры ещё нет, и прогон, в котором событие поднимается
   // (`nextEventAt` в начале). Обе точки проверяются утверждением: без них «вера пришла» и «событие
   // разобрано» проходили бы даром.

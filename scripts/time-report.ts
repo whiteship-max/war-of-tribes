@@ -20,7 +20,7 @@ import type { FigureId, FigureView } from '@/world/types';
 import type { WorldSave } from '@/world/local/state';
 import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS } from '@/game/constants';
+import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import {
   buildingOfType,
   netPerDay,
@@ -100,23 +100,23 @@ function fillSection(towns: GameState[]): void {
   console.log('«еда» — амбар: у еды излишек самый большой, и тратить её, кроме войска, не на что; «первый» — самый быстрый из');
   console.log('остальных припасов: с этого дня начинает пропадать добро; «медиана» и «последний» — по ним же; «сумма» — вся');
   console.log('вместимость к сумме излишков, с едой (мерка docs/DEFEAT_LADDER.md: «полный склад за четверть часа»).');
-  console.log('  этап             | день | люди | вмещает |    еда | первый | медиана | последний | сумма');
+  console.log('  этап             | день | люди | вмещает |    еда |           первый | медиана | последний | сумма');
   const first: number[] = [];
   const sums: number[] = [];
   for (let i = 0; i < towns.length; i++) {
     const s = towns[i];
     const cap = storageCap(s);
     const net = netPerDay(s);
-    const full = rising(s)
+    const goods = rising(s)
       .filter((r) => r !== 'food')
-      .map((r) => cap / net[r])
-      .sort((a, b) => a - b);
+      .sort((a, b) => net[b] - net[a]);
+    const full = goods.map((r) => cap / net[r]);
     const food = net.food > 0 ? cap / net.food : Infinity;
     const sum = (cap * rising(s).length) / rising(s).reduce((a, r) => a + net[r], 0);
     first.push(full[0]);
     sums.push(sum);
     console.log(
-      `  ${STAGES[i][0].padEnd(16)} | ${pad(STAGES[i][1], 4)} | ${pad(s.pop, 4)} | ${pad(cap, 7)} | ${pad(n1(food), 6)} | ${pad(n1(full[0]), 6)} | ${pad(n1(median(full)), 7)} | ${pad(n1(full[full.length - 1]), 9)} | ${pad(n1(sum), 5)}`,
+      `  ${STAGES[i][0].padEnd(16)} | ${pad(STAGES[i][1], 4)} | ${pad(s.pop, 4)} | ${pad(cap, 7)} | ${pad(n1(food), 6)} | ${`${n1(full[0])} ${RESOURCE_META[goods[0]].name.toLowerCase()}`.padStart(16)} | ${pad(n1(median(full)), 7)} | ${pad(n1(full[full.length - 1]), 9)} | ${pad(n1(sum), 5)}`,
     );
   }
   console.log('');

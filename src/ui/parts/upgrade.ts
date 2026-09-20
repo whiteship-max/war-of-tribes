@@ -63,6 +63,8 @@ import { popGrowth } from '@/game/sim/population';
 import { surveyInfo } from '@/game/sim/survey';
 import { militiaArchers } from '@/world/bridge';
 import { plural } from './plural';
+import { realSeconds } from '@/game/pace';
+import { realPlain } from './wait';
 
 /** Одна прибавка: что меряли, сколько было и станет, и как это сказано. */
 export interface UpgradeGain {
@@ -225,9 +227,9 @@ const GAUGES: Gauge[] = [
     id: 'caravan',
     read: caravanSeconds,
     say: (b, a) => {
-      const d = shown(b - a);
+      const d = shown(realSeconds(b - a));
       if (d === 0) return null;
-      return { text: `дорога каравана ${d > 0 ? 'короче' : 'длиннее'} на ${Math.abs(d)} с`, numbers: [Math.abs(d)] };
+      return { text: `дорога каравана ${d > 0 ? 'короче' : 'длиннее'} на ${realPlain(Math.abs(d))}`, numbers: [Math.abs(d)] };
     },
   },
   // Мораль и набожность — до потолка шкалы (см. шапку). Сюда же ложится и то, что

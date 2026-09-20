@@ -24,6 +24,7 @@ import {
 } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
 import { Factor } from '../parts/Factor';
+import { waitSpan } from '../parts/wait';
 
 /** Как множитель называется в строке-подсказке про узкое место. */
 const FACTOR_NAME: Record<string, string> = {
@@ -32,15 +33,8 @@ const FACTOR_NAME: Record<string, string> = {
   food: 'запас еды',
 };
 
-/** Секунды словами: «2 мин 30 с». Игровой день — минута, поэтому это же и дни. */
-function span(sec: number): string {
-  if (!Number.isFinite(sec) || sec <= 0) return 'вот-вот';
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  if (m <= 0) return `${s} с`;
-  if (m < 60) return s > 0 ? `${m} мин ${s} с` : `${m} мин`;
-  return `${Math.floor(m / 60)} ч ${m % 60} мин`;
-}
+/** Игровые секунды словами: «2 мин 30 с» настоящего времени (`parts/wait`). */
+const span = (sec: number): string => (!Number.isFinite(sec) || sec <= 0 ? 'вот-вот' : waitSpan(sec));
 
 export function PopPanel() {
   const s = useGame((g) => g.s);

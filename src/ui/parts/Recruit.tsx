@@ -8,6 +8,7 @@ import { buildingOfType, idleCount, wageOf } from '@/game/derived';
 import { hiredAt, isTraining, orderEta, recruitCheck } from '@/game/sim/army';
 import { cancelRecruit, startRecruit } from '@/game/sim/actions';
 import { Icon } from '@/ui/icons/Icon';
+import { waitShort } from './wait';
 
 /**
  * Найм — очередь и список видов **одного здания**: пеших учат казармы, конницу — конюшня.
@@ -52,7 +53,7 @@ export function Recruit({ at }: { at: 'barracks' | 'stable' }) {
                   <div className="title">
                     {def.name}
                     <span className="count">
-                      {o.done}/{o.count} · {now ? (eta !== null ? `~${eta} с` : 'стоит') : 'ждёт'}
+                      {o.done}/{o.count} · {now ? (eta !== null ? `~${waitShort(eta)}` : 'стоит') : 'ждёт'}
                     </span>
                   </div>
                   <div className="progress">
@@ -105,7 +106,7 @@ export function Recruit({ at }: { at: 'barracks' | 'stable' }) {
                   );
                 })}
                 <span className={free >= n ? '' : 'no'}>👤 {n}</span>
-                <span>⏳ {check.eta !== null ? `${check.eta} с` : `${check.work}`}</span>
+                <span>⏳ {check.eta !== null ? waitShort(check.eta) : `${check.work}`}</span>
               </div>
             </div>
             <div className="troop-buy">

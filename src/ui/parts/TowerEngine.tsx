@@ -5,6 +5,7 @@ import { useWorld } from '@/world/store';
 import { formatLeft } from '@/world/geo';
 import { Cost } from './Cost';
 import { plural } from './plural';
+import { realSeconds } from '@/game/pace';
 
 /**
  * Башня: места лучников и орудие против осадного лагеря — третий ответ города на осаду,
@@ -39,7 +40,7 @@ export function TowerEngine() {
           <div className="body">
             <div className="title">
               {current.name}
-              {info.left > 0 && <span className="count">~{formatLeft(info.left)}</span>}
+              {info.left > 0 && <span className="count">~{formatLeft(realSeconds(info.left))}</span>}
             </div>
             <div className="desc">
               {info.left > 0

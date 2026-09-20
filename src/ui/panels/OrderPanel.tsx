@@ -23,6 +23,7 @@ import {
   orderState,
   unrestLeft,
 } from '@/game/derived';
+import { waitMinSec, waitShort } from '../parts/wait';
 
 const fmt = (n: number): string => (n >= 10 ? String(Math.round(n)) : n.toFixed(1));
 
@@ -84,7 +85,7 @@ export function OrderPanel() {
             <span className="val">{f.guards}</span>
           </div>
           <div className="note">
-            Мятеж поднимается, когда ропот идёт {MUTINY_FUSE / 60} мин. Окно ждёт ответа {MUTINY_ANSWER} с — отпустить
+            Мятеж поднимается, когда ропот идёт {waitMinSec(MUTINY_FUSE)}. Окно ждёт ответа {waitShort(MUTINY_ANSWER)} — отпустить
             невольников, раздать хлеб и золото или подавить силой; без ответа стража выходит сама. Пока игра закрыта,
             срок стоит.
           </div>

@@ -3,6 +3,7 @@ import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
 import { cancelSurvey, startSurvey, surveyInfo } from '@/game/sim/actions';
 import { surveySeconds } from '@/game/sim/survey';
 import { Cost } from './Cost';
+import { waitShort } from './wait';
 
 /**
  * Дозор: изучение округи. Десять ступеней, каждая раскрывает вокруг деревни
@@ -43,7 +44,7 @@ export function Watch() {
           <div className="body">
             <div className="title">
               Ступень {info.running.n}: {info.running.radius} клеток
-              <span className="count">~{Math.ceil(info.left)} с</span>
+              <span className="count">~{waitShort(info.left)}</span>
             </div>
             <div className="desc">
               Разъезды в поле. Дозор занят: следующую ступень не начать, пока не вернутся.
@@ -99,7 +100,7 @@ export function Watch() {
                   ? step.effect
                   : locked
                     ? `Нужен Дозор ${step.n} уровня — сейчас ${info.level}.`
-                    : `${surveySeconds(step, info.learning)} с разъездов.`}
+                    : `${waitShort(surveySeconds(step, info.learning))} разъездов.`}
               </div>
             </div>
           </div>
