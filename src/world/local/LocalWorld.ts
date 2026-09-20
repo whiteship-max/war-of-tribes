@@ -3,7 +3,7 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
-import { gameSecondsOfMs } from '@/game/pace';
+import { gameSecondsOfMs, realMs } from '@/game/pace';
 import { serverNow } from '@/net/clock';
 import {
   FRONT,
@@ -2567,9 +2567,9 @@ export class LocalWorld implements WorldApi {
    * только прибавляет сверху, укоротить предупреждение он не может.
    */
   protected warningMs(): number {
-    // `warning` — настоящие секунды: предупреждение игрок ждёт своими часами, как поход и заморозку
-    // обороны, и со шкалой времени оно не идёт (`game/pace`).
-    return AI_WARNING_BASE + Math.max(0, this.save.profile?.warning ?? 0) * 1000;
+    // `warning` — игровые секунды: вся семья предупреждения идёт со шкалой времени, как ритм набегов,
+    // и с миллисекундами мира складывается только через дверь (`game/pace`).
+    return AI_WARNING_BASE + realMs(Math.max(0, this.save.profile?.warning ?? 0));
   }
 
 

@@ -16,6 +16,7 @@
 // Держит первое тест по исходникам (`game/pace.test.ts`): единицу времени после числа в `src/ui`
 // печатает только этот модуль, и `formatLeft` мира интерфейс берёт только отсюда.
 import { realSeconds, type GameSec, type RealSecArg } from '@/game/pace';
+import { daysBoth, daysSpan, gameDaysText, gameSpan, realSpan } from '@/game/span';
 import { formatLeft } from '@/world/geo';
 
 // ---------- срок племени: игровые секунды на входе ----------
@@ -42,15 +43,23 @@ export function waitEta(gameSec: GameSec | null): string {
   return r > 0 ? `~${m} м ${r} с` : `~${m} м`;
 }
 
-/** «2 мин 30 с», а с часа — «1 ч 5 мин»: долгий срок племени. */
-export function waitSpan(gameSec: GameSec): string {
-  const sec = realSeconds(gameSec);
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  if (m <= 0) return `${s} с`;
-  if (m < 60) return s > 0 ? `${m} мин ${s} с` : `${m} мин`;
-  return `${Math.floor(m / 60)} ч ${m % 60} мин`;
-}
+/** «2 мин 30 с», с часа — «1 ч 5 мин», с двух суток — «4 сут 4 ч»: долгий срок племени. Формула — `game/span`. */
+export const waitSpan = (gameSec: GameSec): string => gameSpan(gameSec);
+
+// ---------- срок в игровых днях ----------
+//
+// Где игрок ждёт — настоящее время (`waitDays`). Где игровые дни — свойство мира или механики,
+// единица названа (`gameDaysText`: «3 игр. дн.»). Нужно и то и другое — оба (`waitDaysBoth`).
+// Голого «дн.» в интерфейсе нет: после поворота шкалы его прочли бы сутками (docs/time.md, раздел 16).
+
+/** Срок в игровых днях настоящим временем: «1 ч 30 мин». */
+export const waitDays = (gameDays: number): string => daysSpan(gameDays);
+/** «3 игр. дн. — 1 ч 30 мин». */
+export const waitDaysBoth = (gameDays: number): string => daysBoth(gameDays);
+export { gameDaysText };
+
+/** «24 ч», «1 ч 5 мин»: настоящий срок словами, той же формулой. */
+export const realSpanText = (realSec: RealSecArg): string => realSpan(realSec);
 
 // ---------- срок мира и устройства: настоящие секунды на входе ----------
 

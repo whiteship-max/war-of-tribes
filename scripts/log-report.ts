@@ -16,12 +16,13 @@ import { seeded, setRandom } from '@/game/sim/random';
 import { serialize } from '@/game/save';
 import { LOG_MAX, LOG_MAX_DAYS } from '@/game/sim/log';
 import { dayOf, marketLeft, marketOffer, storageCap } from '@/game/derived';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from '@/game/constants';
+import { DAY_LENGTH, MAX_OFFLINE_DAYS } from '@/game/constants';
+import { awayGameSeconds } from '@/game/sim/tick';
 import { away, pilot, player, stand } from './autopilot';
 import { AWAY_JITTER, AWAY_STEP, EVENT_TTL, eventId, mailArrive, mailStep, resolveEvent } from '@/game/sim/mail';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { LETTER_DECISIONS } from '@/world/letters';
-import { dayRealSeconds, gameSeconds } from '@/game/pace';
+import { dayRealSeconds, realSeconds } from '@/game/pace';
 
 const HOURS = Number(process.env.HOURS ?? 3);
 const STEP = Number(process.env.STEP ?? 15);
@@ -167,13 +168,12 @@ async function main(): Promise<void> {
   console.log('\n  Кто наполняет летопись:');
   for (const [text, n] of sources(s)) console.log(`  ${String(n).padStart(4)} × ${text}`);
 
-  // Возвращение из офлайна: догон съедает MAX_OFFLINE_SECONDS одним куском и
+  // Возвращение из офлайна: догон съедает потолок (`MAX_OFFLINE_DAYS`) одним куском и
   // пишет в летопись за все пропущенные дни разом. Это худший случай для обрезки
   // по возрасту — проверять надо именно его.
-  const offlineDays = Math.round(gameSeconds(MAX_OFFLINE_SECONDS) / DAY_LENGTH);
   const o = await play(HOURS);
-  away(o, gameSeconds(MAX_OFFLINE_SECONDS), 2);
-  report(`После офлайн-догона на ${MAX_OFFLINE_SECONDS / 3600} ч (${offlineDays} игровых дней):`, o);
+  away(o, MAX_OFFLINE_DAYS * DAY_LENGTH, 2);
+  report(`После офлайн-догона на потолок — ${MAX_OFFLINE_DAYS} игровых дней (${realSeconds(MAX_OFFLINE_DAYS * DAY_LENGTH) / 3600} ч настоящего времени):`, o);
 
   // Партия подлиннее: докуда доходит счётчик, если играть не отрываясь.
   const long = await play(HOURS * 3);
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
 // присутствие и отлучку (`sim/mail.mailArrive`): зреют по времени, а не по присутствию. Стол
 // держит LETTER_DECISIONS, срок — сутки настоящими часами. Заход идёт часами игры
 // один к одному, между заходами часы идут, а хозяйство догоняет не больше
-// MAX_OFFLINE_SECONDS. Замер — модель игрока, а не игрок: заходы ровные, длина задана.
+// MAX_OFFLINE_DAYS. Замер — модель игрока, а не игрок: заходы ровные, длина задана.
 // Посёлок — тот, что вырос за час общего автопилота; события выпадают по его весам.
 interface MailDay {
   raised: number;
@@ -233,7 +233,7 @@ function dropped(s: GameState, step: () => void): number {
 
 /** Уйти на `off` секунд и вернуться: догон хозяйства и вести отлучки — как вход в игру. */
 function goAway(s: GameState, now: number, off: number): number {
-  away(s, gameSeconds(Math.min(off, MAX_OFFLINE_SECONDS)), 30);
+  away(s, awayGameSeconds(now, now + off * 1000), 30);
   const back = now + off * 1000;
   mailArrive(s, now, back);
   mailStep(s, back);
@@ -331,7 +331,7 @@ function mailReturn(
   if (cleared) answerAll(s);
   const bare = structuredClone(s);
   bare.inbox = [];
-  away(bare, gameSeconds(Math.min(hours * 3600, MAX_OFFLINE_SECONDS)), 30);
+  away(bare, awayGameSeconds(now, now + hours * 3600 * 1000), 30);
   const silent = dropped(s, () => goAway(s, now, hours * 3600));
   const stock = (g: GameState): number => Object.values(g.resources).reduce((a, b) => a + b, 0);
   return { table: s.inbox.length, silent, pop: s.pop - bare.pop, stock: Math.round(stock(s) - stock(bare)) };

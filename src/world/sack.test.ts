@@ -15,11 +15,14 @@ import { haltElapsed, sackActive, sackLeft, sackLook, sackPower, sackWindow } fr
 import { revoltWindow } from './spy';
 import { plunder } from './spoils';
 import {
+  LAIR_RUIN,
+  REVOLT_DURATION,
   REVENGE_ATTITUDE,
   REVENGE_WARS_MAX,
   SACK_DURATION,
   SACK_POWER_LOSS,
 } from './data/tuning';
+import { DAY_LENGTH, realMs } from '@/game/pace';
 import type { GenSettlement } from './gen';
 import type { Loot, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
@@ -60,12 +63,15 @@ describe('разорение — чистая функция от времени
     expect(sackLeft(undefined, START)).toBe(0);
   });
 
-  it('срок меряется реальными часами, а не игровыми днями', () => {
-    // Игровой день — реальная минута. «Сутки игрового времени» это двадцать
-    // четыре минуты, которых игрок между заходами не увидит вовсе, поэтому срок
-    // обязан быть в часах устройства и пережить обычный перерыв.
-    expect(SACK_DURATION).toBeGreaterThanOrEqual(2 * HOUR);
-    expect(SACK_DURATION).toBeLessThanOrEqual(8 * HOUR);
+  it('срок — игровое время, ступень лестницы трёх сроков мира', () => {
+    // Разорение — событие мира, а не защита игрока (решение владельца, docs/time.md, раздел 16):
+    // меряется игровыми днями, и лестница «бунт — разорение — пепелище» сохранена отношениями
+    // 3 : 4 : 6 к неделе пепелища. Прежде тест держал обратное — настоящие часы.
+    expect(REVOLT_DURATION).toBeLessThan(SACK_DURATION);
+    expect(SACK_DURATION).toBeLessThan(LAIR_RUIN);
+    expect(SACK_DURATION / LAIR_RUIN).toBeCloseTo(4 / 6, 9);
+    expect(REVOLT_DURATION / LAIR_RUIN).toBeCloseTo(3 / 6, 9);
+    expect(LAIR_RUIN, 'неделя игрового времени').toBe(realMs(7 * DAY_LENGTH));
   });
 
   it('повторный набег не складывает сроки, а заводит окно заново', () => {
@@ -96,7 +102,9 @@ describe('часы поселения тормозятся по объедине
   it('одно окно — просто его длина, обрезанная нынешней минутой', () => {
     const w = sackWindow(START);
     expect(haltElapsed([w], START)).toBe(0);
-    expect(haltElapsed([w], START + HOUR)).toBe(HOUR);
+    const part = SACK_DURATION / 4;
+    expect(part, 'точка внутри области: четверть срока — внутри окна').toBeLessThan(SACK_DURATION);
+    expect(haltElapsed([w], START + part)).toBe(part);
     expect(haltElapsed([w], START + SACK_DURATION * 3)).toBe(SACK_DURATION);
     expect(haltElapsed([undefined, undefined], START + HOUR)).toBe(0);
   });

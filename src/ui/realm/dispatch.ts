@@ -85,10 +85,9 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
       cost: eventCost(o, s),
       block: eventBlock(o, s),
     })),
-    left: eventLeft(s, ev, now),
-    // У события со своим сроком (мятеж) срок назван его словами; у остальных —
-    // словами почты.
-    leftText: def.deadline?.(s)?.text ?? 'Ждёт ответа',
+    left: eventLeft(ev, now),
+    // Срок у почты один; мятеж подписывает его своими словами — что случится без ответа.
+    leftText: def.waits ?? 'Ждёт ответа',
     silence: `Без ответа: «${quiet.label}»${quietHint ? ` — ${quietHint.toLowerCase()}` : ''}.`,
     warning: false,
   };

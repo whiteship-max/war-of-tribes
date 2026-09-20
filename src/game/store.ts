@@ -319,15 +319,15 @@ export const useGame = create<GameStore>((set, get) => ({
       const at = deviceNow();
       const real = Math.max(0, (at - lastStep) / 1000);
       lastStep = at;
-      // Донесение, оставленное без ответа, разрешает не игрок: мятеж — шаг
-      // симуляции своим сроком, прочие события — почта настоящими часами
-      // (`sim/mail`). Исход ложится в летопись, как у письма мира, и партия
-      // пишется на диск сразу: исход без игрока не должен теряться с вкладкой.
-      const settled = liveStep(s, real, serverNow());
+      // Донесение, оставленное без ответа, разрешает не игрок, а почта настоящими
+      // часами (`sim/mail`) — и мятеж тоже: срок у него тот же. Исход ложится в
+      // летопись, как у письма мира, и партия пишется на диск сразу: исход без
+      // игрока не должен теряться с вкладкой.
+      liveStep(s, real, serverNow());
       const lapsed = mailStep(s, serverNow());
       advanceTutorial(s, tutorialUi(get()));
       set({ s: { ...s } });
-      if (settled || lapsed) get().save();
+      if (lapsed) get().save();
     }, TICK_MS);
     setInterval(() => get().save(), AUTOSAVE_MS);
     document.addEventListener('visibilitychange', () => {

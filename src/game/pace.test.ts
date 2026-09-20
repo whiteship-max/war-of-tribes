@@ -7,16 +7,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createInitialState } from './state';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from './constants';
+import { DAY_LENGTH, MAX_OFFLINE_DAYS } from './constants';
 import { asGame, gameSeconds, gameSecondsOfMs, realMs, realSeconds, setTimeScale, timeScale } from './pace';
-import { AWAY_AFTER, absence, awaySeconds, liveStep } from './sim/tick';
+import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds, liveStep } from './sim/tick';
 import { clockText } from './data/order';
 import { townFoodPerDay } from './derived';
 import { playerProfile, syncSiege } from '@/world/bridge';
 import { awayOf } from '@/world/muster';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import type { SiegeView } from '@/world/types';
-import { waitEta, waitShort } from '@/ui/parts/wait';
+import { waitDays, waitEta, waitShort } from '@/ui/parts/wait';
+import { daysBoth, daysSpan } from './span';
 import { HOUR_MS } from './time';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -87,19 +88,38 @@ describe('время племени — функция часов, а не сч�
     const t0 = s.time;
     const real = 600;
     expect(real, 'точка внутри области: это отлучка').toBeGreaterThan(AWAY_AFTER);
-    expect(real, 'и она под потолком догона').toBeLessThan(MAX_OFFLINE_SECONDS);
+    expect(real / 3, 'и она под потолком догона').toBeLessThan(MAX_OFFLINE_DAYS * DAY_LENGTH);
     liveStep(s, real, NOW);
     expect(s.time - t0, 'десять настоящих минут при шкале 3').toBeCloseTo(200, 6);
   });
 
-  it('отлучка упирается в потолок догона, и потолок — в настоящих секундах', () => {
-    scaled(4);
-    const s = town();
-    const t0 = s.time;
-    const since = NOW - 3 * MAX_OFFLINE_SECONDS * 1000;
-    expect(awaySeconds(since, NOW)).toBe(MAX_OFFLINE_SECONDS);
-    absence(s, since, NOW);
-    expect(s.time - t0, 'потолок догона, делённый на шкалу').toBeCloseTo(MAX_OFFLINE_SECONDS / 4, 6);
+  // Потолок догона — в игровых днях (решение владельца, docs/time.md, раздел 16): одно правило
+  // вместо числа часов, которое значит разное на разных шкалах. Область правила — отлучка длиннее
+  // потолка; точка короче потолка проходит при любом потолке, и обе стороны проверены утверждением.
+  it('потолок догона — в игровых днях: при любой шкале отлучка длиннее потолка даёт одни и те же дни', () => {
+    const cap = MAX_OFFLINE_DAYS * DAY_LENGTH;
+    for (const k of [2, 4, 30]) {
+      scaled(k);
+      const s = town();
+      const t0 = s.time;
+      const since = NOW - 3 * cap * k * 1000;
+      expect(gameSeconds(awaySeconds(since, NOW)), `точка внутри области: отлучка при шкале ${k} длиннее потолка`).toBeGreaterThan(cap);
+      expect(awayGameSeconds(since, NOW), `догон при шкале ${k}`).toBe(cap);
+      absence(s, since, NOW);
+      expect((s.time - t0) / DAY_LENGTH, `прожито игровых дней при шкале ${k}`).toBeCloseTo(MAX_OFFLINE_DAYS, 6);
+    }
+  });
+
+  it('потолок догона при шкале поворота — настоящие сутки, а под потолком отлучка догоняется целиком', () => {
+    scaled(30);
+    expect(realSeconds(MAX_OFFLINE_DAYS * DAY_LENGTH), 'потолок настоящими секундами при ×30').toBe(24 * 3600);
+    const half = NOW - 12 * 3600 * 1000;
+    expect(awayGameSeconds(half, NOW), 'точка внутри области: полсуток — под потолком').toBeLessThan(MAX_OFFLINE_DAYS * DAY_LENGTH);
+    expect(awayGameSeconds(half, NOW) / DAY_LENGTH, 'полсуток при ×30 — 24 игровых дня').toBeCloseTo(24, 9);
+  });
+
+  it('сколько игрока не было — правда об отлучке, без потолка', () => {
+    expect(awaySeconds(NOW - 72 * 3600 * 1000, NOW)).toBe(72 * 3600);
   });
 
   it('нулевой и отрицательный промежуток времени не двигают', () => {
@@ -190,7 +210,8 @@ describe('дверь одна: по исходникам', () => {
   it('сам шаг переводит настоящие секунды дверью, и автопилот отчётов — тоже', () => {
     const tick = code(path.join(ROOT, 'src/game/sim/tick.ts'));
     expect(tick, 'живой шаг').toMatch(/tick\(s,\s*gameSeconds\(real\)\)/);
-    expect(tick, 'догон отлучки').toMatch(/catchUp\(s,\s*gameSeconds\(real\)/);
+    expect(tick, 'догон отлучки').toMatch(/catchUp\(s,\s*awayGameSeconds\(since, now\)/);
+    expect(tick, 'и сам догон — через дверь').toMatch(/awayGameSeconds = [^;]*gameSeconds\(awaySeconds\(since, now\)\)/);
     const pilot = code(path.join(ROOT, 'scripts/autopilot.ts'));
     expect(pilot, 'пульс мира → игровые секунды').toMatch(/gameSeconds\(o\.world\.pulse\)/);
   });
@@ -221,14 +242,35 @@ describe('дверь одна: по исходникам', () => {
 
   it('секунды, минуты и часы в интерфейсе печатает только `ui/parts/wait.ts`', () => {
     // «${x} с», «{x} мин», «{h} ч» — число и единица; предлог «с» перед словом («с человека») и
-    // слово, начинающееся с той же буквы («чел.», «минут»), сюда не попадают. Игровые дни («дн.») —
-    // не срок ожидания, а единица хозяйства, и печатаются на местах.
+    // слово, начинающееся с той же буквы («чел.», «минут»), сюда не попадают. Игровые дни держит
+    // соседний тест: голого «дн.» нет нигде.
     const unit = /\}\s*(с|мин|ч|м)(?![а-яёА-ЯЁ])(?!\s+[а-яё])/;
     const ui = SRC.filter((f) => rel(f).startsWith('src/ui/'));
     const hits = ui.filter((f) => code(f).split(/\r?\n/).some((line) => unit.test(line))).map(rel);
     // Точка внутри области: сам модуль сроков под правило попадает, значит правило видит печать единиц.
     expect(hits).toContain('src/ui/parts/wait.ts');
     expect(hits.filter((f) => f !== 'src/ui/parts/wait.ts'), 'кто печатает срок мимо модуля сроков').toEqual([]);
+  });
+
+  // Решение владельца (docs/time.md, раздел 16): где игрок ждёт — настоящее время; игровые дни — только
+  // с названной единицей. Голое «дн.» после поворота шкалы прочли бы сутками. Сетка по виду строки:
+  // она ловит единицу без имени, а не то, верно ли выбрано «ждёт» против «свойство мира».
+  it('голого «дн.» в игре нет: игровые дни названы, слова о них собирает `game/span.ts`', () => {
+    const lines = SRC.flatMap((f) => code(f).split(/\r?\n/).map((line, i) => ({ at: `${rel(f)}:${i + 1}`, line })));
+    const named = lines.filter((x) => /игр\. дн\./.test(x.line)).map((x) => x.at.replace(/:\d+$/, ''));
+    // Точка внутри области: названная единица в исходниках есть — значит, поиск видит строки о днях.
+    expect(named).toContain('src/game/span.ts');
+    const bare = lines.filter((x) => /(?<!игр\. )дн\./.test(x.line)).map((x) => x.at);
+    expect(bare, 'срок в днях без названной единицы').toEqual([]);
+  });
+
+  it('срок в игровых днях игроку показан настоящим временем — и оба числа там, где нужны оба', () => {
+    scaled(30);
+    expect(daysSpan(3), 'три игровых дня при ×30').toBe('1 ч 30 мин');
+    expect(daysSpan(12)).toBe('6 ч');
+    expect(daysSpan(200), 'дольше двух суток — сутками').toBe('4 сут 4 ч');
+    expect(daysBoth(6.5)).toBe('6.5 игр. дн. — 3 ч 15 мин');
+    expect(waitDays(3), 'интерфейс берёт ту же формулу').toBe(daysSpan(3));
   });
 
   it('форматтер мира интерфейс берёт только через модуль сроков', () => {

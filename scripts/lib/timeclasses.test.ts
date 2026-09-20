@@ -30,14 +30,23 @@ async function valuesAt(k: number, consts: TimeConst[]): Promise<{ pace: Pace; v
 
 afterEach(() => vi.resetModules());
 
+/** Счёт по классам. Правится сознательно — вместе с объявлением величины. */
+const COUNT = {
+  game: { named: 39, inTables: 12 },
+  real: { named: 26, inTables: 0 },
+  owner: { named: 0, inTables: 0 },
+  days: 13,
+};
+
 describe('классы величин времени: по исходникам', () => {
   const all = timeConsts(ROOT);
 
   it('величины найдены, и у каждого класса есть свои', () => {
     // Точка внутри области: чтение исходников видит объявления — иначе всё ниже зелёное даром.
     expect(all.length, 'величин с классом').toBeGreaterThan(50);
-    for (const cls of ['game', 'real', 'owner'] as const) expect(all.filter((c) => c.cls === cls).length, cls).toBeGreaterThan(0);
-    expect(all.map((c) => c.name)).toEqual(expect.arrayContaining(['AI_ATTACK_MIN', 'LETTER_TTL', 'MUTINY_ANSWER', 'AI_WARNING_BASE']));
+    // «Решает владелец» может быть пуст — и сейчас пуст: все девять вопросов решены (docs/time.md, раздел 16).
+    for (const cls of ['game', 'real'] as const) expect(all.filter((c) => c.cls === cls).length, cls).toBeGreaterThan(0);
+    expect(all.map((c) => c.name)).toEqual(expect.arrayContaining(['AI_ATTACK_MIN', 'LETTER_TTL', 'SIEGE_IMMUNE', 'AI_WARNING_BASE']));
     expect(dayConsts(ROOT).length, 'сроки в игровых днях').toBeGreaterThan(5);
     expect(tableRows(ROOT).reduce((n, r) => n + r.n, 0), 'строки таблиц').toBeGreaterThan(5);
   });
@@ -50,15 +59,8 @@ describe('классы величин времени: по исходникам'
       named: all.filter((c) => c.cls === cls).length,
       inTables: rows.filter((r) => r.cls === cls).reduce((n, r) => n + r.n, 0),
     });
-    expect({ game: count('game'), real: count('real'), owner: count('owner'), days: dayConsts(ROOT).length }).toEqual({
-      game: { named: 35, inTables: 10 },
-      real: { named: 25, inTables: 0 },
-      owner: { named: 7, inTables: 2 },
-      days: 11,
-    });
-    expect(all.filter((c) => c.cls === 'owner').map((c) => c.name).sort()).toEqual(
-      ['AI_WARNING_BASE', 'BURN_IMMUNE', 'DEFENSE_FREEZE', 'GEM_SECONDS', 'LAIR_RUIN', 'REVOLT_DURATION', 'SACK_DURATION'].sort(),
-    );
+    expect({ game: count('game'), real: count('real'), owner: count('owner'), days: dayConsts(ROOT).length }).toEqual(COUNT);
+    expect(all.filter((c) => c.cls === 'owner').map((c) => c.name), 'вопросов владельцу не осталось').toEqual([]);
   });
 
   it('величины времени без класса нет ни одной', () => {
@@ -92,7 +94,7 @@ describe('класс делает, что обещает: прогоном пр�
       // Чем измерена величина, говорит конструктор: у мира — настоящие мс, у племени — игровые секунды,
       // у ставки — работа в игровую секунду. Сколько НАСТОЯЩИХ секунд она длится при каждой шкале:
       const seconds = (p: Pace, v: number): number =>
-        c.ctor === 'worldDays' || c.ctor === 'realTime' ? v / 1000 : c.ctor === 'realSec' ? v : c.ctor === 'gameRate' ? p.realSeconds(1 / v) : p.realSeconds(v);
+        c.ctor === 'worldDays' || c.ctor === 'realTime' || c.ctor === 'shieldTime' ? v / 1000 : c.ctor === 'realSec' ? v : c.ctor === 'gameRate' ? p.realSeconds(1 / v) : p.realSeconds(v);
       const ratio = seconds(slow.pace, b) / seconds(base.pace, a);
       const want = c.cls === 'game' ? SCALE : 1;
       if (Math.abs(ratio - want) > 1e-9) wrong.push(`${c.name} (${c.ctor}): настоящая длительность ×${ratio}, по классу ×${want}`);
@@ -100,20 +102,40 @@ describe('класс делает, что обещает: прогоном пр�
     expect(wrong).toEqual([]);
   });
 
-  it('решение владельца: ритм угрозы — в игровых днях, окно ответа и почта — в настоящем времени', async () => {
-    const names = ['AI_ATTACK_MIN', 'LAIR_RIPE', 'SIEGE_IMMUNE', 'CAMP_WORKS_RIPE', 'LETTER_TTL', 'MUTINY_ANSWER'];
+  it('решения владельца: угроза и события мира — в игровых днях, почта и окна защиты — в настоящем времени', async () => {
+    // Игровое: ритм угрозы, вся семья предупреждения о набеге, пепелище, разорение и бунт.
+    const GAME = ['AI_ATTACK_MIN', 'LAIR_RIPE', 'CAMP_WORKS_RIPE', 'AI_WARNING_BASE', 'DEFENSE_FREEZE', 'LAIR_RUIN', 'SACK_DURATION', 'REVOLT_DURATION'];
+    // Настоящее: почта и окна защиты игрока.
+    const REAL = ['LETTER_TTL', 'SIEGE_IMMUNE', 'BURN_IMMUNE'];
+    const names = [...GAME, ...REAL];
     const pick = timeConsts(ROOT).filter((c) => names.includes(c.name));
     expect(pick.map((c) => c.name).sort(), 'точка внутри области: величины на месте').toEqual([...names].sort());
     const base = await valuesAt(1, pick);
     const slow = await valuesAt(SCALE, pick);
     const at = (v: Map<string, number>, name: string): number => [...v.entries()].find(([k]) => k.endsWith(`:${name}`))![1];
     const dayMs = (p: Pace): number => p.realMs(p.DAY_LENGTH);
-    for (const name of ['AI_ATTACK_MIN', 'LAIR_RIPE', 'SIEGE_IMMUNE', 'CAMP_WORKS_RIPE']) {
+    for (const name of GAME) {
       expect(at(slow.values, name) / dayMs(slow.pace), `${name} в игровых днях`).toBeCloseTo(at(base.values, name) / dayMs(base.pace), 9);
       expect(at(slow.values, name), `${name} в настоящих мс`).toBeCloseTo(at(base.values, name) * SCALE, 6);
     }
-    expect(at(slow.values, 'LETTER_TTL'), 'срок донесения — настоящие сутки').toBe(at(base.values, 'LETTER_TTL'));
-    expect(slow.pace.realSeconds(at(slow.values, 'MUTINY_ANSWER')), 'окно ответа — настоящие секунды').toBeCloseTo(45, 9);
+    for (const name of REAL) expect(at(slow.values, name), `${name} — настоящее время`).toBe(at(base.values, name));
+    expect(at(slow.values, 'LAIR_RUIN') / dayMs(slow.pace), 'пепелище — неделя игрового времени').toBeCloseTo(7, 9);
+  });
+
+  // Правило владельца: окно, которое даёт игроку время прийти и ответить, меряется его временем, а не
+  // временем мира. Записано оно конструктором `shieldTime`; сетка ниже ловит окно защиты, объявленное
+  // мимо него. Сетка — по имени (`IMMUNE`): смысл из числа не выводится, и это сказано прямо.
+  it('окна защиты игрока объявлены своим конструктором и со шкалой не идут', async () => {
+    const all = timeConsts(ROOT);
+    const shields = all.filter((c) => c.ctor === 'shieldTime');
+    const byName = all.filter((c) => /IMMUNE/.test(c.name));
+    expect(byName.length, 'точка внутри области: сетка по имени видит окна').toBeGreaterThan(0);
+    expect(byName.filter((c) => c.ctor !== 'shieldTime').map((c) => `${c.name} (${c.ctor})`), 'окно защиты объявлено не своим классом').toEqual([]);
+    expect(shields.map((c) => c.name).sort(), 'точка внутри области: окна защиты найдены').toEqual(['BURN_IMMUNE', 'SIEGE_IMMUNE']);
+    const base = await valuesAt(1, shields);
+    const slow = await valuesAt(SCALE, shields);
+    expect(slow.pace.timeScale(), 'точка внутри области: шкала отлична от единицы').toBe(SCALE);
+    for (const [key, v] of base.values) expect(slow.values.get(key), `${key}: настоящие миллисекунды при любой шкале`).toBe(v);
   });
 
   it('конструкторы сведены в классы без дыр', () => {

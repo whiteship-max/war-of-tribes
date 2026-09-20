@@ -3,7 +3,7 @@ import { TEST_GEMS } from '@/game/constants';
 import { GEM_PACKS, packRate } from '@/game/data/gems';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { buildingTitle, isSite } from '@/game/derived';
-import { GEM_SECONDS, gemsOf, rushPrice } from '@/game/sim/gems';
+import { GEM_REAL_SECONDS, gemsOf, rushPrice } from '@/game/sim/gems';
 import { rushUpgrade } from '@/game/sim/gems';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
@@ -45,7 +45,7 @@ export function Gems() {
         ресурсы за уровень списываются как за обычную стройку. Ни еды, ни камня, ни зимы
         алмазом не отменить — иначе платящий игрок играл бы в другую игру.
         Цена достройки зависит от того, сколько работы осталось: один алмаз — примерно{' '}
-        {GEM_SECONDS} секунд ожидания, и к концу стройки цена падает до одного.
+        {Math.round(GEM_REAL_SECONDS)} секунд ожидания, и к концу стройки цена падает до одного.
       </div>
 
       {sites.length > 0 ? (

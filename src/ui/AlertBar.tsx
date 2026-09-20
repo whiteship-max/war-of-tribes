@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { alerts, buildingOfType, mutinyAnswerLeft } from '@/game/derived';
+import { alerts, buildingOfType } from '@/game/derived';
+import { eventLeft } from '@/game/sim/mail';
 import { MUTINY_EVENT, ORDER_TEXT } from '@/game/data/order';
 import { tutorialActive } from '@/game/data/tutorial';
 import { incomingMarches, useWorld, worldNow } from '@/world/store';
 import { secondsLeft } from '@/world/geo';
-import { realLeft, waitLeft } from '@/ui/parts/wait';
+import { realDue, realLeft } from '@/ui/parts/wait';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
@@ -35,11 +36,11 @@ export function AlertBar() {
   // Письмо о набеге ждёт в почте державы, за гербом, а не на экране: строка
   // тревоги остаётся предупреждением на виду — и в деревне, и на карте.
   const raids = incomingMarches(marches);
-  // Мятеж ждёт ответа в почте, но срок у него — секунды, а не сутки: строка на
-  // виду ведёт прямо к нему. Прежде это делало окно поверх игры.
+  // Мятеж ждёт ответа в почте сутки, как любое донесение, — но невольники всё это время стоят,
+  // и молчание его — самая жёсткая потеря в игре: строка на виду ведёт прямо к нему.
   const openMail = useRealm((r) => r.openMail);
-  const mutinyLeft = mutinyAnswerLeft(s);
   const mutiny = s.inbox.find((e) => e.defId === MUTINY_EVENT) ?? null;
+  const mutinyLeft = mutiny ? eventLeft(mutiny, worldNow()) : null;
   // Замок один на всю оборону и считается по всем отрядам, а не по строке: строка
   // второго набега не может сказать «открыто», пока расстановка заперта первым.
   const lock = useLockWords();
@@ -68,7 +69,7 @@ export function AlertBar() {
   // он не сходит в первый бой. Решает одно правило (`sim/agents.bareGeneral`).
   const bare = bareGeneral(s, general);
   const statue = buildingOfType(s, 'statue');
-  if (list.length === 0 && raids.length === 0 && empty.size === 0 && !bare && mutinyLeft === null) return null;
+  if (list.length === 0 && raids.length === 0 && empty.size === 0 && !bare && !mutiny) return null;
 
   return (
     // На карте строка встаёт вплотную под её шапку, а не туда, где стоит в
@@ -77,11 +78,11 @@ export function AlertBar() {
     // местности, то есть чем-то, что стоит **там**; прижатая к шапке — тем, чем
     // и является: продолжением шапки.
     <div className={`alerts${mapOpen ? ' on-map' : ''}${tutorialActive(s) ? ' with-tut' : ''}`}>
-      {mutinyLeft !== null && mutiny && (
+      {mutiny && (
         <button key="mutiny" className="alert raid" onClick={() => openMail(eventKey(mutiny))}>
           <span className="ic">{ORDER_TEXT.mutiny.icon}</span>
           <span className="txt">
-            {ORDER_TEXT.mutiny.title} — ответ в «Решениях» · {waitLeft(mutinyLeft)}
+            {ORDER_TEXT.mutiny.alert}{mutinyLeft !== null ? ` · ${realDue(mutinyLeft)}` : ''}
           </span>
         </button>
       )}

@@ -42,7 +42,7 @@ import { createInitialState } from '@/game/state';
 import { absence, catchUp, tick } from '@/game/sim/tick';
 import { gameSeconds } from '@/game/pace';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
-import { eventId, mailArrive } from '@/game/sim/mail';
+import { eventId, mailArrive, mailStep } from '@/game/sim/mail';
 import { assignWorker, autoAssign, changeFreeJob, unassignWorker } from '@/game/sim/workers';
 import { recruitCost, startRecruit } from '@/game/sim/army';
 import { forgeCost, startForge } from '@/game/sim/smithy';
@@ -380,8 +380,9 @@ function trim(g: GameState, l: Ledger): void {
 }
 
 /**
- * Ответить на каждое ждущее событие первым бесплатным вариантом; мятеж ждёт своего
- * срока — стража выходит сама.
+ * Ответить на каждое ждущее событие первым бесплатным вариантом. На мятеж не отвечают: он ждёт
+ * срока донесения — настоящие сутки (`sim/mail.EVENT_TTL`), — и стража выходит сама; срок ведёт
+ * шаг почты в `pilot`, как цикл стора в игре.
  */
 function answer(g: GameState, l: Ledger): void {
   for (const ev of [...g.inbox]) {
@@ -733,6 +734,8 @@ export async function pilot(o: Flight): Promise<Flown> {
       }
       // Вести приходят по настоящим часам мира — окно этого пульса (`sim/mail.mailArrive`), как в игре.
       mailArrive(g, sky.now() - pulseMs, sky.now());
+      // И сроки донесений идут теми же часами: мятеж без ответа разрешается почтой, а не шагом.
+      mailStep(g, sky.now());
     }
     const pl = await beat();
     const now = sky.now();
@@ -774,12 +777,12 @@ export async function pilot(o: Flight): Promise<Flown> {
  */
 export function stand(
   g: GameState,
-  o: { dt: number; steps: number; before?: (g: GameState, i: number) => void; after?: (g: GameState, i: number, settled: string | null) => boolean | void },
+  o: { dt: number; steps: number; before?: (g: GameState, i: number) => void; after?: (g: GameState, i: number) => boolean | void },
 ): void {
   for (let i = 0; i < o.steps; i++) {
     o.before?.(g, i);
-    const settled = tick(g, o.dt);
-    if (o.after?.(g, i, settled) === true) return;
+    tick(g, o.dt);
+    if (o.after?.(g, i) === true) return;
   }
 }
 

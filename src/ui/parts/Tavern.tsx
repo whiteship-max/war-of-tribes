@@ -2,6 +2,7 @@ import { useGame } from '@/game/store';
 import { DAY_LENGTH, FEAST_DAYS } from '@/game/constants';
 import { feastInfo } from '@/game/derived';
 import { throwFeast } from '@/game/sim/actions';
+import { waitDays, waitDaysBoth } from './wait';
 
 /**
  * Трактир: единственный быстрый рычаг морали и второй выход у золота после
@@ -39,14 +40,14 @@ export function Tavern() {
         <div className="mod">
           <span className="ico">🍺</span>
           <span className="name">Пир идёт</span>
-          <span className="val pos">ещё {days(info.left)} дн.</span>
+          <span className="val pos">ещё {waitDays(days(info.left))}</span>
         </div>
       )}
       {info.left <= 0 && info.cooldown > 0 && (
         <div className="mod">
           <span className="ico">⏳</span>
           <span className="name">Бочки пусты</span>
-          <span className="val">ещё {days(info.cooldown)} дн.</span>
+          <span className="val">ещё {waitDays(days(info.cooldown))}</span>
         </div>
       )}
       <button
@@ -54,7 +55,7 @@ export function Tavern() {
         disabled={info.blocked !== null}
         onClick={() => act((st) => throwFeast(st))}
       >
-        Задать пир — {info.cost} 🪙, мораль +{info.bonus} на {FEAST_DAYS} дн.
+        Задать пир — {info.cost} 🪙, мораль +{info.bonus} на {waitDaysBoth(FEAST_DAYS)}
       </button>
       {info.blocked && <div className="hint">{info.blocked}</div>}
     </>

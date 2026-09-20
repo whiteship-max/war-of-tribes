@@ -63,8 +63,8 @@ import { popGrowth } from '@/game/sim/population';
 import { surveyInfo } from '@/game/sim/survey';
 import { militiaArchers } from '@/world/bridge';
 import { plural } from './plural';
-import { realSeconds } from '@/game/pace';
-import { realPlain } from './wait';
+import { asGame, realSeconds } from '@/game/pace';
+import { realPlain, waitDays, waitSpan } from './wait';
 
 /** Одна прибавка: что меряли, сколько было и станет, и как это сказано. */
 export interface UpgradeGain {
@@ -172,7 +172,7 @@ const GAUGES: Gauge[] = [
     read: payGraceDays,
     say: (b, a) => {
       const d = a - b;
-      return d <= 0 ? null : { text: `+${d} дн. терпения войска к неуплате и голоду (станет ${a})`, numbers: [d, a] };
+      return d <= 0 ? null : { text: `+${d} игр. дн. терпения войска к неуплате и голоду (станет ${a})`, numbers: [d, a] };
     },
   },
   {
@@ -191,7 +191,17 @@ const GAUGES: Gauge[] = [
     read: infirmaryBeds,
     say: (b, a) => (a <= b ? null : { text: `+${a - b} ${plural(a - b, 'место', 'места', 'мест')} в лазарете (станет ${a})`, numbers: [a - b, a] }),
   },
-  { id: 'warning', read: warningSeconds, say: more('с к предупреждению о набеге') },
+  {
+    // Прибавка Дозора — игровые секунды, а игрок ждёт набега своими часами: срок называет модуль сроков.
+    id: 'warning',
+    read: warningSeconds,
+    say: (b, a) => {
+      const d = shown(a - b);
+      if (d === 0) return null;
+      const span = waitSpan(asGame(Math.abs(d)));
+      return { text: `набег виден ${d > 0 ? 'дольше' : 'меньше'} на ${span}`, numbers: (span.match(/\d+(?:\.\d+)?/g) ?? []).map(Number) };
+    },
+  },
   {
     // Уровень Дозора — потолок ступени изучения, а не её источник.
     id: 'survey',
@@ -211,7 +221,9 @@ const GAUGES: Gauge[] = [
     say: (b, a) => {
       const d = shown((b - a) / DAY_LENGTH);
       if (d === 0) return null;
-      return { text: `перерыв между пирами ${d > 0 ? 'короче' : 'длиннее'} на ${Math.abs(d)} дн.`, numbers: [Math.abs(d)] };
+      // Перерыва игрок ждёт — настоящим временем, словами модуля сроков.
+      const span = waitDays(Math.abs(d));
+      return { text: `перерыв между пирами ${d > 0 ? 'короче' : 'длиннее'} на ${span}`, numbers: (span.match(/\d+(?:\.\d+)?/g) ?? []).map(Number) };
     },
   },
   {

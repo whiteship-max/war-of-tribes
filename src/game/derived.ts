@@ -36,7 +36,6 @@ import {
   MORALE_BASE,
   MORALE_OUTPUT_LOW,
   MORALE_OUTPUT_SPAN,
-  MUTINY_ANSWER,
   MUTINY_FUSE,
   MUTINY_PAY_FOOD,
   MUTINY_PAY_GOLD,
@@ -116,6 +115,7 @@ import {
   SEASON_SECONDS,
   type SeasonModifiers,
 } from './data/seasons';
+import { daysSpan, gameDaysText } from './span';
 
 /** На здании идёт улучшение. */
 export const isSite = (b: Building): boolean => b.workRequired > 0;
@@ -619,13 +619,14 @@ export function mouthCount(s: GameState): number {
 export const intelKeen = (s: GameState): number => 1 + statOf(s, 'watch', 'intel') / 100;
 
 /**
- * Насколько Дозор удлиняет предупреждение о чужой армии, **настоящих** секунд: мир прибавляет их к
- * своим настоящим минутам (`AI_WARNING_BASE`), и со шкалой времени (`game/pace`) они не идут.
+ * Насколько Дозор удлиняет предупреждение о чужой армии, **игровых** секунд: мир прибавляет их к
+ * своим игровым дням (`AI_WARNING_BASE`) дверью времени (`LocalWorld.warningMs`), и со шкалой
+ * (`game/pace`) идёт вся семья — предупреждение, заморозка обороны и эта прибавка.
  * Правило, которое нельзя нарушать: предупреждение обязано быть заметно длиннее
  * заморозки обороны (`DEFENSE_FREEZE`), иначе набег появляется уже запертым.
  * Поэтому дозор время только прибавляет, а не задаёт его целиком.
  */
-export const warningSeconds = (s: GameState): number => statOf(s, 'watch', 'warn');
+export const warningSeconds = (s: GameState): GameSec => asGame(statOf(s, 'watch', 'warn'));
 
 /**
  * Радиус земли, открытой изучением округи, клеток. Ноль — не изучено ничего.
@@ -726,7 +727,7 @@ export function feastInfo(s: GameState): FeastInfo {
   let blocked: string | null = null;
   if (!tavern) blocked = 'Трактира нет.';
   else if (left > 0) blocked = 'Пир и так идёт.';
-  else if (cooldown > 0) blocked = `Бочки пусты: ещё ${Math.ceil(cooldown / DAY_LENGTH)} дн.`;
+  else if (cooldown > 0) blocked = `Бочки пусты: ещё ${daysSpan(Math.ceil(cooldown / DAY_LENGTH))}`;
   else if (s.gold < cost) blocked = `Не хватает золота: нужно ${cost}.`;
   return { bonus, cost, left, cooldown, wait, blocked };
 }
@@ -1096,7 +1097,7 @@ function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifi
   if (!job) return;
   const mult = workerMultiplier(s, job, b, mods);
   addYield(out, job, workerCount(s, b.id), mult);
-  addYield(out, job, bondedCount(s, b.id), mult * BONDED_OUTPUT);
+  addYield(out, job, bondedCount(s, b.id), mult * bondedShare(s));
 }
 
 /** Валовое производство за игровой день. */
@@ -1185,7 +1186,7 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   // Ушедшие разведчиками — те же свободные жители: пока они в пути, стройка идёт без них.
   const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
   // Невольники без места — на стройке, тем же трудом и на ту же долю, что в поле.
-  const bonded = bondedIdle(s) * BONDED_OUTPUT;
+  const bonded = bondedIdle(s) * bondedShare(s);
   return ((idle + bonded) * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
 }
 
@@ -1397,7 +1398,7 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   const eat = foodConsumptionPerDay(s);
   const foodDays = s.resources.food / Math.max(1, eat);
   if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -25, 'еды нет вовсе');
-  else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${foodDays.toFixed(1)} дн.`);
+  else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${gameDaysText(foodDays.toFixed(1))}`);
   else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас меньше дня: ${foodDays.toFixed(1)}`);
 
   for (const b of s.buildings) {
@@ -1783,11 +1784,13 @@ export function unrestLeft(s: GameState): GameSec | null {
   return asGame(Math.max(0, MUTINY_FUSE - Math.max(0, s.unrest ?? 0)));
 }
 
-/** Секунд, которые окно мятежа ещё ждёт ответа. null — окна нет. */
-export function mutinyAnswerLeft(s: GameState): GameSec | null {
-  if (!mutinyOpen(s)) return null;
-  return asGame(Math.max(0, MUTINY_FUSE + MUTINY_ANSWER - Math.max(0, s.unrest ?? 0)));
-}
+/**
+ * Какую долю работы вольного делает невольник сейчас. Пока мятеж ждёт ответа, невольники стоят —
+ * ноль: мятеж ждёт сутки, как любое донесение (решение владельца, docs/time.md, раздел 16), и
+ * окно, которое можно держать открытым, не должно держать их за работой. Одна дверь на поле и на
+ * стройку — второго «работают ли невольники» быть не должно.
+ */
+export const bondedShare = (s: GameState): number => (mutinyOpen(s) ? 0 : BONDED_OUTPUT);
 
 /** Что сделает мятеж прямо сейчас — всё, что игрок обязан знать до него. */
 export interface MutinyForecast {

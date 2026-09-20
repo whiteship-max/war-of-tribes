@@ -20,7 +20,7 @@ import type { FigureId, FigureView } from '@/world/types';
 import type { WorldSave } from '@/world/local/state';
 import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL, MAX_OFFLINE_DAYS, RESOURCE_IDS, RESOURCE_META, TEST_GEMS } from '@/game/constants';
 import {
   armySize,
   buildingOfType,
@@ -41,7 +41,10 @@ import { distance } from '@/world/geo';
 import { AI_RANGE } from '@/world/data/tuning';
 import { HOUR, MIN, START, armyAt, away, gone, pilot, player, stackOf, type Cost, type Inside } from './autopilot';
 import { measure } from './lib/measured';
-import { dayRealSeconds, gameSeconds, setTimeScale } from '@/game/pace';
+import { dayRealSeconds, setTimeScale } from '@/game/pace';
+import { realSpan } from '@/game/span';
+import { GEM_DAY_SHARE, GEM_REAL_SECONDS, GEM_REF_RATE, rushPrice, rushWork } from '@/game/sim/gems';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { SILENCE_PREFIX } from '@/game/sim/mail';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { ageOf } from '@/game/sim/agents';
@@ -100,7 +103,7 @@ function fillSection(towns: GameState[]): void {
   console.log('=== 1. СКЛАД ПРОТИВ ОТЛУЧКИ ===');
   console.log('Общий автопилот, мир тихий, войска нет (как `pop:report`). Единица — игровой день; настоящие часы —');
   console.log(`пересчёт: сегодня день длится ${DAY_LENGTH} с, при шкале ×${SCALE_NEXT} — ${(DAY_LENGTH * SCALE_NEXT) / 60} мин.`);
-  console.log(`Потолок догона офлайна сегодня — ${MAX_OFFLINE_SECONDS / 3600} ч: это ${MAX_OFFLINE_SECONDS / DAY_LENGTH} игровых дней сегодня и ${MAX_OFFLINE_SECONDS / DAY_LENGTH / SCALE_NEXT} при ×${SCALE_NEXT}.`);
+  console.log(`Потолок догона офлайна — ${MAX_OFFLINE_DAYS} игровых дней при любой шкале: это ${n1((MAX_OFFLINE_DAYS * dayRealSeconds()) / 3600)} ч настоящего времени сегодня и ${n1((MAX_OFFLINE_DAYS * DAY_LENGTH * SCALE_NEXT) / 3600)} ч при ×${SCALE_NEXT}.`);
   console.log('');
   console.log('За сколько игровых дней чистая выработка наполняет ПУСТОЙ склад — по припасам с излишком.');
   console.log('«еда» — амбар: у еды излишек самый большой, и тратить её, кроме войска, не на что; «первый» — самый быстрый из');
@@ -129,12 +132,15 @@ function fillSection(towns: GameState[]): void {
   const rule = (name: string, xs: number[]): void => {
     const lo = Math.min(...xs);
     const hi = Math.max(...xs);
+    // Правило вывода ступени: отлучка в настоящие сутки равна складу. Потолок догона ступень больше не
+    // выводит — он сам задан в игровых днях и от шкалы не зависит.
+    const DAY_REAL = 24 * 3600;
     console.log(
-      `  по мерке «${name}» склад — ${n1(lo)}…${n1(hi)} игровых дней; догон одной отлучки (${MAX_OFFLINE_SECONDS / 3600} ч) равен складу при дне в ` +
-        `${n1(MAX_OFFLINE_SECONDS / 60 / hi)}…${n1(MAX_OFFLINE_SECONDS / 60 / lo)} мин — шкала ×${Math.round(MAX_OFFLINE_SECONDS / hi / DAY_LENGTH)}…×${Math.round(MAX_OFFLINE_SECONDS / lo / DAY_LENGTH)}.`,
+      `  по мерке «${name}» склад — ${n1(lo)}…${n1(hi)} игровых дней (потолок догона — ${MAX_OFFLINE_DAYS}); настоящие сутки отлучки равны складу при дне в ` +
+        `${n1(DAY_REAL / 60 / hi)}…${n1(DAY_REAL / 60 / lo)} мин — шкала ×${Math.round(DAY_REAL / hi / DAY_LENGTH)}…×${Math.round(DAY_REAL / lo / DAY_LENGTH)}.`,
     );
   };
-  console.log('Правило вывода ступени (docs/time.md, раздел 3): догон одной отлучки равен складу.');
+  console.log('Правило вывода ступени (docs/time.md, разделы 3 и 12): отлучка в настоящие сутки равна складу.');
   rule('первый припас, кроме еды', first);
   rule('сумма', sums);
   console.log('');
@@ -544,7 +550,7 @@ function returnSection(towns: GameState[]): void {
   setTimeScale(SCALE_NEXT);
   try {
     console.log(`Дверь отлучки как в игре (\`sim/tick.absence\`), шкала ×${SCALE_NEXT}: игровой день — ${dayRealSeconds() / 60} мин, потолок догона —`);
-    console.log(`${MAX_OFFLINE_SECONDS / 3600} ч (${gameSeconds(MAX_OFFLINE_SECONDS) / DAY_LENGTH} игровых дней). Посёлок — этап из раздела 1, войско мерки, склад потрачен перед уходом (всё, кроме еды).`);
+    console.log(`${MAX_OFFLINE_DAYS} игровых дней (${n1((MAX_OFFLINE_DAYS * dayRealSeconds()) / 3600)} ч). Посёлок — этап из раздела 1, войско мерки, склад потрачен перед уходом (всё, кроме еды).`);
     console.log('Три игрока: «казна этапа» — золото автопилота, налог партии; «пустая казна» — золота нет, налог умеренный,');
     console.log('жалованье выше дохода; «с невольниками» — то же и невольников четыре десятых от жителей (без места).');
     console.log('«войско» — осталось из скольких; «долг» — золота; «склад» — припасов из семи у потолка; «порядок» — число и');
@@ -584,15 +590,66 @@ function returnSection(towns: GameState[]): void {
   }
 }
 
+/**
+ * Алмаз — доля настоящих суток, а не игровые секунды (решение владельца, docs/time.md, раздел 16).
+ * Раздел печатает вывод доли и цены достройки при обеих шкалах — и рядом то, что было бы, останься
+ * алмаз десятью игровыми секундами: столько же алмазов, в тридцать раз больше снятого ожидания.
+ */
+function gemSection(): void {
+  console.log('');
+  console.log('=== 5. АЛМАЗ: ДОЛЯ НАСТОЯЩИХ СУТОК ===');
+  console.log(`Один алмаз снимает ${GEM_REAL_SECONDS} с настоящего нормативного ожидания — долю 1/${Math.round(1 / GEM_DAY_SHARE)} настоящих суток (GEM_DAY_SHARE). Доля выведена из`);
+  console.log('прежней цены: десять секунд при дне в минуту — десять настоящих секунд из 86 400. Норматив — труд улучшения на GEM_REF_RATE, как у цены.');
+  console.log(`«алмазов» — цена достройки целого улучшения (rushPrice); «ждать» — нормативное ожидание настоящим временем; «было бы» — цена, останься алмаз`);
+  console.log(`десятью игровыми секундами: при ×${SCALE_NEXT} те же алмазы снимали бы в ${SCALE_NEXT} раз больше ожидания. Тестовый запас новой партии — ${TEST_GEMS} алмазов.`);
+  console.log('  улучшение              | шкала 1: алмазов · ждать | ×' + SCALE_NEXT + ': алмазов · ждать     | было бы при ×' + SCALE_NEXT + ': алмазов · с ожидания на алмаз');
+  const base = createInitialState();
+  const rows: [string, number][] = [
+    ['Жилища 1→2', 1],
+    ['Рынок 1→2', 1],
+    ['Жилища 5→6', 5],
+    ['Рынок 9→10', 9],
+  ];
+  let whole = { one: 0, slow: 0 };
+  for (const [name, level] of rows) {
+    const b = structuredClone(base.buildings.find((x) => x.type === (name.startsWith('Рынок') ? 'market' : 'houses'))!);
+    b.level = level;
+    const norm = rushWork(b) / GEM_REF_RATE;
+    const one = rushPrice(b);
+    setTimeScale(SCALE_NEXT);
+    const slow = rushPrice(b);
+    setTimeScale();
+    const old = Math.max(1, Math.ceil(norm / 10));
+    console.log(
+      `  ${name.padEnd(22)} | ${pad(one, 8)} · ${realSpan(norm).padStart(12)} | ${pad(slow, 8)} · ${realSpan(norm * SCALE_NEXT).padStart(12)} | ${pad(old, 8)} · ${pad(n1((norm * SCALE_NEXT) / old), 6)}`,
+    );
+  }
+  // Вся лестница уровней всех построек: сколько алмазов стоит достроить партию целиком.
+  for (const b0 of base.buildings) {
+    const max = Math.min(BUILDING_BY_ID[b0.type].maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
+    for (let level = 1; level < max; level++) {
+      const b = structuredClone(b0);
+      b.level = level;
+      whole.one += rushPrice(b);
+      setTimeScale(SCALE_NEXT);
+      whole.slow += rushPrice(b);
+      setTimeScale();
+    }
+  }
+  console.log(`  все уровни всех построек: ${whole.one} алмазов при шкале 1 и ${whole.slow} при ×${SCALE_NEXT} (×${n1(whole.slow / whole.one)}); тестовый запас — ${n1((TEST_GEMS / whole.one) * 100)} % и ${n1((TEST_GEMS / whole.slow) * 100)} % этого пути,`);
+  console.log(`  и те же ${realSpan(TEST_GEMS * GEM_REAL_SECONDS)} настоящего ожидания при любой шкале.`);
+}
+
 async function main(): Promise<void> {
   const towns = await stages();
   if (towns.length !== STAGES.length) throw new Error(`этапов снято ${towns.length} из ${STAGES.length}`);
   // SECTIONS=13 — только названные разделы: для работы над отчётом, приёмкой не является.
-  const on = (k: string): boolean => (process.env.SECTIONS ?? '1234').includes(k);
+  const on = (k: string): boolean => (process.env.SECTIONS ?? '12345').includes(k);
   if (on('1')) fillSection(towns);
   if (on('2')) await agentsSection();
   if (on('3')) await costSection(towns);
   if (on('4')) returnSection(towns);
+  if (on('5')) gemSection();
 }
 
 await main();

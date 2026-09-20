@@ -8,15 +8,14 @@
 // поселении, его поднимает лазутчик), и мятеж лёг туда же, куда легла ересь, —
 // в строку тревоги и в событие.
 //
-// **Срок идёт только при игроке.** Офлайн-догон ропот не двигает, а окно мятежа не
-// разрешается само, пока игру не открыли. У чужих это правило снято: набег и осада
-// приходят, в игре хозяин или нет (docs/DEFEAT_LADDER.md), — довод там был «иначе
-// лучшая игра — закрыть приложение». У мятежа этот довод не работает: закрытое
-// приложение ропот не гасит, а замораживает, и вернувшийся игрок застаёт тот же
-// ропот с тем же сроком. Выиграть он может ровно столько выработки, сколько дал бы
-// офлайн без всякого ропота. Разбор — docs/order.md.
+// **Ропот зреет по времени, а не по присутствию** (docs/time.md, раздел 14): при игроке и в
+// догоне отлучки одинаково. Созревший мятеж — донесение почты: ждёт ответа сутки настоящими
+// часами (`sim/mail.EVENT_TTL`), как любая весть, и невольники на это время встают
+// (`derived.bondedShare`). **Единственное, что ждёт игрока, — начало этого срока:** его ставит
+// живой шаг почты при первом взгляде (`sim/mail.mailStep` из цикла стора), отлучка его не ставит.
+// Самая жёсткая потеря в игре не приходит к тому, кто мятежа не видел. Разбор — docs/order.md.
 import type { GameState, ResourceId } from '../types';
-import { MUTINY_ANSWER, MUTINY_CARRY, MUTINY_FUSE, MUTINY_SUPPRESS_MORALE, RESOURCE_IDS } from '../constants';
+import { MUTINY_CARRY, MUTINY_FUSE, MUTINY_SUPPRESS_MORALE, RESOURCE_IDS } from '../constants';
 import { ORDER_TEXT } from '../data/order';
 import { bondedTotal, hiddenStash, mutinyForecast, mutinyOpen, orderState } from '../derived';
 import { plunder } from '@/world/spoils';
@@ -24,29 +23,23 @@ import { loseBonded, losePop } from './population';
 import { log } from './log';
 import { recordRaidLoss } from '@/profile/stats';
 
-/** Что шаг ропота велит сделать тику: поднять мятеж, разрешить его молчанием или ничего. */
-export type UnrestStep = 'raise' | 'silence' | null;
+/** Что шаг ропота велит сделать тику: поднять мятеж или ничего. */
+export type UnrestStep = 'raise' | null;
 
 /**
- * Шаг ропота. `present` — игрок при игре (живой шаг, а не догон отлучки).
+ * Шаг ропота — один при игроке и в догоне отлучки.
  *
  * - Порядок выше порога — ропот тает вдвое быстрее, чем копился: короткий провал
  *   не копится вечно, но и не забывается мгновенно.
  * - Порядок ниже порога — ропот копится. **Зреет он по времени, а не по присутствию**
  *   (docs/time.md, раздел 14): при игроке и в догоне отлучки одинаково. Дошёл до срока —
  *   мятеж ложится на стол.
- * - Мятеж на столе — идёт срок ответа, и это **единственное, что идёт только при игроке**:
- *   окно ответа существует затем, чтобы игрок выбрал, а без игрока выбирать некому. Мятеж,
- *   созревший в отлучке, ждёт хозяина на столе; его молчание — «стража выходит сама» —
- *   случается только при нём. Самая жёсткая потеря в игре во сне не приходит.
+ * - Мятеж на столе — ропот стоит: дальше срок ведёт почта (`sim/mail`), настоящими часами, как у
+ *   любого донесения. Молчание мятежа — «стража выходит сама» — разрешает она же.
  */
-export function unrestTick(s: GameState, dt: number, present: boolean): UnrestStep {
+export function unrestTick(s: GameState, dt: number): UnrestStep {
   const unrest = Math.max(0, s.unrest ?? 0);
-  if (mutinyOpen(s)) {
-    if (!present) return null;
-    s.unrest = Math.min(MUTINY_FUSE + MUTINY_ANSWER, unrest + dt);
-    return s.unrest >= MUTINY_FUSE + MUTINY_ANSWER ? 'silence' : null;
-  }
+  if (mutinyOpen(s)) return null;
   if (orderState(s) !== 'unrest') {
     s.unrest = Math.max(0, unrest - dt * 2);
     return null;

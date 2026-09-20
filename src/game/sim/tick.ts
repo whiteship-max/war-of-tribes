@@ -1,6 +1,6 @@
 // Главный шаг симуляции. Мутирует состояние на месте.
 import type { GameState } from '../types';
-import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
+import { DAY_LENGTH, MAX_OFFLINE_DAYS, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
 import { gameSec, gameSeconds, realSec } from '../pace';
 import {
   buildRate,
@@ -25,7 +25,7 @@ import { QUESTS } from '../data/quests';
 import { MUTINY_EVENT } from '../data/order';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { unrestTick } from './mutiny';
-import { eventId, lapseEvent, mailArrive, raiseEvent } from './mail';
+import { mailArrive, raiseEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
@@ -43,12 +43,10 @@ export interface TickOptions {
 }
 
 /**
- * Шаг симуляции. Возвращает текст того, что разрешилось без игрока, пока он
- * смотрел на экран: окно мятежа, оставленное без ответа. Показать это некому,
- * кроме оболочки, — поэтому текст отдаётся наружу, а не пишется в состояние.
+ * Шаг симуляции. Без игрока он ничего не разрешает: донесения, оставленные без ответа, — и мятеж
+ * среди них — разрешает почта настоящими часами (`sim/mail.mailStep`).
  */
-export function tick(s: GameState, dt: number, opts: TickOptions = {}): string | null {
-  let settled: string | null = null;
+export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   const dayBefore = Math.floor(s.time / DAY_LENGTH);
   const seasonBefore = seasonIndex(s.time);
   s.time += dt;
@@ -206,22 +204,15 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
     log(s, `Задание выполнено: ${q.title}.`, 'quest');
   }
 
-  // 7б. Ропот и мятеж. Порядок считается при чтении; здесь идёт только срок,
-  // и только при игроке — офлайн-догон его не двигает (см. sim/mutiny).
-  const unrest = unrestTick(s, dt, !opts.offline);
-  if (unrest === 'silence') {
-    // Окно мятежа осталось без ответа: стража выходит сама — вариантом, который
-    // мятеж назвал своим молчанием. Дверь та же, что у ответа игрока (`sim/mail`).
-    const open = s.inbox.find((e) => e.defId === MUTINY_EVENT);
-    settled = open ? lapseEvent(s, eventId(open)) : null;
-  }
+  // 7б. Ропот. Порядок считается при чтении; здесь идёт только срок до мятежа — при игроке и в
+  // догоне отлучки одинаково. Срок ответа на мятеж ведёт почта (`sim/mail`), а не шаг.
+  const unrest = unrestTick(s, dt);
 
   // 8. Мятеж случаем не выпадает: его поднимает срок ропота, и ложится он в свою ячейку
   // стола — вести посёлка его не держат и им не сгоняются (`sim/mail.raiseEvent`).
   // Сами вести шаг не поднимает: они приходят по сетке настоящих часов, одной на присутствие и
   // отлучку (`sim/mail.mailArrive`), — зреют по времени, а не по присутствию.
   if (unrest === 'raise') raiseEvent(s, MUTINY_EVENT);
-  return settled;
 }
 
 /** Догоняет офлайн-время фиксированным шагом. */
@@ -236,17 +227,12 @@ export function catchUp(s: GameState, seconds: number, step = 1): void {
 
 /** За сколько мораль заметно сдвигается к цели, игровых секунд. */
 export const MORALE_SETTLE = gameSec(20);
-/** Шаг догона офлайна, игровых секунд, — самый мелкий. */
-export const CATCHUP_STEP = gameSec(2);
 /**
- * Сколько шагов догон делает самое большее. Потолок отлучки — сутки, и при шкале времени, равной
- * единице, это 43 200 шагов по две секунды — семь секунд стоящей страницы на входе. Длинная отлучка
- * догоняется тем же числом шагов, что прежний потолок в четыре часа, шагом покрупнее; отлучка до
- * четырёх часов идёт прежним шагом, буква в букву.
+ * Шаг догона офлайна, игровых секунд. Потолок догона задан в игровых днях (`MAX_OFFLINE_DAYS`),
+ * поэтому шагов у самой длинной отлучки одно и то же число при любой шкале времени — 1 440, четверть
+ * секунды машины (`npm run time:report`, раздел 3), — и укрупнять шаг под длинную отлучку незачем.
  */
-export const CATCHUP_TICKS = 7200;
-/** Шаг догона для отлучки в `seconds` игровых секунд. */
-export const catchUpStep = (seconds: number): number => Math.max(CATCHUP_STEP, seconds / CATCHUP_TICKS);
+export const CATCHUP_STEP = gameSec(2);
 /**
  * Дольше этого между двумя шагами живой игры, настоящих секунд, — уже не шаг, а отлучка: таймер
  * страницы стоял (вкладка в фоне, свёрнутое вебвью, уснувший телефон), и игрока при этом не было.
@@ -254,9 +240,16 @@ export const catchUpStep = (seconds: number): number => Math.max(CATCHUP_STEP, s
  */
 export const AWAY_AFTER = realSec(5);
 
-/** Сколько догонять за отлучку с `since` по `now` (настоящие мс), **настоящих секунд**, под потолком. */
-export const awaySeconds = (since: number, now: number): number =>
-  Math.min(Math.max(0, Math.floor((now - since) / 1000)), MAX_OFFLINE_SECONDS);
+/** Сколько игрока не было с `since` по `now` (настоящие мс), **настоящих секунд**. Потолка нет: это правда об отлучке. */
+export const awaySeconds = (since: number, now: number): number => Math.max(0, Math.floor((now - since) / 1000));
+
+/**
+ * Сколько догонять за отлучку, **игровых секунд**: прошедшее — через дверь времени, потолок — в
+ * игровых днях (`MAX_OFFLINE_DAYS`). Одна дверь на догон и на ступени сохранения, которым нужна
+ * минута входа после догона.
+ */
+export const awayGameSeconds = (since: number, now: number): number =>
+  Math.min(gameSeconds(awaySeconds(since, now)), MAX_OFFLINE_DAYS * DAY_LENGTH);
 
 /**
  * Отлучка: игрока не было с настоящей минуты `since` по `now`. Догон хозяйства под потолком и
@@ -265,8 +258,7 @@ export const awaySeconds = (since: number, now: number): number =>
  * игровыми: перевод один (`game/pace`).
  */
 export function absence(s: GameState, since: number, now: number): void {
-  const real = awaySeconds(since, now);
-  if (real > AWAY_AFTER) catchUp(s, gameSeconds(real), catchUpStep(gameSeconds(real)));
+  if (awaySeconds(since, now) > AWAY_AFTER) catchUp(s, awayGameSeconds(since, now), CATCHUP_STEP);
   mailArrive(s, since, now);
 }
 
@@ -279,15 +271,14 @@ export function absence(s: GameState, since: number, now: number): void {
  * и догона отставшее племя не получало до перезагрузки. Теперь шаг получает прошедшее время:
  * короткий промежуток — обычный шаг при игроке, длинный — отлучка теми же правилами, что при входе.
  */
-export function liveStep(s: GameState, real: number, now: number): string | null {
-  if (!(real > 0)) return null;
+export function liveStep(s: GameState, real: number, now: number): void {
+  if (!(real > 0)) return;
   if (real <= AWAY_AFTER) {
-    const settled = tick(s, gameSeconds(real));
+    tick(s, gameSeconds(real));
     // Вести приходят по настоящим часам — тем же правилом, что в отлучке: окно этого шага.
     mailArrive(s, now - real * 1000, now);
-    return settled;
+    return;
   }
   absence(s, now - real * 1000, now);
-  return null;
 }
 

@@ -6,8 +6,7 @@ import { emptyArmy } from './data/troops';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { createInitialState, SAVE_VERSION } from './state';
-import { AWAY_AFTER, absence, awaySeconds } from './sim/tick';
-import { gameSeconds } from './pace';
+import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
@@ -90,7 +89,7 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   // первом же входе, а игрок о правиле ещё не знал. Отсрочка — с минуты входа,
   // после догона офлайна, как служба приведённых агентов. Налог не трогается.
   if (from < 14) {
-    const entry = s.time + gameSeconds(offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow()));
+    const entry = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow(), serverNow());
     s.pay = { debt: 0, late: 0, gone: {}, from: entry + WAGE_AMNESTY_DAYS * DAY_LENGTH };
   }
   // Строка про грамоту вождя — про восьмёрку, и обязана быть под своим условием:
@@ -127,8 +126,9 @@ function migrate(s: GameState, from: number, data: SavedState): void {
 }
 
 /**
- * Сколько догонять после записи, **настоящих секунд**, — одна формула на догон и на ступень, которой нужно знать,
- * где кончится догон: служба приведённых агентов начинается в минуту входа, а не раньше.
+ * Сколько игрока не было после записи, **настоящих секунд**, — для окна «С возвращением». Сколько из
+ * этого догоняется и где кончится догон, считает одна дверь — `sim/tick.awayGameSeconds`: служба
+ * приведённых агентов начинается в минуту входа, а не раньше.
  */
 export const offlineSeconds = (lastSaved: number): number => awaySeconds(lastSaved, serverNow());
 
@@ -154,7 +154,7 @@ export function rescaleXp(old: number): number {
  * `s.time` сделал бы всех четверых стариками, и на первом же пульсе они ушли бы на
  * покой. Поэтому служба начинается **сейчас**: агенты считаются нанятыми в минуту
  * входа — после догона офлайна, который загрузка сделает следом, — в `AGENT_AGE0` лет, с
- * тем опытом, что был. Иначе догон офлайна (до `MAX_OFFLINE_SECONDS`) при нынешнем
+ * тем опытом, что был. Иначе догон офлайна (до `MAX_OFFLINE_DAYS`) при нынешнем
  * `AGENT_YEAR` состарил бы их на годы за то время, когда они ещё не старели.
  *
  * Сид партии тоже выводится из неё самой, а не берётся у устройства: одно и то же
@@ -175,7 +175,7 @@ function mortalAgents(s: GameState, data: SavedState): void {
     const raw = oldAgents[id]?.xp;
     p.xp = rescaleXp(typeof raw === 'number' ? raw : 0);
     p.person = 0;
-    p.bornAt = s.time + gameSeconds(offlineSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow()));
+    p.bornAt = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow(), serverNow());
     p.age0 = AGENT_AGE0;
     p.vacant = false;
     p.hiring = null;

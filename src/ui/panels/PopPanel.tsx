@@ -24,7 +24,7 @@ import {
 } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
 import { Factor } from '../parts/Factor';
-import { waitSpan } from '../parts/wait';
+import { gameDaysText, waitSpan } from '../parts/wait';
 import { asGame } from '@/game/pace';
 
 /** Как множитель называется в строке-подсказке про узкое место. */
@@ -120,7 +120,7 @@ export function PopPanel() {
         name="Запас еды"
         k={growth.food}
         worst={worst.has('food')}
-        hint={`на ${foodDays.toFixed(1)} дн., полный ход с ${GROWTH_FOOD_DAYS}`}
+        hint={`на ${gameDaysText(foodDays.toFixed(1))}, полный ход с ${GROWTH_FOOD_DAYS}`}
       />
       {growth.faith > 1 && (
         <>

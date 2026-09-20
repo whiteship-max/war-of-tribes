@@ -1,6 +1,7 @@
 import { useGame } from '@/game/store';
 import { winterForecast, type ResourceForecast } from '@/game/derived';
 import { SEASON_DAYS } from '@/game/data/seasons';
+import { gameDaysText } from '@/ui/parts/wait';
 
 const n1 = (x: number): string => String(Math.round(x * 10) / 10);
 
@@ -16,7 +17,7 @@ function Stock({ icon, name, f, days }: { icon: string; name: string; f: Resourc
         <span className="ico">{icon}</span>
         <b>{name}</b>
         <span className="days">
-          {covered} из {days} дн.
+          {covered} из {gameDaysText(days)}
         </span>
       </div>
       <div className="progress">

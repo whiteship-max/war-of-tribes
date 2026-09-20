@@ -1,12 +1,6 @@
 import type { BuildingTypeId, JobId, ResourceId } from '../types';
 import { yardBuilding } from './yards';
-import { ownerSec } from '../pace';
-
-/**
- * Прибавка Дозора к предупреждению о набеге — одна семья с самим предупреждением (`AI_WARNING_BASE`) и
- * заморозкой обороны: класс у них один, и решает его владелец (docs/time.md, раздел 13.3).
- */
-const WARN_QUESTION = 'одна семья с предупреждением о набеге';
+import { gameSec } from '../pace';
 
 /** Пассивные эффекты здания — растут не множителем, а прибавкой за уровень. */
 export interface BuildingStats {
@@ -37,7 +31,10 @@ export interface BuildingStats {
   beds?: number;
   /** На сколько процентов медленнее стареют разведданные — работа дозора. */
   intel?: number;
-  /** Насколько дольше видно чужую армию до прихода, **настоящих** секунд: прибавка к предупреждению мира. */
+  /**
+   * Насколько дольше видно чужую армию до прихода, **игровых** секунд: прибавка к предупреждению мира.
+   * Одна семья с `AI_WARNING_BASE` и `DEFENSE_FREEZE` — ритм угрозы, игровое время (docs/time.md, раздел 16).
+   */
   warn?: number;
   /** На сколько процентов быстрее учится конница — работа конюшни. */
   train?: number;
@@ -289,8 +286,8 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { wood: 245, stone: 105 },
     work: 455,
     intel: 10,
-    warn: ownerSec(120, WARN_QUESTION),
-    perLevel: { intel: 10, warn: ownerSec(40, WARN_QUESTION) },
+    warn: gameSec(120),
+    perLevel: { intel: 10, warn: gameSec(40) },
   },
   {
     id: 'stable',

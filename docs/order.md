@@ -194,10 +194,11 @@
    (`sim/mutiny.unrestTick`): порядок ниже 40 — копится ропот; дошёл до `MUTINY_FUSE`
    (3 мин) — окно мятежа на столе. Пока идёт ропот, случайные окна не поднимаются: волки
    или ярмарка накрыли бы собой и срок, и цену.
-2. **Окно ждёт ответа не вечно** — `MUTINY_ANSWER` (45 с), и в самом окне это написано со
-   сроком. Без ответа стража выходит сама. Окно, которое можно держать открытым сколько
-   угодно, держало бы невольников за работой без всякого исхода. Для этого у события
-   появилось одно общее поле — `EventDef.deadline`.
+2. **Мятеж ждёт ответа не вечно** — сутки настоящего времени, срок донесения, один на всю почту
+   (`sim/mail.EVENT_TTL`; прежде — свои 45 секунд, `MUTINY_ANSWER`, решение владельца —
+   docs/time.md, раздел 16). Срок начинает идти при игроке — его ставит первый шаг почты; без
+   ответа стража выходит сама. **Пока мятеж ждёт, невольники стоят** (`derived.bondedShare`):
+   окно, которое можно держать открытым сутки, держало бы их за работой без всякого исхода.
 
 Срок ропота — единственное, что лежит в состоянии (`s.unrest`, секунды). Порядка там нет:
 тот же род поля, что `starvation` у голода. Поднялся порядок выше порога — ропот тает
@@ -415,9 +416,9 @@ docs/hiring.md, раздел 9): с умеренным налогом отчёт
 - `src/game/data/jobs.ts` — `JobDef.bonded`, `BONDED_JOBS`.
 - `src/game/data/market.ts` — `BONDED_GOOD`, `BONDED_SALE`, `BONDED_PAYBACK_DAYS`.
 - `src/game/data/order.ts` — все слова механики и имя события.
-- `src/game/data/events.ts` — событие мятежа и поле `EventDef.deadline`.
+- `src/game/data/events.ts` — событие мятежа (срок у него общий с почтой, подпись срока — `EventDef.waits`).
 - `src/game/derived.ts` — `bondedCount`, `handsCount`, `bondedIdle`, `yardYield`,
-  `orderBreakdown`, `orderState`, `mutinyForecast`, `unrestLeft`, `mutinyAnswerLeft`,
+  `orderBreakdown`, `orderState`, `mutinyForecast`, `unrestLeft`, `bondedShare`,
   строки тревоги; ряд рынка в `marketOffer`, продажа — `bondedSaleLeft`, `bondedSalePrice`.
 - `src/game/sim/workers.ts` — `assignBonded`, `unassignBonded`, приведение в порядок.
 - `src/game/sim/population.ts` — `addBonded`, `loseBonded`.

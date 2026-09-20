@@ -29,10 +29,8 @@ import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_SLOTS } from '@/world/data/t
  * вариантом, который назвало само (docs/realm.md, разделы 2.5 и 8). Ждать могут
  * несколько сразу — стол тот же, что у писем мира.
  *
- * Область правила срока — события **без своего срока** (`EventDef.deadline`):
- * у мятежа срок игровой и только при игроке, и настоящие часы его не касаются.
- * Каждый тест срока поэтому сначала утверждает, что его событие внутри области,
- * и берёт точки строго по обе стороны от срока, а не «где-нибудь потом».
+ * Срок у всей почты один, и у мятежа тот же (решение владельца, docs/time.md, раздел 16).
+ * Каждый тест срока берёт точки строго по обе стороны от срока, а не «где-нибудь потом».
  */
 
 const HOUR = 60 * 60 * 1000;
@@ -48,7 +46,7 @@ function rich(): GameState {
   return s;
 }
 
-const ordinary = EVENTS.filter((e) => !e.deadline && e.id !== MUTINY_EVENT);
+const ordinary = EVENTS.filter((e) => e.id !== MUTINY_EVENT);
 
 describe('молчание — вариант, который событие назвало само', () => {
   it('у каждого события молчание — настоящий вариант, и он ничего не стоит', () => {
@@ -95,13 +93,10 @@ describe('срок донесения — настоящие сутки', () => 
     for (const e of ordinary) {
       const s = rich();
       s.inbox = [{ defId: e.id, at: s.time }];
-      // Внутри области: у события нет своего срока.
-      expect(EVENT_BY_ID[e.id].deadline, e.id).toBeUndefined();
-
       expect(mailStep(s, T0), 'первый взгляд только ставит срок').toBe(false);
       const ev = s.inbox[0];
       expect(ev.until, e.id).toBe(T0 + EVENT_TTL);
-      expect(eventLeft(s, ev, T0)).toBe(EVENT_TTL / 1000);
+      expect(eventLeft(ev, T0)).toBe(EVENT_TTL / 1000);
 
       // Миг до срока — ещё ждёт; повторный взгляд срок не двигает.
       const before = T0 + EVENT_TTL - 1;
@@ -118,14 +113,15 @@ describe('срок донесения — настоящие сутки', () => 
     }
   });
 
-  it('у мятежа свой срок, и настоящие часы его не трогают', () => {
+  it('у мятежа срок тот же, что у всей почты', () => {
     const s = rich();
     s.inbox = [{ defId: MUTINY_EVENT, at: s.time }];
-    expect(EVENT_BY_ID[MUTINY_EVENT].deadline).toBeDefined();
-    expect(mailStep(s, T0)).toBe(false);
-    expect(mailStep(s, T0 + 10 * EVENT_TTL)).toBe(false);
+    expect(mailStep(s, T0), 'первый взгляд только ставит срок').toBe(false);
+    expect(s.inbox[0].until).toBe(T0 + EVENT_TTL);
+    expect(mailStep(s, T0 + EVENT_TTL - 1)).toBe(false);
     expect(s.inbox.map((x) => x.defId)).toEqual([MUTINY_EVENT]);
-    expect(s.inbox[0].until).toBeUndefined();
+    expect(mailStep(s, T0 + EVENT_TTL)).toBe(true);
+    expect(s.inbox).toEqual([]);
   });
 });
 

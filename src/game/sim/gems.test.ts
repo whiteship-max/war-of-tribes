@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import {
   buildRate,
@@ -14,7 +14,8 @@ import {
 } from '../derived';
 import { BUILDER_RATE, RESOURCE_IDS, TEST_GEMS } from '../constants';
 import { startUpgrade } from './actions';
-import { creditGems, gemsOf, rushPrice, rushUpgrade } from './gems';
+import { GEM_DAY_SHARE, GEM_REAL_SECONDS, GEM_REF_RATE, creditGems, gemsOf, rushPrice, rushUpgrade, rushWork } from './gems';
+import { realSeconds, setTimeScale, timeScale } from '../pace';
 import { DAILY_GAMES } from '../data/daily';
 import { SOCIAL_LINKS } from '../data/social';
 import { dailyReward } from './daily';
@@ -307,6 +308,42 @@ describe('алмазы', () => {
     // ресурсов, алмазов или золота.
     expect(/reward\s*[:=]/.test(src)).toBe(false);
     expect(/(gems|gold|resources)\s*(=[^=]|\+=)/.test(src)).toBe(false);
+  });
+});
+
+// Алмаз покупает время игрока, а время игрока — настоящее: цена достройки — доля настоящих суток,
+// а не число игровых секунд (решение владельца, docs/time.md, раздел 16). При шкале 1 доля
+// неотличима от прежних десяти секунд, и тест на неё был бы зелёным даром (правило 11): свойство
+// снято при шкале, отличной от единицы, и на цене выше пола — под полом в один алмаз оно не спрашивается.
+describe('алмаз — доля настоящих суток, а не игровые секунды', () => {
+  afterEach(() => setTimeScale());
+
+  it('один алмаз снимает одно и то же настоящее ожидание при любой шкале', () => {
+    expect(GEM_REAL_SECONDS, 'доля выведена из прежней цены: десять настоящих секунд').toBeCloseTo(GEM_DAY_SHARE * 24 * 3600, 9);
+    const market = buildingOfType(createInitialState(), 'market')!;
+    const waits: number[] = [];
+    for (const k of [2, 30]) {
+      setTimeScale(k);
+      expect(timeScale(), 'точка внутри области: шкала отлична от единицы').toBe(k);
+      const price = rushPrice(market);
+      expect(price, 'точка внутри области: цена выше пола в один алмаз').toBeGreaterThan(10);
+      // Нормативное ожидание настоящими секундами, делённое на цену: сколько снимает один алмаз.
+      const perGem = realSeconds(rushWork(market) / GEM_REF_RATE) / price;
+      expect(perGem, `шкала ${k}: алмаз снимает не больше своей доли суток`).toBeLessThanOrEqual(GEM_REAL_SECONDS + 1e-9);
+      expect(perGem, `шкала ${k}: и не меньше, с точностью до округления вверх`).toBeGreaterThan(GEM_REAL_SECONDS * (1 - 1 / price));
+      waits.push(perGem);
+    }
+    expect(waits[1] / waits[0], 'при ×30 алмаз снимает то же, что при ×2, а не в пятнадцать раз больше').toBeCloseTo(1, 1);
+  });
+
+  it('цена в алмазах растёт вместе с настоящим ожиданием: тот же труд при ×30 стоит в тридцать раз дороже', () => {
+    const market = buildingOfType(createInitialState(), 'market')!;
+    const base = rushPrice(market);
+    expect(base, 'точка внутри области: цена выше пола').toBeGreaterThan(1);
+    setTimeScale(30);
+    const slow = rushPrice(market);
+    expect(slow / base).toBeGreaterThan(29);
+    expect(slow / base).toBeLessThanOrEqual(30);
   });
 });
 

@@ -9,6 +9,8 @@
 // изменилась, на кнопке стоит. Новое улучшение после этого соврать не сможет:
 // число без замера не пройдёт первую проверку, забытая величина — вторую.
 import { describe, expect, it } from 'vitest';
+import { asGame } from '@/game/pace';
+import { waitDays, waitSpan } from './wait';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Building, BuildingTypeId, FaithId, GameState } from '@/game/types';
@@ -105,7 +107,7 @@ const FIXTURES: [string, () => GameState][] = [
 
 // ---------- Замер со стороны игры ----------
 
-type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'seconds' | 'opens';
+type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'seconds' | 'wait' | 'opens';
 
 /** Числа, которые обязаны стоять на кнопке при такой разнице; null — разницы не видно. */
 function expectedNumbers(kind: Kind, before: number, after: number): number[] | null {
@@ -129,9 +131,10 @@ function expectedNumbers(kind: Kind, before: number, after: number): number[] | 
       return after - before <= 0 ? null : [after - before, after];
     case 'upto':
       return after <= before ? null : [after];
+    // Срок в игровых днях, которого игрок ждёт: на кнопке — настоящее время из модуля сроков.
     case 'days': {
       const d = shown((before - after) / DAY_LENGTH);
-      return d === 0 ? null : [Math.abs(d)];
+      return d === 0 ? null : numbersIn(waitDays(Math.abs(d)));
     }
     // Открытие — не число: на кнопке слова без чисел, и только на уровне, где оно наступает.
     case 'opens':
@@ -139,6 +142,11 @@ function expectedNumbers(kind: Kind, before: number, after: number): number[] | 
     case 'seconds': {
       const d = shown(before - after);
       return d === 0 ? null : [Math.abs(d)];
+    }
+    // Срок племени, который игрок ждёт своими часами: на кнопке — настоящее время из модуля сроков.
+    case 'wait': {
+      const d = shown(after - before);
+      return d === 0 ? null : numbersIn(waitSpan(asGame(Math.abs(d))));
     }
   }
 }
@@ -166,7 +174,7 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   loyalty: { kind: 'plusAfter', read: payGraceDays },
   heal: { kind: 'share', read: healShare },
   beds: { kind: 'plusAfter', read: infirmaryBeds },
-  warning: { kind: 'more', read: (s) => playerProfile(s).warning ?? 0 },
+  warning: { kind: 'wait', read: (s) => playerProfile(s).warning ?? 0 },
   survey: { kind: 'upto', read: (s) => Math.min(SURVEY_MAX, surveyInfo(s).level) },
   intel: { kind: 'grow', read: (s) => playerProfile(s).intelKeen ?? 1 },
   stash: { kind: 'plusAfter', read: (s) => playerProfile(s).stash },

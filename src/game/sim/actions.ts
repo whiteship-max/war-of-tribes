@@ -17,6 +17,7 @@ import { BUILDING_BY_ID } from '../data/buildings';
 import { log } from './log';
 import { pay, refund } from './pay';
 import { personName } from './agents';
+import { daysBoth } from '../span';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
 export { cancelForge, forgeCheck, startForge } from './smithy';
@@ -84,7 +85,7 @@ export function throwFeast(s: GameState): string | null {
   s.gold -= info.cost;
   s.feastUntil = s.time + feastSeconds();
   s.feastAt = s.time;
-  log(s, `Трактир: пир на всё племя за ${info.cost} золота. Мораль +${info.bonus} на ${FEAST_DAYS} дн.`, 'good');
+  log(s, `Трактир: пир на всё племя за ${info.cost} золота. Мораль +${info.bonus} на ${daysBoth(FEAST_DAYS)}.`, 'good');
   return null;
 }
 

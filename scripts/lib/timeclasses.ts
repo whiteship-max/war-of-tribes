@@ -16,6 +16,7 @@ export const CTOR_CLASS: Record<string, TimeClass> = {
   realTime: 'real',
   realSec: 'real',
   sessionSec: 'real',
+  shieldTime: 'real',
   ownerTime: 'owner',
   ownerSec: 'owner',
 };

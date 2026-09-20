@@ -9,9 +9,9 @@
 //   все четверо были бы старше шестидесяти.
 import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, offlineSeconds, rescaleXp, serialize } from '../save';
+import { deserialize, rescaleXp, serialize } from '../save';
 import { serverNow } from '@/net/clock';
-import { catchUp, tick } from './tick';
+import { awayGameSeconds, catchUp, tick } from './tick';
 import { seeded } from './random';
 import { ageOf, agentLevel, retiring } from './agents';
 import { AGENT_AGE0, AGENT_YEAR, LEVEL_XP, RETIRE_AGE, levelOf } from '../data/agents';
@@ -174,8 +174,9 @@ describe('ступень сохранения 12 → 13', () => {
     const away = JSON.parse(json) as Record<string, unknown>;
     away.lastSaved = serverNow() - 3 * 3600_000;
     const late = deserialize(JSON.stringify(away))!;
-    const offline = offlineSeconds(away.lastSaved as number);
-    expect(offline, 'точка внутри области: догонять есть что').toBeGreaterThan(3600);
+    // Сколько догонять, считает та же дверь, что и ступень: под потолком догона в игровых днях.
+    const offline = awayGameSeconds(away.lastSaved as number, serverNow());
+    expect(offline, 'точка внутри области: догонять есть что').toBeGreaterThan(1000);
     catchUp(late, offline, 10);
     for (const id of FIGURE_IDS) expect(ageOf(late, id), `${id}: догон не состарил`).toBeCloseTo(AGENT_AGE0, 6);
     expect(s.log.some((e) => e.text.startsWith('Агенты получили имена и возраст'))).toBe(true);

@@ -12,6 +12,7 @@
 //   npm run raid-hiring:report
 import { hiringSection } from './raid-hiring';
 import { infirmarySection } from './raid-infirmary';
+import { burntSection } from './raid-burnt';
 import { measure } from './lib/measured';
 
 // Сколько стоит каждый раздел — замером в ‹…›: удешевлять отчёт надо по числам, а не на глаз.
@@ -26,6 +27,8 @@ const hired = await hiringSection();
 lap('Найм');
 await infirmarySection(hired);
 lap('Лазарет');
+await burntSection(hired);
+lap('Сожжённые посёлки');
 
 console.log('');
 console.log('=== Сколько стоит каждый раздел ===');

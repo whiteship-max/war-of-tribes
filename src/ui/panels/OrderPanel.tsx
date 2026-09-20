@@ -7,7 +7,6 @@
 // кончится мятеж при нынешней страже, и рычаги, которыми это меняют.
 import { useGame } from '@/game/store';
 import {
-  MUTINY_ANSWER,
   MUTINY_FUSE,
   MUTINY_SUPPRESS_MORALE,
   ORDER_UNREST,
@@ -23,8 +22,9 @@ import {
   orderState,
   unrestLeft,
 } from '@/game/derived';
-import { waitMinSec, waitShort } from '../parts/wait';
+import { realSpanText, waitMinSec } from '../parts/wait';
 import { asGame } from '@/game/pace';
+import { EVENT_TTL } from '@/game/sim/mail';
 
 const fmt = (n: number): string => (n >= 10 ? String(Math.round(n)) : n.toFixed(1));
 
@@ -86,9 +86,7 @@ export function OrderPanel() {
             <span className="val">{f.guards}</span>
           </div>
           <div className="note">
-            Мятеж поднимается, когда ропот идёт {waitMinSec(asGame(MUTINY_FUSE))}. Окно ждёт ответа {waitShort(asGame(MUTINY_ANSWER))} — отпустить
-            невольников, раздать хлеб и золото или подавить силой; без ответа стража выходит сама. Пока игра закрыта,
-            срок стоит.
+            {ORDER_TEXT.mutiny.rule(waitMinSec(asGame(MUTINY_FUSE)), realSpanText(EVENT_TTL / 1000))}
           </div>
         </>
       )}

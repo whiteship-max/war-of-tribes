@@ -26,7 +26,6 @@ import {
   housingCapacity,
   isSite,
   jobCounts,
-  mutinyAnswerLeft,
   mutinyForecast,
   population,
   seasonOf,
@@ -40,6 +39,7 @@ import { addPop, killPop } from '../sim/population';
 import { chance, roll } from '../sim/roll';
 import { log } from '../sim/log';
 import { MUTINY_EVENT, ORDER_TEXT } from './order';
+import { daysBoth } from '../span';
 
 /** Что вариант просит отдать. Золото — не ресурс, но плата бывает и в нём. */
 export type EventCost = Partial<Record<ResourceId | 'gold', number>>;
@@ -75,15 +75,8 @@ export interface EventDef {
   options: EventOption[];
   /** Вес выбора (0 — событие сейчас невозможно). */
   weight: (s: GameState) => number;
-  /**
-   * Событие, которое не ждёт вечно: сколько секунд осталось на ответ и что
-   * случится без него. null — ждёт, как все. Разрешает такое окно само не окно,
-   * а шаг симуляции (`sim/tick.ts`), и срок у него идёт только при игроке.
-   *
-   * Заведено ради мятежа: окно, которое можно держать открытым сколько угодно,
-   * держало бы невольников за работой без всякого исхода.
-   */
-  deadline?: (s: GameState) => { left: number; text: string } | null;
+  /** Чем подписан срок донесения вместо общего «Ждёт ответа» — слова о том, что случится без ответа. */
+  waits?: string;
   /**
    * Какой вариант случается, если игрок не ответил. Событие ждёт в почте
    * державы (docs/realm.md, раздел 2.5), и молчание у него — такой же исход,
@@ -433,7 +426,7 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Справить',
-        hint: `Набожность и настроение на ${RITE_DAYS} дн.`,
+        hint: `Набожность и настроение на ${daysBoth(RITE_DAYS)}`,
         cost: (s) => {
           const r = riteInfo(s);
           return { food: r.food, gold: r.gold };
@@ -562,16 +555,14 @@ export const EVENTS: EventDef[] = [
     // Лёг мятеж туда же, куда ересь: в эту таблицу, с выбором. Своей механики у
     // него нет — ни бунта деревни (его в игре нет вовсе), ни окна мира. Отличие
     // одно: случаем он не выпадает (вес ноль), его поднимает срок ропота
-    // (`sim/mutiny.unrestTick`), и ответа окно ждёт не вечно.
+    // (`sim/mutiny.unrestTick`). Ждёт ответа он сутки, как любое донесение, и невольники
+    // на это время стоят.
     text: (s) => {
       const f = mutinyForecast(s);
       return ORDER_TEXT.mutiny.text(f.bonded, f.guards);
     },
     weight: () => 0,
-    deadline: (s) => {
-      const left = mutinyAnswerLeft(s);
-      return left === null ? null : { left, text: ORDER_TEXT.mutiny.silence };
-    },
+    waits: ORDER_TEXT.mutiny.silence,
     options: [
       {
         // Первым и бесплатным нарочно: ровно это случится, если не ответить.

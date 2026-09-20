@@ -29,6 +29,7 @@ import {
 import { baptismInfo, baptize, holdRite, riteInfo, setObservance, strainDaysLeft } from '@/game/sim/faith';
 import { Cost } from './Cost';
 import { useRealm } from '@/ui/realm/open';
+import { waitDays, waitDaysBoth } from './wait';
 
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
 const days = (sec: number): number => Math.ceil(sec / DAY_LENGTH);
@@ -127,7 +128,7 @@ export function Temple() {
       <Lines lines={down} />
       {s.faith.strain > 0 && strainDaysLeft(s) > 0 && (
         <div className="note">
-          Надлом затянется за {Math.ceil(strainDaysLeft(s))} дн. — сам, без нашего участия.
+          Надлом затянется за {waitDays(Math.ceil(strainDaysLeft(s)))} — сам, без нашего участия.
         </div>
       )}
 
@@ -140,7 +141,7 @@ export function Temple() {
           <div className="body">
             <div className="title">
               {rite.feast.name}
-              <span className="count">{rite.left > 0 ? `идёт ещё ${days(rite.left)} дн.` : 'раз в сезон'}</span>
+              <span className="count">{rite.left > 0 ? `идёт ещё ${waitDays(days(rite.left))}` : 'раз в сезон'}</span>
             </div>
             <div className="desc">{rite.feast.text}</div>
           </div>
@@ -148,7 +149,7 @@ export function Temple() {
       )}
       <Cost cost={{ food: rite.food, gold: rite.gold }} />
       <button className="btn wide" disabled={rite.blocked !== null} onClick={() => act((st) => holdRite(st))}>
-        Справить — набожность и настроение на {RITE_DAYS} дн.
+        Справить — набожность и настроение на {waitDaysBoth(RITE_DAYS)}
       </button>
       {rite.blocked && <div className="hint">{rite.blocked}</div>}
 

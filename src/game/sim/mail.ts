@@ -36,8 +36,8 @@ export const SILENCE_PREFIX = 'Ответа не дождались';
 export const eventId = (ev: ActiveEvent): string => `${ev.defId}:${ev.at}`;
 
 /**
- * Событие со своей ячейкой: мятеж. Его срок — секунды, и сгонять его наравне с
- * вестями значило бы прятать то, что вот-вот случится; сам он тоже никого не
+ * Событие со своей ячейкой: мятеж. Его молчание — самая жёсткая потеря в игре, и сгонять
+ * его наравне с вестями значило бы разрешать её чужим сроком; сам он тоже никого не
  * сгоняет. Так же у писем стоит предупреждение о набеге.
  */
 const ownSlot = (ev: ActiveEvent): boolean => ev.defId === MUTINY_EVENT;
@@ -77,7 +77,7 @@ export function resolveEvent(
 
 /**
  * Молчание: событие разрешается само вариантом, который назвало. Зовут его
- * трое — срок донесения (`mailStep`), срок мятежа (`tick`) и полный стол
+ * двое — срок донесения (`mailStep`, у мятежа тот же) и полный стол
  * (`raiseEvent`). Возвращает строку исхода или null, если закрывать нечего.
  */
 export function lapseEvent(s: GameState, id?: string): string | null {
@@ -107,27 +107,24 @@ export function raiseEvent(s: GameState, defId: string): boolean {
 }
 
 /**
- * Сколько секунд событие ещё ждёт ответа — одна правда на показ и на срок. У
- * события со своим сроком (мятеж) это его срок, игровой и только при игроке;
- * у остальных — настоящие часы. null — срок ещё не поставлен.
+ * Сколько настоящих секунд событие ещё ждёт ответа — одна правда на показ и на срок, и одна на
+ * всю почту: у мятежа срок тот же. null — срок ещё не поставлен.
  */
-export function eventLeft(s: GameState, ev: ActiveEvent, now: number): number | null {
-  const def = EVENT_BY_ID[ev.defId];
-  if (!def) return null;
-  if (def.deadline) return def.deadline(s)?.left ?? null;
+export function eventLeft(ev: ActiveEvent, now: number): number | null {
+  if (!EVENT_BY_ID[ev.defId]) return null;
   if (ev.until === undefined) return null;
   return Math.max(0, (ev.until - now) / 1000);
 }
 
 /**
  * Шаг почты по настоящим часам. Ставит срок пришедшим событиям и разрешает те,
- * чей срок вышел. Своим сроком (мятеж) живёт `tick`, и сюда такое событие не
- * заходит. Возвращает, разрешилось ли что-нибудь.
+ * чей срок вышел. Мятеж — такое же донесение: срок ему ставит первый шаг почты **при игроке**
+ * (цикл стора), потому что в отлучке при ропоте почта не ходит (`mailArrive`), — мятеж, которого
+ * игрок не видел, молчанием не решается. Возвращает, разрешилось ли что-нибудь.
  */
 export function mailStep(s: GameState, now: number): boolean {
   let lapsed = false;
   for (const ev of [...s.inbox]) {
-    if (EVENT_BY_ID[ev.defId]?.deadline) continue;
     if (ev.until === undefined) ev.until = now + EVENT_TTL;
     else if (now >= ev.until && lapseEvent(s, eventId(ev)) !== null) lapsed = true;
   }
@@ -164,10 +161,12 @@ export const awayArrival = (seed: number, k: number): number =>
  *
  * **Глубже срока в сутки окно не заходит** (`EVENT_TTL`): весть, пришедшая раньше,
  * истекла бы, не показавшись ни разу, и её молчание было бы последствием, которого
- * игрок не видел. Граница того же рода, что у догона хозяйства (`MAX_OFFLINE_SECONDS`):
+ * игрок не видел. Граница того же рода, что у догона хозяйства (`MAX_OFFLINE_DAYS`):
  * время сверх того, что игра показывает, не играется. Вести, лежавшие на столе до
  * отлучки, истекают своим сроком — их игрок видел. Правила «нет вестей» тоже прежние:
- * при обучении и при ропоте их нет. Возвращает, сколько вестей пришло.
+ * при обучении и при ропоте их нет. **При ропоте не идёт и шаг почты внутри отлучки** — на этом
+ * стоит единственное исключение из «зреет по времени»: срок ответа на мятеж, созревший без
+ * игрока, начинается с его входа, а не с минуты, когда мятеж лёг на стол. Возвращает, сколько вестей пришло.
  */
 export function mailArrive(s: GameState, from: number, now: number): number {
   if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) return 0;

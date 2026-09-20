@@ -24,6 +24,7 @@
  * амбара.
  */
 export const WAGE_HEAD = 0.5;
+import { daysBoth, daysSpan } from '../span';
 
 /**
  * Жалованье за игровой день — с бойца строя (`battle/kinds.weightOf`: дубинщик
@@ -100,11 +101,12 @@ export const UPKEEP_TEXT = {
   dismissed: (one: string): string => `Распущен по домам ${one}.`,
   amnestyLog: (wages: number, income: number): string =>
     `Войску теперь платят жалованье — ${Math.round(wages)} золота в день, казна даёт ${Math.round(income)}. ` +
-    `Первые ${WAGE_AMNESTY_DAYS} дней платить не нужно. Не тянешь — подними налог или распусти лишних в казармах.`,
-  amnestyAlert: (days: number): string => `Через ${days} дн. войску платить жалованье`,
-  graceAlert: (why: string, days: number): string => `Войску ${why} — уходить начнут через ${days} дн.`,
+    `Первые ${daysBoth(WAGE_AMNESTY_DAYS)} платить не нужно. Не тянешь — подними налог или распусти лишних в казармах.`,
+  // Сроки тревог — то, чего игрок ждёт: настоящим временем (`game/span`), а не игровыми днями.
+  amnestyAlert: (days: number): string => `Через ${daysSpan(days)} войску платить жалованье`,
+  graceAlert: (why: string, days: number): string => `Войску ${why} — уходить начнут через ${daysSpan(days)}`,
   leavingAlert: (why: string, perDay: number): string => `Войско уходит: ${why}, около ${perDay} в день`,
-  treasuryAlert: (days: number): string => `Казны на жалованье хватит на ${days} дн.`,
+  treasuryAlert: (days: number): string => `Казны на жалованье хватит на ${daysSpan(days)}`,
   flowSub: (wages: number, income: number): string =>
     `жалованье ${Math.round(wages)} в день, казна даёт ${Math.round(income)}`,
   foodSub: 'войско ест последним: сначала посёлок',

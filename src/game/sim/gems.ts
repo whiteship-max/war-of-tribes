@@ -18,7 +18,7 @@ import type { Building, GameState } from '../types';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { buildingById, isSite, upgradeInfo, upgradeWork } from '../derived';
 import { TEST_GEMS } from '../constants';
-import { gameRate, ownerSec } from '../pace';
+import { gameRate, gameSeconds, realSec } from '../pace';
 import { startUpgrade } from './actions';
 import { log } from './log';
 
@@ -31,12 +31,22 @@ import { log } from './log';
 export const GEM_REF_RATE = gameRate(20);
 
 /**
- * Сколько секунд нормативного ожидания стоит один алмаз. Десять — так, чтобы
- * ранние улучшения стоили единицы алмазов (тестового запаса хватает на несколько),
- * а десятый уровень рынка — сотни: платят именно за время, и чем его больше,
- * тем дороже.
+ * Какую долю **настоящих суток** нормативного ожидания снимает один алмаз. Долей, а не числом
+ * игровых секунд (решение владельца, docs/time.md, раздел 16): алмаз покупает время игрока, а
+ * время игрока — настоящее. Записанный игровыми секундами, после поворота шкалы тот же алмаз
+ * снимал бы в тридцать раз больше ожидания.
+ *
+ * Доля не выбрана, а выведена из нынешней цены: алмаз снимал десять секунд при дне в минуту, то
+ * есть десять настоящих секунд из 86 400 (`npm run time:report`, раздел 5, печатает вывод и цены
+ * достройки при обеих шкалах). Сутки — та же мерка настоящего времени, что у почты и ежедневки.
  */
-export const GEM_SECONDS = ownerSec(10, 'алмаз покупает игровые секунды стройки: после поворота шкалы тот же алмаз снимает в тридцать раз больше настоящего ожидания');
+export const GEM_DAY_SHARE = 1 / 8640;
+/** Настоящих секунд в сутках — мерка, от которой берётся доля алмаза. */
+const REAL_DAY_SECONDS = 24 * 3600;
+/** Сколько **настоящих** секунд нормативного ожидания снимает один алмаз. */
+export const GEM_REAL_SECONDS = realSec(GEM_DAY_SHARE * REAL_DAY_SECONDS);
+/** То же игровыми секундами — при нынешней шкале времени: труд стройки идёт игровым временем. */
+export const gemSeconds = (): number => gameSeconds(GEM_REAL_SECONDS);
 
 /** Дешевле одного алмаза достройки не бывает: даром время не отдают. */
 export const GEM_MIN_PRICE = 1;
@@ -64,7 +74,8 @@ export function rushWork(b: Building): number {
  */
 export function rushPrice(b: Building): number {
   const seconds = rushWork(b) / GEM_REF_RATE;
-  return Math.max(GEM_MIN_PRICE, Math.ceil(seconds / GEM_SECONDS));
+  // Малый допуск — против хвоста деления: 10 / (1 / 8640 × 86 400) обязано быть ровно единицей.
+  return Math.max(GEM_MIN_PRICE, Math.ceil(seconds / gemSeconds() - 1e-9));
 }
 
 /** Почему достроить нельзя прямо сейчас; null — можно. */

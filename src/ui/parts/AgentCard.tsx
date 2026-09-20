@@ -42,6 +42,7 @@ import type { FigureId, FigureView } from '@/world/types';
 import { deathLine, onslaughtLines, sightLine, stealthLine } from './agentLines';
 import { count } from './plural';
 import { traitLines } from './traitLines';
+import { waitDaysBoth } from './wait';
 
 const ORDINAL = ['', 'первый', 'второй', 'третий', 'четвёртый', 'пятый'];
 
@@ -227,7 +228,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           <div className="mod">
             <span className="ico">⚔️</span>
             <span className="name">Войско терпит неуплату — Статуя {statue} ур.</span>
-            <span className="val pos">{payGraceDays(s)} дн.</span>
+            <span className="val pos">{waitDaysBoth(payGraceDays(s))}</span>
           </div>
           <div className="mod">
             <span className="ico">🛡️</span>

@@ -78,7 +78,7 @@ import { Temple } from '../parts/Temple';
 import { Walls } from '../parts/Walls';
 import { TowerEngine } from '../parts/TowerEngine';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
-import { realMinSec, waitMinSec, waitShort } from '../parts/wait';
+import { waitMinSec, waitShort } from '../parts/wait';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
@@ -552,7 +552,7 @@ function GenericData({ b }: { b: Building }) {
     stats.push(['ui-spyglass', '🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
     // Минуты с секундами, а не округлённые минуты: округление и было враньём
     // кнопки — девять уровней обещали девять минут, а давали шесть.
-    stats.push(['ui-time', '⏳', 'Набег виден дольше на', realMinSec(warningSeconds(s))]);
+    stats.push(['ui-time', '⏳', 'Набег виден дольше на', waitMinSec(warningSeconds(s))]);
     stats.push([
       'hud-map',
       '🗺️',

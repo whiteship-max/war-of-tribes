@@ -22,7 +22,6 @@ import {
   BUILDER_RATE,
   DAY_LENGTH,
   MAX_BUILDING_LEVEL,
-  MUTINY_ANSWER,
   MUTINY_CARRY,
   MUTINY_FUSE,
   MUTINY_SUPPRESS_FLEE,
@@ -54,7 +53,6 @@ import {
   housingCapacity,
   marketOffer,
   moraleBreakdown,
-  mutinyAnswerLeft,
   mutinyForecast,
   orderBreakdown,
   orderState,
@@ -71,9 +69,11 @@ import {
   unrestLeft,
   workerMultiplier,
 } from '../derived';
-import { catchUp, tick } from './tick';
+import { absence, awayGameSeconds, catchUp, tick } from './tick';
 import { resolveEvent } from './actions';
-import { SILENCE_PREFIX } from './mail';
+import { EVENT_TTL, SILENCE_PREFIX, eventLeft, mailStep } from './mail';
+
+const T0 = 1_900_000_000_000;
 import {
   assignBonded,
   assignWorker,
@@ -188,8 +188,10 @@ describe('невольники встают в общую систему раб�
     const src = readFileSync(join(process.cwd(), 'src/game/derived.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, ' ')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-    // Доля невольника множится ровно в двух местах: на месте в здании и на стройке.
-    expect((src.match(/\bBONDED_OUTPUT\b/g) ?? []).length - 1).toBe(2);
+    // Долю невольника читает одна дверь (`bondedShare`: пока мятеж ждёт ответа, она ноль), а
+    // множится она ровно в двух местах: на месте в здании и на стройке.
+    expect((src.match(/\bBONDED_OUTPUT\b/g) ?? []).length - 1, 'сама доля — только в двери').toBe(1);
+    expect((src.match(/\bbondedShare\(/g) ?? []).length, 'дверь зовут поле и стройка').toBe(2);
     // И обе выработки — всего посёлка и одного здания — идут через одну функцию.
     expect(src).toMatch(/export function productionPerDay[\s\S]{0,300}?yardYield\(/);
     expect(src).toMatch(/export function buildingProduction[\s\S]{0,300}?yardYield\(/);
@@ -288,7 +290,7 @@ describe('порядок — чистая функция при чтении', (
         expect(orderState(s)).toBe('none');
         // И ропот не копится: мятежа без невольников не бывает.
         s.unrest = 0;
-        for (let i = 0; i < 400; i++) expect(unrestTick(s, 0.5, true)).toBeNull();
+        for (let i = 0; i < 400; i++) expect(unrestTick(s, 0.5)).toBeNull();
         expect(s.unrest).toBe(0);
       }
     }
@@ -360,16 +362,23 @@ function restless(): GameState {
 describe('мятеж не наступает раньше, чем игрок мог что-то сделать', () => {
   // Область правила: порядок ниже порога ропота всю отлучку (иначе ропот тает, а не зреет) и отлучка
   // длиннее срока ропота. Обе точки утверждаются в тесте.
+  // Область правила: порядок ниже порога ропота всю отлучку, отлучка длиннее и срока ропота, и срока
+  // донесения — иначе «не решился» зелёное даром: решиться было бы нечему.
   it('ропот зреет по времени, а не по присутствию: в отлучке мятеж ложится на стол, но без игрока не решается', () => {
     const s = restless();
     expect(orderState(s), 'точка внутри области: порядок ниже порога').toBe('unrest');
-    const away = 4 * 3600;
-    expect(away, 'точка внутри области: отлучка длиннее срока ропота и окна ответа').toBeGreaterThan(MUTINY_FUSE + MUTINY_ANSWER);
-    catchUp(s, away, 2);
-    expect(s.inbox.map((e) => e.defId), 'мятеж созрел без игрока').toContain(MUTINY_EVENT);
-    // Окно ответа — единственное, что идёт только при игроке: за часы отлучки оно не сдвинулось,
-    // и молчанием мятеж не решился — невольники и горожане на месте.
-    expect(mutinyAnswerLeft(s), 'срок ответа ждёт хозяина').toBe(MUTINY_ANSWER);
+    const since = T0 - 3 * EVENT_TTL;
+    expect(awayGameSeconds(since, T0), 'точка внутри области: догон длиннее срока ропота').toBeGreaterThan(MUTINY_FUSE);
+    expect(T0 - since, 'точка внутри области: отлучка длиннее срока донесения').toBeGreaterThan(EVENT_TTL);
+    absence(s, since, T0);
+    const open = s.inbox.find((e) => e.defId === MUTINY_EVENT);
+    expect(open, 'мятеж созрел без игрока').toBeTruthy();
+    // Срок ответа ждёт хозяина: отлучка его не поставила, и молчанием мятеж не решился.
+    expect(open!.until, 'срок ответа ещё не идёт').toBeUndefined();
+    expect(s.bonded).toBe(200);
+    // Игрок вошёл: первый шаг почты при нём ставит срок — сутки с этой минуты, а не с минуты мятежа.
+    expect(mailStep(s, T0), 'вход ничего не разрешает').toBe(false);
+    expect(open!.until).toBe(T0 + EVENT_TTL);
     expect(s.bonded).toBe(200);
   });
 
@@ -404,24 +413,52 @@ describe('мятеж не наступает раньше, чем игрок м�
     expect(s.inbox.map((e) => e.defId)).toContain(MUTINY_EVENT);
   });
 
-  it('окно мятежа ждёт ответа срок, и только при игроке; без ответа стража выходит сама', () => {
+  it('мятеж ждёт ответа сутки, как любое донесение; без ответа стража выходит сама', () => {
     const s = restless();
     for (let i = 0; i < MUTINY_FUSE / 0.5; i++) tick(s, 0.5);
-    expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
-    expect(mutinyAnswerLeft(s)).toBe(MUTINY_ANSWER);
-    // Игру закрыли с открытым окном — срок ответа не идёт.
+    const open = s.inbox[0];
+    expect(open?.defId).toBe(MUTINY_EVENT);
+    expect(mailStep(s, T0), 'первый взгляд только ставит срок').toBe(false);
+    expect(eventLeft(open, T0), 'срок донесения — один на всю почту').toBe(EVENT_TTL / 1000);
+    // Шаг симуляции срока не двигает и мятежа не разрешает — ни при игроке, ни в догоне.
+    for (let i = 0; i < 600; i++) tick(s, 0.5);
     catchUp(s, 3600, 2);
     expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
-    expect(mutinyAnswerLeft(s)).toBe(MUTINY_ANSWER);
-    // Открыли — идёт, и ровно столько, сколько объявлено.
-    let settled: string | null = null;
-    for (let i = 0; i < MUTINY_ANSWER / 0.5 && !settled; i++) settled = tick(s, 0.5);
-    expect(settled, 'окно разрешилось само и сказало чем').not.toBeNull();
-    // Разрешилось молчанием мятежа — стража вышла, — и летопись говорит, что ответа не ждали.
+    expect(s.unrest, 'ропот стоит, пока мятеж на столе').toBe(MUTINY_FUSE);
+    // Миг до срока — ждёт; в срок — разрешился молчанием мятежа.
+    expect(mailStep(s, T0 + EVENT_TTL - 1)).toBe(false);
+    expect(s.inbox[0]?.defId).toBe(MUTINY_EVENT);
+    expect(mailStep(s, T0 + EVENT_TTL), 'срок вышел').toBe(true);
     expect(s.log[0].text).toContain(SILENCE_PREFIX);
     expect(s.log[0].text).toContain(ORDER_TEXT.mutiny.suppress);
     expect(s.inbox).toEqual([]);
     expect(s.unrest).toBe(0);
+  });
+
+  // Окно, которое можно держать открытым сутки, не должно держать невольников за работой.
+  // Область правила: невольники стоят на местах и до мятежа дают выработку — иначе ноль даром.
+  it('пока мятеж ждёт ответа, невольники стоят — в поле и на стройке; ответили — работают', () => {
+    const s = restless();
+    const yard = s.buildings.find((b) => b.type === 'farm')!;
+    s.bondedWork = { [yard.id]: 20 };
+    s.workers = { [yard.id]: 10 };
+    const free = structuredClone(s);
+    free.bonded = 0;
+    free.bondedWork = {};
+    const food = (g: GameState): number => productionPerDay(g).food;
+    expect(food(s), 'точка внутри области: невольники в поле дают хлеб').toBeGreaterThan(food(free));
+    expect(buildRate(s), 'точка внутри области: невольники без места строят').toBeGreaterThan(buildRate(free));
+    for (let i = 0; i < MUTINY_FUSE / 0.5 && s.inbox.length === 0; i++) tick(s, 0.5);
+    expect(s.inbox[0]?.defId, 'точка внутри области: мятеж на столе').toBe(MUTINY_EVENT);
+    free.time = s.time;
+    free.morale = s.morale;
+    free.pop = s.pop;
+    expect(food(s), 'в поле — только вольные').toBeCloseTo(food(free), 9);
+    expect(buildRate(s), 'на стройке — только вольные').toBeCloseTo(buildRate(free), 9);
+    // Ответ «раздать хлеб и золото» невольников не уводит — и они снова за работой.
+    expect(resolveEvent(s, 2).error).toBeNull();
+    expect(s.bonded).toBe(200);
+    expect(food(s), 'ответили — работают').toBeGreaterThan(food(free));
   });
 
   it('порядок поднялся — ропот тает вдвое быстрее, чем копился', () => {
@@ -523,7 +560,7 @@ describe('исход мятежа объявлен заранее и совпа�
     expect(def.weight(restless()), 'случаем мятеж не выпадает').toBe(0);
     expect(def.options[0].label).toBe(ORDER_TEXT.mutiny.suppress);
     expect(def.options.some((o) => !o.cost)).toBe(true);
-    expect(def.deadline).toBeTruthy();
+    expect(def.waits, 'срок подписан тем, что случится без ответа').toBe(ORDER_TEXT.mutiny.silence);
   });
 
   it('падение города приводит невольников в племя и уводит их из него одним полем', () => {

@@ -33,7 +33,6 @@ import {
   DAY_LENGTH,
   MAX_BUILDING_LEVEL,
   MORALE_BASE,
-  MUTINY_ANSWER,
   MUTINY_CARRY,
   MUTINY_FUSE,
   MUTINY_SUPPRESS_FLEE,
@@ -85,6 +84,7 @@ import { lairPower, lairRaid } from '@/world/lairs';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { PlayerProfile, SettlementView } from '@/world/types';
 import { gameDaysPerHour } from '@/game/pace';
+import { EVENT_TTL } from '@/game/sim/mail';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -405,29 +405,26 @@ interface Marks {
   warn: number | null;
   unrest: number | null;
   mutiny: number | null;
-  silence: number | null;
 }
 
 /**
  * Шагает настоящей симуляцией и отмечает первые минуты тревоги, ропота и мятежа. Это стенд правила
- * (`autopilot.stand`): игрока нет, и на мятеж не отвечает никто — стража выходит сама по сроку.
+ * (`autopilot.stand`): игрока нет; мятеж лёг на стол — стенд кончен, дальше срок ведёт почта.
  */
 function watch(s: GameState, seconds: number, each?: (s: GameState, t: number) => void): Marks {
-  const marks: Marks = { warn: null, unrest: null, mutiny: null, silence: null };
+  const marks: Marks = { warn: null, unrest: null, mutiny: null };
   stand(s, {
     dt: 0.5,
     steps: Math.floor(seconds / 0.5) + 1,
     before: (x, i) => each?.(x, i * 0.5),
-    after: (x, i, settled) => {
+    after: (x, i) => {
       const t = i * 0.5;
       const v = orderValue(x);
       if (marks.warn === null && x.bonded > 0 && v < ORDER_WARN) marks.warn = t;
       if (marks.unrest === null && x.bonded > 0 && v < ORDER_UNREST) marks.unrest = t;
       if (marks.mutiny === null && x.inbox.some((e) => e.defId === MUTINY_EVENT)) marks.mutiny = t;
-      if (settled) {
-        marks.silence = t;
-        return true;
-      }
+      // Мятеж на столе — стенд кончен: дальше срок ведёт почта настоящими часами, а не шаг.
+      if (marks.mutiny !== null) return true;
     },
   });
   return marks;
@@ -441,11 +438,12 @@ const mm = (t: number | null): string => {
 const span = (a: number | null, b: number | null): string => (a === null || b === null ? '—' : mm(b - a));
 
 console.log('=== СРОК: от первого предупреждения до мятежа ===');
-console.log(`Ропот длится ${MUTINY_FUSE / 60} мин игры при игроке (MUTINY_FUSE), окно мятежа ждёт ответа ${MUTINY_ANSWER} с`);
-console.log('(MUTINY_ANSWER). Офлайн не двигает ни того, ни другого. Всё ниже — настоящими шагами');
+console.log(`Ропот длится ${MUTINY_FUSE / DAY_LENGTH} игровых дня (MUTINY_FUSE) и зреет по времени, при игроке и в отлучке одинаково. Мятеж ждёт`);
+console.log(`ответа ${EVENT_TTL / 3_600_000} ч настоящего времени — срок донесения, один на всю почту (EVENT_TTL); срок начинает идти при игроке, и`);
+console.log('невольники на это время стоят. Без ответа стража выходит сама. Всё ниже — настоящими шагами');
 console.log('симуляции при игроке, посёлок пятого уровня.');
 console.log('');
-console.log('  положение                               тревога   ропот   мятеж   сама   тревога → мятеж');
+console.log('  положение                               тревога   ропот   мятеж   тревога → мятеж');
 
 {
   // 1. Покупают по партии в день, пока порядок не поедет.
@@ -457,7 +455,7 @@ console.log('  положение                               тревога  
     if (t % DAY_LENGTH === 0 && st.inbox.length === 0) st.bonded += batch;
   });
   console.log(
-    `  покупка по ${pad(batch, 3)} в день                   ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${pad(mm(m.silence), 4)}   ${span(m.warn, m.mutiny)}`,
+    `  покупка по ${pad(batch, 3)} в день                   ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${span(m.warn, m.mutiny)}`,
   );
 }
 {
@@ -469,7 +467,7 @@ console.log('  положение                               тревога  
     if (t === 30) st.away = { ...st.army };
   });
   console.log(
-    `  дружина ушла в поле на 0:30                ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${pad(mm(m.silence), 4)}   ${span(m.warn, m.mutiny)}`,
+    `  дружина ушла в поле на 0:30                ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${span(m.warn, m.mutiny)}`,
   );
 }
 {
@@ -483,7 +481,7 @@ console.log('  положение                               тревога  
   s.resources.food = 0;
   const m = watch(s, 60 * 60);
   console.log(
-    `  дружина в поле, кончилась еда              ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${pad(mm(m.silence), 4)}   ${span(m.warn, m.mutiny)}`,
+    `  дружина в поле, кончилась еда              ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${span(m.warn, m.mutiny)}`,
   );
 }
 {
@@ -494,13 +492,13 @@ console.log('  положение                               тревога  
   s.resources.food = 0;
   const m = watch(s, 60 * 60);
   console.log(
-    `  дружина дома, кончилась еда                ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${pad(mm(m.silence), 4)}   ${span(m.warn, m.mutiny)}`,
+    `  дружина дома, кончилась еда                ${pad(mm(m.warn), 7)}   ${pad(mm(m.unrest), 5)}   ${pad(mm(m.mutiny), 5)}   ${span(m.warn, m.mutiny)}`,
   );
 }
 console.log('');
 console.log('«Тревога → мятеж» — сколько у игрока времени с первой строки тревоги до окна мятежа.');
 console.log(`Самый короткий случай — провал разом ниже ропота: тогда это ровно ${MUTINY_FUSE / 60} мин, и ещё`);
-console.log(`${MUTINY_ANSWER} с на ответ в самом окне. Рычаги на этот срок: отпустить часть и продать — сразу,`);
+console.log(`${EVENT_TTL / 3_600_000} ч настоящего времени на ответ самому мятежу. Рычаги на этот срок: отпустить часть и продать — сразу,`);
 console.log('пир — за полминуты (мораль идёт к цели плавно), дружина домой — сколько идти.');
 console.log('');
 

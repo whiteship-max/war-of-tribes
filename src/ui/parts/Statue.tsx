@@ -8,6 +8,7 @@ import { atGates, useWorld } from '@/world/store';
 import { GarrisonEditor } from './GarrisonEditor';
 import { AgentCard } from './AgentCard';
 import { Lineage } from './Lineage';
+import { waitDaysBoth } from './wait';
 
 /**
  * Статуя Героя — дом военачальников. Морали она не даёт нарочно — их в посёлке уже
@@ -37,7 +38,7 @@ export function Statue() {
           Войско терпит неуплату и голод
           <em className="sub">потом начинает уходить; полководец уводит в поле сколько угодно</em>
         </span>
-        <span className="val pos">{payGraceDays(s)} дн.</span>
+        <span className="val pos">{waitDaysBoth(payGraceDays(s))}</span>
       </div>
       {/* Герой и полководец на карте — один человек. Сколько он уводит и чего стоит
           сам, решает Статуя; уровень, натиск и черты — его, и карточка у него одна:

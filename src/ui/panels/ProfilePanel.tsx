@@ -24,6 +24,7 @@ import { buildingsPower, power, troopsPower } from '@/profile/power';
 import { AvatarPicker } from '../parts/AvatarPicker';
 import { Settings } from '../parts/Settings';
 import { SyncStatus } from '../parts/Sync';
+import { gameDaysText } from '../parts/wait';
 
 /** Число покрупнее словами: 12 400 вместо 12400 — на 390 px это читается. */
 const big = (n: number): string => Math.round(n).toLocaleString('ru-RU');
@@ -48,7 +49,7 @@ function PowerTrend({ days }: { days: { day: number; power: number }[] }) {
         ))}
       </div>
       <div className="note">
-        Мощь за {Math.min(PROFILE_DAYS, last.day - first.day + 1)} дн.:{' '}
+        Мощь за {gameDaysText(Math.min(PROFILE_DAYS, last.day - first.day + 1))}:{' '}
         <b className={delta >= 0 ? 'up' : 'down'}>
           {delta >= 0 ? '+' : '−'}
           {big(Math.abs(delta))}

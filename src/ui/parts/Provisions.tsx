@@ -9,9 +9,13 @@
 import { useGame } from '@/game/store';
 import { rationOf, seasonOf, winterForecast } from '@/game/derived';
 import { foodLeft } from './foodLeft';
+import { gameDaysText, waitDaysBoth } from './wait';
 
-/** «3.4 дн.»: срок без округления вверх — обещать лишнюю десятую дня нельзя. */
-const daysText = (d: number): string => `${Math.floor(d * 10) / 10} дн.`;
+/**
+ * «3.4 игр. дн. — 1 ч 42 мин»: срок без округления вверх — обещать лишнюю десятую дня нельзя. Оба
+ * числа: паёк и зима считаются игровыми днями, а ждёт игрок своими часами.
+ */
+const daysText = (d: number): string => waitDaysBoth(Math.floor(d * 10) / 10);
 
 /** Сколько дней ещё проживём на том, что в амбаре, — и где это меняют. */
 export function FoodLeft() {
@@ -53,14 +57,14 @@ export function WinterForecast() {
           <span className="ico">🍖</span>
           <span className="name">Еда</span>
           <span className={`val ${forecast.food.ok ? 'pos' : 'neg'}`}>
-            {Math.floor(forecast.food.days * 10) / 10} из {forecast.winterDays} дн.
+            {Math.floor(forecast.food.days * 10) / 10} из {gameDaysText(forecast.winterDays)}
           </span>
         </div>
         <div className="mod">
           <span className="ico">🌲</span>
           <span className="name">Дрова</span>
           <span className={`val ${forecast.wood.ok ? 'pos' : 'neg'}`}>
-            {Math.floor(forecast.wood.days * 10) / 10} из {forecast.winterDays} дн.
+            {Math.floor(forecast.wood.days * 10) / 10} из {gameDaysText(forecast.winterDays)}
           </span>
         </div>
       </div>
