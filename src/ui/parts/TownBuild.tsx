@@ -26,6 +26,7 @@ import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { waitEta } from './wait';
+import { asGame } from '@/game/pace';
 
 const ORDER = new Map(BUILDINGS.map((d, i) => [d.id, i]));
 const byOrder = (a: Building, b: Building): number => (ORDER.get(a.type) ?? 99) - (ORDER.get(b.type) ?? 99);
@@ -180,7 +181,7 @@ function SiteRow({ b, first, rate }: { b: Building; first: boolean; rate: number
   const name = buildingTitle(s, b.type);
   const left = Math.max(0, b.workRequired - b.work);
   const pct = Math.floor((b.work / Math.max(1, b.workRequired)) * 100);
-  const eta = rate > 0 ? left / rate : null;
+  const eta = rate > 0 ? asGame(left / rate) : null;
 
   return (
     <div className="build-row site">
@@ -245,7 +246,7 @@ function BuildRow({ b, rate, base }: { b: Building; rate: number; base: Readings
       <Cost
         cost={up.cost}
         work={up.work}
-        eta={eta === null ? null : Math.ceil(eta)}
+        eta={eta === null ? null : asGame(Math.ceil(eta))}
         extra={people && <span className="people" title="Во что уровень обойдётся в людях">{people}</span>}
       />
       <div className="acts">

@@ -18,6 +18,7 @@ import type { Building, GameState } from '../types';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { buildingById, isSite, upgradeInfo, upgradeWork } from '../derived';
 import { TEST_GEMS } from '../constants';
+import { gameRate, ownerSec } from '../pace';
 import { startUpgrade } from './actions';
 import { log } from './log';
 
@@ -27,7 +28,7 @@ import { log } from './log';
  * прыгала бы каждый раз, когда игрок снимает человека с площади, и её нельзя
  * было бы повторить на сервере.
  */
-export const GEM_REF_RATE = 20;
+export const GEM_REF_RATE = gameRate(20);
 
 /**
  * Сколько секунд нормативного ожидания стоит один алмаз. Десять — так, чтобы
@@ -35,7 +36,7 @@ export const GEM_REF_RATE = 20;
  * а десятый уровень рынка — сотни: платят именно за время, и чем его больше,
  * тем дороже.
  */
-export const GEM_SECONDS = 10;
+export const GEM_SECONDS = ownerSec(10, 'алмаз покупает игровые секунды стройки: после поворота шкалы тот же алмаз снимает в тридцать раз больше настоящего ожидания');
 
 /** Дешевле одного алмаза достройки не бывает: даром время не отдают. */
 export const GEM_MIN_PRICE = 1;

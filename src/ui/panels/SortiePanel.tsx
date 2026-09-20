@@ -19,7 +19,8 @@ import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf, standingTroops } from '@/world/muster';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { gateBusyText, refusedAtGate, sortieForecast } from '@/world/works';
 import type { TroopId } from '@/game/types';
@@ -153,9 +154,9 @@ export function SortiePanel() {
               : `Со стороны города рогатки, ров и частокол достроены на ${Math.floor(fc.now.works * 100)}%: к бою пробьётся не больше ${pass} бойцов строя.`}
             {fc.now.works > 0 &&
               fc.now.free < 1 &&
-              ` Проход занят прошедшими раньше: сейчас пропустит ${fc.now.room}, освободится через ${formatLeft(secondsLeft(fc.clearAt, now))} — тогда не больше ${fc.clearPass}.`}
+              ` Проход занят прошедшими раньше: сейчас пропустит ${fc.now.room}, освободится через ${realLeft(secondsLeft(fc.clearAt, now))} — тогда не больше ${fc.clearPass}.`}
             {fc.now.works < 1 &&
-              ` Дозреют через ${formatLeft(secondsLeft(fc.ripeAt, now))} — тогда не больше ${fc.ripePass}. С каждой минутой проход уже.`}
+              ` Дозреют через ${realLeft(secondsLeft(fc.ripeAt, now))} — тогда не больше ${fc.ripePass}. С каждой минутой проход уже.`}
             {men > 0 &&
               (fc.now.passed < fc.now.went
                 ? ` В выбранном отряде ${fc.now.went} бойцов строя — к рогаткам пробьются ${fc.now.passed}, остальные в бою не будут.`

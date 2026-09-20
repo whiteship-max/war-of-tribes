@@ -16,6 +16,7 @@ import { buildingOfType, canAfford, heavyFrom, heavyOpen, idleCount, recruitRate
 import { addPop, losePop } from './population';
 import { log } from './log';
 import { pay, refund } from './pay';
+import { asGame, type GameSec } from '../pace';
 
 /** Сколько всего стоит партия бойцов в ресурсах. */
 export function recruitCost(troop: TroopId, count: number): Partial<Record<ResourceId, number>> {
@@ -59,7 +60,7 @@ export interface RecruitCheck {
   /** Работа казарм на всю партию. */
   work: number;
   /** Секунд на всю партию; null — казармы стоят. */
-  eta: number | null;
+  eta: GameSec | null;
   /** Почему нельзя; null — можно. */
   blocked: string | null;
 }
@@ -104,7 +105,7 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
     freeAfter: Math.max(0, free - n),
     missing,
     work,
-    eta: rate > 0 ? Math.ceil(work / rate) : null,
+    eta: rate > 0 ? asGame(Math.ceil(work / rate)) : null,
     blocked,
   };
 }
@@ -153,11 +154,11 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
  * конюшней. Своего подсчёта срока у панели казарм нет: он расходился с очередью
  * ровно на множитель конюшни. null — казармы стоят.
  */
-export function orderEta(s: GameState, order: RecruitOrder): number | null {
+export function orderEta(s: GameState, order: RecruitOrder): GameSec | null {
   const rate = recruitRate(s, order.troop);
   if (rate <= 0) return null;
   const left = TROOP_BY_ID[order.troop].work * (order.count - order.done) - order.work;
-  return Math.ceil(Math.max(0, left) / rate);
+  return asGame(Math.ceil(Math.max(0, left) / rate));
 }
 
 /** Первый в очереди своего здания — тот, кого учат прямо сейчас. */

@@ -7,6 +7,7 @@ import { forgeInfo, workerCount } from '@/game/derived';
 import { cancelForge, forgeCheck, startForge } from '@/game/sim/actions';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
+import { asGame } from '@/game/pace';
 
 /**
  * Кузница: очередь заказов и ход работы.
@@ -55,7 +56,7 @@ export function Smithy({ b }: { b: Building }) {
           {s.forge.map((o, i) => {
             const def = EQUIPMENT_BY_ID[o.item];
             const left = def.work * (o.count - o.done) - o.work;
-            const eta = info.rate > 0 ? Math.ceil(Math.max(0, left) / info.rate) : null;
+            const eta = info.rate > 0 ? asGame(Math.ceil(Math.max(0, left) / info.rate)) : null;
             const pct = Math.floor((o.work / Math.max(1, def.work)) * 100);
             return (
               <div className="card" key={o.id}>

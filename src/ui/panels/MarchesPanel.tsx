@@ -13,7 +13,8 @@ import { useGame } from '@/game/store';
 import { figurePosition, incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
 import { troopTotal } from '@/game/battle/kinds';
 import { postureOf } from '@/world/muster';
-import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
+import { formatCoord, secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { MISSION_BY_ID } from '@/world/data/meta';
 import { UNITS } from '@/world/data/units';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
@@ -119,16 +120,16 @@ export function MarchesPanel() {
             ? `${f.gone === 'retired' ? 'ушёл на покой' : 'погиб'} — место пустует, нанять ${hireWhere(s, f.id)}`
             : f.place === 'down'
             ? f.held
-              ? `задержан, отпустят через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}`
-              : `разбит, вернётся через ${formatLeft(secondsLeft(f.downUntil, worldNow()))}`
+              ? `задержан, отпустят через ${realLeft(secondsLeft(f.downUntil, worldNow()))}`
+              : `разбит, вернётся через ${realLeft(secondsLeft(f.downUntil, worldNow()))}`
             : f.held && f.busyUntil > worldNow()
-              ? `задержан у ${f.atName ?? 'чужих ворот'}, отпустят через ${formatLeft(secondsLeft(f.busyUntil, worldNow()))}`
+              ? `задержан у ${f.atName ?? 'чужих ворот'}, отпустят через ${realLeft(secondsLeft(f.busyUntil, worldNow()))}`
             : f.retiring
               ? 'дожил до покоя: идёт домой, у ворот уйдёт'
             : f.place === 'city'
               ? 'укрылся в городе, на карте его нет'
               : f.phase === 'moving'
-                ? `в пути · ${formatLeft(secondsLeft(f.arriveAt, worldNow()))}`
+                ? `в пути · ${realLeft(secondsLeft(f.arriveAt, worldNow()))}`
                 : f.atHome
                   ? 'дома'
                   : (f.atName ?? 'в поле');
@@ -209,7 +210,7 @@ export function MarchesPanel() {
               <div className="body">
                 <div className="title">
                   {m.fromName}
-                  <span className="count">{formatLeft(secondsLeft(m.arriveAt, worldNow()))}</span>
+                  <span className="count">{realLeft(secondsLeft(m.arriveAt, worldNow()))}</span>
                 </div>
                 <div className="desc">
                   Чужой отряд идёт к нам от {formatCoord(m.from)}. Успей вернуть своих или встретить.
@@ -242,7 +243,7 @@ export function MarchesPanel() {
             <div className="body">
               <div className="title">
                 {m.toName}
-                <span className="count">{formatLeft(secondsLeft(m.arriveAt, worldNow()))}</span>
+                <span className="count">{realLeft(secondsLeft(m.arriveAt, worldNow()))}</span>
               </div>
               <div className="desc">
                 {PHASE[m.phase]} · {unitsText(m.units)}

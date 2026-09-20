@@ -1,39 +1,39 @@
-// Сроки словами — единственное место интерфейса, которое печатает секунды.
+// Сроки словами — единственное место интерфейса, которое печатает секунды, минуты и часы.
 //
-// У игры двое часов (`game/pace.ts`): стройка, ковка, учения, найм, караван и ропот идут
-// игровыми секундами, поход, предупреждение о набеге и осада — настоящими. Игроку показывают
+// У игры двое часов (`game/pace.ts`): стройка, ковка, учения, найм, изучение округи и ропот идут
+// игровыми секундами, поход, предупреждение о набеге, осада и почта — настоящими. Игроку показывают
 // всегда настоящие: он ждёт своими часами. Прежде игровые секунды печатались как есть — «~40 с»
-// прямо в разметке, в двух десятках мест, — и верно это было ровно пока игровая секунда
-// равнялась настоящей. Теперь у срока два входа, и какими часами он идёт, видно по имени
-// функции в месте вызова, а не подразумевается.
+// прямо в разметке, в двух десятках мест, — и верно это было ровно пока игровая секунда равнялась
+// настоящей.
 //
-// Держит это тест по исходникам (`game/pace.test.ts`): секунды словом «с» в `src/ui` печатает
-// только этот модуль.
-import { realSeconds } from '@/game/pace';
+// Какими часами идёт срок, теперь видно дважды:
+//  · по имени функции: `wait…` берёт игровые секунды, `real…` — настоящие;
+//  · **по типу**: `wait…` принимает только `GameSec` (срок, который назвали игровым — `asGame` или
+//    функция симуляции), а `real…` и `world/geo.formatLeft` помеченное игровым не принимают. Срок,
+//    напечатанный не теми часами, — ошибка компиляции (`wait.test.ts` держит это строками
+//    `@ts-expect-error`: пропади метка — упадёт `npm run typecheck`).
+//
+// Держит первое тест по исходникам (`game/pace.test.ts`): единицу времени после числа в `src/ui`
+// печатает только этот модуль, и `formatLeft` мира интерфейс берёт только отсюда.
+import { realSeconds, type GameSec, type RealSecArg } from '@/game/pace';
+import { formatLeft } from '@/world/geo';
 
-/** Срок в ИГРОВЫХ секундах → сколько настоящих секунд игрок прождёт, целым вверх. */
-export const waitSeconds = (gameSec: number): number => Math.ceil(realSeconds(Math.max(0, gameSec)));
+// ---------- срок племени: игровые секунды на входе ----------
 
-/** «40 с»: короткий срок, игровые секунды на входе. */
-export const waitShort = (gameSec: number): string => `${waitSeconds(gameSec)} с`;
+/** Сколько настоящих секунд игрок прождёт срок племени, целым вверх. */
+export const waitSeconds = (gameSec: GameSec): number => Math.ceil(realSeconds(Math.max(0, gameSec)));
 
-/** Настоящие секунды с долей: «7.5 с» — таймер мини-игры и журналы приборов. */
-export const realShort = (realSec: number, digits = 1): string => `${realSec.toFixed(digits)} с`;
+/** «40 с». */
+export const waitShort = (gameSec: GameSec): string => `${waitSeconds(gameSec)} с`;
 
-/** «2 мин 40 с» из НАСТОЯЩИХ секунд: срок без округления до минут. */
-export function realMinSec(realSec: number): string {
-  const total = Math.max(0, Math.round(realSec));
-  const m = Math.floor(total / 60);
-  const r = total % 60;
-  if (m === 0) return `${r} с`;
-  return r > 0 ? `${m} мин ${r} с` : `${m} мин`;
-}
+/** «2 мин 40 с»: срок без округления до минут. */
+export const waitMinSec = (gameSec: GameSec): string => realMinSec(realSeconds(gameSec));
 
-/** «2 мин 40 с» из ИГРОВЫХ секунд. */
-export const waitMinSec = (gameSec: number): string => realMinSec(realSeconds(gameSec));
+/** «4:07», а с часа — «1:05:00»: тем же видом, каким мир показывает поход. */
+export const waitLeft = (gameSec: GameSec): string => formatLeft(realSeconds(gameSec));
 
-/** Срок стройки в списке: на 375 px «~2 м 10 с» читается, «~130 с» — нет. Игровые секунды на входе. */
-export function waitEta(gameSec: number | null): string {
+/** Срок стройки в списке: на 375 px «~2 м 10 с» читается, «~130 с» — нет. */
+export function waitEta(gameSec: GameSec | null): string {
   if (gameSec === null) return 'нет строителей';
   const sec = realSeconds(gameSec);
   if (sec < 60) return `~${Math.ceil(sec)} с`;
@@ -42,8 +42,8 @@ export function waitEta(gameSec: number | null): string {
   return r > 0 ? `~${m} м ${r} с` : `~${m} м`;
 }
 
-/** «2 мин 30 с», а с часа — «1 ч 5 мин»: долгий срок из ИГРОВЫХ секунд. */
-export function waitSpan(gameSec: number): string {
+/** «2 мин 30 с», а с часа — «1 ч 5 мин»: долгий срок племени. */
+export function waitSpan(gameSec: GameSec): string {
   const sec = realSeconds(gameSec);
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
@@ -52,8 +52,46 @@ export function waitSpan(gameSec: number): string {
   return `${Math.floor(m / 60)} ч ${m % 60} мин`;
 }
 
+// ---------- срок мира и устройства: настоящие секунды на входе ----------
+
+/** «4:07» — срок мира. Тот же `formatLeft`, что у мира: интерфейс берёт его только отсюда. */
+export const realLeft = (realSec: RealSecArg): string => formatLeft(realSec);
+
+/** «7.5 с»: таймер мини-игры. */
+export const realShort = (realSec: RealSecArg, digits = 1): string => `${realSec.toFixed(digits)} с`;
+
+/** «2.5 с»: число уже приведено к настоящим секундам и округлено вызывающим. */
+export const realPlain = (realSec: RealSecArg): string => `${realSec} с`;
+
+/** «2 мин 40 с». */
+export function realMinSec(realSec: RealSecArg): string {
+  const total = Math.max(0, Math.round(realSec));
+  const m = Math.floor(total / 60);
+  const r = total % 60;
+  if (m === 0) return `${r} с`;
+  return r > 0 ? `${m} мин ${r} с` : `${m} мин`;
+}
+
+/** «5 мин»: целые минуты из настоящих миллисекунд. */
+export const realMinutes = (ms: number): string => `${Math.round(ms / 60_000)} мин`;
+
+/** «3 ч 20 мин» или «20 мин»: сколько игрока не было, сколько до смены задания. */
+export function realHoursMin(realSec: RealSecArg): string {
+  const h = Math.floor(realSec / 3600);
+  const m = Math.floor((realSec % 3600) / 60);
+  return h > 0 ? `${h} ч ${m} мин` : `${m} мин`;
+}
+
+/** Срок донесения: «3 ч 05 мин», пока больше часа, потом «4:07». */
+export function realDue(realSec: RealSecArg): string {
+  const t = Math.max(0, Math.ceil(realSec));
+  if (t >= 3600) {
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    return `${h} ч ${String(m).padStart(2, '0')} мин`;
+  }
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+
 /** Отметка журнала приборов: «+1.5с» от начала записи, настоящие миллисекунды. */
 export const sinceMark = (ms: number): string => `+${(ms / 1000).toFixed(1)}с`;
-
-/** «2.5 с»: разница сроков, уже приведённая к настоящим секундам и округлённая вызывающим. */
-export const realPlain = (realSec: number): string => `${realSec} с`;

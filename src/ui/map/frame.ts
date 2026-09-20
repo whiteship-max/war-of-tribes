@@ -10,7 +10,8 @@
 import { sightDiscs, useWorld, worldNow } from '@/world/store';
 import { inSight, type SightDisc } from '@/world/fog';
 import { loadedIn } from '@/world/cache';
-import { formatLeft, marchPosition, secondsLeft } from '@/world/geo';
+import { marchPosition, secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { RELATION_META } from '@/world/data/meta';
 import type { Coord, MarchView, Rect, SettlementView } from '@/world/types';
 import { chunkBitmap } from './tiles';
@@ -216,7 +217,7 @@ function drawMarch(
   }
 
   if (!withTimer && !m.hostile) return;
-  const left = formatLeft(secondsLeft(m.arriveAt, now));
+  const left = realLeft(secondsLeft(m.arriveAt, now));
   ctx.font = '11px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';

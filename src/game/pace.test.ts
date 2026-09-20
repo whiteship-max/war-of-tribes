@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createInitialState } from './state';
 import { DAY_LENGTH, MAX_OFFLINE_SECONDS } from './constants';
-import { gameSeconds, gameSecondsOfMs, realMs, realSeconds, setTimeScale, timeScale } from './pace';
+import { asGame, gameSeconds, gameSecondsOfMs, realMs, realSeconds, setTimeScale, timeScale } from './pace';
 import { AWAY_AFTER, absence, awaySeconds, liveStep } from './sim/tick';
 import { clockText } from './data/order';
 import { townFoodPerDay } from './derived';
@@ -142,9 +142,9 @@ describe('игровая секунда не равна настоящей мо�
   it('срок ропота и сроки в панелях показаны настоящим временем', () => {
     scaled(2);
     expect(clockText(90)).toBe('3:00');
-    expect(waitShort(40)).toBe('80 с');
+    expect(waitShort(asGame(40))).toBe('80 с');
     scaled(30);
-    expect(waitEta(40)).toBe('~20 м');
+    expect(waitEta(asGame(40))).toBe('~20 м');
   });
 });
 
@@ -217,13 +217,21 @@ describe('дверь одна: по исходникам', () => {
     expect(callers.map(rel)).toEqual([]);
   });
 
-  it('секунды словом «с» в интерфейсе печатает только `ui/parts/wait.ts`', () => {
-    // «${x} с» и «{x} с» — число и единица; предлог «с» перед словом («с человека») сюда не попадает.
-    const unit = /\}\s*с(?![а-яёА-ЯЁ])(?!\s+[а-яё])/;
+  it('секунды, минуты и часы в интерфейсе печатает только `ui/parts/wait.ts`', () => {
+    // «${x} с», «{x} мин», «{h} ч» — число и единица; предлог «с» перед словом («с человека») и
+    // слово, начинающееся с той же буквы («чел.», «минут»), сюда не попадают. Игровые дни («дн.») —
+    // не срок ожидания, а единица хозяйства, и печатаются на местах.
+    const unit = /\}\s*(с|мин|ч|м)(?![а-яёА-ЯЁ])(?!\s+[а-яё])/;
     const ui = SRC.filter((f) => rel(f).startsWith('src/ui/'));
     const hits = ui.filter((f) => code(f).split(/\r?\n/).some((line) => unit.test(line))).map(rel);
-    // Точка внутри области: сам модуль сроков под правило попадает, значит правило видит печать секунд.
+    // Точка внутри области: сам модуль сроков под правило попадает, значит правило видит печать единиц.
     expect(hits).toContain('src/ui/parts/wait.ts');
-    expect(hits.filter((f) => f !== 'src/ui/parts/wait.ts'), 'кто печатает секунды мимо модуля сроков').toEqual([]);
+    expect(hits.filter((f) => f !== 'src/ui/parts/wait.ts'), 'кто печатает срок мимо модуля сроков').toEqual([]);
+  });
+
+  it('форматтер мира интерфейс берёт только через модуль сроков', () => {
+    const takers = SRC.filter((f) => rel(f).startsWith('src/ui/') && /\bformatLeft\b/.test(code(f))).map(rel);
+    // Точка внутри области: модуль сроков его берёт — значит, поиск видит импорт.
+    expect(takers).toEqual(['src/ui/parts/wait.ts']);
   });
 });

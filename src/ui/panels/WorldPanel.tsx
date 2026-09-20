@@ -9,7 +9,8 @@ import { useGame } from '@/game/store';
 import { figuresOn, useWorld, worldNow } from '@/world/store';
 import { defense } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
-import { formatCoord, formatLeft, marchSeconds, secondsLeft } from '@/world/geo';
+import { formatCoord, marchSeconds, secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
@@ -129,7 +130,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             {f?.place === 'vacant'
               ? `${d.name}: место пустует`
               : down
-                ? `${d.name}: ${f?.held ? 'задержан' : 'вне строя'} ${formatLeft(secondsLeft(f?.downUntil ?? 0, worldNow()))}`
+                ? `${d.name}: ${f?.held ? 'задержан' : 'вне строя'} ${realLeft(secondsLeft(f?.downUntil ?? 0, worldNow()))}`
                 : `Вести ${d.one}`}
           </button>
         );
@@ -193,7 +194,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <div className="mod">
             <span className="ico">⌛</span>
             <span className="name">След сойдёт через</span>
-            <span className="val">{formatLeft(card.ruinLeft)}</span>
+            <span className="val">{realLeft(card.ruinLeft)}</span>
           </div>
         </div>
         <p className="note">{card.note}</p>
@@ -302,7 +303,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <div className="mod">
           <span className="ico">👣</span>
           <span className="name">Ход разведки</span>
-          <span className="val">{formatLeft(marchSeconds(card.distance, card.terrainFactor, { scout: 1 }))}</span>
+          <span className="val">{realLeft(marchSeconds(card.distance, card.terrainFactor, { scout: 1 }))}</span>
         </div>
       </div>
 
@@ -436,7 +437,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               <span className="name">
                 {card.siege.mine ? 'Наш лагерь у стен, стоит' : `Лагерь «${card.siege.byName}», стоит`}
               </span>
-              <span className="val">{formatLeft(Math.max(0, (worldNow() - card.siege.since) / 1000))}</span>
+              <span className="val">{realLeft(Math.max(0, (worldNow() - card.siege.since) / 1000))}</span>
             </div>
             <div className="mod">
               <span className="ico">{FATE_META[card.siege.fate].icon}</span>
@@ -473,7 +474,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <div className="mod">
             <span className="ico">{FATE_META[card.fell.fate].icon}</span>
             <span className="name">Город взят: {FELL_WORDS[card.fell.fate]}</span>
-            <span className="val">{formatLeft(Math.max(0, (worldNow() - card.fell.at) / 1000))} назад</span>
+            <span className="val">{realLeft(Math.max(0, (worldNow() - card.fell.at) / 1000))} назад</span>
           </div>
         </div>
       )}
@@ -511,7 +512,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             <div className="mod">
               <span className="ico">⏳</span>
               <span className="name">Окно закроется через</span>
-              <span className="val">{formatLeft(secondsLeft(card.revolt.until, worldNow()))}</span>
+              <span className="val">{realLeft(secondsLeft(card.revolt.until, worldNow()))}</span>
             </div>
           </div>
           <p className="note">
@@ -559,14 +560,14 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               <div className="mod total">
                 <span className="ico">⏳</span>
                 <span className="name">Пакт разорван, война через</span>
-                <span className="val neg">{formatLeft(secondsLeft(card.diplomacy.breakAt, worldNow()))}</span>
+                <span className="val neg">{realLeft(secondsLeft(card.diplomacy.breakAt, worldNow()))}</span>
               </div>
             )}
             {card.diplomacy.standing === 'pact' && card.diplomacy.breakAt === 0 && card.diplomacy.until > 0 && (
               <div className="mod">
                 <span className="ico"><Icon name="ui-scroll" glyph="📜" /></span>
                 <span className="name">Пакт держится ещё</span>
-                <span className="val pos">{formatLeft(secondsLeft(card.diplomacy.until, worldNow()))}</span>
+                <span className="val pos">{realLeft(secondsLeft(card.diplomacy.until, worldNow()))}</span>
               </div>
             )}
           </div>
@@ -599,7 +600,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
                   <Icon name={`deal-${d.id}`} glyph={DEALS.find((x) => x.id === d.id)?.icon ?? ''} />
                 </span>
                 <span className="name">{DEALS.find((x) => x.id === d.id)?.name}</span>
-                <span className="val pos">{formatLeft(secondsLeft(d.until, worldNow()))}</span>
+                <span className="val pos">{realLeft(secondsLeft(d.until, worldNow()))}</span>
               </div>
             ))}
           </div>
@@ -744,12 +745,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             <div className="mod">
               <span className="ico">⏱</span>
               <span className="name">Дорога туда</span>
-              <span className="val">{stackSize(picked) > 0 ? formatLeft(eta) : '—'}</span>
+              <span className="val">{stackSize(picked) > 0 ? realLeft(eta) : '—'}</span>
             </div>
             <div className="mod">
               <span className="ico">↩️</span>
               <span className="name">И столько же обратно</span>
-              <span className="val">{stackSize(picked) > 0 ? formatLeft(eta) : '—'}</span>
+              <span className="val">{stackSize(picked) > 0 ? realLeft(eta) : '—'}</span>
             </div>
             <div className="mod total">
               <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>

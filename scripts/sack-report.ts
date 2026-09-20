@@ -28,7 +28,8 @@
 //     бесконечную кару. Раздел «месть» печатает, сколько войн разом бывает,
 //     как часто и какой силы из них выходят набеги и чем это кончается.
 //
-//  4. **Цена взятого города.** Склад держит минуты выработки, люди удваиваются
+//  4. **Цена взятого города.** На складе лежит добра на минуты выработки (это лежащее добро, а не
+//     срок наполнения склада — тот меряет `time:report`, раздел 1), люди удваиваются
 //     за двадцать минут, и до пяти построек по уровню грабёж не стоил
 //     проигравшему ничего. Раздел «лестница» меряет, чем он стал, на семи этапах
 //     партии общим автопилотом (`scripts/autopilot.ts`, мир тихий), и сколько уходит казны
@@ -77,7 +78,7 @@ import {
   upgradeCost,
 } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
-import { BASE_STORAGE_CAP, DAY_LENGTH, RESOURCE_IDS, UPGRADE_GROWTH } from '@/game/constants';
+import { BASE_STORAGE_CAP, RESOURCE_IDS, UPGRADE_GROWTH } from '@/game/constants';
 import { FATE_DEFAULT, FATE_IDS, HEAD_CARRY, fallSeed, fate, homeLoss, plunder } from '@/world/spoils';
 import { FATE_META } from '@/world/data/fates';
 import { bondedTotal } from '@/game/derived';
@@ -89,6 +90,7 @@ import { land, pilot, playedFor, player } from './autopilot';
 import { stackCarry } from '@/world/data/units';
 import type { WorldSave } from '@/world/local/state';
 import type { HomeEffect, Loot, PlayerProfile, SettlementView } from '@/world/types';
+import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour } from '@/game/pace';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -107,7 +109,7 @@ const total = (loot: Loot | null): number =>
 console.log('=== СРОК: в чём он меряется и почему ===');
 console.log(`  Разорение держится ${n1(SACK_DURATION / HOUR)} ч реального времени.`);
 console.log(
-  `  Это же в игровых днях (день = ${DAY_LENGTH} с): ${Math.round(SACK_DURATION / 1000 / DAY_LENGTH)}.`,
+  `  Это же в игровых днях (день = ${dayRealSeconds()} с настоящего времени): ${Math.round(gameDaysOfMs(SACK_DURATION))}.`,
 );
 console.log('  Отсюда и мерка: «неделя игрового времени» — семь минут, а перерыв между');
 console.log('  заходами игрок меряет своими часами. Четырёх хватает на вечернюю отлучку и');
@@ -172,13 +174,13 @@ console.log('');
 // ------------------------------------ час грабежа против часа хозяйства ---
 
 /**
- * Что посёлок добывает за реальный час: игровой день — минута, значит их 60. `hours` партии играет
+ * Что посёлок добывает за реальный час: сколько в нём игровых дней, говорит дверь времени. `hours` партии играет
  * общий автопилот в тихом мире; выработка меряется на посёлке, расставленном `autoAssign`.
  */
 async function perHour(hours: number): Promise<number> {
   const s = await playedFor(hours);
   const per = productionPerDay(s);
-  return RESOURCE_IDS.reduce((n, r) => n + Math.max(0, per[r] ?? 0), 0) * (3600 / DAY_LENGTH);
+  return RESOURCE_IDS.reduce((n, r) => n + Math.max(0, per[r] ?? 0), 0) * gameDaysPerHour();
 }
 
 const raider = (): PlayerProfile =>
@@ -620,8 +622,8 @@ function strike(s: GameState, blow: Blow, seed: number): { fell: number; rebuild
       }
     }
   }
-  // Игровой день — реальная минута: чистая выработка за день и есть выработка за минуту.
-  const narrow = Math.max(0, ...RESOURCE_IDS.map((r) => (need[r] ?? 0) / Math.max(1, net[r])));
+  // Выработка — за игровой день; в настоящих минутах день длится `dayRealSeconds() / 60`.
+  const narrow = Math.max(0, ...RESOURCE_IDS.map((r) => (((need[r] ?? 0) / Math.max(1, net[r])) * dayRealSeconds()) / 60));
   return { fell, rebuild, narrow };
 }
 
@@ -748,7 +750,7 @@ const ladder: LadderRow[] = [];
       open: fate({ fate: FATE_DEFAULT, stock: p.stock, gold: 0, stash: p.stash, pop: 0, bonded: 0, carry: Infinity, escort: 0, seed: 0 }).takenTotal,
       steps: ladderSteps(snap, fallSeed(1, stage * 1000)),
       stash: p.stash,
-      goldHour: taxIncomePerDay(moderate) * (3600 / DAY_LENGTH),
+      goldHour: taxIncomePerDay(moderate) * gameDaysPerHour(),
       plunderOnly: (await tryBlow({ stock: true, levels: false, morale: 0 }, 0)).lag,
       levelsLag: levels.map((x) => (x.lag === null ? Infinity : x.lag)),
       fell: levels.map((x) => x.fell),

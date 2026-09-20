@@ -27,6 +27,7 @@ import { MIN, START, townAt, unitCost } from './autopilot';
 import { NAME, STYLES, live, type Fight, type FightKind, type Out } from './raid-live';
 import type { Hired } from './raid-hiring';
 import { SEEDS, pad, pct, q, sum } from './raid-common';
+import { realMs } from '@/game/pace';
 
 const LEVELS = [7, 8, 10];
 const HOURS = 4;
@@ -254,7 +255,7 @@ export async function infirmarySection(h: Hired): Promise<void> {
   // 4. Срок против промежутка и против найма.
   console.log('');
   console.log('Срок против промежутка: «между боями» — от боя до следующего боя с потерями, 10-я…медиана…90-я, мин мира; «встали к следующему» — доля легших в бою,');
-  console.log(`чей срок (${WOUND_DAYS} игровых дня, ${(WOUND_DAYS * DAY_LENGTH) / 60} мин мира) кончился до следующего боя с потерями; «найм» — восстановление после удержанного боя у стены, раздел «Найм».`);
+  console.log(`чей срок (${WOUND_DAYS} игровых дня, ${realMs(WOUND_DAYS * DAY_LENGTH) / 60_000} мин мира) кончился до следующего боя с потерями; «найм» — восстановление после удержанного боя у стены, раздел «Найм».`);
   console.log(' поведение                    где     между боями, мин  встали к следующему  найм: медиана…90-я, мин  не восстановлено');
   for (const r of rows) {
     const gaps: number[] = [];
@@ -266,7 +267,7 @@ export async function infirmarySection(h: Hired): Promise<void> {
         if (gap === null) return;
         if (i === 0 || fs[i - 1].at !== f.at) gaps.push(gap);
         whole += f.laid;
-        if (WOUND_DAYS * DAY_LENGTH * 1000 <= gap) up += f.laid;
+        if (realMs(WOUND_DAYS * DAY_LENGTH) <= gap) up += f.laid;
       });
     }
     const restore = r.outs.flatMap((o) => o.l.restore);

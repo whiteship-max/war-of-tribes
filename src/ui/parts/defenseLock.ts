@@ -10,11 +10,11 @@
 // ровно так, как расходились часы голода, пока их округлял каждый.
 import { useEffect, useState } from 'react';
 import { DEFENSE_FREEZE } from '@/world/data/tuning';
-import { formatLeft } from '@/world/geo';
+import { realLeft, realMinutes } from '@/ui/parts/wait';
 import { defenseLock, useWorld, worldNow, type DefenseLock } from '@/world/store';
 
 /** `DEFENSE_FREEZE` словами, в минутах, — за сколько до удара запирается расстановка. */
-const FREEZE = `${Math.round(DEFENSE_FREEZE / 60_000)} мин`;
+const FREEZE = realMinutes(DEFENSE_FREEZE);
 
 export interface LockWords {
   /** Ответ мира как есть: какой отряд, сколько до прихода и до замка. */
@@ -48,8 +48,8 @@ export function lockWords(lock: DefenseLock): LockWords {
     lock,
     frozen: false,
     // Срок не отрывается от слов переносом: узкая строка тревоги рвала «ещё / 0:58».
-    short: `менять ещё\u00a0${formatLeft(lock.freezeIn)}`,
-    long: `Чужая армия в пути. Менять оборону можно ещё ${formatLeft(lock.freezeIn)} — до отметки «минус ${FREEZE}».`,
+    short: `менять ещё\u00a0${realLeft(lock.freezeIn)}`,
+    long: `Чужая армия в пути. Менять оборону можно ещё ${realLeft(lock.freezeIn)} — до отметки «минус ${FREEZE}».`,
   };
 }
 

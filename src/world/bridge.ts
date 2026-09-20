@@ -4,9 +4,8 @@
 // унести) и отдаёт сюда последствия походов. Дальше вниз связи нет: симуляция
 // племени не знает про координаты, а мир — про жителей и склад.
 import type { GameState } from '@/game/types';
-import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
-import { gameSecondsOfMs, realMs } from '@/game/pace';
-import { HOUR_MS } from '@/game/time';
+import { RESOURCE_IDS } from '@/game/constants';
+import { gameDaysPerHour, gameSecondsOfMs } from '@/game/pace';
 import {
   bondedTotal,
   buildingOfType,
@@ -58,7 +57,7 @@ import type {
  * быть один и стоять здесь, на самом мосту: мир про `DAY_LENGTH` не знает, а
  * племя про мировые часы.
  */
-const daysPerHour = (): number => HOUR_MS / realMs(DAY_LENGTH);
+const daysPerHour = gameDaysPerHour;
 
 /**
  * Ополчение: та часть обороны, которую дают не бойцы, а частокол, башня и сами

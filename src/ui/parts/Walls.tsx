@@ -13,7 +13,8 @@ import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { defense } from '@/game/derived';
 import { useWorld, worldNow } from '@/world/store';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { militiaArchers, militiaMen, militiaPlaces } from '@/world/bridge';
 import { SECTOR_NAME, type Sector } from '@/battle';
 import { Icon } from '@/ui/icons/Icon';
@@ -79,7 +80,7 @@ export function Walls({ b }: { b: Building }) {
         <div className="body">
           <div className="title">
             {march ? march.fromName : 'Набегов в пути нет'}
-            {march && <span className="count">{formatLeft(secondsLeft(march.arriveAt, worldNow()))}</span>}
+            {march && <span className="count">{realLeft(secondsLeft(march.arriveAt, worldNow()))}</span>}
           </div>
           <div className="desc">{lock.long}</div>
         </div>

@@ -17,6 +17,7 @@ import type { FigureId } from '@/world/types';
 import { DAY_LENGTH } from '../constants';
 import { YEAR_DAYS } from './seasons';
 import { MINUTE_MS } from '../time';
+import { realTime } from '../pace';
 
 /**
  * Сколько опыта всего нужно, чтобы стоять на уровне: первый — даром, пятый — 60.
@@ -44,7 +45,7 @@ export const DEED_XP = { ok: 2, fail: 1 } as const;
  * быстрый путь к уровню. Пять минут не режут ни одного честного дела: круг
  * полководца до логова и боя — от пяти минут.
  */
-export const DEED_GAP = 5 * MINUTE_MS;
+export const DEED_GAP = realTime(5 * MINUTE_MS);
 
 /** Профильный навык. У дипломата его нет, пока ему не с кем говорить. */
 export type SkillId = 'onslaught' | 'sight' | 'stealth';

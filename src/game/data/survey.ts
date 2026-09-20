@@ -10,6 +10,7 @@
 // шкал тут быть не должно — иначе уровень здания молча оказался бы вторым
 // способом открыть карту.
 import type { ResourceId } from '../types';
+import { gameSec } from '../pace';
 
 export interface SurveyStep {
   /** Номер ступени, он же требуемый уровень Дозора. */
@@ -36,16 +37,16 @@ export interface SurveyStep {
  * а не первого вечера, и Дозор десятого уровня к последней ступени уже стоит.
  */
 export const SURVEY_STEPS: SurveyStep[] = [
-  { n: 1, radius: 21, seconds: 90, cost: { wood: 80, food: 60, hides: 20 }, effect: 'Разъезды доходят до дальних бродов.' },
-  { n: 2, radius: 25, seconds: 140, cost: { wood: 120, food: 90, hides: 30 }, effect: 'Вешки на курганах за первым лесом.' },
-  { n: 3, radius: 30, seconds: 210, cost: { wood: 180, food: 135, hides: 45 }, effect: 'Тропы к ближним логовам описаны.' },
-  { n: 4, radius: 35, seconds: 320, cost: { wood: 270, food: 200, hides: 65 }, effect: 'Реки и переправы нанесены на грамоту.' },
-  { n: 5, radius: 41, seconds: 470, cost: { wood: 400, food: 300, hides: 95 }, effect: 'Разъезды ночуют в поле по две недели.' },
-  { n: 6, radius: 47, seconds: 700, cost: { wood: 600, food: 450, hides: 140 }, effect: 'Заведены сменные кони на полпути.' },
-  { n: 7, radius: 54, seconds: 1000, cost: { wood: 900, food: 670, hides: 200 }, effect: 'Хребты и перевалы описаны с проводниками.' },
-  { n: 8, radius: 61, seconds: 1400, cost: { wood: 1350, food: 1000, hides: 300 }, effect: 'Дальние броды и волоки пройдены с проводниками.' },
-  { n: 9, radius: 68, seconds: 1900, cost: { wood: 2000, food: 1500, hides: 440 }, effect: 'Куплены чужие грамоты и расспрошены купцы.' },
-  { n: 10, radius: 76, seconds: 2500, cost: { wood: 3000, food: 2250, hides: 650 }, effect: 'Округа описана до края земель.' },
+  { n: 1, radius: 21, seconds: gameSec(90), cost: { wood: 80, food: 60, hides: 20 }, effect: 'Разъезды доходят до дальних бродов.' },
+  { n: 2, radius: 25, seconds: gameSec(140), cost: { wood: 120, food: 90, hides: 30 }, effect: 'Вешки на курганах за первым лесом.' },
+  { n: 3, radius: 30, seconds: gameSec(210), cost: { wood: 180, food: 135, hides: 45 }, effect: 'Тропы к ближним логовам описаны.' },
+  { n: 4, radius: 35, seconds: gameSec(320), cost: { wood: 270, food: 200, hides: 65 }, effect: 'Реки и переправы нанесены на грамоту.' },
+  { n: 5, radius: 41, seconds: gameSec(470), cost: { wood: 400, food: 300, hides: 95 }, effect: 'Разъезды ночуют в поле по две недели.' },
+  { n: 6, radius: 47, seconds: gameSec(700), cost: { wood: 600, food: 450, hides: 140 }, effect: 'Заведены сменные кони на полпути.' },
+  { n: 7, radius: 54, seconds: gameSec(1000), cost: { wood: 900, food: 670, hides: 200 }, effect: 'Хребты и перевалы описаны с проводниками.' },
+  { n: 8, radius: 61, seconds: gameSec(1400), cost: { wood: 1350, food: 1000, hides: 300 }, effect: 'Дальние броды и волоки пройдены с проводниками.' },
+  { n: 9, radius: 68, seconds: gameSec(1900), cost: { wood: 2000, food: 1500, hides: 440 }, effect: 'Куплены чужие грамоты и расспрошены купцы.' },
+  { n: 10, radius: 76, seconds: gameSec(2500), cost: { wood: 3000, food: 2250, hides: 650 }, effect: 'Округа описана до края земель.' },
 ];
 
 /** Сколько всего ступеней. Потолок изучения и потолок уровня Дозора — одно число. */

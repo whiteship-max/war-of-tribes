@@ -10,6 +10,7 @@ import { Archery } from './Archery';
 import { Maze } from './Maze';
 import { Quiz } from './Quiz';
 import { Icon } from '@/ui/icons/Icon';
+import { realHoursMin } from '@/ui/parts/wait';
 
 /**
  * Вторая страница «Заданий»: сперва ежедневная мини-игра, потом социальные
@@ -195,8 +196,5 @@ function Game({
 
 /** Сколько осталось до смены задания. Граница суток общая для всех — по UTC. */
 function hoursLeft(now: number): string {
-  const ms = untilNextDay(now);
-  const h = Math.floor(ms / 3600_000);
-  const m = Math.floor((ms % 3600_000) / 60_000);
-  return h > 0 ? `${h} ч ${m} мин` : `${m} мин`;
+  return realHoursMin(untilNextDay(now) / 1000);
 }

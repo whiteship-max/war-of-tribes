@@ -21,6 +21,7 @@ import { away, pilot, player, stand } from './autopilot';
 import { AWAY_JITTER, AWAY_STEP, EVENT_TTL, eventId, mailAway, mailStep, resolveEvent } from '@/game/sim/mail';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { LETTER_DECISIONS } from '@/world/letters';
+import { dayRealSeconds, gameSeconds } from '@/game/pace';
 
 const HOURS = Number(process.env.HOURS ?? 3);
 const STEP = Number(process.env.STEP ?? 15);
@@ -157,7 +158,7 @@ function peakDay(s: GameState): number {
 
 async function main(): Promise<void> {
   console.log(`Летопись: прогон ${HOURS} ч игрового времени (${Math.round((HOURS * 3600) / DAY_LENGTH)} игровых дней).`);
-  console.log(`Один игровой день = ${DAY_LENGTH} с реального времени.`);
+  console.log(`Один игровой день = ${dayRealSeconds()} с реального времени.`);
   console.log(`Правило обрезки: старше ${LOG_MAX_DAYS} игровых дней выбрасывается, запасной предел ${LOG_MAX} записей.`);
 
   console.log(`Общий автопилот в тихом мире ${WORLD}: живая игра при игроке, ответы на события, вера мира, стройка.`);
@@ -169,9 +170,9 @@ async function main(): Promise<void> {
   // Возвращение из офлайна: догон съедает MAX_OFFLINE_SECONDS одним куском и
   // пишет в летопись за все пропущенные дни разом. Это худший случай для обрезки
   // по возрасту — проверять надо именно его.
-  const offlineDays = Math.round(MAX_OFFLINE_SECONDS / DAY_LENGTH);
+  const offlineDays = Math.round(gameSeconds(MAX_OFFLINE_SECONDS) / DAY_LENGTH);
   const o = await play(HOURS);
-  away(o, MAX_OFFLINE_SECONDS, 2);
+  away(o, gameSeconds(MAX_OFFLINE_SECONDS), 2);
   report(`После офлайн-догона на ${MAX_OFFLINE_SECONDS / 3600} ч (${offlineDays} игровых дней):`, o);
 
   // Партия подлиннее: докуда доходит счётчик, если играть не отрываясь.
@@ -233,7 +234,7 @@ function dropped(s: GameState, step: () => void): number {
 
 /** Уйти на `off` секунд и вернуться: догон хозяйства и вести отлучки — как вход в игру. */
 function goAway(s: GameState, now: number, off: number): number {
-  away(s, Math.min(off, MAX_OFFLINE_SECONDS), 30);
+  away(s, gameSeconds(Math.min(off, MAX_OFFLINE_SECONDS)), 30);
   const back = now + off * 1000;
   mailAway(s, now, back);
   mailStep(s, back);
@@ -329,7 +330,7 @@ function mailReturn(
   if (cleared) answerAll(s);
   const bare = structuredClone(s);
   bare.inbox = [];
-  away(bare, Math.min(hours * 3600, MAX_OFFLINE_SECONDS), 30);
+  away(bare, gameSeconds(Math.min(hours * 3600, MAX_OFFLINE_SECONDS)), 30);
   const silent = dropped(s, () => goAway(s, now, hours * 3600));
   const stock = (g: GameState): number => Object.values(g.resources).reduce((a, b) => a + b, 0);
   return { table: s.inbox.length, silent, pop: s.pop - bare.pop, stock: Math.round(stock(s) - stock(bare)) };

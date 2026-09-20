@@ -9,7 +9,8 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { defense } from '@/game/derived';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { plus, postureOf, roomOf, type Posture } from '@/world/muster';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import type { GameState } from '@/game/types';
@@ -89,7 +90,7 @@ export function GarrisonEditor() {
       </h3>
       {gathering ? (
         <p className="note bad">
-          Идёт сбор: ещё {formatLeft(secondsLeft(general.readyAt, worldNow()))}. Пока он идёт, все{' '}
+          Идёт сбор: ещё {realLeft(secondsLeft(general.readyAt, worldNow()))}. Пока он идёт, все{' '}
           {troopTotal(held)} не защищают деревню ни как гарнизон, ни как дружина — и в бой не годятся.
         </p>
       ) : posture === 'stands' ? (

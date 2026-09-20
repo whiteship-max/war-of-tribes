@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
-import { formatLeft } from '@/world/geo';
+import { realLeft, realMinutes } from '@/ui/parts/wait';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { formatEstimate } from '@/world/intel';
@@ -25,8 +25,8 @@ import { plural } from '@/ui/parts/plural';
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
  * другой древесине подсказка поменяется сама, а не станет неправдой.
  */
-const WOOD_ALL_FRONT = Math.round(worksRipeAt(0, 'front', playerWood(1)) / 60_000);
-const WOOD_HALVES = Math.round(worksRipeAt(0, 'front', playerWood(0.5)) / 60_000);
+const WOOD_ALL_FRONT = realMinutes(worksRipeAt(0, 'front', playerWood(1)));
+const WOOD_HALVES = realMinutes(worksRipeAt(0, 'front', playerWood(0.5)));
 
 /** Как доля фронту называется на кнопке. */
 const SHARE_NAME: Record<number, string> = {
@@ -122,7 +122,7 @@ export function CampPanel() {
         <div className="mod">
           <span className="ico">🍞</span>
           <span className="name">Гарнизон {camp.garrison} — он и ест</span>
-          <span className="val">лагерь стоит {formatLeft(Math.max(0, (now - camp.since) / 1000))}</span>
+          <span className="val">лагерь стоит {realLeft(Math.max(0, (now - camp.since) / 1000))}</span>
         </div>
       </div>
 
@@ -140,8 +140,8 @@ export function CampPanel() {
         })}
       </div>
       <p className="note">
-        Древесину лагерь рубит сам и кладёт, куда скажешь. Всё во фронт — фронт дозреет за {WOOD_ALL_FRONT} мин, а тыл
-        до того открыт; поровну — обе стороны за {WOOD_HALVES} мин. Вложенное не пропадает: доля меняет только то, как
+        Древесину лагерь рубит сам и кладёт, куда скажешь. Всё во фронт — фронт дозреет за {WOOD_ALL_FRONT}, а тыл
+        до того открыт; поровну — обе стороны за {WOOD_HALVES}. Вложенное не пропадает: доля меняет только то, как
         стороны растут дальше.
       </p>
       <div className="fate-shares">

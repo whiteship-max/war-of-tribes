@@ -23,6 +23,7 @@ import { EQUIPMENT_BY_ID, type EquipmentDef } from '../data/equipment';
 import { canAfford, forgeRate } from '../derived';
 import { log } from './log';
 import { pay, refund } from './pay';
+import { asGame, type GameSec } from '../pace';
 
 /** Сколько ресурсов стоит партия предметов. */
 export function forgeCost(item: EquipmentId, count: number): Partial<Record<ResourceId, number>> {
@@ -40,7 +41,7 @@ export interface ForgeCheck {
   /** Работа кузнецов на всю партию. */
   work: number;
   /** Секунд на всю партию; null — кузница стоит. */
-  eta: number | null;
+  eta: GameSec | null;
   /** Почему нельзя; null — можно. */
   blocked: string | null;
 }
@@ -54,7 +55,7 @@ export function forgeCheck(s: GameState, item: EquipmentId, count: number): Forg
   const rate = forgeRate(s);
   let blocked: string | null = null;
   if (!canAfford(s, cost)) blocked = 'Не хватает материалов на весь заказ.';
-  return { def, count: n, cost, work, eta: rate > 0 ? Math.ceil(work / rate) : null, blocked };
+  return { def, count: n, cost, work, eta: rate > 0 ? asGame(Math.ceil(work / rate)) : null, blocked };
 }
 
 /**

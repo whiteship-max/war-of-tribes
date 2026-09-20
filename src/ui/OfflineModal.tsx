@@ -1,11 +1,8 @@
 import { useGame } from '@/game/store';
+import { realHoursMin } from '@/ui/parts/wait';
 
-const fmtDuration = (sec: number): string => {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (h > 0) return `${h} ч ${m} мин`;
-  return `${m} мин`;
-};
+/** Отлучка — настоящие секунды (`save.offlineSeconds`). */
+const fmtDuration = realHoursMin;
 
 export function OfflineModal() {
   const offline = useGame((g) => g.offlineSeconds);

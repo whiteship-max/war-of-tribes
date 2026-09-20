@@ -83,6 +83,7 @@ import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGai
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { troopTotal } from '@/game/battle/kinds';
+import { asGame } from '@/game/pace';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
@@ -106,9 +107,9 @@ export function BuildingPanel({ id }: { id: number }) {
   const rate = buildRate(s);
   const first = currentSite(s);
   const inQueue = site && first !== null && first.id !== b.id;
-  const eta = rate > 0 ? Math.ceil((b.workRequired - b.work) / rate) : null;
+  const eta = rate > 0 ? asGame(Math.ceil((b.workRequired - b.work) / rate)) : null;
   const canLevel = (def.maxLevel ?? MAX_BUILDING_LEVEL) > 1;
-  const upEta = rate > 0 ? Math.ceil(up.work / rate) : null;
+  const upEta = rate > 0 ? asGame(Math.ceil(up.work / rate)) : null;
   // Что даст следующий уровень — замером (`parts/upgrade.ts`). Нужен и строке под
   // ценой, и рабочим местам: звать людей на места, от которых нет толку, нельзя.
   const gains = b.level < maxLevelFor(b.type) ? upgradeGains(s, b, b.level + 1) : null;
@@ -544,7 +545,7 @@ function GenericData({ b }: { b: Building }) {
     // Место — боец строя: всадник занимает столько, сколько весит в бою (docs/stable.md).
     stats.push(['ui-bandage', '🛏️', 'Мест занято (бойцов строя)', `${Math.round(bedsTaken(s))} из ${infirmaryBeds(s)}`]);
     if (heads > 0) stats.push(['ui-bandage', '🩹', 'Лежит раненых', `${heads}`]);
-    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут в строй через', waitMinSec(soon - s.time)]);
+    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут в строй через', waitMinSec(asGame(soon - s.time))]);
     if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых при полководце', `${troopTotal(carried)}`]);
   }
   if (b.type === 'watch') {

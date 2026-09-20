@@ -20,7 +20,8 @@ import { heroInfo, heroReady } from '@/game/derived';
 import { personName } from '@/game/sim/agents';
 import { KIND_META } from '@/battle';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
-import { formatCoord, formatLeft, secondsLeft } from '@/world/geo';
+import { formatCoord, secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { CASTLE_ICON, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import {
   applyTemplate,
@@ -229,7 +230,7 @@ export function BattlePanel({ targetId }: Props) {
           <div className="body">
             <div className="title">
               {lock.march.fromName}
-              <span className="count">{formatLeft(secondsLeft(lock.march.arriveAt, worldNow()))}</span>
+              <span className="count">{realLeft(secondsLeft(lock.march.arriveAt, worldNow()))}</span>
             </div>
             <div className="desc">
               {words.long}

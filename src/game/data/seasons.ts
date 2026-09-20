@@ -2,6 +2,7 @@
 // логика (derived.ts, sim/tick.ts) только читает эту таблицу.
 import type { JobId, Season } from '../types';
 import { DAY_LENGTH } from '../constants';
+import { gameSec } from '../pace';
 import { yardSeason } from './yards';
 
 /** Сколько игровых дней длится один сезон. В секундах реального времени — `SEASON_SECONDS`. */
@@ -82,7 +83,7 @@ export const HEATING_SHELTERED = 0.5;
 export const HEATING_CAMPFIRE = 0.85;
 
 /** Сколько секунд зимы без дров племя выдерживает до первой смерти от холода. */
-export const COLD_DEATH = 2 * DAY_LENGTH;
+export const COLD_DEATH = gameSec(2 * DAY_LENGTH);
 
 /** Насколько сильнее падает мораль, пока племя мёрзнет. */
 export const FREEZING_MORALE_PENALTY = 20;

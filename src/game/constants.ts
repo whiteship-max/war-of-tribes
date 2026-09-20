@@ -1,9 +1,13 @@
 import type { ResourceId, Resources } from './types';
 
-/** Длина игрового дня в секундах реального времени. */
-export const DAY_LENGTH = 60;
+/**
+ * Длина игрового дня в игровых секундах. Пока шкала времени равна единице (`game/pace`), это и
+ * настоящие секунды. Объявлена у двери времени — её читает и мир, — а отсюда отдаётся дальше.
+ */
+export { DAY_LENGTH } from './pace';
+import { DAY_LENGTH, gameRate, gameSec, realSec, sessionSec } from './pace';
 /** Максимум офлайн-прогресса при возвращении в игру. */
-export const MAX_OFFLINE_SECONDS = 4 * 3600;
+export const MAX_OFFLINE_SECONDS = realSec(4 * 3600);
 
 // ---------- Население ----------
 //
@@ -38,7 +42,7 @@ export const GROWTH_ROOM = 40;
 export const GROWTH_FOOD_DAYS = 3;
 
 /** Через сколько секунд голода (или зимы без дров) племя теряет людей. */
-export const STARVATION_DEATH = 2 * DAY_LENGTH;
+export const STARVATION_DEATH = gameSec(2 * DAY_LENGTH);
 /**
  * Какую долю населения забирает один удар голода или холода. Доля, а не
  * фиксированное число: в посёлке на потолке уровней смерть одного человека
@@ -58,8 +62,8 @@ export const START_POP = 30;
 
 export const BASE_STORAGE_CAP = 1200;
 export const BASE_HOUSING = 10;
-export const EVENT_INTERVAL_MIN = 70;
-export const EVENT_INTERVAL_MAX = 140;
+export const EVENT_INTERVAL_MIN = gameSec(70);
+export const EVENT_INTERVAL_MAX = gameSec(140);
 
 /**
  * Потолок уровня здания. Каждый тип строится ровно один раз, поэтому уровни —
@@ -84,13 +88,13 @@ export const UPGRADE_GROWTH = 1.4;
  * Труд одного свободного жителя на стройке в секунду. Больше единицы: племя
  * позднего средневековья строит с инструментом, а не голыми руками.
  */
-export const BUILDER_RATE = 1.2;
+export const BUILDER_RATE = gameRate(1.2);
 /**
  * Труд ремесленника в мастерской на улучшениях, в секунду на единицу его
  * множителя. Мастер стоит больше строителя с площади — на этом и держится
  * мастерская.
  */
-export const CRAFTER_BUILD = 1.5;
+export const CRAFTER_BUILD = gameRate(1.5);
 /**
  * Насколько ускоряет стройку каждый уровень ратуши сверх первого. Ратуша — то
  * место, откуда ведут все стройки, и её уровень обязан значить что-то, кроме
@@ -257,12 +261,12 @@ export const FREE_RANGE_MULT = 0.5;
  * (см. data/equipment.ts): у горна помещается немного народу, зато уровень
  * кузницы поднимает и число мест, и выработку каждого.
  */
-export const SMITH_WORK = 1;
+export const SMITH_WORK = gameRate(1);
 /**
  * Работа казарм в секунду на первом уровне. Растёт быстрее выработки зданий —
  * умножается ещё и на уровень: дружина в сотни бойцов иначе набиралась бы часами.
  */
-export const RECRUIT_WORK = 1;
+export const RECRUIT_WORK = gameRate(1);
 /**
  * Сколько ест боец против жителя. Он не добывает и не строит, но кормится
  * из того же котла — армия должна стоить не только людей, но и еды.
@@ -321,8 +325,12 @@ export const ORDER_UNREST = 40;
  * Срок ропота до мятежа, секунд — и срок, который окно мятежа ждёт ответа.
  * Оба идут только при игроке: офлайн-догон их не двигает (`sim/mutiny.unrestTick`).
  */
-export const MUTINY_FUSE = 180;
-export const MUTINY_ANSWER = 45;
+export const MUTINY_FUSE = gameSec(180);
+/**
+ * Окно ответа — настоящее время на часах племени: оно существует затем, чтобы игрок успел выбрать, а
+ * выбирает он своими секундами. Со шкалой времени не идёт (`game/pace.sessionSec`).
+ */
+export const MUTINY_ANSWER = sessionSec(45);
 /**
  * Мятеж, который стража не удержала: какая доля горожан уходит вместе с
  * невольниками и сколько добра уносит каждый уходящий. Делит склад то же

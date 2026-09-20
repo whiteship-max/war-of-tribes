@@ -15,13 +15,14 @@ import { buildingOfType, canAfford, towerSeats, upgradeCost, upgradeWork } from 
 import { GEM_REF_RATE } from './gems';
 import { log } from './log';
 import { pay } from './pay';
+import { asGame, type GameSec } from '../pace';
 
 /** Одно орудие в панели башни: чего стоит, сколько ставить и почему нельзя. */
 export interface EngineOption {
   def: EngineDef;
   cost: ReturnType<typeof upgradeCost>;
   /** Сколько игровых секунд его ставят. */
-  seconds: number;
+  seconds: GameSec;
   /** Почему поставить нельзя; null — можно. */
   blocked: string | null;
 }
@@ -32,7 +33,7 @@ export interface EngineInfo {
   /** Бьёт ли оно: поставлено и башне хватает уровня. */
   ready: boolean;
   /** Секунд до того, как поставят; 0 — не ставится. */
-  left: number;
+  left: GameSec;
   /** Мест лучников на башне. */
   seats: number;
   /** Уровень башни. */
@@ -48,7 +49,7 @@ const TOWER = BUILDING_BY_ID.tower;
  * цена достройки за алмазы (`GEM_REF_RATE`). Нормативную, а не настоящую: срок не
  * должен прыгать от того, кого сняли с площади.
  */
-export const engineSeconds = (def: EngineDef): number => Math.max(1, Math.round(upgradeWork(TOWER, def.level) / GEM_REF_RATE));
+export const engineSeconds = (def: EngineDef): GameSec => asGame(Math.max(1, Math.round(upgradeWork(TOWER, def.level) / GEM_REF_RATE)));
 
 /** Цена орудия — улучшение башни до уровня, на котором оно открывается. */
 export const engineCost = (def: EngineDef): ReturnType<typeof upgradeCost> => upgradeCost(TOWER, def.level);
@@ -81,7 +82,7 @@ export function engineInfo(s: GameState): EngineInfo {
   return {
     current,
     ready: readyEngine(s) !== null,
-    left: installing ? Math.max(0, s.engine.until - s.time) : 0,
+    left: asGame(installing ? Math.max(0, s.engine.until - s.time) : 0),
     seats: towerSeats(s),
     level,
     options,

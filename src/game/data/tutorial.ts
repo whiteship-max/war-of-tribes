@@ -4,7 +4,7 @@
 // Посёлок стоит с первой секунды, поэтому вести за руку надо не к стройке, а к
 // тому, вокруг чего игра: кузница → снаряжение → ратуша → казармы → карта → разведка.
 import type { BuildingTypeId, GameState } from '../types';
-import { DAY_LENGTH } from '../constants';
+import { sessionSec } from '../pace';
 import { armySize, buildingById, buildingOfType, workerCount } from '../derived';
 
 /** Что подсвечивается «дыркой» в затемнении. */
@@ -42,11 +42,12 @@ export interface TutorialStep {
 }
 
 /**
- * Сколько игрового времени обучение придерживает случайные события. Ограничение по
- * времени, а не по флагу: брошенное на середине обучение не должно навсегда выключить
+ * Сколько обучение придерживает случайные события — пять **настоящих** минут на часах племени:
+ * обучение идёт в первом заходе, и игрок проходит его своими минутами (`game/pace.sessionSec`).
+ * Ограничение по времени, а не по флагу: брошенное на середине обучение не должно навсегда выключить
  * события — модалка мешает только пока подсветка на экране.
  */
-export const TUTORIAL_EVENT_MUTE = 5 * DAY_LENGTH;
+export const TUTORIAL_EVENT_MUTE = sessionSec(5 * 60);
 
 /** Открыта ли панель здания такого типа. */
 const opened = (s: GameState, ui: TutorialUi, type: BuildingTypeId): boolean => {

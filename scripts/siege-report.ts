@@ -52,9 +52,10 @@ import { TROOP_BY_ID } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { GOOD_BY_ID } from '@/game/data/market';
 import { BUILDINGS } from '@/game/data/buildings';
-import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
+import { RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { EngineId, GameState } from '@/game/types';
 import { ENGINE_BY_ID } from '@/game/data/engines';
+import { dayRealSeconds, gameDaysPerHour } from '@/game/pace';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303];
@@ -789,7 +790,7 @@ function clocked(seed: number) {
 }
 
 const goodsPerHour = (g: GameState): number =>
-  RESOURCE_IDS.reduce((n, r) => n + Math.max(0, productionPerDay(g)[r] ?? 0), 0) * (3600 / DAY_LENGTH);
+  RESOURCE_IDS.reduce((n, r) => n + Math.max(0, productionPerDay(g)[r] ?? 0), 0) * gameDaysPerHour();
 
 console.log('');
 console.log('--- цена падения: что стоит голод и что стоит дебаф до него ---');
@@ -1059,7 +1060,7 @@ console.log('лучник против орудия: цена, с которой
   const wage = wageOf(g, 'archer');
   const sieges = Math.max(1, totalNew);
   const hoursPerSiege = (HOURS * TOWNS.length * SEEDS.length) / sieges;
-  const daysPerSiege = (hoursPerSiege * 3600) / DAY_LENGTH;
+  const daysPerSiege = hoursPerSiege * gameDaysPerHour();
   const goodPrice = (r: string): number => {
     const good = GOOD_BY_ID[r];
     return good ? selfCost(good) : 0;
@@ -1072,7 +1073,7 @@ console.log('лучник против орудия: цена, с которой
   console.log(
     `жалованье лучника ${wage.toFixed(2)} золота в игровой день (умеренный налог новой партии); ` +
       `осада — раз в ${hoursPerSiege.toFixed(2)} ч мира (раздел «частота»: ${sieges} осад за ${HOURS * TOWNS.length * SEEDS.length} ч), ` +
-      `это ${Math.round(daysPerSiege)} игровых дней при дне в ${DAY_LENGTH} с`,
+      `это ${Math.round(daysPerSiege)} игровых дней при дне в ${dayRealSeconds()} с`,
   );
   console.log(
     `наём лучника своим трудом (derived.selfCost по ресурсам и луку): ${recruit.toFixed(1)} золота; ` +

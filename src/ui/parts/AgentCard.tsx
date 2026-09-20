@@ -35,7 +35,8 @@ import { hireWhere } from '@/game/sim/hire';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
 import { ownedItems } from '@/net/owned';
 import { FIGURE_BY_ID } from '@/world/data/figures';
-import { distance, formatLeft, terrainFactor, travelTime } from '@/world/geo';
+import { distance, terrainFactor, travelTime } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId, FigureView } from '@/world/types';
 import { deathLine, onslaughtLines, sightLine, stealthLine } from './agentLines';
@@ -122,7 +123,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
   if (f && info && f.place === 'map' && !f.atHome) {
     const at = figurePosition(f, worldNow());
     const seconds = travelTime(distance(at, info.home), terrainFactor(info.seed, at, info.home), def.speed);
-    road = `до дома ${formatLeft(seconds)}`;
+    road = `до дома ${realLeft(seconds)}`;
   }
 
   const block = f ? regearBlock(id, f) : 'Где агент, мир ещё не сказал.';
@@ -164,7 +165,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           </div>
           <div className="note">
             {toRest > 0
-              ? `В ${RETIRE_AGE} лет бросит дело и уйдёт на покой, как дойдёт до своих ворот. Стареет только пока идут часы деревни: ${formatLeft(Math.max(0, retireAt(s, id) - s.time))} игрового времени.`
+              ? `В ${RETIRE_AGE} лет бросит дело и уйдёт на покой, как дойдёт до своих ворот. Стареет только пока идут часы деревни: ${realLeft(Math.max(0, retireAt(s, id) - s.time))} игрового времени.`
               : 'Дел больше не берёт: идёт домой, у своих ворот уйдёт на покой.'}{' '}
             {deathLine(id, level)}
           </div>

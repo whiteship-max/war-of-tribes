@@ -17,6 +17,7 @@
 // угрозой, а не строкой расходов.
 import type { EquipmentId, GoodId, ResourceId } from '../types';
 import { RESOURCE_META } from '../constants';
+import { realSec } from '../pace';
 import { seeded } from '../sim/random';
 import { EQUIPMENT, EQUIPMENT_BY_ID } from './equipment';
 
@@ -173,8 +174,10 @@ export const OFFER_PER_LEVEL = 1;
  * мгновенных покупок
  * в игре нет, и в этот срок дыру ещё нужно продержать.
  */
-export const CARAVAN_BASE = 42;
-export const CARAVAN_PER_LEVEL = 2.5;
+export const CARAVAN_BASE = realSec(42);
+export const CARAVAN_PER_LEVEL = realSec(2.5);
+/** Быстрее этого телега не ходит ни при каком рынке, настоящих секунд. */
+export const CARAVAN_FLOOR = realSec(12);
 
 /** Дневной запас товара при этом уровне рынка. Штуки целые: половину копья не купишь. */
 export const goodStock = (def: GoodDef, level: number): number =>

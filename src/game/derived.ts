@@ -74,6 +74,7 @@ import {
   VILLAGER_DEFENSE,
   emptyResources,
 } from './constants';
+import { asGame, sessionSec, type GameSec } from './pace';
 import type { UnitKind } from '@/battle';
 import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
@@ -88,6 +89,7 @@ import {
   BONDED_GOOD,
   BONDED_SALE,
   CARAVAN_BASE,
+  CARAVAN_FLOOR,
   CARAVAN_PER_LEVEL,
   GOODS,
   GOOD_BY_ID,
@@ -428,8 +430,8 @@ export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
   batchCost(def, marketLevel(s), marketBought(s, def.id), count);
 
 /** Сколько идёт караван при нынешнем уровне рынка, секунд игрового времени. */
-export const caravanSeconds = (s: GameState): number =>
-  Math.max(12, CARAVAN_BASE - CARAVAN_PER_LEVEL * Math.max(0, marketLevel(s) - 1));
+export const caravanSeconds = (s: GameState): GameSec =>
+  asGame(sessionSec(Math.max(CARAVAN_FLOOR, CARAVAN_BASE - CARAVAN_PER_LEVEL * Math.max(0, marketLevel(s) - 1))));
 
 /** Доля пути каравана, 0..1. По ней сцена ведёт телегу от ворот и обратно. */
 export function caravanProgress(s: GameState, c: Caravan): number {
@@ -1776,15 +1778,15 @@ export const mutinyOpen = (s: GameState): boolean => s.inbox.some((e) => e.defId
  * мятеж уже поднялся и ждёт ответа. Срок идёт только при игроке, поэтому здесь
  * он читается из накопленного ропота, а не из часов.
  */
-export function unrestLeft(s: GameState): number | null {
+export function unrestLeft(s: GameState): GameSec | null {
   if (mutinyOpen(s) || orderState(s) !== 'unrest') return null;
-  return Math.max(0, MUTINY_FUSE - Math.max(0, s.unrest ?? 0));
+  return asGame(Math.max(0, MUTINY_FUSE - Math.max(0, s.unrest ?? 0)));
 }
 
 /** Секунд, которые окно мятежа ещё ждёт ответа. null — окна нет. */
-export function mutinyAnswerLeft(s: GameState): number | null {
+export function mutinyAnswerLeft(s: GameState): GameSec | null {
   if (!mutinyOpen(s)) return null;
-  return Math.max(0, MUTINY_FUSE + MUTINY_ANSWER - Math.max(0, s.unrest ?? 0));
+  return asGame(Math.max(0, MUTINY_FUSE + MUTINY_ANSWER - Math.max(0, s.unrest ?? 0)));
 }
 
 /** Что сделает мятеж прямо сейчас — всё, что игрок обязан знать до него. */

@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
-import { formatLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { perilText } from '@/world/peril';
 import type { SettlementId, StrikePlan } from '@/world/types';
 
@@ -48,7 +48,7 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
               ? 'Считаем проход…'
               : !plan.can
                 ? plan.reason
-                : `${plan.seconds > 0 ? `Дойдёт через ${formatLeft(plan.seconds)}. ` : ''}С тыла пробьются ${plan.rear.passed} из ${plan.rear.went} бойцов строя${
+                : `${plan.seconds > 0 ? `Дойдёт через ${realLeft(plan.seconds)}. ` : ''}С тыла пробьются ${plan.rear.passed} из ${plan.rear.went} бойцов строя${
                     plan.front ? `, со стороны города — ${plan.front.passed} из ${plan.front.went}` : ''
                   }${plan.seconds > 0 ? ' — если до прихода проход не займут' : ''}. Разобьёшь — осада снята.`}
           </i>

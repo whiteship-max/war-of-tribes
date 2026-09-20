@@ -8,7 +8,7 @@
 // игрока нет, и черта, которую сегодня не заслужить, обещанием не становится.
 import { TRAIT_BY_ID, deedsOf, type TraitDef, type TraitId } from '@/game/data/traits';
 import type { Tally } from '@/game/types';
-import { formatLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { FIGURE_SCOUT_CATCH, HANDOVER_BASE, SPY_BUSY, SPY_HELD } from '@/world/data/tuning';
 import { count } from './plural';
 
@@ -35,7 +35,7 @@ function whatOf(def: TraitDef): string {
     const faster = e.muster < 1;
     return (
       `Дружина собирается и расходится ${faster ? 'быстрее' : 'дольше'} на ${shift(e.muster)}: ` +
-      `сбор, который шёл бы ${formatLeft(HANDOVER_BASE / 1000)}, идёт ${formatLeft((HANDOVER_BASE * e.muster) / 1000)}.`
+      `сбор, который шёл бы ${realLeft(HANDOVER_BASE / 1000)}, идёт ${realLeft((HANDOVER_BASE * e.muster) / 1000)}.`
     );
   }
   if (e.carry !== undefined) return `Обоз поднимает на ${shift(e.carry)} больше добычи.`;
@@ -43,10 +43,10 @@ function whatOf(def: TraitDef): string {
     return `Часовые берут его в ${pct(FIGURE_SCOUT_CATCH * e.catch)} приходов вместо ${pct(FIGURE_SCOUT_CATCH)}.`;
   }
   if (e.busy !== undefined) {
-    return `После удачного дела свободен через ${formatLeft((SPY_BUSY * e.busy) / 1000)} вместо ${formatLeft(SPY_BUSY / 1000)}.`;
+    return `После удачного дела свободен через ${realLeft((SPY_BUSY * e.busy) / 1000)} вместо ${realLeft(SPY_BUSY / 1000)}.`;
   }
   if (e.held !== undefined) {
-    return `Пойманного держат ${formatLeft((SPY_HELD * e.held) / 1000)} вместо ${formatLeft(SPY_HELD / 1000)}.`;
+    return `Пойманного держат ${realLeft((SPY_HELD * e.held) / 1000)} вместо ${realLeft(SPY_HELD / 1000)}.`;
   }
   return '';
 }

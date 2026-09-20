@@ -16,6 +16,7 @@ import { HIRE_AT, HIRE_GOLD_PER_POP, HIRE_SECONDS, HIRE_YOUNGER } from '../data/
 import { buildingOfType, buildingTitle, faithDef, levelOutputMult, population } from '../derived';
 import { drawName, nameAgents, seat, titled, yearsWord } from './agents';
 import { log } from './log';
+import { asGame, type GameSec } from '../pace';
 
 /** Как по-русски сказать «нанять где»: «в Дозоре», «в Статуе Героя», «в мечети». */
 const TEMPLE_IN: Record<string, string> = {
@@ -48,7 +49,7 @@ export interface HireInfo {
   /** Золото за найм. */
   gold: number;
   /** Сколько идёт найм, игровых секунд. */
-  seconds: number;
+  seconds: GameSec;
   /** Сколько лет будет новичку. */
   age0: number;
   /** Почему нанять нельзя; null — можно. */
@@ -62,7 +63,7 @@ export function hireInfo(s: GameState, agent: FigureId): HireInfo {
   const level = Math.max(1, building?.level ?? 1);
   const p = s.agents[agent];
   const gold = Math.ceil(HIRE_GOLD_PER_POP * population(s));
-  const seconds = Math.round(HIRE_SECONDS / levelOutputMult(level));
+  const seconds = asGame(Math.round(HIRE_SECONDS / levelOutputMult(level)));
   const age0 = Math.max(18, AGENT_AGE0 - HIRE_YOUNGER * (level - 1));
   const hiring = p.hiring;
   let blocked: string | null = null;

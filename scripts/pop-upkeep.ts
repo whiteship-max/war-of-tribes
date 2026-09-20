@@ -53,6 +53,7 @@ import {
   LAIR_RIPE,
 } from '@/world/data/tuning';
 import { pilot, player, stand } from './autopilot';
+import { dayRealSeconds } from '@/game/pace';
 
 /**
  * Казна и добро логова до роста от жителей (коммит 528a768): мощь — опора × дозревание,
@@ -540,5 +541,5 @@ export async function upkeepSection(): Promise<void> {
         .join('; ') +
       '.',
   );
-  console.log(`\n(игровой день — ${DAY_LENGTH} с)`);
+  console.log(`\n(игровой день — ${dayRealSeconds()} с настоящего времени)`);
 }

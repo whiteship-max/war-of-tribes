@@ -42,11 +42,12 @@ import { createInitialState } from '@/game/state';
 import { playedFor } from './autopilot';
 import { assignWorker } from '@/game/sim/workers';
 import { buildingOfType, buildingSlots, defense, forgeRate, productionPerDay, storageCap } from '@/game/derived';
-import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
+import { RESOURCE_IDS } from '@/game/constants';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { ARMS_TROPHY } from '@/game/sim/expedition';
 import type { WorldSave } from '@/world/local/state';
 import type { PlayerProfile } from '@/world/types';
+import { dayRealSeconds, gameDaysOfMs } from '@/game/pace';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -100,7 +101,7 @@ console.log('');
 
 console.log('=== ПЕПЕЛИЩЕ: в чём меряется срок ===');
 console.log(`  Срок жизни: ${n1(LAIR_RUIN / HOUR)} ч реального времени.`);
-console.log(`  Это же в игровых днях (день = ${DAY_LENGTH} с): ${Math.round(LAIR_RUIN / 1000 / DAY_LENGTH)}.`);
+console.log(`  Это же в игровых днях (день = ${dayRealSeconds()} с настоящего времени): ${Math.round(gameDaysOfMs(LAIR_RUIN))}.`);
 console.log('  «Неделя игрового времени» — семь минут: пепелища не увидел бы никто, и просьба');
 console.log('  убила бы сама себя. Мерка обязана быть реальной, потому что реален перерыв.');
 console.log('');
@@ -143,7 +144,7 @@ const forgeHour = forgePerHour();
 
 console.log('=== ДОБЫЧА: слабое логово / среднее / у потолка ===');
 console.log('Мерка одна: что хозяйство наработает за время самого похода. Сравнивать награду');
-console.log(`с дневной выработкой бессмысленно — поход длится минуты, а игровой день ${DAY_LENGTH} секунд.`);
+console.log(`с дневной выработкой бессмысленно — поход длится минуты, а игровой день ${dayRealSeconds()} секунд.`);
 console.log('');
 console.log(`  Хозяйство: старт ${n1(perDay0)} ед./день, через 2 ч партии ${n1(perDay2)}.`);
 console.log(`  За круг набега (${RAID_MINUTES} мин) это ${Math.round(perDay0 * RAID_MINUTES)} и ${Math.round(perDay2 * RAID_MINUTES)} ед.`);

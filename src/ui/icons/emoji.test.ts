@@ -70,8 +70,8 @@ const hex = (cp: number): string => `U+${cp.toString(16).toUpperCase()}`;
 const DEBT: readonly string[] = [
   'game/data/troops.ts:43 U+1FA83',
   'ui/SyncModal.tsx:27 U+1FA9F',
-  'ui/map/ActionMenu.tsx:455 U+1FAE5',
-  'ui/panels/BattlePanel.tsx:282 U+1FAB5',
+  'ui/map/ActionMenu.tsx:456 U+1FAE5',
+  'ui/panels/BattlePanel.tsx:283 U+1FAB5',
   'ui/panels/ReportPanel.tsx:327 U+1FAA6',
   'ui/parts/Statue.tsx:95 U+1FA99',
   'ui/parts/Tavern.tsx:21 U+1FA99',

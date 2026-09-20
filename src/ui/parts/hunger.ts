@@ -5,7 +5,8 @@
 // четырём местам одним и тем же полем `starvesAt`; здесь от неё до строки остаётся ровно
 // один шаг. Держит это тест по исходнику: `starvesAt` в интерфейсе в слова превращает
 // только этот модуль, и места снова не разойдутся тем, что одно округлит иначе.
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 
 /** Сколько осталось до голода, словами: «12 мин», «1 ч 05 мин», «0 с». */
-export const hungerLeft = (starvesAt: number, now: number): string => formatLeft(secondsLeft(starvesAt, now));
+export const hungerLeft = (starvesAt: number, now: number): string => realLeft(secondsLeft(starvesAt, now));

@@ -20,7 +20,8 @@
 // ходит только с полководцем, и до сих пор сотня бойцов на карте выглядела так
 // же, как дипломат с письмом.
 import { RELATION_META } from '@/world/data/meta';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { figurePosition } from '@/world/store';
 import type { FigureView } from '@/world/types';
 import { type Camera, type Viewport, toScreen } from './grid';
@@ -86,7 +87,7 @@ function drawRoute(
   ctx.stroke();
   ctx.restore();
 
-  const left = formatLeft(secondsLeft(f.arriveAt, now));
+  const left = realLeft(secondsLeft(f.arriveAt, now));
   ctx.font = '11px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';

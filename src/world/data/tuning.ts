@@ -2,6 +2,7 @@
 
 import { ATLAS_SIZE } from '../atlas/data';
 import { HOUR_MS as HOUR, MINUTE_MS as MIN } from '../../game/time';
+import { ownerTime, realSec, realTime, worldDays } from '../../game/pace';
 
 /** Сторона сетки в клетках — ровно сторона запечённой земли: сетка мира и есть атлас. */
 export const WORLD_SIZE = ATLAS_SIZE;
@@ -67,9 +68,9 @@ export const LAIR_REACH_FACTOR = 4;
 /** Предел роста: во сколько раз мощь может превысить начальную. */
 export const POWER_GROWTH_CAP = 3;
 /** За сколько поселение отстраивает разбитый гарнизон. */
-export const DAMAGE_RECOVER = 25 * MIN;
+export const DAMAGE_RECOVER = worldDays(25);
 /** За сколько восстанавливаются запасы, которые можно унести. */
-export const LOOT_REFILL = 20 * MIN;
+export const LOOT_REFILL = worldDays(20);
 
 /**
  * Сколько добра лежит на складе двора в расчёте на жителя. Это и есть весь его
@@ -116,11 +117,11 @@ export const AI_BONDED_SHARE = 0.15;
 // ---------- Разведка ----------
 
 /** До этого возраста данные точны. */
-export const INTEL_EXACT = 4 * MIN;
+export const INTEL_EXACT = worldDays(4);
 /** Дальше — диапазон ±INTEL_ROUGH_SPREAD. */
-export const INTEL_ROUGH = 12 * MIN;
+export const INTEL_ROUGH = worldDays(12);
 /** Дальше — широкий диапазон. */
-export const INTEL_VAGUE = 30 * MIN;
+export const INTEL_VAGUE = worldDays(30);
 export const INTEL_ROUGH_SPREAD = 0.15;
 export const INTEL_VAGUE_SPREAD = 0.4;
 /** Сколько мощи прикрывает одного разведчика: выше — кого-то заметят. */
@@ -129,9 +130,9 @@ export const SCOUT_COVER = 12;
 // ---------- Походы ----------
 
 /** Сколько отряд стоит в союзном поселении, прежде чем уйти домой. */
-export const SUPPORT_STAY = 8 * MIN;
+export const SUPPORT_STAY = worldDays(8);
 /** Меньше этого похода не бывает — иначе сосед в двух клетках берётся мгновенно. */
-export const MARCH_MIN_SECONDS = 45;
+export const MARCH_MIN_SECONDS = realSec(45);
 
 // ---------- Племена ----------
 
@@ -143,8 +144,12 @@ export const HOSTILITY_ALLY_BREAK = 25;
 // ---------- Мягкие набеги ИИ ----------
 
 /** Разброс паузы между набегами на игрока. */
-export const AI_ATTACK_MIN = 12 * MIN;
-export const AI_ATTACK_MAX = 26 * MIN;
+/** Первый набег нового мира — не раньше этого срока от его создания. */
+export const FIRST_RAID_AFTER = worldDays(10);
+/** Первая война дворов нового мира — не раньше этого срока. */
+export const FIRST_WAR_AFTER = worldDays(12);
+export const AI_ATTACK_MIN = worldDays(12);
+export const AI_ATTACK_MAX = worldDays(26);
 /**
  * Сколько игрок видит отряд до его прихода даже без дозора. **Обязано быть
  * заметно больше `DEFENSE_FREEZE`**, иначе набег появляется уже запертым, и вся
@@ -152,7 +157,7 @@ export const AI_ATTACK_MAX = 26 * MIN;
  * Дозор игрока (`PlayerProfile.warning`), поэтому разведка перестала быть
  * величиной, на которую нельзя повлиять.
  */
-export const AI_WARNING_BASE = 7 * MIN;
+export const AI_WARNING_BASE = ownerTime(7 * MIN, 'предупреждение о набеге служит реакции игрока, но при набеге раз в полсуток семь настоящих минут не застанет никто');
 // Сила набега на деревню — всё логово, из которого он вышел (`lairs.lairRaid`): доли
 // логова и потолка от обороны у набега нет. Когда набег начинается вовсе, решает защита
 // новичка по жителям (`LAIR_SHIELD_FROM`), а не прежний порог `AI_MIN_POP` в 36 жителей.
@@ -163,7 +168,7 @@ export const AI_RANGE = 26;
  * сознательно: разведданные нападающего всегда устарели минимум на эти пять
  * минут — это и есть источник неопределённости (раздел 8 документа).
  */
-export const DEFENSE_FREEZE = 5 * MIN;
+export const DEFENSE_FREEZE = ownerTime(5 * MIN, 'заморозка обороны — одна семья с предупреждением о набеге');
 
 // ---------- Замки ----------
 
@@ -267,7 +272,7 @@ export const LAIR_CAP = 1;
  * За сколько логово доходит до потолка. Медленно нарочно: рост обязан быть
  * заметен между заходами, а не внутри одного.
  */
-export const LAIR_RIPE = 8 * HOUR;
+export const LAIR_RIPE = worldDays(480);
 /**
  * Сколько мощи приходится на одного разбойника. То же соотношение, которым мир
  * везде переводит мощь в головы (`units: power / 3`), — второго заводить нельзя,
@@ -324,7 +329,7 @@ export const LAIR_SHIELD_FULL = 8;
  * реальный: шесть часов переживают и рабочий день, и вечер, но не ночь — к утру след остывает,
  * и карта не копит пепелища. Считается в мировых часах, как осада и рост.
  */
-export const LAIR_RUIN = 6 * HOUR;
+export const LAIR_RUIN = ownerTime(6 * HOUR, 'владелец просил неделю игрового времени, а записано настоящими часами — потому что перерыв между заходами настоящий');
 
 /**
  * Разброс паузы до появления нового логова. Считается от круга набега, а не от
@@ -337,8 +342,8 @@ export const LAIR_RUIN = 6 * HOUR;
  * восемь часов заводятся всего два — остальные слоты пропадают впустую, потому
  * что округа и так полна.
  */
-export const LAIR_SPAWN_MIN = 20 * MIN;
-export const LAIR_SPAWN_MAX = 40 * MIN;
+export const LAIR_SPAWN_MIN = worldDays(20);
+export const LAIR_SPAWN_MAX = worldDays(40);
 /**
  * Сколько живых логов бывает в округе игрока (`AI_RANGE`) разом. Число не
  * выбрано, а посчитано: сколько логов генерация рассыпает вокруг дома, печатает
@@ -438,7 +443,7 @@ export const MARCH_SIGHT = 2;
  * (docs/AGENT_LIFE.md). Потерять насовсем нельзя место, а не человека: нанять можно
  * всегда.
  */
-export const FIGURE_DOWN = 10 * MIN;
+export const FIGURE_DOWN = realTime(10 * MIN);
 /**
  * На каком расстоянии фигура считается стоящей «вплотную»: у своего поселения
  * полководец забирает и возвращает гарнизон, у чужого — все действия фигур.
@@ -487,7 +492,7 @@ export const PERIL_SHARE = {
 /** Даль, с которой множитель расстояния упирается в свой потолок, клеток. */
 export const PERIL_FAR = 40;
 /** Сколько цель помнит заходы наших агентов — настоящее время. */
-export const PERIL_MEMORY = 3 * 60 * MIN;
+export const PERIL_MEMORY = realTime(3 * 60 * MIN);
 /** Сколько заходов за окно памяти делают память полной. */
 export const PERIL_MEMORY_FULL = 2;
 /**
@@ -520,9 +525,9 @@ export const GENERAL_ROUT_MORALE = -4;
 // ---------- Переговоры ----------
 
 /** Сколько держится подписанный договор. */
-export const DEAL_DURATION = 40 * MIN;
+export const DEAL_DURATION = worldDays(40);
 /** Как часто дань и торговля приносят своё. */
-export const DEAL_PAYOUT = 5 * MIN;
+export const DEAL_PAYOUT = worldDays(5);
 /**
  * Сколько платит племя за одну выплату. Считается от числа его поселений, а не
  * от расстояния: платит племя, а не дорога, и большое племя платит больше.
@@ -653,14 +658,14 @@ export const SUPPORT_ATTITUDE = 14;
 export const PEACE_PER_POP = 1.1;
 
 /** Сколько держится пакт. */
-export const PACT_DURATION = 45 * MIN;
+export const PACT_DURATION = worldDays(45);
 /**
  * Сутки предупреждения перед разрывом пакта. Игровые сутки племени идут за
  * `DAY_LENGTH`, но заметность важнее буквы: удар из-за подписанной бумаги
  * должен быть решением, а не кнопкой, и пять минут — то время, за которое игрок успевает
  * увести дипломата и понять, что он сделал. Пока идёт отсчёт, пакт ещё в силе.
  */
-export const PACT_BREAK_NOTICE = 5 * MIN;
+export const PACT_BREAK_NOTICE = realTime(5 * MIN);
 
 /**
  * Ширина вилки согласия: насколько выше порога характера должно быть отношение,
@@ -673,11 +678,11 @@ export const PEACE_SPAN = 55;
 export const PEACE_PRESSURE = 0.5;
 
 /** Сколько дипломат занят после приказа. Приказы конкурируют за его время. */
-export const ORDER_BUSY_GIFT = 3 * MIN;
-export const ORDER_BUSY_INSULT = 1 * MIN;
-export const ORDER_BUSY_PACT = 4 * MIN;
-export const ORDER_BUSY_WAR = 2 * MIN;
-export const ORDER_BUSY_PEACE = 4 * MIN;
+export const ORDER_BUSY_GIFT = realTime(3 * MIN);
+export const ORDER_BUSY_INSULT = realTime(1 * MIN);
+export const ORDER_BUSY_PACT = realTime(4 * MIN);
+export const ORDER_BUSY_WAR = realTime(2 * MIN);
+export const ORDER_BUSY_PEACE = realTime(4 * MIN);
 
 /**
  * Поведение ботов по отношению. Без этих трёх чисел дипломатия — кнопки без
@@ -739,13 +744,13 @@ export const SPY_SPREAD_MIN = 0.12;
 export const SPY_SPREAD_MAX = 0.4;
 
 /** Сколько лазутчик занят после удачного дела и сколько — после провала. */
-export const SPY_BUSY = 2 * MIN;
+export const SPY_BUSY = realTime(2 * MIN);
 /**
  * Задержание. Оно и есть цена провала вместо гибели, поэтому должно быть
  * заметным — но не таким, чтобы вечер уходил на ожидание: при восьми минутах
  * три провала подряд запирали лазутчика на полчаса.
  */
-export const SPY_HELD = 6 * MIN;
+export const SPY_HELD = realTime(6 * MIN);
 /**
   * Насколько падает отношение цели, когда лазутчика поймали. Считано от того,
   * сколько провалов в среднем случается до удачи: два-три провала обязаны быть
@@ -764,7 +769,7 @@ export const SPY_SLIP_ATTITUDE = -3;
  * Бунт. Смысл приказа — подготовка к нападению, поэтому окно должно быть
  * заметно длиннее дороги полководца (минуты), но не бесконечным.
  */
-export const REVOLT_DURATION = 180 * MIN;
+export const REVOLT_DURATION = ownerTime(180 * MIN, 'срок из лестницы трёх настоящих сроков мира, а держит он часы двора — хозяйство');
 /** Насколько просел гарнизон, пока идёт бунт. */
 export const REVOLT_POWER_LOSS = 0.3;
 
@@ -776,14 +781,14 @@ export const REVOLT_POWER_LOSS = 0.3;
 // бой — они на дороге, и это цена решения.
 
 /** Сколько занимает сам сбор, независимо от числа людей. */
-export const HANDOVER_BASE = 60_000;
+export const HANDOVER_BASE = realTime(60_000);
 /** Сколько прибавляет каждый переходящий боец. */
 export const HANDOVER_PER_MAN = 1_500;
 /**
  * Дольше этого сбор не длится: ждать дружину в сотни бойцов по `HANDOVER_PER_MAN`
  * на каждого — не игра.
  */
-export const HANDOVER_MAX = 6 * MIN;
+export const HANDOVER_MAX = realTime(6 * MIN);
 
 // ---------- Письма ----------
 //
@@ -821,7 +826,7 @@ export const LETTER_SLOTS = 5;
  * Поднимешь срок, не тронув паузу, — стол начнёт вытеснять письма задолго до
  * того, как они истекут, и обещанные сутки станут словами.
  */
-export const LETTER_TTL = 24 * 60 * MIN;
+export const LETTER_TTL = realTime(24 * 60 * MIN);
 
 /**
  * Через сколько приходит следующее письмо.
@@ -840,8 +845,8 @@ export const LETTER_TTL = 24 * 60 * MIN;
  * а во время игры столбик наполняет второй, свой канал — предупреждения о
  * набегах.
  */
-export const LETTER_PAUSE_MIN = 6 * 60 * MIN;
-export const LETTER_PAUSE_MAX = 10 * 60 * MIN;
+export const LETTER_PAUSE_MIN = realTime(6 * 60 * MIN);
+export const LETTER_PAUSE_MAX = realTime(10 * 60 * MIN);
 
 /**
  * Насколько молчание хуже отказа. Отказ — это ответ, и сосед его засчитывает;
@@ -927,7 +932,7 @@ export const SIEGE_EAT_FLOOR = 1;
  * города, которому ещё нечего есть, — то есть повторить исход, не дав игроку
  * ни одного решения между ними.
  */
-export const SIEGE_IMMUNE = 45 * MIN;
+export const SIEGE_IMMUNE = worldDays(45);
 
 /**
  * Какая доля гарнизона рассеивается, когда город пал. Не весь: люди с оружием
@@ -973,7 +978,7 @@ export const BURN_LEVELS = 2;
  * сутки можно. Устроено тем же приёмом, что `SIEGE_IMMUNE`: отметка в сохранении мира
  * и чистая проверка (`spoils.burnImmune`).
  */
-export const BURN_IMMUNE = 24 * 60 * MIN;
+export const BURN_IMMUNE = ownerTime(24 * 60 * MIN, 'сутки защиты и знак участи на карте: виден между заходами, а защищает хозяйство');
 
 /**
  * Сколько держится знак павшего города на карте (`SettlementView.fell`). Сутки — и
@@ -1001,7 +1006,7 @@ export const FALL_MARK = BURN_IMMUNE;
  * развитая деревня видела бы осаду вместо набега почти всегда, и набег как
  * событие исчез бы. Число меряное — `npm run siege:report`, раздел «частота».
  */
-export const SIEGE_COOLDOWN = 60 * MIN;
+export const SIEGE_COOLDOWN = worldDays(60);
 
 /**
  * Какая доля подошедших отрядов, для которых штурм безнадёжен, садится в осаду.
@@ -1052,7 +1057,7 @@ export const SIEGE_TOWN_EAT_MAN = 1;
  * Круче сделать — правка одного числа; мягче после того, как люди обожглись, —
  * уже нет. Кривая — `npm run siege:report`, раздел «укрепления».
  */
-export const CAMP_WORKS_RIPE = 28 * MIN;
+export const CAMP_WORKS_RIPE = worldDays(28);
 
 /**
  * Древесина лагеря: сколько сторон укреплений отряд достраивает за
@@ -1124,14 +1129,14 @@ export const CAMP_WORKS_PASS = 0.4;
  * пропорциональна прошедшему и говорится игроку словами — «люди ещё в проходе,
  * свободно через N мин».
  */
-export const CAMP_GATE_CLEAR = 10 * MIN;
+export const CAMP_GATE_CLEAR = worldDays(10);
 
 /**
  * Через сколько после начала осады осаждённый бот решает, делать ли вылазку.
  * Ровно один раз за осаду и в назначенный момент: своего тика у ботов здесь
  * нет, событие выводится из времени начала окна.
  */
-export const SIEGE_SORTIE_AT = 4 * MIN;
+export const SIEGE_SORTIE_AT = worldDays(4);
 
 /**
  * При каком отношении сил бот выходит на вылазку: бойцы строя гарнизона,
@@ -1151,7 +1156,7 @@ export const SIEGE_SORTIE_RATIO = 1.25;
  * Через сколько после начала осады соседи осаждённого решают, идти ли на
  * выручку. Позже вылазки нарочно: сперва город пробует сам.
  */
-export const SIEGE_RELIEF_AT = 7 * MIN;
+export const SIEGE_RELIEF_AT = worldDays(7);
 
 /**
  * Насколько хорошо сосед должен относиться к осаждённому, чтобы пойти на его
@@ -1172,8 +1177,8 @@ export const SIEGE_RELIEF_RANGE = 18;
  * этим воспользоваться: у осаждённого двора слабый гарнизон, а лагерь под его
  * стенами — цель, до которой можно дойти полководцем.
  */
-export const AI_WAR_MIN = 14 * MIN;
-export const AI_WAR_MAX = 32 * MIN;
+export const AI_WAR_MIN = worldDays(14);
+export const AI_WAR_MAX = worldDays(32);
 /** Дальше этого соседи друг к другу не ходят. */
 export const AI_WAR_RANGE = 14;
 /** Какую долю мощи двор отправляет на соседа. */
@@ -1202,7 +1207,7 @@ export const AI_WAR_SHARE = 0.4;
  * И не хватает, чтобы пережить ночь: к утру округа отстроилась, и карта не
  * копит мёртвые дворы месяцами.
  */
-export const SACK_DURATION = 4 * HOUR;
+export const SACK_DURATION = ownerTime(4 * HOUR, 'срок из лестницы трёх настоящих сроков мира, а держит он часы двора — хозяйство');
 
 /**
  * Насколько просела мощь разорённого поселения. Это **сверх** разбитого в бою

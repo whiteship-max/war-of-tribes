@@ -95,6 +95,8 @@ describe('земля и расселение собираются серверн
     for (const door of DOORS) for (const f of closureOf(join(process.cwd(), door)).files) all.add(f);
     const names = [...all].map((f) => f.slice(ROOT.length + 1).replace(/\\/g, '/')).sort();
     expect(names).toEqual([
+      // Дверь времени: `tuning.ts` объявляет через неё классы своих сроков. Без импортов, как и `time.ts`.
+      'game/pace.ts',
       'game/sim/random.ts',
       // Единицы времени в мс (`tuning.ts` берёт минуту и час): модуль без единого импорта.
       'game/time.ts',

@@ -6,6 +6,7 @@
 // уровня агента, ровно тем, что запрещает `agents.owners.test.ts` в обратную сторону.
 import type { BuildingTypeId } from '../types';
 import type { FigureId } from '@/world/types';
+import { gameSec } from '../pace';
 
 /**
  * Где нанимают: разведчика и лазутчика — в Дозоре, дипломата — в Храме, полководца —
@@ -27,7 +28,7 @@ export const HIRE_AT: Readonly<Record<FigureId, BuildingTypeId>> = {
 export const HIRE_GOLD_PER_POP = 2;
 
 /** Сколько идёт найм при здании первого уровня, игровых секунд. Уровень его ускоряет. */
-export const HIRE_SECONDS = 20 * 60;
+export const HIRE_SECONDS = gameSec(20 * 60);
 
 /**
  * На сколько лет моложе приходит новичок за каждый уровень здания сверх первого: на

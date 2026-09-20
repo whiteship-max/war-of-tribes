@@ -16,7 +16,7 @@ import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { kindsOf, troopTotal } from '@/game/battle/kinds';
-import { formatLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { profileCity } from '@/profile/identity';
@@ -30,6 +30,7 @@ import { bondedWord, townsWord } from '@/game/data/order';
 import { recruitRate } from '@/game/derived';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import { waitShort } from '../parts/wait';
+import { asGame } from '@/game/pace';
 
 const byLevels = (n: number): string => `по ${n} ${plural(n, 'уровню', 'уровня', 'уровней')}`;
 const goodsAndGold = (f: FallForecast): string => `${f.goods} добра${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
@@ -70,7 +71,7 @@ function HireClubmen() {
   const barracks = s.buildings.find((b) => b.type === 'barracks');
   const rate = recruitRate(s, 'clubman');
   if (!barracks || rate <= 0) return null;
-  const seconds = Math.max(1, Math.ceil(TROOP_BY_ID.clubman.work / rate));
+  const seconds = asGame(Math.max(1, Math.ceil(TROOP_BY_ID.clubman.work / rate)));
   return (
     <>
       <p className="note">Наймите дубинщиков: казармы учат одного за {waitShort(seconds)}, и с ними можно выйти на вылазку.</p>
@@ -180,7 +181,7 @@ export function SiegePanel() {
                 {SIDE_NAME[side]}: {sideReady(t, now)}
               </span>
               <span className="val">
-                {t.room >= 1 ? `пройдут ${t.room < Infinity ? t.room : 'все'}` : `свободно через ${formatLeft(t.waitMs / 1000)}`}
+                {t.room >= 1 ? `пройдут ${t.room < Infinity ? t.room : 'все'}` : `свободно через ${realLeft(t.waitMs / 1000)}`}
               </span>
             </div>
           );

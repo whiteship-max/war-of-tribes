@@ -10,12 +10,11 @@ import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
 import { agentLevel, ageOf, personName, yearsOf } from '@/game/sim/agents';
 import { hireAgent, hireInfo } from '@/game/sim/hire';
 import { FIGURE_BY_ID } from '@/world/data/figures';
-import { formatLeft } from '@/world/geo';
+import { realLeft, waitLeft } from '@/ui/parts/wait';
 import type { FigureId } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from './Cost';
 import { count } from './plural';
-import { realSeconds } from '@/game/pace';
 
 function Place({ id }: { id: FigureId }) {
   const s = useGame((g) => g.s);
@@ -58,7 +57,7 @@ function Place({ id }: { id: FigureId }) {
             придёт {p.hiring.name ?? 'новичок'}, {count(Math.floor(p.hiring.age0), 'год', 'года', 'лет')}
           </em>
         </span>
-        <span className="val">{formatLeft(info.left)}</span>
+        <span className="val">{realLeft(info.left)}</span>
       </div>
     );
   }
@@ -72,7 +71,7 @@ function Place({ id }: { id: FigureId }) {
         <span className="name">
           {def.name}: место пустует
           <em className="sub">
-            придёт за {formatLeft(realSeconds(info.seconds))} ({count(Math.round(info.seconds / DAY_LENGTH), 'игровой день', 'игровых дня', 'игровых дней')}),{' '}
+            придёт за {waitLeft(info.seconds)} ({count(Math.round(info.seconds / DAY_LENGTH), 'игровой день', 'игровых дня', 'игровых дней')}),{' '}
             {count(Math.floor(info.age0), 'год', 'года', 'лет')}, с первого уровня
           </em>
         </span>
@@ -102,7 +101,7 @@ export function AgentPlaces({ ids }: { ids: FigureId[] }) {
       <div className="note">
         Погибший или ушедший на покой не возвращается — место нанимают заново, и новичок
         начинает с первого уровня. {info.building} {info.level} ур.: найм идёт{' '}
-        {formatLeft(realSeconds(info.seconds))}, новичку {count(Math.floor(info.age0), 'год', 'года', 'лет')}; выше уровень — быстрее
+        {waitLeft(info.seconds)}, новичку {count(Math.floor(info.age0), 'год', 'года', 'лет')}; выше уровень — быстрее
         и моложе.
       </div>
     </>

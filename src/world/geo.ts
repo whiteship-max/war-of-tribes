@@ -6,6 +6,7 @@ import { TERRAIN_ORDER } from './data/terrain';
 import { stackSpeed } from './data/units';
 import { cellCost, terrainAt } from './geography';
 import { MARCH_MIN_SECONDS, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
+import type { RealSecArg } from '../game/pace';
 
 /**
  * Потолок числа замеров на один путь. Он не про баланс, а про то, чтобы поход
@@ -124,7 +125,7 @@ export function marchPosition(m: Pick<MarchView, 'from' | 'to' | 'departAt' | 'a
 export const secondsLeft = (arriveAt: number, now: number): number => Math.max(0, (arriveAt - now) / 1000);
 
 /** «4:07» — время в интерфейсе всегда в таком виде. */
-export function formatLeft(seconds: number): string {
+export function formatLeft(seconds: RealSecArg): string {
   const s = Math.max(0, Math.ceil(seconds));
   if (s >= 3600) {
     const h = Math.floor(s / 3600);

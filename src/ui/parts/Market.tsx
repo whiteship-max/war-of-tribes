@@ -19,6 +19,7 @@ import {
 import { marketCheck, saleCheck } from '@/game/sim/market';
 import { buyGoods, cancelCaravan, sellBonded } from '@/game/sim/actions';
 import { waitShort } from './wait';
+import { asGame } from '@/game/pace';
 
 /**
  * Рынок: за золото сюда привозят чужое добро.
@@ -39,7 +40,7 @@ export function Market() {
   return (
     <>
       <h3>
-        Казна <span className="muted">караван идёт ~{waitShort(Math.round(caravanSeconds(s)))}</span>
+        Казна <span className="muted">караван идёт ~{waitShort(caravanSeconds(s))}</span>
       </h3>
       <div className="mod total">
         <span className="ico">💰</span>
@@ -77,7 +78,7 @@ function Caravans() {
       {s.caravans.map((c) => {
         const def = GOOD_BY_ID[c.good];
         const pct = Math.round(caravanProgress(s, c) * 100);
-        const left = Math.max(0, Math.ceil(c.arriveAt - s.time));
+        const left = asGame(Math.max(0, Math.ceil(c.arriveAt - s.time)));
         return (
           <div className="card" key={c.id}>
             <div className="ico">{def?.icon ?? '📦'}</div>

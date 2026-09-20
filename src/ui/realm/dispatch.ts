@@ -20,6 +20,7 @@ import type { ActiveEvent } from '@/game/types';
 import type { LetterView } from '@/world/types';
 import type { Price } from '@/ui/parts/Cost';
 import { eventKey, letterKey } from './unread';
+import { realDue } from '@/ui/parts/wait';
 
 export interface DispatchChoice {
   /** Номер варианта у события, «yes» / «no» у письма. */
@@ -135,12 +136,4 @@ export function dispatches(s: GameState, letters: LetterView[], now: { tribe: nu
 }
 
 /** Срок словами: часы с минутами, пока их больше часа, потом минуты с секундами. */
-export function leftWords(seconds: number): string {
-  const t = Math.max(0, Math.ceil(seconds));
-  if (t >= 3600) {
-    const h = Math.floor(t / 3600);
-    const m = Math.floor((t % 3600) / 60);
-    return `${h} ч ${String(m).padStart(2, '0')} мин`;
-  }
-  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-}
+export const leftWords = realDue;

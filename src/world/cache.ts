@@ -4,6 +4,7 @@
 import type { Rect, RegionChunk, SettlementView, Terrain } from './types';
 import { CHUNK, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
 import { TERRAIN_ORDER } from './data/terrain';
+import { realTime } from '../game/pace';
 
 export interface CachedChunk extends RegionChunk {
   key: string;
@@ -11,7 +12,7 @@ export interface CachedChunk extends RegionChunk {
 }
 
 /** Через сколько кусок перезапрашивают: у соседей меняются стадия и отношение. */
-export const CHUNK_TTL = 45_000;
+export const CHUNK_TTL = realTime(45_000);
 
 const chunks = new Map<string, CachedChunk>();
 const pending = new Set<string>();

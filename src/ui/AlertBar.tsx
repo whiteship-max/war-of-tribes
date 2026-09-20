@@ -4,7 +4,8 @@ import { alerts, buildingOfType, mutinyAnswerLeft } from '@/game/derived';
 import { MUTINY_EVENT, ORDER_TEXT } from '@/game/data/order';
 import { tutorialActive } from '@/game/data/tutorial';
 import { incomingMarches, useWorld, worldNow } from '@/world/store';
-import { formatLeft, secondsLeft } from '@/world/geo';
+import { secondsLeft } from '@/world/geo';
+import { realLeft, waitLeft } from '@/ui/parts/wait';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
@@ -15,7 +16,6 @@ import { iconName } from '@/ui/icons/registry';
 import { useLockWords } from '@/ui/parts/defenseLock';
 import { useRealm } from '@/ui/realm/open';
 import { eventKey } from '@/ui/realm/unread';
-import { realSeconds } from '@/game/pace';
 
 /**
  * Критические состояния всплывают поверх любого экрана: голод, остывший очаг и
@@ -81,7 +81,7 @@ export function AlertBar() {
         <button key="mutiny" className="alert raid" onClick={() => openMail(eventKey(mutiny))}>
           <span className="ic">{ORDER_TEXT.mutiny.icon}</span>
           <span className="txt">
-            {ORDER_TEXT.mutiny.title} — ответ в «Решениях» · {formatLeft(realSeconds(mutinyLeft))}
+            {ORDER_TEXT.mutiny.title} — ответ в «Решениях» · {waitLeft(mutinyLeft)}
           </span>
         </button>
       )}
@@ -94,7 +94,7 @@ export function AlertBar() {
               <Icon name={lock.frozen ? 'alert-locked' : 'alert-raid'} glyph={lock.frozen ? '🔒' : '⚔️'} />
             </span>
             <span className="txt">
-              Набег: {m.fromName} · {formatLeft(secondsLeft(m.arriveAt, worldNow()))}
+              Набег: {m.fromName} · {realLeft(secondsLeft(m.arriveAt, worldNow()))}
               {lock.short ? ` · ${lock.short}` : ''}
             </span>
           </button>

@@ -19,7 +19,8 @@ import { FATE_META } from '@/world/data/fates';
 import { FATE_DEFAULT } from '@/world/spoils';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
-import { distance, formatCoord, formatLeft, secondsLeft } from '@/world/geo';
+import { distance, formatCoord, secondsLeft } from '@/world/geo';
+import { realLeft } from '@/ui/parts/wait';
 import { perilShare, perilText, routPeril } from '@/world/peril';
 import { personName } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
@@ -155,11 +156,11 @@ export function ActionMenu() {
             </div>
             {diplo.standing === 'pact' && diplo.breakAt > 0 && (
               <div className="am-warn">
-                Разрыв объявлен: война через {formatLeft(secondsLeft(diplo.breakAt, worldNow()))}.
+                Разрыв объявлен: война через {realLeft(secondsLeft(diplo.breakAt, worldNow()))}.
               </div>
             )}
             {diplo.standing === 'pact' && diplo.breakAt === 0 && diplo.until > 0 && (
-              <div className="am-note">Пакт держится ещё {formatLeft(secondsLeft(diplo.until, worldNow()))}.</div>
+              <div className="am-note">Пакт держится ещё {realLeft(secondsLeft(diplo.until, worldNow()))}.</div>
             )}
             <div className="am-note">
               Владелец — {card.owner ?? 'никто'}, племя{' '}
@@ -178,7 +179,7 @@ export function ActionMenu() {
               </div>
               <div className="am-note">
                 Идут от {menu.march.fromName} к {menu.march.toName}; им идти{' '}
-                {formatLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
+                {realLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
               </div>
             </div>
             {menu.agent === 'general' ? (
@@ -199,7 +200,7 @@ export function ActionMenu() {
                   <i>
                     {menu.plan
                       ? menu.plan.can
-                        ? `Встреча на ${formatCoord(menu.plan.at ?? { x: 0, y: 0 })} через ${formatLeft(menu.plan.seconds)}.`
+                        ? `Встреча на ${formatCoord(menu.plan.at ?? { x: 0, y: 0 })} через ${realLeft(menu.plan.seconds)}.`
                         : menu.plan.reason
                       : 'Считаем встречу…'}
                   </i>
@@ -208,8 +209,8 @@ export function ActionMenu() {
                       <span className="am-chance">
                         📍 {formatCoord(menu.plan.at ?? { x: 0, y: 0 })}
                       </span>
-                      <span className="am-time">⏳ {formatLeft(menu.plan.seconds)}</span>
-                      <span className="am-risk">им идти {formatLeft(menu.plan.targetSeconds)}</span>
+                      <span className="am-time">⏳ {realLeft(menu.plan.seconds)}</span>
+                      <span className="am-risk">им идти {realLeft(menu.plan.targetSeconds)}</span>
                     </em>
                   )}
                   {menu.plan?.can && menu.plan.at && <i className="am-risk">{routLine(menu.plan.at)}</i>}
@@ -228,7 +229,7 @@ export function ActionMenu() {
           <div className="am-revolt">
             🔥 В поселении бунт: работы встали, гарнизон слабее на{' '}
             {Math.round(card.revolt.power * 100)}%. Осталось{' '}
-            {formatLeft(secondsLeft(card.revolt.until, worldNow()))}.
+            {realLeft(secondsLeft(card.revolt.until, worldNow()))}.
           </div>
         )}
 
@@ -253,7 +254,7 @@ export function ActionMenu() {
                   <i>{o.can ? a.description : o.reason}</i>
                   <em>
                     {chance && <span className="am-chance">{chance}</span>}
-                    <span className="am-time">⏳ {formatLeft(o.seconds)}</span>
+                    <span className="am-time">⏳ {realLeft(o.seconds)}</span>
                     {!isPaid(o.cost) && <span className="am-free">даром</span>}
                     {menu.agent === 'spy' && o.peril !== null && (
                       // Два числа раздельно: удастся ли дело — выше, уцелеет ли лазутчик —
@@ -264,7 +265,7 @@ export function ActionMenu() {
                       // Цена лазутчика — не добро, а риск, и она обязана стоять
                       // рядом с шансом, а не прятаться в описании. Срок — тот, каким
                       // мир задержит: черта «Отлёживается» его удлиняет.
-                      <span className="am-risk">провал: задержат на {formatLeft(o.held)}</span>
+                      <span className="am-risk">провал: задержат на {realLeft(o.held)}</span>
                     )}
                   </em>
                   {o.perilWhy.length > 0 && <i className="am-risk">{o.perilWhy.join(' · ')}</i>}
@@ -515,7 +516,7 @@ export function ActionMenu() {
                   : leavingCamp
                     ? CAMP_LEAVE
                     : menu.lead
-                      ? `Идти ${formatLeft(menu.lead.seconds)}.`
+                      ? `Идти ${realLeft(menu.lead.seconds)}.`
                       : 'Идти будет столько, сколько велит дорога.'}
             </i>
             {/* Разведчик у ворот с часовыми: схватят ли и погибнет ли — двумя числами, до

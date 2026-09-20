@@ -1,7 +1,7 @@
 // Главный шаг симуляции. Мутирует состояние на месте.
 import type { GameState } from '../types';
 import { DAY_LENGTH, MAX_OFFLINE_SECONDS, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
-import { gameSeconds } from '../pace';
+import { gameSec, gameSeconds, realSec } from '../pace';
 import {
   buildRate,
   currentSite,
@@ -156,7 +156,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): string |
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
   const target = moraleTarget(s);
-  const speed = (dt / 20) * (s.freezing > 0 ? 2 : 1); // ~20 сек до заметного сдвига
+  const speed = (dt / MORALE_SETTLE) * (s.freezing > 0 ? 2 : 1);
   s.morale += (target - s.morale) * Math.min(1, speed);
   // Указ и рацион двигают мораль не целью, а прямо: ровно столько в игровой день,
   // сколько написано на кнопке в ратуше.
@@ -256,14 +256,16 @@ export function catchUp(s: GameState, seconds: number, step = 1): void {
   }
 }
 
+/** За сколько мораль заметно сдвигается к цели, игровых секунд. */
+export const MORALE_SETTLE = gameSec(20);
 /** Шаг догона офлайна, игровых секунд. */
-export const CATCHUP_STEP = 2;
+export const CATCHUP_STEP = gameSec(2);
 /**
  * Дольше этого между двумя шагами живой игры, настоящих секунд, — уже не шаг, а отлучка: таймер
  * страницы стоял (вкладка в фоне, свёрнутое вебвью, уснувший телефон), и игрока при этом не было.
  * То же число, с которого вход в игру считает отлучку догоном (`save.loadGame`).
  */
-export const AWAY_AFTER = 5;
+export const AWAY_AFTER = realSec(5);
 
 /** Сколько догонять за отлучку с `since` по `now` (настоящие мс), **настоящих секунд**, под потолком. */
 export const awaySeconds = (since: number, now: number): number =>

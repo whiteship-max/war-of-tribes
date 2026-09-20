@@ -84,6 +84,7 @@ import { AI_BONDED_SHARE, LAIR_ANCHOR_FAR, LAIR_RIPE } from '@/world/data/tuning
 import { lairPower, lairRaid } from '@/world/lairs';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { PlayerProfile, SettlementView } from '@/world/types';
+import { gameDaysPerHour } from '@/game/pace';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -373,13 +374,13 @@ console.log(' ур посёлка   казна/ч при высоком нало
 for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
   const s = stage(level);
   s.tax = 'high';
-  const goldHour = taxIncomePerDay(s) * (3600 / DAY_LENGTH);
+  const goldHour = taxIncomePerDay(s) * gameDaysPerHour();
   const market = buildingOfType(s, 'market')!.level;
   const stock = goodStock(BONDED_GOOD, market);
   const perDay = batchCost(BONDED_GOOD, market, 0, stock);
   // Сколько купит за час, если тратить весь сбор на невольников и брать дневной
   // запас целиком по нарастающей цене.
-  const days = 3600 / DAY_LENGTH;
+  const days = gameDaysPerHour();
   const affordDays = Math.min(days, goldHour / Math.max(1, perDay));
   console.log(
     `  ${pad(level, 10)}   ${pad(Math.round(goldHour), 26)}   ${pad(Math.round(affordDays * stock), 12)}   ${pad(days * stock, 18)}`,

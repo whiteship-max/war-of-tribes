@@ -31,6 +31,7 @@ import type {
   TribeId,
   UnitStack,
 } from '../types';
+import { FIRST_RAID_AFTER, FIRST_WAR_AFTER } from '../data/tuning';
 
 /**
  * Версия 8 — **дом ставит не сид, а общий реестр**. Где стоит замок игрока,
@@ -543,7 +544,7 @@ export function createWorldSave(
     looted: {},
     diplomacy: {},
     allyTribe,
-    nextAiAt: now + 10 * 60_000,
+    nextAiAt: now + FIRST_RAID_AFTER,
     effects: [],
     profile: null,
     frozenDefense: null,
@@ -564,7 +565,7 @@ export function createWorldSave(
     burnImmune: {},
     falls: {},
     siegeAgainAt: {},
-    nextWarAt: now + 12 * 60_000,
+    nextWarAt: now + FIRST_WAR_AFTER,
     nextWar: 1,
     letters: [],
     nextLetter: 1,

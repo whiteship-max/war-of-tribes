@@ -14,6 +14,7 @@ import { SURVEY_MAX, surveyStep, type SurveyStep } from '../data/survey';
 import { buildingOfType, canAfford, faithTilt } from '../derived';
 import { log } from './log';
 import { pay, refund } from './pay';
+import { asGame, type GameSec } from '../pace';
 
 export interface SurveyInfo {
   /** Сколько ступеней уже изучено. */
@@ -23,7 +24,7 @@ export interface SurveyInfo {
   /** Ступень, которая изучается прямо сейчас. null — Дозор свободен. */
   running: SurveyStep | null;
   /** Секунд до конца текущей ступени. 0 — не идёт. */
-  left: number;
+  left: GameSec;
   /** Доля пройденного, 0..1. */
   progress: number;
   /** Уровень Дозора: он же потолок ступени. */
@@ -66,7 +67,7 @@ export function surveyInfo(s: GameState): SurveyInfo {
     done,
     next,
     running,
-    left,
+    left: asGame(left),
     progress: running ? Math.max(0, Math.min(1, (s.time - st.startedAt) / span)) : 0,
     level,
     learning: Math.max(0.1, faithTilt(s).learning),
@@ -80,8 +81,8 @@ export function surveyInfo(s: GameState): SurveyInfo {
  * от веры. Одна формула на постановку ступени и на панель Дозора — прежде панель
  * писала срок без веры, и у мечети десятого уровня обещала 90 с там, где ставилось 62.
  */
-export const surveySeconds = (step: SurveyStep, learning: number): number =>
-  Math.max(1, Math.round(step.seconds / learning));
+export const surveySeconds = (step: SurveyStep, learning: number): GameSec =>
+  asGame(Math.max(1, Math.round(step.seconds / learning)));
 
 /** Ставит следующую ступень в работу. Плата снимается сразу — как за стройку. */
 export function startSurvey(s: GameState): string | null {

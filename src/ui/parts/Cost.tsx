@@ -4,6 +4,7 @@ import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
+import type { GameSec } from '@/game/pace';
 
 /** Чем можно расплатиться: склад плюс казна. Золото — не ресурс, но цена бывает и в нём. */
 export type Price = Partial<Record<ResourceId | 'gold', number>>;
@@ -13,7 +14,8 @@ interface Props {
   /** Работа строителей — показываем рядом с ценой. */
   work?: number;
   /** Оценка времени в секундах при нынешнем числе строителей. null — строить некому. */
-  eta?: number | null;
+  /** Срок в игровых секундах: стройка, ковка, изучение идут часами племени. */
+  eta?: GameSec | null;
   /**
    * Ещё одна ячейка в том же ряду — например, спрос уровня на людей в списке
    * построек ратуши. Отдельной строкой она заняла бы место, а смысл у неё
