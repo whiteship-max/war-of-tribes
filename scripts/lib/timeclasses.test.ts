@@ -118,6 +118,35 @@ describe('классы величин времени: по исходникам'
     }
   });
 
+  /**
+   * Окна защиты игрока попарно различны.
+   *
+   * Это единственное, что прибор классов умеет сказать о **паре** величин, и сказать ему
+   * есть о чём: после поворота шкалы `SIEGE_IMMUNE` стал настоящими сутками — ровно тем же
+   * числом, что `BURN_IMMUNE`, — и оба ставятся от одной минуты падения. Равные окна значат,
+   * что длинное не значит ничего: у своего города второго падения внутри суток не бывало
+   * вовсе, и ступень «сжечь → ограбить» не спрашивалась ни разу (docs/time.md, раздел 18.3).
+   *
+   * Правило list-free: оно ничего не знает про `SIEGE_IMMUNE` и `BURN_IMMUNE` поимённо —
+   * берутся все величины, объявленные конструктором окна защиты. Чего оно не умеет: сказать,
+   * какое из окон должно быть длиннее. Это смысл ступени, а не объявление, и держит его
+   * `world/worldscale.test.ts` при боевой шкале.
+   */
+  it('окна защиты игрока попарно различны: равные накрывают друг друга', async () => {
+    const shields = timeConsts(ROOT).filter((c) => c.ctor === 'shieldTime');
+    // Точка внутри области: окон защиты в игре больше одного — иначе правило про пары пусто.
+    expect(shields.length, 'сколько окон защиты объявлено').toBeGreaterThan(1);
+    const { values } = await valuesAt(SCALE, shields);
+    const same: string[] = [];
+    for (let i = 0; i < shields.length; i++)
+      for (let j = i + 1; j < shields.length; j++) {
+        const a = values.get(`${shields[i].file}:${shields[i].name}`);
+        const b = values.get(`${shields[j].file}:${shields[j].name}`);
+        if (a !== undefined && a === b) same.push(`${shields[i].name} = ${shields[j].name} = ${a}`);
+      }
+    expect(same, 'два окна защиты с одним числом: длинное накрыто коротким').toEqual([]);
+  });
+
   it('у «решает владелец» вопрос назван словами', () => {
     const silent = all.filter((c) => c.cls === 'owner' && !(c.why && c.why.length > 10)).map((c) => c.name);
     expect(silent).toEqual([]);

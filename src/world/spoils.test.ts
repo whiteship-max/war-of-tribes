@@ -33,6 +33,7 @@ import { UNIT_BY_ID, stackEscort } from './data/units';
 import {
   AI_STASH_SHARE,
   BURN_IMMUNE,
+  SIEGE_IMMUNE,
   BURN_LEVELS,
   BURN_POP_SHARE,
   FALL_BUILDINGS,
@@ -934,16 +935,18 @@ describe('сожжение: горожане, невольники и побед
   });
 });
 
-describe('защита от цепочки: сожжённый город сутки не сжечь, а ограбить можно', () => {
+describe('защита от цепочки: сожжённый город трое суток не сжечь, а ограбить можно', () => {
   const AT = START + 5 * 3_600_000;
 
-  it('срок — ровно сутки, и держится он до последней секунды', () => {
+  it('срок — ровно окно после сожжения, и держится он до последней секунды', () => {
     const until = burnImmuneUntil(AT);
     expect(until - AT).toBe(BURN_IMMUNE);
-    expect(BURN_IMMUNE).toBe(24 * 3_600_000);
-    const inside = [AT, AT + 1, AT + 3_600_000, AT + 12 * 3_600_000, until - 1000, until - 1];
+    // Число окна выведено отчётом и живёт у объявления; здесь — то, что оно длиннее окна
+    // после любого падения: иначе защита от цепочки накрыта им и не значит ничего.
+    expect(BURN_IMMUNE, 'защита после сожжения длиннее защиты после падения').toBeGreaterThan(SIEGE_IMMUNE);
+    const inside = [AT, AT + 1, AT + 3_600_000, AT + 12 * 3_600_000, AT + SIEGE_IMMUNE, until - 1000, until - 1];
     for (const t of inside) {
-      // Граница области: минута внутри суток.
+      // Граница области: минута внутри окна после сожжения.
       expect(burnImmune(until, t), `${(t - AT) / 1000} с`).toBe(true);
       expect(fateBlock('burn', 'player', until, t), `${(t - AT) / 1000} с: жечь`).not.toBeNull();
       expect(fateAt('burn', 'player', until, t), `${(t - AT) / 1000} с: падение`).toBe(FATE_DEFAULT);

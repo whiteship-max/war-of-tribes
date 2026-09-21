@@ -20,7 +20,7 @@ import {
   starvesAt,
   type SiegeWindow,
 } from './siege';
-import { AI_BONDED_SHARE, BURN_IMMUNE, FALL_BUILDINGS, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
+import { AI_ATTACK_MAX, AI_BONDED_SHARE, BURN_IMMUNE, FALL_BUILDINGS, SIEGE_CHANCE, SIEGE_COOLDOWN, SIEGE_IMMUNE, SIEGE_ROUT } from './data/tuning';
 import { FATE_DEFAULT, FATE_IDS, burnImmuneUntil, fallSeed, fate, lead } from './spoils';
 import { stackCarry, stackEscort } from './data/units';
 import { applyEffects, playerProfile, syncSiege } from './bridge';
@@ -43,7 +43,6 @@ import { shieldVillagers } from './lairs';
 const waitsForPlayers = it.skip;
 
 const START = 1_700_000_000_000;
-const MINUTE = 60_000;
 
 /** Мир с ручными часами и без сохранения: тесты не трогают localStorage. */
 function makeWorld(seed = 7) {
@@ -1113,8 +1112,13 @@ describe('участь взятого города в мире: казна и п
  */
 async function besiegeDeclaring(w: ReturnType<typeof makeWorld>, p: PlayerProfile, declared: Fate): Promise<WorldPulse> {
   const save = (w.world as unknown as { save: WorldSave }).save;
-  for (let i = 0; i < 4000; i++) {
-    w.advance(20_000);
+  // Горизонт выведен, а не написан числом: вторая осада ждёт окна защиты после падения,
+  // остывания осад и паузы между набегами. Литерал «4000 шагов» был верен при окне в сорок
+  // пять минут и молча упирался в потолок, когда окно стало сутками (docs/time.md, раздел 19).
+  const STEP = 20_000;
+  const span = SIEGE_IMMUNE + SIEGE_COOLDOWN + 2 * AI_ATTACK_MAX;
+  for (let i = 0; i < Math.ceil(span / STEP); i++) {
+    w.advance(STEP);
     for (const m of save.marches) if (!m.own && m.targetId === 'home' && m.phase === 'out') m.fate = declared;
     const pulse = await w.world.sync(p);
     if (pulse.siege) return pulse;
@@ -1189,7 +1193,14 @@ describe('лестница в мире: объявлено при приказе
     }
   }, 240_000);
 
-  it('сожжённый город сутки не трогают вовсе: окно защиты накрыло защиту от цепочки', async () => {
+  /**
+   * Понижение ступени внутри защиты от цепочки — сквозным путём. Случай этот был достижим,
+   * потом накрыт (окно после любого падения сравнялось с защитой от цепочки, и второго
+   * падения внутри суток не бывало вовсе), и снова стал достижим: окно после сожжения
+   * длиннее окна после падения, и между ними есть минуты, в которые вторая осада встаёт, а
+   * сжечь ещё нельзя (docs/time.md, раздел 19).
+   */
+  it('сожжённый город нельзя сжечь снова: следующая осада с тем же объявлением кончается грабежом', async () => {
     const s = besiegedTown();
     const p = besiegedProfile(s);
     const w = makeWorld(7);
@@ -1202,34 +1213,29 @@ describe('лестница в мире: объявлено при приказе
     const burned = await w.world.sync(p);
     const fell = burned.effects.find((e) => e.id.endsWith('-fell'))!;
     expect(fell.burned, 'первый раз — сожгли').toBe(true);
-    expect(save.burnImmune.home, 'защита на сутки от минуты пожара').toBe(burnImmuneUntil(firstAt));
+    expect(save.burnImmune.home, 'защита от цепочки — от минуты пожара').toBe(burnImmuneUntil(firstAt));
+    expect(save.siegeImmune.home, 'и окно после падения — от той же минуты').toBe(firstAt + SIEGE_IMMUNE);
 
-    // С пачки 5 окно защиты игрока — настоящие сутки, ровно как защита от цепочки, и оба
-    // ставятся от одной минуты (`spoils` выше по коду). Значит второго падения внутри суток
-    // не бывает **вовсе**: `scheduleAi` не выпускает набега, `sitsDown` не даёт сесть лагерем,
-    // и понижение ступени у своего города просто не успевает спроситься. Это и проверяется —
-    // не «второй раз ограбили», а «второго раза нет».
-    expect(SIEGE_IMMUNE, 'окно защиты не короче защиты от цепочки').toBeGreaterThanOrEqual(BURN_IMMUNE);
-    expect(save.siegeImmune.home, 'оба окна — от одной минуты').toBe(firstAt + SIEGE_IMMUNE);
+    // Область, где случай вообще есть: между двумя окнами. Пока стоит короткое, второй осады
+    // не бывает вовсе; пока стоит длинное — бывает, но сжечь уже нельзя.
+    expect(BURN_IMMUNE, 'точка внутри области: длинное окно длиннее короткого').toBeGreaterThan(SIEGE_IMMUNE);
 
-    // Граница области: идём по суткам после пожара и на каждом шаге стоим внутри обоих окон.
-    const until = firstAt + BURN_IMMUNE;
-    let steps = 0;
-    for (let t = firstAt + MINUTE; t < until; t += MINUTE) {
-      w.at(t);
-      const pulse = await w.world.sync(p);
-      expect(t, 'точка внутри суток после пожара').toBeLessThan(until);
-      expect(pulse.siege, `+${Math.round((t - firstAt) / MINUTE)} мин: второй осады нет`).toBeNull();
-      expect(pulse.effects.some((e) => e.id.endsWith('-fell')), `+${Math.round((t - firstAt) / MINUTE)} мин: второго падения нет`).toBe(false);
-      steps++;
-    }
-    expect(steps, 'точек внутри области').toBeGreaterThan(60);
-    // Защита не продлилась и не сдвинулась: срок тот же, от первого пожара.
+    const second = await besiegeDeclaring(w, p, 'burn');
+    const secondAt = Math.ceil(second.siege!.starvesAt);
+    expect(secondAt, 'вторая осада — после окна защиты').toBeGreaterThanOrEqual(firstAt + SIEGE_IMMUNE);
+    expect(secondAt, 'и внутри защиты от цепочки').toBeLessThan(firstAt + BURN_IMMUNE);
+    // Осаждённый видит не объявленное впустую, а то, что случится.
+    expect(second.siege!.fate).toBe(FATE_DEFAULT);
+    w.at(secondAt);
+    const robbed = await w.world.sync(p);
+    const again = robbed.effects.find((e) => e.id.endsWith('-fell'))!;
+    const report = robbed.reports.find((r) => r.id.endsWith('-fell'))!;
+    expect(again.burned, 'второй раз не сожгли').toBeUndefined();
+    expect(report.fallen!.length, 'пять построек, а не все').toBe(FALL_BUILDINGS);
+    expect(again.resources, 'а ограбили — можно').not.toEqual({});
+    // Защита не продлилась грабежом: срок тот же, от первого пожара.
     expect(save.burnImmune.home).toBe(burnImmuneUntil(firstAt));
-    // Само понижение ступени внутри суток держит чистая функция — `spoils.test.ts`,
-    // «защита от цепочки»: `fateAt('burn', …)` отдаёт грабёж. Стань окно защиты короче
-    // защиты от цепочки — этот путь снова станет достижимым, и сквозной случай сюда вернётся.
-  }, 240_000);
+  }, 600_000);
 
   it('логову сжечь не объявить ни осадой, ни ударом, ни заново у своего лагеря — а увести людей можно', async () => {
     const w = makeWorld(7);

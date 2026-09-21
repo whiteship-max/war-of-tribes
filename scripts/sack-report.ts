@@ -65,6 +65,8 @@ import {
   REVOLT_DURATION,
   SACK_DURATION,
   SACK_POWER_LOSS,
+  SIEGE_IMMUNE,
+  BURN_IMMUNE,
 } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
@@ -94,6 +96,8 @@ import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour } from '@/game/pace';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
+/** Сутки игрока: окна защиты меряются его временем, и округляются тоже ими. */
+const DAY = 24 * HOUR;
 const START = 1_700_000_000_000;
 const SEEDS = [7, 11, 42, 51, 77];
 const HOURS = Number(process.env.HOURS ?? 3);
@@ -575,7 +579,7 @@ const ladderRun = async (s: GameState, seconds: number, until?: (x: GameState) =
 };
 const levelSum = (s: GameState): number => s.buildings.reduce((n, b) => n + b.level, 0);
 
-type Blow = { stock: boolean; levels: boolean; morale: number; sacked?: number };
+type Blow = { stock: boolean; levels: boolean; morale: number; sacked?: number; fate?: Fate };
 
 /** Применить к копии участь взятого города — ту, что сейчас в игре, частями или целиком. */
 function strike(s: GameState, blow: Blow, seed: number): { fell: number; rebuild: number; narrow: number } {
@@ -583,7 +587,7 @@ function strike(s: GameState, blow: Blow, seed: number): { fell: number; rebuild
   // Чистая выработка до удара — ею и меряется отстройка: сколько минут копить узкий припас.
   const net = netPerDay(s);
   const r = fate({
-    fate: FATE_DEFAULT,
+    fate: blow.fate ?? FATE_DEFAULT,
     stock: blow.stock ? p.stock : {},
     gold: blow.stock ? (p.gold ?? 0) : 0,
     stash: p.stash,
@@ -712,6 +716,8 @@ type LadderRow = {
   fell: number[];
   rebuild: number[];
   narrow: number[];
+  /** Узкий припас на отстройку каждой ступени, минут чистой выработки: 'plunder' | 'captives' | 'burn'. */
+  stepNarrow: Record<Fate, number>;
   hunger: number | null;
   raid: number | null;
   steps: StepLoss[];
@@ -719,7 +725,11 @@ type LadderRow = {
 const ladder: LadderRow[] = [];
 {
   setRandom(seeded(1));
-  const base = createInitialState();
+  // Сид партии закреплён: с пачки 3 приход вестей — функция сида (`sim/mail.awayArrival`), а
+  // `createInitialState()` без довода берёт его у устройства. Два прогона на одном коде
+  // расходились рядами лестницы, и «СДВИНУЛСЯ» в приёмке частью был этим шумом — та же
+  // находка, что у `pop:report` (docs/time.md, раздел 16.10), только `sack` тогда не поправили.
+  const base = createInitialState(7);
   base.tutorialDone = true;
   let clock = 0;
   for (const h of LADDER_STAGES) {
@@ -758,6 +768,11 @@ const ladder: LadderRow[] = [];
       narrow: levels.map((x) => x.narrow),
       hunger: (await tryBlow({ stock: true, levels: true, morale: -12 }, fallSeed(1, stage * 1000))).lag,
       raid: (await tryBlow({ stock: true, levels: true, morale: -10, sacked: 1 }, fallSeed(1, stage * 1000))).lag,
+      // Последним полем нарочно: `strike` тратит общую кость, и замер, вставленный раньше,
+      // сдвинул бы числа лестницы, которые считаются до него. Следующий этап кость пересевает.
+      stepNarrow: Object.fromEntries(
+        FATE_IDS.map((f) => [f, strike(structuredClone(snap), { stock: false, levels: true, morale: 0, fate: f }, fallSeed(1, stage * 1000)).narrow]),
+      ) as Record<Fate, number>,
     });
   }
 }
@@ -843,4 +858,71 @@ console.log('');
 console.log(`  Лестница монотонна на всех этапах: ${ladderMonotone ? 'да' : 'НЕТ — смотри строки выше'}.`);
 console.log('  Невольников у автопилота нет — он их не покупает, — поэтому уведены только горожане.');
 console.log('  Казна у автопилота — то, что он не потратил: копившему игроку разница выше (таблица казны).');
+console.log('');
+// ------------------------------------------------- окна защиты после удара ---
+//
+// Два окна защиты игрока стоят от одной минуты падения: `SIEGE_IMMUNE` — после любого
+// падения, `BURN_IMMUNE` — после сожжения, и второе закрывает цепочку сожжений. Числа у
+// них были равны (настоящие сутки), и равенство это не выведенное, а совпавшее: сутки
+// взяли у почты — «время прийти и ответить», — а `BURN_IMMUNE` был сутками ещё до
+// поворота шкалы. Равные окна означают, что длинное не значит ничего: у своего города
+// второго падения внутри суток не бывает вовсе, и понижение «сжечь» до «ограбить» не
+// спрашивается никогда (docs/time.md, раздел 18.3).
+//
+// **Правило вывода: окно — отстройка снятого, округлённая вверх до суток игрока.** Мера
+// отстройки та же, какой её меряет лестница выше, — узкий припас, минут чистой выработки:
+// не сумма ресурсов, а то, чего не хватает дольше всего. Берётся наибольшее по этапам:
+// окно обязано покрывать отстройку везде, а не в среднем. Округление — до суток, потому
+// что окно меряется временем игрока, а не мира.
+//
+// **Правило проверяется на известной точке.** Окно после грабежа владелец назначил сам —
+// настоящие сутки, — и то же правило, приложенное к отстройке после грабежа, обязано дать
+// их же. Если не даёт, вывод неверен, и отчёт говорит это строкой.
+
+console.log('=== ОКНА ЗАЩИТЫ: СКОЛЬКО ГОРОД ОТСТРАИВАЕТСЯ ПОСЛЕ КАЖДОЙ СТУПЕНИ ===');
+console.log('Узкий припас, минут чистой выработки до удара — та же мера, что в лестнице выше.');
+console.log('У грабежа пять построек выбирает соль события: берётся медиана тех же пяти солей,');
+console.log('какими лестница мерит отставание. Сожжение соли не знает — оно снимает всем по два.');
+console.log('');
+console.log(' этап     ограбить, мин   сжечь, мин   сжечь/ограбить');
+const rebuildMin: Record<'plunder' | 'burn', number[]> = { plunder: [], burn: [] };
+for (const r of ladder) {
+  const base = median(r.narrow);
+  const burn = r.stepNarrow.burn;
+  if (base > 0) {
+    rebuildMin.plunder.push(base);
+    rebuildMin.burn.push(burn);
+  }
+  console.log(
+    `  ${pad(stageName(r.stage), 6)}  ${pad(base.toFixed(0), 13)}  ${pad(burn.toFixed(0), 11)}  ${pad(base > 0 ? `×${(burn / base).toFixed(1)}` : '—', 16)}`,
+  );
+}
+console.log('');
+/** Окно по правилу: наибольшая отстройка по этапам, округлённая вверх до суток игрока. */
+const windowOf = (mins: number[]): { hours: number; days: number } => {
+  const worst = mins.length > 0 ? Math.max(...mins) : 0;
+  const hours = worst / 60;
+  return { hours, days: Math.max(1, Math.ceil((hours * HOUR) / DAY)) };
+};
+const wPlunder = windowOf(rebuildMin.plunder);
+const wBurn = windowOf(rebuildMin.burn);
+console.log(
+  `  Наибольшая отстройка: после грабежа ${wPlunder.hours.toFixed(1)} ч, после сожжения ${wBurn.hours.toFixed(1)} ч.`,
+);
+console.log(
+  `  Правило даёт: окно после грабежа ${wPlunder.days} сут, окно после сожжения ${wBurn.days} сут (${(wBurn.days * DAY) / HOUR} ч).`,
+);
+const decided = Math.round(SIEGE_IMMUNE / DAY);
+console.log(
+  `  Проверка правила на известной точке: окно после грабежа назначено владельцем в ${decided} сут —` +
+    ` ${wPlunder.days === decided ? 'правило даёт их же' : 'ПРАВИЛО ИХ НЕ ДАЁТ, вывод неверен'}.`,
+);
+const want = wBurn.days * DAY;
+console.log(
+  `  В коде (data/tuning.BURN_IMMUNE): ${(BURN_IMMUNE / HOUR).toFixed(0)} ч` +
+    `${BURN_IMMUNE === want ? '' : ' — РАСХОДИТСЯ'}.`,
+);
+console.log('');
+console.log('  Окно после сожжения обязано быть длиннее окна после падения: иначе второе окно');
+console.log('  накрыто первым, и ступень «сжечь → ограбить» не спрашивается ни разу.');
 console.log('');
