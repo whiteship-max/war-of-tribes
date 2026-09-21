@@ -14,9 +14,16 @@
 // повороте шкалы; здесь сравнивают одно время с другим.
 import { describe, expect, it } from 'vitest';
 import { timeScale, realMs, DAY_LENGTH, gameDaysOfMs } from '@/game/pace';
+import { distance, terrainFactor, travelTime } from './geo';
+import { UNIT_BY_ID } from './data/units';
+import { FIGURE_BY_ID } from './data/figures';
+import { LocalWorld } from './local/LocalWorld';
+import type { PlayerProfile } from './types';
 import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
+  AI_RANGE,
+  MARCH_MIN_SECONDS,
   AI_WARNING_BASE,
   BURN_IMMUNE,
   CAMP_WORKS_RIPE,
@@ -122,5 +129,58 @@ describe('предупреждение о набеге против заморо
     expect(AI_WARNING_BASE, 'успеть решить до заморозки').toBeGreaterThan(DEFENSE_FREEZE);
     expect(days(AI_WARNING_BASE), 'ритм угрозы — семь игровых дней').toBeCloseTo(7, 6);
     expect(days(DEFENSE_FREEZE), 'заморозка — пять игровых дней').toBeCloseTo(5, 6);
+  });
+});
+
+describe('дорога против ритма угрозы', () => {
+  const START = 1_700_000_000_000;
+  const profile: PlayerProfile = {
+    name: 'Тест',
+    pop: 120,
+    defense: 30,
+    units: { warrior: 10, scout: 4 },
+    army: { spearman: 12 },
+    stock: { food: 120, wood: 80 },
+    stash: 0,
+  };
+
+  /**
+   * Решение владельца (docs/time.md, раздел 19): **поход идёт игровым временем**. Мерится он
+   * здесь не формулой, а самим миром: сколько мир кладёт между выходом и приходом. Это и есть
+   * то место, где путь превращался в часы мира мимо двери (`seconds * 1000`), — при дне в
+   * минуту разницы не видно вовсе, и проверка была бы зелёной даром.
+   */
+  it('мир кладёт на дорогу ровно то, что даёт дверь, — а не тридцатую долю', async () => {
+    let now = START;
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
+    const home = (await world.info()).home;
+    const to = { x: home.x + 9, y: home.y + 4 };
+    expect(await world.moveFigure('scout', to)).toBeNull();
+    const f = (await world.sync(profile)).figures.find((x) => x.id === 'scout')!;
+    const road = travelTime(distance(home, to), terrainFactor(7, home, to), FIGURE_BY_ID.scout.speed);
+    expect(road, 'точка внутри области: путь длиннее пола').toBeGreaterThan(MARCH_MIN_SECONDS);
+    expect(f.arriveAt - f.departAt, 'дорога в часах мира — через дверь').toBe(Math.round(realMs(road)));
+    // И она вправду длиннее самой себя в настоящих секундах: при дне в минуту это одно число.
+    expect(f.arriveAt - f.departAt, 'мимо двери вышло бы в тридцать раз меньше').toBeGreaterThan(road * 1000);
+  });
+
+  /**
+   * Ради этого отношения решение и принято: ритм угрозы объявлен в игровых днях, а дорога шла
+   * настоящими минутами — и после поворота шкалы игрок стал в тридцать раз быстрее собственной
+   * деревни. Теперь оба срока одни часы, и круг похода к самой дальней цели полководца
+   * укладывается в паузу между набегами.
+   */
+  it('круг похода к дальней цели короче паузы между набегами', () => {
+    const road = travelTime(AI_RANGE, 1, UNIT_BY_ID.warrior.speed);
+    expect(realMs(road) * 2, 'круг короче самой долгой паузы').toBeLessThan(AI_ATTACK_MAX);
+    expect(days(realMs(road) * 2), 'и он не пренебрежимо мал: дорога чего-то стоит').toBeGreaterThan(1);
+  });
+
+  /** Пол похода — пол у времени пути, и мерить его надо игровым днём, а не настоящей минутой. */
+  it('самый короткий поход — доля игрового дня, а не доля настоящей минуты', () => {
+    const near = travelTime(0.01, 1, UNIT_BY_ID.warrior.speed);
+    expect(near, 'точка внутри области: путь упёрся в пол').toBe(MARCH_MIN_SECONDS);
+    expect(near, 'пол короче игрового дня').toBeLessThan(DAY_LENGTH);
+    expect(realMs(near), 'но настоящей минуты он длиннее — игрок ждёт его своими часами').toBeGreaterThan(60_000);
   });
 });

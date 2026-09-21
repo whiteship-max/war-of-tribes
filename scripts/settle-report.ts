@@ -22,6 +22,7 @@ import { KM_PER_CELL } from '../src/world/atlas/project';
 import { MAINLAND_MIN, SETTLE_GAP, SETTLE_REACH } from '../src/world/data/tuning';
 import { TERRAIN_META } from '../src/world/data/terrain';
 import { UNIT_BY_ID } from '../src/world/data/units';
+import { asGame, dayRealSeconds, realSeconds, type GameSec } from '../src/game/pace';
 
 const counts = (process.env.PLAYERS ?? '2,5,20,50').split(',').map((s) => Number(s.trim()));
 const runs = Number(process.env.RUNS ?? '6');
@@ -29,9 +30,14 @@ const runs = Number(process.env.RUNS ?? '6');
 const rpad = (s: string, n: number): string => ' '.repeat(Math.max(0, n - s.length)) + s;
 const pad = (s: string, n: number): string => s + ' '.repeat(Math.max(0, n - s.length));
 
-/** «2 ч 05 м» или «7 м 30 с» — так же, как время читается в интерфейсе. */
-function span(seconds: number): string {
-  const s = Math.round(seconds);
+/**
+ * «2 ч 05 м» или «7 м 30 с» — так же, как время читается в интерфейсе.
+ *
+ * Время пути — игровое (`geo.travelTime`, решение владельца, docs/time.md, раздел 19), а
+ * ждёт его игрок своими часами: срок идёт через дверь.
+ */
+function span(gameSec: GameSec): string {
+  const s = Math.round(realSeconds(gameSec));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   if (h > 0) return `${h} ч ${String(m).padStart(2, '0')} м`;
@@ -51,8 +57,8 @@ interface Pair {
   to: Spot;
   cells: number;
   factor: number;
-  warrior: number;
-  scout: number;
+  warrior: GameSec;
+  scout: GameSec;
 }
 
 /** Один мир: сажаем `n` игроков подряд, как это делал бы сервер. */
@@ -95,7 +101,10 @@ console.log(
     ` не дальше ${SETTLE_REACH} (${(SETTLE_REACH * KM_PER_CELL).toFixed(0)} км) от ближайшего,` +
     ` и на том же куске суши`,
 );
-console.log(`мерка: ${runs} миров на каждое число игроков; войско ${WARRIOR} кл/мин, разведчик ${SCOUT} кл/мин`);
+console.log(
+  `мерка: ${runs} миров на каждое число игроков; войско ${WARRIOR} кл, разведчик ${SCOUT} кл за игровой день ` +
+    `(${dayRealSeconds()} с настоящего времени); сроки — настоящие`,
+);
 
 const land = landmasses();
 const biggest = Math.max(...land.sizes);
@@ -125,8 +134,8 @@ for (const n of counts) {
   }
   const cells = median(all.map((p) => p.cells));
   const factor = median(all.map((p) => p.factor));
-  const warrior = median(all.map((p) => p.warrior));
-  const scout = median(all.map((p) => p.scout));
+  const warrior = asGame(median(all.map((p) => p.warrior)));
+  const scout = asGame(median(all.map((p) => p.scout)));
   console.log(
     `  ${pad(String(n), 8)}${rpad(cells.toFixed(1), 15)}${rpad((cells * KM_PER_CELL).toFixed(0), 7)}` +
       `${rpad(factor.toFixed(2), 7)}${rpad(span(warrior), 12)}${rpad(span(scout), 12)}` +

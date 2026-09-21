@@ -33,6 +33,7 @@ import { kindsOf, type TroopStack } from '@/game/battle/kinds';
 import { onslaughtAt, onslaughtOf } from '@/game/sim/agents';
 import { DEED_XP, LEVEL_XP, XP_CAP } from '@/game/data/agents';
 import { seeded } from '@/game/sim/random';
+import { DAY_LENGTH, realMs } from '@/game/pace';
 import { onslaughtLines } from '@/ui/parts/agentLines';
 import { readFileSync } from 'node:fs';
 import { HOME_ID, LocalWorld } from './local/LocalWorld';
@@ -61,6 +62,12 @@ import type { FigureId, HomeEffect, PlayerProfile } from './types';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
+/**
+ * Игровой день в часах мира. Горизонты здесь — про ход по карте, а он идёт игровым
+ * временем (`geo.travelTime`, решение владельца, docs/time.md, раздел 19): написанные
+ * настоящими минутами, они были верны ровно пока игровой день длился минуту.
+ */
+const GAME_DAY = realMs(DAY_LENGTH);
 
 type Inner = {
   save: WorldSave;
@@ -377,7 +384,7 @@ describe('зоркость — только земля разведчика', ()
       const before = w.inner.fog.count();
       const home = w.inner.save.home;
       expect(await w.world.moveFigure('scout', { x: home.x + 40, y: home.y })).toBeNull();
-      w.advance(30 * MIN);
+      w.advance(30 * GAME_DAY);
       await w.world.sync(p);
       counts.push(w.inner.fog.count() - before);
     }
@@ -396,7 +403,7 @@ describe('дела агентов едут из мира событием', () =
     expect(await w.world.moveFigure('scout', { x: lair.x, y: lair.y })).toBeNull();
     let deed = null;
     for (let i = 0; i < 60 && !deed; i++) {
-      w.advance(MIN);
+      w.advance(GAME_DAY);
       const pulse = await w.world.sync(p);
       deed = pulse.effects.find((e) => e.deed?.agent === 'scout') ?? null;
     }

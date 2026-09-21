@@ -22,6 +22,13 @@ import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { playerProfile, syncAway } from '@/world/bridge';
 import { awayOf, postureOf, weakest } from '@/world/muster';
 import { musterDefense } from './GarrisonEditor';
+import { DAY_LENGTH, realMs } from '@/game/pace';
+/**
+ * Игровой день в часах мира. Горизонт здесь — про ход по карте, а он идёт игровым
+ * временем (`geo.travelTime`, решение владельца, docs/time.md, раздел 19): написанный
+ * настоящими минутами, он был верен ровно пока игровой день длился минуту.
+ */
+const GAME_DAY = realMs(DAY_LENGTH);
 
 const UI = path.join(process.cwd(), 'src/ui');
 
@@ -87,7 +94,7 @@ describe('состав дружины: один редактор, два мес�
         } else if (roll < 0.62) {
           await world.shelter('general', rnd() < 0.5);
         } else {
-          now += Math.round(rnd() * 90_000);
+          now += Math.round(rnd() * 1.5 * GAME_DAY);
         }
         const f = await general();
         // Область правила: полководец на месте и в строю. Выбывший — не «у ворот» и не «в поле».

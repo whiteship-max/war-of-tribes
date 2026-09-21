@@ -2,6 +2,7 @@
 // откуда приходят данные: локальная генерация сейчас или сервер потом.
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
+import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
@@ -307,8 +308,8 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade'> {
 export interface StrikePlan {
   can: boolean;
   reason: string | null;
-  /** Сколько идти, с. */
-  seconds: number;
+  /** Сколько идти, **игровые секунды**: путь идёт игровым временем (`geo.travelTime`). */
+  seconds: GameSec;
   /** Кто лезет с тыла: вышло и пробьётся, в бойцах строя. */
   rear: { went: number; passed: number };
   /** Кто лезет со стороны города; `null` — гарнизон не зовут. */
@@ -416,8 +417,8 @@ export interface OrderOption {
  * Считает мир той же функцией, которой замораживает риск в минуту отправки.
  */
 export interface LeadPlan {
-  /** Сколько идти, секунд. */
-  seconds: number;
+  /** Сколько идти, **игровые секунды**: путь идёт игровым временем (`geo.travelTime`). */
+  seconds: GameSec;
   /** Поселение, у которого агент встанет. null — чистое поле. */
   target: SettlementId | null;
   /** Схватят ли часовые, 0..1. 0 — часовых нет или агент не разведчик. */

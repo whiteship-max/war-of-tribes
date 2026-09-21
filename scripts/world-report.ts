@@ -13,6 +13,7 @@
 import { FEATURE, dropGeography, featuresAt, landmasses, terrainAt } from '../src/world/geography';
 import { generateWorld } from '../src/world/gen';
 import { distance, terrainFactor, travelTime } from '../src/world/geo';
+import { asGame, dayRealSeconds, realSeconds, type GameSec } from '../src/game/pace';
 import { AI_RANGE, HOME_SIGHT, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from '../src/world/data/tuning';
 import { TERRAIN_META, TERRAIN_ORDER } from '../src/world/data/terrain';
 import { FIGURES } from '../src/world/data/figures';
@@ -57,9 +58,15 @@ const cellAt = (name: string): Coord => {
   return { x: WORLD_ORIGIN.x + Math.round(c.col), y: WORLD_ORIGIN.y + Math.round(c.row) };
 };
 
-/** «2 ч 05 м» или «7 м 30 с» — так же, как время читается в интерфейсе. */
-function span(seconds: number): string {
-  const s = Math.round(seconds);
+/**
+ * «2 ч 05 м» или «7 м 30 с» — так же, как время читается в интерфейсе.
+ *
+ * Время пути — игровое (`geo.travelTime`, решение владельца, docs/time.md, раздел 19), а
+ * ждёт его игрок своими часами: срок идёт через дверь. Печатать игровые секунды как
+ * настоящие значило бы называть один срок тридцатью разными числами.
+ */
+function span(gameSec: GameSec): string {
+  const s = Math.round(realSeconds(gameSec));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   if (h > 0) return `${h} ч ${String(m).padStart(2, '0')} м`;
@@ -196,7 +203,7 @@ for (const f of FIGURES) {
   );
 }
 console.log('');
-console.log('игровые сутки — минута, значит за сутки проходят:');
+console.log(`за игровой день (${dayRealSeconds()} с настоящего времени) проходят:`);
 for (const f of FIGURES) console.log(`  ${pad(f.name, 14)} ${(f.speed * KM_PER_CELL).toFixed(0)} км`);
 console.log('  (настоящее войско позднего средневековья шло 20–30 км в день)');
 
@@ -234,17 +241,18 @@ for (let y = WORLD_ORIGIN.y + 200; y < WORLD_ORIGIN.y + 520; y += 1) {
           if (terrainAt(SEED, a.x, a.y) === 'water' || terrainAt(SEED, b.x, b.y) === 'water') continue;
           if (shares(SEED, a, b).river === 0) continue;
           const direct = travelTime(distance(a, b), terrainFactor(SEED, a, b), units.warrior);
-          const via =
+          const via = asGame(
             travelTime(distance(a, bridge), terrainFactor(SEED, a, bridge), units.warrior) +
-            travelTime(distance(bridge, b), terrainFactor(SEED, bridge, b), units.warrior);
+              travelTime(distance(bridge, b), terrainFactor(SEED, bridge, b), units.warrior),
+          );
           const gain = direct / via;
           if (gain <= 1 || (best && best.gain >= gain)) continue;
           const ll = lonLatOf(a.x - WORLD_ORIGIN.x, a.y - WORLD_ORIGIN.y);
           best = {
             gain,
             lines: [
-              `  вплавь ${at(a)} → ${at(b)}: ${distance(a, b).toFixed(1)} кл, ${direct.toFixed(0)} с`,
-              `  через мост ${at(bridge)}: ${(distance(a, bridge) + distance(bridge, b)).toFixed(1)} кл в обход, ${via.toFixed(0)} с`,
+              `  вплавь ${at(a)} → ${at(b)}: ${distance(a, b).toFixed(1)} кл, ${span(direct)}`,
+              `  через мост ${at(bridge)}: ${(distance(a, bridge) + distance(bridge, b)).toFixed(1)} кл в обход, ${span(via)}`,
               `  крюк длиннее в ${((distance(a, bridge) + distance(bridge, b)) / distance(a, b)).toFixed(2)} раза,` +
                 ` а времени отнимает в ${gain.toFixed(2)} раза меньше`,
               `  место: ${ll.lat.toFixed(1)}°с.ш. ${ll.lon.toFixed(1)}°в.д.`,

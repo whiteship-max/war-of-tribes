@@ -19,8 +19,17 @@ import { distance } from './geo';
 import type { SightDisc } from './fog';
 import type { Coord, FigureId, FigureView, PlayerProfile } from './types';
 
+import { DAY_LENGTH, realMs } from '@/game/pace';
+
 const START = 1_700_000_000_000;
 const MINUTE = 60_000;
+/**
+ * Игровой день в часах мира. Горизонты здесь — про ход по карте, а он идёт игровым
+ * временем (`geo.travelTime`, решение владельца, docs/time.md, раздел 19): написанные
+ * настоящими минутами, они были верны ровно пока игровой день длился минуту.
+ */
+const GAME_DAY = realMs(DAY_LENGTH);
+
 
 function makeWorld(seed: number) {
   let now = START;
@@ -137,7 +146,7 @@ describe('агент всегда ровно в одном месте: на ка
             inside[id] = false;
           }
         } else {
-          w.advance(Math.round(rnd() * 3 * MINUTE));
+          w.advance(Math.round(rnd() * 3 * GAME_DAY));
         }
 
         for (const f of await pulse(w)) {

@@ -2,7 +2,7 @@
 
 import { ATLAS_SIZE } from '../atlas/data';
 import { MINUTE_MS as MIN } from '../../game/time';
-import { realSec, realTime, shieldTime, worldDayRate, worldDays } from '../../game/pace';
+import { gameSec, realTime, shieldTime, worldDayRate, worldDays } from '../../game/pace';
 
 /** Сторона сетки в клетках — ровно сторона запечённой земли: сетка мира и есть атлас. */
 export const WORLD_SIZE = ATLAS_SIZE;
@@ -131,8 +131,15 @@ export const SCOUT_COVER = 12;
 
 /** Сколько отряд стоит в союзном поселении, прежде чем уйти домой. */
 export const SUPPORT_STAY = worldDays(8);
-/** Меньше этого похода не бывает — иначе сосед в двух клетках берётся мгновенно. */
-export const MARCH_MIN_SECONDS = realSec(45);
+/**
+ * Меньше этого похода не бывает — иначе сосед в двух клетках берётся мгновенно.
+ *
+ * Пол у времени пути, а время пути — игровое (`geo.travelTime`, решение владельца,
+ * docs/time.md, раздел 19), поэтому и пол игровой: записанный настоящими секундами, он
+ * после поворота шкалы перестал бы быть полом вовсе — тридцатая доля самого короткого
+ * похода. Три четверти игрового дня.
+ */
+export const MARCH_MIN_SECONDS = gameSec(45);
 
 // ---------- Племена ----------
 

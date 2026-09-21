@@ -6,7 +6,7 @@ import { TERRAIN_ORDER } from './data/terrain';
 import { stackSpeed } from './data/units';
 import { cellCost, terrainAt } from './geography';
 import { MARCH_MIN_SECONDS, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
-import type { RealSecArg } from '../game/pace';
+import { asGame, type GameSec, type RealSecArg } from '../game/pace';
 
 /**
  * Потолок числа замеров на один путь. Он не про баланс, а про то, чтобы поход
@@ -98,20 +98,33 @@ export function terrainFactor(seed: number, from: Coord, to: Coord): number {
 // ---------- Время пути ----------
 
 /**
- * Сколько секунд идти. Расстояние делится на скорость и правится ландшафтом.
- * Обратный путь считается той же формулой — значит, ровно столько же. Фигуры на
- * карте идут по ней же: своя формула времени у них расходилась бы с походами.
+ * Сколько идти — **в игровых секундах**. Расстояние делится на скорость и правится
+ * ландшафтом. Обратный путь считается той же формулой — значит, ровно столько же.
+ * Фигуры на карте идут по ней же: своя формула времени у них расходилась бы с походами.
+ *
+ * Игровыми, а не настоящими, — решение владельца (docs/time.md, раздел 19). Поход был
+ * единственным, что двигалось по карте настоящими минутами, пока всё вокруг —
+ * хозяйство, ритм угрозы, созревание, лечение, рогатки — шло игровыми днями. После
+ * поворота шкалы это сделало игрока в тридцать раз быстрее его же деревни: круг набега
+ * на логово ужался с 2.6–7.8 игрового дня до 2.6–7.8 настоящей минуты, добыча логова из
+ * надбавки (2–4 % круга) стала заменой хозяйству (61–135 %), а раненый полководца
+ * перестал успевать встать между боями (docs/time.md, разделы 18.6 и 18.7).
+ *
+ * В часы мира отсюда переводит одна дверь — `realMs`; голого `seconds * 1000` больше нет
+ * нигде, и держит это тест по исходникам («время пути в часы мира идёт только дверью»).
+ * Тип говорит то же самое компилятору: `GameSec` не примет ни один форматтер настоящего
+ * времени, поэтому срок пути игроку показывают только через `ui/parts/wait.ts`.
  */
-export function travelTime(dist: number, factor: number, speed: number): number {
-  return Math.max(MARCH_MIN_SECONDS, Math.round((dist / speed) * 60 * factor * 100) / 100);
+export function travelTime(dist: number, factor: number, speed: number): GameSec {
+  return asGame(Math.max(MARCH_MIN_SECONDS, Math.round((dist / speed) * 60 * factor * 100) / 100));
 }
 
-/** То же для отряда: скорость берётся по самому медленному в нём. */
-export const marchSeconds = (dist: number, factor: number, units: UnitStack): number =>
+/** То же для отряда: скорость берётся по самому медленному в нём. Игровые секунды. */
+export const marchSeconds = (dist: number, factor: number, units: UnitStack): GameSec =>
   travelTime(dist, factor, stackSpeed(units));
 
-/** Полное время пути между двумя точками мира. */
-export const travelSeconds = (seed: number, from: Coord, to: Coord, units: UnitStack): number =>
+/** Полное время пути между двумя точками мира, игровые секунды. */
+export const travelSeconds = (seed: number, from: Coord, to: Coord, units: UnitStack): GameSec =>
   marchSeconds(distance(from, to), terrainFactor(seed, from, to), units);
 
 /** Где отряд сейчас: доля пройденного пути между началом и целью. */

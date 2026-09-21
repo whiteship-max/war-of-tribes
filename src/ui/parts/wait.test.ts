@@ -4,7 +4,7 @@
 // (он входит в пол приёмки). Сам тест при этом проверяет только, что форматтеры считают верно.
 import { afterEach, describe, expect, it } from 'vitest';
 import { asGame, realSeconds, setTimeScale, timeScale } from '@/game/pace';
-import { formatLeft } from '@/world/geo';
+import { formatLeft, travelTime } from '@/world/geo';
 import { realLeft, realMinSec, waitEta, waitLeft, waitMinSec, waitShort, waitSpan } from './wait';
 
 afterEach(() => setTimeScale());
@@ -31,6 +31,12 @@ describe('сроки словами', () => {
     realMinSec(game);
     // @ts-expect-error — срок без названных часов в форматтер племени не проходит
     waitShort(real);
+    // Время пути — тоже игровые секунды (`geo.travelTime`, решение владельца, docs/time.md,
+    // раздел 19): игрок ждёт поход своими часами, и напечатать его мимо двери нельзя.
+    const road = travelTime(10, 1, 4.5);
+    // @ts-expect-error — время пути в форматтер мира не проходит
+    formatLeft(road);
+    expect(waitLeft(road), 'путь показан настоящим временем').toBe(formatLeft(realSeconds(road)));
     // Законные пути: перевод дверью и явное «это игровые секунды».
     expect(formatLeft(realSeconds(game))).toBe(formatLeft(40 * timeScale()));
     expect(waitShort(asGame(real))).toBe(`${40 * timeScale()} с`);

@@ -3,7 +3,7 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
-import { gameSecondsOfMs, realMs } from '@/game/pace';
+import { asGame, gameSecondsOfMs, realMs, type GameSec } from '@/game/pace';
 import { serverNow } from '@/net/clock';
 import {
   FRONT,
@@ -1756,7 +1756,7 @@ export class LocalWorld implements WorldApi {
       fromName: best.name,
       toName: town.name,
       departAt: at,
-      arriveAt: at + Math.round(seconds * 1000),
+      arriveAt: at + Math.round(realMs(seconds)),
       phase: 'out',
       power,
       loot: null,
@@ -3602,7 +3602,7 @@ export class LocalWorld implements WorldApi {
    */
   private paceOf(id: FigureId, from: Coord, to: Coord): number {
     const seconds = travelTime(1, terrainFactor(this.save.seed, from, to), FIGURE_BY_ID[id].speed);
-    return seconds > 0 ? 1 / (seconds * 1000) : 0;
+    return seconds > 0 ? 1 / realMs(seconds) : 0;
   }
 
   /** Чужой отряд, который можно догонять. null — такого нет. */
@@ -4463,7 +4463,7 @@ export class LocalWorld implements WorldApi {
     const power = Math.max(2, lairRaid(this.powerNow(src, now), profile.pop));
     const units: UnitStack = { warrior: Math.max(1, Math.round(power / 3)) };
     const seconds = marchSeconds(distance(src, home), terrainFactor(save.seed, src, home), units);
-    const travel = Math.max(seconds * 1000, this.warningMs());
+    const travel = Math.max(realMs(seconds), this.warningMs());
     const id = `m${save.nextMarch}`;
     save.marches.push({
       id,
@@ -4523,7 +4523,7 @@ export class LocalWorld implements WorldApi {
     now: number,
   ):
     | { error: string }
-    | { error: null; f: StoredFigure; force: TroopStack; to: Coord; seconds: number } {
+    | { error: null; f: StoredFigure; force: TroopStack; to: Coord; seconds: GameSec } {
     const f = this.save.figures.general;
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
     if (off) return { error: off };
@@ -4541,8 +4541,8 @@ export class LocalWorld implements WorldApi {
     const from = this.figureAt(f, now);
     const to = { x: town.x, y: town.y };
     const dist = distance(from, to);
-    const seconds = dist < 0.5 ? 0 : travelTime(dist, terrainFactor(this.save.seed, from, to), FIGURE_BY_ID.general.speed);
-    if (now + seconds * 1000 >= starvesAt(w)) {
+    const seconds = dist < 0.5 ? asGame(0) : travelTime(dist, terrainFactor(this.save.seed, from, to), FIGURE_BY_ID.general.speed);
+    if (now + realMs(seconds) >= starvesAt(w)) {
       return { error: 'Не успеть: хлеб у города кончится раньше, чем полководец дойдёт.' };
     }
     return { error: null, f, force, to, seconds };
@@ -4554,10 +4554,10 @@ export class LocalWorld implements WorldApi {
     const rout = perilShare(routPeril(distance(this.save.home, this.campSpot(id))));
     const check = this.strikeCheck(id, now);
     if (check.error !== null) {
-      return { can: false, reason: check.error, seconds: 0, rear: { went: 0, passed: 0 }, front: null, garrisonable, rout };
+      return { can: false, reason: check.error, seconds: asGame(0), rear: { went: 0, passed: 0 }, front: null, garrisonable, rout };
     }
     const { force, seconds } = check;
-    const arriveAt = now + seconds * 1000;
+    const arriveAt = now + realMs(seconds);
     const going = garrison && garrisonable ? this.garrison(now) : null;
     // Проходы — на минуту прихода, по занятости на минуту приказа: до прихода их
     // может занять кто-то ещё, и тогда пройдёт меньше. Это говорится словами в
@@ -4570,7 +4570,7 @@ export class LocalWorld implements WorldApi {
     const refused = refusedAtGate(cast.rear, cast.front);
     return {
       can: !refused,
-      reason: refused ? gateBusyText(Math.max(cast.rear.waitMs, cast.front?.waitMs ?? 0) + seconds * 1000) : null,
+      reason: refused ? gateBusyText(Math.max(cast.rear.waitMs, cast.front?.waitMs ?? 0) + realMs(seconds)) : null,
       seconds,
       rear: { went: cast.rear.went, passed: cast.rear.passed },
       front: cast.front ? { went: cast.front.went, passed: cast.front.passed } : null,
@@ -4608,7 +4608,7 @@ export class LocalWorld implements WorldApi {
     f.from = this.figureAt(f, now);
     f.to = { ...to };
     f.departAt = now;
-    f.arriveAt = now + Math.round(seconds * 1000);
+    f.arriveAt = now + Math.round(realMs(seconds));
     f.phase = 'moving';
     f.chase = undefined;
     f.strike = { id, garrison: withGarrison };
@@ -4789,7 +4789,7 @@ export class LocalWorld implements WorldApi {
       fromName: pick.from.name,
       toName: pick.to.name,
       departAt: now,
-      arriveAt: now + Math.round(seconds * 1000),
+      arriveAt: now + Math.round(realMs(seconds)),
       phase: 'out',
       power,
       loot: null,
@@ -5199,7 +5199,7 @@ export class LocalWorld implements WorldApi {
       fromName: this.homeName(),
       toName: target.name,
       departAt: now,
-      arriveAt: now + Math.round(seconds * 1000),
+      arriveAt: now + Math.round(realMs(seconds)),
       phase: 'out',
       power: stackPower(units, perWarrior),
       troops,
@@ -5341,7 +5341,7 @@ export class LocalWorld implements WorldApi {
     f.from = from;
     f.to = target;
     f.departAt = now;
-    f.arriveAt = now + Math.round(seconds * 1000);
+    f.arriveAt = now + Math.round(realMs(seconds));
     f.phase = 'moving';
     // Новый путь — новый приказ: удар по лагерю, отданный раньше, отменён.
     f.strike = undefined;
@@ -5375,7 +5375,7 @@ export class LocalWorld implements WorldApi {
     const target = clampToWorld(to);
     const from = this.figureAt(f, now);
     const seconds = travelTime(distance(from, target), terrainFactor(this.save.seed, from, target), FIGURE_BY_ID[id].speed);
-    const plan = id === 'scout' ? this.scoutPlan(target, now + Math.round(seconds * 1000)) : null;
+    const plan = id === 'scout' ? this.scoutPlan(target, now + Math.round(realMs(seconds))) : null;
     return {
       seconds,
       target: plan?.target?.id ?? null,

@@ -269,6 +269,65 @@ describe('дверь одна: по исходникам', () => {
     expect(code(path.join(ROOT, 'src/world/local/LocalWorld.ts'))).toMatch(/gameSecondsOfMs\(/);
   });
 
+  /**
+   * Решение владельца (docs/time.md, раздел 19): **поход идёт игровым временем**, как и всё,
+   * с чем он сравнивается, — ритм угрозы, хозяйство, лечение, рогатки. Пока путь шёл настоящими
+   * минутами, игрок был в тридцать раз быстрее собственной деревни, и от этого ехали сразу два
+   * вывода: добыча логова из надбавки становилась заменой хозяйству, а раненый не успевал
+   * встать между боями (разделы 18.6 и 18.7).
+   *
+   * Правило держат две проверки, и одной мало. Тип не даёт напечатать путь настоящими часами
+   * (`ui/parts/wait.test.ts`), но арифметика метку снимает: `seconds * 1000` компилятор
+   * пропустит молча — ровно тем и был устроен обход. Эта проверка закрывает вторую половину:
+   * в часы мира путь переводит только дверь.
+   */
+  it('время пути в часы мира идёт только дверью', () => {
+    const world = SRC.filter((f) => rel(f).startsWith('src/world/'));
+    expect(world.length, 'точка внутри области: файлы мира найдены').toBeGreaterThan(20);
+    // Кто несёт время пути: имя, объявленное из функции дороги. Один переход — тем же
+    // правилом, каким ищутся ставки без класса (`scripts/lib/timeclasses.unclassifiedRates`).
+    const FROM_ROAD = /\b(?:const|let)\s+(\w+)(?::[^=]+)?\s*=\s*(?:[^;]*?\b)?(?:travelTime|marchSeconds|travelSeconds)\s*\(/g;
+    // Часы мира — миллисекунды: умножение или деление на них и есть перевод мимо двери.
+    const RAW = /\b(\w+)\s*[*/]\s*(?:1_?000|60_?000|MIN|HOUR)\b|\b1_?000\s*\*\s*(\w+)\b/g;
+    const carriers: string[] = [];
+    const raw: string[] = [];
+    for (const f of world) {
+      const src = code(f);
+      const names = new Set([...src.matchAll(FROM_ROAD)].map((m) => m[1]));
+      for (const name of names) carriers.push(`${rel(f)}: ${name}`);
+      src.split(/\r?\n/).forEach((line, i) => {
+        for (const m of line.matchAll(RAW)) if (names.has(m[1] ?? '') || names.has(m[2] ?? '')) raw.push(`${rel(f)}:${i + 1}`);
+      });
+    }
+    // Точка внутри области: носители времени пути в мире есть — значит, поиск их видит.
+    expect(carriers, 'кто несёт время пути').toContain('src/world/local/LocalWorld.ts: seconds');
+    expect(raw, 'время пути идёт в часы мира мимо двери').toEqual([]);
+    // И дверь при этом вправду зовут: правило зелёное не оттого, что пути не стало.
+    expect(code(path.join(ROOT, 'src/world/local/LocalWorld.ts')), 'путь переводит дверь').toMatch(/realMs\(seconds\)/);
+  });
+
+  /**
+   * Второй замок того же правила: **своей формулы дороги нет ни у кого**. Дверь внутри
+   * `geo.travelTime`, и обойти её можно ровно одним способом — посчитав время пути самому,
+   * от скорости. Поэтому скорость в мире читают только объявления (`data/`) и та строка,
+   * которая тут же зовёт дверь.
+   */
+  it('своей формулы времени пути нет: скорость читают только рядом с дверью', () => {
+    const world = SRC.filter((f) => rel(f).startsWith('src/world/') && !rel(f).startsWith('src/world/data/'));
+    const lines = world.flatMap((f) =>
+      code(f)
+        .split(/\r?\n/)
+        .map((line, i) => ({ at: `${rel(f)}:${i + 1}`, line })),
+    );
+    const speed = lines.filter((x) => /\.speed\b/.test(x.line));
+    // Точка внутри области: скорость в мире читают — значит, поиск видит строки о ней.
+    expect(speed.length, 'строки со скоростью').toBeGreaterThan(0);
+    expect(
+      speed.filter((x) => !/\btravelTime\s*\(/.test(x.line)).map((x) => x.at),
+      'кто считает дорогу своей формулой',
+    ).toEqual([]);
+  });
+
   it('шкалу подменяют только тесты — и прибор поворота', () => {
     const callers = [...SRC, ...sources(path.join(ROOT, 'scripts'))].filter((f) => rel(f) !== 'src/game/pace.ts' && /\bsetTimeScale\s*\(/.test(code(f)));
     // Единственное исключение названо: `time:report` меряет игру после поворота шкалы до поворота

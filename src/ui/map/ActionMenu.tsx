@@ -20,7 +20,7 @@ import { FATE_DEFAULT } from '@/world/spoils';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
 import { distance, formatCoord, secondsLeft } from '@/world/geo';
-import { realLeft } from '@/ui/parts/wait';
+import { realLeft, waitLeft } from '@/ui/parts/wait';
 import { perilShare, perilText, routPeril } from '@/world/peril';
 import { personName } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
@@ -516,7 +516,7 @@ export function ActionMenu() {
                   : leavingCamp
                     ? CAMP_LEAVE
                     : menu.lead
-                      ? `Идти ${realLeft(menu.lead.seconds)}.`
+                      ? `Идти ${waitLeft(menu.lead.seconds)}.`
                       : 'Идти будет столько, сколько велит дорога.'}
             </i>
             {/* Разведчик у ворот с часовыми: схватят ли и погибнет ли — двумя числами, до

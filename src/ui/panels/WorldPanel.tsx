@@ -10,7 +10,7 @@ import { figuresOn, useWorld, worldNow } from '@/world/store';
 import { defense } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, marchSeconds, secondsLeft } from '@/world/geo';
-import { realLeft } from '@/ui/parts/wait';
+import { realLeft, waitLeft } from '@/ui/parts/wait';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
@@ -303,7 +303,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <div className="mod">
           <span className="ico">👣</span>
           <span className="name">Ход разведки</span>
-          <span className="val">{realLeft(marchSeconds(card.distance, card.terrainFactor, { scout: 1 }))}</span>
+          <span className="val">{waitLeft(marchSeconds(card.distance, card.terrainFactor, { scout: 1 }))}</span>
         </div>
       </div>
 
@@ -745,12 +745,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             <div className="mod">
               <span className="ico">⏱</span>
               <span className="name">Дорога туда</span>
-              <span className="val">{stackSize(picked) > 0 ? realLeft(eta) : '—'}</span>
+              <span className="val">{stackSize(picked) > 0 ? waitLeft(eta) : '—'}</span>
             </div>
             <div className="mod">
               <span className="ico">↩️</span>
               <span className="name">И столько же обратно</span>
-              <span className="val">{stackSize(picked) > 0 ? realLeft(eta) : '—'}</span>
+              <span className="val">{stackSize(picked) > 0 ? waitLeft(eta) : '—'}</span>
             </div>
             <div className="mod total">
               <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>

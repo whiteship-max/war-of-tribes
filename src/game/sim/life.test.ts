@@ -15,6 +15,7 @@ import { awayGameSeconds, catchUp, tick } from './tick';
 import { seeded } from './random';
 import { ageOf, agentLevel, retiring } from './agents';
 import { AGENT_AGE0, AGENT_YEAR, LEVEL_XP, RETIRE_AGE, levelOf } from '../data/agents';
+import { DAY_LENGTH, realMs } from '../pace';
 import type { GameState } from '../types';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
@@ -23,6 +24,12 @@ import { FIGURE_IDS } from '@/world/data/figures';
 import type { FigureView, MarchView, WorldPulse } from '@/world/types';
 
 const START = 1_700_000_000_000;
+/**
+ * Игровой день в часах мира. Горизонт здесь — про ход по карте, а он идёт игровым
+ * временем (`geo.travelTime`, решение владельца, docs/time.md, раздел 19): написанный
+ * настоящими минутами, он был верен ровно пока игровой день длился минуту.
+ */
+const GAME_DAY = realMs(DAY_LENGTH);
 
 describe('возраст', () => {
   it('растёт монотонно на любых шагах часов, в догоне и после записи — и только от часов деревни', () => {
@@ -121,7 +128,7 @@ describe('покой в шестьдесят', () => {
     const home = (await world.info()).home;
     expect(await world.moveFigure('scout', { x: home.x + 12, y: home.y })).toBeNull();
     for (let i = 0; i < 20; i++) {
-      now += 60_000;
+      now += GAME_DAY;
       await pulse(s, world, last);
     }
     expect(last.figures.find((f) => f.id === 'scout')!.phase, 'точка внутри области: разведчик стоит в поле').toBe('field');
@@ -130,8 +137,9 @@ describe('покой в шестьдесят', () => {
     let retired = 0;
     let walked = false;
     for (let i = 0; i < 40; i++) {
-      now += 30_000;
-      tick(s, 30);
+      // Часы мира и часы племени идут в ногу: дорога домой — игровое время.
+      now += GAME_DAY;
+      tick(s, DAY_LENGTH);
       const p = await pulse(s, world, last);
       if (last.figures.find((f) => f.id === 'scout')?.phase === 'moving') walked = true;
       retired += p.effects.filter((e) => e.retired?.agent === 'scout').length;
