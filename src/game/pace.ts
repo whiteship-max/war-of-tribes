@@ -69,6 +69,7 @@ export const DAY_LENGTH = 60;
 export const gameSec = (seconds: number): number => seconds;
 /** Игровое время: ставка работы в игровую секунду (стройка, ковка, учения). */
 export const gameRate = (perSecond: number): number => perSecond;
+// Ставка на часах мира — `worldDayRate` и `realHourRate`, ниже: им нужен `gameDaysPerHour`.
 /** Игровое время на часах мира: срок в игровых днях → настоящие миллисекунды мира. Идёт со шкалой. */
 export const worldDays = (days: number): number => realMs(days * DAY_LENGTH);
 
@@ -102,6 +103,25 @@ export const dayRealSeconds = (): number => realSeconds(DAY_LENGTH);
 export const gameDaysPerHour = (): number => 3600 / dayRealSeconds();
 /** Настоящие миллисекунды мира → игровые дни. */
 export const gameDaysOfMs = (ms: number): number => gameSecondsOfMs(ms) / DAY_LENGTH;
+
+// ---------- Ставки: число, встречающееся с прошедшим временем ----------
+//
+// Срок говорит «сколько ждать», ставка — «сколько за время», и класс нужен обоим по одной
+// причине: ставка «в настоящий час» после поворота шкалы съедает хозяйство в тридцать раз
+// быстрее, чем оно производит. Ровно это и случилось с расходом еды чужого города
+// (`SIEGE_TOWN_EAT`): единица стояла в прозе, конструктора у числа не было, и пачка 2 его не
+// увидела — она искала сроки (docs/time.md, разделы 17.4 и 18).
+//
+// Единицу ставки называет не список, а тот идентификатор, что её несёт: `townPerHour`,
+// `foodPerHour`, `consumptionPerHour`. На часах племени ставка идёт за игровой день и настоящего
+// времени не встречает никогда (`POP_GROWTH_PER_DAY`, `moralePerDay`) — там класс в имени, как у
+// `*_DAYS`. На часах мира час настоящий (`siege.fallsAt` умножает на `HOUR`), и там ставке нужен
+// конструктор. Ищет ставку без класса `scripts/lib/timeclasses.ts`, чтением исходников.
+
+/** Игровое время на часах мира: ставка за игровой день → за настоящий час. Идёт со шкалой. */
+export const worldDayRate = (perGameDay: number): number => perGameDay * gameDaysPerHour();
+/** Настоящее время на часах мира: ставка за настоящий час, как есть. Со шкалой не идёт. */
+export const realHourRate = (perRealHour: number): number => perRealHour;
 
 // ---------- Какими часами идёт срок — в типе ----------
 //

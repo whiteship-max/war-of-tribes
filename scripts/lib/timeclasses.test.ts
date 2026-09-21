@@ -2,10 +2,12 @@
 // число, — конструктором из `game/pace.ts`, — и класс делает то, что обещает, при шкале, отличной
 // от единицы. При единице все классы неотличимы, и тест на них был бы зелёным даром (правило 11):
 // шкала подменяется в свежем графе модулей, чтобы величины пересчитались при ней с объявления.
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CTOR_CLASS, dayConsts, tableRows, timeConsts, unclassified, type TimeConst } from './timeclasses';
+import { CTOR_CLASS, RATE_CTORS, dayConsts, tableRows, timeConsts, unclassified, unclassifiedRates, type TimeConst } from './timeclasses';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SCALE = 30;
@@ -32,7 +34,8 @@ afterEach(() => vi.resetModules());
 
 /** Счёт по классам. Правится сознательно — вместе с объявлением величины. */
 const COUNT = {
-  game: { named: 39, inTables: 12 },
+  // 42 = 39 сроков плюс три ставки осадного голода, получившие класс в пачке 5 (docs/time.md, раздел 18).
+  game: { named: 42, inTables: 12 },
   real: { named: 26, inTables: 0 },
   owner: { named: 0, inTables: 0 },
   days: 13,
@@ -67,6 +70,52 @@ describe('классы величин времени: по исходникам'
     expect(unclassified(ROOT), 'объявлена единицей настоящего времени, но без конструктора класса').toEqual([]);
   });
 
+  // Ставка — тоже время, и пачка 2 её не увидела: она искала сроки. `SIEGE_TOWN_EAT` был записан
+  // «в настоящий час», единица стояла в прозе, и после поворота шкалы чужой город падал голодом
+  // меньше чем за игровой день — раньше собственной вылазки (docs/time.md, раздел 18).
+  it('ставки без класса нет ни одной', () => {
+    expect(unclassifiedRates(ROOT), 'втекает в имя с настоящей единицей, но не прошла дверь').toEqual([]);
+  });
+
+  // Точка внутри области: прибор ставок вообще что-то видит. Без этого утверждения тест выше
+  // зелен и при сломанном поиске — ровно так ставка и проскочила мимо пачки 2.
+  it('прибор ставок видит ставки, а не молчит', () => {
+    const rates = timeConsts(ROOT).filter((c) => RATE_CTORS.includes(c.ctor));
+    expect(rates.map((c) => c.name).sort(), 'ставки с классом').toEqual(
+      ['BUILDER_RATE', 'CRAFTER_BUILD', 'GEM_REF_RATE', 'RECRUIT_WORK', 'SMITH_WORK', 'SIEGE_EAT_FLOOR', 'SIEGE_TOWN_EAT', 'SIEGE_TOWN_EAT_MAN'].sort(),
+    );
+  });
+
+  // Та же точка для самого поиска: «ставок без класса нет» проходит и у ослепшего поиска, а
+  // ослепнуть ему есть от чего — переводы строк, форма объявления, регистр в имени. Поэтому
+  // поиску подсовывают дерево, где ставка без класса заведомо есть, и требуют её назвать.
+  it('поиск ставок находит ставку без класса, когда она есть', () => {
+    const fixture = mkdtempSync(path.join(tmpdir(), 'rates-'));
+    try {
+      for (const zone of ['src/game', 'src/world']) mkdirSync(path.join(fixture, zone), { recursive: true });
+      const lines = [
+        'export const TOWN_EAT = 1.5;',
+        'export const TOWN_EAT_MAN = worldDayRate(1);',
+        'export const eatPerHour = (pop: number): number => pop * TOWN_EAT;',
+        'export const larder = { perManPerHour: TOWN_EAT_MAN };',
+        '',
+      ];
+      // Два перевода строки, и оба нарочно: в дереве есть файлы и с LF, и с CRLF (`world/siege.ts`
+      // — CRLF), а объявление прибор ищет по `;` с переводом строки. Прибор, не сводящий их,
+      // молчал бы ровно на половине дерева — и молчал бы зелено.
+      writeFileSync(path.join(fixture, 'src/world/lf.ts'), lines.join('\n'));
+      writeFileSync(path.join(fixture, 'src/world/crlf.ts'), lines.join('\r\n'));
+      writeFileSync(path.join(fixture, 'src/game/keep.ts'), 'export const KEEP = 1;\n');
+      const found = unclassifiedRates(fixture);
+      expect(found, 'ставка без двери названа в обоих файлах, прошедшая дверь — ни в одном').toEqual([
+        'src/world/crlf.ts: eatPerHour ← TOWN_EAT = 1.5',
+        'src/world/lf.ts: eatPerHour ← TOWN_EAT = 1.5',
+      ]);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   it('у «решает владелец» вопрос назван словами', () => {
     const silent = all.filter((c) => c.cls === 'owner' && !(c.why && c.why.length > 10)).map((c) => c.name);
     expect(silent).toEqual([]);
@@ -91,10 +140,20 @@ describe('класс делает, что обещает: прогоном пр�
         if (a !== b) wrong.push(`${c.name} (${c.ctor}): было ${a}, стало ${b}`);
         continue;
       }
-      // Чем измерена величина, говорит конструктор: у мира — настоящие мс, у племени — игровые секунды,
-      // у ставки — работа в игровую секунду. Сколько НАСТОЯЩИХ секунд она длится при каждой шкале:
+      // Чем измерена величина, говорит конструктор: у мира — настоящие мс, у племени — игровые
+      // секунды, у ставки — работа в игровую секунду или за настоящий час. Ставка идёт со шкалой
+      // обратно сроку, поэтому сравнивается не она, а срок, за который она отдаёт единицу: так
+      // одна мерка годится и сроку, и ставке. Сколько НАСТОЯЩИХ секунд это при каждой шкале:
       const seconds = (p: Pace, v: number): number =>
-        c.ctor === 'worldDays' || c.ctor === 'realTime' || c.ctor === 'shieldTime' ? v / 1000 : c.ctor === 'realSec' ? v : c.ctor === 'gameRate' ? p.realSeconds(1 / v) : p.realSeconds(v);
+        c.ctor === 'worldDays' || c.ctor === 'realTime' || c.ctor === 'shieldTime'
+          ? v / 1000
+          : c.ctor === 'realSec'
+            ? v
+            : c.ctor === 'gameRate'
+              ? p.realSeconds(1 / v)
+              : c.ctor === 'worldDayRate' || c.ctor === 'realHourRate'
+                ? 3600 / v
+                : p.realSeconds(v);
       const ratio = seconds(slow.pace, b) / seconds(base.pace, a);
       const want = c.cls === 'game' ? SCALE : 1;
       if (Math.abs(ratio - want) > 1e-9) wrong.push(`${c.name} (${c.ctor}): настоящая длительность ×${ratio}, по классу ×${want}`);
