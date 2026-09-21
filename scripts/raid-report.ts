@@ -20,7 +20,7 @@
 // составу» — `raid-mix:report`, «Конюшня» — `raid-stable:report`. Прежний раздел «потолок набегов»
 // мерил отвергнутый вариант «набег = оборона × k» и ушёл вместе с потолком: его числа — снимок на
 // коммите aec1117 (docs/raid_ceiling.md).
-import { LocalWorld } from '@/world/local/LocalWorld';
+import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
   AI_WARNING_BASE,
@@ -31,6 +31,7 @@ import {
 } from '@/world/data/tuning';
 import type { MarchView, PlayerProfile } from '@/world/types';
 import { gameDaysOfMs } from '@/game/pace';
+import { shieldVillagers } from '@/world/lairs';
 
 const MIN = 60_000;
 /**
@@ -70,7 +71,11 @@ const WATCH = [
 
 const profile = (warning: number): PlayerProfile => ({
   name: 'Отчёт',
-  pop: 300,
+  // Выше защиты новичка, иначе набегов на деревню нет вовсе (`lairShield`, docs/lair_growth.md), и
+  // отчёт меряет пустоту. Прежние триста жителей были ниже порога (308) с самой пачки роста логов:
+  // отчёт брал первый попавшийся чужой отряд — войну логов между собой — и мерил запас на перехват
+  // не того. Ловилось это не поворотом шкалы, а тем, что ловить надо цель, а не «чужого».
+  pop: shieldVillagers(0.5),
   defense: 220,
   units: { warrior: 60, scout: 6 },
   army: { ...ARMY },
@@ -105,7 +110,12 @@ async function waitVisibleRaid(w: Clocked, p: PlayerProfile): Promise<{ raid: Ma
     for (let i = 0; i < FINE_STEPS; i++) {
       w.advance(FINE);
       const pulse = await w.world.sync(p);
-      const raid = pulse.marches.find((m) => !m.own && m.phase === 'out');
+      // Набег на деревню — тот, что идёт на `HOME_ID`, и проверять это надо целью, а не полем
+      // `hostile`: оно в мире равно `!m.own` (`LocalWorld`), то есть «чужой», а не «на нас». По
+      // карте ходят и войны логов между собой, и их дорога — единицы настоящих минут, тогда как
+      // набег на деревню идёт не быстрее предупреждения (`scheduleAi`: travel = max(дорога,
+      // warningMs)). Отчёт брал первый попавшийся чужой отряд и мерил запас на перехват не того.
+      const raid = pulse.marches.find((m) => !m.own && m.targetId === HOME_ID && m.phase === 'out');
       if (raid) return { raid, seenAt: pulse.now };
     }
   }
