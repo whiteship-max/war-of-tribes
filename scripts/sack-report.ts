@@ -39,14 +39,19 @@
 // (`raid-infirmary.ts`): он читает те же прогоны, что «Найм».
 //
 //   npx vite-node scripts/sack-report.ts
-//   HOURS=3 npx vite-node scripts/sack-report.ts
+//
+// Ручки `HOURS=` больше нет: окно прогона грабежа выведено из круга похода,
+// а не задаётся снаружи (`RAID_WINDOW_MS` ниже).
 import { lairPower, lairRaid } from '@/world/lairs';
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
-import { distance } from '@/world/geo';
+import { distance, marchSeconds, terrainFactor } from '@/world/geo';
+import { generateWorld, isLair } from '@/world/gen';
 import {
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
+  AI_RANGE,
   LAIR_ANCHOR_MID,
+  LAIR_NEAR_CAP,
   LAIR_RIPE,
   AI_WAR_PACE,
   AI_WAR_WEIGHT,
@@ -92,7 +97,7 @@ import { land, pilot, playedFor, player } from './autopilot';
 import { stackCarry } from '@/world/data/units';
 import type { WorldSave } from '@/world/local/state';
 import type { HomeEffect, Loot, PlayerProfile, SettlementView } from '@/world/types';
-import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour } from '@/game/pace';
+import { DAY_LENGTH, dayRealSeconds, gameDaysOfMs, gameDaysPerHour, realMs, realSeconds } from '@/game/pace';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -100,9 +105,52 @@ const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 const START = 1_700_000_000_000;
 const SEEDS = [7, 11, 42, 51, 77];
-const HOURS = Number(process.env.HOURS ?? 3);
+
+/**
+ * Круг похода к ближайшему логову и обратно, игровых дней — медиана по сидам.
+ * Меряется, а не пишется числом: после того, как время пути пошло игровыми часами
+ * (docs/time.md, раздел 19), круг вырос в тридцать раз, и записанное число молча
+ * устарело бы. Тот же вывод и той же меркой стоит в `npm run lair:report`.
+ */
+const ROUND_DAYS = ((): number => {
+  const trips: number[] = [];
+  for (const seed of SEEDS) {
+    const gen = generateWorld(seed);
+    const lairs = gen.settlements.filter((x) => isLair(x) && distance(x, gen.home) <= AI_RANGE);
+    if (lairs.length === 0) continue;
+    const near = lairs.sort((a, b) => distance(a, gen.home) - distance(b, gen.home))[0];
+    trips.push((2 * marchSeconds(distance(near, gen.home), terrainFactor(seed, gen.home, near), { warrior: 1 })) / DAY_LENGTH);
+  }
+  trips.sort((a, b) => a - b);
+  return trips.length > 0 ? trips[Math.floor(trips.length / 2)] : 0;
+})();
+
+/**
+ * Окно прогона грабежа: **два обхода всей округи**, то есть вдвое больше кругов
+ * похода, чем округа держит живых логов (`LAIR_NEAR_CAP`). Число это выведено, а
+ * не выбрано, и выведено из двух свойств сразу: одного обхода мало, потому что
+ * раздел обещает показать, как добыча убывает («за набег» против «первого двора»),
+ * а это видно только на повторном заходе в ту же округу.
+ *
+ * **Прежде тут стояло `HOURS = 3` настоящих часа, и окно сломалось молча.** Круг
+ * похода — 2.5 настоящего часа (`lair:report`), то есть в окно не помещался даже
+ * один набег: таблица показала 0.0 набегов у четырёх сидов из пяти и «грабёж даёт
+ * 0% часа хозяйства». Мерка, записанная настоящими часами, пережила поворот шкалы
+ * времени и не пережила перевод дороги на игровые часы.
+ */
+const CIRCLES = 2 * LAIR_NEAR_CAP;
+const RAID_WINDOW_MS = Math.round(realMs(ROUND_DAYS * CIRCLES * DAY_LENGTH));
+/** Шаг, которым прогон двигает мир, пока полководец идёт. */
+const RAID_STEP = 30_000;
 
 const n1 = (v: number): string => v.toFixed(1);
+/**
+ * Доля часа хозяйства. Печатается десятыми, пока она меньше процента: после того, как
+ * время пути пошло игровыми часами, набегов в настоящий час стало втридцатеро меньше, и
+ * целые проценты схлопывали живое число в «0%» — читается это как «война не кормит вовсе»,
+ * а означает «кормит на полпроцента».
+ */
+const share = (v: number): string => (v < 0.01 ? (v * 100).toFixed(1) : String(Math.round(v * 100)));
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 const saveOf = (w: LocalWorld): WorldSave => (w as unknown as { save: WorldSave }).save;
 const total = (loot: Loot | null): number =>
@@ -228,7 +276,7 @@ async function neighbours(world: LocalWorld): Promise<SettlementView[]> {
  * ближайшего целого двора, бьёт, идёт к следующему. Возвращает всё, что он
  * привёз за отпущенные часы, и заодно счёт объявленных ему войн.
  */
-async function plunderRun(seed: number, hours: number) {
+async function plunderRun(seed: number) {
   const w = makeWorld(seed);
   const p = raider();
   await w.world.sync(p);
@@ -240,7 +288,7 @@ async function plunderRun(seed: number, hours: number) {
     if (g && g.readyAt === 0) break;
   }
   const startAt = w.now();
-  const deadline = startAt + hours * HOUR;
+  const deadline = startAt + RAID_WINDOW_MS;
   const save = saveOf(w.world);
   let loot = 0;
   let raids = 0;
@@ -266,8 +314,10 @@ async function plunderRun(seed: number, hours: number) {
     }
     if (g.at.x !== target.x || g.at.y !== target.y) {
       await w.world.moveFigure('general', { x: target.x, y: target.y });
-      for (let i = 0; i < 600 && w.now() < deadline; i++) {
-        w.advance(30_000);
+      // Шагов ровно столько, сколько их в самом окне: меньше — и прогон бросил бы
+      // полководца на полпути, а строка вышла бы ложным нулём.
+      for (let i = 0; i < RAID_WINDOW_MS / RAID_STEP && w.now() < deadline; i++) {
+        w.advance(RAID_STEP);
         await w.world.sync(p);
         const f = (await w.world.figures()).find((v) => v.id === 'general');
         if (f && f.phase !== 'moving') break;
@@ -285,7 +335,7 @@ async function plunderRun(seed: number, hours: number) {
     if (got === 0) dry++;
     if (raids === 1) first = got;
     loot += got;
-    w.advance(30_000);
+    w.advance(RAID_STEP);
     await w.world.sync(p);
   }
 
@@ -307,6 +357,15 @@ console.log('Игрок в прогоне не делает вообще нич�
 console.log('и бьёт, пока хватает часов. Это верхняя граница войны как заработка.');
 console.log('');
 console.log(
+  `Окно прогона — два обхода округи: ${CIRCLES} кругов похода (потолок живых логов ${LAIR_NEAR_CAP} × 2), ` +
+    `круг ${n1(ROUND_DAYS)} игр. дн. — ${n1(realSeconds(ROUND_DAYS * DAY_LENGTH) / 3600)} ч настоящего времени.`,
+);
+console.log(
+  `Всего окно ${n1(RAID_WINDOW_MS / HOUR)} ч настоящего времени. Меньше одного круга в окне — и таблица` +
+    ' показывает нули, которые читаются как «война не кормит», а означают «полководец не дошёл».',
+);
+console.log('');
+console.log(
   `Склад двора — ${LOOT_PER_POP} ед. на жителя, из них ${Math.round(AI_STASH_SHARE * 100)}% лежит в его тайнике.`,
 );
 console.log('Победитель забирает остальное целиком — столько, сколько поднимет отряд.');
@@ -319,16 +378,16 @@ let sumLoot = 0;
 let sumFarm = 0;
 const farm = await perHour(2);
 for (const seed of SEEDS) {
-  const r = await plunderRun(seed, HOURS);
+  const r = await plunderRun(seed);
   sumLoot += r.loot;
   sumFarm += farm;
   console.log(
-    `  ${pad(seed, 4)}  ${pad(n1(r.raids), 9)}  ${pad(Math.round(r.perRaid), 8)}  ${pad(Math.round(r.first), 11)}  ${pad(Math.round(r.loot), 13)}  ${pad(`${Math.round((r.loot / farm) * 100)}%`, 12)}  ${pad(r.wars, 4)}`,
+    `  ${pad(seed, 4)}  ${pad(n1(r.raids), 9)}  ${pad(Math.round(r.perRaid), 8)}  ${pad(Math.round(r.first), 11)}  ${pad(Math.round(r.loot), 13)}  ${pad(`${share(r.loot / farm)}%`, 12)}  ${pad(r.wars, 4)}`,
   );
 }
 console.log('');
 console.log(
-  `  В среднем грабёж даёт ${Math.round((sumLoot / sumFarm) * 100)}% часа хозяйства — и это у игрока,`,
+  `  В среднем грабёж даёт ${share(sumLoot / sumFarm)}% часа хозяйства — и это у игрока,`,
 );
 console.log('  который хозяйством вообще не занимается и ходит от двора ко двору без передышки.');
 console.log('');
