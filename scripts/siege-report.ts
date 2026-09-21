@@ -47,14 +47,13 @@ import { militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
-import { buildingStat, defense, housingCapacity, productionPerDay, selfCost, storageCap, hiddenStash, towerSeats, upgradeCost, wageOf } from '@/game/derived';
+import { buildingStat, defense, housingCapacity, productionPerDay, storageCap, hiddenStash, towerSeats, upgradeCost, wageOf } from '@/game/derived';
 import { TROOP_BY_ID } from '@/game/data/troops';
-import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
-import { GOOD_BY_ID } from '@/game/data/market';
 import { BUILDINGS } from '@/game/data/buildings';
 import { RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { EngineId, GameState } from '@/game/types';
 import { ENGINE_BY_ID } from '@/game/data/engines';
+import { archerPerSiege, archerRecruit, crewFor, enginePrice } from './lib/engines';
 import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour, realMs, worldDays } from '@/game/pace';
 import { PULSE_FLOOR } from './autopilot';
 
@@ -1096,15 +1095,7 @@ console.log('лучник против орудия: цена, с которой
   // Считается прямо в игровых днях: горизонт раздела «частота» задан ими, и жалованье лучника —
   // тоже за игровой день. Пересчёт через настоящие часы стоял здесь, пока день был минутой.
   const daysPerSiege = (GAME_DAYS * TOWNS.length * SEEDS.length) / sieges;
-  const goodPrice = (r: string): number => {
-    const good = GOOD_BY_ID[r];
-    return good ? selfCost(good) : 0;
-  };
-  const archer = TROOP_BY_ID.archer;
-  let recruit = Object.entries(archer.cost).reduce((n, [r, v]) => n + goodPrice(r) * (v ?? 0), 0);
-  for (const [id, k] of Object.entries(archer.gear) as [keyof typeof EQUIPMENT_BY_ID, number][]) {
-    recruit += Object.entries(EQUIPMENT_BY_ID[id].cost).reduce((n, [r, v]) => n + goodPrice(r) * (v ?? 0) * k, 0);
-  }
+  const recruit = archerRecruit();
   console.log(
     `жалованье лучника ${wage.toFixed(2)} золота в игровой день (умеренный налог новой партии); ` +
       `осада — раз в ${Math.round(daysPerSiege)} игровых дней (раздел «частота»: ${sieges} осад за ${GAME_DAYS * TOWNS.length * SEEDS.length} игровых дней), ` +
@@ -1114,13 +1105,14 @@ console.log('лучник против орудия: цена, с которой
     `наём лучника своим трудом (derived.selfCost по ресурсам и луку): ${recruit.toFixed(1)} золота; ` +
       `лучник от осады до осады: ${(recruit + wage * daysPerSiege).toFixed(0)} золота`,
   );
-  const inGold = (cost: Partial<Record<string, number>>): number =>
-    Object.entries(cost).reduce((n, [r, v]) => n + goodPrice(r) * (v ?? 0), 0);
-  const perSiege = recruit + wage * daysPerSiege;
+  const perSiege = archerPerSiege(daysPerSiege, g);
   for (const [name, level] of [['балиста', 5], ['катапульта', 10]] as const) {
-    const price = inGold(upgradeCost(tower, level));
-    const crew = Math.ceil(price / perSiege);
     const id: EngineId = name === 'балиста' ? 'ballista' : 'catapult';
+    // Цену и расчёт считает `scripts/lib/engines` — та же дверь, которой их проверяет
+    // тест `scripts/lib/engines.test.ts`. Второй копии этой арифметики быть не должно:
+    // разойдись они, отчёт сказал бы «сходится», а в игре стояло бы другое число.
+    const price = enginePrice(id);
+    const crew = crewFor(id, daysPerSiege);
     const inCode = ENGINE_BY_ID[id].crew;
     console.log(
       `${name}: цена — улучшение башни до ${level}-го уровня, ${price.toFixed(0)} золота своим трудом; ` +
