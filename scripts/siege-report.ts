@@ -55,12 +55,41 @@ import { BUILDINGS } from '@/game/data/buildings';
 import { RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { EngineId, GameState } from '@/game/types';
 import { ENGINE_BY_ID } from '@/game/data/engines';
-import { dayRealSeconds, gameDaysPerHour } from '@/game/pace';
+import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour, realMs, worldDays } from '@/game/pace';
+import { PULSE_FLOOR } from './autopilot';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303];
-/** Сколько игрового времени крутим на каждой деревне. */
-const HOURS = 8;
+/**
+ * Сколько **игрового** времени крутим на каждой деревне. Восемь часов этот отчёт крутил, пока
+ * игровой день был настоящей минутой; после поворота шкалы те же восемь настоящих часов стали
+ * шестнадцатью игровыми днями — короче одной паузы между набегами, — и раздел «частота» не
+ * дождался ни одного прихода (docs/time.md, раздел 17.2). Горизонт теперь идёт через дверь
+ * времени и означает то же, что означал: 480 игровых дней.
+ */
+const GAME_DAYS = 480;
+/**
+ * Шаг мира — тоже игровым временем, с полом в настоящую минуту (`PULSE_FLOOR`, как у автопилота):
+ * иначе тот же горизонт стоил бы в тридцать раз больше шагов. Десять игровых секунд — пять
+ * настоящих минут при ×30, и это грубее пола, поэтому пол ни на что не влияет; он стоит затем,
+ * чтобы при шкале 1 шаг остался прежним.
+ */
+const STEP_MS = Math.max(PULSE_FLOOR * 1000, realMs(10));
+/**
+ * Сколько шагов покрывают `days` игровых дней при шаге `STEP_MS`. Ждать осады отчёт ждёт игровым
+ * временем: осада приходит из паузы между набегами (`AI_ATTACK_MIN..MAX`, игровые дни), а до
+ * поворота шкалы эти ожидания стояли числами настоящих шагов — и после поворота не дожидались
+ * ничего (docs/time.md, раздел 18).
+ */
+const stepsFor = (days: number): number => Math.ceil(worldDays(days) / STEP_MS);
+/** Горизонт ожидания осады: столько же игрового времени, сколько отчёт ждал при дне в минуту. */
+const WAIT_DAYS = 360;
+/**
+ * Срок мира в **игровых днях**. Всё, чем меряется осада, объявлено игровым временем —
+ * рогатки, остывание, паузы набегов, выручка, проход, — и печатать их настоящими минутами
+ * после поворота шкалы значит называть одно число тридцатью разными (docs/time.md, раздел 18).
+ */
+const gd = (ms: number): number => gameDaysOfMs(ms);
 
 // ---------------------------------------------------------------- частота ---
 
@@ -105,10 +134,10 @@ async function frequency(seed: number, defense: number, army: TroopStack): Promi
   const p = profile(defense, army);
   const out: Counts = { came: 0, sieges: 0, couldOld: 0 };
   const seen = new Set<string>();
-  const end = now + HOURS * 60 * MIN;
+  const end = now + worldDays(GAME_DAYS);
   await world.sync(p);
   while (now < end) {
-    now += 10_000;
+    now += STEP_MS;
     const pulse = await world.sync(p);
     for (const r of pulse.reports as Report[]) {
       if (r.kind !== 'defense' || seen.has(r.id)) continue;
@@ -177,12 +206,12 @@ const pct = (a: number, b: number): string => (b > 0 ? `${Math.round((a / b) * 1
 console.log('=== Осада числами ===');
 console.log(
   `порог осады: штурм не удался бы (сухой прогон боя у стены) · доля попыток (SIEGE_CHANCE): ${SIEGE_CHANCE} · ` +
-    `остывание (SIEGE_COOLDOWN): ${SIEGE_COOLDOWN / MIN} мин`,
+    `остывание (SIEGE_COOLDOWN): ${gd(SIEGE_COOLDOWN)} игр. дн.`,
 );
-console.log(`пауза между набегами ИИ: ${AI_ATTACK_MIN / MIN}…${AI_ATTACK_MAX / MIN} мин`);
+console.log(`пауза между набегами ИИ: ${gd(AI_ATTACK_MIN)}…${gd(AI_ATTACK_MAX)} игр. дн.`);
 
 console.log('');
-console.log(`--- частота: набег или осада (${HOURS} ч на деревню, ${SEEDS.length} сидов) ---`);
+console.log(`--- частота: набег или осада (${GAME_DAYS} игровых дней на деревню, ${SEEDS.length} сидов) ---`);
 console.log('«могли» — штурм не удался бы (сели лагерем или отбиты у стены); «сели» — с долей и остыванием.');
 console.log('деревня   пришло   осад (могли → сели)   доля осад: могли → сели');
 let totalCame = 0;
@@ -293,8 +322,8 @@ async function freezeSiege(seed: number, level: number, engine: EngineId | null 
   let now = 1_700_000_000_000;
   const store = memory();
   const world = new LocalWorld({ seed, now: () => now, storage: store });
-  for (let i = 0; i < 6 * 180; i++) {
-    now += 20_000;
+  for (let i = 0; i < stepsFor(WAIT_DAYS); i++) {
+    now += STEP_MS;
     const r = await world.sync(playerProfile(g));
     if (!r.siege) continue;
     const save = store.read() as string;
@@ -354,7 +383,7 @@ function fillPass(g: TroopStack, pass: number): TroopStack {
 }
 
 console.log('');
-console.log(`--- укрепления во времени: вылазка от минуты постановки лагеря (дозревают за ${CAMP_WORKS_RIPE / MIN} мин) ---`);
+console.log(`--- укрепления во времени: вылазка от постановки лагеря (рогатки дозревают за ${gd(CAMP_WORKS_RIPE)} игр. дн.) ---`);
 console.log('настоящий мир, LocalWorld.sortie; «весь» — весь гарнизон, «×2» — отряд вдвое больше лагеря');
 const frozenByLevel = new Map<number, Frozen[]>();
 /** Строка «весь» по уровням — с ней сравниваются орудия башни в настоящем мире. */
@@ -371,21 +400,21 @@ for (const level of LEVELS) {
     continue;
   }
   const pw = frozen.map((f) => f.campPower);
-  const win = frozen.map((f) => (f.starvesAt - f.since) / MIN);
+  const win = frozen.map((f) => gd(f.starvesAt - f.since));
   const gMen = stackTotal(kindsOf(homeOf(frozen[0].g.army, awayOf([], []))));
   console.log(
     `Статуя L${level}: осад ${frozen.length}, лагеря ${Math.min(...pw).toFixed(1)}…${Math.max(...pw).toFixed(1)} мощи ` +
       `(${menOfPower(Math.min(...pw))}…${menOfPower(Math.max(...pw))} бойцов строя), гарнизон ${gMen}, ` +
-      `окно голода ${Math.min(...win).toFixed(1)}…${Math.max(...win).toFixed(1)} мин`,
+      `окно голода ${Math.min(...win).toFixed(1)}…${Math.max(...win).toFixed(1)} игр. дн.`,
   );
-  console.log('  Δ, мин  ' + DELAYS.map((d) => String(d).padStart(5)).join(''));
+  console.log('  Δ, игр. дн.' + DELAYS.map((d) => String(d).padStart(5)).join(''));
   for (const kind of ['весь', '×2'] as const) {
     const cells: string[] = [];
     for (const d of DELAYS) {
       let won = 0;
       let n = 0;
       for (const fz of frozen) {
-        const at = fz.since + d * MIN;
+        const at = fz.since + worldDays(d);
         if (at >= fz.starvesAt) continue;
         for (let v = 0; v < VARIANTS; v++) {
           const t = await thaw(fz, at, v);
@@ -450,8 +479,8 @@ async function freezeField(seed: number, level: number): Promise<Frozen | null> 
   if (moveErr) throw new Error(moveErr);
   now = (await world.figures()).find((f) => f.id === 'general')!.arriveAt;
   await world.sync(playerProfile(g));
-  for (let i = 0; i < 6 * 180; i++) {
-    now += 20_000;
+  for (let i = 0; i < stepsFor(WAIT_DAYS); i++) {
+    now += STEP_MS;
     const r = await world.sync(playerProfile(g));
     if (!r.siege) continue;
     const save = store.read() as string;
@@ -479,12 +508,12 @@ interface JointFail {
   generalDown: number;
 }
 
-const woodLine = `древесина лагеря (CAMP_WOOD): фронт ${CAMP_WOOD.front}, тыл ${CAMP_WOOD.rear} стороны за ${CAMP_WORKS_RIPE / MIN} мин; фронт дозревает к ${(CAMP_WORKS_RIPE / MIN).toFixed(0)}-й минуте, тыл — к ${((CAMP_WORKS_RIPE / MIN) * (CAMP_WOOD.rear >= CAMP_WOOD.front ? 1 / CAMP_WOOD.rear : 2 / (CAMP_WOOD.front + CAMP_WOOD.rear))).toFixed(1)}-й`;
+const woodLine = `древесина лагеря (CAMP_WOOD): фронт ${CAMP_WOOD.front}, тыл ${CAMP_WOOD.rear} стороны за ${gd(CAMP_WORKS_RIPE)} игр. дн.; фронт дозревает к ${gd(CAMP_WORKS_RIPE).toFixed(0)}-му дню, тыл — к ${(gd(CAMP_WORKS_RIPE) * (CAMP_WOOD.rear >= CAMP_WOOD.front ? 1 / CAMP_WOOD.rear : 2 / (CAMP_WOOD.front + CAMP_WOOD.rear))).toFixed(1)}-му`;
 
 console.log('');
 console.log('--- стороны лагеря: вылазка со стороны города, удар полководца с тыла (настоящий мир) ---');
 console.log(woodLine);
-console.log('минута — когда полководец приходит к лагерю (приказ отдан из поля в трёх клетках); «вылазка» — весь гарнизон в ту же минуту');
+console.log('«приход» — игровой день, в который полководец приходит к лагерю (приказ отдан из поля в трёх клетках); «вылазка» — весь гарнизон в тот же день');
 const travels = new Map<Frozen, number>();
 const jointFail: JointFail = { runs: 0, fails: 0, garrisonWent: 0, garrisonFell: 0, townLeft: 0, townEmpty: 0, druzhinaHome: 0, generalDown: 0 };
 for (const level of LEVELS) {
@@ -499,17 +528,17 @@ for (const level of LEVELS) {
   }
   const probe = await thaw(frozen[0], frozen[0].since, 0);
   const general = probe.pulse.figures.find((f) => f.id === 'general')!;
-  const win = frozen.map((f) => (f.starvesAt - f.since) / MIN);
+  const win = frozen.map((f) => gd(f.starvesAt - f.since));
   console.log(
     `Статуя L${level}: осад ${frozen.length}, дружина ${troopTotal(general.troops)} чел. (${stackTotal(kindsOf(general.troops))} строя), ` +
-      `гарнизон ${stackTotal(kindsOf(probe.garrison))} строя, окно голода ${Math.min(...win).toFixed(1)}…${Math.max(...win).toFixed(1)} мин`,
+      `гарнизон ${stackTotal(kindsOf(probe.garrison))} строя, окно голода ${Math.min(...win).toFixed(1)}…${Math.max(...win).toFixed(1)} игр. дн.`,
   );
-  console.log('  приход, мин      ' + FIELD_DELAYS.map((d) => String(d).padStart(5)).join(''));
+  console.log('  приход, игр. дн. ' + FIELD_DELAYS.map((d) => String(d).padStart(5)).join(''));
   const rows: Record<'вылазка' | 'с тыла' | 'с гарнизоном', FieldOutcomeRow[]> = { вылазка: [], 'с тыла': [], 'с гарнизоном': [] };
   for (const d of FIELD_DELAYS) {
     const cells = { вылазка: { n: 0, won: 0 }, 'с тыла': { n: 0, won: 0 }, 'с гарнизоном': { n: 0, won: 0 } };
     for (const fz of frozen) {
-      const arrive = fz.since + d * MIN;
+      const arrive = fz.since + worldDays(d);
       if (arrive >= fz.starvesAt) continue;
       for (let v = 0; v < VARIANTS; v++) {
         // Вылазка — в минуту прихода, тем же сохранением.
@@ -599,12 +628,12 @@ console.log('«осталось в городе без дружины» — га
 console.log('');
 console.log('--- частые вылазки: проход — поток, дробление его не обгоняет (настоящий мир, Статуя L10) ---');
 console.log(
-  `проход освобождается за ${CAMP_GATE_CLEAR / MIN} мин; «отказ» — к рогаткам сейчас не пробиться, боя не было`,
+  `проход освобождается за ${gd(CAMP_GATE_CLEAR)} игр. дн.; «отказ» — к рогаткам сейчас не пробиться, боя не было`,
 );
-console.log('способ                    Δ, мин  сняли осаду  заходов  отказов  к рогаткам  своих легло  людей в лагере: было → стало');
+console.log('способ                 Δ, игр.дн  сняли осаду  заходов  отказов  к рогаткам  своих легло  людей в лагере: было → стало');
 const SPAM_MAX = 30;
-for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
-  for (const way of ['одна всем гарнизоном', 'подряд всем', 'подряд по пропуску', 'подряд по одному', 'волна через 10 мин'] as const) {
+for (const d of [14, gd(CAMP_WORKS_RIPE)]) {
+  for (const way of ['одна всем гарнизоном', 'подряд всем', 'подряд по пропуску', 'подряд по одному', 'волна через проход'] as const) {
     let lifted = 0;
     let tries = 0;
     let refused = 0;
@@ -617,7 +646,7 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
     // не замечает, и осады там не бывает (docs/lair_growth.md).
     for (const fz of frozenByLevel.get(10) ?? []) {
       for (let v = 0; v < VARIANTS; v++) {
-        const t = await thaw(fz, fz.since + d * MIN, v);
+        const t = await thaw(fz, fz.since + worldDays(d), v);
         if (!t.pulse.siege) continue;
         runs++;
         campBefore += t.pulse.siege.campMen;
@@ -626,7 +655,7 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
         let home: TroopStack = { ...t.garrison };
         let k = 0;
         let won = false;
-        const limit = way === 'одна всем гарнизоном' ? 1 : way === 'волна через 10 мин' ? 2 : SPAM_MAX;
+        const limit = way === 'одна всем гарнизоном' ? 1 : way === 'волна через проход' ? 2 : SPAM_MAX;
         while (k < limit && !won) {
           const view = (await t.world.sync(playerProfile(fz.g))).siege;
           if (!view) break;
@@ -651,8 +680,8 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
             won = res.won;
             if (won) menLeft = 0;
           }
-          // Подряд — раз в три секунды, рука нажимает не чаще; волна — через десять минут.
-          t.later(way === 'волна через 10 мин' ? CAMP_GATE_CLEAR : 3000);
+          // Подряд — раз в три секунды, рука нажимает не чаще; волна — через целый проход.
+          t.later(way === 'волна через проход' ? CAMP_GATE_CLEAR : 3000);
         }
         // Остаток лагеря — после последнего захода, одной меркой у всех строк.
         const last = (await t.world.sync(playerProfile(fz.g))).siege;
@@ -671,7 +700,7 @@ for (const d of [14, CAMP_WORKS_RIPE / MIN]) {
 console.log(
   `${TOWN_SEEDS.length} осад × ${VARIANTS} сида боя; «подряд» — до снятия осады или ${SPAM_MAX} заходов, по три секунды между ними; «к рогаткам» — бойцов строя в среднем за прогон.`,
 );
-console.log('«по пропуску» — самый малый отряд, заполняющий проход; «по одному» — один копейщик; «волна» — два захода всем, второй через десять минут.');
+console.log('«по пропуску» — самый малый отряд, заполняющий проход; «по одному» — один копейщик; «волна» — два захода всем, второй через целый проход.');
 console.log('Строки «подряд» обязаны не обгонять «одну всем»: проход пропускает поток, а не порцию на заход.');
 
 // ------------------------------------------------------- осада игроком ---
@@ -716,9 +745,9 @@ async function playerSiege(seed: number): Promise<string> {
   const seen = new Set<string>();
   const log: string[] = [];
   const start = now;
-  const stamp = (): string => `+${((now - start) / MIN).toFixed(0)}м`;
-  for (let i = 0; i < 900; i++) {
-    now += 20_000;
+  const stamp = (): string => `+${gd(now - start).toFixed(0)} игр. дн.`;
+  for (let i = 0; i < stepsFor(WAIT_DAYS / 2); i++) {
+    now += STEP_MS;
     const pulse = await world.sync(p);
     for (const r of pulse.reports) {
       if (seen.has(r.id)) continue;
@@ -744,7 +773,7 @@ async function playerSiege(seed: number): Promise<string> {
 
 console.log('');
 console.log('--- осада игроком: чем кончается (настоящий мир, полководец у ворот) ---');
-console.log(`порог вылазки бота: гарнизон ≥ лагерь × ${SIEGE_SORTIE_RATIO}; выручка выходит через ${SIEGE_RELIEF_AT / MIN} мин`);
+console.log(`порог вылазки бота: гарнизон ≥ лагерь × ${SIEGE_SORTIE_RATIO}; выручка выходит через ${gd(SIEGE_RELIEF_AT)} игр. дн.`);
 for (const seed of SEEDS) {
   console.log(`сид ${String(seed).padStart(4)}: ${await playerSiege(seed)}`);
 }
@@ -797,7 +826,7 @@ console.log('--- цена падения: что стоит голод и что
 console.log('Осада начинается и кончается, в игре хозяин или нет: правило отсутствия снято решением');
 console.log('владельца (docs/DEFEAT_LADDER.md). Логово объявляет «ограбить» — эта участь и в таблице.');
 console.log('');
-console.log(' ур   склад   тайник     окно   дебаф за окно   унесено   доля склада   отстроится   гарнизон   постройки (ур. / добра на отстройку)');
+console.log(' ур   склад   тайник     окно   дебаф за окно   унесено   доля склада   отстроится  гарнизон   постройки (ур. / добра на отстройку)');
 
 /** Унесено при падении против дебафа за окно, по уровням: из этого отношения и вывод раздела. */
 const fallVsDebuff: string[] = [];
@@ -806,8 +835,8 @@ for (const level of [1, 3, 5, 7, 10]) {
   const w = clocked(7 + level);
   const snap = (): PlayerProfile => playerProfile(g);
   let siege: WorldPulse['siege'] = null;
-  for (let i = 0; i < 6000 && !siege; i++) {
-    w.advance(10_000);
+  for (let i = 0; i < stepsFor(WAIT_DAYS * 2) && !siege; i++) {
+    w.advance(STEP_MS);
     siege = (await w.world.sync(snap())).siege;
   }
   if (!siege) {
@@ -830,7 +859,9 @@ for (const level of [1, 3, 5, 7, 10]) {
     0,
   );
   const army = Object.values(g.army).reduce((n, v) => n + (v ?? 0), 0);
-  const refill = (taken / Math.max(1, goodsPerHour(g))) * 60;
+  // Отстройка — срок хозяйства, значит игровые дни: настоящими минутами это число значило бы
+  // разное на разных шкалах, а сравнивается оно с окном голода, которое тоже в игровых днях.
+  const refill = taken / Math.max(1, RESOURCE_IDS.reduce((n, r) => n + Math.max(0, productionPerDay(g)[r] ?? 0), 0));
   // Пять построек по уровню — из того списка, что уехал в последствие, и по цене
   // тех самых улучшений, которые придётся заказать заново.
   let levels = 0;
@@ -844,7 +875,7 @@ for (const level of [1, 3, 5, 7, 10]) {
   }
   fallVsDebuff.push(`ур. ${level} — ${(taken / Math.max(1, debuff)).toFixed(2)}`);
   console.log(
-    `  ${String(level).padStart(2)}  ${String(total).padStart(6)}  ${String(hiddenStash(g) * RESOURCE_IDS.length).padStart(6)}  ${(window / MIN).toFixed(1).padStart(6)}м  ${String(Math.round(debuff)).padStart(14)}  ${String(taken).padStart(8)}  ${`${Math.round((taken / total) * 100)}%`.padStart(11)}  ${`${refill.toFixed(1)} мин`.padStart(10)}  ${`−${routed} из ${army}`.padStart(9)}   ${`−${levels} / ${rebuild}`.padStart(15)}`,
+    `  ${String(level).padStart(2)}  ${String(total).padStart(6)}  ${String(hiddenStash(g) * RESOURCE_IDS.length).padStart(6)}  ${gd(window).toFixed(1).padStart(6)}д  ${String(Math.round(debuff)).padStart(14)}  ${String(taken).padStart(8)}  ${`${Math.round((taken / total) * 100)}%`.padStart(11)}  ${`${refill.toFixed(1)} игр.дн`.padStart(10)}  ${`−${routed} из ${army}`.padStart(9)}   ${`−${levels} / ${rebuild}`.padStart(15)}`,
   );
 }
 console.log('');
@@ -907,7 +938,7 @@ function modelSortie(fz: Frozen, at: number, variant: number, slow: number, thin
   const pass = campPass(keepPass ? menOfPower(fz.campPower) : camp.men, works);
   const garrison = homeOf(fz.g.army, awayOf([], []));
   const field = resolveField({
-    seed: 9000 + variant * 13 + Math.floor((at - fz.since) / MIN),
+    seed: 9000 + variant * 13 + Math.floor(gd(at - fz.since)),
     attacker: { kinds: passKinds(kindsOf(garrison), pass), gear: gearOf(garrison), setup: null },
     defender: { kinds: camp.kinds, gear: camp.gear, setup: camp.setup },
   });
@@ -922,7 +953,7 @@ function modelRow(frozen: Frozen[], slow: number, thin: number, keepPass = false
     let won = 0;
     let n = 0;
     for (const fz of frozen) {
-      const at = fz.since + d * MIN;
+      const at = fz.since + worldDays(d);
       if (at >= fz.starvesAt) continue;
       for (let v = 0; v < MODEL_SEEDS; v++) {
         n++;
@@ -967,9 +998,9 @@ console.log('вылазка всем гарнизоном под орудием 
 for (const level of LEVELS) {
   const frozen = frozenByLevel.get(level) ?? [];
   if (frozen.length === 0) continue;
-  const window = Math.min(...frozen.map((f) => (f.starvesAt - f.since) / MIN));
+  const window = Math.min(...frozen.map((f) => gd(f.starvesAt - f.since)));
   console.log(`Статуя L${level}: окно голода ${window.toFixed(1)} мин, осад ${frozen.length} × ${MODEL_SEEDS} сидов боя`);
-  console.log('  Δ, мин                   ' + DELAYS.map((d) => String(d).padStart(5)).join('') + '   безнадёжна с');
+  console.log('  Δ, игр. дн.              ' + DELAYS.map((d) => String(d).padStart(5)).join('') + '   безнадёжна с');
   const base = modelRow(frozen, 0, 0);
   const said = (h: number | null): string => (h === null ? 'не бывает в окне' : `${h}-й мин`);
   console.log(`  без орудия               ${base.cells.join('')}   ${said(base.hopeless)}`);
@@ -994,7 +1025,7 @@ for (const level of LEVELS) {
     const step = DELAYS[1] - DELAYS[0];
     const cMin = 1 - base.hopeless / (base.hopeless + step);
     const cMax = 1 - base.hopeless / window;
-    const cTarget = 1 - base.hopeless / (CAMP_WORKS_RIPE / MIN);
+    const cTarget = 1 - base.hopeless / gd(CAMP_WORKS_RIPE);
     console.log(
       `  катапульта по рогаткам: заметно — безнадёжность сдвинута хотя бы на шаг замера (${step} мин): c ≥ ${cMin.toFixed(2)}; ` +
         `не отменяет — безнадёжна раньше голода: c < ${cMax.toFixed(2)}; безнадёжна там, где сейчас дозревают рогатки: c = ${cTarget.toFixed(2)}`,
@@ -1002,7 +1033,7 @@ for (const level of LEVELS) {
   }
 }
 console.log('c — доля выработки фронта, которую съедает орудие; s — доля мощи лагеря, выбитая к минуте вылазки;');
-console.log(`«обстрел до S» — выбитая доля мощи лагеря растёт ровно со временем за ${CAMP_WORKS_RIPE / MIN} мин (часы рогаток) до S и дальше не растёт; проход прежний.`);
+console.log(`«обстрел до S» — выбитая доля мощи лагеря растёт ровно со временем за ${gd(CAMP_WORKS_RIPE)} игр. дн. (часы рогаток) до S и дальше не растёт; проход прежний.`);
 
 // Орудия в игре есть — и та же кривая меряется настоящим миром: осада замораживается с
 // готовым орудием на башне (`GameState.engine`, слепок `PlayerProfile.tower`), вылазка —
@@ -1010,7 +1041,7 @@ console.log(`«обстрел до S» — выбитая доля мощи ла
 // выше остаётся тем, из чего числа выведены; этот раздел — то, что из них получилось.
 console.log('');
 console.log('вылазка всем гарнизоном под орудием — настоящий мир (LocalWorld.sortie, орудие готово с постановки лагеря)');
-console.log('  Δ, мин                   ' + DELAYS.map((d) => String(d).padStart(5)).join('') + '   безнадёжна с');
+console.log('  Δ, игр. дн.              ' + DELAYS.map((d) => String(d).padStart(5)).join('') + '   безнадёжна с');
 for (const [level, engine] of [
   [5, 'ballista'],
   [10, 'ballista'],
@@ -1030,7 +1061,7 @@ for (const [level, engine] of [
     let won = 0;
     let n = 0;
     for (const fz of frozen) {
-      const at = fz.since + d * MIN;
+      const at = fz.since + worldDays(d);
       if (at >= fz.starvesAt) continue;
       for (let v = 0; v < VARIANTS; v++) {
         const t = await thaw(fz, at, v);
@@ -1059,8 +1090,9 @@ console.log('лучник против орудия: цена, с которой
   const g = createInitialState();
   const wage = wageOf(g, 'archer');
   const sieges = Math.max(1, totalNew);
-  const hoursPerSiege = (HOURS * TOWNS.length * SEEDS.length) / sieges;
-  const daysPerSiege = hoursPerSiege * gameDaysPerHour();
+  // Считается прямо в игровых днях: горизонт раздела «частота» задан ими, и жалованье лучника —
+  // тоже за игровой день. Пересчёт через настоящие часы стоял здесь, пока день был минутой.
+  const daysPerSiege = (GAME_DAYS * TOWNS.length * SEEDS.length) / sieges;
   const goodPrice = (r: string): number => {
     const good = GOOD_BY_ID[r];
     return good ? selfCost(good) : 0;
@@ -1072,8 +1104,8 @@ console.log('лучник против орудия: цена, с которой
   }
   console.log(
     `жалованье лучника ${wage.toFixed(2)} золота в игровой день (умеренный налог новой партии); ` +
-      `осада — раз в ${hoursPerSiege.toFixed(2)} ч мира (раздел «частота»: ${sieges} осад за ${HOURS * TOWNS.length * SEEDS.length} ч), ` +
-      `это ${Math.round(daysPerSiege)} игровых дней при дне в ${dayRealSeconds()} с`,
+      `осада — раз в ${Math.round(daysPerSiege)} игровых дней (раздел «частота»: ${sieges} осад за ${GAME_DAYS * TOWNS.length * SEEDS.length} игровых дней), ` +
+      `это ${(daysPerSiege / gameDaysPerHour()).toFixed(1)} ч мира при дне в ${dayRealSeconds()} с`,
   );
   console.log(
     `наём лучника своим трудом (derived.selfCost по ресурсам и луку): ${recruit.toFixed(1)} золота; ` +

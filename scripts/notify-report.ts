@@ -31,14 +31,26 @@ import type { TroopStack } from '@/game/battle/kinds';
 import { SEEN_GRACE } from '../netlify/lib/notify';
 import { NOTICE_KINDS, type NoticeKind } from '../netlify/lib/contract';
 import { shieldVillagers } from '@/world/lairs';
+import { DAY_LENGTH, realMs, worldDays } from '@/game/pace';
+import { PULSE_FLOOR } from './autopilot';
 
 const MIN = 60_000;
 const START = 1_700_000_000_000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505];
-/** Сколько игрового времени играем каждую партию. */
-const HOURS = 6;
-const STEP = 20_000;
-/** Уход — в среднем раз в столько (случайная минута по сиду партии). */
+/**
+ * Сколько **игрового** времени играем каждую партию. Шесть часов отчёт играл, пока игровой день
+ * был настоящей минутой, то есть 360 игровых дней; после поворота шкалы те же шесть настоящих
+ * часов стали двенадцатью игровыми днями — короче одной паузы между набегами, — и уходов посреди
+ * осады не случилось ни одного (docs/time.md, раздел 18).
+ */
+const GAME_DAYS = 360;
+/** Шаг мира: двадцать игровых секунд, но не чаще раза в настоящую минуту (`PULSE_FLOOR`). */
+const STEP = Math.max(PULSE_FLOOR * 1000, realMs(20));
+/**
+ * Уход — в среднем раз в столько. Заход игрока — **настоящее** время: столько он в игре и сидит,
+ * и от шкалы мира это не зависит. Отсюда и весь смысл раздела: уходят по своим часам, а осада
+ * идёт по часам мира.
+ */
 const LEAVE_EVERY = 12 * MIN;
 /** Худшее опоздание прохода доставки: расписание раз в минуту. */
 const CRON_LAG = MIN;
@@ -105,8 +117,8 @@ async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]
   const leaves: Leave[] = [];
   await world.sync(p);
   const target = await nearest(world);
-  const end = START + HOURS * 60 * MIN;
-  let nextAct = now + 3 * MIN;
+  const end = START + worldDays(GAME_DAYS);
+  let nextAct = now + realMs(3 * DAY_LENGTH);
   let nextLeave = now + rng() * 2 * LEAVE_EVERY;
 
   while (now < end) {
@@ -116,7 +128,7 @@ async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]
     // Автопилот: игрок, который играет. Приказы, которые мир отвергает (осада, занятость),
     // просто не исполняются — ровно как у живого игрока.
     if (now >= nextAct) {
-      nextAct = now + (6 + rng() * 14) * MIN;
+      nextAct = now + realMs((6 + rng() * 14) * DAY_LENGTH);
       const roll = rng();
       const general = pulse.figures.find((f) => f.id === 'general');
       if (roll < 0.35 && target) {
@@ -168,7 +180,7 @@ const avg = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0)
 const m = (ms: number): string => `${(ms / MIN).toFixed(1)} мин`;
 
 console.log('=== Уведомления: что можно сказать ушедшему игроку ===');
-console.log(`партий: ${SEEDS.length} сидов × ${TOWNS.length} деревни × ${HOURS} ч, уход в среднем раз в ${m(LEAVE_EVERY)}`);
+console.log(`партий: ${SEEDS.length} сидов × ${TOWNS.length} деревни × ${GAME_DAYS} игровых дней, уход в среднем раз в ${m(LEAVE_EVERY)} настоящего времени`);
 
 const all: Leave[] = [];
 for (const town of TOWNS) for (const seed of SEEDS) all.push(...(await play(seed, town)));
@@ -258,7 +270,7 @@ for (const level of [1, 5, 10]) {
     const p = profile(220, warning);
     await world.sync(p);
     const seen = new Set<string>();
-    for (let t = 0; t < (3 * 60 * MIN) / STEP; t++) {
+    for (let t = 0; t < Math.ceil(worldDays(GAME_DAYS / 2) / STEP); t++) {
       now += STEP;
       await world.sync(p);
       const d = await world.notices();

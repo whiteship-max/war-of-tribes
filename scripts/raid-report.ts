@@ -30,8 +30,28 @@ import {
   AI_RANGE,
 } from '@/world/data/tuning';
 import type { MarchView, PlayerProfile } from '@/world/types';
+import { gameDaysOfMs } from '@/game/pace';
 
 const MIN = 60_000;
+/**
+ * Этот отчёт — про **гонку двух часов**: предупреждение о набеге идёт игровым временем
+ * (`AI_WARNING_BASE`, `DEFENSE_FREEZE`), а дорога набега, сбор дружины и ход перехвата — настоящим.
+ * Считается гонка настоящими миллисекундами, и это верно при любой шкале; печатаются настоящие
+ * минуты, а у игровых величин рядом стоит их своя единица — иначе не видно, что с чем гоняется.
+ *
+ * Ждать набега отчёт обязан **игровым** временем: набег приходит из паузы между набегами
+ * (`AI_ATTACK_MIN..MAX`, игровые дни). Пока ожидание стояло числом настоящих шагов, после
+ * поворота шкалы оно кончалось раньше первого набега, и разделы по уровням Дозора были пусты
+ * (docs/time.md, раздел 18).
+ *
+ * Ждать крупным шагом тут нельзя: «заметил» — это минута, и шаг в пять игровых секунд стал бы
+ * при ×30 шагом в две с половиной настоящих минуты, то есть грубее всей дороги набега. Поэтому
+ * отчёт не шагает вслепую, а **подводит часы к сроку** (`nextAiAt`: раньше него набег не
+ * рождается) и дальше идёт мелким шагом настоящего времени, как шёл до поворота.
+ */
+const FINE = 5_000;
+/** Сколько мелких шагов даём после подхода к сроку: дорога набега — единицы настоящих минут. */
+const FINE_STEPS = 2000;
 const SEEDS = [11, 42, 77, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1234, 2024, 4242, 7919];
 
 /** Дружина, с которой играют всерьёз: сотня бойцов и Статуя, которая их пускает. */
@@ -74,11 +94,20 @@ function makeWorld(seed: number): Clocked {
 
 /** Ждём, пока набег станет виден, шагом в пять секунд: это и есть «заметил». */
 async function waitVisibleRaid(w: Clocked, p: PlayerProfile): Promise<{ raid: MarchView; seenAt: number } | null> {
-  for (let i = 0; i < 2000; i++) {
-    w.advance(5_000);
-    const pulse = await w.world.sync(p);
-    const raid = pulse.marches.find((m) => !m.own && m.phase === 'out');
-    if (raid) return { raid, seenAt: pulse.now };
+  const save = (w.world as unknown as { save: { nextAiAt?: number } }).save;
+  for (let hop = 0; hop < 8; hop++) {
+    // Подойти к сроку: набег рождается на пульсе не раньше `nextAiAt` и с `departAt` этого пульса.
+    const due = save.nextAiAt ?? 0;
+    if (due - FINE > w.now()) {
+      w.at(due - FINE);
+      await w.world.sync(p);
+    }
+    for (let i = 0; i < FINE_STEPS; i++) {
+      w.advance(FINE);
+      const pulse = await w.world.sync(p);
+      const raid = pulse.marches.find((m) => !m.own && m.phase === 'out');
+      if (raid) return { raid, seenAt: pulse.now };
+    }
   }
   return null;
 }
@@ -164,19 +193,21 @@ for (const watch of WATCH) for (const seed of SEEDS) {
 }
 
 const m = (ms: number): string => `${(ms / MIN).toFixed(1)} мин`;
+/** Величина игрового времени: настоящие минуты и рядом её своя единица. */
+const both = (ms: number): string => `${m(ms)} (${gameDaysOfMs(ms).toFixed(1)} игр. дн.)`;
 const avg = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
 console.log('=== Запас времени на перехват ===');
 console.log(`круг у деревни (HOME_SIGHT): ${HOME_SIGHT} клеток`);
 console.log(`дальше этого боты не ходят (AI_RANGE): ${AI_RANGE} клеток`);
-console.log(`обещанное предупреждение (AI_WARNING_BASE): ${m(AI_WARNING_BASE)}`);
-console.log(`заморозка обороны (DEFENSE_FREEZE): ${m(DEFENSE_FREEZE)}`);
-console.log(`сбор дружины из ${MEN} бойцов: потолок ${m(HANDOVER_MAX)}`);
+console.log(`обещанное предупреждение (AI_WARNING_BASE, игровое время): ${both(AI_WARNING_BASE)}`);
+console.log(`заморозка обороны (DEFENSE_FREEZE, игровое время): ${both(DEFENSE_FREEZE)}`);
+console.log(`сбор дружины из ${MEN} бойцов: потолок ${m(HANDOVER_MAX)} настоящего времени`);
 for (const watch of WATCH) {
   const part = rows.filter((r) => r.watch === watch.name);
   if (part.length === 0) continue;
   console.log('');
-  console.log(`--- ${watch.name} (предупреждение ${m(AI_WARNING_BASE + watch.warning * 1000)}) ---`);
+  console.log(`--- ${watch.name} (предупреждение ${both(AI_WARNING_BASE + watch.warning * 1000)}) ---`);
   console.log('сид   откуда  вся дорога  видно      готов        холодный старт');
   for (const r of part) {
     console.log(
