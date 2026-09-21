@@ -27,7 +27,7 @@
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { generateWorld, isLair, lairAnchor } from '@/world/gen';
 import { lairArms, lairArmsBase, lairGold, lairLoot, lairPhase, lairPop, lairPower, shieldVillagers } from '@/world/lairs';
-import { distance } from '@/world/geo';
+import { distance, marchSeconds, terrainFactor } from '@/world/geo';
 import {
   AI_RANGE,
   LAIR_CAP,
@@ -47,7 +47,7 @@ import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { ARMS_TROPHY } from '@/game/sim/expedition';
 import type { WorldSave } from '@/world/local/state';
 import type { PlayerProfile } from '@/world/types';
-import { dayRealSeconds, gameDaysOfMs, gameSeconds } from '@/game/pace';
+import { DAY_LENGTH, dayRealSeconds, gameDaysOfMs, gameSeconds, realSeconds } from '@/game/pace';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -135,21 +135,46 @@ function armsCost(count: number): number {
   return Math.round(per * count);
 }
 
-/** Круг набега: довести полководца до логова и разбить его. Настоящий — из прогона ниже. */
-const RAID_MINUTES = 4;
-/** Тот же круг в игровых днях — дверью времени: поход идёт настоящими минутами, хозяйство — игровыми днями. */
-const ROUND_DAYS = gameDaysOfMs(RAID_MINUTES * 60_000);
+/**
+ * Круг набега в игровых днях: довести полководца до ближайшего логова и вернуться. **Меряется,
+ * а не пишется числом.** Стояло здесь «4 минуты» — при дне в минуту это были те же четыре
+ * игровых дня, что и настоящая дорога, и число сходилось по совпадению. После поворота шкалы
+ * четыре настоящие минуты стали 0.13 игрового дня, а с переводом дороги в игровое время
+ * (docs/time.md, раздел 19) настоящий круг — единицы игровых дней: сравнение разъехалось в
+ * пятьдесят раз, и «война — надбавка» перевернулось на бумаге, не сдвинувшись в игре.
+ *
+ * Считается той же `marchSeconds`, какой мир ведёт полководца: медиана по тем же сидам, по
+ * которым отчёт берёт опору, дорога туда и обратно.
+ */
+const ROUND_DAYS = ((): number => {
+  const trips: number[] = [];
+  for (const seed of SEEDS) {
+    const gen = generateWorld(seed);
+    const lairs = gen.settlements.filter((x) => isLair(x) && distance(x, gen.home) <= AI_RANGE);
+    if (lairs.length === 0) continue;
+    const near = lairs.sort((a, b) => distance(a, gen.home) - distance(b, gen.home))[0];
+    const d = distance(near, gen.home);
+    // Состав на скорость не влияет: `stackSpeed` берёт самого медленного из видов, а вид один.
+    trips.push((2 * marchSeconds(d, terrainFactor(seed, gen.home, near), { warrior: 1 })) / DAY_LENGTH);
+  }
+  trips.sort((a, b) => a - b);
+  return trips.length > 0 ? trips[Math.floor(trips.length / 2)] : 0;
+})();
 
 const perDay0 = await production(0);
 const perDay2 = await production(2);
 const forgeHour = forgePerHour();
 
 console.log('=== ДОБЫЧА: слабое логово / среднее / у потолка ===');
-console.log('Мерка одна: что хозяйство наработает за время самого похода. Сравнивать награду');
-console.log(`с дневной выработкой бессмысленно — поход длится минуты, а игровой день ${dayRealSeconds()} секунд.`);
+console.log('Мерка одна: что хозяйство наработает за время самого похода — не за игровой день и не');
+console.log(`за настоящий час: и то и другое мерило чужое. Игровой день длится ${dayRealSeconds()} секунд.`);
 console.log('');
 console.log(`  Хозяйство: старт ${n1(perDay0)} ед./день, через 2 ч партии ${n1(perDay2)}.`);
-console.log(`  За круг набега (${RAID_MINUTES} мин) это ${Math.round(perDay0 * ROUND_DAYS)} и ${Math.round(perDay2 * ROUND_DAYS)} ед.`);
+console.log(
+  `  За круг похода к ближайшему логову и обратно (${n1(ROUND_DAYS)} игр. дн., ` +
+    `${n1(realSeconds(ROUND_DAYS * DAY_LENGTH) / 3600)} ч настоящего времени — медиана по сидам) это ` +
+    `${Math.round(perDay0 * ROUND_DAYS)} и ${Math.round(perDay2 * ROUND_DAYS)} ед.`,
+);
 console.log(`  Склад стартовой деревни: ${storageCap(createInitialState())}. Кузница 1-го уровня: ${Math.round(forgeHour)} предметов в час.`);
 console.log('');
 console.log('  логово          мощь   народу   добра   золота   оружия   оружие своей ковкой        доля круга');
