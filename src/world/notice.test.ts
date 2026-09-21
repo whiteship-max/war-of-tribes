@@ -9,6 +9,7 @@ import { inSight } from './fog';
 import { marchPosition } from './geo';
 import { NOTICE_KINDS, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
 import { shieldVillagers } from './lairs';
+import { SIEGE_IMMUNE } from './data/tuning';
 
 const START = 1_700_000_000_000;
 const MINUTE = 60_000;
@@ -451,8 +452,15 @@ describe('разрыв держит правду', () => {
       const world = new NotifyingWorld({ seed, now: () => now, storage: store });
       await world.sync(profile());
       let item: NoticeItem | undefined;
-      for (let i = 0; i < 400 && !item; i++) {
-        now += 20_000;
+      // Горизонт выведен из окна защиты, а не написан числом: первый набег обычно роняет
+      // деревню, и до конца окна (`scheduleAi`) второго не будет. Пока окно стояло сорок пять
+      // минут, хватало и двух часов; с окном в настоящие сутки (пачка 5) прогон, не
+      // перешагнувший его, не видит ни одного черновика с несработавшим сроком — и тест падает
+      // на своей же точке внутри области, а не зеленеет даром.
+      const STEP = MINUTE;
+      const limit = Math.ceil((SIEGE_IMMUNE + 2 * 3_600_000) / STEP);
+      for (let i = 0; i < limit && !item; i++) {
+        now += STEP;
         await world.sync(profile());
         item = (await world.notices()).items.find((x) => x.kind === 'raid' && x.fireAt > now);
       }

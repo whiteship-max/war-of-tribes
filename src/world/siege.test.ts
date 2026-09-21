@@ -43,6 +43,7 @@ import { shieldVillagers } from './lairs';
 const waitsForPlayers = it.skip;
 
 const START = 1_700_000_000_000;
+const MINUTE = 60_000;
 
 /** Мир с ручными часами и без сохранения: тесты не трогают localStorage. */
 function makeWorld(seed = 7) {
@@ -931,7 +932,10 @@ describe('осада: частота от ИИ', () => {
     // редкость. Разведены они нарочно и крутятся врозь.
     expect(SIEGE_CHANCE).toBeGreaterThan(0);
     expect(SIEGE_CHANCE).toBeLessThan(1);
-    expect(SIEGE_COOLDOWN).toBeGreaterThan(SIEGE_IMMUNE / 2);
+    // Остывание против окна защиты сравнивать здесь больше нельзя: остывание — игровое время
+    // (`worldDays(60)`), окно защиты — настоящее (`shieldTime`), и при дне в минуту, на который
+    // этот файл закреплён, их отношение не то, что в игре. Держит его `worldscale.test.ts` при
+    // боевой шкале — там, где оно и значит что-то (docs/time.md, раздел 18).
     const src = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
     // Оба ограничителя стоят в самом решении, а не где-то рядом.
     expect(src).toContain('SIEGE_CHANCE');
@@ -1185,7 +1189,7 @@ describe('лестница в мире: объявлено при приказе
     }
   }, 240_000);
 
-  it('сожжённый город сутки не сжечь: следующая осада с тем же объявлением кончается грабежом', async () => {
+  it('сожжённый город сутки не трогают вовсе: окно защиты накрыло защиту от цепочки', async () => {
     const s = besiegedTown();
     const p = besiegedProfile(s);
     const w = makeWorld(7);
@@ -1200,21 +1204,31 @@ describe('лестница в мире: объявлено при приказе
     expect(fell.burned, 'первый раз — сожгли').toBe(true);
     expect(save.burnImmune.home, 'защита на сутки от минуты пожара').toBe(burnImmuneUntil(firstAt));
 
-    const second = await besiegeDeclaring(w, p, 'burn');
-    // Граница области: вторая осада встала и падёт внутри суток после пожара.
-    const secondAt = Math.ceil(second.siege!.starvesAt);
-    expect(secondAt, 'вторая осада — внутри суток').toBeLessThan(firstAt + BURN_IMMUNE);
-    // Осаждённый видит не объявленное впустую, а то, что случится.
-    expect(second.siege!.fate).toBe(FATE_DEFAULT);
-    w.at(secondAt);
-    const robbed = await w.world.sync(p);
-    const again = robbed.effects.find((e) => e.id.endsWith('-fell'))!;
-    const report = robbed.reports.find((r) => r.id.endsWith('-fell'))!;
-    expect(again.burned, 'второй раз не сожгли').toBeUndefined();
-    expect(report.fallen!.length, 'пять построек, а не все').toBe(FALL_BUILDINGS);
-    expect(again.resources, 'а ограбили — можно').not.toEqual({});
-    // Защита не продлилась грабежом: срок тот же, от первого пожара.
+    // С пачки 5 окно защиты игрока — настоящие сутки, ровно как защита от цепочки, и оба
+    // ставятся от одной минуты (`spoils` выше по коду). Значит второго падения внутри суток
+    // не бывает **вовсе**: `scheduleAi` не выпускает набега, `sitsDown` не даёт сесть лагерем,
+    // и понижение ступени у своего города просто не успевает спроситься. Это и проверяется —
+    // не «второй раз ограбили», а «второго раза нет».
+    expect(SIEGE_IMMUNE, 'окно защиты не короче защиты от цепочки').toBeGreaterThanOrEqual(BURN_IMMUNE);
+    expect(save.siegeImmune.home, 'оба окна — от одной минуты').toBe(firstAt + SIEGE_IMMUNE);
+
+    // Граница области: идём по суткам после пожара и на каждом шаге стоим внутри обоих окон.
+    const until = firstAt + BURN_IMMUNE;
+    let steps = 0;
+    for (let t = firstAt + MINUTE; t < until; t += MINUTE) {
+      w.at(t);
+      const pulse = await w.world.sync(p);
+      expect(t, 'точка внутри суток после пожара').toBeLessThan(until);
+      expect(pulse.siege, `+${Math.round((t - firstAt) / MINUTE)} мин: второй осады нет`).toBeNull();
+      expect(pulse.effects.some((e) => e.id.endsWith('-fell')), `+${Math.round((t - firstAt) / MINUTE)} мин: второго падения нет`).toBe(false);
+      steps++;
+    }
+    expect(steps, 'точек внутри области').toBeGreaterThan(60);
+    // Защита не продлилась и не сдвинулась: срок тот же, от первого пожара.
     expect(save.burnImmune.home).toBe(burnImmuneUntil(firstAt));
+    // Само понижение ступени внутри суток держит чистая функция — `spoils.test.ts`,
+    // «защита от цепочки»: `fateAt('burn', …)` отдаёт грабёж. Стань окно защиты короче
+    // защиты от цепочки — этот путь снова станет достижимым, и сквозной случай сюда вернётся.
   }, 240_000);
 
   it('логову сжечь не объявить ни осадой, ни ударом, ни заново у своего лагеря — а увести людей можно', async () => {

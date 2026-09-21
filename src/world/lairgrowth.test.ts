@@ -102,6 +102,15 @@ describe('сила логова растёт от возраста и жител
 });
 
 describe('набег — всё логово через защиту новичка', () => {
+  /**
+   * Сколько часов мира надо прогнать, чтобы набегов пришло несколько. Горизонт выводится из
+   * окна защиты, а не пишется числом: павший город не трогают до конца окна (`scheduleAi`), и
+   * второй набег приходит только после него. Литерал «три часа» был верен, пока окно стояло
+   * сорок пять минут; с окном в настоящие сутки (пачка 5) он молча давал по одному набегу на
+   * мир, и свойство проверялось на одной точке вместо нескольких.
+   */
+  const RAID_HOURS = Math.ceil(SIEGE_IMMUNE / 3_600_000) + 6;
+
   /** Прогнать мир и собрать отряды, вышедшие на деревню, с силой логова в минуту выхода. */
   async function raids(seed: number, p: PlayerProfile, hours: number) {
     const w = makeWorld(seed);
@@ -136,7 +145,7 @@ describe('набег — всё логово через защиту нович�
     expect(shield).toBeLessThan(1);
     let checked = 0;
     for (const seed of [7, 42]) {
-      for (const r of await raids(seed, profile({ pop }), 3)) {
+      for (const r of await raids(seed, profile({ pop }), RAID_HOURS)) {
         expect(r.power).toBeCloseTo(Math.max(2, lairRaid(r.lair, pop)), 6);
         expect(r.power).toBeCloseTo(Math.max(2, r.lair * shield), 6);
         checked++;
