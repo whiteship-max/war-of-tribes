@@ -60,7 +60,7 @@ export function IntelCard({ intel, name }: { intel: IntelReading | null; name: s
       <p className={`note${stale ? ' bad' : ''}`}>
         {intel.hearsay ? 'донесение лазутчика: числа приблизительны с самого начала' : PRECISION_NOTE[intel.precision]}
         {intel.style ? ` · ${intel.style}` : ''}
-        {'. Данные всегда старее боя минимум на пять минут: до самой отметки противник может перестроиться.'}
+        {'. Данные всегда старее боя: расстановка запирается заранее, и до самой отметки противник может перестроиться.'}
       </p>
 
       <div className="mod-list">

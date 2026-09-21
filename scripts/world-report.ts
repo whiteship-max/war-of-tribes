@@ -13,8 +13,25 @@
 import { FEATURE, dropGeography, featuresAt, landmasses, terrainAt } from '../src/world/geography';
 import { generateWorld } from '../src/world/gen';
 import { distance, terrainFactor, travelTime } from '../src/world/geo';
-import { asGame, dayRealSeconds, realSeconds, type GameSec } from '../src/game/pace';
-import { AI_RANGE, HOME_SIGHT, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from '../src/world/data/tuning';
+import { DAY_LENGTH, asGame, dayRealSeconds, gameDaysOfMs, realSeconds, type GameSec } from '../src/game/pace';
+import { DEED_GAP } from '../src/game/data/agents';
+import {
+  AI_RANGE,
+  FIGURE_DOWN,
+  HANDOVER_BASE,
+  HANDOVER_MAX,
+  HOME_SIGHT,
+  ORDER_BUSY_GIFT,
+  ORDER_BUSY_INSULT,
+  ORDER_BUSY_PACT,
+  ORDER_BUSY_WAR,
+  PATH_SAMPLES_PER_CELL,
+  PERIL_MEMORY,
+  SPY_BUSY,
+  SPY_HELD,
+  WORLD_ORIGIN,
+  WORLD_SIZE,
+} from '../src/world/data/tuning';
 import { TERRAIN_META, TERRAIN_ORDER } from '../src/world/data/terrain';
 import { FIGURES } from '../src/world/data/figures';
 import { KM_PER_CELL, cellOf, kmAt, lonLatOf } from '../src/world/atlas/project';
@@ -302,3 +319,61 @@ for (const seed of seeds) {
   console.log(`    земля под замком: кусок ${land.sizeOf(mass)} кл — ${mass === land.sizes.indexOf(biggest) ? 'материк' : 'НЕ материк'}`);
 }
 console.log('');
+
+// --------------------------------------------- сроки мира против плеча пути ---
+//
+// Срок, который мир накладывает на игрока — фигура вне строя, лазутчик задержан, дипломат
+// занят, дружина собирается, — значит ровно столько, сколько он весит **против дороги**. Пока
+// дорога шла настоящими минутами, а сроки — тоже настоящими, весы сходились сами. После того,
+// как время пути пошло игровым (docs/time.md, раздел 19), сроки, оставшиеся настоящими,
+// обесценились втридцатеро: наказание за провал стало короче, чем дойти до цели.
+//
+// Раздел печатает обе стороны из одного числа: срок в игровых днях — и его долю плеча пути, и
+// долю, которая вышла бы, если то же число прочесть настоящими минутами (так и было до правки).
+console.log('=== СРОКИ МИРА ПРОТИВ ПЛЕЧА ПУТИ ===');
+console.log('Плечо — половина круга похода к ближайшему логову, медиана по сидам ниже: столько идти в одну сторону.');
+console.log('«как настоящие» — доля, которая вышла бы, если то же число читать настоящими минутами: так эти сроки и стояли до 22.09.2026.');
+console.log('');
+{
+  const legs: number[] = [];
+  for (const seed of seeds) {
+    dropGeography();
+    const w = generateWorld(seed);
+    const near = w.settlements.map((s) => ({ s, d: distance(w.home, s) })).sort((a, b) => a.d - b.d)[0];
+    if (!near) continue;
+    legs.push(travelTime(near.d, terrainFactor(seed, w.home, near.s), units.warrior));
+  }
+  legs.sort((a, b) => a - b);
+  const leg = legs.length > 0 ? legs[Math.floor(legs.length / 2)] : 0;
+  console.log(`  Плечо пути: ${leg.toFixed(0)} игровых секунд — ${span(asGame(leg))}.`);
+  console.log('');
+  console.log('  срок                    игр. дн.   настоящее время   доля плеча   как настоящие');
+  const rows: [string, number][] = [
+    ['фигура вне строя', FIGURE_DOWN],
+    ['лазутчик задержан', SPY_HELD],
+    ['лазутчик занят', SPY_BUSY],
+    ['дипломат: пакт', ORDER_BUSY_PACT],
+    ['дипломат: дар', ORDER_BUSY_GIFT],
+    ['дипломат: война', ORDER_BUSY_WAR],
+    ['дипломат: обида', ORDER_BUSY_INSULT],
+    ['сбор дружины, потолок', HANDOVER_MAX],
+    ['сбор дружины, основа', HANDOVER_BASE],
+    ['срок между делами', DEED_GAP],
+    ['память цели о заходах', PERIL_MEMORY],
+  ];
+  for (const [name, ms] of rows) {
+    const days = gameDaysOfMs(ms);
+    const sec = days * DAY_LENGTH;
+    const asReal = (days * 60) / Math.max(1, realSeconds(leg));
+    console.log(
+      `  ${name.padEnd(22)}  ${days.toFixed(1).padStart(8)}   ${span(asGame(sec)).padStart(15)}   ` +
+        `${`${Math.round((sec / Math.max(1, leg)) * 100)}%`.padStart(10)}   ${`${(asReal * 100).toFixed(1)}%`.padStart(13)}`,
+    );
+  }
+  console.log('');
+  console.log('  Все одиннадцать — последствия в мире, а не окна, дающие игроку время прийти и ответить,');
+  console.log('  и потому идут временем мира (решение владельца, docs/time.md, раздел 20). Остаются');
+  console.log('  настоящими: почта (срок ответа игрока), предупреждение о разрыве пакта (оно даёт увести');
+  console.log('  дипломата) и кэш кусков карты — он инструмент, а не мир.');
+  console.log('');
+}

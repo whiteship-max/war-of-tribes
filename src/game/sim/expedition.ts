@@ -371,7 +371,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Павшие и сожжённое логово едут в счёт дел вместе с делом: из них выводятся черты.
   if (o.deed) recordDeed(s, { ...o.deed, lost: o.warriorsLost, lair: o.lair });
   // Весть о гибели — объектом с номером человека. Строкой её слал мир до смертных
-  // агентов, и значила она «выбыл на десять минут»: убивать по ней нельзя.
+  // агентов, и значила она «выбыл на `FIGURE_DOWN`»: убивать по ней нельзя.
   if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));
   if (o.retired) recordRetire(s, o.retired, (a) => hireWhere(s, a));
   if (sacked.length > 0) {
