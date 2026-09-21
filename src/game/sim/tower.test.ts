@@ -18,15 +18,28 @@ function towerAt(level: number): GameState {
 }
 
 describe('башня: места лучников', () => {
-  it('одно место на первом уровне и ещё одно каждые три', () => {
+  it('одно место на первом уровне и ещё одно каждые пять', () => {
     const seats = Array.from({ length: MAX_BUILDING_LEVEL }, (_, i) => towerSeats(towerAt(i + 1)));
-    expect(seats).toEqual([1, 1, 1, 2, 2, 2, 3, 3, 3, 4]);
+    expect(seats).toEqual([1, 1, 1, 1, 1, 2, 2, 2, 2, 2]);
   });
 
-  it('на уровне, где орудие открывается, мест хватает на его расчёт', () => {
+  // Концы лестницы **выведены**, а не выбраны: на уровне, где орудие открывается, мест ровно
+  // столько, сколько людей оно требует. Проверять надо равенство, а не «хватает»: лестница
+  // шире расчёта тоже «хватает», и ровно так 1/2/4 пережили пересчёт расчёта катапульты
+  // с четырёх на два (docs/time.md, раздел 19.3; docs/tower.md, раздел 3).
+  it('концы лестницы — ровно расчёт орудия того уровня', () => {
     for (const def of ENGINES) {
       expect(def.level, `${def.id}: уровень внутри шкалы`).toBeLessThanOrEqual(MAX_BUILDING_LEVEL);
-      expect(towerSeats(towerAt(def.level)), `${def.id}: мест на ${def.level}-м уровне`).toBeGreaterThanOrEqual(def.crew);
+      // Точка внутри области: у орудия есть расчёт, иначе правило не спрашивается.
+      expect(def.crew, `${def.id}: расчёт не пуст`).toBeGreaterThan(0);
+      expect(towerSeats(towerAt(def.level)), `${def.id}: мест на ${def.level}-м уровне`).toBe(def.crew);
+    }
+  });
+
+  it('мест не убывает с уровнем: башня выше не может обслуживать меньше', () => {
+    const seats = Array.from({ length: MAX_BUILDING_LEVEL }, (_, i) => towerSeats(towerAt(i + 1)));
+    for (let i = 1; i < seats.length; i++) {
+      expect(seats[i], `уровень ${i + 1} против ${i}`).toBeGreaterThanOrEqual(seats[i - 1]);
     }
   });
 });
