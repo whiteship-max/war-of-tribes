@@ -644,6 +644,24 @@ function gemSection(): void {
   }
   console.log(`  все уровни всех построек: ${whole.one} алмазов при шкале 1 и ${whole.slow} при ×${SCALE_NEXT} (×${n1(whole.slow / whole.one)}); тестовый запас — ${n1((TEST_GEMS / whole.one) * 100)} % и ${n1((TEST_GEMS / whole.slow) * 100)} % этого пути,`);
   console.log(`  и те же ${realSpan(TEST_GEMS * GEM_REAL_SECONDS)} настоящего ожидания при любой шкале.`);
+
+  // Из чего выведен тестовый запас: он существует затем, чтобы трату можно было проверить, — а
+  // проверить её нельзя, не достроив ни одного улучшения целиком. Мерка поэтому серединная, а не
+  // самая дешёвая: дешевле всех Костёр, у которого труда почти нет, и сорока алмазов хватало
+  // ровно на него одного. Цена в алмазах от шкалы не зависит (алмаз — доля настоящих суток).
+  const first = base.buildings
+    .map((b0) => ({ name: BUILDING_BY_ID[b0.type].name, price: rushPrice({ ...structuredClone(b0), level: 1 }) }))
+    .sort((a, b) => a.price - b.price);
+  const mid = first[Math.floor(first.length / 2)];
+  const reach = first.filter((r) => r.price <= TEST_GEMS).length;
+  console.log(
+    `  достройка 1→2 новой партии: дешевле всех ${first[0].name} — ${first[0].price}, середина ${mid.name} — ${mid.price}, ` +
+      `дороже всех ${first[first.length - 1].name} — ${first[first.length - 1].price} алмазов.`,
+  );
+  console.log(
+    `  тестовый запас ${TEST_GEMS} берёт ${reach} из ${first.length} первых улучшений; мерка запаса — серединное (${mid.price}): ` +
+      `${TEST_GEMS >= mid.price ? 'хватает' : 'НЕ ХВАТАЕТ'}. Цена в алмазах от шкалы не зависит — алмаз есть доля настоящих суток.`,
+  );
 }
 
 async function main(): Promise<void> {
