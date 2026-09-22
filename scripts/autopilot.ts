@@ -39,6 +39,8 @@ import { starvesAt } from '@/world/siege';
 import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
+import { creditTech } from '@/game/sim/tech';
+import { FIGURE_IDS } from '@/world/data/figures';
 import { absence, catchUp, tick } from '@/game/sim/tick';
 import { DAY_LENGTH, gameSeconds, realMs, realSeconds, timeScale } from '@/game/pace';
 import { resolveEvent, startUpgrade } from '@/game/sim/actions';
@@ -122,6 +124,27 @@ export function townAt(level: number, over: Record<string, number> = {}): GameSt
   for (const [id, n] of Object.entries(stackOf(armyAt(level)))) g.army[id as TroopId] = n ?? 0;
   autoAssign(g);
   for (const r of RESOURCE_IDS) g.resources[r] = storageCap(g);
+  played(g);
+  return g;
+}
+
+/**
+ * Сделать посёлок **сыгранной партией**, а не новой: люди на местах и ступени технологий
+ * засчитаны.
+ *
+ * Зачем это нужно. Мерочному посёлку жильё, войско и склад ставят прямо, минуя стройку и
+ * найм, — а с гейтом такая партия перестала бы быть той, какой она бывает у игрока: новая
+ * партия начинается без места лазутчика, и мерка, собранная из новой, мерила бы деревню,
+ * которой в игре не бывает (решение владельца 12, docs/dynasty.md, разделы 6.2 и 10.1).
+ * Засчитывает ступень та же дверь, что и ступень сохранения (`sim/tech.creditTech`):
+ * второго правила засчитывания в проекте нет и быть не должно.
+ *
+ * Свежую партию, которую отчёт играет с первого дня, этим трогать нельзя — она и есть
+ * новая партия, и гейт для неё настоящий.
+ */
+export function played(g: GameState): GameState {
+  for (const id of FIGURE_IDS) g.agents[id].vacant = false;
+  creditTech(g);
   return g;
 }
 

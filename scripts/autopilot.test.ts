@@ -18,7 +18,10 @@ import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
 import { setTimeScale, timeScale } from '@/game/pace';
-import { pilot, player, type Inside } from './autopilot';
+import { pilot, played, player, townAt, type Inside } from './autopilot';
+import { placeOpen, techLevel } from '@/game/sim/tech';
+import { diploLevelOf } from '@/game/data/realm';
+import { FIGURE_IDS } from '@/world/data/figures';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS = path.join(ROOT, 'scripts');
@@ -97,6 +100,32 @@ describe('автопилот один: по исходникам', () => {
     const store = code(path.join(ROOT, 'src/world/store.ts'));
     expect(store, 'store зовёт tribePulse').toMatch(/\btribePulse\s*\(/);
     expect(stepsTaken(store).filter((s) => !s.endsWith(':tribePulse')), 'части пульса в сторе').toEqual([]);
+  });
+});
+
+describe('посёлок мерки подчиняется гейту', () => {
+  /**
+   * Мерке ставят жильё, войско и склад прямо, минуя стройку и найм. С гейтом это значит,
+   * что она обязана быть **сыгранной** партией, а не новой: у новой место лазутчика
+   * закрыто второй ступенью дипломатической ветви, и отчёты мерили бы деревню, которой в
+   * игре не бывает (решение владельца 12).
+   *
+   * Область правила — гейтованное место: у разведчика, дипломата и полководца гейта нет,
+   * и на них эта проверка зелёная при любом коде.
+   */
+  it('у посёлка мерки места агентов есть, а ступень ему засчитана дверью', () => {
+    const fresh = createInitialState(7);
+    expect(placeOpen(fresh, 'spy'), 'точка внутри области: у новой партии место закрыто').toBe(false);
+
+    const town = townAt(5);
+    for (const id of FIGURE_IDS) expect(town.agents[id].vacant, `${id}: человек на месте`).toBe(false);
+    expect(techLevel(town, 'diplo'), 'ступень засчитана, а не подарена сверх пройденного').toBe(diploLevelOf('spy'));
+    expect(placeOpen(town, 'spy')).toBe(true);
+  });
+
+  it('дверь засчитывания одна: та же, что у ступени сохранения', () => {
+    const g = createInitialState(7);
+    expect(techLevel(played(g), 'diplo')).toBe(diploLevelOf('spy'));
   });
 });
 

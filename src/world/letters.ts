@@ -398,8 +398,12 @@ export function crowdedOut<T extends Letter>(list: T[]): T | null {
  * при полном столе уходит то, у кого срок ближе всех (равный срок — кто пришёл
  * раньше). Им же сгоняются события посёлка в почте державы (`game/sim/mail`):
  * стол один по смыслу, и правило у него одно.
+ *
+ * Сколько ячеек — приходит доводом, а не берётся здесь: у писем мира стол свой и
+ * постоянный, а стол донесений посёлка растёт дипломатической ветвью
+ * (`game/sim/tech.mailSlots`). Правило от этого одно; меняется только его довод.
  */
-export function kickFrom<T extends { until: number; at: number }>(kickable: T[]): T | null {
-  if (kickable.length < LETTER_DECISIONS) return null;
+export function kickFrom<T extends { until: number; at: number }>(kickable: T[], slots = LETTER_DECISIONS): T | null {
+  if (kickable.length < slots) return null;
   return [...kickable].sort((a, b) => a.until - b.until || a.at - b.at)[0] ?? null;
 }

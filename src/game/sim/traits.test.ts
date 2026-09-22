@@ -10,6 +10,7 @@
 // - «потолок родословной» — смен больше потолка.
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
+import { creditTech } from './tech';
 import { deserialize, serialize } from '../save';
 import { DEED_GAP, LEVEL_XP } from '../data/agents';
 import { LINEAGE_KEEP, LINEAGE_LEVEL } from '../data/traits';
@@ -32,7 +33,11 @@ const MIN = 60_000;
 const where = () => 'в Статуе';
 
 const fresh = (): GameState => {
+  // Сыгранная партия: место лазутчика у неё есть. Новая начинает без него — его отпирает
+  // вторая ступень дипломатической ветви (`sim/tech`), — а здесь меряют счёт дел.
   const s = createInitialState(5);
+  s.agents.spy.vacant = false;
+  creditTech(s);
   for (const id of ['general', 'scout', 'spy', 'diplomat'] as FigureId[]) s.agents[id].name = `Ян ${id}`;
   return s;
 };

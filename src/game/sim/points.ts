@@ -50,3 +50,21 @@ export function bank(s: GameState): void {
   for (const b of REALM_BRANCHES) r.points[b] = now[b];
   r.pointsAt = s.time;
 }
+
+/**
+ * Списать очки — **единственная дверь траты**, и она же единственное место во всей игре,
+ * где `RealmState.points` уменьшается. Возвращает, хватило ли.
+ *
+ * Порядок здесь не вкусовой: сперва `bank`, потом вычитание. Переложи базу после — и
+ * накопленное за время между `pointsAt` и этой минутой посчиталось бы поверх уже
+ * списанного, то есть трата вернулась бы сама; не перекладывай вовсе — и у потолка
+ * следующее чтение подняло бы очки обратно, а уровень достался бы даром.
+ */
+export function spend(s: GameState, branch: RealmBranch, points: number): boolean {
+  const r = s.realm;
+  if (!r || !(points > 0)) return false;
+  if (pointsOf(s, branch) < points) return false;
+  bank(s);
+  r.points[branch] = Math.max(0, r.points[branch] - points);
+  return true;
+}

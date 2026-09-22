@@ -693,7 +693,7 @@ describe('сохранение: новые поля версию не подни
     expect(s).not.toBeNull();
     // Невольники версию не подняли: 14 — жалованье, 15 — стол событий почты, 16 — поворот
     // времени, 17 — дом правителя (не их поля).
-    expect(SAVE_VERSION).toBe(17);
+    expect(SAVE_VERSION).toBe(18);
     expect(s!.version).toBe(SAVE_VERSION);
     expect(s!.bonded).toBe(0);
     expect(s!.bondedWork).toEqual({});

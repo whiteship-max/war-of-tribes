@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
+import { creditTech } from '../sim/tech';
 import {
   defense,
   fervour,
@@ -30,6 +31,7 @@ import { XP_CAP } from './agents';
 import { playerProfile } from '@/world/bridge';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { LocalWorld } from '@/world/local/LocalWorld';
+import type { GameState } from '../types';
 import type { PlayerProfile } from '@/world/types';
 import { SPY_CHANCE_MAX, SPY_CHANCE_MIN } from '@/world/data/tuning';
 
@@ -103,14 +105,22 @@ describe('навык не читает чисел, которыми владее
 });
 
 describe('агенты пятого уровня не сдвигают ни одного числа здания', () => {
+  // Партия сравнения — сыгранная: места агентов у неё есть. У новой место лазутчика
+  // закрыто ветвью, и слепок не вёз бы его прибавок вовсе — сравнивать было бы нечего.
+  const seated = (s: GameState): GameState => {
+    s.agents.spy.vacant = false;
+    creditTech(s);
+    return s;
+  };
+
   const maxed = () => {
-    const s = createInitialState();
+    const s = seated(createInitialState());
     for (const id of FIGURE_IDS) s.agents[id].xp = XP_CAP;
     return s;
   };
 
   it('в племени и в слепке для мира — меняются только прибавки навыка', () => {
-    const a = createInitialState();
+    const a = seated(createInitialState());
     const b = maxed();
     for (const [name, fn] of Object.entries({ payGraceDays, heroMen, intelKeen, warningSeconds, surveyRadius, defense, fervour, stalls, healShare })) {
       expect(fn(b), name).toBe(fn(a));

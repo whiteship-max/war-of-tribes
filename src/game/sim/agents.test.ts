@@ -34,15 +34,31 @@ import {
 } from './agents';
 import { applyEffects, playerProfile } from '@/world/bridge';
 import { hireAgent } from './hire';
+import { creditTech } from './tech';
 import { FIGURE_IDS } from '@/world/data/figures';
 import type { ItemId } from '../data/items';
+import type { GameState } from '../types';
+
+/**
+ * Сыгранная партия, а не новая: место лазутчика у неё есть.
+ *
+ * Новая партия начинает без него — место отпирает вторая ступень дипломатической ветви
+ * (`sim/tech`), — а проверки ниже про опыт, гибель и ячейки, а не про гейт. Ступень
+ * засчитывает та же дверь, какой её засчитывают приведённой партии и посёлку мерки:
+ * второго правила засчитывания в проекте нет.
+ */
+const played = (s: GameState): GameState => {
+  s.agents.spy.vacant = false;
+  creditTech(s);
+  return s;
+};
 
 /** Уровень, посчитанный с нуля по таблице порогов, — независимо от `levelOf`. */
 const byTable = (xp: number): number => LEVEL_XP.filter((t) => xp >= t).length;
 
 describe('уровень и кружки выводятся из опыта', () => {
   it('на каждом опыте от нуля до потолка кружков ровно столько, сколько уровень по таблице', () => {
-    const s = createInitialState();
+    const s = played(createInitialState());
     const seen = new Set<number>();
     for (let xp = 0; xp <= XP_CAP; xp++) {
       expect(xp, 'точка внутри области: опыт от нуля до потолка').toBeLessThanOrEqual(XP_CAP);
@@ -144,7 +160,7 @@ describe('гибель забирает человека, а не часть п�
   });
 
   it('весть о гибели освобождает место того, о ком она, — и только его', () => {
-    const s = createInitialState();
+    const s = played(createInitialState());
     s.agents.spy.xp = 40;
     s.agents.spy.name = 'Ян Хромой';
     applyEffects(s, [fell('spy', 0)]);
@@ -258,7 +274,7 @@ describe('ячейки: переодеться можно только дома'
   });
 
   it('надеть можно только то, что есть в таблице и во владении; третье место — с четвёртого уровня', () => {
-    const s = createInitialState();
+    const s = played(createInitialState());
     expect(regear(s, 'spy', 0, 'кинжал' as ItemId, home, ['кинжал' as ItemId])).toBe('Такого предмета нет.');
     expect(regear(s, 'spy', 2, null, home, [])).toMatch(/четвёртого уровня/);
     s.agents.spy.xp = LEVEL_XP[3];

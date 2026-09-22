@@ -13,6 +13,7 @@ import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
+import { creditTech } from './sim/tech';
 import { AGENT_AGE0, LEVEL_XP } from './data/agents';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { hashId } from '@/world/diplomacy';
@@ -150,6 +151,19 @@ function migrate(s: GameState, from: number, data: SavedState): void {
       'info',
     );
     log(s, 'Очки и родословная ждут за гербом, в «Родословной». Тратить их пока не на что: «Технологии» ещё не построены.', 'info');
+  }
+  // 17 → 18: у державы появились технологии, и первый гейт — дипломатическая ветвь.
+  // Умолчания мало: у начатой партии `tech.diplo` лежит первым уровнем (его положила
+  // ступень 16 → 17), а место лазутчика у неё есть — оставь как есть, и гейт **отнял бы**
+  // уже имеющееся. Поэтому пройденная ступень засчитывается, и доказательством служит
+  // сама запись: до этой ступени место лазутчика было у каждой партии, включая ту, у
+  // которой он как раз погиб и не нанят заново (`sim/tech.creditTech`, довод `hadAll`).
+  if (from < 18) {
+    const given = creditTech(s, true);
+    if (given.length > 0) {
+      log(s, 'Место лазутчика засчитано изученным: дипломатическая ветвь, уровень 2. Отнимать то, что у племени уже есть, технологии не будут.', 'info');
+    }
+    log(s, 'За гербом открылись «Технологии»: очки правителя тратятся на ступени ветвей. Дипломатическая ветвь живая, остальные две ещё не построены.', 'info');
   }
 }
 

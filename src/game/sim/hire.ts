@@ -15,6 +15,7 @@ import { AGENT_AGE0 } from '../data/agents';
 import { HIRE_AT, HIRE_GOLD_PER_POP, HIRE_SECONDS, HIRE_YOUNGER } from '../data/hire';
 import { buildingOfType, buildingTitle, faithDef, levelOutputMult, population } from '../derived';
 import { drawName, nameAgents, seat, titled, yearsWord } from './agents';
+import { placeBlock } from './tech';
 import { log } from './log';
 import { asGame, type GameSec } from '../pace';
 
@@ -67,7 +68,12 @@ export function hireInfo(s: GameState, agent: FigureId): HireInfo {
   const age0 = Math.max(18, AGENT_AGE0 - HIRE_YOUNGER * (level - 1));
   const hiring = p.hiring;
   let blocked: string | null = null;
-  if (!p.vacant) blocked = `${FIGURE_BY_ID[agent].name} на месте: нанимают только на пустое.`;
+  // Гейт спрашивается первым и одной дверью: пока место не открыто технологией, его нет
+  // вовсе — нанимать не на что, и причина у отказа та же самая строка, что стоит в списке
+  // мест и в самой ветви (`sim/tech.techBlock`).
+  const closed = placeBlock(s, agent);
+  if (closed) blocked = closed;
+  else if (!p.vacant) blocked = `${FIGURE_BY_ID[agent].name} на месте: нанимают только на пустое.`;
   else if (hiring) blocked = 'Найм уже идёт.';
   else if (s.gold < gold) blocked = `Не хватает золота: нужно ${gold}, в казне ${Math.floor(s.gold)}.`;
   return {

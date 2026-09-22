@@ -11,6 +11,7 @@ import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
 import { bareGeneral } from '@/game/sim/agents';
+import { placeOpen } from '@/game/sim/tech';
 import type { BuildingTypeId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
@@ -61,6 +62,9 @@ export function AlertBar() {
   for (const id of FIGURE_IDS) {
     const p = s.agents[id];
     if (!p.vacant || p.hiring) continue;
+    // Место, которого держава ещё не открыла, — не пустое место, а отсутствующее:
+    // звать нанимать туда, куда нанять нельзя, значит тревожить впустую.
+    if (!placeOpen(s, id)) continue;
     const at = HIRE_AT[id];
     empty.set(at, [...(empty.get(at) ?? []), FIGURE_BY_ID[id].name.toLowerCase()]);
   }

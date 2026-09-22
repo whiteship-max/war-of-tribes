@@ -10,6 +10,7 @@ import { createInitialState } from '../state';
 import { tick } from '../sim/tick';
 import { applyEffects } from '@/world/bridge';
 import { hireAgent } from '../sim/hire';
+import { study } from '../sim/tech';
 import type { FaithId } from '../types';
 
 const FAITHS = Object.keys(AGENT_NAMES) as FaithId[];
@@ -71,6 +72,12 @@ describe('имя сеется', () => {
       const s = createInitialState(seed);
       s.faith.id = 'islam';
       s.gold = 1_000_000;
+      // Место лазутчика у новой партии закрыто: его отпирает вторая ступень
+      // дипломатической ветви, и очков на неё у новой партии ровно столько, сколько она
+      // стоит. Открывается оно здесь той же дверью, какой его открывает игрок, — иначе
+      // проверка про имена уткнулась бы в гейт, а не в имена.
+      expect(study(s, 'diplo'), 'ступень куплена стартовым котлом').toBeNull();
+      s.agents.spy.vacant = false;
       tick(s, 1);
       const names: string[] = [];
       for (let i = 0; i < 40; i++) {

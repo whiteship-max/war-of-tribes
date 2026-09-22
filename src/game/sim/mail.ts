@@ -3,7 +3,9 @@
 // Событие больше не окно поверх игры, которое нельзя отложить, а донесение: оно
 // ждёт в «Решениях», пока игрок не ответит, — но не вечно. Ждать могут несколько
 // сразу: у посёлка тот же стол, что у писем мира, — `LETTER_DECISIONS` обычных
-// событий и своя ячейка мятежу, как у писем — предупреждению о набеге. Лишнее
+// событий и своя ячейка мятежу, как у писем — предупреждению о набеге. Сколько
+// ячеек у стола на самом деле, спрашивают у гейта (`sim/tech.mailSlots`):
+// дипломатическая ветвь прибавляет ячейку, и стол растёт вместе с ней. Лишнее
 // сгоняет то, у кого срок ближе всех, тем же правилом (`world/letters.kickFrom`). Срок у него —
 // **настоящие сутки**, тот же `LETTER_TTL`, что у письма мира: почта одна, и
 // срок у неё один. Игровыми сутками его мерить нельзя: игровой день длится
@@ -23,6 +25,7 @@ import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_TTL } from '@/world/data/tun
 import { hashId } from '@/world/diplomacy';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { kickFrom } from '@/world/letters';
+import { mailSlots } from './tech';
 import { MUTINY_EVENT } from '../data/order';
 import { log } from './log';
 
@@ -99,6 +102,9 @@ export function raiseEvent(s: GameState, defId: string): boolean {
   if (!ownSlot(ev)) {
     const kick = kickFrom(
       s.inbox.filter((e) => !ownSlot(e)).map((e) => ({ e, until: e.until ?? Infinity, at: e.at })),
+      // Ячеек у стола столько, сколько открыла дипломатическая ветвь, — и спрашивается это
+      // той же дверью, что показывает ступень игроку (`sim/tech.mailSlots`).
+      mailSlots(s),
     );
     if (kick) lapseEvent(s, eventId(kick.e));
   }

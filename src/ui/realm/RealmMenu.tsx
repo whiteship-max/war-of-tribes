@@ -31,6 +31,7 @@ import { ProfilePanel } from '../panels/ProfilePanel';
 import { CoatArt } from './Coat';
 import { Mail } from './Mail';
 import { RulerTab } from './Ruler';
+import { TechTab } from './Tech';
 import { useRealm, type RealmView } from './open';
 import { mailKeys, unreadCount, useSeen } from './unread';
 import { useWorld } from '@/world/store';
@@ -143,6 +144,8 @@ function Section({ view }: { view: RealmView }) {
       );
     case 'army':
       return <Army />;
+    case 'tech':
+      return <TechTab />;
     case 'decisions':
       return <Mail />;
     default:

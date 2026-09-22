@@ -43,7 +43,7 @@ import { generateWorld, isLair } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import { AI_RANGE } from '@/world/data/tuning';
-import { START, armyAt, away, gone, pilot, player, stackOf, type Cost, type Inside } from './autopilot';
+import { START, armyAt, away, gone, pilot, played, player, stackOf, type Cost, type Inside } from './autopilot';
 // Этот отчёт меряет настоящим временем — службу агента, отлучку, заходы, — поэтому часы и минуты у него
 // настоящие (`game/time`), а не единицы автопилота, которые после поворота шкалы стали игровыми днями.
 import { HOUR_MS as HOUR, MINUTE_MS as MIN } from '@/game/time';
@@ -295,6 +295,11 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
   Object.assign(s.army, GARRISON);
   buildingOfType(s, 'statue')!.level = 10;
   buildingOfType(s, 'watch')!.level = 3;
+  // Партия, которой меряют карьеру, — сыгранная: посёлок на 300 душ с гарнизоном и
+  // Статуей десятого уровня. Значит и места агентов у неё есть, а ступень им засчитывает
+  // та же дверь, что и ступень сохранения (решение владельца 12). Иначе гейт закрыл бы
+  // место лазутчика у мерки, и раздел мерил бы деревню, которой не бывает.
+  played(s);
 
   const out: Record<Seat, Career> = { scout: career(), spy: career(), general: career() };
   const top: Record<Seat, number> = { scout: 1, spy: 1, general: 1 };

@@ -9,6 +9,7 @@ import { DAY_LENGTH } from '@/game/constants';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
 import { agentLevel, ageOf, personName, yearsOf } from '@/game/sim/agents';
 import { hireAgent, hireInfo } from '@/game/sim/hire';
+import { placeBlock } from '@/game/sim/tech';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { realLeft, waitLeft } from '@/ui/parts/wait';
 import type { FigureId } from '@/world/types';
@@ -43,6 +44,25 @@ function Place({ id }: { id: FigureId }) {
           </em>
         </span>
         <span className="val">на месте</span>
+      </div>
+    );
+  }
+
+  // Места, которого держава ещё не открыла, у племени нет вовсе — и показано это
+  // закрытым, а не пустым: нанимать не на что, и причина здесь та же строка, по которой
+  // гаснет кнопка найма (`sim/tech`, одна дверь на показ и на запрет).
+  const closed = placeBlock(s, id);
+  if (closed) {
+    return (
+      <div className="mod">
+        <span className="ico">
+          <Icon name={`fig-${id}`} glyph={def.icon} />
+        </span>
+        <span className="name">
+          {def.name}: место закрыто
+          <em className="sub">{closed}</em>
+        </span>
+        <span className="val">не открыто</span>
       </div>
     );
   }

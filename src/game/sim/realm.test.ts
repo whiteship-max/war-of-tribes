@@ -18,6 +18,8 @@ import { LINEAGE_KEEP } from '../data/traits';
 import { allPoints, bank, pointsOf } from './points';
 import { settleHires } from './hire';
 import { dynastyStep, livingNames, rulerAge, skillsOf, succeed } from './dynasty';
+import { placeOpen, study } from './tech';
+import { nameAgents } from './agents';
 import { FIGURE_IDS } from '@/world/data/figures';
 import type { GameState } from '../types';
 
@@ -221,11 +223,25 @@ describe('дом правителя', () => {
 describe('правило об именах: два источника, и третьего нет', () => {
   /**
    * Число живых поимённых людей — **не записанное число, а длина двух списков**: дом (двое) плюс
-   * места агентов. Заведи третьего в доме — упадёт именно это утверждение, и решение придётся
-   * принять вслух; заведи пятое место агента — обе стороны сойдутся сами.
+   * те места агентов, которые держава открыла. Заведи третьего в доме — упадёт именно это
+   * утверждение, и решение придётся принять вслух; заведи пятое место агента — обе стороны
+   * сойдутся сами.
+   *
+   * С гейтом у счёта две точки, и обе нужны: новая партия начинает без места лазутчика
+   * (оно за второй ступенью дипломатической ветви), а изучившая ветвь и нанявшая человека
+   * получает полную шестёрку. Одной первой точки мало — она прошла бы и у кода, который
+   * закрыл место навсегда.
    */
-  it('живых поимённых ровно двое в доме плюс места агентов', () => {
+  it('живых поимённых ровно двое в доме плюс открытые места агентов', () => {
     const s = party();
+    const open = FIGURE_IDS.filter((id) => placeOpen(s, id));
+    expect(open.length, 'у новой партии место лазутчика ещё закрыто').toBe(FIGURE_IDS.length - 1);
+    expect(livingNames(s).length).toBe(2 + open.length);
+
+    expect(study(s, 'diplo'), 'очков новой партии хватает на первую ступень').toBeNull();
+    for (const id of FIGURE_IDS) s.agents[id].vacant = false;
+    nameAgents(s);
+    expect(FIGURE_IDS.filter((id) => placeOpen(s, id)).length).toBe(FIGURE_IDS.length);
     expect(livingNames(s).length).toBe(2 + FIGURE_IDS.length);
   });
 
@@ -268,7 +284,9 @@ describe('ступень сохранения 16 → 17: у державы по�
     const s = deserialize(JSON.stringify(raw));
     expect(s).not.toBeNull();
     expect(s!.version).toBe(SAVE_VERSION);
-    expect(SAVE_VERSION).toBe(17);
+    // Номер закреплён нарочно: следующая пачка, поднявшая версию, спотыкается здесь и
+    // пишет свою ступень, а не надеется на умолчания. Восемнадцатая — технологии.
+    expect(SAVE_VERSION).toBe(18);
     // Сыгранная партия не отправляет правителя на покой первым же пульсом: он молод.
     expect(rulerAge(s!)).toBeCloseTo(AGENT_AGE0, 0);
     expect(s!.realm.ruler.bornAt, 'правление началось не в нулевую секунду').toBeGreaterThanOrEqual(s!.time);
@@ -376,15 +394,24 @@ describe('замки державы', () => {
     expect(bad, 'родословную правят мимо двери').toEqual([]);
   });
 
-  /** Гейтов в этой пачке нет: ни одна дверь игры не спрашивает уровень технологии. */
-  it('пачка 1 не заводит гейтов: уровень ветви не спрашивает никто', () => {
+  /**
+   * Уровень ветви лежит в партии, и трогают его двое: дверь гейта (`sim/tech`) и дом,
+   * который поле заводит и читает из сохранения (`sim/dynasty`). Третий читатель поля —
+   * это вторая правда о том, что открыто, и разойдётся она молча.
+   *
+   * Пачка 1 держала здесь более сильное утверждение — «гейтов нет ни одного», — и оно
+   * снято той пачкой, которая гейт завела (решение владельца 1, docs/dynasty.md, раздел
+   * 10.1). На его месте — запрет обходить дверь; что двери хватает на всё, держит
+   * `sim/tech.test.ts`.
+   */
+  it('в поле уровня ветви смотрят только дверь гейта и дом', () => {
+    const allowed = [join('src', 'game', 'sim', 'tech.ts'), join('src', 'game', 'sim', 'dynasty.ts')];
     const bad: string[] = [];
     for (const file of sources()) {
-      if (file.endsWith(join('src', 'game', 'sim', 'dynasty.ts'))) continue;
-      if (file.endsWith(join('src', 'ui', 'realm', 'Ruler.tsx'))) continue;
-      if (/realm\.tech|techOpen|techLevel/.test(bare(file))) bad.push(file);
+      if (allowed.some((a) => file.endsWith(a))) continue;
+      if (/realm\??\.tech\b/.test(bare(file))) bad.push(file);
     }
-    expect(bad, 'гейт завёлся раньше своей пачки').toEqual([]);
+    expect(bad, 'уровень технологии читают мимо двери').toEqual([]);
   });
 
   /** Поля `requiresTech` нет и заводить его нельзя — решение владельца 1 (docs/dynasty.md, 10.1). */

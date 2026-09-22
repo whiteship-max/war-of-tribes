@@ -9,6 +9,7 @@
 //   все четверо были бы старше шестидесяти.
 import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
+import { creditTech } from './tech';
 import { deserialize, rescaleXp, serialize } from '../save';
 import { serverNow } from '@/net/clock';
 import { awayGameSeconds, catchUp, tick } from './tick';
@@ -30,6 +31,17 @@ const START = 1_700_000_000_000;
  * настоящими минутами, он был верен ровно пока игровой день длился минуту.
  */
 const GAME_DAY = realMs(DAY_LENGTH);
+
+/**
+ * Сыгранная партия: место лазутчика у неё есть. Новая начинает без него — место отпирает
+ * вторая ступень дипломатической ветви (`sim/tech`), — а здесь меряют жизнь и покой
+ * человека, а не гейт. Ступень засчитывает та же дверь, что и приведённой партии.
+ */
+const played = (s: GameState): GameState => {
+  s.agents.spy.vacant = false;
+  creditTech(s);
+  return s;
+};
 
 describe('возраст', () => {
   it('растёт монотонно на любых шагах часов, в догоне и после записи — и только от часов деревни', () => {
@@ -70,7 +82,7 @@ describe('покой в шестьдесят', () => {
   it('агент, доживший до шестидесяти у своих ворот, уходит ровно один раз, и место пустует', async () => {
     let now = START;
     const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
-    const s = createInitialState(7);
+    const s = played(createInitialState(7));
     s.faith.id = 'catholic';
     tick(s, 1);
     // До шестидесяти разведчику — две игровые минуты.
@@ -101,7 +113,7 @@ describe('покой в шестьдесят', () => {
   it('мир сам уводит на покой один раз, даже когда слепок ещё много пульсов твердит «пора»', async () => {
     let now = START;
     const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
-    const s = createInitialState(7);
+    const s = played(createInitialState(7));
     const base = playerProfile(s);
     await world.sync(base);
     // Племя ещё не узнало об уходе: последствий оно не применяет, и слепок тот же.
@@ -120,7 +132,7 @@ describe('покой в шестьдесят', () => {
   it('доживший в поле сперва идёт домой и уходит у своих ворот — тоже один раз', async () => {
     let now = START;
     const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
-    const s = createInitialState(7);
+    const s = played(createInitialState(7));
     s.faith.id = 'catholic';
     tick(s, 1);
     const last = { marches: [] as MarchView[], figures: [] as FigureView[] };
