@@ -30,10 +30,19 @@ import {
   MAX_RULER_SKILL,
   MEAN_RULER_SKILL,
   MIN_RULER_SKILL,
+  WAR_CAPTIVES_LEVEL,
+  WAR_GEAR_ORDER,
+  WAR_LEVELS,
   adminCeiling,
   levelPrice,
   pointsPerDay,
+  startingPoints,
+  warLevelOfGear,
+  warLevelOfTroop,
 } from '@/game/data/realm';
+import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
+import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
+import { shieldVillagers } from '@/world/lairs';
 import { pilot, player, staff } from './autopilot';
 import { upkeepSection } from './pop-upkeep';
 
@@ -126,6 +135,64 @@ function adminSection(asked: Map<number, number>, allMaxed: number | null): void
   console.log('  Что здесь НЕ измерено: как пойдёт дуга, когда гейт вправду встанет в игру, — это приёмка пачки 4.');
 }
 
+/**
+ * Военная лестница против защиты новичка. Прибор пачки 3 (docs/dynasty.md, раздел 4.2):
+ * военная ветвь открывает вещи кузницы в порядке их работы, а вид бойца — когда открыто
+ * всё, что он носит. Вопрос у раздела один и он про новичка: **чем он воюет к той минуте,
+ * когда защита новичка кончается и логова бьют полной силой.**
+ *
+ * Защита считается от жителей (`world/lairs.shieldVillagers`), а лестница — от игровых
+ * дней, поэтому двух мерок тут не сводят на глаз: день, на который дуга этого прогона
+ * пересекла порог, берётся из самого прогона.
+ *
+ * Своих чисел у раздела нет: цены и уровни — `game/data/realm.ts`, пороги защиты —
+ * `world/data/tuning.ts`, дуга — этот прогон. Накопление считается от начального котла
+ * (`startingPoints`): партия начинается с очками ровно на первый покупаемый уровень.
+ */
+function warSection(shield: (number | null)[]): void {
+  const skills = [MIN_RULER_SKILL, MEAN_RULER_SKILL, MAX_RULER_SKILL];
+  const [from, full] = shield;
+  const fromDay = from === null ? null : from / DAY_LENGTH;
+  const fullDay = full === null ? null : full / DAY_LENGTH;
+  console.log('');
+  console.log('Военная лестница против защиты новичка (docs/dynasty.md, раздел 4.2).');
+  console.log('Прогон идёт БЕЗ гейта — раздел отвечает «что успел бы открыть», а не «что случилось».');
+  console.log(
+    `Защита новичка: логово бьёт вполсилы до ${shieldVillagers(0)} жителей и полной силой с ${shieldVillagers(1)}; ` +
+      `дуга этого прогона доходит до них на днях ${fromDay === null ? 'не дошли' : fromDay.toFixed(0)} и ${fullDay === null ? 'не дошли' : fullDay.toFixed(0)}.`,
+  );
+  console.log(`  ур | вещь      | виды                        | цена | всего | ${skills.map((k) => `навык ${k}`).join(' | ')}`);
+  let cum = 0;
+  const open = new Map<number, number>();
+  for (let l = 1; l <= WAR_LEVELS; l++) {
+    cum += levelPrice('war', l);
+    const need = Math.max(0, cum - startingPoints('war'));
+    for (const k of skills) if (!open.has(k * 1000 + l)) open.set(k * 1000 + l, need / pointsPerDay(k));
+    const item = WAR_GEAR_ORDER.find((g) => warLevelOfGear(g) === l);
+    const troops = TROOP_IDS.filter((t) => warLevelOfTroop(t) === l).map((t) => TROOP_BY_ID[t].name.toLowerCase());
+    const what = l === WAR_CAPTIVES_LEVEL ? ['участь «увести людей»'] : troops;
+    console.log(
+      `  ${String(l).padStart(2)} | ${(item ? EQUIPMENT_BY_ID[item].one : '—').padEnd(9)} | ${(what.join(', ') || '—').padEnd(27)} | ` +
+        `${String(levelPrice('war', l)).padStart(4)} | ${String(cum).padStart(5)} | ` +
+        skills.map((k) => (need / pointsPerDay(k)).toFixed(0).padStart(7)).join(' | '),
+    );
+  }
+  // Главный ответ раздела: какой уровень ветви открыт в ту минуту, когда защита кончилась.
+  if (fullDay !== null) {
+    for (const k of skills) {
+      let level = 1;
+      for (let l = 2; l <= WAR_LEVELS; l++) if ((open.get(k * 1000 + l) ?? Infinity) <= fullDay) level = l;
+      const have = TROOP_IDS.filter((t) => warLevelOfTroop(t) <= level);
+      console.log(
+        `  Навык ${k}: к концу защиты (день ${fullDay.toFixed(0)}) открыт ${level} уровень из ${WAR_LEVELS} — ` +
+          `${have.length} видов из ${TROOP_IDS.length}: ${have.map((t) => TROOP_BY_ID[t].name.toLowerCase()).join(', ')}.`,
+      );
+    }
+  }
+  console.log('  Единица — игровой день; накопление считается от начального котла `startingPoints`.');
+  console.log('  Что здесь НЕ измерено: что бывает с новичком под гейтом на самом деле, — это `raid-hiring:report`, раздел Б.');
+}
+
 async function main(): Promise<void> {
   setRandom(seeded(1));
   // Сид партии закреплён: вести приходят по сетке от `s.seed` (`sim/mail.awayArrival`), а без сида партия
@@ -136,6 +203,9 @@ async function main(): Promise<void> {
 
   const marks = [100, 200, 300, 400, 500, 600, 700, 800];
   const hit = new Map<number, number>();
+  /** Когда дуга пересекла пороги защиты новичка: с этих жителей набег растёт и дорастает до полного. */
+  const shieldMarks = [shieldVillagers(0), shieldVillagers(1)];
+  const shieldAt = new Map<number, number>();
   /**
    * Когда посёлок впервые просит каждый уровень построек: день, на который его НАИБОЛЬШИЙ
    * уровень дорос до этого числа. Наибольший, а не средний: административная ветвь шага 4
@@ -157,6 +227,7 @@ async function main(): Promise<void> {
   let nextReport = 0;
   const each = (s: GameState): void => {
     for (const m of marks) if (!hit.has(m) && s.pop >= m) hit.set(m, s.time);
+    for (const m of shieldMarks) if (!shieldAt.has(m) && s.pop >= m) shieldAt.set(m, s.time);
     const top = s.buildings.reduce((n, b) => Math.max(n, b.level), 0);
     for (let l = 2; l <= top; l++) if (!asked.has(l)) asked.set(l, s.time);
     if (allMaxed === null && maxed(s)) allMaxed = s.time;
@@ -216,6 +287,7 @@ async function main(): Promise<void> {
   console.log(`Смертей за партию: ${s.stats.died}, прибавилось: ${s.stats.born}`);
 
   adminSection(asked, allMaxed);
+  warSection(shieldMarks.map((m) => shieldAt.get(m) ?? null));
 
   console.log('\nЗимы (население до и после, остаток еды и дров):');
   for (const w of winters) {

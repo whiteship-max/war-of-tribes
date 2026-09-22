@@ -337,13 +337,16 @@ function largest(max: number, ok: (n: number) => boolean): number {
   return lo;
 }
 
-/** Нанять по поведению; что остановило найм, ложится в `l.stops`. Состав — `MIX`. */
-function hire(g: GameState, style: HireStyle, l: Ledger): void {
+/**
+ * Нанять по поведению; что остановило найм, ложится в `l.stops`. Состав — `Player.mix`,
+ * по умолчанию мерка `MIX`.
+ */
+function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger): void {
   // Цель — всё, что пустит лимит: сперва недостача мерки по видам, потом ещё круг.
   const total = armySize(g) + TROOP_IDS.reduce((n, id) => n + queued(g, id), 0);
-  const want = stackOf(total + Math.max(10, Math.round(total * 0.25)));
+  const want = stackOf(total + Math.max(10, Math.round(total * 0.25)), mix);
   let stop: Stop = 'цель';
-  for (const id of Object.keys(MIX) as TroopId[]) {
+  for (const id of Object.keys(mix) as TroopId[]) {
     const deficit = Math.max(0, (want[id] ?? 0) - g.army[id] - queued(g, id));
     if (deficit <= 0) continue;
     const def = TROOP_BY_ID[id];
@@ -381,7 +384,7 @@ function hire(g: GameState, style: HireStyle, l: Ledger): void {
   let ahead = g.forge.reduce((w, o) => w + EQUIPMENT_BY_ID[o.item].work * (o.count - o.done) - o.work, 0);
   for (const item of EQUIPMENT_IDS) {
     let need = 0;
-    for (const id of Object.keys(MIX) as TroopId[]) {
+    for (const id of Object.keys(mix) as TroopId[]) {
       const deficit = Math.max(0, (want[id] ?? 0) - g.army[id] - queued(g, id));
       need += deficit * (TROOP_BY_ID[id].gear[item] ?? 0);
     }
@@ -462,6 +465,13 @@ export interface Player {
   build: false | { skip: readonly BuildingTypeId[] };
   /** Как нанимает; `null` — не пополняет войско и не распускает. */
   hire: HireStyle | null;
+  /**
+   * Состав найма. Нет — мерка `MIX`. Отчёт задаёт свой там, где меряет игрока, которому
+   * доступна не вся лестница войск: у состава и у поведения разные вопросы, и сводить их
+   * в одно поле нельзя — «по средствам» одними дубинщиками это тот же игрок с теми же
+   * деньгами, а не другое поведение.
+   */
+  mix?: TroopStack;
   /** На осаду нанимает дубинщиков числом с мощь лагеря, но не больше свободных рук. */
   siegeLevy: boolean;
   /** Под осадой выходит вылазкой всем гарнизоном, не чаще раза в пять минут. */
@@ -492,7 +502,7 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   if (p.hire) {
     staffSmithy(g);
     if (p.hire === 'means') trim(g, l);
-    hire(g, p.hire, l);
+    hire(g, p.hire, p.mix ?? MIX, l);
   }
 }
 

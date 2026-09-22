@@ -254,11 +254,17 @@ export async function hiringSection(): Promise<Hired> {
   console.log('');
   console.log(`--- Б. Партия с первой секунды: ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит у всех ---`);
   console.log('Налог новой партии — высокий: её игрок по умолчанию — строка «по средствам, высокий налог».');
-  console.log(' поведение                    набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  жителями  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на');
+  console.log('Последняя строка — тот же игрок с теми же деньгами, но состав найма — одни дубинщики: это пол военной ветви,');
+  console.log('её первый уровень, на котором у игрока нет ни одной кованой вещи (docs/dynasty.md, раздел 4.2).');
+  console.log(' поведение                                набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  жителями  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на');
   const fresh = {} as Record<Style, Out[]>;
-  for (const style of STYLES) {
+  const freshRows: { label: string; style: Style; mix?: TroopStack }[] = [
+    ...STYLES.map((style) => ({ label: NAME[style], style })),
+    { label: 'высокий налог, одни дубинщики', style: 'meansHigh' as Style, mix: { clubman: 1 } },
+  ];
+  for (const spec of freshRows) {
     const outs: Out[] = [];
-    fresh[style] = outs;
+    if (!spec.mix) fresh[spec.style] = outs;
     const army: number[][] = [[], [], [], []];
     const pop: number[][] = [[], [], [], []];
     const lvl: number[][] = [[], [], [], []];
@@ -270,7 +276,8 @@ export async function hiringSection(): Promise<Hired> {
         await live({
           g,
           seed,
-          style,
+          style: spec.style,
+          mix: spec.mix,
           hours: NEW_HOURS,
           ripe: false,
           build: true,
@@ -293,7 +300,7 @@ export async function hiringSection(): Promise<Hired> {
     const first = t.first.length ? `${hm(Math.min(...t.first))}…${hm(Math.max(...t.first))}${t.first.length < outs.length ? ` (${t.first.length} из ${outs.length})` : ''}` : 'нет';
     const row = (xs: number[][], f: (v: number) => string): string => xs.map((v) => pad(f(mean(v)), 4)).join(' ');
     console.log(
-      ` ${NAME[style].padEnd(27)} ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(first, 14)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.returned)), 8)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(t.lost, 15)}  ${row(army, (v) => String(Math.round(v))).padEnd(19)}  ${row(pop, (v) => String(Math.round(v))).padEnd(20)}  ${row(lvl, (v) => v.toFixed(1)).padEnd(23)}  ${fmtStops(l)}`,
+      ` ${spec.label.padEnd(39)} ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(first, 14)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.returned)), 8)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(t.lost, 15)}  ${row(army, (v) => String(Math.round(v))).padEnd(19)}  ${row(pop, (v) => String(Math.round(v))).padEnd(20)}  ${row(lvl, (v) => v.toFixed(1)).padEnd(23)}  ${fmtStops(l)}`,
     );
   }
 
