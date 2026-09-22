@@ -6,6 +6,8 @@ import { EQUIPMENT_BY_ID } from '../data/equipment';
 import { ATTENTION_META, buildingAttention, buildingOfType, forgeInfo, alerts } from '../derived';
 import { assignWorker } from './workers';
 import { cancelForge, forgeCheck, startForge } from './smithy';
+import { study, studyInfo } from './tech';
+import { POINTS_CAP } from '../data/realm';
 
 /**
  * Кузница с людьми у горна и складом, которого хватает на любой заказ. Все
@@ -19,8 +21,22 @@ function smithy(hands = 4): GameState {
   for (const r of Object.keys(s.resources) as (keyof typeof s.resources)[]) s.resources[r] = 3000;
   const b = buildingOfType(s, 'smithy')!;
   if (hands > 0) assignWorker(s, b.id, hands);
+  learnWar(s);
   return s;
 }
+/**
+ * Военная ветвь изучена целиком: здесь проверяют кузницу, а не гейт. Ступени покупаются
+ * настоящей дверью (`sim/tech.study`) — подставляются только очки, потому что копить их
+ * часами деревни значило бы сдвинуть сезон, а сезон в этих проверках участвует.
+ */
+function learnWar(s: GameState): void {
+  while (studyInfo(s, 'war').next > 0) {
+    s.realm.points.war = POINTS_CAP;
+    s.realm.pointsAt = s.time;
+    if (study(s, 'war') !== null) break;
+  }
+}
+
 
 /** Крутим время, пока очередь не опустеет: точную скорость знать не надо. */
 function untilDone(s: GameState, limit = 3000): void {

@@ -659,12 +659,6 @@ export const stallsTaken = (s: GameState): number => {
   return mounted(m.army) + mounted(m.recruits) + mounted(m.wounded);
 };
 
-/** С какого уровня конюшни куют тяжёлую конницу: одна дверь и для проверки найма, и для слов о ней. */
-export const heavyFrom = (): number => BUILDING_BY_ID.stable.heavyFrom ?? 1;
-
-/** Открыта ли тяжёлая конница: её даёт уровень конюшни, и он же прежде давал ступень снаряжения. */
-export const heavyOpen = (s: GameState): boolean => (buildingOfType(s, 'stable')?.level ?? 0) >= heavyFrom();
-
 /**
  * Сколько единиц каждого припаса прячет Тайник этого уровня.
  *

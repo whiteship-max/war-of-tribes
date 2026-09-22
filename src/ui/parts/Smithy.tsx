@@ -5,6 +5,8 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT, EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { forgeInfo, workerCount } from '@/game/derived';
 import { cancelForge, forgeCheck, startForge } from '@/game/sim/actions';
+import { gearBlock } from '@/game/sim/tech';
+import { useRealm } from '@/ui/realm/open';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
 import { asGame } from '@/game/pace';
@@ -23,6 +25,7 @@ import { asGame } from '@/game/pace';
 export function Smithy({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
+  const show = useRealm((r) => r.show);
   const info = forgeInfo(s);
   const smiths = workerCount(s, b.id);
   const [counts, setCounts] = useState<Partial<Record<EquipmentId, number>>>({});
@@ -96,8 +99,10 @@ export function Smithy({ b }: { b: Building }) {
         const n = counts[e.id] ?? 1;
         const check = forgeCheck(s, e.id, n);
         const have = s.equipment[e.id] ?? 0;
+        // Вещь, которой держава не знает, показана закрытой, а не «дорогой».
+        const closed = gearBlock(s, e.id) !== null;
         return (
-          <div className="troop" key={e.id}>
+          <div className={`troop${closed ? ' locked' : ''}`} key={e.id}>
             <div className="ico">
               <Icon name={`gear-${e.id}`} glyph={e.icon} />
             </div>
@@ -135,6 +140,11 @@ export function Smithy({ b }: { b: Building }) {
               <small className={check.blocked ? 'no' : ''}>
                 {check.blocked ?? 'материалы спишутся сразу'}
               </small>
+              {closed && (
+                <button className="btn ghost wide" onClick={() => show('tech')}>
+                  📚 В «Технологии» — изучить
+                </button>
+              )}
             </div>
           </div>
         );

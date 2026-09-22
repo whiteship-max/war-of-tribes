@@ -254,17 +254,17 @@ export async function hiringSection(): Promise<Hired> {
   console.log('');
   console.log(`--- Б. Партия с первой секунды: ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит у всех ---`);
   console.log('Налог новой партии — высокий: её игрок по умолчанию — строка «по средствам, высокий налог».');
-  console.log('Последняя строка — тот же игрок с теми же деньгами, но состав найма — одни дубинщики: это пол военной ветви,');
-  console.log('её первый уровень, на котором у игрока нет ни одной кованой вещи (docs/dynasty.md, раздел 4.2).');
+  console.log('Последняя строка — тот же игрок с теми же деньгами, который ни разу не открыл «Технологии»: это пол военной ветви.');
+  console.log('Состава найма ей не задают — его урезает сам гейт: на первом уровне из мерки MIX не открыт ни один вид, и найм встаёт на технологии.');
   console.log(' поведение                                набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  жителями  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на');
   const fresh = {} as Record<Style, Out[]>;
-  const freshRows: { label: string; style: Style; mix?: TroopStack }[] = [
+  const freshRows: { label: string; style: Style; study?: boolean }[] = [
     ...STYLES.map((style) => ({ label: NAME[style], style })),
-    { label: 'высокий налог, одни дубинщики', style: 'meansHigh' as Style, mix: { clubman: 1 } },
+    { label: 'высокий налог, без технологий', style: 'meansHigh' as Style, study: false },
   ];
   for (const spec of freshRows) {
     const outs: Out[] = [];
-    if (!spec.mix) fresh[spec.style] = outs;
+    if (spec.study === undefined) fresh[spec.style] = outs;
     const army: number[][] = [[], [], [], []];
     const pop: number[][] = [[], [], [], []];
     const lvl: number[][] = [[], [], [], []];
@@ -277,7 +277,7 @@ export async function hiringSection(): Promise<Hired> {
           g,
           seed,
           style: spec.style,
-          mix: spec.mix,
+          study: spec.study,
           hours: NEW_HOURS,
           ripe: false,
           build: true,

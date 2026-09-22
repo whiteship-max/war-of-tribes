@@ -11,17 +11,54 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
 import { deserialize, serialize } from '../save';
-import { BRANCH_BUILT, DIPLO_LEVELS, DIPLO_RUNGS, POINTS_CAP, REALM_BRANCHES, diploLevelOf, levelPrice, levelsOf, startingPoints } from '../data/realm';
+import {
+  BRANCH_BUILT,
+  DIPLO_LEVELS,
+  DIPLO_RUNGS,
+  POINTS_CAP,
+  REALM_BRANCHES,
+  WAR_CAPTIVES_BUILT,
+  WAR_LEVELS,
+  builtLevelsOf,
+  diploLevelOf,
+  levelPrice,
+  levelsOf,
+  startingPoints,
+  warLevelOfGear,
+} from '../data/realm';
+import { EQUIPMENT, EQUIPMENT_IDS } from '../data/equipment';
+import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
+import { RESOURCE_IDS } from '../constants';
+import { TUTORIAL, advanceTutorial, type TutorialUi } from '../data/tutorial';
+import { forgeCheck, startForge } from './smithy';
+import { recruitCheck } from './army';
 import { LETTER_DECISIONS } from '@/world/letters';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { EVENT_BY_ID, EVENTS } from '../data/events';
-import { creditTech, mailSlots, mailSlotsAt, placeBlock, placeOpen, study, studyInfo, techBlock, techGains, techLevel, techOpen } from './tech';
+import {
+  creditTech,
+  gearBlock,
+  gearOpen,
+  gearOpenAt,
+  mailSlots,
+  mailSlotsAt,
+  placeBlock,
+  placeOpen,
+  study,
+  studyInfo,
+  techBlock,
+  techGains,
+  techLevel,
+  techOpen,
+  troopBlock,
+  troopOpenAt,
+} from './tech';
 import { pointsOf, spend } from './points';
 import { hireInfo } from './hire';
 import { raiseEvent } from './mail';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
-import type { GameState } from '../types';
+import type { EquipmentId, GameState } from '../types';
 
 /** Новая партия с названной верой: имена есть, ветви — на первом уровне. */
 function party(seed = 7): GameState {
@@ -39,6 +76,16 @@ function studied(to: number, seed = 7): GameState {
     // Очки копятся сами: двигаем часы деревни, а не пишем число в партию.
     s.time += 400 * 60;
     expect(study(s, 'diplo'), `ступень ${techLevel(s, 'diplo') + 1}`).toBeNull();
+  }
+  return s;
+}
+
+/** То же для военной ветви: ступени покупаются дверью, очки копятся часами деревни. */
+function warStudied(to: number, seed = 7): GameState {
+  const s = party(seed);
+  while (techLevel(s, 'war') < to) {
+    s.time += 400 * 60;
+    expect(study(s, 'war'), `ступень ${techLevel(s, 'war') + 1}`).toBeNull();
   }
   return s;
 }
@@ -213,7 +260,10 @@ describe('начатая партия: засчитывается пройден
     const s = deserialize(JSON.stringify(raw));
     expect(s).not.toBeNull();
     expect(s!.version).toBe(SAVE_VERSION);
-    expect(SAVE_VERSION, 'ступень поднимает версию: умолчания тут мало').toBe(18);
+    // Ступень 17 → 18 подняла версию — выше её поднимали другие пачки, и точное число
+    // держит их тест (ниже, «военная ветвь по самой дорогой вещи»). Здесь важно другое:
+    // запись семнадцатой версии приезжает засчитанной, а не с умолчанием.
+    expect(SAVE_VERSION, 'ступень подняла версию: умолчания тут мало').toBeGreaterThan(17);
     expect(techLevel(s!, 'diplo'), 'ступень засчитана').toBe(diploLevelOf('spy'));
     expect(placeOpen(s!, 'spy'), 'место осталось при племени').toBe(true);
     expect(s!.log.some((e) => e.text.includes('Место лазутчика засчитано')), 'о засчитанном сказано').toBe(true);
@@ -286,18 +336,18 @@ describe('замки гейта', () => {
     const bad: string[] = [];
     for (const file of sources()) {
       if (allowed.some((a) => file.endsWith(a))) continue;
-      if (/\bdiploLevelOf\b|\bopenAtLevel\b|\bmailSlotsAt\b|\bplaceOpenAt\b/.test(bare(file))) bad.push(file);
+      if (/\bdiploLevelOf\b|\bopenAtLevel\b|\bmailSlotsAt\b|\bplaceOpenAt\b|\bwarLevelOfGear\b|\bwarLevelOfTroop\b|\bgearOpenAt\b|\btroopOpenAt\b/.test(bare(file))) bad.push(file);
     }
     expect(bad, 'открытость считают мимо двери').toEqual([]);
   });
 
   /**
-   * Проводка первых шагов ведёт через кузницу, казармы, карту и **разведчика** — ни одна
-   * её ступень не упирается в гейт, и это проверяется, а не наблюдается: припиши шагу
-   * гейтованное место — и правку обучения придётся сделать в той же пачке, что и гейт
-   * (решение владельца 7, docs/dynasty.md, раздел 6.1).
+   * Проводка первых шагов ведёт через разведчика — место, которого гейт не закрывает.
+   * Уткнись она в закрытое **место агента**, новичок застрял бы навсегда: мест по ходу
+   * обучения не покупают. Про закрытую **вещь** правило другое — обучение открывает её
+   * само, своим шагом, и это проверено прогоном («проводка первых шагов под гейтом»).
    */
-  it('проводка первых шагов не упирается в гейт', () => {
+  it('проводка первых шагов не упирается в закрытое место агента', () => {
     const src = bare(join(SRC, 'game', 'data', 'tutorial.ts'));
     for (const rung of DIPLO_RUNGS) {
       expect(src.includes(`'${rung}'`), `обучение уткнулось в закрытое: ${rung}`).toBe(false);
@@ -314,5 +364,217 @@ describe('замки гейта', () => {
       if (/realm\??\.points\s*\[[^\]]*\]\s*(-=|=)/.test(bare(file))) bad.push(file);
     }
     expect(bad, 'очки правят мимо двери траты').toEqual([]);
+  });
+});
+
+// ---------- Военная ветвь ----------
+
+describe('военная ветвь: лестница выводится, а не пишется', () => {
+  /**
+   * Правило ветви целиком: **вид открыт, когда открыто всё, что он носит**. Проверяется
+   * на каждом уровне и у каждого вида, а не на одном примере.
+   *
+   * Область, где правило вообще что-то значит, названа прямо: нужен вид, носящий больше
+   * одной вещи, — иначе «всё, что носит» неотличимо от «единственной вещи», и мутация
+   * «брать не самую позднюю вещь, а первую» прошла бы зелёной.
+   */
+  it('вид открыт ровно тогда, когда открыты все его вещи', () => {
+    const many = TROOP_IDS.filter((t) => Object.values(TROOP_BY_ID[t].gear).filter((n) => (n ?? 0) > 0).length > 1);
+    expect(many.length, 'точка внутри области: есть вид, носящий больше одной вещи').toBeGreaterThan(0);
+
+    for (let level = 1; level <= WAR_LEVELS; level++) {
+      for (const t of TROOP_IDS) {
+        const worn = (Object.keys(TROOP_BY_ID[t].gear) as EquipmentId[]).filter((i) => (TROOP_BY_ID[t].gear[i] ?? 0) > 0);
+        const allOpen = worn.every((i) => gearOpenAt(level, i));
+        expect(troopOpenAt(level, t), `${t} на уровне ${level}: носит ${worn.join(', ') || 'ничего'}`).toBe(allOpen);
+      }
+    }
+  });
+
+  /** Вещи идут в порядке работы горна, и первая из них — на втором уровне. */
+  it('уровень вещи — её место в порядке работы, и лестница монотонна', () => {
+    const byWork = [...EQUIPMENT].sort((a, b) => a.work - b.work || (a.id < b.id ? -1 : 1));
+    byWork.forEach((e, i) => expect(warLevelOfGear(e.id), e.id).toBe(i + 2));
+    expect(WAR_LEVELS, 'бесплатная ступень, по одной на вещь и участь').toBe(EQUIPMENT.length + 2);
+    // Дубинщик снаряжения не просит и открыт с первой секунды — это и есть первый уровень.
+    expect(troopOpenAt(1, 'clubman'), 'на первом уровне — дубинщики').toBe(true);
+    expect(TROOP_IDS.filter((t) => troopOpenAt(1, t)), 'и только они').toEqual(['clubman']);
+  });
+
+  /**
+   * Показ и запрет читают одно — и у кузницы, и у казарм. Область: закрытая вещь и
+   * закрытый вид; дубинщик стоит контрольным (на нём правило не спрашивается вовсе).
+   */
+  it('отказ кузницы и отказ казарм — та же строка, что показывает ступень', () => {
+    const s = party();
+    s.gold = 1_000_000;
+    for (const r of RESOURCE_IDS) s.resources[r] = 1_000_000;
+    expect(techLevel(s, 'war'), 'точка внутри области: новая партия на первом уровне').toBe(1);
+
+    for (const item of EQUIPMENT_IDS) {
+      const gate = gearBlock(s, item);
+      expect(gate, `${item}: на первом уровне закрыто`).toBeTruthy();
+      expect(forgeCheck(s, item, 1).blocked, `${item}: отказ кузницы — та же строка`).toBe(gate);
+    }
+    for (const t of TROOP_IDS) {
+      const gate = troopBlock(s, t);
+      if (t === 'clubman') {
+        expect(gate, 'дубинщик открыт: закрывать нечего').toBeNull();
+        continue;
+      }
+      expect(gate, `${t}: на первом уровне закрыто`).toBeTruthy();
+      expect(recruitCheck(s, t, 1).blocked, `${t}: отказ казарм — та же строка`).toBe(gate);
+    }
+  });
+
+  /**
+   * **Одна дверь к тяжёлой коннице** (решение владельца 3). Конюшня её больше не
+   * открывает: на десятом уровне конюшни латных всадников не нанять, пока не изучен
+   * доспех, — и гейт молчит, как только он изучен, даже при конюшне первого уровня.
+   * Мутация «вернуть проверку уровня конюшни» роняет вторую половину.
+   */
+  it('латных всадников открывает доспех, а не уровень конюшни', () => {
+    const put = (s: GameState, level: number): void => {
+      const b = s.buildings.find((x) => x.type === 'stable');
+      if (b) b.level = level;
+    };
+    // Конюшня на потолке, ветвь на первом уровне — отказ от гейта, а не от здания.
+    const closed = party();
+    put(closed, 10);
+    expect(recruitCheck(closed, 'knight', 1).blocked, 'конюшня на потолке не открывает латных').toBe(troopBlock(closed, 'knight'));
+    expect(troopBlock(closed, 'knight'), 'и причина — военная ветвь').toMatch(/военной ветви/);
+
+    // Доспех изучен, конюшня на первом уровне — гейт молчит, и дальше дело за стойлами,
+    // жителями и снаряжением, а не за уровнем здания.
+    const open = warStudied(warLevelOfGear('armor'));
+    put(open, 1);
+    expect(troopBlock(open, 'knight'), 'доспех изучен — гейт молчит').toBeNull();
+    expect(recruitCheck(open, 'knight', 1).blocked ?? '', 'и уровня конюшни в отказе нет').not.toMatch(/конюшни/);
+  });
+
+  /** Ключи гейта не пересекаются: вещь, вид и ступень дипломатии зовутся по-разному. */
+  it('ключи гейта не пересекаются', () => {
+    const all = [...EQUIPMENT_IDS, ...TROOP_IDS, ...DIPLO_RUNGS] as string[];
+    expect(new Set(all).size, 'одно имя на два смысла').toBe(all.length);
+  });
+
+  /** Что даст ступень — замером: названное обязано и правда открыться. */
+  it('что открывает ступень военной ветви, сходится с тем, что после неё открылось', () => {
+    for (let l = 1; l < builtLevelsOf('war'); l++) {
+      const gains = techGains('war', l);
+      expect(gains.length, `у ступени ${l + 1} есть что открыть`).toBeGreaterThan(0);
+      const grewGear = EQUIPMENT_IDS.filter((i) => gearOpenAt(l + 1, i)).length - EQUIPMENT_IDS.filter((i) => gearOpenAt(l, i)).length;
+      const grewTroops = TROOP_IDS.filter((t) => troopOpenAt(l + 1, t)).length - TROOP_IDS.filter((t) => troopOpenAt(l, t)).length;
+      expect(grewGear, `ступень ${l + 1} и правда открыла вещь`).toBeGreaterThan(0);
+      expect(gains.join(' ')).toMatch(/Кузница/);
+      if (grewTroops > 0) expect(gains.join(' ')).toMatch(/Войско/);
+    }
+  });
+
+  /**
+   * Ступень участи ещё не подключена, и продавать её нельзя: это ценник без товара.
+   * Точка внутри области — ветвь изучена до последней подключённой ступени.
+   */
+  it('неподключённая ступень не продаётся', () => {
+    expect(WAR_CAPTIVES_BUILT, 'точка внутри области: ступень участи и правда не подключена').toBe(false);
+    expect(builtLevelsOf('war'), 'продаётся ветвь до вещей').toBe(WAR_LEVELS - 1);
+    expect(levelsOf('war'), 'а длина ветви прежняя: по ней считаются цены').toBe(WAR_LEVELS);
+    const s = warStudied(builtLevelsOf('war'));
+    s.realm.points.war = POINTS_CAP;
+    s.realm.pointsAt = s.time;
+    expect(studyInfo(s, 'war').next, 'покупать нечего').toBe(0);
+    expect(study(s, 'war')).toMatch(/не подключена/);
+    expect(techLevel(s, 'war'), 'уровень на месте').toBe(builtLevelsOf('war'));
+  });
+});
+
+describe('начатая партия: военная ветвь по самой дорогой вещи', () => {
+  /** Запись до ступени 19: та же партия, но `tech.war` лежит первым уровнем. */
+  const aged = (make: (s: GameState) => void): GameState => {
+    const before = party();
+    before.time = 500 * 60;
+    make(before);
+    const raw = JSON.parse(serialize(before)) as Record<string, unknown>;
+    raw.version = 18;
+    (raw.realm as { tech: Record<string, number> }).tech.war = 1;
+    const s = deserialize(JSON.stringify(raw));
+    expect(s).not.toBeNull();
+    return s as GameState;
+  };
+
+  it('засчитывается самая дорогая вещь, и ни ступенью выше', () => {
+    expect(SAVE_VERSION, 'ступень поднимает версию: умолчания тут мало').toBe(19);
+    // Точка внутри области: у вещей и правда разные уровни, иначе «самая дорогая» — пустые слова.
+    expect(warLevelOfGear('armor')).toBeGreaterThan(warLevelOfGear('spear'));
+
+    const spears = aged((s) => {
+      s.equipment.spear = 3;
+    });
+    expect(techLevel(spears, 'war'), 'копьё на складе — его уровень').toBe(warLevelOfGear('spear'));
+
+    const armor = aged((s) => {
+      s.equipment.spear = 3;
+      s.equipment.armor = 1;
+    });
+    expect(techLevel(armor, 'war'), 'доспех на складе — его уровень').toBe(warLevelOfGear('armor'));
+    expect(techLevel(armor, 'war'), 'и ни ступенью выше: даром ветвь не проходится').toBeLessThan(levelsOf('war'));
+
+    const empty = aged(() => {});
+    expect(techLevel(empty, 'war'), 'кованого нет — засчитывать нечего').toBe(1);
+    expect(empty.log.some((e) => e.text.includes('Военная ветвь начинается с первого уровня')), 'и сказано об этом').toBe(true);
+  });
+
+  /**
+   * Вещь доказывается не только складом: она на бойце, в заказе, в очереди казарм, в
+   * лазарете и в поле. Каждое место — своя точка, и каждая обязана доказать сама.
+   */
+  it('вещь доказывают и склад, и заказ, и дружина — дома, в поле, в лазарете и на учениях', () => {
+    const level = warLevelOfGear('armor');
+    const places: [string, (s: GameState) => void][] = [
+      ['склад', (s) => { s.equipment.armor = 1; }],
+      ['заказ кузницы', (s) => { s.forge.push({ id: 1, item: 'armor', count: 2, done: 0, work: 0 }); }],
+      ['дружина дома', (s) => { s.army.legionary = 1; }],
+      ['дружина в поле', (s) => { s.away.legionary = 1; }],
+      ['учения', (s) => { s.recruits.push({ id: 2, troop: 'legionary', count: 1, done: 0, work: 0, people: 1 }); }],
+      ['лазарет', (s) => { s.wounded.push({ troops: { legionary: 1 }, until: null }); }],
+    ];
+    for (const [what, put] of places) {
+      expect(techLevel(aged(put), 'war'), `${what}: доспех засчитан`).toBe(level);
+    }
+    // Обратная точка: партия, у которой этих вещей нет, не доказывает ничего.
+    expect(techLevel(aged(() => {}), 'war')).toBe(1);
+  });
+
+  it('засчитывание только поднимает уровень военной ветви и никогда не опускает', () => {
+    const s = warStudied(builtLevelsOf('war'));
+    expect(creditTech(s), 'выше засчитанного не трогает').toEqual([]);
+    expect(techLevel(s, 'war')).toBe(builtLevelsOf('war'));
+  });
+});
+
+describe('проводка первых шагов под гейтом', () => {
+  /**
+   * Шаг про копьё стоит на закрытой вещи, и обучение обязано открывать её само: иначе
+   * новичок упирается в кузницу, которая на первом уровне не куёт ничего вовсе.
+   *
+   * Область названа прямо: у новой партии копьё и правда закрыто, а очков на ступень
+   * ровно хватает, — без этого шаг был бы зелёным при любом коде.
+   */
+  it('новичок доходит до заказа копий: шаг «Технологии» открывает то, что он изучает', () => {
+    const s = party();
+    s.tutorialStep = TUTORIAL.findIndex((x) => x.id === 'tech');
+    expect(s.tutorialStep, 'шаг про технологии есть').toBeGreaterThanOrEqual(0);
+    expect(gearOpen(s, 'spear'), 'точка внутри области: копьё закрыто').toBe(false);
+    expect(startForge(s, 'spear', 1), 'и кузница его не берёт').toMatch(/Ещё не изучено/);
+
+    const ui: TutorialUi = { building: null, tab: null, mapOpen: false, worldTile: false };
+    advanceTutorial(s, ui);
+    expect(TUTORIAL[s.tutorialStep].id, 'шаг не проматывается сам').toBe('tech');
+
+    expect(pointsOf(s, 'war'), 'очков ровно на ступень').toBe(levelPrice('war', 2));
+    expect(study(s, 'war'), 'и она покупается').toBeNull();
+    advanceTutorial(s, ui);
+    expect(TUTORIAL[s.tutorialStep].id, 'дальше — заказ копий').toBe('forge');
+    expect(startForge(s, 'spear', 1), 'и кузница его берёт').toBeNull();
   });
 });

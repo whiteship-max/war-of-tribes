@@ -7,6 +7,8 @@ import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { buildingOfType, idleCount, wageOf } from '@/game/derived';
 import { hiredAt, isTraining, orderEta, recruitCheck } from '@/game/sim/army';
 import { cancelRecruit, startRecruit } from '@/game/sim/actions';
+import { troopBlock } from '@/game/sim/tech';
+import { useRealm } from '@/ui/realm/open';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
 
@@ -24,6 +26,7 @@ export function Recruit({ at }: { at: 'barracks' | 'stable' }) {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const act = useGame((g) => g.act);
+  const show = useRealm((r) => r.show);
   const [counts, setCounts] = useState<Partial<Record<TroopId, number>>>({});
   const smithy = buildingOfType(s, 'smithy');
   const free = idleCount(s);
@@ -78,8 +81,11 @@ export function Recruit({ at }: { at: 'barracks' | 'stable' }) {
         const n = counts[def.id] ?? 1;
         const check = recruitCheck(s, def.id, n);
         const have = s.army[def.id] ?? 0;
+        // Вид, которого держава не изучила, показан закрытым, а не «дорогим»: причина —
+        // та же строка, что гасит кнопку и стоит в самой ветви (`sim/tech`, одна дверь).
+        const closed = troopBlock(s, def.id) !== null;
         return (
-          <div className="troop" key={def.id}>
+          <div className={`troop${closed ? ' locked' : ''}`} key={def.id}>
             <div className="ico">
               <Icon name={`troop-${def.id}`} glyph={def.icon} />
             </div>
@@ -128,12 +134,17 @@ export function Recruit({ at }: { at: 'barracks' | 'stable' }) {
               <small className={check.blocked ? 'no' : ''}>
                 {check.blocked ?? `свободных останется ${check.freeAfter}`}
               </small>
-              {check.missing.length > 0 && smithy && (
+              {closed && (
+                <button className="btn ghost wide" onClick={() => show('tech')}>
+                  📚 В «Технологии» — изучить
+                </button>
+              )}
+              {!closed && check.missing.length > 0 && smithy && (
                 <button className="btn ghost wide" onClick={() => openBuilding(smithy.id)}>
                   ⚒️ В кузницу — ковать {check.missing.map((m) => EQUIPMENT_BY_ID[m.id].one).join(', ')}
                 </button>
               )}
-              {check.missing.length > 0 && !smithy && (
+              {!closed && check.missing.length > 0 && !smithy && (
                 <div className="note bad">Снаряжение делают в кузнице — её ещё нет.</div>
               )}
             </div>

@@ -10,9 +10,9 @@
 import type { EquipmentId, GameState, RecruitOrder, ResourceId, TroopId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
-import { KIND_OF } from '../battle/kinds';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { buildingOfType, canAfford, heavyFrom, heavyOpen, idleCount, recruitRate, recruitsQueued, stalls, stallsTaken } from '../derived';
+import { buildingOfType, canAfford, idleCount, recruitRate, recruitsQueued, stalls, stallsTaken } from '../derived';
+import { troopBlock } from './tech';
 import { addPop, losePop } from './population';
 import { log } from './log';
 import { pay, refund } from './pay';
@@ -86,16 +86,20 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
   // с всадником не расседлан (`derived.stallsTaken`).
   const stall = def.mounted ? Math.max(0, stalls(s) - stallsTaken(s)) : Infinity;
 
-  let blocked: string | null = null;
-  if (def.mounted && !buildingOfType(s, 'stable')) blocked = 'Конницу нанимают в конюшне.';
-  else if (def.mounted && KIND_OF[troop] === 'heavy' && !heavyOpen(s)) blocked = `Латных всадников куют с ${heavyFrom()} уровня конюшни.`;
-  else if (stall < n) blocked = stall === 0 ? 'Все стойла заняты — нужен уровень конюшни.' : `Свободных стойл только ${stall}.`;
-  else if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
-  else if (missing.length > 0) {
-    blocked = `Не хватает: ${missing
-      .map((m) => `${EQUIPMENT_BY_ID[m.id].name.toLowerCase()} ${m.need - m.have}`)
-      .join(', ')}.`;
-  } else if (!canAfford(s, cost)) blocked = 'Не хватает ресурсов.';
+  // Гейт спрашивается первым и отдельной строкой: вида, которого держава не изучила, в
+  // игре нет вовсе, и стойла с жителями тут ни при чём. Дверь одна на показ и на запрет
+  // (`sim/tech`), и её причина не должна перебиваться следующей проверкой.
+  let blocked: string | null = troopBlock(s, troop);
+  if (blocked === null) {
+    if (def.mounted && !buildingOfType(s, 'stable')) blocked = 'Конницу нанимают в конюшне.';
+    else if (stall < n) blocked = stall === 0 ? 'Все стойла заняты — нужен уровень конюшни.' : `Свободных стойл только ${stall}.`;
+    else if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
+    else if (missing.length > 0) {
+      blocked = `Не хватает: ${missing
+        .map((m) => `${EQUIPMENT_BY_ID[m.id].name.toLowerCase()} ${m.need - m.have}`)
+        .join(', ')}.`;
+    } else if (!canAfford(s, cost)) blocked = 'Не хватает ресурсов.';
+  }
 
   return {
     def,

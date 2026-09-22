@@ -55,6 +55,7 @@ export function CoatButton() {
   return (
     <button
       className={`coat-btn${open ? ' active' : ''}`}
+      data-tut="coat"
       onClick={() => show()}
       title="Держава: правительство, стройка, вера, армия, решения и настройки"
       aria-label={unread > 0 ? `Держава, новых донесений: ${unread}` : 'Держава'}

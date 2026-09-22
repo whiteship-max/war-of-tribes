@@ -39,7 +39,8 @@ import { starvesAt } from '@/world/siege';
 import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
-import { creditTech } from '@/game/sim/tech';
+import { creditTech, study, troopOpen } from '@/game/sim/tech';
+import { BRANCH_BUILT, REALM_BRANCHES } from '@/game/data/realm';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { absence, catchUp, tick } from '@/game/sim/tick';
 import { DAY_LENGTH, gameSeconds, realMs, realSeconds, timeScale } from '@/game/pace';
@@ -240,7 +241,7 @@ export const FORGE_AHEAD = 10 * MIN;
 export type HireStyle = 'means' | 'feed';
 
 /** Что остановило найм на этом решении. */
-export type Stop = 'цель' | 'казна' | 'еда' | 'руки' | 'снаряжение' | 'ресурсы';
+export type Stop = 'цель' | 'казна' | 'еда' | 'руки' | 'снаряжение' | 'ресурсы' | 'технология';
 
 /** Что игрок успел сделать и что с ним случилось — счёт, который читают отчёты. */
 export interface Ledger {
@@ -338,15 +339,60 @@ function largest(max: number, ok: (n: number) => boolean): number {
 }
 
 /**
- * Нанять по поведению; что остановило найм, ложится в `l.stops`. Состав — `Player.mix`,
- * по умолчанию мерка `MIX`.
+ * Состав найма под гейтом: закрытый вид из мерки выпадает, а доля его переходит открытым —
+ * `stackOf` делит то же целевое число на сумму оставшихся весов. Это игрок, который тратит
+ * те же деньги на то, что у него есть.
+ *
+ * **Дубинщиками закрытую долю не добирают, и это решение прибора, а не недосмотр.** Мерка
+ * `MIX` дубинщиков не знала и до гейта: они худшие в игре на единицу еды и стоят по жителю
+ * с головы, а предел найма у них один — свободные руки. Замер (`raid-hiring:report`,
+ * раздел Б, прогон 22.09.2026) показал, чем это кончается: 371 нанятый, 260 ушедших и
+ * деревня в тринадцать человек к шестому часу. Так игрок не играет; так играет цель,
+ * растущая без предела.
+ *
+ * Когда открыто всё, ключи и их порядок те же, что у входного состава, и `stackOf` даёт
+ * **тот же состав до бойца**: иначе посёлок мерки, которому ступень засчитана, поехал бы
+ * от одной правки прибора.
  */
+export function openMix(g: GameState, mix: TroopStack): TroopStack {
+  const out: TroopStack = {};
+  for (const [key, weight] of Object.entries(mix)) {
+    const id = key as TroopId;
+    if (troopOpen(g, id)) out[id] = weight ?? 0;
+  }
+  return out;
+}
+
+/**
+ * Изучить всё, что уже по карману. Тратить очки игроку больше некуда, а ступень, до
+ * которой он накопил, он покупает в тот же заход: «когда хватило — купил» и есть самое
+ * простое правдивое поведение, и своего числа у него нет.
+ *
+ * Ветви — все построенные (`BRANCH_BUILT`), список руками не пишется. Ступень поднимает
+ * та же дверь, что и в игре (`sim/tech.study`): второго способа поднять `realm.tech` в
+ * проекте нет.
+ */
+function learn(g: GameState): void {
+  for (const b of REALM_BRANCHES) {
+    if (!BRANCH_BUILT[b]) continue;
+    // Цена растёт с уровнем, а очки за один заход не удваиваются: круг кончается сам —
+    // на первой же ступени, которую не на что купить (или на конце ветви).
+    let bought = study(g, b);
+    while (bought === null) bought = study(g, b);
+  }
+}
+
+/** Нанять по поведению; что остановило найм, ложится в `l.stops`. Состав — мерка, урезанная гейтом (`openMix`). */
 function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger): void {
   // Цель — всё, что пустит лимит: сперва недостача мерки по видам, потом ещё круг.
   const total = armySize(g) + TROOP_IDS.reduce((n, id) => n + queued(g, id), 0);
-  const want = stackOf(total + Math.max(10, Math.round(total * 0.25)), mix);
-  let stop: Stop = 'цель';
-  for (const id of Object.keys(mix) as TroopId[]) {
+  const open = openMix(g, mix);
+  const want = stackOf(total + Math.max(10, Math.round(total * 0.25)), open);
+  // Закрытый вид — причина по умолчанию: не дойди дело ни до одного предела, в отчёте
+  // должно стоять «технология», а не «цель». Все прочие пределы её перебивают: они
+  // случились позже и ближе к делу.
+  let stop: Stop = Object.keys(mix).some((id) => !troopOpen(g, id as TroopId)) ? 'технология' : 'цель';
+  for (const id of Object.keys(open) as TroopId[]) {
     const deficit = Math.max(0, (want[id] ?? 0) - g.army[id] - queued(g, id));
     if (deficit <= 0) continue;
     const def = TROOP_BY_ID[id];
@@ -384,7 +430,9 @@ function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger): void 
   let ahead = g.forge.reduce((w, o) => w + EQUIPMENT_BY_ID[o.item].work * (o.count - o.done) - o.work, 0);
   for (const item of EQUIPMENT_IDS) {
     let need = 0;
-    for (const id of Object.keys(mix) as TroopId[]) {
+    // Открытый вид носит только открытые вещи — своей проверки гейта у горна здесь не
+    // нужно: недостача по закрытой вещи выходит нулевой сама.
+    for (const id of Object.keys(open) as TroopId[]) {
       const deficit = Math.max(0, (want[id] ?? 0) - g.army[id] - queued(g, id));
       need += deficit * (TROOP_BY_ID[id].gear[item] ?? 0);
     }
@@ -466,12 +514,11 @@ export interface Player {
   /** Как нанимает; `null` — не пополняет войско и не распускает. */
   hire: HireStyle | null;
   /**
-   * Состав найма. Нет — мерка `MIX`. Отчёт задаёт свой там, где меряет игрока, которому
-   * доступна не вся лестница войск: у состава и у поведения разные вопросы, и сводить их
-   * в одно поле нельзя — «по средствам» одними дубинщиками это тот же игрок с теми же
-   * деньгами, а не другое поведение.
+   * Изучает ступени ветвей, как только хватает очков. Тратить их больше некуда, поэтому
+   * `true` — поведение обычного игрока, а `false` оставлен отчёту, который меряет
+   * нижнюю ступень ветви нарочно.
    */
-  mix?: TroopStack;
+  study: boolean;
   /** На осаду нанимает дубинщиков числом с мощь лагеря, но не больше свободных рук. */
   siegeLevy: boolean;
   /** Под осадой выходит вылазкой всем гарнизоном, не чаще раза в пять минут. */
@@ -487,6 +534,7 @@ export const player = (hire: HireStyle | null, over: Partial<Omit<Player, 'hire'
   staff: true,
   build: { skip: [] },
   hire,
+  study: true,
   siegeLevy: false,
   sortie: true,
   ...over,
@@ -496,13 +544,16 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   countDeserted(g, l);
   countMutinyEnd(g, l);
   answer(g, l);
+  // Учится раньше, чем нанимает: ступень, купленная в этом же заходе, открывает вид тому
+  // же кругу найма — как у игрока, который перед казармами заглянул в «Технологии».
+  if (p.study) learn(g);
   if (p.staff) staff(g);
   if (p.build) build(g, p.build.skip);
   p.also?.(g);
   if (p.hire) {
     staffSmithy(g);
     if (p.hire === 'means') trim(g, l);
-    hire(g, p.hire, p.mix ?? MIX, l);
+    hire(g, p.hire, MIX, l);
   }
 }
 

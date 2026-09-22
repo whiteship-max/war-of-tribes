@@ -160,8 +160,8 @@ interface Opts {
   build?: boolean;
   /** Своё действие отчёта — после расстановки, до найма. */
   also?: (g: GameState) => void;
-  /** Состав найма; нет — мерка `MIX` общего автопилота. */
-  mix?: TroopStack;
+  /** Изучает ли игрок ступени ветвей; нет — как у общего автопилота, изучает. */
+  study?: boolean;
   hourly?: (h: number, g: GameState) => void;
   effect?: (e: HomeEffect, now: number) => void;
   after?: (x: { g: GameState; world: LocalWorld; now: number; figures: FigureView[] }) => Promise<void>;
@@ -212,7 +212,7 @@ export async function live(o: Opts): Promise<Out> {
   const flown = await pilot({
     g,
     seconds: o.hours * 3600,
-    player: playerOf(style, { build: o.build ? { skip: [] } : false, also: o.also, mix: o.mix }),
+    player: playerOf(style, { build: o.build ? { skip: [] } : false, also: o.also, ...(o.study === undefined ? {} : { study: o.study }) }),
     world: { seed: o.seed, pulse: 30, raids: true, ripe: o.ripe, step: o.step ?? GAME, ref: o.ref },
     economy: 'live',
     tick: 1,

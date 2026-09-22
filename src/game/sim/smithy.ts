@@ -21,6 +21,7 @@ import type { EquipmentId, ForgeOrder, GameState, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from '../data/equipment';
 import { canAfford, forgeRate } from '../derived';
+import { gearBlock } from './tech';
 import { log } from './log';
 import { pay, refund } from './pay';
 import { asGame, type GameSec } from '../pace';
@@ -53,8 +54,10 @@ export function forgeCheck(s: GameState, item: EquipmentId, count: number): Forg
   const cost = forgeCost(item, n);
   const work = def.work * n;
   const rate = forgeRate(s);
-  let blocked: string | null = null;
-  if (!canAfford(s, cost)) blocked = 'Не хватает материалов на весь заказ.';
+  // Гейт спрашивается первым: незнакомую вещь не закажешь ни за какие материалы, и
+  // сказать об этом надо тем же, чем закрыто, — одной дверью (`sim/tech`).
+  let blocked: string | null = gearBlock(s, item);
+  if (!blocked && !canAfford(s, cost)) blocked = 'Не хватает материалов на весь заказ.';
   return { def, count: n, cost, work, eta: rate > 0 ? asGame(Math.ceil(work / rate)) : null, blocked };
 }
 

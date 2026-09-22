@@ -39,7 +39,6 @@ import {
   hiddenStash,
   idleCount,
   intelKeen,
-  heavyOpen,
   stalls,
   recruitRate,
   warningSeconds,
@@ -77,6 +76,7 @@ import { deserialize, serialize } from '../save';
 import { SAVE_VERSION } from '../state';
 import { startForge } from './smithy';
 import { startRecruit } from './army';
+import { study } from './tech';
 
 beforeEach(() => setRandom(seeded(42)));
 
@@ -187,9 +187,9 @@ describe('службы посёлка', () => {
     // А конница от уровня казарм — ни на волос: её учит конюшня.
     expect(recruitRate(plain, 'rider')).toBeLessThan(recruitRate(s, 'rider'));
 
-    // Стойла и открытие тяжёлой — работа уровня; ступени снаряжения от конюшни больше нет.
-    expect(heavyOpen(withLevel('stable', 3))).toBe(false);
-    expect(heavyOpen(withLevel('stable', 4))).toBe(true);
+    // Стойла — работа уровня. Открытия тяжёлой конницы у конюшни больше нет: её открывает
+    // доспех в военной ветви, и второй двери к одному открытию быть не может (решение
+    // владельца 3); держит это `sim/tech.test.ts`, «одна дверь к тяжёлой коннице».
     expect(stalls(withLevel('stable', 10))).toBeGreaterThan(stalls(withLevel('stable', 1)));
   });
 
@@ -466,10 +466,17 @@ describe('симуляция', () => {
     expect(jobCounts(s).idle).toBeGreaterThanOrEqual(3);
   });
 
-  it('наём, кузница, рынок и золото доступны сразу', () => {
+  /**
+   * Золото, рынок и сами здания стоят с первой секунды — эпох и стадий поселения в игре
+   * нет. Закрывает ковку и найм не постройка, а военная ветвь, и первая её ступень
+   * покупается в ту же секунду: начального котла очков хватает ровно на неё.
+   */
+  it('золото и рынок доступны сразу, а кузница и казармы — с первой ступени ветви', () => {
     const s = createInitialState();
     expect(s.gold).toBeGreaterThan(0);
-    expect(startForge(s, 'armor', 1)).toBeNull();
+    expect(startForge(s, 'spear', 1), 'до ступени кузница копья не берёт').toMatch(/Ещё не изучено/);
+    expect(study(s, 'war'), 'а ступень покупается сразу: очков ровно на неё').toBeNull();
+    expect(startForge(s, 'spear', 1)).toBeNull();
     expect(forgeInfo(s).blocked).toMatch(/никто не работает/);
     // Копьё на складе — и первый копейщик нанимается без единого условия.
     s.equipment.spear = 1;
@@ -868,6 +875,8 @@ describe('старт партии', () => {
     // Игрок делает очевидное: кузнеца к горну, заказ на копья, бойца в казармы.
     const smithy = buildingOfType(s, 'smithy')!;
     expect(assignWorker(s, smithy.id)).toBeNull();
+    // Первая ступень военной ветви — тоже очевидное: очков на неё ровно столько, сколько надо.
+    expect(study(s, 'war')).toBeNull();
     expect(startForge(s, 'spear', 4)).toBeNull();
     let recruited = false;
     for (let i = 0; i < 10 && !recruited; i++) {
@@ -1266,6 +1275,7 @@ describe('обучение', () => {
     tapTutorial(s, UI_NONE);
     const smithy = buildingOfType(s, 'smithy')!;
     expect(assignWorker(s, smithy.id)).toBeNull();
+    expect(study(s, 'war')).toBeNull();
     expect(startForge(s, 'spear', 1)).toBeNull();
     advanceTutorial(s, UI_NONE);
     expect(at(s)).toBe('open_town');
@@ -1288,6 +1298,13 @@ describe('обучение', () => {
     expect(at(s)).toBe('smith');
 
     expect(assignWorker(s, smithy.id)).toBeNull();
+    advanceTutorial(s, ui({ building: smithy.id }));
+    expect(at(s)).toBe('tech');
+
+    // Копьё — вторая ступень военной ветви, и обучение ведёт её купить: начального котла
+    // очков хватает ровно на неё, ждать игроку не приходится.
+    expect(startForge(s, 'spear', 1), 'до ступени кузница копья не берёт').toMatch(/Ещё не изучено/);
+    expect(study(s, 'war')).toBeNull();
     advanceTutorial(s, ui({ building: smithy.id }));
     expect(at(s)).toBe('forge');
 

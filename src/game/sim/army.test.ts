@@ -9,6 +9,8 @@ import { forgeCheck, startForge } from './smithy';
 import { cancelRecruit, orderEta, recruitCheck, recruitTick, startRecruit } from './army';
 import { assignWorker, changeFreeJob } from './workers';
 import { stalls } from '../derived';
+import { study, studyInfo, troopBlock } from './tech';
+import { POINTS_CAP } from '../data/realm';
 import { seeded, setRandom } from './random';
 import { DAY_LENGTH, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS } from '../data/seasons';
@@ -54,8 +56,22 @@ function warband(pop = 40): GameState {
   // Награды за задания посыпались бы в первый же тик и подменили собой запас,
   // а проверяем мы именно запас — поэтому задания считаем уже закрытыми.
   s.completedQuests = QUESTS.map((q) => q.id);
+  learnWar(s);
   return s;
 }
+/**
+ * Военная ветвь изучена целиком: здесь проверяют казармы и кузницу, а не гейт. Ступени покупаются
+ * настоящей дверью (`sim/tech.study`) — подставляются только очки, потому что копить их
+ * часами деревни значило бы сдвинуть сезон, а сезон в этих проверках участвует.
+ */
+function learnWar(s: GameState): void {
+  while (studyInfo(s, 'war').next > 0) {
+    s.realm.points.war = POINTS_CAP;
+    s.realm.pointsAt = s.time;
+    if (study(s, 'war') !== null) break;
+  }
+}
+
 
 describe('снаряжение', () => {
   it('кузнец кует заказанное и кладёт на склад', () => {
@@ -78,7 +94,7 @@ describe('снаряжение', () => {
     expect(forgeInfo(s).blocked).toMatch(/никто не работает/);
   });
 
-  it('любое снаряжение куётся с первого дня: гейтов по технологиям нет', () => {
+  it('изученное куётся без прочих условий: у кузницы свой вопрос, у гейта — свой', () => {
     const s = warband();
     expect(startForge(s, 'sword', 1)).toBeNull();
     expect(s.forge[0].item).toBe('sword');
@@ -86,7 +102,12 @@ describe('снаряжение', () => {
     expect(s.forge).toHaveLength(2);
   });
 
-  it('все виды бойцов доступны сразу — выбор между ними экономический', () => {
+  /**
+   * Порядок в `TROOPS` — порядок показа, а не доступности: при изученной ветви ни один
+   * вид не ограничен ничем, кроме снаряжения, жителей и добра. Что их ограничивает до
+   * ветви, держит `sim/tech.test.ts`; здесь область другая — ветвь изучена (`warband`).
+   */
+  it('при изученной ветви выбор между видами экономический, а не по месту в списке', () => {
     const s = warband();
     s.equipment = { spear: 1, bow: 1, axe: 1, shield: 2, sword: 3, armor: 1 };
     for (const id of ['clubman', 'spearman', 'archer', 'axeman', 'swordsman', 'shieldman', 'legionary'] as const) {
@@ -266,20 +287,25 @@ describe('срок найма — это ход очереди', () => {
     expect(s.army.rider, 'всадник обучен, не дожидаясь пеших').toBe(1);
   });
 
-  it('стойла — потолок конницы, и тяжёлую открывает уровень конюшни', () => {
+  /**
+   * У конюшни осталось одно дело — стойла: тяжёлую конницу открывает доспех в военной
+   * ветви, и второй двери к одному открытию быть не может (решение владельца 3). Здесь
+   * проверяется только потолок стойл, а само открытие — в `sim/tech.test.ts`.
+   */
+  it('стойла — потолок конницы, и уровень конюшни ничего не открывает', () => {
     const s = warband();
     place(s, 'barracks', 10);
     place(s, 'stable', 1);
     s.pop = 200;
     for (const r of RESOURCE_IDS) s.resources[r] = 9999;
     for (const id of Object.keys(s.equipment) as (keyof typeof s.equipment)[]) s.equipment[id] = 999;
-    // Граница: жителей, добра и снаряжения хватает — мешают только стойла и уровень.
+    // Граница: жителей, добра и снаряжения хватает — мешают только стойла.
     expect(recruitCheck(s, 'rider', 1).blocked, 'первое стойло свободно').toBeNull();
-    expect(recruitCheck(s, 'knight', 1).blocked, 'тяжёлая с 4 уровня').toContain('4 уровня');
+    expect(recruitCheck(s, 'knight', 1).blocked, 'и латные — тоже: доспех изучен').toBeNull();
+    expect(troopBlock(s, 'knight'), 'гейт молчит при конюшне первого уровня').toBeNull();
     s.army.rider = stalls(s);
     expect(recruitCheck(s, 'rider', 1).blocked, 'стойла заняты').toContain('стойл');
-    place(s, 'stable', 4);
-    expect(recruitCheck(s, 'knight', 1).blocked, 'на 4 уровне куют латных').toBeNull();
+    expect(recruitCheck(s, 'knight', 1).blocked, 'стойла общие на оба конных вида').toContain('стойл');
   });
 });
 

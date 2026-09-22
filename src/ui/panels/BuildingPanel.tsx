@@ -40,8 +40,6 @@ import {
   jobMultiplier,
   levelOutputMult,
   maxLevelFor,
-  heavyFrom,
-  heavyOpen,
   stalls,
   stallsTaken,
   netPerDay,
@@ -80,6 +78,7 @@ import { TowerEngine } from '../parts/TowerEngine';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
 import { waitMinSec, waitShort } from '../parts/wait';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
+import { troopBlock, troopOpen } from '@/game/sim/tech';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { troopTotal } from '@/game/battle/kinds';
@@ -563,7 +562,10 @@ function GenericData({ b }: { b: Building }) {
   if (b.type === 'stable') {
     stats.push(['troop-horse', '🐎', 'Стойла заняты', `${stallsTaken(s)} из ${stalls(s)}`]);
     stats.push(['troop-horse', '🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
-    stats.push(['troop-knight', '🏇', 'Латные всадники', heavyOpen(s) ? 'нанимают здесь' : `с ${heavyFrom()} уровня`]);
+    // Латных всадников конюшня больше не открывает — их открывает доспех в военной ветви
+    // (решение владельца 3). Строка про это стоит там, где игрок нажимает, — в самом найме,
+    // и говорит её гейт; второй правды об открытии здесь быть не должно.
+    stats.push(['troop-knight', '🏇', 'Латные всадники', troopOpen(s, 'knight') ? 'нанимают здесь' : (troopBlock(s, 'knight') ?? '')]);
   }
   // Тайник. Главный довод его строить — не «сколько прячет сейчас», а «сколько
   // будет», и оба числа стоят рядом, чтобы игроку не считать в уме. Всё, что

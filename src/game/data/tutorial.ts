@@ -6,6 +6,7 @@
 import type { BuildingTypeId, GameState } from '../types';
 import { sessionSec } from '../pace';
 import { armySize, buildingById, buildingOfType, workerCount } from '../derived';
+import { gearOpen } from '../sim/tech';
 
 /** Что подсвечивается «дыркой» в затемнении. */
 export type TutorialTarget =
@@ -93,6 +94,17 @@ export const TUTORIAL: TutorialStep[] = [
     text: 'Поставь кузнеца к горну.',
     target: { kind: 'dom', sel: '[data-tut="slot-add"]' },
     done: (s) => smiths(s) > 0 || anyGear(s),
+  },
+  {
+    // Копьё — вторая ступень военной ветви, и на первом уровне кузница не куёт ничего
+    // вовсе. Шаг про это стоит здесь нарочно: гейт — главный двигатель игры, и прятать
+    // его от новичка хуже, чем объяснить в первую минуту (решение владельца 7,
+    // docs/dynasty.md, раздел 6.1). Начальный котёл очков хватает ровно на эту ступень,
+    // так что ждать игроку не приходится ни секунды.
+    id: 'tech',
+    text: 'Копьё не изучено: герб → «Технологии» → военная ветвь.',
+    target: { kind: 'dom', sel: '[data-tut="coat"]' },
+    done: (s) => gearOpen(s, 'spear') || anyGear(s),
   },
   {
     id: 'forge',

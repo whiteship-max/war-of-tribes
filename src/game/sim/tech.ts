@@ -16,9 +16,11 @@
 // **Ни одного тика.** Уровень лежит в партии (`RealmState.tech`), всё остальное —
 // чтение: открыто ли место, сколько ячеек у стола, что даст следующий уровень.
 import type { FigureId } from '@/world/types';
-import type { GameState, RealmBranch } from '../types';
+import type { EquipmentId, GameState, RealmBranch, TroopId } from '../types';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { LETTER_DECISIONS } from '@/world/letters';
+import { EQUIPMENT_BY_ID, EQUIPMENT_IDS } from '../data/equipment';
+import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
   BRANCH_BUILT,
   BRANCH_NAME,
@@ -26,10 +28,13 @@ import {
   DIPLO_RUNGS,
   DIPLO_RUNG_NAME,
   type DiploRung,
+  builtLevelsOf,
   diploLevelOf,
   isDiploRung,
   levelPrice,
   levelsOf,
+  warLevelOfGear,
+  warLevelOfTroop,
 } from '../data/realm';
 import { asGame, type GameSec } from '../pace';
 import { DAY_LENGTH } from '../constants';
@@ -37,22 +42,59 @@ import { pointsOf, rulerRate, spend } from './points';
 import { log } from './log';
 
 /**
- * Что можно спросить у гейта. Сегодня это ступени дипломатической ветви и только они:
- * военная и административная ветви ещё не построены, и заводить их ключи заранее значило
- * бы обещать проверку, которой нет.
+ * Что можно спросить у гейта: ступень дипломатической ветви, вещь кузницы или вид бойца.
+ * Административная ветвь ещё не построена, и заводить её ключи заранее значило бы обещать
+ * проверку, которой нет.
+ *
+ * Ключи не пересекаются, и это свойство самих таблиц контента, а не соглашение: вещь
+ * зовётся `spear`, боец — `spearman`, ступень дипломатии — `spy`. Сойдись однажды два
+ * имени — упадёт тест «ключи гейта не пересекаются».
  */
-export type TechKey = DiploRung;
+export type TechKey = DiploRung | EquipmentId | TroopId;
 
 export interface Gate {
   branch: RealmBranch;
   level: number;
 }
 
+const isGear = (key: string): key is EquipmentId => (EQUIPMENT_IDS as readonly string[]).includes(key);
+const isTroop = (key: string): key is TroopId => (TROOP_IDS as readonly string[]).includes(key);
+
 /**
- * Где на лестнице стоит ступень. Выводится из ветви, а не пишется таблицей: список
- * ступеней и есть лестница (docs/dynasty.md, раздел 4.6).
+ * Где на лестнице стоит ступень. Выводится из самих таблиц, а не пишется рядом
+ * (docs/dynasty.md, раздел 4.6): у дипломатии — место в списке ступеней, у вещи — её
+ * работа у горна, у вида бойца — самая поздняя вещь из тех, что он носит.
  */
-export const gateOf = (key: TechKey): Gate => ({ branch: 'diplo', level: diploLevelOf(key) });
+export function gateOf(key: TechKey): Gate {
+  if (isGear(key)) return { branch: 'war', level: warLevelOfGear(key) };
+  if (isTroop(key)) return { branch: 'war', level: warLevelOfTroop(key) };
+  return { branch: 'diplo', level: diploLevelOf(key) };
+}
+
+/** Как ступень зовут игроку. Имена берутся у контента: своего списка названий нет. */
+export function techName(key: TechKey): string {
+  if (isGear(key)) return EQUIPMENT_BY_ID[key].name.toLowerCase();
+  if (isTroop(key)) return TROOP_BY_ID[key].name.toLowerCase();
+  return DIPLO_RUNG_NAME[key].toLowerCase();
+}
+
+/**
+ * Как называется уровень ветви. Тоже выводится из лестницы, и тоже здесь: спроси экран
+ * лестницу сам — и у названия ступени с её открытием стало бы два источника.
+ * Первый уровень — то состояние, в котором партия начинается.
+ */
+export function levelName(branch: RealmBranch, level: number): string {
+  if (level <= 1) return 'С этого держава начинается';
+  if (branch === 'diplo') {
+    const rung = DIPLO_RUNGS.find((r) => diploLevelOf(r) === level);
+    return rung ? DIPLO_RUNG_NAME[rung] : `Уровень ${level}`;
+  }
+  if (branch === 'war') {
+    const item = EQUIPMENT_IDS.find((i) => warLevelOfGear(i) === level);
+    return item ? EQUIPMENT_BY_ID[item].name : `Уровень ${level}`;
+  }
+  return `Уровень ${level}`;
+}
 
 /** Изученный уровень ветви. Партия без дома (мусор в сохранении) читается как первый. */
 export function techLevel(s: GameState, branch: RealmBranch): number {
@@ -78,7 +120,7 @@ export const techOpen = (s: GameState, key: TechKey): boolean => openAtLevel(tec
 export function techBlock(s: GameState, key: TechKey): string | null {
   if (techOpen(s, key)) return null;
   const g = gateOf(key);
-  return `${DIPLO_RUNG_NAME[key]} откроется на ${g.level} уровне ${BRANCH_OF[g.branch]} ветви — в «Технологиях».`;
+  return `Ещё не изучено: ${techName(key)} — ${g.level} уровень ${BRANCH_OF[g.branch]} ветви, в «Технологиях».`;
 }
 
 // ---------- Что гейт закрывает: места агентов и ячейки стола ----------
@@ -104,6 +146,30 @@ export const mailSlotsAt = (level: number): number =>
 /** Сколько ячеек у стола донесений сейчас. */
 export const mailSlots = (s: GameState): number => mailSlotsAt(techLevel(s, 'diplo'));
 
+// ---------- Что гейт закрывает: вещи кузницы и виды бойцов ----------
+
+/** Куют ли эту вещь при таком уровне военной ветви. */
+export const gearOpenAt = (level: number, item: EquipmentId): boolean => openAtLevel(level, item);
+
+/** Куют ли эту вещь сейчас. */
+export const gearOpen = (s: GameState, item: EquipmentId): boolean => techOpen(s, item);
+
+/** Почему вещь не куют; `null` — куют. */
+export const gearBlock = (s: GameState, item: EquipmentId): string | null => techBlock(s, item);
+
+/**
+ * Нанимают ли этот вид при таком уровне военной ветви. **Вид открыт, когда открыто всё,
+ * что он носит** — правило целиком лежит в `warLevelOfTroop`, и второго списка «кому что
+ * нужно» здесь нет.
+ */
+export const troopOpenAt = (level: number, troop: TroopId): boolean => openAtLevel(level, troop);
+
+/** Нанимают ли этот вид сейчас. */
+export const troopOpen = (s: GameState, troop: TroopId): boolean => techOpen(s, troop);
+
+/** Почему вид не нанимают; `null` — нанимают. */
+export const troopBlock = (s: GameState, troop: TroopId): string | null => techBlock(s, troop);
+
 // ---------- Что даст следующий уровень: замером, а не подписью ----------
 
 /**
@@ -113,13 +179,20 @@ export const mailSlots = (s: GameState): number => mailSlotsAt(techLevel(s, 'dip
  * разойтись не может.
  */
 export function techGains(branch: RealmBranch, level: number): string[] {
-  if (branch !== 'diplo') return [];
   const out: string[] = [];
-  const was = FIGURE_IDS.filter((id) => placeOpenAt(level, id));
-  const now = FIGURE_IDS.filter((id) => placeOpenAt(level + 1, id));
-  for (const id of now) if (!was.includes(id)) out.push(`Место в игре: ${FIGURE_BY_ID[id].name.toLowerCase()}`);
-  const slots = mailSlotsAt(level + 1) - mailSlotsAt(level);
-  if (slots > 0) out.push(`Стол донесений: ${mailSlotsAt(level)} → ${mailSlotsAt(level + 1)} ячеек`);
+  if (branch === 'diplo') {
+    const was = FIGURE_IDS.filter((id) => placeOpenAt(level, id));
+    const now = FIGURE_IDS.filter((id) => placeOpenAt(level + 1, id));
+    for (const id of now) if (!was.includes(id)) out.push(`Место в игре: ${FIGURE_BY_ID[id].name.toLowerCase()}`);
+    const slots = mailSlotsAt(level + 1) - mailSlotsAt(level);
+    if (slots > 0) out.push(`Стол донесений: ${mailSlotsAt(level)} → ${mailSlotsAt(level + 1)} ячеек`);
+  }
+  if (branch === 'war') {
+    const gear = EQUIPMENT_IDS.filter((i) => gearOpenAt(level + 1, i) && !gearOpenAt(level, i));
+    if (gear.length > 0) out.push(`Кузница: ${gear.map((i) => EQUIPMENT_BY_ID[i].name.toLowerCase()).join(', ')}`);
+    const troops = TROOP_IDS.filter((t) => troopOpenAt(level + 1, t) && !troopOpenAt(level, t));
+    if (troops.length > 0) out.push(`Войско: ${troops.map((t) => TROOP_BY_ID[t].name.toLowerCase()).join(', ')}`);
+  }
   return out;
 }
 
@@ -146,7 +219,9 @@ export interface StudyInfo {
 /** Всё о следующем уровне ветви — одна функция на кнопку, на подпись и на действие. */
 export function studyInfo(s: GameState, branch: RealmBranch): StudyInfo {
   const level = techLevel(s, branch);
-  const last = levelsOf(branch);
+  // Продаётся ветвь до последней **подключённой** ступени, а цены считаются от полной её
+  // длины: ступень, которая ничего не спрашивает у гейта, — ценник без товара.
+  const last = builtLevelsOf(branch);
   const next = level < last ? level + 1 : 0;
   const price = next > 0 ? levelPrice(branch, next) : 0;
   const have = pointsOf(s, branch);
@@ -154,7 +229,7 @@ export function studyInfo(s: GameState, branch: RealmBranch): StudyInfo {
   const short = Math.max(0, price - have);
   let blocked: string | null = null;
   if (!BRANCH_BUILT[branch]) blocked = `${BRANCH_NAME[branch]} ветвь ещё не построена.`;
-  else if (next === 0) blocked = 'Ветвь изучена целиком.';
+  else if (next === 0) blocked = last < levelsOf(branch) ? 'Дальше ветвь ещё не подключена.' : 'Ветвь изучена целиком.';
   else if (short > 0) blocked = `Не хватает очков: нужно ${price}, есть ${Math.floor(have)}.`;
   return {
     branch,
@@ -205,6 +280,28 @@ function proved(s: GameState, rung: DiploRung, hadAll: boolean): boolean {
 }
 
 /**
+ * Держит ли партия эту вещь — **на складе или в дружине** (правило владельца: начатой
+ * партии засчитывается ступень по самой дорогой вещи, которая у неё уже есть).
+ *
+ * `hadAll` сюда не приходит нарочно, и это не недосмотр: место агента до гейта **было** у
+ * каждой партии, и отнять его значило бы отнять человека, — а доспех, которого партия
+ * ни разу не сковала, у неё не отнимают, потому что его у неё нет. Разница между
+ * возможностью и вещью здесь и проходит.
+ */
+function heldGear(s: GameState, item: EquipmentId): boolean {
+  if ((s.equipment?.[item] ?? 0) > 0) return true;
+  if ((s.forge ?? []).some((o) => o.item === item)) return true;
+  const wears = TROOP_IDS.filter((t) => (TROOP_BY_ID[t].gear[item] ?? 0) > 0);
+  for (const t of wears) {
+    if ((s.army?.[t] ?? 0) > 0) return true;
+    if ((s.away?.[t] ?? 0) > 0) return true;
+    if ((s.recruits ?? []).some((o) => o.troop === t)) return true;
+    if ((s.wounded ?? []).some((w) => (w.troops?.[t] ?? 0) > 0)) return true;
+  }
+  return false;
+}
+
+/**
  * Засчитать начатой партии то, что она уже прошла. Уровень только растёт: засчитывание
  * ничего не отнимает и ничего не удешевляет — оно лишь не даёт гейту закрыть уже
  * имеющееся. Возвращает ветви, которым уровень подняли.
@@ -216,11 +313,19 @@ function proved(s: GameState, rung: DiploRung, hadAll: boolean): boolean {
 export function creditTech(s: GameState, hadAll = false): RealmBranch[] {
   if (!s.realm?.tech) return [];
   const out: RealmBranch[] = [];
-  let level = 1;
-  for (const rung of DIPLO_RUNGS) if (proved(s, rung, hadAll)) level = Math.max(level, diploLevelOf(rung));
-  if (level > techLevel(s, 'diplo')) {
-    s.realm.tech.diplo = level;
-    out.push('diplo');
-  }
+  const raise = (branch: RealmBranch, level: number): void => {
+    if (level <= techLevel(s, branch)) return;
+    s.realm.tech[branch] = level;
+    out.push(branch);
+  };
+  let diplo = 1;
+  for (const rung of DIPLO_RUNGS) if (proved(s, rung, hadAll)) diplo = Math.max(diplo, diploLevelOf(rung));
+  raise('diplo', diplo);
+  // Военная ветвь: самая дорогая вещь, которая у партии уже есть. Лестница монотонна,
+  // значит всё, что ниже, подразумевается, и своего перебора видов бойцов здесь не нужно —
+  // вид доказывает ровно те вещи, которые носит.
+  let war = 1;
+  for (const item of EQUIPMENT_IDS) if (heldGear(s, item)) war = Math.max(war, warLevelOfGear(item));
+  raise('war', war);
   return out;
 }

@@ -18,10 +18,13 @@ import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
 import { setTimeScale, timeScale } from '@/game/pace';
-import { pilot, played, player, townAt, type Inside } from './autopilot';
-import { placeOpen, techLevel } from '@/game/sim/tech';
-import { diploLevelOf } from '@/game/data/realm';
+import { MIX, openMix, pilot, played, player, stackOf, townAt, type Inside } from './autopilot';
+import { placeOpen, techLevel, troopOpen } from '@/game/sim/tech';
+import { pointsOf } from '@/game/sim/points';
+import { diploLevelOf, levelPrice, levelsOf, warLevelOfGear, warLevelOfTroop } from '@/game/data/realm';
 import { FIGURE_IDS } from '@/world/data/figures';
+import { sum } from './raid-common';
+import type { TroopId } from '@/game/types';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS = path.join(ROOT, 'scripts');
@@ -195,5 +198,89 @@ describe('автопилот один: прогоном', () => {
     expect(flown.ledger.answered + waiting, 'игрок разобрал поднявшиеся события').toBeGreaterThanOrEqual(raised.size);
     const home = (flown.world as Inside).save.home;
     expect(g.faith.id, 'вера пришла пульсом — та, что под замком').toBe(faithAt(home.x, home.y));
+  });
+});
+
+describe('военный гейт в приборе', () => {
+  /**
+   * Мерке ставят войско прямо, минуя найм, — значит ступень военной ветви ей обязана быть
+   * засчитана той же дверью, что и сохранению. Иначе прибор мерил бы деревню, которой в
+   * игре не бывает: с латниками в строю и кузницей, которая доспеха не знает.
+   *
+   * Область правила названа: состав мерки и правда носит самую дорогую вещь.
+   */
+  it('посёлку мерки военная ветвь засчитана по тому войску, которое в нём стоит', () => {
+    const top = Math.max(...(Object.keys(MIX) as TroopId[]).map((t) => warLevelOfTroop(t)));
+    expect(top, 'точка внутри области: мерка носит не только копьё').toBeGreaterThan(warLevelOfGear('spear'));
+
+    const town = townAt(5);
+    expect(techLevel(town, 'war'), 'ступень засчитана ровно по мерке').toBe(top);
+    for (const t of Object.keys(MIX) as TroopId[]) {
+      expect(troopOpen(town, t), `${t}: вид мерки нанимается`).toBe(true);
+    }
+    // И ни ступенью выше: даром ветвь мерке не проходится.
+    expect(techLevel(town, 'war')).toBeLessThan(levelsOf('war'));
+  });
+
+  /**
+   * Состав найма под гейтом: закрытый вид выпадает, а целевое число не меняется — доля
+   * его переходит открытым. Две точки, обе внутри своей области: на первом уровне закрыт
+   * каждый вид мерки, на изученной ветви — ни один.
+   */
+  it('закрытый вид выпадает из состава, а целевое число остаётся тем же', () => {
+    const fresh = createInitialState(7);
+    expect(techLevel(fresh, 'war'), 'точка внутри области: новая партия на первом уровне').toBe(1);
+    expect(Object.keys(openMix(fresh, MIX)), 'из мерки не открыт ни один вид').toEqual([]);
+
+    const town = townAt(5);
+    const open = openMix(town, MIX);
+    expect(Object.keys(open), 'ветвь засчитана — состав тот же, и ключи в том же порядке').toEqual(Object.keys(MIX));
+    expect(stackOf(100, open), 'и разложение то же до бойца').toEqual(stackOf(100, MIX));
+
+    // Между ними: на уровне лука открыты копейщики и лучники, а целевое число цело.
+    const half = createInitialState(7);
+    half.realm.tech.war = warLevelOfGear('bow');
+    const part = openMix(half, MIX);
+    expect(Object.keys(part), 'открыты ровно те, чьи вещи изучены').toEqual(['spearman', 'archer']);
+    const split = stackOf(100, part);
+    expect(sum(Object.values(split).map((n) => n ?? 0)), 'целевое число не потерялось').toBe(100);
+  });
+
+  /**
+   * Игрок автопилота учится сам: ступень, на которую хватило очков, он покупает в том же
+   * заходе. Без этого прибор мерил бы игрока, который ни разу не открыл «Технологии», —
+   * а такой игрок в отчёте есть, и он стоит отдельной строкой.
+   */
+  it('игрок автопилота изучает ступень, как только хватает очков', async () => {
+    const g = createInitialState(7);
+    g.tutorialDone = true;
+    expect(techLevel(g, 'war'), 'точка внутри области: начинает с первого уровня').toBe(1);
+    expect(pointsOf(g, 'war'), 'и очков ровно на первую покупку').toBe(levelPrice('war', 2));
+
+    await pilot({
+      g,
+      seconds: 120,
+      player: player(null),
+      world: { seed: 7, pulse: 30, raids: false },
+      economy: 'live',
+      tick: 1,
+      decide: 30,
+    });
+    expect(techLevel(g, 'war'), 'ступень куплена на первом же решении').toBeGreaterThan(1);
+    expect(troopOpen(g, 'spearman'), 'и копейщики открылись').toBe(true);
+
+    // А игрок, который «Технологии» не открывает, остаётся на первом уровне.
+    const idle = createInitialState(7);
+    idle.tutorialDone = true;
+    await pilot({
+      g: idle,
+      seconds: 120,
+      player: player(null, { study: false }),
+      world: { seed: 7, pulse: 30, raids: false },
+      economy: 'live',
+      tick: 1,
+      decide: 30,
+    });
+    expect(techLevel(idle, 'war'), 'не учится — не открывается').toBe(1);
   });
 });
