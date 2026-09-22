@@ -1,4 +1,4 @@
-// Приборы замедления времени (docs/time.md). Три раздела, и у каждого один вопрос:
+// Приборы времени (docs/time.md) и держава (docs/dynasty.md). У каждого раздела один вопрос:
 //
 //  1. СКЛАД ПРОТИВ ОТЛУЧКИ — за сколько игровых дней наполняется склад и что игрок находит,
 //     вернувшись через D игровых дней: сколько выработки пропало о полный склад, сколько долга
@@ -7,6 +7,10 @@
 //     год жизни. Прежде это число жило щупом в scratchpad (docs/AGENTS.md, раздел 11).
 //  3. ЦЕНА ЖИВОГО ПРОГОНА — что держит цену: шаг племени, решения игрока или пульс мира. От этого
 //     зависит, во сколько обойдётся перемер после поворота шкалы.
+//  4. ВЕРНУВШИЙСЯ — что находит игрок после 8, 24 и 48 часов отлучки при нынешней шкале.
+//  5. АЛМАЗ — цена достройки как доля настоящих суток: она от шкалы не зависит.
+//  6. ДЕРЖАВА — очки правителя, потолок, цена уровня технологии и военная лестница, выведенная из
+//     работы вещей кузницы. Прибор шага 4 (docs/dynasty.md, пачка 0): чистая арифметика, прогона нет.
 //
 // Всё, что про хозяйство, печатается в ИГРОВЫХ ДНЯХ: это единица, которая переживает поворот шкалы.
 // Настоящие часы стоят рядом пересчётом — при нынешнем дне в минуту и при дне в полчаса.
@@ -15,7 +19,7 @@
 //   AGENTS_DAYS=12 AGENTS_SEEDS=7,42,101 npm run time:report
 //   YEARS=1 npm run time:report   — ещё и проверка года жизни прогоном (дорого, в приёмку не входит)
 //   SECTIONS=13 npm run time:report — только названные разделы
-import type { GameState, ResourceId } from '@/game/types';
+import type { GameState, ResourceId, TroopId } from '@/game/types';
 import type { FigureId, FigureView } from '@/world/types';
 import type { WorldSave } from '@/world/local/state';
 import { createInitialState } from '@/game/state';
@@ -44,7 +48,32 @@ import { START, armyAt, away, gone, pilot, player, stackOf, type Cost, type Insi
 // настоящие (`game/time`), а не единицы автопилота, которые после поворота шкалы стали игровыми днями.
 import { HOUR_MS as HOUR, MINUTE_MS as MIN } from '@/game/time';
 import { measure } from './lib/measured';
-import { dayRealSeconds, gameSeconds, setTimeScale } from '@/game/pace';
+import { dayRealSeconds, gameDaysPerHour, gameSeconds, setTimeScale } from '@/game/pace';
+import {
+  ADMIN_LEVELS,
+  BRANCH_NAME,
+  DIPLO_LEVELS,
+  MAX_RULER_SKILL,
+  MEAN_RULER_SKILL,
+  MIN_RULER_SKILL,
+  POINTS_CAP,
+  POINTS_PER_SKILL_PER_DAY,
+  REALM_BRANCHES,
+  WAR_CAPTIVES_LEVEL,
+  WAR_GEAR_ORDER,
+  WAR_LEVELS,
+  adminCeiling,
+  branchPrice,
+  levelPrice,
+  levelsOf,
+  pointsPerDay,
+  startingPoints,
+  warLevelOfGear,
+  warLevelOfTroop,
+} from '@/game/data/realm';
+import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
+import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
+import { KIND_OF, gearOfTroop } from '@/game/battle/kinds';
 import { realSpan } from '@/game/span';
 import { GEM_DAY_SHARE, GEM_REAL_SECONDS, GEM_REF_RATE, rushPrice, rushWork } from '@/game/sim/gems';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
@@ -664,16 +693,143 @@ function gemSection(): void {
   );
 }
 
+/**
+ * Раздел 6: очки правителя, потолок, цена уровня, военная лестница. Прибор шага 4
+ * (docs/dynasty.md, пачка 0): до него все эти числа жили в документе расчётом, а правило 12
+ * требует закоммиченной команды.
+ *
+ * Своих чисел у раздела нет ни одного — всё считает `game/data/realm.ts`, а он выводит их из
+ * `MAX_OFFLINE_DAYS`, верха агентской лестницы, работы вещей кузницы и снаряжения видов. Раздел
+ * поэтому чистая арифметика: ни прогона, ни машинного времени, ни `measure()` — весь его вывод
+ * обязан совпадать буква в букву, пока не тронут одно из этих четырёх мест.
+ */
+function realmSection(): void {
+  console.log('=== 6. ДЕРЖАВА: ОЧКИ ПРАВИТЕЛЯ И ЦЕНА УРОВНЯ ===');
+  const perHour = gameDaysPerHour();
+  console.log(
+    `Приток: ${POINTS_PER_SKILL_PER_DAY} очко в игровой день на кружок навыка; навык ${MIN_RULER_SKILL}…${MAX_RULER_SKILL}, ` +
+      `средний правитель ${MEAN_RULER_SKILL}. Игровой день — ${n1(dayRealSeconds() / 60)} настоящей минуты,`,
+  );
+  console.log(`настоящий час — ${n1(perHour)} игровых дня, то есть средний правитель даёт ${pointsPerDay(MEAN_RULER_SKILL) * perHour} очков в настоящий час.`);
+  console.log(
+    `Потолок: MAX_OFFLINE_DAYS (${MAX_OFFLINE_DAYS}) × верхний навык (${MAX_RULER_SKILL}) = ${POINTS_CAP} очков на вид — ` +
+      'полная отлучка самого сильного правителя. Нового числа нет.',
+  );
+
+  // ----- отлучка против потолка -----
+  const skills = [MIN_RULER_SKILL, MEAN_RULER_SKILL, MAX_RULER_SKILL];
+  const gaps: [string, number][] = [
+    ['ночь, 8 ч', 8],
+    ['день, 12 ч', 12],
+    ['сутки, 24 ч', 24],
+    ['двое суток, 48 ч', 48],
+    ['неделя, 168 ч', 168],
+  ];
+  console.log('\n  ОТЛУЧКА ПРОТИВ ПОТОЛОКА: сгорает ли что-нибудь');
+  console.log(`  промежуток       | игр. дн. | ${skills.map((k) => `навык ${k}`).join(' | ')} | что режет`);
+  let nightBurns = false;
+  let dayBurns = false;
+  for (const [name, hours] of gaps) {
+    const days = hours * perHour;
+    // Догон офлайна зажимает `s.time` (`sim/tick.awayGameSeconds`), поэтому за одну отлучку
+    // притока больше, чем за `MAX_OFFLINE_DAYS`, не бывает и без потолка очков.
+    const paid = Math.min(days, MAX_OFFLINE_DAYS);
+    const cells = skills.map((k) => {
+      const got = Math.min(POINTS_CAP, paid * pointsPerDay(k));
+      const full = days * pointsPerDay(k);
+      if (got < full) {
+        if (hours === 8) nightBurns = true;
+        if (hours === 24) dayBurns = true;
+      }
+      return pad(`${got} (${Math.round((got / POINTS_CAP) * 100)} %)`, 9);
+    });
+    const cut = paid < days ? `догон режет до ${MAX_OFFLINE_DAYS} дн.` : 'ничего';
+    console.log(`  ${name.padEnd(16)} | ${pad(n1(days), 8)} | ${cells.join(' | ')} | ${cut}`);
+  }
+  console.log(`  Ночь не сжигает ни очка ни у одного правителя: ${nightBurns ? 'НЕТ' : 'да'}`);
+  console.log(`  Сутки отлучки не сжигают ни очка ни у одного правителя: ${dayBurns ? 'НЕТ' : 'да'}`);
+  const week = 168 * perHour * pointsPerDay(MEAN_RULER_SKILL);
+  console.log(
+    `  Неделя отлучки приносит среднему правителю ${week} очков, доезжает ${POINTS_CAP} — ${Math.round((POINTS_CAP / week) * 100)} %: мешка технологий нет.`,
+  );
+
+  // ----- цена уровня -----
+  console.log(`\n  ЦЕНА УРОВНЯ: P(L) = ${POINTS_CAP} × (L−1)/(N−1), первый уровень — состояние новой партии и бесплатен`);
+  console.log('  ветвь            | N | цены уровней 2…N                     | ветвь | старт | при навыке 3');
+  let dearest = 0;
+  for (const b of REALM_BRANCHES) {
+    const n = levelsOf(b);
+    const prices: number[] = [];
+    for (let l = 2; l <= n; l++) prices.push(levelPrice(b, l));
+    dearest = Math.max(dearest, ...prices);
+    const whole = branchPrice(b);
+    const days = whole / pointsPerDay(MEAN_RULER_SKILL);
+    console.log(
+      `  ${BRANCH_NAME[b].padEnd(16)} | ${pad(n, 1)} | ${prices.join(' ').padEnd(36)} | ${pad(whole, 5)} | ${pad(startingPoints(b), 5)} | ` +
+        `${pad(n1(days), 5)} игр. дн. = ${n1(days / perHour)} ч`,
+    );
+  }
+  console.log(`  Ни один уровень не дороже потолка: ${dearest <= POINTS_CAP ? 'да' : 'НЕТ'} (дороже всех ${dearest} из ${POINTS_CAP})`);
+  console.log('  Дуга посёлка, с которой это сравнивают, — `npm run pop:report`, строка «Все здания на потолке».');
+
+  // ----- военная лестница -----
+  console.log('\n  ВОЕННАЯ ЛЕСТНИЦА: выведена из работы вещей кузницы и снаряжения видов');
+  console.log('  ур | цена | вещь     | работа | открывает                 | род ядра и ступень     | новое в бою');
+  const pairOf = (t: TroopId): string => `${KIND_OF[t]}-${gearOfTroop(t)}`;
+  const seen = new Set<string>();
+  const riders: string[] = [];
+  let emptyLevels = 0;
+  for (let l = 1; l <= WAR_LEVELS; l++) {
+    const item = l >= 2 && l - 2 < WAR_GEAR_ORDER.length ? WAR_GEAR_ORDER[l - 2] : null;
+    const here = TROOPS.filter((t) => warLevelOfTroop(t.id) === l);
+    const pairs = here.map((t) => pairOf(t.id));
+    const fresh = pairs.filter((p) => !seen.has(p));
+    for (const p of pairs) seen.add(p);
+    for (const t of here) if (!fresh.includes(pairOf(t.id))) riders.push(`${t.name.toLowerCase()} (ур. ${l})`);
+    const opens = l === WAR_CAPTIVES_LEVEL ? 'участь «увести людей»' : here.map((t) => t.name.toLowerCase()).join(', ');
+    const news = l === WAR_CAPTIVES_LEVEL ? 'участь' : fresh.length > 0 ? 'да' : 'НЕТ';
+    if (news === 'НЕТ') emptyLevels++;
+    console.log(
+      `  ${pad(l, 2)} | ${pad(levelPrice('war', l), 4)} | ${(item ? EQUIPMENT_BY_ID[item].name : '—').padEnd(8)} | ${pad(item ? EQUIPMENT_BY_ID[item].work : '—', 6)} | ` +
+        `${opens.padEnd(25)} | ${(l === WAR_CAPTIVES_LEVEL ? '—' : [...new Set(pairs)].join(', ')).padEnd(22)} | ${news}`,
+    );
+  }
+  console.log(`  Уровней, открывающих только то, что в бою уже есть: ${emptyLevels}`);
+  console.log(`  Виды-попутчики (тот же род и ступень открыты раньше): ${riders.length > 0 ? riders.join(', ') : 'нет'}`);
+  console.log(`  Родов открыто по уровням: ${Array.from({ length: WAR_LEVELS }, (_, i) => new Set(TROOPS.filter((t) => warLevelOfTroop(t.id) <= i + 1).map((t) => KIND_OF[t.id])).size).join(' ')}`);
+  console.log(
+    `  Доспех — на уровне ${warLevelOfGear('armor')}, и он же открывает латную конницу: ` +
+      'уровень конюшни для этого больше не нужен (решение 3, docs/stable.md 8.7 отменено).',
+  );
+
+  // ----- сроки при среднем правителе -----
+  console.log(`\n  КОГДА НАКОПИТСЯ, ПРИ СРЕДНЕМ ПРАВИТЕЛЕ (навык ${MEAN_RULER_SKILL}): настоящих часов от начала партии, накопительно`);
+  for (const b of REALM_BRANCHES) {
+    const row: string[] = [];
+    let cum = 0;
+    for (let l = 2; l <= levelsOf(b); l++) {
+      cum += levelPrice(b, l);
+      row.push(`ур${l} ${n1(cum / pointsPerDay(MEAN_RULER_SKILL) / perHour)}ч`);
+    }
+    console.log(`  ${BRANCH_NAME[b].padEnd(16)} | ${row.join(' · ')}`);
+  }
+  console.log(`  Административный потолок построек по уровням: ${Array.from({ length: ADMIN_LEVELS }, (_, i) => adminCeiling(i + 1)).join(' ')}`);
+  console.log(`  Ступеней: военная ${WAR_LEVELS}, административная ${ADMIN_LEVELS}, дипломатическая ${DIPLO_LEVELS}; видов бойцов ${TROOPS.length}, вещей кузницы ${WAR_GEAR_ORDER.length}.`);
+  console.log(`  Самый дорогой вид — ${TROOP_BY_ID.legionary.name.toLowerCase()} — открывается на ${warLevelOfTroop('legionary')} уровне из ${WAR_LEVELS}.`);
+  console.log('  Когда посёлок просит потолок — `npm run pop:report`, раздел «Административный потолок».');
+}
+
 async function main(): Promise<void> {
   const towns = await stages();
   if (towns.length !== STAGES.length) throw new Error(`этапов снято ${towns.length} из ${STAGES.length}`);
   // SECTIONS=13 — только названные разделы: для работы над отчётом, приёмкой не является.
-  const on = (k: string): boolean => (process.env.SECTIONS ?? '12345').includes(k);
+  const on = (k: string): boolean => (process.env.SECTIONS ?? '123456').includes(k);
   if (on('1')) fillSection(towns);
   if (on('2')) await agentsSection();
   if (on('3')) await costSection(towns);
   if (on('4')) returnSection(towns);
   if (on('5')) gemSection();
+  if (on('6')) realmSection();
 }
 
 await main();
