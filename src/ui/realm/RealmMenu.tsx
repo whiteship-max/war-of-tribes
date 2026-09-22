@@ -30,6 +30,7 @@ import { ArmyPanel } from '../panels/ArmyPanel';
 import { ProfilePanel } from '../panels/ProfilePanel';
 import { CoatArt } from './Coat';
 import { Mail } from './Mail';
+import { RulerTab } from './Ruler';
 import { useRealm, type RealmView } from './open';
 import { mailKeys, unreadCount, useSeen } from './unread';
 import { useWorld } from '@/world/store';
@@ -124,6 +125,8 @@ export function RealmMenu() {
 function Section({ view }: { view: RealmView }) {
   if (view === 'settings') return <ProfilePanel />;
   switch (view) {
+    case 'lineage':
+      return <RulerTab />;
     case 'government':
       return <Government />;
     case 'building':

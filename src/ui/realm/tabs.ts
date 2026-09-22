@@ -25,7 +25,7 @@ export interface RealmTabDef {
 }
 
 export const REALM_TABS: RealmTabDef[] = [
-  { id: 'lineage', icon: '🌳', name: 'Родословная', built: false },
+  { id: 'lineage', icon: '🌳', name: 'Родословная', built: true },
   { id: 'government', icon: '🏛️', name: 'Правительство', built: true },
   { id: 'building', icon: '🔨', name: 'Строительство', built: true },
   { id: 'tech', icon: '📚', name: 'Технологии', built: false },

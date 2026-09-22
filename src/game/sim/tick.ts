@@ -33,6 +33,7 @@ import { marketTick } from './market';
 import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { settleHires } from './hire';
+import { dynastyStep } from './dynasty';
 import { settleWounds } from './infirmary';
 import { log, trimLog } from './log';
 import { recordProduced, refreshCard } from '@/profile/stats';
@@ -64,6 +65,10 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // Места агентов: нанятый пришёл — встаёт на место; безымянным — имя, как только
   // мир назвал веру. Возраст не тикает: он выводится из этих же часов при чтении.
   settleHires(s);
+  // Дом правителя — тем же порядком и по той же причине: имя, как только известна
+  // вера, и вступление наследника, когда правитель дожил до покоя. Очки здесь не
+  // считаются вовсе: они функция времени и выводятся при чтении (`sim/points`).
+  dynastyStep(s);
   // Раненые, чей срок прошёл, встают в строй. Не тик: отметка в группе и одна сверка с часами.
   settleWounds(s);
 

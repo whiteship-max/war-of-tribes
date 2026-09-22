@@ -12,6 +12,7 @@ import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
+import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
 import { AGENT_AGE0, LEVEL_XP } from './data/agents';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { hashId } from '@/world/diplomacy';
@@ -130,6 +131,25 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   if (from < 16) {
     s.paceNotice = true;
     log(s, PACE_TEXT.log(daysSpan(1)), 'info');
+  }
+  // 16 → 17: у державы появился правитель. Умолчания мало по той же причине, что у
+  // смертных агентов: дом новой партии считает, что правление началось в нулевую
+  // секунду, — а у сыгранной партии `s.time` огромен, и первый же пульс отправил бы
+  // правителя на покой, не показав игроку ни одного дня правления. Поэтому правление
+  // начинается **в минуту входа**, после догона офлайна, ровно как служба приведённых
+  // агентов; очки идут оттуда же, и вернувшийся не находит полный котёл задаром.
+  if (from < 17) {
+    const entry = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow(), serverNow());
+    s.realm = newHouse(s.seed, entry);
+    // Имена — по вере деревни, если мир её уже называл; не называл — назовёт первым пульсом.
+    dynastyStep(s);
+    const who = s.realm.ruler.name ?? 'правитель';
+    log(
+      s,
+      `Во главе державы встал ${who}: ${skillLine(s.realm.ruler.skills)}. Каждый навык даёт очки своего вида, и копятся они сами, пока идут часы деревни.`,
+      'info',
+    );
+    log(s, 'Очки и родословная ждут за гербом, в «Родословной». Тратить их пока не на что: «Технологии» ещё не построены.', 'info');
   }
 }
 
@@ -268,6 +288,10 @@ export function deserialize(json: string): GameState | null {
       // каждое поле читается с проверкой. Партия, записанная до опыта, приезжает
       // агентами первого уровня — ровно сегодняшними, — и версию это не поднимает.
       agents: mergeAgents(data.agents),
+      // Дом правителя — по полям, как профиль и вера: спред `...data` на уровень ниже
+      // не спускается. Партия до дома приезжает с домом новой партии, а время
+      // вступления ей ставит ступень 16 → 17.
+      realm: mergeRealm(base.realm, data.realm),
       // Родословная — по месту, каждая запись с проверкой и под потолком места.
       // Партия до родословной приезжает с пустой: вспоминать ушедших задним
       // числом не из чего, и версию это не поднимает.

@@ -14,7 +14,7 @@
 // Вещи меняются только дома. Место агента знает мир, поэтому переодевание
 // принимает его готовым (`Placed` из вида фигуры), а правило «дома» — одно на
 // игру и на карточку: `world/shelter.canRegear`.
-import type { AgentProgress, FaithId, GameState, LineageEntry, Tally } from '../types';
+import type { AgentProgress, FaithId, GameState, LineageEntry, LineagePlace, RulerSkills, Tally } from '../types';
 import type { FigureId, HomeEffect } from '@/world/types';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { canRegear, placeOf, type Placed } from '@/world/shelter';
@@ -35,6 +35,7 @@ import {
   slotsOpen,
 } from '../data/agents';
 import { agentName } from '../data/names';
+import { MAX_RULER_SKILL, MIN_RULER_SKILL, REALM_BRANCHES } from '../data/realm';
 import {
   LINEAGE_KEEP,
   LINEAGE_LEVEL,
@@ -113,10 +114,11 @@ export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
  * потолка места. Имя — через ту же очистку, что имя города; черта, которой в
  * таблице больше нет, выбрасывается молча — она о прошлом и ничего не даёт.
  */
-export function mergeLineage(saved: unknown): Partial<Record<FigureId, LineageEntry[]>> {
-  const out: Partial<Record<FigureId, LineageEntry[]>> = {};
+export function mergeLineage(saved: unknown): Partial<Record<LineagePlace, LineageEntry[]>> {
+  const out: Partial<Record<LineagePlace, LineageEntry[]>> = {};
   if (!saved || typeof saved !== 'object') return out;
-  for (const id of FIGURE_IDS) {
+  // Книга одна, и мест в ней на одно больше, чем фигур на карте: дом правителя.
+  for (const id of [...FIGURE_IDS, 'ruler'] as LineagePlace[]) {
     const raw = (saved as Record<string, unknown>)[id];
     if (!Array.isArray(raw) || LINEAGE_KEEP[id] <= 0) continue;
     const rows: LineageEntry[] = [];
@@ -126,18 +128,35 @@ export function mergeLineage(saved: unknown): Partial<Record<FigureId, LineageEn
       const name = cityName(r.name);
       if (!name || !finite(r.level) || !finite(r.deeds) || !finite(r.from) || !finite(r.to)) continue;
       if (r.end !== 'fell' && r.end !== 'rest') continue;
+      // У записи правителя уровня нет — три навыка; поле необязательное, и старая
+      // запись агента приезжает без него, как приезжала.
+      const skills = mergeSkills(r.skills);
       rows.push({
         name,
-        level: Math.max(1, Math.min(MAX_AGENT_LEVEL, Math.floor(r.level))),
+        level: skills ? 0 : Math.max(1, Math.min(MAX_AGENT_LEVEL, Math.floor(r.level))),
         deeds: Math.max(0, Math.floor(r.deeds)),
         from: Math.max(0, Math.floor(r.from)),
         to: Math.max(0, Math.floor(r.to)),
         end: r.end,
         traits: Array.isArray(r.traits) ? r.traits.filter(isTraitId) : [],
+        ...(skills ? { skills } : {}),
       });
       if (rows.length >= LINEAGE_KEEP[id]) break;
     }
     if (rows.length > 0) out[id] = rows;
+  }
+  return out;
+}
+
+/** Три навыка из сохранения, каждый в границах лестницы; не три числа — значит не правитель. */
+export function mergeSkills(saved: unknown): RulerSkills | null {
+  if (!saved || typeof saved !== 'object') return null;
+  const r = saved as Record<string, unknown>;
+  const out = {} as RulerSkills;
+  for (const b of REALM_BRANCHES) {
+    const v = r[b];
+    if (!finite(v)) return null;
+    out[b] = Math.max(MIN_RULER_SKILL, Math.min(MAX_RULER_SKILL, Math.round(v)));
   }
   return out;
 }
@@ -147,11 +166,18 @@ export function mergeLineage(saved: unknown): Partial<Record<FigureId, LineageEn
 /** На месте стоит человек — не пустует. Идущий найм места не занимает. */
 export const seated = (s: GameState, agent: FigureId): boolean => s.agents?.[agent]?.vacant !== true;
 
+/**
+ * Как стареет человек — одна формула на всю игру: и на агента, и на правителя
+ * (`sim/dynasty.rulerAge`). Второй правды о том, во что обращается прошедшее время,
+ * быть не должно: год один (`AGENT_YEAR`), и часы одни — деревни.
+ */
+export const ageAt = (age0: number, bornAt: number, now: number): number => age0 + Math.max(0, now - bornAt) / AGENT_YEAR;
+
 /** Возраст человека на месте, годы — дробные. Не хранится: выводится из часов деревни. */
 export function ageOf(s: GameState, agent: FigureId): number {
   const p = s.agents?.[agent];
   if (!p) return AGENT_AGE0;
-  return p.age0 + Math.max(0, s.time - p.bornAt) / AGENT_YEAR;
+  return ageAt(p.age0, p.bornAt, s.time);
 }
 
 /** Сколько полных лет — так возраст и называют. */
@@ -321,12 +347,10 @@ function vacate(s: GameState, agent: FigureId, person: number, end: LineageEntry
  * новые первыми, не больше потолка места.
  */
 function remember(s: GameState, agent: FigureId, end: LineageEntry['end']): void {
-  const keep = LINEAGE_KEEP[agent];
-  if (keep <= 0) return;
   const p = s.agents[agent];
   const level = agentLevel(s, agent);
   if (end === 'rest' && level < LINEAGE_LEVEL) return;
-  const entry: LineageEntry = {
+  keepInBook(s, agent, {
     name: p.name ?? FIGURE_BY_ID[agent].name,
     level,
     deeds: deedsOf(p.tally),
@@ -334,9 +358,24 @@ function remember(s: GameState, agent: FigureId, end: LineageEntry['end']): void
     to: yearsOf(s, agent),
     end,
     traits: traitsOf(agent, p.tally),
-  };
+  });
+}
+
+/**
+ * Положить запись в книгу родословной: новые первыми, не больше потолка места. **Книга
+ * одна на дом правителя и на места агентов, и кладут в неё одной этой дверью** — у мест
+ * её зовёт `remember` (а его — только `vacate`), у дома `sim/dynasty.succeed`. Второго
+ * места, где трогают `s.lineage`, быть не должно: две записи одного ухода не отличить от
+ * одной, а потолок, применённый дважды, съел бы чужую память.
+ *
+ * Кого помнить, решает не эта дверь, а тот, кто зовёт: у агентов порог `LINEAGE_LEVEL`
+ * для ушедших на покой, у дома порога нет — правителей помнят всех.
+ */
+export function keepInBook(s: GameState, place: LineagePlace, entry: LineageEntry): void {
+  const keep = LINEAGE_KEEP[place];
+  if (keep <= 0) return;
   if (!s.lineage) s.lineage = {};
-  s.lineage[agent] = [entry, ...(s.lineage[agent] ?? [])].slice(0, keep);
+  s.lineage[place] = [entry, ...(s.lineage[place] ?? [])].slice(0, keep);
 }
 
 /**

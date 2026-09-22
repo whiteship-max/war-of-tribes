@@ -16,10 +16,7 @@ import { MAX_BUILDING_LEVEL, MAX_OFFLINE_DAYS } from '../constants';
 import { MAX_AGENT_LEVEL } from './agents';
 import { EQUIPMENT } from './equipment';
 import { TROOP_BY_ID } from './troops';
-import type { EquipmentId, TroopId } from '../types';
-
-/** Три ветви — три вида очков, как три навыка правителя. */
-export type RealmBranch = 'admin' | 'diplo' | 'war';
+import type { EquipmentId, RealmBranch, TroopId } from '../types';
 
 export const REALM_BRANCHES: RealmBranch[] = ['admin', 'diplo', 'war'];
 

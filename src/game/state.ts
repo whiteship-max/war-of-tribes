@@ -7,6 +7,7 @@ import { emptyArmy } from './data/troops';
 import { freshSeed } from './sim/random';
 import { emptyProfile, refreshCard } from '@/profile/stats';
 import { emptyAgents } from './sim/agents';
+import { newHouse } from './sim/dynasty';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
@@ -69,7 +70,7 @@ import { emptyAgents } from './sim/agents';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 16;
+export const SAVE_VERSION = 17;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -154,6 +155,9 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     // набор выбирает вера, а её называет мир первым пульсом (`sim/hire.settleHires`).
     agents: emptyAgents(),
     lineage: {},
+    // Дом правителя: двое живых, очки трёх видов и изученное. Имён пока нет — их
+    // назовёт вера, которую мир даст по клетке замка первым же пульсом.
+    realm: newHouse(seed),
     // Корень случайности партии: кость событий и имена агентов. Один раз на партию.
     seed,
     rolls: 0,

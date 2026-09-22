@@ -65,6 +65,15 @@ export const AGENT_EPITHETS: readonly string[] = [
 /** Соль перестановок: у имён и у прозвищ свои, иначе они шли бы в ногу. */
 const NAME_SALT = 0x6e616d65;
 const EPITHET_SALT = 0x65706974;
+/**
+ * Соль дома правителя. У дома свой счётчик (`RealmState.born`), а не `s.hires`: возьми
+ * он общий — имена уже нанятых агентов сдвинулись бы, и с ними каждый прогон отчётов.
+ * Своя соль значит, что дом идёт по тем же сорока именам в другом порядке, поэтому
+ * тёзок среди живых не допускает не таблица, а дверь найма имени
+ * (`sim/dynasty.freeName`): она шагает дальше, пока имя занято.
+ */
+const HOUSE_SALT = 0x686f7573;
+const HOUSE_EPITHET_SALT = 0x68657069;
 
 /** Перестановка `n` номеров по сиду — тасовка Фишера — Йетса на сеяном генераторе. */
 export function shuffleOrder(n: number, seed: number): number[] {
@@ -83,9 +92,26 @@ export function shuffleOrder(n: number, seed: number): number[] {
  * и после любой перезагрузки.
  */
 export function agentName(seed: number, hire: number, faith: FaithId): string {
+  return fullName(seed, hire, faith, NAME_SALT, EPITHET_SALT);
+}
+
+/**
+ * Имя человека дома правителя — те же сорок имён и те же прозвища, но своим порядком и
+ * своим счётчиком (`RealmState.born`). Чистая функция, как и `agentName`: имя наследника
+ * известно заранее и переживает перезагрузку.
+ *
+ * Соли у дома **свои обе**, и это не украшение: возьми он соль прозвищ у агентов, его
+ * прозвища пошли бы с ними в ногу; тронь соль агентов — сдвинулись бы имена уже нанятых,
+ * а с ними каждый вывод отчётов.
+ */
+export function houseName(seed: number, born: number, faith: FaithId): string {
+  return fullName(seed, born, faith, HOUSE_SALT, HOUSE_EPITHET_SALT);
+}
+
+function fullName(seed: number, index: number, faith: FaithId, nameSalt: number, epithetSalt: number): string {
   const names = AGENT_NAMES[faith];
-  const n = Math.max(0, Math.floor(hire));
-  const first = names[shuffleOrder(names.length, mixSeed(seed, NAME_SALT))[n % names.length]];
-  const epithet = AGENT_EPITHETS[shuffleOrder(AGENT_EPITHETS.length, mixSeed(seed, EPITHET_SALT))[n % AGENT_EPITHETS.length]];
+  const n = Math.max(0, Math.floor(index));
+  const first = names[shuffleOrder(names.length, mixSeed(seed, nameSalt))[n % names.length]];
+  const epithet = AGENT_EPITHETS[shuffleOrder(AGENT_EPITHETS.length, mixSeed(seed, epithetSalt))[n % AGENT_EPITHETS.length]];
   return `${first} ${epithet}`;
 }

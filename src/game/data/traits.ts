@@ -33,7 +33,7 @@
 // нечего делать. Появится вместе с его делом — отношениями с логовами
 // (docs/AGENTS.md, «Впереди»).
 import type { FigureId } from '@/world/types';
-import type { Tally } from '../types';
+import type { LineagePlace, Tally } from '../types';
 
 export type TraitId = 'victor' | 'beaten' | 'swift' | 'butcher' | 'carter' | 'unseen' | 'marked' | 'deft' | 'lagging';
 
@@ -221,11 +221,15 @@ export const traitsOf = (agent: FigureId, t: Tally): TraitId[] =>
 
 /**
  * Сколько ушедших помнит каждое место. Родословная заведена у Статуи — дом
- * военачальников, — и у остальных мест потолок ноль: четыре списка по шесть имён
- * стоили бы трети сохранения партии. Захочется родословной в Дозоре — меняется
- * одно число, а не дверь.
+ * военачальников — и у дома правителя; у остальных мест потолок ноль: четыре списка
+ * по шесть имён стоили бы трети сохранения партии. Захочется родословной в Дозоре —
+ * меняется одно число, а не дверь.
+ *
+ * **Книга одна на дом и на места агентов** (docs/dynasty.md, раздел 1.2): двух книг
+ * рядом быть не должно — это два потолка, два места записи и две правды о том, кого мы
+ * помним. Потолок дома тот же, что у Статуи: второго числа не заводили.
  */
-export const LINEAGE_KEEP: Readonly<Record<FigureId, number>> = { general: 6, scout: 0, spy: 0, diplomat: 0 };
+export const LINEAGE_KEEP: Readonly<Record<LineagePlace, number>> = { general: 6, scout: 0, spy: 0, diplomat: 0, ruler: 6 };
 
 /**
  * С какого уровня ушедшего на покой помнят. Погибших помнят всех: смерть помнят

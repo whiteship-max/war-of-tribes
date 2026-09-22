@@ -189,9 +189,11 @@ describe('ступень сохранения 15 → 16: время пошло �
     expect(s.version, 'точка внутри области: ступень пройдена').toBe(SAVE_VERSION);
     expect(SAVE_VERSION).toBeGreaterThanOrEqual(16);
     expect(s.paceNotice, 'окно ждёт показа').toBe(true);
-    expect(s.log[0].text).toBe(PACE_TEXT.log(daysSpan(1)));
-    // Всё остальное — буква в букву: те же игровые секунды, тот же склад.
-    const strip = (g: typeof s) => ({ ...g, version: 0, paceNotice: undefined, log: [], lastSaved: 0 });
+    expect(s.log.some((e) => e.text === PACE_TEXT.log(daysSpan(1))), 'строка о замедлении есть').toBe(true);
+    // Всё остальное — буква в букву: те же игровые секунды, тот же склад. Дом правителя
+    // из сверки снят: его ставит СВОЯ ступень (16 → 17), и она меняет его нарочно —
+    // правление приведённой партии начинается в минуту входа (`game/sim/realm.test.ts`).
+    const strip = (g: typeof s) => ({ ...g, version: 0, paceNotice: undefined, log: [], lastSaved: 0, realm: undefined });
     // Сверка — с той же партией, прочитанной без ступени: чтение само приводит поля, ступень — ничего.
     raw.version = SAVE_VERSION;
     expect(strip(s)).toEqual(strip(deserialize(JSON.stringify(raw))!));
