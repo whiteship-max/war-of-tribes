@@ -692,8 +692,9 @@ describe('сохранение: новые поля версию не подни
     const s = deserialize(JSON.stringify(raw));
     expect(s).not.toBeNull();
     // Невольники версию не подняли: 14 — жалованье, 15 — стол событий почты, 16 — поворот
-    // времени, 17 — дом правителя, 18 — дипломатическая ветвь, 19 — военная (не их поля).
-    expect(SAVE_VERSION).toBe(19);
+    // времени, 17 — дом правителя, 18 — дипломатическая ветвь, 19 — военная, 20 — участь
+    // покупной ступенью (не их поля).
+    expect(SAVE_VERSION).toBe(20);
     expect(s!.version).toBe(SAVE_VERSION);
     expect(s!.bonded).toBe(0);
     expect(s!.bondedWork).toEqual({});

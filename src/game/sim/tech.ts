@@ -41,6 +41,7 @@ import {
   warLevelOfTroop,
 } from '../data/realm';
 import { asGame, type GameSec } from '../pace';
+import { gameSpan } from '../span';
 import { DAY_LENGTH } from '../constants';
 import { pointsOf, rulerRate, spend } from './points';
 import { log } from './log';
@@ -203,6 +204,39 @@ export function fateLocks(s: GameState): Partial<Record<Fate, string>> {
     if (why) out[f] = why;
   }
   return out;
+}
+
+/**
+ * Что сказать начатой партии про участь, ставшую покупной ступенью. Кредита ей нет (решение
+ * владельца, docs/dynasty.md, раздел 11.2), а до этой ступени её объявлял кто угодно, — и
+ * пропажа не должна быть молчаливой (ступень сохранения 19 → 20). Строка говорит, чего участь
+ * стоит, почему она закрыта и хватает ли очков прямо сейчас.
+ *
+ * Считает она **той же дверью, что кнопка «Изучить»** (`studyInfo`, `levelPrice`, `techName`), и
+ * на ту минуту, на которую её зовут: зовёт её загрузка после догона отлучки, когда очки уже те,
+ * что игрок увидит в «Технологиях». Своего счёта очков и цены здесь нет. `null` — участь открыта,
+ * говорить не о чем.
+ */
+export function fateNotice(s: GameState, fate: WarFate): string | null {
+  if (fateOpen(s, fate)) return null;
+  const level = warLevelOfFate(fate);
+  const price = levelPrice('war', level);
+  const name = techName(fate);
+  const head =
+    `${name[0].toUpperCase()}${name.slice(1)} стала ступенью военной ветви — ${level} уровень, ${price} очков. ` +
+    'Прежде её объявлял кто угодно; засчитать её нечем: засчитываются вещи на складе и в дружине, а участь — не вещь.';
+  const info = studyInfo(s, 'war');
+  const have = Math.floor(info.have);
+  if (info.next < level) {
+    let rest = 0;
+    for (let l = info.next; l <= level; l++) rest += levelPrice('war', l);
+    const before = info.next === level - 1 ? `ступень ${info.next}` : `ступени ${info.next}–${level - 1}`;
+    return `${head} Изучено до ${info.level} уровня: до неё ещё ${before} — вместе с ней ${rest} очков, военных очков сейчас ${have}.`;
+  }
+  if (info.blocked === null) {
+    return `${head} Военных очков ${have} из ${price} — хватает: изучить можно сразу, за гербом в «Технологиях».`;
+  }
+  return `${head} Военных очков ${have} из ${price} — пока не хватает; при нынешнем правителе накопится через ${gameSpan(info.wait)}.`;
 }
 
 // ---------- Что даст следующий уровень: замером, а не подписью ----------

@@ -13,7 +13,8 @@ import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
-import { creditTech, techLevel } from './sim/tech';
+import { creditTech, fateNotice, techLevel } from './sim/tech';
+import { WAR_FATES } from './data/realm';
 import { AGENT_AGE0, LEVEL_XP } from './data/agents';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { hashId } from '@/world/diplomacy';
@@ -183,6 +184,35 @@ function migrate(s: GameState, from: number, data: SavedState): void {
       log(s, 'Военная ветвь начинается с первого уровня: кованого у племени пока нет. Копьё — первая ступень, за гербом в «Технологиях».', 'info');
     }
     log(s, 'Кузница и казармы теперь спрашивают у державы: вещь куют и вид нанимают с той ступени военной ветви, на которой они открыты.', 'info');
+  }
+  // 19 → 20: участь «увести людей» стала покупной ступенью военной ветви, и кредита ей нет —
+  // засчитываются вещи, а участь не вещь (решение владельца, docs/dynasty.md, раздел 11.2).
+  // Формат тот же. Строку об этом пишет не эта ступень, а загрузка после догона отлучки
+  // (`afterEntry`): строка говорит, хватает ли очков, а очки — функция времени, и их правда —
+  // на минуту входа, а не на минуту записи.
+}
+
+/**
+ * Из какой версии прочитано это состояние. Живёт рядом с состоянием, а не в нём: в сохранение
+ * оно не едет, и нужно ровно одному — ступеням, которые говорят с игроком после догона отлучки.
+ */
+const readFrom = new WeakMap<GameState, number>();
+
+/**
+ * Ступени сохранения, которым нужна минута входа — после догона отлучки (`absence`). Зовёт их
+ * одна загрузка (`loadGame`): к старой партии нет другого пути — и серверная запись, и
+ * возвращённая копия ложатся на диск и приходят сюда перезапуском.
+ *
+ * 19 → 20: участь стала покупной, и пропажа не должна быть молчаливой. Что сказать, решает дверь
+ * гейта (`sim/tech.fateNotice`) — теми же числами, что стоят на кнопке «Изучить».
+ */
+function afterEntry(s: GameState): void {
+  const from = readFrom.get(s) ?? SAVE_VERSION;
+  if (from < 20) {
+    for (const fate of WAR_FATES) {
+      const line = fateNotice(s, fate);
+      if (line) log(s, line, 'info');
+    }
   }
 }
 
@@ -354,6 +384,7 @@ export function deserialize(json: string): GameState | null {
     }
     normalizeAssignments(s);
     migrate(s, from, data);
+    readFrom.set(s, from);
     // Летопись старого сохранения могла копиться по прежнему правилу «последние
     // 80 записей» и растянуться на полгода игрового времени. Приводим её к тому
     // же месяцу, что и у новой партии, прямо на загрузке.
@@ -457,6 +488,7 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   // доигрыванием тиков. Вести после догона: кость партии и веса событий берутся у посёлка, каким
   // он стал к входу.
   absence(state, state.lastSaved, serverNow());
+  afterEntry(state);
   return { state, offlineSeconds: offline, fresh: false, legacy: false };
 }
 
