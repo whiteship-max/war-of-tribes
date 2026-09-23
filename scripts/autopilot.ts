@@ -179,7 +179,8 @@ const jobBuilding = (s: GameState, job: JobId) =>
 
 /**
  * Сколько рук игрок держит свободными: пятую часть племени, не меньше двух, — стройка идёт их
- * руками. Одно число на расстановку (`staff`) и на найм «всё, что прокормит» (`hire`).
+ * руками. Одно число на расстановку (`staff`) и на найм «всё, что прокормит» у того, кто
+ * строит (`hands`).
  */
 export const spareHands = (s: GameState): number => Math.max(2, Math.round(s.pop * 0.2));
 
@@ -389,20 +390,23 @@ function learn(g: GameState): void {
 
 /**
  * Из скольких рук поведение нанимает. «По средствам» — из всех свободных: его держит казна, и до
- * рук дело почти не доходит (`raid-hiring:report`, «найм встал на»). **«Всё, что прокормит» —
- * только сверх запаса на стройку** (`spareHands`): иначе найм забирал этот запас на каждом
- * решении, расстановка тут же снимала с работ новый пропорционально убывшему племени, и цель,
- * растущая без предела, съедала новую партию до пяти человек к шестому часу — прибор мерил свою
- * петлю, а не игрока (docs/hiring.md, раздел 14, решение владельца). Сам игровой факт — дешёвое
- * войско стоит населения — этим не снят: предел по еде у поведения прежний.
+ * рук дело почти не доходит (`raid-hiring:report`, «найм встал на»). **«Всё, что прокормит» у
+ * игрока, который строит, — только сверх запаса на стройку** (`spareHands`): иначе найм забирал
+ * этот запас на каждом решении, расстановка тут же снимала с работ новый пропорционально
+ * убывшему племени, и цель, растущая без предела, съедала новую партию до пяти человек к шестому
+ * часу — прибор мерил свою петлю, а не игрока (docs/hiring.md, раздел 14, решение владельца).
+ *
+ * У того, кто не строит (посёлок мерки, где уровни стоят), запас не держит ничего — и поведение
+ * там прежнее. Сам игровой факт — дешёвое войско стоит населения — не снят нигде: предел по еде
+ * у поведения прежний.
  */
-function hands(g: GameState, style: HireStyle): number {
+function hands(g: GameState, style: HireStyle, builds: boolean): number {
   const idle = idleCount(g);
-  return style === 'feed' ? Math.max(0, idle - spareHands(g)) : idle;
+  return style === 'feed' && builds ? Math.max(0, idle - spareHands(g)) : idle;
 }
 
 /** Нанять по поведению; что остановило найм, ложится в `l.stops`. Состав — мерка, урезанная гейтом (`openMix`). */
-function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger): void {
+function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger, builds: boolean): void {
   // Цель — всё, что пустит лимит: сперва недостача мерки по видам, потом ещё круг.
   const total = armySize(g) + TROOP_IDS.reduce((n, id) => n + queued(g, id), 0);
   const open = openMix(g, mix);
@@ -415,7 +419,7 @@ function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger): void 
     const deficit = Math.max(0, (want[id] ?? 0) - g.army[id] - queued(g, id));
     if (deficit <= 0) continue;
     const def = TROOP_BY_ID[id];
-    let n = Math.min(deficit, hands(g, style));
+    let n = Math.min(deficit, hands(g, style, builds));
     if (n < deficit) stop = 'руки';
     for (const [item, per] of Object.entries(def.gear)) {
       const can = Math.floor((g.equipment[item as EquipmentId] ?? 0) / (per ?? 1));
@@ -572,7 +576,7 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   if (p.hire) {
     staffSmithy(g);
     if (p.hire === 'means') trim(g, l);
-    hire(g, p.hire, MIX, l);
+    hire(g, p.hire, MIX, l, p.build !== false);
   }
 }
 

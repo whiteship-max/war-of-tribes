@@ -327,4 +327,36 @@ describe('найм «всё, что прокормит» в приборе', () 
     expect(decisions, 'точка внутри области: найм был').toBeGreaterThan(0);
     expect(handsBound, 'и упирался он в руки: правило спрашивалось').toBeGreaterThan(0);
   });
+
+  /**
+   * Запас — под стройку, и держит его только тот, кто строит. Посёлок мерки, где уровни стоят,
+   * не строит ничего, и там «всё, что прокормит» нанимает из всех свободных рук, как прежде:
+   * запас, который ничего не держит, превратил бы поведение в найм по капле (замер раздела А
+   * `raid-hiring:report` на 6f04e5f, где запас берёгся всегда: прорывов у стены на 7-м уровне
+   * 74 % против 0 % до правки). Мутация «беречь запас всегда» роняет «не строит — запас не
+   * бережёт».
+   */
+  it('кто не строит, запаса не держит: найм берёт все свободные руки', async () => {
+    const g = createInitialState(7);
+    g.tutorialDone = true;
+    let below = 0;
+    let hired = 0;
+    await pilot({
+      g,
+      seconds: 600,
+      player: player('feed', { tax: 'moderate', build: false }),
+      world: { seed: 7, pulse: 30, raids: false },
+      economy: 'live',
+      tick: 1,
+      decide: 30,
+      watch: {
+        decided: (s, l) => {
+          if (l.hired > hired && idleCount(s) < spareHands(s)) below++;
+          hired = l.hired;
+        },
+      },
+    });
+    expect(hired, 'точка внутри области: найм был').toBeGreaterThan(0);
+    expect(below, 'не строит — запас не бережёт').toBeGreaterThan(0);
+  });
 });
