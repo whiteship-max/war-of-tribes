@@ -18,7 +18,8 @@ import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
 import { setTimeScale, timeScale } from '@/game/pace';
-import { MIX, openMix, pilot, played, player, stackOf, townAt, type Inside } from './autopilot';
+import { MIX, openMix, pilot, played, player, spareHands, stackOf, townAt, type Inside } from './autopilot';
+import { idleCount } from '@/game/derived';
 import { placeOpen, techLevel, troopOpen } from '@/game/sim/tech';
 import { pointsOf } from '@/game/sim/points';
 import { diploLevelOf, levelPrice, levelsOf, warLevelOfGear, warLevelOfTroop } from '@/game/data/realm';
@@ -282,5 +283,48 @@ describe('военный гейт в приборе', () => {
       decide: 30,
     });
     expect(techLevel(idle, 'war'), 'не учится — не открывается').toBe(1);
+  });
+});
+
+describe('найм «всё, что прокормит» в приборе', () => {
+  /**
+   * Прибор не спорит сам с собой: расстановка держит пятую часть племени свободной под стройку
+   * (`spareHands`), и найм этого поведения её не забирает. Забирал — и получалась петля, а не
+   * игрок: найм выгребал запас на каждом решении, расстановка тут же снимала с работ новый,
+   * пропорционально убывшему племени, и деревня новой партии съедала себя к шестому часу до
+   * пяти человек (docs/hiring.md, раздел 14, решение владельца: игровой факт задуман, артефакт
+   * был в приборе).
+   *
+   * Область названа: найм был, и упирался он в руки — иначе правило «не из запаса» не
+   * спрашивалось бы ни разу и тест был бы зелёным при любом коде. Мутация «нанимать из всех
+   * свободных» роняет утверждение «после найма запас цел».
+   */
+  it('найм не забирает запас рук, который прибор держит под стройку', async () => {
+    const g = createInitialState(7);
+    g.tutorialDone = true;
+    let hired = 0;
+    let decisions = 0;
+    let handsBound = 0;
+    await pilot({
+      g,
+      seconds: 600,
+      player: player('feed', { tax: 'moderate' }),
+      world: { seed: 7, pulse: 30, raids: false },
+      economy: 'live',
+      tick: 1,
+      decide: 30,
+      watch: {
+        decided: (s, l) => {
+          if (l.hired > hired) {
+            decisions++;
+            expect(idleCount(s), `после найма запас цел: ${s.time} с`).toBeGreaterThanOrEqual(spareHands(s));
+          }
+          hired = l.hired;
+          handsBound = l.stops['руки'] ?? 0;
+        },
+      },
+    });
+    expect(decisions, 'точка внутри области: найм был').toBeGreaterThan(0);
+    expect(handsBound, 'и упирался он в руки: правило спрашивалось').toBeGreaterThan(0);
   });
 });
