@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, TroopId } from '../types';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, serialize } from '../save';
+import { deserialize, enter, serialize } from '../save';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { QUESTS } from '../data/quests';
@@ -501,6 +501,8 @@ describe('начатые партии', () => {
     const old = deserialize(JSON.stringify(raw))!;
     expect(old.version).toBe(SAVE_VERSION);
     expect(old.pay.from).toBe(s.time + WAGE_AMNESTY_DAYS * DAY_LENGTH);
+    // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(old, old.lastSaved);
     expect(old.log.some((e) => /жалованье/.test(e.text)), 'игроку сказано').toBe(true);
     old.nextEventAt = Infinity;
     expect(wagesPerDay(old), 'точка внутри области: жалованье есть, дохода нет').toBeGreaterThan(taxIncomePerDay(old));

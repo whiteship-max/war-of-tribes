@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
 import { creditTech } from './tech';
-import { deserialize, rescaleXp, serialize } from '../save';
+import { deserialize, enter, rescaleXp, serialize } from '../save';
 import { serverNow } from '@/net/clock';
 import { awayGameSeconds, catchUp, tick } from './tick';
 import { seeded } from './random';
@@ -199,6 +199,8 @@ describe('ступень сохранения 12 → 13', () => {
     expect(offline, 'точка внутри области: догонять есть что').toBeGreaterThan(1000);
     catchUp(late, offline, 10);
     for (const id of FIGURE_IDS) expect(ageOf(late, id), `${id}: догон не состарил`).toBeCloseTo(AGENT_AGE0, 6);
+    // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(s, s.lastSaved);
     expect(s.log.some((e) => e.text.startsWith('Агенты получили имена и возраст'))).toBe(true);
   });
 

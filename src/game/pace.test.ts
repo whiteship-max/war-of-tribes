@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from './state';
-import { deserialize, serialize } from './save';
+import { deserialize, enter, serialize } from './save';
 import { PACE_TEXT } from './data/pace';
 import { serverNow } from '@/net/clock';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from './constants';
@@ -189,7 +189,6 @@ describe('ступень сохранения 15 → 16: время пошло �
     expect(s.version, 'точка внутри области: ступень пройдена').toBe(SAVE_VERSION);
     expect(SAVE_VERSION).toBeGreaterThanOrEqual(16);
     expect(s.paceNotice, 'окно ждёт показа').toBe(true);
-    expect(s.log.some((e) => e.text === PACE_TEXT.log(daysSpan(1))), 'строка о замедлении есть').toBe(true);
     // Всё остальное — буква в букву: те же игровые секунды, тот же склад. Дом правителя
     // из сверки снят: его ставит СВОЯ ступень (16 → 17), и она меняет его нарочно —
     // правление приведённой партии начинается в минуту входа (`game/sim/realm.test.ts`).
@@ -197,6 +196,9 @@ describe('ступень сохранения 15 → 16: время пошло �
     // Сверка — с той же партией, прочитанной без ступени: чтение само приводит поля, ступень — ничего.
     raw.version = SAVE_VERSION;
     expect(strip(s)).toEqual(strip(deserialize(JSON.stringify(raw))!));
+    // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(s, s.lastSaved);
+    expect(s.log.some((e) => e.text === PACE_TEXT.log(daysSpan(1))), 'строка о замедлении есть').toBe(true);
   });
 
   it('новой партии и партии нынешней версии окно не показывают', () => {

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AVATARS } from '@/data/avatars';
 import { createInitialState, SAVE_VERSION } from '@/game/state';
-import { MIN_SAVE_VERSION, deserialize, serialize } from '@/game/save';
+import { MIN_SAVE_VERSION, deserialize, enter, serialize } from '@/game/save';
 import { tick } from '@/game/sim/tick';
 import { startUpgrade } from '@/game/sim/actions';
 import { applyExpedition } from '@/game/sim/expedition';
@@ -130,6 +130,8 @@ describe('сейв профиля', () => {
     // существует: ступень 11 → 12 его отпускает, чтобы он не ездил в сохранении
     // мёртвым полем, и говорит об этом в летописи.
     expect((g as unknown as { patron?: unknown }).patron).toBeUndefined();
+    // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(g, g.lastSaved);
     expect(g.log.some((l) => l.text.includes('Покровитель племени отпущен'))).toBe(true);
     // Вера при этом не подставлена: её назовёт мир по клетке замка.
     expect(g.faith.id).toBeNull();
@@ -158,7 +160,8 @@ describe('сейв профиля', () => {
     expect(p.card.avatarId).toBe(DEFAULT_AVATAR);
     expect(p.card.name).toBe(DEFAULT_NAME);
 
-    // Приведение не проходит молча: о нём сказано в летописи.
+    // Приведение не проходит молча: о нём сказано в летописи. Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(g, g.lastSaved);
     expect(g.log.some((e) => /грамота вождя/i.test(e.text))).toBe(true);
     // Старая запись при этом не потерялась.
     expect(g.log.some((e) => /Пришла зима/.test(e.text))).toBe(true);
@@ -176,6 +179,7 @@ describe('сейв профиля', () => {
     expect(back.profile.avatarId).toBe('13_queen');
     expect(back.profile.totals.produced).toBe(250);
     expect(back.profile.card.battlesWon).toBe(1);
+    enter(back, back.lastSaved);
     expect(back.log.some((e) => /грамота вождя/i.test(e.text))).toBe(false);
   });
 });

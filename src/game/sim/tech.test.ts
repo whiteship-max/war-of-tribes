@@ -10,7 +10,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, serialize } from '../save';
+import { deserialize, enter, serialize } from '../save';
 import {
   BRANCH_BUILT,
   DIPLO_LEVELS,
@@ -274,6 +274,8 @@ describe('начатая партия: засчитывается пройден
     expect(SAVE_VERSION, 'ступень подняла версию: умолчания тут мало').toBeGreaterThan(17);
     expect(techLevel(s!, 'diplo'), 'ступень засчитана').toBe(diploLevelOf('spy'));
     expect(placeOpen(s!, 'spy'), 'место осталось при племени').toBe(true);
+    // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(s!, s!.lastSaved);
     expect(s!.log.some((e) => e.text.includes('Место лазутчика засчитано')), 'о засчитанном сказано').toBe(true);
     expect(s!.log.some((e) => e.text.includes('открылись «Технологии»')), 'и о самих технологиях').toBe(true);
     // Даром ветвь не проходится: третья ступень остаётся непокупленной.
@@ -551,6 +553,8 @@ describe('начатая партия: военная ветвь по самой
 
     const empty = aged(() => {});
     expect(techLevel(empty, 'war'), 'кованого нет — засчитывать нечего').toBe(1);
+    // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(empty, empty.lastSaved);
     expect(empty.log.some((e) => e.text.includes('Военная ветвь начинается с первого уровня')), 'и сказано об этом').toBe(true);
   });
 

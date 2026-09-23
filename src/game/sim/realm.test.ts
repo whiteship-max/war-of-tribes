@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, serialize } from '../save';
+import { deserialize, enter, serialize } from '../save';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from '../constants';
 import {
   MAX_RULER_SKILL,
@@ -292,6 +292,8 @@ describe('ступень сохранения 16 → 17: у державы по�
     expect(rulerAge(s!)).toBeCloseTo(AGENT_AGE0, 0);
     expect(s!.realm.ruler.bornAt, 'правление началось не в нулевую секунду').toBeGreaterThanOrEqual(s!.time);
     for (const b of REALM_BRANCHES) expect(s!.realm.points[b], 'очки — стартовый котёл, а не полный').toBe(startingPoints(b));
+    // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
+    enter(s!, s!.lastSaved);
     expect(s!.log.some((e) => e.text.includes('Во главе державы')), 'о правителе сказано строкой').toBe(true);
   });
 
