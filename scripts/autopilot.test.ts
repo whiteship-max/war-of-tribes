@@ -18,7 +18,7 @@ import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
 import { setTimeScale, timeScale } from '@/game/pace';
-import { MIX, clubMix, hands, openMix, pilot, played, player, spareHands, spareOf, stackOf, townAt, type Inside } from './autopilot';
+import { FLOOR_TROOPS, MIX, hands, openMix, pilot, played, player, spareHands, spareOf, stackOf, townAt, type Inside } from './autopilot';
 import { FREE_JOBS } from '@/game/data/jobs';
 import { idleCount } from '@/game/derived';
 import { placeOpen, techLevel, troopOpen } from '@/game/sim/tech';
@@ -225,25 +225,31 @@ describe('военный гейт в приборе', () => {
   });
 
   /**
-   * Состав найма под гейтом: закрытый вид выпадает, а целевое число не меняется — доля
-   * его переходит открытым. Две точки, обе внутри своей области: на первом уровне закрыт
-   * каждый вид мерки, на изученной ветви — ни один.
+   * Состав найма под гейтом: закрытый вид выпадает, его доля уходит виду, открытому без ступени
+   * (`FLOOR_TROOPS`), и целевое число не меняется — игрок тратит те же деньги на то, что у него
+   * есть (решение владельца, docs/hiring.md, раздел 15). Три точки, каждая внутри своей области: на
+   * первом уровне закрыт каждый вид мерки, на уровне лука — часть, на изученной ветви — ни один.
+   * Мутация «закрытая доля пропадает» (прежнее правило прибора) роняет «на первом уровне вся доля
+   * мерки — полу ветви».
    */
-  it('закрытый вид выпадает из состава, а целевое число остаётся тем же', () => {
+  it('закрытый вид выпадает, его доля уходит полу ветви, а целевое число то же', () => {
+    expect(FLOOR_TROOPS, 'пол ветви выводится из снаряжения: без ступени открыты дубинщики').toEqual(['clubman']);
     const fresh = createInitialState(7);
     expect(techLevel(fresh, 'war'), 'точка внутри области: новая партия на первом уровне').toBe(1);
-    expect(Object.keys(openMix(fresh, MIX)), 'из мерки не открыт ни один вид').toEqual([]);
+    expect((Object.keys(MIX) as TroopId[]).filter((t) => troopOpen(fresh, t)), 'из мерки не открыт ни один вид').toEqual([]);
+    expect(openMix(fresh, MIX), 'на первом уровне вся доля мерки — полу ветви').toEqual({ clubman: sum(Object.values(MIX).map((n) => n ?? 0)) });
 
     const town = townAt(5);
     const open = openMix(town, MIX);
     expect(Object.keys(open), 'ветвь засчитана — состав тот же, и ключи в том же порядке').toEqual(Object.keys(MIX));
     expect(stackOf(100, open), 'и разложение то же до бойца').toEqual(stackOf(100, MIX));
 
-    // Между ними: на уровне лука открыты копейщики и лучники, а целевое число цело.
+    // Между ними: на уровне лука открыты копейщики и лучники, остальное — полу ветви.
     const half = createInitialState(7);
     half.realm.tech.war = warLevelOfGear('bow');
     const part = openMix(half, MIX);
-    expect(Object.keys(part), 'открыты ровно те, чьи вещи изучены').toEqual(['spearman', 'archer']);
+    expect(Object.keys(part), 'открыты те, чьи вещи изучены, и пол ветви').toEqual(['spearman', 'archer', 'clubman']);
+    expect(part.clubman, 'полу ветви — доля закрытых').toBe((MIX.legionary ?? 0) + (MIX.rider ?? 0));
     const split = stackOf(100, part);
     expect(sum(Object.values(split).map((n) => n ?? 0)), 'целевое число не потерялось').toBe(100);
   });
@@ -304,7 +310,7 @@ describe('найм того, кто строит, в приборе', () => {
    */
   const builders: [string, ReturnType<typeof player>][] = [
     ['всё, что прокормит', player('feed', { tax: 'moderate' })],
-    ['по средствам, дубинщики', player('means', { tax: 'high', study: false, closed: 'clubman' })],
+    ['по средствам, дубинщики', player('means', { tax: 'high', study: false })],
   ];
   for (const [name, who] of builders) {
     it(`найм не забирает запас рук, который прибор держит под стройку: ${name}`, async () => {
@@ -418,7 +424,7 @@ describe('найм того, кто строит, в приборе', () => {
       const f = await pilot({
         g,
         seconds: 3600,
-        player: player('means', { tax: 'high', study: false, closed: 'clubman' }),
+        player: player('means', { tax: 'high', study: false }),
         world: { seed: 7, pulse: 30, raids: false },
         economy: 'live',
         tick: 1,
@@ -433,22 +439,5 @@ describe('найм того, кто строит, в приборе', () => {
     }
     expect(Math.abs(at[30].pop - at[90].pop), `племя то же: ${at[30].pop} и ${at[90].pop}`).toBeLessThanOrEqual(10);
     expect(Math.abs(at[30].hired - at[90].hired), `и войску досталось то же: ${at[30].hired} и ${at[90].hired}`).toBeLessThanOrEqual(10);
-  });
-});
-
-describe('ручки перемера довода openMix', () => {
-  /**
-   * `clubMix` — перемер, а не правило прибора, и держат его два свойства: когда открыто всё, он
-   * совпадает с `openMix` до бойца, а на первом уровне ветви вся доля мерки уходит дубинщикам.
-   * Область: на первом уровне из мерки не открыт ни один вид — иначе «вся доля» была бы пустыми
-   * словами. Мутация «доля закрытых теряется» роняет «на первом уровне — дубинщикам».
-   */
-  it('clubMix: закрытая доля — дубинщикам, а при открытой ветви состав тот же, что у openMix', () => {
-    const low = createInitialState(7);
-    expect(Object.keys(openMix(low, MIX)), 'точка внутри области: на первом уровне из мерки не открыт никто').toEqual([]);
-    expect(clubMix(low, MIX), 'на первом уровне — дубинщикам').toEqual({ clubman: sum(Object.values(MIX).map((n) => n ?? 0)) });
-    const top = createInitialState(7);
-    top.realm.tech.war = levelsOf('war');
-    expect(clubMix(top, MIX), 'ветвь открыта — состав прибора').toEqual(openMix(top, MIX));
   });
 });

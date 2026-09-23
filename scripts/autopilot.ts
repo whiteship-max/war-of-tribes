@@ -40,7 +40,7 @@ import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { creditTech, study, troopOpen } from '@/game/sim/tech';
-import { BRANCH_BUILT, REALM_BRANCHES } from '@/game/data/realm';
+import { BRANCH_BUILT, REALM_BRANCHES, warLevelOfTroop } from '@/game/data/realm';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { absence, catchUp, tick } from '@/game/sim/tick';
 import { DAY_LENGTH, gameSeconds, realMs, realSeconds, timeScale } from '@/game/pace';
@@ -347,49 +347,35 @@ function largest(max: number, ok: (n: number) => boolean): number {
 }
 
 /**
- * Состав найма под гейтом: закрытый вид из мерки выпадает, а доля его переходит открытым —
- * `stackOf` делит то же целевое число на сумму оставшихся весов. Это игрок, который тратит
- * те же деньги на то, что у него есть.
+ * Виды, открытые без ступени военной ветви, — пол ветви. Выводятся из снаряжения (`warLevelOfTroop`),
+ * а не пишутся: сегодня это дубинщики, у которых снаряжения нет вовсе.
+ */
+export const FLOOR_TROOPS: readonly TroopId[] = TROOP_IDS.filter((id) => warLevelOfTroop(id) === 1);
+
+/**
+ * Состав найма под гейтом: закрытый вид из мерки выпадает, а доля его уходит виду, открытому без
+ * ступени (`FLOOR_TROOPS`, сегодня — дубинщикам), и `stackOf` делит то же целевое число. Это игрок,
+ * который тратит те же деньги на то, что у него есть: на первом уровне ветви у него есть только
+ * дубинщики.
  *
- * **Дубинщиками закрытую долю не добирают, и это решение прибора, а не недосмотр.** Мерка
- * `MIX` дубинщиков не знала и до гейта: они худшие в игре на единицу еды и стоят по жителю
- * с головы, а предел найма у них один — свободные руки. Замер (`raid-hiring:report`,
- * раздел Б, прогон 22.09.2026) показал, чем это кончается: 371 нанятый, 260 ушедших и
- * деревня в тринадцать человек к шестому часу. Так игрок не играет; так играет цель,
- * растущая без предела.
+ * **Решение владельца (23.09.2026, docs/hiring.md, раздел 15).** Прежде закрытую долю делили между
+ * открытыми видами мерки, а дубинщиками её не добирали; довод — 371 нанятый, 260 ушедших и деревня
+ * в тринадцать человек — был снят на приборе с петлёй и оказался петлёй найма и запаса рук, а не
+ * дубинщиками. Прежнее правило было исключением, написанным руками; это выводится из того, что
+ * открыто.
  *
- * **Перемерено 23.09.2026 на приборе без петли** (`CLOSED_SHARE=1 npm run raid-hiring:report`,
- * docs/hiring.md, раздел 15): те 371 / 260 / 13 — петля найма и запаса рук, а не дубинщики; у
- * изучающих поведений правило почти ничего не решает, у игрока без технологий — всё. Правило
- * оставлено до решения владельца.
- *
- * Когда открыто всё, ключи и их порядок те же, что у входного состава, и `stackOf` даёт
- * **тот же состав до бойца**: иначе посёлок мерки, которому ступень засчитана, поехал бы
- * от одной правки прибора.
+ * Когда открыто всё, ключи и их порядок те же, что у входного состава, и `stackOf` даёт **тот же
+ * состав до бойца**: посёлок мерки, которому ступень засчитана, от этого правила не едет.
  */
 export function openMix(g: GameState, mix: TroopStack): TroopStack {
   const out: TroopStack = {};
+  let closed = 0;
   for (const [key, weight] of Object.entries(mix)) {
     const id = key as TroopId;
     if (troopOpen(g, id)) out[id] = weight ?? 0;
+    else closed += weight ?? 0;
   }
-  return out;
-}
-
-/** Куда уходит доля вида, закрытого гейтом: открытым видам мерки (правило прибора) или дубинщикам. */
-export type ClosedShare = 'open' | 'clubman';
-
-/**
- * Другой ответ на тот же вопрос: доля закрытого вида уходит дубинщикам — единственному виду,
- * открытому с первой секунды. **Прибор так не нанимает**: вариант заведён ради перемера довода
- * `openMix`, который снят на приборе с петлёй (`CLOSED_SHARE=1 npm run raid-hiring:report`,
- * docs/hiring.md, раздел 15). Когда открыто всё, состав тот же, что у `openMix`, до бойца.
- */
-export function clubMix(g: GameState, mix: TroopStack): TroopStack {
-  const out = openMix(g, mix);
-  let closed = 0;
-  for (const [key, weight] of Object.entries(mix)) if (!troopOpen(g, key as TroopId)) closed += weight ?? 0;
-  if (closed > 0) out.clubman = (out.clubman ?? 0) + closed;
+  if (closed > 0) for (const id of FLOOR_TROOPS) out[id] = (out[id] ?? 0) + closed / FLOOR_TROOPS.length;
   return out;
 }
 
@@ -437,17 +423,16 @@ export function hands(g: GameState, builds: boolean): number {
   return largest(idle, (n) => idle - n >= spareOf(g.pop - n));
 }
 
-/** Как игрок нанимает сверх поведения: строит ли и куда уходит закрытая доля. */
+/** Как игрок нанимает сверх поведения: строит ли. */
 interface HireHow {
   builds: boolean;
-  closed: ClosedShare;
 }
 
 /** Нанять по поведению; что остановило найм, ложится в `l.stops`. Состав — мерка, урезанная гейтом (`openMix`). */
 function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger, how: HireHow): void {
   // Цель — всё, что пустит лимит: сперва недостача мерки по видам, потом ещё круг.
   const total = armySize(g) + TROOP_IDS.reduce((n, id) => n + queued(g, id), 0);
-  const open = how.closed === 'clubman' ? clubMix(g, mix) : openMix(g, mix);
+  const open = openMix(g, mix);
   const want = stackOf(total + Math.max(10, Math.round(total * 0.25)), open);
   // Закрытый вид — причина по умолчанию: не дойди дело ни до одного предела, в отчёте
   // должно стоять «технология», а не «цель». Все прочие пределы её перебивают: они
@@ -580,11 +565,6 @@ export interface Player {
    * нижнюю ступень ветви нарочно.
    */
   study: boolean;
-  /**
-   * Куда уходит доля вида, закрытого гейтом: `open` — открытым видам мерки (`openMix`, правило
-   * прибора), `clubman` — дубинщикам (`clubMix`, только для перемера довода правила).
-   */
-  closed: ClosedShare;
   /** На осаду нанимает дубинщиков числом с мощь лагеря, но не больше рук, которые может отдать (`hands`). */
   siegeLevy: boolean;
   /** Под осадой выходит вылазкой всем гарнизоном, не чаще раза в пять минут. */
@@ -604,7 +584,6 @@ export const player = (hire: HireStyle | null, over: Partial<Omit<Player, 'hire'
   build: { skip: [] },
   hire,
   study: true,
-  closed: 'open',
   siegeLevy: false,
   sortie: true,
   ...over,
@@ -631,7 +610,7 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   if (p.hire) {
     staffSmithy(g);
     if (p.hire === 'means') trim(g, l);
-    hire(g, p.hire, MIX, l, { builds: p.build !== false, closed: p.closed });
+    hire(g, p.hire, MIX, l, { builds: p.build !== false });
   }
   if (p.staff && draftsFirst) staff(g);
 }

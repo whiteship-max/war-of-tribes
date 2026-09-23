@@ -10,9 +10,8 @@
 // так что правки, задевающей лазарет и не задевающей найм, не бывает.
 //
 //   npm run raid-hiring:report
-//   CLOSED_SHARE=1 npm run raid-hiring:report   — только перемер довода autopilot.openMix (docs/hiring.md, раздел 15)
 //   DECIDE_SWEEP=1 npm run raid-hiring:report   — только перемер «зависит ли исход от частоты решений» (docs/hiring.md, раздел 16)
-import { cadenceSection, closedShareSection, hiringSection } from './raid-hiring';
+import { cadenceSection, hiringSection } from './raid-hiring';
 import { infirmarySection } from './raid-infirmary';
 import { burntSection } from './raid-burnt';
 import { measure } from './lib/measured';
@@ -28,9 +27,6 @@ const lap = (name: string): void => {
 if (process.env.DECIDE_SWEEP) {
   // Перемер одного свойства прибора (docs/hiring.md, раздел 16) — не приёмка, и прочих разделов не гонит.
   await cadenceSection();
-} else if (process.env.CLOSED_SHARE) {
-  // Перемер одного довода прибора (docs/hiring.md, раздел 15) — не приёмка, и прочих разделов не гонит.
-  await closedShareSection();
 } else {
   const hired = await hiringSection();
   lap('Найм');

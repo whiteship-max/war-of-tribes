@@ -78,7 +78,6 @@ import {
   MIN,
   START,
   townAt,
-  type ClosedShare,
   type Inside,
   type Ledger,
   type Step,
@@ -147,16 +146,14 @@ interface FreshSpec {
   style: Style;
   /** Изучает ли игрок ветви; нет — изучает. */
   study?: boolean;
-  /** Куда уходит доля закрытого гейтом вида; нет — открытым видам, как у прибора. */
-  closed?: ClosedShare;
   /** Как часто игрок решает, игровых секунд; нет — как у приёмки, раз в полдня. */
   decide?: number;
 }
 
 /**
  * Партия с первой секунды одним поведением на мирах `NEW_SEEDS` — строка раздела Б. Одна на
- * раздел Б и на перемер довода `openMix` (`closedShareSection`): у сравнения двух составов найма
- * не должно быть двух копий прогона.
+ * раздел Б и на перемер частоты решений (`cadenceSection`): у сравнения не должно быть двух копий
+ * прогона.
  */
 async function freshRow(spec: FreshSpec): Promise<Out[]> {
   const outs: Out[] = [];
@@ -173,7 +170,6 @@ async function freshRow(spec: FreshSpec): Promise<Out[]> {
         seed,
         style: spec.style,
         study: spec.study,
-        closed: spec.closed,
         decide: spec.decide,
         hours: FRESH_HOURS,
         ripe: false,
@@ -203,41 +199,6 @@ async function freshRow(spec: FreshSpec): Promise<Out[]> {
 }
 
 /**
- * Перемер довода `autopilot.openMix` — «закрытую гейтом долю дубинщиками не добирают» (docs/hiring.md,
- * раздел 15). Довод снят в пачке 3 на приборе с петлёй: состав найма из одних дубинщиков — 371
- * нанятый, 260 ушедших, деревня в тринадцать человек к шестому часу; та же картина была у «всё, что
- * прокормит», пока найм забирал запас рук на стройку. Здесь то же сравнение: каждое поведение раздела
- * Б — закрытая доля открытым видам (правило прибора) и дубинщикам. Запас рук на стройку при этом
- * берегут все, кто строит: у дешёвых дубинщиков найм «по средствам» не держит казна, и без запаса у
- * него оставалась бы та же петля — сравнение было бы не с игроком, а с ней.
- *
- * В приёмку раздел не входит: это замер одного довода, и гонится он отдельно —
- * `CLOSED_SHARE=1 npm run raid-hiring:report`, — чтобы вывод приёмки от него не сдвигался.
- */
-export async function closedShareSection(): Promise<void> {
-  console.log('');
-  console.log('=== Закрытая доля: открытым видам или дубинщикам — перемер довода autopilot.openMix ===');
-  console.log(`Партия с первой секунды, как раздел Б «Найма»: ${FRESH_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит.`);
-  console.log('«открытым» — правило прибора (openMix): доля закрытого гейтом вида делится между открытыми видами мерки MIX;');
-  console.log('«дубинщикам» — доля закрытого вида уходит дубинщикам (clubMix): их не куют, и открыты они с первой секунды.');
-  console.log('Когда открыто всё, составы совпадают до бойца; расходятся они только, пока ветвь не изучена.');
-  console.log('Довод правила — прогон пачки 3 на приборе с петлёй: 371 нанятый, 260 ушедших, деревня в 13 человек к 6-му часу.');
-  console.log('Запас рук на стройку берегут все, кто строит (docs/hiring.md, раздел 15): у дешёвых дубинщиков найм «по средствам» не держит казна.');
-  console.log('«высокий налог» — «по средствам, высокий налог»; «без технологий» — он же, ни разу не открывший «Технологии».');
-  console.log(FRESH_HEADER);
-  const specs: { label: string; style: Style; study?: boolean }[] = [
-    { label: 'по средствам', style: 'means' },
-    { label: 'высокий налог', style: 'meansHigh' },
-    { label: 'всё, что прокормит', style: 'feed' },
-    { label: 'без технологий', style: 'meansHigh', study: false },
-  ];
-  for (const spec of specs) {
-    await freshRow({ ...spec, label: `${spec.label} · открытым`, closed: 'open' });
-    await freshRow({ ...spec, label: `${spec.label} · дубинщикам`, closed: 'clubman' });
-  }
-}
-
-/**
  * Зависит ли исход партии с первой секунды от того, как часто прибор решает (docs/hiring.md, раздел 16).
  * Игровой ответ от частоты решений не зависит: как часто игрок заглядывает в казармы — его дело, а
  * сколько людей стоит дубинщик и сколько их держит казна — дело игры. Зависит — значит, исход задаёт
@@ -255,8 +216,8 @@ export async function cadenceSection(): Promise<void> {
   console.log('Исход игры от частоты решений зависеть не должен; зависит — исход задаёт прибор, а не игра.');
   console.log(FRESH_HEADER);
   const specs: { label: string; spec: Omit<FreshSpec, 'label' | 'decide'> }[] = [
-    { label: 'без технологий', spec: { style: 'meansHigh', study: false, closed: 'clubman' } },
-    { label: 'высокий налог', spec: { style: 'meansHigh', closed: 'clubman' } },
+    { label: 'без технологий', spec: { style: 'meansHigh', study: false } },
+    { label: 'высокий налог', spec: { style: 'meansHigh' } },
   ];
   for (const { label, spec } of specs) {
     for (const decide of [30, 90, 300]) {
@@ -394,7 +355,8 @@ export async function hiringSection(): Promise<Hired> {
   console.log(`--- Б. Партия с первой секунды: ${FRESH_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит у всех ---`);
   console.log('Налог новой партии — высокий: её игрок по умолчанию — строка «по средствам, высокий налог».');
   console.log('Последняя строка — тот же игрок с теми же деньгами, который ни разу не открыл «Технологии»: это пол военной ветви.');
-  console.log('Состава найма ей не задают — его урезает сам гейт: на первом уровне из мерки MIX не открыт ни один вид, и найм встаёт на технологии.');
+  console.log('Состава найма ей не задают — его урезает сам гейт: на первом уровне из мерки MIX не открыт ни один вид, и вся доля мерки уходит');
+  console.log('дубинщикам — виду, открытому без ступени (autopilot.openMix, решение владельца: тратит те же деньги на то, что у него есть).');
   console.log(FRESH_HEADER);
   const fresh = {} as Record<Style, Out[]>;
   const freshRows: FreshSpec[] = [
