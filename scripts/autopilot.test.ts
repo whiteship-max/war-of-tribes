@@ -286,47 +286,55 @@ describe('военный гейт в приборе', () => {
   });
 });
 
-describe('найм «всё, что прокормит» в приборе', () => {
+describe('найм того, кто строит, в приборе', () => {
   /**
    * Прибор не спорит сам с собой: расстановка держит пятую часть племени свободной под стройку
-   * (`spareHands`), и найм этого поведения её не забирает. Забирал — и получалась петля, а не
-   * игрок: найм выгребал запас на каждом решении, расстановка тут же снимала с работ новый,
-   * пропорционально убывшему племени, и деревня новой партии съедала себя к шестому часу до
-   * пяти человек (docs/hiring.md, раздел 14, решение владельца: игровой факт задуман, артефакт
-   * был в приборе).
+   * (`spareHands`), и найм её не забирает — **при любом поведении**. Забирал — и получалась петля, а
+   * не игрок: найм выгребал запас на каждом решении, расстановка тут же снимала с работ новый,
+   * пропорционально убывшему племени, и деревня новой партии съедала себя — у «всё, что прокормит»
+   * к шестому часу до пяти человек (docs/hiring.md, раздел 14), у «по средствам» с дешёвыми
+   * дубинщиками до тринадцати (раздел 15). Решение владельца: запас берегут все, кто строит.
    *
-   * Область названа: найм был, и упирался он в руки — иначе правило «не из запаса» не
-   * спрашивалось бы ни разу и тест был бы зелёным при любом коде. Мутация «нанимать из всех
-   * свободных» роняет утверждение «после найма запас цел».
+   * Точек две — по поведению, и область названа у каждой: найм был, и упирался он в руки — иначе
+   * правило «не из запаса» не спрашивалось бы ни разу и тест был бы зелёным при любом коде. «По
+   * средствам» взят с дубинщиками и без технологий: казна их не держит, и до рук дело доходит.
+   * Мутация «нанимать из всех свободных» роняет «после найма запас цел» у обоих; мутация «запас —
+   * только у «всё, что прокормит»», как было, — у «по средствам».
    */
-  it('найм не забирает запас рук, который прибор держит под стройку', async () => {
-    const g = createInitialState(7);
-    g.tutorialDone = true;
-    let hired = 0;
-    let decisions = 0;
-    let handsBound = 0;
-    await pilot({
-      g,
-      seconds: 600,
-      player: player('feed', { tax: 'moderate' }),
-      world: { seed: 7, pulse: 30, raids: false },
-      economy: 'live',
-      tick: 1,
-      decide: 30,
-      watch: {
-        decided: (s, l) => {
-          if (l.hired > hired) {
-            decisions++;
-            expect(idleCount(s), `после найма запас цел: ${s.time} с`).toBeGreaterThanOrEqual(spareHands(s));
-          }
-          hired = l.hired;
-          handsBound = l.stops['руки'] ?? 0;
+  const builders: [string, ReturnType<typeof player>][] = [
+    ['всё, что прокормит', player('feed', { tax: 'moderate' })],
+    ['по средствам, дубинщики', player('means', { tax: 'high', study: false, closed: 'clubman' })],
+  ];
+  for (const [name, who] of builders) {
+    it(`найм не забирает запас рук, который прибор держит под стройку: ${name}`, async () => {
+      const g = createInitialState(7);
+      g.tutorialDone = true;
+      let hired = 0;
+      let decisions = 0;
+      let handsBound = 0;
+      await pilot({
+        g,
+        seconds: 600,
+        player: who,
+        world: { seed: 7, pulse: 30, raids: false },
+        economy: 'live',
+        tick: 1,
+        decide: 30,
+        watch: {
+          decided: (s, l) => {
+            if (l.hired > hired) {
+              decisions++;
+              expect(idleCount(s), `${name}: после найма запас цел, ${s.time} с`).toBeGreaterThanOrEqual(spareHands(s));
+            }
+            hired = l.hired;
+            handsBound = l.stops['руки'] ?? 0;
+          },
         },
-      },
+      });
+      expect(decisions, `${name}: точка внутри области — найм был`).toBeGreaterThan(0);
+      expect(handsBound, `${name}: и упирался он в руки — правило спрашивалось`).toBeGreaterThan(0);
     });
-    expect(decisions, 'точка внутри области: найм был').toBeGreaterThan(0);
-    expect(handsBound, 'и упирался он в руки: правило спрашивалось').toBeGreaterThan(0);
-  });
+  }
 
   /**
    * Запас — под стройку, и держит его только тот, кто строит. Посёлок мерки, где уровни стоят,
@@ -375,36 +383,5 @@ describe('ручки перемера довода openMix', () => {
     const top = createInitialState(7);
     top.realm.tech.war = levelsOf('war');
     expect(clubMix(top, MIX), 'ветвь открыта — состав прибора').toEqual(openMix(top, MIX));
-  });
-
-  /**
-   * `reserve` — запас рук у любого поведения. Область: «по средствам» с дубинщиками, у которого
-   * казна не держит найм и найм упирается в руки. Мутация «reserve не читается» роняет «после
-   * найма запас цел».
-   */
-  it('reserve: «по средствам» с запасом не забирает руки строителей', async () => {
-    const g = createInitialState(7);
-    g.tutorialDone = true;
-    let hired = 0;
-    let decisions = 0;
-    await pilot({
-      g,
-      seconds: 600,
-      player: player('means', { tax: 'high', study: false, closed: 'clubman', reserve: true }),
-      world: { seed: 7, pulse: 30, raids: false },
-      economy: 'live',
-      tick: 1,
-      decide: 30,
-      watch: {
-        decided: (s, l) => {
-          if (l.hired > hired) {
-            decisions++;
-            expect(idleCount(s), `после найма запас цел: ${s.time} с`).toBeGreaterThanOrEqual(spareHands(s));
-          }
-          hired = l.hired;
-        },
-      },
-    });
-    expect(decisions, 'точка внутри области: найм был').toBeGreaterThan(0);
   });
 });

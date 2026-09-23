@@ -165,8 +165,6 @@ interface Opts {
   study?: boolean;
   /** Куда уходит доля закрытого гейтом вида; нет — как у общего автопилота, открытым видам. */
   closed?: ClosedShare;
-  /** Бережёт ли запас рук на стройку любое поведение; нет — как у общего автопилота. */
-  reserve?: boolean;
   /**
    * Как часто игрок решает, игровых секунд; нет — раз в полдня (30 с). Ручка замера: приёмка решает
    * раз в полдня, другой шаг ставит только перемер «зависит ли исход от частоты решений».
@@ -227,7 +225,6 @@ export async function live(o: Opts): Promise<Out> {
       also: o.also,
       ...(o.study === undefined ? {} : { study: o.study }),
       ...(o.closed === undefined ? {} : { closed: o.closed }),
-      ...(o.reserve === undefined ? {} : { reserve: o.reserve }),
     }),
     world: { seed: o.seed, pulse: 30, raids: true, ripe: o.ripe, step: o.step ?? GAME, ref: o.ref },
     economy: 'live',
