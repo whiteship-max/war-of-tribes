@@ -383,11 +383,16 @@ async function captivesPart(): Promise<void> {
     let pulses = 0;
     let falls = 0;
     let sieges = 0;
+    // Сколько осад объявлено «увести людей» и сколько из них взято: под гейтом участь покупная, и
+    // без этого счёта «уведено 0» не отличить от поломки.
+    let siegesLed = 0;
+    let fallsLed = 0;
     const outs: Out[] = [];
     for (const seed of SEEDS_C) {
       // Логово, у которого стояли, вычёркивается на окно SIEGE_IMMUNE, а не навсегда: игрок видит только разведанные логова
       // (их три-четыре), и вычеркнув их насовсем, полководец вставал бы после первого часа.
       const immune = new Map<string, number>();
+      const declared = new Map<string, string>();
       let target: string | null = null;
       let mustered = false;
       const g = townAt(LEVEL);
@@ -433,7 +438,10 @@ async function captivesPart(): Promise<void> {
           effect: (e) => {
             if ((e.bonded ?? 0) > 0 && variant.share < 1) e.bonded = Math.round((e.bonded ?? 0) * variant.share);
             if ((e.bonded ?? 0) > 0) led += e.bonded ?? 0;
-            if (e.id.startsWith('siege-')) falls++;
+            if (e.id.startsWith('siege-')) {
+              falls++;
+              if (declared.get(e.id.slice('siege-'.length, e.id.lastIndexOf('-'))) === 'captives') fallsLed++;
+            }
           },
           after: async ({ g: x, world, now }) => {
             const w: Inside = world;
@@ -465,7 +473,11 @@ async function captivesPart(): Promise<void> {
               // не купил, он берёт логово тем, что может объявить, — «ограбить», и воевать не
               // перестаёт. Спрашивает он ту же дверь гейта, что и мир (`sim/tech.fateOpen`).
               const fate = fateOpen(x, variant.fate) ? variant.fate : 'plunder';
-              if ((await world.besiege(fate)) === null) sieges++;
+              if ((await world.besiege(fate)) === null) {
+                sieges++;
+                if (fate === 'captives') siegesLed++;
+                declared.set(target, fate);
+              }
               immune.set(target, now + SIEGE_IMMUNE);
               target = null;
               return;
@@ -493,7 +505,7 @@ async function captivesPart(): Promise<void> {
     );
     const l = outs.map((o) => o.l);
     console.log('');
-    console.log(`«${variant.name}»: осад ${sieges}, городов взято голодом ${falls}; уведено ${led} за ${HOURS} ч на ${SEEDS_C.length} мирах — ${(led / (HOURS * SEEDS_C.length)).toFixed(1)} в час; отпущено ${released}.`);
+    console.log(`«${variant.name}»: осад ${sieges} (с «увести людей» — ${siegesLed}), городов взято голодом ${falls} (из них с «увести людей» — ${fallsLed}); уведено ${led} за ${HOURS} ч на ${SEEDS_C.length} мирах — ${(led / (HOURS * SEEDS_C.length)).toFixed(1)} в час; отпущено ${released}.`);
     console.log(`  ропот (порядок ниже ${ORDER_UNREST} при невольниках) — ${pct(unrestPulses / Math.max(1, pulses))} пульсов; мятежей ${sum(l.map((x) => x.mutinies))}, стража удержала ${sum(l.map((x) => x.mutinyHeld))}; ушло войска ${sum(l.map((x) => x.deserted))}, из них жителями ${sum(l.map((x) => x.returned))}.`);
     console.log(`  дома: набегов ${t.raids}, прорвали ${t.broke}, падений/ч ${t.perHour}, потери, удержали ${t.held}.`);
     console.log('   ч  невольников  на работе  без места  порядок  жителей  войско  выработка/день');
