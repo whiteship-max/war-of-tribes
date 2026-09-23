@@ -75,6 +75,7 @@ import {
   MIN,
   START,
   townAt,
+  type ClosedShare,
   type Inside,
   type Ledger,
   type Step,
@@ -129,6 +130,110 @@ export interface Hired {
   ladder: Record<string, Out[]>;
   /** Партия с первой секунды по поведениям. */
   fresh: Record<Style, Out[]>;
+}
+
+// ---------- Партия с первой секунды: одна строка прогона ----------
+
+const FRESH_HOURS = 6;
+const FRESH_AT = [1, 2, 4, 6];
+const FRESH_HEADER =
+  ' поведение                                набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  жителями  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на';
+
+interface FreshSpec {
+  label: string;
+  style: Style;
+  /** Изучает ли игрок ветви; нет — изучает. */
+  study?: boolean;
+  /** Куда уходит доля закрытого гейтом вида; нет — открытым видам, как у прибора. */
+  closed?: ClosedShare;
+  /** Бережёт ли запас рук на стройку любое поведение; нет — как у прибора. */
+  reserve?: boolean;
+}
+
+/**
+ * Партия с первой секунды одним поведением на мирах `NEW_SEEDS` — строка раздела Б. Одна на
+ * раздел Б и на перемер довода `openMix` (`closedShareSection`): у сравнения двух составов найма
+ * не должно быть двух копий прогона.
+ */
+async function freshRow(spec: FreshSpec): Promise<Out[]> {
+  const outs: Out[] = [];
+  const army: number[][] = [[], [], [], []];
+  const pop: number[][] = [[], [], [], []];
+  const lvl: number[][] = [[], [], [], []];
+  for (const seed of NEW_SEEDS) {
+    setRandom(seeded(seed));
+    const g = createInitialState(seed);
+    g.tutorialDone = true;
+    outs.push(
+      await live({
+        g,
+        seed,
+        style: spec.style,
+        study: spec.study,
+        closed: spec.closed,
+        reserve: spec.reserve,
+        hours: FRESH_HOURS,
+        ripe: false,
+        build: true,
+        hourly: (h, x) => {
+          const i = FRESH_AT.indexOf(h);
+          if (i < 0) return;
+          army[i].push(armySize(x));
+          pop[i].push(x.pop);
+          lvl[i].push(sum(x.buildings.map((b) => b.level)) / x.buildings.length);
+        },
+      }),
+    );
+    setRandom(null);
+  }
+  const t = tally(
+    outs.map((o) => o.run),
+    FRESH_HOURS,
+  );
+  const l = outs.map((o) => o.l);
+  const first = t.first.length ? `${hm(Math.min(...t.first))}…${hm(Math.max(...t.first))}${t.first.length < outs.length ? ` (${t.first.length} из ${outs.length})` : ''}` : 'нет';
+  const row = (xs: number[][], f: (v: number) => string): string => xs.map((v) => pad(f(mean(v)), 4)).join(' ');
+  console.log(
+    ` ${spec.label.padEnd(39)} ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(first, 14)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.returned)), 8)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(t.lost, 15)}  ${row(army, (v) => String(Math.round(v))).padEnd(19)}  ${row(pop, (v) => String(Math.round(v))).padEnd(20)}  ${row(lvl, (v) => v.toFixed(1)).padEnd(23)}  ${fmtStops(l)}`,
+  );
+  return outs;
+}
+
+/**
+ * Перемер довода `autopilot.openMix` — «закрытую гейтом долю дубинщиками не добирают» (docs/hiring.md,
+ * раздел 15). Довод снят в пачке 3 на приборе с петлёй: состав найма из одних дубинщиков — 371
+ * нанятый, 260 ушедших, деревня в тринадцать человек к шестому часу; та же картина была у «всё, что
+ * прокормит», пока найм забирал запас рук на стройку. Здесь то же сравнение: каждое поведение раздела
+ * Б — закрытая доля открытым видам (правило прибора) и дубинщикам, а у «по средствам» ещё и
+ * дубинщикам с запасом рук (`reserve`): у дешёвых дубинщиков найм «по средствам» не держит казна,
+ * и без запаса у него оставалась бы та же петля — сравнение было бы не с игроком, а с ней.
+ *
+ * В приёмку раздел не входит: это замер одного довода, и гонится он отдельно —
+ * `CLOSED_SHARE=1 npm run raid-hiring:report`, — чтобы вывод приёмки от него не сдвигался.
+ */
+export async function closedShareSection(): Promise<void> {
+  console.log('');
+  console.log('=== Закрытая доля: открытым видам или дубинщикам — перемер довода autopilot.openMix ===');
+  console.log(`Партия с первой секунды, как раздел Б «Найма»: ${FRESH_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит.`);
+  console.log('«открытым» — правило прибора (openMix): доля закрытого гейтом вида делится между открытыми видами мерки MIX;');
+  console.log('«дубинщикам» — доля закрытого вида уходит дубинщикам (clubMix): их не куют, и открыты они с первой секунды.');
+  console.log('Когда открыто всё, составы совпадают до бойца; расходятся они только, пока ветвь не изучена.');
+  console.log('Довод правила — прогон пачки 3 на приборе с петлёй: 371 нанятый, 260 ушедших, деревня в 13 человек к 6-му часу.');
+  console.log('«+ запас» — «по средствам» тоже бережёт запас рук на стройку (Player.reserve): у дешёвых дубинщиков его не держит казна, и');
+  console.log('без этого у поведения остаётся та же петля, что была у «всё, что прокормит» (docs/hiring.md, раздел 14). «Всё, что прокормит»');
+  console.log('бережёт запас и так. «высокий налог» — «по средствам, высокий налог»; «без технологий» — он же, ни разу не открывший «Технологии».');
+  console.log(FRESH_HEADER);
+  const specs: { label: string; style: Style; study?: boolean }[] = [
+    { label: 'по средствам', style: 'means' },
+    { label: 'высокий налог', style: 'meansHigh' },
+    { label: 'всё, что прокормит', style: 'feed' },
+    { label: 'без технологий', style: 'meansHigh', study: false },
+  ];
+  for (const spec of specs) {
+    await freshRow({ ...spec, label: `${spec.label} · открытым`, closed: 'open' });
+    await freshRow({ ...spec, label: `${spec.label} · дубинщикам`, closed: 'clubman' });
+    if (spec.style !== 'feed') await freshRow({ ...spec, label: `${spec.label} · дубинщикам + запас`, closed: 'clubman', reserve: true });
+  }
 }
 
 export async function hiringSection(): Promise<Hired> {
@@ -255,59 +360,20 @@ export async function hiringSection(): Promise<Hired> {
   }
 
   // Б. Партия с первой секунды.
-  const NEW_HOURS = 6;
-  const HOURS_AT = [1, 2, 4, 6];
   console.log('');
-  console.log(`--- Б. Партия с первой секунды: ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит у всех ---`);
+  console.log(`--- Б. Партия с первой секунды: ${FRESH_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит у всех ---`);
   console.log('Налог новой партии — высокий: её игрок по умолчанию — строка «по средствам, высокий налог».');
   console.log('Последняя строка — тот же игрок с теми же деньгами, который ни разу не открыл «Технологии»: это пол военной ветви.');
   console.log('Состава найма ей не задают — его урезает сам гейт: на первом уровне из мерки MIX не открыт ни один вид, и найм встаёт на технологии.');
-  console.log(' поведение                                набегов  набег / оборона  первое падение  прорвали  лагерей  падений осадой  падений/ч  нанято  ушло  жителями  распущено  бойцов потеряно  войско к 1/2/4/6 ч    люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  найм встал на');
+  console.log(FRESH_HEADER);
   const fresh = {} as Record<Style, Out[]>;
-  const freshRows: { label: string; style: Style; study?: boolean }[] = [
+  const freshRows: FreshSpec[] = [
     ...STYLES.map((style) => ({ label: NAME[style], style })),
     { label: 'высокий налог, без технологий', style: 'meansHigh' as Style, study: false },
   ];
   for (const spec of freshRows) {
-    const outs: Out[] = [];
+    const outs = await freshRow(spec);
     if (spec.study === undefined) fresh[spec.style] = outs;
-    const army: number[][] = [[], [], [], []];
-    const pop: number[][] = [[], [], [], []];
-    const lvl: number[][] = [[], [], [], []];
-    for (const seed of NEW_SEEDS) {
-      setRandom(seeded(seed));
-      const g = createInitialState(seed);
-      g.tutorialDone = true;
-      outs.push(
-        await live({
-          g,
-          seed,
-          style: spec.style,
-          study: spec.study,
-          hours: NEW_HOURS,
-          ripe: false,
-          build: true,
-          hourly: (h, x) => {
-            const i = HOURS_AT.indexOf(h);
-            if (i < 0) return;
-            army[i].push(armySize(x));
-            pop[i].push(x.pop);
-            lvl[i].push(sum(x.buildings.map((b) => b.level)) / x.buildings.length);
-          },
-        }),
-      );
-      setRandom(null);
-    }
-    const t = tally(
-      outs.map((o) => o.run),
-      NEW_HOURS,
-    );
-    const l = outs.map((o) => o.l);
-    const first = t.first.length ? `${hm(Math.min(...t.first))}…${hm(Math.max(...t.first))}${t.first.length < outs.length ? ` (${t.first.length} из ${outs.length})` : ''}` : 'нет';
-    const row = (xs: number[][], f: (v: number) => string): string => xs.map((v) => pad(f(mean(v)), 4)).join(' ');
-    console.log(
-      ` ${spec.label.padEnd(39)} ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(first, 14)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.returned)), 8)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(t.lost, 15)}  ${row(army, (v) => String(Math.round(v))).padEnd(19)}  ${row(pop, (v) => String(Math.round(v))).padEnd(20)}  ${row(lvl, (v) => v.toFixed(1)).padEnd(23)}  ${fmtStops(l)}`,
-    );
   }
 
   // В. Уведённые люди.

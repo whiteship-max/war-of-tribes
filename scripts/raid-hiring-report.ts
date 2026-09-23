@@ -10,7 +10,8 @@
 // так что правки, задевающей лазарет и не задевающей найм, не бывает.
 //
 //   npm run raid-hiring:report
-import { hiringSection } from './raid-hiring';
+//   CLOSED_SHARE=1 npm run raid-hiring:report   — только перемер довода autopilot.openMix (docs/hiring.md, раздел 15)
+import { closedShareSection, hiringSection } from './raid-hiring';
 import { infirmarySection } from './raid-infirmary';
 import { burntSection } from './raid-burnt';
 import { measure } from './lib/measured';
@@ -23,13 +24,18 @@ const lap = (name: string): void => {
   clock.at = now;
 };
 
-const hired = await hiringSection();
-lap('Найм');
-await infirmarySection(hired);
-lap('Лазарет');
-await burntSection(hired);
-lap('Сожжённые посёлки');
+if (process.env.CLOSED_SHARE) {
+  // Перемер одного довода прибора (docs/hiring.md, раздел 15) — не приёмка, и прочих разделов не гонит.
+  await closedShareSection();
+} else {
+  const hired = await hiringSection();
+  lap('Найм');
+  await infirmarySection(hired);
+  lap('Лазарет');
+  await burntSection(hired);
+  lap('Сожжённые посёлки');
 
-console.log('');
-console.log('=== Сколько стоит каждый раздел ===');
-for (const [name, sec] of clock.rows) console.log(`  ${name.padEnd(28)} ${measure(`${sec.toFixed(0)} с`)}`);
+  console.log('');
+  console.log('=== Сколько стоит каждый раздел ===');
+  for (const [name, sec] of clock.rows) console.log(`  ${name.padEnd(28)} ${measure(`${sec.toFixed(0)} с`)}`);
+}

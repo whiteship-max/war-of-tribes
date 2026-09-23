@@ -27,6 +27,7 @@ import {
   pilot,
   player,
   unitCost,
+  type ClosedShare,
   type Ledger,
   type Player,
   type Run,
@@ -162,6 +163,10 @@ interface Opts {
   also?: (g: GameState) => void;
   /** Изучает ли игрок ступени ветвей; нет — как у общего автопилота, изучает. */
   study?: boolean;
+  /** Куда уходит доля закрытого гейтом вида; нет — как у общего автопилота, открытым видам. */
+  closed?: ClosedShare;
+  /** Бережёт ли запас рук на стройку любое поведение; нет — как у общего автопилота. */
+  reserve?: boolean;
   hourly?: (h: number, g: GameState) => void;
   effect?: (e: HomeEffect, now: number) => void;
   after?: (x: { g: GameState; world: LocalWorld; now: number; figures: FigureView[] }) => Promise<void>;
@@ -212,7 +217,13 @@ export async function live(o: Opts): Promise<Out> {
   const flown = await pilot({
     g,
     seconds: o.hours * 3600,
-    player: playerOf(style, { build: o.build ? { skip: [] } : false, also: o.also, ...(o.study === undefined ? {} : { study: o.study }) }),
+    player: playerOf(style, {
+      build: o.build ? { skip: [] } : false,
+      also: o.also,
+      ...(o.study === undefined ? {} : { study: o.study }),
+      ...(o.closed === undefined ? {} : { closed: o.closed }),
+      ...(o.reserve === undefined ? {} : { reserve: o.reserve }),
+    }),
     world: { seed: o.seed, pulse: 30, raids: true, ripe: o.ripe, step: o.step ?? GAME, ref: o.ref },
     economy: 'live',
     tick: 1,

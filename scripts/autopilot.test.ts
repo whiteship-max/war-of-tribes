@@ -18,7 +18,7 @@ import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
 import { setTimeScale, timeScale } from '@/game/pace';
-import { MIX, openMix, pilot, played, player, spareHands, stackOf, townAt, type Inside } from './autopilot';
+import { MIX, clubMix, openMix, pilot, played, player, spareHands, stackOf, townAt, type Inside } from './autopilot';
 import { idleCount } from '@/game/derived';
 import { placeOpen, techLevel, troopOpen } from '@/game/sim/tech';
 import { pointsOf } from '@/game/sim/points';
@@ -358,5 +358,53 @@ describe('найм «всё, что прокормит» в приборе', () 
     });
     expect(hired, 'точка внутри области: найм был').toBeGreaterThan(0);
     expect(below, 'не строит — запас не бережёт').toBeGreaterThan(0);
+  });
+});
+
+describe('ручки перемера довода openMix', () => {
+  /**
+   * `clubMix` — перемер, а не правило прибора, и держат его два свойства: когда открыто всё, он
+   * совпадает с `openMix` до бойца, а на первом уровне ветви вся доля мерки уходит дубинщикам.
+   * Область: на первом уровне из мерки не открыт ни один вид — иначе «вся доля» была бы пустыми
+   * словами. Мутация «доля закрытых теряется» роняет «на первом уровне — дубинщикам».
+   */
+  it('clubMix: закрытая доля — дубинщикам, а при открытой ветви состав тот же, что у openMix', () => {
+    const low = createInitialState(7);
+    expect(Object.keys(openMix(low, MIX)), 'точка внутри области: на первом уровне из мерки не открыт никто').toEqual([]);
+    expect(clubMix(low, MIX), 'на первом уровне — дубинщикам').toEqual({ clubman: sum(Object.values(MIX).map((n) => n ?? 0)) });
+    const top = createInitialState(7);
+    top.realm.tech.war = levelsOf('war');
+    expect(clubMix(top, MIX), 'ветвь открыта — состав прибора').toEqual(openMix(top, MIX));
+  });
+
+  /**
+   * `reserve` — запас рук у любого поведения. Область: «по средствам» с дубинщиками, у которого
+   * казна не держит найм и найм упирается в руки. Мутация «reserve не читается» роняет «после
+   * найма запас цел».
+   */
+  it('reserve: «по средствам» с запасом не забирает руки строителей', async () => {
+    const g = createInitialState(7);
+    g.tutorialDone = true;
+    let hired = 0;
+    let decisions = 0;
+    await pilot({
+      g,
+      seconds: 600,
+      player: player('means', { tax: 'high', study: false, closed: 'clubman', reserve: true }),
+      world: { seed: 7, pulse: 30, raids: false },
+      economy: 'live',
+      tick: 1,
+      decide: 30,
+      watch: {
+        decided: (s, l) => {
+          if (l.hired > hired) {
+            decisions++;
+            expect(idleCount(s), `после найма запас цел: ${s.time} с`).toBeGreaterThanOrEqual(spareHands(s));
+          }
+          hired = l.hired;
+        },
+      },
+    });
+    expect(decisions, 'точка внутри области: найм был').toBeGreaterThan(0);
   });
 });
