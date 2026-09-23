@@ -156,7 +156,8 @@ function warSection(shield: (number | null)[]): void {
   const fullDay = full === null ? null : full / DAY_LENGTH;
   console.log('');
   console.log('Военная лестница против защиты новичка (docs/dynasty.md, раздел 4.2).');
-  console.log('Прогон идёт БЕЗ гейта — раздел отвечает «что успел бы открыть», а не «что случилось».');
+  console.log('Гейт в игре есть, но этого прогона он не касается: его игрок не кует и не нанимает, и дуга посёлка от ветви не зависит.');
+  console.log('Раздел отвечает «что успел бы открыть игрок с таким правителем», а не «что случилось»; что случается — `raid-hiring:report`, раздел Б.');
   console.log(
     `Защита новичка: логово бьёт вполсилы до ${shieldVillagers(0)} жителей и полной силой с ${shieldVillagers(1)}; ` +
       `дуга этого прогона доходит до них на днях ${fromDay === null ? 'не дошли' : fromDay.toFixed(0)} и ${fullDay === null ? 'не дошли' : fullDay.toFixed(0)}.`,
@@ -190,7 +191,7 @@ function warSection(shield: (number | null)[]): void {
     }
   }
   console.log('  Единица — игровой день; накопление считается от начального котла `startingPoints`.');
-  console.log('  Что здесь НЕ измерено: что бывает с новичком под гейтом на самом деле, — это `raid-hiring:report`, раздел Б.');
+  console.log('  Замерено там же: новичок под гейтом с высоким налогом не теряет города ни разу (0 % прорывов), а не изучавший — падает на 127-й игровой день.');
 }
 
 async function main(): Promise<void> {
