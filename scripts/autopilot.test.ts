@@ -18,7 +18,8 @@ import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
 import { setTimeScale, timeScale } from '@/game/pace';
-import { MIX, clubMix, openMix, pilot, played, player, spareHands, stackOf, townAt, type Inside } from './autopilot';
+import { MIX, clubMix, hands, openMix, pilot, played, player, spareHands, spareOf, stackOf, townAt, type Inside } from './autopilot';
+import { FREE_JOBS } from '@/game/data/jobs';
 import { idleCount } from '@/game/derived';
 import { placeOpen, techLevel, troopOpen } from '@/game/sim/tech';
 import { pointsOf } from '@/game/sim/points';
@@ -366,6 +367,72 @@ describe('найм того, кто строит, в приборе', () => {
     });
     expect(hired, 'точка внутри области: найм был').toBeGreaterThan(0);
     expect(below, 'не строит — запас не бережёт').toBeGreaterThan(0);
+  });
+
+  /**
+   * Запас — того племени, каким оно станет после найма (`hands`). Найм оставляет свободными ровно
+   * запас нового племени: ни рукой меньше — то была бы рука строителя, — ни рукой больше: её отдало
+   * бы в войско следующее решение, и сколько войску достаётся за раз, решала бы частота решений
+   * (docs/hiring.md, раздел 16). Область — племена до тысячи и все доли свободных; точки, где найм
+   * вообще возможен, считаются и обязаны быть. Мутация «запас нынешнего племени» роняет «ни рукой
+   * больше запаса».
+   */
+  it('найм строящего оставляет свободными ровно запас племени после найма', () => {
+    let asked = 0;
+    for (let pop = 2; pop <= 1000; pop += 7) {
+      for (let idle = 0; idle <= pop; idle += Math.max(1, Math.floor(pop / 13))) {
+        const g = createInitialState(7);
+        g.pop = pop;
+        g.workers = {};
+        g.bondedWork = {};
+        g.freeJobs = { [FREE_JOBS[0]]: pop - idle };
+        expect(idleCount(g), 'свободных столько, сколько задано').toBe(idle);
+        expect(hands(g, false), 'кто не строит — отдаёт все свободные руки').toBe(idle);
+        const n = hands(g, true);
+        if (n > 0) {
+          asked++;
+          expect(idle - n, `племя ${pop}, свободных ${idle}: после найма запас цел`).toBeGreaterThanOrEqual(spareOf(pop - n));
+        }
+        if (n < idle) expect(idle - (n + 1), `племя ${pop}, свободных ${idle}: ни рукой больше запаса`).toBeLessThan(spareOf(pop - n - 1));
+      }
+    }
+    expect(asked, 'точки внутри области: найм был возможен').toBeGreaterThan(100);
+  });
+
+  /**
+   * Исход не зависит от того, как часто прибор решает. У того, кто строит и нанимает, войско — из
+   * новорождённых: их первым встречает найм, а не расстановка (`decide`). Прежде расстановка шла
+   * первой: при частых решениях новорождённые уходили в войско все, при редких часть успевала на
+   * работы, и пол ветви кончал партию на 115 и на 707 жителях при решениях раз в полдня и раз в
+   * полтора дня (docs/hiring.md, раздел 16).
+   *
+   * Область: пол ветви — дубинщики при высоком налоге: казна их не держит, найм упирается в руки,
+   * и делёж новорождённых решает всё; новорождённые были. Мутация «расстановка первой» роняет
+   * «племя то же».
+   */
+  it('войско из новорождённых одно и то же при любой частоте решений', async () => {
+    const at: Record<number, { pop: number; hired: number; born: number; hands: number; decisions: number }> = {};
+    for (const decide of [30, 90]) {
+      const g = createInitialState(7);
+      g.tutorialDone = true;
+      const f = await pilot({
+        g,
+        seconds: 3600,
+        player: player('means', { tax: 'high', study: false, closed: 'clubman' }),
+        world: { seed: 7, pulse: 30, raids: false },
+        economy: 'live',
+        tick: 1,
+        decide,
+      });
+      const stops = Object.values(f.ledger.stops).reduce((a, v) => a + (v ?? 0), 0);
+      at[decide] = { pop: g.pop, hired: f.ledger.hired, born: g.stats.born, hands: f.ledger.stops['руки'] ?? 0, decisions: stops };
+    }
+    for (const d of [30, 90]) {
+      expect(at[d].born, `раз в ${d} с: точка внутри области — новорождённые были`).toBeGreaterThan(30);
+      expect(at[d].hands / at[d].decisions, `раз в ${d} с: и найм упирался в руки, а не в казну`).toBeGreaterThan(0.8);
+    }
+    expect(Math.abs(at[30].pop - at[90].pop), `племя то же: ${at[30].pop} и ${at[90].pop}`).toBeLessThanOrEqual(10);
+    expect(Math.abs(at[30].hired - at[90].hired), `и войску досталось то же: ${at[30].hired} и ${at[90].hired}`).toBeLessThanOrEqual(10);
   });
 });
 
