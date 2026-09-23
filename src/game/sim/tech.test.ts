@@ -17,9 +17,10 @@ import {
   DIPLO_RUNGS,
   POINTS_CAP,
   REALM_BRANCHES,
-  WAR_CAPTIVES_BUILT,
+  WAR_CAPTIVES_LEVEL,
+  WAR_FATES,
+  WAR_GEAR_ORDER,
   WAR_LEVELS,
-  builtLevelsOf,
   diploLevelOf,
   levelPrice,
   levelsOf,
@@ -37,6 +38,9 @@ import { FIGURE_IDS } from '@/world/data/figures';
 import { EVENT_BY_ID, EVENTS } from '../data/events';
 import {
   creditTech,
+  fateLocks,
+  fateOpen,
+  fateOpenAt,
   gearBlock,
   gearOpen,
   gearOpenAt,
@@ -58,6 +62,8 @@ import { hireInfo } from './hire';
 import { raiseEvent } from './mail';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
+import { playerProfile } from '@/world/bridge';
+import { FATE_IDS } from '@/world/spoils';
 import type { EquipmentId, GameState } from '../types';
 
 /** Новая партия с названной верой: имена есть, ветви — на первом уровне. */
@@ -336,7 +342,7 @@ describe('замки гейта', () => {
     const bad: string[] = [];
     for (const file of sources()) {
       if (allowed.some((a) => file.endsWith(a))) continue;
-      if (/\bdiploLevelOf\b|\bopenAtLevel\b|\bmailSlotsAt\b|\bplaceOpenAt\b|\bwarLevelOfGear\b|\bwarLevelOfTroop\b|\bgearOpenAt\b|\btroopOpenAt\b/.test(bare(file))) bad.push(file);
+      if (/\bdiploLevelOf\b|\bopenAtLevel\b|\bmailSlotsAt\b|\bplaceOpenAt\b|\bwarLevelOfGear\b|\bwarLevelOfTroop\b|\bgearOpenAt\b|\btroopOpenAt\b|\bwarLevelOfFate\b|\bfateOpenAt\b/.test(bare(file))) bad.push(file);
     }
     expect(bad, 'открытость считают мимо двери').toEqual([]);
   });
@@ -452,39 +458,61 @@ describe('военная ветвь: лестница выводится, а н�
     expect(recruitCheck(open, 'knight', 1).blocked ?? '', 'и уровня конюшни в отказе нет').not.toMatch(/конюшни/);
   });
 
-  /** Ключи гейта не пересекаются: вещь, вид и ступень дипломатии зовутся по-разному. */
+  /** Ключи гейта не пересекаются: вещь, вид, участь и ступень дипломатии зовутся по-разному. */
   it('ключи гейта не пересекаются', () => {
-    const all = [...EQUIPMENT_IDS, ...TROOP_IDS, ...DIPLO_RUNGS] as string[];
+    const all = [...EQUIPMENT_IDS, ...TROOP_IDS, ...DIPLO_RUNGS, ...WAR_FATES] as string[];
     expect(new Set(all).size, 'одно имя на два смысла').toBe(all.length);
   });
 
-  /** Что даст ступень — замером: названное обязано и правда открыться. */
+  /**
+   * Что даст ступень — замером: названное обязано и правда открыться. Вещи и участи
+   * проверяются каждая своей дверью: ступень вещи открывает вещь, ступень участи — участь,
+   * и ни одна ступень не открывает ничего.
+   */
   it('что открывает ступень военной ветви, сходится с тем, что после неё открылось', () => {
-    for (let l = 1; l < builtLevelsOf('war'); l++) {
+    for (let l = 1; l < WAR_LEVELS; l++) {
       const gains = techGains('war', l);
       expect(gains.length, `у ступени ${l + 1} есть что открыть`).toBeGreaterThan(0);
       const grewGear = EQUIPMENT_IDS.filter((i) => gearOpenAt(l + 1, i)).length - EQUIPMENT_IDS.filter((i) => gearOpenAt(l, i)).length;
       const grewTroops = TROOP_IDS.filter((t) => troopOpenAt(l + 1, t)).length - TROOP_IDS.filter((t) => troopOpenAt(l, t)).length;
-      expect(grewGear, `ступень ${l + 1} и правда открыла вещь`).toBeGreaterThan(0);
-      expect(gains.join(' ')).toMatch(/Кузница/);
+      const grewFates = FATE_IDS.filter((f) => fateOpenAt(l + 1, f)).length - FATE_IDS.filter((f) => fateOpenAt(l, f)).length;
+      expect(grewGear + grewFates, `ступень ${l + 1} и правда открыла вещь или участь`).toBe(1);
+      if (grewGear > 0) expect(gains.join(' ')).toMatch(/Кузница/);
       if (grewTroops > 0) expect(gains.join(' ')).toMatch(/Войско/);
+      if (grewFates > 0) expect(gains.join(' ')).toMatch(/Участь взятого города: увести людей/);
     }
   });
 
   /**
-   * Ступень участи ещё не подключена, и продавать её нельзя: это ценник без товара.
-   * Точка внутри области — ветвь изучена до последней подключённой ступени.
+   * **Ступень участи подключена и продаётся** (решение владельца по docs/dynasty.md,
+   * раздел 11.2). Область: ветвь изучена до последней вещи, участь закрыта, и очков на
+   * ступень хватает — иначе «не продаётся» и «не на что купить» неразличимы.
+   *
+   * Показ и запрет читают одно: строка, которая едет в мир слепком и которой мир отказывает
+   * приказу, — та же, что у ступени в «Технологиях». Мутации: `fateLocks` без участи → падает
+   * «до покупки участь заперта»; мост без замков → падает «слепок везёт замок».
    */
-  it('неподключённая ступень не продаётся', () => {
-    expect(WAR_CAPTIVES_BUILT, 'точка внутри области: ступень участи и правда не подключена').toBe(false);
-    expect(builtLevelsOf('war'), 'продаётся ветвь до вещей').toBe(WAR_LEVELS - 1);
-    expect(levelsOf('war'), 'а длина ветви прежняя: по ней считаются цены').toBe(WAR_LEVELS);
-    const s = warStudied(builtLevelsOf('war'));
+  it('ступень участи продаётся, и её замок едет в мир той же строкой', () => {
+    expect(WAR_CAPTIVES_LEVEL, 'участь — верх ветви, за последней вещью').toBe(WAR_LEVELS);
+    expect(WAR_CAPTIVES_LEVEL - 1, 'и последняя вещь стоит ступенью ниже').toBe(warLevelOfGear(WAR_GEAR_ORDER[WAR_GEAR_ORDER.length - 1]));
+
+    const s = warStudied(WAR_CAPTIVES_LEVEL - 1);
+    expect(fateOpen(s, 'captives'), 'точка внутри области: вещи изучены, участь закрыта').toBe(false);
+    expect(fateOpen(s, 'plunder'), '«ограбить» гейтом не закрыто: с него партия начинается').toBe(true);
+    const lock = techBlock(s, 'captives');
+    expect(lock, 'причина названа словами').toMatch(/увести людей.*8 уровень военной ветви/);
+    expect(fateLocks(s), 'до покупки участь заперта — той же строкой').toEqual({ captives: lock });
+    expect(playerProfile(s).fateLocks, 'слепок везёт замок в мир').toEqual({ captives: lock });
+
     s.realm.points.war = POINTS_CAP;
     s.realm.pointsAt = s.time;
-    expect(studyInfo(s, 'war').next, 'покупать нечего').toBe(0);
-    expect(study(s, 'war')).toMatch(/не подключена/);
-    expect(techLevel(s, 'war'), 'уровень на месте').toBe(builtLevelsOf('war'));
+    expect(studyInfo(s, 'war').next, 'покупается восьмая').toBe(WAR_CAPTIVES_LEVEL);
+    expect(study(s, 'war')).toBeNull();
+    expect(techLevel(s, 'war')).toBe(WAR_CAPTIVES_LEVEL);
+    expect(fateOpen(s, 'captives'), 'купил — открыто').toBe(true);
+    expect(fateLocks(s), 'запирать нечего').toEqual({});
+    expect('fateLocks' in playerProfile(s), 'и слепок тот же, что до гейта участи: поля нет вовсе').toBe(false);
+    expect(studyInfo(s, 'war').blocked, 'дальше продавать нечего').toMatch(/изучена целиком/);
   });
 });
 
@@ -546,9 +574,69 @@ describe('начатая партия: военная ветвь по самой
   });
 
   it('засчитывание только поднимает уровень военной ветви и никогда не опускает', () => {
-    const s = warStudied(builtLevelsOf('war'));
+    const s = warStudied(WAR_LEVELS);
     expect(creditTech(s), 'выше засчитанного не трогает').toEqual([]);
-    expect(techLevel(s, 'war')).toBe(builtLevelsOf('war'));
+    expect(techLevel(s, 'war')).toBe(WAR_LEVELS);
+  });
+
+  /**
+   * **Засчитывание доходит до седьмой ступени включительно — до последней вещи.** Каждая
+   * вещь доказывает ровно свой уровень, и самая дорогая из них (доспех) — последний уровень
+   * вещей, а не верх ветви. Область: у каждой вещи свой уровень, и верх вещей ниже верха
+   * ветви, — иначе «ровно свой» и «до седьмой» были бы одним утверждением.
+   * Мутации: `warLevelOfGear(item) + 1` в засчитывании → падает «spear — ровно свой
+   * уровень»; «самая дорогая вещь доказывает верх ветви» → падает «armor — ровно свой уровень».
+   */
+  it('каждая вещь засчитывает ровно свой уровень, и выше седьмого засчитывание не идёт', () => {
+    const top = warLevelOfGear(WAR_GEAR_ORDER[WAR_GEAR_ORDER.length - 1]);
+    expect(top, 'точка внутри области: верх вещей — седьмая ступень').toBe(7);
+    expect(top, 'и он ниже верха ветви').toBeLessThan(WAR_LEVELS);
+    for (const item of EQUIPMENT_IDS) {
+      const s = aged((x) => {
+        x.equipment[item] = 1;
+      });
+      expect(techLevel(s, 'war'), `${item} — ровно свой уровень`).toBe(warLevelOfGear(item));
+    }
+    const all = aged((x) => {
+      for (const item of EQUIPMENT_IDS) x.equipment[item] = 1;
+      for (const t of TROOP_IDS) x.army[t] = 5;
+    });
+    expect(techLevel(all, 'war'), 'доспех — седьмой, а не восьмой').toBe(top);
+  });
+
+  /**
+   * **Участь не засчитывается по доказательству — никакому** (решение владельца по
+   * docs/dynasty.md, раздел 11.2). Правило «по самой дорогой вещи» — про вещи; у участи
+   * доказательства в сохранении нет, и всякое, какое можно придумать, отдало бы вместе с ней
+   * весь доспех. Здесь собраны все, что есть: вся кузница на складе, все виды в дружине,
+   * выигранные битвы, невольники, запись до гейта (`hadAll`) — и участь остаётся закрытой.
+   *
+   * Мутации, каждая роняет своё утверждение: засчитать участь по победам
+   * (`battlesWon > 0`) → «приведённая партия»; по `hadAll` → «прямое засчитывание с
+   * `hadAll`»; по невольникам — там же, где победы.
+   */
+  it('участь не засчитывается никому: ни победами, ни невольниками, ни записью до гейта', () => {
+    const proven = (x: GameState): void => {
+      for (const item of EQUIPMENT_IDS) x.equipment[item] = 10;
+      for (const t of TROOP_IDS) x.army[t] = 20;
+      x.bonded = 40;
+      x.profile.card.battlesWon = 30;
+    };
+    // Точка внутри области: доказательства и правда стоят в партии.
+    const probe = party();
+    proven(probe);
+    expect(probe.profile.card.battlesWon, 'битвы выиграны').toBeGreaterThan(0);
+    expect(probe.bonded, 'невольники есть').toBeGreaterThan(0);
+
+    const old = aged(proven);
+    expect(techLevel(old, 'war'), 'приведённая партия: вся ветвь до вещей — и ни ступенью выше').toBe(WAR_CAPTIVES_LEVEL - 1);
+    expect(fateOpen(old, 'captives'), 'приведённая партия: участь закрыта').toBe(false);
+
+    const direct = party();
+    proven(direct);
+    creditTech(direct, true);
+    expect(techLevel(direct, 'war'), 'прямое засчитывание с `hadAll`: участь не засчитана').toBe(WAR_CAPTIVES_LEVEL - 1);
+    expect(fateLocks(direct), 'и замок едет в мир').toEqual({ captives: techBlock(direct, 'captives') });
   });
 });
 

@@ -419,15 +419,32 @@ export const burnImmune = (until: number | undefined, now: number): boolean => n
 export type FateTarget = 'player' | 'world';
 
 /**
+ * Что запер гейт у того, кто объявляет участь: участь → строка отказа. Мир не знает ни
+ * уровней, ни ветвей — строку считает дверь гейта у племени (`sim/tech.fateLocks`) и везёт
+ * слепком (`PlayerProfile.fateLocks`), и она буква в букву та же, что стоит в «Технологиях».
+ * Нет замков — ничего не заперто: так объявляют логова и двор мира (ветвей у них нет).
+ */
+export type FateLocks = Partial<Record<Fate, string>>;
+
+/**
  * Можно ли объявить эту участь этой цели в эту минуту. null — можно, иначе причина
  * словами. Одна проверка на приказ и на падение: приказ отказывает до нажатия, а
  * падение, до которого не дойти приказом, подменяет недоступное умолчанием (`fateAt`).
+ * `locks` — замки гейта у объявляющего; у объявляющего без ветвей их нет.
  */
-export function fateBlock(f: Fate, target: FateTarget, burnUntil: number | undefined, now: number): string | null {
+export function fateBlock(
+  f: Fate,
+  target: FateTarget,
+  burnUntil: number | undefined,
+  now: number,
+  locks?: FateLocks,
+): string | null {
   const rule = FATES[f];
   if (!rule.vsWorld && target === 'world') {
     return 'Сжечь можно только город игрока: у логова и двора нет ни построек, ни партии, которую можно отбросить.';
   }
+  const locked = locks?.[f];
+  if (locked) return locked;
   if (rule.chain && burnImmune(burnUntil, now)) {
     const hours = Math.max(1, Math.ceil(((burnUntil ?? 0) - now) / 3_600_000));
     return `Город сожгли меньше суток назад: сжечь снова можно через ${hours} ч. Ограбить и увести людей — можно.`;
@@ -435,8 +452,18 @@ export function fateBlock(f: Fate, target: FateTarget, burnUntil: number | undef
   return null;
 }
 
-/** Какой участью кончится взятие: объявленной, если она ещё доступна, иначе умолчанием. */
-export const fateAt = (declared: Fate | undefined, target: FateTarget, burnUntil: number | undefined, now: number): Fate => {
+/**
+ * Какой участью кончится взятие: объявленной, если она ещё доступна, иначе умолчанием.
+ * Замки гейта спрашиваются и здесь, а не только у приказа: приказ, отданный до того, как
+ * ступень заперли, падением не исполняется — его исполняет умолчание.
+ */
+export const fateAt = (
+  declared: Fate | undefined,
+  target: FateTarget,
+  burnUntil: number | undefined,
+  now: number,
+  locks?: FateLocks,
+): Fate => {
   const f = declared ?? FATE_DEFAULT;
-  return fateBlock(f, target, burnUntil, now) ? FATE_DEFAULT : f;
+  return fateBlock(f, target, burnUntil, now, locks) ? FATE_DEFAULT : f;
 };

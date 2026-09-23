@@ -11,7 +11,7 @@
 // гаснет кнопка. Самим `Cost` очки не показать — он про ресурсы склада и казну, а очки не
 // ресурс; форма поэтому взята его, буква в букву, чтобы игрок читал её тем же взглядом.
 import { useGame } from '@/game/store';
-import { BRANCH_BUILT, BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, builtLevelsOf, levelPrice, levelsOf } from '@/game/data/realm';
+import { BRANCH_BUILT, BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, levelPrice, levelsOf } from '@/game/data/realm';
 import { pointsOf, rulerRate } from '@/game/sim/points';
 import { levelName, study, studyInfo, techGains, techLevel } from '@/game/sim/tech';
 import { waitLeft } from '@/ui/parts/wait';
@@ -73,12 +73,6 @@ function Branch({ branch }: { branch: RealmBranch }) {
             Что уровень открывает, здесь не подписано, а измерено: игра спрашивает у гейта, чем
             держава на этом уровне отличается от державы уровнем ниже, — и печатает разницу.
           </div>
-          {builtLevelsOf(branch) < last && (
-            <div className="note">
-              Последняя ступень ещё не подключена: пока она ничего не открывает, её и не продают.
-              Цену ветви она при этом держит — по ней считаются все остальные.
-            </div>
-          )}
         </>
       )}
     </div>
@@ -90,10 +84,7 @@ function Level({ branch, level, at }: { branch: RealmBranch; level: number; at: 
   const act = useGame((g) => g.act);
   const info = studyInfo(s, branch);
   const done = level <= at;
-  // Ступень, которая ещё ничего не спрашивает у гейта, не продаётся: ценник без товара
-  // запрещён тем же доводом, что непостроенная ветвь (`data/realm.builtLevelsOf`).
-  const wired = level <= builtLevelsOf(branch);
-  const next = wired && level === at + 1;
+  const next = level === at + 1;
   const price = levelPrice(branch, level);
   // Что открыл (или откроет) этот уровень — разница дверей между ним и уровнем ниже.
   const gains = techGains(branch, level - 1);
@@ -101,12 +92,12 @@ function Level({ branch, level, at }: { branch: RealmBranch; level: number; at: 
   return (
     <>
       <div className={`mod${done ? '' : next ? ' warn' : ' off'}`}>
-        <span className="ico">{done ? '✓' : !wired ? '—' : next ? '◆' : '🔒'}</span>
+        <span className="ico">{done ? '✓' : next ? '◆' : '🔒'}</span>
         <span className="name">
           {level} · {levelName(branch, level)}
           {gains.length > 0 && <em className="sub">{gains.join(' · ')}</em>}
         </span>
-        <span className={`val${done ? ' pos' : ''}`}>{done ? 'изучено' : wired ? `${price} очков` : 'ещё не подключена'}</span>
+        <span className={`val${done ? ' pos' : ''}`}>{done ? 'изучено' : `${price} очков`}</span>
       </div>
 
       {next && (

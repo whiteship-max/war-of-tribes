@@ -7,17 +7,18 @@
 // обещает одно, кнопка делает другое, и разойдутся они ровно тогда, когда лестницу
 // поправят.
 //
-// **Рукописного `requiresTech` нет ни у здания, ни у бойца, ни у вещи, ни у агента, и
-// заводить его нельзя.** Уровень ступени выводится из места в списке ветви
-// (`data/realm.diploLevelOf`), а что ступень даёт — меряется этими же дверьми
-// (`techGains`), а не подписывается рядом. Держат это тесты по исходникам
-// (`sim/tech.test.ts`).
+// **Рукописного `requiresTech` нет ни у здания, ни у бойца, ни у вещи, ни у агента, ни у
+// участи, и заводить его нельзя.** Уровень ступени выводится из места в списке ветви
+// (`data/realm.diploLevelOf`, `warLevelOfFate`) или из работы горна (`warLevelOfGear`), а что
+// ступень даёт — меряется этими же дверьми (`techGains`), а не подписывается рядом. Держат
+// это тесты по исходникам (`sim/tech.test.ts`).
 //
 // **Ни одного тика.** Уровень лежит в партии (`RealmState.tech`), всё остальное —
 // чтение: открыто ли место, сколько ячеек у стола, что даст следующий уровень.
-import type { FigureId } from '@/world/types';
+import type { Fate, FigureId } from '@/world/types';
 import type { EquipmentId, GameState, RealmBranch, TroopId } from '../types';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
+import { FATE_META } from '@/world/data/fates';
 import { LETTER_DECISIONS } from '@/world/letters';
 import { EQUIPMENT_BY_ID, EQUIPMENT_IDS } from '../data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
@@ -28,11 +29,14 @@ import {
   DIPLO_RUNGS,
   DIPLO_RUNG_NAME,
   type DiploRung,
-  builtLevelsOf,
+  WAR_FATES,
+  type WarFate,
   diploLevelOf,
   isDiploRung,
+  isWarFate,
   levelPrice,
   levelsOf,
+  warLevelOfFate,
   warLevelOfGear,
   warLevelOfTroop,
 } from '../data/realm';
@@ -42,15 +46,15 @@ import { pointsOf, rulerRate, spend } from './points';
 import { log } from './log';
 
 /**
- * Что можно спросить у гейта: ступень дипломатической ветви, вещь кузницы или вид бойца.
- * Административная ветвь ещё не построена, и заводить её ключи заранее значило бы обещать
- * проверку, которой нет.
+ * Что можно спросить у гейта: ступень дипломатической ветви, вещь кузницы, вид бойца или
+ * участь взятого города. Административная ветвь ещё не построена, и заводить её ключи
+ * заранее значило бы обещать проверку, которой нет.
  *
  * Ключи не пересекаются, и это свойство самих таблиц контента, а не соглашение: вещь
- * зовётся `spear`, боец — `spearman`, ступень дипломатии — `spy`. Сойдись однажды два
- * имени — упадёт тест «ключи гейта не пересекаются».
+ * зовётся `spear`, боец — `spearman`, ступень дипломатии — `spy`, участь — `captives`.
+ * Сойдись однажды два имени — упадёт тест «ключи гейта не пересекаются».
  */
-export type TechKey = DiploRung | EquipmentId | TroopId;
+export type TechKey = DiploRung | EquipmentId | TroopId | WarFate;
 
 export interface Gate {
   branch: RealmBranch;
@@ -68,6 +72,7 @@ const isTroop = (key: string): key is TroopId => (TROOP_IDS as readonly string[]
 export function gateOf(key: TechKey): Gate {
   if (isGear(key)) return { branch: 'war', level: warLevelOfGear(key) };
   if (isTroop(key)) return { branch: 'war', level: warLevelOfTroop(key) };
+  if (isWarFate(key)) return { branch: 'war', level: warLevelOfFate(key) };
   return { branch: 'diplo', level: diploLevelOf(key) };
 }
 
@@ -75,6 +80,7 @@ export function gateOf(key: TechKey): Gate {
 export function techName(key: TechKey): string {
   if (isGear(key)) return EQUIPMENT_BY_ID[key].name.toLowerCase();
   if (isTroop(key)) return TROOP_BY_ID[key].name.toLowerCase();
+  if (isWarFate(key)) return `участь «${FATE_META[key].name.toLowerCase()}»`;
   return DIPLO_RUNG_NAME[key].toLowerCase();
 }
 
@@ -91,7 +97,9 @@ export function levelName(branch: RealmBranch, level: number): string {
   }
   if (branch === 'war') {
     const item = EQUIPMENT_IDS.find((i) => warLevelOfGear(i) === level);
-    return item ? EQUIPMENT_BY_ID[item].name : `Уровень ${level}`;
+    if (item) return EQUIPMENT_BY_ID[item].name;
+    const fate = WAR_FATES.find((f) => warLevelOfFate(f) === level);
+    return fate ? `Участь: ${FATE_META[fate].name.toLowerCase()}` : `Уровень ${level}`;
   }
   return `Уровень ${level}`;
 }
@@ -170,6 +178,33 @@ export const troopOpen = (s: GameState, troop: TroopId): boolean => techOpen(s, 
 /** Почему вид не нанимают; `null` — нанимают. */
 export const troopBlock = (s: GameState, troop: TroopId): string | null => techBlock(s, troop);
 
+// ---------- Что гейт закрывает: участи взятого города ----------
+
+/**
+ * Можно ли объявить участь при таком уровне военной ветви. Участь вне ветви не закрыта
+ * гейтом вовсе: «ограбить» — то, с чем партия начинается, а «сжечь» в ветви нет (решение
+ * владельца 10) — её закрывает сама лестница участи (`spoils.fateBlock`, `vsWorld`).
+ */
+export const fateOpenAt = (level: number, fate: Fate): boolean => !isWarFate(fate) || openAtLevel(level, fate);
+
+/** Можно ли объявить участь сейчас. */
+export const fateOpen = (s: GameState, fate: Fate): boolean => !isWarFate(fate) || techOpen(s, fate);
+
+/**
+ * Какие участи партия объявить не может — и почему, той же строкой, что стоит в ветви.
+ * Это то, что едет в мир слепком (`PlayerProfile.fateLocks`): мир не знает ни уровней, ни
+ * ветвей, и проверяет приказ и падение готовой строкой гейта (`spoils.fateBlock`). Нечего
+ * запирать — пусто.
+ */
+export function fateLocks(s: GameState): Partial<Record<Fate, string>> {
+  const out: Partial<Record<Fate, string>> = {};
+  for (const f of WAR_FATES) {
+    const why = techBlock(s, f);
+    if (why) out[f] = why;
+  }
+  return out;
+}
+
 // ---------- Что даст следующий уровень: замером, а не подписью ----------
 
 /**
@@ -192,6 +227,8 @@ export function techGains(branch: RealmBranch, level: number): string[] {
     if (gear.length > 0) out.push(`Кузница: ${gear.map((i) => EQUIPMENT_BY_ID[i].name.toLowerCase()).join(', ')}`);
     const troops = TROOP_IDS.filter((t) => troopOpenAt(level + 1, t) && !troopOpenAt(level, t));
     if (troops.length > 0) out.push(`Войско: ${troops.map((t) => TROOP_BY_ID[t].name.toLowerCase()).join(', ')}`);
+    const fates = WAR_FATES.filter((f) => fateOpenAt(level + 1, f) && !fateOpenAt(level, f));
+    if (fates.length > 0) out.push(`Участь взятого города: ${fates.map((f) => FATE_META[f].name.toLowerCase()).join(', ')}`);
   }
   return out;
 }
@@ -219,17 +256,14 @@ export interface StudyInfo {
 /** Всё о следующем уровне ветви — одна функция на кнопку, на подпись и на действие. */
 export function studyInfo(s: GameState, branch: RealmBranch): StudyInfo {
   const level = techLevel(s, branch);
-  // Продаётся ветвь до последней **подключённой** ступени, а цены считаются от полной её
-  // длины: ступень, которая ничего не спрашивает у гейта, — ценник без товара.
-  const last = builtLevelsOf(branch);
-  const next = level < last ? level + 1 : 0;
+  const next = level < levelsOf(branch) ? level + 1 : 0;
   const price = next > 0 ? levelPrice(branch, next) : 0;
   const have = pointsOf(s, branch);
   const rate = rulerRate(s, branch);
   const short = Math.max(0, price - have);
   let blocked: string | null = null;
   if (!BRANCH_BUILT[branch]) blocked = `${BRANCH_NAME[branch]} ветвь ещё не построена.`;
-  else if (next === 0) blocked = last < levelsOf(branch) ? 'Дальше ветвь ещё не подключена.' : 'Ветвь изучена целиком.';
+  else if (next === 0) blocked = 'Ветвь изучена целиком.';
   else if (short > 0) blocked = `Не хватает очков: нужно ${price}, есть ${Math.floor(have)}.`;
   return {
     branch,
@@ -324,6 +358,13 @@ export function creditTech(s: GameState, hadAll = false): RealmBranch[] {
   // Военная ветвь: самая дорогая вещь, которая у партии уже есть. Лестница монотонна,
   // значит всё, что ниже, подразумевается, и своего перебора видов бойцов здесь не нужно —
   // вид доказывает ровно те вещи, которые носит.
+  //
+  // **Участи здесь нет, и это решение владельца, а не пропуск** (docs/dynasty.md, раздел
+  // 11.2): правило «по самой дорогой вещи» — про вещи, участь вещью не является, и
+  // доказательства для неё в сохранении нет. Засчитай её хоть чем-нибудь — победами,
+  // невольниками, `hadAll`, — и лестница, монотонная по построению, отдала бы вместе с ней
+  // весь доспех тем, кто его не ковал. Выше последней вещи засчитывание не поднимается
+  // никогда; участь открывается только покупкой — как ячейка стола донесений.
   let war = 1;
   for (const item of EQUIPMENT_IDS) if (heldGear(s, item)) war = Math.max(war, warLevelOfGear(item));
   raise('war', war);

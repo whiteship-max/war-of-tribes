@@ -192,6 +192,7 @@ import {
   fateBlock,
   homeLoss,
   winnerGain,
+  type FateLocks,
   type FateResult,
 } from '../spoils';
 import { FATE_META, gainText, lossText } from '../data/fates';
@@ -955,9 +956,23 @@ export class LocalWorld implements WorldApi {
    * Какой участью кончится взятие города `id` в минуту `at`: объявленной, если она ещё
    * доступна, иначе умолчанием (`spoils.fateAt`). Одна проверка на все места, где город
    * взят, — и на окно, которое называет участь заранее.
+   *
+   * `byPlayer` — объявлял ли игрок: тогда спрашиваются и замки его гейта (`playerLocks`).
+   * Наш город берут логова, ветвей у них нет; чужой — мы, если не сказано иное (чужой
+   * лагерь у чужого двора — `cardSiege`).
    */
-  protected fateFor(declared: Fate | undefined, id: SettlementId, at: number): Fate {
-    return fateAt(declared, id === HOME_ID ? 'player' : 'world', this.save.burnImmune[id], at);
+  protected fateFor(declared: Fate | undefined, id: SettlementId, at: number, byPlayer = id !== HOME_ID): Fate {
+    const locks = byPlayer ? this.playerLocks() : undefined;
+    return fateAt(declared, id === HOME_ID ? 'player' : 'world', this.save.burnImmune[id], at, locks);
+  }
+
+  /**
+   * Замки гейта у игрока: какие участи он объявить не может и почему — строкой, которую
+   * считает племя (`sim/tech.fateLocks`) и везёт слепком. Мир их не толкует, а передаёт в
+   * одну проверку участи (`spoils.fateBlock`) — на приказе, в строках выбора и на падении.
+   */
+  private playerLocks(): FateLocks | undefined {
+    return this.save.profile?.fateLocks;
   }
 
   /**
@@ -1022,7 +1037,7 @@ export class LocalWorld implements WorldApi {
       ...(w.gateAt !== undefined ? { gateAt: w.gateAt } : {}),
       ...(w.rearGateAt !== undefined ? { rearGateAt: w.rearGateAt } : {}),
       ...(wood !== undefined ? { wood } : {}),
-      fate: this.fateFor(w.fate, id, now),
+      fate: this.fateFor(w.fate, id, now, ourCamp(w)),
       // Часы голода — участникам осады и тем же чтением, что в обоих окнах осады.
       ...(hunger !== null ? { starvesAt: hunger } : {}),
     };
@@ -1835,7 +1850,7 @@ export class LocalWorld implements WorldApi {
     const target = this.byId.get(near.id);
     if (!target) return 'Цель не найдена.';
     // Участь объявляется приказом и проверяется им же: недоступную не объявить.
-    const blocked = fateBlock(fateId, 'world', this.save.burnImmune[target.id], now);
+    const blocked = fateBlock(fateId, 'world', this.save.burnImmune[target.id], now, this.playerLocks());
     if (blocked) return blocked;
     // «Осаждать» у своего же лагеря — тот же приказ с новой участью: окно остаётся, часы
     // голода и проходы не трогаются, осаждённый видит новую участь сразу.
@@ -5779,7 +5794,7 @@ export class LocalWorld implements WorldApi {
     }
     // Участь объявляется приказом и проверяется им же.
     const declared = order.fate ?? FATE_DEFAULT;
-    const blocked = fateBlock(declared, 'world', this.save.burnImmune[target.id], now);
+    const blocked = fateBlock(declared, 'world', this.save.burnImmune[target.id], now, this.playerLocks());
     if (blocked) return { error: blocked, reportId: null, won: false };
     // Штурм из своего лагеря: осада снимается до боя (`STORM_LIFTS`) — и приступ дальше
     // ничем не отличается от удара с дороги.
@@ -5882,7 +5897,7 @@ export class LocalWorld implements WorldApi {
       const at = (pop: number): FateResult => this.fateOf(s, now, Infinity, this.bondedAt(pop), escort, id, pop);
       const min = at(lo);
       const max = at(hi);
-      const reason = fateBlock(id, 'world', this.save.burnImmune[s.id], now);
+      const reason = fateBlock(id, 'world', this.save.burnImmune[s.id], now, this.playerLocks());
       return {
         id,
         can: reason === null,
