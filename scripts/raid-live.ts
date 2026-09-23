@@ -167,6 +167,11 @@ interface Opts {
   closed?: ClosedShare;
   /** Бережёт ли запас рук на стройку любое поведение; нет — как у общего автопилота. */
   reserve?: boolean;
+  /**
+   * Как часто игрок решает, игровых секунд; нет — раз в полдня (30 с). Ручка замера: приёмка решает
+   * раз в полдня, другой шаг ставит только перемер «зависит ли исход от частоты решений».
+   */
+  decide?: number;
   hourly?: (h: number, g: GameState) => void;
   effect?: (e: HomeEffect, now: number) => void;
   after?: (x: { g: GameState; world: LocalWorld; now: number; figures: FigureView[] }) => Promise<void>;
@@ -227,7 +232,7 @@ export async function live(o: Opts): Promise<Out> {
     world: { seed: o.seed, pulse: 30, raids: true, ripe: o.ripe, step: o.step ?? GAME, ref: o.ref },
     economy: 'live',
     tick: 1,
-    decide: 30,
+    decide: o.decide ?? 30,
     watch: {
       decided: (s) => {
         const u = upkeepInfo(s);

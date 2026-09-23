@@ -51,7 +51,7 @@ import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { assignBonded } from '@/game/sim/workers';
 import { releaseBonded } from '@/game/sim/mutiny';
 import { fateOpen, studyInfo } from '@/game/sim/tech';
-import { realMs } from '@/game/pace';
+import { DAY_LENGTH, realMs } from '@/game/pace';
 import { TROOP_IDS } from '@/game/data/troops';
 import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
@@ -148,6 +148,8 @@ interface FreshSpec {
   closed?: ClosedShare;
   /** Бережёт ли запас рук на стройку любое поведение; нет — как у прибора. */
   reserve?: boolean;
+  /** Как часто игрок решает, игровых секунд; нет — как у приёмки, раз в полдня. */
+  decide?: number;
 }
 
 /**
@@ -172,6 +174,7 @@ async function freshRow(spec: FreshSpec): Promise<Out[]> {
         study: spec.study,
         closed: spec.closed,
         reserve: spec.reserve,
+        decide: spec.decide,
         hours: FRESH_HOURS,
         ripe: false,
         build: true,
@@ -233,6 +236,34 @@ export async function closedShareSection(): Promise<void> {
     await freshRow({ ...spec, label: `${spec.label} · открытым`, closed: 'open' });
     await freshRow({ ...spec, label: `${spec.label} · дубинщикам`, closed: 'clubman' });
     if (spec.style !== 'feed') await freshRow({ ...spec, label: `${spec.label} · дубинщикам + запас`, closed: 'clubman', reserve: true });
+  }
+}
+
+/**
+ * Зависит ли исход партии с первой секунды от того, как часто прибор решает (docs/hiring.md, раздел 16).
+ * Игровой ответ от частоты решений не зависит: как часто игрок заглядывает в казармы — его дело, а
+ * сколько людей стоит дубинщик и сколько их держит казна — дело игры. Зависит — значит, исход задаёт
+ * прибор: что он успевает сделать с новорождёнными между двумя решениями.
+ *
+ * Строки — пол ветви («без технологий»: высокий налог, ни разу не открыл «Технологии») и игрок по
+ * умолчанию («высокий налог», изучает), каждая — раз в полдня (как приёмка), раз в полтора дня и раз в
+ * пять игровых дней. В приёмку раздел не входит — `DECIDE_SWEEP=1 npm run raid-hiring:report`.
+ */
+export async function cadenceSection(): Promise<void> {
+  console.log('');
+  console.log('=== Частота решений: зависит ли исход от того, как часто прибор решает ===');
+  console.log(`Партия с первой секунды, как раздел Б «Найма»: ${FRESH_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть, автопилот строит.`);
+  console.log('Приёмка решает раз в полдня (30 игровых секунд); здесь те же строки ещё и раз в полтора дня и раз в пять дней.');
+  console.log('Исход игры от частоты решений зависеть не должен; зависит — исход задаёт прибор, а не игра.');
+  console.log(FRESH_HEADER);
+  const specs: { label: string; spec: Omit<FreshSpec, 'label' | 'decide'> }[] = [
+    { label: 'без технологий', spec: { style: 'meansHigh', study: false, closed: 'clubman', reserve: true } },
+    { label: 'высокий налог', spec: { style: 'meansHigh', closed: 'clubman', reserve: true } },
+  ];
+  for (const { label, spec } of specs) {
+    for (const decide of [30, 90, 300]) {
+      await freshRow({ ...spec, label: `${label} · раз в ${String(decide / DAY_LENGTH).replace('.', ',')} игр. дн.`, decide });
+    }
   }
 }
 

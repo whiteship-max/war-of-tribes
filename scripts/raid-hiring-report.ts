@@ -11,7 +11,8 @@
 //
 //   npm run raid-hiring:report
 //   CLOSED_SHARE=1 npm run raid-hiring:report   — только перемер довода autopilot.openMix (docs/hiring.md, раздел 15)
-import { closedShareSection, hiringSection } from './raid-hiring';
+//   DECIDE_SWEEP=1 npm run raid-hiring:report   — только перемер «зависит ли исход от частоты решений» (docs/hiring.md, раздел 16)
+import { cadenceSection, closedShareSection, hiringSection } from './raid-hiring';
 import { infirmarySection } from './raid-infirmary';
 import { burntSection } from './raid-burnt';
 import { measure } from './lib/measured';
@@ -24,7 +25,10 @@ const lap = (name: string): void => {
   clock.at = now;
 };
 
-if (process.env.CLOSED_SHARE) {
+if (process.env.DECIDE_SWEEP) {
+  // Перемер одного свойства прибора (docs/hiring.md, раздел 16) — не приёмка, и прочих разделов не гонит.
+  await cadenceSection();
+} else if (process.env.CLOSED_SHARE) {
   // Перемер одного довода прибора (docs/hiring.md, раздел 15) — не приёмка, и прочих разделов не гонит.
   await closedShareSection();
 } else {
