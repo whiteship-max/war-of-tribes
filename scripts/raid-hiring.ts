@@ -78,6 +78,7 @@ import {
   MIN,
   START,
   townAt,
+  unitsNote,
   type Inside,
   type Ledger,
   type Step,
@@ -85,7 +86,8 @@ import {
 } from './autopilot';
 import { NEW_SEEDS, SEEDS, hm, mean, pad, pct, q, sum, tally } from './raid-common';
 
-import { NAME, STYLES, live, type Out, type Style } from './raid-live';
+import { NAME, STYLES, live, portable, type Out, type Style } from './raid-live';
+import { fan, serveFan } from './lib/fan';
 
 // ---------- Печать ----------
 
@@ -150,40 +152,66 @@ interface FreshSpec {
   decide?: number;
 }
 
+/** Прогон партии с первой секунды на одном мире и что прибор снял с неё к 1/2/4/6 ч. */
+interface FreshRun {
+  out: Out;
+  army: (number | undefined)[];
+  pop: (number | undefined)[];
+  lvl: (number | undefined)[];
+}
+
+/** Задача веера (`lib/fan.ts`): партия с первой секунды одним поведением на одном мире. */
+export async function freshRun(a: { spec: FreshSpec; seed: number }): Promise<FreshRun> {
+  const { spec, seed } = a;
+  const army: (number | undefined)[] = [];
+  const pop: (number | undefined)[] = [];
+  const lvl: (number | undefined)[] = [];
+  setRandom(seeded(seed));
+  const g = createInitialState(seed);
+  g.tutorialDone = true;
+  const out = await live({
+    g,
+    seed,
+    style: spec.style,
+    study: spec.study,
+    decide: spec.decide,
+    hours: FRESH_HOURS,
+    ripe: false,
+    build: true,
+    hourly: (h, x) => {
+      const i = FRESH_AT.indexOf(h);
+      if (i < 0) return;
+      army[i] = armySize(x);
+      pop[i] = x.pop;
+      lvl[i] = sum(x.buildings.map((b) => b.level)) / x.buildings.length;
+    },
+  });
+  setRandom(null);
+  return { out: portable(out), army, pop, lvl };
+}
+
 /**
- * Партия с первой секунды одним поведением на мирах `NEW_SEEDS` — строка раздела Б. Одна на
- * раздел Б и на перемер частоты решений (`cadenceSection`): у сравнения не должно быть двух копий
- * прогона.
+ * Партии с первой секунды по строкам на мирах `NEW_SEEDS` — строки раздела Б. Одни на раздел Б и
+ * на перемер частоты решений (`cadenceSection`): у сравнения не должно быть двух копий прогона.
+ * Прогоны всех строк идут одним веером, печать — по строке, в прежнем порядке.
  */
-async function freshRow(spec: FreshSpec): Promise<Out[]> {
-  const outs: Out[] = [];
+async function freshRows(specs: FreshSpec[]): Promise<Out[][]> {
+  unitsNote();
+  const runs = await fan(freshRun, import.meta.url, specs.flatMap((spec) => NEW_SEEDS.map((seed) => ({ spec, seed }))));
+  return specs.map((spec, k) => freshRow(spec, runs.slice(k * NEW_SEEDS.length, (k + 1) * NEW_SEEDS.length)));
+}
+
+function freshRow(spec: FreshSpec, runs: FreshRun[]): Out[] {
+  const outs = runs.map((r) => r.out);
   const army: number[][] = [[], [], [], []];
   const pop: number[][] = [[], [], [], []];
   const lvl: number[][] = [[], [], [], []];
-  for (const seed of NEW_SEEDS) {
-    setRandom(seeded(seed));
-    const g = createInitialState(seed);
-    g.tutorialDone = true;
-    outs.push(
-      await live({
-        g,
-        seed,
-        style: spec.style,
-        study: spec.study,
-        decide: spec.decide,
-        hours: FRESH_HOURS,
-        ripe: false,
-        build: true,
-        hourly: (h, x) => {
-          const i = FRESH_AT.indexOf(h);
-          if (i < 0) return;
-          army[i].push(armySize(x));
-          pop[i].push(x.pop);
-          lvl[i].push(sum(x.buildings.map((b) => b.level)) / x.buildings.length);
-        },
-      }),
-    );
-    setRandom(null);
+  for (const r of runs) {
+    for (let i = 0; i < FRESH_AT.length; i++) {
+      if (r.army[i] !== undefined) army[i].push(r.army[i] as number);
+      if (r.pop[i] !== undefined) pop[i].push(r.pop[i] as number);
+      if (r.lvl[i] !== undefined) lvl[i].push(r.lvl[i] as number);
+    }
   }
   const t = tally(
     outs.map((o) => o.run),
@@ -219,11 +247,20 @@ export async function cadenceSection(): Promise<void> {
     { label: 'без технологий', spec: { style: 'meansHigh', study: false } },
     { label: 'высокий налог', spec: { style: 'meansHigh' } },
   ];
-  for (const { label, spec } of specs) {
-    for (const decide of [30, 90, 300]) {
-      await freshRow({ ...spec, label: `${label} · раз в ${String(decide / DAY_LENGTH).replace('.', ',')} игр. дн.`, decide });
-    }
-  }
+  await freshRows(specs.flatMap(({ label, spec }) => [30, 90, 300].map((decide) => ({ ...spec, label: `${label} · раз в ${String(decide / DAY_LENGTH).replace('.', ',')} игр. дн.`, decide }))));
+}
+
+/** Срок и уровни лестницы мерки (раздел А). */
+const LADDER_HOURS = 4;
+const LADDER_LEVELS = [7, 8, 10];
+
+/**
+ * Задача веера (`lib/fan.ts`): прогон лестницы мерки — посёлок уровня `level` одним поведением на
+ * одном мире. `rho` — подстановка ступени под наймом (перебор `STEP_SWEEP`); нет — игра.
+ */
+export async function ladderRun(a: { level: number; style: Style; seed: number; rho?: number }): Promise<Out> {
+  const step: Step | undefined = a.rho === undefined ? undefined : { name: a.rho.toFixed(2), rho: a.rho, shield: true };
+  return portable(await live({ g: townAt(a.level), seed: a.seed, style: a.style, step, hours: LADDER_HOURS, ripe: true, ref: defense(townAt(a.level)) }));
 }
 
 export async function hiringSection(): Promise<Hired> {
@@ -240,8 +277,8 @@ export async function hiringSection(): Promise<Hired> {
   console.log('На события отвечают первым бесплатным вариантом; на мятеж не отвечают — стража выходит сама по сроку.');
 
   // А. Лестница.
-  const HOURS = 4;
-  const LEVELS = [7, 8, 10];
+  const HOURS = LADDER_HOURS;
+  const LEVELS = LADDER_LEVELS;
   console.log('');
   console.log(`--- А. Лестница мерки: ${HOURS} ч на каждом из ${SEEDS.length} миров, посёлок уровня L живёт, уровни построек стоят, логова дозрели ---`);
   console.log('Цена мерки: войско мерки против казны посёлка мерки в первую минуту при умеренном налоге:');
@@ -257,12 +294,13 @@ export async function hiringSection(): Promise<Hired> {
   console.log('«нанято» — ушло в казармы (у «строит» — дубинщики на лагерь); «ушло» — ушло голодом или неуплатой (дверь содержания), «жителями» — из них остались в посёлке; «распущено» — по средствам; «жалованье к доходу» — среднее по пульсам.');
   console.log(' поведение                    ур  жителей в конце  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  вылазки   падений осадой  падений/ч  потери, удержали  < половины  войско дома: медиана  в конце  нанято  ушло  жителями  распущено  жалованье к доходу  долг в конце  найм встал на');
   const ladder: Record<string, Out[]> = {};
+  unitsNote();
+  const rungs = LEVELS.flatMap((level) => STYLES.map((style) => ({ level, style })));
+  const ran = await fan(ladderRun, import.meta.url, rungs.flatMap(({ level, style }) => SEEDS.map((seed) => ({ level, style, seed }))));
+  for (const [k, { level, style }] of rungs.entries()) ladder[`${style}:${level}`] = ran.slice(k * SEEDS.length, (k + 1) * SEEDS.length);
   for (const level of LEVELS) {
-    const ref = defense(townAt(level));
     for (const style of STYLES) {
-      const outs: Out[] = [];
-      for (const seed of SEEDS) outs.push(await live({ g: townAt(level), seed, style, hours: HOURS, ripe: true, ref }));
-      ladder[`${style}:${level}`] = outs;
+      const outs = ladder[`${style}:${level}`];
       const t = tally(
         outs.map((o) => o.run),
         HOURS,
@@ -310,16 +348,16 @@ export async function hiringSection(): Promise<Hired> {
   const SWEEP = Boolean(process.env.STEP_SWEEP);
   if (!SWEEP) console.log('Строки 0.80 и 1.00 (замер, по которому выбрана ступень) — STEP_SWEEP=1 npm run raid-hiring:report.');
   console.log(' поведение                    ступень  ур  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  падений осадой  падений/ч  потери, удержали  войско дома: медиана  ушло');
+  const sweep = STEP_LEVELS.flatMap((level) => STEP_STYLES.flatMap((style) => (SWEEP ? [0.8, 1] : []).map((rho) => ({ level, style, rho }))));
+  const swept = await fan(ladderRun, import.meta.url, sweep.flatMap((x) => SEEDS.map((seed) => ({ ...x, seed }))));
+  const stepOuts = (level: number, style: Style, rho: number): Out[] => {
+    const k = sweep.findIndex((x) => x.level === level && x.style === style && x.rho === rho);
+    return swept.slice(k * SEEDS.length, (k + 1) * SEEDS.length);
+  };
   for (const level of STEP_LEVELS) {
-    const ref = defense(townAt(level));
     for (const style of STEP_STYLES) {
       for (const rho of SWEEP ? [0.8, LAIR_STEP, 1] : [LAIR_STEP]) {
-        let outs = ladder[`${style}:${level}`];
-        if (rho !== LAIR_STEP) {
-          outs = [];
-          const step: Step = { name: rho.toFixed(2), rho, shield: true };
-          for (const seed of SEEDS) outs.push(await live({ g: townAt(level), seed, style, step, hours: HOURS, ripe: true, ref }));
-        }
+        const outs = rho === LAIR_STEP ? ladder[`${style}:${level}`] : stepOuts(level, style, rho);
         const t = tally(
           outs.map((o) => o.run),
           HOURS,
@@ -359,14 +397,14 @@ export async function hiringSection(): Promise<Hired> {
   console.log('дубинщикам — виду, открытому без ступени (autopilot.openMix, решение владельца: тратит те же деньги на то, что у него есть).');
   console.log(FRESH_HEADER);
   const fresh = {} as Record<Style, Out[]>;
-  const freshRows: FreshSpec[] = [
+  const freshSpecs: FreshSpec[] = [
     ...STYLES.map((style) => ({ label: NAME[style], style })),
     { label: 'высокий налог, без технологий', style: 'meansHigh' as Style, study: false },
   ];
-  for (const spec of freshRows) {
-    const outs = await freshRow(spec);
-    if (spec.study === undefined) fresh[spec.style] = outs;
-  }
+  const freshOuts = await freshRows(freshSpecs);
+  freshSpecs.forEach((spec, k) => {
+    if (spec.study === undefined) fresh[spec.style] = freshOuts[k];
+  });
 
   // В. Уведённые люди.
   await captivesPart();
@@ -412,9 +450,155 @@ interface Hourly {
   army: number[];
 }
 
+/** Срок, уровень и часы среза раздела «Уведённые люди». */
+const CAPT_HOURS = 6;
+const CAPT_LEVEL = 10;
+const CAPT_AT = [1, 2, 4, 6];
+
+/** Срез посёлка к часу из `CAPT_AT` — по значению каждого столбца. */
+type Snap = { [K in keyof Hourly]: number };
+
+/** Что прибор снял с одного прогона «Уведённых людей»: счётчики строки и срезы по часам. */
+interface Captured {
+  out: Out;
+  hourly: (Snap | undefined)[];
+  led: number;
+  released: number;
+  unrestPulses: number;
+  pulses: number;
+  falls: number;
+  sieges: number;
+  /**
+   * Сколько осад объявлено «увести людей» и сколько из них взято: под гейтом участь покупная, и
+   * без этого счёта «уведено 0» не отличить от поломки.
+   */
+  siegesLed: number;
+  fallsLed: number;
+}
+
+/**
+ * Задача веера (`lib/fan.ts`): один прогон раздела «Уведённые люди» — вариант `variant` на мире
+ * `seed`. Полководец забирает половину войска и берёт голодом ближайшие логова одно за другим.
+ */
+export async function capturedRun(a: { variant: Led; seed: number }): Promise<Captured> {
+  const { variant, seed } = a;
+  const hourly: (Snap | undefined)[] = [];
+  const c = { led: 0, released: 0, unrestPulses: 0, pulses: 0, falls: 0, sieges: 0, siegesLed: 0, fallsLed: 0 };
+  // Логово, у которого стояли, вычёркивается на окно SIEGE_IMMUNE, а не навсегда: игрок видит только разведанные логова
+  // (их три-четыре), и вычеркнув их насовсем, полководец вставал бы после первого часа.
+  const immune = new Map<string, number>();
+  const declared = new Map<string, string>();
+  let target: string | null = null;
+  let mustered = false;
+  const g = townAt(CAPT_LEVEL);
+  const out = await live({
+    g,
+    seed,
+    style: variant.style,
+    hours: CAPT_HOURS,
+    ripe: false,
+    also: (x) => {
+      // Уведённых — на работы, где есть место для невольников.
+      for (const b of x.buildings) {
+        if (bondedIdle(x) <= 0) break;
+        if (!takesBonded(b)) continue;
+        const room = buildingSlots(b) - handsCount(x, b.id);
+        if (room > 0) assignBonded(x, b.id, room);
+      }
+      if (variant.release) {
+        const o = orderBreakdown(x);
+        if (o.bonded > 0 && o.value < ORDER_WARN) {
+          // Сколько отпустить, чтобы порядок встал на порог: hold / (hold + b) = WARN / 100.
+          const keep = Math.floor((o.hold * (100 - ORDER_WARN)) / ORDER_WARN);
+          const n = Math.max(0, o.bonded - keep);
+          if (n > 0 && releaseBonded(x, n) === null) c.released += n;
+        }
+      }
+      c.pulses++;
+      if (orderBreakdown(x).value < ORDER_UNREST && bondedTotal(x) > 0) c.unrestPulses++;
+    },
+    hourly: (h, x) => {
+      const i = CAPT_AT.indexOf(h);
+      if (i < 0) return;
+      const busy = x.buildings.reduce((n, b) => n + (x.bondedWork[b.id] ?? 0), 0);
+      hourly[i] = {
+        bonded: bondedTotal(x),
+        work: busy,
+        idle: bondedIdle(x),
+        order: orderBreakdown(x).value,
+        pop: x.pop,
+        prod: sum(RESOURCE_IDS.map((r) => productionPerDay(x)[r] ?? 0)),
+        army: armySize(x),
+      };
+    },
+    effect: (e) => {
+      if ((e.bonded ?? 0) > 0 && variant.share < 1) e.bonded = Math.round((e.bonded ?? 0) * variant.share);
+      if ((e.bonded ?? 0) > 0) c.led += e.bonded ?? 0;
+      if (e.id.startsWith('siege-')) {
+        c.falls++;
+        if (declared.get(e.id.slice('siege-'.length, e.id.lastIndexOf('-'))) === 'captives') c.fallsLed++;
+      }
+    },
+    after: async ({ g: x, world, now }) => {
+      const w: Inside = world;
+      if (variant.arms && !w.armsPop) {
+        w.armsPop = true;
+        const was = w.popNow;
+        w.popNow = (s: Inside, at: number): number =>
+          s.tribeId === null
+            ? lairPop(lairArmsBase(w.anchorOf(s), w.lairRec(s.id), w.liveAt(s.id, at)) * (1 - w.damageOf(s.id, at)))
+            : was(s, at);
+      }
+      const figs = await world.figures();
+      const gen = figs.find((f) => f.id === 'general');
+      if (!gen || gen.gone || gen.downUntil > START + now) return;
+      if (gen.readyAt > START + now || gen.besieging) return;
+      if (gen.arriveAt > START + now) return;
+      if (!mustered) {
+        if (!gen.atHome) return;
+        const home = homeOf(x.army, awayOf([], figs));
+        const half: TroopStack = {};
+        for (const id of TROOP_IDS) if ((home[id] ?? 0) > 1) half[id] = Math.floor((home[id] ?? 0) / 2);
+        if (troopTotal(half) > 0 && (await world.setGarrison(half)) === null) mustered = true;
+        return;
+      }
+      if (troopTotal(gen.troops) <= 0) return;
+      if (target && gen.atId === target) {
+        // Под гейтом «увести людей» — покупная ступень военной ветви (docs/dynasty.md, раздел
+        // 11.2), и посёлку мерки она не засчитана: засчитывают вещи, а не участь. Пока игрок её
+        // не купил, он берёт логово тем, что может объявить, — «ограбить», и воевать не
+        // перестаёт. Спрашивает он ту же дверь гейта, что и мир (`sim/tech.fateOpen`).
+        const fate = fateOpen(x, variant.fate) ? variant.fate : 'plunder';
+        if ((await world.besiege(fate)) === null) {
+          c.sieges++;
+          if (fate === 'captives') c.siegesLed++;
+          declared.set(target, fate);
+        }
+        immune.set(target, now + SIEGE_IMMUNE);
+        target = null;
+        return;
+      }
+      if (target && gen.atId !== target) {
+        // Не дошёл: цель сменилась или путь прерван — ищем заново.
+        immune.set(target, now + SIEGE_IMMUNE);
+        target = null;
+      }
+      const info = await world.info();
+      const chunk = await world.region({ x: info.home.x - 26, y: info.home.y - 26, w: 53, h: 53 });
+      const list = chunk.settlements.filter((s) => !s.mine && !s.ruin && (immune.get(s.id) ?? 0) <= now && s.id !== HOME_ID);
+      list.sort((a, b) => Math.hypot(a.x - info.home.x, a.y - info.home.y) - Math.hypot(b.x - info.home.x, b.y - info.home.y));
+      const next = list[0];
+      if (!next) return;
+      if ((await world.moveFigure('general', { x: next.x, y: next.y })) === null) target = next.id;
+      else immune.set(next.id, now + SIEGE_IMMUNE);
+    },
+  });
+  return { out: portable(out), hourly, ...c };
+}
+
 async function captivesPart(): Promise<void> {
-  const HOURS = 6;
-  const LEVEL = 10;
+  const HOURS = CAPT_HOURS;
+  const LEVEL = CAPT_LEVEL;
   const SEEDS_C = NEW_SEEDS;
   console.log('');
   console.log(`--- В. Уведённые люди: посёлок мерки уровня ${LEVEL}, ${HOURS} ч, миры ${SEEDS_C.join(', ')}, логова молоды (мир начинается с прогоном, как в order:report) ---`);
@@ -431,132 +615,29 @@ async function captivesPart(): Promise<void> {
   );
   console.log(`Пока ступень не куплена, полководец объявляет «ограбить»; очков на неё хватает через ${hm(realMs(gate.wait))} прогона.`);
   console.log(`Порядок: ропот ниже ${ORDER_UNREST}, тревога ниже ${ORDER_WARN}.`);
-  const HOURS_AT = [1, 2, 4, 6];
+  const HOURS_AT = CAPT_AT;
   const summary: string[] = [];
-  for (const variant of LEDS) {
+  const all = await fan(capturedRun, import.meta.url, LEDS.flatMap((variant) => SEEDS_C.map((seed) => ({ variant, seed }))));
+  for (const [v, variant] of LEDS.entries()) {
+    const runs = all.slice(v * SEEDS_C.length, (v + 1) * SEEDS_C.length);
     const hourly: Hourly[] = HOURS_AT.map(() => ({ bonded: [], work: [], idle: [], order: [], pop: [], prod: [], army: [] }));
-    let led = 0;
-    let released = 0;
-    let unrestPulses = 0;
-    let pulses = 0;
-    let falls = 0;
-    let sieges = 0;
-    // Сколько осад объявлено «увести людей» и сколько из них взято: под гейтом участь покупная, и
-    // без этого счёта «уведено 0» не отличить от поломки.
-    let siegesLed = 0;
-    let fallsLed = 0;
-    const outs: Out[] = [];
-    for (const seed of SEEDS_C) {
-      // Логово, у которого стояли, вычёркивается на окно SIEGE_IMMUNE, а не навсегда: игрок видит только разведанные логова
-      // (их три-четыре), и вычеркнув их насовсем, полководец вставал бы после первого часа.
-      const immune = new Map<string, number>();
-      const declared = new Map<string, string>();
-      let target: string | null = null;
-      let mustered = false;
-      const g = townAt(LEVEL);
-      outs.push(
-        await live({
-          g,
-          seed,
-          style: variant.style,
-          hours: HOURS,
-          ripe: false,
-          also: (x) => {
-            // Уведённых — на работы, где есть место для невольников.
-            for (const b of x.buildings) {
-              if (bondedIdle(x) <= 0) break;
-              if (!takesBonded(b)) continue;
-              const room = buildingSlots(b) - handsCount(x, b.id);
-              if (room > 0) assignBonded(x, b.id, room);
-            }
-            if (variant.release) {
-              const o = orderBreakdown(x);
-              if (o.bonded > 0 && o.value < ORDER_WARN) {
-                // Сколько отпустить, чтобы порядок встал на порог: hold / (hold + b) = WARN / 100.
-                const keep = Math.floor((o.hold * (100 - ORDER_WARN)) / ORDER_WARN);
-                const n = Math.max(0, o.bonded - keep);
-                if (n > 0 && releaseBonded(x, n) === null) released += n;
-              }
-            }
-            pulses++;
-            if (orderBreakdown(x).value < ORDER_UNREST && bondedTotal(x) > 0) unrestPulses++;
-          },
-          hourly: (h, x) => {
-            const i = HOURS_AT.indexOf(h);
-            if (i < 0) return;
-            const busy = x.buildings.reduce((n, b) => n + (x.bondedWork[b.id] ?? 0), 0);
-            hourly[i].bonded.push(bondedTotal(x));
-            hourly[i].work.push(busy);
-            hourly[i].idle.push(bondedIdle(x));
-            hourly[i].order.push(orderBreakdown(x).value);
-            hourly[i].pop.push(x.pop);
-            hourly[i].prod.push(sum(RESOURCE_IDS.map((r) => productionPerDay(x)[r] ?? 0)));
-            hourly[i].army.push(armySize(x));
-          },
-          effect: (e) => {
-            if ((e.bonded ?? 0) > 0 && variant.share < 1) e.bonded = Math.round((e.bonded ?? 0) * variant.share);
-            if ((e.bonded ?? 0) > 0) led += e.bonded ?? 0;
-            if (e.id.startsWith('siege-')) {
-              falls++;
-              if (declared.get(e.id.slice('siege-'.length, e.id.lastIndexOf('-'))) === 'captives') fallsLed++;
-            }
-          },
-          after: async ({ g: x, world, now }) => {
-            const w: Inside = world;
-            if (variant.arms && !w.armsPop) {
-              w.armsPop = true;
-              const was = w.popNow;
-              w.popNow = (s: Inside, at: number): number =>
-                s.tribeId === null
-                  ? lairPop(lairArmsBase(w.anchorOf(s), w.lairRec(s.id), w.liveAt(s.id, at)) * (1 - w.damageOf(s.id, at)))
-                  : was(s, at);
-            }
-            const figs = await world.figures();
-            const gen = figs.find((f) => f.id === 'general');
-            if (!gen || gen.gone || gen.downUntil > START + now) return;
-            if (gen.readyAt > START + now || gen.besieging) return;
-            if (gen.arriveAt > START + now) return;
-            if (!mustered) {
-              if (!gen.atHome) return;
-              const home = homeOf(x.army, awayOf([], figs));
-              const half: TroopStack = {};
-              for (const id of TROOP_IDS) if ((home[id] ?? 0) > 1) half[id] = Math.floor((home[id] ?? 0) / 2);
-              if (troopTotal(half) > 0 && (await world.setGarrison(half)) === null) mustered = true;
-              return;
-            }
-            if (troopTotal(gen.troops) <= 0) return;
-            if (target && gen.atId === target) {
-              // Под гейтом «увести людей» — покупная ступень военной ветви (docs/dynasty.md, раздел
-              // 11.2), и посёлку мерки она не засчитана: засчитывают вещи, а не участь. Пока игрок её
-              // не купил, он берёт логово тем, что может объявить, — «ограбить», и воевать не
-              // перестаёт. Спрашивает он ту же дверь гейта, что и мир (`sim/tech.fateOpen`).
-              const fate = fateOpen(x, variant.fate) ? variant.fate : 'plunder';
-              if ((await world.besiege(fate)) === null) {
-                sieges++;
-                if (fate === 'captives') siegesLed++;
-                declared.set(target, fate);
-              }
-              immune.set(target, now + SIEGE_IMMUNE);
-              target = null;
-              return;
-            }
-            if (target && gen.atId !== target) {
-              // Не дошёл: цель сменилась или путь прерван — ищем заново.
-              immune.set(target, now + SIEGE_IMMUNE);
-              target = null;
-            }
-            const info = await world.info();
-            const chunk = await world.region({ x: info.home.x - 26, y: info.home.y - 26, w: 53, h: 53 });
-            const list = chunk.settlements.filter((s) => !s.mine && !s.ruin && (immune.get(s.id) ?? 0) <= now && s.id !== HOME_ID);
-            list.sort((a, b) => Math.hypot(a.x - info.home.x, a.y - info.home.y) - Math.hypot(b.x - info.home.x, b.y - info.home.y));
-            const next = list[0];
-            if (!next) return;
-            if ((await world.moveFigure('general', { x: next.x, y: next.y })) === null) target = next.id;
-            else immune.set(next.id, now + SIEGE_IMMUNE);
-          },
-        }),
-      );
+    for (const r of runs) {
+      for (let i = 0; i < HOURS_AT.length; i++) {
+        const snap = r.hourly[i];
+        if (!snap) continue;
+        for (const k of Object.keys(hourly[i]) as (keyof Hourly)[]) hourly[i][k].push(snap[k]);
+      }
     }
+    const total = (k: Exclude<keyof Captured, 'out' | 'hourly'>): number => sum(runs.map((r) => r[k]));
+    const led = total('led');
+    const released = total('released');
+    const unrestPulses = total('unrestPulses');
+    const pulses = total('pulses');
+    const falls = total('falls');
+    const sieges = total('sieges');
+    const siegesLed = total('siegesLed');
+    const fallsLed = total('fallsLed');
+    const outs = runs.map((r) => r.out);
     const t = tally(
       outs.map((o) => o.run),
       HOURS,
@@ -578,3 +659,5 @@ async function captivesPart(): Promise<void> {
   console.log('');
   console.log(`Уведено в час: ${summary.join('; ')}.`);
 }
+
+serveFan(import.meta.url, { ladderRun, freshRun, capturedRun });

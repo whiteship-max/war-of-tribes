@@ -23,8 +23,9 @@ import { createInitialState } from '@/game/state';
 import { defense, healShare, infirmaryBeds } from '@/game/derived';
 import { DAY_LENGTH, INFIRMARY_HEAL_CAP, MAX_BUILDING_LEVEL, WOUND_DAYS } from '@/game/constants';
 import { DESERT_SHARE } from '@/game/data/upkeep';
-import { MIN, START, townAt, unitCost } from './autopilot';
-import { NAME, STYLES, live, type Fight, type FightKind, type Out } from './raid-live';
+import { MIN, START, townAt, unitCost, unitsNote } from './autopilot';
+import { NAME, STYLES, live, portable, type Fight, type FightKind, type Out } from './raid-live';
+import { fan, serveFan } from './lib/fan';
 import type { Hired } from './raid-hiring';
 import { SEEDS, pad, pct, q, sum } from './raid-common';
 import { realMs } from '@/game/pace';
@@ -70,8 +71,11 @@ const byKind = (fights: Fight[]): string => {
 const goodsPerLost = (f: Fight): number =>
   f.lost > 0 ? sum((Object.entries(f.lostBy) as [TroopId, number][]).map(([id, n]) => n * unitCost(id))) / f.lost : 0;
 
-/** Полководец жжёт ближние логова с половиной войска; дома нанимают по средствам при высоком налоге. */
-async function hunt(level: number, seed: number): Promise<{ out: Out; strikes: number; died: number }> {
+/**
+ * Задача веера (`lib/fan.ts`): полководец жжёт ближние логова с половиной войска; дома нанимают
+ * по средствам при высоком налоге.
+ */
+export async function huntRun({ level, seed }: { level: number; seed: number }): Promise<{ out: Out; strikes: number; died: number }> {
   let target: string | null = null;
   let mustered = false;
   let went = 0;
@@ -128,7 +132,7 @@ async function hunt(level: number, seed: number): Promise<{ out: Out; strikes: n
       if (next && (await world.moveFigure('general', { x: next.x, y: next.y })) === null) target = next.id;
     },
   });
-  return { out, strikes, died };
+  return { out: portable(out), strikes, died };
 }
 
 export async function infirmarySection(h: Hired): Promise<void> {
@@ -157,10 +161,11 @@ export async function infirmarySection(h: Hired): Promise<void> {
   for (const level of LEVELS) for (const style of STYLES) rows.push({ name: NAME[style], outs: h.ladder[`${style}:${level}`], hours: HOURS, level });
   let strikes = 0;
   let deaths = 0;
-  for (const level of LEVELS) {
+  unitsNote();
+  const hunts = await fan(huntRun, import.meta.url, LEVELS.flatMap((level) => SEEDS.map((seed) => ({ level, seed }))));
+  for (const [k, level] of LEVELS.entries()) {
     const outs: Out[] = [];
-    for (const seed of SEEDS) {
-      const r = await hunt(level, seed);
+    for (const r of hunts.slice(k * SEEDS.length, (k + 1) * SEEDS.length)) {
       outs.push(r.out);
       strikes += r.strikes;
       deaths += r.died;
@@ -314,3 +319,5 @@ export async function infirmarySection(h: Hired): Promise<void> {
     );
   }
 }
+
+serveFan(import.meta.url, { huntRun });

@@ -14,9 +14,10 @@ import { buildingOfType, defense, housingCapacity } from '@/game/derived';
 import { pickEvent } from '@/game/data/events';
 import { raiseEvent } from '@/game/sim/mail';
 import { hashId } from '@/world/diplomacy';
-import { townAt } from './autopilot';
-import { SEEDS, mean, pad, tally } from './raid-common';
-import { NAME, live, type Out, type Style } from './raid-live';
+import { townAt, unitsNote } from './autopilot';
+import { SEEDS, mean, pad, sum, tally } from './raid-common';
+import { NAME, live, portable, type Out, type Style } from './raid-live';
+import { fan, serveFan } from './lib/fan';
 import type { Hired } from './raid-hiring';
 
 /** Прежний ритм вестей при игроке, игровых секунд (константы удалены пачкой 3, числа — из истории: `86fa7e9`). */
@@ -50,6 +51,13 @@ function oldMail(seed: number, m: Mail): (g: GameState) => void {
 
 const houses = (g: GameState): number => buildingOfType(g, 'houses')?.level ?? 0;
 
+/** Задача веера (`lib/fan.ts`): посёлок мерки с прежним ритмом вестей на одном мире. */
+export async function burntRun({ level, style, seed }: { level: number; style: Style; seed: number }): Promise<{ out: Out } & Mail> {
+  const mail: Mail = { raised: 0, fires: 0 };
+  const out = await live({ g: townAt(level), seed, style, hours: HOURS, ripe: true, ref: defense(townAt(level)), also: oldMail(seed, mail) });
+  return { out: portable(out), ...mail };
+}
+
 export async function burntSection(h: Hired): Promise<void> {
   console.log('');
   console.log('=== Сожжённые посёлки: что прежний ритм вестей делал с посёлком мерки ===');
@@ -58,15 +66,17 @@ export async function burntSection(h: Hired): Promise<void> {
   console.log('выше. Автопилот отвечает первым бесплатным вариантом; у «Пожара» он отнимает уровень Жилищ, а посёлок мерки уровней не строит.');
   console.log('«Жилища» и «крыш» — в начале → в конце, среднее по мирам; «жителей» — в конце; «прорвали» и «падений/ч» — как в лестнице.');
   console.log(' поведение                    ур  ритм      вестей  пожаров  Жилища     крыш          жителей  набегов  прорвали  падений/ч  войско в конце');
+  unitsNote();
+  const cells = LEVELS.flatMap((level) => STYLES_B.map((style) => ({ level, style })));
+  const burnt = await fan(burntRun, import.meta.url, cells.flatMap((c) => SEEDS.map((seed) => ({ ...c, seed }))));
   for (const level of LEVELS) {
-    const ref = defense(townAt(level));
     const start = townAt(level);
     for (const style of STYLES_B) {
       const rows: [string, Out[], Mail | null][] = [];
-      const mail: Mail = { raised: 0, fires: 0 };
-      const old: Out[] = [];
-      for (const seed of SEEDS) old.push(await live({ g: townAt(level), seed, style, hours: HOURS, ripe: true, ref, also: oldMail(seed, mail) }));
-      rows.push(['прежний', old, mail]);
+      const k = cells.findIndex((c) => c.level === level && c.style === style);
+      const runs = burnt.slice(k * SEEDS.length, (k + 1) * SEEDS.length);
+      const mail: Mail = { raised: sum(runs.map((r) => r.raised)), fires: sum(runs.map((r) => r.fires)) };
+      rows.push(['прежний', runs.map((r) => r.out), mail]);
       rows.push(['нынешний', h.ladder[`${style}:${level}`] ?? [], null]);
       for (const [name, outs, m] of rows) {
         if (outs.length === 0) continue;
@@ -83,3 +93,5 @@ export async function burntSection(h: Hired): Promise<void> {
   }
   console.log('«вестей» — отвечено за прогон, среднее по мирам; «пожаров» — поднято «Пожаров» за прогон, среднее по мирам (у нынешнего ритма не считано).');
 }
+
+serveFan(import.meta.url, { burntRun });

@@ -148,6 +148,15 @@ export interface Out {
   g: GameState;
 }
 
+/**
+ * Итог прогона, готовый к вееру (`lib/fan.ts`): без счёта уже прочитанных строк летописи —
+ * `WeakMap` через границу процесса не ездит, а после прогона его не читает никто.
+ */
+export function portable(o: Out): Out {
+  const { seenLog: _, ...l } = o.l;
+  return { ...o, l: l as HireLedger };
+}
+
 interface Opts {
   g: GameState;
   seed: number;
