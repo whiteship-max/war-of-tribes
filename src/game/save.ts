@@ -22,7 +22,8 @@ import { cityName } from '../../netlify/lib/contract';
 import type { ProfileState } from '@/profile/types';
 import { refreshCard } from '@/profile/stats';
 import { rescueFromCloud } from '@/telegram/cloud-rescue';
-import { serverNow } from '@/net/clock';
+import { enterLead, leadAt, partyNow } from '@/net/clock';
+import { CHEATS_ON } from '@/cheats';
 
 const KEY = 'tribe.save.v1';
 
@@ -36,7 +37,12 @@ const KEY = 'tribe.save.v1';
 export const MIN_SAVE_VERSION = 8;
 
 export function serialize(s: GameState): string {
-  return JSON.stringify({ ...s, lastSaved: serverNow() });
+  // Партия, которую ускоряли, везёт опережение своих часов живым: отметки мира и `lastSaved` лежат в
+  // часах партии, и без опережения следующий вход прочёл бы их будущим (`game/pace`, «Скорость
+  // проверки»). Партия, которую не ускоряли, поля не получает вовсе — оно же метка.
+  return JSON.stringify(
+    CHEATS_ON && s.lead !== undefined ? { ...s, lastSaved: partyNow(), lead: leadAt() } : { ...s, lastSaved: partyNow() },
+  );
 }
 
 type SavedState = Partial<GameState> & { version?: number };
@@ -97,7 +103,7 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   // первом же входе, а игрок о правиле ещё не знал. Отсрочка — с минуты входа,
   // после догона офлайна, как служба приведённых агентов. Налог не трогается.
   if (from < 14) {
-    const entry = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow(), serverNow());
+    const entry = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : partyNow(), partyNow());
     s.pay = { debt: 0, late: 0, gone: {}, from: entry + WAGE_AMNESTY_DAYS * DAY_LENGTH };
   }
   // Строка про грамоту вождя — про восьмёрку, и обязана быть под своим условием:
@@ -144,7 +150,7 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   // начинается **в минуту входа**, после догона офлайна, ровно как служба приведённых
   // агентов; очки идут оттуда же, и вернувшийся не находит полный котёл задаром.
   if (from < 17) {
-    const entry = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow(), serverNow());
+    const entry = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : partyNow(), partyNow());
     s.realm = newHouse(s.seed, entry);
     // Имена — по вере деревни, если мир её уже называл; не называл — назовёт первым пульсом.
     dynastyStep(s);
@@ -248,7 +254,7 @@ function afterEntry(s: GameState): void {
  * К старой партии другого пути нет: и серверная запись, и возвращённая копия ложатся на диск и
  * приходят сюда перезапуском. `now` — настоящее время входа.
  */
-export function enter(s: GameState, now: number = serverNow()): void {
+export function enter(s: GameState, now: number = partyNow()): void {
   // Отлучка — одна дверь на вход в игру и на страницу, спавшую не закрываясь (`sim/tick.absence`):
   // догон хозяйства под потолком, потом вести, пришедшие без игрока, — выводом из времени, а не
   // доигрыванием тиков. Вести после догона: кость партии и веса событий берутся у посёлка, каким
@@ -262,7 +268,7 @@ export function enter(s: GameState, now: number = serverNow()): void {
  * этого догоняется и где кончится догон, считает одна дверь — `sim/tick.awayGameSeconds`: служба
  * приведённых агентов начинается в минуту входа, а не раньше.
  */
-export const offlineSeconds = (lastSaved: number): number => awaySeconds(lastSaved, serverNow());
+export const offlineSeconds = (lastSaved: number): number => awaySeconds(lastSaved, partyNow());
 
 /** Пороги опыта до смертных агентов: по ним лежит опыт в сохранении двенадцатой версии. */
 const OLD_LEVEL_XP = [0, 20, 60, 130, 240] as const;
@@ -307,7 +313,7 @@ function mortalAgents(s: GameState, data: SavedState): void {
     const raw = oldAgents[id]?.xp;
     p.xp = rescaleXp(typeof raw === 'number' ? raw : 0);
     p.person = 0;
-    p.bornAt = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : serverNow(), serverNow());
+    p.bornAt = s.time + awayGameSeconds(typeof data.lastSaved === 'number' ? data.lastSaved : partyNow(), partyNow());
     p.age0 = AGENT_AGE0;
     p.vacant = false;
     p.hiring = null;
@@ -522,6 +528,8 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
     tell(state, 'Партия поднята из облака Telegram: на этом устройстве её не было.');
   }
 
+  // Часы партии — раньше первого их чтения: отлучка и вход считаются в них.
+  if (CHEATS_ON) enterLead(state.lead ?? 0);
   const offline = offlineSeconds(state.lastSaved);
   if (offline > AWAY_AFTER) await hooks.onOffline?.(offline);
   enter(state);

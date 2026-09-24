@@ -124,7 +124,7 @@ export function letterDispatch(l: LetterView, now: number): Dispatch {
  * почту: мерится срок, а не возраст.
  */
 export function dispatches(s: GameState, letters: LetterView[], now: { tribe: number; world: number }): Dispatch[] {
-  // Часов двое, как и хозяев: срок события ставила партия по `serverNow`, срок
+  // Часов двое, как и хозяев: срок события ставила партия по своим (`partyNow`), срок
   // письма — мир по своим (`worldNow`). Каждый срок читается своими часами.
   const list = letters.map((l) => letterDispatch(l, now.world));
   for (const ev of s.inbox) {

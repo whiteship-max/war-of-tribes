@@ -4,7 +4,7 @@
 // чтобы сервер мог повторить расчёт один в один.
 import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
 import { asGame, gameSecondsOfMs, realMs, type GameSec } from '@/game/pace';
-import { serverNow } from '@/net/clock';
+import { partyNow } from '@/net/clock';
 import {
   FRONT,
   REAR,
@@ -322,7 +322,7 @@ export const HOME_ID: SettlementId = 'home';
 export interface LocalWorldOptions {
   /** Сид мира. По умолчанию берётся из сохранения, иначе случайный. */
   seed?: number;
-  /** Часы мира. В тестах подменяются. */
+  /** Часы мира. По умолчанию — часы партии (`net/clock.partyNow`), те же, что у племени. В тестах подменяются. */
   now?: () => number;
   /** null — не сохранять (тесты). */
   storage?: WorldStorage | null;
@@ -405,7 +405,7 @@ export class LocalWorld implements WorldApi {
   readonly movedByRoster: boolean;
 
   constructor(opts: LocalWorldOptions = {}) {
-    this.clock = opts.now ?? serverNow;
+    this.clock = opts.now ?? partyNow;
     this.reveal = opts.reveal ?? false;
     this.storage = opts.storage === undefined ? browserStorage : opts.storage;
     this.provide = opts.castles ?? null;

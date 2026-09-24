@@ -249,7 +249,8 @@ describe('дверь одна: по исходникам', () => {
 
   it('сам шаг переводит настоящие секунды дверью, и автопилот отчётов — тоже', () => {
     const tick = code(path.join(ROOT, 'src/game/sim/tick.ts'));
-    expect(tick, 'живой шаг').toMatch(/tick\(s,\s*gameSeconds\(real\)\)/);
+    // Живой шаг переводит дверью прожитое партией (`lived`): без скорости проверки это ровно `real`.
+    expect(tick, 'живой шаг').toMatch(/const dt = gameSeconds\(lived\);/);
     expect(tick, 'догон отлучки').toMatch(/catchUp\(s,\s*awayGameSeconds\(since, now\)/);
     expect(tick, 'и сам догон — через дверь').toMatch(/awayGameSeconds = [^;]*gameSeconds\(awaySeconds\(since, now\)\)/);
     const pilot = code(path.join(ROOT, 'scripts/autopilot.ts'));

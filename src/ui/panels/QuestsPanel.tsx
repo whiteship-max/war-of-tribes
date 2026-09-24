@@ -10,7 +10,7 @@ import { SceneDoctor } from '../parts/SceneDoctor';
 import { TouchDoctor } from '../parts/TouchDoctor';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
-import { CHEAT_MARK } from '@/cheats';
+import { CHEATS_ON, CHEAT_MARK, HASTE_MARK } from '@/cheats';
 
 /**
  * «Задания» — две страницы.
@@ -113,6 +113,10 @@ function QuestList() {
           (`src/cheats.ts`). Непомеченная партия не показывает ничего: пустая
           строка «кодов не было» была бы шумом в каждой честной партии. */}
       {s.cheated && <div className="desc cheat-mark">{CHEAT_MARK}</div>}
+      {/* Метка партии, которую ускоряли (`game/pace`, «Скорость проверки»), — тем же правилом и под тем же
+          выключателем: кнопки скорости без него нет, и строки о ней тоже. Данные метки — поле `s.lead` —
+          лежат в партии при любом выключателе. */}
+      {CHEATS_ON && s.lead !== undefined && <div className="desc cheat-mark">{HASTE_MARK}</div>}
       <button className="btn ghost wide" onClick={replayTutorial}>
         Пройти обучение заново
       </button>

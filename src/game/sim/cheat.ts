@@ -22,7 +22,7 @@
  * развести по разным местам и забыть второе.
  */
 import type { CheatId } from '@/cheats';
-import { CHEAT_MARK } from '@/cheats';
+import { CHEAT_MARK, HASTE_MARK } from '@/cheats';
 import { RESOURCE_IDS } from '../constants';
 import { EQUIPMENT_IDS } from '../data/equipment';
 import { TROOP_IDS } from '../data/troops';
@@ -76,4 +76,17 @@ function mark(s: GameState, said: string): void {
   s.cheated = true;
   if (first) log(s, CHEAT_MARK, 'bad');
   log(s, said, 'bad', 'cheat');
+}
+
+/**
+ * Партию ускорили скоростью проверки (`game/pace`): метка навсегда и одна строка летописи за партию.
+ *
+ * `lead` — опережение часов партии на эту минуту (`net/clock.leadAt`). Поле `s.lead` одно на два дела:
+ * есть оно — партию ускоряли (метка), а число в нём — данные её часов, и живым его пишет запись
+ * (`save.serialize`). Строка летописи — только при первом ускорении: партия помечена один раз и
+ * навсегда, а летопись живёт месяц и сама метку не удержит — её держит поле.
+ */
+export function markHaste(s: GameState, lead: number): void {
+  if (s.lead === undefined) log(s, HASTE_MARK, 'bad');
+  s.lead = lead;
 }

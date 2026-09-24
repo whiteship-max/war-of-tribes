@@ -18,6 +18,8 @@ import {
 } from 'react';
 import { useRoster } from '@/net/roster';
 import { useGame } from '@/game/store';
+import { CHEATS_ON } from '@/cheats';
+import { SpeedButton } from '../SpeedButton';
 import { cameraAnchor, figuresOn, marchOn, useWorld, worldNow } from '@/world/store';
 import { WORLD_VIEW, freeCamera, frameCost, probe } from '@/debug';
 import { settlementAt } from '@/world/cache';
@@ -725,6 +727,8 @@ export function WorldMap() {
             справа сверху не стояло ничего, кроме распорки под кнопку отладки.
             Сама легенда при этом осталась внизу — это лист, а не выпадашка, и
             листы в этой игре выезжают снизу (`Sheet`). */}
+        {/* Скорость проверки видна и на карте: поход проверяют здесь. Только под выключателем кодов. */}
+        {CHEATS_ON && <SpeedButton className="wm-btn" />}
         <button
           className={`wm-btn${legendOpen ? ' active' : ''}`}
           onClick={() => setLegendOpen((v) => !v)}

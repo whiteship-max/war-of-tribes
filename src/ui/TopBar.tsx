@@ -18,6 +18,8 @@ import { CoatButton } from './realm/Coat';
 import { ResourceBar } from './ResourceBar';
 import { Icon } from '@/ui/icons/Icon';
 import { daypartOf, iconName, moodOf } from '@/ui/icons/registry';
+import { CHEATS_ON } from '@/cheats';
+import { SpeedButton } from './SpeedButton';
 
 
 /**
@@ -154,6 +156,8 @@ export function TopBar() {
 
       <div className="top-row">
         <CoatButton />
+        {/* Скорость проверки — у правого края, рядом с картой; только под выключателем кодов. */}
+        {CHEATS_ON && <SpeedButton className="map-btn" />}
         {/* Кнопка карты — один значок без слова. Слово «Карта» рядом с картой
             ничего не добавляло, а место отъедало; палец при этом не страдает:
             кнопка квадратная в `--tap` (44 px), то есть ровно наша цель, а

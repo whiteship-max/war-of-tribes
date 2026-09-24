@@ -1,7 +1,7 @@
 // Изменяемая часть локального мира: походы, разведданные, следы набегов, отношения.
 // Всё, что нельзя вывести из сида, живёт здесь и сохраняется в localStorage.
 import type { ArmySetup } from '@/battle';
-import { serverNow } from '@/net/clock';
+import { partyNow } from '@/net/clock';
 import type { TroopStack } from '@/game/battle/kinds';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { FogData } from '../fog';
@@ -662,7 +662,7 @@ export function parseWorldSave(json: string | null): WorldSave | null {
     if (data.v < MIN_WORLD_SAVE_VERSION || data.v > WORLD_SAVE_VERSION) return null;
     if (!data.home || typeof data.home.x !== 'number') return null;
     migrateWorldSave(data);
-    const base = createWorldSave(data.seed, data.home, data.allyTribe ?? null, data.createdAt ?? serverNow());
+    const base = createWorldSave(data.seed, data.home, data.allyTribe ?? null, data.createdAt ?? partyNow());
     // Словари фигур мержатся отдельно: иначе новая фигура приедет как undefined —
     // ровно та же причина, по которой так мержатся счётчики в сохранении племени.
     const figures = { ...base.figures, ...(data.figures ?? {}) };

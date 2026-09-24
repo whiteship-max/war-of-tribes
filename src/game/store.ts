@@ -4,7 +4,8 @@ import { createInitialState } from './state';
 import { liveStep } from './sim/tick';
 import { resolveEvent } from './sim/actions';
 import { mailStep } from './sim/mail';
-import { clockDrift, serverNow } from '@/net/clock';
+import { deviceNow, enterLead, partyNow } from '@/net/clock';
+import { lead, livedSeconds } from './pace';
 import { clearSave, loadGame, saveGame } from './save';
 import {
   advanceTutorial,
@@ -20,7 +21,7 @@ import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 import { provideClaim, rosterBoot } from '@/net/roster';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
 import { claimOf } from '@/net/snapshot';
-import { CHEAT_NO, cheatOf } from '@/cheats';
+import { CHEATS_ON, CHEAT_NO, cheatOf } from '@/cheats';
 import { applyCheat } from './sim/cheat';
 
 /**
@@ -71,7 +72,8 @@ export type SheetView =
   /** Отчёт о бое с журналом по фазам. */
   | { kind: 'report'; id: string };
 
-const TICK_MS = 500;
+/** Шаг цикла живой игры, настоящих мс. Из него выведена верхняя ступень скорости проверки (`pace.SPEEDS`). */
+export const TICK_MS = 500;
 const AUTOSAVE_MS = 15000;
 
 /** Что открыто — обучение засчитывает шаги и по интерфейсу, не только по состоянию. */
@@ -312,19 +314,28 @@ export const useGame = create<GameStore>((set, get) => ({
     loopStarted = true;
     // Прошедшее время меряется часами устройства без серверной поправки: поправка приезжает с
     // ответом сервера и сдвигает «сейчас» скачком, а скачок не должен стать ни догоном, ни простоем.
-    const deviceNow = (): number => serverNow() - clockDrift();
     let lastStep = deviceNow();
+    let lastLead = CHEATS_ON ? lead(lastStep) : 0;
     setInterval(() => {
       const s = get().s;
       const at = deviceNow();
       const real = Math.max(0, (at - lastStep) / 1000);
       lastStep = at;
+      // Порог отлучки меряется настоящим временем устройства, а шаг племени получает, сколько
+      // прожила партия: под скоростью проверки — больше ровно на то, на сколько за шаг ушли вперёд
+      // её часы (`game/pace`, «Скорость проверки»). Те же часы читает мир — одна дверь на обоих.
+      let lived = real;
+      if (CHEATS_ON) {
+        const ahead = lead(at);
+        lived = livedSeconds(real, lastLead, ahead);
+        lastLead = ahead;
+      }
       // Донесение, оставленное без ответа, разрешает не игрок, а почта настоящими
       // часами (`sim/mail`) — и мятеж тоже: срок у него тот же. Исход ложится в
       // летопись, как у письма мира, и партия пишется на диск сразу: исход без
       // игрока не должен теряться с вкладкой.
-      liveStep(s, real, serverNow());
-      const lapsed = mailStep(s, serverNow());
+      liveStep(s, real, partyNow(), lived);
+      const lapsed = mailStep(s, partyNow());
       advanceTutorial(s, tutorialUi(get()));
       set({ s: { ...s } });
       if (lapsed) get().save();
@@ -436,6 +447,8 @@ export const useGame = create<GameStore>((set, get) => ({
 
   reset: () => {
     clearSave();
+    // Новая партия начинается с правды: без опережения и на ×1 — раньше, чем её часы впервые прочтут.
+    if (CHEATS_ON) enterLead(0);
     set({ s: createInitialState(), sheet: null, offlineSeconds: 0 });
     get().save();
   },

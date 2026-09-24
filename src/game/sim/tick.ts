@@ -2,6 +2,7 @@
 import type { GameState } from '../types';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS, RESOURCE_IDS, STARVATION_DEATH } from '../constants';
 import { gameSec, gameSeconds, realSec } from '../pace';
+import { CHEATS_ON } from '@/cheats';
 import {
   buildRate,
   currentSite,
@@ -276,14 +277,31 @@ export function absence(s: GameState, since: number, now: number): void {
  * и догона отставшее племя не получало до перезагрузки. Теперь шаг получает прошедшее время:
  * короткий промежуток — обычный шаг при игроке, длинный — отлучка теми же правилами, что при входе.
  */
-export function liveStep(s: GameState, real: number, now: number): void {
+export function liveStep(s: GameState, real: number, now: number, lived: number = real): void {
   if (!(real > 0)) return;
+  // `real` — настоящие секунды устройства: по ним и только по ним решается, шаг это или отлучка
+  // (таймер страницы стоял или нет). `lived` — сколько прожила партия; под скоростью проверки оно
+  // больше `real` (`game/pace`, «Скорость проверки»), и в отлучку ускорение шаг не переводит: ускоренная
+  // партия живёт правилами присутствия, а не догоном.
   if (real <= AWAY_AFTER) {
-    tick(s, gameSeconds(real));
+    const dt = gameSeconds(lived);
+    if (CHEATS_ON) present(s, dt);
+    else tick(s, dt);
     // Вести приходят по настоящим часам — тем же правилом, что в отлучке: окно этого шага.
-    mailArrive(s, now - real * 1000, now);
+    mailArrive(s, now - lived * 1000, now);
     return;
   }
-  absence(s, now - real * 1000, now);
+  absence(s, now - lived * 1000, now);
+}
+
+/**
+ * Шаг при игроке длиной `dt` игровых секунд — кусками не длиннее шага догона (`CATCHUP_STEP`). Шаг
+ * живой игры обычно — шестидесятая игровой секунды; под скоростью проверки он растёт (на ×120 ровно до
+ * шага догона), а задержанный таймер растит его ещё, и шаг симуляции, точный на двух игровых секундах,
+ * получил бы двадцать: мораль встала бы в цель одним прыжком, а не шла к ней. Правила при этом —
+ * присутствия, а не отлучки: события, осада, почта — как при игроке. Короче шага догона — ровно один `tick`.
+ */
+export function present(s: GameState, dt: number): void {
+  for (let left = dt; left > 0; left -= CATCHUP_STEP) tick(s, Math.min(CATCHUP_STEP, left));
 }
 

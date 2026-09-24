@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { clockDrift, clockSynced, resetClock, serverNow, setServerTime } from './clock';
 
@@ -92,5 +92,59 @@ describe('время берут в одну дверь', () => {
       for (const [re, why] of CLOCK_READS) if (re.test(src)) guilty.push(`${f}: ${why}`);
     }
     expect(guilty).toEqual([]);
+  });
+});
+
+/**
+ * У «сейчас» два читателя (`partyNow` против `serverNow`): партия — племя и мир — живёт часами партии,
+ * игрок — настоящими. Под скоростью проверки они расходятся, и файл, оставшийся на настоящих часах,
+ * молча отстал бы от остальной партии: мир на `serverNow` при быстром племени — та самая болезнь двух
+ * часов, которую чинили пачки 5 и 6 (docs/time.md, разделы 18.6 и 19). Поэтому список законных читателей
+ * настоящих часов в зонах партии записан поимённо, с причиной, и счётом обращений.
+ */
+describe('«сейчас» партии — одни часы на племя и мир', () => {
+  const strip = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/^import[^;]*;/gm, ' ');
+  const root = join(__dirname, '..');
+  const walk = (dir: string, out: string[] = []): string[] => {
+    if (!existsSync(dir)) return out;
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p, out);
+      else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p);
+    }
+    return out;
+  };
+  const count = (src: string, name: string): number => (src.match(new RegExp(`\\b${name}\\b`, 'g')) ?? []).length;
+  const rel = (f: string): string => f.slice(root.length + 1).split(sep).join('/');
+
+  /** Кто в зонах партии читает настоящие часы, сколько раз и почему. */
+  const PLAYER_CLOCK: Record<string, [number, string]> = {
+    'ui/parts/daily/DailyPage.tsx': [2, 'ежедневка — календарный день UTC, один на всех игроков'],
+    'world/store.ts': [2, 'срок куска карты — инструмент, цена пересчёта настоящая'],
+  };
+
+  it('в племени, мире, интерфейсе и профиле настоящие часы читают только названные', () => {
+    const files = ['game', 'world', 'ui', 'profile', 'battle'].flatMap((d) => walk(join(root, d)));
+    const readers: Record<string, number> = {};
+    for (const f of files) {
+      const n = count(strip(readFileSync(f, 'utf8')), 'serverNow');
+      if (n > 0) readers[rel(f)] = n;
+    }
+    expect(readers, 'кто живёт настоящими часами').toEqual(
+      Object.fromEntries(Object.entries(PLAYER_CLOCK).map(([f, [n]]) => [f, n])),
+    );
+    // Точка внутри области: часы партии читают вход и запись партии, цикл стора и мир.
+    const party = files.filter((f) => count(strip(readFileSync(f, 'utf8')), 'partyNow') > 0).map(rel);
+    expect(party, 'кто живёт часами партии').toEqual(
+      expect.arrayContaining(['game/save.ts', 'game/state.ts', 'game/store.ts', 'world/local/LocalWorld.ts', 'world/store.ts']),
+    );
+  });
+
+  it('предыстория — своя игра: часов партии деревни она не читает', () => {
+    const files = walk(join(root, 'prologue'));
+    expect(files.length, 'точка внутри области: файлы найдены').toBeGreaterThan(10);
+    const linked = files.filter((f) => /\b(partyNow|leadNow|leadAt)\b/.test(strip(readFileSync(f, 'utf8')))).map(rel);
+    expect(linked).toEqual([]);
   });
 });

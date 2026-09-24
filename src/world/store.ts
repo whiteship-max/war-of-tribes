@@ -2,7 +2,7 @@
 // компоненты читают этот стор, а он ходит в worldApi(). Ни один экран не знает,
 // что за интерфейсом сейчас стоит LocalWorld.
 import { create } from 'zustand';
-import { serverNow } from '@/net/clock';
+import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
 import { log } from '@/game/sim/log';
@@ -67,8 +67,12 @@ import type {
 import type { TroopStack } from '@/game/battle/kinds';
 import type { ArmySetup } from '@/battle';
 
-/** Как часто мир опрашивается. Достаточно редко, чтобы не мешать симуляции племени. */
-const PULSE_MS = 2000;
+/**
+ * Как часто мир опрашивается, настоящих мс. Достаточно редко, чтобы не мешать симуляции племени. Из него
+ * выведены ступени скорости проверки (`pace.SPEEDS`): под скоростью пульс идёт теми же настоящими двумя
+ * секундами, а часов партии между пульсами проходит в `speed` раз больше.
+ */
+export const PULSE_MS = 2000;
 
 /** Мир, составляющий черновики уведомлений. Есть, только пока открыт замок `NOTIFY_ON`. */
 let notifying: NotifyingWorld | null = null;
@@ -310,7 +314,7 @@ export interface WorldStore {
 let timer: ReturnType<typeof setInterval> | null = null;
 /**
  * Поправка часов мира к нашим. У локального мира она нулевая — он и живёт по
- * тем же часам (`serverNow`), — у настоящего сервера мира будет своя.
+ * тем же часам (часы партии, `partyNow`), — у настоящего сервера мира будет своя.
  *
  * Поправок две и складываются они нарочно: `serverNow` правит часы устройства
  * по серверу хранения, а эта — часы мира по часам мира. Сводить их в одну
@@ -319,7 +323,7 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let clockOffset = 0;
 
 /** Время мира прямо сейчас: таймеры походов идут между пульсами. */
-export const worldNow = (): number => serverNow() + clockOffset;
+export const worldNow = (): number => partyNow() + clockOffset;
 
 export const useWorld = create<WorldStore>((set, get) => ({
   ready: false,
@@ -338,7 +342,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   letterBack: null,
   siege: null,
   camp: null,
-  now: serverNow(),
+  now: partyNow(),
   selected: null,
   card: null,
   cardTerrain: null,
@@ -403,7 +407,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     if (lastLook !== null && (look !== lastLook || pulse.reports.length > 0)) ageChunks();
     lastLook = look;
 
-    clockOffset = pulse.now - serverNow();
+    clockOffset = pulse.now - partyNow();
     set({
       marches: pulse.marches,
       figures: pulse.figures,
@@ -433,6 +437,9 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   ensureRegion: (rect) => {
     if (!hasWorldApi()) return;
+    // Срок куска — часы игрока, а не партии: кэш — инструмент, и цена пересчёта куска настоящая. Под
+    // скоростью проверки на часах партии кусок старел бы в `speed` раз быстрее и пересчитывался бы
+    // на каждом кадре; перемены городов на карте и так гасят кусок пульсом (`ageChunks`).
     const now = serverNow();
     for (const { key, cx, cy } of chunkKeysIn(rect)) {
       const have = cachedChunk(key);

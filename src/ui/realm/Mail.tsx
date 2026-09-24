@@ -8,7 +8,7 @@
 // деревне — больше нет: второй способ сказать то же самое разошёлся бы с первым.
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { serverNow } from '@/net/clock';
+import { partyNow } from '@/net/clock';
 import { useWorld, worldNow } from '@/world/store';
 import { RHUMB_WORDS } from '@/world/data/letters';
 import type { LetterView } from '@/world/types';
@@ -42,7 +42,7 @@ export function Mail() {
   const [done, setDone] = useState<{ title: string; text: string } | null>(null);
   const [, retick] = useState(0);
 
-  const list = dispatches(s, letters, { tribe: serverNow(), world: worldNow() });
+  const list = dispatches(s, letters, { tribe: partyNow(), world: worldNow() });
   const live = mailKeys(
     s.inbox,
     letters.map((l) => l.id),

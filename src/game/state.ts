@@ -1,5 +1,5 @@
 import type { Building, BuildingTypeId, GameState } from './types';
-import { serverNow } from '@/net/clock';
+import { partyNow } from '@/net/clock';
 import { START_POP, TEST_GEMS } from './constants';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
@@ -208,7 +208,7 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     log: [],
     stats: { hunts: 0, battlesWon: 0, battlesLost: 0, born: 0, died: 0, eventsResolved: 0, scouted: 0, raids: 0, castles: 0, lairs: 0, purchases: 0, dailyWins: 0 },
     nextId: 1,
-    lastSaved: serverNow(),
+    lastSaved: partyNow(),
   };
   for (const def of BUILDINGS) s.buildings.push(built(s, def.id));
   const at = (type: BuildingTypeId): number => s.buildings.find((b) => b.type === type)!.id;
