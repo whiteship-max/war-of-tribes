@@ -20,14 +20,24 @@ export interface Slot {
 }
 
 /** Сервер жетонов на `n` ядер. Адрес — в `env` для дочерних процессов. */
-export async function serveSlots(n: number): Promise<{ env: Record<string, string>; close(): Promise<void> }> {
+export async function serveSlots(n: number): Promise<{ env: Record<string, string>; close(): Promise<void>; busy(): number }> {
   let free = n;
+  // Занятость: интеграл выданных жетонов по времени — сколько ядер в среднем было занято.
+  const started = performance.now();
+  let area = 0;
+  let last = started;
+  const tick = (): void => {
+    const now = performance.now();
+    area += (n - free) * (now - last);
+    last = now;
+  };
   const queue: net.Socket[] = [];
   const held = new Set<net.Socket>();
   const grant = (): void => {
     while (free > 0 && queue.length > 0) {
       const s = queue.shift()!;
       if (s.destroyed) continue;
+      tick();
       free--;
       held.add(s);
       s.write('1\n');
@@ -37,8 +47,10 @@ export async function serveSlots(n: number): Promise<{ env: Record<string, strin
     queue.push(s);
     s.on('error', () => undefined);
     s.on('close', () => {
-      if (held.delete(s)) free++;
-      else {
+      if (held.delete(s)) {
+        tick();
+        free++;
+      } else {
         const i = queue.indexOf(s);
         if (i >= 0) queue.splice(i, 1);
       }
@@ -50,6 +62,10 @@ export async function serveSlots(n: number): Promise<{ env: Record<string, strin
   const { port } = server.address() as net.AddressInfo;
   return {
     env: { [SLOTS]: `127.0.0.1:${port}` },
+    busy: () => {
+      tick();
+      return area / Math.max(1, last - started);
+    },
     close: () =>
       new Promise((resolve) => {
         for (const s of [...held, ...queue]) s.destroy();

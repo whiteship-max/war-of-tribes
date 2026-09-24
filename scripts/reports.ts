@@ -9,6 +9,7 @@
  *   npm run reports -- --base <rev>  от чего считать изменения (по умолчанию origin/master)
  *   npm run reports -- --before      прогнать базу во втором worktree, если её вывода нет
  *   npm run reports -- --at <rev>    план для коммита против родителя (проверка на истории)
+ *   npm run reports -- --ledger      цена прошлых приёмок по кэшу и пуши по дням — из чего выведена цель быстрой
  *
  * Как выбирается набор — `lib/affected.ts`; как считается замыкание — `lib/deps.ts`; где
  * лежат выводы и как прогон записывает прочитанное — `lib/runs.ts`; что в выводе замер,
@@ -25,13 +26,13 @@
  * Код 2 — ничего не упало, но быстрая слепа к правке хоть в одном отчёте: нужен полный прогон.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import os, { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { owners, plan, type Owner, type Plan } from './lib/affected';
-import { shifts, stableLines } from './lib/measured';
-import { closureKey, lastSeconds, load, loadSeen, runTraced, save, saveSeen, unexplained } from './lib/runs';
-import { blindTo, collect, touches, transformer, type Seen, type Touch } from './lib/blind';
+import { measure, shifts, stableLines } from './lib/measured';
+import { closureKey, lastSeconds, load, loadSeen, runTraced, save, saveSeen, storeDir, unexplained, type RunMeta } from './lib/runs';
+import { blindTo, collect, touches, transformer, type Grain, type Seen, type Touch } from './lib/blind';
 import { boundShift } from './lib/quick';
 import { serveSlots, takeSlot } from './lib/slots';
 import { ROOT, changedSince, lines, own, setupOf } from './lib/setup';
@@ -48,6 +49,16 @@ const CODE = /\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$/;
 
 /** Под каким именем лежит в кэше быстрый прогон отчёта: у него свой вывод и своё покрытие. */
 const quickId = (name: string): string => `${name}.quick`;
+
+/**
+ * Зерно покрытия быстрой (`blind.Grain`). Выбрано замером, а не вкусом: по блокам прогон дороже в 1.75 раза и
+ * съедает почти весь выигрыш от срезанных миров, по функциям — на 7 %; что каждое зерно поймало на прошлых
+ * сдвигах, печатает `npm run quick:history` (docs/realm.md, раздел 8).
+ */
+const GRAIN = 'function' as Grain;
+
+/** Переменные прогона, при которых он пишет покрытие своего зерна в `dir`. */
+const coverEnv = (dir: string): Record<string, string> => (GRAIN === 'block' ? { NODE_V8_COVERAGE: dir } : { TRIBE_COVER: dir });
 
 const argv = process.argv.slice(2);
 const flag = (name: string): boolean => argv.includes(name);
@@ -121,7 +132,7 @@ async function runBase(base: string, names: string[], quick: boolean): Promise<v
       const key = closureKey(name, tree, o.closure);
       const cov = fast ? mkdtempSync(path.join(os.tmpdir(), `tribe-cov-base-${name}-`)) : null;
       process.stdout.write(`база: ${name}${fast ? ' (быстрая)' : ''}…`);
-      const r = await runTraced(dir, `npm run --silent ${name}:report`, path.join(dir, `.${name}.trace`), true, cov ? { TRIBE_QUICK: '1', NODE_V8_COVERAGE: cov } : {});
+      const r = await runTraced(dir, `npm run --silent ${name}:report`, path.join(dir, `.${name}.trace`), true, cov ? { TRIBE_QUICK: '1', ...coverEnv(cov) } : {});
       console.log(` ${r.exit === 0 ? 'ок' : `код ${r.exit}`}, ${r.seconds.toFixed(0)} с`);
       save(ROOT, {
         meta: { report: id, key, commit: tree.label, dirty: false, exit: r.exit, seconds: r.seconds, at: new Date().toISOString(), node: process.version },
@@ -130,7 +141,7 @@ async function runBase(base: string, names: string[], quick: boolean): Promise<v
       if (cov) {
         // Покрытие базы сопоставляется с её же исходниками: перевод — vite второго worktree.
         const vite = transformer(dir);
-        saveSeen(ROOT, id, key, await collect(cov, dir, new Set([...o.closure.files].filter((f) => CODE.test(f))), vite.transform));
+        saveSeen(ROOT, id, key, await collect(cov, dir, new Set([...o.closure.files].filter((f) => CODE.test(f))), vite.transform, GRAIN));
         await vite.close();
         rmSync(cov, { recursive: true, force: true });
       }
@@ -142,7 +153,46 @@ async function runBase(base: string, names: string[], quick: boolean): Promise<v
   }
 }
 
+/**
+ * Цена прошлых приёмок и частота пушей. Приёмка — прогон десяти и больше отчётов на одном коммите в один день
+ * (по кэшу, `lib/runs.ts`); пока отчёты шли подряд (до 25.09.2026), её цена — сумма их секунд; после — меньше суммы. Пуши — записи «update by push»
+ * у `origin/master` в reflog этой машины. Из этих двух чисел выведена цель быстрой приёмки (docs/realm.md,
+ * раздел 8): сколько стоила приёмка в те дни, когда пушили в своём ритме.
+ */
+function ledger(): void {
+  const dir = storeDir(ROOT);
+  const runs: RunMeta[] = [];
+  for (const r of existsSync(dir) ? readdirSync(dir) : []) {
+    for (const f of readdirSync(path.join(dir, r))) {
+      if (!f.endsWith('.json') || f.endsWith('.seen.json')) continue;
+      try {
+        runs.push(JSON.parse(readFileSync(path.join(dir, r, f), 'utf8')) as RunMeta);
+      } catch {
+        // битый прогон — не мерило
+      }
+    }
+  }
+  const byRun = new Map<string, RunMeta[]>();
+  for (const m of runs) byRun.set(`${m.at.slice(0, 10)} ${m.commit}`, [...(byRun.get(`${m.at.slice(0, 10)} ${m.commit}`) ?? []), m]);
+  const pushes = new Map<string, number>();
+  for (const line of lines(git(ROOT, ['reflog', 'show', '--date=short', '--format=%gd %gs', 'origin/master']))) {
+    const m = /\{(\d{4}-\d{2}-\d{2})\} update by push/.exec(line);
+    if (m) pushes.set(m[1], (pushes.get(m[1]) ?? 0) + 1);
+  }
+  console.log('Приёмки по кэшу (десять отчётов и больше на коммите за день) и пуши в тот день:');
+  console.log(' день        коммит   отчётов  сумма секунд  пушей в день');
+  for (const [k, list] of [...byRun].sort()) {
+    if (list.length < 10) continue;
+    const [day, commit] = k.split(' ');
+    console.log(` ${day}  ${commit.padEnd(7)}  ${String(list.length).padStart(7)}  ${String(Math.round(list.reduce((a, m) => a + m.seconds, 0))).padStart(12)}  ${String(pushes.get(day) ?? 0).padStart(12)}`);
+  }
+}
+
 async function main(): Promise<void> {
+  if (flag('--ledger')) {
+    ledger();
+    return;
+  }
   const at = arg('--at');
   if (at) {
     const tree = commitTree(ROOT, at);
@@ -247,7 +297,7 @@ async function main(): Promise<void> {
     const bk = baseKeys.get(o.name);
     const before = bk ? load(ROOT, id, bk) : null;
     const cov = fast ? mkdtempSync(path.join(os.tmpdir(), `tribe-cov-${o.name}-`)) : null;
-    const extra = fast && cov ? { ...env, TRIBE_QUICK: '1', NODE_V8_COVERAGE: cov } : env;
+    const extra = fast && cov ? { ...env, TRIBE_QUICK: '1', ...coverEnv(cov) } : env;
     const r = await runTraced(ROOT, `npm run --silent ${o.name}:report`, path.join(os.tmpdir(), `tribe-${o.name}.trace`), quiet, extra);
     if (quiet) process.stdout.write(`\n${title}\n${r.output}`);
     const missed = unexplained(r.read, o.closure, setup.vite.outDir, tree);
@@ -266,7 +316,7 @@ async function main(): Promise<void> {
     });
     let seen: Seen | null = null;
     if (cov) {
-      seen = await collect(cov, ROOT, new Set([...o.closure.files].filter((f) => CODE.test(f))), vite.transform);
+      seen = await collect(cov, ROOT, new Set([...o.closure.files].filter((f) => CODE.test(f))), vite.transform, GRAIN);
       saveSeen(ROOT, id, key, seen);
       rmSync(cov, { recursive: true, force: true });
     }
@@ -292,7 +342,9 @@ async function main(): Promise<void> {
         console.log(out.join('\n'));
       } else if (fast && seen) {
         // Совпал — а видела ли быстрая правку вообще: тронутый код обязан был исполниться на её мирах.
-        const was = loadSeen<Seen>(ROOT, id, bk);
+        const stored = loadSeen<Seen>(ROOT, id, bk);
+        // Покрытие базы другого зерна — не то же знание: сверять с ним строки дерева нельзя.
+        const was = stored && stored.grain === GRAIN ? stored : null;
         const blind = blindTo(touched, o.closure.files, seen, was, (side, f) => {
           try {
             return side === 'now' ? tree.read(f) : (baseTree?.read(f) ?? null);
@@ -328,8 +380,9 @@ async function main(): Promise<void> {
   // замеры в ‹…›, но и то, успел ли палец. Счётные идут разом: выводы их — функция кода и сида, и нагрузка их не
   // трогает (проверено приёмкой: вывод совпал с последовательным). Ядра делит один счётчик жетонов (`lib/slots.ts`):
   // жетон берёт каждый счётный отчёт без веера и каждый дочерний процесс веера; у отчёта с веером
-  // (`lib/fan.ts` в замыкании) главный процесс почти всё время ждёт своих дочерних и жетона не держит, но таких
-  // разом идёт не больше двух. Тяжёлые — первыми: хвост приёмки — самый долгий отчёт.
+  // (`lib/fan.ts` в замыкании) главный процесс почти всё время ждёт своих дочерних и жетона не держит — такие
+  // начинаются все сразу, и их дочерние встают в общую очередь жетонов. Тяжёлые — первыми: хвост приёмки — самый
+  // долгий отчёт. Сколько ядер в среднем было занято, итог печатает замером.
   const cores = availableParallelism();
   const browser = (o: Owner): boolean => o.closure.files.has(setup.vite.html);
   const fans = (o: Owner): boolean => o.closure.files.has(FAN);
@@ -353,9 +406,12 @@ async function main(): Promise<void> {
       }),
     );
   };
+  let busy = '';
+  const countingFrom = performance.now();
   try {
-    await Promise.all([pool(counting.filter(fans), 2, false), pool(counting.filter((o) => !fans(o)), cores, true)]);
+    await Promise.all([pool(counting.filter(fans), counting.length, false), pool(counting.filter((o) => !fans(o)), cores, true)]);
   } finally {
+    if (counting.length > 0) busy = `счётные ${measure(`${Math.round((performance.now() - countingFrom) / 1000)} с`)}, заняты в среднем ${measure(slots.busy().toFixed(1))} ядра из ${Math.max(1, cores - 1)}; `;
     await slots.close();
   }
   for (const o of selected.filter(browser)) await job(o, false, { TRIBE_FAN: '1' });
@@ -371,7 +427,7 @@ async function main(): Promise<void> {
   }
   const total = rows.reduce((a, r) => a + r.seconds, 0);
   const wall = (performance.now() - started) / 1000;
-  console.log(`  всего ${Math.round(wall)} с настоящего времени (отчёты шли разом; порознь — ${Math.round(total)} с), отчётов ${rows.length} из ${p.all.length}`);
+  console.log(`  всего ${Math.round(wall)} с настоящего времени (${busy}порознь — ${Math.round(total)} с), отчётов ${rows.length} из ${p.all.length}`);
   if (blindRows.length > 0) {
     console.log(`\n  БЫСТРАЯ СЛЕПА к правке в ${blindRows.length} отч.: тронутый код на её мирах не исполнился. Нужен полный прогон:`);
     console.log(`    npm run reports -- --full --only ${blindRows.join(',')}`);

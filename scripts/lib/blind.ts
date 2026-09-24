@@ -29,12 +29,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
+/**
+ * Зерно покрытия. По блокам (`NODE_V8_COVERAGE`) тёмная строка — та, у которой хоть один отрезок не исполнился:
+ * невызванная функция, не пройденная ветка. По функциям (`cover.mjs`) — только строка невызванной функции;
+ * правку в не пройденной ветке вызванной функции это зерно не видит. Стоят они по-разному: по блокам прогон
+ * идёт в 1.75 раза дольше, по функциям — на 7 % (docs/realm.md, раздел 8).
+ */
+export type Grain = 'block' | 'function';
+
 /** Покрытие одного прогона: по файлу — строки кода, исполненные не целиком (с единицы). */
 export interface Seen {
   /** Файлы, которые прогон загрузил и чьё покрытие удалось сопоставить с исходником. */
   files: Record<string, number[]>;
   /** Файлы, которые прогон загрузил, но сопоставить не удалось: о них быстрая не знает ничего. */
   unknown: string[];
+  /** Зерно, которым покрытие прочитано: базу другого зерна со строками дерева не сверяют. */
+  grain?: Grain;
 }
 
 // ---------- Карта исходника ----------
@@ -135,10 +145,12 @@ function aligned(code: string, script: Script, wrap: number): boolean {
  * Прибавить к счёту строк одного файла покрытие одного процесса. `code` — переведённый исходник, который
  * процесс выполнил; `marks` — по строке исходника, исполнен ли каждый её отрезок хоть в одном процессе.
  */
-function paint(code: string, script: Script, prefix: number, marks: Map<number, { ran: boolean[] }>, maps: [number, number, number][]): void {
+function paint(code: string, script: Script, prefix: number, marks: Map<number, { ran: boolean[] }>, maps: [number, number, number][], grain: Grain): void {
   const whole = script.functions[0].ranges[0];
   const counts = new Int32Array(whole.endOffset + 1);
-  const all: Range[] = script.functions.flatMap((f) => f.ranges);
+  // По функциям — только первый отрезок каждой функции: вызывалась ли она. Блоки внутри не читаются, даже если
+  // покрытие их принесло: так вердикт по функциям считается и из покрытия по блокам (проверка на истории).
+  const all: Range[] = script.functions.flatMap((f) => (grain === 'function' ? f.ranges.slice(0, 1) : f.ranges));
   all.sort((a, b) => a.startOffset - b.startOffset || b.endOffset - a.endOffset);
   for (const r of all) counts.fill(r.count > 0 ? 1 : 0, r.startOffset, r.endOffset);
   const starts = [0];
@@ -160,7 +172,7 @@ function paint(code: string, script: Script, prefix: number, marks: Map<number, 
  * кода, исполненные не целиком. Процессов может быть много (отчёт и его веер): отрезок исполнен, если исполнен
  * хоть в одном. `transform` — переведённый vite код файла (тот же, что выполнял прогон) или `null`.
  */
-export async function collect(dir: string, root: string, wanted: ReadonlySet<string>, transform: (file: string) => Promise<string | null>): Promise<Seen> {
+export async function collect(dir: string, root: string, wanted: ReadonlySet<string>, transform: (file: string) => Promise<string | null>, grain: Grain = 'block'): Promise<Seen> {
   const scripts = new Map<string, Script[]>();
   for (const f of readdirSync(dir)) {
     if (!f.endsWith('.json')) continue;
@@ -182,7 +194,7 @@ export async function collect(dir: string, root: string, wanted: ReadonlySet<str
       scripts.set(rel, [...(scripts.get(rel) ?? []), s]);
     }
   }
-  const seen: Seen = { files: {}, unknown: [] };
+  const seen: Seen = { files: {}, unknown: [], grain };
   const codes = new Map<string, string | null>();
   for (const rel of scripts.keys()) codes.set(rel, await transform(rel));
   // Обёртка одна у всех модулей прогона. Файл, у которого разница длин вышла другой, выполнялся не в том
@@ -206,7 +218,7 @@ export async function collect(dir: string, root: string, wanted: ReadonlySet<str
     }
     const maps = mappings(raw);
     const marks = new Map<number, { ran: boolean[] }>();
-    for (const s of fit) paint(code, s, wrap, marks, maps);
+    for (const s of fit) paint(code, s, wrap, marks, maps, grain);
     const dark: number[] = [];
     for (const [sl, m] of marks) if (m.ran.some((x) => x === false)) dark.push(sl + 1);
     seen.files[rel] = dark.sort((a, b) => a - b);

@@ -12,6 +12,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ROOT } from './setup';
 import { blindTo, collect, mappings, namesAt, touches, transformer, type Seen, type Touch } from './blind';
+import { hook as coverHook } from './cover.mjs';
 
 const FIXTURE = 'scripts/lib/blind-fixture.ts';
 const text = readFileSync(path.join(ROOT, FIXTURE), 'utf8');
@@ -31,6 +32,8 @@ const L = {
 };
 
 let seen: Seen;
+let byFunction: Seen;
+let hooked: Seen;
 let code: string;
 
 beforeAll(async () => {
@@ -38,13 +41,20 @@ beforeAll(async () => {
   const bin = path.join(path.dirname(createRequire(import.meta.url).resolve('vite-node/package.json')), 'vite-node.mjs');
   const r = spawnSync(process.execPath, [bin, FIXTURE], { cwd: ROOT, env: { ...process.env, NODE_V8_COVERAGE: dir, NODE_OPTIONS: '' }, encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`фикстура не выполнилась: ${r.stderr}`);
+  // Тот же прогон с покрытием по функциям — путём быстрой приёмки: ловушкой `cover.mjs`.
+  const fdir = mkdtempSync(path.join(os.tmpdir(), 'tribe-blind-fn-'));
+  const f = spawnSync(process.execPath, [bin, FIXTURE], { cwd: ROOT, env: { ...process.env, TRIBE_COVER: fdir, NODE_OPTIONS: `--import=${coverHook}` }, encoding: 'utf8' });
+  if (f.status !== 0) throw new Error(`фикстура с покрытием по функциям не выполнилась: ${f.stderr}`);
   const vite = transformer(ROOT);
   try {
     code = (await vite.transform(FIXTURE))!;
     seen = await collect(dir, ROOT, new Set([FIXTURE]), vite.transform);
+    byFunction = await collect(dir, ROOT, new Set([FIXTURE]), vite.transform, 'function');
+    hooked = await collect(fdir, ROOT, new Set([FIXTURE]), vite.transform, 'function');
   } finally {
     await vite.close();
     rmSync(dir, { recursive: true, force: true });
+    rmSync(fdir, { recursive: true, force: true });
   }
 }, 60_000);
 
@@ -75,6 +85,21 @@ describe('покрытие прогона сопоставляется со ст
     expect(dark).not.toContain(L.ran);
     expect(dark).not.toContain(L.call);
     expect(dark).not.toContain(L.base);
+  });
+});
+
+describe('зерно по функциям', () => {
+  it('видит невызванную функцию и не видит не пройденной ветки вызванной — это его цена, и она названа', () => {
+    const dark = byFunction.files[FIXTURE];
+    expect(dark).toContain(L.unused);
+    expect(dark).not.toContain(L.branch);
+    expect(dark).not.toContain(L.ran);
+  });
+
+  it('ловушка cover.mjs пишет то же знание, что покрытие по блокам, прочитанное по функциям', () => {
+    expect(hooked.unknown).toEqual([]);
+    expect(hooked.files[FIXTURE]).toEqual(byFunction.files[FIXTURE]);
+    expect(hooked.grain).toBe('function');
   });
 });
 

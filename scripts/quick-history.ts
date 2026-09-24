@@ -19,6 +19,8 @@
  * ВЕРДИКТ по паре — тот же, что у приёмки: быстрый вывод на двух коммитах разошёлся — «поймала»; совпал, а
  * тронутый код быстрая не исполнила целиком (`lib/blind.ts`) — «слепа» (сказала бы «нужен полный»); совпал и
  * не слепа — «ПРОПУСТИЛА МОЛЧА». Последнее — нарушение обещания быстрой приёмки, и команда выходит кодом 1.
+ * Слепота считается в обоих зёрнах покрытия на одних и тех же данных (по блокам — прогон пишет их, по функциям —
+ * те же данные, прочитанные по функциям): так видно, что стоило бы зерно подешевле.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -126,7 +128,9 @@ function pairs(): Pair[] {
 
 interface Quick {
   output: string;
+  /** Покрытие быстрой по блокам и то же покрытие, прочитанное по функциям (`blind.Grain`). */
   seen: Seen | null;
+  byFunction: Seen | null;
   missed: string[];
   exit: number;
 }
@@ -156,9 +160,11 @@ async function quickAt(commit: string, report: string, list: Cut[]): Promise<Qui
     const tree = commitTree(ROOT, commit);
     const closure = owners(tree, setupOf(tree, [])).owners.find((o) => o.kind === 'report' && o.name === report)?.closure;
     const vite = transformer(dir);
-    const seen = closure ? await collect(cov, dir, new Set([...closure.files].filter((f) => /\.(ts|tsx|mts|js|mjs)$/.test(f))), vite.transform) : null;
+    const code = closure ? new Set([...closure.files].filter((f) => /\.(ts|tsx|mts|js|mjs)$/.test(f))) : null;
+    const seen = code ? await collect(cov, dir, code, vite.transform) : null;
+    const byFunction = code ? await collect(cov, dir, code, vite.transform, 'function') : null;
     await vite.close();
-    return { output: r.output, seen, missed, exit: r.exit };
+    return { output: r.output, seen, byFunction, missed, exit: r.exit };
   } finally {
     rmSync(cov, { recursive: true, force: true });
     if (process.platform === 'win32') spawnSync('cmd', ['/c', 'rmdir', modules], { stdio: 'ignore' });
@@ -193,6 +199,7 @@ async function main(): Promise<void> {
   console.log('');
   console.log(' отчёт        пара                полный сдвиг  быстрая сдвиг  вердикт');
   let silent = 0;
+  let silentFn = 0;
   for (const p of todo) {
     const qa = done.get(`${p.a}|${p.report}`)!;
     const qb = done.get(`${p.b}|${p.report}`)!;
@@ -208,24 +215,26 @@ async function main(): Promise<void> {
         const tb = commitTree(ROOT, p.b);
         const ta = commitTree(ROOT, p.a);
         const closure = owners(tb, setupOf(tb, [])).owners.find((o) => o.kind === 'report' && o.name === p.report)!.closure;
-        const blind = qb.seen ? blindTo(touches(git(ROOT, ['diff', '-U0', '--no-renames', p.a, p.b])), closure.files, qb.seen, qa.seen, (side, f) => {
+        const diff = touches(git(ROOT, ['diff', '-U0', '--no-renames', p.a, p.b]));
+        const read = (side: 'now' | 'was', f: string): string | null => {
           try {
             return (side === 'now' ? tb : ta).read(f);
           } catch {
             return null;
           }
-        }) : { spots: ['покрытия нет'] };
-        if (blind.spots.length > 0) verdict = `слепа (сказала бы «нужен полный»): ${blind.spots[0]}`;
-        else {
-          verdict = 'ПРОПУСТИЛА МОЛЧА';
-          silent++;
-        }
+        };
+        const blind = qb.seen ? blindTo(diff, closure.files, qb.seen, qa.seen, read) : { spots: ['покрытия нет'] };
+        const blindFn = qb.byFunction ? blindTo(diff, closure.files, qb.byFunction, qa.byFunction, read) : { spots: ['покрытия нет'] };
+        const by = (b: { spots: string[] }): string => (b.spots.length > 0 ? `слепа (${b.spots.length} мест)` : 'ПРОПУСТИЛА МОЛЧА');
+        verdict = `по блокам: ${by(blind)}; по функциям: ${by(blindFn)}${blind.spots[0] ? ` — ${blind.spots[0]}` : ''}`;
+        if (blind.spots.length === 0) silent++;
+        if (blindFn.spots.length === 0) silentFn++;
       }
     }
     console.log(` ${p.report.padEnd(11)}  ${`${p.a} → ${p.b}`.padEnd(18)}  ${String(p.lines).padStart(12)}  ${fast.padStart(13)}  ${verdict}`);
   }
   console.log('');
-  console.log(`Пропущено молча: ${silent} из ${todo.length}. Прогонов быстрой: ${jobs.length}, ${measure(`${Math.round((performance.now() - started) / 1000)} с`)}.`);
+  console.log(`Пропущено молча: по блокам ${silent} из ${todo.length}, по функциям ${silentFn} из ${todo.length}. Прогонов быстрой: ${jobs.length}, ${measure(`${Math.round((performance.now() - started) / 1000)} с`)}.`);
   if (silent > 0) process.exitCode = 1;
 }
 

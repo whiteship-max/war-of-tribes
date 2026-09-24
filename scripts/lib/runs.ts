@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import path from 'node:path';
 import type { Closure } from './deps';
 import { hook as ownHook } from './trace-fs.mjs';
+import { hook as coverHook } from './cover.mjs';
 import { git, type Tree } from './tree';
 
 export interface RunMeta {
@@ -125,7 +126,8 @@ export function runTraced(cwd: string, command: string, traceFile: string, quiet
     ...process.env,
     TRIBE_TRACE: traceFile,
     TRIBE_TRACE_ROOT: cwd,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${hook}`.trim(),
+    // Покрытие по функциям для быстрой приёмки (`cover.mjs`) — тем же путём, что запись прочитанного.
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${hook}${extra.TRIBE_COVER ? ` --import=${coverHook}` : ''}`.trim(),
     FORCE_COLOR: '0',
     ...extra,
   };
