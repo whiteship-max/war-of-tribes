@@ -53,7 +53,8 @@ import { armyPower, armySize, buildingOfType, defense, recruitRate, taxIncomePer
 import { kindsOf, troopTotal } from '@/game/battle/kinds';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
-import { GAME, START, memory, pilot, player, townAt, type Inside, type Run, type Step } from './autopilot';
+import { GAME, START, memory, pilot, player, townAt, unitsNote, type Inside, type Run, type Step } from './autopilot';
+import { fan, serveFan } from './lib/fan';
 import { NEW_SEEDS, SEEDS, hm, mean, pad, pct, q, sum, tally } from './raid-common';
 
 const LADDER = [1, 2, 3, 5, 7, 10];
@@ -78,6 +79,127 @@ function fit(xs: number[], ys: number[]): { a: number; b: number; worst: number 
   return { a, b, worst };
 }
 
+
+/** Линия мерки, выведенная в разделе 1: наклон, сдвиг и худшее отклонение. */
+type Line = ReturnType<typeof fit>;
+/** Мерки развития, по которым сравнивается набег; в игре стоит одна — жители. */
+type Base = 'level' | 'hall' | 'pop';
+/** Линии раздела 1, которыми меряется набег в живой партии (раздел 1б). */
+interface Lines {
+  byLevel: Line;
+  popToLevel: Line;
+}
+
+const devOf = (lines: Lines, b: Base, p: PlayerProfile): number =>
+  b === 'hall' ? (p.levels?.town_hall ?? 1) : b === 'pop' ? Math.max(0, lines.popToLevel.a * p.pop + lines.popToLevel.b) : levelOf(p);
+const raidAt = (lines: Lines, b: Base, p: PlayerProfile): number => LAIR_STEP * (lines.byLevel.a * devOf(lines, b, p) + lines.byLevel.b);
+const shieldAt = (dev: number): number => Math.min(1, Math.max(0, (dev - LAIR_SHIELD_FROM) / (LAIR_SHIELD_FULL - LAIR_SHIELD_FROM)));
+
+const NEW_HOURS = 6;
+const HOURS_AT = [1, 2, 4, 6];
+/** Срок прогона раздела 2 («Ступени»). */
+const STEP_HOURS = 4;
+
+/** Срез живой партии раздела 1б к часу из `HOURS_AT`. */
+interface QuietRow {
+  lv: number;
+  th: number;
+  pop: number;
+  e: number;
+  def: number;
+  raid: number[];
+}
+
+/** Задача веера (`lib/fan.ts`): живая партия раздела 1б в тихом мире на одном мире. */
+export async function quietRun({ style, seed, lines }: { style: 'обычный' | 'без ратуши'; seed: number; lines: Lines }): Promise<(QuietRow | undefined)[]> {
+  const rows: (QuietRow | undefined)[] = [];
+  setRandom(seeded(seed));
+  const g = createInitialState(seed);
+  g.tutorialDone = true;
+  await pilot({
+    g,
+    seconds: NEW_HOURS * 3600,
+    player: player(null, { build: { skip: style === 'без ратуши' ? NO_HALL : [] } }),
+    world: { seed, pulse: PULSE, raids: false },
+    economy: 'live',
+    tick: 1,
+    decide: PULSE,
+    watch: {
+      hourly: (h, x) => {
+        const i = HOURS_AT.indexOf(h);
+        if (i < 0) return;
+        const p = playerProfile(x, awayOf([], []));
+        const raid = (['level', 'hall', 'pop'] as Base[]).map((b) => {
+          const dev = devOf(lines, b, p);
+          const sh = b === 'pop' ? shieldAt(dev) : Math.min(1, Math.max(0, (dev - 3) / 3));
+          return raidAt(lines, b, p) * sh;
+        });
+        rows[i] = { lv: levelOf(p), th: p.levels?.town_hall ?? 1, pop: p.pop, e: devOf(lines, 'pop', p), def: defense(x), raid };
+      },
+    },
+  });
+  setRandom(null);
+  return rows;
+}
+
+/** Задача веера (`lib/fan.ts`): посёлок мерки уровня `level` стоит дома под ступенью `s` на одном мире (раздел 2). */
+export async function stepRun({ s, level, seed, refill }: { s: Step; level: number; seed: number; refill: boolean }): Promise<Run> {
+  const flown = await pilot({
+    g: townAt(level),
+    seconds: STEP_HOURS * 3600,
+    // Посёлок мерки стоит: уровни, склад и войско такие, какими их поставил отчёт. Игрок
+    // только выходит на осаду вылазкой.
+    player: player(null, { staff: false, build: false }),
+    world: { seed, pulse: PULSE, raids: true, ripe: true, step: s, ref: defense(townAt(level)) },
+    economy: 'frozen',
+    tick: 1,
+    decide: PULSE,
+    refill,
+  });
+  return flown.run;
+}
+
+type Newbie = 'none' | 'hire' | 'militia' | 'nohall';
+
+const militia = (g: GameState): void => {
+  const want = Math.round(g.pop * 0.1);
+  const have = armySize(g) + g.recruits.reduce((n, r) => n + r.count - r.done, 0);
+  if (want > have) startRecruit(g, 'clubman', want - have);
+};
+
+/** Задача веера (`lib/fan.ts`): новичок раздела 3 — партия с первой секунды на одном мире. */
+export async function newbieRun({ style, seed }: { style: Newbie; seed: number }): Promise<{ run: Run; pop: (number | undefined)[]; lvl: (number | undefined)[]; th: number | undefined }> {
+  const pop: (number | undefined)[] = [];
+  const lvl: (number | undefined)[] = [];
+  let th: number | undefined;
+  setRandom(seeded(seed));
+  const g = createInitialState(seed);
+  g.tutorialDone = true;
+  const flown = await pilot({
+    g,
+    seconds: NEW_HOURS * 3600,
+    player: player(null, {
+      build: { skip: style === 'nohall' ? NO_HALL : [] },
+      siegeLevy: style === 'hire',
+      also: style === 'militia' || style === 'nohall' ? militia : undefined,
+    }),
+    world: { seed, pulse: PULSE, raids: true, step: GAME },
+    economy: 'live',
+    tick: 1,
+    decide: PULSE,
+    watch: {
+      hourly: (h, x) => {
+        const i = HOURS_AT.indexOf(h);
+        if (i < 0) return;
+        pop[i] = x.pop;
+        lvl[i] = sum(x.buildings.map((b) => b.level)) / x.buildings.length;
+        if (h === NEW_HOURS) th = buildingOfType(x, 'town_hall')?.level ?? 1;
+      },
+    },
+  });
+  setRandom(null);
+  return { run: flown.run, pop, lvl, th };
+}
 
 // ---------- Печать ----------
 
@@ -145,12 +267,7 @@ export async function lairGrowthSection(): Promise<void> {
   );
 
   // Линии мерок — выведенные выше; по ним сравниваются мерки, в игре стоит одна — жители.
-  type Base = 'level' | 'hall' | 'pop';
-  const devOf = (b: Base, p: PlayerProfile): number =>
-    b === 'hall' ? (p.levels?.town_hall ?? 1) : b === 'pop' ? Math.max(0, popToLevel.a * p.pop + popToLevel.b) : levelOf(p);
-  const raidAt = (b: Base, p: PlayerProfile): number => LAIR_STEP * (byLevel.a * devOf(b, p) + byLevel.b);
-  const shieldAt = (dev: number): number =>
-    Math.min(1, Math.max(0, (dev - LAIR_SHIELD_FROM) / (LAIR_SHIELD_FULL - LAIR_SHIELD_FROM)));
+  const lines: Lines = { byLevel, popToLevel };
 
   console.log(`Набег ступени ${LAIR_STEP.toFixed(2)} на лестнице по мерке (ср. уровень и ратуша на ней совпадают):`);
   console.log(' уровень  оборона  по ср. уровню / ратуше  по жителям  жители к ср. уровню');
@@ -173,7 +290,7 @@ export async function lairGrowthSection(): Promise<void> {
     const up = townAt(5, { [b.type]: 6 });
     const upP = playerProfile(up, awayOf([], []));
     const gain = defense(up) - defense(base);
-    const raids = (['level', 'hall', 'pop'] as Base[]).map((x) => raidAt(x, upP) - raidAt(x, baseP));
+    const raids = (['level', 'hall', 'pop'] as Base[]).map((x) => raidAt(lines, x, upP) - raidAt(lines, x, baseP));
     if (gain <= 0.5 && raids.every((x) => x <= 0.5)) continue;
     console.log(` ${b.type.padEnd(15)}  ${pad(gain.toFixed(1), 7)}  ${pad(raids[0].toFixed(1), 19)}  ${pad(raids[1].toFixed(1), 6)}  ${pad(raids[2].toFixed(1), 6)}`);
   }
@@ -183,42 +300,18 @@ export async function lairGrowthSection(): Promise<void> {
   );
 
   // 1б. Живая партия.
-  const NEW_HOURS = 6;
-  const HOURS_AT = [1, 2, 4, 6];
   console.log('');
   console.log(`--- 1б. Мерки в живой партии: общий автопилот, ${NEW_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир тихий (набегов нет) ---`);
   console.log('«обычный» — автопилот как есть; «без ратуши» — тот же автопилот, который ратушу не поднимает никогда (build с skip).');
   console.log(`«набег» — набег дозревшего логова медианной опоры по мерке: ступень ${LAIR_STEP.toFixed(2)} × линия × защита (у жителей ${LAIR_SHIELD_FROM}→${LAIR_SHIELD_FULL}, у уровня и ратуши — 3→6, как мерились до выбора); «оборона» — посёлка без войска.`);
   console.log(' партия       ч  ср. уровень  ратуша  жителей  жители в L  оборона  набег: ср. уровень  ратуша  жители');
-  for (const style of ['обычный', 'без ратуши'] as const) {
-    const rows: { lv: number; th: number; pop: number; e: number; def: number; raid: number[] }[][] = HOURS_AT.map(() => []);
-    for (const seed of NEW_SEEDS) {
-      setRandom(seeded(seed));
-      const g = createInitialState(seed);
-      g.tutorialDone = true;
-      await pilot({
-        g,
-        seconds: NEW_HOURS * 3600,
-        player: player(null, { build: { skip: style === 'без ратуши' ? NO_HALL : [] } }),
-        world: { seed, pulse: PULSE, raids: false },
-        economy: 'live',
-        tick: 1,
-        decide: PULSE,
-        watch: {
-          hourly: (h, x) => {
-            const i = HOURS_AT.indexOf(h);
-            if (i < 0) return;
-            const p = playerProfile(x, awayOf([], []));
-            const raid = (['level', 'hall', 'pop'] as Base[]).map((b) => {
-              const dev = devOf(b, p);
-              const sh = b === 'pop' ? shieldAt(dev) : Math.min(1, Math.max(0, (dev - 3) / 3));
-              return raidAt(b, p) * sh;
-            });
-            rows[i].push({ lv: levelOf(p), th: p.levels?.town_hall ?? 1, pop: p.pop, e: devOf('pop', p), def: defense(x), raid });
-          },
-        },
-      });
-      setRandom(null);
+  unitsNote();
+  const QUIET = ['обычный', 'без ратуши'] as const;
+  const quiet = await fan(quietRun, import.meta.url, QUIET.flatMap((style) => NEW_SEEDS.map((seed) => ({ style, seed, lines }))));
+  for (const [k, style] of QUIET.entries()) {
+    const rows: QuietRow[][] = HOURS_AT.map(() => []);
+    for (const run of quiet.slice(k * NEW_SEEDS.length, (k + 1) * NEW_SEEDS.length)) {
+      for (let i = 0; i < HOURS_AT.length; i++) if (run[i]) rows[i].push(run[i] as QuietRow);
     }
     HOURS_AT.forEach((h, i) => {
       const r = rows[i];
@@ -230,7 +323,7 @@ export async function lairGrowthSection(): Promise<void> {
   }
 
   // 2. Ступени.
-  const HOURS = 4;
+  const HOURS = STEP_HOURS;
   const LEVELS = [1, 5, 10];
   const step = (rho: number, shield = false): Step => ({ name: `${rho.toFixed(2)}${shield ? '' : ', без защиты'}`, rho, shield });
   console.log('');
@@ -243,40 +336,34 @@ export async function lairGrowthSection(): Promise<void> {
   const header = ' ступень              ур  жителей  набегов  набег / оборона  у стены  прорвали  лагерей  доля осад  вылазки   падений осадой  падений/ч  потери, удержали  < половины  войско в конце';
   const row = (name: string, level: number, t: ReturnType<typeof tally>): string =>
     ` ${name.padEnd(20)} ${pad(level, 2)}  ${pad(townAt(level).pop, 7)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.sorties, 8)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(t.half, 10)}  ${pad(t.armyEnd, 14)}`;
-  const ladder = async (steps: Step[], levels: number[], refill: boolean): Promise<void> => {
+  // Три таблицы — одним веером: прогоны всех строк идут разом, печать — по таблице, в прежнем порядке.
+  const tables: { steps: Step[]; levels: number[]; refill: boolean }[] = [
+    { steps: [GAME, step(0.8), step(0.9), step(1), step(1.1)], levels: LEVELS, refill: true },
+    { steps: [GAME, step(0.9)], levels: LEVELS, refill: false },
+    { steps: [GAME], levels: [7, 8], refill: true },
+  ];
+  const cells = tables.flatMap(({ steps, levels, refill }) => steps.flatMap((s) => levels.map((level) => ({ s, level, refill }))));
+  const stepRuns = await fan(stepRun, import.meta.url, cells.flatMap((c) => SEEDS.map((seed) => ({ ...c, seed }))));
+  let cell = 0;
+  const ladder = (steps: Step[], levels: number[]): void => {
     console.log(header);
     for (const s of steps) {
       for (const level of levels) {
-        const runs: Run[] = [];
-        const ref = defense(townAt(level));
-        for (const seed of SEEDS) {
-          const flown = await pilot({
-            g: townAt(level),
-            seconds: HOURS * 3600,
-            // Посёлок мерки стоит: уровни, склад и войско такие, какими их поставил отчёт. Игрок
-            // только выходит на осаду вылазкой.
-            player: player(null, { staff: false, build: false }),
-            world: { seed, pulse: PULSE, raids: true, ripe: true, step: s, ref },
-            economy: 'frozen',
-            tick: 1,
-            decide: PULSE,
-            refill,
-          });
-          runs.push(flown.run);
-        }
+        const runs: Run[] = stepRuns.slice(cell * SEEDS.length, (cell + 1) * SEEDS.length);
+        cell++;
         console.log(row(s.name, level, tally(runs, HOURS)));
       }
     }
   };
   console.log('');
   console.log('Войско держат полным — пополняется между пульсами даром. Это граница «сколько стоит бой», а не найм: найм — следующий замер.');
-  await ladder([GAME, step(0.8), step(0.9), step(1), step(1.1)], LEVELS, true);
+  ladder(tables[0].steps, tables[0].levels);
   console.log('');
   console.log('Без найма — войско не пополняется:');
-  await ladder([GAME, step(0.9)], LEVELS, false);
+  ladder(tables[1].steps, tables[1].levels);
   console.log('');
   console.log('Игра на посёлках мерки 7 и 8 уровней (жителей у них больше порога защиты), войско держат полным:');
-  await ladder([GAME], [7, 8], true);
+  ladder(tables[2].steps, tables[2].levels);
 
   // 3. Новичок.
   console.log('');
@@ -287,46 +374,22 @@ export async function lairGrowthSection(): Promise<void> {
   console.log('автопилот не поднимает никогда (build с skip). Логова молоды: мир начинается с партией. «набег / оборона» — к обороне слепка в минуту выхода.');
   const fresh = createInitialState(7);
   console.log(`Дубинщик на казармах новой партии нанимается за ${Math.round(TROOP_BY_ID.clubman.work / recruitRate(fresh, 'clubman'))} с (work / recruitRate). «окно голода» — от минуты, когда лагерь встал, до голода (siege.starvesAt), мин…макс.`);
-  const militia = (g: GameState): void => {
-    const want = Math.round(g.pop * 0.1);
-    const have = armySize(g) + g.recruits.reduce((n, r) => n + r.count - r.done, 0);
-    if (want > have) startRecruit(g, 'clubman', want - have);
-  };
   const STYLE_NAME = { none: 'без войска', hire: 'нанимает на осаду', militia: 'с ополчением 10 %', nohall: 'с ополчением 10 %, без ратуши' };
   console.log(' новичок                        набегов  набег / оборона  первое падение, мин…макс  прорвали  лагерей  окно голода        падений осадой  падений/ч  нанято  бойцов потеряно  люди к 1/2/4/6 ч      ср. уровень к 1/2/4/6 ч  ратуша к 6 ч');
-  for (const style of ['none', 'hire', 'militia', 'nohall'] as const) {
-    const runs: Run[] = [];
+  const NEWBIES = ['none', 'hire', 'militia', 'nohall'] as const;
+  const newbies = await fan(newbieRun, import.meta.url, NEWBIES.flatMap((style) => NEW_SEEDS.map((seed) => ({ style, seed }))));
+  for (const [k, style] of NEWBIES.entries()) {
+    const got = newbies.slice(k * NEW_SEEDS.length, (k + 1) * NEW_SEEDS.length);
+    const runs: Run[] = got.map((x) => x.run);
     const pop: number[][] = [[], [], [], []];
     const lvl: number[][] = [[], [], [], []];
     const th: number[] = [];
-    for (const seed of NEW_SEEDS) {
-      setRandom(seeded(seed));
-      const g = createInitialState(seed);
-      g.tutorialDone = true;
-      const flown = await pilot({
-        g,
-        seconds: NEW_HOURS * 3600,
-        player: player(null, {
-          build: { skip: style === 'nohall' ? NO_HALL : [] },
-          siegeLevy: style === 'hire',
-          also: style === 'militia' || style === 'nohall' ? militia : undefined,
-        }),
-        world: { seed, pulse: PULSE, raids: true, step: GAME },
-        economy: 'live',
-        tick: 1,
-        decide: PULSE,
-        watch: {
-          hourly: (h, x) => {
-            const i = HOURS_AT.indexOf(h);
-            if (i < 0) return;
-            pop[i].push(x.pop);
-            lvl[i].push(sum(x.buildings.map((b) => b.level)) / x.buildings.length);
-            if (h === NEW_HOURS) th.push(buildingOfType(x, 'town_hall')?.level ?? 1);
-          },
-        },
-      });
-      runs.push(flown.run);
-      setRandom(null);
+    for (const x of got) {
+      for (let i = 0; i < HOURS_AT.length; i++) {
+        if (x.pop[i] !== undefined) pop[i].push(x.pop[i] as number);
+        if (x.lvl[i] !== undefined) lvl[i].push(x.lvl[i] as number);
+      }
+      if (x.th !== undefined) th.push(x.th);
     }
     const t = tally(runs, NEW_HOURS);
     const first = t.first.length
@@ -369,3 +432,5 @@ export async function lairGrowthSection(): Promise<void> {
   }
   console.log(`Оружие дозревшего логова медианной опоры при любых жителях — ${lairArms(lairArmsBase(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE))} (LAIR_CAP ${LAIR_CAP}, LAIR_START ${LAIR_START}).`);
 }
+
+serveFan(import.meta.url, { quietRun, stepRun, newbieRun });

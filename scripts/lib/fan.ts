@@ -13,9 +13,9 @@
  * зависел бы от того, что считалось до него в том же процессе, здесь разошёлся бы с прежним
  * выводом — и это находка, а не шум: полная приёмка сравнивает вывод с базой.
  *
- * СКОЛЬКО ПРОЦЕССОВ — `TRIBE_FAN`. Приёмка ставит его сама (`scripts/reports.ts` делит ядра между
- * отчётами); без неё — все ядра, кроме одного. `TRIBE_FAN=1` — прежний путь: задачи идут в этом же
- * процессе подряд, без единого дочернего.
+ * СКОЛЬКО ПРОЦЕССОВ — `TRIBE_FAN`, а без него — все ядра, кроме одного. `TRIBE_FAN=1` — прежний путь:
+ * задачи идут в этом же процессе подряд, без единого дочернего. Под приёмкой ядра делят все отчёты
+ * вместе: на каждый дочерний процесс берётся жетон (`slots.ts`), и отдаётся он, когда процесс вышел.
  *
  * ДОЧЕРНИЙ ПРОЦЕСС — тот же vite-node, запущенный на модуле, где лежат задачи. Модуль называет
  * свои задачи сам (`serveFan` в его конце): имя, по которому их спрашивает веер, и функция стоят
@@ -31,6 +31,7 @@ import { createRequire } from 'node:module';
 import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { takeSlot } from './slots';
 
 type Task = (arg: never) => unknown;
 
@@ -103,7 +104,16 @@ export async function fan<A, R>(task: (arg: A) => R | Promise<R>, where: string,
   let next = 0;
   let failed: Error | null = null;
   const bin = viteNode();
-  const run = (): Promise<void> =>
+  const run = async (): Promise<void> => {
+    const slot = await takeSlot();
+    try {
+      if (failed || next >= args.length) return;
+      await work();
+    } finally {
+      slot?.release();
+    }
+  };
+  const work = (): Promise<void> =>
     new Promise((resolve) => {
       const child = spawn(process.execPath, [bin, file], {
         stdio: ['ignore', 'ignore', 'inherit', 'ipc'],

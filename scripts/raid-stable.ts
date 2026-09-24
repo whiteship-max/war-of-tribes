@@ -48,6 +48,7 @@ import type { EquipmentId, ResourceId, TroopId } from '@/game/types';
 import { MIX, armyAt, openSky, townAt, type Inside } from './autopilot';
 import { SEEDS } from './raid-common';
 import { bootstrapHalves, halfBand, percentile, spread } from './lib/halfband';
+import { fan, serveFan } from './lib/fan';
 
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 const padR = (v: string | number, w: number): string => String(v).padEnd(w);
@@ -155,6 +156,13 @@ interface Side {
 }
 
 /**
+ * Расстановка своей стороны в бою `n` с сидом `seed`: пресет быстрой атаки с приказом коннице поверх. Отдаётся
+ * всегда, а не только при приказе: без неё бой выбрал бы тот же пресет сам (`world/battle.resolveField`, та же
+ * соль), и так вход боя виден целиком — по нему `curveKey` узнаёт одинаковые кривые.
+ */
+const ownSetup = (own: Side, o: Order, seed: number, n: number): ArmySetup => ordered(quickAttack(own.stack, salt(seed, n)).setup, o);
+
+/**
  * Бои стороны `own` против логова силой `k` × своей мощи, по бою на сид: проигран ли — `defend`: набег прорвал,
  * `attack`: удар по гарнизону не удался. `style` null — уклад, какой выпал отряду по имени.
  */
@@ -163,7 +171,7 @@ function lairLosses(own: Side, style: GarrisonStyle | null, k: number, mode: 'de
   const power = stackMen(own.stack) * BATTLE_MAN;
   for (let i = 1; i <= fights; i++) {
     const seed = i * 7919;
-    const setup = (n: number): ArmySetup | null => (o.cavalry ? ordered(quickAttack(own.stack, salt(seed, n)).setup, o) : null);
+    const setup = (n: number): ArmySetup => ownSetup(own, o, seed, n);
     if (mode === 'defend') {
       const p = raidingParty(seed, style ? idOf(style, seed, i, 'raid') : `bench${i}`, k * power);
       out.push(resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear, setup: p.setup }, defender: { kinds: own.stack, gear: own.gear, setup: setup(2) } }).won);
@@ -259,36 +267,54 @@ function duel(a: Side, b: Side, oa: Order = PRESET): number {
   return lb / Math.max(1, la);
 }
 
-function duelPart(): void {
+/** Задача веера (`lib/fan.ts`): строка раздела 2 — вид `TROOPS[i]` против каждого. */
+export function duelLine(i: number): string {
+  const a = TROOPS[i];
+  return ` ${padR(a.name, 11)}${TROOPS.map((b) => pad(a === b ? '—' : f2(duel(pureOf(a.id), pureOf(b.id))), 10)).join('')}`;
+}
+
+async function duelPart(): Promise<void> {
   console.log('');
   console.log(`--- 2. Вид против вида при равной мощи: ядро, ${MEN} бойцов строя на сторону, быстрая атака у обеих, ${DUEL_SEEDS} сидов × обе стороны поля ---`);
   console.log('Ячейка — размен строки против столбца: потери столбца к потерям строки; больше 1 — строка выгоднее.');
   console.log(` ${padR('', 11)}${TROOPS.map((t) => pad(t.name.slice(0, 9), 10)).join('')}`);
-  for (const a of TROOPS) {
-    console.log(` ${padR(a.name, 11)}${TROOPS.map((b) => pad(a === b ? '—' : f2(duel(pureOf(a.id), pureOf(b.id))), 10)).join('')}`);
-  }
+  for (const line of await fan(duelLine, import.meta.url, TROOPS.map((_, i) => i))) console.log(line);
 }
 
 // ---------- 3. Кольцо в игре ----------
 
-function styleTable(rows: { name: string; side: Side; order: Order }[]): void {
-  console.log(` ${padR('', 34)}${STYLES.map((s) => pad(GARRISON_STYLES[s].name.slice(0, 13), 14)).join('')}${pad('среднее', 9)}${pad('разброс', 9)}`);
-  for (const mode of ['defend', 'attack'] as const) {
-    for (const r of rows) {
-      const hs = STYLES.map((s) => halfPoint((k) => lairLoss(r.side, s, k, mode, r.order)));
-      const avg = hs.reduce((a, x) => a + x, 0) / hs.length;
-      console.log(` ${padR(`${mode === 'defend' ? 'оборона' : 'удар'}: ${r.name}`, 34)}${hs.map((h) => pad(f2(h), 14)).join('')}${pad(f2(avg), 9)}${pad(f2(Math.max(...hs) / Math.min(...hs)), 9)}`);
-    }
-  }
+/**
+ * Строки таблицы по укладам: `ring` — раздел 3 (вид против логова), `order:<класс>` — раздел 6.2. Строки
+ * выводятся из имени таблицы, чтобы дочерний процесс веера собрал их сам.
+ */
+function styleRows(table: string): { name: string; side: Side; order: Order }[] {
+  if (table === 'ring') return TROOPS.map((t) => ({ name: t.name, side: pureOf(t.id), order: PRESET }));
+  const c = CLASSES[Number(table.slice('order:'.length))];
+  return [PRESET, AT_ARCHERS, FRONT_LINE].map((o) => ({ name: o.name, side: mixSide(CAV_SHARE, c), order: o }));
 }
 
-function ringPart(): void {
+/** Задача веера (`lib/fan.ts`): строка таблицы по укладам. */
+export function styleLine({ table, mode, row }: { table: string; mode: 'defend' | 'attack'; row: number }): string {
+  const r = styleRows(table)[row];
+  const hs = STYLES.map((s) => halfPoint((k) => lairLoss(r.side, s, k, mode, r.order)));
+  const avg = hs.reduce((a, x) => a + x, 0) / hs.length;
+  return ` ${padR(`${mode === 'defend' ? 'оборона' : 'удар'}: ${r.name}`, 34)}${hs.map((h) => pad(f2(h), 14)).join('')}${pad(f2(avg), 9)}${pad(f2(Math.max(...hs) / Math.min(...hs)), 9)}`;
+}
+
+async function styleTable(table: string): Promise<void> {
+  console.log(` ${padR('', 34)}${STYLES.map((s) => pad(GARRISON_STYLES[s].name.slice(0, 13), 14)).join('')}${pad('среднее', 9)}${pad('разброс', 9)}`);
+  const rows = styleRows(table);
+  const cells = (['defend', 'attack'] as const).flatMap((mode) => rows.map((_, row) => ({ table, mode, row })));
+  for (const line of await fan(styleLine, import.meta.url, cells)) console.log(line);
+}
+
+async function ringPart(): Promise<void> {
   console.log('');
   console.log(`--- 3. Кольцо в игре: вид против логова, ${MEN} бойцов строя, ${LAIR_SEEDS} боёв на силу логова, быстрая атака у обеих ---`);
   console.log('«оборона» — набег (garrison.raidingParty) на армию из одного вида без стены и ополчения; «удар» — армия по гарнизону логова (garrisonOf).');
   console.log('Ячейка — сила логова в долях своей мощи, при которой проигрываем половину боёв; больше — сильнее. Столбцы — уклад логова.');
   console.log('«разброс» — лучший уклад к худшему: во сколько раз вид сильнее против удобного логова, чем против неудобного.');
-  styleTable(TROOPS.map((t) => ({ name: t.name, side: pureOf(t.id), order: PRESET })));
+  await styleTable('ring');
 }
 
 // ---------- 4. Бой у стены ----------
@@ -337,6 +363,11 @@ async function wallRow(troops: TroopStack, order: Order, over: Record<string, nu
   return { heads: troopTotal(troops), power: troopPower(troops), defense: d, militia: militiaMen(g), half, raid, broke: broke(raid) };
 }
 
+/** Задача веера (`lib/fan.ts`): бой у стены с войском `troops` — строка разделов 4 и 6.4. */
+export function wallTask({ troops, order }: { troops: TroopStack; order: Order }): Promise<WallRow> {
+  return wallRow(troops, order);
+}
+
 const wallLine = (name: string, r: WallRow): string =>
   ` ${padR(name, 36)}  ${pad(r.heads, 5)}  ${pad(r.power, 4)}  ${pad(Math.round(r.defense), 6)}  ${pad(r.militia, 9)}  ${pad(Number.isFinite(r.half) ? Math.round(r.half) : '—', 7)}  ${pad(f2(r.half / r.defense), 8)}  ${pad(Math.round(r.raid), 12)}  ${pad(pct(r.broke), 8)}`;
 const WALL_HEAD = ' войско                                голов  мощь  защита  ополчение  полпути  к защите  набег логова  прорывов';
@@ -373,13 +404,15 @@ async function wallPart(): Promise<Worth> {
   console.log(WALL_HEAD);
   const power = MIX_POWER();
   const worth: Worth = {};
-  console.log(wallLine('мерка MIX', await wallRow(townAt(10).army as TroopStack, PRESET)));
-  console.log(wallLine('мерка без конницы (мощь та же)', await wallRow(mixCav(0, power), PRESET)));
-  for (const t of TROOPS) {
-    const r = await wallRow(pureTroops(t.id, power), PRESET);
+  const specs = [townAt(10).army as TroopStack, mixCav(0, power), ...TROOPS.map((t) => pureTroops(t.id, power))].map((troops) => ({ troops, order: PRESET }));
+  const [mix, bare, ...pure] = await fan(wallTask, import.meta.url, specs);
+  console.log(wallLine('мерка MIX', mix));
+  console.log(wallLine('мерка без конницы (мощь та же)', bare));
+  TROOPS.forEach((t, i) => {
+    const r = pure[i];
     worth[t.id] = r.half / r.defense;
     console.log(wallLine(t.name, r));
-  }
+  });
   return worth;
 }
 
@@ -396,46 +429,47 @@ function holeSetup(line: number, order: CavalryOrder, seed: number, n: number): 
   return { stack: { ...emptyStack(), cavalry: cav, infantry: inf }, setup: { ...pure, sectors, orders: { ...pure.orders, cavalry: order } } };
 }
 
-export function holePart(): void {
+/** Приказы коннице раздела 5. */
+const HOLE_ORDERS: [string, CavalryOrder][] = [
+  ['атаковать сразу', 'charge'],
+  ['обход', 'flank'],
+  ['по лучникам', 'attack-archers'],
+  ['преследовать', 'pursue'],
+  ['в резерв', 'reserve'],
+];
+
+/** Задача веера (`lib/fan.ts`): строка раздела 5 — линия `line`, приказ `HOLE_ORDERS[o]`, сила логова `k`. */
+export function holeLine({ line, o, k }: { line: number; o: number; k: number }): string {
+  const [name, order] = HOLE_ORDERS[o];
+  let won = 0;
+  let draws = 0;
+  let lossOwn = 0;
+  let lossLair = 0;
+  let broke = 0;
+  for (let i = 1; i <= LAIR_SEEDS; i++) {
+    const seed = i * 7919;
+    const atk = holeSetup(line, order, seed, 1);
+    const g = garrisonOf(seed, `bench${i}`, k * MEN * BATTLE_MAN);
+    const f = resolveField({ seed, attacker: { kinds: atk.stack, gear: { cavalry: gearOfTroop('rider') }, setup: atk.setup }, defender: { kinds: g.kinds, gear: g.gear, setup: g.setup } });
+    if (f.won) won++;
+    if (f.result?.winner === 'draw') draws++;
+    lossOwn += f.attackerLoss;
+    lossLair += f.defenderLoss;
+    const def = holeSetup(line, order, seed, 2);
+    const p = raidingParty(seed, `bench${i}`, k * MEN * BATTLE_MAN);
+    if (resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear, setup: p.setup }, defender: { kinds: def.stack, gear: { cavalry: gearOfTroop('rider') }, setup: def.setup } }).won) broke++;
+  }
+  return ` ${padR(line > 0 ? `линия ${pct(line)}` : 'без линии', 11)}  ${padR(name, 17)}  ${pad(k, 2)}  ${pad(`${won}/${LAIR_SEEDS}`, 11)}  ${pad(draws, 6)}  ${pad(pct(lossOwn / LAIR_SEEDS), 4)}  ${pad(pct(lossLair / LAIR_SEEDS), 6)}   ${pad(pct(broke / LAIR_SEEDS), 17)}`;
+}
+
+async function holePart(): Promise<void> {
   console.log('');
   console.log(`--- 5. Армия без линии в обходе: ядро, ${MEN} бойцов строя (лёгкая конница, ступень ${gearOfTroop('rider')}), ${LAIR_SEEDS} боёв, уклад логова — по имени отряда ---`);
   console.log('Конница стоит на полосах фронта (пресет армии из одной конницы); «линия 10 %» — в тех же секторах ещё пехота долей строя. Меняется только');
   console.log('приказ коннице. «удар» — по гарнизону логова силой k × своей мощи: побед, ничьих, потери свои и логова; «оборона» — набег силой k: прорывов.');
   console.log(' армия        приказ               k  удар: побед  ничьих  свои  логова   оборона: прорывов');
-  const orders: [string, CavalryOrder][] = [
-    ['атаковать сразу', 'charge'],
-    ['обход', 'flank'],
-    ['по лучникам', 'attack-archers'],
-    ['преследовать', 'pursue'],
-    ['в резерв', 'reserve'],
-  ];
-  for (const line of [0, 0.1]) {
-    for (const [name, order] of orders) {
-      for (const k of [1, 2, 4, 8]) {
-        let won = 0;
-        let draws = 0;
-        let lossOwn = 0;
-        let lossLair = 0;
-        let broke = 0;
-        for (let i = 1; i <= LAIR_SEEDS; i++) {
-          const seed = i * 7919;
-          const atk = holeSetup(line, order, seed, 1);
-          const g = garrisonOf(seed, `bench${i}`, k * MEN * BATTLE_MAN);
-          const f = resolveField({ seed, attacker: { kinds: atk.stack, gear: { cavalry: gearOfTroop('rider') }, setup: atk.setup }, defender: { kinds: g.kinds, gear: g.gear, setup: g.setup } });
-          if (f.won) won++;
-          if (f.result?.winner === 'draw') draws++;
-          lossOwn += f.attackerLoss;
-          lossLair += f.defenderLoss;
-          const def = holeSetup(line, order, seed, 2);
-          const p = raidingParty(seed, `bench${i}`, k * MEN * BATTLE_MAN);
-          if (resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear, setup: p.setup }, defender: { kinds: def.stack, gear: { cavalry: gearOfTroop('rider') }, setup: def.setup } }).won) broke++;
-        }
-        console.log(
-          ` ${padR(line > 0 ? `линия ${pct(line)}` : 'без линии', 11)}  ${padR(name, 17)}  ${pad(k, 2)}  ${pad(`${won}/${LAIR_SEEDS}`, 11)}  ${pad(draws, 6)}  ${pad(pct(lossOwn / LAIR_SEEDS), 4)}  ${pad(pct(lossLair / LAIR_SEEDS), 6)}   ${pad(pct(broke / LAIR_SEEDS), 17)}`,
-        );
-      }
-    }
-  }
+  const cells = [0, 0.1].flatMap((line) => HOLE_ORDERS.flatMap((_, o) => [1, 2, 4, 8].map((k) => ({ line, o, k }))));
+  for (const line of await fan(holeLine, import.meta.url, cells)) console.log(line);
 }
 
 // ---------- 6. Классы конницы ----------
@@ -484,42 +518,51 @@ function rulePart(): void {
 /** Приказ обоим конным родам: у каждого своё поле. */
 const horseOrders = (cavalry: CavalryOrder): ArmySetup['orders'] => ({ spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry, heavy: cavalry });
 
-function classRingPart(): void {
-  console.log('');
-  console.log(`--- 6.1. Кольцо при правильных приказах: ядро, размен первой армии, ${DUEL_SEEDS} сидов × обе стороны поля ---`);
-  const pairs: { name: string; a: (k: UnitKind) => ArmySetup; b: (k: UnitKind) => ArmySetup }[] = [
+/** Пары раздела 6.1: армия и противник по роду конницы. */
+const RING_PAIRS: { name: string; a: (k: UnitKind) => ArmySetup; b: (k: UnitKind) => ArmySetup }[] = [
     { name: 'копья (держать линию) против конницы', a: () => quickSetup({ spear: MEN }, { orders: horseOrders('charge') }), b: (k) => quickSetup({ [k]: MEN }) },
     { name: 'конница (по лучникам) против лучников', a: (k) => quickSetup({ [k]: MEN }, { orders: horseOrders('attack-archers') }), b: () => quickSetup({ archer: MEN }) },
     { name: 'конница (сразу) против пехоты', a: (k) => quickSetup({ [k]: MEN }, { orders: horseOrders('charge') }), b: () => quickSetup({ infantry: MEN }) },
     { name: 'пехота + треть конницы (сразу) против пехоты', a: (k) => quickSetup({ [k]: MEN / 3, infantry: (2 * MEN) / 3 }, { orders: horseOrders('charge') }), b: () => quickSetup({ infantry: MEN }) },
     { name: 'пехота + треть конницы (обход) против пехоты', a: (k) => quickSetup({ [k]: MEN / 3, infantry: (2 * MEN) / 3 }, { plan: 'cavalry-strike', orders: horseOrders('flank') }), b: () => quickSetup({ infantry: MEN }) },
-  ];
-  console.log(` ${padR('', 46)}${CLASSES.map((c) => pad(c.name, 10)).join('')}`);
-  for (const pair of pairs) {
-    const row = CLASSES.map((c) => {
-      let ratio = 0;
-      for (let seed = 1; seed <= DUEL_SEEDS; seed++) ratio += mirrored(pair.a(c.kind), pair.b(c.kind), seed).lossRatio;
-      return f2(ratio / DUEL_SEEDS);
-    });
-    console.log(` ${padR(pair.name, 46)}${row.map((x) => pad(x, 10)).join('')}`);
+];
+const RING_FOES: TroopId[] = ['clubman', 'spearman', 'archer', 'legionary'];
+
+/** Задача веера (`lib/fan.ts`): строка раздела 6.1 — пара `RING_PAIRS[i]` или, при `duel`, класс `CLASSES[i]` против видов. */
+export function classRingLine({ i, duel: d }: { i: number; duel: boolean }): string {
+  if (d) {
+    const c = CLASSES[i];
+    return ` ${padR(c.name, 10)}${RING_FOES.map((id) => pad(f2(duel(pureOf(c.troop), pureOf(id))), 11)).join('')}`;
   }
-  console.log('');
-  console.log('Всадник против вида при равной мощи (раздел 2), быстрая атака у обеих:');
-  const foes: TroopId[] = ['clubman', 'spearman', 'archer', 'legionary'];
-  console.log(` ${padR('класс', 10)}${foes.map((id) => pad(TROOP_BY_ID[id].name, 11)).join('')}`);
-  for (const c of CLASSES) {
-    console.log(` ${padR(c.name, 10)}${foes.map((id) => pad(f2(duel(pureOf(c.troop), pureOf(id))), 11)).join('')}`);
-  }
+  const pair = RING_PAIRS[i];
+  const row = CLASSES.map((c) => {
+    let ratio = 0;
+    for (let seed = 1; seed <= DUEL_SEEDS; seed++) ratio += mirrored(pair.a(c.kind), pair.b(c.kind), seed).lossRatio;
+    return f2(ratio / DUEL_SEEDS);
+  });
+  return ` ${padR(pair.name, 46)}${row.map((x) => pad(x, 10)).join('')}`;
 }
 
-function orderPart(): void {
+async function classRingPart(): Promise<void> {
+  console.log('');
+  console.log(`--- 6.1. Кольцо при правильных приказах: ядро, размен первой армии, ${DUEL_SEEDS} сидов × обе стороны поля ---`);
+  const lines = await fan(classRingLine, import.meta.url, [...RING_PAIRS.map((_, i) => ({ i, duel: false })), ...CLASSES.map((_, i) => ({ i, duel: true }))]);
+  console.log(` ${padR('', 46)}${CLASSES.map((c) => pad(c.name, 10)).join('')}`);
+  for (const line of lines.slice(0, RING_PAIRS.length)) console.log(line);
+  console.log('');
+  console.log('Всадник против вида при равной мощи (раздел 2), быстрая атака у обеих:');
+  console.log(` ${padR('класс', 10)}${RING_FOES.map((id) => pad(TROOP_BY_ID[id].name, 11)).join('')}`);
+  for (const line of lines.slice(RING_PAIRS.length)) console.log(line);
+}
+
+async function orderPart(): Promise<void> {
   console.log('');
   console.log(`--- 6.2. Чувствительность к приказу: ядро, войско мерки с конницей ${pct(CAV_SHARE)} бойцов строя, ${LAIR_SEEDS} боёв на силу логова ---`);
   console.log('Пеший остаток — по составу мерки MIX. Приказ коннице поверх пресета быстрой атаки: «пресет» — как выбрал пресет, «по лучникам» — атаковать');
   console.log('лучников из резерва, «во фронт» — из резерва в сектора фронта и атаковать сразу. Ячейка — как в разделе 3.');
-  for (const c of CLASSES) {
+  for (const [i, c] of CLASSES.entries()) {
     console.log(`${c.name}:`);
-    styleTable([PRESET, AT_ARCHERS, FRONT_LINE].map((o) => ({ name: o.name, side: mixSide(CAV_SHARE, c), order: o })));
+    await styleTable(`order:${i}`);
   }
 }
 
@@ -533,20 +576,55 @@ interface ShareRow {
   lost: Record<'defend' | 'attack', ((k: number) => boolean[])[]>;
 }
 
-function sharePart(): ShareRow[] {
+/**
+ * Задача веера (`lib/fan.ts`): кривая раздела 6.3 — исходы боёв по ступеням силы для доли конницы `s`, класса
+ * `CLASSES[horse]`, приказа `order` и стороны `mode`. Ступени — те, что спросит полпути (`halfPoint`); прочие
+ * (их спрашивает граница 6.3а) досчитываются там, где их спросили, — той же функцией.
+ */
+export function shareCurve({ s, horse, order, mode }: { s: number; horse: number; order: Order; mode: 'defend' | 'attack' }): Map<number, boolean[]> {
+  const memo = new Map<number, boolean[]>();
+  const side = mixSide(s, CLASSES[horse]);
+  halfPoint((k) => {
+    if (!memo.has(k)) memo.set(k, lairLosses(side, null, k, mode, order, SHARE_FIGHTS));
+    return memo.get(k)!.filter(Boolean).length / SHARE_FIGHTS;
+  });
+  return memo;
+}
+
+/**
+ * Отпечаток входа кривой 6.3: состав, ступени и расстановки всех боёв. Бой — чистая функция входа, и у двух кривых с
+ * одним отпечатком исходы одни и те же на любой ступени силы (сила входит в бой только множителем `k`). Так у лёгкой
+ * конницы пресет и «по лучникам» считаются один раз: пресет уже ставит её бить лучников.
+ */
+function curveKey(s: number, horse: number, order: Order, mode: 'defend' | 'attack'): string {
+  const own = mixSide(s, CLASSES[horse]);
+  const setups: ArmySetup[] = [];
+  for (let i = 1; i <= SHARE_FIGHTS; i++) setups.push(ownSetup(own, order, i * 7919, mode === 'defend' ? 2 : 1));
+  return JSON.stringify([own, mode, setups]);
+}
+
+async function sharePart(): Promise<ShareRow[]> {
   console.log('');
   console.log(`--- 6.3. Доля конницы в войске: ядро, пеший остаток — по составу мерки MIX, ${SHARE_FIGHTS} боёв на силу логова, уклад — по имени отряда ---`);
   console.log('Ячейка — как в разделе 3; «прибавка» — к той же армии без конницы (столбец 0 %). Конница логова — какая выпала укладу.');
   console.log(`Боёв здесь больше, чем в прочих разделах (${LAIR_SEEDS}): из этой таблицы выводятся места конницы, а при ${LAIR_SEEDS} боях прибавка лежала внутри своей границы (раздел 6.3а).`);
   console.log(` ${padR('класс и приказ', 30)}${CAV_SHARES.map((s) => pad(pct(s), 7)).join('')}   прибавка при ${CAV_SHARES.slice(1).map(pct).join(' / ')}`);
   const rows: ShareRow[] = [];
+  // Кривые всех строк — одним веером; кривая с тем же отпечатком входа, что у уже заказанной, не заказывается.
+  const curves = CLASSES.flatMap((_, horse) => [PRESET, AT_ARCHERS].flatMap((order) => (['defend', 'attack'] as const).flatMap((mode) => CAV_SHARES.map((s) => ({ s, horse, order, mode })))));
+  const keys = curves.map((c) => curveKey(c.s, c.horse, c.order, c.mode));
+  const first = keys.map((k) => keys.indexOf(k));
+  const unique = curves.filter((_, i) => first[i] === i);
+  const memos = await fan(shareCurve, import.meta.url, unique);
+  const memoOf = (i: number): Map<number, boolean[]> => memos[unique.indexOf(curves[first[i]])];
+  let curve = 0;
   for (const horse of CLASSES) {
     for (const order of [PRESET, AT_ARCHERS]) {
       const row: ShareRow = { name: `${horse.name}, ${order.name}`, horse, order, defend: [], attack: [], lost: { defend: [], attack: [] } };
       for (const mode of ['defend', 'attack'] as const) {
         // Исходы боёв запоминаются: из тех же боёв считается граница (раздел 6.3а), второй раз их не гоняют.
         const lost = CAV_SHARES.map((s) => {
-          const memo = new Map<number, boolean[]>();
+          const memo = memoOf(curve++);
           return (k: number): boolean[] => {
             if (!memo.has(k)) memo.set(k, lairLosses(mixSide(s, horse), null, k, mode, order, SHARE_FIGHTS));
             return memo.get(k)!;
@@ -653,16 +731,26 @@ async function classWallPart(): Promise<ClassWall[]> {
   console.log('коннице поверх. Мощь армий — мерки MIX. Столбцы — как в разделе 4.');
   console.log(WALL_HEAD);
   const power = MIX_POWER();
-  console.log(wallLine('дубинщики (мера)', await wallRow(pureTroops('clubman', power), PRESET)));
-  console.log(wallLine('без конницы', await wallRow(mixCav(0, power), PRESET)));
+  const specs = [
+    { troops: pureTroops('clubman', power), order: PRESET },
+    { troops: mixCav(0, power), order: PRESET },
+    ...CLASSES.flatMap((c) => [
+      { troops: pureTroops(c.troop, power), order: PRESET },
+      { troops: mixCav(CAV_SHARE, power, c.troop), order: PRESET },
+      { troops: mixCav(CAV_SHARE, power, c.troop), order: AT_ARCHERS },
+    ]),
+  ];
+  const [club, bare, ...rows] = await fan(wallTask, import.meta.url, specs);
+  console.log(wallLine('дубинщики (мера)', club));
+  console.log(wallLine('без конницы', bare));
   const out: ClassWall[] = [];
-  for (const c of CLASSES) {
-    const pure = await wallRow(pureTroops(c.troop, power), PRESET);
+  CLASSES.forEach((c, i) => {
+    const [pure, preset, archers] = rows.slice(i * 3, i * 3 + 3);
     console.log(wallLine(`${c.name}: одни всадники`, pure));
-    console.log(wallLine(`${c.name}: конница ${pct(CAV_SHARE)}, пресет`, await wallRow(mixCav(CAV_SHARE, power, c.troop), PRESET)));
-    console.log(wallLine(`${c.name}: конница ${pct(CAV_SHARE)}, по лучникам`, await wallRow(mixCav(CAV_SHARE, power, c.troop), AT_ARCHERS)));
+    console.log(wallLine(`${c.name}: конница ${pct(CAV_SHARE)}, пресет`, preset));
+    console.log(wallLine(`${c.name}: конница ${pct(CAV_SHARE)}, по лучникам`, archers));
     out.push({ horse: c, pure });
-  }
+  });
   return out;
 }
 
@@ -803,14 +891,16 @@ export async function stableSection(): Promise<void> {
   console.log('');
   console.log('=== Конюшня: рода войск и два класса конницы (docs/stable.md) ===');
   typesPart();
-  duelPart();
-  ringPart();
+  await duelPart();
+  await ringPart();
   const worth = await wallPart();
-  holePart();
+  await holePart();
   rulePart();
-  classRingPart();
-  orderPart();
-  const shares = sharePart();
+  await classRingPart();
+  await orderPart();
+  const shares = await sharePart();
   await classWallPart();
   numbersPart(worth, shares);
 }
+
+serveFan(import.meta.url, { duelLine, styleLine, wallTask, holeLine, classRingLine, shareCurve });

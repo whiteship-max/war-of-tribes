@@ -30,8 +30,9 @@ import { armySize, defense, faithTilt, homeArmyPower, mutinyForecast } from '@/g
 import { dismissCheck } from '@/game/sim/upkeep';
 import type { FaithId, GameState, TroopId } from '@/game/types';
 import { SEEDS, mean, pad, pct, q, sum, tally } from './raid-common';
-import { START, openSky, townAt, type Inside } from './autopilot';
-import { NAME, live, type Out } from './raid-live';
+import { START, openSky, townAt, unitsNote, type Inside } from './autopilot';
+import { NAME, live, portable, type Out } from './raid-live';
+import { fan, serveFan } from './lib/fan';
 
 interface Case {
   name: string;
@@ -148,6 +149,33 @@ function breakShare(w: Inside, at: number, power: number): number {
   return broke / BENCH_SEEDS;
 }
 
+/**
+ * Задача веера (`lib/fan.ts`): строка стенда у стены — случай `CASES[c]` при вере `faith` на посёлке
+ * мерки уровня `level`. Отдаёт готовую строку: весь её счёт — внутри одного мира.
+ */
+export async function benchRow({ level, faith, c: k }: { level: number; faith: FaithId | null; c: number }): Promise<string> {
+  const c = CASES[k];
+  const g = withFaith(townAt(level), faith);
+  const { world, at } = await fieldWorld(g, SEEDS[0], c.take);
+  const label = faith ?? 'вера мира';
+  const w: Inside = world;
+  const home = w.defenders(at).all as TroopStack;
+  const comp = byComposition(g, home);
+  const d = defense(g);
+  const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, g.pop), g.pop);
+  const same = militiaMen(comp) === w.save.profile.militia && militiaArchers(comp) === w.save.profile.militiaArchers;
+  const rates = SHARES.map((k) => breakShare(w, at, k * d));
+  const i = rates.findIndex((r) => r >= 0.5);
+  let half = NaN;
+  if (i === 0) half = SHARES[0] * d;
+  else if (i > 0) {
+    const t = (0.5 - rates[i - 1]) / (rates[i] - rates[i - 1]);
+    half = (SHARES[i - 1] + t * (SHARES[i] - SHARES[i - 1])) * d;
+  }
+  const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : '—');
+  return ` ${pad(level, 2)}  ${label.padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(d), 7)}  ${pad(w.save.profile.militia, 9)}  ${pad(Number.isFinite(half) ? Math.round(half) : '—', 7)}  ${pad(fmt(half / d), 9)}  ${pad(Math.round(raid), 12)}  ${pad(pct(breakShare(w, at, raid)), 16)}  ${same ? 'совпала' : 'РАЗОШЛАСЬ'}`;
+}
+
 async function benchPart(): Promise<void> {
   console.log('');
   console.log(`--- 2. Что число говорит о бое у стены: LocalWorld.wallField, посёлок мерки 10-го уровня, ${BENCH_SEEDS} боёв на силу набега, мир ${SEEDS[0]} ---`);
@@ -157,33 +185,8 @@ async function benchPart(): Promise<void> {
   console.log('«сверка» — ополчение и стрелки башни в слепке мира против подстановки по составу (в бой из обороны входят только они).');
   console.log('«вера мира» — вера, которую мир называет пульсом (у мира этого стенда — своя, печатается в разделе 3).');
   console.log(' ур  вера           случай                              дома  оборона  ополчение  полпути  к обороне  набег логова  прорывов при нём  сверка');
-  for (const level of [10]) {
-    for (const faith of [null, 'orthodox'] as const) {
-      for (const c of CASES) {
-        const g = withFaith(townAt(level), faith);
-        const { world, at } = await fieldWorld(g, SEEDS[0], c.take);
-        const label = faith ?? 'вера мира';
-        const w: Inside = world;
-        const home = w.defenders(at).all as TroopStack;
-        const comp = byComposition(g, home);
-        const d = defense(g);
-        const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, g.pop), g.pop);
-        const same = militiaMen(comp) === w.save.profile.militia && militiaArchers(comp) === w.save.profile.militiaArchers;
-        const rates = SHARES.map((k) => breakShare(w, at, k * d));
-        const i = rates.findIndex((r) => r >= 0.5);
-        let half = NaN;
-        if (i === 0) half = SHARES[0] * d;
-        else if (i > 0) {
-          const t = (0.5 - rates[i - 1]) / (rates[i] - rates[i - 1]);
-          half = (SHARES[i - 1] + t * (SHARES[i] - SHARES[i - 1])) * d;
-        }
-        const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : '—');
-        console.log(
-          ` ${pad(level, 2)}  ${label.padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(d), 7)}  ${pad(w.save.profile.militia, 9)}  ${pad(Number.isFinite(half) ? Math.round(half) : '—', 7)}  ${pad(fmt(half / d), 9)}  ${pad(Math.round(raid), 12)}  ${pad(pct(breakShare(w, at, raid)), 16)}  ${same ? 'совпала' : 'РАЗОШЛАСЬ'}`,
-        );
-      }
-    }
-  }
+  const rows = [10].flatMap((level) => ([null, 'orthodox'] as const).flatMap((faith) => CASES.map((_, c) => ({ level, faith, c }))));
+  for (const line of await fan(benchRow, import.meta.url, rows)) console.log(line);
 }
 
 // ---------- 3. Живые прогоны ----------
@@ -200,51 +203,46 @@ interface Watch {
   druzhinaCut: number;
 }
 
-async function liveRow(level: number, c: Case, faith: 'мир' | 'orthodox'): Promise<{ outs: Out[]; watch: Watch[] }> {
-  const outs: Out[] = [];
-  const watch: Watch[] = [];
-  for (const seed of SEEDS) {
-    const x: Watch = { errors: [], militiaApart: 0, pulses: 0, druzhinaEnd: 0, druzhinaCut: 0 };
-    const g = townAt(level);
-    if (faith === 'orthodox') g.faith.id = 'orthodox';
-    let step: 'muster' | 'move' | 'done' = c.take.length > 0 ? 'muster' : 'done';
-    outs.push(
-      await live({
-        g,
-        seed,
-        style: 'meansHigh',
-        hours: 4,
-        ripe: true,
-        profile: (p: PlayerProfile, s: GameState, away: Away) => {
-          const comp = byComposition(s, homeOf(s.army, away));
-          const dc = defense(comp);
-          x.pulses++;
-          if (dc > 0) x.errors.push(p.defense / dc - 1);
-          const mm = militiaMen(comp);
-          const ma = militiaArchers(comp);
-          if (mm !== p.militia || ma !== p.militiaArchers) x.militiaApart++;
-        },
-        after: async ({ g: s, world, now, figures }) => {
-          const gen = figures.find((f) => f.id === 'general');
-          const held = troopTotal(gen?.troops ?? {});
-          if (step === 'done' && held < x.druzhinaEnd) x.druzhinaCut += x.druzhinaEnd - held;
-          x.druzhinaEnd = held;
-          if (step === 'done' || !gen || gen.gone || gen.downUntil > START + now) return;
-          if (step === 'muster') {
-            if (!gen.atHome || gen.readyAt > START + now) return;
-            const troops = pick(homeOf(s.army, awayOf([], figures)), c.take);
-            if (troopTotal(troops) > 0 && (await world.setGarrison(troops)) === null) step = 'move';
-            return;
-          }
-          if (gen.readyAt > START + now) return;
-          const info = await world.info();
-          if ((await world.moveFigure('general', { x: info.home.x + 4, y: info.home.y })) === null) step = 'done';
-        },
-      }),
-    );
-    watch.push(x);
-  }
-  return { outs, watch };
+/** Задача веера (`lib/fan.ts`): живой прогон раздела 3 — случай `CASES[c]` при вере `faith` на одном мире. */
+export async function mixRun({ level, c: k, faith, seed }: { level: number; c: number; faith: 'мир' | 'orthodox'; seed: number }): Promise<{ out: Out; watch: Watch }> {
+  const c = CASES[k];
+  const x: Watch = { errors: [], militiaApart: 0, pulses: 0, druzhinaEnd: 0, druzhinaCut: 0 };
+  const g = townAt(level);
+  if (faith === 'orthodox') g.faith.id = 'orthodox';
+  let step: 'muster' | 'move' | 'done' = c.take.length > 0 ? 'muster' : 'done';
+  const out = await live({
+    g,
+    seed,
+    style: 'meansHigh',
+    hours: 4,
+    ripe: true,
+    profile: (p: PlayerProfile, s: GameState, away: Away) => {
+      const comp = byComposition(s, homeOf(s.army, away));
+      const dc = defense(comp);
+      x.pulses++;
+      if (dc > 0) x.errors.push(p.defense / dc - 1);
+      const mm = militiaMen(comp);
+      const ma = militiaArchers(comp);
+      if (mm !== p.militia || ma !== p.militiaArchers) x.militiaApart++;
+    },
+    after: async ({ g: s, world, now, figures }) => {
+      const gen = figures.find((f) => f.id === 'general');
+      const held = troopTotal(gen?.troops ?? {});
+      if (step === 'done' && held < x.druzhinaEnd) x.druzhinaCut += x.druzhinaEnd - held;
+      x.druzhinaEnd = held;
+      if (step === 'done' || !gen || gen.gone || gen.downUntil > START + now) return;
+      if (step === 'muster') {
+        if (!gen.atHome || gen.readyAt > START + now) return;
+        const troops = pick(homeOf(s.army, awayOf([], figures)), c.take);
+        if (troopTotal(troops) > 0 && (await world.setGarrison(troops)) === null) step = 'move';
+        return;
+      }
+      if (gen.readyAt > START + now) return;
+      const info = await world.info();
+      if ((await world.moveFigure('general', { x: info.home.x + 4, y: info.home.y })) === null) step = 'done';
+    },
+  });
+  return { out: portable(out), watch: x };
 }
 
 async function livePart(): Promise<void> {
@@ -275,8 +273,12 @@ async function livePart(): Promise<void> {
     { faith: 'orthodox', c: CASES[1] },
     { faith: 'orthodox', c: CASES[2] },
   ];
-  for (const r of rows) {
-    const { outs, watch } = await liveRow(LEVEL, r.c, r.faith);
+  unitsNote();
+  const ran = await fan(mixRun, import.meta.url, rows.flatMap((r) => SEEDS.map((seed) => ({ level: LEVEL, c: CASES.indexOf(r.c), faith: r.faith, seed }))));
+  for (const [k, r] of rows.entries()) {
+    const got = ran.slice(k * SEEDS.length, (k + 1) * SEEDS.length);
+    const outs = got.map((x) => x.out);
+    const watch = got.map((x) => x.watch);
     const t = tally(
       outs.map((o) => o.run),
       HOURS,
@@ -297,3 +299,5 @@ export async function defenseMixSection(): Promise<void> {
   await benchPart();
   await livePart();
 }
+
+serveFan(import.meta.url, { benchRow, mixRun });
