@@ -29,7 +29,8 @@ import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { armySize, defense, faithTilt, homeArmyPower, mutinyForecast } from '@/game/derived';
 import { dismissCheck } from '@/game/sim/upkeep';
 import type { FaithId, GameState, TroopId } from '@/game/types';
-import { SEEDS, mean, pad, pct, q, sum, tally } from './raid-common';
+import { SEEDS, counts, mean, pad, pct, q, sum, tally } from './raid-common';
+import { fights, share } from './lib/quick';
 import { START, openSky, townAt, unitsNote, type Inside } from './autopilot';
 import { NAME, live, portable, type Out } from './raid-live';
 import { fan, serveFan } from './lib/fan';
@@ -111,7 +112,7 @@ function displayPart(): void {
 
 // ---------- 2. Бой у стены ----------
 
-const BENCH_SEEDS = 40;
+const BENCH_SEEDS = fights('боёв на силу набега в разделе 2', 40, 10);
 const SHARES = Array.from({ length: 27 }, (_, i) => 0.2 + i * 0.1);
 
 /**
@@ -279,6 +280,8 @@ async function livePart(): Promise<void> {
     const got = ran.slice(k * SEEDS.length, (k + 1) * SEEDS.length);
     const outs = got.map((x) => x.out);
     const watch = got.map((x) => x.watch);
+    const c = counts(outs.map((o) => o.run));
+    share(`3 ${r.faith}, ${r.c.name}: прорвали`, c.broke, c.walls);
     const t = tally(
       outs.map((o) => o.run),
       HOURS,

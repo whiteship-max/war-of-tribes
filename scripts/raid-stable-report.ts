@@ -6,5 +6,7 @@
 //
 //   npm run raid-stable:report
 import { stableSection } from './raid-stable';
+import { quickFooter } from './lib/quick';
 
 await stableSection();
+quickFooter();

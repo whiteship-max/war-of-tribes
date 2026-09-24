@@ -1,7 +1,8 @@
 /**
  * Приёмка отчётами: какие гнать, прогон, сверка с прежним выводом.
  *
- *   npm run reports                  план от origin/master, прогон выбранных, сверка с базой
+ *   npm run reports                  БЫСТРАЯ приёмка: план от origin/master, прогон выбранных, сверка с базой
+ *   npm run reports -- --full        ПОЛНАЯ приёмка — когда из отчёта берётся число и перед выкладкой
  *   npm run reports -- --plan        только план: что выбрано и почему, ничего не гоняет
  *   npm run reports -- --all         все отчёты, без выбора
  *   npm run reports -- --only a,b    только названные (к выбору не прибавляет и не сверяет план)
@@ -13,21 +14,70 @@
  * лежат выводы и как прогон записывает прочитанное — `lib/runs.ts`; что в выводе замер,
  * а что обязано совпасть, — `lib/measured.ts`.
  *
+ * ДВА РЕЖИМА (решение владельца). Быстрая — «не сломалось ли»: отчёт с дверью быстрой приёмки
+ * (`lib/quick.ts` в замыкании) идёт на меньшем числе миров и боёв, пишет покрытие, и сверка говорит одно из
+ * трёх: совпал; совпал, но слеп к правке — тронутый код на его мирах не исполнился (`lib/blind.ts`), и нужен
+ * полный; сдвинулся — и насколько, по границе ключевых чисел. Отчёт без двери идёт в обоих режимах одинаково.
+ * Полная — «выводим число»: всё как прежде, и её вывод обязан совпадать с прежним буква в букву.
+ *
  * Код возврата ненулевой, если хоть один отчёт упал или прочитал файл мимо своего
  * замыкания: второе значит, что подсчёт ошибся, и выбору на нём больше верить нельзя.
+ * Код 2 — ничего не упало, но быстрая слепа к правке хоть в одном отчёте: нужен полный прогон.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import os, { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { owners, plan, type Owner, type Plan } from './lib/affected';
 import { shifts, stableLines } from './lib/measured';
-import { closureKey, load, runTraced, save, unexplained } from './lib/runs';
+import { closureKey, lastSeconds, load, loadSeen, runTraced, save, saveSeen, unexplained } from './lib/runs';
+import { blindTo, collect, touches, type Seen, type Touch } from './lib/blind';
+import { boundShift } from './lib/quick';
+import { serveSlots, takeSlot } from './lib/slots';
 import { ROOT, changedSince, lines, own, setupOf } from './lib/setup';
 import { commitTree, git, worktree, type Tree } from './lib/tree';
 
 /** Входы самого подсчёта: этот файл, а через его импорты — всё, чем он считает. */
 const SELECTOR = [own(import.meta.url)];
+
+/** Веер прогонов: отчёт, в чьём замыкании он лежит, считает дочерними процессами (`lib/fan.ts`). */
+const FAN = own(new URL('./lib/fan.ts', import.meta.url).href);
+/** Дверь быстрой приёмки: у отчёта, в чьём замыкании она лежит, есть быстрый режим (`lib/quick.ts`). */
+const QUICK_DOOR = own(new URL('./lib/quick.ts', import.meta.url).href);
+const CODE = /\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$/;
+
+/** Под каким именем лежит в кэше быстрый прогон отчёта: у него свой вывод и своё покрытие. */
+const quickId = (name: string): string => `${name}.quick`;
+
+/**
+ * Перевод исходника тем же vite, что выполнял прогон, — по нему покрытие сопоставляется со строками
+ * (`lib/blind.ts`). Сервер поднимается один раз на приёмку и только когда понадобился.
+ */
+function transformer(root: string = ROOT): { transform: (file: string) => Promise<string | null>; close(): Promise<void> } {
+  let node: Promise<{ fetch: (id: string) => Promise<{ code?: string }>; close(): Promise<void> }> | null = null;
+  const open = async () => {
+    const { createServer } = await import('vite');
+    const { ViteNodeServer } = await import('vite-node/server');
+    // Те же настройки, что у vite-node, запускающего отчёт: без слежения за файлами и без hmr.
+    const server = await createServer({ logLevel: 'error', root, configFile: path.join(root, 'vite.config.ts'), server: { hmr: false, watch: null } });
+    await server.pluginContainer.buildStart({});
+    const vn = new ViteNodeServer(server);
+    return { fetch: (id: string) => vn.fetchModule(id), close: () => server.close() };
+  };
+  return {
+    transform: async (file) => {
+      node ??= open();
+      try {
+        return (await (await node).fetch(path.join(root, file))).code ?? null;
+      } catch {
+        return null;
+      }
+    },
+    close: async () => {
+      if (node) await (await node).close();
+    },
+  };
+}
 
 const argv = process.argv.slice(2);
 const flag = (name: string): boolean => argv.includes(name);
@@ -74,7 +124,7 @@ interface Row {
 }
 
 /** База во втором worktree: те отчёты, чьего вывода «до» нет, гонятся на ней и ложатся в кэш. */
-async function runBase(base: string, names: string[]): Promise<void> {
+async function runBase(base: string, names: string[], quick: boolean): Promise<void> {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tribe-base-'));
   rmSync(dir, { recursive: true, force: true });
   console.log(`\nбаза ${base}: второй worktree ${dir}`);
@@ -95,13 +145,25 @@ async function runBase(base: string, names: string[]): Promise<void> {
     for (const name of names) {
       const o = found.find((x) => x.name === name);
       if (!o) continue;
-      process.stdout.write(`база: ${name}…`);
-      const r = await runTraced(dir, `npm run --silent ${name}:report`, path.join(dir, `.${name}.trace`), true);
+      // Быстрая база — только если у базы есть дверь быстрой приёмки: иначе быстрого вывода у неё нет вовсе.
+      const fast = quick && o.closure.files.has(QUICK_DOOR);
+      const id = fast ? quickId(name) : name;
+      const key = closureKey(name, tree, o.closure);
+      const cov = fast ? mkdtempSync(path.join(os.tmpdir(), `tribe-cov-base-${name}-`)) : null;
+      process.stdout.write(`база: ${name}${fast ? ' (быстрая)' : ''}…`);
+      const r = await runTraced(dir, `npm run --silent ${name}:report`, path.join(dir, `.${name}.trace`), true, cov ? { TRIBE_QUICK: '1', NODE_V8_COVERAGE: cov } : {});
       console.log(` ${r.exit === 0 ? 'ок' : `код ${r.exit}`}, ${r.seconds.toFixed(0)} с`);
       save(ROOT, {
-        meta: { report: name, key: closureKey(name, tree, o.closure), commit: tree.label, dirty: false, exit: r.exit, seconds: r.seconds, at: new Date().toISOString(), node: process.version },
+        meta: { report: id, key, commit: tree.label, dirty: false, exit: r.exit, seconds: r.seconds, at: new Date().toISOString(), node: process.version },
         output: r.output,
       });
+      if (cov) {
+        // Покрытие базы сопоставляется с её же исходниками: перевод — vite второго worktree.
+        const vite = transformer(dir);
+        saveSeen(ROOT, id, key, await collect(cov, dir, new Set([...o.closure.files].filter((f) => CODE.test(f))), vite.transform));
+        await vite.close();
+        rmSync(cov, { recursive: true, force: true });
+      }
     }
   } finally {
     if (process.platform === 'win32') spawnSync('cmd', ['/c', 'rmdir', modules], { stdio: 'ignore' });
@@ -121,6 +183,7 @@ async function main(): Promise<void> {
   }
 
   const base = arg('--base') ?? 'origin/master';
+  const quick = !flag('--full');
   const tree = worktree(ROOT);
   const setup = setupOf(tree, SELECTOR);
   let changed: string[] = [];
@@ -142,7 +205,7 @@ async function main(): Promise<void> {
     if (unknown.length > 0) throw new Error(`нет таких отчётов: ${unknown.join(', ')}`);
     p = { ...p, full: false, why: [], reports: p.all.filter((n) => want.includes(n)).map((name) => ({ name, by: ['попросили'] })) };
   }
-  printPlan(p, `рабочая копия против ${base}`);
+  printPlan(p, `рабочая копия против ${base} — ${quick ? 'БЫСТРАЯ приёмка (полная: --full)' : 'ПОЛНАЯ приёмка'}`);
   if (flag('--plan') || p.reports.length === 0) return;
 
   const found = p.owners.length > 0 ? p.owners : owners(tree, setup).owners;
@@ -163,6 +226,7 @@ async function main(): Promise<void> {
     }
   }
 
+  const quickable = (o: Owner): boolean => o.closure.files.has(QUICK_DOOR);
   // Вывод «до» ищется под отпечатком замыкания отчёта на базе.
   let baseKeys = new Map<string, string>();
   if (baseOk) {
@@ -171,8 +235,9 @@ async function main(): Promise<void> {
       const bo = owners(bt, setupOf(bt, [])).owners;
       baseKeys = new Map(bo.filter((o) => o.kind === 'report').map((o) => [o.name, closureKey(o.name, bt, o.closure)]));
       if (flag('--before')) {
-        const missing = selected.map((o) => o.name).filter((n) => baseKeys.has(n) && !load(ROOT, n, baseKeys.get(n)!));
-        if (missing.length > 0) await runBase(base, missing);
+        const idOf = (n: string): string => (quick && quickable(selected.find((o) => o.name === n)!) ? quickId(n) : n);
+        const missing = selected.map((o) => o.name).filter((n) => baseKeys.has(n) && !load(ROOT, idOf(n), baseKeys.get(n)!));
+        if (missing.length > 0) await runBase(base, missing, quick);
       }
     } catch (e) {
       console.log(`вывод базы искать не по чему: ${(e as Error).message}`);
@@ -182,16 +247,38 @@ async function main(): Promise<void> {
   const head = git(ROOT, ['rev-parse', '--short', 'HEAD']).trim();
   const dirtyFiles = new Set([...lines(git(ROOT, ['diff', '--name-only', 'HEAD'])), ...lines(git(ROOT, ['ls-files', '--others', '--exclude-standard']))]);
   const rows: Row[] = [];
-  for (const o of selected) {
-    console.log(`\n━━━ ${o.name}:report ━━━`);
+  const started = performance.now();
+
+  const vite = transformer();
+  // Что правка тронула — один раз на приёмку: от базы до рабочей копии, вместе с незакоммиченным и новыми файлами.
+  const touched: Touch[] = [];
+  if (quick && baseOk) {
+    touched.push(...touches(git(ROOT, ['diff', '-U0', '--no-renames', base])));
+    for (const f of lines(git(ROOT, ['ls-files', '--others', '--exclude-standard']))) {
+      const n = existsSync(path.join(ROOT, f)) ? readFileSync(path.join(ROOT, f), 'utf8').split('\n').length : 0;
+      touched.push({ file: f, was: [], now: Array.from({ length: n }, (_, i) => i + 1) });
+    }
+  }
+  const baseTree = quick && baseOk ? commitTree(ROOT, base) : null;
+  const blindRows: string[] = [];
+
+  /** Прогон одного отчёта, запись в кэш и сверка. `quiet` — вывод печатается целиком по окончании, а не по ходу. */
+  const job = async (o: Owner, quiet: boolean, env: Record<string, string>): Promise<void> => {
+    const fast = quick && quickable(o);
+    const id = fast ? quickId(o.name) : o.name;
+    const title = `━━━ ${o.name}:report${fast ? ' (быстрая)' : ''} ━━━`;
+    if (!quiet) console.log(`\n${title}`);
     const key = closureKey(o.name, tree, o.closure);
     // Прошлый прогон того же замыкания — если он есть, это повтор, и совпасть он обязан.
-    const prev = load(ROOT, o.name, key);
-    const r = await runTraced(ROOT, `npm run --silent ${o.name}:report`, path.join(os.tmpdir(), `tribe-${o.name}.trace`));
+    const prev = load(ROOT, id, key);
+    const cov = fast ? mkdtempSync(path.join(os.tmpdir(), `tribe-cov-${o.name}-`)) : null;
+    const extra = fast && cov ? { ...env, TRIBE_QUICK: '1', NODE_V8_COVERAGE: cov } : env;
+    const r = await runTraced(ROOT, `npm run --silent ${o.name}:report`, path.join(os.tmpdir(), `tribe-${o.name}.trace`), quiet, extra);
+    if (quiet) process.stdout.write(`\n${title}\n${r.output}`);
     const missed = unexplained(r.read, o.closure, setup.vite.outDir, tree);
     save(ROOT, {
       meta: {
-        report: o.name,
+        report: id,
         key,
         commit: head,
         dirty: [...o.closure.files].some((f) => dirtyFiles.has(f)),
@@ -202,34 +289,106 @@ async function main(): Promise<void> {
       },
       output: r.output,
     });
+    let seen: Seen | null = null;
+    if (cov) {
+      seen = await collect(cov, ROOT, new Set([...o.closure.files].filter((f) => CODE.test(f))), vite.transform);
+      saveSeen(ROOT, id, key, seen);
+      rmSync(cov, { recursive: true, force: true });
+    }
 
     let verdict: string;
     const bk = baseKeys.get(o.name);
-    const before = bk ? load(ROOT, o.name, bk) : null;
+    const before = bk ? load(ROOT, id, bk) : null;
     if (!bk) verdict = 'в базе отчёта нет';
-    else if (!before) verdict = 'вывода базы нет (--before)';
+    else if (!before) verdict = `вывода базы нет${fast ? ' (быстрой)' : ''} (--before)`;
     else if (stableLines(before.output).length === 0) verdict = `у базы ${before.meta.commit} пустой вывод`;
     else {
       const d = shifts(before.output, r.output);
       const same = bk === key ? ' (замыкание то же — это повтор)' : '';
       verdict = d.length === 0 ? `совпал с ${before.meta.commit}${same}` : `СДВИНУЛСЯ против ${before.meta.commit}: ${d.length} стр.${same}`;
       if (d.length > 0) {
-        console.log(`\n  сдвиг против ${before.meta.commit} (строки без замеров; «−» было, «+» стало):`);
-        for (const s of d.slice(0, 40)) console.log(s.before ? `  − ${s.was}` : `  + ${s.now}`);
-        if (d.length > 40) console.log(`  …и ещё ${d.length - 40}`);
+        const out = [`\n  ${o.name}: сдвиг против ${before.meta.commit} (строки без замеров; «−» было, «+» стало):`];
+        for (const s of d.slice(0, 40)) out.push(s.before ? `  − ${s.was}` : `  + ${s.now}`);
+        if (d.length > 40) out.push(`  …и ещё ${d.length - 40}`);
+        if (fast) {
+          const b = boundShift(before.output, r.output);
+          verdict += `; ключевых чисел в прежней границе ${b.inside}, за ней ${b.outside.length}`;
+          out.push(`  граница: сдвинулось внутри прежней границы ${b.inside} (быстрая не отличит от перетасовки), за ней ${b.outside.length}${b.outside.length ? ':' : ''}`);
+          for (const x of b.outside.slice(0, 12)) out.push(`    ${x}`);
+        }
+        console.log(out.join('\n'));
+      } else if (fast && seen) {
+        // Совпал — а видела ли быстрая правку вообще: тронутый код обязан был исполниться на её мирах.
+        const was = loadSeen<Seen>(ROOT, id, bk);
+        const blind = blindTo(touched, o.closure.files, seen, was, (side, f) => {
+          try {
+            return side === 'now' ? tree.read(f) : (baseTree?.read(f) ?? null);
+          } catch {
+            return null;
+          }
+        });
+        if (blind.spots.length > 0) {
+          verdict += `, но СЛЕПА к правке: ${blind.spots.length} мест — нужен полный`;
+          blindRows.push(o.name);
+          const out = [`\n  ${o.name}: быстрая слепа к правке — тронутый код на её мирах и боях не исполнился целиком:`];
+          for (const s of blind.spots.slice(0, 20)) out.push(`    ${s}`);
+          if (blind.spots.length > 20) out.push(`    …и ещё ${blind.spots.length - 20}`);
+          console.log(out.join('\n'));
+        } else if (touched.some((t) => o.closure.files.has(t.file))) verdict += '; тронутый код быстрая исполнила';
       }
     }
     if (prev && bk !== key) {
       const d = shifts(prev.output, r.output);
       verdict += d.length === 0 ? `; повтор ${prev.meta.commit} совпал` : `; ПОВТОР ${prev.meta.commit} РАЗОШЁЛСЯ: ${d.length} стр.`;
       if (d.length > 0) {
-        console.log(`\n  расхождение с прошлым прогоном того же замыкания (${prev.meta.at}):`);
-        for (const x of d.slice(0, 20)) console.log(x.before ? `  − ${x.was}` : `  + ${x.now}`);
+        const out = [`\n  ${o.name}: расхождение с прошлым прогоном того же замыкания (${prev.meta.at}):`];
+        for (const x of d.slice(0, 20)) out.push(x.before ? `  − ${x.was}` : `  + ${x.now}`);
+        console.log(out.join('\n'));
       }
     }
     rows.push({ name: o.name, seconds: r.seconds, exit: r.exit, missed, verdict });
-    if (missed.length > 0) console.log(`\n  ПРОЧИТАНО МИМО ЗАМЫКАНИЯ: ${missed.join(', ')}`);
+    if (missed.length > 0) console.log(`\n  ${o.name}: ПРОЧИТАНО МИМО ЗАМЫКАНИЯ: ${missed.join(', ')}`);
+  };
+
+  // РАСПИСАНИЕ. Браузерные отчёты — те, кто отдаёт страницу (`index.html` в замыкании), — идут по одному и
+  // последними, когда машина уже стоит: они меряют настоящим временем, и чужая нагрузка исказила бы не только
+  // замеры в ‹…›, но и то, успел ли палец. Счётные идут разом: выводы их — функция кода и сида, и нагрузка их не
+  // трогает (проверено приёмкой: вывод совпал с последовательным). Ядра делит один счётчик жетонов (`lib/slots.ts`):
+  // жетон берёт каждый счётный отчёт без веера и каждый дочерний процесс веера; у отчёта с веером
+  // (`lib/fan.ts` в замыкании) главный процесс почти всё время ждёт своих дочерних и жетона не держит, но таких
+  // разом идёт не больше двух. Тяжёлые — первыми: хвост приёмки — самый долгий отчёт.
+  const cores = availableParallelism();
+  const browser = (o: Owner): boolean => o.closure.files.has(setup.vite.html);
+  const fans = (o: Owner): boolean => o.closure.files.has(FAN);
+  const cost = new Map(selected.map((o) => [o.name, lastSeconds(ROOT, o.name)]));
+  const counting = selected.filter((o) => !browser(o)).sort((a, b) => cost.get(b.name)! - cost.get(a.name)!);
+  const slots = await serveSlots(Math.max(1, cores - 1));
+  const env = { ...slots.env, TRIBE_FAN: String(Math.max(1, cores - 1)) };
+  const pool = async (list: Owner[], width: number, token: boolean): Promise<void> => {
+    let i = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(width, list.length) }, async () => {
+        while (i < list.length) {
+          const o = list[i++];
+          const slot = token ? await takeSlot(slots.env) : null;
+          try {
+            await job(o, true, env);
+          } finally {
+            slot?.release();
+          }
+        }
+      }),
+    );
+  };
+  try {
+    await Promise.all([pool(counting.filter(fans), 2, false), pool(counting.filter((o) => !fans(o)), cores, true)]);
+  } finally {
+    await slots.close();
   }
+  for (const o of selected.filter(browser)) await job(o, false, { TRIBE_FAN: '1' });
+  await vite.close();
+  const order = selected.map((o) => o.name);
+  rows.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
 
   console.log('\n━━━ итог ━━━');
   for (const row of rows) {
@@ -238,7 +397,13 @@ async function main(): Promise<void> {
     console.log(`  ${row.name.padEnd(9)} ${code.padEnd(7)} ${row.seconds.toFixed(0).padStart(4)} с   ${trace.padEnd(20)} ${row.verdict}`);
   }
   const total = rows.reduce((a, r) => a + r.seconds, 0);
-  console.log(`  всего ${Math.round(total)} с, отчётов ${rows.length} из ${p.all.length}`);
+  const wall = (performance.now() - started) / 1000;
+  console.log(`  всего ${Math.round(wall)} с настоящего времени (отчёты шли разом; порознь — ${Math.round(total)} с), отчётов ${rows.length} из ${p.all.length}`);
+  if (blindRows.length > 0) {
+    console.log(`\n  БЫСТРАЯ СЛЕПА к правке в ${blindRows.length} отч.: тронутый код на её мирах не исполнился. Нужен полный прогон:`);
+    console.log(`    npm run reports -- --full --only ${blindRows.join(',')}`);
+    process.exitCode = 2;
+  }
   if (rows.some((r) => r.exit !== 0 || r.missed.length > 0)) process.exitCode = 1;
 }
 

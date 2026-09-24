@@ -6,5 +6,7 @@
 //
 //   npm run raid-growth:report
 import { lairGrowthSection } from './raid-lair-growth';
+import { quickFooter } from './lib/quick';
 
 await lairGrowthSection();
+quickFooter();

@@ -13,7 +13,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Closure } from './deps';
 import { hook as ownHook } from './trace-fs.mjs';
@@ -58,11 +58,50 @@ export function load(root: string, report: string, key: string): Stored | null {
   }
 }
 
+/** Покрытие быстрого прогона (`lib/blind.ts`) — рядом с его выводом, под тем же ключом. */
+export function saveSeen(root: string, report: string, key: string, seen: unknown): void {
+  const dir = path.join(storeDir(root), report);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, `${key}.seen.json`), JSON.stringify(seen));
+}
+
+export function loadSeen<T>(root: string, report: string, key: string): T | null {
+  const f = path.join(storeDir(root), report, `${key}.seen.json`);
+  if (!existsSync(f)) return null;
+  try {
+    return JSON.parse(readFileSync(f, 'utf8')) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function save(root: string, run: Stored): void {
   const dir = path.join(storeDir(root), run.meta.report);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, `${run.meta.key}.txt`), run.output);
   writeFileSync(path.join(dir, `${run.meta.key}.json`), JSON.stringify(run.meta, null, 2));
+}
+
+/**
+ * Сколько секунд отчёт шёл в последний раз — любое его замыкание, последний по времени прогон. Нужно
+ * одному расписанию: тяжёлые отчёты начинаются первыми, иначе хвост приёмки — самый долгий из них.
+ * Не прогонялся ни разу — `Infinity`: неизвестный отчёт может оказаться самым долгим.
+ */
+export function lastSeconds(root: string, report: string): number {
+  const dir = path.join(storeDir(root), report);
+  if (!existsSync(dir)) return Infinity;
+  let best: { at: number; seconds: number } | null = null;
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.json') || f.endsWith('.seen.json')) continue;
+    const at = statSync(path.join(dir, f)).mtimeMs;
+    if (best && best.at >= at) continue;
+    try {
+      best = { at, seconds: (JSON.parse(readFileSync(path.join(dir, f), 'utf8')) as RunMeta).seconds };
+    } catch {
+      // битый прогон — не мерило
+    }
+  }
+  return best?.seconds ?? Infinity;
 }
 
 export interface Ran {
@@ -77,7 +116,7 @@ export interface Ran {
  * Прогон одной команды с записью прочитанного. Вывод идёт в терминал как есть и
  * одновременно собирается: смотреть на отчёт глазами по ходу прогона по-прежнему можно.
  */
-export function runTraced(cwd: string, command: string, traceFile: string, quiet = false): Promise<Ran> {
+export function runTraced(cwd: string, command: string, traceFile: string, quiet = false, extra: Record<string, string> = {}): Promise<Ran> {
   rmSync(traceFile, { force: true });
   // Запись прочитанного — всегда нынешняя, в том числе для базы во втором worktree: в базе её
   // может не быть, а о коде игры она не знает ничего.
@@ -88,6 +127,7 @@ export function runTraced(cwd: string, command: string, traceFile: string, quiet
     TRIBE_TRACE_ROOT: cwd,
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${hook}`.trim(),
     FORCE_COLOR: '0',
+    ...extra,
   };
   const started = performance.now();
   return new Promise((resolve) => {
