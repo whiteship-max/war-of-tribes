@@ -21,7 +21,8 @@
  * мирах быстрой жителей не бывает между 500 и 520, а на мирах полной — бывает. Это и проверяется прогоном
  * на настоящих прошлых сдвигах (docs/realm.md, раздел 8).
  *
- * Модуль не знает ни vite, ни git: перевод исходника (`transform`) и изменённые строки ему подаёт приёмка.
+ * Git модуль не знает: изменённые строки ему подаёт приёмка. Исходник, который прогон выполнял, он переводит
+ * тем же vite, что и прогон (`transformer`), — по этому переводу покрытие и сопоставляется со строками.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -99,20 +100,43 @@ interface Range {
 }
 interface Script {
   url: string;
-  functions: { ranges: Range[] }[];
+  functions: { functionName?: string; ranges: Range[] }[];
+}
+
+/**
+ * Скрипт vite-node — это код модуля, обёрнутый в функцию (vite-node/client, `runModule`): `…=>{{` спереди и
+ * `\n}}` сзади. Длина обёртки спереди — разница длин скрипта и перевода.
+ */
+const wrapOf = (code: string, script: Script): number | null => {
+  const whole = script.functions[0]?.ranges[0];
+  return whole ? whole.endOffset - code.length - 3 : null;
+};
+
+/**
+ * Сходится ли покрытие с переводом при этой обёртке: каждая именованная функция V8 обязана начинаться там, где
+ * её имя стоит в переводе (или сразу после него — у `const f = () =>` имя стоит перед началом). Не сходится —
+ * покрытие снято с другого текста или обёртка посчитана неверно, и сопоставлять его со строками нельзя: сдвиг на
+ * десятки знаков переносит счёт из одного блока в соседний и ни одной строкой этого не выдаёт.
+ */
+function aligned(code: string, script: Script, wrap: number): boolean {
+  let named = 0;
+  for (const f of script.functions.slice(1)) {
+    const name = f.functionName;
+    if (!name || !/^[\w$]+$/.test(name)) continue;
+    named++;
+    const at = f.ranges[0].startOffset - wrap;
+    const near = code.slice(Math.max(0, at - 24), at + 16);
+    if (!new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(near)) return false;
+  }
+  return named > 0 || script.functions.length <= 2;
 }
 
 /**
  * Прибавить к счёту строк одного файла покрытие одного процесса. `code` — переведённый исходник, который
- * процесс выполнил; `lines` — по строке исходника: у скольких её отрезков счёт ноль, у скольких — нет.
- * Скрипт vite-node — это код модуля, обёрнутый в функцию: длина обёртки — разница длин.
+ * процесс выполнил; `marks` — по строке исходника, исполнен ли каждый её отрезок хоть в одном процессе.
  */
-function paint(code: string, script: Script, marks: Map<number, { ran: boolean[] }>, maps: [number, number, number][]): boolean {
-  const whole = script.functions[0]?.ranges[0];
-  if (!whole) return false;
-  // Обёртка vite-node: `…=>{{` спереди и `\n}}` сзади (vite-node/client, runModule).
-  const prefix = whole.endOffset - code.length - 3;
-  if (prefix < 0 || prefix > 400) return false;
+function paint(code: string, script: Script, prefix: number, marks: Map<number, { ran: boolean[] }>, maps: [number, number, number][]): void {
+  const whole = script.functions[0].ranges[0];
   const counts = new Int32Array(whole.endOffset + 1);
   const all: Range[] = script.functions.flatMap((f) => f.ranges);
   all.sort((a, b) => a.startOffset - b.startOffset || b.endOffset - a.endOffset);
@@ -129,7 +153,6 @@ function paint(code: string, script: Script, marks: Map<number, { ran: boolean[]
     }
     m.ran[i] = m.ran[i] || counts[at] > 0;
   });
-  return true;
 }
 
 /**
@@ -160,26 +183,65 @@ export async function collect(dir: string, root: string, wanted: ReadonlySet<str
     }
   }
   const seen: Seen = { files: {}, unknown: [] };
+  const codes = new Map<string, string | null>();
+  for (const rel of scripts.keys()) codes.set(rel, await transform(rel));
+  // Обёртка одна у всех модулей прогона. Файл, у которого разница длин вышла другой, выполнялся не в том
+  // виде, в каком его перевели сейчас, — сопоставлять его нельзя, и о нём быстрая не знает ничего.
+  const tally = new Map<number, number>();
+  for (const [rel, list] of scripts) {
+    const code = codes.get(rel);
+    if (code) for (const s of list) {
+      const w = wrapOf(code, s);
+      if (w !== null) tally.set(w, (tally.get(w) ?? 0) + 1);
+    }
+  }
+  const wrap = [...tally].sort((a, b) => b[1] - a[1])[0]?.[0] ?? -1;
   for (const [rel, list] of [...scripts].sort()) {
-    const code = await transform(rel);
+    const code = codes.get(rel) ?? null;
     const raw = code === null ? null : inlineMap(code);
-    if (code === null || raw === null) {
+    const fit = code === null ? [] : list.filter((s) => wrapOf(code, s) === wrap && aligned(code, s, wrap));
+    if (code === null || raw === null || wrap < 0 || fit.length !== list.length) {
       seen.unknown.push(rel);
       continue;
     }
     const maps = mappings(raw);
     const marks = new Map<number, { ran: boolean[] }>();
-    let ok = false;
-    for (const s of list) ok = paint(code, s, marks, maps) || ok;
-    if (!ok) {
-      seen.unknown.push(rel);
-      continue;
-    }
+    for (const s of fit) paint(code, s, wrap, marks, maps);
     const dark: number[] = [];
     for (const [sl, m] of marks) if (m.ran.some((x) => x === false)) dark.push(sl + 1);
     seen.files[rel] = dark.sort((a, b) => a - b);
   }
   return seen;
+}
+
+/**
+ * Перевод исходника тем же vite, что выполнял прогон, — по нему покрытие сопоставляется со строками
+ * (`collect`). Сервер поднимается один раз на приёмку и только когда понадобился.
+ */
+export function transformer(root: string): { transform: (file: string) => Promise<string | null>; close(): Promise<void> } {
+  let node: Promise<{ fetch: (id: string) => Promise<{ code?: string }>; close(): Promise<void> }> | null = null;
+  const open = async () => {
+    const { createServer } = await import('vite');
+    const { ViteNodeServer } = await import('vite-node/server');
+    // Те же настройки, что у vite-node, запускающего отчёт: без слежения за файлами и без hmr.
+    const server = await createServer({ logLevel: 'error', root, configFile: path.join(root, 'vite.config.ts'), server: { hmr: false, watch: null } });
+    await server.pluginContainer.buildStart({});
+    const vn = new ViteNodeServer(server);
+    return { fetch: (id: string) => vn.fetchModule(id), close: () => server.close() };
+  };
+  return {
+    transform: async (file) => {
+      node ??= open();
+      try {
+        return (await (await node).fetch(path.join(root, file))).code ?? null;
+      } catch {
+        return null;
+      }
+    },
+    close: async () => {
+      if (node) await (await node).close();
+    },
+  };
 }
 
 // ---------- Тронутые строки ----------

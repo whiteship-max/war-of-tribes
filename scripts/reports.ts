@@ -31,7 +31,7 @@ import path from 'node:path';
 import { owners, plan, type Owner, type Plan } from './lib/affected';
 import { shifts, stableLines } from './lib/measured';
 import { closureKey, lastSeconds, load, loadSeen, runTraced, save, saveSeen, unexplained } from './lib/runs';
-import { blindTo, collect, touches, type Seen, type Touch } from './lib/blind';
+import { blindTo, collect, touches, transformer, type Seen, type Touch } from './lib/blind';
 import { boundShift } from './lib/quick';
 import { serveSlots, takeSlot } from './lib/slots';
 import { ROOT, changedSince, lines, own, setupOf } from './lib/setup';
@@ -48,36 +48,6 @@ const CODE = /\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$/;
 
 /** Под каким именем лежит в кэше быстрый прогон отчёта: у него свой вывод и своё покрытие. */
 const quickId = (name: string): string => `${name}.quick`;
-
-/**
- * Перевод исходника тем же vite, что выполнял прогон, — по нему покрытие сопоставляется со строками
- * (`lib/blind.ts`). Сервер поднимается один раз на приёмку и только когда понадобился.
- */
-function transformer(root: string = ROOT): { transform: (file: string) => Promise<string | null>; close(): Promise<void> } {
-  let node: Promise<{ fetch: (id: string) => Promise<{ code?: string }>; close(): Promise<void> }> | null = null;
-  const open = async () => {
-    const { createServer } = await import('vite');
-    const { ViteNodeServer } = await import('vite-node/server');
-    // Те же настройки, что у vite-node, запускающего отчёт: без слежения за файлами и без hmr.
-    const server = await createServer({ logLevel: 'error', root, configFile: path.join(root, 'vite.config.ts'), server: { hmr: false, watch: null } });
-    await server.pluginContainer.buildStart({});
-    const vn = new ViteNodeServer(server);
-    return { fetch: (id: string) => vn.fetchModule(id), close: () => server.close() };
-  };
-  return {
-    transform: async (file) => {
-      node ??= open();
-      try {
-        return (await (await node).fetch(path.join(root, file))).code ?? null;
-      } catch {
-        return null;
-      }
-    },
-    close: async () => {
-      if (node) await (await node).close();
-    },
-  };
-}
 
 const argv = process.argv.slice(2);
 const flag = (name: string): boolean => argv.includes(name);
@@ -249,7 +219,7 @@ async function main(): Promise<void> {
   const rows: Row[] = [];
   const started = performance.now();
 
-  const vite = transformer();
+  const vite = transformer(ROOT);
   // Что правка тронула — один раз на приёмку: от базы до рабочей копии, вместе с незакоммиченным и новыми файлами.
   const touched: Touch[] = [];
   if (quick && baseOk) {
@@ -269,8 +239,13 @@ async function main(): Promise<void> {
     const title = `━━━ ${o.name}:report${fast ? ' (быстрая)' : ''} ━━━`;
     if (!quiet) console.log(`\n${title}`);
     const key = closureKey(o.name, tree, o.closure);
-    // Прошлый прогон того же замыкания — если он есть, это повтор, и совпасть он обязан.
+    // Прошлый прогон того же замыкания — если он есть, это повтор, и совпасть он обязан. И вывод базы, и он
+    // читаются ДО записи нынешнего: у отчёта, чьё замыкание с базы не менялось, ключ базы — тот же, и прочитанная
+    // после записи «база» была бы этим же прогоном — сверка с собой. Так было до 25.09.2026: «совпал с базой
+    // (замыкание то же — это повтор)» печаталось, не сравнив ничего.
     const prev = load(ROOT, id, key);
+    const bk = baseKeys.get(o.name);
+    const before = bk ? load(ROOT, id, bk) : null;
     const cov = fast ? mkdtempSync(path.join(os.tmpdir(), `tribe-cov-${o.name}-`)) : null;
     const extra = fast && cov ? { ...env, TRIBE_QUICK: '1', NODE_V8_COVERAGE: cov } : env;
     const r = await runTraced(ROOT, `npm run --silent ${o.name}:report`, path.join(os.tmpdir(), `tribe-${o.name}.trace`), quiet, extra);
@@ -297,8 +272,6 @@ async function main(): Promise<void> {
     }
 
     let verdict: string;
-    const bk = baseKeys.get(o.name);
-    const before = bk ? load(ROOT, id, bk) : null;
     if (!bk) verdict = 'в базе отчёта нет';
     else if (!before) verdict = `вывода базы нет${fast ? ' (быстрой)' : ''} (--before)`;
     else if (stableLines(before.output).length === 0) verdict = `у базы ${before.meta.commit} пустой вывод`;
