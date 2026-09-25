@@ -78,6 +78,10 @@ import { realSpan } from '@/game/span';
 import { GEM_DAY_SHARE, GEM_REAL_SECONDS, GEM_REF_RATE, rushPrice, rushWork } from '@/game/sim/gems';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { SILENCE_PREFIX } from '@/game/sim/mail';
+import { settleHires } from '@/game/sim/hire';
+import { dynastyStep } from '@/game/sim/dynasty';
+import { paceOf } from './lib/branchpace';
+import { NEW_SEEDS } from './raid-common';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { ageOf } from '@/game/sim/agents';
 
@@ -822,6 +826,41 @@ function realmSection(): void {
   console.log(`  Ступеней: военная ${WAR_LEVELS}, административная ${ADMIN_LEVELS}, дипломатическая ${DIPLO_LEVELS}; видов бойцов ${TROOPS.length}, вещей кузницы ${WAR_GEAR_ORDER.length}.`);
   console.log(`  Самый дорогой вид — ${TROOP_BY_ID.legionary.name.toLowerCase()} — открывается на ${warLevelOfTroop('legionary')} уровне из ${WAR_LEVELS}.`);
   console.log('  Что мастера делают с перекосом войска и посёлка — `npm run pop:report`, раздел «Спор за золото».');
+
+  // ----- ветвь, которую учат «когда хватило — купил» -----
+  // Сроки — не выбор этого раздела: 171 — конец защиты новичка на дуге `pop:report` (раздел «Военная
+  // лестница против защиты новичка»), 360 — шесть часов раздела Б `raid-hiring` (`FRESH_HOURS`).
+  // Сдвинутся там — переписываются здесь.
+  const PACE_DAYS = [171, 360];
+  const kinds = (level: number): number => TROOPS.filter((t) => warLevelOfTroop(t.id) <= level).length;
+  console.log(
+    `\n  ВЕТВЬ, КОТОРУЮ УЧАТ «КОГДА ХВАТИЛО — КУПИЛ» (autopilot.learn), к игровым дням ${PACE_DAYS.join(' и ')}: ` +
+      'прибор scripts/lib/branchpace, сверен с дверью игры тестом',
+  );
+  console.log(`  навык | военная: ур. и видов войск из ${TROOPS.length} | административная: ур. и сгорело очков | админ. изучена целиком`);
+  for (let k = MIN_RULER_SKILL; k <= MAX_RULER_SKILL; k++) {
+    const war = PACE_DAYS.map((d) => {
+      const p = paceOf('war', k, d);
+      return `ур ${p.level}, видов ${kinds(p.level)}`;
+    }).join(' · ');
+    const admin = PACE_DAYS.map((d) => {
+      const p = paceOf('admin', k, d);
+      return `ур ${p.level}, сгорело ${p.burned.toFixed(0)}`;
+    }).join(' · ');
+    const done = paceOf('admin', k, Infinity).doneAt;
+    console.log(`  ${String(k).padStart(5)} | ${war.padEnd(32)} | ${admin.padEnd(34)} | ${done === null ? 'никогда' : `с дня ${done.toFixed(0)}`}`);
+  }
+  const rulers = NEW_SEEDS.map((seed) => {
+    const s = createInitialState(seed);
+    settleHires(s);
+    dynastyStep(s);
+    return `сид ${seed} — военный ${s.realm.ruler.skills.war}, административный ${s.realm.ruler.skills.admin}`;
+  });
+  console.log(`  Правители в мирах раздела Б \`raid-hiring\` (сид партии — сид мира): ${rulers.join('; ')}.`);
+  console.log(
+    '  Военные и административные очки — разные виды: вложившийся в административную ветвь открывает столько же видов войск, ' +
+      'сколько игрок по умолчанию. У административных очков один сток — сама ветвь: изученная целиком, она копит очки до потолка, и дальше они сгорают.',
+  );
 }
 
 async function main(): Promise<void> {
