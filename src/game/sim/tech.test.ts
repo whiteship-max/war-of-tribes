@@ -750,6 +750,47 @@ describe('административная ветвь: места наёмных
    * Отказ ветви говорит, какая ступень пустит ещё мастеров, — и молчит там, где правило не
    * спрашивается: в пределах открытого и на верху ветви (дальше решают места Мастерской).
    */
+  /**
+   * Ступень 20 → 21. Засчитывать нечего — наёмных мастеров не было ни у кого, — и отнимать нечего;
+   * партия узнаёт о ветви строкой, и строка ложится при входе (после догона отлучки), называя те же
+   * очки, что кнопка «Изучить». Область: запись и правда двадцатой версии, и очков у неё не ноль.
+   */
+  it('ступень 20 → 21: мастеров ноль, засчитывать нечего, о ветви сказано строкой при входе', () => {
+    // Две точки: очков на ступень хватает и не хватает, — у строки две ветви, и спрошены обе.
+    for (const rich of [true, false]) {
+      const before = party();
+      before.time = 500 * 60;
+      const raw = JSON.parse(serialize(before)) as Record<string, unknown> & {
+        realm: { points: Record<string, number>; pointsAt: number };
+      };
+      raw.version = 20;
+      delete raw.masters;
+      if (!rich) {
+        raw.realm.points.admin = 0;
+        raw.realm.pointsAt = before.time;
+      }
+      const s = deserialize(JSON.stringify(raw));
+      expect(s).not.toBeNull();
+      expect(s!.version).toBe(SAVE_VERSION);
+      expect(SAVE_VERSION, 'точка внутри области: версия поднята этой ступенью').toBe(21);
+      expect(s!.masters, 'мастеров у записи не было — приезжает ноль').toBe(0);
+      expect(techLevel(s!, 'admin'), 'засчитывать нечего').toBe(1);
+      expect(s!.log.some((e) => e.text.includes('административная ветвь')), 'до входа строки нет').toBe(false);
+      enter(s!, s!.lastSaved);
+      const info = studyInfo(s!, 'admin');
+      expect(info.blocked === null, `точка внутри области: очков ${rich ? 'хватает' : 'не хватает'}`).toBe(rich);
+      const line = s!.log.find((e) => e.text.includes('Построена административная ветвь'));
+      expect(line, 'о ветви сказано строкой при входе').toBeTruthy();
+      expect(line!.text, 'цена — та, что на кнопке').toContain(`из ${info.price} —`);
+      expect(line!.text, 'и мест на ступень — столько, сколько откроет дверь').toContain(
+        `${mastersCapAt(info.level + 1) - mastersCapAt(info.level)} мест`,
+      );
+      expect(line!.text, rich ? 'хватает — сказано, что сразу' : 'не хватает — сказано, когда накопится').toMatch(
+        rich ? /изучить сразу/ : /накопится через/,
+      );
+    }
+  });
+
   it('отказ говорит, какая ступень пустит ещё, и молчит в пределах открытого', () => {
     const closed = adminAt(1);
     expect(mastersCap(closed)).toBe(0);

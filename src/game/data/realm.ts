@@ -35,7 +35,7 @@ export const BRANCH_NAME: Record<RealmBranch, string> = {
  * и показана закрытой плашкой, без сроков и обещаний.
  */
 export const BRANCH_BUILT: Record<RealmBranch, boolean> = {
-  admin: false,
+  admin: true,
   diplo: true,
   war: true,
 };

@@ -13,7 +13,7 @@ import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
-import { creditTech, fateNotice, techLevel } from './sim/tech';
+import { adminNotice, creditTech, fateNotice, techLevel } from './sim/tech';
 import { WAR_FATES } from './data/realm';
 import { AGENT_AGE0, LEVEL_XP } from './data/agents';
 import { FIGURE_IDS } from '@/world/data/figures';
@@ -160,7 +160,7 @@ function migrate(s: GameState, from: number, data: SavedState): void {
       `Во главе державы встал ${who}: ${skillLine(s.realm.ruler.skills)}. Каждый навык даёт очки своего вида, и копятся они сами, пока идут часы деревни.`,
       'info',
     );
-    tell(s, 'Очки и родословная ждут за гербом, в «Родословной». Тратить их пока не на что: «Технологии» ещё не построены.', 'info');
+    tell(s, 'Очки и родословная ждут за гербом, в «Родословной»; тратят очки в «Технологиях».', 'info');
   }
   // 17 → 18: у державы появились технологии, и первый гейт — дипломатическая ветвь.
   // Умолчания мало: у начатой партии `tech.diplo` лежит первым уровнем (его положила
@@ -173,7 +173,7 @@ function migrate(s: GameState, from: number, data: SavedState): void {
     if (given.length > 0) {
       tell(s, 'Место лазутчика засчитано изученным: дипломатическая ветвь, уровень 2. Отнимать то, что у племени уже есть, технологии не будут.', 'info');
     }
-    tell(s, 'За гербом открылись «Технологии»: очки правителя тратятся на ступени ветвей. Дипломатическая ветвь живая, остальные две ещё не построены.', 'info');
+    tell(s, 'За гербом открылись «Технологии»: очки правителя тратятся на ступени ветвей.', 'info');
   }
   // 18 → 19: построена военная ветвь. Умолчания мало ровно по той же причине, что у
   // дипломатической: `tech.war` лежит первым уровнем, а снаряжение и войско у начатой
@@ -199,6 +199,12 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   // Формат тот же. Строку об этом сочиняет не эта ступень, а вход (`afterEntry`): строка
   // говорит, хватает ли очков, а очки — функция времени, и их правда — на минуту входа, а не
   // на минуту записи.
+  //
+  // 20 → 21: построена административная ветвь — наёмные мастера на местах Мастерской
+  // (docs/admin_branch.md, раздел 4.1). Новое поле (`masters`) приезжает умолчанием — нулём, — и
+  // засчитывать нечего: мастеров не было ни у кого, ветвь открывает новое, а не запирает старое.
+  // Версию подняли, чтобы партия узнала об этом строкой; сочиняет её вход (`afterEntry`): она
+  // называет очки, а их правда — на минуту входа.
 }
 
 /**
@@ -234,6 +240,8 @@ const readFrom = new WeakMap<GameState, number>();
  *
  * 19 → 20: участь стала покупной, и пропажа не должна быть молчаливой. Что сказать, решает дверь
  * гейта (`sim/tech.fateNotice`) — теми же числами, что стоят на кнопке «Изучить».
+ *
+ * 20 → 21: построена административная ветвь (`sim/tech.adminNotice`) — тем же приёмом.
  */
 function afterEntry(s: GameState): void {
   const from = readFrom.get(s) ?? SAVE_VERSION;
@@ -243,6 +251,7 @@ function afterEntry(s: GameState): void {
       if (line) tell(s, line);
     }
   }
+  if (from < 21) tell(s, adminNotice(s));
   for (const { text, kind } of told.get(s) ?? []) log(s, text, kind);
   told.delete(s);
   readFrom.delete(s);

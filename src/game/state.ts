@@ -93,7 +93,7 @@ import { FIGURE_IDS } from '@/world/data/figures';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 20;
+export const SAVE_VERSION = 21;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
