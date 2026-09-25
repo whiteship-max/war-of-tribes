@@ -12,8 +12,10 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
 import { deserialize, enter, serialize } from '../save';
 import {
+  ADMIN_LEVELS,
   BRANCH_BUILT,
   DIPLO_LEVELS,
+  MASTERS_AT,
   DIPLO_RUNGS,
   POINTS_CAP,
   REALM_BRANCHES,
@@ -28,6 +30,8 @@ import {
   warLevelOfGear,
 } from '../data/realm';
 import { EQUIPMENT, EQUIPMENT_IDS } from '../data/equipment';
+import { BUILDING_BY_ID, slotsAt } from '../data/buildings';
+import { maxLevelFor } from '../derived';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { RESOURCE_IDS } from '../constants';
 import { TUTORIAL, advanceTutorial, type TutorialUi } from '../data/tutorial';
@@ -44,8 +48,12 @@ import {
   gearBlock,
   gearOpen,
   gearOpenAt,
+  levelName,
   mailSlots,
   mailSlotsAt,
+  mastersBlock,
+  mastersCap,
+  mastersCapAt,
   placeBlock,
   placeOpen,
   study,
@@ -208,15 +216,26 @@ describe('трата очков', () => {
     expect(pointsOf(s, 'diplo'), 'через игровой день').toBeCloseTo(POINTS_CAP - price + 5, 6);
   });
 
+  /**
+   * Правило спрашивается только у непостроенной ветви. Когда построены все три, перебор
+   * «непостроенных» пуст, и тест был бы зелёным при любом коде (правило 11). Поэтому ветвь
+   * на время теста закрывается, и что она правда закрыта, — утверждение в самом тесте.
+   */
   it('непостроенная ветвь не покупается, и сказано это прямо', () => {
-    const s = party();
     for (const b of REALM_BRANCHES) {
-      if (BRANCH_BUILT[b]) continue;
-      s.realm.points[b] = POINTS_CAP;
-      s.realm.pointsAt = s.time;
-      expect(studyInfo(s, b).blocked, `${b}: ещё не построена`).toMatch(/не построена/);
-      expect(study(s, b), `${b}: и не покупается`).toMatch(/не построена/);
-      expect(techLevel(s, b), `${b}: уровень на месте`).toBe(1);
+      const was = BRANCH_BUILT[b];
+      BRANCH_BUILT[b] = false;
+      try {
+        const s = party();
+        expect(BRANCH_BUILT[b], `${b}: точка внутри области — ветвь закрыта`).toBe(false);
+        s.realm.points[b] = POINTS_CAP;
+        s.realm.pointsAt = s.time;
+        expect(studyInfo(s, b).blocked, `${b}: ещё не построена`).toMatch(/не построена/);
+        expect(study(s, b), `${b}: и не покупается`).toMatch(/не построена/);
+        expect(techLevel(s, b), `${b}: уровень на месте`).toBe(1);
+      } finally {
+        BRANCH_BUILT[b] = was;
+      }
     }
   });
 
@@ -346,7 +365,7 @@ describe('замки гейта', () => {
     const bad: string[] = [];
     for (const file of sources()) {
       if (allowed.some((a) => file.endsWith(a))) continue;
-      if (/\bdiploLevelOf\b|\bopenAtLevel\b|\bmailSlotsAt\b|\bplaceOpenAt\b|\bwarLevelOfGear\b|\bwarLevelOfTroop\b|\bgearOpenAt\b|\btroopOpenAt\b|\bwarLevelOfFate\b|\bfateOpenAt\b/.test(bare(file))) bad.push(file);
+      if (/\bmastersAt\b|\bmastersCapAt\b|\bdiploLevelOf\b|\bopenAtLevel\b|\bmailSlotsAt\b|\bplaceOpenAt\b|\bwarLevelOfGear\b|\bwarLevelOfTroop\b|\bgearOpenAt\b|\btroopOpenAt\b|\bwarLevelOfFate\b|\bfateOpenAt\b/.test(bare(file))) bad.push(file);
     }
     expect(bad, 'открытость считают мимо двери').toEqual([]);
   });
@@ -670,5 +689,81 @@ describe('проводка первых шагов под гейтом', () => {
     advanceTutorial(s, ui);
     expect(TUTORIAL[s.tutorialStep].id, 'дальше — заказ копий').toBe('forge');
     expect(startForge(s, 'spear', 1), 'и кузница его берёт').toBeNull();
+  });
+});
+
+// ---------- Административная ветвь ----------
+
+/** Партия, у которой административная ветвь стоит на уровне `level`. */
+function adminAt(level: number, seed = 7): GameState {
+  const s = party(seed);
+  s.realm.tech.admin = level;
+  expect(techLevel(s, 'admin'), 'уровень ветви поставлен').toBe(level);
+  return s;
+}
+
+describe('административная ветвь: места наёмных мастеров выводятся из Мастерской', () => {
+  /**
+   * Ступень открывает ровно места одного уровня Мастерской, и длина ветви — длина её лестницы.
+   * Проверяется на каждом уровне, а не на одном примере; область названа: ступеней больше двух,
+   * иначе «на каждом уровне» сводилось бы к одной точке.
+   */
+  it('ступень — места одного уровня Мастерской, длина ветви — лестница Мастерской', () => {
+    const hall = BUILDING_BY_ID[MASTERS_AT];
+    expect(MASTERS_AT, 'мастера стоят в Мастерской').toBe('workshop');
+    expect(ADMIN_LEVELS, 'длина ветви — бесплатная ступень плюс уровни Мастерской').toBe(1 + maxLevelFor(MASTERS_AT));
+    expect(ADMIN_LEVELS, 'точка внутри области: ступеней больше двух').toBeGreaterThan(2);
+    for (let l = 1; l <= ADMIN_LEVELS; l++) {
+      expect(mastersCapAt(l), `уровень ${l}`).toBe(slotsAt(hall, l - 1));
+    }
+    expect(mastersCapAt(1), 'бесплатная ступень — то, с чем партия начинается: наёмных нет').toBe(0);
+    expect(mastersCapAt(ADMIN_LEVELS), 'верх ветви — все места Мастерской на её потолке').toBe(
+      slotsAt(hall, maxLevelFor(MASTERS_AT)),
+    );
+  });
+
+  /**
+   * Своего числа мест у ветви нет: лестница зовёт ту же формулу, что считает места здания.
+   * Мутация «написать 6 × (уровень − 1)» прошла бы проверку выше — числа сейчас совпадают, —
+   * и упала бы только здесь.
+   */
+  it('лестница мастеров не пишет числа мест сама', () => {
+    const src = bare(join(SRC, 'game', 'data', 'realm.ts'));
+    const at = src.indexOf('export const mastersAt');
+    expect(at, 'объявление найдено').toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf(';', at));
+    expect(body, 'места — той же формулой, что у здания').toMatch(/\bslotsAt\(/);
+    expect(body.replace(/\b[01]\b/g, ''), 'ни одного своего числа').not.toMatch(/\d/);
+  });
+
+  it('что открывает ступень — замером, и имя ступени оттуда же', () => {
+    for (let l = 1; l < ADMIN_LEVELS; l++) {
+      const gains = techGains('admin', l);
+      expect(gains, `уровень ${l}: ступень что-то открывает`).toHaveLength(1);
+      expect(gains[0], `уровень ${l}: называет числа двери`).toContain(`${mastersCapAt(l)} → ${mastersCapAt(l + 1)}`);
+      expect(levelName('admin', l + 1), `имя ступени ${l + 1}`).toContain(String(mastersCapAt(l + 1)));
+    }
+    expect(techGains('admin', ADMIN_LEVELS), 'выше верха открывать нечего').toEqual([]);
+  });
+
+  /**
+   * Отказ ветви говорит, какая ступень пустит ещё мастеров, — и молчит там, где правило не
+   * спрашивается: в пределах открытого и на верху ветви (дальше решают места Мастерской).
+   */
+  it('отказ говорит, какая ступень пустит ещё, и молчит в пределах открытого', () => {
+    const closed = adminAt(1);
+    expect(mastersCap(closed)).toBe(0);
+    expect(mastersBlock(closed, 1), 'на первом уровне наёмных нет').toMatch(/Ещё не изучено: наёмные мастера — 2 уровень/);
+    expect(mastersBlock(closed, 0), 'ноль мастеров не спрашивает ничего').toBeNull();
+
+    const two = adminAt(2);
+    const cap = mastersCap(two);
+    expect(cap, 'точка внутри области: мест больше нуля').toBeGreaterThan(0);
+    expect(mastersBlock(two, cap), 'ровно открытое — пускает').toBeNull();
+    expect(mastersBlock(two, cap + 1), 'сверх открытого — следующая ступень').toMatch(/3 уровень/);
+    expect(mastersBlock(two, cap + 1), 'и сколько она прибавит').toContain(`ещё ${mastersCapAt(3) - cap}`);
+
+    const top = adminAt(ADMIN_LEVELS);
+    expect(mastersBlock(top, mastersCap(top) + 100), 'на верху ветви отказа от неё нет').toBeNull();
   });
 });

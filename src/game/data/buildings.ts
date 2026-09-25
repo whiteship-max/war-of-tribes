@@ -1,6 +1,7 @@
 import type { BuildingTypeId, JobId, ResourceId } from '../types';
 import { yardBuilding } from './yards';
 import { gameSec } from '../pace';
+import { SLOTS_PER_LEVEL } from '../constants';
 
 /** Пассивные эффекты здания — растут не множителем, а прибавкой за уровень. */
 export interface BuildingStats {
@@ -389,3 +390,12 @@ export const BUILDINGS: BuildingDef[] = [
 export const BUILDING_BY_ID: Record<BuildingTypeId, BuildingDef> = Object.fromEntries(
   BUILDINGS.map((b) => [b.id, b]),
 ) as Record<BuildingTypeId, BuildingDef>;
+
+/**
+ * Рабочих мест у здания на этом уровне. **Одна формула на две двери:** места стоящего здания
+ * (`derived.buildingSlots`) и лестница административной ветви (`data/realm.mastersAt`) — ступень
+ * открывает наёмным мастерам ровно места одного уровня Мастерской, и разойтись с настоящими
+ * местами ей не из чего.
+ */
+export const slotsAt = (def: BuildingDef, level: number): number =>
+  def.job ? Math.max(0, Math.round(level)) * (def.slotsPerLevel ?? SLOTS_PER_LEVEL) : 0;

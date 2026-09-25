@@ -15,8 +15,9 @@
 import { MAX_BUILDING_LEVEL, MAX_OFFLINE_DAYS } from '../constants';
 import { MAX_AGENT_LEVEL } from './agents';
 import { EQUIPMENT } from './equipment';
+import { BUILDING_BY_ID, slotsAt } from './buildings';
 import { TROOP_BY_ID } from './troops';
-import type { EquipmentId, RealmBranch, TroopId } from '../types';
+import type { BuildingTypeId, EquipmentId, RealmBranch, TroopId } from '../types';
 import type { Fate } from '@/world/types';
 
 export const REALM_BRANCHES: RealmBranch[] = ['admin', 'diplo', 'war'];
@@ -163,20 +164,35 @@ export const WAR_CAPTIVES_LEVEL = warLevelOfFate('captives');
 /** Ступеней в военной ветви: бесплатная, по одной на вещь и по одной на участь. */
 export const WAR_LEVELS = 1 + WAR_GEAR_ORDER.length + WAR_FATES.length;
 
-// ---------- Административная ветвь: потолок уровня построек ----------
+// ---------- Административная ветвь: места наёмных мастеров ----------
 
 /**
- * Докуда административная ветвь пускает поднимать постройки. Первый (бесплатный) уровень
- * даёт потолок 2 — то есть новая партия может поднять всё, что стоит, на один уровень, и
- * первая минута игры остаётся играбельной; последний даёт нынешний `MAX_BUILDING_LEVEL`.
- *
- * Своего потолка у здания это не отменяет: читать надо `min(def.maxLevel, MAX_BUILDING_LEVEL,
- * adminCeiling(level))` — одной дверью рядом с `derived.maxLevelFor` (пачка 4).
+ * Где стоят наёмные мастера — на местах этого здания, третьим числом рядом с его людьми
+ * (docs/admin_branch.md, раздел 4.1). Это определение самой механики, а не список ступеней:
+ * лестница ниже выводится из мест этого здания и ничего не пишет сама.
  */
-export const adminCeiling = (level: number): number => Math.min(MAX_BUILDING_LEVEL, 1 + Math.max(1, Math.round(level)));
+export const MASTERS_AT: BuildingTypeId = 'workshop';
 
-/** Ступеней в административной ветви: от потолка 2 до `MAX_BUILDING_LEVEL`. */
-export const ADMIN_LEVELS = MAX_BUILDING_LEVEL - 1;
+const HALL = BUILDING_BY_ID[MASTERS_AT];
+
+/**
+ * Ступеней в административной ветви: бесплатная — с ней партия начинается, и наёмных у неё
+ * нет, — плюс по одной на каждый уровень Мастерской. Длина ветви — длина лестницы здания.
+ */
+export const ADMIN_LEVELS = 1 + Math.min(HALL.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
+
+/**
+ * Сколько мест Мастерской ветвь пускает под наёмных мастеров при таком уровне: **места
+ * одного уровня Мастерской на ступень** — той же формулой, которой считаются её настоящие
+ * места (`data/buildings.slotsAt`). Своего числа мест у ветви нет: поменяй места Мастерской
+ * за уровень — лестница поменяется сама. Сколько мастеров стоит на деле, решают ещё и
+ * свободные места самой Мастерской (`derived.mastersRoom`).
+ *
+ * Прежде здесь был вариант А — потолок уровня построек. Он снят замером: потолок запрещает,
+ * а не даёт, и перекос военного гейта в середине партии углублял (docs/admin_branch.md, раздел 1).
+ */
+export const mastersAt = (level: number): number =>
+  slotsAt(HALL, Math.max(1, Math.min(ADMIN_LEVELS, Math.round(level))) - 1);
 
 // ---------- Дипломатическая ветвь: тонкая, и список назван ----------
 

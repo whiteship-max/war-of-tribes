@@ -62,7 +62,7 @@ import {
   WAR_CAPTIVES_LEVEL,
   WAR_GEAR_ORDER,
   WAR_LEVELS,
-  adminCeiling,
+  mastersAt,
   branchPrice,
   levelPrice,
   levelsOf,
@@ -818,10 +818,10 @@ function realmSection(): void {
     }
     console.log(`  ${BRANCH_NAME[b].padEnd(16)} | ${row.join(' · ')}`);
   }
-  console.log(`  Административный потолок построек по уровням: ${Array.from({ length: ADMIN_LEVELS }, (_, i) => adminCeiling(i + 1)).join(' ')}`);
+  console.log(`  Места наёмных мастеров по уровням административной ветви: ${Array.from({ length: ADMIN_LEVELS }, (_, i) => mastersAt(i + 1)).join(' ')}`);
   console.log(`  Ступеней: военная ${WAR_LEVELS}, административная ${ADMIN_LEVELS}, дипломатическая ${DIPLO_LEVELS}; видов бойцов ${TROOPS.length}, вещей кузницы ${WAR_GEAR_ORDER.length}.`);
   console.log(`  Самый дорогой вид — ${TROOP_BY_ID.legionary.name.toLowerCase()} — открывается на ${warLevelOfTroop('legionary')} уровне из ${WAR_LEVELS}.`);
-  console.log('  Когда посёлок просит потолок — `npm run pop:report`, раздел «Административный потолок».');
+  console.log('  Что мастера делают с перекосом войска и посёлка — `npm run pop:report`, раздел «Спор за золото».');
 }
 
 async function main(): Promise<void> {

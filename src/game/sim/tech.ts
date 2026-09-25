@@ -23,6 +23,7 @@ import { LETTER_DECISIONS } from '@/world/letters';
 import { EQUIPMENT_BY_ID, EQUIPMENT_IDS } from '../data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
+  ADMIN_LEVELS,
   BRANCH_BUILT,
   BRANCH_NAME,
   BRANCH_OF,
@@ -36,6 +37,7 @@ import {
   isWarFate,
   levelPrice,
   levelsOf,
+  mastersAt,
   warLevelOfFate,
   warLevelOfGear,
   warLevelOfTroop,
@@ -48,8 +50,8 @@ import { log } from './log';
 
 /**
  * Что можно спросить у гейта: ступень дипломатической ветви, вещь кузницы, вид бойца или
- * участь взятого города. Административная ветвь ещё не построена, и заводить её ключи
- * заранее значило бы обещать проверку, которой нет.
+ * участь взятого города. У административной ветви ключей нет: она открывает не вещь, а число
+ * мест (`mastersCapAt`) — как ячейки стола у дипломатии, — и спрашивают её этим числом.
  *
  * Ключи не пересекаются, и это свойство самих таблиц контента, а не соглашение: вещь
  * зовётся `spear`, боец — `spearman`, ступень дипломатии — `spy`, участь — `captives`.
@@ -102,7 +104,7 @@ export function levelName(branch: RealmBranch, level: number): string {
     const fate = WAR_FATES.find((f) => warLevelOfFate(f) === level);
     return fate ? `Участь: ${FATE_META[fate].name.toLowerCase()}` : `Уровень ${level}`;
   }
-  return `Уровень ${level}`;
+  return `Наёмные мастера: ${mastersCapAt(level)} мест`;
 }
 
 /** Изученный уровень ветви. Партия без дома (мусор в сохранении) читается как первый. */
@@ -178,6 +180,39 @@ export const troopOpen = (s: GameState, troop: TroopId): boolean => techOpen(s, 
 
 /** Почему вид не нанимают; `null` — нанимают. */
 export const troopBlock = (s: GameState, troop: TroopId): string | null => techBlock(s, troop);
+
+// ---------- Что гейт закрывает: места наёмных мастеров ----------
+
+/**
+ * Сколько мест Мастерской административная ветвь пускает под наёмных мастеров при таком
+ * уровне. Лестница целиком лежит в `data/realm.mastersAt` — места одного уровня Мастерской на
+ * ступень, — и второго счёта здесь нет. Уровнем, а не состоянием, по той же причине, что у
+ * `openAtLevel`: «что даст следующая ступень» спрашивается тем же правилом (`techGains`).
+ */
+export const mastersCapAt = (level: number): number => mastersAt(level);
+
+/** Сколько мест под наёмных открыто у этой партии. */
+export const mastersCap = (s: GameState): number => mastersCapAt(techLevel(s, 'admin'));
+
+/**
+ * Почему ветвь не пускает ещё мастеров, если их станет `want`; `null` — пускает. Строка одна на
+ * ряд найма в Мастерской и на ступень ветви. На верху ветви отказа от неё нет: дальше решают
+ * места самой Мастерской, а их считает не гейт.
+ */
+export function mastersBlock(s: GameState, want: number): string | null {
+  const cap = mastersCap(s);
+  if (want <= cap) return null;
+  const level = techLevel(s, 'admin');
+  if (level >= ADMIN_LEVELS) return null;
+  const next = level + 1;
+  if (cap === 0) {
+    return `Ещё не изучено: наёмные мастера — ${next} уровень ${BRANCH_OF.admin} ветви, в «Технологиях».`;
+  }
+  return (
+    `Наёмным открыто ${cap} мест Мастерской; ещё ${mastersCapAt(next) - cap} — ` +
+    `${next} уровень ${BRANCH_OF.admin} ветви, в «Технологиях».`
+  );
+}
 
 // ---------- Что гейт закрывает: участи взятого города ----------
 
@@ -263,6 +298,11 @@ export function techGains(branch: RealmBranch, level: number): string[] {
     if (troops.length > 0) out.push(`Войско: ${troops.map((t) => TROOP_BY_ID[t].name.toLowerCase()).join(', ')}`);
     const fates = WAR_FATES.filter((f) => fateOpenAt(level + 1, f) && !fateOpenAt(level, f));
     if (fates.length > 0) out.push(`Участь взятого города: ${fates.map((f) => FATE_META[f].name.toLowerCase()).join(', ')}`);
+  }
+  if (branch === 'admin') {
+    const was = mastersCapAt(level);
+    const now = mastersCapAt(level + 1);
+    if (now > was) out.push(`Мастерская: мест для наёмных мастеров ${was} → ${now}`);
   }
   return out;
 }

@@ -26,14 +26,12 @@ import {
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
 import {
-  ADMIN_LEVELS,
   MAX_RULER_SKILL,
   MEAN_RULER_SKILL,
   MIN_RULER_SKILL,
   WAR_CAPTIVES_LEVEL,
   WAR_GEAR_ORDER,
   WAR_LEVELS,
-  adminCeiling,
   levelPrice,
   pointsPerDay,
   startingPoints,
@@ -58,90 +56,10 @@ const WORLD = 7;
 const maxed = (s: GameState): boolean =>
   s.buildings.every((b) => b.level >= (BUILDING_BY_ID[b.type].maxLevel ?? MAX_BUILDING_LEVEL));
 
-const pad = (x: string | number, w: number): string => String(x).padStart(w);
-
 const hm = (sec: number): string => {
   const m = Math.round(sec / 60);
   return m >= 60 ? `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, '0')} мин` : `${m} мин`;
 };
-
-/**
- * Административный потолок против того, когда посёлок его просит. Прибор шага 4
- * (docs/dynasty.md, пачка 0): административная ветвь режет уровень построек, и вопрос у неё
- * один — успевает ли потолок к тому дню, когда посёлок дорос до него сам.
- *
- * Сравнивается с НАИБОЛЬШИМ уровнем построек, а не со средним: режет потолок именно его.
- * Своих чисел у раздела нет — расписание считает `game/data/realm.ts`, дугу посёлка даёт этот
- * же прогон. Гейта в игре пока нет, поэтому прогон идёт без него, и это сказано в выводе:
- * раздел отвечает «успел бы», а не «что случилось».
- *
- * Накопление считается от начального котла (`startingPoints`), как у военной лестницы ниже:
- * партия начинается с очками ровно на первый покупаемый уровень. Без этого каждая ступень
- * приходила бы на `startingPoints / навык` игровых дней позже, чем в игре (docs/weights.md, место 9).
- */
-function adminSection(asked: Map<number, number>, allMaxed: number | null): void {
-  const skills = [MIN_RULER_SKILL, MEAN_RULER_SKILL, MAX_RULER_SKILL];
-  console.log('\nАдминистративный потолок против того, когда посёлок его просит (docs/dynasty.md, раздел 4.3).');
-  console.log('Прогон идёт БЕЗ гейта — он ещё не заведён; раздел отвечает «успел бы потолок», а не «что случилось».');
-  console.log('«просит» — день, на который НАИБОЛЬШИЙ уровень построек дорос до этого потолка: режет потолок его, а не средний.');
-  console.log(`  ур | потолок | очков | ${skills.map((k) => `навык ${k}`).join(' | ')} | просит | запас при навыке ${MEAN_RULER_SKILL}`);
-  const late = new Map<number, { count: number; worst: number; at: number }>();
-  for (const k of skills) late.set(k, { count: 0, worst: 0, at: 0 });
-  let cum = 0;
-  let last = 0;
-  for (let l = 1; l <= ADMIN_LEVELS; l++) {
-    cum += levelPrice('admin', l);
-    const need = Math.max(0, cum - startingPoints('admin'));
-    const ceil = adminCeiling(l);
-    const want = asked.get(ceil);
-    const wantDay = want !== undefined ? want / DAY_LENGTH : null;
-    for (const k of skills) {
-      const gap = wantDay === null ? 0 : wantDay - need / pointsPerDay(k);
-      if (gap < 0) {
-        const row = late.get(k)!;
-        row.count++;
-        if (-gap > row.worst) {
-          row.worst = -gap;
-          row.at = ceil;
-        }
-      }
-    }
-    const cells = skills.map((k) => pad((need / pointsPerDay(k)).toFixed(0), 7));
-    const mine = need / pointsPerDay(MEAN_RULER_SKILL);
-    last = mine;
-    const gap = wantDay === null ? null : wantDay - mine;
-    console.log(
-      `  ${String(l).padStart(2)} | ${String(ceil).padStart(7)} | ${String(cum).padStart(5)} | ${cells.join(' | ')} | ` +
-        `${(wantDay === null ? 'не дошли' : wantDay.toFixed(0)).padStart(6)} | ` +
-        `${gap === null ? '—' : `${gap >= 0 ? '+' : ''}${gap.toFixed(0)} игр. дн.`}`,
-    );
-  }
-  for (const k of skills) {
-    const row = late.get(k)!;
-    console.log(
-      `  Навык ${k}: потолок опоздал бы на ${row.count} ступенях из ${ADMIN_LEVELS}` +
-        (row.count > 0 ? `; хуже всех потолок ${row.at} — на ${row.worst.toFixed(0)} игровых дней` : ''),
-    );
-  }
-  // Главное число раздела: растягивает ли гейт всю дугу. Последний потолок против того дня, на
-  // который посёлок без гейта довёл ДО потолка все двадцать четыре постройки, а не одну ведущую.
-  const whole = allMaxed !== null ? allMaxed / DAY_LENGTH : null;
-  console.log(
-    `  Последний потолок при навыке ${MEAN_RULER_SKILL} — день ${last.toFixed(0)}; все постройки на потолке без гейта — ` +
-      `${whole === null ? 'не дошли за прогон' : `день ${whole.toFixed(0)}`}.`,
-  );
-  if (whole !== null) {
-    console.log(
-      `  Последняя ступень приходит за ${(whole - last).toFixed(0)} игровых дней до конца дуги: ` +
-        `${last <= whole ? 'по этому числу всю дугу гейт не удлиняет — он меняет порядок роста, а не его срок' : 'ДУГУ ОН УДЛИНЯЕТ'}.`,
-    );
-  }
-  console.log(
-    '  Все числа очков — `game/data/realm.ts`; «просит» и дуга — этот прогон. Единица — игровой день; ' +
-      'накопление считается от начального котла `startingPoints`.',
-  );
-  console.log('  Что здесь НЕ измерено: как пойдёт дуга, когда гейт вправду встанет в игру, — это приёмка пачки 4.');
-}
 
 /**
  * Военная лестница против защиты новичка. Прибор пачки 3 (docs/dynasty.md, раздел 4.2):
@@ -217,13 +135,6 @@ async function main(): Promise<void> {
   /** Когда дуга пересекла пороги защиты новичка: с этих жителей набег растёт и дорастает до полного. */
   const shieldMarks = [shieldVillagers(0), shieldVillagers(1)];
   const shieldAt = new Map<number, number>();
-  /**
-   * Когда посёлок впервые просит каждый уровень построек: день, на который его НАИБОЛЬШИЙ
-   * уровень дорос до этого числа. Наибольший, а не средний: административная ветвь шага 4
-   * режет потолок, и сверять её расписание со средним уровнем значило бы сверять не с тем
-   * (docs/dynasty.md, раздел 4.3 — долг этой пачки).
-   */
-  const asked = new Map<number, number>();
   let allMaxed: number | null = null;
   let popCap: number | null = null;
   // Зимние отметки: сколько народу перед зимой и сколько после.
@@ -239,8 +150,6 @@ async function main(): Promise<void> {
   const each = (s: GameState): void => {
     for (const m of marks) if (!hit.has(m) && s.pop >= m) hit.set(m, s.time);
     for (const m of shieldMarks) if (!shieldAt.has(m) && s.pop >= m) shieldAt.set(m, s.time);
-    const top = s.buildings.reduce((n, b) => Math.max(n, b.level), 0);
-    for (let l = 2; l <= top; l++) if (!asked.has(l)) asked.set(l, s.time);
     if (allMaxed === null && maxed(s)) allMaxed = s.time;
     if (popCap === null && s.pop >= housingCapacity(s) - 5 && maxed(s)) popCap = s.time;
 
@@ -297,7 +206,6 @@ async function main(): Promise<void> {
   console.log(`Итог: ${s.pop} чел. при жилье на ${housingCapacity(s)}, средний уровень ${(s.buildings.reduce((n, b) => n + b.level, 0) / s.buildings.length).toFixed(1)}`);
   console.log(`Смертей за партию: ${s.stats.died}, прибавилось: ${s.stats.born}`);
 
-  adminSection(asked, allMaxed);
   warSection(shieldMarks.map((m) => shieldAt.get(m) ?? null));
 
   console.log('\nЗимы (население до и после, остаток еды и дров):');

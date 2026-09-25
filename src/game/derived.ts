@@ -64,7 +64,6 @@ import {
   RITE_MORALE,
   SIEGE_FOOD_YIELD,
   SIEGE_YIELD,
-  SLOTS_PER_LEVEL,
   SMITH_WORK,
   TOWN_HALL_BUILD_STEP,
   SOLDIER_FOOD,
@@ -75,7 +74,7 @@ import {
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
 import type { UnitKind } from '@/battle';
-import { BUILDING_BY_ID, type BuildingDef, type BuildingStats } from './data/buildings';
+import { BUILDING_BY_ID, type BuildingDef, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
@@ -148,8 +147,7 @@ export const levelOutputMult = (level: number): number => 1 + LEVEL_OUTPUT_STEP 
  * уровень здания: он и добавляет места, и поднимает выработку каждому рабочему.
  */
 export function buildingSlots(b: Building): number {
-  const def = BUILDING_BY_ID[b.type];
-  return def.job ? b.level * (def.slotsPerLevel ?? SLOTS_PER_LEVEL) : 0;
+  return slotsAt(BUILDING_BY_ID[b.type], b.level);
 }
 
 /** Сколько человек работает в этом здании. Назначение — число, а не список людей. */
