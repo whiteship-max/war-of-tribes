@@ -74,6 +74,10 @@ const hm = (sec: number): string => {
  * Своих чисел у раздела нет — расписание считает `game/data/realm.ts`, дугу посёлка даёт этот
  * же прогон. Гейта в игре пока нет, поэтому прогон идёт без него, и это сказано в выводе:
  * раздел отвечает «успел бы», а не «что случилось».
+ *
+ * Накопление считается от начального котла (`startingPoints`), как у военной лестницы ниже:
+ * партия начинается с очками ровно на первый покупаемый уровень. Без этого каждая ступень
+ * приходила бы на `startingPoints / навык` игровых дней позже, чем в игре (docs/weights.md, место 9).
  */
 function adminSection(asked: Map<number, number>, allMaxed: number | null): void {
   const skills = [MIN_RULER_SKILL, MEAN_RULER_SKILL, MAX_RULER_SKILL];
@@ -87,11 +91,12 @@ function adminSection(asked: Map<number, number>, allMaxed: number | null): void
   let last = 0;
   for (let l = 1; l <= ADMIN_LEVELS; l++) {
     cum += levelPrice('admin', l);
+    const need = Math.max(0, cum - startingPoints('admin'));
     const ceil = adminCeiling(l);
     const want = asked.get(ceil);
     const wantDay = want !== undefined ? want / DAY_LENGTH : null;
     for (const k of skills) {
-      const gap = wantDay === null ? 0 : wantDay - cum / pointsPerDay(k);
+      const gap = wantDay === null ? 0 : wantDay - need / pointsPerDay(k);
       if (gap < 0) {
         const row = late.get(k)!;
         row.count++;
@@ -101,8 +106,8 @@ function adminSection(asked: Map<number, number>, allMaxed: number | null): void
         }
       }
     }
-    const cells = skills.map((k) => pad((cum / pointsPerDay(k)).toFixed(0), 7));
-    const mine = cum / pointsPerDay(MEAN_RULER_SKILL);
+    const cells = skills.map((k) => pad((need / pointsPerDay(k)).toFixed(0), 7));
+    const mine = need / pointsPerDay(MEAN_RULER_SKILL);
     last = mine;
     const gap = wantDay === null ? null : wantDay - mine;
     console.log(
@@ -131,7 +136,10 @@ function adminSection(asked: Map<number, number>, allMaxed: number | null): void
         `${last <= whole ? 'по этому числу всю дугу гейт не удлиняет — он меняет порядок роста, а не его срок' : 'ДУГУ ОН УДЛИНЯЕТ'}.`,
     );
   }
-  console.log('  Все числа очков — `game/data/realm.ts`; «просит» и дуга — этот прогон. Единица — игровой день.');
+  console.log(
+    '  Все числа очков — `game/data/realm.ts`; «просит» и дуга — этот прогон. Единица — игровой день; ' +
+      'накопление считается от начального котла `startingPoints`.',
+  );
   console.log('  Что здесь НЕ измерено: как пойдёт дуга, когда гейт вправду встанет в игру, — это приёмка пачки 4.');
 }
 
@@ -191,7 +199,9 @@ function warSection(shield: (number | null)[]): void {
     }
   }
   console.log('  Единица — игровой день; накопление считается от начального котла `startingPoints`.');
-  console.log('  Замерено там же: новичок под гейтом с высоким налогом не теряет города ни разу (0 % прорывов), а не изучавший — падает на 127-й игровой день.');
+  // Что случается с новичком под гейтом — прорывы, падения, — меряет только `raid-hiring:report`,
+  // раздел Б. Здесь этого не вывести: мир прогона тихий, набегов на дом нет, партия не нанимает.
+  // Число об этом, вписанное сюда строкой, уже однажды разошлось с разделом Б (docs/weights.md, место 10).
 }
 
 async function main(): Promise<void> {
