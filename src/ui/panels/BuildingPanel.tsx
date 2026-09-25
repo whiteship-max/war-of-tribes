@@ -40,6 +40,7 @@ import {
   jobMultiplier,
   levelOutputMult,
   maxLevelFor,
+  mastersOn,
   stalls,
   stallsTaken,
   netPerDay,
@@ -75,6 +76,7 @@ import { AgentPlaces } from '../parts/AgentPlaces';
 import { Temple } from '../parts/Temple';
 import { Walls } from '../parts/Walls';
 import { TowerEngine } from '../parts/TowerEngine';
+import { Masters } from '../parts/Masters';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
 import { waitMinSec, waitShort } from '../parts/wait';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
@@ -205,8 +207,10 @@ function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null })
   const slots = buildingSlots(b);
   const workers = workerCount(s, b.id);
   const bonded = bondedCount(s, b.id);
+  // Наёмные мастера стоят на местах Мастерской, как невольники на местах дворов: места общие.
+  const masters = mastersOn(s, b.id);
   const free = idleCount(s);
-  const hands = workers + bonded;
+  const hands = workers + bonded + masters;
   const nextSlots = gains?.find((g) => g.id === 'slots') ?? null;
   const nextIdle = gains?.some((g) => g.id === 'idleSlots') ?? false;
   const next = nextSlots
@@ -231,7 +235,7 @@ function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null })
       <h3>
         <Icon name={`job-${job.id}`} glyph={job.icon} /> {job.name}
         <span className="muted">
-          {bonded > 0 ? `${workers} + ${bonded}` : workers}/{slots || '—'}
+          {[workers, ...(bonded > 0 ? [bonded] : []), ...(masters > 0 ? [masters] : [])].join(' + ')}/{slots || '—'}
         </span>
       </h3>
       <div className="card">
@@ -248,7 +252,7 @@ function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null })
       </div>
       <Steps
         value={workers}
-        max={slots - bonded}
+        max={slots - bonded - masters}
         spare={free}
         step={10}
         addTut="slot-add"
@@ -296,6 +300,13 @@ function BuildingData({ b }: { b: Building }) {
       return <StorageData />;
     case 'town_hall':
       return <TownHall b={b} />;
+    case 'workshop':
+      return (
+        <>
+          <GenericData b={b} />
+          <Masters />
+        </>
+      );
     case 'smithy':
       return (
         <>

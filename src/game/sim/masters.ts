@@ -16,7 +16,17 @@
 import type { GameState } from '../types';
 import { BUILDING_BY_ID, MASTERS_AT } from '../data/buildings';
 import { UPKEEP_TEXT } from '../data/upkeep';
-import { buildingOfType, buildingSlots, handsCount, masterWage, mastersBuildShare, mastersCount, mastersRoom } from '../derived';
+import {
+  buildingOfType,
+  buildingSlots,
+  crafterHeadShare,
+  handsCount,
+  masterWage,
+  mastersBuildShare,
+  mastersCount,
+  mastersRoom,
+  wageOf,
+} from '../derived';
 import { mastersBlock, mastersCap } from './tech';
 import { log } from './log';
 
@@ -31,6 +41,13 @@ export interface MastersInfo {
   wage: number;
   /** Сколько стройки в секунду дают стоящие мастера — под сезоном и ратушей, как вся стройка. */
   gain: number;
+  /** Сколько даёт один мастер — ровно столько же, сколько один ремесленник. */
+  each: number;
+  /**
+   * Сколько мастеров стоит жалованье одного копейщика. Это и есть спор, ради которого механика
+   * заведена: одна казна платит либо ему, либо им. Считается здесь, а не в разметке.
+   */
+  perSpearman: number;
   /** Почему нельзя взять ещё одного; `null` — можно. */
   blocked: string | null;
 }
@@ -47,7 +64,17 @@ export function mastersInfo(s: GameState): MastersInfo {
       mastersBlock(s, have + 1) ??
       (free <= 0 ? `Свободных мест в здании «${BUILDING_BY_ID[MASTERS_AT].name}» нет: подними его уровень или сними ремесленника.` : null);
   }
-  return { have, cap, room, wage: masterWage(s), gain: mastersBuildShare(s), blocked };
+  const wage = masterWage(s);
+  return {
+    have,
+    cap,
+    room,
+    wage,
+    gain: mastersBuildShare(s),
+    each: crafterHeadShare(s),
+    perSpearman: wage > 0 ? wageOf(s, 'spearman') / wage : 0,
+    blocked,
+  };
 }
 
 /** Нанять мастеров. Возвращает `null` или причину отказа словами. */

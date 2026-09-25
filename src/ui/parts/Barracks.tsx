@@ -128,8 +128,25 @@ export function Upkeep() {
           Войску в день
           {up.amnestyDays > 0 && <em className="sub">платить начнут через {waitDays(Math.ceil(up.amnestyDays))}</em>}
         </span>
-        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.wages)}</span>
+        <span className={`val${up.masters === 0 && up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.armyWages)}</span>
       </div>
+      {up.masters > 0 && (
+        <>
+          <div className="mod">
+            <span className="ico">🔨</span>
+            <span className="name">
+              Наёмным мастерам в день
+              <em className="sub">та же ведомость и та же казна — в Мастерской</em>
+            </span>
+            <span className="val">{Math.round(up.mastersWages)}</span>
+          </div>
+          <div className="mod">
+            <span className="ico">📜</span>
+            <span className="name">Всего в день</span>
+            <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.wages)}</span>
+          </div>
+        </>
+      )}
       <div className="mod">
         <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
         <span className="name">Казна даёт в день — налог и вера</span>
@@ -149,7 +166,7 @@ export function Upkeep() {
       </div>
       {up.why ? (
         <p className="note bad">
-          Войску {UPKEEP_TEXT.why[up.why]}.{' '}
+          {UPKEEP_TEXT.whoDat(up.armyWages > 0 || up.masters === 0, up.masters > 0)} {UPKEEP_TEXT.why[up.why]}.{' '}
           {up.leavingPerDay > 0
             ? `Уходят — около ${Math.max(1, Math.round(up.leavingPerDay))} в день, равной долей каждого вида.`
             : `Уходить начнут через ${waitDays(Math.max(1, Math.ceil(up.graceDays - up.lateDays)))}.`}{' '}

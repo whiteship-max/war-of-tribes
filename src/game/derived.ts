@@ -1229,7 +1229,17 @@ export function crafterBuildRate(s: GameState, mods: SeasonModifiers = seasonMod
 export function mastersBuildShare(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   const shop = buildingOfType(s, 'workshop');
   if (!shop) return 0;
-  return CRAFTER_BUILD * mastersOn(s, shop.id) * workerMultiplier(s, 'crafter', shop, mods) * mods.build * townHallBuildMult(s);
+  return mastersOn(s, shop.id) * crafterHeadShare(s, mods);
+}
+
+/**
+ * Сколько стройки в секунду даёт одна голова Мастерской — ремесленник или наёмный мастер — под
+ * сезоном и ратушей. Из этого числа складывается и вклад мастеров, и то, что обещает строка найма.
+ */
+export function crafterHeadShare(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
+  const shop = buildingOfType(s, 'workshop');
+  if (!shop) return 0;
+  return CRAFTER_BUILD * workerMultiplier(s, 'crafter', shop, mods) * mods.build * townHallBuildMult(s);
 }
 
 /**
