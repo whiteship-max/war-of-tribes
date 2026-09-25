@@ -108,7 +108,7 @@ await w1.run();
 
 // ---------- Печать разделов, которым хватило первой волны ----------
 
-/** Бои «Длительности»: матрица составов и кольцо, в порядке, в каком их играл отчёт. */
+/** Бои «Длительности»: матрица составов и кольцо, каждый бой один раз, в порядке, в каком их играл отчёт. */
 const compositionResults: Brief[] = [];
 
 /**
@@ -116,10 +116,9 @@ const compositionResults: Brief[] = [];
  * `ratio` — средний размен (цена), `pyrrhic` — сколько боёв из 2×seeds выиграны
  * с непомерными потерями. Выводы «кто кому проигрывает» делаются по размену.
  *
- * `into` — куда лечь боям серии. У матрицы составов — с обеих строк пары, то есть каждый бой
- * дважды: так было, пока матрица играла пару дважды, и так осталось, потому что раздел
- * «Длительность» считает по ним и его вывод не должен сдвинуться от того, что бой больше не
- * играется второй раз.
+ * `into` — куда лечь боям серии. У матрицы составов — только со строки, где пара встречается
+ * впервые (i < j): строка j–i — те же бои. Прежде они ложились с обеих строк, и «Длительность»
+ * считала каждый бой матрицы дважды, а бои кольца — один раз (docs/acceptance.md).
  */
 function series(ms: readonly Pair[], into?: Brief[]): { wins: number; losses: number; draws: number; ratio: number; pyrrhic: number } {
   let wins = 0;
@@ -156,7 +155,7 @@ for (const [ai, a] of COMPOSITIONS.entries()) {
       row += pad('—', W);
       continue;
     }
-    const s = series(compositionPairs(ai, bi), compositionResults);
+    const s = series(compositionPairs(ai, bi), ai < bi ? compositionResults : undefined);
     const verdict = beatsByRatio(s.ratio);
     if (verdict === 'a') beats[a.name].push(b.name);
     else if (verdict === 'b') losesTo[a.name].push(b.name);
