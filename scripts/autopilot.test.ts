@@ -18,9 +18,25 @@ import { MUTINY_EVENT } from '@/game/data/order';
 import { faithAt } from '@/world/faith';
 import { eventId } from '@/game/sim/mail';
 import { setTimeScale, timeScale } from '@/game/pace';
-import { FLOOR_TROOPS, MIX, hands, openMix, pilot, played, player, spareHands, spareOf, stackOf, townAt, type Inside } from './autopilot';
+import {
+  FLOOR_TROOPS,
+  MIX,
+  hands,
+  hireMastersByMeans,
+  openMix,
+  pilot,
+  played,
+  player,
+  spareHands,
+  spareOf,
+  stackOf,
+  townAt,
+  type Inside,
+} from './autopilot';
 import { FREE_JOBS } from '@/game/data/jobs';
-import { idleCount } from '@/game/derived';
+import { idleCount, masterWage, mastersCount, taxIncomePerDay, wagesPerDay } from '@/game/derived';
+import { ADMIN_LEVELS, MASTERS_AT } from '@/game/data/realm';
+import { mastersInfo } from '@/game/sim/masters';
 import { placeOpen, techLevel, troopOpen } from '@/game/sim/tech';
 import { pointsOf } from '@/game/sim/points';
 import { diploLevelOf, levelPrice, levelsOf, warLevelOfGear, warLevelOfTroop } from '@/game/data/realm';
@@ -439,5 +455,34 @@ describe('найм того, кто строит, в приборе', () => {
     }
     expect(Math.abs(at[30].pop - at[90].pop), `племя то же: ${at[30].pop} и ${at[90].pop}`).toBeLessThanOrEqual(10);
     expect(Math.abs(at[30].hired - at[90].hired), `и войску досталось то же: ${at[30].hired} и ${at[90].hired}`).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('наёмные мастера в приборе', () => {
+  /**
+   * Ручка «вложился в админветвь» берёт мастеров тем же правилом «по средствам», что и войско:
+   * ведомость после найма не больше дохода казны, и найм встаёт ровно там, где следующий мастер
+   * её перевесил бы. Область: места и ступень ветви пускают больше, чем тянет казна, — иначе
+   * останавливали бы места, а не правило.
+   */
+  it('мастера по средствам: ведомость не больше дохода, и встаёт найм ровно на границе', () => {
+    const g = createInitialState(7);
+    g.tutorialDone = true;
+    g.tax = 'high';
+    g.pop = 400;
+    g.buildings.find((b) => b.type === MASTERS_AT)!.level = 10;
+    g.realm.tech.admin = ADMIN_LEVELS;
+    // Войско съедает казну так, что на мастеров остаётся меньше, чем мест. Боец платит налог как
+    // житель — доход растёт вместе с войском, — поэтому войско подбирается шагом, а не формулой.
+    const fitOf = (): number => Math.floor((taxIncomePerDay(g) - wagesPerDay(g)) / masterWage(g));
+    while (fitOf() >= 30) g.army.spearman += 5;
+    const room = mastersInfo(g).room;
+    const fit = fitOf();
+    expect(fit, 'точка внутри области: казна тянет хоть кого-то').toBeGreaterThan(0);
+    expect(room, 'и мест больше, чем тянет казна').toBeGreaterThan(fit);
+    hireMastersByMeans(g);
+    expect(mastersCount(g), 'взято ровно столько, сколько тянет казна').toBe(fit);
+    expect(wagesPerDay(g), 'ведомость не больше дохода').toBeLessThanOrEqual(taxIncomePerDay(g));
+    expect(wagesPerDay(g) + masterWage(g), 'следующий мастер её перевесил бы').toBeGreaterThan(taxIncomePerDay(g));
   });
 });

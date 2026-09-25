@@ -50,6 +50,7 @@ import { assignWorker, autoAssign, changeFreeJob, unassignWorker } from '@/game/
 import { recruitCost, startRecruit } from '@/game/sim/army';
 import { forgeCost, startForge } from '@/game/sim/smithy';
 import { dismissSoldiers } from '@/game/sim/upkeep';
+import { hireMasters, mastersInfo } from '@/game/sim/masters';
 import {
   armySize,
   buildingOfType,
@@ -494,6 +495,18 @@ function hire(g: GameState, style: HireStyle, mix: TroopStack, l: Ledger, how: H
   }
 }
 
+/**
+ * Наёмные мастера по средствам — **то же правило, что у найма войска** (`affords`, «казна»): ведомость
+ * после найма не больше дохода казны. Ведомость одна (`derived.wagesPerDay`), поэтому кого возьмут
+ * первыми, те и сужают остальным: взятые мастера — это копейщики, которых казна уже не потянет.
+ * Мест и ступени ветви спрашивает дверь мастеров (`sim/masters.mastersInfo`), а не прибор.
+ */
+export function hireMastersByMeans(g: GameState): void {
+  const m = mastersInfo(g);
+  const n = largest(m.room, (k) => k === 0 || wagesPerDay(g) + k * m.wage <= taxIncomePerDay(g));
+  if (n > 0) hireMasters(g, n);
+}
+
 /** По средствам: казна пуста, а жалованье больше дохода — распустить лишних, дорогих первыми. */
 function trim(g: GameState, l: Ledger): void {
   if (g.gold > 0 || wagesPerDay(g) <= taxIncomePerDay(g)) return;
@@ -569,6 +582,12 @@ export interface Player {
   siegeLevy: boolean;
   /** Под осадой выходит вылазкой всем гарнизоном, не чаще раза в пять минут. */
   sortie: boolean;
+  /**
+   * Вложился в административную ветвь: берёт наёмных мастеров **первым, до войска**, тем же правилом
+   * «по средствам», каким нанимает войско (`hireMastersByMeans`). Нет — мастеров не берёт вовсе,
+   * хотя ветвь учит: так и было у игрока до мастеров. Своего числа у ручки нет — она только порядок.
+   */
+  masters?: boolean;
   /** Налог, на который игрок переводит партию в первую минуту. Нет — налог партии как есть. */
   tax?: TaxId;
   /**
@@ -610,6 +629,7 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   if (p.hire) {
     staffSmithy(g);
     if (p.hire === 'means') trim(g, l);
+    if (p.masters) hireMastersByMeans(g);
     hire(g, p.hire, MIX, l, { builds: p.build !== false });
   }
   if (p.staff && draftsFirst) staff(g);

@@ -12,6 +12,9 @@ import { createInitialState } from '@/game/state';
 import { assignWorker } from '@/game/sim/workers';
 import { seeded, setRandom } from '@/game/sim/random';
 import {
+  armyPower,
+  armySize,
+  buildRate,
   buildingOfType,
   buildingSlots,
   foodConsumptionPerDay,
@@ -21,8 +24,12 @@ import {
   productionPerDay,
   seasonOf,
   storageCap,
+  upkeepInfo,
+  mastersCount,
   yearOf,
 } from '@/game/derived';
+import { techLevel } from '@/game/sim/tech';
+import { mastersInfo } from '@/game/sim/masters';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
 import {
@@ -122,6 +129,96 @@ function warSection(shield: (number | null)[]): void {
   // Число об этом, вписанное сюда строкой, уже однажды разошлось с разделом Б (docs/weights.md, место 10).
 }
 
+/** Посёлок в минуту замера: сколько людей и докуда он дорос. */
+interface Town {
+  pop: number;
+  avg: number;
+  max: number;
+  rate: number;
+}
+
+const townOf = (s: GameState): Town => ({
+  pop: s.pop,
+  avg: s.buildings.reduce((n, b) => n + b.level, 0) / s.buildings.length,
+  max: s.buildings.reduce((n, b) => Math.max(n, b.level), 0),
+  rate: buildRate(s),
+});
+
+/**
+ * Спор за золото к концу защиты новичка — замер административной ветви (docs/admin_branch.md,
+ * раздел 4.1). Вопрос раздела — перекос военного гейта: у игрока по умолчанию раннее войско больше,
+ * а посёлок меньше. Два игрока с первой секунды, одинаковые во всём, кроме одного: второй берёт
+ * наёмных мастеров первым, до войска, тем же правилом «по средствам» (`autopilot.hireMastersByMeans`).
+ * Ведомость одна, и мастера, взятые им, — это копейщики, которых казна уже не потянет: так спор и
+ * виден числом.
+ *
+ * **День замера не пишется**: это конец защиты новичка на дуге этого же прогона (раздел выше), и он
+ * же — срок прогона обоих игроков. Мир тихий, как у дуги: набегов нет, войско не гибнет; с набегами
+ * игрока по умолчанию меряет `raid-hiring:report`, раздел Б.
+ */
+async function goldSection(end: number | null, arc: Town | null): Promise<void> {
+  console.log('\nСпор за золото к концу защиты новичка (docs/admin_branch.md, раздел 4.1).');
+  if (end === null || arc === null) {
+    console.log('  Дуга не дошла до конца защиты новичка — мерить не на чем.');
+    return;
+  }
+  console.log(`Два игрока с первой секунды: мир ${WORLD} тихий (набегов нет), налог высокий, найм «по средствам», учат все ветви.`);
+  console.log('«по умолчанию» наёмных мастеров не берёт; «вложился в админветвь» берёт их первым, до войска, тем же правилом «по средствам».');
+  console.log(`Срок — конец защиты новичка на дуге выше, день ${(end / DAY_LENGTH).toFixed(0)}; строка «дуга без войска» — та же дуга в тот же день.`);
+  console.log('  игрок                  | войско | мощь | жители | ср.ур | макс.ур | стройка/с | мастера | админ. ур | жалованье войско / мастера | казна даёт');
+  /** Строка таблицы: столбцы по порядку заголовка; чего у строки нет — прочерк. */
+  const row = (label: string, t: Town, army: string, power: string, masters: string, admin: string, wages: string, income: string): void =>
+    console.log(
+      `  ${label.padEnd(22)} | ${army.padStart(6)} | ${power.padStart(4)} | ${String(t.pop).padStart(6)} | ${t.avg.toFixed(1).padStart(5)} | ` +
+        `${String(t.max).padStart(7)} | ${t.rate.toFixed(1).padStart(9)} | ${masters.padStart(7)} | ${admin.padStart(9)} | ` +
+        `${wages.padStart(26)} | ${income.padStart(10)}`,
+    );
+  row('дуга без войска', arc, '—', '—', '—', '—', '—', '—');
+  const out: { army: number; power: number; town: Town; masters: number; perSpearman: number }[] = [];
+  for (const [label, masters] of [
+    ['по умолчанию', false],
+    ['вложился в админветвь', true],
+  ] as const) {
+    const g = createInitialState(7);
+    g.tutorialDone = true;
+    await pilot({
+      g,
+      seconds: end,
+      player: player('means', { tax: 'high', masters }),
+      world: { seed: WORLD, pulse: 30, raids: false },
+      economy: 'live',
+      tick: 1,
+      decide: 30,
+    });
+    const up = upkeepInfo(g);
+    const t = townOf(g);
+    out.push({ army: armySize(g), power: armyPower(g), town: t, masters: mastersCount(g), perSpearman: mastersInfo(g).perSpearman });
+    row(
+      label,
+      t,
+      String(armySize(g)),
+      armyPower(g).toFixed(0),
+      String(mastersCount(g)),
+      String(techLevel(g, 'admin')),
+      `${up.armyWages.toFixed(1)} / ${up.mastersWages.toFixed(1)}`,
+      up.income.toFixed(1),
+    );
+  }
+  const [a, b] = out;
+  const d = (x: number, y: number, digits = 0): string => `${x.toFixed(digits)} → ${y.toFixed(digits)} (${y - x >= 0 ? '+' : ''}${(y - x).toFixed(digits)})`;
+  console.log(
+    `  Спор числом: войско ${d(a.army, b.army)}, мощь ${d(a.power, b.power)}; жители ${d(a.town.pop, b.town.pop)}, ` +
+      `ср. уровень ${d(a.town.avg, b.town.avg, 1)}, макс. уровень ${d(a.town.max, b.town.max)}, стройка ${d(a.town.rate, b.town.rate, 1)}/с.`,
+  );
+  console.log(
+    `  Мастеров к сроку ${b.masters}; один копейщик в жалованье — ${b.perSpearman.toFixed(1)} мастера (\`sim/masters.mastersInfo\`, та же ведомость).`,
+  );
+  console.log(
+    `  Против дуги без войска: у «по умолчанию» жителей ${d(arc.pop, a.town.pop)}, ср. уровень ${d(arc.avg, a.town.avg, 1)}; ` +
+      `у «вложился» — ${d(arc.pop, b.town.pop)}, ${d(arc.avg, b.town.avg, 1)}.`,
+  );
+}
+
 async function main(): Promise<void> {
   setRandom(seeded(1));
   // Сид партии закреплён: вести приходят по сетке от `s.seed` (`sim/mail.awayArrival`), а без сида партия
@@ -135,6 +232,8 @@ async function main(): Promise<void> {
   /** Когда дуга пересекла пороги защиты новичка: с этих жителей набег растёт и дорастает до полного. */
   const shieldMarks = [shieldVillagers(0), shieldVillagers(1)];
   const shieldAt = new Map<number, number>();
+  /** Дуга без войска в минуту конца защиты новичка — строка сравнения для «Спора за золото». */
+  let arcAtShield: Town | null = null;
   let allMaxed: number | null = null;
   let popCap: number | null = null;
   // Зимние отметки: сколько народу перед зимой и сколько после.
@@ -150,6 +249,7 @@ async function main(): Promise<void> {
   const each = (s: GameState): void => {
     for (const m of marks) if (!hit.has(m) && s.pop >= m) hit.set(m, s.time);
     for (const m of shieldMarks) if (!shieldAt.has(m) && s.pop >= m) shieldAt.set(m, s.time);
+    if (arcAtShield === null && shieldAt.has(shieldMarks[1])) arcAtShield = townOf(s);
     if (allMaxed === null && maxed(s)) allMaxed = s.time;
     if (popCap === null && s.pop >= housingCapacity(s) - 5 && maxed(s)) popCap = s.time;
 
@@ -207,6 +307,7 @@ async function main(): Promise<void> {
   console.log(`Смертей за партию: ${s.stats.died}, прибавилось: ${s.stats.born}`);
 
   warSection(shieldMarks.map((m) => shieldAt.get(m) ?? null));
+  await goldSection(shieldAt.get(shieldMarks[1]) ?? null, arcAtShield);
 
   console.log('\nЗимы (население до и после, остаток еды и дров):');
   for (const w of winters) {
