@@ -75,6 +75,8 @@
  *
  * Запуск: npm run prologue:stand
  * Переменные: SECONDS=6, SHOTS=папка, LOOK=папка, PORT / CDP_PORT, CHROME=путь\\к\\chrome.exe, HEAD=1.
+ * Подбор вида глазами (`LOOK=`): HOURS=утро,полдень и TIERS=full,lite — только эти часы и
+ * ступени; SECONDS=0 — только снимки телефона, без замера и без экрана ПК.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -197,6 +199,9 @@ const SECONDS = Number(process.env.SECONDS ?? 6);
 const SHOTS = process.env.SHOTS ?? '';
 /** Раздел «вид»: куда класть его снимки. Задан — гонится только он. */
 const LOOK = process.env.LOOK ?? '';
+/** Раздел «вид»: только эти часы и ступени, через запятую (`HOURS=утро,полдень`, `TIERS=full`). Пусто — все. */
+const HOURS = (process.env.HOURS ?? '').split(',').filter(Boolean);
+const TIERS = (process.env.TIERS ?? '').split(',').filter(Boolean);
 
 /** Сколько ждать после тапа по туше: движение длится, и торопить его нельзя. */
 const BUTCHER_WAIT = 1000;
@@ -976,8 +981,12 @@ async function look(): Promise<void> {
     await sleep(2500);
     return gpu;
   };
-  const tiers = async (): Promise<string[]> =>
-    tab.eval<string[]>('JSON.stringify(window.__pro.lookTiers ? window.__pro.lookTiers() : [""])');
+  const tiers = async (): Promise<string[]> => {
+    const all = await tab.eval<string[]>('JSON.stringify(window.__pro.lookTiers ? window.__pro.lookTiers() : [""])');
+    return TIERS.length ? all.filter((t) => TIERS.includes(t)) : all;
+  };
+  const hours = HOURS.length ? LOOK_HOURS.filter((h) => HOURS.includes(h.name)) : LOOK_HOURS;
+  const mark = hours[0] === LOOK_HOURS[0];
   const setTier = async (tier: string): Promise<void> => {
     if (tier) await tab.eval<string>(`(() => { window.__pro.setLook(${JSON.stringify(tier)}); return JSON.stringify('ok'); })()`);
     // Ступень меняет цели и шейдеры: первые кадры после смены — компиляция, а не цена.
@@ -1001,12 +1010,14 @@ async function look(): Promise<void> {
   console.log(`  точка мерила: x ${num(where.x, 2)}, z ${num(where.z, 2)}, взгляд ${num(where.yaw, 3)} рад, наклон ${LOOK_PITCH}`);
 
   const rows: [string, string, Frames, { n: number; median: number; p95: number }, string][] = [];
-  for (const s of SCREENS) {
+  // Мерило снимается всегда, когда оно среди часов; замер и экран ПК — только при SECONDS > 0.
+  for (const s of mark ? (SECONDS > 0 ? SCREENS : SCREENS.slice(0, 1)) : []) {
     await screen(s);
     for (const tier of await tiers()) {
       await setTier(tier);
       const tag = `${LOOK_HOURS[0].name}-${s.w}${tier ? '-' + tier : ''}.png`;
       await snap(tag);
+      if (SECONDS <= 0) continue;
       await tab.eval<string>('window.__gpu.start()');
       await tab.eval<string>('window.__probe.start()');
       await sleep(SECONDS * 1000);
@@ -1017,7 +1028,7 @@ async function look(): Promise<void> {
   }
   // Остальные часы — только снимками, телефоном, на каждой ступени.
   await screen(SCREENS[0]);
-  for (const h of LOOK_HOURS.slice(1)) {
+  for (const h of hours.filter((x) => x !== LOOK_HOURS[0])) {
     await open(cycle * SKY_MS + phaseOfSolar(h.solar) * SKY_MS);
     for (const tier of await tiers()) {
       await setTier(tier);

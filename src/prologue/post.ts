@@ -60,6 +60,8 @@ export interface Light {
   haze: THREE.Color;
   /** Насколько солнце над горизонтом и не закрыто ненастьем, 0..1: от этого лучи и ореол. */
   sunUp: number;
+  /** Какая доля воздуха поляны на солнце, а не в тени стены леса (`look.airLit`): от этого ореол. */
+  air: number;
   /** Дымка у земли (`look.mistAt`). */
   mist: Mist;
   /** Во сколько раз открыт затвор (`look.exposure`). */
@@ -326,6 +328,7 @@ uniform vec3 uSunDir;
 uniform vec3 uSun;
 uniform vec3 uHaze;
 uniform float uSunUp;
+uniform float uAir;
 uniform float uMie;
 uniform float uZenith;
 uniform float uDensity;
@@ -383,7 +386,7 @@ void main() {
     dist = uSkyFar;
     // Рэлей: ясный день синеет к зениту и белеет к горизонту — купол красит это
     // по вершинам, а здесь это доводится до той глубины, какую даёт чистый воздух.
-    col *= mix( vec3( 1.0 ), vec3( 0.74, 0.88, 1.2 ), smoothstep( 0.05, 0.85, dir.y ) * uZenith );
+    col *= mix( vec3( 1.0 ), vec3( 0.62, 0.82, 1.32 ), smoothstep( 0.02, 0.75, dir.y ) * uZenith );
   }
   float k = 1.0 / uHeight;
   float dy = dir.y * dist;
@@ -393,19 +396,27 @@ void main() {
   float cs = dot( dir, uSunDir );
   float g = 0.76;
   float hg = ( 1.0 - g * g ) / pow( 1.0 + g * g - 2.0 * g * cs, 1.5 ) * 0.0795775;
-  vec3 lit = uHaze + uSun * hg * uSunUp * uMie;
+  vec3 lit = uHaze + uSun * hg * uSunUp * uMie * uAir;
   col = col * keep + lit * ( 1.0 - keep );
-  col += texture2D( tShafts, vUv ).r * uSun * uShafts;
+  // Луч — свет, рассеянный дымкой между глазом и тем, что за ним, и его ровно столько,
+  // сколько дымки на этом пути (та же толща tau): у ствола в двух шагах дымки нет, и
+  // луч на него не ложится; в чистом небе над кромкой её нет тоже, и там луч не
+  // стелется вуалью вокруг солнца — ореол у солнца рисует дымка сама (Хеньи — Гринстейн).
+  col += texture2D( tShafts, vUv ).r * uSun * uShafts * ( 1.0 - exp( -tau * SHAFT_TAU ) );
   col += texture2D( tBloom, vUv ).rgb * uBloom;
   gl_FragColor = vec4( col, 1.0 );
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
-  // Плёнка: тени чуть холоднее, света чуть теплее и цвет чуть гуще. Слабо — так, чтобы
-  // утро читалось утром, а снег оставался снегом, а не персиком.
+  // Плёнка: тени холоднее, света теплее, цвет гуще — и тёмное остаётся тёмным. Холод
+  // тени и тепло света разведены по яркости, а не по месту: снег в тени синеет, снег на
+  // солнце и огонь теплеют сами, без правила про снег и огонь. Кривая в самом низу
+  // опускает чёрное, которое подняла дымка, — только в тёмной трети, светлое не трогает.
   float gl = lum( gl_FragColor.rgb );
-  vec3 split = mix( vec3( 0.94, 0.98, 1.07 ), vec3( 1.05, 1.0, 0.93 ), smoothstep( 0.1, 0.8, gl ) );
+  vec3 split = mix( vec3( 0.88, 0.96, 1.12 ), vec3( 1.03, 1.0, 0.95 ), smoothstep( 0.08, 0.8, gl ) );
   gl_FragColor.rgb *= mix( vec3( 1.0 ), split, uGrade );
-  gl_FragColor.rgb = max( mix( vec3( gl ), gl_FragColor.rgb, 1.0 + 0.12 * uGrade ), 0.0 );
+  gl_FragColor.rgb = max( mix( vec3( gl ), gl_FragColor.rgb, 1.0 + 0.18 * uGrade ), 0.0 );
+  vec3 toe = gl_FragColor.rgb * gl_FragColor.rgb / ( gl_FragColor.rgb + 0.06 ) * 1.06;
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, toe, uGrade * ( 1.0 - smoothstep( 0.1, 0.35, gl ) ) );
   vec2 q = vUv * 2.0 - 1.0;
   gl_FragColor.rgb *= 1.0 - uVignette * smoothstep( 0.45, 1.5, length( q ) );
   float n = ign( gl_FragCoord.xy + vec2( 5.588238 ) * mod( uFrame, 64.0 ) ) - 0.5;
@@ -431,8 +442,8 @@ export interface Cost {
  * кадра-мерила (`npm run prologue:stand`, `LOOK=`), а не описанием.
  */
 const LOOK_NUMBERS: Record<Tier, { bloom: number; threshold: number; shafts: number; ao: number; vignette: number; grain: number; grade: number }> = {
-  full: { bloom: 0.07, threshold: 1.1, shafts: 0.22, ao: 0.75, vignette: 0.32, grain: 0.035, grade: 1 },
-  lite: { bloom: 0.07, threshold: 1.1, shafts: 0.22, ao: 0, vignette: 0.32, grain: 0.03, grade: 1 },
+  full: { bloom: 0.05, threshold: 1.1, shafts: 0.22, ao: 0.75, vignette: 0.32, grain: 0.035, grade: 1 },
+  lite: { bloom: 0.05, threshold: 1.1, shafts: 0.22, ao: 0, vignette: 0.32, grain: 0.03, grade: 1 },
   base: { bloom: 0, threshold: 1, shafts: 0, ao: 0, vignette: 0, grain: 0, grade: 0 },
 };
 
@@ -443,6 +454,21 @@ const DOF_MAX_AT_800 = 4.5;
 
 /** Докуда считать дымку по лучу, упёршемуся в небо: край земли поляны. */
 const SKY_FAR = 60;
+
+/**
+ * Во сколько раз луч набирает силу быстрее, чем дымка гасит то, что за ней: при толще
+ * дымки 0.05 (утренняя дымка на двадцати метрах у земли) луч в четверть силы, при 0.2 —
+ * в две трети. Лучи — свет в дымке, и где её нет, их нет: в чистом полуденном воздухе и
+ * в небе над кромкой леса.
+ */
+const SHAFT_TAU = 6;
+
+/**
+ * Лучи — утренний и вечерний свет в дымке: с какой плотности дымки (`look.mistAt`) они в
+ * полную силу. Ниже — слабее ровно на долю: в полдень, когда солнце высоко и небо вокруг
+ * открыто, «лучи» по открытому небу стали бы не лучами, а белёсой вуалью по всему кадру.
+ */
+const SHAFT_MIST = 0.012;
 
 const _v = new THREE.Vector3();
 
@@ -622,12 +648,15 @@ export class Post {
     f.uSun.value.copy(light.sun);
     f.uHaze.value.copy(light.haze);
     f.uSunUp.value = light.sunUp;
+    f.uAir.value = light.air;
     f.uMie.value = light.mie;
     f.uZenith.value = light.zenith;
     f.uDensity.value = light.mist.density;
     f.uHeight.value = light.mist.height;
     f.uBloom.value = n.bloom;
-    f.uShafts.value = n.shafts * shaftK * (0.35 + light.mist.density * 12);
+    // Сколько лучей — решает толща дымки на пути взгляда (`SHAFT_TAU` в итоге), а не пол
+    // в треть силы: прежний пол стелил лучи вуалью по всему небу и в чистый полдень.
+    f.uShafts.value = n.shafts * shaftK * Math.min(1, light.mist.density / SHAFT_MIST);
     f.uAo.value = n.ao;
     f.uVignette.value = n.vignette;
     f.uGrain.value = n.grain;
@@ -715,12 +744,13 @@ export class Post {
       uRange: num(DOF_RANGE),
       uMax: num(),
     });
-    const defines: Record<string, number> = {};
+    const defines: Record<string, number | string> = {};
     if (t === 'lite') defines.FXAA = 1;
     if (t === 'full') {
       defines.AO = 1;
       defines.DOF = 1;
     }
+    defines.SHAFT_TAU = SHAFT_TAU.toFixed(1);
     this.finalMat = this.make(
       FINAL_FRAG,
       {
@@ -738,6 +768,7 @@ export class Post {
         uSun: { value: new THREE.Color() },
         uHaze: { value: new THREE.Color() },
         uSunUp: num(),
+        uAir: num(1),
         uMie: num(),
         uZenith: num(),
         uDensity: num(),

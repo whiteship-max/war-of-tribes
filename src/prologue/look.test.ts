@@ -9,6 +9,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  AIR_FROM,
+  AIR_GAP,
+  AIR_TO,
   FIRE_ANCHOR,
   FIRE_DECAY,
   GAP_MS,
@@ -18,6 +21,7 @@ import {
   Steady,
   WARM_FRAMES,
   WINDOW_MS,
+  airLit,
   airMass,
   exposure,
   fireGain,
@@ -180,6 +184,23 @@ describe('солнце сквозь толщу воздуха', () => {
     // Синее гаснет сильнее красного: низкое солнце тёплое.
     expect(t[0]).toBeGreaterThan(t[1]);
     expect(t[1]).toBeGreaterThan(t[2]);
+  });
+});
+
+describe('воздух поляны в тени стены леса', () => {
+  it('низкое солнце светит в просветы, над кромкой — во весь воздух, и доля не убывает с высотой', () => {
+    expect(airLit(0)).toBeCloseTo(AIR_GAP, 9);
+    expect(airLit(AIR_FROM)).toBeCloseTo(AIR_GAP, 9);
+    expect(airLit(AIR_TO)).toBeCloseTo(1, 9);
+    expect(airLit(80 * DEG)).toBeCloseTo(1, 9);
+    let prev = 0;
+    for (let e = -5; e <= 90; e += 1) {
+      const k = airLit(e * DEG);
+      expect(k).toBeGreaterThanOrEqual(prev);
+      expect(k).toBeGreaterThanOrEqual(AIR_GAP);
+      expect(k).toBeLessThanOrEqual(1);
+      prev = k;
+    }
   });
 });
 

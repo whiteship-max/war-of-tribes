@@ -114,11 +114,14 @@ import {
   HAZE_GAIN,
   LOOK_KEY,
   MIE,
+  SKY_BLUE,
+  SKY_FILL,
   SKY_GAIN,
   SNOW_BOUNCE,
   SUN_GLARE,
   Steady,
   TIERS,
+  airLit,
   exposure,
   fireGain,
   mistAt,
@@ -542,6 +545,8 @@ const _size = new THREE.Vector2();
 const _bounce = new THREE.Color();
 /** Цвет снега, который отдаёт свет снизу, — тот же, что у снежинки. */
 const SNOW_WHITE = new THREE.Color(PALETTE.snowflake);
+/** Цвет ясного зенита: к нему синеет свет неба днём (`look.SKY_BLUE`). */
+const SKY_CLEAR = new THREE.Color(PALETTE.sky);
 const DEG = Math.PI / 180;
 
 /**
@@ -1355,6 +1360,7 @@ export class PrologueScene {
     sun: new THREE.Color(),
     haze: new THREE.Color(),
     sunUp: 0,
+    air: 1,
     mist: { density: 0, height: 1 },
     exposure: 1,
     mie: MIE,
@@ -1576,7 +1582,8 @@ export class PrologueScene {
     this.rig = createLightRig(this.scene);
     // Риг ставит полуденные силы до того, как их раскладывает час: их и берём мерой.
     this.noonSun = this.rig.sun.intensity;
-    this.noonSky = this.rig.hemi.intensity * lum(this.rig.hemi.color);
+    // Небо днём — доля рига и синее его (`look.SKY_FILL`, `SKY_BLUE`): мера полудня та же.
+    this.noonSky = this.rig.hemi.intensity * SKY_FILL * lum(_bounce.copy(this.rig.hemi.color).lerp(SKY_CLEAR, SKY_BLUE));
     this.mapBase = this.rig.sun.shadow.mapSize.x;
     fitShadow(this.rig, SHADOW_HALF);
     const tier = this.pickTier();
@@ -2710,7 +2717,9 @@ export class PrologueScene {
     this.surfaces.u.penumbra.value = ((sc.far - sc.near) * SOFT_ANGLE) / across;
     this.surfaces.u.search.value = SOFT_REACH / across;
     this.surfaces.setSoft(tier === 'full');
-    this.dome.setGain(tier === 'base' ? 1 : SKY_GAIN, tier === 'base' ? 1 : SUN_GLARE);
+    // Небо против снега одно на всех ступенях (`look.SKY_GAIN`): затвор тот же, и небо
+    // пола, оставленное единицей, выгорало бы в белое. Ярче белого у пола только нечем.
+    this.dome.setGain(SKY_GAIN, tier === 'base' ? 1 : SUN_GLARE);
     for (const f of this.flameMats) f.mat.color.copy(f.base).multiplyScalar(tier === 'base' ? 1 : FIRE_GLARE);
     // Свет перекладывается заново: у разных ступеней разная яркость неба.
     this.skySolar = -1;
@@ -3327,6 +3336,17 @@ export class PrologueScene {
     sun.intensity *= 1 - 0.55 * g;
     this.rig.hemi.intensity *= 1 - 0.2 * g;
     /*
+     * НЕБО ДНЁМ СЛАБЕЕ И СИНЕЕ РИГА ДЕРЕВНИ. Риг светит полусферой в треть солнца —
+     * плоской палитре так и надо, а снятому кадру нет: снег в тени выходил на треть
+     * темнее снега на солнце, и всё было одного молочного тона. Днём свет неба — доля
+     * рига (`look.SKY_FILL`) цвета ясного зенита (`SKY_BLUE`): тень темнеет и синеет,
+     * солнце на снегу остаётся тёплым. В ненастье неба больше, чем солнца, и доля
+     * возвращается к ригу: серый день теней не даёт.
+     */
+    const fillK = day * (1 - g);
+    this.rig.hemi.intensity *= 1 - (1 - SKY_FILL) * fillK;
+    this.rig.hemi.color.lerp(SKY_CLEAR, SKY_BLUE * fillK);
+    /*
      * СНЕГ ОТДАЁТ СВЕТ СНИЗУ. Полусфера рига снизу — цвет земли, и на траве это
      * правда. Зимой под ногами снег, и он возвращает большую часть того, что на него
      * упало: стволы, исподы крон и руки подсвечены снизу, и тень под деревом не
@@ -3358,6 +3378,7 @@ export class PrologueScene {
     li.sun.copy(sun.color).multiplyScalar(sun.intensity * (day + 0.25 * dark));
     li.haze.copy(this.dome.haze).multiplyScalar(HAZE_GAIN * (0.35 + 0.65 * day));
     li.sunUp = Math.min(1, Math.max(0, (lamp.y + 0.02) / 0.12)) * day * (1 - 0.85 * g);
+    li.air = airLit(Math.asin(Math.max(-1, Math.min(1, lamp.y))));
     li.zenith = day * (1 - g);
     mistAt(solar, g, li.mist);
     const fill = hearthFill(this.save.hearth, now);
