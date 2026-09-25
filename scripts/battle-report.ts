@@ -3,6 +3,7 @@
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
 import { COUNTER, COVER, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, simulateBattle, quickSetup, quickAttack, describeEvent, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, stackOf, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
 import { stackPower } from '../src/battle/sim';
+import { mirrorOf, type Mirrored } from '../src/battle/bench';
 import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, latticeWorth, nonDecreasing, screenArmy, screenCurve, screenPoints, withCoverK, answerlessOwnKind, compositionLattice, compositionName, latticeDuels, COUNTER_TERMS, KNOWN_COUNTER, standardOf, counterSearch, searchFinal, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, gapAgainst, hasLine, holdPoint, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf } from '../src/battle/bench';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
@@ -17,20 +18,41 @@ function pad(s: string | number, w: number, right = false): string {
   return right ? t.padStart(w) : t.padEnd(w);
 }
 
-/** Победы первой стороны в серии боёв с обеих сторон поля. */
+/** Зеркальные пары сидов 1..seeds. */
+const pairsOf = (a: ArmySetup, b: ArmySetup, seeds: number): Mirrored[] => Array.from({ length: seeds }, (_, i) => mirrored(a, b, i + 1));
+
+/**
+ * Пары матрицы «каждый против каждого»: пара i–j играется один раз, а строка j–i читает те же
+ * два боя с другой стороны (`mirrorOf` в обратном порядке) — это не второй бой, а тот же.
+ */
+function matrixPairs(setups: readonly ArmySetup[], seeds: number): (i: number, j: number) => Mirrored[] {
+  const played = new Map<number, Mirrored[]>();
+  const at = (i: number, j: number): Mirrored[] => {
+    if (i > j) return at(j, i).map((m) => mirrorOf(m.results[1], m.results[0]));
+    const key = i * setups.length + j;
+    let ms = played.get(key);
+    if (!ms) played.set(key, (ms = pairsOf(setups[i], setups[j], seeds)));
+    return ms;
+  };
+  return at;
+}
+
 /**
  * Серия зеркальных боёв. `wins/draws/losses` — кто удержал поле (результат),
  * `ratio` — средний размен (цена), `pyrrhic` — сколько боёв из 2×seeds выиграны
  * с непомерными потерями. Выводы «кто кому проигрывает» делаются по размену.
+ *
+ * Бои серии ложатся в `allResults`; у матрицы — с обеих строк пары, то есть каждый бой дважды.
+ * Так было, пока матрица играла пару дважды, и так осталось: раздел «Длительность» считает по
+ * ним, и вывод отчёта не должен сдвинуться от того, что бой больше не играется второй раз.
  */
-function series(a: ArmySetup, b: ArmySetup, seeds: number): { wins: number; losses: number; draws: number; ratio: number; pyrrhic: number } {
+function series(ms: readonly Mirrored[]): { wins: number; losses: number; draws: number; ratio: number; pyrrhic: number } {
   let wins = 0;
   let losses = 0;
   let draws = 0;
   let ratio = 0;
   let pyrrhic = 0;
-  for (let seed = 1; seed <= seeds; seed += 1) {
-    const r = mirrored(a, b, seed);
+  for (const r of ms) {
     if (r.field.a > r.field.b) wins += 1;
     else if (r.field.b > r.field.a) losses += 1;
     else draws += 1;
@@ -38,7 +60,7 @@ function series(a: ArmySetup, b: ArmySetup, seeds: number): { wins: number; loss
     pyrrhic += r.pyrrhic;
     allResults.push(...r.results);
   }
-  return { wins, losses, draws, ratio: ratio / seeds, pyrrhic };
+  return { wins, losses, draws, ratio: ratio / ms.length, pyrrhic };
 }
 const beatsByRatio = (ratio: number): 'a' | 'b' | 'draw' => (ratio >= RATIO_EVEN ? 'a' : ratio <= 1 / RATIO_EVEN ? 'b' : 'draw');
 
@@ -49,17 +71,18 @@ console.log(pad('', W) + names.map((n) => pad(n, W)).join(''));
 const beats: Record<string, string[]> = {};
 const losesTo: Record<string, string[]> = {};
 const costly: Record<string, string[]> = {};
-for (const a of COMPOSITIONS) {
+const compositionPairs = matrixPairs(COMPOSITIONS.map((c) => c.setup), SEEDS);
+for (const [ai, a] of COMPOSITIONS.entries()) {
   beats[a.name] = [];
   losesTo[a.name] = [];
   costly[a.name] = [];
   let row = pad(a.name, W);
-  for (const b of COMPOSITIONS) {
+  for (const [bi, b] of COMPOSITIONS.entries()) {
     if (a === b) {
       row += pad('—', W);
       continue;
     }
-    const s = series(a.setup, b.setup, SEEDS);
+    const s = series(compositionPairs(ai, bi));
     const verdict = beatsByRatio(s.ratio);
     if (verdict === 'a') beats[a.name].push(b.name);
     else if (verdict === 'b') losesTo[a.name].push(b.name);
@@ -75,12 +98,14 @@ for (const c of COMPOSITIONS) {
 }
 
 console.log(`\n=== Решётка составов: все составы из 600 бойцов строя шагом ${LATTICE_STEP} по всем родам, каждый против каждого одним зеркальным боем ===`);
+// Та же решётка, что держит тест «нет доминирующего состава» (`bench.latticeDuels`), стандартный
+// пресет. Её же строкой «как есть» читает раздел «Тяжёлая»: числа там те же, и второй раз она не играется.
+const latticeRows = latticeDuels(compositionLattice());
 {
-  // Та же решётка, что держит тест «нет доминирующего состава» (`bench.latticeDuels`), стандартный
-  // пресет. Утверждение теста — «каждый кому-то проигрывает» — видит только строгое превосходство;
+  // Утверждение теста — «каждый кому-то проигрывает» — видит только строгое превосходство;
   // строка «ответа без своего рода нет» видит обязательный род: всё, что бьёт состав, построено
   // на его же главном роде.
-  const rows = latticeDuels(compositionLattice());
+  const rows = latticeRows;
   const n = rows.length;
   const pct = (i: number): string => `${Math.round((100 * rows[i].beats.length) / (n - 1))}%`;
   const order = [...rows.keys()].sort((a, b) => rows[b].beats.length - rows[a].beats.length);
@@ -101,9 +126,10 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
   // перемеряется целиком. Отдельно — где пресет её ставит: в резерв или во фронт. Удар с разбега
   // (`CLASH_CAVALRY_IMPACT`) — константа ядра, отсюда не подменяется и здесь не измерен.
   const pure = UNIT_KINDS.map((k) => ({ k, setup: quickSetup({ [k]: ARMY_SIZE }) }));
-  const duel = (a: ArmySetup, b: ArmySetup): number => {
+  const pureDuels = matrixPairs(pure.map((p) => p.setup), 6);
+  const duel = (i: number, j: number): number => {
     let r = 0;
-    for (let seed = 1; seed <= 6; seed += 1) r += mirrored(a, b, seed).lossRatio;
+    for (const m of pureDuels(i, j)) r += m.lossRatio;
     return r / 6;
   };
   const statLine = (k: 'heavy' | 'infantry' | 'cavalry'): string => {
@@ -113,7 +139,7 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
   };
   console.log(`числа: тяжёлая — ${statLine('heavy')}; пехота — ${statLine('infantry')}; лёгкая — ${statLine('cavalry')}`);
   console.log(`род против рода, ${ARMY_SIZE} на ${ARMY_SIZE}, быстрая атака, 6 сидов × обе стороны (размен строки): ${pure.map((p) => pad(p.k, 9, true)).join('')}`);
-  for (const a of pure) console.log(`  ${pad(a.k, 9)}${pure.map((b) => pad(a === b ? '—' : duel(a.setup, b.setup).toFixed(2), 9, true)).join('')}`);
+  for (const [ai, a] of pure.entries()) console.log(`  ${pad(a.k, 9)}${pure.map((b, bi) => pad(a === b ? '—' : duel(ai, bi).toFixed(2), 9, true)).join('')}`);
 
   const H = UNIT_STATS.heavy;
   const HC = COUNTER.heavy as { infantry: number };
@@ -152,8 +178,9 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
     }
     return s;
   };
-  const variants: Array<{ name: string; set: () => () => void; layout?: (a: Partial<Stack>) => ArmySetup }> = [
-    { name: 'как есть', set: () => () => {} },
+  // «Как есть» — решётка раздела выше: те же числа, та же раскладка, те же бои.
+  const variants: Array<{ name: string; set: () => () => void; layout?: (a: Partial<Stack>) => ArmySetup; rows?: typeof latticeRows }> = [
+    { name: 'как есть', set: () => () => {}, rows: latticeRows },
     { name: 'рукопашная 1.3 → 1.0 (лёгкая)', set: () => ((H.melee = 1.0), () => (H.melee = 1.3)) },
     { name: 'по пехоте ×1.3 → ×1.0 (лёгкая)', set: () => ((HC.infantry = 1.0), () => (HC.infantry = 1.3)) },
     { name: 'рукопашная и по пехоте → 1.0', set: () => ((H.melee = 1.0), (HC.infantry = 1.0), () => ((H.melee = 1.3), (HC.infantry = 1.3))) },
@@ -173,7 +200,7 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
   for (const v of variants) {
     const undo = v.set();
     try {
-      const rows = latticeDuels(lattice, v.layout);
+      const rows = v.rows ?? latticeDuels(lattice, v.layout);
       const n = rows.length;
       const pct = (i: number): string => `${Math.round((100 * rows[i].beats.length) / (n - 1))}%`;
       const order = [...rows.keys()].sort((a, b) => rows[b].beats.length - rows[a].beats.length);
@@ -214,7 +241,7 @@ console.log('\n=== Заслон: линия по силе (Battle.expose, COVER.
 
 console.log('\n=== Кольцо контрров при правильных приказах ===');
 for (const pair of RING) {
-  const s = series(pair.a, pair.b, SEEDS);
+  const s = series(pairsOf(pair.a, pair.b, SEEDS));
   console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS})`);
 }
 
@@ -224,18 +251,19 @@ const compositionResults = allResults.slice();
 console.log('\n=== Планы: одна и та же армия на стандартной раскладке, план против плана ===');
 {
   const plans = Object.keys(PLANS) as Plan[];
+  const planPairs = matrixPairs(plans.map((p) => quickSetup(BALANCED_ARMY, { plan: p })), Math.min(SEEDS, 12));
   const PW = 16;
   console.log(pad('', PW) + plans.map((p) => pad(p, PW)).join(''));
   const undefeated: string[] = [];
-  for (const a of plans) {
+  for (const [ai, a] of plans.entries()) {
     let row = pad(a, PW);
     let loses = 0;
-    for (const b of plans) {
+    for (const [bi, b] of plans.entries()) {
       if (a === b) {
         row += pad('—', PW);
         continue;
       }
-      const s = series(quickSetup(BALANCED_ARMY, { plan: a }), quickSetup(BALANCED_ARMY, { plan: b }), Math.min(SEEDS, 12));
+      const s = series(planPairs(ai, bi));
       if (beatsByRatio(s.ratio) === 'b') loses += 1;
       row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, PW);
     }
@@ -260,14 +288,15 @@ console.log('\n=== Пресеты быстрой атаки ===');
   console.log('пресет против пресета (строка против столбца, победы/ничьи/поражения и размен):');
   const PW = 14;
   console.log(pad('', PW) + QUICK_PRESET_IDS.map((p) => pad(p, PW)).join(''));
-  for (const a of QUICK_PRESET_IDS) {
+  const presetPairs = matrixPairs(QUICK_PRESET_IDS.map((id) => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY))), Math.min(SEEDS, 12));
+  for (const [ai, a] of QUICK_PRESET_IDS.entries()) {
     let row = pad(a, PW);
-    for (const b of QUICK_PRESET_IDS) {
+    for (const [bi, b] of QUICK_PRESET_IDS.entries()) {
       if (a === b) {
         row += pad('—', PW);
         continue;
       }
-      const s = series(QUICK_PRESETS[a].layout(stackOf(BALANCED_ARMY)), QUICK_PRESETS[b].layout(stackOf(BALANCED_ARMY)), Math.min(SEEDS, 12));
+      const s = series(presetPairs(ai, bi));
       row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, PW);
     }
     console.log(row);

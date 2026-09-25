@@ -78,8 +78,14 @@ export interface Mirrored {
 
 /** Пара боёв одним сидом: сначала a нападает, потом b, — чтобы сторона поля не решала. */
 export function mirrored(a: ArmySetup, b: ArmySetup, seed: number): Mirrored {
-  const r1 = simulateBattle({ seed, attacker: a, defender: b });
-  const r2 = simulateBattle({ seed, attacker: b, defender: a });
+  return mirrorOf(simulateBattle({ seed, attacker: a, defender: b }), simulateBattle({ seed, attacker: b, defender: a }));
+}
+
+/**
+ * Итог пары из двух уже сыгранных боёв: `r1` — a нападает, `r2` — b нападает. Пара b–a — те же
+ * два боя в обратном порядке, `mirrorOf(r2, r1)`: считать её второй раз незачем.
+ */
+export function mirrorOf(r1: BattleResult, r2: BattleResult): Mirrored {
   const aLoss = r1.sides.attacker.total.losses + r2.sides.defender.total.losses;
   const bLoss = r1.sides.defender.total.losses + r2.sides.attacker.total.losses;
   const field = {
