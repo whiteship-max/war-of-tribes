@@ -1,12 +1,13 @@
 // Раздел наёмных мастеров в Мастерской: своих чисел у него нет, и показывает он ровно то, что
-// считает игра. Врать числом здесь нельзя: ценность мастеров — спор за золото, и строка «один
-// копейщик в жалованье — это N мастеров», разошедшаяся с ведомостью, учила бы игрока неправде.
+// считает игра. Врать числом здесь нельзя: ценность мастеров — спор за золото, и строка «мастер в
+// жалованье — N копейщиков», разошедшаяся с ведомостью, учила бы игрока неправде.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { ADMIN_LEVELS, MASTERS_AT } from '@/game/data/realm';
-import { crafterHeadShare, masterWage, mastersBuildShare, upkeepInfo, wageOf } from '@/game/derived';
+import { crafterHeadShare, masterHands, masterWage, mastersBuildShare, upkeepInfo, wageOf } from '@/game/derived';
+import { MASTER_PAID_AS } from '@/game/data/upkeep';
 import { hireMasters, mastersInfo } from '@/game/sim/masters';
 
 const bare = (file: string): string =>
@@ -38,7 +39,9 @@ describe('раздел мастеров', () => {
     const m = mastersInfo(s);
     expect(m.have, 'точка внутри области: мастера стоят').toBe(12);
     expect(m.wage).toBe(masterWage(s));
-    expect(m.perSpearman).toBeCloseTo(wageOf(s, 'spearman') / masterWage(s), 12);
+    expect(m.hands).toBe(masterHands(s));
+    expect(m.inSoldiers).toBeCloseTo(masterWage(s) / wageOf(s, MASTER_PAID_AS), 12);
+    expect(m.inSoldiers, 'мастер стоит столько бойцов, сколько даёт рук').toBeCloseTo(m.hands, 12);
     expect(m.each).toBe(crafterHeadShare(s));
     expect(m.gain).toBeCloseTo(mastersBuildShare(s), 12);
     expect(m.gain).toBeCloseTo(12 * m.each, 9);

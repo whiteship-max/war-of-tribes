@@ -80,7 +80,7 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } 
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
-import { DESERT_SHARE, HORSE_MOUTHS, UPKEEP_TEXT, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
+import { DESERT_SHARE, HORSE_MOUTHS, MASTER_PAID_AS, UPKEEP_TEXT, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
 import { BATTLE_MAN, gearOfTroop, troopPower, troopTotal, troopsAfter, weightOf, type TroopStack } from './battle/kinds';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
@@ -799,19 +799,30 @@ export function wageShare(s: GameState): number {
 export const wageGear = (troop: TroopId): number =>
   gearOfTroop(troop) + (TROOP_BY_ID[troop].mounted ? 1 : 0);
 
+export const wageOf = (s: GameState, troop: TroopId): number =>
+  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(troop) + WAGE_GEAR * wageGear(troop)) * wageShare(s);
+
 /**
- * Жалованье за игровой день тому, кто весит `weight` бойцов строя и носит `gear` вещей. **Одна
- * формула на бойца и на наёмного мастера**: мастер — голова без строевой части и без снаряжения.
- * Закят (`wageShare`) множит обоих одной долей, поэтому соотношение «копейщик против мастеров» —
- * спор, ради которого мастера и заведены (docs/admin_branch.md, раздел 4.1), — не зависит от веры.
+ * Сколько рук даёт стройке один наёмный мастер: его ставка (`CRAFTER_BUILD` под множителем
+ * ремесленника в Мастерской) против ставки свободного жителя на стройке (`BUILDER_RATE`). Сезон
+ * стройки и ратуша множат обоих одинаково и сокращаются. Руки растут с уровнем Мастерской и с
+ * моралью — ровно так же, как растёт то, что мастер строит.
  */
-const wageAt = (s: GameState, weight: number, gear: number): number =>
-  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weight + WAGE_GEAR * gear) * wageShare(s);
+export function masterHands(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
+  const shop = buildingOfType(s, 'workshop');
+  if (!shop) return 0;
+  return (CRAFTER_BUILD * workerMultiplier(s, 'crafter', shop, mods)) / BUILDER_RATE;
+}
 
-export const wageOf = (s: GameState, troop: TroopId): number => wageAt(s, weightOf(troop), wageGear(troop));
-
-/** Жалованье одного наёмного мастера за игровой день: то же, что у бойца, без строя и снаряжения. */
-export const masterWage = (s: GameState): number => wageAt(s, 0, 0);
+/**
+ * Жалованье одного наёмного мастера за игровой день. **Мастер платится как отнятые руки** (решение
+ * владельца, docs/admin_branch.md, раздел 4.1): боец отнимает у стройки одного жителя и стоит своё
+ * жалованье; мастер даёт стройке `masterHands` рук и стоит столько же бойцов-эталонов
+ * (`MASTER_PAID_AS`). Своего числа цены нет: только жалованье бойца и две ставки рук. Отсюда
+ * свойство, на котором стоит спор: **единица стройки, купленная мастером, стоит ровно столько, во
+ * сколько стройке обходится боец**, — и закят, множащий жалованье бойца, множит её той же долей.
+ */
+export const masterWage = (s: GameState): number => wageOf(s, MASTER_PAID_AS) * masterHands(s);
 
 /** Жалованье войска за игровой день. Новобранцев на учениях оно не касается. */
 export const armyWagesPerDay = (s: GameState): number =>

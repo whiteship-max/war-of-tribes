@@ -1,8 +1,9 @@
 // Наёмные мастера: руки на стройку за золото, не снимая жителя (docs/admin_branch.md, раздел 4.1).
 //
-// **Ценность механики — не прибавка к стройке, а спор за золото.** Одна казна платит либо
-// копейщику, либо почти пятерым мастерам (`derived.masterWage` — та же формула, что у бойца, без
-// строя и снаряжения). Отсюда всё устройство, и ничего сверх него:
+// **Ценность механики — не прибавка к стройке, а спор за золото.** Одна казна платит либо войску,
+// либо мастерам, и мастер платится как отнятые руки (`derived.masterWage`, решение владельца): боец
+// отнимает у стройки одного жителя, мастер даёт стройке `masterHands` рук и стоит столько же бойцов.
+// Отсюда всё устройство, и ничего сверх него:
 // - мастер стоит **на месте Мастерской**, третьим числом рядом с её людьми (`derived.handsCount`),
 //   и работает по ставке ремесленника (`derived.crafterBuildRate`) — своей ставки у него нет;
 // - жалованье идёт **из той же ведомости**, что у войска (`derived.wagesPerDay`), и «по средствам»
@@ -25,8 +26,10 @@ import {
   mastersBuildShare,
   mastersCount,
   mastersRoom,
+  masterHands,
   wageOf,
 } from '../derived';
+import { MASTER_PAID_AS } from '../data/upkeep';
 import { mastersBlock, mastersCap } from './tech';
 import { log } from './log';
 
@@ -43,11 +46,13 @@ export interface MastersInfo {
   gain: number;
   /** Сколько даёт один мастер — ровно столько же, сколько один ремесленник. */
   each: number;
+  /** Сколько рук стройке даёт один мастер (`derived.masterHands`). */
+  hands: number;
   /**
-   * Сколько мастеров стоит жалованье одного копейщика. Это и есть спор, ради которого механика
-   * заведена: одна казна платит либо ему, либо им. Считается здесь, а не в разметке.
+   * Скольких бойцов-эталонов (`MASTER_PAID_AS`) стоит в жалованье один мастер. Это и есть спор, ради
+   * которого механика заведена: одна казна платит либо им, либо ему. Считается здесь, а не в разметке.
    */
-  perSpearman: number;
+  inSoldiers: number;
   /** Почему нельзя взять ещё одного; `null` — можно. */
   blocked: string | null;
 }
@@ -72,7 +77,8 @@ export function mastersInfo(s: GameState): MastersInfo {
     wage,
     gain: mastersBuildShare(s),
     each: crafterHeadShare(s),
-    perSpearman: wage > 0 ? wageOf(s, 'spearman') / wage : 0,
+    hands: masterHands(s),
+    inSoldiers: wageOf(s, MASTER_PAID_AS) > 0 ? wage / wageOf(s, MASTER_PAID_AS) : 0,
     blocked,
   };
 }

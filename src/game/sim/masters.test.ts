@@ -12,8 +12,8 @@ import type { GameState } from '../types';
 import { createInitialState } from '../state';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { QUESTS } from '../data/quests';
-import { TAX_PER_POP } from '../data/policy';
-import { WAGE_HEAD } from '../data/upkeep';
+import { BUILDER_RATE, CRAFTER_BUILD } from '../constants';
+import { MASTER_PAID_AS } from '../data/upkeep';
 import { ADMIN_LEVELS, MASTERS_AT } from '../data/realm';
 import {
   armySize,
@@ -26,17 +26,23 @@ import {
   foodShortfall,
   handsCount,
   housingCapacity,
+  masterHands,
   masterWage,
   mastersBuildShare,
   mastersCount,
   mastersFoodPerDay,
   mastersWagesPerDay,
   payGraceDays,
+  seasonMods,
+  seasonOf,
   townFoodPerDay,
+  townHallBuildMult,
   upkeepInfo,
   wageOf,
   wageShare,
   wagesPerDay,
+  workerMultiplier,
+  crafterHeadShare,
 } from '../derived';
 import { upkeepTick } from './upkeep';
 import { hireMasters, mastersInfo, releaseMasters } from './masters';
@@ -62,18 +68,58 @@ function camp(over: (s: GameState) => void = () => {}): GameState {
 const hall = (s: GameState) => buildingOfType(s, MASTERS_AT)!;
 
 describe('жалованье: одна формула и одна ведомость', () => {
-  it('мастер получает то же, что боец, без строя и снаряжения', () => {
-    const s = camp();
-    expect(masterWage(s)).toBeCloseTo(TAX_PER_POP * WAGE_HEAD * wageShare(s), 12);
-    // Спор, ради которого механика заведена: копейщик стоит нескольких мастеров.
-    expect(wageOf(s, 'spearman') / masterWage(s), 'копейщик дороже мастера в разы').toBeGreaterThan(3);
+  /**
+   * Правило цены (решение владельца): мастер платится как отнятые руки. Боец отнимает у стройки
+   * одного жителя и стоит своё жалованье; мастер даёт стройке столько рук, сколько его ставка против
+   * ставки свободного строителя, и стоит столько же бойцов-эталонов. Проверяется на двух уровнях
+   * Мастерской: руки растут с уровнем, и цена обязана расти вместе с ними.
+   */
+  it('мастер платится как отнятые руки: жалованье эталона × руки мастера', () => {
+    for (const level of [1, 10]) {
+      const s = camp((st) => {
+        st.buildings.find((b) => b.type === MASTERS_AT)!.level = level;
+      });
+      const shop = hall(s);
+      const hands = (CRAFTER_BUILD * workerMultiplier(s, 'crafter', shop)) / BUILDER_RATE;
+      expect(masterHands(s), `уровень ${level}: руки — ставка ремесленника против ставки строителя`).toBeCloseTo(hands, 12);
+      expect(masterWage(s), `уровень ${level}: цена — жалованье эталона на руки`).toBeCloseTo(wageOf(s, MASTER_PAID_AS) * hands, 12);
+    }
+    const low = camp((st) => {
+      st.buildings.find((b) => b.type === MASTERS_AT)!.level = 1;
+    });
+    const high = camp();
+    expect(masterHands(high), 'точка внутри области: на десятом уровне рук больше').toBeGreaterThan(masterHands(low));
+    expect(masterWage(high), 'и цена выше').toBeGreaterThan(masterWage(low));
+    expect(MASTER_PAID_AS, 'эталон — копейщик: с ним спор и ведётся').toBe('spearman');
   });
 
   /**
-   * Закят множит обоих одной долей, и соотношение «копейщик против мастеров» от веры не зависит.
+   * Свойство, на котором стоит спор: единица стройки, купленная мастером, стоит ровно столько, во
+   * сколько стройке обходится боец — жалованье эталона за одни руки свободного строителя. Сезон и
+   * ратуша сокращаются: проверяется зимой и летом, при ратуше первого и десятого уровня.
+   */
+  it('стройка мастером стоит ровно цену руки, отнятой бойцом, — в любой сезон и при любой ратуше', () => {
+    const seasons = [0, 5 * 3, 5 * 1].map((day) => seasonOf(day * DAY_LENGTH));
+    expect(seasons, 'точка внутри области: весна, зима и лето — стройка идёт с разной скоростью').toEqual(['spring', 'winter', 'summer']);
+    expect(new Set([0, 5 * 3].map((d) => seasonMods(camp((st) => (st.time = d * DAY_LENGTH))).build)).size, 'и сезон и правда множит стройку по-разному').toBe(2);
+    for (const day of [0, 5 * 3, 5 * 1]) {
+      for (const hallLevel of [1, 10]) {
+        const s = camp((st) => {
+          st.time = day * DAY_LENGTH;
+          st.buildings.find((b) => b.type === 'town_hall')!.level = hallLevel;
+        });
+        const perWork = masterWage(s) / crafterHeadShare(s);
+        const perHand = wageOf(s, MASTER_PAID_AS) / (BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s));
+        expect(perWork, `день ${day}, ратуша ${hallLevel}`).toBeCloseTo(perHand, 12);
+      }
+    }
+  });
+
+  /**
+   * Закят множит жалованье бойца, а цена мастера выведена из него — значит и её той же долей.
    * Область: у мусульманской деревни доля и правда меньше единицы — иначе сравнивать нечего.
    */
-  it('закят не сдвигает спор: копейщик стоит тех же мастеров при любой вере', () => {
+  it('закят не сдвигает спор: мастер стоит тех же рук-бойцов при любой вере', () => {
     const village = (faith: 'islam' | null): GameState =>
       camp((s) => {
         s.pop = 400;
@@ -85,7 +131,8 @@ describe('жалованье: одна формула и одна ведомос
     const o = village(null);
     expect(faithTilt(m).goldPerPop, 'точка внутри области: закят есть').toBeLessThan(0);
     expect(wageShare(m), 'и доля жалованья меньше единицы').toBeLessThan(1);
-    expect(wageOf(m, 'spearman') / masterWage(m)).toBeCloseTo(wageOf(o, 'spearman') / masterWage(o), 12);
+    expect(masterWage(m) / wageOf(m, MASTER_PAID_AS)).toBeCloseTo(masterHands(m), 12);
+    expect(masterWage(o) / wageOf(o, MASTER_PAID_AS)).toBeCloseTo(masterHands(o), 12);
   });
 
   it('ведомость одна: мастера в ней, и её части сходятся', () => {
@@ -294,7 +341,8 @@ describe('замки мастеров', () => {
   it('у мастера нет своей ставки стройки и своей формулы жалованья', () => {
     const derived = bare(join(SRC, 'game', 'derived.ts'));
     const wage = derived.slice(derived.indexOf('export const masterWage'), derived.indexOf(';', derived.indexOf('export const masterWage')));
-    expect(wage, 'жалованье мастера — формула бойца').toMatch(/wageAt\(s, 0, 0\)/);
+    expect(wage, 'жалованье мастера — жалованье эталона на руки').toMatch(/wageOf\(s, MASTER_PAID_AS\) \* masterHands\(s\)/);
+    expect(wage.replace(/masterWage/g, ''), 'своего числа у цены нет').not.toMatch(/\d/);
     const rate = derived.slice(derived.indexOf('export function crafterBuildRate'), derived.indexOf('\n}', derived.indexOf('export function crafterBuildRate')));
     expect(rate, 'ставка мастера — ставка ремесленника').toMatch(/CRAFTER_BUILD \* \(workerCount\(s, shop\.id\) \+ mastersOn\(s, shop\.id\)\)/);
   });

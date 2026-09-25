@@ -1,6 +1,7 @@
 import { useGame } from '@/game/store';
 import { upkeepInfo } from '@/game/derived';
 import { TROOP_BY_ID } from '@/game/data/troops';
+import { MASTER_PAID_AS } from '@/game/data/upkeep';
 import { hireMasters, mastersInfo, releaseMasters } from '@/game/sim/masters';
 import { Icon } from '@/ui/icons/Icon';
 import { Steps } from './Steps';
@@ -11,14 +12,15 @@ import { Steps } from './Steps';
  * `derived.upkeepInfo`; держит это тест по исходнику (`ui/parts/masters.test.ts`).
  *
  * Строка про копейщика стоит здесь нарочно: ценность мастеров — не прибавка к стройке, а спор за
- * золото. Одна казна платит либо ему, либо им, и игрок обязан видеть это там, где нанимает.
+ * золото. Мастер платится как отнятые руки — столько копейщиков, сколько рук он даёт стройке, — и
+ * игрок обязан видеть это там, где нанимает.
  */
 export function Masters() {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const m = mastersInfo(s);
   const up = upkeepInfo(s);
-  const spearman = TROOP_BY_ID.spearman.one;
+  const soldier = TROOP_BY_ID[MASTER_PAID_AS];
 
   return (
     <>
@@ -52,10 +54,14 @@ export function Masters() {
       <div className="mod">
         <span className="ico">⚔️</span>
         <span className="name">
-          Один {spearman} в жалованье — это
-          <em className="sub">одна казна платит либо ему, либо мастерам</em>
+          Мастер в жалованье
+          <em className="sub">
+            боец отнимает у стройки одни руки, мастер даёт {m.hands.toFixed(2)} — и стоит столько же бойцов
+          </em>
         </span>
-        <span className="val">{m.perSpearman.toFixed(1)} мастера</span>
+        <span className="val">
+          {m.inSoldiers.toFixed(2)} × {soldier.one}
+        </span>
       </div>
       <div className="mod">
         <span className="ico">🔨</span>

@@ -174,7 +174,7 @@ async function goldSection(end: number | null, arc: Town | null): Promise<void> 
         `${wages.padStart(26)} | ${income.padStart(10)}`,
     );
   row('дуга без войска', arc, '—', '—', '—', '—', '—', '—');
-  const out: { army: number; power: number; town: Town; masters: number; perSpearman: number }[] = [];
+  const out: { army: number; power: number; town: Town; masters: number; wage: number; inSoldiers: number }[] = [];
   for (const [label, masters] of [
     ['по умолчанию', false],
     ['вложился в админветвь', true],
@@ -192,7 +192,8 @@ async function goldSection(end: number | null, arc: Town | null): Promise<void> 
     });
     const up = upkeepInfo(g);
     const t = townOf(g);
-    out.push({ army: armySize(g), power: armyPower(g), town: t, masters: mastersCount(g), perSpearman: mastersInfo(g).perSpearman });
+    const mi = mastersInfo(g);
+    out.push({ army: armySize(g), power: armyPower(g), town: t, masters: mastersCount(g), wage: mi.wage, inSoldiers: mi.inSoldiers });
     row(
       label,
       t,
@@ -211,7 +212,7 @@ async function goldSection(end: number | null, arc: Town | null): Promise<void> 
       `ср. уровень ${d(a.town.avg, b.town.avg, 1)}, макс. уровень ${d(a.town.max, b.town.max)}, стройка ${d(a.town.rate, b.town.rate, 1)}/с.`,
   );
   console.log(
-    `  Мастеров к сроку ${b.masters}; один копейщик в жалованье — ${b.perSpearman.toFixed(1)} мастера (\`sim/masters.mastersInfo\`, та же ведомость).`,
+    `  Мастеров к сроку ${b.masters}; мастер стоит ${b.wage.toFixed(2)} в игровой день — ${b.inSoldiers.toFixed(2)} копейщика (\`derived.masterWage\`: жалованье копейщика × руки мастера).`,
   );
   console.log(
     `  Против дуги без войска: у «по умолчанию» жителей ${d(arc.pop, a.town.pop)}, ср. уровень ${d(arc.avg, a.town.avg, 1)}; ` +
