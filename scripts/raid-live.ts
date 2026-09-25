@@ -171,6 +171,8 @@ interface Opts {
   also?: (g: GameState) => void;
   /** Изучает ли игрок ступени ветвей; нет — как у общего автопилота, изучает. */
   study?: boolean;
+  /** Вложился в административную ветвь: берёт наёмных мастеров первым, до войска (`Player.masters`). */
+  masters?: boolean;
   /**
    * Как часто игрок решает, игровых секунд; нет — раз в полдня (30 с). Ручка замера: приёмка решает
    * раз в полдня, другой шаг ставит только перемер «зависит ли исход от частоты решений».
@@ -230,6 +232,7 @@ export async function live(o: Opts): Promise<Out> {
       build: o.build ? { skip: [] } : false,
       also: o.also,
       ...(o.study === undefined ? {} : { study: o.study }),
+      ...(o.masters ? { masters: true } : {}),
     }),
     world: { seed: o.seed, pulse: 30, raids: true, ripe: o.ripe, step: o.step ?? GAME, ref: o.ref },
     economy: 'live',

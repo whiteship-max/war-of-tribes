@@ -11,7 +11,8 @@
 //
 //   npm run raid-hiring:report
 //   DECIDE_SWEEP=1 npm run raid-hiring:report   — только перемер «зависит ли исход от частоты решений» (docs/hiring.md, раздел 16)
-import { cadenceSection, hiringSection } from './raid-hiring';
+//   MASTERS_SWEEP=1 npm run raid-hiring:report  — только спор за золото с набегами: отнимают ли мастера у войска
+import { cadenceSection, hiringSection, mastersSection } from './raid-hiring';
 import { infirmarySection } from './raid-infirmary';
 import { burntSection } from './raid-burnt';
 import { measure } from './lib/measured';
@@ -27,6 +28,9 @@ const lap = (name: string): void => {
 if (process.env.DECIDE_SWEEP) {
   // Перемер одного свойства прибора (docs/hiring.md, раздел 16) — не приёмка, и прочих разделов не гонит.
   await cadenceSection();
+} else if (process.env.MASTERS_SWEEP) {
+  // Спор за золото с набегами (docs/admin_branch.md, раздел 4.1) — замер, не приёмка; прочих разделов не гонит.
+  await mastersSection();
 } else {
   const hired = await hiringSection();
   lap('Найм');

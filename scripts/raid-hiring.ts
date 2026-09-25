@@ -60,6 +60,7 @@ import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
 import { ORDER_UNREST, ORDER_WARN, RESOURCE_IDS } from '@/game/constants';
 import {
+  armyPower,
   armySize,
   bondedIdle,
   bondedTotal,
@@ -71,6 +72,8 @@ import {
   productionPerDay,
   takesBonded,
   taxIncomePerDay,
+  upkeepInfo,
+  mastersCount,
   wagesPerDay,
 } from '@/game/derived';
 import {
@@ -150,6 +153,8 @@ interface FreshSpec {
   study?: boolean;
   /** Как часто игрок решает, игровых секунд; нет — как у приёмки, раз в полдня. */
   decide?: number;
+  /** Вложился в административную ветвь: берёт наёмных мастеров первым, до войска. */
+  masters?: boolean;
 }
 
 /** Прогон партии с первой секунды на одном мире и что прибор снял с неё к 1/2/4/6 ч. */
@@ -158,6 +163,8 @@ interface FreshRun {
   army: (number | undefined)[];
   pop: (number | undefined)[];
   lvl: (number | undefined)[];
+  /** Спор за золото на тех же отметках: мастера, мощь войска, жалованье войску и мастерам, доход казны. */
+  gold: ({ masters: number; power: number; armyWages: number; mastersWages: number; income: number } | undefined)[];
 }
 
 /** Задача веера (`lib/fan.ts`): партия с первой секунды одним поведением на одном мире. */
@@ -166,6 +173,7 @@ export async function freshRun(a: { spec: FreshSpec; seed: number }): Promise<Fr
   const army: (number | undefined)[] = [];
   const pop: (number | undefined)[] = [];
   const lvl: (number | undefined)[] = [];
+  const gold: FreshRun['gold'] = [];
   setRandom(seeded(seed));
   const g = createInitialState(seed);
   g.tutorialDone = true;
@@ -174,6 +182,7 @@ export async function freshRun(a: { spec: FreshSpec; seed: number }): Promise<Fr
     seed,
     style: spec.style,
     study: spec.study,
+    masters: spec.masters,
     decide: spec.decide,
     hours: FRESH_HOURS,
     ripe: false,
@@ -184,10 +193,12 @@ export async function freshRun(a: { spec: FreshSpec; seed: number }): Promise<Fr
       army[i] = armySize(x);
       pop[i] = x.pop;
       lvl[i] = sum(x.buildings.map((b) => b.level)) / x.buildings.length;
+      const up = upkeepInfo(x);
+      gold[i] = { masters: mastersCount(x), power: armyPower(x), armyWages: up.armyWages, mastersWages: up.mastersWages, income: up.income };
     },
   });
   setRandom(null);
-  return { out: portable(out), army, pop, lvl };
+  return { out: portable(out), army, pop, lvl, gold };
 }
 
 /**
@@ -248,6 +259,54 @@ export async function cadenceSection(): Promise<void> {
     { label: 'высокий налог', spec: { style: 'meansHigh' } },
   ];
   await freshRows(specs.flatMap(({ label, spec }) => [30, 90, 300].map((decide) => ({ ...spec, label: `${label} · раз в ${String(decide / DAY_LENGTH).replace('.', ',')} игр. дн.`, decide }))));
+}
+
+/**
+ * Спор за золото с набегами (docs/admin_branch.md, раздел 4.1): отнимает ли игрок, вложившийся в
+ * административную ветвь, у собственного войска. В тихом мире казна у игрока по умолчанию не
+ * упирается, и спора там не увидеть по определению (`pop:report`, «Спор за золото»); здесь мир как
+ * есть, с набегами, — тот, где у раздела Б найм встаёт на казне.
+ *
+ * Строки — игрок по умолчанию раздела Б («высокий налог», изучает) и тот же игрок, который берёт
+ * наёмных мастеров первым, до войска, тем же правилом «по средствам» (`autopilot.hireMastersByMeans`).
+ * Прибор тот же, что у раздела Б, — `freshRun`, те же миры и срок. В приёмку раздел не входит —
+ * `MASTERS_SWEEP=1 npm run raid-hiring:report`.
+ */
+export async function mastersSection(): Promise<void> {
+  unitsNote();
+  console.log('');
+  console.log('=== Спор за золото с набегами: отнимают ли мастера у войска ===');
+  console.log(`Партия с первой секунды, как раздел Б «Найма»: ${FRESH_HOURS} ч, миры ${NEW_SEEDS.join(', ')}, мир как есть (набеги идут), автопилот строит.`);
+  console.log('«вложился в админветвь» — тот же игрок, но наёмных мастеров берёт первым, до войска, тем же правилом «по средствам».');
+  console.log(FRESH_HEADER);
+  const specs: FreshSpec[] = [
+    { label: 'высокий налог', style: 'meansHigh' },
+    { label: 'высокий налог, вложился в админветвь', style: 'meansHigh', masters: true },
+  ];
+  const runs = await fan(freshRun, import.meta.url, specs.flatMap((spec) => NEW_SEEDS.map((seed) => ({ spec, seed }))));
+  const rows = specs.map((spec, k) => runs.slice(k * NEW_SEEDS.length, (k + 1) * NEW_SEEDS.length));
+  specs.forEach((spec, k) => freshRow(spec, rows[k]));
+  console.log('');
+  console.log(`Спор числом — среднее по мирам на отметках ${FRESH_AT.map((h) => `${h} ч`).join(' / ')}:`);
+  console.log(' строка                                   | войско           | мощь войска           | мастера      | жалованье войску       | жалованье мастерам | доход казны');
+  const at = (r: FreshRun[], i: number, f: (x: NonNullable<FreshRun['gold'][number]>) => number): number =>
+    mean(r.map((x) => x.gold[i]).filter((x) => x !== undefined).map((x) => f(x as NonNullable<FreshRun['gold'][number]>)));
+  const col = (r: FreshRun[], f: (i: number) => number, d = 0): string => FRESH_AT.map((_, i) => f(i).toFixed(d)).join(' / ');
+  specs.forEach((spec, k) => {
+    const r = rows[k];
+    console.log(
+      ` ${spec.label.padEnd(40)} | ${col(r, (i) => mean(r.map((x) => x.army[i] ?? 0))).padEnd(16)} | ${col(r, (i) => at(r, i, (g) => g.power)).padEnd(21)} | ` +
+        `${col(r, (i) => at(r, i, (g) => g.masters)).padEnd(12)} | ${col(r, (i) => at(r, i, (g) => g.armyWages)).padEnd(22)} | ` +
+        `${col(r, (i) => at(r, i, (g) => g.mastersWages)).padEnd(18)} | ${col(r, (i) => at(r, i, (g) => g.income))}`,
+    );
+  });
+  const [a, b] = rows;
+  const diff = FRESH_AT.map((h, i) => {
+    const x = mean(a.map((r) => r.army[i] ?? 0));
+    const y = mean(b.map((r) => r.army[i] ?? 0));
+    return `${h} ч: ${x.toFixed(0)} → ${y.toFixed(0)} (${y - x >= 0 ? '+' : ''}${(y - x).toFixed(0)})`;
+  });
+  console.log(`  Войско вложившегося против игрока по умолчанию: ${diff.join('; ')}.`);
 }
 
 /** Срок и уровни лестницы мерки (раздел А). */
