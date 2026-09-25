@@ -157,6 +157,12 @@ export class Dome {
   private starMat: THREE.PointsMaterial;
   private orb: THREE.Mesh;
   private orbMat: THREE.MeshBasicMaterial;
+  /**
+   * Во сколько раз диск солнца ярче белого (`setGain`). В канву больше белого не
+   * нарисовать, и там это единица; в цели половинной точности (`post.ts`) из этого
+   * запаса растёт свечение.
+   */
+  private glare = 1;
 
   constructor() {
     const geo = new THREE.SphereGeometry(RADIUS, 32, 16);
@@ -216,6 +222,20 @@ export class Dome {
     this.root.add(this.sky, this.stars, this.orb);
   }
 
+  /**
+   * Яркость неба и солнца для кадра, который тонируется после сцены (`post.ts`).
+   *
+   * В канву купол рисуется как есть — это цвета экрана. В цель половинной точности он
+   * ложится светом, и дальше его сжимает ACES вместе со всей сценой: небо, оставленное
+   * единицей, выходило бы серым картоном, а солнце — не ярче снега, и свечению не из
+   * чего было бы расти. Меняется одно число материала и одно — светила.
+   */
+  setGain(sky: number, sun: number): void {
+    (this.sky.material as THREE.MeshBasicMaterial).color.setScalar(sky);
+    this.starMat.color.setScalar(sky);
+    this.glare = sun;
+  }
+
   /** Купол ездит за глазом: небо не приближается, сколько ни иди. */
   follow(eye: THREE.Vector3): void {
     this.root.position.copy(eye);
@@ -265,7 +285,7 @@ export class Dome {
     if (!this.orb.visible) return;
     this.orb.position.copy(dir).multiplyScalar(ORB_AT);
     this.orb.scale.setScalar(sun ? 2.6 : 2.2);
-    this.orbMat.color.copy(sun ? TMP_C.copy(g).lerp(SUN, 0.55) : MOON);
+    this.orbMat.color.copy(sun ? TMP_C.copy(g).lerp(SUN, 0.55).multiplyScalar(this.glare) : MOON);
     this.orbMat.opacity = Math.min(1, k * 1.5);
   }
 

@@ -47,6 +47,7 @@ import { PrologueScene, type PrologueView } from './scene';
 export function Prologue({ onExit }: { onExit: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef<HTMLDivElement>(null);
+  const meterRef = useRef<HTMLDivElement>(null);
   const hugRef = useRef<HTMLDivElement>(null);
   const frostRef = useRef<HTMLDivElement>(null);
   const blindRef = useRef<HTMLDivElement>(null);
@@ -81,6 +82,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     sceneRef.current = scene;
     scene.onView = setView;
     scene.stickEl = stickRef.current;
+    scene.meterEl = meterRef.current;
     scene.hugEl = hugRef.current;
     scene.frostEl = frostRef.current;
     scene.blindEl = blindRef.current;
@@ -104,6 +106,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       canvas.removeEventListener('pointerdown', drop);
       scene.onView = null;
       scene.stickEl = null;
+      scene.meterEl = null;
       scene.hugEl = null;
       scene.frostEl = null;
       scene.blindEl = null;
@@ -161,6 +164,8 @@ export function Prologue({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="pro" ref={wrapRef}>
+      {/* Замерник кадров — по адресу `?fps=1`, владельцу на телефоне: ступень и кадры. */}
+      {METER && <div className="pro-meter" ref={meterRef} aria-hidden="true" />}
       {/* Стик ходьбы. Сидит в разметке всегда и прячется прозрачностью: заводить
           и убирать узел на каждое касание дороже, чем подвинуть готовый. */}
       <div className="pro-stick" ref={stickRef} aria-hidden="true">
@@ -575,6 +580,13 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     </div>
   );
 }
+
+/**
+ * Показывать ли замерник кадров. Только по адресу (`?fps=1`): игроку он ни к чему, а
+ * владельцу на телефоне — единственный способ увидеть, какая ступень встала и держит ли
+ * она тридцать (docs/prologue.md, раздел 20).
+ */
+const METER = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fps') === '1';
 
 /** Значок у каждой вещи. Таблица, а не ветвление: новая вещь без значка не соберётся. */
 const ITEM_ICON: Record<ItemId, ReactNode> = {

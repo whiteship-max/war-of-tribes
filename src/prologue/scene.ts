@@ -104,6 +104,32 @@ import {
 } from './sky';
 import { Dome, newTone, toneAt } from './dome';
 import { Surfaces } from './surface';
+import { ACES, Post, type Light } from './post';
+import {
+  EXPOSE_BASE,
+  FIRE_DAY,
+  FIRE_DECAY,
+  FIRE_GLARE,
+  GAP_MS,
+  HAZE_GAIN,
+  LOOK_KEY,
+  MIE,
+  SKY_GAIN,
+  SNOW_BOUNCE,
+  SUN_GLARE,
+  Steady,
+  TIERS,
+  exposure,
+  fireGain,
+  mistAt,
+  sceneLight,
+  startTier,
+  storeTier,
+  storedTier,
+  sunTransmit,
+  tierOf,
+  type Tier,
+} from './look';
 import { ADDITIVE, BOY_LOOK, LOOKS, MOOD_BLINK, MOOD_CALM, MOOD_WARM, MOOD_WARY, RAIDER_LOOK, bake, glowCanvas, mix, sleeveCanvas, type Mood } from './paint';
 import { arm as armModel, boy as boyModel, raider as raiderModel, setMood, skinOf, woman as womanModel, type Hold, type Skin } from './people';
 import {
@@ -464,20 +490,86 @@ const HOWL_SPREAD_MS = 12_000;
 const SHADOW_HALF = 20;
 
 /**
- * Отсвет костра: докуда достаёт, как быстро гаснет с расстоянием и во сколько
- * раз ярче ночью.
+ * Отбрасывает ли тень стена леса — по ступеням.
+ *
+ * На обеих ступенях с конвейером — да, и это самая большая перемена света в пачке:
+ * низкое утреннее солнце стоит за стеной, поляна лежит в её тени, а сквозь просветы между
+ * кронами на снег ложатся полосы солнца. Стоит это нескольких вызовов в теневом проходе
+ * (стена склеена в меши по материалам) и её треугольников; отдельно от ступени это не
+ * мерено — цена всей `lite` в docs/prologue.md, раздел 20. Без этой тени утро на телефоне
+ * и на ПК было бы разным временем суток. У пола тени стены нет, как не было.
+ */
+const FOREST_SHADOW: Record<Tier, boolean> = { full: true, lite: true, base: false };
+
+/**
+ * Карта теней полной ступени и её коробка, когда тень бросает и стена леса.
+ *
+ * Коробка шире поляны на кольцо стены: тень ели на опушке ложится на поляну, только
+ * если сама ель попала в коробку. На полной ступени карта вдвое подробнее, и тексель
+ * мельче, чем был на поляне; на `lite` карта прежняя, и на шире коробке тексель крупнее
+ * на треть — это её цена за тень стены.
+ */
+const SHADOW_MAP_FULL = 2048;
+const SHADOW_HALF_WOODS = 26;
+
+/**
+ * Мягкие тени полной ступени (`surface.SOFT_PARS`): на какой угол расходится полутень и
+ * до какой ширины, в метрах.
+ *
+ * Солнце — диск в полградуса, но зимний воздух его размывает, и полутень у настоящей
+ * тени шире: 1.1° — ель в десяти метрах от снега даёт полутень в двадцать сантиметров,
+ * стена леса в тридцати — в метр с лишним; дальше полутень не растёт (`SOFT_REACH`),
+ * иначе поиск заслоняющих стал бы дороже самой тени.
+ */
+const SOFT_ANGLE = 0.02;
+const SOFT_REACH = 1.2;
+
+/**
+ * Во сколько раз шире затвор под крышей в объятии.
+ *
+ * Свет в срубе подобран снимками при прежнем тонировании (Neutral, затвор единица), а
+ * ACES в тенях темнее Neutral больше чем вдвое: сруб изнутри выходил чёрным, с одним
+ * знаком посреди. Глаз, ушедший со снега в полутьму, так и делает — открывается.
+ */
+const ROOF_ADAPT = 2.4;
+
+/** Яркость цвета — та же мера, что у тонирования, в линейных R, G, B. */
+const lum = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+/** Рабочие числа света: перекладка неба зовётся часто, мусора быть не должно. */
+const TINT: [number, number, number] = [1, 1, 1];
+const _size = new THREE.Vector2();
+const _bounce = new THREE.Color();
+/** Цвет снега, который отдаёт свет снизу, — тот же, что у снежинки. */
+const SNOW_WHITE = new THREE.Color(PALETTE.snowflake);
+const DEG = Math.PI / 180;
+
+/**
+ * Отсвет костра: во сколько раз ярче ночью и как пересчитана его сила.
  *
  * НОЧЬЮ КОСТЁР — НАСТОЯЩИЙ СВЕТ, А НЕ ЛУЖА У НОГ. Прежний отсвет (дальность 14,
  * спад 1.6, ночью ×3.2) заливал землю в двух шагах от огня до жёлтого, а стволы в
  * семи метрах и стены дома в пяти оставались чёрными: огонь читался нарисованным.
- * Числа выведены из того, что должно быть видно, а не подобраны: у ног (полтора
- * метра) — около восьми десятых цвета поверхности, у лица женщины (три метра) —
- * треть, у деревьев поляны (семь с половиной) — десятая. Отсюда мягкий спад 1.25
- * и ночная прибавка втрое, а не яркость, выгорающая у самого огня.
+ * Числа тогда вывели из того, что должно быть видно: у лица женщины (три метра) —
+ * треть цвета поверхности; отсюда был мягкий спад 1.25 при дальности 18.
+ *
+ * ТЕПЕРЬ СПАД ФИЗИЧЕСКИЙ — ОБРАТНЫЕ КВАДРАТЫ (`look.FIRE_DECAY`), и дальности у огня
+ * нет. Сила пересчитана так, чтобы у лица женщины свет остался прежним
+ * (`look.fireGain` от прежних спада и дальности): у ног огонь ярче, у стволов
+ * поляны темнее, а видимость вдали держит экспозиция ночи (`look.exposure`) и
+ * тонирование, которое не даёт выгореть тому, что у самого огня.
  */
-const FIRE_RANGE = 18;
-const FIRE_DECAY = 1.25;
+const FIRE_DECAY_WAS = 1.25;
+const FIRE_RANGE_WAS = 18;
+const FIRE_GAIN = fireGain(FIRE_DECAY_WAS, FIRE_RANGE_WAS);
 const FIRE_NIGHT = 2;
+
+/**
+ * Во сколько раз огонь сильнее дневного по глубине ночи: ночью — как было (1 + 2), днём —
+ * `look.FIRE_DAY` от ночной силы. Рядом с солнцем костра не видно, и при физическом
+ * спаде днём он не должен красить снег у ног.
+ */
+const fireBy = (night: number): number => (1 + FIRE_NIGHT) * (FIRE_DAY + (1 - FIRE_DAY) * night);
 
 /**
  * Дым костра: свои размеры, а не общие с деревней.
@@ -1237,6 +1329,68 @@ export class PrologueScene {
    */
   private foeList: Foe[] = [];
 
+  /**
+   * Кадр после сцены (`post.ts`) и сторож его плавности (`look.Steady`).
+   *
+   * Ступень выбрана по тому, что умеет устройство (`look.startTier`), и проверяется
+   * кадрами на нём самом: не держит тридцати — опускается, и устройство это помнит
+   * (`look.LOOK_KEY`). Ступень, заданная руками — адресом `?look=` или стендом, —
+   * приколота: сторож её не трогает, иначе замер мерил бы не ту ступень, что просили.
+   */
+  private post: Post;
+  private steady: Steady;
+  private pinned = false;
+  /** Что устройство вообще умеет: без целей половинной точности ступень одна. */
+  private hdr = false;
+  /**
+   * Туман материалов — у пола (`base`). У двух других ступеней дымку считает итог
+   * конвейера по глубине, и туман материалов лёг бы на неё второй раз.
+   */
+  private fog = new THREE.Fog(PALETTE.fog, FOG_NEAR, FOG_FAR);
+  /** Стена леса: тень ей дают ступени с конвейером (`FOREST_SHADOW`). */
+  private woods: THREE.Object3D | null = null;
+  /** Свет кадра для конвейера: перекладывается вместе с небом (`applySky`). */
+  private light: Light = {
+    sunDir: new THREE.Vector3(0, 1, 0),
+    sun: new THREE.Color(),
+    haze: new THREE.Color(),
+    sunUp: 0,
+    mist: { density: 0, height: 1 },
+    exposure: 1,
+    mie: MIE,
+    zenith: 0,
+  };
+  /**
+   * Своё пламя: копии общих материалов огня, как копии материалов поляны у
+   * `surface.ts`. На ступенях с конвейером пламя ярче белого (`look.FIRE_GLARE`), и
+   * общий материал огня деревни при этом не меняется ни на бит.
+   */
+  private flameMats: { mat: THREE.MeshBasicMaterial; base: THREE.Color }[] = [];
+  /**
+   * Затвор по небу (`applySky`) и во сколько раз его открывает темнота под крышей: в
+   * объятии камера уходит в сруб, и глаз, привыкший к снегу, привыкает к полутьме.
+   */
+  private skyExposure = 1;
+  private underRoof = false;
+  /**
+   * Замерник кадров (`?fps=1`): ступень, кадры в секунду и худший кадр за секунду.
+   * Владельцу на телефоне — единственное место, где меряется то, ради чего ступени
+   * заведены: стенд меряет видеокарту ПК, а не телефона.
+   */
+  meterEl: HTMLElement | null = null;
+  private meterN = 0;
+  private meterMs = 0;
+  private meterWorst = 0;
+  /** Полуденный свет рига — мера, к которой привыкает глаз (`look.exposure`). */
+  private noonSun = 1;
+  private noonSky = 1;
+  /**
+   * Карта теней рига, какой он её завёл. Берётся у самого рига, а не именем из общего
+   * модуля света: имя, впервые взятое предысторией у кода деревни, дописалось бы в экспорт
+   * игрового чанка — то есть в первую загрузку.
+   */
+  private mapBase = 1024;
+
   /** Небо куполом: градиент, светило и звёзды (`dome.ts`), и цвет часа для него. */
   private dome = new Dome();
   private tone = newTone();
@@ -1397,6 +1551,16 @@ export class PrologueScene {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     configureRenderer(this.renderer);
+    /*
+     * Тонирование — ACES, а не Neutral деревни. Деревня держит плоские цвета палитры
+     * и ушла от ACES нарочно: он серил зелень. Поляна — не диорама, а лес, который
+     * обязан выглядеть снятым (решение владельца): свет ярче белого сжимается плёнкой,
+     * тени уходят в глубину, а не в серое. Число, а не имя: первая загрузка (`post.ACES`).
+     */
+    this.renderer.toneMapping = ACES;
+    // Кадр — это несколько проходов, и счёт вызовов обязан быть за весь кадр, а не за
+    // последний проход: сбрасывает его цикл кадра (`loop`).
+    this.renderer.info.autoReset = false;
     configureSky(this.scene);
     /*
      * Туман. Прежние 16–34 съедали лес целиком: дальние стволы выцветали до
@@ -1404,13 +1568,20 @@ export class PrologueScene {
      * Теперь дымка начинается там, где кончается поляна, и добирает цвет к
      * самому краю земли — деревья за спиной у ближних остаются деревьями.
      */
-    this.scene.fog = new THREE.Fog(PALETTE.fog, FOG_NEAR, FOG_FAR);
+    this.scene.fog = this.fog;
 
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 90);
     this.camera.position.set(this.px, EYE, this.pz);
 
     this.rig = createLightRig(this.scene);
+    // Риг ставит полуденные силы до того, как их раскладывает час: их и берём мерой.
+    this.noonSun = this.rig.sun.intensity;
+    this.noonSky = this.rig.hemi.intensity * lum(this.rig.hemi.color);
+    this.mapBase = this.rig.sun.shadow.mapSize.x;
     fitShadow(this.rig, SHADOW_HALF);
+    const tier = this.pickTier();
+    this.post = new Post(this.renderer, tier);
+    this.steady = new Steady(tier);
     // ПРЕДЫСТОРИЯ ИДЁТ ЗИМОЙ. Сезон общий на всю игру — материалы одни, — поэтому
     // поляна ставит свою зиму мгновенно, до того как снять копии материалов
     // (`surfaces.adopt` ниже берёт цвет уже зимним), а деревня вернёт свой сезон тем
@@ -1426,9 +1597,10 @@ export class PrologueScene {
     const growth = undergrowth();
     // Пятна тени — одним мешем на весь лес и на всё, что стоит на поляне.
     const shade = new Shade();
+    this.woods = this.surfaces.adopt(forest(shade), 'crown');
     this.scene.add(
       this.surfaces.adopt(gladeGround()),
-      this.surfaces.adopt(forest(shade), 'crown'),
+      this.woods,
       this.surfaces.adopt(tent()),
       this.surfaces.adopt(chopBlock()),
       this.surfaces.adopt(growth.sway, 'tuft'),
@@ -1439,9 +1611,17 @@ export class PrologueScene {
     const fire = this.surfaces.adopt(campfire());
     this.flame = fire.getObjectByName('flame') ?? null;
     this.flameInner = fire.getObjectByName('flameInner') ?? null;
+    for (const o of [this.flame, this.flameInner]) {
+      const m = o as THREE.Mesh | null;
+      if (!m?.isMesh) continue;
+      const mat = (m.material as THREE.MeshBasicMaterial).clone();
+      m.material = mat;
+      this.flameMats.push({ mat, base: mat.color.clone() });
+    }
     this.scene.add(fire);
 
-    this.fireLight = new THREE.PointLight(PALETTE.fireLight, 0.9, FIRE_RANGE, FIRE_DECAY);
+    // Дальности у огня нет: спад физический, и свет гаснет сам (`look.FIRE_DECAY`).
+    this.fireLight = new THREE.PointLight(PALETTE.fireLight, 0.9, 0, FIRE_DECAY);
     this.fireLight.position.set(0, 0.9, 0);
     this.scene.add(this.fireLight);
     this.fireGlow.position.set(FIRE.x, 0.62, FIRE.z);
@@ -1491,6 +1671,7 @@ export class PrologueScene {
     const hello = welcome(this.save, this.save.hearth, met, met - this.save.body.at);
     if (hello) this.say(hello);
 
+    this.applyTier(tier);
     this.resize();
     this.wire();
     this.last = performance.now();
@@ -2438,14 +2619,102 @@ export class PrologueScene {
     if (this.stopped) return;
     this.frame = requestAnimationFrame(this.loop);
     const t = performance.now();
+    const gap = t - this.last;
     // Потолок шага: вкладка могла простоять в фоне, и без него первый кадр
     // после возвращения был бы прыжком через полполяны.
-    const dt = Math.min(0.05, (t - this.last) / 1000);
+    const dt = Math.min(0.05, gap / 1000);
     this.last = t;
 
     this.step(dt, t);
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.info.reset();
+    this.light.exposure = this.skyExposure * (this.underRoof ? ROOF_ADAPT : 1);
+    this.post.render(this.scene, this.camera, this.light);
+    this.watch(gap);
+    this.meter(gap);
   };
+
+  /** Замерник кадров: раз в секунду — ступень, кадры в секунду и худший кадр. */
+  private meter(ms: number): void {
+    const el = this.meterEl;
+    if (!el || ms > GAP_MS) return;
+    this.meterN++;
+    this.meterMs += ms;
+    this.meterWorst = Math.max(this.meterWorst, ms);
+    if (this.meterMs < 1000) return;
+    el.textContent = `${this.post.getTier()} · ${Math.round((this.meterN * 1000) / this.meterMs)} к/с · худший ${Math.round(this.meterWorst)} мс`;
+    this.meterN = 0;
+    this.meterMs = 0;
+    this.meterWorst = 0;
+  }
+
+  /**
+   * Сторож плавности: кормится длительностью кадра и опускает ступень, если кадр не
+   * держит тридцати (`look.Steady`). Опустил — устройство это запоминает на неделю.
+   */
+  private watch(ms: number): void {
+    if (this.pinned) return;
+    // Пока печатают имя сына, кадры дёргает клавиатура, а не ступень: судить по ним
+    // нельзя — иначе телефон опустился бы на неделю из-за своей же клавиатуры.
+    if (typing(document.activeElement)) return;
+    const next = this.steady.feed(ms);
+    if (!next) return;
+    this.applyTier(next);
+    try {
+      localStorage.setItem(LOOK_KEY, storeTier(next, serverNow()));
+    } catch {
+      // Приватное окно без хранилища: в следующий раз сторож опустит ступень снова.
+    }
+  }
+
+  /** С какой ступени начать: что умеет видеокарта, какой указатель, что помнит устройство. */
+  private pickTier(): Tier {
+    const ext = this.renderer.extensions;
+    this.hdr = ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float');
+    const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    let stored: Tier | null = null;
+    try {
+      stored = storedTier(localStorage.getItem(LOOK_KEY), serverNow());
+    } catch {
+      stored = null;
+    }
+    const asked = tierOf(new URLSearchParams(window.location.search).get('look'));
+    this.pinned = !!asked && this.hdr;
+    return startTier({ hdr: this.hdr, coarse }, stored, asked);
+  }
+
+  /**
+   * Поставить ступень: конвейер, туман материалов, тени стены леса, яркость неба.
+   *
+   * Смена ступени пересобирает шейдеры материалов (туман у них то есть, то нет) —
+   * это заметная заминка, и потому ступень меняется редко: при входе и когда сторож
+   * опускает её, а не туда-обратно.
+   */
+  private applyTier(tier: Tier): void {
+    this.post.setTier(tier);
+    this.scene.fog = tier === 'base' ? this.fog : null;
+    const cast = FOREST_SHADOW[tier];
+    this.woods?.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = cast;
+    });
+    const size = tier === 'full' ? SHADOW_MAP_FULL : this.mapBase;
+    const sh = this.rig.sun.shadow;
+    if (sh.mapSize.x !== size) {
+      sh.mapSize.set(size, size);
+      sh.map?.dispose();
+      sh.map = null;
+    }
+    fitShadow(this.rig, cast ? SHADOW_HALF_WOODS : SHADOW_HALF);
+    // Мягкие тени — числами карты: сколько её долей на метр полутени.
+    const sc = sh.camera;
+    const across = sc.right - sc.left;
+    this.surfaces.u.penumbra.value = ((sc.far - sc.near) * SOFT_ANGLE) / across;
+    this.surfaces.u.search.value = SOFT_REACH / across;
+    this.surfaces.setSoft(tier === 'full');
+    this.dome.setGain(tier === 'base' ? 1 : SKY_GAIN, tier === 'base' ? 1 : SUN_GLARE);
+    for (const f of this.flameMats) f.mat.color.copy(f.base).multiplyScalar(tier === 'base' ? 1 : FIRE_GLARE);
+    // Свет перекладывается заново: у разных ступеней разная яркость неба.
+    this.skySolar = -1;
+  }
 
   private step(dt: number, t: number): void {
     const look = this.sticks.takeLook();
@@ -3024,9 +3293,27 @@ export class PrologueScene {
     this.skySolar = solar;
     this.skyGloom = g;
     applyDayNight(this.rig, this.scene, solar, this.season);
-    // Цвет часа поверх рига: холодное утро, белый полдень, рыжий закат (`dome.ts`).
     const tone = toneAt(solar, this.tone);
-    this.rig.sun.color.lerp(tone.light, tone.lightK);
+    const dark = darkness(now);
+    const day = 1 - dark;
+    const sun = this.rig.sun;
+    /*
+     * СВЕТ ДНЁМ — СОЛНЦЕ СКВОЗЬ ВОЗДУХ, А НЕ ЦВЕТ ЧАСА ИЗ ТАБЛИЦЫ. Прежде утро было
+     * холодным по решению таблицы ключей (`dome.ts`), а низкое солнце гасилось правилом
+     * по месту. Теперь и сила, и цвет — одна формула: свет идёт к земле сквозь толщу
+     * воздуха (`look.sunTransmit`), и на двадцати градусах её вдвое больше, чем в зимний
+     * полдень, — солнце тусклее и теплее, тени синее. Цвет часа остаётся за ночью и сумерками,
+     * где светит не солнце.
+     */
+    sun.color.lerp(tone.light, tone.lightK * dark);
+    const lamp = SUN_DIR.copy(sun.position).normalize();
+    const noon = (12 + 40 * this.season.sunArc) * DEG;
+    sunTransmit(Math.max(0, Math.asin(Math.min(1, lamp.y))), noon, TINT);
+    sun.color.setRGB(
+      sun.color.r * (1 + (TINT[0] - 1) * day),
+      sun.color.g * (1 + (TINT[1] - 1) * day),
+      sun.color.b * (1 + (TINT[2] - 1) * day),
+    );
     /*
      * Сумерки без солнца. Общий риг держит свет и после заката — деревне так
      * длиннее вечер, — и на поляне красный свет из-под горизонта красил кроны в
@@ -3036,23 +3323,48 @@ export class PrologueScene {
      */
     const elev = Math.sin(solar * Math.PI * 2);
     const dusk = 1 - Math.min(1, Math.abs(elev + 0.08) / 0.15);
-    this.rig.sun.intensity *= 1 - 0.75 * dusk * dusk * (3 - 2 * dusk);
-    // И низкое солнце слабее полуденного: у рига оно светит в полную силу до самого
-    // горизонта, и кроны на закате выгорали в золото вместо того, чтобы теплеть.
-    if (elev > 0) this.rig.sun.intensity *= 0.7 + 0.3 * Math.min(1, elev / 0.3);
-    this.rig.sun.intensity *= 1 - 0.55 * g;
+    sun.intensity *= 1 - 0.75 * dusk * dusk * (3 - 2 * dusk);
+    sun.intensity *= 1 - 0.55 * g;
     this.rig.hemi.intensity *= 1 - 0.2 * g;
+    /*
+     * СНЕГ ОТДАЁТ СВЕТ СНИЗУ. Полусфера рига снизу — цвет земли, и на траве это
+     * правда. Зимой под ногами снег, и он возвращает большую часть того, что на него
+     * упало: стволы, исподы крон и руки подсвечены снизу, и тень под деревом не
+     * проваливается в черноту. Сколько вернёт снег — от того, сколько на него падает
+     * сейчас: солнце по его высоте плюс всё небо (`look.SNOW_BOUNCE`).
+     */
+    const fall = sun.intensity * lum(sun.color) * Math.max(0, lamp.y) + this.rig.hemi.intensity * lum(this.rig.hemi.color);
+    const bounce = (SNOW_BOUNCE * fall) / Math.max(0.05, this.rig.hemi.intensity);
+    this.rig.hemi.groundColor.lerp(_bounce.copy(SNOW_WHITE).multiplyScalar(bounce), day);
     // Какая непогода: та, что идёт, или та, что вот-вот придёт.
     const here = weatherAt(now);
     const tint = (here === 'clear' ? nextWeather(now) : here) === 'snow' ? SNOW_TINT : RAIN_TINT;
-    this.dome.paint(tone, SUN_DIR.copy(this.rig.sun.position).normalize(), darkness(now), g, tint);
+    this.dome.paint(tone, lamp, dark, g, tint);
     // Туман и фон — цвета неба у горизонта: лес уходит в небо, а не упирается в него.
-    const fog = this.scene.fog as THREE.Fog;
+    const fog = this.fog;
     fog.color.copy(this.dome.haze);
     (this.scene.background as THREE.Color).copy(this.dome.horizon);
     // В дождь край видимости придвигается: лес тонет в серой мороси.
     fog.near = FOG_NEAR - (FOG_NEAR - FOG_NEAR_WET) * g;
     fog.far = FOG_FAR - (FOG_FAR - FOG_FAR_WET) * g;
+
+    /*
+     * Свет для конвейера (`post.ts`): куда светит солнце и каким, чем светится воздух,
+     * какая дымка у земли в этот час и во сколько раз открыт затвор. Ночью «солнце» —
+     * луна рига: ореол у неё слабый, лучей нет.
+     */
+    const li = this.light;
+    li.sunDir.copy(lamp);
+    li.sun.copy(sun.color).multiplyScalar(sun.intensity * (day + 0.25 * dark));
+    li.haze.copy(this.dome.haze).multiplyScalar(HAZE_GAIN * (0.35 + 0.65 * day));
+    li.sunUp = Math.min(1, Math.max(0, (lamp.y + 0.02) / 0.12)) * day * (1 - 0.85 * g);
+    li.zenith = day * (1 - g);
+    mistAt(solar, g, li.mist);
+    const fill = hearthFill(this.save.hearth, now);
+    const fireLux = fill > 0 ? (0.5 + fill * 0.9) * fireBy(dark) * FIRE_GAIN * lum(this.fireLight.color) : 0;
+    const seen = sceneLight(sun.intensity * lum(sun.color), lamp.y * day, this.rig.hemi.intensity * lum(this.rig.hemi.color), fireLux);
+    const noonSeen = sceneLight(this.noonSun, Math.sin(noon), this.noonSky, 0);
+    this.skyExposure = EXPOSE_BASE * exposure(seen, noonSeen);
   }
 
   /**
@@ -3240,12 +3552,12 @@ export class PrologueScene {
     /*
      * НОЧЬЮ КОСТЁР — НАСТОЯЩИЙ СВЕТ. Днём отсвет почти не виден (солнце ярче в
      * разы), ночью он и есть освещение поляны: достаёт до стволов, до сруба и до
-     * лица у очага (`FIRE_NIGHT`, `FIRE_DECAY`). Дрожь — три синуса разных частот,
+     * лица у очага (`FIRE_NIGHT`, `FIRE_GAIN`). Дрожь — три синуса разных частот,
      * и в яркости, и в месте: тени от огня живые, а не мигающие.
      */
     const night = darkness(now);
     const flick = 1 + Math.sin(s * 13.1) * 0.1 + Math.sin(s * 23.7 + 1.3) * 0.06 + Math.sin(s * 7.3 + 2.1) * 0.05;
-    this.fireLight.intensity = alive ? (0.5 + fill * 0.9) * (1 + night * FIRE_NIGHT) * flick : 0;
+    this.fireLight.intensity = alive ? (0.5 + fill * 0.9) * fireBy(night) * flick * FIRE_GAIN : 0;
     this.fireLight.position.set(FIRE.x + Math.sin(s * 5.3) * 0.06, 0.85 + Math.sin(s * 8.1) * 0.05, FIRE.z + Math.cos(s * 6.7) * 0.06);
     this.fireGlow.visible = alive;
     if (alive) {
@@ -4174,6 +4486,7 @@ export class PrologueScene {
     const k = (t - this.hugAt) / HUG_MS;
     if (k >= 1) {
       this.hugAt = 0;
+      this.underRoof = false;
       this.hugShow(0, 0);
       this.fireLight.position.set(0, 0.9, 0);
       this.fireLight.decay = FIRE_DECAY;
@@ -4183,6 +4496,7 @@ export class PrologueScene {
       return;
     }
     const inside = k >= HUG.cutIn && k < HUG.cutOut;
+    this.underRoof = inside;
     const veil =
       k < HUG.cutIn
         ? ramp(k, HUG.dim, HUG.cutIn)
@@ -4214,7 +4528,9 @@ export class PrologueScene {
     // коричневым полем, в котором не видно ни венцов, ни скатов.
     this.fireLight.position.set(HOUSE.x, 0.4, HOUSE.z);
     this.fireLight.decay = 2;
-    this.fireLight.intensity = Math.max(this.fireLight.intensity, HUG_GLOW);
+    // Сила огня поляны пересчитана под физический спад (`FIRE_GAIN`); свет в доме
+    // подобран снимками до этого — и берёт огонь в прежней мере.
+    this.fireLight.intensity = Math.max(this.fireLight.intensity / FIRE_GAIN, HUG_GLOW);
   }
 
   /** Затемнение и знак объятия: сцена двигает их сама, по долям одного числа. */
@@ -4377,6 +4693,8 @@ export class PrologueScene {
     const h = Math.max(1, r.height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(w, h, false);
+    const buf = this.renderer.getDrawingBufferSize(_size);
+    this.post.setSize(buf.x, buf.y);
     this.camera.aspect = w / h;
     // Угол — от формы экрана: на портрете горизонталь не уже `VIEW_H_MIN` (`glade.viewFov`).
     this.camera.fov = viewFov(w / h);
@@ -4572,6 +4890,32 @@ export class PrologueScene {
   }
 
   /**
+   * Ступени, которые это устройство умеет, — стенду (`npm run prologue:stand`, `LOOK=`).
+   * Без целей половинной точности ступень одна.
+   */
+  lookTiers(): Tier[] {
+    return this.hdr ? [...TIERS] : ['base'];
+  }
+
+  /**
+   * Поставить ступень руками — стенду и проверке глазами. Ступень приколота: сторож
+   * плавности её больше не опускает, иначе замер мерил бы не ту, что просили.
+   */
+  setLook(tier: Tier): void {
+    const t = this.hdr ? tier : 'base';
+    this.pinned = true;
+    this.steady.set(t);
+    this.applyTier(t);
+  }
+
+  /** Что стоит нынешняя ступень — строкой: размер кадра, проходы и память целей. */
+  lookInfo(): string {
+    const c = this.post.cost();
+    const pinned = this.pinned ? ', приколота' : '';
+    return `${c.tier}: ${c.width}×${c.height}, проходов ${c.passes}, цели ${c.mb.toFixed(1)} МБ${pinned}`;
+  }
+
+  /**
    * Уборка. Порядок тот же, что у диорамы: снять слушатели, освободить
    * геометрию, отдать контекст — и всё это, пока канва ещё в разметке.
    */
@@ -4611,6 +4955,8 @@ export class PrologueScene {
     for (const mat of this.sleeveMat) mat.dispose();
     this.eyeMat.dispose();
     this.fireGlow.material.dispose();
+    this.post.dispose();
+    for (const f of this.flameMats) f.mat.dispose();
     this.scene.clear();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

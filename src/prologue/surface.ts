@@ -16,7 +16,9 @@
  * Стоит это одной вставки в шейдер Ламберта: сдвиг вершины по синусу времени —
  * ветер, умножение цвета — сырость, подмешивание цвета снега по тому, насколько
  * грань смотрит вверх, — снег. Ни одного нового класса three, ни одного прохода,
- * ни одного вызова отрисовки: копии рисуются там же, где рисовались общие.
+ * ни одного вызова отрисовки: копии рисуются там же, где рисовались общие. Вторая
+ * вставка — мягкие тени полной ступени (`SOFT_PARS`), и она тоже без прохода: меняется
+ * только то, как тень читается из карты.
  */
 import * as THREE from 'three';
 import { PALETTE } from '@/render/palette';
@@ -95,6 +97,51 @@ const FRAG_BODY = /* glsl */ `#include <emissivemap_fragment>
   diffuseColor.rgb = mix( diffuseColor.rgb, proSnowColor, proSnow * proSnowK * smoothstep( 0.22, 0.68, proUp ) );
 }`;
 
+/**
+ * Мягкие тени: тень с контактным ужесточением (PCSS, Fernando 2005) вместо общей.
+ *
+ * ТЕНЬ У ОСНОВАНИЯ СТВОЛА РЕЗКАЯ, ОТ КРОНЫ В ДЕСЯТИ МЕТРАХ — РАЗМЫТАЯ. Так делает любое
+ * солнце: у него есть размер, и чем дальше от тени то, что её бросает, тем шире
+ * полутень. Общая тень рига одной ширины на всё — у пня и у стены леса, — и на снегу у
+ * костра читалась лесенкой. Здесь сперва ищутся заслоняющие (`PRO_BLOCKERS` выборок в
+ * круге поиска), по их средней глубине считается ширина полутени, и уже ею —
+ * `PRO_TAPS` выборок сглаживания. Круг поворачивается шумом по точке экрана: полутень
+ * зернится, а не полосит.
+ *
+ * Только на полной ступени и только сборкой (`PRO_SOFT`), а не ветвлением в шейдере:
+ * телефон не платит за неё ни такта. Общая тень рига деревни не меняется — вставка
+ * живёт в копиях поляны.
+ */
+const SOFT_PARS = /* glsl */ `#include <shadowmap_pars_fragment>
+#if defined( USE_SHADOWMAP ) && defined( PRO_SOFT ) && NUM_DIR_LIGHT_SHADOWS > 0
+uniform float proPenumbra;
+uniform float proSearch;
+float proShadow( sampler2D map, vec2 size, float intensity, float bias, float radius, vec4 coord ) {
+  coord.xyz /= coord.w;
+  coord.z += bias;
+  if ( coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 || coord.z > 1.0 ) return 1.0;
+  float rot = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) * 6.2831853;
+  float sum = 0.0;
+  float n = 0.0;
+  for ( int i = 0; i < PRO_BLOCKERS; i++ ) {
+    float t = ( float( i ) + 0.5 ) / float( PRO_BLOCKERS );
+    float a = float( i ) * 2.39996323 + rot;
+    float d = unpackRGBAToDepth( texture2D( map, coord.xy + vec2( cos( a ), sin( a ) ) * sqrt( t ) * proSearch ) );
+    if ( d < coord.z ) { sum += d; n += 1.0; }
+  }
+  if ( n < 0.5 ) return 1.0;
+  float pen = clamp( ( coord.z - sum / n ) * proPenumbra, 1.2 / size.x, proSearch );
+  float lit = 0.0;
+  for ( int i = 0; i < PRO_TAPS; i++ ) {
+    float t = ( float( i ) + 0.5 ) / float( PRO_TAPS );
+    float a = float( i ) * 2.39996323 + rot + 1.3;
+    lit += step( coord.z, unpackRGBAToDepth( texture2D( map, coord.xy + vec2( cos( a ), sin( a ) ) * sqrt( t ) * pen ) ) );
+  }
+  return mix( 1.0, lit / float( PRO_TAPS ), intensity );
+}
+#define getShadow proShadow
+#endif`;
+
 /** Числа, общие на все материалы поляны. Сцена двигает их, материалы только читают. */
 export interface SurfaceUniforms {
   time: { value: number };
@@ -102,6 +149,9 @@ export interface SurfaceUniforms {
   snow: { value: number };
   wet: { value: number };
   snowColor: { value: THREE.Color };
+  /** Мягкие тени: сколько полутени (в долях карты) на единицу глубины карты и круг поиска. */
+  penumbra: { value: number };
+  search: { value: number };
 }
 
 export class Surfaces {
@@ -111,7 +161,31 @@ export class Surfaces {
     snow: { value: 0 },
     wet: { value: 0 },
     snowColor: { value: new THREE.Color(PALETTE.snowflake) },
+    penumbra: { value: 0 },
+    search: { value: 0 },
   };
+
+  /** Мягкие ли тени у копий (`SOFT_PARS`): меняется со ступенью и пересобирает шейдеры. */
+  private soft = false;
+
+  /** Включить или снять мягкие тени у всех копий. Пересборка — один раз, на смене ступени. */
+  setSoft(on: boolean): void {
+    if (on === this.soft) return;
+    this.soft = on;
+    for (const m of this.made.values()) {
+      const defs = (m.defines ??= {}) as Record<string, string | number>;
+      if (on) {
+        defs.PRO_SOFT = '';
+        defs.PRO_BLOCKERS = 12;
+        defs.PRO_TAPS = 20;
+      } else {
+        delete defs.PRO_SOFT;
+        delete defs.PRO_BLOCKERS;
+        delete defs.PRO_TAPS;
+      }
+      m.needsUpdate = true;
+    }
+  }
 
   /** Копии по роли и исходному материалу: одна копия на пару, сколько бы мешей её ни брали. */
   private made = new Map<string, THREE.Material>();
@@ -158,17 +232,22 @@ export class Surfaces {
         proSnow: this.u.snow,
         proWet: this.u.wet,
         proSnowColor: this.u.snowColor,
+        proPenumbra: this.u.penumbra,
+        proSearch: this.u.search,
       });
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', VERT_HEAD)
         .replace('#include <begin_vertex>', VERT_BODY);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', FRAG_HEAD)
-        .replace('#include <emissivemap_fragment>', FRAG_BODY);
+        .replace('#include <emissivemap_fragment>', FRAG_BODY)
+        .replace('#include <shadowmap_pars_fragment>', SOFT_PARS);
     };
     // Вставка у всех копий одна, значит и программа одна на вид материала:
-    // копий много, а компиляций столько же, сколько было.
-    mat.customProgramCacheKey = () => 'prologue-surface';
+    // копий много, а компиляций столько же, сколько было. Мягкие тени — вторая
+    // программа, и выбирает её ступень.
+    mat.customProgramCacheKey = () => (this.soft ? 'prologue-surface-soft' : 'prologue-surface');
+    if (this.soft) mat.defines = { PRO_SOFT: '', PRO_BLOCKERS: 12, PRO_TAPS: 20 };
     return mat;
   }
 

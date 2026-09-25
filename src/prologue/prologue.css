@@ -1061,3 +1061,17 @@
   letter-spacing: 2px;
   color: var(--accent);
 }
+
+/* Замерник кадров (`?fps=1`): под выходом, мелко, нажатий не берёт. Игроку не показывается. */
+.pro-meter {
+  position: absolute;
+  top: calc(var(--safe-top) + 58px);
+  right: calc(var(--safe-right) + 8px);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
