@@ -16,6 +16,7 @@ import {
   faithOf,
   fervour,
   intelKeen,
+  mastersFoodPerDay,
   soldierFoodPerDay,
   surveyRadius,
   towerSeats,
@@ -207,9 +208,10 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Осада считает не добычу, а на сколько хватит хлеба, поэтому здесь весь
     // склад, а не то, что видно набегу: спрятанное в тайнике племя ест наравне
     // с остальным. Два расхода — города и одного бойца — приезжают из того же
-    // `foodConsumptionPerDay`, которым племя живёт всегда.
+    // `foodConsumptionPerDay`, которым племя живёт всегда. Наёмные мастера заперты в городе вместе
+    // со всеми и едят из того же амбара — их паёк входит в расход города.
     food: Math.max(0, s.resources.food),
-    foodPerHour: townFoodPerDay(s) * daysPerHour(),
+    foodPerHour: (townFoodPerDay(s) + mastersFoodPerDay(s)) * daysPerHour(),
     soldierFoodPerHour: soldierFoodPerDay(s) * daysPerHour(),
     // Дозор и конюшня: мир получает четыре числа и не спрашивает, откуда они.
     warning: warningSeconds(s),

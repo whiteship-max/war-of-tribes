@@ -74,7 +74,7 @@ import {
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
 import type { UnitKind } from '@/battle';
-import { BUILDING_BY_ID, type BuildingDef, type BuildingStats, slotsAt } from './data/buildings';
+import { BUILDING_BY_ID, MASTERS_AT, type BuildingDef, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
@@ -182,9 +182,28 @@ export const bondedTotal = (s: GameState): number => Math.max(0, Math.floor(s.bo
 export const bondedCount = (s: GameState, buildingId: number): number =>
   Math.max(0, Math.floor(s.bondedWork?.[buildingId] ?? 0));
 
-/** Сколько рук на местах здания: вольные и невольники вместе. Места у них общие. */
+/** Наёмных мастеров в Мастерской (`GameState.masters`). */
+export const mastersCount = (s: GameState): number => Math.max(0, Math.floor(s.masters ?? 0));
+
+/** Сколько наёмных мастеров стоит на местах этого здания: все — в Мастерской, в остальных ноль. */
+export const mastersOn = (s: GameState, buildingId: number): number =>
+  s.buildings.find((b) => b.id === buildingId)?.type === MASTERS_AT ? mastersCount(s) : 0;
+
+/**
+ * Сколько рук на местах здания: вольные, невольники и — в Мастерской — наёмные мастера. Места у
+ * них общие: мастер занимает место ремесленника, а не своё (docs/admin_branch.md, раздел 4.1).
+ */
 export const handsCount = (s: GameState, buildingId: number): number =>
-  workerCount(s, buildingId) + bondedCount(s, buildingId);
+  workerCount(s, buildingId) + bondedCount(s, buildingId) + mastersOn(s, buildingId);
+
+/**
+ * Свободных мест Мастерской для наёмных: её места минус её люди и уже стоящие мастера. Сколько
+ * мастеров пускает ветвь, решает гейт (`sim/tech.mastersCap`), — здесь только места здания.
+ */
+export function mastersRoom(s: GameState): number {
+  const hall = buildingOfType(s, MASTERS_AT);
+  return hall ? Math.max(0, buildingSlots(hall) - handsCount(s, hall.id)) : 0;
+}
 
 /** Ставят ли невольников на работу этого здания (`JobDef.bonded`). */
 export const takesBonded = (b: Building): boolean => {
@@ -780,12 +799,33 @@ export function wageShare(s: GameState): number {
 export const wageGear = (troop: TroopId): number =>
   gearOfTroop(troop) + (TROOP_BY_ID[troop].mounted ? 1 : 0);
 
-export const wageOf = (s: GameState, troop: TroopId): number =>
-  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(troop) + WAGE_GEAR * wageGear(troop)) * wageShare(s);
+/**
+ * Жалованье за игровой день тому, кто весит `weight` бойцов строя и носит `gear` вещей. **Одна
+ * формула на бойца и на наёмного мастера**: мастер — голова без строевой части и без снаряжения.
+ * Закят (`wageShare`) множит обоих одной долей, поэтому соотношение «копейщик против мастеров» —
+ * спор, ради которого мастера и заведены (docs/admin_branch.md, раздел 4.1), — не зависит от веры.
+ */
+const wageAt = (s: GameState, weight: number, gear: number): number =>
+  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weight + WAGE_GEAR * gear) * wageShare(s);
 
-/** Жалованье всего войска за игровой день. Новобранцев на учениях оно не касается. */
-export const wagesPerDay = (s: GameState): number =>
+export const wageOf = (s: GameState, troop: TroopId): number => wageAt(s, weightOf(troop), wageGear(troop));
+
+/** Жалованье одного наёмного мастера за игровой день: то же, что у бойца, без строя и снаряжения. */
+export const masterWage = (s: GameState): number => wageAt(s, 0, 0);
+
+/** Жалованье войска за игровой день. Новобранцев на учениях оно не касается. */
+export const armyWagesPerDay = (s: GameState): number =>
   TROOP_IDS.reduce((sum, id) => sum + Math.max(0, s.army?.[id] ?? 0) * wageOf(s, id), 0);
+
+/** Жалованье наёмных мастеров за игровой день. */
+export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * masterWage(s);
+
+/**
+ * Вся ведомость за игровой день: войско и наёмные мастера. **Казна одна, и ведомость одна** —
+ * из неё платит `sim/upkeep`, по ней «по средствам» решает, сколько ещё держать, и по ней же
+ * уходят недоплаченные. Второй ведомости у мастеров нет.
+ */
+export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s);
 
 /** Сколько войску причитается сейчас: в отсрочку приведённой партии — ничего. */
 export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ? 0 : wagesPerDay(s));
@@ -816,13 +856,21 @@ export function foodShortfall(s: GameState, mods: SeasonModifiers = seasonMods(s
   if (short <= 0) return { army: 0, town: false };
   // Нехватка делится между всеми, кто ест солдатский паёк (`soldierMouths`), а не между строем:
   // кто ест — тот и считается.
-  const army = mouthCount(s) * soldierFoodPerDay(s, mods);
+  // Наёмные мастера едят последними вместе с войском — «по тем же правилам, что у войска»: нехватка
+  // делится и на них, и уходят они той же дверью (`sim/upkeep`).
+  const army = mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods);
   return { army: army > 0 ? Math.min(1, short / army) : 0, town: short > army };
 }
 
 export interface UpkeepInfo {
-  /** Жалованье войска за день по нынешнему составу. */
+  /** Вся ведомость за день по нынешнему составу: войско и наёмные мастера. */
   wages: number;
+  /** Из неё — войску. */
+  armyWages: number;
+  /** Из неё — наёмным мастерам. */
+  mastersWages: number;
+  /** Сколько наёмных мастеров в ведомости. */
+  masters: number;
   /** Сколько причитается сейчас: ноль в отсрочку. */
   due: number;
   /** Что дают казне налог и вера за день. */
@@ -857,6 +905,9 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
   const gap = due - income;
   return {
     wages,
+    armyWages: armyWagesPerDay(s),
+    mastersWages: mastersWagesPerDay(s),
+    masters: mastersCount(s),
     due,
     income,
     debt: s.pay?.debt ?? 0,
@@ -867,9 +918,11 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
     unpaid,
     unfed,
     why,
-    // Строй уходит по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`).
+    // Строй и наёмные мастера уходят по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`).
     leavingPerDay:
-      why && lateDays >= graceDays ? DESERT_SHARE * (share * armySize(s) + unfed * (mouthCount(s) - armySize(s))) : 0,
+      why && lateDays >= graceDays
+        ? DESERT_SHARE * (share * (armySize(s) + mastersCount(s)) + unfed * (mouthCount(s) - armySize(s)))
+        : 0,
   };
 }
 
@@ -1116,8 +1169,16 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
 export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Новобранцы на учениях и раненые уже не жители, но кормятся так же, как бойцы: список ртов один
   // на расход и на голод (`soldierMouths`).
-  return townFoodPerDay(s, mods) + mouthCount(s) * soldierFoodPerDay(s, mods);
+  return townFoodPerDay(s, mods) + mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods);
 }
+
+/**
+ * Сколько за день съедают наёмные мастера. Паёк у них жителя — по голове, тем же сезоном и
+ * рационом, — а голодают они как войско: едят последними (`foodShortfall`). Под осадой они
+ * заперты в городе и едят из того же амбара (`world/bridge`, `foodPerHour`).
+ */
+export const mastersFoodPerDay = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
+  mastersCount(s) * mods.food * rationOf(s).food;
 
 /**
  * Сколько съедает за день сам посёлок — без единого бойца. Отдельно от общего
@@ -1155,7 +1216,20 @@ export function netPerDay(s: GameState): Resources {
 export function crafterBuildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   const shop = buildingOfType(s, 'workshop');
   if (!shop) return 0;
-  return CRAFTER_BUILD * workerCount(s, shop.id) * workerMultiplier(s, 'crafter', shop, mods);
+  // Наёмный мастер работает по ставке ремесленника — на голову та же `CRAFTER_BUILD` и тот же
+  // множитель; своей ставки у него нет (docs/admin_branch.md, раздел 4.1).
+  return CRAFTER_BUILD * (workerCount(s, shop.id) + mastersOn(s, shop.id)) * workerMultiplier(s, 'crafter', shop, mods);
+}
+
+/**
+ * Сколько из скорости стройки приносят наёмные мастера — под теми же сезоном и ратушей, что вся
+ * стройка (`buildRate`). Та же ставка на голову, что у ремесленника, умноженная на число мастеров:
+ * своей доли у них нет, и панель Мастерской показывает ровно это число.
+ */
+export function mastersBuildShare(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
+  const shop = buildingOfType(s, 'workshop');
+  if (!shop) return 0;
+  return CRAFTER_BUILD * mastersOn(s, shop.id) * workerMultiplier(s, 'crafter', shop, mods) * mods.build * townHallBuildMult(s);
 }
 
 /**
@@ -1875,12 +1949,26 @@ export function alerts(s: GameState): Alert[] {
   const flow = UPKEEP_TEXT.flowSub(up.due || up.wages, up.income);
   if (up.why) {
     const why = UPKEEP_TEXT.why[up.why];
+    const army = armySize(s) > 0;
+    const hired = up.masters > 0;
     const sub = up.why === 'food' ? UPKEEP_TEXT.foodSub : flow;
     const goto: BuildingTypeId = up.why === 'food' ? 'storage' : 'barracks';
     if (up.leavingPerDay > 0) {
-      out.push({ id: 'desert', icon: UPKEEP_TEXT.icon, text: UPKEEP_TEXT.leavingAlert(why, Math.max(1, Math.round(up.leavingPerDay))), sub, goto });
+      out.push({
+        id: 'desert',
+        icon: UPKEEP_TEXT.icon,
+        text: UPKEEP_TEXT.leavingAlert(why, Math.max(1, Math.round(up.leavingPerDay)), UPKEEP_TEXT.whoGoes(army, hired)),
+        sub,
+        goto,
+      });
     } else {
-      out.push({ id: 'desert-soon', icon: UPKEEP_TEXT.icon, text: UPKEEP_TEXT.graceAlert(why, Math.max(1, Math.ceil(up.graceDays - up.lateDays))), sub, goto });
+      out.push({
+        id: 'desert-soon',
+        icon: UPKEEP_TEXT.icon,
+        text: UPKEEP_TEXT.graceAlert(why, Math.max(1, Math.ceil(up.graceDays - up.lateDays)), UPKEEP_TEXT.whoDat(army, hired)),
+        sub,
+        goto,
+      });
     }
   } else if (up.amnestyDays > 0 && up.wages > up.income) {
     out.push({ id: 'wages-soon', icon: UPKEEP_TEXT.icon, text: UPKEEP_TEXT.amnestyAlert(Math.ceil(up.amnestyDays)), sub: flow, goto: 'barracks' });

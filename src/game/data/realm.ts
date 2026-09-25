@@ -15,9 +15,9 @@
 import { MAX_BUILDING_LEVEL, MAX_OFFLINE_DAYS } from '../constants';
 import { MAX_AGENT_LEVEL } from './agents';
 import { EQUIPMENT } from './equipment';
-import { BUILDING_BY_ID, slotsAt } from './buildings';
+import { BUILDING_BY_ID, MASTERS_AT, slotsAt } from './buildings';
 import { TROOP_BY_ID } from './troops';
-import type { BuildingTypeId, EquipmentId, RealmBranch, TroopId } from '../types';
+import type { EquipmentId, RealmBranch, TroopId } from '../types';
 import type { Fate } from '@/world/types';
 
 export const REALM_BRANCHES: RealmBranch[] = ['admin', 'diplo', 'war'];
@@ -167,11 +167,10 @@ export const WAR_LEVELS = 1 + WAR_GEAR_ORDER.length + WAR_FATES.length;
 // ---------- Административная ветвь: места наёмных мастеров ----------
 
 /**
- * Где стоят наёмные мастера — на местах этого здания, третьим числом рядом с его людьми
- * (docs/admin_branch.md, раздел 4.1). Это определение самой механики, а не список ступеней:
+ * Где стоят наёмные мастера, объявлено рядом с таблицей зданий (`data/buildings.MASTERS_AT`):
  * лестница ниже выводится из мест этого здания и ничего не пишет сама.
  */
-export const MASTERS_AT: BuildingTypeId = 'workshop';
+export { MASTERS_AT };
 
 const HALL = BUILDING_BY_ID[MASTERS_AT];
 

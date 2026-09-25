@@ -23,6 +23,11 @@
 //   сверх неё, — неуплатой и жителем. Строка тревоги при этом по-прежнему одна и называет
 //   больший из поводов (`derived.upkeepInfo.why`): у неё одно место и одно лечение;
 // - казна погасила долг и войско сыто — терпение начинается заново.
+//
+// **Наёмные мастера — в той же ведомости и за тем же столом** (docs/admin_branch.md, раздел 4.1):
+// их жалованье входит в `wagesPerDay`, их паёк — в тех, кто ест последним (`foodShortfall`), и
+// уходят они отсюда же, той же долей и по тем же двум поводам. Жителем ушедший мастер не
+// остаётся: он им не был. Второй двери под мастеров нет.
 import type { GameState, TroopId } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { DESERT_SHARE, UPKEEP_TEXT } from '../data/upkeep';
@@ -30,6 +35,7 @@ import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
   homeTroops,
   housingCapacity,
+  mastersCount,
   payGraceDays,
   soldierMouths,
   taxIncomePerDay,
@@ -40,6 +46,7 @@ import {
 import { addPop } from './population';
 import { loseWounded } from './infirmary';
 import { loseRecruits } from './army';
+import { loseMasters } from './masters';
 import type { TroopStack } from '../battle/kinds';
 import { log } from './log';
 
@@ -115,7 +122,7 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
   const owed = Math.max(0, share - hungry);
   const rateOf = (part: number): number => (DESERT_SHARE * part * dt) / DAY_LENGTH;
   /** Сколько целых бойцов уходит этой долей: дробь копится в своём остатке, а `cap` держит сумму обоих поводов. */
-  const draw = (carry: Partial<Record<TroopId, number>>, id: TroopId, have: number, cap: number, rate: number): number => {
+  const draw = <K extends string>(carry: Partial<Record<K, number>>, id: K, have: number, cap: number, rate: number): number => {
     const due = (carry[id] ?? 0) + have * rate;
     const whole = Math.min(cap, Math.floor(due));
     carry[id] = due - whole;
@@ -140,6 +147,17 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
     for (let i = 0; i < home; i++) log(s, UPKEEP_TEXT.desertedHome(one, UPKEEP_TEXT.why.pay), 'bad', `desert:${id}:home`);
     for (let i = home; i < byPay; i++) log(s, UPKEEP_TEXT.deserted(one, UPKEEP_TEXT.why.pay), 'bad', `desert:${id}`);
     for (let i = 0; i < byFood; i++) log(s, UPKEEP_TEXT.deserted(one, UPKEEP_TEXT.why.food), 'bad', `desert:${id}:food`);
+  }
+  // Наёмные мастера — та же доля и те же два повода, что у строя: голодная часть и недоплаченная,
+  // каждая своим остатком дроби. Жителем ушедший мастер не остаётся (`sim/masters.loseMasters`).
+  const masters = mastersCount(s);
+  if (masters > 0) {
+    pay.masters ??= {};
+    const byFood = draw(pay.masters, 'unfed', masters, masters, rateOf(hungry));
+    const byPay = draw(pay.masters, 'unpaid', masters, masters - byFood, rateOf(owed));
+    loseMasters(s, byFood, byPay);
+  } else if (pay.masters) {
+    delete pay.masters;
   }
   // Раненые и новобранцы на учениях едят тот же паёк и делят ту же нехватку (`derived.soldierMouths`):
   // кто ест — тот и считается. При голоде они уходят той же долей, что строй, но **всегда голодом и

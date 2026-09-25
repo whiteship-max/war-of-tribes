@@ -99,13 +99,23 @@ export const UPKEEP_TEXT = {
   woundedStarved: (one: string): string => `Ушёл из лазарета раненый ${one}: нечем кормить.`,
   draftStarved: (one: string): string => `Ушёл с учений новобранец, ${one}: нечем кормить.`,
   dismissed: (one: string): string => `Распущен по домам ${one}.`,
+  /** Наёмный мастер ушёл той же дверью, что войско. Жителем он не был и жителем не остаётся. */
+  masterLeft: (why: string): string => `Ушёл из Мастерской наёмный мастер: ${why}.`,
+  /**
+   * Кому не платят и кто уходит — словами тревоги. Ведомость одна на войско и мастеров
+   * (`sim/upkeep`), и тревога обязана назвать обоих, когда уходят оба.
+   */
+  whoDat: (army: boolean, masters: boolean): string =>
+    army && masters ? 'Войску и мастерам' : masters ? 'Наёмным мастерам' : 'Войску',
+  whoGoes: (army: boolean, masters: boolean): string =>
+    army && masters ? 'Войско и мастера уходят' : masters ? 'Мастера уходят' : 'Войско уходит',
   amnestyLog: (wages: number, income: number): string =>
     `Войску теперь платят жалованье — ${Math.round(wages)} золота в день, казна даёт ${Math.round(income)}. ` +
     `Первые ${daysBoth(WAGE_AMNESTY_DAYS)} платить не нужно. Не тянешь — подними налог или распусти лишних в казармах.`,
   // Сроки тревог — то, чего игрок ждёт: настоящим временем (`game/span`), а не игровыми днями.
   amnestyAlert: (days: number): string => `Через ${daysSpan(days)} войску платить жалованье`,
-  graceAlert: (why: string, days: number): string => `Войску ${why} — уходить начнут через ${daysSpan(days)}`,
-  leavingAlert: (why: string, perDay: number): string => `Войско уходит: ${why}, около ${perDay} в день`,
+  graceAlert: (why: string, days: number, who = 'Войску'): string => `${who} ${why} — уходить начнут через ${daysSpan(days)}`,
+  leavingAlert: (why: string, perDay: number, who = 'Войско уходит'): string => `${who}: ${why}, около ${perDay} в день`,
   treasuryAlert: (days: number): string => `Казны на жалованье хватит на ${daysSpan(days)}`,
   flowSub: (wages: number, income: number): string =>
     `жалованье ${Math.round(wages)} в день, казна даёт ${Math.round(income)}`,

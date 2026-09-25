@@ -392,6 +392,14 @@ export const BUILDING_BY_ID: Record<BuildingTypeId, BuildingDef> = Object.fromEn
 ) as Record<BuildingTypeId, BuildingDef>;
 
 /**
+ * Где стоят наёмные мастера — на местах этого здания, третьим числом рядом с его людьми
+ * (docs/admin_branch.md, раздел 4.1). Одно имя на механику и на лестницу административной
+ * ветви (`data/realm.mastersAt`): здание, чьи места открывает ветвь, и здание, где мастера
+ * работают, не могут разойтись.
+ */
+export const MASTERS_AT: BuildingTypeId = 'workshop';
+
+/**
  * Рабочих мест у здания на этом уровне. **Одна формула на две двери:** места стоящего здания
  * (`derived.buildingSlots`) и лестница административной ветви (`data/realm.mastersAt`) — ступень
  * открывает наёмным мастерам ровно места одного уровня Мастерской, и разойтись с настоящими

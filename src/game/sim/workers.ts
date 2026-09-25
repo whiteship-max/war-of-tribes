@@ -20,6 +20,7 @@ import {
   takesBonded,
   workerCount,
 } from '../derived';
+import { fitMasters } from './masters';
 
 /** Ставит `n` человек на свободные места здания. Берёт сколько влезет, но не меньше одного. */
 export function assignWorker(s: GameState, buildingId: number, n = 1): string | null {
@@ -107,6 +108,9 @@ export function normalizeAssignments(s: GameState): void {
   s.pop = Math.max(0, Math.floor(s.pop));
   s.bonded = Math.max(0, Math.floor(s.bonded ?? 0));
   if (!s.bondedWork) s.bondedWork = {};
+
+  // Наёмные мастера — первыми: мест в Мастерской стало меньше — уходят они, а не её люди.
+  fitMasters(s);
 
   // Висячих записей быть не должно: снесённое здание не держит рабочих.
   const alive = new Set(s.buildings.map((b) => b.id));

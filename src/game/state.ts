@@ -148,6 +148,9 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     // городов. Поля со значением по умолчанию версию сохранения не поднимают.
     bonded: 0,
     bondedWork: {},
+    // Наёмных мастеров у новой партии нет: места под них открывает административная ветвь.
+    // Поле с умолчанием: партия, записанная до мастеров, приезжает с нулём.
+    masters: 0,
     unrest: 0,
     pay: { debt: 0, late: 0, from: 0, gone: {}, hurt: {}, drafts: {} },
     wounded: [],
