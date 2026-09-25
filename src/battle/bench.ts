@@ -158,10 +158,21 @@ export interface LatticeRow {
  */
 export function latticeDuels(armies: Array<Partial<Stack>> = compositionLattice(), layout: (army: Partial<Stack>) => ArmySetup = (a) => quickSetup(a)): LatticeRow[] {
   const setups = armies.map(layout);
+  return latticeRows(armies, (i, j) => latticeDuel(setups, i, j));
+}
+
+/** Бой решётки i–j (i < j): размен i одним зеркальным боем, сид 1. */
+export const latticeDuel = (setups: readonly ArmySetup[], i: number, j: number): number => mirrored(setups[i], setups[j], 1).lossRatio;
+
+/**
+ * Строки решётки из разменов пар i < j (`latticeDuel`): кто кого бьёт, в порядке обхода пар.
+ * Размен может прийти откуда угодно — из боя здесь же или из задачи веера (`battle:report`).
+ */
+export function latticeRows(armies: ReadonlyArray<Partial<Stack>>, ratio: (i: number, j: number) => number): LatticeRow[] {
   const rows: LatticeRow[] = armies.map((army) => ({ army, beats: [], lostTo: [] }));
-  for (let i = 0; i < setups.length; i += 1) {
-    for (let j = i + 1; j < setups.length; j += 1) {
-      const r = mirrored(setups[i], setups[j], 1).lossRatio;
+  for (let i = 0; i < armies.length; i += 1) {
+    for (let j = i + 1; j < armies.length; j += 1) {
+      const r = ratio(i, j);
       if (r >= RATIO_EVEN) {
         rows[i].beats.push(j);
         rows[j].lostTo.push(i);
@@ -512,13 +523,26 @@ export interface Finalist {
  * на отборе (порядок `index` сохранён в `rank`).
  */
 export function searchFinal(opponent: (seed: number) => ArmySetup): Array<Finalist & { rank: number }> {
-  const screened = searchPool()
-    .map((setup, index) => ({ index, setup, screen: gapAgainst(setup, opponent, SEARCH.screen).gap }))
+  const pool = searchPool();
+  const shortlist = searchShortlist(
+    pool.map((setup) => gapAgainst(setup, opponent, SEARCH.screen).gap),
+    pool,
+  );
+  return searchFinish(shortlist, shortlist.map((f) => gapAgainst(f.setup, opponent, SEARCH.final, SEARCH.finalFrom)));
+}
+
+/** Первый этап: разрыв на отборе у каждой расстановки поиска (`screens[i]` — у `pool[i]`), `SEARCH.finalists` лучших. */
+export function searchShortlist(screens: readonly number[], pool: readonly ArmySetup[] = searchPool()): Array<Omit<Finalist, 'final'> & { rank: number }> {
+  return pool
+    .map((setup, index) => ({ index, setup, screen: screens[index] }))
     .sort((x, y) => y.screen - x.screen)
-    .slice(0, SEARCH.finalists);
-  return screened
-    .map((f, rank) => ({ ...f, rank, final: gapAgainst(f.setup, opponent, SEARCH.final, SEARCH.finalFrom) }))
-    .sort((x, y) => y.final.gap - x.final.gap);
+    .slice(0, SEARCH.finalists)
+    .map((f, rank) => ({ ...f, rank }));
+}
+
+/** Второй этап: перемер (`finals[k]` — у `shortlist[k]`), лучшие по перемеру первыми. */
+export function searchFinish(shortlist: ReadonlyArray<Omit<Finalist, 'final'> & { rank: number }>, finals: ReadonlyArray<Finalist['final']>): Array<Finalist & { rank: number }> {
+  return shortlist.map((f, k) => ({ ...f, final: finals[k] })).sort((x, y) => y.final.gap - x.final.gap);
 }
 
 /** Стандартный пресет той же армии: против него ищется контрер. */
@@ -540,9 +564,14 @@ export const counterHolds = (known: number, random: number): boolean =>
  * финалиста с обоими числами и то, какое условие не выполнено.
  */
 export function counterSearch(): Array<Finalist & { rank: number; random: number; holds: boolean }> {
-  return searchFinal(standardOf).map((f) => {
-    const random = gapAgainst(f.setup, quickOf, SEARCH.final, SEARCH.finalFrom).gap;
-    return { ...f, random, holds: counterHolds(f.final.gap, random) };
+  return counterOf(searchFinal(standardOf), (f) => gapAgainst(f.setup, quickOf, SEARCH.final, SEARCH.finalFrom).gap);
+}
+
+/** Финалисты против стандарта с разрывом против случайного пресета (`random`) и тем, выполнены ли условия контрера. */
+export function counterOf<F extends Finalist>(finalists: readonly F[], random: (f: F) => number): Array<F & { random: number; holds: boolean }> {
+  return finalists.map((f) => {
+    const r = random(f);
+    return { ...f, random: r, holds: counterHolds(f.final.gap, r) };
   });
 }
 
