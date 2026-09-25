@@ -63,8 +63,18 @@
  * каждой правке `src/`, съедая треть приёмки (376 с из 1 032). Код предыстории и её тесты
  * остаются и ловят поломку общего кода; стенд гоняет тот, кто трогает поляну.
  *
+ * ВИД — ОТДЕЛЬНЫЙ РАЗДЕЛ, И ГОНИТСЯ ОН ВМЕСТО ВСЕГО ОСТАЛЬНОГО (`LOOK=папка`). Свет,
+ * тонирование и постобработку судят глазами, а глазу нужен один и тот же кадр «до» и
+ * «после»: минута страницы в этом разделе не сдвинута, а **заморожена**, игрок стоит в
+ * одной и той же точке и смотрит в одну и ту же сторону (`LOOK_BACK`, `LOOK_TURN`). Раздел
+ * кладёт снимки кадра-мерила и трёх других часов и меряет каждую ступень качества: кадры в
+ * секунду по `requestAnimationFrame` **без потолка кадров** и **время видеокарты** на кадр
+ * (`EXT_disjoint_timer_query_webgl2`). С потолком в шестьдесят обе мерки врут: кадров всегда
+ * шестьдесят, а недогруженная видеокарта сбрасывает частоты, и её время плавает на треть.
+ * Видеокарта здесь — этой машины; телефон отсюда не измерить (docs/prologue.md, раздел 20).
+ *
  * Запуск: npm run prologue:stand
- * Переменные: SECONDS=6, SHOTS=папка, PORT / CDP_PORT, CHROME=путь\\к\\chrome.exe, HEAD=1.
+ * Переменные: SECONDS=6, SHOTS=папка, LOOK=папка, PORT / CDP_PORT, CHROME=путь\\к\\chrome.exe, HEAD=1.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -160,6 +170,7 @@ import {
   SKY_MS,
   SNOW_CHILL,
   SPELL_MS,
+  gloom,
   isNight,
   weatherAt,
 } from '../src/prologue/sky';
@@ -184,6 +195,8 @@ const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9338);
 const SECONDS = Number(process.env.SECONDS ?? 6);
 /** Куда класть снимки. Пусто — не снимать: снимки нужны глазам, а не приёмке. */
 const SHOTS = process.env.SHOTS ?? '';
+/** Раздел «вид»: куда класть его снимки. Задан — гонится только он. */
+const LOOK = process.env.LOOK ?? '';
 
 /** Сколько ждать после тапа по туше: движение длится, и торопить его нельзя. */
 const BUTCHER_WAIT = 1000;
@@ -746,14 +759,22 @@ async function main(): Promise<void> {
     '--use-gl=angle',
     '--enable-precise-memory-info',
     '--window-size=1280,900',
+    /*
+     * Вид мерится без потолка кадров. При шестидесяти видеокарта недогружена и
+     * сбрасывает частоты — время кадра тогда плавает от прогона к прогону на треть, и
+     * две ступени нельзя сравнить. Без потолка она работает на полных частотах, а
+     * кадры в секунду становятся пропускной способностью, то есть ценой.
+     */
+    ...(LOOK ? ['--disable-gpu-vsync', '--disable-frame-rate-limit'] : []),
   ]);
   try {
-    await report();
+    await (LOOK ? look() : report());
   } finally {
     chrome.kill();
     await vite.close();
     await sleep(300);
   }
+  if (LOOK) return;
   const bad = chain.filter((c) => !c.ok);
   if (bad.length) {
     console.log(`\nСорвалось: ${bad.map((c) => c.step).join(', ')}`);
@@ -784,6 +805,239 @@ async function ceiling(): Promise<{ fps: number; median: number }> {
   const out = await blank.eval<{ fps: number; median: number }>('window.__c()');
   blank.close();
   return out;
+}
+
+/**
+ * Часы раздела «вид»: доля круга солнца (`sky.sunAt`: 0 — рассвет, 0.25 — полдень,
+ * 0.5 — закат, 0.75 — глухая ночь). Первый — кадр-мерило: по нему судят всю работу
+ * над светом, и снимается он при каждом прогоне с той же точки и в ту же сторону.
+ *
+ * Мерило — утро: солнце низко и за стеной леса, и ровно тут видно всё, ради чего
+ * заведён свет, — лучи сквозь кроны, дымку у земли, контровой свет на стволах. Три
+ * других часа снимаются затем, что круг суток на поляне идёт (четыре минуты), и свет,
+ * подобранный под утро, обязан не испортить ни полдень, ни закат, ни ночь у огня.
+ */
+const LOOK_HOURS = [
+  { name: 'утро', solar: 0.05 },
+  { name: 'полдень', solar: 0.25 },
+  { name: 'закат', solar: 0.46 },
+  { name: 'ночь', solar: 0.75 },
+];
+
+/** Обратное к `sky.sunAt`: в какую долю круга суток солнце стоит на этой доле своего круга. */
+const phaseOfSolar = (s: number): number =>
+  s < 0.5 ? (s / 0.5) * DAY_SHARE : DAY_SHARE + ((s - 0.5) / 0.5) * (1 - DAY_SHARE);
+
+/**
+ * Куда смотрит кадр-мерило: человек стоит по ту сторону костра от солнца, в
+ * `LOOK_BACK` метрах от огня, и смотрит на солнце, чуть отвернувшись (`LOOK_TURN`) —
+ * чтобы светило не пряталось ровно за дымом. Точку выводит сцена из того, где у неё
+ * солнце, а не стенд из своих чисел: солнце раскладывает общий риг.
+ */
+const LOOK_BACK = 3.6;
+const LOOK_TURN = 0.12;
+const LOOK_PITCH = 0.06;
+
+/**
+ * Время видеокарты на кадр — запросами таймера вокруг всего цикла кадра.
+ *
+ * Запрос ставится вокруг `pro.loop` целиком: в нём и сцена, и все проходы
+ * постобработки. Результат приходит на несколько кадров позже, поэтому запросы
+ * копятся и снимаются по готовности. Кадр, на котором видеокарта «разрывалась»
+ * (`GPU_DISJOINT_EXT`), в счёт не идёт.
+ */
+const GPU_PROBE = `
+(() => {
+  const pro = window.__pro;
+  const gl = pro.renderer.getContext();
+  const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+  let on = false;
+  let ms = [];
+  const pending = [];
+  const orig = pro.loop;
+  pro.loop = () => {
+    const q = ext && on ? gl.createQuery() : null;
+    if (q) gl.beginQuery(ext.TIME_ELAPSED_EXT, q);
+    orig();
+    if (q) { gl.endQuery(ext.TIME_ELAPSED_EXT); pending.push(q); }
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const p = pending[i];
+      if (!gl.getQueryParameter(p, gl.QUERY_RESULT_AVAILABLE)) continue;
+      if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) ms.push(gl.getQueryParameter(p, gl.QUERY_RESULT) / 1e6);
+      gl.deleteQuery(p);
+      pending.splice(i, 1);
+    }
+  };
+  window.__gpu = {
+    has: !!ext,
+    start() { ms = []; on = true; return JSON.stringify('ok'); },
+    stop() {
+      on = false;
+      const s = ms.slice().sort((a, b) => a - b);
+      const at = (q) => (s.length ? s[Math.min(s.length - 1, Math.floor(s.length * q))] : 0);
+      return JSON.stringify({ n: s.length, median: at(0.5), p95: at(0.95) });
+    },
+  };
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  return JSON.stringify(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+})()
+`;
+
+/**
+ * Раздел «вид»: кадр-мерило, три других часа и цена каждой ступени качества.
+ *
+ * Минута страницы здесь **заморожена**: небо, костёр и тело стоят в одной минуте, и
+ * снимок «после» отличается от снимка «до» только тем, что поменяли, а не тем, на
+ * сколько секунд позже его сняли. Кадры сцены при этом идут — их время
+ * `performance.now()`, а не часы страницы.
+ */
+async function look(): Promise<void> {
+  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
+  const screen = async (s: { w: number; h: number; dpr: number; mobile: boolean }): Promise<void> => {
+    await tab.send('Emulation.setDeviceMetricsOverride', { width: s.w, height: s.h, deviceScaleFactor: s.dpr, mobile: s.mobile });
+  };
+  await screen(SCREENS[0]);
+  await tab.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+
+  /*
+   * Круг суток, в котором все четыре часа ясные, без хмурости и без стаи, и перед
+   * которым полкруга тоже было ясно: мокрая после дождя земля и ветки в свежем
+   * снегу сделали бы мерило фактом о погоде, а не о свете.
+   */
+  const c0 = Math.ceil((Date.now() + 60_000) / SKY_MS);
+  let cycle = -1;
+  for (let c = c0; c < c0 + 20_000 && cycle < 0; c++) {
+    const ok = LOOK_HOURS.every((h) => {
+      const t = c * SKY_MS + phaseOfSolar(h.solar) * SKY_MS;
+      return weatherAt(t) === 'clear' && weatherAt(t - SPELL_MS) === 'clear' && gloom(t) === 0 && packAt(t, 0) === 0;
+    });
+    if (ok) cycle = c;
+  }
+  if (cycle < 0) throw new Error('не нашлось ясного круга без стаи — кольцо погод или стаю поменяли?');
+
+  let clockId = '';
+  const freeze = async (at: number): Promise<void> => {
+    if (clockId) await tab.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: clockId });
+    const added = await tab.send<{ identifier: string }>('Page.addScriptToEvaluateOnNewDocument', {
+      source: `(() => { const at = ${Math.round(at)}; Date.now = () => at; })();`,
+    });
+    clockId = added.identifier;
+  };
+  // Запись с топором и луком в руках и горящим очагом — поляна после первого захода.
+  const kit = `(() => {
+    const now = Date.now();
+    localStorage.setItem('tribe.prologue.v1', JSON.stringify({
+      v: 1, hearth: { fuel: 6, at: now }, body: { hunger: 0.2, cold: 0, harm: 0, at: now },
+      hunt: { killedAt: 0, carcass: null }, logs: 0, axe: true, kit: true, quiver: ${ARROWS_START},
+      arrows: [], meat: { cooked: 2, raw: 0 }, felled: [${TREES.map(() => 0).join(',')}], wolvesBeatenAt: 0,
+    }));
+    return JSON.stringify('ok');
+  })()`;
+  const open = async (at: number): Promise<string> => {
+    await freeze(at);
+    await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
+    await tab.send('Page.reload');
+    for (let i = 0; ; i++) {
+      await sleep(300);
+      if (await tab.eval<boolean>("JSON.stringify(!!document.querySelector('.start-alt'))")) break;
+      if (i > 100) throw new Error('стартовый экран не поднялся за 30 с');
+    }
+    await tab.eval<string>(kit);
+    await tab.eval<string>("(() => { document.querySelector('.start-alt').click(); return JSON.stringify('ok'); })()");
+    for (let i = 0; ; i++) {
+      await sleep(200);
+      if (await tab.eval<boolean>('JSON.stringify(!!window.__pro)')) break;
+      if (i > 100) throw new Error('предыстория не открылась за 20 с');
+    }
+    await tab.eval<string>(PROBE);
+    const gpu = await tab.eval<string>(GPU_PROBE);
+    // Подсказка об управлении уходит с первого касания сцены — касанием и снимаем, в
+    // небо, где тапу нечего делать.
+    await tab.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 120 }] });
+    await sleep(60);
+    await tab.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    // Встать в точку мерила. Место выводит солнце сцены, стену и палатку обходит
+    // та же `walkTo`, какой ходит игрок.
+    await tab.eval<string>(`(() => {
+      const p = window.__pro;
+      const s = p.rig.sun.position;
+      const len = Math.hypot(s.x, s.z) || 1;
+      const dx = s.x / len, dz = s.z / len;
+      const at = p.walkTo(-dx * ${LOOK_BACK}, -dz * ${LOOK_BACK});
+      const turn = ${LOOK_TURN};
+      const fx = dx * Math.cos(turn) - dz * Math.sin(turn);
+      const fz = dx * Math.sin(turn) + dz * Math.cos(turn);
+      p.px = at.x; p.pz = at.z;
+      p.yaw = Math.atan2(-fx, -fz);
+      p.pitch = ${LOOK_PITCH};
+      return JSON.stringify('ok');
+    })()`);
+    // Строка встречи у огня гаснет сама; ждать её надо, иначе она на каждом снимке.
+    await sleep(2500);
+    return gpu;
+  };
+  const tiers = async (): Promise<string[]> =>
+    tab.eval<string[]>('JSON.stringify(window.__pro.lookTiers ? window.__pro.lookTiers() : [""])');
+  const setTier = async (tier: string): Promise<void> => {
+    if (tier) await tab.eval<string>(`(() => { window.__pro.setLook(${JSON.stringify(tier)}); return JSON.stringify('ok'); })()`);
+    // Ступень меняет цели и шейдеры: первые кадры после смены — компиляция, а не цена.
+    await sleep(1500);
+  };
+  const info = async (): Promise<string> =>
+    tab.eval<string>('JSON.stringify(window.__pro.lookInfo ? window.__pro.lookInfo() : "как было: без постобработки")');
+  const snap = async (file: string): Promise<void> => {
+    mkdirSync(LOOK, { recursive: true });
+    await sleep(900);
+    const shot = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(join(LOOK, file), Buffer.from(shot.data, 'base64'));
+  };
+
+  console.log('\nВид предыстории: кадр-мерило и цена ступеней\n');
+  const at0 = cycle * SKY_MS + phaseOfSolar(LOOK_HOURS[0].solar) * SKY_MS;
+  const gpuName = await open(at0);
+  console.log(`  видеокарта: ${gpuName}`);
+  console.log(`  минута страницы (заморожена): ${new Date(at0).toISOString()}, круг ${cycle}`);
+  const where = await tab.eval<{ x: number; z: number; yaw: number }>('JSON.stringify(window.__pro.where())');
+  console.log(`  точка мерила: x ${num(where.x, 2)}, z ${num(where.z, 2)}, взгляд ${num(where.yaw, 3)} рад, наклон ${LOOK_PITCH}`);
+
+  const rows: [string, string, Frames, { n: number; median: number; p95: number }, string][] = [];
+  for (const s of SCREENS) {
+    await screen(s);
+    for (const tier of await tiers()) {
+      await setTier(tier);
+      const tag = `${LOOK_HOURS[0].name}-${s.w}${tier ? '-' + tier : ''}.png`;
+      await snap(tag);
+      await tab.eval<string>('window.__gpu.start()');
+      await tab.eval<string>('window.__probe.start()');
+      await sleep(SECONDS * 1000);
+      const f = await tab.eval<Frames>('window.__probe.stop()');
+      const g = await tab.eval<{ n: number; median: number; p95: number }>('window.__gpu.stop()');
+      rows.push([s.name, tier || '—', f, g, await info()]);
+    }
+  }
+  // Остальные часы — только снимками, телефоном, на каждой ступени.
+  await screen(SCREENS[0]);
+  for (const h of LOOK_HOURS.slice(1)) {
+    await open(cycle * SKY_MS + phaseOfSolar(h.solar) * SKY_MS);
+    for (const tier of await tiers()) {
+      await setTier(tier);
+      await snap(`${h.name}-${SCREENS[0].w}${tier ? '-' + tier : ''}.png`);
+    }
+  }
+
+  console.log(
+    `\n  ${pad('экран', 22)} ${pad('ступень', 8)} ${pad('в секунду', 11)} ${pad('медиана', 9)} ${pad('p95', 8)} ${pad('видеокарта, мс', 16)} ${pad('p95', 8)} ${pad('вызовов', 9)} треугольников`,
+  );
+  for (const [name, tier, f, g, i] of rows) {
+    console.log(
+      `  ${pad(name, 22)} ${pad(tier, 8)} ${pad(live(num(f.fps)), 11)} ${pad(live(num(f.median, 2)), 9)} ${pad(live(num(f.p95, 2)), 8)} ${pad(live(num(g.median, 2)), 16)} ${pad(live(num(g.p95, 2)), 8)} ${pad(live(f.calls), 9)} ${live(f.triangles)}`,
+    );
+    console.log(`  ${pad('', 22)} ${pad('', 8)} ${i}`);
+  }
+  console.log('\n  Кадры без потолка: «в секунду» — пропускная способность, а не то, что увидит игрок при шестидесяти.');
+  console.log(`  Снимки: ${LOOK}`);
+  if (clockId) await tab.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: clockId });
+  tab.close();
 }
 
 async function report(): Promise<void> {
