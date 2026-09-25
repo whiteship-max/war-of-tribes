@@ -2,10 +2,8 @@
 // `raid-lair-growth.ts` переносом, без правки: разделы разведены по отчётам (docs/realm.md, раздел 8),
 // и сосед, бравший отсюда `pad`, не должен тянуть в своё замыкание весь «Рост логова».
 import { HOUR, MIN, type Run } from './autopilot';
-import { worlds } from './lib/quick';
 
-/** Миры прогонов; в быстрой приёмке — первые два (`lib/quick.ts`). */
-export const SEEDS = worlds('миры прогонов', [7, 11, 42, 51, 77], 2);
+export const SEEDS = [7, 11, 42, 51, 77];
 export const NEW_SEEDS = SEEDS.slice(0, 3);
 
 export const pad = (v: string | number, w: number): string => String(v).padStart(w);
@@ -24,13 +22,6 @@ export const range = (xs: number[]): string => (xs.length ? `${pct(q(xs, 0.1))}�
 
 /** С какого числа бойцов дома доля павших в бою что-то значит. */
 const SHARE_FLOOR = 10;
-
-/** Счёт для границы быстрой приёмки: бои у стены, прорывы и прорывы с падениями осадой — числами, а не долями. */
-export function counts(runs: Run[]): { walls: number; broke: number; falls: number } {
-  const walls = runs.flatMap((r) => r.walls);
-  const broke = walls.filter((x) => !x.held).length;
-  return { walls: walls.length, broke, falls: broke + sum(runs.map((r) => r.siegeFalls)) };
-}
 
 export function tally(runs: Run[], hours: number) {
   const walls = runs.flatMap((r) => r.walls);

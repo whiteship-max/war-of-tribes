@@ -17,7 +17,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import path from 'node:path';
 import type { Closure } from './deps';
 import { hook as ownHook } from './trace-fs.mjs';
-import { hook as coverHook } from './cover.mjs';
 import { git, type Tree } from './tree';
 
 export interface RunMeta {
@@ -59,23 +58,6 @@ export function load(root: string, report: string, key: string): Stored | null {
   }
 }
 
-/** Покрытие быстрого прогона (`lib/blind.ts`) — рядом с его выводом, под тем же ключом. */
-export function saveSeen(root: string, report: string, key: string, seen: unknown): void {
-  const dir = path.join(storeDir(root), report);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, `${key}.seen.json`), JSON.stringify(seen));
-}
-
-export function loadSeen<T>(root: string, report: string, key: string): T | null {
-  const f = path.join(storeDir(root), report, `${key}.seen.json`);
-  if (!existsSync(f)) return null;
-  try {
-    return JSON.parse(readFileSync(f, 'utf8')) as T;
-  } catch {
-    return null;
-  }
-}
-
 export function save(root: string, run: Stored): void {
   const dir = path.join(storeDir(root), run.meta.report);
   mkdirSync(dir, { recursive: true });
@@ -93,7 +75,7 @@ export function lastSeconds(root: string, report: string): number {
   if (!existsSync(dir)) return Infinity;
   let best: { at: number; seconds: number } | null = null;
   for (const f of readdirSync(dir)) {
-    if (!f.endsWith('.json') || f.endsWith('.seen.json')) continue;
+    if (!f.endsWith('.json')) continue;
     const at = statSync(path.join(dir, f)).mtimeMs;
     if (best && best.at >= at) continue;
     try {
@@ -126,8 +108,7 @@ export function runTraced(cwd: string, command: string, traceFile: string, quiet
     ...process.env,
     TRIBE_TRACE: traceFile,
     TRIBE_TRACE_ROOT: cwd,
-    // Покрытие по функциям для быстрой приёмки (`cover.mjs`) — тем же путём, что запись прочитанного.
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${hook}${extra.TRIBE_COVER ? ` --import=${coverHook}` : ''}`.trim(),
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${hook}`.trim(),
     FORCE_COLOR: '0',
     ...extra,
   };

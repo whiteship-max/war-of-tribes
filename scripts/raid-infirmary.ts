@@ -27,7 +27,7 @@ import { MIN, START, townAt, unitCost, unitsNote } from './autopilot';
 import { NAME, STYLES, live, portable, type Fight, type FightKind, type Out } from './raid-live';
 import { fan, serveFan } from './lib/fan';
 import type { Hired } from './raid-hiring';
-import { NEW_SEEDS, SEEDS, pad, pct, q, sum } from './raid-common';
+import { SEEDS, pad, pct, q, sum } from './raid-common';
 import { realMs } from '@/game/pace';
 
 const LEVELS = [7, 8, 10];
@@ -138,7 +138,7 @@ export async function huntRun({ level, seed }: { level: number; seed: number }):
 export async function infirmarySection(h: Hired): Promise<void> {
   console.log('');
   console.log('=== Лазарет: что он делает с ранеными (docs/infirmary.md) ===');
-  console.log(`Прогоны — те же, что у «Найма» выше: лестница мерки (4 ч × ${SEEDS.length} миров) и партия с первой секунды (6 ч × ${NEW_SEEDS.length} мира); бои и лазарет пишет прибор.`);
+  console.log('Прогоны — те же, что у «Найма» выше: лестница мерки (4 ч × 5 миров) и партия с первой секунды (6 ч × 3 мира); бои и лазарет пишет прибор.');
   console.log(`Своего прогона одна строка — «${HUNT}»: полководец жжёт ближние логова с половиной войска, дома — «по средствам, высокий налог» (не поведение «Найма»).`);
 
   console.log('');

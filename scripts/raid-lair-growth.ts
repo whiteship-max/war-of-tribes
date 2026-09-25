@@ -55,8 +55,7 @@ import type { BuildingTypeId, GameState } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import { GAME, START, memory, pilot, player, townAt, unitsNote, type Inside, type Run, type Step } from './autopilot';
 import { fan, serveFan } from './lib/fan';
-import { NEW_SEEDS, SEEDS, counts, hm, mean, pad, pct, q, sum, tally } from './raid-common';
-import { fights, rate, share } from './lib/quick';
+import { NEW_SEEDS, SEEDS, hm, mean, pad, pct, q, sum, tally } from './raid-common';
 
 const LADDER = [1, 2, 3, 5, 7, 10];
 /** Пульс мира и такт решений автопилота в прогонах раздела, с. */
@@ -346,27 +345,25 @@ export async function lairGrowthSection(): Promise<void> {
   const cells = tables.flatMap(({ steps, levels, refill }) => steps.flatMap((s) => levels.map((level) => ({ s, level, refill }))));
   const stepRuns = await fan(stepRun, import.meta.url, cells.flatMap((c) => SEEDS.map((seed) => ({ ...c, seed }))));
   let cell = 0;
-  const ladder = (steps: Step[], levels: number[], refill: boolean): void => {
+  const ladder = (steps: Step[], levels: number[]): void => {
     console.log(header);
     for (const s of steps) {
       for (const level of levels) {
         const runs: Run[] = stepRuns.slice(cell * SEEDS.length, (cell + 1) * SEEDS.length);
         cell++;
         console.log(row(s.name, level, tally(runs, HOURS)));
-        const c = counts(runs);
-        share(`2 ${s.name}, ур ${level}${refill ? '' : ', без найма'}: прорвали`, c.broke, c.walls);
       }
     }
   };
   console.log('');
   console.log('Войско держат полным — пополняется между пульсами даром. Это граница «сколько стоит бой», а не найм: найм — следующий замер.');
-  ladder(tables[0].steps, tables[0].levels, true);
+  ladder(tables[0].steps, tables[0].levels);
   console.log('');
   console.log('Без найма — войско не пополняется:');
-  ladder(tables[1].steps, tables[1].levels, false);
+  ladder(tables[1].steps, tables[1].levels);
   console.log('');
   console.log('Игра на посёлках мерки 7 и 8 уровней (жителей у них больше порога защиты), войско держат полным:');
-  ladder(tables[2].steps, tables[2].levels, true);
+  ladder(tables[2].steps, tables[2].levels);
 
   // 3. Новичок.
   console.log('');
@@ -395,7 +392,6 @@ export async function lairGrowthSection(): Promise<void> {
       if (x.th !== undefined) th.push(x.th);
     }
     const t = tally(runs, NEW_HOURS);
-    rate(`3 ${STYLE_NAME[style]}: прорывы и падения`, counts(runs).falls, NEW_HOURS * runs.length, 'в ч на мир');
     const first = t.first.length
       ? `${hm(Math.min(...t.first))}…${hm(Math.max(...t.first))}${t.first.length < runs.length ? ` (${t.first.length} из ${runs.length})` : ''}`
       : 'нет';
@@ -407,11 +403,11 @@ export async function lairGrowthSection(): Promise<void> {
   // 4. Логово как цель.
   console.log('');
   console.log('--- 4. Логово как цель: сжигает ли его войско мерки и что оно отдаёт ---');
-  const N = fights('боёв на строку в разделе 4', 40, 10);
-  console.log(`Полководец ведёт всё войско мерки уровня L против гарнизона логова (garrisonOf, как в attackAt), ${N} боёв на строку;`);
+  console.log('Полководец ведёт всё войско мерки уровня L против гарнизона логова (garrisonOf, как в attackAt), 40 боёв на строку;');
   console.log('логово медианной опоры при жителях посёлка мерки этого уровня (lairs.lairPower). «дозрело» — доля пути LAIR_START → LAIR_CAP.');
   console.log('Добыча — lairLoot / lairGold от силы логова, оружие — lairArms от прежней силы без жителей (lairArmsBase); налог — taxIncomePerDay посёлка мерки.');
   console.log(' ур  жителей  войско  мощь войска  налог/день  дозрело  сила логова  победа  добро  золото  золото в днях налога  оружие');
+  const N = 40;
   for (const level of LEVELS) {
     const g = townAt(level);
     const troops = { ...g.army };

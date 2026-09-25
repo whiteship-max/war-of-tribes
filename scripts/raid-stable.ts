@@ -49,7 +49,6 @@ import { MIX, armyAt, openSky, townAt, type Inside } from './autopilot';
 import { SEEDS } from './raid-common';
 import { bootstrapHalves, halfBand, percentile, spread } from './lib/halfband';
 import { fan, serveFan } from './lib/fan';
-import { fights } from './lib/quick';
 
 const pad = (v: string | number, w: number): string => String(v).padStart(w);
 const padR = (v: string | number, w: number): string => String(v).padEnd(w);
@@ -109,13 +108,13 @@ function ordered(setup: ArmySetup, o: Order): ArmySetup {
 const MEN = 600;
 const salt = (seed: number, n: number): number => Math.imul(seed ^ n, 0x9e3779b1) >>> 0;
 const STYLES = Object.keys(GARRISON_STYLES) as GarrisonStyle[];
-const LAIR_SEEDS = fights('боёв на силу логова', 40, 10);
+const LAIR_SEEDS = 40;
 /**
  * Боёв на точку в разделе 6.3: из него выводятся места конницы, и при сорока боях прибавка лежала целиком
  * внутри своей границы (раздел 6.3а) — то есть места выводились из шума. Число правится переменной среды,
  * чтобы перемерять границу, не трогая остальные разделы: `SHARE_FIGHTS=320 npm run raid-stable:report`.
  */
-const SHARE_FIGHTS = fights('боёв на силу логова в разделе 6.3', Number(process.env.SHARE_FIGHTS ?? 160), 40);
+const SHARE_FIGHTS = Number(process.env.SHARE_FIGHTS ?? 160);
 /** Бросков перевыборки в границе: больше — та же граница, ровнее последняя цифра. */
 const BOOT_DRAWS = 400;
 const SHARES = Array.from({ length: 39 }, (_, i) => 0.2 + i * 0.1);
@@ -252,7 +251,7 @@ function typesPart(): void {
 
 // ---------- 2. Вид против вида ----------
 
-const DUEL_SEEDS = fights('сидов дуэли', 20, 5);
+const DUEL_SEEDS = 20;
 
 /** Размен a против b (потери b к потерям a), быстрая атака у обеих, обе стороны поля. */
 function duel(a: Side, b: Side, oa: Order = PRESET): number {
@@ -320,7 +319,7 @@ async function ringPart(): Promise<void> {
 
 // ---------- 4. Бой у стены ----------
 
-const WALL_SEEDS = fights('боёв у стены на силу набега', 80, 20);
+const WALL_SEEDS = 80;
 const WALL_SHARES = Array.from({ length: 30 }, (_, i) => 0.2 + i * 0.1);
 
 interface WallRow {

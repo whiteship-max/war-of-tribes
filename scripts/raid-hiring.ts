@@ -84,8 +84,7 @@ import {
   type Step,
   type Stop,
 } from './autopilot';
-import { NEW_SEEDS, SEEDS, counts, hm, mean, pad, pct, q, sum, tally } from './raid-common';
-import { rate, share } from './lib/quick';
+import { NEW_SEEDS, SEEDS, hm, mean, pad, pct, q, sum, tally } from './raid-common';
 
 import { NAME, STYLES, live, portable, type Out, type Style } from './raid-live';
 import { fan, serveFan } from './lib/fan';
@@ -218,7 +217,6 @@ function freshRow(spec: FreshSpec, runs: FreshRun[]): Out[] {
     outs.map((o) => o.run),
     FRESH_HOURS,
   );
-  rate(`Б ${spec.label}: прорывы и падения`, counts(outs.map((o) => o.run)).falls, FRESH_HOURS * outs.length, 'в ч на мир');
   const l = outs.map((o) => o.l);
   const first = t.first.length ? `${hm(Math.min(...t.first))}…${hm(Math.max(...t.first))}${t.first.length < outs.length ? ` (${t.first.length} из ${outs.length})` : ''}` : 'нет';
   const row = (xs: number[][], f: (v: number) => string): string => xs.map((v) => pad(f(mean(v)), 4)).join(' ');
@@ -307,9 +305,6 @@ export async function hiringSection(): Promise<Hired> {
         outs.map((o) => o.run),
         HOURS,
       );
-      const c = counts(outs.map((o) => o.run));
-      share(`А ${NAME[style]}, ур ${level}: прорвали`, c.broke, c.walls);
-      rate(`А ${NAME[style]}, ур ${level}: прорывы и падения`, c.falls, HOURS * outs.length, 'в ч на мир');
       const l = outs.map((o) => o.l);
       console.log(
         ` ${NAME[style].padEnd(27)} ${pad(level, 2)}  ${pad(Math.round(mean(outs.map((o) => o.g.pop))), 15)}  ${pad(t.raids, 7)}  ${pad(t.ratio, 15)}  ${pad(t.walls, 7)}  ${pad(t.broke, 8)}  ${pad(t.sieges, 7)}  ${pad(t.siegeShare, 9)}  ${pad(t.sorties, 8)}  ${pad(t.falls, 14)}  ${pad(t.perHour, 9)}  ${pad(t.held, 16)}  ${pad(t.half, 10)}  ${pad(Math.round(q(l.flatMap((x) => x.armyHome), 0.5)), 20)}  ${pad(t.armyEnd, 7)}  ${pad(sum(l.map((x) => x.hired)) + t.hired, 6)}  ${pad(sum(l.map((x) => x.deserted)), 4)}  ${pad(sum(l.map((x) => x.returned)), 8)}  ${pad(sum(l.map((x) => x.dismissed)), 9)}  ${pad(pct(mean(l.map((x) => mean(x.wages) / Math.max(1, mean(x.income))))), 18)}  ${pad(Math.round(mean(l.map((x) => x.debt))), 12)}  ${fmtStops(l)}`,

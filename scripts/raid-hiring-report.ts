@@ -15,7 +15,6 @@ import { cadenceSection, hiringSection } from './raid-hiring';
 import { infirmarySection } from './raid-infirmary';
 import { burntSection } from './raid-burnt';
 import { measure } from './lib/measured';
-import { quickFooter } from './lib/quick';
 
 // Сколько стоит каждый раздел — замером в ‹…›: удешевлять отчёт надо по числам, а не на глаз.
 const clock = { at: performance.now(), rows: [] as [string, number][] };
@@ -39,5 +38,4 @@ if (process.env.DECIDE_SWEEP) {
   console.log('');
   console.log('=== Сколько стоит каждый раздел ===');
   for (const [name, sec] of clock.rows) console.log(`  ${name.padEnd(28)} ${measure(`${sec.toFixed(0)} с`)}`);
-  quickFooter();
 }

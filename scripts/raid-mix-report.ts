@@ -6,7 +6,5 @@
 //
 //   npm run raid-mix:report
 import { defenseMixSection } from './raid-defense-mix';
-import { quickFooter } from './lib/quick';
 
 await defenseMixSection();
-quickFooter();
