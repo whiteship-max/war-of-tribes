@@ -81,6 +81,9 @@ import { SILENCE_PREFIX } from '@/game/sim/mail';
 import { settleHires } from '@/game/sim/hire';
 import { dynastyStep } from '@/game/sim/dynasty';
 import { paceOf } from './lib/branchpace';
+import { masterHands, masterWage, wageOf } from '@/game/derived';
+import { MASTER_PAID_AS } from '@/game/data/upkeep';
+import { MASTERS_AT } from '@/game/data/buildings';
 import { NEW_SEEDS } from './raid-common';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { ageOf } from '@/game/sim/agents';
@@ -857,6 +860,20 @@ function realmSection(): void {
     return `сид ${seed} — военный ${s.realm.ruler.skills.war}, административный ${s.realm.ruler.skills.admin}`;
   });
   console.log(`  Правители в мирах раздела Б \`raid-hiring\` (сид партии — сид мира): ${rulers.join('; ')}.`);
+  // Цена наёмного мастера — правило, а не число (\`derived.masterWage\`: жалованье копейщика × руки
+  // мастера); руки растут с уровнем Мастерской и моралью, и цена вместе с ними. Партия без веры (без
+  // закята), налог и указ — как у новой партии.
+  const price = [
+    [1, 60],
+    [5, 100],
+    [10, 100],
+  ].map(([level, morale]) => {
+    const s = createInitialState(7);
+    s.buildings.find((b) => b.type === MASTERS_AT)!.level = level;
+    s.morale = morale;
+    return `Мастерская ${level} ур., мораль ${morale} — рук ${masterHands(s).toFixed(2)}, ${masterWage(s).toFixed(2)} в игровой день`;
+  });
+  console.log(`  Цена наёмного мастера (жалованье ${TROOP_BY_ID[MASTER_PAID_AS].one}а ${wageOf(createInitialState(7), MASTER_PAID_AS).toFixed(3)} × руки): ${price.join('; ')}.`);
   console.log(
     '  Военные и административные очки — разные виды: вложившийся в административную ветвь открывает столько же видов войск, ' +
       'сколько игрок по умолчанию. У административных очков один сток — сама ветвь: изученная целиком, она копит очки до потолка, и дальше они сгорают.',
