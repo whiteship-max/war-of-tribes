@@ -70,10 +70,10 @@ export function Masters() {
         <span className="name">
           Ведомость в день — войско и мастера
           <em className="sub">
-            войско {Math.round(up.armyWages)}, мастера {Math.round(up.mastersWages)}, казна даёт {Math.round(up.income)}
+            войско {up.armyWages.toFixed(1)}, мастера {up.mastersWages.toFixed(1)}, казна даёт {up.income.toFixed(1)}
           </em>
         </span>
-        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.wages)}</span>
+        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{up.wages.toFixed(1)}</span>
       </div>
       <Steps
         value={m.have}

@@ -24,6 +24,7 @@ import {
   buildingStat,
   buildingTitle,
   cavalryTrain,
+  handsCount,
   healShare,
   bedsTaken,
   infirmaryBeds,
@@ -612,7 +613,7 @@ function GenericData({ b }: { b: Building }) {
             </div>
           ) : (
             <div className="note">
-              {workers + bonded === 0
+              {handsCount(s, b.id) === 0
                 ? 'Здание стоит без рабочих — поставь кого-нибудь на место.'
                 : 'Это здание не даёт ресурсов напрямую.'}
             </div>
@@ -623,6 +624,14 @@ function GenericData({ b }: { b: Building }) {
                 <Icon name={`job-${jobDef.id}`} glyph={jobDef.icon} />
               </span>
               <span className="name">Рабочих: {workers}</span>
+              {lifts && <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>}
+            </div>
+          )}
+          {/* Наёмный мастер работает с тем же множителем, что ремесленник: своего у него нет. */}
+          {mastersOn(s, b.id) > 0 && (
+            <div className="mod">
+              <span className="ico">🔨</span>
+              <span className="name">Наёмных мастеров: {mastersOn(s, b.id)}</span>
               {lifts && <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>}
             </div>
           )}

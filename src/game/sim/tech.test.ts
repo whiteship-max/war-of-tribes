@@ -783,7 +783,7 @@ describe('административная ветвь: места наёмных
       expect(line, 'о ветви сказано строкой при входе').toBeTruthy();
       expect(line!.text, 'цена — та, что на кнопке').toContain(`из ${info.price} —`);
       expect(line!.text, 'и мест на ступень — столько, сколько откроет дверь').toContain(
-        `${mastersCapAt(info.level + 1) - mastersCapAt(info.level)} мест`,
+        `по ${mastersCapAt(info.level + 1) - mastersCapAt(info.level)} на ступень`,
       );
       expect(line!.text, rich ? 'хватает — сказано, что сразу' : 'не хватает — сказано, когда накопится').toMatch(
         rich ? /изучить сразу/ : /накопится через/,

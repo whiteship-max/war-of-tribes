@@ -104,7 +104,7 @@ export function levelName(branch: RealmBranch, level: number): string {
     const fate = WAR_FATES.find((f) => warLevelOfFate(f) === level);
     return fate ? `Участь: ${FATE_META[fate].name.toLowerCase()}` : `Уровень ${level}`;
   }
-  return `Наёмные мастера: ${mastersCapAt(level)} мест`;
+  return `Мест для наёмных мастеров: ${mastersCapAt(level)}`;
 }
 
 /** Изученный уровень ветви. Партия без дома (мусор в сохранении) читается как первый. */
@@ -209,7 +209,7 @@ export function mastersBlock(s: GameState, want: number): string | null {
     return `Ещё не изучено: наёмные мастера — ${next} уровень ${BRANCH_OF.admin} ветви, в «Технологиях».`;
   }
   return (
-    `Наёмным открыто ${cap} мест Мастерской; ещё ${mastersCapAt(next) - cap} — ` +
+    `Наёмным открыто мест Мастерской: ${cap}; ещё ${mastersCapAt(next) - cap} — ` +
     `${next} уровень ${BRANCH_OF.admin} ветви, в «Технологиях».`
   );
 }
@@ -285,7 +285,7 @@ export function adminNotice(s: GameState): string {
   const info = studyInfo(s, 'admin');
   const step = mastersCapAt(info.level + 1) - mastersCapAt(info.level);
   const head =
-    `Построена административная ветвь: каждая её ступень открывает наёмным мастерам ${step} мест Мастерской. ` +
+    `Построена административная ветвь: её ступени открывают наёмным мастерам места Мастерской — по ${step} на ступень. ` +
     'Мастера строят за жалованье из той же казны, что платит войску, и уходят той же дверью, что войско.';
   if (info.next === 0) return head;
   const have = Math.floor(info.have);

@@ -138,12 +138,12 @@ export function Upkeep() {
               Наёмным мастерам в день
               <em className="sub">та же ведомость и та же казна — в Мастерской</em>
             </span>
-            <span className="val">{Math.round(up.mastersWages)}</span>
+            <span className="val">{up.mastersWages.toFixed(1)}</span>
           </div>
           <div className="mod">
             <span className="ico">📜</span>
             <span className="name">Всего в день</span>
-            <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.wages)}</span>
+            <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{up.wages.toFixed(1)}</span>
           </div>
         </>
       )}
