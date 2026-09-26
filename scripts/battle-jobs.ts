@@ -13,6 +13,7 @@
 import { COUNTER, COVER, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickAttack, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
 import { stackPower } from '../src/battle/sim';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_SEEDS, RING, SEARCH, TUNED, TUNED_SPEC, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, scaleArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
+import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
 // ---------- Что возвращается ----------
@@ -204,11 +205,16 @@ export type Job =
   /** Сколько боёв доходит до кругов в `total` бойцов строя: матрица составов и настроенная армия против быстрой атаки. */
   | { kind: 'reach'; total: number };
 
-/** Сколько боёв (`n`) дошло до круга (`rounds`) и сколько всего было сшибок (`clashes`). */
+/**
+ * Сколько боёв (`n`) дошло до круга (`rounds`), сколько всего было сшибок (`clashes`), сколько тиков шёл каждый бой
+ * и сколько секунд длится его ролик (`buildCast`: такт сечи ролика ограничен по устройству) — по возрастанию.
+ */
 export interface Reach {
   n: number;
   rounds: number;
   clashes: number;
+  ticks: number[];
+  seconds: number[];
 }
 
 export type Out =
@@ -230,6 +236,8 @@ const reachOf = (rs: readonly BattleResult[]): Reach => ({
   n: rs.length,
   rounds: rs.filter((r) => r.log.some((e) => e.id === 'round')).length,
   clashes: rs.reduce((n, r) => n + r.phases.filter((p) => p.phase === 'clash').length, 0),
+  ticks: rs.map((r) => r.ticks).sort((a, b) => a - b),
+  seconds: rs.map((r) => buildCast(r, 'attacker').seconds).sort((a, b) => a - b),
 });
 
 export function battleJob(job: Job): Out {

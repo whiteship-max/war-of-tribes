@@ -27,7 +27,6 @@ import {
   KITING,
   MELEE_RATE,
   MORALE,
-  PHASE_MIN,
   PHASE_PIP,
   PHASE_TICKS,
   PLANS,
@@ -38,7 +37,9 @@ import {
   RANGED_TICKS,
   RESERVE_LOSING,
   RETREAT,
-  ROUND_PHASES,
+  CIRCLE_PHASES,
+  circleMin,
+  circleTicks,
   SLOW_CONTACT,
   SPEAR_ORDERS,
   SUPPORT_FLANK,
@@ -326,8 +327,10 @@ class Battle {
   readonly width: number;
   /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
   rowMen = new Map<string, number>();
-  /** Сколько кругов сечи прошло сверх первого прохода (`rounds`); круг сечи по счёту — на единицу больше. */
+  /** Сколько кругов прошло сверх первого (`run`); круг по счёту — на единицу больше. */
   round = 0;
+  /** Начинается новый круг: первая его фаза разводит линии (`onPhaseStart`). */
+  opening = false;
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
@@ -476,50 +479,47 @@ class Battle {
 
   // ----- Расписание -----
 
-  schedule(): Array<{ phase: PhaseId; ticks: number }> {
+  /** Стрелковая фаза всего боя: темп планов обеих сторон сдвигает её в границах `RANGED_TICKS`, и доля её идёт в каждый круг. */
+  rangedTicks(): number {
     const tempo = PLANS[this.input.attacker.plan].tempo + PLANS[this.input.defender.plan].tempo;
-    const ranged = Math.max(RANGED_TICKS.min, Math.min(RANGED_TICKS.max, PHASE_TICKS.ranged + tempo));
-    return PHASES.map((phase) => ({ phase, ticks: phase === 'ranged' ? ranged : PHASE_TICKS[phase] }));
-  }
-
-  run(): BattleResult {
-    const plan = this.schedule();
-    let skipToMorale = false;
-    for (const { phase, ticks } of plan) {
-      if (phase === 'retreat') this.rounds();
-      if (skipToMorale && phaseIndex(phase) < phaseIndex('morale')) continue;
-      if (this.runPhase(phase, ticks)) skipToMorale = true;
-    }
-    return this.finish();
+    return Math.max(RANGED_TICKS.min, Math.min(RANGED_TICKS.max, PHASE_TICKS.ranged + tempo));
   }
 
   /**
-   * Круги боя (docs/battle_eu4.md, пачка 3): первый проход кончился, а не сломался никто — линии расходятся,
-   * и бой идёт новым кругом: сближение (обстрел), сшибка и сеча (`ROUND_PHASES`), с новой костью в каждой
-   * фазе, пока кто-то не сломается, но не больше потолка (`roundsCap` от глубины меньшей по ней стороны: вся
-   * её армия к трём полосам ширины фронта). Внутри круга — те же правила пропуска, что у первого прохода.
-   * Бой, сломавшийся в первом проходе, кругов не видит вовсе и идёт бит в бит как до них: круг не
-   * бросает ни одной кости, пока в него не вошли.
+   * Бой — круги всем боем (docs/battle_eu4.md, разделы 3.1 и 12): обстрел, сшибка и сеча (`CIRCLE_PHASES`),
+   * снова и снова, с новой костью в каждой фазе, пока кто-то не сломается, но не больше потолка (`roundsCap`
+   * от глубины меньшей по ней стороны: вся её армия к трём полосам ширины фронта). Длины фаз — доля прежнего
+   * боя в один проход на круг (`circleTicks`). Внутри круга правила пропуска прежние: сломался кто-то — бой
+   * линий обрывается на своём минимуме, обходы и ввод резерва пропускаются, мораль — и отход с погоней.
    */
-  rounds(): void {
+  run(): BattleResult {
+    const ranged = this.rangedTicks();
     const depth = Math.min(...SIDES.map((side) => this.sides[side].initialTotal / (FRONT.length * this.width)));
     const cap = roundsCap(depth);
-    while (!this.sides.attacker.broken && !this.sides.defender.broken) {
-      if (this.round >= cap) {
-        this.emit({ id: 'rounds-out', rounds: this.round + 1 });
-        return;
+    for (let k = 1; ; k += 1) {
+      if (k > 1) {
+        if (this.sides.attacker.broken || this.sides.defender.broken) break;
+        if (this.round >= cap) {
+          this.emit({ id: 'rounds-out', rounds: this.round + 1 });
+          break;
+        }
+        this.round += 1;
+        this.opening = true;
       }
-      this.round += 1;
       let skipToMorale = false;
-      for (const phase of ROUND_PHASES) {
-        if (skipToMorale && phaseIndex(phase) < phaseIndex('morale')) continue;
-        if (this.runPhase(phase, PHASE_TICKS[phase])) skipToMorale = true;
+      for (const phase of CIRCLE_PHASES) {
+        const ticks = circleTicks(phase, k, ranged);
+        if (ticks <= 0 || (skipToMorale && phase !== 'morale')) continue;
+        if (this.runPhase(phase, ticks, circleMin(phase, k, ranged))) skipToMorale = true;
       }
     }
+    this.runPhase('retreat', PHASE_TICKS.retreat, PHASE_TICKS.retreat);
+    this.runPhase('pursuit', PHASE_TICKS.pursuit, PHASE_TICKS.pursuit);
+    return this.finish();
   }
 
   /** Одна фаза целиком. Правда — сторона сломалась посреди сечи, и до фазы морали ждать больше нечего. */
-  runPhase(phase: PhaseId, ticks: number): boolean {
+  runPhase(phase: PhaseId, ticks: number, min: number): boolean {
     this.phase = phase;
     const from = this.tick + 1;
     const lostBefore = { attacker: this.sides.attacker.lostTotal, defender: this.sides.defender.lostTotal };
@@ -530,7 +530,6 @@ class Battle {
     this.step();
     let done = 1;
     while (done < ticks) {
-      const min = PHASE_MIN[phase] ?? ticks;
       const someoneBroken = this.sides.attacker.broken || this.sides.defender.broken;
       if (someoneBroken && phaseIndex(phase) >= phaseIndex('lines') && phaseIndex(phase) <= phaseIndex('morale') && done >= min) {
         // Сторона сломалась — обходы и ввод резерва пропускаются, фаза морали
@@ -547,7 +546,7 @@ class Battle {
     this.onPhaseEnd();
     this.phases.push({
       phase,
-      ...(this.round > 0 && ROUND_PHASES.includes(phase) ? { round: this.round + 1 } : {}),
+      ...(this.round > 0 && CIRCLE_PHASES.includes(phase) ? { round: this.round + 1 } : {}),
       from,
       to: this.tick,
       losses: {
@@ -596,16 +595,15 @@ class Battle {
     this.emit({ id: 'phase-start' });
     this.rollDice();
     for (const side of SIDES) this.sides[side].killsAtPhase = cloneKills(this.sides[side].kills);
+    if (this.opening) {
+      // Новый круг: линии расходятся для нового разбега. До сшибки рукопашной нет, и лучники бьют в полную
+      // силу; перестрелка круга судится по тому, что выбито с этой минуты.
+      this.opening = false;
+      this.contact = false;
+      for (const side of SIDES) this.sides[side].volley = 0;
+      this.emit({ id: 'round', round: this.round + 1 });
+    }
     switch (this.phase) {
-      case 'approach':
-        // Круг: линии расходятся для нового разбега. До сшибки рукопашной нет, и лучники бьют в полную
-        // силу; перестрелка круга судится по тому, что выбито с этой минуты.
-        if (this.round > 0) {
-          this.contact = false;
-          for (const side of SIDES) this.sides[side].volley = 0;
-          this.emit({ id: 'round', round: this.round + 1 });
-        }
-        break;
       case 'clash':
         this.contact = true;
         this.clashTick = this.tick;
@@ -732,15 +730,16 @@ class Battle {
     }
   }
 
-  /** Охват: сильный фланг заворачивает часть людей к центру противника. */
+  /** Охват: сильный фланг заворачивает часть людей к центру противника — один раз за бой, как и прежде, хотя обходы теперь есть в каждом круге. */
   envelop(side: Side): void {
     const s = this.sides[side];
-    if (s.setup.plan !== 'envelop') return;
+    if (s.setup.plan !== 'envelop' || s.fired.has('envelop')) return;
     if (this.enemyFront(side, 1).length === 0) return;
     for (const lane of [0, 2] as Lane[]) {
       const own = this.at(side, lane, 'front');
       const enemy = power(this.enemyFront(side, lane));
       if (own.length === 0 || power(own) < enemy * ENVELOP.advantage) continue;
+      s.fired.add('envelop');
       for (const g of own) this.detach(g, ENVELOP.share, 1, 'strike', 'front');
     }
   }

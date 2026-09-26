@@ -378,8 +378,10 @@ describe('ролик рассказывает то же, что отчёт', () 
   it('каждое событие журнала попадает на время и на место', () => {
     const result = evenFight();
     const cast = buildCast(result, 'attacker');
-    // Служебные — начало фазы, итог и кость: у кости нет ни места, ни выбитых, камере к ней нечего подаваться.
-    const meaningful = result.log.filter((e) => e.id !== 'phase-start' && e.id !== 'result' && e.id !== 'dice');
+    // Служебные — начало фазы, итог, кость, глубина ряда и круги: у кости нет ни места, ни выбитых, камере к ней нечего
+    // подаваться; глубина — состояние ряда, а круг и потолок — ход боя, а не миг на поле. Список тот же, что у ролика.
+    const SERVICE = ['phase-start', 'result', 'dice', 'depth', 'round', 'rounds-out'];
+    const meaningful = result.log.filter((e) => !SERVICE.includes(e.id));
     expect(result.log.some((e) => e.id === 'dice'), 'точка внутри области: кость в журнале есть — и в метки она не попала').toBe(true);
     expect(cast.marks.length).toBe(meaningful.length);
     for (const m of cast.marks) {
@@ -410,7 +412,7 @@ describe('ролик рассказывает то же, что отчёт', () 
   });
 
   it('круг идёт сечей: его сближение и сшибка — в такте сечи и по тикам, а не в близком плане и отъезде', () => {
-    // Круг — сближение, сшибка и сеча снова (`ROUND_PHASES`), и имена его фаз те же, что у первого прохода. Такт по
+    // Круг — обстрел, сшибка и сеча снова (`CIRCLE_PHASES`), и имена его фаз те же, что у первого круга. Такт по
     // имени фазы положил бы сближение круга в отъезд камеры, а его потери и события — раньше, чем линии сошлись.
     const r = simulateBattle({ seed: 1, attacker: { ...quickSetup({ spear: 300, archer: 300 }), plan: 'attrition' }, defender: { ...quickSetup({ infantry: 400, cavalry: 200 }), plan: 'attrition' } });
     const cast = buildCast(r, 'attacker');

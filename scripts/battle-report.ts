@@ -8,7 +8,7 @@
 // перемер лучших, потом лучшая против перебора), и между волнами — точка сбора.
 import { COUNTER, COVER, DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, simulateBattle, quickAttack, quickSetup, describeEvent, PLANS, QUICK_PRESET_IDS, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
 import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, OVERSIZE_SIZES, SCREEN_KINDS, holdSize, nonDecreasing, screenPoints, answerlessOwnKind, compositionLattice, compositionName, latticeRows, COUNTER_TERMS, counterOf, searchPool, searchShortlist, searchFinish, KNOWN_COUNTER_INDEX, LINE_SHAPES, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, quickOf, type LatticeRow } from '../src/battle/bench';
-import { FRONT_WIDTH, roundsCap } from '../src/battle/config';
+import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
 import { VARIANT_NAMES, runJobs, type Brief, type Job, type Out, type Pair, type Reach } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
@@ -444,10 +444,12 @@ console.log('\n=== Круги сечи и ширина по размерам: «
   }
 }
 
-console.log('\n=== Круги по размерам: сколько боёв доходит до круга (сближение, сшибка, сеча снова) ===');
+console.log('\n=== Круги по размерам: сколько боёв доходит до второго круга (обстрел, сшибка, сеча снова) ===');
 {
-  // Фазы по родам живут в кругах: бой, решённый первым проходом, их не видит. Матрица составов — все пары, 2 сида;
-  // настроенная армия (TUNED) против быстрой атаки той же армии — 100 боёв, те же сиды, что у «Разрыва».
+  // Круги всем боем: фазы по родам живут в каждом круге, и бой, решённый в первом, видит их один раз. Матрица
+  // составов — все пары, 2 сида; настроенная армия (TUNED) против быстрой атаки той же армии — 100 боёв, те же сиды,
+  // что у «Разрыва».
+  console.log(`круг, тиков при нулевом темпе планов: ${[1, 2, 3, 4].map((k) => circleLength(k)).join(' / ')} (дальше — как третий)`);
   console.log(`${pad('размер', 8)}  матрица составов: с кругами, сшибок на бой   настроенная против быстрой атаки: с кругами, сшибок на бой, разрыв, побед/поражений`);
   const share = (r: Reach): string => `${r.rounds}/${r.n} (${((100 * r.rounds) / r.n).toFixed(1)}%)`;
   for (const { total, got } of reachAt) {
@@ -455,6 +457,14 @@ console.log('\n=== Круги по размерам: сколько боёв д�
     console.log(
       `${pad(total, 8)}  ${share(m).padStart(16)}, ${(m.clashes / m.n).toFixed(2)}                     ${share(t).padStart(14)}, ${(t.clashes / t.n).toFixed(2)}, ${(t.gap * 100).toFixed(1).padStart(5)}%, ${t.won}/${t.lost}`,
     );
+  }
+  // Длительность — тики боя и секунды его ролика по матрице составов: медиана, 90 % и самый долгий.
+  const at = (xs: number[], p: number): number => xs[Math.min(xs.length - 1, Math.floor(xs.length * p))];
+  const spread = (xs: number[]): string => `${at(xs, 0.5)} / ${at(xs, 0.9)} / ${xs[xs.length - 1]}`;
+  console.log(`${pad('размер', 8)}  тики боя: медиана / 90% / макс     ролик, секунд: медиана / 90% / макс`);
+  for (const { total, got } of reachAt) {
+    const { matrix: m } = got();
+    console.log(`${pad(total, 8)}  ${spread(m.ticks).padStart(22)}           ${spread(m.seconds).padStart(18)}`);
   }
 }
 

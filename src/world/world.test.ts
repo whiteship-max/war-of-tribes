@@ -1043,8 +1043,13 @@ describe('состав отряда и отчёт о бое', () => {
     expect(battle, 'у набега должен быть журнал боя').toBeTruthy();
     expect(battle!.us).toBe('attacker');
     expect(battle!.result.log.length).toBeGreaterThan(3);
-    expect(battle!.result.ticks).toBeGreaterThanOrEqual(50);
-    expect(battle!.result.ticks).toBeLessThanOrEqual(100);
+    // Журнал целый: фазы идут подряд с первого тика до последнего и кончаются погоней. Длину боя держит ядро
+    // (`battle.test.ts`, «продолжительность»): прежние «50–100 тиков» были копией рамки боя в один проход.
+    const phases = battle!.result.phases;
+    expect(phases[0].from).toBe(1);
+    for (let i = 1; i < phases.length; i += 1) expect(phases[i].from).toBe(phases[i - 1].to + 1);
+    expect(phases[phases.length - 1].phase).toBe('pursuit');
+    expect(phases[phases.length - 1].to).toBe(battle!.result.ticks);
 
     const effect = pulse.effects.find((e) => e.lostTroops);
     expect(effect, 'потери должны прийти по видам бойцов').toBeTruthy();
