@@ -57,6 +57,11 @@ export function Prologue({ onExit }: { onExit: () => void }) {
   const [hint, setHint] = useState(true);
   /** Имя сына, пока его печатают. Это поле ввода, а не игра: в запись оно не идёт. */
   const [draft, setDraft] = useState('');
+  /**
+   * Приехали ли текстуры поляны. Пока нет, кадра нет (`scene.TEX_WAIT_MS`), и над
+   * холстом стоит та же надпись, что у чанка: загрузка режима — одна, а не две.
+   */
+  const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
@@ -81,6 +86,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     const scene = new PrologueScene(canvas, loadPrologue());
     sceneRef.current = scene;
     scene.onView = setView;
+    scene.onReady = () => setReady(true);
     scene.stickEl = stickRef.current;
     scene.meterEl = meterRef.current;
     scene.hugEl = hugRef.current;
@@ -105,6 +111,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       window.removeEventListener('orientationchange', onResize);
       canvas.removeEventListener('pointerdown', drop);
       scene.onView = null;
+      scene.onReady = null;
       scene.stickEl = null;
       scene.meterEl = null;
       scene.hugEl = null;
@@ -164,6 +171,9 @@ export function Prologue({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="pro" ref={wrapRef}>
+      {/* Пока едут текстуры — надпись поверх холста. Пальцы она пропускает: жизнь поляны
+          идёт и до первого кадра, и тап, отменяющий подсказку, должен дойти до холста. */}
+      {!ready && <div className="pro-wait pro-loading">Поляна…</div>}
       {/* Замерник кадров — по адресу `?fps=1`, владельцу на телефоне: ступень и кадры. */}
       {METER && <div className="pro-meter" ref={meterRef} aria-hidden="true" />}
       {/* Стик ходьбы. Сидит в разметке всегда и прячется прозрачностью: заводить

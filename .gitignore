@@ -33,3 +33,8 @@ assets-src/Combat Pack - vol 1/
 # собирается src/world/atlas/data.ts, а откуда они взяты, записано в
 # assets-src/world/SOURCES.md
 assets-src/world/cache/
+
+# исходники текстур предыстории: карты Poly Haven 1k, ~16 МБ JPEG. В репозиторий им не надо —
+# из них собирается public/assets/prologue/, а откуда они, записано в src/prologue/textures.ts
+# и docs/prologue.md, раздел 21; качает их `npm run textures:build -- --fetch`
+assets-src/prologue/cache/

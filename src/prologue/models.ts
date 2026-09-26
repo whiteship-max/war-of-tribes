@@ -23,6 +23,16 @@ import { AXE_STUMP, EYE_CLEAR, FIRE, GLADE_R, GUEST_FROM, HOUSE, MATE_SPOT, SON_
 import { HOUSE_LOGS } from './craft';
 import { BOARDS } from './end';
 import { ADDITIVE, mix } from './paint';
+import { PRO_MATS } from './pbr';
+
+/**
+ * Камень и дерево поляны — свои материалы (`pbr.PRO_MATS`), а не общее «тело» набора:
+ * по имени материала копия узнаёт, класть ли на него камень или древесину. Камню
+ * цвет даёт текстура, в вершинах — только яркость (закопчённый камень очага темнее);
+ * дереву цвет палитры, текстура — рисунок волокна.
+ */
+const stonePaint = (k: number): K.Paint => ({ mat: PRO_MATS.stone, tint: new THREE.Color(k, k, k) });
+const woodPaint = (hex: number): K.Paint => ({ mat: PRO_MATS.wood, tint: new THREE.Color(hex) });
 
 /** Докуда тянется земля. Дальше туман, и края диска не видно. */
 const GROUND_R = 44;
@@ -517,7 +527,7 @@ export function undergrowth(): { sway: THREE.Mesh; still: THREE.Mesh } {
     const z = Math.sin(a) * r;
     if (!free(x, z)) continue;
     const s = 0.1 + hash(i, 235) * 0.16;
-    const rock = tint(mix(PALETTE.stone, PALETTE.stoneDark, hash(i, 237)));
+    const rock = stonePaint(0.75 + hash(i, 237) * 0.3);
     const y = height(x, z);
     still.push(
       K.place(new THREE.DodecahedronGeometry(s, 0), rock, x, y + s * 0.35, z, { x: hash(i, 239) * 3, y: hash(i, 241) * 3 }, { base: [0.7, 0.72, 0.8], y0: y, y1: y + s }),
@@ -532,7 +542,7 @@ export function undergrowth(): { sway: THREE.Mesh; still: THREE.Mesh } {
     if (!free(x, z)) continue;
     const len = 0.6 + hash(i, 255) * 0.7;
     const ya = hash(i, 257) * Math.PI;
-    const wood = tint(mix(PALETTE.woodDark, PALETTE.trunk, hash(i, 259)));
+    const wood = woodPaint(mix(PALETTE.woodDark, PALETTE.trunk, hash(i, 259)));
     still.push(K.cyl(0.022, 0.035, len, wood, 5, x, height(x, z) + 0.04, z, { z: Math.PI / 2, y: ya }));
     // Сучок в сторону — палка читается веткой, а не черенком.
     still.push(K.cyl(0.01, 0.018, len * 0.35, wood, 4, x + Math.cos(ya) * len * 0.15, height(x, z) + 0.07, z - Math.sin(ya) * len * 0.15, { z: Math.PI / 2 - 0.6, y: ya + 0.8 }));
@@ -548,7 +558,9 @@ export function undergrowth(): { sway: THREE.Mesh; still: THREE.Mesh } {
     const s = 0.8 + hash(i, 265) * 0.5;
     // Зима: куст под снегом — зелень едва проглядывает. Ярко-зелёный ком на белом
     // читался весной, забытой посреди зимы (поймано снимком первого кадра).
-    const leaf = tint(mix(mix(PALETTE.bush, PALETTE.leaves, hash(i, 267)), PALETTE.snowflake, 0.62));
+    // Куст — свой материал кроны (`bush`): на поляне он — сухой дубовый подрост под
+    // снегом, и снег на нём лежит по рисунку листвы, а не цветом палитры.
+    const leaf = K.paintOf('bush');
     const y = height(x, z);
     for (let k = 0; k < 2; k++) {
       const geo = new THREE.IcosahedronGeometry(0.42 * s * (1 - k * 0.25), 0);
@@ -577,7 +589,8 @@ export function campfire(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'campfire';
   const parts: K.Part[] = [];
-  const stone = K.paintOf('stoneDark');
+  // Камни очага закопчены: темнее валунов у опушки.
+  const stone = stonePaint(0.42);
   for (let i = 0; i < 9; i++) {
     const a = (i / 9) * Math.PI * 2;
     const r = 0.62 + hash(i, 2) * 0.08;
@@ -592,7 +605,7 @@ export function campfire(): THREE.Group {
   parts.push(K.cyl(0.56, 0.6, 0.07, K.paintOf('trample'), 12, 0, 0.035, 0));
   for (let i = 0; i < 4; i++) {
     parts.push(
-      K.cyl(0.065, 0.075, 0.86, K.paintOf('woodDark'), 5, 0, 0.14 + (i % 2) * 0.09, 0, {
+      K.cyl(0.065, 0.075, 0.86, woodPaint(PALETTE.woodDark), 5, 0, 0.14 + (i % 2) * 0.09, 0, {
         z: Math.PI / 2,
         y: (i / 4) * Math.PI + 0.3,
       }),
@@ -623,7 +636,7 @@ export function tent(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'tent';
   const parts: K.Part[] = [];
-  const pole = K.paintOf('timber');
+  const pole = woodPaint(PALETTE.timber);
   const skin = K.paintOf('hide');
   const w = 2.4;
   const d = 2.7;
@@ -676,7 +689,7 @@ export function tent(): THREE.Group {
     parts.push(
       K.place(
         new THREE.DodecahedronGeometry(0.12, 0),
-        K.paintOf('stone'),
+        stonePaint(0.9),
         (sx * w) / 2 + sx * 0.06,
         0.07,
         (i % 3) * 0.95 - 0.95,
@@ -725,8 +738,8 @@ export function house(logs: number): THREE.Group {
   g.name = 'house';
   const parts: K.Part[] = [];
   const bark = K.paintOf('trunk');
-  const end = K.paintOf('cut');
-  const plank = K.paintOf('timber');
+  const end = woodPaint(PALETTE.cut);
+  const plank = woodPaint(PALETTE.timber);
   const n = Math.max(0, Math.min(HOUSE_LOGS, Math.floor(logs)));
   const half = 1.15;
   const len = half * 2 + 0.36;
@@ -807,8 +820,8 @@ export function frame(boards: number): THREE.Group {
   const g = new THREE.Group();
   g.name = 'frame';
   const parts: K.Part[] = [];
-  const plank = K.paintOf('plank');
-  const timber = K.paintOf('timber');
+  const plank = woodPaint(PALETTE.plank);
+  const timber = woodPaint(PALETTE.timber);
   const n = Math.max(0, Math.min(BOARDS, Math.floor(boards)));
   const half = 0.72;
   const len = half * 2 + 0.22;
@@ -837,7 +850,7 @@ export function frame(boards: number): THREE.Group {
   for (let i = 0; i < 5; i++) {
     const a = hash(i, 71) * Math.PI * 2;
     const r = 0.9 + hash(i, 73) * 0.4;
-    parts.push(K.box(0.14, 0.02, 0.05, K.paintOf('cut'), Math.cos(a) * r, 0.01, Math.sin(a) * r, { y: hash(i, 77) * 3 }));
+    parts.push(K.box(0.14, 0.02, 0.05, woodPaint(PALETTE.cut), Math.cos(a) * r, 0.01, Math.sin(a) * r, { y: hash(i, 77) * 3 }));
   }
 
   g.add(K.assemble(parts));
@@ -851,14 +864,14 @@ export function chopBlock(): THREE.Group {
   g.name = 'block';
   const parts: K.Part[] = [
     K.cyl(0.42, 0.46, 0.62, K.paintOf('trunk'), 9, 0, 0.31, 0),
-    K.cyl(0.4, 0.4, 0.04, K.paintOf('cut'), 9, 0, 0.63, 0),
+    K.cyl(0.4, 0.4, 0.04, woodPaint(PALETTE.cut), 9, 0, 0.63, 0),
   ];
   // Щепа вокруг колоды: место, где рубят, видно и без топора.
   for (let i = 0; i < 7; i++) {
     const a = hash(i, 31) * Math.PI * 2;
     const r = 0.55 + hash(i, 33) * 0.5;
     parts.push(
-      K.box(0.16 + hash(i, 35) * 0.1, 0.03, 0.06, K.paintOf('cut'), Math.cos(a) * r, 0.02, Math.sin(a) * r, {
+      K.box(0.16 + hash(i, 35) * 0.1, 0.03, 0.06, woodPaint(PALETTE.cut), Math.cos(a) * r, 0.02, Math.sin(a) * r, {
         y: hash(i, 37) * 3,
       }),
     );

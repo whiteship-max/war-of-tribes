@@ -104,6 +104,7 @@ import {
 } from './sky';
 import { Dome, newTone, toneAt } from './dome';
 import { Surfaces } from './surface';
+import { Textures, anisoOf, sizeOf } from './textures';
 import { ACES, Post, type Light } from './post';
 import {
   EXPOSE_BASE,
@@ -545,6 +546,11 @@ const _size = new THREE.Vector2();
 const _bounce = new THREE.Color();
 /** Цвет снега, который отдаёт свет снизу, — тот же, что у снежинки. */
 const SNOW_WHITE = new THREE.Color(PALETTE.snowflake);
+/**
+ * Сколько первый кадр ждёт текстур. Загрузка предыстории до десяти секунд допустима
+ * (решение владельца); чанк едет раньше, и на текстуры остаётся восемь.
+ */
+const TEX_WAIT_MS = 8000;
 /** Цвет ясного зенита: к нему синеет свет неба днём (`look.SKY_BLUE`). */
 const SKY_CLEAR = new THREE.Color(PALETTE.sky);
 const DEG = Math.PI / 180;
@@ -1344,6 +1350,15 @@ export class PrologueScene {
    */
   private post: Post;
   private steady: Steady;
+  /**
+   * Текстуры поляны (`textures.ts`). Первый кадр ждёт их (`TEX_WAIT_MS`): поляна,
+   * показанная палитрой и через секунду переодетая в кору и снег, читалась бы сбоем.
+   */
+  private textures: Textures;
+  private texDone = false;
+  private bornAt = performance.now();
+  /** Текстуры приехали (или ждать их больше нельзя) — поляну пора показывать. */
+  onReady: (() => void) | null = null;
   private pinned = false;
   /** Что устройство вообще умеет: без целей половинной точности ступень одна. */
   private hdr = false;
@@ -1587,6 +1602,14 @@ export class PrologueScene {
     this.mapBase = this.rig.sun.shadow.mapSize.x;
     fitShadow(this.rig, SHADOW_HALF);
     const tier = this.pickTier();
+    // Текстуры — до первой копии материала: набор и проекция — определения шейдера.
+    this.textures = new Textures(sizeOf(tier), anisoOf(tier, this.renderer.capabilities.getMaxAnisotropy()));
+    this.surfaces.useTextures(this.textures);
+    const shown = (): void => {
+      this.texDone = true;
+      this.onReady?.();
+    };
+    this.textures.ready.then(shown, shown);
     this.post = new Post(this.renderer, tier);
     this.steady = new Steady(tier);
     // ПРЕДЫСТОРИЯ ИДЁТ ЗИМОЙ. Сезон общий на всю игру — материалы одни, — поэтому
@@ -2633,6 +2656,14 @@ export class PrologueScene {
     this.last = t;
 
     this.step(dt, t);
+    // Пока едут текстуры, кадра нет вовсе: жизнь поляны идёт (она на часах), а
+    // показывать её палитрой, чтобы через миг переодеть, незачем. Не приехали за
+    // `TEX_WAIT_MS` — показываем как есть: без текстур лучше, чем без поляны.
+    if (!this.texDone) {
+      if (t - this.bornAt < TEX_WAIT_MS) return;
+      this.texDone = true;
+      this.onReady?.();
+    }
     this.renderer.info.reset();
     this.light.exposure = this.skyExposure * (this.underRoof ? ROOF_ADAPT : 1);
     this.post.render(this.scene, this.camera, this.light);
@@ -2698,6 +2729,8 @@ export class PrologueScene {
    */
   private applyTier(tier: Tier): void {
     this.post.setTier(tier);
+    // Ступень ниже — те же материалы с меньшими файлами (решение владельца).
+    void this.textures.resize(sizeOf(tier), anisoOf(tier, this.renderer.capabilities.getMaxAnisotropy()));
     this.scene.fog = tier === 'base' ? this.fog : null;
     const cast = FOREST_SHADOW[tier];
     this.woods?.traverse((o) => {
@@ -4971,6 +5004,7 @@ export class PrologueScene {
     this.dome.dispose();
     this.sparks.dispose();
     this.surfaces.dispose();
+    this.textures.dispose();
     this.glowTex.dispose();
     for (const tex of this.sleeveTex) tex.dispose();
     for (const mat of this.sleeveMat) mat.dispose();

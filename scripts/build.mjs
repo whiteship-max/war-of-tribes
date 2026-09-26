@@ -61,8 +61,12 @@ const REQUIRED = [
   { file: 'assets/splash/boot.webp', min: 5000 },
 ];
 
-/** Папки, которые копируются из public целиком: в dist их содержимое обязано совпасть по счёту. */
-const MIRRORED = ['assets/music', 'assets/avatars'];
+/**
+ * Папки, которые копируются из public целиком: в dist их содержимое обязано совпасть по счёту.
+ * Текстуры предыстории (`assets/prologue`) — такие же: их собирает `npm run textures:build`, и
+ * файл, не доехавший до dist, оставил бы поляну без коры и снега молча.
+ */
+const MIRRORED = ['assets/music', 'assets/avatars', 'assets/prologue'];
 
 function run(stage) {
   process.stdout.write(`\n=== ${stage.name} ===\n`);
@@ -152,8 +156,9 @@ function manifest() {
   // статическим `import` (ленивые куски — стенды, ролик о бое, предыстория с её стилями —
   // сюда не попадают сами). Что они не протекли в первую загрузку модулями, держит сборка
   // (`lazyDoorsPlugin` в vite.config.ts). Остальное — по месту: музыка и лица качаются по
-  // ходу партии, заставка входит — её тянет экран загрузки, пусть и после первого кадра.
-  const LATER = [/^assets\/(music|avatars)\//];
+  // ходу партии, текстуры предыстории — по её кнопке, заставка входит — её тянет экран
+  // загрузки, пусть и после первого кадра.
+  const LATER = [/^assets\/(music|avatars|prologue)\//];
   const html = readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const firstCode = new Set();
   const reach = (rel) => {
@@ -185,7 +190,7 @@ function manifest() {
   };
   walk(DIST, '');
 
-  // Музыка и лица — сотни файлов, поимённо их читать незачем: показываем папку строкой.
+  // Музыка, лица и текстуры — десятки файлов, поимённо их читать незачем: показываем папку строкой.
   const folded = [];
   for (const dir of MIRRORED) {
     const inside = rows.filter((r) => r.name.startsWith(`${dir}/`));

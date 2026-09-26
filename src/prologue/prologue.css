@@ -37,6 +37,15 @@
   font-size: 14px;
 }
 
+/* Надпись над холстом, пока едут текстуры: поверх всей надстройки и прозрачна для пальцев. */
+.pro-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: var(--bg);
+  pointer-events: none;
+}
+
 .pro-canvas {
   position: absolute;
   inset: 0;

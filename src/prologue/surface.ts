@@ -22,6 +22,19 @@
  */
 import * as THREE from 'three';
 import { PALETTE } from '@/render/palette';
+import {
+  LOOKS,
+  PBR_FRAG_HEAD,
+  PBR_LIGHT_BODY,
+  PBR_LIGHT_PARS,
+  PBR_OUT,
+  PBR_SURFACE,
+  PBR_VERT_BODY,
+  PBR_VERT_HEAD,
+  pbrOf,
+  type PbrShared,
+} from './pbr';
+import { SETS, type SetName, type Textures } from './textures';
 
 /**
  * Чем материал шевелится.
@@ -56,7 +69,12 @@ const TAKES: Record<string, { snow: number; wet: number }> = {
   rock: { snow: 0.85, wet: 0.32 },
   hide: { snow: 0.9, wet: 0.24 },
   body: { snow: 0.7, wet: 0.22 },
+  proStone: { snow: 0.85, wet: 0.32 },
+  proWood: { snow: 0.6, wet: 0.3 },
 };
+
+/** Строка итога Ламберта, к которой приписывается блик (`pbr.PBR_OUT`). */
+const OUTGOING = 'vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;';
 
 const VERT_HEAD = /* glsl */ `#include <common>
 uniform float proTime;
@@ -87,15 +105,11 @@ uniform vec3 proSnowColor;`;
 
 /**
  * Сырость и снег. Вставлено после нормали и до света: грань, смотрящая вверх,
- * белеет, мокрая — темнеет и холодеет, а освещает их потом тот же риг.
+ * белеет, мокрая — темнеет и холодеет, а освещает их потом тот же риг. У материала с
+ * текстурами (`pbr.ts`) снег и сырость свои, по рисунку текстуры; эта же ветвь у него
+ * остаётся запасной — пока текстуры не приехали или если не приедут вовсе.
  */
-const FRAG_BODY = /* glsl */ `#include <emissivemap_fragment>
-{
-  float proUp = dot( normal, normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz ) );
-  float proDamp = proWet * proWetK;
-  diffuseColor.rgb *= vec3( 1.0 - proDamp, 1.0 - proDamp * 0.92, 1.0 - proDamp * 0.78 );
-  diffuseColor.rgb = mix( diffuseColor.rgb, proSnowColor, proSnow * proSnowK * smoothstep( 0.22, 0.68, proUp ) );
-}`;
+const FRAG_BODY = `#include <emissivemap_fragment>${PBR_SURFACE}`;
 
 /**
  * Мягкие тени: тень с контактным ужесточением (PCSS, Fernando 2005) вместо общей.
@@ -152,7 +166,12 @@ export interface SurfaceUniforms {
   /** Мягкие тени: сколько полутени (в долях карты) на единицу глубины карты и круг поиска. */
   penumbra: { value: number };
   search: { value: number };
+  /** Текстуры приехали (`pbr.ts`): 1 — рисовать ими, 0 — прежним цветом. */
+  texOn: { value: number };
 }
+
+/** Метров на образец набора — по описи ассета (`textures.SETS`). */
+const metersOf = (set: SetName): number => SETS.find((s) => s.name === set)?.source.meters ?? 1;
 
 export class Surfaces {
   readonly u: SurfaceUniforms = {
@@ -163,7 +182,29 @@ export class Surfaces {
     snowColor: { value: new THREE.Color(PALETTE.snowflake) },
     penumbra: { value: 0 },
     search: { value: 0 },
+    texOn: { value: 0 },
   };
+
+  /** Текстуры поляны (`textures.ts`): без них копии остаются прежними, Ламбертом палитры. */
+  private shared: PbrShared | null = null;
+
+  /**
+   * Дать копиям текстуры. Зовётся до первой копии: набор и проекция — определения
+   * шейдера, и копия, снятая раньше, осталась бы без них до выхода.
+   */
+  useTextures(tex: Textures): void {
+    this.shared = { tex, texOn: this.u.texOn };
+    tex.ready.then(
+      () => {
+        this.u.texOn.value = 1;
+      },
+      () => {
+        // Не приехал хоть один файл — рисуем прежним цветом: поляна без текстур лучше,
+        // чем поляна с чёрными дырами на месте коры.
+        this.u.texOn.value = 0;
+      },
+    );
+  }
 
   /** Мягкие ли тени у копий (`SOFT_PARS`): меняется со ступенью и пересобирает шейдеры. */
   private soft = false;
@@ -218,6 +259,10 @@ export class Surfaces {
     const mat = src.clone();
     if (role === 'tuft') mat.side = THREE.DoubleSide;
     const takes = TAKES[src.name];
+    // Трава качается и видна с обеих сторон — ей текстура ни к чему: травинка тоньше
+    // точки образца. Остальное с набором в `LOOKS` — с текстурами.
+    const look = role === 'tuft' ? undefined : LOOKS[src.name];
+    const pbr = look && this.shared ? pbrOf(mat, look, this.shared, metersOf) : {};
     const wind = WIND[role];
     const own = {
       proWindFrom: { value: wind.from },
@@ -226,7 +271,7 @@ export class Surfaces {
       proWetK: { value: takes.wet },
     };
     mat.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, own, {
+      Object.assign(shader.uniforms, own, pbr, {
         proTime: this.u.time,
         proWind: this.u.wind,
         proSnow: this.u.snow,
@@ -236,18 +281,22 @@ export class Surfaces {
         proSearch: this.u.search,
       });
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', VERT_HEAD)
-        .replace('#include <begin_vertex>', VERT_BODY);
+        .replace('#include <common>', VERT_HEAD + PBR_VERT_HEAD)
+        .replace('#include <begin_vertex>', VERT_BODY)
+        .replace('#include <project_vertex>', `#include <project_vertex>${PBR_VERT_BODY}`);
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', FRAG_HEAD)
+        .replace('#include <common>', FRAG_HEAD + PBR_FRAG_HEAD)
         .replace('#include <emissivemap_fragment>', FRAG_BODY)
+        .replace('#include <lights_lambert_pars_fragment>', PBR_LIGHT_PARS)
+        .replace('#include <lights_lambert_fragment>', PBR_LIGHT_BODY)
+        .replace(OUTGOING, PBR_OUT)
         .replace('#include <shadowmap_pars_fragment>', SOFT_PARS);
     };
     // Вставка у всех копий одна, значит и программа одна на вид материала:
     // копий много, а компиляций столько же, сколько было. Мягкие тени — вторая
     // программа, и выбирает её ступень.
     mat.customProgramCacheKey = () => (this.soft ? 'prologue-surface-soft' : 'prologue-surface');
-    if (this.soft) mat.defines = { PRO_SOFT: '', PRO_BLOCKERS: 12, PRO_TAPS: 20 };
+    if (this.soft) mat.defines = { ...(mat.defines ?? {}), PRO_SOFT: '', PRO_BLOCKERS: 12, PRO_TAPS: 20 };
     return mat;
   }
 
