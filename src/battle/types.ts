@@ -165,7 +165,7 @@ export type BattleEvent = EventBase &
      * её полководец (`pips`). Пишется в начале каждой фазы, у которой есть кость (`PHASE_PIP`).
      */
     | { id: 'dice'; rolls: Record<Side, number>; pips: Record<Side, number> }
-    /** Лучники нанесли `losses` потерь до контакта. */
+    /** Лучники нанесли `losses` потерь до первого столкновения — залп перед сшибкой первого прохода; у кругов его нет. */
     | { id: 'volley'; side: Side; losses: number }
     /** Копья в `sector` остановили кавалерийский удар: конница потеряла больше, чем копейщики. */
     | { id: 'spears-held'; side: Side; sector: Sector; cavalryLost: number; spearsLost: number }
@@ -181,7 +181,7 @@ export type BattleEvent = EventBase &
     | { id: 'sector-broken'; side: Side; sector: Sector }
     /** Паника перекинулась со сломанного сектора `from` на соседний `to`. */
     | { id: 'panic-spread'; side: Side; from: Sector; to: Sector }
-    /** Сторона проиграла стрелковую фазу: до контакта потеряла `losses` против `enemyLosses` у противника. */
+    /** Сторона проиграла обстрел: до сшибки потеряла `losses` против `enemyLosses` у противника. Судится каждая сшибка — по обстрелу своего круга. */
     | { id: 'ranged-lost'; side: Side; losses: number; enemyLosses: number }
     /** Противник прошёл сквозь фронт и достиг тыла `sector`. */
     | { id: 'rear-reached'; side: Side; sector: Sector; by: Side }
@@ -197,9 +197,9 @@ export type BattleEvent = EventBase &
      * фронт). Пишется раз за бой на ряд полосы — в первый тик, когда ширина зажала бьющих.
      */
     | { id: 'depth'; side: Side; sector: Sector; row: 'front' | 'rear' | 'strike'; men: number; width: number }
-    /** Первый проход кончился, а не сломался никто: сеча идёт снова, круг `round` по счёту (первый проход — первый круг: 2, 3, …). */
+    /** Первый проход кончился, а не сломался никто: линии расходятся, и бой идёт новым кругом — сближение, сшибка, сеча (`ROUND_PHASES`); круг `round` по счёту (первый проход — первый круг: 2, 3, …). Пишется в начале сближения круга. */
     | { id: 'round'; round: number }
-    /** Сеча шла `rounds` кругами вместе с первым проходом — потолок (`roundsCap`), а не сломался никто: стояние, исход решает итог по сохранённым. */
+    /** Бой шёл `rounds` кругами вместе с первым проходом — потолок (`roundsCap`), а не сломался никто: стояние, исход решает итог по сохранённым. */
     | { id: 'rounds-out'; rounds: number }
     /** Армия сломалась: сломанные сектора весят `brokenShare` (0..1) от её начальной численности. */
     | { id: 'morale-collapsed'; side: Side; morale: number; brokenShare: number }
@@ -261,7 +261,7 @@ export interface SideResult {
 
 export interface PhaseSpan {
   phase: PhaseId;
-  /** Круг сечи, к которому фаза относится, по счёту: первый проход — первый круг, у него поля нет; дальше 2, 3, … */
+  /** Круг боя, к которому фаза относится, по счёту: первый проход — первый круг, у него поля нет; дальше 2, 3, … — у каждой фазы круга (`ROUND_PHASES`). */
   round?: number;
   /** Первый и последний тик фазы включительно. */
   from: number;

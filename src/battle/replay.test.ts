@@ -394,8 +394,8 @@ describe('ролик рассказывает то же, что отчёт', () 
   });
 
   it('событие круга сечи ложится на время своего круга, а не первой сечи', () => {
-    // Сеча идёт кругами, и фаза встречается в журнале не один раз: метка ищет ту, в чьи тики попало.
-    // Бой, дошедший до потолка кругов, — копья с лучниками против пехоты с конницей на изматывании.
+    // Бой идёт кругами, и фаза встречается в журнале не один раз: метка ищет ту, в чьи тики попало.
+    // Бой с кругами — копья с лучниками против пехоты с конницей на изматывании (граница утверждена ниже).
     const r = simulateBattle({ seed: 1, attacker: { ...quickSetup({ spear: 300, archer: 300 }), plan: 'attrition' }, defender: { ...quickSetup({ infantry: 400, cavalry: 200 }), plan: 'attrition' } });
     const cast = buildCast(r, 'attacker');
     const inRound = cast.marks.filter((m) => r.phases.some((p) => p.round && p.phase === m.phase && m.tick >= p.from && m.tick <= p.to));
@@ -407,6 +407,25 @@ describe('ролик рассказывает то же, что отчёт', () 
       expect(m.t, `${m.id} на ${m.tick}-м тике`).toBeGreaterThanOrEqual(span.t0 - 1e-9);
       expect(m.t, `${m.id} на ${m.tick}-м тике`).toBeLessThanOrEqual(span.t1 + 1e-9);
     }
+  });
+
+  it('круг идёт сечей: его сближение и сшибка — в такте сечи и по тикам, а не в близком плане и отъезде', () => {
+    // Круг — сближение, сшибка и сеча снова (`ROUND_PHASES`), и имена его фаз те же, что у первого прохода. Такт по
+    // имени фазы положил бы сближение круга в отъезд камеры, а его потери и события — раньше, чем линии сошлись.
+    const r = simulateBattle({ seed: 1, attacker: { ...quickSetup({ spear: 300, archer: 300 }), plan: 'attrition' }, defender: { ...quickSetup({ infantry: 400, cavalry: 200 }), plan: 'attrition' } });
+    const cast = buildCast(r, 'attacker');
+    const inRounds = r.phases.filter((p) => p.round !== undefined);
+    // Граница: в бою есть круги, и в них есть сближение и сшибка — фазы, чьё имя живёт и в других тактах.
+    expect(inRounds.some((p) => p.phase === 'approach'), 'сближение в круге').toBe(true);
+    expect(inRounds.some((p) => p.phase === 'clash'), 'сшибка в круге').toBe(true);
+    for (const p of inRounds) {
+      const span = cast.spans.find((s) => s.from === p.from && s.to === p.to);
+      expect(span, `${p.phase}, круг ${p.round}`).toBeDefined();
+      expect(span!.act, `${p.phase}, круг ${p.round}`).toBe('melee');
+    }
+    // Время ролика идёт в том же порядке, что тики боя.
+    const byTime = [...cast.spans].sort((a, b) => a.t0 - b.t0 || a.from - b.from).map((s) => s.from);
+    expect(byTime).toEqual([...byTime].sort((a, b) => a - b));
   });
 
   it('подпись держится ровно столько, сколько обещано', () => {
@@ -459,7 +478,9 @@ describe('кадр не врёт о численности', () => {
     const last = frameAt(cast, cast.seconds);
     for (const side of ['attacker', 'defender'] as Side[]) {
       expect(first.side[side].men).toBe(result.sides[side].total.initial);
-      expect(last.side[side].men).toBeCloseTo(result.sides[side].total.final, -0.6);
+      // Ровно, а не около: концы у ролика — из итога боя, журнал задаёт только темп. Потери фаз в журнале к итогу
+      // не складываются (десятые и отброшенные малые), и кадр, идущий по ним одним, расходился с отчётом на единицы.
+      expect(last.side[side].men).toBe(result.sides[side].total.final);
     }
   });
 

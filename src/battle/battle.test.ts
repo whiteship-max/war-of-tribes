@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
 import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, COUNTER, DICE, FIRST_MELEE_TICKS, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, ROUND_TICKS, TEMPER, UNIT_STATS, WIDTH_ON, roundsCap } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, laneFront, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, oversize, oversizeHold, quickOf, scaleArmy, SEARCH, setupOf, withDiceStep } from './bench';
+import { ANNIHILATED_AT, COUNTER, DICE, FIRST_MELEE_TICKS, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, ROUND_MELEE_TICKS, ROUND_PHASES, ROUND_TICKS, TEMPER, UNIT_STATS, WIDTH_ON, roundsCap } from './config';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, holdSize, homogeneous, laneFront, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, oversize, oversizeHold, quickOf, scaleArmy, SEARCH, setupOf, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PipId, type Plan, type Side, type Stack, type Winner } from './types';
 
@@ -299,10 +299,16 @@ describe('превосходство условно', () => {
     for (let seed = 1; seed <= 4; seed += 1) {
       const r = simulateBattle({ seed, attacker: shooters, defender: wall });
       const clash = r.phases.find((p) => p.phase === 'clash')!;
-      // Стрельба идёт до самого преследования: окно — от первого столкновения до конца отступления.
+      // Стрельба идёт до самого преследования: окно — от первого столкновения до конца отступления, кроме сближений
+      // кругов — там линии разошлись, контакта нет, и лучники бьют в полную силу (правило круга, а не этого теста).
+      // У стены лучников нет, поэтому всё, что она потеряла в сближении круга, выбито стрелами этого сближения.
       const retreat = r.phases.find((p) => p.phase === 'retreat')!;
+      const apart = r.phases.filter((p) => p.round !== undefined && p.phase === 'approach');
+      const apartShots = apart.reduce((n, p) => n + p.losses.defender, 0);
+      const apartTicks = apart.reduce((n, p) => n + p.to - p.from + 1, 0);
+      expect(r.sides.defender.initial.archer, 'у стены лучников нет').toBe(0);
       const before = r.sides.attacker.rangedBeforeContact / (clash.from - 1);
-      const after = (r.sides.attacker.rangedTotal - r.sides.attacker.rangedBeforeContact) / (retreat.to - clash.from + 1);
+      const after = (r.sides.attacker.rangedTotal - r.sides.attacker.rangedBeforeContact - apartShots) / (retreat.to - clash.from + 1 - apartTicks);
       expect(before).toBeGreaterThan(0);
       expect(after).toBeLessThan(before * 0.5);
     }
@@ -412,17 +418,17 @@ describe('мораль по секторам', () => {
     // Ограничитель на перекидывание паники: та же армия на 10% больше при прочих равных.
     // Составы без пешей линии рушатся сильнее по замыслу — без якоря сектор и должен рушиться,
     // а кольцо добивает лучников, когда линии нет, — но и у них есть потолок (`OVERSIZE_CAP.noLine`).
+    //
+    // Меряется там же и той же функцией, что раздел «Ограничитель» `battle:report` и доля кости: на размере W
+    // (`holdSize`), где сбалансированный состав ставит в полосу ровно ширину фронта, — решение владельца
+    // (26.09.2026): тест и отчёт мерят одно и то же. Прежде тест мерил на 600, ниже ширины.
+    expect(holdSize(), 'размер W: ширина включена').toBe(WIDTH_ON ? ARMY_AT_W : ARMY_SIZE);
+    const balanced = COMPOSITIONS.findIndex((c) => stackTotal(stackOf(c.army)) === ARMY_SIZE && UNIT_KINDS.every((k) => (c.army[k] ?? 0) === (BALANCED_ARMY[k] ?? 0)));
+    // Граница области: на этом размере фронт полосы сбалансированного состава и есть ширина — ровно на ней.
+    expect(Math.abs(laneFront(quickSetup(scaleArmy(COMPOSITIONS[balanced].army, holdSize()))) - FRONT_WIDTH), 'фронт полосы на размере W').toBeLessThan(1);
     const ratios: number[] = [];
-    for (const c of COMPOSITIONS) {
-      const bigger = quickSetup(Object.fromEntries(Object.entries(c.army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
-      let bigLoss = 0;
-      let smallLoss = 0;
-      for (let seed = 1; seed <= 16; seed += 1) {
-        const bigAttacks = seed % 2 === 1;
-        const r = simulateBattle({ seed, attacker: bigAttacks ? bigger : c.setup, defender: bigAttacks ? c.setup : bigger });
-        bigLoss += r.sides[bigAttacks ? 'attacker' : 'defender'].total.losses;
-        smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
-      }
+    for (const [i, c] of COMPOSITIONS.entries()) {
+      const { bigLoss, smallLoss } = oversize(i, OVERSIZE_SEEDS, holdSize());
       const ratio = smallLoss / Math.max(1, bigLoss);
       if (!hasLine(c.army)) {
         expect(ratio, `${c.name} (без линии): размен ${ratio.toFixed(2)}`).toBeLessThanOrEqual(OVERSIZE_CAP.noLine);
@@ -603,12 +609,14 @@ describe('продолжительность', () => {
   /**
    * Верхняя граница с кругами: до неё доходит только бой, дошедший до потолка кругов при самой долгой стрельбе —
    * изматывание против изматывания. Копья с лучниками против пехоты с конницей доходят до потолка чаще прочих пар;
-   * сидов несколько, чтобы точка на границе не держалась на одном сиде.
+   * сидов несколько, чтобы точка на границе не держалась на одном сиде. Размер — половина W: с кругами из
+   * сближения, сшибки и сечи эта пара в 600 бойцов доламывается до потолка, а на ½W — нет.
    */
   function gongBattles(): BattleResult[] {
     const out: BattleResult[] = [];
+    const half = OVERSIZE_SIZES[0];
     for (let seed = 1; seed <= 6; seed += 1) {
-      out.push(simulateBattle({ seed, attacker: { ...COMPOSITIONS[5].setup, plan: 'attrition' }, defender: { ...COMPOSITIONS[8].setup, plan: 'attrition' } }));
+      out.push(simulateBattle({ seed, attacker: { ...quickSetup(scaleArmy(COMPOSITIONS[5].army, half)), plan: 'attrition' }, defender: { ...quickSetup(scaleArmy(COMPOSITIONS[8].army, half)), plan: 'attrition' } }));
     }
     return out;
   }
@@ -631,7 +639,7 @@ describe('продолжительность', () => {
       }
       expect(next - 1).toBe(r.ticks);
       // Первый проход идёт в объявленном порядке; пропущенные — только между боем линий и моралью.
-      // Круги сечи встают между его моралью и отступлением: бой линий и мораль, круг за кругом по счёту.
+      // Круги встают между его моралью и отступлением: сближение, сшибка, бой линий и мораль, круг за кругом по счёту.
       const first = r.phases.filter((p) => p.round === undefined);
       const order = first.map((p) => PHASES.indexOf(p.phase));
       for (let i = 1; i < order.length; i += 1) expect(order[i]).toBeGreaterThan(order[i - 1]);
@@ -641,15 +649,15 @@ describe('продолжительность', () => {
       const at = r.phases.findIndex((p) => p.phase === 'retreat');
       const rounds = r.phases.slice(r.phases.findIndex((p) => p.phase === 'morale') + 1, at);
       expect(rounds.map((p) => `${p.phase}:${p.round}`)).toEqual(
-        Array.from({ length: rounds.length / 2 }, (_, i) => [`lines:${i + 2}`, `morale:${i + 2}`]).flat(),
+        Array.from({ length: rounds.length / ROUND_PHASES.length }, (_, i) => ROUND_PHASES.map((p) => `${p}:${i + 2}`)).flat(),
       );
     }
   });
 });
 
 describe('круги сечи', () => {
-  // Первый проход кончился, а не сломался никто — бой линий и мораль идут снова, с новой костью, пока кто-то не
-  // сломается, но не больше потолка (`roundsCap`). Ничья бывает только на потолке, и потолок обязан быть
+  // Первый проход кончился, а не сломался никто — бой идёт новым кругом: сближение, сшибка, бой линий и мораль
+  // (`ROUND_PHASES`), с новой костью, пока кто-то не сломается, но не больше потолка (`roundsCap`). Ничья бывает только на потолке, и потолок обязан быть
   // редким: «бой обязан кончаться тем, что кто-то сломался» (решение владельца, docs/battle_eu4.md, пачка 3).
   /** Бои «Ограничителя» (большая на 10 %) в `total` бойцов строя с шириной `width`: `seeds` сидов на состав. */
   function oversized(total: number, width: number, seeds: number): Array<{ r: BattleResult; width: number }> {
@@ -667,8 +675,11 @@ describe('круги сечи', () => {
   }
 
   it('потолок выведен, а не выбран: столько кругов, чтобы ровному фронту хватило сечи сломать меньшую сторону одними потерями', () => {
-    // Круг — бой линий и мораль; первый проход — сшибка, линии, обходы, резерв и мораль.
-    expect(ROUND_TICKS).toBe(PHASE_TICKS.lines + PHASE_TICKS.morale);
+    // Круг — сближение, сшибка, бой линий и мораль; сеча в нём — всё, кроме сближения: там рукопашной нет. Сеча
+    // первого прохода — сшибка, линии, обходы, резерв и мораль.
+    expect(ROUND_PHASES).toEqual(['approach', 'clash', 'lines', 'morale']);
+    expect(ROUND_TICKS).toBe(PHASE_TICKS.approach + PHASE_TICKS.clash + PHASE_TICKS.lines + PHASE_TICKS.morale);
+    expect(ROUND_MELEE_TICKS).toBe(PHASE_TICKS.clash + PHASE_TICKS.lines + PHASE_TICKS.morale);
     expect(FIRST_MELEE_TICKS).toBe(PHASE_TICKS.clash + PHASE_TICKS.lines + PHASE_TICKS.flanking + PHASE_TICKS.reserve + PHASE_TICKS.morale);
     let prev = 0;
     for (const depth of [0, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12]) {
@@ -676,17 +687,27 @@ describe('круги сечи', () => {
       // морали за столько тиков сечи. Потолок — наименьшее число кругов, при котором их хватает.
       const need = (MORALE.autoBreakLoss * Math.max(1, depth)) / MELEE_RATE;
       const cap = roundsCap(depth);
-      expect(FIRST_MELEE_TICKS + cap * ROUND_TICKS, `глубина ${depth}`).toBeGreaterThanOrEqual(need);
-      if (cap > 0) expect(FIRST_MELEE_TICKS + (cap - 1) * ROUND_TICKS, `глубина ${depth}`).toBeLessThan(need);
+      expect(FIRST_MELEE_TICKS + cap * ROUND_MELEE_TICKS, `глубина ${depth}`).toBeGreaterThanOrEqual(need);
+      if (cap > 0) expect(FIRST_MELEE_TICKS + (cap - 1) * ROUND_MELEE_TICKS, `глубина ${depth}`).toBeLessThan(need);
       expect(cap, 'глубже — не короче').toBeGreaterThanOrEqual(prev);
       prev = cap;
     }
   });
 
   it('сеча идёт кругами, пока кто-то не сломается, — и ни кругом больше потолка', () => {
+    // Оборона против обороны — те бои, что доходят до потолка чаще прочих: план держит строй (потери морали ×0.8), и с
+    // кругами из сближения, сшибки и сечи другие пары выборки до потолка не доходят вовсе. Размеров два — ½W (потолок
+    // в один круг) и 600 (в два): равенство «кругов ровно потолок» проверяется и там, где потолок зависит от глубины.
+    const standoff = [OVERSIZE_SIZES[0], ARMY_SIZE].flatMap((total) =>
+      COMPOSITIONS.flatMap((c) => {
+        const s = { ...quickSetup(scaleArmy(c.army, total)), plan: 'defense' as const };
+        return [1, 2].map((seed) => ({ r: simulateBattle({ seed, attacker: s, defender: s }), width: FRONT_WIDTH }));
+      }),
+    );
     const battles = [
       ...allPairs(1).flatMap((p) => p.results.map((r) => ({ r, width: WIDTH_ON ? FRONT_WIDTH : Infinity }))),
       ...OVERSIZE_SIZES.flatMap((total) => oversized(total, FRONT_WIDTH, 10)),
+      ...standoff,
     ];
     let firstPass = 0;
     let broke = 0;
@@ -713,9 +734,9 @@ describe('круги сечи', () => {
         // Не сломался никто в первом проходе и гонга не было — значит, сломались в последнем круге, и не раньше.
         expect(rounds, 'не сломался никто, а кругов нет').toBeGreaterThanOrEqual(1);
         const last = r.phases.filter((p) => p.round === rounds + 1);
-        expect(last.map((p) => p.phase)).toEqual(['lines', 'morale']);
+        expect(last.map((p) => p.phase)).toEqual([...ROUND_PHASES]);
         expect(firstBreak, 'слом раньше последнего круга').toBeGreaterThanOrEqual(last[0].from);
-        expect(firstBreak, 'слом после последнего круга').toBeLessThanOrEqual(last[1].to);
+        expect(firstBreak, 'слом после последнего круга').toBeLessThanOrEqual(last[last.length - 1].to);
         broke += 1;
       }
     }
@@ -723,6 +744,10 @@ describe('круги сечи', () => {
     expect(firstPass, 'сломались в первом проходе').toBeGreaterThan(0);
     expect(broke, 'сломались в круге').toBeGreaterThan(0);
     expect(gong, 'дошли до потолка').toBeGreaterThan(0);
+    expect(
+      battles.filter(({ r, width }) => atGong(r) && roundsCap(depthOf(r, width)) >= 2).length,
+      'дошли до потолка в два круга и больше',
+    ).toBeGreaterThan(0);
   }, 120_000);
 
   it('ничья — редкий исход: бывает только на потолке, а до потолка доходит не больше нескольких процентов боёв', () => {
@@ -743,6 +768,83 @@ describe('круги сечи', () => {
       expect(gong / battles.length, `${label}: до потолка ${gong} из ${battles.length}`).toBeLessThanOrEqual(RARE);
     }
   }, 120_000);
+});
+
+describe('круг боя: обстрел, сшибка, сеча', () => {
+  // Круг — не одна сеча, а бой заново (`ROUND_PHASES`): линии расходятся для нового разбега, и в сближении круга
+  // рукопашной нет, лучники бьют в полную силу; сшибка снова даёт разбег латным и упор копьям; перестрелка круга
+  // судится по своему обстрелу. Так у рода появляется слабая фаза (docs/battle_eu4.md, раздел 3.2).
+  /** Бои, доходящие до кругов, — армии на обороне и изматывании (там круги чаще всего), `seeds` сидов, `total` бойцов. */
+  function roundBattles(a: Partial<Stack>, b: Partial<Stack>, plan: Plan, seeds: number, total = OVERSIZE_SIZES[0]): BattleResult[] {
+    const out: BattleResult[] = [];
+    for (let seed = 1; seed <= seeds; seed += 1) {
+      out.push(simulateBattle({ seed, attacker: { ...quickSetup(scaleArmy(a, total)), plan }, defender: { ...quickSetup(scaleArmy(b, total)), plan } }));
+    }
+    return out;
+  }
+  const roundSpans = (r: BattleResult, phase: string) => r.phases.filter((p) => p.round !== undefined && p.phase === phase);
+
+  it('в сближении круга рукопашной нет: у армий без лучников потерь там ни одного', () => {
+    const battles = [
+      ...roundBattles({ infantry: 600 }, { spear: 600 }, 'defense', 6),
+      ...roundBattles({ infantry: 400, heavy: 200 }, { infantry: 600 }, 'defense', 6),
+      ...roundBattles({ infantry: 600 }, { infantry: 600 }, 'defense', 6),
+    ];
+    const approaches = battles.flatMap((r) => roundSpans(r, 'approach'));
+    // Граница области: круги в выборке есть, лучников нет ни у кого, а в сшибке и сече тех же кругов потери есть — линии
+    // в них сходятся, и ноль в сближении значит «разошлись», а не «никто никого не бьёт».
+    expect(approaches.length, 'сближений круга в выборке').toBeGreaterThan(0);
+    for (const r of battles) for (const side of ['attacker', 'defender'] as const) expect(r.sides[side].initial.archer).toBe(0);
+    expect(battles.flatMap((r) => roundSpans(r, 'lines')).some((p) => p.losses.attacker + p.losses.defender > 0)).toBe(true);
+    for (const p of approaches) expect(p.losses, `сближение круга ${p.round}, тики ${p.from}–${p.to}`).toEqual({ attacker: 0, defender: 0 });
+  });
+
+  it('залп «до столкновения» — один, перед первой сшибкой; перестрелку круга судит его собственный обстрел', () => {
+    // Пехота с лучниками против копий на размере W: у одной стороны луки, у другой нет, и в сближении круга без
+    // рукопашной все потери безлукой стороны — стрелы этого круга. Ниже W лучников мало: за сближение круга они
+    // выбивают меньше порога события (`EVENT_MIN`), и перестрелка круга не судится вовсе.
+    const battles = roundBattles({ infantry: 350, archer: 250 }, { spear: 600 }, 'defense', 6, holdSize());
+    let judged = 0;
+    for (const r of battles) {
+      for (const e of r.log) {
+        const span = r.phases.find((p) => e.tick >= p.from && e.tick <= p.to && p.phase === e.phase)!;
+        if (e.id === 'volley') expect(span.round, `залп на ${e.tick}-м тике`).toBeUndefined();
+        if (e.id !== 'ranged-lost' || span.round === undefined) continue;
+        // Сшибка круга судит обстрел своего круга: проигравший потерял в сближении этого круга столько, сколько сказано.
+        const approach = r.phases.find((p) => p.phase === 'approach' && p.round === span.round)!;
+        expect(Math.abs(e.losses - approach.losses[e.side]), `перестрелка круга ${span.round}`).toBeLessThanOrEqual(1);
+        judged += 1;
+      }
+    }
+    // Граница области: круги с перестрелкой в выборке есть, и в каждом бою — ровно один залп первого прохода.
+    expect(judged, 'перестрелок, проигранных в круге').toBeGreaterThan(0);
+    for (const r of battles) expect(r.log.filter((e) => e.id === 'volley' && e.side === 'attacker').length).toBe(1);
+  });
+
+  it('сшибка круга пишет свои события: копья, удержавшие удар снова, и конница, снова дошедшая до лучников', () => {
+    // Круг — новая сшибка и новая сеча, и событие о них пишется снова, а не один раз за бой: иначе отчёт и ролик не
+    // видят того, ради чего круг заведён. Пехота с конницей против пехоты с лучниками вдвое выше W, на обороне: кругов
+    // там много, и лёгкая снова и снова доходит до тех же лучников.
+    const battles = roundBattles({ infantry: 400, cavalry: 200 }, { infantry: 350, archer: 250 }, 'defense', 4, OVERSIZE_SIZES[2]);
+    const key = (e: BattleEvent): string =>
+      e.id === 'spears-held' ? `${e.id}:${e.side}:${e.sector}:${e.phase}` : e.id === 'cavalry-broke-archers' ? `${e.id}:${e.side}:${e.target}:${e.phase}` : '';
+    let again = 0;
+    for (const r of battles) {
+      const seen = new Set<string>();
+      for (const e of r.log) {
+        const k = key(e);
+        if (!k) continue;
+        const span = r.phases.find((p) => e.tick >= p.from && e.tick <= p.to && p.phase === e.phase)!;
+        if (seen.has(k)) {
+          // Повтор — только в круге: в первом проходе фаза одна, и событие пишется в ней один раз.
+          expect(span.round, `${k} на ${e.tick}-м тике`).toBeDefined();
+          again += 1;
+        }
+        seen.add(k);
+      }
+    }
+    expect(again, 'событий сшибки и сечи, повторённых в круге').toBeGreaterThan(0);
+  });
 });
 
 describe('нет доминирующей расстановки', () => {
@@ -949,8 +1051,9 @@ describe('журнал осмыслен', () => {
             expect(e.tick).toBe(span.from);
             break;
           case 'round':
-            // Круг начинается с боя линий, и начинается он, только пока не сломан никто.
-            expect(e.phase).toBe('lines');
+            // Круг начинается сближением — линии расходятся для нового разбега, — и начинается он, только пока не
+            // сломан никто.
+            expect(e.phase).toBe(ROUND_PHASES[0]);
             expect(e.tick).toBe(span.from);
             expect(span.round).toBe(e.round);
             // Сломаться можно уже в первом тике круга, но не раньше него.

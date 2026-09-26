@@ -26,6 +26,7 @@ import {
   type EventId,
   type Lane,
   type PhaseId,
+  type PhaseSpan,
   type Sector,
   type Side,
   type Stack,
@@ -448,6 +449,19 @@ const ACT_OF = (() => {
   return map;
 })();
 
+/**
+ * Такт фазы боя. Круг (`PhaseSpan.round`) весь идёт сечей: его сближение и сшибка — отход линий на разбег
+ * и новый удар посреди боя, а не близкий план и отъезд камеры в начале. Поэтому такт круга — сеча, какой бы
+ * ни была фаза, и фазы ложатся в неё по тикам.
+ */
+const actOf = (p: PhaseSpan): Act => (p.round !== undefined ? 'melee' : ACT_OF[p.phase]);
+
+/** Такт события журнала: такт той фазы, в чьи тики оно попало. */
+const actAt = (result: BattleResult, e: BattleEvent): Act => {
+  const span = result.phases.find((p) => p.phase === e.phase && e.tick >= p.from && e.tick <= p.to);
+  return span ? actOf(span) : ACT_OF[e.phase];
+};
+
 /** Близкий план — три-пять секунд: дольше нечего показывать, короче не разглядеть. */
 export const MUSTER_SECONDS = 4;
 /** Отъезд: на нём и становится видно соотношение сил. */
@@ -863,7 +877,7 @@ function meleeSeconds(contest: number, marks: number): number {
 
 /** Границы тактов. Три из четырёх постоянные: близкий план и отъезд и есть лицо ролика. */
 function actWindows(result: BattleResult): ActWindow[] {
-  const meleeMarks = result.log.filter((e) => !service(e) && ACT_OF[e.phase] === 'melee').length;
+  const meleeMarks = result.log.filter((e) => !service(e) && actAt(result, e) === 'melee').length;
   const lengths: Record<Act, number> = {
     muster: MUSTER_SECONDS,
     pullback: PULLBACK_SECONDS,
@@ -883,7 +897,7 @@ function actWindows(result: BattleResult): ActWindow[] {
 function layout(result: BattleResult, acts: ActWindow[]): Span[] {
   const out: Span[] = [];
   for (const win of acts) {
-    const inAct = result.phases.filter((p) => ACT_OF[p.phase] === win.act);
+    const inAct = result.phases.filter((p) => actOf(p) === win.act);
     const ticks = inAct.reduce((n, p) => n + (p.to - p.from + 1), 0);
     let t = win.from;
     for (const p of inAct) {
@@ -1408,12 +1422,15 @@ export function frameAt(cast: Cast, t: number): Frame {
     for (const c of cast.sectors.filter((x) => x.side === side).sort((a, b) => a.rank - b.rank)) {
       const shown = Math.max(0, Math.min(c.figures, left));
       left -= shown;
-      // Сколько в секторе осталось людей. Журнал знает потери сектора по фазам —
-      // берём их. Не знает (старая запись боя) — идём от начального к конечному
-      // по общему ходу потерь стороны: итог знает оба конца, но не темп.
-      const now = cast.detailed
-        ? Math.max(0, c.men - sectorLost(cast.spans, side, c.sector, time))
-        : c.men + (c.finalMen - c.men) * progress;
+      // Сколько в секторе осталось людей. Концы знает итог боя — от начального к
+      // конечному, как в отчёте. Темп знает журнал: потери сектора по фазам. Сами
+      // они к итогу не складываются — фаза пишет их до десятых и отбрасывает малые,
+      // а итог считает остаток целыми по родам, — поэтому журнал даёт долю пути, а
+      // приходит ролик туда же, куда отчёт. Не знает журнал (старая запись боя) —
+      // темп общий, по ходу потерь стороны.
+      const lostAll = cast.detailed ? sectorLost(cast.spans, side, c.sector, Infinity) : 0;
+      const share = lostAll > 0 ? clamp01(sectorLost(cast.spans, side, c.sector, time) / lostAll) : progress;
+      const now = c.men + (c.finalMen - c.men) * share;
       men += now;
       const alive = c.men > 0 ? clamp01(now / c.men) : 0;
       const up = shown === 0 ? 0 : Math.min(shown, Math.max(now > 0.5 ? 1 : 0, Math.round(shown * alive)));

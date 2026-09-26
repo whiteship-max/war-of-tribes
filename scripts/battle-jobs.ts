@@ -121,24 +121,38 @@ const reserveCovered = (army: Partial<Stack>): ArmySetup => {
   return s;
 };
 
-const H = UNIT_STATS.heavy;
-const HC = COUNTER.heavy as { infantry: number };
-const HT = TEMPER.heavy;
+const H = UNIT_STATS.heavy as unknown as Record<string, number>;
+const HC = COUNTER.heavy as unknown as Record<string, number>;
+const HT = TEMPER.heavy as unknown as Record<string, number>;
+
+/**
+ * Подменить числа на время задачи: откат возвращает то, что стояло до подмены, а не записанное рядом
+ * число. Прежде откат писал число руками, и после решения 4А (`TEMPER.heavy.stalled` 1.0 → 1.3) вариант
+ * «остановленная» вернул бы 1.0 — и все следующие задачи того же процесса шли бы на чужом конфиге.
+ */
+const swap =
+  (...edits: Array<[Record<string, number>, string, number]>) =>
+  (): (() => void) => {
+    const was = edits.map(([obj, key]) => obj[key]);
+    for (const [obj, key, value] of edits) obj[key] = value;
+    return () => edits.forEach(([obj, key], i) => (obj[key] = was[i]));
+  };
 
 /** Первый — «как есть»: числа конфига, стандартный пресет; это и есть решётка раздела «Решётка составов». */
 const VARIANTS: Variant[] = [
   { name: 'как есть', set: () => () => {} },
-  { name: 'рукопашная 1.3 → 1.0 (лёгкая)', set: () => ((H.melee = 1.0), () => (H.melee = 1.3)) },
-  { name: 'по пехоте ×1.3 → ×1.0 (лёгкая)', set: () => ((HC.infantry = 1.0), () => (HC.infantry = 1.3)) },
-  { name: 'рукопашная и по пехоте → 1.0', set: () => ((H.melee = 1.0), (HC.infantry = 1.0), () => ((H.melee = 1.3), (HC.infantry = 1.3))) },
-  { name: 'мораль 65 → 56 (пехота)', set: () => ((H.morale = 56), () => (H.morale = 65)) },
-  { name: 'стойкость 1.1 → 0.8 (лёгкая)', set: () => ((H.toughness = 0.8), () => (H.toughness = 1.1)) },
-  { name: 'остановленная 1.0 → 1.3 (лёгкая)', set: () => ((HT.stalled = 1.3), () => (HT.stalled = 1.0)) },
-  { name: 'на разгоне 0.6 → 1.0 (пехота)', set: () => ((HT.charging = 1.0), () => (HT.charging = 0.6)) },
-  { name: 'скорость 2 → 1 (копья)', set: () => ((H.speed = 1), () => (H.speed = 2)) },
+  { name: 'рукопашная 1.3 → 1.0 (лёгкая)', set: swap([H, 'melee', 1.0]) },
+  { name: 'по пехоте ×1.3 → ×1.0 (лёгкая)', set: swap([HC, 'infantry', 1.0]) },
+  { name: 'рукопашная и по пехоте → 1.0', set: swap([H, 'melee', 1.0], [HC, 'infantry', 1.0]) },
+  { name: 'мораль 65 → 56 (пехота)', set: swap([H, 'morale', 56]) },
+  { name: 'стойкость 1.1 → 0.8 (лёгкая)', set: swap([H, 'toughness', 0.8]) },
+  // Слабая фаза латной — сеча (решение 4А): вариант показывает, что было бы без неё.
+  { name: 'остановленная 1.3 → 1.0 (пехота)', set: swap([HT, 'stalled', 1.0]) },
+  { name: 'на разгоне 0.6 → 1.0 (пехота)', set: swap([HT, 'charging', 1.0]) },
+  { name: 'скорость 2 → 1 (копья)', set: swap([H, 'speed', 1]) },
   { name: 'числа те же, пресет ставит её во фронт', set: () => () => {}, layout: heavyFront },
   { name: 'числа те же, резерв не больше прикрытого', set: () => () => {}, layout: reserveCovered },
-  { name: 'рукопашная 1.0 и резерв не больше прикрытого', set: () => ((H.melee = 1.0), () => (H.melee = 1.3)), layout: reserveCovered },
+  { name: 'рукопашная 1.0 и резерв не больше прикрытого', set: swap([H, 'melee', 1.0]), layout: reserveCovered },
 ];
 export const VARIANT_NAMES: readonly string[] = VARIANTS.map((v) => v.name);
 

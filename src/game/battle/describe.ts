@@ -56,6 +56,9 @@ const TEMPER_WHEN: Record<string, string> = {
   'cavalry.charging': 'в движении: удар или обход',
   'cavalry.stalled': 'её остановили во фронте',
   'cavalry.waiting': 'ждёт манёвра или стоит в резерве',
+  'heavy.charging': 'в движении: удар с разбега или обход',
+  'heavy.stalled': 'её остановили: вязнет в сече',
+  'heavy.waiting': 'ждёт манёвра или стоит в резерве',
 };
 
 /**
@@ -180,10 +183,10 @@ function specs(): Spec[] {
     },
     {
       id: 'cav-clash',
-      by: 'cavalry',
+      by: 'heavy',
       at: 'any',
       mult: CLASH_CAVALRY_IMPACT,
-      when: 'первое столкновение: удар с разбега во фронт, один раз за бой',
+      when: 'сшибка: удар с разбега во фронт — в каждом круге боя',
     },
     {
       id: 'archer-spear',
@@ -226,7 +229,7 @@ function specs(): Spec[] {
       by: 'any',
       at: 'spear',
       mult: CLASH_SPEAR_BRACE,
-      when: 'первое столкновение: сомкнутые копья принимают удар упёршись',
+      when: 'сшибка: сомкнутые копья принимают удар упёршись — в каждом круге боя',
     },
     {
       id: 'archer-kite-taken',

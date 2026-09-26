@@ -16,7 +16,7 @@ export const SECTOR_NAME: Record<Sector, string> = {
 export const PHASE_NAME: Record<PhaseId, string> = {
   ranged: 'стрелковая фаза',
   approach: 'сближение',
-  clash: 'первое столкновение',
+  clash: 'сшибка',
   lines: 'бой линий',
   flanking: 'обходы',
   reserve: 'ввод резерва',
@@ -88,9 +88,9 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
     case 'depth':
       return `${who}: ${e.row === 'strike' ? `обход у ${SECTOR_NAME[e.sector]}` : SECTOR_NAME[e.sector]} шире фронта — в строю ${e.width} из ${e.men}, остальные встают на место павших`;
     case 'round':
-      return `никто не дрогнул — сеча идёт снова, круг ${e.round}`;
+      return `никто не дрогнул — бой идёт новым кругом, круг ${e.round}`;
     case 'rounds-out':
-      return `сеча шла ${e.rounds} кругами, и не дрогнул никто — стороны расходятся`;
+      return `бой шёл ${e.rounds} кругами, и не дрогнул никто — стороны расходятся`;
     case 'morale-collapsed':
       return `${who}: армия сломалась — бегут сектора весом ${Math.round(e.brokenShare * 100)}% (мораль ${e.morale})`;
     case 'annihilated':

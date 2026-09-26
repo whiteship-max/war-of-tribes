@@ -38,6 +38,7 @@ import {
   RANGED_TICKS,
   RESERVE_LOSING,
   RETREAT,
+  ROUND_PHASES,
   SLOW_CONTACT,
   SPEAR_ORDERS,
   SUPPORT_FLANK,
@@ -128,7 +129,13 @@ interface SideState {
   /** Потери за тик, взвешенные для морали. */
   lostTick: number;
   lostTotal: number;
+  /** Выбито стрельбой до первого столкновения: залп перед сшибкой первого прохода (событие `volley`, итог боя). */
   rangedBeforeContact: number;
+  /**
+   * Выбито стрельбой с тех пор, как линии разошлись, — обстрел нынешнего круга. У первого прохода это то же, что
+   * `rangedBeforeContact`; круг обнуляет его в начале своего сближения. По нему судится перестрелка (`rangedVerdict`).
+   */
+  volley: number;
   rangedTotal: number;
   /** Сколько человек ещё может выбить преследование. */
   pursuitBudget: number;
@@ -344,6 +351,7 @@ class Battle {
         lostTick: 0,
         lostTotal: 0,
         rangedBeforeContact: 0,
+        volley: 0,
         rangedTotal: 0,
         pursuitBudget: 0,
         kills: [zeroKills(), zeroKills(), zeroKills()],
@@ -486,9 +494,10 @@ class Battle {
   }
 
   /**
-   * Круги сечи (docs/battle_eu4.md, пачка 3): первый проход кончился, а не сломался никто — бой линий и
-   * падение морали идут снова, с новой костью, пока кто-то не сломается, но не больше потолка (`roundsCap`
-   * от глубины меньшей по ней стороны: вся её армия к трём полосам ширины фронта).
+   * Круги боя (docs/battle_eu4.md, пачка 3): первый проход кончился, а не сломался никто — линии расходятся,
+   * и бой идёт новым кругом: сближение (обстрел), сшибка и сеча (`ROUND_PHASES`), с новой костью в каждой
+   * фазе, пока кто-то не сломается, но не больше потолка (`roundsCap` от глубины меньшей по ней стороны: вся
+   * её армия к трём полосам ширины фронта). Внутри круга — те же правила пропуска, что у первого прохода.
    * Бой, сломавшийся в первом проходе, кругов не видит вовсе и идёт бит в бит как до них: круг не
    * бросает ни одной кости, пока в него не вошли.
    */
@@ -501,8 +510,11 @@ class Battle {
         return;
       }
       this.round += 1;
-      this.runPhase('lines', PHASE_TICKS.lines);
-      this.runPhase('morale', PHASE_TICKS.morale);
+      let skipToMorale = false;
+      for (const phase of ROUND_PHASES) {
+        if (skipToMorale && phaseIndex(phase) < phaseIndex('morale')) continue;
+        if (this.runPhase(phase, PHASE_TICKS[phase])) skipToMorale = true;
+      }
     }
   }
 
@@ -535,7 +547,7 @@ class Battle {
     this.onPhaseEnd();
     this.phases.push({
       phase,
-      ...(this.round > 0 && (phase === 'lines' || phase === 'morale') ? { round: this.round + 1 } : {}),
+      ...(this.round > 0 && ROUND_PHASES.includes(phase) ? { round: this.round + 1 } : {}),
       from,
       to: this.tick,
       losses: {
@@ -585,19 +597,28 @@ class Battle {
     this.rollDice();
     for (const side of SIDES) this.sides[side].killsAtPhase = cloneKills(this.sides[side].kills);
     switch (this.phase) {
+      case 'approach':
+        // Круг: линии расходятся для нового разбега. До сшибки рукопашной нет, и лучники бьют в полную
+        // силу; перестрелка круга судится по тому, что выбито с этой минуты.
+        if (this.round > 0) {
+          this.contact = false;
+          for (const side of SIDES) this.sides[side].volley = 0;
+          this.emit({ id: 'round', round: this.round + 1 });
+        }
+        break;
       case 'clash':
         this.contact = true;
         this.clashTick = this.tick;
         for (const side of SIDES) {
           const s = this.sides[side];
+          // Залп «до столкновения» — один, перед первой сшибкой: обстрел круга судится (`rangedVerdict`), но залпом не зовётся.
           const losses = Math.round(s.rangedBeforeContact);
-          if (losses >= 1) this.emit({ id: 'volley', side, losses });
+          if (this.round === 0 && losses >= 1) this.emit({ id: 'volley', side, losses });
           this.launchStrikes(side, 'attack-archers');
         }
         this.rangedVerdict();
         break;
       case 'lines':
-        if (this.round > 0) this.emit({ id: 'round', round: this.round + 1 });
         for (const side of SIDES) this.supportWeakFlank(side);
         break;
       case 'flanking':
@@ -647,7 +668,8 @@ class Battle {
       if (spearsClosed(s.setup) && spearVsCav >= notable && spearVsCav >= cavVsSpear) {
         const inFront = sum(this.at(side, lane, 'front'), 'spear') > 0;
         const sector = laneSector(lane, inFront ? 'front' : 'rear');
-        this.once(`spears-held:${sector}:${this.phase}`, s, {
+        // Ключ — фаза и её круг: сшибка повторяется каждым кругом, и копья, удержавшие удар снова, пишут это снова.
+        this.once(`spears-held:${sector}:${this.phase}:${this.round}`, s, {
           id: 'spears-held',
           side,
           sector,
@@ -661,7 +683,7 @@ class Battle {
       const before = enemyArchersRear + enemyArchersFront + cavVsArcher;
       if (cavVsArcher >= Math.max(EVENT_MIN, 2 * EVENT_SHARE * before)) {
         const target = laneSector(eLane, enemyArchersRear >= enemyArchersFront ? 'rear' : 'front');
-        this.once(`cav-archers:${target}:${this.phase}`, s, {
+        this.once(`cav-archers:${target}:${this.phase}:${this.round}`, s, {
           id: 'cavalry-broke-archers',
           side,
           target,
@@ -672,15 +694,15 @@ class Battle {
   }
 
   /**
-   * Итог стрелковой фазы: сторона, потерявшая до контакта заметно больше
-   * противника, идёт в рукопашную с просевшей моралью по всем позициям.
+   * Итог обстрела: сторона, потерявшая до контакта заметно больше противника, идёт в рукопашную с
+   * просевшей моралью по всем позициям. Судится каждая сшибка — по обстрелу своего круга (`volley`).
    */
   rangedVerdict(): void {
     for (const side of SIDES) {
       const s = this.sides[side];
       const enemy = this.sides[other(side)];
-      const losses = enemy.rangedBeforeContact;
-      const enemyLosses = s.rangedBeforeContact;
+      const losses = enemy.volley;
+      const enemyLosses = s.volley;
       if (losses < EVENT_MIN || losses < enemyLosses * MORALE.rangedLostRatio) continue;
       this.emit({ id: 'ranged-lost', side, losses: Math.round(losses), enemyLosses: Math.round(enemyLosses) });
       for (const g of s.groups) {
@@ -1232,7 +1254,10 @@ class Battle {
       const by = this.sides[h.by];
       by.kills[h.byLane][h.byKind][h.kind] += actual;
       if (h.ranged) by.rangedTotal += actual;
-      if (h.ranged && !this.contact) by.rangedBeforeContact += actual;
+      if (h.ranged && !this.contact) {
+        by.volley += actual;
+        if (this.round === 0) by.rangedBeforeContact += actual;
+      }
     }
   }
 

@@ -16,9 +16,11 @@ import { CLOTH_OF, SectorTroops } from './troops';
 import { wreckFor } from '@/battle/replay';
 
 /**
- * Что бойцы делают. Такт задаёт основное, но первое столкновение — своя поза:
- * строй останавливается и упирается, и только потом начинается свалка. Это и
- * есть замах, без которого удар ничего не весит.
+ * Что бойцы делают. Такт задаёт основное, но сшибка — своя поза: строй
+ * останавливается и упирается, и только потом начинается свалка. Это и есть
+ * замах, без которого удар ничего не весит. Сближение круга лежит в такте сечи
+ * (`replay.actOf`): линии отходят на разбег посреди боя, и строй стоит в упоре,
+ * а не шагает на месте.
  */
 const ACTION: Record<Frame['act'], Action> = {
   muster: 'stand',
@@ -28,7 +30,7 @@ const ACTION: Record<Frame['act'], Action> = {
 };
 
 const actionOf = (frame: Frame): Action =>
-  frame.phase === 'approach' ? 'walk' : frame.phase === 'clash' ? 'guard' : ACTION[frame.act];
+  frame.phase === 'approach' ? (frame.act === 'melee' ? 'guard' : 'walk') : frame.phase === 'clash' ? 'guard' : ACTION[frame.act];
 
 export class BattleStage {
   readonly scene = new THREE.Scene();
