@@ -6,9 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
 import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, COUNTER, GEAR, MORALE, PHASE_MIN, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, quickOf, setupOf } from './bench';
-import { FRONT, HORSE_KINDS, PHASES, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type Plan, type Side, type Stack, type Winner } from './types';
+import { ANNIHILATED_AT, COUNTER, DICE, GEAR, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, oversizeHold, quickOf, SEARCH, setupOf, withDiceStep } from './bench';
+import { KEYS_MAX, summarize } from './report';
+import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PipId, type Plan, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 
@@ -169,9 +170,10 @@ describe('разрыв быстрой атаки', () => {
     // Против одного известного шаблона контрер выигрывает вдвое и больше — это цена публичного
     // шаблона. Против быстрой атаки, где пресет неизвестен, его преимущество — не больше, чем у
     // любой настроенной армии.
-    // Условия — те же, по которым отчёт ищет контрера в закоммиченном поиске (`bench.counterHolds`).
-    const known = gapAgainst(KNOWN_COUNTER, standardOf, 60);
-    const random = gapAgainst(KNOWN_COUNTER, quickOf, 100);
+    // Условия и сиды — те же, по которым отчёт ищет контрера в закоммиченном поиске
+    // (`bench.counterHolds`, перемер на `SEARCH.final` новых сидах): эталон — его вывод, № KNOWN_COUNTER_INDEX.
+    const known = gapAgainst(KNOWN_COUNTER, standardOf, SEARCH.final, SEARCH.finalFrom);
+    const random = gapAgainst(KNOWN_COUNTER, quickOf, SEARCH.final, SEARCH.finalFrom);
     expect(known.gap).toBeGreaterThan(COUNTER_TERMS.known);
     expect(random.gap).toBeGreaterThan(COUNTER_TERMS.randomLow);
     expect(random.gap).toBeLessThanOrEqual(COUNTER_TERMS.randomHigh);
@@ -832,5 +834,95 @@ describe('журнал осмыслен', () => {
     expect(r.winner).toBe('attacker');
     expect(r.log.some((e) => e.id === 'annihilated' && e.side === 'defender')).toBe(true);
     expect(lossRatio(r, 'attacker')).toBeGreaterThan(1);
+  });
+});
+
+describe('кость фазы', () => {
+  // Кость — одна на сторону на фазу, из сида боя (docs/battle_eu4.md, пачка 1). Её величина выведена
+  // из доли владельца: сторона на 10 % больше удерживает поле в `DICE.hold` боёв «Ограничителя»
+  // (`bench.diceStepFor`, `npm run battle:report`, раздел «Кость фазы»).
+
+  it('сторона на 10 % больше удерживает поле в доле владельца, а без кости — всегда', () => {
+    // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
+    // «кость сдвинула долю» проверялось бы на наборе, где сдвигать было нечего.
+    expect(withDiceStep(0, () => oversizeHold()), 'без кости: все бои у большей').toBe(1);
+    const held = oversizeHold();
+    expect(held, `с костью: поле у большей в ${(held * 100).toFixed(1)} % боёв`).toBeLessThanOrEqual(DICE.hold);
+    // Выведено наименьшим шагом, при котором доля не выше цели, — значит, и не намного ниже.
+    expect(held).toBeGreaterThanOrEqual(DICE.hold - 0.02);
+  }, 60_000);
+
+  it('в каждой фазе с костью — один бросок на сторону, в гранях кости; у отступления и погони кости нет', () => {
+    for (const r of [...allPairs(1).flatMap((p) => p.results), ...RING.map((p) => simulateBattle({ seed: 3, attacker: p.a, defender: p.b }))]) {
+      for (const span of r.phases) {
+        const dice = r.log.filter((e) => e.id === 'dice' && e.phase === span.phase);
+        expect(dice.length, `${span.phase}: бросков`).toBe(PHASE_PIP[span.phase] ? 1 : 0);
+        for (const e of dice) {
+          if (e.id !== 'dice') continue;
+          expect(e.tick, 'бросок — в начале фазы').toBe(span.from);
+          for (const side of ['attacker', 'defender'] as const) {
+            expect(Number.isInteger(e.rolls[side])).toBe(true);
+            expect(e.rolls[side]).toBeGreaterThanOrEqual(0);
+            expect(e.rolls[side]).toBeLessThan(DICE.faces);
+            expect(e.pips[side], 'у этих армий полководцев нет').toBe(0);
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * Бой с отметками фазы `pip` у нападающего и тот же бой без них. Возвращает первую фазу, к кости
+   * которой отметка идёт, — если она в этом бою случилась.
+   */
+  function withAndWithout(pip: PipId, seed: number): { plain: BattleResult; led: BattleResult; first: number } {
+    const plain = simulateBattle({ seed, attacker: quickSetup(BALANCED_ARMY), defender: quickSetup(BALANCED_ARMY) });
+    const led = simulateBattle({ seed, attacker: { ...quickSetup(BALANCED_ARMY), pips: { [pip]: 3 } }, defender: quickSetup(BALANCED_ARMY) });
+    return { plain, led, first: plain.phases.findIndex((p) => PHASE_PIP[p.phase] === pip) };
+  }
+
+  it('отметка действует только в своих фазах: до первой из них бой тот же до бита, в ней — другой', () => {
+    for (const pip of PIP_IDS) {
+      // Точка внутри области: фаза отметки в бою случилась и в ней кто-то погиб у обороны — иначе
+      // «в ней другой» проверялось бы даром. Обходы и резерв бой вправе пропустить, поэтому сид ищется.
+      let found = false;
+      for (let seed = 1; seed <= 40 && !found; seed += 1) {
+        const { plain, led, first } = withAndWithout(pip, seed);
+        if (first < 0 || plain.phases[first].losses.defender <= 0) continue;
+        found = true;
+        for (let i = 0; i < first; i += 1) {
+          expect(led.phases[i], `${pip}, сид ${seed}: ${plain.phases[i].phase} — до своей фазы отметка ничего не меняет`).toEqual(plain.phases[i]);
+        }
+        const d = led.log.find((e) => e.id === 'dice' && e.phase === plain.phases[first].phase);
+        expect(d && d.id === 'dice' ? d.pips.attacker : null, `${pip}: отметки в кости своей фазы`).toBe(3);
+        expect(led.phases[first].losses.defender, `${pip}, сид ${seed}: в своей фазе отметка бьёт сильнее`).toBeGreaterThan(plain.phases[first].losses.defender);
+        // Броски от отметок не зависят: поток генератора тот же, меняется только их сумма.
+        const rolls = (r: BattleResult): string => JSON.stringify(r.log.filter((e) => e.id === 'dice' && e.tick <= plain.phases[first].from).map((e) => (e.id === 'dice' ? e.rolls : null)));
+        expect(rolls(led)).toBe(rolls(plain));
+      }
+      expect(found, `${pip}: ни в одном бою не нашлось своей фазы с потерями — проверять нечего`).toBe(true);
+    }
+  });
+
+  it('отчёт называет удачу, только когда она разошлась хотя бы на полкости, — и называет верно', () => {
+    let named = 0;
+    for (const r of allPairs(1).flatMap((p) => p.results)) {
+      const gaps = r.log.flatMap((e) => (e.id === 'dice' ? [e.rolls.attacker + e.pips.attacker - (e.rolls.defender + e.pips.defender)] : []));
+      const widest = gaps.reduce((w, g) => (Math.abs(g) > Math.abs(w) ? g : w), 0);
+      const keys = summarize(r, 'attacker').keys;
+      const line = keys.find((k) => k.art === 'bat-dice');
+      if (Math.abs(widest) < DICE.faces / 2) {
+        expect(line, 'удача не разошлась — строки о ней нет').toBeUndefined();
+        continue;
+      }
+      if (!line) {
+        // Строк больше, чем держит отчёт: кость могла уйти за край по времени.
+        expect(keys.length).toBe(KEYS_MAX);
+        continue;
+      }
+      named += 1;
+      expect(line.good, 'хорошо или плохо — по знаку самого широкого расхождения').toBe(widest > 0);
+    }
+    expect(named, 'точка внутри области: удача называлась хоть раз').toBeGreaterThan(0);
   });
 });

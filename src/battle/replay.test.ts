@@ -378,7 +378,9 @@ describe('ролик рассказывает то же, что отчёт', () 
   it('каждое событие журнала попадает на время и на место', () => {
     const result = evenFight();
     const cast = buildCast(result, 'attacker');
-    const meaningful = result.log.filter((e) => e.id !== 'phase-start' && e.id !== 'result');
+    // Служебные — начало фазы, итог и кость: у кости нет ни места, ни выбитых, камере к ней нечего подаваться.
+    const meaningful = result.log.filter((e) => e.id !== 'phase-start' && e.id !== 'result' && e.id !== 'dice');
+    expect(result.log.some((e) => e.id === 'dice'), 'точка внутри области: кость в журнале есть — и в метки она не попала').toBe(true);
     expect(cast.marks.length).toBe(meaningful.length);
     for (const m of cast.marks) {
       expect(m.t).toBeGreaterThanOrEqual(0);

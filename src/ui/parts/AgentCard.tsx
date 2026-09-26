@@ -1,26 +1,26 @@
 // Карточка агента: уровень, кружки навыка, опыт, скорость и места под вещи.
 //
 // Ни одного своего числа здесь нет — это правило, а не пожелание. Что даёт
-// кружок, говорит **замер тем же кодом, которым считает игра**: прибавку натиска
-// к морали каждого рода — функция ядра боя (`world/agents.onslaughtRows` →
-// `startMorale`), радиус земли — та же `revealSight`, что у тумана, долю тихих
-// провалов — то же `slipped`, что решает исход. Поэтому кружок, который съел
-// потолок морали, карточка так и называет, а не обещает «+3».
+// кружок, говорит **замер тем же кодом, которым считает игра**: что даёт отметка
+// полководца — функция ядра боя (`world/agents.pipRows` → `phaseLuck`), радиус
+// земли — та же `revealSight`, что у тумана, долю тихих провалов — то же
+// `slipped`, что решает исход.
 //
 // Полководец и герой Статуи — один человек. Сколько он уводит и за скольких
 // стоит сам, решает Статуя, и это стоит здесь с подписью «откуда»; уровень даёт
-// натиск — и это тоже подписано. Вопроса «кто главный» у игрока быть не должно.
+// отметки — и это тоже подписано. Вопроса «кто главный» у игрока быть не должно.
 //
 // Карточка одна на два места: страница в «Походах» и раздел в Статуе. Во втором
 // (`embedded`) нет кнопки возврата и раздела «Что даёт Статуя» — то же число
 // стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, fervour, heroMen, payGraceDays } from '@/game/derived';
+import { buildingOfType, heroMen, payGraceDays } from '@/game/derived';
 import {
   DEED_GAP,
   DEED_XP,
   LEVEL_XP,
+  MAX_AGENT_LEVEL,
   SKILL_OF,
   SLOT_COUNT,
   THIRD_SLOT_LEVEL,
@@ -29,7 +29,7 @@ import {
   slotsOpen,
 } from '@/game/data/agents';
 import { itemIn } from '@/game/data/items';
-import { ageOf, agentLevel, circlesText, personName, regear, regearBlock, retireAt, traitsHeld, yearsOf } from '@/game/sim/agents';
+import { ageOf, agentLevel, circlesText, personName, pipsAt, pipsOf, regear, regearBlock, retireAt, traitsHeld, yearsOf } from '@/game/sim/agents';
 import { deedsOf } from '@/game/data/traits';
 import { hireWhere } from '@/game/sim/hire';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
@@ -38,23 +38,28 @@ import { FIGURE_BY_ID } from '@/world/data/figures';
 import { distance, terrainFactor, travelTime } from '@/world/geo';
 import { realLeft, waitLeft } from '@/ui/parts/wait';
 import { figurePosition, useWorld, worldNow } from '@/world/store';
-import type { FigureId, FigureView } from '@/world/types';
-import { deathLine, onslaughtLines, sightLine, stealthLine } from './agentLines';
+import type { FigureId } from '@/world/types';
+import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
 import { count } from './plural';
 import { traitLines } from './traitLines';
 import { waitDaysBoth } from './wait';
 
 const ORDINAL = ['', 'первый', 'второй', 'третий', 'четвёртый', 'пятый'];
 
-/** Что натиск делает сейчас и что сделает следующий кружок — замером на нынешней дружине. */
-function Onslaught({ level, f }: { level: number; f: FigureView }) {
+/** Отметки полководца: какие есть, что дают замером и куда ляжет следующий кружок. */
+function GeneralPips({ level }: { level: number }) {
   const s = useGame((g) => g.s);
-  const lines = onslaughtLines(level, f.troops, fervour(s));
+  const person = s.agents.general.person;
+  const lines = pipLines(level, pipsOf(s), level < MAX_AGENT_LEVEL ? pipsAt(s.seed, person, level + 1) : null);
   return (
     <>
       <div className="note">{lines.now}</div>
-      {lines.troops && <div className={`note${lines.capped ? ' warn' : ''}`}>{lines.troops}</div>}
-      {lines.next && <div className={`note${lines.deadKinds.length > 0 ? ' warn' : ''}`}>{lines.next}</div>}
+      {lines.rows.map((r) => (
+        <div key={r} className="note">
+          {r}
+        </div>
+      ))}
+      {lines.next && <div className="note">{lines.next}</div>}
     </>
   );
 }
@@ -182,7 +187,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
               {circlesText(level)} — {ORDINAL[level]} уровень
             </span>
           </div>
-          {id === 'general' && f && <Onslaught level={level} f={f} />}
+          {id === 'general' && <GeneralPips level={level} />}
           {id === 'scout' && <div className="note">{sightLine(level)}</div>}
           {id === 'spy' && <div className="note">{stealthLine(level)}</div>}
         </>
@@ -237,7 +242,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           </div>
           <div className="note">
             Полководец и герой Статуи — один человек, и смертен он так же. Сколько терпит его
-            войско и чего стоит он сам, решает Статуя; натиск — его {ORDINAL[level]} уровень.
+            войско и чего стоит он сам, решает Статуя; отметки — его {ORDINAL[level]} уровень.
             Уводит он сколько угодно: войско держит цена, а не здание.
           </div>
         </>

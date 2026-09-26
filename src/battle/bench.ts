@@ -2,7 +2,7 @@
 // против шаблона. Их читают и тесты (раздел 16 документа), и скрипт отчёта —
 // чтобы таблица в отчёте и утверждения в тестах считались по одним данным.
 import { simulateBattle, stackPower } from './sim';
-import { COVER, PLANS } from './config';
+import { COVER, DICE, PLANS } from './config';
 import { seededRng } from './rng';
 import { DEFAULT_ORDERS, QUICK_PRESETS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
 import { KIND_META } from './names';
@@ -62,6 +62,66 @@ export const OVERSIZE_CAP = { line: 1.6, lineMean: 1.5, noLine: 2.0 };
 
 /** Есть ли у состава пешая линия — пехота или копья. */
 export const hasLine = (army: Partial<Stack>): boolean => (army.infantry ?? 0) > 0 || (army.spear ?? 0) > 0;
+
+// ---------- Ограничитель и кость ----------
+//
+// Одна строка «Ограничителя» — состав с перевесом 10 % против себя. Из тех же боёв считается и
+// кость: сколько из них большая сторона удержала поле. До кости — все (30 из 30 у каждого из
+// тринадцати составов), и бой был арифметикой с известным исходом; величина кости выводится так,
+// чтобы большая удерживала поле в доле, которую назвал владелец (`DICE.hold`).
+
+/** Боёв на состав: сиды 1..N, нечётный — нападает большая, чётный — меньшая. */
+export const OVERSIZE_SEEDS = 30;
+
+/** Состав `COMPOSITIONS[composition]` на 10 % больше против себя самого. */
+export function oversize(composition: number, seeds = OVERSIZE_SEEDS): { bigLoss: number; smallLoss: number; wins: number } {
+  const c = COMPOSITIONS[composition];
+  const bigger = quickSetup(Object.fromEntries(Object.entries(c.army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
+  let bigLoss = 0;
+  let smallLoss = 0;
+  let wins = 0;
+  for (let seed = 1; seed <= seeds; seed += 1) {
+    const bigAttacks = seed % 2 === 1;
+    const r = simulateBattle({ seed, attacker: bigAttacks ? bigger : c.setup, defender: bigAttacks ? c.setup : bigger });
+    bigLoss += r.sides[bigAttacks ? 'attacker' : 'defender'].total.losses;
+    smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
+    if (r.winner === (bigAttacks ? 'attacker' : 'defender')) wins += 1;
+  }
+  return { bigLoss, smallLoss, wins };
+}
+
+/** Доля боёв «Ограничителя», где большая сторона удержала поле, — по всем составам разом. */
+export function oversizeHold(seeds = OVERSIZE_SEEDS): number {
+  let wins = 0;
+  for (let i = 0; i < COMPOSITIONS.length; i += 1) wins += oversize(i, seeds).wins;
+  return wins / (COMPOSITIONS.length * seeds);
+}
+
+/** Прогнать `fn` при другой величине кости и вернуть её на место. */
+export function withDiceStep<T>(step: number, fn: () => T): T {
+  const was = DICE.step;
+  DICE.step = step;
+  try {
+    return fn();
+  } finally {
+    DICE.step = was;
+  }
+}
+
+/**
+ * Наименьшая величина кости, при которой большая на 10 % удерживает поле не чаще `hold`: делением
+ * отрезка. Доля убывает с величиной кости — чем сильнее удача, тем чаще меньшая устоит. Отрезок
+ * `hi` взят с запасом: при нём удача разбрасывает урон фазы на ±45 %, дальше кость решала бы всё.
+ */
+export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12): number {
+  let lo = 0;
+  for (let i = 0; i < steps; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (withDiceStep(mid, () => oversizeHold()) > hold) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+}
 
 export interface Mirrored {
   /** Кто выиграл размен: потери противника больше своих хотя бы в `RATIO_EVEN` раз. */
@@ -580,21 +640,15 @@ export function counterOf<F extends Finalist>(finalists: readonly F[], random: (
  * против случайного пресета — не больше настроенной армии (тест «известный контрер»). Смысл
  * пресетов: контрить нечего, пока не знаешь, какой пришёл.
  *
- * **Это пример щупа, а не вывод поиска.** Найден 18.09.2026 тем же генератором с другим
- * порядком бросков; закоммиченный поиск (`counterSearch`, `battle:report`, раздел «Случайный
- * поиск расстановок») расстановки с условиями теста среди своих финалистов не находит, и что
- * именно у них не выполнено, печатает тот раздел. Как быть с тестом — решение владельца
- * (docs/stable.md, раздел 12); до него пример держит свойство, а поиск честно говорит, что его
- * не повторяет.
+ * **Это вывод закоммиченного поиска, а не пример щупа** — с кости фазы (26.09.2026). Поиск
+ * (`counterSearch`, `battle:report`, раздел «Случайный поиск расстановок») берёт первого по перемеру
+ * финалиста, кто выполняет условия теста (`counterHolds`): на ядре с костью это № 12 — против
+ * стандарта 47.5 %, против случайного пресета 21.9 % на тех же ста новых сидах. Прежний эталон был
+ * примером щупа 18.09.2026 и на ядре с костью условиям не отвечает: 15.0 % и 14.7 % — он был
+ * подогнан под бой без удачи. Поменяется ядро — номер переписывается из того же раздела отчёта.
  */
-export const KNOWN_COUNTER: ArmySetup = setupOf(
-  {
-    A: { spear: 41, infantry: 50, archer: 8, cavalry: 21 },
-    B: { spear: 56, infantry: 44, archer: 87, cavalry: 43 },
-    C: { spear: 53, infantry: 106, archer: 55, cavalry: 36 },
-  },
-  { plan: 'aggressive', orders: { spear: 'advance', infantry: 'hold-center', archer: 'nearest', cavalry: 'hold-flank', heavy: 'hold-flank' }, reserve: { kind: 'weak-flank' } },
-);
+export const KNOWN_COUNTER_INDEX = 12;
+export const KNOWN_COUNTER: ArmySetup = searchPool()[KNOWN_COUNTER_INDEX];
 
 /**
  * Удерживает ли `setup` поле против быстрой атаки армии, умноженной на `k`: доля

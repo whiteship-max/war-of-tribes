@@ -6,7 +6,7 @@ import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
-import type { ArmySetup, BattleResult, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
+import type { ArmySetup, BattleResult, Pips, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
 import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
@@ -1291,14 +1291,14 @@ export interface PlayerProfile {
    */
   tower?: TowerGun;
   /**
-   * Натиск полководца: прибавка к стойкости **только в боях, которые он ведёт** —
-   * удар по двору и логову, перехват, удар по лагерю, наш лагерь под чужими
-   * стенами. В оборону деревни и в вылазку не идёт: их ведёт гарнизон. Мир не
-   * знает, откуда число (уровень агента), и складывает его с обрядом в ту же
-   * дверь (`world/agents.generalResolve`). Три поля навыков необязательные: слепок
-   * лежит в сохранении мира, и из партии до опыта приезжает без них — ноль.
+   * Отметки полководца — грани кости своей фазы (docs/battle_eu4.md, пачка 1). Идут в бои, которые
+   * он ведёт: удар по двору и логову, перехват, удар по лагерю, наш лагерь под чужими стенами; и в
+   * бой у своих стен и вылазку — только пока его дружина стоит у ворот (`LocalWorld.homePips`). Мир
+   * не знает, откуда они (уровень и склонность человека), и отдаёт их ядру как есть. Поле
+   * необязательное: слепок лежит в сохранении мира, и у полководца первого уровня, как и в слепке
+   * до отметок, его нет — ноль. Прежнее `onslaught` в сохранённом слепке не читает никто.
    */
-  onslaught?: number;
+  pips?: Pips;
   /** Зоркость разведчика: на сколько клеток шире он открывает землю. Живого обзора не даёт. */
   sightBonus?: number;
   /** Скрытность лазутчика: доля провалов, которые проходят незамеченными, 0..1. Шанс не трогает. */

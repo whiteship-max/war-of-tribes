@@ -16,7 +16,7 @@ import {
   DEED_GAP,
   DEED_XP,
   LEVEL_XP,
-  ONSLAUGHT_PER_CIRCLE,
+  MAX_AGENT_LEVEL,
   SIGHT_PER_CIRCLE,
   STEALTH_PER_CIRCLE,
   XP_CAP,
@@ -26,7 +26,8 @@ import {
   agentLevel,
   emptyAgents,
   mergeAgents,
-  onslaughtOf,
+  pipsAt,
+  pipsOf,
   recordDeed,
   regear,
   sightBonusOf,
@@ -36,6 +37,7 @@ import { applyEffects, playerProfile } from '@/world/bridge';
 import { hireAgent } from './hire';
 import { creditTech } from './tech';
 import { FIGURE_IDS } from '@/world/data/figures';
+import { PIP_IDS } from '@/battle';
 import type { ItemId } from '../data/items';
 import type { GameState } from '../types';
 
@@ -70,7 +72,9 @@ describe('уровень и кружки выводятся из опыта', ()
       expect(circlesOf(xp), `кружков на опыте ${xp}`).toBe(level);
       expect(agentLevel(s, 'general'), `уровень полководца на опыте ${xp}`).toBe(level);
       // Действие навыка — от тех же кружков сверх первого, и ни от чего другого.
-      expect(onslaughtOf(s), `натиск на опыте ${xp}`).toBe(ONSLAUGHT_PER_CIRCLE * (level - 1));
+      const pips = pipsOf(s);
+      expect(Object.values(pips).reduce((n, x) => n + (x ?? 0), 0), `отметок на опыте ${xp}`).toBe(level - 1);
+      expect(pips, `отметки на опыте ${xp} — склонность того же человека`).toEqual(pipsAt(s.seed, s.agents.general.person, level));
       expect(sightBonusOf(s), `зоркость на опыте ${xp}`).toBe(SIGHT_PER_CIRCLE * (level - 1));
       expect(stealthOf(s), `скрытность на опыте ${xp}`).toBeCloseTo(STEALTH_PER_CIRCLE * (level - 1), 12);
     }
@@ -228,12 +232,12 @@ describe('агент первого уровня — это сегодняшни
       expect(old.agents[id].slots).toEqual([null, null, null]);
     }
     const p = playerProfile(old);
-    expect(['onslaught', 'sightBonus', 'stealth', 'veil', 'agents'].filter((k) => k in p), 'слепок первого уровня не везёт полей навыка и мест').toEqual([]);
+    expect(['pips', 'sightBonus', 'stealth', 'veil', 'agents'].filter((k) => k in p), 'слепок первого уровня не везёт полей навыка и мест').toEqual([]);
     // Опыт копится, но пока уровень первый — слепок тот же, байт в байт.
     old.agents.general.xp = LEVEL_XP[1] - 1;
     expect(JSON.stringify(playerProfile(old))).toBe(JSON.stringify(p));
     old.agents.general.xp = LEVEL_XP[1];
-    expect(playerProfile(old).onslaught).toBe(ONSLAUGHT_PER_CIRCLE);
+    expect(Object.values(playerProfile(old).pips ?? {}).reduce((n, x) => n + (x ?? 0), 0), 'второй уровень — одна отметка').toBe(1);
   });
 
   it('разбор сохранения ставит в ячейку только имя: всё прочее — пустое место', () => {
@@ -279,5 +283,52 @@ describe('ячейки: переодеться можно только дома'
     expect(regear(s, 'spy', 2, null, home, [])).toMatch(/четвёртого уровня/);
     s.agents.spy.xp = LEVEL_XP[3];
     expect(regear(s, 'spy', 2, null, home, [])).toBeNull();
+  });
+});
+
+describe('отметки полководца — склад человека, а не выбор игрока', () => {
+  // Область: уровни со второго по пятый — на первом отметок нет, и сравнивать нечего. Людей
+  // двести подряд: номер человека и есть то, от чего склад зависит.
+  const PEOPLE = 200;
+
+  it('каждый кружок сверх первого — ровно одна отметка, и прежние остаются на месте', () => {
+    for (let person = 0; person < PEOPLE; person++) {
+      expect(pipsAt(7, person, 1), 'первый уровень — ни одной отметки').toEqual({});
+      for (let level = 2; level <= MAX_AGENT_LEVEL; level++) {
+        const was = pipsAt(7, person, level - 1);
+        const now = pipsAt(7, person, level);
+        let grown = 0;
+        for (const pip of PIP_IDS) {
+          const d = (now[pip] ?? 0) - (was[pip] ?? 0);
+          expect(d, `человек ${person}, уровень ${level}: отметка ${pip} не убывает`).toBeGreaterThanOrEqual(0);
+          grown += d;
+        }
+        expect(grown, `человек ${person}, уровень ${level}: прибавилась ровно одна`).toBe(1);
+      }
+    }
+  });
+
+  it('склад у людей разный: на втором уровне каждая из четырёх отметок — у заметной доли', () => {
+    const first: Record<string, number> = {};
+    for (let person = 0; person < PEOPLE; person++) {
+      const [pip] = Object.keys(pipsAt(7, person, 2));
+      first[pip] = (first[pip] ?? 0) + 1;
+    }
+    for (const pip of PIP_IDS) expect(first[pip] ?? 0, `первая отметка ${pip}`).toBeGreaterThan(PEOPLE * 0.15);
+  });
+
+  it('склад — из сида и номера человека: кость партии не двигается, другой сид — другие люди', () => {
+    const s = createInitialState();
+    s.agents.general.xp = XP_CAP;
+    const rolls = s.rolls;
+    expect(pipsOf(s)).toEqual(pipsAt(s.seed, s.agents.general.person, MAX_AGENT_LEVEL));
+    expect(s.rolls, 'отметки не бросают кость партии').toBe(rolls);
+    let differ = 0;
+    for (let person = 0; person < PEOPLE; person++) {
+      if (JSON.stringify(pipsAt(7, person, MAX_AGENT_LEVEL)) !== JSON.stringify(pipsAt(8, person, MAX_AGENT_LEVEL))) differ++;
+    }
+    expect(differ, 'другой сид партии — другой склад у тех же номеров').toBeGreaterThan(PEOPLE / 2);
+    s.agents.general.vacant = true;
+    expect(pipsOf(s), 'пустое место — ни одной отметки').toEqual({});
   });
 });

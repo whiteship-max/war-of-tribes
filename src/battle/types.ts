@@ -80,6 +80,15 @@ export const PHASES: readonly PhaseId[] = [
   'pursuit',
 ];
 
+/**
+ * Отметки полководца: по одной на обстрел, сшибку и сечу и одна на манёвр (docs/battle_eu4.md,
+ * раздел 2.4). Отметка — грань кости своей фазы (`DICE`, `PHASE_PIP` в конфиге): полководец с двумя
+ * отметками сшибки бросает в сшибке так, будто у кости на две грани больше.
+ */
+export type PipId = 'fire' | 'shock' | 'melee' | 'maneuver';
+export const PIP_IDS: readonly PipId[] = ['fire', 'shock', 'melee', 'maneuver'];
+export type Pips = Partial<Record<PipId, number>>;
+
 /** Условие ввода резерва (раздел 6). */
 export type ReserveTrigger =
   | { kind: 'immediate' }
@@ -113,6 +122,12 @@ export interface ArmySetup {
    * Число одинаково работает против кого угодно.
    */
   resolve?: number;
+  /**
+   * Отметки того, кто ведёт эту сторону. Ядро про источник не знает — как не знает, откуда
+   * `resolve`: у игры это уровень полководца, у логова полководца нет, и поле пустое. Нет поля —
+   * ноль по всем четырём.
+   */
+  pips?: Pips;
 }
 
 export type Side = 'attacker' | 'defender';
@@ -139,6 +154,11 @@ interface EventBase {
 export type BattleEvent = EventBase &
   (
     | { id: 'phase-start' }
+    /**
+     * Кость фазы: что выпало каждой стороне (0..`DICE.faces` − 1) и сколько граней прибавил
+     * её полководец (`pips`). Пишется в начале каждой фазы, у которой есть кость (`PHASE_PIP`).
+     */
+    | { id: 'dice'; rolls: Record<Side, number>; pips: Record<Side, number> }
     /** Лучники нанесли `losses` потерь до контакта. */
     | { id: 'volley'; side: Side; losses: number }
     /** Копья в `sector` остановили кавалерийский удар: конница потеряла больше, чем копейщики. */

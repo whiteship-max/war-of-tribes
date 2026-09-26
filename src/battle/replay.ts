@@ -863,9 +863,7 @@ function meleeSeconds(contest: number, marks: number): number {
 
 /** Границы тактов. Три из четырёх постоянные: близкий план и отъезд и есть лицо ролика. */
 function actWindows(result: BattleResult): ActWindow[] {
-  const meleeMarks = result.log.filter(
-    (e) => e.id !== 'phase-start' && ACT_OF[e.phase] === 'melee',
-  ).length;
+  const meleeMarks = result.log.filter((e) => !service(e) && ACT_OF[e.phase] === 'melee').length;
   const lengths: Record<Act, number> = {
     muster: MUSTER_SECONDS,
     pullback: PULLBACK_SECONDS,
@@ -1017,7 +1015,14 @@ function amountOf(e: BattleEvent): number {
   return 0;
 }
 
-/** События журнала на времени и на месте. `phase-start` и `result` — служебные. */
+/**
+ * Служебные события журнала: начало фазы, итог и кость. Кость — не событие на поле: у неё нет ни
+ * места, ни числа выбитых, и камера к ней не подаётся; зрелищем её делают потери, которые она
+ * множит.
+ */
+const service = (e: BattleEvent): boolean => e.id === 'phase-start' || e.id === 'result' || e.id === 'dice';
+
+/** События журнала на времени и на месте. Служебные (`service`) меткой не становятся. */
 function markLog(result: BattleResult, spans: Span[], us: Side): Mark[] {
   const at = (tick: number, phase: PhaseId): { t: number; act: Act } => {
     const span = spans.find((s) => s.phase === phase) ?? spans[0];
@@ -1027,7 +1032,7 @@ function markLog(result: BattleResult, spans: Span[], us: Side): Mark[] {
   };
   const out: Mark[] = [];
   for (const e of result.log) {
-    if (e.id === 'phase-start' || e.id === 'result') continue;
+    if (service(e)) continue;
     const { t, act } = at(e.tick, e.phase);
     const sector = sectorOf(e);
     out.push({

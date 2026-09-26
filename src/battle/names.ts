@@ -6,6 +6,7 @@ import type {
   ArcherOrder,
   CavalryOrder,
   InfantryOrder,
+  PipId,
   Plan,
   ReserveTrigger,
   SpearOrder,
@@ -118,6 +119,17 @@ export const ORDER_NAMES: Record<UnitKind, Record<string, string>> = {
   archer: ARCHER_ORDER_NAME,
   cavalry: CAVALRY_ORDER_NAME,
   heavy: CAVALRY_ORDER_NAME,
+};
+
+/**
+ * Отметки полководца словами. В каких фазах отметка работает, здесь не пишется: это
+ * `PHASE_PIP`, и слова о фазах собирает из него `log.pipPhases` — второй записи «где» нет.
+ */
+export const PIP_NAME: Record<PipId, string> = {
+  fire: 'Обстрел',
+  shock: 'Сшибка',
+  melee: 'Сеча',
+  maneuver: 'Манёвр',
 };
 
 export type ReserveKind = ReserveTrigger['kind'];

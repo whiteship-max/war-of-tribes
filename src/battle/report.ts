@@ -2,8 +2,8 @@
 // отчёт не попадёт — поэтому новая механика обязана писать своё событие (раздел 14
 // документа). Модуль живёт в `battle/`: он ничего не знает ни про React, ни про
 // состояние игры, и сервер сможет собрать тот же отчёт у себя.
-import { EVENT_MIN } from './config';
-import { SECTOR_NAME } from './log';
+import { DICE, EVENT_MIN } from './config';
+import { PHASE_NAME, SECTOR_NAME } from './log';
 import type { BattleEvent, BattleResult, Side, Verdict } from './types';
 
 /** Строка «ключевых событий»: чем объясняется исход. */
@@ -53,6 +53,12 @@ const own = (side: Side, us: Side, g: Gender): string => (side === us ? MINE[g] 
 /** Сколько строк ключевых событий держит отчёт: больше десятка никто не читает. */
 export const KEYS_MAX = 7;
 
+/** Насколько кость фазы легла в пользу `us`: бросок с отметками против чужого. */
+const diceGap = (e: Extract<BattleEvent, { id: 'dice' }>, us: Side): number => {
+  const foe: Side = us === 'attacker' ? 'defender' : 'attacker';
+  return e.rolls[us] + e.pips[us] - (e.rolls[foe] + e.pips[foe]);
+};
+
 const line = (e: BattleEvent, art: string, icon: string, text: string, good: boolean): ReportLine => ({
   art,
   icon,
@@ -68,6 +74,24 @@ const line = (e: BattleEvent, art: string, icon: string, text: string, good: boo
 function keyLine(e: BattleEvent, us: Side): ReportLine | null {
   const mine = 'side' in e && e.side === us;
   switch (e.id) {
+    case 'dice': {
+      // Удача называется, только когда разошлась хотя бы на полкости: меньшую разницу бой
+      // перемалывает сам, и строка о ней объясняла бы исход тем, чем он не решался.
+      const gap = diceGap(e, us);
+      if (Math.abs(gap) < DICE.faces / 2) return null;
+      const foe: Side = us === 'attacker' ? 'defender' : 'attacker';
+      const ours = e.rolls[us] + e.pips[us];
+      const theirs = e.rolls[foe] + e.pips[foe];
+      return line(
+        e,
+        'bat-dice',
+        '🎲',
+        gap > 0
+          ? `Удача за нами: ${PHASE_NAME[e.phase]} — кость ${ours} против ${theirs}.`
+          : `Удача против нас: ${PHASE_NAME[e.phase]} — кость ${ours} против ${theirs}.`,
+        gap > 0,
+      );
+    }
     case 'volley':
       if (e.losses < EVENT_MIN) return null;
       return line(e, 'bat-volley', '🏹', `${own(e.side, us, 'pl')} лучники выбили ${e.losses} до столкновения.`, mine);
@@ -153,7 +177,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
 export const BATTLE_ART: readonly string[] = [
   'bat-volley', 'bat-ranged-lost', 'bat-spears-held', 'bat-cavalry-broke', 'bat-cavalry-stopped',
   'bat-flank', 'bat-rear', 'bat-sector-broken', 'bat-reserve', 'bat-morale',
-  'bat-annihilated', 'bat-outfought', 'bat-pursuit',
+  'bat-annihilated', 'bat-outfought', 'bat-pursuit', 'bat-dice',
 ];
 
 /** Чем кончилось — одной фразой, из причины и цены. */
@@ -185,8 +209,17 @@ function reasonText(r: BattleResult, us: Side, verdict: Verdict): string {
  * журнал показывается отдельно, по фазам.
  */
 export function summarize(r: BattleResult, us: Side): BattleSummary {
+  // У кости вес — насколько она разошлась: из всех фаз в отчёт идёт та, где удача решала сильнее всего.
   const weight = (e: BattleEvent): number =>
-    e.id === 'volley' ? e.losses : e.id === 'cavalry-broke-archers' ? e.archersLost : e.id === 'pursuit' ? e.losses : 0;
+    e.id === 'volley'
+      ? e.losses
+      : e.id === 'cavalry-broke-archers'
+        ? e.archersLost
+        : e.id === 'pursuit'
+          ? e.losses
+          : e.id === 'dice'
+            ? Math.abs(diceGap(e, us))
+            : 0;
 
   // Одно событие каждого рода на сторону — иначе в отчёте десять «сектор сломался».
   // У видов с весом остаётся самое крупное событие, у прочих — первое по времени.

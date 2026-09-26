@@ -12,7 +12,7 @@
 // здесь: процесс берёт задачи одну за другой, и следующая обязана начаться на числах конфига.
 import { COUNTER, COVER, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
 import { stackPower } from '../src/battle/sim';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, SEARCH, TUNED, compositionLattice, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, quickOf, screenArmy, searchPool, standardOf, withCoverK, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, SEARCH, TUNED, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
 import { fan, serveFan } from './lib/fan';
 
 // ---------- Что возвращается ----------
@@ -175,8 +175,10 @@ export type Job =
   | { kind: 'vsGrid'; best: number; from: number; to: number }
   /** Точка поля (`holdPoint`, 40 боёв на шаг). */
   | { kind: 'hold'; who: Who | 'quick' }
-  /** Ограничитель: состав с перевесом 10 % против себя, 30 боёв. */
-  | { kind: 'oversize'; composition: number };
+  /** Ограничитель: состав с перевесом 10 % против себя (`bench.oversize`). */
+  | { kind: 'oversize'; composition: number }
+  /** Кость: шаг, выведенный делением отрезка (`bench.diceStepFor`), и поле большей без кости. */
+  | { kind: 'dice' };
 
 export type Out =
   | { kind: 'pair'; ab: Pair[]; ba: Pair[] }
@@ -188,7 +190,8 @@ export type Out =
   | { kind: 'pool'; gaps: number[] }
   | { kind: 'vsGrid'; rows: Array<{ held: boolean; own: number; theirs: number } | null> }
   | { kind: 'hold'; point: number }
-  | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number };
+  | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number }
+  | { kind: 'dice'; derived: number; bare: number };
 
 export function battleJob(job: Job): Out {
   switch (job.kind) {
@@ -265,21 +268,12 @@ export function battleJob(job: Job): Out {
       const setup = job.who === 'quick' ? (seed: number) => quickOf(seed * 7 + 3) : ((s) => () => s)(setupOf(job.who));
       return { kind: 'hold', point: holdPoint(setup, 40) };
     }
-    case 'oversize': {
-      const c = COMPOSITIONS[job.composition];
-      const bigger = quickSetup(Object.fromEntries(Object.entries(c.army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
-      let bigLoss = 0;
-      let smallLoss = 0;
-      let wins = 0;
-      for (let seed = 1; seed <= 30; seed += 1) {
-        const bigAttacks = seed % 2 === 1;
-        const r = simulateBattle({ seed, attacker: bigAttacks ? bigger : c.setup, defender: bigAttacks ? c.setup : bigger });
-        bigLoss += r.sides[bigAttacks ? 'attacker' : 'defender'].total.losses;
-        smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
-        if (r.winner === (bigAttacks ? 'attacker' : 'defender')) wins += 1;
-      }
-      return { kind: 'oversize', bigLoss, smallLoss, wins };
-    }
+    case 'oversize':
+      return { kind: 'oversize', ...oversize(job.composition) };
+    case 'dice':
+      // Кость ставится и снимается внутри `diceStepFor` и `withDiceStep`: следующая задача процесса
+      // начинается на числе конфига.
+      return { kind: 'dice', derived: diceStepFor(), bare: withDiceStep(0, () => oversizeHold()) };
   }
 }
 

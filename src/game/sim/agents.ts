@@ -24,7 +24,6 @@ import {
   DEED_GAP,
   DEED_XP,
   MAX_AGENT_LEVEL,
-  ONSLAUGHT_PER_CIRCLE,
   RETIRE_AGE,
   SIGHT_PER_CIRCLE,
   SKILL_OF,
@@ -49,7 +48,9 @@ import {
 import { ITEMS, slotName, type ItemId } from '../data/items';
 import { cityName } from '../../../netlify/lib/contract';
 import { perilText, veilAt } from '@/world/peril';
+import { PIP_IDS, type Pips } from '@/battle';
 import { log } from './log';
+import { mixSeed, seeded } from './random';
 
 const blank = (): AgentProgress => ({
   xp: 0,
@@ -236,8 +237,26 @@ export const agentLevel = (s: GameState, agent: FigureId): number => levelOf(s.a
 /** Кружков сверх первого на уровне. Первый уровень — ноль, и навык не действует. */
 const extra = (level: number): number => Math.max(0, Math.min(MAX_AGENT_LEVEL, Math.floor(level)) - 1);
 
-/** Натиск на этом уровне полководца: прибавка к стойкости в его боях. */
-export const onslaughtAt = (level: number): number => ONSLAUGHT_PER_CIRCLE * extra(level);
+/** Соль склонности полководца: своя, чтобы не совпасть ни с костью дома, ни с перестановкой имён. */
+const TEMPER_DIE = 0x70697073;
+
+/**
+ * Отметки полководца на этом уровне. Кружков сверх первого — столько же отметок, и каждая ложится в
+ * одну из четырёх (обстрел, сшибка, сеча, манёвр) по склонности человека: броском от сида партии и
+ * его номера — тем же приёмом, каким `sim/dynasty.skillsOf` выводит навыки правителя. Поля в
+ * сохранении нет, `s.rolls` не двигается, и один и тот же человек растёт всегда одинаково: второй
+ * кружок ложится туда же, дорасти он до него раньше или позже. Первый уровень — ни одной отметки.
+ */
+export function pipsAt(seed: number, person: number, level: number): Pips {
+  const rnd = seeded(mixSeed(seed, mixSeed(TEMPER_DIE, person)));
+  const out: Pips = {};
+  for (let i = 0; i < extra(level); i += 1) {
+    const pip = PIP_IDS[Math.floor(rnd() * PIP_IDS.length)];
+    out[pip] = (out[pip] ?? 0) + 1;
+  }
+  return out;
+}
+
 /** Зоркость на этом уровне разведчика: на сколько клеток шире он открывает землю. */
 export const sightBonusAt = (level: number): number => SIGHT_PER_CIRCLE * extra(level);
 /** Скрытность на этом уровне лазутчика: доля провалов, прошедших незамеченными. */
@@ -246,7 +265,9 @@ export const stealthAt = (level: number): number => STEALTH_PER_CIRCLE * extra(l
 const onPlace = (s: GameState, agent: FigureId, value: (level: number) => number, none: number): number =>
   seated(s, agent) ? value(agentLevel(s, agent)) : none;
 
-export const onslaughtOf = (s: GameState): number => onPlace(s, 'general', onslaughtAt, 0);
+/** Отметки полководца на месте. Пустое место — ни одной: навык — свойство человека, а не должности. */
+export const pipsOf = (s: GameState): Pips =>
+  seated(s, 'general') ? pipsAt(s.seed, s.agents?.general?.person ?? 0, agentLevel(s, 'general')) : {};
 export const sightBonusOf = (s: GameState): number => onPlace(s, 'scout', sightBonusAt, 0);
 export const stealthOf = (s: GameState): number => onPlace(s, 'spy', stealthAt, 0);
 /** Скрытность лазутчика в гибели: во сколько раз реже он гибнет на деле (`world/peril.veilAt`). */

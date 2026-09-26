@@ -16,17 +16,18 @@ import {
   COVER,
   CLASH_SPEAR_BRACE,
   COUNTER,
+  DICE,
   ENVELOP,
   EVENT_MIN,
   EVENT_SHARE,
   FOOT_FLANK,
   GEAR,
   INFANTRY_ORDERS,
-  JITTER,
   KITING,
   MELEE_RATE,
   MORALE,
   PHASE_MIN,
+  PHASE_PIP,
   PHASE_TICKS,
   PLANS,
   PYRRHIC_BELOW,
@@ -64,6 +65,7 @@ import {
   type Lane,
   type PhaseId,
   type PhaseSpan,
+  type PipId,
   type ResultReason,
   type Sector,
   type Side,
@@ -214,9 +216,9 @@ const anchored = (stack: Stack): boolean => stack.infantry >= ANCHOR.infantrySha
  * плюс ступени снаряжения из кузницы, сдвиг плана и стойкость, с которой армия
  * вышла в поле (`setup.resolve` — ноль, если ничего такого не было).
  *
- * Открыта наружу ради одного читателя — карточки полководца: сколько натиска
- * съест потолок морали, она меряет этой самой функцией, а не своей копией
- * формулы. Ядро от этого чистым быть не перестаёт: функция по-прежнему ничего
+ * Открыта наружу ради тестов мира: что стойкость стороны — один обряд храма, а
+ * отметки полководца в мораль не идут, они меряют этой самой функцией, а не
+ * своей копией формулы. Ядро от этого чистым быть не перестаёт: функция ничего
  * не знает ни об игре, ни о том, кто её зовёт.
  */
 export function startMorale(setup: ArmySetup, stack: Stack): number {
@@ -230,6 +232,19 @@ export function startMorale(setup: ArmySetup, stack: Stack): number {
   const resolve = Math.max(0, setup.resolve ?? 0);
   return Math.max(0, Math.min(MORALE.max, m / total + PLANS[setup.plan].morale + resolve));
 }
+
+/** Отметки стороны по одной фазе: неотрицательное конечное число, нет поля — ноль. */
+export const pipOf = (setup: ArmySetup, pip: PipId): number => {
+  const n = setup.pips?.[pip] ?? 0;
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+};
+
+/**
+ * Множитель урона стороны в фазе: бросок кости плюс отметки её полководца (`DICE`). Открыт наружу
+ * ради карточки полководца: что прибавляет отметка, карточка меряет этой самой функцией, а не своей
+ * копией формулы. Меньше нуля не бывает — урон не становится лечением.
+ */
+export const phaseLuck = (roll: number, pips = 0): number => Math.max(0, 1 + DICE.step * (roll + pips - (DICE.faces - 1) / 2));
 
 function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, lane: Lane | null, row: Row, opts: { prefer?: 'rear' | 'front'; maneuver?: CavalryOrder | null; morale?: number } = {}): Group {
   return {
@@ -293,6 +308,8 @@ class Battle {
   clashTick = 0;
   /** Кто в этот тик в рукопашной (лучники, держащие дистанцию, — нет). Для характера лучников. */
   engagedNow = new Set<Group>();
+  /** Кость этой фазы: множитель всего урона стороны (`phaseLuck`). Фаза без кости — единица. */
+  luck: Record<Side, number> = { attacker: 1, defender: 1 };
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
@@ -326,8 +343,25 @@ class Battle {
 
   // ----- Служебное -----
 
-  jitter(): number {
-    return 1 + (this.rng() * 2 - 1) * JITTER;
+  /**
+   * Кость фазы: по броску на сторону из генератора боя. Бросают обе стороны всегда, есть ли у них
+   * отметки или нет: иначе поток генератора зависел бы от того, кто привёл полководца, и один и тот же
+   * бой с отметкой и без неё разошёлся бы не в одной фазе, а во всех следующих.
+   */
+  rollDice(): void {
+    const pip = PHASE_PIP[this.phase];
+    if (!pip) {
+      this.luck = { attacker: 1, defender: 1 };
+      return;
+    }
+    const rolls = { attacker: 0, defender: 0 };
+    const pips = { attacker: 0, defender: 0 };
+    for (const side of SIDES) {
+      rolls[side] = Math.floor(this.rng() * DICE.faces);
+      pips[side] = pipOf(this.sides[side].setup, pip);
+      this.luck[side] = phaseLuck(rolls[side], pips[side]);
+    }
+    this.emit({ id: 'dice', rolls, pips });
   }
 
   emit(e: EventBody): void {
@@ -505,6 +539,7 @@ class Battle {
 
   onPhaseStart(): void {
     this.emit({ id: 'phase-start' });
+    this.rollDice();
     for (const side of SIDES) this.sides[side].killsAtPhase = cloneKills(this.sides[side].kills);
     switch (this.phase) {
       case 'clash':
@@ -1022,7 +1057,7 @@ class Battle {
   dealtMult(g: Group, kind: UnitKind): number {
     const s = this.sides[g.side];
     const plan = PLANS[s.setup.plan];
-    let m = plan.dealt * moraleDamageMult(g.morale);
+    let m = plan.dealt * moraleDamageMult(g.morale) * this.luck[g.side];
     if (g.fled) m *= MORALE.fledDealt;
     if (g.lane !== null && g.row !== 'strike') m *= g.lane === 1 ? plan.center : plan.flank;
     if (kind === 'spear') m *= SPEAR_ORDERS[s.setup.orders.spear].dealt;
@@ -1076,7 +1111,7 @@ class Battle {
         if (g.stack[kind] < EPS) continue;
         const n = g.stack[kind] * share;
         if (kind === 'archer' && kiting.has(g)) continue;
-        let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g, kind) * this.jitter();
+        let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g, kind);
         // Удар с разбега — вес, и он у тяжёлой. Обход усиливается планом у любого конного рода:
         // «кавалерийский удар» — про манёвр, а манёвр есть у обоих, пока им его приказали.
         if (kind === 'heavy' && this.phase === 'clash' && !flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
@@ -1098,7 +1133,7 @@ class Battle {
     let m = 1;
     if (kiting) m = KITING.ranged;
     else if (targets.some((t) => engaged.has(t))) m = COUNTER.archer.afterContact;
-    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * PLANS[s.setup.plan].ranged * this.dealtMult(g, 'archer') * m * this.jitter();
+    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * PLANS[s.setup.plan].ranged * this.dealtMult(g, 'archer') * m;
     this.distribute(s, 'archer', p, targets, { flank: false, closedAround: false, flanked: false, ranged: true, frontal: false }, new Set(), g.lane, hits);
   }
 
@@ -1345,7 +1380,6 @@ class Battle {
           kills += g.stack[k] * rate * moraleDamageMult(s.morale);
         }
       }
-      kills *= this.jitter();
       kills = Math.min(kills, enemy.pursuitBudget);
       if (kills <= 0) continue;
       enemy.pursuitBudget -= kills;

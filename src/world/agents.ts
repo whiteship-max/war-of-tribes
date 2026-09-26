@@ -1,11 +1,11 @@
 // Что навык агента делает в мире — одно правило на мир и на карточку.
 //
-// Мир получает от племени три прибавки числами (`PlayerProfile.onslaught`,
-// `sightBonus`, `stealth`) и кладёт каждую туда, где у неё своя дверь:
+// Мир получает от племени три прибавки (`PlayerProfile.pips`, `sightBonus`,
+// `stealth`) и кладёт каждую туда, где у неё своя дверь:
 //
-// - натиск — в стойкость стороны, **сложением с обрядом**, и только в боях,
-//   которые ведёт полководец (`generalResolve`); оборона деревни и вылазка идут
-//   мимо, их ведёт гарнизон;
+// - отметки полководца — в кость фазы боя (`ArmySetup.pips`), и только в боях,
+//   которые он ведёт, да у своих стен, пока его дружина стоит у ворот
+//   (`LocalWorld.generalPips`, `homePips`); стойкость стороны — один обряд;
 // - зоркость — в радиус, которым разведчик открывает землю (`revealSight`);
 //   живого обзора она не даёт, его держит `sight.liveSight`, и он её не читает;
 // - скрытность — в то, заметили ли провал (`slipped`); шанс дела не трогает.
@@ -16,27 +16,46 @@
 // модуль целиком.
 //
 // Модуль чистый: ни состояния, ни часов.
-import {
-  DEFAULT_ORDERS,
-  PLAN_IDS,
-  UNIT_KINDS,
-  emptySectors,
-  startMorale,
-  stackOf,
-  type ArmySetup,
-  type UnitKind,
-} from '@/battle';
-import { gearOf, kindsOf, type TroopStack } from '@/game/battle/kinds';
+import { DICE, PIP_IDS, phaseLuck, pipOf, type ArmySetup, type PipId, type Pips, type UnitKind } from '@/battle';
+import { gearOf, type TroopStack } from '@/game/battle/kinds';
 import { FIGURE_BY_ID } from './data/figures';
 import type { FigureId } from './types';
 
 /**
- * Стойкость стороны в бою полководца: обряд храма плюс натиск. Два источника,
- * одно число в бою — так же, как кузница и конюшня складываются в ступень
- * снаряжения. Потолок морали у них общий и живёт в ядре (`startMorale`).
+ * Отметки полководца у своих стен: всё, кроме манёвра, — стена не движется, обходить некого и
+ * некуда (решение владельца 26.09.2026, docs/battle_eu4.md, вопрос 5). Вылазка идёт в поле — в неё
+ * отметки идут все.
  */
-export const generalResolve = (fervour: number, onslaught: number): number =>
-  Math.max(0, fervour) + Math.max(0, onslaught);
+export const wallPips = (pips: Pips | undefined): Pips => {
+  const out: Pips = { ...(pips ?? {}) };
+  delete out.maneuver;
+  return out;
+};
+
+/** Что даёт одна отметка фазы. */
+export interface PipRow {
+  pip: PipId;
+  /** Сколько отметок этой фазы у полководца. */
+  n: number;
+  /**
+   * На сколько в среднем вырастает урон его стороны в фазах этой отметки, доля: замер той же
+   * функцией ядра, которой бой множит урон (`phaseLuck`), на середине кости с отметками и без.
+   */
+  gain: number;
+}
+
+/**
+ * Отметки полководца строками для карточки — **замером** функцией ядра, а не пересказом числа:
+ * отметка сдвигает кость фазы на грань, и во что эта грань обходится уроном, говорит `phaseLuck`.
+ */
+export function pipRows(pips: Pips | undefined): PipRow[] {
+  const mid = (DICE.faces - 1) / 2;
+  const setup = { pips } as ArmySetup;
+  return PIP_IDS.map((pip) => {
+    const n = pipOf(setup, pip);
+    return { pip, n, gain: phaseLuck(mid, n) - phaseLuck(mid, 0) };
+  });
+}
 
 /**
  * Снаряжение нашего отряда: кузница по видам бойцов. Ступени «от конюшни» здесь больше нет —
@@ -71,45 +90,4 @@ export function slipShare(stealth: number, steps = 1000): number {
   let n = 0;
   for (let i = 0; i < steps; i++) if (slipped((i + 0.5) / steps, stealth)) n++;
   return n / steps;
-}
-
-/** Что натиск даёт одному роду дружины. */
-export interface OnslaughtRow {
-  kind: UnitKind;
-  /** Прибавка к стартовой морали рода при самом неудобном плане, 0..`full`. */
-  got: number;
-  /** Сколько натиск обещает без потолка. */
-  full: number;
-}
-
-/**
- * Замер натиска на нынешней дружине: сколько стартовой морали каждому роду
- * прибавит переход от стойкости `from` к стойкости `to` — **той самой функцией
- * ядра**, которой бой считает мораль сектора (`startMorale`), с тем снаряжением,
- * с которым дружина пойдёт в бой.
- *
- * План берётся самый неудобный: пресет быстрой атаки выбирается по сиду боя, и
- * заранее его не знает никто, а план «оборона» сам поднимает мораль и первым
- * упирается в потолок. Поэтому `got` — то, что натиск даст наверняка. Смешанный
- * сектор получает не меньше, чем самый стойкий род в нём: чем ниже средняя
- * мораль, тем дальше потолок.
- */
-export function onslaughtRows(troops: TroopStack, fervour: number, from: number, to: number): OnslaughtRow[] {
-  const kinds = kindsOf(troops);
-  const gear = ownGearOf(troops);
-  const rFrom = generalResolve(fervour, from);
-  const rTo = generalResolve(fervour, to);
-  const rows: OnslaughtRow[] = [];
-  for (const kind of UNIT_KINDS) {
-    if (kinds[kind] <= 0) continue;
-    const stack = stackOf({ [kind]: kinds[kind] });
-    let got = Infinity;
-    for (const plan of PLAN_IDS) {
-      const base: ArmySetup = { sectors: emptySectors(), plan, orders: DEFAULT_ORDERS, reserve: { kind: 'morale' }, gear };
-      const gain = startMorale({ ...base, resolve: rTo }, stack) - startMorale({ ...base, resolve: rFrom }, stack);
-      got = Math.min(got, gain);
-    }
-    rows.push({ kind, got: Math.max(0, Math.round(got * 10) / 10), full: rTo - rFrom });
-  }
-  return rows;
 }

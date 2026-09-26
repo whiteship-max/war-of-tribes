@@ -14,6 +14,7 @@ import {
   type ArmySetup,
   type BattleResult,
   type Intel as BattleIntel,
+  type Pips,
   type QuickPresetId,
   type Sector,
   type Stack,
@@ -32,6 +33,12 @@ export interface FieldSide {
    * а не построения.
    */
   resolve?: number;
+  /**
+   * Отметки того, кто ведёт сторону (`PlayerProfile.pips`): у нас — полководец в своих боях и у
+   * своих ворот, у чужих — ничего. Кладутся поверх расстановки тем же путём, что `resolve`, и по
+   * той же причине: пресет выбирает строй, а не того, кто им командует.
+   */
+  pips?: Pips;
   /** null — быстрая атака: пресет выберется по сиду похода. */
   setup: ArmySetup | null;
 }
@@ -118,8 +125,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
 
   const result = simulateBattle({
     seed: input.seed,
-    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear, resolve: input.attacker.resolve ?? 0 },
-    defender: { ...defender, gear: input.defender.gear ?? defender.gear, resolve: input.defender.resolve ?? 0 },
+    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear, resolve: input.attacker.resolve ?? 0, pips: input.attacker.pips ?? {} },
+    defender: { ...defender, gear: input.defender.gear ?? defender.gear, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {} },
   });
 
   const a = result.sides.attacker.total;

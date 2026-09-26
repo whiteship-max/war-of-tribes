@@ -1,11 +1,12 @@
 // Навыки агентов в настоящем мире.
 //
 // Области правил, и каждая проверяется утверждением в самом тесте (правило 11):
-// - натиск — бой, в котором ведёт полководец: удар по двору, наш лагерь, удар по
-//   лагерю из поля. Вне области — оборона деревни и вылазка: их ведёт гарнизон, и
-//   там утверждается обратное — натиска нет. Каждая точка утверждает, что бой
-//   **состоялся** (ядро позвали), иначе «натиска нет» получалось бы даром;
-// - потолок — роды, у которых стартовая мораль с натиском упирается в сотню;
+// - отметки полководца — бой, в котором ведёт полководец: удар по двору, наш лагерь,
+//   удар по лагерю из поля; и у своих стен и на вылазке — только пока его дружина
+//   стоит у ворот (решение владельца 26.09.2026). Дружина не у ворот — там
+//   утверждается обратное: отметок нет. Каждая точка утверждает, что бой
+//   **состоялся** (ядро позвали), иначе «отметок нет» получалось бы даром, и что
+//   отметки у полководца есть, иначе «отметки есть» проверялось бы на пустом;
 // - скрытность — только провалы: у удачи она не спрашивается;
 // - зоркость — только земля, которую разведчик открывает по пути;
 // - первый уровень — все прибавки нулевые, и мир ведёт себя по-старому;
@@ -27,14 +28,14 @@ vi.mock('@/battle', async (orig) => {
   };
 });
 
-import { DEFAULT_ORDERS, MORALE, PLAN_IDS, UNIT_KINDS, emptySectors, emptyStack, startMorale } from '@/battle';
+import { DICE, emptyStack, phaseLuck, type Pips } from '@/battle';
 import { createInitialState } from '@/game/state';
-import { kindsOf, type TroopStack } from '@/game/battle/kinds';
-import { onslaughtAt, onslaughtOf } from '@/game/sim/agents';
+import { type TroopStack } from '@/game/battle/kinds';
+import { pipsAt, pipsOf } from '@/game/sim/agents';
 import { DEED_XP, LEVEL_XP, XP_CAP } from '@/game/data/agents';
 import { seeded } from '@/game/sim/random';
 import { DAY_LENGTH, realMs } from '@/game/pace';
-import { onslaughtLines } from '@/ui/parts/agentLines';
+import { pipLines } from '@/ui/parts/agentLines';
 import { readFileSync } from 'node:fs';
 import { HOME_ID, LocalWorld } from './local/LocalWorld';
 import type { StoredMarch, WorldSave } from './local/state';
@@ -53,7 +54,7 @@ import {
   SPY_SLIP_ATTITUDE,
 } from './data/tuning';
 import { marchSeed } from './combat';
-import { generalResolve, onslaughtRows, ownGearOf, revealSight, slipShare, slipped } from './agents';
+import { ownGearOf, pipRows, revealSight, slipShare, slipped, wallPips } from './agents';
 import { spyOutcome } from './spy';
 import { distance } from './geo';
 import { PLAYER_CAMP } from './siege';
@@ -102,8 +103,24 @@ function makeWorld(seed = 11) {
 function tribeProfile(level: number, over: Partial<PlayerProfile> = {}): PlayerProfile {
   const s = createInitialState();
   s.agents.general.xp = LEVEL_XP[level - 1];
-  expect(onslaughtOf(s)).toBe(onslaughtAt(level));
+  expect(pipsOf(s)).toEqual(pipsAt(s.seed, s.agents.general.person, level));
   return { ...playerProfile(s), army: { spearman: 60, archer: 20, rider: 20 }, ...over };
+}
+
+/** Все четыре отметки по одной: у стены манёвр обязан отпасть, и это видно, только если он есть. */
+const ALL_PIPS: Pips = { fire: 1, shock: 1, melee: 1, maneuver: 1 };
+
+/** Дружина стоит у своих ворот: собрана, дома, не в сборе (`world/muster.postureOf` — 'stands'). */
+function atGates(w: ReturnType<typeof makeWorld>, troops: TroopStack = { spearman: 20, archer: 10 }): void {
+  const g = w.inner.save.figures.general;
+  const home = w.inner.save.home;
+  g.phase = 'home';
+  g.from = { ...home };
+  g.to = { ...home };
+  g.departAt = w.now() - MIN;
+  g.arriveAt = w.now() - MIN;
+  g.troops = { ...troops };
+  g.handover = undefined;
 }
 
 // Конница в доспехе: ступень 3, которую прежде всаднику давала конюшня, — на ней потолок морали и кусается.
@@ -138,13 +155,14 @@ beforeEach(() => {
   H.inputs.length = 0;
 });
 
-describe('натиск ложится ровно в бои полководца', () => {
+describe('отметки полководца: его бои — всегда, свои стены и вылазка — только с дружиной у ворот', () => {
   const FERVOUR = 4;
   const LEVEL = 4;
 
-  it('удар по логову: стойкость — обряд плюс натиск, снаряжение — то же, что у замера карточки', async () => {
+  it('удар по логову: отметки — его, стойкость — один обряд, снаряжение — то же, что у дружины', async () => {
     const w = makeWorld();
     const p = tribeProfile(LEVEL, { fervour: FERVOUR });
+    expect(Object.keys(p.pips ?? {}).length, 'точка внутри области: у полководца четвёртого уровня отметки есть').toBeGreaterThan(0);
     await w.world.sync(p);
     const lair = nearestLair(w);
     stand(w, lair);
@@ -152,14 +170,14 @@ describe('натиск ложится ровно в бои полководца'
     const res = await w.world.attack({ setup: null });
     expect(res.error).toBeNull();
     const input = battleSince(mark);
-    expect(input.attacker.resolve).toBe(generalResolve(FERVOUR, onslaughtAt(LEVEL)));
-    expect(input.attacker.resolve).toBe(FERVOUR + 9);
+    expect(input.attacker.pips).toEqual(p.pips);
+    expect(input.attacker.resolve, 'натиска в стойкости больше нет: только обряд').toBe(FERVOUR);
     expect(input.attacker.gear).toEqual(ownGearOf(RETINUE));
   });
 
-  it('наш лагерь, по которому бьют, держит дружина полководца — натиск есть', async () => {
+  it('наш лагерь, по которому бьют, держит дружина полководца — отметки есть', async () => {
     const w = makeWorld();
-    const p = tribeProfile(LEVEL, { fervour: FERVOUR });
+    const p = tribeProfile(LEVEL, { fervour: FERVOUR, pips: ALL_PIPS });
     await w.world.sync(p);
     const lair = nearestLair(w);
     stand(w, lair);
@@ -167,7 +185,9 @@ describe('натиск ложится ровно в бои полководца'
     const mark = H.inputs.length;
     const kinds: Stack = { ...emptyStack(), infantry: 40 };
     w.inner.campBattle(lair.id, w.now(), 5, { front: { kinds, gear: {} }, setup: null });
-    expect(battleSince(mark).defender.resolve).toBe(FERVOUR + onslaughtAt(LEVEL));
+    const input = battleSince(mark);
+    expect(input.defender.pips).toEqual(ALL_PIPS);
+    expect(input.defender.resolve).toBe(FERVOUR);
   });
 
   /** Чужой лагерь под нашими стенами: отряд из логова, окно осады. */
@@ -195,34 +215,50 @@ describe('натиск ложится ровно в бои полководца'
     w.inner.openSiegeAt(HOME_ID, lair.id, m.id, w.now());
   }
 
-  it('удар полководца по лагерю из поля — натиск есть', async () => {
+  it('удар полководца по лагерю из поля — отметки есть, все четыре', async () => {
     const w = makeWorld();
-    const p = tribeProfile(LEVEL, { fervour: FERVOUR });
+    const p = tribeProfile(LEVEL, { fervour: FERVOUR, pips: ALL_PIPS });
     await w.world.sync(p);
     campAtHome(w);
     const home = w.inner.save.home;
     stand(w, { x: home.x + 6, y: home.y });
     const mark = H.inputs.length;
     expect(w.inner.resolveStrike(HOME_ID, w.now(), false).error).toBeNull();
-    expect(battleSince(mark).attacker.resolve).toBe(FERVOUR + onslaughtAt(LEVEL));
+    expect(battleSince(mark).attacker.pips).toEqual(ALL_PIPS);
   });
 
-  it('вылазка гарнизона против того же лагеря — натиска нет, даже если полководец дома', async () => {
+  /** Хлеба вдоволь: без него окно осады кончилось бы в ту же минуту, и выходить было бы не на кого. */
+  const fed = { fervour: FERVOUR, pips: ALL_PIPS, food: 100_000, foodPerHour: 10, soldierFoodPerHour: 1 };
+
+  it('вылазка, когда дружина в поле, — отметок нет: вылазку ведёт гарнизон', async () => {
     const w = makeWorld();
-    // Хлеба вдоволь: без него окно осады кончилось бы в ту же минуту, и выходить было бы не на кого.
-    const p = tribeProfile(LEVEL, { fervour: FERVOUR, food: 100_000, foodPerHour: 10, soldierFoodPerHour: 1 });
+    const p = tribeProfile(LEVEL, fed);
     await w.world.sync(p);
     campAtHome(w);
+    const home = w.inner.save.home;
+    stand(w, { x: home.x + 6, y: home.y });
     const mark = H.inputs.length;
     const res = await w.world.sortie({ spearman: 20 });
     expect(res.error).toBeNull();
-    expect(battleSince(mark).attacker.resolve).toBe(FERVOUR);
+    const input = battleSince(mark);
+    expect(input.attacker.pips).toEqual({});
+    expect(input.attacker.resolve).toBe(FERVOUR);
   });
 
-  it('оборона деревни — натиска нет, даже когда полководец пятого уровня', async () => {
+  it('вылазка, когда дружина стоит у ворот, — её ведёт полководец, все четыре отметки', async () => {
     const w = makeWorld();
-    const p = tribeProfile(5, { fervour: FERVOUR });
+    const p = tribeProfile(LEVEL, fed);
     await w.world.sync(p);
+    campAtHome(w);
+    atGates(w);
+    const mark = H.inputs.length;
+    const res = await w.world.sortie({ spearman: 20 });
+    expect(res.error).toBeNull();
+    expect(battleSince(mark).attacker.pips).toEqual(ALL_PIPS);
+  });
+
+  /** Набег у ворот: бой у стены, а не осада. Возвращает отметку до боя. */
+  function raidAtWall(w: ReturnType<typeof makeWorld>): number {
     const lair = nearestLair(w);
     const m: StoredMarch = {
       id: 'raid-test',
@@ -246,74 +282,60 @@ describe('натиск ложится ровно в бои полководца'
     const mark = H.inputs.length;
     w.inner.resolveIncoming(m, w.now());
     expect(w.inner.save.sieges[HOME_ID], 'не осада, а бой у стены').toBeUndefined();
-    expect(battleSince(mark).defender.resolve).toBe(FERVOUR);
+    return mark;
+  }
+
+  it('оборона деревни, когда дружина в поле, — отметок нет, даже у полководца пятого уровня', async () => {
+    const w = makeWorld();
+    const p = tribeProfile(5, { fervour: FERVOUR, pips: ALL_PIPS });
+    await w.world.sync(p);
+    const home = w.inner.save.home;
+    stand(w, { x: home.x + 6, y: home.y });
+    const input = battleSince(raidAtWall(w));
+    expect(input.defender.pips).toEqual({});
+    expect(input.defender.resolve).toBe(FERVOUR);
+  });
+
+  it('оборона деревни, когда дружина у ворот, — ведёт полководец, без манёвра: стена не движется', async () => {
+    const w = makeWorld();
+    const p = tribeProfile(5, { fervour: FERVOUR, pips: ALL_PIPS });
+    await w.world.sync(p);
+    atGates(w);
+    const input = battleSince(raidAtWall(w));
+    expect(input.defender.pips).toEqual(wallPips(ALL_PIPS));
+    expect(input.defender.pips, 'манёвра у стены нет').toEqual({ fire: 1, shock: 1, melee: 1 });
+    expect(input.defender.resolve).toBe(FERVOUR);
   });
 });
 
 describe('карточка и бой считают одно и то же', () => {
-  it('прибавка по родам — минимум по планам той функцией ядра, с той стойкостью и тем снаряжением, что ушли в бой', async () => {
+  it('на карточке — те отметки, что ушли в бой, и каждая мерена функцией ядра', async () => {
     const w = makeWorld();
-    const level = 3;
-    // Обряд подобран так, чтобы потолок морали кусал конницу: иначе карточка сошлась бы
-    // с боем и при чужом снаряжении, и сравнение ничего бы не доказывало.
-    const rite = 10;
-    const p = tribeProfile(level, { fervour: rite });
+    const level = 4;
+    // Слепок — из этой же партии: склад полководца выводится из её сида, у другой партии он другой.
+    const s = createInitialState();
+    s.agents.general.xp = LEVEL_XP[level - 1];
+    const p = { ...playerProfile(s), army: { spearman: 60, archer: 20, rider: 20 } };
     await w.world.sync(p);
     stand(w, nearestLair(w));
     const mark = H.inputs.length;
     await w.world.attack({ setup: null });
     const input = battleSince(mark);
-    const card = onslaughtRows(RETINUE, rite, onslaughtAt(1), onslaughtAt(level));
-    const kinds = kindsOf(RETINUE);
-    const full = onslaughtAt(level) - onslaughtAt(1);
-    expect(card.map((r) => r.kind)).toEqual(UNIT_KINDS.filter((k) => kinds[k] > 0));
-    let bitten = 0;
-    let given = 0;
-    for (const row of card) {
-      const pure: Stack = { ...emptyStack(), [row.kind]: kinds[row.kind] };
-      // Прибавка по планам — самим ядром, со снаряжением и стойкостью из настоящего боя.
-      const gains = PLAN_IDS.map(
-        (plan) =>
-          startMorale({ ...input.attacker, plan }, pure) -
-          startMorale({ ...input.attacker, plan, resolve: generalResolve(rite, onslaughtAt(1)) }, pure),
-      );
-      const worst = Math.min(...gains);
-      if (worst < full) bitten++;
-      if (worst > 0) given++;
-      expect(row.got, `${row.kind}: карточка против боя`).toBeCloseTo(worst, 1);
-      // И в том плане, которым бой действительно пошёл, прибавка не меньше обещанной.
-      const real =
-        startMorale(input.attacker, pure) - startMorale({ ...input.attacker, resolve: generalResolve(rite, onslaughtAt(1)) }, pure);
-      expect(real, `${row.kind}: план боя`).toBeGreaterThanOrEqual(row.got - 0.05);
+    const pips = pipsOf(s);
+    expect(input.attacker.pips, 'в бой ушли отметки этого человека').toEqual(pips);
+    const person = s.agents.general.person;
+    const lines = pipLines(level, pips, pipsAt(s.seed, person, level + 1));
+    const rows = pipRows(pips).filter((r) => r.n > 0);
+    expect(rows.reduce((n, r) => n + r.n, 0), 'точка внутри области: отметок столько, сколько кружков сверх первого').toBe(level - 1);
+    expect(lines.rows).toHaveLength(rows.length);
+    const mid = (DICE.faces - 1) / 2;
+    for (const r of rows) {
+      // Отметка — грань кости: во что она обходится уроном, говорит та же функция, что множит урон в бою.
+      expect(r.gain).toBeCloseTo(phaseLuck(mid, r.n) - phaseLuck(mid, 0), 12);
+      expect(r.gain).toBeCloseTo(r.n * DICE.step, 12);
     }
-    // Точки внутри области, по бою, а не по карточке: потолок кусает хоть один род, и хоть
-    // одному натиск прибавляет. Обряд подобран так, чтобы кусала конница.
-    expect(bitten, 'точка внутри области: потолок кусает хоть один род').toBeGreaterThan(0);
-    expect(given, 'и хоть одному роду натиск прибавляет').toBeGreaterThan(0);
-  });
-
-  it('когда потолок съедает натиск, карточка так и говорит: кружок ничего не прибавит', () => {
-    // Латные всадники (ступень 3) и строгий обряд: мораль рода с планом «оборона» уже
-    // сотня. Точка внутри области — проверяется числом.
-    const riders: TroopStack = { knight: 20 };
-    const rite = 12;
-    // Область — по ядру, а не по карточке: при плане «оборона» мораль всадников с
-    // натиском второго уровня уже сотня, то есть третьему кружку расти некуда.
-    const pure: Stack = { ...emptyStack(), heavy: kindsOf(riders).heavy };
-    const setup = { sectors: emptySectors(), plan: 'defense' as const, orders: DEFAULT_ORDERS, reserve: { kind: 'morale' as const }, gear: ownGearOf(riders) };
-    expect(startMorale({ ...setup, resolve: generalResolve(rite, onslaughtAt(2)) }, pure), 'точка внутри области: мораль уже у потолка').toBe(MORALE.max);
-    const rows = onslaughtRows(riders, rite, onslaughtAt(2), onslaughtAt(3));
-    expect(rows).toHaveLength(1);
-    expect(rows[0].full, 'натиск что-то обещает').toBeGreaterThan(0);
-    expect(rows[0].got, 'карточка: потолок съел всё').toBe(0);
-    const lines = onslaughtLines(2, riders, rite);
-    expect(lines.next).toBe('Следующий кружок этой дружине ничего не прибавит: потолок морали.');
-    expect(lines.troops).toMatch(/не прибавляет ничего/);
-    // Смешанная дружина: копьям прибавит, коннице — нет, и названо поимённо.
-    const mixed = onslaughtLines(2, { spearman: 20, knight: 20 }, rite);
-    expect(mixed.next).toMatch(/^Следующий кружок: копья \+3, тяжёлая конница ничего — дальше потолок морали\.$/);
-    // Без обряда тем же всадникам прибавка целиком: потолок здесь не выдуман.
-    expect(onslaughtRows(riders, 0, onslaughtAt(2), onslaughtAt(3))[0].got).toBe(3);
+    expect(lines.next, 'куда ляжет следующий кружок — известно: склад человека').toMatch(/^Следующий кружок ляжет в /);
+    expect(pipLines(1, {}, pipsAt(s.seed, person, 2)).rows, 'первый уровень — ни одной строки отметок').toEqual([]);
   });
 });
 
@@ -418,7 +440,7 @@ describe('дела агентов едут из мира событием', () =
     const a = makeWorld(23);
     const b = makeWorld(23);
     const base = tribeProfile(1);
-    const zero = { ...base, onslaught: 0, sightBonus: 0, stealth: 0 };
+    const zero = { ...base, pips: {}, sightBonus: 0, stealth: 0 };
     for (let i = 0; i < 20; i++) {
       const step = Math.floor(rnd() * 5 * MIN);
       a.advance(step);

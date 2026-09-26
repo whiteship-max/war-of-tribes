@@ -12,6 +12,7 @@ import {
   emptyStack,
   stackTotal,
   type ArmySetup,
+  type Pips,
   type Stack,
   type UnitKind,
 } from '@/battle';
@@ -121,7 +122,7 @@ import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
 import { cityName, cityOr } from '../../../netlify/lib/contract';
 import { WATCHER, liveSight, standing } from '../sight';
 import { canShelter, placeOf } from '../shelter';
-import { generalResolve, ownGearOf, revealSight, slipped } from '../agents';
+import { ownGearOf, revealSight, slipped, wallPips } from '../agents';
 import { diesAt, perilOf, perilShare, perilText, perilWhy, routPeril, recentVisits, type PerilCase } from '../peril';
 import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
@@ -208,6 +209,7 @@ import {
   homeOf,
   ownOf,
   plus,
+  postureOf,
   roomOf,
   standingShare,
   standingTroops,
@@ -1056,6 +1058,8 @@ export class LocalWorld implements WorldApi {
     kinds: Stack;
     gear: Partial<Record<UnitKind, number>>;
     resolve?: number;
+    /** Отметки того, кто ведёт лагерь: у нашего — полководец, у чужого — никто. */
+    pips?: Pips;
     setup: ArmySetup | null;
     /** Сколько бойцов строя стоит в лагере. */
     men: number;
@@ -1080,8 +1084,9 @@ export class LocalWorld implements WorldApi {
       return {
         kinds,
         gear: this.ownGear(troops),
-        // Наш лагерь держит дружина полководца — это его бой, и натиск в нём есть.
-        resolve: this.generalResolve(),
+        // Наш лагерь держит дружина полководца — это его бой, и его отметки в нём есть.
+        resolve: this.ownResolve(),
+        pips: this.generalPips(),
         setup: null,
         men: stackTotal(kinds),
         power: troopPower(troops) * (1 - thin),
@@ -1170,8 +1175,9 @@ export class LocalWorld implements WorldApi {
       setup: ArmySetup | null;
       /**
        * В бою дружина полководца — удар из поля, в одиночку или вместе с
-       * гарнизоном. Бой один, поэтому натиск ложится на весь нападающий. Вылазка
-       * и выручка идут без полководца: у них натиска нет.
+       * гарнизоном. Бой один, поэтому отметки ложатся на весь нападающий. Вылазку
+       * он ведёт, только если его дружина стоит у ворот (`homePips`); выручка
+       * соседей идёт без него.
        */
       general?: boolean;
     },
@@ -1222,14 +1228,15 @@ export class LocalWorld implements WorldApi {
       attacker: {
         kinds,
         gear,
-        resolve: own ? (attack.general ? this.generalResolve() : this.ownResolve()) : undefined,
+        resolve: own ? this.ownResolve() : undefined,
+        pips: own ? (attack.general ? this.generalPips() : this.homePips(at, false)) : undefined,
         // Расстановка писалась на весь отряд одной стороны, а дерётся его часть или
         // две стороны разом: тогда пресет выбирается по тем, кто прошёл.
         setup: parts.length === 1 && fought === all ? attack.setup : null,
       },
-      // Стойкость лагеря: у нашего — дружина полководца (обряд и натиск), у чужого
+      // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого
       // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.
-      defender: { kinds: camp.kinds, gear: camp.gear, resolve: camp.resolve, setup: camp.setup },
+      defender: { kinds: camp.kinds, gear: camp.gear, resolve: camp.resolve, pips: camp.pips, setup: camp.setup },
     });
     // Прошедшие заняли свою долю прохода своей стороны. Окно то же, что в
     // сохранении: снимет осаду победа — отметки уйдут вместе с окном; устоит
@@ -2606,13 +2613,24 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Стойкость в бою, который **ведёт полководец**: обряд плюс натиск
-   * (`world/agents.generalResolve`). Зовут её только бои полководца — удар по
-   * двору, перехват, удар по лагерю и наш лагерь, по которому бьют. Оборона
-   * деревни и вылазка берут `ownResolve`: их ведёт гарнизон, и натиск туда не идёт.
+   * Отметки полководца в бою, который **ведёт он**: удар по двору и логову, перехват, удар по лагерю
+   * из поля и наш лагерь, по которому бьют. Стойкость в этих боях — тот же обряд (`ownResolve`), что
+   * у всех наших: прежний натиск в неё больше не прибавляется (docs/battle_eu4.md, пачка 1).
    */
-  private generalResolve(): number {
-    return generalResolve(this.save.profile?.fervour ?? 0, this.save.profile?.onslaught ?? 0);
+  private generalPips(): Pips {
+    return this.save.profile?.pips ?? {};
+  }
+
+  /**
+   * Отметки у своего города — у стены (`wall`) и на вылазке — **только пока дружина стоит у ворот**:
+   * тогда она часть гарнизона, и полководец ведёт его сам (решение владельца 26.09.2026,
+   * docs/battle_eu4.md, вопрос 5). Дружина в сборе, в пути, в поле или в лагере — полководца у стены
+   * нет, и отметок нет: место полководца имеет цену. У стены — без манёвра (`world/agents.wallPips`).
+   */
+  private homePips(at: number, wall: boolean): Pips {
+    if (postureOf(this.save.figures.general, at) !== 'stands') return {};
+    const pips = this.generalPips();
+    return wall ? wallPips(pips) : pips;
   }
 
   private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
@@ -3451,7 +3469,7 @@ export class LocalWorld implements WorldApi {
     const garrison = garrisonOf(this.save.seed, target.id, defense, target.castle);
     const field = resolveField({
       seed,
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.generalResolve(), setup },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup },
       defender: { kinds: garrison.kinds, gear: garrison.gear, setup: garrison.setup },
       intel: this.save.intel[target.id]?.kinds,
     });
@@ -3789,7 +3807,7 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     const field = resolveField({
       seed,
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.generalResolve(), setup: null },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup: null },
       defender: { kinds: party.kinds, gear: party.gear, setup: party.setup },
     });
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
@@ -4090,7 +4108,8 @@ export class LocalWorld implements WorldApi {
     const field = resolveField({
       seed: m.seed,
       attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
-      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), setup },
+      // Ведёт оборону полководец, если его дружина стоит у ворот, — без манёвра (`homePips`).
+      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), pips: this.homePips(at, true), setup },
     });
     return { profile, party, held, home, militia, archers, setup, field };
   }

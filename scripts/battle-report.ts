@@ -6,8 +6,8 @@
 // раздать, в каком порядке собрать и что напечатать. Разделы от этого не зависят друг от друга
 // больше, чем зависели: отбор расстановок в два этапа идёт тремя волнами (всё независимое, потом
 // перемер лучших, потом лучшая против перебора), и между волнами — точка сбора.
-import { COUNTER, COVER, UNIT_KINDS, UNIT_STATS, simulateBattle, quickAttack, quickSetup, describeEvent, PLANS, QUICK_PRESET_IDS, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, nonDecreasing, screenPoints, answerlessOwnKind, compositionLattice, compositionName, latticeRows, COUNTER_TERMS, counterOf, searchPool, searchShortlist, searchFinish, LINE_SHAPES, OVERSIZE_CAP, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, quickOf, type LatticeRow } from '../src/battle/bench';
+import { COUNTER, COVER, DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, simulateBattle, quickAttack, quickSetup, describeEvent, PLANS, QUICK_PRESET_IDS, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
+import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, nonDecreasing, screenPoints, answerlessOwnKind, compositionLattice, compositionName, latticeRows, COUNTER_TERMS, counterOf, searchPool, searchShortlist, searchFinish, KNOWN_COUNTER_INDEX, LINE_SHAPES, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, quickOf, type LatticeRow } from '../src/battle/bench';
 import { VARIANT_NAMES, runJobs, type Brief, type Job, type Out, type Pair } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
@@ -93,10 +93,11 @@ function matrix(set: 'compositions' | 'plans' | 'presets' | 'pure', n: number, s
 }
 const compositionPairs = matrix('compositions', COMPOSITIONS.length, SEEDS);
 const oversize = COMPOSITIONS.map((_, composition) => w1.add({ kind: 'oversize', composition }));
+const dice = w1.add({ kind: 'dice' });
 const tunedGap = w1.add({ kind: 'gap', who: 'TUNED', opp: 'quick', n: 100, from: 1 });
 const tunedByPreset = QUICK_PRESET_IDS.map((preset) => w1.add({ kind: 'gap', who: 'TUNED', opp: { preset }, n: 40, from: 1 }));
-const knownStandard = w1.add({ kind: 'gap', who: 'KNOWN_COUNTER', opp: 'standard', n: 100, from: 1 });
-const knownQuick = w1.add({ kind: 'gap', who: 'KNOWN_COUNTER', opp: 'quick', n: 100, from: 1 });
+const knownStandard = w1.add({ kind: 'gap', who: 'KNOWN_COUNTER', opp: 'standard', n: SEARCH.final, from: SEARCH.finalFrom });
+const knownQuick = w1.add({ kind: 'gap', who: 'KNOWN_COUNTER', opp: 'quick', n: SEARCH.final, from: SEARCH.finalFrom });
 const tunedSearch = w1.add({ kind: 'gap', who: 'TUNED', opp: 'quick', n: SEARCH.final, from: SEARCH.finalFrom });
 const ringPairs = RING.map((_, ring) => w1.add({ kind: 'ring', ring, seeds: SEEDS }));
 const plans = Object.keys(PLANS) as Plan[];
@@ -331,7 +332,7 @@ console.log('\n=== Разрыв быстрой атаки: настроенна�
   }
   const known = knownStandard().gap;
   const random = knownQuick().gap;
-  console.log(`известный контрер стандарта (KNOWN_COUNTER, пример щупа): против стандарта ${(known.gap * 100).toFixed(1)}%, против случайного пресета ${(random.gap * 100).toFixed(1)}% (цель ≈15%)`);
+  console.log(`известный контрер стандарта (KNOWN_COUNTER — № ${KNOWN_COUNTER_INDEX} поиска, на его новых сидах): против стандарта ${(known.gap * 100).toFixed(1)}%, против случайного пресета ${(random.gap * 100).toFixed(1)}% (цель ≈15%)`);
 }
 
 console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');
@@ -356,7 +357,18 @@ console.log('\n=== Ограничитель: перевес 10% при проч�
 for (const [i, c] of COMPOSITIONS.entries()) {
   const { bigLoss, smallLoss, wins } = oversize[i]();
   const cap = hasLine(c.army) ? `потолок ${OVERSIZE_CAP.line}` : `без пешей линии, потолок ${OVERSIZE_CAP.noLine}`;
-  console.log(`${pad(c.name, W)} размен ${(smallLoss / Math.max(1, bigLoss)).toFixed(2)} (${cap}), поле удержано ${wins}/30`);
+  console.log(`${pad(c.name, W)} размен ${(smallLoss / Math.max(1, bigLoss)).toFixed(2)} (${cap}), поле удержано ${wins}/${OVERSIZE_SEEDS}`);
+}
+
+console.log('\n=== Кость фазы: сторона на 10% больше удерживает поле (цель — доля владельца, DICE.hold) ===');
+{
+  const all = COMPOSITIONS.length * OVERSIZE_SEEDS;
+  const held = oversize.reduce((n, o) => n + o().wins, 0);
+  const { derived, bare } = dice();
+  const phases = PHASES.filter((p) => PHASE_PIP[p]).length;
+  console.log(`кость: ${DICE.faces} граней на сторону в каждой из ${phases} фаз с костью (у отступления и преследования её нет), шаг ${DICE.step} на грань`);
+  console.log(`поле у большей, все составы «Ограничителя» разом: ${held}/${all} (${((100 * held) / all).toFixed(1)}%); без кости — ${Math.round(bare * all)}/${all}`);
+  console.log(`вывод: наименьший шаг, при котором большая удерживает поле не чаще ${Math.round(DICE.hold * 100)}%, — ${derived.toFixed(4)}; в конфиге DICE.step = ${DICE.step}`);
 }
 
 // ---------- Волна 2: перемер лучших из отбора ----------
@@ -464,7 +476,7 @@ console.log(`\n=== Случайный поиск расстановок: ${SEARC
   const first = counters.find((f) => f.holds);
   if (first) console.log(`контрер стандарта по условиям теста — № ${first.index} поиска: первый по перемеру, кто их выполняет`);
   else {
-    console.log(`контрера стандарта по условиям теста среди ${counters.length} финалистов нет; KNOWN_COUNTER теста — пример щупа, этим поиском не выводится`);
+    console.log(`контрера стандарта по условиям теста среди ${counters.length} финалистов нет; KNOWN_COUNTER теста (№ ${KNOWN_COUNTER_INDEX}) условиям больше не отвечает — эталон переписать`);
     // Что именно не выполнено: знает ли поиск тех, кто бьёт стандарт намного сильнее случайного пресета.
     const specific = counters.filter((f) => f.final.gap > COUNTER_TERMS.known && f.random < f.final.gap / 2);
     console.log(

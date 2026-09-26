@@ -35,7 +35,7 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import { onslaughtOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
+import { pipsOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
 import { readyEngine } from '@/game/sim/tower';
 import { fateLocks } from '@/game/sim/tech';
 import { syncFaith } from '@/game/sim/faith';
@@ -109,13 +109,13 @@ function tower(s: GameState): Pick<PlayerProfile, 'tower'> {
 }
 
 /** Прибавки навыков агентов для слепка: только ненулевые. */
-function skills(s: GameState): Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth' | 'veil'> {
-  const out: Pick<PlayerProfile, 'onslaught' | 'sightBonus' | 'stealth' | 'veil'> = {};
-  const onslaught = onslaughtOf(s);
+function skills(s: GameState): Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stealth' | 'veil'> {
+  const out: Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stealth' | 'veil'> = {};
+  const pips = pipsOf(s);
   const sightBonus = sightBonusOf(s);
   const stealth = stealthOf(s);
   const veil = veilOf(s);
-  if (onslaught > 0) out.onslaught = onslaught;
+  if (Object.keys(pips).length > 0) out.pips = pips;
   if (sightBonus > 0) out.sightBonus = sightBonus;
   if (stealth > 0) out.stealth = stealth;
   if (veil < 1) out.veil = veil;

@@ -64,7 +64,7 @@ function bodyOf(src: string, name: string): string {
 }
 
 /** Слова навыка: всё, чем уровень агента мог бы просочиться в число здания. */
-const SKILL = /\b(?:agents?|onslaught\w*|sightBonus\w*|stealth\w*|revealSight|slipped|slipShare|generalResolve|circles\w*|agentLevel|levelOf|xp)\b/;
+const SKILL = /\b(?:agents?|pips?\w*|\w*Pips|sightBonus\w*|stealth\w*|revealSight|slipped|slipShare|circles\w*|agentLevel|levelOf|xp)\b/;
 
 /** Числа зданий: всё, чем навык мог бы стать второй правдой. */
 const OWNED = /\b(?:payGrace\w*|loyalty|hero\w*|heroMen|keen|intel\w*|spyChance|guardOf|warning\w*|survey\w*|defen[cs]e\w*|statOf|buildingStat|buildingOfType|heal\w*|capacity|roomOf|garrison\w*|militia\w*|expert|SPY_CHANCE\w*|SPY_PROBE\w*)\b/i;
@@ -95,10 +95,14 @@ describe('навык не читает чисел, которыми владее
     for (const name of ['spyOptions', 'warningMs', 'homeReveal', 'sightDiscs', 'snapshot', 'ownResolve', 'ownGear']) {
       expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(SKILL);
     }
-    // Оборону деревни и вылазку ведёт гарнизон: натиска в них нет ни одним путём.
-    for (const name of ['resolveIncoming', 'sortie']) {
-      expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(/generalResolve|general:\s*true/);
+    // Оборону деревни и вылазку полководец ведёт, только пока его дружина стоит у ворот (решение
+    // владельца 26.09.2026, docs/battle_eu4.md, вопрос 5): отметки туда идут одной дверью —
+    // `homePips`, которая спрашивает место дружины, — и никогда дверью боёв в поле (`generalPips`).
+    for (const name of ['resolveIncoming', 'wallField', 'sortie']) {
+      expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(/generalPips|general:\s*true/);
     }
+    expect(bodyOf(world, 'wallField'), 'бой у стены берёт отметки дверью «у ворот», без манёвра').toMatch(/this\.homePips\(at, true\)/);
+    expect(bodyOf(world, 'homePips'), 'дверь «у ворот» спрашивает, где стоит дружина').toMatch(/postureOf\(/);
     const bridge = read('world/bridge.ts');
     for (const name of ['militiaMen', 'militiaArchers']) expect(bodyOf(bridge, name), `bridge.${name}`).not.toMatch(SKILL);
   });
@@ -130,8 +134,8 @@ describe('агенты пятого уровня не сдвигают ни од
     const changed = [...new Set([...Object.keys(pa), ...Object.keys(pb)])].filter(
       (k) => JSON.stringify(pa[k]) !== JSON.stringify(pb[k]),
     );
-    // Четыре поля и все — навык: натиск, зоркость и скрытность дважды — в провале и в гибели.
-    expect(changed.sort()).toEqual(['onslaught', 'sightBonus', 'stealth', 'veil']);
+    // Четыре поля и все — навык: отметки, зоркость и скрытность дважды — в провале и в гибели.
+    expect(changed.sort()).toEqual(['pips', 'sightBonus', 'stealth', 'veil']);
   });
 
   it('в мире: шанс лазутчика, предупреждение и живой обзор те же', async () => {
@@ -178,7 +182,7 @@ describe('агенты пятого уровня не сдвигают ни од
     // от них не двигаются так же, как от навыка.
     const b = await probe({
       ...base,
-      onslaught: 12,
+      pips: { fire: 1, shock: 1, melee: 1, maneuver: 1 },
       sightBonus: 4,
       stealth: 0.6,
       traits: { muster: 1.5, carry: 1.15, catch: 1.32, busy: 0.75, held: 1.5 },

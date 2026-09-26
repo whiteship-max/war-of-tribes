@@ -1,6 +1,7 @@
 // Слова для журнала. Отчёт на экране — следующий шаг; здесь только то, что
 // нужно тестам и отладке: одно событие — одна строка по-русски.
-import type { BattleEvent, PhaseId, ResultReason, Sector, Side } from './types';
+import { PHASE_PIP } from './config';
+import { PHASES, type BattleEvent, type PhaseId, type PipId, type ResultReason, type Sector, type Side } from './types';
 
 export const SECTOR_NAME: Record<Sector, string> = {
   A: 'левый фланг',
@@ -26,6 +27,15 @@ export const PHASE_NAME: Record<PhaseId, string> = {
 
 export const SIDE_NAME: Record<Side, string> = { attacker: 'нападающие', defender: 'обороняющиеся' };
 
+/** В каких фазах работает отметка — словами, из `PHASE_PIP`: «стрелковая фаза и сближение». */
+export const pipPhases = (pip: PipId): string => {
+  const names = PHASES.filter((p) => PHASE_PIP[p] === pip).map((p) => PHASE_NAME[p]);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}` : (names[0] ?? '');
+};
+
+/** Бросок с отметками словами: «7» или «4+2». */
+const dieText = (roll: number, pips: number): string => (pips > 0 ? `${roll}+${pips}` : `${roll}`);
+
 /** Чем кончился бой — словами, а не идентификатором. */
 export const REASON_NAME: Record<ResultReason, string> = {
   morale: 'мораль рухнула',
@@ -45,6 +55,10 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
   switch (e.id) {
     case 'phase-start':
       return `— ${PHASE_NAME[e.phase]}`;
+    case 'dice': {
+      const [a, b] = us === 'defender' ? (['defender', 'attacker'] as const) : (['attacker', 'defender'] as const);
+      return `кость: ${name(a)} ${dieText(e.rolls[a], e.pips[a])}, ${name(b)} ${dieText(e.rolls[b], e.pips[b])}`;
+    }
     case 'volley':
       return `${who}: лучники выбили ${e.losses} до столкновения`;
     case 'spears-held':
