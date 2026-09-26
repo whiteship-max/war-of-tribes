@@ -82,7 +82,8 @@
  * Запуск: npm run prologue:stand
  * Переменные: SECONDS=6, SHOTS=папка, LOOK=папка, PORT / CDP_PORT, CHROME=путь\\к\\chrome.exe, HEAD=1.
  * Подбор вида глазами (`LOOK=`): HOURS=утро,полдень и TIERS=full,lite — только эти часы и
- * ступени; SECONDS=0 — только снимки телефона, без замера и без экрана ПК.
+ * ступени; SCREEN=375 — только этот экран; SECONDS=0 — только снимки, без замера; AB=1 — цена
+ * текстур: ступень поочерёдно без текстур и с ними в одном прогоне.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -211,6 +212,8 @@ const HOURS = (process.env.HOURS ?? '').split(',').filter(Boolean);
 const TIERS = (process.env.TIERS ?? '').split(',').filter(Boolean);
 /** Раздел «вид»: только этот экран (`SCREEN=375` или `SCREEN=1280`). Пусто — оба. */
 const SCREEN = Number(process.env.SCREEN ?? 0);
+/** Раздел «вид»: цена текстур внутри одного прогона — ступень поочерёдно без текстур и с ними (`AB=1`). */
+const AB = process.env.AB === '1';
 
 /** Сколько ждать после тапа по туше: движение длится, и торопить его нельзя. */
 const BUTCHER_WAIT = 1000;
@@ -1051,12 +1054,30 @@ async function look(): Promise<void> {
       const tag = `${LOOK_HOURS[0].name}-${s.w}${tier ? '-' + tier : ''}.png`;
       await snap(tag);
       if (SECONDS <= 0) continue;
-      await tab.eval<string>('window.__gpu.start()');
-      await tab.eval<string>('window.__probe.start()');
-      await sleep(SECONDS * 1000);
-      const f = await tab.eval<Frames>('window.__probe.stop()');
-      const g = await tab.eval<{ n: number; median: number; p95: number }>('window.__gpu.stop()');
-      rows.push([s.name, tier || '—', f, g, await info()]);
+      // Цена текстур внутри одного прогона (`AB=1`): та же ступень поочерёдно без текстур и с ними,
+      // дважды. Между прогонами при потолке кадров время видеокарты не сравнить — недогруженная
+      // карта сбрасывает частоты по-разному, — а в одном прогоне частоты у обоих одни.
+      const states: [string, number | null][] = AB
+        ? [
+            ['без текстур', 0],
+            ['с текстурами', 1],
+            ['без текстур', 0],
+            ['с текстурами', 1],
+          ]
+        : [['', null]];
+      for (const [label, on] of states) {
+        if (on !== null) {
+          await tab.eval<string>(`(() => { window.__pro.surfaces.u.texOn.value = ${on}; return JSON.stringify('ok'); })()`);
+          await sleep(800);
+        }
+        await tab.eval<string>('window.__gpu.start()');
+        await tab.eval<string>('window.__probe.start()');
+        await sleep((AB ? SECONDS / 2 : SECONDS) * 1000);
+        const f = await tab.eval<Frames>('window.__probe.stop()');
+        const g = await tab.eval<{ n: number; median: number; p95: number }>('window.__gpu.stop()');
+        rows.push([s.name, `${tier || '—'}${label ? ' · ' + label : ''}`, f, g, await info()]);
+      }
+      if (AB) await tab.eval<string>("(() => { window.__pro.surfaces.u.texOn.value = 1; return JSON.stringify('ok'); })()");
     }
   }
   // Остальные часы — только снимками, телефоном, на каждой ступени.
@@ -1071,13 +1092,13 @@ async function look(): Promise<void> {
   }
 
   console.log(
-    `\n  ${pad('экран', 22)} ${pad('ступень', 8)} ${pad('в секунду', 11)} ${pad('медиана', 9)} ${pad('p95', 8)} ${pad('видеокарта, мс', 16)} ${pad('p95', 8)} ${pad('вызовов', 9)} треугольников`,
+    `\n  ${pad('экран', 22)} ${pad('ступень', 24)} ${pad('в секунду', 11)} ${pad('медиана', 9)} ${pad('p95', 8)} ${pad('видеокарта, мс', 16)} ${pad('p95', 8)} ${pad('вызовов', 9)} треугольников`,
   );
   for (const [name, tier, f, g, i] of rows) {
     console.log(
-      `  ${pad(name, 22)} ${pad(tier, 8)} ${pad(live(num(f.fps)), 11)} ${pad(live(num(f.median, 2)), 9)} ${pad(live(num(f.p95, 2)), 8)} ${pad(live(num(g.median, 2)), 16)} ${pad(live(num(g.p95, 2)), 8)} ${pad(live(f.calls), 9)} ${live(f.triangles)}`,
+      `  ${pad(name, 22)} ${pad(tier, 24)} ${pad(live(num(f.fps)), 11)} ${pad(live(num(f.median, 2)), 9)} ${pad(live(num(f.p95, 2)), 8)} ${pad(live(num(g.median, 2)), 16)} ${pad(live(num(g.p95, 2)), 8)} ${pad(live(f.calls), 9)} ${live(f.triangles)}`,
     );
-    console.log(`  ${pad('', 22)} ${pad('', 8)} ${i}`);
+    console.log(`  ${pad('', 22)} ${pad('', 24)} ${i}`);
   }
   console.log('\n  Потолок — шестьдесят кадров: «в секунду» — то, что увидит игрок на этой машине; цена ступени — время видеокарты.');
   console.log(`  Снимки: ${LOOK}`);

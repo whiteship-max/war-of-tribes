@@ -84,7 +84,7 @@ export const SNOW_GAIN = 1.3;
 export const LOOKS: Readonly<Record<string, Look>> = {
   grass: { set: 'snow', tri: false, photo: true, gain: SNOW_GAIN, bump: 1, rough: 1, cap: false, ground: true },
   trample: { set: 'litter', tri: false, photo: false, gain: 1, bump: 0.8, rough: 1, base: ASH, cap: false, chroma: 0 },
-  hide: { set: 'logs', tri: true, photo: false, gain: 1, bump: 0.35, rough: 1.1, meters: 0.5, base: HIDE, cap: true, chroma: 0 },
+  hide: { set: 'litter', tri: true, photo: false, gain: 1, bump: 0.3, rough: 1.1, meters: 1.5, base: HIDE, cap: true, chroma: 0 },
   trunk: { set: 'bark', tri: true, photo: true, gain: 1, bump: 1, rough: 1, cap: true },
   leaves: { set: 'needles', tri: true, photo: false, gain: 1, bump: 1.3, rough: 1.1, meters: 0.7, base: SPRUCE, cap: true },
   leaves2: { set: 'needles', tri: true, photo: false, gain: 1, bump: 1.3, rough: 1.1, meters: 0.7, base: SPRUCE_2, cap: true },
@@ -214,6 +214,9 @@ void RE_Direct_Lambert( const in IncidentLight directLight, const in vec3 geomet
   float nl = saturate( dot( geometryNormal, directLight.direction ) );
   vec3 irradiance = nl * directLight.color;
   reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
+  // Без текстур (не приехали — или стенд меряет их цену, AB=1) блика нет: копия рисуется
+  // прежним Ламбертом палитры.
+  if ( proTexOn < 0.5 ) return;
   vec3 h = normalize( directLight.direction + geometryViewDir );
   float nh = saturate( dot( geometryNormal, h ) );
   float nv = saturate( dot( geometryNormal, geometryViewDir ) ) + 1e-4;
@@ -251,7 +254,7 @@ material.roughness = proRough;
  */
 export const PBR_OUT = /* glsl */ `vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;
 #ifdef PRO_PBR
-{
+if ( proTexOn > 0.5 ) {
   vec3 proVd = normalize( vViewPosition );
   float proNv = saturate( dot( normal, proVd ) );
   vec3 proR = ( vec4( reflect( -proVd, normal ), 0.0 ) * viewMatrix ).xyz;
@@ -385,8 +388,12 @@ if ( proTexOn > 0.5 ) {
   {
     // Снег ложится на то, что смотрит вверх, и раньше — на выступы рельефа: край
     // снега идёт по рисунку коры и хвои, а не ровной линией по высоте.
+    // Снега больше — он ложится шире, а не гуще: край снега остаётся краем, белым по
+    // тёмному, а не серой вуалью по всей кроне.
     float bump = dot( c, vec3( 0.333 ) ) / max( dot( avg, vec3( 0.333 ) ), 0.02 ) - 1.0;
-    float cap = proSnow * proSnowK * smoothstep( 0.3, 0.55, nW.y + bump * PRO_CAP_BREAK );
+    float cover = proSnow * proSnowK;
+    float edge = 0.84 - cover * 0.55;
+    float cap = step( 0.02, cover ) * smoothstep( edge, edge + 0.12, nW.y + bump * PRO_CAP_BREAK );
     if ( cap > 0.003 ) {
       vec2 us = wp.xz * proSScale;
       vec3 sc = texture2D( proSC, us ).rgb * PRO_SNOW_GAIN;

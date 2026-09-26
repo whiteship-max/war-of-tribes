@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { budgetCores } from './lib/budget';
 import { SETS, SIZES, fileOf, type TexSet } from '../src/prologue/textures';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -64,6 +65,9 @@ const Q_DATA = 84;
  */
 const WEIGHT_CAP_KB = 6000;
 
+/** Килобайт — тысяча байт, как у описи `npm run build` и у vite: числа обязаны сходиться. */
+const KB = 1000;
+
 const file = (set: TexSet, key: string): string => join(CACHE, `${set.source.id}_${key}_1k.jpg`);
 
 async function fetchSet(set: TexSet): Promise<void> {
@@ -79,7 +83,7 @@ async function fetchSet(set: TexSet): Promise<void> {
     const md5 = createHash('md5').update(bin).digest('hex');
     if (md5 !== f.md5) throw new Error(`Poly Haven: ${f.url} — md5 ${md5}, а в описи ${f.md5}`);
     writeFileSync(out, bin);
-    console.log(`  скачан ${set.source.id}_${m.key}_1k.jpg  ${(bin.length / 1024).toFixed(0)} КБ`);
+    console.log(`  скачан ${set.source.id}_${m.key}_1k.jpg  ${(bin.length / KB).toFixed(0)} КБ`);
   }
 }
 
@@ -114,6 +118,8 @@ async function build(set: TexSet, size: number): Promise<{ c: number; d: number 
 }
 
 async function main(): Promise<void> {
+  // Бюджет железа (CLAUDE.md): sharp по умолчанию берёт потоками все ядра.
+  sharp.concurrency(budgetCores());
   mkdirSync(CACHE, { recursive: true });
   const missing = SETS.filter((s) => MAPS.some((m) => !existsSync(file(s, m.key))));
   if (missing.length && !FETCH) {
@@ -136,12 +142,12 @@ async function main(): Promise<void> {
       const w = await build(set, size);
       total += w.c + w.d;
       bySize.set(size, (bySize.get(size) ?? 0) + w.c + w.d);
-      row.push(`${(w.c / 1024).toFixed(0)} + ${(w.d / 1024).toFixed(0)} КБ`.padEnd(24));
+      row.push(`${(w.c / KB).toFixed(0)} + ${(w.d / KB).toFixed(0)} КБ`.padEnd(24));
     }
     console.log(`  ${set.name.padEnd(9)} ${set.source.id.padEnd(20)} ${row.join('')}`);
   }
-  for (const [size, bytes] of bySize) console.log(`  всего ${size}: ${(bytes / 1024).toFixed(0)} КБ`);
-  const kb = total / 1024;
+  for (const [size, bytes] of bySize) console.log(`  всего ${size}: ${(bytes / KB).toFixed(0)} КБ`);
+  const kb = total / KB;
   console.log(`  всего в public/assets/prologue: ${kb.toFixed(0)} КБ, файлов ${readdirSync(OUT).length}`);
   if (kb > WEIGHT_CAP_KB) {
     console.error(`текстуры не влезли в потолок ${WEIGHT_CAP_KB} КБ`);
