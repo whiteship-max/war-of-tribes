@@ -527,10 +527,19 @@ describe('мораль как характеристика войск', () => {
 
   it('лучники в рукопашной ломаются быстро', () => {
     expect(TEMPER.archer.melee).toBeGreaterThan(TEMPER.archer.shooting);
-    const archers = quickSetup({ archer: 400 });
-    const wall = quickSetup({ infantry: 400 });
+    // Армии — ровно в две ширины фронта, и не больше: быстрая расстановка ставит половину пехоты в центр,
+    // и самый широкий ряд стены — ровно W, а у лучников (центр тыла — сорок процентов) уже W. Порог «12 тиков»
+    // снят без ширины; при рядах шире W ширина зажимает обе стороны, слом приходит позже, и тест мерил бы
+    // ширину, а не характер лучников — так было на 400 против 400 (решение владельца 26.09.2026,
+    // docs/battle_eu4.md, раздел 10). Не «чинить» обратно ни размером, ни порогом.
+    const men = 2 * FRONT_WIDTH;
+    const archers = quickSetup({ archer: men });
+    const wall = quickSetup({ infantry: men });
+    // Граница области: ни один ряд обеих сторон не шире W — ширине здесь нечего зажимать.
+    for (const setup of [archers, wall]) for (const id of SECTORS) expect(stackTotal(setup.sectors[id]), id).toBeLessThanOrEqual(FRONT_WIDTH);
     for (let seed = 1; seed <= 4; seed += 1) {
       const r = simulateBattle({ seed, attacker: archers, defender: wall });
+      expect(r.log.some((e) => e.id === 'depth'), 'ряд шире фронта — тест мерил бы ширину').toBe(false);
       const clash = r.phases.find((p) => p.phase === 'clash')!;
       const firstBreak = r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker');
       expect(firstBreak).toBeDefined();

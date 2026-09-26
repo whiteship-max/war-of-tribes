@@ -82,9 +82,10 @@ export const laneFront = (setup: ArmySetup): number => FRONT.reduce((n, s) => n 
 
 /**
  * Состав `COMPOSITIONS[composition]` в `total` бойцов на 10 % больше против себя самого. `width` — ширина
- * фронта боя (`BattleInput.width`); нет — ширина по выключателю. `draws` — сколько боёв дожило до гонга.
+ * фронта боя (`BattleInput.width`); нет — ширина по выключателю. `draws` — сколько ничьих, `gong` — сколько
+ * боёв дошло до потолка кругов сечи, никого не сломав (ничья бывает только там).
  */
-export function oversize(composition: number, seeds = OVERSIZE_SEEDS, total = ARMY_SIZE, width?: number): { bigLoss: number; smallLoss: number; wins: number; draws: number } {
+export function oversize(composition: number, seeds = OVERSIZE_SEEDS, total = ARMY_SIZE, width?: number): { bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number } {
   const c = COMPOSITIONS[composition];
   const army = scaleArmy(c.army, total);
   const small = quickSetup(army);
@@ -93,6 +94,7 @@ export function oversize(composition: number, seeds = OVERSIZE_SEEDS, total = AR
   let smallLoss = 0;
   let wins = 0;
   let draws = 0;
+  let gong = 0;
   for (let seed = 1; seed <= seeds; seed += 1) {
     const bigAttacks = seed % 2 === 1;
     const r = simulateBattle({ seed, attacker: bigAttacks ? bigger : small, defender: bigAttacks ? small : bigger, ...(width === undefined ? {} : { width }) });
@@ -100,8 +102,10 @@ export function oversize(composition: number, seeds = OVERSIZE_SEEDS, total = AR
     smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
     if (r.winner === (bigAttacks ? 'attacker' : 'defender')) wins += 1;
     if (r.winner === 'draw') draws += 1;
+    // Гонг — потолок кругов сечи (`roundsCap`): бой дошёл до него, никого не сломав.
+    if (r.log.some((e) => e.id === 'rounds-out')) gong += 1;
   }
-  return { bigLoss, smallLoss, wins, draws };
+  return { bigLoss, smallLoss, wins, draws, gong };
 }
 
 /**
@@ -682,6 +686,12 @@ export function counterOf<F extends Finalist>(finalists: readonly F[], random: (
  * стандарта 47.5 %, против случайного пресета 21.9 % на тех же ста новых сидах. Прежний эталон был
  * примером щупа 18.09.2026 и на ядре с костью условиям не отвечает: 15.0 % и 14.7 % — он был
  * подогнан под бой без удачи. Поменяется ядро — номер переписывается из того же раздела отчёта.
+ *
+ * **С шириной и кругами сечи (пачки 2–3) тот же поиск контрера по этим условиям не находит**: ни один из двадцати
+ * финалистов условиям не отвечает (прогон того же `counterSearch` щупом; `battle:report` ещё не прогнан), и № 12
+ * стандарт больше не контрит (тест «известный контрер» красный). Номер
+ * оставлен как есть: другого вывода поиска нет, а подобрать эталон руками нельзя — решение владельца
+ * (docs/battle_eu4.md, раздел 10.4).
  */
 export const KNOWN_COUNTER_INDEX = 12;
 export const KNOWN_COUNTER: ArmySetup = searchPool()[KNOWN_COUNTER_INDEX];

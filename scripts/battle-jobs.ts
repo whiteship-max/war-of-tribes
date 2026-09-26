@@ -12,7 +12,7 @@
 // здесь: процесс берёт задачи одну за другой, и следующая обязана начаться на числах конфига.
 import { COUNTER, COVER, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
 import { stackPower } from '../src/battle/sim';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, SEARCH, TUNED, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_SEEDS, RING, SEARCH, TUNED, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
 import { fan, serveFan } from './lib/fan';
 
 // ---------- Что возвращается ----------
@@ -174,8 +174,12 @@ export type Job =
   | { kind: 'vsGrid'; best: number; from: number; to: number }
   /** Точка поля (`holdPoint`, 40 боёв на шаг). */
   | { kind: 'hold'; who: Who | 'quick' }
-  /** Ограничитель: состав с перевесом 10 % против себя (`bench.oversize`). */
-  | { kind: 'oversize'; composition: number }
+  /**
+   * Ограничитель: состав с перевесом 10 % против себя (`bench.oversize`) в `total` бойцов строя. `bare` — бой без
+   * ширины (`width: Infinity`; в задачу веера бесконечность не пролезает — JSON пишет её как null), иначе — по
+   * выключателю.
+   */
+  | { kind: 'oversize'; composition: number; total: number; bare?: boolean }
   /** Кость: шаг, выведенный делением отрезка (`bench.diceStepFor`), и поле большей без кости. */
   | { kind: 'dice' };
 
@@ -189,7 +193,7 @@ export type Out =
   | { kind: 'pool'; gaps: number[] }
   | { kind: 'vsGrid'; rows: Array<{ held: boolean; own: number; theirs: number } | null> }
   | { kind: 'hold'; point: number }
-  | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number }
+  | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number }
   | { kind: 'dice'; derived: number; bare: number };
 
 export function battleJob(job: Job): Out {
@@ -268,7 +272,7 @@ export function battleJob(job: Job): Out {
       return { kind: 'hold', point: holdPoint(setup, 40) };
     }
     case 'oversize':
-      return { kind: 'oversize', ...oversize(job.composition) };
+      return { kind: 'oversize', ...oversize(job.composition, OVERSIZE_SEEDS, job.total, job.bare ? Infinity : undefined) };
     case 'dice':
       // Кость ставится и снимается внутри `diceStepFor` и `withDiceStep`: следующая задача процесса
       // начинается на числе конфига.

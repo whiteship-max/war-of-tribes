@@ -7,7 +7,8 @@
 // больше, чем зависели: отбор расстановок в два этапа идёт тремя волнами (всё независимое, потом
 // перемер лучших, потом лучшая против перебора), и между волнами — точка сбора.
 import { COUNTER, COVER, DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, simulateBattle, quickAttack, quickSetup, describeEvent, PLANS, QUICK_PRESET_IDS, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, SCREEN_KINDS, nonDecreasing, screenPoints, answerlessOwnKind, compositionLattice, compositionName, latticeRows, COUNTER_TERMS, counterOf, searchPool, searchShortlist, searchFinish, KNOWN_COUNTER_INDEX, LINE_SHAPES, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, quickOf, type LatticeRow } from '../src/battle/bench';
+import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, OVERSIZE_SIZES, SCREEN_KINDS, holdSize, nonDecreasing, screenPoints, answerlessOwnKind, compositionLattice, compositionName, latticeRows, COUNTER_TERMS, counterOf, searchPool, searchShortlist, searchFinish, KNOWN_COUNTER_INDEX, LINE_SHAPES, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, quickOf, type LatticeRow } from '../src/battle/bench';
+import { FRONT_WIDTH, roundsCap } from '../src/battle/config';
 import { VARIANT_NAMES, runJobs, type Brief, type Job, type Out, type Pair } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
@@ -92,7 +93,16 @@ function matrix(set: 'compositions' | 'plans' | 'presets' | 'pure', n: number, s
   return (i, j) => (i < j ? got.get(i * n + j)!().ab : got.get(j * n + i)!().ba);
 }
 const compositionPairs = matrix('compositions', COMPOSITIONS.length, SEEDS);
-const oversize = COMPOSITIONS.map((_, composition) => w1.add({ kind: 'oversize', composition }));
+// «Ограничитель» и кость меряются там, где выведен шаг кости: на размере W, с шириной и кругами (`bench.holdSize`).
+const HOLD = holdSize();
+const oversizeAt = (total: number, bare = false): Array<() => Extract<Out, { kind: 'oversize' }>> =>
+  COMPOSITIONS.map((_, composition) => w1.add({ kind: 'oversize', composition, total, ...(bare ? { bare } : {}) }));
+const oversize = oversizeAt(HOLD);
+// Круги сечи и ширина по размерам: «Ограничитель» на ½W, W и 2W с шириной и на ARMY_SIZE без неё.
+const bySize = [...OVERSIZE_SIZES.map((total) => ({ total, bare: false })), { total: ARMY_SIZE, bare: true }].map((s) => ({
+  ...s,
+  rows: !s.bare && s.total === HOLD ? oversize : oversizeAt(s.total, s.bare),
+}));
 const dice = w1.add({ kind: 'dice' });
 const tunedGap = w1.add({ kind: 'gap', who: 'TUNED', opp: 'quick', n: 100, from: 1 });
 const tunedByPreset = QUICK_PRESET_IDS.map((preset) => w1.add({ kind: 'gap', who: 'TUNED', opp: { preset }, n: 40, from: 1 }));
@@ -353,7 +363,7 @@ console.log('\n=== Длительность и чем кончается бой 
   if (et.length) console.log(`длительность досрочных: мин ${et[0]}, 25% ${eq(0.25)}, медиана ${eq(0.5)}, 75% ${eq(0.75)}, макс ${et[et.length - 1]}`);
 }
 
-console.log('\n=== Ограничитель: перевес 10% при прочих равных, размен большей стороны (цель ≈1.5) ===');
+console.log(`\n=== Ограничитель: перевес 10% при прочих равных, ${HOLD} бойцов строя — размер, на котором выведен шаг кости; размен большей стороны (цель ≈1.5) ===`);
 for (const [i, c] of COMPOSITIONS.entries()) {
   const { bigLoss, smallLoss, wins } = oversize[i]();
   const cap = hasLine(c.army) ? `потолок ${OVERSIZE_CAP.line}` : `без пешей линии, потолок ${OVERSIZE_CAP.noLine}`;
@@ -367,8 +377,28 @@ console.log('\n=== Кость фазы: сторона на 10% больше у�
   const { derived, bare } = dice();
   const phases = PHASES.filter((p) => PHASE_PIP[p]).length;
   console.log(`кость: ${DICE.faces} граней на сторону в каждой из ${phases} фаз с костью (у отступления и преследования её нет), шаг ${DICE.step} на грань`);
-  console.log(`поле у большей, все составы «Ограничителя» разом: ${held}/${all} (${((100 * held) / all).toFixed(1)}%); без кости — ${Math.round(bare * all)}/${all}`);
-  console.log(`вывод: наименьший шаг, при котором большая удерживает поле не чаще ${Math.round(DICE.hold * 100)}%, — ${derived.toFixed(4)}; в конфиге DICE.step = ${DICE.step}`);
+  console.log(`поле у большей, все составы «Ограничителя» разом, ${HOLD} бойцов строя: ${held}/${all} (${((100 * held) / all).toFixed(1)}%); без кости — ${Math.round(bare * all)}/${all}`);
+  // В конфиг шаг записан до четырёх знаков вверх: вниз доля ушла бы выше цели.
+  console.log(
+    `вывод: наименьший шаг, при котором большая удерживает поле не чаще ${Math.round(DICE.hold * 100)}%, — ${derived.toFixed(5)}, до четырёх знаков вверх — ${(Math.ceil(derived * 1e4) / 1e4).toFixed(4)}; в конфиге DICE.step = ${DICE.step}`,
+  );
+}
+
+console.log('\n=== Круги сечи и ширина по размерам: «Ограничитель» (перевес 10%) на ½W, W и 2W с шириной и без ширины ===');
+{
+  console.log(`ширина фронта W = ${FRONT_WIDTH} на полосу; глубина — армия меньшей стороны к трём полосам ширины (без ширины — единица); потолок кругов — config.roundsCap`);
+  console.log('мерка владельца: до потолка кругов доходит не больше нескольких процентов боёв, ничья бывает только там');
+  console.log(`${pad('размер', 22)} глубина  потолок   поле у большей        ничьих    до потолка  размен большей`);
+  const all = COMPOSITIONS.length * OVERSIZE_SEEDS;
+  const pct = (n: number): string => `${n}/${all} (${((100 * n) / all).toFixed(1)}%)`;
+  for (const { total, bare, rows } of bySize) {
+    const got = rows.map((o) => o());
+    const sum = (k: 'wins' | 'draws' | 'gong' | 'bigLoss' | 'smallLoss'): number => got.reduce((n, o) => n + o[k], 0);
+    const depth = bare ? 0 : total / (3 * FRONT_WIDTH);
+    console.log(
+      `${pad(`${total}, ${bare ? 'без ширины' : `W ${FRONT_WIDTH}`}`, 22)} ${Math.max(1, depth).toFixed(2).padStart(7)}  ${String(roundsCap(depth)).padStart(7)}  ${pct(sum('wins')).padStart(15)}  ${pct(sum('draws')).padStart(12)}  ${pct(sum('gong')).padStart(12)}  ${(sum('smallLoss') / Math.max(1, sum('bigLoss'))).toFixed(2).padStart(14)}`,
+    );
+  }
 }
 
 // ---------- Волна 2: перемер лучших из отбора ----------
