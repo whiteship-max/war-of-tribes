@@ -577,17 +577,13 @@ describe('продолжительность', () => {
   const FIRST_PASS = RANGED_TICKS.max + PHASES.filter((p) => p !== 'ranged').reduce((n, p) => n + PHASE_TICKS[p], 0);
   const longest = (r: BattleResult): number => FIRST_PASS + roundsCap(depthOf(r)) * ROUND_TICKS;
 
-  /**
-   * Выборка с крайними темпами: каждая пара планов на нескольких парах составов. Последняя пара — копья с
-   * лучниками против пехоты с конницей — нужна верхней границе: с кругами до неё доходит только бой, дошедший
-   * до потолка кругов при самой долгой стрельбе, а эта пара на изматывании доходит до потолка чаще прочих.
-   */
+  /** Выборка с крайними темпами: каждая пара планов на нескольких парах составов. */
   function tempoBattles(): BattleResult[] {
     const out: BattleResult[] = [];
     const plans = Object.keys(PLANS) as Plan[];
     for (const a of plans) {
       for (const b of plans) {
-        for (const [x, y] of [[0, 0], [4, 6], [0, 2], [2, 3], [5, 8]]) {
+        for (const [x, y] of [[0, 0], [4, 6], [0, 2], [2, 3]]) {
           out.push(simulateBattle({ seed: x + y + 1, attacker: { ...COMPOSITIONS[x].setup, plan: a }, defender: { ...COMPOSITIONS[y].setup, plan: b } }));
         }
       }
@@ -595,8 +591,21 @@ describe('продолжительность', () => {
     return out;
   }
 
+  /**
+   * Верхняя граница с кругами: до неё доходит только бой, дошедший до потолка кругов при самой долгой стрельбе —
+   * изматывание против изматывания. Копья с лучниками против пехоты с конницей доходят до потолка чаще прочих пар;
+   * сидов несколько, чтобы точка на границе не держалась на одном сиде.
+   */
+  function gongBattles(): BattleResult[] {
+    const out: BattleResult[] = [];
+    for (let seed = 1; seed <= 6; seed += 1) {
+      out.push(simulateBattle({ seed, attacker: { ...COMPOSITIONS[5].setup, plan: 'attrition' }, defender: { ...COMPOSITIONS[8].setup, plan: 'attrition' } }));
+    }
+    return out;
+  }
+
   it('любой бой укладывается в границы фаз, и выборка достаёт до обеих', () => {
-    const battles = [...sampleBattles(), ...tempoBattles()];
+    const battles = [...sampleBattles(), ...tempoBattles(), ...gongBattles()];
     // Точки выборки лежат на самих границах: без этого тест проходил бы при любой
     // регрессии в зазоре между выборкой и настоящим пределом.
     expect(battles.some((r) => r.ticks === SHORTEST), `ни один бой не кончился на ${SHORTEST}-м тике`).toBe(true);
@@ -1069,9 +1078,9 @@ describe('кость фазы', () => {
 });
 
 describe('ширина фронта', () => {
-  // Ширина в ядре выключена (`WIDTH_ON`): включать её без кругов сечи запрещено — длины фаз рассчитаны на
-  // бой, где бьют все (docs/battle_eu4.md, раздел 8.5). Здесь механизм проверяется своей шириной боя
-  // (`BattleInput.width`), а выключатель — тем, что по умолчанию бой тот же бит в бит.
+  // Ширина включена (`WIDTH_ON`) вместе с кругами сечи: без них длины фаз рассчитаны на бой, где бьют все
+  // (docs/battle_eu4.md, раздел 8.5). Механизм проверяется своей шириной боя (`BattleInput.width`), а
+  // выключатель — тем, что по умолчанию бой тот же бит в бит, что с шириной фронта.
 
   /** Каждая пара составов бенча в обе стороны поля: бои, где ряды полос бывают и уже, и шире W. */
   const pairs = (width: number | undefined): BattleResult[] => {
@@ -1087,15 +1096,15 @@ describe('ширина фронта', () => {
   };
   const depthCount = (rs: BattleResult[]): number => rs.reduce((n, r) => n + r.log.filter((e) => e.id === 'depth').length, 0);
 
-  it('выключатель: по умолчанию ширины нет, и бой тот же бит в бит, что без неё', () => {
-    expect(WIDTH_ON, 'ширина включается только вместе с кругами сечи').toBe(false);
-    // Граница области: на этих же боях ширина фронта зажала бы ряды — иначе «тот же бой» проверялось бы
-    // на наборе, где ширине нечего менять.
-    expect(depthCount(pairs(FRONT_WIDTH)), 'при ширине фронта ряды этих боёв зажаты').toBeGreaterThan(0);
+  it('выключатель: ширина включена вместе с кругами, и по умолчанию бой тот же бит в бит, что с шириной фронта', () => {
+    expect(WIDTH_ON, 'ширина включена: круги сечи есть').toBe(true);
+    // Граница области: на этих боях ширина фронта зажимает ряды, а без ширины — нет. Иначе «тот же бой»
+    // проверялось бы на наборе, где ширине нечего менять, и бой без ширины прошёл бы за бой с ней.
     const plain = pairs(undefined);
-    const bare = pairs(Infinity);
-    for (let k = 0; k < plain.length; k += 1) expect(plain[k], `бой ${k}`).toEqual(bare[k]);
-    expect(depthCount(plain), 'без ширины рядов шире фронта не бывает').toBe(0);
+    const narrow = pairs(FRONT_WIDTH);
+    expect(depthCount(narrow), 'при ширине фронта ряды этих боёв зажаты').toBeGreaterThan(0);
+    expect(depthCount(pairs(Infinity)), 'без ширины рядов шире фронта не бывает').toBe(0);
+    for (let k = 0; k < plain.length; k += 1) expect(plain[k], `бой ${k}`).toEqual(narrow[k]);
   });
 
   it('незаполненная ширина ничего не меняет: бой тот же бит в бит', () => {
