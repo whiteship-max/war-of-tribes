@@ -24,7 +24,7 @@ import { owners, plan, type Owner, type Plan } from './lib/affected';
 import { measure, shifts, stableLines } from './lib/measured';
 import { closureKey, lastSeconds, load, runTraced, save, unexplained } from './lib/runs';
 import { serveSlots, takeSlot } from './lib/slots';
-import { budgetCores, refuseIfBusy } from './lib/budget';
+import { budgetCores, coolDown, refuseIfBusy } from './lib/budget';
 import { ROOT, changedSince, lines, own, setupOf } from './lib/setup';
 import { commitTree, git, worktree, type Tree } from './lib/tree';
 
@@ -90,18 +90,25 @@ async function runBase(base: string, names: string[]): Promise<void> {
     if (process.platform === 'win32') spawnSync('cmd', ['/c', 'mklink', '/J', modules, path.join(ROOT, 'node_modules')], { stdio: 'ignore' });
     else spawnSync('ln', ['-s', path.join(ROOT, 'node_modules'), modules]);
     const tree = commitTree(ROOT, base);
-    const found = owners(tree, setupOf(tree, [])).owners;
+    const baseSetup = setupOf(tree, []);
+    const found = owners(tree, baseSetup).owners;
+    // Бюджет железа и на базе: код базы может быть старше правила, и веер без `TRIBE_FAN` взял бы там
+    // все ядра; браузерные — с паузой, как в своём прогоне.
+    const baseEnv = { TRIBE_FAN: String(budgetCores()) };
+    let ranBefore = false;
     const needsBuild = names.some((n) => found.find((o) => o.name === n)?.closure.built);
     if (needsBuild) {
       console.log('база: сборка');
-      const b = await runTraced(dir, 'npm run --silent build', path.join(dir, '.build.trace'), true);
+      const b = await runTraced(dir, 'npm run --silent build', path.join(dir, '.build.trace'), true, { VIPS_CONCURRENCY: String(budgetCores()) });
       if (b.exit !== 0) throw new Error(`сборка базы упала:\n${b.output.slice(-2000)}`);
     }
     for (const name of names) {
       const o = found.find((x) => x.name === name);
       if (!o) continue;
+      if (ranBefore && o.closure.files.has(baseSetup.vite.html)) await coolDown(`базой ${name}`);
+      ranBefore = true;
       process.stdout.write(`база: ${name}…`);
-      const r = await runTraced(dir, `npm run --silent ${name}:report`, path.join(dir, `.${name}.trace`), true);
+      const r = await runTraced(dir, `npm run --silent ${name}:report`, path.join(dir, `.${name}.trace`), true, baseEnv);
       console.log(` ${r.exit === 0 ? 'ок' : `код ${r.exit}`}, ${r.seconds.toFixed(0)} с`);
       save(ROOT, {
         meta: { report: name, key: closureKey(name, tree, o.closure), commit: tree.label, dirty: false, exit: r.exit, seconds: r.seconds, at: new Date().toISOString(), node: process.version },
@@ -291,7 +298,12 @@ async function main(): Promise<void> {
     if (counting.length > 0) busy = `счётные ${measure(`${Math.round((performance.now() - countingFrom) / 1000)} с`)}, заняты в среднем ${measure(slots.busy().toFixed(1))} ядра из ${width}; `;
     await slots.close();
   }
-  for (const o of selected.filter(browser)) await job(o, false, { TRIBE_FAN: '1' });
+  // Браузерные — тяжёлые: строго по одному, и перед каждым пауза (бюджет железа). Двухминутный потолок
+  // стенда сцены к ним не относится: штатный отчёт идёт столько, сколько идёт.
+  for (const [i, o] of selected.filter(browser).entries()) {
+    if (i > 0 || counting.length > 0) await coolDown(o.name);
+    await job(o, false, { TRIBE_FAN: '1' });
+  }
   const order = selected.map((o) => o.name);
   rows.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
 

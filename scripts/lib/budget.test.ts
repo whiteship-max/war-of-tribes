@@ -6,7 +6,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BROWSER_MAX_MS, CORE_SHARE, UNCAPPED, budgetCores } from './budget';
+import { BROWSER_MAX_MS, CORE_SHARE, HEAVY_PAUSE_MS, UNCAPPED, budgetCores } from './budget';
 
 const ROOT = join(__dirname, '..', '..');
 
@@ -68,7 +68,17 @@ describe('браузер', () => {
     expect(src).toMatch(/refuseIfBusy\(/);
   });
 
-  it('прогон стенда — не дольше двух минут подряд', () => {
+  it('прогон стенда сцены — не дольше двух минут подряд', () => {
     expect(BROWSER_MAX_MS).toBe(2 * 60_000);
+  });
+
+  it('браузерные отчёты приёмки — по одному и с паузой перед каждым, и на базе тоже', () => {
+    const src = strip(readFileSync(join(ROOT, 'scripts', 'reports.ts'), 'utf8'));
+    expect(HEAVY_PAUSE_MS).toBeGreaterThan(0);
+    // Свой прогон: цикл по браузерным с паузой, а не Promise.all.
+    expect(src).toMatch(/for \(const \[i, o\] of selected\.filter\(browser\)\.entries\(\)\) \{\s*if \(i > 0 \|\| counting\.length > 0\) await coolDown\(/);
+    // База во втором worktree: пауза перед браузерным и веер в бюджете ядер.
+    expect(src).toMatch(/await coolDown\(`базой/);
+    expect(src).toMatch(/TRIBE_FAN: String\(budgetCores\(\)\)/);
   });
 });

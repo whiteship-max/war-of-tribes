@@ -30,6 +30,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { budgetCores } from './lib/budget';
 
 import { ICON_GROUPS, ICON_MANIFEST, iconName } from '@/ui/icons/registry';
 import { FOLK_TINT, HERO_TINT, JOB_TINT, PALETTE, SEASON_OVERRIDES, TROOP_TINT } from '@/render/palette';
@@ -568,6 +569,8 @@ function kb(bytes: number): string {
 }
 
 async function main() {
+  // Бюджет железа (CLAUDE.md): sharp по умолчанию берёт потоками все ядра.
+  sharp.concurrency(budgetCores());
   const checkOnly = process.argv.includes('--check');
   const colors = allowedColors();
 
