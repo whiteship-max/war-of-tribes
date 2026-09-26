@@ -9,7 +9,7 @@
 import { COUNTER, COVER, DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, simulateBattle, quickAttack, quickSetup, describeEvent, PLANS, QUICK_PRESET_IDS, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
 import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, OVERSIZE_SIZES, SCREEN_KINDS, holdSize, nonDecreasing, screenPoints, answerlessOwnKind, compositionLattice, compositionName, latticeRows, COUNTER_TERMS, counterOf, searchPool, searchShortlist, searchFinish, KNOWN_COUNTER_INDEX, LINE_SHAPES, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, quickOf, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, roundsCap } from '../src/battle/config';
-import { VARIANT_NAMES, runJobs, type Brief, type Job, type Out, type Pair } from './battle-jobs';
+import { VARIANT_NAMES, runJobs, type Brief, type Job, type Out, type Pair, type Reach } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -112,6 +112,11 @@ const tunedSearch = w1.add({ kind: 'gap', who: 'TUNED', opp: 'quick', n: SEARCH.
 const ringPairs = RING.map((_, ring) => w1.add({ kind: 'ring', ring, seeds: SEEDS }));
 const plans = Object.keys(PLANS) as Plan[];
 const planPairs = matrix('plans', plans.length, Math.min(SEEDS, 12));
+// Планы на всей сетке: план против того же построения с другим планом, пара планов одной задачей.
+const planShape = new Map<string, () => Extract<Out, { kind: 'planShape' }>>();
+for (const [i, a] of plans.entries()) for (const b of plans.slice(i + 1)) planShape.set(`${a}:${b}`, w1.add({ kind: 'planShape', a, b, seeds: 2 }));
+// Круги по размерам: сколько боёв до них доходит — матрица составов и настроенная против быстрой атаки.
+const reachAt = [...OVERSIZE_SIZES, ARMY_SIZE].map((total) => ({ total, got: w1.add({ kind: 'reach', total }) }));
 const presetPairs = matrix('presets', QUICK_PRESET_IDS.length, Math.min(SEEDS, 12));
 const pureDuels = matrix('pure', UNIT_KINDS.length, 6);
 
@@ -303,6 +308,44 @@ console.log('\n=== Планы: одна и та же армия на станд�
   console.log(`никому не проигрывает размен: ${undefeated.join(', ') || 'нет'}`);
 }
 
+console.log('\n=== Планы на всей сетке: план против того же построения с другим планом ===');
+{
+  // Стандартная раскладка — одна точка; здесь каждая форма сетки перебора (линия, лучники, конница, резерв), и у
+  // сторон одно всё, кроме плана. Ячейка — бои: удержали поле / ничьих / отдали поле, и размен строки.
+  const cell = (a: Plan, b: Plan): { won: number; draws: number; lost: number; ratio: number; n: number } => {
+    const direct = planShape.get(`${a}:${b}`);
+    const o = (direct ?? planShape.get(`${b}:${a}`)!)();
+    const [won, lost, own, theirs] = direct ? [o.a, o.b, o.aLoss, o.bLoss] : [o.b, o.a, o.bLoss, o.aLoss];
+    return { won, draws: o.draws, lost, ratio: theirs / Math.max(1, own), n: o.a + o.b + o.draws };
+  };
+  const first = planShape.values().next().value!();
+  console.log(`форм сетки ${first.shapes}, на пару планов ${first.a + first.b + first.draws} боёв (по 2 сида, обе стороны поля)`);
+  const PW = 22;
+  console.log(pad('', PW) + plans.map((p) => pad(p, PW)).join(''));
+  const fieldAll: string[] = [];
+  const tradeAll: string[] = [];
+  for (const a of plans) {
+    let row = pad(a, PW);
+    let field = 0;
+    let trade = 0;
+    for (const b of plans) {
+      if (a === b) {
+        row += pad('—', PW);
+        continue;
+      }
+      const c = cell(a, b);
+      if (c.won > c.lost) field += 1;
+      if (beatsByRatio(c.ratio) !== 'b') trade += 1;
+      row += pad(`${c.won}/${c.draws}/${c.lost} ${c.ratio.toFixed(2)}`, PW);
+    }
+    if (field === plans.length - 1) fieldAll.push(a);
+    if (trade === plans.length - 1) tradeAll.push(a);
+    console.log(row);
+  }
+  console.log(`удерживает поле чаще, чем отдаёт, против каждого плана: ${fieldAll.join(', ') || 'нет'}`);
+  console.log(`никому не проигрывает размен: ${tradeAll.join(', ') || 'нет'}`);
+}
+
 console.log('\n=== Пресеты быстрой атаки ===');
 {
   const picks: Record<string, number> = {};
@@ -397,6 +440,20 @@ console.log('\n=== Круги сечи и ширина по размерам: «
     const depth = bare ? 0 : total / (3 * FRONT_WIDTH);
     console.log(
       `${pad(`${total}, ${bare ? 'без ширины' : `W ${FRONT_WIDTH}`}`, 22)} ${Math.max(1, depth).toFixed(2).padStart(7)}  ${String(roundsCap(depth)).padStart(7)}  ${pct(sum('wins')).padStart(15)}  ${pct(sum('draws')).padStart(12)}  ${pct(sum('gong')).padStart(12)}  ${(sum('smallLoss') / Math.max(1, sum('bigLoss'))).toFixed(2).padStart(14)}`,
+    );
+  }
+}
+
+console.log('\n=== Круги по размерам: сколько боёв доходит до круга (сближение, сшибка, сеча снова) ===');
+{
+  // Фазы по родам живут в кругах: бой, решённый первым проходом, их не видит. Матрица составов — все пары, 2 сида;
+  // настроенная армия (TUNED) против быстрой атаки той же армии — 100 боёв, те же сиды, что у «Разрыва».
+  console.log(`${pad('размер', 8)}  матрица составов: с кругами, сшибок на бой   настроенная против быстрой атаки: с кругами, сшибок на бой, разрыв, побед/поражений`);
+  const share = (r: Reach): string => `${r.rounds}/${r.n} (${((100 * r.rounds) / r.n).toFixed(1)}%)`;
+  for (const { total, got } of reachAt) {
+    const { matrix: m, tuned: t } = got();
+    console.log(
+      `${pad(total, 8)}  ${share(m).padStart(16)}, ${(m.clashes / m.n).toFixed(2)}                     ${share(t).padStart(14)}, ${(t.clashes / t.n).toFixed(2)}, ${(t.gap * 100).toFixed(1).padStart(5)}%, ${t.won}/${t.lost}`,
     );
   }
 }

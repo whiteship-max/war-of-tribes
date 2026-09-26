@@ -10,9 +10,9 @@
 // сама задача, в том процессе, который её считает, — у веера это дочерний процесс, и в процессе отчёта
 // подмен нет (кроме `TRIBE_FAN=1`, когда задачи идут в нём же подряд). Снять подмену обязательно и
 // здесь: процесс берёт задачи одну за другой, и следующая обязана начаться на числах конфига.
-import { COUNTER, COVER, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
+import { COUNTER, COVER, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickAttack, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
 import { stackPower } from '../src/battle/sim';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_SEEDS, RING, SEARCH, TUNED, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_SEEDS, RING, SEARCH, TUNED, TUNED_SPEC, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, scaleArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
 import { fan, serveFan } from './lib/fan';
 
 // ---------- Что возвращается ----------
@@ -195,7 +195,21 @@ export type Job =
    */
   | { kind: 'oversize'; composition: number; total: number; bare?: boolean }
   /** Кость: шаг, выведенный делением отрезка (`bench.diceStepFor`), и поле большей без кости. */
-  | { kind: 'dice' };
+  | { kind: 'dice' }
+  /**
+   * План `a` против плана `b` на одной и той же расстановке: каждая форма сетки перебора (`layoutGrid` — линия, лучники,
+   * конница, резерв), зеркальной парой боёв на сид 1..seeds. Мерит план, а не расстановку: всё, кроме плана, у сторон одно.
+   */
+  | { kind: 'planShape'; a: Plan; b: Plan; seeds: number }
+  /** Сколько боёв доходит до кругов в `total` бойцов строя: матрица составов и настроенная армия против быстрой атаки. */
+  | { kind: 'reach'; total: number };
+
+/** Сколько боёв (`n`) дошло до круга (`rounds`) и сколько всего было сшибок (`clashes`). */
+export interface Reach {
+  n: number;
+  rounds: number;
+  clashes: number;
+}
 
 export type Out =
   | { kind: 'pair'; ab: Pair[]; ba: Pair[] }
@@ -208,7 +222,15 @@ export type Out =
   | { kind: 'vsGrid'; rows: Array<{ held: boolean; own: number; theirs: number } | null> }
   | { kind: 'hold'; point: number }
   | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number }
-  | { kind: 'dice'; derived: number; bare: number };
+  | { kind: 'dice'; derived: number; bare: number }
+  | { kind: 'planShape'; shapes: number; a: number; b: number; draws: number; aLoss: number; bLoss: number }
+  | { kind: 'reach'; matrix: Reach; tuned: Reach & { gap: number; won: number; lost: number } };
+
+const reachOf = (rs: readonly BattleResult[]): Reach => ({
+  n: rs.length,
+  rounds: rs.filter((r) => r.log.some((e) => e.id === 'round')).length,
+  clashes: rs.reduce((n, r) => n + r.phases.filter((p) => p.phase === 'clash').length, 0),
+});
 
 export function battleJob(job: Job): Out {
   switch (job.kind) {
@@ -291,6 +313,44 @@ export function battleJob(job: Job): Out {
       // Кость ставится и снимается внутри `diceStepFor` и `withDiceStep`: следующая задача процесса
       // начинается на числе конфига.
       return { kind: 'dice', derived: diceStepFor(), bare: withDiceStep(0, () => oversizeHold()) };
+    case 'planShape': {
+      // Форма — расстановка без плана: в сетке их по одной на план, берутся формы плана `a`.
+      const shapes = layoutGrid().filter((s) => s.plan === job.a);
+      const out = { kind: 'planShape' as const, shapes: shapes.length, a: 0, b: 0, draws: 0, aLoss: 0, bLoss: 0 };
+      for (const shape of shapes) {
+        const a = layoutOf(BALANCED_ARMY, shape);
+        const b = layoutOf(BALANCED_ARMY, { ...shape, plan: job.b });
+        for (let seed = 1; seed <= job.seeds; seed += 1) {
+          const m = mirrored(a, b, seed);
+          out.a += m.field.a;
+          out.b += m.field.b;
+          out.draws += 2 - m.field.a - m.field.b;
+          out.aLoss += m.results[0].sides.attacker.total.losses + m.results[1].sides.defender.total.losses;
+          out.bLoss += m.results[0].sides.defender.total.losses + m.results[1].sides.attacker.total.losses;
+        }
+      }
+      return out;
+    }
+    case 'reach': {
+      const matrix: BattleResult[] = [];
+      const setups = COMPOSITIONS.map((c) => quickSetup(scaleArmy(c.army, job.total)));
+      for (let i = 0; i < setups.length; i += 1) {
+        for (let j = 0; j < setups.length; j += 1) {
+          if (i === j) continue;
+          for (let seed = 1; seed <= 2; seed += 1) matrix.push(simulateBattle({ seed, attacker: setups[i], defender: setups[j] }));
+        }
+      }
+      // Настроенная и быстрая атака той же армии в `total` бойцов — те же сиды и стороны поля, что у `gapAgainst`.
+      const army = scaleArmy(BALANCED_ARMY, job.total);
+      const tuned = layoutOf(army, TUNED_SPEC);
+      const foe = (seed: number): ArmySetup => quickAttack(army, seed).setup;
+      const fights: BattleResult[] = [];
+      for (let seed = 1; seed <= 100; seed += 1) {
+        const attacks = seed % 2 === 1;
+        fights.push(simulateBattle({ seed, attacker: attacks ? tuned : foe(seed), defender: attacks ? foe(seed) : tuned }));
+      }
+      return { kind: 'reach', matrix: reachOf(matrix), tuned: { ...reachOf(fights), ...gapAgainst(tuned, foe, 100) } };
+    }
   }
 }
 
