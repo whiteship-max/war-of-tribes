@@ -21,6 +21,7 @@ import {
   EVENT_MIN,
   EVENT_SHARE,
   FOOT_FLANK,
+  FRONT_WIDTH,
   GEAR,
   INFANTRY_ORDERS,
   KITING,
@@ -43,6 +44,7 @@ import {
   TARGET_PRIORITY,
   TEMPER,
   UNIT_STATS,
+  WIDTH_ON,
   WITHDRAW_RATIO,
   moraleDamageMult,
 } from './config';
@@ -165,6 +167,8 @@ const laneOf = (s: Sector): Lane | null => (s === 'R' ? null : ((FRONT.indexOf(s
 const rowOf = (s: Sector): Row => (s === 'R' ? 'reserve' : FRONT.includes(s as never) ? 'front' : 'rear');
 const laneSector = (lane: Lane, row: 'front' | 'rear'): Sector => (row === 'front' ? FRONT[lane] : REAR[lane]);
 const facing = (lane: Lane): Lane => (2 - lane) as Lane;
+/** Ключ ряда полосы стороны — для счёта ширины (`Battle.measureRows`). */
+const rowKey = (side: Side, lane: Lane, row: Row): string => `${side}:${lane}:${row}`;
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 const phaseIndex = (p: PhaseId): number => PHASES.indexOf(p);
 const zeroKills = (): Kills =>
@@ -310,11 +314,17 @@ class Battle {
   engagedNow = new Set<Group>();
   /** Кость этой фазы: множитель всего урона стороны (`phaseLuck`). Фаза без кости — единица. */
   luck: Record<Side, number> = { attacker: 1, defender: 1 };
+  /** Ширина фронта полосы в этом бою: столько бьёт в одном ряду полосы с одной стороны. */
+  readonly width: number;
+  /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
+  rowMen = new Map<string, number>();
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
   constructor(readonly input: BattleInput) {
     this.rng = seededRng(input.seed);
+    // Своя ширина боя главнее; без неё — ширина фронта, если она включена (`WIDTH_ON`), иначе боя без ширины.
+    this.width = input.width ?? (WIDTH_ON ? FRONT_WIDTH : Infinity);
     const make = (id: Side, setup: ArmySetup): SideState => {
       const groups = buildGroups(id, setup);
       const initialTotal = groups.reduce((n, g) => n + g.initial, 0);
@@ -802,6 +812,8 @@ class Battle {
         for (const g of c.a) engaged.set(g, [...(engaged.get(g) ?? []), ...c.b]);
         for (const g of c.b) engaged.set(g, [...(engaged.get(g) ?? []), ...c.a]);
       }
+      // Ряды считаются после стычек: перехват обхода выводит резерв во фронт, и он уже стоит в ряду.
+      this.measureRows();
       const kiting = new Set<Group>();
       for (const g of engaged.keys()) this.engagedNow.add(g);
       for (const side of SIDES) {
@@ -889,6 +901,39 @@ class Battle {
         }
       }
     }
+  }
+
+  /**
+   * Ширина фронта (docs/battle_eu4.md, пачка 2). В ряду полосы — фронте, тылу, обходе — с каждой стороны
+   * бьёт и стреляет не больше `width` человек: ряд шире — каждая его группа работает долей
+   * `width / людей в ряду`. Потери ложатся на всех, мораль уходит долей от всех (`updateMorale`), поэтому
+   * лишние — глубина: они держат ряд и встают на место павших сами, когда он редеет. Численность даёт
+   * стойкость, а не убийства; бой, где ряды уже ширины, идёт как без неё.
+   *
+   * Бежавшие ряда не держат: их нет ни в счёте, ни в доле. Ждущие манёвра, резерв и погоня не бьют —
+   * их нет в рядах вовсе. Решения боя — кто проигрывает полосу, куда вводить резерв, прикрывает ли
+   * линия — меряют силу всего ряда, а не работающих: глубина тоже сила, и противник её видит.
+   */
+  measureRows(): void {
+    this.rowMen.clear();
+    for (const side of SIDES) {
+      for (const g of this.sides[side].groups) {
+        if (g.lane === null || g.fled || !alive(g) || (g.row !== 'front' && g.row !== 'rear' && g.row !== 'strike')) continue;
+        const key = rowKey(side, g.lane, g.row);
+        this.rowMen.set(key, (this.rowMen.get(key) ?? 0) + stackTotal(g.stack));
+      }
+    }
+  }
+
+  /** Какая доля группы бьёт в этот тик: ряд уже ширины — вся. Первый раз зажатый ряд пишется в журнал. */
+  widthShare(g: Group): number {
+    if (g.lane === null || (g.row !== 'front' && g.row !== 'rear' && g.row !== 'strike')) return 1;
+    const men = this.rowMen.get(rowKey(g.side, g.lane, g.row)) ?? 0;
+    if (men <= this.width) return 1;
+    const row = g.row;
+    const sector = laneSector(g.lane, row === 'rear' ? 'rear' : 'front');
+    this.once(`depth:${row}:${sector}`, this.sides[g.side], { id: 'depth', side: g.side, sector, row, men: Math.round(men), width: this.width });
+    return this.width / men;
   }
 
   /** Пары позиций, которые сейчас дерутся. */
@@ -1106,7 +1151,8 @@ class Battle {
     for (const g of from) {
       const s = this.sides[g.side];
       if (g.lane === null) continue;
-      const share = here / Math.max(here, facingMen.get(g) ?? here);
+      // Своя доля стычки и доля ряда, которую пускает ширина фронта: остальные — глубина.
+      const share = (here / Math.max(here, facingMen.get(g) ?? here)) * this.widthShare(g);
       for (const kind of UNIT_KINDS) {
         if (g.stack[kind] < EPS) continue;
         const n = g.stack[kind] * share;
@@ -1133,7 +1179,8 @@ class Battle {
     let m = 1;
     if (kiting) m = KITING.ranged;
     else if (targets.some((t) => engaged.has(t))) m = COUNTER.archer.afterContact;
-    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * PLANS[s.setup.plan].ranged * this.dealtMult(g, 'archer') * m;
+    // Стреляет не больше ширины ряда: лучники за строем шире фронта — та же глубина, что у пехоты.
+    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * PLANS[s.setup.plan].ranged * this.dealtMult(g, 'archer') * m * this.widthShare(g);
     this.distribute(s, 'archer', p, targets, { flank: false, closedAround: false, flanked: false, ranged: true, frontal: false }, new Set(), g.lane, hits);
   }
 
@@ -1482,5 +1529,7 @@ export function simulateBattle(input: BattleInput): BattleResult {
     const err = validateSetup(input[side]);
     if (err) throw new Error(`battle: ${side}: ${err}`);
   }
+  // Ширина — положительное число; `Infinity` законна и значит «боя без ширины».
+  if (input.width !== undefined && !(input.width > 0)) throw new Error(`battle: ширина фронта ${input.width}`);
   return new Battle(input).run();
 }

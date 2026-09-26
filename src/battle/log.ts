@@ -85,6 +85,8 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
       return `${who}: пехота (${e.men}) сдвинулась на ${SECTOR_NAME[e.to]}`;
     case 'archers-kiting':
       return `${who}: лучники (${SECTOR_NAME[e.sector]}) держат дистанцию`;
+    case 'depth':
+      return `${who}: ${e.row === 'strike' ? `обход у ${SECTOR_NAME[e.sector]}` : SECTOR_NAME[e.sector]} шире фронта — в строю ${e.width} из ${e.men}, остальные встают на место павших`;
     case 'morale-collapsed':
       return `${who}: армия сломалась — бегут сектора весом ${Math.round(e.brokenShare * 100)}% (мораль ${e.morale})`;
     case 'annihilated':

@@ -2,9 +2,9 @@
 // против шаблона. Их читают и тесты (раздел 16 документа), и скрипт отчёта —
 // чтобы таблица в отчёте и утверждения в тестах считались по одним данным.
 import { simulateBattle, stackPower } from './sim';
-import { COVER, DICE, PLANS } from './config';
+import { COVER, DICE, FRONT_WIDTH, PLANS, WIDTH_ON } from './config';
 import { seededRng } from './rng';
-import { DEFAULT_ORDERS, QUICK_PRESETS, quickSetup, quickAttack, emptySectors, stackOf } from './setup';
+import { DEFAULT_ORDERS, QUICK_PRESETS, quickSetup, quickAttack, emptySectors, stackOf, stackTotal } from './setup';
 import { KIND_META } from './names';
 import { FRONT, HORSE_KINDS, REAR, UNIT_KINDS, type ArcherOrder, type ArmySetup, type BattleResult, type CavalryOrder, type InfantryOrder, type Plan, type ReserveTrigger, type Sector, type Side, type SpearOrder, type Stack, type UnitKind } from './types';
 
@@ -73,27 +73,47 @@ export const hasLine = (army: Partial<Stack>): boolean => (army.infantry ?? 0) >
 /** Боёв на состав: сиды 1..N, нечётный — нападает большая, чётный — меньшая. */
 export const OVERSIZE_SEEDS = 30;
 
-/** Состав `COMPOSITIONS[composition]` на 10 % больше против себя самого. */
-export function oversize(composition: number, seeds = OVERSIZE_SEEDS): { bigLoss: number; smallLoss: number; wins: number } {
+/** Состав в `total` бойцов строя: те же доли родов, что у состава в `ARMY_SIZE`. */
+export const scaleArmy = (army: Partial<Stack>, total: number): Partial<Stack> =>
+  Object.fromEntries(Object.entries(army).map(([k, n]) => [k, Math.round(((n ?? 0) * total) / ARMY_SIZE)])) as Partial<Stack>;
+
+/** Фронт полосы расстановки: первая линия (A, B, C) на число полос. */
+export const laneFront = (setup: ArmySetup): number => FRONT.reduce((n, s) => n + stackTotal(setup.sectors[s]), 0) / FRONT.length;
+
+/**
+ * Состав `COMPOSITIONS[composition]` в `total` бойцов на 10 % больше против себя самого. `width` — ширина
+ * фронта боя (`BattleInput.width`); нет — ширина по выключателю. `draws` — сколько боёв дожило до гонга.
+ */
+export function oversize(composition: number, seeds = OVERSIZE_SEEDS, total = ARMY_SIZE, width?: number): { bigLoss: number; smallLoss: number; wins: number; draws: number } {
   const c = COMPOSITIONS[composition];
-  const bigger = quickSetup(Object.fromEntries(Object.entries(c.army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
+  const army = scaleArmy(c.army, total);
+  const small = quickSetup(army);
+  const bigger = quickSetup(Object.fromEntries(Object.entries(army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
   let bigLoss = 0;
   let smallLoss = 0;
   let wins = 0;
+  let draws = 0;
   for (let seed = 1; seed <= seeds; seed += 1) {
     const bigAttacks = seed % 2 === 1;
-    const r = simulateBattle({ seed, attacker: bigAttacks ? bigger : c.setup, defender: bigAttacks ? c.setup : bigger });
+    const r = simulateBattle({ seed, attacker: bigAttacks ? bigger : small, defender: bigAttacks ? small : bigger, ...(width === undefined ? {} : { width }) });
     bigLoss += r.sides[bigAttacks ? 'attacker' : 'defender'].total.losses;
     smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
     if (r.winner === (bigAttacks ? 'attacker' : 'defender')) wins += 1;
+    if (r.winner === 'draw') draws += 1;
   }
-  return { bigLoss, smallLoss, wins };
+  return { bigLoss, smallLoss, wins, draws };
 }
 
-/** Доля боёв «Ограничителя», где большая сторона удержала поле, — по всем составам разом. */
-export function oversizeHold(seeds = OVERSIZE_SEEDS): number {
+/**
+ * Где держится доля владельца: на размере W (`ARMY_AT_W`, решение 2), когда ширина включена; пока она
+ * выключена (`WIDTH_ON`), — там же, где её и вывели, в `ARMY_SIZE`. Один выключатель на бой и на мерку.
+ */
+export const holdSize = (): number => (WIDTH_ON ? ARMY_AT_W : ARMY_SIZE);
+
+/** Доля боёв «Ограничителя» в `total` бойцов, где большая сторона удержала поле, — по всем составам разом. */
+export function oversizeHold(seeds = OVERSIZE_SEEDS, total = holdSize()): number {
   let wins = 0;
-  for (let i = 0; i < COMPOSITIONS.length; i += 1) wins += oversize(i, seeds).wins;
+  for (let i = 0; i < COMPOSITIONS.length; i += 1) wins += oversize(i, seeds, total).wins;
   return wins / (COMPOSITIONS.length * seeds);
 }
 
@@ -112,12 +132,13 @@ export function withDiceStep<T>(step: number, fn: () => T): T {
  * Наименьшая величина кости, при которой большая на 10 % удерживает поле не чаще `hold`: делением
  * отрезка. Доля убывает с величиной кости — чем сильнее удача, тем чаще меньшая устоит. Отрезок
  * `hi` взят с запасом: при нём удача разбрасывает урон фазы на ±45 %, дальше кость решала бы всё.
+ * Меряется там, где держится доля владельца (`holdSize`): на размере W, когда ширина включена.
  */
-export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12): number {
+export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12, total = holdSize()): number {
   let lo = 0;
   for (let i = 0; i < steps; i += 1) {
     const mid = (lo + hi) / 2;
-    if (withDiceStep(mid, () => oversizeHold()) > hold) lo = mid;
+    if (withDiceStep(mid, () => oversizeHold(OVERSIZE_SEEDS, total)) > hold) lo = mid;
     else hi = mid;
   }
   return hi;
@@ -345,6 +366,21 @@ export const RING: Array<{ name: string; a: ArmySetup; b: ArmySetup }> = [
 
 /** Армия для замера разрыва: одна и та же, на быстрой атаке и настроенная. */
 export const BALANCED_ARMY: Partial<Stack> = { spear: 150, infantry: 200, archer: 150, cavalry: 100 };
+
+/**
+ * Размер боя, на котором ширина ровно заполнена (docs/battle_eu4.md, раздел 8.1, решение 2): численность
+ * армии, при которой сбалансированный состав стандартной раскладкой ставит в полосу ровно `FRONT_WIDTH` —
+ * медианный бой игры, по которому ширина и выведена. Выведено из раскладки, а не выбрано: при 600 бойцах
+ * фронт полосы сбалансированного состава — 350 / 3, и ширина в бенче почти не держала бы.
+ */
+export const ARMY_AT_W = Math.round((ARMY_SIZE * FRONT_WIDTH) / laneFront(quickSetup(BALANCED_ARMY)));
+
+/**
+ * Три размера ограничителя: ниже ширины, на ней и вдвое выше. Доля владельца (80 %) держится на
+ * среднем, когда ширина включена (`holdSize`); вдвое больший — точка теста «заполненная ширина
+ * зажимает» (`battle.test.ts`). Печатать все три будет `battle:report` (docs/battle_eu4.md, раздел 8.5, пункт 5).
+ */
+export const OVERSIZE_SIZES: readonly number[] = [Math.round(ARMY_AT_W / 2), ARMY_AT_W, 2 * ARMY_AT_W];
 
 /** Быстрая атака той же армии: пресет по сиду боя. */
 export const quickOf = (seed: number): ArmySetup => quickAttack(BALANCED_ARMY, seed).setup;

@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
 import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, COUNTER, DICE, GEAR, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS } from './config';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, oversizeHold, quickOf, SEARCH, setupOf, withDiceStep } from './bench';
+import { ANNIHILATED_AT, COUNTER, DICE, FRONT_WIDTH, GEAR, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, UNIT_STATS, WIDTH_ON } from './config';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, OVERSIZE_SIZES, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, homogeneous, laneFront, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, oversize, oversizeHold, quickOf, scaleArmy, SEARCH, setupOf, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PipId, type Plan, type Side, type Stack, type Winner } from './types';
 
@@ -924,5 +924,83 @@ describe('кость фазы', () => {
       expect(line.good, 'хорошо или плохо — по знаку самого широкого расхождения').toBe(widest > 0);
     }
     expect(named, 'точка внутри области: удача называлась хоть раз').toBeGreaterThan(0);
+  });
+});
+
+describe('ширина фронта', () => {
+  // Ширина в ядре выключена (`WIDTH_ON`): включать её без кругов сечи запрещено — длины фаз рассчитаны на
+  // бой, где бьют все (docs/battle_eu4.md, раздел 8.5). Здесь механизм проверяется своей шириной боя
+  // (`BattleInput.width`), а выключатель — тем, что по умолчанию бой тот же бит в бит.
+
+  /** Каждая пара составов бенча в обе стороны поля: бои, где ряды полос бывают и уже, и шире W. */
+  const pairs = (width: number | undefined): BattleResult[] => {
+    const out: BattleResult[] = [];
+    for (let i = 0; i < COMPOSITIONS.length; i += 1) {
+      for (let j = i + 1; j < COMPOSITIONS.length; j += 1) {
+        for (const [a, d] of [[i, j], [j, i]]) {
+          out.push(simulateBattle({ seed: 1, attacker: COMPOSITIONS[a].setup, defender: COMPOSITIONS[d].setup, ...(width === undefined ? {} : { width }) }));
+        }
+      }
+    }
+    return out;
+  };
+  const depthCount = (rs: BattleResult[]): number => rs.reduce((n, r) => n + r.log.filter((e) => e.id === 'depth').length, 0);
+
+  it('выключатель: по умолчанию ширины нет, и бой тот же бит в бит, что без неё', () => {
+    expect(WIDTH_ON, 'ширина включается только вместе с кругами сечи').toBe(false);
+    // Граница области: на этих же боях ширина фронта зажала бы ряды — иначе «тот же бой» проверялось бы
+    // на наборе, где ширине нечего менять.
+    expect(depthCount(pairs(FRONT_WIDTH)), 'при ширине фронта ряды этих боёв зажаты').toBeGreaterThan(0);
+    const plain = pairs(undefined);
+    const bare = pairs(Infinity);
+    for (let k = 0; k < plain.length; k += 1) expect(plain[k], `бой ${k}`).toEqual(bare[k]);
+    expect(depthCount(plain), 'без ширины рядов шире фронта не бывает').toBe(0);
+  });
+
+  it('незаполненная ширина ничего не меняет: бой тот же бит в бит', () => {
+    // Ширина не меньше всей армии каждой стороны — ни один ряд её не заполнит.
+    for (const [a, d] of [[BALANCED_ARMY, { infantry: 1000 }], [{ spear: 900, archer: 300 }, { cavalry: 800, heavy: 200 }]] as Array<[Partial<Stack>, Partial<Stack>]>) {
+      const attacker = quickSetup(a);
+      const defender = quickSetup(d);
+      const width = Math.max(stackTotal(armyTotal(attacker)), stackTotal(armyTotal(defender)));
+      for (const seed of [1, 2, 3]) {
+        const wide = simulateBattle({ seed, attacker, defender, width });
+        expect(depthCount([wide]), 'ряд шире всей армии не бывает').toBe(0);
+        expect(wide).toEqual(simulateBattle({ seed, attacker, defender, width: Infinity }));
+      }
+    }
+  });
+
+  it('заполненная ширина зажимает: у стороны, большей на 10 %, размен ниже, чем без ширины', () => {
+    const total = OVERSIZE_SIZES[2];
+    let widthed = 0;
+    let bare = 0;
+    let counted = 0;
+    for (let i = 0; i < COMPOSITIONS.length; i += 1) {
+      // Точка внутри области: фронт полосы меньшей стороны шире ширины. Составы без фронта в расстановке
+      // (конница в резерве, лучники в тылу) в счёт не идут.
+      if (laneFront(quickSetup(scaleArmy(COMPOSITIONS[i].army, total))) <= FRONT_WIDTH) continue;
+      const w = oversize(i, 6, total, FRONT_WIDTH);
+      const b = oversize(i, 6, total, Infinity);
+      widthed += w.smallLoss / Math.max(1, w.bigLoss);
+      bare += b.smallLoss / Math.max(1, b.bigLoss);
+      counted += 1;
+    }
+    expect(counted, 'составов с фронтом шире ширины').toBeGreaterThanOrEqual(8);
+    expect(widthed / counted, `размен с шириной ${(widthed / counted).toFixed(2)}, без — ${(bare / counted).toFixed(2)}`).toBeLessThan(bare / counted - 0.1);
+  });
+
+  it('ряд шире фронта пишется в журнал раз на ряд полосы: сколько в ряду и сколько в строю', () => {
+    const r = simulateBattle({ seed: 1, attacker: quickSetup({ infantry: 1000 }), defender: quickSetup({ infantry: 1000 }), width: FRONT_WIDTH });
+    const depth = r.log.filter((e): e is Extract<BattleEvent, { id: 'depth' }> => e.id === 'depth');
+    // Пехота в тысячу кладёт в центр половину — центр шире фронта у обеих сторон.
+    for (const side of ['attacker', 'defender'] as const) expect(depth.some((e) => e.side === side && e.sector === 'B' && e.row === 'front'), side).toBe(true);
+    for (const e of depth) {
+      expect(e.width).toBe(FRONT_WIDTH);
+      expect(e.men).toBeGreaterThan(e.width);
+      expect(describeEvent(e)).toContain(`в строю ${FRONT_WIDTH} из ${e.men}`);
+    }
+    const keys = depth.map((e) => `${e.side}:${e.row}:${e.sector}`);
+    expect(new Set(keys).size, 'раз на ряд полосы').toBe(keys.length);
   });
 });

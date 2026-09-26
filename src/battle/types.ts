@@ -138,6 +138,12 @@ export interface BattleInput {
   seed: number;
   attacker: ArmySetup;
   defender: ArmySetup;
+  /**
+   * Ширина фронта полосы в этом бою, бойцов строя: в каждом ряду полосы с каждой стороны бьёт не больше
+   * стольких. Нет поля — `FRONT_WIDTH`, если ширина включена (`WIDTH_ON`), иначе боя без ширины;
+   * `Infinity` — боя без ширины (так бой шёл до пачки 2).
+   */
+  width?: number;
 }
 
 // ---------- Журнал ----------
@@ -185,6 +191,12 @@ export type BattleEvent = EventBase &
     | { id: 'infantry-shifted'; side: Side; to: Sector; men: number }
     /** Лучники в `sector` держат дистанцию от медленного противника. */
     | { id: 'archers-kiting'; side: Side; sector: Sector }
+    /**
+     * Ряд шире фронта: в строю `width`, остальные из `men` стоят глубиной и встают на место павших.
+     * `row` — какой ряд полосы: фронт, тыл или обход; `sector` — сектор этой полосы (у обхода — её
+     * фронт). Пишется раз за бой на ряд полосы — в первый тик, когда ширина зажала бьющих.
+     */
+    | { id: 'depth'; side: Side; sector: Sector; row: 'front' | 'rear' | 'strike'; men: number; width: number }
     /** Армия сломалась: сломанные сектора весят `brokenShare` (0..1) от её начальной численности. */
     | { id: 'morale-collapsed'; side: Side; morale: number; brokenShare: number }
     /** Сторона перебита почти целиком. */
