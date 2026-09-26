@@ -1,4 +1,5 @@
-// Найм и лазарет — отчёт `raid-hiring:report`. Разделы — `raid-hiring.ts` и `raid-infirmary.ts`.
+// Найм и лазарет — отчёт `raid-hiring:report`. Разделы — `raid-hiring.ts`, `raid-infirmary.ts`,
+// `raid-burnt.ts` и `raid-width.ts` (ширина поля — прибор пачки 2 боя, docs/battle_eu4.md, раздел 8).
 //
 // Прежде это были разделы `raid:report`; разведены отдельным отчётом, чтобы подсчёт по диффу гнал их
 // только тогда, когда задето их замыкание (docs/realm.md, раздел 8, «Цена разделов raid:report»).
@@ -15,6 +16,7 @@
 import { cadenceSection, hiringSection, mastersSection } from './raid-hiring';
 import { infirmarySection } from './raid-infirmary';
 import { burntSection } from './raid-burnt';
+import { widthSection } from './raid-width';
 import { measure } from './lib/measured';
 
 // Сколько стоит каждый раздел — замером в ‹…›: удешевлять отчёт надо по числам, а не на глаз.
@@ -38,6 +40,8 @@ if (process.env.DECIDE_SWEEP) {
   lap('Лазарет');
   await burntSection(hired);
   lap('Сожжённые посёлки');
+  widthSection(hired);
+  lap('Ширина поля');
 
   console.log('');
   console.log('=== Сколько стоит каждый раздел ===');

@@ -33,6 +33,7 @@ import {
   type Step,
 } from './autopilot';
 import { sum } from './raid-common';
+import { frontOf, type Front } from './lib/front';
 
 export type Style = 'means' | 'meansHigh' | 'feed' | 'builder';
 export const STYLES: Style[] = ['means', 'meansHigh', 'feed', 'builder'];
@@ -68,6 +69,8 @@ interface HireLedger extends Ledger {
   restore: { at: number; target: number; lost: number; done: number | null; cost: number }[];
   /** Каждый бой, стоивший бойцов, — для раздела «Лазарет» (`raid-infirmary.ts`). */
   fights: Fight[];
+  /** Каждая запись боя в отчётах мира — для раздела «Ширина поля» (`raid-width.ts`). */
+  fronts: Front[];
   /** Прирост жителей за игровой день по решениям (`popGrowth`). */
   growth: number[];
   /** Решений, на которых войску не хватало еды, и из них — где строка тревоги назвала повод неуплатой. */
@@ -200,6 +203,7 @@ export async function live(o: Opts): Promise<Out> {
     defs: [] as number[],
     restore: [] as HireLedger['restore'],
     fights: [] as Fight[],
+    fronts: [] as Front[],
     growth: [] as number[],
     unfed: 0,
     unfedAsPay: 0,
@@ -330,7 +334,10 @@ export async function live(o: Opts): Promise<Out> {
           }
         }
       },
-      after: async ({ g: s, world, now, marches, figures }) => {
+      after: async ({ g: s, world, now, marches, figures, pulse }) => {
+        // Записи боя — те, что мир положил в отчёты этого пульса; бой у стены «сухим прогоном» (садиться ли
+        // в осаду, `LocalWorld.sitsDown`) отчёта не пишет и сюда не попадает.
+        for (const r of pulse.reports) if (r.battle) x.fronts.push({ ...frontOf(r.battle.result), kind: r.kind });
         const home = troopTotal(homeOf(s.army, awayOf(marches, figures)));
         x.armyHome.push(home);
         for (const r of x.restore) {

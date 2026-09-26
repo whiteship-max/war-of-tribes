@@ -137,6 +137,8 @@ export interface Hired {
   ladder: Record<string, Out[]>;
   /** Партия с первой секунды по поведениям. */
   fresh: Record<Style, Out[]>;
+  /** Все прогоны раздела «Уведённые люди», по вариантам подряд. */
+  captives: Out[];
 }
 
 // ---------- Партия с первой секунды: одна строка прогона ----------
@@ -466,8 +468,8 @@ export async function hiringSection(): Promise<Hired> {
   });
 
   // В. Уведённые люди.
-  await captivesPart();
-  return { ladder, fresh };
+  const captives = await captivesPart();
+  return { ladder, fresh, captives };
 }
 
 // ---------- В. Уведённые люди ----------
@@ -655,7 +657,7 @@ export async function capturedRun(a: { variant: Led; seed: number }): Promise<Ca
   return { out: portable(out), hourly, ...c };
 }
 
-async function captivesPart(): Promise<void> {
+async function captivesPart(): Promise<Out[]> {
   const HOURS = CAPT_HOURS;
   const LEVEL = CAPT_LEVEL;
   const SEEDS_C = NEW_SEEDS;
@@ -717,6 +719,7 @@ async function captivesPart(): Promise<void> {
   }
   console.log('');
   console.log(`Уведено в час: ${summary.join('; ')}.`);
+  return all.map((r) => r.out);
 }
 
 serveFan(import.meta.url, { ladderRun, freshRun, capturedRun });

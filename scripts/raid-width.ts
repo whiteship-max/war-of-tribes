@@ -1,0 +1,56 @@
+// «Ширина поля» — раздел отчёта `raid-hiring:report`: прибор пачки 2 боя по образцу EU4 (docs/battle_eu4.md,
+// раздел 8).
+//
+// Решение владельца (26.09.2026): ширина фронта W — одно число, медиана фронта меньшей стороны в боях,
+// которые игра играет. Бои здесь — все записи боя из прогонов «Найма», которые отчёт уже сделал
+// (`Hired`: лестница мерки, партия с первой секунды, уведённые люди): второй раз они не гоняются. Что такое
+// фронт меньшей стороны, решает `lib/front.ts`; раздел только раскладывает бои по частям и печатает.
+//
+// Ширина из этого раздела — вывод, а не выбор: W — медиана по всем боям отчёта, и другой строкой её не
+// подменяют. Строки по частям и по видам стоят рядом, чтобы было видно, чей бой тянет медиану.
+import { FRONT } from '@/battle';
+import { pad, pct, q } from './raid-common';
+import { median, widthOf, type Front } from './lib/front';
+import type { Out } from './raid-live';
+import type { Hired } from './raid-hiring';
+
+/** Вид отчёта мира словами (`Report.kind`). */
+const KIND: Record<string, string> = { defense: 'оборона', raid: 'наш удар', support: 'выручка', scout: 'разведка' };
+
+const fronts = (outs: Out[]): Front[] => outs.flatMap((o) => o.l.fronts);
+
+const cut = (xs: number[]): string =>
+  xs.length ? [0.1, 0.25].map((p) => q(xs, p).toFixed(1)).join('…') + `…${median(xs).toFixed(1)}…` + [0.75, 0.9].map((p) => q(xs, p).toFixed(1)).join('…') : '—';
+
+function row(label: string, fs: Front[]): void {
+  const small = fs.map((f) => f.small);
+  const big = fs.map((f) => f.big);
+  console.log(` ${label.padEnd(36)} ${pad(fs.length, 5)}  ${pad(cut(small), 38)}  ${pad(big.length ? median(big).toFixed(1) : '—', 15)}`);
+}
+
+export function widthSection(hired: Hired): void {
+  console.log('');
+  console.log('=== Ширина поля: фронт меньшей стороны в боях отчёта (docs/battle_eu4.md, раздел 8) ===');
+  console.log('Бои — каждая запись боя в отчётах мира из прогонов разделов А, Б и В выше; бой у стены «сухим прогоном» (садиться ли в осаду) записи не пишет.');
+  console.log(`Меньшая сторона — по всем, кто вышел в бой (фронт, тыл и резерв); фронт полосы — её первая линия (сектора ${FRONT.join(', ')}) на ${FRONT.length} полосы,`);
+  console.log('в бойцах строя — единицах ядра боя (латник весит восьмерых). W — медиана по всем боям отчёта (решение владельца 26.09.2026).');
+  console.log(' бои                                   боёв  фронт полосы меньшей: 10-я…25-я…медиана…75-я…90-я  большей: медиана');
+  const ladder = Object.entries(hired.ladder);
+  const levels = [...new Set(ladder.map(([k]) => Number(k.split(':')[1])))].sort((a, b) => a - b);
+  for (const level of levels) row(`А. лестница мерки, ур. ${level}`, fronts(ladder.filter(([k]) => Number(k.split(':')[1]) === level).flatMap(([, outs]) => outs)));
+  row('Б. партия с первой секунды', fronts(Object.values(hired.fresh).flat()));
+  row('В. уведённые люди', fronts(hired.captives));
+  const all = [...fronts(ladder.flatMap(([, outs]) => outs)), ...fronts(Object.values(hired.fresh).flat()), ...fronts(hired.captives)];
+  for (const kind of [...new Set(all.map((f) => f.kind))].sort()) row(`вид отчёта: ${KIND[kind] ?? kind}`, all.filter((f) => f.kind === kind));
+  row('все бои отчёта', all);
+  if (all.length === 0) {
+    console.log('Боёв нет — W не из чего выводить.');
+    return;
+  }
+  const w = widthOf(all);
+  const share = (f: (x: Front) => boolean): string => pct(all.filter(f).length / all.length);
+  console.log(`W = ${w} бойцов строя на полосу — медиана фронта меньшей стороны по всем ${all.length} боям отчёта.`);
+  console.log(
+    `При W = ${w}: фронт меньшей стороны шире W в ${share((x) => x.small > w)} боёв, большей — в ${share((x) => x.big > w)}, обеих разом — в ${share((x) => x.small > w && x.big > w)}.`,
+  );
+}
