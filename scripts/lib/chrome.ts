@@ -11,6 +11,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { UNCAPPED, refuseIfBusy } from './budget';
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -35,6 +36,10 @@ export function chromePath(): string {
  * `HEAD=1` показывает окно — иногда надо посмотреть глазами, что там творится.
  */
 export async function launchChrome(port: number, args: string[] = []): Promise<ChildProcess> {
+  // Бюджет железа (CLAUDE.md): стендовый браузер — только с потолком кадров и только один.
+  const uncapped = args.filter((a) => UNCAPPED.includes(a));
+  if (uncapped.length) throw new Error(`флаги ${uncapped.join(' ')} снимают потолок кадров — запрещено правилом бюджета железа`);
+  refuseIfBusy('Стендовый браузер', { runs: false });
   const profile = join(process.env.TEMP ?? '/tmp', `tribe-chrome-${port}-${Date.now()}`);
   const chrome = spawn(
     chromePath(),

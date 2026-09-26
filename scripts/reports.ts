@@ -24,6 +24,7 @@ import { owners, plan, type Owner, type Plan } from './lib/affected';
 import { measure, shifts, stableLines } from './lib/measured';
 import { closureKey, lastSeconds, load, runTraced, save, unexplained } from './lib/runs';
 import { serveSlots, takeSlot } from './lib/slots';
+import { budgetCores, refuseIfBusy } from './lib/budget';
 import { ROOT, changedSince, lines, own, setupOf } from './lib/setup';
 import { commitTree, git, worktree, type Tree } from './lib/tree';
 
@@ -167,6 +168,10 @@ async function main(): Promise<void> {
     }
   }
 
+  // Бюджет железа (CLAUDE.md): приёмка — прогон, и прогоны идут по одному. Чужой прогон отчётов,
+  // тестов или стендовый браузер на машине — приёмка не начинается, ни база, ни своё.
+  refuseIfBusy('Приёмка отчётами');
+
   // Вывод «до» ищется под отпечатком замыкания отчёта на базе.
   let baseKeys = new Map<string, string>();
   if (baseOk) {
@@ -252,14 +257,16 @@ async function main(): Promise<void> {
   // жетон берёт каждый счётный отчёт без веера и каждый дочерний процесс веера; у отчёта с веером
   // (`lib/fan.ts` в замыкании) главный процесс почти всё время ждёт своих дочерних и жетона не держит — такие
   // начинаются все сразу, и их дочерние встают в общую очередь жетонов. Тяжёлые — первыми: хвост приёмки — самый
-  // долгий отчёт. Сколько ядер в среднем было занято, итог печатает замером.
+  // долгий отчёт. Сколько ядер в среднем было занято, итог печатает замером. Ядер у жетонов — две трети машины
+  // (`lib/budget.ts`, бюджет железа): машина владельца — не сервер, и прогон не занимает её целиком.
   const cores = availableParallelism();
+  const width = budgetCores(cores);
   const browser = (o: Owner): boolean => o.closure.files.has(setup.vite.html);
   const fans = (o: Owner): boolean => o.closure.files.has(FAN);
   const cost = new Map(selected.map((o) => [o.name, lastSeconds(ROOT, o.name)]));
   const counting = selected.filter((o) => !browser(o)).sort((a, b) => cost.get(b.name)! - cost.get(a.name)!);
-  const slots = await serveSlots(Math.max(1, cores - 1));
-  const env = { ...slots.env, TRIBE_FAN: String(Math.max(1, cores - 1)) };
+  const slots = await serveSlots(width);
+  const env = { ...slots.env, TRIBE_FAN: String(width) };
   const pool = async (list: Owner[], width: number, token: boolean): Promise<void> => {
     let i = 0;
     await Promise.all(
@@ -279,9 +286,9 @@ async function main(): Promise<void> {
   let busy = '';
   const countingFrom = performance.now();
   try {
-    await Promise.all([pool(counting.filter(fans), counting.length, false), pool(counting.filter((o) => !fans(o)), cores, true)]);
+    await Promise.all([pool(counting.filter(fans), counting.length, false), pool(counting.filter((o) => !fans(o)), width, true)]);
   } finally {
-    if (counting.length > 0) busy = `счётные ${measure(`${Math.round((performance.now() - countingFrom) / 1000)} с`)}, заняты в среднем ${measure(slots.busy().toFixed(1))} ядра из ${Math.max(1, cores - 1)}; `;
+    if (counting.length > 0) busy = `счётные ${measure(`${Math.round((performance.now() - countingFrom) / 1000)} с`)}, заняты в среднем ${measure(slots.busy().toFixed(1))} ядра из ${width}; `;
     await slots.close();
   }
   for (const o of selected.filter(browser)) await job(o, false, { TRIBE_FAN: '1' });

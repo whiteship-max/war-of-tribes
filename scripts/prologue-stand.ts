@@ -89,6 +89,7 @@ import { join } from 'node:path';
 import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { BROWSER_MAX_MS, refuseIfBusy } from './lib/budget';
 import { measure as live } from './lib/measured';
 import { BURN_FULL_MS, HEARTH_CAP, KEEP_BURN, LOG_HOURS, LOG_MS, burnLeftMs } from '../src/prologue/fire';
 import {
@@ -208,6 +209,8 @@ const LOOK = process.env.LOOK ?? '';
 /** Раздел «вид»: только эти часы и ступени, через запятую (`HOURS=утро,полдень`, `TIERS=full`). Пусто — все. */
 const HOURS = (process.env.HOURS ?? '').split(',').filter(Boolean);
 const TIERS = (process.env.TIERS ?? '').split(',').filter(Boolean);
+/** Раздел «вид»: только этот экран (`SCREEN=375` или `SCREEN=1280`). Пусто — оба. */
+const SCREEN = Number(process.env.SCREEN ?? 0);
 
 /** Сколько ждать после тапа по туше: движение длится, и торопить его нельзя. */
 const BUTCHER_WAIT = 1000;
@@ -760,6 +763,21 @@ function moment(from: number, span: number, ok: (t: number, into: number) => boo
 }
 
 async function main(): Promise<void> {
+  // БЮДЖЕТ ЖЕЛЕЗА (CLAUDE.md). Прогон — один на машине; стенд целиком идёт дольше двух минут
+  // подряд, и без слова владельца он не запускается: решает владелец (`BUDGET_OWNER=1`).
+  refuseIfBusy('Стенд предыстории');
+  if (!LOOK && process.env.BUDGET_OWNER !== '1') {
+    console.error(
+      [
+        '',
+        'Стенд предыстории целиком идёт дольше двух минут подряд — по правилу бюджета железа (CLAUDE.md) он не',
+        'запускается без слова владельца. Разрешает владелец: BUDGET_OWNER=1. Короткие заходы — раздел «вид»',
+        '(LOOK=папка с HOURS=, TIERS=, SCREEN=), по одному часу и одной ступени за заход.',
+      ].join('\n'),
+    );
+    process.exitCode = 2;
+    return;
+  }
   const vite = await createVite({
     configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
@@ -845,10 +863,11 @@ const LOOK_TURN = 0.12;
 const LOOK_PITCH = 0.06;
 
 /**
- * Сколько самое большее идёт прогон вида. Правило по железу: несколько минут подряд, не
- * больше, и пауза между прогонами; стенд бросает прогон, перешедший срок, сам.
+ * Сколько самое большее идёт прогон вида: две минуты подряд (бюджет железа, `lib/budget.ts`), и
+ * пауза между прогонами; стенд бросает прогон, перешедший срок, сам. Несколько часов и ступеней —
+ * несколькими короткими заходами (`HOURS=`, `TIERS=`, `SCREEN=`), а не одним длинным.
  */
-const LOOK_MAX_MS = 5 * 60_000;
+const LOOK_MAX_MS = BROWSER_MAX_MS;
 
 /**
  * Время видеокарты на кадр — запросами таймера вокруг всего цикла кадра.
@@ -1023,7 +1042,8 @@ async function look(): Promise<void> {
 
   const rows: [string, string, Frames, { n: number; median: number; p95: number }, string][] = [];
   // Мерило снимается всегда, когда оно среди часов; замер и экран ПК — только при SECONDS > 0.
-  for (const s of mark ? (SECONDS > 0 ? SCREENS : SCREENS.slice(0, 1)) : []) {
+  const screens = SCREEN ? SCREENS.filter((x) => x.w === SCREEN) : SECONDS > 0 ? SCREENS : SCREENS.slice(0, 1);
+  for (const s of mark ? screens : []) {
     await screen(s);
     for (const tier of await tiers()) {
       budget();

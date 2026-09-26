@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { budgetCores } from './scripts/lib/budget';
 
 /**
  * Снимки стенда-витрины. Только dev-сервер: страница `?showcase=…&snap=имя`
@@ -179,5 +180,11 @@ export default defineConfig({
   // Тесты серверных функций живут рядом с ними, а не в src: они про подпись
   // и хранилище, а не про игру. Тесты приёмки отчётами (какие отчёты гнать) —
   // рядом с ней, в scripts/lib. Прогон один — приёмка должна быть одна.
-  test: { environment: 'node', include: ['src/**/*.test.ts', 'netlify/**/*.test.ts', 'scripts/**/*.test.ts'] },
+  // Работников у тестов — две трети ядер, не больше (бюджет железа, CLAUDE.md): машина владельца — не сервер.
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts', 'netlify/**/*.test.ts', 'scripts/**/*.test.ts'],
+    maxWorkers: budgetCores(),
+    minWorkers: 1,
+  },
 });

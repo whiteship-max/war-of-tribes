@@ -13,7 +13,8 @@
  * зависел бы от того, что считалось до него в том же процессе, здесь разошёлся бы с прежним
  * выводом — и это находка, а не шум: полная приёмка сравнивает вывод с базой.
  *
- * СКОЛЬКО ПРОЦЕССОВ — `TRIBE_FAN`, а без него — все ядра, кроме одного. `TRIBE_FAN=1` — прежний путь:
+ * СКОЛЬКО ПРОЦЕССОВ — `TRIBE_FAN`, а без него — две трети ядер (`budget.ts`, бюджет железа: машина
+ * владельца — не сервер, и прогон не занимает её целиком). `TRIBE_FAN=1` — прежний путь:
  * задачи идут в этом же процессе подряд, без единого дочернего. Под приёмкой ядра делят все отчёты
  * вместе: на каждый дочерний процесс берётся жетон (`slots.ts`), и отдаётся он, когда процесс вышел.
  *
@@ -28,17 +29,17 @@
  */
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { budgetCores } from './budget';
 import { takeSlot } from './slots';
 
 type Task = (arg: never) => unknown;
 
-/** Сколько процессов берёт веер: `TRIBE_FAN`, а без него — все ядра, кроме одного. */
+/** Сколько процессов берёт веер: `TRIBE_FAN`, а без него — две трети ядер (бюджет железа). */
 export function fanWidth(env: NodeJS.ProcessEnv = process.env): number {
   const n = Math.floor(Number(env.TRIBE_FAN));
-  return n >= 1 ? n : Math.max(1, availableParallelism() - 1);
+  return n >= 1 ? Math.min(n, budgetCores()) : budgetCores();
 }
 
 interface Job {

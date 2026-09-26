@@ -1,6 +1,7 @@
 // Веер обязан отдавать ровно то, что задача отдала бы в процессе отчёта, и в порядке доводов:
 // на этом держится «полный режим совпал с прежним буква в букву» (`fan.ts`).
 import { afterEach, describe, expect, it } from 'vitest';
+import { budgetCores } from './budget';
 import { fan, fanWidth } from './fan';
 import { boom, shape } from './fan-fixture';
 
@@ -11,10 +12,11 @@ afterEach(() => {
 });
 
 describe('веер прогонов', () => {
-  it('ширина — из TRIBE_FAN, без неё — все ядра, кроме одного', () => {
-    expect(fanWidth({ TRIBE_FAN: '3' })).toBe(3);
+  it('ширина — из TRIBE_FAN, без неё — бюджет железа; выше бюджета не бывает никогда', () => {
+    expect(fanWidth({ TRIBE_FAN: '3' })).toBe(Math.min(3, budgetCores()));
     expect(fanWidth({ TRIBE_FAN: '1' })).toBe(1);
-    expect(fanWidth({})).toBeGreaterThanOrEqual(1);
+    expect(fanWidth({})).toBe(budgetCores());
+    expect(fanWidth({ TRIBE_FAN: '999' })).toBe(budgetCores());
   });
 
   it('по процессам — тот же итог, что подряд в процессе отчёта, и в порядке доводов', async () => {
