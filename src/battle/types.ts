@@ -197,6 +197,10 @@ export type BattleEvent = EventBase &
      * фронт). Пишется раз за бой на ряд полосы — в первый тик, когда ширина зажала бьющих.
      */
     | { id: 'depth'; side: Side; sector: Sector; row: 'front' | 'rear' | 'strike'; men: number; width: number }
+    /** Первый проход кончился, а не сломался никто: сеча идёт снова, круг `round` по счёту (первый проход — первый круг: 2, 3, …). */
+    | { id: 'round'; round: number }
+    /** Сеча шла `rounds` кругами вместе с первым проходом — потолок (`roundsCap`), а не сломался никто: стояние, исход решает итог по сохранённым. */
+    | { id: 'rounds-out'; rounds: number }
     /** Армия сломалась: сломанные сектора весят `brokenShare` (0..1) от её начальной численности. */
     | { id: 'morale-collapsed'; side: Side; morale: number; brokenShare: number }
     /** Сторона перебита почти целиком. */
@@ -257,6 +261,8 @@ export interface SideResult {
 
 export interface PhaseSpan {
   phase: PhaseId;
+  /** Круг сечи, к которому фаза относится, по счёту: первый проход — первый круг, у него поля нет; дальше 2, 3, … */
+  round?: number;
   /** Первый и последний тик фазы включительно. */
   from: number;
   to: number;

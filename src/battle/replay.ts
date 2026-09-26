@@ -1021,12 +1021,13 @@ function amountOf(e: BattleEvent): number {
  * она множит. Глубина — не миг, а состояние ряда: строй стоит шире фронта весь бой, и показывает это
  * сам строй, а не метка.
  */
-const service = (e: BattleEvent): boolean => e.id === 'phase-start' || e.id === 'result' || e.id === 'dice' || e.id === 'depth';
+const service = (e: BattleEvent): boolean => e.id === 'phase-start' || e.id === 'result' || e.id === 'dice' || e.id === 'depth' || e.id === 'round' || e.id === 'rounds-out';
 
 /** События журнала на времени и на месте. Служебные (`service`) меткой не становятся. */
 function markLog(result: BattleResult, spans: Span[], us: Side): Mark[] {
   const at = (tick: number, phase: PhaseId): { t: number; act: Act } => {
-    const span = spans.find((s) => s.phase === phase) ?? spans[0];
+    // Фаза встречается не один раз — сеча идёт кругами, — поэтому событие ищет ту, в чьи тики попало.
+    const span = spans.find((s) => s.phase === phase && tick >= s.from && tick <= s.to) ?? spans.find((s) => s.phase === phase) ?? spans[0];
     const len = Math.max(1, span.to - span.from + 1);
     const u = clamp01((tick - span.from) / len);
     return { t: span.t0 + (span.t1 - span.t0) * u, act: span.act };

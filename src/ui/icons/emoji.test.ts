@@ -72,7 +72,7 @@ const DEBT: readonly string[] = [
   'ui/SyncModal.tsx:27 U+1FA9F',
   'ui/map/ActionMenu.tsx:456 U+1FAE5',
   'ui/panels/BattlePanel.tsx:283 U+1FAB5',
-  'ui/panels/ReportPanel.tsx:327 U+1FAA6',
+  'ui/panels/ReportPanel.tsx:329 U+1FAA6',
   'ui/parts/Statue.tsx:96 U+1FA99',
   'ui/parts/Tavern.tsx:22 U+1FA99',
   'ui/parts/Tavern.tsx:35 U+1FA99',

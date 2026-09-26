@@ -393,6 +393,22 @@ describe('ролик рассказывает то же, что отчёт', () 
     expect([...ticks].sort((a, b) => a - b)).toEqual(ticks);
   });
 
+  it('событие круга сечи ложится на время своего круга, а не первой сечи', () => {
+    // Сеча идёт кругами, и фаза встречается в журнале не один раз: метка ищет ту, в чьи тики попало.
+    // Бой, дошедший до потолка кругов, — копья с лучниками против пехоты с конницей на изматывании.
+    const r = simulateBattle({ seed: 1, attacker: { ...quickSetup({ spear: 300, archer: 300 }), plan: 'attrition' }, defender: { ...quickSetup({ infantry: 400, cavalry: 200 }), plan: 'attrition' } });
+    const cast = buildCast(r, 'attacker');
+    const inRound = cast.marks.filter((m) => r.phases.some((p) => p.round && p.phase === m.phase && m.tick >= p.from && m.tick <= p.to));
+    // Граница: круги в бою есть, и в них есть события, ставшие метками, — иначе правило проверялось бы даром.
+    expect(r.phases.some((p) => p.round), 'в бою есть круги сечи').toBe(true);
+    expect(inRound.length, 'метки в кругах').toBeGreaterThan(0);
+    for (const m of cast.marks) {
+      const span = cast.spans.find((s) => s.phase === m.phase && m.tick >= s.from && m.tick <= s.to)!;
+      expect(m.t, `${m.id} на ${m.tick}-м тике`).toBeGreaterThanOrEqual(span.t0 - 1e-9);
+      expect(m.t, `${m.id} на ${m.tick}-м тике`).toBeLessThanOrEqual(span.t1 + 1e-9);
+    }
+  });
+
   it('подпись держится ровно столько, сколько обещано', () => {
     const cast = buildCast(evenFight(), 'attacker');
     // Событий на одном тике бывает несколько, и подпись показывает последнее из

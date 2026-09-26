@@ -7,7 +7,8 @@ import { simulateBattle, quickSetup, MORALE, RETREAT, TEMPER, UNIT_STATS, COUNTE
 import { COMPOSITIONS, TUNED, RING, mirrored, quickOf } from '../src/battle/bench';
 import type { BattleResult } from '../src/battle';
 
-const fullLen = (r: BattleResult): number => r.phases.find((p) => p.phase === 'ranged')!.to + 60;
+/** Гонг — потолок кругов сечи (`roundsCap`): бой дошёл до него, не сломав никого. */
+const atGong = (r: BattleResult): boolean => r.log.some((e) => e.id === 'rounds-out');
 const scale = (army: Partial<Record<string, number>>, k: number): Record<string, number> =>
   Object.fromEntries(Object.entries(army).map(([kind, n]) => [kind, Math.round((n ?? 0) * k)]));
 
@@ -22,7 +23,7 @@ function measure(): string {
       for (let seed = 1; seed <= S; seed += 1) {
         const r = simulateBattle({ seed, attacker: COMPOSITIONS[i].setup, defender: COMPOSITIONS[j].setup });
         total += 1;
-        if (r.ticks < fullLen(r)) early += 1;
+        if (!atGong(r)) early += 1;
         if (r.winner === 'draw') draws += 1;
       }
     }
@@ -39,7 +40,7 @@ function measure(): string {
       bigLoss += r.sides[bigAttacks ? 'attacker' : 'defender'].total.losses;
       smallLoss += r.sides[bigAttacks ? 'defender' : 'attacker'].total.losses;
       mirrorTotal += 1;
-      if (r.ticks < fullLen(r)) mirrorEarly += 1;
+      if (!atGong(r)) mirrorEarly += 1;
     }
     ratios.push(smallLoss / Math.max(1, bigLoss));
   }

@@ -297,6 +297,28 @@ export const MORALE = {
   reserveTriggerAt: 60,
 };
 
+/**
+ * Потолок кругов сечи (docs/battle_eu4.md, пачка 3). Круг — бой линий и падение морали снова, с новой
+ * костью; идут они, пока кто-то не сломается, но не дольше, чем ровный бой может идти, никого не сломав.
+ *
+ * Число выведено, а не выбрано. Ровный фронт в полную силу выбивает за тик сечи долю `MELEE_RATE` того,
+ * что против него стоит в ширину; армия глубиной `depth` — вся армия к трём полосам ширины фронта —
+ * теряет `MORALE.autoBreakLoss`, долю, после которой ломается без всякой морали, за
+ * `autoBreakLoss · depth / MELEE_RATE` тиков сечи. Первый проход даёт их `FIRST_MELEE_TICKS` (сшибка, линии,
+ * обходы, резерв, мораль), круг — `ROUND_TICKS` (линии и мораль); потолок — столько кругов, чтобы сечи
+ * хватило на это. Глубина берётся у меньшей по ней стороны: она ломается первой. Без ширины глубина —
+ * единица (бьют все), и потолок — один круг.
+ *
+ * На потолке не сломан никто, хотя ровный бой уже сломал бы одними потерями — это не сеча, а стояние: ни
+ * одна сторона другую не берёт. Кончается оно тем же, чем бой без развала морали, — итогом по сохранённым
+ * (`WITHDRAW_RATIO`): кто сохранил заметно меньше, отходит в порядке, остальное — ничья. Своего числа у
+ * потолка нет ни одного.
+ */
+export const ROUND_TICKS = PHASE_TICKS.lines + PHASE_TICKS.morale;
+export const FIRST_MELEE_TICKS = PHASE_TICKS.clash + PHASE_TICKS.lines + PHASE_TICKS.flanking + PHASE_TICKS.reserve + PHASE_TICKS.morale;
+export const roundsCap = (depth: number): number =>
+  Math.max(0, Math.ceil(((MORALE.autoBreakLoss * Math.max(1, depth)) / MELEE_RATE - FIRST_MELEE_TICKS) / ROUND_TICKS));
+
 /** Сила урона от морали сектора: при нуле — половина. */
 export const moraleDamageMult = (morale: number): number => 0.5 + 0.5 * Math.max(0, Math.min(100, morale)) / 100;
 

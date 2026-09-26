@@ -10,7 +10,7 @@
 // сама задача, в том процессе, который её считает, — у веера это дочерний процесс, и в процессе отчёта
 // подмен нет (кроме `TRIBE_FAN=1`, когда задачи идут в нём же подряд). Снять подмену обязательно и
 // здесь: процесс берёт задачи одну за другой, и следующая обязана начаться на числах конфига.
-import { COUNTER, COVER, PHASE_TICKS, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
+import { COUNTER, COVER, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
 import { stackPower } from '../src/battle/sim';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, RING, SEARCH, TUNED, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
 import { fan, serveFan } from './lib/fan';
@@ -21,13 +21,12 @@ import { fan, serveFan } from './lib/fan';
 export interface Brief {
   ticks: number;
   reason: BattleResult['reason'];
-  /** Кончился раньше потолка: сторона отступила, а не дождалась гонга. */
+  /** Кончился раньше гонга: сторона сломалась, а не дождалась потолка кругов сечи. */
   early: boolean;
 }
 
-/** Бой кончился раньше потолка своей длины (ранняя фаза длится по темпу планов, остальные — фиксированно). */
-const fullLength = (r: BattleResult): number => r.phases.find((p) => p.phase === 'ranged')!.to + (Object.keys(PHASE_TICKS) as Array<keyof typeof PHASE_TICKS>).filter((p) => p !== 'ranged').reduce((n, p) => n + PHASE_TICKS[p], 0);
-const brief = (r: BattleResult): Brief => ({ ticks: r.ticks, reason: r.reason, early: r.ticks < fullLength(r) });
+/** Гонг — потолок кругов сечи (`roundsCap`): бой дошёл до него, не сломав никого (событие `rounds-out`). */
+const brief = (r: BattleResult): Brief => ({ ticks: r.ticks, reason: r.reason, early: !r.log.some((e) => e.id === 'rounds-out') });
 
 /** Зеркальная пара без журналов: итог `mirrorOf` и её бои для «Длительности». */
 export type Pair = Pick<Mirrored, 'field' | 'lossRatio' | 'pyrrhic'> & { results: [Brief, Brief] };

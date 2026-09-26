@@ -47,6 +47,7 @@ import {
   WIDTH_ON,
   WITHDRAW_RATIO,
   moraleDamageMult,
+  roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
 import { emptyStack, stackTotal, validateSetup } from './setup';
@@ -318,6 +319,8 @@ class Battle {
   readonly width: number;
   /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
   rowMen = new Map<string, number>();
+  /** Сколько кругов сечи прошло сверх первого прохода (`rounds`); круг сечи по счёту — на единицу больше. */
+  round = 0;
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
@@ -475,43 +478,73 @@ class Battle {
     const plan = this.schedule();
     let skipToMorale = false;
     for (const { phase, ticks } of plan) {
+      if (phase === 'retreat') this.rounds();
       if (skipToMorale && phaseIndex(phase) < phaseIndex('morale')) continue;
-      this.phase = phase;
-      const from = this.tick + 1;
-      const lostBefore = { attacker: this.sides.attacker.lostTotal, defender: this.sides.defender.lostTotal };
-      const menBefore = this.sectorMen();
-      this.tick += 1;
-      this.onPhaseStart();
-      this.step();
-      let done = 1;
-      while (done < ticks) {
-        const min = PHASE_MIN[phase] ?? ticks;
-        const someoneBroken = this.sides.attacker.broken || this.sides.defender.broken;
-        if (someoneBroken && phaseIndex(phase) >= phaseIndex('lines') && phaseIndex(phase) <= phaseIndex('morale') && done >= min) {
-          // Сторона сломалась — обходы и ввод резерва пропускаются, фаза морали
-          // обрывается: ждать больше нечего, а каждый лишний тик рубит бегущих.
-          // Резерв, который ещё ждал, входит прикрыть отход, а не остаётся дома.
-          for (const side of SIDES) this.commitReserve(side, true);
-          skipToMorale = true;
-          break;
-        }
-        this.tick += 1;
-        this.step();
-        done += 1;
-      }
-      this.onPhaseEnd();
-      this.phases.push({
-        phase,
-        from,
-        to: this.tick,
-        losses: {
-          attacker: Math.round((this.sides.attacker.lostTotal - lostBefore.attacker) * 10) / 10,
-          defender: Math.round((this.sides.defender.lostTotal - lostBefore.defender) * 10) / 10,
-        },
-        bySector: this.lossBySector(menBefore),
-      });
+      if (this.runPhase(phase, ticks)) skipToMorale = true;
     }
     return this.finish();
+  }
+
+  /**
+   * Круги сечи (docs/battle_eu4.md, пачка 3): первый проход кончился, а не сломался никто — бой линий и
+   * падение морали идут снова, с новой костью, пока кто-то не сломается, но не больше потолка (`roundsCap`
+   * от глубины меньшей по ней стороны: вся её армия к трём полосам ширины фронта).
+   * Бой, сломавшийся в первом проходе, кругов не видит вовсе и идёт бит в бит как до них: круг не
+   * бросает ни одной кости, пока в него не вошли.
+   */
+  rounds(): void {
+    const depth = Math.min(...SIDES.map((side) => this.sides[side].initialTotal / (FRONT.length * this.width)));
+    const cap = roundsCap(depth);
+    while (!this.sides.attacker.broken && !this.sides.defender.broken) {
+      if (this.round >= cap) {
+        this.emit({ id: 'rounds-out', rounds: this.round + 1 });
+        return;
+      }
+      this.round += 1;
+      this.runPhase('lines', PHASE_TICKS.lines);
+      this.runPhase('morale', PHASE_TICKS.morale);
+    }
+  }
+
+  /** Одна фаза целиком. Правда — сторона сломалась посреди сечи, и до фазы морали ждать больше нечего. */
+  runPhase(phase: PhaseId, ticks: number): boolean {
+    this.phase = phase;
+    const from = this.tick + 1;
+    const lostBefore = { attacker: this.sides.attacker.lostTotal, defender: this.sides.defender.lostTotal };
+    const menBefore = this.sectorMen();
+    let skipToMorale = false;
+    this.tick += 1;
+    this.onPhaseStart();
+    this.step();
+    let done = 1;
+    while (done < ticks) {
+      const min = PHASE_MIN[phase] ?? ticks;
+      const someoneBroken = this.sides.attacker.broken || this.sides.defender.broken;
+      if (someoneBroken && phaseIndex(phase) >= phaseIndex('lines') && phaseIndex(phase) <= phaseIndex('morale') && done >= min) {
+        // Сторона сломалась — обходы и ввод резерва пропускаются, фаза морали
+        // обрывается: ждать больше нечего, а каждый лишний тик рубит бегущих.
+        // Резерв, который ещё ждал, входит прикрыть отход, а не остаётся дома.
+        for (const side of SIDES) this.commitReserve(side, true);
+        skipToMorale = true;
+        break;
+      }
+      this.tick += 1;
+      this.step();
+      done += 1;
+    }
+    this.onPhaseEnd();
+    this.phases.push({
+      phase,
+      ...(this.round > 0 && (phase === 'lines' || phase === 'morale') ? { round: this.round + 1 } : {}),
+      from,
+      to: this.tick,
+      losses: {
+        attacker: Math.round((this.sides.attacker.lostTotal - lostBefore.attacker) * 10) / 10,
+        defender: Math.round((this.sides.defender.lostTotal - lostBefore.defender) * 10) / 10,
+      },
+      bySector: this.lossBySector(menBefore),
+    });
+    return skipToMorale;
   }
 
   /**
@@ -564,6 +597,7 @@ class Battle {
         this.rangedVerdict();
         break;
       case 'lines':
+        if (this.round > 0) this.emit({ id: 'round', round: this.round + 1 });
         for (const side of SIDES) this.supportWeakFlank(side);
         break;
       case 'flanking':

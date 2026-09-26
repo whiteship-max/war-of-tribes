@@ -14,8 +14,6 @@ import {
   PHASE_NAME,
   describeEvent,
   summarize,
-  type BattleEvent,
-  type PhaseId,
   type Side,
 } from '@/battle';
 import { setBattleWatch } from '@/game/battle/actions';
@@ -106,29 +104,33 @@ function Replay({ rec, onDone }: ReplayProps) {
   );
 }
 
-/** Журнал по фазам: заголовок фазы, под ним её события. */
+/**
+ * Журнал по фазам: заголовок фазы, под ним её события. Фаза встречается в бою не один раз — сеча
+ * идёт кругами (`PhaseSpan.round`), — поэтому событие ложится в ту фазу, в чьи тики попало, а не
+ * в первую с тем же именем.
+ */
 function Journal({ rec }: { rec: BattleRecord }) {
-  const byPhase = useMemo(() => {
-    const map = new Map<PhaseId, BattleEvent[]>();
-    for (const e of rec.result.log) {
-      if (e.id === 'phase-start') continue;
-      const list = map.get(e.phase) ?? [];
-      list.push(e);
-      map.set(e.phase, list);
-    }
-    return map;
-  }, [rec]);
+  const bySpan = useMemo(
+    () =>
+      rec.result.phases.map((span) =>
+        rec.result.log.filter((e) => e.id !== 'phase-start' && e.phase === span.phase && e.tick >= span.from && e.tick <= span.to),
+      ),
+    [rec],
+  );
 
   return (
     <div className="bl">
-      {rec.result.phases.map((span) => {
-        const events = byPhase.get(span.phase) ?? [];
+      {rec.result.phases.map((span, i) => {
+        const events = bySpan[i];
         const ours = Math.round(span.losses[rec.us]);
         const theirs = Math.round(span.losses[other(rec.us)]);
         return (
-          <div className="bl-phase" key={span.phase}>
+          <div className="bl-phase" key={`${span.phase}:${span.round ?? 1}`}>
             <div className="bl-head">
-              <b>{PHASE_NAME[span.phase]}</b>
+              <b>
+                {PHASE_NAME[span.phase]}
+                {span.round ? `, круг ${span.round}` : ''}
+              </b>
               <span className="bl-cost">
                 мы −{ours} · они −{theirs}
               </span>
