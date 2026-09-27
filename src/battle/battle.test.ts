@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { ringMult, simulateBattle } from './sim';
 import { deploySetup, armyTotal, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, COUNTER, DICE, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleMin, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
+import { ANNIHILATED_AT, BREAK_AFTER, COUNTER, DICE, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleMin, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
 import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PipId, type Side, type Stack, type Winner } from './types';
@@ -436,7 +436,9 @@ describe('детерминированность', () => {
 
 describe('продолжительность', () => {
   // Границы выводятся из фаз, а не записаны числом. Нижняя — самый ранний слом: бой линий и мораль обрываются на
-  // своём минимуме, обходы и резерв пропущены, отступление и преследование идут целиком. Верхняя — все фазы до конца.
+  // своём минимуме, обходы и резерв пропущены, отступление и преследование идут целиком. Самый ранний слом с минимумом
+  // боя EU4 (`BREAK_AFTER`, 14.21) — истребление: моралью раньше конца сшибки второго круга не ломается никто, а
+  // перебитую сторону минимум не держит. Верхняя — все фазы до конца.
   // Стрельба — ровно `PHASE_TICKS.ranged` тиков на бой: темп планов, который её двигал, ушёл с планами (14.5).
   //
   // Бой идёт кругами всем боем (`CIRCLE_PHASES`), и границы выводятся из долей круга: нижняя — первый круг с боем
@@ -582,9 +584,11 @@ describe('круги сечи', () => {
       const firstBreak = Math.min(...breaks);
       const firstEnd = r.phases.filter((p) => p.round === undefined && CIRCLE_PHASES.includes(p.phase)).pop()!.to;
       if (firstBreak <= firstEnd) {
-        // Сломались в первом проходе — кругов нет вовсе.
+        // Сломались в первом проходе — кругов нет вовсе. Моралью в первом проходе не ломается никто — минимум боя EU4
+        // (`BREAK_AFTER`, 14.21), — и этот путь остался только перебитым.
         expect(rounds, 'круг после слома в первом проходе').toBe(0);
         expect(atGong(r)).toBe(false);
+        expect(r.reason, 'в первом проходе сломались моралью').toBe('annihilated');
         firstPass += 1;
       } else if (atGong(r)) {
         // Потолок: кругов ровно столько, и до него не сломался никто.
@@ -604,8 +608,9 @@ describe('круги сечи', () => {
         broke += 1;
       }
     }
-    // Граница: в выборке есть все три пути — иначе правило проверялось бы даром на одном из них.
-    expect(firstPass, 'сломались в первом проходе').toBeGreaterThan(0);
+    // Граница: в выборке есть оба пути боя, дошедшего до кругов, — иначе правило проверялось бы даром на одном из них.
+    // Третий путь — слом в первом проходе — с минимумом боя EU4 остался только перебитым, и выборка до него может не
+    // дойти; его держит «минимум боя EU4» ниже: истребление до минимума.
     expect(broke, 'сломались в круге').toBeGreaterThan(0);
     expect(gong, 'дошли до потолка').toBeGreaterThan(0);
     expect(
@@ -1238,6 +1243,52 @@ describe('мораль EU4', () => {
       }
     }
     expect(checked, 'сторон, сломавшихся моралью при резерве').toBeGreaterThan(0);
+  });
+
+  it('минимум боя EU4: моралью сторона не ломается раньше двух фаз огня и двух натиска — и ломается в первый тик после', () => {
+    // Слово владельца 27.09.2026 (docs/battle_eu4.md, 14.21; вики EU4: «Retreat cannot happen until both two fire and two
+    // shock phases have been completed»). Фаза огня — обстрел круга, натиска — сшибка. Сектора бегут сами и резерв
+    // встаёт, как прежде; ждёт только слом стороны. Перебитую сторону минимум не держит: отходить некому.
+    /** Последний тик минимума: круги целиком, пока не прошли фазы каждой отметки `BREAK_AFTER`. */
+    const floor = ((): number => {
+      const passed: Partial<Record<PipId, number>> = {};
+      let t = 0;
+      for (let k = 1; k <= 10; k += 1) {
+        for (const [i, p] of CIRCLE_PHASES.entries()) {
+          t += circleTicks(p, k);
+          const pip = PHASE_PIP[p];
+          if (pip && PHASE_PIP[CIRCLE_PHASES[i + 1]] !== pip) passed[pip] = (passed[pip] ?? 0) + 1;
+          if (Object.entries(BREAK_AFTER).every(([q, n]) => (passed[q as PipId] ?? 0) >= (n ?? 0))) return t;
+        }
+      }
+      return Infinity;
+    })();
+    // Прочтение правила, названное вслух: две фазы огня и две натиска — это конец сшибки второго круга.
+    expect(BREAK_AFTER).toEqual({ fire: 2, shock: 2 });
+    expect(floor, 'конец сшибки второго круга').toBe(circleLength(1) + circleTicks('ranged', 2) + circleTicks('approach', 2) + circleTicks('clash', 2));
+
+    // Горстка против толпы: строй горстки пустеет в первом круге, резерва у неё нет — правило здесь и решает.
+    const handful = (seed: number): BattleResult => simulateBattle({ seed, attacker: deploySetup({ infantry: 30 }), defender: deploySetup({ infantry: 600 }) });
+    const battles = [...sampleBattles(), ...[1, 2, 3, 4].map(handful)];
+    for (const r of battles) {
+      for (const e of r.log) {
+        if (e.id === 'morale-collapsed') expect(e.tick, `${e.side} сломалась моралью на ${e.tick}-м тике при минимуме по ${floor}-й`).toBeGreaterThan(floor);
+      }
+    }
+    for (let seed = 1; seed <= 4; seed += 1) {
+      const r = handful(seed);
+      const fled = r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker');
+      const collapsed = r.log.find((e) => e.id === 'morale-collapsed' && e.side === 'attacker');
+      // Граница области: горстка побежала в первом круге, задолго до минимума, и резерва у неё не было.
+      expect(fled && fled.tick <= circleLength(1), `сид ${seed}: горстка не побежала в первом круге`).toBe(true);
+      expect(stackTotal(r.sides.attacker.sectors.R.initial), `сид ${seed}: резерв горстки`).toBe(0);
+      expect(collapsed?.tick, `сид ${seed}: строй пуст с ${fled!.tick}-го тика — сторона ломается в первый тик после минимума`).toBe(floor + 1);
+    }
+    // Истребление минимум не держит: перебитая сторона ломается сразу.
+    const wiped = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 2 }) });
+    const at = wiped.log.find((e) => e.id === 'annihilated' && e.side === 'defender');
+    expect(at, 'истребление в журнале').toBeDefined();
+    expect(at!.tick, `истреблены на ${at!.tick}-м тике при минимуме по ${floor}-й`).toBeLessThanOrEqual(floor);
   });
 
   it('бежавший уходит с поля: после слома сектор не получает ни одного удара до погони', () => {

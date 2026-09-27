@@ -10,6 +10,7 @@
 import {
   ANCHOR,
   ANNIHILATED_AT,
+  BREAK_AFTER,
   CLASH_CAVALRY_IMPACT,
   CLASH_SPEAR_BRACE,
   COUNTER,
@@ -378,6 +379,11 @@ class Battle {
   shaken = new Map<string, number>();
   /** Штраф кости сторон от места боя на весь бой (`groundFaces`). */
   ground!: Record<Side, ReturnType<typeof groundFaces>>;
+  /**
+   * Сколько фаз каждой отметки уже прошло целиком: фаза огня — обстрел круга (стрельба и сближение подряд), натиска —
+   * сшибка. По ним минимум боя EU4 (`BREAK_AFTER`, `mayRetreat`).
+   */
+  passed: Partial<Record<PipId, number>> = {};
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
@@ -633,6 +639,10 @@ class Battle {
   }
 
   onPhaseEnd(): void {
+    // Фаза отметки кончилась, когда следующая фаза круга — другой отметки: стрельба и сближение — одна фаза огня.
+    const at = CIRCLE_PHASES.indexOf(this.phase);
+    const pip = PHASE_PIP[this.phase];
+    if (pip && at >= 0 && PHASE_PIP[CIRCLE_PHASES[at + 1]] !== pip) this.passed[pip] = (this.passed[pip] ?? 0) + 1;
     if (this.phase === 'clash' || this.phase === 'lines') {
       for (const side of SIDES) this.explainKills(side);
     }
@@ -1211,9 +1221,17 @@ class Battle {
   }
 
   /**
+   * Минимум боя EU4 (`BREAK_AFTER`, 14.21): прошли ли уже две фазы огня и две натиска. До того сторона моралью не
+   * ломается, даже если в строю у неё никого, — ломается в первый тик после.
+   */
+  mayRetreat(): boolean {
+    return Object.entries(BREAK_AFTER).every(([pip, n]) => (this.passed[pip as PipId] ?? 0) >= (n ?? 0));
+  }
+
+  /**
    * Мораль по секторам: потери сектора и удар с фланга. Сектор с нулевой моралью бежит с поля. Бегство соседа мораль
    * не трогает (14.21). Сторона сломана, когда в строю никого нет и встать некому — резерв исчерпан (мораль EU4,
-   * docs/battle_eu4.md, 14.15), — или перебита.
+   * docs/battle_eu4.md, 14.15), но не раньше минимума боя (`mayRetreat`), — или перебита: этого минимум не держит.
    */
   updateMorale(): void {
     for (const side of SIDES) {
@@ -1253,7 +1271,7 @@ class Battle {
         s.brokenAt = this.tick;
         s.brokenReason = 'annihilated';
         this.emit({ id: 'annihilated', side });
-      } else if (!s.broken && nobody) {
+      } else if (!s.broken && nobody && this.mayRetreat()) {
         s.broken = true;
         s.brokenAt = this.tick;
         s.brokenReason = 'morale';

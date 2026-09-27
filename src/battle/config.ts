@@ -296,6 +296,16 @@ export const MORALE = {
  */
 export const CIRCLE_PHASES: readonly PhaseId[] = ['ranged', 'approach', 'clash', 'lines'];
 
+/**
+ * Минимум боя по EU4 (слово владельца 27.09.2026; docs/battle_eu4.md, 14.21): «Retreat cannot happen until both two
+ * fire and two shock phases have been completed» (вики EU4, «Land warfare», «Morale»). Сторона не ломается моралью —
+ * не отходит, — пока не прошли столько фаз каждой отметки. Фаза огня у нас — обстрел круга (стрельба и сближение,
+ * отметка `fire`), натиска — сшибка (`shock`): минимум — конец сшибки второго круга. Сектора при этом бегут сами, как
+ * полки EU4, и резерв встаёт на их место; ждёт только слом стороны. Перебитая сторона ломается сразу: это не отход —
+ * отходить некому. Числа — EU4 буквально, по слову владельца; своих у правила нет.
+ */
+export const BREAK_AFTER: Partial<Record<PipId, number>> = { fire: 2, shock: 2 };
+
 /** Фазы сечи круга — с первого удара: в обстреле рукопашной нет. */
 export const CIRCLE_MELEE: readonly PhaseId[] = ['clash', 'lines'];
 
