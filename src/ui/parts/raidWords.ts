@@ -38,14 +38,16 @@ export function raidWords(win: RaidWindow): RaidWords {
 }
 
 /**
- * Окна всех чужих отрядов в пути, ближайший первым, — словами в эту секунду. Пока кто-то идёт, отсчёт обязан идти сам:
- * замерший счётчик читается как сломанный экран, а не как «время есть».
+ * Окна отрядов, идущих на деревню, ближайший первым, — словами в эту секунду. Чужой поход мимо нас (логово на логово,
+ * выручка на наш лагерь) сюда не попадает: его строка звала бы к обороне от чужой войны (`store.incomingMarches`).
+ * Пока кто-то идёт, отсчёт обязан идти сам: замерший счётчик читается как сломанный экран, а не как «время есть».
  */
 export function useRaidWords(): RaidWords[] {
   const marches = useWorld((g) => g.marches);
+  const homeId = useWorld((g) => g.info?.homeId);
   const [, retick] = useState(0);
   const now = worldNow();
-  const words = incomingMarches(marches).map((m) => raidWords(raidWindow(m, now)));
+  const words = incomingMarches(marches, homeId).map((m) => raidWords(raidWindow(m, now)));
   const moving = words.length > 0;
   useEffect(() => {
     if (!moving) return;

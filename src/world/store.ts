@@ -1037,9 +1037,18 @@ export function marchOn(marches: MarchView[], cell: Coord, now: number): MarchVi
 /** Свои походы — отдельно от чужих: их показывает список, их можно отозвать. */
 export const ownMarches = (marches: MarchView[]): MarchView[] => marches.filter((m) => m.own);
 
-/** Чужие отряды, идущие на деревню игрока. Ближайший по времени — первым. */
-export const incomingMarches = (marches: MarchView[]): MarchView[] =>
-  marches.filter((m) => m.hostile && m.phase === 'out').sort((a, b) => a.arriveAt - b.arriveAt);
+/**
+ * Чужие отряды, идущие на деревню игрока. Ближайший по времени — первым.
+ *
+ * «Чужой» (`hostile`) — ещё не «на нас»: так мир помечает всякий не свой отряд, и в живом обзоре у деревни идут и
+ * походы логов друг на друга (`LocalWorld.scheduleWar`), и выручка на наш лагерь. На деревню идёт тот, чья цель — дом
+ * (`WorldInfo.homeId`); пока мир не ответил, чей дом, на деревню не идёт никто. Прежде фильтр стоял на одном
+ * `hostile`, и строка «Набег» в тревогах звала к обороне от чужой войны.
+ */
+export const incomingMarches = (marches: MarchView[], homeId: SettlementId | undefined): MarchView[] =>
+  marches
+    .filter((m) => m.hostile && m.phase === 'out' && m.targetId === homeId)
+    .sort((a, b) => a.arriveAt - b.arriveAt);
 
 /**
  * Окно ответа на набег (поставка 2 боя, docs/battle_eu4.md, 14.26–14.27): сколько до прихода отряда и до какой минуты

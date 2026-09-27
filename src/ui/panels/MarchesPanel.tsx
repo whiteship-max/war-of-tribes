@@ -76,6 +76,7 @@ function ReportCard({ r }: { r: Report }) {
 
 export function MarchesPanel() {
   const marches = useWorld((g) => g.marches);
+  const homeId = useWorld((g) => g.info?.homeId);
   const openChase = useWorld((g) => g.openChase);
   const reports = useWorld((g) => g.reports);
   const recall = useWorld((g) => g.recall);
@@ -99,7 +100,7 @@ export function MarchesPanel() {
   }, [loadReports, markRead]);
 
   const own = ownMarches(marches);
-  const incoming = incomingMarches(marches);
+  const incoming = incomingMarches(marches, homeId);
   if (card) return <AgentCard id={card} onBack={() => setCard(null)} />;
 
   return (

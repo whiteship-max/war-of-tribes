@@ -867,7 +867,10 @@ export interface MarchView {
   troops?: TroopStack;
   /** Свой отряд или чужой. */
   own: boolean;
-  /** Идёт на деревню игрока. */
+  /**
+   * Чужой отряд: мир ставит `!own`, и им красится колонна на карте. Идёт ли он на деревню игрока, говорит цель — `targetId`
+   * против `WorldInfo.homeId` (`store.incomingMarches`): в живом обзоре ходят и чужие войны мимо нас.
+   */
   hostile: boolean;
   phase: MarchPhase;
   from: Coord;
