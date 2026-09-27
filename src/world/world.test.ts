@@ -28,7 +28,7 @@ import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
 import { gearOfTroop, troopPower, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
-  DEFENSE_FREEZE,
+  HANDOVER_MAX,
   AI_RANGE,
   HOME_SIGHT,
   INTEL_EXACT,
@@ -857,8 +857,8 @@ describe('мягкость мира', () => {
     // Живой обзор сжался до круга у деревни, но обещание про набег осталось
     // прежним: его видно за `AI_WARNING_BASE` до прихода, и это работа Дозора,
     // записанная в его определении. Без этого набег из дальнего двора входил
-    // бы в круг уже за отметкой заморозки — и перехват в поле стал бы кнопкой,
-    // которая не нажимается.
+    // бы в круг уже тогда, когда полный сбор дружины к приходу не успевает, —
+    // и перехват в поле стал бы кнопкой, которая не нажимается.
     for (const seed of [101, 303, 707, 909]) {
       const w = makeWorld(seed);
       // Дозор первого уровня стоит с первой секунды: 120 секунд сверх базы.
@@ -880,8 +880,10 @@ describe('мягкость мира', () => {
       if (!raid) continue; // ближних соседей может не оказаться — это допустимо
 
       const left = raid.arriveAt - seenAt;
-      // Запас времени заметно длиннее заморозки обороны.
-      expect(left, `сид ${seed}: запас времени`).toBeGreaterThan(DEFENSE_FREEZE);
+      // Запас времени длиннее потолка сбора: полный сбор, начатый в минуту обнаружения, успевает, и окно
+      // ответа, которое называет мир (`MarchView.musterBy`), в эту минуту ещё открыто.
+      expect(left, `сид ${seed}: запас времени`).toBeGreaterThan(HANDOVER_MAX);
+      expect(raid.musterBy, `сид ${seed}: окно сбора открыто`).toBeGreaterThan(seenAt);
       expect(left, `сид ${seed}: обещанное предупреждение`).toBeGreaterThan(
         AI_WARNING_BASE + 120_000 - 15_000,
       );

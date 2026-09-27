@@ -161,11 +161,11 @@ describe('службы посёлка', () => {
     expect(s.stats.died).toBe(40);
   });
 
-  it('дозор растит и стойкость разведданных, и запас времени на перестройку', () => {
+  it('дозор растит и стойкость разведданных, и запас времени до набега', () => {
     expect(intelKeen(withLevel('watch', 1))).toBeLessThan(intelKeen(withLevel('watch', 10)));
     expect(warningSeconds(withLevel('watch', 1))).toBeLessThan(warningSeconds(withLevel('watch', 10)));
-    // Правило, которое нельзя нарушать: предупреждение длиннее заморозки обороны.
-    // Дозор время только прибавляет — база уже больше заморозки (см. world.test).
+    // Правило, которое нельзя нарушать: предупреждение длиннее потолка сбора дружины.
+    // Дозор время только прибавляет — база уже больше потолка сбора (см. worldscale.test).
     expect(warningSeconds(withLevel('watch', 1))).toBeGreaterThan(0);
   });
 

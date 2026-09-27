@@ -24,7 +24,6 @@ import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
 import { distance } from '@/world/geo';
 import {
   AI_WARNING_BASE,
-  DEFENSE_FREEZE,
   HANDOVER_MAX,
   HOME_SIGHT,
   AI_RANGE,
@@ -36,7 +35,9 @@ import { shieldVillagers } from '@/world/lairs';
 const MIN = 60_000;
 /**
  * Этот отчёт — про **гонку двух часов**: предупреждение о набеге идёт игровым временем
- * (`AI_WARNING_BASE`, `DEFENSE_FREEZE`), а дорога набега, сбор дружины и ход перехвата — настоящим.
+ * (`AI_WARNING_BASE`), а дорога набега и ход перехвата — настоящим. Сбор дружины (`HANDOVER_MAX`)
+ * с поворота шкалы — тоже игровое время (docs/time.md, раздел 20); заморозки обороны нет с поставки 2
+ * боя, и запас меряется против потолка сбора — это окно уведомления о набеге без черты полководца.
  * Считается гонка настоящими миллисекундами, и это верно при любой шкале; печатаются настоящие
  * минуты, а у игровых величин рядом стоит их своя единица — иначе не видно, что с чем гоняется.
  *
@@ -211,8 +212,7 @@ console.log('=== Запас времени на перехват ===');
 console.log(`круг у деревни (HOME_SIGHT): ${HOME_SIGHT} клеток`);
 console.log(`дальше этого боты не ходят (AI_RANGE): ${AI_RANGE} клеток`);
 console.log(`обещанное предупреждение (AI_WARNING_BASE, игровое время): ${both(AI_WARNING_BASE)}`);
-console.log(`заморозка обороны (DEFENSE_FREEZE, игровое время): ${both(DEFENSE_FREEZE)}`);
-console.log(`сбор дружины из ${MEN} бойцов: потолок ${m(HANDOVER_MAX)} настоящего времени`);
+console.log(`сбор дружины из ${MEN} бойцов: потолок (HANDOVER_MAX, игровое время) ${both(HANDOVER_MAX)}`);
 for (const watch of WATCH) {
   const part = rows.filter((r) => r.watch === watch.name);
   if (part.length === 0) continue;
@@ -230,7 +230,7 @@ for (const watch of WATCH) {
   }
   const vis = part.map((r) => r.visible);
   console.log(`видно набег: ${m(Math.min(...vis))} … ${m(Math.max(...vis))}, в среднем ${m(avg(vis))}`);
-  console.log(`худший запас сверх заморозки: ${m(Math.min(...vis) - DEFENSE_FREEZE)}`);
+  console.log(`худший запас сверх потолка сбора: ${m(Math.min(...vis) - HANDOVER_MAX)}`);
   console.log(`перехват с готовым войском: ${part.filter((r) => r.readyOk).length} из ${part.length}`);
   console.log(`перехват с холодного старта: ${part.filter((r) => r.coldOk).length} из ${part.length}`);
   const slack = part.filter((r) => r.coldOk).map((r) => r.visible - r.coldSpent);
