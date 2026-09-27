@@ -130,9 +130,10 @@ export type Job =
   | { kind: 'reach'; total: number }
   /**
    * «Лезвие» (разбор, слово владельца 27.09.2026): составы решётки `from..to` против себя больших на ступень
-   * `EDGE_STEPS[step]`; `dice` — без кости (0) или с шагом конфига; `pace` — темп потери морали (`withMoralePace`).
+   * `EDGE_STEPS[step]`; `dice` — без кости (0), с шагом конфига или с данным шагом (выведенным, `bench.diceStepFor`);
+   * `pace` — темп потери морали (`withMoralePace`).
    */
-  | { kind: 'edge'; step: number; dice: 'bare' | 'config'; pace: number; from: number; to: number };
+  | { kind: 'edge'; step: number; dice: 'bare' | 'config' | number; pace: number; from: number; to: number };
 
 /**
  * Сколько боёв (`n`) дошло до круга (`rounds`), сколько всего было сшибок (`clashes`), сколько тиков шёл каждый бой
@@ -230,7 +231,8 @@ export function battleJob(job: Job): Out {
       // сторону поля, с костью — четыре сида. Подмены (кость, темп морали) снимаются здесь же.
       const seeds = job.dice === 'bare' ? 1 : 4;
       const run = (): Array<{ r: BattleResult; big: 'attacker' | 'defender' }> => edgeBattles(job.step, job.from, job.to, seeds);
-      const fights = withMoralePace(job.pace, () => (job.dice === 'bare' ? withDiceStep(0, run) : run()));
+      const dice = job.dice;
+      const fights = withMoralePace(job.pace, () => (dice === 'bare' ? withDiceStep(0, run) : typeof dice === 'number' ? withDiceStep(dice, run) : run()));
       const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [], spearsHeld: 0 };
       for (const { r, big } of fights) {
         edge.n += 1;

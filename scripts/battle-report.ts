@@ -100,9 +100,10 @@ const pureDuels = matrix('pure', UNIT_KINDS.length, 6);
 // «Лезвие» (разбор, слово владельца 27.09.2026): решётка составов против себя больших, кусками по десять составов.
 const EDGE_CHUNK = 10;
 const latticeSize = compositionLattice().length;
-const edgeAt = (step: number, dice: 'bare' | 'config', pace: number): Array<() => Extract<Out, { kind: 'edge' }>> => {
-  const out: Array<() => Extract<Out, { kind: 'edge' }>> = [];
-  for (let from = 0; from < latticeSize; from += EDGE_CHUNK) out.push(w1.add({ kind: 'edge', step, dice, pace, from, to: Math.min(latticeSize, from + EDGE_CHUNK) }));
+type EdgeParts = Array<() => Extract<Out, { kind: 'edge' }>>;
+const edgeAt = (wave: Wave, step: number, dice: 'bare' | 'config' | number, pace: number): EdgeParts => {
+  const out: EdgeParts = [];
+  for (let from = 0; from < latticeSize; from += EDGE_CHUNK) out.push(wave.add({ kind: 'edge', step, dice, pace, from, to: Math.min(latticeSize, from + EDGE_CHUNK) }));
   return out;
 };
 const EDGE_RUNS = [
@@ -110,7 +111,7 @@ const EDGE_RUNS = [
   { name: `кость ${DICE.step}, темп морали ×1`, dice: 'config' as const, pace: 1 },
   { name: 'без кости, темп морали ×2', dice: 'bare' as const, pace: 2 },
   { name: `кость ${DICE.step}, темп морали ×2`, dice: 'config' as const, pace: 2 },
-].map((run) => ({ ...run, steps: EDGE_STEPS.map((_, step) => edgeAt(step, run.dice, run.pace)) }));
+].map((run) => ({ ...run, steps: EDGE_STEPS.map((_, step) => edgeAt(w1, step, run.dice, run.pace)) }));
 
 await w1.run();
 
@@ -332,32 +333,30 @@ console.log('\n=== Круги по размерам: сколько боёв д�
   }
 }
 
-console.log('\n=== Лезвие: как кончаются бои и кривая «перевес → поле» (разбор «исхода на лезвии», слово владельца 27.09.2026) ===');
-{
-  // Решётка составов на размере W против себя же больших на ступень, большая — с обеих сторон поля. Бой без кости
-  // от сида не зависит — один на сторону; с костью — сиды 1..4. Темп ×2 — проба (`bench.withMoralePace`: потеря
-  // морали от потерь людьми вдвое быстрее), а не число модели.
-  const sum = (parts: Array<() => Extract<Out, { kind: 'edge' }>>): Edge =>
-    parts.reduce(
-      (acc, p) => {
-        const e = p().edge;
-        acc.n += e.n;
-        acc.held += e.held;
-        acc.draws += e.draws;
-        for (const [k, v] of Object.entries(e.reasons)) acc.reasons[k] = (acc.reasons[k] ?? 0) + v;
-        acc.loserLoss.push(...e.loserLoss);
-        acc.spearsHeld += e.spearsHeld;
-        return acc;
-      },
-      { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[], spearsHeld: 0 },
-    );
-  const pc = (a: number, b: number): string => `${((100 * a) / Math.max(1, b)).toFixed(1)}%`;
+/** Итог боёв «Лезвия» по кускам решётки — одной суммой. */
+const edgeSum = (parts: EdgeParts): Edge =>
+  parts.reduce(
+    (acc, p) => {
+      const e = p().edge;
+      acc.n += e.n;
+      acc.held += e.held;
+      acc.draws += e.draws;
+      for (const [k, v] of Object.entries(e.reasons)) acc.reasons[k] = (acc.reasons[k] ?? 0) + v;
+      acc.loserLoss.push(...e.loserLoss);
+      acc.spearsHeld += e.spearsHeld;
+      return acc;
+    },
+    { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[], spearsHeld: 0 },
+  );
+const edgePc = (a: number, b: number): string => `${((100 * a) / Math.max(1, b)).toFixed(1)}%`;
+/** Две таблицы «Лезвия» для прогонов `runs`: кривая «перевес → поле» по ступеням и как кончаются бои. */
+function printEdge(runs: ReadonlyArray<{ name: string; steps: EdgeParts[] }>): void {
   console.log(`решётка — ${latticeSize} составов на ${HOLD} бойцов строя; ступени — ${EDGE_STEPS.map((s) => s.name).join(', ')}`);
   console.log(`${pad('прогон', 30)}${EDGE_STEPS.map((s) => pad(`поле у большей ${s.name}`, 24, true)).join('')}`);
-  for (const run of EDGE_RUNS) {
+  for (const run of runs) {
     const cells = run.steps.map((parts) => {
-      const e = sum(parts);
-      return pad(`${pc(e.held, e.n)} (ничьих ${e.draws})`, 24, true);
+      const e = edgeSum(parts);
+      return pad(`${edgePc(e.held, e.n)} (ничьих ${e.draws})`, 24, true);
     });
     console.log(`${pad(run.name, 30)}${cells.join('')}`);
   }
@@ -366,16 +365,22 @@ console.log('\n=== Лезвие: как кончаются бои и крива�
   const spearsAndHorse = compositionLattice().filter((a) => (a.spear ?? 0) > 0 && ((a.cavalry ?? 0) > 0 || (a.heavy ?? 0) > 0)).length;
   console.log(`«копья держат» — боёв, в журнале которых есть «копья остановили удар» (в решётке ${spearsAndHorse} составов из ${latticeSize} — с копьями и конницей)`);
   console.log(`${pad('прогон', 30)}${pad('боёв', 7, true)}${pad('некому встать', 16, true)}${pad('перебиты', 12, true)}${pad('итог по сохр.', 15, true)}${pad('ничья', 9, true)}${pad('копья держат', 14, true)}   потеря проигравшего: 25% / медиана / 75%`);
-  for (const run of EDGE_RUNS) {
-    const e = sum(run.steps.flat());
+  for (const run of runs) {
+    const e = edgeSum(run.steps.flat());
     const at = (p: number): string => {
       const xs = e.loserLoss.slice().sort((x, y) => x - y);
       return xs.length ? `${Math.round(100 * xs[Math.min(xs.length - 1, Math.floor(xs.length * p))])}%` : '—';
     };
-    const r = (k: string): string => pc(e.reasons[k] ?? 0, e.n);
+    const r = (k: string): string => edgePc(e.reasons[k] ?? 0, e.n);
     console.log(`${pad(run.name, 30)}${pad(e.n, 7, true)}${pad(r('morale'), 16, true)}${pad(r('annihilated'), 12, true)}${pad(r('losses'), 15, true)}${pad(r('draw'), 9, true)}${pad(e.spearsHeld, 14, true)}   ${at(0.25)} / ${at(0.5)} / ${at(0.75)}`);
   }
 }
+
+console.log('\n=== Лезвие: как кончаются бои и кривая «перевес → поле» (разбор «исхода на лезвии», слово владельца 27.09.2026) ===');
+// Решётка составов на размере W против себя же больших на ступень, большая — с обеих сторон поля. Бой без кости от сида
+// не зависит — один на сторону; с костью — сиды 1..4. Темп ×2 — проба (`bench.withMoralePace`: потеря морали от потерь
+// людьми вдвое быстрее), а не число модели. Кривая на выведенном шаге кости — отдельным разделом после второй волны.
+printEdge(EDGE_RUNS);
 
 // ---------- Волна 2: перемер лучших из отбора ----------
 
@@ -383,7 +388,14 @@ console.log('\n=== Лезвие: как кончаются бои и крива�
 const shortlist = searchShortlist(poolScreen.flatMap((c) => c().gaps), pool);
 const w2 = new Wave();
 const finals = shortlist.map((f) => w2.add({ kind: 'gap', pool: f.index, n: SEARCH.final, from: SEARCH.finalFrom }));
+// «Лезвие» на выведенном шаге кости: разбор 14.20 стоял на нём («с выведенным шагом армия больше на одного держит поле
+// чаще, чем большая на 10 %»). Шаг — тот, что печатает «Кость фазы», до четырёх знаков вверх; вывод — в первой волне.
+const derivedStep = Math.ceil(dice().derived * 1e4) / 1e4;
+const EDGE_DERIVED = [{ name: `кость ${derivedStep} (по выводу)`, steps: EDGE_STEPS.map((_, step) => edgeAt(w2, step, derivedStep, 1)) }];
 await w2.run();
+
+console.log(`\n=== Лезвие на выведенном шаге кости (${derivedStep}): та же решётка, темп морали ×1 ===`);
+printEdge(EDGE_DERIVED);
 
 console.log(`\n=== Случайный поиск составов: ${SEARCH.n} наугад (сид ${SEARCH.seed}) против сбалансированного; отбор на ${SEARCH.screen} боях, ${SEARCH.finalists} лучших — на ${SEARCH.final} новых сидах с ${SEARCH.finalFrom} ===`);
 {
