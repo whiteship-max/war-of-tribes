@@ -250,7 +250,9 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
 console.log('\n=== Кольцо контрров: пары встают по правилу развёртывания ===');
 for (const [i, pair] of RING.entries()) {
   const s = series(ringPairs[i]().pairs, compositionResults);
-  console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS})`);
+  // Разброс по сидам: тест кольца требует порога с каждого сида, а не в среднем (`battle.test.ts`, «кольцо контрров»).
+  const bySeed = ringPairs[i]().pairs.map((p) => p.lossRatio);
+  console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS}; по сидам ${Math.min(...bySeed).toFixed(2)}–${Math.max(...bySeed).toFixed(2)})`);
 }
 
 console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');
@@ -344,9 +346,10 @@ console.log('\n=== Лезвие: как кончаются бои и крива�
         acc.draws += e.draws;
         for (const [k, v] of Object.entries(e.reasons)) acc.reasons[k] = (acc.reasons[k] ?? 0) + v;
         acc.loserLoss.push(...e.loserLoss);
+        acc.spearsHeld += e.spearsHeld;
         return acc;
       },
-      { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[] },
+      { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[], spearsHeld: 0 },
     );
   const pc = (a: number, b: number): string => `${((100 * a) / Math.max(1, b)).toFixed(1)}%`;
   console.log(`решётка — ${latticeSize} составов на ${HOLD} бойцов строя; ступени — ${EDGE_STEPS.map((s) => s.name).join(', ')}`);
@@ -359,8 +362,10 @@ console.log('\n=== Лезвие: как кончаются бои и крива�
     console.log(`${pad(run.name, 30)}${cells.join('')}`);
   }
   console.log('как кончаются бои — все ступени разом; «некому встать» — у проигравшего в строю никого и резерв исчерпан,');
-  console.log('«перебиты» — меньше 3 %, «итог по сохранённым» — никто не сломался до потолка кругов; потеря проигравшего — доля армии к концу боя, с погоней');
-  console.log(`${pad('прогон', 30)}${pad('боёв', 7, true)}${pad('некому встать', 16, true)}${pad('перебиты', 12, true)}${pad('итог по сохр.', 15, true)}${pad('ничья', 9, true)}   потеря проигравшего: 25% / медиана / 75%`);
+  console.log('«перебиты» — меньше 3 %, «итог по сохранённым» — никто не сломался до потолка кругов; потеря проигравшего — доля армии к концу боя, с погоней;');
+  const spearsAndHorse = compositionLattice().filter((a) => (a.spear ?? 0) > 0 && ((a.cavalry ?? 0) > 0 || (a.heavy ?? 0) > 0)).length;
+  console.log(`«копья держат» — боёв, в журнале которых есть «копья остановили удар» (в решётке ${spearsAndHorse} составов из ${latticeSize} — с копьями и конницей)`);
+  console.log(`${pad('прогон', 30)}${pad('боёв', 7, true)}${pad('некому встать', 16, true)}${pad('перебиты', 12, true)}${pad('итог по сохр.', 15, true)}${pad('ничья', 9, true)}${pad('копья держат', 14, true)}   потеря проигравшего: 25% / медиана / 75%`);
   for (const run of EDGE_RUNS) {
     const e = sum(run.steps.flat());
     const at = (p: number): string => {
@@ -368,7 +373,7 @@ console.log('\n=== Лезвие: как кончаются бои и крива�
       return xs.length ? `${Math.round(100 * xs[Math.min(xs.length - 1, Math.floor(xs.length * p))])}%` : '—';
     };
     const r = (k: string): string => pc(e.reasons[k] ?? 0, e.n);
-    console.log(`${pad(run.name, 30)}${pad(e.n, 7, true)}${pad(r('morale'), 16, true)}${pad(r('annihilated'), 12, true)}${pad(r('losses'), 15, true)}${pad(r('draw'), 9, true)}   ${at(0.25)} / ${at(0.5)} / ${at(0.75)}`);
+    console.log(`${pad(run.name, 30)}${pad(e.n, 7, true)}${pad(r('morale'), 16, true)}${pad(r('annihilated'), 12, true)}${pad(r('losses'), 15, true)}${pad(r('draw'), 9, true)}${pad(e.spearsHeld, 14, true)}   ${at(0.25)} / ${at(0.5)} / ${at(0.75)}`);
   }
 }
 

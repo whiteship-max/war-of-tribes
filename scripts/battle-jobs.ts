@@ -161,6 +161,8 @@ export type Out =
  * Итог боёв «Лезвия»: сколько их (`n`), в скольких поле удержала большая (`held`), сколько ничьих, чем кончились
  * (`reason` результата: `morale` — у проигравшего в строю никого и встать некому, `annihilated` — перебит, `losses` —
  * никто не сломался, итог по сохранённым) и какую долю армии потерял проигравший к концу боя, с погоней (`loserLoss`).
+ * `spearsHeld` — в скольких боях журнал пишет «копья остановили удар» (`spears-held`): событие, которого после
+ * правила развёртывания почти не бывает (docs/battle_eu4.md, 14.20).
  */
 export interface Edge {
   n: number;
@@ -168,6 +170,7 @@ export interface Edge {
   draws: number;
   reasons: Record<string, number>;
   loserLoss: number[];
+  spearsHeld: number;
 }
 
 const reachOf = (rs: readonly BattleResult[]): Reach => ({
@@ -228,11 +231,12 @@ export function battleJob(job: Job): Out {
       const seeds = job.dice === 'bare' ? 1 : 4;
       const run = (): Array<{ r: BattleResult; big: 'attacker' | 'defender' }> => edgeBattles(job.step, job.from, job.to, seeds);
       const fights = withMoralePace(job.pace, () => (job.dice === 'bare' ? withDiceStep(0, run) : run()));
-      const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [] };
+      const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [], spearsHeld: 0 };
       for (const { r, big } of fights) {
         edge.n += 1;
         if (r.winner === big) edge.held += 1;
         if (r.winner === 'draw') edge.draws += 1;
+        if (r.log.some((e) => e.id === 'spears-held')) edge.spearsHeld += 1;
         edge.reasons[r.reason] = (edge.reasons[r.reason] ?? 0) + 1;
         if (r.winner !== 'draw') {
           const loser = r.sides[r.winner === 'attacker' ? 'defender' : 'attacker'].total;
