@@ -5,14 +5,13 @@
 // картинку или оставить эмодзи. Накладная — то, что игра ждёт, — лежит рядом,
 // в registry.ts, и собирается из данных игры.
 //
-// Лист: 185 символов, 65.1 КБ на диске, 12.9 КБ по сети.
+// Лист: 184 символов, 64.8 КБ на диске, 12.8 КБ по сети.
 
 export const ICON_SHEET = '/assets/icons/sprite.svg';
 
 export const DRAWN_ICONS: readonly string[] = [
   'ach-first_win',
   'alert-freezing',
-  'alert-locked',
   'alert-raid',
   'alert-starving',
   'attn-idle',
