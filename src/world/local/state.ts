@@ -1,6 +1,5 @@
 // Изменяемая часть локального мира: походы, разведданные, следы набегов, отношения.
 // Всё, что нельзя вывести из сида, живёт здесь и сохраняется в localStorage.
-import type { ArmySetup } from '@/battle';
 import { partyNow } from '@/net/clock';
 import type { TroopStack } from '@/game/battle/kinds';
 import { troopsOfKinds } from '@/game/battle/faces';
@@ -313,12 +312,6 @@ export interface WorldSave {
   /** Последний слепок деревни игрока: им обороняется дом, пока игрока нет. */
   profile: PlayerProfile | null;
   /**
-   * Оборона, запертая за `DEFENSE_FREEZE` до прихода чужой армии (раздел 8 документа).
-   * Latch, а не флаг: слепок деревни приходит каждый пульс, и без него защитник
-   * менял бы расстановку до самого удара.
-   */
-  frozenDefense: { marchId: string; setup: ArmySetup | null } | null;
-  /**
    * Разведанная местность битовой маской по кускам (см. fog.ts). Открытое не
    * закрывается никогда, поэтому маска только растёт.
    */
@@ -545,7 +538,6 @@ export function createWorldSave(
     nextAiAt: now + FIRST_RAID_AFTER,
     effects: [],
     profile: null,
-    frozenDefense: null,
     fog: {},
     fogAt: now,
     sightings: {},
@@ -649,6 +641,13 @@ function migrateWorldSave(data: Partial<WorldSave>): void {
 }
 
 /**
+ * Поля, которых мир больше не хранит. `frozenDefense` — расстановка обороны, запертая за пять игровых дней до
+ * набега: ушла вместе с расстановкой поставкой 2 боя (docs/battle_eu4.md, 14.26–14.27). Версия мира от этого не
+ * растёт: читать поле некому, а снять его при чтении — тот же приём, что `save.DROPPED` у племени.
+ */
+const WORLD_DROPPED = ['frozenDefense'] as const;
+
+/**
  * Читает сохранение мира. null — его нет, оно испорчено или оно младше
  * `MIN_WORLD_SAVE_VERSION`: тогда мир генерируется заново.
  */
@@ -660,6 +659,8 @@ export function parseWorldSave(json: string | null): WorldSave | null {
     if (data.v < MIN_WORLD_SAVE_VERSION || data.v > WORLD_SAVE_VERSION) return null;
     if (!data.home || typeof data.home.x !== 'number') return null;
     migrateWorldSave(data);
+    // Поля, которых мир больше не хранит, старое сохранение привозит спредом, и писались бы они дальше вечно.
+    for (const key of WORLD_DROPPED) delete (data as Record<string, unknown>)[key];
     const base = createWorldSave(data.seed, data.home, data.allyTribe ?? null, data.createdAt ?? partyNow());
     // Словари фигур мержатся отдельно: иначе новая фигура приедет как undefined —
     // ровно та же причина, по которой так мержатся счётчики в сохранении племени.

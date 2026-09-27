@@ -6,7 +6,7 @@ import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
-import type { ArmySetup, BattleResult, Pips, Side, Stack, UnitKind } from '@/battle';
+import type { BattleResult, Pips, Side, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
 import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
@@ -1182,8 +1182,6 @@ export interface PlayerProfile {
   militia?: number;
   /** Сколько из этого ополчения стоит стрелками: столько людей ставит на стену башня. */
   militiaArchers?: number;
-  /** Как деревня встречает набег. null — обороняется тем, что вышло само. */
-  defenseSetup?: ArmySetup | null;
   /**
    * Разведчики, которых можно отправить: свободные руки деревни. Воинов слепок
    * не везёт — сколько их дома, мир считает из `army`.

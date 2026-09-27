@@ -24,9 +24,9 @@ import {
   warningSeconds,
 } from '@/game/derived';
 import { BATTLE_MAN } from '@/game/battle/kinds';
-import { clampFormation, emptyFormation, stashUnplaced, toArmySetup } from '@/game/battle/formation';
+import { emptyFormation, toArmySetup } from '@/game/battle/formation';
 import { SECTORS, type Sector } from '@/battle';
-import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import {
   applyExpedition,
@@ -180,15 +180,6 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
   const stash = hiddenStash(s);
   const stock: Loot = {};
   for (const r of RESOURCE_IDS) stock[r] = Math.max(0, Math.floor(s.resources[r]));
-  // Расстановка обороны подрезается по тому, кто сейчас в обороне: часть могла
-  // уйти в поход, в сбор или погибнуть, а нанятые с прошлого раза и дружина,
-  // вставшая дома, встают в резерв.
-  let defenseSetup = null;
-  if (s.defenseFormation) {
-    const { formation, extra } = clampFormation(s.defenseFormation, homeOf(s.army, away));
-    const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
-    defenseSetup = toArmySetup(fitted, militiaFoot(s), militiaArchers(s), fervour(s));
-  }
   return {
     name: 'Наше племя',
     // Имя города — очищенное и с умолчанием: мир называет им дом на карте, в отчётах и в
@@ -239,7 +230,6 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // реликвии мир не видит: это дела прихода, а не карты.
     faith: faithOf(s),
     fervour: fervour(s),
-    defenseSetup,
     stock,
     stash,
     // Казна едет рядом со складом, а не в нём: платят из них разными дверями,

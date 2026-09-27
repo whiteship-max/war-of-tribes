@@ -1,13 +1,13 @@
 import '@/game/pace.minute';
 import { describe, expect, it } from 'vitest';
-import { SECTORS, UNIT_KINDS, stackTotal, type ArmySetup, type Stack } from '@/battle';
+import { readFileSync } from 'node:fs';
+import { UNIT_KINDS, stackTotal } from '@/battle';
 import { createInitialState } from '@/game/state';
 import { deserialize, serialize } from '@/game/save';
 import { armySize } from '@/game/derived';
 import { seeded } from '@/game/sim/random';
 import { TROOP_IDS } from '@/game/data/troops';
 import { kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
-import { deployFormation, toArmySetup } from '@/game/battle/formation';
 import type { GameState, TroopId } from '@/game/types';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from './bridge';
@@ -22,7 +22,6 @@ import {
   standingTroops,
   weakest,
 } from './muster';
-import { fitSetup } from './battle';
 import { STRIKE_FROM_TOWN } from './siege';
 import { distance } from './geo';
 import type { FigureView, MarchView, PlayerProfile, Report, SettlementView, WorldPulse } from './types';
@@ -127,34 +126,18 @@ describe('где стоит боец — одно правило', () => {
     expect(standingShare({ clubman: 4 }, { clubman: 10 }, { clubman: 7 })).toEqual({ clubman: 5 });
   });
 
-  it('расстановка из гарнизона подрезке не подлежит, а сверх гарнизона — снимается с конца', () => {
-    const rng = seeded(20260913);
-    for (let i = 0; i < 400; i++) {
-      const home: TroopStack = {};
-      for (const id of TROOP_IDS) if (rng() < 0.5) home[id] = Math.floor(rng() * 40);
-      if (troopTotal(home) === 0) continue;
-      const militia = Math.floor(rng() * 60);
-      const archers = Math.floor(rng() * militia);
-      const setup = toArmySetup(deployFormation(home), militia - archers, archers);
-      const have = kindsOf(home);
-      have.infantry += militia - archers;
-      have.archer += archers;
-      expect(fitSetup(setup, have), `набор ${i}: собранная из тех же людей расстановка не меняется`).toEqual(setup);
-    }
-
-    const setup: ArmySetup = toArmySetup(deployFormation({ spearman: 30, archer: 20 }));
-    const copy = structuredClone(setup);
-    const cut = fitSetup(setup, { spear: 10, infantry: 0, archer: 20, cavalry: 0, heavy: 0 });
-    const total = (s: ArmySetup): Stack => {
-      const out: Stack = { spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 };
-      for (const id of SECTORS) for (const k of UNIT_KINDS) out[k] += s.sectors[id][k];
-      return out;
-    };
-    expect(total(cut)).toEqual({ spear: 10, infantry: 0, archer: 20, cavalry: 0, heavy: 0 });
-    // Снимают с конца: резерв и тыл пустеют раньше фронта.
-    const front = cut.sectors.A.spear + cut.sectors.B.spear + cut.sectors.C.spear;
-    expect(front, 'фронт держится до последнего').toBe(Math.min(10, setup.sectors.A.spear + setup.sectors.B.spear + setup.sectors.C.spear));
-    expect(setup, 'исходная расстановка не тронута: запертая лежит в сохранении').toEqual(copy);
+  it('у стороны боя в мире — состав, снаряжение, стойкость и отметки, и больше ничего: раскладывает правило', () => {
+    // Поставка 2 боя (docs/battle_eu4.md, 14.27): последней раскладкой руками была оборона деревни, и с её уходом поле
+    // своей раскладки у стороны (`world/battle.FieldSide`) ушло совсем — обе стороны встают по правилу развёртывания одной
+    // дверью (`resolveField`), а людей сверх состава приводить некуда: входа героя нет. Замок по исходнику, без комментариев.
+    const src = readFileSync(new URL('./battle.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
+    const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'gear', 'resolve', 'pips']);
+    expect(src, 'обе стороны — правилом').toMatch(/const attacker = deploySetup\(input\.attacker\.kinds\);/);
+    expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
   });
 });
 
@@ -779,28 +762,6 @@ describe('дружина в обороне: собрана и дома — од�
         p.s.army.clubman > 0 ? { clubman: p.s.army.clubman } : {},
       );
     }
-  }, 60_000);
-
-  it('запертая расстановка ставит к частоколу дружину, собранную после отметки, один раз', async () => {
-    // Мир 42: первый набег кончается боем у частокола, а не лагерем.
-    const p = Party.start(42, { clubman: 10 });
-    p.s.defenseFormation = deployFormation({ clubman: 10 });
-    await p.pulse('старт');
-    const frozenRaid = (): string | null => {
-      const save = JSON.parse(p.store.read() as string) as { frozenDefense: { marchId: string } | null; marches: MarchView[] };
-      const id = save.frozenDefense?.marchId ?? null;
-      return save.marches.some((m) => m.id === id && m.targetId === 'home') ? id : null;
-    };
-    await until(p, 'ждём отметки', () => frozenRaid() !== null);
-    const raid = frozenRaid() as string;
-    // Расстановка заперта вместе с десятью дубинщиками; теперь их забирает полководец.
-    expect(await p.setGarrison({ clubman: 10 }, 'отдали после отметки')).toBeNull();
-    const pulse = await until(p, 'ждём боя', (x) => x.reports.some((r) => r.id === `${raid}-defense`));
-    const fight = pulse.reports.find((r) => r.id === `${raid}-defense`) as Report;
-    expect(fight.battle, 'это бой, а не лагерь').toBeTruthy();
-    // Сбор в десять человек короче пяти минут: к бою дружина собрана и стоит дома.
-    expect(fight.battle!.troops.defender, 'у частокола ровно десять, а не двадцать').toEqual({ clubman: 10 });
-    expect(stackTotal(fight.battle!.result.sides.defender.initial)).toBeLessThanOrEqual(10 + fight.battle!.militia!.defender.men);
   }, 60_000);
 
   it('сохранение, где дружину успели удвоить, сверяется на первом же пульсе — до любого боя', async () => {

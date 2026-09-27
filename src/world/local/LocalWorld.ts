@@ -199,7 +199,7 @@ import { aimOf, firePlan, reaim, thinAt } from '../bombard';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
-import { fitSetup, resolveField, type FieldOutcome } from '../battle';
+import { resolveField, type FieldOutcome } from '../battle';
 import {
   awayOf,
   fieldTroops,
@@ -238,7 +238,6 @@ import {
   DAMAGE_RECOVER,
   DEAL_DURATION,
   DEAL_PAYOUT,
-  DEFENSE_FREEZE,
   AGENT_DEATH_MORALE,
   AGENT_HELD_MORALE,
   FIGURE_DOWN,
@@ -1232,11 +1231,10 @@ export class LocalWorld implements WorldApi {
         resolve: own ? this.ownResolve() : undefined,
         pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
         // Встают те, кто прошёл, по правилу развёртывания: расстановки у удара по лагерю нет.
-        setup: null,
       },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого
       // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.
-      defender: { kinds: camp.kinds, gear: camp.gear, resolve: camp.resolve, pips: camp.pips, setup: null },
+      defender: { kinds: camp.kinds, gear: camp.gear, resolve: camp.resolve, pips: camp.pips },
     });
     // Прошедшие заняли свою долю прохода своей стороны. Окно то же, что в
     // сохранении: снимет осаду победа — отметки уйдут вместе с окном; устоит
@@ -2580,9 +2578,10 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Сколько игрок видит чужую армию до её прихода. База обязана быть заметно
-   * больше `DEFENSE_FREEZE` — иначе набег появляется уже запертым; Дозор игрока
-   * только прибавляет сверху, укоротить предупреждение он не может.
+   * Сколько игрок видит чужую армию до её прихода. База обязана быть больше потолка
+   * сбора дружины (`HANDOVER_MAX`) — иначе набег появляется уже без холодного ответа:
+   * полный сбор не успевал бы ни с какой минуты (docs/battle_eu4.md, 14.26–14.27); Дозор
+   * игрока только прибавляет сверху, укоротить предупреждение он не может.
    */
   protected warningMs(): number {
     // `warning` — игровые секунды: вся семья предупреждения идёт со шкалой времени, как ритм набегов,
@@ -3479,8 +3478,8 @@ export class LocalWorld implements WorldApi {
       seed,
       // Место боя — клетка цели; переправа — если полководец вышел на неё через русло.
       ground: groundAt(this.save.seed, target, this.save.figures.general.from),
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup: null },
-      defender: { kinds: garrison.kinds, gear: garrison.gear, setup: null },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips() },
+      defender: { kinds: garrison.kinds, gear: garrison.gear },
     });
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
     const left: TroopStack = {};
@@ -3817,8 +3816,8 @@ export class LocalWorld implements WorldApi {
       seed,
       // Место боя — клетка встречи; нападает полководец, и переправа — его шаг на неё (бой на воде — переправа).
       ground: groundAt(this.save.seed, spot, f.from),
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup: null },
-      defender: { kinds: party.kinds, gear: party.gear, setup: null },
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips() },
+      defender: { kinds: party.kinds, gear: party.gear },
     });
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
     const left: TroopStack = {};
@@ -4095,10 +4094,11 @@ export class LocalWorld implements WorldApi {
     const profile = this.save.profile;
     const party = raidingParty(this.save.seed, m.id, m.power);
     // Оборона дома: гарнизон, дружина, если она собрана и стоит у своих ворот, плюс
-    // ополчение — частокол, башня и сами жители. Ополчение в расстановке не
-    // участвует: пехота растекается по фронту сама, а стрелков башни ставит во
-    // вторую линию `toArmySetup`. Дружины в сборе, в пути, в поле и в лагере здесь
-    // нет, даже если полководец в двух шагах от ворот (`world/muster.postureOf`).
+    // ополчение — частокол, башня и сами жители. Раскладывает их правило развёртывания,
+    // как любой бой: пехота ополчения встаёт со своим родом, стрелки башни — во вторую
+    // линию. Своей раскладки у обороны нет — расстановка ушла поставкой 2 (docs/battle_eu4.md,
+    // 14.27). Дружины в сборе, в пути, в поле и в лагере здесь нет, даже если полководец в
+    // двух шагах от ворот (`world/muster.postureOf`).
     const held = this.defenders(at);
     const home = held.all;
     const militia = Math.max(0, Math.round(profile?.militia ?? 0));
@@ -4107,22 +4107,16 @@ export class LocalWorld implements WorldApi {
     const homeKinds = kindsOf(home);
     homeKinds.infantry += militia - archers;
     homeKinds.archer += archers;
-    // Оборона, запертая за `DEFENSE_FREEZE` до прихода: менять её было уже нельзя.
-    // Заперта расстановка, а не люди в ней: ушедшего после этого в сбор или в
-    // поле она в строй у частокола не вернёт — в строю не больше, чем стоит дома.
-    const frozen = this.save.frozenDefense;
-    const planned = frozen && frozen.marchId === m.id ? frozen.setup : (profile?.defenseSetup ?? null);
-    const setup = planned ? fitSetup(planned, homeKinds) : null;
     const field = resolveField({
       seed: m.seed,
       // Место боя — своя деревня; переправа — если набег вышел на неё через русло.
       ground: groundAt(this.save.seed, this.save.home, m.from),
-      attacker: { kinds: party.kinds, gear: party.gear, setup: null },
+      attacker: { kinds: party.kinds, gear: party.gear },
       // Ведёт оборону полководец, если его дружина стоит у ворот (`homePips`), — со всеми отметками: у EU4 манёвр
       // обороняющегося держит переправу нападающему (docs/battle_eu4.md, 14.5, Л9).
-      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), pips: this.homePips(at), setup },
+      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), pips: this.homePips(at) },
     });
-    return { profile, party, held, home, militia, archers, setup, field };
+    return { profile, party, held, home, militia, archers, field };
   }
 
   // ---------- Письма ----------
@@ -4858,8 +4852,8 @@ export class LocalWorld implements WorldApi {
     const field = resolveField({
       seed: m.seed,
       ground: groundAt(this.save.seed, target, m.from),
-      attacker: { kinds: party.kinds, gear: party.gear, setup: null },
-      defender: { kinds: g.kinds, gear: g.gear, setup: null },
+      attacker: { kinds: party.kinds, gear: party.gear },
+      defender: { kinds: g.kinds, gear: g.gear },
     });
     if (this.sitsDown(m.targetId, m, at, field)) {
       const w = this.openSiegeAt(m.targetId, m.fromId, m.id, at);
@@ -4888,12 +4882,12 @@ export class LocalWorld implements WorldApi {
    * 2. **Донесение Дозора.** Армию, идущую на твою деревню, видно до её
    *    прихода — это и записано в определении Дозора («чужую армию видно
    *    задолго до того, как она встанет под стеной»), и это же обещание
-   *    `AI_WARNING_BASE`: предупреждение обязано быть заметно длиннее
-   *    `DEFENSE_FREEZE`, иначе набег появляется уже запертым.
+   *    `AI_WARNING_BASE`: предупреждение обязано быть длиннее потолка сбора
+   *    дружины (`HANDOVER_MAX`), иначе набег появляется уже без холодного ответа.
    *
    * Держать только первое было бы ошибкой того же рода, что и держать только
    * второе. Без донесения набег из дальнего двора входил бы в круг уже за
-   * отметкой заморозки, и перехват в поле — лучшее, что есть на карте, —
+   * сроком полного сбора, и перехват в поле — лучшее, что есть на карте, —
    * превратился бы в кнопку, которая не нажимается. Без живого обзора круг у
    * деревни не значил бы ничего. Поэтому берётся то, что случится раньше.
    */
@@ -6434,7 +6428,6 @@ export class LocalWorld implements WorldApi {
     this.save.profileAt = now;
     this.seatAgents(now);
     this.muster(now);
-    this.lockDefense(now, profile);
     this.advance(now);
     // Орудие поставили, сняли или башня стала ниже его уровня — мир узнаёт об этом на
     // пульсе, и сила обстрела меняется в эту минуту (`aimTower`).
@@ -6478,24 +6471,6 @@ export class LocalWorld implements WorldApi {
     const view = { id: here, pressure: faithPressure(home.x, home.y, FAITH_AROUND, mine ?? here) };
     this.faithCache = { key, view };
     return view;
-  }
-
-  /**
-   * Заморозка обороны: за `DEFENSE_FREEZE` до прихода чужой армии расстановка
-   * защёлкивается и дальше не меняется, что бы игрок ни присылал в слепке.
-   * Иначе оборону перенастраивали бы в последнюю секунду, и разведка нападающего
-   * не значила бы ничего.
-   */
-  private lockDefense(now: number, profile: PlayerProfile): void {
-    const soon = this.save.marches.find(
-      (m) => !m.own && m.phase === 'out' && m.arriveAt - now <= DEFENSE_FREEZE,
-    );
-    if (!soon) {
-      if (this.save.frozenDefense) this.save.frozenDefense = null;
-      return;
-    }
-    if (this.save.frozenDefense?.marchId === soon.id) return;
-    this.save.frozenDefense = { marchId: soon.id, setup: profile.defenseSetup ?? null };
   }
 
   async persist(): Promise<void> {

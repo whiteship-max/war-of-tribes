@@ -16,8 +16,8 @@ import { stackLosses } from './combat';
 import { resolveField } from './battle';
 import { garrisonOf } from './garrison';
 import { defenseLock } from './store';
-import { deployFormation, emptyFormation, toArmySetup } from '@/game/battle/formation';
-import type { ArmySetup, Stack } from '@/battle';
+import { emptySectors, stackTotal, type ArmySetup, type Stack } from '@/battle';
+import { kindsOf } from '@/game/battle/kinds';
 import { playerProfile, syncAway, toOutcome } from './bridge';
 import { awayOf, homeOf } from './muster';
 import { FogMap, fogSaveBytes } from './fog';
@@ -1262,64 +1262,68 @@ describe('заморозка обороны', () => {
     expect(defenseLock([], START).march).toBeNull();
   });
 
-  /**
-   * Прогон набега ИИ на деревню с заданной обороной. `switchAt` — момент, в
-   * который игрок присылает другую расстановку: до отметки её обязаны принять,
-   * после — нет. Пульсы идут часто: расстановку присылает слепок, и сменить её
-   * можно только пульсом — редким опросом отметку заморозки не поймать.
-   */
-  async function defendWith(early: ArmySetup, late: ArmySetup, switchBeforeMs: number) {
+});
+
+describe('оборона у стены — правилом развёртывания', () => {
+  // Поставка 2 боя (docs/battle_eu4.md, 14.26–14.27): расстановки обороны нет, и оборону у стены раскладывает правило,
+  // как любой бой. Своей раскладки у стороны боя в мире нет вовсе (`world/battle.FieldSide`, замок — `muster.test.ts`).
+  const ARMY = { spearman: 10, archer: 6 };
+  const MILITIA = 10;
+  const ARCHERS = 4;
+  /** Первый набег ИИ, дошедший до боя у стены; `extra` — лишние поля слепка, которые мир обязан не читать. */
+  async function wallBattle(extra: Record<string, unknown> = {}) {
     const w = makeWorld(303);
-    const army = { spearman: 10, archer: 6 };
-    const p = (setup: ArmySetup): PlayerProfile =>
-      profile({ army, militia: 10, defenseSetup: setup, units: { warrior: 16, scout: 2 } });
-
-    await w.world.sync(p(early));
-    for (let i = 0; i < 200; i++) {
+    const p = { ...profile({ army: ARMY, militia: MILITIA, militiaArchers: ARCHERS, units: { warrior: 16, scout: 2 } }), ...extra } as PlayerProfile;
+    await w.world.sync(p);
+    for (let i = 0; i < 400; i++) {
       w.advance(15_000);
-      const pulse = await w.world.sync(p(early));
-      const raid = pulse.marches.find((m) => m.hostile);
-      if (!raid) continue;
-
-      // Доводим до боя короткими шагами, меняя оборону в назначенный момент.
-      while (w.now() < raid.arriveAt) {
-        w.advance(15_000);
-        const at = w.now();
-        const setup = raid.arriveAt - at <= switchBeforeMs ? late : early;
-        const pulse2 = await w.world.sync(p(setup));
-        const report = pulse2.reports.find((r) => r.kind === 'defense' && r.battle);
-        if (report) return report.battle!;
-      }
-      const last = await w.world.sync(p(late));
-      const report = last.reports.find((r) => r.kind === 'defense' && r.battle);
+      const pulse = await w.world.sync(p);
+      const report = pulse.reports.find((r) => r.kind === 'defense' && r.battle);
       if (report) return report.battle!;
-      return null;
     }
     return null;
   }
+  /** Раскладка обороны до поставки 2, какой её возил слепок: всё войско и ополчение в левом фланге. */
+  const lopsided = (): ArmySetup => {
+    const sectors = emptySectors();
+    sectors.A = { spear: 10, infantry: MILITIA - ARCHERS, archer: 6 + ARCHERS, cavalry: 0, heavy: 0 };
+    return { sectors };
+  };
 
-  it('расстановка, присланная после отметки, в бой не идёт', async () => {
-    const army = { spearman: 10, archer: 6 };
-    // Раскладка обороны до поставки 2: правило развёртывания — и та же дружина, сбитая в один сектор.
-    const early = toArmySetup(deployFormation(army), 10);
-    const lopsided = emptyFormation();
-    lopsided.sectors.A = { ...army };
-    const late = toArmySetup(lopsided, 10);
+  it('сохранение мира до поставки 2 читается: запертой обороны нет, а раскладка из слепка в бой не идёт', async () => {
+    // Версия мира не растёт: поле `frozenDefense` снимается при чтении (`state.WORLD_DROPPED`), а `defenseSetup` в
+    // слепке читать больше некому — первый же пульс кладёт новый слепок целиком.
+    const fresh = createWorldSave(303, { x: 400, y: 400 }, null, START);
+    const old = { ...fresh, frozenDefense: { marchId: 'm1', setup: lopsided() }, profile: { ...profile(), defenseSetup: lopsided() } };
+    const read = parseWorldSave(JSON.stringify(old))!;
+    expect(read, 'старое сохранение мира читается').not.toBeNull();
+    expect('frozenDefense' in read, 'запертой обороны в прочитанном нет').toBe(false);
 
-    const held = await defendWith(early, late, DEFENSE_FREEZE - 30_000);
-    const never = await defendWith(early, early, 0);
-    const always = await defendWith(late, late, 0);
-    expect(held, 'набег ИИ должен дойти до боя').toBeTruthy();
-    expect(never).toBeTruthy();
-    expect(always).toBeTruthy();
-    if (!held || !never || !always) return;
+    const plain = await wallBattle();
+    const legacy = await wallBattle({ defenseSetup: lopsided() });
+    expect(plain, 'набег дошёл до боя у стены').toBeTruthy();
+    expect(legacy).toBeTruthy();
+    if (!plain || !legacy) return;
+    // Граница области: раскладка из слепка правилу не равна — будь она прочитана, бой был бы другим.
+    const ruleA = stackTotal(plain.result.sides.defender.sectors.A.initial);
+    expect(ruleA, 'правило в левый фланг ставит не всех').not.toBe(stackTotal(lopsided().sectors.A));
+    expect(legacy.result.log, 'раскладка из слепка в бой не идёт').toEqual(plain.result.log);
+  }, 60_000);
 
-    expect(held.us).toBe('defender');
-    // Смена внутри пяти минут ничего не изменила: бой тот же, что без неё.
-    expect(held.result.log).toEqual(never.result.log);
-    // А если бы расстановка не значила ничего, проверять было бы нечего.
-    expect(always.result.log).not.toEqual(never.result.log);
-  });
+  it('людей из ниоткуда нет: в бой у стены идёт ровно гарнизон дома и ополчение', async () => {
+    // Обещание теста 13 поставки 1 («у моста нет входа героя», `formation.test.ts`) переехало с моста в мир вместе с
+    // расстановкой: в бою у стены обороняющийся — ровно те, кто дома, по родам, плюс ополчение — пехотой и стрелками башни.
+    const b = await wallBattle();
+    expect(b, 'набег дошёл до боя у стены').toBeTruthy();
+    if (!b) return;
+    const want = kindsOf(b.troops.defender);
+    want.infantry += MILITIA - ARCHERS;
+    want.archer += ARCHERS;
+    // Граница области: дома есть бойцы, а ополчение — обоих видов, иначе «сверх» было бы нечему прибавиться.
+    expect(stackTotal(kindsOf(b.troops.defender)), 'дома есть бойцы').toBeGreaterThan(0);
+    const got = b.result.sides.defender.initial;
+    for (const k of Object.keys(want) as Array<keyof Stack>) expect(got[k], `род ${k}`).toBeCloseTo(want[k], 6);
+  }, 60_000);
 });
 
 describe('туман войны', () => {
@@ -1757,8 +1761,8 @@ describe('запись боя: кто именно стоял в строю', ()
   const result = () =>
     resolveField({
       seed: 21,
-      attacker: { kinds: army, setup: null },
-      defender: { kinds: army, setup: null },
+      attacker: { kinds: army },
+      defender: { kinds: army },
     }).result!;
 
   it('старая запись без состава открывается, и состав ей достраивается', () => {

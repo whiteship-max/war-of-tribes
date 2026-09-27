@@ -139,7 +139,7 @@ describe('штраф кости нападающему — таблица EU4', 
     const kinds = stackOf({ spear: 100, infantry: 120, archer: 60 });
     const ground = { land: 1, crossing: 1 };
     const fight = (atk: Pips, def: Pips): BattleResult =>
-      resolveField({ seed: 3, ground, attacker: { kinds, pips: atk, setup: null }, defender: { kinds, pips: def, setup: null } }).result!;
+      resolveField({ seed: 3, ground, attacker: { kinds, pips: atk }, defender: { kinds, pips: def } }).result!;
     const faces = (r: BattleResult): Array<{ attacker: number; defender: number }> =>
       r.log.flatMap((e) => (e.id === 'dice' ? [{ attacker: e.ground?.attacker ?? 0, defender: e.ground?.defender ?? 0 }] : []));
     const plain = fight({}, {});

@@ -146,15 +146,14 @@ const ownSetup = (own: Side): ArmySetup => deploySetup(own.stack);
 function lairLosses(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', fights = LAIR_SEEDS): boolean[] {
   const out: boolean[] = [];
   const power = stackMen(own.stack) * BATTLE_MAN;
-  const setup = ownSetup(own);
   for (let i = 1; i <= fights; i++) {
     const seed = i * 7919;
     if (mode === 'defend') {
       const p = raidingParty(seed, style ? idOf(style, seed, i, 'raid') : `bench${i}`, k * power);
-      out.push(resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear, setup: null }, defender: { kinds: own.stack, gear: own.gear, setup } }).won);
+      out.push(resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear }, defender: { kinds: own.stack, gear: own.gear } }).won);
     } else {
       const g = garrisonOf(seed, style ? idOf(style, seed, i, 'lair') : `bench${i}`, k * power);
-      out.push(!resolveField({ seed, attacker: { kinds: own.stack, gear: own.gear, setup }, defender: { kinds: g.kinds, gear: g.gear, setup: null } }).won);
+      out.push(!resolveField({ seed, attacker: { kinds: own.stack, gear: own.gear }, defender: { kinds: g.kinds, gear: g.gear } }).won);
     }
   }
   return out;

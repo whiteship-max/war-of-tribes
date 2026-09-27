@@ -170,8 +170,8 @@ function sortieOnce(seed: number, going: TroopStack, campPower: number, pass: nu
     seed,
     // Снаряжение вылазки — своё, из видов бойцов: ровно то же, что кладёт мир
     // (`ownGear`). Забудь его — и отряд выйдет голым против кованого лагеря.
-    attacker: { kinds: passKinds(kindsOf(going), pass), gear: gearOf(going), setup: null },
-    defender: { kinds: party.kinds, gear: party.gear, setup: null },
+    attacker: { kinds: passKinds(kindsOf(going), pass), gear: gearOf(going) },
+    defender: { kinds: party.kinds, gear: party.gear },
   });
   return field.won;
 }
@@ -941,8 +941,8 @@ function modelSortie(fz: Frozen, at: number, variant: number, slow: number, thin
   const garrison = homeOf(fz.g.army, awayOf([], []));
   const field = resolveField({
     seed: 9000 + variant * 13 + Math.floor(gd(at - fz.since)),
-    attacker: { kinds: passKinds(kindsOf(garrison), pass), gear: gearOf(garrison), setup: null },
-    defender: { kinds: camp.kinds, gear: camp.gear, setup: null },
+    attacker: { kinds: passKinds(kindsOf(garrison), pass), gear: gearOf(garrison) },
+    defender: { kinds: camp.kinds, gear: camp.gear },
   });
   return field.won;
 }
