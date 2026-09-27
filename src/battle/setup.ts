@@ -184,34 +184,6 @@ export function deployInto(army: Stack, room: { front: readonly number[]; rear: 
 }
 
 /**
- * Раскладка руками — у обороны игрока до поставки 2 — ряд шире ширины не держит: кто сверх, стоит в резерве стороны
- * (`R`), как у всех (docs/battle_eu4.md, 14.5, автоматический резерв). Роды уходят в резерв в той же доле, в какой
- * стоят в секторе; всё целое, и армия не теряет ни одного.
- */
-export function fitRows(sectors: Record<Sector, Stack>, width: number): Record<Sector, Stack> {
-  const cap = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : Infinity;
-  const out = Object.fromEntries(SECTORS.map((id) => [id, { ...sectors[id] }])) as Record<Sector, Stack>;
-  for (const lane of LANES) {
-    for (const id of [lane.front, lane.rear]) {
-      const total = stackTotal(out[id]);
-      if (total <= cap) continue;
-      // Остаются в ряду `cap` человек: накопленным округлением по родам, чтобы доля родов в ряду не сдвинулась.
-      let done = 0;
-      let kept = 0;
-      for (const k of UNIT_KINDS) {
-        done += out[id][k];
-        const keepCum = Math.round((cap * done) / total);
-        const keep = keepCum - kept;
-        kept = keepCum;
-        out.R[k] += out[id][k] - keep;
-        out[id][k] = keep;
-      }
-    }
-  }
-  return out;
-}
-
-/**
  * Сторона, вставшая по правилу развёртывания: так входят в бой все, у кого нет своей раскладки, — удар,
  * перехват, лагерь, вылазка, логова и отряды мира, викторина ежедневки, стенд ролика. `width` — ширина
  * фронта боя; нет — `FRONT_WIDTH`, та же, с которой бой идёт по умолчанию.

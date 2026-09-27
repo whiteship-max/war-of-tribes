@@ -40,7 +40,7 @@ import {
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
-import { emptyStack, fitRows, reinforceInto, stackTotal, validateSetup } from './setup';
+import { emptyStack, reinforceInto, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
   HORSE_KINDS,
@@ -400,10 +400,9 @@ class Battle {
     this.rng = seededRng(input.seed);
     // Своя ширина боя главнее; без неё — ширина фронта. `Infinity` — боя без ширины.
     this.width = input.width ?? FRONT_WIDTH;
-    const make = (id: Side, given: ArmySetup): SideState => {
-      // Ряд шире ширины не стоит: кто сверх, — в резерве стороны (`setup.fitRows`). Правило развёртывания такого
-      // ряда не кладёт; кладёт раскладка руками — оборона игрока до поставки 2. Запись боя видит то, что встало.
-      const setup: ArmySetup = { ...given, sectors: fitRows(given.sectors, this.width) };
+    // Ряда шире ширины никто не кладёт: все, кто входит в бой, встают по правилу развёртывания (`setup.deploy`), а
+    // раскладки руками с поставки 2 нет ни у кого (docs/battle_eu4.md, 14.27) — подрезать ряд ядру больше нечего.
+    const make = (id: Side, setup: ArmySetup): SideState => {
       const groups = buildGroups(id, setup);
       const initialTotal = groups.reduce((n, g) => n + g.initial, 0);
       return {

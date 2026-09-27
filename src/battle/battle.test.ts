@@ -1510,20 +1510,4 @@ describe('ширина фронта', () => {
     expect(counted, 'составов с фронтом шире ширины').toBeGreaterThanOrEqual(8);
     expect(widthed / counted, `размен с шириной ${(widthed / counted).toFixed(2)}, без — ${(bare / counted).toFixed(2)}`).toBeLessThan(bare / counted - 0.1);
   });
-
-  it('ряд шире фронта не стоит: кто сверх ширины — в резерве стороны, и запись боя видит, что встало', () => {
-    // Раскладка руками — так до поставки 2 стоит оборона игрока: правило развёртывания шире W ряд не кладёт, а
-    // раскладка может. Лишние уходят в резерв стороны (автоматический резерв, 14.5), а не стоят глубиной полосы.
-    const wall = setupOf({ A: { infantry: 250 }, B: { infantry: 500 }, C: { infantry: 250 } });
-    const r = simulateBattle({ seed: 1, attacker: wall, defender: wall, width: FRONT_WIDTH });
-    for (const side of ['attacker', 'defender'] as const) {
-      for (const id of ['A', 'B', 'C'] as const) expect(stackTotal(r.sides[side].sectors[id].initial), `${side}/${id}`).toBe(FRONT_WIDTH);
-      expect(stackTotal(r.sides[side].sectors.R.initial), `${side}: резерв`).toBe(1000 - 3 * FRONT_WIDTH);
-      expect(stackTotal(r.sides[side].initial), `${side}: армия целиком`).toBe(1000);
-      // Резерв в бой входил — строкой журнала.
-      expect(r.log.some((e) => e.id === 'reserve-committed' && e.side === side), `${side}: резерв вошёл`).toBe(true);
-    }
-    // Строя шире фронта в этом бою не бывает — событие глубины пишется только у обхода.
-    for (const e of r.log) if (e.id === 'depth') expect(e.row, 'глубина — только у ряда обхода').toBe('strike');
-  });
 });
