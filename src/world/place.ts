@@ -44,12 +44,12 @@ export function placeAt(seed: number, x: number, y: number, time?: number): Batt
     bits |= featuresAt(seed, c.x, c.y);
     const t = terrainAt(seed, c.x, c.y);
     if (t === 'forest') forest++;
-    else if (t === 'hills') hills++;
+    else if (t === 'hills' || t === 'mountains') hills++;
     else if (t === 'water') water++;
   }
   const own = terrainAt(seed, x, y);
   // Берег важнее холмов: вода у края поля видна с любого плана, а бугор — нет.
-  const land: BattleLand = water > 0 ? 'shore' : own === 'hills' || hills >= 3 ? 'hills' : 'plain';
+  const land: BattleLand = water > 0 ? 'shore' : own === 'hills' || own === 'mountains' || hills >= 3 ? 'hills' : 'plain';
   const place: BattlePlace = { land };
   if (bits & FEATURE.river) place.river = true;
   // Мост — это тоже переправа: в ролике она читается отмелью, потому что мостов

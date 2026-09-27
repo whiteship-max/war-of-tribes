@@ -36,7 +36,7 @@ export interface Rect {
 export type SettlementId = string;
 export type TribeId = string;
 
-export type Terrain = 'plain' | 'forest' | 'hills' | 'water' | 'steppe' | 'desert';
+export type Terrain = 'plain' | 'forest' | 'hills' | 'water' | 'steppe' | 'desert' | 'mountains';
 
 /** Стадия развития поселения. Читается по иконке на карте — главный способ оценить цель. */
 export type Stage = 'camp' | 'village' | 'stronghold' | 'town';

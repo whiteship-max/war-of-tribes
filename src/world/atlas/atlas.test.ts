@@ -54,7 +54,7 @@ describe('атлас мира', () => {
         tally.set(t, (tally.get(t) ?? 0) + 1);
       }
     }
-    // Все шесть видов местности на карте есть, и ни один не занимает почти всё.
+    // Все семь видов местности на карте есть, и ни один не занимает почти всё.
     for (const name of TERRAIN_ORDER) {
       const share = (tally.get(TERRAIN_ORDER.indexOf(name)) ?? 0) / (tally.size ? [...tally.values()].reduce((a, b) => a + b, 0) : 1);
       expect(share, `${name} на карте`).toBeGreaterThan(0.01);
@@ -110,7 +110,8 @@ describe('атлас мира', () => {
     };
     expect(near(alps, ATLAS_RIDGE, 4)).toBe(true);
     expect(near(paris, ATLAS_RIDGE, 4)).toBe(false);
-    expect(atlasTerrain(Math.round(alps.col), Math.round(alps.row))).toBe(TERRAIN_ORDER.indexOf('hills'));
+    // Альпы — горы, а не холмы: класс «горы» отделён от нагорий ради кости боя (14.19.1).
+    expect(atlasTerrain(Math.round(alps.col), Math.round(alps.row))).toBe(TERRAIN_ORDER.indexOf('mountains'));
   });
 
   it('реки текут по суше и попадают в настоящие русла', () => {

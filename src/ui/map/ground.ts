@@ -36,7 +36,7 @@ import {
   TREE_FREE_R,
 } from './const';
 import { type TileId, tileOrigin } from './grid';
-import { type Clearing, type Flag, type Sample, type Stamp, hash, lineStamps, stampsFor, treesIn, waterShare } from './scatter';
+import { type Clearing, type Flag, type Sample, type Stamp, drawnAs, hash, lineStamps, stampsFor, treesIn, waterShare } from './scatter';
 import { lattice as latticeOf, shadePixels } from './relief';
 import { grassPatch, makeCanvas, softDisc, treeShadow, treeSize, treeSprite } from './paint';
 import { TileCache } from './tilecache';
@@ -61,7 +61,7 @@ function release(canvas: HTMLCanvasElement): void {
 /** Правило, что держать и что вытеснять, живёт в `tilecache.ts` — без холста и под тестом. */
 const tiles = new TileCache<HTMLCanvasElement>(release);
 
-const sample: Sample = (x, y) => cachedTerrain(x, y);
+const sample: Sample = (x, y) => drawnAs(cachedTerrain(x, y));
 
 /** Признак клетки — из того же куска карты, что и ландшафт. */
 const has = (bits: number): Flag => (x, y) => (cachedFeatures(x, y) & bits) !== 0;

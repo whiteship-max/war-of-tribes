@@ -31,7 +31,7 @@ const snapFile = join(root, 'snaps', 'world-atlas.png');
  * атлас везёт индекс, а не имя. Сверяет их тест `atlas.test.ts` — по этому же
  * списку, который уезжает в сгенерированный файл.
  */
-const TERRAIN = ['plain', 'forest', 'hills', 'water', 'steppe', 'desert'];
+const TERRAIN = ['plain', 'forest', 'hills', 'water', 'steppe', 'desert', 'mountains'];
 const T = Object.fromEntries(TERRAIN.map((n, i) => [n, i]));
 
 /** Биты поверх класса: они же `FEATURE.river`/`FEATURE.ridge` в игре. */
@@ -344,8 +344,12 @@ for (let row = 0; row < SIZE; row++) {
       cells[i] = T.water;
       continue;
     }
+    // Горы и нагорья разведены ради боя: у EU4 горы бьют нападающего на две грани кости,
+    // холмы и нагорья — на одну (docs/battle_eu4.md, 14.19.1). Ходятся они одинаково — цена хода
+    // у игры одна на оба класса, и ни одна клетка от разведения не подорожала.
     if (deserts[i]) cells[i] = T.desert;
-    else if (mountains[i] || plateaus[i]) cells[i] = T.hills;
+    else if (mountains[i]) cells[i] = T.mountains;
+    else if (plateaus[i]) cells[i] = T.hills;
     else if (steppes[i]) cells[i] = T.steppe;
     else {
       // Лес — единственный выведенный слой: широта, шум и распаханные равнины.
@@ -449,6 +453,7 @@ try {
     [T.plain]: [95, 107, 60],
     [T.forest]: [60, 83, 48],
     [T.hills]: [107, 90, 65],
+    [T.mountains]: [128, 104, 72],
     [T.steppe]: [140, 132, 82],
     [T.desert]: [186, 165, 112],
   };
