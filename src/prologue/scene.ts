@@ -272,6 +272,7 @@ import {
 } from './end';
 import { applyCheat } from './cheat';
 import { CHEAT_NO, cheatOf } from '@/cheats';
+import { FrameLoop, pixelRatio } from '@/render/loop';
 import { ARROWS_PER_LOG, COAT_HIDES, buildTake, houseDone } from './craft';
 import {
   GUESTS,
@@ -1501,9 +1502,18 @@ export class PrologueScene {
 
   private sticks = new Sticks();
   private keys = new Keys();
-  private frame = 0;
   private last = 0;
-  private stopped = false;
+  /**
+   * Цепочка кадров — через дверь кадра (`render/loop.ts`): потолок частоты и
+   * остановка в скрытой странице и в свёрнутой аппке там. Цепочка одна, сколько
+   * бы раз её ни будили, — прежний `loop()`, позванный второй раз (хоть из
+   * консоли), заводил вторую, и кадры множились.
+   */
+  private frameLoop = new FrameLoop<never>(
+    () => this.loop(),
+    // Кадров не было — первый после возвращения обязан быть коротким.
+    () => void (this.last = performance.now()),
+  );
 
   /** Где стоит игрок и куда смотрит. Время сцены: в сохранение не идёт. */
   private px = START.x;
@@ -1570,7 +1580,7 @@ export class PrologueScene {
     private save: PrologueSave,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(pixelRatio());
     configureRenderer(this.renderer);
     /*
      * Тонирование — ACES, а не Neutral деревни. Деревня держит плоские цвета палитры
@@ -1706,6 +1716,7 @@ export class PrologueScene {
     this.wire();
     this.last = performance.now();
     this.loop();
+    this.frameLoop.restart();
   }
 
   // ---------- Ввод ----------
@@ -2646,8 +2657,6 @@ export class PrologueScene {
   // ---------- Кадр ----------
 
   private loop = (): void => {
-    if (this.stopped) return;
-    this.frame = requestAnimationFrame(this.loop);
     const t = performance.now();
     const gap = t - this.last;
     // Потолок шага: вкладка могла простоять в фоне, и без него первый кадр
@@ -4745,7 +4754,7 @@ export class PrologueScene {
     const r = this.canvas.getBoundingClientRect();
     const w = Math.max(1, r.width);
     const h = Math.max(1, r.height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(pixelRatio());
     this.renderer.setSize(w, h, false);
     const buf = this.renderer.getDrawingBufferSize(_size);
     this.post.setSize(buf.x, buf.y);
@@ -4974,8 +4983,7 @@ export class PrologueScene {
    * геометрию, отдать контекст — и всё это, пока канва ещё в разметке.
    */
   dispose(): void {
-    this.stopped = true;
-    cancelAnimationFrame(this.frame);
+    this.frameLoop.stop();
     // Летящая стрела кладётся на землю до записи: из колчана она вычтена, и
     // уход из режима посреди выстрела не должен стоить игроку стрелы.
     this.groundFlight();

@@ -48,7 +48,7 @@ import { disposeGeometries } from './kit';
 import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/gestures';
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { AZIMUTH, PAN_STEP_MAX, clampPan, framing, zoomRange } from './camera';
-import { FrameLoop } from './loop';
+import { FrameLoop, pageHidden, pixelRatio } from './loop';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
 
@@ -139,12 +139,6 @@ const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
  * Живая сцена в приложении одна, а обучению нужна проекция здания в экранные
  * координаты — чтобы «дырка» в затемнении следовала за зданием при повороте камеры.
  */
-/**
- * Скрыта ли страница сейчас. Отдельной функцией, потому что спрашивают дважды, а
- * главное — потому что ответ обязан быть «видна» там, где документа нет вовсе.
- */
-const hiddenNow = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'hidden';
-
 /**
  * Сколько ждём возвращения контекста WebGL, прежде чем пересобирать сцену.
  *
@@ -291,10 +285,13 @@ export class TribeScene {
   /** После ручного движения камеру больше не переставляем. */
   private userMoved = false;
 
-  /** pixelRatio — принудительная плотность пикселей (стенд); по умолчанию — экрана, в [1, 2]. */
+  /**
+   * pixelRatio — принудительная плотность пикселей (стенд); по умолчанию — экрана,
+   * в [1, 2]. Выше потолка двери кадра (`loop.DPR_CAP`) не бывает ни та, ни другая.
+   */
   constructor(private canvas: HTMLCanvasElement, private pixelRatio: number | null = null) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    // dpr зажат в [1, 2]: на 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое.
+    // На 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое — отсюда потолок.
     this.renderer.setPixelRatio(this.dpr());
     configureRenderer(this.renderer);
     configureSky(this.scene);
@@ -376,8 +373,8 @@ export class TribeScene {
     this.resize();
     // Кадры не идут в скрытой странице — не «идут редко», а не идут вовсе. Значит
     // и завести цепочку на скрытой странице нельзя: заявка повиснет до возвращения.
+    // Видимость restart спрашивает у двери кадра сам (`render/loop.ts`).
     document.addEventListener('visibilitychange', this.onVisibility);
-    this.beat.block('hidden', hiddenNow());
     this.beat.restart();
     active = this;
   }
@@ -385,18 +382,16 @@ export class TribeScene {
   /**
    * Страница скрылась или вернулась.
    *
-   * Слушателя нет ни у кого другого нарочно: цепочка кадров — дело сцены, и
-   * решать, идти ей или стоять, должна она сама. Оболочка зовёт `wake` теми
-   * событиями, которых сцене не видно (`pageshow`, `resume`, Телеграм).
+   * Остановить цепочку здесь нечего: скрытая страница и свёрнутая в Телеграме
+   * аппка останавливают кадры у всех цепочек разом, в двери кадра
+   * (`render/loop.ts`). Сцене остаётся своё — запись в журнал и побудка с
+   * пересчётом холста. Оболочка зовёт `wake` теми событиями, которых сцене не
+   * видно (`pageshow`, `resume`).
    */
   private onVisibility = (): void => {
-    const hidden = hiddenNow();
+    const hidden = pageHidden();
     sceneLog.mark(hidden ? 'hide' : 'show', this.sizeLine());
-    if (hidden) {
-      this.beat.block('hidden', true);
-      return;
-    }
-    this.wake();
+    if (!hidden) this.wake();
   };
 
   /**
@@ -409,10 +404,11 @@ export class TribeScene {
    *
    * Цепочка кадров заводится **заново**, а не «продолжается»: заявка, поданная
    * перед сворачиванием, могла не пережить фон, и тогда её никто уже не позовёт.
+   * Скрыта ли страница, `restart` спрашивает у двери кадра сам, а не у памяти о
+   * событии: событие возврата могло и не прийти.
    */
   wake(): void {
     if (this.disposed) return;
-    this.beat.block('hidden', false);
     // Вьюпорт мог поменяться, пока нас не было: поворот в фоне, вырезы, шапка
     // клиента, другая плотность пикселей. ResizeObserver узнает об этом только
     // со следующей раскладкой, а кадр пойдёт сейчас — и пошёл бы со старым буфером.
@@ -490,7 +486,7 @@ export class TribeScene {
     this.restoreTimer = 0;
     if (this.disposed || !this.lostNow()) return;
     // Скрытой странице контекст возвращать некуда: срок пойдёт заново с `wake`.
-    if (hiddenNow()) return;
+    if (pageHidden()) return;
     sceneLog.mark('watch', `контекст не вернулся за ${RESTORE_WAIT} мс`);
     this.onLost?.();
   };
@@ -541,7 +537,7 @@ export class TribeScene {
   }
 
   private dpr(): number {
-    return this.pixelRatio ?? THREE.MathUtils.clamp(window.devicePixelRatio || 1, 1, 2);
+    return pixelRatio(this.pixelRatio);
   }
 
   /**
@@ -658,9 +654,15 @@ export class TribeScene {
    * Одалживает канву и рендерер ролику о бое. Второго контекста WebGL в игре не
    * бывает (раздел 12 документа о бое): пока одолжено, диорама кадров не рисует,
    * а свой цикл ведёт ролик. Геометрия посёлка при этом жива — как и на карте.
+   *
+   * Цепочка диорамы на это время встаёт своей причиной, а не крутится вхолостую:
+   * прежде она шла под роликом кадр за кадром и выходила из кадра, не нарисовав
+   * ничего, — две цепочки разом. Причина своя, а не `map`: ролик открывают и с
+   * карты, и его конец не должен снимать остановку, поставленную картой.
    */
   lend(on: boolean): THREE.WebGLRenderer {
     this.lent = on;
+    this.beat.block('lent', on);
     return this.renderer;
   }
 

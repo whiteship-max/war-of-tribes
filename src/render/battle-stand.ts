@@ -33,6 +33,7 @@ import { kindsOf, type TroopStack } from '@/game/battle/kinds';
 import type { BattleResult, Side, Stack } from '@/battle/types';
 import { configureRenderer } from './lighting';
 import { ReplayPlayer } from './battle/player';
+import { nextFrame, pixelRatio } from './loop';
 
 /**
  * Состав по числу бойцов: сбалансированное войско, доли те же на любом размере.
@@ -159,7 +160,7 @@ export function mountReplayStand(p: URLSearchParams): void {
     // берут и позже — без этого он придёт пустым.
     preserveDrawingBuffer: true,
   });
-  renderer.setPixelRatio(Number(p.get('dpr') ?? 2));
+  renderer.setPixelRatio(pixelRatio(Number(p.get('dpr') ?? 2)));
   configureRenderer(renderer);
   // Честный счёт вызовов вместе с теневым проходом — как в игре и в стенде графики.
   renderer.info.autoReset = false;
@@ -221,7 +222,7 @@ export function mountReplayStand(p: URLSearchParams): void {
   const name = p.get('snap');
   if (name) {
     // Снимок берётся сразу после кадра: буфер WebGL живёт до следующей отрисовки.
-    requestAnimationFrame(() => {
+    nextFrame(() => {
       player.draw();
       publish();
       canvas.toBlob((blob) => {

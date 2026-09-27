@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { buildCast, frameAt, type Cast, type Frame } from '@/battle/replay';
 import type { BattleResult, Side } from '@/battle/types';
 import { BattleStage } from './stage';
+import { FrameLoop } from '../loop';
 
 export interface PlayerOptions {
   /** Кадр отдаётся наружу: по нему интерфейс рисует подпись и кнопки. */
@@ -22,7 +23,8 @@ export class ReplayPlayer {
   readonly cast: Cast;
   private stage: BattleStage;
   private clock = new THREE.Clock();
-  private raf = 0;
+  /** Цепочка кадров — через дверь кадра (`render/loop.ts`): потолок частоты и скрытая страница там. */
+  private beat = new FrameLoop<'idle'>(() => this.loop(), () => this.clock.getDelta());
   private t = 0;
   private running = false;
   private disposed = false;
@@ -34,6 +36,7 @@ export class ReplayPlayer {
   ) {
     this.cast = cast;
     this.stage = new BattleStage(cast);
+    this.beat.block('idle', true);
     this.fit();
     this.draw();
   }
@@ -56,13 +59,12 @@ export class ReplayPlayer {
   start(): void {
     if (this.running || this.disposed) return;
     this.running = true;
-    this.clock.getDelta();
-    this.loop();
+    this.beat.block('idle', false);
   }
 
   stop(): void {
     this.running = false;
-    cancelAnimationFrame(this.raf);
+    this.beat.block('idle', true);
   }
 
   /** Размер канвы мог измениться: аспект берём у рендерера, а не у окна. */
@@ -73,7 +75,6 @@ export class ReplayPlayer {
 
   private loop = (): void => {
     if (!this.running || this.disposed) return;
-    this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(0.1, this.clock.getDelta()) * (this.opts.speed ?? 1);
     this.t = Math.min(this.cast.seconds, this.t + dt);
     this.draw();
@@ -111,6 +112,7 @@ export class ReplayPlayer {
   dispose(): void {
     this.stop();
     this.disposed = true;
+    this.beat.stop();
     this.stage.dispose();
   }
 }

@@ -3,6 +3,7 @@ import type { BuildingTypeId, GameState } from '@/game/types';
 import { useGame } from '@/game/store';
 import { currentStep, stepText, type TutorialStep } from '@/game/data/tutorial';
 import { activeScene } from '@/render/Scene';
+import { FrameLoop } from '@/render/loop';
 
 /** Запас вокруг цели, чтобы «дырка» не резала её по краю. */
 const PAD = 6;
@@ -80,11 +81,9 @@ export function TutorialOverlay() {
     // Прошлая цель снимается сразу: лучше кадр без затемнения, чем кадр с дыркой не там.
     setSpot(null);
     if (!step) return;
-    let raf = 0;
     let key = '';
     let nextScroll = 0;
     const frame = (): void => {
-      raf = requestAnimationFrame(frame);
       const next = spotOf(step, useGame.getState().s);
       // Цель в списке может оказаться ниже сгиба. Пробуем не один раз: шторка ещё
       // едет вверх, и на первом кадре её список толком не размечен.
@@ -101,8 +100,10 @@ export function TutorialOverlay() {
       key = k;
       setSpot(next);
     };
+    // Первая позиция — сразу, дальше — кадрами через дверь кадра (`render/loop.ts`).
     frame();
-    return () => cancelAnimationFrame(raf);
+    const loop = FrameLoop.run(frame);
+    return () => loop.stop();
   }, [step]);
 
   if (!step) return null;

@@ -10,6 +10,7 @@ import {
   scoreAt,
 } from '@/game/daily/archery';
 import { haptic } from '@/telegram/webapp';
+import { FrameLoop } from '@/render/loop';
 
 /**
  * 🏹 Меткий выстрел. По дорожке ходит бегунок, зачётная зона стоит на месте —
@@ -53,17 +54,15 @@ export function Archery({ seed, onDone }: { seed: number; onDone: (won: boolean)
 
   useEffect(() => {
     if (done) return;
-    let raf = 0;
     const draw = (): void => {
       const el = marker.current;
       if (el) {
         const x = markerAt(lv, performance.now() - start.current);
         el.style.transform = `translateX(${x * railWidth.current}px)`;
       }
-      raf = requestAnimationFrame(draw);
     };
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    const loop = FrameLoop.run(draw);
+    return () => loop.stop();
   }, [lv, done]);
 
   // Свернул приложение посреди выстрела — взвод сбрасывается. Иначе появляется

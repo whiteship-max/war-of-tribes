@@ -46,6 +46,7 @@ import { groundDecals, type DecalSpot } from './village';
 import { SeasonVisuals } from './season';
 import { TribeScene } from './Scene';
 import { applyDayNight, configureRenderer, configureSky, createLightRig, fitShadow } from './lighting';
+import { FrameLoop, deviceRatio, pixelRatio } from './loop';
 
 const SEASON_ORDER: Season[] = ['spring', 'summer', 'autumn', 'winter'];
 
@@ -177,7 +178,7 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
 
   const canvas = makeCanvas(root);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(c.dpr);
+  renderer.setPixelRatio(pixelRatio(c.dpr));
   configureRenderer(renderer);
   // Считаем вызовы честно, вместе с теневым проходом (см. Scene).
   renderer.info.autoReset = false;
@@ -268,11 +269,9 @@ function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
     text = `${head}\ncalls ${stats.calls} · tris ${stats.triangles}`;
     publish(caption, text, { mode: 'building', ...stats });
   };
-  const loop = (): void => {
-    requestAnimationFrame(loop);
-    render();
-  };
-  loop();
+  // Кадры — через дверь кадра (`render/loop.ts`): стенд держит тот же потолок, что игра.
+  render();
+  FrameLoop.run(render);
   new Snapper(c.snap).schedule(canvas, render, () => text);
 }
 
@@ -387,7 +386,7 @@ function runPerf(scene: PerfTarget, seconds: number, name: string, done: (line: 
         seconds,
         calls: st.calls,
         triangles: st.triangles,
-        dpr: window.devicePixelRatio,
+        dpr: deviceRatio(),
         width: window.innerWidth,
         height: window.innerHeight,
         ua: navigator.userAgent,
@@ -513,7 +512,7 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
 
   const canvas = makeCanvas(root);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(c.dpr);
+  renderer.setPixelRatio(pixelRatio(c.dpr));
   configureRenderer(renderer);
   // Считаем вызовы честно, вместе с теневым проходом (см. Scene).
   renderer.info.autoReset = false;
@@ -634,11 +633,9 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
       (perfLine ? `\n${perfLine}` : '');
     publish(caption, text, { mode: 'units', ...stats, instances: demand });
   };
-  const loop = (): void => {
-    requestAnimationFrame(loop);
-    render();
-  };
-  loop();
+  // Кадры — через дверь кадра (`render/loop.ts`): стенд держит тот же потолок, что игра.
+  render();
+  FrameLoop.run(render);
 
   const perf = Number(p.get('perf') ?? 0);
   const name = count > 0 ? `units_x${count}` : 'units_row';
@@ -699,7 +696,7 @@ function benchmark(
       ms: Math.round(ms * 1000) / 1000,
       frames,
       ...stats(),
-      dpr: window.devicePixelRatio,
+      dpr: deviceRatio(),
       width: window.innerWidth,
       height: window.innerHeight,
       ua: navigator.userAgent,

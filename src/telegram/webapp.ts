@@ -1,6 +1,7 @@
 // Тонкая обёртка над Telegram WebApp API. Работает и вне Telegram (в браузере).
 
 import { sceneLog } from '@/scenelog';
+import { setAppAsleep } from '@/render/loop';
 
 /**
  * Облако Telegram — **только чтение, и только для подъёма старой партии**
@@ -261,9 +262,16 @@ export function initTelegram(): void {
   // Bot API 8.0: клиент говорит, что аппку свернули и что развернули обратно.
   // Это ровно тот случай, из-за которого заведён журнал: у старых клиентов
   // события нет, и тогда о сворачивании расскажет только visibilitychange.
-  on('deactivated', () => sceneLog.mark('tg', 'свернули'));
+  // Свёрнутой аппке кадров не рисуют: на Telegram Desktop она может оставаться
+  // для браузера видимой, и без этого сцена гнала бы кадры в пустоту. Останавливает
+  // их дверь кадра — у всех цепочек разом (`render/loop.ts`).
+  on('deactivated', () => {
+    sceneLog.mark('tg', 'свернули');
+    setAppAsleep(true);
+  });
   on('activated', () => {
     sceneLog.mark('tg', 'развернули');
+    setAppAsleep(false);
     applyViewport();
   });
   on('themeChanged', () => {
