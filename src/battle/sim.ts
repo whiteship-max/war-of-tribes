@@ -88,8 +88,14 @@ interface Group {
   routed: boolean;
   /** Мораль сектора, 0..`MORALE.max`. Своя у каждой группы: сектор ломается сам, а не вся армия. */
   morale: number;
-  /** Мораль упала до нуля: бегут, не держат линию, почти не отбиваются. */
+  /**
+   * Мораль упала до нуля: бегут с поля (мораль EU4, docs/battle_eu4.md, 14.15). Полосы у бежавших нет (`lane` —
+   * `null`): не бьют, не стоят в ряду, не закрывают собой тех, кто за ними, — их место занимает резерв. Достаёт их
+   * только преследование.
+   */
   fled: boolean;
+  /** Где стояли, когда побежали: соседям по строю — паника от бежавшего рядом (`neighbours`). До поставки 5. */
+  fledFrom: { lane: Lane; row: Row } | null;
   /** Последний тик, когда группу били с фланга или тыла. */
   flankedTick: number;
   /** Потери группы за тик, взвешенные для морали. */
@@ -272,6 +278,7 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
     routed: false,
     morale: opts.morale ?? startMorale(setup, stack),
     fled: false,
+    fledFrom: null,
     flankedTick: -1,
     lostTick: 0,
   };
@@ -639,6 +646,23 @@ class Battle {
 
   // ----- Резерв -----
 
+  /** Группы резерва стороны: ещё не встали в строй. */
+  reserveOf(side: Side): Group[] {
+    return this.sides[side].groups.filter((g) => g.row === 'reserve' && !g.fled && alive(g));
+  }
+
+  /** Кто из резерва может встать — целыми людьми по родам: так он и встаёт (`refill`). */
+  reservePool(reserve: Group[]): Stack {
+    const pool = emptyStack();
+    for (const g of reserve) for (const k of UNIT_KINDS) pool[k] += Math.floor(g.stack[k] + 1e-9);
+    return pool;
+  }
+
+  /** Сколько человек ещё может встать в строй. Меньше одного — встать некому. */
+  reserveMen(side: Side): number {
+    return stackTotal(this.reservePool(this.reserveOf(side)));
+  }
+
   /**
    * Автоматический резерв (docs/battle_eu4.md, 14.2 и 14.5; решение владельца — вариант (а)). Кто не встал в ряд —
    * стоит в резерве стороны: вне строя, со своей моралью, которую до ввода не теряет (14.19.4). В каждый тик он
@@ -649,10 +673,9 @@ class Battle {
    */
   refill(side: Side): void {
     const s = this.sides[side];
-    const reserve = s.groups.filter((g) => g.row === 'reserve' && alive(g));
+    const reserve = this.reserveOf(side);
     if (reserve.length === 0) return;
-    const pool = emptyStack();
-    for (const g of reserve) for (const k of UNIT_KINDS) pool[k] += Math.floor(g.stack[k] + 1e-9);
+    const pool = this.reservePool(reserve);
     if (stackTotal(pool) < 1) return;
     const cap = Number.isFinite(this.width) ? Math.floor(this.width) : Infinity;
     const room = (row: 'front' | 'rear'): number[] =>
@@ -841,7 +864,6 @@ class Battle {
     if (g.row === 'front' && !anchored(g.stack)) m *= ANCHOR.noInfantryDamageTaken;
     if (s.retreating) m *= RETREAT.taken;
     else if (s.broken) m *= MORALE.brokenTaken;
-    if (g.fled) m *= MORALE.fledTaken;
     if (this.phase === 'clash' && kind === 'spear' && frontal && closedSpears(g)) m *= CLASH_SPEAR_BRACE;
     return m;
   }
@@ -850,7 +872,6 @@ class Battle {
   dealtMult(g: Group): number {
     const s = this.sides[g.side];
     let m = moraleDamageMult(g.morale) * this.luck[g.side];
-    if (g.fled) m *= MORALE.fledDealt;
     if (s.broken) m *= MORALE.brokenDealt;
     if (s.retreating) m *= RETREAT.dealt;
     return m;
@@ -869,8 +890,7 @@ class Battle {
         const n = t.stack[k];
         if (n < EPS) continue;
         const share = n / weight;
-        const broken = t.routed || t.fled;
-        const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged, broken);
+        const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged, t.routed);
         const casualties = (dmg / UNIT_STATS[k].toughness) * this.taken(t, k, ctx.frontal);
         if (casualties > 0) hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank });
       }
@@ -1009,9 +1029,13 @@ class Battle {
     return this.temper(g) * (anchored(g.stack) ? MORALE.anchor : 1);
   }
 
-  /** Соседи по строю: смежные полосы в том же ряду и другой ряд той же полосы. Считаются до того, как сломанный фронт откатится в тыл. */
+  /**
+   * Соседи по строю: смежные полосы в том же ряду и другой ряд той же полосы. У бежавшего — по месту, где он стоял,
+   * когда побежал (`fledFrom`): его в строю нет, а паника от него у соседей остаётся.
+   */
   neighbours(g: Group): Group[] {
-    if (g.lane === null || (g.row !== 'front' && g.row !== 'rear')) return [];
+    const at = g.fled ? g.fledFrom : g.lane === null ? null : { lane: g.lane, row: g.row };
+    if (at === null || (at.row !== 'front' && at.row !== 'rear')) return [];
     return this.sides[g.side].groups.filter(
       (n) =>
         n !== g &&
@@ -1019,22 +1043,20 @@ class Battle {
         !n.fled &&
         n.lane !== null &&
         (n.row === 'front' || n.row === 'rear') &&
-        ((n.row === g.row && Math.abs(n.lane - g.lane!) === 1) || (n.row !== g.row && n.lane === g.lane)),
+        ((n.row === at.row && Math.abs(n.lane - at.lane) === 1) || (n.row !== at.row && n.lane === at.lane)),
     );
   }
 
-  /** Сектор сломался: бегут, линия открыта, паника идёт по соседям. */
+  /** Сектор сломался: бегут с поля, место открыто резерву, паника идёт по соседям. */
   breakGroup(g: Group): void {
     const s = this.sides[g.side];
-    g.fled = true;
-    g.morale = 0;
     // В журнале — сектор расстановки, а не позиция: смятый фронт, откатившийся в тыл, для игрока всё ещё «правый фланг».
     const sector = g.origin;
     const neighbours = this.neighbours(g);
-    if (g.row === 'front') {
-      g.row = 'rear';
-      g.routed = true;
-    }
+    g.fledFrom = g.lane === null ? null : { lane: g.lane, row: g.row };
+    g.fled = true;
+    g.morale = 0;
+    g.lane = null;
     this.once(`broken:${sector}`, s, { id: 'sector-broken', side: g.side, sector });
     for (const n of neighbours) {
       const before = n.morale;
@@ -1045,9 +1067,9 @@ class Battle {
   }
 
   /**
-   * Мораль по секторам: потери сектора, удар с фланга, сломанный сосед. Сектор
-   * с нулевой моралью ломается; армия — когда сломанные и перебитые сектора
-   * весят `armyBreakShare` её начальной численности.
+   * Мораль по секторам: потери сектора, удар с фланга, сломанный сосед. Сектор с нулевой моралью бежит с поля.
+   * Сторона сломана, когда в строю никого нет и встать некому — резерв исчерпан (мораль EU4, docs/battle_eu4.md,
+   * 14.15), — или перебита.
    */
   updateMorale(): void {
     for (const side of SIDES) {
@@ -1074,31 +1096,26 @@ class Battle {
       let alive_ = 0;
       let moraleSum = 0;
       let brokenWeight = 0;
-      let frontWeight = 0;
-      let frontBroken = 0;
+      let inLine = 0;
       for (const g of s.groups) {
         const n = stackTotal(g.stack);
-        const gone = g.fled || !alive(g);
-        if (gone) brokenWeight += g.initial;
-        if (rowOf(g.origin) === 'front') {
-          frontWeight += g.initial;
-          if (gone) frontBroken += g.initial;
-        }
+        if (g.fled || !alive(g)) brokenWeight += g.initial;
         if (!alive(g)) continue;
+        if (!g.fled && g.lane !== null) inLine += n;
         alive_ += n;
         moraleSum += n * g.morale;
       }
       s.morale = alive_ > 0 ? moraleSum / alive_ : 0;
       const brokenShare = brokenWeight / Math.max(1, s.initialTotal);
-      // Линии больше нет: всё, что стояло во фронте, бежит или перебито, — армия сломана, сколько бы ни осталось в тылу.
-      const lineGone = frontWeight > 0 && frontBroken >= frontWeight - EPS;
+      // В строю никого, и встать некому: резерв — тем же счётом, каким он встаёт (`reserveMen`).
+      const nobody = inLine < EPS && this.reserveMen(side) < 1;
       const remaining = alive_;
       if (!s.broken && remaining < ANNIHILATED_AT * s.initialTotal) {
         s.broken = true;
         s.brokenAt = this.tick;
         s.brokenReason = 'annihilated';
         this.emit({ id: 'annihilated', side });
-      } else if (!s.broken && (brokenShare >= MORALE.armyBreakShare || lineGone || s.lostTotal / s.initialTotal > MORALE.autoBreakLoss)) {
+      } else if (!s.broken && (nobody || s.lostTotal / s.initialTotal > MORALE.autoBreakLoss)) {
         s.broken = true;
         s.brokenAt = this.tick;
         s.brokenReason = 'morale';
@@ -1110,7 +1127,7 @@ class Battle {
     }
   }
 
-  /** Конец фазы морали: кто отходит. */
+  /** Начало отступления: кто отходит. */
   decide(): void {
     const a = this.sides.attacker;
     const d = this.sides.defender;

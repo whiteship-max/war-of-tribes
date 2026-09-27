@@ -863,9 +863,15 @@ describe('журнал осмыслен', () => {
   });
 
   it('у истреблённой стороны в журнале стоит истребление, а не только мораль', () => {
-    const r = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 10 }) });
+    // Истребляют в строю: бежавший уходит с поля, и достаёт его только погоня (мораль EU4, 14.15). Поэтому вход —
+    // отряд, который вырубают раньше, чем он успевает побежать; граница области — в журнале слома сектора до
+    // истребления нет.
+    const r = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 2 }) });
+    const wiped = r.log.find((e) => e.id === 'annihilated' && e.side === 'defender');
     expect(r.winner).toBe('attacker');
-    expect(r.log.some((e) => e.id === 'annihilated' && e.side === 'defender')).toBe(true);
+    expect(wiped, 'истребление в журнале').toBeDefined();
+    expect(r.log.some((e) => e.id === 'sector-broken' && e.side === 'defender' && e.tick < wiped!.tick), 'бежали раньше истребления').toBe(false);
+    expect(r.reason).toBe('annihilated');
     expect(lossRatio(r, 'attacker')).toBeGreaterThan(1);
   });
 });
@@ -988,15 +994,20 @@ describe('автоматический резерв', () => {
         expect(stackTotal(r.sides[side].sectors.R.initial), `${side}: резерв`).toBeGreaterThan(0);
       }
       for (const e of r.log) if (e.id === 'reserve-committed') lanes.add(`${e.side}:${e.sector}`);
-      // Сектор первой линии сломался до конца боя — и в его полосу после этого встал резерв той же стороны.
+      // Сектор первой линии сломался до конца боя — и в его полосу встал резерв той же стороны в тот же шаг: резерв
+      // встаёт в начале следующего тика, строка журнала — в конце той фазы, куда этот тик попал.
       for (const e of r.log) {
         if (e.id !== 'sector-broken' || !['A', 'B', 'C'].includes(e.sector)) continue;
-        const refilled = r.log.some((x) => x.id === 'reserve-committed' && x.side === e.side && x.sector === e.sector && x.tick >= e.tick);
-        const resLeft = r.log.some((x) => x.id === 'reserve-committed' && x.side === e.side && x.tick >= e.tick) || stackTotal(r.sides[e.side].sectors.R.initial) > 0;
-        if (resLeft) {
-          expect(refilled, `сид ${seed}: ${e.side}/${e.sector} сломан на ${e.tick}-м тике — резерв на его место не встал`).toBe(true);
-          afterBreak += 1;
-        }
+        const next = r.phases.find((p) => e.tick + 1 >= p.from && e.tick + 1 <= p.to);
+        if (!next) continue;
+        const entered = r.log.reduce((n, x) => (x.id === 'reserve-committed' && x.side === e.side && x.tick <= next.to ? n + x.men : n), 0);
+        // Граница области: к концу той фазы резерв ещё не исчерпан, и бежавших был хоть один — дыра в целого человека.
+        const resLeft = entered < stackTotal(r.sides[e.side].sectors.R.initial);
+        const hole = stackTotal(r.sides[e.side].sectors[e.sector].final) >= 1;
+        if (!resLeft || !hole) continue;
+        const refilled = r.log.some((x) => x.id === 'reserve-committed' && x.side === e.side && x.sector === e.sector && x.tick >= e.tick && x.tick <= next.to);
+        expect(refilled, `сид ${seed}: ${e.side}/${e.sector} сломан на ${e.tick}-м тике — резерв на его место не встал`).toBe(true);
+        afterBreak += 1;
       }
     }
     // Точки внутри области: резерв вставал на место бежавших, и не в одну полосу.
@@ -1040,6 +1051,60 @@ describe('автоматический резерв', () => {
     }
     // Точка внутри области: резерв входил и держался — вошедший с чужой (нулевой) моралью бежал бы тут же.
     expect(checked, 'сторон, чей вошедший резерв держится к концу боя').toBeGreaterThan(0);
+  });
+});
+
+describe('мораль EU4', () => {
+  // Поставка 1 (docs/battle_eu4.md, 14.15): бежавший уходит с поля, резерв встаёт на его место, и армия больше W
+  // перестаёт быть бесполезной.
+
+  it('бежавший уходит с поля: после слома сектор не получает ни одного удара до погони', () => {
+    // Новый тест 10. Бежавших в строю нет — не бьют, не стоят в ряду, не закрывают собой тех, кто за ними; достаёт
+    // их только преследование. По записи боя это видно потерями сектора по фазам: у сектора одна группа — та, что
+    // встала в него перед боем, и после её слома у сектора нет потерь ни в одной фазе, кроме погони.
+    let checked = 0;
+    for (let seed = 1; seed <= 8; seed += 1) {
+      for (const [a, b] of [[BALANCED_ARMY, COMPOSITIONS[8].army], [COMPOSITIONS[3].army, COMPOSITIONS[5].army]] as const) {
+        const r = simulateBattle({ seed, attacker: deploySetup(scaleArmy(a, 5 * FRONT_WIDTH)), defender: deploySetup(scaleArmy(b, 5 * FRONT_WIDTH)) });
+        for (const e of r.log) {
+          if (e.id !== 'sector-broken' || e.sector === 'R') continue;
+          const at = r.phases.findIndex((p) => e.tick >= p.from && e.tick <= p.to);
+          const after = r.phases.slice(at + 1).filter((p) => p.phase !== 'pursuit');
+          // Граница области: после слома бой ещё шёл хоть одну фазу до погони, и у стороны оставались люди в строю —
+          // противнику было по кому бить.
+          if (after.length === 0 || (r.sides[e.side].brokenAt !== null && r.sides[e.side].brokenAt! <= e.tick)) continue;
+          const lost = after.reduce((n, p) => n + (p.bySector?.[e.side]?.[e.sector] ?? 0), 0);
+          expect(lost, `сид ${seed}: ${e.side}/${e.sector} бежал на ${e.tick}-м тике, а потом терял людей`).toBe(0);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked, 'слома секторов посреди боя').toBeGreaterThan(0);
+  });
+
+  it('армия больше W не бесполезна: большая держит поле дольше меньшей и выше трёх W, и ниже', () => {
+    // Новый тест 3. Большая на четверть против меньшей, та же ширина: сторона держит поле, пока не сломалась. Точки —
+    // по обе стороны трёх W: ниже вся армия в строю, выше лишние стоят в резерве и встают на место выбывших. Какая
+    // точка где, утверждено в самом тесте — резерв у меньшей есть или нет.
+    const W = FRONT_WIDTH;
+    const until = (r: BattleResult, side: Side): number => r.sides[side].brokenAt ?? r.ticks + 1;
+    for (const [n, above] of [[Math.round(2.5 * W), false], [6 * W, true], [9 * W, true]] as const) {
+      const small = scaleArmy(BALANCED_ARMY, n);
+      const large = scaleArmy(BALANCED_ARMY, Math.round(n * 1.25));
+      expect(stackTotal(deploySetup(small).sectors.R) > 0, `${n}: резерв у меньшей`).toBe(above);
+      let largeLonger = 0;
+      let smallLonger = 0;
+      for (let seed = 1; seed <= 8; seed += 1) {
+        for (const largeSide of ['attacker', 'defender'] as const) {
+          const [a, b] = largeSide === 'attacker' ? [large, small] : [small, large];
+          const r = simulateBattle({ seed, attacker: deploySetup(a), defender: deploySetup(b) });
+          const smallSide = other(largeSide);
+          if (until(r, largeSide) > until(r, smallSide)) largeLonger += 1;
+          if (until(r, smallSide) > until(r, largeSide)) smallLonger += 1;
+        }
+      }
+      expect(largeLonger, `${n} против ${Math.round(n * 1.25)}: большая дольше — ${largeLonger}, меньшая — ${smallLonger}`).toBeGreaterThan(smallLonger);
+    }
   });
 });
 

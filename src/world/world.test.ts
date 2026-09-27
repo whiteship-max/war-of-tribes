@@ -2426,8 +2426,9 @@ describe('отряд полководца', () => {
     let checked = 0;
     for (const seed of [5, 7, 11, 42, 77, 101, 202]) {
       const w = makeWorld(seed);
-      // Горстка дубинщиков против целого поселения — заведомый разгром.
-      const p = profile({ army: { clubman: 2 } });
+      // Один дубинщик против целого поселения — заведомый разгром. Горстку побольше не вырубают: бежавший уходит с
+      // поля, и достаёт его только погоня (мораль EU4, docs/battle_eu4.md, 14.15), — уцелевшие возвращаются с полководцем.
+      const p = profile({ army: { clubman: 1 } });
       await w.world.sync(p);
       const info = await w.world.info();
       const chunk = await w.world.region({ x: info.home.x - 40, y: info.home.y - 40, w: 80, h: 80 });
@@ -2436,7 +2437,7 @@ describe('отряд полководца', () => {
         .sort((a, b) => (b.seenPop ?? 0) - (a.seenPop ?? 0))[0];
       if (!strongest) continue;
 
-      expect(await w.world.setGarrison({ clubman: 2 })).toBeNull();
+      expect(await w.world.setGarrison({ clubman: 1 })).toBeNull();
       w.at((await general(w)).readyAt);
       await w.world.sync(p);
       if ((await w.world.moveFigure('general', { x: strongest.x, y: strongest.y })) !== null) continue;

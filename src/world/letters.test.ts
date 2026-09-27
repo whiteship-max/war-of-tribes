@@ -377,9 +377,11 @@ describe('письма в мире', () => {
 describe('пленные и выкуп', () => {
   it('прорвавшийся набег оставляет пленных, и выкуп возвращает их людьми', async () => {
     // Числом деревня сильна (от него мир считает мощь набега), а в строю у неё
-    // почти никого: набег прорвётся наверняка.
+    // горстка: набег прорвётся наверняка. Горстка — не один боец: бежавший уходит с поля, и
+    // достаёт его только погоня (мораль EU4, docs/battle_eu4.md, 14.15), — одного не убивают,
+    // а пленные берутся из убитых.
     const w = makeWorld(43);
-    const weak = profile({ defense: 200, units: { warrior: 8, scout: 0 }, army: { clubman: 1 }, militia: 0 });
+    const weak = profile({ defense: 200, units: { warrior: 8, scout: 0 }, army: { clubman: 3 }, militia: 0 });
     let held: Record<string, number> = {};
     for (let m = 1; m <= 900; m++) {
       w.at(START + m * 15_000);
