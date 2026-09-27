@@ -14,7 +14,7 @@
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
 import { COUNTER, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -133,7 +133,13 @@ export type Job =
    * `EDGE_STEPS[step]`; `dice` — без кости (0), с шагом конфига или с данным шагом (выведенным, `bench.diceStepFor`);
    * `pace` — темп потери морали (`withMoralePace`).
    */
-  | { kind: 'edge'; step: number; dice: 'bare' | 'config' | number; pace: number; from: number; to: number };
+  | { kind: 'edge'; step: number; dice: 'bare' | 'config' | number; pace: number; from: number; to: number }
+  /**
+   * Стояние на решётке (docs/battle_eu4.md, 14.25–14.27): составы решётки `from..to` в `total` бойцов строя против
+   * каждого другого состава решётки, обе стороны поля, сид 1 — сколько боёв дошло до потолка кругов, сколько ничьих и
+   * сколько стояло (`bench.standstill`).
+   */
+  | { kind: 'still'; total: number; from: number; to: number };
 
 /**
  * Сколько боёв (`n`) дошло до круга (`rounds`), сколько всего было сшибок (`clashes`), сколько тиков шёл каждый бой
@@ -156,7 +162,8 @@ export type Out =
   | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number }
   | { kind: 'dice'; derived: number; bare: number }
   | { kind: 'reach'; matrix: Reach }
-  | { kind: 'edge'; edge: Edge };
+  | { kind: 'edge'; edge: Edge }
+  | { kind: 'still'; n: number; gong: number; draws: number; stood: number };
 
 /**
  * Итог боёв «Лезвия»: сколько их (`n`), в скольких поле удержала большая (`held`), сколько ничьих, чем кончились
@@ -246,6 +253,21 @@ export function battleJob(job: Job): Out {
         }
       }
       return { kind: 'edge', edge };
+    }
+    case 'still': {
+      const setups = compositionLattice().map((a) => deploySetup(scaleArmy(a, job.total)));
+      const out = { kind: 'still' as const, n: 0, gong: 0, draws: 0, stood: 0 };
+      for (let i = job.from; i < job.to; i += 1) {
+        for (let j = 0; j < setups.length; j += 1) {
+          if (i === j) continue;
+          const r = simulateBattle({ seed: 1, attacker: setups[i], defender: setups[j] });
+          out.n += 1;
+          if (r.log.some((e) => e.id === 'rounds-out')) out.gong += 1;
+          if (r.winner === 'draw') out.draws += 1;
+          if (standstill(r).circle !== null) out.stood += 1;
+        }
+      }
+      return out;
     }
   }
 }

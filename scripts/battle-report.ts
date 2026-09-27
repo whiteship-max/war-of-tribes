@@ -93,6 +93,9 @@ const bySize = [...OVERSIZE_SIZES.map((total) => ({ total, bare: false })), { to
   rows: !s.bare && s.total === HOLD ? oversize : oversizeAt(s.total, s.bare),
 }));
 const dice = w1.add({ kind: 'dice' });
+// Стояние на решётке составов (docs/battle_eu4.md, 14.25–14.27): каждый состав решётки против каждого другого на ½W, W и 2W,
+// кусками по десять составов.
+const stillAt = OVERSIZE_SIZES.map((total) => ({ total, parts: slices(compositionLattice().length, 10).map(([from, to]) => w1.add({ kind: 'still', total, from, to })) }));
 const ringPairs = RING.map((_, ring) => w1.add({ kind: 'ring', ring, seeds: SEEDS }));
 // Круги по размерам: сколько боёв до них доходит — матрица составов.
 const reachAt = [...OVERSIZE_SIZES, ARMY_SIZE].map((total) => ({ total, got: w1.add({ kind: 'reach', total }) }));
@@ -309,6 +312,19 @@ console.log('\n=== Круги сечи и ширина по размерам: «
     console.log(
       `${pad(`${total}, ${bare ? 'без ширины' : `W ${FRONT_WIDTH}`}`, 22)} ${Math.max(1, depth).toFixed(2).padStart(7)}  ${String(roundsCap(depth)).padStart(7)}  ${pct(sum('wins')).padStart(15)}  ${pct(sum('draws')).padStart(12)}  ${pct(sum('gong')).padStart(12)}  ${(sum('smallLoss') / Math.max(1, sum('bigLoss'))).toFixed(2).padStart(14)}`,
     );
+  }
+}
+
+console.log('\n=== Стояние на решётке составов: каждый против каждого, обе стороны поля, сид 1, на ½W, W и 2W ===');
+{
+  // Стояние — круг, в котором ни одна сторона не потеряла ни человека, пока никто не сломан (`bench.standstill`): бой стоит до
+  // потолка кругов, и итог по сохранённым даёт ничью. Прежде стояли обходящие, друг до друга не достававшие, и «тень» — группа,
+  // где каждого рода меньше половины бойца (docs/battle_eu4.md, 14.25–14.27). Решётка шире «Ограничителя»: составы разные.
+  console.log(`${pad('размер', 12)}${pad('боёв', 8, true)}${pad('до потолка', 14, true)}${pad('ничьих', 10, true)}${pad('стояний', 11, true)}`);
+  for (const { total, parts } of stillAt) {
+    const got = parts.map((o) => o());
+    const sum = (k: 'n' | 'gong' | 'draws' | 'stood'): number => got.reduce((n, o) => n + o[k], 0);
+    console.log(`${pad(total, 12)}${pad(sum('n'), 8, true)}${pad(sum('gong'), 14, true)}${pad(sum('draws'), 10, true)}${pad(sum('stood'), 11, true)}`);
   }
 }
 

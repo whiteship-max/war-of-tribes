@@ -176,7 +176,16 @@ interface Contact {
 }
 
 const EPS = 0.5;
-const alive = (g: Group): boolean => stackTotal(g.stack) >= EPS;
+/** Род стоит в строю: в нём не меньше половины бойца. Меньше — удар его пропускает (`distribute`), и сам он не бьёт (`melee`). */
+const stands = (n: number): boolean => n >= EPS;
+/**
+ * Жива ли группа — в той же единице, что удар: хоть один её род стоит (`stands`). Прежде «жив» считался суммой родов,
+ * и группа, где каждого рода меньше половины бойца, а вместе больше, — «тень» — числилась в строю, а бить её было
+ * нечем: сторона не ломалась, и бой стоял до потолка кругов (docs/battle_eu4.md, 14.25–14.27; слово владельца).
+ * Открыта наружу ради теста «тень перебита»: правило проверяется этой самой функцией, а не своей копией.
+ */
+export const standing = (stack: Stack): boolean => UNIT_KINDS.some((k) => stands(stack[k]));
+const alive = (g: Group): boolean => standing(g.stack);
 const laneOf = (s: Sector): Lane | null => (s === 'R' ? null : ((FRONT.indexOf(s as never) + REAR.indexOf(s as never) + 1) as Lane));
 const rowOf = (s: Sector): Row => (s === 'R' ? 'reserve' : FRONT.includes(s as never) ? 'front' : 'rear');
 const laneSector = (lane: Lane, row: 'front' | 'rear'): Sector => (row === 'front' ? FRONT[lane] : REAR[lane]);
@@ -1071,7 +1080,7 @@ class Battle {
     for (const t of targets) {
       for (const k of kinds) {
         const n = t.stack[k];
-        if (n < EPS) continue;
+        if (!stands(n)) continue;
         const share = n / weight;
         const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged, t.routed);
         const casualties = (dmg / UNIT_STATS[k].toughness) * this.taken(t, k, ctx.frontal);
@@ -1104,7 +1113,7 @@ class Battle {
       const parts: Array<[number, boolean]> = closedSpears(g) ? [[1 - ctx.open, false], [ctx.open, true]] : [[1, true]];
       const lane = ctx.lane ?? g.lane;
       for (const kind of kinds) {
-        if (g.stack[kind] < EPS) continue;
+        if (!stands(g.stack[kind])) continue;
         const n = g.stack[kind] * share;
         let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g);
         // Удар с разбега — вес, и он у тяжёлой.

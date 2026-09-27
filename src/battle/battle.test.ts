@@ -3,11 +3,11 @@
 // бой детерминирован, укладывается в границы, выведенные из фаз, а журнал объясняет исход и
 // не врёт числам. Все стороны встают по правилу развёртывания (`setup.deploySetup`).
 import { describe, expect, it } from 'vitest';
-import { ringMult, simulateBattle } from './sim';
-import { deploySetup, armyTotal, stackTotal, stackOf } from './setup';
+import { ringMult, simulateBattle, standing } from './sim';
+import { deploySetup, armyTotal, emptyStack, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, BREAK_AFTER, COUNTER, DICE, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleMin, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
-import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, withDiceStep } from './bench';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PipId, type Side, type Stack, type Winner } from './types';
 
@@ -691,21 +691,44 @@ describe('круги сечи', () => {
     let circles = 0;
     let gong = 0;
     for (const { r, name } of battles) {
-      const rounds = r.log.filter((e) => e.id === 'round').length;
-      for (let k = 2; k <= rounds + 1; k += 1) {
-        const span = r.phases.filter((p) => p.round === k);
-        const end = span[span.length - 1].to;
-        if ((['attacker', 'defender'] as const).some((side) => (r.sides[side].brokenAt ?? Infinity) <= end)) break;
-        circles += 1;
-        const lost = span.reduce((n, p) => n + p.losses.attacker + p.losses.defender, 0);
-        expect(lost, `${name}: круг ${k} без потерь у обеих сторон, никто не сломан — стояние`).toBeGreaterThan(0);
-      }
+      const still = standstill(r);
+      circles += still.checked;
+      expect(still.circle, `${name}: круг ${still.circle} без потерь у обеих сторон, никто не сломан — стояние`).toBeNull();
       if (atGong(r)) gong += 1;
     }
     expect(circles, 'кругов, где никто не сломан').toBeGreaterThan(0);
     // Потолок: его последний круг — из проверенных выше (на потолке не сломан никто), и он в выборке есть.
     expect(gong, 'дошли до потолка').toBeGreaterThan(0);
   }, 120_000);
+
+  it('«тень» перебита: группа, где каждого рода меньше половины бойца, не жива — «жив» в той же единице, что удар', () => {
+    // Слово владельца (docs/battle_eu4.md, 14.27): удар рода меньше половины бойца пропускает (`distribute`), и «жив»
+    // считается в той же единице — по роду, а не по сумме (`sim.standing`). Прежде группа «копья 0.4 + лёгкая 0.4» была
+    // жива суммой, числилась в строю, а бить её было нечем: сторона не ломалась, и бой стоял до потолка кругов (14.25).
+    // Граница области: по сумме в «тени» не меньше половины бойца — иначе она не была бы живой и по прежнему правилу.
+    const shadow: Stack = { ...emptyStack(), spear: 0.4, cavalry: 0.4 };
+    expect(stackTotal(shadow), 'граница: по сумме — не меньше половины бойца').toBeGreaterThanOrEqual(0.5);
+    expect(standing(shadow), 'каждого рода меньше половины бойца — перебита').toBe(false);
+    expect(standing({ ...shadow, cavalry: 0.5 }), 'полбойца одного рода — жива').toBe(true);
+    // Бои, где «тень» стояла до потолка (решётка составов на 2W, сид 1 — щуп 14.25): теперь круга стояния в них нет. Граница
+    // области — те же круги со второго, где никто не сломан (`standstill`), и в каждом бою они есть. Пятый бой того щупа
+    // («копья 300 + лучники 150 + лёгкая 150» против «лёгкая 450 + тяжёлая 150») теперь кончается в первом проходе: кругов
+    // у него нет, правило там не спрашивается, и в выборку он не взят.
+    const SHADOWS: ReadonlyArray<readonly [Partial<Stack>, Partial<Stack>]> = [
+      [{ spear: 300, cavalry: 150, heavy: 150 }, { cavalry: 300, heavy: 300 }],
+      [{ infantry: 300, cavalry: 150, heavy: 150 }, { infantry: 150, cavalry: 300, heavy: 150 }],
+      [{ spear: 150, infantry: 150, archer: 150, cavalry: 150 }, { infantry: 150, cavalry: 300, heavy: 150 }],
+      [{ spear: 300, infantry: 300 }, { infantry: 300, cavalry: 150, heavy: 150 }],
+    ];
+    const total = OVERSIZE_SIZES[2];
+    for (const [a, b] of SHADOWS) {
+      const r = simulateBattle({ seed: 1, attacker: deploySetup(scaleArmy(a, total)), defender: deploySetup(scaleArmy(b, total)) });
+      const still = standstill(r);
+      const name = `${compositionName(a)} × ${compositionName(b)}`;
+      expect(still.checked, `${name}: кругов, где никто не сломан`).toBeGreaterThan(0);
+      expect(still.circle, `${name}: круг ${still.circle} без потерь — стоит «тень»`).toBeNull();
+    }
+  });
 });
 
 describe('круг боя: обстрел, сшибка, сеча', () => {
@@ -1010,8 +1033,9 @@ describe('кость фазы', () => {
     // держится с флангов за конницей (14.21).
     // КРАСНЫЙ с шага 0 поставки 2 (docs/battle_eu4.md, 14.25), честно: обходящие дерутся с обходящими, и четыре боя
     // «Ограничителя» на W, стоявшие у потолка ничьей, решились — все четыре у большей: 312 → 316 из 390, 80.0 → 81.0 %
-    // при коридоре 78–80 %. Шаг кости не меняется (слово владельца): он выводится заново один раз, вместе с W, после
-    // последней боевой поставки, перед перемером мира (14.24). Коридор не трогается.
+    // при коридоре 78–80 %; вывод на этом бое — 0.0342 (`battle:report`, «Кость фазы»; «тень» этих чисел не сдвинула,
+    // 14.27). Шаг кости не меняется (слово владельца по 14.25): держим красным до общего вывода — один раз, вместе с W,
+    // после последней боевой поставки, перед перемером мира (14.24). Коридор не трогается.
     // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
     // «кость сдвинула долю» проверялось бы на наборе, где сдвигать было нечего.
     expect(withDiceStep(0, () => oversizeHold()), 'без кости: все бои у большей').toBe(1);
