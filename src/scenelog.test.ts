@@ -43,6 +43,9 @@ describe('приговор по показаниям', () => {
 
   it('остановленный нарочно луп не выдаётся за поломку', () => {
     expect(diagnose(with_({ blocks: ['map'], lastFrame: 0 }))).toBe('map');
+    // Канва у ролика о бое: ролик идёт минуту и дольше, и сторож не вправе
+    // объявить это остановкой.
+    expect(diagnose(with_({ blocks: ['lent'], lastFrame: 0 }))).toBe('map');
     expect(diagnose(with_({ blocks: ['hidden'], lastFrame: 0 }))).toBe('hidden');
     expect(diagnose(with_({ blocks: ['gone'], lastFrame: 0 }))).toBe('gone');
   });

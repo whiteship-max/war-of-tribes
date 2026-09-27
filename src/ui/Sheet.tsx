@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { haptic } from '@/telegram/webapp';
+import { nextFrame } from '@/render/loop';
 
 /** Доли высоты вьюпорта: свёрнутая шторка и раскрытая. */
 const PEEK = 0.62;
@@ -116,7 +117,7 @@ export function Sheet({ open, onClose, children }: Props) {
 
     el.style.transition = ''; // возвращаем переход из CSS
     if (target === 'close') {
-      requestAnimationFrame(() => {
+      nextFrame(() => {
         el.style.transform = '';
       });
       timer.current = setTimeout(clearInline, ANIM + 40);
@@ -126,7 +127,7 @@ export function Sheet({ open, onClose, children }: Props) {
     }
     if (target !== snapRef.current) haptic('light');
     setSnap(target);
-    requestAnimationFrame(() => {
+    nextFrame(() => {
       el.style.transform = `translateY(${target === 'full' ? 0 : peek}px)`;
     });
     timer.current = setTimeout(clearInline, ANIM + 40);

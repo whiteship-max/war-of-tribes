@@ -11,6 +11,7 @@ import { Maze } from './Maze';
 import { Quiz } from './Quiz';
 import { Icon } from '@/ui/icons/Icon';
 import { realHoursMin } from '@/ui/parts/wait';
+import { nextFrame } from '@/render/loop';
 
 /**
  * Вторая страница «Заданий»: сперва ежедневная мини-игра, потом социальные
@@ -49,10 +50,10 @@ export function DailyPage() {
       // и браузер считает, что элемент уже виден.
       box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
     };
-    let raf = requestAnimationFrame(() => {
-      raf = requestAnimationFrame(show);
+    let cancel = nextFrame(() => {
+      cancel = nextFrame(show);
     });
-    return () => cancelAnimationFrame(raf);
+    return () => cancel();
   }, [playing]);
 
   const now = serverNow();

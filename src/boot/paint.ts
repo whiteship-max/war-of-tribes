@@ -8,8 +8,10 @@
  * кончился.
  *
  * Функция одна на всех нарочно: два «подождать кадр» с разными правилами
- * разошлись бы при первой же правке.
+ * разошлись бы при первой же правке. Сам кадр просится у двери кадра
+ * (`render/loop.nextFrame`) — разовой заявкой, без потолка частоты.
  */
+import { hasFrames, nextFrame } from '@/render/loop';
 
 /**
  * Сколько ждём кадра, прежде чем идти дальше без него.
@@ -30,7 +32,7 @@ export const PAINT_WAIT_MS = 250;
  */
 export function afterPaint(then?: () => void): Promise<void> {
   const wait =
-    typeof requestAnimationFrame !== 'function'
+    !hasFrames()
       ? Promise.resolve()
       : new Promise<void>((resolve) => {
           let settled = false;
@@ -40,7 +42,7 @@ export function afterPaint(then?: () => void): Promise<void> {
             resolve();
           };
           setTimeout(finish, PAINT_WAIT_MS);
-          requestAnimationFrame(() => requestAnimationFrame(finish));
+          nextFrame(() => nextFrame(finish));
         });
   return then ? wait.then(then) : wait;
 }

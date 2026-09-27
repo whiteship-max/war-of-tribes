@@ -8,6 +8,7 @@ import {
   type Cell,
 } from '@/game/daily/maze';
 import { haptic } from '@/telegram/webapp';
+import { FrameLoop } from '@/render/loop';
 import { count } from '../plural';
 import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
@@ -66,15 +67,10 @@ export function Maze({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
       }
     };
     const id = setInterval(check, 200);
-    let raf = 0;
-    const draw = (): void => {
-      check();
-      raf = requestAnimationFrame(draw);
-    };
-    raf = requestAnimationFrame(draw);
+    const loop = FrameLoop.run(check);
     return () => {
       clearInterval(id);
-      cancelAnimationFrame(raf);
+      loop.stop();
     };
   }, []);
 

@@ -65,6 +65,7 @@ import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
+import { FrameLoop, pixelRatio } from '@/render/loop';
 import { Icon } from '@/ui/icons/Icon';
 
 
@@ -343,10 +344,22 @@ export function WorldMap() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    /*
+     * Цепочка кадров — через дверь кадра (`render/loop.ts`): потолок частоты и
+     * остановка в скрытой странице и в свёрнутой аппке там.
+     *
+     * Своя причина стоять у полотна одна — `covered`: слой карты скрыт. Так
+     * бывает под роликом о бое, открытым с карты (`body.replaying` прячет всё,
+     * кроме канвы ролика), и прежде карта рисовала весь кадр под ним впустую.
+     */
+    const loop = new FrameLoop<'covered'>(() => frame());
+
     const resize = (): void => {
-      // Больше двойки не берём: на телефоне это больше пикселей — квадратом
-      // плотности — ради разницы, которой не видно, и во столько же больше памяти под тайлы.
-      const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+      // Больше двойки не берём (потолок двери кадра, `loop.DPR_CAP`): на телефоне это
+      // больше пикселей — квадратом плотности — ради разницы, которой не видно, и во
+      // столько же больше памяти под тайлы.
+      const dpr = pixelRatio();
+      loop.block('covered', wrap.clientWidth < 1 || wrap.clientHeight < 1);
       const w = wrap.clientWidth || 1;
       const h = wrap.clientHeight || 1;
       const changed = dpr !== size.current.dpr;
@@ -383,9 +396,7 @@ export function WorldMap() {
       };
     }
 
-    let raf = 0;
     const frame = (): void => {
-      raf = requestAnimationFrame(frame);
       const { w, h, dpr } = size.current;
       // Поводок держится каждый кадр, а не в момент жеста: якорь движется сам —
       // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
@@ -410,9 +421,9 @@ export function WorldMap() {
         if (coordRef.current.textContent !== text) coordRef.current.textContent = text;
       }
     };
-    raf = requestAnimationFrame(frame);
+    loop.restart();
     return () => {
-      cancelAnimationFrame(raf);
+      loop.stop();
       ro.disconnect();
       // Уходим с карты — холсты кэша земли в памяти держать незачем.
       dropTiles();

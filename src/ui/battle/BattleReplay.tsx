@@ -21,6 +21,7 @@ import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
 import { configureRenderer } from '@/render/lighting';
+import { pixelRatio } from '@/render/loop';
 import { ReplayPlayer } from '@/render/battle/player';
 import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
@@ -63,7 +64,7 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
       (document.querySelector('.app') ?? document.body).appendChild(ownWrap);
       own = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
       // Та же вилка плотности, что у диорамы: третий пиксель не виден, а филлрейт растёт квадратом плотности.
-      own.setPixelRatio(Math.min(2, Math.max(1, window.devicePixelRatio || 1)));
+      own.setPixelRatio(pixelRatio());
       configureRenderer(own);
       renderer = own;
     }

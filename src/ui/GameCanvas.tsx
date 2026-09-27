@@ -7,6 +7,7 @@ import { probe } from '@/debug';
 import { diagnose, sceneLog, type Verdict } from '@/scenelog';
 import { SceneTrouble } from './SceneTrouble';
 import { applyViewport } from '@/telegram/webapp';
+import { nextFrame } from '@/render/loop';
 
 /**
  * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —
@@ -142,14 +143,15 @@ export function GameCanvas() {
      * по-прежнему «видима». Объявить в такую минуту поломку значило бы соврать —
      * и показать экран восстановления исправной игре.
      *
-     * Поэтому сторож сперва просит кадр сам, напрямую. Не дождался своего —
-     * молчит: сцена тут ни при чём. Поймано живой проверкой в браузере, где
-     * панель была скрыта, а видимость подменена.
+     * Поэтому сторож сперва просит кадр сам, напрямую — разовой заявкой двери
+     * кадра (`nextFrame`), без потолка и без проверки видимости: спрашивают
+     * браузер, а не нас. Не дождался своего — молчит: сцена тут ни при чём.
+     * Поймано живой проверкой в браузере, где панель была скрыта, а видимость подменена.
      */
     let awaitingFrame = false;
     const askFrame = (): void => {
       awaitingFrame = true;
-      requestAnimationFrame(() => {
+      nextFrame(() => {
         awaitingFrame = false;
       });
     };
