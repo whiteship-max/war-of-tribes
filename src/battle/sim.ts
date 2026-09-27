@@ -673,8 +673,12 @@ class Battle {
       const spearVsCav = HORSE_KINDS.reduce((n, k) => n + d(s.kills, 'spear', k) - d(s.killsAtPhase, 'spear', k), 0);
       const eLane = facing(lane);
       const cavVsSpear = HORSE_KINDS.reduce((n, k) => n + enemy.kills[eLane][k].spear - enemy.killsAtPhase[eLane][k].spear, 0);
-      // Событие только про настоящий удар: мелкий размен на стыке — не «остановили».
-      const enemyCavalry = SECTORS.reduce((n, id) => n + HORSE_KINDS.reduce((m, k) => m + enemy.setup.sectors[id][k], 0), 0);
+      // Событие только про настоящий удар: мелкий размен на стыке — не «остановили». Доля — от конницы противника в этой
+      // же полосе, как и выбитое: стоящей в ней сейчас и выбитой копьями за фазу — тем же счётом, что у события
+      // «конница дошла до лучников» ниже. Прежде доля бралась от всей конницы противника, а выбитое — в одной полосе, и
+      // единицы не сходились (решение владельца по 14.21).
+      const horseIn = (row: Row): number => HORSE_KINDS.reduce((n, k) => n + sum(this.at(enemy.id, eLane, row), k), 0);
+      const enemyCavalry = horseIn('front') + horseIn('rear') + horseIn('strike') + spearVsCav;
       const notable = Math.max(EVENT_MIN, EVENT_SHARE * enemyCavalry);
       if (spearVsCav >= notable && spearVsCav >= cavVsSpear) {
         const inFront = sum(this.at(side, lane, 'front'), 'spear') > 0;
