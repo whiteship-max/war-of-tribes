@@ -98,6 +98,8 @@ interface Group {
   fledFrom: { lane: Lane; row: Row } | null;
   /** Последний тик, когда группу били с фланга или тыла. */
   flankedTick: number;
+  /** Какую долю её ряда накрыл обход в этот тик (`Hit.cover`, наибольшая): столько и бьёт по морали обход. */
+  flankCover: number;
   /** Потери группы за тик, взвешенные для морали. */
   lostTick: number;
 }
@@ -145,6 +147,8 @@ interface Hit {
   ranged: boolean;
   /** Удар пришёл с фланга или тыла. */
   flank: boolean;
+  /** Какую долю ряда цели накрывает этот обход (`Contact.aCover`): обход группой — весь ряд, край строя — свою долю. */
+  cover: number;
 }
 
 interface Contact {
@@ -154,6 +158,22 @@ interface Contact {
   aFlank: boolean;
   bRow: Row;
   aRow: Row;
+  /**
+   * Край строя: доля ряда `a`, против которой в полосе нет противника, — свес занятой ширины ряда над рядом `b`
+   * (`occupied`), целыми людьми. Она бьёт `b` во фланг, остальные — в лоб. У `b` — то же своё.
+   */
+  aOver?: number;
+  bOver?: number;
+  /**
+   * Какую долю ряда `b` накрывает край `a`: свес к ширине ряда `b`, не больше единицы. Обход по морали бьёт этой долей —
+   * край в одного человека не ломает ряд, как обход целой группой (И3, И4 у той — прежние). Без поля — весь ряд.
+   */
+  aCover?: number;
+  bCover?: number;
+  /** Бьют только эти роды `a`: край, против которого нет противника во всей полосе, достаёт соседнюю (`REACH`). */
+  kinds?: readonly UnitKind[];
+  /** Полоса, куда ложится удар `a`, по своей нумерации, — у дотягивающейся конницы соседняя. Нет — полоса группы. */
+  lane?: Lane;
 }
 
 const EPS = 0.5;
@@ -180,6 +200,24 @@ export function stackPower(stack: Stack): number {
 const power = (groups: Group[]): number => groups.reduce((p, g) => p + stackPower(g.stack), 0);
 
 const sum = (groups: Group[], kind: UnitKind): number => groups.reduce((n, g) => n + g.stack[kind], 0);
+/**
+ * Дальность обхода по роду — в полосах (docs/battle_eu4.md, 14.5; ответ владельца 4; отношение EU4 — пехота 1,
+ * конница 2): край строя, против которого нет противника, бьёт во фланг пеший — противника своей полосы, конный — ещё
+ * и соседней. Кто, кроме этого, никого не достаёт, стоит.
+ */
+export const REACH: Record<UnitKind, number> = { spear: 1, infantry: 1, archer: 1, cavalry: 2, heavy: 2 };
+/** Роды, которые достают соседнюю полосу. */
+const farKinds = (): UnitKind[] => UNIT_KINDS.filter((k) => REACH[k] > 1);
+
+/**
+ * Сколько ширины занимает ряд: сколько в нём встало (`initial` стоящих групп), не больше ширины. Поредевшая группа
+ * держит своё место — как полк EU4, сколько бы в нём ни осталось людей; место освобождают бежавшие и перебитые. Бьют
+ * при этом живые, и край поредевшей бьёт долей своей численности от начальной (14.5) — без нового числа.
+ */
+const occupied = (groups: Group[], width: number): number => Math.min(width, groups.reduce((n, g) => n + g.initial, 0));
+/** Людей этих родов в группах стычки; без родов — всех. */
+const menIn = (groups: Group[], kinds?: readonly UnitKind[]): number =>
+  groups.reduce((n, g) => n + (kinds ? kinds.reduce((m, k) => m + g.stack[k], 0) : stackTotal(g.stack)), 0);
 
 /**
  * Сомкнуты ли копья группы — положение, а не приказ (docs/battle_eu4.md, 14.5, Е17): копья в строю
@@ -280,6 +318,7 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
     fled: false,
     fledFrom: null,
     flankedTick: -1,
+    flankCover: 0,
     lostTick: 0,
   };
 }
@@ -320,6 +359,13 @@ class Battle {
   opening = false;
   /** Сколько резерва встало в каждую полосу за эту фазу: по нему в конце фазы пишется `reserve-committed`. */
   entered: Record<Side, number[]> = { attacker: [0, 0, 0], defender: [0, 0, 0] };
+  /**
+   * В какой своей полосе противник хоть раз стоял. Полоса, где его не было с начала боя, — край строя: оттуда
+   * дотягивается только конница (`REACH`). Очищенная в бою — обход полосы (К5, `relocate`).
+   */
+  opposed: Record<Side, boolean[]> = { attacker: [false, false, false], defender: [false, false, false] };
+  /** Какую долю ряда сектора уже накрыл разовый удар обхода (`flankTurned`), по ключу «сторона:сектор». */
+  shaken = new Map<string, number>();
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
@@ -454,7 +500,10 @@ class Battle {
     return this.finish();
   }
 
-  /** Одна фаза целиком. Правда — сторона сломалась посреди сечи, и ждать в этом круге больше нечего. */
+  /**
+   * Одна фаза целиком. Правда — после боя линий кто-то сломан, и ждать в этом круге больше нечего. Сломался раньше —
+   * в обстреле или сшибке — бой линий всё равно идёт до своего минимума (как шёл, когда фаз было семь).
+   */
   runPhase(phase: PhaseId, ticks: number, min: number): boolean {
     this.phase = phase;
     const from = this.tick + 1;
@@ -489,7 +538,7 @@ class Battle {
       },
       bySector: this.lossBySector(menBefore),
     });
-    return broke || this.sides.attacker.broken || this.sides.defender.broken;
+    return broke || (phase === 'lines' && (this.sides.attacker.broken || this.sides.defender.broken));
   }
 
   /**
@@ -727,6 +776,7 @@ class Battle {
     } else {
       // Дыры строя закрывает резерв — до стычек, чтобы вошедшие дрались в этот же тик.
       for (const side of SIDES) if (!this.sides[side].retreating) this.refill(side);
+      for (const side of SIDES) for (const lane of [0, 1, 2] as Lane[]) if (this.enemyOnLane(side, lane)) this.opposed[side][lane] = true;
       const hits: Hit[] = [];
       const contacts = this.contact && this.winner !== 'draw' ? this.buildContacts() : [];
       const engaged = new Map<Group, Group[]>();
@@ -746,12 +796,20 @@ class Battle {
       }
       // Сколько противника у каждой группы во всех её стычках разом: боец бьёт один раз за тик,
       // и группа, стоящая в нескольких стычках, делит свой удар между ними, а не бьёт в каждой целиком.
+      // У дотягивающейся конницы в стычке только конные — и считаются, и бьют, и получают они.
       const facingMen = new Map<Group, number>();
-      for (const [g, foes] of engaged) facingMen.set(g, foes.reduce((n, f) => n + stackTotal(f.stack), 0));
       for (const c of contacts) {
-        this.melee(c.a, c.b, c.aFlank, c.bRow, false, facingMen, hits);
-        // Ответ: обойдённые отбиваются тем, кто их обходит, но их копья в этот тик разомкнуты.
-        this.melee(c.b, c.a, false, c.aRow, c.aFlank, facingMen, hits);
+        for (const g of c.a) facingMen.set(g, (facingMen.get(g) ?? 0) + menIn(c.b));
+        for (const g of c.b) facingMen.set(g, (facingMen.get(g) ?? 0) + menIn(c.a, c.kinds));
+      }
+      for (const c of contacts) {
+        const aOver = c.aOver ?? 0;
+        const bOver = c.bOver ?? 0;
+        const aCover = c.aCover ?? 1;
+        const bCover = c.bCover ?? 1;
+        this.melee(c.a, c.b, { flank: c.aFlank, toRow: c.bRow, open: bOver > 0 ? bCover : 0, over: aOver, cover: aCover, kinds: c.kinds, lane: c.lane }, facingMen, hits);
+        // Ответ: обойдённые отбиваются тем, кто их обходит, но копья накрытой обходом доли ряда в этот тик разомкнуты.
+        this.melee(c.b, c.a, { flank: false, toRow: c.aRow, open: c.aFlank ? 1 : aOver > 0 ? aCover : 0, over: bOver, cover: bCover, targetKinds: c.kinds }, facingMen, hits);
       }
       this.apply(hits);
       this.collapse();
@@ -813,11 +871,7 @@ class Battle {
         for (let i = 0; i < 2; i += 1) {
           if (order[i].length === 0) continue;
           pair([g], order[i], true, 'strike', rows[i]);
-          const sector = laneSector(eLane, rows[i]);
-          if (!this.sides[enemy].fired.has(`flanked:${sector}`)) {
-            this.once(`flanked:${sector}`, this.sides[enemy], { id: 'flank-turned', side: enemy, sector, by: side });
-            for (const t of order[i]) this.shake(t, MORALE.flankTurned);
-          }
+          this.flankTurned(side, enemy, eLane, rows[i], order[i]);
           break;
         }
       }
@@ -834,7 +888,20 @@ class Battle {
       const dR = this.at('defender', facing(lane), 'rear');
       if (aF.length > 0 && dF.length > 0) {
         if (late && slow(aF) && slow(dF)) continue;
-        pair(aF, dF, false, 'front', 'front');
+        // Край строя в своей полосе: кто шире, тот свесом бьёт во фланг. Ширину ряд занимает тем, чем встал (`occupied`),
+        // а не тем, сколько в нём живых: поредевший держит своё место, как полк EU4, и бьёт краем долей своей
+        // численности от начальной — потому что бьют живые.
+        const aOcc = occupied(aF, this.width);
+        const dOcc = occupied(dF, this.width);
+        const over = (x: number, y: number): number => (x > 0 ? Math.floor(Math.max(0, x - y) + 1e-9) / x : 0);
+        const aOver = over(aOcc, dOcc);
+        const dOver = over(dOcc, aOcc);
+        const cover = (x: number, y: number): number => (y > 0 ? Math.min(1, Math.floor(Math.max(0, x - y) + 1e-9) / y) : 1);
+        const aCover = cover(aOcc, dOcc);
+        const dCover = cover(dOcc, aOcc);
+        contacts.push({ a: aF, b: dF, aFlank: false, aRow: 'front', bRow: 'front', aOver, bOver: dOver, aCover, bCover: dCover });
+        if (aOver > 0) this.flankTurned('attacker', 'defender', facing(lane), 'front', dF, aCover);
+        if (dOver > 0) this.flankTurned('defender', 'attacker', lane, 'front', aF, dCover);
       } else if (aF.length > 0 && dR.length > 0) {
         if (late && slow(aF)) continue;
         pair(aF, dR, false, 'front', 'rear');
@@ -845,7 +912,44 @@ class Battle {
         this.reached('attacker', lane);
       }
     }
+    // Край, против которого во всей полосе противника нет с начала боя, дотягивается до соседней полосы теми родами,
+    // чья дальность больше своей полосы (`REACH`): первым — до её тыла (лучников), нет тыла — до фронта. Остальные
+    // стоят: их дальность — своя полоса.
+    const far = farKinds();
+    for (const side of SIDES) {
+      const enemy = other(side);
+      for (const lane of [0, 1, 2] as Lane[]) {
+        if (this.opposed[side][lane] || far.length === 0) continue;
+        const riders = this.at(side, lane, 'front').filter((g) => menIn([g], far) >= EPS);
+        if (riders.length === 0) continue;
+        for (const to of [lane - 1, lane + 1]) {
+          if (to < 0 || to > 2) continue;
+          const eLane = facing(to as Lane);
+          const rear = this.at(enemy, eLane, 'rear');
+          const front = this.at(enemy, eLane, 'front');
+          const row: 'rear' | 'front' | null = rear.length > 0 ? 'rear' : front.length > 0 ? 'front' : null;
+          if (row === null) continue;
+          const targets = row === 'rear' ? rear : front;
+          contacts.push({ a: riders, b: targets, aFlank: true, aRow: 'front', bRow: row, kinds: far, lane: to as Lane });
+          this.flankTurned(side, enemy, eLane, row, targets);
+        }
+      }
+    }
     return contacts;
+  }
+
+  /**
+   * Фланг обойдён: раз на сектор — событие, и разовый удар по морали тех, кого обошли, — долей накрытого ряда (`cover`).
+   * Обход, накрывший больше прежнего, добирает удар до этой доли; целиком он не больше `MORALE.flankTurned`.
+   */
+  flankTurned(by: Side, victim: Side, lane: Lane, row: 'front' | 'rear', targets: Group[], cover = 1): void {
+    const sector = laneSector(lane, row);
+    this.once(`flanked:${sector}`, this.sides[victim], { id: 'flank-turned', side: victim, sector, by });
+    const key = `${victim}:${sector}`;
+    const done = this.shaken.get(key) ?? 0;
+    if (cover <= done) return;
+    this.shaken.set(key, cover);
+    for (const t of targets) this.shake(t, MORALE.flankTurned * (cover - done));
   }
 
   reached(victim: Side, lane: Lane): void {
@@ -881,18 +985,27 @@ class Battle {
    * Раздать урон `total` по группам позиции пропорционально числу: приоритета цели нет — он жил
    * приказами. `fromOpen` — копья того, кто бьёт, не сомкнуты (`ringMult`).
    */
-  distribute(from: Group, kind: UnitKind, total: number, targets: Group[], ctx: { flank: boolean; fromOpen: boolean; ranged: boolean; frontal: boolean }, byLane: Lane, hits: Hit[]): void {
+  distribute(
+    from: Group,
+    kind: UnitKind,
+    total: number,
+    targets: Group[],
+    ctx: { flank: boolean; fromOpen: boolean; ranged: boolean; frontal: boolean; kinds?: readonly UnitKind[]; cover?: number },
+    byLane: Lane,
+    hits: Hit[],
+  ): void {
+    const kinds: readonly UnitKind[] = ctx.kinds ?? UNIT_KINDS;
     let weight = 0;
-    for (const t of targets) weight += stackTotal(t.stack);
+    for (const t of targets) for (const k of kinds) weight += t.stack[k];
     if (weight <= 0) return;
     for (const t of targets) {
-      for (const k of UNIT_KINDS) {
+      for (const k of kinds) {
         const n = t.stack[k];
         if (n < EPS) continue;
         const share = n / weight;
         const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged, t.routed);
         const casualties = (dmg / UNIT_STATS[k].toughness) * this.taken(t, k, ctx.frontal);
-        if (casualties > 0) hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank });
+        if (casualties > 0) hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1 });
       }
     }
   }
@@ -904,20 +1017,37 @@ class Battle {
    * Прежде доля не делилась, и группа, обойдённая с двух сторон, била трижды за тик —
    * обход, задуманный наказанием за скученность, умножал силу окружённого.
    */
-  melee(from: Group[], to: Group[], flank: boolean, toRow: Row, flanked: boolean, facingMen: Map<Group, number>, hits: Hit[]): void {
-    const here = to.reduce((n, t) => n + stackTotal(t.stack), 0);
+  melee(
+    from: Group[],
+    to: Group[],
+    ctx: { flank: boolean; toRow: Row; open: number; over: number; cover: number; kinds?: readonly UnitKind[]; targetKinds?: readonly UnitKind[]; lane?: Lane },
+    facingMen: Map<Group, number>,
+    hits: Hit[],
+  ): void {
+    const here = menIn(to, ctx.targetKinds);
+    const kinds: readonly UnitKind[] = ctx.kinds ?? UNIT_KINDS;
     for (const g of from) {
       if (g.lane === null) continue;
       // Своя доля стычки и доля ряда, которую пускает ширина фронта: остальные — глубина.
       const share = (here / Math.max(here, facingMen.get(g) ?? here)) * this.widthShare(g);
-      const fromOpen = flanked || !closedSpears(g);
-      for (const kind of UNIT_KINDS) {
+      // Сомкнутые копья размыкаются той долей ряда, которую накрыл обход (`open`); остальные держат упор.
+      const parts: Array<[number, boolean]> = closedSpears(g) ? [[1 - ctx.open, false], [ctx.open, true]] : [[1, true]];
+      const lane = ctx.lane ?? g.lane;
+      for (const kind of kinds) {
         if (g.stack[kind] < EPS) continue;
         const n = g.stack[kind] * share;
         let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g);
         // Удар с разбега — вес, и он у тяжёлой.
-        if (kind === 'heavy' && this.phase === 'clash' && !flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
-        this.distribute(g, kind, p, to, { flank, fromOpen, ranged: false, frontal: !flank && toRow !== 'rear' }, g.lane, hits);
+        if (kind === 'heavy' && this.phase === 'clash' && !ctx.flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
+        // Свес ряда бьёт во фланг, остальные — в лоб.
+        for (const [part, fromOpen] of parts) {
+          if (part <= 0) continue;
+          const front = p * part * (1 - ctx.over);
+          const edge = p * part * ctx.over;
+          const base = { fromOpen, ranged: false, kinds: ctx.targetKinds };
+          if (front > 0) this.distribute(g, kind, front, to, { ...base, flank: ctx.flank, frontal: !ctx.flank && ctx.toRow !== 'rear', cover: 1 }, lane, hits);
+          if (edge > 0) this.distribute(g, kind, edge, to, { ...base, flank: true, frontal: false, cover: ctx.cover }, lane, hits);
+        }
       }
     }
   }
@@ -946,7 +1076,11 @@ class Battle {
       victim.lostTotal += actual;
       victim.lostTick += actual;
       h.target.lostTick += actual * (h.ranged && late ? RANGED_SHOCK_LATE : 1);
-      if (h.flank) h.target.flankedTick = this.tick;
+      if (h.flank) {
+        if (h.target.flankedTick !== this.tick) h.target.flankCover = 0;
+        h.target.flankedTick = this.tick;
+        h.target.flankCover = Math.max(h.target.flankCover, h.cover);
+      }
       const by = this.sides[h.by];
       by.kills[h.byLane][h.byKind][h.kind] += actual;
       if (h.ranged) by.rangedTotal += actual;
@@ -976,13 +1110,17 @@ class Battle {
     }
   }
 
-  /** Полоса очищена — фронт и обходящие переходят на соседнюю. */
+  /**
+   * Полоса очищена в бою — фронт и обходящие переходят на соседнюю (К5). Полоса, где противника не было с начала
+   * боя, — не очищенная, а край строя: оттуда дотягивается только конница (`buildContacts`), пешие стоят.
+   */
   relocate(): void {
     if (!this.contact) return;
     for (const side of SIDES) {
       for (const g of this.sides[side].groups) {
         if (!alive(g) || g.lane === null || (g.row !== 'front' && g.row !== 'strike')) continue;
         if (this.enemyOnLane(side, g.lane)) continue;
+        if (g.row === 'front' && !this.opposed[side][g.lane]) continue;
         const next = this.adjacentLane(side, g.lane);
         if (next === null) continue;
         g.lane = next;
@@ -1004,7 +1142,8 @@ class Battle {
   temper(g: Group): number {
     const total = stackTotal(g.stack);
     if (total < EPS) return 1;
-    const flanked = g.flankedTick === this.tick;
+    // Обойдённая доля ряда (`flankCover`): край строя накрывает свою долю, обход группой — весь ряд.
+    const flanked = g.flankedTick === this.tick ? g.flankCover : 0;
     const inLine = g.row === 'front' || g.row === 'rear';
     const closed = closedSpears(g);
     let m = 0;
@@ -1012,7 +1151,7 @@ class Battle {
       const n = g.stack[k];
       if (n < EPS) continue;
       let t = 1;
-      if (k === 'spear') t = flanked ? TEMPER.spear.flanked : closed ? TEMPER.spear.holding : TEMPER.spear.advancing;
+      if (k === 'spear') t = flanked * TEMPER.spear.flanked + (1 - flanked) * (closed ? TEMPER.spear.holding : TEMPER.spear.advancing);
       else if (k === 'infantry') t = TEMPER.infantry.all;
       // Лучники под прикрытием сомкнутых копий той же позиции стреляют из-за строя, а не дерутся.
       else if (k === 'archer') t = this.engagedNow.has(g) && !closed ? TEMPER.archer.melee : TEMPER.archer.shooting;
@@ -1085,7 +1224,7 @@ class Battle {
       for (const g of s.groups) {
         if (!alive(g) || g.fled || enemyBroken) continue;
         let drain = (g.lostTick / Math.max(1, g.initial)) * MORALE.perLoss;
-        if (g.flankedTick === this.tick) drain += MORALE.flankDrain;
+        if (g.flankedTick === this.tick) drain += MORALE.flankDrain * g.flankCover;
         if (fledNeighbour.has(g)) drain += MORALE.panicDrain * (anchored(g.stack) ? MORALE.anchorPanic : 1);
         g.morale -= drain * this.moraleFactor(g);
         g.morale = Math.min(MORALE.max, g.morale);

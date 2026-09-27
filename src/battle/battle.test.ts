@@ -323,22 +323,25 @@ describe('мораль как характеристика войск', () => {
     // Сомкнутые против обойдённых, а не приказы: приказа «наступать» больше нет, сомкнутость — положение (Е17).
     expect(TEMPER.spear.holding).toBeLessThan(TEMPER.spear.advancing);
     expect(TEMPER.spear.advancing).toBeLessThan(TEMPER.spear.flanked);
-    // Узкие копья в центре против стены той же численности: лоб в лоб — или растянутой на три полосы, чьи края
-    // приходят во фланг. Числа ниже ширины: резерва нет ни у кого, и края копьям закрыть нечем.
-    const spears = setupOf({ B: { spear: FRONT_WIDTH } });
-    const frontal = setupOf({ B: { infantry: FRONT_WIDTH } });
-    const third = Math.round(FRONT_WIDTH / 3);
-    const wide = setupOf({ A: { infantry: third }, B: { infantry: FRONT_WIDTH - 2 * third }, C: { infantry: third } });
+    // Узкие копья в центре против пехоты той же численности: ряд копий шириной с ряд пехоты — лоб в лоб, а ряд пехоты
+    // шире — её свес приходит копьям во фланг (дальность пешего — своя полоса, 14.5). Лишняя пехота лоб в лоб стоит в
+    // полосе, где противника нет, — пешим оттуда никого не достать. Числа ниже ширины: резерва нет ни у кого.
+    const narrow = FRONT_WIDTH - 42;
+    const spears = setupOf({ B: { spear: narrow } });
+    const frontal = setupOf({ A: { infantry: 42 }, B: { infantry: narrow } });
+    const wide = setupOf({ B: { infantry: FRONT_WIDTH } });
     let head = 0;
     let turned = 0;
+    // Мера — когда копья побежали: побежавшие уходят с поля, и мораль к концу боя у них ноль при любом исходе.
+    const firstBreak = (r: BattleResult): number => r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker')?.tick ?? r.ticks + 1;
     for (let seed = 1; seed <= 6; seed += 1) {
       const f = simulateBattle({ seed, attacker: spears, defender: frontal });
       const w = simulateBattle({ seed, attacker: spears, defender: wide });
       // Граница: во втором бою копья правда обошли, в первом — нет.
       expect(w.log.some((e) => e.id === 'flank-turned' && e.side === 'attacker'), `сид ${seed}: обход`).toBe(true);
       expect(f.log.some((e) => e.id === 'flank-turned' && e.side === 'attacker'), `сид ${seed}: лоб в лоб`).toBe(false);
-      head += f.sides.attacker.morale;
-      turned += w.sides.attacker.morale;
+      head += firstBreak(f);
+      turned += firstBreak(w);
     }
     expect(head).toBeGreaterThan(turned);
   });
@@ -1051,6 +1054,79 @@ describe('автоматический резерв', () => {
     }
     // Точка внутри области: резерв входил и держался — вошедший с чужой (нулевой) моралью бежал бы тут же.
     expect(checked, 'сторон, чей вошедший резерв держится к концу боя').toBeGreaterThan(0);
+  });
+});
+
+describe('дальность обхода по роду', () => {
+  // Новый тест 4 поставки 1 (docs/battle_eu4.md, 14.5; ответ владельца 4): край строя, против которого нет
+  // противника, бьёт во фланг — пеший противника своей полосы, конный ещё и соседней; ширину ряд занимает тем, чем
+  // встал, и поредевший край бьёт долей живых от начальной.
+  const turnedBy = (r: BattleResult, by: Side): boolean => r.log.some((e) => e.id === 'flank-turned' && e.by === by);
+
+  it('конный край достаёт соседнюю полосу, пеший — нет: он стоит', () => {
+    // Слева у нападающего край, против которого в полосе нет никого: противник стоит в центре — пехота и лучники за
+    // ней. Конный край дотягивается до центра и бьёт первым тыл — лучников; пеший край стоит.
+    const target = setupOf({ B: { infantry: FRONT_WIDTH }, E: { archer: 100 } });
+    for (let seed = 1; seed <= 4; seed += 1) {
+      const horse = simulateBattle({ seed, attacker: setupOf({ A: { cavalry: 100 }, B: { infantry: FRONT_WIDTH } }), defender: target });
+      const foot = simulateBattle({ seed, attacker: setupOf({ A: { infantry: 100 }, B: { infantry: FRONT_WIDTH } }), defender: target });
+      // Граница области: у нападающего есть край без противника — полоса A, против которой у обороны нет ни фронта,
+      // ни тыла; центр при этом стоит лоб в лоб, и обходить там некому. Сам край достать могут — обход полосы, очищенной
+    // в бою (К5), — но он никого не обходит.
+      for (const r of [horse, foot]) expect(stackTotal(r.sides.defender.sectors.C.initial) + stackTotal(r.sides.defender.sectors.F.initial), 'против края никого').toBe(0);
+      expect(
+        horse.log.some((e) => e.id === 'flank-turned' && e.by === 'attacker' && e.sector === 'E'),
+        `сид ${seed}: конный край дошёл до лучников центра`,
+      ).toBe(true);
+      expect(turnedBy(foot, 'attacker'), `сид ${seed}: пеший край дотянулся до центра`).toBe(false);
+    }
+  });
+
+  it('в своей полосе край шире бьёт во фланг — по ширине, какой ряды встали, а не по разнице потерь', () => {
+    // Свес ряда над рядом противника — край без противника в своей полосе (дальность пешего). Ширину ряд занимает тем,
+    // чем встал, а не живыми: полк держит своё место, сколько бы в нём ни осталось, — иначе разница потерь делала бы
+    // «край» из ничего.
+    for (let seed = 1; seed <= 4; seed += 1) {
+      const wider = simulateBattle({ seed, attacker: setupOf({ B: { infantry: FRONT_WIDTH } }), defender: setupOf({ B: { infantry: 100 } }) });
+      expect(turnedBy(wider, 'attacker'), `сид ${seed}: ряд шире обошёл`).toBe(true);
+      expect(turnedBy(wider, 'defender'), `сид ${seed}: ряд уже обошёл`).toBe(false);
+    }
+    // Зеркальные армии: ряды полос встали той ширины, какую дало правило развёртывания, — лоб в лоб они равны или
+    // различаются на край по округлению. Обход до того, как чей-то сектор побежал или смят, — только там, где ряд
+    // обходящего встал шире.
+    const facingFront: Record<'A' | 'B' | 'C', 'A' | 'B' | 'C'> = { A: 'C', B: 'B', C: 'A' };
+    let early = 0;
+    for (const c of COMPOSITIONS) {
+      for (let seed = 1; seed <= 3; seed += 1) {
+        const setup = deploySetup(scaleArmy(c.army, holdSize()));
+        const r = simulateBattle({ seed, attacker: setup, defender: setup });
+        const freedAt = Math.min(...r.log.filter((e) => e.id === 'sector-broken' || e.id === 'sector-collapsed').map((e) => e.tick));
+        for (const e of r.log) {
+          if (e.id !== 'flank-turned' || e.tick >= freedAt || !(e.sector === 'A' || e.sector === 'B' || e.sector === 'C')) continue;
+          const own = stackTotal(setup.sectors[facingFront[e.sector]]);
+          const theirs = stackTotal(setup.sectors[e.sector]);
+          expect(own, `${c.name}, сид ${seed}: ${e.by} обошёл ${e.sector} на ${e.tick}-м тике, а встал не шире`).toBeGreaterThan(theirs);
+          early += 1;
+        }
+      }
+    }
+    // Граница области: обход до первого бегства в зеркалах правда бывает — на краях, разошедшихся округлением.
+    expect(early, 'обходов в зеркалах до первого бегства').toBeGreaterThan(0);
+  });
+
+  it('край бьёт по морали долей накрытого ряда: край в одного человека даёт не больше перевеса в 10 %', () => {
+    // Разовый удар и потеря морали за обход (И3, И4) писались под обход целой группой. Край строя накрывает долю ряда
+    // противника — ей и бьёт. Мерка — доля владельца: армия больше на одного человека держит поле не чаще, чем большая
+    // на 10 % (`DICE.hold`).
+    const N = 20;
+    let held = 0;
+    for (let seed = 1; seed <= N; seed += 1) {
+      const r = simulateBattle({ seed, attacker: setupOf({ B: { infantry: 101 } }), defender: setupOf({ B: { infantry: 100 } }) });
+      // Граница области: край в одного человека правда есть и обходит.
+      expect(turnedBy(r, 'attacker'), `сид ${seed}: край обошёл`).toBe(true);
+      if (r.winner === 'attacker') held += 1;
+    }
+    expect(held / N, `большая на одного держит поле в ${held} из ${N}`).toBeLessThanOrEqual(DICE.hold);
   });
 });
 
