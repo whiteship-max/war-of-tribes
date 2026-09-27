@@ -1138,6 +1138,39 @@ describe('дальность обхода по роду', () => {
   });
 });
 
+describe('монотонность: больше того же — не хуже', () => {
+  // Новый тест по слову владельца (27.09.2026): «армия того же состава и большего размера без кости не проигрывает
+  // меньшей — для всех составов решётки». КРАСНЫЙ, честно, до решения владельца о развёртывании: большая на 10 %
+  // проигрывает меньшей в 12 боях из 140 на W и в 7 на 2W («пех+тяж» — один из них). Причин две, обе разобраны
+  // щупом: правило ставит пеших первыми, и лишняя пехота вытесняет латных из строя — и при расстановке, и при вводе
+  // резерва; а крошечные группы, которые правило кладёт в пустые полосы, бегут первыми, и паника от бежавшего —
+  // одна и та же, сколько бы их ни было, — ломает полные группы рядом. Та же армия с тем же строем, что у меньшей,
+  // и лишними в резерве проигрывает так же (10 из 140 на W): дело не в одной расстановке.
+  it('армия того же состава и большего размера без кости не проигрывает меньшей — все составы решётки, ½W, W и 2W', () => {
+    withDiceStep(0, () => {
+      const lost: string[] = [];
+      let checked = 0;
+      let wider = 0;
+      for (const total of [Math.round(holdSize() / 2), holdSize(), 2 * holdSize()]) {
+        for (const army of compositionLattice()) {
+          const small = deploySetup(scaleArmy(army, total));
+          const big = deploySetup(scaleArmy(army, Math.round(total * 1.1)));
+          // Граница области: у большей правда больше людей в строю или в резерве — иначе «не хуже» было бы даром.
+          if (stackTotal(armyTotal(big)) > stackTotal(armyTotal(small))) wider += 1;
+          for (const bigSide of ['attacker', 'defender'] as const) {
+            const r = simulateBattle({ seed: 1, attacker: bigSide === 'attacker' ? big : small, defender: bigSide === 'attacker' ? small : big });
+            checked += 1;
+            if (r.winner === other(bigSide)) lost.push(`${total}: ${compositionName(army)} (${bigSide === 'attacker' ? 'большая нападает' : 'большая обороняется'})`);
+          }
+        }
+      }
+      expect(wider, 'составов, где большая правда больше').toBe(3 * compositionLattice().length);
+      expect(checked).toBe(6 * compositionLattice().length);
+      expect(lost, 'меньшая того же состава выиграла без кости').toEqual([]);
+    });
+  });
+});
+
 describe('мораль EU4', () => {
   // Поставка 1 (docs/battle_eu4.md, 14.15): бежавший уходит с поля, резерв встаёт на его место, и армия больше W
   // перестаёт быть бесполезной.
