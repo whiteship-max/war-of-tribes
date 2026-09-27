@@ -426,7 +426,7 @@ function strengthsOf(troop: TroopId): string[] {
           : null,
       () =>
         kind === 'infantry'
-          ? `Якорь сектора: с долей пехоты от ${Math.round(ANCHOR.infantryShare * 100)}% фронт держится до ${Math.round(ANCHOR.collapseAt * 100)}% остатка вместо ${Math.round(ANCHOR.noInfantryCollapseAt * 100)}%, а потери морали идут ${fmt(MORALE.anchor)} и паника ${fmt(MORALE.anchorPanic)}.`
+          ? `Якорь сектора: с долей пехоты от ${Math.round(ANCHOR.infantryShare * 100)}% фронт держится до ${Math.round(ANCHOR.collapseAt * 100)}% остатка вместо ${Math.round(ANCHOR.noInfantryCollapseAt * 100)}%, а потери морали идут ${fmt(MORALE.anchor)}.`
           : null,
       () =>
         softest && softest.mult < 1

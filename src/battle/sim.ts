@@ -91,11 +91,9 @@ interface Group {
   /**
    * Мораль упала до нуля: бегут с поля (мораль EU4, docs/battle_eu4.md, 14.15). Полосы у бежавших нет (`lane` —
    * `null`): не бьют, не стоят в ряду, не закрывают собой тех, кто за ними, — их место занимает резерв. Достаёт их
-   * только преследование.
+   * только преследование. Соседей бежавший не заражает: паники на соседей у EU4 нет, и у нас её нет (14.21).
    */
   fled: boolean;
-  /** Где стояли, когда побежали: соседям по строю — паника от бежавшего рядом (`neighbours`). До поставки 5. */
-  fledFrom: { lane: Lane; row: Row } | null;
   /** Последний тик, когда группу били с фланга или тыла. */
   flankedTick: number;
   /** Какую долю её ряда накрыл обход в этот тик (`Hit.cover`, наибольшая): столько и бьёт по морали обход. */
@@ -329,7 +327,6 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
     routed: false,
     morale: opts.morale ?? startMorale(setup, stack),
     fled: false,
-    fledFrom: null,
     flankedTick: -1,
     flankCover: 0,
     lostTick: 0,
@@ -1199,63 +1196,34 @@ class Battle {
   }
 
   /**
-   * Соседи по строю: смежные полосы в том же ряду и другой ряд той же полосы. У бежавшего — по месту, где он стоял,
-   * когда побежал (`fledFrom`): его в строю нет, а паника от него у соседей остаётся.
+   * Сектор сломался: бегут с поля, место открыто резерву. Соседей это не трогает — паники на соседей нет, как у EU4
+   * (docs/battle_eu4.md, 14.21): каждый сектор отходит сам, по своей морали, а на его место встаёт резерв.
    */
-  neighbours(g: Group): Group[] {
-    const at = g.fled ? g.fledFrom : g.lane === null ? null : { lane: g.lane, row: g.row };
-    if (at === null || (at.row !== 'front' && at.row !== 'rear')) return [];
-    return this.sides[g.side].groups.filter(
-      (n) =>
-        n !== g &&
-        alive(n) &&
-        !n.fled &&
-        n.lane !== null &&
-        (n.row === 'front' || n.row === 'rear') &&
-        ((n.row === at.row && Math.abs(n.lane - at.lane) === 1) || (n.row !== at.row && n.lane === at.lane)),
-    );
-  }
-
-  /** Сектор сломался: бегут с поля, место открыто резерву, паника идёт по соседям. */
   breakGroup(g: Group): void {
     const s = this.sides[g.side];
     // В журнале — сектор расстановки, а не позиция: смятый фронт, откатившийся в тыл, для игрока всё ещё «правый фланг».
     const sector = g.origin;
-    const neighbours = this.neighbours(g);
-    g.fledFrom = g.lane === null ? null : { lane: g.lane, row: g.row };
     g.fled = true;
     g.morale = 0;
     g.lane = null;
     this.once(`broken:${sector}`, s, { id: 'sector-broken', side: g.side, sector });
-    for (const n of neighbours) {
-      const before = n.morale;
-      n.morale -= MORALE.panic * (anchored(n.stack) ? MORALE.anchorPanic : 1) * this.moraleFactor(n);
-      const to = n.origin;
-      if (before - n.morale >= 1 && to !== sector) this.once(`panic:${sector}:${to}`, s, { id: 'panic-spread', side: g.side, from: sector, to });
-    }
   }
 
   /**
-   * Мораль по секторам: потери сектора, удар с фланга, сломанный сосед. Сектор с нулевой моралью бежит с поля.
-   * Сторона сломана, когда в строю никого нет и встать некому — резерв исчерпан (мораль EU4, docs/battle_eu4.md,
-   * 14.15), — или перебита.
+   * Мораль по секторам: потери сектора и удар с фланга. Сектор с нулевой моралью бежит с поля. Бегство соседа мораль
+   * не трогает (14.21). Сторона сломана, когда в строю никого нет и встать некому — резерв исчерпан (мораль EU4,
+   * docs/battle_eu4.md, 14.15), — или перебита.
    */
   updateMorale(): void {
     for (const side of SIDES) {
       const s = this.sides[side];
       // Противник сломался — своим больше нечего бояться: мораль не падает.
       const enemyBroken = this.sides[other(side)].broken && !s.broken;
-      const fledNeighbour = new Set<Group>();
-      for (const g of s.groups) {
-        if (!g.fled || !alive(g)) continue;
-        for (const n of this.neighbours(g)) fledNeighbour.add(n);
-      }
       const toBreak: Group[] = [];
       for (const g of s.groups) {
         if (!alive(g) || g.fled || enemyBroken) continue;
         let drain = (g.lostTick / Math.max(1, g.initial)) * MORALE.perLoss;
         if (g.flankedTick === this.tick) drain += MORALE.flankDrain * g.flankCover;
-        if (fledNeighbour.has(g)) drain += MORALE.panicDrain * (anchored(g.stack) ? MORALE.anchorPanic : 1);
         g.morale -= drain * this.moraleFactor(g);
         g.morale = Math.min(MORALE.max, g.morale);
         if (g.morale <= 0) toBreak.push(g);
