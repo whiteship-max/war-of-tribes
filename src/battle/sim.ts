@@ -803,8 +803,9 @@ class Battle {
     if (this.phase === 'pursuit') {
       this.pursue();
     } else {
-      // Дыры строя закрывает резерв — до стычек, чтобы вошедшие дрались в этот же тик.
-      for (const side of SIDES) if (!this.sides[side].retreating) this.refill(side);
+      // Дыры строя закрывает резерв — до стычек, чтобы вошедшие дрались в этот же тик. У сломанной стороны встать
+      // некому по определению слома (`updateMorale`), и резерв после слома не встаёт.
+      for (const side of SIDES) if (!this.sides[side].retreating && !this.sides[side].broken) this.refill(side);
       for (const side of SIDES) for (const lane of [0, 1, 2] as Lane[]) if (this.enemyOnLane(side, lane)) this.opposed[side][lane] = true;
       const hits: Hit[] = [];
       const contacts = this.contact && this.winner !== 'draw' ? this.buildContacts() : [];
@@ -1283,7 +1284,7 @@ class Battle {
         s.brokenAt = this.tick;
         s.brokenReason = 'annihilated';
         this.emit({ id: 'annihilated', side });
-      } else if (!s.broken && (nobody || s.lostTotal / s.initialTotal > MORALE.autoBreakLoss)) {
+      } else if (!s.broken && nobody) {
         s.broken = true;
         s.brokenAt = this.tick;
         s.brokenReason = 'morale';

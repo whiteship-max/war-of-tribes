@@ -255,21 +255,15 @@ describe('мораль по секторам', () => {
     expect(ratios.reduce((a, b) => a + b, 0) / ratios.length).toBeLessThanOrEqual(OVERSIZE_CAP.lineMean);
   });
 
-  it('сломанный сектор тянет соседей, и армия отступает, когда сломано достаточно', () => {
+  it('сломанный сектор тянет соседей', () => {
+    // Вторая половина прежнего теста — «армия отступает, когда сломано достаточно» (по весу сломанных) — ушла вместе
+    // с этим правилом: сторона ломается, когда встать некому (мораль EU4, новый тест 9). Паника остаётся до поставки 5.
     let panics = 0;
     let breaks = 0;
     for (const r of sampleBattles()) {
       for (const e of r.log) {
         if (e.id === 'sector-broken') breaks += 1;
         if (e.id === 'panic-spread') panics += 1;
-      }
-      // Армия, сломавшаяся по морали, к этому моменту потеряла сектора весом не меньше порога — или линию целиком.
-      for (const side of ['attacker', 'defender'] as const) {
-        const collapsed = r.log.find((e) => e.id === 'morale-collapsed' && e.side === side);
-        if (!collapsed || collapsed.id !== 'morale-collapsed') continue;
-        const brokenBefore = r.log.filter((e) => e.id === 'sector-broken' && e.side === side && e.tick <= collapsed.tick).length;
-        const lostShare = r.sides[side].total.losses / r.sides[side].total.initial;
-        expect(brokenBefore > 0 || lostShare > MORALE.autoBreakLoss * 0.9).toBe(true);
       }
     }
     expect(breaks).toBeGreaterThan(0);
@@ -515,9 +509,10 @@ describe('круги сечи', () => {
     let prev = 0;
     const melee = (circles: number): number => Array.from({ length: circles }, (_, i) => meleeTicksOf(i + 1)).reduce((n, t) => n + t, 0);
     for (const depth of [0, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12]) {
-      // Ровный фронт в полную силу выбивает долю `MELEE_RATE` за тик: армия глубины `depth` теряет долю слома без
-      // морали за столько тиков сечи. Потолок — наименьшее число кругов сверх первого, при котором их хватает.
-      const need = (MORALE.autoBreakLoss * Math.max(1, depth)) / MELEE_RATE;
+      // Ровный фронт в полную силу выбивает долю `MELEE_RATE` за тик: армия глубины `depth` выбита целиком за столько
+      // тиков сечи. Потолок — наименьшее число кругов сверх первого, при котором их хватает.
+      // Целиком: автослома при 65 % потерь больше нет (14.19.5), и опора потолка — вся глубина.
+      const need = Math.max(1, depth) / MELEE_RATE;
       const cap = roundsCap(depth);
       expect(melee(cap + 1), `глубина ${depth}`).toBeGreaterThanOrEqual(need);
       if (cap > 0) expect(melee(cap), `глубина ${depth}`).toBeLessThan(need);
@@ -1133,6 +1128,38 @@ describe('дальность обхода по роду', () => {
 describe('мораль EU4', () => {
   // Поставка 1 (docs/battle_eu4.md, 14.15): бежавший уходит с поля, резерв встаёт на его место, и армия больше W
   // перестаёт быть бесполезной.
+
+  it('сторона не сломана, пока встать есть кому: слом — когда в строю никого и резерв исчерпан, или перебита', () => {
+    // Новый тест 9. Слома по весу сломанных секторов и автослома по доле потерь нет: сторона со свежим резервом стоит,
+    // пока резерв встаёт на место бежавших. Сломалась моралью — значит, весь резерв вошёл в строй, и в строю не
+    // осталось никого: каждый её сектор — и резерв тоже — бежал или перебит.
+    let checked = 0;
+    // Размеры — 5W против 4W и 10W против 9W: во втором резерв — больше половины армии.
+    const sizes = [[5, 4], [10, 9]] as const;
+    const pairs = [[BALANCED_ARMY, COMPOSITIONS[8].army], [COMPOSITIONS[3].army, COMPOSITIONS[5].army], [COMPOSITIONS[1].army, BALANCED_ARMY]] as const;
+    for (let seed = 1; seed <= 4; seed += 1) {
+      for (const [[a, b], [na, nb]] of pairs.flatMap((p) => sizes.map((s) => [p, s] as const))) {
+        const r = simulateBattle({ seed, attacker: deploySetup(scaleArmy(a, na * FRONT_WIDTH)), defender: deploySetup(scaleArmy(b, nb * FRONT_WIDTH)) });
+        for (const side of ['attacker', 'defender'] as const) {
+          const collapsed = r.log.find((e) => e.id === 'morale-collapsed' && e.side === side);
+          if (!collapsed) continue;
+          const reserve = stackTotal(r.sides[side].sectors.R.initial);
+          const firstBreak = r.log.find((e) => e.id === 'sector-broken' && e.side === side);
+          // Граница области: у стороны был резерв, и её сектора ломались раньше, чем сломалась она сама.
+          if (reserve === 0 || !firstBreak || firstBreak.tick >= collapsed.tick) continue;
+          const entered = r.log.reduce((n, e) => (e.id === 'reserve-committed' && e.side === side ? n + e.men : n), 0);
+          expect(entered, `сид ${seed}, ${side}: сломалась на ${collapsed.tick}-м тике, а резерв вошёл не весь`).toBe(reserve);
+          for (const id of SECTORS) {
+            const sector = r.sides[side].sectors[id];
+            if (stackTotal(sector.initial) === 0) continue;
+            expect(sector.broken || stackTotal(sector.final) === 0, `сид ${seed}, ${side}/${id}: стоял, когда сторона сломалась`).toBe(true);
+          }
+          checked += 1;
+        }
+      }
+    }
+    expect(checked, 'сторон, сломавшихся моралью при резерве').toBeGreaterThan(0);
+  });
 
   it('бежавший уходит с поля: после слома сектор не получает ни одного удара до погони', () => {
     // Новый тест 10. Бежавших в строю нет — не бьют, не стоят в ряду, не закрывают собой тех, кто за ними; достаёт
