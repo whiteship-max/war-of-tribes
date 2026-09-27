@@ -29,6 +29,8 @@ export function armyTotal(setup: ArmySetup): Stack {
 // в то, что конница оставила: центральная полоса до W, затем края. Конница, не вставшая на края, — в то,
 // что осталось после пеших. Лучники — второй линией от центра, как пешие. Кто не встал — резерв (`R`).
 // Своих чисел у правила нет, кроме W: ни долей по полосам, ни порогов; край конницы — вся полоса края.
+// Резерв посреди боя встаёт без предпочтения рода (`reinforceInto`, как у EU4): фланги за конницей — только
+// у начальной расстановки.
 //
 // Меньшая армия поэтому стоит узко, и более широкая заходит ей во фланг — это и есть то, ради чего
 // развёртывание от центра взято у EU4 буквально, а не «поровну на три полосы». А когда первая линия
@@ -104,6 +106,37 @@ function splitPair(a: number, b: number, parts: number[]): Array<[number, number
 }
 
 /**
+ * Ввод резерва в дыры строя посреди боя (`sim.refill`) — как у EU4, без предпочтения рода: «Infantry/cavalry will always
+ * instantly deploy to fill any available space in the front row up to the combat width» (вики EU4, «Reinforcements»;
+ * решение владельца по 14.21). Фланги за конницей — только у начальной расстановки (`deployInto`). Пешие и конные резерва
+ * встают в дыры первой линии одним потоком — полосы тем же порядком, от центра к краям, — и в каждой дыре роды стоят в
+ * той же доле, что во всём резерве. Лучники — во вторую линию от центра, как при расстановке. `room` — сколько ещё
+ * встанет в ряд каждой полосы; кто не встал — остаётся в резерве (`rest`). Числа целые.
+ */
+export function reinforceInto(army: Stack, room: { front: readonly number[]; rear: readonly number[] }): { front: Stack[]; rear: Stack[]; rest: Stack } {
+  const out = { front: LANES.map(() => emptyStack()), rear: LANES.map(() => emptyStack()), rest: emptyStack() };
+  const foot = army.spear + army.infantry;
+  const horse = army.cavalry + army.heavy;
+  const lanes = fill(foot + horse, [...room.front], 'center');
+  const reserve = foot + horse - lanes.reduce((n, v) => n + v, 0);
+  // Пешие и конные в каждой дыре — долей их во всём резерве; внутри пеших и внутри конных — так же.
+  const parts = splitPair(foot, horse, [...lanes, reserve]);
+  const kinds = (x: keyof Stack, y: keyof Stack, share: number[]): void => {
+    splitPair(army[x], army[y], share).forEach(([a, b], i) => {
+      const into = i < LANES.length ? out.front[i] : out.rest;
+      into[x] += a;
+      into[y] += b;
+    });
+  };
+  kinds('spear', 'infantry', parts.map(([f]) => f));
+  kinds('cavalry', 'heavy', parts.map(([, h]) => h));
+  const archers = fill(army.archer, [...room.rear], 'center');
+  archers.forEach((n, i) => (out.rear[i].archer += n));
+  out.rest.archer += army.archer - archers.reduce((n, v) => n + v, 0);
+  return out;
+}
+
+/**
  * Правило развёртывания: куда встанет каждый боец армии `army` при ширине фронта `width` (бойцов строя
  * на полосу). Кладёт армию целиком — сектора плюс резерв равны составу. Ширина бесконечна — пешие и
  * лучники встают в центр целиком, конница — на края, резерва нет: полоса вмещает всех.
@@ -122,9 +155,9 @@ export function deploy(army: Partial<Stack>, width: number): Record<Sector, Stac
 
 /**
  * То же правило, но в места, которые есть: `room` — сколько ещё встанет в ряд каждой полосы (слева направо со
- * стороны своей армии). Им ставится войско перед боем (`deploy`, места — ширина фронта) и им же резерв встаёт в
- * дыры строя посреди боя (`sim`, места — ширина минус те, кто в ряду стоит): правило одно на расстановку и на
- * ввод резерва, иначе резерв вставал бы не туда, куда встало бы то же войско с начала. Числа целые.
+ * стороны своей армии). Им ставится войско перед боем (`deploy`, места — ширина фронта). Резерв посреди боя встаёт
+ * другим правилом — без предпочтения рода (`reinforceInto`): так у EU4, фланги за конницей у него — только при
+ * начальной расстановке (решение владельца по 14.21). Числа целые.
  */
 export function deployInto(army: Stack, room: { front: readonly number[]; rear: readonly number[] }): { front: Stack[]; rear: Stack[]; rest: Stack } {
   const out = { front: LANES.map(() => emptyStack()), rear: LANES.map(() => emptyStack()), rest: emptyStack() };

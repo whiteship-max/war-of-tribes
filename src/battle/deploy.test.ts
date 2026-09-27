@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FRONT_WIDTH } from './config';
-import { deploy, deployInto, stackOf, stackTotal } from './setup';
+import { deploy, deployInto, reinforceInto, stackOf, stackTotal } from './setup';
 import { FRONT, REAR, UNIT_KINDS, type Sector, type Stack } from './types';
 
 const W = FRONT_WIDTH;
@@ -107,12 +107,29 @@ describe('правило развёртывания', () => {
       const s = deploy(a, W);
       expect(foot(s.R), `${JSON.stringify(a)}: лишние пешие — в резерве`).toBe(Math.max(0, foot(a) - (3 * W - Math.min(horse(a), 2 * W))));
     }
-    // Ввод резерва — то же правило (`deployInto` одна на расстановку и на ввод): дыры на краях закрывает конница
-    // резерва, центр — пешие, и лишние пешие ждут, пока конница стоит на краях.
-    const into = deployInto(stackOf({ infantry: 40, heavy: 30 }), { front: [10, 20, 15], rear: [0, 0, 0] });
-    expect(into.front.map(horse), 'конница резерва — в дыры краёв').toEqual([10, 0, 15]);
-    expect(into.front.map(foot), 'пешие резерва — в дыру центра').toEqual([0, 20, 0]);
-    expect([foot(into.rest), horse(into.rest)], 'в резерве остались').toEqual([20, 5]);
+  });
+
+  it('резерв посреди боя встаёт без предпочтения рода, как у EU4: фланги за конницей — только при расстановке', () => {
+    // Решение владельца по 14.21 (вики EU4, «Reinforcements»: «Infantry/cavalry will always instantly deploy to fill any
+    // available space in the front row»). Пешие и конные резерва — в дыры первой линии одним потоком, в каждой дыре — в
+    // доле их во всём резерве; лучники — во вторую линию от центра.
+    const pool = stackOf({ infantry: 40, heavy: 30, archer: 12 });
+    const into = reinforceInto(pool, { front: [10, 20, 15], rear: [5, 4, 0] });
+    // Граница области: дыры есть и на краях, и в центре, а пеших и конных в резерве больше, чем дыр, — правилу есть что
+    // решать: кому достанутся края.
+    expect(foot(pool) + horse(pool), 'резерва больше, чем дыр').toBeGreaterThan(10 + 20 + 15);
+    expect(into.front.map(stackTotal), 'все дыры первой линии закрыты').toEqual([10, 20, 15]);
+    into.front.forEach((s, i) => {
+      expect(Math.abs(horse(s) - (stackTotal(s) * horse(pool)) / (foot(pool) + horse(pool))), `полоса ${i}: конные в доле резерва`).toBeLessThanOrEqual(1);
+    });
+    expect(into.rear.map((s) => s.archer), 'лучники — во вторую линию от центра').toEqual([5, 4, 0]);
+    for (const k of UNIT_KINDS) {
+      const placed = [...into.front, ...into.rear].reduce((n, s) => n + s[k], 0) + into.rest[k];
+      expect(placed, `${k}: резерв весь на счету`).toBe(pool[k]);
+    }
+    // Начальная расстановка — по-прежнему фланги за конницей: тот же состав в пустой строй встаёт иначе.
+    const initial = deployInto(pool, { front: [10, 20, 15], rear: [5, 4, 0] });
+    expect(initial.front.map(horse), 'при расстановке конница — на края').toEqual([10, 0, 15]);
   });
 
   it('лучники встают второй линией тем же порядком, что пешие', () => {

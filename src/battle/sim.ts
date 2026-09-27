@@ -40,7 +40,7 @@ import {
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
-import { deployInto, emptyStack, fitRows, stackTotal, validateSetup } from './setup';
+import { emptyStack, fitRows, reinforceInto, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
   HORSE_KINDS,
@@ -751,9 +751,9 @@ class Battle {
   /**
    * Автоматический резерв (docs/battle_eu4.md, 14.2 и 14.5; решение владельца — вариант (а)). Кто не встал в ряд —
    * стоит в резерве стороны: вне строя, со своей моралью, которую до ввода не теряет (14.19.4). В каждый тик он
-   * встаёт в любую дыру строя — на место убитых и бежавших — тем же правилом развёртывания, каким войско встало
-   * перед боем (`setup.deployInto`): конница — первой, на края; пешие — от центра в то, что осталось; лучники — во
-   * вторую линию (фланги за конницей, 14.21). Места —
+   * встаёт в любую дыру строя — на место убитых и бежавших — без предпочтения рода, как у EU4 (`setup.reinforceInto`):
+   * пешие и конные — в дыры первой линии одним потоком, в доле их в резерве; лучники — во вторую линию. Фланги за
+   * конницей — только у начальной расстановки (решение владельца по 14.21). Места —
    * ширина ряда минус те, кто в нём стоит и не бежит. Вошедшие встают своей группой полосы — родом из резерва (`R`):
    * их мораль — их собственная, а не тех, чьё место они заняли.
    */
@@ -769,7 +769,7 @@ class Battle {
         const men = s.groups.reduce((n, g) => (g.lane === lane && g.row === row && alive(g) && !g.fled ? n + stackTotal(g.stack) : n), 0);
         return Math.max(0, Math.floor(cap - men + 1e-9));
       });
-    const into = deployInto(pool, { front: room('front'), rear: room('rear') });
+    const into = reinforceInto(pool, { front: room('front'), rear: room('rear') });
     for (const row of ['front', 'rear'] as const) {
       into[row].forEach((moved, lane) => {
         const men = stackTotal(moved);
