@@ -1695,7 +1695,7 @@ export const riteMorale = (s: GameState): number => (riteActive(s) ? RITE_MORALE
  * Прибавка к стойкости дружины на время обряда — единственное, что вера кладёт
  * в бой. Число зависит от **своей** веры, своего храма и своего уклада, и ни от
  * чего больше: у `BattleInput` нет поля веры вовсе, и взять её противнику
- * неоткуда (см. `game/battle/formation.ts` и `sim/faith.test.ts`).
+ * неоткуда (см. `LocalWorld.ownResolve` и `sim/faith.test.ts`).
  */
 export const fervour = (s: GameState): number => (riteActive(s) ? faithTilt(s).fervour : 0);
 

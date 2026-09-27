@@ -1,6 +1,5 @@
 // Базовые типы состояния игры. Симуляция не зависит от рендера и UI.
 import type { DecreeId, RationId, TaxId } from './data/policy';
-import type { Formation } from './battle/formation';
 import type { TroopStack } from './battle/kinds';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId } from '@/world/types';
@@ -767,11 +766,6 @@ export interface GameState {
   away: TroopStack;
   /** Свободные жители, ушедшие разведчиками: они не строят. */
   scoutsAway: number;
-  /**
-   * Как племя встречает набег: расстановка обороны деревни. null — обороняемся
-   * тем, что вышло само (быстрая раскладка по сиду набега).
-   */
-  defenseFormation: Formation | null;
   /** Что игрок предпочитает после боя: смотреть журнал или сразу итог. */
   battleWatch: boolean;
   /**

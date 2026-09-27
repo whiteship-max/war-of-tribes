@@ -50,12 +50,19 @@ export function serialize(s: GameState): string {
  * `GameState`: ступени их читают, а партия после чтения их не несёт (`deserialize` убирает).
  * `hero` — герой с именем и родом до поставки 1 боя (имя ушло к полководцу ступенью 12 → 13, род и
  * поход — с прибавкой героя, docs/battle_eu4.md, 14.19.6); `battlePlans` — схемы похода с планом,
- * приказами и раскладкой удара, ушедшие вместе с ними (14.5).
+ * приказами и раскладкой удара, ушедшие вместе с ними (14.5); `defenseFormation` — расстановка обороны
+ * по секторам, ушедшая с поставкой 2: у частокола строй раскладывает правило, как любой бой (14.27).
+ * Версия от этого не растёт: читать поле некому, и ступени ему не нужно.
  */
-type SavedState = Partial<GameState> & { version?: number; hero?: { name?: unknown }; battlePlans?: unknown };
+type SavedState = Partial<GameState> & {
+  version?: number;
+  hero?: { name?: unknown };
+  battlePlans?: unknown;
+  defenseFormation?: unknown;
+};
 
 /** Поля, которые партия больше не хранит: старое сохранение привозит их спредом, и они убираются. */
-const DROPPED = ['hero', 'battlePlans'] as const;
+const DROPPED = ['hero', 'battlePlans', 'defenseFormation'] as const;
 
 /**
  * Профиль мержится по полям, как рынок и статистика: спред `...data` на уровень

@@ -195,7 +195,6 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     siege: null,
     away: {},
     scoutsAway: 0,
-    defenseFormation: null,
     battleWatch: false,
     feastUntil: 0,
     feastAt: 0,
