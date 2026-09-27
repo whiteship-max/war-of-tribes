@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { alerts, buildingOfType } from '@/game/derived';
 import { eventLeft } from '@/game/sim/mail';
 import { MUTINY_EVENT, ORDER_TEXT } from '@/game/data/order';
 import { tutorialActive } from '@/game/data/tutorial';
-import { incomingMarches, useWorld, worldNow } from '@/world/store';
-import { secondsLeft } from '@/world/geo';
+import { useWorld, worldNow } from '@/world/store';
 import { realDue, realLeft } from '@/ui/parts/wait';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { HIRE_AT } from '@/game/data/hire';
@@ -15,8 +13,8 @@ import { placeOpen } from '@/game/sim/tech';
 import type { BuildingTypeId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
-import { useLockWords } from '@/ui/parts/defenseLock';
-import { useRealm } from '@/ui/realm/open';
+import { useRaidWords } from '@/ui/parts/raidWords';
+import { openRaid, useRealm } from '@/ui/realm/open';
 import { eventKey } from '@/ui/realm/unread';
 
 /**
@@ -30,30 +28,17 @@ export function AlertBar() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const openTab = useGame((g) => g.openTab);
-  const openDefense = useGame((g) => g.openDefense);
-  const marches = useWorld((g) => g.marches);
   const mapOpen = useGame((g) => g.mapOpen);
   const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
   // Письмо о набеге ждёт в почте державы, за гербом, а не на экране: строка
-  // тревоги остаётся предупреждением на виду — и в деревне, и на карте.
-  const raids = incomingMarches(marches);
+  // тревоги остаётся предупреждением на виду — и в деревне, и на карте. Отсчёт
+  // каждой строки идёт сам, пока кто-то идёт на нас (`useRaidWords`).
+  const raids = useRaidWords();
   // Мятеж ждёт ответа в почте сутки, как любое донесение, — но невольники всё это время стоят,
   // и молчание его — самая жёсткая потеря в игре: строка на виду ведёт прямо к нему.
   const openMail = useRealm((r) => r.openMail);
   const mutiny = s.inbox.find((e) => e.defId === MUTINY_EVENT) ?? null;
   const mutinyLeft = mutiny ? eventLeft(mutiny, worldNow()) : null;
-  // Замок один на всю оборону и считается по всем отрядам, а не по строке: строка
-  // второго набега не может сказать «открыто», пока расстановка заперта первым.
-  const lock = useLockWords();
-  const [, retick] = useState(0);
-
-  // Пока кто-то идёт на нас, счётчик должен тикать каждую секунду сам.
-  useEffect(() => {
-    if (raids.length === 0) return;
-    const t = setInterval(() => retick((v) => v + 1), 1000);
-    return () => clearInterval(t);
-  }, [raids.length]);
-
   const list = alerts(s);
   // Пустые места агентов, на которые не идёт найм: строка на здание, где нанимают.
   // Своего поля тревоги у них нет — `derived` про людей на местах не знает нарочно
@@ -90,17 +75,19 @@ export function AlertBar() {
           </span>
         </button>
       )}
-      {raids.map((m) => {
-        // Тап ведёт туда, где это чинят: к расстановке обороны. После отметки
-        // «за `DEFENSE_FREEZE` до удара» она заперта — и строка говорит об этом словами общего замка.
+      {raids.map(({ win, short }) => {
+        // Тап ведёт туда, где это решают: в донесение о набеге — перехват на карте и
+        // сбор дружины. Сколько ещё успевает полный сбор — словами общего окна; не
+        // успевает — окно ответа дома закрыто, и значок у строки тот же, что был у замка.
+        const m = win.march;
         return (
-          <button key={m.id} className="alert raid" onClick={openDefense}>
+          <button key={m.id} className="alert raid" onClick={() => openRaid(m.id)}>
             <span className="ic">
-              <Icon name={lock.frozen ? 'alert-locked' : 'alert-raid'} glyph={lock.frozen ? '🔒' : '⚔️'} />
+              <Icon name={win.late ? 'alert-locked' : 'alert-raid'} glyph={win.late ? '🔒' : '⚔️'} />
             </span>
             <span className="txt">
-              Набег: {m.fromName} · {realLeft(secondsLeft(m.arriveAt, worldNow()))}
-              {lock.short ? ` · ${lock.short}` : ''}
+              Набег: {m.fromName} · {realLeft(win.seconds)}
+              {short ? ` · ${short}` : ''}
             </span>
           </button>
         );

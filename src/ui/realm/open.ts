@@ -46,6 +46,16 @@ export const useRealm = create<RealmStore>((set) => ({
   },
 }));
 
+/**
+ * Донесение о набеге этого отряда — экран решения о набеге: расстановки обороны больше нет (поставка 2 боя,
+ * docs/battle_eu4.md, 14.27), а донесение несёт оба ответа — перехват на карте и сбор дружины в Статуе. Лежит оно в
+ * почте ровно пока набег виден (`LocalWorld.syncRaidLetter`); нет его — «Решения» открываются списком.
+ */
+export function openRaid(marchId: string): void {
+  const l = useWorld.getState().letters.find((x) => x.kind === 'raid' && x.marchId === marchId);
+  useRealm.getState().openMail(l ? letterKey(l.id) : null);
+}
+
 // Лупа письма уводит на карту и, когда с карты уходят, возвращает письмо на
 // стол (`world/store.leaveMap` → `openLetter`). Стол писем теперь — почта
 // державы, поэтому вернувшееся письмо открывается здесь, в «Решениях», а поле

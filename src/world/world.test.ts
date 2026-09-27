@@ -15,7 +15,6 @@ import { temperOf } from './diplomacy';
 import { stackLosses } from './combat';
 import { resolveField } from './battle';
 import { garrisonOf } from './garrison';
-import { defenseLock } from './store';
 import { emptySectors, stackTotal, type ArmySetup, type Stack } from '@/battle';
 import { kindsOf } from '@/game/battle/kinds';
 import { playerProfile, syncAway, toOutcome } from './bridge';
@@ -1217,51 +1216,6 @@ describe('снимок разведки несёт всё, что читает r
       }
     }
   }, 60_000);
-});
-
-describe('заморозка обороны', () => {
-  const incoming = (arriveAt: number): MarchView => ({
-    id: 'x',
-    mission: 'raid',
-    units: { warrior: 5 },
-    own: false,
-    hostile: true,
-    phase: 'out',
-    from: { x: 0, y: 0 },
-    to: { x: 1, y: 1 },
-    fromName: 'Чужие',
-    toName: 'Наша деревня',
-    targetId: 'home',
-    departAt: 0,
-    arriveAt,
-    loot: null,
-    recallable: false,
-  });
-
-  it('срабатывает ровно за пять минут', () => {
-    const now = START;
-    expect(defenseLock([incoming(now + DEFENSE_FREEZE + 1000)], now).frozen).toBe(false);
-    expect(defenseLock([incoming(now + DEFENSE_FREEZE)], now).frozen).toBe(true);
-    expect(defenseLock([incoming(now + 1000)], now).frozen).toBe(true);
-    expect(DEFENSE_FREEZE).toBe(5 * 60_000);
-  });
-
-  it('окно на перестройку есть: предупреждение длиннее заморозки', () => {
-    // Иначе набег появляется уже запертым, и панель обороны — замок на двери.
-    // Проверяется база — то, что видно вообще без Дозора: он время только
-    // прибавляет, укоротить предупреждение он не может.
-    expect(AI_WARNING_BASE).toBeGreaterThan(DEFENSE_FREEZE);
-    const now = START;
-    const arriveAt = now + AI_WARNING_BASE;
-    expect(defenseLock([incoming(arriveAt)], now).frozen).toBe(false);
-    expect(defenseLock([incoming(arriveAt)], now).seconds).toBeGreaterThan(DEFENSE_FREEZE / 1000);
-  });
-
-  it('без чужих отрядов оборона открыта', () => {
-    expect(defenseLock([], START).frozen).toBe(false);
-    expect(defenseLock([], START).march).toBeNull();
-  });
-
 });
 
 describe('оборона у стены — правилом развёртывания', () => {

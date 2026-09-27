@@ -1,5 +1,5 @@
 // Новые части пачки «здания получают дело» своей арифметики не держат: раздел «Оборона»
-// у стены, срок еды и прогноз зимы на складе, слова о замке обороны. Всё, что они
+// у стены, срок еды и прогноз зимы на складе. Всё, что они
 // показывают, уже считает игра своими функциями — и у нас дважды горело, когда показ
 // считал рядом: план гасил кнопку, а приказ её принимал; карточка обещала прирост,
 // которого потолок не давал.
@@ -20,15 +20,15 @@ const code = (file: string): string =>
 describe('новые части читают готовые величины и не считают', () => {
   it('раздел «Оборона»: защиту, ополчение и стрелков берёт у игры, а не складывает сам', () => {
     const src = code('Walls.tsx');
-    // Точки внутри области: часть действительно показывает все три числа и замок.
+    // Точки внутри области: часть действительно показывает все три числа и окно набега.
     expect(src, 'Walls.tsx показывает защиту').toMatch(/\bdefense\(s\)/);
     expect(src, 'Walls.tsx показывает ополчение').toMatch(/\bmilitiaMen\(s\)/);
     expect(src, 'Walls.tsx показывает стрелков').toMatch(/\bmilitiaArchers\(s\)/);
-    expect(src, 'Walls.tsx называет сектора замером').toMatch(/\bmilitiaPlaces\(s\)/);
-    expect(src, 'Walls.tsx читает замок общей дверью').toMatch(/\buseLockWords\(\)/);
+    expect(src, 'Walls.tsx читает окно набега общей дверью').toMatch(/\buseRaidWords\(\)/);
     expect(src, 'Walls.tsx: арифметика ополчения').not.toMatch(/\b(homeArmyPower|buildingStat|buildingOfType|toArmySetup|share)\(|BATTLE_MAN/);
-    expect(src, 'Walls.tsx: замок посчитан сам').not.toMatch(/\bdefenseLock\(|DEFENSE_FREEZE|arriveAt\s*-|freezeIn\s*[-+]/);
-    expect(src, 'Walls.tsx: своя таблица секторов').not.toMatch(/['"][A-F]['"]/);
+    expect(src, 'Walls.tsx: окно посчитано само').not.toMatch(/\braidWindow\(|musterBy|musterWait|HANDOVER_|arriveAt\s*-/);
+    // Строй у частокола раскладывает правило боя (поставка 2): где встанет ополчение, стена не называет.
+    expect(src, 'Walls.tsx: своя таблица секторов').not.toMatch(/['"][A-F]['"]|SECTOR_NAME|militiaPlaces/);
   });
 
   it('склад: срок еды — из одной двери, прогноз зимы — `winterForecast`, и никаких составных частей расхода', () => {
@@ -45,11 +45,5 @@ describe('новые части читают готовые величины и 
     expect(left, 'foodLeft.ts: свой расход вместо баланса игры').not.toMatch(
       /\b(foodConsumptionPerDay|townFoodPerDay|soldierFoodPerDay|productionPerDay|rationOf|seasonMods)\(|SOLDIER_FOOD|DAY_LENGTH/,
     );
-  });
-
-  it('слова о замке: от ответа `defenseLock` до строки один шаг, срок до замка приезжает полем', () => {
-    const src = code('defenseLock.ts');
-    expect(src, 'defenseLock.ts зовёт дверь мира').toMatch(/\bdefenseLock\(/);
-    expect(src, 'defenseLock.ts: срок до замка посчитан сам').not.toMatch(/arriveAt|seconds\s*-|-\s*DEFENSE_FREEZE/);
   });
 });

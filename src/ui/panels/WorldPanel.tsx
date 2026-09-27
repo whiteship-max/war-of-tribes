@@ -20,7 +20,6 @@ import { FELL_WORDS } from '@/ui/map/siegemark';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { FatePick } from '@/ui/parts/FatePick';
 import { GarrisonEditor } from '@/ui/parts/GarrisonEditor';
-import { useLockWords } from '@/ui/parts/defenseLock';
 import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
@@ -49,8 +48,6 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const s = useGame((g) => g.s);
   const closeMap = useGame((g) => g.closeMap);
   const showToast = useGame((g) => g.showToast);
-  const openDefense = useGame((g) => g.openDefense);
-  const lock = useLockWords();
   const card = useWorld((g) => g.card);
   const terrain = useWorld((g) => g.cardTerrain);
   const loading = useWorld((g) => g.cardLoading);
@@ -619,14 +616,9 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             </button>
           ))}
         {card.can.open && (
-          <>
-            <button className="btn wide" onClick={closeMap}>
-              🏘️ Открыть деревню
-            </button>
-            <button className="btn ghost wide" onClick={openDefense}>
-              {lock.frozen ? '🔒' : '🛡️'} Оборона деревни{lock.short ? ` · ${lock.short}` : ''}
-            </button>
-          </>
+          <button className="btn wide" onClick={closeMap}>
+            🏘️ Открыть деревню
+          </button>
         )}
         {/* Участь объявляется ударом или осадой — выбирают её прямо над ними. */}
         {(card.can.raid || card.can.besiege) && !card.siege?.mine && (

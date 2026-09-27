@@ -24,7 +24,6 @@ import { StartScreen } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { WorldPanel } from './ui/panels/WorldPanel';
 import { MarchesPanel } from './ui/panels/MarchesPanel';
-import { BattlePanel } from './ui/panels/BattlePanel';
 import { SortiePanel } from './ui/panels/SortiePanel';
 import { SiegePanel } from './ui/panels/SiegePanel';
 import { CampPanel } from './ui/panels/CampPanel';
@@ -60,7 +59,6 @@ function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
   if (view.kind === 'world') return <WorldPanel x={view.x} y={view.y} />;
   if (view.kind === 'marches') return <MarchesPanel />;
-  if (view.kind === 'defense') return <BattlePanel />;
   if (view.kind === 'sortie') return <SortiePanel />;
   if (view.kind === 'siege') return <SiegePanel />;
   if (view.kind === 'camp') return <CampPanel />;

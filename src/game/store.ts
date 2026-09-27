@@ -49,8 +49,6 @@ export type SheetView =
   | { kind: 'building'; id: number }
   | { kind: 'world'; x: number; y: number }
   | { kind: 'marches' }
-  /** Оборона своей деревни: раскладка гарнизона и заморозка. «Настроить бой» у удара ушло (docs/battle_eu4.md, 14.5). */
-  | { kind: 'defense' }
   /**
    * Окно осады глазами обороняющегося: кто стоит, чем кончится, чем ответить. Входов
    * два — плашка осады в деревне и меню полководца у своего города на карте, — а окно
@@ -125,8 +123,6 @@ export interface GameStore {
   openWorldTile: (x: number, y: number) => void;
   /** Список своих походов и отчётов. */
   openMarches: () => void;
-  /** Оборона деревни: раскладка гарнизона по секторам. */
-  openDefense: () => void;
   /** Открыть вылазку. Ведёт сюда одна кнопка — из окна осады. */
   openSortie: () => void;
   /** Окно осады своего города. */
@@ -240,11 +236,6 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   openMarches: () => set({ sheet: { kind: 'marches' } }),
-
-  openDefense: () => {
-    haptic('light');
-    set({ sheet: { kind: 'defense' } });
-  },
 
   openSortie: () => {
     haptic('light');

@@ -24,8 +24,6 @@ import {
   warningSeconds,
 } from '@/game/derived';
 import { BATTLE_MAN } from '@/game/battle/kinds';
-import { emptyFormation, toArmySetup } from '@/game/battle/formation';
-import { SECTORS, type Sector } from '@/battle';
 import { troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import {
@@ -80,23 +78,6 @@ export const militiaArchers = (s: GameState): number => {
   if (!tower) return 0;
   return Math.min(militiaMen(s), Math.max(0, Math.round(buildingStat(tower, 'archers'))));
 };
-
-/** Сколько ополченцев выходит пехотой: всё ополчение, кроме тех, кого башня поставила стрелками. */
-export const militiaFoot = (s: GameState): number => militiaMen(s) - militiaArchers(s);
-
-/**
- * Где ополчение встаёт в расстановке обороны — замером, тем же переводом, каким его
- * ставит слепок (`toArmySetup` в `playerProfile`), только на пустой расстановке: так
- * в секторах остаётся одно ополчение. Своей таблицы «пехота во фронт, стрелки во
- * вторую линию» у интерфейса нет — спросит сюда, а ответит перевод.
- */
-export function militiaPlaces(s: GameState): { foot: Sector[]; archers: Sector[] } {
-  const setup = toArmySetup(emptyFormation(), militiaFoot(s), militiaArchers(s));
-  return {
-    foot: SECTORS.filter((id) => setup.sectors[id].infantry > 0),
-    archers: SECTORS.filter((id) => setup.sectors[id].archer > 0),
-  };
-}
 
 /**
  * Орудие башни для слепка — только готовое: сила и расчёт из таблицы орудий и места на

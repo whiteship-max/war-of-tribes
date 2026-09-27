@@ -14,7 +14,7 @@ import { LocalWorld, type LocalWorldOptions } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import { tribePulse } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
-import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
+import { CAMERA_LEASH, HOME_SIGHT, REACH_MAX } from './data/tuning';
 import { freshSeed } from '@/game/sim/random';
 import { cityName } from '../../netlify/lib/contract';
 import { marchPosition } from './geo';
@@ -1042,31 +1042,24 @@ export const incomingMarches = (marches: MarchView[]): MarchView[] =>
   marches.filter((m) => m.hostile && m.phase === 'out').sort((a, b) => a.arriveAt - b.arriveAt);
 
 /**
- * Заморозка обороны. Менять расстановку можно до отметки «минус `DEFENSE_FREEZE`» до
- * прихода чужой армии; после неё настройки заперты, и игроку это показывают, а
- * не игнорируют нажатия молча (раздел 8 документа).
- *
- * Считается здесь, чтобы у панели и у мира была одна формула: мир защёлкивает
- * ту же отметку у себя (`LocalWorld.lockDefense`).
+ * Окно ответа на набег (поставка 2 боя, docs/battle_eu4.md, 14.26–14.27): сколько до прихода отряда и до какой минуты
+ * полный сбор дружины ещё успевает. Замка у обороны больше нет — её раскладывает правило, — и последний ответ дома
+ * теперь сбор: начатый позже `musterBy`, он не кончится к приходу. Минуту даёт мир (`MarchView.musterBy`, та же дверь
+ * `LocalWorld.musterBy`, что у черновика уведомления), здесь от неё до секунд один шаг — и больше его не делает никто.
  */
-export interface DefenseLock {
-  /** Ближайший чужой отряд или null. */
-  march: MarchView | null;
+export interface RaidWindow {
+  march: MarchView;
   /** Секунд до прихода. */
   seconds: number;
-  /** Секунд до того, как расстановка запрётся. Ноль — уже заперта или отряда нет. */
-  freezeIn: number;
-  frozen: boolean;
+  /** Секунд, пока полный сбор ещё успевает; ноль — уже не успевает. null — отряд идёт не на деревню, сбора он не ждёт. */
+  muster: number | null;
+  /** Полный сбор уже не успеет. */
+  late: boolean;
 }
 
-export function defenseLock(marches: MarchView[], now: number): DefenseLock {
-  const m = incomingMarches(marches)[0] ?? null;
-  if (!m) return { march: null, seconds: 0, freezeIn: 0, frozen: false };
-  const left = m.arriveAt - now;
-  return {
-    march: m,
-    seconds: Math.max(0, left / 1000),
-    freezeIn: Math.max(0, (left - DEFENSE_FREEZE) / 1000),
-    frozen: left <= DEFENSE_FREEZE,
-  };
+export function raidWindow(m: MarchView, now: number): RaidWindow {
+  const seconds = Math.max(0, (m.arriveAt - now) / 1000);
+  if (m.musterBy === undefined) return { march: m, seconds, muster: null, late: false };
+  const left = (m.musterBy - now) / 1000;
+  return { march: m, seconds, muster: Math.max(0, left), late: left <= 0 };
 }

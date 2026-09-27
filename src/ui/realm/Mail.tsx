@@ -10,11 +10,12 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { partyNow } from '@/net/clock';
 import { useWorld, worldNow } from '@/world/store';
+import { buildingOfType } from '@/game/derived';
 import { RHUMB_WORDS } from '@/world/data/letters';
 import type { LetterView } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
-import { useLockWords } from '@/ui/parts/defenseLock';
+import { useRaidWords } from '@/ui/parts/raidWords';
 import { dispatches, leftWords, type Dispatch } from './dispatch';
 import { useRealm } from './open';
 import { mailKeys, useSeen } from './unread';
@@ -149,9 +150,12 @@ function DispatchCard({
 }) {
   const spot = useWorld((w) => w.spotLetter);
   const openMap = useGame((g) => g.openMap);
-  const openDefense = useGame((g) => g.openDefense);
-  const lock = useLockWords();
-  const raid = letter?.kind === 'raid';
+  const openBuilding = useGame((g) => g.openBuilding);
+  const s = useGame((g) => g.s);
+  const statue = buildingOfType(s, 'statue');
+  // Окно этого отряда — словами общего окна; письмо и отряд связаны `marchId`.
+  const raids = useRaidWords();
+  const raid = letter?.kind === 'raid' ? (raids.find((w) => w.win.march.id === letter.marchId) ?? null) : null;
 
   return (
     <div className="panel dispatch">
@@ -180,18 +184,19 @@ function DispatchCard({
             </button>
           );
         })}
-        {/* Предупреждение решается не здесь, и об этом сказано словами: две
-            двери — перехватить в поле или встретить у частокола. */}
-        {raid && (
+        {/* Предупреждение решается не здесь, и об этом сказано словами: два
+            ответа — перехватить в поле или собрать дружину к воротам. У частокола
+            строй раскладывает правило боя, и расставлять там нечего. */}
+        {letter?.kind === 'raid' && (
           <>
             <button className="opt" onClick={() => openMap()}>
               <span>На карту</span>
               <small>Перехватить в поле, пока они идут</small>
             </button>
-            <button className="opt" onClick={openDefense}>
-              <span>Оборона</span>
-              {/* Заперта ли расстановка — словами общего замка. */}
-              <small>{lock.frozen ? lock.short : ['Расставить тех, кто дома', lock.short].filter(Boolean).join(' · ')}</small>
+            <button className="opt" disabled={!statue} onClick={() => statue && openBuilding(statue.id)}>
+              <span>Дружина</span>
+              {/* Успевает ли полный сбор — словами общего окна. */}
+              <small>{['Собрать к воротам в Статуе', raid?.short].filter(Boolean).join(' · ')}</small>
             </button>
           </>
         )}
