@@ -463,8 +463,9 @@ describe('ролик рассказывает то же, что отчёт', () 
 
   it('событие круга сечи ложится на время своего круга, а не первой сечи', () => {
     // Бой идёт кругами, и фаза встречается в журнале не один раз: метка ищет ту, в чьи тики попало.
-    // Бой с кругами — копья с лучниками против пехоты с конницей (граница утверждена ниже).
-    const r = simulateBattle({ seed: 1, attacker: deploySetup({ spear: 300, archer: 300 }), defender: deploySetup({ infantry: 400, cavalry: 200 }) });
+    // Бой с кругами — копья с лучниками против пехоты с конницей (граница утверждена ниже). Размер — 900 на сторону:
+    // с поставки 1 (мораль EU4, автоматический резерв) те же составы по 600 ломаются в первом проходе.
+    const r = simulateBattle({ seed: 1, attacker: deploySetup({ spear: 450, archer: 450 }), defender: deploySetup({ infantry: 600, cavalry: 300 }) });
     const cast = buildCast(r, 'attacker');
     const inRound = cast.marks.filter((m) => r.phases.some((p) => p.round && p.phase === m.phase && m.tick >= p.from && m.tick <= p.to));
     // Граница: круги в бою есть, и в них есть события, ставшие метками, — иначе правило проверялось бы даром.
@@ -480,7 +481,8 @@ describe('ролик рассказывает то же, что отчёт', () 
   it('круг идёт сечей: его сближение и сшибка — в такте сечи и по тикам, а не в близком плане и отъезде', () => {
     // Круг — обстрел, сшибка и сеча снова (`CIRCLE_PHASES`), и имена его фаз те же, что у первого круга. Такт по
     // имени фазы положил бы сближение круга в отъезд камеры, а его потери и события — раньше, чем линии сошлись.
-    const r = simulateBattle({ seed: 1, attacker: deploySetup({ spear: 300, archer: 300 }), defender: deploySetup({ infantry: 400, cavalry: 200 }) });
+    // Размер — 900 на сторону: те же составы по 600 с поставки 1 ломаются в первом проходе, и кругов нет.
+    const r = simulateBattle({ seed: 1, attacker: deploySetup({ spear: 450, archer: 450 }), defender: deploySetup({ infantry: 600, cavalry: 300 }) });
     const cast = buildCast(r, 'attacker');
     const inRounds = r.phases.filter((p) => p.round !== undefined);
     // Граница: в бою есть круги, и в них есть сближение и сшибка — фазы, чьё имя живёт и в других тактах.
