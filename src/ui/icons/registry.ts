@@ -105,6 +105,9 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'hud', ids: ['pop', 'army', 'map', 'order'], source: 'TopBar' },
   { prefix: 'mood', ids: ['good', 'mid', 'bad'], source: 'ступени морали в TopBar' },
   { prefix: 'day', ids: ['morning', 'evening', 'night'], source: 'время суток в TopBar' },
+  // `locked` места в игре больше нет: замка обороны нет (поставка 2 боя), и строка набега, у которой полный сбор не
+  // успевает, взяла значок времени `ui-time`. Имя стоит, пока лежит рисунок: убрать его — удалить файл и пересобрать
+  // лист, и это решение владельца (docs/PROMISES_DEBT.md, «Значки»).
   { prefix: 'alert', ids: ['starving', 'freezing', 'raid', 'locked'], source: 'AlertBar' },
   {
     prefix: 'ui',

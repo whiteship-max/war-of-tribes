@@ -78,12 +78,13 @@ export function AlertBar() {
       {raids.map(({ win, short }) => {
         // Тап ведёт туда, где это решают: в донесение о набеге — перехват на карте и
         // сбор дружины. Сколько ещё успевает полный сбор — словами общего окна; не
-        // успевает — окно ответа дома закрыто, и значок у строки тот же, что был у замка.
+        // успевает — у строки значок времени: запертого тут ничего нет (замка обороны
+        // больше нет, поставка 2 боя), вышло время полного сбора.
         const m = win.march;
         return (
           <button key={m.id} className="alert raid" onClick={() => openRaid(m.id)}>
             <span className="ic">
-              <Icon name={win.late ? 'alert-locked' : 'alert-raid'} glyph={win.late ? '🔒' : '⚔️'} />
+              <Icon name={win.late ? 'ui-time' : 'alert-raid'} glyph={win.late ? '⏳' : '⚔️'} />
             </span>
             <span className="txt">
               Набег: {m.fromName} · {realLeft(win.seconds)}
