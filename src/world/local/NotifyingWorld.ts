@@ -11,7 +11,6 @@
 import { LocalWorld, HOME_ID } from './LocalWorld';
 import { ourCamp, siegeSince, starvesAt } from '../siege';
 import { worksRipeAt } from '../works';
-import { DEFENSE_FREEZE } from '../data/tuning';
 import { draftNotices, sightFrom, type Break, type Drafts, type NoticeWorld } from '../notice';
 
 export class NotifyingWorld extends LocalWorld {
@@ -67,7 +66,7 @@ export class NotifyingWorld extends LocalWorld {
           // Та же минута, с которой отряд показывает `visibleMarches`: донесение Дозора или
           // живой обзор — что раньше.
           seenFrom: Math.min(m.arriveAt - this.warningMs(), sightFrom(m, this.sightDiscs(now))),
-          freezeAt: m.arriveAt - DEFENSE_FREEZE,
+          musterBy: this.musterBy(m),
         }
       : null;
 

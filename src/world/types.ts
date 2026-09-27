@@ -887,6 +887,11 @@ export interface MarchView {
    * такого приказа отдать не может.
    */
   siege?: boolean;
+  /**
+   * Чужой отряд, идущий на деревню: до какой минуты полный сбор дружины, начатый дома, ещё кончается до прихода
+   * (`LocalWorld.musterBy`). Окно ответа на набег; у прочих отрядов поля нет.
+   */
+  musterBy?: number;
 }
 
 export interface MarchOrder {

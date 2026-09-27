@@ -20,7 +20,9 @@ import type { Fate } from './types';
 /**
  * Набег на деревню в пути. Всё — поля сохранения и то, что из них выводится без
  * будущего: `seenFrom` — минута, с которой игра сама показала бы его (донесение Дозора
- * или вход в живой обзор, что раньше), `freezeAt` — когда запрётся оборона.
+ * или вход в живой обзор, что раньше), `musterBy` — последняя минута, когда полный сбор
+ * дружины, начатый дома, ещё кончается до прихода (приход минус потолок сбора с чертой
+ * полководца, `LocalWorld.musterBy`; docs/battle_eu4.md, 14.26–14.27).
  */
 export interface RaidFacts {
   id: string;
@@ -29,7 +31,7 @@ export interface RaidFacts {
   departAt: number;
   arriveAt: number;
   seenFrom: number;
-  freezeAt: number;
+  musterBy: number;
 }
 
 /** Осада своей деревни, идущая в минуту составления. */
@@ -117,16 +119,22 @@ export function draftNotices(w: NoticeWorld, now: number): Drafts {
   if (raid) {
     const gap = firstBreak(w.breaks, raid.arriveAt, (b) => b.kind === 'chase' && b.march === raid.id);
     if (gap) silent.push({ kind: 'raid', why: gap.kind });
-    else
+    else {
+      // Годен, пока полный сбор ещё успевает (`musterBy`): после этой минуты сбор, начатый дома, не кончится к приходу, и
+      // люди в сборе встретят набег на дороге, а не у частокола. Полный сбор не успевает уже в минуту, когда отряд стал
+      // виден (сбор дольше предупреждения — черта «Мясник»), — пункт всё равно есть (слово владельца по 14.26): уходит в
+      // эту же минуту с пометкой `late` и годен до прихода — набег правда идёт, а доставка шлёт только до `until`.
+      const late = raid.musterBy <= raid.seenFrom;
       // Ключ — имя момента: этот отряд, вышедший в эту минуту. Номер один не годится:
       // «начать заново» заводит мир со счёта походов с нуля, и первый набег новой партии
       // молчал бы `SENT_KEEP` (`netlify/lib/notify.ts`), наткнувшись на отметку первого набега прежней.
-      put('raid', `raid:${raid.id}:${raid.departAt}`, raid.seenFrom, raid.freezeAt, {
+      put('raid', `raid:${raid.id}:${raid.departAt}`, raid.seenFrom, late ? raid.arriveAt : raid.musterBy, {
         from: plainName(raid.from),
         fate: raid.fate,
         about: raid.arriveAt,
-        freezeAt: raid.freezeAt,
+        ...(late ? { late: true as const } : {}),
       });
+    }
   }
 
   const siege = w.siege;

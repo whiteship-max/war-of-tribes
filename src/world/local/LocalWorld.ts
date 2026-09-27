@@ -2762,6 +2762,18 @@ export class LocalWorld implements WorldApi {
     return Math.round(Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN) * this.traitOf('muster'));
   }
 
+  /**
+   * До какой минуты полный сбор дружины, начатый дома, ещё кончается до прихода чужого отряда: приход минус потолок
+   * сбора с чертой полководца — тем же `musterWait`, что сбор в игре (docs/battle_eu4.md, 14.26–14.27; слово
+   * владельца — вариант (а)). Позже сбор не кончится к приходу, и люди в сборе встретят набег на дороге: пока идёт
+   * передача, они не защищают никого (`world/muster.postureOf`). Окно ответа на набег после расстановки обороны — это
+   * оно: его показывают вход тревоги, письмо о набеге и «Оборона» у стены (`MarchView.musterBy`) и им же годен черновик
+   * уведомления (`NotifyingWorld`). Может выйти раньше, чем набег стал виден (сбор дольше предупреждения — «Мясник»).
+   */
+  protected musterBy(m: { arriveAt: number }): number {
+    return m.arriveAt - this.musterWait(Infinity);
+  }
+
   /** Сколько лазутчик занят после удачи или тихого провала и сколько его держат пойманного. */
   private spyTimes(): { busy: number; held: number } {
     return { busy: Math.round(SPY_BUSY * this.traitOf('busy')), held: Math.round(SPY_HELD * this.traitOf('held')) };
@@ -4924,6 +4936,8 @@ export class LocalWorld implements WorldApi {
       // своим именем. Своего вида похода у осады нет: игрок такого приказа
       // отдать не может, и заводить его в списке заданий было бы враньём.
       siege: m.phase === 'stay' && this.save.sieges[m.targetId]?.campId === m.id,
+      // Чужой отряд, идущий на деревню: до какой минуты полный сбор ещё успевает — одна дверь с черновиком уведомления.
+      ...(!m.own && m.targetId === HOME_ID && m.phase === 'out' ? { musterBy: this.musterBy(m) } : {}),
     };
   }
 

@@ -303,8 +303,13 @@ export interface NoticeFacts {
   fate: NoticeFate;
   /** О какой минуте пункт: приход отряда у набега, конец хлеба у осады. */
   about: number;
-  /** Набег: когда запрётся оборона. */
-  freezeAt?: number;
+  /**
+   * Набег: полный сбор дружины не успевает уже в ту минуту, когда отряд стал виден (сбор дольше предупреждения). Тогда
+   * пункт уходит в эту же минуту и годен до прихода; без пометки он годен, пока полный сбор ещё успевает (`until`).
+   * Прежнего поля «когда запрётся оборона» (`freezeAt`) нет: заморозка ушла вместе с расстановкой обороны
+   * (docs/battle_eu4.md, 14.26–14.27). Старый клиент шлёт его, пока не перезагрузится, — разбор его не копирует.
+   */
+  late?: true;
   /** Осада: когда достроятся рогатки со стороны города и со стороны поля. */
   frontAt?: number;
   rearAt?: number;
@@ -414,11 +419,15 @@ export function readNotices(v: unknown, now: number): NoticeItem[] | null {
     const about = num(p.about);
     if (!from || !PLAIN.test(from) || !fate || about === null) return null;
     const facts: NoticeFacts = { from, fate, about };
-    for (const f of ['freezeAt', 'frontAt', 'rearAt'] as const) {
+    for (const f of ['frontAt', 'rearAt'] as const) {
       if (p[f] === undefined) continue;
       const n = num(p[f]);
       if (n === null) return null;
       facts[f] = n;
+    }
+    if (p.late !== undefined) {
+      if (p.late !== true) return null;
+      facts.late = true;
     }
     keys.add(key);
     out.push({ key, kind, fireAt, until, p: facts });
