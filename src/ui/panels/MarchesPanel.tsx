@@ -10,7 +10,7 @@
 // не дотянется, а дотянуться она может только от него самого.
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { figurePosition, incomingMarches, ownMarches, useWorld, worldNow } from '@/world/store';
+import { figurePosition, marchesOnUs, ownMarches, useWorld, worldNow } from '@/world/store';
 import { troopTotal } from '@/game/battle/kinds';
 import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
@@ -100,7 +100,7 @@ export function MarchesPanel() {
   }, [loadReports, markRead]);
 
   const own = ownMarches(marches);
-  const incoming = incomingMarches(marches, homeId);
+  const incoming = marchesOnUs(marches, homeId);
   if (card) return <AgentCard id={card} onBack={() => setCard(null)} />;
 
   return (
@@ -213,15 +213,25 @@ export function MarchesPanel() {
                   {m.fromName}
                   <span className="count">{realLeft(secondsLeft(m.arriveAt, worldNow()))}</span>
                 </div>
-                <div className="desc">
-                  Чужой отряд идёт к нам от {formatCoord(m.from)}. Успей вернуть своих или встретить.
-                </div>
-                <div className="cost">
-                  {/* Встретить их можно и в поле: точку встречи покажут до приказа. */}
-                  <button className="mini text" onClick={() => void openChase(m)}>
-                    🎖️ Перехватить в поле
-                  </button>
-                </div>
+                {m.onCamp ? (
+                  // Выручка идёт на полководца, который стоит лагерем: перехватывать некому — дружина и есть цель.
+                  <div className="desc">
+                    Чужой отряд идёт на наш лагерь под {m.toName} от {formatCoord(m.from)}: выручка полезет через рогатки
+                    со стороны города.
+                  </div>
+                ) : (
+                  <>
+                    <div className="desc">
+                      Чужой отряд идёт к нам от {formatCoord(m.from)}. Успей вернуть своих или встретить.
+                    </div>
+                    <div className="cost">
+                      {/* Встретить их можно и в поле: точку встречи покажут до приказа. */}
+                      <button className="mini text" onClick={() => void openChase(m)}>
+                        🎖️ Перехватить в поле
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           ))}

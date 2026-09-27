@@ -1037,17 +1037,29 @@ export function marchOn(marches: MarchView[], cell: Coord, now: number): MarchVi
 /** Свои походы — отдельно от чужих: их показывает список, их можно отозвать. */
 export const ownMarches = (marches: MarchView[]): MarchView[] => marches.filter((m) => m.own);
 
+/** Чужой отряд в пути на деревню: цель — дом. Пока мир не ответил, чей дом (`homeId` нет), на деревню не идёт никто. */
+const onHome = (m: MarchView, homeId: SettlementId | undefined): boolean =>
+  m.hostile && m.phase === 'out' && m.targetId === homeId;
+
 /**
- * Чужие отряды, идущие на деревню игрока. Ближайший по времени — первым.
+ * Чужие отряды, идущие на деревню игрока, ближайший по времени первым: строка «Набег» в тревогах и раздел «Оборона» у
+ * стены (`parts/raidWords`). Зовут к обороне деревни — и только от тех, кто на неё идёт.
  *
  * «Чужой» (`hostile`) — ещё не «на нас»: так мир помечает всякий не свой отряд, и в живом обзоре у деревни идут и
- * походы логов друг на друга (`LocalWorld.scheduleWar`), и выручка на наш лагерь. На деревню идёт тот, чья цель — дом
- * (`WorldInfo.homeId`); пока мир не ответил, чей дом, на деревню не идёт никто. Прежде фильтр стоял на одном
- * `hostile`, и строка «Набег» в тревогах звала к обороне от чужой войны.
+ * походы логов друг на друга (`LocalWorld.scheduleWar`), и выручка на наш лагерь. Прежде фильтр стоял на одном
+ * `hostile`, и строка «Набег» звала к обороне от чужой войны.
  */
-export const incomingMarches = (marches: MarchView[], homeId: SettlementId | undefined): MarchView[] =>
+export const marchesOnHome = (marches: MarchView[], homeId: SettlementId | undefined): MarchView[] =>
+  marches.filter((m) => onHome(m, homeId)).sort((a, b) => a.arriveAt - b.arriveAt);
+
+/**
+ * Чужие отряды, идущие на все наши места — деревню и наш лагерь осады (`MarchView.onCamp`), ближайший первым: «Идут
+ * на нас» в «Походах» (решение владельца). Выручка, идущая на лагерь, — угроза нашему войску, и из списка угроз она
+ * пропадать не должна; к обороне деревни она не зовёт — это `marchesOnHome`.
+ */
+export const marchesOnUs = (marches: MarchView[], homeId: SettlementId | undefined): MarchView[] =>
   marches
-    .filter((m) => m.hostile && m.phase === 'out' && m.targetId === homeId)
+    .filter((m) => onHome(m, homeId) || (m.hostile && m.phase === 'out' && m.onCamp === true))
     .sort((a, b) => a.arriveAt - b.arriveAt);
 
 /**

@@ -356,6 +356,13 @@ export const caughtAt = (roll: number, caught: number): boolean => roll < caught
  */
 const SHOWN_FRESH = 10_000;
 
+/**
+ * Идёт ли чужой отряд на наш лагерь осады: выручка того города, под которым стоит наш полководец (`camp` —
+ * `LocalWorld.ourSiege`). Одно правило на двух читателей — видна ли выручка по донесению и что говорит вид похода.
+ */
+const onCamp = (m: StoredMarch, camp: SettlementId | null): boolean =>
+  camp !== null && !m.own && m.phase === 'out' && m.relief === camp;
+
 /** Кто лезет через рогатки одной стороны лагеря: свои поимённо или чужие родами. */
 type CampPart = { own: TroopStack } | { kinds: Stack; gear: Partial<Record<UnitKind, number>> };
 
@@ -4902,13 +4909,14 @@ export class LocalWorld implements WorldApi {
     return this.save.marches.filter((m) => {
       if (m.own) return true;
       if (m.targetId === HOME_ID && m.phase === 'out' && m.arriveAt - now <= warn) return true;
-      if (camp && m.relief === camp && m.phase === 'out' && m.arriveAt - now <= warn) return true;
+      if (onCamp(m, camp) && m.arriveAt - now <= warn) return true;
       const at = m.phase === 'stay' ? m.to : marchPosition(m, now);
       return inSight(discs, at.x, at.y);
     });
   }
 
-  private viewMarch(m: StoredMarch): MarchView {
+  /** Вид похода для интерфейса. `camp` — поселение под нашим лагерем (`ourSiege`): вид говорит, идёт ли отряд на него. */
+  private viewMarch(m: StoredMarch, camp: SettlementId | null): MarchView {
     return {
       id: m.id,
       mission: m.mission,
@@ -4932,6 +4940,8 @@ export class LocalWorld implements WorldApi {
       siege: m.phase === 'stay' && this.save.sieges[m.targetId]?.campId === m.id,
       // Чужой отряд, идущий на деревню: до какой минуты полный сбор ещё успевает — одна дверь с черновиком уведомления.
       ...(!m.own && m.targetId === HOME_ID && m.phase === 'out' ? { musterBy: this.musterBy(m) } : {}),
+      // Чужой отряд, идущий на наш лагерь осады, — тем же правилом, каким мир решает, видна ли выручка по донесению.
+      ...(onCamp(m, camp) ? { onCamp: true } : {}),
     };
   }
 
@@ -5249,11 +5259,13 @@ export class LocalWorld implements WorldApi {
     if (troops) this.standingLost(held.own, held.standing, troops);
     this.save.marches.push(march);
     this.write();
-    return { error: null, march: this.viewMarch(march) };
+    return { error: null, march: this.viewMarch(march, this.ourSiege(now)) };
   }
 
   async marches(): Promise<MarchView[]> {
-    return this.visibleMarches(this.clock()).map((m) => this.viewMarch(m));
+    const now = this.clock();
+    const camp = this.ourSiege(now);
+    return this.visibleMarches(now).map((m) => this.viewMarch(m, camp));
   }
 
   async recall(marchId: string): Promise<string | null> {
@@ -6438,9 +6450,10 @@ export class LocalWorld implements WorldApi {
     const effects = this.save.effects;
     this.save.effects = [];
     this.write();
+    const camp = this.ourSiege(now);
     return {
       now,
-      marches: this.visibleMarches(now).map((m) => this.viewMarch(m)),
+      marches: this.visibleMarches(now).map((m) => this.viewMarch(m, camp)),
       figures: FIGURE_IDS.map((id) => this.viewFigure(id, now)),
       reports,
       effects,

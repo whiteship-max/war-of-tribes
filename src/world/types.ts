@@ -869,7 +869,8 @@ export interface MarchView {
   own: boolean;
   /**
    * Чужой отряд: мир ставит `!own`, и им красится колонна на карте. Идёт ли он на деревню игрока, говорит цель — `targetId`
-   * против `WorldInfo.homeId` (`store.incomingMarches`): в живом обзоре ходят и чужие войны мимо нас.
+   * против `WorldInfo.homeId` (`store.marchesOnHome`), на наш лагерь осады — `onCamp`: в живом обзоре ходят и чужие
+   * войны мимо нас.
    */
   hostile: boolean;
   phase: MarchPhase;
@@ -895,6 +896,12 @@ export interface MarchView {
    * (`LocalWorld.musterBy`). Окно ответа на набег; у прочих отрядов поля нет.
    */
   musterBy?: number;
+  /**
+   * Чужой отряд идёт на наш лагерь осады — выручка того города, под которым стоит наш полководец. Угроза нашему войску,
+   * а не деревне: «Идут на нас» его показывает (`store.marchesOnUs`), строка «Набег» — нет (`store.marchesOnHome`). Цель
+   * у него — осаждённый город, поэтому по `targetId` его не узнать. У прочих отрядов поля нет.
+   */
+  onCamp?: boolean;
 }
 
 export interface MarchOrder {

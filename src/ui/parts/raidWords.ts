@@ -8,7 +8,7 @@
 // тот же: входы со своими словами разойдутся ровно так, как расходились часы голода, пока их округлял каждый.
 import { useEffect, useState } from 'react';
 import { realLeft } from '@/ui/parts/wait';
-import { incomingMarches, raidWindow, useWorld, worldNow, type RaidWindow } from '@/world/store';
+import { marchesOnHome, raidWindow, useWorld, worldNow, type RaidWindow } from '@/world/store';
 
 export interface RaidWords {
   /** Ответ мира как есть: какой отряд, сколько до прихода и до конца сбора. */
@@ -38,8 +38,9 @@ export function raidWords(win: RaidWindow): RaidWords {
 }
 
 /**
- * Окна отрядов, идущих на деревню, ближайший первым, — словами в эту секунду. Чужой поход мимо нас (логово на логово,
- * выручка на наш лагерь) сюда не попадает: его строка звала бы к обороне от чужой войны (`store.incomingMarches`).
+ * Окна отрядов, идущих на деревню, ближайший первым, — словами в эту секунду. Чужой поход мимо нас (логово на логово)
+ * и выручка на наш лагерь сюда не попадают: их строка звала бы к обороне деревни, на которую никто не идёт
+ * (`store.marchesOnHome`; выручку показывает «Идут на нас» — `store.marchesOnUs`).
  * Пока кто-то идёт, отсчёт обязан идти сам: замерший счётчик читается как сломанный экран, а не как «время есть».
  */
 export function useRaidWords(): RaidWords[] {
@@ -47,7 +48,7 @@ export function useRaidWords(): RaidWords[] {
   const homeId = useWorld((g) => g.info?.homeId);
   const [, retick] = useState(0);
   const now = worldNow();
-  const words = incomingMarches(marches, homeId).map((m) => raidWords(raidWindow(m, now)));
+  const words = marchesOnHome(marches, homeId).map((m) => raidWords(raidWindow(m, now)));
   const moving = words.length > 0;
   useEffect(() => {
     if (!moving) return;
