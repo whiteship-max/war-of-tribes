@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FRONT_WIDTH } from './config';
-import { deploy, stackOf, stackTotal } from './setup';
+import { deploy, deployInto, stackOf, stackTotal } from './setup';
 import { FRONT, REAR, UNIT_KINDS, type Sector, type Stack } from './types';
 
 const W = FRONT_WIDTH;
@@ -88,6 +88,31 @@ describe('правило развёртывания', () => {
       }
       if (horse(s.R) > 0) for (const id of FRONT) expect(stackTotal(s[id]), `${id}: конница в резерве при неполной линии`).toBe(W);
     }
+  });
+
+  it('фланги — за конницей: она встаёт на края первой, пешие — в центр и остаток; в переполненной линии в резерв уходят пешие', () => {
+    // 14.21, как у EU4: конница занимает края первой линии до W на край, пешие — то, что осталось. Прежде пешие вставали
+    // первыми, и лишняя пехота вытесняла латных из строя — и при расстановке, и при вводе резерва (разбор «лезвия», 14.20).
+    // Граница области: в выборке есть армии, где правило решает, — первая линия переполнена, и в ней и пешие, и конница.
+    const crowded = ARMIES.filter((a) => foot(a) > 0 && horse(a) > 0 && foot(a) + horse(a) > 3 * W);
+    expect(crowded.length, 'армий с переполненной линией, где есть и пешие, и конница').toBeGreaterThan(0);
+    for (const a of ARMIES) {
+      const s = deploy(a, W);
+      const [left, , right] = FRONT.map((id) => horse(s[id]));
+      // На краях — вся конница, сколько её есть, но не больше двух полос: пешие места на краях у неё не отнимают.
+      expect(left + right, `${JSON.stringify(a)}: конница на краях`).toBe(Math.min(horse(a), 2 * W));
+      expect(Math.abs(left - right), `${JSON.stringify(a)}: края поровну`).toBeLessThanOrEqual(1);
+    }
+    for (const a of crowded) {
+      const s = deploy(a, W);
+      expect(foot(s.R), `${JSON.stringify(a)}: лишние пешие — в резерве`).toBe(Math.max(0, foot(a) - (3 * W - Math.min(horse(a), 2 * W))));
+    }
+    // Ввод резерва — то же правило (`deployInto` одна на расстановку и на ввод): дыры на краях закрывает конница
+    // резерва, центр — пешие, и лишние пешие ждут, пока конница стоит на краях.
+    const into = deployInto(stackOf({ infantry: 40, heavy: 30 }), { front: [10, 20, 15], rear: [0, 0, 0] });
+    expect(into.front.map(horse), 'конница резерва — в дыры краёв').toEqual([10, 0, 15]);
+    expect(into.front.map(foot), 'пешие резерва — в дыру центра').toEqual([0, 20, 0]);
+    expect([foot(into.rest), horse(into.rest)], 'в резерве остались').toEqual([20, 5]);
   });
 
   it('лучники встают второй линией тем же порядком, что пешие', () => {
