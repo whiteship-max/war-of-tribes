@@ -216,6 +216,28 @@ describe('превосходство условно', () => {
 const atGong = (r: BattleResult): boolean => r.log.some((e) => e.id === 'rounds-out');
 const endedEarly = (r: BattleResult): boolean => !atGong(r);
 
+/**
+ * Бои, которые доходят до потолка кругов, дерясь (docs/battle_eu4.md, 14.25). Пока обходящие не дрались с обходящими,
+ * до потолка доходили стоянием — и почти только им: у обеих сторон в строю оставались обходящие, друг до друга не
+ * достававшие. Стояния нет — и почти всё доламывается раньше потолка; пары, которые доходят до него в драке, найдены
+ * перебором решётки составов на ½W (сиды 1–2, обе стороны поля). Держит их не расчёт, а утверждения «дошли до потолка»
+ * в тестах, которые их берут: сменится правило и утверждение упадёт — пары искать заново, а не двигать границу.
+ */
+const GONG_PAIRS: ReadonlyArray<readonly [Partial<Stack>, Partial<Stack>]> = [
+  [{ spear: 300, archer: 300 }, { infantry: 450, archer: 150 }],
+  [{ spear: 150, infantry: 300, archer: 150 }, { spear: 300, archer: 300 }],
+];
+function gongBattles(): BattleResult[] {
+  const out: BattleResult[] = [];
+  const half = OVERSIZE_SIZES[0];
+  for (const [a, b] of GONG_PAIRS) {
+    for (const [x, y] of [[a, b], [b, a]]) {
+      for (let seed = 1; seed <= 2; seed += 1) out.push(simulateBattle({ seed, attacker: deploySetup(scaleArmy(x, half)), defender: deploySetup(scaleArmy(y, half)) }));
+    }
+  }
+  return out;
+}
+
 describe('мораль по секторам', () => {
   it('бой обычно кончается отступлением, а не гонгом', () => {
     // Раньше 87% боёв шли до потолка тиков, а победителя объявляли по тому, кто впереди. Теперь сектора
@@ -459,24 +481,9 @@ describe('продолжительность', () => {
   const longest = (r: BattleResult): number =>
     Array.from({ length: roundsCap(depthOf(r)) + 1 }, (_, i) => circleLength(i + 1)).reduce((n, t) => n + t, 0) + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
 
-  /**
-   * Верхняя граница: до неё доходит только бой, дошедший до потолка кругов. С кругами всем боем почти всё доламывается
-   * раньше потолка, и пары, которые до него доходят, ищутся перебором составов бенча на ½W — а держит их не расчёт, а
-   * утверждение «выборка достаёт до верхней границы» ниже. Сменится правило и утверждение упадёт — пары искать
-   * заново, а не двигать границу.
-   */
-  function gongBattles(): BattleResult[] {
-    const out: BattleResult[] = [];
-    const half = OVERSIZE_SIZES[0];
-    for (const a of COMPOSITIONS) {
-      for (const b of COMPOSITIONS) {
-        for (let seed = 1; seed <= 2; seed += 1) {
-          out.push(simulateBattle({ seed, attacker: deploySetup(scaleArmy(a.army, half)), defender: deploySetup(scaleArmy(b.army, half)) }));
-        }
-      }
-    }
-    return out;
-  }
+  // Верхняя граница: до неё доходит только бой, дошедший до потолка кругов (`gongBattles`). Прежде пары искались
+  // перебором составов бенча на ½W, и до потолка они доходили стоянием; с тех пор как обходящие дерутся с обходящими
+  // (14.25), ни одна из них до него не доходит, и пары найдены заново — на решётке составов, а не сдвигом границы.
 
   it('любой бой укладывается в границы фаз, и выборка достаёт до обеих', () => {
     const battles = [...sampleBattles(), ...gongBattles()];
@@ -522,15 +529,16 @@ describe('круги сечи', () => {
   // не больше потолка (`roundsCap`). Ничья бывает только на потолке, и потолок обязан быть
   // редким: «бой обязан кончаться тем, что кто-то сломался» (решение владельца, docs/battle_eu4.md, пачка 3).
   /** Бои «Ограничителя» (большая на 10 %) в `total` бойцов строя с шириной `width`: `seeds` сидов на состав. */
-  function oversized(total: number, width: number, seeds: number): Array<{ r: BattleResult; width: number }> {
-    const out: Array<{ r: BattleResult; width: number }> = [];
+  function oversized(total: number, width: number, seeds: number): Array<{ r: BattleResult; width: number; name: string }> {
+    const out: Array<{ r: BattleResult; width: number; name: string }> = [];
     for (const c of COMPOSITIONS) {
       const army = scaleArmy(c.army, total);
       const small = deploySetup(army, width);
       const big = deploySetup(Object.fromEntries(Object.entries(army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])), width);
       for (let seed = 1; seed <= seeds; seed += 1) {
         const bigAttacks = seed % 2 === 1;
-        out.push({ r: simulateBattle({ seed, attacker: bigAttacks ? big : small, defender: bigAttacks ? small : big, width }), width });
+        const r = simulateBattle({ seed, attacker: bigAttacks ? big : small, defender: bigAttacks ? small : big, width });
+        out.push({ r, width, name: `«Ограничитель» ${total}, ${c.name}, сид ${seed}` });
       }
     }
     return out;
@@ -570,8 +578,8 @@ describe('круги сечи', () => {
   });
 
   it('сеча идёт кругами, пока кто-то не сломается, — и ни кругом больше потолка', () => {
-    // Зеркала — те бои, что доходят до потолка чаще прочих: равные стороны ломаются позже всех. Размеров два — ½W
-    // (потолок в один круг) и 600 (в два): равенство «кругов ровно потолок» проверяется и там, где потолок зависит от глубины.
+    // Зеркала — равные стороны, ломаются позже всех. Размеров два — ½W и 600. До потолка из них прежде доходили только
+    // стоявшие (14.22); с тех пор как обходящие дерутся с обходящими (14.25), до него доходят бои `gongBattles` — в драке.
     const standoff = [OVERSIZE_SIZES[0], ARMY_SIZE].flatMap((total) =>
       COMPOSITIONS.flatMap((c) => {
         const s = deploySetup(scaleArmy(c.army, total));
@@ -582,6 +590,7 @@ describe('круги сечи', () => {
       ...allPairs(1).flatMap((p) => p.results.map((r) => ({ r, width: FRONT_WIDTH }))),
       ...OVERSIZE_SIZES.flatMap((total) => oversized(total, FRONT_WIDTH, 10)),
       ...standoff,
+      ...gongBattles().map((r) => ({ r, width: FRONT_WIDTH })),
     ];
     let firstPass = 0;
     let broke = 0;
@@ -633,10 +642,12 @@ describe('круги сечи', () => {
     // Мерка владельца: больше нескольких процентов боёв на потолке — потолок выведен неверно. «Несколько» здесь —
     // пять из ста, на «Ограничителе» каждого размера: без ширины там, где держится кость сегодня, и с шириной на
     // размерах W, где ширина зажимает (`OVERSIZE_SIZES`).
-    // Откуда ничья сегодня (14.22): это стояние, а не равный бой. В строю у обеих сторон остаются только обходящие
-    // группы одной полосы (ряд обхода, К5) лицом друг к другу; обходящий бьёт фронт и тыл полосы противника, но не его
-    // обходящих, — и драки нет, а сломаться некому. Бой стоит до потолка кругов, и «итог по сохранённым» при разнице
-    // меньше `WITHDRAW_RATIO` — ничья. На 2W с шагом 0.0265 — 19 боёв из 390 (4.9 %), все — смеси двух родов.
+    // Откуда была ничья (14.22): стояние, а не равный бой. В строю у обеих сторон оставались только обходящие группы
+    // одной полосы (ряд обхода, К5) лицом друг к другу; обходящий бил фронт и тыл полосы противника, но не его
+    // обходящих, — и драки не было, а сломаться некому. Бой стоял до потолка кругов, и «итог по сохранённым» при разнице
+    // меньше `WITHDRAW_RATIO` давал ничью: на 2W с шагом 0.0265 — 19 боёв из 390 (4.9 %). Обходящие дерутся с
+    // обходящими (14.25) — и на «Ограничителе» до потолка не доходит ни один бой, ничьих нет (`battle:report`, «Круги
+    // сечи и ширина по размерам»); стояние держит следующий тест.
     const RARE = 0.05;
     const sets = [
       { label: `без ширины, ${ARMY_SIZE}`, battles: oversized(ARMY_SIZE, Infinity, OVERSIZE_SEEDS) },
@@ -650,6 +661,50 @@ describe('круги сечи', () => {
       }
       expect(gong / battles.length, `${label}: до потолка ${gong} из ${battles.length}`).toBeLessThanOrEqual(RARE);
     }
+  }, 120_000);
+
+  it('обходящие дерутся с обходящими: у потолка кругов нет боя, где у обеих сторон в строю полные группы с моралью и без потерь', () => {
+    // Слово владельца (docs/battle_eu4.md, 14.25): обходящая группа бьёт того, кто в её досягаемости, — и чужую
+    // обходящую своей полосы, как полк EU4; строя противника не осталось ни в одной полосе — идёт к чужим обходящим в
+    // соседнюю. Своего числа нет. Прежде бой стоял (14.22): к потолку у обеих сторон в строю оставались одни обходящие,
+    // полные и с моралью, — в одной полосе друг друга не видели, в соседних им некуда было уйти, — и потерь не было ни
+    // у кого до самого потолка.
+    //
+    // Стояние видно снаружи: круг, в котором ни одна сторона не потеряла ни человека, пока никто не сломан. В круге
+    // линии сходятся заново, и кто до кого-то дотягивается, тот бьёт; ноль потерь за круг — никто ни с кем не дерётся,
+    // и дальше в бою не меняется ничего: он стоит до потолка. Граница области — круги со второго, пока никто не сломан:
+    // только в них стояние возможно, и тест проверяет каждый такой круг, а их наличие утверждает ниже.
+    // Выборки — там, где стояло: «Ограничитель» на W и 2W (одна полоса: 4 и 19 боёв из 390, 14.22), матрица составов и
+    // зеркала на ½W (соседние полосы), и бои, доходящие до потолка в драке (`gongBattles`). Стояние другого рода —
+    // «тень», группа в строю, где каждого рода меньше половины бойца (14.25), — эта проверка поймала бы тоже, но в этих
+    // выборках его нет; оно вынесено владельцу.
+    const mirrors = COMPOSITIONS.flatMap((c) => {
+      const s = deploySetup(scaleArmy(c.army, OVERSIZE_SIZES[0]));
+      return Array.from({ length: 10 }, (_, i) => ({ r: simulateBattle({ seed: i + 1, attacker: s, defender: s }), name: `зеркало ${OVERSIZE_SIZES[0]}, ${c.name}, сид ${i + 1}` }));
+    });
+    const battles = [
+      ...OVERSIZE_SIZES.slice(1).flatMap((total) => oversized(total, FRONT_WIDTH, OVERSIZE_SEEDS)),
+      ...allPairs(4).flatMap((p) => p.results.map((r, i) => ({ r, name: `${p.a} × ${p.b}, бой ${i + 1}` }))),
+      ...mirrors,
+      ...gongBattles().map((r, i) => ({ r, name: `гонг, бой ${i + 1}` })),
+    ];
+    let circles = 0;
+    let gong = 0;
+    for (const { r, name } of battles) {
+      const rounds = r.log.filter((e) => e.id === 'round').length;
+      for (let k = 2; k <= rounds + 1; k += 1) {
+        const span = r.phases.filter((p) => p.round === k);
+        const end = span[span.length - 1].to;
+        if ((['attacker', 'defender'] as const).some((side) => (r.sides[side].brokenAt ?? Infinity) <= end)) break;
+        circles += 1;
+        const lost = span.reduce((n, p) => n + p.losses.attacker + p.losses.defender, 0);
+        expect(lost, `${name}: круг ${k} без потерь у обеих сторон, никто не сломан — стояние`).toBeGreaterThan(0);
+      }
+      if (atGong(r)) gong += 1;
+    }
+    expect(circles, 'кругов, где никто не сломан').toBeGreaterThan(0);
+    // Потолок: его последний круг — из проверенных выше (на потолке не сломан никто), и он в выборке есть.
+    expect(gong, 'дошли до потолка').toBeGreaterThan(0);
   }, 120_000);
 });
 
@@ -953,6 +1008,10 @@ describe('кость фазы', () => {
     // Был красным с поставки 1 до записи выведенного шага (14.22): шаг 0.0928 поставки 2 давал 65.9 %, выведенный
     // после поставки 1 — 0.0265, и с ним ровно 80.0 % (`battle:report`, «Кость фазы»). Граница «без кости — всегда»
     // держится с флангов за конницей (14.21).
+    // КРАСНЫЙ с шага 0 поставки 2 (docs/battle_eu4.md, 14.25), честно: обходящие дерутся с обходящими, и четыре боя
+    // «Ограничителя» на W, стоявшие у потолка ничьей, решились — все четыре у большей: 312 → 316 из 390, 80.0 → 81.0 %
+    // при коридоре 78–80 %. Шаг кости не меняется (слово владельца): он выводится заново один раз, вместе с W, после
+    // последней боевой поставки, перед перемером мира (14.24). Коридор не трогается.
     // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
     // «кость сдвинула долю» проверялось бы на наборе, где сдвигать было нечего.
     expect(withDiceStep(0, () => oversizeHold()), 'без кости: все бои у большей').toBe(1);

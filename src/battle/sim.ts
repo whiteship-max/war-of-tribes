@@ -492,6 +492,19 @@ class Battle {
     return null;
   }
 
+  /**
+   * Куда идти обходящему, когда строя противника не осталось ни в одной полосе (`relocate`): чужие обходящие у него в
+   * полосе — стоять (`null`), они в досягаемости; иначе — соседняя полоса, где они стоят, тем же порядком, что у
+   * `adjacentLane`; нет нигде — стоять.
+   */
+  strikerLane(side: Side, lane: Lane): Lane | null {
+    const strikers = (l: Lane): Group[] => this.at(other(side), facing(l), 'strike');
+    if (strikers(lane).length > 0) return null;
+    const order: Lane[] = lane === 1 ? (power(strikers(0)) >= power(strikers(2)) ? [0, 2] : [2, 0]) : [1, lane === 0 ? 2 : 0];
+    for (const l of order) if (strikers(l).length > 0) return l;
+    return null;
+  }
+
   // ----- Расписание -----
 
   /**
@@ -918,6 +931,21 @@ class Battle {
         }
       }
     }
+    // Обходящий, у которого в полосе нет ни фронта, ни тыла противника, бьёт того, кто в его досягаемости, — и чужого
+    // обходящего той же полосы, как полк EU4 бьёт полк напротив (слово владельца, docs/battle_eu4.md, 14.25). Прежде
+    // обходящие одной полосы друг друга не видели, и бой стоял без потерь до потолка кругов: у обеих сторон в строю
+    // кто-то есть, сломаться некому (14.22). Сходятся лицом к лицу — это не обход, и фланга у стычки нет. Стычка на
+    // полосу одна: все обходящие стороны в полосе либо заняты строем противника, либо свободны, и свободная сторона
+    // бьёт всех обходящих другой — те отвечают, занятые при этом делят удар (`facingMen`).
+    for (const lane of [0, 1, 2] as Lane[]) {
+      const aS = this.at('attacker', lane, 'strike');
+      const dS = this.at('defender', facing(lane), 'strike');
+      if (aS.length === 0 || dS.length === 0) continue;
+      const aFree = !this.enemyOnLane('attacker', lane);
+      const dFree = !this.enemyOnLane('defender', facing(lane));
+      if (aFree) pair(aS, dS, false, 'strike', 'strike');
+      else if (dFree) pair(dS, aS, false, 'strike', 'strike');
+    }
     // Медленные не могут сократить дистанцию: пока быстрых нет ни у кого,
     // рукопашная в полосе начинается позже, а лучники всё это время бьют в полную силу.
     const slow = (groups: Group[]): boolean =>
@@ -1155,6 +1183,11 @@ class Battle {
   /**
    * Полоса очищена в бою — фронт и обходящие переходят на соседнюю (К5). Полоса, где противника не было с начала
    * боя, — не очищенная, а край строя: оттуда дотягивается только конница (`buildContacts`), пешие стоят.
+   *
+   * Строя противника не осталось ни в одной полосе — обходящий идёт к чужим обходящим: стоит, если они у него в полосе,
+   * иначе переходит в соседнюю, где они стоят (docs/battle_eu4.md, 14.25). Прежде `relocate` противником считал только
+   * фронт и тыл, и обходящие двух сторон в соседних полосах стояли врозь до потолка кругов: «уйти некуда» (14.22).
+   * Стороны ходят по очереди, поэтому вторая застаёт первую уже у себя в полосе и стоит — встречные не меняются местами.
    */
   relocate(): void {
     if (!this.contact) return;
@@ -1163,7 +1196,7 @@ class Battle {
         if (!alive(g) || g.lane === null || (g.row !== 'front' && g.row !== 'strike')) continue;
         if (this.enemyOnLane(side, g.lane)) continue;
         if (g.row === 'front' && !this.opposed[side][g.lane]) continue;
-        const next = this.adjacentLane(side, g.lane);
+        const next = this.adjacentLane(side, g.lane) ?? (g.row === 'strike' ? this.strikerLane(side, g.lane) : null);
         if (next === null) continue;
         g.lane = next;
         if (g.row === 'front') {
