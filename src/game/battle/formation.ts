@@ -1,51 +1,41 @@
-// Расстановка глазами игрока: свои виды бойцов по шести секторам и резерву плюс
-// план, приказы и условие ввода резерва. Ядро боя считает в родах и в бойцах
-// строя — перевод делает `toArmySetup`, и только он.
+// Расстановка глазами игрока: свои виды бойцов по шести секторам и резерву. Ядро боя
+// считает в родах и в бойцах строя — перевод делает `toArmySetup`, и только он.
+//
+// Живёт она теперь только у обороны, и то до поставки 2 (docs/battle_eu4.md, 14.5, «Оборона до
+// поставки 2»): у удара раскладки, плана, приказов и резерва с условием нет — все, кто входит в бой,
+// встают по правилу развёртывания (`battle/setup.deploy`). Им же раскладка обороны и начинается.
 //
 // Почему интерфейс работает не в родах: игрок нанимает дубинщиков и латников, а
 // не «пехоту». Если бы сектор хранил род, панель показывала бы числа, которых
 // игрок нигде больше не видит.
 import { TROOP_IDS } from '../data/troops';
 import {
-  DEFAULT_ORDERS,
-  QUICK_PRESETS,
+  FRONT_WIDTH,
   SECTORS,
   UNIT_KINDS,
+  deploy,
   emptyStack,
   type ArmySetup,
-  type Orders,
-  type Plan,
-  type QuickPresetId,
-  type ReserveTrigger,
   type Sector,
   type Stack,
-  type UnitKind,
 } from '@/battle';
 import { TROOPS_OF_KIND, gearOf, kindsOf, menOf, troopTotal, weightOf, type TroopStack } from './kinds';
 
 export interface Formation {
   sectors: Record<Sector, TroopStack>;
-  plan: Plan;
-  orders: Orders;
-  reserve: ReserveTrigger;
 }
 
 export const emptySectors = (): Record<Sector, TroopStack> =>
   Object.fromEntries(SECTORS.map((id) => [id, {}])) as Record<Sector, TroopStack>;
 
-export const emptyFormation = (): Formation => ({
-  sectors: emptySectors(),
-  plan: 'envelop',
-  orders: { ...DEFAULT_ORDERS },
-  reserve: { kind: 'weakest' },
-});
+export const emptyFormation = (): Formation => ({ sectors: emptySectors() });
 
-/** Глубокая копия: расстановку правят на месте, а стор сравнивает ссылки. */
+/**
+ * Глубокая копия: расстановку правят на месте, а стор сравнивает ссылки. Копируются только сектора:
+ * раскладка, сохранённая до поставки 1 боя, привозит ещё план, приказы и резерв, и копия их не несёт.
+ */
 export const cloneFormation = (f: Formation): Formation => ({
   sectors: Object.fromEntries(SECTORS.map((id) => [id, { ...f.sectors[id] }])) as Record<Sector, TroopStack>,
-  plan: f.plan,
-  orders: { ...f.orders },
-  reserve: { ...f.reserve },
 });
 
 /** Кто и сколько расставлен — сумма по всем семи секторам. */
@@ -125,16 +115,13 @@ function share(n: number, weights: number[]): number[] {
 }
 
 /**
- * Расстановка по одному из пресетов быстрой атаки. Пресет раскладывает роды;
- * бойцы племени этого рода раскладываются в той же пропорции — так «настроить
- * тактику» открывается не пустой схемой, а разумным шаблоном, который правят.
+ * Расстановка по правилу развёртывания (`battle/setup.deploy`): правило раскладывает роды, бойцы
+ * племени этого рода раскладываются в той же пропорции — так оборона открывается не пустой схемой, а
+ * тем, как отряд встал бы сам. Своих долей по секторам у раскладки нет, как нет их у правила.
  */
-export function presetFormation(troops: TroopStack, preset: QuickPresetId): Formation {
-  const layout = QUICK_PRESETS[preset].layout(kindsOf(troops));
+export function deployFormation(troops: TroopStack): Formation {
+  const layout = { sectors: deploy(kindsOf(troops), FRONT_WIDTH) };
   const f = emptyFormation();
-  f.plan = layout.plan;
-  f.orders = { ...layout.orders };
-  f.reserve = { ...layout.reserve };
 
   for (const k of UNIT_KINDS) {
     const weights = SECTORS.map((id) => layout.sectors[id][k]);
@@ -148,8 +135,7 @@ export function presetFormation(troops: TroopStack, preset: QuickPresetId): Form
       });
     }
   }
-  // Род, которого пресет никуда не поставил (у племени нет пехоты для фронта и т.п.),
-  // не должен пропасть: остаток идёт в резерв.
+  // Округление по видам может оставить бойца вне секторов — он не должен пропасть: остаток идёт в резерв.
   const rest = unplacedTroops(troops, f);
   return troopTotal(rest) > 0 ? stashUnplaced(f, rest) : f;
 }
@@ -195,7 +181,7 @@ export function toArmySetup(
   // `resolve` — то, с чем войско вышло в поле помимо снаряжения: у нас это
   // обряд перед боем. Ядро про источник не знает, а поля веры у `BattleInput`
   // нет вовсе — потому «моя вера бьёт твою» и не может случиться.
-  return { sectors, plan: f.plan, orders: { ...f.orders }, reserve: { ...f.reserve }, gear, resolve };
+  return { sectors, gear, resolve };
 }
 
 /** Сколько бойцов строя стоит в секторе — число, которым считает ядро. */
@@ -203,43 +189,4 @@ export function sectorMen(f: Formation, id: Sector): number {
   let men = 0;
   for (const t of TROOP_IDS) men += menOf(t, f.sectors[id][t] ?? 0);
   return men;
-}
-
-/** Какие роды в расстановке вообще есть: только им имеет смысл давать приказы. */
-export function kindsPresent(t: TroopStack): UnitKind[] {
-  return UNIT_KINDS.filter((k) => TROOPS_OF_KIND[k].some((id) => (t[id] ?? 0) > 0));
-}
-
-/** Сохранённая схема похода: состав, расстановка, план, приказы, резерв. */
-export interface BattlePlanTemplate {
-  id: number;
-  name: string;
-  /** Сколько кого брать. Больше, чем есть дома, шаблон не возьмёт. */
-  troops: TroopStack;
-  formation: Formation;
-}
-
-/** Сколько схем помещается в списке. Больше пяти игрок не помнит. */
-export const TEMPLATES_MAX = 5;
-
-/**
- * Применяет шаблон к тому, что сейчас дома: чего не хватает — берётся сколько
- * есть, лишнее в наличии не добирается. Расстановка подрезается тем же числом,
- * поэтому «отправить сохранённую схему» — это два нажатия и без сюрпризов.
- */
-export function applyTemplate(
-  tpl: BattlePlanTemplate,
-  home: TroopStack,
-): { troops: TroopStack; formation: Formation; short: boolean } {
-  const troops: TroopStack = {};
-  let short = false;
-  for (const t of TROOP_IDS) {
-    const want = Math.max(0, tpl.troops[t] ?? 0);
-    if (want <= 0) continue;
-    const take = Math.min(want, Math.max(0, home[t] ?? 0));
-    if (take < want) short = true;
-    if (take > 0) troops[t] = take;
-  }
-  const { formation, extra } = clampFormation(tpl.formation, troops);
-  return { troops, formation: troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation, short };
 }

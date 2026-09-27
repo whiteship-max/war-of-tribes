@@ -10,40 +10,28 @@
 import {
   ANCHOR,
   ANNIHILATED_AT,
-  ARCHER_ORDERS,
-  CAVALRY_ORDERS,
   CLASH_CAVALRY_IMPACT,
-  COVER,
   CLASH_SPEAR_BRACE,
   COUNTER,
   DICE,
-  ENVELOP,
   EVENT_MIN,
   EVENT_SHARE,
   FOOT_FLANK,
   FRONT_WIDTH,
   GEAR,
-  INFANTRY_ORDERS,
-  KITING,
   MELEE_RATE,
   MORALE,
   PHASE_PIP,
   PHASE_TICKS,
-  PLANS,
   PYRRHIC_BELOW,
   RANGED_RATE,
   RANGED_SHOCK_LATE,
   RANGED_SHOCK_TICKS,
-  RANGED_TICKS,
-  RESERVE_LOSING,
   RETREAT,
   CIRCLE_PHASES,
   circleMin,
   circleTicks,
   SLOW_CONTACT,
-  SPEAR_ORDERS,
-  SUPPORT_FLANK,
-  TARGET_PRIORITY,
   TEMPER,
   UNIT_STATS,
   WIDTH_ON,
@@ -65,7 +53,6 @@ import {
   type BattleEvent,
   type BattleInput,
   type BattleResult,
-  type CavalryOrder,
   type EventBody,
   type Lane,
   type PhaseId,
@@ -83,11 +70,11 @@ import {
 // ---------- Внутреннее состояние ----------
 
 /**
- * Где группа стоит. Фронт и тыл — позиции своей полосы; `waiting` — конница,
- * ждущая своего манёвра; `strike` — ушла в обход и бьёт полосу противника;
- * `reserve` — ещё не введена; `pursue` — бережёт себя до преследования.
+ * Где группа стоит. Фронт и тыл — позиции своей полосы; `strike` — ушла в обход и бьёт полосу
+ * противника; `reserve` — ещё не введена. Ждущих манёвра и бережёных до преследования рядов нет:
+ * они жили приказами, а приказов у ядра больше нет (docs/battle_eu4.md, 14.5).
  */
-type Row = 'front' | 'rear' | 'reserve' | 'waiting' | 'strike' | 'pursue';
+type Row = 'front' | 'rear' | 'reserve' | 'strike';
 
 interface Group {
   side: Side;
@@ -101,7 +88,6 @@ interface Group {
   prefer: 'rear' | 'front';
   /** Фронт смят: откатились в тыл и больше не сомкнутый строй. */
   routed: boolean;
-  maneuver: CavalryOrder | null;
   /** Мораль сектора, 0..`MORALE.max`. Своя у каждой группы: сектор ломается сам, а не вся армия. */
   morale: number;
   /** Мораль упала до нуля: бегут, не держат линию, почти не отбиваются. */
@@ -110,8 +96,6 @@ interface Group {
   flankedTick: number;
   /** Потери группы за тик, взвешенные для морали. */
   lostTick: number;
-  /** Вышли из-за тонкой линии: из какой ждущей группы (`Battle.expose`). */
-  leftFrom?: Group;
 }
 
 type Kills = Record<UnitKind, Record<UnitKind, number>>;
@@ -164,8 +148,6 @@ interface Contact {
   b: Group[];
   /** Группы `a` бьют `b` с фланга или тыла. */
   aFlank: boolean;
-  /** Позиция `b` сомкнута со всех сторон (тыловое каре). */
-  bClosedAround: boolean;
   bRow: Row;
   aRow: Row;
 }
@@ -184,11 +166,7 @@ const zeroKills = (): Kills =>
   Object.fromEntries(UNIT_KINDS.map((k) => [k, Object.fromEntries(UNIT_KINDS.map((t) => [t, 0]))])) as Kills;
 const cloneKills = (k: Kills[]): Kills[] => k.map((l) => JSON.parse(JSON.stringify(l)) as Kills);
 
-/**
- * Сила отряда: рукопашная на стойкость по родам. Ею бой меряет полосу — кто проигрывает, кого
- * прикрывает линия. Открыта наружу ради стенда заслона (`bench.screenThinner`): «заслон тоньше
- * ждущих» там считается этой же функцией, а не своей копией формулы.
- */
+/** Сила отряда: рукопашная на стойкость по родам. Ею бой меряет полосу — кто проигрывает, куда идёт тот, чья полоса очищена. */
 export function stackPower(stack: Stack): number {
   let p = 0;
   for (const k of UNIT_KINDS) p += stack[k] * UNIT_STATS[k].melee * UNIT_STATS[k].toughness;
@@ -201,33 +179,19 @@ const power = (groups: Group[]): number => groups.reduce((p, g) => p + stackPowe
 const sum = (groups: Group[], kind: UnitKind): number => groups.reduce((n, g) => n + g.stack[kind], 0);
 
 /**
- * Приказ конному роду. Дверь одна на оба: у тяжёлой поле приказа необязательное, и
- * расстановка, записанная до второго конного рода, ведёт её приказом лёгкой.
+ * Сомкнуты ли копья группы — положение, а не приказ (docs/battle_eu4.md, 14.5, Е17): копья в строю
+ * (фронт или тыл своей полосы) сомкнуты, пока не смяты и не бегут. Удар во фланг размыкает их на тот
+ * тик, когда он пришёл, — это читают кольцо и характер там, где знают, откуда удар.
  */
-const horseOrder = (setup: ArmySetup, kind: UnitKind): CavalryOrder =>
-  kind === 'heavy' ? setup.orders.heavy ?? setup.orders.cavalry : setup.orders.cavalry;
-
-/** «Атаковать сразу» при плане «кавалерийский удар» — это и есть обход. */
-function cavalryOrder(setup: ArmySetup, kind: UnitKind = 'cavalry'): CavalryOrder {
-  const o = horseOrder(setup, kind);
-  return setup.plan === 'cavalry-strike' && o === 'charge' ? 'flank' : o;
-}
-
-/** Ждёт ли конный род своего манёвра, а не идёт в строй сразу. */
-const waits = (o: CavalryOrder): boolean => o === 'flank' || o === 'attack-archers' || o === 'reserve' || o === 'pursue';
-
-/** Сколько в позиции конницы обоих родов. */
-const horses = (groups: Group[]): number => HORSE_KINDS.reduce((n, k) => n + sum(groups, k), 0);
-
-const spearsClosed = (setup: ArmySetup): boolean => SPEAR_ORDERS[setup.orders.spear].closed;
+const closedSpears = (g: Group): boolean => (g.row === 'front' || g.row === 'rear') && !g.routed && !g.fled && g.stack.spear >= EPS;
 
 /** Сектор с пехотой заякорен: держит мораль и линию. */
 const anchored = (stack: Stack): boolean => stack.infantry >= ANCHOR.infantryShare * Math.max(stackTotal(stack), EPS);
 
 /**
  * Стартовая мораль группы: базовая мораль её родов, взвешенная числом людей,
- * плюс ступени снаряжения из кузницы, сдвиг плана и стойкость, с которой армия
- * вышла в поле (`setup.resolve` — ноль, если ничего такого не было).
+ * плюс ступени снаряжения из кузницы и стойкость, с которой армия вышла в поле
+ * (`setup.resolve` — ноль, если ничего такого не было).
  *
  * Открыта наружу ради тестов мира: что стойкость стороны — один обряд храма, а
  * отметки полководца в мораль не идут, они меряют этой самой функцией, а не
@@ -243,7 +207,7 @@ export function startMorale(setup: ArmySetup, stack: Stack): number {
     m += stack[k] * (UNIT_STATS[k].morale + gear * GEAR.moralePerLevel);
   }
   const resolve = Math.max(0, setup.resolve ?? 0);
-  return Math.max(0, Math.min(MORALE.max, m / total + PLANS[setup.plan].morale + resolve));
+  return Math.max(0, Math.min(MORALE.max, m / total + resolve));
 }
 
 /** Отметки стороны по одной фазе: неотрицательное конечное число, нет поля — ноль. */
@@ -259,7 +223,47 @@ export const pipOf = (setup: ArmySetup, pip: PipId): number => {
  */
 export const phaseLuck = (roll: number, pips = 0): number => Math.max(0, 1 + DICE.step * (roll + pips - (DICE.faces - 1) / 2));
 
-function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, lane: Lane | null, row: Row, opts: { prefer?: 'rear' | 'front'; maneuver?: CavalryOrder | null; morale?: number } = {}): Group {
+/**
+ * Множитель кольца: `kind` бьёт `target`. Сомкнутость копий — положение (`closedSpears`), а не приказ
+ * (docs/battle_eu4.md, 14.5, Е17): `fromOpen` — копья того, кто бьёт, не сомкнуты (смяты, бегут или
+ * обойдены в этот тик); `targetBroken` — цель смята или бежит: такие копья строя не держат, с какой стороны
+ * их ни бей. Открыт наружу ради теста «копья держат конницу, пока не обойдены»: кольцо проверяется этой
+ * самой функцией, а не своей копией.
+ */
+export function ringMult(kind: UnitKind, target: UnitKind, flank: boolean, fromOpen: boolean, ranged: boolean, targetBroken: boolean): number {
+  if (ranged) {
+    if (target === 'spear') return COUNTER.archer.spear;
+    if (target === 'infantry') return COUNTER.archer.infantry;
+    if (target === 'cavalry') return COUNTER.archer.cavalry;
+    if (target === 'heavy') return COUNTER.archer.heavy;
+    return 1;
+  }
+  const horse = target === 'cavalry' || target === 'heavy';
+  switch (kind) {
+    case 'spear':
+      if (horse) return fromOpen ? 1 : COUNTER.spear.cavalryHolding;
+      return flank ? FOOT_FLANK : 1;
+    case 'cavalry':
+    case 'heavy': {
+      // Своя половина кольца у каждого конного рода: лёгкая режет лучников и заходит во
+      // фланг, тяжёлая ломает строй в лоб. Сомкнутые копья держат обеих одинаково.
+      const c = COUNTER[kind];
+      if (target === 'spear') {
+        if (!targetBroken && !flank) return c.spearClosed;
+        return flank ? c.flank : 1;
+      }
+      if (target === 'archer') return Math.max(c.archer, flank ? c.flank : 0);
+      if (target === 'infantry') return flank ? Math.max(c.flank, c.infantry) : c.infantry;
+      return flank ? c.flank : 1;
+    }
+    case 'infantry':
+      return (flank ? FOOT_FLANK : 1) * COUNTER.infantry.all;
+    case 'archer':
+      return 1;
+  }
+}
+
+function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, lane: Lane | null, row: Row, opts: { prefer?: 'rear' | 'front'; morale?: number } = {}): Group {
   return {
     side,
     origin,
@@ -269,7 +273,6 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
     row,
     prefer: opts.prefer ?? 'rear',
     routed: false,
-    maneuver: opts.maneuver ?? null,
     morale: opts.morale ?? startMorale(setup, stack),
     fled: false,
     flankedTick: -1,
@@ -277,33 +280,13 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
   };
 }
 
+/** Группа на сектор расстановки: где встал — там и стоит. Приказов, разводящих сектор на части, нет. */
 function buildGroups(side: Side, setup: ArmySetup): Group[] {
   const groups: Group[] = [];
-  const push = (origin: Sector, stack: Stack, lane: Lane | null, row: Row, maneuver: CavalryOrder | null = null): void => {
-    if (stackTotal(stack) <= 0) return;
-    groups.push(newGroup(side, setup, origin, stack, lane, row, { maneuver }));
-  };
   for (const sector of SECTORS) {
-    const rest = { ...setup.sectors[sector] };
-    const lane = laneOf(sector);
-    const row = rowOf(sector);
-    // Конные рода разбираются по одному: приказ у каждого свой, и ждущая половина уходит
-    // в свою группу — иначе лёгкая с обходом утащила бы за собой тяжёлую с «атаковать сразу».
-    for (const kind of HORSE_KINDS) {
-      const cav = cavalryOrder(setup, kind);
-      if (rest[kind] <= 0 || !waits(cav)) continue;
-      const cavRow: Row = cav === 'pursue' ? 'pursue' : cav === 'reserve' || row === 'reserve' ? 'reserve' : 'waiting';
-      push(sector, { ...emptyStack(), [kind]: rest[kind] }, cavRow === 'reserve' ? null : lane, cavRow, cav);
-      rest[kind] = 0;
-    }
-    if (rest.spear > 0 && setup.orders.spear === 'guard-archers' && row === 'front') {
-      push(sector, { ...emptyStack(), spear: rest.spear }, lane, 'rear');
-      rest.spear = 0;
-    }
-    // Манёвр группы — приказ того конного рода, что в ней остался: ждущие рода ушли своими
-    // группами выше, и приказ лёгкой, которой здесь нет, увёл бы латных бить лучников.
-    const mounted = HORSE_KINDS.find((k) => rest[k] > 0);
-    push(sector, rest, lane, row, row === 'reserve' && mounted ? cavalryOrder(setup, mounted) : null);
+    const stack = setup.sectors[sector];
+    if (stackTotal(stack) <= 0) continue;
+    groups.push(newGroup(side, setup, sector, stack, laneOf(sector), rowOf(sector)));
   }
   return groups;
 }
@@ -454,36 +437,7 @@ class Battle {
     return null;
   }
 
-  /** Куда идёт конница в обход: где в тылу лучники без сомкнутых копий. */
-  pickStrikeLane(side: Side, maneuver: CavalryOrder | null, home: Lane | null): Lane | null {
-    const enemy = this.sides[other(side)];
-    const closed = spearsClosed(enemy.setup);
-    let best: Lane | null = null;
-    let bestScore = -Infinity;
-    const order: Lane[] = home === null ? [0, 2, 1] : [home, home === 1 ? 0 : 1, home === 1 ? 2 : facing(home)];
-    for (const lane of order) {
-      const rear = this.enemyRear(side, lane);
-      const front = this.enemyFront(side, lane);
-      if (rear.length === 0 && front.length === 0) continue;
-      const archers = sum(rear, 'archer') + (maneuver === 'attack-archers' ? sum(front, 'archer') : 0);
-      const spears = closed ? sum(rear, 'spear') : 0;
-      const others = sum(rear, 'infantry') + horses(rear);
-      const score = archers - 3 * spears - 0.3 * others + (lane === home ? 0.01 : 0);
-      if (score > bestScore) {
-        bestScore = score;
-        best = lane;
-      }
-    }
-    return best;
-  }
-
   // ----- Расписание -----
-
-  /** Стрелковая фаза всего боя: темп планов обеих сторон сдвигает её в границах `RANGED_TICKS`, и доля её идёт в каждый круг. */
-  rangedTicks(): number {
-    const tempo = PLANS[this.input.attacker.plan].tempo + PLANS[this.input.defender.plan].tempo;
-    return Math.max(RANGED_TICKS.min, Math.min(RANGED_TICKS.max, PHASE_TICKS.ranged + tempo));
-  }
 
   /**
    * Бой — круги всем боем (docs/battle_eu4.md, разделы 3.1 и 12): обстрел, сшибка и сеча (`CIRCLE_PHASES`),
@@ -493,7 +447,6 @@ class Battle {
    * линий обрывается на своём минимуме, обходы и ввод резерва пропускаются, мораль — и отход с погоней.
    */
   run(): BattleResult {
-    const ranged = this.rangedTicks();
     const depth = Math.min(...SIDES.map((side) => this.sides[side].initialTotal / (FRONT.length * this.width)));
     const cap = roundsCap(depth);
     for (let k = 1; ; k += 1) {
@@ -508,9 +461,9 @@ class Battle {
       }
       let skipToMorale = false;
       for (const phase of CIRCLE_PHASES) {
-        const ticks = circleTicks(phase, k, ranged);
+        const ticks = circleTicks(phase, k);
         if (ticks <= 0 || (skipToMorale && phase !== 'morale')) continue;
-        if (this.runPhase(phase, ticks, circleMin(phase, k, ranged))) skipToMorale = true;
+        if (this.runPhase(phase, ticks, circleMin(phase, k))) skipToMorale = true;
       }
     }
     this.runPhase('retreat', PHASE_TICKS.retreat, PHASE_TICKS.retreat);
@@ -535,7 +488,7 @@ class Battle {
         // Сторона сломалась — обходы и ввод резерва пропускаются, фаза морали
         // обрывается: ждать больше нечего, а каждый лишний тик рубит бегущих.
         // Резерв, который ещё ждал, входит прикрыть отход, а не остаётся дома.
-        for (const side of SIDES) this.commitReserve(side, true);
+        for (const side of SIDES) this.commitReserve(side);
         skipToMorale = true;
         break;
       }
@@ -612,21 +565,11 @@ class Battle {
           // Залп «до столкновения» — один, перед первой сшибкой: обстрел круга судится (`rangedVerdict`), но залпом не зовётся.
           const losses = Math.round(s.rangedBeforeContact);
           if (this.round === 0 && losses >= 1) this.emit({ id: 'volley', side, losses });
-          this.launchStrikes(side, 'attack-archers');
         }
         this.rangedVerdict();
         break;
-      case 'lines':
-        for (const side of SIDES) this.supportWeakFlank(side);
-        break;
-      case 'flanking':
-        for (const side of SIDES) {
-          this.launchStrikes(side, 'flank');
-          this.envelop(side);
-        }
-        break;
       case 'reserve':
-        for (const side of SIDES) this.commitReserve(side, true);
+        for (const side of SIDES) this.commitReserve(side);
         break;
       case 'retreat':
         this.decide();
@@ -663,7 +606,7 @@ class Battle {
       // Событие только про настоящий удар: мелкий размен на стыке — не «остановили».
       const enemyCavalry = SECTORS.reduce((n, id) => n + HORSE_KINDS.reduce((m, k) => m + enemy.setup.sectors[id][k], 0), 0);
       const notable = Math.max(EVENT_MIN, EVENT_SHARE * enemyCavalry);
-      if (spearsClosed(s.setup) && spearVsCav >= notable && spearVsCav >= cavVsSpear) {
+      if (spearVsCav >= notable && spearVsCav >= cavVsSpear) {
         const inFront = sum(this.at(side, lane, 'front'), 'spear') > 0;
         const sector = laneSector(lane, inFront ? 'front' : 'rear');
         // Ключ — фаза и её круг: сшибка повторяется каждым кругом, и копья, удержавшие удар снова, пишут это снова.
@@ -710,130 +653,27 @@ class Battle {
     }
   }
 
-  /** Разовый удар по морали группы с учётом плана, якоря и характера. */
+  /** Разовый удар по морали группы с учётом якоря и характера. */
   shake(g: Group, amount: number): void {
     if (g.fled) return;
     g.morale -= amount * this.moraleFactor(g);
   }
 
-  // ----- Манёвры -----
+  // ----- Резерв -----
 
-  /** Ждущая конница с этим приказом уходит в обход. */
-  launchStrikes(side: Side, maneuver: CavalryOrder): void {
-    for (const g of this.sides[side].groups) {
-      if (g.row !== 'waiting' || g.maneuver !== maneuver || !alive(g)) continue;
-      const lane = this.pickStrikeLane(side, maneuver, g.lane);
-      if (lane === null) continue;
-      g.lane = lane;
-      g.row = 'strike';
-      g.prefer = 'rear';
-    }
-  }
-
-  /** Охват: сильный фланг заворачивает часть людей к центру противника — один раз за бой, как и прежде, хотя обходы теперь есть в каждом круге. */
-  envelop(side: Side): void {
-    const s = this.sides[side];
-    if (s.setup.plan !== 'envelop' || s.fired.has('envelop')) return;
-    if (this.enemyFront(side, 1).length === 0) return;
-    for (const lane of [0, 2] as Lane[]) {
-      const own = this.at(side, lane, 'front');
-      const enemy = power(this.enemyFront(side, lane));
-      if (own.length === 0 || power(own) < enemy * ENVELOP.advantage) continue;
-      s.fired.add('envelop');
-      for (const g of own) this.detach(g, ENVELOP.share, 1, 'strike', 'front');
-    }
-  }
-
-  /** Пехота из центра — на слабый фланг, один раз за бой. */
-  supportWeakFlank(side: Side): void {
-    const s = this.sides[side];
-    if (s.setup.orders.infantry !== 'support-weak-flank' || s.fired.has('shift')) return;
-    let weak: Lane | null = null;
-    let weakRatio = SUPPORT_FLANK.weakBelow;
-    for (const lane of [0, 2] as Lane[]) {
-      const r = this.ratio(side, lane);
-      if (r < weakRatio) {
-        weakRatio = r;
-        weak = lane;
-      }
-    }
-    if (weak === null) return;
-    const center = this.at(side, 1, 'front').filter((g) => g.stack.infantry >= SUPPORT_FLANK.minCenter && !g.fled);
-    let men = 0;
-    for (const g of center) {
-      const n = g.stack.infantry * SUPPORT_FLANK.share;
-      const moved: Stack = { ...emptyStack(), infantry: n };
-      g.stack.infantry -= n;
-      g.initial -= n;
-      s.groups.push(newGroup(side, s.setup, g.origin, moved, weak, 'front', { prefer: 'front', morale: g.morale }));
-      men += n;
-    }
-    if (men >= 1) {
-      s.fired.add('shift');
-      this.emit({ id: 'infantry-shifted', side, to: laneSector(weak, 'front'), men: Math.round(men) });
-    }
-  }
-
-  /** Отделить долю группы в новую на другой полосе. Начальная численность делится тоже: сумма по группам равна армии. */
-  detach(g: Group, share: number, lane: Lane, row: Row, prefer: 'rear' | 'front'): void {
-    if (g.fled) return;
-    const moved = emptyStack();
-    for (const k of UNIT_KINDS) {
-      moved[k] = g.stack[k] * share;
-      g.stack[k] -= moved[k];
-    }
-    const total = stackTotal(moved);
-    if (total < EPS) return;
-    g.initial -= total;
-    this.sides[g.side].groups.push(newGroup(g.side, this.sides[g.side].setup, g.origin, moved, lane, row, { prefer, morale: g.morale }));
-  }
-
-  /** Условие ввода резерва; `force` — фаза «ввод резерва», входят все, кто ещё ждёт. */
-  commitReserve(side: Side, force: boolean): void {
+  /**
+   * Ввод резерва: в фазе «ввод резерва» и после слома — все, кто ещё ждёт, туда, где проигрываем. Условия
+   * ввода у игрока больше нет (docs/battle_eu4.md, 14.5): оно было решением игрока, а решений у удара нет.
+   */
+  commitReserve(side: Side): void {
     const s = this.sides[side];
     const waiting = s.groups.filter((g) => g.row === 'reserve' && alive(g));
     if (waiting.length === 0) return;
-    const trig = s.setup.reserve;
-    let lane: Lane | null = null;
-    if (force) lane = this.weakestLane(side);
-    else
-      switch (trig.kind) {
-        case 'immediate':
-          lane = 1;
-          break;
-        case 'center-losing':
-          if (this.ratio(side, 1) < RESERVE_LOSING) lane = 1;
-          break;
-        case 'weak-flank': {
-          const l = this.ratio(side, 0);
-          const r = this.ratio(side, 2);
-          if (Math.min(l, r) < RESERVE_LOSING) lane = l <= r ? 0 : 2;
-          break;
-        }
-        case 'weakest': {
-          const l = this.weakestLane(side);
-          if (this.ratio(side, l) < RESERVE_LOSING) lane = l;
-          break;
-        }
-        case 'morale':
-          if (s.morale < MORALE.reserveTriggerAt) lane = this.weakestLane(side);
-          break;
-        case 'after-phase':
-          if (phaseIndex(this.phase) > phaseIndex(trig.phase)) lane = this.weakestLane(side);
-          break;
-      }
-    if (lane === null) return;
+    const lane = this.weakestLane(side);
     let men = 0;
     for (const g of waiting) {
-      if (g.maneuver === 'flank' || g.maneuver === 'attack-archers') {
-        const target = this.pickStrikeLane(side, g.maneuver, lane);
-        if (target === null) continue;
-        g.lane = target;
-        g.row = 'strike';
-      } else {
-        g.lane = lane;
-        g.row = 'front';
-      }
+      g.lane = lane;
+      g.row = 'front';
       men += stackTotal(g.stack);
     }
     if (men < 1) return;
@@ -853,13 +693,9 @@ class Battle {
       for (const g of this.sides[side].groups) g.lostTick = 0;
     }
     this.engagedNow = new Set();
-    for (const side of SIDES) this.expose(side);
     if (this.phase === 'pursuit') {
       this.pursue();
     } else {
-      if (this.contact && phaseIndex(this.phase) <= phaseIndex('reserve')) {
-        for (const side of SIDES) this.commitReserve(side, false);
-      }
       const hits: Hit[] = [];
       const contacts = this.contact && this.winner !== 'draw' ? this.buildContacts() : [];
       const engaged = new Map<Group, Group[]>();
@@ -867,32 +703,14 @@ class Battle {
         for (const g of c.a) engaged.set(g, [...(engaged.get(g) ?? []), ...c.b]);
         for (const g of c.b) engaged.set(g, [...(engaged.get(g) ?? []), ...c.a]);
       }
-      // Ряды считаются после стычек: перехват обхода выводит резерв во фронт, и он уже стоит в ряду.
       this.measureRows();
-      const kiting = new Set<Group>();
       for (const g of engaged.keys()) this.engagedNow.add(g);
-      for (const side of SIDES) {
-        for (const g of this.sides[side].groups) {
-          if (!alive(g) || g.stack.archer < EPS || this.sides[side].setup.orders.archer !== 'keep-distance') continue;
-          const foes = engaged.get(g);
-          if (!foes || foes.length === 0) continue;
-          const slow = foes.every((f) => UNIT_KINDS.every((k) => f.stack[k] < EPS || UNIT_STATS[k].speed < UNIT_STATS.archer.speed));
-          if (!slow) continue;
-          kiting.add(g);
-          this.engagedNow.delete(g);
-          if (g.lane !== null) {
-            const sector = laneSector(g.lane, g.row === 'front' ? 'front' : 'rear');
-            this.once(`kiting:${sector}`, this.sides[side], { id: 'archers-kiting', side, sector });
-          }
-        }
-      }
       for (const side of SIDES) {
         for (const g of this.sides[side].groups) {
           if (!alive(g) || g.stack.archer < EPS || g.lane === null) continue;
           if (g.row !== 'front' && g.row !== 'rear') continue;
-          const isEngaged = engaged.has(g);
-          if (isEngaged && !kiting.has(g)) continue;
-          this.shoot(g, kiting.has(g), engaged, hits);
+          if (engaged.has(g)) continue;
+          this.shoot(g, engaged, hits);
         }
       }
       // Сколько противника у каждой группы во всех её стычках разом: боец бьёт один раз за тик,
@@ -900,9 +718,9 @@ class Battle {
       const facingMen = new Map<Group, number>();
       for (const [g, foes] of engaged) facingMen.set(g, foes.reduce((n, f) => n + stackTotal(f.stack), 0));
       for (const c of contacts) {
-        this.melee(c.a, c.b, c.aFlank, c.bClosedAround, c.bRow, false, kiting, facingMen, hits);
-        // Ответ: позиция, сомкнутая со всех сторон, не считается обойдённой — копья там держат строй.
-        this.melee(c.b, c.a, false, false, c.aRow, c.aFlank && !c.bClosedAround, kiting, facingMen, hits);
+        this.melee(c.a, c.b, c.aFlank, c.bRow, false, facingMen, hits);
+        // Ответ: обойдённые отбиваются тем, кто их обходит, но их копья в этот тик разомкнуты.
+        this.melee(c.b, c.a, false, c.aRow, c.aFlank, facingMen, hits);
       }
       this.apply(hits);
       this.collapse();
@@ -912,62 +730,15 @@ class Battle {
   }
 
   /**
-   * Ждать манёвра можно только за своей линией, и прикрывает линия по своей силе, а не по
-   * тому, что она есть. Конница, ждущая обхода, удара по лучникам или преследования, стоит
-   * на своей полосе вне досягаемости: по ней не стреляют и с ней не сходятся — её прикрывает
-   * строй впереди (фронт или тыл полосы, не смятый и не бегущий). Прикрыть он может не больше
-   * `линия / COVER.K` силы ждущих (сила — `power`, та же мерка, какой бой меряет полосу);
-   * остальные сами становятся линией: выходят во фронт и дерутся в лоб. Линии нет вовсе —
-   * выходят все (docs/stable.md, раздел 3). Прежде линией считался любой строй на полосе, и
-   * сотня латных прикрывала пятьсот лёгких (docs/stable.md, раздел 12).
-   *
-   * Правило читается каждый тик: линия поредела — из-за неё выходят ещё. Вышедшие на полосе
-   * сами стоят в линии и прикрывают оставшихся, поэтому за один раз выходит ровно доля
-   * 1 − линия / (K × ждущие), и вышедшие из одной группы копятся в одной группе фронта.
-   */
-  expose(side: Side): void {
-    const groups = this.sides[side].groups;
-    for (const lane of [0, 1, 2] as Lane[]) {
-      const hidden = groups.filter((g) => (g.row === 'waiting' || g.row === 'pursue') && g.lane === lane && alive(g));
-      if (hidden.length === 0) continue;
-      const line = power(groups.filter((h) => h.lane === lane && (h.row === 'front' || h.row === 'rear') && alive(h) && !h.fled && !h.routed));
-      const share = 1 - line / (COVER.K * power(hidden));
-      if (share <= 0) continue;
-      for (const g of hidden) {
-        if (share >= 1) {
-          g.row = 'front';
-          continue;
-        }
-        const moved = emptyStack();
-        for (const k of UNIT_KINDS) {
-          moved[k] = g.stack[k] * share;
-          g.stack[k] -= moved[k];
-        }
-        const men = stackTotal(moved);
-        g.initial -= men;
-        const out = groups.find((h) => h.leftFrom === g && h.lane === lane && h.row === 'front' && !h.fled);
-        if (out) {
-          for (const k of UNIT_KINDS) out.stack[k] += moved[k];
-          out.initial += men;
-        } else {
-          const ng = newGroup(side, this.sides[side].setup, g.origin, moved, lane, 'front', { morale: g.morale });
-          ng.leftFrom = g;
-          groups.push(ng);
-        }
-      }
-    }
-  }
-
-  /**
    * Ширина фронта (docs/battle_eu4.md, пачка 2). В ряду полосы — фронте, тылу, обходе — с каждой стороны
    * бьёт и стреляет не больше `width` человек: ряд шире — каждая его группа работает долей
    * `width / людей в ряду`. Потери ложатся на всех, мораль уходит долей от всех (`updateMorale`), поэтому
    * лишние — глубина: они держат ряд и встают на место павших сами, когда он редеет. Численность даёт
    * стойкость, а не убийства; бой, где ряды уже ширины, идёт как без неё.
    *
-   * Бежавшие ряда не держат: их нет ни в счёте, ни в доле. Ждущие манёвра, резерв и погоня не бьют —
-   * их нет в рядах вовсе. Решения боя — кто проигрывает полосу, куда вводить резерв, прикрывает ли
-   * линия — меряют силу всего ряда, а не работающих: глубина тоже сила, и противник её видит.
+   * Бежавшие ряда не держат: их нет ни в счёте, ни в доле. Резерв не бьёт — его нет в рядах вовсе.
+   * Решения боя — кто проигрывает полосу, куда вводить резерв — меряют силу всего ряда, а не
+   * работающих: глубина тоже сила, и противник её видит.
    */
   measureRows(): void {
     this.rowMen.clear();
@@ -996,42 +767,14 @@ class Battle {
     const contacts: Contact[] = [];
     const pair = (a: Group[], b: Group[], aFlank: boolean, aRow: Row, bRow: Row): void => {
       if (a.length === 0 || b.length === 0) return;
-      contacts.push({ a, b, aFlank, bClosedAround: bRow === 'rear', aRow, bRow });
+      contacts.push({ a, b, aFlank, aRow, bRow });
     };
-    // Обходы считаются первыми: кто перехватывает обходящих, в этот тик не стоит во фронте.
-    const intercepting = new Set<Group>();
+    // Обходы: навстречу обходу не разворачивается никто — перехват жил приказом «держать фланг».
     for (const side of SIDES) {
       for (const g of this.sides[side].groups) {
         if (g.row !== 'strike' || !alive(g) || g.lane === null) continue;
         const enemy = other(side);
         const eLane = facing(g.lane);
-        // Резерв с приказом «держать фланг» ждёт именно этого: выходит на полосу обхода навстречу.
-        if (HORSE_KINDS.some((k) => horseOrder(this.sides[enemy].setup, k) === 'hold-flank')) {
-          let men = 0;
-          for (const h of this.sides[enemy].groups) {
-            if (h.row !== 'reserve' || !alive(h)) continue;
-            if (!HORSE_KINDS.some((k) => h.stack[k] >= EPS && horseOrder(this.sides[enemy].setup, k) === 'hold-flank')) continue;
-            h.lane = eLane;
-            h.row = 'front';
-            men += stackTotal(h.stack);
-          }
-          if (men >= 1) this.emit({ id: 'reserve-committed', side: enemy, sector: laneSector(eLane, 'front'), men: Math.round(men) });
-        }
-        // Перехват: конница с приказом «держать фланг» или резерв, вошедший в эту полосу, —
-        // единственные, кто разворачивается навстречу обходу. Остальные заняты фронтом.
-        const holders = [...this.at(enemy, eLane, 'front'), ...this.at(enemy, eLane, 'rear')].filter(
-          (h) =>
-            HORSE_KINDS.some((k) => h.stack[k] >= EPS && horseOrder(this.sides[enemy].setup, k) === 'hold-flank') ||
-            (h.origin === 'R' && h.row === 'front'),
-        );
-        if (holders.length > 0) {
-          for (const h of holders) intercepting.add(h);
-          pair([g], holders, false, 'strike', holders[0].row);
-          if (horses([g]) >= EPS) {
-            this.once(`intercepted:${g.lane}`, this.sides[side], { id: 'cavalry-intercepted', side, target: laneSector(eLane, holders[0].row === 'front' ? 'front' : 'rear') });
-          }
-          continue;
-        }
         const rear = this.at(enemy, eLane, 'rear');
         const front = this.at(enemy, eLane, 'front');
         const order = g.prefer === 'rear' ? [rear, front] : [front, rear];
@@ -1042,8 +785,7 @@ class Battle {
           const sector = laneSector(eLane, rows[i]);
           if (!this.sides[enemy].fired.has(`flanked:${sector}`)) {
             this.once(`flanked:${sector}`, this.sides[enemy], { id: 'flank-turned', side: enemy, sector, by: side });
-            // Тыловое каре сомкнуто со всех сторон — обход его не пугает.
-            if (rows[i] !== 'rear' || !spearsClosed(this.sides[enemy].setup)) for (const t of order[i]) this.shake(t, MORALE.flankTurned);
+            for (const t of order[i]) this.shake(t, MORALE.flankTurned);
           }
           break;
         }
@@ -1054,10 +796,9 @@ class Battle {
     const slow = (groups: Group[]): boolean =>
       groups.every((g) => UNIT_KINDS.every((k) => g.stack[k] < EPS || UNIT_STATS[k].speed <= SLOW_CONTACT.speedAtMost));
     const late = this.tick < this.clashTick + SLOW_CONTACT.delay;
-    const free = (groups: Group[]): Group[] => groups.filter((g) => !intercepting.has(g));
     for (const lane of [0, 1, 2] as Lane[]) {
-      const aF = free(this.at('attacker', lane, 'front'));
-      const dF = free(this.at('defender', facing(lane), 'front'));
+      const aF = this.at('attacker', lane, 'front');
+      const dF = this.at('defender', facing(lane), 'front');
       const aR = this.at('attacker', lane, 'rear');
       const dR = this.at('defender', facing(lane), 'rear');
       if (aF.length > 0 && dF.length > 0) {
@@ -1086,110 +827,44 @@ class Battle {
   }
 
   /** Множитель урона, который получает группа за один свой боец рода `kind`. */
-  taken(g: Group, kind: UnitKind, frontal: boolean, kiting: boolean): number {
+  taken(g: Group, kind: UnitKind, frontal: boolean): number {
     const s = this.sides[g.side];
-    const plan = PLANS[s.setup.plan];
-    let m = plan.taken;
-    if (kind === 'spear') m *= SPEAR_ORDERS[s.setup.orders.spear].taken;
-    else if (kind === 'infantry') m *= INFANTRY_ORDERS[s.setup.orders.infantry].taken;
-    else if (kind === 'archer') m *= ARCHER_ORDERS[s.setup.orders.archer].taken;
-    else m *= CAVALRY_ORDERS[horseOrder(s.setup, kind)].taken;
+    let m = 1;
     if (g.row === 'front' && !anchored(g.stack)) m *= ANCHOR.noInfantryDamageTaken;
     if (s.retreating) m *= RETREAT.taken;
     else if (s.broken) m *= MORALE.brokenTaken;
     if (g.fled) m *= MORALE.fledTaken;
-    if (kiting) m *= KITING.damageTaken;
-    if (this.phase === 'clash' && kind === 'spear' && frontal && spearsClosed(s.setup) && !g.routed && !g.fled) m *= CLASH_SPEAR_BRACE;
+    if (this.phase === 'clash' && kind === 'spear' && frontal && closedSpears(g)) m *= CLASH_SPEAR_BRACE;
     return m;
   }
 
-  /**
-   * Множитель кольца: `kind` бьёт `target`. `targetBroken` — цель смята или бежит:
-   * такие копья строя не держат, с какой стороны их ни бей.
-   */
-  counter(attacker: SideState, kind: UnitKind, target: UnitKind, targetSide: SideState, flank: boolean, closedAround: boolean, flanked: boolean, ranged: boolean, targetBroken: boolean): number {
-    if (ranged) {
-      if (target === 'spear') return COUNTER.archer.spear;
-      if (target === 'infantry') return COUNTER.archer.infantry;
-      if (target === 'cavalry') return COUNTER.archer.cavalry;
-      if (target === 'heavy') return COUNTER.archer.heavy;
-      return 1;
-    }
-    const spearsHold = spearsClosed(attacker.setup) && !flanked;
-    const horse = target === 'cavalry' || target === 'heavy';
-    switch (kind) {
-      case 'spear':
-        if (horse) return spearsHold ? COUNTER.spear.cavalryHolding : COUNTER.spear.cavalryAdvancing;
-        return flank ? FOOT_FLANK : 1;
-      case 'cavalry':
-      case 'heavy': {
-        // Своя половина кольца у каждого конного рода: лёгкая режет лучников и заходит во
-        // фланг, тяжёлая ломает строй в лоб. Сомкнутые копья держат обеих одинаково.
-        const c = COUNTER[kind];
-        if (target === 'spear') {
-          const closed = spearsClosed(targetSide.setup) && !targetBroken && (!flank || closedAround);
-          if (closed) return c.spearClosed;
-          return flank ? c.flank : 1;
-        }
-        if (target === 'archer') return Math.max(c.archer, flank ? c.flank : 0);
-        if (target === 'infantry') return flank ? Math.max(c.flank, c.infantry) : c.infantry;
-        return flank ? c.flank : 1;
-      }
-      case 'infantry':
-        return (flank ? FOOT_FLANK : 1) * COUNTER.infantry.all;
-      case 'archer':
-        return 1;
-    }
-  }
-
-  /** Приоритет цели по приказу. */
-  preference(attacker: SideState, kind: UnitKind, target: UnitKind): number {
-    const o = attacker.setup.orders;
-    const horse = target === 'cavalry' || target === 'heavy';
-    if (kind === 'archer' && o.archer === 'priority-infantry' && target === 'infantry') return TARGET_PRIORITY;
-    if (kind === 'archer' && o.archer === 'priority-cavalry' && horse) return TARGET_PRIORITY;
-    if (kind === 'spear' && o.spear === 'priority-cavalry' && horse) return TARGET_PRIORITY;
-    if ((kind === 'cavalry' || kind === 'heavy') && horseOrder(attacker.setup, kind) === 'attack-archers' && target === 'archer') return TARGET_PRIORITY;
-    return 1;
-  }
-
-  /** Общие множители силы группы: план, полоса, мораль сектора, состояние. */
-  dealtMult(g: Group, kind: UnitKind): number {
+  /** Общие множители силы группы: мораль сектора, кость фазы, состояние. */
+  dealtMult(g: Group): number {
     const s = this.sides[g.side];
-    const plan = PLANS[s.setup.plan];
-    let m = plan.dealt * moraleDamageMult(g.morale) * this.luck[g.side];
+    let m = moraleDamageMult(g.morale) * this.luck[g.side];
     if (g.fled) m *= MORALE.fledDealt;
-    if (g.lane !== null && g.row !== 'strike') m *= g.lane === 1 ? plan.center : plan.flank;
-    if (kind === 'spear') m *= SPEAR_ORDERS[s.setup.orders.spear].dealt;
-    else if (kind === 'infantry') {
-      // «Прорывать центр» работает только в центре.
-      const o = s.setup.orders.infantry;
-      m *= o === 'break-center' && g.lane !== 1 ? 1 : INFANTRY_ORDERS[o].dealt;
-    }
-    else if (kind === 'archer') m *= ARCHER_ORDERS[s.setup.orders.archer].dealt;
-    else m *= CAVALRY_ORDERS[horseOrder(s.setup, kind)].dealt;
     if (s.broken) m *= MORALE.brokenDealt;
     if (s.retreating) m *= RETREAT.dealt;
     return m;
   }
 
-  /** Раздать урон `total` по группам позиции пропорционально числу и приоритету. */
-  distribute(attacker: SideState, kind: UnitKind, total: number, targets: Group[], ctx: { flank: boolean; closedAround: boolean; flanked: boolean; ranged: boolean; frontal: boolean }, kiting: Set<Group>, byLane: Lane, hits: Hit[]): void {
-    const targetSide = this.sides[targets[0].side];
+  /**
+   * Раздать урон `total` по группам позиции пропорционально числу: приоритета цели нет — он жил
+   * приказами. `fromOpen` — копья того, кто бьёт, не сомкнуты (`ringMult`).
+   */
+  distribute(from: Group, kind: UnitKind, total: number, targets: Group[], ctx: { flank: boolean; fromOpen: boolean; ranged: boolean; frontal: boolean }, byLane: Lane, hits: Hit[]): void {
     let weight = 0;
-    for (const t of targets) for (const k of UNIT_KINDS) weight += t.stack[k] * this.preference(attacker, kind, k);
+    for (const t of targets) weight += stackTotal(t.stack);
     if (weight <= 0) return;
     for (const t of targets) {
       for (const k of UNIT_KINDS) {
         const n = t.stack[k];
         if (n < EPS) continue;
-        const share = (n * this.preference(attacker, kind, k)) / weight;
+        const share = n / weight;
         const broken = t.routed || t.fled;
-        const dmg = total * share * this.counter(attacker, kind, k, targetSide, ctx.flank, ctx.closedAround && !broken, ctx.flanked, ctx.ranged, broken);
-        const casualties = (dmg / UNIT_STATS[k].toughness) * this.taken(t, k, ctx.frontal, kiting.has(t));
-        // Тыловое каре сомкнуто со всех сторон: удар в него для морали не фланговый.
-        const flankHit = ctx.flank && !(ctx.closedAround && !broken && spearsClosed(targetSide.setup) && t.stack.spear >= EPS);
-        if (casualties > 0) hits.push({ target: t, kind: k, casualties, by: attacker.id, byKind: kind, byLane, ranged: ctx.ranged, flank: flankHit });
+        const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged, broken);
+        const casualties = (dmg / UNIT_STATS[k].toughness) * this.taken(t, k, ctx.frontal);
+        if (casualties > 0) hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank });
       }
     }
   }
@@ -1201,42 +876,36 @@ class Battle {
    * Прежде доля не делилась, и группа, обойдённая с двух сторон, била трижды за тик —
    * обход, задуманный наказанием за скученность, умножал силу окружённого.
    */
-  melee(from: Group[], to: Group[], flank: boolean, closedAround: boolean, toRow: Row, flanked: boolean, kiting: Set<Group>, facingMen: Map<Group, number>, hits: Hit[]): void {
+  melee(from: Group[], to: Group[], flank: boolean, toRow: Row, flanked: boolean, facingMen: Map<Group, number>, hits: Hit[]): void {
     const here = to.reduce((n, t) => n + stackTotal(t.stack), 0);
     for (const g of from) {
-      const s = this.sides[g.side];
       if (g.lane === null) continue;
       // Своя доля стычки и доля ряда, которую пускает ширина фронта: остальные — глубина.
       const share = (here / Math.max(here, facingMen.get(g) ?? here)) * this.widthShare(g);
+      const fromOpen = flanked || !closedSpears(g);
       for (const kind of UNIT_KINDS) {
         if (g.stack[kind] < EPS) continue;
         const n = g.stack[kind] * share;
-        if (kind === 'archer' && kiting.has(g)) continue;
-        let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g, kind);
-        // Удар с разбега — вес, и он у тяжёлой. Обход усиливается планом у любого конного рода:
-        // «кавалерийский удар» — про манёвр, а манёвр есть у обоих, пока им его приказали.
+        let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g);
+        // Удар с разбега — вес, и он у тяжёлой.
         if (kind === 'heavy' && this.phase === 'clash' && !flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
-        if ((kind === 'cavalry' || kind === 'heavy') && flank) p *= PLANS[s.setup.plan].strike;
-        this.distribute(s, kind, p, to, { flank, closedAround, flanked, ranged: false, frontal: !flank && toRow !== 'rear' }, kiting, g.lane, hits);
+        this.distribute(g, kind, p, to, { flank, fromOpen, ranged: false, frontal: !flank && toRow !== 'rear' }, g.lane, hits);
       }
     }
   }
 
-  shoot(g: Group, kiting: boolean, engaged: Map<Group, Group[]>, hits: Hit[]): void {
-    const s = this.sides[g.side];
+  shoot(g: Group, engaged: Map<Group, Group[]>, hits: Hit[]): void {
     if (g.lane === null) return;
-    const lane: Lane = s.setup.orders.archer === 'support-center' ? 1 : g.lane;
+    const lane: Lane = g.lane;
     const candidates: Group[][] = [this.enemyFront(g.side, lane), this.enemyRear(g.side, lane)];
     for (const l of [1, 0, 2] as Lane[]) if (l !== lane) candidates.push(this.enemyFront(g.side, l), this.enemyRear(g.side, l));
     const targets = candidates.find((c) => c.length > 0);
     if (!targets) return;
     // Пока цель не в рукопашной, стрельба идёт в полную силу; после контакта — через головы.
-    let m = 1;
-    if (kiting) m = KITING.ranged;
-    else if (targets.some((t) => engaged.has(t))) m = COUNTER.archer.afterContact;
+    const m = targets.some((t) => engaged.has(t)) ? COUNTER.archer.afterContact : 1;
     // Стреляет не больше ширины ряда: лучники за строем шире фронта — та же глубина, что у пехоты.
-    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * PLANS[s.setup.plan].ranged * this.dealtMult(g, 'archer') * m * this.widthShare(g);
-    this.distribute(s, 'archer', p, targets, { flank: false, closedAround: false, flanked: false, ranged: true, frontal: false }, new Set(), g.lane, hits);
+    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * this.dealtMult(g) * m * this.widthShare(g);
+    this.distribute(g, 'archer', p, targets, { flank: false, fromOpen: false, ranged: true, frontal: false }, g.lane, hits);
   }
 
   apply(hits: Hit[]): void {
@@ -1305,12 +974,11 @@ class Battle {
    * крепка на разгоне и хрупка, когда стоит; лучники в рукопашной ломаются быстро.
    */
   temper(g: Group): number {
-    const s = this.sides[g.side];
     const total = stackTotal(g.stack);
     if (total < EPS) return 1;
     const flanked = g.flankedTick === this.tick;
     const inLine = g.row === 'front' || g.row === 'rear';
-    const closed = spearsClosed(s.setup) && inLine && !g.routed && g.stack.spear >= EPS;
+    const closed = closedSpears(g);
     let m = 0;
     for (const k of UNIT_KINDS) {
       const n = g.stack[k];
@@ -1328,9 +996,9 @@ class Battle {
     return m / total;
   }
 
-  /** Множитель всех потерь морали группы: характер, якорь пехоты, план. */
+  /** Множитель всех потерь морали группы: характер и якорь пехоты. */
   moraleFactor(g: Group): number {
-    return this.temper(g) * (anchored(g.stack) ? MORALE.anchor : 1) * PLANS[this.sides[g.side].setup.plan].shock;
+    return this.temper(g) * (anchored(g.stack) ? MORALE.anchor : 1);
   }
 
   /** Соседи по строю: смежные полосы в том же ряду и другой ряд той же полосы. Считаются до того, как сломанный фронт откатится в тыл. */
@@ -1480,9 +1148,7 @@ class Battle {
         if (!alive(g)) continue;
         for (const k of UNIT_KINDS) {
           if (g.stack[k] < EPS) continue;
-          let rate = RETREAT.pursuitKills[k];
-          if ((k === 'cavalry' || k === 'heavy') && horseOrder(s.setup, k) === 'pursue') rate *= RETREAT.pursueOrder;
-          kills += g.stack[k] * rate * moraleDamageMult(s.morale);
+          kills += g.stack[k] * RETREAT.pursuitKills[k] * moraleDamageMult(s.morale);
         }
       }
       kills = Math.min(kills, enemy.pursuitBudget);

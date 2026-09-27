@@ -167,7 +167,7 @@ describe('отметки полководца: его бои — всегда, �
     const lair = nearestLair(w);
     stand(w, lair);
     const mark = H.inputs.length;
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     expect(res.error).toBeNull();
     const input = battleSince(mark);
     expect(input.attacker.pips).toEqual(p.pips);
@@ -319,7 +319,7 @@ describe('карточка и бой считают одно и то же', () =
     await w.world.sync(p);
     stand(w, nearestLair(w));
     const mark = H.inputs.length;
-    await w.world.attack({ setup: null });
+    await w.world.attack({});
     const input = battleSince(mark);
     const pips = pipsOf(s);
     expect(input.attacker.pips, 'в бой ушли отметки этого человека').toEqual(pips);

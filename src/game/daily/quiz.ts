@@ -17,7 +17,7 @@ import { TROOPS_OF_KIND, gearOf, kindsOf, weightOf, type TroopStack } from '../b
 import {
   UNIT_KINDS,
   describeEvent,
-  quickSetup,
+  deploySetup,
   simulateBattle,
   stackTotal,
   summarize,
@@ -120,12 +120,12 @@ export interface QuizQuestion {
 }
 
 /**
- * Единственный путь из видов племени в ядро боя. Второго быть не должно:
- * `presetFormation` + `toArmySetup` раскладывает по секторам иначе (округление
- * на человека), и ответ, посчитанный одним путём, разошёлся бы с боем,
- * посчитанным другим. Генератор, разбор и тест зовут только это.
+ * Единственный путь из видов племени в ядро боя. Второго быть не должно: ответ,
+ * посчитанный одним путём, разошёлся бы с боем, посчитанным другим. Стороны встают
+ * по правилу развёртывания (`battle/setup.deploySetup`), как в игре. Генератор,
+ * разбор и тест зовут только это.
  */
-export const quizSetup = (t: TroopStack): ArmySetup => quickSetup(kindsOf(t), { gear: gearOf(t) });
+export const quizSetup = (t: TroopStack): ArmySetup => ({ ...deploySetup(kindsOf(t)), gear: gearOf(t) });
 
 const menOfSide = (t: TroopStack): number => stackTotal(kindsOf(t));
 

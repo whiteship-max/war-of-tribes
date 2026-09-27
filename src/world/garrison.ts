@@ -4,12 +4,8 @@
 // тем, что стоит на поле сегодня: меняются числа, а не построение.
 import { BATTLE_MAN } from '@/game/battle/kinds';
 import {
-  QUICK_PRESETS,
-  QUICK_PRESET_IDS,
   UNIT_KINDS,
   emptyStack,
-  type ArmySetup,
-  type QuickPresetId,
   type Stack,
   type UnitKind,
 } from '@/battle';
@@ -85,15 +81,12 @@ export interface Garrison {
   kinds: Stack;
   men: number;
   gear: Partial<Record<UnitKind, number>>;
-  preset: QuickPresetId;
-  setup: ArmySetup;
 }
 
 /**
- * Гарнизон поселения: состав и построение. Построение выбирается по сиду и
- * не зависит от времени — иначе разведданные устаревали бы не по возрасту, а
- * от каждой перерисовки. Свой план, приказы и резерв остаются скрытыми: их
- * разведка не показывает, и именно на этом держится вся неопределённость.
+ * Гарнизон поселения: состав и построение. Состав выводится из мощи и сида и не зависит от времени —
+ * иначе разведданные устаревали бы не по возрасту, а от каждой перерисовки. Построения у гарнизона нет:
+ * в бой он встаёт по правилу развёртывания, как все (`world/battle.resolveField`; docs/battle_eu4.md, 14.5).
  */
 export function garrisonOf(seed: number, id: string, power: number, castle = false): Garrison {
   const style = styleOf(seed, id, castle);
@@ -101,14 +94,12 @@ export function garrisonOf(seed: number, id: string, power: number, castle = fal
   const kinds = split(men, GARRISON_STYLES[style].shares);
   const tier = gearTier(power, castle);
   const gear = gearAt(tier);
-  const preset = QUICK_PRESET_IDS[hash(seed, `${id}#plan`) % QUICK_PRESET_IDS.length];
-  const setup = { ...QUICK_PRESETS[preset].layout(kinds), gear };
-  return { style, kinds, men, gear, preset, setup };
+  return { style, kinds, men, gear };
 }
 
 /**
- * Отряд, вышедший в набег на игрока: тот же перевод мощи в состав, но уклад и
- * построение — по сиду похода. Что идёт в этом отряде, дома заранее не знают.
+ * Отряд, вышедший в набег на игрока: тот же перевод мощи в состав, но уклад — по сиду похода.
+ * Что идёт в этом отряде, дома заранее не знают.
  */
 export function raidingParty(seed: number, marchId: string, power: number): Garrison {
   const style = STYLE_IDS[hash(seed, `${marchId}!raid`) % STYLE_IDS.length];
@@ -116,7 +107,5 @@ export function raidingParty(seed: number, marchId: string, power: number): Garr
   const kinds = split(men, GARRISON_STYLES[style].shares);
   const tier = gearTier(power, false);
   const gear = gearAt(tier);
-  const preset = QUICK_PRESET_IDS[hash(seed, `${marchId}!plan`) % QUICK_PRESET_IDS.length];
-  const setup = { ...QUICK_PRESETS[preset].layout(kinds), gear };
-  return { style, kinds, men, gear, preset, setup };
+  return { style, kinds, men, gear };
 }

@@ -14,7 +14,7 @@
 // пикселей, лес выключен, и по одним настоящим кадрам проверка была бы пустой.
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from '@/battle/sim';
-import { quickSetup } from '@/battle/setup';
+import { deploySetup } from '@/battle/setup';
 import {
   FILE_STEP,
   RANK_STEP,
@@ -39,7 +39,7 @@ const armyMix = (men: number): Partial<Stack> => ({
 });
 
 const fight = (a: Partial<Stack>, d: Partial<Stack>, seed = 7): Cast =>
-  buildCast(simulateBattle({ seed, attacker: quickSetup(a), defender: quickSetup(d) }), 'attacker');
+  buildCast(simulateBattle({ seed, attacker: deploySetup(a), defender: deploySetup(d) }), 'attacker');
 
 /** Кадры ролика с шагом в четверть секунды. */
 function frames(cast: Cast, step = 0.25): Frame[] {

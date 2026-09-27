@@ -44,17 +44,17 @@ import {
 import { addStrain, baptismInfo, baptize, grantRelic, holdRite, riteInfo, setObservance, syncFaith } from './faith';
 import { popGrowth } from './population';
 import { surveyInfo, startSurvey } from './survey';
-import { quickSetup, simulateBattle, type ArmySetup, type Stack } from '@/battle';
+import { deploySetup, simulateBattle, type ArmySetup, type Stack } from '@/battle';
 import { SEASON_DAYS } from '../data/seasons';
 
 const FAITH_IDS = FAITHS.map((f) => f.id);
 
 /**
- * Расстановка для прогона. Собирается тем же `quickSetup`, каким её собирает
- * игра, — своей второй раскладки здесь заводить незачем, а сверяем мы не её.
+ * Расстановка для прогона. Собирается тем же правилом развёртывания (`deploySetup`), каким её
+ * собирает игра, — своей второй раскладки здесь заводить незачем, а сверяем мы не её.
  */
 const setup = (army: Partial<Stack>, resolve: number): ArmySetup =>
-  quickSetup(army, { resolve });
+  ({ ...deploySetup(army), resolve });
 
 /** Деревня с известной верой, полными закромами и десятым уровнем всего. */
 function village(faith: FaithId, level = MAX_BUILDING_LEVEL): GameState {
@@ -310,9 +310,11 @@ describe('боевого перевеса одной веры над друго�
     for (const foe of foes) {
       const plain = simulateBattle({ seed: 77, attacker: setup(line, 0), defender: setup(foe, 0) });
       const rite = simulateBattle({ seed: 77, attacker: setup(line, 12), defender: setup(foe, 0) });
-      const a = plain.sides.attacker.total;
-      const b = rite.sides.attacker.total;
-      if (b.losses <= a.losses) helped++;
+      // Вред — худший размен (чужие потери к своим), а не свои потери: стойкое войско держится дольше и
+      // теряет больше, но и выбивает больше. Прежде мерилось своими потерями, и с правилом развёртывания
+      // (docs/battle_eu4.md, 14.5) против конницы обряд дал 22 потерь вместо 19 при 11 выбитых вместо 9.
+      const ratio = (r: typeof plain): number => r.sides.defender.total.losses / Math.max(1, r.sides.attacker.total.losses);
+      if (ratio(rite) >= ratio(plain)) helped++;
     }
     // Прибавка к стойкости не обязана переворачивать каждый бой, но и вредить
     // не должна ни в одном: она одна и та же против любого противника.

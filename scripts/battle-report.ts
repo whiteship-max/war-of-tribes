@@ -1,13 +1,17 @@
-// Балансные прогоны боя: таблица «кто кому проигрывает», кольцо контрров,
-// разрыв быстрой атаки и длительность. Запуск: npm run battle:report.
+// Балансные прогоны боя: таблица «кто кому проигрывает», решётка составов, кольцо контрров,
+// ограничитель, кость и длительность. Запуск: npm run battle:report.
 // Те же числа держат тесты в src/battle/battle.test.ts; здесь они видны глазами.
 //
 // Бои считаются веером (`lib/fan.ts`): задачи — в `battle-jobs.ts`, здесь — какие задачи
-// раздать, в каком порядке собрать и что напечатать. Разделы от этого не зависят друг от друга
-// больше, чем зависели: отбор расстановок в два этапа идёт тремя волнами (всё независимое, потом
-// перемер лучших, потом лучшая против перебора), и между волнами — точка сбора.
-import { COUNTER, COVER, DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, simulateBattle, quickAttack, quickSetup, describeEvent, PLANS, QUICK_PRESET_IDS, type ArmySetup, type BattleResult, type Plan, type Stack } from '../src/battle';
-import { ARCHER_PLACES, ARMY_SIZE, BALANCED_ARMY, CAVALRY_PLACES, COMPOSITIONS, COVER_K_GRID, LATTICE_STEP, OVERSIZE_SIZES, SCREEN_KINDS, holdSize, nonDecreasing, screenPoints, answerlessOwnKind, compositionLattice, compositionName, latticeRows, COUNTER_TERMS, counterOf, searchPool, searchShortlist, searchFinish, KNOWN_COUNTER_INDEX, LINE_SHAPES, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RESERVE_KINDS, RING, SEARCH, TUNED, TUNED_SPEC, hasLine, homogeneous, layoutGrid, layoutName, layoutOf, lossRatio, quickOf, type LatticeRow } from '../src/battle/bench';
+// раздать, в каком порядке собрать и что напечатать. Отбор поиска составов в два этапа идёт двумя
+// волнами (всё независимое, потом перемер лучших), и между волнами — точка сбора.
+//
+// Все стороны встают по правилу развёртывания: плана, приказов, пресетов, быстрой атаки и
+// раскладки у удара нет (docs/battle_eu4.md, 14.5). Разделы о них — «Планы», «Планы на всей сетке»,
+// «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
+// расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
+import { DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, COUNTER, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
 import { VARIANT_NAMES, runJobs, type Brief, type Job, type Out, type Pair, type Reach } from './battle-jobs';
 
@@ -20,8 +24,7 @@ function pad(s: string | number, w: number, right = false): string {
 
 /**
  * Волна задач: задача ставится с тем, что вернёт, и одна и та же задача дважды не считается —
- * одинаковый довод даёт тот же итог (прежде отчёт дважды считал, например, TUNED против быстрой
- * атаки на тех же ста сидах). Итоги читаются после `run`.
+ * одинаковый довод даёт тот же итог. Итоги читаются после `run`.
  */
 class Wave {
   private jobs: Job[] = [];
@@ -66,28 +69,14 @@ const slices = (n: number, size: number): Array<[number, number]> => Array.from(
 
 const w1 = new Wave();
 const lattice = compositionLattice();
-const grid = layoutGrid().map((spec) => ({ spec, setup: layoutOf(BALANCED_ARMY, spec) }));
 const pool = searchPool();
 
-// Самые дорогие — первыми: решётка × «Тяжёлая», поиск, перебор, заслон.
+// Самые дорогие — первыми: решётка × «Тяжёлая» и отбор поиска.
 const latticeOf = VARIANT_NAMES.map((_, variant) => latticeChunks(lattice.length, 8).map(([from, to]) => ({ from, to, out: w1.add({ kind: 'lattice', variant, from, to }) })));
-const poolScreen = (['quick', 'standard'] as const).map((opp) => slices(pool.length, 50).map(([from, to]) => w1.add({ kind: 'pool', opp, from, to })));
-const gridScreen = slices(grid.length, 40).map(([from, to]) => w1.add({ kind: 'grid', from, to }));
-const screens = SCREEN_KINDS.map((screen) => {
-  const points = screenPoints(screen);
-  return {
-    screen,
-    points,
-    charge: points.map((men) => w1.add({ kind: 'worth', screen, men, order: 'charge', k: null })),
-    old: points.map((men) => w1.add({ kind: 'worth', screen, men, order: 'attack-archers', k: 1e-9 })),
-  };
-});
-const coverK = COVER_K_GRID.map((k) => ({ k, curves: screens.map((s) => s.points.map((men) => ({ men, worth: w1.add({ kind: 'worth', screen: s.screen, men, order: 'attack-archers', k }) }))) }));
-const holdTuned = w1.add({ kind: 'hold', who: 'TUNED' });
-const holdQuick = w1.add({ kind: 'hold', who: 'quick' });
+const poolScreen = slices(pool.length, 50).map(([from, to]) => w1.add({ kind: 'pool', from, to }));
 
 /** Матрица «каждый против каждого»: пара i–j одной задачей, строка j–i — те же бои с другой стороны. */
-function matrix(set: 'compositions' | 'plans' | 'presets' | 'pure', n: number, seeds: number): (i: number, j: number) => Pair[] {
+function matrix(set: 'compositions' | 'pure', n: number, seeds: number): (i: number, j: number) => Pair[] {
   const got = new Map<number, () => Extract<Out, { kind: 'pair' }>>();
   for (let i = 0; i < n; i += 1) for (let j = i + 1; j < n; j += 1) got.set(i * n + j, w1.add({ kind: 'pair', set, i, j, seeds }));
   return (i, j) => (i < j ? got.get(i * n + j)!().ab : got.get(j * n + i)!().ba);
@@ -104,20 +93,9 @@ const bySize = [...OVERSIZE_SIZES.map((total) => ({ total, bare: false })), { to
   rows: !s.bare && s.total === HOLD ? oversize : oversizeAt(s.total, s.bare),
 }));
 const dice = w1.add({ kind: 'dice' });
-const tunedGap = w1.add({ kind: 'gap', who: 'TUNED', opp: 'quick', n: 100, from: 1 });
-const tunedByPreset = QUICK_PRESET_IDS.map((preset) => w1.add({ kind: 'gap', who: 'TUNED', opp: { preset }, n: 40, from: 1 }));
-const knownStandard = w1.add({ kind: 'gap', who: 'KNOWN_COUNTER', opp: 'standard', n: SEARCH.final, from: SEARCH.finalFrom });
-const knownQuick = w1.add({ kind: 'gap', who: 'KNOWN_COUNTER', opp: 'quick', n: SEARCH.final, from: SEARCH.finalFrom });
-const tunedSearch = w1.add({ kind: 'gap', who: 'TUNED', opp: 'quick', n: SEARCH.final, from: SEARCH.finalFrom });
 const ringPairs = RING.map((_, ring) => w1.add({ kind: 'ring', ring, seeds: SEEDS }));
-const plans = Object.keys(PLANS) as Plan[];
-const planPairs = matrix('plans', plans.length, Math.min(SEEDS, 12));
-// Планы на всей сетке: план против того же построения с другим планом, пара планов одной задачей.
-const planShape = new Map<string, () => Extract<Out, { kind: 'planShape' }>>();
-for (const [i, a] of plans.entries()) for (const b of plans.slice(i + 1)) planShape.set(`${a}:${b}`, w1.add({ kind: 'planShape', a, b, seeds: 2 }));
-// Круги по размерам: сколько боёв до них доходит — матрица составов и настроенная против быстрой атаки.
+// Круги по размерам: сколько боёв до них доходит — матрица составов.
 const reachAt = [...OVERSIZE_SIZES, ARMY_SIZE].map((total) => ({ total, got: w1.add({ kind: 'reach', total }) }));
-const presetPairs = matrix('presets', QUICK_PRESET_IDS.length, Math.min(SEEDS, 12));
 const pureDuels = matrix('pure', UNIT_KINDS.length, 6);
 
 await w1.run();
@@ -199,8 +177,8 @@ const latticeAt = (variant: number): LatticeRow[] => {
 };
 
 console.log(`\n=== Решётка составов: все составы из 600 бойцов строя шагом ${LATTICE_STEP} по всем родам, каждый против каждого одним зеркальным боем ===`);
-// Та же решётка, что держит тест «нет доминирующего состава» (`bench.latticeDuels`), стандартный
-// пресет. Её же строкой «как есть» читает раздел «Тяжёлая»: числа там те же, и второй раз она не играется.
+// Та же решётка, что держит тест «нет доминирующего состава» (`bench.latticeDuels`), правило
+// развёртывания. Её же строкой «как есть» читает раздел «Тяжёлая»: числа там те же, и второй раз она не играется.
 const latticeRowsAsIs = latticeAt(0);
 {
   // Утверждение теста — «каждый кому-то проигрывает» — видит только строгое превосходство;
@@ -220,12 +198,12 @@ const latticeRowsAsIs = latticeAt(0);
   console.log(`ответа без своего главного рода нет: ${answerless.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '—'}`);
 }
 
-console.log('\n=== Тяжёлая: откуда сила (решётка составов, стандартный пресет) ===');
+console.log('\n=== Тяжёлая: откуда сила (решётка составов, правило развёртывания) ===');
 {
   // Каждое число тяжёлой по очереди ставится на то, что стоит на той же оси у пехоты или у
   // лёгкой (правило классов: своих чисел у тяжёлой нет, каждое взято у другого рода), и решётка
-  // перемеряется целиком. Отдельно — где пресет её ставит: в резерв или во фронт. Удар с разбега
-  // (`CLASH_CAVALRY_IMPACT`) — константа ядра, отсюда не подменяется и здесь не измерен.
+  // перемеряется целиком. Где она стоит, решает правило развёртывания: с краёв первой линии. Удар с
+  // разбега (`CLASH_CAVALRY_IMPACT`) — константа ядра, отсюда не подменяется и здесь не измерен.
   // Подмены ставит задача в своём процессе (`battle-jobs.ts`, `VARIANTS`); здесь — только имена.
   const duel = (i: number, j: number): number => {
     let r = 0;
@@ -238,7 +216,7 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
     return `рукопашная ${u.melee}, стойкость ${u.toughness}, скорость ${u.speed}, мораль ${u.morale}, по пехоте ×${c}`;
   };
   console.log(`числа: тяжёлая — ${statLine('heavy')}; пехота — ${statLine('infantry')}; лёгкая — ${statLine('cavalry')}`);
-  console.log(`род против рода, ${ARMY_SIZE} на ${ARMY_SIZE}, быстрая атака, 6 сидов × обе стороны (размен строки): ${UNIT_KINDS.map((k) => pad(k, 9, true)).join('')}`);
+  console.log(`род против рода, ${ARMY_SIZE} на ${ARMY_SIZE}, правило развёртывания, 6 сидов × обе стороны (размен строки): ${UNIT_KINDS.map((k) => pad(k, 9, true)).join('')}`);
   for (const [ai, a] of UNIT_KINDS.entries()) console.log(`  ${pad(a, 9)}${UNIT_KINDS.map((b, bi) => pad(a === b ? '—' : duel(ai, bi).toFixed(2), 9, true)).join('')}`);
 
   const iOf = (army: Partial<Stack>): number => lattice.findIndex((a) => UNIT_KINDS.every((k) => (a[k] ?? 0) === (army[k] ?? 0)));
@@ -255,137 +233,10 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
   }
 }
 
-console.log('\n=== Заслон: линия по силе (Battle.expose, COVER.K) ===');
-{
-  // Лёгкие ждут удара по лучникам за заслоном на тех же полосах (`bench.screenArmy`); ячейка —
-  // что армия стоит против всей решётки составов (`bench.latticeWorth`: геометрический размен,
-  // одним зеркальным боем на состав). Толщины — те, где заслон тоньше ждущих по силе боя
-  // (`bench.screenPoints`). `COVER.K` выводится здесь: наименьшее из сетки, при котором обе
-  // кривые не падают — тоньше заслон, не больше манёвра.
-  const cell = (v: number): string => pad(v.toFixed(2), 7, true);
-  for (const s of screens) {
-    console.log(`заслон — ${s.screen}, лёгких ${s.points.map((m) => ARMY_SIZE - m).join('/')}; толщина заслона: ${s.points.map((m) => pad(m, 7, true)).join('')}`);
-    console.log(`  ${pad('в лоб (лёгкая «атаковать сразу»)', 38)}${s.charge.map((w) => cell(w().worth)).join('')}`);
-    console.log(`  ${pad('прежнее правило: по наличию (K → 0)', 38)}${s.old.map((w) => cell(w().worth)).join('')}`);
-  }
-  const ok: number[] = [];
-  for (const { k, curves: got } of coverK) {
-    const curves = got.map((c) => c.map((p) => ({ men: p.men, worth: p.worth().worth })));
-    const good = curves.every(nonDecreasing);
-    if (good) ok.push(k);
-    console.log(`  K ${pad(k.toFixed(2), 5)} ${curves.map((c, i) => `${SCREEN_KINDS[i]}:${c.map((p) => cell(p.worth)).join('')}`).join('   ')}  ${good ? 'не падают' : 'ПАДАЕТ'}`);
-  }
-  const derived = ok.length ? Math.min(...ok) : null;
-  console.log(`вывод: K = ${derived ?? 'НЕТ В СЕТКЕ'}; в конфиге COVER.K = ${COVER.K}${derived === COVER.K ? '' : ' — НЕ СОВПАДАЕТ С ВЫВОДОМ'}`);
-}
-
-console.log('\n=== Кольцо контрров при правильных приказах ===');
+console.log('\n=== Кольцо контрров: пары встают по правилу развёртывания ===');
 for (const [i, pair] of RING.entries()) {
   const s = series(ringPairs[i]().pairs, compositionResults);
   console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS})`);
-}
-
-console.log('\n=== Планы: одна и та же армия на стандартной раскладке, план против плана ===');
-{
-  const PW = 16;
-  console.log(pad('', PW) + plans.map((p) => pad(p, PW)).join(''));
-  const undefeated: string[] = [];
-  for (const [ai, a] of plans.entries()) {
-    let row = pad(a, PW);
-    let loses = 0;
-    for (const [bi, b] of plans.entries()) {
-      if (a === b) {
-        row += pad('—', PW);
-        continue;
-      }
-      const s = series(planPairs(ai, bi));
-      if (beatsByRatio(s.ratio) === 'b') loses += 1;
-      row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, PW);
-    }
-    if (loses === 0) undefeated.push(a);
-    console.log(row);
-  }
-  console.log(`никому не проигрывает размен: ${undefeated.join(', ') || 'нет'}`);
-}
-
-console.log('\n=== Планы на всей сетке: план против того же построения с другим планом ===');
-{
-  // Стандартная раскладка — одна точка; здесь каждая форма сетки перебора (линия, лучники, конница, резерв), и у
-  // сторон одно всё, кроме плана. Ячейка — бои: удержали поле / ничьих / отдали поле, и размен строки.
-  const cell = (a: Plan, b: Plan): { won: number; draws: number; lost: number; ratio: number; n: number } => {
-    const direct = planShape.get(`${a}:${b}`);
-    const o = (direct ?? planShape.get(`${b}:${a}`)!)();
-    const [won, lost, own, theirs] = direct ? [o.a, o.b, o.aLoss, o.bLoss] : [o.b, o.a, o.bLoss, o.aLoss];
-    return { won, draws: o.draws, lost, ratio: theirs / Math.max(1, own), n: o.a + o.b + o.draws };
-  };
-  const first = planShape.values().next().value!();
-  console.log(`форм сетки ${first.shapes}, на пару планов ${first.a + first.b + first.draws} боёв (по 2 сида, обе стороны поля)`);
-  const PW = 22;
-  console.log(pad('', PW) + plans.map((p) => pad(p, PW)).join(''));
-  const fieldAll: string[] = [];
-  const tradeAll: string[] = [];
-  for (const a of plans) {
-    let row = pad(a, PW);
-    let field = 0;
-    let trade = 0;
-    for (const b of plans) {
-      if (a === b) {
-        row += pad('—', PW);
-        continue;
-      }
-      const c = cell(a, b);
-      if (c.won > c.lost) field += 1;
-      if (beatsByRatio(c.ratio) !== 'b') trade += 1;
-      row += pad(`${c.won}/${c.draws}/${c.lost} ${c.ratio.toFixed(2)}`, PW);
-    }
-    if (field === plans.length - 1) fieldAll.push(a);
-    if (trade === plans.length - 1) tradeAll.push(a);
-    console.log(row);
-  }
-  console.log(`удерживает поле чаще, чем отдаёт, против каждого плана: ${fieldAll.join(', ') || 'нет'}`);
-  console.log(`никому не проигрывает размен: ${tradeAll.join(', ') || 'нет'}`);
-}
-
-console.log('\n=== Пресеты быстрой атаки ===');
-{
-  const picks: Record<string, number> = {};
-  const withIntel: Record<string, number> = {};
-  for (let seed = 1; seed <= 400; seed += 1) {
-    const p = quickAttack(BALANCED_ARMY, seed).preset;
-    picks[p] = (picks[p] ?? 0) + 1;
-    const q = quickAttack(BALANCED_ARMY, seed, { cavalry: 300, infantry: 200 }).preset;
-    withIntel[q] = (withIntel[q] ?? 0) + 1;
-  }
-  console.log(`выбор на 400 сидов без разведки: ${QUICK_PRESET_IDS.map((id) => `${id} ${picks[id] ?? 0}`).join(', ')}`);
-  console.log(`   с разведкой «много конницы»: ${QUICK_PRESET_IDS.map((id) => `${id} ${withIntel[id] ?? 0}`).join(', ')}`);
-  console.log('пресет против пресета (строка против столбца, победы/ничьи/поражения и размен):');
-  const PW = 14;
-  console.log(pad('', PW) + QUICK_PRESET_IDS.map((p) => pad(p, PW)).join(''));
-  for (const [ai, a] of QUICK_PRESET_IDS.entries()) {
-    let row = pad(a, PW);
-    for (const [bi, b] of QUICK_PRESET_IDS.entries()) {
-      if (a === b) {
-        row += pad('—', PW);
-        continue;
-      }
-      const s = series(presetPairs(ai, bi));
-      row += pad(`${s.wins}/${s.draws}/${s.losses} ${s.ratio.toFixed(2)}`, PW);
-    }
-    console.log(row);
-  }
-}
-
-console.log('\n=== Разрыв быстрой атаки: настроенная против быстрой атаки (случайный пресет), 100 боёв ===');
-{
-  const t = tunedGap().gap;
-  console.log(`настроенная (${layoutName(TUNED_SPEC)}): разрыв ${(t.gap * 100).toFixed(1)}% (коридор 10–25%, цель 15%), побед ${t.won}/100, поражений ${t.lost}/100`);
-  for (const [i, id] of QUICK_PRESET_IDS.entries()) {
-    const g = tunedByPreset[i]().gap;
-    console.log(`   против ${pad(id, 13)} ${(g.gap * 100).toFixed(1).padStart(6)}% (побед ${g.won}/40)`);
-  }
-  const known = knownStandard().gap;
-  const random = knownQuick().gap;
-  console.log(`известный контрер стандарта (KNOWN_COUNTER — № ${KNOWN_COUNTER_INDEX} поиска, на его новых сидах): против стандарта ${(known.gap * 100).toFixed(1)}%, против случайного пресета ${(random.gap * 100).toFixed(1)}% (цель ≈15%)`);
 }
 
 console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');
@@ -447,16 +298,13 @@ console.log('\n=== Круги сечи и ширина по размерам: «
 console.log('\n=== Круги по размерам: сколько боёв доходит до второго круга (обстрел, сшибка, сеча снова) ===');
 {
   // Круги всем боем: фазы по родам живут в каждом круге, и бой, решённый в первом, видит их один раз. Матрица
-  // составов — все пары, 2 сида; настроенная армия (TUNED) против быстрой атаки той же армии — 100 боёв, те же сиды,
-  // что у «Разрыва».
-  console.log(`круг, тиков при нулевом темпе планов: ${[1, 2, 3, 4].map((k) => circleLength(k)).join(' / ')} (дальше — как третий)`);
-  console.log(`${pad('размер', 8)}  матрица составов: с кругами, сшибок на бой   настроенная против быстрой атаки: с кругами, сшибок на бой, разрыв, побед/поражений`);
+  // составов — все пары, 2 сида.
+  console.log(`круг, тиков: ${[1, 2, 3, 4].map((k) => circleLength(k)).join(' / ')} (дальше — как третий)`);
+  console.log(`${pad('размер', 8)}  матрица составов: с кругами, сшибок на бой`);
   const share = (r: Reach): string => `${r.rounds}/${r.n} (${((100 * r.rounds) / r.n).toFixed(1)}%)`;
   for (const { total, got } of reachAt) {
-    const { matrix: m, tuned: t } = got();
-    console.log(
-      `${pad(total, 8)}  ${share(m).padStart(16)}, ${(m.clashes / m.n).toFixed(2)}                     ${share(t).padStart(14)}, ${(t.clashes / t.n).toFixed(2)}, ${(t.gap * 100).toFixed(1).padStart(5)}%, ${t.won}/${t.lost}`,
-    );
+    const { matrix: m } = got();
+    console.log(`${pad(total, 8)}  ${share(m).padStart(16)}, ${(m.clashes / m.n).toFixed(2)}`);
   }
   // Длительность — тики боя и секунды его ролика по матрице составов: медиана, 90 % и самый долгий.
   const at = (xs: number[], p: number): number => xs[Math.min(xs.length - 1, Math.floor(xs.length * p))];
@@ -470,118 +318,29 @@ console.log('\n=== Круги по размерам: сколько боёв д�
 
 // ---------- Волна 2: перемер лучших из отбора ----------
 
-// Перебор: грубый отбор против каждого пресета, двадцать лучших — на тех же ста боях против
-// быстрой атаки, что и разрыв настроенной армии выше.
-const gridTop = grid
-  .map((g, i) => ({ ...g, i, ...gridScreen[Math.floor(i / 40)]().rows[i % 40] }))
-  .sort((a, b) => b.gap - a.gap)
-  .slice(0, 20);
-// Поиск: отбор каждой расстановки на `SEARCH.screen` боях, лучшие — на новых сидах.
-const shortlist = poolScreen.map((chunks) => searchShortlist(chunks.flatMap((c) => c().gaps), pool));
-const [quickList, standardList] = shortlist;
-
+// Поиск: отбор каждого состава на `SEARCH.screen` боях против сбалансированного, лучшие — на новых сидах.
+const shortlist = searchShortlist(poolScreen.flatMap((c) => c().gaps), pool);
 const w2 = new Wave();
-const gridFull = gridTop.map((g) => w2.add({ kind: 'gap', who: { grid: g.i }, opp: 'quick', n: 100, from: 1 }));
-const quickFinals = quickList.map((f) => w2.add({ kind: 'gap', who: { pool: f.index }, opp: 'quick', n: SEARCH.final, from: SEARCH.finalFrom }));
-const standardFinals = standardList.map((f) => w2.add({ kind: 'gap', who: { pool: f.index }, opp: 'standard', n: SEARCH.final, from: SEARCH.finalFrom }));
-const counterRandom = standardList.map((f) => w2.add({ kind: 'gap', who: { pool: f.index }, opp: 'quick', n: SEARCH.final, from: SEARCH.finalFrom }));
+const finals = shortlist.map((f) => w2.add({ kind: 'gap', pool: f.index, n: SEARCH.final, from: SEARCH.finalFrom }));
 await w2.run();
 
-// ---------- Волна 3: лучшая расстановка перебора против всего перебора ----------
-
-const top = gridTop.map((g, k) => ({ ...g, full: gridFull[k]().gap }));
-top.sort((a, b) => b.full.gap - a.full.gap);
-const best = top[0];
-const w3 = new Wave();
-const vsGrid = slices(grid.length, 40).map(([from, to]) => w3.add({ kind: 'vsGrid', best: best.i, from, to }));
-const holdBest = w3.add({ kind: 'hold', who: { grid: best.i } });
-await w3.run();
-
-console.log('\n=== Перебор расстановок: цена расстановки ===');
+console.log(`\n=== Случайный поиск составов: ${SEARCH.n} наугад (сид ${SEARCH.seed}) против сбалансированного; отбор на ${SEARCH.screen} боях, ${SEARCH.finalists} лучших — на ${SEARCH.final} новых сидах с ${SEARCH.finalFrom} ===`);
 {
-  // Сетка — `layoutGrid` из bench.ts, та же, что держат тесты. Две стадии: грубый отбор
-  // против каждого пресета, потом двадцать лучших — на тех же ста боях против быстрой
-  // атаки, что и разрыв настроенной армии выше. Раньше на месте этого раздела стояло
-  // «потолок ≈25 %» без кода; число отсюда — единственное, на которое можно ссылаться.
-  const homogeneousCount = grid.filter((g) => homogeneous(g.setup)).length;
-  console.log(
-    `расстановок ${grid.length}: линия ${Object.keys(LINE_SHAPES).length} × лучники ${ARCHER_PLACES.length} × конница ${CAVALRY_PLACES.length} × план ${Object.keys(PLANS).length} × резерв ${RESERVE_KINDS.length}; однородных вкладов в один сектор ${homogeneousCount}`,
-  );
-  console.log('десять лучших против быстрой атаки, 100 боёв (разрыв, побед, поражений):');
-  for (const g of top.slice(0, 10)) {
-    console.log(`  ${(g.full.gap * 100).toFixed(1).padStart(6)}%  ${pad(g.full.won, 3, true)} ${pad(g.full.lost, 3, true)}  ${homogeneous(g.setup) ? 'однородная ' : 'разложенная'}  ${layoutName(g.spec)}`);
-  }
-  const tuned = tunedGap().gap;
-  console.log(`потолок: ${(best.full.gap * 100).toFixed(1)}% — ${layoutName(best.spec)}; настроенная TUNED: ${(tuned.gap * 100).toFixed(1)}%`);
-
-  // Доминирование — не разрыв против шаблонов, а поле против всего остального. Лучшая
-  // играет с каждой расстановкой сетки по бою; до правки рукопашной «всё в центр» держала
-  // поле 100 % против каждого разложенного семейства и уступала только однородным.
-  console.log('лучшая против всей сетки по формам линии (поле, размен):');
-  const byLine: Record<string, { held: number; n: number; own: number; theirs: number }> = {};
-  const fought = vsGrid.flatMap((c) => c().rows);
-  grid.forEach((g, i) => {
-    const r = fought[i];
-    if (!r) return;
-    const f = (byLine[g.spec.line] ??= { held: 0, n: 0, own: 0, theirs: 0 });
-    f.n += 1;
-    if (r.held) f.held += 1;
-    f.own += r.own;
-    f.theirs += r.theirs;
-  });
-  const whole = Object.values(byLine).every((f) => f.held === f.n);
-  for (const [line, f] of Object.entries(byLine)) {
-    console.log(`  против «${line}»: поле ${((100 * f.held) / f.n).toFixed(0)}%, размен ${(f.theirs / Math.max(1, f.own)).toFixed(2)}`);
-  }
-  console.log(whole ? 'ДОМИНИРУЕТ: держит поле против всей сетки' : 'поле против всей сетки не держит — доминирующей расстановки в сетке нет');
-
-  // Цена расстановки силой: при каком перевесе врага (быстрая атака армии ×k) расстановка
-  // удерживает поле в половине боёв. На этой мерке стоит разброс испытательного стенда.
-  const point = (p: number): string => p.toFixed(3);
-  console.log(`точка поля (перевес врага, при котором удержано полполя, 40 боёв): лучшая ×${point(holdBest().point)}, TUNED ×${point(holdTuned().point)}, быстрая атака ×${point(holdQuick().point)}`);
-}
-
-console.log(`\n=== Случайный поиск расстановок: ${SEARCH.n} наугад (сид ${SEARCH.seed}); отбор на ${SEARCH.screen} боях, ${SEARCH.finalists} лучших — на ${SEARCH.final} новых сидах с ${SEARCH.finalFrom} ===`);
-{
-  // Сетка видит только свои оси. Поиск — `bench.randomLayout`: лучники во фронте вперемешку
-  // с линией, конница неровно по фронту, приказы всем родам. Отбор на десяти боях выбирает и
-  // удачу, поэтому число берётся с перемера (`bench.searchFinal`), а не с отбора.
+  // Машинка двухэтапного поиска наведена на составы (`bench.randomArmy`): каждый — `ARMY_SIZE` бойцов строя
+  // наугад по родам, встаёт по правилу развёртывания. Решётка видит составы шагом `LATTICE_STEP`; всё, что
+  // между её узлами, видит только поиск. Отбор на десяти боях выбирает и удачу, поэтому число берётся
+  // с перемера, а не с отбора.
   const brief = (x: ArmySetup): string => {
-    const cell = (id: keyof ArmySetup['sectors']): string => {
-      const v = x.sectors[id];
-      return (['spear', 'infantry', 'archer', 'cavalry', 'heavy'] as const).filter((k) => v[k] > 0).map((k) => `${k[0]}${v[k]}`).join('') || '—';
-    };
-    const o = x.orders;
-    return `A ${cell('A')} B ${cell('B')} C ${cell('C')} | D ${cell('D')} E ${cell('E')} F ${cell('F')} | R ${cell('R')} | ${x.plan}, копья ${o.spear}, пехота ${o.infantry}, лучники ${o.archer}, конница ${o.cavalry}, резерв ${x.reserve.kind}`;
+    const a = UNIT_KINDS.map((k) => (['A', 'B', 'C', 'D', 'E', 'F', 'R'] as const).reduce((n, id) => n + x.sectors[id][k], 0));
+    return UNIT_KINDS.map((k, i) => `${k} ${a[i]}`).filter((_, i) => a[i] > 0).join(' + ');
   };
   const pc = (v: number): string => `${(v * 100).toFixed(1)}%`.padStart(7);
-
-  console.log('потолок цены расстановки — против быстрой атаки (случайный пресет по сиду):');
-  console.log('   №  отбор  перемер  побед пораж   расстановка');
-  const ceiling = searchFinish(quickList, quickFinals.map((f) => f().gap));
-  for (const f of ceiling) console.log(` ${pad(f.index, 4, true)} ${pc(f.screen)} ${pc(f.final.gap)}  ${pad(f.final.won, 4, true)} ${pad(f.final.lost, 5, true)}   ${brief(f.setup)}`);
-  const tuned = tunedSearch().gap;
-  const bestScreen = [...ceiling].sort((x, y) => y.screen - x.screen)[0];
-  console.log(`потолок: ${pc(ceiling[0].final.gap).trim()} (№ ${ceiling[0].index}); лучший на отборе (№ ${bestScreen.index}) ${pc(bestScreen.screen).trim()} → на перемере ${pc(bestScreen.final.gap).trim()}; TUNED на тех же сидах ${pc(tuned.gap).trim()}`);
-
-  console.log('\nконтрер стандартного пресета: отбор и перемер против стандарта, против случайного пресета — те же новые сиды;');
-  console.log(`условия (bench.counterHolds): против стандарта больше ${COUNTER_TERMS.known * 100}%, против случайного от ${COUNTER_TERMS.randomLow * 100}% до ${COUNTER_TERMS.randomHigh * 100}% и меньше половины первого`);
-  console.log('   №  отбор  стандарт  случайный  случ/станд  условия   расстановка');
-  const randomOf = new Map(standardList.map((f, k) => [f.index, counterRandom[k]().gap.gap]));
-  const counters = counterOf(searchFinish(standardList, standardFinals.map((f) => f().gap)), (f) => randomOf.get(f.index)!);
-  for (const f of counters) console.log(` ${pad(f.index, 4, true)} ${pc(f.screen)} ${pc(f.final.gap)}  ${pc(f.random)}   ${(f.random / f.final.gap).toFixed(2).padStart(9)}   ${f.holds ? 'да ' : 'нет'}      ${brief(f.setup)}`);
-  const first = counters.find((f) => f.holds);
-  if (first) console.log(`контрер стандарта по условиям теста — № ${first.index} поиска: первый по перемеру, кто их выполняет`);
-  else {
-    console.log(`контрера стандарта по условиям теста среди ${counters.length} финалистов нет; KNOWN_COUNTER теста (№ ${KNOWN_COUNTER_INDEX}) условиям больше не отвечает — эталон переписать`);
-    // Что именно не выполнено: знает ли поиск тех, кто бьёт стандарт намного сильнее случайного пресета.
-    const specific = counters.filter((f) => f.final.gap > COUNTER_TERMS.known && f.random < f.final.gap / 2);
-    console.log(
-      `  бьют стандарт больше ${COUNTER_TERMS.known * 100}% и случайный пресет меньше чем вполовину того: ${specific.map((f) => `№ ${f.index} — ${pc(f.final.gap).trim()} / ${pc(f.random).trim()}`).join('; ') || 'никто'}`,
-    );
-    if (specific.length) console.log(`  у них не выполнено: против случайного ${specific.map((f) => (f.random <= COUNTER_TERMS.randomLow ? `не больше ${COUNTER_TERMS.randomLow * 100}%` : `больше ${COUNTER_TERMS.randomHigh * 100}%`)).join('; ')}`);
-    else console.log('  всё, что бьёт стандарт больше 40 %, бьёт и случайный пресет не меньше чем вполовину того');
-  }
+  console.log(`противник: ${compositionName(BALANCED_ARMY)}`);
+  console.log('   №  отбор  перемер  побед пораж   состав');
+  const ranked = searchFinish(shortlist, finals.map((f) => f().gap));
+  for (const f of ranked) console.log(` ${pad(f.index, 4, true)} ${pc(f.screen)} ${pc(f.final.gap)}  ${pad(f.final.won, 4, true)} ${pad(f.final.lost, 5, true)}   ${brief(f.setup)}`);
+  const bestScreen = [...ranked].sort((x, y) => y.screen - x.screen)[0];
+  console.log(`лучший на перемере: ${pc(ranked[0].final.gap).trim()} (№ ${ranked[0].index}); лучший на отборе (№ ${bestScreen.index}) ${pc(bestScreen.screen).trim()} → на перемере ${pc(bestScreen.final.gap).trim()}`);
 }
 
 if (process.env.SHOW) {
@@ -589,8 +348,8 @@ if (process.env.SHOW) {
   const scale = Number(process.env.SCALE ?? 1);
   const ca = COMPOSITIONS.find((c) => c.name === an);
   const seed = Number(process.env.SEED ?? 1);
-  const a = ca ? quickSetup(Object.fromEntries(Object.entries(ca.army).map(([k, n]) => [k, Math.round((n ?? 0) * scale)]))) : TUNED;
-  const b = COMPOSITIONS.find((c) => c.name === bn)?.setup ?? quickOf(seed);
+  const a = deploySetup(ca ? Object.fromEntries(Object.entries(ca.army).map(([k, n]) => [k, Math.round((n ?? 0) * scale)])) : BALANCED_ARMY);
+  const b = COMPOSITIONS.find((c) => c.name === bn)?.setup ?? deploySetup(BALANCED_ARMY);
   const r: BattleResult = simulateBattle({ seed, attacker: a, defender: b });
   const line = (s: Stack): string => `копья ${s.spear} пехота ${s.infantry} лучники ${s.archer} лёгкая ${s.cavalry} тяжёлая ${s.heavy}`;
   console.log(`\n=== ${an} против ${bn}: ${r.winner} (${r.reason}), ${r.ticks} тиков, потери чужие/свои ${lossRatio(r, 'attacker').toFixed(2)} ===`);

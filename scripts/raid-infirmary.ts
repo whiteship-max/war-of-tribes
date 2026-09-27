@@ -118,7 +118,7 @@ export async function huntRun({ level, seed }: { level: number; seed: number }):
       }
       if (target && gen.atId === target) {
         went = troopTotal(gen.troops);
-        const res = await world.attack({ setup: null });
+        const res = await world.attack({});
         if (res.error === null) strikes++;
         target = null;
         mustered = false;

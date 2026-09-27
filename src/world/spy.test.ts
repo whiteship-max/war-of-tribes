@@ -146,8 +146,8 @@ describe('донесение', () => {
     const width = (r: typeof fresh): number => (r ? r.power.max - r.power.min : 0);
     expect(width(older), 'со временем вилка шире').toBeGreaterThanOrEqual(width(fresh));
     expect(width(old), 'и ещё шире').toBeGreaterThan(width(older));
-    // Построения лазутчик не приносит: он считает головы, а не разглядывает линии.
-    expect(fresh?.formation).toBeNull();
+    // Построения разведка не приносит вовсе: оно у всех одно — правило развёртывания (docs/battle_eu4.md, 14.5).
+    expect('formation' in (fresh ?? {})).toBe(false);
   });
 
   it('снимок своими глазами остаётся точным: вилка — примета донесения, а не всех данных', () => {

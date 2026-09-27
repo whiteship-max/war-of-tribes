@@ -8,14 +8,12 @@
 import {
   SECTORS,
   UNIT_KINDS,
-  quickAttack,
+  deploySetup,
   simulateBattle,
   stackTotal,
   type ArmySetup,
   type BattleResult,
-  type Intel as BattleIntel,
   type Pips,
-  type QuickPresetId,
   type Sector,
   type Stack,
   type UnitKind,
@@ -28,18 +26,19 @@ export interface FieldSide {
    * Стойкость, с которой сторона вышла в поле: у нас — обряд перед боем
    * (`derived.fervour`), у чужих — ноль, брать её им неоткуда.
    *
-   * Кладётся поверх расстановки, ровно как `gear`, и по той же причине: при
-   * быстрой атаке расстановку выбирает пресет, а стойкость — свойство войска,
-   * а не построения.
+   * Кладётся поверх расстановки, ровно как `gear`, и по той же причине: где кто
+   * встал, решает правило развёртывания, а стойкость — свойство войска, а не построения.
    */
   resolve?: number;
   /**
    * Отметки того, кто ведёт сторону (`PlayerProfile.pips`): у нас — полководец в своих боях и у
-   * своих ворот, у чужих — ничего. Кладутся поверх расстановки тем же путём, что `resolve`, и по
-   * той же причине: пресет выбирает строй, а не того, кто им командует.
+   * своих ворот, у чужих — ничего. Кладутся поверх расстановки тем же путём, что `resolve`.
    */
   pips?: Pips;
-  /** null — быстрая атака: пресет выберется по сиду похода. */
+  /**
+   * Своя раскладка по секторам — у одной стороны в игре: у обороны деревни до поставки 2
+   * (docs/battle_eu4.md, 14.5). null — сторона встаёт по правилу развёртывания (`setup.deploySetup`).
+   */
   setup: ArmySetup | null;
 }
 
@@ -47,11 +46,6 @@ export interface FieldInput {
   seed: number;
   attacker: FieldSide;
   defender: FieldSide;
-  /**
-   * Что нападающий знал о цели: разведка сдвигает выбор пресета. Любой давности —
-   * мир отдаёт сюда состав из последнего снимка и возраста его не спрашивает.
-   */
-  intel?: BattleIntel;
 }
 
 export interface FieldOutcome {
@@ -61,8 +55,6 @@ export interface FieldOutcome {
   defenderLoss: number;
   /** Полный результат с журналом. Из него строится отчёт на экране. */
   result: BattleResult | null;
-  /** Каким пресетом пошла сторона, если расстановку ей не задавали. */
-  preset: { attacker: QuickPresetId | null; defender: QuickPresetId | null };
 }
 
 /**
@@ -93,9 +85,6 @@ export function fitSetup(setup: ArmySetup, have: Stack): ArmySetup {
   return { ...setup, sectors };
 }
 
-/** Сид для расстановки стороны: у нападающего и обороняющегося он не должен совпасть. */
-const salt = (seed: number, n: number): number => (Math.imul(seed ^ n, 0x9e3779b1) >>> 0);
-
 /**
  * Считает полевой бой. Пустая сторона в ядро не идёт: `validateSetup` требует
  * хотя бы одного бойца, а «пришёл никто» — это не ничья, а поражение пришедшего.
@@ -103,25 +92,11 @@ const salt = (seed: number, n: number): number => (Math.imul(seed ^ n, 0x9e3779b
 export function resolveField(input: FieldInput): FieldOutcome {
   const atk = stackTotal(input.attacker.kinds);
   const def = stackTotal(input.defender.kinds);
-  const none = { attacker: null, defender: null };
-  if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null, preset: none };
-  if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null, preset: none };
+  if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null };
+  if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null };
 
-  let attackerPreset: QuickPresetId | null = null;
-  let defenderPreset: QuickPresetId | null = null;
-
-  let attacker = input.attacker.setup;
-  if (!attacker) {
-    const quick = quickAttack(input.attacker.kinds, salt(input.seed, 1), input.intel);
-    attackerPreset = quick.preset;
-    attacker = quick.setup;
-  }
-  let defender = input.defender.setup;
-  if (!defender) {
-    const quick = quickAttack(input.defender.kinds, salt(input.seed, 2));
-    defenderPreset = quick.preset;
-    defender = quick.setup;
-  }
+  const attacker = input.attacker.setup ?? deploySetup(input.attacker.kinds);
+  const defender = input.defender.setup ?? deploySetup(input.defender.kinds);
 
   const result = simulateBattle({
     seed: input.seed,
@@ -136,6 +111,5 @@ export function resolveField(input: FieldInput): FieldOutcome {
     attackerLoss: a.initial > 0 ? a.losses / a.initial : 0,
     defenderLoss: d.initial > 0 ? d.losses / d.initial : 0,
     result,
-    preset: { attacker: attackerPreset, defender: defenderPreset },
   };
 }

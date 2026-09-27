@@ -60,7 +60,6 @@ function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
   if (view.kind === 'world') return <WorldPanel x={view.x} y={view.y} />;
   if (view.kind === 'marches') return <MarchesPanel />;
-  if (view.kind === 'battle') return <BattlePanel targetId={view.target} />;
   if (view.kind === 'defense') return <BattlePanel />;
   if (view.kind === 'sortie') return <SortiePanel />;
   if (view.kind === 'siege') return <SiegePanel />;

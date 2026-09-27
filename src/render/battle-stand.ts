@@ -23,7 +23,7 @@
 // инструмент проверки, которому сама канва недоступна.
 import * as THREE from 'three';
 import { simulateBattle } from '@/battle/sim';
-import { emptyStack, quickSetup } from '@/battle/setup';
+import { deploySetup, emptyStack } from '@/battle/setup';
 import type { Act, Cast } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
@@ -77,7 +77,8 @@ function placeOf(p: URLSearchParams): BattlePlace | undefined {
 }
 
 function fight(a: Stack, d: Stack, seed: number): BattleResult {
-  return simulateBattle({ seed, attacker: quickSetup(a), defender: quickSetup(d) });
+  // Обе стороны встают по правилу развёртывания — как в игре: пресетов больше нет (docs/battle_eu4.md, 14.5).
+  return simulateBattle({ seed, attacker: deploySetup(a), defender: deploySetup(d) });
 }
 
 /** Именованные моменты ролика: по ним снимают кадры приёмки. */
@@ -110,9 +111,8 @@ function moment(cast: Cast, at: string): number {
       return clash ? clash.t0 + 0.5 : win('melee').from;
     }
     case 'charge': {
-      const m = cast.marks.find(
-        (x) => x.id === 'cavalry-broke-archers' || x.id === 'flank-turned' || x.id === 'cavalry-intercepted',
-      );
+      // Перехвата обхода (`cavalry-intercepted`) ядро больше не пишет: он жил приказом «держать фланг».
+      const m = cast.marks.find((x) => x.id === 'cavalry-broke-archers' || x.id === 'flank-turned');
       return m ? m.t + 1.3 : win('melee').from + 4;
     }
     case 'rout': {

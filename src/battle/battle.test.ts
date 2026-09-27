@@ -1,15 +1,15 @@
-// Раздел 16 документа — это список тестов. Здесь они все: доминирующего состава
-// нет, разрыв быстрой атаки в коридоре, кольцо работает, превосходство условно,
-// бой детерминирован, укладывается в границы, выведенные из фаз, а журнал объясняет
-// исход и не врёт числам.
+// Раздел 16 документа — это список тестов. Здесь они все, кроме тех, что ушли с раскладкой
+// (docs/battle_eu4.md, 14.5): доминирующего состава нет, кольцо работает, превосходство условно,
+// бой детерминирован, укладывается в границы, выведенные из фаз, а журнал объясняет исход и
+// не врёт числам. Все стороны встают по правилу развёртывания (`setup.deploySetup`).
 import { describe, expect, it } from 'vitest';
-import { simulateBattle } from './sim';
-import { emptyStack, quickSetup, quickAttack, presetWeights, armyTotal, stackTotal, stackOf, validateSetup, QUICK_PRESETS, QUICK_PRESET_IDS } from './setup';
+import { ringMult, simulateBattle } from './sim';
+import { deploySetup, armyTotal, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, COUNTER, DICE, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PLANS, PYRRHIC_BELOW, RANGED_TICKS, TEMPER, circleLength, circleMin, circleTicks, meleeTicksOf, UNIT_STATS, WIDTH_ON, roundsCap } from './config';
-import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, SCREEN_KINDS, compositionLattice, compositionName, latticeDuels, screenArmy, screenCurve, screenPoints, screenThinner, type LatticeRow, COUNTER_TERMS, counterHolds, standardOf, KNOWN_COUNTER, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, TUNED, gapAgainst, hasLine, holdSize, homogeneous, laneFront, layoutGrid, layoutName, layoutOf, lossRatio, mirrored, oversize, oversizeHold, quickOf, scaleArmy, SEARCH, setupOf, withDiceStep } from './bench';
+import { ANNIHILATED_AT, COUNTER, DICE, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, circleLength, circleMin, circleTicks, meleeTicksOf, UNIT_STATS, WIDTH_ON, roundsCap } from './config';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
-import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PipId, type Plan, type Side, type Stack, type Winner } from './types';
+import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PipId, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 /**
@@ -42,31 +42,18 @@ function allPairs(seeds: number): Array<{ a: string; b: string; ratio: number; r
 
 /** Крайние случаи: они должны и завершаться в срок, и давать честный журнал. */
 const EXTREMES: Array<{ name: string; attacker: ArmySetup; defender: ArmySetup }> = [
-  { name: 'толпа против горстки', attacker: quickSetup({ infantry: 1000 }), defender: quickSetup({ spear: 10 }) },
-  { name: 'горстка против толпы', attacker: quickSetup({ archer: 5 }), defender: quickSetup({ cavalry: 900, infantry: 300 }) },
-  { name: 'один на один', attacker: quickSetup({ infantry: 1 }), defender: quickSetup({ spear: 1 }) },
-  { name: 'только лучники с обеих сторон', attacker: quickSetup({ archer: 300 }), defender: quickSetup({ archer: 300 }) },
-  { name: 'только конница с обеих сторон', attacker: quickSetup({ cavalry: 300 }), defender: quickSetup({ cavalry: 300 }) },
+  { name: 'толпа против горстки', attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 10 }) },
+  { name: 'горстка против толпы', attacker: deploySetup({ archer: 5 }), defender: deploySetup({ cavalry: 900, infantry: 300 }) },
+  { name: 'один на один', attacker: deploySetup({ infantry: 1 }), defender: deploySetup({ spear: 1 }) },
+  { name: 'только лучники с обеих сторон', attacker: deploySetup({ archer: 300 }), defender: deploySetup({ archer: 300 }) },
+  { name: 'только конница с обеих сторон', attacker: deploySetup({ cavalry: 300 }), defender: deploySetup({ cavalry: 300 }) },
+  // Широкий строй против узкого: у узкого пустые края, и широкий заходит ему во фланг.
+  { name: 'широкий строй против узкого', attacker: deploySetup({ infantry: 400, cavalry: 150, archer: 100 }), defender: deploySetup({ spear: 150, archer: 100 }) },
+  // Раскладка руками — так до поставки 2 стоит оборона игрока: сектора шире W и резерв.
   {
-    name: 'вся конница в преследовании против одних копий',
-    attacker: quickSetup({ cavalry: 200 }, { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'pursue' } }),
-    defender: quickSetup({ spear: 200 }),
-  },
-  {
-    name: 'изматывание против агрессии',
-    attacker: quickSetup(BALANCED_ARMY, { plan: 'attrition' }),
-    defender: quickSetup(BALANCED_ARMY, { plan: 'aggressive' }),
-  },
-  {
-    name: 'копья охраняют лучников, конница обходит',
-    attacker: setupOf(
-      { A: { spear: 100 }, B: { infantry: 200 }, C: { spear: 100 }, D: { archer: 50 }, E: { archer: 100 }, F: { archer: 50 } },
-      { orders: { spear: 'guard-archers', infantry: 'hold-center', archer: 'keep-distance', cavalry: 'charge' } },
-    ),
-    defender: setupOf(
-      { A: { infantry: 100, cavalry: 80 }, B: { infantry: 200 }, C: { infantry: 100, cavalry: 80 }, E: { archer: 100 } },
-      { plan: 'cavalry-strike', orders: { spear: 'hold-line', infantry: 'support-weak-flank', archer: 'support-center', cavalry: 'flank' } },
-    ),
+    name: 'своя раскладка против правила',
+    attacker: setupOf({ A: { spear: 100 }, B: { infantry: 300 }, C: { spear: 100 }, D: { archer: 50 }, E: { archer: 100 }, F: { archer: 50 }, R: { cavalry: 80 } }),
+    defender: deploySetup({ infantry: 400, cavalry: 160, archer: 100 }),
   },
 ];
 
@@ -78,27 +65,15 @@ function sampleBattles(): BattleResult[] {
   return out;
 }
 
-describe('шаблон быстрой атаки', () => {
-  it('раскладывает любой состав целиком и по правилу', () => {
-    const s = quickSetup(BALANCED_ARMY);
-    expect(armyTotal(s)).toEqual({ spear: 150, infantry: 200, archer: 150, cavalry: 100, heavy: 0 });
-    // Центр пехотный, но фланги заякорены малой долей пехоты: без неё фланг ломается первым.
-    expect(s.sectors.B.infantry).toBe(140);
-    expect(s.sectors.A.infantry).toBe(30);
-    expect(s.sectors.C.infantry).toBe(30);
-    expect(s.sectors.B.spear).toBe(0);
-    expect(s.sectors.A.spear + s.sectors.C.spear).toBe(150);
-    expect(s.sectors.D.archer + s.sectors.E.archer + s.sectors.F.archer).toBe(150);
-    expect(s.sectors.R.cavalry).toBe(100);
-    for (const army of [{ archer: 7 }, { cavalry: 3 }, { spear: 1 }, { infantry: 2, cavalry: 2 }]) {
-      expect(stackTotal(armyTotal(quickSetup(army)))).toBe(stackTotal({ ...emptyStack(), ...army }));
-    }
-    // Некому держать фронт — конница выходит вперёд, а не ждёт в резерве.
-    expect(quickSetup({ cavalry: 30 }).sectors.R.cavalry).toBe(0);
+describe('вход боя', () => {
+  it('пустая армия не принимается', () => {
+    expect(() => simulateBattle({ seed: 1, attacker: deploySetup({}), defender: deploySetup({ spear: 1 }) })).toThrow();
   });
 
-  it('пустая армия не принимается', () => {
-    expect(() => simulateBattle({ seed: 1, attacker: quickSetup({}), defender: quickSetup({ spear: 1 }) })).toThrow();
+  it('у стороны нет ни плана, ни приказов, ни условия резерва: только сектора и то, с чем войско вышло', () => {
+    // Решения игрока в бою — состав и кто ведёт, как у EU4 (docs/battle_eu4.md, 14.1): где кто встанет, решает правило.
+    expect(Object.keys(deploySetup(BALANCED_ARMY))).toEqual(['sectors']);
+    expect(armyTotal(deploySetup(BALANCED_ARMY))).toEqual(stackOf(BALANCED_ARMY));
   });
 });
 
@@ -106,7 +81,7 @@ describe('нет доминирующего состава', () => {
   // Противники — вся решётка составов (`bench.compositionLattice`), а не список, подобранный
   // руками: список не содержит того, кто доминирует, и промахивается мимо тех, кто его бьёт. Порог — по
   // размену, не по доле побед: поле держит тот, у кого дольше мораль, а платить за него можно
-  // больше, чем за поражение. Дыру заслона ловит свой тест («линия по силе»), а не этот.
+  // больше, чем за поражение. Все встают по правилу развёртывания — расстановку решётка не выбирает.
   let rows: LatticeRow[] | null = null;
   const lattice = (): LatticeRow[] => (rows ??= latticeDuels());
 
@@ -159,74 +134,6 @@ describe('результат и цена', () => {
   });
 });
 
-describe('разрыв быстрой атаки', () => {
-  it('настроенная армия выигрывает у быстрой атаки 10–25% по потерям на ста боях', () => {
-    const { gap } = gapAgainst(TUNED, quickOf, 100);
-    expect(gap).toBeGreaterThanOrEqual(0.1);
-    expect(gap).toBeLessThanOrEqual(0.25);
-    for (let seed = 1; seed <= 4; seed += 1) expect(armyTotal(TUNED)).toEqual(armyTotal(quickOf(seed)));
-  });
-
-  it('против каждого пресета в отдельности настроенная армия не проигрывает', () => {
-    for (const id of QUICK_PRESET_IDS) {
-      const { gap } = gapAgainst(TUNED, () => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)), 30);
-      expect(gap, id).toBeGreaterThan(-0.05);
-    }
-  });
-
-  it('известный контрер стандартного пресета против случайного пресета падает до тех же ≈15%', () => {
-    // Против одного известного шаблона контрер выигрывает вдвое и больше — это цена публичного
-    // шаблона. Против быстрой атаки, где пресет неизвестен, его преимущество — не больше, чем у
-    // любой настроенной армии.
-    // Условия и сиды — те же, по которым отчёт ищет контрера в закоммиченном поиске
-    // (`bench.counterHolds`, перемер на `SEARCH.final` новых сидах): эталон — его вывод, № KNOWN_COUNTER_INDEX.
-    const known = gapAgainst(KNOWN_COUNTER, standardOf, SEARCH.final, SEARCH.finalFrom);
-    const random = gapAgainst(KNOWN_COUNTER, quickOf, SEARCH.final, SEARCH.finalFrom);
-    expect(known.gap).toBeGreaterThan(COUNTER_TERMS.known);
-    expect(random.gap).toBeGreaterThan(COUNTER_TERMS.randomLow);
-    expect(random.gap).toBeLessThanOrEqual(COUNTER_TERMS.randomHigh);
-    expect(random.gap).toBeLessThan(known.gap / 2);
-    expect(counterHolds(known.gap, random.gap)).toBe(true);
-  });
-});
-
-describe('пресеты быстрой атаки', () => {
-  it('каждый пресет раскладывает любой состав целиком, и ни один не пуст', () => {
-    const armies: Array<Partial<Stack>> = [BALANCED_ARMY, { infantry: 300 }, { spear: 200, archer: 100 }, { cavalry: 50 }, { archer: 40, cavalry: 40 }, { spear: 1 }];
-    for (const id of QUICK_PRESET_IDS) {
-      for (const army of armies) {
-        const s = QUICK_PRESETS[id].layout(stackOf(army));
-        expect(armyTotal(s), `${id}: ${JSON.stringify(army)}`).toEqual(stackOf(army));
-        expect(validateSetup(s)).toBeNull();
-      }
-    }
-  });
-
-  it('быстрая атака выбирает пресет по сиду детерминированно, и без разведки все четыре в ходу', () => {
-    const picks: Record<string, number> = {};
-    for (let seed = 1; seed <= 400; seed += 1) {
-      const a = quickAttack(BALANCED_ARMY, seed);
-      const b = quickAttack(BALANCED_ARMY, seed);
-      expect(a.preset).toBe(b.preset);
-      expect(JSON.stringify(a.setup)).toBe(JSON.stringify(b.setup));
-      picks[a.preset] = (picks[a.preset] ?? 0) + 1;
-    }
-    for (const id of QUICK_PRESET_IDS) expect(picks[id] ?? 0, id).toBeGreaterThan(400 * 0.15);
-  });
-
-  it('свежие разведданные сдвигают выбор: против массы конницы чаще приходит анти-кавалерия', () => {
-    let plain = 0;
-    let informed = 0;
-    for (let seed = 1; seed <= 400; seed += 1) {
-      if (quickAttack(BALANCED_ARMY, seed).preset === 'anti-cavalry') plain += 1;
-      if (quickAttack(BALANCED_ARMY, seed, { cavalry: 300, infantry: 200 }).preset === 'anti-cavalry') informed += 1;
-    }
-    expect(informed).toBeGreaterThan(plain * 1.5);
-    // Разведка без единого замеченного бойца ничего не сдвигает.
-    expect(presetWeights({})).toEqual(presetWeights());
-  });
-});
-
 describe('кольцо контрров', () => {
   for (const pair of RING) {
     it(pair.name, () => {
@@ -244,60 +151,34 @@ describe('кольцо контрров', () => {
 });
 
 describe('превосходство условно', () => {
-  const cavalry = quickSetup({ cavalry: ARMY_SIZE });
-  const spears = (spear: ArmySetup['orders']['spear']): ArmySetup =>
-    quickSetup({ spear: ARMY_SIZE }, { orders: { spear, infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
-
-  it('копейщики с приказом «наступать» теряют преимущество над конницей', () => {
-    let holding = 0;
-    let advancing = 0;
-    for (let seed = 1; seed <= 8; seed += 1) {
-      holding += mirrored(spears('hold-line'), cavalry, seed).lossRatio;
-      advancing += mirrored(spears('advance'), cavalry, seed).lossRatio;
-    }
-    expect(advancing).toBeLessThan(holding * 0.6);
-    expect(COUNTER.spear.cavalryAdvancing).toBeLessThan(COUNTER.spear.cavalryHolding);
-  });
+  const cavalry = deploySetup({ cavalry: ARMY_SIZE });
+  const spears = deploySetup({ spear: ARMY_SIZE });
 
   it('конница против сомкнутых копий проигрывает размен', () => {
     for (let seed = 1; seed <= 6; seed += 1) {
-      const m = mirrored(cavalry, spears('hold-line'), seed);
+      const m = mirrored(cavalry, spears, seed);
       expect(m.lossRatio).toBeLessThanOrEqual(1 / RATIO_EVEN);
     }
   });
 
-  it('конница в обход закрытого тыла с копьями разбивается о них', () => {
-    // Копья охраняют лучников в тылу: конница, зашедшая туда, встречает сомкнутый строй.
-    const guarded = setupOf(
-      { A: { infantry: 100 }, B: { infantry: 200 }, C: { infantry: 100 }, D: { archer: 40, spear: 60 }, E: { archer: 70, spear: 80 }, F: { archer: 40, spear: 60 } },
-      { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } },
-    );
-    const open = setupOf(
-      { A: { infantry: 100, spear: 60 }, B: { infantry: 200, spear: 80 }, C: { infantry: 100, spear: 60 }, D: { archer: 40 }, E: { archer: 70 }, F: { archer: 40 } },
-      { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } },
-    );
-    const striker = setupOf(
-      { A: { infantry: 200 }, B: { infantry: 300 }, C: { infantry: 200 }, R: { cavalry: 100 } },
-      { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'flank' }, reserve: { kind: 'immediate' } },
-    );
-    let guardedArchers = 0;
-    let openArchers = 0;
-    for (let seed = 1; seed <= 6; seed += 1) {
-      const g = simulateBattle({ seed, attacker: striker, defender: guarded });
-      const o = simulateBattle({ seed, attacker: striker, defender: open });
-      guardedArchers += g.sides.defender.losses.archer;
-      openArchers += o.sides.defender.losses.archer;
-      // В закрытый тыл конница упирается в копья, в открытый — вырубает лучников.
-      expect(g.log.some((e) => e.id === 'spears-held' && e.side === 'defender')).toBe(true);
-      expect(o.log.some((e) => e.id === 'cavalry-broke-archers' && e.side === 'attacker')).toBe(true);
-      expect(g.sides.attacker.losses.cavalry).toBeGreaterThan(o.sides.attacker.losses.cavalry);
+  it('копья держат конницу, пока не обойдены: обойдённые и смятые теряют упор — условие положение, а не приказ', () => {
+    // Новый тест 8 поставки 1 (docs/battle_eu4.md, 14.5; Е17): сомкнутость копий — положение. Кольцо читает его
+    // одной функцией (`sim.ringMult`), и граница области — оба рода конницы и обе стороны удара.
+    for (const horse of ['cavalry', 'heavy'] as const) {
+      expect(ringMult('spear', horse, false, false, false, false), `${horse}: сомкнутые копья`).toBe(COUNTER.spear.cavalryHolding);
+      expect(ringMult('spear', horse, false, true, false, false), `${horse}: обойдённые или смятые копья`).toBe(1);
+      expect(ringMult(horse, 'spear', false, false, false, false), `${horse} в лоб по сомкнутым`).toBe(COUNTER[horse].spearClosed);
+      expect(ringMult(horse, 'spear', false, false, false, true), `${horse} по смятым`).toBe(1);
+      expect(ringMult(horse, 'spear', true, false, false, false), `${horse} во фланг`).toBe(COUNTER[horse].flank);
     }
-    expect(guardedArchers * 1.5).toBeLessThan(openArchers);
+    expect(COUNTER.spear.cavalryHolding).toBeGreaterThan(1);
+    // Приказа у стороны нет вовсе — значит, и сомкнутость не может от него зависеть.
+    expect('orders' in spears).toBe(false);
   });
 
   it('лучники после контакта резко теряют ценность', () => {
     const shooters = setupOf({ A: { infantry: 100 }, B: { infantry: 200 }, C: { infantry: 100 }, D: { archer: 60 }, E: { archer: 80 }, F: { archer: 60 } });
-    const wall = quickSetup({ infantry: 600 });
+    const wall = deploySetup({ infantry: 600 });
     for (let seed = 1; seed <= 4; seed += 1) {
       const r = simulateBattle({ seed, attacker: shooters, defender: wall });
       const clash = r.phases.find((p) => p.phase === 'clash')!;
@@ -325,75 +206,6 @@ describe('превосходство условно', () => {
  */
 const atGong = (r: BattleResult): boolean => r.log.some((e) => e.id === 'rounds-out');
 const endedEarly = (r: BattleResult): boolean => !atGong(r);
-
-describe('манёвр — только за своей линией', () => {
-  // Армия без линии в обходе была недосягаема: по ждущей коннице не стреляют и с ней не сходятся, и вся
-  // конница, которая в лоб проигрывала вдвое сильнейшему, «обходом» его била (docs/stable.md, раздел 3).
-  const CAV = 600;
-  const foe = (k: number): ArmySetup => quickSetup(Object.fromEntries(Object.entries(BALANCED_ARMY).map(([kind, n]) => [kind, Math.round((n ?? 0) * k)])));
-  const lineless = (cavalry: ArmySetup['orders']['cavalry']): ArmySetup =>
-    quickSetup({ cavalry: CAV }, { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry } });
-  const hasLineIn = (setup: ArmySetup): boolean => SECTORS.some((id) => setup.sectors[id].spear + setup.sectors[id].infantry + setup.sectors[id].archer > 0);
-
-  it('армия без линии с манёвром не выигрывает того, что проигрывает в лоб', () => {
-    const charge = lineless('charge');
-    // Граница: у армии нет ни одного пешего и лучника, и конница стоит на полосах, а не в резерве.
-    expect(hasLineIn(charge)).toBe(false);
-    expect(FRONT.reduce((n, id) => n + charge.sectors[id].cavalry, 0)).toBe(CAV);
-    for (const order of ['flank', 'attack-archers', 'pursue'] as const) {
-      const maneuver = lineless(order);
-      expect(hasLineIn(maneuver)).toBe(false);
-      for (let seed = 1; seed <= 12; seed += 1) {
-        const inFront = simulateBattle({ seed, attacker: charge, defender: foe(2) });
-        const around = simulateBattle({ seed, attacker: maneuver, defender: foe(2) });
-        // Граница: в лоб эта армия бой проигрывает — иначе «не выиграл больше» проверялось бы даром.
-        expect(inFront.winner, `${order}, сид ${seed}: в лоб`).toBe('defender');
-        expect(around.winner, `${order}, сид ${seed}: без линии манёвра нет`).toBe('defender');
-      }
-    }
-  });
-
-  it('за своей линией манёвр остаётся манёвром', () => {
-    // План натиска: охвата у пехоты нет, и заход во фланг может сделать только конница.
-    const screened = (cavalry: ArmySetup['orders']['cavalry']): ArmySetup =>
-      setupOf({ A: { infantry: 150, cavalry: 100 }, B: { infantry: 200 }, C: { infantry: 150, cavalry: 100 } }, { plan: 'assault', orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry } });
-    // Граница: конница стоит на полосах вместе с пехотой — её прикрывают.
-    expect(hasLineIn(screened('flank'))).toBe(true);
-    const turned = (cavalry: ArmySetup['orders']['cavalry']): number => {
-      let n = 0;
-      for (let seed = 1; seed <= 6; seed += 1) {
-        const r = simulateBattle({ seed, attacker: screened(cavalry), defender: foe(1) });
-        n += r.log.filter((e) => e.id === 'flank-turned' && e.by === 'attacker' && e.phase === 'flanking').length;
-      }
-      return n;
-    };
-    expect(turned('charge'), 'в лоб во фланг в фазе обходов не заходят').toBe(0);
-    expect(turned('flank'), 'за линией обход заходит во фланг').toBeGreaterThan(0);
-  });
-});
-
-describe('линия по силе', () => {
-  // Заслон прикрывал по наличию: сотня латных впереди прятала пятьсот лёгких, и самый тонкий
-  // заслон был лучшим — чем меньше латных, тем больше лёгких за ними (docs/stable.md, раздел 12).
-  // Теперь линия прикрывает не больше `линия / COVER.K` силы ждущих (`Battle.expose`).
-  it('за заслоном тоньше ждущих манёвр не выигрывает от того, что заслон тоньше', () => {
-    const foes = compositionLattice().map((a) => quickSetup(a));
-    for (const screen of SCREEN_KINDS) {
-      const points = screenPoints(screen);
-      // Граница области: каждая точка — заслон тоньше ждущих по силе боя, и точек хватает на кривую.
-      expect(points.length, screen).toBeGreaterThanOrEqual(3);
-      for (const men of points) expect(screenThinner(screen, men), `${screen} ${men}`).toBe(true);
-      // Лёгкие ждут на полосах, а не в резерве: иначе заслон их не прикрывал бы вовсе.
-      const army = screenArmy(screen, points[0], 'attack-archers');
-      expect(army.sectors.R.cavalry + FRONT.reduce((n, id) => n + army.sectors[id].cavalry, 0)).toBe(ARMY_SIZE - points[0]);
-      expect(army.sectors.R.cavalry).toBe(0);
-      const curve = screenCurve(screen, foes);
-      for (let i = 1; i < curve.length; i += 1) {
-        expect(curve[i - 1].worth, `${screen}: заслон ${curve[i - 1].men} даёт манёвру больше, чем заслон ${curve[i].men}`).toBeLessThanOrEqual(curve[i].worth);
-      }
-    }
-  }, 120_000);
-});
 
 describe('мораль по секторам', () => {
   it('бой обычно кончается отступлением, а не гонгом', () => {
@@ -427,7 +239,8 @@ describe('мораль по секторам', () => {
     expect(holdSize(), 'размер W: ширина включена').toBe(WIDTH_ON ? ARMY_AT_W : ARMY_SIZE);
     const balanced = COMPOSITIONS.findIndex((c) => stackTotal(stackOf(c.army)) === ARMY_SIZE && UNIT_KINDS.every((k) => (c.army[k] ?? 0) === (BALANCED_ARMY[k] ?? 0)));
     // Граница области: на этом размере фронт полосы сбалансированного состава и есть ширина — ровно на ней.
-    expect(Math.abs(laneFront(quickSetup(scaleArmy(COMPOSITIONS[balanced].army, holdSize()))) - FRONT_WIDTH), 'фронт полосы на размере W').toBeLessThan(1);
+    expect(Math.abs(openFront(scaleArmy(COMPOSITIONS[balanced].army, holdSize())) - FRONT_WIDTH), 'фронт полосы без ширины на размере W').toBeLessThan(1);
+    expect(Math.abs(laneFront(deploySetup(scaleArmy(COMPOSITIONS[balanced].army, holdSize()))) - FRONT_WIDTH), 'фронт полосы на размере W').toBeLessThan(1);
     const ratios: number[] = [];
     for (const [i, c] of COMPOSITIONS.entries()) {
       const { bigLoss, smallLoss } = oversize(i, OVERSIZE_SEEDS, holdSize());
@@ -464,9 +277,9 @@ describe('мораль по секторам', () => {
   });
 
   it('якорь: сектор с пехотой держит мораль дольше, чем без неё', () => {
-    const wall = quickSetup({ infantry: 600 });
-    const bare = setupOf({ A: { spear: 150 }, B: { spear: 300 }, C: { spear: 150 } }, { orders: { spear: 'advance', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
-    const anchoredLine = setupOf({ A: { spear: 110, infantry: 40 }, B: { spear: 220, infantry: 80 }, C: { spear: 110, infantry: 40 } }, { orders: { spear: 'advance', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
+    const wall = deploySetup({ infantry: 600 });
+    const bare = setupOf({ A: { spear: 150 }, B: { spear: 300 }, C: { spear: 150 } });
+    const anchoredLine = setupOf({ A: { spear: 110, infantry: 40 }, B: { spear: 220, infantry: 80 }, C: { spear: 110, infantry: 40 } });
     let bareBreak = 0;
     let anchoredBreak = 0;
     for (let seed = 1; seed <= 6; seed += 1) {
@@ -490,8 +303,8 @@ describe('мораль как характеристика войск', () => {
   });
 
   it('снаряжение из кузницы делает войско стойче: та же армия со снаряжением выигрывает размен', () => {
-    const plain = quickSetup(BALANCED_ARMY);
-    const geared = quickSetup(BALANCED_ARMY, { gear: { spear: GEAR.max, infantry: GEAR.max, archer: GEAR.max, cavalry: GEAR.max, heavy: 0 } });
+    const plain = deploySetup(BALANCED_ARMY);
+    const geared = { ...deploySetup(BALANCED_ARMY), gear: { spear: GEAR.max, infantry: GEAR.max, archer: GEAR.max, cavalry: GEAR.max, heavy: 0 } };
     let ratio = 0;
     const N = 12;
     for (let seed = 1; seed <= N; seed += 1) {
@@ -501,30 +314,39 @@ describe('мораль как характеристика войск', () => {
     }
     expect(ratio / N).toBeGreaterThan(1.1);
     // Ступень выше потолка не даёт больше потолка.
-    const capped = simulateBattle({ seed: 1, attacker: quickSetup(BALANCED_ARMY, { gear: { infantry: 99 } }), defender: plain });
-    const max = simulateBattle({ seed: 1, attacker: quickSetup(BALANCED_ARMY, { gear: { infantry: GEAR.max } }), defender: plain });
+    const capped = simulateBattle({ seed: 1, attacker: { ...deploySetup(BALANCED_ARMY), gear: { infantry: 99 } }, defender: plain });
+    const max = simulateBattle({ seed: 1, attacker: { ...deploySetup(BALANCED_ARMY), gear: { infantry: GEAR.max } }, defender: plain });
     expect(JSON.stringify(capped.sides)).toBe(JSON.stringify(max.sides));
   });
 
-  it('копейщики стойки, пока держат линию, и ломки под ударом во фланг', () => {
+  it('копейщики стойки, пока сомкнуты, и ломки под ударом во фланг', () => {
+    // Сомкнутые против обойдённых, а не приказы: приказа «наступать» больше нет, сомкнутость — положение (Е17).
     expect(TEMPER.spear.holding).toBeLessThan(TEMPER.spear.advancing);
     expect(TEMPER.spear.advancing).toBeLessThan(TEMPER.spear.flanked);
-    const wall = quickSetup({ infantry: 600 });
-    const spears = (spear: ArmySetup['orders']['spear']): ArmySetup => quickSetup({ spear: 600 }, { orders: { spear, infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
-    let holding = 0;
-    let advancing = 0;
+    // Узкие копья в центре против широкой стены той же численности: края стены приходят во фланг, и сектор копий
+    // ломается раньше, чем против стены, стоящей с ними лоб в лоб.
+    const spears = setupOf({ B: { spear: 300 } });
+    const frontal = setupOf({ B: { infantry: 300 } });
+    const wide = setupOf({ A: { infantry: 100 }, B: { infantry: 100 }, C: { infantry: 100 } });
+    let head = 0;
+    let turned = 0;
     for (let seed = 1; seed <= 6; seed += 1) {
-      holding += simulateBattle({ seed, attacker: spears('hold-line'), defender: wall }).sides.attacker.morale;
-      advancing += simulateBattle({ seed, attacker: spears('advance'), defender: wall }).sides.attacker.morale;
+      const f = simulateBattle({ seed, attacker: spears, defender: frontal });
+      const w = simulateBattle({ seed, attacker: spears, defender: wide });
+      // Граница: во втором бою копья правда обошли, в первом — нет.
+      expect(w.log.some((e) => e.id === 'flank-turned' && e.side === 'attacker'), `сид ${seed}: обход`).toBe(true);
+      expect(f.log.some((e) => e.id === 'flank-turned' && e.side === 'attacker'), `сид ${seed}: лоб в лоб`).toBe(false);
+      head += f.sides.attacker.morale;
+      turned += w.sides.attacker.morale;
     }
-    expect(holding).toBeGreaterThan(advancing);
+    expect(head).toBeGreaterThan(turned);
   });
 
   it('конница высока на разгоне, но хрупка, когда её остановили', () => {
     expect(TEMPER.cavalry.charging).toBeLessThan(TEMPER.cavalry.stalled);
     // Конница, вставшая во фронт против стены пехоты, ломается сама; та же конница в обходе — нет.
-    const wall = quickSetup({ infantry: 400 });
-    const stalled = setupOf({ A: { cavalry: 60 }, B: { cavalry: 80 }, C: { cavalry: 60 } }, { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry: 'charge' } });
+    const wall = deploySetup({ infantry: 400 });
+    const stalled = setupOf({ A: { cavalry: 60 }, B: { cavalry: 80 }, C: { cavalry: 60 } });
     let broken = 0;
     for (let seed = 1; seed <= 6; seed += 1) {
       const r = simulateBattle({ seed, attacker: stalled, defender: wall });
@@ -535,14 +357,13 @@ describe('мораль как характеристика войск', () => {
 
   it('лучники в рукопашной ломаются быстро', () => {
     expect(TEMPER.archer.melee).toBeGreaterThan(TEMPER.archer.shooting);
-    // Армии — ровно в две ширины фронта, и не больше: быстрая расстановка ставит половину пехоты в центр,
-    // и самый широкий ряд стены — ровно W, а у лучников (центр тыла — сорок процентов) уже W. Порог «12 тиков»
+    // Армии — ровно в две ширины фронта, и не больше: правило развёртывания ставит в ряд не больше W. Порог «12 тиков»
     // снят без ширины; при рядах шире W ширина зажимает обе стороны, слом приходит позже, и тест мерил бы
     // ширину, а не характер лучников — так было на 400 против 400 (решение владельца 26.09.2026,
     // docs/battle_eu4.md, раздел 10). Не «чинить» обратно ни размером, ни порогом.
     const men = 2 * FRONT_WIDTH;
-    const archers = quickSetup({ archer: men });
-    const wall = quickSetup({ infantry: men });
+    const archers = deploySetup({ archer: men });
+    const wall = deploySetup({ infantry: men });
     // Граница области: ни один ряд обеих сторон не шире W — ширине здесь нечего зажимать.
     for (const setup of [archers, wall]) for (const id of SECTORS) expect(stackTotal(setup.sectors[id]), id).toBeLessThanOrEqual(FRONT_WIDTH);
     for (let seed = 1; seed <= 4; seed += 1) {
@@ -558,7 +379,7 @@ describe('мораль как характеристика войск', () => {
 
 describe('детерминированность', () => {
   it('один вход и сид — один исход и один журнал', () => {
-    const input = { seed: 4242, attacker: TUNED, defender: quickOf(4242) };
+    const input = { seed: 4242, attacker: deploySetup(BALANCED_ARMY), defender: COMPOSITIONS[5].setup };
     const snapshot = JSON.stringify(input);
     const a = simulateBattle(input);
     const b = simulateBattle(JSON.parse(snapshot));
@@ -568,8 +389,8 @@ describe('детерминированность', () => {
   });
 
   it('другой сид меняет ход боя, но не его форму', () => {
-    const a = simulateBattle({ seed: 1, attacker: TUNED, defender: quickOf(1) });
-    const b = simulateBattle({ seed: 2, attacker: TUNED, defender: quickOf(1) });
+    const a = simulateBattle({ seed: 1, attacker: deploySetup(BALANCED_ARMY), defender: COMPOSITIONS[5].setup });
+    const b = simulateBattle({ seed: 2, attacker: deploySetup(BALANCED_ARMY), defender: COMPOSITIONS[5].setup });
     expect(JSON.stringify({ ...a, seed: 0 })).not.toBe(JSON.stringify({ ...b, seed: 0 }));
     // Форма — обязательные фазы первого прохода в том же порядке; обходы и резерв бой вправе пропустить, если
     // сторона сломалась раньше, а круги сечи (`round`) — ход боя: сколько их, решает то, когда кто-то сломается.
@@ -580,54 +401,39 @@ describe('детерминированность', () => {
 });
 
 describe('продолжительность', () => {
-  // Границы выводятся из фаз, а не записаны числом. Нижняя — самый ранний слом: стрелковая
-  // фаза зажата до минимума темпом планов, бой линий и мораль обрываются на своём минимуме,
-  // обходы и резерв пропущены, отступление и преследование идут целиком. Верхняя — стрелковая
-  // фаза на максимуме и все фазы до конца. Прежде тест держал «50–100»: пятьдесят было неверно
-  // (одна «агрессивная атака» против плана с нулевым темпом кончает бой на 48-м тике), и
-  // зелёным он оставался только потому, что таких пар в выборке не было; сто — на двадцать
-  // тиков выше настоящего максимума, и бой, растянувшийся до ста, прошёл бы.
+  // Границы выводятся из фаз, а не записаны числом. Нижняя — самый ранний слом: бой линий и мораль обрываются на
+  // своём минимуме, обходы и резерв пропущены, отступление и преследование идут целиком. Верхняя — все фазы до конца.
+  // Стрельба — ровно `PHASE_TICKS.ranged` тиков на бой: темп планов, который её двигал, ушёл с планами (14.5).
   //
-  // Бой идёт кругами всем боем (`CIRCLE_PHASES`), и границы выводятся из долей круга: нижняя — первый круг со
-  // стрельбой на минимуме темпа, боем линий и моралью на своих минимумах, отход и погоня; верхняя — у каждого боя
-  // своя: все круги до потолка (`roundsCap` от глубины меньшей по ней стороны) при самой долгой стрельбе.
+  // Бой идёт кругами всем боем (`CIRCLE_PHASES`), и границы выводятся из долей круга: нижняя — первый круг с боем
+  // линий и моралью на своих минимумах, отход и погоня; верхняя — у каждого боя своя: все круги до потолка
+  // (`roundsCap` от глубины меньшей по ней стороны).
   const SHORTEST =
-    circleTicks('ranged', 1, RANGED_TICKS.min) + circleTicks('approach', 1) + circleTicks('clash', 1) + circleMin('lines', 1) + circleMin('morale', 1) + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
+    circleTicks('ranged', 1) + circleTicks('approach', 1) + circleTicks('clash', 1) + circleMin('lines', 1) + circleMin('morale', 1) + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
   const longest = (r: BattleResult): number =>
-    Array.from({ length: roundsCap(depthOf(r)) + 1 }, (_, i) => circleLength(i + 1, RANGED_TICKS.max)).reduce((n, t) => n + t, 0) + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
+    Array.from({ length: roundsCap(depthOf(r)) + 1 }, (_, i) => circleLength(i + 1)).reduce((n, t) => n + t, 0) + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
 
-  /** Выборка с крайними темпами: каждая пара планов на нескольких парах составов. */
-  function tempoBattles(): BattleResult[] {
+  /**
+   * Верхняя граница: до неё доходит только бой, дошедший до потолка кругов. С кругами всем боем почти всё доламывается
+   * раньше потолка, и пары, которые до него доходят, ищутся перебором составов бенча на ½W — а держит их не расчёт, а
+   * утверждение «выборка достаёт до верхней границы» ниже. Сменится правило и утверждение упадёт — пары искать
+   * заново, а не двигать границу.
+   */
+  function gongBattles(): BattleResult[] {
     const out: BattleResult[] = [];
-    const plans = Object.keys(PLANS) as Plan[];
-    for (const a of plans) {
-      for (const b of plans) {
-        for (const [x, y] of [[0, 0], [4, 6], [0, 2], [2, 3]]) {
-          out.push(simulateBattle({ seed: x + y + 1, attacker: { ...COMPOSITIONS[x].setup, plan: a }, defender: { ...COMPOSITIONS[y].setup, plan: b } }));
+    const half = OVERSIZE_SIZES[0];
+    for (const a of COMPOSITIONS) {
+      for (const b of COMPOSITIONS) {
+        for (let seed = 1; seed <= 2; seed += 1) {
+          out.push(simulateBattle({ seed, attacker: deploySetup(scaleArmy(a.army, half)), defender: deploySetup(scaleArmy(b.army, half)) }));
         }
       }
     }
     return out;
   }
 
-  /**
-   * Верхняя граница: до неё доходит только бой, дошедший до потолка кругов при самой долгой стрельбе — изматывание
-   * против изматывания. С кругами всем боем почти всё доламывается раньше потолка, и пара, которая до него доходит, —
-   * пехота против копий на ½W — найдена перебором пар, а держит её не расчёт, а утверждение «выборка достаёт до
-   * верхней границы» ниже. Сидов шесть, чтобы граница не висела на одном сиде; сменится правило и утверждение упадёт —
-   * пару искать заново, а не двигать границу.
-   */
-  function gongBattles(): BattleResult[] {
-    const out: BattleResult[] = [];
-    const half = OVERSIZE_SIZES[0];
-    for (let seed = 1; seed <= 6; seed += 1) {
-      out.push(simulateBattle({ seed, attacker: { ...quickSetup(scaleArmy(COMPOSITIONS[0].army, half)), plan: 'attrition' }, defender: { ...quickSetup(scaleArmy(COMPOSITIONS[1].army, half)), plan: 'attrition' } }));
-    }
-    return out;
-  }
-
   it('любой бой укладывается в границы фаз, и выборка достаёт до обеих', () => {
-    const battles = [...sampleBattles(), ...tempoBattles(), ...gongBattles()];
+    const battles = [...sampleBattles(), ...gongBattles()];
     // Точки выборки лежат на самих границах: без этого тест проходил бы при любой
     // регрессии в зазоре между выборкой и настоящим пределом.
     expect(battles.some((r) => r.ticks === SHORTEST), `ни один бой не кончился на ${SHORTEST}-м тике`).toBe(true);
@@ -674,8 +480,8 @@ describe('круги сечи', () => {
     const out: Array<{ r: BattleResult; width: number }> = [];
     for (const c of COMPOSITIONS) {
       const army = scaleArmy(c.army, total);
-      const small = quickSetup(army);
-      const big = quickSetup(Object.fromEntries(Object.entries(army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])));
+      const small = deploySetup(army, width);
+      const big = deploySetup(Object.fromEntries(Object.entries(army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])), width);
       for (let seed = 1; seed <= seeds; seed += 1) {
         const bigAttacks = seed % 2 === 1;
         out.push({ r: simulateBattle({ seed, attacker: bigAttacks ? big : small, defender: bigAttacks ? small : big, width }), width });
@@ -714,12 +520,11 @@ describe('круги сечи', () => {
   });
 
   it('сеча идёт кругами, пока кто-то не сломается, — и ни кругом больше потолка', () => {
-    // Оборона против обороны — те бои, что доходят до потолка чаще прочих: план держит строй (потери морали ×0.8), и с
-    // кругами из сближения, сшибки и сечи другие пары выборки до потолка не доходят вовсе. Размеров два — ½W (потолок
-    // в один круг) и 600 (в два): равенство «кругов ровно потолок» проверяется и там, где потолок зависит от глубины.
+    // Зеркала — те бои, что доходят до потолка чаще прочих: равные стороны ломаются позже всех. Размеров два — ½W
+    // (потолок в один круг) и 600 (в два): равенство «кругов ровно потолок» проверяется и там, где потолок зависит от глубины.
     const standoff = [OVERSIZE_SIZES[0], ARMY_SIZE].flatMap((total) =>
       COMPOSITIONS.flatMap((c) => {
-        const s = { ...quickSetup(scaleArmy(c.army, total)), plan: 'defense' as const };
+        const s = deploySetup(scaleArmy(c.army, total));
         return [1, 2].map((seed) => ({ r: simulateBattle({ seed, attacker: s, defender: s }), width: FRONT_WIDTH }));
       }),
     );
@@ -795,11 +600,11 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
   // Круг — бой заново (`CIRCLE_PHASES`): линии расходятся для нового разбега, и в обстреле круга (стрельба и
   // сближение) рукопашной нет, лучники бьют в полную силу; сшибка снова даёт разбег латным и упор копьям; перестрелка круга
   // судится по своему обстрелу. Так у рода появляется слабая фаза (docs/battle_eu4.md, раздел 3.2).
-  /** Бои, доходящие до кругов, — армии на обороне и изматывании (там круги чаще всего), `seeds` сидов, `total` бойцов. */
-  function roundBattles(a: Partial<Stack>, b: Partial<Stack>, plan: Plan, seeds: number, total = OVERSIZE_SIZES[0]): BattleResult[] {
+  /** Бои, доходящие до кругов, `seeds` сидов, `total` бойцов, обе стороны по правилу развёртывания. */
+  function roundBattles(a: Partial<Stack>, b: Partial<Stack>, seeds: number, total = OVERSIZE_SIZES[0]): BattleResult[] {
     const out: BattleResult[] = [];
     for (let seed = 1; seed <= seeds; seed += 1) {
-      out.push(simulateBattle({ seed, attacker: { ...quickSetup(scaleArmy(a, total)), plan }, defender: { ...quickSetup(scaleArmy(b, total)), plan } }));
+      out.push(simulateBattle({ seed, attacker: deploySetup(scaleArmy(a, total)), defender: deploySetup(scaleArmy(b, total)) }));
     }
     return out;
   }
@@ -807,9 +612,9 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
 
   it('в обстреле круга рукопашной нет: у армий без лучников потерь там ни одного', () => {
     const battles = [
-      ...roundBattles({ infantry: 600 }, { spear: 600 }, 'defense', 6),
-      ...roundBattles({ infantry: 400, heavy: 200 }, { infantry: 600 }, 'defense', 6),
-      ...roundBattles({ infantry: 600 }, { infantry: 600 }, 'defense', 6),
+      ...roundBattles({ infantry: 600 }, { spear: 600 }, 6),
+      ...roundBattles({ infantry: 400, heavy: 200 }, { infantry: 600 }, 6),
+      ...roundBattles({ infantry: 600 }, { infantry: 600 }, 6),
     ];
     const approaches = battles.flatMap((r) => roundSpans(r, 'ranged', 'approach'));
     // Граница области: круги в выборке есть, лучников нет ни у кого, а в сшибке и сече тех же кругов потери есть — линии
@@ -824,7 +629,7 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
     // Пехота с лучниками против копий на размере W: у одной стороны луки, у другой нет, и в сближении круга без
     // рукопашной все потери безлукой стороны — стрелы этого круга. Ниже W лучников мало: за сближение круга они
     // выбивают меньше порога события (`EVENT_MIN`), и перестрелка круга не судится вовсе.
-    const battles = roundBattles({ infantry: 350, archer: 250 }, { spear: 600 }, 'defense', 6, holdSize());
+    const battles = roundBattles({ infantry: 350, archer: 250 }, { spear: 600 }, 6, holdSize());
     let judged = 0;
     for (const r of battles) {
       for (const e of r.log) {
@@ -844,9 +649,9 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
 
   it('сшибка круга пишет свои события: копья, удержавшие удар снова, и конница, снова дошедшая до лучников', () => {
     // Круг — новая сшибка и новая сеча, и событие о них пишется снова, а не один раз за бой: иначе отчёт и ролик не
-    // видят того, ради чего круг заведён. Пехота с конницей против пехоты с лучниками вдвое выше W, на обороне: кругов
-    // там много, и лёгкая снова и снова доходит до тех же лучников.
-    const battles = roundBattles({ infantry: 400, cavalry: 200 }, { infantry: 350, archer: 250 }, 'defense', 4, OVERSIZE_SIZES[2]);
+    // видят того, ради чего круг заведён. Пехота с конницей против пехоты с лучниками вдвое выше W: кругов там много,
+    // и лёгкая снова и снова доходит до тех же лучников.
+    const battles = roundBattles({ infantry: 400, cavalry: 200 }, { infantry: 350, archer: 250 }, 4, OVERSIZE_SIZES[2]);
     const key = (e: BattleEvent): string =>
       e.id === 'spears-held' ? `${e.id}:${e.side}:${e.sector}:${e.phase}` : e.id === 'cavalry-broke-archers' ? `${e.id}:${e.side}:${e.target}:${e.phase}` : '';
     let again = 0;
@@ -868,68 +673,13 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
   });
 });
 
-describe('нет доминирующей расстановки', () => {
-  // «Всё в один сектор» держало поле против любой разложенной по фронту расстановки: группа
-  // в нескольких стычках разом била в полную силу в каждой, и обход умножал силу окружённого.
-  // Перебор, на котором прежде стояло «потолок ≈25 %», в репозитории не существовал, — поэтому
-  // здесь проверяется ровно то, что тогда пропало: однородные вклады против разложенных.
-  const grid = layoutGrid().map((spec) => ({ spec, setup: layoutOf(BALANCED_ARMY, spec) }));
-
-  it('перебор кладёт армию целиком и содержит однородные вклады в один сектор', () => {
-    for (const g of grid) expect(armyTotal(g.setup), layoutName(g.spec)).toEqual(stackOf(BALANCED_ARMY));
-    const lineIn = (setup: ArmySetup, id: 'A' | 'B'): boolean => setup.sectors[id].infantry + setup.sectors[id].spear === BALANCED_ARMY.infantry! + BALANCED_ARMY.spear!;
-    const archersIn = (setup: ArmySetup, id: 'D' | 'E'): boolean => setup.sectors[id].archer === BALANCED_ARMY.archer;
-    expect(grid.some((g) => lineIn(g.setup, 'B'))).toBe(true);
-    expect(grid.some((g) => lineIn(g.setup, 'A'))).toBe(true);
-    expect(grid.some((g) => archersIn(g.setup, 'E'))).toBe(true);
-    expect(grid.some((g) => archersIn(g.setup, 'D'))).toBe(true);
-    expect(grid.some((g) => lineIn(g.setup, 'B') && archersIn(g.setup, 'E'))).toBe(true);
-    // Признак однородности читает поле, а не имя оси.
-    for (const g of grid) {
-      const oneFront = FRONT.filter((id) => g.setup.sectors[id].infantry + g.setup.sectors[id].spear > 0).length === 1;
-      const oneRear = REAR.filter((id) => g.setup.sectors[id].archer > 0).length === 1;
-      expect(homogeneous(g.setup), layoutName(g.spec)).toBe(oneFront || oneRear);
-    }
-  });
-
-  it('всё в один сектор не держит поле против всех разложенных расстановок', () => {
-    // Кандидаты — пешая линия целиком в центре, с планами и конницей, при которых до правки
-    // она держала поле против каждой разложенной расстановки; соперники — каждая шестнадцатая
-    // разложенная расстановка сетки, того же состава и числа людей.
-    const plans: Plan[] = ['assault', 'aggressive', 'defense'];
-    const candidates = grid.filter(
-      (g) =>
-        g.spec.line === 'всё в центр' &&
-        g.spec.reserve === 'immediate' &&
-        plans.includes(g.spec.plan) &&
-        (g.spec.archers === 'во фронте' || g.spec.archers === 'всё за центром') &&
-        g.spec.cavalry !== 'фронт ровно' &&
-        g.spec.cavalry !== 'резерв: обход',
-    );
-    const opponents = grid.filter((g) => !homogeneous(g.setup)).filter((_, i) => i % 16 === 0);
-    expect(candidates.length).toBe(18);
-    expect(opponents.length).toBeGreaterThanOrEqual(25);
-    for (const c of candidates) expect(homogeneous(c.setup), layoutName(c.spec)).toBe(true);
-    for (const o of opponents) expect(armyTotal(o.setup)).toEqual(armyTotal(candidates[0].setup));
-    for (const c of candidates) {
-      let held = 0;
-      opponents.forEach((o, i) => {
-        const attacks = i % 2 === 0;
-        const r = simulateBattle({ seed: i + 1, attacker: attacks ? c.setup : o.setup, defender: attacks ? o.setup : c.setup });
-        if (r.winner === (attacks ? 'attacker' : 'defender')) held += 1;
-      });
-      expect(held, `«${layoutName(c.spec)}» держит поле против всех ${opponents.length} разложенных расстановок`).toBeLessThan(opponents.length);
-    }
-  });
-});
-
 /** События, которые объясняют, почему победитель победил. */
 function explains(e: BattleEvent, winner: Winner): boolean {
   if (winner === 'draw') return false;
   const loser = other(winner);
   if (!('side' in e)) return false;
   if (e.side === loser) return ['morale-collapsed', 'annihilated', 'sector-collapsed', 'sector-broken', 'panic-spread', 'ranged-lost', 'flank-turned', 'rear-reached', 'outfought'].includes(e.id);
-  return ['spears-held', 'cavalry-broke-archers', 'volley', 'pursuit', 'reserve-committed', 'archers-kiting', 'infantry-shifted'].includes(e.id);
+  return ['spears-held', 'cavalry-broke-archers', 'volley', 'pursuit', 'reserve-committed'].includes(e.id);
 }
 
 describe('журнал осмыслен', () => {
@@ -989,14 +739,16 @@ describe('журнал осмыслен', () => {
             expect(e.archersLost).toBeLessThanOrEqual(r.sides[other(e.side)].losses.archer);
             break;
           case 'cavalry-intercepted':
-            expect(horse(r.sides[e.side].initial)).toBeGreaterThan(0);
-            break;
+          case 'infantry-shifted':
+          case 'archers-kiting':
+            // Перехват обхода, сдвиг пехоты и дистанция лучников жили приказами — ядро их больше не пишет (14.5).
+            throw new Error(`${e.id}: событие приказа в новом бою`);
           case 'sector-collapsed': {
             expect(['A', 'B', 'C']).toContain(e.sector);
-            // Смять можно только то, что там стояло: своя расстановка, вошедший резерв или сдвинутая пехота.
+            // Смять можно только то, что там стояло: своя расстановка или вошедший резерв.
             const manned =
               initialOf(e.side, e.sector) > 0 ||
-              r.log.some((x) => x.tick <= e.tick && 'side' in x && x.side === e.side && ((x.id === 'reserve-committed' && x.sector === e.sector) || (x.id === 'infantry-shifted' && x.to === e.sector)));
+              r.log.some((x) => x.tick <= e.tick && 'side' in x && x.side === e.side && x.id === 'reserve-committed' && x.sector === e.sector);
             expect(manned, `смят пустой сектор ${e.sector}`).toBe(true);
             expect(seen.has(`collapsed:${e.side}:${e.sector}`)).toBe(false);
             seen.add(`collapsed:${e.side}:${e.sector}`);
@@ -1013,12 +765,6 @@ describe('журнал осмыслен', () => {
             expect(e.men).toBeLessThanOrEqual(r.sides[e.side].total.initial);
             expect(initialOf(e.side, 'R') > 0 || horse(r.sides[e.side].initial) > 0).toBe(true);
             break;
-          case 'infantry-shifted':
-            expect(r.sides[e.side].initial.infantry).toBeGreaterThanOrEqual(e.men);
-            break;
-          case 'archers-kiting':
-            expect(r.sides[e.side].initial.archer).toBeGreaterThan(0);
-            break;
           case 'morale-collapsed':
             expect(r.sides[e.side].brokenAt).toBe(e.tick);
             expect(e.morale).toBeLessThanOrEqual(100);
@@ -1029,7 +775,7 @@ describe('журнал осмыслен', () => {
             // Сломаться может только сектор, где кто-то стоял.
             const manned =
               initialOf(e.side, e.sector) > 0 ||
-              r.log.some((x) => x.tick <= e.tick && 'side' in x && x.side === e.side && ((x.id === 'reserve-committed' && x.sector === e.sector) || (x.id === 'infantry-shifted' && x.to === e.sector)));
+              r.log.some((x) => x.tick <= e.tick && 'side' in x && x.side === e.side && x.id === 'reserve-committed' && x.sector === e.sector);
             expect(manned, `сломан пустой сектор ${e.sector}`).toBe(true);
             expect(seen.has(`broken:${e.side}:${e.sector}`)).toBe(false);
             seen.add(`broken:${e.side}:${e.sector}`);
@@ -1113,7 +859,7 @@ describe('журнал осмыслен', () => {
   });
 
   it('у истреблённой стороны в журнале стоит истребление, а не только мораль', () => {
-    const r = simulateBattle({ seed: 1, attacker: quickSetup({ infantry: 1000 }), defender: quickSetup({ spear: 10 }) });
+    const r = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 10 }) });
     expect(r.winner).toBe('attacker');
     expect(r.log.some((e) => e.id === 'annihilated' && e.side === 'defender')).toBe(true);
     expect(lossRatio(r, 'attacker')).toBeGreaterThan(1);
@@ -1159,8 +905,8 @@ describe('кость фазы', () => {
    * которой отметка идёт, — если она в этом бою случилась.
    */
   function withAndWithout(pip: PipId, seed: number): { plain: BattleResult; led: BattleResult; first: number } {
-    const plain = simulateBattle({ seed, attacker: quickSetup(BALANCED_ARMY), defender: quickSetup(BALANCED_ARMY) });
-    const led = simulateBattle({ seed, attacker: { ...quickSetup(BALANCED_ARMY), pips: { [pip]: 3 } }, defender: quickSetup(BALANCED_ARMY) });
+    const plain = simulateBattle({ seed, attacker: deploySetup(BALANCED_ARMY), defender: deploySetup(BALANCED_ARMY) });
+    const led = simulateBattle({ seed, attacker: { ...deploySetup(BALANCED_ARMY), pips: { [pip]: 3 } }, defender: deploySetup(BALANCED_ARMY) });
     return { plain, led, first: plain.phases.findIndex((p) => PHASE_PIP[p.phase] === pip) };
   }
 
@@ -1243,8 +989,8 @@ describe('ширина фронта', () => {
   it('незаполненная ширина ничего не меняет: бой тот же бит в бит', () => {
     // Ширина не меньше всей армии каждой стороны — ни один ряд её не заполнит.
     for (const [a, d] of [[BALANCED_ARMY, { infantry: 1000 }], [{ spear: 900, archer: 300 }, { cavalry: 800, heavy: 200 }]] as Array<[Partial<Stack>, Partial<Stack>]>) {
-      const attacker = quickSetup(a);
-      const defender = quickSetup(d);
+      const attacker = deploySetup(a);
+      const defender = deploySetup(d);
       const width = Math.max(stackTotal(armyTotal(attacker)), stackTotal(armyTotal(defender)));
       for (const seed of [1, 2, 3]) {
         const wide = simulateBattle({ seed, attacker, defender, width });
@@ -1260,9 +1006,9 @@ describe('ширина фронта', () => {
     let bare = 0;
     let counted = 0;
     for (let i = 0; i < COMPOSITIONS.length; i += 1) {
-      // Точка внутри области: фронт полосы меньшей стороны шире ширины. Составы без фронта в расстановке
-      // (конница в резерве, лучники в тылу) в счёт не идут.
-      if (laneFront(quickSetup(scaleArmy(COMPOSITIONS[i].army, total))) <= FRONT_WIDTH) continue;
+      // Точка внутри области: фронт полосы меньшей стороны, какой правило поставило бы без ширины, шире ширины.
+      // Составы без первой линии (одни лучники) в счёт не идут.
+      if (openFront(scaleArmy(COMPOSITIONS[i].army, total)) <= FRONT_WIDTH) continue;
       const w = oversize(i, 6, total, FRONT_WIDTH);
       const b = oversize(i, 6, total, Infinity);
       widthed += w.smallLoss / Math.max(1, w.bigLoss);
@@ -1274,9 +1020,11 @@ describe('ширина фронта', () => {
   });
 
   it('ряд шире фронта пишется в журнал раз на ряд полосы: сколько в ряду и сколько в строю', () => {
-    const r = simulateBattle({ seed: 1, attacker: quickSetup({ infantry: 1000 }), defender: quickSetup({ infantry: 1000 }), width: FRONT_WIDTH });
+    // Раскладка руками — так до поставки 2 стоит оборона игрока: правило развёртывания шире W ряд не кладёт.
+    const wall = setupOf({ A: { infantry: 250 }, B: { infantry: 500 }, C: { infantry: 250 } });
+    const r = simulateBattle({ seed: 1, attacker: wall, defender: wall, width: FRONT_WIDTH });
     const depth = r.log.filter((e): e is Extract<BattleEvent, { id: 'depth' }> => e.id === 'depth');
-    // Пехота в тысячу кладёт в центр половину — центр шире фронта у обеих сторон.
+    // Центр в пятьсот — шире фронта у обеих сторон.
     for (const side of ['attacker', 'defender'] as const) expect(depth.some((e) => e.side === side && e.sector === 'B' && e.row === 'front'), side).toBe(true);
     for (const e of depth) {
       expect(e.width).toBe(FRONT_WIDTH);

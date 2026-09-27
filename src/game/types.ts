@@ -1,6 +1,6 @@
 // Базовые типы состояния игры. Симуляция не зависит от рендера и UI.
 import type { DecreeId, RationId, TaxId } from './data/policy';
-import type { BattlePlanTemplate, Formation } from './battle/formation';
+import type { Formation } from './battle/formation';
 import type { TroopStack } from './battle/kinds';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId } from '@/world/types';
@@ -772,8 +772,6 @@ export interface GameState {
    * тем, что вышло само (быстрая раскладка по сиду набега).
    */
   defenseFormation: Formation | null;
-  /** Сохранённые схемы похода: состав, расстановка, план, приказы, резерв. */
-  battlePlans: BattlePlanTemplate[];
   /** Что игрок предпочитает после боя: смотреть журнал или сразу итог. */
   battleWatch: boolean;
   /**

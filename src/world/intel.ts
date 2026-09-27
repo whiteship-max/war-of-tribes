@@ -95,7 +95,6 @@ export function readIntel(intel: Intel | null, now: number): IntelReading | null
     kinds: readKinds(intel.kinds, shown, floor),
     // Построение живёт недолго: на старых данных противник давно перестроился,
     // и показывать вчерашнюю схему как сегодняшнюю нельзя.
-    formation: shown === 'vague' ? null : (intel.formation ?? null),
     style: intel.style ?? null,
   };
 }

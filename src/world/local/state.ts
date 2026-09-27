@@ -114,8 +114,6 @@ export interface StoredMarch {
   power: number;
   /** Кто именно идёт: без состава бой не знает, чем бить. Пусто у чужих отрядов. */
   troops?: TroopStack;
-  /** Расстановка отряда. null — быстрая атака, пресет по сиду похода. */
-  setup?: ArmySetup | null;
   loot: Loot | null;
   /** Для поддержки: до какого момента отряд стоит в чужих стенах. */
   stayUntil?: number;

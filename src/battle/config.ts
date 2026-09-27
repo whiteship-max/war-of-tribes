@@ -1,15 +1,6 @@
 // Все числа боя в одном месте. Баланс правится здесь, а не по коду симуляции:
 // логика только читает таблицы.
-import type {
-  ArcherOrder,
-  CavalryOrder,
-  InfantryOrder,
-  PhaseId,
-  PipId,
-  Plan,
-  SpearOrder,
-  UnitKind,
-} from './types';
+import type { PhaseId, PipId, UnitKind } from './types';
 
 // ---------- Роды войск ----------
 
@@ -52,7 +43,7 @@ export const TEMPER = {
   spear: {
     /** Сомкнутый строй, удар в лоб. */
     holding: 0.8,
-    /** Приказ «наступать» или строй разомкнут. */
+    /** Строй разомкнут: смят. Приказа «наступать» больше нет — сомкнутость стала положением. */
     advancing: 1.0,
     /** Удар во фланг или тыл строя. */
     flanked: 1.3,
@@ -91,8 +82,9 @@ export const FOOT_FLANK = 1.2;
 
 /**
  * Копья → Конница → Лучники → Копья. Пехота вне кольца: ×1.0 против всех.
- * Превосходство условно — множитель зависит от приказа и положения, и именно
- * это даёт расстановке рычаг. Все числа раздела 3 документа — здесь.
+ * Превосходство условно — множитель зависит от положения: копья держат конницу,
+ * пока сомкнуты, лучники бьют в полную силу, пока цель не в рукопашной. Все числа
+ * раздела 3 документа — здесь.
  *
  * Конных рода два, и кольцо у них разное: лучников режет и во фланг заходит **лёгкая**
  * (это её половина прежнего профиля), пехоту в лоб ломает **тяжёлая**. Сомкнутые копья
@@ -100,16 +92,14 @@ export const FOOT_FLANK = 1.2;
  */
 export const COUNTER = {
   spear: {
-    /** Против конницы любого рода, пока держат линию (`hold-line`, `guard-archers`, `priority-cavalry`). */
+    /** Против конницы любого рода, пока сомкнуты: в строю, не смяты, не бегут и не обойдены (`sim.closedSpears`). */
     cavalryHolding: 2.0,
-    /** Против конницы с приказом «наступать». */
-    cavalryAdvancing: 1.2,
   },
   cavalry: {
     archer: 2.0,
     /** Удар во фланг или тыл — против любого, кроме сомкнутых копий. */
     flank: 1.8,
-    /** Против сомкнутых копий (держат линию, и удар — в лоб или в закрытый тыл). */
+    /** Против сомкнутых копий: удар в лоб по строю, который не смят и не бежит. */
     spearClosed: 0.5,
     /** Против пехоты: лёгкая строя не ломает — бьёт как пехота по пехоте. */
     infantry: 1.0,
@@ -154,8 +144,9 @@ export const ANCHOR = {
 
 /**
  * Тики на фазу — на весь бой, какой он был одним проходом. Бой идёт кругами (`CIRCLE_PHASES`), и эти
- * длины делятся на три круга (`circleTicks`); стрелковую тянет темп планов, бой линий может оборваться
- * раньше. Отступление и погоня идут после кругов, целиком.
+ * длины делятся на три круга (`circleTicks`); бой линий может оборваться раньше. Стрельба — ровно
+ * `ranged` тиков на бой: темп планов, который её сдвигал, ушёл с планами (docs/battle_eu4.md, 14.5).
+ * Отступление и погоня идут после кругов, целиком.
  */
 export const PHASE_TICKS: Record<PhaseId, number> = {
   ranged: 10,
@@ -176,9 +167,6 @@ export const PHASE_MIN: Partial<Record<PhaseId, number>> = {
   reserve: 2,
   morale: 4,
 };
-
-/** Границы стрелковой фазы после сдвига темпа. */
-export const RANGED_TICKS = { min: 8, max: 20 };
 
 /**
  * Медленные не могут сократить дистанцию: позиция из одних бойцов со скоростью
@@ -260,8 +248,6 @@ export const PHASE_PIP: Record<PhaseId, PipId | null> = {
 export const CLASH_CAVALRY_IMPACT = 1.5;
 /** Сшибка: сомкнутые копья встречают его упёршись — в каждом круге боя. */
 export const CLASH_SPEAR_BRACE = 0.85;
-/** Лучники держат дистанцию от медленного противника: урон им и их стрельба. */
-export const KITING = { damageTaken: 0.4, ranged: 0.6 };
 
 // ---------- Мораль ----------
 
@@ -307,8 +293,6 @@ export const MORALE = {
   /** Бегущий сектор почти не отбивается и подставляет спину. */
   fledDealt: 0.3,
   fledTaken: 1.0,
-  /** Резерв по условию «мораль» входит, когда мораль армии ниже этого. */
-  reserveTriggerAt: 60,
 };
 
 /**
@@ -335,18 +319,18 @@ export const BASE_CIRCLES = 3;
 export const splitTicks = (total: number, k: number): number =>
   Math.floor(total / BASE_CIRCLES) + (Math.min(k, BASE_CIRCLES) <= total % BASE_CIRCLES ? 1 : 0);
 
-/** Сколько тиков фаза длится в круге `k`. `ranged` — стрелковая фаза всего боя после темпа планов. Сшибка не делится. */
-export const circleTicks = (phase: PhaseId, k: number, ranged = PHASE_TICKS.ranged): number =>
-  phase === 'clash' ? PHASE_TICKS.clash : splitTicks(phase === 'ranged' ? ranged : PHASE_TICKS[phase], k);
+/** Сколько тиков фаза длится в круге `k`. Сшибка не делится. */
+export const circleTicks = (phase: PhaseId, k: number): number =>
+  phase === 'clash' ? PHASE_TICKS.clash : splitTicks(PHASE_TICKS[phase], k);
 
 /** Меньше скольких тиков фаза круга `k` не длится после слома — доля `PHASE_MIN` тем же делением; нет своего — вся фаза. */
-export const circleMin = (phase: PhaseId, k: number, ranged = PHASE_TICKS.ranged): number => {
+export const circleMin = (phase: PhaseId, k: number): number => {
   const min = PHASE_MIN[phase];
-  return min === undefined ? circleTicks(phase, k, ranged) : splitTicks(min, k);
+  return min === undefined ? circleTicks(phase, k) : splitTicks(min, k);
 };
 
 /** Весь круг `k` в тиках. */
-export const circleLength = (k: number, ranged = PHASE_TICKS.ranged): number => CIRCLE_PHASES.reduce((n, p) => n + circleTicks(p, k, ranged), 0);
+export const circleLength = (k: number): number => CIRCLE_PHASES.reduce((n, p) => n + circleTicks(p, k), 0);
 
 /** Тики сечи круга `k`: всё с первого удара. */
 export const meleeTicksOf = (k: number): number => CIRCLE_MELEE.reduce((n, p) => n + circleTicks(p, k), 0);
@@ -390,8 +374,6 @@ export const RETREAT = {
   taken: 0.3,
   /** Преследование: сколько отступающих выбивает один преследователь за тик. */
   pursuitKills: { cavalry: 0.15, heavy: 0.02, infantry: 0.02, spear: 0.015, archer: 0.03 } as Record<UnitKind, number>,
-  /** Приказ коннице «преследовать». */
-  pursueOrder: 2.0,
   /** Больше этой доли отступивших преследование не выбивает: проигравший уходит домой. */
   pursuitCap: 0.04,
 };
@@ -407,101 +389,6 @@ export const WITHDRAW_RATIO = 1.05;
 export const PYRRHIC_BELOW = 1.0;
 /** Сторона считается истреблённой, когда осталась меньше этой доли. */
 export const ANNIHILATED_AT = 0.03;
-
-// ---------- Планы ----------
-
-export interface PlanMods {
-  dealt: number;
-  taken: number;
-  /** Сдвиг стартовой морали каждого сектора. */
-  morale: number;
-  /** Множители урона по полосам: центр и фланги. */
-  center: number;
-  flank: number;
-  /** Сдвиг длины стрелковой фазы, тиков. */
-  tempo: number;
-  /** Множитель всех потерь морали: оборона держит строй. */
-  shock: number;
-  /** Стрельба и рукопашная отдельно (изматывание). */
-  ranged: number;
-  /** Кавалерийский удар: конница в обходе. */
-  strike: number;
-}
-
-/**
- * В модели морали каждая лишняя потеря стоит дорого, поэтому планы выровнены
- * по размену в зеркале одинаковых армий (`npm run battle:report`, раздел
- * «Планы»): ни один не выигрывает у всех, каждый кому-то проигрывает. Оборона
- * с прежними ×0.8/×0.7 не проигрывала никому, изматывание с ×0.9 урона и
- * агрессия с −5 морали проигрывали всем.
- */
-export const PLANS: Record<Plan, PlanMods> = {
-  defense: { dealt: 0.85, taken: 0.9, morale: 5, center: 1, flank: 1, tempo: 1, shock: 0.8, ranged: 1, strike: 1 },
-  assault: { dealt: 1, taken: 1, morale: 0, center: 1.25, flank: 0.95, tempo: 0, shock: 0.97, ranged: 1, strike: 1 },
-  envelop: { dealt: 1, taken: 1, morale: 0, center: 0.9, flank: 1.15, tempo: 0, shock: 1, ranged: 1, strike: 1 },
-  'cavalry-strike': { dealt: 1, taken: 1, morale: 0, center: 1, flank: 1, tempo: 0, shock: 1, ranged: 1, strike: 1.15 },
-  attrition: { dealt: 1, taken: 1, morale: 0, center: 1, flank: 1, tempo: 5, shock: 1, ranged: 1.15, strike: 1 },
-  aggressive: { dealt: 1.2, taken: 1.12, morale: 0, center: 1, flank: 1, tempo: -2, shock: 1, ranged: 1, strike: 1 },
-};
-
-/** Охват: фланг, чья сила больше вражеской во столько раз, заворачивает к центру этой долей людей. */
-export const ENVELOP = { advantage: 1.3, share: 0.25 };
-/** Пехота «поддержать слабый фланг»: порог слабости и доля центра, которая уходит. */
-export const SUPPORT_FLANK = { weakBelow: 0.8, share: 0.3, minCenter: 40 };
-/** Резерв: центр или фланг считается проигрывающим ниже этого отношения сил. */
-export const RESERVE_LOSING = 0.8;
-
-// ---------- Приказы ----------
-
-export interface OrderMods {
-  dealt: number;
-  taken: number;
-}
-
-export const SPEAR_ORDERS: Record<SpearOrder, OrderMods & { closed: boolean }> = {
-  'hold-line': { dealt: 1, taken: 1, closed: true },
-  'guard-archers': { dealt: 1, taken: 1, closed: true },
-  'priority-cavalry': { dealt: 1, taken: 1, closed: true },
-  advance: { dealt: 1.15, taken: 1.1, closed: false },
-};
-
-export const INFANTRY_ORDERS: Record<InfantryOrder, OrderMods> = {
-  'hold-center': { dealt: 1, taken: 0.9 },
-  advance: { dealt: 1.15, taken: 1.1 },
-  'support-weak-flank': { dealt: 1, taken: 1 },
-  'break-center': { dealt: 1.3, taken: 1.2 },
-};
-
-export const ARCHER_ORDERS: Record<ArcherOrder, OrderMods> = {
-  nearest: { dealt: 1, taken: 1 },
-  'priority-infantry': { dealt: 1, taken: 1 },
-  'priority-cavalry': { dealt: 1, taken: 1 },
-  'keep-distance': { dealt: 1, taken: 1 },
-  'support-center': { dealt: 1, taken: 1 },
-};
-
-export const CAVALRY_ORDERS: Record<CavalryOrder, OrderMods> = {
-  charge: { dealt: 1, taken: 1 },
-  'hold-flank': { dealt: 1, taken: 0.9 },
-  flank: { dealt: 1, taken: 1 },
-  'attack-archers': { dealt: 1, taken: 1 },
-  reserve: { dealt: 1, taken: 1 },
-  pursue: { dealt: 1, taken: 1 },
-};
-
-/**
- * Прикрытие манёвра: линия полосы прикрывает ждущих не больше `линия / K` их силы
- * (`Battle.expose`), остальные выходят во фронт. `K` выведен замером, а не выбран:
- * наименьшее из сетки, при котором за заслоном тоньше ждущих манёвр не выигрывает от того,
- * что заслон тоньше, — прибавка манёвра растёт вместе с заслоном и на лёгкой за латными, и на
- * лёгкой за пехотой (`npm run battle:report`, раздел «Заслон: линия по силе»; тест «линия по
- * силе» в `battle.test.ts`). При меньшем `K` заслон тоньше ждущих прикрывает их целиком, и
- * самый тонкий заслон опять оказывается лучшим.
- */
-export const COVER = { K: 0.75 };
-
-/** Приоритет цели: во сколько раз охотнее бьют по выбранному роду. */
-export const TARGET_PRIORITY = 3;
 
 // ---------- Журнал ----------
 

@@ -11,9 +11,7 @@
 // число рода, и сюда не входит: у лёгкой его нет, у тяжёлой он есть (`sim.ts`).
 import { describe, expect, it } from 'vitest';
 import { COUNTER, FOOT_FLANK, RETREAT, TEMPER, UNIT_STATS } from './config';
-import { HORSE_KINDS, type CavalryOrder, type UnitKind } from './types';
-import { quickSetup } from './setup';
-import { simulateBattle } from './sim';
+import { HORSE_KINDS, type UnitKind } from './types';
 
 /** Оси профиля: где число лежит у конного рода и где у пеших — те же по смыслу оси. */
 interface Axis {
@@ -72,26 +70,5 @@ describe('два конных рода — две половины прежне�
       const given = AXES.filter((a) => a.of(k) !== a.prior).map((a) => a.name);
       expect(given.length, `${k} отдал другому роду хоть что-нибудь`).toBeGreaterThan(0);
     }
-  });
-});
-
-describe('приказ конному роду — только своему', () => {
-  it('приказ рода, которого в армии нет, не меняет боя: латные в резерве не берут манёвр лёгкой', () => {
-    // Пехота во фронте, латные в резерве с «атаковать сразу». Лёгкой в армии нет, значит её
-    // приказ — пустое поле: «бить лучников» и «атаковать сразу» у неё обязаны дать один бой.
-    const army = { infantry: 200, spear: 100, heavy: 300 };
-    const foe = quickSetup({ infantry: 250, archer: 250, spear: 100 });
-    let committed = 0;
-    for (let seed = 1; seed <= 8; seed++) {
-      const withOrder = (cavalry: CavalryOrder) => quickSetup(army, { orders: { spear: 'hold-line', infantry: 'hold-center', archer: 'nearest', cavalry, heavy: 'charge' } });
-      const a = simulateBattle({ seed, attacker: withOrder('attack-archers'), defender: foe });
-      const b = simulateBattle({ seed, attacker: withOrder('charge'), defender: foe });
-      // Граница: латные действительно стоят в резерве и резерв вводится — иначе манёвр не спрашивается.
-      expect(withOrder('charge').sectors.R.heavy).toBe(300);
-      if (b.log.some((e) => e.id === 'reserve-committed' && e.side === 'attacker')) committed++;
-      expect(a.sides.attacker.total.losses, `сид ${seed}`).toBe(b.sides.attacker.total.losses);
-      expect(a.sides.defender.total.losses, `сид ${seed}`).toBe(b.sides.defender.total.losses);
-    }
-    expect(committed, 'резерв вводился хоть в одном бою').toBeGreaterThan(0);
   });
 });

@@ -339,7 +339,7 @@ async function play(seed: number, restMinutes: number): Promise<Run> {
       }
       continue;
     }
-    const res = await world.attack({ setup: null });
+    const res = await world.attack({});
     if (res.won) {
       burned++;
       spentMs += now - (goingSince || now);

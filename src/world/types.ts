@@ -6,7 +6,7 @@ import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
-import type { ArmySetup, BattleResult, Pips, QuickPresetId, Side, Stack, UnitKind } from '@/battle';
+import type { ArmySetup, BattleResult, Pips, Side, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
 import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
@@ -493,8 +493,9 @@ export interface Intel {
   /** Кого разглядели — по родам полевого боя, в бойцах строя. */
   kinds?: Stack;
   /**
-   * Как противник стоял: шесть секторов без резерва. Резерв и условие его ввода
-   * разведка не показывает — это единственная по-настоящему скрытая вещь в игре.
+   * Как противник стоял — шесть секторов. Больше не пишется: построение у всех одно, правило
+   * развёртывания (docs/battle_eu4.md, 14.5), и разведка показывает состав. Поле остаётся ради
+   * снимков, записанных раньше; не читает его никто.
    */
   formation?: Partial<Record<string, Stack>>;
   /** Уклад войска словами: «копейная стена», «конная дружина». */
@@ -517,8 +518,6 @@ export interface IntelReading {
   loot: Estimate;
   /** Численность по родам с той точностью, что осталась. null — состав не разглядели. */
   kinds: Partial<Record<UnitKind, Estimate>> | null;
-  /** Построение по секторам. null — данные слишком стары: построение уже не то. */
-  formation: Partial<Record<string, Stack>> | null;
   style: string | null;
   /**
    * Донесение с чужих слов: числа были приблизительными уже в момент получения.
@@ -896,11 +895,6 @@ export interface MarchOrder {
   units: UnitStack;
   /** Кто именно идёт: без этого бой не знает состава и считает отряд пехотой. */
   troops?: TroopStack;
-  /**
-   * Расстановка, план, приказы и резерв. null или пусто — быстрая атака: пресет
-   * выберется по сиду похода, и противник не знает, какой из четырёх пришёл.
-   */
-  setup?: ArmySetup | null;
 }
 
 /**
@@ -909,11 +903,6 @@ export interface MarchOrder {
  * способ назначить цель, и они разошлись бы.
  */
 export interface AttackOrder {
-  /**
-   * Расстановка, план, приказы и резерв. null — быстрая атака: пресет выберется
-   * по сиду, и противник не знает, какой из четырёх пришёл.
-   */
-  setup?: ArmySetup | null;
   /**
    * Участь города, объявленная приказом. Нет поля — «ограбить»: так бьют логово и
    * так ударили бы приказом, отданным до лестницы.
@@ -965,8 +954,11 @@ export type ReportKind = 'raid' | 'scout' | 'support' | 'defense';
 export interface BattleRecord {
   /** За какую сторону играл игрок. */
   us: Side;
-  /** Пресет быстрой атаки, если расстановку не задавали. */
-  preset: QuickPresetId | null;
+  /**
+   * Пресет быстрой атаки у записей, посчитанных до поставки 1 боя (docs/battle_eu4.md, 14.5). Мир его
+   * больше не пишет — пресетов нет, — а старые записи в сохранении мира его везут; не читает его никто.
+   */
+  preset?: string | null;
   result: BattleResult;
   /**
    * Кто именно стоял в строю с каждой стороны. Ядро боя знает только четыре

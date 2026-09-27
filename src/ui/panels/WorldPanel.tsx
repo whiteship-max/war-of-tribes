@@ -49,7 +49,6 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   const s = useGame((g) => g.s);
   const closeMap = useGame((g) => g.closeMap);
   const showToast = useGame((g) => g.showToast);
-  const openBattle = useGame((g) => g.openBattle);
   const openDefense = useGame((g) => g.openDefense);
   const lock = useLockWords();
   const card = useWorld((g) => g.card);
@@ -232,12 +231,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
   };
 
   /**
-   * Быстрая атака: полководец бьёт тем, что при нём, расстановку выберет пресет
-   * по сиду. Пресета четыре — противник не знает, какой из них пришёл.
+   * Удар: полководец бьёт тем, что при нём, и встают они по правилу развёртывания. Удар один —
+   * «Настроить бой» и «Быструю атаку» больше не различают (docs/battle_eu4.md, 14.5).
    */
-  const quickStrike = async (): Promise<void> => {
+  const strike = async (): Promise<void> => {
     setBusy(true);
-    const err = await attack({ setup: null, fate });
+    const err = await attack({ fate });
     setBusy(false);
     showToast(err ?? 'Дружина ударила. Отчёт в походах.');
   };
@@ -636,11 +635,8 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         {card.can.raid && !card.siege?.mine && (
           <>
             {/* Полководец здесь и войско при нём — только теперь и можно ударить. */}
-            <button className="btn wide" disabled={busy} onClick={() => void quickStrike()}>
-              ⚔️ Ударить сразу · {generalMen} бойцов
-            </button>
-            <button className="btn ghost wide" onClick={() => openBattle(card.id)}>
-              <Icon name="ui-target" glyph="🎯" /> Настроить бой
+            <button className="btn wide" disabled={busy} onClick={() => void strike()}>
+              ⚔️ Ударить · {generalMen} бойцов
             </button>
           </>
         )}

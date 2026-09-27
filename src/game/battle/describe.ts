@@ -9,8 +9,9 @@
 // загрузке модуля), поэтому правка `COUNTER` немедленно меняет строку на карточке —
 // это и проверяет `describe.test.ts`.
 //
-// Руками пишутся только условия и названия ситуаций: «пока держат линию»,
-// «во фланг» — их из числа не вывести. Само число всегда рядом и всегда из таблицы.
+// Руками пишутся только условия и названия ситуаций: «пока сомкнуты», «во фланг» —
+// их из числа не вывести. Само число всегда рядом и всегда из таблицы. Условие —
+// всегда положение, а не приказ: приказов у боя больше нет (docs/battle_eu4.md, 14.5).
 import type { EquipmentId, ResourceId, TroopId } from '../types';
 import { TROOPS, TROOP_BY_ID, type TroopDef } from '../data/troops';
 import {
@@ -21,9 +22,7 @@ import {
   FOOT_FLANK,
   GEAR,
   KIND_META,
-  KITING,
   MORALE,
-  ORDER_NAMES,
   SLOW_CONTACT,
   TEMPER,
   UNIT_KINDS,
@@ -48,17 +47,17 @@ const KIND_GEN: Record<UnitKind, string> = {
 /** Названия ситуаций характера рода (`TEMPER`): ключ таблицы → что происходит. */
 const TEMPER_WHEN: Record<string, string> = {
   'spear.holding': 'сомкнутый строй под ударом в лоб',
-  'spear.advancing': 'наступают или строй разомкнут',
+  'spear.advancing': 'строй разомкнут: смят',
   'spear.flanked': 'удар во фланг или тыл строя',
   'infantry.all': 'в любом положении',
   'archer.shooting': 'стреляют с дистанции',
   'archer.melee': 'до них дошли, и они не ушли',
   'cavalry.charging': 'в движении: удар или обход',
   'cavalry.stalled': 'её остановили во фронте',
-  'cavalry.waiting': 'ждёт манёвра или стоит в резерве',
+  'cavalry.waiting': 'стоит в резерве или ещё не сошлась',
   'heavy.charging': 'в движении: удар с разбега или обход',
   'heavy.stalled': 'её остановили: вязнет в сече',
-  'heavy.waiting': 'ждёт манёвра или стоит в резерве',
+  'heavy.waiting': 'стоит в резерве или ещё не сошлась',
 };
 
 /**
@@ -109,8 +108,6 @@ interface Spec {
   except?: UnitKind[];
 }
 
-const O = ORDER_NAMES;
-
 /**
  * Все условные множители боя одним списком. Функция, а не константа: карточка
  * обязана читать конфиг в момент показа, иначе правка баланса до неё не дойдёт.
@@ -122,14 +119,7 @@ function specs(): Spec[] {
       by: 'spear',
       at: 'cavalry',
       mult: COUNTER.spear.cavalryHolding,
-      when: `только пока держат линию: приказы «${O.spear['hold-line']}», «${O.spear['guard-archers']}», «${O.spear['priority-cavalry']}»`,
-    },
-    {
-      id: 'spear-cav-advance',
-      by: 'spear',
-      at: 'cavalry',
-      mult: COUNTER.spear.cavalryAdvancing,
-      when: `с приказом «${O.spear.advance}» строй разомкнут, и превосходство почти пропадает`,
+      when: 'только пока сомкнуты: в строю, не смяты, не бегут и не обойдены — обойдённые и смятые упора не держат',
     },
     {
       id: 'spear-foot-flank',
@@ -157,7 +147,7 @@ function specs(): Spec[] {
       by: 'cavalry',
       at: 'archer',
       mult: COUNTER.cavalry.archer,
-      when: `когда добралась до лучников: приказ «${O.cavalry['attack-archers']}» или удавшийся обход`,
+      when: 'когда добралась до лучников: обходом, во второй линии противника',
     },
     {
       id: 'cav-flank',
@@ -165,14 +155,14 @@ function specs(): Spec[] {
       at: 'any',
       mult: COUNTER.cavalry.flank,
       broad: true,
-      when: `удар во фланг или тыл — приказ «${O.cavalry.flank}»; сомкнутых копий не касается`,
+      when: 'удар во фланг или тыл — в обходе; сомкнутых копий не касается',
     },
     {
       id: 'cav-spear-closed',
       by: 'cavalry',
       at: 'spear',
       mult: COUNTER.cavalry.spearClosed,
-      when: 'в лоб или в закрытый со всех сторон тыл, пока копья сомкнуты',
+      when: 'в лоб, пока копья сомкнуты: не смяты и не бегут',
     },
     {
       id: 'cav-infantry',
@@ -218,25 +208,11 @@ function specs(): Spec[] {
       when: 'после того, как цель вошла в рукопашную: бьют через головы своих',
     },
     {
-      id: 'archer-kite-shot',
-      by: 'archer',
-      at: 'any',
-      mult: KITING.ranged,
-      when: `стрельба на отходе: приказ «${O.archer['keep-distance']}» против тех, кто медленнее`,
-    },
-    {
       id: 'spear-brace',
       by: 'any',
       at: 'spear',
       mult: CLASH_SPEAR_BRACE,
       when: 'сшибка: сомкнутые копья принимают удар упёршись — в каждом круге боя',
-    },
-    {
-      id: 'archer-kite-taken',
-      by: 'any',
-      at: 'archer',
-      mult: KITING.damageTaken,
-      when: `пока держат дистанцию: приказ «${O.archer['keep-distance']}» против тех, кто медленнее`,
     },
     {
       id: 'no-anchor',
@@ -536,7 +512,6 @@ export interface TroopCard {
   counters: CounterLine[];
   strengths: string[];
   weaknesses: string[];
-  orders: { id: string; name: string }[];
   nextGear: NextGear | null;
 }
 
@@ -564,7 +539,6 @@ export function troopCard(troop: TroopId): TroopCard {
     counters: countersOf(kind),
     strengths: strengthsOf(troop),
     weaknesses: weaknessesOf(troop),
-    orders: Object.entries(ORDER_NAMES[kind]).map(([id, name]) => ({ id, name })),
     nextGear: nextGearOf(troop),
   };
 }

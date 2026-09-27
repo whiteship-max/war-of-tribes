@@ -324,7 +324,7 @@ async function plunderRun(seed: number) {
       }
       if (w.now() >= deadline) break;
     }
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     if (res.error) {
       w.advance(MIN);
       await w.world.sync(p);
@@ -444,7 +444,7 @@ for (const seed of SEEDS) {
       w.at(until + LOOT_REFILL * 2);
       await w.world.sync(p);
     }
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     if (res.error) {
       hits.push(-1);
       continue;
@@ -585,7 +585,7 @@ for (let i = 0; i < 200; i++) {
     if (g && g.phase !== 'moving') break;
   }
   const before = saveOf(w.world).diplomacy[target.id]?.attitude ?? 0;
-  const res = await w.world.attack({ setup: null });
+  const res = await w.world.attack({});
   const save = saveOf(w.world);
   console.log(`  Цель: ${target.name}. Исход: ${res.won ? 'победа' : 'поражение'}.`);
   console.log(`  Отношение: ${before} → ${save.diplomacy[target.id].attitude}.`);

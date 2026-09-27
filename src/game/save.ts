@@ -49,12 +49,13 @@ export function serialize(s: GameState): string {
  * Сохранение как оно лежит на диске. Поля, которые партия больше не хранит, описаны здесь, а не в
  * `GameState`: ступени их читают, а партия после чтения их не несёт (`deserialize` убирает).
  * `hero` — герой с именем и родом до поставки 1 боя (имя ушло к полководцу ступенью 12 → 13, род и
- * поход — с прибавкой героя, docs/battle_eu4.md, 14.19.6).
+ * поход — с прибавкой героя, docs/battle_eu4.md, 14.19.6); `battlePlans` — схемы похода с планом,
+ * приказами и раскладкой удара, ушедшие вместе с ними (14.5).
  */
-type SavedState = Partial<GameState> & { version?: number; hero?: { name?: unknown } };
+type SavedState = Partial<GameState> & { version?: number; hero?: { name?: unknown }; battlePlans?: unknown };
 
 /** Поля, которые партия больше не хранит: старое сохранение привозит их спредом, и они убираются. */
-const DROPPED = ['hero'] as const;
+const DROPPED = ['hero', 'battlePlans'] as const;
 
 /**
  * Профиль мержится по полям, как рынок и статистика: спред `...data` на уровень
@@ -409,7 +410,6 @@ export function deserialize(json: string): GameState | null {
       // появления нового поля внутри DailyState, привезло бы его как undefined.
       daily: { ...base.daily, ...(data.daily ?? {}) },
       caravans: data.caravans ?? [],
-      battlePlans: data.battlePlans ?? [],
       stats: { ...base.stats, ...(data.stats ?? {}) },
       profile: mergeProfile(base.profile, data.profile),
       // Агенты — словарь по агентам, как армия по видам: мержится поштучно, а

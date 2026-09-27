@@ -49,9 +49,7 @@ export type SheetView =
   | { kind: 'building'; id: number }
   | { kind: 'world'; x: number; y: number }
   | { kind: 'marches' }
-  /** Подготовка похода на цель: состав, расстановка, план, приказы, резерв. */
-  | { kind: 'battle'; target: string }
-  /** Оборона своей деревни — та же панель без цели и дороги. */
+  /** Оборона своей деревни: раскладка гарнизона и заморозка. «Настроить бой» у удара ушло (docs/battle_eu4.md, 14.5). */
   | { kind: 'defense' }
   /**
    * Окно осады глазами обороняющегося: кто стоит, чем кончится, чем ответить. Входов
@@ -127,9 +125,7 @@ export interface GameStore {
   openWorldTile: (x: number, y: number) => void;
   /** Список своих походов и отчётов. */
   openMarches: () => void;
-  /** Подготовка похода на выбранную цель. */
-  openBattle: (target: string) => void;
-  /** Оборона деревни: расстановка, план, резерв, приказы. */
+  /** Оборона деревни: раскладка гарнизона по секторам. */
   openDefense: () => void;
   /** Открыть вылазку. Ведёт сюда одна кнопка — из окна осады. */
   openSortie: () => void;
@@ -231,7 +227,7 @@ export const useGame = create<GameStore>((set, get) => ({
     // Карточки карты живут только вместе с картой.
     const onMap =
       cur &&
-      (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'battle' || cur.kind === 'report' || cur.kind === 'camp');
+      (cur.kind === 'world' || cur.kind === 'marches' || cur.kind === 'report' || cur.kind === 'camp');
     const keep = cur && !onMap ? cur : null;
     // Домой — мгновенно: диорама всё это время стояла на месте.
     set({ mapOpen: false, sheet: keep });
@@ -244,11 +240,6 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   openMarches: () => set({ sheet: { kind: 'marches' } }),
-
-  openBattle: (target) => {
-    haptic('light');
-    set({ sheet: { kind: 'battle', target } });
-  },
 
   openDefense: () => {
     haptic('light');

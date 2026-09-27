@@ -1,10 +1,11 @@
 // Перебор параметров боя: одна строка на набор чисел — доля досрочных завершений,
-// размен при перевесе 10%, разрыв быстрой атаки, кольцо и кто никому не проигрывает.
+// размен при перевесе 10%, кольцо и кто никому не проигрывает. Разрыва быстрой атаки
+// больше нет: быстрой атаки нет, все встают по правилу развёртывания (docs/battle_eu4.md, 14.5).
 // Числа подставляются поверх конфига в порядке перечисления (накопительно):
 //   GRID='[{},{"MORALE.perLoss":300},{"UNIT.spear":{...}}]' npm run battle:sweep
 // Это быстрый прицел; итог всегда сверять полным отчётом и тестами.
-import { simulateBattle, quickSetup, MORALE, RETREAT, TEMPER, UNIT_STATS, COUNTER } from '../src/battle';
-import { COMPOSITIONS, TUNED, RING, mirrored, quickOf } from '../src/battle/bench';
+import { simulateBattle, deploySetup, MORALE, RETREAT, TEMPER, UNIT_STATS, COUNTER } from '../src/battle';
+import { COMPOSITIONS, RING, mirrored } from '../src/battle/bench';
 import type { BattleResult } from '../src/battle';
 
 /** Гонг — потолок кругов сечи (`roundsCap`): бой дошёл до него, не сломав никого. */
@@ -31,7 +32,7 @@ function measure(): string {
   let mirrorEarly = 0;
   let mirrorTotal = 0;
   for (const c of COMPOSITIONS) {
-    const big = quickSetup(scale(c.army, 1.1) as never);
+    const big = deploySetup(scale(c.army, 1.1) as never);
     let bigLoss = 0;
     let smallLoss = 0;
     for (let seed = 1; seed <= 16; seed += 1) {
@@ -43,14 +44,6 @@ function measure(): string {
       if (!atGong(r)) mirrorEarly += 1;
     }
     ratios.push(smallLoss / Math.max(1, bigLoss));
-  }
-  let quick = 0;
-  let tuned = 0;
-  for (let seed = 1; seed <= 40; seed += 1) {
-    const ta = seed % 2 === 1;
-    const r = simulateBattle({ seed, attacker: ta ? TUNED : quickOf(seed), defender: ta ? quickOf(seed) : TUNED });
-    tuned += r.sides[ta ? 'attacker' : 'defender'].total.losses;
-    quick += r.sides[ta ? 'defender' : 'attacker'].total.losses;
   }
   const ring = RING.map((p) => {
     let w = 0;
@@ -69,7 +62,7 @@ function measure(): string {
     if (loses === 0) undefeated.push(a.name);
   }
   const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
-  return `досрочно ${(100 * early / total).toFixed(0)}% (ничьих ${(100 * draws / total).toFixed(0)}%, зеркало 10%: ${(100 * mirrorEarly / mirrorTotal).toFixed(0)}%) | размен 10%: сред ${mean.toFixed(2)} макс ${Math.max(...ratios).toFixed(2)} [${ratios.map((r) => r.toFixed(2)).join(' ')}] | разрыв ${((quick / tuned - 1) * 100).toFixed(0)}% | кольцо ${ring.join('/')} | непобедимые: ${undefeated.join(',') || 'нет'}`;
+  return `досрочно ${(100 * early / total).toFixed(0)}% (ничьих ${(100 * draws / total).toFixed(0)}%, зеркало 10%: ${(100 * mirrorEarly / mirrorTotal).toFixed(0)}%) | размен 10%: сред ${mean.toFixed(2)} макс ${Math.max(...ratios).toFixed(2)} [${ratios.map((r) => r.toFixed(2)).join(' ')}] | кольцо ${ring.join('/')} | непобедимые: ${undefeated.join(',') || 'нет'}`;
 }
 
 const grid = JSON.parse(process.env.GRID ?? '[{}]') as Array<Record<string, number>>;

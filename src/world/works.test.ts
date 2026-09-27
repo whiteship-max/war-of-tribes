@@ -940,7 +940,7 @@ describe('две стороны лагеря: древесина и проход
     expect((await world.strikePlan('home', false)).reason).toBe(STRIKE_FROM_TOWN);
     expect((await world.strikePlan('home', true)).reason).toBe(STRIKE_FROM_TOWN);
     expect(await world.strikeCamp('home', true)).toBe(STRIKE_FROM_TOWN);
-    expect((await world.attack({ setup: null })).error).toBe(STRIKE_FROM_TOWN);
+    expect((await world.attack({})).error).toBe(STRIKE_FROM_TOWN);
     // А вылазкой дружина выходит вместе с остальными — отдельного приказа нет.
     const res = await world.sortie(GARRISON);
     expect(res.error).toBeNull();

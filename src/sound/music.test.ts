@@ -13,7 +13,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from '@/battle/sim';
-import { quickSetup } from '@/battle/setup';
+import { deploySetup } from '@/battle/setup';
 import { ACTS, MUSIC_BY_ACT, buildCast, frameAt, musicAt, musicCues, type Cast } from '@/battle/replay';
 import { BattleMusic, type AudioHost } from './music';
 import { MUSIC_FORMAT, MUSIC_TRACKS, battleFiles, trackOf, trackUrl } from './manifest';
@@ -25,8 +25,8 @@ const fight = (seed = 7): Cast =>
   buildCast(
     simulateBattle({
       seed,
-      attacker: quickSetup({ spear: 150, infantry: 200, archer: 150, cavalry: 100 }),
-      defender: quickSetup({ spear: 200, infantry: 200, archer: 150, cavalry: 50 }),
+      attacker: deploySetup({ spear: 150, infantry: 200, archer: 150, cavalry: 100 }),
+      defender: deploySetup({ spear: 200, infantry: 200, archer: 150, cavalry: 50 }),
     }),
     'attacker',
   );

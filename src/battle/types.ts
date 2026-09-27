@@ -34,29 +34,6 @@ export const SECTORS: readonly Sector[] = ['A', 'B', 'C', 'D', 'E', 'F', 'R'];
 /** Полоса поля со стороны своей армии: 0 — левый фланг, 1 — центр, 2 — правый. */
 export type Lane = 0 | 1 | 2;
 
-/** Общий план боя (раздел 4 документа). */
-export type Plan = 'defense' | 'assault' | 'envelop' | 'cavalry-strike' | 'attrition' | 'aggressive';
-
-/** Приказы родам войск (раздел 5). Один приказ на род на всю армию. */
-export type CavalryOrder = 'charge' | 'hold-flank' | 'flank' | 'attack-archers' | 'reserve' | 'pursue';
-export type ArcherOrder = 'nearest' | 'priority-infantry' | 'priority-cavalry' | 'keep-distance' | 'support-center';
-export type SpearOrder = 'hold-line' | 'guard-archers' | 'priority-cavalry' | 'advance';
-export type InfantryOrder = 'hold-center' | 'advance' | 'support-weak-flank' | 'break-center';
-
-export interface Orders {
-  cavalry: CavalryOrder;
-  /**
-   * Приказ тяжёлой коннице: те же приказы, что у лёгкой, — но отдельно от неё. Поле
-   * необязательное, и читается оно одной дверью (`sim.horseOrder`): расстановка, записанная
-   * до появления второго конного рода — в сохранении партии, в слепке мира или в шаблоне, —
-   * приезжает без него, и тяжёлая идёт по приказу лёгкой.
-   */
-  heavy?: CavalryOrder;
-  archer: ArcherOrder;
-  spear: SpearOrder;
-  infantry: InfantryOrder;
-}
-
 /** Фазы боя — фиксированные и в этом порядке (раздел 11). */
 export type PhaseId =
   | 'ranged'
@@ -89,21 +66,14 @@ export type PipId = 'fire' | 'shock' | 'melee' | 'maneuver';
 export const PIP_IDS: readonly PipId[] = ['fire', 'shock', 'melee', 'maneuver'];
 export type Pips = Partial<Record<PipId, number>>;
 
-/** Условие ввода резерва (раздел 6). */
-export type ReserveTrigger =
-  | { kind: 'immediate' }
-  | { kind: 'center-losing' }
-  | { kind: 'weak-flank' }
-  /** Туда, где проигрываем, — центр или фланг, что слабее. Условие шаблона быстрой атаки. */
-  | { kind: 'weakest' }
-  | { kind: 'morale' }
-  | { kind: 'after-phase'; phase: PhaseId };
-
+/**
+ * С чем сторона выходит в бой. Плана, приказов и условия резерва у стороны нет (docs/battle_eu4.md, 14.5):
+ * решения игрока в бою — это состав и кто его ведёт, как у EU4, а где кто встанет, решает правило
+ * развёртывания (`setup.deploy`). Сектора остались полем входа: их заполняет правило, а до поставки 2 —
+ * ещё и раскладка обороны игрока.
+ */
 export interface ArmySetup {
   sectors: Record<Sector, Stack>;
-  plan: Plan;
-  orders: Orders;
-  reserve: ReserveTrigger;
   /**
    * Ступень снаряжения рода войск, 0..`GEAR.max`: то, что выковала кузница.
    * Каждая ступень прибавляет `GEAR.moralePerLevel` к базовой морали рода —
@@ -171,7 +141,7 @@ export type BattleEvent = EventBase &
     | { id: 'spears-held'; side: Side; sector: Sector; cavalryLost: number; spearsLost: number }
     /** Конница (`side`) вырубила лучников противника в его секторе `target`. */
     | { id: 'cavalry-broke-archers'; side: Side; target: Sector; archersLost: number }
-    /** Конница (`side`) перехвачена конницей противника, державшей фланг. */
+    /** Конница (`side`) перехвачена конницей противника, державшей фланг. Ядро этого больше не пишет — перехват жил приказом; тип остался ради записей боя, посчитанных раньше. */
     | { id: 'cavalry-intercepted'; side: Side; target: Sector }
     /** Сектор `sector` стороны `side` обойдён: удар пришёл с фланга или тыла. */
     | { id: 'flank-turned'; side: Side; sector: Sector; by: Side }
@@ -187,9 +157,9 @@ export type BattleEvent = EventBase &
     | { id: 'rear-reached'; side: Side; sector: Sector; by: Side }
     /** Резерв (`men` человек) вошёл в `sector`. */
     | { id: 'reserve-committed'; side: Side; sector: Sector; men: number }
-    /** Пехота из центра сдвинулась поддержать `to`. */
+    /** Пехота из центра сдвинулась поддержать `to`. Ядро этого больше не пишет (приказ); тип — ради старых записей боя. */
     | { id: 'infantry-shifted'; side: Side; to: Sector; men: number }
-    /** Лучники в `sector` держат дистанцию от медленного противника. */
+    /** Лучники в `sector` держат дистанцию от медленного противника. Ядро этого больше не пишет (приказ); тип — ради старых записей боя. */
     | { id: 'archers-kiting'; side: Side; sector: Sector }
     /**
      * Ряд шире фронта: в строю `width`, остальные из `men` стоят глубиной и встают на место павших.

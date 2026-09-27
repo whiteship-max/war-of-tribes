@@ -4,15 +4,17 @@
 // Задача — одно дело из отчёта, названное доводом, а не переданное армией: дочерний процесс строит
 // расстановки сам из тех же таблиц (`bench.ts`), и по проводу ходят номера и числа. Итог задачи —
 // ровно то, что отчёт прежде считал у себя тем же кодом; сложения, порядок которых влияет на
-// последний знак, остаются внутри задачи целиком (`latticeWorth`, `gapAgainst`, `holdPoint`).
+// последний знак, остаются внутри задачи целиком (`gapAgainst`).
 //
-// Подмены чисел ядра — варианты раздела «Тяжёлая» и `COVER.K` раздела «Заслон» — ставит и снимает
-// сама задача, в том процессе, который её считает, — у веера это дочерний процесс, и в процессе отчёта
-// подмен нет (кроме `TRIBE_FAN=1`, когда задачи идут в нём же подряд). Снять подмену обязательно и
-// здесь: процесс берёт задачи одну за другой, и следующая обязана начаться на числах конфига.
-import { COUNTER, COVER, PLANS, QUICK_PRESETS, QUICK_PRESET_IDS, TEMPER, UNIT_KINDS, UNIT_STATS, armyTotal, quickAttack, quickSetup, simulateBattle, stackOf, type ArmySetup, type BattleResult, type CavalryOrder, type Plan, type QuickPresetId, type Stack, type UnitKind } from '../src/battle';
-import { stackPower } from '../src/battle/sim';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, KNOWN_COUNTER, OVERSIZE_SEEDS, RING, SEARCH, TUNED, TUNED_SPEC, compositionLattice, diceStepFor, gapAgainst, holdPoint, latticeDuel, latticeWorth, layoutGrid, layoutOf, mirrorOf, mirrored, oversize, oversizeHold, quickOf, screenArmy, scaleArmy, searchPool, standardOf, withCoverK, withDiceStep, type Mirrored } from '../src/battle/bench';
+// Подмены чисел ядра — варианты раздела «Тяжёлая» — ставит и снимает сама задача, в том процессе,
+// который её считает, — у веера это дочерний процесс, и в процессе отчёта подмен нет (кроме
+// `TRIBE_FAN=1`, когда задачи идут в нём же подряд). Снять подмену обязательно и здесь: процесс берёт
+// задачи одну за другой, и следующая обязана начаться на числах конфига.
+//
+// Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
+// пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
+import { COUNTER, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult } from '../src/battle';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, gapAgainst, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, withDiceStep, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -36,91 +38,30 @@ const pairOf = (m: Mirrored): Pair => ({ field: m.field, lossRatio: m.lossRatio,
 // ---------- Кто стоит на поле ----------
 
 /** Наборы, у которых отчёт гоняет матрицу «каждый против каждого». */
-export type MatrixSet = 'compositions' | 'plans' | 'presets' | 'pure';
+export type MatrixSet = 'compositions' | 'pure';
 
 const matrixSetups = (set: MatrixSet): ArmySetup[] => {
   if (set === 'compositions') return COMPOSITIONS.map((c) => c.setup);
-  if (set === 'plans') return (Object.keys(PLANS) as Plan[]).map((plan) => quickSetup(BALANCED_ARMY, { plan }));
-  if (set === 'presets') return QUICK_PRESET_IDS.map((id) => QUICK_PRESETS[id].layout(stackOf(BALANCED_ARMY)));
-  return UNIT_KINDS.map((k) => quickSetup({ [k]: ARMY_SIZE }));
+  return UNIT_KINDS.map((k) => deploySetup({ [k]: ARMY_SIZE }));
 };
-
-let grid: ArmySetup[] | null = null;
-/** Расстановки перебора в порядке `layoutGrid`. */
-const gridSetups = (): ArmySetup[] => (grid ??= layoutGrid().map((spec) => layoutOf(BALANCED_ARMY, spec)));
 
 let pool: ArmySetup[] | null = null;
 const poolSetups = (): ArmySetup[] => (pool ??= searchPool());
 
-let presets: ArmySetup[] | null = null;
-const presetSetups = (): ArmySetup[] => (presets ??= matrixSetups('presets'));
-
-let foes: ArmySetup[] | null = null;
-/** Противники заслона — вся решётка составов стандартным пресетом (`latticeWorth`). */
-const latticeFoes = (): ArmySetup[] => (foes ??= compositionLattice().map((a) => quickSetup(a)));
-
-/** Чья расстановка: из перебора, из поиска или именованная. */
-export type Who = { grid: number } | { pool: number } | 'TUNED' | 'KNOWN_COUNTER';
-const setupOf = (who: Who): ArmySetup => {
-  if (who === 'TUNED') return TUNED;
-  if (who === 'KNOWN_COUNTER') return KNOWN_COUNTER;
-  return 'grid' in who ? gridSetups()[who.grid] : poolSetups()[who.pool];
-};
-
-/** Против кого: быстрая атака (пресет по сиду), стандартный пресет или названный пресет. */
-export type Opponent = 'quick' | 'standard' | { preset: QuickPresetId };
-const opponentOf = (o: Opponent): ((seed: number) => ArmySetup) => {
-  if (o === 'quick') return quickOf;
-  if (o === 'standard') return standardOf;
-  return () => QUICK_PRESETS[o.preset].layout(stackOf(BALANCED_ARMY));
-};
+/** Против кого ищет поиск: сбалансированный состав по правилу развёртывания. */
+const balanced = (): ArmySetup => deploySetup(BALANCED_ARMY);
 
 // ---------- Варианты раздела «Тяжёлая» ----------
 
 /**
  * Каждое число тяжёлой по очереди ставится на то, что стоит на той же оси у пехоты или у лёгкой,
- * и решётка перемеряется целиком. `set` ставит подмену и возвращает её снятие.
+ * и решётка перемеряется целиком. `set` ставит подмену и возвращает её снятие. Вариантов раскладки
+ * («пресет ставит её во фронт», «резерв не больше прикрытого») больше нет: раскладку решает правило.
  */
 interface Variant {
   name: string;
   set: () => () => void;
-  layout?: (a: Partial<Stack>) => ArmySetup;
 }
-
-const heavyFront = (army: Partial<Stack>): ArmySetup => {
-  const s = quickSetup(army);
-  const r = s.sectors.R.heavy;
-  if (r > 0) {
-    s.sectors.R.heavy = 0;
-    const l = Math.floor(r * 0.3);
-    const c = Math.floor(r * 0.3);
-    s.sectors.A.heavy += l;
-    s.sectors.B.heavy += r - l - c;
-    s.sectors.C.heavy += c;
-  }
-  return s;
-};
-// Резерв по той же мерке, что заслон: пресет держит в резерве не больше, чем прикрывает линия
-// (`линия / COVER.K` силы, `stackPower`), остальное — во фронт. Это не правило боя, а расстановка
-// перед ним: в бою резерв по-прежнему недосягаем, пока не введён, сколько бы его ни было.
-const reserveCovered = (army: Partial<Stack>): ArmySetup => {
-  const s = quickSetup(army);
-  const line = stackPower(armyTotal({ ...s, sectors: { ...s.sectors, R: stackOf({}) } }));
-  const held = stackPower(s.sectors.R);
-  if (held <= 0 || held <= line / COVER.K) return s;
-  const share = 1 - line / COVER.K / held;
-  for (const k of UNIT_KINDS) {
-    const out = Math.round(s.sectors.R[k] * share);
-    if (out <= 0) continue;
-    s.sectors.R[k] -= out;
-    const l = Math.floor(out * 0.3);
-    const c = Math.floor(out * 0.3);
-    s.sectors.A[k] += l;
-    s.sectors.B[k] += out - l - c;
-    s.sectors.C[k] += c;
-  }
-  return s;
-};
 
 const H = UNIT_STATS.heavy as unknown as Record<string, number>;
 const HC = COUNTER.heavy as unknown as Record<string, number>;
@@ -139,7 +80,7 @@ const swap =
     return () => edits.forEach(([obj, key], i) => (obj[key] = was[i]));
   };
 
-/** Первый — «как есть»: числа конфига, стандартный пресет; это и есть решётка раздела «Решётка составов». */
+/** Первый — «как есть»: числа конфига; это и есть решётка раздела «Решётка составов». */
 const VARIANTS: Variant[] = [
   { name: 'как есть', set: () => () => {} },
   { name: 'рукопашная 1.3 → 1.0 (лёгкая)', set: swap([H, 'melee', 1.0]) },
@@ -151,18 +92,14 @@ const VARIANTS: Variant[] = [
   { name: 'остановленная 1.3 → 1.0 (пехота)', set: swap([HT, 'stalled', 1.0]) },
   { name: 'на разгоне 0.6 → 1.0 (пехота)', set: swap([HT, 'charging', 1.0]) },
   { name: 'скорость 2 → 1 (копья)', set: swap([H, 'speed', 1]) },
-  { name: 'числа те же, пресет ставит её во фронт', set: () => () => {}, layout: heavyFront },
-  { name: 'числа те же, резерв не больше прикрытого', set: () => () => {}, layout: reserveCovered },
-  { name: 'рукопашная 1.0 и резерв не больше прикрытого', set: swap([H, 'melee', 1.0]), layout: reserveCovered },
 ];
 export const VARIANT_NAMES: readonly string[] = VARIANTS.map((v) => v.name);
 
 /** Подмена ставится на время задачи и снимается при любом исходе. */
-function under<T>(variant: number, fn: (layout: (a: Partial<Stack>) => ArmySetup) => T): T {
-  const v = VARIANTS[variant];
-  const undo = v.set();
+function under<T>(variant: number, fn: () => T): T {
+  const undo = VARIANTS[variant].set();
   try {
-    return fn(v.layout ?? ((a) => quickSetup(a)));
+    return fn();
   } finally {
     undo();
   }
@@ -177,18 +114,10 @@ export type Job =
   | { kind: 'ring'; ring: number; seeds: number }
   /** Строки решётки `from..to` при варианте «Тяжёлой»: размен (`mirrored`, сид 1) с каждым j > i по порядку. */
   | { kind: 'lattice'; variant: number; from: number; to: number }
-  /** Что заслон стоит против решётки (`latticeWorth`); `k` — `COVER.K` на время задачи, `null` — как в конфиге. */
-  | { kind: 'worth'; screen: UnitKind; men: number; order: CavalryOrder; k: number | null }
-  /** Разрыв против противника (`gapAgainst`). */
-  | { kind: 'gap'; who: Who; opp: Opponent; n: number; from: number }
-  /** Отбор перебора `from..to`: против каждого пресета по бою с обеих сторон поля. */
-  | { kind: 'grid'; from: number; to: number }
-  /** Отбор поиска `from..to` (`SEARCH.screen` боёв). */
-  | { kind: 'pool'; opp: Opponent; from: number; to: number }
-  /** Лучшая расстановка перебора против перебора `from..to`, бой с сидом i + 1. */
-  | { kind: 'vsGrid'; best: number; from: number; to: number }
-  /** Точка поля (`holdPoint`, 40 боёв на шаг). */
-  | { kind: 'hold'; who: Who | 'quick' }
+  /** Разрыв состава поиска против сбалансированного (`gapAgainst`). */
+  | { kind: 'gap'; pool: number; n: number; from: number }
+  /** Отбор поиска `from..to` (`SEARCH.screen` боёв против сбалансированного). */
+  | { kind: 'pool'; from: number; to: number }
   /**
    * Ограничитель: состав с перевесом 10 % против себя (`bench.oversize`) в `total` бойцов строя. `bare` — бой без
    * ширины (`width: Infinity`; в задачу веера бесконечность не пролезает — JSON пишет её как null), иначе — по
@@ -197,12 +126,7 @@ export type Job =
   | { kind: 'oversize'; composition: number; total: number; bare?: boolean }
   /** Кость: шаг, выведенный делением отрезка (`bench.diceStepFor`), и поле большей без кости. */
   | { kind: 'dice' }
-  /**
-   * План `a` против плана `b` на одной и той же расстановке: каждая форма сетки перебора (`layoutGrid` — линия, лучники,
-   * конница, резерв), зеркальной парой боёв на сид 1..seeds. Мерит план, а не расстановку: всё, кроме плана, у сторон одно.
-   */
-  | { kind: 'planShape'; a: Plan; b: Plan; seeds: number }
-  /** Сколько боёв доходит до кругов в `total` бойцов строя: матрица составов и настроенная армия против быстрой атаки. */
+  /** Сколько боёв доходит до кругов в `total` бойцов строя: матрица составов. */
   | { kind: 'reach'; total: number };
 
 /**
@@ -221,16 +145,11 @@ export type Out =
   | { kind: 'pair'; ab: Pair[]; ba: Pair[] }
   | { kind: 'ring'; pairs: Pair[] }
   | { kind: 'lattice'; ratios: number[] }
-  | { kind: 'worth'; worth: number }
   | { kind: 'gap'; gap: { gap: number; lost: number; won: number } }
-  | { kind: 'grid'; rows: Array<{ gap: number; held: number }> }
   | { kind: 'pool'; gaps: number[] }
-  | { kind: 'vsGrid'; rows: Array<{ held: boolean; own: number; theirs: number } | null> }
-  | { kind: 'hold'; point: number }
   | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number }
   | { kind: 'dice'; derived: number; bare: number }
-  | { kind: 'planShape'; shapes: number; a: number; b: number; draws: number; aLoss: number; bLoss: number }
-  | { kind: 'reach'; matrix: Reach; tuned: Reach & { gap: number; won: number; lost: number } };
+  | { kind: 'reach'; matrix: Reach };
 
 const reachOf = (rs: readonly BattleResult[]): Reach => ({
   n: rs.length,
@@ -253,67 +172,19 @@ export function battleJob(job: Job): Out {
       return { kind: 'ring', pairs: Array.from({ length: job.seeds }, (_, n) => pairOf(mirrored(a, b, n + 1))) };
     }
     case 'lattice':
-      return under(job.variant, (layout) => {
-        const setups = compositionLattice().map(layout);
+      return under(job.variant, () => {
+        const setups = compositionLattice().map((a) => deploySetup(a));
         const ratios: number[] = [];
         for (let i = job.from; i < job.to; i += 1) for (let j = i + 1; j < setups.length; j += 1) ratios.push(latticeDuel(setups, i, j));
         return { kind: 'lattice', ratios };
       });
-    case 'worth': {
-      const against = latticeFoes();
-      const worth = (): number => latticeWorth(screenArmy(job.screen, job.men, job.order), against);
-      return { kind: 'worth', worth: job.k === null ? worth() : withCoverK(job.k, worth) };
-    }
     case 'gap':
-      return { kind: 'gap', gap: gapAgainst(setupOf(job.who), opponentOf(job.opp), job.n, job.from) };
-    case 'grid': {
-      const all = gridSetups();
-      const foes = presetSetups();
-      const rows: Array<{ gap: number; held: number }> = [];
-      for (let g = job.from; g < job.to; g += 1) {
-        let own = 0;
-        let theirs = 0;
-        let held = 0;
-        foes.forEach((foe, i) => {
-          for (const attacks of [true, false]) {
-            const seed = i * 2 + (attacks ? 1 : 2);
-            const r = simulateBattle({ seed, attacker: attacks ? all[g] : foe, defender: attacks ? foe : all[g] });
-            const me = attacks ? 'attacker' : 'defender';
-            own += r.sides[me].total.losses;
-            theirs += r.sides[attacks ? 'defender' : 'attacker'].total.losses;
-            if (r.winner === me) held += 1;
-          }
-        });
-        rows.push({ gap: theirs / Math.max(1, own) - 1, held });
-      }
-      return { kind: 'grid', rows };
-    }
+      return { kind: 'gap', gap: gapAgainst(poolSetups()[job.pool], balanced, job.n, job.from) };
     case 'pool': {
       const all = poolSetups();
-      const opp = opponentOf(job.opp);
       const gaps: number[] = [];
-      for (let i = job.from; i < job.to; i += 1) gaps.push(gapAgainst(all[i], opp, SEARCH.screen).gap);
+      for (let i = job.from; i < job.to; i += 1) gaps.push(gapAgainst(all[i], balanced, SEARCH.screen).gap);
       return { kind: 'pool', gaps };
-    }
-    case 'vsGrid': {
-      const all = gridSetups();
-      const best = all[job.best];
-      const rows: Array<{ held: boolean; own: number; theirs: number } | null> = [];
-      for (let i = job.from; i < job.to; i += 1) {
-        if (i === job.best) {
-          rows.push(null);
-          continue;
-        }
-        const attacks = i % 2 === 0;
-        const r = simulateBattle({ seed: i + 1, attacker: attacks ? best : all[i], defender: attacks ? all[i] : best });
-        const me = attacks ? 'attacker' : 'defender';
-        rows.push({ held: r.winner === me, own: r.sides[me].total.losses, theirs: r.sides[attacks ? 'defender' : 'attacker'].total.losses });
-      }
-      return { kind: 'vsGrid', rows };
-    }
-    case 'hold': {
-      const setup = job.who === 'quick' ? (seed: number) => quickOf(seed * 7 + 3) : ((s) => () => s)(setupOf(job.who));
-      return { kind: 'hold', point: holdPoint(setup, 40) };
     }
     case 'oversize':
       return { kind: 'oversize', ...oversize(job.composition, OVERSIZE_SEEDS, job.total, job.bare ? Infinity : undefined) };
@@ -321,43 +192,16 @@ export function battleJob(job: Job): Out {
       // Кость ставится и снимается внутри `diceStepFor` и `withDiceStep`: следующая задача процесса
       // начинается на числе конфига.
       return { kind: 'dice', derived: diceStepFor(), bare: withDiceStep(0, () => oversizeHold()) };
-    case 'planShape': {
-      // Форма — расстановка без плана: в сетке их по одной на план, берутся формы плана `a`.
-      const shapes = layoutGrid().filter((s) => s.plan === job.a);
-      const out = { kind: 'planShape' as const, shapes: shapes.length, a: 0, b: 0, draws: 0, aLoss: 0, bLoss: 0 };
-      for (const shape of shapes) {
-        const a = layoutOf(BALANCED_ARMY, shape);
-        const b = layoutOf(BALANCED_ARMY, { ...shape, plan: job.b });
-        for (let seed = 1; seed <= job.seeds; seed += 1) {
-          const m = mirrored(a, b, seed);
-          out.a += m.field.a;
-          out.b += m.field.b;
-          out.draws += 2 - m.field.a - m.field.b;
-          out.aLoss += m.results[0].sides.attacker.total.losses + m.results[1].sides.defender.total.losses;
-          out.bLoss += m.results[0].sides.defender.total.losses + m.results[1].sides.attacker.total.losses;
-        }
-      }
-      return out;
-    }
     case 'reach': {
       const matrix: BattleResult[] = [];
-      const setups = COMPOSITIONS.map((c) => quickSetup(scaleArmy(c.army, job.total)));
+      const setups = COMPOSITIONS.map((c) => deploySetup(scaleArmy(c.army, job.total)));
       for (let i = 0; i < setups.length; i += 1) {
         for (let j = 0; j < setups.length; j += 1) {
           if (i === j) continue;
           for (let seed = 1; seed <= 2; seed += 1) matrix.push(simulateBattle({ seed, attacker: setups[i], defender: setups[j] }));
         }
       }
-      // Настроенная и быстрая атака той же армии в `total` бойцов — те же сиды и стороны поля, что у `gapAgainst`.
-      const army = scaleArmy(BALANCED_ARMY, job.total);
-      const tuned = layoutOf(army, TUNED_SPEC);
-      const foe = (seed: number): ArmySetup => quickAttack(army, seed).setup;
-      const fights: BattleResult[] = [];
-      for (let seed = 1; seed <= 100; seed += 1) {
-        const attacks = seed % 2 === 1;
-        fights.push(simulateBattle({ seed, attacker: attacks ? tuned : foe(seed), defender: attacks ? foe(seed) : tuned }));
-      }
-      return { kind: 'reach', matrix: reachOf(matrix), tuned: { ...reachOf(fights), ...gapAgainst(tuned, foe, 100) } };
+      return { kind: 'reach', matrix: reachOf(matrix) };
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FRONT, SECTORS, emptyStack, quickSetup, simulateBattle, stackOf, stackTotal, type BattleResult, type Sector, type Stack } from '@/battle';
+import { FRONT, SECTORS, deploySetup, emptyStack, simulateBattle, stackOf, stackTotal, type BattleResult, type Sector, type Stack } from '@/battle';
 import { frontOf, median, widthOf } from './front';
 
 /** Запись боя ровно с теми полями, что читает прибор: начальный состав стороны и её секторов. */
@@ -36,8 +36,8 @@ describe('ширина поля: фронт меньшей стороны', () =
   });
 
   it('на настоящей записи боя фронт берётся из расстановки меньшей стороны', () => {
-    const small = quickSetup({ infantry: 120, spear: 60, archer: 60 });
-    const big = quickSetup({ infantry: 300, spear: 150, archer: 150 });
+    const small = deploySetup({ infantry: 120, spear: 60, archer: 60 });
+    const big = deploySetup({ infantry: 300, spear: 150, archer: 150 });
     const r = simulateBattle({ seed: 7, attacker: small, defender: big });
     const want = FRONT.reduce((n, s) => n + stackTotal(small.sectors[s]), 0) / FRONT.length;
     expect(want).toBeGreaterThan(0);

@@ -6,12 +6,9 @@ import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
 import { asGame, gameSecondsOfMs, realMs, type GameSec } from '@/game/pace';
 import { partyNow } from '@/net/clock';
 import {
-  FRONT,
-  REAR,
   UNIT_KINDS,
   emptyStack,
   stackTotal,
-  type ArmySetup,
   type Pips,
   type Stack,
   type UnitKind,
@@ -1060,7 +1057,6 @@ export class LocalWorld implements WorldApi {
     resolve?: number;
     /** Отметки того, кто ведёт лагерь: у нашего — полководец, у чужого — никто. */
     pips?: Pips;
-    setup: ArmySetup | null;
     /** Сколько бойцов строя стоит в лагере. */
     men: number;
     power: number;
@@ -1087,7 +1083,6 @@ export class LocalWorld implements WorldApi {
         // Наш лагерь держит дружина полководца — это его бой, и его отметки в нём есть.
         resolve: this.ownResolve(),
         pips: this.generalPips(),
-        setup: null,
         men: stackTotal(kinds),
         power: troopPower(troops) * (1 - thin),
         name: 'наш лагерь',
@@ -1102,7 +1097,6 @@ export class LocalWorld implements WorldApi {
     return {
       kinds: { ...party.kinds },
       gear: party.gear,
-      setup: party.setup,
       men: stackTotal(party.kinds),
       power,
       name: m.fromName,
@@ -1172,7 +1166,6 @@ export class LocalWorld implements WorldApi {
     attack: {
       front?: CampPart;
       rear?: CampPart;
-      setup: ArmySetup | null;
       /**
        * В бою дружина полководца — удар из поля, в одиночку или вместе с
        * гарнизоном. Бой один, поэтому отметки ложатся на весь нападающий. Вылазку
@@ -1230,13 +1223,12 @@ export class LocalWorld implements WorldApi {
         gear,
         resolve: own ? this.ownResolve() : undefined,
         pips: own ? (attack.general ? this.generalPips() : this.homePips(at, false)) : undefined,
-        // Расстановка писалась на весь отряд одной стороны, а дерётся его часть или
-        // две стороны разом: тогда пресет выбирается по тем, кто прошёл.
-        setup: parts.length === 1 && fought === all ? attack.setup : null,
+        // Встают те, кто прошёл, по правилу развёртывания: расстановки у удара по лагерю нет.
+        setup: null,
       },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого
       // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.
-      defender: { kinds: camp.kinds, gear: camp.gear, resolve: camp.resolve, pips: camp.pips, setup: camp.setup },
+      defender: { kinds: camp.kinds, gear: camp.gear, resolve: camp.resolve, pips: camp.pips, setup: null },
     });
     // Прошедшие заняли свою долю прохода своей стороны. Окно то же, что в
     // сохранении: снимет осаду победа — отметки уйдут вместе с окном; устоит
@@ -1688,7 +1680,7 @@ export class LocalWorld implements WorldApi {
     const g = garrisonOf(this.save.seed, s.id, power, s.castle);
     const gate = this.campGate(id, at, { front: g.kinds });
     if (!gate?.front || Math.min(menOfPower(power), gate.front.room) < camp.men * SIEGE_SORTIE_RATIO) return;
-    const out = this.campBattle(id, at, this.warSeed().seed, { front: { kinds: g.kinds, gear: g.gear }, setup: g.setup });
+    const out = this.campBattle(id, at, this.warSeed().seed, { front: { kinds: g.kinds, gear: g.gear } });
     if (!out || out.refused) return;
     this.resolveSortieOn(id, at, out.field, `Из ${s.name} вышли на вылазку.`);
     // Гарнизон вышел и поредел: часы голода города считаются заново — один раз,
@@ -1800,7 +1792,6 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     const out = this.campBattle(id, at, m.seed, {
       front: { kinds: party.kinds, gear: party.gear },
-      setup: party.setup,
     });
     // Проход занят — выручка к рогаткам не пробилась и ушла ни с чем.
     if (!out || out.refused) return;
@@ -1918,7 +1909,7 @@ export class LocalWorld implements WorldApi {
    * том и в другом случае часы голода считаются заново от нового гарнизона:
    * ровно один раз, здесь, в самом событии.
    */
-  async sortie(troops: TroopStack, setup: ArmySetup | null = null): Promise<AttackResult> {
+  async sortie(troops: TroopStack): Promise<AttackResult> {
     const now = this.clock();
     const w = this.homeSiege(now);
     if (!w) return { error: 'Под стенами никого: выходить не на кого.', reportId: null, won: false };
@@ -1943,7 +1934,7 @@ export class LocalWorld implements WorldApi {
       return { error: gateBusyText(gate.front.waitMs), reportId: null, won: false };
     }
     const seed = marchSeed(this.save.seed, this.save.nextMarch++);
-    const out = this.campBattle(HOME_ID, now, seed, { front: { own: going }, setup });
+    const out = this.campBattle(HOME_ID, now, seed, { front: { own: going } });
     if (!out || out.refused || !out.front) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
     const { field, camp, front: through } = out;
 
@@ -1958,7 +1949,6 @@ export class LocalWorld implements WorldApi {
     const record: BattleRecord | null = field.result
       ? {
           us: 'attacker',
-          preset: field.preset.attacker,
           result: field.result,
           // Состав — пропорция лиц для показа; сколько дралось, говорит сам бой
           // (`result`): прошедшие через рогатки — та же доля от каждого рода.
@@ -2473,8 +2463,6 @@ export class LocalWorld implements WorldApi {
   private snapshot(s: GenSettlement, now: number): Intel {
     const power = this.powerNow(s, now);
     const g = garrisonOf(this.save.seed, s.id, power, s.castle);
-    const formation: Partial<Record<string, Stack>> = {};
-    for (const id of [...FRONT, ...REAR]) formation[id] = { ...g.setup.sectors[id] };
     return {
       at: now,
       keen: Math.max(1, this.save.profile?.intelKeen ?? 1),
@@ -2484,7 +2472,6 @@ export class LocalWorld implements WorldApi {
       // и тайника чужого двора игрок не узнаёт ни числом, ни разведкой.
       loot: this.lootOpen(s, now),
       kinds: g.kinds,
-      formation,
       style: GARRISON_STYLES[g.style].name,
     };
   }
@@ -3458,7 +3445,7 @@ export class LocalWorld implements WorldApi {
    * сразу — везти её обратно фигурой значило бы завести у неё второй груз и
    * второй маршрут, а этого шага здесь нет.
    */
-  private attackAt(target: GenSettlement, at: number, setup: ArmySetup | null, declared: Fate): AttackResult {
+  private attackAt(target: GenSettlement, at: number, declared: Fate): AttackResult {
     const f = this.save.figures.general;
     const troops = f.troops ?? {};
     const men = troopTotal(troops);
@@ -3469,9 +3456,8 @@ export class LocalWorld implements WorldApi {
     const garrison = garrisonOf(this.save.seed, target.id, defense, target.castle);
     const field = resolveField({
       seed,
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup },
-      defender: { kinds: garrison.kinds, gear: garrison.gear, setup: garrison.setup },
-      intel: this.save.intel[target.id]?.kinds,
+      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup: null },
+      defender: { kinds: garrison.kinds, gear: garrison.gear, setup: null },
     });
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
     const left: TroopStack = {};
@@ -3549,7 +3535,6 @@ export class LocalWorld implements WorldApi {
     const record: BattleRecord | null = field.result
       ? {
           us: 'attacker',
-          preset: field.preset.attacker,
           result: field.result,
           // Наш состав известен поимённо, чужой выводится из его же ступени
           // снаряжения: замок выходит латниками, малое поселение — дубинщиками.
@@ -3808,7 +3793,7 @@ export class LocalWorld implements WorldApi {
     const field = resolveField({
       seed,
       attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup: null },
-      defender: { kinds: party.kinds, gear: party.gear, setup: party.setup },
+      defender: { kinds: party.kinds, gear: party.gear, setup: null },
     });
     const lostTroops = field.result ? troopLosses(troops, field.result.sides.attacker.losses) : {};
     const left: TroopStack = {};
@@ -3823,7 +3808,6 @@ export class LocalWorld implements WorldApi {
     const record: BattleRecord | null = field.result
       ? {
           us: 'attacker',
-          preset: field.preset.attacker,
           result: field.result,
           troops: { attacker: { ...troops }, defender: troopsOfKinds(party.kinds, party.gear) },
           // Бой идёт в чистом поле — на той клетке, где сошлись.
@@ -3986,12 +3970,11 @@ export class LocalWorld implements WorldApi {
     const wall = this.wallField(m, at);
     if (this.beginSiege(m, at, wall.field)) return;
     this.remove(m);
-    const { profile, party, held, home, militia, archers, setup, field } = wall;
+    const { profile, party, held, home, militia, archers, field } = wall;
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
     const record: BattleRecord | null = field.result
       ? {
           us: 'defender',
-          preset: setup ? null : field.preset.defender,
           result: field.result,
           troops: { attacker: troopsOfKinds(party.kinds, party.gear), defender: { ...home } },
           // Ополчение — не бойцы: частокол, башня и жители. В строю они стоят,
@@ -4107,7 +4090,7 @@ export class LocalWorld implements WorldApi {
     const setup = planned ? fitSetup(planned, homeKinds) : null;
     const field = resolveField({
       seed: m.seed,
-      attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
+      attacker: { kinds: party.kinds, gear: party.gear, setup: null },
       // Ведёт оборону полководец, если его дружина стоит у ворот, — без манёвра (`homePips`).
       defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), pips: this.homePips(at, true), setup },
     });
@@ -4678,7 +4661,6 @@ export class LocalWorld implements WorldApi {
     const out = this.campBattle(id, at, seed, {
       rear: { own: troops },
       front: joint ? { own: going } : undefined,
-      setup: null,
       general: true,
     });
     if (!out || out.refused) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
@@ -4707,7 +4689,6 @@ export class LocalWorld implements WorldApi {
     const record: BattleRecord | null = field.result
       ? {
           us: 'attacker',
-          preset: field.preset.attacker,
           result: field.result,
           troops: { attacker: plus(troops, going), defender: troopsOfKinds(camp.kinds, camp.gear) },
           place: this.placeOf(target ?? this.save.home),
@@ -4847,8 +4828,8 @@ export class LocalWorld implements WorldApi {
     const g = garrisonOf(this.save.seed, target.id, power, target.castle);
     const field = resolveField({
       seed: m.seed,
-      attacker: { kinds: party.kinds, gear: party.gear, setup: party.setup },
-      defender: { kinds: g.kinds, gear: g.gear, setup: g.setup },
+      attacker: { kinds: party.kinds, gear: party.gear, setup: null },
+      defender: { kinds: g.kinds, gear: g.gear, setup: null },
     });
     if (this.sitsDown(m.targetId, m, at, field)) {
       const w = this.openSiegeAt(m.targetId, m.fromId, m.id, at);
@@ -5237,7 +5218,6 @@ export class LocalWorld implements WorldApi {
       phase: 'out',
       power: stackPower(units, perWarrior),
       troops,
-      setup: order.setup ?? null,
       loot: null,
     };
     if (troops) this.standingLost(held.own, held.standing, troops);
@@ -5818,7 +5798,7 @@ export class LocalWorld implements WorldApi {
     // Штурм из своего лагеря: осада снимается до боя (`STORM_LIFTS`) — и приступ дальше
     // ничем не отличается от удара с дороги.
     if (besieging === target.id) this.liftSiege(target.id, now);
-    return this.attackAt(target, now, order.setup ?? null, declared);
+    return this.attackAt(target, now, declared);
   }
 
   /**
@@ -6285,10 +6265,9 @@ export class LocalWorld implements WorldApi {
       // Его заметили — и запомнили. Это и есть цена провала, когда он не погиб.
       this.moveAttitude(s.id, SPY_CAUGHT_ATTITUDE, now);
     } else if (action === 'probe') {
-      // Донесение — тот же снимок, что и у разведчика, но с вилкой и без
-      // построения: лазутчик считает головы, а не разглядывает линии.
+      // Донесение — тот же снимок, что и у разведчика, но с вилкой: лазутчик считает головы на глаз.
       const snap = this.snapshot(s, now);
-      intel = { ...snap, formation: undefined, spread: out.spread };
+      intel = { ...snap, spread: out.spread };
       this.save.intel[s.id] = intel;
     } else {
       this.save.revolts[s.id] = revoltWindow(now);

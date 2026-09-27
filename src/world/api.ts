@@ -4,7 +4,6 @@
 // Когда появится сервер, рядом встанет HttpWorld с теми же сигнатурами, и ни один
 // компонент интерфейса переписывать не придётся. Поэтому все методы асинхронные,
 // даже те, что сегодня отвечают мгновенно.
-import type { ArmySetup } from '@/battle';
 import type { TroopStack } from '@/game/battle/kinds';
 import type {
   AttackOrder,
@@ -140,7 +139,7 @@ export interface WorldApi {
    * нажал. В обоих случаях часы голода пересчитываются от нового гарнизона —
    * ровно один раз, здесь, в самом событии.
    */
-  sortie(troops: TroopStack, setup?: ArmySetup | null): Promise<AttackResult>;
+  sortie(troops: TroopStack): Promise<AttackResult>;
 
   /**
    * Где и когда полководец встретит чужой отряд, если приказать сейчас. Точка

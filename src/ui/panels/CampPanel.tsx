@@ -176,7 +176,7 @@ export function CampPanel() {
         className="btn wide"
         disabled={busy || camp.men === 0 || cantFate !== null}
         onClick={() =>
-          void order(() => attack({ setup: null, fate: chosen }), 'Дружина пошла на приступ. Отчёт в походах.', true)
+          void order(() => attack({ fate: chosen }), 'Дружина пошла на приступ. Отчёт в походах.', true)
         }
       >
         ⚔️ Штурмовать · {camp.men} {plural(camp.men, 'боец', 'бойца', 'бойцов')}

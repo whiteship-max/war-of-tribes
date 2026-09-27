@@ -56,7 +56,6 @@ export function ActionMenu() {
   const watch = useWorld((g) => g.watch);
   const shelter = useWorld((g) => g.shelter);
   const showToast = useGame((g) => g.showToast);
-  const openBattle = useGame((g) => g.openBattle);
   const openSiege = useGame((g) => g.openSiege);
   const openCamp = useGame((g) => g.openCamp);
   // Участь объявляется приказом — ударом или осадой; новая цель — новый выбор.
@@ -349,7 +348,7 @@ export function ActionMenu() {
               disabled={!card.can.raid}
               onClick={() => {
                 void (async () => {
-                  const err = await attack({ setup: null, fate });
+                  const err = await attack({ fate });
                   showToast(err ?? 'Дружина ударила. Отчёт в походах.');
                   if (!err) closeMenu();
                 })();
@@ -357,27 +356,13 @@ export function ActionMenu() {
             >
               <span className="ico">⚔️</span>
               <span className="body">
-                <b>Ударить сразу</b>
+                <b>Ударить</b>
                 <i>
                   {card.can.raid
-                    ? `Тем, что при нём: ${troopTotal(figure?.troops ?? {})} бойцов. Расстановку выберет пресет.`
+                    ? `Тем, что при нём: ${troopTotal(figure?.troops ?? {})} бойцов. Встанут от центра к краям, лишние — в резерв.`
                     : card.note}
                 </i>
                 {card.can.raid && <i className="am-risk">{routLine(card)}</i>}
-              </span>
-            </button>
-            <button
-              className={`am-row${card.can.raid ? '' : ' off'}`}
-              disabled={!card.can.raid}
-              onClick={() => {
-                closeMenu();
-                openBattle(card.id);
-              }}
-            >
-              <span className="ico"><Icon name="ui-target" glyph="🎯" /></span>
-              <span className="body">
-                <b>Настроить бой</b>
-                <i>Расставить по секторам, выбрать план и приказы.</i>
               </span>
             </button>
             {/*

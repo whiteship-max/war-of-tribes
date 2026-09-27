@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from '@/battle/sim';
-import { quickSetup } from '@/battle/setup';
+import { deploySetup } from '@/battle/setup';
 import { UNIT_KINDS, type Stack } from '@/battle';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopId } from '../types';
@@ -13,7 +13,7 @@ import { MILITIA, facesOf, facesTotal, troopOfKind, troopsOfKinds, wearOf } from
 import { castOfRecord } from './cast';
 
 const fight = (a: TroopStack, d: TroopStack, seed = 7) =>
-  simulateBattle({ seed, attacker: quickSetup(kindsOf(a)), defender: quickSetup(kindsOf(d)) });
+  simulateBattle({ seed, attacker: deploySetup(kindsOf(a)), defender: deploySetup(kindsOf(d)) });
 
 const MIXED: TroopStack = { spearman: 60, legionary: 40, clubman: 50, archer: 45, rider: 20 };
 const FOE: TroopStack = { spearman: 70, swordsman: 60, archer: 40, rider: 15 };

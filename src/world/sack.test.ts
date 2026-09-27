@@ -244,7 +244,7 @@ describe('разорение чужого двора', () => {
     const before = await w.world.settlement(target.id);
     expect(before?.sack, 'до набега двор цел').toBeNull();
 
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     expect(res.error).toBeNull();
     expect(res.won, 'дружина заметно сильнее двора').toBe(true);
 
@@ -274,7 +274,7 @@ describe('разорение чужого двора', () => {
     const p = profile();
     const target = await bringGeneral(w, p);
 
-    const first = await w.world.attack({ setup: null });
+    const first = await w.world.attack({});
     expect(first.won).toBe(true);
     const firstLoot = lootTotal(
       (await w.world.reports()).find((r) => r.id === first.reportId)?.loot ?? null,
@@ -284,7 +284,7 @@ describe('разорение чужого двора', () => {
     // Второй удар сразу же: полководец никуда не уходил, добро брать неоткуда.
     w.advance(MIN);
     await w.world.sync(p);
-    const second = await w.world.attack({ setup: null });
+    const second = await w.world.attack({});
     expect(second.won).toBe(true);
     const secondLoot = lootTotal(
       (await w.world.reports()).find((r) => r.id === second.reportId)?.loot ?? null,
@@ -295,7 +295,7 @@ describe('разорение чужого двора', () => {
     // ним же не наполняется. Это и есть «восстанавливается вместе с поселением».
     w.advance(HOUR);
     await w.world.sync(p);
-    const third = await w.world.attack({ setup: null });
+    const third = await w.world.attack({});
     const thirdLoot = lootTotal(
       (await w.world.reports()).find((r) => r.id === third.reportId)?.loot ?? null,
     );
@@ -308,7 +308,7 @@ describe('разорение чужого двора', () => {
     await w.world.sync(p);
     expect((await w.world.settlement(target.id))?.sack, 'разорение снялось ровно в срок').toBeNull();
     expect((await onMap(w.world)).find((s) => s.id === target.id)?.sacked).toBe(false);
-    const fourth = await w.world.attack({ setup: null });
+    const fourth = await w.world.attack({});
     const fourthLoot = lootTotal(
       (await w.world.reports()).find((r) => r.id === fourth.reportId)?.loot ?? null,
     );
@@ -333,7 +333,7 @@ describe('разорение чужого двора', () => {
     await lead(w, p, target);
 
     const before = saveOf(w.world).diplomacy[target.id]?.attitude ?? 0;
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     expect(res.won, 'трое дубинщиков двор не берут').toBe(false);
     // Врагов наживают нападением, а не победой.
     expect(saveOf(w.world).diplomacy[target.id].attitude).toBeLessThan(before);
@@ -353,7 +353,7 @@ describe('отношения портятся, и это отзывается', 
     const moods: number[] = [];
     let declared = 0;
     for (let i = 0; i < 3; i++) {
-      const res = await w.world.attack({ setup: null });
+      const res = await w.world.attack({});
       expect(res.error).toBeNull();
       moods.push(save.diplomacy[target.id].attitude);
       if (save.diplomacy[target.id].standing === 'war') declared = i + 1;

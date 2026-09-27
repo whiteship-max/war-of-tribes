@@ -723,7 +723,7 @@ describe('осада: приказ игрока — та же осада, что
     expect(await w.world.besiege()).toBeNull();
     expect(await w.world.intercept('m1')).toContain('осаду');
     expect((await w.world.camp())?.targetId, 'окно лагеря видит свой город').toBe(target.id);
-    const hit = await w.world.attack({ setup: null });
+    const hit = await w.world.attack({});
     expect(hit.error, 'штурм своего осаждённого города — приказ, а не отказ').toBeNull();
     expect((await w.world.settlement(target.id))?.siege, 'штурм снял лагерь').toBeNull();
     expect((await w.world.figures()).find((f) => f.id === 'general')?.besieging ?? null).toBeNull();
@@ -1247,7 +1247,7 @@ describe('лестница в мире: объявлено при приказе
     expect(burn.reason).toMatch(/Сжечь можно только город игрока/);
     expect(card!.fates.filter((o) => o.can).map((o) => o.id)).toEqual(['plunder', 'captives']);
     expect(await w.world.besiege('burn')).toBe(burn.reason);
-    expect((await w.world.attack({ setup: null, fate: 'burn' })).error).toBe(burn.reason);
+    expect((await w.world.attack({ fate: 'burn' })).error).toBe(burn.reason);
 
     expect(await w.world.besiege('captives')).toBeNull();
     const camp = await w.world.camp();

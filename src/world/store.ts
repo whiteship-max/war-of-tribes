@@ -64,7 +64,6 @@ import type {
   WorldPulse,
 } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
-import type { ArmySetup } from '@/battle';
 
 /**
  * Как часто мир опрашивается, настоящих мс. Достаточно редко, чтобы не мешать симуляции племени. Из него
@@ -261,7 +260,7 @@ export interface WorldStore {
    * Вылазка из осаждённой деревни выбранным составом. Возвращает номер отчёта —
    * его сразу и открывают: у боя всегда есть что показать.
    */
-  sortie: (troops: TroopStack, setup?: ArmySetup | null) => Promise<{ error: string | null; reportId: string | null }>;
+  sortie: (troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   negotiate: (deal: DealId) => Promise<string | null>;
   /** Открыть меню приказов агента по этой клетке. */
   openMenu: (agent: FigureId, cell: Coord) => Promise<void>;
@@ -619,8 +618,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     set({ camp: await worldApi().camp() });
   },
 
-  sortie: async (troops, setup = null) => {
-    const res = await worldApi().sortie(troops, setup);
+  sortie: async (troops) => {
+    const res = await worldApi().sortie(troops);
     if (res.error) {
       haptic('error');
       return { error: res.error, reportId: null };

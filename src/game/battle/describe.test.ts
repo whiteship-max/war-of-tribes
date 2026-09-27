@@ -10,7 +10,6 @@ import {
   COUNTER,
   GEAR,
   MORALE,
-  ORDER_NAMES,
   SLOW_CONTACT,
   UNIT_KINDS,
   UNIT_STATS,
@@ -44,7 +43,6 @@ const text = (troop: (typeof TROOP_IDS)[number]): string => {
     ...c.counters.map((l) => `${l.text} ${l.when}`),
     ...c.strengths,
     ...c.weaknesses,
-    ...c.orders.map((o) => o.name),
     ...temperOf(c.kind).map((t) => `${t.when} ${t.text}`),
     `${c.morale.base} ${c.morale.gear} ${c.morale.total}`,
     `${c.cost.work}`,
@@ -86,20 +84,16 @@ describe('карточка войск выводится из конфига', (
     expect(vsSpear?.good).toBe(false);
   });
 
-  it('у каждого множителя написано условие, при котором он действует', () => {
+  it('у каждого множителя написано условие, при котором он действует, и условие — положение, а не приказ', () => {
+    // Приказов у боя больше нет (docs/battle_eu4.md, 14.5): множитель обязан действовать по положению
+    // бойцов — сомкнуты ли копья, во фланге ли удар, в рукопашной ли цель, — и так и назван.
     for (const kind of UNIT_KINDS) {
       for (const line of countersOf(kind)) {
         expect(line.when.length).toBeGreaterThan(10);
         expect(line.text).toContain('×');
+        expect(line.when, line.id).not.toMatch(/приказ/i);
       }
     }
-  });
-
-  it('условия называют приказы теми же словами, что и панель приказов', () => {
-    const hold = countersOf('spear').find((l) => l.id === 'spear-cav-hold');
-    expect(hold?.when).toContain(ORDER_NAMES.spear['hold-line']);
-    set(ORDER_NAMES.spear as Record<string, string>, 'hold-line', 'стоять насмерть');
-    expect(countersOf('spear').find((l) => l.id === 'spear-cav-hold')?.when).toContain('стоять насмерть');
   });
 
   it('кольцо контрров берёт числа из COUNTER, а не рисует свои', () => {
@@ -202,11 +196,10 @@ describe('сильные и слабые стороны выводятся пр�
 });
 
 describe('карточка целиком', () => {
-  it('у каждого вида есть род, приказы этого рода и полная цена', () => {
+  it('у каждого вида есть род и полная цена', () => {
     for (const troop of TROOP_IDS) {
       const c = troopCard(troop);
       expect(UNIT_KINDS).toContain(c.kind);
-      expect(c.orders.map((o) => o.id).sort()).toEqual(Object.keys(ORDER_NAMES[c.kind]).sort());
       expect(c.cost.people).toBe(1);
       expect(c.cost.work).toBe(c.def.work);
       expect(c.cost.resources.length).toBeGreaterThan(0);

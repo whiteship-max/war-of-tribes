@@ -16,7 +16,7 @@ import { stackLosses } from './combat';
 import { resolveField } from './battle';
 import { garrisonOf } from './garrison';
 import { defenseLock } from './store';
-import { presetFormation, toArmySetup } from '@/game/battle/formation';
+import { deployFormation, emptyFormation, toArmySetup } from '@/game/battle/formation';
 import type { ArmySetup, Stack } from '@/battle';
 import { playerProfile, syncAway, toOutcome } from './bridge';
 import { awayOf, homeOf } from './muster';
@@ -117,7 +117,6 @@ async function raidWith(
   w: ReturnType<typeof makeWorld>,
   target: { id: string; x: number; y: number },
   p: PlayerProfile,
-  setup: ArmySetup | null = null,
 ) {
   await w.world.sync(p);
   expect(await w.world.setGarrison(p.army ?? {})).toBeNull();
@@ -129,7 +128,7 @@ async function raidWith(
   const walking = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
   w.at(walking.arriveAt);
   await w.world.sync(p);
-  const res = await w.world.attack({ setup });
+  const res = await w.world.attack({});
   const pulse = await w.world.sync(p);
   return { res, pulse, walk: walking.arriveAt - walking.departAt };
 }
@@ -491,15 +490,6 @@ describe('бой', () => {
     const b = resolveField(input);
     expect(b.result?.log).toEqual(a.result?.log);
     expect(b.won).toBe(a.won);
-  });
-
-  it('другой сид — другая расстановка быстрой атаки', () => {
-    const army = side({ spear: 100, infantry: 100, archer: 60, cavalry: 40 });
-    const presets = new Set<string | null>();
-    for (let seed = 1; seed <= 40; seed++) {
-      presets.add(resolveField({ seed, attacker: army, defender: side({ infantry: 200 }) }).preset.attacker);
-    }
-    expect(presets.size).toBeGreaterThan(1);
   });
 
   it('проигравший теряет много, но не всех: отряд отступает', () => {
@@ -1058,24 +1048,7 @@ describe('состав отряда и отчёт о бое', () => {
     }
   });
 
-  it('быстрая атака и настроенная расстановка — разные бои с одного сида', async () => {
-    const army = { spearman: 8, archer: 6 };
-    const run = async (setup: ArmySetup | null) => {
-      const w = makeWorld(4242);
-      const p = profile({ units: { warrior: 14, scout: 0 }, army });
-      await w.world.sync(p);
-      const target = await nearest(w.world);
-      const { pulse } = await raidWith(w, target, p, setup);
-      return pulse.reports.find((r) => r.kind === 'raid')!.battle!;
-    };
-    const quick = await run(null);
-    const tuned = await run(toArmySetup(presetFormation(army, 'anti-cavalry')));
-    // У быстрой атаки пресет назван, у настроенной — нет: расстановку задали руками.
-    expect(quick.preset).not.toBeNull();
-    expect(tuned.preset).toBeNull();
-  });
-
-  it('разведка показывает состав и построение, а с возрастом — только порядок величины', async () => {
+  it('разведка показывает состав, а с возрастом — только порядок величины', async () => {
     const w = makeWorld(88);
     const p = profile();
     await w.world.sync(p);
@@ -1086,16 +1059,13 @@ describe('состав отряда и отчёт о бое', () => {
 
     const fresh = await w.world.intel(target.id);
     expect(fresh?.kinds, 'свежая разведка знает состав').toBeTruthy();
-    expect(fresh?.formation, 'и построение').toBeTruthy();
     expect(fresh?.style).toBeTruthy();
-    expect(Object.keys(fresh!.formation!).sort()).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
-    // Резерв и план разведка не даёт: на этом держится вся неопределённость.
-    expect(Object.keys(fresh!.formation!)).not.toContain('R');
+    // Построения разведка больше не показывает: оно у всех одно — правило развёртывания (docs/battle_eu4.md, 14.5).
+    expect('formation' in (fresh ?? {}), 'построения в разведке нет').toBe(false);
 
     w.advance(INTEL_VAGUE - INTEL_ROUGH + 1000);
     const old = await w.world.intel(target.id);
     expect(old?.precision).toBe('vague');
-    expect(old?.formation, 'старое построение не показывают как нынешнее').toBeNull();
   });
 });
 
@@ -1330,8 +1300,11 @@ describe('заморозка обороны', () => {
 
   it('расстановка, присланная после отметки, в бой не идёт', async () => {
     const army = { spearman: 10, archer: 6 };
-    const early = toArmySetup(presetFormation(army, 'defense'), 10);
-    const late = toArmySetup(presetFormation(army, 'center-punch'), 10);
+    // Раскладка обороны до поставки 2: правило развёртывания — и та же дружина, сбитая в один сектор.
+    const early = toArmySetup(deployFormation(army), 10);
+    const lopsided = emptyFormation();
+    lopsided.sectors.A = { ...army };
+    const late = toArmySetup(lopsided, 10);
 
     const held = await defendWith(early, late, DEFENSE_FREEZE - 30_000);
     const never = await defendWith(early, early, 0);
@@ -2259,7 +2232,6 @@ describe('лазутчик в мире', () => {
     expect(reading?.power.value, 'точного числа у донесения нет').toBeNull();
     expect(reading?.power.max).toBeGreaterThan(reading?.power.min ?? 0);
     expect(reading?.kinds, 'и какого вида войско — тоже вилкой').toBeTruthy();
-    expect(reading?.formation, 'построения лазутчик не приносит').toBeNull();
     expect(reading?.ageSeconds).toBeLessThan(60);
 
     const width = (r: typeof reading): number => (r ? r.power.max - r.power.min : 0);
@@ -2442,7 +2414,7 @@ describe('отряд полководца', () => {
     expect(card?.can.raid, 'под пактом удара нет').toBe(false);
     expect(card?.note).toMatch(/[Пп]акт/);
     // И это правило мира, а не подсказка панели.
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     expect(res.error).toMatch(/[Пп]акт/);
     expect(res.reportId).toBeNull();
   });
@@ -2470,7 +2442,7 @@ describe('отряд полководца', () => {
       if ((await w.world.moveFigure('general', { x: strongest.x, y: strongest.y })) !== null) continue;
       w.at((await general(w)).arriveAt);
       await w.world.sync(p);
-      const res = await w.world.attack({ setup: null });
+      const res = await w.world.attack({});
       expect(res.error).toBeNull();
 
       const g = await general(w);

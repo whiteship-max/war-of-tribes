@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { simulateBattle } from '@/battle/sim';
-import { quickSetup } from '@/battle/setup';
+import { deploySetup } from '@/battle/setup';
 import type { BattleResult } from '@/battle';
 import { PLAIN_GROUND } from '@/battle/replay';
 import { DAY_LENGTH } from '../constants';
@@ -19,8 +19,8 @@ import { NOON, REPLAY_ARC, groundName, groundOf, hourName, solarOfTime, type Bat
 const fight = (seed = 7): BattleResult =>
   simulateBattle({
     seed,
-    attacker: quickSetup({ spear: 150, infantry: 200, archer: 150, cavalry: 100 }),
-    defender: quickSetup({ spear: 200, infantry: 200, archer: 150, cavalry: 50 }),
+    attacker: deploySetup({ spear: 150, infantry: 200, archer: 150, cavalry: 100 }),
+    defender: deploySetup({ spear: 200, infantry: 200, archer: 150, cavalry: 50 }),
   });
 
 /** Игровое время: день `day`, час `hour`. Из одного числа выводятся и час, и сезон. */

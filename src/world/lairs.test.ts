@@ -217,7 +217,7 @@ describe('логова в мире', () => {
       loot: null,
     });
 
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     expect(res.error).toBeNull();
     expect(res.won, 'дружина втрое сильнее логова — она побеждает').toBe(true);
 
@@ -228,7 +228,7 @@ describe('логова в мире', () => {
     // На карте вместо логова пепелище, и второй раз его не разграбить.
     const onMap = (await lairsOnMap(w.world)).find((s) => s.id === target.id);
     expect(onMap?.ruin, 'на месте пепелище').toBe(true);
-    const again = await w.world.attack({ setup: null });
+    const again = await w.world.attack({});
     expect(again.error, 'сожжённое второй раз не грабится').toBeTruthy();
 
     const card = await w.world.settlement(target.id);
@@ -244,7 +244,7 @@ describe('логова в мире', () => {
     const w = makeWorld(11);
     const p = profile();
     await bringGeneral(w, p);
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     expect(res.error).toBeNull();
     const e = saveOf(w.world).effects.find((x) => x.id === `${res.reportId}-battle`);
     const lost = Object.values(e?.lostTroops ?? {}).reduce((n, v) => n + (v ?? 0), 0);
@@ -257,7 +257,7 @@ describe('логова в мире', () => {
     const w = makeWorld(11);
     const p = profile();
     const target = await bringGeneral(w, p);
-    expect((await w.world.attack({ setup: null })).won).toBe(true);
+    expect((await w.world.attack({})).won).toBe(true);
     const burnedAt = saveOf(w.world).lairs[target.id].burnedAt;
 
     w.at(burnedAt + LAIR_RUIN - MIN);

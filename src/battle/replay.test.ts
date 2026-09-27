@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
-import { quickSetup } from './setup';
+import { deploySetup } from './setup';
 import {
   ACTS,
   ACT_PHASES,
@@ -50,7 +50,7 @@ import { MAN_HEIGHT as FIGURE_MAN_HEIGHT } from '../render/units';
 const SRC = join(__dirname, '..');
 
 const battle = (a: Partial<Stack>, d: Partial<Stack>, seed = 7): BattleResult =>
-  simulateBattle({ seed, attacker: quickSetup(a), defender: quickSetup(d) });
+  simulateBattle({ seed, attacker: deploySetup(a), defender: deploySetup(d) });
 
 /** Ровный бой: обе стороны с пешей линией, событий в журнале много. */
 const armyMix = (men: number): Partial<Stack> => ({
@@ -397,8 +397,8 @@ describe('ролик рассказывает то же, что отчёт', () 
 
   it('событие круга сечи ложится на время своего круга, а не первой сечи', () => {
     // Бой идёт кругами, и фаза встречается в журнале не один раз: метка ищет ту, в чьи тики попало.
-    // Бой с кругами — копья с лучниками против пехоты с конницей на изматывании (граница утверждена ниже).
-    const r = simulateBattle({ seed: 1, attacker: { ...quickSetup({ spear: 300, archer: 300 }), plan: 'attrition' }, defender: { ...quickSetup({ infantry: 400, cavalry: 200 }), plan: 'attrition' } });
+    // Бой с кругами — копья с лучниками против пехоты с конницей (граница утверждена ниже).
+    const r = simulateBattle({ seed: 1, attacker: deploySetup({ spear: 300, archer: 300 }), defender: deploySetup({ infantry: 400, cavalry: 200 }) });
     const cast = buildCast(r, 'attacker');
     const inRound = cast.marks.filter((m) => r.phases.some((p) => p.round && p.phase === m.phase && m.tick >= p.from && m.tick <= p.to));
     // Граница: круги в бою есть, и в них есть события, ставшие метками, — иначе правило проверялось бы даром.
@@ -414,7 +414,7 @@ describe('ролик рассказывает то же, что отчёт', () 
   it('круг идёт сечей: его сближение и сшибка — в такте сечи и по тикам, а не в близком плане и отъезде', () => {
     // Круг — обстрел, сшибка и сеча снова (`CIRCLE_PHASES`), и имена его фаз те же, что у первого круга. Такт по
     // имени фазы положил бы сближение круга в отъезд камеры, а его потери и события — раньше, чем линии сошлись.
-    const r = simulateBattle({ seed: 1, attacker: { ...quickSetup({ spear: 300, archer: 300 }), plan: 'attrition' }, defender: { ...quickSetup({ infantry: 400, cavalry: 200 }), plan: 'attrition' } });
+    const r = simulateBattle({ seed: 1, attacker: deploySetup({ spear: 300, archer: 300 }), defender: deploySetup({ infantry: 400, cavalry: 200 }) });
     const cast = buildCast(r, 'attacker');
     const inRounds = r.phases.filter((p) => p.round !== undefined);
     // Граница: в бою есть круги, и в них есть сближение и сшибка — фазы, чьё имя живёт и в других тактах.
@@ -489,8 +489,8 @@ describe('кадр не врёт о численности', () => {
   it('полупустая расстановка ролик не ломает', () => {
     // Одни лучники: фронт пуст, заняты только тыловые сектора, а фигур меньше,
     // чем секторов у противника. Ни то, ни другое не должно ронять раскадровку.
-    const thin: ArmySetup = quickSetup({ archer: 3 });
-    const result = simulateBattle({ seed: 3, attacker: quickSetup({ infantry: 400 }), defender: thin });
+    const thin: ArmySetup = deploySetup({ archer: 3 });
+    const result = simulateBattle({ seed: 3, attacker: deploySetup({ infantry: 400 }), defender: thin });
     const cast = buildCast(result, 'attacker');
     expect(cast.figures.defender).toBe(figureCount(3));
     const placed = cast.sectors.filter((c) => c.side === 'defender').reduce((n, c) => n + c.figures, 0);
@@ -677,9 +677,11 @@ describe('масса: число видно без цифр', () => {
   it('древков больше, чем фигур там, где есть кому их держать', () => {
     const cast = buildCast(evenFight(), 'attacker');
     for (const c of cast.sectors) {
-      // Конница леса не носит вовсе, поэтому считаем по пешим местам.
+      // Конница леса не носит вовсе, поэтому считаем по пешим местам. Одна фигура — лес округляется до одного
+      // древка (лучник носит 1.4), и «больше» начинается с двух: правило развёртывания кладёт на края
+      // второй линии остатки в несколько лучников.
       const foot = c.byFace.reduce((n, f) => n + (f.kind === 'cavalry' ? 0 : f.figures), 0);
-      if (foot === 0) continue;
+      if (foot < 2) continue;
       expect(c.shafts, `${c.side}/${c.sector}`).toBeGreaterThan(foot);
     }
     const spears = shaftsFor([{ id: 'spearman', kind: 'spear', figures: 10 }]);
@@ -853,7 +855,8 @@ describe('действие: всё из журнала, ничего от себ
     for (const seed of [7, 13, 21, 34]) {
       const cast = buildCast(evenFight(seed), 'attacker');
       const ride = cast.marks.find(
-        (m) => m.id === 'cavalry-broke-archers' || m.id === 'flank-turned' || m.id === 'cavalry-intercepted',
+        // Перехвата обхода (`cavalry-intercepted`) ядро больше не пишет: он жил приказом «держать фланг».
+        (m) => m.id === 'cavalry-broke-archers' || m.id === 'flank-turned',
       );
       if (!ride) continue;
       // Смотрим только на конные сектора этой стороны и только пока они не

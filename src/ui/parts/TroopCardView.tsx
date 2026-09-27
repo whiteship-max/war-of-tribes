@@ -195,16 +195,6 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         ))}
       </div>
 
-      <h3>Приказы этому роду</h3>
-      <div className="mod-list">
-        {card.orders.map((o) => (
-          <div className="mod" key={o.id}>
-            <span className="ico">📜</span>
-            <span className="name">{o.name}</span>
-          </div>
-        ))}
-      </div>
-
       <h3>Ходовые качества</h3>
       <div className="mod-list">
         <div className="mod">

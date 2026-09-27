@@ -7,7 +7,7 @@ import { armySize } from '@/game/derived';
 import { seeded } from '@/game/sim/random';
 import { TROOP_IDS } from '@/game/data/troops';
 import { kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
-import { presetFormation, toArmySetup } from '@/game/battle/formation';
+import { deployFormation, toArmySetup } from '@/game/battle/formation';
 import type { GameState, TroopId } from '@/game/types';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from './bridge';
@@ -129,21 +129,20 @@ describe('где стоит боец — одно правило', () => {
 
   it('расстановка из гарнизона подрезке не подлежит, а сверх гарнизона — снимается с конца', () => {
     const rng = seeded(20260913);
-    const presets = ['defense', 'standard', 'anti-cavalry', 'center-punch'] as const;
     for (let i = 0; i < 400; i++) {
       const home: TroopStack = {};
       for (const id of TROOP_IDS) if (rng() < 0.5) home[id] = Math.floor(rng() * 40);
       if (troopTotal(home) === 0) continue;
       const militia = Math.floor(rng() * 60);
       const archers = Math.floor(rng() * militia);
-      const setup = toArmySetup(presetFormation(home, presets[i % presets.length]), militia - archers, archers);
+      const setup = toArmySetup(deployFormation(home), militia - archers, archers);
       const have = kindsOf(home);
       have.infantry += militia - archers;
       have.archer += archers;
       expect(fitSetup(setup, have), `набор ${i}: собранная из тех же людей расстановка не меняется`).toEqual(setup);
     }
 
-    const setup: ArmySetup = toArmySetup(presetFormation({ spearman: 30, archer: 20 }, 'defense'));
+    const setup: ArmySetup = toArmySetup(deployFormation({ spearman: 30, archer: 20 }));
     const copy = structuredClone(setup);
     const cut = fitSetup(setup, { spear: 10, infantry: 0, archer: 20, cavalry: 0, heavy: 0 });
     const total = (s: ArmySetup): Stack => {
@@ -343,7 +342,7 @@ class Party {
   /** Удар полководца там, где он стоит. Кто был при нём до удара — для проверки строя. */
   async strike(step: string): Promise<{ error: string | null; reportId: string | null; won: boolean }> {
     const g = await this.general();
-    const res = await this.world.attack({ setup: null });
+    const res = await this.world.attack({});
     if (!res.error && res.reportId) this.ordered.set(res.reportId, { ...g.troops });
     this.figures = await this.world.figures();
     await this.pulse(`${step}${res.error ? ` (${res.error})` : ''}`);
@@ -711,7 +710,7 @@ describe('дружина в обороне: собрана и дома — од�
     expect(siege.siege?.garrison, 'за стеной едят гарнизон с дружиной — четырнадцать, не десять и не двадцать четыре').toBe(14);
     expect(homeOf(p.s.army, awayOf(p.marches, p.figures)), 'в гарнизоне все четырнадцать ровно раз').toEqual({ clubman: 14 });
     // Удар «от своих ворот» — не отдельный путь: дома его дружина — гарнизон.
-    expect((await p.world.attack({ setup: null })).error).toBe(STRIKE_FROM_TOWN);
+    expect((await p.world.attack({})).error).toBe(STRIKE_FROM_TOWN);
     expect(await p.world.strikeCamp('home', true)).toBe(STRIKE_FROM_TOWN);
     expect(await p.world.sortie({ clubman: 15 }).then((r) => r.error), 'больше гарнизона не выйти').toMatch(/дома нет/);
 
@@ -785,7 +784,7 @@ describe('дружина в обороне: собрана и дома — од�
   it('запертая расстановка ставит к частоколу дружину, собранную после отметки, один раз', async () => {
     // Мир 42: первый набег кончается боем у частокола, а не лагерем.
     const p = Party.start(42, { clubman: 10 });
-    p.s.defenseFormation = presetFormation({ clubman: 10 }, 'defense');
+    p.s.defenseFormation = deployFormation({ clubman: 10 });
     await p.pulse('старт');
     const frozenRaid = (): string | null => {
       const save = JSON.parse(p.store.read() as string) as { frozenDefense: { marchId: string } | null; marches: MarchView[] };

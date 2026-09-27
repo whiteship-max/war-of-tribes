@@ -9,7 +9,6 @@ import {
   simulateBattle,
   stackTotal,
   validateSetup,
-  QUICK_PRESET_IDS,
   type ArmySetup,
 } from '@/battle';
 import { RATIO_EVEN } from '@/battle/bench';
@@ -17,16 +16,14 @@ import { createInitialState } from '../state';
 import { wageOf } from '../derived';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
-  applyTemplate,
   clampFormation,
+  cloneFormation,
   emptyFormation,
-  kindsPresent,
   placedTroops,
-  presetFormation,
+  deployFormation,
   stashUnplaced,
   toArmySetup,
   unplacedTroops,
-  type BattlePlanTemplate,
 } from './formation';
 import {
   BATTLE_MAN,
@@ -86,18 +83,21 @@ describe('перевод бойцов племени в роды боя', () => 
 });
 
 describe('расстановка не теряет войска', () => {
-  it('пресет раскладывает весь состав целиком', () => {
-    for (const preset of QUICK_PRESET_IDS) {
-      const f = presetFormation(GARRISON, preset);
+  it('правило развёртывания раскладывает весь состав целиком', () => {
+    // Раскладка обороны начинается правилом развёртывания (docs/battle_eu4.md, 14.5): бойцы племени
+    // раскладываются по его секторам в той же пропорции, и не теряется ни один — ни в малом отряде,
+    // ни в том, что шире трёх полос (там лишние уходят в резерв).
+    for (const troops of [GARRISON, { ...GARRISON, clubman: 600, archer: 500 }]) {
+      const f = deployFormation(troops);
       const placed = placedTroops(f);
-      for (const t of TROOP_IDS) expect(placed[t] ?? 0, `${preset}/${t}`).toBe(GARRISON[t] ?? 0);
-      expect(troopTotal(unplacedTroops(GARRISON, f))).toBe(0);
+      for (const t of TROOP_IDS) expect(placed[t] ?? 0, t).toBe(troops[t] ?? 0);
+      expect(troopTotal(unplacedTroops(troops, f))).toBe(0);
     }
   });
 
   it('сумма по секторам плюс оставленные дома равна гарнизону', () => {
     const take: TroopStack = { clubman: 4, spearman: 6, archer: 2 };
-    const f = presetFormation(take, 'standard');
+    const f = deployFormation(take);
     const bySector = SECTORS.reduce((n, id) => n + troopTotal(f.sectors[id]), 0);
     const home = TROOP_IDS.reduce((n, t) => n + Math.max(0, (GARRISON[t] ?? 0) - (take[t] ?? 0)), 0);
     expect(bySector + home).toBe(troopTotal(GARRISON));
@@ -114,7 +114,7 @@ describe('расстановка не теряет войска', () => {
   });
 
   it('подрезка убирает тех, кого больше нет, и называет лишних', () => {
-    const f = presetFormation(GARRISON, 'defense');
+    const f = deployFormation(GARRISON);
     const { formation, extra } = clampFormation(f, { spearman: 4, clubman: 6, archer: 5, axeman: 3, legionary: 9 });
     expect(placedTroops(formation).spearman).toBe(4);
     // Семерых новых латников расстановка не знает — они лишние.
@@ -124,11 +124,11 @@ describe('расстановка не теряет войска', () => {
 
 describe('расстановка для ядра боя', () => {
   it('ядро принимает её без нареканий, и людей столько же', () => {
-    for (const preset of QUICK_PRESET_IDS) {
-      const setup = toArmySetup(presetFormation(GARRISON, preset));
-      expect(validateSetup(setup), preset).toBeNull();
+    for (const troops of [GARRISON, { ...GARRISON, clubman: 600, archer: 500 }]) {
+      const setup = toArmySetup(deployFormation(troops));
+      expect(validateSetup(setup)).toBeNull();
       const men = SECTORS.reduce((n, id) => n + stackTotal(setup.sectors[id]), 0);
-      expect(men, preset).toBe(stackTotal(kindsOf(GARRISON)));
+      expect(men).toBe(stackTotal(kindsOf(troops)));
     }
   });
 
@@ -152,49 +152,22 @@ describe('расстановка для ядра боя', () => {
     expect(params, 'входы toArmySetup').toEqual(['f', 'militia', 'militiaArchers', 'resolve']);
   });
 
-  it('ополчение встаёт во фронт само и в резерв не попадает', () => {
-    const setup = toArmySetup(presetFormation({ spearman: 4 }, 'defense'), 30);
+  it('ополчение встаёт во фронт само, а не в резерв игрока', () => {
+    // Раскладка обороны игрока до поставки 2: ополчение ложится во фронт поровну. Что шире W, ядро
+    // уводит в резерв стороны само — как у всех (docs/battle_eu4.md, 14.5); резерв-блока игрока
+    // ополчение не занимает.
+    const setup = toArmySetup(deployFormation({ spearman: 4 }), 30);
     const front = setup.sectors.A.infantry + setup.sectors.B.infantry + setup.sectors.C.infantry;
     expect(front).toBe(30);
     expect(stackTotal(setup.sectors.R)).toBe(0);
   });
 
-  it('приказы имеет смысл давать только тем родам, что в отряде есть', () => {
-    expect(kindsPresent({ spearman: 3 })).toEqual(['spear']);
-    expect(kindsPresent(GARRISON).sort()).toEqual(['archer', 'infantry', 'spear']);
-    // Конницы у племени нет ни в одном виде бойцов.
-    expect(UNIT_KINDS.includes('cavalry')).toBe(true);
-    expect(kindsPresent(GARRISON)).not.toContain('cavalry');
-  });
-});
-
-describe('шаблоны', () => {
-  const tpl: BattlePlanTemplate = {
-    id: 1,
-    name: 'Стена',
-    troops: { spearman: 6, archer: 4 },
-    formation: presetFormation({ spearman: 6, archer: 4 }, 'anti-cavalry'),
-  };
-
-  it('применяется как есть, когда дома всё на месте', () => {
-    const out = applyTemplate(tpl, GARRISON);
-    expect(out.short).toBe(false);
-    expect(out.troops).toEqual({ spearman: 6, archer: 4 });
-    expect(placedTroops(out.formation)).toEqual({ spearman: 6, archer: 4 });
-    expect(out.formation.plan).toBe(tpl.formation.plan);
-  });
-
-  it('берёт сколько есть и честно об этом говорит', () => {
-    const out = applyTemplate(tpl, { spearman: 2, archer: 4 });
-    expect(out.short).toBe(true);
-    expect(out.troops.spearman).toBe(2);
-    expect(troopTotal(placedTroops(out.formation))).toBe(6);
-  });
-
-  it('переживает перезагрузку: это обычный JSON', () => {
-    const back = JSON.parse(JSON.stringify(tpl)) as BattlePlanTemplate;
-    expect(back).toEqual(tpl);
-    expect(validateSetup(toArmySetup(back.formation))).toBeNull();
+  it('раскладка, сохранённая до поставки 1 с планом, приказами и резервом, читается одними секторами', () => {
+    const old = { ...deployFormation(GARRISON), plan: 'envelop', orders: { cavalry: 'charge' }, reserve: { kind: 'weakest' } };
+    const copy = cloneFormation(old);
+    expect(Object.keys(copy)).toEqual(['sectors']);
+    expect(validateSetup(toArmySetup(copy))).toBeNull();
+    expect(Object.keys(toArmySetup(copy)).sort()).toEqual(['gear', 'resolve', 'sectors']);
   });
 });
 
@@ -202,13 +175,11 @@ describe('шаблоны', () => {
 // ---------- Конница племени ----------
 //
 // Без конного вида половина боевой системы у игрока мертва: угол кольца «конница
-// бьёт лучников», план «кавалерийский удар», кавалерийские приказы и перехват
-// обхода резервом. У чужих гарнизонов конница есть всегда, поэтому кольцо обязано
+// бьёт лучников». У чужих гарнизонов конница есть всегда, поэтому кольцо обязано
 // работать в обе стороны — это и проверяется здесь настоящими боями.
 
-/** Отряд племени, разложенный своим пресетом, в том виде, в каком его видит ядро. */
-const armyOf = (troops: TroopStack, preset: Parameters<typeof presetFormation>[1] = 'standard'): ArmySetup =>
-  toArmySetup(presetFormation(troops, preset));
+/** Отряд племени, вставший по правилу развёртывания, в том виде, в каком его видит ядро. */
+const armyOf = (troops: TroopStack): ArmySetup => toArmySetup(deployFormation(troops));
 
 /** Пара боёв одним сидом: сторона поля не должна решать исход. */
 function ratio(a: ArmySetup, b: ArmySetup, seed: number): number {
@@ -233,7 +204,7 @@ describe('конница племени', () => {
     // Класс решает доспех, а не таблица рядом: тот же конь под доспехом — уже тяжёлая конница.
     expect(kindsOf({ knight: 10 }).heavy).toBe(menOf('knight', 10));
     expect(kindsOf({ knight: 10 }).cavalry).toBe(0);
-    // Пустых родов у племени не осталось: приказы есть кому давать во всех пяти.
+    // Пустых родов у племени не осталось: все пять родов ядра у игрока есть.
     expect([...OWN_KINDS].sort()).toEqual([...UNIT_KINDS].sort());
   });
 
@@ -264,16 +235,9 @@ describe('конница племени', () => {
     // Отряды одной мощи, поэтому сравнивать размен честно.
     const riders = armyOf({ rider: 100 });
     const archers = armyOf({ archer: 280 });
-    const spears = armyOf({ spearman: 350 }, 'anti-cavalry');
+    const spears = armyOf({ spearman: 350 });
     expect(meanRatio(riders, archers)).toBeGreaterThan(RATIO_EVEN);
     expect(meanRatio(riders, spears)).toBeLessThan(1 / RATIO_EVEN);
   });
 
-  it('план «кавалерийский удар» и кавалерийские приказы становятся живыми', () => {
-    const f = presetFormation({ rider: 40, spearman: 60 }, 'standard');
-    expect(kindsPresent(placedTroops(f))).toContain('cavalry');
-    const strike = toArmySetup({ ...f, plan: 'cavalry-strike' });
-    expect(validateSetup(strike)).toBeNull();
-    expect(strike.sectors.R.cavalry + SECTORS.reduce((n, id) => n + strike.sectors[id].cavalry, 0)).toBeGreaterThan(0);
-  });
 });

@@ -310,7 +310,7 @@ describe('склад чужого двора', () => {
     const before = api.lootOpen.call(w.world, s, w.now());
     expect(before, 'до набега брать есть что').toBeGreaterThan(0);
 
-    const res = await w.world.attack({ setup: null });
+    const res = await w.world.attack({});
     expect(res.won).toBe(true);
     const report = (await w.world.reports()).find((r) => r.id === res.reportId)!;
     const taken = sum(report.loot ?? {});
@@ -330,7 +330,7 @@ describe('склад чужого двора', () => {
     const s = listOf(w.world).find((x) => x.id === target.id)!;
     const api = peek(w.world);
 
-    expect((await w.world.attack({ setup: null })).won).toBe(true);
+    expect((await w.world.attack({})).won).toBe(true);
     // Снимаем разорение руками и смотрим, что осталось от склада. Если бы
     // «второй набег даёт крохи» держалось на разорении, здесь бы всё вернулось.
     delete saveOf(w.world).sacks[target.id];
@@ -347,11 +347,11 @@ describe('склад чужого двора', () => {
     const w = makeWorld(11);
     const p = profile();
     await bringGeneral(w, p);
-    const first = await w.world.attack({ setup: null });
+    const first = await w.world.attack({});
     const firstLoot = sum((await w.world.reports()).find((r) => r.id === first.reportId)?.loot ?? {});
     w.advance(MIN);
     await w.world.sync(p);
-    const second = await w.world.attack({ setup: null });
+    const second = await w.world.attack({});
     const secondLoot = sum((await w.world.reports()).find((r) => r.id === second.reportId)?.loot ?? {});
     expect(firstLoot).toBeGreaterThan(0);
     expect(secondLoot).toBe(0);
@@ -997,7 +997,7 @@ describe('разведка не выдаёт больше, чем положен
     expect(open, 'но на виду что-то есть').toBeGreaterThan(0);
 
     // Бой — та же разведка, и лучшая: снимок снят своими глазами и свеж.
-    expect((await w.world.attack({ setup: null })).won).toBe(true);
+    expect((await w.world.attack({})).won).toBe(true);
     const reading = await w.world.intel(target.id);
     expect(reading?.precision, 'снимок только что сделан').toBe('exact');
     // И даже он называет только открытую часть: подпол не считают ни разведкой,
