@@ -258,6 +258,19 @@ export const pipOf = (setup: ArmySetup, pip: PipId): number => {
 };
 
 /**
+ * Штраф кости стороны от места боя, в гранях (docs/battle_eu4.md, 14.5, 14.14; таблица EU4): земля — всегда, переправа
+ * — если манёвр своего полководца не выше манёвра полководца противника. Работа манёвра у EU4 — ровно эта: снять
+ * переправу; землю он не снимает. Одна дверь на бой и на карточку полководца (`world/agents.pipRows`).
+ */
+export function groundFaces(own: ArmySetup, enemy: ArmySetup): { land: number; crossing: number; lifted: boolean; faces: number } {
+  const clean = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) ? Math.max(0, n) : 0);
+  const land = clean(own.ground?.land);
+  const crossing = clean(own.ground?.crossing);
+  const lifted = crossing > 0 && pipOf(own, 'maneuver') > pipOf(enemy, 'maneuver');
+  return { land, crossing, lifted, faces: land + (lifted ? 0 : crossing) };
+}
+
+/**
  * Множитель урона стороны в фазе: бросок кости плюс отметки её полководца (`DICE`). Открыт наружу
  * ради карточки полководца: что прибавляет отметка, карточка меряет этой самой функцией, а не своей
  * копией формулы. Меньше нуля не бывает — урон не становится лечением.
@@ -366,6 +379,8 @@ class Battle {
   opposed: Record<Side, boolean[]> = { attacker: [false, false, false], defender: [false, false, false] };
   /** Какую долю ряда сектора уже накрыл разовый удар обхода (`flankTurned`), по ключу «сторона:сектор». */
   shaken = new Map<string, number>();
+  /** Штраф кости сторон от места боя на весь бой (`groundFaces`). */
+  ground!: Record<Side, ReturnType<typeof groundFaces>>;
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
@@ -401,6 +416,10 @@ class Battle {
       };
     };
     this.sides = { attacker: make('attacker', input.attacker), defender: make('defender', input.defender) };
+    this.ground = {
+      attacker: groundFaces(input.attacker, input.defender),
+      defender: groundFaces(input.defender, input.attacker),
+    };
   }
 
   // ----- Служебное -----
@@ -418,12 +437,15 @@ class Battle {
     }
     const rolls = { attacker: 0, defender: 0 };
     const pips = { attacker: 0, defender: 0 };
+    const ground = { attacker: this.ground.attacker.faces, defender: this.ground.defender.faces };
     for (const side of SIDES) {
       rolls[side] = Math.floor(this.rng() * DICE.faces);
       pips[side] = pipOf(this.sides[side].setup, pip);
-      this.luck[side] = phaseLuck(rolls[side], pips[side]);
+      // Штраф места снимает грани с каждой кости стороны на весь бой (EU4).
+      this.luck[side] = phaseLuck(rolls[side], pips[side] - ground[side]);
     }
-    this.emit({ id: 'dice', rolls, pips });
+    // Поле штрафа — только когда он есть: у боя на ровном месте запись та же, что до поставки 1.
+    this.emit(ground.attacker > 0 || ground.defender > 0 ? { id: 'dice', rolls, pips, ground } : { id: 'dice', rolls, pips });
   }
 
   emit(e: EventBody): void {
@@ -576,6 +598,13 @@ class Battle {
 
   onPhaseStart(): void {
     this.emit({ id: 'phase-start' });
+    // Место боя — раз, в начале боя: земля и переправа, и снял ли переправу манёвр.
+    if (this.tick === 1) {
+      for (const side of SIDES) {
+        const g = this.ground[side];
+        if (g.land > 0 || g.crossing > 0) this.emit({ id: 'ground', side, land: g.land, crossing: g.crossing, lifted: g.lifted });
+      }
+    }
     this.rollDice();
     for (const side of SIDES) this.sides[side].killsAtPhase = cloneKills(this.sides[side].kills);
     if (this.opening) {

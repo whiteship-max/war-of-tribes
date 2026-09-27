@@ -13,6 +13,7 @@ import {
   stackTotal,
   type ArmySetup,
   type BattleResult,
+  type GroundPenalty,
   type Pips,
   type Sector,
   type Stack,
@@ -46,6 +47,11 @@ export interface FieldInput {
   seed: number;
   attacker: FieldSide;
   defender: FieldSide;
+  /**
+   * Штраф кости от места боя (`world/place.groundAt`) — **нападающему, и только ему** (таблица EU4, docs/battle_eu4.md,
+   * 14.5): поля у стороны нет нарочно, чтобы обороняющемуся его было неоткуда взять.
+   */
+  ground?: GroundPenalty;
 }
 
 export interface FieldOutcome {
@@ -100,7 +106,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
 
   const result = simulateBattle({
     seed: input.seed,
-    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear, resolve: input.attacker.resolve ?? 0, pips: input.attacker.pips ?? {} },
+    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear, resolve: input.attacker.resolve ?? 0, pips: input.attacker.pips ?? {}, ground: input.ground },
     defender: { ...defender, gear: input.defender.gear ?? defender.gear, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {} },
   });
 

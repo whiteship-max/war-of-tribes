@@ -34,7 +34,8 @@ export const pipPhases = (pip: PipId): string => {
 };
 
 /** Бросок с отметками словами: «7» или «4+2». */
-const dieText = (roll: number, pips: number): string => (pips > 0 ? `${roll}+${pips}` : `${roll}`);
+const dieText = (roll: number, pips: number, ground = 0): string =>
+  `${roll}${pips > 0 ? `+${pips}` : ''}${ground > 0 ? `−${ground}` : ''}`;
 
 /** Чем кончился бой — словами, а не идентификатором. */
 export const REASON_NAME: Record<ResultReason, string> = {
@@ -57,7 +58,11 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
       return `— ${PHASE_NAME[e.phase]}`;
     case 'dice': {
       const [a, b] = us === 'defender' ? (['defender', 'attacker'] as const) : (['attacker', 'defender'] as const);
-      return `кость: ${name(a)} ${dieText(e.rolls[a], e.pips[a])}, ${name(b)} ${dieText(e.rolls[b], e.pips[b])}`;
+      return `кость: ${name(a)} ${dieText(e.rolls[a], e.pips[a], e.ground?.[a])}, ${name(b)} ${dieText(e.rolls[b], e.pips[b], e.ground?.[b])}`;
+    }
+    case 'ground': {
+      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ' — снята манёвром' : ''}` : ''].filter(Boolean);
+      return `${who}: место боя против них — ${parts.join(', ')}`;
     }
     case 'volley':
       return `${who}: лучники выбили ${e.losses} до столкновения`;

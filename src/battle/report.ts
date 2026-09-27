@@ -53,11 +53,11 @@ const own = (side: Side, us: Side, g: Gender): string => (side === us ? MINE[g] 
 /** Сколько строк ключевых событий держит отчёт: больше десятка никто не читает. */
 export const KEYS_MAX = 7;
 
-/** Насколько кость фазы легла в пользу `us`: бросок с отметками против чужого. */
-const diceGap = (e: Extract<BattleEvent, { id: 'dice' }>, us: Side): number => {
-  const foe: Side = us === 'attacker' ? 'defender' : 'attacker';
-  return e.rolls[us] + e.pips[us] - (e.rolls[foe] + e.pips[foe]);
-};
+/** Кость стороны в фазе: бросок, отметки, минус штраф места. */
+const dieOf = (e: Extract<BattleEvent, { id: 'dice' }>, side: Side): number => e.rolls[side] + e.pips[side] - (e.ground?.[side] ?? 0);
+
+/** Насколько кость фазы легла в пользу `us`: бросок с отметками и штрафом места против чужого. */
+const diceGap = (e: Extract<BattleEvent, { id: 'dice' }>, us: Side): number => dieOf(e, us) - dieOf(e, us === 'attacker' ? 'defender' : 'attacker');
 
 const line = (e: BattleEvent, art: string, icon: string, text: string, good: boolean): ReportLine => ({
   art,
@@ -80,8 +80,8 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
       const gap = diceGap(e, us);
       if (Math.abs(gap) < DICE.faces / 2) return null;
       const foe: Side = us === 'attacker' ? 'defender' : 'attacker';
-      const ours = e.rolls[us] + e.pips[us];
-      const theirs = e.rolls[foe] + e.pips[foe];
+      const ours = dieOf(e, us);
+      const theirs = dieOf(e, foe);
       return line(
         e,
         'bat-dice',
@@ -91,6 +91,13 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
           : `Удача против нас: ${PHASE_NAME[e.phase]} — кость ${ours} против ${theirs}.`,
         gap > 0,
       );
+    }
+    case 'ground': {
+      // Место боя штрафует кость весь бой — это строка про удачу, и значок у неё тот же, что у кости.
+      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ' (снята манёвром полководца)' : ''}` : '']
+        .filter(Boolean)
+        .join(', ');
+      return line(e, 'bat-dice', '⛰️', `Место боя против ${mine ? 'нас' : 'них'}: ${parts} к кости каждой фазы.`, !mine);
     }
     case 'volley':
       if (e.losses < EVENT_MIN) return null;

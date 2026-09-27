@@ -28,7 +28,7 @@ vi.mock('@/battle', async (orig) => {
   };
 });
 
-import { DICE, emptyStack, phaseLuck, type Pips } from '@/battle';
+import { DICE, emptyStack, phaseLuck, simulateBattle, deploySetup, type Pips } from '@/battle';
 import { createInitialState } from '@/game/state';
 import { type TroopStack } from '@/game/battle/kinds';
 import { pipsAt, pipsOf } from '@/game/sim/agents';
@@ -54,7 +54,8 @@ import {
   SPY_SLIP_ATTITUDE,
 } from './data/tuning';
 import { marchSeed } from './combat';
-import { ownGearOf, pipRows, revealSight, slipShare, slipped, wallPips } from './agents';
+import { ownGearOf, pipRows, revealSight, slipShare, slipped } from './agents';
+import { GROUND_CROSSING } from './place';
 import { spyOutcome } from './spy';
 import { distance } from './geo';
 import { PLAYER_CAMP } from './siege';
@@ -107,7 +108,7 @@ function tribeProfile(level: number, over: Partial<PlayerProfile> = {}): PlayerP
   return { ...playerProfile(s), army: { spearman: 60, archer: 20, rider: 20 }, ...over };
 }
 
-/** Все четыре отметки по одной: у стены манёвр обязан отпасть, и это видно, только если он есть. */
+/** Все четыре отметки по одной: у стены манёвр обязан остаться, и это видно, только если он есть. */
 const ALL_PIPS: Pips = { fire: 1, shock: 1, melee: 1, maneuver: 1 };
 
 /** Дружина стоит у своих ворот: собрана, дома, не в сборе (`world/muster.postureOf` — 'stands'). */
@@ -296,14 +297,15 @@ describe('отметки полководца: его бои — всегда, �
     expect(input.defender.resolve).toBe(FERVOUR);
   });
 
-  it('оборона деревни, когда дружина у ворот, — ведёт полководец, без манёвра: стена не движется', async () => {
+  it('оборона деревни, когда дружина у ворот, — ведёт полководец со всеми отметками: манёвр обороны держит переправу', async () => {
+    // Л9 пересмотрено (docs/battle_eu4.md, 14.5): «у стены без манёвра» писалось, пока манёвр жил в фазах обхода и
+    // резерва. Работа манёвра теперь переправа, и у EU4 манёвр обороняющегося держит её нападающему.
     const w = makeWorld();
     const p = tribeProfile(5, { fervour: FERVOUR, pips: ALL_PIPS });
     await w.world.sync(p);
     atGates(w);
     const input = battleSince(raidAtWall(w));
-    expect(input.defender.pips).toEqual(wallPips(ALL_PIPS));
-    expect(input.defender.pips, 'манёвра у стены нет').toEqual({ fire: 1, shock: 1, melee: 1 });
+    expect(input.defender.pips, 'у стены — все отметки, и манёвр').toEqual(ALL_PIPS);
     expect(input.defender.resolve).toBe(FERVOUR);
   });
 });
@@ -330,12 +332,37 @@ describe('карточка и бой считают одно и то же', () =
     expect(lines.rows).toHaveLength(rows.length);
     const mid = (DICE.faces - 1) / 2;
     for (const r of rows) {
+      if (r.pip === 'maneuver') continue;
       // Отметка — грань кости: во что она обходится уроном, говорит та же функция, что множит урон в бою.
       expect(r.gain).toBeCloseTo(phaseLuck(mid, r.n) - phaseLuck(mid, 0), 12);
       expect(r.gain).toBeCloseTo(r.n * DICE.step, 12);
     }
     expect(lines.next, 'куда ляжет следующий кружок — известно: склад человека').toMatch(/^Следующий кружок ляжет в /);
     expect(pipLines(1, {}, pipsAt(s.seed, person, 2)).rows, 'первый уровень — ни одной строки отметок').toEqual([]);
+  });
+});
+
+describe('манёвр на карточке — дверью переправы', () => {
+  it('карточка меряет манёвр тем же кодом, что снимает переправу в бою', () => {
+    // Новый тест 7 поставки 1 (docs/battle_eu4.md, 14.5, Л11): фаз у манёвра нет, его работа — переправа. Строка
+    // карточки обещает: нападает он через русло на войско без полководца — переправа снята, и урон в каждой фазе
+    // растёт на замеренную долю. Бой обязан сделать ровно это.
+    const mid = (DICE.faces - 1) / 2;
+    const army = deploySetup({ spear: 100, infantry: 120, archer: 60 });
+    for (const n of [0, 1, 3]) {
+      const row = pipRows({ maneuver: n }).find((r) => r.pip === 'maneuver')!;
+      expect(row.crossing, 'манёвр меряется переправой').toBe(true);
+      const r = simulateBattle({ seed: 5, attacker: { ...army, pips: { maneuver: n }, ground: { crossing: GROUND_CROSSING } }, defender: army });
+      const ground = r.log.find((e) => e.id === 'ground');
+      // Граница области: переправа в этом бою есть — иначе снимать было бы нечего.
+      expect(ground, 'переправа в бою').toBeDefined();
+      const lifted = ground!.id === 'ground' && ground!.lifted;
+      expect(lifted, `манёвр ${n}: снята ли переправа`).toBe(n > 0);
+      // Что карточка обещает, то и множит бой: кость без штрафа против кости с ним.
+      const gained = lifted ? phaseLuck(mid, 0) - phaseLuck(mid, -GROUND_CROSSING) : 0;
+      expect(row.gain, `манёвр ${n}: доля на карточке`).toBeCloseTo(gained, 12);
+      for (const e of r.log) if (e.id === 'dice') expect(e.ground?.attacker ?? 0, `манёвр ${n}: штраф кости в бою`).toBe(lifted ? 0 : GROUND_CROSSING);
+    }
   });
 });
 

@@ -2,7 +2,7 @@
 // Сюда же потом придёт сервер — импортировать из `battle/` можно только это.
 export * from './types';
 export * from './config';
-export { simulateBattle, startMorale, phaseLuck, pipOf } from './sim';
+export { simulateBattle, startMorale, phaseLuck, pipOf, groundFaces } from './sim';
 export { deploy, deploySetup, emptyStack, stackOf, stackTotal, emptySectors, armyTotal, validateSetup } from './setup';
 export { describeEvent, pipPhases, SECTOR_NAME, PHASE_NAME, SIDE_NAME } from './log';
 export * from './names';

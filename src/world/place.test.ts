@@ -7,7 +7,9 @@
 import { describe, expect, it } from 'vitest';
 import { FEATURE, featuresAt, terrainAt } from './geography';
 import { WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
-import { placeAt } from './place';
+import { groundAt, placeAt } from './place';
+import { resolveField } from './battle';
+import { groundFaces, stackOf, type ArmySetup, type BattleResult, type Pips } from '@/battle';
 
 const SEED = 20240;
 
@@ -75,5 +77,81 @@ describe('место боя выводится из клетки', () => {
     const c = { x: WORLD_ORIGIN.x + 40, y: WORLD_ORIGIN.y + 40 };
     expect(placeAt(SEED, c.x, c.y, 1234).time).toBe(1234);
     expect(placeAt(SEED, c.x, c.y).time).toBeUndefined();
+  });
+});
+
+describe('штраф кости нападающему — таблица EU4', () => {
+  // Новые тесты 5 и 11 поставки 1 (docs/battle_eu4.md, 14.5, 14.14; ответ владельца 5): пересечённая земля −1, горы
+  // −2, переправа −1, штрафы складываются; бой на клетке воды — переправа (14.19.2). Числа в тесте — таблица EU4, а не
+  // пересказ кода: правка таблицы в коде обязана уронить его.
+
+  it('каждый класс земли даёт свою грань, хребет и перевал — горы, клетка воды — переправа', () => {
+    const table: Record<string, number> = { plain: 0, steppe: 0, desert: 0, forest: 1, hills: 1, mountains: 2 };
+    const met = new Set<string>();
+    for (const c of scan(4)) {
+      const t = terrainAt(SEED, c.x, c.y);
+      const bits = featuresAt(SEED, c.x, c.y);
+      const g = groundAt(SEED, c);
+      if (t === 'water') {
+        expect(g, `вода ${c.x}|${c.y}`).toEqual({ crossing: 1 });
+        met.add('water');
+      } else if (bits & (FEATURE.ridge | FEATURE.pass)) {
+        expect(g.land, `хребет ${c.x}|${c.y}`).toBe(2);
+        met.add('ridge');
+      } else {
+        expect(g.land ?? 0, `${t} ${c.x}|${c.y}`).toBe(table[t]);
+        met.add(t);
+      }
+    }
+    // Граница области: на карте встретился каждый класс — иначе грань класса проверялась бы даром.
+    for (const t of [...Object.keys(table), 'water', 'ridge']) expect(met.has(t), `класс ${t} на карте`).toBe(true);
+  });
+
+  it('переправа — шаг на поле боя через русло, и только там, где запись места видит реку; земля и переправа складываются', () => {
+    let crossed = 0;
+    let dry = 0;
+    for (const c of scan(5)) {
+      const t = terrainAt(SEED, c.x, c.y);
+      if (t === 'water' || featuresAt(SEED, c.x, c.y) & FEATURE.river) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const step = { x: c.x + dx, y: c.y + dy };
+        const from = { x: c.x + 5 * dx, y: c.y + 5 * dy };
+        const g = groundAt(SEED, c, from);
+        const river = (featuresAt(SEED, step.x, step.y) & FEATURE.river) !== 0;
+        expect(g.crossing ?? 0, `${c.x}|${c.y} из ${from.x}|${from.y}`).toBe(river ? 1 : 0);
+        // Земля от направления не зависит: она у клетки боя.
+        expect(g.land ?? 0).toBe(groundAt(SEED, c).land ?? 0);
+        if (river) {
+          // Штраф переправы бывает только там, где ролик показывает реку: поле записи — клетка и её соседи.
+          expect(placeAt(SEED, c.x, c.y).river, `${c.x}|${c.y}: река в записи места`).toBe(true);
+          // Складываются: у ядра это одна кость на весь бой.
+          expect(groundFaces({ ground: g } as ArmySetup, {} as ArmySetup).faces).toBe((g.land ?? 0) + 1);
+          crossed += 1;
+        } else dry += 1;
+      }
+    }
+    // Граница области: переправа и сухой шаг правда встретились.
+    expect(crossed, 'шагов через русло').toBeGreaterThan(0);
+    expect(dry, 'сухих шагов').toBeGreaterThan(0);
+  });
+
+  it('штраф — только нападающему и на весь бой; манёвр выше чужого снимает переправу, но не землю', () => {
+    const kinds = stackOf({ spear: 100, infantry: 120, archer: 60 });
+    const ground = { land: 1, crossing: 1 };
+    const fight = (atk: Pips, def: Pips): BattleResult =>
+      resolveField({ seed: 3, ground, attacker: { kinds, pips: atk, setup: null }, defender: { kinds, pips: def, setup: null } }).result!;
+    const faces = (r: BattleResult): Array<{ attacker: number; defender: number }> =>
+      r.log.flatMap((e) => (e.id === 'dice' ? [{ attacker: e.ground?.attacker ?? 0, defender: e.ground?.defender ?? 0 }] : []));
+    const plain = fight({}, {});
+    // Граница области: в бою есть кости, и штраф в каждой.
+    expect(faces(plain).length, 'костей в бою').toBeGreaterThan(0);
+    for (const f of faces(plain)) expect(f, 'земля и переправа — нападающему, обороне ничего').toEqual({ attacker: 2, defender: 0 });
+    expect(plain.log.filter((e) => e.id === 'ground')).toEqual([expect.objectContaining({ side: 'attacker', land: 1, crossing: 1, lifted: false })]);
+    // Манёвр нападающего выше манёвра обороны — переправы нет, земля осталась.
+    const led = fight({ maneuver: 1 }, {});
+    for (const f of faces(led)) expect(f, 'манёвр снял переправу, но не землю').toEqual({ attacker: 1, defender: 0 });
+    expect(led.log.find((e) => e.id === 'ground')).toEqual(expect.objectContaining({ lifted: true }));
+    // Манёвр обороны не ниже — держит переправу.
+    for (const f of faces(fight({ maneuver: 1 }, { maneuver: 1 }))) expect(f, 'манёвр обороны держит переправу').toEqual({ attacker: 2, defender: 0 });
   });
 });

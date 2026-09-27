@@ -5,7 +5,8 @@
 //
 // - отметки полководца — в кость фазы боя (`ArmySetup.pips`), и только в боях,
 //   которые он ведёт, да у своих стен, пока его дружина стоит у ворот
-//   (`LocalWorld.generalPips`, `homePips`); стойкость стороны — один обряд;
+//   (`LocalWorld.generalPips`, `homePips`); манёвр — в переправу (`groundFaces`):
+//   фаз у него нет; стойкость стороны — один обряд;
 // - зоркость — в радиус, которым разведчик открывает землю (`revealSight`);
 //   живого обзора она не даёт, его держит `sight.liveSight`, и он её не читает;
 // - скрытность — в то, заметили ли провал (`slipped`); шанс дела не трогает.
@@ -16,21 +17,11 @@
 // модуль целиком.
 //
 // Модуль чистый: ни состояния, ни часов.
-import { DICE, PIP_IDS, phaseLuck, pipOf, type ArmySetup, type PipId, type Pips, type UnitKind } from '@/battle';
+import { DICE, PIP_IDS, groundFaces, phaseLuck, pipOf, type ArmySetup, type PipId, type Pips, type UnitKind } from '@/battle';
 import { gearOf, type TroopStack } from '@/game/battle/kinds';
 import { FIGURE_BY_ID } from './data/figures';
+import { GROUND_CROSSING } from './place';
 import type { FigureId } from './types';
-
-/**
- * Отметки полководца у своих стен: всё, кроме манёвра, — стена не движется, обходить некого и
- * некуда (решение владельца 26.09.2026, docs/battle_eu4.md, вопрос 5). Вылазка идёт в поле — в неё
- * отметки идут все.
- */
-export const wallPips = (pips: Pips | undefined): Pips => {
-  const out: Pips = { ...(pips ?? {}) };
-  delete out.maneuver;
-  return out;
-};
 
 /** Что даёт одна отметка фазы. */
 export interface PipRow {
@@ -39,20 +30,30 @@ export interface PipRow {
   n: number;
   /**
    * На сколько в среднем вырастает урон его стороны в фазах этой отметки, доля: замер той же
-   * функцией ядра, которой бой множит урон (`phaseLuck`), на середине кости с отметками и без.
+   * функцией ядра, которой бой множит урон (`phaseLuck`), на середине кости с отметками и без. У манёвра
+   * фаз нет — его работа переправа (`crossing`): сколько урона в каждой фазе возвращает снятый штраф.
    */
   gain: number;
+  /**
+   * Манёвр: отметка снимает штраф переправы, когда нападает он, а манёвр противника ниже (`groundFaces`). Замерено
+   * против войска без полководца — у логова манёвра нет.
+   */
+  crossing?: true;
 }
 
 /**
  * Отметки полководца строками для карточки — **замером** функцией ядра, а не пересказом числа:
- * отметка сдвигает кость фазы на грань, и во что эта грань обходится уроном, говорит `phaseLuck`.
+ * отметка сдвигает кость фазы на грань, и во что эта грань обходится уроном, говорит `phaseLuck`. Манёвр —
+ * той же дверью, что бой (`groundFaces`): переправа на его войске против войска без полководца.
  */
 export function pipRows(pips: Pips | undefined): PipRow[] {
   const mid = (DICE.faces - 1) / 2;
   const setup = { pips } as ArmySetup;
+  // Сколько граней снимает с кости переправа у его войска с `n` отметками манёвра против войска без полководца.
+  const crossed = (n: number): number => groundFaces({ pips: { maneuver: n }, ground: { crossing: GROUND_CROSSING } } as ArmySetup, {} as ArmySetup).faces;
   return PIP_IDS.map((pip) => {
     const n = pipOf(setup, pip);
+    if (pip === 'maneuver') return { pip, n, gain: phaseLuck(mid, -crossed(n)) - phaseLuck(mid, -crossed(0)), crossing: true };
     return { pip, n, gain: phaseLuck(mid, n) - phaseLuck(mid, 0) };
   });
 }

@@ -98,6 +98,18 @@ export interface ArmySetup {
    * ноль по всем четырём.
    */
   pips?: Pips;
+  /**
+   * Штраф кости этой стороны в гранях — от места боя (docs/battle_eu4.md, 14.5 и 14.14; таблица EU4): земля и
+   * переправа. Ядро про землю не знает, как не знает источника `resolve`: у игры штраф выводит мир, и только
+   * нападающему (`world/battle.resolveField`). Переправу снимает манёвр своего полководца выше чужого (`groundFaces`).
+   */
+  ground?: GroundPenalty;
+}
+
+/** Штраф кости в гранях: земля клетки боя и переправа на неё. Нет поля — ноль. */
+export interface GroundPenalty {
+  land?: number;
+  crossing?: number;
 }
 
 export type Side = 'attacker' | 'defender';
@@ -133,7 +145,13 @@ export type BattleEvent = EventBase &
      * Кость фазы: что выпало каждой стороне (0..`DICE.faces` − 1) и сколько граней прибавил
      * её полководец (`pips`). Пишется в начале каждой фазы, у которой есть кость (`PHASE_PIP`).
      */
-    | { id: 'dice'; rolls: Record<Side, number>; pips: Record<Side, number> }
+    /** Кость фазы: бросок и отметки полководца; `ground` — сколько граней снял штраф места (нет поля — ноль у обоих). */
+    | { id: 'dice'; rolls: Record<Side, number>; pips: Record<Side, number>; ground?: Record<Side, number> }
+    /**
+     * Место боя штрафует кость стороны на весь бой (EU4): земля `land` и переправа `crossing`, в гранях. `lifted` —
+     * переправу снял манёвр полководца выше манёвра противника. Пишется в начале боя, если штраф есть.
+     */
+    | { id: 'ground'; side: Side; land: number; crossing: number; lifted: boolean }
     /** Лучники нанесли `losses` потерь до первого столкновения — залп перед сшибкой первого прохода; у кругов его нет. */
     | { id: 'volley'; side: Side; losses: number }
     /** Копья в `sector` остановили кавалерийский удар: конница потеряла больше, чем копейщики. */

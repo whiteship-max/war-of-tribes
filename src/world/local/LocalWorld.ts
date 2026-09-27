@@ -119,7 +119,7 @@ import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
 import { cityName, cityOr } from '../../../netlify/lib/contract';
 import { WATCHER, liveSight, standing } from '../sight';
 import { canShelter, placeOf } from '../shelter';
-import { ownGearOf, revealSight, slipped, wallPips } from '../agents';
+import { ownGearOf, revealSight, slipped } from '../agents';
 import { diesAt, perilOf, perilShare, perilText, perilWhy, routPeril, recentVisits, type PerilCase } from '../peril';
 import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
@@ -226,7 +226,7 @@ import {
   type WoodPlan,
 } from '../works';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
-import { placeAt } from '../place';
+import { groundAt, placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
 import { UNKNOWN, estimate, precisionOf, readIntel } from '../intel';
 import {
@@ -1173,6 +1173,11 @@ export class LocalWorld implements WorldApi {
        * соседей идёт без него.
        */
       general?: boolean;
+      /**
+       * Откуда нападающий вышел на лагерь: полководец — из своей отправной точки, выручка — из своего двора. Нет —
+       * вышли из ворот (вылазка): переправы нет, штрафует только земля (`world/place.groundAt`).
+       */
+      from?: Coord;
     },
   ):
     | {
@@ -1216,13 +1221,16 @@ export class LocalWorld implements WorldApi {
     const fought = parts.reduce((n, x) => n + x.t.passed, 0);
     const all = parts.reduce((n, x) => n + x.t.went, 0);
     const own = parts.some((x) => 'own' in x.part);
+    // Лагерь стоит под городом: место боя — клетка города.
+    const cell = id === HOME_ID ? this.save.home : this.byId.get(id);
     const field = resolveField({
       seed,
+      ground: cell ? groundAt(this.save.seed, cell, attack.from) : undefined,
       attacker: {
         kinds,
         gear,
         resolve: own ? this.ownResolve() : undefined,
-        pips: own ? (attack.general ? this.generalPips() : this.homePips(at, false)) : undefined,
+        pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
         // Встают те, кто прошёл, по правилу развёртывания: расстановки у удара по лагерю нет.
         setup: null,
       },
@@ -1792,6 +1800,7 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     const out = this.campBattle(id, at, m.seed, {
       front: { kinds: party.kinds, gear: party.gear },
+      from: m.from,
     });
     // Проход занят — выручка к рогаткам не пробилась и ушла ни с чем.
     if (!out || out.refused) return;
@@ -2609,15 +2618,15 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Отметки у своего города — у стены (`wall`) и на вылазке — **только пока дружина стоит у ворот**:
+   * Отметки у своего города — у стены и на вылазке — **только пока дружина стоит у ворот**:
    * тогда она часть гарнизона, и полководец ведёт его сам (решение владельца 26.09.2026,
    * docs/battle_eu4.md, вопрос 5). Дружина в сборе, в пути, в поле или в лагере — полководца у стены
-   * нет, и отметок нет: место полководца имеет цену. У стены — без манёвра (`world/agents.wallPips`).
+   * нет, и отметок нет: место полководца имеет цену. У стены — все отметки, и манёвр тоже: у EU4 манёвр
+   * обороняющегося держит переправу нападающему (14.5, Л9 пересмотрено).
    */
-  private homePips(at: number, wall: boolean): Pips {
+  private homePips(at: number): Pips {
     if (postureOf(this.save.figures.general, at) !== 'stands') return {};
-    const pips = this.generalPips();
-    return wall ? wallPips(pips) : pips;
+    return this.generalPips();
   }
 
   private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
@@ -3456,6 +3465,8 @@ export class LocalWorld implements WorldApi {
     const garrison = garrisonOf(this.save.seed, target.id, defense, target.castle);
     const field = resolveField({
       seed,
+      // Место боя — клетка цели; переправа — если полководец вышел на неё через русло.
+      ground: groundAt(this.save.seed, target, this.save.figures.general.from),
       attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup: null },
       defender: { kinds: garrison.kinds, gear: garrison.gear, setup: null },
     });
@@ -3792,6 +3803,8 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     const field = resolveField({
       seed,
+      // Место боя — клетка встречи; нападает полководец, и переправа — его шаг на неё (бой на воде — переправа).
+      ground: groundAt(this.save.seed, spot, f.from),
       attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), resolve: this.ownResolve(), pips: this.generalPips(), setup: null },
       defender: { kinds: party.kinds, gear: party.gear, setup: null },
     });
@@ -4090,9 +4103,12 @@ export class LocalWorld implements WorldApi {
     const setup = planned ? fitSetup(planned, homeKinds) : null;
     const field = resolveField({
       seed: m.seed,
+      // Место боя — своя деревня; переправа — если набег вышел на неё через русло.
+      ground: groundAt(this.save.seed, this.save.home, m.from),
       attacker: { kinds: party.kinds, gear: party.gear, setup: null },
-      // Ведёт оборону полководец, если его дружина стоит у ворот, — без манёвра (`homePips`).
-      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), pips: this.homePips(at, true), setup },
+      // Ведёт оборону полководец, если его дружина стоит у ворот (`homePips`), — со всеми отметками: у EU4 манёвр
+      // обороняющегося держит переправу нападающему (docs/battle_eu4.md, 14.5, Л9).
+      defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), pips: this.homePips(at), setup },
     });
     return { profile, party, held, home, militia, archers, setup, field };
   }
@@ -4662,6 +4678,7 @@ export class LocalWorld implements WorldApi {
       rear: { own: troops },
       front: joint ? { own: going } : undefined,
       general: true,
+      from: f.from,
     });
     if (!out || out.refused) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
     const { field, camp, front, rear } = out;
@@ -4828,6 +4845,7 @@ export class LocalWorld implements WorldApi {
     const g = garrisonOf(this.save.seed, target.id, power, target.castle);
     const field = resolveField({
       seed: m.seed,
+      ground: groundAt(this.save.seed, target, m.from),
       attacker: { kinds: party.kinds, gear: party.gear, setup: null },
       defender: { kinds: g.kinds, gear: g.gear, setup: null },
     });

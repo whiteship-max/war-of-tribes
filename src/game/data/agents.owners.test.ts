@@ -100,7 +100,8 @@ describe('навык не читает чисел, которыми владее
     for (const name of ['resolveIncoming', 'wallField', 'sortie']) {
       expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(/generalPips|general:\s*true/);
     }
-    expect(bodyOf(world, 'wallField'), 'бой у стены берёт отметки дверью «у ворот», без манёвра').toMatch(/this\.homePips\(at, true\)/);
+    // Со всеми отметками, и манёвром тоже: у EU4 манёвр обороняющегося держит переправу нападающему (14.5, Л9).
+    expect(bodyOf(world, 'wallField'), 'бой у стены берёт отметки дверью «у ворот»').toMatch(/this\.homePips\(at\)/);
     expect(bodyOf(world, 'homePips'), 'дверь «у ворот» спрашивает, где стоит дружина').toMatch(/postureOf\(/);
     const bridge = read('world/bridge.ts');
     for (const name of ['militiaMen', 'militiaArchers']) expect(bodyOf(bridge, name), `bridge.${name}`).not.toMatch(SKILL);

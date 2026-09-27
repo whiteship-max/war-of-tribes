@@ -35,7 +35,11 @@ const pct = (x: number): string => `+${String(Math.round(x * 1000) / 10).replace
 export function pipLines(level: number, pips: Pips, next: Pips | null): PipLines {
   const rows = pipRows(pips)
     .filter((r) => r.n > 0)
-    .map((r) => `${PIP_NAME[r.pip]} ${r.n}: урон его войска в среднем ${pct(r.gain)} — ${pipPhases(r.pip)}.`);
+    .map((r) =>
+      r.crossing
+        ? `${PIP_NAME[r.pip]} ${r.n}: снимает с его войска переправу, когда он нападает, а у противника манёвр ниже — урон в каждой фазе в среднем ${pct(r.gain)}; у логова манёвра нет.`
+        : `${PIP_NAME[r.pip]} ${r.n}: урон его войска в среднем ${pct(r.gain)} — ${pipPhases(r.pip)}.`,
+    );
   let nextLine: string | null = null;
   if (next && level < MAX_AGENT_LEVEL) {
     const grown = PIP_IDS.find((p) => (next[p] ?? 0) > (pips[p] ?? 0));
@@ -45,7 +49,7 @@ export function pipLines(level: number, pips: Pips, next: Pips | null): PipLines
     now:
       level <= 1
         ? 'На первом уровне отметок нет: кость у его войска такая же, как у любого.'
-        : 'Каждая отметка — лишняя грань кости своей фазы: в боях, которые он ведёт, и у своих стен, пока его дружина стоит у ворот (у стены — без манёвра). Исхода боя она не решает — она двигает удачу.',
+        : 'Каждая отметка — лишняя грань кости своей фазы: в боях, которые он ведёт, и у своих стен, пока его дружина стоит у ворот. Манёвр фаз не держит — он снимает переправу. Исхода боя отметка не решает — она двигает удачу.',
     rows,
     next: nextLine,
   };
