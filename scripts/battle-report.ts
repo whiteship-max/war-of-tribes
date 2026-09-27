@@ -11,9 +11,9 @@
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
 import { DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, COUNTER, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
-import { VARIANT_NAMES, runJobs, type Brief, type Job, type Out, type Pair, type Reach } from './battle-jobs';
+import { VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -97,6 +97,20 @@ const ringPairs = RING.map((_, ring) => w1.add({ kind: 'ring', ring, seeds: SEED
 // Круги по размерам: сколько боёв до них доходит — матрица составов.
 const reachAt = [...OVERSIZE_SIZES, ARMY_SIZE].map((total) => ({ total, got: w1.add({ kind: 'reach', total }) }));
 const pureDuels = matrix('pure', UNIT_KINDS.length, 6);
+// «Лезвие» (разбор, слово владельца 27.09.2026): решётка составов против себя больших, кусками по десять составов.
+const EDGE_CHUNK = 10;
+const latticeSize = compositionLattice().length;
+const edgeAt = (step: number, dice: 'bare' | 'config', pace: number): Array<() => Extract<Out, { kind: 'edge' }>> => {
+  const out: Array<() => Extract<Out, { kind: 'edge' }>> = [];
+  for (let from = 0; from < latticeSize; from += EDGE_CHUNK) out.push(w1.add({ kind: 'edge', step, dice, pace, from, to: Math.min(latticeSize, from + EDGE_CHUNK) }));
+  return out;
+};
+const EDGE_RUNS = [
+  { name: 'без кости, темп морали ×1', dice: 'bare' as const, pace: 1 },
+  { name: `кость ${DICE.step}, темп морали ×1`, dice: 'config' as const, pace: 1 },
+  { name: 'без кости, темп морали ×2', dice: 'bare' as const, pace: 2 },
+  { name: `кость ${DICE.step}, темп морали ×2`, dice: 'config' as const, pace: 2 },
+].map((run) => ({ ...run, steps: EDGE_STEPS.map((_, step) => edgeAt(step, run.dice, run.pace)) }));
 
 await w1.run();
 
@@ -313,6 +327,48 @@ console.log('\n=== Круги по размерам: сколько боёв д�
   for (const { total, got } of reachAt) {
     const { matrix: m } = got();
     console.log(`${pad(total, 8)}  ${spread(m.ticks).padStart(22)}           ${spread(m.seconds).padStart(18)}`);
+  }
+}
+
+console.log('\n=== Лезвие: как кончаются бои и кривая «перевес → поле» (разбор «исхода на лезвии», слово владельца 27.09.2026) ===');
+{
+  // Решётка составов на размере W против себя же больших на ступень, большая — с обеих сторон поля. Бой без кости
+  // от сида не зависит — один на сторону; с костью — сиды 1..4. Темп ×2 — проба (`bench.withMoralePace`: потеря
+  // морали от потерь людьми вдвое быстрее), а не число модели.
+  const sum = (parts: Array<() => Extract<Out, { kind: 'edge' }>>): Edge =>
+    parts.reduce(
+      (acc, p) => {
+        const e = p().edge;
+        acc.n += e.n;
+        acc.held += e.held;
+        acc.draws += e.draws;
+        for (const [k, v] of Object.entries(e.reasons)) acc.reasons[k] = (acc.reasons[k] ?? 0) + v;
+        acc.loserLoss.push(...e.loserLoss);
+        return acc;
+      },
+      { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[] },
+    );
+  const pc = (a: number, b: number): string => `${((100 * a) / Math.max(1, b)).toFixed(1)}%`;
+  console.log(`решётка — ${latticeSize} составов на ${HOLD} бойцов строя; ступени — ${EDGE_STEPS.map((s) => s.name).join(', ')}`);
+  console.log(`${pad('прогон', 30)}${EDGE_STEPS.map((s) => pad(`поле у большей ${s.name}`, 24, true)).join('')}`);
+  for (const run of EDGE_RUNS) {
+    const cells = run.steps.map((parts) => {
+      const e = sum(parts);
+      return pad(`${pc(e.held, e.n)} (ничьих ${e.draws})`, 24, true);
+    });
+    console.log(`${pad(run.name, 30)}${cells.join('')}`);
+  }
+  console.log('как кончаются бои — все ступени разом; «некому встать» — у проигравшего в строю никого и резерв исчерпан,');
+  console.log('«перебиты» — меньше 3 %, «итог по сохранённым» — никто не сломался до потолка кругов; потеря проигравшего — доля армии к концу боя, с погоней');
+  console.log(`${pad('прогон', 30)}${pad('боёв', 7, true)}${pad('некому встать', 16, true)}${pad('перебиты', 12, true)}${pad('итог по сохр.', 15, true)}${pad('ничья', 9, true)}   потеря проигравшего: 25% / медиана / 75%`);
+  for (const run of EDGE_RUNS) {
+    const e = sum(run.steps.flat());
+    const at = (p: number): string => {
+      const xs = e.loserLoss.slice().sort((x, y) => x - y);
+      return xs.length ? `${Math.round(100 * xs[Math.min(xs.length - 1, Math.floor(xs.length * p))])}%` : '—';
+    };
+    const r = (k: string): string => pc(e.reasons[k] ?? 0, e.n);
+    console.log(`${pad(run.name, 30)}${pad(e.n, 7, true)}${pad(r('morale'), 16, true)}${pad(r('annihilated'), 12, true)}${pad(r('losses'), 15, true)}${pad(r('draw'), 9, true)}   ${at(0.25)} / ${at(0.5)} / ${at(0.75)}`);
   }
 }
 

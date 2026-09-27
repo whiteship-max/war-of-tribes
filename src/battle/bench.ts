@@ -3,7 +3,7 @@
 // по одним данным. Расстановку наборы не выбирают: каждый состав встаёт по правилу развёртывания
 // (`setup.deploySetup`), потому что раскладки у удара больше нет (docs/battle_eu4.md, 14.5).
 import { simulateBattle } from './sim';
-import { DICE, FRONT_WIDTH } from './config';
+import { DICE, FRONT_WIDTH, MORALE } from './config';
 import { seededRng } from './rng';
 import { deploySetup, emptySectors, stackOf, stackTotal } from './setup';
 import { KIND_META } from './names';
@@ -141,6 +141,47 @@ export function withDiceStep<T>(step: number, fn: () => T): T {
   } finally {
     DICE.step = was;
   }
+}
+
+/**
+ * Прогнать `fn` при темпе потери морали от потерь людьми (`MORALE.perLoss`) в `k` раз выше и вернуть его на место.
+ * Проба разбора «исхода на лезвии» (слово владельца 27.09.2026), а не число модели: сдвигается ли лезвие в склон,
+ * если мораль падает быстрее тел. `battle:report`, раздел «Лезвие».
+ */
+export function withMoralePace<T>(k: number, fn: () => T): T {
+  const was = MORALE.perLoss;
+  MORALE.perLoss = was * k;
+  try {
+    return fn();
+  } finally {
+    MORALE.perLoss = was;
+  }
+}
+
+/** Перевесы кривой «перевес → поле» (раздел «Лезвие»): большая армия того же состава из меньшей в `total`. */
+export const EDGE_STEPS: ReadonlyArray<{ name: string; bigger: (total: number) => number }> = [
+  { name: '+1 чел.', bigger: (t) => t + 1 },
+  { name: '+1 %', bigger: (t) => Math.round(t * 1.01) },
+  { name: '+5 %', bigger: (t) => Math.round(t * 1.05) },
+  { name: '+10 %', bigger: (t) => Math.round(t * 1.1) },
+];
+
+/**
+ * Бои кривой: составы решётки `from..to` в `total` против себя же больших на ступень `EDGE_STEPS[step]`, большая —
+ * по очереди с обеих сторон поля, сиды 1..`seeds`. Итог — бой и сторона большей.
+ */
+export function edgeBattles(step: number, from: number, to: number, seeds: number, total = holdSize()): Array<{ r: BattleResult; big: Side }> {
+  const lattice = compositionLattice();
+  const out: Array<{ r: BattleResult; big: Side }> = [];
+  for (let i = from; i < to; i += 1) {
+    const small = deploySetup(scaleArmy(lattice[i], total));
+    const big = deploySetup(scaleArmy(lattice[i], EDGE_STEPS[step].bigger(total)));
+    for (let seed = 1; seed <= seeds; seed += 1) {
+      out.push({ r: simulateBattle({ seed, attacker: big, defender: small }), big: 'attacker' });
+      out.push({ r: simulateBattle({ seed, attacker: small, defender: big }), big: 'defender' });
+    }
+  }
+  return out;
 }
 
 /**

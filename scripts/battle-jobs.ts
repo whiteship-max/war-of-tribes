@@ -14,7 +14,7 @@
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
 import { COUNTER, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, gapAgainst, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, withDiceStep, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -127,7 +127,12 @@ export type Job =
   /** Кость: шаг, выведенный делением отрезка (`bench.diceStepFor`), и поле большей без кости. */
   | { kind: 'dice' }
   /** Сколько боёв доходит до кругов в `total` бойцов строя: матрица составов. */
-  | { kind: 'reach'; total: number };
+  | { kind: 'reach'; total: number }
+  /**
+   * «Лезвие» (разбор, слово владельца 27.09.2026): составы решётки `from..to` против себя больших на ступень
+   * `EDGE_STEPS[step]`; `dice` — без кости (0) или с шагом конфига; `pace` — темп потери морали (`withMoralePace`).
+   */
+  | { kind: 'edge'; step: number; dice: 'bare' | 'config'; pace: number; from: number; to: number };
 
 /**
  * Сколько боёв (`n`) дошло до круга (`rounds`), сколько всего было сшибок (`clashes`), сколько тиков шёл каждый бой
@@ -149,7 +154,21 @@ export type Out =
   | { kind: 'pool'; gaps: number[] }
   | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number }
   | { kind: 'dice'; derived: number; bare: number }
-  | { kind: 'reach'; matrix: Reach };
+  | { kind: 'reach'; matrix: Reach }
+  | { kind: 'edge'; edge: Edge };
+
+/**
+ * Итог боёв «Лезвия»: сколько их (`n`), в скольких поле удержала большая (`held`), сколько ничьих, чем кончились
+ * (`reason` результата: `morale` — у проигравшего в строю никого и встать некому, `annihilated` — перебит, `losses` —
+ * никто не сломался, итог по сохранённым) и какую долю армии потерял проигравший к концу боя, с погоней (`loserLoss`).
+ */
+export interface Edge {
+  n: number;
+  held: number;
+  draws: number;
+  reasons: Record<string, number>;
+  loserLoss: number[];
+}
 
 const reachOf = (rs: readonly BattleResult[]): Reach => ({
   n: rs.length,
@@ -202,6 +221,25 @@ export function battleJob(job: Job): Out {
         }
       }
       return { kind: 'reach', matrix: reachOf(matrix) };
+    }
+    case 'edge': {
+      // Бой без кости от сида не зависит: кость — единственная случайность ядра. Поэтому без кости — один бой на
+      // сторону поля, с костью — четыре сида. Подмены (кость, темп морали) снимаются здесь же.
+      const seeds = job.dice === 'bare' ? 1 : 4;
+      const run = (): Array<{ r: BattleResult; big: 'attacker' | 'defender' }> => edgeBattles(job.step, job.from, job.to, seeds);
+      const fights = withMoralePace(job.pace, () => (job.dice === 'bare' ? withDiceStep(0, run) : run()));
+      const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [] };
+      for (const { r, big } of fights) {
+        edge.n += 1;
+        if (r.winner === big) edge.held += 1;
+        if (r.winner === 'draw') edge.draws += 1;
+        edge.reasons[r.reason] = (edge.reasons[r.reason] ?? 0) + 1;
+        if (r.winner !== 'draw') {
+          const loser = r.sides[r.winner === 'attacker' ? 'defender' : 'attacker'].total;
+          edge.loserLoss.push(loser.losses / Math.max(1, loser.initial));
+        }
+      }
+      return { kind: 'edge', edge };
     }
   }
 }
