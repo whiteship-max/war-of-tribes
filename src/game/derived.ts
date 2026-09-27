@@ -22,7 +22,6 @@ import {
   FEAST_COOLDOWN_PER_LEVEL,
   FEAST_DAYS,
   FEAST_GOLD_PER_POP,
-  HERO_RETRAIN_PER_POP,
   INFIRMARY_HEAL_CAP,
   BASE_STORAGE_CAP,
   BUILDER_RATE,
@@ -73,7 +72,6 @@ import {
   emptyResources,
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
-import type { UnitKind } from '@/battle';
 import { BUILDING_BY_ID, MASTERS_AT, type BuildingDef, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
@@ -750,16 +748,6 @@ export const feastMorale = (s: GameState): number =>
 /** Сколько игрового времени длится пир. */
 export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
 
-// ---------- Герой ----------
-
-/**
- * Сколько бойцов строя приводит с собой герой в выбранный им род. Это и есть
- * усиление: ядро боя знает роды и бойцов строя, а не «легендарных чемпионов»,
- * поэтому слава героя честнее всего считается людьми, которые за ним идут.
- * Мощь армии (`armyPower`) он при этом не трогает — её нельзя ничем множить.
- */
-export const heroMen = (s: GameState): number => Math.round(statOf(s, 'statue', 'hero'));
-
 // ---------- Содержание войска ----------
 //
 // Потолка дружины нет: войско держит цена. Каждый боец ест из общего котла и
@@ -936,45 +924,6 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
         : 0,
   };
 }
-
-/**
- * Герой дома — значит, пойдёт со следующим походом. Своего срока «ранен» у героя
- * больше нет: он и есть полководец, и вне строя его держит мир (разбит — на
- * `FIGURE_DOWN`, погиб — место пустует, и тогда похода нет вовсе).
- */
-export const heroReady = (s: GameState): boolean => s.hero.marchId === null;
-
-export interface HeroInfo {
-  kind: UnitKind;
-  /** Сколько бойцов строя он приводит в свой род. */
-  men: number;
-  /** Пойдёт со следующим походом. */
-  ready: boolean;
-  /** В походе прямо сейчас. */
-  away: boolean;
-  /** Во что обойдётся смена рода войск. */
-  retrainCost: number;
-  /** Почему нельзя сменить род; null — можно. */
-  blocked: string | null;
-}
-
-export function heroInfo(s: GameState): HeroInfo {
-  const h = s.hero;
-  const away = h.marchId !== null;
-  const retrainCost = Math.ceil(HERO_RETRAIN_PER_POP * population(s));
-  let blocked: string | null = null;
-  if (away) blocked = 'Герой в походе.';
-  else if (s.gold < retrainCost) blocked = `Не хватает золота: нужно ${retrainCost}.`;
-  return {
-    kind: h.kind,
-    men: heroMen(s),
-    ready: !away,
-    away,
-    retrainCost,
-    blocked,
-  };
-}
-
 
 /** Сколько бойцов ждёт своей очереди в казармах. */
 export const recruitsQueued = (s: GameState): number =>

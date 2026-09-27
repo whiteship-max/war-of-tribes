@@ -38,7 +38,6 @@ import {
   forgeRate,
   healShare,
   infirmaryBeds,
-  heroMen,
   hiddenStash,
   housingCapacity,
   intelKeen,
@@ -149,15 +148,6 @@ const GAUGES: Gauge[] = [
   { id: 'defense', read: defense, say: more('к защите') },
   { id: 'archers', read: militiaArchers, say: more('стрелков ополчения на стене') },
   { id: 'seats', read: towerSeats, say: more('мест лучников на башне') },
-  {
-    // Бойцы строя — мерка боя, а не головы: латник в строю весит нескольких дубинщиков (`TroopDef.power` на `BATTLE_MAN`).
-    id: 'hero',
-    read: heroMen,
-    say: (b, a) => {
-      const d = a - b;
-      return d <= 0 ? null : { text: `+${d} ${plural(d, 'боец', 'бойца', 'бойцов')} строя за героем`, numbers: [d] };
-    },
-  },
   {
     // Терпение — игровые дни, по доле дня за уровень (`perLevel.loyalty` Статуи): число мелкое, и главное в нём —
     // сколько станет, как у тайника.

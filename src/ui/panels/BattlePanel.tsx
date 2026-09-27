@@ -16,9 +16,6 @@ import { useWorld, worldNow } from '@/world/store';
 import { defense, fervour, homeArmy } from '@/game/derived';
 import { militiaArchers, militiaFoot, militiaMen } from '@/world/bridge';
 import { awayOf, homeOf, postureOf, standingTroops } from '@/world/muster';
-import { heroInfo, heroReady } from '@/game/derived';
-import { personName } from '@/game/sim/agents';
-import { KIND_META } from '@/battle';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { realLeft } from '@/ui/parts/wait';
@@ -148,11 +145,6 @@ export function BattlePanel({ targetId }: Props) {
     setSel(null);
   };
 
-  // Герой уходит только с тем походом, который игрок собрал сам: в быстрой атаке
-  // расстановку выбирает пресет по сиду, и вести ему там некого.
-  const hero = heroInfo(s);
-  const heroGoes = attack && heroReady(s) && hero.men > 0;
-
   /**
    * Удар. Бой считается сразу: полководец уже дошёл, и защитнику было отпущено
    * всё время, пока фигура шла через карту.
@@ -164,11 +156,8 @@ export function BattlePanel({ targetId }: Props) {
       return;
     }
     setBusy(true);
-    // Герой уходит с тем боем, который игрок собрал сам: гибель и возвращение
-    // разберёт `applyExpedition` по этой же отметке.
-    if (heroGoes) act((g) => { g.hero.marchId = 'general'; return null; });
     const err = await strike({
-      setup: toArmySetup(final, 0, 0, heroGoes ? { kind: hero.kind, men: hero.men } : null, fervour(s)),
+      setup: toArmySetup(final, 0, 0, fervour(s)),
       fate,
     });
     setBusy(false);
@@ -291,16 +280,6 @@ export function BattlePanel({ targetId }: Props) {
               <span className="val">{militiaArchers(s)}</span>
             </div>
           )}
-        </div>
-      )}
-
-      {attack && heroGoes && (
-        <div className="mod-list">
-          <div className="mod total">
-            <span className="ico">🛡️</span>
-            <span className="name">{personName(s, 'general')} ведёт {KIND_META[hero.kind].name.toLowerCase()}</span>
-            <span className="val pos">+{hero.men}</span>
-          </div>
         </div>
       )}
 

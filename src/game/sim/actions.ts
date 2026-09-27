@@ -3,12 +3,10 @@ import type { GameState } from '../types';
 import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
 import { FEAST_DAYS } from '../constants';
-import type { UnitKind } from '@/battle';
 import {
   buildingById,
   feastInfo,
   feastSeconds,
-  heroInfo,
   isSite,
   upgradeCost,
   upgradeInfo,
@@ -16,7 +14,6 @@ import {
 import { BUILDING_BY_ID } from '../data/buildings';
 import { log } from './log';
 import { pay, refund } from './pay';
-import { personName } from './agents';
 import { daysBoth } from '../span';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
@@ -58,21 +55,6 @@ export function cancelUpgrade(s: GameState, buildingId: number): string | null {
 // Ответ на событие живёт у двери, закрывающей событие: у неё два повода —
 // ответ и молчание, — и второй не должен расходиться с первым (`sim/mail`).
 export { resolveEvent } from './mail';
-
-/**
- * Сменить роду войск, который ведёт герой. Плата — золото по числу ртов: развилка
- * не одноразовая (в отличие от покровителя), но и не бесплатная, иначе род
- * подбирался бы под каждый поход и выбор перестал бы что-то значить.
- */
-export function setHeroKind(s: GameState, kind: UnitKind): string | null {
-  if (s.hero.kind === kind) return null;
-  const info = heroInfo(s);
-  if (info.blocked) return info.blocked;
-  s.gold -= info.retrainCost;
-  s.hero.kind = kind;
-  log(s, `${personName(s, 'general')} встал во главе другого рода. Плата — ${info.retrainCost} золота.`);
-  return null;
-}
 
 /**
  * Пир в трактире: золото в мораль. Единственный быстрый рычаг настроения —

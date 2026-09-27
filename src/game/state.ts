@@ -174,9 +174,6 @@ export function createInitialState(seed: number = freshSeed()): GameState {
       relic: null,
       converted: false,
     },
-    // Герой стоит у своей статуи с первого дня, как и всё остальное. Он и есть
-    // полководец: имя у них одно и лежит у агента. Род войск меняют в Статуе.
-    hero: { kind: 'infantry', marchId: null },
     // Агенты карты начинают первым уровнем и с пустыми руками. Имён у них пока нет:
     // набор выбирает вера, а её называет мир первым пульсом (`sim/hire.settleHires`).
     agents: emptyAgents(),

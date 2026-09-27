@@ -2,7 +2,6 @@
 import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { BattlePlanTemplate, Formation } from './battle/formation';
 import type { TroopStack } from './battle/kinds';
-import type { UnitKind } from '@/battle';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId } from '@/world/types';
 import type { ItemId } from './data/items';
@@ -236,17 +235,6 @@ export interface AgentProgress {
   hiring: { until: number; name: string | null; age0: number } | null;
   /** Счёт дел этого человека: из него выводятся черты. */
   tally: Tally;
-}
-
-/**
- * Герой — это полководец. Имя, возраст, опыт и смерть у них одни и лежат у агента
- * (`s.agents.general`); здесь только то, что относится к герою в настроенном бою.
- */
-export interface Hero {
-  /** Род войск, который он ведёт. Меняется в Статуе за золото. */
-  kind: UnitKind;
-  /** Поход, с которым он ушёл. null — дома, на площади. */
-  marchId: string | null;
 }
 
 /**
@@ -698,8 +686,6 @@ export interface GameState {
   prestige: number;
   /** Вера деревни и всё, что вокруг неё. См. FaithState. */
   faith: FaithState;
-  /** Герой в настроенном бою: какой род ведёт и с каким походом ушёл. Имя — у полководца. */
-  hero: Hero;
   /**
    * Четыре места агентов карты: кто на них стоит — имя, возраст, опыт и вещи, — или
    * что место пустует. Живёт в партии, а не в сохранении мира: мир уже дважды

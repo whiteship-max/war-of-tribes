@@ -15,7 +15,6 @@ import { NotifyingWorld } from './local/NotifyingWorld';
 import { tribePulse } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { CAMERA_LEASH, DEFENSE_FREEZE, HOME_SIGHT, REACH_MAX } from './data/tuning';
-import { heroReady } from '@/game/derived';
 import { freshSeed } from '@/game/sim/random';
 import { cityName } from '../../netlify/lib/contract';
 import { marchPosition } from './geo';
@@ -485,13 +484,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
     useGame.getState().world((s) => {
       if (order.mission === 'scout') s.stats.scouted = (s.stats.scouted ?? 0) + 1;
       if (order.mission === 'raid') s.stats.raids = (s.stats.raids ?? 0) + 1;
-      // Герой уходит с походом — с одним за раз. Людей, которых он приводит,
-      // панель уже вложила в расстановку; здесь отмечается только он сам.
-      // Только собранный игроком поход: в быстрой атаке расстановку выбирает
-      // пресет по сиду, и вести герою там некого (см. BattlePanel).
-      if (order.mission === 'raid' && order.setup && res.march && heroReady(s)) {
-        s.hero.marchId = res.march.id;
-      }
     });
     await get().pulse();
     await get().refreshCard();

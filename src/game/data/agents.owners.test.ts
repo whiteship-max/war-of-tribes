@@ -20,7 +20,6 @@ import {
   defense,
   fervour,
   healShare,
-  heroMen,
   intelKeen,
   stalls,
   payGraceDays,
@@ -67,7 +66,7 @@ function bodyOf(src: string, name: string): string {
 const SKILL = /\b(?:agents?|pips?\w*|\w*Pips|sightBonus\w*|stealth\w*|revealSight|slipped|slipShare|circles\w*|agentLevel|levelOf|xp)\b/;
 
 /** Числа зданий: всё, чем навык мог бы стать второй правдой. */
-const OWNED = /\b(?:payGrace\w*|loyalty|hero\w*|heroMen|keen|intel\w*|spyChance|guardOf|warning\w*|survey\w*|defen[cs]e\w*|statOf|buildingStat|buildingOfType|heal\w*|capacity|roomOf|garrison\w*|militia\w*|expert|SPY_CHANCE\w*|SPY_PROBE\w*)\b/i;
+const OWNED = /\b(?:payGrace\w*|loyalty|keen|intel\w*|spyChance|guardOf|warning\w*|survey\w*|defen[cs]e\w*|statOf|buildingStat|buildingOfType|heal\w*|capacity|roomOf|garrison\w*|militia\w*|expert|SPY_CHANCE\w*|SPY_PROBE\w*)\b/i;
 
 describe('навык не читает чисел, которыми владеет здание', () => {
   // Черты — тем же правилом: они лежат на свободных осях и не называют чисел здания.
@@ -126,7 +125,7 @@ describe('агенты пятого уровня не сдвигают ни од
   it('в племени и в слепке для мира — меняются только прибавки навыка', () => {
     const a = seated(createInitialState());
     const b = maxed();
-    for (const [name, fn] of Object.entries({ payGraceDays, heroMen, intelKeen, warningSeconds, surveyRadius, defense, fervour, stalls, healShare })) {
+    for (const [name, fn] of Object.entries({ payGraceDays, intelKeen, warningSeconds, surveyRadius, defense, fervour, stalls, healShare })) {
       expect(fn(b), name).toBe(fn(a));
     }
     const pa = playerProfile(a) as unknown as Record<string, unknown>;

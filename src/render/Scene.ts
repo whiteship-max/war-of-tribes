@@ -28,7 +28,7 @@ import {
   type Tier,
 } from './buildings';
 import { VillagerAgent, shownVillagers } from './villagers';
-import { HeroAgent, heroShown } from './hero';
+import { HeroAgent, heroKind, heroShown } from './hero';
 import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
@@ -1281,11 +1281,11 @@ export class TribeScene {
       this.figures.add(agent.figure);
     }
 
-    // Герой: одна фигурка у статуи. Ушёл с походом или ранен — площадь пуста.
-    // Пересобирается он и при смене рода: силуэт героя — это вид бойца, который
-    // он ведёт, и менять его должна Статуя, а не отдельная таблица в сцене.
+    // Герой: одна фигурка у статуи. Место полководца пустует — площадь пуста.
+    // Пересобирается он и при смене рода: силуэт героя — вид бойца того рода,
+    // которого в войске больше всего (`hero.heroKind`), а не отдельная таблица в сцене.
     const wantHero = heroShown(s);
-    const heroKey = wantHero ? s.hero.kind : null;
+    const heroKey = wantHero ? heroKind(s) : null;
     if (heroKey !== this.heroKey) {
       if (this.hero) this.figures.remove(this.hero.figure);
       this.hero = heroKey ? new HeroAgent(s) : null;

@@ -1,6 +1,7 @@
 // Расстановка не должна терять людей. Это главное обещание панели подготовки:
 // сумма по шести секторам, резерву и оставленным дома равна гарнизону — иначе
 // игрок отправит половину армии в никуда и не поймёт почему.
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   SECTORS,
@@ -129,6 +130,26 @@ describe('расстановка для ядра боя', () => {
       const men = SECTORS.reduce((n, id) => n + stackTotal(setup.sectors[id]), 0);
       expect(men, preset).toBe(stackTotal(kindsOf(GARRISON)));
     }
+  });
+
+  it('людей из ниоткуда нет: в бой идёт ровно тот состав, что стоит, и ополчение — у моста нет входа героя', () => {
+    // Поставка 1 боя (docs/battle_eu4.md, 14.5, новый тест 13; 14.19.6): прибавка героя ушла, и ни один
+    // вход моста больше не приводит в бой людей сверх отряда и ополчения. Точка внутри области: в составе
+    // все рода, какие у племени есть, и ополчение обоих видов — иначе «сверх» было бы нечему прибавиться.
+    const troops: TroopStack = { ...GARRISON, rider: 3, knight: 2 };
+    for (const k of OWN_KINDS) expect(kindsOf(troops)[k], `род ${k} в составе`).toBeGreaterThan(0);
+    const f = emptyFormation();
+    f.sectors.A = { clubman: 6, spearman: 8, rider: 3 };
+    f.sectors.B = { axeman: 3, legionary: 2, knight: 2 };
+    f.sectors.E = { archer: 5 };
+    const setup = toArmySetup(f, 12, 5);
+    const men = SECTORS.reduce((n, id) => n + stackTotal(setup.sectors[id]), 0);
+    expect(men, 'в бою ровно отряд и ополчение').toBe(stackTotal(kindsOf(troops)) + 12 + 5);
+    // Замок по исходнику: входы перевода — расстановка, ополчение двух видов и стойкость, и больше ничего.
+    const src = readFileSync(new URL('./formation.ts', import.meta.url), 'utf8');
+    const head = src.slice(src.indexOf('export function toArmySetup('), src.indexOf('): ArmySetup {', src.indexOf('export function toArmySetup(')));
+    const params = [...head.matchAll(/^\s+(\w+)\s*[:=]/gm)].map((m) => m[1]);
+    expect(params, 'входы toArmySetup').toEqual(['f', 'militia', 'militiaArchers', 'resolve']);
   });
 
   it('ополчение встаёт во фронт само и в резерв не попадает', () => {

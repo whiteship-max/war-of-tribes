@@ -362,9 +362,6 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // ровно та, что её можно потерять. Тайник её не прячет: святыню держат в
   // храме на виду, иначе она не значила бы для прихода ничего.
   const relicLost = o.sacked ? loseRelic(s) : null;
-  // Герой возвращается вместе с отрядом. Жив ли он — решает мир: герой и есть
-  // полководец, и разбитого его выхаживает или хоронит одна дверь (`fell`).
-  if (o.battle !== null && s.hero.marchId !== null) s.hero.marchId = null;
 
   if (o.text) log(s, o.text, o.kind);
   // Дело — сразу после строки события: уровень, взятый боем, стоит рядом с самим боем.

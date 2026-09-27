@@ -1,9 +1,6 @@
 import { useGame } from '@/game/store';
-import { heroInfo, payGraceDays } from '@/game/derived';
-import { setHeroKind } from '@/game/sim/actions';
-import { personName, seated } from '@/game/sim/agents';
-import { OWN_KINDS } from '@/game/battle/kinds';
-import { KIND_META } from '@/battle';
+import { payGraceDays } from '@/game/derived';
+import { seated } from '@/game/sim/agents';
 import { atGates, useWorld } from '@/world/store';
 import { GarrisonEditor } from './GarrisonEditor';
 import { AgentCard } from './AgentCard';
@@ -14,8 +11,9 @@ import { waitDaysBoth } from './wait';
  * Статуя Героя — дом военачальников. Морали она не даёт нарочно — их в посёлке уже
  * четыре источника; она даёт племени имя. Здесь сколько терпит войско, которому не
  * заплатили или которое нечем кормить, кто полководец сейчас — та же карточка, что в
- * «Походах», с уровнем, чертами и вещами, — какой род ведёт и кто водил дружину до
- * него. Прогноза «насколько он усилит бой» нет, как и везде.
+ * «Походах», с уровнем, чертами и вещами, — и кто водил дружину до него. Прогноза
+ * «насколько он усилит бой» нет, как и везде. Людей из ниоткуда герой в бой не приводит
+ * (поставка 1 боя, docs/battle_eu4.md, 14.19.6): его вклад — отметки полководца по уровню.
  *
  * Потолка дружины у Статуи больше нет: войско держит цена (`data/upkeep.ts`). Главное
  * число здания теперь — терпение, верность полководцу: сколько игровых дней у вождя,
@@ -23,9 +21,6 @@ import { waitDaysBoth } from './wait';
  */
 export function Statue() {
   const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const info = heroInfo(s);
-  const name = personName(s, 'general');
   const here = seated(s, 'general');
   const general = useWorld((g) => g.figures).find((f) => f.id === 'general');
 
@@ -60,45 +55,6 @@ export function Statue() {
           «Походах».
         </div>
       ))}
-
-      <h3>
-        Герой <span className="muted">{here ? name : 'места никто не занял'}</span>
-      </h3>
-      <div className="note">
-        {!here
-          ? 'Герой и полководец — один человек, и он смертен: погиб или ушёл на покой — вести некому, пока не наймут нового.'
-          : info.away
-            ? 'Ушёл с походом. Пока он в пути, площадь у статуи пуста.'
-            : 'Стоит у своей статуи и уйдёт со следующим набегом — с одним за раз. Смертен, как полководец: это он и есть.'}
-      </div>
-      <div className="mod">
-        <span className="ico">{info.ready ? '🛡️' : info.away ? '🏇' : '🩹'}</span>
-        <span className="name">Ведёт за собой</span>
-        <span className="val">{info.men} бойцов строя</span>
-      </div>
-
-      <h3>Какой род он ведёт</h3>
-      <div className="note">
-        Смена рода стоит золота по числу ртов: выбор должен что-то значить, иначе
-        род подбирался бы под каждый поход.
-      </div>
-      <div className="totem-row">
-        {OWN_KINDS.map((k) => (
-          <button
-            key={k}
-            className={k === info.kind ? 'on' : ''}
-            disabled={k !== info.kind && info.blocked !== null}
-            onClick={() => act((st) => setHeroKind(st, k))}
-          >
-            <span className="ico">{KIND_META[k].icon}</span>
-            <b>{KIND_META[k].name}</b>
-            <span style={{ color: 'var(--muted)' }}>
-              {k === info.kind ? 'ведёт сейчас' : `${info.retrainCost} 🪙`}
-            </span>
-          </button>
-        ))}
-      </div>
-      {info.blocked && info.blocked !== 'Герой в походе.' && <div className="hint">{info.blocked}</div>}
 
       <Lineage id="general" />
     </>

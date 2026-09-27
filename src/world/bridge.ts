@@ -187,7 +187,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
   if (s.defenseFormation) {
     const { formation, extra } = clampFormation(s.defenseFormation, homeOf(s.army, away));
     const fitted = troopTotal(extra) > 0 ? stashUnplaced(formation, extra) : formation;
-    defenseSetup = toArmySetup(fitted, militiaFoot(s), militiaArchers(s), null, fervour(s));
+    defenseSetup = toArmySetup(fitted, militiaFoot(s), militiaArchers(s), fervour(s));
   }
   return {
     name: 'Наше племя',
@@ -272,18 +272,11 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
 export function syncAway(s: GameState, marches: MarchView[], figures: FigureView[] = []): boolean {
   const troops = awayTroops(s.army, awayOf(marches, figures));
   let scouts = 0;
-  let heroSeen = false;
   for (const m of marches) {
     if (!m.own) continue;
     scouts += m.units.scout ?? 0;
-    if (s.hero.marchId === m.id) heroSeen = true;
   }
-  // Герой тоже выводится из списка походов, а не хранится дважды: поход мог
-  // кончиться без последствия (отозвали, цель исчезла) — тогда герой просто дома.
-  // Гибель разбирает `applyExpedition`, и вызывают его раньше этого места.
-  const heroChanged = s.hero.marchId !== null && !heroSeen;
-  if (heroChanged) s.hero.marchId = null;
-  if (s.scoutsAway === scouts && sameStack(s.away, troops)) return heroChanged;
+  if (s.scoutsAway === scouts && sameStack(s.away, troops)) return false;
   setAway(s, troops, scouts);
   return true;
 }
@@ -405,9 +398,8 @@ export interface PulseHooks {
  * разойтись, потому что это один код. Пока кода было два, они разошлись: автопилот не брал веру,
  * которую мир называет пульсом (docs/defense_mix.md, раздел 6), и мерил деревню без неё.
  *
- * Последствия ложатся раньше, чем пересчитываются ушедшие: в момент прихода отряда герой ещё
- * числится в походе, и по этому и понятно, что павший — именно он (см. `applyExpedition` и
- * `syncAway`). Всё, что пульс пишет в племя, пишется одной правкой (`PulseTribe.apply`): прежде
+ * Последствия ложатся раньше, чем пересчитываются ушедшие: в минуту прихода отряда его люди ещё
+ * числятся в походе (см. `applyExpedition` и `syncAway`). Всё, что пульс пишет в племя, пишется одной правкой (`PulseTribe.apply`): прежде
  * стор применял последствия через `useGame.world`, который подменяет объект состояния копией, а
  * ушедших и осаду писал полями старого объекта — и в пульсе с последствиями они терялись до
  * следующего пульса (вера лежит во вложенном объекте, общем у копии, и не терялась).

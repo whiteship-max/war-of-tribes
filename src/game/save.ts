@@ -45,7 +45,16 @@ export function serialize(s: GameState): string {
   );
 }
 
-type SavedState = Partial<GameState> & { version?: number };
+/**
+ * Сохранение как оно лежит на диске. Поля, которые партия больше не хранит, описаны здесь, а не в
+ * `GameState`: ступени их читают, а партия после чтения их не несёт (`deserialize` убирает).
+ * `hero` — герой с именем и родом до поставки 1 боя (имя ушло к полководцу ступенью 12 → 13, род и
+ * поход — с прибавкой героя, docs/battle_eu4.md, 14.19.6).
+ */
+type SavedState = Partial<GameState> & { version?: number; hero?: { name?: unknown } };
+
+/** Поля, которые партия больше не хранит: старое сохранение привозит их спредом, и они убираются. */
+const DROPPED = ['hero'] as const;
 
 /**
  * Профиль мержится по полям, как рынок и статистика: спред `...data` на уровень
@@ -415,12 +424,6 @@ export function deserialize(json: string): GameState | null {
       // Партия до родословной приезжает с пустой: вспоминать ушедших задним
       // числом не из чего, и версию это не поднимает.
       lineage: mergeLineage(data.lineage),
-      // Герой мержится по полям и только теми, что у него остались: имя ушло к
-      // полководцу, свой срок «ранен» — к миру (он и есть разбитый полководец).
-      hero: {
-        kind: data.hero?.kind ?? base.hero.kind,
-        marchId: typeof data.hero?.marchId === 'string' ? data.hero.marchId : null,
-      },
       seed: typeof data.seed === 'number' && Number.isFinite(data.seed) ? data.seed >>> 0 : base.seed,
       rolls: typeof data.rolls === 'number' && Number.isFinite(data.rolls) ? Math.max(0, Math.floor(data.rolls)) : 0,
       hires: typeof data.hires === 'number' && Number.isFinite(data.hires) ? Math.max(0, Math.floor(data.hires)) : 0,
@@ -429,6 +432,7 @@ export function deserialize(json: string): GameState | null {
     // Состав из числа не восстановить, и не нужно: мир кладёт его первым же пульсом, а
     // до него всё войско дома. Старое поле никто не читает — оно не должно и ездить.
     delete (s as { warriorsAway?: unknown }).warriorsAway;
+    for (const key of DROPPED) delete (s as unknown as Record<string, unknown>)[key];
     // Здание, добавленное в BUILDINGS после того, как сохранение записали,
     // должно появиться в посёлке само — так же, как оно появляется в новой партии
     // (CLAUDE.md, «Правила»). Иначе игрок с сохранением остался бы без него

@@ -6,24 +6,34 @@
 // не добавляет — он такая же фигурка, просто одна и на своём месте.
 //
 // Одевается он тем же `dressHero` → `dressSoldier`, что и дружина, и по виду
-// бойца того рода, который сейчас ведёт: второго набора правил о том, как
-// выглядит боец, в игре быть не должно. Сменил род в Статуе — сменился и
-// силуэт на площади. Своего у героя только рост и плащ.
+// бойца того рода, которого в войске больше всего: второго набора правил о том,
+// как выглядит боец, в игре быть не должно. Своего рода у героя больше нет — род
+// за золото и люди в бой из ниоткуда ушли с поставкой 1 боя (docs/battle_eu4.md,
+// 14.19.6), — и одежду ему даёт войско. Дружины в сохранении племени нет (её
+// держит мир), поэтому род берётся по всему войску. Своего у героя только рост и плащ.
 import type { GameState } from '@/game/types';
-import { heroReady } from '@/game/derived';
+import { UNIT_KINDS, type UnitKind } from '@/battle';
 import { seated } from '@/game/sim/agents';
-import { TROOPS_OF_KIND } from '@/game/battle/kinds';
+import { TROOPS_OF_KIND, kindsOf } from '@/game/battle/kinds';
 import { RING_RADIUS, PLAN, facingCenter } from './plan';
 import { Figure } from './figures';
 import { poseFigure } from './poses';
 import { dressHero } from './units';
 
 /**
- * Виден ли герой в сцене. Ушёл в поход или места некому занять (он и есть полководец,
- * и смертен так же) — площадь пуста, и это самый честный способ показать игроку, что
- * его сейчас нет: считать дни в панели он не станет, а пустое место у статуи заметит.
+ * Виден ли герой в сцене. Места некому занять (он и есть полководец, и смертен так же) —
+ * площадь пуста, и это самый честный способ показать игроку, что его сейчас нет: считать
+ * дни в панели он не станет, а пустое место у статуи заметит.
  */
-export const heroShown = (s: GameState): boolean => heroReady(s) && seated(s, 'general');
+export const heroShown = (s: GameState): boolean => seated(s, 'general');
+
+/** Род, в который одет герой: тот, которого в войске больше всего бойцов строя; войска нет — пехота. */
+export function heroKind(s: GameState): UnitKind {
+  const men = kindsOf(s.army);
+  let best: UnitKind = 'infantry';
+  for (const k of UNIT_KINDS) if (TROOPS_OF_KIND[k].length > 0 && men[k] > men[best]) best = k;
+  return best;
+}
 
 /** Где стоит: перед своей статуей, лицом к костру. */
 export function heroSpot(): { x: number; z: number; rot: number } {
@@ -43,7 +53,7 @@ export class HeroAgent {
   constructor(s: GameState) {
     const f = this.figure;
     // Лучший вид своего рода: герой ведёт род, а выглядит как его вершина.
-    const own = TROOPS_OF_KIND[s.hero.kind];
+    const own = TROOPS_OF_KIND[heroKind(s)];
     dressHero(f, own[own.length - 1]);
     f.scale = HERO_SCALE;
     const spot = heroSpot();

@@ -28,7 +28,6 @@ import {
   forgeInfo,
   healShare,
   infirmaryBeds,
-  heroInfo,
   housingCapacity,
   jobMultiplier,
   marketOffer,
@@ -169,7 +168,6 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   defense: { kind: 'more', read: (s) => playerProfile(s).defense },
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
   seats: { kind: 'more', read: towerSeats },
-  hero: { kind: 'count', read: (s) => heroInfo(s).men },
   loyalty: { kind: 'plusAfter', read: payGraceDays },
   heal: { kind: 'share', read: healShare },
   beds: { kind: 'plusAfter', read: infirmaryBeds },
@@ -332,7 +330,7 @@ describe('кнопка видит каждое число здания, раст
     // которого что-то растёт с уровнем, и кнопка обязана это заметить.
     const STATS = [
       'housing', 'storage', 'defense', 'morale', 'archers', 'heal', 'intel', 'warn',
-      'train', 'stalls', 'hidden', 'feast', 'hero', 'loyalty',
+      'train', 'stalls', 'hidden', 'feast', 'loyalty',
     ] as const;
     const labels = (type: BuildingTypeId): string => {
       const out: string[] = [];
@@ -454,9 +452,10 @@ describe('Статуя', () => {
       expect(after, `${level}→${level + 1}: уходить начали не раньше обещанного`).toBeGreaterThanOrEqual(promised);
       expect(after, `${level}→${level + 1}: и не позже`).toBeLessThan(promised + 0.1);
       expect(gain!.numbers[0], `${level}→${level + 1}`).toBe(promised - payGraceDays(s));
-      // Единицы у двух чисел Статуи разные, и сказано это словами.
+      // Число Статуи одно — терпение войска (прибавка героя ушла с поставкой 1 боя, docs/battle_eu4.md,
+      // 14.19.6), и единица его сказана словами.
       expect(gain?.text).toMatch(/дн\. терпения войска/);
-      expect(upgradeGain(s, b, level + 1)).toMatch(/строя за героем/);
+      expect(upgradeGain(s, b, level + 1)).not.toMatch(/героем/);
     }
   });
 });

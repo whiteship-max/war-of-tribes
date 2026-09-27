@@ -15,7 +15,7 @@
 // стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, heroMen, payGraceDays } from '@/game/derived';
+import { buildingOfType, payGraceDays } from '@/game/derived';
 import {
   DEED_GAP,
   DEED_XP,
@@ -235,14 +235,9 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
             <span className="name">Войско терпит неуплату — Статуя {statue} ур.</span>
             <span className="val pos">{waitDaysBoth(payGraceDays(s))}</span>
           </div>
-          <div className="mod">
-            <span className="ico">🛡️</span>
-            <span className="name">Сам в настроенном бою — Статуя {statue} ур.</span>
-            <span className="val pos">{heroMen(s)} строя</span>
-          </div>
           <div className="note">
             Полководец и герой Статуи — один человек, и смертен он так же. Сколько терпит его
-            войско и чего стоит он сам, решает Статуя; отметки — его {ORDINAL[level]} уровень.
+            войско, решает Статуя; отметки — его {ORDINAL[level]} уровень.
             Уводит он сколько угодно: войско держит цена, а не здание.
           </div>
         </>
