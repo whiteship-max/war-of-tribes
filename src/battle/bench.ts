@@ -3,7 +3,7 @@
 // по одним данным. Расстановку наборы не выбирают: каждый состав встаёт по правилу развёртывания
 // (`setup.deploySetup`), потому что раскладки у удара больше нет (docs/battle_eu4.md, 14.5).
 import { simulateBattle } from './sim';
-import { DICE, FRONT_WIDTH, WIDTH_ON } from './config';
+import { DICE, FRONT_WIDTH } from './config';
 import { seededRng } from './rng';
 import { deploySetup, emptySectors, stackOf, stackTotal } from './setup';
 import { KIND_META } from './names';
@@ -120,10 +120,10 @@ export function oversize(composition: number, seeds = OVERSIZE_SEEDS, total = AR
 }
 
 /**
- * Где держится доля владельца: на размере W (`ARMY_AT_W`, решение 2), когда ширина включена; пока она
- * выключена (`WIDTH_ON`), — там же, где её и вывели, в `ARMY_SIZE`. Один выключатель на бой и на мерку.
+ * Где держится доля владельца: на размере W (`ARMY_AT_W`, решение 2 пачки 2). Выключателя ширины больше нет:
+ * с автоматическим резервом режим у боя один (docs/battle_eu4.md, 14.5).
  */
-export const holdSize = (): number => (WIDTH_ON ? ARMY_AT_W : ARMY_SIZE);
+export const holdSize = (): number => ARMY_AT_W;
 
 /** Доля боёв «Ограничителя» в `total` бойцов, где большая сторона удержала поле, — по всем составам разом. */
 export function oversizeHold(seeds = OVERSIZE_SEEDS, total = holdSize()): number {
@@ -147,7 +147,7 @@ export function withDiceStep<T>(step: number, fn: () => T): T {
  * Наименьшая величина кости, при которой большая на 10 % удерживает поле не чаще `hold`: делением
  * отрезка. Доля убывает с величиной кости — чем сильнее удача, тем чаще меньшая устоит. Отрезок
  * `hi` взят с запасом: при нём удача разбрасывает урон фазы на ±45 %, дальше кость решала бы всё.
- * Меряется там, где держится доля владельца (`holdSize`): на размере W, когда ширина включена.
+ * Меряется там, где держится доля владельца (`holdSize`): на размере W.
  */
 export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12, total = holdSize()): number {
   let lo = 0;

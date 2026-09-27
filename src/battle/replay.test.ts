@@ -44,7 +44,9 @@ import {
   type Cast,
   type CameraShot,
 } from './replay';
-import { SECTORS, UNIT_KINDS, type ArmySetup, type BattleResult, type Sector, type Side, type Stack } from './types';
+import { SECTORS, UNIT_KINDS, type ArmySetup, type BattleResult, type PhaseSpan, type Sector, type Side, type Stack } from './types';
+import { summarize } from './report';
+import { describeEvent } from './log';
 import { MAN_HEIGHT as FIGURE_MAN_HEIGHT } from '../render/units';
 
 const SRC = join(__dirname, '..');
@@ -62,6 +64,44 @@ const armyMix = (men: number): Partial<Stack> => ({
 
 const evenFight = (seed = 7): BattleResult =>
   battle({ spear: 150, infantry: 200, archer: 150, cavalry: 100 }, { spear: 200, infantry: 200, archer: 150, cavalry: 50 }, seed);
+
+/**
+ * Запись боя в том виде, в каком её писало ядро до поставки 1 (14.5): каждый бой линий делится на четыре фазы —
+ * линии, обходы, ввод резерва, падение морали, — и в журнал ложатся события, которых новое ядро не пишет: ввод резерва
+ * в фазе резерва, перехват обхода, сдвиг пехоты, дистанция лучников. Числа исхода и потерь те же.
+ */
+function asOld(r: BattleResult): BattleResult {
+  const phases: BattleResult['phases'] = [];
+  const relabel = new Map<number, PhaseSpan['phase']>();
+  const extra: BattleResult['log'] = [];
+  for (const span of r.phases) {
+    const len = span.to - span.from + 1;
+    if (span.phase !== 'lines' || len < 4) {
+      phases.push(span);
+      continue;
+    }
+    const cut = [0, Math.floor(len / 2), Math.floor((3 * len) / 4), len - 1, len];
+    (['lines', 'flanking', 'reserve', 'morale'] as const).forEach((phase, i) => {
+      const from = span.from + cut[i];
+      const to = span.from + cut[i + 1] - 1;
+      if (to < from) return;
+      const share = (to - from + 1) / len;
+      const part = (x: number): number => Math.round(x * share * 10) / 10;
+      phases.push({ ...span, phase, from, to, losses: { attacker: part(span.losses.attacker), defender: part(span.losses.defender) }, bySector: undefined });
+      for (let t = from; t <= to; t += 1) relabel.set(t, phase);
+      if (phase === 'flanking' && extra.length === 0) {
+        extra.push({ id: 'cavalry-intercepted', side: 'attacker', target: 'D', tick: from, phase });
+        extra.push({ id: 'infantry-shifted', side: 'defender', to: 'A', men: 10, tick: from, phase });
+        extra.push({ id: 'archers-kiting', side: 'attacker', sector: 'E', tick: from, phase });
+      }
+      if (phase === 'reserve') extra.push({ id: 'reserve-committed', side: 'defender', sector: 'B', men: 5, tick: from, phase });
+    });
+  }
+  const log = [...r.log.map((e) => (e.phase === 'lines' && relabel.has(e.tick) ? { ...e, phase: relabel.get(e.tick)! } : e)), ...extra].sort((a, b) => a.tick - b.tick);
+  // Итог — последним, как у ядра.
+  const result = log.filter((e) => e.id === 'result');
+  return { ...r, phases, log: [...log.filter((e) => e.id !== 'result'), ...result] };
+}
 
 const sample = (cast: Cast, step = 1 / 30): number[] => {
   const out: number[] = [];
@@ -360,17 +400,40 @@ describe('время ролика', () => {
     expect(contestOf(rout)).toBeLessThan(0.1);
   });
 
-  it('девять фаз ложатся на четыре такта и покрывают ролик целиком', () => {
-    const cast = buildCast(evenFight(), 'attacker');
-    expect(cast.acts.map((a) => a.act)).toEqual([...ACTS]);
-    expect(cast.acts[0].from).toBe(0);
-    for (let i = 1; i < cast.acts.length; i++) expect(cast.acts[i].from).toBe(cast.acts[i - 1].to);
-    expect(cast.acts[cast.acts.length - 1].to).toBe(cast.seconds);
-    const phases = new Set(cast.spans.map((s) => s.phase));
-    expect(phases.size).toBe(9);
-    // Время фаз идёт подряд, без дыр.
-    const spans = [...cast.spans].sort((a, b) => a.t0 - b.t0);
-    for (let i = 1; i < spans.length; i++) expect(spans[i].t0).toBeCloseTo(spans[i - 1].t1, 6);
+  it('шесть фаз новой записи и девять старой ложатся на четыре такта и покрывают ролик целиком', () => {
+    // Обходы, ввод резерва и падение морали фазами больше не идут (поставка 1, 14.5): новая запись несёт шесть
+    // фаз, записанная раньше — девять, и ролик обязан открывать обе.
+    const fresh = evenFight();
+    for (const [record, n] of [[fresh, 6], [asOld(fresh), 9]] as const) {
+      const cast = buildCast(record, 'attacker');
+      expect(cast.acts.map((a) => a.act)).toEqual([...ACTS]);
+      expect(cast.acts[0].from).toBe(0);
+      for (let i = 1; i < cast.acts.length; i++) expect(cast.acts[i].from).toBe(cast.acts[i - 1].to);
+      expect(cast.acts[cast.acts.length - 1].to).toBe(cast.seconds);
+      const phases = new Set(cast.spans.map((s) => s.phase));
+      expect(phases.size, `фаз в записи`).toBe(n);
+      // Время фаз идёт подряд, без дыр.
+      const spans = [...cast.spans].sort((a, b) => a.t0 - b.t0);
+      for (let i = 1; i < spans.length; i++) expect(spans[i].t0).toBeCloseTo(spans[i - 1].t1, 6);
+    }
+  });
+
+  it('запись боя до поставки 1 открывается отчётом и роликом: фазы обходов, резерва и морали, перехват, приказы, пресет', () => {
+    // Новый тест 6 поставки 1 (14.5): уходит то, что ядро пишет, а не тип чтения. Запись, посчитанная раньше, лежит
+    // в сохранении мира — с девятью фазами, событиями ввода резерва, перехвата обхода, сдвига пехоты и дистанции
+    // лучников и с именем пресета в записи. Отчёт и ролик обязаны открыть её целиком, не упав ни на одном кадре.
+    const old = asOld(evenFight());
+    // Граница: в записи правда есть всё, чего новое ядро не пишет.
+    for (const phase of ['flanking', 'reserve', 'morale'] as const) expect(old.phases.some((p) => p.phase === phase), phase).toBe(true);
+    for (const id of ['cavalry-intercepted', 'infantry-shifted', 'archers-kiting', 'reserve-committed'] as const) expect(old.log.some((e) => e.id === id), id).toBe(true);
+    const record = JSON.parse(JSON.stringify({ us: 'attacker', preset: 'standard', result: old })) as { us: Side; preset: string; result: BattleResult };
+    expect(record.preset).toBe('standard');
+    const summary = summarize(record.result, record.us);
+    expect(summary.keys.length).toBeGreaterThan(0);
+    for (const e of record.result.log) expect(describeEvent(e).length, e.id).toBeGreaterThan(0);
+    const cast = buildCast(record.result, record.us);
+    for (const t of sample(cast, 0.5)) expect(() => frameAt(cast, t)).not.toThrow();
+    expect(cast.marks.some((m) => m.id === 'cavalry-intercepted'), 'перехват — меткой ролика').toBe(true);
   });
 });
 

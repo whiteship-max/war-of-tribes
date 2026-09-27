@@ -115,8 +115,8 @@ describe('правило развёртывания', () => {
     expect(horse(wide.A) + horse(wide.C)).toBe(horse(a));
     // Своих чисел нет и в исходнике: ни долей по полосам, ни порогов — только ноль и единица счёта.
     const src = readFileSync(new URL('./setup.ts', import.meta.url), 'utf8');
-    const body = src.slice(src.indexOf('// ---------- Правило развёртывания'), src.indexOf('export function deploy'));
-    const rule = body + src.slice(src.indexOf('export function deploy'), src.indexOf('\n}\n', src.indexOf('export function deploy')));
+    // Правило — от шапки раздела до конца `deployInto`: расстановка и ввод резерва — один код.
+    const rule = src.slice(src.indexOf('// ---------- Правило развёртывания'), src.indexOf('\n}\n', src.indexOf('export function deployInto')));
     const code = rule.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     const literals = [...code.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)(?![\w.])/g)].map((m) => Number(m[1]));
     expect(literals.filter((n) => n !== 0 && n !== 1), 'числа в правиле развёртывания').toEqual([]);

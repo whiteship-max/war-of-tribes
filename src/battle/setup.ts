@@ -106,26 +106,70 @@ function splitPair(a: number, b: number, parts: number[]): Array<[number, number
  * лучники встают в центр целиком, конница — на края, резерва нет: полоса вмещает всех.
  */
 export function deploy(army: Partial<Stack>, width: number): Record<Sector, Stack> {
-  const a = stackOf(army);
   const cap = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : Infinity;
+  const into = deployInto(stackOf(army), { front: LANES.map(() => cap), rear: LANES.map(() => cap) });
   const sectors = emptySectors();
+  LANES.forEach((lane, i) => {
+    sectors[lane.front] = into.front[i];
+    sectors[lane.rear] = into.rear[i];
+  });
+  sectors.R = into.rest;
+  return sectors;
+}
+
+/**
+ * То же правило, но в места, которые есть: `room` — сколько ещё встанет в ряд каждой полосы (слева направо со
+ * стороны своей армии). Им ставится войско перед боем (`deploy`, места — ширина фронта) и им же резерв встаёт в
+ * дыры строя посреди боя (`sim`, места — ширина минус те, кто в ряду стоит): правило одно на расстановку и на
+ * ввод резерва, иначе резерв вставал бы не туда, куда встало бы то же войско с начала. Числа целые.
+ */
+export function deployInto(army: Stack, room: { front: readonly number[]; rear: readonly number[] }): { front: Stack[]; rear: Stack[]; rest: Stack } {
+  const out = { front: LANES.map(() => emptyStack()), rear: LANES.map(() => emptyStack()), rest: emptyStack() };
   const place = (x: keyof Stack, y: keyof Stack | null, lanes: number[], row: 'front' | 'rear'): void => {
     const placed = lanes.reduce((n, v) => n + v, 0);
-    const reserve = a[x] + (y ? a[y] : 0) - placed;
-    const split = y ? splitPair(a[x], a[y], [...lanes, reserve]) : [...lanes, reserve].map((n): [number, number] => [n, 0]);
+    const reserve = army[x] + (y ? army[y] : 0) - placed;
+    const split = y ? splitPair(army[x], army[y], [...lanes, reserve]) : [...lanes, reserve].map((n): [number, number] => [n, 0]);
     lanes.forEach((_, i) => {
-      sectors[LANES[i][row]][x] += split[i][0];
-      if (y) sectors[LANES[i][row]][y] += split[i][1];
+      out[row][i][x] += split[i][0];
+      if (y) out[row][i][y] += split[i][1];
     });
-    sectors.R[x] += split[lanes.length][0];
-    if (y) sectors.R[y] += split[lanes.length][1];
+    out.rest[x] += split[lanes.length][0];
+    if (y) out.rest[y] += split[lanes.length][1];
   };
-  const foot = fill(a.spear + a.infantry, LANES.map(() => cap), 'center');
+  const foot = fill(army.spear + army.infantry, [...room.front], 'center');
   place('spear', 'infantry', foot, 'front');
-  const horse = fill(a.cavalry + a.heavy, foot.map((n) => cap - n), 'edges');
+  const horse = fill(army.cavalry + army.heavy, room.front.map((r, i) => r - foot[i]), 'edges');
   place('cavalry', 'heavy', horse, 'front');
-  place('archer', null, fill(a.archer, LANES.map(() => cap), 'center'), 'rear');
-  return sectors;
+  place('archer', null, fill(army.archer, [...room.rear], 'center'), 'rear');
+  return out;
+}
+
+/**
+ * Раскладка руками — у обороны игрока до поставки 2 — ряд шире ширины не держит: кто сверх, стоит в резерве стороны
+ * (`R`), как у всех (docs/battle_eu4.md, 14.5, автоматический резерв). Роды уходят в резерв в той же доле, в какой
+ * стоят в секторе; всё целое, и армия не теряет ни одного.
+ */
+export function fitRows(sectors: Record<Sector, Stack>, width: number): Record<Sector, Stack> {
+  const cap = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : Infinity;
+  const out = Object.fromEntries(SECTORS.map((id) => [id, { ...sectors[id] }])) as Record<Sector, Stack>;
+  for (const lane of LANES) {
+    for (const id of [lane.front, lane.rear]) {
+      const total = stackTotal(out[id]);
+      if (total <= cap) continue;
+      // Остаются в ряду `cap` человек: накопленным округлением по родам, чтобы доля родов в ряду не сдвинулась.
+      let done = 0;
+      let kept = 0;
+      for (const k of UNIT_KINDS) {
+        done += out[id][k];
+        const keepCum = Math.round((cap * done) / total);
+        const keep = keepCum - kept;
+        kept = keepCum;
+        out.R[k] += out[id][k] - keep;
+        out[id][k] = keep;
+      }
+    }
+  }
+  return out;
 }
 
 /**

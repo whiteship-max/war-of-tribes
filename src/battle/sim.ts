@@ -34,17 +34,15 @@ import {
   SLOW_CONTACT,
   TEMPER,
   UNIT_STATS,
-  WIDTH_ON,
   WITHDRAW_RATIO,
   moraleDamageMult,
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
-import { emptyStack, stackTotal, validateSetup } from './setup';
+import { deployInto, emptyStack, fitRows, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
   HORSE_KINDS,
-  PHASES,
   REAR,
   SECTORS,
   SIDES,
@@ -161,7 +159,6 @@ const facing = (lane: Lane): Lane => (2 - lane) as Lane;
 /** Ключ ряда полосы стороны — для счёта ширины (`Battle.measureRows`). */
 const rowKey = (side: Side, lane: Lane, row: Row): string => `${side}:${lane}:${row}`;
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
-const phaseIndex = (p: PhaseId): number => PHASES.indexOf(p);
 const zeroKills = (): Kills =>
   Object.fromEntries(UNIT_KINDS.map((k) => [k, Object.fromEntries(UNIT_KINDS.map((t) => [t, 0]))])) as Kills;
 const cloneKills = (k: Kills[]): Kills[] => k.map((l) => JSON.parse(JSON.stringify(l)) as Kills);
@@ -314,14 +311,19 @@ class Battle {
   round = 0;
   /** Начинается новый круг: первая его фаза разводит линии (`onPhaseStart`). */
   opening = false;
+  /** Сколько резерва встало в каждую полосу за эту фазу: по нему в конце фазы пишется `reserve-committed`. */
+  entered: Record<Side, number[]> = { attacker: [0, 0, 0], defender: [0, 0, 0] };
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
 
   constructor(readonly input: BattleInput) {
     this.rng = seededRng(input.seed);
-    // Своя ширина боя главнее; без неё — ширина фронта, если она включена (`WIDTH_ON`), иначе боя без ширины.
-    this.width = input.width ?? (WIDTH_ON ? FRONT_WIDTH : Infinity);
-    const make = (id: Side, setup: ArmySetup): SideState => {
+    // Своя ширина боя главнее; без неё — ширина фронта. `Infinity` — боя без ширины.
+    this.width = input.width ?? FRONT_WIDTH;
+    const make = (id: Side, given: ArmySetup): SideState => {
+      // Ряд шире ширины не стоит: кто сверх, — в резерве стороны (`setup.fitRows`). Правило развёртывания такого
+      // ряда не кладёт; кладёт раскладка руками — оборона игрока до поставки 2. Запись боя видит то, что встало.
+      const setup: ArmySetup = { ...given, sectors: fitRows(given.sectors, this.width) };
       const groups = buildGroups(id, setup);
       const initialTotal = groups.reduce((n, g) => n + g.initial, 0);
       return {
@@ -395,31 +397,6 @@ class Battle {
     return this.at(other(side), facing(lane), 'rear');
   }
 
-  /** Отношение сил на полосе: своё против вражеского фронта. */
-  /** Отношение сил на полосе: свой фронт против того, с кем придётся драться, — вражеского фронта, а без него тыла. */
-  ratio(side: Side, lane: Lane): number {
-    const own = power(this.at(side, lane, 'front'));
-    const front = power(this.enemyFront(side, lane));
-    // Обходящие противника в этой полосе — тоже сила, с которой придётся считаться.
-    const strikers = power(this.at(other(side), facing(lane), 'strike'));
-    const enemy = (front > 0 ? front : power(this.enemyRear(side, lane))) + strikers;
-    if (enemy <= 0) return Infinity;
-    return own / enemy;
-  }
-
-  weakestLane(side: Side): Lane {
-    let best: Lane = 1;
-    let bestRatio = Infinity;
-    for (const lane of [1, 0, 2] as Lane[]) {
-      const r = this.ratio(side, lane);
-      if (r < bestRatio) {
-        bestRatio = r;
-        best = lane;
-      }
-    }
-    return best;
-  }
-
   /** Есть ли у противника кто-нибудь на этой (своей) полосе — фронт или тыл. */
   enemyOnLane(side: Side, lane: Lane): boolean {
     return this.enemyFront(side, lane).length > 0 || this.enemyRear(side, lane).length > 0;
@@ -443,8 +420,8 @@ class Battle {
    * Бой — круги всем боем (docs/battle_eu4.md, разделы 3.1 и 12): обстрел, сшибка и сеча (`CIRCLE_PHASES`),
    * снова и снова, с новой костью в каждой фазе, пока кто-то не сломается, но не больше потолка (`roundsCap`
    * от глубины меньшей по ней стороны: вся её армия к трём полосам ширины фронта). Длины фаз — доля прежнего
-   * боя в один проход на круг (`circleTicks`). Внутри круга правила пропуска прежние: сломался кто-то — бой
-   * линий обрывается на своём минимуме, обходы и ввод резерва пропускаются, мораль — и отход с погоней.
+   * боя в один проход на круг (`circleTicks`). Сломался кто-то — бой линий обрывается на своём минимуме, и
+   * дальше отход с погоней.
    */
   run(): BattleResult {
     const depth = Math.min(...SIDES.map((side) => this.sides[side].initialTotal / (FRONT.length * this.width)));
@@ -459,11 +436,10 @@ class Battle {
         this.round += 1;
         this.opening = true;
       }
-      let skipToMorale = false;
       for (const phase of CIRCLE_PHASES) {
         const ticks = circleTicks(phase, k);
-        if (ticks <= 0 || (skipToMorale && phase !== 'morale')) continue;
-        if (this.runPhase(phase, ticks, circleMin(phase, k))) skipToMorale = true;
+        if (ticks <= 0) continue;
+        if (this.runPhase(phase, ticks, circleMin(phase, k))) break;
       }
     }
     this.runPhase('retreat', PHASE_TICKS.retreat, PHASE_TICKS.retreat);
@@ -471,25 +447,23 @@ class Battle {
     return this.finish();
   }
 
-  /** Одна фаза целиком. Правда — сторона сломалась посреди сечи, и до фазы морали ждать больше нечего. */
+  /** Одна фаза целиком. Правда — сторона сломалась посреди сечи, и ждать в этом круге больше нечего. */
   runPhase(phase: PhaseId, ticks: number, min: number): boolean {
     this.phase = phase;
     const from = this.tick + 1;
     const lostBefore = { attacker: this.sides.attacker.lostTotal, defender: this.sides.defender.lostTotal };
     const menBefore = this.sectorMen();
-    let skipToMorale = false;
+    let broke = false;
     this.tick += 1;
     this.onPhaseStart();
     this.step();
     let done = 1;
     while (done < ticks) {
       const someoneBroken = this.sides.attacker.broken || this.sides.defender.broken;
-      if (someoneBroken && phaseIndex(phase) >= phaseIndex('lines') && phaseIndex(phase) <= phaseIndex('morale') && done >= min) {
-        // Сторона сломалась — обходы и ввод резерва пропускаются, фаза морали
-        // обрывается: ждать больше нечего, а каждый лишний тик рубит бегущих.
-        // Резерв, который ещё ждал, входит прикрыть отход, а не остаётся дома.
-        for (const side of SIDES) this.commitReserve(side);
-        skipToMorale = true;
+      if (someoneBroken && phase === 'lines' && done >= min) {
+        // Сторона сломалась — бой линий обрывается на своём минимуме: ждать больше нечего, а каждый лишний тик
+        // рубит бегущих.
+        broke = true;
         break;
       }
       this.tick += 1;
@@ -508,7 +482,7 @@ class Battle {
       },
       bySector: this.lossBySector(menBefore),
     });
-    return skipToMorale;
+    return broke || this.sides.attacker.broken || this.sides.defender.broken;
   }
 
   /**
@@ -568,9 +542,6 @@ class Battle {
         }
         this.rangedVerdict();
         break;
-      case 'reserve':
-        for (const side of SIDES) this.commitReserve(side);
-        break;
       case 'retreat':
         this.decide();
         break;
@@ -580,8 +551,15 @@ class Battle {
   }
 
   onPhaseEnd(): void {
-    if (this.phase === 'clash' || this.phase === 'flanking' || this.phase === 'reserve' || this.phase === 'lines') {
+    if (this.phase === 'clash' || this.phase === 'lines') {
       for (const side of SIDES) this.explainKills(side);
+    }
+    // Резерв встаёт в дыры строя в любой тик; в журнал — одна строка на полосу за фазу, в её последний тик.
+    for (const side of SIDES) {
+      this.entered[side].forEach((men, lane) => {
+        if (men >= 1) this.emit({ id: 'reserve-committed', side, sector: laneSector(lane as Lane, 'front'), men: Math.round(men) });
+      });
+      this.entered[side] = [0, 0, 0];
     }
     if (this.phase === 'pursuit') {
       for (const side of SIDES) {
@@ -662,26 +640,54 @@ class Battle {
   // ----- Резерв -----
 
   /**
-   * Ввод резерва: в фазе «ввод резерва» и после слома — все, кто ещё ждёт, туда, где проигрываем. Условия
-   * ввода у игрока больше нет (docs/battle_eu4.md, 14.5): оно было решением игрока, а решений у удара нет.
+   * Автоматический резерв (docs/battle_eu4.md, 14.2 и 14.5; решение владельца — вариант (а)). Кто не встал в ряд —
+   * стоит в резерве стороны: вне строя, со своей моралью, которую до ввода не теряет (14.19.4). В каждый тик он
+   * встаёт в любую дыру строя — на место убитых и бежавших — тем же правилом развёртывания, каким войско встало
+   * перед боем (`setup.deployInto`): пешие от центра к краям, конница с краёв, лучники во вторую линию. Места —
+   * ширина ряда минус те, кто в нём стоит и не бежит. Вошедшие встают своей группой полосы — родом из резерва (`R`):
+   * их мораль — их собственная, а не тех, чьё место они заняли.
    */
-  commitReserve(side: Side): void {
+  refill(side: Side): void {
     const s = this.sides[side];
-    const waiting = s.groups.filter((g) => g.row === 'reserve' && alive(g));
-    if (waiting.length === 0) return;
-    const lane = this.weakestLane(side);
-    let men = 0;
-    for (const g of waiting) {
-      g.lane = lane;
-      g.row = 'front';
-      men += stackTotal(g.stack);
-    }
-    if (men < 1) return;
-    this.emit({ id: 'reserve-committed', side, sector: laneSector(lane, 'front'), men: Math.round(men) });
-    // Свежие люди рядом держат тех, кто уже там стоит.
-    for (const g of s.groups) {
-      if (g.lane !== lane || (g.row !== 'front' && g.row !== 'rear') || g.origin === 'R' || !alive(g) || g.fled) continue;
-      g.morale = Math.min(MORALE.max, g.morale + MORALE.reserveBoost);
+    const reserve = s.groups.filter((g) => g.row === 'reserve' && alive(g));
+    if (reserve.length === 0) return;
+    const pool = emptyStack();
+    for (const g of reserve) for (const k of UNIT_KINDS) pool[k] += Math.floor(g.stack[k] + 1e-9);
+    if (stackTotal(pool) < 1) return;
+    const cap = Number.isFinite(this.width) ? Math.floor(this.width) : Infinity;
+    const room = (row: 'front' | 'rear'): number[] =>
+      ([0, 1, 2] as Lane[]).map((lane) => {
+        const men = s.groups.reduce((n, g) => (g.lane === lane && g.row === row && alive(g) && !g.fled ? n + stackTotal(g.stack) : n), 0);
+        return Math.max(0, Math.floor(cap - men + 1e-9));
+      });
+    const into = deployInto(pool, { front: room('front'), rear: room('rear') });
+    for (const row of ['front', 'rear'] as const) {
+      into[row].forEach((moved, lane) => {
+        const men = stackTotal(moved);
+        if (men < 1) return;
+        // Снять с резерва — по родам, из групп резерва по порядку.
+        for (const k of UNIT_KINDS) {
+          let left = moved[k];
+          for (const g of reserve) {
+            if (left <= 0) break;
+            const take = Math.min(g.stack[k], left);
+            g.stack[k] -= take;
+            g.initial -= take;
+            left -= take;
+          }
+        }
+        const fresh = startMorale(s.setup, moved);
+        const into_ = s.groups.find((g) => g.origin === 'R' && g.lane === lane && g.row === row && alive(g) && !g.fled && !g.routed);
+        if (into_) {
+          const had = stackTotal(into_.stack);
+          into_.morale = (into_.morale * had + fresh * men) / (had + men);
+          for (const k of UNIT_KINDS) into_.stack[k] += moved[k];
+          into_.initial += men;
+        } else {
+          s.groups.push(newGroup(side, s.setup, 'R', moved, lane as Lane, row, { morale: fresh }));
+        }
+        this.entered[side][lane] += men;
+      });
     }
   }
 
@@ -696,6 +702,8 @@ class Battle {
     if (this.phase === 'pursuit') {
       this.pursue();
     } else {
+      // Дыры строя закрывает резерв — до стычек, чтобы вошедшие дрались в этот же тик.
+      for (const side of SIDES) if (!this.sides[side].retreating) this.refill(side);
       const hits: Hit[] = [];
       const contacts = this.contact && this.winner !== 'draw' ? this.buildContacts() : [];
       const engaged = new Map<Group, Group[]>();
@@ -1042,7 +1050,6 @@ class Battle {
    * весят `armyBreakShare` её начальной численности.
    */
   updateMorale(): void {
-    const phaseMult = this.phase === 'morale' ? MORALE.phaseMult : 1;
     for (const side of SIDES) {
       const s = this.sides[side];
       // Противник сломался — своим больше нечего бояться: мораль не падает.
@@ -1058,7 +1065,7 @@ class Battle {
         let drain = (g.lostTick / Math.max(1, g.initial)) * MORALE.perLoss;
         if (g.flankedTick === this.tick) drain += MORALE.flankDrain;
         if (fledNeighbour.has(g)) drain += MORALE.panicDrain * (anchored(g.stack) ? MORALE.anchorPanic : 1);
-        g.morale -= drain * this.moraleFactor(g) * phaseMult;
+        g.morale -= drain * this.moraleFactor(g);
         g.morale = Math.min(MORALE.max, g.morale);
         if (g.morale <= 0) toBreak.push(g);
       }
