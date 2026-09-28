@@ -141,6 +141,7 @@ import { haltElapsed, sackActive, sackLook, sackPower, sackWindow } from '../sac
 import {
   CAMP_BUSY,
   CAMP_LEAVE,
+  CHASE_FROM_CAMP,
   PLAYER_CAMP,
   SIEGE_BLOCK,
   STRIKE_FROM_TOWN,
@@ -3665,6 +3666,9 @@ export class LocalWorld implements WorldApi {
    * шагов по таймеру за этим нет.
    */
   private planChase(m: StoredMarch, now: number): { meet: Meeting | null; reason: string | null } {
+    // Приказ откажет — встречи план не показывает: отказ один на план и на приказ (`chaseBlock`).
+    const blocked = this.chaseBlock(now);
+    if (blocked) return { meet: null, reason: blocked };
     const f = this.save.figures.general;
     this.settleHandover(f, now);
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
@@ -3723,18 +3727,25 @@ export class LocalWorld implements WorldApi {
     };
   }
 
+  /**
+   * Почему перехват невозможен при любой цели — одна дверь на план (`planChase`, кнопка «Перехватить в поле») и на
+   * приказ (`intercept`). Прежде план не знал про лагерь, и кнопка показывала встречу, которую приказ отменял
+   * отказом.
+   *
+   * Армия в лагере занята: уйти она может, но только сняв осаду, и это отдельный приказ, а не побочный итог погони.
+   * Перехват — выход полководца в поле, и из осаждённого города он такой же невозможный, как любой другой.
+   */
+  private chaseBlock(now: number): string | null {
+    if (this.ourSiege(now)) return CHASE_FROM_CAMP;
+    if (this.touching(this.figureAt(this.save.figures.general, now))?.home) return this.siegeBlock(now);
+    return null;
+  }
+
   async intercept(marchId: string): Promise<string | null> {
     const now = this.clock();
-    // Армия в лагере занята. Уйти она может — но только сняв осаду, и это
-    // отдельный приказ, а не побочный итог погони.
-    if (this.ourSiege(now)) return `${CAMP_BUSY} ${CAMP_LEAVE}`;
-    // Перехват — это выход полководца в поле, и из осаждённого города он такой
-    // же невозможный, как любой другой. Отказ здесь, в приказе: принять его и
-    // не сдвинуть фигуру было бы хуже отказа.
-    if (this.touching(this.figureAt(this.save.figures.general, now))?.home) {
-      const blocked = this.siegeBlock(now);
-      if (blocked) return blocked;
-    }
+    // Отказ здесь, в приказе: принять его и не сдвинуть фигуру было бы хуже отказа.
+    const blocked = this.chaseBlock(now);
+    if (blocked) return blocked;
     const m = this.chaseTarget(marchId);
     if (!m) return 'Этот отряд уже не догнать.';
     const { meet, reason } = this.planChase(m, now);

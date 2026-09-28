@@ -14,6 +14,7 @@ import { figurePosition, marchesOnUs, ownMarches, useWorld, worldNow } from '@/w
 import { troopTotal } from '@/game/battle/kinds';
 import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
+import { CHASE_FROM_CAMP } from '@/world/siege';
 import { realLeft } from '@/ui/parts/wait';
 import { MISSION_BY_ID } from '@/world/data/meta';
 import { UNITS } from '@/world/data/units';
@@ -101,6 +102,9 @@ export function MarchesPanel() {
 
   const own = ownMarches(marches);
   const incoming = marchesOnUs(marches, homeId);
+  // Полководец в лагере осады — перехвата нет: мир откажет той же строкой (`LocalWorld.chaseBlock`), и кнопка гаснет
+  // до нажатия, а не ведёт в меню к встрече, которой не будет.
+  const inCamp = (figures.find((f) => f.id === 'general')?.besieging ?? null) !== null;
   if (card) return <AgentCard id={card} onBack={() => setCard(null)} />;
 
   return (
@@ -226,10 +230,11 @@ export function MarchesPanel() {
                     </div>
                     <div className="cost">
                       {/* Встретить их можно и в поле: точку встречи покажут до приказа. */}
-                      <button className="mini text" onClick={() => void openChase(m)}>
+                      <button className="mini text" disabled={inCamp} onClick={() => void openChase(m)}>
                         🎖️ Перехватить в поле
                       </button>
                     </div>
+                    {inCamp && <div className="desc">{CHASE_FROM_CAMP}</div>}
                   </>
                 )}
               </div>
