@@ -164,6 +164,9 @@ export function ReportPanel({ id }: { id: string }) {
     if (reports.length === 0) void loadReports();
   }, [reports.length, loadReports]);
   const rec = report?.battle ?? null;
+  // Звери у ворот (`BattleRecord.beasts`): ролику рисовать их нечем — фигуры волка в сцене боя нет (долг графики,
+  // docs/PROMISES_DEBT.md), — поэтому ни «Смотреть бой», ни выбора итога; журнал показан сразу.
+  const beasts = rec?.beasts !== undefined;
   // Несопоставимые силы — смотреть нечего, подставляем итог, что бы ни выбрали раньше.
   const lopsided = rec ? lopsidedness(rec) >= LOPSIDED : false;
   const [watch, setWatch] = useState(() => Boolean(s.battleWatch) && !lopsided);
@@ -186,7 +189,17 @@ export function ReportPanel({ id }: { id: string }) {
   return (
     <div className="panel">
       <ReportBody report={report} />
-      {rec && (
+      {rec && beasts && (
+        <>
+          <p className="note">
+            Ролика нет: фигуры волка в сцене боя пока нет. Стая бьётся родом лёгкой конницы — в журнале она названа
+            конницей.
+          </p>
+          <h3>Как это было</h3>
+          <Journal rec={rec} />
+        </>
+      )}
+      {rec && !beasts && (
         <>
           <div className="wm-actions">
             <button
