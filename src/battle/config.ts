@@ -259,9 +259,6 @@ export const MORALE = {
   flankDrain: 1.2,
   /** Противник дошёл до тыла. */
   rearReached: 5,
-  /** Проигрыш обстрела: сторона потеряла до сшибки заметно больше противника — судится каждый круг (`Battle.rangedVerdict`). */
-  rangedLost: 8,
-  rangedLostRatio: 1.3,
   /** Якорь: сектор с пехотой (`ANCHOR.infantryShare`) теряет мораль медленнее. */
   anchor: 0.75,
 };

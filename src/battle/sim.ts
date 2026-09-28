@@ -115,11 +115,6 @@ interface SideState {
   lostTotal: number;
   /** Выбито стрельбой до первого столкновения: залп перед сшибкой первого прохода (событие `volley`, итог боя). */
   rangedBeforeContact: number;
-  /**
-   * Выбито стрельбой с тех пор, как линии разошлись, — обстрел нынешнего круга. У первого прохода это то же, что
-   * `rangedBeforeContact`; круг обнуляет его в начале своего сближения. По нему судится перестрелка (`rangedVerdict`).
-   */
-  volley: number;
   rangedTotal: number;
   /** Сколько человек ещё может выбить преследование. */
   pursuitBudget: number;
@@ -424,7 +419,6 @@ class Battle {
         lostTick: 0,
         lostTotal: 0,
         rangedBeforeContact: 0,
-        volley: 0,
         rangedTotal: 0,
         pursuitBudget: 0,
         kills: [zeroKills(), zeroKills(), zeroKills()],
@@ -642,11 +636,9 @@ class Battle {
     this.rollDice();
     for (const side of SIDES) this.sides[side].killsAtPhase = cloneKills(this.sides[side].kills);
     if (this.opening) {
-      // Новый круг: линии расходятся для нового разбега. До сшибки рукопашной нет, и лучники бьют в полную
-      // силу; перестрелка круга судится по тому, что выбито с этой минуты.
+      // Новый круг: линии расходятся для нового разбега. До сшибки рукопашной нет, и лучники бьют в полную силу.
       this.opening = false;
       this.contact = false;
-      for (const side of SIDES) this.sides[side].volley = 0;
       this.emit({ id: 'round', round: this.round + 1 });
     }
     switch (this.phase) {
@@ -655,11 +647,11 @@ class Battle {
         this.clashTick = this.tick;
         for (const side of SIDES) {
           const s = this.sides[side];
-          // Залп «до столкновения» — один, перед первой сшибкой: обстрел круга судится (`rangedVerdict`), но залпом не зовётся.
+          // Залп «до столкновения» — один, перед первой сшибкой. Судьи перестрелки нет (поставка 5, 14.33): проигранный
+          // обстрел бьёт по морали только своими потерями, отдельного счёта у морали нет (14.19.3).
           const losses = Math.round(s.rangedBeforeContact);
           if (this.round === 0 && losses >= 1) this.emit({ id: 'volley', side, losses });
         }
-        this.rangedVerdict();
         break;
       case 'retreat':
         this.decide();
@@ -735,25 +727,6 @@ class Battle {
           target,
           archersLost: Math.round(cavVsArcher),
         });
-      }
-    }
-  }
-
-  /**
-   * Итог обстрела: сторона, потерявшая до контакта заметно больше противника, идёт в рукопашную с
-   * просевшей моралью по всем позициям. Судится каждая сшибка — по обстрелу своего круга (`volley`).
-   */
-  rangedVerdict(): void {
-    for (const side of SIDES) {
-      const s = this.sides[side];
-      const enemy = this.sides[other(side)];
-      const losses = enemy.volley;
-      const enemyLosses = s.volley;
-      if (losses < EVENT_MIN || losses < enemyLosses * MORALE.rangedLostRatio) continue;
-      this.emit({ id: 'ranged-lost', side, losses: Math.round(losses), enemyLosses: Math.round(enemyLosses) });
-      for (const g of s.groups) {
-        if (!alive(g) || (g.row !== 'front' && g.row !== 'rear')) continue;
-        this.shake(g, MORALE.rangedLost);
       }
     }
   }
@@ -1173,10 +1146,7 @@ class Battle {
       const by = this.sides[h.by];
       by.kills[h.byLane][h.byKind][h.kind] += actual;
       if (h.ranged) by.rangedTotal += actual;
-      if (h.ranged && !this.contact) {
-        by.volley += actual;
-        if (this.round === 0) by.rangedBeforeContact += actual;
-      }
+      if (h.ranged && !this.contact && this.round === 0) by.rangedBeforeContact += actual;
     }
   }
 

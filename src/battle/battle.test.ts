@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { ringMult, simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, BREAK_AFTER, COUNTER, DICE, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
+import { ANNIHILATED_AT, BREAK_AFTER, COUNTER, DICE, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
 import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
@@ -792,26 +792,43 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
     for (const p of approaches) expect(p.losses, `${p.phase} круга ${p.round}, тики ${p.from}–${p.to}`).toEqual({ attacker: 0, defender: 0 });
   });
 
-  it('залп «до столкновения» — один, перед первой сшибкой; перестрелку круга судит его собственный обстрел', () => {
-    // Пехота с лучниками против копий на размере W: у одной стороны луки, у другой нет, и в сближении круга без
-    // рукопашной все потери безлукой стороны — стрелы этого круга. Ниже W лучников мало: за сближение круга они
-    // выбивают меньше порога события (`EVENT_MIN`), и перестрелка круга не судится вовсе.
+  it('залп «до столкновения» — один, перед первой сшибкой', () => {
+    // Пехота с лучниками против копий на размере W: у одной стороны луки, у другой нет. Вторая половина теста — «перестрелку
+    // круга судит его собственный обстрел» — ушла с судьёй перестрелки (поставка 5, 14.33): судьи больше нет.
     const battles = roundBattles({ infantry: 350, archer: 250 }, { spear: 600 }, 6, holdSize());
-    let judged = 0;
+    let circles = 0;
     for (const r of battles) {
+      if (r.phases.some((p) => p.round !== undefined)) circles += 1;
       for (const e of r.log) {
         const span = r.phases.find((p) => e.tick >= p.from && e.tick <= p.to && p.phase === e.phase)!;
         if (e.id === 'volley') expect(span.round, `залп на ${e.tick}-м тике`).toBeUndefined();
-        if (e.id !== 'ranged-lost' || span.round === undefined) continue;
-        // Сшибка круга судит обстрел своего круга: проигравший потерял в стрельбе и сближении этого круга столько, сколько сказано.
-        const shot = r.phases.filter((p) => (p.phase === 'ranged' || p.phase === 'approach') && p.round === span.round).reduce((n, p) => n + p.losses[e.side], 0);
-        expect(Math.abs(e.losses - shot), `перестрелка круга ${span.round}`).toBeLessThanOrEqual(1);
-        judged += 1;
       }
     }
-    // Граница области: круги с перестрелкой в выборке есть, и в каждом бою — ровно один залп первого прохода.
-    expect(judged, 'перестрелок, проигранных в круге').toBeGreaterThan(0);
+    // Граница области: бои с кругами в выборке есть — залпу было где повториться, — и в каждом бою ровно один залп первого
+    // прохода.
+    expect(circles, 'боёв с кругами').toBeGreaterThan(0);
     for (const r of battles) expect(r.log.filter((e) => e.id === 'volley' && e.side === 'attacker').length).toBe(1);
+  });
+
+  it('судьи перестрелки нет: проигранный обстрел бьёт по морали только потерями', () => {
+    // Поставка 5 (docs/battle_eu4.md, 14.33; И6): прежде сторона, потерявшая в обстреле круга не меньше `EVENT_MIN` и в 1.3
+    // раза больше противника (порог прежнего судьи), в начале сшибки теряла по 8 морали в каждой группе строя — второй счёт
+    // того, что мораль уже взяла потерями (14.19.3). Судьи нет: события «проиграли перестрелку» ядро не пишет.
+    let inside = 0;
+    for (const r of sampleBattles()) {
+      // Граница области: обстрел круга, который прежний судья засудил бы.
+      const shot = new Map<number, Record<Side, number>>();
+      for (const p of r.phases) {
+        if (p.phase !== 'ranged' && p.phase !== 'approach') continue;
+        const c = shot.get(p.round ?? 1) ?? { attacker: 0, defender: 0 };
+        c.attacker += p.losses.attacker;
+        c.defender += p.losses.defender;
+        shot.set(p.round ?? 1, c);
+      }
+      for (const c of shot.values()) for (const side of ['attacker', 'defender'] as const) if (c[side] >= EVENT_MIN && c[side] >= 1.3 * c[other(side)]) inside += 1;
+      expect(r.log.some((e) => e.id === 'ranged-lost'), 'перестрелку судили: проигравшему обстрел — удар по морали сверх потерь').toBe(false);
+    }
+    expect(inside, 'обстрелов, которые прежний судья засудил бы').toBeGreaterThan(0);
   });
 
   it('сшибка круга пишет свои события: копья, удержавшие удар снова, и конница, снова дошедшая до лучников', () => {
@@ -849,7 +866,7 @@ function explains(e: BattleEvent, winner: Winner): boolean {
   if (winner === 'draw') return false;
   const loser = other(winner);
   if (!('side' in e)) return false;
-  if (e.side === loser) return ['morale-collapsed', 'annihilated', 'sector-broken', 'ranged-lost', 'flank-turned', 'rear-reached', 'outfought'].includes(e.id);
+  if (e.side === loser) return ['morale-collapsed', 'annihilated', 'sector-broken', 'flank-turned', 'rear-reached', 'outfought'].includes(e.id);
   return ['spears-held', 'cavalry-broke-archers', 'volley', 'pursuit', 'reserve-committed'].includes(e.id);
 }
 
@@ -949,10 +966,8 @@ describe('журнал осмыслен', () => {
             break;
           }
           case 'ranged-lost':
-            expect(e.phase).toBe('clash');
-            expect(e.losses).toBeGreaterThan(e.enemyLosses);
-            expect(e.losses).toBeLessThanOrEqual(r.sides[e.side].total.losses + 1);
-            break;
+            // Судьи перестрелки нет (поставка 5, 14.33): ядро это больше не пишет; тип остался ради записей, посчитанных раньше.
+            throw new Error(`${e.id}: судья перестрелки в новом бою`);
           case 'annihilated':
             expect(r.sides[e.side].total.final).toBeLessThanOrEqual(Math.ceil(ANNIHILATED_AT * r.sides[e.side].total.initial));
             expect(r.winner).not.toBe(e.side);

@@ -179,7 +179,7 @@ export type BattleEvent = EventBase &
     | { id: 'sector-broken'; side: Side; sector: Sector }
     /** Паника перекинулась со сломанного сектора `from` на соседний `to`. Ядро этого больше не пишет — паники на соседей нет, как у EU4 (docs/battle_eu4.md, 14.21); тип остался ради записей боя, посчитанных раньше. */
     | { id: 'panic-spread'; side: Side; from: Sector; to: Sector }
-    /** Сторона проиграла обстрел: до сшибки потеряла `losses` против `enemyLosses` у противника. Судится каждая сшибка — по обстрелу своего круга. */
+    /** Сторона проиграла обстрел: до сшибки потеряла `losses` против `enemyLosses` у противника. Ядро этого больше не пишет — судьи перестрелки нет, проигранный обстрел бьёт по морали только потерями (поставка 5, docs/battle_eu4.md, 14.33); тип остался ради записей боя, посчитанных раньше. */
     | { id: 'ranged-lost'; side: Side; losses: number; enemyLosses: number }
     /** Противник прошёл сквозь фронт и достиг тыла `sector`. */
     | { id: 'rear-reached'; side: Side; sector: Sector; by: Side }

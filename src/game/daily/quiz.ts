@@ -92,7 +92,6 @@ const TEACHING: readonly EventId[] = [
   'spears-held',
   'cavalry-broke-archers',
   'cavalry-intercepted',
-  'ranged-lost',
   'volley',
   'flank-turned',
   'archers-kiting',
