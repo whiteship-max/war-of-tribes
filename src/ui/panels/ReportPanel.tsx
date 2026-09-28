@@ -17,6 +17,7 @@ import {
   type Side,
 } from '@/battle';
 import { setBattleWatch } from '@/game/battle/actions';
+import { beastSummary, beastWords } from '@/game/battle/beasts';
 import { battleMusic } from '@/sound/web';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { fallenText } from '@/game/sim/expedition';
@@ -140,7 +141,7 @@ function Journal({ rec }: { rec: BattleRecord }) {
             ) : (
               events.map((e, i) => (
                 <div className={`bl-line${'side' in e && e.side === rec.us ? ' mine' : ''}`} key={i}>
-                  {describeEvent(e, rec.us)}
+                  {beastWords(describeEvent(e, rec.us), rec.beasts, rec.us)}
                 </div>
               ))
             )}
@@ -191,10 +192,7 @@ export function ReportPanel({ id }: { id: string }) {
       <ReportBody report={report} />
       {rec && beasts && (
         <>
-          <p className="note">
-            Ролика нет: фигуры волка в сцене боя пока нет. Стая бьётся родом лёгкой конницы — в журнале она названа
-            конницей.
-          </p>
+          <p className="note">Ролика нет: фигуры волка в сцене боя пока нет.</p>
           <h3>Как это было</h3>
           <Journal rec={rec} />
         </>
@@ -250,7 +248,8 @@ export function ReportPanel({ id }: { id: string }) {
 export function ReportBody({ report }: { report: Report }) {
   const s = useGame((g) => g.s);
   const rec = report.battle;
-  const sum = rec ? summarize(rec.result, rec.us) : null;
+  // Стая у ворот бьётся родом ядра, а в отчёте она — волки (`game/battle/beasts`): ядро про зверей не знает.
+  const sum = rec ? beastSummary(summarize(rec.result, rec.us), rec.beasts, rec.us) : null;
   const ours = rec ? rec.result.sides[rec.us].total : null;
   const foes = rec ? rec.result.sides[other(rec.us)].total : null;
 
