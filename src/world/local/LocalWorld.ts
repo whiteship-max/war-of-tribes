@@ -204,7 +204,7 @@ import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garris
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
 import { resolveField, type FieldOutcome, type FieldSide } from '../battle';
-import { GATE_FOES } from '../data/gate';
+import { GATE_FOES, gateReportId } from '../data/gate';
 import {
   awayOf,
   fieldTroops,
@@ -4234,7 +4234,7 @@ export class LocalWorld implements WorldApi {
         : `${def.broke} и унесли добро.`
       : `${def.repelled}.`;
     this.addReport({
-      id: `${call.id}-gate`,
+      id: gateReportId(call.id),
       at,
       kind: 'defense',
       title: field.won ? def.broke : def.repelled,
@@ -4252,7 +4252,7 @@ export class LocalWorld implements WorldApi {
       read: false,
     });
     this.addEffect({
-      id: `${call.id}-gate`,
+      id: gateReportId(call.id),
       gate: call.id,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       lostTroops: troopsLost,

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { FRONT, FRONT_WIDTH, SECTORS, deploySetup, emptyStack, simulateBattle, stackOf, stackTotal, type BattleResult, type Sector, type Stack } from '@/battle';
-import { frontOf, median, widthOf } from './front';
+import { LocalWorld } from '@/world/local/LocalWorld';
+import { shieldVillagers } from '@/world/lairs';
+import type { GateCall, PlayerProfile } from '@/world/types';
+import { frontOf, median, pulseFronts, widthOf, widthSample, type Front } from './front';
 
 /** Запись боя ровно с теми полями, что читает прибор: начальный состав стороны и её секторов. */
 const side = (by: Partial<Record<Sector, Partial<Stack>>>) => {
@@ -59,7 +62,53 @@ describe('ширина поля: фронт меньшей стороны', () =
     expect(median([])).toBe(0);
     expect(median([5, 1, 3])).toBe(3);
     expect(median([4, 1, 3, 2])).toBe(2.5);
-    expect(widthOf([10.4, 20, 30].map((small) => ({ small, big: 0, kind: 'defense' })))).toBe(20);
-    expect(widthOf([10, 11].map((small) => ({ small, big: 0, kind: 'defense' })))).toBe(11);
+    expect(widthOf([10.4, 20, 30].map((small) => ({ small, big: 0, kind: 'defense', gate: false })))).toBe(20);
+    expect(widthOf([10, 11].map((small) => ({ small, big: 0, kind: 'defense', gate: false })))).toBe(11);
   });
+});
+
+describe('ширина поля: бои у ворот по событиям в выборку не входят', () => {
+  // Слово владельца (docs/battle_eu4.md, 14.29): сила волков и разбойников — доля обороны, число руками до пересмотра
+  // баланса (14.24), и прибор ширины не должен зависеть от нерешённого входа.
+  it('медиана берётся без боёв у ворот, сколько бы их ни было и какими бы широкими они ни были', () => {
+    const world: Front[] = [10, 20, 30].map((small) => ({ small, big: 0, kind: 'defense', gate: false }));
+    const gates: Front[] = [500, 600, 700, 800].map((small) => ({ small, big: 0, kind: 'defense', gate: true }));
+    // Граница области: с боями у ворот медиана была бы другой — иначе утверждение зелёное даром.
+    expect(Math.round(median([...world, ...gates].map((f) => f.small))), 'бои у ворот сдвинули бы медиану').not.toBe(20);
+    expect(widthSample([...world, ...gates]), 'в выборке — только бои с отрядами мира').toEqual(world);
+    expect(widthOf([...world, ...gates]), 'W — медиана выборки').toBe(20);
+  });
+
+  it('на настоящем пульсе мира бой у ворот по вызову помечен, а бой, чьё последствие без отметки вызова, — нет', async () => {
+    const START = 1_700_000_000_000;
+    const world = new LocalWorld({ seed: 7, now: () => START, storage: null });
+    const profile = (gate?: GateCall[]): PlayerProfile => ({
+      name: 'Тест',
+      pop: shieldVillagers(0.1),
+      defense: 900,
+      militia: 40,
+      units: { warrior: 10, scout: 4 },
+      army: { legionary: 30, spearman: 24, archer: 16 },
+      stock: { food: 4000, wood: 4000, stone: 4000, hides: 4000, bones: 4000, copper: 4000, iron: 4000 },
+      stash: 0,
+      ...(gate ? { gate } : {}),
+    });
+    await world.sync(profile());
+    const pulse = await world.sync(profile([{ id: 'gate-bench', foe: 'wolves', power: 60, seed: 4242 }]));
+    const fronts = pulseFronts(pulse);
+    // Граница области: пульс правда принёс бой у ворот — отчёт с записью боя и последствие с отметкой вызова.
+    expect(fronts, 'в пульсе один бой').toHaveLength(1);
+    expect(pulse.effects.filter((e) => e.gate === 'gate-bench'), 'последствие вызова пришло тем же пульсом').toHaveLength(1);
+    expect(fronts[0].gate, 'бой у ворот по вызову помечен').toBe(true);
+    expect(widthSample(fronts), 'и в выборку W не входит').toEqual([]);
+
+    // Та же запись боя под именем набега, и последствие у неё того же имени, но без отметки вызова: так мир кладёт бой
+    // у стены с отрядом логова (`${поход}-defense`). Такой бой — выборка.
+    const raid = pulseFronts({
+      reports: pulse.reports.map((r) => ({ ...r, id: 'm1-defense' })),
+      effects: pulse.effects.map(({ gate: _, ...e }) => ({ ...e, id: 'm1-defense' })),
+    });
+    expect(raid.map((f) => f.gate), 'бой с отрядом мира не помечен').toEqual([false]);
+    expect(widthSample(raid), 'и входит в выборку').toHaveLength(1);
+  }, 60_000);
 });

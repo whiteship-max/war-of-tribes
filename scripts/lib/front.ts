@@ -15,9 +15,15 @@
  *
  * Меряется в бойцах строя — тех единицах, в которых считает ядро (латник весит восьмерых). Рогаток
  * прибор не знает и знать не должен: в запись боя у лагеря попадают только прошедшие (`world/works`).
+ *
+ * **Бои у ворот по событиям — волки и разбойники — в выборку W не входят** (слово владельца, docs/battle_eu4.md,
+ * 14.29). Сила пришедших к воротам — доля нашей обороны, число руками до пересмотра баланса (14.24), и прибор не должен
+ * зависеть от нерешённого входа. Прибор их видит и помечает (`gate`), но медиану берёт без них (`widthSample`).
  */
 import { stackTotal, type BattleResult, type Side } from '@/battle';
 import { openFront } from '@/battle/bench';
+import { gateReportId } from '@/world/data/gate';
+import type { WorldPulse } from '@/world/types';
 
 /** Один бой глазами прибора: фронт полосы у меньшей и у большей стороны, бойцов строя. */
 export interface Front {
@@ -25,6 +31,8 @@ export interface Front {
   big: number;
   /** Вид отчёта мира (`Report.kind`), к которому приложен бой. */
   kind: string;
+  /** Бой у ворот по событию (волки, разбойники): в выборку W не входит. */
+  gate: boolean;
 }
 
 /** Фронт полосы стороны без ширины: вся её первая линия — пешие и конные, где бы ни встали, — на три полосы. */
@@ -51,7 +59,19 @@ export function median(xs: readonly number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-/** Ширина W — медиана фронта полосы меньшей стороны по боям, целых бойцов строя. */
+/**
+ * Бои пульса мира глазами прибора — каждая запись боя в его отчётах. Бой у ворот по событию узнаётся по последствию с
+ * отметкой вызова (`HomeEffect.gate`): отчёт и последствие одного вызова мир кладёт под одно имя (`gateReportId`).
+ */
+export function pulseFronts(pulse: Pick<WorldPulse, 'reports' | 'effects'>): Front[] {
+  const gates = new Set(pulse.effects.flatMap((e) => (e.gate ? [gateReportId(e.gate)] : [])));
+  return pulse.reports.flatMap((r) => (r.battle ? [{ ...frontOf(r.battle.result), kind: r.kind, gate: gates.has(r.id) }] : []));
+}
+
+/** Выборка W — бои с отрядами мира, без боёв у ворот по событиям. */
+export const widthSample = (fronts: readonly Front[]): Front[] => fronts.filter((f) => !f.gate);
+
+/** Ширина W — медиана фронта полосы меньшей стороны по боям выборки, целых бойцов строя. */
 export function widthOf(fronts: readonly Front[]): number {
-  return Math.round(median(fronts.map((f) => f.small)));
+  return Math.round(median(widthSample(fronts).map((f) => f.small)));
 }

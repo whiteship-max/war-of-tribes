@@ -23,3 +23,10 @@ export const GATE_FOES: Record<GateFoe, GateFoeDef> = {
   wolves: { name: 'Стая волков', beasts: true, repelled: 'Волки отбиты у ворот', broke: 'Волки порвали заслон у ворот' },
   raiders: { name: 'Разбойники', beasts: false, repelled: 'Разбойники отбиты у ворот', broke: 'Разбойники прорвались к складу' },
 };
+
+/**
+ * Имя отчёта и последствия боя у ворот по вызову (`LocalWorld.gateFight`) — одна дверь на имя. По нему прибор ширины
+ * отделяет бои событий от боёв с отрядами мира (`scripts/lib/front.pulseFronts`): сила пришедших к воротам — доля обороны,
+ * число руками до пересмотра баланса, и выборка W от нерешённого входа не зависит (docs/battle_eu4.md, 14.24, 14.29).
+ */
+export const gateReportId = (callId: string): string => `${callId}-gate`;
