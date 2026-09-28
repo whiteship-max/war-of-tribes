@@ -39,7 +39,8 @@ import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { BATTLE_MAN, KIND_OF, gearOfTroop, troopPower, troopTotal, weightOf, type TroopStack } from '@/game/battle/kinds';
 import { createInitialState } from '@/game/state';
-import { defense, recruitRate, stalls, wageGear, wageOf } from '@/game/derived';
+import { defense, recruitRate, selfCost, stalls, wageGear, wageOf } from '@/game/derived';
+import { GOOD_BY_ID } from '@/game/data/market';
 import { SOLDIER_FOOD } from '@/game/constants';
 import { HORSE_MOUTHS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN, WAGE_MAN_UNGEARED } from '@/game/data/upkeep';
 import { TAX_PER_POP } from '@/game/data/policy';
@@ -223,6 +224,37 @@ function typesPart(): void {
   }
   console.log(`Что ядро боя знает о бойце строя — род и ступень. Различимых сочетаний: ${profiles.size} на ${TROOPS.length} видов, родов ${new Set(TROOPS.map((t) => KIND_OF[t.id])).size}:`);
   for (const [key, names] of profiles) console.log(`  ${key}: ${names.join(', ')}`);
+  workPart();
+}
+
+/** Добро в золоте своим трудом (`derived.selfCost` ресурса): у ресурса без товара на рынке меры нет — `NaN`. */
+const goodsGold = (id: TroopId): number =>
+  (Object.entries(goodsOf(id)) as [ResourceId, number][]).reduce((n, [r, v]) => n + (GOOD_BY_ID[r] ? selfCost(GOOD_BY_ID[r]) * v : NaN), 0);
+
+/**
+ * Всё, что уходит на бойца, на голову — вход формулы веса вида (docs/battle_eu4.md, 14.35, слово владельца, п. 3): мощь вида
+ * (`TroopDef.power`) задана рукой, и «2 + работа кузницы / 25» совпадает с ней у трёх видов из девяти не законом, а тем,
+ * как числа ставили в первом коммите. Правильная формула выбирается на этих числах — до кода П1. Одной меры у столбцов
+ * нет, и это сказано строкой: работу кузницы рынок в золото не переводит (`derived.selfCost` меряет у вещи только
+ * материалы), учения идут временем здания (`recruitRate`: работа на уровень, работников у казарм и конюшни нет).
+ */
+function workPart(): void {
+  console.log('');
+  console.log('Всё, что уходит на бойца, на голову (вход формулы веса вида; docs/battle_eu4.md, 14.35, слово владельца, п. 3):');
+  console.log('«мощь» — TroopDef.power, задана рукой; «2 + кузница / 25» — след ручной расстановки (кузница 50 → 4 у копейщика), а не закон;');
+  console.log('«кузница» — работа горна на все вещи вида (EquipmentDef.work); «учения» — работа казарм или конюшни (TroopDef.work);');
+  console.log('«добро» — ресурсы вида и вещей, штук; «добро своим трудом» — они же в золоте по цене своего труда (derived.selfCost).');
+  console.log('Работу кузницы игра в золото не переводит, учения идут временем здания, а не людьми: одной меры у столбцов нет — её выбирает владелец.');
+  console.log(' вид          мощь  2 + кузница/25  кузница  учения  добро  добро своим трудом  конь');
+  for (const tr of TROOPS) {
+    const forge = forgeOf(tr.id);
+    const gold = goodsGold(tr.id);
+    console.log(
+      ` ${padR(tr.name, 11)}  ${pad(tr.power, 4)}  ${pad((2 + forge / 25).toFixed(2), 14)}  ${pad(forge, 7)}  ${pad(tr.work, 6)}  ${pad(goodsTotal(tr.id), 5)}  ${pad(Number.isFinite(gold) ? gold.toFixed(1) : '—', 18)}  ${pad(tr.mounted ? 'да' : '', 4)}`,
+    );
+  }
+  const exact = TROOPS.filter((tr) => Math.abs(2 + forgeOf(tr.id) / 25 - tr.power) < 1e-9).map((tr) => tr.name);
+  console.log(`«2 + кузница / 25» равна мощи у ${exact.length} видов из ${TROOPS.length}: ${exact.join(', ') || '—'}.`);
 }
 
 // ---------- 2. Вид против вида ----------
@@ -573,8 +605,9 @@ const bandSteps = (n: number): number[] => [...new Set([40, 80, 160, 320, n])].f
 function bandPart(rows: ShareRow[]): void {
   console.log('');
   console.log(`--- 6.3а. Граница прибавки и мест: 95 %, парный бутстрап по сидам, ${BOOT_DRAWS} бросков ---`);
-  console.log('«±» — полуширина границы полпути (Уилсон по ступеням) в долях самого полпути, медиана по шести долям конницы.');
-  console.log(`«прибавка при ${pct(CAV_SHARE)}» — как в 6.3, с границей. «доля решения» — доля конницы, на которой прибавка достигает ${pct(ONE_DECISION)}`);
+  // Подписи (docs/weights.md, место 5): «±» и прибавка считаются только по обороне, «доля решения» — по обеим сторонам.
+  console.log('«±» — полуширина границы полпути (Уилсон по ступеням) в долях самого полпути, медиана по шести долям конницы, только в обороне.');
+  console.log(`«прибавка при ${pct(CAV_SHARE)}» — в обороне, как строка «оборона» в 6.3, с границей; удара в этом столбце нет. «доля решения» — по обеим сторонам (меньшая из обороны и удара): доля конницы, на которой прибавка достигает ${pct(ONE_DECISION)}`);
   console.log('(из неё считаются места, раздел 7), с границей; «нет» — не достигает до 60 %, в скобках — на скольких бросках из ста «нет».');
   console.log(` ${padR('класс и приказ', 24)} ${pad('боёв', 5)}  ${pad('±', 7)}  ${pad(`прибавка при ${pct(CAV_SHARE)}`, 22)}  ${pad('доля решения', 24)}  места 10-го уровня`);
   const at = CAV_SHARES.indexOf(CAV_SHARE);
