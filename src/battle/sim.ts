@@ -1059,16 +1059,14 @@ class Battle {
     let m = 1;
     if (g.row === 'front' && !anchored(g.stack)) m *= ANCHOR.noInfantryDamageTaken;
     if (s.retreating) m *= RETREAT.taken;
-    else if (s.broken) m *= MORALE.brokenTaken;
     if (this.phase === 'clash' && kind === 'spear' && frontal && closedSpears(g)) m *= CLASH_SPEAR_BRACE;
     return m;
   }
 
-  /** Общие множители силы группы: мораль сектора, кость фазы, состояние. */
+  /** Общие множители силы группы: мораль сектора, кость фазы, отход. */
   dealtMult(g: Group): number {
     const s = this.sides[g.side];
     let m = moraleDamageMult(g.morale) * this.luck[g.side];
-    if (s.broken) m *= MORALE.brokenDealt;
     if (s.retreating) m *= RETREAT.dealt;
     return m;
   }
