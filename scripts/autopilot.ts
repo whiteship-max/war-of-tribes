@@ -97,6 +97,13 @@ export type Inside = any;
 
 /** Состав и мерка войска — те же, что у осады и лазарета. */
 export const MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
+
+/**
+ * Полководец бьёт логово только полной дружиной (слово владельца, docs/battle_eu4.md, 14.31): автопилот — модель
+ * разумного игрока, а игрок видит мораль дружины на кнопке «Ударить» и уставшую не посылает. Перехват не ждёт: отряд
+ * уходит, и ответ на набег — сейчас или никогда. Полная — у вида дружины нет поля морали (`FigureView.rest`).
+ */
+export const readyToStrike = (general: FigureView): boolean => general.rest === undefined;
 /** Мерка войска посёлка уровня L — две прежние вместимости Статуи. */
 export const armyAt = (level: number): number => 2 * (20 + 10 * (level - 1));
 

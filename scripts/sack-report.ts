@@ -93,7 +93,7 @@ import type { Fate } from '@/world/types';
 import { playerProfile } from '@/world/bridge';
 import { seeded, setRandom } from '@/game/sim/random';
 import type { GameState, ResourceId } from '@/game/types';
-import { land, pilot, playedFor, player } from './autopilot';
+import { land, pilot, playedFor, player, readyToStrike } from './autopilot';
 import { stackCarry } from '@/world/data/units';
 import type { WorldSave } from '@/world/local/state';
 import type { HomeEffect, Loot, PlayerProfile, SettlementView } from '@/world/types';
@@ -323,6 +323,13 @@ async function plunderRun(seed: number) {
         if (f && f.phase !== 'moving') break;
       }
       if (w.now() >= deadline) break;
+    }
+    // Двор бьют полной дружиной: уставшая стоит у цели, пока не отдохнёт (`readyToStrike`).
+    const ready = (await w.world.figures()).find((f) => f.id === 'general');
+    if (ready && !readyToStrike(ready)) {
+      w.advance(MIN);
+      await w.world.sync(p);
+      continue;
     }
     const res = await w.world.attack({});
     if (res.error) {

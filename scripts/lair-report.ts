@@ -39,7 +39,7 @@ import {
   LAIR_START,
 } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
-import { playedFor } from './autopilot';
+import { playedFor, readyToStrike } from './autopilot';
 import { assignWorker } from '@/game/sim/workers';
 import { buildingOfType, buildingSlots, defense, forgeRate, productionPerDay, storageCap } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
@@ -337,6 +337,11 @@ async function play(seed: number, restMinutes: number): Promise<Run> {
         goingSince = 0;
         await step(MIN);
       }
+      continue;
+    }
+    // Логово бьют полной дружиной: уставшая стоит у цели, пока не отдохнёт (`readyToStrike`).
+    if (!readyToStrike(g)) {
+      await step(MIN);
       continue;
     }
     const res = await world.attack({});

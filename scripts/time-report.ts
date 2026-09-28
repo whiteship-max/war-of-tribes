@@ -43,7 +43,7 @@ import { generateWorld, isLair } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
 import { distance } from '@/world/geo';
 import { AI_RANGE } from '@/world/data/tuning';
-import { START, armyAt, away, gone, pilot, played, player, stackOf, type Cost, type Inside } from './autopilot';
+import { START, armyAt, away, gone, pilot, played, player, readyToStrike, stackOf, type Cost, type Inside } from './autopilot';
 // Этот отчёт меряет настоящим временем — службу агента, отлучку, заходы, — поэтому часы и минуты у него
 // настоящие (`game/time`), а не единицы автопилота, которые после поворота шкалы стали игровыми днями.
 import { HOUR_MS as HOUR, MINUTE_MS as MIN } from '@/game/time';
@@ -391,7 +391,8 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
           } else {
             const here = gen.atId ? live.find((l) => l.id === gen.atId) : undefined;
             if (here) {
-              if (!(await w.attack({ setup: null })).error) out.general.deeds++;
+              // Логово бьют полной дружиной: уставшая стоит у цели до следующего захода (`readyToStrike`).
+              if (readyToStrike(gen) && !(await w.attack({ setup: null })).error) out.general.deeds++;
             } else {
               const t = [...live].sort((a, b) => distance(a, gen.at) - distance(b, gen.at))[0];
               genTarget = t.id;

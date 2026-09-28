@@ -27,12 +27,14 @@ import {
   pilot,
   played,
   player,
+  readyToStrike,
   spareHands,
   spareOf,
   stackOf,
   townAt,
   type Inside,
 } from './autopilot';
+import type { FigureView } from '@/world/types';
 import { FREE_JOBS } from '@/game/data/jobs';
 import { idleCount, masterWage, mastersCount, taxIncomePerDay, wagesPerDay } from '@/game/derived';
 import { ADMIN_LEVELS, MASTERS_AT } from '@/game/data/realm';
@@ -121,6 +123,33 @@ describe('автопилот один: по исходникам', () => {
     const store = code(path.join(ROOT, 'src/world/store.ts'));
     expect(store, 'store зовёт tribePulse').toMatch(/\btribePulse\s*\(/);
     expect(stepsTaken(store).filter((s) => !s.endsWith(':tribePulse')), 'части пульса в сторе').toEqual([]);
+  });
+});
+
+describe('полководец бьёт логово только полной дружиной', () => {
+  // Слово владельца (docs/battle_eu4.md, 14.31): автопилот — модель разумного игрока; уставшую дружину он не посылает,
+  // перехват — не ждёт. Правило одно (`readyToStrike`), и каждый цикл удара в приборах спрашивает его перед ударом.
+  const general = (rest?: FigureView['rest']): FigureView => ({ id: 'general', ...(rest ? { rest } : {}) }) as FigureView;
+
+  it('полная — бьёт, уставшая — нет', () => {
+    expect(readyToStrike(general())).toBe(true);
+    expect(readyToStrike(general({ share: 0.99, fullAt: 1 }))).toBe(false);
+  });
+
+  it('каждый цикл, где прибор выбирает, когда ударить по логову, спрашивает правило перед ударом', () => {
+    const strip = (code: string): string => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    // Циклы игрока: лазарет (`raid-hiring`), служба агентов (`time`), логова (`lair`), набеги по дворам (`sack`). Замеры
+    // в названную минуту (`sack`: удар через минуту и через час после первого) правилом не охраняются — они мерят
+    // грабёж в эту минуту, и ждать им нельзя.
+    for (const [file, loops] of [
+      ['raid-infirmary.ts', 1],
+      ['time-report.ts', 1],
+      ['lair-report.ts', 1],
+      ['sack-report.ts', 1],
+    ] as const) {
+      const src = strip(readFileSync(path.join(ROOT, 'scripts', file), 'utf8'));
+      expect(src.match(/readyToStrike\(/g)?.length ?? 0, `${file}: удар — только полной дружиной`).toBe(loops);
+    }
   });
 });
 

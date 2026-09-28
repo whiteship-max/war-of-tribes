@@ -23,7 +23,7 @@ import { createInitialState } from '@/game/state';
 import { defense, healShare, infirmaryBeds } from '@/game/derived';
 import { DAY_LENGTH, INFIRMARY_HEAL_CAP, MAX_BUILDING_LEVEL, WOUND_DAYS } from '@/game/constants';
 import { DESERT_SHARE } from '@/game/data/upkeep';
-import { MIN, START, townAt, unitCost, unitsNote } from './autopilot';
+import { MIN, START, readyToStrike, townAt, unitCost, unitsNote } from './autopilot';
 import { NAME, STYLES, live, portable, type Fight, type FightKind, type Out } from './raid-live';
 import { fan, serveFan } from './lib/fan';
 import type { Hired } from './raid-hiring';
@@ -117,6 +117,8 @@ export async function huntRun({ level, seed }: { level: number; seed: number }):
         return;
       }
       if (target && gen.atId === target) {
+        // Логово бьют полной дружиной: уставшая стоит у цели, пока не отдохнёт (`readyToStrike`).
+        if (!readyToStrike(gen)) return;
         went = troopTotal(gen.troops);
         const res = await world.attack({});
         if (res.error === null) strikes++;
