@@ -17,13 +17,17 @@
 //  3. **Живые прогоны** — «по средствам, высокий налог» (docs/hiring.md) на посёлке мерки 10-го уровня, 4 ч ×
 //     5 миров, случаи «всё дома», «увёл тяжёлых», «увёл лёгких»; вера мира и православная деревня (вера
 //     подставлена).
+//  4. **Волки и разбойники у ворот** — бой события ядром той же дверью, что набег (docs/battle_eu4.md, 14.28): доля
+//     поражений на решётке нашей силы — уровень посёлка мерки, вера, кто дома.
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { awayTroops, militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { awayOf, homeOf, NOBODY_AWAY, type Away } from '@/world/muster';
 import { faithAt } from '@/world/faith';
 import { lairPower, lairRaid } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
-import type { PlayerProfile } from '@/world/types';
+import type { GateCall, GateFoe, PlayerProfile } from '@/world/types';
+import { menOfPower } from '@/world/garrison';
+import { RAIDER_SHARE, WOLF_SHARE, foePower } from '@/game/data/events';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { armySize, defense, faithTilt, homeArmyPower, mutinyForecast } from '@/game/derived';
@@ -292,12 +296,85 @@ async function livePart(): Promise<void> {
   console.log(`(Стойкость православной деревни с храмом ${LEVEL}-го уровня — ${faithTilt(g).steadfast.toFixed(2)}; бойцов в мерке ${armySize(g)}.)`);
 }
 
+// ---------- 4. Волки и разбойники у ворот ----------
+
+const GATE_SEEDS = 40;
+const GATE_LEVELS = [1, 5, 10];
+
+interface GateRow {
+  line: string;
+  label: string;
+  wolves: number;
+  raiders: number;
+}
+
+/**
+ * Задача веера (`lib/fan.ts`): строка раздела 4 — бой события у ворот (docs/battle_eu4.md, 14.28) на посёлке мерки
+ * уровня `level` при вере `faith`, случай `CASES[c]`. Бой настоящий, дверью мира (`gateParty` → `gateField`), ничего не
+ * трогая; сила — доля обороны той же функцией, что у события (`data/events.foePower`); сид — свой на каждый бой.
+ */
+export async function gateRow({ level, faith, c: k }: { level: number; faith: FaithId | null; c: number }): Promise<GateRow> {
+  const c = CASES[k];
+  const g = withFaith(townAt(level), faith);
+  const { world, at } = await fieldWorld(g, SEEDS[0], c.take);
+  const w: Inside = world;
+  const home = w.defenders(at).all as TroopStack;
+  const lost = (foe: GateFoe, share: number): { men: number; share: number } => {
+    const power = foePower(g, share);
+    let broke = 0;
+    for (let i = 1; i <= GATE_SEEDS; i++) {
+      const call: GateCall = { id: `gate-bench${i}`, foe, power, seed: i * 7919 };
+      if (w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won) broke++;
+    }
+    return { men: menOfPower(power), share: broke / GATE_SEEDS };
+  };
+  const wolves = lost('wolves', WOLF_SHARE);
+  const raiders = lost('raiders', RAIDER_SHARE);
+  const faithName = faith ?? 'без веры';
+  return {
+    label: `${level}-й уровень, ${faithName}, ${c.name}`,
+    wolves: wolves.share,
+    raiders: raiders.share,
+    line: ` ${pad(level, 2)}  ${faithName.padEnd(13)}  ${c.name.padEnd(34)}  ${pad(troopTotal(home), 4)}  ${pad(Math.round(defense(g)), 7)}  ${pad(w.save.profile.militia, 9)}  ${pad(wolves.men, 6)}  ${pad(pct(wolves.share), 19)}  ${pad(raiders.men, 11)}  ${pad(pct(raiders.share), 24)}`,
+  };
+}
+
+async function gatePart(): Promise<void> {
+  console.log('');
+  console.log(`--- 4. Волки и разбойники у ворот: доля поражений на решётке нашей силы, ${GATE_SEEDS} боёв на клетку, мир ${SEEDS[0]} ---`);
+  console.log('Бой события у ворот — ядром, той же дверью, что набег (LocalWorld.gateParty → gateField; docs/battle_eu4.md, 14.28), ничего не трогая.');
+  console.log(`Сила — доля обороны (data/events.foePower): волки ${WOLF_SHARE}, разбойники ${RAIDER_SHARE} — числа руками, до пересмотра баланса (14.24).`);
+  console.log('Волки — лёгкая конница без снаряжения, разбойники — отряд тем же генератором, что набег логова. Решётка — посёлок мерки 1, 5 и 10-го');
+  console.log('уровня, без веры и православный, полководец увёл в поле часть войска или нет (случаи раздела 1). «поражений» — доля боёв, где пришедшие взяли верх.');
+  console.log(' ур  вера           случай                              дома  оборона  ополчение  волков  поражений от волков  разбойников  поражений от разбойников');
+  const rows = GATE_LEVELS.flatMap((level) => ([null, 'orthodox'] as const).flatMap((faith) => CASES.map((_, c) => ({ level, faith, c }))));
+  const got = await fan(gateRow, import.meta.url, rows);
+  for (const r of got) console.log(r.line);
+  const span = (xs: number[]): string => `${pct(Math.min(...xs))}…${pct(Math.max(...xs))}`;
+  console.log(`Поражений на решётке: от волков ${span(got.map((r) => r.wolves))}, от разбойников ${span(got.map((r) => r.raiders))}.`);
+  // Прежнее обещание у волков — «почти всегда отбиваемся»: порог удалённого теста — больше 15 побед из 20, то есть
+  // поражений не больше четверти.
+  const wolfish = got.filter((r) => r.wolves > 1 / 4);
+  console.log(
+    wolfish.length > 0
+      ? `Волки берут верх чаще четверти боёв («почти всегда отбиваемся» не держится) в ${wolfish.length} клетках из ${got.length}: ${wolfish.map((r) => `${r.label} — ${pct(r.wolves)}`).join('; ')}.`
+      : `Волки берут верх чаще четверти боёв: ни в одной клетке из ${got.length}.`,
+  );
+  const often = got.filter((r) => r.raiders > 1 / 3);
+  console.log(
+    often.length > 0
+      ? `РАЗБОЙНИКИ ПОБЕЖДАЮТ ЧАЩЕ ТРЕТИ БОЁВ в ${often.length} клетках из ${got.length}: ${often.map((r) => `${r.label} — ${pct(r.raiders)}`).join('; ')}.`
+      : `Разбойники побеждают чаще трети боёв: ни в одной клетке из ${got.length}.`,
+  );
+}
+
 export async function defenseMixSection(): Promise<void> {
   console.log('');
   console.log('=== Оборона по составу: долг среднего бойца ===');
   displayPart();
   await benchPart();
   await livePart();
+  await gatePart();
 }
 
-serveFan(import.meta.url, { benchRow, mixRun });
+serveFan(import.meta.url, { benchRow, mixRun, gateRow });

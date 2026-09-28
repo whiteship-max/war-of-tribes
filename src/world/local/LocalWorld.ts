@@ -4193,12 +4193,22 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Кто пришёл к воротам по вызову — одна сборка на бой (`gateFight`) и на замер отчёта (`raid-mix:report`, раздел 4):
+   * волки — лёгкая конница без снаряжения, разбойники — отряд тем же генератором, что набег логова (`raidingParty`).
+   * Бойцов — мерой отрядов мира (`menOfPower`), ею же племя пишет «Их N».
+   */
+  private gateParty(call: GateCall): FieldSide {
+    if (GATE_FOES[call.foe].beasts) return { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {} };
+    const band = raidingParty(this.save.seed, call.id, call.power);
+    return { kinds: band.kinds, gear: band.gear };
+  }
+
+  /**
    * Бой события у ворот — волки или разбойники (слово владельца по docs/battle_eu4.md, 14.28): та же дверь, что бой у
    * стены (`gateField`), тот же счёт павших и та же запись. Своих чисел здесь нет.
    *
-   * - **Кто пришёл.** Волки — лёгкая конница без снаряжения: всё, что делает стаю стаей (скорость, обход на соседнюю
-   *   полосу, погоня), у рода уже есть; разбойники — отряд тем же генератором, что набег логова (`raidingParty`).
-   *   Бойцов — мерой отрядов мира (`menOfPower`), ею же племя пишет «Их N».
+   * - **Кто пришёл** — `gateParty`. Волки — лёгкая конница без снаряжения: всё, что делает стаю стаей (скорость, обход
+   *   на соседнюю полосу, погоня), у рода уже есть; разбойники — люди родами ядра.
    * - **Где.** Клетка дома, пришли из неё же: штраф места нападающему — её земля, переправы нет.
    * - **Поражение.** Разбойники уносят со склада, сколько поднимут уцелевшие (`plunder`, ноша — `haul` их воинов);
    *   волки склада не трогают — поражение от них стоит павших и морали. Жителей бой у ворот не уносит ни у кого
@@ -4206,13 +4216,11 @@ export class LocalWorld implements WorldApi {
    */
   private gateFight(call: GateCall, at: number): void {
     const def = GATE_FOES[call.foe];
-    const party = def.beasts
-      ? { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {} }
-      : raidingParty(this.save.seed, call.id, call.power);
-    const gate = this.gateField({ kinds: party.kinds, gear: party.gear }, call.seed, this.save.home, at);
+    const party = this.gateParty(call);
+    const gate = this.gateField(party, call.seed, this.save.home, at);
     const { field } = gate;
     const { warriors, warriorsLost, troopsLost } = this.gateLosses(gate);
-    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear));
+    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear ?? {}));
     // Прорвались люди — уносят со склада, сколько поднимут уцелевшие; тайник не достать.
     const units = warriorsOf(call.power);
     const left = stackAfter(units, stackLosses(units, field.attackerLoss));
