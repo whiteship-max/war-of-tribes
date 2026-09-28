@@ -13,7 +13,7 @@
 import { DICE, KIND_META, PHASES, PHASE_PIP, RETREAT, UNIT_KINDS, UNIT_STATS, COUNTER, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, RING_BAR, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
-import { FACES, FACE_SEEDS, PHASE_GROUPS, ROLES, ROLE_SEEDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
+import { FACES, FACE_SEEDS, MONO_KINDS, PHASE_GROUPS, ROLES, ROLE_SEEDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -96,6 +96,8 @@ const dice = w1.add({ kind: 'dice' });
 // Стояние на решётке составов (docs/battle_eu4.md, 14.25–14.27): каждый состав решётки против каждого другого на ½W, W и 2W,
 // кусками по десять составов.
 const stillAt = OVERSIZE_SIZES.map((total) => ({ total, parts: slices(compositionLattice().length, 10).map(([from, to]) => w1.add({ kind: 'still', total, from, to })) }));
+// Монотонность против того же противника (слово владельца по П0, 14.35): решётка кусками по пять составов на ½W, W и 2W.
+const monoAt = OVERSIZE_SIZES.map((total) => ({ total, parts: slices(compositionLattice().length, 5).map(([from, to]) => w1.add({ kind: 'mono', total, from, to })) }));
 const ringPairs = RING.map((_, ring) => w1.add({ kind: 'ring', ring, seeds: SEEDS }));
 // Круги по размерам: сколько боёв до них доходит — матрица составов.
 const reachAt = [...OVERSIZE_SIZES, ARMY_SIZE].map((total) => ({ total, got: w1.add({ kind: 'reach', total }) }));
@@ -385,6 +387,25 @@ console.log('\n=== Стояние на решётке составов: кажд
     const got = parts.map((o) => o());
     const sum = (k: 'n' | 'gong' | 'draws' | 'stood'): number => got.reduce((n, o) => n + o[k], 0);
     console.log(`${pad(total, 12)}${pad(sum('n'), 8, true)}${pad(sum('gong'), 14, true)}${pad(sum('draws'), 10, true)}${pad(sum('stood'), 11, true)}`);
+  }
+}
+
+console.log('\n=== Монотонность против того же противника: X на 10 % больше против того же Y держит поле не реже X — без кости ===');
+{
+  // Тест «больше того же — не хуже» сравнивает состав с самим собой. Здесь — каждая пара решётки: X в своём размере против Y
+  // того же размера, и тот же X на 10 % больше против того же Y, сид 1, обе стороны поля, без кости. «Боёв» — где меньший X
+  // держит поле: только там «не реже» и спрашивается. «Сбоев» — где больший X поле уже не держит; по тому, что прибавка
+  // сделала с первой линией X: встала в полосу, где у меньшего не было никого, прибавила людей в тех же полосах или ушла
+  // в резерв (`MonoKind`). Разбор причины — docs/battle_eu4.md, 14.35.
+  console.log(`${pad('размер', 8)}${pad('боёв', 8, true)}${pad('сбоев', 8, true)}  ${MONO_KINDS.join(' / ')}`);
+  for (const { total, parts } of monoAt) {
+    const got = parts.map((o) => o());
+    const held = got.reduce((n, o) => n + o.held, 0);
+    const drops = got.flatMap((o) => o.drops);
+    console.log(`${pad(total, 8)}${pad(held, 8, true)}${pad(drops.length, 8, true)}  ${MONO_KINDS.map((k) => drops.filter((d) => d.how === k).length).join(' / ')}`);
+    for (const d of drops.slice(0, 3)) {
+      console.log(`  например: ${compositionName(lattice[d.i])} против ${compositionName(lattice[d.j])} (${d.side === 'attacker' ? 'нападает' : 'обороняется'}; ${d.how})`);
+    }
   }
 }
 

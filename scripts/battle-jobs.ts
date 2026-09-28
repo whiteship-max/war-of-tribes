@@ -141,6 +141,13 @@ export type Job =
    */
   | { kind: 'still'; total: number; from: number; to: number }
   /**
+   * Монотонность против того же противника (слово владельца по П0, docs/battle_eu4.md, 14.35): составы решётки `from..to`
+   * в `total` бойцов строя против каждого состава решётки того же размера, без кости, сид 1, обе стороны поля; где меньший X
+   * держит поле, тот же X на 10 % больше против того же Y — тоже держит ли. Как стоит первая линия у меньшего и у большего
+   * (`MONO_KINDS`) — чтобы видеть, что добавили люди: новую полосу, ширину или только резерв.
+   */
+  | { kind: 'mono'; total: number; from: number; to: number }
+  /**
    * Цена грани кости (слово владельца по 14.35, docs/battle_eu4.md): составы решётки `from..to` в размере W против себя
    * же, у «нас» — одна правка (`FACES[variant]`), кость конфига, сиды 1..`FACE_SEEDS`, «мы» — с обеих сторон поля.
    */
@@ -251,6 +258,7 @@ export type Out =
   | { kind: 'reach'; matrix: Reach }
   | { kind: 'edge'; edge: Edge }
   | { kind: 'still'; n: number; gong: number; draws: number; stood: number }
+  | { kind: 'mono'; n: number; held: number; drops: Array<{ i: number; j: number; side: Side; how: MonoKind }> }
   | { kind: 'face'; n: number; held: number; draws: number }
   | { kind: 'rout'; rout: Rout }
   | { kind: 'ringPhases'; a: number[]; b: number[] }
@@ -472,7 +480,42 @@ export function battleJob(job: Job): Out {
       }
       return out;
     }
+    case 'mono': {
+      const lattice = compositionLattice();
+      const small = lattice.map((a) => deploySetup(scaleArmy(a, job.total)));
+      const big = lattice.map((a) => deploySetup(scaleArmy(a, Math.round(job.total * 1.1))));
+      const out = { kind: 'mono' as const, n: 0, held: 0, drops: [] as Array<{ i: number; j: number; side: Side; how: MonoKind }> };
+      const fight = (x: ArmySetup, y: ArmySetup, side: Side): BattleResult =>
+        simulateBattle({ seed: 1, attacker: side === 'attacker' ? x : y, defender: side === 'attacker' ? y : x });
+      withDiceStep(0, () => {
+        for (let i = job.from; i < job.to; i += 1) {
+          for (let j = 0; j < lattice.length; j += 1) {
+            for (const side of ['attacker', 'defender'] as const) {
+              out.n += 1;
+              if (fight(small[i], small[j], side).winner !== side) continue;
+              out.held += 1;
+              if (fight(big[i], small[j], side).winner !== side) out.drops.push({ i, j, side, how: monoKind(small[i], big[i]) });
+            }
+          }
+        }
+      });
+      return out;
+    }
   }
+}
+
+/**
+ * Что прибавка в 10 % сделала с первой линией у X (сектора A, B, C): встала в полосу, где у меньшего X не было никого, —
+ * «новая полоса»; прибавила людей в тех же полосах — «шире»; первая линия та же, прибавка — только резерв.
+ */
+export type MonoKind = 'новая полоса' | 'шире' | 'только резерв';
+export const MONO_KINDS: readonly MonoKind[] = ['новая полоса', 'шире', 'только резерв'];
+const frontOf = (s: ArmySetup): number[] => (['A', 'B', 'C'] as const).map((k) => Object.values(s.sectors[k]).reduce((n, v) => n + v, 0));
+function monoKind(small: ArmySetup, big: ArmySetup): MonoKind {
+  const a = frontOf(small);
+  const b = frontOf(big);
+  if (a.some((n, k) => n > 0 !== b[k] > 0)) return 'новая полоса';
+  return a.every((n, k) => n === b[k]) ? 'только резерв' : 'шире';
 }
 
 /** Раздать задачи веером; итоги — в порядке задач. */

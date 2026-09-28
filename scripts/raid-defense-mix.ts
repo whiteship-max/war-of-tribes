@@ -24,6 +24,7 @@
 //  5. **Потолок морали и обряд** — срезает ли потолок морали прибавку храма у какого-нибудь вида, уровня храма и устава
 //     (docs/battle_eu4.md, 14.24).
 import { GEAR, MORALE, deploySetup, stackOf, startMorale } from '@/battle';
+import { withDiceStep } from '@/battle/bench';
 import { FAITHS, OBSERVANCES, tiltAt } from '@/game/data/faiths';
 import { MAX_BUILDING_LEVEL } from '@/game/constants';
 import { KIND_OF, gearOfTroop } from '@/game/battle/kinds';
@@ -36,7 +37,7 @@ import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
 import type { GateCall, GateFoe, PlayerProfile } from '@/world/types';
 import { menOfPower } from '@/world/garrison';
 import { RAIDER_SHARE, WOLF_SHARE, foePower } from '@/game/data/events';
-import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { BATTLE_MAN, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { armySize, defense, faithTilt, homeArmyPower, mutinyForecast } from '@/game/derived';
 import { dismissCheck } from '@/game/sim/upkeep';
@@ -394,6 +395,11 @@ const EVEN_STEPS = 8;
 const NEAR_STEPS = 60;
 /** Перевес «Ограничителя»: ровный бой, делённый на него, — таблица (слово владельца по 14.35, п. 4). */
 const TABLE_EDGE = 1.1;
+/**
+ * До какого уровня кривая проверяется ещё и без кости — боем на каждую голову пришедших, от одного до конца кривой (слово
+ * владельца по П0, 14.35: с костью кривая немонотонна на 1–3-м уровнях, и тест монотонности у ворот спрашивает ровно их).
+ */
+const BARE_LEVELS = 3;
 
 interface LevelFoe {
   /** Таблица, бойцов строя пришедших; `NaN` — ровного боя на кривой нет. */
@@ -401,6 +407,8 @@ interface LevelFoe {
   /** Кривая немонотонна: где-то больше пришедших — реже их верх. */
   bumpy: boolean;
   line: string;
+  /** Без кости, на каждую голову (`BARE_LEVELS`): где пришедшим на одного больше — и верх уже не их. */
+  bare?: string;
 }
 interface LevelRow {
   head: string;
@@ -450,6 +458,22 @@ export async function gateLevelRow({ level }: { level: number }): Promise<LevelR
       near = flips.length > 0 ? `; около ровного (${NEAR_STEPS} шагов от половины до полутора ровных): переходов через половину ${flips.length}, с ${menOfPower(sizes[flips[0]])} по ${menOfPower(sizes[flips[flips.length - 1]])} бойцов` : '';
     }
     const now = foePower(g, share);
+    let bare: string | undefined;
+    if (level <= BARE_LEVELS) {
+      // Бой — той же дверью, что у события: мощь две на голову (`menOfPower` ставит ровно `n`), сид один на кривую.
+      const top = menOfPower(CURVE[CURVE.length - 1] * d);
+      const won: boolean[] = [];
+      withDiceStep(0, () => {
+        for (let n = 1; n <= top; n++) {
+          const call: GateCall = { id: 'gate-bare', foe: who, power: n * BATTLE_MAN, seed: 7919 };
+          won[n] = w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won;
+        }
+      });
+      const drops = won.flatMap((x, n) => (n > 1 && won[n - 1] && !x ? [n] : []));
+      const first = won.findIndex((x) => x);
+      const span = drops.length > 0 ? ` (с ${drops[0]} по ${drops[drops.length - 1]}; при нечётном числе пришедших — ${drops.filter((n) => n % 2 === 1).length})` : '';
+      bare = `       без кости, 1…${top} по одному: верх впервые при ${first < 0 ? '—' : first}; на одного больше — и верх уже не их: ${drops.length} раз${span}`;
+    }
     const even = Number.isFinite(table)
       ? `ровный ${menOfPower(table * TABLE_EDGE)} (${((table * TABLE_EDGE) / d).toFixed(2)} обороны), таблица ${men} — поражений ${pct(foeShare(w, at, who, table))}`
       : `ровного боя до ${CURVE[CURVE.length - 1]} обороны нет`;
@@ -457,6 +481,7 @@ export async function gateLevelRow({ level }: { level: number }): Promise<LevelR
       men,
       bumpy: bumpy || bumpyNear,
       line: `     ${name.padEnd(11)} ${even}; сейчас ${menOfPower(now)} (${share}) — ${pct(foeShare(w, at, who, now))}; кривая: ${curve.map((x) => pct(x)).join(' ')}${near}${bumpy || bumpyNear ? '  НЕМОНОТОННА' : ''}`,
+      ...(bare ? { bare } : {}),
     };
   };
   return {
@@ -472,12 +497,15 @@ async function gateLevelPart(): Promise<void> {
   console.log(`Гарнизон мерки уровня L (townAt, войско armyAt) — всё дома, без веры, мир ${SEEDS[0]}. Кривая — доля боёв, где пришедшие взяли верх, по ${GATE_SEEDS} боёв`);
   console.log(`с костью конфига, при силе ${CURVE[0]}…${CURVE[CURVE.length - 1]} обороны шагом ${CURVE[0]}. «ровный» — где кривая впервые переходит половину (уточнено делением отрезка),`);
   console.log(`«таблица» — ровный, делённый на перевес «Ограничителя» ${TABLE_EDGE}; «сейчас» — нынешняя сила, доля обороны (data/events.foePower). Бойцы — строя пришедших.`);
+  console.log(`На ${BARE_LEVELS} первых уровнях кривая ещё и без кости: бой на каждую голову пришедших, от одного до ${CURVE[CURVE.length - 1]} обороны (разбор — docs/battle_eu4.md, 14.35).`);
   const rows = Array.from({ length: MAX_BUILDING_LEVEL }, (_, i) => ({ level: i + 1 }));
   const got = await fan(gateLevelRow, import.meta.url, rows);
   for (const r of got) {
     console.log(r.head);
     console.log(r.wolves.line);
+    if (r.wolves.bare) console.log(r.wolves.bare);
     console.log(r.raiders.line);
+    if (r.raiders.bare) console.log(r.raiders.bare);
   }
   const rising = (xs: number[]): boolean => xs.every((x, i) => i === 0 || (Number.isFinite(x) && x >= xs[i - 1]));
   const bumpy = (pick: (r: LevelRow) => LevelFoe): string => {
