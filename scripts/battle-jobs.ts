@@ -13,8 +13,8 @@
 //
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
-import { COUNTER, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
+import { COUNTER, RETREAT, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type PhaseId, type Side, type Stack } from '../src/battle';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -139,7 +139,94 @@ export type Job =
    * каждого другого состава решётки, обе стороны поля, сид 1 — сколько боёв дошло до потолка кругов, сколько ничьих и
    * сколько стояло (`bench.standstill`).
    */
-  | { kind: 'still'; total: number; from: number; to: number };
+  | { kind: 'still'; total: number; from: number; to: number }
+  /**
+   * Цена грани кости (слово владельца по 14.35, docs/battle_eu4.md): составы решётки `from..to` в размере W против себя
+   * же, у «нас» — одна правка (`FACES[variant]`), кость конфига, сиды 1..`FACE_SEEDS`, «мы» — с обеих сторон поля.
+   */
+  | { kind: 'face'; variant: number; from: number; to: number }
+  /**
+   * Погоня и стек (слово владельца по 14.35, пп. 5–6): составы решётки `from..to` — половина W против целого W того же
+   * состава, кость конфига, сиды 1..`FACE_SEEDS`, большая — с обеих сторон поля.
+   */
+  | { kind: 'rout'; from: number; to: number }
+  /** Пара кольца, сиды 1..seeds, оба боя пары: потери каждой стороны по группам фаз (`PHASE_GROUPS`). */
+  | { kind: 'ringPhases'; ring: number; seeds: number }
+  /**
+   * Кольцо ролями (слово владельца по 14.35, п. 2): составы с лучниками `ROLES.ours[from..to]` и те же без лучников против
+   * каждого состава с большой долей копий (`ROLES.foes`), сиды 1..`ROLE_SEEDS`, обе стороны поля.
+   */
+  | { kind: 'roles'; from: number; to: number };
+
+/**
+ * Правки «нас» в разделе «Цена грани»: отметка полководца +1 в одной фазе (обстрел, сшибка, сеча), по одной в каждой из трёх
+ * (так стоит полководец с тремя кружками сверх первого), и штраф местности −1 (грань земли). Манёвра здесь нет: без переправы
+ * он ничего не снимает (`groundFaces`). «Как есть» — равные армии: от неё меряется сдвиг.
+ */
+export const FACES: ReadonlyArray<{ name: string; with: (s: ArmySetup) => ArmySetup }> = [
+  { name: 'как есть (равные армии)', with: (s) => s },
+  { name: 'отметка +1: обстрел', with: (s) => ({ ...s, pips: { fire: 1 } }) },
+  { name: 'отметка +1: сшибка', with: (s) => ({ ...s, pips: { shock: 1 } }) },
+  { name: 'отметка +1: сеча', with: (s) => ({ ...s, pips: { melee: 1 } }) },
+  { name: 'отметки +1 во всех трёх', with: (s) => ({ ...s, pips: { fire: 1, shock: 1, melee: 1 } }) },
+  { name: 'штраф местности −1', with: (s) => ({ ...s, ground: { land: 1 } }) },
+];
+/** Сиды раздела «Цена грани» и боёв 2 : 1 — те же четыре, что у «Лезвия» с костью. */
+export const FACE_SEEDS = 4;
+
+/** Группы фаз для кольца: обстрел (стрельба и сближение), сшибка, сеча (бой линий и прежние его фазы), отход, погоня. */
+export const PHASE_GROUPS: ReadonlyArray<{ name: string; phases: readonly PhaseId[] }> = [
+  { name: 'обстрел', phases: ['ranged', 'approach'] },
+  { name: 'сшибка', phases: ['clash'] },
+  { name: 'сеча', phases: ['lines', 'flanking', 'reserve', 'morale'] },
+  { name: 'отход', phases: ['retreat'] },
+  { name: 'погоня', phases: ['pursuit'] },
+];
+const groupLosses = (r: BattleResult, side: Side): number[] => PHASE_GROUPS.map((g) => r.phases.filter((p) => g.phases.includes(p.phase)).reduce((n, p) => n + p.losses[side], 0));
+
+/**
+ * Составы раздела «Кольцо ролями». Противник — состав решётки, в котором копий не меньше половины. «Мы» — состав решётки с
+ * лучниками и хоть одним другим родом; «тот же без лучников» — его прочие рода, доведённые до того же размера в тех же долях
+ * (остаток округления — самому многочисленному роду): так сравнивается сам вклад лучников, а не размер армии.
+ */
+export const ROLES = ((): { ours: Array<Partial<Stack>>; bare: Array<Partial<Stack>>; foes: Array<Partial<Stack>> } => {
+  const lattice = compositionLattice();
+  const foes = lattice.filter((a) => (a.spear ?? 0) * 2 >= ARMY_SIZE);
+  const ours = lattice.filter((a) => (a.archer ?? 0) > 0 && (a.archer ?? 0) < ARMY_SIZE);
+  const bare = ours.map((a) => {
+    const rest = UNIT_KINDS.filter((k) => k !== 'archer' && (a[k] ?? 0) > 0);
+    const left = rest.reduce((n, k) => n + (a[k] ?? 0), 0);
+    const out: Partial<Stack> = {};
+    for (const k of rest) out[k] = Math.floor(((a[k] ?? 0) * ARMY_SIZE) / left);
+    const top = rest.reduce((b, k) => ((a[k] ?? 0) > (a[b] ?? 0) ? k : b), rest[0]);
+    out[top] = (out[top] ?? 0) + ARMY_SIZE - rest.reduce((n, k) => n + (out[k] ?? 0), 0);
+    return out;
+  });
+  return { ours, bare, foes };
+})();
+/** Сиды раздела «Кольцо ролями»: два на пару с каждой стороны поля — четыре боя на (состав, противник). */
+export const ROLE_SEEDS = 2;
+
+/**
+ * Погоня в бою: кто проиграл, сколько он потерял всего, сколько — в погоне, и упёрлась ли погоня в потолок
+ * (`RETREAT.pursuitCap` от того, что у проигравшего стояло к началу отхода, — так бюджет ставит `Battle.decide`).
+ */
+export interface PursuitOf {
+  loser: Side;
+  lost: number;
+  pursuit: number;
+  capped: boolean;
+}
+export function pursuitOf(r: BattleResult): PursuitOf | null {
+  if (r.winner === 'draw') return null;
+  const loser: Side = r.winner === 'attacker' ? 'defender' : 'attacker';
+  const at = r.phases.findIndex((p) => p.phase === 'retreat');
+  const before = (at < 0 ? r.phases : r.phases.slice(0, at)).reduce((n, p) => n + p.losses[loser], 0);
+  const budget = RETREAT.pursuitCap * Math.max(0, r.sides[loser].total.initial - before);
+  const pursuit = r.phases.filter((p) => p.phase === 'pursuit').reduce((n, p) => n + p.losses[loser], 0);
+  // Итог стороны округлён (`total.initial`), потери фаз — нет: упор в потолок признаётся с запасом в процент бюджета.
+  return { loser, lost: r.sides[loser].total.losses, pursuit, capped: budget > 0 && pursuit >= budget * 0.99 };
+}
 
 /**
  * Сколько боёв (`n`) дошло до круга (`rounds`), сколько всего было сшибок (`clashes`), сколько тиков шёл каждый бой
@@ -163,7 +250,27 @@ export type Out =
   | { kind: 'dice'; derived: number; bare: number }
   | { kind: 'reach'; matrix: Reach }
   | { kind: 'edge'; edge: Edge }
-  | { kind: 'still'; n: number; gong: number; draws: number; stood: number };
+  | { kind: 'still'; n: number; gong: number; draws: number; stood: number }
+  | { kind: 'face'; n: number; held: number; draws: number }
+  | { kind: 'rout'; rout: Rout }
+  | { kind: 'ringPhases'; a: number[]; b: number[] }
+  | { kind: 'roles'; rows: Array<{ ours: number; foe: number; with: number; without: number; n: number }> };
+
+/**
+ * Бои 2 : 1 (раздел «Погоня»): сколько их (`n`), в скольких меньшая удержала поле, сколько проиграла; у проигравшей меньшей —
+ * доля армии, потерянная к концу боя (`smallLoss`), потери всего и в погоне, упоры погони в потолок и сколько раз её перебили
+ * (`annihilated`: осталось меньше 3 %).
+ */
+export interface Rout {
+  n: number;
+  smallHeld: number;
+  smallLost: number;
+  smallLoss: number[];
+  lost: number;
+  pursuit: number;
+  capped: number;
+  annihilated: number;
+}
 
 /**
  * Итог боёв «Лезвия»: сколько их (`n`), в скольких поле удержала большая (`held`), сколько ничьих, чем кончились
@@ -179,6 +286,10 @@ export interface Edge {
   reasons: Record<string, number>;
   loserLoss: number[];
   spearsHeld: number;
+  /** Погоня (раздел «Погоня»): потери проигравших всего и в погоне, и в скольких боях погоня упёрлась в потолок (`pursuitOf`). */
+  lost: number;
+  pursuit: number;
+  capped: number;
 }
 
 const reachOf = (rs: readonly BattleResult[]): Reach => ({
@@ -240,7 +351,7 @@ export function battleJob(job: Job): Out {
       const run = (): Array<{ r: BattleResult; big: 'attacker' | 'defender' }> => edgeBattles(job.step, job.from, job.to, seeds);
       const dice = job.dice;
       const fights = withMoralePace(job.pace, () => (dice === 'bare' ? withDiceStep(0, run) : typeof dice === 'number' ? withDiceStep(dice, run) : run()));
-      const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [], spearsHeld: 0 };
+      const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [], spearsHeld: 0, lost: 0, pursuit: 0, capped: 0 };
       for (const { r, big } of fights) {
         edge.n += 1;
         if (r.winner === big) edge.held += 1;
@@ -251,8 +362,100 @@ export function battleJob(job: Job): Out {
           const loser = r.sides[r.winner === 'attacker' ? 'defender' : 'attacker'].total;
           edge.loserLoss.push(loser.losses / Math.max(1, loser.initial));
         }
+        const p = pursuitOf(r);
+        if (p) {
+          edge.lost += p.lost;
+          edge.pursuit += p.pursuit;
+          if (p.capped) edge.capped += 1;
+        }
       }
       return { kind: 'edge', edge };
+    }
+    case 'face': {
+      const lattice = compositionLattice();
+      const total = holdSize();
+      const out = { kind: 'face' as const, n: 0, held: 0, draws: 0 };
+      for (let i = job.from; i < job.to; i += 1) {
+        const theirs = deploySetup(scaleArmy(lattice[i], total));
+        const ours = FACES[job.variant].with(theirs);
+        for (let seed = 1; seed <= FACE_SEEDS; seed += 1) {
+          // «Мы» нападаем и обороняемся тем же сидом: сторона поля не решает.
+          const a = simulateBattle({ seed, attacker: ours, defender: theirs });
+          const d = simulateBattle({ seed, attacker: theirs, defender: ours });
+          out.n += 2;
+          if (a.winner === 'attacker') out.held += 1;
+          if (d.winner === 'defender') out.held += 1;
+          if (a.winner === 'draw') out.draws += 1;
+          if (d.winner === 'draw') out.draws += 1;
+        }
+      }
+      return out;
+    }
+    case 'rout': {
+      const lattice = compositionLattice();
+      const total = holdSize();
+      const out: Rout = { n: 0, smallHeld: 0, smallLost: 0, smallLoss: [], lost: 0, pursuit: 0, capped: 0, annihilated: 0 };
+      for (let i = job.from; i < job.to; i += 1) {
+        const small = deploySetup(scaleArmy(lattice[i], Math.round(total / 2)));
+        const big = deploySetup(scaleArmy(lattice[i], total));
+        for (let seed = 1; seed <= FACE_SEEDS; seed += 1) {
+          for (const [r, smallSide] of [
+            [simulateBattle({ seed, attacker: small, defender: big }), 'attacker'],
+            [simulateBattle({ seed, attacker: big, defender: small }), 'defender'],
+          ] as Array<[BattleResult, Side]>) {
+            out.n += 1;
+            if (r.winner === smallSide) out.smallHeld += 1;
+            const p = pursuitOf(r);
+            if (!p || p.loser !== smallSide) continue;
+            out.smallLost += 1;
+            const t = r.sides[smallSide].total;
+            out.smallLoss.push(t.losses / Math.max(1, t.initial));
+            out.lost += p.lost;
+            out.pursuit += p.pursuit;
+            if (p.capped) out.capped += 1;
+            if (r.reason === 'annihilated') out.annihilated += 1;
+          }
+        }
+      }
+      return { kind: 'rout', rout: out };
+    }
+    case 'ringPhases': {
+      const { a, b } = RING[job.ring];
+      const la = PHASE_GROUPS.map(() => 0);
+      const lb = PHASE_GROUPS.map(() => 0);
+      for (let seed = 1; seed <= job.seeds; seed += 1) {
+        const m = mirrored(a, b, seed);
+        // Первый бой пары — a нападает, второй — b нападает (`mirrored`).
+        for (const [r, sa] of [
+          [m.results[0], 'attacker'],
+          [m.results[1], 'defender'],
+        ] as Array<[BattleResult, Side]>) {
+          const sb: Side = sa === 'attacker' ? 'defender' : 'attacker';
+          groupLosses(r, sa).forEach((v, k) => (la[k] += v));
+          groupLosses(r, sb).forEach((v, k) => (lb[k] += v));
+        }
+      }
+      return { kind: 'ringPhases', a: la, b: lb };
+    }
+    case 'roles': {
+      const rows: Array<{ ours: number; foe: number; with: number; without: number; n: number }> = [];
+      const foes = ROLES.foes.map((f) => deploySetup(f));
+      for (let i = job.from; i < job.to; i += 1) {
+        const withA = deploySetup(ROLES.ours[i]);
+        const without = deploySetup(ROLES.bare[i]);
+        foes.forEach((foe, e) => {
+          const row = { ours: i, foe: e, with: 0, without: 0, n: 0 };
+          for (let seed = 1; seed <= ROLE_SEEDS; seed += 1) {
+            const m1 = mirrored(withA, foe, seed);
+            const m2 = mirrored(without, foe, seed);
+            row.with += m1.field.a;
+            row.without += m2.field.a;
+            row.n += 2;
+          }
+          rows.push(row);
+        });
+      }
+      return { kind: 'roles', rows };
     }
     case 'still': {
       const setups = compositionLattice().map((a) => deploySetup(scaleArmy(a, job.total)));

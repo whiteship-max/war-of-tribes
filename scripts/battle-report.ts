@@ -10,10 +10,10 @@
 // раскладки у удара нет (docs/battle_eu4.md, 14.5). Разделы о них — «Планы», «Планы на всей сетке»,
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
-import { DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, COUNTER, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
+import { DICE, KIND_META, PHASES, PHASE_PIP, RETREAT, UNIT_KINDS, UNIT_STATS, COUNTER, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, RING_BAR, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
-import { VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach } from './battle-jobs';
+import { FACES, FACE_SEEDS, PHASE_GROUPS, ROLES, ROLE_SEEDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -115,12 +115,20 @@ const EDGE_RUNS = [
   { name: 'без кости, темп морали ×2', dice: 'bare' as const, pace: 2 },
   { name: `кость ${DICE.step}, темп морали ×2`, dice: 'config' as const, pace: 2 },
 ].map((run) => ({ ...run, steps: EDGE_STEPS.map((_, step) => edgeAt(w1, step, run.dice, run.pace)) }));
+// Цена грани кости и бои 2 : 1 для «Погони» (слово владельца по 14.35): решётка кусками по десять составов.
+const faceAt = FACES.map((_, variant) => slices(latticeSize, EDGE_CHUNK).map(([from, to]) => w1.add({ kind: 'face', variant, from, to })));
+const routParts = slices(latticeSize, EDGE_CHUNK).map(([from, to]) => w1.add({ kind: 'rout', from, to }));
+const ringPhaseParts = RING.map((_, ring) => w1.add({ kind: 'ringPhases', ring, seeds: SEEDS }));
+const roleParts = slices(ROLES.ours.length, 5).map(([from, to]) => w1.add({ kind: 'roles', from, to }));
 
 await w1.run();
 
 // ---------- Печать разделов, которым хватило первой волны ----------
 
-/** Бои «Длительности»: матрица составов и кольцо, каждый бой один раз, в порядке, в каком их играл отчёт. */
+/**
+ * Бои «Длительности»: матрица составов, каждый бой один раз, в порядке, в каком их играл отчёт. Кольца в ней нет: подпись
+ * раздела — «матрица составов», а кольцо прежде ложилось сюда же и смешивало два разных набора (docs/weights.md, место 6).
+ */
 const compositionResults: Brief[] = [];
 
 /**
@@ -253,12 +261,62 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
 
 console.log('\n=== Кольцо контрров: пары встают по правилу развёртывания ===');
 for (const [i, pair] of RING.entries()) {
-  const s = series(ringPairs[i]().pairs, compositionResults);
+  const s = series(ringPairs[i]().pairs);
   // Разброс по сидам: тест кольца требует порога с каждого сида, а не в среднем (`battle.test.ts`, «кольцо контрров»).
   const bySeed = ringPairs[i]().pairs.map((p) => p.lossRatio);
   // Пороги теста — рядом с числом: средний размен отчёта сравнивали с порогом одного сида (`RING_BAR`).
   const bar = `порог теста: на каждом сиде 1…${RING_BAR.seeds} не ниже ${RATIO_EVEN}, в среднем выше ${RING_BAR.mean}`;
   console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS}; по сидам ${Math.min(...bySeed).toFixed(2)}–${Math.max(...bySeed).toFixed(2)}; ${bar})`);
+}
+
+console.log('\n=== Кольцо по фазам: где пара теряет людей (слово владельца по 14.35, п. 2; прибор пути (в) профиля рода) ===');
+{
+  // Те же пары и сиды, что в «Кольце контрров», оба боя пары; потери каждой стороны суммой по группам фаз. «Размен» — потери
+  // второго к потерям первого в этой группе: где контрящий выигрывает и где отдаёт.
+  console.log(`пары по правилу развёртывания, сиды 1..${SEEDS}, оба боя пары; потери — бойцов строя, суммой по боям`);
+  console.log(`${pad('пара', 30)}${pad('сторона', 12)}${PHASE_GROUPS.map((g) => pad(g.name, 11, true)).join('')}${pad('всего', 11, true)}`);
+  // Пара кольца — чистые рода: имя стороны — имя её рода.
+  const kindName = (s: ArmySetup): string => {
+    const k = UNIT_KINDS.find((kind) => Object.values(s.sectors).some((st) => st[kind] > 0));
+    return k ? KIND_META[k].name.toLowerCase() : '—';
+  };
+  for (const [i, pair] of RING.entries()) {
+    const { a, b } = ringPhaseParts[i]();
+    const [ka, kb] = [kindName(pair.a), kindName(pair.b)];
+    const row = (who: string, xs: number[]): string => `${pad('', 30)}${pad(who, 12)}${xs.map((x) => pad(Math.round(x), 11, true)).join('')}${pad(Math.round(xs.reduce((n, x) => n + x, 0)), 11, true)}`;
+    console.log(`${pad(pair.name, 30)}`);
+    console.log(row(ka, a));
+    console.log(row(kb, b));
+    console.log(`${pad('', 30)}${pad('размен', 12)}${a.map((x, k) => pad(x > 0.5 ? (b[k] / x).toFixed(2) : '—', 11, true)).join('')}${pad((b.reduce((n, x) => n + x, 0) / Math.max(1, a.reduce((n, x) => n + x, 0))).toFixed(2), 11, true)}`);
+  }
+  console.log('размен в группе — потери второй стороны к потерям первой в этой группе фаз; «—» — первая в ней почти не теряла');
+}
+
+console.log('\n=== Кольцо ролями: против войска с большой долей копий состав с лучниками — чаще ли поле, чем тот же без лучников (слово владельца по 14.35, п. 2) ===');
+{
+  // Новое обещание кольца — роль в смешанном составе, а не чистая пара. «Мы» — состав решётки с лучниками и хоть одним другим
+  // родом; «без лучников» — его прочие рода, доведённые до того же размера в тех же долях (`battle-jobs.ROLES`). Противник —
+  // состав решётки, где копий не меньше половины. Поле — удержанное нашей стороной, с обеих сторон поля.
+  const rows = roleParts.flatMap((p) => p().rows);
+  console.log(`составов с лучниками ${ROLES.ours.length}, противников с копьями от половины ${ROLES.foes.length}, пар ${rows.length}; на пару — ${ROLE_SEEDS} сида × обе стороны поля, ${ARMY_SIZE} бойцов строя, кость конфига`);
+  const byShare = new Map<number, typeof rows>();
+  for (const r of rows) {
+    const k = ROLES.ours[r.ours].archer ?? 0;
+    byShare.set(k, [...(byShare.get(k) ?? []), r]);
+  }
+  const line = (name: string, rs: typeof rows): string => {
+    const n = rs.reduce((x, r) => x + r.n, 0);
+    const w = rs.reduce((x, r) => x + r.with, 0);
+    const wo = rs.reduce((x, r) => x + r.without, 0);
+    const more = rs.filter((r) => r.with > r.without).length;
+    const less = rs.filter((r) => r.with < r.without).length;
+    const pc = (x: number): string => `${((100 * x) / Math.max(1, n)).toFixed(1)}%`;
+    return `${pad(name, 26)}${pad(rs.length, 6, true)}${pad(pc(w), 14, true)}${pad(pc(wo), 16, true)}${pad(more, 10, true)}${pad(rs.length - more - less, 9, true)}${pad(less, 9, true)}`;
+  };
+  console.log(`${pad('лучников в составе', 26)}${pad('пар', 6, true)}${pad('поле с ними', 14, true)}${pad('поле без них', 16, true)}${pad('чаще', 10, true)}${pad('поровну', 9, true)}${pad('реже', 9, true)}`);
+  for (const [k, rs] of [...byShare.entries()].sort((x, y) => x[0] - y[0])) console.log(line(`${k} из ${ARMY_SIZE}`, rs));
+  console.log(line('все', rows));
+  console.log('«чаще / поровну / реже» — пар, где состав с лучниками держит поле чаще, так же или реже того же без лучников');
 }
 
 console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');
@@ -362,9 +420,12 @@ const edgeSum = (parts: EdgeParts): Edge =>
       for (const [k, v] of Object.entries(e.reasons)) acc.reasons[k] = (acc.reasons[k] ?? 0) + v;
       acc.loserLoss.push(...e.loserLoss);
       acc.spearsHeld += e.spearsHeld;
+      acc.lost += e.lost;
+      acc.pursuit += e.pursuit;
+      acc.capped += e.capped;
       return acc;
     },
-    { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[], spearsHeld: 0 },
+    { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[], spearsHeld: 0, lost: 0, pursuit: 0, capped: 0 },
   );
 const edgePc = (a: number, b: number): string => `${((100 * a) / Math.max(1, b)).toFixed(1)}%`;
 /** Две таблицы «Лезвия» для прогонов `runs`: кривая «перевес → поле» по ступеням и как кончаются бои. */
@@ -399,6 +460,79 @@ console.log('\n=== Лезвие: как кончаются бои и крива�
 // не зависит — один на сторону; с костью — сиды 1..4. Темп ×2 — проба (`bench.withMoralePace`: потеря морали от потерь
 // людьми вдвое быстрее), а не число модели. Кривая на выведенном шаге кости — отдельным разделом после второй волны.
 printEdge(EDGE_RUNS);
+
+console.log('\n=== Цена грани кости: отметка полководца +1 и штраф местности −1 в доле поля (слово владельца по 14.35) ===');
+{
+  // Та же решётка и тот же размер, что у «Лезвия», кость конфига, сиды 1..4, «мы» — с обеих сторон поля; армии равные, и у
+  // «нас» одна правка. Единица — та же, что у «Лезвия»: доля боёв, где «мы» удержали поле. «Как перевес числом» — где эта доля
+  // легла бы на кривую «Лезвия» с костью конфига (перевес в % войска, между её ступенями — по прямой); для штрафа — перевес
+  // противника. Грань — `DICE.step` урона фазы (`sim.phaseLuck`).
+  const edge = EDGE_RUNS.find((r) => r.dice === 'config' && r.pace === 1)!;
+  const curve = [{ x: 0, y: 0 }, ...EDGE_STEPS.map((s) => ({ x: (100 * (s.bigger(HOLD) - HOLD)) / HOLD, y: 0 }))];
+  const faces = faceAt.map((parts) => parts.reduce((acc, p) => ({ n: acc.n + p().n, held: acc.held + p().held, draws: acc.draws + p().draws }), { n: 0, held: 0, draws: 0 }));
+  const base = faces[0].held / Math.max(1, faces[0].n);
+  curve[0].y = base;
+  edge.steps.forEach((parts, k) => {
+    const e = edgeSum(parts);
+    curve[k + 1].y = e.held / Math.max(1, e.n);
+  });
+  /** Перевес числом, при котором кривая «Лезвия» даёт долю `y` (по прямой между ступенями); вне кривой — «<» или «>». */
+  const asMen = (y: number): string => {
+    if (y <= curve[0].y) return `≤ 0 %`;
+    for (let k = 1; k < curve.length; k += 1) {
+      const a = curve[k - 1];
+      const b = curve[k];
+      if (y <= b.y && b.y > a.y) return `≈ +${(a.x + ((y - a.y) * (b.x - a.x)) / (b.y - a.y)).toFixed(2)} %`;
+    }
+    return `> +${curve[curve.length - 1].x.toFixed(0)} %`;
+  };
+  console.log(`решётка — ${latticeSize} составов на ${HOLD} бойцов строя против себя же, сиды 1..${FACE_SEEDS}, «мы» с обеих сторон поля; шаг кости ${DICE.step} урона фазы на грань`);
+  console.log(`кривая «Лезвия» с костью конфига (поле у большей): ${curve.map((c) => `${c.x === 0 ? 'равные' : `+${c.x.toFixed(2)} %`} — ${(100 * c.y).toFixed(1)}%`).join(', ')}`);
+  console.log(`${pad('правка у «нас»', 30)}${pad('боёв', 7, true)}${pad('поле за нами', 15, true)}${pad('сдвиг', 10, true)}${pad('ничьих', 9, true)}   как перевес числом`);
+  for (const [v, f] of FACES.entries()) {
+    const y = faces[v].held / Math.max(1, faces[v].n);
+    const shift = `${y >= base ? '+' : '−'}${Math.abs(100 * (y - base)).toFixed(1)}`;
+    // Штраф у «нас» — то же, что перевес у противника: его доля поля — то, чего не удержали «мы».
+    const men = v === 0 ? '—' : y >= base ? `${asMen(y)} войска у «нас»` : `${asMen(1 - y)} войска у противника`;
+    console.log(`${pad(f.name, 30)}${pad(faces[v].n, 7, true)}${pad(`${(100 * y).toFixed(1)}%`, 15, true)}${pad(v === 0 ? '—' : shift, 10, true)}${pad(faces[v].draws, 9, true)}   ${men}`);
+  }
+  console.log('сдвиг — в пунктах доли поля от равных армий; у полководца четвёртого уровня — три кружка сверх первого (`sim/agents.pipsAt`), у пятого — четыре');
+}
+
+console.log('\n=== Погоня: сколько проигравший теряет в погоне и упирается ли она в потолок (слово владельца по 14.35, пп. 5–6) ===');
+{
+  // Прибор погони одной дверью урона: сегодня погоню держат ставки `RETREAT.pursuitKills` и потолок `RETREAT.pursuitCap` — доля
+  // того, что у проигравшего стояло к началу отхода. «Упёрлась» — погоня выбила весь бюджет потолка (`battle-jobs.pursuitOf`).
+  const edge = edgeSum(EDGE_RUNS.find((r) => r.dice === 'config' && r.pace === 1)!.steps.flat());
+  const decided = edge.n - edge.draws;
+  console.log(`потолок погони ${RETREAT.pursuitCap * 100} % того, что стояло у проигравшего к началу отхода; ставки на бойца за тик: ${Object.entries(RETREAT.pursuitKills).map(([k, v]) => `${k} ${v}`).join(', ')}`);
+  console.log(
+    `«Лезвие», кость конфига (${edge.n} боёв, решено ${decided}): у проигравшего в погоне — ${edgePc(edge.pursuit, edge.lost)} его потерь; погоня упёрлась в потолок в ${edge.capped} боях из ${decided} (${edgePc(edge.capped, decided)})`,
+  );
+  const r: Rout = routParts.reduce(
+    (acc, p) => {
+      const o = p().rout;
+      acc.n += o.n;
+      acc.smallHeld += o.smallHeld;
+      acc.smallLost += o.smallLost;
+      acc.smallLoss.push(...o.smallLoss);
+      acc.lost += o.lost;
+      acc.pursuit += o.pursuit;
+      acc.capped += o.capped;
+      acc.annihilated += o.annihilated;
+      return acc;
+    },
+    { n: 0, smallHeld: 0, smallLost: 0, smallLoss: [] as number[], lost: 0, pursuit: 0, capped: 0, annihilated: 0 },
+  );
+  const xs = r.smallLoss.slice().sort((a, b) => a - b);
+  const at = (p: number): string => (xs.length ? `${Math.round(100 * xs[Math.min(xs.length - 1, Math.floor(xs.length * p))])}%` : '—');
+  console.log(
+    `2 : 1 — ${latticeSize} составов решётки, ${Math.round(HOLD / 2)} против ${HOLD} того же состава, сиды 1..${FACE_SEEDS}, обе стороны поля (${r.n} боёв): меньшая удержала поле ${r.smallHeld}, проиграла ${r.smallLost}; ` +
+      `у проигравшей меньшей потеряно ${at(0.25)} / ${at(0.5)} / ${at(0.75)} армии (25 % / медиана / 75 %), в погоне — ${edgePc(r.pursuit, r.lost)} потерь; ` +
+      `погоня упёрлась в потолок ${r.capped} раз из ${r.smallLost}; перебита (меньше 3 %) — ${r.annihilated}`,
+  );
+  console.log('уничтожения стека отдельным правилом нет: погоня, выбившая всех бегущих, и есть уничтоженная армия (слово владельца по 14.35, п. 6)');
+}
 
 // ---------- Волна 2: перемер лучших из отбора ----------
 
