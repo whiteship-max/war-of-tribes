@@ -678,6 +678,35 @@ function migrateWorldSave(data: Partial<WorldSave>): void {
 const WORLD_DROPPED = ['frozenDefense'] as const;
 
 /**
+ * Поля записи боя, которые мир не пишет в сохранение, — тот же приём, что `WORLD_DROPPED` и `save.DROPPED`, только
+ * на записи. `start` — мораль, с которой сектор встал в бой (`SideResult.sectors[].start`): она есть в результате боя
+ * (по ней тест обряда видит, что прибавка одна и та же против любого состава), а читать её из сохранения некому, и
+ * записи мира от неё только росли бы (слово владельца, поставка 5, docs/battle_eu4.md, 14.34).
+ */
+export const SECTOR_UNSAVED = ['start'] as const;
+
+/** Строка сохранения мира: всё, что мир держит, без полей записи боя, которые не пишутся (`SECTOR_UNSAVED`). */
+export function worldSaveJson(save: WorldSave): string {
+  const reports = save.reports.map((r) => {
+    if (!r.battle) return r;
+    const sides = Object.fromEntries(
+      Object.entries(r.battle.result.sides).map(([side, res]) => {
+        const sectors = Object.fromEntries(
+          Object.entries(res.sectors).map(([id, cell]) => {
+            const kept: Record<string, unknown> = { ...cell };
+            for (const key of SECTOR_UNSAVED) delete kept[key];
+            return [id, kept];
+          }),
+        );
+        return [side, { ...res, sectors }];
+      }),
+    );
+    return { ...r, battle: { ...r.battle, result: { ...r.battle.result, sides } } };
+  });
+  return JSON.stringify({ ...save, reports });
+}
+
+/**
  * Читает сохранение мира. null — его нет, оно испорчено или оно младше
  * `MIN_WORLD_SAVE_VERSION`: тогда мир генерируется заново.
  */

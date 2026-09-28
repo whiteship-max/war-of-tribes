@@ -106,6 +106,8 @@ interface SideState {
   initialTotal: number;
   /** Мораль армии — средняя по живым группам, взвешенная числом людей. Только для отчёта и условия резерва. */
   morale: number;
+  /** С какой моралью группа каждого сектора встала в бой — снимок при расстановке, в итог (`SideResult.sectors[].start`). */
+  start: Partial<Record<Sector, number>>;
   broken: boolean;
   brokenAt: number | null;
   brokenReason: 'morale' | 'annihilated' | null;
@@ -412,6 +414,7 @@ class Battle {
         groups,
         initialTotal,
         morale: groups.reduce((n, g) => n + g.morale * g.initial, 0) / Math.max(1, initialTotal),
+        start: Object.fromEntries(groups.map((g) => [g.origin, g.morale])),
         broken: false,
         brokenAt: null,
         brokenReason: null,
@@ -1414,7 +1417,8 @@ class Battle {
       const men = own.reduce((n, g) => n + stackTotal(g.stack), 0);
       const morale = men > 0 ? own.reduce((n, g) => n + g.morale * stackTotal(g.stack), 0) / men : 0;
       const broken = own.length > 0 && own.every((g) => g.fled || !alive(g));
-      sectors[sector] = { initial: init, final: fin, morale: Math.round(Math.max(0, Math.min(MORALE.max, morale))), broken };
+      const start = Math.round((s.start[sector] ?? 0) * 100) / 100;
+      sectors[sector] = { initial: init, final: fin, morale: Math.round(Math.max(0, Math.min(MORALE.max, morale))), broken, start };
     }
     const losses = emptyStack();
     for (const k of UNIT_KINDS) losses[k] = initial[k] - final[k];

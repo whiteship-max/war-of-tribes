@@ -293,7 +293,7 @@ export function RealmFaith() {
         show={tilt.fervour > 0.001}
         icon="⚔️"
         name="Стойкость дружины в обряд"
-        hint="ровно та же против кого угодно"
+        hint="к морали в начале боя; прибавка та же против кого угодно"
         value={`+${tilt.fervour.toFixed(1)}`}
         good
       />

@@ -44,7 +44,9 @@ import {
 import { addStrain, baptismInfo, baptize, grantRelic, holdRite, riteInfo, setObservance, syncFaith } from './faith';
 import { popGrowth } from './population';
 import { surveyInfo, startSurvey } from './survey';
-import { deploySetup, simulateBattle, type ArmySetup, type Stack } from '@/battle';
+import { MORALE, SECTORS, deploySetup, simulateBattle, stackOf, stackTotal, type ArmySetup, type Sector, type Stack } from '@/battle';
+import { ARMY_SIZE, BALANCED_ARMY, compositionLattice, compositionName, scaleArmy } from '@/battle/bench';
+import { resolveField, type FieldSide } from '@/world/battle';
 import { SEASON_DAYS } from '../data/seasons';
 
 const FAITH_IDS = FAITHS.map((f) => f.id);
@@ -297,35 +299,77 @@ describe('боевого перевеса одной веры над друго�
     for (const r of runs) expect(JSON.stringify(r)).toBe(JSON.stringify(runs[0]));
   });
 
-  it('прогон: обряд помогает ровно одинаково против любого состава', () => {
-    // И вторая сторона того же: прибавка работает всегда одна и та же, а не
-    // «сильнее против неверных».
-    // КРАСНЫЙ со снятия «обвыклись» (поставка 5, docs/battle_eu4.md, 14.33), честно: против конного состава (20 пехоты,
-    // 10 лучников, 45 лёгкой) с обрядом размен 0.69 → 0.68 — потери 16/11 → 19/13 (сообщение этого теста): стойкое войско
-    // дольше стоит под стрелами, которые теперь пугают весь бой одинаково, теряет больше и выбивает больше. Решается на
-    // пересмотре баланса после поставки 5 (14.24), не подгонкой выборки.
-    const line: Stack = { infantry: 40, spear: 20, archer: 10, cavalry: 5, heavy: 0 };
-    const foes: Stack[] = [
-      { infantry: 70, spear: 0, archer: 5, cavalry: 0, heavy: 0 },
-      { infantry: 10, spear: 50, archer: 15, cavalry: 0, heavy: 0 },
-      { infantry: 20, spear: 0, archer: 10, cavalry: 45, heavy: 0 },
-    ];
-    let helped = 0;
-    const seen: string[] = [];
-    for (const foe of foes) {
-      const plain = simulateBattle({ seed: 77, attacker: setup(line, 0), defender: setup(foe, 0) });
-      const rite = simulateBattle({ seed: 77, attacker: setup(line, 12), defender: setup(foe, 0) });
-      // Вред — худший размен (чужие потери к своим), а не свои потери: стойкое войско держится дольше и
-      // теряет больше, но и выбивает больше. Прежде мерилось своими потерями, и с правилом развёртывания
-      // (docs/battle_eu4.md, 14.5) против конницы обряд дал 22 потерь вместо 19 при 11 выбитых вместо 9.
-      const ratio = (r: typeof plain): number => r.sides.defender.total.losses / Math.max(1, r.sides.attacker.total.losses);
-      if (ratio(rite) >= ratio(plain)) helped++;
-      const loss = (r: typeof plain): string => `${r.sides.attacker.total.losses}/${r.sides.defender.total.losses}`;
-      seen.push(`${JSON.stringify(foe)}: размен ${ratio(plain).toFixed(2)} → ${ratio(rite).toFixed(2)}, потери ${loss(plain)} → ${loss(rite)}`);
+  // Тест «прогон: обряд помогает ровно одинаково против любого состава» ушёл (слово владельца, поставка 5, 14.34): он
+  // мерил исход — размен одного боя (сид 77, по 75 человек) против трёх составов — и требовал, чтобы с обрядом он не был
+  // хуже ни в одном. Структурно это неверно: одинакова прибавка, а не исход. Что прибавка морали даст в бою, зависит от боя —
+  // стойкое войско дольше стоит, больше теряет и больше выбивает, как лучники без паники, — и размен с обрядом бывает хуже
+  // на отдельных сидах против каждого из трёх составов (щуп по сидам, не в коммите; docs/battle_eu4.md, 14.34). Покраснел
+  // он со снятия «обвыклись» на одном бою: 0.69 → 0.68, потери 16/11 → 19/13 (его сообщение). Вместо него — два обещания
+  // ниже: (а) прибавка одна и та же против любого состава — точно;
+  // (б) поле за нами с обрядом не реже, чем без него, — в среднем по сидам. Про размен не обещаем.
+
+  /** Наша армия и противники прогонов обряда: сбалансированный состав и вся решётка составов, в пятую долю размера бенча. */
+  const RITE_SIZE = ARMY_SIZE / 5;
+  const riteOurs = stackOf(scaleArmy(BALANCED_ARMY, RITE_SIZE));
+  const riteFoes = compositionLattice().map((mix) => ({ mix, side: { kinds: stackOf(scaleArmy(mix, RITE_SIZE)) } as FieldSide }));
+  /** Прибавка обряда — из её единственного места: `derived.fervour` деревни, где идёт обряд (храм десятого уровня). */
+  const riteVillage = village('pagan');
+  holdRite(riteVillage);
+  const RITE = fervour(riteVillage);
+  const fight = (seed: number, me: FieldSide, foe: FieldSide, attack: boolean) =>
+    resolveField({ seed, attacker: attack ? me : foe, defender: attack ? foe : me }).result!;
+
+  it('прогон: прибавка стартовой морали от обряда одна и та же против любого состава — ровно та, что даёт храм', () => {
+    // (а) Обещание структуры, и потому точное. Бой идёт дверью мира (`world/battle.resolveField`) — тем путём, каким обряд
+    // попадает в бой в игре, — против каждого состава решётки, обеими сторонами поля. Мерка — мораль, с которой каждая наша
+    // группа встала в бой (`SideResult.sectors[].start`, ядро пишет её до сотых): с обрядом она выше ровно на прибавку и
+    // одна и та же, кто бы ни стоял напротив.
+    // Граница области: обряд правда идёт и кладёт прибавку, а мораль на входе ниже потолка — прибавку ничто не срезает.
+    expect(RITE, 'прибавка обряда').toBeGreaterThan(0);
+    let first: Partial<Record<Sector, number>> | null = null;
+    let groups = 0;
+    for (const { mix, side } of riteFoes) {
+      for (const attack of [true, false]) {
+        const us = attack ? 'attacker' : 'defender';
+        const where = `${compositionName(mix)}, ${attack ? 'нападаем' : 'обороняемся'}`;
+        const rite = fight(1, { kinds: riteOurs, resolve: RITE }, side, attack).sides[us].sectors;
+        const plain = fight(1, { kinds: riteOurs }, side, attack).sides[us].sectors;
+        const got: Partial<Record<Sector, number>> = {};
+        for (const id of SECTORS) {
+          if (stackTotal(rite[id].initial) === 0) continue;
+          got[id] = rite[id].start;
+          expect(rite[id].start!, `${where}, ${id}: мораль на входе с обрядом у потолка`).toBeLessThan(MORALE.max);
+          const add = rite[id].start! - plain[id].start!;
+          expect(Math.abs(add - RITE), `${where}, ${id}: на входе с обрядом ${rite[id].start}, без — ${plain[id].start}, а прибавка ${RITE}`).toBeLessThanOrEqual(0.01);
+          groups += 1;
+        }
+        first ??= got;
+        expect(got, `${where}: мораль наших групп на входе с обрядом — не та, что против первого состава`).toEqual(first);
+      }
     }
-    // Прибавка к стойкости не обязана переворачивать каждый бой, но и вредить
-    // не должна ни в одном: она одна и та же против любого противника.
-    expect(helped, seen.join('; ')).toBe(foes.length);
+    expect(groups, 'наших групп, вставших в бой').toBeGreaterThan(0);
+  });
+
+  it('прогон: с обрядом поле за нами не реже, чем без него, — в среднем по сидам, против каждого состава', () => {
+    // (б) Обещание баланса, и потому в среднем, а не на каждом сиде: против каждого состава решётки, обеими сторонами поля,
+    // по сидам 1…8. Про размен не обещаем — стойкость может его и ухудшить (разбор ушедшего теста выше).
+    const N = 8;
+    let contested = 0;
+    for (const { mix, side } of riteFoes) {
+      let plain = 0;
+      let rite = 0;
+      for (let seed = 1; seed <= N; seed += 1) {
+        for (const attack of [true, false]) {
+          const ours = attack ? 'attacker' : 'defender';
+          if (fight(seed, { kinds: riteOurs }, side, attack).winner === ours) plain += 1;
+          if (fight(seed, { kinds: riteOurs, resolve: RITE }, side, attack).winner === ours) rite += 1;
+        }
+      }
+      // Граница области: поле без обряда спорно хотя бы против нескольких составов — там обряду есть что менять.
+      if (plain > 0 && plain < 2 * N) contested += 1;
+      expect(rite, `${compositionName(mix)}: поле за нами без обряда в ${plain} боях из ${2 * N}, с обрядом — в ${rite}`).toBeGreaterThanOrEqual(plain);
+    }
+    expect(contested, 'составов, против которых поле без обряда спорно').toBeGreaterThan(0);
   });
 });
 

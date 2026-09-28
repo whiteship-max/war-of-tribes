@@ -20,7 +20,7 @@ import { kindsOf } from '@/game/battle/kinds';
 import { playerProfile, syncAway, toOutcome } from './bridge';
 import { awayOf, homeOf } from './muster';
 import { FogMap, fogSaveBytes } from './fog';
-import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave } from './local/state';
+import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave, type WorldSave } from './local/state';
 import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -45,7 +45,7 @@ import {
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from './data/tuning';
-import type { Coord, FigureView, Intel, MarchView, PlayerProfile, SettlementCard, SettlementView } from './types';
+import type { Coord, FigureView, Intel, MarchView, PlayerProfile, Report, SettlementCard, SettlementView } from './types';
 import { shieldVillagers } from './lairs';
 
 /**
@@ -1264,6 +1264,35 @@ describe('оборона у стены — правилом развёртыва
     const ruleA = stackTotal(plain.result.sides.defender.sectors.A.initial);
     expect(ruleA, 'правило в левый фланг ставит не всех').not.toBe(stackTotal(lopsided().sectors.A));
     expect(legacy.result.log, 'раскладка из слепка в бой не идёт').toEqual(plain.result.log);
+  }, 60_000);
+
+  it('мораль на входе в бой есть в результате боя, а в сохранение мира не пишется', async () => {
+    // Слово владельца (поставка 5, docs/battle_eu4.md, 14.34): `SideResult.sectors[].start` нужна тесту обряда в
+    // результате боя, а читать её из сохранения некому, и записи мира от неё только росли бы. Снимает её единственный
+    // писатель мира (`state.worldSaveJson`, поля — `SECTOR_UNSAVED`).
+    let written: string | null = null;
+    let now = START;
+    const world = new LocalWorld({ seed: 303, now: () => now, storage: { read: () => written, write: (json) => (written = json) } });
+    const p = profile({ army: ARMY, militia: MILITIA, militiaArchers: ARCHERS, units: { warrior: 16, scout: 2 } });
+    await world.sync(p);
+    let fought: Report | null = null;
+    for (let i = 0; i < 400 && !fought; i++) {
+      now += 15_000;
+      const pulse = await world.sync(p);
+      fought = pulse.reports.find((r) => r.kind === 'defense' && r.battle) ?? null;
+    }
+    // Граница области: бой был, мораль на входе у него в результате есть, и запись о нём легла в сохранение.
+    expect(fought, 'набег дошёл до боя у стены').toBeTruthy();
+    if (!fought) return;
+    const live = Object.values(fought.battle!.result.sides.defender.sectors).filter((c) => stackTotal(c.initial) > 0);
+    expect(live.length, 'сектора обороны').toBeGreaterThan(0);
+    for (const c of live) expect(c.start, 'мораль на входе в результате боя').toBeGreaterThan(0);
+    const saved = JSON.parse(written ?? 'null') as WorldSave;
+    const record = saved.reports.find((r) => r.id === fought!.id);
+    expect(record?.battle, 'запись боя в сохранении').toBeTruthy();
+    for (const res of Object.values(record!.battle!.result.sides)) {
+      for (const [id, c] of Object.entries(res.sectors)) expect('start' in c, `сектор ${id}: мораль на входе записана в сохранение`).toBe(false);
+    }
   }, 60_000);
 
   it('людей из ниоткуда нет: в бой у стены идёт ровно гарнизон дома и ополчение', async () => {

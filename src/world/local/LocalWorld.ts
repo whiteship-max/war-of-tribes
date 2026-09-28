@@ -317,6 +317,7 @@ import {
   browserStorage,
   createWorldSave,
   parseWorldSave,
+  worldSaveJson,
   type SpawnedLair,
   type StoredFigure,
   type StoredMarch,
@@ -468,7 +469,7 @@ export class LocalWorld implements WorldApi {
   private write(): void {
     this.save.fog = this.fog.toJSON();
     this.forgetVisits(this.clock());
-    this.storage?.write(JSON.stringify(this.save));
+    this.storage?.write(worldSaveJson(this.save));
   }
 
   /** Разведанная местность наружу — карте и тестам размера сохранения. */
