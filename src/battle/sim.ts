@@ -85,8 +85,6 @@ interface Group {
   row: Row;
   /** Для обхода: кого бить первым — тыл (конница) или фронт (пехота, завернувшая с фланга). */
   prefer: 'rear' | 'front';
-  /** Фронт смят: откатились в тыл и больше не сомкнутый строй. */
-  routed: boolean;
   /** Мораль сектора, 0..`MORALE.max`. Своя у каждой группы: сектор ломается сам, а не вся армия. */
   morale: number;
   /**
@@ -229,12 +227,13 @@ const menIn = (groups: Group[], kinds?: readonly UnitKind[]): number =>
 
 /**
  * Сомкнуты ли копья группы — положение, а не приказ (docs/battle_eu4.md, 14.5, Е17): копья в строю
- * (фронт или тыл своей полосы) сомкнуты, пока не смяты и не бегут. Удар во фланг размыкает их на тот
- * тик, когда он пришёл, — это читают кольцо и характер там, где знают, откуда удар.
+ * (фронт или тыл своей полосы) сомкнуты, пока не бегут. Удар во фланг размыкает их на тот тик, когда он
+ * пришёл, — это читают кольцо и характер там, где знают, откуда удар. Смятых копий нет: смятия фронта потерями
+ * больше нет (поставка 5, 14.33).
  */
-const closedSpears = (g: Group): boolean => (g.row === 'front' || g.row === 'rear') && !g.routed && !g.fled && g.stack.spear >= EPS;
+const closedSpears = (g: Group): boolean => (g.row === 'front' || g.row === 'rear') && !g.fled && g.stack.spear >= EPS;
 
-/** Сектор с пехотой заякорен: держит мораль и линию. */
+/** Сектор с пехотой заякорен: теряет мораль медленнее (`MORALE.anchor`), а фронт без неё получает больше урона. */
 const anchored = (stack: Stack): boolean => stack.infantry >= ANCHOR.infantryShare * Math.max(stackTotal(stack), EPS);
 
 /**
@@ -302,12 +301,12 @@ export const phaseLuck = (roll: number, pips = 0): number => Math.max(0, 1 + DIC
 
 /**
  * Множитель кольца: `kind` бьёт `target`. Сомкнутость копий — положение (`closedSpears`), а не приказ
- * (docs/battle_eu4.md, 14.5, Е17): `fromOpen` — копья того, кто бьёт, не сомкнуты (смяты, бегут или
- * обойдены в этот тик); `targetBroken` — цель смята или бежит: такие копья строя не держат, с какой стороны
- * их ни бей. Открыт наружу ради теста «копья держат конницу, пока не обойдены»: кольцо проверяется этой
- * самой функцией, а не своей копией.
+ * (docs/battle_eu4.md, 14.5, Е17): `fromOpen` — копья того, кто бьёт, не сомкнуты (обойдены в этот тик).
+ * Копья-цель сомкнуты всегда, пока стоят: бежавшие в стычки не попадают, а смятия больше нет (поставка 5, 14.33).
+ * Открыт наружу ради теста «копья держат конницу, пока не обойдены»: кольцо проверяется этой самой функцией, а не
+ * своей копией.
  */
-export function ringMult(kind: UnitKind, target: UnitKind, flank: boolean, fromOpen: boolean, ranged: boolean, targetBroken: boolean): number {
+export function ringMult(kind: UnitKind, target: UnitKind, flank: boolean, fromOpen: boolean, ranged: boolean): number {
   if (ranged) {
     if (target === 'spear') return COUNTER.archer.spear;
     if (target === 'infantry') return COUNTER.archer.infantry;
@@ -325,10 +324,7 @@ export function ringMult(kind: UnitKind, target: UnitKind, flank: boolean, fromO
       // Своя половина кольца у каждого конного рода: лёгкая режет лучников и заходит во
       // фланг, тяжёлая ломает строй в лоб. Сомкнутые копья держат обеих одинаково.
       const c = COUNTER[kind];
-      if (target === 'spear') {
-        if (!targetBroken && !flank) return c.spearClosed;
-        return flank ? c.flank : 1;
-      }
+      if (target === 'spear') return flank ? c.flank : c.spearClosed;
       if (target === 'archer') return Math.max(c.archer, flank ? c.flank : 0);
       if (target === 'infantry') return flank ? Math.max(c.flank, c.infantry) : c.infantry;
       return flank ? c.flank : 1;
@@ -349,7 +345,6 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
     lane,
     row,
     prefer: opts.prefer ?? 'rear',
-    routed: false,
     morale: opts.morale ?? startMorale(setup, stack),
     fled: false,
     flankedTick: -1,
@@ -831,7 +826,7 @@ class Battle {
           }
         }
         const fresh = startMorale(s.setup, moved);
-        const into_ = s.groups.find((g) => g.origin === 'R' && g.lane === lane && g.row === row && alive(g) && !g.fled && !g.routed);
+        const into_ = s.groups.find((g) => g.origin === 'R' && g.lane === lane && g.row === row && alive(g) && !g.fled);
         if (into_) {
           const had = stackTotal(into_.stack);
           into_.morale = (into_.morale * had + fresh * men) / (had + men);
@@ -895,7 +890,6 @@ class Battle {
         this.melee(c.b, c.a, { flank: false, toRow: c.aRow, open: c.aFlank ? 1 : aOver > 0 ? aCover : 0, over: bOver, cover: bCover, targetKinds: c.kinds }, facingMen, hits);
       }
       this.apply(hits);
-      this.collapse();
       this.relocate();
     }
     this.updateMorale();
@@ -1101,7 +1095,7 @@ class Battle {
         const n = t.stack[k];
         if (!stands(n)) continue;
         const share = n / weight;
-        const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged, t.routed);
+        const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged);
         const casualties = (dmg / UNIT_STATS[k].toughness) * this.taken(t, k, ctx.frontal);
         if (casualties > 0) hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1 });
       }
@@ -1189,25 +1183,6 @@ class Battle {
     }
   }
 
-  /** Смятый фронт откатывается в тыл. */
-  collapse(): void {
-    for (const side of SIDES) {
-      const s = this.sides[side];
-      for (const g of s.groups) {
-        if (g.row !== 'front' || g.lane === null) continue;
-        const total = stackTotal(g.stack);
-        const at = anchored(g.stack) ? ANCHOR.collapseAt : ANCHOR.noInfantryCollapseAt;
-        if (total >= at * g.initial) continue;
-        g.row = 'rear';
-        g.routed = true;
-        const sector = laneSector(g.lane, 'front');
-        if (s.fired.has(`collapsed:${sector}`)) continue;
-        s.fired.add(`collapsed:${sector}`);
-        this.emit({ id: 'sector-collapsed', side, sector });
-      }
-    }
-  }
-
   /**
    * Полоса очищена в бою — фронт и обходящие переходят на соседнюю (К5). Полоса, где противника не было с начала
    * боя, — не очищенная, а край строя: оттуда дотягивается только конница (`buildContacts`), пешие стоят.
@@ -1277,7 +1252,7 @@ class Battle {
    */
   breakGroup(g: Group): void {
     const s = this.sides[g.side];
-    // В журнале — сектор расстановки, а не позиция: смятый фронт, откатившийся в тыл, для игрока всё ещё «правый фланг».
+    // В журнале — сектор расстановки, а не позиция: пехота, ушедшая обходом на соседнюю полосу, для игрока всё ещё «правый фланг».
     const sector = g.origin;
     g.fled = true;
     g.morale = 0;

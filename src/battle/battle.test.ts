@@ -170,15 +170,15 @@ describe('превосходство условно', () => {
     }
   });
 
-  it('копья держат конницу, пока не обойдены: обойдённые и смятые теряют упор — условие положение, а не приказ', () => {
+  it('копья держат конницу, пока не обойдены: обойдённые теряют упор — условие положение, а не приказ', () => {
     // Новый тест 8 поставки 1 (docs/battle_eu4.md, 14.5; Е17): сомкнутость копий — положение. Кольцо читает его
-    // одной функцией (`sim.ringMult`), и граница области — оба рода конницы и обе стороны удара.
+    // одной функцией (`sim.ringMult`), и граница области — оба рода конницы и обе стороны удара. Утверждение «по смятым
+    // копьям конница бьёт ×1» ушло со смятием фронта (поставка 5, 14.33): смятых копий больше нет.
     for (const horse of ['cavalry', 'heavy'] as const) {
-      expect(ringMult('spear', horse, false, false, false, false), `${horse}: сомкнутые копья`).toBe(COUNTER.spear.cavalryHolding);
-      expect(ringMult('spear', horse, false, true, false, false), `${horse}: обойдённые или смятые копья`).toBe(1);
-      expect(ringMult(horse, 'spear', false, false, false, false), `${horse} в лоб по сомкнутым`).toBe(COUNTER[horse].spearClosed);
-      expect(ringMult(horse, 'spear', false, false, false, true), `${horse} по смятым`).toBe(1);
-      expect(ringMult(horse, 'spear', true, false, false, false), `${horse} во фланг`).toBe(COUNTER[horse].flank);
+      expect(ringMult('spear', horse, false, false, false), `${horse}: сомкнутые копья`).toBe(COUNTER.spear.cavalryHolding);
+      expect(ringMult('spear', horse, false, true, false), `${horse}: обойдённые копья`).toBe(1);
+      expect(ringMult(horse, 'spear', false, false, false), `${horse} в лоб по сомкнутым`).toBe(COUNTER[horse].spearClosed);
+      expect(ringMult(horse, 'spear', true, false, false), `${horse} во фланг`).toBe(COUNTER[horse].flank);
     }
     expect(COUNTER.spear.cavalryHolding).toBeGreaterThan(1);
     // Приказа у стороны нет вовсе — значит, и сомкнутость не может от него зависеть.
@@ -309,12 +309,9 @@ describe('мораль по секторам', () => {
       const r = simulateBattle({ seed, ...beside });
       const c = simulateBattle({ seed, ...alone });
       const rout = r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker' && e.sector === 'A');
-      // Граница области: горстка побежала — и из первой линии, а не смятой в тыл: из тыла соседом центра она не была.
+      // Граница области: горстка побежала — из первой линии: смятия фронта в тыл больше нет (поставка 5, 14.33), и из строя
+      // она уходит только бегством.
       expect(rout, `сид ${seed}: горстка слева не побежала`).toBeDefined();
-      expect(
-        r.log.some((e) => e.id === 'sector-collapsed' && e.side === 'attacker' && e.sector === 'A' && e.tick <= rout!.tick),
-        `сид ${seed}: горстка смята в тыл до бегства`,
-      ).toBe(false);
       // Конец окна — всё, что связывает полосы помимо паники: бегство кого-то ещё в любом из двух боёв или слом стороны.
       const others = [...r.log.filter((e) => e.id === 'sector-broken' && e !== rout), ...c.log.filter((e) => e.id === 'sector-broken')].map((e) => e.tick);
       const broken = [r, c].flatMap((x) => [x.sides.attacker.brokenAt ?? Infinity, x.sides.defender.brokenAt ?? Infinity]);
@@ -817,7 +814,7 @@ function explains(e: BattleEvent, winner: Winner): boolean {
   if (winner === 'draw') return false;
   const loser = other(winner);
   if (!('side' in e)) return false;
-  if (e.side === loser) return ['morale-collapsed', 'annihilated', 'sector-collapsed', 'sector-broken', 'ranged-lost', 'flank-turned', 'rear-reached', 'outfought'].includes(e.id);
+  if (e.side === loser) return ['morale-collapsed', 'annihilated', 'sector-broken', 'ranged-lost', 'flank-turned', 'rear-reached', 'outfought'].includes(e.id);
   return ['spears-held', 'cavalry-broke-archers', 'volley', 'pursuit', 'reserve-committed'].includes(e.id);
 }
 
@@ -885,17 +882,10 @@ describe('журнал осмыслен', () => {
           case 'panic-spread':
             // Паники на соседей нет, как у EU4 (14.21): ядро её больше не пишет; тип остался ради записей, посчитанных раньше.
             throw new Error(`${e.id}: паника на соседей в новом бою`);
-          case 'sector-collapsed': {
-            expect(['A', 'B', 'C']).toContain(e.sector);
-            // Смять можно только то, что там стояло: своя расстановка или вошедший резерв.
-            const manned =
-              initialOf(e.side, e.sector) > 0 ||
-              r.log.some((x) => x.tick <= e.tick && 'side' in x && x.side === e.side && x.id === 'reserve-committed' && x.sector === e.sector);
-            expect(manned, `смят пустой сектор ${e.sector}`).toBe(true);
-            expect(seen.has(`collapsed:${e.side}:${e.sector}`)).toBe(false);
-            seen.add(`collapsed:${e.side}:${e.sector}`);
-            break;
-          }
+          case 'sector-collapsed':
+            // Смятия фронта потерями нет (поставка 5, 14.33): из строя выходят бегством или перебитыми, ядро его больше не
+            // пишет; тип остался ради записей, посчитанных раньше.
+            throw new Error(`${e.id}: смятие фронта в новом бою`);
           case 'flank-turned':
           case 'rear-reached':
             expect(e.by).toBe(other(e.side));
@@ -1247,15 +1237,15 @@ describe('дальность обхода по роду', () => {
       expect(turnedBy(wider, 'defender'), `сид ${seed}: ряд уже обошёл`).toBe(false);
     }
     // Зеркальные армии: ряды полос встали той ширины, какую дало правило развёртывания, — лоб в лоб они равны или
-    // различаются на край по округлению. Обход до того, как чей-то сектор побежал или смят, — только там, где ряд
-    // обходящего встал шире.
+    // различаются на край по округлению. Обход до того, как чей-то сектор побежал, — только там, где ряд обходящего
+    // встал шире.
     const facingFront: Record<'A' | 'B' | 'C', 'A' | 'B' | 'C'> = { A: 'C', B: 'B', C: 'A' };
     let early = 0;
     for (const c of COMPOSITIONS) {
       for (let seed = 1; seed <= 3; seed += 1) {
         const setup = deploySetup(scaleArmy(c.army, holdSize()));
         const r = simulateBattle({ seed, attacker: setup, defender: setup });
-        const freedAt = Math.min(...r.log.filter((e) => e.id === 'sector-broken' || e.id === 'sector-collapsed').map((e) => e.tick));
+        const freedAt = Math.min(...r.log.filter((e) => e.id === 'sector-broken').map((e) => e.tick));
         for (const e of r.log) {
           if (e.id !== 'flank-turned' || e.tick >= freedAt || !(e.sector === 'A' || e.sector === 'B' || e.sector === 'C')) continue;
           const own = stackTotal(setup.sectors[facingFront[e.sector]]);
@@ -1421,6 +1411,28 @@ describe('мораль EU4', () => {
       }
     }
     expect(checked, 'слома секторов посреди боя').toBeGreaterThan(0);
+  });
+
+  it('смятия нет: из строя выходят бегством или перебитыми — и горстка, выбитая за тик больше чем на 70 %', () => {
+    // Поставка 5 (docs/battle_eu4.md, 14.33; И11): смятие фронта потерями ушло. Фронт, где осталось меньше 30 % своих (без
+    // пехоты — 40 %), прежде откатывался в тыл и переставал быть сомкнутым строем — второй путь из строя рядом с моралью;
+    // у EU4 полк уходит по морали. С моралью EU4 сектор бежит, потеряв четверть–треть, и смятие застаёт только того, кого за
+    // один тик выбивают больше чем на 70 %: горстку пехоты в центре против лучников на все три полосы.
+    const wall = setupOf({ D: { archer: FRONT_WIDTH }, E: { archer: FRONT_WIDTH }, F: { archer: FRONT_WIDTH } });
+    let inside = 0;
+    for (const n of [3, 4, 5, 6]) {
+      for (let seed = 1; seed <= 8; seed += 1) {
+        const r = simulateBattle({ seed, attacker: setupOf({ B: { infantry: n } }), defender: wall });
+        // Граница области: горстка (одна пехота — заякорена, порог прежнего правила 30 %) побежала в первом же тике и в
+        // обстреле потеряла больше 70 % — все её потери до погони: бежавших нет в строю, и стрелы до них не достают. Прежнее
+        // правило смяло бы её в тот же тик, раньше бегства.
+        const fled = r.log.find((e) => e.id === 'sector-broken' && e.side === 'attacker' && e.sector === 'B');
+        const lost = r.phases.find((p) => p.phase === 'ranged')!.bySector?.attacker?.B ?? 0;
+        if (fled?.tick === 1 && lost > 0.7 * n && r.reason !== 'annihilated') inside += 1;
+        expect(r.log.some((e) => e.id === 'sector-collapsed'), `горстка ${n}, сид ${seed}: фронт смят потерями — второй путь из строя рядом с моралью`).toBe(false);
+      }
+    }
+    expect(inside, 'боёв, где горстку выбили за тик больше чем на 70 %, а она ещё стояла').toBeGreaterThan(0);
   });
 
   it('армия больше W не бесполезна: большая держит поле дольше меньшей и выше трёх W, и ниже', () => {
