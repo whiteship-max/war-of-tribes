@@ -97,11 +97,14 @@ describe('навык не читает чисел, которыми владее
     // Оборону деревни и вылазку полководец ведёт, только пока его дружина стоит у ворот (решение
     // владельца 26.09.2026, docs/battle_eu4.md, вопрос 5): отметки туда идут одной дверью —
     // `homePips`, которая спрашивает место дружины, — и никогда дверью боёв в поле (`generalPips`).
-    for (const name of ['resolveIncoming', 'wallField', 'sortie']) {
+    for (const name of ['resolveIncoming', 'wallField', 'gateField', 'sortie']) {
       expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(/generalPips|general:\s*true/);
     }
     // Со всеми отметками, и манёвром тоже: у EU4 манёвр обороняющегося держит переправу нападающему (14.5, Л9).
-    expect(bodyOf(world, 'wallField'), 'бой у стены берёт отметки дверью «у ворот»').toMatch(/this\.homePips\(at\)/);
+    // Сторону обороны у ворот собирает одна дверь — `gateField` (набег зовёт её через `wallField`, бой события —
+    // напрямую; docs/battle_eu4.md, 14.28), и отметки берёт она.
+    expect(bodyOf(world, 'wallField'), 'бой у стены — дверью у ворот').toMatch(/this\.gateField\(/);
+    expect(bodyOf(world, 'gateField'), 'бой у стены берёт отметки дверью «у ворот»').toMatch(/this\.homePips\(at\)/);
     expect(bodyOf(world, 'homePips'), 'дверь «у ворот» спрашивает, где стоит дружина').toMatch(/postureOf\(/);
     const bridge = read('world/bridge.ts');
     for (const name of ['militiaMen', 'militiaArchers']) expect(bodyOf(bridge, name), `bridge.${name}`).not.toMatch(SKILL);
