@@ -80,6 +80,7 @@ import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { SILENCE_PREFIX } from '@/game/sim/mail';
 import { settleHires } from '@/game/sim/hire';
 import { dynastyStep } from '@/game/sim/dynasty';
+import { traitsHeld } from '@/game/sim/agents';
 import { paceOf } from './lib/branchpace';
 import { masterHands, masterWage, wageOf } from '@/game/derived';
 import { MASTER_PAID_AS } from '@/game/data/upkeep';
@@ -275,8 +276,18 @@ interface Career {
   deeds: number;
   deaths: number;
   retired: number;
+  /**
+   * Разгромы: дружину вырубили до бегства, человек уцелел (`LocalWorld.routFigure`, последствие `routed` полководца). Людей на
+   * месте за прогон и сколько из них хоть раз носили «Битого» и «Мясника» (`sim/agents.traitsHeld`) — прибор погони
+   * одной дверью урона (docs/battle_eu4.md, 14.35, слово владельца, п. 6): стек уничтожается погоней, и тогда полководцев
+   * разбивают чаще.
+   */
+  routs: number;
+  people: number;
+  beaten: number;
+  butcher: number;
 }
-const career = (): Career => ({ toTop: [], tops: [], deeds: 0, deaths: 0, retired: 0 });
+const career = (): Career => ({ toTop: [], tops: [], deeds: 0, deaths: 0, retired: 0, routs: 0, people: 0, beaten: 0, butcher: 0 });
 
 const saveOf = (w: Inside): WorldSave => w.save;
 
@@ -316,6 +327,10 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
   const rot = { scout: 0, spy: 0 };
   let nextVisit = 0;
   let mustered = false;
+  // Кто стоял на месте полководца и кто из них носил черты поражения: по номеру человека, каждый один раз.
+  const generals = new Set<number>();
+  const beaten = new Set<number>();
+  const butcher = new Set<number>();
 
   await pilot({
     g: s,
@@ -339,6 +354,7 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
     decide: AGENTS_STEP,
     watch: {
       landed: (e, g) => {
+        if (e.routed && e.id.startsWith('fig-general-')) out.general.routs++;
         const gone = e.fell ?? e.retired;
         if (!gone || gone.agent === 'diplomat') return;
         const id = gone.agent as Seat;
@@ -351,6 +367,13 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
       },
       after: async ({ g, world, now, figures }) => {
         const w: Inside = world;
+        if (!g.agents.general.vacant) {
+          const person = g.agents.general.person;
+          generals.add(person);
+          const held = traitsHeld(g, 'general');
+          if (held.includes('beaten')) beaten.add(person);
+          if (held.includes('butcher')) butcher.add(person);
+        }
         for (const id of SEATS) {
           // Уровень считается только у человека на месте: опыт погибшего лежит на пустом месте до
           // найма, и приписать его преемнику значило бы завысить уровни.
@@ -441,6 +464,9 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
     },
   });
   for (const id of SEATS) if (!s.agents[id].vacant) out[id].tops.push(top[id]);
+  out.general.people = generals.size;
+  out.general.beaten = beaten.size;
+  out.general.butcher = butcher.size;
   return out;
 }
 
@@ -457,6 +483,10 @@ async function agentsTable(yearSeconds: number | null): Promise<Record<Style, Re
         a.deeds += b.deeds;
         a.deaths += b.deaths;
         a.retired += b.retired;
+        a.routs += b.routs;
+        a.people += b.people;
+        a.beaten += b.beaten;
+        a.butcher += b.butcher;
       }
     }
   }
@@ -477,6 +507,13 @@ function printCareers(sum: Record<Style, Record<Seat, Career>>): void {
         `  ${STYLE_NAME[style].padEnd(12)} | ${SEAT_NAME[id].padEnd(10)} | ${pad(n1(c.deeds / AGENTS_SEEDS.length / AGENTS_DAYS), 7)} | ${pad(c.deaths, 7)} | ${pad(c.retired, 6)} | ${hist.padStart(25)} | ${hours}`,
       );
     }
+  }
+  for (const style of ['careful', 'careless'] as const) {
+    const g = sum[style].general;
+    console.log(
+      `  полководец, ${STYLE_NAME[style]}: разгромов (дружину вырубили, сам уцелел) ${g.routs}, гибелей ${g.deaths}; людей на месте ${g.people}, ` +
+        `из них носили «Битого» ${g.beaten}, «Мясника» ${g.butcher}`,
+    );
   }
 }
 
