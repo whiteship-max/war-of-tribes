@@ -240,7 +240,8 @@ const anchored = (stack: Stack): boolean => stack.infantry >= ANCHOR.infantrySha
 /**
  * Стартовая мораль группы: базовая мораль её родов, взвешенная числом людей,
  * плюс ступени снаряжения из кузницы и стойкость, с которой армия вышла в поле
- * (`setup.resolve` — ноль, если ничего такого не было).
+ * (`setup.resolve` — ноль, если ничего такого не было), — и всё это на долю полной
+ * морали, с которой сторона вышла в бой (`setup.rest`, мораль между боями; нет — полная).
  *
  * Открыта наружу ради тестов мира: что стойкость стороны — один обряд храма, а
  * отметки полководца в мораль не идут, они меряют этой самой функцией, а не
@@ -248,6 +249,14 @@ const anchored = (stack: Stack): boolean => stack.infantry >= ANCHOR.infantrySha
  * не знает ни об игре, ни о том, кто её зовёт.
  */
 export function startMorale(setup: ArmySetup, stack: Stack): number {
+  return fullMorale(setup, stack) * restOf(setup);
+}
+
+/**
+ * Мораль, с которой группа встала бы в бой свежей: `startMorale` без доли `rest`. От неё меряется, с какой долей
+ * уцелевшие выходят из боя (`SideResult.rest`).
+ */
+function fullMorale(setup: ArmySetup, stack: Stack): number {
   const total = stackTotal(stack);
   if (total <= 0) return 0;
   let m = 0;
@@ -258,6 +267,12 @@ export function startMorale(setup: ArmySetup, stack: Stack): number {
   const resolve = Math.max(0, setup.resolve ?? 0);
   return Math.max(0, Math.min(MORALE.max, m / total + resolve));
 }
+
+/** Доля полной морали, с которой сторона вышла в бой (`ArmySetup.rest`): 0..1, нет поля или не число — полная. */
+const restOf = (setup: ArmySetup): number => {
+  const r = setup.rest ?? 1;
+  return Number.isFinite(r) ? Math.max(0, Math.min(1, r)) : 1;
+};
 
 /** Отметки стороны по одной фазе: неотрицательное конечное число, нет поля — ноль. */
 export const pipOf = (setup: ArmySetup, pip: PipId): number => {
@@ -627,6 +642,11 @@ class Battle {
       for (const side of SIDES) {
         const g = this.ground[side];
         if (g.land > 0 || g.crossing > 0) this.emit({ id: 'ground', side, land: g.land, crossing: g.crossing, lifted: g.lifted });
+      }
+      // Сторона вышла в бой уставшей — раз, в начале боя: с какой долей полной морали (мораль между боями, 14.31).
+      for (const side of SIDES) {
+        const rest = Math.round(restOf(this.sides[side].setup) * 100) / 100;
+        if (rest < 1) this.emit({ id: 'weary', side, rest });
       }
     }
     this.rollDice();
@@ -1457,6 +1477,16 @@ class Battle {
     }
     const losses = emptyStack();
     for (const k of UNIT_KINDS) losses[k] = initial[k] - final[k];
+    // С какой долей полной морали выходят уцелевшие: их мораль к свежей, взвешенная людьми (мораль между боями, 14.31).
+    let kept = 0;
+    let full = 0;
+    for (const g of s.groups) {
+      if (!alive(g)) continue;
+      const n = stackTotal(g.stack);
+      kept += n * Math.max(0, g.morale);
+      full += n * fullMorale(s.setup, g.stack);
+    }
+    const rest = full > 0 ? Math.round(Math.max(0, Math.min(1, kept / full)) * 100) / 100 : 1;
     return {
       initial,
       final,
@@ -1464,6 +1494,7 @@ class Battle {
       total: { initial: stackTotal(initial), final: stackTotal(final), losses: stackTotal(losses) },
       sectors,
       morale: Math.round(Math.max(0, Math.min(MORALE.max, s.morale))),
+      rest,
       verdict: 'draw',
       brokenAt: s.brokenAt,
       rangedBeforeContact: Math.round(s.rangedBeforeContact),

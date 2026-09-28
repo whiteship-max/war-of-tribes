@@ -99,6 +99,15 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         .join(', ');
       return line(e, 'bat-dice', '⛰️', `Место боя против ${mine ? 'нас' : 'них'}: ${parts} к кости каждой фазы.`, !mine);
     }
+    case 'weary':
+      // Мораль между боями (14.31): сторона дралась недавно и ещё не отдохнула — значок тот же, что у слома морали.
+      return line(
+        e,
+        'bat-morale',
+        '💤',
+        `${own(e.side, us, 'pl')} вышли в бой уставшими: мораль ${Math.round(e.rest * 100)} % от полной — дрались недавно.`,
+        !mine,
+      );
     case 'volley':
       if (e.losses < EVENT_MIN) return null;
       return line(e, 'bat-volley', '🏹', `${own(e.side, us, 'pl')} лучники выбили ${e.losses} до столкновения.`, mine);

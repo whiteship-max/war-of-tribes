@@ -126,16 +126,17 @@ describe('где стоит боец — одно правило', () => {
     expect(standingShare({ clubman: 4 }, { clubman: 10 }, { clubman: 7 })).toEqual({ clubman: 5 });
   });
 
-  it('у стороны боя в мире — состав, снаряжение, стойкость и отметки, и больше ничего: раскладывает правило', () => {
+  it('у стороны боя в мире — состав, снаряжение, стойкость, отметки и мораль между боями, и больше ничего: раскладывает правило', () => {
     // Поставка 2 боя (docs/battle_eu4.md, 14.27): последней раскладкой руками была оборона деревни, и с её уходом поле
     // своей раскладки у стороны (`world/battle.FieldSide`) ушло совсем — обе стороны встают по правилу развёртывания одной
     // дверью (`resolveField`), а людей сверх состава приводить некуда: входа героя нет. Замок по исходнику, без комментариев.
+    // Поставка 4 (14.31) дописала долю морали между боями (`rest`): это свойство войска, как стойкость, а не раскладка.
     const src = readFileSync(new URL('./battle.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'gear', 'resolve', 'pips']);
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'gear', 'resolve', 'pips', 'rest']);
     expect(src, 'обе стороны — правилом').toMatch(/const attacker = deploySetup\(input\.attacker\.kinds\);/);
     expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
   });

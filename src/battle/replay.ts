@@ -1033,10 +1033,10 @@ function amountOf(e: BattleEvent): number {
  * неё нет ни места, ни числа выбитых, и камера к ней не подаётся; зрелищем её делают потери, которые
  * она множит. Место боя — то же: штраф кости на весь бой, а показывает место сама земля ролика
  * (`BattleRecord.place`). Глубина — не миг, а состояние ряда: строй стоит шире фронта весь бой, и показывает это
- * сам строй, а не метка.
+ * сам строй, а не метка. Усталость стороны (`weary`) — то же: доля морали на весь бой, а не миг на поле.
  */
 const service = (e: BattleEvent): boolean =>
-  e.id === 'phase-start' || e.id === 'result' || e.id === 'dice' || e.id === 'ground' || e.id === 'depth' || e.id === 'round' || e.id === 'rounds-out';
+  e.id === 'phase-start' || e.id === 'result' || e.id === 'dice' || e.id === 'ground' || e.id === 'weary' || e.id === 'depth' || e.id === 'round' || e.id === 'rounds-out';
 
 /** События журнала на времени и на месте. Служебные (`service`) меткой не становятся. */
 function markLog(result: BattleResult, spans: Span[], us: Side): Mark[] {

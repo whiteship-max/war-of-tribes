@@ -64,6 +64,8 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
       const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ' — снята манёвром' : ''}` : ''].filter(Boolean);
       return `${who}: место боя против них — ${parts.join(', ')}`;
     }
+    case 'weary':
+      return `${who}: вышли в бой уставшими — мораль ${Math.round(e.rest * 100)}% от полной`;
     case 'volley':
       return `${who}: лучники выбили ${e.losses} до столкновения`;
     case 'spears-held':
