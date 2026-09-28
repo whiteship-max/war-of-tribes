@@ -363,9 +363,6 @@ export const roundsCap = (depth: number): number => {
   return extra;
 };
 
-/** Сила урона от морали сектора: при нуле — половина. */
-export const moraleDamageMult = (morale: number): number => 0.5 + 0.5 * Math.max(0, Math.min(100, morale)) / 100;
-
 // ---------- Отход и преследование ----------
 
 export const RETREAT = {

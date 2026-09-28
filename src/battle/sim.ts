@@ -36,7 +36,6 @@ import {
   TEMPER,
   UNIT_STATS,
   WITHDRAW_RATIO,
-  moraleDamageMult,
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
@@ -1063,10 +1062,13 @@ class Battle {
     return m;
   }
 
-  /** Общие множители силы группы: мораль сектора, кость фазы, отход. */
+  /**
+   * Общие множители силы группы: кость фазы и отход. Мораль в урон не входит — у EU4 урон от силы полка, а не от его
+   * морали (поставка 5, docs/battle_eu4.md, 14.33; прежде — ×(0.5 + 0.5 · мораль / 100)).
+   */
   dealtMult(g: Group): number {
     const s = this.sides[g.side];
-    let m = moraleDamageMult(g.morale) * this.luck[g.side];
+    let m = this.luck[g.side];
     if (s.retreating) m *= RETREAT.dealt;
     return m;
   }
@@ -1366,7 +1368,7 @@ class Battle {
         if (!alive(g)) continue;
         for (const k of UNIT_KINDS) {
           if (g.stack[k] < EPS) continue;
-          kills += g.stack[k] * RETREAT.pursuitKills[k] * moraleDamageMult(s.morale);
+          kills += g.stack[k] * RETREAT.pursuitKills[k];
         }
       }
       kills = Math.min(kills, enemy.pursuitBudget);
