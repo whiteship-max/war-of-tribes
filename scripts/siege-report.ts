@@ -205,6 +205,16 @@ const TRIES = 40;
 
 const pct = (a: number, b: number): string => (b > 0 ? `${Math.round((a / b) * 100)}%` : '—');
 
+/**
+ * Клетка кривой по минутам (docs/weights.md, место 2): кривая читается одной — «прошло время», — только пока в каждом
+ * столбце тот же набор осад. Осада, у которой окно голода кончилось раньше, и вариант, потерявший осаду до минуты
+ * вылазки, из столбца выпадают, и доля в нём — уже про другой набор. Такой столбец помечен «*», а сколько боёв в каждом
+ * столбце, печатает строка `boutsRow`.
+ */
+const curveCell = (won: number, n: number, full: number): string => (n ? `${pct(won, n)}${n < full ? '*' : ''}` : '—').padStart(5);
+const boutsRow = (label: string, ns: readonly number[]): string => `  ${label}${ns.map((n) => String(n).padStart(5)).join('')}`;
+const CURVE_NOTE = '«*» — в столбце не весь набор (окно голода кончилось раньше или вариант потерял осаду): доля про другой набор; строка «боёв» — сколько боёв в столбце';
+
 console.log('=== Осада числами ===');
 console.log(
   `порог осады: штурм не удался бы (сухой прогон боя у стены) · доля попыток (SIEGE_CHANCE): ${SIEGE_CHANCE} · ` +
@@ -410,8 +420,10 @@ for (const level of LEVELS) {
       `окно голода ${Math.min(...win).toFixed(1)}…${Math.max(...win).toFixed(1)} игр. дн.`,
   );
   console.log('  Δ, игр. дн.' + DELAYS.map((d) => String(d).padStart(5)).join(''));
+  const full = frozen.length * VARIANTS;
   for (const kind of ['весь', '×2'] as const) {
     const cells: string[] = [];
+    const bouts: number[] = [];
     for (const d of DELAYS) {
       let won = 0;
       let n = 0;
@@ -428,12 +440,17 @@ for (const level of LEVELS) {
           if (res.won) won++;
         }
       }
-      cells.push((n ? pct(won, n) : '—').padStart(5));
+      cells.push(curveCell(won, n, full));
+      bouts.push(n);
     }
     console.log(`  ${kind.padEnd(6)} ${cells.join('')}`);
-    if (kind === 'весь') wholeRow.set(level, cells);
+    if (kind === 'весь') {
+      wholeRow.set(level, cells);
+      console.log(boutsRow('боёв   ', bouts));
+    }
   }
 }
+console.log(CURVE_NOTE);
 
 // ------------------------------------------------- удар полководца с тыла ---
 //
@@ -517,8 +534,12 @@ console.log('--- стороны лагеря: вылазка со стороны
 console.log(woodLine);
 console.log('«приход» — игровой день, в который полководец приходит к лагерю (приказ отдан из поля в трёх клетках); «вылазка» — весь гарнизон в тот же день');
 const travels = new Map<Frozen, number>();
-const jointFail: JointFail = { runs: 0, fails: 0, garrisonWent: 0, garrisonFell: 0, townLeft: 0, townEmpty: 0, druzhinaHome: 0, generalDown: 0 };
+// Провал совместного удара — строкой на уровень (docs/weights.md, место 4): гарнизоны уровней разные, и среднее «на
+// провал» по трём уровням сразу не значило бы ничего ни на одном.
+const jointFails = new Map<number, JointFail>();
 for (const level of LEVELS) {
+  const jointFail: JointFail = { runs: 0, fails: 0, garrisonWent: 0, garrisonFell: 0, townLeft: 0, townEmpty: 0, druzhinaHome: 0, generalDown: 0 };
+  jointFails.set(level, jointFail);
   const frozen: Frozen[] = [];
   for (const seed of TOWN_SEEDS) {
     const fz = await freezeField(seed, level);
@@ -606,18 +627,24 @@ for (const level of LEVELS) {
     }
     for (const k of Object.keys(rows) as (keyof typeof rows)[]) rows[k].push(cells[k]);
   }
+  const full = frozen.length * VARIANTS;
   for (const k of Object.keys(rows) as (keyof typeof rows)[]) {
-    console.log(`  ${k.padEnd(15)} ${rows[k].map((c) => (c.n ? pct(c.won, c.n) : '—').padStart(5)).join('')}`);
+    console.log(`  ${k.padEnd(15)} ${rows[k].map((c) => curveCell(c.won, c.n, full)).join('')}`);
   }
+  console.log(boutsRow('боёв            ', rows['с гарнизоном'].map((c) => c.n)));
 }
+console.log(CURVE_NOTE);
 console.log('');
 console.log('--- провал совместного удара: что остаётся в городе ---');
-const per = (x: number): string => (x / Math.max(1, jointFail.fails)).toFixed(1);
-console.log(
-  `совместных ударов ${jointFail.runs}, провалов ${jointFail.fails}; на провал: гарнизона вышло ${per(jointFail.garrisonWent)} чел., ` +
-    `легло ${per(jointFail.garrisonFell)}, осталось в городе без дружины ${per(jointFail.townLeft)}; ` +
-    `город без гарнизона — ${jointFail.townEmpty} раз из ${jointFail.fails}; дружина вернулась домой живой — ${jointFail.druzhinaHome}, полководец выбыл — ${jointFail.generalDown}`,
-);
+for (const [level, jointFail] of jointFails) {
+  if (jointFail.runs === 0) continue;
+  const per = (x: number): string => (x / Math.max(1, jointFail.fails)).toFixed(1);
+  console.log(
+    `Статуя L${level}: совместных ударов ${jointFail.runs}, провалов ${jointFail.fails}; на провал: гарнизона вышло ${per(jointFail.garrisonWent)} чел., ` +
+      `легло ${per(jointFail.garrisonFell)}, осталось в городе без дружины ${per(jointFail.townLeft)}; ` +
+      `город без гарнизона — ${jointFail.townEmpty} раз из ${jointFail.fails}; дружина вернулась домой живой — ${jointFail.druzhinaHome}, полководец выбыл — ${jointFail.generalDown}`,
+  );
+}
 console.log('«осталось в городе без дружины» — гарнизон после боя; уцелевшая дружина, придя домой, встаёт в гарнизон сама.');
 
 // ------------------------------------------------------ частые вылазки ---
@@ -950,6 +977,7 @@ function modelSortie(fz: Frozen, at: number, variant: number, slow: number, thin
 /** Доли побед по минутам и первая минута, с которой вылазка безнадёжна. */
 function modelRow(frozen: Frozen[], slow: number, thin: number, keepPass = false): { cells: string[]; hopeless: number | null } {
   const cells: string[] = [];
+  const full = frozen.length * MODEL_SEEDS;
   let hopeless: number | null = null;
   for (const d of DELAYS) {
     let won = 0;
@@ -962,7 +990,7 @@ function modelRow(frozen: Frozen[], slow: number, thin: number, keepPass = false
         if (modelSortie(fz, at, v, slow, thin, keepPass)) won++;
       }
     }
-    cells.push((n ? pct(won, n) : '—').padStart(5));
+    cells.push(curveCell(won, n, full));
     if (n > 0 && won === 0 && hopeless === null) hopeless = d;
     if (n > 0 && won > 0) hopeless = null;
   }
@@ -1034,6 +1062,7 @@ for (const level of LEVELS) {
     );
   }
 }
+console.log('«*» — в столбце не весь набор (окно голода кончилось раньше минуты вылазки): доля про другой набор');
 console.log('c — доля выработки фронта, которую съедает орудие; s — доля мощи лагеря, выбитая к минуте вылазки;');
 console.log(`«обстрел до S» — выбитая доля мощи лагеря растёт ровно со временем за ${gd(CAMP_WORKS_RIPE)} игр. дн. (часы рогаток) до S и дальше не растёт; проход прежний.`);
 
@@ -1054,9 +1083,19 @@ for (const [level, engine] of [
     const fz = await freezeSiege(seed, level, engine);
     if (fz) frozen.push(fz);
   }
+  // Две заморозки обязаны быть одной осадой (docs/weights.md, место 7): строка «без орудия» взята из раздела «во времени»,
+  // строки орудий — из своей заморозки, и различаться им позволено только орудием. Орудие наводится после того, как
+  // окно осады открылось (`LocalWorld.aimTower`), и минута, лагерь и окно голода не должны от него зависеть; разойдутся —
+  // строки сравнивали бы разные осады, и отчёт падает, а не печатает.
+  const plain = frozenByLevel.get(level) ?? [];
+  const key = (f: Frozen): string => `${f.seed} ${f.since} ${f.starvesAt} ${f.campPower}`;
+  const was = plain.map(key).join('; ');
+  const got = frozen.map(key).join('; ');
+  if (was !== got) throw new Error(`L${level} ${engine}: заморозки с орудием и без него — разные осады: [${was}] против [${got}]`);
   const base = wholeRow.get(level) ?? [];
   console.log(`  L${level} без орудия (раздел «во времени») ${base.join('')}`);
   const cells: string[] = [];
+  const full = frozen.length * VARIANTS;
   let hopeless: number | null = null;
   let tail = 0;
   for (const d of DELAYS) {
@@ -1074,7 +1113,7 @@ for (const [level, engine] of [
         if (res.won) won++;
       }
     }
-    cells.push((n ? pct(won, n) : '—').padStart(5));
+    cells.push(curveCell(won, n, full));
     if (n > 0 && won === 0 && hopeless === null) hopeless = d;
     if (n > 0 && won > 0) {
       hopeless = null;
@@ -1085,6 +1124,7 @@ for (const [level, engine] of [
   console.log(`  L${level} ${ENGINE_BY_ID[engine].name.toLowerCase().padEnd(21)} ${cells.join('')}   ${said}`);
 }
 console.log('«хвост» — самая высокая доля побед с 24-й минуты: вылазка, не ставшая безнадёжной до голода.');
+console.log(`${CURVE_NOTE}; заморозки с орудием и без него сверены: те же осады, минуты, окна голода и лагеря`);
 
 console.log('');
 console.log('лучник против орудия: цена, с которой орудие сравнивается');
