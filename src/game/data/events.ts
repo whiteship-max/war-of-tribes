@@ -32,7 +32,9 @@ import {
   storageCap,
   strainNow,
 } from '../derived';
-import { resolveBattle } from '../sim/battle';
+import { callGate } from '../sim/gate';
+import { menOfPower } from '@/world/garrison';
+import type { GateFoe } from '@/world/types';
 import { addStrain, beginRite, grantRelic, riteInfo } from '../sim/faith';
 import { mutinyPay, mutinyRelease, mutinySuppress } from '../sim/mutiny';
 import { addPop, killPop } from '../sim/population';
@@ -108,12 +110,30 @@ const crowd = (s: GameState, share: number, min: number): number =>
   Math.max(min, Math.round(population(s) * share));
 
 /**
- * Сила случайного противника — доля обороны посёлка. Так волки и разбойники
- * остаются соразмерными игроку и на старте (`START_POP`), и на потолке уровней:
- * `resolveBattle` бросает нашу оборону в узкой вилке вокруг неё, поэтому доля ниже единицы —
- * почти верная победа, около единицы — настоящая стычка.
+ * Сила случайного противника у ворот — доля обороны посёлка. Так волки и разбойники
+ * остаются соразмерными игроку и на старте (`START_POP`), и на потолке уровней.
+ * Бьются они ядром боя у ворот той же дверью, что набег (`sim/gate`, `LocalWorld.gateFight`;
+ * docs/battle_eu4.md, 14.28).
+ *
+ * Доли — числа руками, вывода у них нет; слово владельца — оставить их до пересмотра баланса
+ * (docs/battle_eu4.md, 14.24). Сколько боёв они проигрывают на решётке нашей силы, печатает
+ * `npm run raid-mix:report`, раздел «Волки и разбойники у ворот».
  */
-const foePower = (s: GameState, share: number): number => defense(s) * share;
+export const WOLF_SHARE = 0.55;
+export const RAIDER_SHARE = 0.85;
+export const foePower = (s: GameState, share: number): number => defense(s) * share;
+
+/** Сколько их придёт к воротам — мерой отрядов мира, которой бой их и выставит (`menOfPower`). */
+export const gateMen = (s: GameState, share: number): number => menOfPower(foePower(s, share));
+
+/**
+ * Выйти к воротам: вызов ложится в партию, бьётся мир на ближайшем пульсе, исход — отчётом в «Походы».
+ * Трофеи победы решает событие здесь; мир про них не знает.
+ */
+const toGate = (s: GameState, foe: GateFoe, share: number, spoils: Partial<Record<ResourceId, number>>): string => {
+  callGate(s, foe, foePower(s, share), spoils);
+  return 'Племя вышло к воротам. Чем кончилось — скажет отчёт в «Походах».';
+};
 
 /** Сколько беженцев влезет под свободные крыши. Считают это двое: цена и сам выбор. */
 const fitting = (s: GameState): number =>
@@ -237,22 +257,13 @@ export const EVENTS: EventDef[] = [
     silence: 0,
     icon: '🐺',
     title: 'Волки',
-    text: (s) => `Стая волков кружит у поселения. Их ${amount(s, 3) + Math.floor(dayOf(s.time) / 4)}.`,
+    text: (s) => `Стая волков кружит у поселения. Их ${gateMen(s, WOLF_SHARE)}.`,
     weight: (s) => (s.time > DAY_LENGTH ? 3 : 0),
     options: [
       {
         label: 'Защищаться',
-        hint: 'Бой',
-        apply: (s) => {
-          const r = resolveBattle(s, foePower(s, 0.55), 'волки');
-          if (r.won) {
-            const h = addRes(s, 'hides', amount(s, 4));
-            const b = addRes(s, 'bones', amount(s, 4));
-            s.stats.hunts++;
-            return `${r.text} Добыча: ${h} шкур, ${b} костей.`;
-          }
-          return r.text;
-        },
+        hint: 'Бой у ворот',
+        apply: (s) => toGate(s, 'wolves', WOLF_SHARE, { hides: amount(s, 4), bones: amount(s, 4) }),
       },
       {
         label: 'Отдать запасы',
@@ -380,7 +391,7 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '⚔️',
     title: 'Разбойники',
-    text: (s) => `Чужие воины требуют дань: ${amount(s, 25)} еды, иначе нападут.`,
+    text: (s) => `Чужие воины требуют дань: ${amount(s, 25)} еды, иначе нападут. Их ${gateMen(s, RAIDER_SHARE)}.`,
     weight: (s) => (dayOf(s.time) >= 5 ? 2 : 0),
     options: [
       {
@@ -394,16 +405,8 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Сражаться',
-        hint: 'Бой',
-        apply: (s) => {
-          const r = resolveBattle(s, foePower(s, 0.85), 'разбойники');
-          if (r.won) {
-            const w = addRes(s, 'wood', amount(s, 15));
-            const h = addRes(s, 'hides', amount(s, 5));
-            return `${r.text} Трофеи: ${w} древесины, ${h} шкур.`;
-          }
-          return r.text;
-        },
+        hint: 'Бой у ворот',
+        apply: (s) => toGate(s, 'raiders', RAIDER_SHARE, { wood: amount(s, 15), hides: amount(s, 5) }),
       },
     ],
   },

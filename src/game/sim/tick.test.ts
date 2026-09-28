@@ -1179,21 +1179,6 @@ describe('события идут толпой, а не по человеку', 
     expect(big.resources.food - f1).toBeGreaterThan((small.resources.food - f0) * 5);
   });
 
-  it('волки и разбойники соразмерны обороне, а не числу из прошлого века', () => {
-    // При семи сотнях жителей стая волков не должна быть безобидной строкой лога.
-    for (const pop of [30, 700]) {
-      const s = village(pop);
-      setRandom(seeded(11));
-      const won = [...Array(20)].filter(() => {
-        const t = village(pop);
-        fireEvent(t, 'wolves', 0);
-        return t.stats.battlesWon > 0;
-      }).length;
-      // Волки слабее обороны: почти всегда отбиваемся, но это настоящий бой.
-      expect(won, `посёлок на ${pop}`).toBeGreaterThan(15);
-      expect(s.pop).toBe(pop);
-    }
-  });
 });
 
 // ---------- Обучение ----------

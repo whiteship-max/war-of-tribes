@@ -75,7 +75,7 @@ describe('вызов к воротам — канал между племене�
   it('пульс племени снимает вызов по списку мира — и посчитанный сейчас, и посчитанный раньше', async () => {
     const t = pair();
     await t.pulse();
-    const call = callGate(t.s, 'wolves', defense(t.s) * 0.55, { hides: 10 });
+    callGate(t.s, 'wolves', defense(t.s) * 0.55, { hides: 10 });
     const battles = t.s.stats.battlesWon + t.s.stats.battlesLost;
     await t.pulse();
     expect(t.s.gate, 'вызов снят после боя').toEqual([]);
