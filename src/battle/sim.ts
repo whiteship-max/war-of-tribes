@@ -26,8 +26,6 @@ import {
   PHASE_TICKS,
   PYRRHIC_BELOW,
   RANGED_RATE,
-  RANGED_SHOCK_LATE,
-  RANGED_SHOCK_TICKS,
   RETREAT,
   CIRCLE_PHASES,
   circleTicks,
@@ -1157,7 +1155,6 @@ class Battle {
   }
 
   apply(hits: Hit[]): void {
-    const late = this.tick > RANGED_SHOCK_TICKS;
     for (const h of hits) {
       const actual = Math.min(h.target.stack[h.kind], h.casualties);
       if (actual <= 0) continue;
@@ -1165,7 +1162,9 @@ class Battle {
       const victim = this.sides[h.target.side];
       victim.lostTotal += actual;
       victim.lostTick += actual;
-      h.target.lostTick += actual * (h.ranged && late ? RANGED_SHOCK_LATE : 1);
+      // Стрелы бьют по морали своими потерями весь бой одинаково: «обвыклись» — вполсилы после 8-го тика — ушло (поставка 5,
+      // docs/battle_eu4.md, 14.33): отдельного счёта у морали нет (14.19.3).
+      h.target.lostTick += actual;
       if (h.flank) {
         if (h.target.flankedTick !== this.tick) h.target.flankCover = 0;
         h.target.flankedTick = this.tick;

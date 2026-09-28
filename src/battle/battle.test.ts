@@ -1536,6 +1536,35 @@ describe('мораль EU4', () => {
     expect(inside, 'боёв, сломавшихся посреди боя линий').toBeGreaterThan(0);
   });
 
+  it('стрелы бьют по морали одинаково весь бой: в дуэли лучников сектор бежит, потеряв долю, которую уносит его мораль', () => {
+    // Поставка 5 (docs/battle_eu4.md, 14.33; Г19): «обвыклись» ушло — прежде после 8-го тика боя потери от стрел шли в
+    // мораль вполсилы, и со второго круга обстрел пугал вдвое слабее первого. Отдельного счёта у морали нет (14.19.3): она
+    // уходит от потерь одинаково. В дуэли лучников рукопашной нет вовсе — строя в первой линии нет ни у кого, — и мораль
+    // уходит только от стрел: сектор (без пехоты, стреляет, не обойдён) бежит, потеряв долю `мораль рода / MORALE.perLoss`,
+    // и не больше чем на тик сверх неё.
+    const need = UNIT_STATS.archer.morale / MORALE.perLoss;
+    let late = 0;
+    for (const n of [150, 300, 456]) {
+      for (let seed = 1; seed <= 4; seed += 1) {
+        const r = simulateBattle({ seed, attacker: deploySetup({ archer: n }), defender: deploySetup({ archer: n }) });
+        for (const e of r.log) {
+          if (e.id !== 'sector-broken') continue;
+          const init = stackTotal(r.sides[e.side].sectors[e.sector].initial);
+          let lost = 0;
+          for (const p of r.phases) {
+            lost += p.bySector?.[e.side]?.[e.sector] ?? 0;
+            if (e.tick <= p.to) break;
+          }
+          // Граница области: бежали после 8-го тика — там, где прежнее правило считало стрелы вполсилы.
+          if (e.tick > 8) late += 1;
+          expect(lost / init, `${n}, сид ${seed}: ${e.side}/${e.sector} бежал на ${e.tick}-м тике, потеряв ${(lost / init).toFixed(3)} при доле морали ${need.toFixed(3)}`).toBeGreaterThanOrEqual(need - 0.005);
+          expect(lost / init, `${n}, сид ${seed}: ${e.side}/${e.sector} бежал на ${e.tick}-м тике, потеряв ${(lost / init).toFixed(3)} — стрелы пугали слабее своих потерь`).toBeLessThanOrEqual(need + 0.02);
+        }
+      }
+    }
+    expect(late, 'секторов, бежавших после 8-го тика').toBeGreaterThan(0);
+  });
+
   it('армия больше W не бесполезна: большая держит поле дольше меньшей и выше трёх W, и ниже', () => {
     // Новый тест 3. Большая на четверть против меньшей, та же ширина: сторона держит поле, пока не сломалась. Точки —
     // по обе стороны трёх W: ниже вся армия в строю, выше лишние стоят в резерве и встают на место выбывших. Какая

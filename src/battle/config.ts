@@ -173,10 +173,6 @@ export const INTO_LINES: readonly PhaseId[] = ['flanking', 'reserve', 'morale'];
  */
 export const SLOW_CONTACT = { speedAtMost: 1, delay: 3 };
 
-/** Сколько первых тиков стрельбы бьют по морали в полную силу; дальше противник обвыкся. */
-export const RANGED_SHOCK_TICKS = 8;
-export const RANGED_SHOCK_LATE = 0.5;
-
 // ---------- Урон ----------
 
 /** Доля противника, которую выбивает один боец силы 1 за тик рукопашной и стрельбы. */

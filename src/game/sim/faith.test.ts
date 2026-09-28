@@ -300,6 +300,10 @@ describe('боевого перевеса одной веры над друго�
   it('прогон: обряд помогает ровно одинаково против любого состава', () => {
     // И вторая сторона того же: прибавка работает всегда одна и та же, а не
     // «сильнее против неверных».
+    // КРАСНЫЙ со снятия «обвыклись» (поставка 5, docs/battle_eu4.md, 14.33), честно: против конного состава (20 пехоты,
+    // 10 лучников, 45 лёгкой) с обрядом размен 0.69 → 0.68 — потери 16/11 → 19/13 (сообщение этого теста): стойкое войско
+    // дольше стоит под стрелами, которые теперь пугают весь бой одинаково, теряет больше и выбивает больше. Решается на
+    // пересмотре баланса после поставки 5 (14.24), не подгонкой выборки.
     const line: Stack = { infantry: 40, spear: 20, archer: 10, cavalry: 5, heavy: 0 };
     const foes: Stack[] = [
       { infantry: 70, spear: 0, archer: 5, cavalry: 0, heavy: 0 },
@@ -307,6 +311,7 @@ describe('боевого перевеса одной веры над друго�
       { infantry: 20, spear: 0, archer: 10, cavalry: 45, heavy: 0 },
     ];
     let helped = 0;
+    const seen: string[] = [];
     for (const foe of foes) {
       const plain = simulateBattle({ seed: 77, attacker: setup(line, 0), defender: setup(foe, 0) });
       const rite = simulateBattle({ seed: 77, attacker: setup(line, 12), defender: setup(foe, 0) });
@@ -315,10 +320,12 @@ describe('боевого перевеса одной веры над друго�
       // (docs/battle_eu4.md, 14.5) против конницы обряд дал 22 потерь вместо 19 при 11 выбитых вместо 9.
       const ratio = (r: typeof plain): number => r.sides.defender.total.losses / Math.max(1, r.sides.attacker.total.losses);
       if (ratio(rite) >= ratio(plain)) helped++;
+      const loss = (r: typeof plain): string => `${r.sides.attacker.total.losses}/${r.sides.defender.total.losses}`;
+      seen.push(`${JSON.stringify(foe)}: размен ${ratio(plain).toFixed(2)} → ${ratio(rite).toFixed(2)}, потери ${loss(plain)} → ${loss(rite)}`);
     }
     // Прибавка к стойкости не обязана переворачивать каждый бой, но и вредить
     // не должна ни в одном: она одна и та же против любого противника.
-    expect(helped).toBe(foes.length);
+    expect(helped, seen.join('; ')).toBe(foes.length);
   });
 });
 
