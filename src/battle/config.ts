@@ -164,15 +164,6 @@ export const PHASE_TICKS: Record<PhaseId, number> = {
   pursuit: 8,
 };
 
-/**
- * Меньше этого фаза не длится, даже если сторона уже сломалась, — тоже на весь бой: в круге — своя доля
- * (`circleMin`). У боя линий — прежние минимумы линий и морали, 12 + 4: после слома обходы и резерв
- * пропускались, а фаза морали шла до своего минимума. Код до поставки 5 (Г13, 14.9).
- */
-export const PHASE_MIN: Partial<Record<PhaseId, number>> = {
-  lines: 16,
-};
-
 /** Фазы прежнего круга, чьи тики — в бою линий (поставка 1, 14.5): обходы, ввод резерва, падение морали. */
 export const INTO_LINES: readonly PhaseId[] = ['flanking', 'reserve', 'morale'];
 
@@ -321,12 +312,6 @@ export const circleTicks = (phase: PhaseId, k: number): number =>
   phase === 'clash'
     ? PHASE_TICKS.clash
     : splitTicks(PHASE_TICKS[phase], k) + (phase === 'lines' ? INTO_LINES.reduce((n, p) => n + splitTicks(PHASE_TICKS[p], k), 0) : 0);
-
-/** Меньше скольких тиков фаза круга `k` не длится после слома — доля `PHASE_MIN` тем же делением; нет своего — вся фаза. */
-export const circleMin = (phase: PhaseId, k: number): number => {
-  const min = PHASE_MIN[phase];
-  return min === undefined ? circleTicks(phase, k) : splitTicks(min, k);
-};
 
 /** Весь круг `k` в тиках. */
 export const circleLength = (k: number): number => CIRCLE_PHASES.reduce((n, p) => n + circleTicks(p, k), 0);

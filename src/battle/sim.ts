@@ -30,7 +30,6 @@ import {
   RANGED_SHOCK_TICKS,
   RETREAT,
   CIRCLE_PHASES,
-  circleMin,
   circleTicks,
   SLOW_CONTACT,
   TEMPER,
@@ -528,8 +527,8 @@ class Battle {
    * Бой — круги всем боем (docs/battle_eu4.md, разделы 3.1 и 12): обстрел, сшибка и сеча (`CIRCLE_PHASES`),
    * снова и снова, с новой костью в каждой фазе, пока кто-то не сломается, но не больше потолка (`roundsCap`
    * от глубины меньшей по ней стороны: вся её армия к трём полосам ширины фронта). Длины фаз — доля прежнего
-   * боя в один проход на круг (`circleTicks`). Сломался кто-то — бой линий обрывается на своём минимуме, и
-   * дальше отход с погоней.
+   * боя в один проход на круг (`circleTicks`). Сломался кто-то — бой линий обрывается в тот же тик, и дальше отход с
+   * погоней: драться после слома некому, и минимума фазы, который доигрывал пустые тики, больше нет (поставка 5, 14.33).
    */
   run(): BattleResult {
     const depth = Math.min(...SIDES.map((side) => this.sides[side].initialTotal / (FRONT.length * this.width)));
@@ -547,19 +546,19 @@ class Battle {
       for (const phase of CIRCLE_PHASES) {
         const ticks = circleTicks(phase, k);
         if (ticks <= 0) continue;
-        if (this.runPhase(phase, ticks, circleMin(phase, k))) break;
+        if (this.runPhase(phase, ticks)) break;
       }
     }
-    this.runPhase('retreat', PHASE_TICKS.retreat, PHASE_TICKS.retreat);
-    this.runPhase('pursuit', PHASE_TICKS.pursuit, PHASE_TICKS.pursuit);
+    this.runPhase('retreat', PHASE_TICKS.retreat);
+    this.runPhase('pursuit', PHASE_TICKS.pursuit);
     return this.finish();
   }
 
   /**
-   * Одна фаза целиком. Правда — после боя линий кто-то сломан, и ждать в этом круге больше нечего. Сломался раньше —
-   * в обстреле или сшибке — бой линий всё равно идёт до своего минимума (как шёл, когда фаз было семь).
+   * Одна фаза целиком. Правда — после боя линий кто-то сломан, и ждать в этом круге больше нечего. Бой линий обрывается
+   * в тик слома; сломался раньше — в обстреле или сшибке — бой линий идёт один тик: фаза не короче тика.
    */
-  runPhase(phase: PhaseId, ticks: number, min: number): boolean {
+  runPhase(phase: PhaseId, ticks: number): boolean {
     this.phase = phase;
     const from = this.tick + 1;
     const lostBefore = { attacker: this.sides.attacker.lostTotal, defender: this.sides.defender.lostTotal };
@@ -571,9 +570,8 @@ class Battle {
     let done = 1;
     while (done < ticks) {
       const someoneBroken = this.sides.attacker.broken || this.sides.defender.broken;
-      if (someoneBroken && phase === 'lines' && done >= min) {
-        // Сторона сломалась — бой линий обрывается на своём минимуме: ждать больше нечего, а каждый лишний тик
-        // рубит бегущих.
+      if (someoneBroken && phase === 'lines') {
+        // Сторона сломалась — бой линий обрывается: драться некому, бежавших достаёт только погоня.
         broke = true;
         break;
       }
