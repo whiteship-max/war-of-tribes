@@ -8,10 +8,13 @@ import { TROOPS } from '@/game/data/troops';
 import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
 import { KIND_META } from '@/battle';
 import { KIND_OF, troopTotal } from '@/game/battle/kinds';
-import { useWorld } from '@/world/store';
+import { useWorld, worldNow } from '@/world/store';
 import { postureOf } from '@/world/muster';
 import { moraleOf } from '@/game/battle/describe';
+import { WOUND_DAYS } from '@/game/constants';
 import { CounterRing } from '../parts/CounterRing';
+import { restLine } from '../parts/restWords';
+import { waitDaysBoth } from '../parts/wait';
 import { TroopCardView } from '../parts/TroopCardView';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -77,6 +80,14 @@ export function ArmyPanel() {
           <span className="val">{training}</span>
         </div>
       )}
+
+      <h3>Мораль между боями</h3>
+      <div className="note">
+        После боя армия уставшая: мораль тех, кто уцелел, просела и возвращается к полной по прямой за срок лазарета —{' '}
+        {waitDaysBoth(WOUND_DAYS)}, в пути и стоя. Брошенная в бой сразу, армия бежит раньше: сектор, у которого
+        кончилась мораль, уходит с поля. Так же устаёт и противник — лагерь после вылазки, отряд после перехвата.
+      </div>
+      {general?.rest && <div className="note warn">{restLine(general.rest, 'Дружина дралась', worldNow())}</div>}
 
       <h3>Кольцо контрров</h3>
       <div className="note">

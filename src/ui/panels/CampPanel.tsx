@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { realLeft, realMinutes } from '@/ui/parts/wait';
+import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { formatEstimate } from '@/world/intel';
@@ -156,6 +157,12 @@ export function CampPanel() {
           </button>
         ))}
       </div>
+      {/* Мораль между боями (14.31): наш лагерь — дружина; после вылазки штурмовать сразу — уставшими. */}
+      {camp.campRest && (
+        <p className="note warn">
+          {restLine(camp.campRest, 'Лагерь дрался', now)} {REST_WHY}
+        </p>
+      )}
 
       <h3>Участь города</h3>
       <FatePick options={camp.fates} value={chosen} onChange={setPick} />

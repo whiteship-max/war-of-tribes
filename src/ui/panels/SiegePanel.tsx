@@ -17,6 +17,7 @@ import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { kindsOf, troopTotal } from '@/game/battle/kinds';
 import { realLeft } from '@/ui/parts/wait';
+import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { profileCity } from '@/profile/identity';
@@ -208,6 +209,15 @@ export function SiegePanel() {
         «Пройдут» — сколько бойцов строя проход пропустит к бою сейчас; остальные постоят у рогаток.
         {weak ? ` ${WEAK_HINT[weak]}` : ''}
       </p>
+      {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
+      {siege.campRest && (
+        <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бить его лучше сейчас, пока он не отдохнул.</p>
+      )}
+      {siege.garrisonRest && (
+        <p className="note warn">
+          {restLine(siege.garrisonRest, 'Гарнизон дрался', now)} {REST_WHY}
+        </p>
+      )}
 
       <h3>Что делать</h3>
       <button className="btn wide" disabled={sortieBlock !== null} onClick={openSortie}>

@@ -21,6 +21,7 @@ import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { kindsOf, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { secondsLeft } from '@/world/geo';
 import { realLeft } from '@/ui/parts/wait';
+import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { gateBusyText, refusedAtGate, sortieForecast } from '@/world/works';
 import type { TroopId } from '@/game/types';
@@ -220,6 +221,13 @@ export function SortiePanel() {
         </button>
       </div>
 
+      {/* Мораль между боями (14.31): кто и с чем выйдет за ворота и против кого — до нажатия. */}
+      {siege.garrisonRest && (
+        <p className="note warn">
+          {restLine(siege.garrisonRest, 'Гарнизон дрался', now)} {REST_WHY}
+        </p>
+      )}
+      {siege.campRest && <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)}</p>}
       {refused && <p className="note bad">{gateBusyText(fc.now.waitMs)}</p>}
       <button className="btn wide" disabled={busy || men === 0 || refused} onClick={() => void go()}>
         ⚔️ Выйти {men > 0 ? `(${men})` : ''}

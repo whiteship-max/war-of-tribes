@@ -31,6 +31,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { FatePick } from '@/ui/parts/FatePick';
+import { REST_WHY, restLine } from '@/ui/parts/restWords';
 
 /** Просит ли приказ хоть что-нибудь со склада. */
 const isPaid = (cost: Loot): boolean => RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0) || (cost.gold ?? 0) > 0;
@@ -139,6 +140,13 @@ export function ActionMenu() {
           </div>
         )}
 
+        {/* Мораль дружины между боями (14.31): до приказа, а не после — уставшая бежит раньше. */}
+        {menu.agent === 'general' && figure?.rest && (
+          <div className="am-warn">
+            {restLine(figure.rest, 'Дружина дралась', worldNow())} {REST_WHY}
+          </div>
+        )}
+
         {/* Отношения с этим двором: состояние, число и характер владельца. */}
         {diplo && standing && temper && card && (
           <div className="am-rel">
@@ -180,6 +188,7 @@ export function ActionMenu() {
                 Идут от {menu.march.fromName} к {menu.march.toName}; им идти{' '}
                 {realLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
               </div>
+              {menu.march.rest && <div className="am-note">{restLine(menu.march.rest, 'Отряд дрался', worldNow())}</div>}
             </div>
             {menu.agent === 'general' ? (
               <button

@@ -16,6 +16,7 @@ import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { CHASE_FROM_CAMP } from '@/world/siege';
 import { realLeft } from '@/ui/parts/wait';
+import { restLine } from '@/ui/parts/restWords';
 import { MISSION_BY_ID } from '@/world/data/meta';
 import { UNITS } from '@/world/data/units';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
@@ -217,6 +218,8 @@ export function MarchesPanel() {
                   {m.fromName}
                   <span className="count">{realLeft(secondsLeft(m.arriveAt, worldNow()))}</span>
                 </div>
+                {/* Мораль отряда между боями (14.31) — живые данные: мир отдаёт её только в живом обзоре. */}
+                {m.rest && <div className="desc">{restLine(m.rest, 'Отряд дрался', worldNow())}</div>}
                 {m.onCamp ? (
                   // Выручка идёт на полководца, который стоит лагерем: перехватывать некому — дружина и есть цель.
                   <div className="desc">

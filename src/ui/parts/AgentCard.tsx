@@ -40,6 +40,7 @@ import { realLeft, waitLeft } from '@/ui/parts/wait';
 import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId } from '@/world/types';
 import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
+import { REST_WHY, restLine } from './restWords';
 import { count } from './plural';
 import { traitLines } from './traitLines';
 import { waitDaysBoth } from './wait';
@@ -195,6 +196,13 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
         <div className="note">
           Навыка у дипломата пока нет: с логовами не разговаривают, и дело у него появится вместе с
           отношениями. Уровень и опыт копятся по тем же правилам.
+        </div>
+      )}
+
+      {id === 'general' && f?.rest && (
+        // Мораль дружины между боями (docs/battle_eu4.md, 14.31): доля и срок — от мира, слова — одной частью.
+        <div className="note warn">
+          {restLine(f.rest, 'Дружина дралась', worldNow())} {REST_WHY}
         </div>
       )}
 
