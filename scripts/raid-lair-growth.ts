@@ -226,6 +226,9 @@ export async function lairGrowthSection(): Promise<void> {
   }
   const anchor = q(anchors, 0.5);
   console.log(`Медианная опора логов в досягаемости: ${Math.round(anchor)}; в игре LAIR_ANCHOR_MID ${LAIR_ANCHOR_MID}.`);
+  // Единица статистики — единица применения (docs/weights.md, место 1; слово владельца, docs/battle_eu4.md, 14.35, п. 8):
+  // константа делит силу каждого логова (`lairs.lairPower`: опора этого логова / LAIR_ANCHOR_MID), значит медиана — по логовам.
+  console.log('Единица — логово: LAIR_ANCHOR_MID делит силу каждого логова (lairs.lairPower), поэтому медиана берётся по логовам, а не по мирам.');
 
   // 1. Мерка развития.
   console.log('');
