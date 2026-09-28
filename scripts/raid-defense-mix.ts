@@ -19,6 +19,8 @@
 //     подставлена).
 //  4. **Волки и разбойники у ворот** — бой события ядром той же дверью, что набег (docs/battle_eu4.md, 14.28): доля
 //     поражений на решётке нашей силы — уровень посёлка мерки, вера, кто дома.
+//  4б. **Сила у ворот по уровню посёлка** — таблица слова владельца по 14.35, п. 4: ровный бой для гарнизона мерки уровня,
+//     делённый на перевес «Ограничителя», кривая «сила пришедших → поражений» и её окрестность мелким шагом.
 //  5. **Потолок морали и обряд** — срезает ли потолок морали прибавку храма у какого-нибудь вида, уровня храма и устава
 //     (docs/battle_eu4.md, 14.24).
 import { GEAR, MORALE, deploySetup, stackOf, startMorale } from '@/battle';
@@ -315,6 +317,19 @@ interface GateRow {
 }
 
 /**
+ * Доля боёв у ворот, где пришедшие силой `power` взяли верх: бой настоящий, дверью мира (`gateParty` → `gateField`), ничего не
+ * трогая; сид — свой на каждый из `GATE_SEEDS` боёв. Одна мерка на решётку раздела 4 и на таблицу по уровню (4б).
+ */
+function foeShare(w: Inside, at: number, foe: GateFoe, power: number): number {
+  let broke = 0;
+  for (let i = 1; i <= GATE_SEEDS; i++) {
+    const call: GateCall = { id: `gate-bench${i}`, foe, power, seed: i * 7919 };
+    if (w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won) broke++;
+  }
+  return broke / GATE_SEEDS;
+}
+
+/**
  * Задача веера (`lib/fan.ts`): строка раздела 4 — бой события у ворот (docs/battle_eu4.md, 14.28) на посёлке мерки
  * уровня `level` при вере `faith`, случай `CASES[c]`. Бой настоящий, дверью мира (`gateParty` → `gateField`), ничего не
  * трогая; сила — доля обороны той же функцией, что у события (`data/events.foePower`); сид — свой на каждый бой.
@@ -327,12 +342,7 @@ export async function gateRow({ level, faith, c: k }: { level: number; faith: Fa
   const home = w.defenders(at).all as TroopStack;
   const lost = (foe: GateFoe, share: number): { men: number; share: number } => {
     const power = foePower(g, share);
-    let broke = 0;
-    for (let i = 1; i <= GATE_SEEDS; i++) {
-      const call: GateCall = { id: `gate-bench${i}`, foe, power, seed: i * 7919 };
-      if (w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won) broke++;
-    }
-    return { men: menOfPower(power), share: broke / GATE_SEEDS };
+    return { men: menOfPower(power), share: foeShare(w, at, foe, power) };
   };
   const wolves = lost('wolves', WOLF_SHARE);
   const raiders = lost('raiders', RAIDER_SHARE);
@@ -371,6 +381,112 @@ async function gatePart(): Promise<void> {
     often.length > 0
       ? `РАЗБОЙНИКИ ПОБЕЖДАЮТ ЧАЩЕ ТРЕТИ БОЁВ в ${often.length} клетках из ${got.length}: ${often.map((r) => `${r.label} — ${pct(r.raiders)}`).join('; ')}.`
       : `Разбойники побеждают чаще трети боёв: ни в одной клетке из ${got.length}.`,
+  );
+}
+
+// ---------- 4б. Сила у ворот по уровню посёлка ----------
+
+/** Кривая «сила пришедших → поражений»: доли обороны посёлка от четверти до трёх шагом в четверть. */
+const CURVE = Array.from({ length: 12 }, (_, i) => (i + 1) / 4);
+/** Шагов деления отрезка у ровного боя внутри шага кривой, где доля впервые перешла половину. */
+const EVEN_STEPS = 8;
+/** Шагов мелкого просмотра окрестности ровного боя — от половины до полутора ровных. */
+const NEAR_STEPS = 60;
+/** Перевес «Ограничителя»: ровный бой, делённый на него, — таблица (слово владельца по 14.35, п. 4). */
+const TABLE_EDGE = 1.1;
+
+interface LevelFoe {
+  /** Таблица, бойцов строя пришедших; `NaN` — ровного боя на кривой нет. */
+  men: number;
+  /** Кривая немонотонна: где-то больше пришедших — реже их верх. */
+  bumpy: boolean;
+  line: string;
+}
+interface LevelRow {
+  head: string;
+  wolves: LevelFoe;
+  raiders: LevelFoe;
+}
+
+/**
+ * Задача веера: строка таблицы силы у ворот по уровню посёлка (docs/battle_eu4.md, 14.35, слово владельца, п. 4). Гарнизон
+ * мерки уровня `level` (`autopilot.townAt`, войско `armyAt`) — всё дома, без веры. Кривая — доля боёв, где пришедшие взяли
+ * верх (`foeShare`, `GATE_SEEDS` боёв с костью конфига), при силе в долях обороны `CURVE`. «Ровный бой» — первое место, где
+ * кривая переходит половину, уточнённое делением отрезка внутри шага; «таблица» — ровный бой, делённый на перевес
+ * «Ограничителя». **Кривая не обязана быть монотонной** — бой у ворот по размеру стаи немонотонен (малый прогон при заведении
+ * раздела: на 1-м уровне 110 волков брали верх чаще, чем 123), — поэтому печатается она сама, и строка помечена, где больше
+ * пришедших берут верх реже. Это прибор: в игру таблица ляжет в П3, а шаг кости (П5) двигает ровный бой, и после него таблица
+ * выводится заново той же командой.
+ */
+export async function gateLevelRow({ level }: { level: number }): Promise<LevelRow> {
+  const g = withFaith(townAt(level), null);
+  const { world, at } = await fieldWorld(g, SEEDS[0], []);
+  const w: Inside = world;
+  const d = defense(g);
+  const foe = (who: GateFoe, share: number, name: string): LevelFoe => {
+    const curve = CURVE.map((k) => foeShare(w, at, who, k * d));
+    // Немонотонна — где-то доля упала больше чем на бой из `GATE_SEEDS`: не шум счёта, а бой другого вида.
+    const bumpy = curve.some((x, i) => i > 0 && x < curve[i - 1] - 1.5 / GATE_SEEDS);
+    const cross = curve.findIndex((x) => x >= 0.5);
+    let men = NaN;
+    let table = NaN;
+    let near = '';
+    let bumpyNear = false;
+    if (cross >= 0) {
+      let lo = cross === 0 ? 0 : CURVE[cross - 1] * d;
+      let hi = CURVE[cross] * d;
+      for (let k = 0; k < EVEN_STEPS; k++) {
+        const mid = (lo + hi) / 2;
+        if (foeShare(w, at, who, mid) < 0.5) lo = mid;
+        else hi = mid;
+      }
+      table = hi / TABLE_EDGE;
+      men = menOfPower(table);
+      // Окрестность ровного боя мелким шагом: грубая кривая немонотонность между своими точками не видит.
+      const sizes = Array.from({ length: NEAR_STEPS + 1 }, (_, i) => hi * (0.5 + i / NEAR_STEPS));
+      const fine = sizes.map((p) => foeShare(w, at, who, p));
+      const flips = fine.map((x, i) => i > 0 && x >= 0.5 !== fine[i - 1] >= 0.5).map((f, i) => (f ? i : -1)).filter((i) => i > 0);
+      bumpyNear = fine.some((x, i) => i > 0 && x < fine[i - 1] - 1.5 / GATE_SEEDS);
+      near = flips.length > 0 ? `; около ровного (${NEAR_STEPS} шагов от половины до полутора ровных): переходов через половину ${flips.length}, с ${menOfPower(sizes[flips[0]])} по ${menOfPower(sizes[flips[flips.length - 1]])} бойцов` : '';
+    }
+    const now = foePower(g, share);
+    const even = Number.isFinite(table)
+      ? `ровный ${menOfPower(table * TABLE_EDGE)} (${((table * TABLE_EDGE) / d).toFixed(2)} обороны), таблица ${men} — поражений ${pct(foeShare(w, at, who, table))}`
+      : `ровного боя до ${CURVE[CURVE.length - 1]} обороны нет`;
+    return {
+      men,
+      bumpy: bumpy || bumpyNear,
+      line: `     ${name.padEnd(11)} ${even}; сейчас ${menOfPower(now)} (${share}) — ${pct(foeShare(w, at, who, now))}; кривая: ${curve.map((x) => pct(x)).join(' ')}${near}${bumpy || bumpyNear ? '  НЕМОНОТОННА' : ''}`,
+    };
+  };
+  return {
+    head: ` ${pad(level, 2)}-й уровень: войск ${troopTotal(g.army)}, оборона ${Math.round(d)}, ополчение ${w.save.profile.militia}`,
+    wolves: foe('wolves', WOLF_SHARE, 'волки'),
+    raiders: foe('raiders', RAIDER_SHARE, 'разбойники'),
+  };
+}
+
+async function gateLevelPart(): Promise<void> {
+  console.log('');
+  console.log(`--- 4б. Сила у ворот по уровню посёлка: ровный бой для гарнизона мерки уровня, делённый на ${TABLE_EDGE} (слово владельца по 14.35, п. 4) ---`);
+  console.log(`Гарнизон мерки уровня L (townAt, войско armyAt) — всё дома, без веры, мир ${SEEDS[0]}. Кривая — доля боёв, где пришедшие взяли верх, по ${GATE_SEEDS} боёв`);
+  console.log(`с костью конфига, при силе ${CURVE[0]}…${CURVE[CURVE.length - 1]} обороны шагом ${CURVE[0]}. «ровный» — где кривая впервые переходит половину (уточнено делением отрезка),`);
+  console.log(`«таблица» — ровный, делённый на перевес «Ограничителя» ${TABLE_EDGE}; «сейчас» — нынешняя сила, доля обороны (data/events.foePower). Бойцы — строя пришедших.`);
+  const rows = Array.from({ length: MAX_BUILDING_LEVEL }, (_, i) => ({ level: i + 1 }));
+  const got = await fan(gateLevelRow, import.meta.url, rows);
+  for (const r of got) {
+    console.log(r.head);
+    console.log(r.wolves.line);
+    console.log(r.raiders.line);
+  }
+  const rising = (xs: number[]): boolean => xs.every((x, i) => i === 0 || (Number.isFinite(x) && x >= xs[i - 1]));
+  const bumpy = (pick: (r: LevelRow) => LevelFoe): string => {
+    const levels = got.map((r, i) => (pick(r).bumpy ? i + 1 : 0)).filter((x) => x > 0);
+    return levels.length > 0 ? levels.join(', ') : 'нет';
+  };
+  console.log(
+    `Таблица растёт с уровнем: волки — ${rising(got.map((r) => r.wolves.men)) ? 'да' : 'НЕТ'}, разбойники — ${rising(got.map((r) => r.raiders.men)) ? 'да' : 'НЕТ'}. ` +
+      `Кривая немонотонна по силе пришедших — у волков на уровнях: ${bumpy((r) => r.wolves)}; у разбойников: ${bumpy((r) => r.raiders)}.`,
   );
 }
 
@@ -413,7 +529,8 @@ export async function defenseMixSection(): Promise<void> {
   await benchPart();
   await livePart();
   await gatePart();
+  await gateLevelPart();
   ceilingPart();
 }
 
-serveFan(import.meta.url, { benchRow, mixRun, gateRow });
+serveFan(import.meta.url, { benchRow, mixRun, gateRow, gateLevelRow });
