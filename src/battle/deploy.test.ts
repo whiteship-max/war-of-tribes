@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FRONT_WIDTH } from './config';
+import { compositionLattice, LATTICE_STEP } from './bench';
 import { deploy, deployInto, reinforceInto, stackOf, stackTotal } from './setup';
 import { FRONT, REAR, UNIT_KINDS, type Sector, type Stack } from './types';
 
@@ -96,25 +97,70 @@ describe('правило развёртывания', () => {
     }
   });
 
-  it('фланги — за конницей: она встаёт на края первой, пешие — в центр и остаток; в переполненной линии в резерв уходят пешие', () => {
-    // 14.21, как у EU4: конница занимает края первой линии до W на край, пешие — то, что осталось. Прежде пешие вставали
-    // первыми, и лишняя пехота вытесняла латных из строя — и при расстановке, и при вводе резерва (разбор «лезвия», 14.20).
-    // Граница области: в выборке есть армии, где правило решает, — первая линия переполнена, и в ней и пешие, и конница.
-    const crowded = ARMIES.filter((a) => foot(a) > 0 && horse(a) > 0 && foot(a) + horse(a) > 3 * W);
-    expect(crowded.length, 'армий с переполненной линией, где есть и пешие, и конница').toBeGreaterThan(0);
-    for (const a of ARMIES) {
-      const s = deploy(a, W);
-      const [left, , right] = FRONT.map((id) => horse(s[id]));
-      // На краях — вся конница, сколько её встанет ровно поровну, но не больше двух полос: пешие места на краях у неё не
-      // отнимают. Нечётный конный — в резерве (поставка 5, 14.33).
-      expect(left + right, `${JSON.stringify(a)}: конница на краях`).toBe(Math.min(2 * Math.floor(horse(a) / 2), 2 * W));
-      expect(left, `${JSON.stringify(a)}: края ровно поровну`).toBe(right);
+  // Тест «фланги — за конницей: она встаёт на края первой, пешие — в центр и остаток; в переполненной линии в резерв
+  // уходят пешие» ушёл вместе с правилом, которое держал (слово владельца по 14.34): в полном строю конница вставала на
+  // края вся, до W на край, и прибавка всадников у большей армии вытесняла с краёв её пеших. Его обещания — «фланги за
+  // конницей» и «в полном строю лишние в резерве» — держат два теста ниже: (а) в полном строю первая линия от размера армии
+  // не зависит, (б) на границе полного строя число конных в строю не прыгает. Конница с краёв — тест выше.
+
+  /** Решётка составов в наименьших долях: состав `LATTICE_STEP`-ми, делённый на шаг, — целые числа по родам. */
+  const units = compositionLattice().map((mix) => stackOf(Object.fromEntries(Object.entries(mix).map(([k, n]) => [k, (n ?? 0) / LATTICE_STEP]))));
+  const times = (unit: Stack, n: number): Stack => stackOf(Object.fromEntries(UNIT_KINDS.map((k) => [k, unit[k] * n])));
+
+  it('(а) в полном строю первая линия не зависит от размера армии того же состава: лишние каждого рода ждут в резерве', () => {
+    // Слово владельца по 14.34: в полном строю конница занимает края своей долей — долей всадников по головам среди пеших и
+    // конных армии, — это «X мест с края» EU4, выведенные из состава. Большая армия того же состава ставит ту же первую
+    // линию, что меньшая; её перевес — в резерве. Состав — точно тот же: армии — целые кратные наименьших долей решётки.
+    let decided = 0;
+    let center = 0;
+    for (const unit of units) {
+      const heads = foot(unit) + horse(unit);
+      if (heads === 0) continue;
+      const least = Math.floor((3 * W) / heads) + 1;
+      const lines = [least, least + 1, 2 * least + 3, 10 * least].map((n) => {
+        const a = times(unit, n);
+        // Граница области: строй полон — пеших и конных больше, чем мест в первой линии; правило доли здесь и решает.
+        expect(foot(a) + horse(a), `${JSON.stringify(a)}: строй полон`).toBeGreaterThan(3 * W);
+        return deploy(a, W);
+      });
+      for (const s of lines.slice(1)) for (const id of FRONT) expect(s[id], `${JSON.stringify(unit)}: ряд ${id} у большей армии`).toEqual(lines[0][id]);
+      const big = lines[lines.length - 1];
+      // Правилу есть что решать: у большей армии конница ждёт в резерве, а края она делит с пешими.
+      if (horse(big.R) > 0 && foot(big.A) > 0) decided += 1;
+      if (foot(unit) > 0 && horse(big.B) > 0) center += 1;
     }
-    for (const a of crowded) {
-      const s = deploy(a, W);
-      const edges = horse(s.A) + horse(s.C);
-      expect(foot(s.R), `${JSON.stringify(a)}: лишние пешие — в резерве`).toBe(Math.max(0, foot(a) - (3 * W - edges)));
+    expect(decided, 'составов, где у большей армии конница ждёт в резерве, а края она делит с пешими').toBeGreaterThan(0);
+    expect(center, 'составов, где конница долей встаёт и в центр — раньше пеших').toBeGreaterThan(0);
+  });
+
+  it('(б) на границе полного строя число конных в строю не прыгает: 3W − 1, 3W и 3W + 1 пеших и конных', () => {
+    // Слово владельца по 14.34. Граница — там, где строй становится полным: мест в первой линии три полосы по W. По одну
+    // её сторону конница встаёт вся, по другую — своей долей, и доля берётся среди пеших и конных: лучники второй линии в
+    // неё не входят. Прибавка одного пешего сдвигает долю не больше чем на одного всадника.
+    let archers = 0;
+    for (const unit of units) {
+      if (foot(unit) === 0 || horse(unit) === 0) continue;
+      const heads = foot(unit) + horse(unit);
+      const riders = Math.round(((3 * W - 1) * horse(unit)) / heads);
+      const walkers = 3 * W - 1 - riders;
+      const cavalry = Math.round((riders * unit.cavalry) / horse(unit));
+      const spear = Math.round((walkers * unit.spear) / foot(unit));
+      const archer = Math.round((unit.archer * (3 * W - 1)) / heads);
+      const walk: keyof Stack = unit.infantry > 0 ? 'infantry' : 'spear';
+      if (archer > 0) archers += 1;
+      const inLine = [0, 1, 2].map((plus) => {
+        const a = stackOf({ spear, infantry: walkers - spear, archer, cavalry, heavy: riders - cavalry });
+        a[walk] += plus;
+        // Граница области: три армии — по обе стороны границы полного строя.
+        expect(foot(a) + horse(a), `${JSON.stringify(a)}: пеших и конных`).toBe(3 * W - 1 + plus);
+        const s = deploy(a, W);
+        return FRONT.reduce((n, id) => n + horse(s[id]), 0);
+      });
+      for (let i = 1; i < inLine.length; i += 1) {
+        expect(Math.abs(inLine[i] - inLine[i - 1]), `${JSON.stringify(unit)}: конных в строю ${inLine.join(' → ')}`).toBeLessThanOrEqual(1);
+      }
     }
+    expect(archers, 'армий с лучниками — тех, чья доля не должна их видеть').toBeGreaterThan(0);
   });
 
   it('резерв посреди боя встаёт без предпочтения рода, как у EU4: фланги за конницей — только при расстановке', () => {
@@ -135,9 +181,15 @@ describe('правило развёртывания', () => {
       const placed = [...into.front, ...into.rear].reduce((n, s) => n + s[k], 0) + into.rest[k];
       expect(placed, `${k}: резерв весь на счету`).toBe(pool[k]);
     }
-    // Начальная расстановка — по-прежнему фланги за конницей: тот же состав в пустой строй встаёт иначе.
+    // Начальная расстановка — по-прежнему фланги за конницей: тот же состав в пустой строй встаёт иначе — конница только с
+    // краёв, центр пешим. Прежде здесь стояло «[10, 0, 15]»: конница вставала на края вся, сколько войдёт, и это утверждение
+    // ушло с тем правилом (слово владельца по 14.34); строй здесь полон, и конница встаёт своей долей — «(а)» выше.
     const initial = deployInto(pool, { front: [10, 20, 15], rear: [5, 4, 0] });
-    expect(initial.front.map(horse), 'при расстановке конница — на края').toEqual([10, 0, 15]);
+    // Верно для состава этого теста: конницы в полной линии меньше двух третей. Где её доля больше — она встаёт и в центр
+    // («(а)» выше: «конница долей встаёт и в центр — раньше пеших»).
+    expect(horse(initial.front[1]), 'при расстановке в центре конницы нет — у этого состава').toBe(0);
+    expect(horse(initial.front[0]), 'при расстановке конница — с краёв').toBeGreaterThan(0);
+    expect(horse(into.front[1]), 'при вводе резерва — и в центр').toBeGreaterThan(0);
   });
 
   it('лучники встают второй линией тем же порядком, что пешие', () => {
