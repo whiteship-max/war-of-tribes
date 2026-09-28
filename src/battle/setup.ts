@@ -28,6 +28,10 @@ export function armyTotal(setup: ArmySetup): Stack {
 // как у EU4): конница встаёт первой — на края первой линии, поровну, до W на край. Пешие — первой линией
 // в то, что конница оставила: центральная полоса до W, затем края. Конница, не вставшая на края, — в то,
 // что осталось после пеших. Лучники — второй линией от центра, как пешие. Кто не встал — резерв (`R`).
+// Края — ровно поровну: нечётный остаток на край не встаёт, а ждёт в резерве, и так — при расстановке и при
+// вводе резерва, одним правилом округления (`edgesEvenly`; слово владельца, поставка 5, 14.33). Прежде
+// «лишний один — левому» ставил одиночку на свой левый край у обеих сторон, а свой левый смотрит на чужой
+// правый: одиночки стояли мимо друг друга, и бой, где центры бежали разом, стоял до потолка кругов.
 // Своих чисел у правила нет, кроме W: ни долей по полосам, ни порогов; край конницы — вся полоса края.
 // Резерв посреди боя встаёт без предпочтения рода (`reinforceInto`, как у EU4): фланги за конницей — только
 // у начальной расстановки.
@@ -42,20 +46,22 @@ const LANES: ReadonlyArray<{ front: Sector; rear: Sector }> = FRONT.map((front, 
 const CENTER = LANES.length >> 1;
 const EDGES = LANES.map((_, i) => i).filter((i) => i !== CENTER);
 
-/** Поровну по краям до их вместимости: сколько не влезло в один край, уходит в другой; лишний один — левому. */
+/**
+ * Поровну по краям до их вместимости: сколько не влезло в один край, уходит в другой. Нечётный остаток, который поровну
+ * не делится, на край не встаёт — одно правило округления на расстановку и на ввод резерва (поставка 5, 14.33).
+ */
 function edgesEvenly(n: number, room: number[]): number[] {
   const out = room.map(() => 0);
   let left = n;
   let open = EDGES.filter((i) => room[i] > 0);
   while (left > 0 && open.length > 0) {
     const share = Math.floor(left / open.length);
-    const extra = left - share * open.length;
     let moved = 0;
-    open.forEach((i, j) => {
-      const take = Math.min(room[i] - out[i], share + (j < extra ? 1 : 0));
+    for (const i of open) {
+      const take = Math.min(room[i] - out[i], share);
       out[i] += take;
       moved += take;
-    });
+    }
     left -= moved;
     open = open.filter((i) => out[i] < room[i]);
     if (moved === 0) break;
@@ -63,7 +69,11 @@ function edgesEvenly(n: number, room: number[]): number[] {
   return out;
 }
 
-/** Сколько `n` встанет в каждую полосу: от центра (`center`) или с краёв (`edges`), до вместимости `room`. */
+/**
+ * Сколько `n` встанет в каждую полосу: от центра (`center`) или с краёв (`edges`), до вместимости `room`. С краёв в центр
+ * идут только те, кому на краях нет места, — не нечётный остаток при неполных краях: он ждёт в резерве, как у расстановки
+ * от центра.
+ */
 function fill(n: number, room: number[], from: 'center' | 'edges'): number[] {
   const out = room.map(() => 0);
   let left = n;
@@ -83,7 +93,7 @@ function fill(n: number, room: number[], from: 'center' | 'edges'): number[] {
     edges();
   } else {
     edges();
-    center();
+    if (EDGES.every((i) => out[i] >= room[i])) center();
   }
   return out;
 }

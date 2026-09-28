@@ -4,7 +4,7 @@
 // не врёт числам. Все стороны встают по правилу развёртывания (`setup.deploySetup`).
 import { describe, expect, it } from 'vitest';
 import { ringMult, simulateBattle, standing } from './sim';
-import { deploySetup, armyTotal, emptyStack, stackTotal, stackOf } from './setup';
+import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, BREAK_AFTER, COUNTER, DICE, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_MIN, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleMin, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
 import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
@@ -698,6 +698,41 @@ describe('круги сечи', () => {
     expect(gong, 'дошли до потолка').toBeGreaterThan(0);
   }, 120_000);
 
+  it('нечётный остаток не стоит на краю: на боях W+1 пеших и на решётке ни один бой не стоит до потолка', () => {
+    // Слово владельца (поставка 5, docs/battle_eu4.md, 14.33). Прежде «лишний один — левому»: армия W+1 пеших вставала
+    // центром W и одиночкой на своём левом краю — у обеих сторон, а свой левый смотрит на чужой правый, где с начала боя
+    // никого. Пешему с края соседнюю полосу не достать, и ход (`relocate`) — только у того, чья полоса очищена в бою; если
+    // центры бежали разом, одиночки стояли мимо друг друга до потолка кругов. Теперь нечётный остаток ждёт в резерве.
+    const N = FRONT_WIDTH + 1;
+    const splits: Array<Partial<Stack>> = [0, 34, 68, 102, 136, N].map((spear) => ({ spear, infantry: N - spear }));
+    // Граница области: у каждой армии пеших сверх центра нечётное число, а края не полны — прежнее правило поставило бы
+    // одиночку на край.
+    for (const a of splits) {
+      const beyond = (a.spear ?? 0) + (a.infantry ?? 0) - FRONT_WIDTH;
+      expect(beyond % 2 === 1 && beyond < 2 * FRONT_WIDTH, `${compositionName(a)}: нечётный остаток при неполных краях`).toBe(true);
+    }
+    const battles: Array<{ r: BattleResult; name: string }> = [];
+    for (const a of splits) for (const b of splits) for (let seed = 1; seed <= 12; seed += 1) {
+      battles.push({ r: simulateBattle({ seed, attacker: deploySetup(a), defender: deploySetup(b) }), name: `${compositionName(a)} × ${compositionName(b)}, сид ${seed}` });
+    }
+    // Решётка — зеркала на ½W, W и 2W и на W + 1: равные стороны ломаются позже всех.
+    for (const total of [...OVERSIZE_SIZES, N]) {
+      for (const army of compositionLattice()) {
+        const setup = deploySetup(scaleArmy(army, total));
+        battles.push({ r: simulateBattle({ seed: 1, attacker: setup, defender: setup }), name: `зеркало ${total}, ${compositionName(army)}` });
+      }
+    }
+    let circles = 0;
+    for (const { r, name } of battles) {
+      const still = standstill(r);
+      circles += still.checked;
+      expect(atGong(r), `${name}: бой стоял до потолка кругов`).toBe(false);
+      expect(still.circle, `${name}: круг ${still.circle} без потерь у обеих сторон — стояние`).toBeNull();
+    }
+    // Граница области: круги, где никто не сломан, в выборке есть — только в них стояние и возможно.
+    expect(circles, 'кругов, где никто не сломан').toBeGreaterThan(0);
+  }, 120_000);
+
   it('«тень» перебита: группа, где каждого рода меньше половины бойца, не жива — «жив» в той же единице, что удар', () => {
     // Слово владельца (docs/battle_eu4.md, 14.27): удар рода меньше половины бойца пропускает (`distribute`), и «жив»
     // считается в той же единице — по роду, а не по сумме (`sim.standing`). Прежде группа «копья 0.4 + лёгкая 0.4» была
@@ -1236,27 +1271,30 @@ describe('дальность обхода по роду', () => {
       expect(turnedBy(wider, 'attacker'), `сид ${seed}: ряд шире обошёл`).toBe(true);
       expect(turnedBy(wider, 'defender'), `сид ${seed}: ряд уже обошёл`).toBe(false);
     }
-    // Зеркальные армии: ряды полос встали той ширины, какую дало правило развёртывания, — лоб в лоб они равны или
-    // различаются на край по округлению. Обход до того, как чей-то сектор побежал, — только там, где ряд обходящего
-    // встал шире.
+    // Зеркальные армии: ряды полос встают равными — края ровно поровну, нечётный остаток ждёт в резерве (поставка 5, 14.33).
+    // Обхода до того, как чей-то сектор побежал, в них нет: разница потерь края не делает. Прежде зеркальные ряды различались
+    // на край округлением, и обход до первого бегства был только там, где ряд обходящего встал шире; округления, разводящего
+    // края, больше нет — и утверждение стало строже: обходов ноль.
     const facingFront: Record<'A' | 'B' | 'C', 'A' | 'B' | 'C'> = { A: 'C', B: 'B', C: 'A' };
     let early = 0;
+    let fought = 0;
     for (const c of COMPOSITIONS) {
       for (let seed = 1; seed <= 3; seed += 1) {
         const setup = deploySetup(scaleArmy(c.army, holdSize()));
+        // Граница области: ряды правда встали равными — лоб в лоб и край против края.
+        for (const id of ['A', 'B', 'C'] as const) expect(stackTotal(setup.sectors[id]), `${c.name}: ряд ${id} против своего зеркала`).toBe(stackTotal(setup.sectors[facingFront[id]]));
         const r = simulateBattle({ seed, attacker: setup, defender: setup });
         const freedAt = Math.min(...r.log.filter((e) => e.id === 'sector-broken').map((e) => e.tick));
+        // Граница области: до первого бегства обе стороны теряли людей — разнице потерь было из чего сделать «край».
+        if (r.phases.some((p) => p.to < freedAt && p.losses.attacker > 0 && p.losses.defender > 0)) fought += 1;
         for (const e of r.log) {
           if (e.id !== 'flank-turned' || e.tick >= freedAt || !(e.sector === 'A' || e.sector === 'B' || e.sector === 'C')) continue;
-          const own = stackTotal(setup.sectors[facingFront[e.sector]]);
-          const theirs = stackTotal(setup.sectors[e.sector]);
-          expect(own, `${c.name}, сид ${seed}: ${e.by} обошёл ${e.sector} на ${e.tick}-м тике, а встал не шире`).toBeGreaterThan(theirs);
           early += 1;
         }
       }
     }
-    // Граница области: обход до первого бегства в зеркалах правда бывает — на краях, разошедшихся округлением.
-    expect(early, 'обходов в зеркалах до первого бегства').toBeGreaterThan(0);
+    expect(fought, 'зеркал, где до первого бегства обе стороны теряли людей').toBeGreaterThan(0);
+    expect(early, 'обходов в зеркалах до первого бегства: ряды равны, а обход был — край сделала разница потерь').toBe(0);
   });
 
   it('край бьёт по морали долей накрытого ряда: край в одного человека даёт не больше перевеса в 10 %', () => {
@@ -1442,7 +1480,9 @@ describe('мораль EU4', () => {
     // точка где, утверждено в самом тесте — резерв у меньшей есть или нет.
     const W = FRONT_WIDTH;
     const until = (r: BattleResult, side: Side): number => r.sides[side].brokenAt ?? r.ticks + 1;
-    for (const [n, above] of [[Math.round(2.5 * W), false], [6 * W, true], [9 * W, true]] as const) {
+    // Точка ниже трёх W — ближайшая к 2.5W, где у меньшей нет резерва: нечётный остаток ждёт в резерве (поставка 5, 14.33),
+    // и ровно на 2.5W у меньшей в резерве один всадник.
+    for (const [n, above] of [[Math.round(2.5 * W) + 1, false], [6 * W, true], [9 * W, true]] as const) {
       const small = scaleArmy(BALANCED_ARMY, n);
       const large = scaleArmy(BALANCED_ARMY, Math.round(n * 1.25));
       expect(stackTotal(deploySetup(small).sectors.R) > 0, `${n}: резерв у меньшей`).toBe(above);
@@ -1503,6 +1543,36 @@ describe('ширина фронта', () => {
         expect(wide).toEqual(simulateBattle({ seed, attacker, defender, width: Infinity }));
       }
     }
+  });
+
+  it('фронт не шире W ни при расстановке, ни после ввода резерва, и края встают ровно поровну — нечётный ждёт в резерве', () => {
+    // Слово владельца (поставка 5, docs/battle_eu4.md, 14.33): что сверх — в резерв, как у EU4; нечётный остаток на край не
+    // встаёт. Одно правило округления на расстановку и на ввод резерва (`setup.edgesEvenly`), поэтому и проверка — на обоих.
+    // Края поровну — это и зеркальность: свой край стороны смотрит на край противника, а не мимо.
+    const odd = [FRONT_WIDTH + 1, FRONT_WIDTH + 3, 2 * FRONT_WIDTH + 1];
+    const armies = [...odd.map((n) => stackOf({ infantry: n })), ...odd.map((n) => stackOf({ cavalry: n - FRONT_WIDTH })), ...compositionLattice().map((a) => stackOf(scaleArmy(a, holdSize() + 1)))];
+    for (const a of armies) {
+      const s = deploy(a, FRONT_WIDTH);
+      for (const id of [...FRONT, 'D', 'E', 'F'] as const) expect(stackTotal(s[id]), `${JSON.stringify(a)}: ряд ${id} шире W`).toBeLessThanOrEqual(FRONT_WIDTH);
+      expect(stackTotal(s.A), `${JSON.stringify(a)}: край первой линии`).toBe(stackTotal(s.C));
+      expect(stackTotal(s.D), `${JSON.stringify(a)}: край второй линии`).toBe(stackTotal(s.F));
+    }
+    // Ввод резерва: дыры на краях поровну и нечётный резерв — край получает поровну, нечётный остаётся ждать.
+    const into = reinforceInto(stackOf({ infantry: 7, archer: 5 }), { front: [4, 0, 4], rear: [3, 0, 3] });
+    expect(into.front.map(stackTotal), 'дыры первой линии — поровну').toEqual([3, 0, 3]);
+    expect(into.rear.map(stackTotal), 'дыры второй линии — поровну').toEqual([2, 0, 2]);
+    expect(stackTotal(into.rest), 'нечётные ждут в резерве').toBe(2);
+    // Бой с резервом: ни один ряд первой и второй линии шире W не встаёт — ширина зажимает только ряд обхода.
+    let entered = 0;
+    for (let seed = 1; seed <= 4; seed += 1) {
+      for (const [a, b] of [[BALANCED_ARMY, COMPOSITIONS[8].army], [COMPOSITIONS[3].army, COMPOSITIONS[5].army]] as const) {
+        const r = simulateBattle({ seed, attacker: deploySetup(scaleArmy(a, 5 * FRONT_WIDTH + 1)), defender: deploySetup(scaleArmy(b, 4 * FRONT_WIDTH + 1)) });
+        entered += r.log.filter((e) => e.id === 'reserve-committed').length;
+        for (const e of r.log) if (e.id === 'depth') expect(e.row, `сид ${seed}: ряд ${e.row} шире W после ввода резерва`).toBe('strike');
+      }
+    }
+    // Граница области: резерв правда вставал — иначе «после ввода» проверялось бы даром.
+    expect(entered, 'строк ввода резерва').toBeGreaterThan(0);
   });
 
   it('заполненная ширина зажимает: у стороны, большей на 10 %, размен ниже, чем без ширины', () => {

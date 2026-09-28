@@ -66,13 +66,17 @@ describe('правило развёртывания', () => {
     }
   });
 
-  it('пешие встают от центра: центр до W, края поровну, резерв — только когда вся линия полна', () => {
+  it('пешие встают от центра: центр до W, края ровно поровну, в резерве — сверх полной линии и нечётный остаток', () => {
+    // Слово владельца (поставка 5, 14.33): нечётный остаток на край не встаёт, а ждёт в резерве. Прежде тест держал «края
+    // поровну ±1, резерв — только когда вся линия полна»: лишний один вставал на левый край, и у обеих сторон одиночки
+    // смотрели мимо друг друга.
     for (const a of ARMIES) {
       const s = deploy(a, W);
       const [l, c, r] = FRONT.map((id) => foot(s[id]));
       expect(c, `${JSON.stringify(a)}: центр`).toBe(Math.min(foot(a), W));
-      expect(Math.abs(l - r), 'края поровну').toBeLessThanOrEqual(1);
-      if (foot(s.R) > 0) for (const id of FRONT) expect(stackTotal(s[id]), `${id}: резерв при неполной линии`).toBe(W);
+      expect(l, `${JSON.stringify(a)}: края ровно поровну`).toBe(r);
+      const free = FRONT.some((id) => stackTotal(s[id]) < W);
+      if (free && foot(s.R) > 0) expect(foot(s.R), `${JSON.stringify(a)}: при неполной линии в резерве — только нечётный остаток`).toBe(1);
       // Роды в полосе — в той же доле, что во всех пеших: правило ставит пеших, а не выбирает род.
       if (foot(a) > 0) for (const id of FRONT) expect(Math.abs(s[id].spear - (foot(s[id]) * a.spear) / foot(a))).toBeLessThanOrEqual(1);
     }
@@ -86,7 +90,9 @@ describe('правило развёртывания', () => {
         expect(stackTotal(left), `${JSON.stringify(a)}: конница в центре при неполном левом крае`).toBe(W);
         expect(stackTotal(right), `${JSON.stringify(a)}: конница в центре при неполном правом крае`).toBe(W);
       }
-      if (horse(s.R) > 0) for (const id of FRONT) expect(stackTotal(s[id]), `${id}: конница в резерве при неполной линии`).toBe(W);
+      // В резерве конные — сверх полной линии или один нечётный, который на края поровну не делится (поставка 5, 14.33).
+      const free = FRONT.some((id) => stackTotal(s[id]) < W);
+      if (free && horse(s.R) > 0) expect(horse(s.R), `${JSON.stringify(a)}: при неполной линии в резерве — только нечётный конный`).toBe(1);
     }
   });
 
@@ -99,13 +105,15 @@ describe('правило развёртывания', () => {
     for (const a of ARMIES) {
       const s = deploy(a, W);
       const [left, , right] = FRONT.map((id) => horse(s[id]));
-      // На краях — вся конница, сколько её есть, но не больше двух полос: пешие места на краях у неё не отнимают.
-      expect(left + right, `${JSON.stringify(a)}: конница на краях`).toBe(Math.min(horse(a), 2 * W));
-      expect(Math.abs(left - right), `${JSON.stringify(a)}: края поровну`).toBeLessThanOrEqual(1);
+      // На краях — вся конница, сколько её встанет ровно поровну, но не больше двух полос: пешие места на краях у неё не
+      // отнимают. Нечётный конный — в резерве (поставка 5, 14.33).
+      expect(left + right, `${JSON.stringify(a)}: конница на краях`).toBe(Math.min(2 * Math.floor(horse(a) / 2), 2 * W));
+      expect(left, `${JSON.stringify(a)}: края ровно поровну`).toBe(right);
     }
     for (const a of crowded) {
       const s = deploy(a, W);
-      expect(foot(s.R), `${JSON.stringify(a)}: лишние пешие — в резерве`).toBe(Math.max(0, foot(a) - (3 * W - Math.min(horse(a), 2 * W))));
+      const edges = horse(s.A) + horse(s.C);
+      expect(foot(s.R), `${JSON.stringify(a)}: лишние пешие — в резерве`).toBe(Math.max(0, foot(a) - (3 * W - edges)));
     }
   });
 
@@ -137,8 +145,9 @@ describe('правило развёртывания', () => {
       const s = deploy(a, W);
       const [l, c, r] = REAR.map((id) => s[id].archer);
       expect(c).toBe(Math.min(a.archer, W));
-      expect(Math.abs(l - r)).toBeLessThanOrEqual(1);
-      if (s.R.archer > 0) for (const id of REAR) expect(s[id].archer).toBe(W);
+      expect(l, 'края ровно поровну').toBe(r);
+      // В резерве лучники — сверх полной второй линии или один нечётный (поставка 5, 14.33).
+      if (s.R.archer > 0 && REAR.some((id) => s[id].archer < W)) expect(s.R.archer, 'при неполной линии в резерве — только нечётный').toBe(1);
     }
   });
 
