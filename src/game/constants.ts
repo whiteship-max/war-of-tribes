@@ -125,9 +125,6 @@ export const MORALE_BASE = 72;
  */
 export const MORALE_OUTPUT_LOW = 0.7;
 export const MORALE_OUTPUT_SPAN = 0.45;
-/** Разовый сдвиг морали за отбитый и за проигранный набег на посёлок. */
-export const BATTLE_MORALE_WIN = 5;
-export const BATTLE_MORALE_LOSS = 12;
 /**
  * Теснота: во что обходится морали набитый сверх крыш посёлок. Считается долей от
  * вместимости жилья, а не головами — иначе один лишний человек в посёлке на семь

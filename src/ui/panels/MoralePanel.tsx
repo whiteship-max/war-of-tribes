@@ -1,7 +1,8 @@
 // Справка по счастью из строки состояния. Все слагаемые берутся из `moraleBreakdown` —
 // оттуда же, откуда их берёт симуляция: расходиться панели и расчёту негде.
 import { useGame } from '@/game/store';
-import { BATTLE_MORALE_LOSS, BATTLE_MORALE_WIN, MORALE_GROWTH_ZERO } from '@/game/constants';
+import { MORALE_GROWTH_ZERO } from '@/game/constants';
+import { GATE_MORALE_LOST, GATE_MORALE_WON } from '@/world/data/tuning';
 import {
   buildingOfType,
   decreeOf,
@@ -201,7 +202,7 @@ export function MoralePanel() {
         <span className="name">
           Бои у стен посёлка
           <em className="sub">
-            отбитый набег +{BATTLE_MORALE_WIN}, проигранный −{BATTLE_MORALE_LOSS} сразу
+            отбитый набег +{GATE_MORALE_WON}, проигранный −{GATE_MORALE_LOST} сразу
           </em>
         </span>
         <span className="val">

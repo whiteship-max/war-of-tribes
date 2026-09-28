@@ -1,5 +1,5 @@
 import type { GameState } from '../types';
-import { BATTLE_MORALE_LOSS, BATTLE_MORALE_WIN } from '../constants';
+import { GATE_MORALE_LOST, GATE_MORALE_WON } from '@/world/data/tuning';
 import { defense } from '../derived';
 import { roll } from './roll';
 import { famineToll, killPop } from './population';
@@ -21,13 +21,13 @@ export function resolveBattle(s: GameState, enemyPower: number, enemyName: strin
   if (won) {
     recordBattle(s, 'won');
     s.prestige += 3;
-    s.morale = Math.min(100, s.morale + BATTLE_MORALE_WIN);
+    s.morale = Math.min(100, s.morale + GATE_MORALE_WON);
     const text = `Племя отбило нападение: ${enemyName}. Мораль выросла.`;
     log(s, text, 'good');
     return { won, text };
   }
   recordBattle(s, 'lost');
-  s.morale = Math.max(0, s.morale - BATTLE_MORALE_LOSS);
+  s.morale = Math.max(0, s.morale - GATE_MORALE_LOST);
   const foodLost = Math.round(s.resources.food * 0.25);
   s.resources.food -= foodLost;
   recordRaidLoss(s, { food: foodLost });

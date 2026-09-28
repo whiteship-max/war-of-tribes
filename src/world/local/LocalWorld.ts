@@ -300,6 +300,8 @@ import {
   SIEGE_TOWN_EAT_MAN,
   SUPPORT_STAY,
   FALL_MARK,
+  GATE_MORALE_LOST,
+  GATE_MORALE_WON,
   TRADE_GOLD_PER_SETTLEMENT,
   TRIBUTE_PER_SETTLEMENT,
   WORLD_ORIGIN,
@@ -4093,7 +4095,7 @@ export class LocalWorld implements WorldApi {
       resources: {},
       ...loss,
       prestige: outcome.won ? 0 : 3,
-      morale: outcome.won ? -10 : 5,
+      morale: outcome.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
       battle: outcome.won ? 'lost' : 'won',
       // Прорвались — значит, дошли и до хозяйства за стеной. Насколько плохо,
       // решает то, сколько от заслона осталось; что с этим делать, знает племя.
