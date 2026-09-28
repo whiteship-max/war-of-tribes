@@ -200,7 +200,7 @@ import { aimOf, firePlan, reaim, thinAt } from '../bombard';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
-import { resolveField, type FieldOutcome } from '../battle';
+import { resolveField, type FieldOutcome, type FieldSide } from '../battle';
 import {
   awayOf,
   fieldTroops,
@@ -4014,32 +4014,11 @@ export class LocalWorld implements WorldApi {
     const wall = this.wallField(m, at);
     if (this.beginSiege(m, at, wall.field)) return;
     this.remove(m);
-    const { profile, party, held, home, militia, archers, field } = wall;
+    const { profile, party, field } = wall;
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
-    const record: BattleRecord | null = field.result
-      ? {
-          us: 'defender',
-          result: field.result,
-          troops: { attacker: troopsOfKinds(party.kinds, party.gear), defender: { ...home } },
-          // Ополчение — не бойцы: частокол, башня и жители. В строю они стоят,
-          // в казармах их нет, поэтому и записаны они отдельно.
-          militia: { attacker: { men: 0, archers: 0 }, defender: { men: militia, archers } },
-          // Оборону держат у себя дома — там и снимается место боя.
-          place: this.placeOf(this.save.home),
-        }
-      : null;
+    const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear));
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
-    const warriors = troopTotal(home);
-    // Ополчение гибнет наравне со всеми, но списываются только бойцы: жителей
-    // набег не уносит — за них отвечают мораль и разграбленный склад.
-    const spread = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
-    const warriorsLost = Math.min(warriors, troopTotal(spread) || Math.round(warriors * outcome.defenderLoss));
-    // Погибают те, кто стоял у частокола. Потери, которые не легли ни на один
-    // вид обороны, называются поимённо здесь же — со слабых, — а не числом:
-    // числом племя сняло бы их со всей дружины и могло задеть тех, кто при
-    // полководце в поле. Дружина у ворот теряет свою долю сразу.
-    const troopsLost = troopTotal(spread) > 0 ? spread : weakest(home, warriorsLost);
-    this.standingLost(held.own, held.standing, troopsLost);
+    const { warriors, warriorsLost, troopsLost } = this.gateLosses(wall);
     // Прорвались — город взят, и его участь решает та же дверь, какой мы делим
     // чужие дворы и какой голод делит наш город (`spoils.fate`), — той ступенью,
     // что отряд объявил: склад и казна до тайника, сколько поднимет отряд, люди и
@@ -4111,8 +4090,17 @@ export class LocalWorld implements WorldApi {
    * это один и тот же бой с тем же сидом, и второй сборки сторон быть не должно.
    */
   private wallField(m: StoredMarch, at: number) {
-    const profile = this.save.profile;
     const party = raidingParty(this.save.seed, m.id, m.power);
+    return { party, ...this.gateField({ kinds: party.kinds, gear: party.gear }, m.seed, m.from, at) };
+  }
+
+  /**
+   * Бой у своих ворот против пришедшего — **одна дверь** на набег логова (`wallField`) и на бой события (волки и
+   * разбойники, `gateFight`; docs/battle_eu4.md, 14.28): сторона обороны собирается только здесь. Весь, как он
+   * случится, и ничего не трогая. `from` — откуда пришли: переправу на шаге к деревне штрафует место боя.
+   */
+  private gateField(attacker: FieldSide, seed: number, from: Coord, at: number) {
+    const profile = this.save.profile;
     // Оборона дома: гарнизон, дружина, если она собрана и стоит у своих ворот, плюс
     // ополчение — частокол, башня и сами жители. Раскладывает их правило развёртывания,
     // как любой бой: пехота ополчения встаёт со своим родом, стрелки башни — во вторую
@@ -4128,15 +4116,51 @@ export class LocalWorld implements WorldApi {
     homeKinds.infantry += militia - archers;
     homeKinds.archer += archers;
     const field = resolveField({
-      seed: m.seed,
-      // Место боя — своя деревня; переправа — если набег вышел на неё через русло.
-      ground: groundAt(this.save.seed, this.save.home, m.from),
-      attacker: { kinds: party.kinds, gear: party.gear },
+      seed,
+      // Место боя — своя деревня; переправа — если пришедший вышел на неё через русло.
+      ground: groundAt(this.save.seed, this.save.home, from),
+      attacker,
       // Ведёт оборону полководец, если его дружина стоит у ворот (`homePips`), — со всеми отметками: у EU4 манёвр
       // обороняющегося держит переправу нападающему (docs/battle_eu4.md, 14.5, Л9).
       defender: { kinds: homeKinds, gear: this.ownGear(home), resolve: this.ownResolve(), pips: this.homePips(at) },
     });
-    return { profile, party, held, home, militia, archers, field };
+    return { profile, held, home, militia, archers, field };
+  }
+
+  /**
+   * Кто из обороны пал у ворот — одна дверь на набег и на бой события. Ополчение гибнет наравне со всеми, но
+   * списываются только бойцы: жителей бой у ворот не уносит — за них отвечают мораль и склад.
+   *
+   * Погибают те, кто стоял у частокола. Потери, которые не легли ни на один вид обороны, называются поимённо здесь же
+   * — со слабых, — а не числом: числом племя сняло бы их со всей дружины и могло задеть тех, кто при полководце в поле.
+   * Дружина у ворот теряет свою долю сразу.
+   */
+  private gateLosses(gate: ReturnType<LocalWorld['gateField']>): { warriors: number; warriorsLost: number; troopsLost: TroopStack } {
+    const { held, home, field } = gate;
+    const warriors = troopTotal(home);
+    const spread = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
+    const warriorsLost = Math.min(warriors, troopTotal(spread) || Math.round(warriors * field.defenderLoss));
+    const troopsLost = troopTotal(spread) > 0 ? spread : weakest(home, warriorsLost);
+    this.standingLost(held.own, held.standing, troopsLost);
+    return { warriors, warriorsLost, troopsLost };
+  }
+
+  /**
+   * Запись боя у ворот для отчёта: ядро и то, кто стоял с каждой стороны. `attacker` — пришедшие видами племени, чтобы
+   * ролик их нарисовал. Ополчение — не бойцы: частокол, башня и жители. В строю они стоят, в казармах их нет, поэтому
+   * и записаны они отдельно. Оборону держат у себя дома — там и снимается место боя.
+   */
+  private gateRecord(gate: ReturnType<LocalWorld['gateField']>, attacker: TroopStack): BattleRecord | null {
+    const { home, militia, archers, field } = gate;
+    return field.result
+      ? {
+          us: 'defender',
+          result: field.result,
+          troops: { attacker, defender: { ...home } },
+          militia: { attacker: { men: 0, archers: 0 }, defender: { men: militia, archers } },
+          place: this.placeOf(this.save.home),
+        }
+      : null;
   }
 
   // ---------- Письма ----------
