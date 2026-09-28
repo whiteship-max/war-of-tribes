@@ -357,6 +357,13 @@ export const RING: Array<{ name: string; a: ArmySetup; b: ArmySetup }> = [
   { name: 'лучники бьют копья', a: deploySetup({ archer: ARMY_SIZE }), b: deploySetup({ spear: ARMY_SIZE }) },
 ];
 
+/**
+ * Пороги кольца (тест «кольцо контрров», `battle.test.ts`): на каждом из сидов `1…seeds` контрящий выигрывает размен не
+ * ниже `RATIO_EVEN`, а в среднем по ним — больше `mean`. Одни числа на тест и на строку отчёта (`battle:report`, «Кольцо
+ * контрров»): отчёт печатает средний размен по своим сидам, и без порогов рядом его сравнивали не с тем порогом.
+ */
+export const RING_BAR = { seeds: 12, mean: 1.5 } as const;
+
 /** Сбалансированный состав: мерка размера W (`ARMY_AT_W`) и противник поиска составов. */
 export const BALANCED_ARMY: Partial<Stack> = { spear: 150, infantry: 200, archer: 150, cavalry: 100 };
 

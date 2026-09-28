@@ -11,7 +11,7 @@
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
 import { DICE, PHASES, PHASE_PIP, UNIT_KINDS, UNIT_STATS, COUNTER, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, RING_BAR, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
 import { VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach } from './battle-jobs';
 
@@ -256,7 +256,9 @@ for (const [i, pair] of RING.entries()) {
   const s = series(ringPairs[i]().pairs, compositionResults);
   // Разброс по сидам: тест кольца требует порога с каждого сида, а не в среднем (`battle.test.ts`, «кольцо контрров»).
   const bySeed = ringPairs[i]().pairs.map((p) => p.lossRatio);
-  console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS}; по сидам ${Math.min(...bySeed).toFixed(2)}–${Math.max(...bySeed).toFixed(2)})`);
+  // Пороги теста — рядом с числом: средний размен отчёта сравнивали с порогом одного сида (`RING_BAR`).
+  const bar = `порог теста: на каждом сиде 1…${RING_BAR.seeds} не ниже ${RATIO_EVEN}, в среднем выше ${RING_BAR.mean}`;
+  console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS}; по сидам ${Math.min(...bySeed).toFixed(2)}–${Math.max(...bySeed).toFixed(2)}; ${bar})`);
 }
 
 console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');

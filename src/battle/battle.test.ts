@@ -7,7 +7,7 @@ import { ringMult, simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, BREAK_AFTER, COUNTER, DICE, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
-import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, RING_BAR, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
 
@@ -140,7 +140,8 @@ describe('кольцо контрров', () => {
   // Порог не трогается. Числа —
   // `battle:report`, «Кольцо контрров»: с шагом 0.0928 до снятия паники 1.06 (по сидам 0.76–1.34), после — 1.00
   // (0.70–1.28); с выведенным шагом 0.0265 — 0.94 (0.87–1.03); после снятия урона от морали (поставка 5, пункт 3,
-  // 14.33) — 1.07 (1.00–1.12), всё ещё красный: по сидам ниже 1.05 и в среднем далеко ниже 1.5. Поле в этой паре у копий
+  // 14.33) — 1.07 (1.00–1.12); после флангов по доле и снятия ×1.05 (14.34) — 1.02 (0.94–1.08). Красный: по сидам ниже
+  // 1.05 и в среднем далеко ниже обещанных 1.5 — крупный пункт пересмотра баланса (14.24). Поле в этой паре у копий
   // всегда; лучники «бьют» только разменом. Почему снятие паники ударило по лучникам (14.22): паника в этой паре была
   // только у лучников — строй лучников стоит во второй линии без прикрытия, копья до него доходят, и первый сломавшийся
   // сектор лучников валил соседей, строй уходил с поля разом и рукопашную, где лучники беспомощны, обрывал. Без паники
@@ -149,13 +150,13 @@ describe('кольцо контрров', () => {
     it(pair.name, () => {
       // По размену: в каждой паре боёв контрящий теряет меньше, в среднем — заметно меньше.
       let ratio = 0;
-      const N = 12;
+      const N = RING_BAR.seeds;
       for (let seed = 1; seed <= N; seed += 1) {
         const m = mirrored(pair.a, pair.b, seed);
-        expect(m.lossRatio).toBeGreaterThanOrEqual(RATIO_EVEN);
+        expect(m.lossRatio, `сид ${seed}: размен не ниже ${RATIO_EVEN}`).toBeGreaterThanOrEqual(RATIO_EVEN);
         ratio += m.lossRatio;
       }
-      expect(ratio / N).toBeGreaterThan(1.5);
+      expect(ratio / N, `средний размен по ${N} сидам выше ${RING_BAR.mean}`).toBeGreaterThan(RING_BAR.mean);
     });
   }
 });
@@ -1075,6 +1076,7 @@ describe('кость фазы', () => {
     // «Ограничителя» на W, стоявшие у потолка ничьей, решились — все четыре у большей: 312 → 316 из 390, 80.0 → 81.0 %
     // при коридоре 78–80 %; вывод на этом бое — 0.0342 (`battle:report`, «Кость фазы»; «тень» этих чисел не сдвинула,
     // 14.27). После снятия урона от морали (поставка 5, пункт 3, 14.33) — 318 из 390, 81.5 %; вывод — 0.0282 (тот же раздел).
+    // На конце поставки 5 (фланги по доле и снятый ×1.05, 14.34) — 313 из 390, 80.3 %; вывод — 0.0292 (тот же раздел).
     // Шаг кости не меняется (слово владельца по 14.25): держим красным до общего вывода — один раз, вместе с W,
     // после последней боевой поставки, перед перемером мира (14.24). Коридор не трогается.
     // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
