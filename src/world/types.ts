@@ -234,6 +234,12 @@ export interface SiegeView {
   fall: FallForecast;
   /** Уровень частокола: чем город держится, пока на приступ не идут. */
   palisade: number;
+  /**
+   * Мораль между боями (`world/rest`): лагеря — дрался недавно, бить его выгоднее сейчас; гарнизона города — после
+   * вылазки. У свежих поля нет.
+   */
+  campRest?: RestView;
+  garrisonRest?: RestView;
 }
 
 /**
@@ -857,6 +863,17 @@ export interface FigureView {
    * передача, эти люди уже не в гарнизоне, но ещё не в строю: они на дороге.
    */
   readyAt: number;
+  /** Мораль дружины между боями (`world/rest`). Только у полководца и только не полная; нет поля — дружина свежая. */
+  rest?: RestView;
+}
+
+/**
+ * Мораль армии между боями глазами игрока (docs/battle_eu4.md, 14.31): доля полной морали сейчас и минута, когда она
+ * станет полной. Считает мир одной дверью (`world/rest`); у свежей армии поля нет.
+ */
+export interface RestView {
+  share: number;
+  fullAt: number;
 }
 
 export interface MarchView {
@@ -902,6 +919,11 @@ export interface MarchView {
    * у него — осаждённый город, поэтому по `targetId` его не узнать. У прочих отрядов поля нет.
    */
   onCamp?: boolean;
+  /**
+   * Мораль чужого отряда между боями — отбился от перехвата и ещё не отдохнул (`world/rest`). Живые данные: есть только в
+   * живом обзоре (`world/sight`), как численность; у свежего отряда поля нет.
+   */
+  rest?: RestView;
 }
 
 export interface MarchOrder {

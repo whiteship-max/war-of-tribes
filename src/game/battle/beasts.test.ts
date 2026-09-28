@@ -8,7 +8,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { describeEvent, summarize } from '@/battle';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { shieldVillagers } from '@/world/lairs';
-import { GATE_FOES } from '@/world/data/gate';
+import { GATE_FOES, gateReportId } from '@/world/data/gate';
+import { REST_FULL } from '@/world/rest';
 import type { BattleRecord, GateCall, GateFoe, PlayerProfile } from '@/world/types';
 import type { TroopStack } from './kinds';
 import { beastSummary, beastWords } from './beasts';
@@ -28,7 +29,10 @@ const HOMES: TroopStack[] = [
 async function gateRecords(foe: GateFoe, powers: number): Promise<BattleRecord[]> {
   const out: BattleRecord[] = [];
   for (const [h, army] of HOMES.entries()) {
-    const world = new LocalWorld({ seed: 7 + h, now: () => START, storage: null });
+    // Между боями гарнизон отдыхает полный срок: иначе каждый следующий бой шёл бы с уставшими (мораль между боями,
+    // docs/battle_eu4.md, 14.31), и выборка мерила бы усталость, а не слова.
+    let now = START;
+    const world = new LocalWorld({ seed: 7 + h, now: () => now, storage: null });
     const profile = (gate?: GateCall[]): PlayerProfile => ({
       name: 'Тест',
       pop: shieldVillagers(0.1),
@@ -43,8 +47,11 @@ async function gateRecords(foe: GateFoe, powers: number): Promise<BattleRecord[]
     });
     await world.sync(profile());
     for (let i = 0; i < powers; i++) {
-      const pulse = await world.sync(profile([{ id: `gate-${foe}-${h}-${i}`, foe, power: 30 + i * 25, seed: 1000 + i * 7919 }]));
-      for (const r of pulse.reports) if (r.battle) out.push(r.battle);
+      const id = `gate-${foe}-${h}-${i}`;
+      const pulse = await world.sync(profile([{ id, foe, power: 30 + i * 25, seed: 1000 + i * 7919 }]));
+      // Только бой этого вызова: пока гарнизон отдыхает, мир живёт, и в пульс попадают и набеги логов.
+      for (const r of pulse.reports) if (r.battle && r.id === gateReportId(id)) out.push(r.battle);
+      now += REST_FULL + 1;
     }
   }
   return out;

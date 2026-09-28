@@ -170,6 +170,10 @@ const homeWindow = (w: LocalWorld): { gateAt?: number; rearGateAt?: number } =>
 const freeGate = (w: LocalWorld): void => {
   delete homeWindow(w).gateAt;
   delete homeWindow(w).rearGateAt;
+  // Тем же доводом — и мораль лагеря между боями (docs/battle_eu4.md, 14.31): каждый бой в лагере оставляет его
+  // уставшим, и точка мерила бы не рогатки своей минуты, а сотню предыдущих вылазок. Усталость проверяется своими
+  // тестами (`world/rest.test.ts`).
+  for (const m of (w as unknown as { save: { marches: { rest?: unknown }[] } }).save.marches) delete m.rest;
 };
 
 describe('укрепления лагеря: чистая функция времени', () => {
