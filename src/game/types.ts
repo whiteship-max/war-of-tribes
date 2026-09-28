@@ -2,7 +2,7 @@
 import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { TroopStack } from './battle/kinds';
 import type { ProfileState } from '@/profile/types';
-import type { FigureId } from '@/world/types';
+import type { FigureId, GateCall } from '@/world/types';
 import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
 
@@ -558,6 +558,14 @@ export interface PayState {
  * Раненые одного боя (docs/infirmary.md). Встают в строй того же вида со снаряжением: боец,
  * его ковка и учения не потеряны. Пишет их одна дверь — `sim/infirmary.ts`.
  */
+/**
+ * Вызов к воротам, как его держит партия (`sim/gate`): то, что уезжает миру (`GateCall`), и трофеи события на случай
+ * победы. Трофеи решает событие, а не мир, — поэтому в слепок они не едут.
+ */
+export interface TribeGate extends GateCall {
+  spoils: Partial<Record<ResourceId, number>>;
+}
+
 export interface WoundGroup {
   troops: Partial<Record<TroopId, number>>;
   /**
@@ -671,6 +679,12 @@ export interface GameState {
    * необязательно для старой партии: `deserialize` кладёт пустой список, версия не растёт.
    */
   wounded: WoundGroup[];
+  /**
+   * Вызовы к воротам, которые событие положило, а мир ещё не посчитал (`sim/gate`; docs/battle_eu4.md, 14.28): бой
+   * волков и разбойников считает мир той же дверью, что бой у стены, на ближайшем пульсе. Поле необязательно для старой
+   * партии: `deserialize` кладёт пустой список, версия не растёт.
+   */
+  gate: TribeGate[];
   buildings: Building[];
   completedQuests: string[];
   /**

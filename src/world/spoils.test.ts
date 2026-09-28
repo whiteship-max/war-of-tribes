@@ -363,8 +363,10 @@ describe('одно правило на обе стороны', () => {
 
   it('дележ склада и увод людей зовутся только из двери участи', () => {
     // Не «похоже написано», а буквально одна дверь. Кто импортирует `plunder`
-    // или `lead` из модуля дележа, тот и делит; таких мест два: сама дверь и
-    // мятеж — у мятежа нет победителя, и участью он не является.
+    // или `lead` из модуля дележа, тот и делит; таких мест три: сама дверь,
+    // мятеж — у мятежа нет победителя, и участью он не является, — и бой
+    // разбойников у ворот: прорвавшись, они уносят со склада, сколько поднимут,
+    // тем же правилом, а город не берут (слово владельца, docs/battle_eu4.md, 14.28).
     const importers: Record<'plunder' | 'lead', string[]> = { plunder: [], lead: [] };
     const walk = (dir: string): void => {
       for (const name of readdirSync(dir)) {
@@ -380,7 +382,19 @@ describe('одно правило на обе стороны', () => {
       }
     };
     walk(path.resolve('src'));
-    expect(importers.plunder, 'делит склад кто-то кроме двери участи и мятежа').toEqual(['src/game/sim/mutiny.ts']);
+    expect(importers.plunder, 'делит склад кто-то кроме двери участи, мятежа и боя у ворот').toEqual([
+      'src/game/sim/mutiny.ts',
+      'src/world/local/LocalWorld.ts',
+    ]);
+    // В мире склад делит только бой события у ворот, и один раз.
+    const world = stripComments(readFileSync(path.resolve('src/world/local/LocalWorld.ts'), 'utf8'));
+    const from = world.indexOf('private gateFight(');
+    const end = world.indexOf('\n  }\n', from);
+    expect(from > 0 && end > from, 'тело боя у ворот найдено').toBe(true);
+    const gate = world.slice(from, end);
+    const plunders = (code: string): number => (code.match(/(?<!function )\bplunder\(/g) ?? []).length;
+    expect(plunders(world), 'мир делит склад вне боя у ворот').toBe(1);
+    expect(plunders(gate), 'бой у ворот делит склад один раз').toBe(1);
     expect(importers.lead, 'уводит людей кто-то кроме двери участи').toEqual([]);
 
     // Внутри модуля дележа оба правила зовёт только сама дверь — на всех трёх ступенях.

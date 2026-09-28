@@ -38,6 +38,7 @@ import { readyEngine } from '@/game/sim/tower';
 import { fateLocks } from '@/game/sim/tech';
 import { syncFaith } from '@/game/sim/faith';
 import { woundsHome } from '@/game/sim/infirmary';
+import { dropGates, gateCalls, settleGate } from '@/game/sim/gate';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
@@ -110,6 +111,12 @@ function skills(s: GameState): Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stea
 function locksOut(s: GameState): Pick<PlayerProfile, 'fateLocks'> {
   const locks = fateLocks(s);
   return Object.keys(locks).length > 0 ? { fateLocks: locks } : {};
+}
+
+/** Вызовы к воротам для слепка — только если они есть: слепок без событий у ворот тот же, что до них. */
+function gateOut(s: GameState): Pick<PlayerProfile, 'gate'> {
+  const gate = gateCalls(s);
+  return gate.length > 0 ? { gate } : {};
 }
 
 /** Черты агентов для слепка: множители, только если они есть. */
@@ -228,6 +235,8 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // участи взятого города (`world/spoils.fate`): их уводят на ступени «увести
     // людей» и они разбегаются с пожарища. Где они стоят, миру знать не надо.
     bonded: bondedTotal(s),
+    // Вызовы к воротам: бой волков и разбойников считает мир той же дверью, что бой у стены (docs/battle_eu4.md, 14.28).
+    ...gateOut(s),
   };
 }
 
@@ -391,8 +400,12 @@ export async function tribePulse(
     for (const e of pulse.effects) {
       hooks.before?.(e, pulse.now);
       applyEffects(s, [e]);
+      // Бой у ворот по событию: при победе — трофеи события.
+      if (e.gate) settleGate(s, e);
       hooks.after?.(e, s);
     }
+    // Посчитанные вызовы снимаются по списку мира — и сегодняшние, и те, чьё последствие до партии не дошло.
+    dropGates(s, pulse.gateDone);
     // Раненые при полководце ложатся в лазарет, когда дружина вернулась к воротам.
     if ((s.wounded ?? []).some((g) => g.until === null) && fieldWoundedHome(pulse.figures, pulse.now)) woundsHome(s);
     syncAway(s, pulse.marches, pulse.figures);

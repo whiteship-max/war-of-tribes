@@ -39,6 +39,7 @@ import type {
   FigureId,
   OrderActionId,
   FigureView,
+  GateCall,
   HomeEffect,
   Intel,
   IntelReading,
@@ -189,7 +190,9 @@ import {
   fate,
   fateAt,
   fateBlock,
+  asLoss,
   homeLoss,
+  plunder,
   winnerGain,
   type FateLocks,
   type FateResult,
@@ -201,6 +204,7 @@ import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garris
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
 import { resolveField, type FieldOutcome, type FieldSide } from '../battle';
+import { GATE_FOES } from '../data/gate';
 import {
   awayOf,
   fieldTroops,
@@ -365,6 +369,12 @@ const SHOWN_FRESH = 10_000;
  */
 const onCamp = (m: StoredMarch, camp: SettlementId | null): boolean =>
   camp !== null && !m.own && m.phase === 'out' && m.relief === camp;
+
+/**
+ * Воины отряда мира заданной мощи — одна мерка на набег логова, войну дворов, выручку и разбойников у ворот: по ним мир
+ * считает, сколько отряд унесёт (`haul`) и сколько его ляжет в бою (`stackLosses`).
+ */
+const warriorsOf = (power: number): UnitStack => ({ warrior: Math.max(1, Math.round(power / 3)) });
 
 /** Кто лезет через рогатки одной стороны лагеря: свои поимённо или чужие родами. */
 type CampPart = { own: TroopStack } | { kinds: Stack; gear: Partial<Record<UnitKind, number>> };
@@ -1770,7 +1780,7 @@ export class LocalWorld implements WorldApi {
     if (!best) return;
 
     const power = Math.max(2, this.powerNow(best, at) * SIEGE_RELIEF_SHARE);
-    const units: UnitStack = { warrior: Math.max(1, Math.round(power / 3)) };
+    const units = warriorsOf(power);
     const seconds = marchSeconds(distance(best, town), terrainFactor(this.save.seed, best, town), units);
     const war = this.warSeed();
     this.save.marches.push({
@@ -4163,6 +4173,90 @@ export class LocalWorld implements WorldApi {
       : null;
   }
 
+  /**
+   * Вызовы к воротам из слепка (`PlayerProfile.gate`): каждый бьётся ровно один раз. Посчитанный мир помнит, пока
+   * племя его везёт, — последствие могло потеряться (партия не записалась после пульса), и второго боя за один вызов
+   * быть не должно; вызов, которого в слепке больше нет, мир забывает. Срока у памяти нет. Возвращает посчитанные из
+   * слепка — племя снимает их с партии (`WorldPulse.gateDone`).
+   */
+  private gateFights(calls: readonly GateCall[], at: number): string[] {
+    const done = new Set(this.save.gateDone ?? []);
+    for (const call of calls) {
+      if (done.has(call.id)) continue;
+      this.gateFight(call, at);
+      done.add(call.id);
+    }
+    const kept = calls.filter((c) => done.has(c.id)).map((c) => c.id);
+    if (kept.length > 0) this.save.gateDone = kept;
+    else delete this.save.gateDone;
+    return kept;
+  }
+
+  /**
+   * Бой события у ворот — волки или разбойники (слово владельца по docs/battle_eu4.md, 14.28): та же дверь, что бой у
+   * стены (`gateField`), тот же счёт павших и та же запись. Своих чисел здесь нет.
+   *
+   * - **Кто пришёл.** Волки — лёгкая конница без снаряжения: всё, что делает стаю стаей (скорость, обход на соседнюю
+   *   полосу, погоня), у рода уже есть; разбойники — отряд тем же генератором, что набег логова (`raidingParty`).
+   *   Бойцов — мерой отрядов мира (`menOfPower`), ею же племя пишет «Их N».
+   * - **Где.** Клетка дома, пришли из неё же: штраф места нападающему — её земля, переправы нет.
+   * - **Поражение.** Разбойники уносят со склада, сколько поднимут уцелевшие (`plunder`, ноша — `haul` их воинов);
+   *   волки склада не трогают — поражение от них стоит павших и морали. Жителей бой у ворот не уносит ни у кого
+   *   (`gateLosses`).
+   */
+  private gateFight(call: GateCall, at: number): void {
+    const def = GATE_FOES[call.foe];
+    const party = def.beasts
+      ? { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {} }
+      : raidingParty(this.save.seed, call.id, call.power);
+    const gate = this.gateField({ kinds: party.kinds, gear: party.gear }, call.seed, this.save.home, at);
+    const { field } = gate;
+    const { warriors, warriorsLost, troopsLost } = this.gateLosses(gate);
+    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear));
+    // Прорвались люди — уносят со склада, сколько поднимут уцелевшие; тайник не достать.
+    const units = warriorsOf(call.power);
+    const left = stackAfter(units, stackLosses(units, field.attackerLoss));
+    const profile = this.save.profile;
+    const taken =
+      field.won && !def.beasts ? plunder(profile?.stock ?? {}, profile?.stash ?? 0, this.haul(left, false).carry) : null;
+    const loss = taken ? asLoss(taken.taken) : {};
+    const text = field.won
+      ? def.beasts
+        ? `${def.broke}: стая ушла в лес.`
+        : `${def.broke} и унесли добро.`
+      : `${def.repelled}.`;
+    this.addReport({
+      id: `${call.id}-gate`,
+      at,
+      kind: 'defense',
+      title: field.won ? def.broke : def.repelled,
+      target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
+      won: !field.won,
+      sent: { warrior: warriors },
+      lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
+      enemyPower: Math.round(call.power),
+      enemyLost: Math.round(call.power * field.attackerLoss),
+      loot: taken && taken.takenTotal > 0 ? loss : null,
+      hidden: taken?.hiddenTotal ?? 0,
+      intel: null,
+      battle: record && def.beasts ? { ...record, beasts: 'attacker' } : record,
+      text: `${def.name} у ворот. ${text}`,
+      read: false,
+    });
+    this.addEffect({
+      id: `${call.id}-gate`,
+      gate: call.id,
+      lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
+      lostTroops: troopsLost,
+      resources: loss,
+      prestige: field.won ? 0 : 3,
+      morale: field.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
+      battle: field.won ? 'lost' : 'won',
+      text,
+      good: !field.won,
+    });
+  }
+
   // ---------- Письма ----------
 
   /**
@@ -4544,7 +4638,7 @@ export class LocalWorld implements WorldApi {
       }
     }
     const power = Math.max(2, lairRaid(this.powerNow(src, now), profile.pop));
-    const units: UnitStack = { warrior: Math.max(1, Math.round(power / 3)) };
+    const units = warriorsOf(power);
     const seconds = marchSeconds(distance(src, home), terrainFactor(save.seed, src, home), units);
     const travel = Math.max(realMs(seconds), this.warningMs());
     const id = `m${save.nextMarch}`;
@@ -4852,7 +4946,7 @@ export class LocalWorld implements WorldApi {
     if (pairs.length === 0) return;
     const pick = pairs[Math.floor(rng() * pairs.length) % pairs.length];
     const power = Math.max(2, this.powerNow(pick.from, now) * AI_WAR_SHARE);
-    const units: UnitStack = { warrior: Math.max(1, Math.round(power / 3)) };
+    const units = warriorsOf(power);
     const seconds = marchSeconds(
       distance(pick.from, pick.to),
       terrainFactor(save.seed, pick.from, pick.to),
@@ -6473,11 +6567,15 @@ export class LocalWorld implements WorldApi {
     // здесь неотданными: павших в них мир списывает с войска сам (`bury`).
     let army = profile.army ?? {};
     for (const e of this.save.effects) if (e.lostTroops) army = troopsAfter(army, e.lostTroops);
-    this.save.profile = { ...profile, army };
+    // Вызовы к воротам в сохранении мира не лежат: их везёт партия, а мир помнит только посчитанные (`gateFights`).
+    const { gate: calls = [], ...kept } = profile;
+    this.save.profile = { ...kept, army };
     this.save.profileAt = now;
     this.seatAgents(now);
     this.muster(now);
     this.advance(now);
+    // Бой события у ворот — после хода мира: у ворот стоят те, кто дома в эту минуту.
+    const gateDone = this.gateFights(calls, now);
     // Орудие поставили, сняли или башня стала ниже его уровня — мир узнаёт об этом на
     // пульсе, и сила обстрела меняется в эту минуту (`aimTower`).
     const besieged = this.homeSiege(now);
@@ -6497,6 +6595,7 @@ export class LocalWorld implements WorldApi {
       siege: this.siegeView(now),
       faith: this.faithView(profile.faith ?? null),
       unread: this.save.reports.filter((r) => !r.read).length,
+      ...(gateDone.length > 0 ? { gateDone } : {}),
     };
   }
 
