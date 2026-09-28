@@ -104,8 +104,6 @@ interface Spec {
   when: string;
   /** Показывать ли строку на карточках других родов как «так бьют по нам». */
   broad?: boolean;
-  /** Роды, к которым правило не относится: пехоту нечего предупреждать об отсутствии пехоты. */
-  except?: UnitKind[];
 }
 
 /**
@@ -214,14 +212,6 @@ function specs(): Spec[] {
       mult: CLASH_SPEAR_BRACE,
       when: 'сшибка: сомкнутые копья принимают удар упёршись — в каждом круге боя',
     },
-    {
-      id: 'no-anchor',
-      by: 'any',
-      at: 'any',
-      mult: ANCHOR.noInfantryDamageTaken,
-      except: ['infantry'],
-      when: `фронт без пехоты (её должно быть ${Math.round(ANCHOR.infantryShare * 100)}% сектора) получает больше`,
-    },
   ];
 }
 
@@ -235,7 +225,6 @@ const nameIn = (by: UnitKind | 'any'): string => (by === 'any' ? 'по нам' :
 export function countersOf(kind: UnitKind): CounterLine[] {
   const out: CounterLine[] = [];
   for (const s of specs()) {
-    if (s.except?.includes(kind)) continue;
     const mine = s.by === kind;
     const atMe = s.at === kind || (s.at === 'any' && (s.broad || s.by === 'any'));
     if (mine) {

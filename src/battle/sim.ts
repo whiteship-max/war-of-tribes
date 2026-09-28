@@ -1025,7 +1025,6 @@ class Battle {
   taken(g: Group, kind: UnitKind, frontal: boolean): number {
     const s = this.sides[g.side];
     let m = 1;
-    if (g.row === 'front' && !anchored(g.stack)) m *= ANCHOR.noInfantryDamageTaken;
     if (s.retreating) m *= RETREAT.taken;
     if (this.phase === 'clash' && kind === 'spear' && frontal && closedSpears(g)) m *= CLASH_SPEAR_BRACE;
     return m;
