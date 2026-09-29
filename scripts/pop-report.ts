@@ -7,13 +7,12 @@
 //
 //   npm run pop:report            — обычный прогон
 //   HOURS=12 STEP=2 npm run pop:report
+//   GOLD_STREAMS=12 npm run pop:report — и спор за золото по двенадцати потокам случайности (`GOLD_DAY=174` — срок днём)
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { assignWorker } from '@/game/sim/workers';
 import { seeded, setRandom } from '@/game/sim/random';
 import {
-  armyPower,
-  armySize,
   buildRate,
   buildingOfType,
   buildingSlots,
@@ -24,12 +23,8 @@ import {
   productionPerDay,
   seasonOf,
   storageCap,
-  upkeepInfo,
-  mastersCount,
   yearOf,
 } from '@/game/derived';
-import { techLevel } from '@/game/sim/tech';
-import { mastersInfo } from '@/game/sim/masters';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
 import {
@@ -50,15 +45,25 @@ import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { shieldVillagers } from '@/world/lairs';
 import { pilot, player, staff } from './autopilot';
 import { upkeepSection } from './pop-upkeep';
+import { GOLD_WORLD, goldRun, goldStreams } from './pop-gold';
 
 const HOURS = Number(process.env.HOURS ?? 10);
 /** Как часто автопилот принимает решения, игровых секунд; тем же тактом пульсует мир. */
 const STEP = Number(process.env.STEP ?? 15);
 /**
  * Мир партии — тихий: логова набегов на дом не шлют. Отчёт меряет темп хозяйства при идеальной игре, и
- * набег без войска у автопилота был бы не темпом, а грабежом. Веру деревне мир называет, как в игре.
+ * набег без войска у автопилота был бы не темпом, а грабежом. Веру деревне мир называет, как в игре. Тот же мир — у спора
+ * за золото (`pop-gold`).
  */
-const WORLD = 7;
+const WORLD = GOLD_WORLD;
+/**
+ * Спор за золото по потокам случайности (`pop-gold.goldStreams`): сколько потоков, нет — раздела нет. Двенадцать — два
+ * захода веера на бюджете железа (6 ядер из 12) на каждого из двух игроков: медиана и середина половины потоков у
+ * двенадцати уже устойчивы, а прогон стоит минуты, а не десятки минут (docs/battle_eu4.md, 14.35).
+ */
+const GOLD_STREAMS = Number(process.env.GOLD_STREAMS ?? 0);
+/** Срок спора по потокам, игровой день: нет — конец защиты новичка на дуге этого прогона, как у спора выше. */
+const GOLD_DAY = process.env.GOLD_DAY ? Number(process.env.GOLD_DAY) : null;
 
 const maxed = (s: GameState): boolean =>
   s.buildings.every((b) => b.level >= (BUILDING_BY_ID[b.type].maxLevel ?? MAX_BUILDING_LEVEL));
@@ -179,30 +184,20 @@ async function goldSection(end: number | null, arc: Town | null): Promise<void> 
     ['по умолчанию', false],
     ['вложился в админветвь', true],
   ] as const) {
-    const g = createInitialState(7);
-    g.tutorialDone = true;
-    await pilot({
-      g,
-      seconds: end,
-      player: player('means', { tax: 'high', masters }),
-      world: { seed: WORLD, pulse: 30, raids: false },
-      economy: 'live',
-      tick: 1,
-      decide: 30,
-    });
-    const up = upkeepInfo(g);
-    const t = townOf(g);
-    const mi = mastersInfo(g);
-    out.push({ army: armySize(g), power: armyPower(g), town: t, masters: mastersCount(g), wage: mi.wage, inSoldiers: mi.inSoldiers });
+    // Общий поток отчёта — тот, что остался после дуги: спор здесь — одна партия на одной случайности. Разброс по потокам —
+    // `GOLD_STREAMS` (`pop-gold.goldStreams`).
+    const g = await goldRun({ masters, seconds: end, stream: null });
+    const t: Town = { pop: g.pop, avg: g.avg, max: g.max, rate: g.rate };
+    out.push({ army: g.army, power: g.power, town: t, masters: g.masters, wage: g.wage, inSoldiers: g.inSoldiers });
     row(
       label,
       t,
-      String(armySize(g)),
-      armyPower(g).toFixed(0),
-      String(mastersCount(g)),
-      String(techLevel(g, 'admin')),
-      `${up.armyWages.toFixed(1)} / ${up.mastersWages.toFixed(1)}`,
-      up.income.toFixed(1),
+      String(g.army),
+      g.power.toFixed(0),
+      String(g.masters),
+      String(g.admin),
+      `${g.armyWages.toFixed(1)} / ${g.mastersWages.toFixed(1)}`,
+      g.income.toFixed(1),
     );
   }
   const [a, b] = out;
@@ -309,6 +304,11 @@ async function main(): Promise<void> {
 
   warSection(shieldMarks.map((m) => shieldAt.get(m) ?? null));
   await goldSection(shieldAt.get(shieldMarks[1]) ?? null, arcAtShield);
+  if (GOLD_STREAMS > 0) {
+    const end = GOLD_DAY !== null ? GOLD_DAY * DAY_LENGTH : shieldAt.get(shieldMarks[1]);
+    if (end === undefined) console.log('\nСпор за золото по потокам: дуга не дошла до конца защиты новичка, и GOLD_DAY не задан — мерить не на чем.');
+    else await goldStreams(end, GOLD_STREAMS);
+  }
 
   console.log('\nЗимы (население до и после, остаток еды и дров):');
   for (const w of winters) {
