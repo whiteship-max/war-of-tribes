@@ -68,7 +68,22 @@ describe('браузер', () => {
   it('стендовый браузер поднимается только через проверку потолка и чужих прогонов', () => {
     const src = strip(readFileSync(join(ROOT, 'scripts', 'lib', 'chrome.ts'), 'utf8'));
     expect(src).toMatch(/UNCAPPED\.includes/);
-    expect(src).toMatch(/await waitUntilFree\(/);
+    expect(src).toMatch(/await holdMachine\(/);
+    // `holdMachine` — проверка машины и замок, а не одно из двух.
+    const budget = strip(readFileSync(join(ROOT, 'scripts', 'lib', 'budget.ts'), 'utf8'));
+    expect(budget).toMatch(/export async function holdMachine\([^)]*\)[^{]*\{\s*await waitUntilFree\(what, options\);\s*return lockMachine\(/);
+  });
+
+  it('тяжёлая работа берёт замок машины: приёмка, веер, браузер, сборка, тесты', () => {
+    // Замок один на все проекты владельца (`machinelock.mjs`): 29.09.2026 машина выключилась, пока приёмка шла рядом с
+    // рендером другого проекта, которого бюджет этого проекта не видел.
+    const src = (f: string): string => strip(readFileSync(join(ROOT, f), 'utf8'));
+    expect(src('scripts/reports.ts')).toMatch(/await holdMachine\('Приёмка отчётами'/);
+    expect(src('scripts/lib/fan.ts')).toMatch(/if \(!process\.env\[CHILD\]\) await lockMachine\(/);
+    expect(src('scripts/lib/chrome.ts')).toMatch(/await holdMachine\('Стендовый браузер'/);
+    expect(src('scripts/build.mjs')).toMatch(/await takeLock\('war-of-tribes', 'сборка'\)/);
+    expect(src('vite.config.ts')).toMatch(/globalSetup:\s*\['\.\/scripts\/lib\/testlock\.ts'\]/);
+    expect(src('scripts/lib/testlock.ts')).toMatch(/return lockMachine\('тесты'\)/);
   });
 
   it('страница отчёта рисует с потолком отчёта — кроме того, кто меряет сам кадр', () => {

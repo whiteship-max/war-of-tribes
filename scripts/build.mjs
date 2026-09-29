@@ -31,6 +31,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { takeLock } from './lib/machinelock.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -212,6 +213,15 @@ function manifest() {
   console.log(`\n· первая загрузка: ${kb(first)} по сети`);
   console.log(`  вся папка:       ${kb(disk)} на диске`);
   console.log(`\nвыкладывать: ${DIST}`);
+}
+
+// Замок машины (бюджет железа, `lib/machinelock.mjs`): сборка — тяжёлая работа, и занятую машину она ждёт. Под приёмкой
+// (сборка базы во втором worktree) замок её. Не удалось завести файл замка — сборка идёт без него: замок бережёт
+// машину владельца, а выкладку он останавливать не вправе.
+try {
+  await takeLock('war-of-tribes', 'сборка');
+} catch (e) {
+  console.warn(`замок машины не взят (${e.message}) — сборка идёт без него`);
 }
 
 // Чистим сами: vite перезаписывает, но не удаляет — чанк с прежним хешем остался бы лежать

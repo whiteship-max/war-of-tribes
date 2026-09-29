@@ -24,7 +24,7 @@ import { owners, plan, type Owner, type Plan } from './lib/affected';
 import { measure, shifts, stableLines } from './lib/measured';
 import { closureKey, lastSeconds, load, runTraced, save, unexplained } from './lib/runs';
 import { serveSlots, takeSlot } from './lib/slots';
-import { budgetCores, coolDown, waitUntilFree } from './lib/budget';
+import { budgetCores, coolDown, holdMachine, waitUntilFree } from './lib/budget';
 import { ROOT, changedSince, lines, own, setupOf } from './lib/setup';
 import { commitTree, git, worktree, type Tree } from './lib/tree';
 
@@ -176,9 +176,11 @@ async function main(): Promise<void> {
   }
 
   // Бюджет железа (CLAUDE.md): приёмка — прогон, и прогоны идут по одному и только на свободной машине. Чужой рендер,
-  // ffmpeg, сборка, прогон отчётов или тестов, стендовый браузер или чужая загрузка выше четверти машины — приёмка ждёт,
-  // а не начинается и не падает (решение владельца, 29.09.2026): ни база, ни своё.
-  await waitUntilFree('Приёмка отчётами', { load: true });
+  // ffmpeg, сборка, прогон отчётов или тестов, стендовый браузер, чужой замок машины или чужая загрузка выше четверти
+  // машины — приёмка ждёт, а не начинается и не падает (решение владельца, 29.09.2026): ни база, ни своё. Дождалась —
+  // берёт замок машины (`~/.heavy-job.lock`, общий с другими проектами) и держит его до конца: отчёты, веер, сборка
+  // базы и браузер — её потомки, замок им свой.
+  await holdMachine('Приёмка отчётами', { load: true });
 
   // Вывод «до» ищется под отпечатком замыкания отчёта на базе.
   let baseKeys = new Map<string, string>();

@@ -19,13 +19,20 @@
  *   приёмка   штатные отчёты идут столько, сколько идут, но строго по очереди, в бюджете ядер, с
  *             паузой между тяжёлыми (`HEAVY_PAUSE_MS`) и только на свободной машине (`waitUntilFree`);
  *   чужое     перед прогоном — ни чужого браузера для замеров, ни рендера и ffmpeg, ни сборки, ни
- *             прогона отчётов и тестов (`foreignRuns`), и чужая загрузка машины ниже `FREE_LOAD`.
+ *             прогона отчётов и тестов (`foreignRuns`), и чужая загрузка машины ниже `FREE_LOAD`;
+ *   замок     машины (`machinelock.mjs`, `~/.heavy-job.lock`) — один на все проекты владельца: тяжёлая
+ *             работа берёт его перед стартом (`holdMachine`, `lockMachine`), занятый ждёт. Процессы другого
+ *             проекта этот модуль узнаёт по признакам, а замок — по договору, который тот проект держит сам.
  *
  * Всё здесь — бюджет железа, а не игровые числа: вывод отчётов от них зависеть не должен, и сверяет это приёмка.
  */
 import { spawnSync } from 'node:child_process';
 import { availableParallelism, cpus } from 'node:os';
+import { WRITING_MS, holderAlive, holderWords, isOurs, readLock, takeLock } from './machinelock.mjs';
 import { measure } from './measured';
+
+/** Проект в записи замка машины. */
+export const MACHINE_PROJECT = 'war-of-tribes';
 
 /**
  * Какая доля ядер машины может уйти на один прогон: половина (решение владельца, 29.09.2026; прежде —
@@ -178,13 +185,17 @@ export function heavyWork(p: Proc): string | null {
 
 /**
  * Чужие тяжёлые прогоны на машине: браузер для замеров или рендера, ffmpeg, рендер, сборка, прогоны
- * отчётов, тестов и стендов. Свои — предки и потомки этого процесса — не в счёт.
+ * отчётов, тестов и стендов — и замок машины в чужих руках, каков бы ни был спрос (`options`): он и есть
+ * чужая тяжёлая работа, объявленная словом. Свои — предки и потомки этого процесса — не в счёт.
  */
 export function foreignRuns(options: { browsers?: boolean; runs?: boolean } = {}): string[] {
   const { browsers = true, runs = true } = options;
   const all = processes();
   const mine = family(all);
   const found: string[] = [];
+  const held = readLock();
+  // Недописанная запись — чужой замок, пока пишется; брошенную снимет тот, кто возьмёт (`tryTake`), иначе ждали бы вечно.
+  if (held && ('broken' in held ? held.age < WRITING_MS : !isOurs(held) && !mine.has(held.pid) && holderAlive(held))) found.push(holderWords(held));
   for (const p of all) {
     if (mine.has(p.pid)) continue;
     const what = heavyWork(p);
@@ -192,6 +203,29 @@ export function foreignRuns(options: { browsers?: boolean; runs?: boolean } = {}
     if (what.startsWith('стендовый браузер') ? browsers : runs) found.push(what);
   }
   return found;
+}
+
+/**
+ * Взять замок машины, дождавшись его, — и только его: чужих процессов здесь не спрашивают. Так берут замок те, кто
+ * идёт рядом со своими: веер отчёта под приёмкой и в тестах (соседние отчёты и работники тестов — свои, но не предки).
+ * Замок предка — свой: и по отметке в окружении, и по цепочке процессов, если отметка до потомка не доехала.
+ */
+export async function lockMachine(task: string, inReport = false): Promise<() => void> {
+  if (isOurs(readLock())) return () => {};
+  return takeLock(MACHINE_PROJECT, task, {
+    mine: (pid) => family(processes()).has(pid),
+    say: (line) => console.log(inReport ? `  ${measure(line)}` : line),
+  });
+}
+
+/**
+ * Тяжёлая работа начинается так: дождаться свободной машины (`waitUntilFree`: чужие процессы, чужой замок, загрузка)
+ * и взять замок. Снимается он сам, когда процесс выходит, или раньше — итогом. Свой замок (предка) проверку машины не
+ * отменяет: браузерный отчёт под приёмкой по-прежнему ждёт чужой браузер.
+ */
+export async function holdMachine(what: string, options: WaitOptions = {}): Promise<() => void> {
+  await waitUntilFree(what, options);
+  return lockMachine(what, options.inReport);
 }
 
 /**
@@ -244,10 +278,14 @@ export function busyWords(what: string, runs: readonly string[], load: string | 
  * сверку с базой оно не идёт — строка из одних замеров пропускается (`measured.ts`); иначе ожидание было
  * бы сдвигом вывода.
  */
-export async function waitUntilFree(
-  what: string,
-  options: { browsers?: boolean; runs?: boolean; load?: boolean; inReport?: boolean } = {},
-): Promise<void> {
+export interface WaitOptions {
+  browsers?: boolean;
+  runs?: boolean;
+  load?: boolean;
+  inReport?: boolean;
+}
+
+export async function waitUntilFree(what: string, options: WaitOptions = {}): Promise<void> {
   const say = (line: string): void => console.log(options.inReport ? `  ${measure(line.trim())}` : line);
   let said = -Infinity;
   const started = Date.now();

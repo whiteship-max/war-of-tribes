@@ -33,7 +33,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { budgetCores } from './budget';
+import { budgetCores, lockMachine } from './budget';
 import { takeSlot, type Slot } from './slots';
 
 type Task = (arg: never) => unknown;
@@ -63,6 +63,13 @@ const CHILD = 'TRIBE_FAN_CHILD';
  * `null`; у дочернего процесса веера свой жетон берёт родитель.
  */
 let own: Slot | null = process.env[CHILD] ? null : await takeSlot();
+
+/**
+ * Замок машины (бюджет железа, `machinelock.mjs`): отчёт с веером — тяжёлая работа, и без приёмки он берёт замок сам, с
+ * первой строки, а занятый ждёт. Спрашивается только замок, а не чужие процессы: под приёмкой и в тестах рядом идут
+ * свои соседи — отчёты и работники тестов, — и они не предки. Под приёмкой замок её, у дочернего процесса — родителя.
+ */
+if (!process.env[CHILD]) await lockMachine(`веер ${path.basename(process.argv.find((a) => /\.ts$/.test(a)) ?? 'отчёта')}`, true);
 
 const same = (a: string, b: string): boolean => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
