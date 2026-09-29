@@ -7,9 +7,11 @@
 // Показываются только черты, которые человек держит: каталога возможных черт у
 // игрока нет, и черта, которую сегодня не заслужить, обещанием не становится.
 import { TRAIT_BY_ID, deedsOf, type TraitDef, type TraitId } from '@/game/data/traits';
+import { gameDaysOfMs, type GameSec } from '@/game/pace';
 import type { Tally } from '@/game/types';
-import { realLeft } from '@/ui/parts/wait';
-import { FIGURE_SCOUT_CATCH, HANDOVER_BASE, SPY_BUSY, SPY_HELD } from '@/world/data/tuning';
+import { gameDaysText, realLeft, waitDays } from '@/ui/parts/wait';
+import { FIGURE_SCOUT_CATCH, SPY_BUSY, SPY_HELD } from '@/world/data/tuning';
+import { musterMs, warningMsOf } from '@/world/muster';
 import { count } from './plural';
 
 export interface TraitLine {
@@ -27,17 +29,34 @@ const pct = (share: number): string => `${Math.round(share * 100)} %`;
 /** На сколько процентов множитель меняет число: «на четверть быстрее» говорится числом. */
 const shift = (mult: number): string => `${Math.round(Math.abs(mult - 1) * 100)} %`;
 
-function whatOf(def: TraitDef): string {
+/** Срок мира в игровых днях с единицей и настоящим временем рядом: «9 игр. дн. (4 ч 30 мин)». */
+function daysOf(ms: number): string {
+  const days = Math.round(gameDaysOfMs(ms) * 10) / 10;
+  return `${gameDaysText(days)} (${waitDays(days)})`;
+}
+
+/**
+ * Черта сбора — живой строкой из чисел игры (слово владельца, docs/battle_eu4.md, 14.35): полный сбор с этим человеком и
+ * предупреждение о набеге при нынешнем Дозоре считают те же функции, что мир (`world/muster.musterMs`, `warningMsOf`), и
+ * «успевает» — то же сравнение, что окно ответа на набег (`world/store.raidWindow`: сбор, начатый в минуту, когда набег
+ * стал виден, кончается до прихода). Множитель — всех его черт сбора разом, как их складывает слепок
+ * (`sim/agents.traitNumbers`).
+ */
+function musterWhat(mult: number, own: number, warning: GameSec): string {
+  const full = musterMs(Infinity, mult);
+  const warn = warningMsOf(warning);
+  return (
+    `Дружина собирается и расходится ${own < 1 ? 'быстрее' : 'дольше'} на ${shift(own)}. ` +
+    `Полный сбор с ним — ${daysOf(full)}, Дозор предупреждает о набеге за ${daysOf(warn)}: ` +
+    `${full < warn ? 'сбор успевает' : 'сбор не успевает'} до прихода.`
+  );
+}
+
+function whatOf(def: TraitDef, mult: number, warning: GameSec): string {
   const e = def.effect;
   if (e.won !== undefined) return `Победа в его бою поднимает дух дома ещё на +${e.won} сверх обычного.`;
   if (e.lost !== undefined) return `Поражение в его бою роняет дух дома ещё на ${Math.abs(e.lost)} сверх обычного.`;
-  if (e.muster !== undefined) {
-    const faster = e.muster < 1;
-    return (
-      `Дружина собирается и расходится ${faster ? 'быстрее' : 'дольше'} на ${shift(e.muster)}: ` +
-      `сбор, который шёл бы ${realLeft(HANDOVER_BASE / 1000)}, идёт ${realLeft((HANDOVER_BASE * e.muster) / 1000)}.`
-    );
-  }
+  if (e.muster !== undefined) return musterWhat(mult, e.muster, warning);
   if (e.carry !== undefined) return `Обоз поднимает на ${shift(e.carry)} больше добычи.`;
   if (e.catch !== undefined) {
     return `Часовые берут его в ${pct(FIGURE_SCOUT_CATCH * e.catch)} приходов вместо ${pct(FIGURE_SCOUT_CATCH)}.`;
@@ -86,12 +105,17 @@ function whyOf(def: TraitDef, t: Tally): string {
   );
 }
 
-/** Черты человека словами — только те, что он держит. */
-export const traitLines = (ids: readonly TraitId[], t: Tally): TraitLine[] =>
-  ids.map((id) => {
+/**
+ * Черты человека словами — только те, что он держит. `warning` — прибавка Дозора к предупреждению о набеге, игровые
+ * секунды (`derived.warningSeconds`): с ней черта сбора говорит, успевает ли полный сбор.
+ */
+export function traitLines(ids: readonly TraitId[], t: Tally, warning: GameSec): TraitLine[] {
+  const muster = ids.reduce((m, id) => m * (TRAIT_BY_ID[id].effect.muster ?? 1), 1);
+  return ids.map((id) => {
     const def = TRAIT_BY_ID[id];
-    return { id, name: def.name, good: def.good, what: whatOf(def), why: whyOf(def, t) };
+    return { id, name: def.name, good: def.good, what: whatOf(def, muster, warning), why: whyOf(def, t) };
   });
+}
 
 /** Черты ушедшего — одной строкой имён, для родословной. */
 export const traitNames = (ids: readonly TraitId[]): string => ids.map((id) => TRAIT_BY_ID[id].name).join(', ');

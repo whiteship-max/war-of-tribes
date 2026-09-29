@@ -15,7 +15,7 @@
 // стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, payGraceDays } from '@/game/derived';
+import { buildingOfType, payGraceDays, warningSeconds } from '@/game/derived';
 import {
   DEED_GAP,
   DEED_XP,
@@ -72,7 +72,7 @@ function GeneralPips({ level }: { level: number }) {
 function Traits({ id }: { id: FigureId }) {
   const s = useGame((g) => g.s);
   const tally = s.agents[id].tally;
-  const lines = traitLines(traitsHeld(s, id), tally);
+  const lines = traitLines(traitsHeld(s, id), tally, warningSeconds(s));
   const n = deedsOf(tally);
   return (
     <>

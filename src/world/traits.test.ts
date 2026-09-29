@@ -45,10 +45,21 @@ describe('одна дверь на каждое число, которое дв�
     [/\bstackCarry\(/g, 'haul'],
     [/\bstackEscort\(/g, 'haul'],
     [/\bFIGURE_SCOUT_CATCH\b/g, 'scoutCatch'],
-    [/\bHANDOVER_(?:BASE|PER_MAN|MAX)\b/g, 'musterWait'],
+    // Срок сбора — правило `world/muster.musterMs` (одно на мир и на слова черты «Мясника», 14.35); в мире его зовёт
+    // только дверь черты, а числа сбора мир не читает вовсе (ниже).
+    [/\bmusterMs\(/g, 'musterWait'],
     [/\bSPY_BUSY\b/g, 'spyTimes'],
     [/\bSPY_HELD\b/g, 'spyTimes'],
   ];
+
+  it('числа сбора читает одно правило — `world/muster.musterMs`, а не мир и не слова черты', () => {
+    expect(WORLD, 'LocalWorld читает числа сбора мимо правила').not.toMatch(/\bHANDOVER_(?:BASE|PER_MAN|MAX)\b/);
+    const muster = readFileSync(join(__dirname, 'muster.ts'), 'utf8');
+    expect(muster, 'правило сбора читает числа сбора').toMatch(/HANDOVER_MAX/);
+    const words = readFileSync(join(__dirname, '..', 'ui', 'parts', 'traitLines.ts'), 'utf8');
+    expect(words, 'слова черты считают сбор своим кодом').not.toMatch(/\bHANDOVER_(?:BASE|PER_MAN|MAX)\b/);
+    expect(words, 'слова черты зовут правило сбора').toMatch(/musterMs\(/);
+  });
 
   it('в LocalWorld эти числа читает только их дверь (не считая импорта)', () => {
     const body = WORLD.replace(/^import[\s\S]*?from\s+'[^']+';$/gm, ' ');

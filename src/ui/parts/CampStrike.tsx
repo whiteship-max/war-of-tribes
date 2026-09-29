@@ -9,6 +9,12 @@ import { waitLeft } from '@/ui/parts/wait';
 import { perilText } from '@/world/peril';
 import type { SettlementId, StrikePlan } from '@/world/types';
 
+/**
+ * Удар с тыла без гарнизона — одной дружиной; строка стоит рядом с кнопкой, пока галочка гарнизона снята и есть что
+ * отметить (`StrikePlan.garrisonable` — лагерь под своим городом).
+ */
+export const REAR_ALONE = 'С тыла бьёт одна дружина. Отметьте «Подключить гарнизон» — удар с двух сторон одним боем.';
+
 export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: () => void }) {
   const showToast = useGame((g) => g.showToast);
   const strikePlan = useWorld((g) => g.strikePlan);
@@ -52,6 +58,11 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
                     plan.front ? `, со стороны города — ${plan.front.passed} из ${plan.front.went}` : ''
                   }${plan.seconds > 0 ? ' — если до прихода проход не займут' : ''}. Разобьёшь — осада снята.`}
           </i>
+          {plan?.can && plan.garrisonable && !garrison && (
+            // Без прогноза исхода — его в игре нет нигде (CLAUDE.md, «Подготовка боя и отчёт»): только кто бьёт и чем ещё
+            // можно ударить (слово владельца, docs/battle_eu4.md, 14.35).
+            <i>{REAR_ALONE}</i>
+          )}
           {plan?.can && (
             // Условно и только так: шанс поражения не показывается нигде.
             <i className="am-risk">Если дружину перебьют до последнего, полководец погибнет с шансом {perilText(plan.rout)}.</i>

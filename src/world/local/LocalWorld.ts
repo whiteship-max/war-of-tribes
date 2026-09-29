@@ -211,12 +211,14 @@ import {
   awayOf,
   fieldTroops,
   homeOf,
+  musterMs,
   ownOf,
   plus,
   postureOf,
   roomOf,
   standingShare,
   standingTroops,
+  warningMsOf,
   weakest,
 } from '../muster';
 import {
@@ -239,7 +241,6 @@ import { UNKNOWN, estimate, precisionOf, readIntel } from '../intel';
 import {
   CASTLE_GOLD_PER_POWER,
   AI_RANGE,
-  AI_WARNING_BASE,
   AI_ATTACK_MAX,
   AI_ATTACK_MIN,
   DAMAGE_RECOVER,
@@ -270,9 +271,6 @@ import {
   AI_WAR_PACE,
   AI_WAR_WEIGHT,
   GIFT_PER_POP,
-  HANDOVER_BASE,
-  HANDOVER_MAX,
-  HANDOVER_PER_MAN,
   PEACE_PER_POP,
   REVENGE_ATTITUDE,
   REVENGE_WARS_MAX,
@@ -2645,7 +2643,7 @@ export class LocalWorld implements WorldApi {
   protected warningMs(): number {
     // `warning` — игровые секунды: вся семья предупреждения идёт со шкалой времени, как ритм набегов,
     // и с миллисекундами мира складывается только через дверь (`game/pace`).
-    return AI_WARNING_BASE + realMs(Math.max(0, this.save.profile?.warning ?? 0));
+    return warningMsOf(this.save.profile?.warning ?? 0);
   }
 
 
@@ -2817,7 +2815,7 @@ export class LocalWorld implements WorldApi {
    * после потолка — «Мясника» ждут дольше и у дружины, которая и так упиралась в него.
    */
   private musterWait(moved: number): number {
-    return Math.round(Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN) * this.traitOf('muster'));
+    return musterMs(moved, this.traitOf('muster'));
   }
 
   /**

@@ -27,7 +27,24 @@
 // должно.
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
+import { realMs } from '@/game/pace';
+import { AI_WARNING_BASE, HANDOVER_BASE, HANDOVER_MAX, HANDOVER_PER_MAN } from './data/tuning';
 import type { FigurePhase } from './types';
+
+/**
+ * Срок сбора или роспуска дружины из `moved` человек при множителе черт полководца `mult`, мс мира: база и доля на
+ * бойца, но не дольше потолка, и множится после потолка — «Мясника» ждут дольше и у дружины, которая и так упиралась
+ * в него. Одно правило на мир (`LocalWorld.musterWait`) и на слова черты (`ui/parts/traitLines`): полный сбор — это
+ * `moved` = `Infinity`, ровно тот, по которому мир ставит окно ответа на набег (`LocalWorld.musterBy`).
+ */
+export const musterMs = (moved: number, mult = 1): number =>
+  Math.round(Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN) * mult);
+
+/**
+ * Сколько игрок видит чужую армию до её прихода, мс мира: база и прибавка Дозора (`PlayerProfile.warning`, игровые
+ * секунды — дверью времени). Одно правило на мир (`LocalWorld.warningMs`) и на слова черты (`ui/parts/traitLines`).
+ */
+export const warningMsOf = (warning: number): number => AI_WARNING_BASE + realMs(Math.max(0, warning));
 
 /** Свой или чужой отряд в пути — ровно то, что о нём нужно учёту. */
 interface Marching {
