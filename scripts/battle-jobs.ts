@@ -14,7 +14,7 @@
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
 import { KIND_PROFILE, RETREAT, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type Side } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type LatticeDuel, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -206,7 +206,7 @@ export interface Reach {
 
 export type Out =
   | { kind: 'pair'; ab: Pair[]; ba: Pair[] }
-  | { kind: 'lattice'; ratios: number[] }
+  | { kind: 'lattice'; duels: LatticeDuel[] }
   | { kind: 'gap'; gap: { gap: number; lost: number; won: number } }
   | { kind: 'pool'; gaps: number[] }
   | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number }
@@ -273,9 +273,9 @@ export function battleJob(job: Job): Out {
     case 'lattice':
       return under(job.variant, () => {
         const setups = compositionLattice().map((a) => deploySetup(a));
-        const ratios: number[] = [];
-        for (let i = job.from; i < job.to; i += 1) for (let j = i + 1; j < setups.length; j += 1) ratios.push(latticeDuel(setups, i, j));
-        return { kind: 'lattice', ratios };
+        const duels: LatticeDuel[] = [];
+        for (let i = job.from; i < job.to; i += 1) for (let j = i + 1; j < setups.length; j += 1) duels.push(latticeDuel(setups, i, j));
+        return { kind: 'lattice', duels };
       });
     case 'gap':
       return { kind: 'gap', gap: gapAgainst(poolSetups()[job.pool], balanced, job.n, job.from) };

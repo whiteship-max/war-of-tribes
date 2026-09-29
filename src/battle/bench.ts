@@ -97,8 +97,12 @@ export const openFront = (army: Partial<Stack>): number => {
  * боёв дошло до потолка кругов сечи, никого не сломав (ничья бывает только там).
  */
 export function oversize(composition: number, seeds = OVERSIZE_SEEDS, total = ARMY_SIZE, width?: number): { bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number } {
-  const c = COMPOSITIONS[composition];
-  const army = scaleArmy(c.army, total);
+  return oversizeOf(COMPOSITIONS[composition].army, seeds, total, width);
+}
+
+/** «Ограничитель» для любого состава `of`: он же против себя на 10 % больше — тем же счётом, что `oversize`. */
+export function oversizeOf(of: Partial<Stack>, seeds = OVERSIZE_SEEDS, total = ARMY_SIZE, width?: number): { bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number } {
+  const army = scaleArmy(of, total);
   const small = deploySetup(army, width ?? FRONT_WIDTH);
   const bigger = deploySetup(Object.fromEntries(Object.entries(army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)])), width ?? FRONT_WIDTH);
   let bigLoss = 0;
@@ -314,6 +318,14 @@ export interface LatticeRow {
   beats: number[];
   /** Кому проигрывает по размену. */
   lostTo: number[];
+  /** Сколько раз из двух (зеркальный бой) состав удержал поле против каждого по номеру; против себя — ноль. */
+  field: number[];
+}
+
+/** Бой решётки: размен i против j и сколько раз из двух i удержал поле (`mirrored`, сид 1). */
+export interface LatticeDuel {
+  ratio: number;
+  field: number;
 }
 
 /**
@@ -325,18 +337,23 @@ export function latticeDuels(armies: Array<Partial<Stack>> = compositionLattice(
   return latticeRows(armies, (i, j) => latticeDuel(setups, i, j));
 }
 
-/** Бой решётки i–j (i < j): размен i одним зеркальным боем, сид 1. */
-export const latticeDuel = (setups: readonly ArmySetup[], i: number, j: number): number => mirrored(setups[i], setups[j], 1).lossRatio;
+/** Бой решётки i–j (i < j): размен i и поле i одним зеркальным боем, сид 1. */
+export const latticeDuel = (setups: readonly ArmySetup[], i: number, j: number): LatticeDuel => {
+  const m = mirrored(setups[i], setups[j], 1);
+  return { ratio: m.lossRatio, field: m.field.a };
+};
 
 /**
- * Строки решётки из разменов пар i < j (`latticeDuel`): кто кого бьёт, в порядке обхода пар.
- * Размен может прийти откуда угодно — из боя здесь же или из задачи веера (`battle:report`).
+ * Строки решётки из боёв пар i < j (`latticeDuel`): кто кого бьёт и кто держит поле, в порядке обхода пар.
+ * Бой может прийти откуда угодно — из боя здесь же или из задачи веера (`battle:report`).
  */
-export function latticeRows(armies: ReadonlyArray<Partial<Stack>>, ratio: (i: number, j: number) => number): LatticeRow[] {
-  const rows: LatticeRow[] = armies.map((army) => ({ army, beats: [], lostTo: [] }));
+export function latticeRows(armies: ReadonlyArray<Partial<Stack>>, duel: (i: number, j: number) => LatticeDuel): LatticeRow[] {
+  const rows: LatticeRow[] = armies.map((army) => ({ army, beats: [], lostTo: [], field: armies.map(() => 0) }));
   for (let i = 0; i < armies.length; i += 1) {
     for (let j = i + 1; j < armies.length; j += 1) {
-      const r = ratio(i, j);
+      const { ratio: r, field } = duel(i, j);
+      rows[i].field[j] = field;
+      rows[j].field[i] = 2 - field;
       if (r >= RATIO_EVEN) {
         rows[i].beats.push(j);
         rows[j].lostTo.push(i);
@@ -357,6 +374,57 @@ export function latticeRows(armies: ReadonlyArray<Partial<Stack>>, ratio: (i: nu
  */
 export const answerlessOwnKind = (rows: LatticeRow[], i: number): boolean =>
   rows[i].lostTo.length > 0 && rows[i].lostTo.every((j) => mainKinds(rows[i].army).every((k) => (rows[j].army[k] ?? 0) > 0));
+
+// ---------- Обещание о составах (слово владельца по щупу веса, docs/battle_eu4.md, 14.35, п. 4) ----------
+//
+// Прежнее «никто не бьёт всех» было обещанием кольца, и кольца нет; в EU4 лучший состав существует — пехота на ширину,
+// конница с флангов, стрелки сзади. Вместо него три обещания, и счёт у них один на тест и на отчёт: каждый вид полезен,
+// лучший состав — смешанный, «Ограничитель» держится. Решётка — равные по людям армии, а при весе из цены (П2) равные
+// бойцы строя и есть равная цена: вид весит в бою своей ценой (`game/battle/price`).
+
+/** Доля поля состава `i` против всей решётки: сколько боёв он удержал из всех (по два на противника). */
+export const latticeFieldShare = (rows: readonly LatticeRow[], i: number): number =>
+  rows[i].field.reduce((n, f, j) => (j === i ? n : n + f), 0) / Math.max(1, 2 * (rows.length - 1));
+
+/**
+ * Составы решётки от лучшего: больше всех держит поле против всех (`latticeFieldShare`); при равенстве — меньше проигрывает
+ * размен, потом больше бьёт. Первый — лучший состав, второй — следующий за ним.
+ */
+export const latticeTop = (rows: readonly LatticeRow[]): number[] =>
+  [...rows.keys()].sort(
+    (a, b) => latticeFieldShare(rows, b) - latticeFieldShare(rows, a) || rows[a].lostTo.length - rows[b].lostTo.length || rows[b].beats.length - rows[a].beats.length,
+  );
+
+/** Чистый состав: вся армия — один род. */
+export const pureKind = (army: Partial<Stack>): UnitKind | null => {
+  const kinds = UNIT_KINDS.filter((k) => (army[k] ?? 0) > 0);
+  return kinds.length === 1 ? kinds[0] : null;
+};
+
+/**
+ * Польза рода при равной цене: добавка рода `kind` в смесь — шаг решётки, отданный ему из другого рода той же смеси (сумма
+ * та же), — поднимает долю поля хоть против одного противника. Итог — лучшая такая добавка: из какого состава (`from`), в
+ * какой (`to`), против кого (`against`) и на сколько боёв из двух (`gain`); ни одна добавка ничего не поднимает — `null`.
+ */
+export function kindUse(rows: readonly LatticeRow[], kind: UnitKind): { from: number; to: number; against: number; gain: number } | null {
+  const key = (army: Partial<Stack>): string => UNIT_KINDS.map((k) => army[k] ?? 0).join(',');
+  const at = new Map(rows.map((r, i) => [key(r.army), i]));
+  let best: { from: number; to: number; against: number; gain: number } | null = null;
+  rows.forEach((row, from) => {
+    for (const giver of UNIT_KINDS) {
+      if (giver === kind || (row.army[giver] ?? 0) <= 0) continue;
+      const step = Math.min(LATTICE_STEP, row.army[giver] ?? 0);
+      const to = at.get(key({ ...row.army, [giver]: (row.army[giver] ?? 0) - step, [kind]: (row.army[kind] ?? 0) + step }));
+      if (to === undefined) continue;
+      rows.forEach((_, against) => {
+        if (against === from || against === to) return;
+        const gain = rows[to].field[against] - row.field[against];
+        if (gain > 0 && (!best || gain > best.gain)) best = { from, to, against, gain };
+      });
+    }
+  });
+  return best;
+}
 
 // Кольца контрров (`RING`) и его порогов (`RING_BAR`) нет с пересмотра баланса — слово владельца по 14.35 (docs/battle_eu4.md,
 // п. 2): таблицы «род против рода» и обещаний пар больше нет.

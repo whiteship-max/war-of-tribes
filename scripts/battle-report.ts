@@ -11,7 +11,8 @@
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
 import { CIRCLE_PHASES, DICE, PHASE_PIPS, RETREAT, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, kindUse, latticeFieldShare, latticeRows, latticeTop, mirrored, oversizeOf, pureKind, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeDuel, type LatticeRow } from '../src/battle/bench';
+import { KIND_META } from '../src/battle/names';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
 import { FACES, FACE_SEEDS, MONO_KINDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
 
@@ -192,23 +193,22 @@ for (const c of COMPOSITIONS) {
 /** Решётка при варианте «Тяжёлой» из кусков задач — тем же `latticeRows`, что и `latticeDuels`. */
 const latticeAt = (variant: number): LatticeRow[] => {
   const n = lattice.length;
-  const ratio = new Float64Array(n * n);
+  const duel: LatticeDuel[] = new Array(n * n);
   for (const c of latticeOf[variant]) {
-    const { ratios } = c.out();
+    const { duels } = c.out();
     let k = 0;
-    for (let i = c.from; i < c.to; i += 1) for (let j = i + 1; j < n; j += 1) ratio[i * n + j] = ratios[k++];
+    for (let i = c.from; i < c.to; i += 1) for (let j = i + 1; j < n; j += 1) duel[i * n + j] = duels[k++];
   }
-  return latticeRows(lattice, (i, j) => ratio[i * n + j]);
+  return latticeRows(lattice, (i, j) => duel[i * n + j]);
 };
 
 console.log(`\n=== Решётка составов: все составы из 600 бойцов строя шагом ${LATTICE_STEP} по всем родам, каждый против каждого одним зеркальным боем ===`);
-// Та же решётка, что держит тест «нет доминирующего состава» (`bench.latticeDuels`), правило
-// развёртывания. Её же строкой «как есть» читает раздел «Тяжёлая»: числа там те же, и второй раз она не играется.
+// Та же решётка, что держит тесты «составы при равной цене» (`bench.latticeDuels`), правило развёртывания: равные по людям
+// армии, а при весе из цены (П2) это и равная цена. Её же строкой «как есть» читает раздел «Тяжёлая»: числа там те же, и
+// второй раз она не играется.
 const latticeRowsAsIs = latticeAt(0);
 {
-  // Утверждение теста — «каждый кому-то проигрывает» — видит только строгое превосходство;
-  // строка «ответа без своего рода нет» видит обязательный род: всё, что бьёт состав, построено
-  // на его же главном роде.
+  // Строка «ответа без своего рода нет» видит обязательный род: всё, что бьёт состав, построено на его же главном роде.
   const rows = latticeRowsAsIs;
   const n = rows.length;
   const pct = (i: number): string => `${Math.round((100 * rows[i].beats.length) / (n - 1))}%`;
@@ -218,9 +218,29 @@ const latticeRowsAsIs = latticeAt(0);
     console.log(`  ${pad(compositionName(rows[i].army), 60)} ${pad(rows[i].beats.length, 3, true)} ${pad(pct(i), 4, true)}  проигрывает ${rows[i].lostTo.length}: ${rows[i].lostTo.map((j) => `${compositionName(rows[j].army)} (${pct(j)})`).join('; ')}`);
   }
   const undefeated = order.filter((i) => rows[i].lostTo.length === 0);
-  console.log(`никому не проигрывает: ${undefeated.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '— (тест «нет доминирующего состава» зелёный)'}`);
+  console.log(`никому не проигрывает: ${undefeated.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '—'}`);
   const answerless = order.filter((i) => answerlessOwnKind(rows, i));
   console.log(`ответа без своего главного рода нет: ${answerless.map((i) => `${compositionName(rows[i].army)} (${pct(i)})`).join('; ') || '—'}`);
+
+  // Обещание о составах (слово владельца по щупу веса, docs/battle_eu4.md, 14.35, п. 4): тем же счётом, что тесты
+  // «составы при равной цене» — каждый вид полезен, лучший состав смешанный, «Ограничитель» держится.
+  const share = (i: number): string => `${(100 * latticeFieldShare(rows, i)).toFixed(1)}%`;
+  const top = latticeTop(rows);
+  console.log('обещание о составах при равной цене (доля поля — сколько боёв из всех, по два на противника, состав удержал):');
+  for (const [place, i] of top.slice(0, 3).entries()) {
+    console.log(`  ${place + 1}. ${pad(compositionName(rows[i].army), 60)} поле ${share(i)}, бьёт ${rows[i].beats.length}, проигрывает ${rows[i].lostTo.length}`);
+  }
+  const [best, second] = top;
+  const vs = mirrored(deploySetup(rows[best].army), deploySetup(rows[second].army), 1);
+  console.log(`  лучший против второго: размен ${vs.lossRatio.toFixed(2)}, поле ${vs.field.a} из 2`);
+  const over = oversizeOf(rows[best].army, OVERSIZE_SEEDS, holdSize());
+  console.log(`  «Ограничитель» лучшего: на 10 % больше себя — размен ${(over.smallLoss / Math.max(1, over.bigLoss)).toFixed(2)} (потолок ${OVERSIZE_CAP.line}), поле у большей ${over.wins} из ${OVERSIZE_SEEDS}`);
+  for (const k of UNIT_KINDS) {
+    const p = rows.findIndex((x) => pureKind(x.army) === k);
+    const use = kindUse(rows, k);
+    const how = use ? `${compositionName(rows[use.from].army)} → ${compositionName(rows[use.to].army)} против ${compositionName(rows[use.against].army)}: +${use.gain} из 2` : 'НИ ОДНА — род бесполезен';
+    console.log(`  ${pad(KIND_META[k].name, 16)} чистые: поле ${share(p)}, бьют ${rows[p].beats.length} из ${rows.length - 1}; лучшая добавка — ${how}`);
+  }
 }
 
 console.log('\n=== Тяжёлая: откуда сила (решётка составов, правило развёртывания) ===');

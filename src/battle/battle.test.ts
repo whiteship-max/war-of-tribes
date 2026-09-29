@@ -7,7 +7,7 @@ import { simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, MELEE_RATE, MORALE, PHASE_PIPS, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, splitTicks, UNIT_STATS, roundsCap } from './config';
-import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, kindUse, latticeDuels, latticeFieldShare, latticeTop, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, oversizeOf, pureKind, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseId, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
 
@@ -91,11 +91,11 @@ describe('вход боя', () => {
   });
 });
 
-describe('нет доминирующего состава', () => {
+describe('составы при равной цене', () => {
   // Противники — вся решётка составов (`bench.compositionLattice`), а не список, подобранный
-  // руками: список не содержит того, кто доминирует, и промахивается мимо тех, кто его бьёт. Порог — по
-  // размену, не по доле побед: поле держит тот, у кого дольше мораль, а платить за него можно
-  // больше, чем за поражение. Все встают по правилу развёртывания — расстановку решётка не выбирает.
+  // руками: список не содержит того, кто доминирует, и промахивается мимо тех, кто его бьёт. Все встают по правилу
+  // развёртывания — расстановку решётка не выбирает. Решётка — равные по людям армии, а при весе из цены (П2) равные
+  // бойцы строя и есть равная цена: вид весит в бою своей ценой (`game/battle/price`, docs/battle_eu4.md, 14.35).
   let rows: LatticeRow[] | null = null;
   const lattice = (): LatticeRow[] => (rows ??= latticeDuels());
 
@@ -110,13 +110,48 @@ describe('нет доминирующего состава', () => {
     for (const k of UNIT_KINDS) expect(armies.some((a) => a[k] === ARMY_SIZE), k).toBe(true);
   });
 
-  // КРАСНЫЙ с показателей родов (шаг 5 пересмотра баланса, docs/battle_eu4.md, 14.35), честно — это остановка работы: без
-  // кольца и при показателях из рода и вещей решётка равных по людям армий получила непобеждённых. Голые рода (как меряет
-  // этот тест): «копья 300 + пехота 150 + тяжёлая 150», «копья 300 + пехота 150 + лёгкая 150», «копья 450 + пехота 150» —
-  // никто не берёт у них размен выше порога. Порог не трогается; решение — за владельцем (14.35, «Шаг 5: остановка»).
-  it('каждый состав решётки кому-нибудь проигрывает размен', () => {
+  // Тест «каждый состав решётки кому-нибудь проигрывает размен» (обещание «никто не бьёт всех»: у каждого состава решётки
+  // есть противник, берущий у него размен не ниже `RATIO_EVEN`) снят словом владельца (docs/battle_eu4.md, 14.35, слово по
+  // щупу веса, п. 4): было обещанием кольца; кольцо убрано решением владельца; в EU4 лучший состав существует — пехота на
+  // ширину, конница с флангов, стрелки сзади. Это смена обещания, а не сдвиг порога. На его место — три теста ниже, с
+  // мутациями: каждый вид полезен, лучший состав — смешанный, «Ограничитель» держится.
+
+  it('каждый вид полезен: при равной цене добавка рода хоть в одну смесь поднимает долю поля хоть против одного противника', () => {
     const r = lattice();
-    for (const row of r) expect(row.lostTo.length, `${compositionName(row.army)} не проигрывает размен никому`).toBeGreaterThan(0);
+    for (const k of UNIT_KINDS) {
+      // Граница области: роду есть куда прибавиться — в решётке есть смесь без него и она же с шагом решётки, отданным ему.
+      expect(r.some((row) => !(row.army[k] ?? 0) && r.some((x) => x.army[k] === LATTICE_STEP)), k).toBe(true);
+      const use = kindUse(r, k);
+      expect(use, `${k}: добавка рода не подняла долю поля ни против кого`).not.toBeNull();
+    }
+    // Виды одного рода при равной цене — одна армия (`game/battle/price.test.ts`): полезен род — полезен и каждый его вид.
+  }, 120_000);
+
+  it('лучший состав — смешанный: ни один чистый вид не бьёт все', () => {
+    const r = lattice();
+    for (const k of UNIT_KINDS) {
+      const i = r.findIndex((row) => pureKind(row.army) === k);
+      // Граница области: чистый состав рода в решётке есть.
+      expect(i, `чистые ${k} в решётке`).toBeGreaterThanOrEqual(0);
+      expect(r[i].beats.length, `чистые ${k} бьют все`).toBeLessThan(r.length - 1);
+    }
+    const [best] = latticeTop(r);
+    expect(pureKind(r[best].army), `лучший — ${compositionName(r[best].army)}`).toBeNull();
+  }, 120_000);
+
+  it('«Ограничитель» держится: лучший состав на 10 % больше себя не выигрывает лавиной', () => {
+    // Лучший состав существует (в EU4 — тоже), и «Ограничитель» (`oversize`) обязан держать и его: на 10 % больше себя он
+    // берёт размен не выше потолка составов с линией (`OVERSIZE_CAP.line`). Как лучший стоит против следующего за ним,
+    // печатает `battle:report` («Решётка составов»): верх решётки — соседние составы шагом решётки, и утверждение о них
+    // проходило бы при любом коде (правило 11).
+    const r = lattice();
+    const [best, second] = latticeTop(r);
+    const name = compositionName(r[best].army);
+    // Граница области: лучший и правда впереди, и у него пешая линия — потолок у составов без линии свой (`noLine`).
+    expect(latticeFieldShare(r, best)).toBeGreaterThanOrEqual(latticeFieldShare(r, second));
+    expect(hasLine(r[best].army), name).toBe(true);
+    const { bigLoss, smallLoss } = oversizeOf(r[best].army, OVERSIZE_SEEDS, holdSize());
+    expect(smallLoss / Math.max(1, bigLoss), `${name}: на 10 % больше себя — размен`).toBeLessThanOrEqual(OVERSIZE_CAP.line);
   }, 120_000);
 });
 
@@ -155,8 +190,8 @@ describe('результат и цена', () => {
 // Кольца контрров нет (слово владельца по 14.35, docs/battle_eu4.md, п. 2): таблица «род против рода» ушла целиком, и с ней
 // тесты «кольцо контрров» — «лучники бьют копья» (обещание — лучники выигрывают у копий размен на каждом сиде, в среднем
 // выше 1.5; красный с поставки 1), «копья бьют конницу» и «конница бьёт лучников» (то же для своих пар). Кто кого бьёт,
-// следует из показателей родов и вещей (`KIND_PROFILE`, `PIP`), как у EU4; обещание «нет доминирующего состава» держит
-// решётка ниже, «у каждого вида есть бои, где он полезен» — `game/battle/kinds.test.ts`.
+// следует из показателей родов (`KIND_PROFILE`, `PIP`), как у EU4; обещания о составах при равной цене — каждый вид полезен,
+// лучший состав смешанный, «Ограничитель» держится — держит решётка выше (слово владельца по 14.35, п. 4).
 
 describe('превосходство по положению', () => {
 
