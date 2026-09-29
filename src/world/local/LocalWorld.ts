@@ -1471,6 +1471,10 @@ export class LocalWorld implements WorldApi {
    * вместо набега почти всегда, то есть вложение в стену наказывалось бы исчезновением
    * набега как события. Поэтому доля (`SIEGE_CHANCE`) и остывание (`SIEGE_COOLDOWN`)
    * крутятся отдельно от боя: он отвечает за «можно», они — за «часто ли».
+   *
+   * **В осаду становится только отряд, чей лагерь переживёт вылазку гарнизона** (`campHolds`; docs/battle_eu4.md,
+   * 14.35, «Осада в одного»). Иначе это набег: идёт на приступ, отбит и уходит. Прежде стену, которую отряд не брал,
+   * обкладывал и лагерь в одного бойца — и резал городу хлеб, пока его не сметут вылазкой.
    */
   private sitsDown(id: SettlementId, m: StoredMarch, at: number, field: FieldOutcome): boolean {
     if (this.save.sieges[id]) return false;
@@ -1480,7 +1484,50 @@ export class LocalWorld implements WorldApi {
     // Остывание — то же самое, но после любого конца осады, а не только после падения.
     if (at < (this.save.siegeAgainAt[id] ?? 0)) return false;
     if (field.won) return false;
-    return seeded(m.seed)() < SIEGE_CHANCE;
+    if (seeded(m.seed)() >= SIEGE_CHANCE) return false;
+    return this.campHolds(id, m, at);
+  }
+
+  /**
+   * Переживёт ли лагерь, в который сел бы отряд `m`, вылазку гарнизона — сухим прогоном, тем же ядром и той же сборкой
+   * сторон, что настоящая вылазка (`sortie`, `aiSortie` → `campBattle`), и ничего не трогая. Выходит весь гарнизон — те,
+   * кто дома, у нашего города с дружиной у ворот (`defenders`), у двора мира — его гарнизон; ополчение за ворота не
+   * выходит. Минута — постановка лагеря: рогаток ещё нет (`works.sideWorks` от минуты постановки — ноль), и к лагерю
+   * проходят все; сид — сид похода, тот же, что у сухого боя у стены. Выходить некому — лагерь стоит.
+   *
+   * Правило, а не порог: «сметёт ли» решает бой, как и «пробьёт ли» у стены, — сравнение мощи с мощью не видит ни
+   * состава, ни ширины (docs/raid_ceiling.md, раздел 4). Лишний бой ядра — один на отряд, который сел бы в осаду, и
+   * считается он в событии прихода, а не на чтении.
+   */
+  private campHolds(id: SettlementId, m: StoredMarch, at: number): boolean {
+    const party = raidingParty(this.save.seed, m.id, m.power);
+    const camp: FieldSide = { kinds: party.kinds, rest: restAt(m.rest, at, stackTotal(party.kinds)) };
+    let sortie: FieldSide;
+    let cell: Coord;
+    if (id === HOME_ID) {
+      const held = this.defenders(at);
+      if (troopTotal(held.all) <= 0) return true;
+      const standing = standingShare(held.own, held.standing, held.all);
+      sortie = {
+        kinds: kindsOf(held.all),
+        resolve: this.ownResolve(),
+        pips: this.homePips(at),
+        rest: mixRest([
+          { rest: this.garrisonRest(held.own, at), men: this.menOf(troopsAfter(held.all, standing)) },
+          { rest: this.generalRest(at), men: this.menOf(standing) },
+        ]),
+      };
+      cell = this.save.home;
+    } else {
+      const s = this.byId.get(id);
+      if (!s) return true;
+      const g = garrisonOf(this.save.seed, s.id, this.powerNow(s, at), s.castle);
+      if (stackTotal(g.kinds) < 1) return true;
+      sortie = { kinds: g.kinds, rest: this.lairRestAt(id, at, stackTotal(g.kinds)) };
+      cell = s;
+    }
+    // Вылазка выходит из ворот: переправы нет, штрафует только земля (`world/place.groundAt`).
+    return !resolveField({ seed: m.seed, ground: groundAt(this.save.seed, cell), attacker: sortie, defender: camp }).won;
   }
 
   /**

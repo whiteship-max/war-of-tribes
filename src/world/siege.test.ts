@@ -799,6 +799,11 @@ describe('осада: приказ игрока — та же осада, что
 describe('осада: вылазка', () => {
   /** Осаждённая деревня с гарнизоном, которым есть чем выйти. */
   const holed = (): PlayerProfile => holdout({ army: { legionary: 40, spearman: 30, archer: 20 } });
+  /**
+   * Та же деревня в минуту, когда под неё садится лагерь: войска дома нет. Лагерь встаёт только под городом, чей гарнизон
+   * его первой же вылазкой не сметёт (`LocalWorld.campHolds`, docs/battle_eu4.md, 14.35), — гарнизон `holed` приходит потом.
+   */
+  const bare = (): PlayerProfile => holdout({ army: {} });
 
   waitsForPlayers('победа снимает осаду, поражение — нет, и в обоих случаях лагерю достаётся', async () => {
     // Два прогона одного и того же положения: вылазка всем гарнизоном и
@@ -810,8 +815,9 @@ describe('осада: вылазка', () => {
     for (const going of [{ legionary: 40, spearman: 30, archer: 20 }, { spearman: 3 }] as TroopStack[]) {
       const w = makeWorld(7);
       const p = holed();
+      await w.world.sync(bare());
+      const start = await besiege(w, bare());
       await w.world.sync(p);
-      const start = await besiege(w, p);
       const camp = start.marches.find((m) => m.siege);
       expect(camp, 'лагерь стоит под стенами').toBeTruthy();
 
@@ -837,8 +843,9 @@ describe('осада: вылазка', () => {
   waitsForPlayers('часы голода пересчитаны после вылазки — и ровно один раз', async () => {
     const w = makeWorld(7);
     const p = holed();
-    await w.world.sync(p);
-    const before = (await besiege(w, p)).siege!;
+    await w.world.sync(bare());
+    await besiege(w, bare());
+    const before = (await w.world.sync(p)).siege!;
 
     // Вылазка горсткой: осада останется, а гарнизон поредеет.
     const res = await w.world.sortie({ spearman: 3 });
@@ -865,7 +872,8 @@ describe('осада: вылазка', () => {
     await w.world.sync(p);
     // Под стенами никого — выходить не на кого.
     expect((await w.world.sortie({ spearman: 1 })).error).toContain('никого');
-    await besiege(w, p);
+    await besiege(w, bare());
+    await w.world.sync(p);
     expect((await w.world.sortie({})).error).toContain('пустой');
     expect((await w.world.sortie({ spearman: 9999 })).error).toContain('нет');
   }, 60_000);
@@ -903,14 +911,49 @@ describe('осада: лагерь как цель на карте', () => {
   }, 60_000);
 });
 
+describe('осада: лагерь переживёт вылазку', () => {
+  it('отряд, которого гарнизон сметёт первой же вылазкой, в осаду не садится: идёт на приступ, отбит и уходит', async () => {
+    // Правило (docs/battle_eu4.md, 14.35, «Осада в одного»): в осаду становится только отряд, чей лагерь переживёт вылазку
+    // гарнизона, — иначе это набег. Один мир, один набег, два гарнизона. Без войска дома лагерь садится — это и граница
+    // области: у этого набега стена не взята, доля осады выпала, остывания и неприкосновенности нет (иначе он не сел бы).
+    const bare = holdout({ army: {} });
+    const a = makeWorld(7);
+    await a.world.sync(bare);
+    const sat = (await besiege(a, bare)).siege!;
+    const campId = (a.world as unknown as { save: WorldSave }).save.sieges.home.campId;
+    const camp = sat.campMen;
+    expect(camp, 'лагерь — те же люди, что пришли').toBeGreaterThan(0);
+
+    // Тот же мир, тот же набег — а дома гарнизон, которому этот лагерь не соперник. Слабость посёлка у логова та же: мощь
+    // войска ниже порога защиты слабого, и набег выходит тем же (граница: отчёт о нём есть, и пришёл он в ту же минуту).
+    const garrison = holdout({ army: { legionary: 40, spearman: 30, archer: 20 } });
+    const b = makeWorld(7);
+    await b.world.sync(garrison);
+    while (b.now() < sat.since) {
+      b.advance(20_000);
+      const pulse = await b.world.sync(garrison);
+      expect(pulse.siege, 'лагерь, который гарнизон сметёт, не садится').toBeNull();
+    }
+    const report = (await b.world.reports()).find((r) => r.id === `${campId}-defense`);
+    expect(report, 'тот же набег дошёл до стены').toBeTruthy();
+    expect(report!.at, 'в ту же минуту').toBe(sat.since);
+    expect(report!.won, 'пошёл на приступ и отбит').toBe(true);
+    const back = (await b.world.sync(garrison)).marches.find((m) => m.id === campId);
+    expect(back?.phase ?? 'дома', 'и уходит, а не стоит у ворот').not.toBe('stay');
+  }, 120_000);
+});
+
 describe('осада: частота от ИИ', () => {
   it('под теми же стенами лагерь не встаёт чаще, чем раз в остывание', async () => {
     const w = makeWorld(7);
     const army = { legionary: 40, spearman: 30 };
     const p = holdout({ army });
-    await w.world.sync(p);
-    const first = await besiege(w, p);
+    // Лагерь садится под город без войска (`LocalWorld.campHolds`, docs/battle_eu4.md, 14.35): такой гарнизон сметает его
+    // первой же вылазкой, и при нём дома осады не было бы. Войско приходит, когда лагерь уже стоит.
+    await w.world.sync(holdout({ army: {} }));
+    const first = await besiege(w, holdout({ army: {} }));
     const startedAt = first.siege!.since;
+    await w.world.sync(p);
 
     // Снимаем осаду вылазкой — то есть без падения города, а значит и без
     // неприкосновенности. Остаётся только остывание, и держать оно обязано.

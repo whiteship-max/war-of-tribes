@@ -62,6 +62,15 @@ const GARRISON: TroopStack = { legionary: 40, spearman: 30, archer: 20 };
 /** Дружина, которую полководец увёл в поле до осады, и то, что осталось в городе. */
 const DRUZHINA: TroopStack = { legionary: 20 };
 const TOWN: TroopStack = { legionary: 20, spearman: 30, archer: 20 };
+/**
+ * Та же деревня в минуту, когда под неё садится лагерь: войска дома нет, стену держит одно ополчение. Лагерь встаёт только
+ * под городом, чей гарнизон его первой же вылазкой не сметёт (`LocalWorld.campHolds`, docs/battle_eu4.md, 14.35), а
+ * `GARRISON` сметает лагерь этого набега — прежде тесты ставили его дома заранее, и такой осады больше не бывает. Гарнизон,
+ * которым есть чем выйти, приходит потом (`holdout`): тесты ниже бьют по вставшему лагерю, а не по тому, сядет ли он.
+ */
+const bare: PlayerProfile = { ...holdout, army: {} };
+/** То же, когда полководец увёл в поле всё войско дружиной: дома пусто. */
+const fieldBare: PlayerProfile = { ...holdout, army: { ...DRUZHINA } };
 
 function memory(data: string | null = null) {
   return {
@@ -78,15 +87,15 @@ interface Frozen {
   siege: NonNullable<WorldPulse['siege']>;
 }
 
-/** Мир до первой осады деревни — и его сохранение в эту минуту. */
+/** Мир до первой осады деревни — и его сохранение в эту минуту. Лагерь садится под пустой гарнизон (`bare`). */
 async function freeze(seed: number): Promise<Frozen> {
   let now = START;
   const store = memory();
   const world = new LocalWorld({ seed, now: () => now, storage: store });
-  await world.sync(holdout);
+  await world.sync(bare);
   for (let i = 0; i < 3000; i++) {
     now += 20_000;
-    const pulse = await world.sync(holdout);
+    const pulse = await world.sync(bare);
     if (pulse.siege) return { seed, save: store.read() as string, siege: pulse.siege };
   }
   throw new Error('осады так и не случилось');
@@ -95,23 +104,24 @@ async function freeze(seed: number): Promise<Frozen> {
 /**
  * Мир до первой осады деревни, когда полководец с дружиной стоит в поле, в трёх
  * клетках от ворот, — и его сохранение в эту минуту. Дружину он собирает дома
- * заранее: во время осады из города её уже не вывести.
+ * заранее: во время осады из города её уже не вывести. Всё войско — в дружине, дома
+ * пусто (`fieldBare`); городская часть гарнизона приходит потом (`holdout`).
  */
 async function freezeField(seed: number): Promise<Frozen> {
   let now = START;
   const store = memory();
   const world = new LocalWorld({ seed, now: () => now, storage: store });
-  await world.sync(holdout);
+  await world.sync(fieldBare);
   expect(await world.setGarrison(DRUZHINA)).toBeNull();
   now = Math.max(now, (await world.figures()).find((f) => f.id === 'general')!.readyAt);
-  await world.sync(holdout);
+  await world.sync(fieldBare);
   const info = await world.info();
   expect(await world.moveFigure('general', { x: info.home.x + 3, y: info.home.y + 2 })).toBeNull();
   now = (await world.figures()).find((f) => f.id === 'general')!.arriveAt;
-  await world.sync(holdout);
+  await world.sync(fieldBare);
   for (let i = 0; i < 3000; i++) {
     now += 20_000;
-    const pulse = await world.sync(holdout);
+    const pulse = await world.sync(fieldBare);
     if (pulse.siege) return { seed, save: store.read() as string, siege: pulse.siege };
   }
   throw new Error('осады так и не случилось');
@@ -328,18 +338,22 @@ describe('укрепления лагеря: бой, голод и то, что 
   }, 120_000);
 
   it('осада без вылазки даёт те же числа, что и до укреплений', async () => {
-    // Сняты на 7569f8e, до правки: те же сиды, тот же слепок, те же минуты.
+    // Сняты на 7569f8e, до правки: те же сиды, тот же слепок, те же минуты. С правилом «лагерь переживёт вылазку» (14.35)
+    // слепок встречает лагерь без гарнизона (`bare`): минута постановки прежняя, а часы голода — от пустого гарнизона, и
+    // их числа сняты заново на нём. Свойство то же: рогатки растут — часы стоят. Час голода — еда 6000 при 6000 в час на
+    // город и ни одного бойца за стеной: ровно час от постановки (при 90 бойцах было 6000 / 11400 часа).
+    const STARVES_BARE = 1_700_001_020_000 + 60 * MIN;
     for (const seed of [7, 11]) {
       const fz = await freeze(seed);
       expect(fz.siege.since, `сид ${seed}`).toBe(1_700_001_020_000);
-      expect(fz.siege.starvesAt).toBeCloseTo(1_700_002_914_736.842, 2);
-      expect(fz.siege.garrison).toBe(90);
+      expect(fz.siege.starvesAt).toBeCloseTo(STARVES_BARE, 2);
+      expect(fz.siege.garrison).toBe(0);
       const { world, set } = await thaw(fz, fz.siege.since);
       // Рогатки растут от нуля до дозревших — часы голода не шелохнулись.
       for (const d of [1, 9, 17, 25, 31]) {
         set(fz.siege.since + d * MIN);
         const pulse = await world.sync(holdout);
-        expect(pulse.siege!.starvesAt, `сид ${seed}, ${d} мин`).toBeCloseTo(1_700_002_914_736.842, 2);
+        expect(pulse.siege!.starvesAt, `сид ${seed}, ${d} мин`).toBeCloseTo(STARVES_BARE, 2);
       }
       set(Math.ceil(fz.siege.starvesAt));
       const after = await world.sync(holdout);
@@ -612,15 +626,16 @@ describe('проход через рогатки — поток, а не пор�
   it('снятая осада уносит проход с собой: у новой осады он свободен', async () => {
     let now = START;
     const world = new LocalWorld({ seed: 7, now: () => now, storage: memory() });
+    // Лагерь садится под пустой гарнизон (`bare`); копейщик для вылазки приходит, когда лагерь уже стоит.
     const siegeNow = async (): Promise<NonNullable<WorldPulse['siege']>> => {
       for (let i = 0; i < 6000; i++) {
         now += 20_000;
-        const p = await world.sync(holdout);
+        const p = await world.sync(bare);
         if (p.siege) return p.siege;
       }
       throw new Error('осады так и не случилось');
     };
-    await world.sync(holdout);
+    await world.sync(bare);
     const first = await siegeNow();
     now = first.since + CAMP_WORKS_RIPE;
     await world.sync(holdout);
@@ -631,7 +646,7 @@ describe('проход через рогатки — поток, а не пор�
     expect(busy, 'проход первой осады занят').toBeGreaterThan(now);
     // Город доеден — окно снято.
     now = Math.ceil((await world.sync(holdout)).siege!.starvesAt);
-    expect((await world.sync(holdout)).siege).toBeNull();
+    expect((await world.sync(bare)).siege).toBeNull();
     const second = await siegeNow();
     expect(second.since).toBeGreaterThan(first.since);
     expect(homeWindow(world).gateAt, 'новая осада начинает со свободного прохода').toBeUndefined();
@@ -930,17 +945,17 @@ describe('две стороны лагеря: древесина и проход
   }, 120_000);
 
   it('полководец в городе удара не отдаёт: его дружина — гарнизон и выходит вылазкой', async () => {
-    let now = START;
-    const world = new LocalWorld({ seed: 7, now: () => now, storage: memory() });
-    await world.sync(holdout);
-    expect(await world.setGarrison(DRUZHINA)).toBeNull();
-    now = Math.max(now, (await world.figures()).find((f) => f.id === 'general')!.readyAt);
-    let siege: WorldPulse['siege'] = null;
-    for (let i = 0; i < 3000 && !siege; i++) {
-      now += 20_000;
-      siege = (await world.sync(holdout)).siege;
-    }
-    expect(siege, 'осада встала при дружине дома').toBeTruthy();
+    // Лагерь садится, пока полководец с дружиной в поле, а дома пусто (`freezeField`): дружину у ворот лагерь этого набега
+    // не пережил бы, и такой осады нет (`LocalWorld.campHolds`). Полководец входит в осаждённый город — вход осада не
+    // запирает, — и городская часть гарнизона тоже дома (`holdout`).
+    const fz = await freezeField(7);
+    const { world, set } = await thaw(fz, fz.siege.since);
+    const info = await world.info();
+    expect(await world.moveFigure('general', { x: info.home.x, y: info.home.y })).toBeNull();
+    const home = (await world.figures()).find((f) => f.id === 'general')!;
+    set(home.arriveAt);
+    const siege = (await world.sync(holdout)).siege;
+    expect(siege, 'осада стоит, когда дружина вошла в город').toBeTruthy();
     // Граница области: полководец дома, дружина собрана, лагерь под стенами.
     const g = (await world.figures()).find((f) => f.id === 'general')!;
     expect(g.phase).toBe('home');

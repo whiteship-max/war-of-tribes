@@ -33,6 +33,14 @@ const holdout: PlayerProfile = {
   soldierFoodPerHour: 60,
 };
 const gunned: PlayerProfile = { ...holdout, tower: CATAPULT };
+/**
+ * Та же деревня в минуту, когда под неё садится лагерь: дома одни лучники — расчёт башни. Лагерь встаёт только под
+ * городом, чей гарнизон его первой же вылазкой не сметёт (`LocalWorld.campHolds`, docs/battle_eu4.md, 14.35), а весь
+ * `holdout` сметает лагерь набега, который садился прежде; двадцать лучников — нет, и садится более поздний набег.
+ * Остальной гарнизон приходит потом: дальше тесты синхронизируют полный слепок.
+ */
+const crew: PlayerProfile = { ...holdout, army: { archer: 20 } };
+const gunnedCrew: PlayerProfile = { ...crew, tower: CATAPULT };
 
 function memory(data: string | null = null) {
   return {
@@ -72,8 +80,8 @@ async function thaw(fz: Frozen, at: number, p: PlayerProfile, seed = 7) {
 
 describe('башня бьёт по лагерю', () => {
   it('рогатки со стороны города растут медленнее, лагерь редеет, а проход держат строившие', async () => {
-    const plain = await freeze(holdout);
-    const fired = await freeze(gunned);
+    const plain = await freeze(crew);
+    const fired = await freeze(gunnedCrew);
     expect(fired.siege.since, 'та же осада').toBe(plain.siege.since);
     const since = fired.siege.since;
     // Область: осада стоит, фронт ещё не дозрел ни с обстрелом, ни без.
@@ -99,7 +107,7 @@ describe('башня бьёт по лагерю', () => {
   }, 120_000);
 
   it('выбитое записывается в войско лагеря одним разом, когда осада снята', async () => {
-    const fired = await freeze(gunned);
+    const fired = await freeze(gunnedCrew);
     const save = JSON.parse(fired.save);
     const campId: string = save.sieges.home.campId;
     const before = save.marches.find((x: { id: string }) => x.id === campId).power as number;
@@ -116,7 +124,7 @@ describe('башня бьёт по лагерю', () => {
   }, 120_000);
 
   it('расчёт ушёл — башня замолкает, а выбитое остаётся выбитым', async () => {
-    const fired = await freeze(gunned);
+    const fired = await freeze(gunnedCrew);
     const since = fired.siege.since;
     const change = since + 14 * MIN;
     const late = since + CAMP_WORKS_RIPE;
