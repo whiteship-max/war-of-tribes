@@ -3,7 +3,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stackTotal, UNIT_KINDS, type Stack } from '@/battle';
-import { kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf } from '@/game/battle/price';
 import { seeded } from '@/game/sim/random';
 import { LocalWorld } from './local/LocalWorld';
 import { menOfPower } from './garrison';
@@ -873,7 +874,10 @@ describe('две стороны лагеря: древесина и проход
       // без гарнизона, и в сумме не больше, чем есть войска.
       expect(r.through!.went, `${label}: со стороны города вышел кто-то сверх гарнизона`).toBe(stackTotal(kindsOf(TOWN)));
       expect(r.rearThrough!.went, `${label}: с тыла вышел кто-то сверх дружины`).toBe(stackTotal(kindsOf(DRUZHINA)));
-      expect(r.through!.went + r.rearThrough!.went, `${label}: вышло больше, чем есть войска`).toBeLessThanOrEqual(stackTotal(kindsOf(GARRISON)));
+      // Бойцы строя у каждой части округляются своим видом (вес по цене дробный, `price.menOf`): сумма частей может превысить
+      // целое на бойца на вид, который есть в обеих частях, — не больше.
+      const shared = (Object.keys(GARRISON) as (keyof TroopStack)[]).filter((id) => (TOWN[id] ?? 0) > 0 && (DRUZHINA[id] ?? 0) > 0).length;
+      expect(r.through!.went + r.rearThrough!.went, `${label}: вышло больше, чем есть войска`).toBeLessThanOrEqual(stackTotal(kindsOf(GARRISON)) + shared);
       // То, что видел игрок, — то, что посчитал бой.
       expect(r.rearThrough, label).toEqual(plan.rear);
       expect(r.through, label).toEqual(plan.front);

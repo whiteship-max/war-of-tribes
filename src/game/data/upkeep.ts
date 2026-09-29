@@ -39,7 +39,7 @@ import type { TroopId } from '../types';
 export const MASTER_PAID_AS: TroopId = 'spearman';
 
 /**
- * Жалованье за игровой день — с бойца строя (`battle/kinds.weightOf`: дубинщик
+ * Жалованье за игровой день — с бойца строя по мощи (`battle/kinds.powerWeight`: дубинщик
  * один, копейщик два, латник восемь), в долях полного сбора с человека. Золото
  * держит силу, еда — головы.
  *

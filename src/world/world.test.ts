@@ -16,7 +16,7 @@ import { stackLosses } from './combat';
 import { resolveField } from './battle';
 import { garrisonOf } from './garrison';
 import { emptySectors, stackTotal, type ArmySetup, type Stack } from '@/battle';
-import { kindsOf } from '@/game/battle/kinds';
+import { kindsOf } from '@/game/battle/price';
 import { playerProfile, syncAway, toOutcome } from './bridge';
 import { awayOf, homeOf } from './muster';
 import { FogMap, fogSaveBytes } from './fog';

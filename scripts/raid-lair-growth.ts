@@ -24,7 +24,6 @@ import { generateWorld, isLair, lairAnchor } from '@/world/gen';
 import { distance } from '@/world/geo';
 import { garrisonOf } from '@/world/garrison';
 import { resolveField } from '@/world/battle';
-import { ownGearOf } from '@/world/agents';
 import { lairArms, lairArmsBase, lairGold, lairLoot, lairPower, shieldVillagers } from '@/world/lairs';
 import {
   AI_RANGE,
@@ -50,7 +49,8 @@ import { createInitialState } from '@/game/state';
 import { startRecruit } from '@/game/sim/army';
 import { seeded, setRandom } from '@/game/sim/random';
 import { armyPower, armySize, buildingOfType, defense, recruitRate, taxIncomePerDay } from '@/game/derived';
-import { kindsOf, troopTotal } from '@/game/battle/kinds';
+import { troopTotal } from '@/game/battle/kinds';
+import { kindsOf } from '@/game/battle/price';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import { GAME, START, memory, pilot, player, townAt, unitsNote, type Inside, type Run, type Step } from './autopilot';
@@ -423,8 +423,8 @@ export async function lairGrowthSection(): Promise<void> {
         const gar = garrisonOf(seed, `lair${seed}`, power, false);
         const f = resolveField({
           seed: seed * 7919,
-          attacker: { kinds: kindsOf(troops), gear: ownGearOf(troops), resolve: 0 },
-          defender: { kinds: gar.kinds, gear: gar.gear },
+          attacker: { kinds: kindsOf(troops), resolve: 0 },
+          defender: { kinds: gar.kinds },
         });
         if (f.won) won++;
       }

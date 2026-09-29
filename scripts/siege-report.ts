@@ -27,7 +27,8 @@ import { resolveField } from '@/world/battle';
 import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
 import { awayOf, homeOf } from '@/world/muster';
-import { gearOf, kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf } from '@/game/battle/price';
 import { stackTotal } from '@/battle';
 import {
   AI_ATTACK_MAX,
@@ -168,10 +169,9 @@ function sortieOnce(seed: number, going: TroopStack, campPower: number, pass: nu
   const party = raidingParty(seed, `camp${seed}`, campPower);
   const field = resolveField({
     seed,
-    // Снаряжение вылазки — своё, из видов бойцов: ровно то же, что кладёт мир
-    // (`ownGear`). Забудь его — и отряд выйдет голым против кованого лагеря.
-    attacker: { kinds: passKinds(kindsOf(going), pass), gear: gearOf(going) },
-    defender: { kinds: party.kinds, gear: party.gear },
+    // Снаряжение вылазки пришло в бой весом — людьми строя (`price.kindsOf`, путь П2): ступени в бою нет.
+    attacker: { kinds: passKinds(kindsOf(going), pass) },
+    defender: { kinds: party.kinds },
   });
   return field.won;
 }
@@ -968,8 +968,8 @@ function modelSortie(fz: Frozen, at: number, variant: number, slow: number, thin
   const garrison = homeOf(fz.g.army, awayOf([], []));
   const field = resolveField({
     seed: 9000 + variant * 13 + Math.floor(gd(at - fz.since)),
-    attacker: { kinds: passKinds(kindsOf(garrison), pass), gear: gearOf(garrison) },
-    defender: { kinds: camp.kinds, gear: camp.gear },
+    attacker: { kinds: passKinds(kindsOf(garrison), pass) },
+    defender: { kinds: camp.kinds },
   });
   return field.won;
 }

@@ -8,12 +8,10 @@ import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { buildingOfType } from '@/game/derived';
 import { recruitCheck } from '@/game/sim/army';
 import { temperOf, troopCard } from '@/game/battle/describe';
-import { weightOf } from '@/game/battle/kinds';
-import { GEAR } from '@/battle';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
 
-/** Полоска величины в своём потолке: мощь среди видов, мораль в шкале боя. */
+/** Полоска величины в своём потолке: вес среди видов, мораль в шкале боя. */
 function Bar({
   icon,
   label,
@@ -46,7 +44,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const card = troopCard(troop);
-  const { def, meta, morale, cost, stats } = card;
+  const { def, meta, morale, weight, cost, stats } = card;
   const have = Math.max(0, s.army[troop] ?? 0);
   // Срок одного бойца — тем же расчётом, что у кнопки найма: с его видом, а у
   // всадника, значит, и с конюшней.
@@ -67,14 +65,15 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
-            {meta.icon} {meta.name} · снаряжение {morale.gearLevel} из {GEAR.max} · в деревне {have}
+            {meta.icon} {meta.name} · вес в бою {weight.value.toFixed(1)} · в деревне {have}
           </div>
         </div>
       </div>
       <p className="season-hint">{def.description}</p>
 
       <h3>Чего он стоит в бою</h3>
-      <Bar icon="⚔️" label="Мощь бойца" value={def.power} max={card.powerMax} note={`из ${card.powerMax} у сильнейшего`} />
+      <Bar icon="⚖️" label="Вес в бою" value={weight.value} max={weight.max} note={`из ${weight.max.toFixed(1)} у тяжелейшего`} />
+      <p className="season-hint">{weight.what}</p>
       <Bar
         icon="🏳️"
         label="Мораль"
@@ -83,47 +82,6 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         note={`из ${morale.max}`}
         tone={morale.total >= morale.max * 0.6 ? undefined : 'full'}
       />
-      <div className="mod">
-        <span className="ico">🏳️</span>
-        <span className="name">Мораль рода {meta.name.toLowerCase()}</span>
-        <span className="val">{morale.base}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">⚒️</span>
-        <span className="name">
-          За снаряжение
-          <em className="sub">ступень {morale.gearLevel} по +{GEAR.moralePerLevel}</em>
-        </span>
-        <span className={`val ${morale.gear > 0 ? 'pos' : ''}`}>
-          {morale.gear > 0 ? '+' : ''}
-          {morale.gear}
-        </span>
-      </div>
-      <div className="mod total">
-        <span className="ico">🛡️</span>
-        <span className="name">Итого мораль</span>
-        <span className="val pos">{morale.total}</span>
-      </div>
-
-      {card.nextGear && (
-        <>
-          <h3>Следующая ступень снаряжения</h3>
-          <div className="mod total">
-            <span className="ico">⬆️</span>
-            <span className="name">
-              Ступень {card.nextGear.level} из {GEAR.max}
-              <em className="sub">
-                {card.nextGear.example
-                  ? `в племени это ${card.nextGear.example.name.toLowerCase()}`
-                  : 'такого вида в племени пока нет'}
-              </em>
-            </span>
-            <span className="val pos">
-              мораль {card.nextGear.morale} (+{card.nextGear.gain})
-            </span>
-          </div>
-        </>
-      )}
 
       <h3>Цена одного бойца</h3>
       <div className="cost">
@@ -158,7 +116,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
             <span className="name">
               {p.name}
               <em className="sub">
-                {p.what}; от рода {p.fromKind}, от вещей {p.fromItems}
+                {p.what}; это показатель рода — вещи идут в бой через вес
               </em>
             </span>
             <span className={`val ${p.value > 0 ? 'pos' : ''}`}>{p.value}</span>
@@ -217,11 +175,6 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
           <span className="ico">🐾</span>
           <span className="name">Скорость</span>
           <span className="val">{stats.speed}</span>
-        </div>
-        <div className="mod">
-          <span className="ico">⚖️</span>
-          <span className="name">Бойцов строя за одного</span>
-          <span className="val">{weightOf(troop).toFixed(1)}</span>
         </div>
       </div>
 

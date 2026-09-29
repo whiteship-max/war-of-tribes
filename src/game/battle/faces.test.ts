@@ -8,7 +8,8 @@ import { deploySetup } from '@/battle/setup';
 import { UNIT_KINDS, type Stack } from '@/battle';
 import { TROOP_IDS } from '../data/troops';
 import type { TroopId } from '../types';
-import { KIND_OF, gearOfTroop, kindsOf, type TroopStack } from './kinds';
+import { KIND_OF, gearOfTroop, type TroopStack } from './kinds';
+import { kindsOf } from './price';
 import { MILITIA, facesOf, facesTotal, troopOfKind, troopsOfKinds, wearOf } from './faces';
 import { castOfRecord } from './cast';
 

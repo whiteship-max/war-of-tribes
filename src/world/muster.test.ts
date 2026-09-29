@@ -7,7 +7,8 @@ import { deserialize, serialize } from '@/game/save';
 import { armySize } from '@/game/derived';
 import { seeded } from '@/game/sim/random';
 import { TROOP_IDS } from '@/game/data/troops';
-import { kindsOf, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf } from '@/game/battle/price';
 import type { GameState, TroopId } from '@/game/types';
 import { LocalWorld } from './local/LocalWorld';
 import { applyEffects, playerProfile, syncAway } from './bridge';
@@ -126,18 +127,19 @@ describe('где стоит боец — одно правило', () => {
     expect(standingShare({ clubman: 4 }, { clubman: 10 }, { clubman: 7 })).toEqual({ clubman: 5 });
   });
 
-  it('у стороны боя в мире — состав, снаряжение, стойкость, отметки и мораль между боями, и больше ничего: раскладывает правило', () => {
+  it('у стороны боя в мире — состав, стойкость, отметки и мораль между боями, и больше ничего: раскладывает правило', () => {
     // Поставка 2 боя (docs/battle_eu4.md, 14.27): последней раскладкой руками была оборона деревни, и с её уходом поле
     // своей раскладки у стороны (`world/battle.FieldSide`) ушло совсем — обе стороны встают по правилу развёртывания одной
     // дверью (`resolveField`), а людей сверх состава приводить некуда: входа героя нет. Замок по исходнику, без комментариев.
     // Поставка 4 (14.31) дописала долю морали между боями (`rest`): это свойство войска, как стойкость, а не раскладка.
-    // Пересмотр баланса (14.35) дописал вещи стороны (`kit`, показатели = род + вещи): тоже свойство войска, как снаряжение.
+    // Пересмотр баланса (14.35) убрал ступень снаряжения (`gear`) и вещи стороны (`kit`): путь П2 — вещи пришли в бой весом,
+    // людьми строя (`price.kindsOf`), и второй раз их в сторону не кладут.
     const src = readFileSync(new URL('./battle.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'gear', 'kit', 'resolve', 'pips', 'rest']);
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest']);
     expect(src, 'обе стороны — правилом').toMatch(/const attacker = deploySetup\(input\.attacker\.kinds\);/);
     expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
   });

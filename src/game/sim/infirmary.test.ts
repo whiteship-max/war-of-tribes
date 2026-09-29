@@ -167,7 +167,7 @@ describe('срок: два игровых дня с минуты, когда л�
   it('раненые полководца лежат при нём: ни мест, ни срока, пока дружина не вернулась', () => {
     const s = town(10);
     s.army.legionary = 100;
-    // Латник весит восемь бойцов строя: столько мест он и займёт, вернувшись (docs/stable.md).
+    // Латник по мощи — восемь бойцов строя: места лазарета меряются мощью (`troopPower / BATTLE_MAN`, docs/stable.md).
     applyExpedition(s, battle({ legionary: 8 }, { field: { legionary: 8 } }));
     const carried = s.wounded.filter((g) => g.until === null).reduce((n, g) => n + troopTotal(g.troops), 0);
     expect(carried, 'точка внутри области: раненые при полководце').toBe(Math.round(8 * healShare(s)));

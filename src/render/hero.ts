@@ -14,7 +14,8 @@
 import type { GameState } from '@/game/types';
 import { UNIT_KINDS, type UnitKind } from '@/battle';
 import { seated } from '@/game/sim/agents';
-import { TROOPS_OF_KIND, kindsOf } from '@/game/battle/kinds';
+import { TROOPS_OF_KIND } from '@/game/battle/kinds';
+import { kindsOf } from '@/game/battle/price';
 import { RING_RADIUS, PLAN, facingCenter } from './plan';
 import { Figure } from './figures';
 import { poseFigure } from './poses';

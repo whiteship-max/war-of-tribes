@@ -126,20 +126,18 @@ describe('снаряжение вида — один источник на ка�
     expect(withGear('clubman', { bow: 1 }, () => cardGear('clubman'))).toBe('bow×1');
   });
 
-  it('ступень снаряжения на карточке — то же число, что и железо на фигуре', () => {
-    // Ступень считает `gearOfTroop`, и обе стороны берут её оттуда.
-    for (const troop of TROOP_IDS) {
-      expect(troopCard(troop).morale.gearLevel, troop).toBe(gearTier(troop));
-    }
-    // Прибавили предмет — выросла и ступень на карточке, и железо на фигуре.
-    const before = { tier: gearTier('clubman'), slots: parts('clubman').length };
-    const after = withGear('clubman', { sword: 1, shield: 1, armor: 1 }, () => ({
-      tier: gearTier('clubman'),
-      card: troopCard('clubman').morale.gearLevel,
-      slots: parts('clubman').length,
+  it('железо на фигуре и вес на карточке растут от одного снаряжения', () => {
+    // Ступени снаряжения на карточке больше нет (путь П2, 14.35): вещи идут в бой через цену вида — весом. Прибавили предмет —
+    // выросли и железо на фигуре, и вес на карточке: оба читают одно `TroopDef.gear`.
+    // Мечник, а не дубинщик: дубинщик — мерка веса, его вес — единица при любом снаряжении.
+    const before = { tier: gearTier('swordsman'), slots: parts('swordsman').length, weight: troopCard('swordsman').weight.value };
+    const after = withGear('swordsman', { sword: 1, shield: 1, armor: 1 }, () => ({
+      tier: gearTier('swordsman'),
+      weight: troopCard('swordsman').weight.value,
+      slots: parts('swordsman').length,
     }));
     expect(after.tier).toBeGreaterThan(before.tier);
-    expect(after.card).toBe(after.tier);
+    expect(after.weight).toBeGreaterThan(before.weight);
     expect(after.slots).toBeGreaterThan(before.slots);
   });
 

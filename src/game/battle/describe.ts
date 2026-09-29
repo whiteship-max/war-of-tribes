@@ -6,12 +6,13 @@
 //
 // Отсюда следует главное правило модуля: **ни одно число не пишется здесь руками**.
 // Показатели и множители читаются из конфига при каждом вызове (а не запекаются в
-// константы при загрузке модуля), поэтому правка рода (`KIND_PROFILE`) или вещи
+// константы при загрузке модуля), поэтому правка рода (`KIND_PROFILE`) или цены вида
 // немедленно меняет строку на карточке — это и проверяет `describe.test.ts`.
 //
 // Кольца контрров нет (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт,
-// следует из показателей — нападения и защиты в огне, натиске и морали, как у EU4, —
-// и карточка показывает их, а не пары «род против рода».
+// следует из показателей рода — нападения и защиты в огне, натиске и морали, как у EU4, —
+// и карточка показывает их, а не пары «род против рода». Вещи своих показателей не дают:
+// они идут в бой через цену вида — весом в строю (путь П2, `game/battle/price`).
 //
 // Руками пишутся только названия показателей и ситуаций характера: «сомкнутый строй»,
 // «в обходе» — их из числа не вывести. Само число всегда рядом и всегда из таблицы.
@@ -21,7 +22,6 @@ import { TROOPS, TROOP_BY_ID, type TroopDef } from '../data/troops';
 import {
   ANCHOR,
   FIRE_AFTER_CONTACT,
-  GEAR,
   KIND_META,
   KIND_PROFILE,
   MORALE,
@@ -35,7 +35,8 @@ import {
   type UnitKind,
   type UnitStats,
 } from '@/battle';
-import { KIND_OF, TROOPS_OF_KIND, gearOfTroop, kitOfTroop, profileOfTroop } from './kinds';
+import { KIND_OF, profileOfTroop } from './kinds';
+import { BASE_TROOP, battleWeight } from './price';
 
 // ---------- Слова, которые из чисел не выведешь ----------
 
@@ -109,31 +110,19 @@ export interface StatLine {
   stat: StatId;
   /** «огонь, нападение». */
   name: string;
-  /** Отметок у вида: род и вещи. */
+  /** Отметок у вида — показатель его рода (`KIND_PROFILE`): вещи своих не дают. */
   value: number;
-  /** Из них — от рода (`KIND_PROFILE`) и от вещей (`kitOfTroop`). */
-  fromKind: number;
-  fromItems: number;
   /** Что делает отметка — словами, с ценой из конфига. */
   what: string;
 }
 
 /**
- * Шесть показателей вида — род и вещи (слово владельца по 14.35: показатели = род + вещи). Все шесть, и нули тоже:
- * карточка не рекламный листок — что у вида пусто, видно наравне с тем, что сильно.
+ * Шесть показателей вида — показатели его рода (путь П2, 14.35: вещи идут в бой через цену, а не отметками). Все шесть,
+ * и нули тоже: карточка не рекламный листок — что у вида пусто, видно наравне с тем, что сильно.
  */
 export function statsOf(troop: TroopId): StatLine[] {
-  const kind = KIND_PROFILE[KIND_OF[troop]];
-  const items = kitOfTroop(troop);
-  const all = profileOfTroop(troop);
-  return STAT_IDS.map((stat) => ({
-    stat,
-    name: STAT_NAME[stat],
-    value: all[stat],
-    fromKind: kind[stat],
-    fromItems: items[stat],
-    what: STAT_WHAT[stat](pipPct()),
-  }));
+  const all = KIND_PROFILE[KIND_OF[troop]];
+  return STAT_IDS.map((stat) => ({ stat, name: STAT_NAME[stat], value: all[stat], what: STAT_WHAT[stat](pipPct()) }));
 }
 
 export interface PositionLine {
@@ -165,49 +154,35 @@ export function positionsOf(kind: UnitKind): PositionLine[] {
 // ---------- Мораль ----------
 
 export interface MoraleParts {
-  /** Мораль рода без снаряжения. */
-  base: number;
-  /** Ступень снаряжения бойца, 0..`GEAR.max`. */
-  gearLevel: number;
-  /** Что даёт снаряжение. */
-  gear: number;
+  /** Мораль рода — вся мораль вида: за снаряжение морали нет (путь П2, 14.35). */
   total: number;
   max: number;
 }
 
-export const moraleOf = (troop: TroopId): MoraleParts => {
-  const kind = KIND_OF[troop];
-  const gearLevel = gearOfTroop(troop);
-  const base = UNIT_STATS[kind].morale;
-  const gear = gearLevel * GEAR.moralePerLevel;
-  return { base, gearLevel, gear, total: Math.min(MORALE.max, base + gear), max: MORALE.max };
-};
+export const moraleOf = (troop: TroopId): MoraleParts => ({ total: UNIT_STATS[KIND_OF[troop]].morale, max: MORALE.max });
 
-export interface NextGear {
-  level: number;
-  gain: number;
-  morale: number;
-  /** Вид того же рода с этой ступенью, если он в игре есть. */
-  example: TroopDef | null;
+// ---------- Вес в бою ----------
+
+export interface WeightParts {
+  /** Бойцов строя на голову (`price.battleWeight`): во сколько раз его содержание дороже дубинщика. */
+  value: number;
+  /** Наибольший вес среди видов — чтобы полоска показывала место в ряду. */
+  max: number;
+  /** Что это значит — словами, числа из цены. */
+  what: string;
 }
 
-/** Что даст следующая ступень снаряжения. null — ступень уже предельная. */
-export function nextGearOf(troop: TroopId): NextGear | null {
-  const kind = KIND_OF[troop];
-  const m = moraleOf(troop);
-  if (m.gearLevel >= GEAR.max) return null;
-  const level = m.gearLevel + 1;
-  const example =
-    TROOPS_OF_KIND[kind]
-      .map((id) => TROOP_BY_ID[id])
-      .filter((d) => gearOfTroop(d.id) >= level)
-      .sort((a, b) => gearOfTroop(a.id) - gearOfTroop(b.id))[0] ?? null;
-  const target = example ? gearOfTroop(example.id) : level;
+/** Вес вида в бою: по цене, а не по мощи. Вещи идут в бой только так (путь П2, 14.35). */
+export function weightOfTroop(troop: TroopId): WeightParts {
+  const value = battleWeight(troop);
+  const max = best(TROOPS, (t) => battleWeight(t.id));
   return {
-    level: target,
-    gain: (target - m.gearLevel) * GEAR.moralePerLevel,
-    morale: Math.min(MORALE.max, m.base + target * GEAR.moralePerLevel),
-    example,
+    value,
+    max: battleWeight(max.id),
+    what:
+      troop === BASE_TROOP
+        ? 'Мерка веса: одна голова — один боец строя. Вещи и конь идут в бой через цену: чем дороже содержание вида, тем больше он весит.'
+        : `Одна голова выходит в бой ${value.toFixed(1)} бойца строя — во столько раз его содержание в день дороже мерки веса (${TROOP_BY_ID[BASE_TROOP].name}: 1.0). Вещи и конь идут в бой через цену.`,
   };
 }
 
@@ -219,7 +194,8 @@ interface Extremes {
   moraleLow: UnitKind;
   speedTop: UnitKind;
   speedLow: UnitKind;
-  powerTop: TroopId;
+  weightTop: TroopId;
+  weightLow: TroopId;
   workTop: TroopId;
   workLow: TroopId;
 }
@@ -236,7 +212,8 @@ function extremes(): Extremes {
     moraleLow: worst(UNIT_KINDS, (k) => stat(k).morale),
     speedTop: best(UNIT_KINDS, (k) => stat(k).speed),
     speedLow: worst(UNIT_KINDS, (k) => stat(k).speed),
-    powerTop: best(TROOPS, (t) => t.power).id,
+    weightTop: best(TROOPS, (t) => battleWeight(t.id)).id,
+    weightLow: worst(TROOPS, (t) => battleWeight(t.id)).id,
     workTop: best(TROOPS, (t) => t.work).id,
     workLow: worst(TROOPS, (t) => t.work).id,
   };
@@ -299,7 +276,6 @@ function strengthsOf(troop: TroopId): string[] {
   const top = topStat(troop);
   const temper = temperLines(kind);
   const softest = temper.length > 0 ? worst(temper, (t) => t.mult) : null;
-  const m = moraleOf(troop);
 
   return run(
     [
@@ -312,12 +288,8 @@ function strengthsOf(troop: TroopId): string[] {
           ? `Самая высокая стойкость среди родов: мораль рода ${UNIT_STATS[kind].morale} из ${MORALE.max}.`
           : null,
       () =>
-        ex.powerTop === troop
-          ? `Самый сильный боец на человека во всём племени: мощь ${def.power} против ${worst(TROOPS, (t) => t.power).power} у самого дешёвого.`
-          : null,
-      () =>
-        m.gearLevel >= GEAR.max
-          ? `Полное снаряжение: ступень ${m.gearLevel} из ${GEAR.max} даёт ${m.gear > 0 ? '+' : ''}${m.gear} морали.`
+        ex.weightTop === troop
+          ? `Тяжелее всех в бою: одна голова — ${battleWeight(troop).toFixed(1)} бойца строя против ${battleWeight(ex.weightLow).toFixed(1)} у самого лёгкого.`
           : null,
       () =>
         UNIT_STATS[kind].ranged > 0
@@ -332,6 +304,10 @@ function strengthsOf(troop: TroopId): string[] {
           ? `Держит удар, когда ${softest.when}: потери морали ${fmt(softest.mult)}.`
           : null,
       () => (ex.speedTop === kind ? `Быстрее всех на поле: скорость ${UNIT_STATS[kind].speed} — догоняет отходящих первым.` : null),
+      () =>
+        battleWeight(troop) > 1
+          ? `Меньше голов на тот же строй: сто бойцов строя — ${Math.round(100 / battleWeight(troop))} голов против ста у мерки веса: меньше жителей уходит в войско.`
+          : null,
       () =>
         ex.workLow === troop
           ? `Быстрее всех учится: ${def.work} работы казарм против ${best(TROOPS, (t) => t.work).work} у самого долгого.`
@@ -349,7 +325,6 @@ function weaknessesOf(troop: TroopId): string[] {
   const p = profileOfTroop(troop);
   const temper = temperLines(kind);
   const brittle = temper.length > 0 ? best(temper, (t) => t.mult) : null;
-  const m = moraleOf(troop);
   const cheapest = worst(TROOPS, (t) => t.work);
 
   return run(
@@ -371,8 +346,8 @@ function weaknessesOf(troop: TroopId): string[] {
           ? `Самый нестойкий род: мораль ${UNIT_STATS[kind].morale} против ${UNIT_STATS[ex.moraleTop].morale} у ${KIND_GEN[ex.moraleTop]}.`
           : null,
       () =>
-        m.gearLevel === 0
-          ? `Без снаряжения: ступень 0 из ${GEAR.max}, к морали рода не прибавляется ничего — каждая ступень стоит ${GEAR.moralePerLevel}.`
+        ex.weightLow === troop
+          ? `Легче всех в бою: одна голова — ${battleWeight(troop).toFixed(1)} бойца строя; армию того же веса ставят числом голов.`
           : null,
       () =>
         ex.workTop === troop
@@ -412,16 +387,15 @@ export interface TroopCard {
   meta: KindMeta;
   stats: UnitStats;
   morale: MoraleParts;
-  /** Наибольшая мощь среди видов — чтобы полоска показывала место в ряду. */
-  powerMax: number;
+  /** Вес в бою — по цене (`weightOfTroop`). */
+  weight: WeightParts;
   cost: TroopCost;
-  /** Шесть показателей: род и вещи (`statsOf`). */
+  /** Шесть показателей рода (`statsOf`). */
   pips: StatLine[];
   /** Что род делает по положению, кроме характера (`positionsOf`). */
   positions: PositionLine[];
   strengths: string[];
   weaknesses: string[];
-  nextGear: NextGear | null;
 }
 
 /**
@@ -438,7 +412,7 @@ export function troopCard(troop: TroopId): TroopCard {
     meta: KIND_META[kind],
     stats: UNIT_STATS[kind],
     morale: moraleOf(troop),
-    powerMax: best(TROOPS, (t) => t.power).power,
+    weight: weightOfTroop(troop),
     cost: {
       resources: (Object.keys(def.cost) as ResourceId[]).filter((r) => def.cost[r]).map((r) => ({ id: r, n: def.cost[r] as number })),
       gear: (Object.keys(def.gear) as EquipmentId[]).filter((g) => def.gear[g]).map((g) => ({ id: g, n: def.gear[g] as number })),
@@ -449,7 +423,6 @@ export function troopCard(troop: TroopId): TroopCard {
     positions: positionsOf(kind),
     strengths: strengthsOf(troop),
     weaknesses: weaknessesOf(troop),
-    nextGear: nextGearOf(troop),
   };
 }
 

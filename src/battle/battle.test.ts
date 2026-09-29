@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
+import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
 import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
@@ -339,23 +339,9 @@ describe('мораль как характеристика войск', () => {
     }
   });
 
-  it('снаряжение из кузницы делает войско стойче: та же армия со снаряжением выигрывает размен', () => {
-    // Был красным с поставки 1 до снятия паники (14.21): один сид из двенадцати давал размен 0.996 при нужном > 1.
-    const plain = deploySetup(BALANCED_ARMY);
-    const geared = { ...deploySetup(BALANCED_ARMY), gear: { spear: GEAR.max, infantry: GEAR.max, archer: GEAR.max, cavalry: GEAR.max, heavy: 0 } };
-    let ratio = 0;
-    const N = 12;
-    for (let seed = 1; seed <= N; seed += 1) {
-      const m = mirrored(geared, plain, seed);
-      expect(m.lossRatio).toBeGreaterThan(1);
-      ratio += m.lossRatio;
-    }
-    expect(ratio / N).toBeGreaterThan(1.1);
-    // Ступень выше потолка не даёт больше потолка.
-    const capped = simulateBattle({ seed: 1, attacker: { ...deploySetup(BALANCED_ARMY), gear: { infantry: 99 } }, defender: plain });
-    const max = simulateBattle({ seed: 1, attacker: { ...deploySetup(BALANCED_ARMY), gear: { infantry: GEAR.max } }, defender: plain });
-    expect(JSON.stringify(capped.sides)).toBe(JSON.stringify(max.sides));
-  });
+  // Тест «снаряжение из кузницы делает войско стойче: та же армия со снаряжением выигрывает размен» снят вместе с моралью
+  // за ступень снаряжения (`GEAR`, `ArmySetup.gear`) — решение владельца по 14.35, путь П2: вещи идут в бой только через цену
+  // вида и его вес. Обещание «кузница меняет бой» держит `game/battle/price.test.ts`: каждая вещь поднимает вес вида.
 
   it('копейщики стойки, пока сомкнуты, и ломки под ударом во фланг', () => {
     // Сомкнутые против обойдённых, а не приказы: приказа «наступать» больше нет, сомкнутость — положение (Е17).

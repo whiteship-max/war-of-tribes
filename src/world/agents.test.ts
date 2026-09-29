@@ -54,7 +54,7 @@ import {
   SPY_SLIP_ATTITUDE,
 } from './data/tuning';
 import { marchSeed } from './combat';
-import { ownGearOf, pipRows, revealSight, slipShare, slipped } from './agents';
+import { pipRows, revealSight, slipShare, slipped } from './agents';
 import { GROUND_CROSSING } from './place';
 import { spyOutcome } from './spy';
 import { distance } from './geo';
@@ -173,7 +173,8 @@ describe('отметки полководца: его бои — всегда, �
     const input = battleSince(mark);
     expect(input.attacker.pips).toEqual(p.pips);
     expect(input.attacker.resolve, 'натиска в стойкости больше нет: только обряд').toBe(FERVOUR);
-    expect(input.attacker.gear).toEqual(ownGearOf(RETINUE));
+    // Ступени снаряжения в бою нет (путь П2, 14.35): вещи пришли туда весом — людьми строя.
+    expect('gear' in input.attacker, 'ступень снаряжения в бой не идёт').toBe(false);
   });
 
   it('наш лагерь, по которому бьют, держит дружина полководца — отметки есть', async () => {

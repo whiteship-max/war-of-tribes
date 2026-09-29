@@ -3,8 +3,7 @@
 // здесь. Обратная зависимость запрещена: отсюда в ядро только типы.
 import type { EquipmentId, TroopId } from '../types';
 import { TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
-import { EQUIPMENT_BY_ID, type ItemNature } from '../data/equipment';
-import { GEAR, KIND_PROFILE, NO_PIPS, STAT_IDS, UNIT_KINDS, emptyStack, type Profile, type Stack, type UnitKind } from '@/battle';
+import { KIND_PROFILE, UNIT_KINDS, type Profile, type UnitKind } from '@/battle';
 
 /**
  * Каким родом вид выходит в поле — **выводится из его снаряжения**, а не из таблицы рядом.
@@ -23,33 +22,11 @@ export function kindOfTroop(def: TroopDef): UnitKind {
 }
 
 /**
- * Что вещь прибавляет к показателям бойца — по её природе (`EquipmentDef.nature`), по отметке (слово владельца по 14.35,
- * docs/battle_eu4.md, «Таблица показателей»): оружие натиска — нападение в натиске, оружие огня — нападение в огне,
- * защита — защиту в огне и в натиске. Своих чисел здесь нет, кроме этой единицы: величину вещи владелец назвал отметкой.
+ * Показатели вида в бою — показатели его рода (`KIND_PROFILE`), и только они: вещи своих показателей не дают, в бой они
+ * идут через цену вида и его вес (слово владельца по 14.35, путь П2; `game/battle/price`). Одна дверь на карточку, мощь
+ * профиля и отчёты.
  */
-export const ITEM_PIPS: Record<ItemNature, Partial<Profile>> = {
-  shock: { shockAtk: 1 },
-  fire: { fireAtk: 1 },
-  guard: { fireDef: 1, shockDef: 1 },
-};
-
-/** Что вещи бойца прибавляют к показателям его рода: сумма по предметам (`TroopDef.gear`), без рода. */
-export function kitOfTroop(troop: TroopId): Profile {
-  const out: Profile = { ...NO_PIPS };
-  for (const [item, n] of Object.entries(TROOP_BY_ID[troop].gear) as Array<[EquipmentId, number | undefined]>) {
-    for (const stat of STAT_IDS) out[stat] += (n ?? 0) * (ITEM_PIPS[EQUIPMENT_BY_ID[item].nature][stat] ?? 0);
-  }
-  return out;
-}
-
-/** Показатели вида целиком: род (`KIND_PROFILE`) и вещи (`kitOfTroop`). Одна таблица на бой, карточку и тесты. */
-export function profileOfTroop(troop: TroopId): Profile {
-  const kind = KIND_PROFILE[kindOfTroop(TROOP_BY_ID[troop])];
-  const kit = kitOfTroop(troop);
-  const out: Profile = { ...NO_PIPS };
-  for (const stat of STAT_IDS) out[stat] = kind[stat] + kit[stat];
-  return out;
-}
+export const profileOfTroop = (troop: TroopId): Profile => KIND_PROFILE[kindOfTroop(TROOP_BY_ID[troop])];
 
 /** Кто из племени каким родом выходит в поле. Все пять родов закрыты. */
 export const KIND_OF: Record<TroopId, UnitKind> = Object.fromEntries(
@@ -69,23 +46,21 @@ export const TROOPS_OF_KIND: Record<UnitKind, TroopId[]> = UNIT_KINDS.reduce(
 export const OWN_KINDS: UnitKind[] = UNIT_KINDS.filter((k) => TROOPS_OF_KIND[k].length > 0);
 
 /**
- * Мощь племени на одного бойца полевого строя. Дубинщик (power 2) — единица
- * измерения: он и есть «один боец в строю», всё остальное дороже и весит больше.
+ * Мощь мира на одного человека в поле. Дубинщик (power 2) — единица измерения: мощь логова, отряда набега и ополчения
+ * переводится в людей этим делителем (`garrison.menOfPower`, `bridge.militiaMen`), а обратно — мощь дома складывается из
+ * мощи видов (`troopPower`, `defense()`).
  *
- * Иначе не сходится экономика: ядро знает только четыре рода и ступень снаряжения
- * (а она даёт лишь мораль), и один латник в строю считался бы за одного дубинщика.
- * Мощь вида бойца — это уже вложенное в него снаряжение, поэтому она и есть вес
- * в строю. Числа боя и числа племени после этого в одной шкале: `defense()` тоже
- * складывает мощь.
+ * **Весов у вида два, и путать их нельзя** (слово владельца по 14.35, путь П2; долг — docs/battle_eu4.md, 14.35): в бою вид
+ * весит столько, сколько стоит (`price.battleWeight`: содержание вида к содержанию дубинщика), а в хозяйстве и мире — по
+ * мощи (`powerWeight`: жалованье с бойца строя, места лазарета, мощь логова и дома). Свести их — при перемере мира.
  */
 export const BATTLE_MAN = 2;
 
-/** Сколько бойцов строя даёт n бойцов этого вида. Ноль людей — ноль строя. */
-export const menOf = (troop: TroopId, n: number): number =>
-  n > 0 ? Math.max(1, Math.round((n * TROOP_BY_ID[troop].power) / BATTLE_MAN)) : 0;
-
-/** Обратный перевод: сколько мощи в строю стоит один боец этого вида. */
-export const weightOf = (troop: TroopId): number => TROOP_BY_ID[troop].power / BATTLE_MAN;
+/**
+ * Вес вида по мощи: мощь / `BATTLE_MAN`, дубинщик — один, латник — восемь. Им меряется хозяйство — жалованье с бойца
+ * строя (`derived.wageOf`), — а в бою вид весит по цене (`price.battleWeight`).
+ */
+export const powerWeight = (troop: TroopId): number => TROOP_BY_ID[troop].power / BATTLE_MAN;
 
 /** Сколько кого в племени. Отдельный тип, чтобы не таскать полный `Army` с нулями. */
 export type TroopStack = Partial<Record<TroopId, number>>;
@@ -94,56 +69,20 @@ export const troopTotal = (t: TroopStack): number =>
   TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0), 0);
 
 /**
- * Мощь состава — сумма мощи каждого бойца (`TroopDef.power`). Тот же вес, которым бой
- * переводит бойца в строй (`menOf`), а набег — в людей (`garrison.menOfPower`). Мощь
- * всего войска, тех, кто дома, дружины и лагеря считается этой дверью, а не средним на
- * число: латник, ушедший в поле, уносит мощь латника, а не мощь среднего бойца.
+ * Мощь состава — сумма мощи каждого бойца (`TroopDef.power`): шкала мира, та же, которой набег переводится в людей
+ * (`garrison.menOfPower`). В бою вид весит по цене (`price.battleWeight`) — это второй вес, и долг их свести записан.
+ * Мощь всего войска, тех, кто дома, дружины и лагеря считается этой дверью, а не средним на число: латник, ушедший в
+ * поле, уносит мощь латника, а не мощь среднего бойца.
  */
 export const troopPower = (t: TroopStack): number =>
   TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * TROOP_BY_ID[id].power, 0);
 
-/** Состав в родах боя — то, что понимает ядро. */
-export function kindsOf(t: TroopStack): Stack {
-  const out: Stack = emptyStack();
-  for (const id of TROOP_IDS) out[KIND_OF[id]] += menOf(id, Math.max(0, t[id] ?? 0));
-  return out;
-}
-
 /**
- * Что вещи прибавляют к показателям каждого рода стороны — средним по людям рода (бойцам строя, `menOf`), как ядро их и
- * считает: ядро кладёт это поверх рода (`ArmySetup.kit`; слово владельца по 14.35 — показатели = род + вещи). `bare` —
- * люди рода без вещей, которых в `t` нет: ополчение у своих ворот — жители с тем, что есть. Рода без людей в ответе нет.
+ * Ступень снаряжения вида — число предметов кузницы на бойце: дубинщику хватает палки (0), латнику нужны меч, щит и доспех
+ * (3). В бою ступень своего не даёт — ни морали, ни показателей (путь П2): вещи идут туда через цену вида. Читают её
+ * жалованье за снаряжение (`derived.wageGear`) и показ — фигура и ролик, чем одет боец.
  */
-export function kitOf(t: TroopStack, bare: Partial<Stack> = {}): Partial<Record<UnitKind, Profile>> {
-  const out: Partial<Record<UnitKind, Profile>> = {};
-  for (const k of UNIT_KINDS) {
-    let men = Math.max(0, bare[k] ?? 0);
-    const sum: Profile = { ...NO_PIPS };
-    for (const id of TROOPS_OF_KIND[k]) {
-      const m = menOf(id, Math.max(0, t[id] ?? 0));
-      if (m <= 0) continue;
-      men += m;
-      const kit = kitOfTroop(id);
-      for (const stat of STAT_IDS) sum[stat] += m * kit[stat];
-    }
-    if (men <= 0) continue;
-    const avg: Profile = { ...NO_PIPS };
-    for (const stat of STAT_IDS) avg[stat] = sum[stat] / men;
-    out[k] = avg;
-  }
-  return out;
-}
-
-/**
- * Ступень снаряжения рода, 0..`GEAR.max`: средняя по бойцам этого рода, взвешенная
- * их числом. Ступень — это число предметов из кузницы на бойце: дубинщику хватает
- * палки (0), латнику нужны меч, щит и доспех (3). Так кузница влияет на стойкость.
- */
-export const gearOfTroop = (troop: TroopId): number =>
-  Math.min(
-    GEAR.max,
-    Object.values(TROOP_BY_ID[troop].gear).reduce((n, v) => n + (v ?? 0), 0),
-  );
+export const gearOfTroop = (troop: TroopId): number => Object.values(TROOP_BY_ID[troop].gear).reduce((n, v) => n + (v ?? 0), 0);
 
 /**
  * Что боец держит в руках. Выводится из его снаряжения (`TroopDef.gear` в
@@ -178,6 +117,7 @@ export const hasShield = (troop: TroopId): boolean => (TROOP_BY_ID[troop].gear.s
 /** Есть ли у вида доспех. По нему различаются щитоносец и латник. */
 export const hasArmor = (troop: TroopId): boolean => (TROOP_BY_ID[troop].gear.armor ?? 0) > 0;
 
+/** Ступень снаряжения рода в составе — средняя по головам: по ней показ одевает чужой отряд (`faces.troopsOfKinds`). */
 export function gearOf(t: TroopStack): Partial<Record<UnitKind, number>> {
   const out: Partial<Record<UnitKind, number>> = {};
   for (const k of UNIT_KINDS) {
@@ -190,39 +130,6 @@ export function gearOf(t: TroopStack): Partial<Record<UnitKind, number>> {
       sum += n * gearOfTroop(id);
     }
     if (men > 0) out[k] = Math.round(sum / men);
-  }
-  return out;
-}
-
-/**
- * Потери по роду переводятся обратно в бойцов племени: доля от каждого вида этого
- * рода, слабые первыми — как в `removeSoldiers`. Так отряд из дубинщиков и латников
- * теряет сперва дубинщиков, а не «полтора латника».
- */
-export function spreadLosses(t: TroopStack, kind: UnitKind, lostMen: number): TroopStack {
-  const out: TroopStack = {};
-  if (lostMen <= 0) return out;
-  let left = lostMen;
-  // Слабые первыми: список видов рода уже идёт от дешёвого к дорогому.
-  for (const id of TROOPS_OF_KIND[kind]) {
-    const have = Math.max(0, t[id] ?? 0);
-    if (have <= 0 || left <= 0) continue;
-    const w = weightOf(id);
-    const take = Math.min(have, Math.round(left / w));
-    if (take > 0) {
-      out[id] = take;
-      left -= take * w;
-    }
-  }
-  return out;
-}
-
-/** Потери сразу по всем родам. */
-export function troopLosses(t: TroopStack, lost: Stack): TroopStack {
-  const out: TroopStack = {};
-  for (const k of UNIT_KINDS) {
-    const part = spreadLosses(t, k, lost[k]);
-    for (const id of TROOP_IDS) if (part[id]) out[id] = (out[id] ?? 0) + (part[id] as number);
   }
   return out;
 }

@@ -15,8 +15,9 @@ import type { BuildingDef } from '@/game/data/buildings';
 import { RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS } from '@/game/data/buildings';
 import { TROOPS } from '@/game/data/troops';
-import { GEAR, MORALE, PIP, UNIT_STATS } from '@/battle';
-import { KIND_OF, gearOfTroop, profileOfTroop, weightOf } from '@/game/battle/kinds';
+import { MORALE, PIP, UNIT_STATS } from '@/battle';
+import { KIND_OF, profileOfTroop } from '@/game/battle/kinds';
+import { battleWeight } from '@/game/battle/price';
 
 /**
  * Степень, с которой уровень входит в мощь здания. Больше единицы нарочно:
@@ -69,29 +70,27 @@ export function buildingsPower(s: GameState): number {
 
 /**
  * Чего стоит один боец строя этого вида: чем он бьёт, сколько держит и насколько
- * стоек. Все числа — из боевого конфига: сила рода в натиске и огне, его показатели
- * (род и вещи, `profileOfTroop`) в цене отметки (`PIP`) и мораль со ступенью снаряжения
- * (`GEAR`). Правят баланс боя — меняется и мощь, без правки этого файла. Прежде
- * «держит» было стойкостью рода; с пересмотра баланса (docs/battle_eu4.md, 14.35) защита —
- * показатели в огне и натиске, средним.
+ * стоек. Все числа — из боевого конфига: сила рода в натиске и огне, показатели рода
+ * (`profileOfTroop`) в цене отметки (`PIP`) и мораль рода. Правят баланс боя — меняется и
+ * мощь, без правки этого файла. Вещи сюда не входят: в бой они идут через вес вида
+ * (`troopWeight`, путь П2 — docs/battle_eu4.md, 14.35).
  */
 export function combatValue(troop: TroopId): number {
   const stats = UNIT_STATS[KIND_OF[troop]];
   if (!stats) return 0;
   const p = profileOfTroop(troop);
-  const morale = Math.min(MORALE.max, stats.morale + gearOfTroop(troop) * GEAR.moralePerLevel);
+  const morale = Math.min(MORALE.max, stats.morale);
   const hits = stats.melee * (1 + PIP * p.shockAtk) + stats.ranged * (1 + PIP * p.fireAtk);
   const holds = 1 + (PIP * (p.fireDef + p.shockDef)) / 2;
   return hits * holds * (morale / MORALE.max);
 }
 
 /**
- * Вес одного бойца вида: сколько он весит в полевом строю (`weightOf` — тот же
- * перевод, которым пользуется бой) на то, чего этот строй стоит. Дубинщик —
- * единица измерения там и тут, латник весит нескольких (`TroopDef.power` на `BATTLE_MAN`)
- * и стоек вдобавок.
+ * Вес одного бойца вида: сколько он весит в полевом строю (`price.battleWeight` — тот же
+ * перевод, которым пользуется бой: по цене вида) на то, чего этот строй стоит. Дубинщик —
+ * единица измерения там и тут.
  */
-export const troopWeight = (troop: TroopId): number => weightOf(troop) * combatValue(troop);
+export const troopWeight = (troop: TroopId): number => battleWeight(troop) * combatValue(troop);
 
 /**
  * Мощь дружины. Виды перебираются по конфигу войск: заведут девятый — он

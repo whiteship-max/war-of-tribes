@@ -23,11 +23,11 @@
 //     делённый на перевес «Ограничителя», кривая «сила пришедших → поражений» и её окрестность мелким шагом.
 //  5. **Потолок морали и обряд** — срезает ли потолок морали прибавку храма у какого-нибудь вида, уровня храма и устава
 //     (docs/battle_eu4.md, 14.24).
-import { GEAR, MORALE, deploySetup, stackOf, startMorale } from '@/battle';
+import { MORALE, deploySetup, stackOf, startMorale } from '@/battle';
 import { withDiceStep } from '@/battle/bench';
 import { FAITHS, OBSERVANCES, tiltAt } from '@/game/data/faiths';
 import { MAX_BUILDING_LEVEL } from '@/game/constants';
-import { KIND_OF, gearOfTroop } from '@/game/battle/kinds';
+import { KIND_OF } from '@/game/battle/kinds';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { awayTroops, militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { awayOf, homeOf, NOBODY_AWAY, type Away } from '@/world/muster';
@@ -520,7 +520,7 @@ async function gateLevelPart(): Promise<void> {
 
 /**
  * Раздел 5 — срезает ли потолок морали прибавку обряда (docs/battle_eu4.md, 14.24; слово владельца по 14.34). Мораль на
- * входе в бой считает ядро (`battle.startMorale`): род вида, его ступень снаряжения (`kinds.gearOfTroop`) и стойкость
+ * входе в бой считает ядро (`battle.startMorale`): род вида (морали за снаряжение нет — путь П2, 14.35) и стойкость
  * (`resolve`) — прибавка обряда той веры, уровня храма и устава, какой её даёт игра (`data/faiths.tiltAt`). Прибавка
  * срезана, если мораль с обрядом выше, чем без него, меньше чем на прибавку. Вид — однородный отряд: у смешанного мораль
  * на входе — средняя по людям, и выше самого стойкого вида она не бывает.
@@ -528,23 +528,22 @@ async function gateLevelPart(): Promise<void> {
 export function ceilingPart(): void {
   console.log('');
   console.log('--- 5. Потолок морали и обряд: срезает ли потолок прибавку храма ---');
-  console.log(`Мораль на входе — battle.startMorale: род вида, снаряжение (${GEAR.moralePerLevel} за ступень, ступеней до ${GEAR.max}) и прибавка обряда (data/faiths.tiltAt) — потолок ${MORALE.max}.`);
+  console.log(`Мораль на входе — battle.startMorale: мораль рода вида (за снаряжение морали нет — путь П2, 14.35) и прибавка обряда (data/faiths.tiltAt) — потолок ${MORALE.max}.`);
   const rites = FAITHS.filter((f) => f.tilt.fervour > 0).flatMap((f) =>
     OBSERVANCES.flatMap((o) => Array.from({ length: MAX_BUILDING_LEVEL }, (_, i) => ({ faith: f.id, obs: o.id, level: i + 1, add: tiltAt(f.id, i + 1, o.id).fervour }))),
   );
   const top = rites.reduce((a, b) => (b.add > a.add ? b : a));
   console.log(`Обряд даёт прибавку у веры: ${[...new Set(rites.map((r) => r.faith))].join(', ')}; наибольшая — +${top.add} (храм ${top.level}-го уровня, устав ${top.obs}).`);
-  console.log(' вид                 род        снаряжение  без обряда  с наибольшим обрядом  запас до потолка  срезано с (храм, устав)');
+  console.log(' вид                 род        без обряда  с наибольшим обрядом  запас до потолка  срезано с (храм, устав)');
   let cut = 0;
   for (const id of TROOP_IDS) {
     const kind = KIND_OF[id];
-    const gear = gearOfTroop(id);
-    const at = (add: number): number => startMorale({ ...deploySetup({ [kind]: 1 }), gear: { [kind]: gear }, resolve: add }, stackOf({ [kind]: 1 }));
+    const at = (add: number): number => startMorale({ ...deploySetup({ [kind]: 1 }), resolve: add }, stackOf({ [kind]: 1 }));
     const bare = at(0);
     const first = rites.filter((r) => at(r.add) - bare < r.add - 1e-9).sort((a, b) => a.add - b.add)[0];
     if (first) cut += 1;
     console.log(
-      ` ${TROOP_BY_ID[id].name.padEnd(19)} ${kind.padEnd(10)} ${pad(gear, 10)}  ${pad(bare, 10)}  ${pad(at(top.add), 20)}  ${pad(Math.round((MORALE.max - bare - top.add) * 100) / 100, 16)}  ${first ? `${first.level}-й, ${first.obs} (+${first.add})` : 'нет'}`,
+      ` ${TROOP_BY_ID[id].name.padEnd(19)} ${kind.padEnd(10)} ${pad(bare, 10)}  ${pad(at(top.add), 20)}  ${pad(Math.round((MORALE.max - bare - top.add) * 100) / 100, 16)}  ${first ? `${first.level}-й, ${first.obs} (+${first.add})` : 'нет'}`,
     );
   }
   console.log(cut > 0 ? `ПОТОЛОК СРЕЗАЕТ ОБРЯД у ${cut} видов из ${TROOP_IDS.length}.` : `Потолок срезает обряд: ни у одного вида из ${TROOP_IDS.length}, ни при каком уровне храма и уставе.`);

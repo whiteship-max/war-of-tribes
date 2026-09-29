@@ -13,7 +13,8 @@
 // одинаковым у всех.
 import type { TroopId } from '../types';
 import { seeded } from '../sim/random';
-import { TROOPS_OF_KIND, gearOf, kindsOf, kitOf, weightOf, type TroopStack } from '../battle/kinds';
+import { TROOPS_OF_KIND, type TroopStack } from '../battle/kinds';
+import { battleWeight, kindsOf } from '../battle/price';
 import {
   UNIT_KINDS,
   describeEvent,
@@ -124,7 +125,7 @@ export interface QuizQuestion {
  * по правилу развёртывания (`battle/setup.deploySetup`), как в игре. Генератор,
  * разбор и тест зовут только это.
  */
-export const quizSetup = (t: TroopStack): ArmySetup => ({ ...deploySetup(kindsOf(t)), gear: gearOf(t), kit: kitOf(t) });
+export const quizSetup = (t: TroopStack): ArmySetup => deploySetup(kindsOf(t));
 
 const menOfSide = (t: TroopStack): number => stackTotal(kindsOf(t));
 
@@ -178,7 +179,7 @@ function sideOf(rng: () => number, men: number): TroopStack {
   kinds.forEach((kind, i) => {
     const choices = TROOPS_OF_KIND[kind];
     const id: TroopId = choices[Math.floor(rng() * choices.length)];
-    out[id] = Math.max(1, Math.round(((men * weights[i]) / sum) / weightOf(id)));
+    out[id] = Math.max(1, Math.round(((men * weights[i]) / sum) / battleWeight(id)));
   });
   return out;
 }

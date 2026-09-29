@@ -79,7 +79,7 @@ import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DESERT_SHARE, HORSE_MOUTHS, MASTER_PAID_AS, UPKEEP_TEXT, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
-import { BATTLE_MAN, gearOfTroop, troopPower, troopTotal, troopsAfter, weightOf, type TroopStack } from './battle/kinds';
+import { BATTLE_MAN, gearOfTroop, powerWeight, troopPower, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
 import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
@@ -787,8 +787,14 @@ export function wageShare(s: GameState): number {
 export const wageGear = (troop: TroopId): number =>
   gearOfTroop(troop) + (TROOP_BY_ID[troop].mounted ? 1 : 0);
 
-export const wageOf = (s: GameState, troop: TroopId): number =>
-  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * weightOf(troop) + WAGE_GEAR * wageGear(troop)) * wageShare(s);
+/**
+ * Жалованье бойца этого вида за игровой день без доли веры (`wageShare`): с головы, с бойца строя по мощи и за снаряжение.
+ * Им меряется и цена вида, а с ней его вес в бою (`game/battle/price`): доля веры одна на всю деревню и цену вида не меняет.
+ */
+export const baseWage = (troop: TroopId): number =>
+  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * powerWeight(troop) + WAGE_GEAR * wageGear(troop));
+
+export const wageOf = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s);
 
 /**
  * Сколько рук даёт стройке один наёмный мастер: его ставка (`CRAFTER_BUILD` под множителем

@@ -8,16 +8,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ANCHOR,
   FIRE_AFTER_CONTACT,
-  GEAR,
   KIND_PROFILE,
   MORALE,
   STAT_IDS,
   UNIT_KINDS,
   UNIT_STATS,
 } from '@/battle';
-import { TROOPS, TROOP_IDS } from '../data/troops';
+import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { KIND_OF, profileOfTroop } from './kinds';
-import { fmt, moraleOf, nextGearOf, positionsOf, statsOf, temperOf, troopCard } from './describe';
+import { battleWeight } from './price';
+import { fmt, moraleOf, positionsOf, statsOf, temperOf, troopCard } from './describe';
 
 /** Конфиг объявлен `as const`, но в рантайме это обычный объект — правим и возвращаем. */
 const patch = <T extends object, K extends keyof T>(obj: T, key: K, value: T[K]): (() => void) => {
@@ -46,14 +46,14 @@ const text = (troop: (typeof TROOP_IDS)[number]): string => {
     ...c.strengths,
     ...c.weaknesses,
     ...temperOf(c.kind).map((t) => `${t.when} ${t.text}`),
-    `${c.morale.base} ${c.morale.gear} ${c.morale.total}`,
+    `${c.morale.total} ${c.weight.value.toFixed(1)} ${c.weight.what}`,
     `${c.cost.work}`,
   ].join(' | ');
 };
 
 describe('карточка войск выводится из конфига', () => {
-  // Кольца контрров нет (слово владельца по 14.35, docs/battle_eu4.md): карточка показывает показатели вида — род и вещи, —
-  // а не пары «род против рода». Тесты «правка множителя в COUNTER меняет строку карточки», «правка COUNTER доходит и до
+  // Кольца контрров нет (слово владельца по 14.35, docs/battle_eu4.md): карточка показывает показатели рода — вещи своих не
+  // дают, они идут в бой весом (путь П2), — а не пары «род против рода». Тесты «правка множителя в COUNTER меняет строку карточки», «правка COUNTER доходит и до
   // чужой карточки», «невыгодные множители показываются наравне с выгодными» и «кольцо контрров берёт числа из COUNTER»
   // сняты вместе с таблицей кольца; их обещание — карточка читает конфиг в момент показа и не прячет слабого — держат
   // тесты ниже на показателях.
@@ -63,7 +63,7 @@ describe('карточка войск выводится из конфига', (
     set(KIND_PROFILE.spear, 'shockDef', 7);
     const after = statsOf('spearman').find((l) => l.stat === 'shockDef')!;
     expect(after.value).not.toBe(before.value);
-    expect(after.fromKind).toBe(7);
+    expect(after.value).toBe(7);
     expect(text('spearman')).toContain('натиск, защита 7');
   });
 
@@ -71,7 +71,7 @@ describe('карточка войск выводится из конфига', (
     for (const troop of TROOP_IDS) {
       const c = troopCard(troop);
       expect(c.pips.map((l) => l.stat), troop).toEqual([...STAT_IDS]);
-      for (const l of c.pips) expect(l.value, `${troop}: ${l.stat}`).toBe(l.fromKind + l.fromItems);
+      for (const l of c.pips) expect(l.value, `${troop}: ${l.stat}`).toBe(KIND_PROFILE[KIND_OF[troop]][l.stat]);
     }
     // У дубинщика нет ничего — и это видно: шесть нулей.
     expect(troopCard('clubman').pips.every((l) => l.value === 0)).toBe(true);
@@ -93,35 +93,40 @@ describe('карточка войск выводится из конфига', (
   });
 });
 
-describe('мораль вида — характеристика рода плюс снаряжение', () => {
-  it('складывается из базы рода и ступеней снаряжения', () => {
+describe('мораль вида — характеристика рода', () => {
+  // Тесты «складывается из базы рода и ступеней снаряжения», «прибавка за ступень снаряжения берётся из GEAR» и «неполная
+  // ступень показывает, что даст следующая» сняты вместе с моралью за снаряжение — решение владельца по 14.35, путь П2: вещи
+  // идут в бой только через цену вида и его вес. Что кузница меняет бой, держит `price.test.ts`, что карточка показывает
+  // вес — тест ниже.
+  it('мораль вида — мораль его рода, за снаряжение не прибавляется ничего', () => {
     for (const troop of TROOP_IDS) {
       const m = moraleOf(troop);
-      expect(m.base).toBe(UNIT_STATS[KIND_OF[troop]].morale);
-      expect(m.gear).toBe(m.gearLevel * GEAR.moralePerLevel);
-      expect(m.total).toBe(Math.min(MORALE.max, m.base + m.gear));
+      expect(m.total, troop).toBe(UNIT_STATS[KIND_OF[troop]].morale);
+      expect(m.max).toBe(MORALE.max);
     }
   });
 
   it('правка морали рода меняет карточку каждого его вида', () => {
     const before = moraleOf('spearman').total;
     set(UNIT_STATS.spear, 'morale', 33);
-    expect(moraleOf('spearman').base).toBe(33);
+    expect(moraleOf('spearman').total).toBe(33);
     expect(moraleOf('spearman').total).not.toBe(before);
   });
+});
 
-  it('прибавка за ступень снаряжения берётся из GEAR', () => {
-    set(GEAR, 'moralePerLevel', 11);
-    // Латник носит три предмета — все три ступени.
-    expect(moraleOf('legionary').gear).toBe(3 * 11);
+describe('вес вида в бою на карточке — по цене', () => {
+  it('карточка показывает вес из цены (`price.battleWeight`), и у дубинщика он — мерка: один', () => {
+    for (const troop of TROOP_IDS) expect(troopCard(troop).weight.value, troop).toBe(battleWeight(troop));
+    expect(troopCard('clubman').weight.value).toBe(1);
+    const heaviest = TROOPS.reduce((a, b) => (battleWeight(b.id) > battleWeight(a.id) ? b : a));
+    expect(troopCard('clubman').weight.max).toBe(battleWeight(heaviest.id));
   });
 
-  it('неполная ступень показывает, что даст следующая, числом из конфига', () => {
-    const next = nextGearOf('clubman');
-    expect(next).not.toBeNull();
-    expect(next?.gain).toBe((next?.level ?? 0) * GEAR.moralePerLevel);
-    // У полного снаряжения следующей ступени нет.
-    expect(nextGearOf('legionary')).toBeNull();
+  it('правка цены вида доходит до карточки: мощь латника (жалованье с бойца строя) двигает его вес', () => {
+    const before = troopCard('legionary').weight.value;
+    set(TROOP_BY_ID.legionary, 'power', TROOP_BY_ID.legionary.power * 2);
+    expect(troopCard('legionary').weight.value).toBeGreaterThan(before);
+    expect(text('legionary')).toContain(troopCard('legionary').weight.value.toFixed(1));
   });
 });
 

@@ -6,18 +6,15 @@ import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
 import { asGame, gameSecondsOfMs, realMs, type GameSec } from '@/game/pace';
 import { partyNow } from '@/net/clock';
 import {
-  NO_PIPS,
-  STAT_IDS,
   UNIT_KINDS,
   emptyStack,
   stackTotal,
-  type ArmySetup,
   type Pips,
-  type Profile,
   type Stack,
   type UnitKind,
 } from '@/battle';
-import { TROOPS_OF_KIND, kindsOf, kitOf, troopLosses, troopPower, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { TROOPS_OF_KIND, troopPower, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf, troopLosses } from '@/game/battle/price';
 import { TROOP_IDS } from '@/game/data/troops';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
@@ -208,7 +205,7 @@ import { aimOf, firePlan, reaim, thinAt } from '../bombard';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
-import { kitOfField, resolveField, type FieldOutcome, type FieldSide } from '../battle';
+import { resolveField, type FieldOutcome, type FieldSide } from '../battle';
 import { carryRest, mixRest, rejoin, restAfter, restAt, restFullAt, restView, type RestPair } from '../rest';
 import { GATE_FOES, gateReportId } from '../data/gate';
 import {
@@ -383,7 +380,7 @@ const warriorsOf = (power: number): UnitStack => ({ warrior: Math.max(1, Math.ro
 
 /** Кто лезет через рогатки одной стороны лагеря: свои поимённо или чужие родами. */
 /** Часть нападающих на лагерь: своё войско по видам или чужое по родам; `rest` — её мораль между боями (`world/rest`). */
-type CampPart = ({ own: TroopStack } | { kinds: Stack; gear: Partial<Record<UnitKind, number>> }) & { rest?: number };
+type CampPart = ({ own: TroopStack } | { kinds: Stack }) & { rest?: number };
 
 export class LocalWorld implements WorldApi {
   private gen: WorldGen;
@@ -1085,9 +1082,8 @@ export class LocalWorld implements WorldApi {
    */
   private campArmy(w: SiegeWindow, at: number): {
     kinds: Stack;
+    /** Чем лагерь одет — для показа (ролик и отчёт одевают им чужой отряд); в бой ступень не идёт. */
     gear: Partial<Record<UnitKind, number>>;
-    /** Вещи лагеря: у нашего — дружины по видам, у чужого — нет поля, одет видом своей ступени (`kitOfField`). */
-    kit?: ArmySetup['kit'];
     resolve?: number;
     /** Отметки того, кто ведёт лагерь: у нашего — полководец, у чужого — никто. */
     pips?: Pips;
@@ -1116,7 +1112,6 @@ export class LocalWorld implements WorldApi {
       return {
         kinds,
         gear: this.ownGear(troops),
-        kit: this.ownKit(troops),
         // Наш лагерь держит дружина полководца — это его бой, и его отметки в нём есть.
         resolve: this.ownResolve(),
         pips: this.generalPips(),
@@ -1244,30 +1239,7 @@ export class LocalWorld implements WorldApi {
       { part: attack.rear, t: rear },
     ].filter((x): x is { part: CampPart; t: Through } => Boolean(x.part && x.t));
     const kinds = emptyStack();
-    const gearSum: Partial<Record<UnitKind, number>> = {};
-    const kitSum: Partial<Record<UnitKind, Profile>> = {};
-    for (const { part, t } of parts) {
-      // Доля строя одинакова у каждого рода, поэтому и снаряжение у прошедших
-      // с одной стороны то же, что у всего отряда этой стороны; стороны
-      // смешиваются весом прошедших. Вещи — тем же весом (показатели = род + вещи, 14.35).
-      const gear = 'own' in part ? this.ownGear(part.own) : part.gear;
-      const kit = 'own' in part ? this.ownKit(part.own) : kitOfField({ kinds: part.kinds, gear: part.gear });
-      for (const k of UNIT_KINDS) {
-        kinds[k] += t.kinds[k];
-        gearSum[k] = (gearSum[k] ?? 0) + (gear[k] ?? 0) * t.kinds[k];
-        const sum = (kitSum[k] ??= { ...NO_PIPS });
-        for (const stat of STAT_IDS) sum[stat] += (kit?.[k]?.[stat] ?? 0) * t.kinds[k];
-      }
-    }
-    const gear: Partial<Record<UnitKind, number>> = {};
-    for (const k of UNIT_KINDS) if (kinds[k] > 0) gear[k] = Math.round((gearSum[k] ?? 0) / kinds[k]);
-    const kit: NonNullable<ArmySetup['kit']> = {};
-    for (const k of UNIT_KINDS) {
-      if (kinds[k] <= 0) continue;
-      const avg: Profile = { ...NO_PIPS };
-      for (const stat of STAT_IDS) avg[stat] = (kitSum[k]?.[stat] ?? 0) / kinds[k];
-      kit[k] = avg;
-    }
+    for (const { t } of parts) for (const k of UNIT_KINDS) kinds[k] += t.kinds[k];
     const fought = parts.reduce((n, x) => n + x.t.passed, 0);
     const all = parts.reduce((n, x) => n + x.t.went, 0);
     const own = parts.some((x) => 'own' in x.part);
@@ -1278,8 +1250,6 @@ export class LocalWorld implements WorldApi {
       ground: cell ? groundAt(this.save.seed, cell, attack.from) : undefined,
       attacker: {
         kinds,
-        gear,
-        kit,
         resolve: own ? this.ownResolve() : undefined,
         pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
         // Встают те, кто прошёл, по правилу развёртывания: расстановки у удара по лагерю нет.
@@ -1288,7 +1258,7 @@ export class LocalWorld implements WorldApi {
       },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого
       // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.
-      defender: { kinds: camp.kinds, gear: camp.gear, kit: camp.kit, resolve: camp.resolve, pips: camp.pips, rest: camp.rest },
+      defender: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, rest: camp.rest },
     });
     // Мораль лагеря после боя — в его войско: у нашего — в дружину, у чужого — в отряд, что сел лагерем. Мораль
     // нападающих пишут те, кто их вывел: у каждой части своя армия.
@@ -1751,7 +1721,7 @@ export class LocalWorld implements WorldApi {
     const gate = this.campGate(id, at, { front: g.kinds });
     if (!gate?.front || Math.min(menOfPower(power), gate.front.room) < camp.men * SIEGE_SORTIE_RATIO) return;
     const garrisonMen = stackTotal(g.kinds);
-    const out = this.campBattle(id, at, this.warSeed().seed, { front: { kinds: g.kinds, gear: g.gear, rest: this.lairRestAt(id, at, garrisonMen) } });
+    const out = this.campBattle(id, at, this.warSeed().seed, { front: { kinds: g.kinds, rest: this.lairRestAt(id, at, garrisonMen) } });
     if (!out || out.refused) return;
     // Мораль гарнизона логова (14.31): дравшиеся вернулись с долей боя, стоявшие у рогаток — со своей.
     if (out.field.result) {
@@ -1866,7 +1836,7 @@ export class LocalWorld implements WorldApi {
     if (!w) return;
     const party = raidingParty(this.save.seed, m.id, m.power);
     const out = this.campBattle(id, at, m.seed, {
-      front: { kinds: party.kinds, gear: party.gear, rest: restAt(m.rest, at, stackTotal(party.kinds)) },
+      front: { kinds: party.kinds, rest: restAt(m.rest, at, stackTotal(party.kinds)) },
       from: m.from,
     });
     // Проход занят — выручка к рогаткам не пробилась и ушла ни с чем.
@@ -2704,16 +2674,9 @@ export class LocalWorld implements WorldApi {
     return this.generalPips();
   }
 
+  /** Чем одет наш отряд — для показа: ролик и отчёт одевают им лагерь; в бой ступень не идёт (путь П2, 14.35). */
   private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
     return ownGearOf(troops);
-  }
-
-  /**
-   * Вещи своего отряда — точно, по видам (`kinds.kitOf`; показатели = род + вещи, слово владельца по 14.35). `bare` — люди
-   * рода без вещей, которых в `troops` нет: ополчение у своих ворот.
-   */
-  private ownKit(troops: TroopStack, bare: Partial<Stack> = {}): ArmySetup['kit'] {
-    return kitOf(troops, bare);
   }
 
   /**
@@ -3564,8 +3527,8 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка цели; переправа — если полководец вышел на неё через русло.
       ground: groundAt(this.save.seed, target, this.save.figures.general.from),
       // Мораль между боями — у обеих сторон одним правилом (14.31): дружина и гарнизон логова своими парами.
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), kit: this.ownKit(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
-      defender: { kinds: garrison.kinds, gear: garrison.gear, rest: this.lairRestAt(target.id, at, garrisonMen) },
+      attacker: { kinds: kindsOf(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
+      defender: { kinds: garrison.kinds, rest: this.lairRestAt(target.id, at, garrisonMen) },
     });
     if (field.result) {
       f.rest = restAfter(field.rest.attacker, at, this.menOf(troopsAfter(troops, troopLosses(troops, field.result.sides.attacker.losses))));
@@ -3918,8 +3881,8 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка встречи; нападает полководец, и переправа — его шаг на неё (бой на воде — переправа).
       ground: groundAt(this.save.seed, spot, f.from),
       // Мораль между боями (14.31): дружина — своей парой, отряд — своей.
-      attacker: { kinds: kindsOf(troops), gear: this.ownGear(troops), kit: this.ownKit(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
-      defender: { kinds: party.kinds, gear: party.gear, rest: restAt(m.rest, at, partyMen) },
+      attacker: { kinds: kindsOf(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
+      defender: { kinds: party.kinds, rest: restAt(m.rest, at, partyMen) },
     });
     if (field.result) {
       f.rest = restAfter(field.rest.attacker, at, this.menOf(troopsAfter(troops, troopLosses(troops, field.result.sides.attacker.losses))));
@@ -4180,7 +4143,7 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     // Отряд, отбившийся от перехвата, идёт к стене со своей усталостью (мораль между боями, `world/rest`).
     const rest = restAt(m.rest, at, stackTotal(party.kinds));
-    return { party, ...this.gateField({ kinds: party.kinds, gear: party.gear, rest }, m.seed, m.from, at) };
+    return { party, ...this.gateField({ kinds: party.kinds, rest }, m.seed, m.from, at) };
   }
 
   /**
@@ -4214,9 +4177,6 @@ export class LocalWorld implements WorldApi {
       // дружина у ворот своими парами, ополчение свежее (мораль между боями, 14.31).
       defender: {
         kinds: homeKinds,
-        gear: this.ownGear(home),
-        // Ополчение — жители без вещей: пехотой и стрелками башни (показатели — одни родовые).
-        kit: this.ownKit(home, { infantry: militia - archers, archer: archers }),
         resolve: this.ownResolve(),
         pips: this.homePips(at),
         rest: this.homeRest(held, at, militia),
@@ -4287,9 +4247,9 @@ export class LocalWorld implements WorldApi {
    * волки — лёгкая конница без снаряжения, разбойники — отряд тем же генератором, что набег логова (`raidingParty`).
    * Бойцов — мерой отрядов мира (`menOfPower`), ею же племя пишет «Их N».
    */
-  private gateParty(call: GateCall): FieldSide {
-    // Звери — без вещей: показатели у стаи одни родовые (`kit` пустой — не одет видом своей ступени, `kitOfField`).
-    if (GATE_FOES[call.foe].beasts) return { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {}, kit: {} };
+  private gateParty(call: GateCall): FieldSide & { gear: Partial<Record<UnitKind, number>> } {
+    // Сторона боя и ступень снаряжения отряда — только для показа (запись боя одевает им пришедших); у зверей её нет.
+    if (GATE_FOES[call.foe].beasts) return { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {} };
     const band = raidingParty(this.save.seed, call.id, call.power);
     return { kinds: band.kinds, gear: band.gear };
   }
@@ -4311,7 +4271,7 @@ export class LocalWorld implements WorldApi {
     const gate = this.gateField(party, call.seed, this.save.home, at);
     const { field } = gate;
     const { warriors, warriorsLost, troopsLost } = this.gateLosses(gate);
-    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear ?? {}));
+    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear));
     // Прорвались люди — уносят со склада, сколько поднимут уцелевшие; тайник не достать.
     const units = warriorsOf(call.power);
     const left = stackAfter(units, stackLosses(units, field.attackerLoss));
@@ -5103,8 +5063,8 @@ export class LocalWorld implements WorldApi {
       seed: m.seed,
       ground: groundAt(this.save.seed, target, m.from),
       // Мораль между боями — то же правило и между чужими (14.31): отряд и гарнизон своими парами.
-      attacker: { kinds: party.kinds, gear: party.gear, rest: restAt(m.rest, at, partyMen) },
-      defender: { kinds: g.kinds, gear: g.gear, rest: this.lairRestAt(target.id, at, garrisonMen) },
+      attacker: { kinds: party.kinds, rest: restAt(m.rest, at, partyMen) },
+      defender: { kinds: g.kinds, rest: this.lairRestAt(target.id, at, garrisonMen) },
     });
     if (this.sitsDown(m.targetId, m, at, field)) {
       const w = this.openSiegeAt(m.targetId, m.fromId, m.id, at);

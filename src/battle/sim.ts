@@ -16,7 +16,6 @@ import {
   EVENT_SHARE,
   FIRE_AFTER_CONTACT,
   FRONT_WIDTH,
-  GEAR,
   KIND_PROFILE,
   MELEE_RATE,
   MORALE,
@@ -41,7 +40,6 @@ import {
   REAR,
   SECTORS,
   SIDES,
-  STAT_IDS,
   UNIT_KINDS,
   type ArmySetup,
   type BattleEvent,
@@ -230,8 +228,8 @@ export const anchorShare = (stack: Stack): number =>
   Math.min(1, stack.infantry / (ANCHOR.infantryShare * Math.max(stackTotal(stack), EPS)));
 
 /**
- * Стартовая мораль группы: базовая мораль её родов, взвешенная числом людей,
- * плюс ступени снаряжения из кузницы и стойкость, с которой армия вышла в поле
+ * Стартовая мораль группы: мораль её родов, взвешенная числом людей, плюс
+ * стойкость, с которой армия вышла в поле
  * (`setup.resolve` — ноль, если ничего такого не было), — и всё это на долю полной
  * морали, с которой сторона вышла в бой (`setup.rest`, мораль между боями; нет — полная).
  *
@@ -252,10 +250,7 @@ function fullMorale(setup: ArmySetup, stack: Stack): number {
   const total = stackTotal(stack);
   if (total <= 0) return 0;
   let m = 0;
-  for (const k of UNIT_KINDS) {
-    const gear = Math.max(0, Math.min(GEAR.max, setup.gear?.[k] ?? 0));
-    m += stack[k] * (UNIT_STATS[k].morale + gear * GEAR.moralePerLevel);
-  }
+  for (const k of UNIT_KINDS) m += stack[k] * UNIT_STATS[k].morale;
   const resolve = Math.max(0, setup.resolve ?? 0);
   return Math.max(0, Math.min(MORALE.max, m / total + resolve));
 }
@@ -298,20 +293,6 @@ const luckOf = (roll: number, pips: number, ground: number): number => 1 + DICE.
  * своей копией формулы. Меньше нуля не бывает — урон не становится лечением.
  */
 export const phaseLuck = (roll: number, pips = 0, ground = 0): number => Math.max(0, luckOf(roll, pips, ground));
-
-/**
- * Показатели рода в стороне: род (`KIND_PROFILE`) и что прибавляют вещи (`ArmySetup.kit`, средним по людям рода). Каждый
- * показатель — конечное неотрицательное число; не число и отрицательное читаются нулём прибавки.
- */
-export function profileOf(setup: ArmySetup, kind: UnitKind): Profile {
-  const out = { ...KIND_PROFILE[kind] };
-  const kit = setup.kit?.[kind];
-  for (const stat of STAT_IDS) {
-    const n = kit?.[stat];
-    if (n !== undefined && Number.isFinite(n) && n > 0) out[stat] += n;
-  }
-  return out;
-}
 
 /**
  * Множитель удара одного рода по другому в фазе: сторонняя часть (`luckOf`) и разница нападения бьющего с защитой цели в
@@ -369,8 +350,6 @@ class Battle {
    * родов — их прибавляет каждый удар (`hitMult`). Фаза без кости — единица.
    */
   luck: Record<Side, number> = { attacker: 1, defender: 1 };
-  /** Показатели каждого рода в каждой стороне на весь бой: род и вещи (`profileOf`). */
-  readonly profile: Record<Side, Record<UnitKind, Profile>>;
   /** Ширина фронта полосы в этом бою: столько бьёт в одном ряду полосы с одной стороны. */
   readonly width: number;
   /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
@@ -428,9 +407,6 @@ class Battle {
       attacker: groundFaces(input.attacker, input.defender),
       defender: groundFaces(input.defender, input.attacker),
     };
-    const kinds = (setup: ArmySetup): Record<UnitKind, Profile> =>
-      Object.fromEntries(UNIT_KINDS.map((k) => [k, profileOf(setup, k)])) as Record<UnitKind, Profile>;
-    this.profile = { attacker: kinds(input.attacker), defender: kinds(input.defender) };
   }
 
   // ----- Служебное -----
@@ -1025,13 +1001,13 @@ class Battle {
     let weight = 0;
     for (const t of targets) for (const k of UNIT_KINDS) weight += t.stack[k];
     if (weight <= 0) return;
-    const by = this.profile[from.side][kind];
+    const by = KIND_PROFILE[kind];
     for (const t of targets) {
       for (const k of UNIT_KINDS) {
         const n = t.stack[k];
         if (!stands(n)) continue;
         const share = n / weight;
-        const target = this.profile[t.side][k];
+        const target = KIND_PROFILE[k];
         const casualties = total * share * hitMult(this.luck[from.side], by, target, ctx.ranged) * this.taken(t);
         if (casualties > 0) {
           hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1, moraleW: moraleMult(by, target) });

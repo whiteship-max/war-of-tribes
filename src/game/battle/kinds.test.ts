@@ -3,38 +3,34 @@
 // боя она ушла — у частокола строй раскладывает правило, как любой бой (docs/battle_eu4.md, 14.27), — и отряд
 // племени входит в бой так же, как в мире: правилом развёртывания по родам (`deploySetup(kindsOf(…))`).
 import { describe, expect, it } from 'vitest';
-import { UNIT_KINDS } from '@/battle';
+import { UNIT_KINDS, type UnitKind } from '@/battle';
 import { createInitialState } from '../state';
 import { wageOf } from '../derived';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
-import type { TroopId } from '../types';
 import { KIND_PROFILE, STAT_IDS } from '@/battle';
 import {
-  BATTLE_MAN,
-  ITEM_PIPS,
   KIND_OF,
   OWN_KINDS,
-  kitOf,
-  kitOfTroop,
   profileOfTroop,
   gearOf,
   gearOfTroop,
-  kindsOf,
-  menOf,
-  troopLosses,
+  powerWeight,
   troopTotal,
   troopsAfter,
-  weightOf,
   type TroopStack,
 } from './kinds';
+import { battleWeight, kindsOf, menOf, troopLosses } from './price';
 
 const GARRISON: TroopStack = { clubman: 6, spearman: 8, archer: 5, axeman: 3, legionary: 2 };
 
 describe('перевод бойцов племени в роды боя', () => {
-  it('дубинщик — единица измерения строя, латник весит своей мощью', () => {
+  it('дубинщик — единица измерения строя, вид весит своей ценой', () => {
+    // Вес в бою — из цены (путь П2, 14.35): голов на бойцов строя — содержание вида к содержанию дубинщика.
     expect(menOf('clubman', 1)).toBe(1);
-    expect(menOf('spearman', 1)).toBe(2);
-    expect(menOf('legionary', 1)).toBe(16 / BATTLE_MAN);
+    for (const id of TROOP_IDS) expect(menOf(id, 100), id).toBe(Math.round(100 * battleWeight(id)));
+    // Ноль людей — ноль строя; один человек — хотя бы один боец строя.
+    expect(menOf('legionary', 0)).toBe(0);
+    expect(menOf('clubman', 1)).toBeGreaterThanOrEqual(1);
   });
 
   it('роды собираются из своих видов', () => {
@@ -93,7 +89,7 @@ describe('конница племени', () => {
       Object.values(TROOP_BY_ID[id].gear).reduce((n, v) => n + (v ?? 0), 0);
     const s = createInitialState(7);
     // Граница: сравниваем с пешими того же веса в строю — иначе «дороже» сошлось бы даром.
-    const foot = TROOP_IDS.filter((id) => !TROOP_BY_ID[id].mounted && weightOf(id) <= weightOf('rider'));
+    const foot = TROOP_IDS.filter((id) => !TROOP_BY_ID[id].mounted && powerWeight(id) <= powerWeight('rider'));
     expect(foot.length).toBeGreaterThan(3);
     for (const id of foot) {
       const def = TROOP_BY_ID[id];
@@ -111,58 +107,26 @@ describe('конница племени', () => {
 
 });
 
-describe('таблица показателей по видам', () => {
-  // Слово владельца по 14.35 (docs/battle_eu4.md, «Таблица показателей»): показатели вида — род (`KIND_PROFILE`) и вещи
-  // (`ITEM_PIPS` по природе вещи); значения — входные данные дизайна, заданы одним коммитом до замеров исхода и после них
-  // не трогаются. Таблица здесь литералом: правка рода или вещи меняет её, и видно это тестом, а не прогоном.
+describe('показатели вида — показатели его рода', () => {
+  // Слово владельца по 14.35 (путь П2): вещи идут в бой только через цену вида и его вес (`price.battleWeight`), своих
+  // показателей у них нет. Тесты «вещи стороны — средним по людям строя каждого рода», «род и вещи дают ровно эту таблицу —
+  // у каждого из девяти видов» и «вид — сумма рода и вещей» сняты вместе с показателями вещей (`ITEM_PIPS`, `kitOf`,
+  // `ArmySetup.kit`); таблица видов с вещами (eacd622) сменилась таблицей рода ниже — её владелец велел не трогать.
   // Столбцы: огонь нападение/защита, натиск нападение/защита, мораль нападение/защита.
-  const TABLE: Record<TroopId, [number, number, number, number, number, number]> = {
-    clubman: [0, 0, 0, 0, 0, 0],
-    spearman: [0, 0, 1, 1, 0, 0],
-    archer: [2, 1, 0, 0, 0, 0],
-    axeman: [0, 0, 1, 0, 0, 0],
-    swordsman: [0, 0, 1, 0, 0, 0],
-    shieldman: [0, 1, 1, 1, 0, 0],
-    rider: [0, 2, 2, 1, 1, 0],
-    knight: [0, 2, 2, 2, 1, 0],
-    legionary: [0, 2, 1, 2, 0, 0],
+  const KIND_TABLE: Record<UnitKind, [number, number, number, number, number, number]> = {
+    spear: [0, 0, 0, 1, 0, 0],
+    infantry: [0, 0, 0, 0, 0, 0],
+    archer: [1, 1, 0, 0, 0, 0],
+    cavalry: [0, 1, 1, 0, 1, 0],
+    heavy: [0, 0, 1, 0, 1, 0],
   };
 
-  it('вещи стороны — средним по людям строя каждого рода; люди без вещей (ополчение) разбавляют среднее', () => {
-    // Латник весит восьмерых, дубинщик — одного: восемь латников и восемь дубинщиков — 64 и 8 бойцов строя пехоты.
-    const kit = kitOf({ legionary: 8, clubman: 8 });
-    const men = menOf('legionary', 8) + menOf('clubman', 8);
-    expect(kit.infantry!.fireDef).toBeCloseTo((menOf('legionary', 8) * kitOfTroop('legionary').fireDef) / men, 9);
-    expect(kit.infantry!.shockAtk).toBeCloseTo((menOf('legionary', 8) * kitOfTroop('legionary').shockAtk) / men, 9);
-    // Родов без людей в ответе нет.
-    expect(kit.cavalry).toBeUndefined();
-    // Ополчение — столько же бойцов строя без вещей — делит среднее пополам.
-    const bare = kitOf({ legionary: 8, clubman: 8 }, { infantry: men });
-    expect(bare.infantry!.fireDef).toBeCloseTo(kit.infantry!.fireDef / 2, 9);
-    // Только ополчение — род есть, вещей нет.
-    expect(kitOf({}, { archer: 5 }).archer).toEqual({ fireAtk: 0, fireDef: 0, shockAtk: 0, shockDef: 0, moraleAtk: 0, moraleDef: 0 });
+  it('таблица рода — ровно эта: входные данные дизайна, заданные один раз', () => {
+    expect(Object.keys(KIND_TABLE).sort()).toEqual([...UNIT_KINDS].sort());
+    for (const k of UNIT_KINDS) expect(STAT_IDS.map((stat) => KIND_PROFILE[k][stat]), k).toEqual(KIND_TABLE[k]);
   });
 
-  it('род и вещи дают ровно эту таблицу — у каждого из девяти видов', () => {
-    // Граница области: в таблице все виды казарм и конюшни, и ни одного лишнего.
-    expect(Object.keys(TABLE).sort()).toEqual([...TROOP_IDS].sort());
-    for (const id of TROOP_IDS) {
-      const p = profileOfTroop(id);
-      expect(STAT_IDS.map((k) => p[k]), id).toEqual(TABLE[id]);
-    }
-  });
-
-  it('вид — сумма рода и вещей: род одинаков у видов одного рода, остальное прибавляют вещи', () => {
-    for (const id of TROOP_IDS) {
-      const kind = KIND_PROFILE[KIND_OF[id]];
-      const kit = kitOfTroop(id);
-      for (const k of STAT_IDS) expect(profileOfTroop(id)[k], `${id}: ${k}`).toBe(kind[k] + kit[k]);
-      // Вещь прибавляет только по отметке своей природы: ни одного отрицательного и ни одного дробного показателя.
-      for (const k of STAT_IDS) expect(Number.isInteger(kit[k]) && kit[k] >= 0, `${id}: ${k} = ${kit[k]}`).toBe(true);
-    }
-    // У дубинщика вещей нет — его показатели ровно родовые (пехота без строя и выучки).
-    expect(profileOfTroop('clubman')).toEqual(KIND_PROFILE.infantry);
-    // Природа вещи — одна отметка своего класса: оружие натиска, оружие огня, защита в огне и в натиске.
-    expect(ITEM_PIPS).toEqual({ shock: { shockAtk: 1 }, fire: { fireAtk: 1 }, guard: { fireDef: 1, shockDef: 1 } });
+  it('у каждого из девяти видов показатели — его рода: вещи своих не дают', () => {
+    for (const id of TROOP_IDS) expect(profileOfTroop(id), id).toEqual(KIND_PROFILE[KIND_OF[id]]);
   });
 });

@@ -75,7 +75,7 @@ const DEBT: readonly string[] = [
   'ui/parts/Tavern.tsx:22 U+1FA99',
   'ui/parts/Tavern.tsx:35 U+1FA99',
   'ui/parts/Tavern.tsx:58 U+1FA99',
-  'ui/parts/TroopCardView.tsx:197 U+1FAA8',
+  'ui/parts/TroopCardView.tsx:155 U+1FAA8',
   'world/data/diplomacy.ts:101 U+1FAA8',
 ];
 

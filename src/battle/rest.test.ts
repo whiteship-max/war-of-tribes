@@ -51,7 +51,7 @@ describe('мораль между боями: ядро', () => {
   });
 
   it('доля множит стартовую мораль ровно во столько раз', () => {
-    const setup: ArmySetup = { ...deploySetup(stackOf({ infantry: 100, spear: 60, archer: 40 })), gear: { infantry: 2 }, resolve: 4 };
+    const setup: ArmySetup = { ...deploySetup(stackOf({ infantry: 100, spear: 60, archer: 40 })), resolve: 4 };
     const stack = stackOf({ infantry: 30, spear: 20, archer: 10 });
     const full = startMorale(setup, stack);
     expect(full, 'граница области: свежая мораль не ноль').toBeGreaterThan(0);
