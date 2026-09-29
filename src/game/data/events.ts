@@ -122,7 +122,7 @@ const crowd = (s: GameState, share: number, min: number): number =>
  */
 export const GATE_POWER: Record<GateFoe, readonly number[]> = {
   wolves: [292, 445, 560, 767, 1003, 1343, 1763, 1898, 2046, 2188],
-  raiders: [299, 468, 652, 816, 951, 1127, 1279, 1447, 1554, 1681],
+  raiders: [299, 468, 652, 816, 951, 1127, 1278, 1446, 1554, 1681],
 };
 
 /**
