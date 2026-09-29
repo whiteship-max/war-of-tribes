@@ -21,6 +21,15 @@ export const HORSE_KINDS: readonly UnitKind[] = ['cavalry', 'heavy'];
 export type Stack = Record<UnitKind, number>;
 
 /**
+ * Показатели полка, как у EU4 (вики, «Land units»; слово владельца по 14.35, docs/battle_eu4.md): нападение и защита в
+ * огне, в натиске и в морали — в отметках, малыми целыми. Урон в фазе зависит от нападения бьющего и защиты цели, урон
+ * морали — от показателей морали. Натиск — и сшибка, и сеча: фаз натиска у нас две, показатель у них один.
+ */
+export type StatId = 'fireAtk' | 'fireDef' | 'shockAtk' | 'shockDef' | 'moraleAtk' | 'moraleDef';
+export const STAT_IDS: readonly StatId[] = ['fireAtk', 'fireDef', 'shockAtk', 'shockDef', 'moraleAtk', 'moraleDef'];
+export type Profile = Record<StatId, number>;
+
+/**
  * Сектора расстановки, как в документе: фронт A B C (слева направо со стороны
  * самой армии), тыл D E F под ними, резерв R.
  */

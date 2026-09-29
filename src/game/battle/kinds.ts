@@ -3,7 +3,8 @@
 // здесь. Обратная зависимость запрещена: отсюда в ядро только типы.
 import type { EquipmentId, TroopId } from '../types';
 import { TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
-import { GEAR, UNIT_KINDS, emptyStack, type Stack, type UnitKind } from '@/battle';
+import { EQUIPMENT_BY_ID, type ItemNature } from '../data/equipment';
+import { GEAR, KIND_PROFILE, NO_PIPS, STAT_IDS, UNIT_KINDS, emptyStack, type Profile, type Stack, type UnitKind } from '@/battle';
 
 /**
  * Каким родом вид выходит в поле — **выводится из его снаряжения**, а не из таблицы рядом.
@@ -19,6 +20,35 @@ export function kindOfTroop(def: TroopDef): UnitKind {
   const items = Object.entries(def.gear).filter(([, n]) => (n ?? 0) > 0);
   if (items.length === 1 && items[0][0] === 'spear') return 'spear';
   return 'infantry';
+}
+
+/**
+ * Что вещь прибавляет к показателям бойца — по её природе (`EquipmentDef.nature`), по отметке (слово владельца по 14.35,
+ * docs/battle_eu4.md, «Таблица показателей»): оружие натиска — нападение в натиске, оружие огня — нападение в огне,
+ * защита — защиту в огне и в натиске. Своих чисел здесь нет, кроме этой единицы: величину вещи владелец назвал отметкой.
+ */
+export const ITEM_PIPS: Record<ItemNature, Partial<Profile>> = {
+  shock: { shockAtk: 1 },
+  fire: { fireAtk: 1 },
+  guard: { fireDef: 1, shockDef: 1 },
+};
+
+/** Что вещи бойца прибавляют к показателям его рода: сумма по предметам (`TroopDef.gear`), без рода. */
+export function kitOfTroop(troop: TroopId): Profile {
+  const out: Profile = { ...NO_PIPS };
+  for (const [item, n] of Object.entries(TROOP_BY_ID[troop].gear) as Array<[EquipmentId, number | undefined]>) {
+    for (const stat of STAT_IDS) out[stat] += (n ?? 0) * (ITEM_PIPS[EQUIPMENT_BY_ID[item].nature][stat] ?? 0);
+  }
+  return out;
+}
+
+/** Показатели вида целиком: род (`KIND_PROFILE`) и вещи (`kitOfTroop`). Одна таблица на бой, карточку и тесты. */
+export function profileOfTroop(troop: TroopId): Profile {
+  const kind = KIND_PROFILE[kindOfTroop(TROOP_BY_ID[troop])];
+  const kit = kitOfTroop(troop);
+  const out: Profile = { ...NO_PIPS };
+  for (const stat of STAT_IDS) out[stat] = kind[stat] + kit[stat];
+  return out;
 }
 
 /** Кто из племени каким родом выходит в поле. Все пять родов закрыты. */
