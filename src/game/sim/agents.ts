@@ -49,6 +49,7 @@ import { ITEMS, slotName, type ItemId } from '../data/items';
 import { cityName } from '../../../netlify/lib/contract';
 import { perilText, veilAt } from '@/world/peril';
 import { PIP_IDS, type Pips } from '@/battle';
+import { tradition } from '../derived';
 import { log } from './log';
 import { mixSeed, seeded } from './random';
 
@@ -265,9 +266,17 @@ export const stealthAt = (level: number): number => STEALTH_PER_CIRCLE * extra(l
 const onPlace = (s: GameState, agent: FigureId, value: (level: number) => number, none: number): number =>
   seated(s, agent) ? value(agentLevel(s, agent)) : none;
 
+/**
+ * Уровень, с которого считаются отметки полководца уровня `level`: его кружки и кружки воинской традиции Статуи
+ * (`derived.tradition`; П4, docs/battle_eu4.md, 14.35), не выше последнего. Традиция — не второй счёт отметок, а вход той же
+ * двери (`pipsAt`): лишний кружок ложится туда же, куда лёг бы кружок опыта, — по склонности человека.
+ */
+export const pipLevel = (s: GameState, level: number): number =>
+  Math.min(MAX_AGENT_LEVEL, Math.max(1, Math.floor(level)) + tradition(s));
+
 /** Отметки полководца на месте. Пустое место — ни одной: навык — свойство человека, а не должности. */
 export const pipsOf = (s: GameState): Pips =>
-  seated(s, 'general') ? pipsAt(s.seed, s.agents?.general?.person ?? 0, agentLevel(s, 'general')) : {};
+  seated(s, 'general') ? pipsAt(s.seed, s.agents?.general?.person ?? 0, pipLevel(s, agentLevel(s, 'general'))) : {};
 export const sightBonusOf = (s: GameState): number => onPlace(s, 'scout', sightBonusAt, 0);
 export const stealthOf = (s: GameState): number => onPlace(s, 'spy', stealthAt, 0);
 /** Скрытность лазутчика в гибели: во сколько раз реже он гибнет на деле (`world/peril.veilAt`). */

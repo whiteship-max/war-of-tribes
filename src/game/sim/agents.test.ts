@@ -37,7 +37,8 @@ import { applyEffects, playerProfile } from '@/world/bridge';
 import { hireAgent } from './hire';
 import { creditTech } from './tech';
 import { FIGURE_IDS } from '@/world/data/figures';
-import { PIP_IDS } from '@/battle';
+import { PIP_IDS, type Pips } from '@/battle';
+import { maxLevelFor, tradition } from '../derived';
 import type { ItemId } from '../data/items';
 import type { GameState } from '../types';
 
@@ -330,5 +331,38 @@ describe('отметки полководца — склад человека, �
     expect(differ, 'другой сид партии — другой склад у тех же номеров').toBeGreaterThan(PEOPLE / 2);
     s.agents.general.vacant = true;
     expect(pipsOf(s), 'пустое место — ни одной отметки').toEqual({});
+  });
+});
+
+describe('воинская традиция: Статуя растит кружки полководца той же дверью', () => {
+  it('два уровня Статуи на кружок — из длин двух лестниц; отметки новичка — первые кружки его склада, ветерана выше пяти не поднять', () => {
+    // П4 (docs/battle_eu4.md, 14.35, п. 9 слова владельца): соответствие уровней Статуи отметкам выводится из диапазонов двух
+    // лестниц — уровней Статуи и кружков полководца, — а не назначается. Граница области: обе лестницы той длины, из которой
+    // вывод и сделан, и на первом уровне Статуи традиции нет, как нет отметок у первого кружка.
+    const max = maxLevelFor('statue');
+    expect(max, 'уровней Статуи').toBe(10);
+    expect(MAX_AGENT_LEVEL, 'кружков полководца').toBe(5);
+    const at = (level: number): GameState => {
+      const s = createInitialState();
+      s.buildings.find((b) => b.type === 'statue')!.level = level;
+      return s;
+    };
+    const ladder = Array.from({ length: max }, (_, i) => tradition(at(i + 1)));
+    expect(ladder, 'по два уровня на кружок, кружков сверх первого — 0…4').toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+    const count = (p: Pips): number => PIP_IDS.reduce((n, id) => n + (p[id] ?? 0), 0);
+    for (let level = 1; level <= max; level += 1) {
+      const s = at(level);
+      expect(agentLevel(s, 'general'), 'полководец — новичок').toBe(1);
+      expect(pipsOf(s), `Статуя ${level}: не пустое место`).toBeDefined();
+      // Новичок: отметок ровно столько, сколько кружков дала традиция, и лежат они туда же, куда легли бы кружки опыта.
+      expect(count(pipsOf(s)), `Статуя ${level}: отметок у новичка — кружки традиции`).toBe(tradition(s));
+      expect(pipsOf(s)).toEqual(pipsAt(s.seed, s.agents.general.person, 1 + tradition(s)));
+      // Ветеран пятого уровня: лестница отметок та же, 0…4, — Статуя по ней только поднимает.
+      s.agents.general.xp = XP_CAP;
+      expect(count(pipsOf(s)), `Статуя ${level}: ветеран`).toBe(MAX_AGENT_LEVEL - 1);
+    }
+    // Статуя уезжает в мир отметками полководца — тем же слепком, что всё остальное.
+    const top = at(max);
+    expect(playerProfile(top).pips).toEqual(pipsOf(top));
   });
 });

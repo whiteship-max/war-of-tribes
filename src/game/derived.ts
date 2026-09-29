@@ -113,6 +113,7 @@ import {
   type SeasonModifiers,
 } from './data/seasons';
 import { daysSpan, gameDaysText } from './span';
+import { MAX_AGENT_LEVEL } from './data/agents';
 
 /** На здании идёт улучшение. */
 export const isSite = (b: Building): boolean => b.workRequired > 0;
@@ -837,6 +838,20 @@ export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ?
 
 /** Сколько игровых дней войско терпит неуплату и голод. Работа Статуи — верность полководцу. */
 export const payGraceDays = (s: GameState): number => statOf(s, 'statue', 'loyalty');
+
+/**
+ * Воинская традиция — сколько кружков полководца даёт Статуя (слово владельца по docs/battle_eu4.md, 14.35, п. 9; П4): как
+ * традиция армии EU4 поднимает её полководцев. Своего числа нет — лестница к лестнице: уровни Статуи (1…её потолок) ложатся
+ * на кружки полководца (1…`MAX_AGENT_LEVEL`), по стольку уровней на кружок, во сколько раз первая лестница длиннее второй, —
+ * у десяти уровней на пять кружков по два; кружков сверх первого — столько, сколько у полководца на этом кружке: на первом
+ * и втором уровне — ни одного, на девятом и десятом — четыре. Статуи нет — ноль. Входит в отметки полководца одной дверью —
+ * уровнем, с которого их считает `sim/agents.pipsAt` (`sim/agents.pipLevel`); лестница отметок та же, 0…4.
+ */
+export function tradition(s: GameState): number {
+  const level = buildingOfType(s, 'statue')?.level ?? 0;
+  if (level < 1) return 0;
+  return Math.ceil((Math.min(level, maxLevelFor('statue')) * MAX_AGENT_LEVEL) / maxLevelFor('statue')) - 1;
+}
 
 /**
  * Какая доля войска не оплачена: нехватка, делённая на жалованье. Пока долга нет,

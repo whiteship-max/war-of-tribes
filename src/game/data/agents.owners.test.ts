@@ -1,6 +1,6 @@
 // Навык агента не второй источник числа, которым владеет здание.
 //
-// Терпение войска к неуплате и то, за скольких стоит герой, — Статуя. Старение
+// Терпение войска к неуплате и воинская традиция (кружки полководца, П4) — Статуя. Старение
 // разведданных, предупреждение о набеге, изучение округи и шанс лазутчика — Дозор.
 // Оборона — частокол, башня, казармы и храм. Мы месяц разгребали вторые правды (два
 // счётчика осады, четыре копии возврата цены, обещание Дозора, никуда не
@@ -82,11 +82,29 @@ describe('навык не читает чисел, которыми владее
     }
   });
 
+  it('Статуя входит в отметки ровно одним числом — воинской традицией, одной дверью', () => {
+    // Замок переписан вслух (П4, docs/battle_eu4.md, 14.35, п. 9 слова владельца): у Статуи есть число, которое навык
+    // читает, — воинская традиция (`derived.tradition`), кружки полководца от её уровня. Читает его одна дверь уровня
+    // отметок (`sim/agents.pipLevel`), и ни одного другого числа здания навык не называет (тест выше).
+    const agents = read('game/sim/agents.ts');
+    expect(agents.match(/\btradition\(/g) ?? [], 'традицию навык зовёт один раз').toHaveLength(1);
+    expect(bodyOf(agents, 'pipLevel'), 'и только в уровне отметок').toMatch(/\btradition\(s\)/);
+    expect(bodyOf(agents, 'pipsOf'), 'отметки на месте — с этого уровня').toMatch(/pipLevel\(s, agentLevel\(s, 'general'\)\)/);
+  });
+
   it('владельцы этих чисел не читают ничего от навыка', () => {
     const whole = ['game/derived.ts', 'world/spy.ts', 'world/intel.ts', 'world/muster.ts', 'world/sight.ts'];
+    // Воинская традиция — лестница Статуи к лестнице кружков полководца (П4): длину второй Статуя берёт у навыка, одним
+    // импортом `MAX_AGENT_LEVEL` и только в `tradition`. Кроме этой длины, владелец чисел от навыка не читает ничего.
+    const LADDER = "import { MAX_AGENT_LEVEL } from './data/agents';";
+    const derived = read('game/derived.ts');
+    expect(derived.split(LADDER), 'длина лестницы кружков — одним импортом').toHaveLength(2);
+    const outside = derived.replace(LADDER, '').replace(bodyOf(derived, 'tradition'), '');
+    expect(outside, 'длину лестницы кружков читает только традиция').not.toMatch(/MAX_AGENT_LEVEL/);
     for (const f of whole) {
-      const hit = read(f).split('\n').findIndex((line) => SKILL.test(line));
-      expect(hit, `${f}:${hit + 1} ${read(f).split('\n')[hit] ?? ''}`).toBe(-1);
+      const src = f === 'game/derived.ts' ? derived.replace(LADDER, '') : read(f);
+      const hit = src.split('\n').findIndex((line) => SKILL.test(line));
+      expect(hit, `${f}:${hit + 1} ${src.split('\n')[hit] ?? ''}`).toBe(-1);
     }
     const world = read('world/local/LocalWorld.ts');
     // Шанс лазутчика, предупреждение, земля у дома, живой обзор, снимок разведки

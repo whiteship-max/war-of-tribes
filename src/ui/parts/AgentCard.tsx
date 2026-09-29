@@ -29,7 +29,7 @@ import {
   slotsOpen,
 } from '@/game/data/agents';
 import { itemIn } from '@/game/data/items';
-import { ageOf, agentLevel, circlesText, personName, pipsAt, pipsOf, regear, regearBlock, retireAt, traitsHeld, yearsOf } from '@/game/sim/agents';
+import { ageOf, agentLevel, circlesText, personName, pipLevel, pipsAt, pipsOf, regear, regearBlock, retireAt, traitsHeld, yearsOf } from '@/game/sim/agents';
 import { deedsOf } from '@/game/data/traits';
 import { hireWhere } from '@/game/sim/hire';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
@@ -51,10 +51,14 @@ const ORDINAL = ['', 'первый', 'второй', 'третий', 'четвё
 function GeneralPips({ level }: { level: number }) {
   const s = useGame((g) => g.s);
   const person = s.agents.general.person;
-  const lines = pipLines(level, pipsOf(s), level < MAX_AGENT_LEVEL ? pipsAt(s.seed, person, level + 1) : null);
+  // Отметки считаются с уровня, в который входит и воинская традиция Статуи (`pipLevel`).
+  const at = pipLevel(s, level);
+  // Сколько кружков дала традиция — сверх своих и под потолком: ветерану пятого уровня она уже не прибавляет.
+  const lines = pipLines(at, pipsOf(s), at < MAX_AGENT_LEVEL ? pipsAt(s.seed, person, pipLevel(s, level + 1)) : null, at - level);
   return (
     <>
       <div className="note">{lines.now}</div>
+      {lines.tradition && <div className="note">{lines.tradition}</div>}
       {lines.rows.map((r) => (
         <div key={r} className="note">
           {r}

@@ -169,6 +169,9 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
   seats: { kind: 'more', read: towerSeats },
   loyalty: { kind: 'plusAfter', read: payGraceDays },
+  // Воинская традиция Статуи (П4): кружки полководца — замером того, что уезжает в мир: отметок у полководца первого уровня
+  // столько, сколько кружков дала традиция (в посёлках замера полководец свежий).
+  tradition: { kind: 'plusAfter', read: (s) => Object.values(playerProfile(s).pips ?? {}).reduce((n, x) => n + (x ?? 0), 0) },
   heal: { kind: 'share', read: healShare },
   beds: { kind: 'plusAfter', read: infirmaryBeds },
   warning: { kind: 'wait', read: (s) => playerProfile(s).warning ?? 0 },
@@ -452,7 +455,7 @@ describe('Статуя', () => {
       expect(after, `${level}→${level + 1}: уходить начали не раньше обещанного`).toBeGreaterThanOrEqual(promised);
       expect(after, `${level}→${level + 1}: и не позже`).toBeLessThan(promised + 0.1);
       expect(gain!.numbers[0], `${level}→${level + 1}`).toBe(promised - payGraceDays(s));
-      // Число Статуи одно — терпение войска (прибавка героя ушла с поставкой 1 боя, docs/battle_eu4.md,
+      // Числа Статуи — терпение войска и воинская традиция (П4, 14.35; прибавка героя ушла с поставкой 1 боя, docs/battle_eu4.md,
       // 14.19.6), и единица его сказана словами.
       expect(gain?.text).toMatch(/дн\. терпения войска/);
       expect(upgradeGain(s, b, level + 1)).not.toMatch(/героем/);

@@ -55,6 +55,7 @@ import {
   taxIncomePerDay,
   towerSeats,
   townHallBuildMult,
+  tradition,
   warningSeconds,
 } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
@@ -157,6 +158,14 @@ const GAUGES: Gauge[] = [
       const d = a - b;
       return d <= 0 ? null : { text: `+${d} игр. дн. терпения войска к неуплате и голоду (станет ${a})`, numbers: [d, a] };
     },
+  },
+  {
+    // Воинская традиция — кружки полководца от Статуи (`derived.tradition`, П4): растёт через уровень, и главное в ней —
+    // сколько станет. Отметки из кружков раскладывает склонность человека — это карточка полководца, а не кнопка.
+    id: 'tradition',
+    read: tradition,
+    say: (b, a) =>
+      a <= b ? null : { text: `+${a - b} ${plural(a - b, 'кружок', 'кружка', 'кружков')} полководцу — воинская традиция (станет ${a})`, numbers: [a - b, a] },
   },
   {
     // Доля, у которой главное — сколько станет: 35 % вместо 32 %.
