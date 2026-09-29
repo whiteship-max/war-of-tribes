@@ -23,7 +23,6 @@ import {
   GEAR,
   KIND_META,
   MORALE,
-  SLOW_CONTACT,
   TEMPER,
   UNIT_KINDS,
   UNIT_STATS,
@@ -415,7 +414,7 @@ function strengthsOf(troop: TroopId): string[] {
           : null,
       () =>
         kind === 'infantry'
-          ? `Якорь сектора: с долей пехоты от ${Math.round(ANCHOR.infantryShare * 100)}% потери морали идут ${fmt(MORALE.anchor)}.`
+          ? `Якорь сектора: каждый пехотинец держит ${Math.round(1 / ANCHOR.infantryShare)} человек своего сектора, у них потери морали идут ${fmt(MORALE.anchor)}; с долей пехоты от ${Math.round(ANCHOR.infantryShare * 100)}% — у всего сектора.`
           : null,
       () =>
         softest && softest.mult < 1
@@ -456,10 +455,6 @@ function weaknessesOf(troop: TroopId): string[] {
       () =>
         ex.moraleLow === kind
           ? `Самый нестойкий род: мораль ${UNIT_STATS[kind].morale} против ${UNIT_STATS[ex.moraleTop].morale} у ${KIND_GEN[ex.moraleTop]}.`
-          : null,
-      () =>
-        UNIT_STATS[kind].speed <= SLOW_CONTACT.speedAtMost
-          ? `Медленные: дистанцию не сокращают, в рукопашную вступают на ${count(SLOW_CONTACT.delay, 'тик', 'тика', 'тиков')} позже остальных.`
           : null,
       () =>
         m.gearLevel === 0

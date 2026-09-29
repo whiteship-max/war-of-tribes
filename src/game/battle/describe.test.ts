@@ -10,7 +10,6 @@ import {
   COUNTER,
   GEAR,
   MORALE,
-  SLOW_CONTACT,
   UNIT_KINDS,
   UNIT_STATS,
 } from '@/battle';
@@ -178,13 +177,6 @@ describe('сильные и слабые стороны выводятся пр�
     } finally {
       restoreWork();
     }
-  });
-
-  it('«медленные» появляются из порога SLOW_CONTACT, а не из названия рода', () => {
-    expect(UNIT_STATS.spear.speed).toBeLessThanOrEqual(SLOW_CONTACT.speedAtMost);
-    expect(troopCard('spearman').weaknesses.join(' ')).toContain(`${SLOW_CONTACT.delay} тика`);
-    set(UNIT_STATS.spear, 'speed', SLOW_CONTACT.speedAtMost + 1);
-    expect(troopCard('spearman').weaknesses.join(' ')).not.toContain('Медленные');
   });
 
   it('якорь пехоты описан числами ANCHOR', () => {
