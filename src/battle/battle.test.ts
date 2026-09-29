@@ -1111,14 +1111,17 @@ describe('кость фазы', () => {
     expect(held).toBeGreaterThanOrEqual(DICE.hold - 0.02);
   }, 60_000);
 
-  it('в каждой фазе EU4 — огне и натиске — один бросок на сторону, в гранях кости; у сближения своего нет, у отступления и погони кости нет', () => {
+  it('в каждой фазе EU4 — огне и натиске — один бросок на сторону, в гранях кости; у сближения своего нет, у погони свой без отметок, у отступления кости нет', () => {
     // Кость одна на фазу EU4 (слово владельца по 14.35, п. 2): сближение — хвост огня, и бросок стрельбы идёт через него.
+    // У погони кость своя (П2, слово владельца по 14.35, п. 5), отметок полководца у неё нет — они и не ставятся армиям ниже.
     const starts = (phase: PhaseId): boolean => {
+      if (phase === 'pursuit') return true;
       const kind = PHASE_PIPS[phase][0];
       const prev = CIRCLE_PHASES[CIRCLE_PHASES.indexOf(phase) - 1];
       return Boolean(kind) && !(prev && PHASE_PIPS[prev][0] === kind);
     };
     expect(starts('approach'), 'граница: сближение — хвост огня').toBe(false);
+    expect(PHASE_PIPS.pursuit, 'у погони отметок нет').toEqual([]);
     for (const r of [...allPairs(1).flatMap((p) => p.results), ...PURE_PAIRS.map((p) => simulateBattle({ seed: 3, attacker: p.a, defender: p.b }))]) {
       for (const span of r.phases) {
         const dice = r.log.filter((e) => e.id === 'dice' && e.phase === span.phase && e.tick >= span.from && e.tick <= span.to);
@@ -1542,6 +1545,49 @@ describe('мораль EU4', () => {
     const at = wiped.log.find((e) => e.id === 'annihilated' && e.side === 'defender');
     expect(at, 'истребление в журнале').toBeDefined();
     expect(at!.tick, `истреблены на ${at!.tick}-м тике при минимуме по ${floor}-й`).toBeLessThanOrEqual(floor);
+  });
+
+  it('погоня — рукопашная, и догоняет она только того, кто быстрее: равных и более быстрых не достаёт никто', () => {
+    // П2 (слово владельца по 14.35, п. 5): погоня одной дверью урона, «догоняет только быстрый» — ставок и потолка нет.
+    // Копья (скорость 1) против копий, латные (2) против лёгкой конницы (3) — никого; пехота (2) против копий (1) — да.
+    const pursuitLoss = (r: BattleResult, side: Side): number => r.phases.filter((p) => p.phase === 'pursuit').reduce((n, p) => n + p.losses[side], 0);
+    const cases: Array<{ name: string; winner: Partial<Stack>; loser: Partial<Stack>; caught: boolean }> = [
+      { name: 'копья за копьями', winner: { spear: 600 }, loser: { spear: 100 }, caught: false },
+      { name: 'латные за лёгкой конницей', winner: { heavy: 600 }, loser: { cavalry: 100 }, caught: false },
+      { name: 'пехота за копьями', winner: { infantry: 600 }, loser: { spear: 100 }, caught: true },
+    ];
+    for (const c of cases) {
+      for (let seed = 1; seed <= 4; seed += 1) {
+        const r = simulateBattle({ seed, attacker: deploySetup(c.winner), defender: deploySetup(c.loser) });
+        // Граница области: победитель — большая армия, проигравший отходит, погоня идёт, и гнать есть кем и кого.
+        expect(r.winner, `${c.name}, сид ${seed}: поле у большей`).toBe('attacker');
+        expect(r.log.some((e) => e.id === 'retreat' && e.side === 'defender'), `${c.name}: отходит`).toBe(true);
+        expect(r.phases.some((p) => p.phase === 'pursuit'), `${c.name}: погоня идёт`).toBe(true);
+        expect(r.sides.attacker.total.final, `${c.name}: гнать есть кем`).toBeGreaterThan(0);
+        const lost = pursuitLoss(r, 'defender');
+        if (c.caught) expect(lost, `${c.name}, сид ${seed}: быстрый догоняет`).toBeGreaterThan(0);
+        else expect(lost, `${c.name}, сид ${seed}: равных и более быстрых не догоняет никто`).toBe(0);
+      }
+    }
+  });
+
+  it('погоня без потолка: выбила всех бегущих — армия уничтожена, и журнал пишет это в погоне, а добитых — числом', () => {
+    // Слово владельца по 14.35, п. 6: уничтожения стека отдельным правилом нет — оно следует из погони. Горстка копий против
+    // пехоты, которая быстрее: до погони она бежит, сохранив людей, в погоне её выбивают до последнего.
+    for (let seed = 1; seed <= 4; seed += 1) {
+      const r = simulateBattle({ seed, attacker: deploySetup({ infantry: 300 }), defender: deploySetup({ spear: 20 }) });
+      const at = r.phases.findIndex((p) => p.phase === 'pursuit');
+      const before = r.phases.slice(0, at).reduce((n, p) => n + p.losses.defender, 0);
+      // Граница области: к погоне у проигравшего были люди — перебили его не в бою, а в погоне.
+      expect(r.winner, `сид ${seed}`).toBe('attacker');
+      expect(before, `сид ${seed}: к погоне горстка жива`).toBeLessThan(20 * (1 - ANNIHILATED_AT));
+      const wiped = r.log.find((e) => e.id === 'annihilated' && e.side === 'defender');
+      expect(wiped?.phase, `сид ${seed}: погоня выбила всех бегущих`).toBe('pursuit');
+      expect(r.sides.defender.total.final, `сид ${seed}`).toBeLessThan(20 * ANNIHILATED_AT);
+      const chase = r.log.find((e) => e.id === 'pursuit');
+      const inPursuit = r.phases[at].losses.defender;
+      expect(chase?.id === 'pursuit' ? Math.abs(chase.losses - inPursuit) : Infinity, `сид ${seed}: в журнале — добитые погоней`).toBeLessThanOrEqual(0.55);
+    }
   });
 
   it('бежавший уходит с поля: после слома сектор не получает ни одного удара до погони', () => {

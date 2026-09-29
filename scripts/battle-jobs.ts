@@ -13,7 +13,7 @@
 //
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
-import { KIND_PROFILE, RETREAT, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type Side } from '../src/battle';
+import { KIND_PROFILE, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type Side } from '../src/battle';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type LatticeDuel, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
@@ -172,24 +172,22 @@ export const FACES: ReadonlyArray<{ name: string; with: (s: ArmySetup) => ArmySe
 export const FACE_SEEDS = 4;
 
 /**
- * Погоня в бою: кто проиграл, сколько он потерял всего, сколько — в погоне, и упёрлась ли погоня в потолок
- * (`RETREAT.pursuitCap` от того, что у проигравшего стояло к началу отхода, — так бюджет ставит `Battle.decide`).
+ * Погоня в бою: кто проиграл, сколько он потерял всего, сколько — в погоне, и выбила ли погоня всех бегущих — армия
+ * уничтожена: перебит (`annihilated`, осталось меньше 3 %) в фазе погони. Потолка у погони нет (П2, docs/battle_eu4.md,
+ * 14.35): уничтожения стека отдельным правилом нет, оно следует из погони (слово владельца по 14.35, п. 6).
  */
 export interface PursuitOf {
   loser: Side;
   lost: number;
   pursuit: number;
-  capped: boolean;
+  wiped: boolean;
 }
 export function pursuitOf(r: BattleResult): PursuitOf | null {
   if (r.winner === 'draw') return null;
   const loser: Side = r.winner === 'attacker' ? 'defender' : 'attacker';
-  const at = r.phases.findIndex((p) => p.phase === 'retreat');
-  const before = (at < 0 ? r.phases : r.phases.slice(0, at)).reduce((n, p) => n + p.losses[loser], 0);
-  const budget = RETREAT.pursuitCap * Math.max(0, r.sides[loser].total.initial - before);
   const pursuit = r.phases.filter((p) => p.phase === 'pursuit').reduce((n, p) => n + p.losses[loser], 0);
-  // Итог стороны округлён (`total.initial`), потери фаз — нет: упор в потолок признаётся с запасом в процент бюджета.
-  return { loser, lost: r.sides[loser].total.losses, pursuit, capped: budget > 0 && pursuit >= budget * 0.99 };
+  const wiped = r.log.some((e) => e.id === 'annihilated' && e.side === loser && e.phase === 'pursuit');
+  return { loser, lost: r.sides[loser].total.losses, pursuit, wiped };
 }
 
 /**
@@ -220,8 +218,8 @@ export type Out =
 
 /**
  * Бои 2 : 1 (раздел «Погоня»): сколько их (`n`), в скольких меньшая удержала поле, сколько проиграла; у проигравшей меньшей —
- * доля армии, потерянная к концу боя (`smallLoss`), потери всего и в погоне, упоры погони в потолок и сколько раз её перебили
- * (`annihilated`: осталось меньше 3 %).
+ * доля армии, потерянная к концу боя (`smallLoss`), потери всего и в погоне, сколько раз погоня выбила всех бегущих (`wiped`) и
+ * сколько раз её перебили в бою до погони (`annihilated`: осталось меньше 3 %).
  */
 export interface Rout {
   n: number;
@@ -230,7 +228,7 @@ export interface Rout {
   smallLoss: number[];
   lost: number;
   pursuit: number;
-  capped: number;
+  wiped: number;
   annihilated: number;
 }
 
@@ -248,10 +246,10 @@ export interface Edge {
   reasons: Record<string, number>;
   loserLoss: number[];
   spearsHeld: number;
-  /** Погоня (раздел «Погоня»): потери проигравших всего и в погоне, и в скольких боях погоня упёрлась в потолок (`pursuitOf`). */
+  /** Погоня (раздел «Погоня»): потери проигравших всего и в погоне, и в скольких боях погоня выбила всех бегущих (`pursuitOf`). */
   lost: number;
   pursuit: number;
-  capped: number;
+  wiped: number;
 }
 
 const reachOf = (rs: readonly BattleResult[]): Reach => ({
@@ -309,7 +307,7 @@ export function battleJob(job: Job): Out {
       const run = (): Array<{ r: BattleResult; big: 'attacker' | 'defender' }> => edgeBattles(job.step, job.from, job.to, seeds);
       const dice = job.dice;
       const fights = withMoralePace(job.pace, () => (dice === 'bare' ? withDiceStep(0, run) : typeof dice === 'number' ? withDiceStep(dice, run) : run()));
-      const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [], spearsHeld: 0, lost: 0, pursuit: 0, capped: 0 };
+      const edge: Edge = { n: 0, held: 0, draws: 0, reasons: {}, loserLoss: [], spearsHeld: 0, lost: 0, pursuit: 0, wiped: 0 };
       for (const { r, big } of fights) {
         edge.n += 1;
         if (r.winner === big) edge.held += 1;
@@ -324,7 +322,7 @@ export function battleJob(job: Job): Out {
         if (p) {
           edge.lost += p.lost;
           edge.pursuit += p.pursuit;
-          if (p.capped) edge.capped += 1;
+          if (p.wiped) edge.wiped += 1;
         }
       }
       return { kind: 'edge', edge };
@@ -352,7 +350,7 @@ export function battleJob(job: Job): Out {
     case 'rout': {
       const lattice = compositionLattice();
       const total = holdSize();
-      const out: Rout = { n: 0, smallHeld: 0, smallLost: 0, smallLoss: [], lost: 0, pursuit: 0, capped: 0, annihilated: 0 };
+      const out: Rout = { n: 0, smallHeld: 0, smallLost: 0, smallLoss: [], lost: 0, pursuit: 0, wiped: 0, annihilated: 0 };
       for (let i = job.from; i < job.to; i += 1) {
         const small = deploySetup(scaleArmy(lattice[i], Math.round(total / 2)));
         const big = deploySetup(scaleArmy(lattice[i], total));
@@ -370,7 +368,7 @@ export function battleJob(job: Job): Out {
             out.smallLoss.push(t.losses / Math.max(1, t.initial));
             out.lost += p.lost;
             out.pursuit += p.pursuit;
-            if (p.capped) out.capped += 1;
+            if (p.wiped) out.wiped += 1;
             if (r.reason === 'annihilated') out.annihilated += 1;
           }
         }

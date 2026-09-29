@@ -10,7 +10,7 @@
 // раскладки у удара нет (docs/battle_eu4.md, 14.5). Разделы о них — «Планы», «Планы на всей сетке»,
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
-import { CIRCLE_PHASES, DICE, PHASE_PIPS, RETREAT, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
+import { CIRCLE_PHASES, DICE, PHASE_PIPS, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, kindUse, latticeFieldShare, latticeRows, latticeTop, mirrored, oversizeOf, pureKind, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeDuel, type LatticeRow } from '../src/battle/bench';
 import { KIND_META } from '../src/battle/names';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
@@ -404,10 +404,10 @@ const edgeSum = (parts: EdgeParts): Edge =>
       acc.spearsHeld += e.spearsHeld;
       acc.lost += e.lost;
       acc.pursuit += e.pursuit;
-      acc.capped += e.capped;
+      acc.wiped += e.wiped;
       return acc;
     },
-    { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[], spearsHeld: 0, lost: 0, pursuit: 0, capped: 0 },
+    { n: 0, held: 0, draws: 0, reasons: {} as Record<string, number>, loserLoss: [] as number[], spearsHeld: 0, lost: 0, pursuit: 0, wiped: 0 },
   );
 const edgePc = (a: number, b: number): string => `${((100 * a) / Math.max(1, b)).toFixed(1)}%`;
 /** Две таблицы «Лезвия» для прогонов `runs`: кривая «перевес → поле» по ступеням и как кончаются бои. */
@@ -481,15 +481,18 @@ console.log('\n=== Цена грани кости: отметка полково
   console.log('сдвиг — в пунктах доли поля от равных армий; у полководца четвёртого уровня — три кружка сверх первого (`sim/agents.pipsAt`), у пятого — четыре');
 }
 
-console.log('\n=== Погоня: сколько проигравший теряет в погоне и упирается ли она в потолок (слово владельца по 14.35, пп. 5–6) ===');
+console.log('\n=== Погоня: сколько проигравший теряет в погоне и как часто она выбивает всех бегущих (слово владельца по 14.35, пп. 5–6) ===');
 {
-  // Прибор погони одной дверью урона: сегодня погоню держат ставки `RETREAT.pursuitKills` и потолок `RETREAT.pursuitCap` — доля
-  // того, что у проигравшего стояло к началу отхода. «Упёрлась» — погоня выбила весь бюджет потолка (`battle-jobs.pursuitOf`).
+  // Погоня — рукопашная одной дверью урона (П2): победитель бьёт отходящих силой в натиске, в ширину ряда, с костью погони
+  // без отметок; догоняет только быстрый. Потолка и ставок нет. «Выбила всех» — проигравший перебит в фазе погони
+  // (`battle-jobs.pursuitOf`): уничтожения стека отдельным правилом нет, оно следует из погони.
   const edge = edgeSum(EDGE_RUNS.find((r) => r.dice === 'config' && r.pace === 1)!.steps.flat());
   const decided = edge.n - edge.draws;
-  console.log(`потолок погони ${RETREAT.pursuitCap * 100} % того, что стояло у проигравшего к началу отхода; ставки на бойца за тик: ${Object.entries(RETREAT.pursuitKills).map(([k, v]) => `${k} ${v}`).join(', ')}`);
   console.log(
-    `«Лезвие», кость конфига (${edge.n} боёв, решено ${decided}): у проигравшего в погоне — ${edgePc(edge.pursuit, edge.lost)} его потерь; погоня упёрлась в потолок в ${edge.capped} боях из ${decided} (${edgePc(edge.capped, decided)})`,
+    `погоня — рукопашная победителя по отходящим (сила в натиске, ширина ряда, кость погони без отметок); догоняет только тот, кто быстрее: скорость ${UNIT_KINDS.map((k) => `${k} ${UNIT_STATS[k].speed}`).join(', ')}; потолка нет`,
+  );
+  console.log(
+    `«Лезвие», кость конфига (${edge.n} боёв, решено ${decided}): у проигравшего в погоне — ${edgePc(edge.pursuit, edge.lost)} его потерь; погоня выбила всех бегущих в ${edge.wiped} боях из ${decided} (${edgePc(edge.wiped, decided)})`,
   );
   const r: Rout = routParts.reduce(
     (acc, p) => {
@@ -500,18 +503,18 @@ console.log('\n=== Погоня: сколько проигравший теря�
       acc.smallLoss.push(...o.smallLoss);
       acc.lost += o.lost;
       acc.pursuit += o.pursuit;
-      acc.capped += o.capped;
+      acc.wiped += o.wiped;
       acc.annihilated += o.annihilated;
       return acc;
     },
-    { n: 0, smallHeld: 0, smallLost: 0, smallLoss: [] as number[], lost: 0, pursuit: 0, capped: 0, annihilated: 0 },
+    { n: 0, smallHeld: 0, smallLost: 0, smallLoss: [] as number[], lost: 0, pursuit: 0, wiped: 0, annihilated: 0 },
   );
   const xs = r.smallLoss.slice().sort((a, b) => a - b);
   const at = (p: number): string => (xs.length ? `${Math.round(100 * xs[Math.min(xs.length - 1, Math.floor(xs.length * p))])}%` : '—');
   console.log(
     `2 : 1 — ${latticeSize} составов решётки, ${Math.round(HOLD / 2)} против ${HOLD} того же состава, сиды 1..${FACE_SEEDS}, обе стороны поля (${r.n} боёв): меньшая удержала поле ${r.smallHeld}, проиграла ${r.smallLost}; ` +
       `у проигравшей меньшей потеряно ${at(0.25)} / ${at(0.5)} / ${at(0.75)} армии (25 % / медиана / 75 %), в погоне — ${edgePc(r.pursuit, r.lost)} потерь; ` +
-      `погоня упёрлась в потолок ${r.capped} раз из ${r.smallLost}; перебита (меньше 3 %) — ${r.annihilated}`,
+      `погоня выбила всех бегущих ${r.wiped} раз из ${r.smallLost}; перебита в бою до погони (меньше 3 %) — ${r.annihilated}`,
   );
   console.log('уничтожения стека отдельным правилом нет: погоня, выбившая всех бегущих, и есть уничтоженная армия (слово владельца по 14.35, п. 6)');
 }

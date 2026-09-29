@@ -17,7 +17,6 @@
 //     приказов нет, конница встаёт по правилу развёртывания — с краёв первой линии.
 //  7. **Числа** — цена силы, жалованье за снаряжение (`WAGE_GEAR`) выводом, стойла и время найма.
 import {
-  RETREAT,
   TEMPER,
   UNIT_STATS,
   deploySetup,
@@ -462,7 +461,7 @@ function rulePart(): void {
     const s = UNIT_STATS[k];
     const p = profileOfTroop(c.troop);
     console.log(
-      `  ${padR(c.name, 8)} ${padR(TROOP_BY_ID[c.troop].name, 16)} натиск рода ${s.melee}, скорость ${s.speed}; огонь ${p.fireAtk}/${p.fireDef}, натиск ${p.shockAtk}/${p.shockDef}, мораль ${p.moraleAtk}/${p.moraleDef}; в обходе ×${TEMPER[k].charging}; преследование ${RETREAT.pursuitKills[k]}; снаряжение ${Object.keys(TROOP_BY_ID[c.troop].gear).join('+')}, ступень ${gearOfTroop(c.troop)}`,
+      `  ${padR(c.name, 8)} ${padR(TROOP_BY_ID[c.troop].name, 16)} натиск рода ${s.melee}, скорость ${s.speed}; огонь ${p.fireAtk}/${p.fireDef}, натиск ${p.shockAtk}/${p.shockDef}, мораль ${p.moraleAtk}/${p.moraleDef}; в обходе ×${TEMPER[k].charging}; снаряжение ${Object.keys(TROOP_BY_ID[c.troop].gear).join('+')}, ступень ${gearOfTroop(c.troop)}`,
     );
   }
   console.log('Прежний единый всадник — в выводе коммита 729d510 и в docs/stable.md.');

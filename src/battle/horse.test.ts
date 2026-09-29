@@ -11,7 +11,7 @@
 // защиты. Тест «прежний профиль не потерян: каждое его число досталось хотя бы одному роду» снят тем же словом: рукопашная
 // 1.3 прежнего профиля — вес, и он теперь показателями, а не числом рода.
 import { describe, expect, it } from 'vitest';
-import { KIND_PROFILE, RETREAT, TEMPER, UNIT_STATS } from './config';
+import { KIND_PROFILE, TEMPER, UNIT_STATS } from './config';
 import { HORSE_KINDS, type UnitKind } from './types';
 
 /** Оси профиля, которых показатели не выражают: где число лежит у конного рода и где у пеших. */
@@ -34,7 +34,8 @@ const AXES: Axis[] = [
   { name: 'мораль', prior: 65, of: (k) => UNIT_STATS[k].morale, foot: () => FOOT.map((k) => UNIT_STATS[k].morale) },
   { name: 'в обходе', prior: 0.6, of: (k) => TEMPER[k].charging, foot: tempers },
   { name: 'в строю', prior: 1.0, of: (k) => TEMPER[k].waiting, foot: tempers },
-  { name: 'погоня', prior: 0.15, of: (k) => RETREAT.pursuitKills[k], foot: () => FOOT.map((k) => RETREAT.pursuitKills[k]) },
+  // Оси «погоня» (ставки `RETREAT.pursuitKills`) больше нет — ставки ушли вместе с потолком погони (П2, docs/battle_eu4.md,
+  // 14.35): погоня — рукопашная, и кого конь догоняет, решает скорость — ось выше.
 ];
 
 const CLASSES = ['cavalry', 'heavy'] as const;

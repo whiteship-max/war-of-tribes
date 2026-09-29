@@ -12,6 +12,7 @@ import {
   ANNIHILATED_AT,
   BREAK_AFTER,
   DICE,
+  DICE_PHASES,
   EVENT_MIN,
   EVENT_SHARE,
   FIRE_AFTER_CONTACT,
@@ -116,8 +117,8 @@ interface SideState {
   /** Выбито стрельбой до первого столкновения: залп перед сшибкой первого прохода (событие `volley`, итог боя). */
   rangedBeforeContact: number;
   rangedTotal: number;
-  /** Сколько человек ещё может выбить преследование. */
-  pursuitBudget: number;
+  /** Сколько человек эта сторона потеряла в погоне: столько добил противник (событие `pursuit`). */
+  chased: number;
   /** Кто кого выбил по полосам: [полоса][кто][кого]. Из этого выводятся события. */
   kills: Kills[];
   /** Снимок `kills` на начало фазы: события считаются по приросту. */
@@ -404,7 +405,7 @@ class Battle {
         lostTotal: 0,
         rangedBeforeContact: 0,
         rangedTotal: 0,
-        pursuitBudget: 0,
+        chased: 0,
         kills: [zeroKills(), zeroKills(), zeroKills()],
         killsAtPhase: [zeroKills(), zeroKills(), zeroKills()],
         fired: new Set(),
@@ -429,16 +430,17 @@ class Battle {
    * бой с отметкой и без неё разошёлся бы не в одной фазе, а во всех следующих.
    *
    * Кость одна на фазу EU4 — огонь или натиск (слово владельца по 14.35, п. 2): сближение — хвост огня, и нового броска
-   * у него нет, кость стрельбы идёт дальше. Отметки фазы — все её (`PHASE_PIPS`): в натиск идут и сшибка, и сеча.
+   * у него нет, кость стрельбы идёт дальше. Отметки фазы — все её (`PHASE_PIPS`): в натиск идут и сшибка, и сеча. У погони
+   * кость своя и без отметок (`DICE_PHASES`, П2); у отступления кости нет.
    */
   rollDice(): void {
-    const kind = eu4Phase(this.phase);
-    if (!kind) {
+    if (!DICE_PHASES.includes(this.phase)) {
       this.luck = { attacker: 1, defender: 1 };
       return;
     }
+    const kind = eu4Phase(this.phase);
     const at = CIRCLE_PHASES.indexOf(this.phase);
-    if (at > 0 && eu4Phase(CIRCLE_PHASES[at - 1]) === kind) return;
+    if (kind && at > 0 && eu4Phase(CIRCLE_PHASES[at - 1]) === kind) return;
     const rolls = { attacker: 0, defender: 0 };
     const pips = { attacker: 0, defender: 0 };
     const ground = { attacker: this.ground.attacker.faces, defender: this.ground.defender.faces };
@@ -678,7 +680,8 @@ class Battle {
         const s = this.sides[side];
         const enemy = this.sides[other(side)];
         if (!enemy.retreating || s.retreating) continue;
-        const losses = Math.round(enemy.pursuitBudget);
+        // Сколько добила погоня — прежде событие брало остаток потолка, а не выбитых, и не писалось почти никогда.
+        const losses = Math.round(enemy.chased);
         if (losses >= 1) this.emit({ id: 'pursuit', side, losses });
       }
     }
@@ -838,7 +841,13 @@ class Battle {
     }
     this.engagedNow = new Set();
     if (this.phase === 'pursuit') {
-      this.pursue();
+      // Погоня — рукопашная той же дверью урона (`distribute`): ширина ряда — та же, что в бою.
+      this.measureRows();
+      const hits: Hit[] = [];
+      this.pursue(hits);
+      const before = { attacker: this.sides.attacker.lostTotal, defender: this.sides.defender.lostTotal };
+      this.apply(hits);
+      for (const side of SIDES) this.sides[side].chased += this.sides[side].lostTotal - before[side];
     } else {
       // Дыры строя закрывает резерв — до стычек, чтобы вошедшие дрались в этот же тик. У сломанной стороны встать
       // некому по определению слома (`updateMorale`), и резерв после слома не встаёт.
@@ -1035,21 +1044,24 @@ class Battle {
     kind: UnitKind,
     total: number,
     targets: Group[],
-    ctx: { flank: boolean; ranged: boolean; cover?: number },
+    ctx: { flank: boolean; ranged: boolean; cover?: number; chase?: boolean },
     byLane: Lane,
     hits: Hit[],
   ): void {
+    // Погоня (`chase`) достаёт только тех, кто медленнее бьющего, и пойманные из контакта не выходят: отход (`taken`) —
+    // это строй, уходящий в фазе отступления, а в погоне его догнали (П2, docs/battle_eu4.md, 14.35).
+    const reached = (k: UnitKind): boolean => !ctx.chase || UNIT_STATS[k].speed < UNIT_STATS[kind].speed;
     let weight = 0;
-    for (const t of targets) for (const k of UNIT_KINDS) weight += t.stack[k];
+    for (const t of targets) for (const k of UNIT_KINDS) if (reached(k)) weight += t.stack[k];
     if (weight <= 0) return;
     const by = KIND_PROFILE[kind];
     for (const t of targets) {
       for (const k of UNIT_KINDS) {
         const n = t.stack[k];
-        if (!stands(n)) continue;
+        if (!stands(n) || !reached(k)) continue;
         const share = n / weight;
         const target = KIND_PROFILE[k];
-        const casualties = total * share * hitMult(this.luck[from.side], by, target, ctx.ranged) * this.taken(t);
+        const casualties = total * share * hitMult(this.luck[from.side], by, target, ctx.ranged) * (ctx.chase ? 1 : this.taken(t));
         if (casualties > 0) {
           hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1, moraleW: moraleMult(by, target) });
         }
@@ -1294,7 +1306,6 @@ class Battle {
       return;
     }
     loser.retreating = true;
-    loser.pursuitBudget = loser.groups.reduce((n, g) => n + stackTotal(g.stack), 0) * RETREAT.pursuitCap;
     this.winner = other(loser.id);
     this.reason = loser.brokenReason ?? 'losses';
     if (!loser.broken) {
@@ -1305,36 +1316,28 @@ class Battle {
     this.emit({ id: 'retreat', side: loser.id, orderly: !loser.broken });
   }
 
-  /** Преследование: победитель добивает отступающих, но не больше доли. */
-  pursue(): void {
+  /**
+   * Погоня (слово владельца по 14.35, п. 5; П2): победитель бьёт отходящих той же рукопашной, что в бою, — сила рода в
+   * натиске на `MELEE_RATE`, удар через `hitMult` с костью погони (без отметок), в ширину ряда (`widthShare`: погоню ведут
+   * те, кто стоит в строю и в обходе, резерв — нет) и в спину — ударом с фланга. Достаёт только тех, кто медленнее бьющего
+   * (`distribute`, `chase`): одних копий у пехоты, всех, кроме всадников, у лёгкой конницы; всадников не догоняет никто. Потолка
+   * нет: погоня, выбившая всех бегущих, и есть уничтоженная армия (п. 6) — «перебита» пишет мораль тика (`ANNIHILATED_AT`).
+   * Отходящие не отвечают: бегущие не бьют, а строй уходит.
+   */
+  pursue(hits: Hit[]): void {
     for (const side of SIDES) {
       const s = this.sides[side];
       const enemy = this.sides[other(side)];
       if (!enemy.retreating || s.retreating) continue;
-      let kills = 0;
-      for (const g of s.groups) {
-        if (!alive(g)) continue;
-        for (const k of UNIT_KINDS) {
-          if (g.stack[k] < EPS) continue;
-          kills += g.stack[k] * RETREAT.pursuitKills[k];
-        }
-      }
-      kills = Math.min(kills, enemy.pursuitBudget);
-      if (kills <= 0) continue;
-      enemy.pursuitBudget -= kills;
-      // Медленных догоняют первыми.
       const targets = enemy.groups.filter(alive);
-      let weight = 0;
-      for (const t of targets) for (const k of UNIT_KINDS) weight += t.stack[k] / UNIT_STATS[k].speed;
-      if (weight <= 0) continue;
-      for (const t of targets) {
-        for (const k of UNIT_KINDS) {
-          const n = t.stack[k];
-          if (n < EPS) continue;
-          const actual = Math.min(n, (kills * (n / UNIT_STATS[k].speed)) / weight);
-          t.stack[k] -= actual;
-          enemy.lostTotal += actual;
-          enemy.lostTick += actual;
+      if (targets.length === 0) continue;
+      for (const g of s.groups) {
+        if (!alive(g) || g.fled || g.lane === null) continue;
+        const share = this.widthShare(g);
+        for (const kind of UNIT_KINDS) {
+          if (!stands(g.stack[kind])) continue;
+          const p = g.stack[kind] * share * UNIT_STATS[kind].melee * MELEE_RATE;
+          this.distribute(g, kind, p, targets, { flank: true, ranged: false, chase: true }, g.lane, hits);
         }
       }
     }
