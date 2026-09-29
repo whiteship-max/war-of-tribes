@@ -4624,8 +4624,8 @@ export class LocalWorld implements WorldApi {
   /**
    * Набеги на деревню: редко, из ближних логов и всегда с запасом времени на реакцию.
    * Набег — всё логово (`lairs.lairRaid`), а логово растёт от возраста и жителей города;
-   * от обороны игрока его сила не зависит ничем. Молодой город логово не замечает
-   * (`lairShield`), павший город не трогает до конца окна (`SIEGE_IMMUNE`).
+   * от обороны игрока его сила не зависит ничем. Слабый город — и жителями, и всем войском —
+   * логово не замечает (`lairShield`), павший город не трогает до конца окна (`SIEGE_IMMUNE`).
    */
   private scheduleAi(now: number): void {
     const save = this.save;
@@ -4656,8 +4656,10 @@ export class LocalWorld implements WorldApi {
     save.nextAiAt = now + pause * (atWar ? AI_WAR_PACE : 1);
 
     const profile = save.profile;
-    // Защита новичка по зрелости: пока логово город не замечает, набега нет вовсе.
-    if (!profile || lairShield(profile.pop) <= 0) return;
+    // Защита слабого по зрелости — жители или всё войско, что выше: пока логово город не замечает, набега нет вовсе.
+    // Войско — всё, а не то, что дома: иначе увести дружину в поле значило бы спрятать город от логов.
+    const armyPower = troopPower(profile?.army ?? {});
+    if (!profile || lairShield(profile.pop, armyPower) <= 0) return;
     // Чужой отряд на деревню в мире один. Именно **на деревню**: соседи, идущие
     // друг на друга или на выручку осаждённому, к очереди набегов отношения не
     // имеют, и заслонять ими набег значило бы поставить набеги на игрока в
@@ -4696,7 +4698,7 @@ export class LocalWorld implements WorldApi {
         break;
       }
     }
-    const power = Math.max(2, lairRaid(this.powerNow(src, now), profile.pop));
+    const power = Math.max(2, lairRaid(this.powerNow(src, now), profile.pop, armyPower));
     const units = warriorsOf(power);
     const seconds = marchSeconds(distance(src, home), terrainFactor(save.seed, src, home), units);
     const travel = Math.max(realMs(seconds), this.warningMs());

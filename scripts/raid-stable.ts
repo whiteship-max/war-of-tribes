@@ -374,7 +374,7 @@ async function wallRow(troops: TroopStack, over: Record<string, number> = {}): P
     return n / WALL_SEEDS;
   };
   const half = halfPoint((k) => broke(k * d), WALL_SHARES) * d;
-  const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, g.pop), g.pop);
+  const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, g.pop), g.pop, troopPower(g.army));
   return { heads: troopTotal(troops), power: troopPower(troops), defense: d, militia: militiaMen(g), half, raid, broke: broke(raid) };
 }
 

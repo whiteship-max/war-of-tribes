@@ -43,6 +43,7 @@
 // Ручки `HOURS=` больше нет: окно прогона грабежа выведено из круга похода,
 // а не задаётся снаружи (`RAID_WINDOW_MS` ниже).
 import { lairPower, lairRaid } from '@/world/lairs';
+import { troopPower } from '@/game/battle/kinds';
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
 import { distance, marchSeconds, terrainFactor } from '@/world/geo';
 import { generateWorld, isLair } from '@/world/gen';
@@ -496,11 +497,11 @@ for (const level of [1, 3, 5, 7, 10]) {
   autoAssign(s);
   // Мощь набега — дозревшее логово медианной опоры при жителях этого посёлка (`lairs.lairRaid`),
   // а отряд из неё — тем же курсом, что и в мире (`scheduleAi`): один воин на три единицы мощи.
-  const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, s.pop), s.pop);
+  const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, s.pop), s.pop, troopPower(s.army));
   const open = plunder(stock, hide, Infinity).takenTotal;
   if (raid <= 0) {
-    // Жителей меньше порога защиты новичка: логово посёлок не замечает, набега нет вовсе.
-    console.log(`  ${pad(level, 5)}   ${pad(total, 13)}  ${pad(hide * RESOURCE_IDS.length, 7)}  ${pad(open, 7)}  набега нет: ${s.pop} жителей — ниже порога защиты новичка`);
+    // Посёлок слаб и жителями, и войском: логово его не замечает, набега нет вовсе.
+    console.log(`  ${pad(level, 5)}   ${pad(total, 13)}  ${pad(hide * RESOURCE_IDS.length, 7)}  ${pad(open, 7)}  набега нет: ${s.pop} жителей — посёлок ниже порога защиты слабого`);
     continue;
   }
   const men = Math.max(1, Math.round(raid / 3));

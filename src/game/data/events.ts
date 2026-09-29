@@ -18,7 +18,6 @@ import {
   buildingOfType,
   currentSite,
   dayOf,
-  defense,
   faithDef,
   faithOf,
   foodConsumptionPerDay,
@@ -33,7 +32,9 @@ import {
   strainNow,
 } from '../derived';
 import { callGate } from '../sim/gate';
+import { troopPower } from '../battle/kinds';
 import { menOfPower } from '@/world/garrison';
+import { weakCity } from '@/world/lairs';
 import type { GateFoe } from '@/world/types';
 import { addStrain, beginRite, grantRelic, riteInfo } from '../sim/faith';
 import { mutinyPay, mutinyRelease, mutinySuppress } from '../sim/mutiny';
@@ -110,28 +111,58 @@ const crowd = (s: GameState, share: number, min: number): number =>
   Math.max(min, Math.round(population(s) * share));
 
 /**
- * Сила случайного противника у ворот — доля обороны посёлка. Так волки и разбойники
- * остаются соразмерными игроку и на старте (`START_POP`), и на потолке уровней.
- * Бьются они ядром боя у ворот той же дверью, что набег (`sim/gate`, `LocalWorld.gateFight`;
- * docs/battle_eu4.md, 14.28).
- *
- * Доли — числа руками, вывода у них нет; слово владельца — оставить их до пересмотра баланса
- * (docs/battle_eu4.md, 14.24). Сколько боёв они проигрывают на решётке нашей силы, печатает
- * `npm run raid-mix:report`, раздел «Волки и разбойники у ворот».
+ * Сила случайного противника у ворот — по уровню посёлка, таблицей (слово владельца по 14.35, пп. 4 и 6): для гарнизона
+ * мерки уровня L (`autopilot.townAt`, войско `armyAt`, всё дома) ровный бой — сила пришедших, при которой они берут верх в
+ * половине боёв, — делённый на перевес «Ограничителя» 1.1. Типичный гарнизон отбивается чаще, сильный — ещё чаще, слабый —
+ * реже; масштаба под нашу силу нет, и стать сильнее имеет смысл. Числа — мощь пришедших уровней 1…10, по строке на
+ * противника. **Руками их не правят:** их выводит и сверяет с этими `npm run raid-mix:report`, раздел 4б, на нынешнем ядре
+ * боя (после шага 2 пересмотра баланса); ядро или шаг кости сдвинулись (П5) — таблица выводится заново той же командой.
+ * Бьются пришедшие ядром боя у ворот той же дверью, что набег (`sim/gate`, `LocalWorld.gateFight`; docs/battle_eu4.md,
+ * 14.28).
  */
-export const WOLF_SHARE = 0.55;
-export const RAIDER_SHARE = 0.85;
-export const foePower = (s: GameState, share: number): number => defense(s) * share;
+export const GATE_POWER: Record<GateFoe, readonly number[]> = {
+  wolves: [292, 445, 560, 767, 1003, 1343, 1763, 1898, 2046, 2188],
+  raiders: [299, 468, 652, 816, 951, 1127, 1279, 1447, 1554, 1681],
+};
+
+/**
+ * Жители посёлка мерки уровней 1…10 — по ним уровень посёлка и читается (выводит и сверяет та же команда). Уровень — зрелость
+ * жителями, войска в нём нет: иначе пришедшие росли бы вместе с нашим гарнизоном, и нанятое войско не значило бы ничего.
+ * Прямая лестницы логов (`lairs.lairLevel`) здесь не годится: она сглаживает мерку, и посёлки мерки выходят на ней не своим
+ * уровнем (раздел 4б печатает, каким), а бой у ворот круче ступени — кривая того же раздела переходит от почти ни одного
+ * поражения к почти всем за четверть обороны, — и типичный гарнизон своего уровня встречал бы стаю не своей строки.
+ */
+export const GATE_POP: readonly number[] = [50, 104, 158, 212, 266, 356, 437, 518, 599, 680];
+
+/**
+ * Мощь пришедших к воротам: строка таблицы на жителях посёлка мерки своего уровня, между уровнями — прямой по жителям;
+ * жителей меньше, чем у мерки 1-го уровня, — первая строка, больше, чем у 10-го, — десятая.
+ */
+export const gatePower = (s: GameState, foe: GateFoe): number => {
+  const row = GATE_POWER[foe];
+  const pop = s.pop;
+  if (pop <= GATE_POP[0]) return row[0];
+  const hi = GATE_POP.findIndex((p) => p >= pop);
+  if (hi < 0) return row[row.length - 1];
+  const lo = hi - 1;
+  return row[lo] + ((row[hi] - row[lo]) * (pop - GATE_POP[lo])) / (GATE_POP[hi] - GATE_POP[lo]);
+};
 
 /** Сколько их придёт к воротам — мерой отрядов мира, которой бой их и выставит (`menOfPower`). */
-export const gateMen = (s: GameState, share: number): number => menOfPower(foePower(s, share));
+export const gateMen = (s: GameState, foe: GateFoe): number => menOfPower(gatePower(s, foe));
+
+/**
+ * Слабый посёлок: логово его ещё не замечает — ни жителями, ни всем войском он не дорос до порога защиты слабого
+ * (`lairs.weakCity`). Его угроза — волки; у разбойников защиты слабого нет (слово владельца по 14.35, п. 6).
+ */
+export const weakVillage = (s: GameState): boolean => weakCity(s.pop, troopPower(s.army));
 
 /**
  * Выйти к воротам: вызов ложится в партию, бьётся мир на ближайшем пульсе, исход — отчётом в «Походы».
  * Трофеи победы решает событие здесь; мир про них не знает.
  */
-const toGate = (s: GameState, foe: GateFoe, share: number, spoils: Partial<Record<ResourceId, number>>): string => {
-  callGate(s, foe, foePower(s, share), spoils);
+const toGate = (s: GameState, foe: GateFoe, spoils: Partial<Record<ResourceId, number>>): string => {
+  callGate(s, foe, gatePower(s, foe), spoils);
   return 'Племя вышло к воротам. Чем кончилось — скажет отчёт в «Походах».';
 };
 
@@ -257,13 +288,14 @@ export const EVENTS: EventDef[] = [
     silence: 0,
     icon: '🐺',
     title: 'Волки',
-    text: (s) => `Стая волков кружит у поселения. Их ${gateMen(s, WOLF_SHARE)}.`,
-    weight: (s) => (s.time > DAY_LENGTH ? 3 : 0),
+    text: (s) => `Стая волков кружит у поселения. Их ${gateMen(s, 'wolves')}.`,
+    // Волки — угроза слабого посёлка: к городу, который логово уже замечает, они не приходят (слово владельца по 14.35, п. 6).
+    weight: (s) => (s.time > DAY_LENGTH && weakVillage(s) ? 3 : 0),
     options: [
       {
         label: 'Защищаться',
         hint: 'Бой у ворот',
-        apply: (s) => toGate(s, 'wolves', WOLF_SHARE, { hides: amount(s, 4), bones: amount(s, 4) }),
+        apply: (s) => toGate(s, 'wolves', { hides: amount(s, 4), bones: amount(s, 4) }),
       },
       {
         label: 'Отдать запасы',
@@ -391,7 +423,7 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '⚔️',
     title: 'Разбойники',
-    text: (s) => `Чужие воины требуют дань: ${amount(s, 25)} еды, иначе нападут. Их ${gateMen(s, RAIDER_SHARE)}.`,
+    text: (s) => `Чужие воины требуют дань: ${amount(s, 25)} еды, иначе нападут. Их ${gateMen(s, 'raiders')}.`,
     weight: (s) => (dayOf(s.time) >= 5 ? 2 : 0),
     options: [
       {
@@ -406,7 +438,7 @@ export const EVENTS: EventDef[] = [
       {
         label: 'Сражаться',
         hint: 'Бой у ворот',
-        apply: (s) => toGate(s, 'raiders', RAIDER_SHARE, { wood: amount(s, 15), hides: amount(s, 5) }),
+        apply: (s) => toGate(s, 'raiders', { wood: amount(s, 15), hides: amount(s, 5) }),
       },
     ],
   },

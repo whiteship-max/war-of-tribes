@@ -50,7 +50,7 @@ import { HOME_ID } from '@/world/local/LocalWorld';
 import { awayOf, homeOf } from '@/world/muster';
 import { lairArmsBase, lairPop, lairPower, lairShield } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_POWER_BASE, LAIR_POWER_PER_LEVEL, LAIR_RIPE, LAIR_STEP, SIEGE_IMMUNE } from '@/world/data/tuning';
-import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { assignBonded } from '@/game/sim/workers';
 import { releaseBonded } from '@/game/sim/mutiny';
 import { fateOpen, studyInfo } from '@/game/sim/tech';
@@ -434,7 +434,7 @@ export async function hiringSection(): Promise<Hired> {
   // Мерка «жители» против лестницы под наймом.
   console.log('');
   console.log('Мерка «жители» против лестницы под наймом: жители — медиана по пульсам; набег по жителям — lairPower дозревшего логова медианной опоры');
-  console.log(`(× lairShield); по уровню — ступень × (${LAIR_POWER_PER_LEVEL} × L + ${LAIR_POWER_BASE}), как в разделе 1; оборона — медиана по пульсам, мерка — defense посёлка мерки.`);
+  console.log(`(× lairShield по жителям и войску мерки уровня); по уровню — ступень × (${LAIR_POWER_PER_LEVEL} × L + ${LAIR_POWER_BASE}), как в разделе 1; оборона — медиана по пульсам, мерка — defense посёлка мерки.`);
   console.log(' поведение                    ур  жителей: мерка  медиана  набег по жителям  по уровню  жители к уровню  оборона: мерка  медиана');
   for (const level of LEVELS) {
     const ref = townAt(level);
@@ -442,7 +442,7 @@ export async function hiringSection(): Promise<Hired> {
     for (const style of STYLES) {
       const l = ladder[`${style}:${level}`].map((o) => o.l);
       const pop = q(l.flatMap((x) => x.pops), 0.5);
-      const raid = lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, pop) * lairShield(pop);
+      const raid = lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, pop) * lairShield(pop, troopPower(ref.army));
       console.log(
         ` ${NAME[style].padEnd(27)} ${pad(level, 2)}  ${pad(ref.pop, 14)}  ${pad(pop, 7)}  ${pad(Math.round(raid), 16)}  ${pad(Math.round(byLevel), 9)}  ${pad(pct(raid / byLevel), 15)}  ${pad(Math.round(defense(ref)), 14)}  ${pad(Math.round(q(l.flatMap((x) => x.defs), 0.5)), 7)}`,
       );

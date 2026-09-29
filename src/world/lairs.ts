@@ -13,14 +13,17 @@
 //
 // Сила растёт от двух вещей и ни от чего третьего: от возраста логова и от зрелости
 // города, которую меряют **жители**. Обороны здесь нет ни одним путём — ни числом, ни
-// уровнем укреплений: игрок, строящий защиту, не должен усиливать врага.
+// уровнем укреплений: игрок, строящий защиту, не должен усиливать врага. Войско меряет
+// другое — замечает ли логово город вообще (защита слабого, `lairShield`).
 import {
   LAIR_ANCHOR_MID,
   LAIR_ARMS_PER_POWER,
   LAIR_CAP,
   LAIR_GOLD_PER_POWER,
   LAIR_LEVEL_BASE,
+  LAIR_LEVEL_PER_POWER,
   LAIR_LEVEL_PER_VILLAGER,
+  LAIR_LEVEL_POWER_BASE,
   LAIR_LOOT_PER_POWER,
   LAIR_POWER_BASE,
   LAIR_POWER_PER_LEVEL,
@@ -75,20 +78,39 @@ const ageShare = (rec: LairRec, now: number): number => LAIR_START + (LAIR_CAP -
 export const lairLevel = (villagers: number): number =>
   Math.max(0, LAIR_LEVEL_PER_VILLAGER * Math.max(0, villagers) + LAIR_LEVEL_BASE);
 
-/**
- * Защита новичка: доля силы набега, с которой логово выходит на город этой зрелости. Ноль —
- * набег не выходит вовсе; единица — полная сила. Сила **самого логова** от неё не зависит:
- * логово у молодого города не бутафорское, оно просто его ещё не замечает.
- */
-export const lairShield = (villagers: number): number =>
-  Math.min(1, Math.max(0, (lairLevel(villagers) - LAIR_SHIELD_FROM) / (LAIR_SHIELD_FULL - LAIR_SHIELD_FROM)));
+/** Зрелость войска в уровнях той же лестницы — из мощи всего войска (`kinds.troopPower`). */
+export const armyLevel = (armyPower: number): number =>
+  Math.max(0, LAIR_LEVEL_PER_POWER * Math.max(0, armyPower) + LAIR_LEVEL_POWER_BASE);
 
-/** Сколько жителей нужно городу, чтобы логово выходило на него долей `share` силы набега. */
-export const shieldVillagers = (share: number): number =>
-  Math.ceil(
-    (LAIR_SHIELD_FROM + (LAIR_SHIELD_FULL - LAIR_SHIELD_FROM) * Math.min(1, Math.max(0, share)) - LAIR_LEVEL_BASE) /
-      LAIR_LEVEL_PER_VILLAGER,
-  );
+/**
+ * Зрелость города для защиты слабого: жители или войско — что выше (слово владельца по 14.35, п. 6; «жители или войско —
+ * что раньше»). Хутор с сотней дубинщиков войском слаб — мощь, а не головы, — и остаётся под защитой, пока не вырастет
+ * жителями; город без войска, но с жителями, защиту теряет, как и прежде; малый город с сильным войском — тоже.
+ */
+export const cityMaturity = (villagers: number, armyPower: number): number => Math.max(lairLevel(villagers), armyLevel(armyPower));
+
+/**
+ * Защита слабого: доля силы набега, с которой логово выходит на город этой зрелости. Ноль —
+ * набег не выходит вовсе; единица — полная сила. Сила **самого логова** от неё не зависит:
+ * логово у молодого города не бутафорское, оно просто его ещё не замечает. Срока у защиты нет.
+ */
+export const lairShield = (villagers: number, armyPower: number): number =>
+  Math.min(1, Math.max(0, (cityMaturity(villagers, armyPower) - LAIR_SHIELD_FROM) / (LAIR_SHIELD_FULL - LAIR_SHIELD_FROM)));
+
+/**
+ * Слабый город: логово его не замечает вовсе (`lairShield` — ноль). Его угроза — волки (`data/events`, «Волки»; слово
+ * владельца по 14.35, п. 6); у разбойников защиты слабого нет.
+ */
+export const weakCity = (villagers: number, armyPower: number): boolean => lairShield(villagers, armyPower) <= 0;
+
+/** Уровень лестницы, на котором защита слабого отдаёт долю `share` силы набега. */
+const shieldLevel = (share: number): number => LAIR_SHIELD_FROM + (LAIR_SHIELD_FULL - LAIR_SHIELD_FROM) * Math.min(1, Math.max(0, share));
+
+/** Сколько жителей нужно городу без войска, чтобы логово выходило на него долей `share` силы набега. */
+export const shieldVillagers = (share: number): number => Math.ceil((shieldLevel(share) - LAIR_LEVEL_BASE) / LAIR_LEVEL_PER_VILLAGER);
+
+/** Сколько мощи войска нужно городу без жителей, чтобы логово выходило на него долей `share` силы набега. */
+export const shieldPower = (share: number): number => Math.ceil((shieldLevel(share) - LAIR_LEVEL_POWER_BASE) / LAIR_LEVEL_PER_POWER);
 
 /**
  * Сила логова — чистая функция от опоры, времени появления и жителей города. Опору
@@ -114,11 +136,11 @@ export function lairArmsBase(anchor: number, rec: LairRec, now: number): number 
 }
 
 /**
- * Набег на город: всё логово, умноженное на защиту новичка. Доли логова, которая уходит в
+ * Набег на город: всё логово, умноженное на защиту слабого. Доли логова, которая уходит в
  * набег, нет — при ней выросшее логово нельзя было бы сжечь вовсе (docs/lair_growth.md,
  * раздел 5). Ноль — набег не выходит.
  */
-export const lairRaid = (power: number, villagers: number): number => power * lairShield(villagers);
+export const lairRaid = (power: number, villagers: number, armyPower: number): number => power * lairShield(villagers, armyPower);
 
 /** Сколько народу в логове. Выводится из силы тем же курсом, что и везде в мире. */
 export const lairPop = (power: number): number =>

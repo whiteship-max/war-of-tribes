@@ -24,7 +24,7 @@ import { generateWorld, isLair, lairAnchor } from '@/world/gen';
 import { distance } from '@/world/geo';
 import { garrisonOf } from '@/world/garrison';
 import { resolveField } from '@/world/battle';
-import { lairArms, lairArmsBase, lairGold, lairLoot, lairPower, shieldVillagers } from '@/world/lairs';
+import { lairArms, lairArmsBase, lairGold, lairLoot, lairPower, shieldPower, shieldVillagers } from '@/world/lairs';
 import {
   AI_RANGE,
   LAIR_ANCHOR_FAR,
@@ -33,7 +33,9 @@ import {
   LAIR_ANCHOR_RANGE,
   LAIR_CAP,
   LAIR_LEVEL_BASE,
+  LAIR_LEVEL_PER_POWER,
   LAIR_LEVEL_PER_VILLAGER,
+  LAIR_LEVEL_POWER_BASE,
   LAIR_POWER_BASE,
   LAIR_POWER_PER_LEVEL,
   LAIR_RIPE,
@@ -49,7 +51,7 @@ import { createInitialState } from '@/game/state';
 import { startRecruit } from '@/game/sim/army';
 import { seeded, setRandom } from '@/game/sim/random';
 import { armyPower, armySize, buildingOfType, defense, recruitRate, taxIncomePerDay } from '@/game/derived';
-import { troopTotal } from '@/game/battle/kinds';
+import { troopPower, troopTotal } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
@@ -241,6 +243,7 @@ export async function lairGrowthSection(): Promise<void> {
   const pops: number[] = [];
   const people: number[] = [];
   const defs: number[] = [];
+  const armies: number[] = [];
   for (const l of LADDER) {
     const g = townAt(l);
     const p = playerProfile(g, awayOf([], []));
@@ -249,6 +252,7 @@ export async function lairGrowthSection(): Promise<void> {
     pops.push(p.pop);
     people.push(p.pop + troopTotal(p.army ?? {}));
     defs.push(defense(g));
+    armies.push(troopPower(p.army ?? {}));
     console.log(` ${pad(l, 7)}  ${pad(levelOf(p).toFixed(1), 20)}  ${pad(hall[hall.length - 1], 6)}  ${pad(p.pop, 7)}  ${pad(people[people.length - 1], 15)}  ${pad(Math.round(defense(g)), 7)}`);
   }
   const byLevel = fit(lv, defs);
@@ -256,17 +260,21 @@ export async function lairGrowthSection(): Promise<void> {
   const byPop = fit(pops, defs);
   const byPeople = fit(people, defs);
   const popToLevel = fit(pops, LADDER);
+  const armyToLevel = fit(armies, LADDER);
   console.log(`Оборона ≈ ${byLevel.a.toFixed(1)} × ср. уровень + ${byLevel.b.toFixed(1)}; худшее отклонение ${pct(byLevel.worst)}.`);
   console.log(`Оборона ≈ ${byHall.a.toFixed(1)} × ратуша + ${byHall.b.toFixed(1)}; худшее отклонение ${pct(byHall.worst)}.`);
   console.log(`Оборона ≈ ${byPop.a.toFixed(2)} × жителей + ${byPop.b.toFixed(1)}; худшее отклонение ${pct(byPop.worst)}.`);
   console.log(`Оборона ≈ ${byPeople.a.toFixed(2)} × людей с войском + ${byPeople.b.toFixed(1)}; худшее отклонение ${pct(byPeople.worst)}.`);
   console.log(`Жители в уровнях лестницы: L ≈ ${popToLevel.a.toFixed(4)} × жителей + ${popToLevel.b.toFixed(2)}; худшее отклонение ${pct(popToLevel.worst)}.`);
+  console.log(`Войско в уровнях лестницы: L ≈ ${armyToLevel.a.toFixed(6)} × мощи всего войска + ${armyToLevel.b.toFixed(2)}; худшее отклонение ${pct(armyToLevel.worst)}.`);
   console.log(
     `В игре (world/data/tuning.ts): LAIR_POWER_PER_LEVEL ${LAIR_POWER_PER_LEVEL}, LAIR_POWER_BASE ${LAIR_POWER_BASE}, ` +
-      `LAIR_LEVEL_PER_VILLAGER ${LAIR_LEVEL_PER_VILLAGER}, LAIR_LEVEL_BASE ${LAIR_LEVEL_BASE}; ступень LAIR_STEP ${LAIR_STEP} (временная).`,
+      `LAIR_LEVEL_PER_VILLAGER ${LAIR_LEVEL_PER_VILLAGER}, LAIR_LEVEL_BASE ${LAIR_LEVEL_BASE}, ` +
+      `LAIR_LEVEL_PER_POWER ${LAIR_LEVEL_PER_POWER}, LAIR_LEVEL_POWER_BASE ${LAIR_LEVEL_POWER_BASE}; ступень LAIR_STEP ${LAIR_STEP} (временная).`,
   );
   console.log(
-    `Защита новичка LAIR_SHIELD_FROM ${LAIR_SHIELD_FROM} → LAIR_SHIELD_FULL ${LAIR_SHIELD_FULL} уровней лестницы — это ${shieldVillagers(0)}→${shieldVillagers(1)} жителей.`,
+    `Защита слабого LAIR_SHIELD_FROM ${LAIR_SHIELD_FROM} → LAIR_SHIELD_FULL ${LAIR_SHIELD_FULL} уровней лестницы — это ${shieldVillagers(0)}→${shieldVillagers(1)} жителей ` +
+      `или ${shieldPower(0)}→${shieldPower(1)} мощи всего войска: что раньше (lairs.cityMaturity).`,
   );
 
   // Линии мерок — выведенные выше; по ним сравниваются мерки, в игре стоит одна — жители.

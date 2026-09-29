@@ -1214,7 +1214,7 @@ export type GateFoe = 'wolves' | 'raiders';
 export interface GateCall {
   id: string;
   foe: GateFoe;
-  /** Мощь пришедших в минуту ответа — доля обороны деревни (`data/events`, `foePower`). */
+  /** Мощь пришедших в минуту ответа — таблица по уровню посёлка (`data/events`, `gatePower`). */
   power: number;
   /** Сид боя — кость партии в минуту ответа: бой повторяется из партии, а не из часов мира. */
   seed: number;

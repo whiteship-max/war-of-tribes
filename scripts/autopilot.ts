@@ -75,7 +75,7 @@ import { EVENT_BY_ID } from '@/game/data/events';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID, EQUIPMENT_IDS } from '@/game/data/equipment';
-import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
 
 /**
  * Единицы отчётов на часах мира — **игровой день и шестьдесят игровых дней**, мс. Имена прежние (`MIN`,
@@ -750,7 +750,7 @@ export function openSky(g: GameState, sky: Sky, watch: Watch = {}): OpenSky {
       if (before.has(m.id) || m.own || m.targetId !== HOME_ID) continue;
       if (step.rho !== null || !step.shield) {
         const src = w.gen.settlements.find((s: GenSettlement) => s.id === m.fromId);
-        const shield = step.shield ? lairShield(pop) : 1;
+        const shield = step.shield ? lairShield(pop, troopPower(profile?.army ?? {})) : 1;
         m.power = Math.max(2, (w.powerNow(src, at) * (step.rho ?? LAIR_STEP) * shield) / LAIR_STEP);
         m.units = { warrior: Math.max(1, Math.round(m.power / 3)) };
       }

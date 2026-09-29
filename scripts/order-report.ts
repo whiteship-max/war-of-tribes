@@ -81,7 +81,7 @@ import { FATE_META } from '@/world/data/fates';
 import { stackEscort } from '@/world/data/units';
 import { AI_BONDED_SHARE, LAIR_ANCHOR_FAR, LAIR_RIPE } from '@/world/data/tuning';
 import { lairPower, lairRaid } from '@/world/lairs';
-import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { PlayerProfile, SettlementView } from '@/world/types';
 import { gameDaysPerHour } from '@/game/pace';
 import { EVENT_TTL } from '@/game/sim/mail';
@@ -544,7 +544,7 @@ console.log('');
 console.log(' ур   оборона дома   самый крупный лагерь, воинов   увёл бы до   невольников на пороге тревоги');
 for (const level of LEVELS) {
   const s = stage(level);
-  const camp = lairRaid(lairPower(LAIR_ANCHOR_FAR, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, s.pop), s.pop);
+  const camp = lairRaid(lairPower(LAIR_ANCHOR_FAR, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, s.pop), s.pop, troopPower(s.army));
   const men = Math.max(1, Math.round(camp / 3));
   const hold = Math.floor(orderBreakdown(s).hold);
   const led = lead(hold, stackEscort({ warrior: men }));

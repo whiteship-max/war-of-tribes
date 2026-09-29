@@ -10,7 +10,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { isLair, type GenSettlement } from './gen';
-import { lairRaid, lairShield, shieldVillagers } from './lairs';
+import { lairRaid, lairShield, shieldPower, shieldVillagers } from './lairs';
+import { troopPower } from '@/game/battle/kinds';
 import { SIEGE_IMMUNE } from './data/tuning';
 import { LAIRS_GREW_TEXT, WORLD_SAVE_VERSION, parseWorldSave, type StoredMarch, type WorldSave } from './local/state';
 import { applyEffects, playerProfile } from './bridge';
@@ -128,25 +129,46 @@ describe('набег — всё логово через защиту нович�
     return [...seen.values()];
   }
 
+  /** Мощь войска тестового слепка — ниже порога защиты слабого войском: зрелость здесь решают жители. */
+  const ARMY = troopPower(profile().army ?? {});
+
   it('пока логово город не замечает, набег не выходит вовсе', async () => {
     const pop = shieldVillagers(0) - 1;
     // Точка внутри области правила: защита ровно ноль, а не «мала».
-    expect(lairShield(pop)).toBe(0);
+    expect(lairShield(pop, ARMY)).toBe(0);
     for (const seed of [7, 42]) {
       expect(await raids(seed, profile({ pop }), 3), `мир ${seed}`).toEqual([]);
     }
   }, 120_000);
 
+  it('защита слабого — и жителями, и всем войском: малый город с сильным войском логово замечает, хутор с дубинщиками — нет', async () => {
+    // Слово владельца по 14.35, п. 6: защита слабого по той же лестнице и войску, без срока. Войско — всё, мощью
+    // (`kinds.troopPower`): хутор с сотней дубинщиков войском слаб и остаётся под защитой.
+    const pop = shieldVillagers(0) - 1;
+    const strong = { legionary: Math.ceil(shieldPower(0.5) / troopPower({ legionary: 1 })) };
+    const hamlet = { clubman: 124 };
+    // Граница области: жители — под защитой, сильное войско — выше порога, хутор — ниже.
+    expect(lairShield(pop, 0)).toBe(0);
+    expect(lairShield(pop, troopPower(strong))).toBeGreaterThan(0);
+    expect(lairShield(pop, troopPower(hamlet))).toBe(0);
+    let noticed = 0;
+    for (const seed of [7, 42]) {
+      noticed += (await raids(seed, profile({ pop, army: strong }), RAID_HOURS)).length;
+      expect(await raids(seed, profile({ pop, army: hamlet }), 3), `мир ${seed}: хутор с дубинщиками`).toEqual([]);
+    }
+    expect(noticed, 'малый город с сильным войском: набеги выходили').toBeGreaterThan(0);
+  }, 120_000);
+
   it('вышедший набег — вся сила логова, умноженная на защиту, и никакой доли сверх неё', async () => {
     const pop = shieldVillagers(0.5);
-    const shield = lairShield(pop);
+    const shield = lairShield(pop, ARMY);
     // Внутри области: защита уже не ноль и ещё не единица — множитель виден.
     expect(shield).toBeGreaterThan(0);
     expect(shield).toBeLessThan(1);
     let checked = 0;
     for (const seed of [7, 42]) {
       for (const r of await raids(seed, profile({ pop }), RAID_HOURS)) {
-        expect(r.power).toBeCloseTo(Math.max(2, lairRaid(r.lair, pop)), 6);
+        expect(r.power).toBeCloseTo(Math.max(2, lairRaid(r.lair, pop, ARMY)), 6);
         expect(r.power).toBeCloseTo(Math.max(2, r.lair * shield), 6);
         checked++;
       }

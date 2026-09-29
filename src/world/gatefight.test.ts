@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BattleInput, Stack } from '@/battle';
 import { createInitialState } from '@/game/state';
 import { MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
-import { EVENT_BY_ID, RAIDER_SHARE, WOLF_SHARE, foePower, gateMen } from '@/game/data/events';
+import { EVENT_BY_ID, GATE_POP, GATE_POWER, gateMen, gatePower, weakVillage } from '@/game/data/events';
 import { eventId, lapseEvent, raiseEvent, resolveEvent } from '@/game/sim/mail';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { LocalWorld } from './local/LocalWorld';
@@ -19,7 +19,10 @@ import { tribePulse, type PulseTribe } from './bridge';
 import { groundAt } from './place';
 import { menOfPower } from './garrison';
 import { distance } from './geo';
-import { shieldVillagers } from './lairs';
+import { shieldPower, shieldVillagers } from './lairs';
+import { troopPower } from '@/game/battle/kinds';
+import { DAY_LENGTH } from '@/game/constants';
+import { openSky, townAt, type Inside } from '../../scripts/autopilot';
 import type { WorldSave } from './local/state';
 import type { FigureView, GateFoe, MarchView, PlayerProfile, Report } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -131,37 +134,33 @@ describe('бой у ворот — одна дверь на набег и соб
   });
 });
 
-describe('волки и разбойники — настоящий бой на любом размере посёлка', () => {
+describe('волки и разбойники — настоящий бой', () => {
   // Наследник теста «волки и разбойники соразмерны обороне, а не числу из прошлого века» (`sim/tick.test.ts`, удалён
-  // поставкой 3): «при семи сотнях жителей стая волков не должна быть безобидной строкой лога; волки слабее обороны:
-  // почти всегда отбиваемся, но это настоящий бой». Прежний держал его даром — бой не проигрывался и не стоил людей.
-  // Точки те же — посёлки на 30 и 700 жителей, по двадцать боёв; порог — прежнее обещание, не подогнанный.
-  // КРАСНЫЙ с охвата одним правилом (docs/battle_eu4.md, 14.35, пункт 1), честно: посёлок на 30 отбивается в 15 боях из 20
-  // при пороге «больше 15» (700 — зелёный). Сила стаи здесь — доля обороны 0.55; её заменяет таблица силы у ворот и защита
-  // слабого (шаг 6 пересмотра, п. 8 слова владельца) — там тест и переписывается.
-  for (const pop of [30, 700]) {
-    it(`посёлок на ${pop}: стая бьётся ядром, отбиваемся почти всегда, но бой стоит людей`, async () => {
-      let won = 0;
-      let costlyWin = 0;
-      for (let i = 0; i < 20; i++) {
-        const f = await fightAtGate(pop, 11 + i, 'wolves');
-        // Точка внутри области: бой дошёл до ядра, стая — одной лёгкой конницей, у ворот — ополчение.
-        expect(f.input, `бой ${i} дошёл до ядра`).toBeDefined();
-        const wolves = kindsIn(f.input!.attacker);
-        expect(total(wolves), 'стая в бою').toBeGreaterThan(0);
-        expect(wolves.cavalry, 'стая — лёгкая конница, и только она').toBe(total(wolves));
-        expect(total(kindsIn(f.input!.defender)), 'у ворот стоят люди').toBeGreaterThan(0);
-        expect(f.report?.battle?.beasts, 'в записи боя — звери').toBe('attacker');
-        const ours = f.report!.battle!.result.sides.defender.total.losses;
-        if (f.effect!.battle === 'won') {
-          won++;
-          if (ours > 0) costlyWin++;
-        }
-      }
-      expect(won, `посёлок на ${pop}: почти всегда отбиваемся`).toBeGreaterThan(15);
-      expect(costlyWin, `посёлок на ${pop}: и победа стоит людей — это бой, а не строка`).toBeGreaterThan(0);
-    }, 120_000);
-  }
+  // поставкой 3): «стая волков не должна быть безобидной строкой лога; это настоящий бой».
+  //
+  // Утверждение «посёлок на 30 и на 700 жителей почти всегда отбивается» (больше 15 побед из 20) снято словом владельца по
+  // 14.35, п. 6 (docs/battle_eu4.md): сила стаи была долей нашей обороны (0.55), то есть масштабом под нашу силу, а стала
+  // таблицей по уровню посёлка — ровный бой гарнизона мерки уровня, делённый на 1.1: типичный отбивается чаще, сильный — ещё
+  // чаще, слабый — реже (тесты «сила у ворот» ниже). Посёлок из этого теста — не мерка своего уровня: у него стартовое войско
+  // при жильё на потолке, и «почти всегда» ему больше никто не обещает. Посёлок на 700 жителей логово замечает, и волки к нему
+  // не приходят вовсе (волки — угроза слабого); разбойники на 700 — тест ниже.
+  it('стая бьётся ядром у слабого посёлка, и бой стоит людей', async () => {
+    let costly = 0;
+    for (let i = 0; i < 20; i++) {
+      const f = await fightAtGate(30, 11 + i, 'wolves');
+      // Граница области: посёлок на 30 — слабый, волки к нему и приходят.
+      expect(weakVillage(f.s), 'посёлок на 30 — слабый').toBe(true);
+      // Точка внутри области: бой дошёл до ядра, стая — одной лёгкой конницей, у ворот — ополчение.
+      expect(f.input, `бой ${i} дошёл до ядра`).toBeDefined();
+      const wolves = kindsIn(f.input!.attacker);
+      expect(total(wolves), 'стая в бою').toBeGreaterThan(0);
+      expect(wolves.cavalry, 'стая — лёгкая конница, и только она').toBe(total(wolves));
+      expect(total(kindsIn(f.input!.defender)), 'у ворот стоят люди').toBeGreaterThan(0);
+      expect(f.report?.battle?.beasts, 'в записи боя — звери').toBe('attacker');
+      if (f.report!.battle!.result.sides.defender.total.losses > 0) costly++;
+    }
+    expect(costly, 'бой со стаей стоит людей — это бой, а не строка').toBeGreaterThan(0);
+  }, 120_000);
 
   it('разбойники — люди родами ядра, и бьются так же настоящим боем', async () => {
     let fought = 0;
@@ -177,14 +176,95 @@ describe('волки и разбойники — настоящий бой на 
   }, 120_000);
 });
 
+describe('сила у ворот — таблица по уровню посёлка', () => {
+  // Слово владельца по 14.35, пп. 4 и 6 (docs/battle_eu4.md): сила пришедших — таблица по уровню посёлка, для гарнизона мерки
+  // уровня ровный бой, делённый на 1.1 (`data/events.GATE_POWER`, выводит `raid-mix:report`, раздел 4б). Уровень —
+  // жители против жителей мерки (`GATE_POP`), войска в нём нет: масштаба под нашу силу нет, стать сильнее имеет смысл.
+
+  it('сила — строка таблицы на жителях мерки уровня и прямая между ними; ни войско, ни оборона её не двигают', () => {
+    // Граница области: жители мерки — все десять уровней и растут с уровнем; мерка своего уровня встречает ровно свою строку.
+    expect(GATE_POP).toHaveLength(MAX_BUILDING_LEVEL);
+    for (let l = 1; l < GATE_POP.length; l++) expect(GATE_POP[l]).toBeGreaterThan(GATE_POP[l - 1]);
+    for (let l = 1; l <= GATE_POP.length; l++) expect(townAt(l).pop, `жители мерки ${l}-го уровня`).toBe(GATE_POP[l - 1]);
+    for (const foe of ['wolves', 'raiders'] as const) {
+      const row = GATE_POWER[foe];
+      expect(row).toHaveLength(MAX_BUILDING_LEVEL);
+      for (let l = 1; l < row.length; l++) expect(row[l], `${foe}: ${l + 1}-й уровень не слабее ${l}-го`).toBeGreaterThanOrEqual(row[l - 1]);
+      for (let level = 1; level <= row.length; level++) {
+        const s = village(30, 7);
+        s.pop = GATE_POP[level - 1];
+        expect(gatePower(s, foe), `${foe}, ${level}-й уровень`).toBe(row[level - 1]);
+        if (level < row.length) {
+          s.pop = (GATE_POP[level - 1] + GATE_POP[level]) / 2;
+          expect(gatePower(s, foe), `${foe}: между ${level}-м и ${level + 1}-м — середина`).toBeCloseTo((row[level - 1] + row[level]) / 2, 6);
+          s.pop = GATE_POP[level - 1];
+        }
+        const armed = village(30, 7);
+        armed.pop = s.pop;
+        armed.army.legionary = (armed.army.legionary ?? 0) + 200;
+        armed.buildings.find((b) => b.type === 'palisade')!.level = MAX_BUILDING_LEVEL;
+        expect(gatePower(armed, foe), `${foe}, ${level}-й уровень: войско и частокол силу пришедших не двигают`).toBe(gatePower(s, foe));
+      }
+    }
+  });
+
+  it('гарнизон мерки уровня отбивается от таблицы чаще, чем проигрывает, а ослабленный — реже типичного', async () => {
+    // Мерка — посёлок `autopilot.townAt` (войско `armyAt`, всё дома, без веры), как у таблицы. Ослабленный — тот же посёлок с
+    // половиной войска: пришедшие те же (сила от жителей), бьются они с меньшим гарнизоном.
+    const SEEDS = 20;
+    for (const level of [1, 5]) {
+      for (const foe of ['wolves', 'raiders'] as const) {
+        const wins = async (half: boolean): Promise<number> => {
+          const g = townAt(level);
+          g.faith.id = null;
+          if (half) for (const id of Object.keys(g.army) as (keyof typeof g.army)[]) g.army[id] = Math.floor((g.army[id] ?? 0) / 2);
+          const sky = openSky(g, { seed: 7, pulse: 30, raids: false });
+          await sky.pulse();
+          const w: Inside = sky.world;
+          const power = gatePower(g, foe);
+          let n = 0;
+          for (let i = 1; i <= SEEDS; i++) {
+            const call = { id: `table${i}`, foe, power, seed: i * 7919 };
+            if (!w.gateField(w.gateParty(call), call.seed, w.save.home, sky.now()).field.won) n++;
+          }
+          return n;
+        };
+        const typical = await wins(false);
+        const weak = await wins(true);
+        expect(typical, `${level}-й уровень, ${foe}: мерка отбивается чаще, чем проигрывает`).toBeGreaterThan(SEEDS / 2);
+        expect(weak, `${level}-й уровень, ${foe}: ослабленный отбивается реже типичного`).toBeLessThan(typical);
+      }
+    }
+  }, 120_000);
+
+  it('волки — угроза слабого: к посёлку, который логово замечает, они не приходят; разбойники — к любому', () => {
+    const after = (s: GameState): GameState => {
+      s.time = 6 * DAY_LENGTH;
+      return s;
+    };
+    const weak = after(village(30, 7));
+    const armed = after(village(30, 7));
+    armed.army.legionary = (armed.army.legionary ?? 0) + Math.ceil(shieldPower(0) / troopPower({ legionary: 1 })) + 1;
+    const grown = after(village(700, 7));
+    // Граница области: слабый — слабый, а малый посёлок с сильным войском и посёлок на 700 жителей — нет.
+    expect(weakVillage(weak)).toBe(true);
+    expect(weakVillage(armed), 'малый посёлок с сильным войском').toBe(false);
+    expect(weakVillage(grown), 'посёлок на 700 жителей').toBe(false);
+    expect(EVENT_BY_ID.wolves.weight(weak), 'к слабому волки приходят').toBeGreaterThan(0);
+    expect(EVENT_BY_ID.wolves.weight(armed), 'к посёлку с сильным войском — нет').toBe(0);
+    expect(EVENT_BY_ID.wolves.weight(grown), 'к выросшему — нет').toBe(0);
+    for (const s of [weak, armed, grown]) expect(EVENT_BY_ID.raiders.weight(s), 'разбойники — к любому').toBeGreaterThan(0);
+  });
+});
+
 describe('что сказано — то и бьётся', () => {
   it('«Их N» в тексте события — ровно столько волков выходит на ядро', async () => {
-    const f = await fightAtGate(700, 5, 'wolves');
+    const f = await fightAtGate(30, 5, 'wolves');
     const n = Number(/Их (\d+)\./.exec(f.shown)?.[1]);
     expect(n, 'в тексте есть число').toBeGreaterThan(0);
     expect(n, 'число текста — мерой боя').toBe(menOfPower(f.call.power));
     expect(total(kindsIn(f.input!.attacker)), 'столько волков и вышло').toBe(n);
-    expect(gateMen(f.s, WOLF_SHARE), 'одна функция на текст и вызов').toBe(menOfPower(foePower(f.s, WOLF_SHARE)));
+    expect(gateMen(f.s, 'wolves'), 'одна функция на текст и вызов').toBe(menOfPower(gatePower(f.s, 'wolves')));
   }, 60_000);
 
   it('молчание — тот же бой: вызов кладётся, склад не тронут', async () => {
@@ -197,8 +277,7 @@ describe('что сказано — то и бьётся', () => {
       expect(t.s.gate.map((c) => c.foe), `${foe}: молчание положило вызов`).toEqual([foe]);
       expect(t.s.resources, `${foe}: молчание со склада не платит`).toEqual(stock);
       const call = t.s.gate[0];
-      const share = foe === 'wolves' ? WOLF_SHARE : RAIDER_SHARE;
-      expect(call.power, `${foe}: сила — доля обороны`).toBe(foePower(t.s, share));
+      expect(call.power, `${foe}: сила — таблица уровня`).toBe(gatePower(t.s, foe));
       const p = await t.pulse();
       expect(p.effects.filter((e) => e.gate === call.id), `${foe}: бой по молчанию`).toHaveLength(1);
     }
