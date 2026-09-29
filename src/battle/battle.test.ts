@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
+import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, MELEE_RATE, MORALE, PHASE_PIPS, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, splitTicks, UNIT_STATS, roundsCap } from './config';
 import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
-import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
+import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseId, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 /**
@@ -165,7 +165,7 @@ describe('превосходство по положению', () => {
   // кольцо, и оно ушло. Сомкнутость копий осталась положением — её читает характер (`TEMPER.spear`; тест «копейщики стойки,
   // пока сомкнуты, и ломки под ударом во фланг»).
 
-  it('лучники после контакта резко теряют ценность', () => {
+  it('лучники после контакта бьют через головы своих вполсилы, как вторая линия EU4', () => {
     const shooters = setupOf({ A: { infantry: 100 }, B: { infantry: 200 }, C: { infantry: 100 }, D: { archer: 60 }, E: { archer: 80 }, F: { archer: 60 } });
     const wall = deploySetup({ infantry: 600 });
     for (let seed = 1; seed <= 4; seed += 1) {
@@ -182,9 +182,11 @@ describe('превосходство по положению', () => {
       const before = r.sides.attacker.rangedBeforeContact / (clash.from - 1);
       const after = (r.sides.attacker.rangedTotal - r.sides.attacker.rangedBeforeContact - apartShots) / (retreat.to - clash.from + 1 - apartTicks);
       expect(before).toBeGreaterThan(0);
-      expect(after).toBeLessThan(before * 0.5);
+      expect(after, `сид ${seed}: после контакта — вполсилы, не больше`).toBeLessThanOrEqual(before * FIRE_AFTER_CONTACT * 1.05);
+      expect(after, `сид ${seed}: через головы бьют`).toBeGreaterThan(0);
     }
-    expect(FIRE_AFTER_CONTACT).toBeLessThan(0.5);
+    // Вторая линия EU4 бьёт половиной (слово владельца по 14.35, п. 3): прежние 0.3 были назначены без вывода.
+    expect(FIRE_AFTER_CONTACT).toBe(0.5);
   });
 });
 
@@ -420,18 +422,27 @@ describe('детерминированность', () => {
 });
 
 describe('продолжительность', () => {
-  // Границы выводятся из фаз, а не записаны числом. Нижняя — самый ранний слом: бой линий обрывается в тик слома — а если
-  // сломались раньше, идёт один тик, фаза не короче тика (минимума фазы с поставки 5 нет, 14.33), — отступление и
-  // преследование идут целиком. Самый ранний слом с минимумом
-  // боя EU4 (`BREAK_AFTER`, 14.21) — истребление: моралью раньше конца сшибки второго круга не ломается никто, а
-  // перебитую сторону минимум не держит. Верхняя — все фазы до конца.
-  // Стрельба — ровно `PHASE_TICKS.ranged` тиков на бой: темп планов, который её двигал, ушёл с планами (14.5).
-  //
-  // Бой идёт кругами всем боем (`CIRCLE_PHASES`), и границы выводятся из долей круга: нижняя — первый круг с боем
-  // линий в один тик, отход и погоня; верхняя — у каждого боя своя: все круги до потолка
-  // (`roundsCap` от глубины меньшей по ней стороны).
-  const SHORTEST =
-    circleTicks('ranged', 1) + circleTicks('approach', 1) + circleTicks('clash', 1) + 1 + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
+  // Границы выводятся из фаз, а не записаны числом. Круг — огонь и натиск, как у EU4 (14.35); сломался кто-то — круг
+  // обрывается в тик слома, в любой своей фазе, и дальше отступление и преследование целиком. Моралью раньше минимума боя EU4
+  // (`BREAK_AFTER`: две фазы огня и две натиска — два круга) не ломается никто, поэтому нижняя граница боя, кончившегося
+  // моралью, — тик после минимума, отход и погоня. Перебитую сторону минимум не держит: её бой бывает и короче. Верхняя —
+  // у каждого боя своя: все круги до потолка (`roundsCap` от глубины меньшей по ней стороны).
+  /** Тиков до конца минимума боя EU4: круги подряд, пока не прошли фазы каждого вида `BREAK_AFTER`. */
+  const MINIMUM_END = ((): number => {
+    const passed: Partial<Record<PipId, number>> = {};
+    let t = 0;
+    for (let k = 1; k <= 10; k += 1) {
+      for (const [i, p] of CIRCLE_PHASES.entries()) {
+        t += circleTicks(p, k);
+        const kind = PHASE_PIPS[p][0];
+        const next = CIRCLE_PHASES[i + 1];
+        if (kind && (!next || PHASE_PIPS[next][0] !== kind)) passed[kind] = (passed[kind] ?? 0) + 1;
+        if (Object.entries(BREAK_AFTER).every(([q, n]) => (passed[q as PipId] ?? 0) >= (n ?? 0))) return t;
+      }
+    }
+    return Infinity;
+  })();
+  const SHORTEST = MINIMUM_END + 1 + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
   const longest = (r: BattleResult): number =>
     Array.from({ length: roundsCap(depthOf(r)) + 1 }, (_, i) => circleLength(i + 1)).reduce((n, t) => n + t, 0) + PHASE_TICKS.retreat + PHASE_TICKS.pursuit;
 
@@ -441,11 +452,13 @@ describe('продолжительность', () => {
 
   it('любой бой укладывается в границы фаз, и выборка достаёт до нижней', () => {
     const battles = sampleBattles();
+    const byMorale = battles.filter((r) => r.reason === 'morale');
     // Точка выборки лежит на нижней границе: без этого тест проходил бы при любой регрессии в зазоре между выборкой и
     // настоящим пределом.
-    expect(battles.some((r) => r.ticks === SHORTEST), `ни один бой не кончился на ${SHORTEST}-м тике`).toBe(true);
+    expect(byMorale.some((r) => r.ticks === SHORTEST), `ни один бой, кончившийся моралью, не кончился на ${SHORTEST}-м тике`).toBe(true);
     for (const r of battles) {
-      expect(r.ticks).toBeGreaterThanOrEqual(SHORTEST);
+      if (r.reason === 'morale') expect(r.ticks, 'моралью — не раньше минимума боя EU4').toBeGreaterThanOrEqual(SHORTEST);
+      expect(r.ticks).toBeGreaterThan(PHASE_TICKS.retreat + PHASE_TICKS.pursuit);
       expect(r.ticks).toBeLessThanOrEqual(longest(r));
       let next = 1;
       for (const span of r.phases) {
@@ -454,13 +467,13 @@ describe('продолжительность', () => {
         next = span.to + 1;
       }
       expect(next - 1).toBe(r.ticks);
-      // Первый круг идёт в объявленном порядке; пропущенные — только между боем линий и моралью. Круги за ним —
-      // по счёту, каждый в том же порядке; целиком — все, кроме последнего: в нём кто-то сломался, и он мог
-      // пропустить обходы и резерв. Отступление и погоня — после кругов.
+      // Первый круг идёт в объявленном порядке; его хвост пропущен, только если кто-то сломался в нём. Круги за ним —
+      // по счёту, каждый в том же порядке; целиком — все, кроме последнего: в нём кто-то сломался, и он оборвался в тик
+      // слома. Отступление и погоня — после кругов.
       const first = r.phases.filter((p) => p.round === undefined);
       const order = first.map((p) => PHASES.indexOf(p.phase));
       for (let i = 1; i < order.length; i += 1) expect(order[i]).toBeGreaterThan(order[i - 1]);
-      for (const must of ['ranged', 'approach', 'clash', 'lines', 'retreat', 'pursuit']) {
+      for (const must of ['ranged', 'retreat', 'pursuit']) {
         expect(first.some((p) => p.phase === must), must).toBe(true);
       }
       const tagged = r.phases.filter((p) => p.round !== undefined);
@@ -497,21 +510,28 @@ describe('круги сечи', () => {
   }
 
   it('потолок выведен, а не выбран: столько кругов, чтобы ровному фронту хватило сечи сломать меньшую сторону одними потерями', () => {
-    // Круг — обстрел (стрельба, сближение), сшибка, сеча (бой линий); сеча — всё с первого удара. Обходы, ввод
-    // резерва и падение морали фазами больше не идут: их тики — в бою линий (`INTO_LINES`, поставка 1).
-    expect(CIRCLE_PHASES).toEqual(['ranged', 'approach', 'clash', 'lines']);
-    expect(CIRCLE_MELEE).toEqual(CIRCLE_PHASES.slice(CIRCLE_PHASES.indexOf('clash')));
-    expect(INTO_LINES).toEqual(['flanking', 'reserve', 'morale']);
-    // Длины — из прежнего боя в один проход: каждая фаза делится на три круга без остатка и без прибавки, сшибка
-    // повторяется целиком в каждом круге; дальше круги идут как третий.
+    // Круг — огонь (стрельба и сближение) и натиск (сшибка, в которую ушла сеча), как у EU4 (слово владельца по 14.35, п. 2).
+    expect(CIRCLE_PHASES).toEqual(['ranged', 'approach', 'clash']);
+    expect(CIRCLE_MELEE).toEqual(['clash']);
+    expect(CIRCLE_PHASES.map((p) => PHASE_PIPS[p][0])).toEqual(['fire', 'fire', 'shock']);
+    // Длина круга — нынешняя, из прежнего боя в один проход: прежний круг — обстрел, сближение, сшибка и бой линий с долями
+    // обходов, резерва и морали (`INTO_LINES`), каждая фаза на три круга (`BASE_CIRCLES`), сшибка целиком; огонь и натиск
+    // делят её поровну с точностью до тика, огонь — меньшая половина, из него сближение — своя доля прежнего боя.
     expect(BASE_CIRCLES).toBe(3);
-    for (const p of CIRCLE_PHASES) {
-      const first = Array.from({ length: BASE_CIRCLES }, (_, i) => circleTicks(p, i + 1)).reduce((n, t) => n + t, 0);
-      const whole = p === 'lines' ? PHASE_TICKS.lines + INTO_LINES.reduce((n, q) => n + PHASE_TICKS[q], 0) : PHASE_TICKS[p];
-      expect(first, p).toBe(p === 'clash' ? BASE_CIRCLES * PHASE_TICKS.clash : whole);
-      expect(circleTicks(p, BASE_CIRCLES + 2), `${p} после трёх кругов`).toBe(circleTicks(p, BASE_CIRCLES));
-      expect(circleTicks(p, BASE_CIRCLES), `${p}: доля не меньше единицы`).toBeGreaterThan(0);
+    expect(INTO_LINES).toEqual(['flanking', 'reserve', 'morale']);
+    const old = (k: number): number =>
+      splitTicks(PHASE_TICKS.ranged, k) + splitTicks(PHASE_TICKS.approach, k) + PHASE_TICKS.clash + splitTicks(PHASE_TICKS.lines, k) +
+      INTO_LINES.reduce((n, q) => n + splitTicks(PHASE_TICKS[q], k), 0);
+    for (let k = 1; k <= BASE_CIRCLES + 2; k += 1) {
+      expect(circleLength(k), `круг ${k}`).toBe(old(k));
+      const fire = circleTicks('ranged', k) + circleTicks('approach', k);
+      expect(fire + circleTicks('clash', k), `круг ${k}: огонь и натиск — весь круг`).toBe(circleLength(k));
+      expect(circleTicks('clash', k) - fire, `круг ${k}: поровну с точностью до тика`).toBeGreaterThanOrEqual(0);
+      expect(circleTicks('clash', k) - fire, `круг ${k}: поровну с точностью до тика`).toBeLessThanOrEqual(1);
+      expect(circleTicks('approach', k), `круг ${k}: сближение — своя доля`).toBe(splitTicks(PHASE_TICKS.approach, k));
+      for (const p of CIRCLE_PHASES) expect(circleTicks(p, k), `${p}, круг ${k}: не меньше тика`).toBeGreaterThan(0);
     }
+    expect(circleLength(BASE_CIRCLES + 2), 'после трёх кругов — как третий').toBe(circleLength(BASE_CIRCLES));
     let prev = 0;
     const melee = (circles: number): number => Array.from({ length: circles }, (_, i) => meleeTicksOf(i + 1)).reduce((n, t) => n + t, 0);
     for (const depth of [0, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12]) {
@@ -754,7 +774,7 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
     // в них сходятся, и ноль в сближении значит «разошлись», а не «никто никого не бьёт».
     expect(approaches.length, 'обстрелов круга в выборке').toBeGreaterThan(0);
     for (const r of battles) for (const side of ['attacker', 'defender'] as const) expect(r.sides[side].initial.archer).toBe(0);
-    expect(battles.flatMap((r) => roundSpans(r, 'lines')).some((p) => p.losses.attacker + p.losses.defender > 0)).toBe(true);
+    expect(battles.flatMap((r) => roundSpans(r, 'clash')).some((p) => p.losses.attacker + p.losses.defender > 0)).toBe(true);
     for (const p of approaches) expect(p.losses, `${p.phase} круга ${p.round}, тики ${p.from}–${p.to}`).toEqual({ attacker: 0, defender: 0 });
   });
 
@@ -1046,6 +1066,7 @@ describe('кость фазы', () => {
     // ЗЕЛЁНЫЙ с охвата одним правилом (14.35, пункт 1): 312 из 390, 80.0 % на том же шаге 0.0265 — тот же `oversizeHold`.
     // Шаг по-прежнему не выводится до П5; следующие шаги пересмотра (показатели родов) сдвинут долю снова.
     // КРАСНЫЙ снова с показателей родов (шаг 5): 313 из 390, 80.3 %. Шаг выводится один раз в П5 (14.24); коридор не трогается.
+    // С фазами EU4 (шаг 2 пересмотра, 14.35) — ниже коридора: число в сообщении этого теста. Коридор по-прежнему не трогается.
     // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
     // «кость сдвинула долю» проверялось бы на наборе, где сдвигать было нечего.
     expect(withDiceStep(0, () => oversizeHold()), 'без кости: все бои у большей').toBe(1);
@@ -1055,11 +1076,18 @@ describe('кость фазы', () => {
     expect(held).toBeGreaterThanOrEqual(DICE.hold - 0.02);
   }, 60_000);
 
-  it('в каждой фазе с костью — один бросок на сторону, в гранях кости; у отступления и погони кости нет', () => {
+  it('в каждой фазе EU4 — огне и натиске — один бросок на сторону, в гранях кости; у сближения своего нет, у отступления и погони кости нет', () => {
+    // Кость одна на фазу EU4 (слово владельца по 14.35, п. 2): сближение — хвост огня, и бросок стрельбы идёт через него.
+    const starts = (phase: PhaseId): boolean => {
+      const kind = PHASE_PIPS[phase][0];
+      const prev = CIRCLE_PHASES[CIRCLE_PHASES.indexOf(phase) - 1];
+      return Boolean(kind) && !(prev && PHASE_PIPS[prev][0] === kind);
+    };
+    expect(starts('approach'), 'граница: сближение — хвост огня').toBe(false);
     for (const r of [...allPairs(1).flatMap((p) => p.results), ...PURE_PAIRS.map((p) => simulateBattle({ seed: 3, attacker: p.a, defender: p.b }))]) {
       for (const span of r.phases) {
         const dice = r.log.filter((e) => e.id === 'dice' && e.phase === span.phase && e.tick >= span.from && e.tick <= span.to);
-        expect(dice.length, `${span.phase}: бросков`).toBe(PHASE_PIP[span.phase] ? 1 : 0);
+        expect(dice.length, `${span.phase}: бросков`).toBe(starts(span.phase) ? 1 : 0);
         for (const e of dice) {
           if (e.id !== 'dice') continue;
           expect(e.tick, 'бросок — в начале фазы').toBe(span.from);
@@ -1081,12 +1109,12 @@ describe('кость фазы', () => {
   function withAndWithout(pip: PipId, seed: number): { plain: BattleResult; led: BattleResult; first: number } {
     const plain = simulateBattle({ seed, attacker: deploySetup(BALANCED_ARMY), defender: deploySetup(BALANCED_ARMY) });
     const led = simulateBattle({ seed, attacker: { ...deploySetup(BALANCED_ARMY), pips: { [pip]: 3 } }, defender: deploySetup(BALANCED_ARMY) });
-    return { plain, led, first: plain.phases.findIndex((p) => PHASE_PIP[p.phase] === pip) };
+    return { plain, led, first: plain.phases.findIndex((p) => PHASE_PIPS[p.phase].includes(pip)) };
   }
 
   it('манёвр фазы не держит: без переправы бой с отметками манёвра тот же до бита', () => {
     // Фазы манёвра — обходы и ввод резерва — ушли в бой линий (поставка 1); работа манёвра — переправа (14.5).
-    expect(PHASES.filter((p) => PHASE_PIP[p] === 'maneuver')).toEqual([]);
+    expect(PHASES.filter((p) => PHASE_PIPS[p].includes('maneuver'))).toEqual([]);
     for (let seed = 1; seed <= 6; seed += 1) {
       const plain = simulateBattle({ seed, attacker: deploySetup(BALANCED_ARMY), defender: deploySetup(BALANCED_ARMY) });
       const led = simulateBattle({ seed, attacker: { ...deploySetup(BALANCED_ARMY), pips: { maneuver: 3 } }, defender: deploySetup(BALANCED_ARMY) });
@@ -1095,7 +1123,7 @@ describe('кость фазы', () => {
   });
 
   it('отметка действует только в своих фазах: до первой из них бой тот же до бита, в ней — другой', () => {
-    for (const pip of PIP_IDS.filter((p) => PHASES.some((ph) => PHASE_PIP[ph] === p))) {
+    for (const pip of PIP_IDS.filter((p) => CIRCLE_PHASES.some((ph) => PHASE_PIPS[ph].includes(p)))) {
       // Точка внутри области: фаза отметки в бою случилась и в ней кто-то погиб у обороны — иначе
       // «в ней другой» проверялось бы даром. Обходы и резерв бой вправе пропустить, поэтому сид ищется.
       let found = false;
@@ -1219,6 +1247,28 @@ describe('автоматический резерв', () => {
     }
     // Точка внутри области: резерв входил и держался — вошедший с чужой (нулевой) моралью бежал бы тут же.
     expect(checked, 'сторон, чей вошедший резерв держится к концу боя').toBeGreaterThan(0);
+  });
+
+  it('встаёт только туда, где сторона стояла: нечётный всадник не встаёт один в пустой центр', () => {
+    // Пересмотр баланса, шаг 2 (docs/battle_eu4.md, 14.35). Расстановка оставляет центр конной армии пустым, пока края не
+    // полны, и нечётный остаток краёв ждёт в резерве. Прежде резерв считал местом всю ширину ряда и на первом же тике
+    // ставил этого всадника одного в пустой центр: стрелы противника тратили на него тик, край сохранял мораль, и стая на
+    // одного волка больше проигрывала там, где меньшая брала верх (`world/gatemono.test.ts`).
+    const foe = deploySetup({ infantry: 150, archer: 50 });
+    let checked = 0;
+    for (const n of [101, 237, 239]) {
+      const setup = deploySetup({ cavalry: n });
+      // Граница области: центр при расстановке пуст, нечётный — в резерве.
+      expect(stackTotal(setup.sectors.B), `${n}: центр при расстановке`).toBe(0);
+      expect(setup.sectors.R.cavalry, `${n}: нечётный в резерве`).toBe(1);
+      for (let seed = 1; seed <= 3; seed += 1) {
+        const r = simulateBattle({ seed, attacker: setup, defender: foe });
+        const center = r.log.filter((e) => e.id === 'reserve-committed' && e.side === 'attacker' && e.sector === 'B');
+        expect(center, `${n}, сид ${seed}: резерв встал в полосу, где стороны не было`).toEqual([]);
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(9);
   });
 });
 
@@ -1392,6 +1442,26 @@ describe('мораль EU4', () => {
     expect(checked, 'сторон, сломавшихся моралью при резерве').toBeGreaterThan(0);
   });
 
+  it('одновременный слом — у обеих сторон: кто сломан, читается на начало тика, а не порядком счёта', () => {
+    // Пересмотр баланса, шаг 2 (docs/battle_eu4.md, 14.35). Прежде атакующего считали первым, и оборона в тот же тик уже
+    // «не боялась»: слом обеих решал порядок обхода в её пользу, а правило одновременного слома (`decide`: меньше
+    // сохранил — тот и отходит) не срабатывало никогда. Зеркало без кости теряет мораль одинаково с обеих сторон.
+    let checked = 0;
+    withDiceStep(0, () => {
+      for (const c of COMPOSITIONS) {
+        const army = scaleArmy(c.army, holdSize());
+        const r = simulateBattle({ seed: 1, attacker: deploySetup(army), defender: deploySetup(army) });
+        const at = (side: Side): number | undefined => r.log.find((e) => e.id === 'morale-collapsed' && e.side === side)?.tick;
+        // Граница области: зеркало кончается моралью, и атакующий ломается.
+        expect(r.reason, c.name).toBe('morale');
+        expect(at('attacker'), `${c.name}: атакующий сломался`).toBeDefined();
+        expect(at('defender'), `${c.name}: оборона ломается в тот же тик`).toBe(at('attacker'));
+        checked += 1;
+      }
+    });
+    expect(checked).toBe(COMPOSITIONS.length);
+  });
+
   it('минимум боя EU4: моралью сторона не ломается раньше двух фаз огня и двух натиска — и ломается в первый тик после', () => {
     // Слово владельца 27.09.2026 (docs/battle_eu4.md, 14.21; вики EU4: «Retreat cannot happen until both two fire and two
     // shock phases have been completed»). Фаза огня — обстрел круга, натиска — сшибка. Сектора бегут сами и резерв
@@ -1403,8 +1473,9 @@ describe('мораль EU4', () => {
       for (let k = 1; k <= 10; k += 1) {
         for (const [i, p] of CIRCLE_PHASES.entries()) {
           t += circleTicks(p, k);
-          const pip = PHASE_PIP[p];
-          if (pip && PHASE_PIP[CIRCLE_PHASES[i + 1]] !== pip) passed[pip] = (passed[pip] ?? 0) + 1;
+          const pip = PHASE_PIPS[p][0];
+          const next = CIRCLE_PHASES[i + 1];
+          if (pip && (!next || PHASE_PIPS[next][0] !== pip)) passed[pip] = (passed[pip] ?? 0) + 1;
           if (Object.entries(BREAK_AFTER).every(([q, n]) => (passed[q as PipId] ?? 0) >= (n ?? 0))) return t;
         }
       }
@@ -1521,26 +1592,23 @@ describe('мораль EU4', () => {
     }
   });
 
-  it('после слома бой линий не доигрывается: он обрывается в тик слома, а у сломавшихся раньше идёт один тик', () => {
-    // Поставка 5 (docs/battle_eu4.md, 14.33; Г13): минимума фазы больше нет. Прежде сломалась сторона — бой линий шёл ещё
-    // свою долю из 16 тиков на бой (`PHASE_MIN`): наследство боя в один проход, а после поставки 1 драться после слома
-    // некому — сломанная моралью в строю никого не держит, и тики шли пустые.
+  it('после слома круг не доигрывается: он обрывается в тик слома, в огне и в натиске, и дальше — отступление', () => {
+    // Поставка 5 (docs/battle_eu4.md, 14.33; Г13): минимума фазы больше нет — драться после слома некому, сломанная моралью в
+    // строю никого не держит. С фазами EU4 (14.35) правило то же для огня: иначе после слома в огне шли бы пустые тики до
+    // конца половины круга.
     let inside = 0;
     for (const r of sampleBattles()) {
       const b = Math.min(r.sides.attacker.brokenAt ?? Infinity, r.sides.defender.brokenAt ?? Infinity);
       if (!Number.isFinite(b)) continue;
       const at = r.phases.findIndex((p) => b >= p.from && b <= p.to);
       const span = r.phases[at];
-      if (span.phase === 'lines') {
-        // Граница области: слом пришёлся на тик, после которого у боя линий по расписанию круга ещё оставались тики.
-        if (span.from + circleTicks('lines', span.round ?? 1) - 1 > b) inside += 1;
-        expect(span.to, `бой линий ${span.from}–${span.to}: сломались на ${b}-м тике, а бой линий шёл дальше`).toBe(b);
-      } else if (CIRCLE_PHASES.includes(span.phase)) {
-        const lines = r.phases.slice(at + 1).find((p) => p.phase === 'lines');
-        if (lines) expect(lines.to - lines.from + 1, `сломались в «${span.phase}» на ${b}-м тике, а бой линий после — не один тик`).toBe(1);
-      }
+      if (!CIRCLE_PHASES.includes(span.phase)) continue;
+      // Граница области: слом пришёлся на тик, после которого у фазы по расписанию круга ещё оставались тики.
+      if (span.from + circleTicks(span.phase, span.round ?? 1) - 1 > b) inside += 1;
+      expect(span.to, `${span.phase} ${span.from}–${span.to}: сломались на ${b}-м тике, а фаза шла дальше`).toBe(b);
+      expect(r.phases[at + 1]?.phase, `после слома в «${span.phase}» — сразу отступление`).toBe('retreat');
     }
-    expect(inside, 'боёв, сломавшихся посреди боя линий').toBeGreaterThan(0);
+    expect(inside, 'боёв, сломавшихся посреди фазы').toBeGreaterThan(0);
   });
 
   it('стрелы бьют по морали одинаково весь бой: в дуэли лучников сектор бежит, потеряв долю, которую уносит его мораль', () => {

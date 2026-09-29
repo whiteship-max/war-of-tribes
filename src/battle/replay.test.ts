@@ -76,12 +76,14 @@ function asOld(r: BattleResult): BattleResult {
   const extra: BattleResult['log'] = [];
   for (const span of r.phases) {
     const len = span.to - span.from + 1;
-    if (span.phase !== 'lines' || len < 4) {
+    // Новый натиск (`clash`) — прежние сшибка, бой линий, обходы, ввод резерва и падение морали: запись до поставки 1
+    // несла их фазами (14.35: сшибка и сеча — один натиск).
+    if (span.phase !== 'clash' || len < 5) {
       phases.push(span);
       continue;
     }
-    const cut = [0, Math.floor(len / 2), Math.floor((3 * len) / 4), len - 1, len];
-    (['lines', 'flanking', 'reserve', 'morale'] as const).forEach((phase, i) => {
+    const cut = [0, Math.floor(len / 5), Math.floor(len / 2), Math.floor((3 * len) / 4), len - 1, len];
+    (['clash', 'lines', 'flanking', 'reserve', 'morale'] as const).forEach((phase, i) => {
       const from = span.from + cut[i];
       const to = span.from + cut[i + 1] - 1;
       if (to < from) return;
@@ -97,7 +99,7 @@ function asOld(r: BattleResult): BattleResult {
       if (phase === 'reserve') extra.push({ id: 'reserve-committed', side: 'defender', sector: 'B', men: 5, tick: from, phase });
     });
   }
-  const log = [...r.log.map((e) => (e.phase === 'lines' && relabel.has(e.tick) ? { ...e, phase: relabel.get(e.tick)! } : e)), ...extra].sort((a, b) => a.tick - b.tick);
+  const log = [...r.log.map((e) => (e.phase === 'clash' && relabel.has(e.tick) ? { ...e, phase: relabel.get(e.tick)! } : e)), ...extra].sort((a, b) => a.tick - b.tick);
   // Итог — последним, как у ядра.
   const result = log.filter((e) => e.id === 'result');
   return { ...r, phases, log: [...log.filter((e) => e.id !== 'result'), ...result] };
@@ -402,11 +404,11 @@ describe('время ролика', () => {
     expect(contestOf(rout)).toBeLessThan(0.1);
   });
 
-  it('шесть фаз новой записи и девять старой ложатся на четыре такта и покрывают ролик целиком', () => {
-    // Обходы, ввод резерва и падение морали фазами больше не идут (поставка 1, 14.5): новая запись несёт шесть
-    // фаз, записанная раньше — девять, и ролик обязан открывать обе.
+  it('пять фаз новой записи и девять старой ложатся на четыре такта и покрывают ролик целиком', () => {
+    // Круг — огонь и натиск, как у EU4 (14.35): новая запись несёт пять фаз — стрельба, сближение, натиск, отступление и
+    // погоня; записанная раньше — девять, и ролик обязан открывать обе.
     const fresh = evenFight();
-    for (const [record, n] of [[fresh, 6], [asOld(fresh), 9]] as const) {
+    for (const [record, n] of [[fresh, 5], [asOld(fresh), 9]] as const) {
       const cast = buildCast(record, 'attacker');
       expect(cast.acts.map((a) => a.act)).toEqual([...ACTS]);
       expect(cast.acts[0].from).toBe(0);

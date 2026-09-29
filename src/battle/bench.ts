@@ -160,21 +160,29 @@ export function withMoralePace<T>(k: number, fn: () => T): T {
 
 /**
  * Стояние (docs/battle_eu4.md, 14.25): круг со второго, в котором ни одна сторона не потеряла ни человека, пока никто не
- * сломан. В круге линии сходятся заново, и кто до кого-то дотягивается, тот бьёт; ноль потерь за круг — никто ни с кем
- * не дерётся, и дальше в бою не меняется ничего: он стоит до потолка кругов. Итог — первый такой круг (`circle`, нет —
- * `null`) и сколько кругов, где никто не сломан, проверено (`checked`): граница области для тестов — только в этих
- * кругах стояние и возможно. Один счёт на тест и на отчёт (`battle:report`, «Стояние на решётке составов»).
+ * сломан, — и за ним **следующий круг тоже проходит без слома**. В круге линии сходятся заново, и кто до кого-то
+ * дотягивается, тот бьёт; ноль потерь за круг — никто ни с кем не дерётся, и дальше в бою не меняется ничего: он стоит до
+ * потолка кругов. Круг без потерь, за которым сразу слом, — не стояние, а ожидание минимума боя EU4: сторона, у которой в
+ * строю никого, ломается в первый тик после двух фаз огня и двух натиска (`BREAK_AFTER`), и бой решён (14.35: минимум
+ * исхода не меняет, только тики). Итог — первый такой круг (`circle`, нет — `null`) и сколько кругов, где никто не сломан,
+ * проверено (`checked`): граница области для тестов — только в этих кругах стояние и возможно. Один счёт на тест и на
+ * отчёт (`battle:report`, «Стояние на решётке составов»).
  */
 export function standstill(r: BattleResult): { circle: number | null; checked: number } {
   const rounds = r.log.filter((e) => e.id === 'round').length;
+  const brokeBy = (tick: number): boolean => (['attacker', 'defender'] as const).some((side) => (r.sides[side].brokenAt ?? Infinity) <= tick);
   let checked = 0;
   for (let k = 2; k <= rounds + 1; k += 1) {
     const span = r.phases.filter((p) => p.round === k);
     if (span.length === 0) break;
     const end = span[span.length - 1].to;
-    if ((['attacker', 'defender'] as const).some((side) => (r.sides[side].brokenAt ?? Infinity) <= end)) break;
+    if (brokeBy(end)) break;
     checked += 1;
-    if (span.reduce((n, p) => n + p.losses.attacker + p.losses.defender, 0) <= 0) return { circle: k, checked };
+    if (span.reduce((n, p) => n + p.losses.attacker + p.losses.defender, 0) > 0) continue;
+    // Следующий круг: сломался кто-то в нём — это ожидание минимума, а не стояние. Следующего нет — бой кончился потолком.
+    const next = r.phases.filter((p) => p.round === k + 1);
+    if (next.length > 0 && brokeBy(next[next.length - 1].to)) continue;
+    return { circle: k, checked };
   }
   return { circle: null, checked };
 }

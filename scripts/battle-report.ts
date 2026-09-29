@@ -10,7 +10,7 @@
 // раскладки у удара нет (docs/battle_eu4.md, 14.5). Разделы о них — «Планы», «Планы на всей сетке»,
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
-import { DICE, PHASES, PHASE_PIP, RETREAT, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
+import { CIRCLE_PHASES, DICE, PHASE_PIPS, RETREAT, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
 import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
 import { FACES, FACE_SEEDS, MONO_KINDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
@@ -291,8 +291,9 @@ console.log('\n=== Кость фазы: сторона на 10% больше у�
   const all = COMPOSITIONS.length * OVERSIZE_SEEDS;
   const held = oversize.reduce((n, o) => n + o().wins, 0);
   const { derived, bare } = dice();
-  const phases = PHASES.filter((p) => PHASE_PIP[p]).length;
-  console.log(`кость: ${DICE.faces} граней на сторону в каждой из ${phases} фаз с костью (у отступления и преследования её нет), шаг ${DICE.step} на грань`);
+  // Кость одна на фазу EU4 круга — огонь и натиск (сближение — хвост огня, своего броска у него нет).
+  const phases = new Set(CIRCLE_PHASES.map((p) => PHASE_PIPS[p][0]).filter(Boolean)).size;
+  console.log(`кость: ${DICE.faces} граней на сторону в каждой из ${phases} фаз круга (огонь и натиск; у отступления и преследования её нет), шаг ${DICE.step} на грань`);
   console.log(`поле у большей, все составы «Ограничителя» разом, ${HOLD} бойцов строя: ${held}/${all} (${((100 * held) / all).toFixed(1)}%); без кости — ${Math.round(bare * all)}/${all}`);
   // В конфиг шаг записан до четырёх знаков вверх: вниз доля ушла бы выше цели.
   console.log(

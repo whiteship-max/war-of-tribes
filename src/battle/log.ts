@@ -1,7 +1,7 @@
 // Слова для журнала. Отчёт на экране — следующий шаг; здесь только то, что
 // нужно тестам и отладке: одно событие — одна строка по-русски.
-import { PHASE_PIP } from './config';
-import { PHASES, type BattleEvent, type PhaseId, type PipId, type ResultReason, type Sector, type Side } from './types';
+import { CIRCLE_PHASES, PHASE_PIPS } from './config';
+import type { BattleEvent, PhaseId, PipId, ResultReason, Sector, Side } from './types';
 
 export const SECTOR_NAME: Record<Sector, string> = {
   A: 'левый фланг',
@@ -16,7 +16,7 @@ export const SECTOR_NAME: Record<Sector, string> = {
 export const PHASE_NAME: Record<PhaseId, string> = {
   ranged: 'стрелковая фаза',
   approach: 'сближение',
-  clash: 'сшибка',
+  clash: 'натиск',
   lines: 'бой линий',
   flanking: 'обходы',
   reserve: 'ввод резерва',
@@ -27,9 +27,12 @@ export const PHASE_NAME: Record<PhaseId, string> = {
 
 export const SIDE_NAME: Record<Side, string> = { attacker: 'нападающие', defender: 'обороняющиеся' };
 
-/** В каких фазах работает отметка — словами, из `PHASE_PIP`: «стрелковая фаза и сближение». */
+/**
+ * В каких фазах круга работает отметка — словами, из `PHASE_PIPS`: «стрелковая фаза и сближение». Фазы — нынешнего круга
+ * (`CIRCLE_PHASES`): прежние фазы в таблице — для старых записей боя, а говорится о том, как бой идёт сейчас.
+ */
 export const pipPhases = (pip: PipId): string => {
-  const names = PHASES.filter((p) => PHASE_PIP[p] === pip).map((p) => PHASE_NAME[p]);
+  const names = CIRCLE_PHASES.filter((p) => PHASE_PIPS[p].includes(pip)).map((p) => PHASE_NAME[p]);
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}` : (names[0] ?? '');
 };
 

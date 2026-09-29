@@ -19,7 +19,7 @@ import {
   KIND_PROFILE,
   MELEE_RATE,
   MORALE,
-  PHASE_PIP,
+  PHASE_PIPS,
   PHASE_TICKS,
   PIP,
   PYRRHIC_BELOW,
@@ -123,6 +123,11 @@ interface SideState {
   /** Снимок `kills` на начало фазы: события считаются по приросту. */
   killsAtPhase: Kills[];
   fired: Set<string>;
+  /**
+   * Сколько мест стороны в ряду каждой полосы: сколько встало в него при расстановке плюс сколько вошло из резерва. Резерв
+   * встаёт на место убитых и бежавших (`refill`), а не в полосу, где стороны не было, — её оставила пустой расстановка.
+   */
+  held: Record<'front' | 'rear', number[]>;
 }
 
 interface Hit {
@@ -260,6 +265,9 @@ const restOf = (setup: ArmySetup): number => {
   const r = setup.rest ?? 1;
   return Number.isFinite(r) ? Math.max(0, Math.min(1, r)) : 1;
 };
+
+/** Вид фазы EU4 — огонь или натиск: первая отметка фазы (`PHASE_PIPS`); у фазы без кости — нет. */
+const eu4Phase = (phase: PhaseId | undefined): PipId | null => (phase ? (PHASE_PIPS[phase][0] ?? null) : null);
 
 /** Отметки стороны по одной фазе: неотрицательное конечное число, нет поля — ноль. */
 export const pipOf = (setup: ArmySetup, pip: PipId): number => {
@@ -400,6 +408,10 @@ class Battle {
         kills: [zeroKills(), zeroKills(), zeroKills()],
         killsAtPhase: [zeroKills(), zeroKills(), zeroKills()],
         fired: new Set(),
+        held: {
+          front: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(setup.sectors[laneSector(lane, 'front')])),
+          rear: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(setup.sectors[laneSector(lane, 'rear')])),
+        },
       };
     };
     this.sides = { attacker: make('attacker', input.attacker), defender: make('defender', input.defender) };
@@ -415,19 +427,24 @@ class Battle {
    * Кость фазы: по броску на сторону из генератора боя. Бросают обе стороны всегда, есть ли у них
    * отметки или нет: иначе поток генератора зависел бы от того, кто привёл полководца, и один и тот же
    * бой с отметкой и без неё разошёлся бы не в одной фазе, а во всех следующих.
+   *
+   * Кость одна на фазу EU4 — огонь или натиск (слово владельца по 14.35, п. 2): сближение — хвост огня, и нового броска
+   * у него нет, кость стрельбы идёт дальше. Отметки фазы — все её (`PHASE_PIPS`): в натиск идут и сшибка, и сеча.
    */
   rollDice(): void {
-    const pip = PHASE_PIP[this.phase];
-    if (!pip) {
+    const kind = eu4Phase(this.phase);
+    if (!kind) {
       this.luck = { attacker: 1, defender: 1 };
       return;
     }
+    const at = CIRCLE_PHASES.indexOf(this.phase);
+    if (at > 0 && eu4Phase(CIRCLE_PHASES[at - 1]) === kind) return;
     const rolls = { attacker: 0, defender: 0 };
     const pips = { attacker: 0, defender: 0 };
     const ground = { attacker: this.ground.attacker.faces, defender: this.ground.defender.faces };
     for (const side of SIDES) {
       rolls[side] = Math.floor(this.rng() * DICE.faces);
-      pips[side] = pipOf(this.sides[side].setup, pip);
+      pips[side] = PHASE_PIPS[this.phase].reduce((n, pip) => n + pipOf(this.sides[side].setup, pip), 0);
       // Штраф места снимает грани с каждой кости стороны на весь бой (EU4); отметки полководца — в цене отметки (`PIP`).
       this.luck[side] = luckOf(rolls[side], pips[side], ground[side]);
     }
@@ -497,11 +514,11 @@ class Battle {
   // ----- Расписание -----
 
   /**
-   * Бой — круги всем боем (docs/battle_eu4.md, разделы 3.1 и 12): обстрел, сшибка и сеча (`CIRCLE_PHASES`),
+   * Бой — круги всем боем: огонь и натиск поровну, по очереди, как у EU4 (`CIRCLE_PHASES`; слово владельца по 14.35, п. 2),
    * снова и снова, с новой костью в каждой фазе, пока кто-то не сломается, но не больше потолка (`roundsCap`
-   * от глубины меньшей по ней стороны: вся её армия к трём полосам ширины фронта). Длины фаз — доля прежнего
-   * боя в один проход на круг (`circleTicks`). Сломался кто-то — бой линий обрывается в тот же тик, и дальше отход с
-   * погоней: драться после слома некому, и минимума фазы, который доигрывал пустые тики, больше нет (поставка 5, 14.33).
+   * от глубины меньшей по ней стороны: вся её армия к трём полосам ширины фронта). Длины фаз — половины нынешнего круга
+   * (`circleTicks`). Сломался кто-то — круг обрывается в тот же тик, в огне или в натиске, и дальше отход с погоней:
+   * драться после слома некому, и минимума фазы, который доигрывал пустые тики, больше нет (поставка 5, 14.33; 14.35).
    */
   run(): BattleResult {
     const depth = Math.min(...SIDES.map((side) => this.sides[side].initialTotal / (FRONT.length * this.width)));
@@ -528,8 +545,8 @@ class Battle {
   }
 
   /**
-   * Одна фаза целиком. Правда — после боя линий кто-то сломан, и ждать в этом круге больше нечего. Бой линий обрывается
-   * в тик слома; сломался раньше — в обстреле или сшибке — бой линий идёт один тик: фаза не короче тика.
+   * Одна фаза целиком. Правда — кто-то сломан, и ждать в этом круге больше нечего: фаза круга обрывается в тик слома — в
+   * огне так же, как в натиске (драться после слома некому), и оставшиеся фазы круга не идут. Фаза не короче тика.
    */
   runPhase(phase: PhaseId, ticks: number): boolean {
     this.phase = phase;
@@ -543,8 +560,8 @@ class Battle {
     let done = 1;
     while (done < ticks) {
       const someoneBroken = this.sides.attacker.broken || this.sides.defender.broken;
-      if (someoneBroken && phase === 'lines') {
-        // Сторона сломалась — бой линий обрывается: драться некому, бежавших достаёт только погоня.
+      if (someoneBroken && CIRCLE_PHASES.includes(phase)) {
+        // Сторона сломалась — фаза круга обрывается: драться некому, бежавших достаёт только погоня.
         broke = true;
         break;
       }
@@ -564,7 +581,7 @@ class Battle {
       },
       bySector: this.lossBySector(menBefore),
     });
-    return broke || (phase === 'lines' && (this.sides.attacker.broken || this.sides.defender.broken));
+    return broke || (CIRCLE_PHASES.includes(phase) && (this.sides.attacker.broken || this.sides.defender.broken));
   }
 
   /**
@@ -642,10 +659,10 @@ class Battle {
   }
 
   onPhaseEnd(): void {
-    // Фаза отметки кончилась, когда следующая фаза круга — другой отметки: стрельба и сближение — одна фаза огня.
+    // Фаза EU4 кончилась, когда следующая фаза круга — другого вида: стрельба и сближение — одна фаза огня.
     const at = CIRCLE_PHASES.indexOf(this.phase);
-    const pip = PHASE_PIP[this.phase];
-    if (pip && at >= 0 && PHASE_PIP[CIRCLE_PHASES[at + 1]] !== pip) this.passed[pip] = (this.passed[pip] ?? 0) + 1;
+    const kind = eu4Phase(this.phase);
+    if (kind && at >= 0 && eu4Phase(CIRCLE_PHASES[at + 1]) !== kind) this.passed[kind] = (this.passed[kind] ?? 0) + 1;
     if (this.phase === 'clash' || this.phase === 'lines') {
       for (const side of SIDES) this.explainKills(side);
     }
@@ -731,9 +748,35 @@ class Battle {
     return pool;
   }
 
-  /** Сколько человек ещё может встать в строй. Меньше одного — встать некому. */
+  /**
+   * Куда резерв стороны встал бы сейчас (`refill`): места — те, что сторона в ряду держала, минус стоящие; раскладка —
+   * `setup.reinforceInto`. Нет резерва — `null`.
+   */
+  entering(side: Side): { reserve: Group[]; into: ReturnType<typeof reinforceInto> } | null {
+    const s = this.sides[side];
+    const reserve = this.reserveOf(side);
+    if (reserve.length === 0) return null;
+    const pool = this.reservePool(reserve);
+    if (stackTotal(pool) < 1) return null;
+    const cap = Number.isFinite(this.width) ? Math.floor(this.width) : Infinity;
+    const room = (row: 'front' | 'rear'): number[] =>
+      ([0, 1, 2] as Lane[]).map((lane) => {
+        const men = s.groups.reduce((n, g) => (g.lane === lane && g.row === row && alive(g) && !g.fled ? n + stackTotal(g.stack) : n), 0);
+        return Math.max(0, Math.floor(Math.min(cap, s.held[row][lane]) - men + 1e-9));
+      });
+    return { reserve, into: reinforceInto(pool, { front: room('front'), rear: room('rear') }) };
+  }
+
+  /**
+   * Сколько человек резерва встало бы в строй сейчас. Меньше одного — встать некому: резерва нет или его некуда
+   * поставить (нечётный остаток при двух открытых краях ждёт по правилу округления, а полосы, где стороны не было, резерв
+   * не занимает). Тем же счётом, каким резерв встаёт, — иначе сторона, которой встать некуда, держалась бы бойцом, который
+   * в строй не войдёт никогда, и бой стоял бы до потолка кругов.
+   */
   reserveMen(side: Side): number {
-    return stackTotal(this.reservePool(this.reserveOf(side)));
+    const e = this.entering(side);
+    if (!e) return 0;
+    return [...e.into.front, ...e.into.rear].reduce((n, st) => n + stackTotal(st), 0);
   }
 
   /**
@@ -741,23 +784,20 @@ class Battle {
    * стоит в резерве стороны: вне строя, со своей моралью, которую до ввода не теряет (14.19.4). В каждый тик он
    * встаёт в любую дыру строя — на место убитых и бежавших — без предпочтения рода, как у EU4 (`setup.reinforceInto`):
    * пешие и конные — в дыры первой линии одним потоком, в доле их в резерве; лучники — во вторую линию. Фланги за
-   * конницей — только у начальной расстановки (решение владельца по 14.21). Места —
-   * ширина ряда минус те, кто в нём стоит и не бежит. Вошедшие встают своей группой полосы — родом из резерва (`R`):
-   * их мораль — их собственная, а не тех, чьё место они заняли.
+   * конницей — только у начальной расстановки (решение владельца по 14.21). Места — те, что сторона в ряду держала
+   * (`SideState.held`: встали при расстановке и вошли из резерва, не больше ширины), минус те, кто в нём стоит и не
+   * бежит. Полосу, где стороны не было, резерв не занимает: её оставила пустой расстановка — конница идёт в центр, только
+   * когда края полны, нечётный остаток краёв ждёт, — и ввод резерва на первом же тике не переписывает её решения.
+   * Прежде места считались от ширины, и нечётный всадник вставал один в пустой центр: на нём стрелы противника тратили
+   * тик, край армии сохранял мораль, и стая на одного волка больше проигрывала там, где меньшая брала верх (14.35).
+   * Вошедшие встают своей группой полосы — родом из резерва (`R`): их мораль — их собственная, а не тех, чьё место они
+   * заняли.
    */
   refill(side: Side): void {
     const s = this.sides[side];
-    const reserve = this.reserveOf(side);
-    if (reserve.length === 0) return;
-    const pool = this.reservePool(reserve);
-    if (stackTotal(pool) < 1) return;
-    const cap = Number.isFinite(this.width) ? Math.floor(this.width) : Infinity;
-    const room = (row: 'front' | 'rear'): number[] =>
-      ([0, 1, 2] as Lane[]).map((lane) => {
-        const men = s.groups.reduce((n, g) => (g.lane === lane && g.row === row && alive(g) && !g.fled ? n + stackTotal(g.stack) : n), 0);
-        return Math.max(0, Math.floor(cap - men + 1e-9));
-      });
-    const into = reinforceInto(pool, { front: room('front'), rear: room('rear') });
+    const e = this.entering(side);
+    if (!e) return;
+    const { reserve, into } = e;
     for (const row of ['front', 'rear'] as const) {
       into[row].forEach((moved, lane) => {
         const men = stackTotal(moved);
@@ -784,6 +824,7 @@ class Battle {
           s.groups.push(newGroup(side, s.setup, 'R', moved, lane as Lane, row, { morale: fresh }));
         }
         this.entered[side][lane] += men;
+        s.held[row][lane] += men;
       });
     }
   }
@@ -1174,12 +1215,17 @@ class Battle {
    * Мораль по секторам: потери сектора и удар с фланга. Сектор с нулевой моралью бежит с поля. Бегство соседа мораль
    * не трогает (14.21). Сторона сломана, когда в строю никого нет и встать некому — резерв исчерпан (мораль EU4,
    * docs/battle_eu4.md, 14.15), но не раньше минимума боя (`mayRetreat`), — или перебита: этого минимум не держит.
+   *
+   * Обе стороны теряют мораль тика одновременно: кто сломан, читается на начало тика. Иначе сторона, которую счёт
+   * обходит первой, ломалась бы, а вторая в тот же тик уже «не боялась бы» — и одновременный слом решал бы порядок
+   * обхода в пользу обороны, а не правило одновременного слома (`decide`: меньше сохранил — тот и отходит).
    */
   updateMorale(): void {
+    const brokenAtStart: Record<Side, boolean> = { attacker: this.sides.attacker.broken, defender: this.sides.defender.broken };
     for (const side of SIDES) {
       const s = this.sides[side];
       // Противник сломался — своим больше нечего бояться: мораль не падает.
-      const enemyBroken = this.sides[other(side)].broken && !s.broken;
+      const enemyBroken = brokenAtStart[other(side)] && !brokenAtStart[side];
       const toBreak: Group[] = [];
       for (const g of s.groups) {
         if (!alive(g) || g.fled || enemyBroken) continue;
