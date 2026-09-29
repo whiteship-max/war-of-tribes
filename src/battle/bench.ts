@@ -129,10 +129,13 @@ export function oversizeOf(of: Partial<Stack>, seeds = OVERSIZE_SEEDS, total = A
  */
 export const holdSize = (): number => ARMY_AT_W;
 
-/** Доля боёв «Ограничителя» в `total` бойцов, где большая сторона удержала поле, — по всем составам разом. */
-export function oversizeHold(seeds = OVERSIZE_SEEDS, total = holdSize()): number {
+/**
+ * Доля боёв «Ограничителя» в `total` бойцов, где большая сторона удержала поле, — по всем составам разом. `width` — ширина
+ * фронта боя; нет — ширина конфига.
+ */
+export function oversizeHold(seeds = OVERSIZE_SEEDS, total = holdSize(), width?: number): number {
   let wins = 0;
-  for (let i = 0; i < COMPOSITIONS.length; i += 1) wins += oversize(i, seeds, total).wins;
+  for (let i = 0; i < COMPOSITIONS.length; i += 1) wins += oversize(i, seeds, total, width).wins;
   return wins / (COMPOSITIONS.length * seeds);
 }
 
@@ -221,13 +224,15 @@ export function edgeBattles(step: number, from: number, to: number, seeds: numbe
  * Наименьшая величина кости, при которой большая на 10 % удерживает поле не чаще `hold`: делением
  * отрезка. Доля убывает с величиной кости — чем сильнее удача, тем чаще меньшая устоит. Отрезок
  * `hi` взят с запасом: при нём удача разбрасывает урон фазы на ±45 %, дальше кость решала бы всё.
- * Меряется там, где держится доля владельца (`holdSize`): на размере W.
+ * Меряется там, где держится доля владельца (`holdSize`): на размере W. `width` — ширина фронта боя: вывод на ширине, которой
+ * ещё нет в конфиге (`raid-hiring:report`, «Ширина поля»: W и шаг выводятся вместе, П5), зовёт размер `armyAt(W)` и эту
+ * ширину; нет — ширина конфига.
  */
-export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12, total = holdSize()): number {
+export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12, total = holdSize(), width?: number): number {
   let lo = 0;
   for (let i = 0; i < steps; i += 1) {
     const mid = (lo + hi) / 2;
-    if (withDiceStep(mid, () => oversizeHold(OVERSIZE_SEEDS, total)) > hold) lo = mid;
+    if (withDiceStep(mid, () => oversizeHold(OVERSIZE_SEEDS, total, width)) > hold) lo = mid;
     else hi = mid;
   }
   return hi;
@@ -438,7 +443,8 @@ export const BALANCED_ARMY: Partial<Stack> = { spear: 150, infantry: 200, archer
  * `FRONT_WIDTH` — медианный бой игры, по которому ширина и выведена. Выведено из правила, а не выбрано:
  * фронт полосы без ширины (`openFront`) растёт с армией линейно, и W он достигает при этой численности.
  */
-export const ARMY_AT_W = Math.round((ARMY_SIZE * FRONT_WIDTH) / openFront(BALANCED_ARMY));
+export const armyAt = (width: number): number => Math.round((ARMY_SIZE * width) / openFront(BALANCED_ARMY));
+export const ARMY_AT_W = armyAt(FRONT_WIDTH);
 
 /**
  * Три размера ограничителя: ниже ширины, на ней и вдвое выше. Доля владельца (80 %) держится на
