@@ -53,7 +53,7 @@
  */
 import { createServer as createVite, type Plugin } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
-import { launchChrome, sleep, Tab } from './lib/chrome';
+import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SLIP, TAP_TARGET, WHEEL_STEP } from '../src/gestures';
 import { pickBox, type HitBox } from '../src/render/pick';
 import { WALL_RADIUS } from '../src/render/plan';
@@ -403,7 +403,7 @@ async function main(): Promise<void> {
 }
 
 async function report(): Promise<void> {
-  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT));
   await tab.send('Emulation.setDeviceMetricsOverride', {
     width: WIDTH,
     height: HEIGHT,

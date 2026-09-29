@@ -7,7 +7,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { awayNow, DPR_CAP, FPS_CAP, FrameLoop, pace, pixelRatio, setAppAsleep } from './loop';
+import { awayNow, capFrom, DPR_CAP, FPS_CAP, FrameLoop, pace, pixelRatio, setAppAsleep } from './loop';
 
 /**
  * Поддельные часы: кадр случается только тогда, когда его позовут. Каждый кадр
@@ -313,6 +313,28 @@ describe('цепочка кадров держит потолок', () => {
     loop.stop();
     expect(ticks).toBeGreaterThanOrEqual(599);
     expect(ticks).toBeLessThanOrEqual(601);
+  });
+
+  it('потолок отчёта опускает частоту цепочки: на экране 60 Гц при потолке 30 — ровно тридцать', () => {
+    // Бюджет железа: страницы отчётов приёмки рисуют с потолком отчёта (`scripts/lib/budget.REPORT_FPS`), и цепочка
+    // обязана слушаться потолка своих часов. Точка внутри области правила: экран быстрее потолка отчёта, иначе
+    // тридцать вышло бы и без него.
+    const clock = Object.assign(new FakeClock(60), { cap: 30 });
+    let ticks = 0;
+    const loop = new FrameLoop<never>(() => void ticks++, undefined, clock);
+    loop.restart();
+    clock.run(60 * 10);
+    loop.stop();
+    expect(ticks).toBeGreaterThanOrEqual(299);
+    expect(ticks).toBeLessThanOrEqual(301);
+  });
+
+  it('адрес потолок только опускает: выше шестидесяти его не поднять, мусор не значит ничего', () => {
+    expect(capFrom('?probe=1&fpscap=30')).toBe(30);
+    expect(capFrom('?fpscap=240')).toBe(FPS_CAP);
+    expect(capFrom('?fpscap=0')).toBe(FPS_CAP);
+    expect(capFrom('?fpscap=abc')).toBe(FPS_CAP);
+    expect(capFrom('')).toBe(FPS_CAP);
   });
 
   it('дверь будит только заведённые цепочки', () => {

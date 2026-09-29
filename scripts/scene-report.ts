@@ -33,7 +33,8 @@ import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
-import { launchChrome, sleep, Tab } from './lib/chrome';
+import { REPORT_DPR } from './lib/budget';
+import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { measure as live } from './lib/measured';
 import { generateWorld } from '../src/world/gen';
 
@@ -143,6 +144,8 @@ async function run(): Promise<Probe> {
     '--enable-precise-memory-info',
     '--js-flags=--expose-gc',
     '--window-size=390,844',
+    // Плотность отчёта — бюджет железа (`budget.REPORT_DPR`): этот отчёт меряет ожидание, а не картинку.
+    `--force-device-scale-factor=${REPORT_DPR}`,
     '--use-gl=angle',
   ]);
   try {
@@ -154,7 +157,7 @@ async function run(): Promise<Probe> {
 }
 
 async function measure(): Promise<Probe> {
-  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT));
   // Первый вход на карту бывает раз за сессию: сохранение и мир чистим, иначе
   // мерили бы вторую попытку.
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');

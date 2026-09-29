@@ -13,10 +13,12 @@
  * зависел бы от того, что считалось до него в том же процессе, здесь разошёлся бы с прежним
  * выводом — и это находка, а не шум: полная приёмка сравнивает вывод с базой.
  *
- * СКОЛЬКО ПРОЦЕССОВ — `TRIBE_FAN`, а без него — две трети ядер (`budget.ts`, бюджет железа: машина
+ * СКОЛЬКО ПРОЦЕССОВ — `TRIBE_FAN`, а без него — бюджет ядер (`budget.ts`, бюджет железа: машина
  * владельца — не сервер, и прогон не занимает её целиком). `TRIBE_FAN=1` — прежний путь:
  * задачи идут в этом же процессе подряд, без единого дочернего. Под приёмкой ядра делят все отчёты
  * вместе: на каждый дочерний процесс берётся жетон (`slots.ts`), и отдаётся он, когда процесс вышел.
+ * Свой жетон держит и главный процесс отчёта, пока считает сам, — на время веера он его отдаёт
+ * (`own` ниже): в главном процессе идут все разделы, не отданные вееру.
  *
  * ДОЧЕРНИЙ ПРОЦЕСС — тот же vite-node, запущенный на модуле, где лежат задачи. Модуль называет
  * свои задачи сам (`serveFan` в его конце): имя, по которому их спрашивает веер, и функция стоят
@@ -32,11 +34,11 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { budgetCores } from './budget';
-import { takeSlot } from './slots';
+import { takeSlot, type Slot } from './slots';
 
 type Task = (arg: never) => unknown;
 
-/** Сколько процессов берёт веер: `TRIBE_FAN`, а без него — две трети ядер (бюджет железа). */
+/** Сколько процессов берёт веер: `TRIBE_FAN`, а без него — бюджет ядер (бюджет железа). */
 export function fanWidth(env: NodeJS.ProcessEnv = process.env): number {
   const n = Math.floor(Number(env.TRIBE_FAN));
   return n >= 1 ? Math.min(n, budgetCores()) : budgetCores();
@@ -53,9 +55,18 @@ type Reply = { i: number; ok: true; value: unknown } | { i: number; ok: false; e
 /** Переменная, по которой модуль задач узнаёт, что он — дочерний процесс веера. */
 const CHILD = 'TRIBE_FAN_CHILD';
 
+/**
+ * Свой жетон главного процесса отчёта с веером (бюджет железа, 29.09.2026). Разделы, не отданные вееру, главный процесс
+ * считает сам, и под приёмкой он берёт на это жетон, как любой счётный отчёт, — с первой строки отчёта: модуль веера
+ * ждёт жетона раньше, чем выполнится код отчёта. На время веера жетон отдаётся (`fan`), иначе дочерние стояли бы в
+ * очереди за ним, а при бюджете меньше числа таких отчётов веер не пошёл бы вовсе. Без приёмки жетонов нет, и здесь
+ * `null`; у дочернего процесса веера свой жетон берёт родитель.
+ */
+let own: Slot | null = process.env[CHILD] ? null : await takeSlot();
+
 const same = (a: string, b: string): boolean => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
-function viteNode(): string {
+export function viteNode(): string {
   const pkg = createRequire(import.meta.url).resolve('vite-node/package.json');
   return path.join(path.dirname(pkg), 'vite-node.mjs');
 }
@@ -147,7 +158,14 @@ export async function fan<A, R>(task: (arg: A) => R | Promise<R>, where: string,
         resolve();
       });
     });
-  await Promise.all(Array.from({ length: width }, run));
+  // Свой жетон — дочерним: пока идёт веер, главный процесс ждёт и не считает.
+  own?.release();
+  own = null;
+  try {
+    await Promise.all(Array.from({ length: width }, run));
+  } finally {
+    own = await takeSlot();
+  }
   if (failed) throw failed;
   if (next < args.length) throw new Error(`веер: ${task.name} — роздано ${next} задач из ${args.length}`);
   return out;

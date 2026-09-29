@@ -174,12 +174,27 @@ export interface LoopClock {
   caf: Caf;
   /** Кадров не должно быть: страница скрыта или аппка свёрнута. */
   away: () => boolean;
+  /** Потолок частоты этой цепочки; без него — `FPS_CAP`. */
+  cap?: number;
+}
+
+/**
+ * Потолок, который задаёт адрес страницы: `?fpscap=N` его **опускает**, поднять выше
+ * `FPS_CAP` нельзя ничем. Это бюджет железа, а не игровое число (решение владельца,
+ * 29.09.2026): страницы отчётов приёмки (`tap`, `scene`, `revive`) рисуют с потолком
+ * отчёта — число и то, кому нужно больше и почему, записаны в одном месте,
+ * `scripts/lib/budget.ts` (`REPORT_FPS`). Игроку адрес не достаётся: без него потолок прежний.
+ */
+export function capFrom(search: string): number {
+  const asked = Math.floor(Number(new URLSearchParams(search).get('fpscap')));
+  return asked >= 1 ? Math.min(FPS_CAP, asked) : FPS_CAP;
 }
 
 const browserClock = (): LoopClock => ({
   raf: (cb) => requestAnimationFrame(cb),
   caf: (id) => cancelAnimationFrame(id),
   away: awayNow,
+  cap: typeof location === 'undefined' ? FPS_CAP : capFrom(location.search),
 });
 
 /**
@@ -313,7 +328,7 @@ export class FrameLoop<B extends string> {
     // Причину могли поставить между заявкой и кадром — тогда кадра не будет.
     if (this.blocks.size > 0) return;
     const away = this.clock.away();
-    const paced = pace(this.next, now, away);
+    const paced = pace(this.next, now, away, this.clock.cap ?? FPS_CAP);
     this.next = paced.next;
     // Скрылись, а события не было: цепочка встаёт до возвращения.
     if (away) {

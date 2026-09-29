@@ -24,7 +24,7 @@ import { owners, plan, type Owner, type Plan } from './lib/affected';
 import { measure, shifts, stableLines } from './lib/measured';
 import { closureKey, lastSeconds, load, runTraced, save, unexplained } from './lib/runs';
 import { serveSlots, takeSlot } from './lib/slots';
-import { budgetCores, coolDown, refuseIfBusy } from './lib/budget';
+import { budgetCores, coolDown, waitUntilFree } from './lib/budget';
 import { ROOT, changedSince, lines, own, setupOf } from './lib/setup';
 import { commitTree, git, worktree, type Tree } from './lib/tree';
 
@@ -175,9 +175,10 @@ async function main(): Promise<void> {
     }
   }
 
-  // Бюджет железа (CLAUDE.md): приёмка — прогон, и прогоны идут по одному. Чужой прогон отчётов,
-  // тестов или стендовый браузер на машине — приёмка не начинается, ни база, ни своё.
-  refuseIfBusy('Приёмка отчётами');
+  // Бюджет железа (CLAUDE.md): приёмка — прогон, и прогоны идут по одному и только на свободной машине. Чужой рендер,
+  // ffmpeg, сборка, прогон отчётов или тестов, стендовый браузер или чужая загрузка выше четверти машины — приёмка ждёт,
+  // а не начинается и не падает (решение владельца, 29.09.2026): ни база, ни своё.
+  await waitUntilFree('Приёмка отчётами', { load: true });
 
   // Вывод «до» ищется под отпечатком замыкания отчёта на базе.
   let baseKeys = new Map<string, string>();
@@ -262,10 +263,13 @@ async function main(): Promise<void> {
   // замеры в ‹…›, но и то, успел ли палец. Счётные идут разом: выводы их — функция кода и сида, и нагрузка их не
   // трогает (проверено приёмкой: вывод совпал с последовательным). Ядра делит один счётчик жетонов (`lib/slots.ts`):
   // жетон берёт каждый счётный отчёт без веера и каждый дочерний процесс веера; у отчёта с веером
-  // (`lib/fan.ts` в замыкании) главный процесс почти всё время ждёт своих дочерних и жетона не держит — такие
-  // начинаются все сразу, и их дочерние встают в общую очередь жетонов. Тяжёлые — первыми: хвост приёмки — самый
-  // долгий отчёт. Сколько ядер в среднем было занято, итог печатает замером. Ядер у жетонов — две трети машины
-  // (`lib/budget.ts`, бюджет железа): машина владельца — не сервер, и прогон не занимает её целиком.
+  // (`lib/fan.ts` в замыкании) главный процесс берёт свой жетон сам, пока считает сам, и отдаёт его на время веера —
+  // такие начинаются все сразу, и в общую очередь жетонов встают и они, и их дочерние; мимо жетонов не считает никто.
+  // Тяжёлые — первыми: хвост приёмки — самый долгий отчёт. Сколько ядер в среднем было занято, итог печатает замером.
+  // Ядер у жетонов — половина машины (`lib/budget.ts`, бюджет железа): машина владельца — не сервер, и прогон не
+  // занимает её целиком. Пока идёт
+  // приёмка, чужая тяжёлая работа могла начаться рядом: новый отчёт перед стартом ждёт, пока она кончится
+  // (`nextFree`), — начатые идут до конца.
   const cores = availableParallelism();
   const width = budgetCores(cores);
   const browser = (o: Owner): boolean => o.closure.files.has(setup.vite.html);
@@ -274,11 +278,24 @@ async function main(): Promise<void> {
   const counting = selected.filter((o) => !browser(o)).sort((a, b) => cost.get(b.name)! - cost.get(a.name)!);
   const slots = await serveSlots(width);
   const env = { ...slots.env, TRIBE_FAN: String(width) };
+  // Одна проверка на всех, не чаще раза в полминуты: список процессов стоит секунды процессора.
+  let checked = -Infinity;
+  let checking: Promise<void> | null = null;
+  const nextFree = async (): Promise<void> => {
+    if (performance.now() - checked < 30_000) return;
+    checking ??= waitUntilFree('Следующий отчёт приёмки').then(() => {
+      checked = performance.now();
+      checking = null;
+    });
+    await checking;
+  };
   const pool = async (list: Owner[], width: number, token: boolean): Promise<void> => {
     let i = 0;
     await Promise.all(
       Array.from({ length: Math.min(width, list.length) }, async () => {
         while (i < list.length) {
+          await nextFree();
+          if (i >= list.length) break;
           const o = list[i++];
           const slot = token ? await takeSlot(slots.env) : null;
           try {
@@ -298,10 +315,12 @@ async function main(): Promise<void> {
     if (counting.length > 0) busy = `счётные ${measure(`${Math.round((performance.now() - countingFrom) / 1000)} с`)}, заняты в среднем ${measure(slots.busy().toFixed(1))} ядра из ${width}; `;
     await slots.close();
   }
-  // Браузерные — тяжёлые: строго по одному, и перед каждым пауза (бюджет железа). Двухминутный потолок
-  // стенда сцены к ним не относится: штатный отчёт идёт столько, сколько идёт.
+  // Браузерные — тяжёлые: строго по одному, и перед каждым пауза и проверка свободной машины (бюджет железа).
+  // Двухминутный потолок стенда сцены к ним не относится: штатный отчёт идёт столько, сколько идёт.
   for (const [i, o] of selected.filter(browser).entries()) {
     if (i > 0 || counting.length > 0) await coolDown(o.name);
+    // Свои счётные кончились — машина обязана быть свободной и по загрузке: браузерные меряют настоящим временем.
+    await waitUntilFree(o.name, { load: true });
     await job(o, false, { TRIBE_FAN: '1' });
   }
   const order = selected.map((o) => o.name);

@@ -42,7 +42,7 @@
  */
 import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
-import { launchChrome, sleep, Tab } from './lib/chrome';
+import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { measure as live } from './lib/measured';
 import { realSeconds } from '../src/game/pace';
 import { RESTORE_WAIT } from '../src/render/Scene';
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
 }
 
 async function report(): Promise<void> {
-  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT));
   await tab.send('Emulation.setDeviceMetricsOverride', {
     width: WIDTH,
     height: HEIGHT,

@@ -413,6 +413,7 @@ const FEATURE_MIN = 2;
 const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
 
 async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]; flown: Flight[] }> {
+  // Без потолка кадров отчёта (`budget.REPORT_FPS`): этот отчёт меряет цену кадра карты на потолке самой игры.
   const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');

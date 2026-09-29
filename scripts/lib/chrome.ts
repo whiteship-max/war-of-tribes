@@ -11,9 +11,16 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { UNCAPPED, refuseIfBusy } from './budget';
+import { REPORT_FPS, UNCAPPED, waitUntilFree } from './budget';
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Адрес игры для отчёта: щуп (`?probe=1`, `src/debug.ts`) и потолок кадров отчёта (`?fpscap=`, `budget.REPORT_FPS` —
+ * бюджет железа; игра его только опускает, `render/loop.capFrom`). Отчёт, которому нужна частота самой игры, берёт
+ * адрес без потолка и говорит почему — так делает `map`, он меряет цену кадра.
+ */
+export const reportPage = (port: number, query = ''): string => `http://127.0.0.1:${port}/?probe=1&fpscap=${REPORT_FPS}${query}`;
 
 /** Где лежит Chrome. Не нашёлся — путь задаётся переменной CHROME. */
 export function chromePath(): string {
@@ -36,10 +43,12 @@ export function chromePath(): string {
  * `HEAD=1` показывает окно — иногда надо посмотреть глазами, что там творится.
  */
 export async function launchChrome(port: number, args: string[] = []): Promise<ChildProcess> {
-  // Бюджет железа (CLAUDE.md): стендовый браузер — только с потолком кадров и только один.
+  // Бюджет железа (CLAUDE.md): стендовый браузер — только с потолком кадров и только один. Чужой рядом — ждём, пока
+  // он кончится, а не падаем: отказ посреди приёмки стоил бы ей отчёта (так `scene` и `revive` отказались рядом с
+  // чужим рендером 29.09.2026).
   const uncapped = args.filter((a) => UNCAPPED.includes(a));
   if (uncapped.length) throw new Error(`флаги ${uncapped.join(' ')} снимают потолок кадров — запрещено правилом бюджета железа`);
-  refuseIfBusy('Стендовый браузер', { runs: false });
+  await waitUntilFree('Стендовый браузер', { runs: false, inReport: true });
   const profile = join(process.env.TEMP ?? '/tmp', `tribe-chrome-${port}-${Date.now()}`);
   const chrome = spawn(
     chromePath(),
