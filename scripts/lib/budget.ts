@@ -222,10 +222,23 @@ export function refuseIfBusy(what: string, options?: { browsers?: boolean; runs?
 }
 
 /**
+ * Что сказать об ожидании: что ждёт, чем занята машина и — только если держит чужой процесс — что висящий от
+ * прерванного прогона снимают руками. Держит одна загрузка машины (`load`) — снимать нечего, и совета нет: прежде он
+ * печатался и тогда (docs/battle_eu4.md, 14.35).
+ */
+export function busyWords(what: string, runs: readonly string[], load: string | null): string[] {
+  const lines = [`${what} ждёт — бюджет железа (CLAUDE.md): прогоны только на свободной машине, а на ней идёт:`];
+  for (const b of runs) lines.push(`  ${b}`);
+  if (load) lines.push(`  ${load}`);
+  if (runs.length > 0) lines.push('  Висит от прерванного прогона — сними его руками.');
+  return lines;
+}
+
+/**
  * Ждать, пока машина освободится, — для приёмки и её отчётов: занятая машина значит «подождать», а не
  * «упасть» (решение владельца, 29.09.2026). Свободна — когда нет чужой тяжёлой работы (`foreignRuns`) и,
- * если спросили, чужая загрузка ниже `FREE_LOAD`. Об ожидании говорит строкой сразу и раз в пять минут;
- * висящий процесс от прерванного прогона снимают руками.
+ * если спросили, чужая загрузка ниже `FREE_LOAD`. Об ожидании говорит строкой сразу и раз в пять минут
+ * (`busyWords`); висящий процесс от прерванного прогона снимают руками.
  *
  * Внутри отчёта (`inReport`) об ожидании говорят замером: это состояние машины, а не свойство кода, и в
  * сверку с базой оно не идёт — строка из одних замеров пропускается (`measured.ts`); иначе ожидание было
@@ -239,20 +252,19 @@ export async function waitUntilFree(
   let said = -Infinity;
   const started = Date.now();
   for (;;) {
-    const busy = foreignRuns(options);
-    if (busy.length === 0 && options.load) {
-      const load = await machineLoad();
-      if (load >= FREE_LOAD) busy.push(`машина занята на ${Math.round(load * 100)} % (свободна — ниже ${Math.round(FREE_LOAD * 100)} %)`);
+    const runs = foreignRuns(options);
+    let load: string | null = null;
+    if (runs.length === 0 && options.load) {
+      const share = await machineLoad();
+      if (share >= FREE_LOAD) load = `машина занята на ${Math.round(share * 100)} % (свободна — ниже ${Math.round(FREE_LOAD * 100)} %)`;
     }
-    if (busy.length === 0) {
+    if (runs.length === 0 && load === null) {
       if (said > -Infinity) say(`  машина свободна через ${Math.round((Date.now() - started) / 1000)} с — ${what}`);
       return;
     }
     if (Date.now() - said >= FREE_SAY_MS) {
       said = Date.now();
-      say(`${what} ждёт — бюджет железа (CLAUDE.md): прогоны только на свободной машине, а на ней идёт:`);
-      for (const b of busy) say(`  ${b}`);
-      say('  Висит от прерванного прогона — сними его руками.');
+      for (const line of busyWords(what, runs, load)) say(line);
     }
     await new Promise((r) => setTimeout(r, FREE_POLL_MS));
   }

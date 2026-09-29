@@ -7,7 +7,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { BROWSER_MAX_MS, CORE_SHARE, FREE_LOAD, HEAVY_PAUSE_MS, REPORT_DPR, REPORT_FPS, UNCAPPED, budgetCores, foreignRuns, heavyWork } from './budget';
+import { BROWSER_MAX_MS, CORE_SHARE, FREE_LOAD, HEAVY_PAUSE_MS, REPORT_DPR, REPORT_FPS, UNCAPPED, budgetCores, busyWords, foreignRuns, heavyWork } from './budget';
 import { FPS_CAP } from '../../src/render/loop';
 
 const ROOT = join(__dirname, '..', '..');
@@ -117,6 +117,18 @@ describe('браузер', () => {
       child.kill();
     }
   }, 30_000);
+
+  it('«сними руками» — только когда машину держит чужой процесс, а не одна её загрузка', () => {
+    // Снять руками можно процесс, висящий от прерванного прогона; загрузку машины снимать нечем, и совет там — неправда
+    // (docs/battle_eu4.md, 14.35). Граница области: ожидание есть в обоих случаях — строка «ждёт» печатается.
+    const hint = /сними его руками/;
+    const byLoad = busyWords('Приёмка', [], 'машина занята на 40 % (свободна — ниже 25 %)');
+    expect(byLoad[0], 'ожидание есть').toMatch(/ждёт/);
+    expect(byLoad.some((l) => hint.test(l)), 'держит одна загрузка — совета нет').toBe(false);
+    const byRun = busyWords('Приёмка', ['ffmpeg 7 — рендер видео'], null);
+    expect(byRun[0], 'ожидание есть').toMatch(/ждёт/);
+    expect(byRun.some((l) => hint.test(l)), 'держит чужой процесс — совет есть').toBe(true);
+  });
 
   it('прогон стенда сцены — не дольше двух минут подряд', () => {
     expect(BROWSER_MAX_MS).toBe(2 * 60_000);
