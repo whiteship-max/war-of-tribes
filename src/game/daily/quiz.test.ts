@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { COUNTER, describeEvent, simulateBattle, stackTotal, type BattleResult, type EventId } from '@/battle';
+import { KIND_PROFILE, describeEvent, simulateBattle, stackTotal, type BattleResult, type EventId } from '@/battle';
 import { KIND_OF, kindsOf, type TroopStack } from '../battle/kinds';
 import { TROOP_IDS } from '../data/troops';
 import { dailySeed } from '../data/daily';
@@ -118,32 +118,26 @@ describe('викторина «Кто победит»: ответ считае�
   });
 
   /**
-   * Ответ вычисляется, а не записан. Проверяется прямой подменой числа в кольце
-   * контрров: `COUNTER` — обычный объект, а `sim.ts` читает его в момент боя, а
-   * не запекает при загрузке модуля. Перевернём два угла кольца — и часть дней
-   * обязана ответить иначе. Если бы ответы лежали таблицей, не изменилось бы
-   * ничего, и игрок после правки баланса учился бы неправде.
+   * Ответ вычисляется, а не записан. Проверяется прямой подменой показателей родов: `KIND_PROFILE` — обычный объект, а
+   * `sim.ts` читает его в момент боя, а не запекает при загрузке модуля. Перевернём натиск — копья и лёгкая конница
+   * меняются местами, — и часть дней обязана ответить иначе. Если бы ответы лежали таблицей, не изменилось бы ничего, и
+   * игрок после правки баланса учился бы неправде. Прежде тест подменял кольцо контрров (`COUNTER`) — его с пересмотра
+   * баланса нет (docs/battle_eu4.md, 14.35), а обещание «ответ вычисляется» держит правка показателей.
    */
-  it('подмена числа в кольце контрров меняет ответы', () => {
+  it('подмена показателей рода меняет ответы', () => {
     const before = everyDay((q) => q.answer);
 
-    const counter = COUNTER as unknown as {
-      spear: { cavalryHolding: number };
-      cavalry: { archer: number; spearClosed: number };
-    };
-    const saved = { hold: counter.spear.cavalryHolding, archer: counter.cavalry.archer, closed: counter.cavalry.spearClosed };
+    const saved = JSON.parse(JSON.stringify(KIND_PROFILE)) as typeof KIND_PROFILE;
     let after: string[];
     try {
-      // Кольцо наизнанку: копья больше не держат конницу, конница вязнет в них,
-      // а лучников не режет.
-      counter.spear.cavalryHolding = 0.5;
-      counter.cavalry.archer = 0.4;
-      counter.cavalry.spearClosed = 2.5;
+      // Натиск наизнанку: копья без упора и с сильным нападением, конница без натиска и с толстой защитой.
+      KIND_PROFILE.spear.shockDef = 0;
+      KIND_PROFILE.spear.shockAtk = 3;
+      KIND_PROFILE.cavalry.shockAtk = 0;
+      KIND_PROFILE.cavalry.shockDef = 3;
       after = everyDay((q) => q.answer);
     } finally {
-      counter.spear.cavalryHolding = saved.hold;
-      counter.cavalry.archer = saved.archer;
-      counter.cavalry.spearClosed = saved.closed;
+      for (const k of Object.keys(saved) as Array<keyof typeof saved>) Object.assign(KIND_PROFILE[k], saved[k]);
     }
 
     const changed = after.filter((a, i) => a !== before[i]).length;

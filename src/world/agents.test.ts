@@ -28,7 +28,7 @@ vi.mock('@/battle', async (orig) => {
   };
 });
 
-import { DICE, emptyStack, phaseLuck, simulateBattle, deploySetup, type Pips } from '@/battle';
+import { DICE, PIP, emptyStack, phaseLuck, simulateBattle, deploySetup, type Pips } from '@/battle';
 import { createInitialState } from '@/game/state';
 import { type TroopStack } from '@/game/battle/kinds';
 import { pipsAt, pipsOf } from '@/game/sim/agents';
@@ -333,9 +333,9 @@ describe('карточка и бой считают одно и то же', () =
     const mid = (DICE.faces - 1) / 2;
     for (const r of rows) {
       if (r.pip === 'maneuver') continue;
-      // Отметка — грань кости: во что она обходится уроном, говорит та же функция, что множит урон в бою.
+      // Отметка стоит цену отметки EU4 (`PIP`, 14.35): во что она обходится уроном, говорит та же функция, что множит урон в бою.
       expect(r.gain).toBeCloseTo(phaseLuck(mid, r.n) - phaseLuck(mid, 0), 12);
-      expect(r.gain).toBeCloseTo(r.n * DICE.step, 12);
+      expect(r.gain).toBeCloseTo(r.n * PIP, 12);
     }
     expect(lines.next, 'куда ляжет следующий кружок — известно: склад человека').toMatch(/^Следующий кружок ляжет в /);
     expect(pipLines(1, {}, pipsAt(s.seed, person, 2)).rows, 'первый уровень — ни одной строки отметок').toEqual([]);
@@ -358,8 +358,8 @@ describe('манёвр на карточке — дверью переправы
       expect(ground, 'переправа в бою').toBeDefined();
       const lifted = ground!.id === 'ground' && ground!.lifted;
       expect(lifted, `манёвр ${n}: снята ли переправа`).toBe(n > 0);
-      // Что карточка обещает, то и множит бой: кость без штрафа против кости с ним.
-      const gained = lifted ? phaseLuck(mid, 0) - phaseLuck(mid, -GROUND_CROSSING) : 0;
+      // Что карточка обещает, то и множит бой: кость без штрафа против кости с ним — штраф в гранях кости (14.35).
+      const gained = lifted ? phaseLuck(mid, 0, 0) - phaseLuck(mid, 0, GROUND_CROSSING) : 0;
       expect(row.gain, `манёвр ${n}: доля на карточке`).toBeCloseTo(gained, 12);
       for (const e of r.log) if (e.id === 'dice') expect(e.ground?.attacker ?? 0, `манёвр ${n}: штраф кости в бою`).toBe(lifted ? 0 : GROUND_CROSSING);
     }

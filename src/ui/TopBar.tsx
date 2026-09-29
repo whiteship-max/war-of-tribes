@@ -142,7 +142,7 @@ export function TopBar() {
         <button
           className={`cell tap army${tab === 'army' ? ' active' : ''}`}
           onClick={() => openTab('army')}
-          title="Дружина. Нажми, чтобы увидеть состав, кольцо контрров и карточки войск."
+          title="Дружина. Нажми, чтобы увидеть состав, показатели и карточки войск."
         >
           <span className="ic">
             <Icon name="hud-army" glyph="⚔️" />

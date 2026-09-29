@@ -5,32 +5,37 @@
 // игрок будет учиться неправде.
 //
 // Отсюда следует главное правило модуля: **ни одно число не пишется здесь руками**.
-// Множители читаются из конфига при каждом вызове (а не запекаются в константы при
-// загрузке модуля), поэтому правка `COUNTER` немедленно меняет строку на карточке —
-// это и проверяет `describe.test.ts`.
+// Показатели и множители читаются из конфига при каждом вызове (а не запекаются в
+// константы при загрузке модуля), поэтому правка рода (`KIND_PROFILE`) или вещи
+// немедленно меняет строку на карточке — это и проверяет `describe.test.ts`.
 //
-// Руками пишутся только условия и названия ситуаций: «пока сомкнуты», «во фланг» —
-// их из числа не вывести. Само число всегда рядом и всегда из таблицы. Условие —
-// всегда положение, а не приказ: приказов у боя больше нет (docs/battle_eu4.md, 14.5).
+// Кольца контрров нет (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт,
+// следует из показателей — нападения и защиты в огне, натиске и морали, как у EU4, —
+// и карточка показывает их, а не пары «род против рода».
+//
+// Руками пишутся только названия показателей и ситуаций характера: «сомкнутый строй»,
+// «в обходе» — их из числа не вывести. Само число всегда рядом и всегда из таблицы.
+// Условие — всегда положение, а не приказ: приказов у боя нет (docs/battle_eu4.md, 14.5).
 import type { EquipmentId, ResourceId, TroopId } from '../types';
 import { TROOPS, TROOP_BY_ID, type TroopDef } from '../data/troops';
 import {
   ANCHOR,
-  COUNTER,
-  CLASH_CAVALRY_IMPACT,
-  CLASH_SPEAR_BRACE,
-  FOOT_FLANK,
+  FIRE_AFTER_CONTACT,
   GEAR,
   KIND_META,
+  KIND_PROFILE,
   MORALE,
+  PIP,
+  STAT_IDS,
   TEMPER,
   UNIT_KINDS,
   UNIT_STATS,
   type KindMeta,
+  type StatId,
   type UnitKind,
   type UnitStats,
 } from '@/battle';
-import { KIND_OF, TROOPS_OF_KIND, gearOfTroop } from './kinds';
+import { KIND_OF, TROOPS_OF_KIND, gearOfTroop, kitOfTroop, profileOfTroop } from './kinds';
 
 // ---------- Слова, которые из чисел не выведешь ----------
 
@@ -51,12 +56,30 @@ const TEMPER_WHEN: Record<string, string> = {
   'infantry.all': 'в любом положении',
   'archer.shooting': 'стреляют с дистанции',
   'archer.melee': 'до них дошли, и они не ушли',
-  'cavalry.charging': 'в движении: удар или обход',
-  'cavalry.stalled': 'её остановили во фронте',
-  'cavalry.waiting': 'стоит в резерве или ещё не сошлась',
-  'heavy.charging': 'в движении: удар с разбега или обход',
-  'heavy.stalled': 'её остановили: вязнет в сече',
-  'heavy.waiting': 'стоит в резерве или ещё не сошлась',
+  'cavalry.charging': 'в обходе: конница в движении',
+  'cavalry.waiting': 'в строю и в резерве',
+  'heavy.charging': 'в обходе: конница в движении',
+  'heavy.waiting': 'в строю и в резерве',
+};
+
+/** Имя показателя: фаза и сторона удара. */
+const STAT_NAME: Record<StatId, string> = {
+  fireAtk: 'огонь, нападение',
+  fireDef: 'огонь, защита',
+  shockAtk: 'натиск, нападение',
+  shockDef: 'натиск, защита',
+  moraleAtk: 'мораль, нападение',
+  moraleDef: 'мораль, защита',
+};
+
+/** Что делает отметка показателя — словами; доля — цена отметки из конфига (`PIP`). */
+const STAT_WHAT: Record<StatId, (pct: string) => string> = {
+  fireAtk: (p) => `его стрелы бьют сильнее: +${p} урона за отметку сверх защиты цели в огне`,
+  fireDef: (p) => `стрелы по нему бьют слабее: −${p} урона за отметку`,
+  shockAtk: (p) => `в сшибке и сече бьёт сильнее: +${p} урона за отметку сверх защиты цели в натиске`,
+  shockDef: (p) => `в сшибке и сече его бьют слабее: −${p} урона за отметку`,
+  moraleAtk: (p) => `его удары ломают мораль сильнее: +${p} урона морали за отметку сверх защиты цели`,
+  moraleDef: (p) => `удары по нему ломают мораль слабее: −${p} урона морали за отметку`,
 };
 
 /**
@@ -77,201 +100,66 @@ export function fmt(m: number): string {
   return `×${s}`;
 }
 
-// ---------- Кольцо контрров ----------
+// ---------- Показатели ----------
 
-export type CounterDir = 'out' | 'in';
+/** Цена отметки в процентах урона: «13 %». */
+const pipPct = (): string => `${Math.round(PIP * 100)} %`;
 
-export interface CounterLine {
-  id: string;
-  dir: CounterDir;
-  by: UnitKind | 'any';
-  at: UnitKind | 'any';
-  mult: number;
-  /** Готовая строка с числом: «×2.0 против конницы». */
+export interface StatLine {
+  stat: StatId;
+  /** «огонь, нападение». */
+  name: string;
+  /** Отметок у вида: род и вещи. */
+  value: number;
+  /** Из них — от рода (`KIND_PROFILE`) и от вещей (`kitOfTroop`). */
+  fromKind: number;
+  fromItems: number;
+  /** Что делает отметка — словами, с ценой из конфига. */
+  what: string;
+}
+
+/**
+ * Шесть показателей вида — род и вещи (слово владельца по 14.35: показатели = род + вещи). Все шесть, и нули тоже:
+ * карточка не рекламный листок — что у вида пусто, видно наравне с тем, что сильно.
+ */
+export function statsOf(troop: TroopId): StatLine[] {
+  const kind = KIND_PROFILE[KIND_OF[troop]];
+  const items = kitOfTroop(troop);
+  const all = profileOfTroop(troop);
+  return STAT_IDS.map((stat) => ({
+    stat,
+    name: STAT_NAME[stat],
+    value: all[stat],
+    fromKind: kind[stat],
+    fromItems: items[stat],
+    what: STAT_WHAT[stat](pipPct()),
+  }));
+}
+
+export interface PositionLine {
+  /** Множитель: «×0.3». */
   text: string;
-  /** Условие, при котором множитель вообще действует. */
+  mult: number;
+  /** Положение, при котором он действует. */
   when: string;
-  /** Выгодно ли это нашему виду. */
   good: boolean;
 }
 
-interface Spec {
-  id: string;
-  by: UnitKind | 'any';
-  at: UnitKind | 'any';
-  mult: number;
-  when: string;
-  /** Показывать ли строку на карточках других родов как «так бьют по нам». */
-  broad?: boolean;
-}
-
 /**
- * Все условные множители боя одним списком. Функция, а не константа: карточка
- * обязана читать конфиг в момент показа, иначе правка баланса до неё не дойдёт.
+ * Что род делает по положению, а не по показателям, — кроме характера (`temperOf`): лучники после контакта бьют через
+ * головы своих долей силы (`FIRE_AFTER_CONTACT`). Условие — положение, а не приказ.
  */
-function specs(): Spec[] {
-  return [
-    {
-      id: 'spear-cav-hold',
-      by: 'spear',
-      at: 'cavalry',
-      mult: COUNTER.spear.cavalryHolding,
-      when: 'только пока сомкнуты: в строю, не смяты, не бегут и не обойдены — обойдённые и смятые упора не держат',
-    },
-    {
-      id: 'spear-foot-flank',
-      by: 'spear',
-      at: 'any',
-      mult: FOOT_FLANK,
-      when: 'если сами зашли во фланг или тыл — пеший обход скромнее конного',
-    },
-    {
-      id: 'infantry-all',
-      by: 'infantry',
-      at: 'any',
-      mult: COUNTER.infantry.all,
-      when: 'в любом положении: кольцо контрров пехоту не трогает ни в одну сторону',
-    },
-    {
-      id: 'infantry-foot-flank',
-      by: 'infantry',
-      at: 'any',
-      mult: FOOT_FLANK,
-      when: 'если сами зашли во фланг или тыл — пеший обход скромнее конного',
-    },
-    {
-      id: 'cav-archer',
-      by: 'cavalry',
-      at: 'archer',
-      mult: COUNTER.cavalry.archer,
-      when: 'когда добралась до лучников: обходом, во второй линии противника',
-    },
-    {
-      id: 'cav-flank',
-      by: 'cavalry',
-      at: 'any',
-      mult: COUNTER.cavalry.flank,
-      broad: true,
-      when: 'удар во фланг или тыл — в обходе; сомкнутых копий не касается',
-    },
-    {
-      id: 'cav-spear-closed',
-      by: 'cavalry',
-      at: 'spear',
-      mult: COUNTER.cavalry.spearClosed,
-      when: 'в лоб, пока копья сомкнуты: не смяты и не бегут',
-    },
-    {
-      id: 'cav-infantry',
-      by: 'cavalry',
-      at: 'infantry',
-      mult: COUNTER.cavalry.infantry,
-      when: 'в лоб: пехота строя не смыкает, и конница его ломает',
-    },
-    {
-      id: 'cav-clash',
-      by: 'heavy',
-      at: 'any',
-      mult: CLASH_CAVALRY_IMPACT,
-      when: 'сшибка: удар с разбега во фронт — в каждом круге боя',
-    },
-    {
-      id: 'archer-spear',
-      by: 'archer',
-      at: 'spear',
-      mult: COUNTER.archer.spear,
-      when: 'стрельбой, пока цель не вошла в рукопашную',
-    },
-    {
-      id: 'archer-infantry',
-      by: 'archer',
-      at: 'infantry',
-      mult: COUNTER.archer.infantry,
-      when: 'стрельбой, пока цель не вошла в рукопашную',
-    },
-    {
-      id: 'archer-cavalry',
-      by: 'archer',
-      at: 'cavalry',
-      mult: COUNTER.archer.cavalry,
-      when: 'стрельбой, пока цель не вошла в рукопашную',
-    },
-    {
-      id: 'archer-after',
-      by: 'archer',
-      at: 'any',
-      mult: COUNTER.archer.afterContact,
-      broad: true,
-      when: 'после того, как цель вошла в рукопашную: бьют через головы своих',
-    },
-    {
-      id: 'spear-brace',
-      by: 'any',
-      at: 'spear',
-      mult: CLASH_SPEAR_BRACE,
-      when: 'сшибка: сомкнутые копья принимают удар упёршись — в каждом круге боя',
-    },
-  ];
-}
-
-const nameOut = (at: UnitKind | 'any'): string => (at === 'any' ? 'против всех' : `против ${KIND_GEN[at]}`);
-const nameIn = (by: UnitKind | 'any'): string => (by === 'any' ? 'по нам' : `${KIND_META[by].name.toLowerCase()} по нам`);
-
-/**
- * Множители, которые видит один род: и свои (чем он бьёт), и чужие (чем бьют его).
- * Невыгодные показываются наравне с выгодными — карточка не рекламный листок.
- */
-export function countersOf(kind: UnitKind): CounterLine[] {
-  const out: CounterLine[] = [];
-  for (const s of specs()) {
-    const mine = s.by === kind;
-    const atMe = s.at === kind || (s.at === 'any' && (s.broad || s.by === 'any'));
-    if (mine) {
-      out.push({
-        id: s.id,
-        dir: 'out',
-        by: s.by,
-        at: s.at,
-        mult: s.mult,
-        text: `${fmt(s.mult)} ${nameOut(s.at)}`,
-        when: s.when,
-        good: s.mult > 1,
-      });
-    } else if (atMe) {
-      out.push({
-        id: s.id,
-        dir: 'in',
-        by: s.by,
-        at: s.at,
-        mult: s.mult,
-        text: `${fmt(s.mult)} ${nameIn(s.by)}`,
-        when: s.when,
-        good: s.mult < 1,
-      });
-    }
+export function positionsOf(kind: UnitKind): PositionLine[] {
+  const out: PositionLine[] = [];
+  if (UNIT_STATS[kind].ranged > 0) {
+    out.push({
+      text: fmt(FIRE_AFTER_CONTACT),
+      mult: FIRE_AFTER_CONTACT,
+      when: 'стрельба после того, как цель вошла в рукопашную: бьют через головы своих',
+      good: false,
+    });
   }
-  const order = (l: CounterLine): number => (l.dir === 'out' ? 0 : 1);
-  return out.sort((a, b) => order(a) - order(b) || b.mult - a.mult);
-}
-
-export interface RingEdge {
-  from: UnitKind;
-  to: UnitKind;
-  mult: number;
-  text: string;
-}
-
-/** Кольцо «копья → конница → лучники → копья» числами из конфига. Пехота — вне кольца. */
-export function counterRing(): { edges: RingEdge[]; aside: { kind: UnitKind; mult: number; text: string } } {
-  const edge = (from: UnitKind, to: UnitKind, mult: number): RingEdge => ({ from, to, mult, text: fmt(mult) });
-  return {
-    edges: [
-      edge('spear', 'cavalry', COUNTER.spear.cavalryHolding),
-      edge('cavalry', 'archer', COUNTER.cavalry.archer),
-      edge('archer', 'spear', COUNTER.archer.spear),
-    ],
-    aside: { kind: 'infantry', mult: COUNTER.infantry.all, text: fmt(COUNTER.infantry.all) },
-  };
+  return out;
 }
 
 // ---------- Мораль ----------
@@ -330,9 +218,10 @@ interface Extremes {
   moraleTop: UnitKind;
   moraleLow: UnitKind;
   speedTop: UnitKind;
-  toughTop: UnitKind;
+  speedLow: UnitKind;
   powerTop: TroopId;
   workTop: TroopId;
+  workLow: TroopId;
 }
 
 const best = <T>(items: readonly T[], v: (x: T) => number): T =>
@@ -346,9 +235,10 @@ function extremes(): Extremes {
     moraleTop: best(UNIT_KINDS, (k) => stat(k).morale),
     moraleLow: worst(UNIT_KINDS, (k) => stat(k).morale),
     speedTop: best(UNIT_KINDS, (k) => stat(k).speed),
-    toughTop: best(UNIT_KINDS, (k) => stat(k).toughness),
+    speedLow: worst(UNIT_KINDS, (k) => stat(k).speed),
     powerTop: best(TROOPS, (t) => t.power).id,
     workTop: best(TROOPS, (t) => t.work).id,
+    workLow: worst(TROOPS, (t) => t.work).id,
   };
 }
 
@@ -379,23 +269,44 @@ function run(rules: Rule[], max: number): string[] {
   return out;
 }
 
+/**
+ * Сильнейший показатель вида: где он среди лучших видов племени (`top`), а нет такого — просто его наибольший, если он
+ * больше нуля. Первый по порядку показателей. Правило, а не список: правка рода или вещи переносит строку сама.
+ */
+function topStat(troop: TroopId): { line: StatLine; top: boolean } | null {
+  const mine = statsOf(troop);
+  for (const line of mine) {
+    const top = Math.max(...TROOPS.map((t) => profileOfTroop(t.id)[line.stat]));
+    if (line.value > 0 && line.value >= top) return { line, top: true };
+  }
+  const own = mine.reduce((a, b) => (b.value > a.value ? b : a));
+  return own.value > 0 ? { line: own, top: false } : null;
+}
+
+/** Слабейшая защита вида — в огне, в натиске или в морали: первая по порядку из наименьших. */
+function weakestDef(troop: TroopId): StatLine {
+  const defs = statsOf(troop).filter((l) => l.stat.endsWith('Def'));
+  return defs.reduce((a, b) => (b.value < a.value ? b : a));
+}
+
+/** Слово «отметка» по числу: «1 отметка», «2 отметки». */
+const pips = (n: number): string => count(n, 'отметка', 'отметки', 'отметок');
+
 function strengthsOf(troop: TroopId): string[] {
   const kind = KIND_OF[troop];
   const def = TROOP_BY_ID[troop];
   const ex = extremes();
-  const lines = countersOf(kind);
-  const outs = lines.filter((l) => l.dir === 'out');
-  const ins = lines.filter((l) => l.dir === 'in');
-  const topOut = outs.length > 0 ? best(outs, (l) => l.mult) : null;
-  const bestIn = ins.length > 0 ? worst(ins, (l) => l.mult) : null;
+  const top = topStat(troop);
   const temper = temperLines(kind);
   const softest = temper.length > 0 ? worst(temper, (t) => t.mult) : null;
   const m = moraleOf(troop);
 
   return run(
     [
-      () => (topOut && topOut.mult > 1 ? `Лучший размен рода: ${topOut.text} — ${topOut.when}.` : null),
-      () => (bestIn && bestIn.mult < 1 ? `По нему бьют вполсилы: ${bestIn.text} — ${bestIn.when}.` : null),
+      () =>
+        top
+          ? `${top.top ? 'Среди лучших видов' : 'Сильнее всего'} — ${top.line.name}: ${pips(top.line.value)}; ${top.line.what}.`
+          : null,
       () =>
         ex.moraleTop === kind
           ? `Самая высокая стойкость среди родов: мораль рода ${UNIT_STATS[kind].morale} из ${MORALE.max}.`
@@ -420,11 +331,12 @@ function strengthsOf(troop: TroopId): string[] {
         softest && softest.mult < 1
           ? `Держит удар, когда ${softest.when}: потери морали ${fmt(softest.mult)}.`
           : null,
-      () => (ex.speedTop === kind ? `Быстрее всех на поле: скорость ${UNIT_STATS[kind].speed}.` : null),
+      () => (ex.speedTop === kind ? `Быстрее всех на поле: скорость ${UNIT_STATS[kind].speed} — догоняет отходящих первым.` : null),
       () =>
-        ex.toughTop === kind
-          ? `Крепче прочих: чтобы выбить одного, нужно ${UNIT_STATS[kind].toughness.toFixed(1)} урона.`
+        ex.workLow === troop
+          ? `Быстрее всех учится: ${def.work} работы казарм против ${best(TROOPS, (t) => t.work).work} у самого долгого.`
           : null,
+      () => (Object.keys(def.gear).length === 0 ? 'Кузницы не просит: снаряжения на бойца не нужно, нанять можно с первого дня.' : null),
     ],
     3,
   );
@@ -434,11 +346,7 @@ function weaknessesOf(troop: TroopId): string[] {
   const kind = KIND_OF[troop];
   const def = TROOP_BY_ID[troop];
   const ex = extremes();
-  const lines = countersOf(kind);
-  const outs = lines.filter((l) => l.dir === 'out');
-  const ins = lines.filter((l) => l.dir === 'in');
-  const worstIn = ins.length > 0 ? best(ins, (l) => l.mult) : null;
-  const worstOut = outs.length > 0 ? worst(outs, (l) => l.mult) : null;
+  const p = profileOfTroop(troop);
   const temper = temperLines(kind);
   const brittle = temper.length > 0 ? best(temper, (t) => t.mult) : null;
   const m = moraleOf(troop);
@@ -446,8 +354,14 @@ function weaknessesOf(troop: TroopId): string[] {
 
   return run(
     [
-      () => (worstIn && worstIn.mult > 1 ? `Больнее всего получает: ${worstIn.text} — ${worstIn.when}.` : null),
-      () => (worstOut && worstOut.mult < 1 ? `Хуже всего бьёт: ${worstOut.text} — ${worstOut.when}.` : null),
+      () =>
+        p.fireDef + p.shockDef === 0
+          ? `Без защиты: ноль отметок и в огне, и в натиске — по нему бьют всей силой удара, каждая отметка нападения врага — +${pipPct()}.`
+          : null,
+      () =>
+        UNIT_STATS[kind].melee < 1
+          ? `В сшибке и сече слаб: сила рода в натиске ${fmt(UNIT_STATS[kind].melee)} против ${fmt(1)} у остальных.`
+          : null,
       () =>
         brittle && brittle.mult > 1
           ? `Ломается, когда ${brittle.when}: потери морали ${fmt(brittle.mult)}.`
@@ -465,9 +379,17 @@ function weaknessesOf(troop: TroopId): string[] {
           ? `Дольше всех учится: ${def.work} работы казарм против ${cheapest.work} у самого дешёвого — ${fmt(def.work / cheapest.work)}.`
           : null,
       () =>
+        ex.speedLow === kind
+          ? `Медленнее всех: скорость ${UNIT_STATS[kind].speed} — при отходе его догоняют первым.`
+          : null,
+      () =>
         Object.keys(def.gear).length > 0
           ? `Без кузницы не нанять: на бойца нужно ${count(Object.values(def.gear).reduce((a, b) => a + (b ?? 0), 0), 'предмет', 'предмета', 'предметов')} снаряжения.`
           : null,
+      () => {
+        const w = weakestDef(troop);
+        return `Слабее всего — ${w.name}: ${pips(w.value)}; каждая отметка нападения врага сверх неё — +${pipPct()} урона.`;
+      },
     ],
     3,
   );
@@ -493,7 +415,10 @@ export interface TroopCard {
   /** Наибольшая мощь среди видов — чтобы полоска показывала место в ряду. */
   powerMax: number;
   cost: TroopCost;
-  counters: CounterLine[];
+  /** Шесть показателей: род и вещи (`statsOf`). */
+  pips: StatLine[];
+  /** Что род делает по положению, кроме характера (`positionsOf`). */
+  positions: PositionLine[];
   strengths: string[];
   weaknesses: string[];
   nextGear: NextGear | null;
@@ -520,7 +445,8 @@ export function troopCard(troop: TroopId): TroopCard {
       people: 1,
       work: def.work,
     },
-    counters: countersOf(kind),
+    pips: statsOf(troop),
+    positions: positionsOf(kind),
     strengths: strengthsOf(troop),
     weaknesses: weaknessesOf(troop),
     nextGear: nextGearOf(troop),

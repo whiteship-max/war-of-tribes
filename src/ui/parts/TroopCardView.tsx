@@ -53,8 +53,6 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
   const eta = recruitCheck(s, troop, 1).eta;
   const barracks = buildingOfType(s, 'barracks');
   const smithy = buildingOfType(s, 'smithy');
-  const outs = card.counters.filter((c) => c.dir === 'out');
-  const ins = card.counters.filter((c) => c.dir === 'in');
 
   return (
     <div className="panel">
@@ -148,27 +146,35 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         </button>
       )}
 
-      <h3>Против кого</h3>
+      <h3>Показатели в бою</h3>
       <div className="note">
-        Превосходство в бою условно: почти каждый множитель работает только при своём условии.
+        Кто кого бьёт, решают показатели: нападение бьющего против защиты цели в огне, в натиске и в морали — от рода и
+        от того, что на бойце надето.
       </div>
-      <div className="counters">
-        {outs.map((c) => (
-          <div className={`counter ${c.good ? 'good' : 'bad'}`} key={c.id}>
-            <b>{c.text}</b>
-            <small>{c.when}</small>
+      <div className="mod-list">
+        {card.pips.map((p) => (
+          <div className="mod" key={p.stat}>
+            <span className="ico">{p.stat.startsWith('fire') ? '🏹' : p.stat.startsWith('shock') ? '⚔️' : '🏳️'}</span>
+            <span className="name">
+              {p.name}
+              <em className="sub">
+                {p.what}; от рода {p.fromKind}, от вещей {p.fromItems}
+              </em>
+            </span>
+            <span className={`val ${p.value > 0 ? 'pos' : ''}`}>{p.value}</span>
           </div>
         ))}
       </div>
-      <h3>Чем бьют его</h3>
-      <div className="counters">
-        {ins.map((c) => (
-          <div className={`counter ${c.good ? 'good' : 'bad'}`} key={c.id}>
-            <b>{c.text}</b>
-            <small>{c.when}</small>
-          </div>
-        ))}
-      </div>
+      {card.positions.length > 0 && (
+        <div className="counters">
+          {card.positions.map((c) => (
+            <div className={`counter ${c.good ? 'good' : 'bad'}`} key={c.when}>
+              <b>{c.text}</b>
+              <small>{c.when}</small>
+            </div>
+          ))}
+        </div>
+      )}
 
       <h3>Сильные стороны</h3>
       <ul className="bullets good">
@@ -199,18 +205,13 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <div className="mod-list">
         <div className="mod">
           <span className="ico">🗡️</span>
-          <span className="name">Рукопашная</span>
+          <span className="name">Сила рода в натиске</span>
           <span className="val">{stats.melee.toFixed(1)}</span>
         </div>
         <div className="mod">
           <span className="ico">🏹</span>
           <span className="name">Стрельба</span>
           <span className="val">{stats.ranged.toFixed(1)}</span>
-        </div>
-        <div className="mod">
-          <span className="ico">🛡️</span>
-          <span className="name">Сколько урона на одного выбитого</span>
-          <span className="val">{stats.toughness.toFixed(1)}</span>
         </div>
         <div className="mod">
           <span className="ico">🐾</span>

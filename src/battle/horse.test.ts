@@ -1,19 +1,20 @@
-// Два конных рода — две половины прежнего конного профиля (docs/stable.md, решение 2).
+// Два конных рода — один конь, и делит их доспех (docs/stable.md, решение 2; пересмотр баланса — docs/battle_eu4.md, 14.35).
 //
-// До конюшни конный род был один, и в его числах жили две разные вещи: скорость (лучники, фланг,
-// погоня, быстрая цель для стрел) и вес (рукопашная, стойкость, пехота в лоб). Правило раскола
-// такое: каждое число прежнего профиля досталось хотя бы одному из двух родов, а на месте
-// недоставшейся половины у рода стоит число, которое в конфиге уже есть у пешего рода на той же
-// оси. Своего числа у классов нет — иначе раскол был бы подбором, а не правилом.
+// До конюшни конный род был один, и в его числах жили две разные вещи: скорость (быстрая цель для стрел, погоня) и вес
+// (натиск, броня). Правило раскола — своих чисел у классов нет: на каждой оси, которой не выражают показатели, число
+// класса — либо прежнего конного профиля, либо пешего рода на той же оси. Прежний профиль ниже записан литералом и не
+// правится: это история (коммит 729d510, конфиг боя до конюшни), а не настройка.
 //
-// Прежний профиль ниже записан литералом и не правится: это история (коммит 729d510, конфиг боя
-// до конюшни), а не настройка. Удар с разбега (`CLASH_CAVALRY_IMPACT`) — константа ядра, а не
-// число рода, и сюда не входит: у лёгкой его нет, у тяжёлой он есть (`sim.ts`).
+// С пересмотра баланса (слово владельца по 14.35, пп. 2 и 6) вес тяжёлой — её показатели: конь (натиск и страх, общие с
+// лёгкой, `KIND_PROFILE`) и доспех (вещь, `ArmySetup.kit`). Оси кольца («по лучникам», «во фланг», «по сомкнутым копьям»,
+// «по пехоте», «лучники по ней») ушли с кольцом, «остановленная» — со слабостью конницы в сече, «стойкость» — в показатели
+// защиты. Тест «прежний профиль не потерян: каждое его число досталось хотя бы одному роду» снят тем же словом: рукопашная
+// 1.3 прежнего профиля — вес, и он теперь показателями, а не числом рода.
 import { describe, expect, it } from 'vitest';
-import { COUNTER, FOOT_FLANK, RETREAT, TEMPER, UNIT_STATS } from './config';
+import { KIND_PROFILE, RETREAT, TEMPER, UNIT_STATS } from './config';
 import { HORSE_KINDS, type UnitKind } from './types';
 
-/** Оси профиля: где число лежит у конного рода и где у пеших — те же по смыслу оси. */
+/** Оси профиля, которых показатели не выражают: где число лежит у конного рода и где у пеших. */
 interface Axis {
   name: string;
   /** Прежний конный профиль, 729d510. */
@@ -28,24 +29,17 @@ const tempers = (): number[] =>
   [TEMPER.spear, TEMPER.infantry, TEMPER.archer].flatMap((t) => Object.values(t) as number[]);
 
 const AXES: Axis[] = [
-  { name: 'рукопашная', prior: 1.3, of: (k) => UNIT_STATS[k].melee, foot: () => FOOT.map((k) => UNIT_STATS[k].melee) },
-  { name: 'стойкость', prior: 1.1, of: (k) => UNIT_STATS[k].toughness, foot: () => FOOT.map((k) => UNIT_STATS[k].toughness) },
+  { name: 'сила в натиске', prior: 1.3, of: (k) => UNIT_STATS[k].melee, foot: () => FOOT.map((k) => UNIT_STATS[k].melee) },
   { name: 'скорость', prior: 3, of: (k) => UNIT_STATS[k].speed, foot: () => FOOT.map((k) => UNIT_STATS[k].speed) },
   { name: 'мораль', prior: 65, of: (k) => UNIT_STATS[k].morale, foot: () => FOOT.map((k) => UNIT_STATS[k].morale) },
-  { name: 'по лучникам', prior: 2.0, of: (k) => COUNTER[k].archer, foot: () => [COUNTER.infantry.all] },
-  { name: 'во фланг', prior: 1.8, of: (k) => COUNTER[k].flank, foot: () => [FOOT_FLANK] },
-  { name: 'по сомкнутым копьям', prior: 0.5, of: (k) => COUNTER[k].spearClosed, foot: () => [] },
-  { name: 'по пехоте', prior: 1.3, of: (k) => COUNTER[k].infantry, foot: () => [COUNTER.infantry.all] },
-  { name: 'лучники по ней', prior: 0.7, of: (k) => COUNTER.archer[k], foot: () => [COUNTER.archer.infantry, COUNTER.archer.spear] },
-  { name: 'на разгоне', prior: 0.6, of: (k) => TEMPER[k].charging, foot: tempers },
-  { name: 'остановленная', prior: 1.3, of: (k) => TEMPER[k].stalled, foot: tempers },
-  { name: 'в ожидании', prior: 1.0, of: (k) => TEMPER[k].waiting, foot: tempers },
+  { name: 'в обходе', prior: 0.6, of: (k) => TEMPER[k].charging, foot: tempers },
+  { name: 'в строю', prior: 1.0, of: (k) => TEMPER[k].waiting, foot: tempers },
   { name: 'погоня', prior: 0.15, of: (k) => RETREAT.pursuitKills[k], foot: () => FOOT.map((k) => RETREAT.pursuitKills[k]) },
 ];
 
 const CLASSES = ['cavalry', 'heavy'] as const;
 
-describe('два конных рода — две половины прежнего профиля', () => {
+describe('два конных рода — один конь, делит их доспех', () => {
   it('конных родов ровно два, и это те, что меряются здесь', () => {
     expect([...HORSE_KINDS].sort()).toEqual([...CLASSES].sort());
   });
@@ -57,15 +51,18 @@ describe('два конных рода — две половины прежне�
     }
   });
 
-  it('прежний профиль не потерян: каждое его число досталось хотя бы одному роду', () => {
-    for (const axis of AXES) {
-      expect(CLASSES.map((k) => axis.of(k)), axis.name).toContain(axis.prior);
-    }
+  it('конь у обоих один: натиск и страх коня в показателях рода одинаковы, как и сила в натиске и характер', () => {
+    expect(KIND_PROFILE.heavy.shockAtk).toBe(KIND_PROFILE.cavalry.shockAtk);
+    expect(KIND_PROFILE.heavy.moraleAtk).toBe(KIND_PROFILE.cavalry.moraleAtk);
+    expect(KIND_PROFILE.cavalry.shockAtk, 'конь даёт натиск').toBeGreaterThan(0);
+    expect(UNIT_STATS.heavy.melee).toBe(UNIT_STATS.cavalry.melee);
+    expect(TEMPER.heavy).toEqual(TEMPER.cavalry);
   });
 
-  it('и ни один род не унёс профиль целиком: половины настоящие', () => {
-    // Граница: у каждого рода хоть одна ось закрыта пешим числом — иначе «половина» была бы
-    // прежним родом под новым именем, а два правила выше проходили бы даром.
+  it('и половины настоящие: лёгкая — быстрая цель и скорость, тяжёлая — без них (её вес — доспех, вещь)', () => {
+    // Граница: у каждого рода хоть одна ось своя — иначе «половина» была бы прежним родом под новым именем.
+    expect(UNIT_STATS.cavalry.speed, 'лёгкая быстрее').toBeGreaterThan(UNIT_STATS.heavy.speed);
+    expect(KIND_PROFILE.cavalry.fireDef, 'лёгкая — быстрая цель').toBeGreaterThan(KIND_PROFILE.heavy.fireDef);
     for (const k of CLASSES) {
       const given = AXES.filter((a) => a.of(k) !== a.prior).map((a) => a.name);
       expect(given.length, `${k} отдал другому роду хоть что-нибудь`).toBeGreaterThan(0);

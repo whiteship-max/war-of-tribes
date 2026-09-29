@@ -10,10 +10,10 @@
 // раскладки у удара нет (docs/battle_eu4.md, 14.5). Разделы о них — «Планы», «Планы на всей сетке»,
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
-import { DICE, KIND_META, PHASES, PHASE_PIP, RETREAT, UNIT_KINDS, UNIT_STATS, COUNTER, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, RING, RING_BAR, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
+import { DICE, PHASES, PHASE_PIP, RETREAT, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, latticeRows, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeRow } from '../src/battle/bench';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
-import { FACES, FACE_SEEDS, MONO_KINDS, PHASE_GROUPS, ROLES, ROLE_SEEDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
+import { FACES, FACE_SEEDS, MONO_KINDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
 
 const SEEDS = Number(process.env.SEEDS ?? 40);
 
@@ -98,7 +98,6 @@ const dice = w1.add({ kind: 'dice' });
 const stillAt = OVERSIZE_SIZES.map((total) => ({ total, parts: slices(compositionLattice().length, 10).map(([from, to]) => w1.add({ kind: 'still', total, from, to })) }));
 // Монотонность против того же противника (слово владельца по П0, 14.35): решётка кусками по пять составов на ½W, W и 2W.
 const monoAt = OVERSIZE_SIZES.map((total) => ({ total, parts: slices(compositionLattice().length, 5).map(([from, to]) => w1.add({ kind: 'mono', total, from, to })) }));
-const ringPairs = RING.map((_, ring) => w1.add({ kind: 'ring', ring, seeds: SEEDS }));
 // Круги по размерам: сколько боёв до них доходит — матрица составов.
 const reachAt = [...OVERSIZE_SIZES, ARMY_SIZE].map((total) => ({ total, got: w1.add({ kind: 'reach', total }) }));
 const pureDuels = matrix('pure', UNIT_KINDS.length, 6);
@@ -120,8 +119,6 @@ const EDGE_RUNS = [
 // Цена грани кости и бои 2 : 1 для «Погони» (слово владельца по 14.35): решётка кусками по десять составов.
 const faceAt = FACES.map((_, variant) => slices(latticeSize, EDGE_CHUNK).map(([from, to]) => w1.add({ kind: 'face', variant, from, to })));
 const routParts = slices(latticeSize, EDGE_CHUNK).map(([from, to]) => w1.add({ kind: 'rout', from, to }));
-const ringPhaseParts = RING.map((_, ring) => w1.add({ kind: 'ringPhases', ring, seeds: SEEDS }));
-const roleParts = slices(ROLES.ours.length, 5).map(([from, to]) => w1.add({ kind: 'roles', from, to }));
 
 await w1.run();
 
@@ -228,10 +225,9 @@ const latticeRowsAsIs = latticeAt(0);
 
 console.log('\n=== Тяжёлая: откуда сила (решётка составов, правило развёртывания) ===');
 {
-  // Каждое число тяжёлой по очереди ставится на то, что стоит на той же оси у пехоты или у
-  // лёгкой (правило классов: своих чисел у тяжёлой нет, каждое взято у другого рода), и решётка
-  // перемеряется целиком. Где она стоит, решает правило развёртывания: с краёв первой линии. Удар с
-  // разбега (`CLASH_CAVALRY_IMPACT`) — константа ядра, отсюда не подменяется и здесь не измерен.
+  // Каждое число тяжёлой по очереди ставится на то, что стоит на той же оси у пехоты (правило классов: своих чисел у
+  // тяжёлой нет), и решётка перемеряется целиком. Решётка голая — без вещей: её сила здесь — род (конь), а доспех — вещь,
+  // и его в решётке нет (14.35). Где она стоит, решает правило развёртывания: с краёв первой линии.
   // Подмены ставит задача в своём процессе (`battle-jobs.ts`, `VARIANTS`); здесь — только имена.
   const duel = (i: number, j: number): number => {
     let r = 0;
@@ -240,8 +236,8 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
   };
   const statLine = (k: 'heavy' | 'infantry' | 'cavalry'): string => {
     const u = UNIT_STATS[k];
-    const c = k === 'infantry' ? COUNTER.infantry.all : COUNTER[k].infantry;
-    return `рукопашная ${u.melee}, стойкость ${u.toughness}, скорость ${u.speed}, мораль ${u.morale}, по пехоте ×${c}`;
+    const p = KIND_PROFILE[k];
+    return `натиск ${u.melee}, скорость ${u.speed}, мораль ${u.morale}; огонь ${p.fireAtk}/${p.fireDef}, натиск ${p.shockAtk}/${p.shockDef}, мораль ${p.moraleAtk}/${p.moraleDef}`;
   };
   console.log(`числа: тяжёлая — ${statLine('heavy')}; пехота — ${statLine('infantry')}; лёгкая — ${statLine('cavalry')}`);
   console.log(`род против рода, ${ARMY_SIZE} на ${ARMY_SIZE}, правило развёртывания, 6 сидов × обе стороны (размен строки): ${UNIT_KINDS.map((k) => pad(k, 9, true)).join('')}`);
@@ -261,65 +257,9 @@ console.log('\n=== Тяжёлая: откуда сила (решётка сос�
   }
 }
 
-console.log('\n=== Кольцо контрров: пары встают по правилу развёртывания ===');
-for (const [i, pair] of RING.entries()) {
-  const s = series(ringPairs[i]().pairs);
-  // Разброс по сидам: тест кольца требует порога с каждого сида, а не в среднем (`battle.test.ts`, «кольцо контрров»).
-  const bySeed = ringPairs[i]().pairs.map((p) => p.lossRatio);
-  // Пороги теста — рядом с числом: средний размен отчёта сравнивали с порогом одного сида (`RING_BAR`).
-  const bar = `порог теста: на каждом сиде 1…${RING_BAR.seeds} не ниже ${RATIO_EVEN}, в среднем выше ${RING_BAR.mean}`;
-  console.log(`${pad(pair.name, 44)} размен ${s.ratio.toFixed(2)} (поле удержано ${s.wins}/${SEEDS}; по сидам ${Math.min(...bySeed).toFixed(2)}–${Math.max(...bySeed).toFixed(2)}; ${bar})`);
-}
-
-console.log('\n=== Кольцо по фазам: где пара теряет людей (слово владельца по 14.35, п. 2; прибор пути (в) профиля рода) ===');
-{
-  // Те же пары и сиды, что в «Кольце контрров», оба боя пары; потери каждой стороны суммой по группам фаз. «Размен» — потери
-  // второго к потерям первого в этой группе: где контрящий выигрывает и где отдаёт.
-  console.log(`пары по правилу развёртывания, сиды 1..${SEEDS}, оба боя пары; потери — бойцов строя, суммой по боям`);
-  console.log(`${pad('пара', 30)}${pad('сторона', 12)}${PHASE_GROUPS.map((g) => pad(g.name, 11, true)).join('')}${pad('всего', 11, true)}`);
-  // Пара кольца — чистые рода: имя стороны — имя её рода.
-  const kindName = (s: ArmySetup): string => {
-    const k = UNIT_KINDS.find((kind) => Object.values(s.sectors).some((st) => st[kind] > 0));
-    return k ? KIND_META[k].name.toLowerCase() : '—';
-  };
-  for (const [i, pair] of RING.entries()) {
-    const { a, b } = ringPhaseParts[i]();
-    const [ka, kb] = [kindName(pair.a), kindName(pair.b)];
-    const row = (who: string, xs: number[]): string => `${pad('', 30)}${pad(who, 12)}${xs.map((x) => pad(Math.round(x), 11, true)).join('')}${pad(Math.round(xs.reduce((n, x) => n + x, 0)), 11, true)}`;
-    console.log(`${pad(pair.name, 30)}`);
-    console.log(row(ka, a));
-    console.log(row(kb, b));
-    console.log(`${pad('', 30)}${pad('размен', 12)}${a.map((x, k) => pad(x > 0.5 ? (b[k] / x).toFixed(2) : '—', 11, true)).join('')}${pad((b.reduce((n, x) => n + x, 0) / Math.max(1, a.reduce((n, x) => n + x, 0))).toFixed(2), 11, true)}`);
-  }
-  console.log('размен в группе — потери второй стороны к потерям первой в этой группе фаз; «—» — первая в ней почти не теряла');
-}
-
-console.log('\n=== Кольцо ролями: против войска с большой долей копий состав с лучниками — чаще ли поле, чем тот же без лучников (слово владельца по 14.35, п. 2) ===');
-{
-  // Новое обещание кольца — роль в смешанном составе, а не чистая пара. «Мы» — состав решётки с лучниками и хоть одним другим
-  // родом; «без лучников» — его прочие рода, доведённые до того же размера в тех же долях (`battle-jobs.ROLES`). Противник —
-  // состав решётки, где копий не меньше половины. Поле — удержанное нашей стороной, с обеих сторон поля.
-  const rows = roleParts.flatMap((p) => p().rows);
-  console.log(`составов с лучниками ${ROLES.ours.length}, противников с копьями от половины ${ROLES.foes.length}, пар ${rows.length}; на пару — ${ROLE_SEEDS} сида × обе стороны поля, ${ARMY_SIZE} бойцов строя, кость конфига`);
-  const byShare = new Map<number, typeof rows>();
-  for (const r of rows) {
-    const k = ROLES.ours[r.ours].archer ?? 0;
-    byShare.set(k, [...(byShare.get(k) ?? []), r]);
-  }
-  const line = (name: string, rs: typeof rows): string => {
-    const n = rs.reduce((x, r) => x + r.n, 0);
-    const w = rs.reduce((x, r) => x + r.with, 0);
-    const wo = rs.reduce((x, r) => x + r.without, 0);
-    const more = rs.filter((r) => r.with > r.without).length;
-    const less = rs.filter((r) => r.with < r.without).length;
-    const pc = (x: number): string => `${((100 * x) / Math.max(1, n)).toFixed(1)}%`;
-    return `${pad(name, 26)}${pad(rs.length, 6, true)}${pad(pc(w), 14, true)}${pad(pc(wo), 16, true)}${pad(more, 10, true)}${pad(rs.length - more - less, 9, true)}${pad(less, 9, true)}`;
-  };
-  console.log(`${pad('лучников в составе', 26)}${pad('пар', 6, true)}${pad('поле с ними', 14, true)}${pad('поле без них', 16, true)}${pad('чаще', 10, true)}${pad('поровну', 9, true)}${pad('реже', 9, true)}`);
-  for (const [k, rs] of [...byShare.entries()].sort((x, y) => x[0] - y[0])) console.log(line(`${k} из ${ARMY_SIZE}`, rs));
-  console.log(line('все', rows));
-  console.log('«чаще / поровну / реже» — пар, где состав с лучниками держит поле чаще, так же или реже того же без лучников');
-}
+// Разделы «Кольцо контрров», «Кольцо по фазам» и «Кольцо ролями» ушли с кольцом (слово владельца по 14.35, docs/battle_eu4.md,
+// п. 2): таблицы «род против рода» и обещаний пар нет. Род против рода чистыми составами — таблица раздела «Тяжёлая: откуда
+// сила»; польза каждого вида в составе — `raid-stable:report`, раздел «Польза вида».
 
 console.log('\n=== Длительность и чем кончается бой (матрица составов) ===');
 {

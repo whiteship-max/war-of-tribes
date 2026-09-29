@@ -1,4 +1,4 @@
-// Наборы для балансных проверок: составы, пары кольца, ограничитель и кость. Их читают и тесты
+// Наборы для балансных проверок: составы, ограничитель и кость. Их читают и тесты
 // (раздел 16 документа), и скрипт отчёта — чтобы таблица в отчёте и утверждения в тестах считались
 // по одним данным. Расстановку наборы не выбирают: каждый состав встаёт по правилу развёртывания
 // (`setup.deploySetup`), потому что раскладки у удара больше нет (docs/battle_eu4.md, 14.5).
@@ -350,19 +350,8 @@ export function latticeRows(armies: ReadonlyArray<Partial<Stack>>, ratio: (i: nu
 export const answerlessOwnKind = (rows: LatticeRow[], i: number): boolean =>
   rows[i].lostTo.length > 0 && rows[i].lostTo.every((j) => mainKinds(rows[i].army).every((k) => (rows[j].army[k] ?? 0) > 0));
 
-/** Кольцо: каждая пара встаёт по правилу развёртывания, `a` должен побеждать. Приказов нет — кольцо держит род. */
-export const RING: Array<{ name: string; a: ArmySetup; b: ArmySetup }> = [
-  { name: 'копья бьют конницу', a: deploySetup({ spear: ARMY_SIZE }), b: deploySetup({ cavalry: ARMY_SIZE }) },
-  { name: 'конница бьёт лучников', a: deploySetup({ cavalry: ARMY_SIZE }), b: deploySetup({ archer: ARMY_SIZE }) },
-  { name: 'лучники бьют копья', a: deploySetup({ archer: ARMY_SIZE }), b: deploySetup({ spear: ARMY_SIZE }) },
-];
-
-/**
- * Пороги кольца (тест «кольцо контрров», `battle.test.ts`): на каждом из сидов `1…seeds` контрящий выигрывает размен не
- * ниже `RATIO_EVEN`, а в среднем по ним — больше `mean`. Одни числа на тест и на строку отчёта (`battle:report`, «Кольцо
- * контрров»): отчёт печатает средний размен по своим сидам, и без порогов рядом его сравнивали не с тем порогом.
- */
-export const RING_BAR = { seeds: 12, mean: 1.5 } as const;
+// Кольца контрров (`RING`) и его порогов (`RING_BAR`) нет с пересмотра баланса — слово владельца по 14.35 (docs/battle_eu4.md,
+// п. 2): таблицы «род против рода» и обещаний пар больше нет.
 
 /** Сбалансированный состав: мерка размера W (`ARMY_AT_W`) и противник поиска составов. */
 export const BALANCED_ARMY: Partial<Stack> = { spear: 150, infantry: 200, archer: 150, cavalry: 100 };

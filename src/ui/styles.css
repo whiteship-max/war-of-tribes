@@ -2525,41 +2525,6 @@ body {
   font-weight: 700;
 }
 
-/* ---------- Кольцо контрров ---------- */
-
-.ring-wrap {
-  margin-bottom: 10px;
-}
-
-.ring {
-  display: block;
-  width: 100%;
-  max-width: 300px;
-  margin: 0 auto 4px;
-  height: auto;
-}
-
-.ring-node {
-  fill: var(--panel-2);
-  stroke: var(--line);
-  stroke-width: 1;
-}
-
-.ring-ico {
-  font-size: 17px;
-}
-
-.ring-name {
-  font-size: 9px;
-  fill: var(--text);
-}
-
-.ring-mult {
-  font-size: 13px;
-  font-weight: 700;
-  fill: var(--accent);
-}
-
 /* ---------- Карточка вида войск ---------- */
 
 .btn.ghost.back {

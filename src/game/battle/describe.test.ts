@@ -7,15 +7,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ANCHOR,
-  COUNTER,
+  FIRE_AFTER_CONTACT,
   GEAR,
+  KIND_PROFILE,
   MORALE,
+  STAT_IDS,
   UNIT_KINDS,
   UNIT_STATS,
 } from '@/battle';
 import { TROOPS, TROOP_IDS } from '../data/troops';
-import { KIND_OF } from './kinds';
-import { counterRing, countersOf, fmt, moraleOf, nextGearOf, temperOf, troopCard } from './describe';
+import { KIND_OF, profileOfTroop } from './kinds';
+import { fmt, moraleOf, nextGearOf, positionsOf, statsOf, temperOf, troopCard } from './describe';
 
 /** Конфиг объявлен `as const`, но в рантайме это обычный объект — правим и возвращаем. */
 const patch = <T extends object, K extends keyof T>(obj: T, key: K, value: T[K]): (() => void) => {
@@ -39,7 +41,8 @@ afterEach(() => {
 const text = (troop: (typeof TROOP_IDS)[number]): string => {
   const c = troopCard(troop);
   return [
-    ...c.counters.map((l) => `${l.text} ${l.when}`),
+    ...c.pips.map((l) => `${l.name} ${l.value} ${l.what}`),
+    ...c.positions.map((l) => `${l.text} ${l.when}`),
     ...c.strengths,
     ...c.weaknesses,
     ...temperOf(c.kind).map((t) => `${t.when} ${t.text}`),
@@ -48,62 +51,45 @@ const text = (troop: (typeof TROOP_IDS)[number]): string => {
   ].join(' | ');
 };
 
-/** `COUNTER` объявлен `as const`, поэтому для правки его надо расширить до чисел. */
-const counters = (m: object): Record<string, number> => m as Record<string, number>;
-
 describe('карточка войск выводится из конфига', () => {
-  it('правка множителя в COUNTER меняет строку карточки', () => {
-    const before = countersOf('spear').find((l) => l.id === 'spear-cav-hold');
-    expect(before?.text).toBe(`${fmt(COUNTER.spear.cavalryHolding)} против лёгкой конницы`);
-
-    set(counters(COUNTER.spear), 'cavalryHolding', 3.7);
-    const after = countersOf('spear').find((l) => l.id === 'spear-cav-hold');
-
-    expect(after?.text).not.toBe(before?.text);
-    expect(after?.text).toContain('×3.7');
-    // И на карточке копейщика — тоже: панель читает ровно это.
-    expect(text('spearman')).toContain('×3.7');
-    expect(text('spearman')).not.toContain('×2.0 против конницы');
+  // Кольца контрров нет (слово владельца по 14.35, docs/battle_eu4.md): карточка показывает показатели вида — род и вещи, —
+  // а не пары «род против рода». Тесты «правка множителя в COUNTER меняет строку карточки», «правка COUNTER доходит и до
+  // чужой карточки», «невыгодные множители показываются наравне с выгодными» и «кольцо контрров берёт числа из COUNTER»
+  // сняты вместе с таблицей кольца; их обещание — карточка читает конфиг в момент показа и не прячет слабого — держат
+  // тесты ниже на показателях.
+  it('правка показателя рода меняет строку карточки — у каждого вида этого рода', () => {
+    const before = statsOf('spearman').find((l) => l.stat === 'shockDef')!;
+    expect(before.value).toBe(profileOfTroop('spearman').shockDef);
+    set(KIND_PROFILE.spear, 'shockDef', 7);
+    const after = statsOf('spearman').find((l) => l.stat === 'shockDef')!;
+    expect(after.value).not.toBe(before.value);
+    expect(after.fromKind).toBe(7);
+    expect(text('spearman')).toContain('натиск, защита 7');
   });
 
-  it('правка COUNTER доходит и до чужой карточки: конница видит новое число по себе', () => {
-    expect(text('rider')).toContain(`${fmt(COUNTER.spear.cavalryHolding)} копья по нам`);
-    set(counters(COUNTER.spear), 'cavalryHolding', 4.2);
-    expect(text('rider')).toContain('×4.2 копья по нам');
+  it('слабые показатели показываются наравне с сильными: все шесть у каждого вида, и нули тоже', () => {
+    for (const troop of TROOP_IDS) {
+      const c = troopCard(troop);
+      expect(c.pips.map((l) => l.stat), troop).toEqual([...STAT_IDS]);
+      for (const l of c.pips) expect(l.value, `${troop}: ${l.stat}`).toBe(l.fromKind + l.fromItems);
+    }
+    // У дубинщика нет ничего — и это видно: шесть нулей.
+    expect(troopCard('clubman').pips.every((l) => l.value === 0)).toBe(true);
   });
 
-  it('невыгодные множители показываются наравне с выгодными', () => {
-    const lines = countersOf('cavalry');
-    const bad = lines.filter((l) => !l.good);
-    expect(bad.length).toBeGreaterThan(0);
-    // Конница о сомкнутые копья — это её множитель, и он ниже единицы.
-    const vsSpear = lines.find((l) => l.id === 'cav-spear-closed');
-    expect(vsSpear?.dir).toBe('out');
-    expect(vsSpear?.mult).toBe(COUNTER.cavalry.spearClosed);
-    expect(vsSpear?.good).toBe(false);
-  });
-
-  it('у каждого множителя написано условие, при котором он действует, и условие — положение, а не приказ', () => {
-    // Приказов у боя больше нет (docs/battle_eu4.md, 14.5): множитель обязан действовать по положению
-    // бойцов — сомкнуты ли копья, во фланге ли удар, в рукопашной ли цель, — и так и назван.
+  it('у каждого множителя положения написано условие, и условие — положение, а не приказ', () => {
+    // Приказов у боя нет (docs/battle_eu4.md, 14.5): множитель действует по положению бойцов — во фланге ли удар, в
+    // рукопашной ли цель, — и так и назван.
     for (const kind of UNIT_KINDS) {
-      for (const line of countersOf(kind)) {
+      for (const line of [...positionsOf(kind), ...temperOf(kind)]) {
         expect(line.when.length).toBeGreaterThan(10);
         expect(line.text).toContain('×');
-        expect(line.when, line.id).not.toMatch(/приказ/i);
+        expect(line.when).not.toMatch(/приказ/i);
       }
     }
-  });
-
-  it('кольцо контрров берёт числа из COUNTER, а не рисует свои', () => {
-    const ring = counterRing();
-    expect(ring.edges.map((e) => e.text)).toEqual([
-      fmt(COUNTER.spear.cavalryHolding),
-      fmt(COUNTER.cavalry.archer),
-      fmt(COUNTER.archer.spear),
-    ]);
-    set(counters(COUNTER.archer), 'spear', 1.9);
-    expect(counterRing().edges[2].text).toBe('×1.9');
+    // Стрельба после контакта — у лучников, числом из конфига.
+    expect(positionsOf('archer').map((l) => l.text)).toEqual([fmt(FIRE_AFTER_CONTACT)]);
+    expect(positionsOf('spear')).toEqual([]);
   });
 });
 
@@ -150,11 +136,13 @@ describe('сильные и слабые стороны выводятся пр�
     }
   });
 
-  it('лучший размен рода — это и есть самый высокий множитель из COUNTER', () => {
-    const top = countersOf('cavalry')
-      .filter((l) => l.dir === 'out')
-      .reduce((a, b) => (b.mult > a.mult ? b : a));
-    expect(troopCard('rider').strengths[0]).toContain(top.text);
+  it('первая сильная сторона — показатель, где вид среди лучших видов, и она переезжает вслед за конфигом', () => {
+    // Лучник — единственный с нападением в огне: первая строка его сильных сторон — она.
+    expect(troopCard('archer').strengths[0]).toContain('Среди лучших видов — огонь, нападение');
+    // Поднимем нападение в огне копьям выше лучника — строка переедет к копейщику.
+    set(KIND_PROFILE.spear, 'fireAtk', 9);
+    expect(troopCard('spearman').strengths[0]).toContain('Среди лучших видов — огонь, нападение');
+    expect(troopCard('archer').strengths[0]).not.toContain('Среди лучших видов — огонь, нападение');
   });
 
   it('«самая высокая мораль среди родов» переезжает вслед за конфигом', () => {
@@ -195,7 +183,7 @@ describe('карточка целиком', () => {
       expect(c.cost.people).toBe(1);
       expect(c.cost.work).toBe(c.def.work);
       expect(c.cost.resources.length).toBeGreaterThan(0);
-      expect(c.counters.length).toBeGreaterThan(2);
+      expect(c.pips.length).toBe(STAT_IDS.length);
     }
   });
 

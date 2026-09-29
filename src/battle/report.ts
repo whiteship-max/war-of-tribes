@@ -53,8 +53,11 @@ const own = (side: Side, us: Side, g: Gender): string => (side === us ? MINE[g] 
 /** Сколько строк ключевых событий держит отчёт: больше десятка никто не читает. */
 export const KEYS_MAX = 7;
 
-/** Кость стороны в фазе: бросок, отметки, минус штраф места. */
-const dieOf = (e: Extract<BattleEvent, { id: 'dice' }>, side: Side): number => e.rolls[side] + e.pips[side] - (e.ground?.[side] ?? 0);
+/**
+ * Кость стороны в фазе: бросок минус штраф места — в гранях. Отметки полководца в неё не входят: с пересмотра баланса
+ * (docs/battle_eu4.md, 14.35) отметка стоит не грань, а цену отметки EU4, и «удача» — это бросок, а не умение.
+ */
+const dieOf = (e: Extract<BattleEvent, { id: 'dice' }>, side: Side): number => e.rolls[side] - (e.ground?.[side] ?? 0);
 
 /** Насколько кость фазы легла в пользу `us`: бросок с отметками и штрафом места против чужого. */
 const diceGap = (e: Extract<BattleEvent, { id: 'dice' }>, us: Side): number => dieOf(e, us) - dieOf(e, us === 'attacker' ? 'defender' : 'attacker');

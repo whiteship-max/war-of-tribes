@@ -131,12 +131,13 @@ describe('где стоит боец — одно правило', () => {
     // своей раскладки у стороны (`world/battle.FieldSide`) ушло совсем — обе стороны встают по правилу развёртывания одной
     // дверью (`resolveField`), а людей сверх состава приводить некуда: входа героя нет. Замок по исходнику, без комментариев.
     // Поставка 4 (14.31) дописала долю морали между боями (`rest`): это свойство войска, как стойкость, а не раскладка.
+    // Пересмотр баланса (14.35) дописал вещи стороны (`kit`, показатели = род + вещи): тоже свойство войска, как снаряжение.
     const src = readFileSync(new URL('./battle.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'gear', 'resolve', 'pips', 'rest']);
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'gear', 'kit', 'resolve', 'pips', 'rest']);
     expect(src, 'обе стороны — правилом').toMatch(/const attacker = deploySetup\(input\.attacker\.kinds\);/);
     expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
   });

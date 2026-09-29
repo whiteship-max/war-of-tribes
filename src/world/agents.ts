@@ -30,8 +30,9 @@ export interface PipRow {
   n: number;
   /**
    * На сколько в среднем вырастает урон его стороны в фазах этой отметки, доля: замер той же
-   * функцией ядра, которой бой множит урон (`phaseLuck`), на середине кости с отметками и без. У манёвра
-   * фаз нет — его работа переправа (`crossing`): сколько урона в каждой фазе возвращает снятый штраф.
+   * функцией ядра, которой бой множит урон (`phaseLuck`), на середине кости с отметками и без — отметка стоит
+   * цену отметки EU4 (`PIP`, 14.35). У манёвра фаз нет — его работа переправа (`crossing`): сколько урона в каждой
+   * фазе возвращает снятый штраф — в гранях кости, как сам штраф.
    */
   gain: number;
   /**
@@ -43,8 +44,8 @@ export interface PipRow {
 
 /**
  * Отметки полководца строками для карточки — **замером** функцией ядра, а не пересказом числа:
- * отметка сдвигает кость фазы на грань, и во что эта грань обходится уроном, говорит `phaseLuck`. Манёвр —
- * той же дверью, что бой (`groundFaces`): переправа на его войске против войска без полководца.
+ * во что отметка обходится уроном, говорит `phaseLuck`. Манёвр — той же дверью, что бой (`groundFaces`):
+ * переправа на его войске против войска без полководца.
  */
 export function pipRows(pips: Pips | undefined): PipRow[] {
   const mid = (DICE.faces - 1) / 2;
@@ -53,7 +54,7 @@ export function pipRows(pips: Pips | undefined): PipRow[] {
   const crossed = (n: number): number => groundFaces({ pips: { maneuver: n }, ground: { crossing: GROUND_CROSSING } } as ArmySetup, {} as ArmySetup).faces;
   return PIP_IDS.map((pip) => {
     const n = pipOf(setup, pip);
-    if (pip === 'maneuver') return { pip, n, gain: phaseLuck(mid, -crossed(n)) - phaseLuck(mid, -crossed(0)), crossing: true };
+    if (pip === 'maneuver') return { pip, n, gain: phaseLuck(mid, 0, crossed(n)) - phaseLuck(mid, 0, crossed(0)), crossing: true };
     return { pip, n, gain: phaseLuck(mid, n) - phaseLuck(mid, 0) };
   });
 }

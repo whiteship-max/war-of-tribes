@@ -13,7 +13,7 @@
 // одинаковым у всех.
 import type { TroopId } from '../types';
 import { seeded } from '../sim/random';
-import { TROOPS_OF_KIND, gearOf, kindsOf, weightOf, type TroopStack } from '../battle/kinds';
+import { TROOPS_OF_KIND, gearOf, kindsOf, kitOf, weightOf, type TroopStack } from '../battle/kinds';
 import {
   UNIT_KINDS,
   describeEvent,
@@ -47,8 +47,8 @@ export const QUIZ = {
    */
   maxTypes: 3,
   /**
-   * Один вид на род боя. Три вида пехоты выглядят как выбор, а на поле это одна
-   * и та же пехота — вопрос про кольцо контрров из такого не выйдет.
+   * Один вид на род боя. Три вида пехоты выглядят как выбор, а на поле это один
+   * род — вопрос про рода и их показатели из такого не выйдет.
    */
   onePerKind: true,
   /**
@@ -83,8 +83,8 @@ export const QUIZ = {
 } as const;
 
 /**
- * Поучительные события — по приоритету, а не по времени. Именно они объясняют
- * угол кольца контрров; «сектор сломался» случается в каждом бою и не учит
+ * Поучительные события — по приоритету, а не по времени. Именно они объясняют,
+ * кто кого бил и где; «сектор сломался» случается в каждом бою и не учит
  * ничему. `ReportLine` идентификатора события не несёт, а `summarize` сортирует
  * ключевые строки по тику, поэтому выбор делается здесь, до отчёта.
  */
@@ -124,7 +124,7 @@ export interface QuizQuestion {
  * по правилу развёртывания (`battle/setup.deploySetup`), как в игре. Генератор,
  * разбор и тест зовут только это.
  */
-export const quizSetup = (t: TroopStack): ArmySetup => ({ ...deploySetup(kindsOf(t)), gear: gearOf(t) });
+export const quizSetup = (t: TroopStack): ArmySetup => ({ ...deploySetup(kindsOf(t)), gear: gearOf(t), kit: kitOf(t) });
 
 const menOfSide = (t: TroopStack): number => stackTotal(kindsOf(t));
 
@@ -250,8 +250,8 @@ export function quizQuestion(seed: number): QuizQuestion {
     const q = attempt(seed, 0x2f6b91e7, n, false);
     if (q) return q;
   }
-  // Последний рубеж: пара из кольца контрров, копья против конницы. Ответ и
-  // здесь считает симуляция — записанного ответа в модуле нет нигде.
+  // Последний рубеж: копья против конницы. Ответ и здесь считает симуляция —
+  // записанного ответа в модуле нет нигде.
   const ours: TroopStack = { spearman: 45 };
   const theirs: TroopStack = { rider: 13 };
   const r = simulateBattle({ seed, attacker: quizSetup(ours), defender: quizSetup(theirs) });
@@ -272,7 +272,7 @@ export interface QuizExplain {
 
 /**
  * Разбор после ответа — из настоящего журнала того же боя, а не из заготовленных
- * фраз. Сперва поучительное событие по приоритету (угол кольца контрров), потом
+ * фраз. Сперва поучительное событие по приоритету (кто кого бил и где), потом
  * ключевые строки отчёта. Ни одного множителя и ни одной характеристики руками:
  * всё, что видит игрок, пришло из `summarize` и `describeEvent`.
  */

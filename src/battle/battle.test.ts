@@ -3,11 +3,11 @@
 // бой детерминирован, укладывается в границы, выведенные из фаз, а журнал объясняет исход и
 // не врёт числам. Все стороны встают по правилу развёртывания (`setup.deploySetup`).
 import { describe, expect, it } from 'vitest';
-import { ringMult, simulateBattle, standing } from './sim';
+import { simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
-import { ANNIHILATED_AT, BREAK_AFTER, COUNTER, DICE, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
-import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, RATIO_EVEN, RING, RING_BAR, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
+import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, GEAR, MELEE_RATE, MORALE, PHASE_PIP, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, UNIT_STATS, roundsCap } from './config';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, latticeDuels, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
 
@@ -40,6 +40,16 @@ function allPairs(seeds: number): Array<{ a: string; b: string; ratio: number; r
   return out;
 }
 
+/**
+ * Чистые пары родов — одним родом против другого, как прежние пары кольца (кольца с пересмотра баланса нет, 14.35), но
+ * выборке они нужны по-прежнему: у чистого состава свой ход боя.
+ */
+const PURE_PAIRS: Array<{ a: ArmySetup; b: ArmySetup }> = [
+  { a: deploySetup({ spear: ARMY_SIZE }), b: deploySetup({ cavalry: ARMY_SIZE }) },
+  { a: deploySetup({ cavalry: ARMY_SIZE }), b: deploySetup({ archer: ARMY_SIZE }) },
+  { a: deploySetup({ archer: ARMY_SIZE }), b: deploySetup({ spear: ARMY_SIZE }) },
+];
+
 /** Крайние случаи: они должны и завершаться в срок, и давать честный журнал. */
 const EXTREMES: Array<{ name: string; attacker: ArmySetup; defender: ArmySetup }> = [
   { name: 'толпа против горстки', attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 10 }) },
@@ -65,7 +75,7 @@ function sampleBattles(): BattleResult[] {
   const out: BattleResult[] = [];
   for (const p of allPairs(2)) out.push(...p.results);
   for (const e of EXTREMES) for (const seed of [1, 2, 3]) out.push(simulateBattle({ seed, attacker: e.attacker, defender: e.defender }));
-  for (const r of RING) out.push(simulateBattle({ seed: 5, attacker: r.a, defender: r.b }));
+  for (const r of PURE_PAIRS) out.push(simulateBattle({ seed: 5, attacker: r.a, defender: r.b }));
   return out;
 }
 
@@ -100,6 +110,10 @@ describe('нет доминирующего состава', () => {
     for (const k of UNIT_KINDS) expect(armies.some((a) => a[k] === ARMY_SIZE), k).toBe(true);
   });
 
+  // КРАСНЫЙ с показателей родов (шаг 5 пересмотра баланса, docs/battle_eu4.md, 14.35), честно — это остановка работы: без
+  // кольца и при показателях из рода и вещей решётка равных по людям армий получила непобеждённых. Голые рода (как меряет
+  // этот тест): «копья 300 + пехота 150 + тяжёлая 150», «копья 300 + пехота 150 + лёгкая 150», «копья 450 + пехота 150» —
+  // никто не берёт у них размен выше порога. Порог не трогается; решение — за владельцем (14.35, «Шаг 5: остановка»).
   it('каждый состав решётки кому-нибудь проигрывает размен', () => {
     const r = lattice();
     for (const row of r) expect(row.lostTo.length, `${compositionName(row.army)} не проигрывает размен никому`).toBeGreaterThan(0);
@@ -138,58 +152,18 @@ describe('результат и цена', () => {
   });
 });
 
-describe('кольцо контрров', () => {
-  // «Лучники бьют копья» — КРАСНЫЙ с шага C поставки 1, честно: размен по сидам ниже 1.05. Кольцо — наше, у EU4 его нет;
-  // решается на пересмотре баланса после поставки 5, до перемера мира (слово владельца, docs/battle_eu4.md, 14.24).
-  // Порог не трогается. Числа —
-  // `battle:report`, «Кольцо контрров»: с шагом 0.0928 до снятия паники 1.06 (по сидам 0.76–1.34), после — 1.00
-  // (0.70–1.28); с выведенным шагом 0.0265 — 0.94 (0.87–1.03); после снятия урона от морали (поставка 5, пункт 3,
-  // 14.33) — 1.07 (1.00–1.12); после флангов по доле и снятия ×1.05 (14.34) — 1.02 (0.94–1.08). Красный: по сидам ниже
-  // 1.05 и в среднем далеко ниже обещанных 1.5 — крупный пункт пересмотра баланса (14.24). Поле в этой паре у копий
-  // всегда; лучники «бьют» только разменом. Почему снятие паники ударило по лучникам (14.22): паника в этой паре была
-  // только у лучников — строй лучников стоит во второй линии без прикрытия, копья до него доходят, и первый сломавшийся
-  // сектор лучников валил соседей, строй уходил с поля разом и рукопашную, где лучники беспомощны, обрывал. Без паники
-  // каждый сектор лучников стоит в рукопашной до своего нуля — лучники теряют больше, а копья от стрел — почти столько же.
-  for (const pair of RING) {
-    it(pair.name, () => {
-      // По размену: в каждой паре боёв контрящий теряет меньше, в среднем — заметно меньше.
-      let ratio = 0;
-      const N = RING_BAR.seeds;
-      for (let seed = 1; seed <= N; seed += 1) {
-        const m = mirrored(pair.a, pair.b, seed);
-        expect(m.lossRatio, `сид ${seed}: размен не ниже ${RATIO_EVEN}`).toBeGreaterThanOrEqual(RATIO_EVEN);
-        ratio += m.lossRatio;
-      }
-      expect(ratio / N, `средний размен по ${N} сидам выше ${RING_BAR.mean}`).toBeGreaterThan(RING_BAR.mean);
-    });
-  }
-});
+// Кольца контрров нет (слово владельца по 14.35, docs/battle_eu4.md, п. 2): таблица «род против рода» ушла целиком, и с ней
+// тесты «кольцо контрров» — «лучники бьют копья» (обещание — лучники выигрывают у копий размен на каждом сиде, в среднем
+// выше 1.5; красный с поставки 1), «копья бьют конницу» и «конница бьёт лучников» (то же для своих пар). Кто кого бьёт,
+// следует из показателей родов и вещей (`KIND_PROFILE`, `PIP`), как у EU4; обещание «нет доминирующего состава» держит
+// решётка ниже, «у каждого вида есть бои, где он полезен» — `game/battle/kinds.test.ts`.
 
-describe('превосходство условно', () => {
-  const cavalry = deploySetup({ cavalry: ARMY_SIZE });
-  const spears = deploySetup({ spear: ARMY_SIZE });
+describe('превосходство по положению', () => {
 
-  it('конница против сомкнутых копий проигрывает размен', () => {
-    for (let seed = 1; seed <= 6; seed += 1) {
-      const m = mirrored(cavalry, spears, seed);
-      expect(m.lossRatio).toBeLessThanOrEqual(1 / RATIO_EVEN);
-    }
-  });
-
-  it('копья держат конницу, пока не обойдены: обойдённые теряют упор — условие положение, а не приказ', () => {
-    // Новый тест 8 поставки 1 (docs/battle_eu4.md, 14.5; Е17): сомкнутость копий — положение. Кольцо читает его
-    // одной функцией (`sim.ringMult`), и граница области — оба рода конницы и обе стороны удара. Утверждение «по смятым
-    // копьям конница бьёт ×1» ушло со смятием фронта (поставка 5, 14.33): смятых копий больше нет.
-    for (const horse of ['cavalry', 'heavy'] as const) {
-      expect(ringMult('spear', horse, false, false, false), `${horse}: сомкнутые копья`).toBe(COUNTER.spear.cavalryHolding);
-      expect(ringMult('spear', horse, false, true, false), `${horse}: обойдённые копья`).toBe(1);
-      expect(ringMult(horse, 'spear', false, false, false), `${horse} в лоб по сомкнутым`).toBe(COUNTER[horse].spearClosed);
-      expect(ringMult(horse, 'spear', true, false, false), `${horse} во фланг`).toBe(COUNTER[horse].flank);
-    }
-    expect(COUNTER.spear.cavalryHolding).toBeGreaterThan(1);
-    // Приказа у стороны нет вовсе — значит, и сомкнутость не может от него зависеть.
-    expect('orders' in spears).toBe(false);
-  });
+  // Тесты «конница против сомкнутых копий проигрывает размен» и «копья держат конницу, пока не обойдены: обойдённые теряют
+  // упор» сняты словом владельца по 14.35 (п. 2): упор копий против конницы (×2.0) и удар конницы о сомкнутые копья (×0.5) —
+  // кольцо, и оно ушло. Сомкнутость копий осталась положением — её читает характер (`TEMPER.spear`; тест «копейщики стойки,
+  // пока сомкнуты, и ломки под ударом во фланг»).
 
   it('лучники после контакта резко теряют ценность', () => {
     const shooters = setupOf({ A: { infantry: 100 }, B: { infantry: 200 }, C: { infantry: 100 }, D: { archer: 60 }, E: { archer: 80 }, F: { archer: 60 } });
@@ -210,7 +184,7 @@ describe('превосходство условно', () => {
       expect(before).toBeGreaterThan(0);
       expect(after).toBeLessThan(before * 0.5);
     }
-    expect(COUNTER.archer.afterContact).toBeLessThan(0.5);
+    expect(FIRE_AFTER_CONTACT).toBeLessThan(0.5);
   });
 });
 
@@ -410,18 +384,9 @@ describe('мораль как характеристика войск', () => {
     expect(head).toBeGreaterThan(turned);
   });
 
-  it('конница высока на разгоне, но хрупка, когда её остановили', () => {
-    expect(TEMPER.cavalry.charging).toBeLessThan(TEMPER.cavalry.stalled);
-    // Конница, вставшая во фронт против стены пехоты, ломается сама; та же конница в обходе — нет.
-    const wall = deploySetup({ infantry: 400 });
-    const stalled = setupOf({ A: { cavalry: 60 }, B: { cavalry: 80 }, C: { cavalry: 60 } });
-    let broken = 0;
-    for (let seed = 1; seed <= 6; seed += 1) {
-      const r = simulateBattle({ seed, attacker: stalled, defender: wall });
-      if (r.log.some((e) => e.id === 'sector-broken' && e.side === 'attacker')) broken += 1;
-    }
-    expect(broken).toBeGreaterThanOrEqual(5);
-  });
+  // Тест «конница высока на разгоне, но хрупка, когда её остановили» снят словом владельца по 14.35 (п. 2): слабости конницы
+  // в сече (×1.3 «остановленной») и её крепости в сшибке нет — сшибка и сеча обе натиск, и что род приносит в натиске,
+  // говорят показатели. Крепость конницы в обходе (`TEMPER.cavalry.charging`) — положение — осталась.
 
   it('лучники в рукопашной ломаются быстро', () => {
     expect(TEMPER.archer.melee).toBeGreaterThan(TEMPER.archer.shooting);
@@ -848,13 +813,11 @@ describe('круг боя: обстрел, сшибка, сеча', () => {
 
   it('сшибка круга пишет свои события: копья, удержавшие удар снова, и конница, снова дошедшая до лучников', () => {
     // Круг — новая сшибка и новая сеча, и событие о них пишется снова, а не один раз за бой: иначе отчёт и ролик не
-    // видят того, ради чего круг заведён. Конница с пехотой против лучников с пехотой по 2400: кругов там много, и
-    // лёгкая снова и снова доходит до тех же лучников. Прежний вход — пехота с конницей против пехоты с лучниками —
-    // с поставки 1 этого не показывает ни на каком размере: пеших хватает на весь фронт, конница стоит в резерве,
-    // а до лучников за целым строем не дотянуться. Половину обещания — «копья, удержавшие удар снова» — этот вход не
-    // показывает: копий в нём нет. Событие копий пишется редко — сколько боёв «Лезвия» его несут, печатает
-    // `battle:report`, столбец «копья держат» (с флангами за конницей, 14.21, их стало больше: конница стоит в строю).
-    const battles = roundBattles({ cavalry: 300, infantry: 300 }, { archer: 300, infantry: 200 }, 4, 2400);
+    // видят того, ради чего круг заведён. Конница против копий с лучниками по 2400: кругов там много, конница снова и
+    // снова сшибается с копьями и доходит до лучников за ними — обе половины обещания. Прежний вход — конница с пехотой
+    // против лучников с пехотой — с охвата одним правилом (14.35) повтора не показывает: обходящая конница бьёт сперва
+    // строй полосы, а до лучников за ним доходит, когда строя нет.
+    const battles = roundBattles({ cavalry: 600 }, { spear: 300, archer: 300 }, 4, 2400);
     const key = (e: BattleEvent): string =>
       e.id === 'spears-held' ? `${e.id}:${e.side}:${e.sector}:${e.phase}` : e.id === 'cavalry-broke-archers' ? `${e.id}:${e.side}:${e.target}:${e.phase}` : '';
     let again = 0;
@@ -1054,7 +1017,8 @@ describe('журнал осмыслен', () => {
     // Решение владельца по 14.21: порог события и выбитое — в одних единицах, полосы (как у «конница дошла до лучников»).
     // Прежде доля бралась от всей конницы противника, а выбитое — в одной полосе, и в паре кольца «копья бьют конницу»
     // событие не писалось ни разу. На исход боя порог журнала не влияет — это сверено отпечатком исходов (14.22).
-    const pair = RING.find((p) => p.name === 'копья бьют конницу')!;
+    // Копья против конницы вчетверо меньше: копья держат её в любом ходе боя — кольца для этого не нужно (14.35).
+    const pair = { a: deploySetup({ spear: ARMY_SIZE }), b: deploySetup({ cavalry: ARMY_SIZE / 4 }) };
     for (let seed = 1; seed <= 4; seed += 1) {
       const r = simulateBattle({ seed, attacker: pair.a, defender: pair.b });
       // Граница области: копья правда удержали конницу — выбили её больше, чем потеряли от неё.
@@ -1095,6 +1059,7 @@ describe('кость фазы', () => {
     // после последней боевой поставки, перед перемером мира (14.24). Коридор не трогается.
     // ЗЕЛЁНЫЙ с охвата одним правилом (14.35, пункт 1): 312 из 390, 80.0 % на том же шаге 0.0265 — тот же `oversizeHold`.
     // Шаг по-прежнему не выводится до П5; следующие шаги пересмотра (показатели родов) сдвинут долю снова.
+    // КРАСНЫЙ снова с показателей родов (шаг 5): 313 из 390, 80.3 %. Шаг выводится один раз в П5 (14.24); коридор не трогается.
     // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
     // «кость сдвинула долю» проверялось бы на наборе, где сдвигать было нечего.
     expect(withDiceStep(0, () => oversizeHold()), 'без кости: все бои у большей').toBe(1);
@@ -1105,7 +1070,7 @@ describe('кость фазы', () => {
   }, 60_000);
 
   it('в каждой фазе с костью — один бросок на сторону, в гранях кости; у отступления и погони кости нет', () => {
-    for (const r of [...allPairs(1).flatMap((p) => p.results), ...RING.map((p) => simulateBattle({ seed: 3, attacker: p.a, defender: p.b }))]) {
+    for (const r of [...allPairs(1).flatMap((p) => p.results), ...PURE_PAIRS.map((p) => simulateBattle({ seed: 3, attacker: p.a, defender: p.b }))]) {
       for (const span of r.phases) {
         const dice = r.log.filter((e) => e.id === 'dice' && e.phase === span.phase && e.tick >= span.from && e.tick <= span.to);
         expect(dice.length, `${span.phase}: бросков`).toBe(PHASE_PIP[span.phase] ? 1 : 0);

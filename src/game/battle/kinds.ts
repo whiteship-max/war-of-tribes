@@ -110,6 +110,31 @@ export function kindsOf(t: TroopStack): Stack {
 }
 
 /**
+ * Что вещи прибавляют к показателям каждого рода стороны — средним по людям рода (бойцам строя, `menOf`), как ядро их и
+ * считает: ядро кладёт это поверх рода (`ArmySetup.kit`; слово владельца по 14.35 — показатели = род + вещи). `bare` —
+ * люди рода без вещей, которых в `t` нет: ополчение у своих ворот — жители с тем, что есть. Рода без людей в ответе нет.
+ */
+export function kitOf(t: TroopStack, bare: Partial<Stack> = {}): Partial<Record<UnitKind, Profile>> {
+  const out: Partial<Record<UnitKind, Profile>> = {};
+  for (const k of UNIT_KINDS) {
+    let men = Math.max(0, bare[k] ?? 0);
+    const sum: Profile = { ...NO_PIPS };
+    for (const id of TROOPS_OF_KIND[k]) {
+      const m = menOf(id, Math.max(0, t[id] ?? 0));
+      if (m <= 0) continue;
+      men += m;
+      const kit = kitOfTroop(id);
+      for (const stat of STAT_IDS) sum[stat] += m * kit[stat];
+    }
+    if (men <= 0) continue;
+    const avg: Profile = { ...NO_PIPS };
+    for (const stat of STAT_IDS) avg[stat] = sum[stat] / men;
+    out[k] = avg;
+  }
+  return out;
+}
+
+/**
  * Ступень снаряжения рода, 0..`GEAR.max`: средняя по бойцам этого рода, взвешенная
  * их числом. Ступень — это число предметов из кузницы на бойце: дубинщику хватает
  * палки (0), латнику нужны меч, щит и доспех (3). Так кузница влияет на стойкость.

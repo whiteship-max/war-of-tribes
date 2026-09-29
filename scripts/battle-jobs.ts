@@ -13,8 +13,8 @@
 //
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
-import { COUNTER, RETREAT, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type PhaseId, type Side, type Stack } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, RING, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
+import { KIND_PROFILE, RETREAT, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type Side } from '../src/battle';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -64,7 +64,7 @@ interface Variant {
 }
 
 const H = UNIT_STATS.heavy as unknown as Record<string, number>;
-const HC = COUNTER.heavy as unknown as Record<string, number>;
+const HP = KIND_PROFILE.heavy as unknown as Record<string, number>;
 const HT = TEMPER.heavy as unknown as Record<string, number>;
 
 /**
@@ -83,14 +83,11 @@ const swap =
 /** Первый — «как есть»: числа конфига; это и есть решётка раздела «Решётка составов». */
 const VARIANTS: Variant[] = [
   { name: 'как есть', set: () => () => {} },
-  { name: 'рукопашная 1.3 → 1.0 (лёгкая)', set: swap([H, 'melee', 1.0]) },
-  { name: 'по пехоте ×1.3 → ×1.0 (лёгкая)', set: swap([HC, 'infantry', 1.0]) },
-  { name: 'рукопашная и по пехоте → 1.0', set: swap([H, 'melee', 1.0], [HC, 'infantry', 1.0]) },
+  // Сила тяжёлой с пересмотра баланса — показатели рода (конь) и вещей; решётка голая, без вещей (14.35).
+  { name: 'натиск коня 1 → 0 (пехота)', set: swap([HP, 'shockAtk', 0]) },
+  { name: 'страх коня 1 → 0 (пехота)', set: swap([HP, 'moraleAtk', 0]) },
   { name: 'мораль 65 → 56 (пехота)', set: swap([H, 'morale', 56]) },
-  { name: 'стойкость 1.1 → 0.8 (лёгкая)', set: swap([H, 'toughness', 0.8]) },
-  // Слабая фаза латной — сеча (решение 4А): вариант показывает, что было бы без неё.
-  { name: 'остановленная 1.3 → 1.0 (пехота)', set: swap([HT, 'stalled', 1.0]) },
-  { name: 'на разгоне 0.6 → 1.0 (пехота)', set: swap([HT, 'charging', 1.0]) },
+  { name: 'в обходе 0.6 → 1.0 (пехота)', set: swap([HT, 'charging', 1.0]) },
   { name: 'скорость 2 → 1 (копья)', set: swap([H, 'speed', 1]) },
 ];
 export const VARIANT_NAMES: readonly string[] = VARIANTS.map((v) => v.name);
@@ -111,7 +108,6 @@ export type Job =
   /** Пара матрицы i–j (i < j): бои сидов 1..seeds и те же бои глазами j. */
   | { kind: 'pair'; set: MatrixSet; i: number; j: number; seeds: number }
   /** Пара кольца контрров, сиды 1..seeds. */
-  | { kind: 'ring'; ring: number; seeds: number }
   /** Строки решётки `from..to` при варианте «Тяжёлой»: размен (`mirrored`, сид 1) с каждым j > i по порядку. */
   | { kind: 'lattice'; variant: number; from: number; to: number }
   /** Разрыв состава поиска против сбалансированного (`gapAgainst`). */
@@ -156,14 +152,8 @@ export type Job =
    * Погоня и стек (слово владельца по 14.35, пп. 5–6): составы решётки `from..to` — половина W против целого W того же
    * состава, кость конфига, сиды 1..`FACE_SEEDS`, большая — с обеих сторон поля.
    */
-  | { kind: 'rout'; from: number; to: number }
-  /** Пара кольца, сиды 1..seeds, оба боя пары: потери каждой стороны по группам фаз (`PHASE_GROUPS`). */
-  | { kind: 'ringPhases'; ring: number; seeds: number }
-  /**
-   * Кольцо ролями (слово владельца по 14.35, п. 2): составы с лучниками `ROLES.ours[from..to]` и те же без лучников против
-   * каждого состава с большой долей копий (`ROLES.foes`), сиды 1..`ROLE_SEEDS`, обе стороны поля.
-   */
-  | { kind: 'roles'; from: number; to: number };
+  | { kind: 'rout'; from: number; to: number };
+
 
 /**
  * Правки «нас» в разделе «Цена грани»: отметка полководца +1 в одной фазе (обстрел, сшибка, сеча), по одной в каждой из трёх
@@ -180,39 +170,6 @@ export const FACES: ReadonlyArray<{ name: string; with: (s: ArmySetup) => ArmySe
 ];
 /** Сиды раздела «Цена грани» и боёв 2 : 1 — те же четыре, что у «Лезвия» с костью. */
 export const FACE_SEEDS = 4;
-
-/** Группы фаз для кольца: обстрел (стрельба и сближение), сшибка, сеча (бой линий и прежние его фазы), отход, погоня. */
-export const PHASE_GROUPS: ReadonlyArray<{ name: string; phases: readonly PhaseId[] }> = [
-  { name: 'обстрел', phases: ['ranged', 'approach'] },
-  { name: 'сшибка', phases: ['clash'] },
-  { name: 'сеча', phases: ['lines', 'flanking', 'reserve', 'morale'] },
-  { name: 'отход', phases: ['retreat'] },
-  { name: 'погоня', phases: ['pursuit'] },
-];
-const groupLosses = (r: BattleResult, side: Side): number[] => PHASE_GROUPS.map((g) => r.phases.filter((p) => g.phases.includes(p.phase)).reduce((n, p) => n + p.losses[side], 0));
-
-/**
- * Составы раздела «Кольцо ролями». Противник — состав решётки, в котором копий не меньше половины. «Мы» — состав решётки с
- * лучниками и хоть одним другим родом; «тот же без лучников» — его прочие рода, доведённые до того же размера в тех же долях
- * (остаток округления — самому многочисленному роду): так сравнивается сам вклад лучников, а не размер армии.
- */
-export const ROLES = ((): { ours: Array<Partial<Stack>>; bare: Array<Partial<Stack>>; foes: Array<Partial<Stack>> } => {
-  const lattice = compositionLattice();
-  const foes = lattice.filter((a) => (a.spear ?? 0) * 2 >= ARMY_SIZE);
-  const ours = lattice.filter((a) => (a.archer ?? 0) > 0 && (a.archer ?? 0) < ARMY_SIZE);
-  const bare = ours.map((a) => {
-    const rest = UNIT_KINDS.filter((k) => k !== 'archer' && (a[k] ?? 0) > 0);
-    const left = rest.reduce((n, k) => n + (a[k] ?? 0), 0);
-    const out: Partial<Stack> = {};
-    for (const k of rest) out[k] = Math.floor(((a[k] ?? 0) * ARMY_SIZE) / left);
-    const top = rest.reduce((b, k) => ((a[k] ?? 0) > (a[b] ?? 0) ? k : b), rest[0]);
-    out[top] = (out[top] ?? 0) + ARMY_SIZE - rest.reduce((n, k) => n + (out[k] ?? 0), 0);
-    return out;
-  });
-  return { ours, bare, foes };
-})();
-/** Сиды раздела «Кольцо ролями»: два на пару с каждой стороны поля — четыре боя на (состав, противник). */
-export const ROLE_SEEDS = 2;
 
 /**
  * Погоня в бою: кто проиграл, сколько он потерял всего, сколько — в погоне, и упёрлась ли погоня в потолок
@@ -249,7 +206,6 @@ export interface Reach {
 
 export type Out =
   | { kind: 'pair'; ab: Pair[]; ba: Pair[] }
-  | { kind: 'ring'; pairs: Pair[] }
   | { kind: 'lattice'; ratios: number[] }
   | { kind: 'gap'; gap: { gap: number; lost: number; won: number } }
   | { kind: 'pool'; gaps: number[] }
@@ -260,9 +216,7 @@ export type Out =
   | { kind: 'still'; n: number; gong: number; draws: number; stood: number }
   | { kind: 'mono'; n: number; held: number; drops: Array<{ i: number; j: number; side: Side; how: MonoKind }> }
   | { kind: 'face'; n: number; held: number; draws: number }
-  | { kind: 'rout'; rout: Rout }
-  | { kind: 'ringPhases'; a: number[]; b: number[] }
-  | { kind: 'roles'; rows: Array<{ ours: number; foe: number; with: number; without: number; n: number }> };
+  | { kind: 'rout'; rout: Rout };
 
 /**
  * Бои 2 : 1 (раздел «Погоня»): сколько их (`n`), в скольких меньшая удержала поле, сколько проиграла; у проигравшей меньшей —
@@ -315,10 +269,6 @@ export function battleJob(job: Job): Out {
       const ms = Array.from({ length: job.seeds }, (_, n) => mirrored(s[job.i], s[job.j], n + 1));
       // Пара j–i — те же два боя в обратном порядке, а не два новых.
       return { kind: 'pair', ab: ms.map(pairOf), ba: ms.map((m) => pairOf(mirrorOf(m.results[1], m.results[0]))) };
-    }
-    case 'ring': {
-      const { a, b } = RING[job.ring];
-      return { kind: 'ring', pairs: Array.from({ length: job.seeds }, (_, n) => pairOf(mirrored(a, b, n + 1))) };
     }
     case 'lattice':
       return under(job.variant, () => {
@@ -426,44 +376,6 @@ export function battleJob(job: Job): Out {
         }
       }
       return { kind: 'rout', rout: out };
-    }
-    case 'ringPhases': {
-      const { a, b } = RING[job.ring];
-      const la = PHASE_GROUPS.map(() => 0);
-      const lb = PHASE_GROUPS.map(() => 0);
-      for (let seed = 1; seed <= job.seeds; seed += 1) {
-        const m = mirrored(a, b, seed);
-        // Первый бой пары — a нападает, второй — b нападает (`mirrored`).
-        for (const [r, sa] of [
-          [m.results[0], 'attacker'],
-          [m.results[1], 'defender'],
-        ] as Array<[BattleResult, Side]>) {
-          const sb: Side = sa === 'attacker' ? 'defender' : 'attacker';
-          groupLosses(r, sa).forEach((v, k) => (la[k] += v));
-          groupLosses(r, sb).forEach((v, k) => (lb[k] += v));
-        }
-      }
-      return { kind: 'ringPhases', a: la, b: lb };
-    }
-    case 'roles': {
-      const rows: Array<{ ours: number; foe: number; with: number; without: number; n: number }> = [];
-      const foes = ROLES.foes.map((f) => deploySetup(f));
-      for (let i = job.from; i < job.to; i += 1) {
-        const withA = deploySetup(ROLES.ours[i]);
-        const without = deploySetup(ROLES.bare[i]);
-        foes.forEach((foe, e) => {
-          const row = { ours: i, foe: e, with: 0, without: 0, n: 0 };
-          for (let seed = 1; seed <= ROLE_SEEDS; seed += 1) {
-            const m1 = mirrored(withA, foe, seed);
-            const m2 = mirrored(without, foe, seed);
-            row.with += m1.field.a;
-            row.without += m2.field.a;
-            row.n += 2;
-          }
-          rows.push(row);
-        });
-      }
-      return { kind: 'roles', rows };
     }
     case 'still': {
       const setups = compositionLattice().map((a) => deploySetup(scaleArmy(a, job.total)));

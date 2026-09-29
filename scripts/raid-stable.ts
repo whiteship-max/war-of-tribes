@@ -9,15 +9,14 @@
 //  1. **Виды** — что у каждого вида есть: род, бойцов строя, ступень, мораль, цена и содержание на бойца строя
 //     (мера боя — `kinds.menOf`).
 //  2. **Вид против вида при равной мощи** — ядро, обе стороны по правилу развёртывания, как в игре.
-//  3. **Кольцо в игре** — вид против логова по пяти укладам: оборона от набега и удар по гарнизону.
+//  3. **Вид против логова** — по пяти укладам: оборона от набега и удар по гарнизону.
 //  4. **Бой у стены** — `LocalWorld.wallField`, посёлок мерки 10-го уровня, армии одной мощи.
 //  5. Снят с поставкой 1 боя (docs/battle_eu4.md, 14.5): «армия без линии в обходе» мерила ждущую конницу с приказами,
 //     а ждущей конницы и приказов больше нет. Номера разделов прежние, чтобы вывод сравнивался с прежним.
-//  6. **Классы конницы** — профиль, кольцо, доля в войске, бой у стены. Чувствительности к приказу (6.2) больше нет:
+//  6. **Классы конницы** — профиль, чистые пары, доля в войске, бой у стены. Чувствительности к приказу (6.2) больше нет:
 //     приказов нет, конница встаёт по правилу развёртывания — с краёв первой линии.
 //  7. **Числа** — цена силы, жалованье за снаряжение (`WAGE_GEAR`) выводом, стойла и время найма.
 import {
-  COUNTER,
   GEAR,
   RETREAT,
   TEMPER,
@@ -37,7 +36,7 @@ import { lairPower, lairRaid } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
-import { BATTLE_MAN, KIND_OF, gearOfTroop, troopPower, troopTotal, weightOf, type TroopStack } from '@/game/battle/kinds';
+import { BATTLE_MAN, KIND_OF, gearOfTroop, kitOf, kitOfTroop, profileOfTroop, troopPower, troopTotal, weightOf, type TroopStack } from '@/game/battle/kinds';
 import { createInitialState } from '@/game/state';
 import { defense, recruitRate, selfCost, stalls, wageGear, wageOf } from '@/game/derived';
 import { GOOD_BY_ID } from '@/game/data/market';
@@ -132,7 +131,12 @@ function idOf(style: GarrisonStyle, seed: number, i: number, kind: 'raid' | 'lai
 interface Side {
   stack: Stack;
   gear: Partial<Record<UnitKind, number>>;
+  /** Что вещи прибавляют к показателям рода (`ArmySetup.kit`): вид — своими вещами (показатели = род + вещи, 14.35). */
+  kit: NonNullable<ArmySetup['kit']>;
 }
+
+/** Сторона в бой ядра: правило развёртывания, ступень и вещи вида. */
+const sideSetup = (s: Side): ArmySetup => ({ ...deploySetup(s.stack), gear: s.gear, kit: s.kit });
 
 /**
  * Расстановка своей стороны: правило развёртывания. Отдаётся явно, а не пустым `setup` — так вход боя виден целиком,
@@ -151,10 +155,10 @@ function lairLosses(own: Side, style: GarrisonStyle | null, k: number, mode: 'de
     const seed = i * 7919;
     if (mode === 'defend') {
       const p = raidingParty(seed, style ? idOf(style, seed, i, 'raid') : `bench${i}`, k * power);
-      out.push(resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear }, defender: { kinds: own.stack, gear: own.gear } }).won);
+      out.push(resolveField({ seed, attacker: { kinds: p.kinds, gear: p.gear }, defender: { kinds: own.stack, gear: own.gear, kit: own.kit } }).won);
     } else {
       const g = garrisonOf(seed, style ? idOf(style, seed, i, 'lair') : `bench${i}`, k * power);
-      out.push(!resolveField({ seed, attacker: { kinds: own.stack, gear: own.gear }, defender: { kinds: g.kinds, gear: g.gear } }).won);
+      out.push(!resolveField({ seed, attacker: { kinds: own.stack, gear: own.gear, kit: own.kit }, defender: { kinds: g.kinds, gear: g.gear } }).won);
     }
   }
   return out;
@@ -167,8 +171,12 @@ function lairLoss(own: Side, style: GarrisonStyle | null, k: number, mode: 'defe
 
 const stackMen = (s: Stack): number => Object.values(s).reduce((n, x) => n + x, 0);
 
-/** Армия из одного вида: `MEN` бойцов строя, ступень вида. */
-const pureOf = (id: TroopId): Side => ({ stack: { ...emptyStack(), [KIND_OF[id]]: MEN }, gear: { [KIND_OF[id]]: gearOfTroop(id) } });
+/** Армия из одного вида: `MEN` бойцов строя, ступень и вещи вида. */
+const pureOf = (id: TroopId): Side => ({
+  stack: { ...emptyStack(), [KIND_OF[id]]: MEN },
+  gear: { [KIND_OF[id]]: gearOfTroop(id) },
+  kit: { [KIND_OF[id]]: kitOfTroop(id) },
+});
 
 // ---------- 1. Виды сегодня ----------
 
@@ -265,10 +273,9 @@ const DUEL_SEEDS = 20;
 function duel(a: Side, b: Side): number {
   let la = 0;
   let lb = 0;
-  const setup = (s: Side): ArmySetup => ({ ...deploySetup(s.stack), gear: s.gear });
   for (let seed = 1; seed <= DUEL_SEEDS; seed++) {
-    const r1 = simulateBattle({ seed, attacker: setup(a), defender: setup(b) });
-    const r2 = simulateBattle({ seed, attacker: setup(b), defender: setup(a) });
+    const r1 = simulateBattle({ seed, attacker: sideSetup(a), defender: sideSetup(b) });
+    const r2 = simulateBattle({ seed, attacker: sideSetup(b), defender: sideSetup(a) });
     la += r1.sides.attacker.total.losses + r2.sides.defender.total.losses;
     lb += r1.sides.defender.total.losses + r2.sides.attacker.total.losses;
   }
@@ -289,7 +296,7 @@ async function duelPart(): Promise<void> {
   for (const line of await fan(duelLine, import.meta.url, TROOPS.map((_, i) => i))) console.log(line);
 }
 
-// ---------- 3. Кольцо в игре ----------
+// ---------- 3. Вид против логова ----------
 
 /**
  * Строки таблицы по укладам: `ring` — раздел 3 (вид против логова). Строки выводятся из имени таблицы, чтобы
@@ -317,7 +324,7 @@ async function styleTable(table: string): Promise<void> {
 
 async function ringPart(): Promise<void> {
   console.log('');
-  console.log(`--- 3. Кольцо в игре: вид против логова, ${MEN} бойцов строя, ${LAIR_SEEDS} боёв на силу логова, правило развёртывания у обеих ---`);
+  console.log(`--- 3. Вид против логова: ${MEN} бойцов строя, ${LAIR_SEEDS} боёв на силу логова, правило развёртывания у обеих ---`);
   console.log('«оборона» — набег (garrison.raidingParty) на армию из одного вида без стены и ополчения; «удар» — армия по гарнизону логова (garrisonOf).');
   console.log('Ячейка — сила логова в долях своей мощи, при которой проигрываем половину боёв; больше — сильнее. Столбцы — уклад логова.');
   console.log('«разброс» — лучший уклад к худшему: во сколько раз вид сильнее против удобного логова, чем против неудобного.');
@@ -421,9 +428,11 @@ function mixSide(share: number, horse: HorseClass): Side {
   const foot: [UnitKind, number][] = [];
   let whole = 0;
   const gear: Partial<Record<UnitKind, number>> = {};
+  const feet: TroopStack = {};
   for (const id of Object.keys(MIX) as TroopId[]) {
     if (TROOP_BY_ID[id].mounted) continue;
     gear[KIND_OF[id]] = gearOfTroop(id);
+    feet[id] = MIX[id];
     const n = (MIX[id] ?? 0) * weightOf(id);
     foot.push([KIND_OF[id], n]);
     whole += n;
@@ -433,7 +442,8 @@ function mixSide(share: number, horse: HorseClass): Side {
   const cav = Math.round(MEN * share);
   stack[horse.kind] = cav;
   for (const [k, n] of foot) stack[k] += Math.round(((MEN - cav) * n) / whole);
-  return { stack, gear };
+  // Вещи пеших — видов мерки в их долях (`kitOf` весит людьми строя, как ядро), конницы — её класса.
+  return { stack, gear, kit: { ...kitOf(feet), [horse.kind]: kitOfTroop(horse.troop) } };
 }
 
 const CAV_SHARE = 0.3;
@@ -448,25 +458,32 @@ const ONE_DECISION = 0.15;
 function rulePart(): void {
   console.log('');
   console.log('--- 6. Классы конницы: профиль из конфига боя ---');
-  console.log('Правило: класс — это доспех на всаднике (kinds.kindOfTroop). Без доспеха — та половина прежнего конного рода, что держится на');
-  console.log('скорости; в доспехе — та, что держится на весе. Своих чисел у классов нет (src/battle/horse.test.ts):');
+  console.log('Правило: класс — это доспех на всаднике (kinds.kindOfTroop). Конь у обоих один, делят их доспех (вещь) и скорость;');
+  console.log('своих чисел у классов нет (src/battle/horse.test.ts). Показатели — род и вещи (docs/battle_eu4.md, 14.35):');
   for (const c of CLASSES) {
     const k = c.kind as 'cavalry' | 'heavy';
     const s = UNIT_STATS[k];
-    const x = COUNTER[k];
+    const p = profileOfTroop(c.troop);
     console.log(
-      `  ${padR(c.name, 8)} ${padR(TROOP_BY_ID[c.troop].name, 16)} рукопашная ${s.melee}, стойкость ${s.toughness}, скорость ${s.speed}; по лучникам ×${x.archer}, во фланг ×${x.flank}, по сомкнутым копьям ×${x.spearClosed}, по пехоте ×${x.infantry}; лучники по ней ×${COUNTER.archer[k]}; остановленная ×${TEMPER[k].stalled}; преследование ${RETREAT.pursuitKills[k]}; снаряжение ${Object.keys(TROOP_BY_ID[c.troop].gear).join('+')}, ступень ${gearOfTroop(c.troop)}`,
+      `  ${padR(c.name, 8)} ${padR(TROOP_BY_ID[c.troop].name, 16)} натиск рода ${s.melee}, скорость ${s.speed}; огонь ${p.fireAtk}/${p.fireDef}, натиск ${p.shockAtk}/${p.shockDef}, мораль ${p.moraleAtk}/${p.moraleDef}; в обходе ×${TEMPER[k].charging}; преследование ${RETREAT.pursuitKills[k]}; снаряжение ${Object.keys(TROOP_BY_ID[c.troop].gear).join('+')}, ступень ${gearOfTroop(c.troop)}`,
     );
   }
-  console.log('Удар с разбега (CLASH_CAVALRY_IMPACT ×1.5) — только у тяжёлой (sim.ts). Прежний единый всадник — в выводе коммита 729d510 и в docs/stable.md.');
+  console.log('Прежний единый всадник — в выводе коммита 729d510 и в docs/stable.md.');
 }
 
-/** Пары раздела 6.1: армия и противник по роду конницы; все встают по правилу развёртывания. */
-const RING_PAIRS: { name: string; a: (k: UnitKind) => ArmySetup; b: (k: UnitKind) => ArmySetup }[] = [
-    { name: 'копья против конницы', a: () => deploySetup({ spear: MEN }), b: (k) => deploySetup({ [k]: MEN }) },
-    { name: 'конница против лучников', a: (k) => deploySetup({ [k]: MEN }), b: () => deploySetup({ archer: MEN }) },
-    { name: 'конница против пехоты', a: (k) => deploySetup({ [k]: MEN }), b: () => deploySetup({ infantry: MEN }) },
-    { name: 'пехота + треть конницы против пехоты', a: (k) => deploySetup({ [k]: MEN / 3, infantry: (2 * MEN) / 3 }), b: () => deploySetup({ infantry: MEN }) },
+/**
+ * Пары раздела 6.1: армия и противник по классу конницы, видами с их вещами; все встают по правилу развёртывания. Кольца
+ * контрров нет (14.35) — пары остались как мера класса против пеших видов.
+ */
+const RING_PAIRS: { name: string; a: (c: HorseClass) => Side; b: (c: HorseClass) => Side }[] = [
+    { name: 'копейщики против класса', a: () => pureOf('spearman'), b: (c) => pureOf(c.troop) },
+    { name: 'класс против лучников', a: (c) => pureOf(c.troop), b: () => pureOf('archer') },
+    { name: 'класс против дубинщиков', a: (c) => pureOf(c.troop), b: () => pureOf('clubman') },
+    {
+      name: 'дубинщики + треть класса против дубинщиков',
+      a: (c) => ({ stack: { ...emptyStack(), [c.kind]: MEN / 3, infantry: (2 * MEN) / 3 }, gear: { [c.kind]: gearOfTroop(c.troop) }, kit: { [c.kind]: kitOfTroop(c.troop) } }),
+      b: () => pureOf('clubman'),
+    },
 ];
 const RING_FOES: TroopId[] = ['clubman', 'spearman', 'archer', 'legionary'];
 
@@ -479,7 +496,7 @@ export function classRingLine({ i, duel: d }: { i: number; duel: boolean }): str
   const pair = RING_PAIRS[i];
   const row = CLASSES.map((c) => {
     let ratio = 0;
-    for (let seed = 1; seed <= DUEL_SEEDS; seed++) ratio += mirrored(pair.a(c.kind), pair.b(c.kind), seed).lossRatio;
+    for (let seed = 1; seed <= DUEL_SEEDS; seed++) ratio += mirrored(sideSetup(pair.a(c)), sideSetup(pair.b(c)), seed).lossRatio;
     return f2(ratio / DUEL_SEEDS);
   });
   return ` ${padR(pair.name, 46)}${row.map((x) => pad(x, 10)).join('')}`;
@@ -487,7 +504,7 @@ export function classRingLine({ i, duel: d }: { i: number; duel: boolean }): str
 
 async function classRingPart(): Promise<void> {
   console.log('');
-  console.log(`--- 6.1. Кольцо: ядро, размен первой армии, правило развёртывания у обеих, ${DUEL_SEEDS} сидов × обе стороны поля ---`);
+  console.log(`--- 6.1. Классы в чистых парах: ядро, размен первой армии, виды с их вещами, правило развёртывания у обеих, ${DUEL_SEEDS} сидов × обе стороны поля ---`);
   const lines = await fan(classRingLine, import.meta.url, [...RING_PAIRS.map((_, i) => ({ i, duel: false })), ...CLASSES.map((_, i) => ({ i, duel: true }))]);
   console.log(` ${padR('', 46)}${CLASSES.map((c) => pad(c.name, 10)).join('')}`);
   for (const line of lines.slice(0, RING_PAIRS.length)) console.log(line);

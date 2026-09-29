@@ -15,8 +15,8 @@ import type { BuildingDef } from '@/game/data/buildings';
 import { RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS } from '@/game/data/buildings';
 import { TROOPS } from '@/game/data/troops';
-import { GEAR, MORALE, UNIT_STATS } from '@/battle';
-import { KIND_OF, gearOfTroop, weightOf } from '@/game/battle/kinds';
+import { GEAR, MORALE, PIP, UNIT_STATS } from '@/battle';
+import { KIND_OF, gearOfTroop, profileOfTroop, weightOf } from '@/game/battle/kinds';
 
 /**
  * Степень, с которой уровень входит в мощь здания. Больше единицы нарочно:
@@ -68,15 +68,21 @@ export function buildingsPower(s: GameState): number {
 // ---------- Дружина ----------
 
 /**
- * Чего стоит один боец строя этого рода: чем он бьёт, сколько держит и насколько
- * стоек. Все три числа — из боевого конфига, включая мораль со ступенью
- * снаряжения (`GEAR`). Правят баланс боя — меняется и мощь, без правки этого файла.
+ * Чего стоит один боец строя этого вида: чем он бьёт, сколько держит и насколько
+ * стоек. Все числа — из боевого конфига: сила рода в натиске и огне, его показатели
+ * (род и вещи, `profileOfTroop`) в цене отметки (`PIP`) и мораль со ступенью снаряжения
+ * (`GEAR`). Правят баланс боя — меняется и мощь, без правки этого файла. Прежде
+ * «держит» было стойкостью рода; с пересмотра баланса (docs/battle_eu4.md, 14.35) защита —
+ * показатели в огне и натиске, средним.
  */
 export function combatValue(troop: TroopId): number {
   const stats = UNIT_STATS[KIND_OF[troop]];
   if (!stats) return 0;
+  const p = profileOfTroop(troop);
   const morale = Math.min(MORALE.max, stats.morale + gearOfTroop(troop) * GEAR.moralePerLevel);
-  return (stats.melee + stats.ranged) * stats.toughness * (morale / MORALE.max);
+  const hits = stats.melee * (1 + PIP * p.shockAtk) + stats.ranged * (1 + PIP * p.fireAtk);
+  const holds = 1 + (PIP * (p.fireDef + p.shockDef)) / 2;
+  return hits * holds * (morale / MORALE.max);
 }
 
 /**

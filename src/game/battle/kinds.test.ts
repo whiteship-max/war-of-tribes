@@ -3,8 +3,7 @@
 // боя она ушла — у частокола строй раскладывает правило, как любой бой (docs/battle_eu4.md, 14.27), — и отряд
 // племени входит в бой так же, как в мире: правилом развёртывания по родам (`deploySetup(kindsOf(…))`).
 import { describe, expect, it } from 'vitest';
-import { UNIT_KINDS, deploySetup, simulateBattle, type ArmySetup } from '@/battle';
-import { RATIO_EVEN } from '@/battle/bench';
+import { UNIT_KINDS } from '@/battle';
 import { createInitialState } from '../state';
 import { wageOf } from '../derived';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
@@ -15,6 +14,7 @@ import {
   ITEM_PIPS,
   KIND_OF,
   OWN_KINDS,
+  kitOf,
   kitOfTroop,
   profileOfTroop,
   gearOf,
@@ -71,25 +71,6 @@ describe('перевод бойцов племени в роды боя', () => 
   });
 });
 
-/** Отряд племени, вставший по правилу развёртывания, в том виде, в каком его видит ядро: так же, как в мире. */
-const armyOf = (troops: TroopStack): ArmySetup => ({ ...deploySetup(kindsOf(troops)), gear: gearOf(troops) });
-
-/** Пара боёв одним сидом: сторона поля не должна решать исход. */
-function ratio(a: ArmySetup, b: ArmySetup, seed: number): number {
-  const r1 = simulateBattle({ seed, attacker: a, defender: b });
-  const r2 = simulateBattle({ seed, attacker: b, defender: a });
-  const aLoss = r1.sides.attacker.total.losses + r2.sides.defender.total.losses;
-  const bLoss = r1.sides.defender.total.losses + r2.sides.attacker.total.losses;
-  return bLoss / Math.max(1, aLoss);
-}
-
-/** Средний размен по нескольким сидам: один бой ничего не доказывает. */
-const meanRatio = (a: ArmySetup, b: ArmySetup): number => {
-  let sum = 0;
-  for (let seed = 1; seed <= 6; seed += 1) sum += ratio(a, b, seed);
-  return sum / 6;
-};
-
 describe('конница племени', () => {
   it('всадник выходит лёгкой конницей, латный — тяжёлой, и все пять родов игроку доступны', () => {
     expect(kindsOf({ rider: 10 }).cavalry).toBe(menOf('rider', 10));
@@ -124,14 +105,9 @@ describe('конница племени', () => {
     expect(gearCount('knight')).toBe(gearCount('rider') + 1);
   });
 
-  it('кольцо работает в обе стороны: конница племени режет лучников и вязнет в копьях', () => {
-    // Отряды одной мощи, поэтому сравнивать размен честно.
-    const riders = armyOf({ rider: 100 });
-    const archers = armyOf({ archer: 280 });
-    const spears = armyOf({ spearman: 350 });
-    expect(meanRatio(riders, archers)).toBeGreaterThan(RATIO_EVEN);
-    expect(meanRatio(riders, spears)).toBeLessThan(1 / RATIO_EVEN);
-  });
+  // Тест «кольцо работает в обе стороны: конница племени режет лучников и вязнет в копьях» снят словом владельца по 14.35
+  // (docs/battle_eu4.md, п. 2): кольца контрров нет, и обещания пар «конница бьёт лучников», «копья бьют конницу» — тоже.
+  // Кто кого бьёт, решают показатели вида (таблица ниже).
 
 });
 
@@ -151,6 +127,21 @@ describe('таблица показателей по видам', () => {
     knight: [0, 2, 2, 2, 1, 0],
     legionary: [0, 2, 1, 2, 0, 0],
   };
+
+  it('вещи стороны — средним по людям строя каждого рода; люди без вещей (ополчение) разбавляют среднее', () => {
+    // Латник весит восьмерых, дубинщик — одного: восемь латников и восемь дубинщиков — 64 и 8 бойцов строя пехоты.
+    const kit = kitOf({ legionary: 8, clubman: 8 });
+    const men = menOf('legionary', 8) + menOf('clubman', 8);
+    expect(kit.infantry!.fireDef).toBeCloseTo((menOf('legionary', 8) * kitOfTroop('legionary').fireDef) / men, 9);
+    expect(kit.infantry!.shockAtk).toBeCloseTo((menOf('legionary', 8) * kitOfTroop('legionary').shockAtk) / men, 9);
+    // Родов без людей в ответе нет.
+    expect(kit.cavalry).toBeUndefined();
+    // Ополчение — столько же бойцов строя без вещей — делит среднее пополам.
+    const bare = kitOf({ legionary: 8, clubman: 8 }, { infantry: men });
+    expect(bare.infantry!.fireDef).toBeCloseTo(kit.infantry!.fireDef / 2, 9);
+    // Только ополчение — род есть, вещей нет.
+    expect(kitOf({}, { archer: 5 }).archer).toEqual({ fireAtk: 0, fireDef: 0, shockAtk: 0, shockDef: 0, moraleAtk: 0, moraleDef: 0 });
+  });
 
   it('род и вещи дают ровно эту таблицу — у каждого из девяти видов', () => {
     // Граница области: в таблице все виды казарм и конюшни, и ни одного лишнего.

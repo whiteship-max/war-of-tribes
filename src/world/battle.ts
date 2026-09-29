@@ -11,6 +11,7 @@ import {
   deploySetup,
   simulateBattle,
   stackTotal,
+  type ArmySetup,
   type BattleResult,
   type GroundPenalty,
   type Pips,
@@ -18,10 +19,18 @@ import {
   type Stack,
   type UnitKind,
 } from '@/battle';
+import { kitOf } from '@/game/battle/kinds';
+import { troopsOfKinds } from '@/game/battle/faces';
 
 export interface FieldSide {
   kinds: Stack;
   gear?: Partial<Record<UnitKind, number>>;
+  /**
+   * Что вещи прибавляют к показателям рода (`ArmySetup.kit`; слово владельца по 14.35 — показатели = род + вещи). Своё войско
+   * кладёт его точно — по видам (`kinds.kitOf`); нет поля — сторона, про которую мир знает род и ступень снаряжения (чужой
+   * отряд, гарнизон логова), одета видом той же ступени (`kitOfField`). Звери — пустым: вещей у них нет.
+   */
+  kit?: ArmySetup['kit'];
   /**
    * Стойкость, с которой сторона вышла в поле: у нас — обряд перед боем
    * (`derived.fervour`), у чужих — ноль, брать её им неоткуда.
@@ -71,6 +80,13 @@ export interface FieldOutcome {
 }
 
 /**
+ * Вещи стороны, про которую мир знает род и ступень снаряжения: каждый род одет видом той же ступени — тем же правилом, каким
+ * ролик рисует чужой гарнизон (`faces.troopsOfKinds`: мелкое поселение выходит дубинщиками, замок — латниками). Своего
+ * правила «чем одет чужой» у мира нет, как нет и таблицы «у логова копья».
+ */
+export const kitOfField = (side: FieldSide): ArmySetup['kit'] => side.kit ?? kitOf(troopsOfKinds(side.kinds, side.gear));
+
+/**
  * Считает полевой бой. Пустая сторона в ядро не идёт: `validateSetup` требует
  * хотя бы одного бойца, а «пришёл никто» — это не ничья, а поражение пришедшего.
  */
@@ -88,8 +104,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
 
   const result = simulateBattle({
     seed: input.seed,
-    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear, resolve: input.attacker.resolve ?? 0, pips: input.attacker.pips ?? {}, ground: input.ground, ...rested(input.attacker.rest) },
-    defender: { ...defender, gear: input.defender.gear ?? defender.gear, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {}, ...rested(input.defender.rest) },
+    attacker: { ...attacker, gear: input.attacker.gear ?? attacker.gear, kit: kitOfField(input.attacker), resolve: input.attacker.resolve ?? 0, pips: input.attacker.pips ?? {}, ground: input.ground, ...rested(input.attacker.rest) },
+    defender: { ...defender, gear: input.defender.gear ?? defender.gear, kit: kitOfField(input.defender), resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {}, ...rested(input.defender.rest) },
   });
 
   const a = result.sides.attacker.total;

@@ -11,19 +11,18 @@ import {
   ANCHOR,
   ANNIHILATED_AT,
   BREAK_AFTER,
-  CLASH_CAVALRY_IMPACT,
-  CLASH_SPEAR_BRACE,
-  COUNTER,
   DICE,
   EVENT_MIN,
   EVENT_SHARE,
-  FOOT_FLANK,
+  FIRE_AFTER_CONTACT,
   FRONT_WIDTH,
   GEAR,
+  KIND_PROFILE,
   MELEE_RATE,
   MORALE,
   PHASE_PIP,
   PHASE_TICKS,
+  PIP,
   PYRRHIC_BELOW,
   RANGED_RATE,
   RETREAT,
@@ -42,6 +41,7 @@ import {
   REAR,
   SECTORS,
   SIDES,
+  STAT_IDS,
   UNIT_KINDS,
   type ArmySetup,
   type BattleEvent,
@@ -52,6 +52,7 @@ import {
   type PhaseId,
   type PhaseSpan,
   type PipId,
+  type Profile,
   type ResultReason,
   type Sector,
   type Side,
@@ -138,6 +139,8 @@ interface Hit {
   flank: boolean;
   /** Какую долю ряда цели накрывает этот обход (`Contact.aCover`): обход группой — весь ряд, край строя — свою долю. */
   cover: number;
+  /** Во сколько раз потеря этого удара бьёт по морали цели: показатели морали бьющего и цели (`moraleOf`). */
+  moraleW: number;
 }
 
 interface Contact {
@@ -183,10 +186,14 @@ const zeroKills = (): Kills =>
   Object.fromEntries(UNIT_KINDS.map((k) => [k, Object.fromEntries(UNIT_KINDS.map((t) => [t, 0]))])) as Kills;
 const cloneKills = (k: Kills[]): Kills[] => k.map((l) => JSON.parse(JSON.stringify(l)) as Kills);
 
-/** Сила отряда: рукопашная на стойкость по родам. Ею бой меряет полосу — кто проигрывает, куда идёт тот, чья полоса очищена. */
+/**
+ * Сила отряда: люди на силу рода в натиске. Ею бой меряет полосу — куда идти тому, у кого в полосе противника нет, когда
+ * он есть в обеих соседних (`adjacentLane`, `strikerLane`). Показатели сюда не входят: выбор полосы — где людей и натиска
+ * больше, а не кто кого бьёт.
+ */
 export function stackPower(stack: Stack): number {
   let p = 0;
-  for (const k of UNIT_KINDS) p += stack[k] * UNIT_STATS[k].melee * UNIT_STATS[k].toughness;
+  for (const k of UNIT_KINDS) p += stack[k] * UNIT_STATS[k].melee;
   return p;
 }
 
@@ -207,8 +214,8 @@ const menIn = (groups: Group[]): number => groups.reduce((n, g) => n + stackTota
 /**
  * Сомкнуты ли копья группы — положение, а не приказ (docs/battle_eu4.md, 14.5, Е17): копья в строю
  * (фронт или тыл своей полосы) сомкнуты, пока не бегут. Удар во фланг размыкает их на тот тик, когда он
- * пришёл, — это читают кольцо и характер там, где знают, откуда удар. Смятых копий нет: смятия фронта потерями
- * больше нет (поставка 5, 14.33).
+ * пришёл, — это читает характер (`temper`), где знает, откуда удар. Смятых копий нет: смятия фронта потерями
+ * больше нет (поставка 5, 14.33). Кольца, где сомкнутые копья держали конницу, нет (14.35).
  */
 const closedSpears = (g: Group): boolean => (g.row === 'front' || g.row === 'rear') && !g.fled && g.stack.spear >= EPS;
 
@@ -279,48 +286,43 @@ export function groundFaces(own: ArmySetup, enemy: ArmySetup): { land: number; c
 }
 
 /**
- * Множитель урона стороны в фазе: бросок кости плюс отметки её полководца (`DICE`). Открыт наружу
- * ради карточки полководца: что прибавляет отметка, карточка меряет этой самой функцией, а не своей
- * копией формулы. Меньше нуля не бывает — урон не становится лечением.
+ * Сторонняя часть множителя урона в фазе, без показателей: разброс кости и штраф места — в гранях (`DICE.step`), отметки
+ * полководца по фазе — в цене отметки EU4 (`PIP`; слово владельца по 14.35, пп. 4–5). Может уйти ниже нуля: ниже нуля её
+ * не пускает удар (`hitMult`), сложив с показателями.
  */
-export const phaseLuck = (roll: number, pips = 0): number => Math.max(0, 1 + DICE.step * (roll + pips - (DICE.faces - 1) / 2));
+const luckOf = (roll: number, pips: number, ground: number): number => 1 + DICE.step * (roll - ground - (DICE.faces - 1) / 2) + PIP * pips;
 
 /**
- * Множитель кольца: `kind` бьёт `target`. Сомкнутость копий — положение (`closedSpears`), а не приказ
- * (docs/battle_eu4.md, 14.5, Е17): `fromOpen` — копья того, кто бьёт, не сомкнуты (обойдены в этот тик).
- * Копья-цель сомкнуты всегда, пока стоят: бежавшие в стычки не попадают, а смятия больше нет (поставка 5, 14.33).
- * Открыт наружу ради теста «копья держат конницу, пока не обойдены»: кольцо проверяется этой самой функцией, а не
- * своей копией.
+ * Множитель урона стороны в фазе без показателей родов: бросок кости, отметки её полководца и штраф места. Открыт наружу
+ * ради карточки полководца: что прибавляет отметка и что снимает переправа, карточка меряет этой самой функцией, а не
+ * своей копией формулы. Меньше нуля не бывает — урон не становится лечением.
  */
-export function ringMult(kind: UnitKind, target: UnitKind, flank: boolean, fromOpen: boolean, ranged: boolean): number {
-  if (ranged) {
-    if (target === 'spear') return COUNTER.archer.spear;
-    if (target === 'infantry') return COUNTER.archer.infantry;
-    if (target === 'cavalry') return COUNTER.archer.cavalry;
-    if (target === 'heavy') return COUNTER.archer.heavy;
-    return 1;
+export const phaseLuck = (roll: number, pips = 0, ground = 0): number => Math.max(0, luckOf(roll, pips, ground));
+
+/**
+ * Показатели рода в стороне: род (`KIND_PROFILE`) и что прибавляют вещи (`ArmySetup.kit`, средним по людям рода). Каждый
+ * показатель — конечное неотрицательное число; не число и отрицательное читаются нулём прибавки.
+ */
+export function profileOf(setup: ArmySetup, kind: UnitKind): Profile {
+  const out = { ...KIND_PROFILE[kind] };
+  const kit = setup.kit?.[kind];
+  for (const stat of STAT_IDS) {
+    const n = kit?.[stat];
+    if (n !== undefined && Number.isFinite(n) && n > 0) out[stat] += n;
   }
-  const horse = target === 'cavalry' || target === 'heavy';
-  switch (kind) {
-    case 'spear':
-      if (horse) return fromOpen ? 1 : COUNTER.spear.cavalryHolding;
-      return flank ? FOOT_FLANK : 1;
-    case 'cavalry':
-    case 'heavy': {
-      // Своя половина кольца у каждого конного рода: лёгкая режет лучников и заходит во
-      // фланг, тяжёлая ломает строй в лоб. Сомкнутые копья держат обеих одинаково.
-      const c = COUNTER[kind];
-      if (target === 'spear') return flank ? c.flank : c.spearClosed;
-      if (target === 'archer') return Math.max(c.archer, flank ? c.flank : 0);
-      if (target === 'infantry') return flank ? Math.max(c.flank, c.infantry) : c.infantry;
-      return flank ? c.flank : 1;
-    }
-    case 'infantry':
-      return (flank ? FOOT_FLANK : 1) * COUNTER.infantry.all;
-    case 'archer':
-      return 1;
-  }
+  return out;
 }
+
+/**
+ * Множитель удара одного рода по другому в фазе: сторонняя часть (`luckOf`) и разница нападения бьющего с защитой цели в
+ * этой фазе — огонь у стрельбы, натиск у рукопашной, — в цене отметки EU4 (как у EU4: `15 + 5 · (кость + отметки +
+ * нападение − защита)`). Кольца «род против рода» нет: кто кого бьёт, следует из показателей. Меньше нуля не бывает.
+ */
+export const hitMult = (luck: number, by: Profile, target: Profile, ranged: boolean): number =>
+  Math.max(0, luck + PIP * (ranged ? by.fireAtk - target.fireDef : by.shockAtk - target.shockDef));
+
+/** Во сколько раз потеря от удара бьёт по морали цели: показатели морали бьющего и цели в цене отметки (не ниже нуля). */
+export const moraleMult = (by: Profile, target: Profile): number => Math.max(0, 1 + PIP * (by.moraleAtk - target.moraleDef));
 
 function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, lane: Lane | null, row: Row, opts: { prefer?: 'rear' | 'front'; morale?: number } = {}): Group {
   return {
@@ -362,8 +364,13 @@ class Battle {
   contact = false;
   /** Кто в этот тик в рукопашной (лучники, держащие дистанцию, — нет). Для характера лучников. */
   engagedNow = new Set<Group>();
-  /** Кость этой фазы: множитель всего урона стороны (`phaseLuck`). Фаза без кости — единица. */
+  /**
+   * Сторонняя часть множителя урона в этой фазе: кость, отметки полководца и штраф места (`luckOf`), ещё без показателей
+   * родов — их прибавляет каждый удар (`hitMult`). Фаза без кости — единица.
+   */
   luck: Record<Side, number> = { attacker: 1, defender: 1 };
+  /** Показатели каждого рода в каждой стороне на весь бой: род и вещи (`profileOf`). */
+  readonly profile: Record<Side, Record<UnitKind, Profile>>;
   /** Ширина фронта полосы в этом бою: столько бьёт в одном ряду полосы с одной стороны. */
   readonly width: number;
   /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
@@ -421,6 +428,9 @@ class Battle {
       attacker: groundFaces(input.attacker, input.defender),
       defender: groundFaces(input.defender, input.attacker),
     };
+    const kinds = (setup: ArmySetup): Record<UnitKind, Profile> =>
+      Object.fromEntries(UNIT_KINDS.map((k) => [k, profileOf(setup, k)])) as Record<UnitKind, Profile>;
+    this.profile = { attacker: kinds(input.attacker), defender: kinds(input.defender) };
   }
 
   // ----- Служебное -----
@@ -442,8 +452,8 @@ class Battle {
     for (const side of SIDES) {
       rolls[side] = Math.floor(this.rng() * DICE.faces);
       pips[side] = pipOf(this.sides[side].setup, pip);
-      // Штраф места снимает грани с каждой кости стороны на весь бой (EU4).
-      this.luck[side] = phaseLuck(rolls[side], pips[side] - ground[side]);
+      // Штраф места снимает грани с каждой кости стороны на весь бой (EU4); отметки полководца — в цене отметки (`PIP`).
+      this.luck[side] = luckOf(rolls[side], pips[side], ground[side]);
     }
     // Поле штрафа — только когда он есть: у боя на ровном месте запись та же, что до поставки 1.
     this.emit(ground.attacker > 0 || ground.defender > 0 ? { id: 'dice', rolls, pips, ground } : { id: 'dice', rolls, pips });
@@ -845,9 +855,9 @@ class Battle {
         const bOver = c.bOver ?? 0;
         const aCover = c.aCover ?? 1;
         const bCover = c.bCover ?? 1;
-        this.melee(c.a, c.b, { flank: c.aFlank, toRow: c.bRow, open: bOver > 0 ? bCover : 0, over: aOver, cover: aCover }, facingMen, hits);
-        // Ответ: обойдённые отбиваются тем, кто их обходит, но копья накрытой обходом доли ряда в этот тик разомкнуты.
-        this.melee(c.b, c.a, { flank: false, toRow: c.aRow, open: c.aFlank ? 1 : aOver > 0 ? aCover : 0, over: bOver, cover: bCover }, facingMen, hits);
+        this.melee(c.a, c.b, { flank: c.aFlank, over: aOver, cover: aCover }, facingMen, hits);
+        // Ответ: обойдённые отбиваются тем, кто их обходит.
+        this.melee(c.b, c.a, { flank: false, over: bOver, cover: bCover }, facingMen, hits);
       }
       this.apply(hits);
       this.relocate();
@@ -985,50 +995,47 @@ class Battle {
     for (const g of this.at(victim, lane, 'rear')) this.shake(g, MORALE.rearReached);
   }
 
-  /** Множитель урона, который получает группа за один свой боец рода `kind`. */
-  taken(g: Group, kind: UnitKind, frontal: boolean): number {
-    const s = this.sides[g.side];
-    let m = 1;
-    if (s.retreating) m *= RETREAT.taken;
-    if (this.phase === 'clash' && kind === 'spear' && frontal && closedSpears(g)) m *= CLASH_SPEAR_BRACE;
-    return m;
+  /** Множитель урона, который получает группа: отходящие отбиваются слабо и выходят из контакта. */
+  taken(g: Group): number {
+    return this.sides[g.side].retreating ? RETREAT.taken : 1;
   }
 
   /**
-   * Общие множители силы группы: кость фазы и отход. Мораль в урон не входит — у EU4 урон от силы полка, а не от его
-   * морали (поставка 5, docs/battle_eu4.md, 14.33; прежде — ×(0.5 + 0.5 · мораль / 100)).
+   * Общий множитель силы группы — отход. Кость, отметки и показатели — в каждом ударе (`hitMult`). Мораль в урон не входит
+   * — у EU4 урон от силы полка, а не от его морали (поставка 5, docs/battle_eu4.md, 14.33).
    */
   dealtMult(g: Group): number {
-    const s = this.sides[g.side];
-    let m = this.luck[g.side];
-    if (s.retreating) m *= RETREAT.dealt;
-    return m;
+    return this.sides[g.side].retreating ? RETREAT.dealt : 1;
   }
 
   /**
-   * Раздать урон `total` по группам позиции пропорционально числу: приоритета цели нет — он жил
-   * приказами. `fromOpen` — копья того, кто бьёт, не сомкнуты (`ringMult`).
+   * Раздать урон `total` по группам позиции пропорционально числу: приоритета цели нет — он жил приказами. Каждая доля
+   * множится на удар рода `kind` по роду цели (`hitMult`: кость, отметки полководца, нападение бьющего и защита цели в этой
+   * фазе); потеря бьёт по морали цели с весом показателей морали (`moraleMult`).
    */
   distribute(
     from: Group,
     kind: UnitKind,
     total: number,
     targets: Group[],
-    ctx: { flank: boolean; fromOpen: boolean; ranged: boolean; frontal: boolean; cover?: number },
+    ctx: { flank: boolean; ranged: boolean; cover?: number },
     byLane: Lane,
     hits: Hit[],
   ): void {
     let weight = 0;
     for (const t of targets) for (const k of UNIT_KINDS) weight += t.stack[k];
     if (weight <= 0) return;
+    const by = this.profile[from.side][kind];
     for (const t of targets) {
       for (const k of UNIT_KINDS) {
         const n = t.stack[k];
         if (!stands(n)) continue;
         const share = n / weight;
-        const dmg = total * share * ringMult(kind, k, ctx.flank, ctx.fromOpen, ctx.ranged);
-        const casualties = (dmg / UNIT_STATS[k].toughness) * this.taken(t, k, ctx.frontal);
-        if (casualties > 0) hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1 });
+        const target = this.profile[t.side][k];
+        const casualties = total * share * hitMult(this.luck[from.side], by, target, ctx.ranged) * this.taken(t);
+        if (casualties > 0) {
+          hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1, moraleW: moraleMult(by, target) });
+        }
       }
     }
   }
@@ -1043,7 +1050,7 @@ class Battle {
   melee(
     from: Group[],
     to: Group[],
-    ctx: { flank: boolean; toRow: Row; open: number; over: number; cover: number },
+    ctx: { flank: boolean; over: number; cover: number },
     facingMen: Map<Group, number>,
     hits: Hit[],
   ): void {
@@ -1052,24 +1059,16 @@ class Battle {
       if (g.lane === null) continue;
       // Своя доля стычки и доля ряда, которую пускает ширина фронта: остальные — глубина.
       const share = (here / Math.max(here, facingMen.get(g) ?? here)) * this.widthShare(g);
-      // Сомкнутые копья размыкаются той долей ряда, которую накрыл обход (`open`); остальные держат упор.
-      const parts: Array<[number, boolean]> = closedSpears(g) ? [[1 - ctx.open, false], [ctx.open, true]] : [[1, true]];
       const lane = g.lane;
       for (const kind of UNIT_KINDS) {
         if (!stands(g.stack[kind])) continue;
         const n = g.stack[kind] * share;
-        let p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g);
-        // Удар с разбега — вес, и он у тяжёлой.
-        if (kind === 'heavy' && this.phase === 'clash' && !ctx.flank && g.row === 'front') p *= CLASH_CAVALRY_IMPACT;
+        const p = n * UNIT_STATS[kind].melee * MELEE_RATE * this.dealtMult(g);
         // Свес ряда бьёт во фланг, остальные — в лоб.
-        for (const [part, fromOpen] of parts) {
-          if (part <= 0) continue;
-          const front = p * part * (1 - ctx.over);
-          const edge = p * part * ctx.over;
-          const base = { fromOpen, ranged: false };
-          if (front > 0) this.distribute(g, kind, front, to, { ...base, flank: ctx.flank, frontal: !ctx.flank && ctx.toRow !== 'rear', cover: 1 }, lane, hits);
-          if (edge > 0) this.distribute(g, kind, edge, to, { ...base, flank: true, frontal: false, cover: ctx.cover }, lane, hits);
-        }
+        const front = p * (1 - ctx.over);
+        const edge = p * ctx.over;
+        if (front > 0) this.distribute(g, kind, front, to, { flank: ctx.flank, ranged: false, cover: 1 }, lane, hits);
+        if (edge > 0) this.distribute(g, kind, edge, to, { flank: true, ranged: false, cover: ctx.cover }, lane, hits);
       }
     }
   }
@@ -1081,11 +1080,11 @@ class Battle {
     for (const l of [1, 0, 2] as Lane[]) if (l !== lane) candidates.push(this.enemyFront(g.side, l), this.enemyRear(g.side, l));
     const targets = candidates.find((c) => c.length > 0);
     if (!targets) return;
-    // Пока цель не в рукопашной, стрельба идёт в полную силу; после контакта — через головы.
-    const m = targets.some((t) => engaged.has(t)) ? COUNTER.archer.afterContact : 1;
+    // Пока цель не в рукопашной, стрельба идёт в полную силу; после контакта — через головы своих (`FIRE_AFTER_CONTACT`).
+    const m = targets.some((t) => engaged.has(t)) ? FIRE_AFTER_CONTACT : 1;
     // Стреляет не больше ширины ряда: лучники за строем шире фронта — та же глубина, что у пехоты.
     const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * this.dealtMult(g) * m * this.widthShare(g);
-    this.distribute(g, 'archer', p, targets, { flank: false, fromOpen: false, ranged: true, frontal: false }, g.lane, hits);
+    this.distribute(g, 'archer', p, targets, { flank: false, ranged: true }, g.lane, hits);
   }
 
   apply(hits: Hit[]): void {
@@ -1097,8 +1096,9 @@ class Battle {
       victim.lostTotal += actual;
       victim.lostTick += actual;
       // Стрелы бьют по морали своими потерями весь бой одинаково: «обвыклись» — вполсилы после 8-го тика — ушло (поставка 5,
-      // docs/battle_eu4.md, 14.33): отдельного счёта у морали нет (14.19.3).
-      h.target.lostTick += actual;
+      // docs/battle_eu4.md, 14.33): отдельного счёта у морали нет (14.19.3). Потеря весит показателями морали бьющего и цели
+      // (`moraleMult`): мораль по-прежнему от потерь (слово владельца по 14.35, п. 3).
+      h.target.lostTick += actual * h.moraleW;
       if (h.flank) {
         if (h.target.flankedTick !== this.tick) h.target.flankCover = 0;
         h.target.flankedTick = this.tick;
@@ -1143,16 +1143,14 @@ class Battle {
   // ----- Мораль -----
 
   /**
-   * Характер группы сейчас: множитель потерь морали по родам, взвешенный числом
-   * людей. Копья стойки в сомкнутом строю и ломки под ударом во фланг; конница
-   * крепка на разгоне и хрупка, когда стоит; лучники в рукопашной ломаются быстро.
+   * Характер группы сейчас: множитель потерь морали по родам, взвешенный числом людей, — по положению. Копья стойки в
+   * сомкнутом строю и ломки под ударом во фланг; конница крепка в обходе; лучники в рукопашной ломаются быстро.
    */
   temper(g: Group): number {
     const total = stackTotal(g.stack);
     if (total < EPS) return 1;
     // Обойдённая доля ряда (`flankCover`): край строя накрывает свою долю, обход группой — весь ряд.
     const flanked = g.flankedTick === this.tick ? g.flankCover : 0;
-    const inLine = g.row === 'front' || g.row === 'rear';
     const closed = closedSpears(g);
     let m = 0;
     for (const k of UNIT_KINDS) {
@@ -1163,9 +1161,7 @@ class Battle {
       else if (k === 'infantry') t = TEMPER.infantry.all;
       // Лучники под прикрытием сомкнутых копий той же позиции стреляют из-за строя, а не дерутся.
       else if (k === 'archer') t = this.engagedNow.has(g) && !closed ? TEMPER.archer.melee : TEMPER.archer.shooting;
-      else if (g.row === 'strike' || this.phase === 'clash') t = TEMPER[k].charging;
-      else if (inLine && this.contact) t = TEMPER[k].stalled;
-      else t = TEMPER[k].waiting;
+      else t = g.row === 'strike' ? TEMPER[k].charging : TEMPER[k].waiting;
       m += n * t;
     }
     return m / total;

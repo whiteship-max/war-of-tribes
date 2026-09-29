@@ -1,18 +1,18 @@
-// Справка по дружине из строки состояния: состав, кольцо контрров и карточка
-// каждого вида. Карточка живёт здесь же, а не отдельным разделом шторки, —
-// это чтение про то же самое войско, и возврат должен быть в один тап.
+// Справка по дружине из строки состояния: состав, показатели каждого вида и его
+// карточка. Карточка живёт здесь же, а не отдельным разделом шторки, — это чтение
+// про то же самое войско, и возврат должен быть в один тап. Кольца контрров нет
+// (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт, решают показатели.
 import { useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
 import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
 import { KIND_META } from '@/battle';
-import { KIND_OF, troopTotal } from '@/game/battle/kinds';
+import { KIND_OF, profileOfTroop, troopTotal } from '@/game/battle/kinds';
 import { useWorld, worldNow } from '@/world/store';
 import { postureOf } from '@/world/muster';
 import { moraleOf } from '@/game/battle/describe';
 import { WOUND_DAYS } from '@/game/constants';
-import { CounterRing } from '../parts/CounterRing';
 import { restLine } from '../parts/restWords';
 import { waitDaysBoth } from '../parts/wait';
 import { TroopCardView } from '../parts/TroopCardView';
@@ -89,18 +89,16 @@ export function ArmyPanel() {
       </div>
       {general?.rest && <div className="note warn">{restLine(general.rest, 'Дружина дралась', worldNow())}</div>}
 
-      <h3>Кольцо контрров</h3>
-      <div className="note">
-        Превосходство работает только при своём условии — какое у кого, написано на карточке вида.
-      </div>
-      <CounterRing />
-
       <h3>Состав гарнизона</h3>
-      <div className="note">Тап по виду — карточка: против кого он хорош, чем его бьют и что он стоит.</div>
+      <div className="note">
+        Кто кого бьёт, решают показатели вида: нападение и защита в огне, в натиске и в морали — от рода и от того, что
+        на бойце надето. Тап по виду — карточка: его показатели, сильные и слабые стороны и что он стоит.
+      </div>
       {TROOPS.map((def) => {
         const n = Math.max(0, s.army[def.id] ?? 0);
         const kind = KIND_OF[def.id];
         const m = moraleOf(def.id);
+        const p = profileOfTroop(def.id);
         return (
           <button className={`card as-row${n === 0 ? ' none' : ''}`} key={def.id} onClick={() => setOpen(def.id)}>
             <div className="ico">
@@ -114,7 +112,8 @@ export function ArmyPanel() {
                 </span>
               </div>
               <div className="desc">
-                {KIND_META[kind].icon} {KIND_META[kind].name} · мораль {m.total} · снаряжение {m.gearLevel}
+                {KIND_META[kind].icon} {KIND_META[kind].name} · огонь {p.fireAtk}/{p.fireDef} · натиск {p.shockAtk}/{p.shockDef}
+                {' · '}мораль {m.total}
               </div>
             </div>
             <div className="chev">›</div>
