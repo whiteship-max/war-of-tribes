@@ -23,6 +23,8 @@ import { shieldPower, shieldVillagers } from './lairs';
 import { troopPower } from '@/game/battle/kinds';
 import { DAY_LENGTH } from '@/game/constants';
 import { openSky, townAt, type Inside } from '../../scripts/autopilot';
+import { goldFlight } from '../../scripts/pop-gold';
+import { setRandom } from '@/game/sim/random';
 import type { WorldSave } from './local/state';
 import type { FigureView, GateFoe, MarchView, PlayerProfile, Report } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -208,17 +210,51 @@ describe('сила у ворот — таблица по уровню посёл
     }
   });
 
-  it('гарнизон мерки уровня отбивается от таблицы чаще, чем проигрывает, а ослабленный — реже типичного', async () => {
-    // Мерка — посёлок `autopilot.townAt` (войско `armyAt`, всё дома, без веры), как у таблицы. Ослабленный — тот же посёлок с
-    // половиной войска: пришедшие те же (сила от жителей), бьются они с меньшим гарнизоном.
+  it('типичный гарнизон уровня — игрок «по умолчанию» на жителях мерки — отбивается от таблицы чаще, чем проигрывает, а ослабленный вдвое — реже его', async () => {
+    // Мерка таблицы — слово владельца 30.09.2026 (docs/battle_eu4.md, 14.35): типичный гарнизон уровня — гарнизон игрока «по
+    // умолчанию» спора за золото (`pop-gold.goldFlight`: высокий налог, найм по средствам, мир тихий) в минуту, когда его
+    // жители доходят до жителей мерки уровня (`GATE_POP`), всё войско дома, вера — его. Так таблицу выводит `raid-mix:report`,
+    // раздел 4б — медианой ровного боя по двенадцати потокам случайности; здесь — медианой побед по трём, на двадцати сидах
+    // каждый (правило 17). Ослабленный — тот же снимок с половиной войска: пришедшие те же (сила от жителей).
+    //
+    // Прежде тест мерил на посёлке мерки `townAt`, у которого войско набрано смесью мерки, и после смены мерки на 1-м уровне
+    // стаю таблицы не брали ни мерка, ни её половина — 20 из 20 у обеих: точка вне области правила (правило 11).
     const SEEDS = 20;
-    for (const level of [1, 5]) {
+    const STREAMS = [1, 2, 3];
+    const LEVELS = [1, 5];
+    const top = Math.max(...LEVELS);
+    const towns: GameState[][] = [];
+    try {
+      for (const stream of STREAMS) {
+        const got: GameState[] = [];
+        let level = 0;
+        await goldFlight({
+          masters: false,
+          seconds: 720 * DAY_LENGTH,
+          stream,
+          watch: {
+            after: ({ g }) => {
+              for (; level < top && g.pop >= GATE_POP[level]; level += 1) got[level] = structuredClone(g);
+            },
+          },
+          until: () => level >= top,
+        });
+        // Граница области: партия правда дошла до жителей мерки каждого проверяемого уровня.
+        for (const l of LEVELS) expect(got[l - 1], `поток ${stream}: дошёл до жителей мерки ${l}-го уровня`).toBeDefined();
+        towns.push(got);
+      }
+    } finally {
+      // Поток случайности партии подменён (`goldFlight`) — остальные тесты файла идут на своём.
+      setRandom(null);
+    }
+    const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[xs.length >> 1];
+    for (const level of LEVELS) {
       for (const foe of ['wolves', 'raiders'] as const) {
-        const wins = async (half: boolean): Promise<number> => {
-          const g = townAt(level);
-          g.faith.id = null;
+        const wins = async (town: GameState, half: boolean): Promise<number> => {
+          // Снимок партии: вызовы, ждавшие боя в минуту снимка, в бой мерки не идут — как у раздела 4б (`benchTown`).
+          const g: GameState = { ...structuredClone(town), gate: [] };
           if (half) for (const id of Object.keys(g.army) as (keyof typeof g.army)[]) g.army[id] = Math.floor((g.army[id] ?? 0) / 2);
-          const sky = openSky(g, { seed: 7, pulse: 30, raids: false });
+          const sky = openSky(g, { seed: 7, pulse: 30, raids: true });
           await sky.pulse();
           const w: Inside = sky.world;
           const power = gatePower(g, foe);
@@ -229,13 +265,17 @@ describe('сила у ворот — таблица по уровню посёл
           }
           return n;
         };
-        const typical = await wins(false);
-        const weak = await wins(true);
-        expect(typical, `${level}-й уровень, ${foe}: мерка отбивается чаще, чем проигрывает`).toBeGreaterThan(SEEDS / 2);
-        expect(weak, `${level}-й уровень, ${foe}: ослабленный отбивается реже типичного`).toBeLessThan(typical);
+        const typical: number[] = [];
+        const weak: number[] = [];
+        for (const t of towns) {
+          typical.push(await wins(t[level - 1], false));
+          weak.push(await wins(t[level - 1], true));
+        }
+        expect(median(typical), `${level}-й уровень, ${foe}: типичный отбивается чаще, чем проигрывает (${typical.join(', ')} из ${SEEDS})`).toBeGreaterThan(SEEDS / 2);
+        expect(median(weak), `${level}-й уровень, ${foe}: ослабленный отбивается реже типичного (${weak.join(', ')} против ${typical.join(', ')})`).toBeLessThan(median(typical));
       }
     }
-  }, 120_000);
+  }, 300_000);
 
   it('волки — угроза слабого: к посёлку, который логово замечает, они не приходят; разбойники — к любому', () => {
     const after = (s: GameState): GameState => {

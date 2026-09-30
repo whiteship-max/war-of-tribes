@@ -12,13 +12,18 @@ import { techLevel } from '@/game/sim/tech';
 import { mastersInfo } from '@/game/sim/masters';
 import { DAY_LENGTH } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
+import { GATE_POP } from '@/game/data/events';
+import type { GameState } from '@/game/types';
 import { GATE_FOES } from '@/world/data/gate';
 import type { GateFoe } from '@/world/types';
-import { pilot, player } from './autopilot';
+import { pilot, player, type Watch } from './autopilot';
 import { fan, serveFan } from './lib/fan';
 
 /** Мир партии — тихий, как у дуги `pop:report`: логова набегов на дом не шлют. */
 export const GOLD_WORLD = 7;
+
+/** Этот модуль — для веера из других отчётов: задачи спора (`typicalTowns`) он называет сам (`serveFan` в конце). */
+export const GOLD_MODULE = import.meta.url;
 
 /** Игрок в минуту срока: войско, посёлок и казна — столбцы таблицы спора. */
 export interface GoldRow {
@@ -40,16 +45,14 @@ export interface GoldRow {
 }
 
 /**
- * Один игрок спора: `masters` — берёт наёмных мастеров первым, до войска («вложился в админветвь»), иначе — «по
- * умолчанию». Налог высокий, найм «по средствам», учат все ветви; сид партии закреплён (`createInitialState(7)`).
+ * Партия игрока спора — одна на спор и на мерку силы у ворот (`typicalTowns`): `masters` — берёт наёмных мастеров первым,
+ * до войска («вложился в админветвь»), иначе — «по умолчанию». Налог высокий, найм «по средствам», учат все ветви; сид
+ * партии закреплён (`createInitialState(7)`), мир тихий (`GOLD_WORLD`); `stream` — свой поток случайности с начала.
  */
-export async function goldRun(arg: { masters: boolean; seconds: number; stream: number | null }): Promise<GoldRow> {
+export async function goldFlight(arg: { masters: boolean; seconds: number; stream: number | null; watch?: Watch; until?: (g: GameState) => boolean }): Promise<GameState> {
   if (arg.stream !== null) setRandom(seeded(arg.stream));
   const g = createInitialState(7);
   g.tutorialDone = true;
-  // Бои у ворот — по последствию с отметкой вызова (`HomeEffect.gate`); кто пришёл, говорит вызов в слепке перед пульсом.
-  const foes = new Map<string, GateFoe>();
-  const gates: GoldRow['gates'] = {};
   await pilot({
     g,
     seconds: arg.seconds,
@@ -58,6 +61,47 @@ export async function goldRun(arg: { masters: boolean; seconds: number; stream: 
     economy: 'live',
     tick: 1,
     decide: 30,
+    ...(arg.watch ? { watch: arg.watch } : {}),
+    ...(arg.until ? { until: arg.until } : {}),
+  });
+  return g;
+}
+
+/**
+ * Типичный посёлок уровня L — игрок спора «по умолчанию» (docs/battle_eu4.md, 14.35, «Заход 30.09.2026»; направление
+ * владельца): его партия на потоке `stream`, снятая в минуту, когда жители впервые доходят до жителей мерки уровня
+ * (`data/events.GATE_POP`). Мерка силы у ворот (`raid-mix:report`, раздел 4б): таблица выводится на гарнизоне, который держит
+ * игрок, а не на посёлке мерки (`autopilot.townAt`), у которого войско набрано смесью мерки. Партия идёт с таблицей игры, и
+ * бои у ворот в ней настоящие — мерка зависит от самой таблицы, и раздел 4б печатает, сошлась ли она. Не дошёл до уровня к
+ * сроку `seconds` — `null`.
+ */
+export async function typicalTowns(arg: { stream: number; seconds: number }): Promise<Array<GameState | null>> {
+  const towns: Array<GameState | null> = GATE_POP.map(() => null);
+  let level = 0;
+  await goldFlight({
+    masters: false,
+    seconds: arg.seconds,
+    stream: arg.stream,
+    watch: {
+      after: ({ g }) => {
+        for (; level < GATE_POP.length && g.pop >= GATE_POP[level]; level += 1) towns[level] = structuredClone(g);
+      },
+    },
+    until: () => level >= GATE_POP.length,
+  });
+  return towns;
+}
+
+/**
+ * Один игрок спора: `masters` — берёт наёмных мастеров первым, до войска («вложился в админветвь»), иначе — «по
+ * умолчанию» (`goldFlight`).
+ */
+export async function goldRun(arg: { masters: boolean; seconds: number; stream: number | null }): Promise<GoldRow> {
+  // Бои у ворот — по последствию с отметкой вызова (`HomeEffect.gate`); кто пришёл, говорит вызов в слепке перед пульсом.
+  const foes = new Map<string, GateFoe>();
+  const gates: GoldRow['gates'] = {};
+  const g = await goldFlight({
+    ...arg,
     watch: {
       profile: (p) => {
         for (const call of p.gate ?? []) foes.set(call.id, call.foe);
@@ -151,4 +195,4 @@ export async function goldStreams(seconds: number, streams: number): Promise<voi
   console.log(`  Спор, жители «вложился» минус «по умолчанию»: ${spread(byPlayer[1].map((b, i) => b.pop - byPlayer[0][i].pop))}`);
 }
 
-serveFan(import.meta.url, { goldRun });
+serveFan(import.meta.url, { goldRun, typicalTowns });

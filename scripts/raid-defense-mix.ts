@@ -19,8 +19,9 @@
 //     подставлена).
 //  4. **Волки и разбойники у ворот** — бой события ядром той же дверью, что набег (docs/battle_eu4.md, 14.28): доля
 //     поражений на решётке нашей силы — уровень посёлка мерки, вера, кто дома.
-//  4б. **Сила у ворот по уровню посёлка** — таблица слова владельца по 14.35, п. 4: ровный бой для гарнизона мерки уровня,
-//     делённый на перевес «Ограничителя», кривая «сила пришедших → поражений» и её окрестность мелким шагом.
+//  4б. **Сила у ворот по уровню посёлка** — таблица слова владельца по 14.35, п. 4: ровный бой для типичного гарнизона уровня —
+//     игрока «по умолчанию» спора за золото на жителях мерки, медианой по потокам, — делённый на перевес «Ограничителя»;
+//     кривая «сила пришедших → поражений» и её окрестность мелким шагом.
 //  4в. **Один боец у ворот** — сколько волков держит гарнизон мерки без кости и сколько — он же с одним бойцом сверху
 //     (docs/battle_eu4.md, 14.35, «Всадник у ворот»: охват по излишку ширины).
 //  5. **Потолок морали и обряд** — срезает ли потолок морали прибавку храма у какого-нибудь вида, уровня храма и устава
@@ -28,7 +29,7 @@
 import { MORALE, deploySetup, stackOf, stackTotal, startMorale } from '@/battle';
 import { withDiceStep } from '@/battle/bench';
 import { FAITHS, OBSERVANCES, tiltAt } from '@/game/data/faiths';
-import { MAX_BUILDING_LEVEL } from '@/game/constants';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '@/game/constants';
 import { KIND_OF } from '@/game/battle/kinds';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { awayTroops, militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
@@ -48,6 +49,7 @@ import { SEEDS, mean, pad, pct, q, sum, tally } from './raid-common';
 import { START, openSky, townAt, unitsNote, type Inside } from './autopilot';
 import { NAME, live, portable, type Out } from './raid-live';
 import { fan, serveFan } from './lib/fan';
+import { GOLD_MODULE, GOLD_WORLD, typicalTowns } from './pop-gold';
 
 interface Case {
   name: string;
@@ -403,6 +405,61 @@ const TABLE_EDGE = 1.1;
  */
 const BARE_LEVELS = 3;
 
+/** Потоков мерки силы у ворот — столько же, сколько у спора за золото по потокам (`pop:report`, `GOLD_STREAMS`). */
+const GATE_STREAMS = 12;
+/**
+ * Срок партии мерки, игровых дней — с запасом на медленные потоки: партия останавливается, как только дошла до жителей мерки
+ * 10-го уровня, а не дошла к сроку — поток уровня не видит, и раздел печатает, сколько потоков дошло («дошли N потоков из 12»).
+ */
+const TYPICAL_DAYS = 720;
+
+/** Ровный бой пришедших против гарнизона — первое место, где кривая переходит половину, уточнённое делением отрезка. */
+interface Even {
+  /** Мощь пришедших в ровном бою; `NaN` — до конца кривой ровного боя нет. */
+  power: number;
+  /** Кривая: доля боёв, где пришедшие взяли верх, при силе `CURVE` долей обороны. */
+  curve: number[];
+}
+
+function evenOf(w: Inside, at: number, who: GateFoe, d: number): Even {
+  const curve = CURVE.map((k) => foeShare(w, at, who, k * d));
+  const cross = curve.findIndex((x) => x >= 0.5);
+  if (cross < 0) return { power: NaN, curve };
+  let lo = cross === 0 ? 0 : CURVE[cross - 1] * d;
+  let hi = CURVE[cross] * d;
+  for (let k = 0; k < EVEN_STEPS; k++) {
+    const mid = (lo + hi) / 2;
+    if (foeShare(w, at, who, mid) < 0.5) lo = mid;
+    else hi = mid;
+  }
+  return { power: hi, curve };
+}
+
+/** Посёлок мерки силы у ворот — снимок партии: вызовы к воротам, ждавшие боя в минуту снимка, в бой мерки не идут. */
+const benchTown = (g: GameState): GameState => ({ ...structuredClone(g), gate: [] });
+
+interface StreamEven {
+  level: number;
+  stream: number;
+  army: number;
+  defense: number;
+  militia: number;
+  wolves: Even;
+  raiders: Even;
+}
+
+/**
+ * Задача веера: ровный бой у ворот на гарнизоне типичного посёлка уровня `level` — игрока «по умолчанию» на потоке `stream`
+ * (`pop-gold.typicalTowns`): всё его войско дома, вера — какая у него есть; мир боя — `SEEDS[0]`, как у раздела 4.
+ */
+export async function gateEven({ level, stream, g: town }: { level: number; stream: number; g: GameState }): Promise<StreamEven> {
+  const g = benchTown(town);
+  const { world, at } = await fieldWorld(g, SEEDS[0], []);
+  const w: Inside = world;
+  const d = defense(g);
+  return { level, stream, army: troopTotal(g.army), defense: Math.round(d), militia: w.save.profile.militia, wolves: evenOf(w, at, 'wolves', d), raiders: evenOf(w, at, 'raiders', d) };
+}
+
 interface LevelFoe {
   /** Таблица, бойцов строя пришедших; `NaN` — ровного боя на кривой нет. */
   men: number;
@@ -414,6 +471,73 @@ interface LevelFoe {
   /** Без кости, на каждую голову (`BARE_LEVELS`): где пришедшим на одного больше — и верх уже не их. */
   bare?: string;
 }
+
+interface FoeJob {
+  level: number;
+  who: GateFoe;
+  g: GameState;
+  stream: number;
+  even: Even;
+  table: number;
+  spread: string;
+}
+
+/**
+ * Задача веера: строка таблицы одного противника на уровне `level`. Таблица — медиана ровного боя по потокам, делённая на
+ * перевес «Ограничителя» (`table`, мощью); подробности — кривая, окрестность ровного боя мелким шагом, бой без кости на первых
+ * уровнях и доля поражений от таблицы и от силы игры — на снимке потока, чей ровный бой — нижняя медиана (`g`). **Кривая не
+ * обязана быть монотонной** — бой у ворот по размеру стаи немонотонен, — поэтому печатается она сама, и строка помечена, где
+ * больше пришедших берут верх реже.
+ */
+export async function gateFoeRow({ level, who, g: town, stream, even, table, spread }: FoeJob): Promise<LevelFoe> {
+  const g = benchTown(town);
+  const { world, at } = await fieldWorld(g, SEEDS[0], []);
+  const w: Inside = world;
+  const d = defense(g);
+  const name = who === 'wolves' ? 'волки' : 'разбойники';
+  const { curve } = even;
+  // Немонотонна — где-то доля упала больше чем на бой из `GATE_SEEDS`: не шум счёта, а бой другого вида.
+  const bumpy = curve.some((x, i) => i > 0 && x < curve[i - 1] - 1.5 / GATE_SEEDS);
+  let near = '';
+  let bumpyNear = false;
+  if (Number.isFinite(even.power)) {
+    // Окрестность ровного боя мелким шагом: грубая кривая немонотонность между своими точками не видит.
+    const hi = even.power;
+    const sizes = Array.from({ length: NEAR_STEPS + 1 }, (_, i) => hi * (0.5 + i / NEAR_STEPS));
+    const fine = sizes.map((p) => foeShare(w, at, who, p));
+    const flips = fine.map((x, i) => i > 0 && x >= 0.5 !== fine[i - 1] >= 0.5).map((f, i) => (f ? i : -1)).filter((i) => i > 0);
+    bumpyNear = fine.some((x, i) => i > 0 && x < fine[i - 1] - 1.5 / GATE_SEEDS);
+    near = flips.length > 0 ? `; около ровного (${NEAR_STEPS} шагов от половины до полутора ровных): переходов через половину ${flips.length}, с ${menOfPower(sizes[flips[0]])} по ${menOfPower(sizes[flips[flips.length - 1]])} бойцов` : '';
+  }
+  const now = gatePower(g, who);
+  let bare: string | undefined;
+  if (level <= BARE_LEVELS) {
+    // Бой — той же дверью, что у события: мощь две на голову (`menOfPower` ставит ровно `n`), сид один на кривую.
+    const top = menOfPower(CURVE[CURVE.length - 1] * d);
+    const won: boolean[] = [];
+    withDiceStep(0, () => {
+      for (let n = 1; n <= top; n++) {
+        const call: GateCall = { id: 'gate-bare', foe: who, power: n * BATTLE_MAN, seed: 7919 };
+        won[n] = w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won;
+      }
+    });
+    const drops = won.flatMap((x, n) => (n > 1 && won[n - 1] && !x ? [n] : []));
+    const first = won.findIndex((x) => x);
+    const span = drops.length > 0 ? ` (с ${drops[0]} по ${drops[drops.length - 1]}; при нечётном числе пришедших — ${drops.filter((n) => n % 2 === 1).length})` : '';
+    bare = `       без кости, 1…${top} по одному: верх впервые при ${first < 0 ? '—' : first}; на одного больше — и верх уже не их: ${drops.length} раз${span}`;
+  }
+  const head = Number.isFinite(table)
+    ? `ровный по потокам ${spread}; таблица ${menOfPower(table)} — поражений медианного (поток ${stream}, ровный ${menOfPower(even.power)}) ${pct(foeShare(w, at, who, table))}`
+    : `ровного боя до ${CURVE[CURVE.length - 1]} обороны нет ни на одном потоке`;
+  return {
+    men: Number.isFinite(table) ? menOfPower(table) : NaN,
+    power: table,
+    bumpy: bumpy || bumpyNear,
+    line: `     ${name.padEnd(11)} ${head}; в игре ${menOfPower(now)} (мощь ${Math.round(now)}, таблица уровня ${GATE_POWER[who][level - 1]}) — ${pct(foeShare(w, at, who, now))}; кривая медианного: ${curve.map((x) => pct(x)).join(' ')}${near}${bumpy || bumpyNear ? '  НЕМОНОТОННА' : ''}`,
+    ...(bare ? { bare } : {}),
+  };
+}
+
 interface LevelRow {
   head: string;
   /** Жители посёлка мерки уровня — столбец жителей таблицы игры (`GATE_POP`). */
@@ -422,93 +546,57 @@ interface LevelRow {
   raiders: LevelFoe;
 }
 
-/**
- * Задача веера: строка таблицы силы у ворот по уровню посёлка (docs/battle_eu4.md, 14.35, слово владельца, п. 4). Гарнизон
- * мерки уровня `level` (`autopilot.townAt`, войско `armyAt`) — всё дома, без веры. Кривая — доля боёв, где пришедшие взяли
- * верх (`foeShare`, `GATE_SEEDS` боёв с костью конфига), при силе в долях обороны `CURVE`. «Ровный бой» — первое место, где
- * кривая переходит половину, уточнённое делением отрезка внутри шага; «таблица» — ровный бой, делённый на перевес
- * «Ограничителя». **Кривая не обязана быть монотонной** — бой у ворот по размеру стаи немонотонен (малый прогон при заведении
- * раздела: на 1-м уровне 110 волков брали верх чаще, чем 123), — поэтому печатается она сама, и строка помечена, где больше
- * пришедших берут верх реже. Это прибор: в игру таблица ляжет в П3, а шаг кости (П5) двигает ровный бой, и после него таблица
- * выводится заново той же командой.
- */
-export async function gateLevelRow({ level }: { level: number }): Promise<LevelRow> {
-  const g = withFaith(townAt(level), null);
-  const { world, at } = await fieldWorld(g, SEEDS[0], []);
-  const w: Inside = world;
-  const d = defense(g);
-  const foe = (who: GateFoe, name: string): LevelFoe => {
-    const curve = CURVE.map((k) => foeShare(w, at, who, k * d));
-    // Немонотонна — где-то доля упала больше чем на бой из `GATE_SEEDS`: не шум счёта, а бой другого вида.
-    const bumpy = curve.some((x, i) => i > 0 && x < curve[i - 1] - 1.5 / GATE_SEEDS);
-    const cross = curve.findIndex((x) => x >= 0.5);
-    let men = NaN;
-    let table = NaN;
-    let near = '';
-    let bumpyNear = false;
-    if (cross >= 0) {
-      let lo = cross === 0 ? 0 : CURVE[cross - 1] * d;
-      let hi = CURVE[cross] * d;
-      for (let k = 0; k < EVEN_STEPS; k++) {
-        const mid = (lo + hi) / 2;
-        if (foeShare(w, at, who, mid) < 0.5) lo = mid;
-        else hi = mid;
-      }
-      table = hi / TABLE_EDGE;
-      men = menOfPower(table);
-      // Окрестность ровного боя мелким шагом: грубая кривая немонотонность между своими точками не видит.
-      const sizes = Array.from({ length: NEAR_STEPS + 1 }, (_, i) => hi * (0.5 + i / NEAR_STEPS));
-      const fine = sizes.map((p) => foeShare(w, at, who, p));
-      const flips = fine.map((x, i) => i > 0 && x >= 0.5 !== fine[i - 1] >= 0.5).map((f, i) => (f ? i : -1)).filter((i) => i > 0);
-      bumpyNear = fine.some((x, i) => i > 0 && x < fine[i - 1] - 1.5 / GATE_SEEDS);
-      near = flips.length > 0 ? `; около ровного (${NEAR_STEPS} шагов от половины до полутора ровных): переходов через половину ${flips.length}, с ${menOfPower(sizes[flips[0]])} по ${menOfPower(sizes[flips[flips.length - 1]])} бойцов` : '';
-    }
-    const now = gatePower(g, who);
-    let bare: string | undefined;
-    if (level <= BARE_LEVELS) {
-      // Бой — той же дверью, что у события: мощь две на голову (`menOfPower` ставит ровно `n`), сид один на кривую.
-      const top = menOfPower(CURVE[CURVE.length - 1] * d);
-      const won: boolean[] = [];
-      withDiceStep(0, () => {
-        for (let n = 1; n <= top; n++) {
-          const call: GateCall = { id: 'gate-bare', foe: who, power: n * BATTLE_MAN, seed: 7919 };
-          won[n] = w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won;
-        }
-      });
-      const drops = won.flatMap((x, n) => (n > 1 && won[n - 1] && !x ? [n] : []));
-      const first = won.findIndex((x) => x);
-      const span = drops.length > 0 ? ` (с ${drops[0]} по ${drops[drops.length - 1]}; при нечётном числе пришедших — ${drops.filter((n) => n % 2 === 1).length})` : '';
-      bare = `       без кости, 1…${top} по одному: верх впервые при ${first < 0 ? '—' : first}; на одного больше — и верх уже не их: ${drops.length} раз${span}`;
-    }
-    const even = Number.isFinite(table)
-      ? `ровный ${menOfPower(table * TABLE_EDGE)} (${((table * TABLE_EDGE) / d).toFixed(2)} обороны), таблица ${men} — поражений ${pct(foeShare(w, at, who, table))}`
-      : `ровного боя до ${CURVE[CURVE.length - 1]} обороны нет`;
-    return {
-      men,
-      power: table,
-      bumpy: bumpy || bumpyNear,
-      line: `     ${name.padEnd(11)} ${even}; в игре ${menOfPower(now)} (мощь ${Math.round(now)}, таблица уровня ${GATE_POWER[who][level - 1]}) — ${pct(foeShare(w, at, who, now))}; кривая: ${curve.map((x) => pct(x)).join(' ')}${near}${bumpy || bumpyNear ? '  НЕМОНОТОННА' : ''}`,
-      ...(bare ? { bare } : {}),
-    };
-  };
-  return {
-    head: ` ${pad(level, 2)}-й уровень: жителей ${g.pop} (по прямой лестницы логов — ${lairLevel(g.pop).toFixed(2)}-й), войск ${troopTotal(g.army)}, оборона ${Math.round(d)}, ополчение ${w.save.profile.militia}`,
-    pop: g.pop,
-    wolves: foe('wolves', 'волки'),
-    raiders: foe('raiders', 'разбойники'),
-  };
-}
+/** Медиана: при чётном числе — среднее двух средних; пусто — `NaN`. */
+const medianOf = (xs: readonly number[]): number => {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length === 0 ? NaN : s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
 
-async function gateLevelPart(): Promise<void> {
+export async function gateLevelPart(): Promise<void> {
   console.log('');
-  console.log(`--- 4б. Сила у ворот по уровню посёлка: ровный бой для гарнизона мерки уровня, делённый на ${TABLE_EDGE} (слово владельца по 14.35, п. 4) ---`);
-  console.log(`Гарнизон мерки уровня L (townAt, войско armyAt) — всё дома, без веры, мир ${SEEDS[0]}. Кривая — доля боёв, где пришедшие взяли верх, по ${GATE_SEEDS} боёв`);
-  console.log(`с костью конфига, при силе ${CURVE[0]}…${CURVE[CURVE.length - 1]} обороны шагом ${CURVE[0]}. «ровный» — где кривая впервые переходит половину (уточнено делением отрезка),`);
-  console.log(`«таблица» — ровный, делённый на перевес «Ограничителя» ${TABLE_EDGE}; «в игре» — сила, с которой пришедшие выходят к этому посёлку (data/events.gatePower`);
-  console.log('по зрелости жителями), и строка таблицы игры его уровня (data/events.GATE_POWER). Бойцы — строя пришедших.');
-  console.log(`На ${BARE_LEVELS} первых уровнях кривая ещё и без кости: бой на каждую голову пришедших, от одного до ${CURVE[CURVE.length - 1]} обороны (разбор — docs/battle_eu4.md, 14.35).`);
-  const rows = Array.from({ length: MAX_BUILDING_LEVEL }, (_, i) => ({ level: i + 1 }));
-  const got = await fan(gateLevelRow, import.meta.url, rows);
+  console.log(`--- 4б. Сила у ворот по уровню посёлка: ровный бой для типичного гарнизона уровня, делённый на ${TABLE_EDGE} (слово владельца по 14.35, п. 4) ---`);
+  console.log(`Типичный гарнизон уровня L — игрок «по умолчанию» спора за золото (pop-gold.typicalTowns: высокий налог, найм по средствам, мир ${GOLD_WORLD})`);
+  console.log(`в минуту, когда его жители впервые доходят до жителей мерки уровня (data/events.GATE_POP), на ${GATE_STREAMS} потоках случайности, срок ${TYPICAL_DAYS} игровых дней;`);
+  console.log(`всё войско дома, вера — его; бой у ворот — мир ${SEEDS[0]}, как у раздела 4 (направление владельца, docs/battle_eu4.md, 14.35, «Заход 30.09.2026»).`);
+  console.log(`Кривая — доля боёв, где пришедшие взяли верх, по ${GATE_SEEDS} боёв с костью конфига, при силе ${CURVE[0]}…${CURVE[CURVE.length - 1]} обороны шагом ${CURVE[0]};`);
+  console.log('«ровный» — где кривая впервые переходит половину (уточнено делением отрезка), по каждому потоку; «таблица» — медиана ровного по потокам,');
+  console.log(`делённая на перевес «Ограничителя» ${TABLE_EDGE}; подробности — на медианном потоке (нижняя медиана ровного). «в игре» — сила, с которой`);
+  console.log('пришедшие выходят к этому посёлку (data/events.gatePower по жителям), и строка таблицы игры его уровня (data/events.GATE_POWER).');
+  console.log('Партии мерки идут с таблицей игры, и бои у ворот в них настоящие: мерка зависит от самой таблицы — сошлась ли она, печатают последние строки.');
+  console.log(`На ${BARE_LEVELS} первых уровнях кривая медианного ещё и без кости: бой на каждую голову пришедших, от одного до ${CURVE[CURVE.length - 1]} обороны (разбор — 14.35).`);
+  const streams = Array.from({ length: GATE_STREAMS }, (_, i) => i + 1);
+  const towns = await fan(typicalTowns, GOLD_MODULE, streams.map((stream) => ({ stream, seconds: TYPICAL_DAYS * DAY_LENGTH })));
+  const jobs = streams.flatMap((stream, i) => towns[i].flatMap((g, l) => (g ? [{ level: l + 1, stream, g }] : [])));
+  const evens = await fan(gateEven, import.meta.url, jobs);
+  const table: Record<GateFoe, number[]> = { wolves: [], raiders: [] };
+  const foeJobs: FoeJob[] = [];
+  const heads: string[] = [];
+  for (let level = 1; level <= MAX_BUILDING_LEVEL; level++) {
+    const at = evens.filter((e) => e.level === level);
+    const m = townAt(level);
+    const span = (xs: number[]): string => (xs.length ? `${medianOf(xs)} (${Math.min(...xs)}…${Math.max(...xs)})` : '—');
+    heads.push(
+      ` ${pad(level, 2)}-й уровень: жителей ${GATE_POP[level - 1]} (по прямой лестницы логов — ${lairLevel(GATE_POP[level - 1]).toFixed(2)}-й); дошли ${at.length} потоков из ${GATE_STREAMS}; войско ${span(at.map((e) => e.army))}, оборона ${span(at.map((e) => e.defense))}, ополчение ${span(at.map((e) => e.militia))}; у посёлка мерки (townAt) — войско ${troopTotal(m.army)}, оборона ${Math.round(defense(m))}`,
+    );
+    for (const who of ['wolves', 'raiders'] as const) {
+      const got = at.filter((e) => Number.isFinite(e[who].power)).sort((a, b) => a[who].power - b[who].power);
+      const value = got.length > 0 ? medianOf(got.map((e) => e[who].power)) / TABLE_EDGE : NaN;
+      table[who].push(Math.round(value));
+      const mid = got[(got.length - 1) >> 1] ?? at[0];
+      if (!mid) continue;
+      const spread = got.length > 0 ? `медиана ${menOfPower(value * TABLE_EDGE)} (${menOfPower(got[0][who].power)}…${menOfPower(got[got.length - 1][who].power)}; ${got.length} потоков)` : '—';
+      foeJobs.push({ level, who, g: towns[mid.stream - 1][level - 1]!, stream: mid.stream, even: mid[who], table: value, spread });
+    }
+  }
+  const foeRows = await fan(gateFoeRow, import.meta.url, foeJobs);
+  const got: LevelRow[] = heads.map((head, i) => {
+    const pick = (who: GateFoe): LevelFoe => {
+      const k = foeJobs.findIndex((j) => j.level === i + 1 && j.who === who);
+      return k >= 0 ? foeRows[k] : { men: NaN, power: NaN, bumpy: false, line: `     ${who === 'wolves' ? 'волки' : 'разбойники'} — ни один поток до уровня не дошёл` };
+    };
+    return { head, pop: townAt(i + 1).pop, wolves: pick('wolves'), raiders: pick('raiders') };
+  });
   for (const r of got) {
     console.log(r.head);
     console.log(r.wolves.line);
@@ -522,17 +610,21 @@ async function gateLevelPart(): Promise<void> {
     return levels.length > 0 ? levels.join(', ') : 'нет';
   };
   console.log(
-    `Таблица растёт с уровнем: волки — ${rising(got.map((r) => r.wolves.men)) ? 'да' : 'НЕТ'}, разбойники — ${rising(got.map((r) => r.raiders.men)) ? 'да' : 'НЕТ'}. ` +
-      `Кривая немонотонна по силе пришедших — у волков на уровнях: ${bumpy((r) => r.wolves)}; у разбойников: ${bumpy((r) => r.raiders)}.`,
+    `Таблица растёт с уровнем: волки — ${rising(table.wolves) ? 'да' : 'НЕТ'}, разбойники — ${rising(table.raiders) ? 'да' : 'НЕТ'}. ` +
+      `Кривая медианного немонотонна по силе пришедших — у волков на уровнях: ${bumpy((r) => r.wolves)}; у разбойников: ${bumpy((r) => r.raiders)}.`,
   );
-  // Таблица игры — выведенная здесь, округлённая до мощи: разошлась — ядро или шаг кости сдвинулись, и таблицу надо вывести заново.
   const pops = got.map((r) => r.pop);
   const samePop = pops.every((x, i) => x === GATE_POP[i]);
   console.log(`Жители мерки в таблице игры (data/events.GATE_POP): ${samePop ? 'совпадают с посёлками мерки' : `РАЗОШЛИСЬ с посёлками мерки — в игре ${GATE_POP.join(', ')}; у мерки ${pops.join(', ')}`}.`);
-  const table = (pick: (r: LevelRow) => LevelFoe): number[] => got.map((r) => Math.round(pick(r).power));
-  for (const [who, name, derived] of [['wolves', 'волки', table((r) => r.wolves)], ['raiders', 'разбойники', table((r) => r.raiders)]] as const) {
+  // Таблица игры против выведенной. Мерка зависит от таблицы — партии мерки бьются у ворот с таблицей игры, — и выведенная на
+  // таблице игры — следующий шаг той же неподвижной точки: совпала — точка найдена; нет — насколько далеко (по уровням).
+  for (const [who, name] of [['wolves', 'волки'], ['raiders', 'разбойники']] as const) {
+    const derived = table[who];
     const same = derived.every((x, i) => x === GATE_POWER[who][i]);
-    console.log(`Таблица игры (data/events.GATE_POWER), ${name}: ${same ? 'совпадает с выведенной' : `РАЗОШЛАСЬ с выведенной — в игре ${GATE_POWER[who].join(', ')}; выведено ${derived.join(', ')}`}.`);
+    const off = derived.map((x, i) => `${((100 * (x - GATE_POWER[who][i])) / GATE_POWER[who][i]).toFixed(1)}`);
+    console.log(
+      `Таблица игры (data/events.GATE_POWER), ${name}: ${same ? 'совпадает с выведенной' : `РАЗОШЛАСЬ с выведенной — в игре ${GATE_POWER[who].join(', ')}; выведено ${derived.join(', ')}; выведенная против игры по уровням, %: ${off.join(' ')}`}.`,
+    );
   }
 }
 
@@ -646,4 +738,4 @@ export async function defenseMixSection(): Promise<void> {
   ceilingPart();
 }
 
-serveFan(import.meta.url, { benchRow, mixRun, gateRow, gateLevelRow, oneSoldierRow });
+serveFan(import.meta.url, { benchRow, mixRun, gateRow, gateEven, gateFoeRow, oneSoldierRow });
