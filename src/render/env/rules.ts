@@ -282,11 +282,30 @@ export interface GroundMap {
 export const toTexel = (size: number, v: number): number => ((v + MAP_HALF) / (2 * MAP_HALF)) * size - 0.5;
 
 /**
- * Считает карту. Правила — в словах у каждой строки; числа — в единицах мира.
- * Стоит порядка десятков миллисекунд на 256 и вчетверо больше на 512 — один раз при
- * сборке окружения и при смене построек.
+ * Работа по частям: генератор отдаёт управление (`yield`) после каждого куска, который
+ * заведомо короче кадра, — ряда карты, ряда решётки. Сцена ведёт его кусками между
+ * кадрами (`env/index.startEnv`), тест и стенд — целиком (`drain`). Строка вместо
+ * пустого `yield` — имя начатой части: стенд называет по нему самый долгий шаг.
  */
-export function groundMap(l: Layout, size: number): GroundMap {
+export type Job<T> = Generator<string | void, T, void>;
+
+/** Довести работу до конца разом. */
+export function drain<T>(job: Job<T>): T {
+  for (;;) {
+    const r = job.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** Карта земли разом — для теста и стенда; сцена считает её по рядам (`groundMapJob`). */
+export const groundMap = (l: Layout, size: number): GroundMap => drain(groundMapJob(l, size));
+
+/**
+ * Считает карту по рядам. Правила — в словах у каждой строки; числа — в единицах мира.
+ * Стоит порядка десятков миллисекунд на 256 и вчетверо больше на 512 — один раз при
+ * сборке окружения и при смене построек; ряд — доли миллисекунды.
+ */
+export function* groundMapJob(l: Layout, size: number): Job<GroundMap> {
   const n = size * size;
   const m: GroundMap = {
     size,
@@ -368,6 +387,9 @@ export function groundMap(l: Layout, size: number): GroundMap {
       const verge = field > 0.02 && field < 0.6 ? 0.9 : 0;
       const patch = smooth((lush - 0.35) / 0.4) * smooth((vnoise(x / 1.6 + 17, z / 1.6 - 3) + 0.1) / 0.5);
       m.bloom[k] = r < WALL_RADIUS + 1.4 || road < 0.2 ? 0 : clamp01(Math.max(patch * grass, verge));
+      // Ряд через посёлок спрашивает дома и дороги — он дороже ряда в лесу: кусок — треть
+      // сотни текселей, а не ряд целиком.
+      if ((i & 31) === 31) yield;
     }
   }
   return m;
@@ -445,7 +467,10 @@ export function speciesAt(x: number, z: number, h: number): Species {
 /** Клетка решётки леса: одно дерево на клетку, сдвинутое хешем. */
 export const TREE_CELL = 1.62;
 
-export function scatterTrees(l: Layout): Tree[] {
+export const scatterTrees = (l: Layout): Tree[] => drain(scatterTreesJob(l));
+
+/** Лес по рядам решётки: ближний, потом дальний. */
+export function* scatterTreesJob(l: Layout): Job<Tree[]> {
   const out: Tree[] = [];
   const n = Math.ceil(GROUND_RADIUS / TREE_CELL);
   for (let iz = -n; iz <= n; iz++) {
@@ -460,6 +485,7 @@ export function scatterTrees(l: Layout): Tree[] {
       if (inCleared(x, z, CROWN[species] * scale)) continue;
       out.push({ x, y: groundHeight(x, z) - 0.04, z, species, scale, rot: cell(ix, iz, 6) * Math.PI * 2, hue: 0.9 + cell(ix, iz, 7) * 0.2 });
     }
+    yield;
   }
   // Дальний лес: реже и крупнее, купами; за ним — только дымка.
   const FAR_CELL = 2.7;
@@ -478,6 +504,7 @@ export function scatterTrees(l: Layout): Tree[] {
       if (inCleared(x, z, CROWN[species] * scale)) continue;
       out.push({ x, y: envHeight(x, z) - 0.05, z, species, scale, rot: cell(ix, iz, 16) * Math.PI * 2, hue: 0.9 + cell(ix, iz, 17) * 0.2, far: true });
     }
+    yield;
   }
   return out;
 }
@@ -504,7 +531,10 @@ export interface Prop {
  * Мелочь по правилам. `share` — доля полного набора от уровня качества: правило
  * отбора то же, порог строже, и на низком уровне мелочь редеет, а не переезжает.
  */
-export function scatterProps(l: Layout, share: number): Prop[] {
+export const scatterProps = (l: Layout, share: number): Prop[] => drain(scatterPropsJob(l, share));
+
+/** Мелочь по слоям: кусок — ряд решётки слоя. */
+export function* scatterPropsJob(l: Layout, share: number): Job<Prop[]> {
   const out: Prop[] = [];
   const put = (kind: PropKind, x: number, z: number, scale: number, pick: number, salt: number): void => {
     if (pick > share) return;
@@ -529,7 +559,7 @@ export function scatterProps(l: Layout, share: number): Prop[] {
   }
 
   // Лесной покров решёткой: у каждого вида своя клетка и своя доля.
-  const layer = (kind: PropKind, size: number, keep: number, salt: number, scale: [number, number], where: (x: number, z: number) => number): void => {
+  const layer = function* (kind: PropKind, size: number, keep: number, salt: number, scale: [number, number], where: (x: number, z: number) => number): Job<void> {
     const n = Math.ceil(GROUND_RADIUS / size);
     for (let iz = -n; iz <= n; iz++) {
       for (let ix = -n; ix <= n; ix++) {
@@ -540,24 +570,25 @@ export function scatterProps(l: Layout, share: number): Prop[] {
         const s = scale[0] + cell(ix, iz, salt + 3) * (scale[1] - scale[0]);
         put(kind, x, z, s, cell(ix, iz, salt + 4), salt * 997 + iz * 131 + ix);
       }
+      yield;
     }
   };
   const forest = (x: number, z: number): number => smooth((Math.hypot(x, z) - FOREST_FROM + 0.6) / 1.2);
   const nearZone = (at: { x: number; z: number }, r: number) => (x: number, z: number): number => 1 - smooth((Math.hypot(x - at.x, z - at.z) - r * 0.6) / (r * 0.4));
 
-  layer('fern', 1.3, 0.34, 200, [0.7, 1.25], (x, z) => forest(x, z) * (0.6 + 0.4 * vnoise(x / 3, z / 3 + 4)));
-  layer('bush', 2.9, 0.32, 210, [0.6, 1.1], forest);
-  layer('rock', 4.2, 0.24, 220, [0.45, 0.9], forest);
-  layer('log', 4.8, 0.22, 230, [0.7, 1.15], forest);
-  layer('stump', 6.2, 0.14, 240, [0.7, 1.2], forest);
+  yield* layer('fern', 1.3, 0.34, 200, [0.7, 1.25], (x, z) => forest(x, z) * (0.6 + 0.4 * vnoise(x / 3, z / 3 + 4)));
+  yield* layer('bush', 2.9, 0.32, 210, [0.6, 1.1], forest);
+  yield* layer('rock', 4.2, 0.24, 220, [0.45, 0.9], forest);
+  yield* layer('log', 4.8, 0.22, 230, [0.7, 1.15], forest);
+  yield* layer('stump', 6.2, 0.14, 240, [0.7, 1.2], forest);
   // Угодья: лесосека у лесопилки — пни и брошенные стволы; у скал — валуны; ягодник.
-  layer('stump', 1.5, 0.42, 250, [0.8, 1.3], nearZone(ZONES.forest, 5.5));
-  layer('log', 2.6, 0.3, 260, [0.8, 1.2], nearZone(ZONES.forest, 5.5));
-  layer('rock', 1.25, 0.5, 270, [0.6, 1.9], nearZone(ZONES.rocks, 4.6));
-  layer('berry', 1.15, 0.55, 280, [0.75, 1.1], nearZone(ZONES.berries, 3.6));
-  layer('bush', 1.8, 0.35, 290, [0.7, 1.1], nearZone(ZONES.berries, 5.2));
-  layer('fern', 1.1, 0.45, 300, [0.8, 1.3], nearZone(ZONES.hunting, 6.5));
-  layer('log', 3.0, 0.3, 310, [0.8, 1.2], nearZone(ZONES.hunting, 6.5));
+  yield* layer('stump', 1.5, 0.42, 250, [0.8, 1.3], nearZone(ZONES.forest, 5.5));
+  yield* layer('log', 2.6, 0.3, 260, [0.8, 1.2], nearZone(ZONES.forest, 5.5));
+  yield* layer('rock', 1.25, 0.5, 270, [0.6, 1.9], nearZone(ZONES.rocks, 4.6));
+  yield* layer('berry', 1.15, 0.55, 280, [0.75, 1.1], nearZone(ZONES.berries, 3.6));
+  yield* layer('bush', 1.8, 0.35, 290, [0.7, 1.1], nearZone(ZONES.berries, 5.2));
+  yield* layer('fern', 1.1, 0.45, 300, [0.8, 1.3], nearZone(ZONES.hunting, 6.5));
+  yield* layer('log', 3.0, 0.3, 310, [0.8, 1.2], nearZone(ZONES.hunting, 6.5));
   return out;
 }
 
@@ -612,7 +643,7 @@ function coverFits(l: Layout, x: number, z: number): boolean {
  * среднее число принятых выходит около `count`, сдвиг и отбор — хешем клетки.
  * Точное число не обещается — обещается потолок: больше `count` не бывает.
  */
-function scatterBy(l: Layout, map: GroundMap, ch: Float32Array, count: number, salt: number): Tuft[] {
+function* scatterBy(l: Layout, map: GroundMap, ch: Float32Array, count: number, salt: number): Job<Tuft[]> {
   if (count <= 0) return [];
   let mass = 0;
   for (let k = 0; k < ch.length; k++) mass += ch[k];
@@ -636,16 +667,21 @@ function scatterBy(l: Layout, map: GroundMap, ch: Float32Array, count: number, s
         rot: cell(ix, iz, salt + 4) * Math.PI * 2,
         hue: 0.88 + cell(ix, iz, salt + 5) * 0.24,
       });
+      if ((ix & 63) === 63) yield;
     }
+    yield;
   }
   return out;
 }
 
-export const scatterGrass = (l: Layout, map: GroundMap, count: number): Tuft[] => scatterBy(l, map, map.grass, count, 400);
+export const scatterGrassJob = (l: Layout, map: GroundMap, count: number): Job<Tuft[]> => scatterBy(l, map, map.grass, count, 400);
+export const scatterGrass = (l: Layout, map: GroundMap, count: number): Tuft[] => drain(scatterGrassJob(l, map, count));
 
-export function scatterFlowers(l: Layout, map: GroundMap, count: number): Flower[] {
-  return scatterBy(l, map, map.bloom, count, 500).map((t, i) => ({ ...t, scale: t.scale * 0.9, color: flowerColor(hash(i, 510)) }));
+export function* scatterFlowersJob(l: Layout, map: GroundMap, count: number): Job<Flower[]> {
+  const list = yield* scatterBy(l, map, map.bloom, count, 500);
+  return list.map((t, i) => ({ ...t, scale: t.scale * 0.9, color: flowerColor(hash(i, 510)) }));
 }
+export const scatterFlowers = (l: Layout, map: GroundMap, count: number): Flower[] => drain(scatterFlowersJob(l, map, count));
 
 /** Всходы на пашне: рядами вдоль борозд, по одному пучку на шаг. */
 export function scatterCrops(l: Layout, keep: number): Tuft[] {

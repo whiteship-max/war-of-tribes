@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CLEAR_EDGE, CLEAR_RADIUS } from '../plan';
 import { GROUND_RADIUS } from '../terrain';
-import { FAR_RADIUS, envHeight, type PropKind, type Species } from './rules';
+import { FAR_RADIUS, drain, envHeight, type Job, type PropKind, type Species } from './rules';
 
 // ---------- Сборка ----------
 
@@ -442,7 +442,10 @@ export function blobModel(): THREE.BufferGeometry {
  * опускается обрывом — последнее кольцо уходит под туман. Цвет земли — в шейдере
  * (`env/materials.groundMaterial`), вершинам цвет не нужен.
  */
-export function groundModel(): THREE.BufferGeometry {
+export const groundModel = (): THREE.BufferGeometry => drain(groundModelJob());
+
+/** Земля по кольцам: высота вершины — шум, и все кольца разом — десятки миллисекунд. */
+export function* groundModelJob(): Job<THREE.BufferGeometry> {
   const radii = [0];
   let r = 0;
   while (r < CLEAR_RADIUS) radii.push((r += 1.4));
@@ -471,12 +474,43 @@ export function groundModel(): THREE.BufferGeometry {
       pz[k] = z;
       py[k] = envHeight(x, z) - (i === rings - 1 ? 3 : 0);
     }
+    if ((i & 3) === 3) yield;
   }
-  const pos: number[] = [];
-  const emit = (...ids: number[]): void => {
-    for (const v of ids) pos.push(px[v], py[v], pz[v]);
+  // Треугольников: веер у середины и по два на клетку колец. Позиции и нормали — сразу в
+  // массивы, нормаль — грани: земля с плоским затенением, и общий пересчёт нормалей three
+  // был самым долгим куском сборки — десятки миллисекунд в первый раз.
+  const tris = SEG + (rings - 2) * SEG * 2;
+  const pos = new Float32Array(tris * 9);
+  const nor = new Float32Array(tris * 9);
+  let o = 0;
+  const tri = (a: number, b: number, c: number): void => {
+    const ex = px[b] - px[a];
+    const ey = py[b] - py[a];
+    const ez = pz[b] - pz[a];
+    const fx = px[c] - px[a];
+    const fy = py[c] - py[a];
+    const fz = pz[c] - pz[a];
+    let nx = ey * fz - ez * fy;
+    let ny = ez * fx - ex * fz;
+    let nz = ex * fy - ey * fx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    const put = (v: number): void => {
+      pos[o] = px[v];
+      pos[o + 1] = py[v];
+      pos[o + 2] = pz[v];
+      nor[o] = nx;
+      nor[o + 1] = ny;
+      nor[o + 2] = nz;
+      o += 3;
+    };
+    put(a);
+    put(b);
+    put(c);
   };
-  for (let j = 0; j < SEG; j++) emit(0, SEG + ((j + 1) % SEG), SEG + j);
+  for (let j = 0; j < SEG; j++) tri(0, SEG + ((j + 1) % SEG), SEG + j);
   for (let i = 1; i < rings - 1; i++) {
     for (let j = 0; j < SEG; j++) {
       const n = (j + 1) % SEG;
@@ -484,13 +518,19 @@ export function groundModel(): THREE.BufferGeometry {
       const b = i * SEG + n;
       const c = (i + 1) * SEG + n;
       const d = (i + 1) * SEG + j;
-      if (jit(i * 3 + j * 5, 33) < 0) emit(a, c, d, a, b, c);
-      else emit(a, b, d, b, c, d);
+      if (jit(i * 3 + j * 5, 33) < 0) {
+        tri(a, c, d);
+        tri(a, b, c);
+      } else {
+        tri(a, b, d);
+        tri(b, c, d);
+      }
     }
+    if ((i & 3) === 3) yield;
   }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.computeBoundingSphere();
   return geo;
 }

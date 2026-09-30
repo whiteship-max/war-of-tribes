@@ -201,7 +201,18 @@ interface Bench {
   texMb: number;
   programs: number;
   buffer: [number, number];
-  env: { trees: Record<string, number>; props: Record<string, number>; grass: number; flowers: number; crops: number; blobs: number; map: number; buildMs: number } | null;
+  env: {
+    trees: Record<string, number>;
+    props: Record<string, number>;
+    grass: number;
+    flowers: number;
+    crops: number;
+    blobs: number;
+    map: number;
+    buildMs: number;
+    /** Сборка кусками между кадрами (`env/index.startEnv`): всего, сколько кусков, самый долгий. */
+    build: { ms: number; slices: number; longest: number; step: number; stepIn: string };
+  } | null;
   gpuName: string;
 }
 
@@ -237,7 +248,8 @@ async function bench(began: number): Promise<void> {
     const e = b.env;
     console.log(
       `\n${look}: деревьев ${Object.entries(e.trees).map(([k, v]) => `${k} ${v}`).join(', ')}; мелочи ${Object.entries(e.props).map(([k, v]) => `${k} ${v}`).join(', ')};` +
-        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; карта земли ${e.map}²; сборка ${f(e.buildMs, 0)} мс`,
+        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; карта земли ${e.map}²; сборка ${f(e.build.ms, 0)} мс` +
+        ` за ${e.build.slices} кусков, самый долгий кусок ${f(e.build.longest, 1)} мс, шаг ${f(e.build.step, 1)} мс (${e.build.stepIn})`,
     );
   }
   console.log('\nЧисла одного прогона сравнимы между собой; с другим прогоном — нет (шапка файла).');

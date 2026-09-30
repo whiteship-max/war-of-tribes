@@ -56,8 +56,8 @@ import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/ges
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { AZIMUTH, PAN_STEP_MAX, clampPan, framing, zoomRange } from './camera';
 import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
-import { QUALITY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
-import type { BuildEnv, EnvWorld } from './env';
+import { BUILD_SLICE_MS, QUALITY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
+import type { EnvWorld, StartEnv } from './env';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
 
@@ -162,6 +162,13 @@ const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
  * до перезахода — то есть ровно то, на что жалоба.
  */
 export const RESTORE_WAIT = 3000;
+
+/**
+ * Сколько ждать готовности программ шейдеров окружения (`workEnv`), мс. С параллельной
+ * сборкой браузер доготавливает их за доли секунды; без неё `compile` уже собрал их
+ * по одной — ждать нечего. Срок — на случай потерянного контекста.
+ */
+const ENV_COMPILE_WAIT = 2000;
 
 let active: TribeScene | null = null;
 export const activeScene = (): TribeScene | null => active;
@@ -335,6 +342,11 @@ export class TribeScene {
    * первого кадра — в первую загрузку не входит; до его прихода стоит прежняя земля.
    */
   private env: EnvWorld | null = null;
+  /**
+   * Окружение, которое ещё собирается — кусками между кадрами (`env/index.startEnv`), —
+   * и обещание стенду, что оно встанет. В кадре до его конца стоит прежняя земля.
+   */
+  private envJob: { world: EnvWorld; mounted: () => void } | null = null;
   /** Что насчитал свет последнего кадра: доля дня и ночи. */
   private light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
   /** Посёлок, под который лежит земля окружения: заново — только при смене построек. */
@@ -401,7 +413,7 @@ export class TribeScene {
     this.scene.add(this.terrain);
     // Окружение пробы едет своим куском: в первую загрузку игры оно не входит, а до его
     // прихода сцена стоит на прежней земле — первый кадр не ждёт ничего.
-    this.ready = this.look === 'next' ? import('./env').then((m) => this.mountEnv(m.buildEnv)) : Promise.resolve();
+    this.ready = this.look === 'next' ? import('./env').then((m) => this.startEnv(m.startEnv)) : Promise.resolve();
     this.scene.add(this.figures.group);
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
@@ -615,12 +627,58 @@ export class TribeScene {
   }
 
   /**
-   * Приехало окружение пробы: оно встаёт на место прежней земли с лесом. Сцену могли
-   * выгрузить, пока кусок ехал, — тогда ставить некуда.
+   * Приехал кусок окружения пробы: сборка заводится, а ведёт её кадр (`workEnv`) —
+   * кусками под `BUILD_SLICE_MS`. Сцену могли выгрузить, пока кусок ехал, — тогда
+   * собирать не для кого. Обещание сбывается, когда окружение встало в сцену.
    */
-  private mountEnv(build: BuildEnv): void {
-    if (this.disposed) return;
-    const env = build({ quality: this.quality, season: this.seasonVis, village: this.envVillage });
+  private startEnv(start: StartEnv): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    const world = start({
+      quality: this.quality,
+      season: this.seasonVis,
+      village: this.envVillage,
+      // Программы шейдеров — со светом, туманом и тенями этой сцены, иначе в кадре их
+      // собрали бы второй раз.
+      compile: (o) => void this.renderer.compile(o, this.camera, this.scene),
+    });
+    return new Promise((mounted) => {
+      this.envJob = { world, mounted };
+    });
+  }
+
+  /**
+   * Кусок работы окружения в этом кадре: первая сборка или пересчёт под постройки.
+   * Собрано впервые — дождаться программ шейдеров, не держа кадр (`compileAsync`
+   * с `KHR_parallel_shader_compile`), и поставить мир целиком.
+   */
+  private workEnv(): void {
+    const until = performance.now() + BUILD_SLICE_MS;
+    if (this.env) this.env.work(until);
+    const job = this.envJob;
+    if (!job || !job.world.work(until)) return;
+    this.envJob = null;
+    let once = false;
+    const mount = (): void => {
+      if (once) return;
+      once = true;
+      this.mountEnv(job.world);
+      job.mounted();
+    };
+    this.renderer.compileAsync(job.world.group, this.camera, this.scene).then(mount, mount);
+    // Контекст, потерянный посреди ожидания, программ не доготовит никогда (`isReady` так и
+    // не скажет «да»): через срок мир встаёт и без ожидания — программы доберёт кадр.
+    setTimeout(mount, ENV_COMPILE_WAIT);
+  }
+
+  /**
+   * Окружение собрано: оно встаёт на место прежней земли с лесом. Сцену могли
+   * выгрузить, пока ждали программ, — тогда ставить некуда.
+   */
+  private mountEnv(env: EnvWorld): void {
+    if (this.disposed) {
+      env.dispose();
+      return;
+    }
     this.scene.remove(this.terrain);
     disposeGeometries(this.terrain);
     this.env = env;
@@ -816,6 +874,8 @@ export class TribeScene {
     // Материалы и текстуры окружения свои у каждой сцены (не модульные): их отдаёт оно само.
     this.env?.dispose();
     this.env = null;
+    this.envJob?.world.dispose();
+    this.envJob = null;
     this.clearWait();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
@@ -1432,7 +1492,7 @@ export class TribeScene {
     // Земля окружения знает, где стоят дома и дороги: трава к ним не подходит, земля у
     // них вытоптана. Меняется это с той же редкостью, что обстановка.
     this.envVillage = { present, built };
-    this.env?.setVillage(this.envVillage);
+    (this.env ?? this.envJob?.world)?.setVillage(this.envVillage);
     if (this.village) {
       this.scene.remove(this.village);
       disposeGeometries(this.village);
@@ -1598,6 +1658,7 @@ export class TribeScene {
       this.spinTurn += this.spinRate * dt;
       this.place();
     }
+    this.workEnv();
     if (this.env) {
       const fog = this.scene.fog as THREE.Fog | null;
       this.env.update({
