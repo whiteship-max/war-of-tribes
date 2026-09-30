@@ -18,8 +18,11 @@
 // ворот (`gateField`).
 import { describe, expect, it } from 'vitest';
 import { withDiceStep } from '@/battle/bench';
+import { stackTotal } from '@/battle/setup';
 import { defense } from '@/game/derived';
 import { BATTLE_MAN } from '@/game/battle/kinds';
+import { TROOP_IDS } from '@/game/data/troops';
+import type { GameState } from '@/game/types';
 import { menOfPower } from './garrison';
 import type { GateCall } from './types';
 import { openSky, townAt, type Inside } from '../../scripts/autopilot';
@@ -52,4 +55,78 @@ describe('монотонность у ворот: больше волков пр
     const drops = won.flatMap((x, n) => (n > 1 && won[n - 1] && !x ? [n] : []));
     expect(drops, `${level}-й уровень: волков больше на одного — и верх уже не их`).toEqual([]);
   }, 120_000);
+});
+
+// Один боец у ворот (docs/battle_eu4.md, 14.35, «Всадник у ворот»; слово владельца — охват по излишку ширины). Прежде полосу
+// занимало присутствие, а не число: один всадник гарнизона, вставший на край, держал всю стаю на краю, а центр гарнизона
+// уходил в обход — и мерка 1-го уровня без всадников с одним всадником держала без кости 146 волков вместо 80
+// (`raid-mix:report`, раздел 4в, на `0636bd0`). Теперь горстка держит столько, сколько занимает, а излишок идёт в охват
+// (`sim.relocate`). Мерка скачка — доля владельца «+10 %»: один боец — от одного до пяти с половиной бойцов строя
+// (`price.battleWeight`) при гарнизоне 145…339 (раздел 4в), и двигать стаю, которую гарнизон держит, больше чем на её десятую
+// часть он не должен; и не должен её уменьшать — больше того же не хуже.
+//
+// Бой без кости — от сида он не зависит (кость — единственная случайность боя), поэтому это не один бой, а ожидание.
+describe('один боец у ворот не двигает выдерживаемую стаю скачком', () => {
+  /** Первая стая, что берёт верх над гарнизоном, без кости; с какой начать — не больше неё (граница области ниже). */
+  const firstWin = async (g: GameState, from: number): Promise<{ first: number; low: boolean; men: number; edges: number }> => {
+    const sky = openSky(g, { seed: 7, pulse: 30, raids: true });
+    await sky.pulse();
+    const w: Inside = sky.world;
+    const at = sky.now();
+    let first = -1;
+    let low = false;
+    let men = 0;
+    let edges = 0;
+    withDiceStep(0, () => {
+      for (let n = from; n <= 4000; n += 1) {
+        const call: GateCall = { id: 'one', foe: 'wolves', power: n * BATTLE_MAN, seed: 7919 };
+        const r = w.gateField(w.gateParty(call), call.seed, w.save.home, at).field;
+        if (n === from) {
+          low = !r.won;
+          men = stackTotal(r.result.sides.defender.initial);
+          const s = r.result.sides.defender.sectors;
+          edges = stackTotal(s.A.initial) + stackTotal(s.C.initial);
+        }
+        if (r.won) {
+          first = n;
+          break;
+        }
+      }
+    });
+    return { first, low, men, edges };
+  };
+
+  it.each([1, 2])('мерка %i-го уровня — как есть и без всадников: +1 боец любого вида', async (level) => {
+    for (const bare of [false, true]) {
+      const town = (): GameState => {
+        const g = townAt(level);
+        g.faith.id = null;
+        if (bare) g.army.rider = 0;
+        return g;
+      };
+      const base = await firstWin(town(), 1);
+      // Граница области: гарнизон держит стаю, и её правда берут — иначе «держит» не мерилось бы.
+      expect(base.first, `${level}-й уровень${bare ? ' без всадников' : ''}: стаю берут`).toBeGreaterThan(1);
+      // Граница области: на 1-м уровне без всадников края гарнизона пусты, и всадник встаёт на край один — случай, из-за
+      // которого правило меняли. На 2-м пеших шире ширины фронта, и на краях стоят они сами — горсткой (второй облик того же:
+      // до правила горстка на краях держала стаю — мерка 2-го уровня без всадников держала 206 волков, теперь 133, раздел 4в).
+      if (bare && level === 1) expect(base.edges, `${level}-й уровень без всадников: на краях гарнизона пусто`).toBe(0);
+      const held = base.first - 1;
+      for (const id of TROOP_IDS) {
+        const g = town();
+        g.army[id] = (g.army[id] ?? 0) + 1;
+        const one = await firstWin(g, Math.floor(held / 2));
+        // Граница области: боец правда вошёл в бой, и счёт начался ниже того, что гарнизон держит.
+        expect(one.men, `${id}: боец в бою`).toBeGreaterThan(base.men);
+        expect(one.low, `${id}: половину стаи гарнизон держит`).toBe(true);
+        if (bare && (id === 'rider' || id === 'knight')) {
+          // Граница области: одинокий всадник встал на край — ровно тот случай, из-за которого правило и меняли.
+          expect(one.edges, `${id}: всадник на краях гарнизона`).toBeGreaterThan(0);
+        }
+        const moved = one.first - base.first;
+        expect(moved, `${level}-й уровень${bare ? ' без всадников' : ''}, +1 ${id}: стая меньше`).toBeGreaterThanOrEqual(0);
+        expect(moved, `${level}-й уровень${bare ? ' без всадников' : ''}, +1 ${id}: держит ${held}, с ним — ${one.first - 1}`).toBeLessThanOrEqual(held / 10);
+      }
+    }
+  }, 180_000);
 });

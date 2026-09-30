@@ -21,9 +21,11 @@
 //     поражений на решётке нашей силы — уровень посёлка мерки, вера, кто дома.
 //  4б. **Сила у ворот по уровню посёлка** — таблица слова владельца по 14.35, п. 4: ровный бой для гарнизона мерки уровня,
 //     делённый на перевес «Ограничителя», кривая «сила пришедших → поражений» и её окрестность мелким шагом.
+//  4в. **Один боец у ворот** — сколько волков держит гарнизон мерки без кости и сколько — он же с одним бойцом сверху
+//     (docs/battle_eu4.md, 14.35, «Всадник у ворот»: охват по излишку ширины).
 //  5. **Потолок морали и обряд** — срезает ли потолок морали прибавку храма у какого-нибудь вида, уровня храма и устава
 //     (docs/battle_eu4.md, 14.24).
-import { MORALE, deploySetup, stackOf, startMorale } from '@/battle';
+import { MORALE, deploySetup, stackOf, stackTotal, startMorale } from '@/battle';
 import { withDiceStep } from '@/battle/bench';
 import { FAITHS, OBSERVANCES, tiltAt } from '@/game/data/faiths';
 import { MAX_BUILDING_LEVEL } from '@/game/constants';
@@ -534,6 +536,73 @@ async function gateLevelPart(): Promise<void> {
   }
 }
 
+// ---------- 4в. Один боец у ворот ----------
+
+const ONE_LEVELS = [1, 2, 3];
+
+interface OneRow {
+  lines: string[];
+}
+
+/**
+ * Задача веера (`lib/fan.ts`): раздел 4в на гарнизоне мерки уровня `level` — как есть или без всадников (`bare`). Бой — дверью
+ * мира (`gateParty` → `gateField`), без кости: от сида он тогда не зависит, и это не один бой, а ожидание. «Держит» —
+ * наибольшая стая, которую гарнизон отбивает вместе со всеми меньшими (первая стая, что берёт верх, минус один). Та же
+ * мерка — у теста «один боец у ворот не двигает выдерживаемую стаю скачком» (`world/gatemono.test.ts`).
+ */
+export async function oneSoldierRow({ level, bare }: { level: number; bare: boolean }): Promise<OneRow> {
+  const held = async (add: TroopId | null): Promise<{ held: number; men: number; edges: number }> => {
+    const g = townAt(level);
+    g.faith.id = null;
+    if (bare) g.army.rider = 0;
+    if (add) g.army[add] = (g.army[add] ?? 0) + 1;
+    const sky = openSky(g, { seed: SEEDS[0], pulse: 30, raids: true });
+    await sky.pulse();
+    const w: Inside = sky.world;
+    const at = sky.now();
+    let first = -1;
+    let men = 0;
+    let edges = 0;
+    withDiceStep(0, () => {
+      for (let n = 1; n <= 4000; n += 1) {
+        const call: GateCall = { id: 'one', foe: 'wolves', power: n * BATTLE_MAN, seed: 7919 };
+        const r = w.gateField(w.gateParty(call), call.seed, w.save.home, at).field;
+        if (n === 1 && r.result) {
+          const d = r.result.sides.defender;
+          men = stackTotal(d.initial);
+          edges = stackTotal(d.sectors.A.initial) + stackTotal(d.sectors.C.initial);
+        }
+        if (r.won) {
+          first = n;
+          break;
+        }
+      }
+    });
+    return { held: first - 1, men, edges };
+  };
+  const base = await held(null);
+  const lines = [`  ${pad(level, 2)}-й уровень${bare ? ', без всадников' : ''}: держит ${base.held} волков; гарнизон в бою ${base.men} бойцов строя, на краях ${base.edges}`];
+  const parts: string[] = [];
+  for (const id of TROOP_IDS) {
+    const one = await held(id);
+    const moved = one.held - base.held;
+    parts.push(`${TROOP_BY_ID[id].name} ${moved >= 0 ? '+' : ''}${moved} (${((100 * moved) / Math.max(1, base.held)).toFixed(1)} %)`);
+  }
+  lines.push(`      +1 боец — сдвиг стаи, которую держит: ${parts.join('; ')}`);
+  return { lines };
+}
+
+async function oneSoldierPart(): Promise<void> {
+  console.log('');
+  console.log('--- 4в. Один боец у ворот: сколько волков держит гарнизон мерки без кости и сколько — с одним бойцом сверху ---');
+  console.log(`Гарнизон мерки уровня L (townAt), без веры, мир ${SEEDS[0]}; «без всадников» — те же, всадников ноль. Бой — дверью мира, без кости`);
+  console.log('(от сида не зависит). «Держит» — наибольшая стая, которую гарнизон отбивает вместе со всеми меньшими. Охват — по излишку ширины:');
+  console.log('горстка в полосе держит столько, сколько занимает (docs/battle_eu4.md, 14.35, «Всадник у ворот»). Сдвиг — в волках и в доле стаи.');
+  const rows = ONE_LEVELS.flatMap((level) => [false, true].map((bare) => ({ level, bare })));
+  const got = await fan(oneSoldierRow, import.meta.url, rows);
+  for (const r of got) for (const l of r.lines) console.log(l);
+}
+
 /**
  * Раздел 5 — срезает ли потолок морали прибавку обряда (docs/battle_eu4.md, 14.24; слово владельца по 14.34). Мораль на
  * входе в бой считает ядро (`battle.startMorale`): род вида (морали за снаряжение нет — путь П2, 14.35) и стойкость
@@ -573,7 +642,8 @@ export async function defenseMixSection(): Promise<void> {
   await livePart();
   await gatePart();
   await gateLevelPart();
+  await oneSoldierPart();
   ceilingPart();
 }
 
-serveFan(import.meta.url, { benchRow, mixRun, gateRow, gateLevelRow });
+serveFan(import.meta.url, { benchRow, mixRun, gateRow, gateLevelRow, oneSoldierRow });
