@@ -10,14 +10,16 @@ import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
 import { visualTier } from '../buildings';
 import { CLEAR_EDGE, CLEAR_RADIUS, GATE_ANGLE, GATE_CLEAR_HALF, WALL_RADIUS, inCleared } from '../plan';
-import { FOREST_FROM, GROUND_RADIUS, ZONES } from '../terrain';
+import { FOREST_FROM, GLADES, GROUND_RADIUS, ZONES } from '../terrain';
 import { QUALITY } from '../quality';
 import {
   CROWN,
   PROP_KINDS,
   PROP_SPREAD,
   SPECIES,
+  edgeRadius,
   forestDensity,
+  gateEdge,
   groundMap,
   layoutOf,
   roadDist,
@@ -157,6 +159,98 @@ describe('окружение пробы: правила леса', () => {
     expect(forestDensity(layout, ZONES.fields.x, ZONES.fields.z)).toBeLessThan(0.1);
     const t = layout.trails[3];
     expect(forestDensity(layout, t.bx, t.bz)).toBe(0);
+  });
+});
+
+/** Точка на луче ворот: вдоль дороги и поперёк неё (со знаком). */
+const gateAxes = (x: number, z: number): { along: number; across: number } => ({
+  along: x * Math.cos(GATE_ANGLE) + z * Math.sin(GATE_ANGLE),
+  across: -x * Math.sin(GATE_ANGLE) + z * Math.cos(GATE_ANGLE),
+});
+
+/** Прогалины угодий и коридор ворот — там край задан не опушкой. */
+const offEdge = (x: number, z: number): boolean =>
+  inGate(x, z, 4) || GLADES.some((g) => Math.hypot(x - g.at.x, z - g.at.z) < g.r * 1.3) || trailDist(layout, x, z) < 1.5;
+
+describe('окружение пробы: рваный край леса', () => {
+  it('край леса не окружность: заливы и мысы по кругу, и лес идёт за краем, а не за радиусом', () => {
+    // Сам край: по кругу он ходит больше чем на две с половиной единицы и много раз.
+    const N = 360;
+    // Край зависит от точки, а не от угла: радиус края в направлении — неподвижная точка
+    // r = edgeRadius(r · направление), три шага от FOREST_FROM.
+    const e = Array.from({ length: N }, (_, k) => {
+      const a = (k / N) * 2 * Math.PI;
+      let r = FOREST_FROM;
+      for (let i = 0; i < 3; i++) r = edgeRadius(Math.cos(a) * r, Math.sin(a) * r);
+      return r;
+    });
+    expect(Math.max(...e) - Math.min(...e), 'размах края, ед.').toBeGreaterThan(2.5);
+    let turns = 0;
+    for (let k = 0; k < N; k++) {
+      const d0 = e[k] - e[(k + N - 1) % N];
+      const d1 = e[(k + 1) % N] - e[k];
+      if (d0 * d1 < 0) turns++;
+    }
+    expect(turns, 'заливов и мысов').toBeGreaterThan(20);
+    // Лес идёт за краем: перед ним (на 0.8 ближе) лес редок, за ним (на 1.5 дальше) — гуще.
+    // Область — направления, где край задан опушкой, а не дорогой, угодьем или тропой.
+    let asked = 0;
+    let sparse = 0;
+    let before = 0;
+    let after = 0;
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * 2 * Math.PI;
+      const c = Math.cos(a);
+      const sn = Math.sin(a);
+      if (offEdge(c * e[k], sn * e[k])) continue;
+      asked++;
+      const din = forestDensity(layout, c * (e[k] - 0.8), sn * (e[k] - 0.8));
+      if (din < 0.25) sparse++;
+      before += din;
+      after += forestDensity(layout, c * (e[k] + 1.5), sn * (e[k] + 1.5));
+    }
+    expect(asked, 'направлений с опушкой').toBeGreaterThan(N / 3);
+    expect(sparse / asked, 'перед краем леса нет').toBeGreaterThan(0.95);
+    expect(after, 'за краем лес гуще, чем перед ним').toBeGreaterThan(before * 3);
+  });
+
+  it('стена у дороги ворот рваная: отступ от коридора ходит вдоль дороги, а в коридор не заходит', () => {
+    // Сама стена: на одном отступе от коридора лес то почти стоит, то почти нет.
+    const at = (along: number, across: number) => ({
+      x: along * Math.cos(GATE_ANGLE) - across * Math.sin(GATE_ANGLE),
+      z: along * Math.sin(GATE_ANGLE) + across * Math.cos(GATE_ANGLE),
+    });
+    for (const side of [1, -1]) {
+      const wall: number[] = [];
+      for (let along = CLEAR_RADIUS + 1; along < GROUND_RADIUS - 2; along += 0.5) {
+        const p = at(along, side * (GATE_CLEAR_HALF + 1.2));
+        wall.push(gateEdge(p.x, p.z));
+      }
+      expect(Math.min(...wall), `обочина ${side}: стена отступила`).toBeLessThan(0.5);
+      expect(Math.max(...wall), `обочина ${side}: стена подошла`).toBeGreaterThan(0.8);
+    }
+    // И деревья стоят по этой стене: ни одного в коридоре — пол правила расчистки на месте.
+    const road = trees.filter((t) => !t.far && gateAxes(t.x, t.z).along > CLEAR_RADIUS && Math.abs(gateAxes(t.x, t.z).across) < 12);
+    expect(road.length, 'деревьев у дороги').toBeGreaterThan(20);
+    for (const t of road) expect(Math.abs(gateAxes(t.x, t.z).across)).toBeGreaterThan(GATE_CLEAR_HALF);
+  });
+
+  it('на опушке подлесок и молодняк: кусты у края, деревья у края мельче, чем в чаще', () => {
+    const fringeBushes = props.filter((p) => (p.kind === 'bush' || p.kind === 'berry') && Math.abs(Math.hypot(p.x, p.z) - edgeRadius(p.x, p.z)) < 1.5);
+    expect(fringeBushes.length, 'кустов на опушке').toBeGreaterThan(40);
+    const near = trees.filter((t) => !t.far && Math.hypot(t.x, t.z) - edgeRadius(t.x, t.z) < 0.5);
+    const deep = trees.filter((t) => !t.far && Math.hypot(t.x, t.z) - edgeRadius(t.x, t.z) > 4);
+    expect(near.length, 'деревьев у края').toBeGreaterThan(40);
+    const mean = (l: typeof trees): number => l.reduce((a, t) => a + t.scale, 0) / l.length;
+    expect(mean(near)).toBeLessThan(mean(deep) * 0.8);
+    const young = trees.filter((t) => t.scale < 0.6);
+    expect(young.length, 'молодняка').toBeGreaterThan(30);
+  });
+
+  it('одинокие деревья стоят на лугу перед опушкой, но не в расчистке', () => {
+    const lone = trees.filter((t) => !t.far && Math.hypot(t.x, t.z) < edgeRadius(t.x, t.z) - 1.3 && t.scale >= 0.85);
+    expect(lone.length).toBeGreaterThan(2);
+    for (const t of lone) expect(inCleared(t.x, t.z, CROWN[t.species] * t.scale)).toBe(false);
   });
 });
 

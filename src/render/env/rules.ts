@@ -17,7 +17,7 @@
  * не на стене (docs/graphics_world.md, раздел 3, «Покров, а не предметы»).
  */
 import type { BuildingTypeId } from '@/game/types';
-import { CLEAR_EDGE, CLEAR_RADIUS, GATE_ANGLE, OUTSKIRTS_RADIUS, WALL_RADIUS, inCleared } from '../plan';
+import { CLEAR_EDGE, CLEAR_RADIUS, GATE_ANGLE, GATE_CLEAR_HALF, OUTSKIRTS_RADIUS, WALL_RADIUS, inCleared } from '../plan';
 import { FOREST_FROM, GLADES, GROUND_RADIUS, ZONES, groundHeight, vnoise } from '../terrain';
 import { decalSpotFor, roadLayout } from '../village';
 import type { Tier } from '../buildings';
@@ -356,14 +356,18 @@ export function* groundMapJob(l: Layout, size: number): Job<GroundMap> {
       const wallBand = 1 - smooth((Math.abs(r - WALL_RADIUS) - 0.7) / 0.6);
       soil = Math.max(soil, wallBand * 0.7);
       // Полоса вырубки: земля местами разворочена пнями и волоком.
+      // Полоса идёт от черты расчистки до края леса — тот рваный (`edgeRadius`), и полоса с ним.
       const edge = r - CLEAR_RADIUS;
-      if (edge > 0 && edge < CLEAR_EDGE + 0.6) soil = Math.max(soil, 0.45 * smooth((vnoise(x / 1.3 + 9, z / 1.3) - 0.15) / 0.5));
+      if (edge > 0 && r < FOREST_FROM + 4) {
+        const strip = smooth(edge / 0.4) * (1 - smooth((r - edgeRadius(x, z) + 0.2) / 1.2));
+        soil = Math.max(soil, 0.45 * strip * smooth((vnoise(x / 1.3 + 9, z / 1.3) - 0.15) / 0.5));
+      }
 
       // Лесная подстилка — там, где полог: той же густотой, по которой растут деревья
       // (`forestDensity`). Купы леса лежат на подстилке, прогалины и опушка остаются
       // травой; ровной дуги по радиусу, которая читалась тенью облака, нет.
       // За краем прежнего мира карта не считает — там дальний лес, подстилка сплошь.
-      const canopy = r > GROUND_RADIUS - 1.3 ? 0.85 : r > FOREST_FROM - 1.5 ? forestDensity(l, x, z, tr) : 0;
+      const canopy = r > GROUND_RADIUS - 1.3 ? 0.85 : r > CLEAR_RADIUS + 0.5 ? forestDensity(l, x, z, tr) : 0;
       const litter = smooth((canopy - 0.25 + wob * 0.12) / 0.6);
       // Каменистая земля у скал: пятнами, трава между камнями остаётся.
       const rocks = Math.hypot(x - ZONES.rocks.x, z - ZONES.rocks.z);
@@ -432,20 +436,66 @@ export interface Tree {
 }
 
 /**
- * Густота леса в точке, 0..1: опушка входит мягко, пятнами — купы и прогалины, у
- * угодий лес расступается (`GLADES`), вдоль троп — редеет.
+ * Край леса в этой точке — радиус, где лес начинается. Не окружность: заливы и мысы по
+ * крупному шуму (семь-восемь единиц — пара десятков выступов по кругу) и выкусы в одно-два
+ * дерева по мелкому. Шум — от координат, а не от угла: у угла был бы шов на обороте.
+ * Ближе черты расчистки с запасом край не подходит — там полоса вырубки.
+ */
+export function edgeRadius(x: number, z: number): number {
+  const bay = vnoise(x / 7.5 + 41, z / 7.5 - 23);
+  const bite = vnoise(x / 2.4 - 13, z / 2.4 + 29);
+  return Math.max(CLEAR_RADIUS + 1.7, FOREST_FROM + 0.3 + 2.0 * bay + 0.7 * bite);
+}
+
+/**
+ * Стена леса вдоль дороги из ворот, 0..1: коридор ворот (`plan.inCleared`) — прямая, и
+ * лес, обрезанный по нему, читался вырубленным по линейке. Стена отступает от коридора по
+ * шуму вдоль дороги — своему у каждой обочины, — на две единицы вглубь и обратно.
+ * Сам коридор не трогается: он — пол, ниже которого стена не подходит. `scale` — шаг шума
+ * вдоль дороги: у дальнего леса он крупнее.
+ */
+export function gateEdge(x: number, z: number, scale = 3.5): number {
+  const along = x * Math.cos(GATE_ANGLE) + z * Math.sin(GATE_ANGLE);
+  if (along <= 0) return 1;
+  const s = -x * Math.sin(GATE_ANGLE) + z * Math.cos(GATE_ANGLE);
+  const wall = GATE_CLEAR_HALF + 0.3 + 2.0 * (0.5 + 0.5 * vnoise(along / scale + (s > 0 ? 7 : -19), 3.3));
+  return smooth((Math.abs(s) - wall + 0.8) / 1.8);
+}
+
+/** Опушка, 0..1: полоса у края леса, где растут подлесок и молодняк. */
+export const fringe = (x: number, z: number): number => clamp01(1 - Math.abs(Math.hypot(x, z) - edgeRadius(x, z) + 0.5) / 1.8);
+
+/** Прогалина угодья, 0..1: в середине угодья ноль — там ни молодняка, ни одиноких деревьев. */
+function glade(x: number, z: number): number {
+  let k = 1;
+  for (const g of GLADES) k = Math.min(k, smooth((Math.hypot(x - g.at.x, z - g.at.z) / g.r - 0.7) / 0.4));
+  return k;
+}
+
+/** Откуда ближний лес сходит на нет, а дальний входит: шов не читается кольцом. */
+const SEAM = GROUND_RADIUS - 4;
+
+/**
+ * Густота леса в точке, 0..1: опушка входит мягко по рваному краю (`edgeRadius`), пятнами —
+ * купы и прогалины, у угодий лес расступается (`GLADES`, край прогалины тоже неровный),
+ * вдоль троп — редеет, вдоль дороги ворот — отступает рваной стеной (`gateEdge`).
  */
 export function forestDensity(l: Layout, x: number, z: number, trail = trailDist(l, x, z)): number {
   const r = Math.hypot(x, z);
   if (r > GROUND_RADIUS - 1.3) return 0;
-  let d = smooth((r - (FOREST_FROM - 0.9)) / 1.4);
+  let d = smooth((r - (edgeRadius(x, z) - 1.1)) / 2.2);
+  if (d <= 0) return 0;
   const n = vnoise(x / 6.5 + 31, z / 6.5 - 17);
-  d *= n < -0.55 ? 0.25 : 0.78 + 0.22 * n;
+  // Прогалины внутри леса — мягкие: прежде густота падала ступенью, и край читался вырезанным.
+  d *= 0.25 + (0.53 + 0.22 * n) * smooth((n + 0.7) / 0.3);
   for (const g of GLADES) {
-    const k = Math.hypot(x - g.at.x, z - g.at.z) / g.r;
+    const k = Math.hypot(x - g.at.x, z - g.at.z) / g.r + 0.15 * vnoise(x / 2.5 + 57, z / 2.5 - 3);
     if (k < 1) d *= g.keep + (1 - g.keep) * smooth((k - 0.6) / 0.4);
   }
-  d *= smooth((trail - 0.25) / 1.1);
+  d *= smooth((trail - 0.25 - 0.25 * (1 + vnoise(x / 3 + 71, z / 3))) / 1.1);
+  d *= gateEdge(x, z);
+  // Шов с дальним лесом: ближний сходит на нет, дальний входит (`scatterTreesJob`).
+  d *= 1 - smooth((r - SEAM) / (GROUND_RADIUS - 1.3 - SEAM));
   return clamp01(d);
 }
 
@@ -455,7 +505,7 @@ export function forestDensity(l: Layout, x: number, z: number, trail = trailDist
  */
 export function speciesAt(x: number, z: number, h: number): Species {
   const r = Math.hypot(x, z);
-  const depth = clamp01((r - FOREST_FROM) / (GROUND_RADIUS - FOREST_FROM));
+  const depth = clamp01((r - edgeRadius(x, z)) / (GROUND_RADIUS - FOREST_FROM));
   if (Math.hypot(x - ZONES.rocks.x, z - ZONES.rocks.z) < 8.5 && h < 0.65) return 'pine';
   if (depth < 0.2 && h < 0.42) return 'birch';
   const stand = vnoise(x / 9 + 5, z / 9 + 11);
@@ -480,14 +530,59 @@ export function* scatterTreesJob(l: Layout): Job<Tree[]> {
       const d = forestDensity(l, x, z);
       if (d <= 0 || cell(ix, iz, 3) > d) continue;
       const species = speciesAt(x, z, cell(ix, iz, 4));
-      const depth = clamp01((Math.hypot(x, z) - FOREST_FROM) / (GROUND_RADIUS - FOREST_FROM));
-      const scale = (0.82 + cell(ix, iz, 5) * 0.48) * (0.92 + 0.22 * depth) * (species === 'birch' ? 0.9 : 1);
+      const r = Math.hypot(x, z);
+      const depth = clamp01((r - FOREST_FROM) / (GROUND_RADIUS - FOREST_FROM));
+      // Опушка моложе чащи: у края деревья ниже — лес входит на вырубку, а не стоит стеной.
+      const young = 0.55 + 0.45 * smooth((r - edgeRadius(x, z) + 1.0) / 3.2);
+      const scale = (0.82 + cell(ix, iz, 5) * 0.48) * (0.92 + 0.22 * depth) * (species === 'birch' ? 0.9 : 1) * young;
       if (inCleared(x, z, CROWN[species] * scale)) continue;
       out.push({ x, y: groundHeight(x, z) - 0.04, z, species, scale, rot: cell(ix, iz, 6) * Math.PI * 2, hue: 0.9 + cell(ix, iz, 7) * 0.2 });
     }
     yield;
   }
-  // Дальний лес: реже и крупнее, купами; за ним — только дымка.
+  // Молодняк на опушке: берёзки и ёлочки впереди стены леса — поросль, которая заходит
+  // на вырубку. Те же породы тем же мешем, только мелкие: вызовов не прибавляет.
+  const YOUNG_CELL = 1.1;
+  const y = Math.ceil((FOREST_FROM + 3) / YOUNG_CELL);
+  for (let iz = -y; iz <= y; iz++) {
+    for (let ix = -y; ix <= y; ix++) {
+      const x = (ix + cell(ix, iz, 20)) * YOUNG_CELL;
+      const z = (iz + cell(ix, iz, 21)) * YOUNG_CELL;
+      const r = Math.hypot(x, z);
+      const e = edgeRadius(x, z);
+      if (r < e - 2.4 || r > e + 0.8) continue;
+      const band = clamp01(1 - Math.abs(r - e + 0.8) / 1.6);
+      if (cell(ix, iz, 22) > 0.22 * band * gateEdge(x, z) * smooth((trailDist(l, x, z) - 0.4) / 0.8) * glade(x, z)) continue;
+      const h = cell(ix, iz, 23);
+      const species: Species = Math.hypot(x - ZONES.rocks.x, z - ZONES.rocks.z) < 8.5 ? 'pine' : h < 0.6 ? 'birch' : 'spruce';
+      const scale = 0.32 + cell(ix, iz, 24) * 0.26;
+      if (inCleared(x, z, CROWN[species] * scale)) continue;
+      out.push({ x, y: groundHeight(x, z) - 0.04, z, species, scale, rot: cell(ix, iz, 25) * Math.PI * 2, hue: 0.92 + cell(ix, iz, 26) * 0.2 });
+    }
+    yield;
+  }
+
+  // Одинокие деревья на лугу перед опушкой: старый дуб или берёза, которых не срубили.
+  const LONE_CELL = 2.4;
+  const w = Math.ceil((FOREST_FROM + 1) / LONE_CELL);
+  for (let iz = -w; iz <= w; iz++) {
+    for (let ix = -w; ix <= w; ix++) {
+      const x = (ix + cell(ix, iz, 30)) * LONE_CELL;
+      const z = (iz + cell(ix, iz, 31)) * LONE_CELL;
+      const r = Math.hypot(x, z);
+      const e = edgeRadius(x, z);
+      if (r < e - 3.5 || r > e - 1.3) continue;
+      if (cell(ix, iz, 32) > 0.12 * gateEdge(x, z) * glade(x, z) || trailDist(l, x, z) < 1.2) continue;
+      const species: Species = cell(ix, iz, 33) < 0.6 ? 'oak' : 'birch';
+      const scale = 0.85 + cell(ix, iz, 34) * 0.3;
+      if (inCleared(x, z, CROWN[species] * scale)) continue;
+      out.push({ x, y: groundHeight(x, z) - 0.04, z, species, scale, rot: cell(ix, iz, 35) * Math.PI * 2, hue: 0.9 + cell(ix, iz, 36) * 0.2 });
+    }
+  }
+  yield;
+
+  // Дальний лес: реже и крупнее, купами; за ним — только дымка. Входит он раньше края
+  // прежнего мира, пока ближний сходит на нет (`SEAM`), — шов не читается кольцом.
   const FAR_CELL = 2.7;
   const m = Math.ceil(FAR_RADIUS / FAR_CELL);
   for (let iz = -m; iz <= m; iz++) {
@@ -495,8 +590,8 @@ export function* scatterTreesJob(l: Layout): Job<Tree[]> {
       const x = (ix + 0.5 + (cell(ix, iz, 11) - 0.5) * 0.9) * FAR_CELL;
       const z = (iz + 0.5 + (cell(ix, iz, 12) - 0.5) * 0.9) * FAR_CELL;
       const r = Math.hypot(x, z);
-      if (r < GROUND_RADIUS - 1.3 || r > FAR_RADIUS - 2) continue;
-      const d = 0.55 + 0.4 * vnoise(x / 11 - 5, z / 11 + 7);
+      if (r < SEAM || r > FAR_RADIUS - 2) continue;
+      const d = (0.55 + 0.4 * vnoise(x / 11 - 5, z / 11 + 7)) * smooth((r - SEAM) / (GROUND_RADIUS - 1.3 - SEAM)) * gateEdge(x, z, 6);
       if (cell(ix, iz, 13) > d) continue;
       const species = speciesAt(x, z, cell(ix, iz, 14));
       const scale = 1.05 + cell(ix, iz, 15) * 0.6;
@@ -546,8 +641,11 @@ export function* scatterPropsJob(l: Layout, share: number): Job<Prop[]> {
 
   // Полоса вырубки: здесь племя брало лес на частокол — пни, брошенные стволы, поросль.
   for (let i = 0; i < 150; i++) {
-    const a = (i / 150) * Math.PI * 2 + hash(i, 100) * 0.05;
-    const r = CLEAR_RADIUS + 0.25 + hash(i, 101) * (CLEAR_EDGE - 0.3);
+    // Место в своей доле круга — любое, а не у её начала: ровная гребёнка через шаг читалась забором.
+    const a = ((i + hash(i, 100)) / 150) * Math.PI * 2;
+    // Глубина полосы — до края леса, а он рваный: где лес подошёл ближе, полоса уже.
+    const reach = Math.min(CLEAR_EDGE, edgeRadius(Math.cos(a) * FOREST_FROM, Math.sin(a) * FOREST_FROM) - CLEAR_RADIUS);
+    const r = CLEAR_RADIUS + 0.25 + hash(i, 101) * Math.max(0.3, reach - 0.3);
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
     const kind = hash(i, 102);
@@ -573,7 +671,7 @@ export function* scatterPropsJob(l: Layout, share: number): Job<Prop[]> {
       yield;
     }
   };
-  const forest = (x: number, z: number): number => smooth((Math.hypot(x, z) - FOREST_FROM + 0.6) / 1.2);
+  const forest = (x: number, z: number): number => smooth((Math.hypot(x, z) - edgeRadius(x, z) + 0.6) / 1.2);
   const nearZone = (at: { x: number; z: number }, r: number) => (x: number, z: number): number => 1 - smooth((Math.hypot(x - at.x, z - at.z) - r * 0.6) / (r * 0.4));
 
   yield* layer('fern', 1.3, 0.34, 200, [0.7, 1.25], (x, z) => forest(x, z) * (0.6 + 0.4 * vnoise(x / 3, z / 3 + 4)));
@@ -581,6 +679,12 @@ export function* scatterPropsJob(l: Layout, share: number): Job<Prop[]> {
   yield* layer('rock', 4.2, 0.24, 220, [0.45, 0.9], forest);
   yield* layer('log', 4.8, 0.22, 230, [0.7, 1.15], forest);
   yield* layer('stump', 6.2, 0.14, 240, [0.7, 1.2], forest);
+  // Опушка: подлесок впереди стены леса — кусты, папоротник, ягодник. Те же виды тем же
+  // мешем: вызовов не прибавляет.
+  const edgeBand = (x: number, z: number): number => fringe(x, z) * gateEdge(x, z);
+  yield* layer('bush', 1.7, 0.45, 320, [0.6, 1.15], edgeBand);
+  yield* layer('fern', 1.2, 0.35, 330, [0.7, 1.1], edgeBand);
+  yield* layer('berry', 3.4, 0.18, 340, [0.7, 1.0], edgeBand);
   // Угодья: лесосека у лесопилки — пни и брошенные стволы; у скал — валуны; ягодник.
   yield* layer('stump', 1.5, 0.42, 250, [0.8, 1.3], nearZone(ZONES.forest, 5.5));
   yield* layer('log', 2.6, 0.3, 260, [0.8, 1.2], nearZone(ZONES.forest, 5.5));

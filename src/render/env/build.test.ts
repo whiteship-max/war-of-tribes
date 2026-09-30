@@ -99,7 +99,10 @@ describe('окружение пробы: сборка по частям', () => 
     let steps = 1;
     while (!w.work(0)) {
       steps++;
-      if (array.some((v, i) => v !== was[i])) {
+      // Сравнение с шагом: весь массив на каждом шаге — секунды теста зря.
+      let changed = false;
+      for (let i = 0; i < array.length && !changed; i += 7) changed = array[i] !== was[i];
+      if (changed) {
         mid++;
         expect(grass.count, 'число экземпляров — прежнее до конца').toBe(count);
         expect(grass.instanceMatrix.version, 'выгрузки до конца нет').toBe(version);
