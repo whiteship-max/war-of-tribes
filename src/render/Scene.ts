@@ -43,6 +43,7 @@ import {
   configureSky,
   createLightRig,
   fireGlow,
+  windowNight,
   fireIntensity,
   fitShadow,
   type DayLight,
@@ -59,6 +60,7 @@ import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
 import { BUILD_SLICE_MS, QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
 import { autoCap, capQuality, rememberAutoCap } from './gfx';
 import { Steady } from './steady';
+import { WINDOW_NIGHT, dropGlow, lightWindows } from './glow';
 import { serverNow } from '@/net/clock';
 import type { EnvWorld, StartEnv } from './env';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
@@ -1397,6 +1399,9 @@ export class TribeScene {
       }
       if (!view) {
         const group = createBuildingGroup(b.type, tier);
+        // Окна: у вида `next` светятся ночью; у нынешнего признак окон снимается до выгрузки.
+        if (this.look === 'next') lightWindows(group);
+        else dropGlow(group);
         // Силуэт снимается до расстановки: коробка нужна в собственных
         // координатах группы, а место и поворот придут её матрицей.
         const box = silhouetteBox(group);
@@ -1689,6 +1694,8 @@ export class TribeScene {
       if (view.glow?.visible) view.glow.scale.setScalar(1 + Math.sin(t * 7 + view.markerY) * 0.14);
     }
     this.fireLight.intensity = this.look === 'next' ? fireGlow(this.light.nightK, t) : fireIntensity(night, t);
+    // Окна загораются в сумерках, раньше глубокой ночи: свет в доме зажигают, когда темнеет.
+    if (this.look === 'next') WINDOW_NIGHT.value = windowNight(this.light);
 
     // Камера сама по себе не двигается: её ведёт палец. Крутится она ровно в
     // одном случае — под замером частоты кадров на стенде.

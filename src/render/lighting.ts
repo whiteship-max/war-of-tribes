@@ -288,6 +288,12 @@ export function applyDayNight(
   return { daylight, nightK, dusk };
 }
 
+/**
+ * Окна (`render/glow.ts`): загораются, когда дневной свет уходит, — в сумерках, раньше
+ * глубокой ночи, — и к ночи горят в полную силу. Плавно, от доли дня, без ступеньки.
+ */
+export const windowNight = (l: DayLight): number => smooth((1 - l.daylight) * 1.5);
+
 /** Костёр: днём почти не виден, ночью — тёплая лужа на холодном лунном фоне. */
 export const fireIntensity = (night: boolean, t: number): number => (night ? 8 : 0.6) * (1 + Math.sin(t * 17) * 0.12);
 

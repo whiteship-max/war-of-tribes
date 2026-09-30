@@ -55,6 +55,8 @@ export const PALETTE = {
   nightSky: 0x223050,
   nightHaze: 0x33456b,
   fireLight: 0xff9a3a,
+  /** Свет окна ночью (вид `next`, `render/glow.ts`): тёплый, как свеча и очаг за ставнем. */
+  windowGlow: 0xf2a25a,
   snowflake: 0xe8eef4,
   smoke: 0xd8d2c8,
 
