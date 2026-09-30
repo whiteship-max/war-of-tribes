@@ -73,6 +73,17 @@ export interface RigLook {
    * фон — цвет самой дымки: лес уходит в неё без шва.
    */
   hazeSky: boolean;
+  /**
+   * Сила золотого часа: 0 — его нет (прежний вид), 1 — солнце у горизонта золотое, полусфера
+   * медовая, дымка тёплая. Растёт к горизонту и сходит к трети дневной дуги.
+   */
+  gold: number;
+  /**
+   * Доля дня плавная (сглаженная ступень), а не прямая с изломами: переход день ↔ ночь без
+   * заметного начала и конца. И солнце перед рассветом — уже с восточной стороны: у
+   * прежнего вида на рассвете лампа прыгала на 72° за один кадр.
+   */
+  smoothDay: boolean;
 }
 
 export const RIG: Record<Look, RigLook> = {
@@ -88,6 +99,8 @@ export const RIG: Record<Look, RigLook> = {
     fogNight: PALETTE.skyNight,
     moonElevation: 40,
     hazeSky: false,
+    gold: 0,
+    smoothDay: false,
   },
   next: {
     sun: { day: 3.2, night: 1.7 },
@@ -101,11 +114,15 @@ export const RIG: Record<Look, RigLook> = {
     fogNight: PALETTE.nightHaze,
     moonElevation: 46,
     hazeSky: true,
+    gold: 1,
+    smoothDay: true,
   },
 };
 
 /** Что насчитал свет этого кадра: ими живут огонь, окна и пятна теней окружения. */
 export interface DayLight {
+  /** Золотой час: 0 — нет, 1 — солнце у горизонта в полную силу золота (только вид `next`). */
+  gold?: number;
   /** 0 — ночь, 1 — день. */
   daylight: number;
   /** 0 — день, 1 — глубокая ночь; плавный. */
@@ -136,7 +153,7 @@ export const CAMERA_AZIMUTH = Math.atan2(9, 12);
  * Ключевой свет повёрнут на 55° влево от камеры (азимут меньше камерного: экранное
  * «вправо» — это (cos θ, −sin θ), и меньший азимут уходит от него влево).
  */
-const KEY_AZIMUTH = CAMERA_AZIMUTH - (55 * Math.PI) / 180;
+export const KEY_AZIMUTH = CAMERA_AZIMUTH - (55 * Math.PI) / 180;
 /** Расстояние до солнца: далеко, чтобы коробка теней была ортогональной честно. */
 const SUN_DISTANCE = 40;
 const DEG = Math.PI / 180;
@@ -195,6 +212,8 @@ export function fitShadow(rig: LightRig, half: number): void {
 
 const C_SKY_DUSK = new THREE.Color(PALETTE.skyDusk);
 const C_SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
+const C_SUN_GOLD = new THREE.Color(PALETTE.sunGold);
+const C_HEMI_GOLD = new THREE.Color(PALETTE.hemiGold);
 
 /** Ночные цвета вида и его полусфера дня — один раз на вид, а не на кадр. */
 interface NightColors {
@@ -261,31 +280,37 @@ export function applyDayNight(
 ): DayLight {
   const angle = solar * Math.PI * 2;
   const elev = Math.sin(angle); // -1..1
-  const daylight = THREE.MathUtils.clamp((elev + 0.35) / 0.5, 0, 1);
+  const rise = (elev + 0.35) / 0.5;
+  const daylight = look.smoothDay ? smooth(rise) : THREE.MathUtils.clamp(rise, 0, 1);
   const dusk = THREE.MathUtils.clamp(1 - Math.abs(elev) / 0.3, 0, 1);
   const nightK = smooth(-elev / 0.15);
   const night = nightOf(look);
+  // Золото — у горизонта над ним, сходит к трети дневной дуги; ночью его нет.
+  const gold = look.gold * (1 - smooth((elev - 0.05) / 0.45)) * smooth((elev + 0.12) / 0.2) * (1 - nightK);
 
   const dayT = THREE.MathUtils.clamp(solar, 0, 0.5) / 0.5;
   const elevation = (12 + 40 * season.sunArc * Math.sin(dayT * Math.PI)) * DEG;
-  const azimuth = key + (solar - 0.25) * 1.25;
+  // Предрассветная четверть — уже утро: солнце встаёт с той стороны, откуда взойдёт, а не
+  // прыгает с вечерней за один кадр (у прежнего вида прыжок остаётся — его кадр не трогаем).
+  const sp = look.smoothDay && solar > 0.75 ? solar - 1 : solar;
+  const azimuth = key + (sp - 0.25) * 1.25;
   setSun(SUN_POS, azimuth, elevation);
   setSun(MOON_POS, key + 0.6, look.moonElevation * DEG);
   rig.sun.position.copy(SUN_POS).lerp(MOON_POS, nightK);
   // Ночью лампа — луна, но с тенью; жители у ворот должны оставаться различимы.
-  rig.sun.intensity = look.sun.night + (look.sun.day - look.sun.night) * daylight;
-  rig.sun.color.copy(TMP_A.copy(season.sun).lerp(C_SUN_DUSK, dusk)).lerp(night.moon, nightK);
+  rig.sun.intensity = (look.sun.night + (look.sun.day - look.sun.night) * daylight) * (1 - 0.1 * gold);
+  rig.sun.color.copy(TMP_A.copy(season.sun).lerp(C_SUN_GOLD, gold).lerp(C_SUN_DUSK, dusk)).lerp(night.moon, nightK);
 
   rig.hemi.intensity = look.hemi.night + (look.hemi.day - look.hemi.night) * daylight;
-  rig.hemi.color.copy(night.hemiSky).lerp(night.daySky, daylight);
+  rig.hemi.color.copy(night.hemiSky).lerp(night.daySky, daylight).lerp(C_HEMI_GOLD, 0.35 * gold);
   rig.hemi.groundColor.copy(night.hemiGround).lerp(night.dayGround, daylight);
 
   const sky = TMP_A.copy(night.sky).lerp(season.sky, daylight).lerp(C_SKY_DUSK, dusk * 0.6);
-  const haze = TMP_B.copy(night.fog).lerp(season.fog, daylight).lerp(C_SKY_DUSK, dusk * 0.45);
+  const haze = TMP_B.copy(night.fog).lerp(season.fog, daylight).lerp(C_SKY_DUSK, Math.max(dusk * 0.45, gold * 0.3));
   (scene.background as THREE.Color).copy(look.hazeSky ? haze : sky);
   const fog = scene.fog as THREE.Fog | null;
   if (fog) fog.color.copy(haze);
-  return { daylight, nightK, dusk };
+  return { daylight, nightK, dusk, gold };
 }
 
 /**

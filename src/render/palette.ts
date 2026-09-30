@@ -30,6 +30,13 @@ export const PALETTE = {
   /** Солнце — единственный источник с тенью: тёплое днём, оранжевое на закате. */
   sunDay: 0xffe4bf,
   sunDusk: 0xffb27a,
+  /**
+   * Золотой час вида `next` (docs/graphics_world.md, 9.9): солнце в последний час перед
+   * закатом и первый после рассвета — тёплое золото, а не белое; полусфера сверху —
+   * медовая. Это цвет света, а не краска — в ряд `LIGHT_KEYS`.
+   */
+  sunGold: 0xffc98a,
+  hemiGold: 0xd9bc96,
   /** Ночью та же лампа становится луной. */
   moon: 0x8ea3cf,
   /** Заполняющий свет: небо сверху — холодное, земля снизу — тёплая и глухая. */
@@ -268,7 +275,7 @@ export const TROOP_TINT: Record<TroopId, number> = {
 /** Ключи, которым разрешён канал ff: они не освещаются, а светятся. */
 export const EMISSIVE_KEYS: PaletteKey[] = ['fire', 'fireInner', 'forge'];
 /** Цвета источников света — не поверхности, правило про белое на них не действует. */
-export const LIGHT_KEYS: PaletteKey[] = ['sunDay', 'sunDusk', 'fireLight'];
+export const LIGHT_KEYS: PaletteKey[] = ['sunDay', 'sunDusk', 'sunGold', 'fireLight'];
 
 /**
  * Сезонные переопределения. Весна — сама палитра; лето, осень и зима меняют
