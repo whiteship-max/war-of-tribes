@@ -7,7 +7,7 @@ import { DICE, FRONT_WIDTH, MORALE } from './config';
 import { seededRng } from './rng';
 import { deploySetup, emptySectors, stackOf, stackTotal } from './setup';
 import { KIND_META } from './names';
-import { FRONT, UNIT_KINDS, type ArmySetup, type BattleResult, type Side, type Stack, type UnitKind } from './types';
+import { FRONT, REAR, UNIT_KINDS, type ArmySetup, type BattleResult, type Side, type Stack, type UnitKind } from './types';
 
 /** Одинаковая численность: «при прочих равных» — это про число людей. */
 export const ARMY_SIZE = 600;
@@ -204,17 +204,92 @@ export const EDGE_STEPS: ReadonlyArray<{ name: string; bigger: (total: number) =
 
 /**
  * Бои кривой: составы решётки `from..to` в `total` против себя же больших на ступень `EDGE_STEPS[step]`, большая —
- * по очереди с обеих сторон поля, сиды 1..`seeds`. Итог — бой и сторона большей.
+ * по очереди с обеих сторон поля, сиды 1..`seeds`. Итог — бой и сторона большей. `width` — ширина фронта боя; нет — ширина
+ * конфига.
  */
-export function edgeBattles(step: number, from: number, to: number, seeds: number, total = holdSize()): Array<{ r: BattleResult; big: Side }> {
+export function edgeBattles(step: number, from: number, to: number, seeds: number, total = holdSize(), width?: number): Array<{ r: BattleResult; big: Side }> {
   const lattice = compositionLattice();
   const out: Array<{ r: BattleResult; big: Side }> = [];
+  const w = width === undefined ? {} : { width };
   for (let i = from; i < to; i += 1) {
-    const small = deploySetup(scaleArmy(lattice[i], total));
-    const big = deploySetup(scaleArmy(lattice[i], EDGE_STEPS[step].bigger(total)));
+    const small = deploySetup(scaleArmy(lattice[i], total), width ?? FRONT_WIDTH);
+    const big = deploySetup(scaleArmy(lattice[i], EDGE_STEPS[step].bigger(total)), width ?? FRONT_WIDTH);
     for (let seed = 1; seed <= seeds; seed += 1) {
-      out.push({ r: simulateBattle({ seed, attacker: big, defender: small }), big: 'attacker' });
-      out.push({ r: simulateBattle({ seed, attacker: small, defender: big }), big: 'defender' });
+      out.push({ r: simulateBattle({ seed, attacker: big, defender: small, ...w }), big: 'attacker' });
+      out.push({ r: simulateBattle({ seed, attacker: small, defender: big, ...w }), big: 'defender' });
+    }
+  }
+  return out;
+}
+
+/** Сиды «Лезвия» с костью — те же, что у раздела «Лезвие» `battle:report`: четыре на пару, большая с обеих сторон поля. */
+export const EDGE_SEEDS = 4;
+/** Ступень «+10 %» кривой «Лезвия» — перевес доли владельца (`DICE.hold`). */
+export const EDGE_HOLD_STEP = EDGE_STEPS.findIndex((e) => e.name === '+10 %');
+
+/**
+ * Доля владельца на решётке «Лезвия» — набор, на котором выводится шаг кости (docs/battle_eu4.md, 14.35, заход 30.09 (день),
+ * шаг 3): все составы решётки в `total` бойцов строя против себя же на 10 % больших, сиды 1..`seeds`, большая с обеих сторон
+ * поля; доля боёв, где большая удержала поле. `width` — ширина фронта боя; нет — ширина конфига.
+ */
+export function latticeHold(seeds = EDGE_SEEDS, total = holdSize(), width?: number): number {
+  const b = edgeBattles(EDGE_HOLD_STEP, 0, compositionLattice().length, seeds, total, width);
+  return b.filter((x) => x.r.winner === x.big).length / b.length;
+}
+
+/** Людей в строю — первая и вторая линии всех полос, без резерва. */
+export const inLine = (s: ArmySetup): number => [...FRONT, ...REAR].reduce((n, k) => n + stackTotal(s.sectors[k]), 0);
+
+/**
+ * Куда встала прибавка большей стороны (docs/battle_eu4.md, 14.35, заход 30.09 (день), задача 3): `line` — в строй (у большей в
+ * первой и второй линиях людей больше, чем у меньшей: ряд шире, прибавка бьёт краем и охватом), `reserve` — вся в резерв (ряды
+ * равны, прибавка ждёт в резерве, и кто сломается первым, решает кость).
+ */
+export const surplusAt = (small: ArmySetup, big: ArmySetup): 'line' | 'reserve' => (inLine(big) > inLine(small) + 0.5 ? 'line' : 'reserve');
+
+/** Итог набора по месту прибавки: составов, боёв, у большей с костью конфига и без кости. */
+export interface SurplusGroup {
+  compositions: number;
+  battles: number;
+  held: number;
+  bare: number;
+}
+
+/**
+ * Кость по месту прибавки (задача 3 захода 30.09 (день)): набор `set` на размере `total` — «Ограничитель» (свои составы, сиды
+ * 1..`OVERSIZE_SEEDS`, большая с чередующейся стороны, как `oversizeOf`) или решётка «Лезвия» (все составы, сиды 1..`EDGE_SEEDS`,
+ * большая с обеих сторон, как `edgeBattles`) — по группам «прибавка в строю» и «в резерве»: сколько боёв большая удержала
+ * с костью конфига и без кости.
+ */
+export function surplusSplit(set: 'limiter' | 'lattice', total = holdSize()): Record<'line' | 'reserve', SurplusGroup> {
+  const out: Record<'line' | 'reserve', SurplusGroup> = {
+    line: { compositions: 0, battles: 0, held: 0, bare: 0 },
+    reserve: { compositions: 0, battles: 0, held: 0, bare: 0 },
+  };
+  const pairs: Array<{ small: ArmySetup; big: ArmySetup; fights: Array<{ seed: number; bigAttacks: boolean }> }> =
+    set === 'limiter'
+      ? COMPOSITIONS.map((c) => {
+          const army = scaleArmy(c.army, total);
+          return {
+            small: deploySetup(army),
+            big: deploySetup(Object.fromEntries(Object.entries(army).map(([k, n]) => [k, Math.round((n ?? 0) * 1.1)]))),
+            fights: Array.from({ length: OVERSIZE_SEEDS }, (_, i) => ({ seed: i + 1, bigAttacks: (i + 1) % 2 === 1 })),
+          };
+        })
+      : compositionLattice().map((a) => ({
+          small: deploySetup(scaleArmy(a, total)),
+          big: deploySetup(scaleArmy(a, EDGE_STEPS[EDGE_HOLD_STEP].bigger(total))),
+          fights: Array.from({ length: EDGE_SEEDS }, (_, i) => [true, false].map((bigAttacks) => ({ seed: i + 1, bigAttacks }))).flat(),
+        }));
+  for (const { small, big, fights } of pairs) {
+    const g = out[surplusAt(small, big)];
+    g.compositions += 1;
+    for (const { seed, bigAttacks } of fights) {
+      const input = { seed, attacker: bigAttacks ? big : small, defender: bigAttacks ? small : big };
+      const side: Side = bigAttacks ? 'attacker' : 'defender';
+      g.battles += 1;
+      if (simulateBattle(input).winner === side) g.held += 1;
+      if (withDiceStep(0, () => simulateBattle(input)).winner === side) g.bare += 1;
     }
   }
   return out;
@@ -224,15 +299,17 @@ export function edgeBattles(step: number, from: number, to: number, seeds: numbe
  * Наименьшая величина кости, при которой большая на 10 % удерживает поле не чаще `hold`: делением
  * отрезка. Доля убывает с величиной кости — чем сильнее удача, тем чаще меньшая устоит. Отрезок
  * `hi` взят с запасом: при нём удача разбрасывает урон фазы на ±45 %, дальше кость решала бы всё.
- * Меряется там, где держится доля владельца (`holdSize`): на размере W. `width` — ширина фронта боя: вывод на ширине, которой
- * ещё нет в конфиге (`raid-hiring:report`, «Ширина поля»: W и шаг выводятся вместе, П5), зовёт размер `armyAt(W)` и эту
- * ширину; нет — ширина конфига.
+ * Меряется там, где держится доля владельца (`holdSize`): на размере W, **на решётке «Лезвия»** (`latticeHold`; набор выбран
+ * до вывода — docs/battle_eu4.md, 14.35, заход 30.09 (день), шаг 3: критерий владельца стоит на «Лезвии», решётка — правило, а
+ * не список, и делится по месту прибавки так же, как бои мира вокруг W; прежде — «Ограничитель», `oversizeHold`). `width` —
+ * ширина фронта боя: вывод на ширине, которой ещё нет в конфиге (`raid-hiring:report`, «Ширина поля»: W и шаг выводятся
+ * вместе), зовёт размер `armyAt(W)` и эту ширину; нет — ширина конфига.
  */
 export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12, total = holdSize(), width?: number): number {
   let lo = 0;
   for (let i = 0; i < steps; i += 1) {
     const mid = (lo + hi) / 2;
-    if (withDiceStep(mid, () => oversizeHold(OVERSIZE_SEEDS, total, width)) > hold) lo = mid;
+    if (withDiceStep(mid, () => latticeHold(EDGE_SEEDS, total, width)) > hold) lo = mid;
     else hi = mid;
   }
   return hi;

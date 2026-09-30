@@ -11,7 +11,7 @@
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
 import { CIRCLE_PHASES, DICE, PHASE_PIPS, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, kindUse, latticeFieldShare, latticeRows, latticeTop, mirrored, oversizeOf, pureKind, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeDuel, type LatticeRow } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_SEEDS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, kindUse, latticeFieldShare, latticeRows, latticeTop, mirrored, oversizeOf, pureKind, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeDuel, type LatticeRow } from '../src/battle/bench';
 import { KIND_META } from '../src/battle/names';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
 import { FACES, FACE_SEEDS, MONO_KINDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
@@ -94,6 +94,7 @@ const bySize = [...OVERSIZE_SIZES.map((total) => ({ total, bare: false })), { to
   rows: !s.bare && s.total === HOLD ? oversize : oversizeAt(s.total, s.bare),
 }));
 const dice = w1.add({ kind: 'dice' });
+const surplus = (['limiter', 'lattice'] as const).map((set) => w1.add({ kind: 'surplus', set }));
 // Стояние на решётке составов (docs/battle_eu4.md, 14.25–14.27): каждый состав решётки против каждого другого на ½W, W и 2W,
 // кусками по десять составов.
 const stillAt = OVERSIZE_SIZES.map((total) => ({ total, parts: slices(compositionLattice().length, 10).map(([from, to]) => w1.add({ kind: 'still', total, from, to })) }));
@@ -310,15 +311,37 @@ console.log('\n=== Кость фазы: сторона на 10% больше у�
 {
   const all = COMPOSITIONS.length * OVERSIZE_SEEDS;
   const held = oversize.reduce((n, o) => n + o().wins, 0);
-  const { derived, bare } = dice();
+  const { derived, bare, lattice, latticeBare } = dice();
   // Кость одна на фазу EU4 круга — огонь и натиск (сближение — хвост огня, своего броска у него нет).
   const phases = new Set(CIRCLE_PHASES.map((p) => PHASE_PIPS[p][0]).filter(Boolean)).size;
   console.log(`кость: ${DICE.faces} граней на сторону в каждой из ${phases} фаз круга (огонь и натиск) и своя у погони, без отметок; у отступления её нет; шаг ${DICE.step} на грань`);
-  console.log(`поле у большей, все составы «Ограничителя» разом, ${HOLD} бойцов строя: ${held}/${all} (${((100 * held) / all).toFixed(1)}%); без кости — ${Math.round(bare * all)}/${all}`);
+  const edgeAll = compositionLattice().length * EDGE_SEEDS * 2;
+  console.log(
+    `поле у большей на решётке «Лезвия» (набор доли владельца), ${compositionLattice().length} составов, ${HOLD} бойцов строя: ${Math.round(lattice * edgeAll)}/${edgeAll} (${(100 * lattice).toFixed(1)}%); без кости — ${(100 * latticeBare).toFixed(1)}%`,
+  );
+  console.log(`для сравнения — все составы «Ограничителя» разом: ${held}/${all} (${((100 * held) / all).toFixed(1)}%); без кости — ${Math.round(bare * all)}/${all}`);
   // В конфиг шаг записан до четырёх знаков вверх: вниз доля ушла бы выше цели.
   console.log(
-    `вывод: наименьший шаг, при котором большая удерживает поле не чаще ${Math.round(DICE.hold * 100)}%, — ${derived.toFixed(5)}, до четырёх знаков вверх — ${(Math.ceil(derived * 1e4) / 1e4).toFixed(4)}; в конфиге DICE.step = ${DICE.step}`,
+    `вывод на решётке: наименьший шаг, при котором большая удерживает поле не чаще ${Math.round(DICE.hold * 100)}%, — ${derived.toFixed(5)}, до четырёх знаков вверх — ${(Math.ceil(derived * 1e4) / 1e4).toFixed(4)}; в конфиге DICE.step = ${DICE.step}`,
   );
+}
+
+console.log('\n=== Кость по месту прибавки: +10 % встали в строй или ждут в резерве (задача 3 захода 30.09, docs/battle_eu4.md, 14.35) ===');
+{
+  // Кость доходит до огня той же дверью урона, что до натиска (`sim.shoot` → `distribute` → `hitMult`); разница наборов — не
+  // в роде, а в том, где стоит прибавка большей: в строю её ряд шире и бьёт краем и охватом, в резерве ряды равны, и кто
+  // сломается первым, решает кость.
+  console.log(`${HOLD} бойцов строя, ширина ${FRONT_WIDTH}; «в строю» — у большей в первой и второй линиях людей больше, чем у меньшей; «в резерве» — ряды равны, прибавка ждёт`);
+  console.log(`${pad('набор', 16)} ${pad('прибавка', 10)} составов   боёв   поле у большей с костью   без кости`);
+  const names = { limiter: '«Ограничитель»', lattice: 'решётка «Лезвия»' } as const;
+  (['limiter', 'lattice'] as const).forEach((set, i) => {
+    const split = surplus[i]().split;
+    for (const [at, word] of [['line', 'в строю'], ['reserve', 'в резерве']] as const) {
+      const g = split[at];
+      const p = (n: number): string => (g.battles ? `${((100 * n) / g.battles).toFixed(1)}%` : '—');
+      console.log(`${pad(names[set], 16)} ${pad(word, 10)} ${pad(g.compositions, 8, true)} ${pad(g.battles, 6, true)}   ${pad(p(g.held), 23, true)}   ${pad(p(g.bare), 9, true)}`);
+    }
+  });
 }
 
 console.log('\n=== Круги сечи и ширина по размерам: «Ограничитель» (перевес 10%) на ½W, W и 2W с шириной и без ширины ===');

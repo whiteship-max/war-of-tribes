@@ -14,7 +14,7 @@
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
 import { KIND_PROFILE, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type Side } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type LatticeDuel, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, latticeHold, surplusSplit, type SurplusGroup, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type LatticeDuel, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -120,8 +120,16 @@ export type Job =
    * выключателю.
    */
   | { kind: 'oversize'; composition: number; total: number; bare?: boolean }
-  /** Кость: шаг, выведенный делением отрезка (`bench.diceStepFor`), и поле большей без кости. */
+  /**
+   * Кость: шаг, выведенный делением отрезка на решётке «Лезвия» (`bench.diceStepFor`), доля владельца на решётке с костью
+   * конфига (`bench.latticeHold`) и поле большей без кости — на решётке и на «Ограничителе».
+   */
   | { kind: 'dice' }
+  /**
+   * Кость по месту прибавки (задача 3 захода 30.09 (день), docs/battle_eu4.md, 14.35): набор `set` на размере W по группам
+   * «прибавка большей в строю» и «в резерве» — с костью конфига и без кости (`bench.surplusSplit`).
+   */
+  | { kind: 'surplus'; set: 'limiter' | 'lattice' }
   /** Сколько боёв доходит до кругов в `total` бойцов строя: матрица составов. */
   | { kind: 'reach'; total: number }
   /**
@@ -208,7 +216,8 @@ export type Out =
   | { kind: 'gap'; gap: { gap: number; lost: number; won: number } }
   | { kind: 'pool'; gaps: number[] }
   | { kind: 'oversize'; bigLoss: number; smallLoss: number; wins: number; draws: number; gong: number }
-  | { kind: 'dice'; derived: number; bare: number }
+  | { kind: 'dice'; derived: number; bare: number; lattice: number; latticeBare: number }
+  | { kind: 'surplus'; split: Record<'line' | 'reserve', SurplusGroup> }
   | { kind: 'reach'; matrix: Reach }
   | { kind: 'edge'; edge: Edge }
   | { kind: 'still'; n: number; gong: number; draws: number; stood: number }
@@ -288,7 +297,16 @@ export function battleJob(job: Job): Out {
     case 'dice':
       // Кость ставится и снимается внутри `diceStepFor` и `withDiceStep`: следующая задача процесса
       // начинается на числе конфига.
-      return { kind: 'dice', derived: diceStepFor(), bare: withDiceStep(0, () => oversizeHold()) };
+      return {
+        kind: 'dice',
+        derived: diceStepFor(),
+        bare: withDiceStep(0, () => oversizeHold()),
+        lattice: latticeHold(),
+        // Без кости бой от сида не зависит — одного сида хватает.
+        latticeBare: withDiceStep(0, () => latticeHold(1)),
+      };
+    case 'surplus':
+      return { kind: 'surplus', split: surplusSplit(job.set) };
     case 'reach': {
       const matrix: BattleResult[] = [];
       const setups = COMPOSITIONS.map((c) => deploySetup(scaleArmy(c.army, job.total)));

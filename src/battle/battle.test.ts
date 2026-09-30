@@ -7,7 +7,7 @@ import { simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, MELEE_RATE, MORALE, PHASE_PIPS, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, splitTicks, UNIT_STATS, roundsCap } from './config';
-import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, kindUse, latticeDuels, latticeFieldShare, latticeTop, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, lossRatio, mirrored, openFront, oversize, oversizeHold, oversizeOf, pureKind, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, kindUse, latticeDuels, latticeFieldShare, latticeTop, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, latticeHold, lossRatio, mirrored, openFront, oversize, oversizeOf, pureKind, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseId, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
 
@@ -1084,34 +1084,23 @@ describe('журнал осмыслен', () => {
 
 describe('кость фазы', () => {
   // Кость — одна на сторону на фазу, из сида боя (docs/battle_eu4.md, пачка 1). Её величина выведена
-  // из доли владельца: сторона на 10 % больше удерживает поле в `DICE.hold` боёв «Ограничителя»
-  // (`bench.diceStepFor`, `npm run battle:report`, раздел «Кость фазы»).
+  // из доли владельца: сторона на 10 % больше удерживает поле в `DICE.hold` боёв решётки «Лезвия»
+  // (`bench.latticeHold`, `bench.diceStepFor`, `npm run battle:report`, раздел «Кость фазы»).
 
-  it('сторона на 10 % больше удерживает поле в доле владельца, а без кости — всегда', () => {
-    // Был красным с поставки 1 до записи выведенного шага (14.22): шаг 0.0928 поставки 2 давал 65.9 %, выведенный
-    // после поставки 1 — 0.0265, и с ним ровно 80.0 % (`battle:report`, «Кость фазы»). Граница «без кости — всегда»
-    // держится с флангов за конницей (14.21).
-    // КРАСНЫЙ с шага 0 поставки 2 (docs/battle_eu4.md, 14.25), честно: обходящие дерутся с обходящими, и четыре боя
-    // «Ограничителя» на W, стоявшие у потолка ничьей, решились — все четыре у большей: 312 → 316 из 390, 80.0 → 81.0 %
-    // при коридоре 78–80 %; вывод на этом бое — 0.0342 (`battle:report`, «Кость фазы»; «тень» этих чисел не сдвинула,
-    // 14.27). После снятия урона от морали (поставка 5, пункт 3, 14.33) — 318 из 390, 81.5 %; вывод — 0.0282 (тот же раздел).
-    // На конце поставки 5 (фланги по доле и снятый ×1.05, 14.34) — 313 из 390, 80.3 %; вывод — 0.0292 (тот же раздел).
-    // Шаг кости не меняется (слово владельца по 14.25): держим красным до общего вывода — один раз, вместе с W,
-    // после последней боевой поставки, перед перемером мира (14.24). Коридор не трогается.
-    // ЗЕЛЁНЫЙ с охвата одним правилом (14.35, пункт 1): 312 из 390, 80.0 % на том же шаге 0.0265 — тот же `oversizeHold`.
-    // Шаг по-прежнему не выводится до П5; следующие шаги пересмотра (показатели родов) сдвинут долю снова.
-    // КРАСНЫЙ снова с показателей родов (шаг 5): 313 из 390, 80.3 %. Шаг выводится один раз в П5 (14.24); коридор не трогается.
-    // С фазами EU4 (шаг 2 пересмотра, 14.35) — ниже коридора: число в сообщении этого теста. Коридор по-прежнему не трогается.
-    // П5 (14.35): W и шаг выведены вместе и записаны — W 154, шаг 0.0213 (`raid-hiring:report`, «Ширина поля», строка
-    // «Вывод W и шага кости (П5)»); тест зелёный по построению вывода, коридор не тронут.
+  it('сторона на 10 % больше удерживает поле в доле владельца на решётке «Лезвия», а без кости — всегда', () => {
+    // Переопределён по имени (docs/battle_eu4.md, 14.35, заход 30.09 (день), шаг 3; правило 16): набор доли владельца —
+    // решётка «Лезвия», а не «Ограничитель». Критерий владельца «+10 % — около 80 %» стоит на «Лезвии»; решётка — правило, а
+    // не список, и по месту прибавки большей (в строю или в резерве) делится так же, как бои мира вокруг W. На «Ограничителе»
+    // тест жил с поставки 1 до П5 (история красных и зелёных — 14.22…14.35); там с шагом решётки доля ниже коридора, и это
+    // печатает тот же раздел отчёта.
     // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
     // «кость сдвинула долю» проверялось бы на наборе, где сдвигать было нечего.
-    expect(withDiceStep(0, () => oversizeHold()), 'без кости: все бои у большей').toBe(1);
-    const held = oversizeHold();
+    expect(withDiceStep(0, () => latticeHold(1)), 'без кости: все бои у большей').toBe(1);
+    const held = latticeHold();
     expect(held, `с костью: поле у большей в ${(held * 100).toFixed(1)} % боёв`).toBeLessThanOrEqual(DICE.hold);
     // Выведено наименьшим шагом, при котором доля не выше цели, — значит, и не намного ниже.
     expect(held).toBeGreaterThanOrEqual(DICE.hold - 0.02);
-  }, 60_000);
+  }, 120_000);
 
   it('в каждой фазе EU4 — огне и натиске — один бросок на сторону, в гранях кости; у сближения своего нет, у погони свой без отметок, у отступления кости нет', () => {
     // Кость одна на фазу EU4 (слово владельца по 14.35, п. 2): сближение — хвост огня, и бросок стрельбы идёт через него.
