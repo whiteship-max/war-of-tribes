@@ -143,6 +143,8 @@ const CROWN_KEY: Record<Species, PaletteKey> = { spruce: 'spruce', pine: 'pine',
 const BARK_KEY: Record<Species, PaletteKey> = { spruce: 'trunk', pine: 'pineBark', oak: 'trunk', birch: 'birchBark' };
 /** Качание макушки по породам: берёза гнётся сильнее всех, дуб — меньше всех. */
 const SWAY: Record<Species, number> = { spruce: 0.9, pine: 1.1, oak: 0.7, birch: 1.5 };
+/** Второй осенний цвет кроны: хвоя осенью не меняется. */
+const TURN_KEY: Record<Species, PaletteKey | null> = { spruce: null, pine: null, oak: 'oakRust', birch: 'birchLate' };
 
 /** Цвета цветов — по номеру вида (`rules.Flower.color`). */
 const FLOWER_KEYS: PaletteKey[] = ['flowerWhite', 'flowerYellow', 'flowerBlue', 'flowerPink', 'flowerRed'];
@@ -348,6 +350,8 @@ export function startEnv(o: EnvOptions): EnvWorld {
   const color = (key: PaletteKey): THREE.Color => season.color(key);
   const compile = o.compile ?? ((): void => undefined);
   const shared: EnvShared = envShared();
+  // Цвет снега — живой цвет сезона: зимой палитра его и держит.
+  shared.snowColor.value = color('snow');
   const group = new THREE.Group();
   group.name = 'environment';
 
@@ -465,7 +469,9 @@ export function startEnv(o: EnvOptions): EnvWorld {
     for (const species of SPECIES) {
       const list = trees.filter((t) => t.species === species);
       trCount[species] = list.length;
-      const m2 = mat(vegMaterial(`tree-${species}`, { a: color(BARK_KEY[species]), b: color(CROWN_KEY[species]), sway: SWAY[species], flat: true }, shared));
+      const m2 = mat(
+        vegMaterial(`tree-${species}`, { a: color(BARK_KEY[species]), b: color(CROWN_KEY[species]), sway: SWAY[species], flat: true, snowy: true, turnTo: TURN_KEY[species] ? color(TURN_KEY[species]) : undefined }, shared),
+      );
       // Модель дерева сливается из кусков — миллисекунды: ближняя и дальняя — по шагу.
       const near = instanced(treeModel(species, 'near'), m2, list.length, `trees-${species}`);
       yield;
@@ -491,14 +497,14 @@ export function startEnv(o: EnvOptions): EnvWorld {
     yield 'мелочь';
     const props = yield* scatterPropsJob(layout, spec.props);
     yield 'меши мелочи';
-    const bushMat = mat(vegMaterial('bush', { a: color('berry'), b: color('bush'), sway: 0.5, flat: true }, shared));
+    const bushMat = mat(vegMaterial('bush', { a: color('berry'), b: color('bush'), sway: 0.5, flat: true, snowy: true }, shared));
     // Пень и бревно — одно дерево: кора и светлый срез.
-    const woodMat = mat(vegMaterial('wood', { a: color('trunk'), b: color('cut'), sway: 0, flat: true }, shared));
+    const woodMat = mat(vegMaterial('wood', { a: color('trunk'), b: color('cut'), sway: 0, flat: true, snowy: true }, shared));
     const propMat: Record<PropKind, THREE.Material> = {
       bush: bushMat,
       berry: bushMat,
       fern: mat(vegMaterial('fern', { a: color('swardDark'), b: color('fern'), sway: 0.8, twoSided: true }, shared)),
-      rock: mat(vegMaterial('rock', { a: color('rock'), b: color('moss'), sway: 0, flat: true }, shared)),
+      rock: mat(vegMaterial('rock', { a: color('rock'), b: color('moss'), sway: 0, flat: true, snowy: true }, shared)),
       stump: woodMat,
       log: woodMat,
     };
@@ -518,13 +524,13 @@ export function startEnv(o: EnvOptions): EnvWorld {
     // низкого бюджет вызовов самый тесный (`quality.BUDGET`), а стадо на выгоне — мелочь.
     yield 'угодья';
     const farm = layout.farm;
-    const hay = instanced(hayModel(), mat(vegMaterial('hay', { a: color('hay'), b: color('hayTop'), sway: 0, flat: true }, shared)), farm.hay.length, 'hay');
+    const hay = instanced(hayModel(), mat(vegMaterial('hay', { a: color('hay'), b: color('hayTop'), sway: 0, flat: true, snowy: true }, shared)), farm.hay.length, 'hay');
     yield* fillJob(hay, farm.hay, (i) => C.setScalar(farm.hay[i].hue));
     hayCount = hay.count;
     group.add(hay);
     compile(hay);
     yield;
-    const fences = instanced(fenceModel(), mat(vegMaterial('fence', { a: color('railDark'), b: color('rail'), sway: 0, flat: true }, shared)), farm.fences.length, 'fences');
+    const fences = instanced(fenceModel(), mat(vegMaterial('fence', { a: color('railDark'), b: color('rail'), sway: 0, flat: true, snowy: true }, shared)), farm.fences.length, 'fences');
     yield* fillPanels(fences, farm.fences);
     fenceCount = fences.count;
     group.add(fences);
@@ -706,6 +712,8 @@ export function startEnv(o: EnvOptions): EnvWorld {
     sward.value = season.sward;
     bloom.value = season.bloom;
     cropShow.value = season.crop;
+    shared.snow.value = season.snow;
+    shared.turn.value = season.turn;
     split(f.camera, f.fogFar);
 
     // Пятна тени смотрят от лампы: чем ниже она, тем длиннее и дальше от основания.

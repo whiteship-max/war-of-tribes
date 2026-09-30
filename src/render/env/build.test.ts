@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
 import { visualTier } from '../buildings';
 import { SeasonVisuals } from '../season';
+import { SEASON_TURN, seasonColor } from '../palette';
 import { BUDGET, QUALITIES, QUALITY } from '../quality';
 import { buildEnv, startEnv, type EnvWorld } from './index';
 import { trianglesOf } from './models';
@@ -175,5 +176,42 @@ describe('окружение пробы: бюджет уровней', () => {
       expect(w.counts().grass, `${q}: трава не больше заказанного`).toBeLessThanOrEqual(QUALITY[q].grass);
       w.dispose();
     }
+  });
+});
+
+describe('окружение пробы: времена года', () => {
+  const luma = (hex: number): number => 0.3 * ((hex >> 16) & 255) + 0.59 * ((hex >> 8) & 255) + 0.11 * (hex & 255);
+
+  it('снег ложится шапками на кроны, камни, пни, жерди и стога — и не на траву, цветы и овец', () => {
+    const w = buildEnv({ quality: 'high', season: new SeasonVisuals(), village: FULL });
+    const snowy = new Set<string>();
+    const bare = new Set<string>();
+    w.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const defines = (mesh.material as THREE.Material & { defines?: Record<string, string> }).defines ?? {};
+      ('ENV_SNOW' in defines ? snowy : bare).add(mesh.name);
+    });
+    for (const name of ['trees-spruce', 'trees-oak', 'props-rock', 'props-stump', 'hay', 'fences']) expect(snowy, name).toContain(name);
+    for (const name of ['grass', 'flowers', 'crops', 'sheep']) expect(bare, name).toContain(name);
+    w.dispose();
+  });
+
+  it('зимой земля под снегом жухлая, а не белая; хвоя темна — шапка на ней читается', () => {
+    const snow = luma(seasonColor('winter', 'snow'));
+    for (const key of ['swardDark', 'swardLight', 'meadow', 'grassTip'] as const) expect(luma(seasonColor('winter', key)), key).toBeLessThan(snow * 0.8);
+    for (const key of ['spruce', 'pine'] as const) expect(luma(seasonColor('winter', key)), key).toBeLessThan(snow * 0.4);
+  });
+
+  it('осенью у лиственных второй цвет кроны — другой, у хвойных его нет; вне осени второй цвет не виден', () => {
+    expect(seasonColor('autumn', 'oakRust')).not.toBe(seasonColor('autumn', 'oak'));
+    expect(seasonColor('autumn', 'birchLate')).not.toBe(seasonColor('autumn', 'birch'));
+    expect(SEASON_TURN).toEqual({ spring: 0, summer: 0, autumn: 1, winter: 0 });
+    const v = new SeasonVisuals();
+    v.jump('autumn');
+    expect(v.turn).toBe(1);
+    v.jump('winter');
+    expect(v.turn).toBe(0);
+    expect(v.snow).toBe(1);
   });
 });

@@ -160,6 +160,16 @@ export const PALETTE = {
   wool: 0xe2dccb,
   woolDark: 0x3b3431,
   graze: 0xa39f66,
+  /**
+   * Времена года окружения (9.10). Снег — свой цвет: им ложатся шапки на кроны, камни,
+   * жерди и стога и пятна на землю (шейдер, по доле зимы). Зимняя земля и трава под ним —
+   * жухлые, а не белые: где снег сдуло и на тропах, видна земля. Осенью листва жёлтая и
+   * рыжая не сплошь: часть дубов — ржавые, часть берёз — ещё зеленоватые (`oakRust`,
+   * `birchLate` — второй цвет кроны, вразнобой по деревьям).
+   */
+  snow: 0xe9eef3,
+  oakRust: 0x9a4526,
+  birchLate: 0xb4b24c,
   /** Живность (9.8): птицы над лесом — тёмный силуэт; светлячки — тёплый жёлто-зелёный огонёк. */
   bird: 0x2f2a2a,
   firefly: 0xe6ee7a,
@@ -381,25 +391,28 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     tile: 0xdfd9d5,
     sky: 0xacb9c9,
     fog: 0xbcc7d3,
-    swardDark: 0xc4cfdb,
-    swardLight: 0xe0e7ef,
-    grassTip: 0xe4eaf0,
-    meadow: 0xdbe3eb,
-    litter: 0xc8d1db,
-    moss: 0xdde5ec,
-    fern: 0xc9d3dc,
-    spruce: 0xaebfc6,
-    pine: 0xb3c3c8,
-    oak: 0xc6ced6,
-    birch: 0xd6dee6,
+    swardDark: 0x7d7a58,
+    swardLight: 0x9f9670,
+    grassTip: 0xc2b489,
+    meadow: 0xa89c72,
+    litter: 0x6e5f47,
+    moss: 0x7d8663,
+    fern: 0x8d6d48,
+    spruce: 0x33584a,
+    pine: 0x3f5f45,
+    oak: 0x8d8479,
+    birch: 0xaca598,
     crop: 0xd9e1e9,
     hayTop: 0xe8edf2,
-    graze: 0xd8e0e8,
+    graze: 0x9f9670,
   },
 };
 
 /** Плотность снега по сезону: гонит частицы, дым и белизну. */
 export const SEASON_SNOW: Record<Season, number> = { spring: 0, summer: 0, autumn: 0, winter: 1 };
+
+/** Доля деревьев, чья листва осенью ушла во второй цвет (`oakRust`, `birchLate`): только осень. */
+export const SEASON_TURN: Record<Season, number> = { spring: 0, summer: 0, autumn: 1, winter: 0 };
 
 /**
  * Доля травы, что торчит из земли, по сезону: зимой пучки прячет снег (окружение
