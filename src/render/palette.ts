@@ -153,6 +153,9 @@ export const PALETTE = {
   wool: 0xe2dccb,
   woolDark: 0x3b3431,
   graze: 0xa39f66,
+  /** Живность (9.8): птицы над лесом — тёмный силуэт; светлячки — тёплый жёлто-зелёный огонёк. */
+  bird: 0x2f2a2a,
+  firefly: 0xe6ee7a,
 
   // ---------- Дерево ----------
   wood: 0x9d6d42,

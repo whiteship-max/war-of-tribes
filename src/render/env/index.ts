@@ -57,6 +57,7 @@ import {
 } from './rules';
 import { blobModel, fenceModel, flowerModel, groundModelJob, hayModel, propModel, sheepModel, tuftModel, treeModel } from './models';
 import { envShared, groundMaterial, shadeMaterial, vegMaterial, type EnvShared, type ShadeUniforms } from './materials';
+import { makeLife, type Life } from './life';
 
 export type { EnvVillage } from './rules';
 
@@ -377,6 +378,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
   const sward = { value: season.sward };
   const bloom = { value: season.bloom };
   const cropShow = { value: season.crop };
+  let life: Life | null = null;
   let hayCount = 0;
   let fenceCount = 0;
   let sheepCount = 0;
@@ -577,6 +579,17 @@ export function startEnv(o: EnvOptions): EnvWorld {
     group.add(blobs);
     yield;
     compile(blobs);
+
+    // Живность: птицы и светлячки (9.8) — не на низком уровне.
+    if (spec.life) {
+      yield 'живность';
+      life = makeLife();
+      group.add(life.birds, life.fireflies);
+      compile(life.birds);
+      yield;
+      compile(life.fireflies);
+      yield;
+    }
     done = true;
   }
 
@@ -687,6 +700,9 @@ export function startEnv(o: EnvOptions): EnvWorld {
     shared.wind.value = spec.wind ? 0.05 * (0.75 + 0.25 * Math.sin(f.t * 0.37) * Math.sin(f.t * 0.13 + 1)) : 0;
     shared.far.value = f.fogFar * spec.grassFar;
     shared.night.value = 0.62 * f.light.nightK;
+    // Тени облаков — днём и не в сумерках: у низкого солнца пятна легли бы полосами.
+    shared.cloud.value = spec.life ? 0.2 * f.light.daylight * (1 - f.light.dusk) * (1 - season.snow * 0.5) : 0;
+    life?.update(f.t, f.light.daylight, f.light.nightK, season.bloom, season.snow);
     sward.value = season.sward;
     bloom.value = season.bloom;
     cropShow.value = season.crop;
@@ -740,6 +756,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     dispose: () => {
       for (const job of queue) job.return();
       queue.length = 0;
+      life?.dispose();
       for (const m of materials) m.dispose();
       for (const t of textures) t.dispose();
       group.traverse((o) => {

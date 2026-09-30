@@ -217,10 +217,14 @@ function shiftParts(parts: K.Part[], x: number, z: number, rotY: number, scale: 
   return parts;
 }
 
-/** Жилой двор: отдельные фронтоны и трубы вместо круглых кровель. */
-function residentialParts(t: Tier): K.Part[] {
+/**
+ * Жилой двор: отдельные фронтоны и трубы вместо круглых кровель. `tops` — куда сложить
+ * верхушки труб в координатах модели: над ними идёт дым очагов (`Scene.syncHearths`).
+ */
+function residentialParts(t: Tier, tops: THREE.Vector3[] = []): K.Part[] {
   const p = stylePaint();
   const parts: K.Part[] = [];
+  const scale = [0.65, 1, 0.98][t];
   const home = (x: number, z: number, w: number, d: number, h: number, upper: number, rot = 0): void => {
     const a: K.Part[] = [];
     const y0 = 0.16;
@@ -258,6 +262,10 @@ function residentialParts(t: Tier): K.Part[] {
     a.push(K.stepStone(0.43, p.base, -w * 0.18, d / 2 + 0.13));
     a.push(K.box(0.075, Math.hypot(uw * 0.32, rise * 0.7), 0.08, p.beam, uw * 0.16, eave + rise * 0.35, ud / 2 + 0.03, { z: Math.atan2(uw * 0.32, rise * 0.7) }));
     a.push(...K.chimney(0.22, rise * 0.7 + 0.32, p.base, p.base, -uw * 0.24, eave + rise * 0.3, -ud * 0.23));
+    // Верх колпака трубы — тем же переносом, что и сам дом, и тем же масштабом ступени.
+    const top = new THREE.Vector3(-uw * 0.24, eave + rise * 0.3 + rise * 0.7 + 0.32 + 0.22 * 0.3, -ud * 0.23);
+    top.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot).add(new THREE.Vector3(x, 0, z)).multiplyScalar(scale);
+    tops.push(top);
     parts.push(...shiftParts(a, x, z, rot, 1));
   };
   if (t === 2) {
@@ -270,12 +278,15 @@ function residentialParts(t: Tier): K.Part[] {
     home(0.95, -0.1, 0.85, 1.25, 0.75, 0, -0.12);
     if (t === 1) home(-0.1, -1.2, 1.1, 0.85, 0.85, 0, Math.PI / 2);
   }
-  return shiftParts(parts, 0, 0, 0, [0.65, 1, 0.98][t]);
+  return shiftParts(parts, 0, 0, 0, scale);
 }
 
 function houses(t: Tier): THREE.Group {
   const g = new THREE.Group();
-  g.add(K.assemble(residentialParts(t)));
+  const tops: THREE.Vector3[] = [];
+  g.add(K.assemble(residentialParts(t, tops)));
+  // Трубы очагов: сцена ставит над ними дым (вид `next`).
+  g.userData.chimneys = tops;
   return g;
 }
 

@@ -13,6 +13,7 @@
  * материалы посёлка (`KIT`, `LEGACY`) проба не трогает ни на бит.
  */
 import * as THREE from 'three';
+import { CLEAR_RADIUS } from '../plan';
 
 /** Общие на всё окружение числа кадра: время, ветер, дальность травы, доля ночи. */
 export interface EnvShared {
@@ -25,14 +26,35 @@ export interface EnvShared {
    * серо-синей земле красная черепица и светлая штукатурка и держат ночной кадр.
    */
   night: { value: number };
+  /**
+   * Густота теней облаков, 0..1 (9.8): днём, не в сумерках и не на низком уровне. Облака —
+   * пятна, плывущие по земле и лесу за чертой расчистки; посёлок они не темнят: дома
+   * рисует тело набора, которого облака не знают, и тень, скользящая по лугу и минующая
+   * дом, читалась бы ошибкой.
+   */
+  cloud: { value: number };
 }
 
-export const envShared = (): EnvShared => ({ time: { value: 0 }, wind: { value: 0 }, far: { value: 100 }, night: { value: 0 } });
+export const envShared = (): EnvShared => ({ time: { value: 0 }, wind: { value: 0 }, far: { value: 100 }, night: { value: 0 }, cloud: { value: 0 } });
 
 /** Обесцвечивание альбедо к серому той же яркости — одна строка на растения и землю. */
 const NIGHT_GREY = /* glsl */ `
 vec3 envNightGrey( vec3 c, float k ) {
   return mix( c, vec3( dot( c, vec3( 0.3, 0.59, 0.11 ) ) ), k );
+}
+`;
+
+/**
+ * Тень облака в точке земли, 0..1: крупные пятна из трёх синусов, плывущие с ветром. Без
+ * текстуры — одна формула на землю (по пикселю) и растительность (по экземпляру). За
+ * чертой расчистки — полная, в посёлке — нет (см. `EnvShared.cloud`).
+ */
+const CLOUD = /* glsl */ `
+float envCloud( vec2 p, float t ) {
+  float a = sin( p.x * 0.083 + t * 0.021 ) * sin( p.y * 0.071 - t * 0.017 );
+  float b = sin( ( p.x + p.y ) * 0.047 + t * 0.013 + 1.7 );
+  float c = 0.5 + 0.32 * a + 0.22 * b;
+  return smoothstep( 0.52, 0.74, c ) * smoothstep( ${(CLEAR_RADIUS - 3).toFixed(2)}, ${(CLEAR_RADIUS + 3).toFixed(2)}, length( p ) );
 }
 `;
 
@@ -44,8 +66,11 @@ uniform float uEnvWind;
 uniform float uEnvSway;
 uniform float uEnvFar;
 uniform float uEnvShow;
+uniform float uEnvCloud;
 varying vec3 vEnvData;
 varying vec3 vEnvTint;
+varying float vEnvShade;
+${CLOUD}
 `;
 
 /** Цвет вершин — не цвет, а три числа (`env/models.ts`); цвет экземпляра — разброс или цвет цветка. */
@@ -86,6 +111,7 @@ float envK = 1.0;
   envK *= 1.0 - smoothstep( uEnvFar * 0.8, uEnvFar, distance( cameraPosition, envBase ) );
 #endif
 mvPosition.xyz = envBase + ( mvPosition.xyz - envBase ) * envK;
+vEnvShade = 1.0 - uEnvCloud * envCloud( envBase.xz, uEnvTime );
 mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 `;
@@ -96,6 +122,7 @@ uniform vec3 uEnvB;
 uniform float uEnvNight;
 varying vec3 vEnvData;
 varying vec3 vEnvTint;
+varying float vEnvShade;
 ${NIGHT_GREY}
 `;
 
@@ -119,7 +146,7 @@ const VEG_FRAG_COLOR = /* glsl */ `
 #else
   vec3 envCol = mix( uEnvA, uEnvB, vEnvData.g ) * vEnvTint;
 #endif
-diffuseColor.rgb *= envNightGrey( envCol, uEnvNight ) * vEnvData.r;
+diffuseColor.rgb *= envNightGrey( envCol, uEnvNight ) * vEnvData.r * vEnvShade;
 `;
 
 export interface VegOptions {
@@ -161,6 +188,7 @@ export function vegMaterial(name: string, o: VegOptions, shared: EnvShared): THR
     uEnvWind: shared.wind,
     uEnvFar: shared.far,
     uEnvNight: shared.night,
+    uEnvCloud: shared.cloud,
   };
   mat.onBeforeCompile = (shader): void => {
     Object.assign(shader.uniforms, own);
@@ -219,8 +247,11 @@ uniform vec3 uSoil;
 uniform vec3 uStone;
 uniform vec3 uGraze;
 uniform float uEnvNight;
+uniform float uEnvTime;
+uniform float uEnvCloud;
 varying vec2 vEnvXZ;
 ${NIGHT_GREY}
+${CLOUD}
 `;
 
 /**
@@ -250,7 +281,7 @@ float envFur = 0.8 + 0.2 * sin( dot( vEnvXZ, vec2( -uFurrow.y, uFurrow.x ) ) * 1
 envG = mix( envG, uSoil * envFur, envFld );
 float envSt = smoothstep( 0.35, 0.65, envA.b + ( envM.g - 0.5 ) * 0.5 );
 envG = mix( envG, uStone * ( 0.76 + 0.38 * envM.r ), envSt );
-diffuseColor.rgb *= envNightGrey( envG, uEnvNight );
+diffuseColor.rgb *= envNightGrey( envG, uEnvNight ) * ( 1.0 - uEnvCloud * envCloud( vEnvXZ, uEnvTime ) );
 `;
 
 export interface GroundMaps {
@@ -281,6 +312,8 @@ export function groundMaterial(maps: GroundMaps, c: GroundColors, shared: EnvSha
     uStone: { value: c.stone },
     uGraze: { value: c.graze },
     uEnvNight: shared.night,
+    uEnvTime: shared.time,
+    uEnvCloud: shared.cloud,
   };
   mat.onBeforeCompile = (shader): void => {
     Object.assign(shader.uniforms, own);

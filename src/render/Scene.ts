@@ -33,7 +33,7 @@ import { HeroAgent, heroKind, heroShown } from './hero';
 import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
-import { CHIMNEY_LOOK, Smoke, Snowfall, chimneySmoke, type SmokeSource } from './weather';
+import { CHIMNEY_LOOK, HEARTH_LOOK, Smoke, Snowfall, chimneySmoke, hearthSmoke, type SmokeSource } from './weather';
 import { SMOKE_HEIGHT, WORK_SIGN, WorkSigns, type LoadKind } from './worksigns';
 import {
   RIG,
@@ -281,6 +281,11 @@ export class TribeScene {
   private smoke = new Smoke();
   /** Дым труб — своя система: он гуще очажного, иначе признак работы не виден. */
   private chimneys = new Smoke(CHIMNEY_LOOK, []);
+  /**
+   * Дым очагов над трубами домов — только у вида `next` (`weather.HEARTH_LOOK`): живой
+   * посёлок. Своя система точек (один вызов), чтобы не спутать его с дымом работы.
+   */
+  private hearths = new Smoke(HEARTH_LOOK, []);
   /** Признаки занятости зданий: грузы у стен. Один вызов отрисовки на все. */
   private signs = new WorkSigns();
   private season: Season = 'spring';
@@ -439,6 +444,7 @@ export class TribeScene {
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
     this.scene.add(this.chimneys.points);
+    if (this.look === 'next') this.scene.add(this.hearths.points);
     this.scene.add(this.signs.group);
 
     this.selection = new THREE.Mesh(
@@ -1485,6 +1491,7 @@ export class TribeScene {
     }
 
     this.syncWorkSigns(s);
+    this.syncHearths();
     this.syncSoldiers(s);
     this.syncCaravans(s);
   }
@@ -1619,6 +1626,26 @@ export class TribeScene {
     this.chimneys.setSources(smoke);
   }
 
+  /**
+   * Дым очагов (вид `next`): над каждой трубой дома, где бы дом ни стоял и как бы ни
+   * подрос, — верхушки труб модель помнит сама (`buildings.houses`, `userData.chimneys`).
+   * Список пересобирается, только если трубы сдвинулись.
+   */
+  private syncHearths(): void {
+    if (this.look !== 'next') return;
+    const smoke: SmokeSource[] = [];
+    for (const view of this.buildings.values()) {
+      const tops = view.group.userData.chimneys as THREE.Vector3[] | undefined;
+      if (!tops) continue;
+      view.group.updateMatrixWorld(true);
+      for (const top of tops) {
+        const at = top.clone().applyMatrix4(view.group.matrixWorld);
+        smoke.push(hearthSmoke(at.x, at.y, at.z));
+      }
+    }
+    this.hearths.setSources(smoke);
+  }
+
   // ---------- Анимация ----------
 
 
@@ -1659,6 +1686,7 @@ export class TribeScene {
     this.snowfall.update(dt, t, snow);
     this.smoke.update(dt, snow);
     this.chimneys.update(dt, snow);
+    if (this.look === 'next') this.hearths.update(dt, snow);
 
     const night = solar > 0.58 && solar < 0.97;
     for (const a of this.agents.values()) {
@@ -1801,6 +1829,7 @@ export class TribeScene {
     this.snowfall.points.visible = !on && this.snowfall.points.visible;
     this.smoke.points.visible = !on;
     this.chimneys.points.visible = !on && this.chimneys.active;
+    this.hearths.points.visible = !on && this.hearths.active;
     this.selection.visible = !on && this.selected !== null;
     for (const view of this.buildings.values()) {
       if (view.marker) view.marker.visible = !on;

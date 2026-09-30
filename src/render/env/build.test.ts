@@ -144,8 +144,14 @@ function price(w: EnvWorld, shadowMap: number): { calls: number; triangles: numb
   let calls = 0;
   let triangles = 0;
   w.group.traverse((o) => {
+    // Точки (светлячки) — вызов всегда: днём их гасит видимость, но в сумерках они
+    // горят вместе с птицами, и верхняя граница считает оба.
+    if ((o as THREE.Points).isPoints) {
+      calls++;
+      return;
+    }
     const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh || !mesh.visible) return;
+    if (!mesh.isMesh) return;
     const n = (mesh as THREE.InstancedMesh).isInstancedMesh ? (mesh as THREE.InstancedMesh).count : 1;
     if (n <= 0) return;
     calls++;

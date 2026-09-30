@@ -61,6 +61,11 @@ export interface QualitySpec {
   groundMap: number;
   /** Качаются ли трава и кроны. Выключенный ветер — те же вершины, без счёта в шейдере. */
   wind: boolean;
+  /**
+   * Живность (9.8): птицы днём, светлячки ночью, тени облаков. По вызову отрисовки на
+   * птиц и на светлячков — на низком её нет: там бюджет вызовов самый тесный.
+   */
+  life: boolean;
 }
 
 /**
@@ -73,22 +78,30 @@ export interface QualitySpec {
  * беднее, но не другой.
  */
 export const QUALITY: Record<Quality, QualitySpec> = {
-  high: { dpr: 2, shadowMap: 2048, shadowSoft: true, grass: 26000, flowers: 1500, props: 1, grassFar: 1, treeNear: 0.85, groundMap: 512, wind: true },
-  medium: { dpr: 1.5, shadowMap: 1024, shadowSoft: true, grass: 12000, flowers: 800, props: 0.7, grassFar: 0.8, treeNear: 0.7, groundMap: 256, wind: true },
-  low: { dpr: 1.25, shadowMap: 1024, shadowSoft: false, grass: 0, flowers: 300, props: 0.4, grassFar: 0.6, treeNear: 0.5, groundMap: 256, wind: false },
+  high: { dpr: 2, shadowMap: 2048, shadowSoft: true, grass: 26000, flowers: 1500, props: 1, grassFar: 1, treeNear: 0.85, groundMap: 512, wind: true, life: true },
+  medium: { dpr: 1.5, shadowMap: 1024, shadowSoft: true, grass: 12000, flowers: 800, props: 0.7, grassFar: 0.8, treeNear: 0.7, groundMap: 256, wind: true, life: true },
+  low: { dpr: 1.25, shadowMap: 1024, shadowSoft: false, grass: 0, flowers: 300, props: 0.4, grassFar: 0.6, treeNear: 0.5, groundMap: 256, wind: false, life: false },
 };
 
 /**
  * Бюджет окружения по уровням — того, что добавляет проба поверх посёлка: вызовы
- * отрисовки (земля, по два меша на породу, мешу на вид мелочи, покров, пятна тени),
- * треугольники (верхняя граница: все деревья ближней моделью) и память текстур
- * в мегабайтах (карта теней — цвет и глубина по четыре байта на тексель, — карты земли
- * и шум, с мипами). Держит это тест по правилам и моделям (`env/rules.test.ts`), а не
- * память; цену всего кадра на стенде печатает `npm run village:shots` с `BENCH=1`.
+ * отрисовки (земля, по два меша на породу, меш на вид мелочи, покров, угодья, живность,
+ * пятна тени), треугольники (верхняя граница: все деревья прежнего мира ближней моделью)
+ * и память текстур в мегабайтах (карта теней — цвет и глубина по четыре байта на
+ * тексель, — карты земли и шум, с мипами). Держит это тест по собранному миру
+ * (`env/build.test.ts`), а не память; цену всего кадра на стенде печатает
+ * `npm run village:shots` с `BENCH=1`.
+ *
+ * Эталон — кадр вида `now` на стенде: 125 вызовов (docs/graphics_world.md, раздел 4). Ночь 1
+ * прибавила окружению три вызова на угодья и два на живность (9.7, 9.8); кадр целиком на
+ * стенде (`BENCH=1 LOOKS=now,next:low,next:medium npm run village:shots`, раздел 9.8):
+ * `now` — 125, низкий — 135, средний — 138, в пределах справочника (около 150, потолок 450 —
+ * docs/handbook/graphics.md). Низкий — без живности и без овец: у слабого телефона на
+ * счету каждый вызов.
  */
 export const BUDGET: Record<Quality, { calls: number; triangles: number; textureMb: number }> = {
-  high: { calls: 22, triangles: 290_000, textureMb: 36 },
-  medium: { calls: 22, triangles: 200_000, textureMb: 10 },
+  high: { calls: 24, triangles: 290_000, textureMb: 36 },
+  medium: { calls: 24, triangles: 200_000, textureMb: 10 },
   low: { calls: 20, triangles: 125_000, textureMb: 9 },
 };
 
