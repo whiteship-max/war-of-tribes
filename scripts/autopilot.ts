@@ -75,7 +75,8 @@ import { EVENT_BY_ID } from '@/game/data/events';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID, EQUIPMENT_IDS } from '@/game/data/equipment';
-import { troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopPower } from '@/game/battle/price';
 
 /**
  * Единицы отчётов на часах мира — **игровой день и шестьдесят игровых дней**, мс. Имена прежние (`MIN`,

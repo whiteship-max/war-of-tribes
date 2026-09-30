@@ -23,7 +23,8 @@ import {
   soldierFoodPerDay,
   townFoodPerDay,
 } from '../derived';
-import { BATTLE_MAN, troopPower, troopTotal, type TroopStack } from '../battle/kinds';
+import { BATTLE_MAN, troopTotal, type TroopStack } from '../battle/kinds';
+import { troopPower } from '../battle/price';
 import { applyExpedition, type ExpeditionOutcome } from './expedition';
 import { catchUp, tick } from './tick';
 import { woundsHome, woundsOfBattle } from './infirmary';

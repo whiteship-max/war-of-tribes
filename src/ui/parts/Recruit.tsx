@@ -5,6 +5,7 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { buildingOfType, idleCount, wageOf } from '@/game/derived';
+import { powerOf } from '@/game/battle/price';
 import { hiredAt, isTraining, orderEta, recruitCheck } from '@/game/sim/army';
 import { cancelRecruit, startRecruit } from '@/game/sim/actions';
 import { troopBlock } from '@/game/sim/tech';
@@ -93,7 +94,7 @@ export function Recruit({ at }: { at: 'barracks' | 'stable' }) {
               <div className="title">
                 {def.name}
                 <span className="count">
-                  в дружине: {have} · мощь {def.power} · 💰 {wageOf(s, def.id).toFixed(2)}/д
+                  в дружине: {have} · мощь {powerOf(def.id).toFixed(1)} · 💰 {wageOf(s, def.id).toFixed(2)}/д
                 </span>
               </div>
               <div className="desc">{def.description}</div>

@@ -33,6 +33,7 @@ import {
   VILLAGER_DEFENSE,
 } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
+import { powerOf } from '../battle/price';
 import { BONDED_JOBS, JOBS, JOB_BY_ID } from '../data/jobs';
 import { BONDED_GOOD, BONDED_PAYBACK_DAYS, BONDED_SALE, GOODS, GOOD_BY_ID, offerFor } from '../data/market';
 import { MUTINY_EVENT, ORDER_TEXT } from '../data/order';
@@ -487,7 +488,7 @@ describe('исход мятежа объявлен заранее и совпа�
     const s = restless();
     s.army.spearman = 100;
     const f = mutinyForecast(s);
-    expect(f.crush).toBe(Math.floor((100 * 4) / VILLAGER_DEFENSE));
+    expect(f.crush).toBe(Math.floor((100 * powerOf('spearman')) / VILLAGER_DEFENSE));
     expect(f.holds).toBe(true);
     expect(f.flee).toBe(Math.round(200 * MUTINY_SUPPRESS_FLEE));
     const pop = s.pop;

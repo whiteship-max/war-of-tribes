@@ -25,6 +25,7 @@ import {
 } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
 import { armyRoster, trainees } from '@/game/sim/army';
+import { troopPower } from '@/game/battle/price';
 import { releaseBonded } from '@/game/sim/actions';
 import { Factor } from '../parts/Factor';
 import { Steps } from '../parts/Steps';
@@ -64,7 +65,7 @@ function Army() {
           <div className="body">
             <div className="title">
               {def.name}
-              <span className="count">{n} · мощь {def.power * n}</span>
+              <span className="count">{n} · мощь {Math.round(troopPower({ [def.id]: n }))}</span>
             </div>
             <div className="desc">{def.description}</div>
           </div>

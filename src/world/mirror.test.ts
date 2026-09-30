@@ -6,7 +6,7 @@ import { lairAnchor, isLair, type GenSettlement } from './gen';
 import { lairPower } from './lairs';
 import { distance } from './geo';
 import { AI_RANGE } from './data/tuning';
-import { TROOP_BY_ID } from '@/game/data/troops';
+import { powerOf } from '@/game/battle/price';
 import { MIRROR_ON, MIRROR_SPREAD, hostPower, mirrorAt, mirrorCoef, mirrorPower, type MirrorWorld } from './mirror';
 import type { PlayerProfile, SettlementId } from './types';
 
@@ -209,9 +209,9 @@ describe('стенд зеркального логова', () => {
    */
   it('опора — войско слепка, а не оборона', () => {
     const p = profile({ legionary: 60, archer: 40 });
-    const want = 60 * TROOP_BY_ID.legionary.power + 40 * TROOP_BY_ID.archer.power;
-    expect(hostPower(p)).toBe(want);
-    expect(hostPower({ ...p, defense: 99_999 })).toBe(want);
+    const want = 60 * powerOf('legionary') + 40 * powerOf('archer');
+    expect(hostPower(p)).toBeCloseTo(want, 9);
+    expect(hostPower({ ...p, defense: 99_999 })).toBeCloseTo(want, 9);
     expect(hostPower({ ...p, army: {} })).toBe(0);
   });
 });

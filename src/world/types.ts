@@ -850,7 +850,7 @@ export interface FigureView {
   watchSight: number;
   /** Войско при полководце. Пусто у остальных. */
   troops: TroopStack;
-  /** Мощь этого войска — сумма мощи бойцов (`kinds.troopPower`). */
+  /** Мощь этого войска — сумма мощи бойцов (`price.troopPower`). */
   power: number;
   /**
    * Поселение, которое эта фигура держит в осаде. null — лагеря нет. Пока он

@@ -9,6 +9,7 @@ import { TROOPS } from '@/game/data/troops';
 import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
 import { KIND_META } from '@/battle';
 import { KIND_OF, profileOfTroop, troopTotal } from '@/game/battle/kinds';
+import { troopPower } from '@/game/battle/price';
 import { useWorld, worldNow } from '@/world/store';
 import { postureOf } from '@/world/muster';
 import { moraleOf } from '@/game/battle/describe';
@@ -108,7 +109,7 @@ export function ArmyPanel() {
               <div className="title">
                 {def.name}
                 <span className="count">
-                  {n} · мощь {def.power * n}
+                  {n} · мощь {Math.round(troopPower({ [def.id]: n }))}
                 </span>
               </div>
               <div className="desc">

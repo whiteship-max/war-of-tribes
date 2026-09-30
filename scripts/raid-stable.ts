@@ -34,8 +34,8 @@ import { lairPower, lairRaid } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
-import { KIND_OF, gearOfTroop, powerWeight, profileOfTroop, troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
-import { battleWeight } from '@/game/battle/price';
+import { KIND_OF, gearOfTroop, profileOfTroop, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { battleWeight, powerOf, troopPower } from '@/game/battle/price';
 import { createInitialState } from '@/game/state';
 import { defense, recruitRate, selfCost, stalls, wageGear, wageOf } from '@/game/derived';
 import { GOOD_BY_ID } from '@/game/data/market';
@@ -129,7 +129,7 @@ function idOf(style: GarrisonStyle, seed: number, i: number, kind: 'raid' | 'lai
 
 /**
  * Сторона: бойцы строя по родам и мощь мира. Вес вида в бою — по цене (`price.battleWeight`, путь П2, docs/battle_eu4.md,
- * 14.35): ступени снаряжения и вещей в бою нет, они пришли весом. Мощь — шкала мира (`TroopDef.power`): ею логово
+ * 14.35): ступени снаряжения и вещей в бою нет, они пришли весом. Мощь — шкала мира (`price.powerOf`: тот же вес на `BATTLE_MAN`): ею логово
  * меряется против армии.
  */
 interface Side {
@@ -143,7 +143,7 @@ function sideOfHeads(heads: Partial<Record<TroopId, number>>): Side {
   let power = 0;
   for (const [id, n] of Object.entries(heads) as [TroopId, number][]) {
     stack[KIND_OF[id]] += n * battleWeight(id);
-    power += n * TROOP_BY_ID[id].power;
+    power += n * powerOf(id);
   }
   for (const k of Object.keys(stack) as UnitKind[]) stack[k] = Math.round(stack[k]);
   return { stack, power };
@@ -219,11 +219,11 @@ function typesPart(): void {
   console.log('');
   console.log('--- 1. Виды: что у каждого есть ---');
   console.log('«строя» — бойцов строя на голову (price.battleWeight — содержание вида к дубинщику, путь П2): столькими людьми вид выходит');
-  console.log('в бой; «мощь/2» — вес по мощи (kinds.powerWeight): им меряются жалованье и мир. «ступень» — kinds.gearOfTroop, в бою не даёт ничего;');
+  console.log('в бой; «ставка» — ставка жалованья (TroopDef.grade, прежняя мощь / 2): ею меряется жалованье; мощь мира — вес в строю на BATTLE_MAN. «ступень» — kinds.gearOfTroop, в бою не даёт ничего;');
   console.log('«мораль» — мораль рода, без обряда: за снаряжение морали нет. Дальше — на бойца строя: добро найма');
   console.log('со снаряжением (ресурсы вида и предметов кузницы), работа кузницы и казарм, жалованье (derived.wageOf, деревня без веры) и паёк');
   console.log('(SOLDIER_FOOD на рот, у конного рта два — HORSE_MOUTHS) за игровой день; голов на 100 бойцов строя.');
-  console.log(' вид          род        строя  мощь/2  ступень  мораль  добро найма на бойца строя                          всего  кузница  казармы  жалованье  паёк  голов/100');
+  console.log(' вид          род        строя  ставка  ступень  мораль  добро найма на бойца строя                          всего  кузница  казармы  жалованье  паёк  голов/100');
   for (const t of TROOPS) {
     const w = battleWeight(t.id);
     const gear = gearOfTroop(t.id);
@@ -231,7 +231,7 @@ function typesPart(): void {
     const list = (Object.entries(goodsOf(t.id)) as [ResourceId, number][]).map(([r, v]) => `${r} ${(v / w).toFixed(1)}`).join(', ');
     const p = priceOf(t.id);
     console.log(
-      ` ${padR(t.name, 11)}  ${padR(kind, 9)}  ${pad(w.toFixed(2), 5)}  ${pad(powerWeight(t.id), 6)}  ${pad(gear, 7)}  ${pad(UNIT_STATS[kind].morale, 6)}  ${padR(list, 50)}  ${pad(p.goods.toFixed(1), 5)}  ${pad(p.forge.toFixed(0), 7)}  ${pad(p.work.toFixed(1), 7)}  ${pad(p.wage.toFixed(2), 9)}  ${pad(p.food.toFixed(2), 4)}  ${pad((100 / w).toFixed(0), 9)}`,
+      ` ${padR(t.name, 11)}  ${padR(kind, 9)}  ${pad(w.toFixed(2), 5)}  ${pad(t.grade, 6)}  ${pad(gear, 7)}  ${pad(UNIT_STATS[kind].morale, 6)}  ${padR(list, 50)}  ${pad(p.goods.toFixed(1), 5)}  ${pad(p.forge.toFixed(0), 7)}  ${pad(p.work.toFixed(1), 7)}  ${pad(p.wage.toFixed(2), 9)}  ${pad(p.food.toFixed(2), 4)}  ${pad((100 / w).toFixed(0), 9)}`,
     );
   }
   const profiles = new Map<string, string[]>();
@@ -250,7 +250,7 @@ const goodsGold = (id: TroopId): number =>
 
 /**
  * Всё, что уходит на бойца, на голову — вход формулы веса вида (docs/battle_eu4.md, 14.35, слово владельца, п. 3): мощь вида
- * (`TroopDef.power`) задана рукой, и «2 + работа кузницы / 25» совпадает с ней у трёх видов из девяти не законом, а тем,
+ * (`TroopDef.grade`, прежняя мощь / 2) задана рукой, и «1 + работа кузницы / 50» совпадает с ней у трёх видов из девяти не законом, а тем,
  * как числа ставили в первом коммите. Правильная формула выбирается на этих числах — до кода П1. Одной меры у столбцов
  * нет, и это сказано строкой: работу кузницы рынок в золото не переводит (`derived.selfCost` меряет у вещи только
  * материалы), учения идут временем здания (`recruitRate`: работа на уровень, работников у казарм и конюшни нет).
@@ -258,20 +258,20 @@ const goodsGold = (id: TroopId): number =>
 function workPart(): void {
   console.log('');
   console.log('Всё, что уходит на бойца, на голову (вход формулы веса вида; docs/battle_eu4.md, 14.35, слово владельца, п. 3):');
-  console.log('«мощь» — TroopDef.power, задана рукой; «2 + кузница / 25» — след ручной расстановки (кузница 50 → 4 у копейщика), а не закон;');
+  console.log('«ставка» — TroopDef.grade, задана рукой; «1 + кузница / 50» — след ручной расстановки (кузница 50 → 2 у копейщика), а не закон;');
   console.log('«кузница» — работа горна на все вещи вида (EquipmentDef.work); «учения» — работа казарм или конюшни (TroopDef.work);');
   console.log('«добро» — ресурсы вида и вещей, штук; «добро своим трудом» — они же в золоте по цене своего труда (derived.selfCost).');
   console.log('Работу кузницы игра в золото не переводит, учения идут временем здания, а не людьми: одной меры у столбцов нет — её выбирает владелец.');
-  console.log(' вид          мощь  2 + кузница/25  кузница  учения  добро  добро своим трудом  конь');
+  console.log(' вид          ставка  1 + кузница/50  кузница  учения  добро  добро своим трудом  конь');
   for (const tr of TROOPS) {
     const forge = forgeOf(tr.id);
     const gold = goodsGold(tr.id);
     console.log(
-      ` ${padR(tr.name, 11)}  ${pad(tr.power, 4)}  ${pad((2 + forge / 25).toFixed(2), 14)}  ${pad(forge, 7)}  ${pad(tr.work, 6)}  ${pad(goodsTotal(tr.id), 5)}  ${pad(Number.isFinite(gold) ? gold.toFixed(1) : '—', 18)}  ${pad(tr.mounted ? 'да' : '', 4)}`,
+      ` ${padR(tr.name, 11)}  ${pad(tr.grade, 6)}  ${pad((1 + forge / 50).toFixed(2), 14)}  ${pad(forge, 7)}  ${pad(tr.work, 6)}  ${pad(goodsTotal(tr.id), 5)}  ${pad(Number.isFinite(gold) ? gold.toFixed(1) : '—', 18)}  ${pad(tr.mounted ? 'да' : '', 4)}`,
     );
   }
-  const exact = TROOPS.filter((tr) => Math.abs(2 + forgeOf(tr.id) / 25 - tr.power) < 1e-9).map((tr) => tr.name);
-  console.log(`«2 + кузница / 25» равна мощи у ${exact.length} видов из ${TROOPS.length}: ${exact.join(', ') || '—'}.`);
+  const exact = TROOPS.filter((tr) => Math.abs(1 + forgeOf(tr.id) / 50 - tr.grade) < 1e-9).map((tr) => tr.name);
+  console.log(`«1 + кузница / 50» равна ставке у ${exact.length} видов из ${TROOPS.length}: ${exact.join(', ') || '—'}.`);
 }
 
 // ---------- 2. Вид против вида ----------
@@ -390,7 +390,7 @@ const WALL_HEAD = ' войско                                голов  мо
 const MIX_POWER = (): number => troopPower(townAt(10).army as TroopStack);
 
 /** Армия той же мощи из одного вида. */
-const pureTroops = (id: TroopId, power: number): TroopStack => ({ [id]: Math.round(power / TROOP_BY_ID[id].power) });
+const pureTroops = (id: TroopId, power: number): TroopStack => ({ [id]: Math.round(power / powerOf(id)) });
 
 /**
  * Пеший остаток мерки, у которого конница вида `horse` — доля `share` мощи. `share` 0 — мерка без конницы, мощь та
@@ -399,10 +399,10 @@ const pureTroops = (id: TroopId, power: number): TroopStack => ({ [id]: Math.rou
 function mixCav(share: number, power: number, horse: TroopId = 'rider'): TroopStack {
   const mix = townAt(10).army as TroopStack;
   const foot = (Object.keys(mix) as TroopId[]).filter((id) => !TROOP_BY_ID[id].mounted);
-  const footPower = foot.reduce((n, id) => n + (mix[id] ?? 0) * TROOP_BY_ID[id].power, 0);
+  const footPower = foot.reduce((n, id) => n + (mix[id] ?? 0) * powerOf(id), 0);
   const out: TroopStack = {};
   for (const id of foot) out[id] = Math.round(((mix[id] ?? 0) * power * (1 - share)) / footPower);
-  if (share > 0) out[horse] = Math.round((power * share) / TROOP_BY_ID[horse].power);
+  if (share > 0) out[horse] = Math.round((power * share) / powerOf(horse));
   return out;
 }
 
@@ -703,7 +703,7 @@ async function classWallPart(): Promise<ClassWall[]> {
  * этих чисел и ищет, какими им быть.
  */
 const wageAt = (id: TroopId, g: number, m: number = WAGE_MAN): number =>
-  (TAX_PER_POP * (WAGE_HEAD + m * powerWeight(id) + g * wageGear(id))) / powerWeight(id);
+  (TAX_PER_POP * (WAGE_HEAD + m * TROOP_BY_ID[id].grade + g * wageGear(id))) / TROOP_BY_ID[id].grade;
 
 /**
  * `WAGE_MAN` до части за снаряжение. Жалованье мерки при нём — то, что часть за снаряжение обязана оставить прежним:
@@ -713,7 +713,7 @@ const WAGE_MAN_BEFORE = WAGE_MAN_UNGEARED;
 
 /** Жалованье мерки MIX за игровой день при `m` и `g` — сумма `wageAt` по составу. */
 const mixWage = (m: number, g: number): number =>
-  (Object.entries(MIX) as [TroopId, number][]).reduce((sum, [id, n]) => sum + n * wageAt(id, g, m) * powerWeight(id), 0);
+  (Object.entries(MIX) as [TroopId, number][]).reduce((sum, [id, n]) => sum + n * wageAt(id, g, m) * TROOP_BY_ID[id].grade, 0);
 
 function numbersPart(worth: Worth, shares: ShareRow[]): void {
   console.log('');
@@ -744,7 +744,7 @@ function numbersPart(worth: Worth, shares: ShareRow[]): void {
   // перестанут меняться.
   const heaviest = TROOPS.reduce((a, b) => (wageGear(b.id) > wageGear(a.id) ? b : a)).id;
   const perStrength = (g: number, m: number = WAGE_MAN): number[] => TROOPS.map((t) => wageAt(t.id, g, m) / strength(t.id));
-  const head = (x: number, m: number = WAGE_MAN): number => wageAt(heaviest, x, m) * powerWeight(heaviest);
+  const head = (x: number, m: number = WAGE_MAN): number => wageAt(heaviest, x, m) * TROOP_BY_ID[heaviest].grade;
   const solveFor = (target: (g: number) => number, m: number = WAGE_MAN): number => {
     let lo = 0;
     let hi = 2;
@@ -772,7 +772,7 @@ function numbersPart(worth: Worth, shares: ShareRow[]): void {
     nm = m;
     if (still) break;
   }
-  const dayOf = (id: TroopId, m: number, g: number): string => (wageAt(id, g, m) * powerWeight(id)).toFixed(2);
+  const dayOf = (id: TroopId, m: number, g: number): string => (wageAt(id, g, m) * TROOP_BY_ID[id].grade).toFixed(2);
   console.log('');
   console.log(`Жалованье за снаряжение (WAGE_GEAR, data/upkeep.ts): самый снаряжённый вид — ${TROOP_BY_ID[heaviest].name} (${wageGear(heaviest)} по derived.wageGear) —`);
   console.log('платит за единицу силы медиану по всем видам (решение 4). Делением отрезка [0, 2] в долях полного сбора с человека; ноль — вид и без');

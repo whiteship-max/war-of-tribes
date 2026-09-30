@@ -78,7 +78,7 @@ const ageShare = (rec: LairRec, now: number): number => LAIR_START + (LAIR_CAP -
 export const lairLevel = (villagers: number): number =>
   Math.max(0, LAIR_LEVEL_PER_VILLAGER * Math.max(0, villagers) + LAIR_LEVEL_BASE);
 
-/** Зрелость войска в уровнях той же лестницы — из мощи всего войска (`kinds.troopPower`). */
+/** Зрелость войска в уровнях той же лестницы — из мощи всего войска (`price.troopPower`). */
 export const armyLevel = (armyPower: number): number =>
   Math.max(0, LAIR_LEVEL_PER_POWER * Math.max(0, armyPower) + LAIR_LEVEL_POWER_BASE);
 

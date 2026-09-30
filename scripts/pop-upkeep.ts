@@ -41,7 +41,6 @@ import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { FAITH_BY_ID } from '@/game/data/faiths';
 import { QUESTS } from '@/game/data/quests';
 import { DESERT_SHARE, WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from '@/game/data/upkeep';
-import { powerWeight } from '@/game/battle/kinds';
 import { lairGold, lairLoot, lairPower } from '@/world/lairs';
 import {
   LAIR_ANCHOR_FAR,
@@ -254,9 +253,9 @@ export async function upkeepSection(): Promise<void> {
   // строка — формула игры без части за снаряжение (`WAGE_GEAR`), четвёртая — сама игра
   // (`derived.wageOf`, со снаряжением): прежде третья называлась ценой игры, а считала без него.
   const schemes: [string, ((s: GameState, k: TroopId) => number) | null][] = [
-    ['по силе 1.1', (_s, k) => TAX_PER_POP * 1.1 * powerWeight(k)],
+    ['по силе 1.1', (_s, k) => TAX_PER_POP * 1.1 * TROOP_BY_ID[k].grade],
     ['по головам 2.2', () => TAX_PER_POP * 2.2],
-    [`голова ${WAGE_HEAD} + сила ${WAGE_MAN}, без снаряжения`, (_s, k) => TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * powerWeight(k))],
+    [`голова ${WAGE_HEAD} + сила ${WAGE_MAN}, без снаряжения`, (_s, k) => TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * TROOP_BY_ID[k].grade)],
     [`← игра: и снаряжение ${WAGE_GEAR} (wageOf)`, null],
   ];
   console.log('\nКак делить жалованье: какую долю от жителей казна держит бойцами одного вида (этап «потолок»):');

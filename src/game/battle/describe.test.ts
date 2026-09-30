@@ -122,9 +122,9 @@ describe('вес вида в бою на карточке — по цене', ()
     expect(troopCard('clubman').weight.max).toBe(battleWeight(heaviest.id));
   });
 
-  it('правка цены вида доходит до карточки: мощь латника (жалованье с бойца строя) двигает его вес', () => {
+  it('правка цены вида доходит до карточки: ставка латника (жалованье) двигает его вес', () => {
     const before = troopCard('legionary').weight.value;
-    set(TROOP_BY_ID.legionary, 'power', TROOP_BY_ID.legionary.power * 2);
+    set(TROOP_BY_ID.legionary, 'grade', TROOP_BY_ID.legionary.grade * 2);
     expect(troopCard('legionary').weight.value).toBeGreaterThan(before);
     expect(text('legionary')).toContain(troopCard('legionary').weight.value.toFixed(1));
   });

@@ -14,7 +14,8 @@
 import type { GameState, TroopId, WoundGroup } from '../types';
 import { DAY_LENGTH, WOUND_DAYS } from '../constants';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
-import { BATTLE_MAN, troopPower, troopTotal, type TroopStack } from '../battle/kinds';
+import { BATTLE_MAN, troopTotal, type TroopStack } from '../battle/kinds';
+import { troopPower } from '../battle/price';
 import { bedsTaken, healShare, infirmaryBeds } from '../derived';
 import { log } from './log';
 

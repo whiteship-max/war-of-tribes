@@ -6,7 +6,8 @@ import type { GameState, TroopId } from '@/game/types';
 import type { FigureView, HomeEffect, PlayerProfile } from '@/world/types';
 import type { LocalWorld } from '@/world/local/LocalWorld';
 import { awayOf, homeOf, type Away } from '@/world/muster';
-import { BATTLE_MAN, troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { BATTLE_MAN, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopPower } from '@/game/battle/price';
 import { popGrowth } from '@/game/sim/population';
 import {
   armySize,

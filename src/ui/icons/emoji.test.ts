@@ -68,7 +68,7 @@ const hex = (cp: number): string => `U+${cp.toString(16).toUpperCase()}`;
  * пока его не вычеркнут отсюда. Дописывать сюда нельзя.
  */
 const DEBT: readonly string[] = [
-  'game/data/troops.ts:43 U+1FA83',
+  'game/data/troops.ts:48 U+1FA83',
   'ui/SyncModal.tsx:27 U+1FA9F',
   'ui/map/ActionMenu.tsx:450 U+1FAE5',
   'ui/panels/ReportPanel.tsx:341 U+1FAA6',

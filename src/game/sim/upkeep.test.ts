@@ -9,7 +9,7 @@ import type { GameState, TroopId } from '../types';
 import { createInitialState, SAVE_VERSION } from '../state';
 import { deserialize, enter, serialize } from '../save';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
-import { TROOP_IDS } from '../data/troops';
+import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { QUESTS } from '../data/quests';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN_UNGEARED } from '../data/upkeep';
 import { TAX_PER_POP } from '../data/policy';
@@ -35,7 +35,7 @@ import type { WorldSave } from '@/world/local/state';
 import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
 import { awayOf } from '@/world/muster';
 import type { FigureView, HomeEffect, MarchView } from '@/world/types';
-import { powerWeight, troopTotal } from '../battle/kinds';
+import { troopTotal } from '../battle/kinds';
 
 const DT = 0.5;
 
@@ -98,7 +98,7 @@ describe('жалованье', () => {
     expect(wageShare(s), 'точка внутри области: вера не режет жалованье').toBe(1);
     expect(troopTotal(s.army), 'точка внутри области: мерка непуста').toBeGreaterThan(0);
     expect(WAGE_GEAR, 'точка внутри области: часть за снаряжение есть').toBeGreaterThan(0);
-    const ungeared = TAX_PER_POP * TROOP_IDS.reduce((sum, id) => sum + (MIX[id] ?? 0) * (WAGE_HEAD + WAGE_MAN_UNGEARED * powerWeight(id)), 0);
+    const ungeared = TAX_PER_POP * TROOP_IDS.reduce((sum, id) => sum + (MIX[id] ?? 0) * (WAGE_HEAD + WAGE_MAN_UNGEARED * TROOP_BY_ID[id].grade), 0);
     const now = wagesPerDay(s);
     expect(Math.abs(now / ungeared - 1), `мерка: ${now.toFixed(3)} в день против ${ungeared.toFixed(3)} без части за снаряжение`).toBeLessThan(1e-3);
   });

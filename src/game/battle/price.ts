@@ -1,4 +1,5 @@
-// Цена вида и его вес в бою (слово владельца по 14.35, путь П2; docs/battle_eu4.md, 14.35).
+// Цена вида, его вес в бою и мощь в мире (слово владельца по 14.35, путь П2; docs/battle_eu4.md, 14.35; docs/remeasure.md,
+// пункт 1).
 //
 // **Вес вида в бою — из цены:** столькими бойцами строя голова выходит в бой, во сколько раз её содержание в день дороже
 // содержания дубинщика. Вещи идут в бой только так — через цену вида: своих показателей и морали у них нет, показатели в
@@ -7,20 +8,48 @@
 //
 // **Цена — содержание в день: жалованье и паёк** (решение 14.35, «Цена: одна мера»): размер войска держит оно, а не разовая
 // плата. Жалованье — без доли веры: она одна на всю деревню и цены вида не меняет. Паёк — в золоте своим трудом
-// (`derived.selfCost` еды), у конного рта два (`derived.mouthsOf`).
+// (`selfcost.selfCost` еды), у конного рта два (`mouthsOf`).
 //
-// Весов у вида два: в бою — по цене (здесь), в хозяйстве и мире — по мощи (`kinds.powerWeight`, `BATTLE_MAN`). Долг
-// «свести при перемере мира» записан в 14.35.
+// **Вес у вида один** (пункт 1 пачки 5, docs/remeasure.md): мощь мира — тот же вес в бойцах строя, умноженный на
+// `BATTLE_MAN` (`powerOf`, `troopPower`). Логово и отряды мира переводятся в людей мощью / `BATTLE_MAN`
+// (`garrison.menOfPower`), и мощь игрока теперь та же шкала: «мощь 1000» у логова и у дружины — одна армия в бою. Прежде мир
+// весил вид мощью, заданной рукой (`TroopDef.power`), и латник в мире весил восемь бойцов строя, а в бою — пять с половиной.
+// Рукой теперь задана только ставка жалованья (`TroopDef.grade`) — цена, из которой вес выводится.
 //
-// Модуль лежит отдельно от `kinds.ts` нарочно: цена берётся у `derived.ts`, а тот сам читает `kinds.ts`, — перевод голов в
-// бойцов строя живёт здесь, чтобы круга импортов не было.
+// Модуль стоит ниже `derived.ts`: цену вида он считает сам — жалованье, рты и цену своего труда (`selfcost.ts`), — а
+// `derived` читает у него мощь, жалованье и рты. Круга импортов нет.
 import type { TroopId } from '../types';
-import { TROOP_IDS } from '../data/troops';
+import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { GOOD_BY_ID } from '../data/market';
+import { TAX_PER_POP } from '../data/policy';
+import { HORSE_MOUTHS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from '../data/upkeep';
 import { SOLDIER_FOOD } from '../constants';
-import { baseWage, mouthsOf, selfCost } from '../derived';
-import { KIND_OF, TROOPS_OF_KIND, type TroopStack } from './kinds';
+import { selfCost } from '../selfcost';
+import { BATTLE_MAN, KIND_OF, TROOPS_OF_KIND, gearOfTroop, type TroopStack } from './kinds';
 import { UNIT_KINDS, emptyStack, type Stack, type UnitKind } from '@/battle';
+
+/**
+ * Что на бойце надето, в вещах: предметы кузницы и конь под ним. Из этого считается часть
+ * жалованья — «платят и за снаряжение» (`WAGE_GEAR`, docs/stable.md, решение 4). Своей таблицы
+ * у правила нет: вещи берутся из `TroopDef.gear`, конь — из `mounted`.
+ */
+export const wageGear = (troop: TroopId): number =>
+  gearOfTroop(troop) + (TROOP_BY_ID[troop].mounted ? 1 : 0);
+
+/**
+ * Жалованье бойца этого вида за игровой день без доли веры (`derived.wageShare`): с головы, по ставке вида
+ * (`TroopDef.grade`) и за снаряжение. Им меряется и цена вида, а с ней его вес в бою и мощь в мире: доля веры одна на всю
+ * деревню и цену вида не меняет.
+ */
+export const baseWage = (troop: TroopId): number =>
+  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * TROOP_BY_ID[troop].grade + WAGE_GEAR * wageGear(troop));
+
+/**
+ * Сколько ртов на солдатском пайке. Конь — тоже рот: всадник и его конь едят за двоих, и это
+ * то же правило «кто ест — тот считается», только на конях (docs/stable.md, решение 5).
+ */
+export const mouthsOf = (t: TroopStack): number =>
+  TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * (TROOP_BY_ID[id].mounted ? HORSE_MOUTHS : 1), 0);
 
 /** Вид, в чьём содержании меряется вес: дубинщик — боец строя без единой вещи. */
 export const BASE_TROOP: TroopId = 'clubman';
@@ -30,9 +59,22 @@ export const upkeepOf = (troop: TroopId): number => baseWage(troop) + SOLDIER_FO
 
 /**
  * Вес вида в бою: бойцов строя на голову — его содержание к содержанию дубинщика. Читается из цены при каждом вызове, без
- * запоминания: правка жалованья или мощи вида доходит до боя и до карточки сразу.
+ * запоминания: правка жалованья или ставки вида доходит до боя, до мира и до карточки сразу.
  */
 export const battleWeight = (troop: TroopId): number => upkeepOf(troop) / upkeepOf(BASE_TROOP);
+
+/**
+ * Мощь вида в мире — его вес в бою, в мере мира: `BATTLE_MAN` на бойца строя (дубинщик — 2, как и прежде). Одна шкала с
+ * мощью логова и отрядов мира, которые переводятся в людей делением на `BATTLE_MAN` (`garrison.menOfPower`).
+ */
+export const powerOf = (troop: TroopId): number => BATTLE_MAN * battleWeight(troop);
+
+/**
+ * Мощь состава — сумма мощи каждого бойца: мощь всего войска, тех, кто дома, дружины и лагеря считается этой дверью, а не
+ * средним на число: латник, ушедший в поле, уносит мощь латника, а не мощь среднего бойца (docs/defense_mix.md).
+ */
+export const troopPower = (t: TroopStack): number =>
+  TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * powerOf(id), 0);
 
 /** Сколько бойцов строя даёт n бойцов этого вида. Ноль людей — ноль строя. */
 export const menOf = (troop: TroopId, n: number): number => (n > 0 ? Math.max(1, Math.round(n * battleWeight(troop))) : 0);

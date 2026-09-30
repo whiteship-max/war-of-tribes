@@ -1,6 +1,6 @@
 // Оборона по составу — отчёт `raid-mix:report` (прежде — раздел `raid:report`).
 //
-// Долг закрыт (docs/defense_mix.md): мощь тех, кто дома, — сумма мощи тех, кто дома (`kinds.troopPower`
+// Долг закрыт (docs/defense_mix.md): мощь тех, кто дома, — сумма мощи тех, кто дома (`price.troopPower`
 // над `derived.homeTroops`), а не бойцов дома × средняя мощь всего войска. Числа «по среднему» в игре
 // больше не воспроизводятся: это снимок на коммите ce81e88, где раздел выводил их той же командой.
 //
@@ -40,7 +40,8 @@ import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
 import type { GateCall, GateFoe, PlayerProfile } from '@/world/types';
 import { menOfPower } from '@/world/garrison';
 import { GATE_POP, GATE_POWER, gatePower } from '@/game/data/events';
-import { BATTLE_MAN, troopPower, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { BATTLE_MAN, troopTotal, type TroopStack } from '@/game/battle/kinds';
+import { troopPower } from '@/game/battle/price';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { armySize, defense, faithTilt, homeArmyPower, mutinyForecast } from '@/game/derived';
 import { dismissCheck } from '@/game/sim/upkeep';

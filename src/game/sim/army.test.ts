@@ -9,6 +9,7 @@ import { forgeCheck, startForge } from './smithy';
 import { cancelRecruit, orderEta, recruitCheck, recruitTick, startRecruit } from './army';
 import { assignWorker, changeFreeJob } from './workers';
 import { stalls } from '../derived';
+import { powerOf } from '../battle/price';
 import { study, studyInfo, troopBlock } from './tech';
 import { POINTS_CAP } from '../data/realm';
 import { seeded, setRandom } from './random';
@@ -169,7 +170,7 @@ describe('казармы', () => {
     // Бойцы не вернулись в жители: они больше не добывают и не строят.
     // Прибавка населения за это время — отдельная история, её считаем прямо.
     expect(s.pop).toBe(pop0 - 2 + (s.stats.born - born0));
-    expect(armyPower(s)).toBe(8);
+    expect(armyPower(s)).toBeCloseTo(2 * powerOf('spearman'), 9);
   });
 
   it('нельзя набрать больше, чем есть свободных жителей', () => {

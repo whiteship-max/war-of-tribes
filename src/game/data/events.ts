@@ -32,7 +32,7 @@ import {
   strainNow,
 } from '../derived';
 import { callGate } from '../sim/gate';
-import { troopPower } from '../battle/kinds';
+import { troopPower } from '../battle/price';
 import { menOfPower } from '@/world/garrison';
 import { weakCity } from '@/world/lairs';
 import type { GateFoe } from '@/world/types';

@@ -28,7 +28,7 @@ import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
 import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
-import { kindsOf } from '@/game/battle/price';
+import { kindsOf, powerOf } from '@/game/battle/price';
 import { stackTotal } from '@/battle';
 import {
   AI_ATTACK_MAX,
@@ -49,7 +49,6 @@ import { FATE_META } from '@/world/data/fates';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
 import { buildingStat, defense, housingCapacity, productionPerDay, storageCap, hiddenStash, towerSeats, upgradeCost, wageOf } from '@/game/derived';
-import { TROOP_BY_ID } from '@/game/data/troops';
 import { BUILDINGS } from '@/game/data/buildings';
 import { RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { EngineId, GameState } from '@/game/types';
@@ -1011,13 +1010,13 @@ for (const level of [1, 5, 10]) {
   const own = buildingStat(b, 'defense');
   const all = defense(g);
   const archers = g.army.archer ?? 0;
-  const archerPower = archers * TROOP_BY_ID.archer.power;
+  const archerPower = archers * powerOf('archer');
   const price = Object.values(upgradeCost(tower, level)).reduce((n, v) => n + (v ?? 0), 0);
   console.log(
     `${String(level).padStart(3)}  ${String(own).padStart(13)}  ${String(Math.round(all)).padStart(15)}  ${`${((own / all) * 100).toFixed(1)}%`.padStart(10)}  ` +
       `${String(militiaMen(g)).padStart(9)}  ${String(militiaArchers(g)).padStart(15)}  ${String(archers).padStart(17)}  ` +
       `${`${((archerPower / all) * 100).toFixed(1)}%`.padStart(17)}  ${String(SEATS(level)).padStart(13)}  ` +
-      `${`${((SEATS(level) * TROOP_BY_ID.archer.power / all) * 100).toFixed(1)}%`.padStart(17)}  ${String(price).padStart(19)}`,
+      `${`${((SEATS(level) * powerOf('archer') / all) * 100).toFixed(1)}%`.padStart(17)}  ${String(price).padStart(19)}`,
   );
 }
 console.log('«стрелки» — ополченцы, которых башня уже ставит на стену с луком (`archers` башни, bridge.militiaArchers);');

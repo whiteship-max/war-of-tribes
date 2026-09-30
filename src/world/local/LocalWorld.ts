@@ -13,8 +13,8 @@ import {
   type Stack,
   type UnitKind,
 } from '@/battle';
-import { TROOPS_OF_KIND, troopPower, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
-import { kindsOf, troopLosses } from '@/game/battle/price';
+import { TROOPS_OF_KIND, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { kindsOf, troopLosses, troopPower } from '@/game/battle/price';
 import { TROOP_IDS } from '@/game/data/troops';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';

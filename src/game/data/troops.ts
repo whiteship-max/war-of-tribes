@@ -24,8 +24,13 @@ export interface TroopDef {
   cost: Partial<Record<ResourceId, number>>;
   /** Работа казарм на одного бойца. */
   work: number;
-  /** Вклад в мощь армии и в оборону поселения. */
-  power: number;
+  /**
+   * Ставка жалованья вида — во сколько раз с него платят «за силу» больше, чем с дубинщика (`data/upkeep.WAGE_MAN`). Задана
+   * рукой, как цена; из неё и снаряжения выводится содержание вида, а из содержания — его вес в бою и мощь в мире
+   * (`battle/price`). Прежде поле называлось мощью и весило вид в мире (мощь / 2 — эта ставка); вес у вида теперь один
+   * (docs/remeasure.md, пункт 1).
+   */
+  grade: number;
   /**
    * Конный вид. От этого зависит экономика конницы — конюшня ускоряет его учения
    * и даёт ему ступень снаряжения (см. derived.recruitRate и bridge). В бою род
@@ -45,7 +50,7 @@ export const TROOPS: TroopDef[] = [
     gear: {},
     cost: { food: 10, wood: 4 },
     work: 15,
-    power: 2,
+    grade: 1,
   },
   {
     id: 'spearman',
@@ -56,7 +61,7 @@ export const TROOPS: TroopDef[] = [
     gear: { spear: 1 },
     cost: { food: 14 },
     work: 25,
-    power: 4,
+    grade: 2,
   },
   {
     id: 'archer',
@@ -67,7 +72,7 @@ export const TROOPS: TroopDef[] = [
     gear: { bow: 1 },
     cost: { food: 14, hides: 2 },
     work: 35,
-    power: 5,
+    grade: 2.5,
   },
   {
     id: 'axeman',
@@ -78,7 +83,7 @@ export const TROOPS: TroopDef[] = [
     gear: { axe: 1 },
     cost: { food: 18, wood: 4 },
     work: 45,
-    power: 7,
+    grade: 3.5,
   },
   {
     id: 'swordsman',
@@ -89,7 +94,7 @@ export const TROOPS: TroopDef[] = [
     gear: { sword: 1 },
     cost: { food: 22 },
     work: 60,
-    power: 9,
+    grade: 4.5,
   },
   {
     id: 'shieldman',
@@ -100,7 +105,7 @@ export const TROOPS: TroopDef[] = [
     gear: { sword: 1, shield: 1 },
     cost: { food: 26 },
     work: 75,
-    power: 12,
+    grade: 6,
   },
   {
     id: 'rider',
@@ -111,7 +116,7 @@ export const TROOPS: TroopDef[] = [
     gear: { spear: 1, shield: 1 },
     cost: { food: 40, wood: 8, hides: 12 },
     work: 90,
-    power: 14,
+    grade: 7,
     mounted: true,
   },
   {
@@ -123,7 +128,7 @@ export const TROOPS: TroopDef[] = [
     gear: { spear: 1, shield: 1, armor: 1 },
     cost: { food: 26, wood: 5, hides: 8 },
     work: 103,
-    power: 14,
+    grade: 7,
     mounted: true,
   },
   {
@@ -135,7 +140,7 @@ export const TROOPS: TroopDef[] = [
     gear: { sword: 1, shield: 1, armor: 1 },
     cost: { food: 32, iron: 4 },
     work: 100,
-    power: 16,
+    grade: 8,
   },
 ];
 

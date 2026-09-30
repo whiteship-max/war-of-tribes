@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { isLair, type GenSettlement } from './gen';
 import { lairRaid, lairShield, shieldPower, shieldVillagers } from './lairs';
-import { troopPower } from '@/game/battle/kinds';
+import { troopPower } from '@/game/battle/price';
 import { SIEGE_IMMUNE } from './data/tuning';
 import { LAIRS_GREW_TEXT, WORLD_SAVE_VERSION, parseWorldSave, type StoredMarch, type WorldSave } from './local/state';
 import { applyEffects, playerProfile } from './bridge';
@@ -143,7 +143,7 @@ describe('набег — всё логово через защиту нович�
 
   it('защита слабого — и жителями, и всем войском: малый город с сильным войском логово замечает, хутор с дубинщиками — нет', async () => {
     // Слово владельца по 14.35, п. 6: защита слабого по той же лестнице и войску, без срока. Войско — всё, мощью
-    // (`kinds.troopPower`): хутор с сотней дубинщиков войском слаб и остаётся под защитой.
+    // (`price.troopPower`): хутор с сотней дубинщиков войском слаб и остаётся под защитой.
     const pop = shieldVillagers(0) - 1;
     const strong = { legionary: Math.ceil(shieldPower(0.5) / troopPower({ legionary: 1 })) };
     const hamlet = { clubman: 124 };

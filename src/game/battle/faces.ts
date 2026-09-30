@@ -13,6 +13,7 @@ import type { Face } from '@/battle/replay';
 import { TROOP_BY_ID } from '../data/troops';
 import type { TroopId } from '../types';
 import { KIND_OF, TROOPS_OF_KIND, gearOfTroop, type TroopStack } from './kinds';
+import { battleWeight } from './price';
 
 /**
  * Метка того, кто стоит в строю: вид бойца племени или ополчение. Ополчение —
@@ -48,7 +49,7 @@ export function troopOfKind(kind: UnitKind, tier: number): TroopId | null {
   for (const id of list) {
     const gap = Math.abs(gearOfTroop(id) - tier);
     // При равной разнице побеждает тот, кто дешевле: он и типичнее.
-    if (gap < bestGap || (gap === bestGap && TROOP_BY_ID[id].power < TROOP_BY_ID[best].power)) {
+    if (gap < bestGap || (gap === bestGap && battleWeight(id) < battleWeight(best))) {
       best = id;
       bestGap = gap;
     }

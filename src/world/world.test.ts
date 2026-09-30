@@ -16,16 +16,16 @@ import { stackLosses } from './combat';
 import { resolveField } from './battle';
 import { garrisonOf } from './garrison';
 import { emptySectors, stackTotal, type ArmySetup, type Stack } from '@/battle';
-import { kindsOf } from '@/game/battle/price';
+import { kindsOf, powerOf, troopPower } from '@/game/battle/price';
 import { playerProfile, syncAway, toOutcome } from './bridge';
 import { awayOf, homeOf } from './muster';
 import { FogMap, fogSaveBytes } from './fog';
 import { WORLD_SAVE_VERSION, createWorldSave, parseWorldSave, type WorldSave } from './local/state';
 import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
-import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
+import { TROOP_IDS } from '@/game/data/troops';
 import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
-import { gearOfTroop, troopPower, troopTotal } from '@/game/battle/kinds';
+import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
   HANDOVER_MAX,
@@ -554,10 +554,10 @@ describe('армия в походе', () => {
       armyPower(s) / armySize(s),
       1,
     );
-    const legionary = TROOP_BY_ID.legionary.power;
-    const clubman = TROOP_BY_ID.clubman.power;
-    expect(homeArmyPower(s), 'мощь дома — сумма мощи тех, кто дома').toBe(4 * legionary + 35 * clubman);
-    expect(fullPower - homeArmyPower(s), 'ушедшие унесли свою мощь').toBe(8 * legionary + 5 * clubman);
+    const legionary = powerOf('legionary');
+    const clubman = powerOf('clubman');
+    expect(homeArmyPower(s), 'мощь дома — сумма мощи тех, кто дома').toBeCloseTo(4 * legionary + 35 * clubman, 9);
+    expect(fullPower - homeArmyPower(s), 'ушедшие унесли свою мощь').toBeCloseTo(8 * legionary + 5 * clubman, 9);
     // Оборона — та же мощь плюс то, что дают не бойцы: частокол, башня, жители.
     expect(fullDefense - defense(s), 'оборона просела ровно на мощь ушедших').toBeCloseTo(
       (8 * legionary + 5 * clubman) * (1 + faithTilt(s).steadfast),

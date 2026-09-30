@@ -14,7 +14,6 @@ import {
   profileOfTroop,
   gearOf,
   gearOfTroop,
-  powerWeight,
   troopTotal,
   troopsAfter,
   type TroopStack,
@@ -89,7 +88,7 @@ describe('конница племени', () => {
       Object.values(TROOP_BY_ID[id].gear).reduce((n, v) => n + (v ?? 0), 0);
     const s = createInitialState(7);
     // Граница: сравниваем с пешими того же веса в строю — иначе «дороже» сошлось бы даром.
-    const foot = TROOP_IDS.filter((id) => !TROOP_BY_ID[id].mounted && powerWeight(id) <= powerWeight('rider'));
+    const foot = TROOP_IDS.filter((id) => !TROOP_BY_ID[id].mounted && battleWeight(id) <= battleWeight('rider'));
     expect(foot.length).toBeGreaterThan(3);
     for (const id of foot) {
       const def = TROOP_BY_ID[id];

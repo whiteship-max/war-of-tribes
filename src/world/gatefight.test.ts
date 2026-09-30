@@ -20,7 +20,7 @@ import { groundAt } from './place';
 import { menOfPower } from './garrison';
 import { distance } from './geo';
 import { shieldPower, shieldVillagers } from './lairs';
-import { troopPower } from '@/game/battle/kinds';
+import { troopPower } from '@/game/battle/price';
 import { DAY_LENGTH } from '@/game/constants';
 import { openSky, townAt, type Inside } from '../../scripts/autopilot';
 import { goldFlight } from '../../scripts/pop-gold';

@@ -90,7 +90,7 @@ describe('мощь', () => {
       gear: { spear: 1, shield: 1, armor: 1 },
       cost: { food: 30 },
       work: 80,
-      power: 20,
+      grade: 10,
     };
 
     withTroop(fake, 'cavalry', () => {

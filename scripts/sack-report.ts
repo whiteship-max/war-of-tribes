@@ -43,7 +43,7 @@
 // Ручки `HOURS=` больше нет: окно прогона грабежа выведено из круга похода,
 // а не задаётся снаружи (`RAID_WINDOW_MS` ниже).
 import { lairPower, lairRaid } from '@/world/lairs';
-import { troopPower } from '@/game/battle/kinds';
+import { troopPower } from '@/game/battle/price';
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
 import { distance, marchSeconds, terrainFactor } from '@/world/geo';
 import { generateWorld, isLair } from '@/world/gen';

@@ -30,7 +30,6 @@ import {
   CRAFTER_BUILD,
   DAY_LENGTH,
   FREE_RANGE_MULT,
-  LEVEL_OUTPUT_STEP,
   MAX_BUILDING_LEVEL,
   MORALE_BASE,
   MORALE_OUTPUT_LOW,
@@ -78,9 +77,11 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } 
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
-import { DESERT_SHARE, HORSE_MOUTHS, MASTER_PAID_AS, UPKEEP_TEXT, WAGE_GEAR, WAGE_HEAD, WAGE_MAN } from './data/upkeep';
-import { BATTLE_MAN, gearOfTroop, powerWeight, troopPower, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
-import { DECREE_BY_ID, RATION_BY_ID, TAXES, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
+import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
+import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
+import { baseWage, mouthsOf, troopPower } from './battle/price';
+import { levelOutputMult } from './selfcost';
+import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
   BONDED_SALE,
@@ -88,9 +89,7 @@ import {
   CARAVAN_FLOOR,
   CARAVAN_PER_LEVEL,
   GOODS,
-  GOOD_BY_ID,
   batchCost,
-  goodMaterials,
   goodPrice,
   goodStock,
   offerFor,
@@ -138,8 +137,8 @@ export const currentSite = (s: GameState): Building | null => s.buildings.find(i
 
 // ---------- Уровни, слоты, улучшения ----------
 
-/** Множитель выработки рабочего от уровня здания: +`LEVEL_OUTPUT_STEP` за уровень. */
-export const levelOutputMult = (level: number): number => 1 + LEVEL_OUTPUT_STEP * Math.max(0, level - 1);
+/** Множитель выработки рабочего от уровня здания — в `selfcost.ts` (его читает цена своего труда), отсюда тем же именем. */
+export { levelOutputMult } from './selfcost';
 
 /**
  * Рабочих мест в здании. Личного навыка у жителя нет — всю его роль взял на себя
@@ -455,48 +454,8 @@ export function caravanProgress(s: GameState, c: Caravan): number {
   return Math.max(0, Math.min(1, (s.time - c.departAt) / total));
 }
 
-/**
- * Во что единица товара обходится своим трудом, в золоте.
- *
- * Считается из собственных чисел игры: человек за день приносит казне
- * `bestTaxPerPop` золота, а тот же человек на своём месте в здании
- * `REFERENCE_LEVEL` уровня добывает `yield * levelOutputMult` единиц товара.
- * Отношение и есть «цена своего труда» — с ней сравнивается цена рынка,
- * и рынок обязан быть дороже (см. MIN_MARKUP и тест).
- *
- * Для снаряжения своим трудом считается стоимость материалов: работу кузнеца
- * рынок сверху и накидывает.
- */
-const REFERENCE_LEVEL = 5;
-
-const bestTaxPerPop = (): number => Math.max(...TAXES.map((t) => t.perPop)) * TAX_PER_POP;
-
-/** Лучшая дневная добыча одного работника по этому ресурсу — эталон «сделать самому». */
-function bestYieldPerWorker(r: ResourceId): number {
-  let best = 0;
-  for (const job of JOBS) {
-    const y = job.yield[r] ?? 0;
-    if (y > best) best = y;
-  }
-  return best * levelOutputMult(REFERENCE_LEVEL);
-}
-
-export function selfCost(def: GoodDef): number {
-  // Людей своим трудом не производят: прирост племени бесплатен и медленен, и
-  // сравнивать цену невольника с ним не с чем. Его цена меряется его же работой —
-  // окупаемостью, и считает её `npm run order:report`, а держит тест.
-  if (def.kind === 'bonded') return 0;
-  if (def.resource) {
-    const per = bestYieldPerWorker(def.resource);
-    return per > 0 ? bestTaxPerPop() / per : 0;
-  }
-  let sum = 0;
-  for (const [r, n] of Object.entries(goodMaterials(def))) {
-    const g = GOOD_BY_ID[r];
-    if (g && n) sum += g.price * n;
-  }
-  return sum;
-}
+/** Во что единица товара обходится своим трудом, в золоте, — в `selfcost.ts` (её читает цена вида), отсюда тем же именем. */
+export { selfCost } from './selfcost';
 
 // ---------- Армия ----------
 
@@ -522,7 +481,7 @@ export const homeTroops = (s: GameState): TroopStack => troopsAfter(s.army ?? {}
 export const homeArmy = (s: GameState): number => troopTotal(homeTroops(s));
 
 /**
- * Мощь тех, кто дома, — сумма мощи тех, кто дома (`kinds.troopPower`). Прежде она
+ * Мощь тех, кто дома, — сумма мощи тех, кто дома (`price.troopPower`). Прежде она
  * была долей всей мощи по числу оставшихся, и полководец, уведший латников, оставлял
  * дома «средних бойцов»: показанная оборона выходила на 39 % выше настоящей, а
  * уведший лёгких — на 31 % ниже (docs/defense_mix.md, раздел 1).
@@ -614,12 +573,8 @@ export function soldierMouths(s: GameState): { army: TroopStack; recruits: Troop
   return { army, recruits, wounded };
 }
 
-/**
- * Сколько ртов на солдатском пайке. Конь — тоже рот: всадник и его конь едят за двоих, и это
- * то же правило «кто ест — тот считается», только на конях (docs/stable.md, решение 5).
- */
-export const mouthsOf = (t: TroopStack): number =>
-  TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * (TROOP_BY_ID[id].mounted ? HORSE_MOUTHS : 1), 0);
+/** Сколько ртов на солдатском пайке, с конями, — в `battle/price.ts` (их читает цена вида), отсюда тем же именем. */
+export { mouthsOf } from './battle/price';
 
 /** Сколько ртов на солдатском пайке — сумма `soldierMouths` вместе с конями. */
 export function mouthCount(s: GameState): number {
@@ -781,19 +736,10 @@ export function wageShare(s: GameState): number {
 
 /** Жалованье одного бойца этого вида за игровой день, золотом. */
 /**
- * Что на бойце надето, в вещах: предметы кузницы и конь под ним. Из этого считается часть
- * жалованья — «платят и за снаряжение» (`WAGE_GEAR`, docs/stable.md, решение 4). Своей таблицы
- * у правила нет: вещи берутся из `TroopDef.gear`, конь — из `mounted`.
+ * Жалованье бойца этого вида за игровой день без доли веры и «что на нём надето» — в `battle/price.ts`: жалованье — часть
+ * цены вида, а цена — его вес в бою и мощь в мире. Отсюда тем же именем.
  */
-export const wageGear = (troop: TroopId): number =>
-  gearOfTroop(troop) + (TROOP_BY_ID[troop].mounted ? 1 : 0);
-
-/**
- * Жалованье бойца этого вида за игровой день без доли веры (`wageShare`): с головы, с бойца строя по мощи и за снаряжение.
- * Им меряется и цена вида, а с ней его вес в бою (`game/battle/price`): доля веры одна на всю деревню и цену вида не меняет.
- */
-export const baseWage = (troop: TroopId): number =>
-  TAX_PER_POP * (WAGE_HEAD + WAGE_MAN * powerWeight(troop) + WAGE_GEAR * wageGear(troop));
+export { baseWage, wageGear } from './battle/price';
 
 export const wageOf = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s);
 
