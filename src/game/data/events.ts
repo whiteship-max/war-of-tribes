@@ -124,8 +124,8 @@ const crowd = (s: GameState, share: number, min: number): number =>
  * (`sim/gate`, `LocalWorld.gateFight`; docs/battle_eu4.md, 14.28).
  */
 export const GATE_POWER: Record<GateFoe, readonly number[]> = {
-  wolves: [133, 227, 365, 514, 827, 1477, 1985, 2130, 2171, 2683],
-  raiders: [222, 383, 554, 712, 880, 1239, 1402, 1563, 1751, 2020],
+  wolves: [134, 228, 366, 514, 818, 1548, 2088, 2182, 2273, 2590],
+  raiders: [226, 388, 563, 725, 889, 1274, 1474, 1569, 1804, 2009],
 };
 
 /**
