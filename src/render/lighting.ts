@@ -54,6 +54,9 @@ export interface RigLook {
   hemi: { day: number; night: number };
   /** Цвет луны. */
   moon: number;
+  /** Полусфера днём: небо сверху и отсвет снизу. */
+  hemiSkyDay: number;
+  hemiGroundDay: number;
   /** Полусфера ночью: небо сверху и отсвет снизу. */
   hemiSkyNight: number;
   hemiGroundNight: number;
@@ -77,6 +80,8 @@ export const RIG: Record<Look, RigLook> = {
     sun: { day: 3.2, night: 1.0 },
     hemi: { day: 1.1, night: 0.6 },
     moon: PALETTE.moon,
+    hemiSkyDay: PALETTE.hemiSky,
+    hemiGroundDay: PALETTE.hemiGround,
     hemiSkyNight: PALETTE.hemiSkyNight,
     hemiGroundNight: PALETTE.hemiGroundNight,
     skyNight: PALETTE.skyNight,
@@ -88,6 +93,8 @@ export const RIG: Record<Look, RigLook> = {
     sun: { day: 3.2, night: 1.7 },
     hemi: { day: 1.1, night: 1.35 },
     moon: PALETTE.moonlight,
+    hemiSkyDay: PALETTE.hemiSkyWarm,
+    hemiGroundDay: PALETTE.hemiGroundWarm,
     hemiSkyNight: PALETTE.nightFill,
     hemiGroundNight: PALETTE.nightBounce,
     skyNight: PALETTE.nightSky,
@@ -188,16 +195,16 @@ export function fitShadow(rig: LightRig, half: number): void {
 
 const C_SKY_DUSK = new THREE.Color(PALETTE.skyDusk);
 const C_SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
-const C_HEMI_SKY = new THREE.Color(PALETTE.hemiSky);
-const C_HEMI_GROUND = new THREE.Color(PALETTE.hemiGround);
 
-/** Ночные цвета вида — один раз на вид, а не на кадр. */
+/** Ночные цвета вида и его полусфера дня — один раз на вид, а не на кадр. */
 interface NightColors {
   sky: THREE.Color;
   fog: THREE.Color;
   moon: THREE.Color;
   hemiSky: THREE.Color;
   hemiGround: THREE.Color;
+  daySky: THREE.Color;
+  dayGround: THREE.Color;
 }
 const nightColors = new Map<RigLook, NightColors>();
 function nightOf(look: RigLook): NightColors {
@@ -209,6 +216,8 @@ function nightOf(look: RigLook): NightColors {
       moon: new THREE.Color(look.moon),
       hemiSky: new THREE.Color(look.hemiSkyNight),
       hemiGround: new THREE.Color(look.hemiGroundNight),
+      daySky: new THREE.Color(look.hemiSkyDay),
+      dayGround: new THREE.Color(look.hemiGroundDay),
     };
     nightColors.set(look, c);
   }
@@ -268,8 +277,8 @@ export function applyDayNight(
   rig.sun.color.copy(TMP_A.copy(season.sun).lerp(C_SUN_DUSK, dusk)).lerp(night.moon, nightK);
 
   rig.hemi.intensity = look.hemi.night + (look.hemi.day - look.hemi.night) * daylight;
-  rig.hemi.color.copy(night.hemiSky).lerp(C_HEMI_SKY, daylight);
-  rig.hemi.groundColor.copy(night.hemiGround).lerp(C_HEMI_GROUND, daylight);
+  rig.hemi.color.copy(night.hemiSky).lerp(night.daySky, daylight);
+  rig.hemi.groundColor.copy(night.hemiGround).lerp(night.dayGround, daylight);
 
   const sky = TMP_A.copy(night.sky).lerp(season.sky, daylight).lerp(C_SKY_DUSK, dusk * 0.6);
   const haze = TMP_B.copy(night.fog).lerp(season.fog, daylight).lerp(C_SKY_DUSK, dusk * 0.45);
