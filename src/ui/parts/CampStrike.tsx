@@ -59,7 +59,7 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
                   }${plan.seconds > 0 ? ' — если до прихода проход не займут' : ''}. Разобьёшь — осада снята.`}
           </i>
           {plan?.can && plan.garrisonable && !garrison && (
-            // Без прогноза исхода — его в игре нет нигде (CLAUDE.md, «Подготовка боя и отчёт»): только кто бьёт и чем ещё
+            // Без прогноза исхода — его в игре нет нигде (docs/handbook/battle.md, «Подготовка боя и отчёт»): только кто бьёт и чем ещё
             // можно ударить (слово владельца, docs/battle_eu4.md, 14.35).
             <i>{REAR_ALONE}</i>
           )}
