@@ -38,6 +38,8 @@ export interface GoldRow {
   armyWages: number;
   mastersWages: number;
   income: number;
+  /** Казна к сроку, золото. */
+  gold: number;
   wage: number;
   inSoldiers: number;
   /** Бои у ворот по вызову (волки, разбойники) за прогон: сколько, сколько проиграно и сколько бойцов пало. */
@@ -130,6 +132,7 @@ export async function goldRun(arg: { masters: boolean; seconds: number; stream: 
     armyWages: up.armyWages,
     mastersWages: up.mastersWages,
     income: up.income,
+    gold: g.gold,
     wage: mi.wage,
     inSoldiers: mi.inSoldiers,
     gates,
@@ -181,6 +184,9 @@ export async function goldStreams(seconds: number, streams: number): Promise<voi
   ] as const) {
     console.log(`  ${label}: жители — ${spread(list.map((r) => r.pop))}`);
     console.log(`  ${label}: войско — ${spread(list.map((r) => r.army))}`);
+    console.log(`  ${label}: казна, золото — ${spread(list.map((r) => Math.round(r.gold)))}`);
+    const med = (pick: (r: GoldRow) => number): string => median(list.map(pick)).toFixed(1);
+    console.log(`  ${label}: золото в день, медиана — налог ${med((r) => r.income)}, жалованье войску ${med((r) => r.armyWages)}, мастерам ${med((r) => r.mastersWages)}`);
     const all: GoldRow['gates'] = {};
     for (const r of list) {
       for (const [f, x] of Object.entries(r.gates) as [GateFoe, { fights: number; lost: number; fell: number }][]) {
