@@ -7,10 +7,12 @@ import {
   GFX_AUTO_KEY,
   GFX_DEFAULT,
   GFX_KEY,
+  GFX_QUALITIES,
   autoCap,
   autoCapOf,
   capQuality,
   gfx,
+  gfxKey,
   gfxOf,
   rememberAutoCap,
   sceneGfx,
@@ -63,6 +65,21 @@ describe('что рисовать', () => {
     // Ступени предыстории (`?look=lite`) — не вид посёлка.
     expect(sceneGfx(g, '?look=lite').look).toBe('now');
     expect(mem.size).toBe(0);
+  });
+});
+
+describe('когда пересобирать сцену', () => {
+  it('ключ меняется со сменой вида и уровня нового вида, а уровень прежнего вида — не повод', () => {
+    expect(gfxKey({ look: 'now', quality: 'auto' }, '')).toBe('now');
+    expect(gfxKey({ look: 'now', quality: 'high' }, '')).toBe('now');
+    expect(gfxKey({ look: 'next', quality: 'auto' }, '')).toBe('next:auto');
+    expect(gfxKey({ look: 'next', quality: 'low' }, '')).toBe('next:low');
+    // Адрес сильнее записи: при ?look=next запись вида ключа не меняет.
+    expect(gfxKey({ look: 'now', quality: 'auto' }, '?look=next')).toBe('next:auto');
+  });
+
+  it('кнопки уровня — все уровни и «авто», по разу', () => {
+    expect(GFX_QUALITIES.map(([q]) => q)).toEqual(['auto', 'low', 'medium', 'high']);
   });
 });
 

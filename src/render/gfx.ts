@@ -28,6 +28,23 @@ export interface Gfx {
 
 export const GFX_DEFAULT: Gfx = { look: 'now', quality: 'auto' };
 
+/** Уровни в пункте «Графика» — порядок кнопок и их слова. */
+export const GFX_QUALITIES: readonly (readonly [GfxQuality, string])[] = [
+  ['auto', 'Авто'],
+  ['low', 'Низкая'],
+  ['medium', 'Средняя'],
+  ['high', 'Высокая'],
+];
+
+/**
+ * Ключ того, что рисует сцена при этом выборе и адресе: сменился — сцену пересобирают
+ * (`ui/GameCanvas`). У прежнего вида уровень не читается — его смена ключа не меняет.
+ */
+export function gfxKey(g: Gfx, search: string): string {
+  const s = sceneGfx(g, search);
+  return s.look === 'next' ? `next:${s.quality ?? 'auto'}` : 'now';
+}
+
 /** Выбор игрока. Пишет его только пункт «Графика» (`setGfx`) — тест «рычаг один». */
 export const GFX_KEY = 'tribe.gfx';
 
