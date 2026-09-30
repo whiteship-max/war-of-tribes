@@ -40,7 +40,44 @@ const ROAD_MAT = (): THREE.Material => VILLAGE_MAT.paved;
  * Полуширина мостовой. Шире тропинки, но не вдвое: широкая бурая улица на
  * портретном кадре весила больше домов вокруг неё.
  */
-const ROAD_WIDTH = ROAD_HALF * 1.55;
+export const ROAD_WIDTH = ROAD_HALF * 1.55;
+
+/** Кольцевая дорога плана: радиус и полуширина полотна. */
+export interface RoadRing {
+  r: number;
+  half: number;
+}
+
+/** Прямая дорога вдоль радиуса: угол, откуда и докуда, полуширина полотна. */
+export interface RoadLine {
+  angle: number;
+  from: number;
+  to: number;
+  half: number;
+}
+
+/**
+ * Какие дороги лежат при этом наборе построек. Одна правда на две стороны: по ней
+ * кладёт мостовую `buildVillage` и по ней же окружение пробы (`render/env`) не пускает
+ * траву на полотно и вытаптывает обочины.
+ */
+export function roadLayout(present: BuildingTypeId[]): { plaza: number; rings: RoadRing[]; lines: RoadLine[] } {
+  const has = new Set(present);
+  const half = ROAD_WIDTH;
+  const rings: RoadRing[] = [{ r: PLAZA_ROAD, half }];
+  // Окружная появляется, когда есть кому по ней ходить.
+  if ([...has].some((type) => PLAN[type]?.ring === 3)) rings.push({ r: OUTER_ROAD, half });
+  // Просёлок по угодьям появляется вместе с первым двором за стеной.
+  if ([...has].some((type) => PLAN[type]?.ring === OUTSIDE_RING)) rings.push({ r: FIELD_ROAD, half: half * 0.8 });
+  // Пока стены нет, улице некуда вести: доводим её до окружной, а не в чистое поле.
+  const gateTo = has.has('palisade') ? GATE_ROAD.to : OUTER_ROAD;
+  const lines: RoadLine[] = [{ angle: GATE_ROAD.angle, from: GATE_ROAD.from, to: gateTo, half }];
+  for (const type of present) {
+    const spur = spurFor(type);
+    if (spur) lines.push({ angle: spur.angle, from: spur.from, to: spur.to, half: half * 0.8 });
+  }
+  return { plaza: PLAZA_RADIUS + 0.5, rings, lines };
+}
 
 const flat = (geo: THREE.BufferGeometry, mat: THREE.Material, y: number): THREE.Mesh => {
   const m = new THREE.Mesh(geo, mat);
@@ -320,30 +357,19 @@ export function buildVillage({ present, built = [] }: VillageOptions): THREE.Gro
   roads.name = 'roads';
   root.add(roads);
   const mat = ROAD_MAT();
-  const half = ROAD_WIDTH;
   const has = new Set(present);
+  const layout = roadLayout(present);
 
   // Площадь: мощёный круг под костром.
-  roads.add(flat(new THREE.CircleGeometry(PLAZA_RADIUS + 0.5, 32), mat, 0.03));
+  roads.add(flat(new THREE.CircleGeometry(layout.plaza, 32), mat, 0.03));
   const wellSpot = spotAt(1.55, GATE_ANGLE + Math.PI * 0.62);
   const w = well();
   w.position.set(wellSpot.x, 0, wellSpot.z);
   decor.add(w);
 
-  // Дороги плана. Окружная появляется, когда есть кому по ней ходить.
-  roads.add(roadRing(PLAZA_ROAD, half, mat, 0.045));
-  const outerNeeded = [...has].some((type) => PLAN[type]?.ring === 3);
-  if (outerNeeded) roads.add(roadRing(OUTER_ROAD, half, mat, 0.045));
-  // Просёлок по угодьям появляется вместе с первым двором за стеной.
-  const fieldNeeded = [...has].some((type) => PLAN[type]?.ring === OUTSIDE_RING);
-  if (fieldNeeded) roads.add(roadRing(FIELD_ROAD, half * 0.8, mat, 0.045));
-  // Пока стены нет, улице некуда вести: доводим её до окружной, а не в чистое поле.
-  const gateTo = has.has('palisade') ? GATE_ROAD.to : OUTER_ROAD;
-  roads.add(roadSpur(GATE_ROAD.angle, GATE_ROAD.from, gateTo, half, mat, 0.05));
-  for (const type of present) {
-    const spur = spurFor(type);
-    if (spur) roads.add(roadSpur(spur.angle, spur.from, spur.to, half * 0.8, mat, 0.05));
-  }
+  // Дороги плана: кольца, потом улица от ворот и отводы к зданиям (`roadLayout`).
+  for (const ring of layout.rings) roads.add(roadRing(ring.r, ring.half, mat, 0.045));
+  for (const line of layout.lines) roads.add(roadSpur(line.angle, line.from, line.to, line.half, mat, 0.05));
 
   // Пустые места плана: разметки на них нет, но посёлок на них живёт — поленницы,
   // бочки, телеги, сушила. Место под будущий дом не размечено, оно просто занято

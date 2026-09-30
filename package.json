@@ -39,7 +39,8 @@
     "icons:build": "vite-node scripts/build-icons.ts",
     "emoji:build": "node scripts/build-emoji.mjs",
     "world:build": "node scripts/build-world.mjs",
-    "map:shots": "vite-node scripts/map-shots.ts"
+    "map:shots": "vite-node scripts/map-shots.ts",
+    "village:shots": "vite-node scripts/village-shots.ts"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.3",

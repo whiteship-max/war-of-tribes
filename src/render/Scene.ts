@@ -15,6 +15,7 @@ import {
 } from '@/game/derived';
 import { TROOP_IDS } from '@/game/data/troops';
 import { RESOURCE_IDS } from '@/game/constants';
+import { gameSeconds } from '@/game/pace';
 import { buildTerrain } from './terrain';
 import { OUTSKIRTS_RADIUS, PLAN_SCALE, WALL_RADIUS, placeOf } from './plan';
 import { buildVillage } from './village';
@@ -35,20 +36,28 @@ import { SeasonVisuals } from './season';
 import { CHIMNEY_LOOK, Smoke, Snowfall, chimneySmoke, type SmokeSource } from './weather';
 import { SMOKE_HEIGHT, WORK_SIGN, WorkSigns, type LoadKind } from './worksigns';
 import {
+  RIG,
+  SHADOW_MAP,
   applyDayNight,
   configureRenderer,
   configureSky,
   createLightRig,
+  fireGlow,
   fireIntensity,
   fitShadow,
+  type DayLight,
   type LightRig,
+  type Look,
 } from './lighting';
 import { PALETTE } from './palette';
+import { DECAL } from './materials';
 import { disposeGeometries } from './kit';
 import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/gestures';
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { AZIMUTH, PAN_STEP_MAX, clampPan, framing, zoomRange } from './camera';
-import { FrameLoop, pageHidden, pixelRatio } from './loop';
+import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
+import { QUALITY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
+import type { BuildEnv, EnvWorld } from './env';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
 
@@ -156,6 +165,39 @@ export const RESTORE_WAIT = 3000;
 
 let active: TribeScene | null = null;
 export const activeScene = (): TribeScene | null => active;
+
+/**
+ * Вид и уровень качества сцены. Игра их не передаёт — и рисует нынешний вид, как до
+ * пробы; стенд передаёт (`?showcase=village&look=next&quality=low`). Уровень качества
+ * действует только на вид `next`: у нынешнего кадра свои числа, и проба их не трогает.
+ */
+export interface SceneLook {
+  look?: Look;
+  /** `null` — по устройству (`quality.autoQuality`). */
+  quality?: Quality | null;
+}
+
+/**
+ * Что умеет устройство — единственное место, где сцена спрашивает об этом браузер.
+ * Под заглушкой GL (`tap:report`) имени видеокарты нет, и это не ошибка: `gpu` — `null`.
+ */
+function readCaps(gl: WebGLRenderingContext | WebGL2RenderingContext): DeviceCaps {
+  const nav = (typeof navigator === 'undefined' ? {} : navigator) as { deviceMemory?: number; hardwareConcurrency?: number };
+  let gpu: string | null = null;
+  try {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_RENDERER_WEBGL: number } | null;
+    const name = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null;
+    gpu = typeof name === 'string' ? name : null;
+  } catch {
+    gpu = null;
+  }
+  return {
+    coarse: typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches,
+    memory: typeof nav.deviceMemory === 'number' ? nav.deviceMemory : null,
+    cores: typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : null,
+    gpu,
+  };
+}
 
 export class TribeScene {
   private renderer: THREE.WebGLRenderer;
@@ -284,16 +326,42 @@ export class TribeScene {
   private spinTurn = 0;
   /** После ручного движения камеру больше не переставляем. */
   private userMoved = false;
+  /** Вид: нынешний или проба окружения (`lighting.Look`). */
+  private look: Look;
+  /** Уровень качества пробы; у нынешнего вида не читается. */
+  readonly quality: Quality;
+  /**
+   * Окружение пробы: земля, трава, лес, мелочь (`render/env`). Едет своим куском после
+   * первого кадра — в первую загрузку не входит; до его прихода стоит прежняя земля.
+   */
+  private env: EnvWorld | null = null;
+  /** Что насчитал свет последнего кадра: доля дня и ночи. */
+  private light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
+  /** Посёлок, под который лежит земля окружения: заново — только при смене построек. */
+  private envVillage: { present: BuildingTypeId[]; built: { type: BuildingTypeId; tier: Tier }[] } | null = null;
+  /**
+   * Сцена готова к снимку: у вида `now` — сразу, у `next` — когда приехало и встало
+   * окружение. Стенд ждёт этого, прежде чем снимать.
+   */
+  readonly ready: Promise<void>;
+  /** Зовётся прямо перед render() — стенд меряет им время видеокарты на кадр. */
+  beforeRender: (() => void) | null = null;
 
   /**
    * pixelRatio — принудительная плотность пикселей (стенд); по умолчанию — экрана,
    * в [1, 2]. Выше потолка двери кадра (`loop.DPR_CAP`) не бывает ни та, ни другая.
    */
-  constructor(private canvas: HTMLCanvasElement, private pixelRatio: number | null = null) {
+  constructor(private canvas: HTMLCanvasElement, private pixelRatio: number | null = null, opts: SceneLook = {}) {
+    this.look = opts.look ?? 'now';
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    // Нынешний вид уровня не читает, и устройство у игрока о нём не спрашивается.
+    this.quality = opts.quality ?? (this.look === 'next' ? autoQuality(readCaps(this.renderer.getContext())) : 'medium');
     // На 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое — отсюда потолок.
     this.renderer.setPixelRatio(this.dpr());
     configureRenderer(this.renderer);
+    // Жёсткая тень на низком уровне: одна выборка карты вместо девяти (0 — BasicShadowMap;
+    // числом, а не именем three: имя дописалось бы в первую загрузку).
+    if (this.look === 'next' && !QUALITY[this.quality].shadowSoft) this.renderer.shadowMap.type = 0;
     configureSky(this.scene);
     // Честный счёт вызовов: при autoReset счётчик сбрасывается после теневого
     // прохода, и stats() занижал бы бюджет вдвое. Сбрасываем сами перед кадром.
@@ -323,7 +391,7 @@ export class TribeScene {
     // Прокрутку страницы под холстом гасим сами: полагаться теперь не на кого.
     canvas.style.touchAction = 'none';
 
-    this.rig = createLightRig(this.scene);
+    this.rig = createLightRig(this.scene, this.look === 'next' ? QUALITY[this.quality].shadowMap : SHADOW_MAP);
 
     this.fireLight = new THREE.PointLight(PALETTE.fireLight, 0.6, 14, 1.6);
     this.fireLight.position.set(0, 1.0, 0);
@@ -331,6 +399,9 @@ export class TribeScene {
 
     this.terrain = buildTerrain();
     this.scene.add(this.terrain);
+    // Окружение пробы едет своим куском: в первую загрузку игры оно не входит, а до его
+    // прихода сцена стоит на прежней земле — первый кадр не ждёт ничего.
+    this.ready = this.look === 'next' ? import('./env').then((m) => this.mountEnv(m.buildEnv)) : Promise.resolve();
     this.scene.add(this.figures.group);
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
@@ -537,7 +608,24 @@ export class TribeScene {
   }
 
   private dpr(): number {
+    // Вид `next` берёт плотность своего уровня качества — не выше экрана (или той, что
+    // задал стенд вместо экрана) и не выше потолка двери кадра.
+    if (this.look === 'next') return pixelRatio(qualityDpr(this.quality, this.pixelRatio ?? deviceRatio()));
     return pixelRatio(this.pixelRatio);
+  }
+
+  /**
+   * Приехало окружение пробы: оно встаёт на место прежней земли с лесом. Сцену могли
+   * выгрузить, пока кусок ехал, — тогда ставить некуда.
+   */
+  private mountEnv(build: BuildEnv): void {
+    if (this.disposed) return;
+    const env = build({ quality: this.quality, season: this.seasonVis, village: this.envVillage });
+    this.scene.remove(this.terrain);
+    disposeGeometries(this.terrain);
+    this.env = env;
+    this.terrain = env.group;
+    this.scene.add(this.terrain);
   }
 
   /**
@@ -725,6 +813,9 @@ export class TribeScene {
     this.disposed = true;
     if (active === this) active = null;
     this.beat.stop();
+    // Материалы и текстуры окружения свои у каждой сцены (не модульные): их отдаёт оно само.
+    this.env?.dispose();
+    this.env = null;
     this.clearWait();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
@@ -1338,11 +1429,23 @@ export class TribeScene {
     const key = `${present.join(',')}|${built.map((b) => `${b.type}:${b.tier}`).join(',')}`;
     if (key === this.villageKey && this.village) return;
     this.villageKey = key;
+    // Земля окружения знает, где стоят дома и дороги: трава к ним не подходит, земля у
+    // них вытоптана. Меняется это с той же редкостью, что обстановка.
+    this.envVillage = { present, built };
+    this.env?.setVillage(this.envVillage);
     if (this.village) {
       this.scene.remove(this.village);
       disposeGeometries(this.village);
     }
     this.village = buildVillage({ present, built });
+    // У пробы вытоптанную землю под домами рисует сама земля (`env/rules.groundMap`):
+    // прежняя полупрозрачная декаль легла бы поверх второй бурой кляксой. Пятно тени
+    // под зданием остаётся — оно сажает дом в землю.
+    if (this.look === 'next') {
+      this.village.getObjectByName('decals')?.children.forEach((m) => {
+        if ((m as THREE.Mesh).material === DECAL.trample) m.visible = false;
+      });
+    }
     this.scene.add(this.village);
   }
 
@@ -1441,7 +1544,10 @@ export class TribeScene {
     if (this.lent) return;
     const t = this.clock.elapsedTime;
 
-    const gameNow = this.gameTime + (performance.now() - this.gameTimeAt) / 1000;
+    // Между пульсами время партии тянется само — настоящие секунды переводит в игровые
+    // дверь времени. Прежде здесь стояли настоящие секунды как игровые: между пульсами
+    // солнце бежало в тридцать раз быстрее и на каждом пульсе отскакивало назад.
+    const gameNow = this.gameTime + gameSeconds((performance.now() - this.gameTimeAt) / 1000);
     // Сезон переливает палитру сам, а фаза солнца уже учитывает длинную зимнюю ночь.
     this.seasonVis.update(this.season, dt);
     const solar = solarPhase(dayFraction(gameNow), this.season);
@@ -1484,7 +1590,7 @@ export class TribeScene {
     for (const view of this.buildings.values()) {
       if (view.glow?.visible) view.glow.scale.setScalar(1 + Math.sin(t * 7 + view.markerY) * 0.14);
     }
-    this.fireLight.intensity = fireIntensity(night, t);
+    this.fireLight.intensity = this.look === 'next' ? fireGlow(this.light.nightK, t) : fireIntensity(night, t);
 
     // Камера сама по себе не двигается: её ведёт палец. Крутится она ровно в
     // одном случае — под замером частоты кадров на стенде.
@@ -1492,8 +1598,19 @@ export class TribeScene {
       this.spinTurn += this.spinRate * dt;
       this.place();
     }
+    if (this.env) {
+      const fog = this.scene.fog as THREE.Fog | null;
+      this.env.update({
+        t,
+        camera: this.camera,
+        sun: this.rig.sun.position,
+        light: this.light,
+        fogFar: fog?.far ?? this.camera.far,
+      });
+    }
     this.renderer.info.reset();
     this.renderer.shadowMap.needsUpdate = (this.frameNo++ & 1) === 0;
+    this.beforeRender?.();
     this.renderer.render(this.scene, this.camera);
     this.afterRender?.();
   }
@@ -1501,7 +1618,7 @@ export class TribeScene {
   /** solar: 0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — глубокая ночь. */
   private applyDayNight(solar: number): void {
     if (this.silhouette) return;
-    applyDayNight(this.rig, this.scene, solar, this.seasonVis);
+    this.light = applyDayNight(this.rig, this.scene, solar, this.seasonVis, undefined, RIG[this.look]);
   }
 
   // ---------- Стенд-витрина ----------
@@ -1519,6 +1636,34 @@ export class TribeScene {
     this.spinRate = on ? (degPerSec * Math.PI) / 180 : 0;
     if (!on) this.spinTurn = 0;
     this.place();
+  }
+
+  /**
+   * Стенд: камера над точкой земли. `dist` — расстояние до цели в пределах приближения;
+   * `null` — кадровое. Игроку этот рычаг не достаётся: жест двигает те же числа сам.
+   */
+  standView(x: number, z: number, dist: number | null): void {
+    this.userMoved = true;
+    this.target.x = x;
+    this.target.z = z;
+    this.leash();
+    if (dist !== null) this.dist = Math.min(Math.max(dist, this.zoom.min), this.zoom.max);
+    this.place();
+  }
+
+  /** Пол и потолок приближения нынешнего кадра — стенду, чтобы просить ближний план. */
+  zoomLimits(): { min: number; max: number } {
+    return { ...this.zoom };
+  }
+
+  /**
+   * Память текстур, байты: карта теней (цвет и глубина — по четыре байта на тексель), значки
+   * над крышами и текстуры окружения. Счёт, а не догадка: размеры знает сама сцена.
+   */
+  textureBytes(): number {
+    const shadow = this.renderer.shadowMap.enabled ? this.rig.sun.shadow.mapSize.x * this.rig.sun.shadow.mapSize.y * 8 : 0;
+    const markers = markerTextures.size * 128 * 128 * 4 * (4 / 3);
+    return shadow + markers + (this.env?.textureBytes() ?? 0);
   }
 
   /** Бюджет кадра: вызовы отрисовки и треугольники последнего render(). */

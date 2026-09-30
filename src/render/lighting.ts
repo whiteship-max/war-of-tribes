@@ -22,6 +22,91 @@ export interface LightRig {
   hemi: THREE.HemisphereLight;
 }
 
+/**
+ * Вид сцены: `now` — нынешний, его видит игрок; `next` — проба окружения посёлка
+ * (docs/graphics_world.md): новый свет ночи, земля, трава, лес. Проба живёт за этим
+ * выключателем, пока владелец не посмотрит снимки: игра рисует `now`, стенд умеет оба
+ * (`?showcase=village&look=next`). Второго выключателя нет — сцена спрашивает этот.
+ */
+export type Look = 'now' | 'next';
+
+export const lookOf = (s: string | null | undefined): Look => (s === 'next' ? 'next' : 'now');
+
+/**
+ * Числа света по виду. Днём оба вида одинаковы: палитра подобрана под полуденный риг
+ * (см. `createLightRig`), и переписывать её пробе незачем. Расходятся они ночью.
+ *
+ * `now` — ночь «физическая»: луна втрое слабее солнца и синяя, полусфера тёмная. На
+ * экране телефона это тёмно-синяя каша, где читаются только костёр и крыши (снимки
+ * владельца, 01.10.2026): штукатурка выходит около 70/255, трава — около 50.
+ *
+ * `next` — ночь «сценическая», как в мобильных стратегиях: ночь — половина игрового
+ * времени, и играть её надо так же, как день. Луна — ключевой свет с диапазоном: её
+ * сила 1.7 при цвете `moonlight` кладёт на освещённую горизонталь около пятой доли
+ * альбедо в красном и почти половину в синем (1.7 × sin 40° × цвет / π), полусфера
+ * ночи добавляет ещё десятую в синем. Штукатурка на луне выходит около 110–140/255,
+ * в тени — около 55–85: вдвое темнее, но различима. Тепло дают костёр и окна.
+ */
+export interface RigLook {
+  /** Сила лампы: полдень и глубокая ночь (луна); между ними — по доле дневного света. */
+  sun: { day: number; night: number };
+  /** Сила полусферы: день и ночь. */
+  hemi: { day: number; night: number };
+  /** Цвет луны. */
+  moon: number;
+  /** Полусфера ночью: небо сверху и отсвет снизу. */
+  hemiSkyNight: number;
+  hemiGroundNight: number;
+  /** Фон ночью — край мира за туманом. */
+  skyNight: number;
+  /** Дымка ночью: светлее земли, чтобы дальний лес уходил в неё, а не в черноту. */
+  fogNight: number;
+  /** Высота луны, градусы: выше — короче тени и светлее горизонтали. */
+  moonElevation: number;
+  /**
+   * Фон — дымка, а не небо. Камера деревни смотрит вниз, и неба над горизонтом не видит
+   * вовсе: за краем земли у неё — пустота под горизонтом, и крашенная небом она читалась
+   * голубой полосой. У пробы за краем — дальний лес в дымке (`env/rules.FAR_RADIUS`), и
+   * фон — цвет самой дымки: лес уходит в неё без шва.
+   */
+  hazeSky: boolean;
+}
+
+export const RIG: Record<Look, RigLook> = {
+  now: {
+    sun: { day: 3.2, night: 1.0 },
+    hemi: { day: 1.1, night: 0.6 },
+    moon: PALETTE.moon,
+    hemiSkyNight: PALETTE.hemiSkyNight,
+    hemiGroundNight: PALETTE.hemiGroundNight,
+    skyNight: PALETTE.skyNight,
+    fogNight: PALETTE.skyNight,
+    moonElevation: 40,
+    hazeSky: false,
+  },
+  next: {
+    sun: { day: 3.2, night: 1.7 },
+    hemi: { day: 1.1, night: 1.35 },
+    moon: PALETTE.moonlight,
+    hemiSkyNight: PALETTE.nightFill,
+    hemiGroundNight: PALETTE.nightBounce,
+    skyNight: PALETTE.nightSky,
+    fogNight: PALETTE.nightHaze,
+    moonElevation: 46,
+    hazeSky: true,
+  },
+};
+
+/** Что насчитал свет этого кадра: ими живут огонь, окна и пятна теней окружения. */
+export interface DayLight {
+  /** 0 — ночь, 1 — день. */
+  daylight: number;
+  /** 0 — день, 1 — глубокая ночь; плавный. */
+  nightK: number;
+  /** 1 — солнце у горизонта (закат, рассвет). */
+  dusk: number;
+}
+
 /** Небо, дымка и солнце сезона — то, что переливает SeasonVisuals. */
 export interface SkyColors {
   sky: THREE.Color;
@@ -101,14 +186,34 @@ export function fitShadow(rig: LightRig, half: number): void {
   sc.updateProjectionMatrix();
 }
 
-const C_SKY_NIGHT = new THREE.Color(PALETTE.skyNight);
 const C_SKY_DUSK = new THREE.Color(PALETTE.skyDusk);
 const C_SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
-const C_MOON = new THREE.Color(PALETTE.moon);
 const C_HEMI_SKY = new THREE.Color(PALETTE.hemiSky);
 const C_HEMI_GROUND = new THREE.Color(PALETTE.hemiGround);
-const C_HEMI_SKY_NIGHT = new THREE.Color(PALETTE.hemiSkyNight);
-const C_HEMI_GROUND_NIGHT = new THREE.Color(PALETTE.hemiGroundNight);
+
+/** Ночные цвета вида — один раз на вид, а не на кадр. */
+interface NightColors {
+  sky: THREE.Color;
+  fog: THREE.Color;
+  moon: THREE.Color;
+  hemiSky: THREE.Color;
+  hemiGround: THREE.Color;
+}
+const nightColors = new Map<RigLook, NightColors>();
+function nightOf(look: RigLook): NightColors {
+  let c = nightColors.get(look);
+  if (!c) {
+    c = {
+      sky: new THREE.Color(look.skyNight),
+      fog: new THREE.Color(look.fogNight),
+      moon: new THREE.Color(look.moon),
+      hemiSky: new THREE.Color(look.hemiSkyNight),
+      hemiGround: new THREE.Color(look.hemiGroundNight),
+    };
+    nightColors.set(look, c);
+  }
+  return c;
+}
 
 const TMP_A = new THREE.Color();
 const TMP_B = new THREE.Color();
@@ -134,6 +239,8 @@ function setSun(out: THREE.Vector3, azimuth: number, elevation: number): void {
  * `key` — вокруг какого азимута ходит солнце. У деревни он выведен из стартовой
  * камеры и меняться не должен; сцена боя смотрит в другую сторону и просит свой,
  * иначе её войско оказалось бы против света и обе стороны стали бы одного цвета.
+ *
+ * `look` — числа ночи (`RIG`); без него — нынешние, и кадр тот же, что до выключателя.
  */
 export function applyDayNight(
   rig: LightRig,
@@ -141,32 +248,43 @@ export function applyDayNight(
   solar: number,
   season: SkyColors,
   key: number = KEY_AZIMUTH,
-): void {
+  look: RigLook = RIG.now,
+): DayLight {
   const angle = solar * Math.PI * 2;
   const elev = Math.sin(angle); // -1..1
   const daylight = THREE.MathUtils.clamp((elev + 0.35) / 0.5, 0, 1);
   const dusk = THREE.MathUtils.clamp(1 - Math.abs(elev) / 0.3, 0, 1);
   const nightK = smooth(-elev / 0.15);
+  const night = nightOf(look);
 
   const dayT = THREE.MathUtils.clamp(solar, 0, 0.5) / 0.5;
   const elevation = (12 + 40 * season.sunArc * Math.sin(dayT * Math.PI)) * DEG;
   const azimuth = key + (solar - 0.25) * 1.25;
   setSun(SUN_POS, azimuth, elevation);
-  setSun(MOON_POS, key + 0.6, 40 * DEG);
+  setSun(MOON_POS, key + 0.6, look.moonElevation * DEG);
   rig.sun.position.copy(SUN_POS).lerp(MOON_POS, nightK);
-  // Ночью лампа — луна: слабее втрое, но с тенью; жители у ворот должны оставаться различимы.
-  rig.sun.intensity = 1.0 + 2.2 * daylight;
-  rig.sun.color.copy(TMP_A.copy(season.sun).lerp(C_SUN_DUSK, dusk)).lerp(C_MOON, nightK);
+  // Ночью лампа — луна, но с тенью; жители у ворот должны оставаться различимы.
+  rig.sun.intensity = look.sun.night + (look.sun.day - look.sun.night) * daylight;
+  rig.sun.color.copy(TMP_A.copy(season.sun).lerp(C_SUN_DUSK, dusk)).lerp(night.moon, nightK);
 
-  rig.hemi.intensity = 0.6 + 0.5 * daylight;
-  rig.hemi.color.copy(C_HEMI_SKY_NIGHT).lerp(C_HEMI_SKY, daylight);
-  rig.hemi.groundColor.copy(C_HEMI_GROUND_NIGHT).lerp(C_HEMI_GROUND, daylight);
+  rig.hemi.intensity = look.hemi.night + (look.hemi.day - look.hemi.night) * daylight;
+  rig.hemi.color.copy(night.hemiSky).lerp(C_HEMI_SKY, daylight);
+  rig.hemi.groundColor.copy(night.hemiGround).lerp(C_HEMI_GROUND, daylight);
 
-  const sky = TMP_A.copy(C_SKY_NIGHT).lerp(season.sky, daylight).lerp(C_SKY_DUSK, dusk * 0.6);
-  (scene.background as THREE.Color).copy(sky);
+  const sky = TMP_A.copy(night.sky).lerp(season.sky, daylight).lerp(C_SKY_DUSK, dusk * 0.6);
+  const haze = TMP_B.copy(night.fog).lerp(season.fog, daylight).lerp(C_SKY_DUSK, dusk * 0.45);
+  (scene.background as THREE.Color).copy(look.hazeSky ? haze : sky);
   const fog = scene.fog as THREE.Fog | null;
-  if (fog) fog.color.copy(TMP_B.copy(C_SKY_NIGHT).lerp(season.fog, daylight).lerp(C_SKY_DUSK, dusk * 0.45));
+  if (fog) fog.color.copy(haze);
+  return { daylight, nightK, dusk };
 }
 
 /** Костёр: днём почти не виден, ночью — тёплая лужа на холодном лунном фоне. */
 export const fireIntensity = (night: boolean, t: number): number => (night ? 8 : 0.6) * (1 + Math.sin(t * 17) * 0.12);
+
+/**
+ * Костёр вида `next`: сила идёт за ночью плавно, а не ступенькой. У `fireIntensity` ночь —
+ * флаг сцены, и на его пороге огонь прыгал с 0.6 до 8 за один кадр; здесь та же пара чисел
+ * (чуть ярче ночью — вокруг костра стало светлее само) ведётся долей ночи из рига.
+ */
+export const fireGlow = (nightK: number, t: number): number => (0.6 + 8.4 * nightK) * (1 + Math.sin(t * 17) * 0.12);

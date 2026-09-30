@@ -119,6 +119,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     door: /\/src\/prologue\/Prologue\.tsx$/,
     owns: [/\/src\/prologue\//, /\/src\/sound\/howl\.ts$/],
   },
+  {
+    // Проба окружения посёлка (docs/graphics_world.md): земля, трава, лес и мелочь едут
+    // своим куском после первого кадра — в первую загрузку не входят ни байтом.
+    name: 'окружение посёлка',
+    door: /\/src\/render\/env\/index\.ts$/,
+    owns: [/\/src\/render\/env\//],
+  },
 ];
 
 function lazyDoorsPlugin(): Plugin {

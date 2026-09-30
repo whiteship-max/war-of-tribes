@@ -62,7 +62,7 @@ export const MAT = LEGACY;
  * Прогалины в лесу под угодья: у скал, ягодника и полей деревья расступаются,
  * охотничья зона — редколесье, куда ходят за дичью.
  */
-const GLADES: { at: THREE.Vector3; r: number; keep: number }[] = [
+export const GLADES: { at: THREE.Vector3; r: number; keep: number }[] = [
   { at: ZONES.rocks, r: 6.0, keep: 0.06 },
   { at: ZONES.berries, r: 5.5, keep: 0.08 },
   { at: ZONES.fields, r: 6.5, keep: 0.04 },

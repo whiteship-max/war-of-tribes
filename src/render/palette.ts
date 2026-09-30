@@ -37,6 +37,17 @@ export const PALETTE = {
   hemiGround: 0x6e6a5c,
   hemiSkyNight: 0x46598a,
   hemiGroundNight: 0x2a2c38,
+  /**
+   * Ночь вида `next` (`lighting.RIG.next`): луна — ключевой свет, бледно-стальная, а не
+   * синяя: на ней штукатурка читается светлой, а не тонет. Полусфера ночи светлее
+   * прежней вдвое, отсвет снизу — глухой и тёплый. Дымка ночи светлее фона: дальний
+   * лес уходит в неё, а не в черноту.
+   */
+  moonlight: 0xa9bfe3,
+  nightFill: 0x5b72a6,
+  nightBounce: 0x3b3f52,
+  nightSky: 0x223050,
+  nightHaze: 0x33456b,
   fireLight: 0xff9a3a,
   snowflake: 0xe8eef4,
   smoke: 0xd8d2c8,
@@ -81,6 +92,41 @@ export const PALETTE = {
   rock: 0x8e8a82,
   /** Свежий срез пня и торец бревна. */
   cut: 0xc9a878,
+
+  // ---------- Окружение пробы (`render/env`, docs/graphics_world.md) ----------
+  /**
+   * Дёрн пробы: луг теплее и глуше прежней травы (`grass*`) — к охре и тёплым жёлтым
+   * значка города на карте мира. Свои ключи, а не правка прежних: нынешний вид игры
+   * проба не трогает ни на бит.
+   */
+  swardDark: 0x6c8544,
+  swardLight: 0xa5b15e,
+  /** Кончики травы: светлее и желтее земли под ними — пучок читается на лугу. */
+  grassTip: 0xb2c068,
+  /** Густой луг: пятнами, там же и цветы. */
+  meadow: 0x90ab56,
+  /** Лесная подстилка: хвоя и прошлогодний лист под пологом. */
+  litter: 0x58603c,
+  /** Мох на камнях и пнях. */
+  moss: 0x72934a,
+  fern: 0x5e9446,
+  /** Кроны пород: ель — синяя и тёмная, сосна — теплее, дуб — средний, берёза — светлая. */
+  spruce: 0x3e6d4a,
+  pine: 0x4f7a43,
+  oak: 0x5f8d42,
+  birch: 0x8fb853,
+  /** Кора берёзы — белая с тёмными поясками (поясками — затемнение вершин). */
+  birchBark: 0xe0dbcd,
+  /** Кора сосны — рыжая в верхней части ствола. */
+  pineBark: 0x98603a,
+  /** Всходы на пашне: весной зелёные, летом спелые, осенью стерня. */
+  crop: 0x93c25a,
+  /** Луговые цветы Европы: ромашка, лютик, василёк, клевер, мак. */
+  flowerWhite: 0xeee8d8,
+  flowerYellow: 0xe9c648,
+  flowerBlue: 0x6d87d1,
+  flowerPink: 0xd98aa8,
+  flowerRed: 0xcc4a3e,
 
   // ---------- Дерево ----------
   wood: 0x9d6d42,
@@ -224,6 +270,18 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     tile: 0xc25f42,
     sky: 0x93c6ea,
     fog: 0xb8d5ea,
+    swardDark: 0x6f8742,
+    swardLight: 0xabb45b,
+    grassTip: 0xbac462,
+    meadow: 0x95ad53,
+    litter: 0x535c3a,
+    moss: 0x6c8f44,
+    fern: 0x578e41,
+    spruce: 0x3a6a4b,
+    pine: 0x4a7742,
+    oak: 0x51803f,
+    birch: 0x80ad4c,
+    crop: 0xd6b75c,
   },
   autumn: {
     sunDay: 0xffd6a0,
@@ -248,6 +306,18 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     tile: 0xaa5136,
     sky: 0xb9c0c6,
     fog: 0xc6cacc,
+    swardDark: 0x7b7a45,
+    swardLight: 0xb5a655,
+    grassTip: 0xc9b45c,
+    meadow: 0xa99f50,
+    litter: 0x7a6038,
+    moss: 0x8c8a48,
+    fern: 0xb4823b,
+    spruce: 0x3c6848,
+    pine: 0x4d7542,
+    oak: 0xb36f2c,
+    birch: 0xdcb33b,
+    crop: 0xbfa35a,
   },
   winter: {
     // Зимнее солнце бледное; снег голубой, не белый: с солнцем и полусферой он и так у предела.
@@ -273,11 +343,32 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     tile: 0xdfd9d5,
     sky: 0xacb9c9,
     fog: 0xbcc7d3,
+    swardDark: 0xc4cfdb,
+    swardLight: 0xe0e7ef,
+    grassTip: 0xe4eaf0,
+    meadow: 0xdbe3eb,
+    litter: 0xc8d1db,
+    moss: 0xdde5ec,
+    fern: 0xc9d3dc,
+    spruce: 0xaebfc6,
+    pine: 0xb3c3c8,
+    oak: 0xc6ced6,
+    birch: 0xd6dee6,
+    crop: 0xd9e1e9,
   },
 };
 
 /** Плотность снега по сезону: гонит частицы, дым и белизну. */
 export const SEASON_SNOW: Record<Season, number> = { spring: 0, summer: 0, autumn: 0, winter: 1 };
+
+/**
+ * Доля травы, что торчит из земли, по сезону: зимой пучки прячет снег (окружение
+ * пробы, `render/env`). Не цвет, но сезонное число — живёт рядом со снегом.
+ */
+export const SEASON_SWARD: Record<Season, number> = { spring: 0.9, summer: 1, autumn: 0.85, winter: 0.3 };
+
+/** Доля цветущих цветов по сезону: летом все, осенью редкие, зимой ни одного. */
+export const SEASON_BLOOM: Record<Season, number> = { spring: 0.75, summer: 1, autumn: 0.2, winter: 0 };
 
 /** Высота солнечной дуги по сезону: осенью и зимой солнце ниже, тени длиннее. */
 export const SEASON_SUN_ARC: Record<Season, number> = { spring: 1, summer: 1.05, autumn: 0.9, winter: 0.8 };
@@ -318,3 +409,8 @@ export const GRASS_DARK_MUL: Mul = [0.82, 0.86, 0.86];
 export const GRASS_LIGHT_MUL: Mul = [1.1, 1.07, 1.0];
 /** Трава внутри стены вытоптана: темнее и самую малость теплее. */
 export const WALL_TRAMPLE_MUL: Mul = [0.94, 0.92, 0.88];
+/**
+ * Пятно тени под деревом и мелочью окружения пробы (`env/materials.shadeMaterial`):
+ * гуще пятна под зданием — дерево стоит в тени целиком, — и тоже холодное.
+ */
+export const BLOB_SHADE: Mul = [0.6, 0.64, 0.77];

@@ -18,6 +18,11 @@
 //
 // Общие параметры: silhouette=1 (постройки чёрным на белом), season=winter,
 // solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат), clean=1 (без подписи).
+// У посёлка ещё: look=next — проба окружения (docs/graphics_world.md), quality=high|
+// medium|low — её уровень качества (без него — по устройству); at=x,z — камера над
+// точкой земли, dist=N — на таком расстоянии (dist=min — пол приближения). Стенду
+// снимков (`npm run village:shots`) сцена видна как window.__stand, готовность —
+// document.body.dataset.ready.
 // perf=8 — замер частоты кадров: камера крутится восемь секунд, стенд считает
 // кадры и шлёт итог на dev-сервер (POST /__perf → snaps/perf.jsonl). Так стенд
 // открывают на телефоне в локальной сети, а число остаётся в репозитории у разработчика.
@@ -45,6 +50,8 @@ import { buildGround } from './terrain';
 import { groundDecals, type DecalSpot } from './village';
 import { SeasonVisuals } from './season';
 import { TribeScene } from './Scene';
+import { lookOf } from './lighting';
+import { qualityOf } from './quality';
 import { applyDayNight, configureRenderer, configureSky, createLightRig, fitShadow } from './lighting';
 import { FrameLoop, deviceRatio, pixelRatio } from './loop';
 
@@ -413,15 +420,29 @@ function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const s = synthState(level, c.season, c.solar, p.get('buildings'), p.get('workers') !== 'none');
 
   const canvas = makeCanvas(root);
-  const scene = new TribeScene(canvas, c.dpr);
+  const look = lookOf(p.get('look'));
+  const scene = new TribeScene(canvas, c.dpr, { look, quality: qualityOf(p.get('quality')) });
   scene.sync(s);
   if (c.silhouette) scene.setSilhouette(true);
   window.addEventListener('resize', () => scene.resize());
+  // Камера над точкой земли и на расстоянии — ближний план для снимков пробы.
+  const aim = (): void => {
+    const at = (p.get('at') ?? '').split(',').map(Number);
+    const dist = p.get('dist');
+    if (at.length !== 2 || !at.every(Number.isFinite)) return;
+    scene.standView(at[0], at[1], dist === 'min' ? 0 : dist ? Number(dist) : null);
+  };
+  aim();
+  window.addEventListener('resize', aim);
+  (window as unknown as { __stand?: TribeScene }).__stand = scene;
+  void scene.ready.then(() => {
+    document.body.dataset.ready = '1';
+  });
 
   const caption = makeCaption(root, c.clean);
   const head =
     `посёлок · уровень ${level}\n${c.season} · solar ${c.solar}` +
-    `${c.silhouette ? ' · силуэт' : ''}`;
+    `${c.silhouette ? ' · силуэт' : ''}${look === 'next' ? ` · проба, ${scene.quality}` : ''}`;
   let text = head;
   let perfLine = '';
   const tick = (): void => {
