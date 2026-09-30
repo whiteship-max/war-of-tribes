@@ -302,6 +302,8 @@ interface Stand {
   tints: Float32Array;
   near: THREE.InstancedMesh;
   far: THREE.InstancedMesh;
+  /** Какие деревья сейчас ближние — чтобы не перезаливать буферы, когда состав тот же. */
+  isNear: Uint8Array;
 }
 
 /** Покров под раскладку: списки, ещё не разложенные по мешам. */
@@ -444,7 +446,8 @@ export function startEnv(o: EnvOptions): EnvWorld {
         C.setRGB(t.hue, 0.96 + (t.hue - 1) * 0.5, 1).toArray(tints, i * 3);
       });
       group.add(near, far);
-      stands.push({ list, matrices, tints, near, far });
+      // 2 — «ещё не делили»: первый же кадр разложит всех.
+      stands.push({ list, matrices, tints, near, far, isNear: new Uint8Array(list.length).fill(2) });
       yield;
       // Ближняя и дальняя модели — одна программа (материал общий): собрать хватит одну.
       compile(near);
@@ -583,6 +586,19 @@ export function startEnv(o: EnvOptions): EnvWorld {
     const edge = spec.treeNear * fogFar;
     const edge2 = edge * edge;
     for (const st of stands) {
+      // Камера сдвинулась, а граница ближних не пересекла ни одного дерева — буферы те же:
+      // перезаливка всех матриц породы на каждом кадре панорамы стоила бы выгрузки зря.
+      let same = true;
+      for (let i = 0; i < st.list.length; i++) {
+        const t = st.list[i];
+        const dx = t.x - camera.position.x;
+        const dy = t.y - camera.position.y;
+        const dz = t.z - camera.position.z;
+        const isNear = !t.far && dx * dx + dy * dy + dz * dz < edge2 ? 1 : 0;
+        if (st.isNear[i] !== isNear) same = false;
+        st.isNear[i] = isNear;
+      }
+      if (same) continue;
       let n = 0;
       let f = 0;
       const near = st.near.instanceMatrix.array as Float32Array;
@@ -590,11 +606,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
       const nearTint = st.near.instanceColor;
       const farTint = st.far.instanceColor;
       for (let i = 0; i < st.list.length; i++) {
-        const t = st.list[i];
-        const dx = t.x - camera.position.x;
-        const dy = t.y - camera.position.y;
-        const dz = t.z - camera.position.z;
-        const isNear = !t.far && dx * dx + dy * dy + dz * dz < edge2;
+        const isNear = st.isNear[i] === 1;
         const into = isNear ? near : far;
         const k = isNear ? n++ : f++;
         into.set(st.matrices.subarray(i * 16, i * 16 + 16), k * 16);

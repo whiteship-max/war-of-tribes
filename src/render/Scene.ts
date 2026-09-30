@@ -56,7 +56,10 @@ import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/ges
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { AZIMUTH, PAN_STEP_MAX, clampPan, framing, zoomRange } from './camera';
 import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
-import { BUILD_SLICE_MS, QUALITY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
+import { BUILD_SLICE_MS, QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
+import { autoCap, capQuality, rememberAutoCap } from './gfx';
+import { Steady } from './steady';
+import { serverNow } from '@/net/clock';
 import type { EnvWorld, StartEnv } from './env';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
@@ -180,7 +183,11 @@ export const activeScene = (): TribeScene | null => active;
  */
 export interface SceneLook {
   look?: Look;
-  /** `null` — по устройству (`quality.autoQuality`). */
+  /**
+   * `null` — по устройству (`quality.autoQuality`), но не выше того, до чего сторож
+   * плавности опустил уровень на этом устройстве за неделю (`gfx.autoCap`); тогда же
+   * сторож и следит. Заданный уровень (стенд, выбор игрока) сторож не трогает.
+   */
   quality?: Quality | null;
 }
 
@@ -338,6 +345,14 @@ export class TribeScene {
   /** Уровень качества пробы; у нынешнего вида не читается. */
   readonly quality: Quality;
   /**
+   * Уровень, чью плотность пикселей берёт буфер. Сначала — `quality`; сторож плавности,
+   * опустив уровень, опускает плотность сразу (главная ручка цены кадра на телефоне), а
+   * траву и тени — со следующего захода (`gfx.rememberAutoCap`).
+   */
+  private dprLevel: Quality;
+  /** Сторож плавности посёлка (`render/steady`) — только у вида `next` с уровнем по устройству. */
+  private steady: Steady<Quality> | null = null;
+  /**
    * Окружение пробы: земля, трава, лес, мелочь (`render/env`). Едет своим куском после
    * первого кадра — в первую загрузку не входит; до его прихода стоит прежняя земля.
    */
@@ -367,7 +382,11 @@ export class TribeScene {
     this.look = opts.look ?? 'now';
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     // Нынешний вид уровня не читает, и устройство у игрока о нём не спрашивается.
-    this.quality = opts.quality ?? (this.look === 'next' ? autoQuality(readCaps(this.renderer.getContext())) : 'medium');
+    this.quality =
+      opts.quality ??
+      (this.look === 'next' ? capQuality(autoQuality(readCaps(this.renderer.getContext())), autoCap(serverNow())) : 'medium');
+    this.dprLevel = this.quality;
+    if (this.look === 'next' && !opts.quality) this.steady = new Steady(QUALITIES, this.quality, VILLAGE_STEADY);
     // На 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое — отсюда потолок.
     this.renderer.setPixelRatio(this.dpr());
     configureRenderer(this.renderer);
@@ -617,12 +636,28 @@ export class TribeScene {
   private rewind(): void {
     this.clock.getDelta();
     this.gameTimeAt = performance.now();
+    // Цепочка встала и пошла заново: первые кадры — не цена уровня.
+    this.steady?.set(this.steady.tier);
+  }
+
+  /**
+   * Сторож плавности: судит кадры, только когда окружение уже стоит (сборка кусками
+   * отнимает у кадра свои миллисекунды — это не цена уровня) и холст не одолжен ролику.
+   * Опустил — плотность сразу, остальное — со следующего захода.
+   */
+  private watch(gap: number): void {
+    if (!this.steady || !this.env || this.envJob) return;
+    const next = this.steady.feed(gap);
+    if (!next) return;
+    this.dprLevel = next;
+    this.needSize = true;
+    rememberAutoCap(next, serverNow());
   }
 
   private dpr(): number {
     // Вид `next` берёт плотность своего уровня качества — не выше экрана (или той, что
     // задал стенд вместо экрана) и не выше потолка двери кадра.
-    if (this.look === 'next') return pixelRatio(qualityDpr(this.quality, this.pixelRatio ?? deviceRatio()));
+    if (this.look === 'next') return pixelRatio(qualityDpr(this.dprLevel, this.pixelRatio ?? deviceRatio()));
     return pixelRatio(this.pixelRatio);
   }
 
@@ -1595,13 +1630,16 @@ export class TribeScene {
     // Считается кадр лупа, а не кадр диорамы: одолженная ролику канва рисуется
     // им, и «кадры идут» тут значит именно то, что цепочка жива.
     this.drawn++;
-    this.lastFrame = performance.now();
+    const now = performance.now();
+    const gap = now - this.lastFrame;
+    this.lastFrame = now;
     // Отложенный пересчёт — первым же кадром: холст мог вернуться из фона
     // нулевым, и тогда его размер надо взять при первой возможности.
     if (this.needSize || this.drawn % 60 === 0) this.checkSize();
     const dt = Math.min(0.1, this.clock.getDelta());
     // Канва отдана ролику о бое: он рисует в неё сам, диораме тут делать нечего.
     if (this.lent) return;
+    this.watch(gap);
     const t = this.clock.elapsedTime;
 
     // Между пульсами время партии тянется само — настоящие секунды переводит в игровые

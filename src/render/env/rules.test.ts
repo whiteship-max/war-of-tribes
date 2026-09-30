@@ -11,8 +11,7 @@ import { BUILDINGS } from '@/game/data/buildings';
 import { visualTier } from '../buildings';
 import { CLEAR_EDGE, CLEAR_RADIUS, GATE_ANGLE, GATE_CLEAR_HALF, WALL_RADIUS, inCleared } from '../plan';
 import { FOREST_FROM, GROUND_RADIUS, ZONES } from '../terrain';
-import { BUDGET, QUALITIES, QUALITY } from '../quality';
-import { blobModel, flowerModel, groundModel, propModel, treeModel, trianglesOf, tuftModel } from './models';
+import { QUALITY } from '../quality';
 import {
   CROWN,
   PROP_KINDS,
@@ -162,42 +161,6 @@ describe('окружение пробы: правила леса', () => {
 });
 
 describe('окружение пробы: бюджет уровней', () => {
-  it('окружение каждого уровня укладывается в свой бюджет вызовов, треугольников и памяти текстур', () => {
-    const tri = {
-      near: Object.fromEntries(SPECIES.map((s) => [s, trianglesOf(treeModel(s, 'near'))])) as Record<string, number>,
-      far: Object.fromEntries(SPECIES.map((s) => [s, trianglesOf(treeModel(s, 'far'))])) as Record<string, number>,
-      prop: Object.fromEntries(PROP_KINDS.map((k) => [k, trianglesOf(propModel(k))])) as Record<string, number>,
-    };
-    const tuft = trianglesOf(tuftModel(false));
-    const crop = trianglesOf(tuftModel(true));
-    const flower = trianglesOf(flowerModel());
-    const blob = trianglesOf(blobModel());
-    for (const q of QUALITIES) {
-      const spec = QUALITY[q];
-      const qmap = groundMap(layout, spec.groundMap);
-      const qprops = scatterProps(layout, spec.props);
-      const g = scatterGrass(layout, qmap, spec.grass);
-      const f = scatterFlowers(layout, qmap, spec.flowers);
-      const c = scatterCrops(layout, spec.grass > 0 ? 1 : 0.5);
-      // Верхняя граница: все деревья прежнего мира ближней моделью, дальний лес — дальней.
-      const triangles =
-        trianglesOf(groundModel()) +
-        trees.reduce((n, t) => n + (t.far ? tri.far[t.species] : tri.near[t.species]), 0) +
-        qprops.reduce((n, p) => n + tri.prop[p.kind], 0) +
-        g.length * tuft +
-        c.length * crop +
-        f.length * flower +
-        (trees.filter((t) => !t.far).length + qprops.length) * blob;
-      // Вызовы: земля, по два меша на породу, по мешу на вид мелочи, покров и пятна.
-      const calls = 1 + SPECIES.length * 2 + PROP_KINDS.length + (g.length > 0 ? 1 : 0) + 1 + (f.length > 0 ? 1 : 0) + 1;
-      const textureMb = (spec.shadowMap ** 2 * 8 + spec.groundMap ** 2 * 4 * 2 * (4 / 3) + 128 * 128 * 4 * (4 / 3)) / 1048576;
-      expect(g.length, `${q}: трава не больше заказанного`).toBeLessThanOrEqual(spec.grass);
-      expect(triangles, `${q}: треугольники`).toBeLessThanOrEqual(BUDGET[q].triangles);
-      expect(calls, `${q}: вызовы`).toBeLessThanOrEqual(BUDGET[q].calls);
-      expect(textureMb, `${q}: текстуры`).toBeLessThanOrEqual(BUDGET[q].textureMb);
-    }
-  });
-
   it('уровни идут по убыванию: низкий ничем не дороже среднего, средний — высокого', () => {
     const keys = ['dpr', 'shadowMap', 'grass', 'flowers', 'props', 'grassFar', 'treeNear', 'groundMap'] as const;
     for (const k of keys) {

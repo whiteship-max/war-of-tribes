@@ -9,7 +9,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
 import { visualTier } from '../buildings';
 import { SeasonVisuals } from '../season';
+import { BUDGET, QUALITIES, QUALITY } from '../quality';
 import { buildEnv, startEnv, type EnvWorld } from './index';
+import { trianglesOf } from './models';
 import type { EnvVillage } from './rules';
 
 beforeAll(() => {
@@ -125,5 +127,44 @@ describe('окружение пробы: сборка по частям', () => 
     const fresh = snapshot(buildEnv({ quality: 'low', season, village: SMALL }));
     expect(snapshot(w).get('flowers')!.matrices).toEqual(fresh.get('flowers')!.matrices);
     w.dispose();
+  });
+});
+
+/**
+ * Цена мира по счётчикам, не зависящим от железа: вызовы отрисовки, треугольники и память
+ * текстур — того, что окружение добавляет к кадру. Верхняя граница: все деревья прежнего
+ * мира — ближней моделью (камера в середине, дальность без края), дальний лес — дальней.
+ */
+function price(w: EnvWorld, shadowMap: number): { calls: number; triangles: number; textureMb: number } {
+  const camera = new THREE.PerspectiveCamera();
+  w.update({ t: 0, camera, sun: new THREE.Vector3(3, 8, 2), light: { daylight: 1, nightK: 0, dusk: 0 }, fogFar: 1e6 });
+  let calls = 0;
+  let triangles = 0;
+  w.group.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.visible) return;
+    const n = (mesh as THREE.InstancedMesh).isInstancedMesh ? (mesh as THREE.InstancedMesh).count : 1;
+    if (n <= 0) return;
+    calls++;
+    triangles += trianglesOf(mesh.geometry) * n;
+  });
+  // Карта теней: цвет и глубина по четыре байта на тексель.
+  return { calls, triangles, textureMb: (shadowMap ** 2 * 8 + w.textureBytes()) / 1048576 };
+}
+
+describe('окружение пробы: бюджет уровней', () => {
+  it('мир каждого уровня укладывается в свой бюджет вызовов, треугольников и памяти текстур', () => {
+    const season = new SeasonVisuals();
+    for (const q of QUALITIES) {
+      const w = buildEnv({ quality: q, season, village: FULL });
+      const p = price(w, QUALITY[q].shadowMap);
+      // Область: мир собран и не пуст — земля, лес, мелочь, покров.
+      expect(p.calls, `${q}: вызовы есть`).toBeGreaterThan(10);
+      expect(p.triangles, `${q}: треугольники`).toBeLessThanOrEqual(BUDGET[q].triangles);
+      expect(p.calls, `${q}: вызовы`).toBeLessThanOrEqual(BUDGET[q].calls);
+      expect(p.textureMb, `${q}: текстуры`).toBeLessThanOrEqual(BUDGET[q].textureMb);
+      expect(w.counts().grass, `${q}: трава не больше заказанного`).toBeLessThanOrEqual(QUALITY[q].grass);
+      w.dispose();
+    }
   });
 });

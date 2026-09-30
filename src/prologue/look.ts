@@ -16,6 +16,7 @@
  * (`Steady`), и ниже нижней, `base`, опускаться некуда: это прежний кадр поляны
  * без постобработки, ровно тот, что был до этой пачки.
  */
+import { Steady as Watch, type SteadyRule } from '@/render/steady';
 
 /**
  * Ступени качества, от дорогой к дешёвой.
@@ -122,52 +123,16 @@ export const WINDOW_MS = 2000;
 export const WARM_FRAMES = 45;
 export const GAP_MS = 250;
 
+/** Пороги сторожа предыстории — цель тридцать (выше). */
+export const THIRTY: SteadyRule = { slowMs: SLOW_MS, share: SLOW_SHARE, windowMs: WINDOW_MS, warm: WARM_FRAMES, gapMs: GAP_MS };
+
 /**
- * Сторож плавности.
- *
- * Кормится длительностью каждого кадра и отвечает, не пора ли опустить ступень. Кадров
- * он не считает сам и часов не читает: время приносит сцена (`performance.now()` живёт
- * только там — тест). Опускает только вниз и только по одному шагу за окно: вверх он не
- * ходит нарочно — ступень, прыгающая туда и обратно, дёргает картинку сильнее, чем
- * любая из двух.
+ * Сторож плавности предыстории: общий сторож (`render/steady`) на её ступенях и её
+ * порогах. Опускает только вниз и только по одному шагу за окно.
  */
-export class Steady {
-  private warm = WARM_FRAMES;
-  private spent = 0;
-  private slow = 0;
-  private count = 0;
-
-  constructor(public tier: Tier) {}
-
-  /** Длительность очередного кадра, мс. Вернёт новую ступень, если эту пора опустить. */
-  feed(ms: number): Tier | null {
-    if (ms > GAP_MS || ms <= 0) return null;
-    if (this.warm > 0) {
-      this.warm--;
-      return null;
-    }
-    this.spent += ms;
-    this.count++;
-    if (ms > SLOW_MS) this.slow++;
-    if (this.spent < WINDOW_MS) return null;
-    const failing = this.slow / this.count >= SLOW_SHARE;
-    this.spent = 0;
-    this.slow = 0;
-    this.count = 0;
-    if (!failing) return null;
-    const next = lower(this.tier);
-    if (!next) return null;
-    this.set(next);
-    return next;
-  }
-
-  /** Сменить ступень руками (стенд, адрес): окно начинается заново, прогрев тоже. */
-  set(tier: Tier): void {
-    this.tier = tier;
-    this.warm = WARM_FRAMES;
-    this.spent = 0;
-    this.slow = 0;
-    this.count = 0;
+export class Steady extends Watch<Tier> {
+  constructor(tier: Tier) {
+    super(TIERS, tier, THIRTY);
   }
 }
 
