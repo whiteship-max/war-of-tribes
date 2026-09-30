@@ -190,6 +190,8 @@ export interface GroundColors {
   trample: THREE.Color;
   soil: THREE.Color;
   stone: THREE.Color;
+  /** Выгон: выеденная трава. */
+  graze: THREE.Color;
 }
 
 const GROUND_VERT_PARS = /* glsl */ `
@@ -215,6 +217,7 @@ uniform vec3 uDirt;
 uniform vec3 uTrample;
 uniform vec3 uSoil;
 uniform vec3 uStone;
+uniform vec3 uGraze;
 uniform float uEnvNight;
 varying vec2 vEnvXZ;
 ${NIGHT_GREY}
@@ -239,8 +242,11 @@ float envLit = smoothstep( 0.3, 0.7, envA.g + ( envM.r - 0.5 ) * 0.5 );
 envG = mix( envG, uLitter * ( 0.82 + 0.34 * envM.b ), envLit );
 float envSoil = smoothstep( 0.3, 0.72, envA.r + ( envM.b - 0.5 ) * 0.45 );
 envG = mix( envG, mix( uTrample, uDirt, envN.g ) * ( 0.9 + 0.2 * envM.r ), envSoil );
+float envGz = smoothstep( 0.15, 0.7, envB.b + ( envM.g - 0.5 ) * 0.3 );
+envG = mix( envG, uGraze * ( 0.88 + 0.24 * envM.r ), envGz * 0.8 );
 float envFld = smoothstep( 0.35, 0.65, envB.r );
-float envFur = 0.8 + 0.2 * sin( dot( vEnvXZ, uFurrow ) * 18.0 );
+// Furrows run along the strip, like the crop rows (rules.scatterCrops).
+float envFur = 0.8 + 0.2 * sin( dot( vEnvXZ, vec2( -uFurrow.y, uFurrow.x ) ) * 18.0 );
 envG = mix( envG, uSoil * envFur, envFld );
 float envSt = smoothstep( 0.35, 0.65, envA.b + ( envM.g - 0.5 ) * 0.5 );
 envG = mix( envG, uStone * ( 0.76 + 0.38 * envM.r ), envSt );
@@ -273,6 +279,7 @@ export function groundMaterial(maps: GroundMaps, c: GroundColors, shared: EnvSha
     uTrample: { value: c.trample },
     uSoil: { value: c.soil },
     uStone: { value: c.stone },
+    uGraze: { value: c.graze },
     uEnvNight: shared.night,
   };
   mat.onBeforeCompile = (shader): void => {

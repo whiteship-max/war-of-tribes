@@ -14,10 +14,13 @@ import { FOREST_FROM, GLADES, GROUND_RADIUS, ZONES } from '../terrain';
 import { QUALITY } from '../quality';
 import {
   CROWN,
+  HAY_SPREAD,
   PROP_KINDS,
   PROP_SPREAD,
+  SHEEP_SPREAD,
   SPECIES,
   edgeRadius,
+  farmDist,
   forestDensity,
   gateEdge,
   groundMap,
@@ -251,6 +254,83 @@ describe('окружение пробы: рваный край леса', () => 
     const lone = trees.filter((t) => !t.far && Math.hypot(t.x, t.z) < edgeRadius(t.x, t.z) - 1.3 && t.scale >= 0.85);
     expect(lone.length).toBeGreaterThan(2);
     for (const t of lone) expect(inCleared(t.x, t.z, CROWN[t.species] * t.scale)).toBe(false);
+  });
+});
+
+describe('окружение пробы: угодья', () => {
+  const farm = layout.farm;
+  const pasture = farm.pasture;
+  /** Звено у выгона, а не у тропы. */
+  const ringPanel = (x: number, z: number): boolean => Math.abs(Math.hypot(x - pasture.x, z - pasture.z) - pasture.r) < 0.3;
+
+  it('стога, изгороди и стадо есть, и всё — за чертой расчистки и не в коридоре ворот', () => {
+    expect(farm.hay.length, 'стогов').toBeGreaterThanOrEqual(4);
+    expect(farm.fences.length, 'звеньев изгороди').toBeGreaterThanOrEqual(12);
+    expect(farm.flock.length, 'овец').toBeGreaterThanOrEqual(5);
+    for (const h of farm.hay) {
+      expect(inCleared(h.x, h.z, HAY_SPREAD * h.scale)).toBe(false);
+      expect(inGate(h.x, h.z, HAY_SPREAD)).toBe(false);
+    }
+    for (const f of farm.fences) {
+      expect(inCleared(f.x, f.z, f.length / 2)).toBe(false);
+      expect(inGate(f.x, f.z, f.length / 2)).toBe(false);
+    }
+    for (const o of farm.flock) {
+      expect(inCleared(o.x, o.z, SHEEP_SPREAD * o.scale)).toBe(false);
+      expect(Math.hypot(o.x - pasture.x, o.z - pasture.z), 'овца внутри изгороди').toBeLessThan(pasture.r - 0.3);
+    }
+  });
+
+  it('изгороди вдоль троп стоят у тропы, а не на ней, — у нескольких троп', () => {
+    const byTrail = farm.fences.filter((f) => !ringPanel(f.x, f.z));
+    expect(byTrail.length, 'звеньев у троп').toBeGreaterThan(4);
+    for (const f of byTrail) {
+      const d = trailDist(layout, f.x, f.z);
+      expect(d, 'звено не на тропе').toBeGreaterThan(0.2);
+      expect(d, 'звено у тропы').toBeLessThan(0.8);
+    }
+    // У скольких троп есть изгородь: тропа — ближайшая к звену.
+    const trails = new Set(byTrail.map((f) => layout.trails.findIndex((t) => Math.hypot((t.ax + t.bx) / 2 - f.x, (t.az + t.bz) / 2 - f.z) < 1.2)));
+    trails.delete(-1);
+    expect(trails.size, 'троп с изгородью').toBeGreaterThanOrEqual(3);
+  });
+
+  it('ни крона, ни мелочь не протыкают изгородь, стог и выгон', () => {
+    // Область: деревья и мелочь у угодий есть — правило спрашивается.
+    const nearTrees = trees.filter((t) => !t.far && farmDist(layout, t.x, t.z) < 3);
+    const nearProps = props.filter((p) => farmDist(layout, p.x, p.z) < 3);
+    expect(nearTrees.length, 'деревьев у угодий').toBeGreaterThan(10);
+    expect(nearProps.length, 'мелочи у угодий').toBeGreaterThan(3);
+    for (const t of nearTrees) expect(farmDist(layout, t.x, t.z)).toBeGreaterThanOrEqual(CROWN[t.species] * t.scale - 1e-9);
+    for (const p of nearProps) expect(farmDist(layout, p.x, p.z)).toBeGreaterThanOrEqual(PROP_SPREAD[p.kind] * p.scale - 1e-9);
+  });
+
+  it('стога у пашни — не на полосах и не на тропах', () => {
+    const byField = farm.hay.filter((h) => Math.hypot(h.x - ZONES.fields.x, h.z - ZONES.fields.z) < 7);
+    expect(byField.length, 'стогов у пашни').toBeGreaterThanOrEqual(2);
+    for (const h of farm.hay) {
+      expect(sample(map, map.field, h.x, h.z), 'стог не на полосе').toBeLessThan(0.1);
+      expect(trailDist(layout, h.x, h.z), 'стог не на тропе').toBeGreaterThan(HAY_SPREAD * h.scale);
+    }
+  });
+
+  it('трёхполье: озимые, яровые и пар; на пару всходов нет', () => {
+    expect(new Set(layout.fields.map((f) => f.sowing))).toEqual(new Set(['winter', 'spring', 'fallow']));
+    const crops = scatterCrops(layout, 1);
+    const fallow = layout.fields.filter((f) => f.sowing === 'fallow');
+    expect(fallow.length).toBeGreaterThan(0);
+    for (const f of fallow) {
+      const on = crops.filter((c) => Math.hypot(c.x - f.x, c.z - f.z) < Math.min(f.across, f.along) * 0.8);
+      expect(on.length, 'всходов на пару').toBe(0);
+    }
+    expect(new Set(crops.map((c) => c.sowing))).toEqual(new Set(['winter', 'spring']));
+  });
+
+  it('выгон: трава выедена, лес расступился, тропа от двора подходит к воротцам', () => {
+    expect(sample(map, map.graze, pasture.x, pasture.z)).toBeGreaterThan(0.6);
+    expect(sample(map, map.graze, -pasture.x, -pasture.z)).toBe(0);
+    expect(forestDensity(layout, pasture.x, pasture.z)).toBeLessThan(0.1);
+    expect(layout.trails.some((t) => Math.hypot(t.bx - pasture.x, t.bz - pasture.z) < 0.5), 'тропа кончается на выгоне').toBe(true);
   });
 });
 

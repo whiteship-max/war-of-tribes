@@ -29,9 +29,11 @@ import type { DayLight } from '../lighting';
 import {
   CROWN,
   FLOWER_COLORS,
+  HAY_SPREAD,
   MAP_HALF,
   PROP_KINDS,
   PROP_SPREAD,
+  SHEEP_SPREAD,
   SPECIES,
   groundMapJob,
   layoutOf,
@@ -40,18 +42,20 @@ import {
   scatterGrassJob,
   scatterPropsJob,
   scatterTreesJob,
+  type Crop,
   type EnvVillage,
   type Flower,
   type GroundMap,
   type Job,
   type Layout,
+  type Panel,
   type Prop,
   type PropKind,
   type Species,
   type Tree,
   type Tuft,
 } from './rules';
-import { blobModel, flowerModel, groundModelJob, propModel, tuftModel, treeModel } from './models';
+import { blobModel, fenceModel, flowerModel, groundModelJob, hayModel, propModel, sheepModel, tuftModel, treeModel } from './models';
 import { envShared, groundMaterial, shadeMaterial, vegMaterial, type EnvShared, type ShadeUniforms } from './materials';
 
 export type { EnvVillage } from './rules';
@@ -103,6 +107,10 @@ export interface EnvCounts {
   crops: number;
   flowers: number;
   blobs: number;
+  /** Угодья: стога, звенья изгороди, овцы. */
+  hay: number;
+  fences: number;
+  sheep: number;
   /** Сторона карты земли, текселей. */
   map: number;
   /** Сколько миллисекунд заняла сборка на этом устройстве: карта земли, расстановка, меши. */
@@ -286,6 +294,22 @@ function* fillJob(mesh: THREE.InstancedMesh, items: readonly Tuft[], tint: (i: n
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 }
 
+/** Звенья изгороди: длина звена — масштаб по x, высота и толщина — прежние. */
+function* fillPanels(mesh: THREE.InstancedMesh, items: readonly Panel[]): Job<void> {
+  const n = Math.min(items.length, mesh.instanceMatrix.count);
+  for (let i = 0; i < n; i++) {
+    const p = items[i];
+    E.set(0, p.rot, 0);
+    Q.setFromEuler(E);
+    mesh.setMatrixAt(i, M.compose(V.set(p.x, p.y, p.z), Q, S.set(p.length, 1, 1)));
+    mesh.setColorAt(i, C.setScalar(0.92 + (i % 5) * 0.03));
+    if (i % FILL_STEP === FILL_STEP - 1) yield;
+  }
+  mesh.count = n;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
 // ---------- Сборка ----------
 
 /** Собрать окружение разом — тесту и стенду без кадров. Сцена ведёт его кусками (`startEnv`). */
@@ -310,7 +334,7 @@ interface Stand {
 interface Cover {
   tufts: Tuft[];
   flowers: Flower[];
-  crops: Tuft[];
+  crops: Crop[];
 }
 
 /**
@@ -352,6 +376,10 @@ export function startEnv(o: EnvOptions): EnvWorld {
 
   const sward = { value: season.sward };
   const bloom = { value: season.bloom };
+  const cropShow = { value: season.crop };
+  let hayCount = 0;
+  let fenceCount = 0;
+  let sheepCount = 0;
   const petal = FLOWER_KEYS.map((k) => new THREE.Color().setHex(PALETTE[k]));
   const shadeU: ShadeUniforms = {
     away: { value: new THREE.Vector2(1, 0) },
@@ -381,7 +409,8 @@ export function startEnv(o: EnvOptions): EnvWorld {
     tuftCount = Math.min(tufts.length, grass.instanceMatrix.count);
     yield* fillJob(flowers, fl, (i) => C.copy(petal[fl[i].color % FLOWER_COLORS]));
     flowerCount = Math.min(fl.length, flowers.instanceMatrix.count);
-    yield* fillJob(crops, cr, (i) => C.setScalar(cr[i].hue));
+    // Озимая рожь — цвета пашни сезона, яровые (овёс, ячмень) — зеленее и холоднее.
+    yield* fillJob(crops, cr, (i) => (cr[i].sowing === 'spring' ? C.setRGB(cr[i].hue * 0.88, cr[i].hue * 1.04, cr[i].hue * 0.8) : C.setScalar(cr[i].hue)));
     cropCount = Math.min(cr.length, crops.instanceMatrix.count);
   }
 
@@ -395,7 +424,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     // Текстура — в список отдачи сразу, как заведена: сцену могут выгрузить посреди сборки.
     texA = toTexture(yield* pixelsJob(m.size, m.soil, m.litter, m.stone));
     textures.push(texA);
-    texB = toTexture(yield* pixelsJob(m.size, m.field, m.lush, null));
+    texB = toTexture(yield* pixelsJob(m.size, m.field, m.lush, m.graze));
     textures.push(texB);
     const noise = yield* noiseJob();
     textures.push(noise);
@@ -414,6 +443,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
             trample: color('trample'),
             soil: color('soil'),
             stone: color('rock'),
+            graze: color('graze'),
           },
           shared,
         ),
@@ -482,6 +512,30 @@ export function startEnv(o: EnvOptions): EnvWorld {
       yield;
     }
 
+    // Угодья: стога, изгороди, овцы — по мешу на вид. Овцы — от среднего уровня: у
+    // низкого бюджет вызовов самый тесный (`quality.BUDGET`), а стадо на выгоне — мелочь.
+    yield 'угодья';
+    const farm = layout.farm;
+    const hay = instanced(hayModel(), mat(vegMaterial('hay', { a: color('hay'), b: color('hayTop'), sway: 0, flat: true }, shared)), farm.hay.length, 'hay');
+    yield* fillJob(hay, farm.hay, (i) => C.setScalar(farm.hay[i].hue));
+    hayCount = hay.count;
+    group.add(hay);
+    compile(hay);
+    yield;
+    const fences = instanced(fenceModel(), mat(vegMaterial('fence', { a: color('railDark'), b: color('rail'), sway: 0, flat: true }, shared)), farm.fences.length, 'fences');
+    yield* fillPanels(fences, farm.fences);
+    fenceCount = fences.count;
+    group.add(fences);
+    compile(fences);
+    yield;
+    const flock = spec.props >= 0.7 ? farm.flock : [];
+    const sheep = instanced(sheepModel(), mat(vegMaterial('sheep', { a: color('wool'), b: color('woolDark'), sway: 0, flat: true }, shared)), flock.length, 'sheep');
+    yield* fillJob(sheep, flock, (i) => C.setScalar(flock[i].hue));
+    sheepCount = sheep.count;
+    group.add(sheep);
+    if (flock.length) compile(sheep);
+    yield;
+
     // Покров: трава, всходы, цветы — угасают вдаль и уходят по сезону.
     // Основание пучка — цвета луга под ним, кончик — светлее и желтее: трава читается
     // светлыми штрихами на земле, а не тёмными галочками.
@@ -490,7 +544,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     grass = instanced(tuftModel(false), grassMat, spec.grass, 'grass');
     grass.receiveShadow = true;
     yield;
-    const cropMat = mat(vegMaterial('crop', { a: color('meadow'), b: color('crop'), sway: 1.2, twoSided: true, fade: true }, shared));
+    const cropMat = mat(vegMaterial('crop', { a: color('meadow'), b: color('crop'), sway: 1.2, twoSided: true, fade: true, show: cropShow }, shared));
     crops = instanced(tuftModel(true), cropMat, 400, 'crops');
     const flowerMat = mat(vegMaterial('flower', { a: color('meadow'), b: color('grassTip'), sway: 0.9, twoSided: true, fade: true, petal: true, show: bloom }, shared));
     flowers = instanced(flowerModel(), flowerMat, spec.flowers, 'flowers');
@@ -508,6 +562,8 @@ export function startEnv(o: EnvOptions): EnvWorld {
     // Дальний лес без пятен: его и так съедает дымка.
     for (const t of trees) if (!t.far) spots.push({ x: t.x, y: t.y, z: t.z, r: CROWN[t.species] * t.scale * 0.9 });
     for (const p of props) if (p.kind !== 'fern') spots.push({ x: p.x, y: p.y, z: p.z, r: PROP_SPREAD[p.kind] * p.scale * (p.kind === 'log' ? 0.8 : 1) });
+    for (const h of farm.hay) spots.push({ x: h.x, y: h.y, z: h.z, r: HAY_SPREAD * h.scale * 1.15 });
+    for (const o of flock) spots.push({ x: o.x, y: o.y, z: o.z, r: SHEEP_SPREAD * o.scale * 1.2 });
     const blobs = instanced(blobModel(), mat(shadeMaterial(new THREE.Color(...BLOB_SHADE), shadeU)), spots.length, 'blobs', false);
     blobs.renderOrder = 2;
     for (let i = 0; i < spots.length; i++) {
@@ -533,7 +589,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     const l = layoutOf(v);
     const m = yield* groundMapJob(l, spec.groundMap);
     const a = yield* pixelsJob(m.size, m.soil, m.litter, m.stone);
-    const b = yield* pixelsJob(m.size, m.field, m.lush, null);
+    const b = yield* pixelsJob(m.size, m.field, m.lush, m.graze);
     const c = yield* coverJob(l, m);
     // Покров раскладывается пачками, но выгружается разом — в конце `fillJob`, вместе с картой.
     yield* placeCover(c);
@@ -633,6 +689,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     shared.night.value = 0.62 * f.light.nightK;
     sward.value = season.sward;
     bloom.value = season.bloom;
+    cropShow.value = season.crop;
     split(f.camera, f.fogFar);
 
     // Пятна тени смотрят от лампы: чем ниже она, тем длиннее и дальше от основания.
@@ -673,6 +730,9 @@ export function startEnv(o: EnvOptions): EnvWorld {
       crops: cropCount,
       flowers: flowerCount,
       blobs: casters,
+      hay: hayCount,
+      fences: fenceCount,
+      sheep: sheepCount,
       map: map?.size ?? 0,
       buildMs: build.ms,
       build: { ...build },

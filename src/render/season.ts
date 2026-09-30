@@ -8,6 +8,7 @@ import {
   PALETTE,
   SEASONAL_KEYS,
   SEASON_BLOOM,
+  SEASON_CROP,
   SEASON_SNOW,
   SEASON_SUN_ARC,
   SEASON_SWARD,
@@ -43,6 +44,8 @@ export class SeasonVisuals {
   /** Доля травы над снегом и доля цветущих цветов (`SEASON_SWARD`, `SEASON_BLOOM`). */
   sward = 1;
   bloom = 1;
+  /** Доля всходов на пашне (`SEASON_CROP`). */
+  crop = 1;
   private started = false;
   /** Сезон, к которому идёт перелив: по нему встаёт цвет, спрошенный впервые. */
   private target: Season = 'spring';
@@ -92,5 +95,6 @@ export class SeasonVisuals {
     this.snow += (SEASON_SNOW[season] - this.snow) * k;
     this.sward += (SEASON_SWARD[season] - this.sward) * k;
     this.bloom += (SEASON_BLOOM[season] - this.bloom) * k;
+    this.crop += (SEASON_CROP[season] - this.crop) * k;
   }
 }

@@ -141,6 +141,18 @@ export const PALETTE = {
   flowerBlue: 0x6d87d1,
   flowerPink: 0xd98aa8,
   flowerRed: 0xcc4a3e,
+  /**
+   * Угодья (docs/graphics_world.md, 9.7): сено стога и его макушка — выгоревшая летом,
+   * под снегом зимой; жерди и столбы изгороди — старое серо-бурое дерево; руно овцы и её
+   * тёмные морда и ноги; выеденная трава выгона — короче, желтее и суше луга.
+   */
+  hay: 0xc4a15e,
+  hayTop: 0xb39150,
+  rail: 0x8f7556,
+  railDark: 0x5f4b37,
+  wool: 0xe2dccb,
+  woolDark: 0x3b3431,
+  graze: 0xa39f66,
 
   // ---------- Дерево ----------
   wood: 0x9d6d42,
@@ -332,6 +344,8 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     oak: 0xb36f2c,
     birch: 0xdcb33b,
     crop: 0xbfa35a,
+    hayTop: 0x9c7a45,
+    graze: 0xa8965c,
   },
   winter: {
     // Зимнее солнце бледное; снег голубой, не белый: с солнцем и полусферой он и так у предела.
@@ -369,6 +383,8 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     oak: 0xc6ced6,
     birch: 0xd6dee6,
     crop: 0xd9e1e9,
+    hayTop: 0xe8edf2,
+    graze: 0xd8e0e8,
   },
 };
 
@@ -380,6 +396,12 @@ export const SEASON_SNOW: Record<Season, number> = { spring: 0, summer: 0, autum
  * пробы, `render/env`). Не цвет, но сезонное число — живёт рядом со снегом.
  */
 export const SEASON_SWARD: Record<Season, number> = { spring: 0.9, summer: 1, autumn: 0.85, winter: 0.3 };
+
+/**
+ * Доля всходов на пашне по сезону: весной всходят, летом колос, осенью стерня после жатвы,
+ * зимой пашня под снегом.
+ */
+export const SEASON_CROP: Record<Season, number> = { spring: 0.7, summer: 1, autumn: 0.35, winter: 0 };
 
 /** Доля цветущих цветов по сезону: летом все, осенью редкие, зимой ни одного. */
 export const SEASON_BLOOM: Record<Season, number> = { spring: 0.75, summer: 1, autumn: 0.2, winter: 0 };

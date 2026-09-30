@@ -1,6 +1,7 @@
 /**
  * Модели окружения: четыре породы деревьев (ближняя и дальняя форма), мелочь, пучок
- * травы, цветок, всход и пятно тени. Каждая — одна геометрия на все экземпляры.
+ * травы, цветок, всход, угодья (стог, звено изгороди, овца) и пятно тени. Каждая — одна
+ * геометрия на все экземпляры.
  *
  * ЦВЕТ ВЕРШИН — НЕ ЦВЕТ, А ТРИ ЧИСЛА (материал читает их сам, `env/materials.ts`):
  *   r — затемнение: низ кроны и ствола темнее, верх светлее — объём без второй лампы;
@@ -10,7 +11,7 @@
  * без единой строки здесь.
  *
  * Бюджет треугольников — у каждой модели в заголовке; меняешь модель — перемерь
- * (`env/budget.test.ts` считает кадр по этим геометриям).
+ * (`env/build.test.ts` считает мир уровня по этим геометриям).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -421,6 +422,50 @@ export function flowerModel(): THREE.BufferGeometry {
     col.push(0.9, 0.55, 1, 1.05, 1, 1, 1.05, 1, 1);
   }
   return flatGeo(pos, col, true);
+}
+
+// ---------- Угодья ----------
+
+/**
+ * Стог: копна-цилиндр и конус макушки. Низ — цвет сена (`hay`), макушка — свой (`hayTop`):
+ * летом выгоревшая, зимой под снегом. ≈ 32 треугольника.
+ */
+export function hayModel(): THREE.BufferGeometry {
+  return build(
+    [
+      piece(at(new THREE.CylinderGeometry(0.55, 0.62, 0.55, 8, 1, true), 0, 0.275, 0), [0.7, 0.95], [0, 0.1]),
+      piece(at(new THREE.ConeGeometry(0.6, 0.78, 8, 1, true), 0, 0.55 + 0.39, 0), [0.92, 1.08], [0.35, 1]),
+    ],
+    { sway: 3, swayFrom: 0.5, jitter: 0.05 },
+  );
+}
+
+/**
+ * Звено изгороди длиной 1 вдоль оси x: два столба и две жерди. Длину звена задаёт масштаб
+ * экземпляра по x. Столбы — тёмное дерево (`railDark`), жерди — светлее (`rail`). 48 треугольников.
+ */
+export function fenceModel(): THREE.BufferGeometry {
+  const p: Piece[] = [];
+  for (const x of [-0.47, 0.47]) p.push(piece(at(new THREE.BoxGeometry(0.07, 0.62, 0.07), x, 0.31, 0), [0.7, 1], [0, 0]));
+  p.push(piece(at(new THREE.BoxGeometry(1.0, 0.05, 0.04), 0, 0.24, 0.01, 1, 1, 1, 0.03), [0.85, 1], [1, 1]));
+  p.push(piece(at(new THREE.BoxGeometry(1.0, 0.05, 0.04), 0, 0.46, -0.01, 1, 1, 1, -0.02), [0.9, 1.02], [1, 1]));
+  return build(p, { sway: 1 });
+}
+
+/**
+ * Овца: руно — сплюснутый многогранник, голова и ноги — тёмные (`woolDark`), руно —
+ * светлое (`wool`). Мордой по оси +x. ≈ 56 треугольников.
+ */
+export function sheepModel(): THREE.BufferGeometry {
+  return build(
+    [
+      piece(at(new THREE.IcosahedronGeometry(0.28, 0), 0, 0.36, 0, 1.3, 0.8, 0.95), [0.78, 1.05], [0, 0]),
+      piece(at(new THREE.BoxGeometry(0.16, 0.17, 0.15), 0.4, 0.4, 0, 1, 1, 1, 0), [0.8, 1], [1, 1]),
+      piece(at(new THREE.BoxGeometry(0.09, 0.22, 0.34), 0.2, 0.11, 0), [0.7, 0.9], [1, 1]),
+      piece(at(new THREE.BoxGeometry(0.09, 0.22, 0.34), -0.2, 0.11, 0), [0.7, 0.9], [1, 1]),
+    ],
+    { sway: 1, jitter: 0.02 },
+  );
 }
 
 /**
