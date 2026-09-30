@@ -47,7 +47,7 @@ export function enginePrice(id: EngineId): number {
 }
 
 /** Что лучник стоит от осады до осады: наём плюс жалованье за столько игровых дней. */
-export const archerPerSiege = (daysPerSiege: number, g: GameState = createInitialState()): number =>
+export const archerPerSiege = (daysPerSiege: number, g: GameState = createInitialState(7)): number =>
   archerRecruit() + wageOf(g, 'archer') * daysPerSiege;
 
 /**

@@ -483,7 +483,7 @@ console.log('');
 console.log(' уровни   склад целиком   тайник   открыто   обоз набега   унесут   доля склада');
 
 for (const level of [1, 3, 5, 7, 10]) {
-  const s = createInitialState();
+  const s = createInitialState(7);
   for (const b of s.buildings) if (b.type === 'storage' || b.type === 'cache') b.level = level;
   const cap = storageCap(s);
   // Полный склад: за ночь производство упирается в потолок по каждому припасу.

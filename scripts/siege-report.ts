@@ -295,7 +295,7 @@ const armyUnit = (level: number): number => 20 + 10 * (level - 1);
 
 /** Посёлок уровня L: жильё на 90%, склад полон, войско — две мерки. */
 function townAt(level: number): GameState {
-  const g = createInitialState();
+  const g = createInitialState(7);
   for (const b of g.buildings) b.level = level;
   g.pop = Math.round(housingCapacity(g) * 0.9);
   const n = armyUnit(level) * 2;
@@ -821,7 +821,7 @@ for (const seed of SEEDS) {
 
 /** Настоящее племя нужного уровня с полным складом: с ним игрок и уходит. */
 function tribeAt(level: number): GameState {
-  const g = createInitialState();
+  const g = createInitialState(7);
   for (const b of g.buildings) b.level = level;
   g.pop = Math.round(115 * (1 + (level - 1) * 0.7));
   // Дружина дома и крупная: только тогда штурм не удался бы, и отряд садится лагерем
@@ -1131,7 +1131,7 @@ console.log(`${CURVE_NOTE}; заморозки с орудием и без не�
 console.log('');
 console.log('лучник против орудия: цена, с которой орудие сравнивается');
 {
-  const g = createInitialState();
+  const g = createInitialState(7);
   const wage = wageOf(g, 'archer');
   const sieges = Math.max(1, totalNew);
   // Считается прямо в игровых днях: горизонт раздела «частота» задан ими, и жалованье лучника —

@@ -105,7 +105,7 @@ setRandom(seeded(1));
  * Никто не стоит на местах: разделы расставляют людей сами, где это важно.
  */
 function stage(level: number, armyShare = 0.2): GameState {
-  const s = createInitialState();
+  const s = createInitialState(7);
   s.tutorialDone = true;
   for (const b of s.buildings) b.level = Math.min(BUILDING_BY_ID[b.type].maxLevel ?? MAX_BUILDING_LEVEL, level);
   s.pop = housingCapacity(s);

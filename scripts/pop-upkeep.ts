@@ -201,7 +201,7 @@ function days(s: GameState, marks: number[], opts: { feed?: boolean; on?: (s: Ga
 }
 
 export async function upkeepSection(): Promise<void> {
-  const s0 = createInitialState();
+  const s0 = createInitialState(7);
   console.log('\n══════ Содержание войска ══════');
   console.log(
     `Жалованье в день: ${WAGE_HEAD} полного сбора с человека (${TAX_PER_POP} зол.) с головы и ${WAGE_MAN} — с бойца строя. ` +

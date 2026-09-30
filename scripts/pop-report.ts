@@ -324,7 +324,7 @@ async function main(): Promise<void> {
   console.log('\nЗима при дружине в треть населения (год 2, без смягчения):');
   console.log('  уровни | люди | дружина | еда добыча | еда расход | баланс | дрова | лес добыча | дрова, % леса');
   for (const level of [2, 4, 6, 8, MAX_BUILDING_LEVEL]) {
-    const w = createInitialState();
+    const w = createInitialState(7);
     w.tutorialDone = true;
     for (const def of BUILDINGS) {
       const b = w.buildings.find((x) => x.type === def.id)!;
@@ -353,7 +353,7 @@ async function main(): Promise<void> {
   // То же для племени, которое поставило на земледелие: зимой поле мертво.
   console.log('\nТо же, но ставка на поля (все свободные руки на ферму):');
   for (const level of [4, 6, MAX_BUILDING_LEVEL]) {
-    const w = createInitialState();
+    const w = createInitialState(7);
     w.tutorialDone = true;
     for (const def of BUILDINGS) {
       const b = w.buildings.find((x) => x.type === def.id)!;

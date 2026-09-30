@@ -260,7 +260,7 @@ console.log('--- 3. отряд на подходе: окно ответа по �
 console.log(`потолок сбора дружины (HANDOVER_MAX, без черты): ${m(HANDOVER_MAX)}; худшее опоздание прохода: ${m(CRON_LAG)}`);
 console.log('Дозор  предупреждение  набегов  окно мин…макс        среднее  не успеет  после опоздания (мин)  виден с выхода');
 for (const level of [1, 5, 10]) {
-  const s = createInitialState();
+  const s = createInitialState(7);
   const watch = s.buildings.find((b) => b.type === 'watch');
   if (watch) watch.level = level;
   const warning = warningSeconds(s);

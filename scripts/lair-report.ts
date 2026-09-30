@@ -75,7 +75,7 @@ const GROWTH_VILLAGERS = shieldVillagers(1);
 console.log('=== РОСТ: логово по возрасту и по жителям города ===');
 console.log('Опора — расстояние до замка игрока (`lairAnchor`): у порога слабее, вдали крепче. Сила — от возраста');
 console.log('и от жителей города (`lairs.lairPower`): ниже — при жителях, с которых логово выходит в полную силу.');
-console.log(`Жителей: ${GROWTH_VILLAGERS}. Оборона стартовой деревни без дружины — ${defense(createInitialState()).toFixed(0)}.`);
+console.log(`Жителей: ${GROWTH_VILLAGERS}. Оборона стартовой деревни без дружины — ${defense(createInitialState(7)).toFixed(0)}.`);
 console.log('');
 console.log('  сид   опора   свежее   полсрока   потолок   до замка, кл');
 
@@ -117,7 +117,7 @@ async function production(hours: number): Promise<number> {
 
 /** Сколько предметов кузница первого уровня делает за час, если посадить в неё всех. */
 function forgePerHour(): number {
-  const s = createInitialState();
+  const s = createInitialState(7);
   const sm = buildingOfType(s, 'smithy');
   if (!sm) return 0;
   assignWorker(s, sm.id, buildingSlots(sm));
@@ -175,7 +175,7 @@ console.log(
     `${n1(realSeconds(ROUND_DAYS * DAY_LENGTH) / 3600)} ч настоящего времени — медиана по сидам) это ` +
     `${Math.round(perDay0 * ROUND_DAYS)} и ${Math.round(perDay2 * ROUND_DAYS)} ед.`,
 );
-console.log(`  Склад стартовой деревни: ${storageCap(createInitialState())}. Кузница 1-го уровня: ${Math.round(forgeHour)} предметов в час.`);
+console.log(`  Склад стартовой деревни: ${storageCap(createInitialState(7))}. Кузница 1-го уровня: ${Math.round(forgeHour)} предметов в час.`);
 console.log('');
 console.log('  логово          мощь   народу   добра   золота   оружия   оружие своей ковкой        доля круга');
 

@@ -688,7 +688,7 @@ function gemSection(): void {
   console.log(`«алмазов» — цена достройки целого улучшения (rushPrice); «ждать» — нормативное ожидание настоящим временем; «было бы» — цена, останься алмаз`);
   console.log(`десятью игровыми секундами: при ×${SCALE_NEXT} те же алмазы снимали бы в ${SCALE_NEXT} раз больше ожидания. Тестовый запас новой партии — ${TEST_GEMS} алмазов.`);
   console.log('  улучшение              | шкала 1: алмазов · ждать | ×' + SCALE_NEXT + ': алмазов · ждать     | было бы при ×' + SCALE_NEXT + ': алмазов · с ожидания на алмаз');
-  const base = createInitialState();
+  const base = createInitialState(7);
   const rows: [string, number][] = [
     ['Жилища 1→2', 1],
     ['Рынок 1→2', 1],
