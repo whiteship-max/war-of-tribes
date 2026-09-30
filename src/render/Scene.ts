@@ -169,9 +169,9 @@ const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
 export const RESTORE_WAIT = 3000;
 
 /**
- * Сколько ждать готовности программ шейдеров окружения (`workEnv`), мс. С параллельной
+ * Сколько ждать готовности программ шейдеров окружения (`waitPrograms`), мс. С параллельной
  * сборкой браузер доготавливает их за доли секунды; без неё `compile` уже собрал их
- * по одной — ждать нечего. Срок — на случай потерянного контекста.
+ * по одной — ждать нечего. Срок — чтобы мир встал, даже если браузер медлит.
  */
 const ENV_COMPILE_WAIT = 2000;
 
@@ -369,6 +369,8 @@ export class TribeScene {
    * и обещание стенду, что оно встанет. В кадре до его конца стоит прежняя земля.
    */
   private envJob: { world: EnvWorld; mounted: () => void } | null = null;
+  /** Собранное окружение, которое ждёт программ шейдеров: смена построек идёт и ему. */
+  private envMounting: EnvWorld | null = null;
   /** Что насчитал свет последнего кадра: доля дня и ночи. */
   private light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
   /** Посёлок, под который лежит земля окружения: заново — только при смене построек. */
@@ -700,17 +702,34 @@ export class TribeScene {
     const job = this.envJob;
     if (!job || !job.world.work(until)) return;
     this.envJob = null;
-    let once = false;
-    const mount = (): void => {
-      if (once) return;
-      once = true;
+    this.envMounting = job.world;
+    this.waitPrograms(job.world, () => {
       this.mountEnv(job.world);
       job.mounted();
+    });
+  }
+
+  /**
+   * Дождаться программ шейдеров окружения, не держа кадр. `compileAsync` three не годится:
+   * при потерянном контексте его опрос не кончается никогда, а после выгрузки сцены падает
+   * исключением из таймера (разбор ночи 1). Здесь опрос свой и с выходами: сцена выгружена,
+   * контекст потерян или срок вышел — мир ставится как есть, программы доберёт кадр.
+   */
+  private waitPrograms(world: EnvWorld, done: () => void): void {
+    const materials = [...this.renderer.compile(world.group, this.camera, this.scene)];
+    const began = performance.now();
+    const poll = (): void => {
+      const over = this.disposed || this.renderer.getContext().isContextLost() || performance.now() - began > ENV_COMPILE_WAIT;
+      const ready =
+        over ||
+        materials.every((m) => {
+          const program = (this.renderer.properties.get(m) as { currentProgram?: { isReady(): boolean } }).currentProgram;
+          return !program || program.isReady();
+        });
+      if (ready) done();
+      else setTimeout(poll, 16);
     };
-    this.renderer.compileAsync(job.world.group, this.camera, this.scene).then(mount, mount);
-    // Контекст, потерянный посреди ожидания, программ не доготовит никогда (`isReady` так и
-    // не скажет «да»): через срок мир встаёт и без ожидания — программы доберёт кадр.
-    setTimeout(mount, ENV_COMPILE_WAIT);
+    poll();
   }
 
   /**
@@ -718,6 +737,7 @@ export class TribeScene {
    * выгрузить, пока ждали программ, — тогда ставить некуда.
    */
   private mountEnv(env: EnvWorld): void {
+    if (this.envMounting === env) this.envMounting = null;
     if (this.disposed) {
       env.dispose();
       return;
@@ -1539,7 +1559,7 @@ export class TribeScene {
     // Земля окружения знает, где стоят дома и дороги: трава к ним не подходит, земля у
     // них вытоптана. Меняется это с той же редкостью, что обстановка.
     this.envVillage = { present, built };
-    (this.env ?? this.envJob?.world)?.setVillage(this.envVillage);
+    (this.env ?? this.envJob?.world ?? this.envMounting)?.setVillage(this.envVillage);
     if (this.village) {
       this.scene.remove(this.village);
       disposeGeometries(this.village);

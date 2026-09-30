@@ -24,6 +24,13 @@ export interface SteadyRule {
   warm: number;
   /** Промежуток длиннее этого, мс, — не кадр, а пауза (фон, сборка мусора, клавиатура). */
   gapMs: number;
+  /**
+   * Средний кадр окна дольше этого, мс, — тоже провал, даже без единого медленного кадра.
+   * Нужен там, где порог одного кадра врёт: дверь кадра держит ровно шестьдесят в среднем
+   * на любом экране от 60 Гц, но на 72 и 75 Гц кладёт кадры через один и два интервала
+   * экрана — каждый четвёртый промежуток 26.7 мс, и ровный ход читался бы провалом.
+   */
+  meanMs?: number;
 }
 
 export class Steady<T> {
@@ -60,7 +67,7 @@ export class Steady<T> {
     this.count++;
     if (ms > r.slowMs) this.slow++;
     if (this.spent < r.windowMs) return null;
-    const failing = this.slow / this.count >= r.share;
+    const failing = this.slow / this.count >= r.share || (r.meanMs !== undefined && this.spent / this.count > r.meanMs);
     this.spent = 0;
     this.slow = 0;
     this.count = 0;

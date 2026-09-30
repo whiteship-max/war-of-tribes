@@ -123,11 +123,27 @@ describe('окружение пробы: сборка по частям', () => 
 
   it('новый пересчёт заменяет начатый, а не встаёт вторым', () => {
     const season = new SeasonVisuals();
+    // Мерка: сколько шагов стоит один пересчёт под те же постройки.
+    const lone = buildEnv({ quality: 'low', season, village: SMALL });
+    lone.setVillage(SMALL);
+    const one = stepThrough(lone);
+    lone.dispose();
+    const full = snapshot(buildEnv({ quality: 'low', season, village: FULL })).get('flowers')!.matrices;
+    const small = snapshot(buildEnv({ quality: 'low', season, village: SMALL })).get('flowers')!.matrices;
+    // Область: у двух посёлков покров разный — брошенный пересчёт было бы видно.
+    expect(full).not.toEqual(small);
     const w = buildEnv({ quality: 'low', season, village: SMALL });
     w.setVillage(FULL);
     for (let i = 0; i < 20; i++) w.work(0);
     w.setVillage(SMALL);
-    stepThrough(w);
+    const flowers = w.group.getObjectByName('flowers') as THREE.InstancedMesh;
+    const version = flowers.instanceMatrix.version;
+    let steps = 1;
+    while (!w.work(0)) steps++;
+    // Выгрузка одна — последнего пересчёта; брошенный в видеокарту не попал ни разу.
+    expect(flowers.instanceMatrix.version - version, 'выгрузок цветов').toBe(1);
+    // Брошенный не доделывается: шагов — как у одного пересчёта, а не у двух.
+    expect(steps).toBeLessThanOrEqual(one + 30);
     const fresh = snapshot(buildEnv({ quality: 'low', season, village: SMALL }));
     expect(snapshot(w).get('flowers')!.matrices).toEqual(fresh.get('flowers')!.matrices);
     w.dispose();

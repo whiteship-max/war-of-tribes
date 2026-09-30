@@ -281,10 +281,11 @@ function instanced(geo: THREE.BufferGeometry, mat: THREE.Material, capacity: num
 
 /**
  * Заполнить меш списком пачками: матрица и разброс цвета у каждого. Число экземпляров
- * и отметка «выгрузить» ставятся в конце: в видеокарте до последней пачки лежит
- * прежнее заполнение, и пересчёт под новые постройки не мигает полупустым лугом.
+ * и отметку «выгрузить» ставит возвращённая «подмена», а не сама раскладка: в видеокарте
+ * до подмены лежит прежнее заполнение, и пересчёт под новые постройки подменяет траву,
+ * цветы, всходы и карты земли одним шагом — не мигает полупустым лугом.
  */
-function* fillJob(mesh: THREE.InstancedMesh, items: readonly Tuft[], tint: (i: number) => THREE.Color, sy?: (t: Tuft) => number): Job<void> {
+function* fillJob(mesh: THREE.InstancedMesh, items: readonly Tuft[], tint: (i: number) => THREE.Color, sy?: (t: Tuft) => number): Job<() => void> {
   const n = Math.min(items.length, mesh.instanceMatrix.count);
   for (let i = 0; i < n; i++) {
     const t = items[i];
@@ -292,9 +293,11 @@ function* fillJob(mesh: THREE.InstancedMesh, items: readonly Tuft[], tint: (i: n
     mesh.setColorAt(i, tint(i));
     if (i % FILL_STEP === FILL_STEP - 1) yield;
   }
-  mesh.count = n;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  return (): void => {
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  };
 }
 
 /** Звенья изгороди: длина звена — масштаб по x, высота и толщина — прежние. */
@@ -406,18 +409,26 @@ export function startEnv(o: EnvOptions): EnvWorld {
     return { tufts, flowers: fl, crops: cr };
   }
 
-  /** Разложить покров по мешам. */
-  function* placeCover(c: Cover): Job<void> {
-    if (!grass || !flowers || !crops) return;
+  /** Разложить покров по мешам; подменить в кадре — возвращённой подменой, одним шагом. */
+  function* placeCover(c: Cover): Job<() => void> {
+    const g = grass;
+    const f = flowers;
+    const k = crops;
+    if (!g || !f || !k) return (): void => undefined;
     const { tufts, flowers: fl, crops: cr } = c;
     yield 'покров: раскладка';
-    yield* fillJob(grass, tufts, (i) => C.setRGB(tufts[i].hue, tufts[i].hue, 0.95 + (tufts[i].hue - 1) * 0.3));
-    tuftCount = Math.min(tufts.length, grass.instanceMatrix.count);
-    yield* fillJob(flowers, fl, (i) => C.copy(petal[fl[i].color % FLOWER_COLORS]));
-    flowerCount = Math.min(fl.length, flowers.instanceMatrix.count);
-    // Озимая рожь — цвета пашни сезона, яровые (овёс, ячмень) — зеленее и холоднее.
-    yield* fillJob(crops, cr, (i) => (cr[i].sowing === 'spring' ? C.setRGB(cr[i].hue * 0.88, cr[i].hue * 1.04, cr[i].hue * 0.8) : C.setScalar(cr[i].hue)));
-    cropCount = Math.min(cr.length, crops.instanceMatrix.count);
+    const commits = [
+      yield* fillJob(g, tufts, (i) => C.setRGB(tufts[i].hue, tufts[i].hue, 0.95 + (tufts[i].hue - 1) * 0.3)),
+      yield* fillJob(f, fl, (i) => C.copy(petal[fl[i].color % FLOWER_COLORS])),
+      // Озимая рожь — цвета пашни сезона, яровые (овёс, ячмень) — зеленее и холоднее.
+      yield* fillJob(k, cr, (i) => (cr[i].sowing === 'spring' ? C.setRGB(cr[i].hue * 0.88, cr[i].hue * 1.04, cr[i].hue * 0.8) : C.setScalar(cr[i].hue))),
+    ];
+    return (): void => {
+      for (const commit of commits) commit();
+      tuftCount = Math.min(tufts.length, g.instanceMatrix.count);
+      flowerCount = Math.min(fl.length, f.instanceMatrix.count);
+      cropCount = Math.min(cr.length, k.instanceMatrix.count);
+    };
   }
 
   /** Первая сборка: шаг за шагом, каждый короче кадра. */
@@ -514,7 +525,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
       const mesh = instanced(propModel(kind), propMat[kind], list.length, `props-${kind}`);
       yield;
       // Камни мельче по высоте, чем в плане: плоские валуны сидят в земле, а не висят шаром.
-      yield* fillJob(mesh, list, (i) => C.setScalar(list[i].hue), (p) => (kind === 'rock' ? p.scale * 0.85 : p.scale));
+      (yield* fillJob(mesh, list, (i) => C.setScalar(list[i].hue), (p) => (kind === 'rock' ? p.scale * 0.85 : p.scale)))();
       group.add(mesh);
       compile(mesh);
       yield;
@@ -525,7 +536,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     yield 'угодья';
     const farm = layout.farm;
     const hay = instanced(hayModel(), mat(vegMaterial('hay', { a: color('hay'), b: color('hayTop'), sway: 0, flat: true, snowy: true }, shared)), farm.hay.length, 'hay');
-    yield* fillJob(hay, farm.hay, (i) => C.setScalar(farm.hay[i].hue));
+    (yield* fillJob(hay, farm.hay, (i) => C.setScalar(farm.hay[i].hue)))();
     hayCount = hay.count;
     group.add(hay);
     compile(hay);
@@ -538,7 +549,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     yield;
     const flock = spec.props >= 0.7 ? farm.flock : [];
     const sheep = instanced(sheepModel(), mat(vegMaterial('sheep', { a: color('wool'), b: color('woolDark'), sway: 0, flat: true }, shared)), flock.length, 'sheep');
-    yield* fillJob(sheep, flock, (i) => C.setScalar(flock[i].hue));
+    (yield* fillJob(sheep, flock, (i) => C.setScalar(flock[i].hue)))();
     sheepCount = sheep.count;
     group.add(sheep);
     if (flock.length) compile(sheep);
@@ -558,7 +569,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     flowers = instanced(flowerModel(), flowerMat, spec.flowers, 'flowers');
     flowers.receiveShadow = true;
     group.add(grass, crops, flowers);
-    yield* placeCover(yield* coverJob(layout, m));
+    (yield* placeCover(yield* coverJob(layout, m)))();
     for (const mesh of [grass, crops, flowers]) {
       compile(mesh);
       yield;
@@ -610,12 +621,13 @@ export function startEnv(o: EnvOptions): EnvWorld {
     const a = yield* pixelsJob(m.size, m.soil, m.litter, m.stone);
     const b = yield* pixelsJob(m.size, m.field, m.lush, m.graze);
     const c = yield* coverJob(l, m);
-    // Покров раскладывается пачками, но выгружается разом — в конце `fillJob`, вместе с картой.
-    yield* placeCover(c);
+    // Покров раскладывается пачками, а подменяется одним шагом вместе с картами земли.
+    const commit = yield* placeCover(c);
     layout = l;
     map = m;
     if (texA) toTexture(a, texA);
     if (texB) toTexture(b, texB);
+    commit();
   }
 
   const queue: Job<void>[] = [first()];

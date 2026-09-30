@@ -17,6 +17,7 @@ import {
   HAY_SPREAD,
   PROP_KINDS,
   PROP_SPREAD,
+  SEAM,
   SHEEP_SPREAD,
   SPECIES,
   edgeRadius,
@@ -248,6 +249,26 @@ describe('окружение пробы: рваный край леса', () => 
     expect(mean(near)).toBeLessThan(mean(deep) * 0.8);
     const young = trees.filter((t) => t.scale < 0.6);
     expect(young.length, 'молодняка').toBeGreaterThan(30);
+  });
+
+  it('шов ближнего и дальнего леса не читается кольцом: подстилка по кругу не проваливается', () => {
+    // Средняя подстилка на окружности, без коридора ворот: область — от чащи до края прежнего мира.
+    const ring = (r: number): number => {
+      let sum = 0;
+      let n = 0;
+      for (let k = 0; k < 360; k++) {
+        const a = (k / 360) * 2 * Math.PI;
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r;
+        if (inGate(x, z, 3.5)) continue;
+        sum += sample(map, map.litter, x, z);
+        n++;
+      }
+      return sum / n;
+    };
+    const deep = ring(SEAM - 2);
+    expect(deep, 'в чаще подстилка есть').toBeGreaterThan(0.7);
+    for (let r = SEAM - 2; r <= GROUND_RADIUS - 1.3; r += 0.25) expect(ring(r), `подстилка на ${r.toFixed(2)}`).toBeGreaterThan(deep - 0.1);
   });
 
   it('одинокие деревья стоят на лугу перед опушкой, но не в расчистке', () => {

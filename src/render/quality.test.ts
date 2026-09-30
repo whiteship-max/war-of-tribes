@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { QUALITIES, VILLAGE_STEADY, autoQuality, lowerQuality, type DeviceCaps, type Quality } from './quality';
 import { Steady } from './steady';
+import { pace } from './loop';
 
 const phone = (gpu: string | null, memory: number | null = 8, cores: number | null = 8): DeviceCaps => ({ coarse: true, memory, cores, gpu });
 const desk = (gpu: string | null): DeviceCaps => ({ coarse: false, memory: 8, cores: 8, gpu });
@@ -63,18 +64,42 @@ describe('сторож плавности посёлка', () => {
     return s.tier;
   }
 
-  it('высокий на ровных шестидесяти и на 90/120 Гц не опускается', () => {
-    expect(run('high', 16.7, 10)).toBe('high');
-    // 90 Гц под потолком шестьдесят: кадры 11.1 и 22.2 вперемешку — ровный ход.
-    const s = new Steady(QUALITIES, 'high' as Quality, VILLAGE_STEADY);
-    for (let i = 0; i < 600; i++) s.feed(i % 2 ? 22.2 : 11.1);
-    expect(s.tier).toBe('high');
+  /**
+   * Экран в `hz` и настоящая дверь кадра (`loop.pace`, потолок шестьдесят); кадр стоит
+   * `cost` мс — пока он рисуется, интервалы экрана проходят мимо. Сторож кормится
+   * промежутками между нарисованными кадрами, как в сцене.
+   */
+  function screen(hz: number, cost: number, seconds: number, from: Quality = 'high'): Quality {
+    const s = new Steady(QUALITIES, from, VILLAGE_STEADY);
+    const vsync = 1000 / hz;
+    let next = -Infinity;
+    let last = -1;
+    let busy = 0;
+    for (let now = 0; now < seconds * 1000; now += vsync) {
+      if (now < busy) continue;
+      const p = pace(next, now, false);
+      next = p.next;
+      if (!p.draw) continue;
+      if (last >= 0) s.feed(now - last);
+      last = now;
+      busy = now + cost;
+    }
+    return s.tier;
+  }
+
+  it('высокий на ровных шестидесяти не опускается на экранах от 50 до 165 Гц — и на 72 и 75 тоже', () => {
+    // 72 и 75 Гц — дверь кадра кладёт кадры через один и два интервала экрана: каждый
+    // четвёртый-пятый промежуток за 26 мс при ровном ходе. Прежний порог одного кадра
+    // читал это провалом (разбор ночи 1).
+    for (const hz of [50, 60, 72, 75, 85, 90, 100, 120, 144, 165]) expect(screen(hz, 4, 30), `${hz} Гц`).toBe('high');
   });
 
-  it('высокий на тридцати опускается на средний, средний на тридцати — остаётся', () => {
-    // Граница области: 33.3 мс — выше порога высокого (26) и ниже порога среднего (36).
-    expect(33.3).toBeGreaterThan(VILLAGE_STEADY('high').slowMs);
-    expect(33.3).toBeLessThan(VILLAGE_STEADY('medium').slowMs);
+  it('высокий, который не держит шестидесяти, опускается на средний; средний на тридцати — остаётся', () => {
+    // Кадр 22 мс на 60 Гц — рисуется через два интервала: тридцать кадров.
+    expect(screen(60, 22, 10)).toBe('medium');
+    // Кадр 18 мс на 120 Гц — через три интервала: сорок кадров.
+    expect(screen(120, 18, 10)).toBe('medium');
+    expect(screen(60, 22, 30, 'medium')).toBe('medium');
     expect(run('high', 33.3, 5)).toBe('medium');
     expect(run('medium', 33.3, 30)).toBe('medium');
   });

@@ -357,6 +357,8 @@ function farmOf(l: Layout): Farm {
       const x = mx + (-dz / len) * off * side;
       const z = mz + (dx / len) * off * side;
       if (inCleared(x, z, len / 2) || Math.hypot(x - pa.x, z - pa.z) < pa.r + 0.8) continue;
+      // Не на пашне: тропа к полю кончается в его середине, и изгородь легла бы на полосы.
+      if (fieldAt(l, x, z) > 0.02 || fieldAt(l, x + (dx / len) * (len / 2), z + (dz / len) * (len / 2)) > 0.02 || fieldAt(l, x - (dx / len) * (len / 2), z - (dz / len) * (len / 2)) > 0.02) continue;
       fences.push({ x, y: groundHeight(x, z) - 0.02, z, rot: -Math.atan2(dz, dx), length: len * 0.98 });
     }
   }
@@ -430,7 +432,9 @@ function fieldAt(l: Layout, x: number, z: number): number {
     const u = Math.abs(dx * l.furrow.x + dz * l.furrow.z);
     const v = Math.abs(-dx * l.furrow.z + dz * l.furrow.x);
     // Пар зарастает: земля полосы видна наполовину, между — трава.
-    const k = f.sowing === 'fallow' ? 0.5 : 1;
+    // Пар — две трети: середина полосы выше порога межи (`groundMap`, 0.6), и цветы пара —
+    // по краю, а не сплошным ковром.
+    const k = f.sowing === 'fallow' ? 0.65 : 1;
     best = Math.max(best, k * Math.min(smooth((f.along - u) / 0.25), smooth((f.across - v) / 0.18)));
   }
   return best;
@@ -555,7 +559,10 @@ export function* groundMapJob(l: Layout, size: number): Job<GroundMap> {
       // (`forestDensity`). Купы леса лежат на подстилке, прогалины и опушка остаются
       // травой; ровной дуги по радиусу, которая читалась тенью облака, нет.
       // За краем прежнего мира карта не считает — там дальний лес, подстилка сплошь.
-      const canopy = r > GROUND_RADIUS - 1.3 ? 0.85 : r > CLEAR_RADIUS + 0.5 ? forestDensity(l, x, z, tr) : 0;
+      // У шва ближнего и дальнего леса полог — сумма уходящего ближнего и входящего дальнего
+      // (с `SEAM`): иначе ближний сходил на нет раньше, и на земле читалось кольцо густой травы.
+      const farIn = r > SEAM ? 0.85 * smooth((r - SEAM) / (GROUND_RADIUS - 1.3 - SEAM)) * gateEdge(x, z, 6) : 0;
+      const canopy = r > GROUND_RADIUS - 1.3 ? 0.85 : r > CLEAR_RADIUS + 0.5 ? Math.min(1, forestDensity(l, x, z, tr) + farIn) : 0;
       const litter = smooth((canopy - 0.25 + wob * 0.12) / 0.6);
       // Каменистая земля у скал: пятнами, трава между камнями остаётся.
       const rocks = Math.hypot(x - ZONES.rocks.x, z - ZONES.rocks.z);
@@ -665,7 +672,7 @@ function glade(x: number, z: number): number {
 }
 
 /** Откуда ближний лес сходит на нет, а дальний входит: шов не читается кольцом. */
-const SEAM = GROUND_RADIUS - 4;
+export const SEAM = GROUND_RADIUS - 4;
 
 /**
  * Густота леса в точке, 0..1: опушка входит мягко по рваному краю (`edgeRadius`), пятнами —
