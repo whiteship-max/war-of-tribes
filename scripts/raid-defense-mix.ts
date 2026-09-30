@@ -409,8 +409,15 @@ const BARE_LEVELS = 3;
 /** Потоков мерки силы у ворот — столько же, сколько у спора за золото по потокам (`pop:report`, `GOLD_STREAMS`). */
 const GATE_STREAMS = 12;
 /**
+ * Игроки мерки — оба игрока спора за золото (`pop-gold.goldFlight`, `masters`): «по умолчанию» и «вложился в админветвь»
+ * (docs/remeasure.md, шаг 0: так играют оба, и мерка на одном делает второй путь тем, от чего таблица не спрашивается). Ровный
+ * бой — медиана по всем партиям: `GATE_STREAMS` потоков у каждого игрока.
+ */
+const GATE_PLAYERS: readonly boolean[] = [false, true];
+const playerName = (masters: boolean): string => (masters ? '«вложился в админветвь»' : '«по умолчанию»');
+/**
  * Срок партии мерки, игровых дней — с запасом на медленные потоки: партия останавливается, как только дошла до жителей мерки
- * 10-го уровня, а не дошла к сроку — поток уровня не видит, и раздел печатает, сколько потоков дошло («дошли N потоков из 12»).
+ * 10-го уровня, а не дошла к сроку — партия уровня не видит, и раздел печатает, сколько партий дошло («дошли N партий из 24»).
  */
 const TYPICAL_DAYS = 720;
 
@@ -441,7 +448,8 @@ const benchTown = (g: GameState): GameState => ({ ...structuredClone(g), gate: [
 
 interface StreamEven {
   level: number;
-  stream: number;
+  /** Партия мерки — номер в списке партий раздела (игрок и поток). */
+  flight: number;
   army: number;
   defense: number;
   militia: number;
@@ -450,15 +458,15 @@ interface StreamEven {
 }
 
 /**
- * Задача веера: ровный бой у ворот на гарнизоне типичного посёлка уровня `level` — игрока «по умолчанию» на потоке `stream`
+ * Задача веера: ровный бой у ворот на гарнизоне типичного посёлка уровня `level` — игрока спора в партии `flight`
  * (`pop-gold.typicalTowns`): всё его войско дома, вера — какая у него есть; мир боя — `SEEDS[0]`, как у раздела 4.
  */
-export async function gateEven({ level, stream, g: town }: { level: number; stream: number; g: GameState }): Promise<StreamEven> {
+export async function gateEven({ level, flight, g: town }: { level: number; flight: number; g: GameState }): Promise<StreamEven> {
   const g = benchTown(town);
   const { world, at } = await fieldWorld(g, SEEDS[0], []);
   const w: Inside = world;
   const d = defense(g);
-  return { level, stream, army: troopTotal(g.army), defense: Math.round(d), militia: w.save.profile.militia, wolves: evenOf(w, at, 'wolves', d), raiders: evenOf(w, at, 'raiders', d) };
+  return { level, flight, army: troopTotal(g.army), defense: Math.round(d), militia: w.save.profile.militia, wolves: evenOf(w, at, 'wolves', d), raiders: evenOf(w, at, 'raiders', d) };
 }
 
 interface LevelFoe {
@@ -477,20 +485,21 @@ interface FoeJob {
   level: number;
   who: GateFoe;
   g: GameState;
-  stream: number;
+  /** Чья партия медианная: поток и игрок. */
+  flight: string;
   even: Even;
   table: number;
   spread: string;
 }
 
 /**
- * Задача веера: строка таблицы одного противника на уровне `level`. Таблица — медиана ровного боя по потокам, делённая на
+ * Задача веера: строка таблицы одного противника на уровне `level`. Таблица — медиана ровного боя по партиям, делённая на
  * перевес «Ограничителя» (`table`, мощью); подробности — кривая, окрестность ровного боя мелким шагом, бой без кости на первых
- * уровнях и доля поражений от таблицы и от силы игры — на снимке потока, чей ровный бой — нижняя медиана (`g`). **Кривая не
+ * уровнях и доля поражений от таблицы и от силы игры — на снимке партии, чей ровный бой — нижняя медиана (`g`). **Кривая не
  * обязана быть монотонной** — бой у ворот по размеру стаи немонотонен, — поэтому печатается она сама, и строка помечена, где
  * больше пришедших берут верх реже.
  */
-export async function gateFoeRow({ level, who, g: town, stream, even, table, spread }: FoeJob): Promise<LevelFoe> {
+export async function gateFoeRow({ level, who, g: town, flight, even, table, spread }: FoeJob): Promise<LevelFoe> {
   const g = benchTown(town);
   const { world, at } = await fieldWorld(g, SEEDS[0], []);
   const w: Inside = world;
@@ -528,8 +537,8 @@ export async function gateFoeRow({ level, who, g: town, stream, even, table, spr
     bare = `       без кости, 1…${top} по одному: верх впервые при ${first < 0 ? '—' : first}; на одного больше — и верх уже не их: ${drops.length} раз${span}`;
   }
   const head = Number.isFinite(table)
-    ? `ровный по потокам ${spread}; таблица ${menOfPower(table)} — поражений медианного (поток ${stream}, ровный ${menOfPower(even.power)}) ${pct(foeShare(w, at, who, table))}`
-    : `ровного боя до ${CURVE[CURVE.length - 1]} обороны нет ни на одном потоке`;
+    ? `ровный по партиям ${spread}; таблица ${menOfPower(table)} — поражений медианного (${flight}, ровный ${menOfPower(even.power)}) ${pct(foeShare(w, at, who, table))}`
+    : `ровного боя до ${CURVE[CURVE.length - 1]} обороны нет ни в одной партии`;
   return {
     men: Number.isFinite(table) ? menOfPower(table) : NaN,
     power: table,
@@ -557,18 +566,19 @@ const medianOf = (xs: readonly number[]): number => {
 export async function gateLevelPart(): Promise<void> {
   console.log('');
   console.log(`--- 4б. Сила у ворот по уровню посёлка: ровный бой для типичного гарнизона уровня, делённый на ${TABLE_EDGE} (слово владельца по 14.35, п. 4) ---`);
-  console.log(`Типичный гарнизон уровня L — игрок «по умолчанию» спора за золото (pop-gold.typicalTowns: высокий налог, найм по средствам, мир ${GOLD_WORLD})`);
-  console.log(`в минуту, когда его жители впервые доходят до жителей мерки уровня (data/events.GATE_POP), на ${GATE_STREAMS} потоках случайности, срок ${TYPICAL_DAYS} игровых дней;`);
+  console.log(`Типичный гарнизон уровня L — оба игрока спора за золото, ${GATE_PLAYERS.map(playerName).join(' и ')} (pop-gold.typicalTowns: высокий налог, найм по средствам, мир ${GOLD_WORLD}),`);
+  console.log(`в минуту, когда его жители впервые доходят до жителей мерки уровня (data/events.GATE_POP), на ${GATE_STREAMS} потоках случайности у каждого, срок ${TYPICAL_DAYS} игровых дней;`);
   console.log(`всё войско дома, вера — его; бой у ворот — мир ${SEEDS[0]}, как у раздела 4 (направление владельца, docs/battle_eu4.md, 14.35, «Заход 30.09.2026»).`);
   console.log(`Кривая — доля боёв, где пришедшие взяли верх, по ${GATE_SEEDS} боёв с костью конфига, при силе ${CURVE[0]}…${CURVE[CURVE.length - 1]} обороны шагом ${CURVE[0]};`);
-  console.log('«ровный» — где кривая впервые переходит половину (уточнено делением отрезка), по каждому потоку; «таблица» — медиана ровного по потокам,');
-  console.log(`делённая на перевес «Ограничителя» ${TABLE_EDGE}; подробности — на медианном потоке (нижняя медиана ровного). «в игре» — сила, с которой`);
+  console.log(`«ровный» — где кривая впервые переходит половину (уточнено делением отрезка), по каждой партии; «таблица» — медиана ровного по всем ${GATE_STREAMS * GATE_PLAYERS.length} партиям,`);
+  console.log(`делённая на перевес «Ограничителя» ${TABLE_EDGE}; подробности — на медианной партии (нижняя медиана ровного). «в игре» — сила, с которой`);
   console.log('пришедшие выходят к этому посёлку (data/events.gatePower по жителям), и строка таблицы игры его уровня (data/events.GATE_POWER).');
   console.log('Партии мерки идут с таблицей игры, и бои у ворот в них настоящие: мерка зависит от самой таблицы — сошлась ли она, печатают последние строки.');
   console.log(`На ${BARE_LEVELS} первых уровнях кривая медианного ещё и без кости: бой на каждую голову пришедших, от одного до ${CURVE[CURVE.length - 1]} обороны (разбор — 14.35).`);
-  const streams = Array.from({ length: GATE_STREAMS }, (_, i) => i + 1);
-  const towns = await fan(typicalTowns, GOLD_MODULE, streams.map((stream) => ({ stream, seconds: TYPICAL_DAYS * DAY_LENGTH })));
-  const jobs = streams.flatMap((stream, i) => towns[i].flatMap((g, l) => (g ? [{ level: l + 1, stream, g }] : [])));
+  const flights = GATE_PLAYERS.flatMap((masters) => Array.from({ length: GATE_STREAMS }, (_, i) => ({ masters, stream: i + 1 })));
+  const towns = await fan(typicalTowns, GOLD_MODULE, flights.map(({ masters, stream }) => ({ masters, stream, seconds: TYPICAL_DAYS * DAY_LENGTH })));
+  const jobs = flights.flatMap((_, i) => towns[i].flatMap((g, l) => (g ? [{ level: l + 1, flight: i, g }] : [])));
+  const flightName = (i: number): string => `поток ${flights[i].stream}, ${playerName(flights[i].masters)}`;
   const evens = await fan(gateEven, import.meta.url, jobs);
   const table: Record<GateFoe, number[]> = { wolves: [], raiders: [] };
   const foeJobs: FoeJob[] = [];
@@ -578,7 +588,7 @@ export async function gateLevelPart(): Promise<void> {
     const m = townAt(level);
     const span = (xs: number[]): string => (xs.length ? `${medianOf(xs)} (${Math.min(...xs)}…${Math.max(...xs)})` : '—');
     heads.push(
-      ` ${pad(level, 2)}-й уровень: жителей ${GATE_POP[level - 1]} (по прямой лестницы логов — ${lairLevel(GATE_POP[level - 1]).toFixed(2)}-й); дошли ${at.length} потоков из ${GATE_STREAMS}; войско ${span(at.map((e) => e.army))}, оборона ${span(at.map((e) => e.defense))}, ополчение ${span(at.map((e) => e.militia))}; у посёлка мерки (townAt) — войско ${troopTotal(m.army)}, оборона ${Math.round(defense(m))}`,
+      ` ${pad(level, 2)}-й уровень: жителей ${GATE_POP[level - 1]} (по прямой лестницы логов — ${lairLevel(GATE_POP[level - 1]).toFixed(2)}-й); дошли ${at.length} партий из ${flights.length}; войско ${span(at.map((e) => e.army))}, оборона ${span(at.map((e) => e.defense))}, ополчение ${span(at.map((e) => e.militia))}; у посёлка мерки (townAt) — войско ${troopTotal(m.army)}, оборона ${Math.round(defense(m))}`,
     );
     for (const who of ['wolves', 'raiders'] as const) {
       const got = at.filter((e) => Number.isFinite(e[who].power)).sort((a, b) => a[who].power - b[who].power);
@@ -586,8 +596,13 @@ export async function gateLevelPart(): Promise<void> {
       table[who].push(Math.round(value));
       const mid = got[(got.length - 1) >> 1] ?? at[0];
       if (!mid) continue;
-      const spread = got.length > 0 ? `медиана ${menOfPower(value * TABLE_EDGE)} (${menOfPower(got[0][who].power)}…${menOfPower(got[got.length - 1][who].power)}; ${got.length} потоков)` : '—';
-      foeJobs.push({ level, who, g: towns[mid.stream - 1][level - 1]!, stream: mid.stream, even: mid[who], table: value, spread });
+      // Медиана у каждого игрока порознь — видно, чей гарнизон тянет таблицу; таблица — по всем партиям.
+      const own = GATE_PLAYERS.map((masters) => {
+        const xs = got.filter((e) => flights[e.flight].masters === masters).map((e) => e[who].power);
+        return `${playerName(masters)} ${xs.length > 0 ? menOfPower(medianOf(xs)) : '—'}`;
+      });
+      const spread = got.length > 0 ? `медиана ${menOfPower(value * TABLE_EDGE)} (${menOfPower(got[0][who].power)}…${menOfPower(got[got.length - 1][who].power)}; ${got.length} партий; ${own.join(', ')})` : '—';
+      foeJobs.push({ level, who, g: towns[mid.flight][level - 1]!, flight: flightName(mid.flight), even: mid[who], table: value, spread });
     }
   }
   const foeRows = await fan(gateFoeRow, import.meta.url, foeJobs);

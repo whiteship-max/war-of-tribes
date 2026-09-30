@@ -70,18 +70,19 @@ export async function goldFlight(arg: { masters: boolean; seconds: number; strea
 }
 
 /**
- * Типичный посёлок уровня L — игрок спора «по умолчанию» (docs/battle_eu4.md, 14.35, «Заход 30.09.2026»; направление
- * владельца): его партия на потоке `stream`, снятая в минуту, когда жители впервые доходят до жителей мерки уровня
- * (`data/events.GATE_POP`). Мерка силы у ворот (`raid-mix:report`, раздел 4б): таблица выводится на гарнизоне, который держит
- * игрок, а не на посёлке мерки (`autopilot.townAt`), у которого войско набрано смесью мерки. Партия идёт с таблицей игры, и
- * бои у ворот в ней настоящие — мерка зависит от самой таблицы, и раздел 4б печатает, сошлась ли она. Не дошёл до уровня к
- * сроку `seconds` — `null`.
+ * Типичный посёлок уровня L — игрок спора (docs/battle_eu4.md, 14.35, «Заход 30.09.2026»; направление владельца):
+ * `masters` — «вложился в админветвь», иначе «по умолчанию» (оба — docs/remeasure.md, шаг 0: так играют оба, и мерка на одном
+ * делает второй путь тем, от чего таблица не спрашивается). Его партия на потоке `stream`, снятая в минуту, когда жители
+ * впервые доходят до жителей мерки уровня (`data/events.GATE_POP`). Мерка силы у ворот (`raid-mix:report`, раздел 4б):
+ * таблица выводится на гарнизоне, который держит игрок, а не на посёлке мерки (`autopilot.townAt`), у которого войско набрано
+ * смесью мерки. Партия идёт с таблицей игры, и бои у ворот в ней настоящие — мерка зависит от самой таблицы, и раздел 4б
+ * печатает, сошлась ли она. Не дошёл до уровня к сроку `seconds` — `null`.
  */
-export async function typicalTowns(arg: { stream: number; seconds: number }): Promise<Array<GameState | null>> {
+export async function typicalTowns(arg: { stream: number; seconds: number; masters: boolean }): Promise<Array<GameState | null>> {
   const towns: Array<GameState | null> = GATE_POP.map(() => null);
   let level = 0;
   await goldFlight({
-    masters: false,
+    masters: arg.masters,
     seconds: arg.seconds,
     stream: arg.stream,
     watch: {
