@@ -12,6 +12,13 @@ dist
 coverage
 *.log
 
+# временный конфиг Vite: каждый процесс vite, vite-node и vitest пишет рядом с vite.config.ts
+# собранный `vite.config.ts.timestamp-<время>-<случайное>.mjs` и через миллисекунды стирает.
+# Неигнорируемым он попадал в неотслеживаемые `git ls-files --others`, исчезал до `git hash-object`
+# и ронял подсчёт замыканий (`scripts/lib/tree.ts`, тест `repo.test.ts`), когда рядом стартовал
+# vite-node — дочерний процесс веера в тестах или отчёт.
+*.timestamp-*.mjs
+
 # снимки стенда-витрины (?showcase=...&snap=имя)
 snaps
 

@@ -1,6 +1,7 @@
 // Подсчёт на настоящем репозитории: у каждого отчёта есть замыкание без сомнений, и в нём
 // лежит то, что отчёт на самом деле читает. Проверка «прочитал ли прогон что-то мимо
 // замыкания» живёт в самом прогоне (`scripts/reports.ts`); здесь — то, что видно без него.
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { owners } from './affected';
 import { ROOT, setupOf } from './setup';
@@ -71,6 +72,15 @@ describe('замыкания отчётов на этом репозитории
     expect(scene.built).toBe(true);
     expect([...scene.files]).toEqual(expect.arrayContaining(['scripts/build.mjs', 'scripts/build-icons.ts', 'index.html']));
     expect([...scene.files].some((f) => f.startsWith('assets-src/icons/'))).toBe(true);
+  });
+
+  it('временный конфиг Vite не входит в дерево: его стирают раньше, чем git его прочтёт', () => {
+    // Каждый процесс vite, vite-node и vitest кладёт рядом с конфигом собранный файл с таким именем (Vite 5,
+    // `loadConfigFromBundledFile`) и стирает через миллисекунды. Неигнорируемый, он попадал в неотслеживаемые, исчезал
+    // до `git hash-object`, и `worktree` падал, если рядом стартовал vite-node — дочерний процесс веера или отчёт.
+    const name = 'vite.config.ts.timestamp-1790771323946-3ebad02853b9c.mjs';
+    const r = spawnSync('git', ['check-ignore', '--no-index', '-q', name], { cwd: ROOT });
+    expect(r.status, `${name} не игнорируется: подсчёт замыканий увидит его и упадёт`).toBe(0);
   });
 
   it('выбор не вырождается: ядро боя не тянет интерфейс, а подсчёт — игру', () => {
