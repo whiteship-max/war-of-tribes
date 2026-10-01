@@ -1155,7 +1155,20 @@ body {
   font-size: 13px;
   text-align: left;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  animation: toast-in 0.18s ease;
+  animation: alert-in 0.18s ease;
+}
+
+/* Своя анимация, а не toast-in: тот сдвигает по X на полширины, потому что тост центрован по левому
+   краю, а тревога стоит во всю ширину — с toast-in она первые 0,18 с стояла сдвинутой влево. */
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .alert .ic {
