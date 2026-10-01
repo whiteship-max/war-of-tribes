@@ -108,7 +108,7 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
     renderer,
     scene,
     camera,
-    city: null as CityBuild | null,
+    build: null as CityBuild | null,
     beforeRender: null as null | (() => void),
     afterRender: null as null | (() => void),
     frame(): void {
@@ -173,7 +173,7 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
   FrameLoop.run(() => stand.frame());
   void buildCity(q).then((c) => {
     city = c;
-    stand.city = c;
+    stand.build = c;
     scene.add(c.group);
     target.y = view.at[1] || heightAt(view.at[0], view.at[2]);
     place();
