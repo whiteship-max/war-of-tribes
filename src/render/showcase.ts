@@ -4,7 +4,8 @@
 //     одно здание в ряд: столбцы — визуальные ступени. Свет, земля и масштаб —
 //     те же, что в игре.
 //   ?showcase=units&action=stand
-//     ряд фигур: покрои горожан (`FOLK_KINDS`), все виды бойцов (`TROOPS`) и конь отдельно.
+//     ряд фигур: покрои горожан (`FOLK_KINDS`), все виды бойцов (`TROOPS`), конь, волк ролика
+//     и собака посёлка отдельно (звери стоят в позе зверя для того же действия, `beasts.CANINE_OF`).
 //     units=spearman,swordsman показывает только названных; action=stand|walk|
 //     guard|strike|hit|fall — что они делают; count=40 вместо ряда ставит строй
 //     из сорока бойцов — по нему и меряется бюджет.
@@ -43,6 +44,8 @@ import { TROOPS } from '@/game/data/troops';
 import { Figure, FigurePool, PARTS, type PartName } from './figures';
 import { ACTIONS, poseFigure, type Action } from './poses';
 import { FOLK_KINDS, dressHero, dressMount, dressSoldier, dressVillager } from './units';
+import { CANINE_OF, DOG, dressCanine, poseCanine, wolfLook } from './beasts';
+import { PALETTE } from './palette';
 import { HERO_SCALE } from './hero';
 import { PLAN_SCALE } from './plan';
 import { AZIMUTH } from './camera';
@@ -482,6 +485,8 @@ interface UnitSpec {
   id: string;
   label: string;
   dress: (f: Figure) => void;
+  /** Зверь: поза — псовая для того же действия. */
+  beast?: boolean;
 }
 
 /**
@@ -507,7 +512,10 @@ function unitCatalog(heroTroop: TroopId): UnitSpec[] {
       f.scale = HERO_SCALE;
     },
   };
-  return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }, hero];
+  // Волк — в чужом цвете, как в ролике боя: стая всегда приходит чужой (`game/battle/beasts`).
+  const wolf: UnitSpec = { id: 'wolf', label: 'волк', dress: (f: Figure) => dressCanine(f, wolfLook(PALETTE.paintRed)), beast: true };
+  const dog: UnitSpec = { id: 'dog', label: 'собака', dress: (f: Figure) => dressCanine(f, DOG), beast: true };
+  return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }, wolf, dog, hero];
 }
 
 /**
@@ -550,6 +558,7 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
   // Ряд раскладывается в системе камеры: столбцы — вправо, как у зданий.
   const right = new THREE.Vector3(Math.cos(AZIMUTH), 0, -Math.sin(AZIMUTH));
   const figures: Figure[] = [];
+  const beasts = new Set<Figure>();
   let fitRadius: number;
   let head: string;
 
@@ -575,6 +584,7 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
     picked.forEach((spec, i) => {
       const f = new Figure();
       spec.dress(f);
+      if (spec.beast) beasts.add(f);
       f.position.copy(right).multiplyScalar((i - (picked.length - 1) / 2) * spacing);
       f.rotationY = AZIMUTH + turn;
       pool.add(f);
@@ -638,7 +648,8 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
     for (const f of figures) {
       if (fixedTime !== null) f.phase = 0;
       if (action === 'fall') f.down = down;
-      poseFigure(f, action, t);
+      if (beasts.has(f)) f.position.y = -poseCanine(f, CANINE_OF[action], t, f.down);
+      else poseFigure(f, action, t);
     }
     pool.update();
     if (!c.silhouette) applyDayNight(rig, scene, c.solar, seasonVis);

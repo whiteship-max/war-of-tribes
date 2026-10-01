@@ -6,12 +6,16 @@
 // значит — знает мост (`game/battle/faces.ts`). Таблицы «род показывается таким-то
 // видом» в рендере нет и быть не должно: она врала бы ровно тогда, когда игрок
 // собрал что-то другое. Чем боец вооружён, по-прежнему выводится из `TroopDef.gear`.
+//
+// Стая у ворот (метка зверя, `faces.BEAST`) одевается псовым из `render/beasts.ts` — теми же
+// примитивами пула — и ставится в позы зверя по тому же такту (`beasts.CANINE_OF`).
 import type { Sector, Side } from '@/battle/types';
-import { FILE_STEP, RANK_STEP, type CastSector, type SectorFrame } from '@/battle/replay';
+import { FILE_STEP, RANK_STEP, type CastSector, type FaceCount, type SectorFrame } from '@/battle/replay';
 import { wearOf } from '@/game/battle/faces';
 import { Figure, FigurePool } from '../figures';
 import { poseFigure, type Action } from '../poses';
 import { FOLK_KINDS, dressSoldier, dressVillager } from '../units';
+import { CANINE_OF, dressCanine, poseCanine, wolfLook } from '../beasts';
 import { PALETTE } from '../palette';
 
 /**
@@ -23,6 +27,24 @@ const CLOTH = { ours: PALETTE.paintBlue, theirs: PALETTE.paintRed } as const;
 
 export const CLOTH_OF = (ours: boolean): number => (ours ? CLOTH.ours : CLOTH.theirs);
 
+/** Метка — зверь: спрашивается у моста (`wearOf`), своей таблицы у рендера нет. */
+const beastFace = (f: Pick<FaceCount, 'id' | 'kind'>): boolean => wearOf(f.id, f.kind).wear === 'beast';
+
+/** Сектор — стая: все его метки звериные. Знамён у неё нет, и брошенного после неё не остаётся. */
+export const beastSector = (f: { byFace: readonly FaceCount[] }): boolean => f.byFace.length > 0 && f.byFace.every(beastFace);
+
+/**
+ * Стая — не строй. Волк смотрит чуть в свою сторону (до ±`PACK_YAW` / 2 от фронта) и стоит в стороне от своего места
+ * строя — вбок и назад, но не вперёд: передняя шеренга остаётся на месте сектора. Спереди — а крупный план смотрит на
+ * стаю в лоб — развёрнутый волк виден в три четверти, и четыре лапы с хвостом читаются; ровный ряд в лоб — нет.
+ */
+export const PACK_YAW = 0.9;
+const PACK_SIDE = 0.5;
+const PACK_BACK = 0.45;
+
+/** Своя доля места в строю — от номера, а не от Math.random: тот же журнал даёт тот же ролик. */
+const placeShare = (i: number, k: number): number => ((i * k) % 100) / 100;
+
 /** Одна фигура на поле: её место в строю и очередь падения. */
 interface Man {
   figure: Figure;
@@ -30,6 +52,10 @@ interface Man {
   dz: number;
   /** Каким по счёту падает: павшие обязаны быть разбросаны по блоку, а не сзади. */
   order: number;
+  /** Зверь: позы — псовые (`CANINE_OF`). */
+  beast: boolean;
+  /** Свой разворот от фронта (у стаи; у строя — ноль). */
+  yaw: number;
 }
 
 /** Блок фигур одного сектора: шеренги и ряды. */
@@ -55,6 +81,7 @@ export class SectorTroops {
       // давать тот же ролик, включая то, какой ногой шагает третий слева.
       f.phase = ((i * 37) % 100) / 7;
       if (wear.wear === 'folk') dressVillager(f, i % FOLK_KINDS);
+      else if (wear.wear === 'beast') dressCanine(f, wolfLook(cloth));
       else dressSoldier(f, wear.troop, cloth);
       f.visible = false;
       pool.add(f);
@@ -63,15 +90,18 @@ export class SectorTroops {
       // колонна по одному.
       const file = i % files;
       const rank = Math.floor(i / files);
+      const beast = wear.wear === 'beast';
       this.men.push({
         figure: f,
-        dx: (file - (files - 1) / 2) * FILE_STEP,
+        dx: (file - (files - 1) / 2) * FILE_STEP + (beast ? (placeShare(i, 29) - 0.5) * FILE_STEP * PACK_SIDE : 0),
         // Передняя шеренга стоит РОВНО на месте сектора, ряды уходят назад. Если
         // центрировать блок, глубокий строй перешагивает линию соприкосновения,
         // и синие с красными перемешиваются — по кадру тогда не понять, где чей
         // фронт. Глубина за это платит `FIELD.rowGap`, и тест это держит.
-        dz: rank * RANK_STEP * back,
+        dz: (rank + (beast ? placeShare(i, 71) * PACK_BACK : 0)) * RANK_STEP * back,
         order: (i * 5 + 3) % Math.max(1, n),
+        beast,
+        yaw: beast ? (placeShare(i, 53) - 0.5) * PACK_YAW : 0,
       });
     });
   }
@@ -100,9 +130,12 @@ export class SectorTroops {
       const lag = runs ? (1 - (m.order - fallen) / Math.max(1, runners)) * 0.9 : 0;
       const back = frame.side === us ? -1 : 1;
       f.position.set(frame.x + frame.dx + m.dx, 0, frame.z + frame.dz + m.dz - back * lag);
-      f.rotationY = facing + (runs ? Math.PI : away);
+      f.rotationY = facing + (runs ? Math.PI : away) + m.yaw;
       f.down = down ? 1 : 0;
-      poseFigure(f, down ? 'fall' : runs ? 'walk' : action, t);
+      const act: Action = down ? 'fall' : runs ? 'walk' : action;
+      // Зверь опускает корпус сам (лёжка, припав, падение набок): поза говорит, на сколько.
+      if (m.beast) f.position.y = -poseCanine(f, CANINE_OF[act], t, f.down);
+      else poseFigure(f, act, t);
     });
   }
 

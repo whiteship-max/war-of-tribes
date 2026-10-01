@@ -18,6 +18,8 @@
 //   &at=volley|clash|charge|rout — моменты действия, найденные в журнале
 //   &snap=имя отправить кадр на dev-сервер (POST /__snap → snaps/имя.png)
 //   &dpr=2    плотность пикселей снимка;  &speed=2 быстрее реального времени
+//   &beasts=1 к воротам пришла стая: `foe` волков (лёгкая конница ядра, как `LocalWorld.gateParty`)
+//             нападает, `men` наших защищаются; волки одеты псовыми (docs/graphics_world.md, 11.4)
 //
 // Подпись и бюджет дублируются в document.body.dataset.replay — их читает
 // инструмент проверки, которому сама канва недоступна.
@@ -144,14 +146,24 @@ export function mountReplayStand(p: URLSearchParams): void {
   const men = Number(p.get('men') ?? 200);
   const foe = Number(p.get('foe') ?? men);
   const seed = Number(p.get('seed') ?? 7);
-  const us = (p.get('us') as Side) ?? 'attacker';
+  const beasts = p.get('beasts') === '1';
+  const us = (p.get('us') as Side) ?? (beasts ? 'defender' : 'attacker');
   const mine = armyOf(men);
   const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
-  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed);
-  // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1`
-  // показывает именно этот путь, а не поимённый).
-  const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
-  const cast = castOfRecord(result, us, { attacker: mine, defender: foeTroops }, undefined, placeOf(p));
+  let cast: Cast;
+  let result: BattleResult;
+  if (beasts) {
+    // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
+    // запись боя несёт только их сторону (`BattleRecord.beasts`).
+    result = fight({ ...emptyStack(), cavalry: foe }, kindsOf(mine), seed);
+    cast = castOfRecord(result, us, { attacker: {}, defender: mine }, undefined, placeOf(p), 'attacker');
+  } else {
+    result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed);
+    // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1`
+    // показывает именно этот путь, а не поимённый).
+    const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
+    cast = castOfRecord(result, us, { attacker: mine, defender: foeTroops }, undefined, placeOf(p));
+  }
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -189,7 +201,7 @@ export function mountReplayStand(p: URLSearchParams): void {
     const s = player.stats();
     const f = cast;
     const text =
-      `бой ${men} против ${foe} · сид ${seed} · ролик ${f.seconds.toFixed(1)} с · ` +
+      `${beasts ? 'стая у ворот · ' : ''}бой ${men} против ${foe} · сид ${seed} · ролик ${f.seconds.toFixed(1)} с · ` +
       `${groundName(f.ground)} ${hourName(f.ground)}${f.ground.winter ? ', зимой' : ''}\n` +
       `t=${player.time.toFixed(2)} · фигур ${f.figures.attacker}/${f.figures.defender} · ` +
       `вызовов ${s.calls} · треугольников ${s.triangles.toLocaleString('ru')} · инстансов ${s.instances}`;
@@ -198,6 +210,7 @@ export function mountReplayStand(p: URLSearchParams): void {
       men,
       foe,
       seed,
+      beasts,
       seconds: f.seconds,
       t: Number(player.time.toFixed(3)),
       figures: f.figures,

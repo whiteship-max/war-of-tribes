@@ -2,11 +2,13 @@
  * Звери из деталей фигур: собака у костра (вид `next`, этап 2, пункт 3) и волк ролика боя (пункт 4) —
  * docs/graphics_world.md, 11.3–11.4. Скелет — конский (`figures.MountRig`: спина, бочка, четыре ноги со
  * сгибами, шея с наклоном, хвост), детали — те же семь примитивов пула: ни меша, ни материала, ни вызова
- * на зверя не прибавляется (docs/figures.md, «Чего делать нельзя»). Цвет — из палитры.
+ * на зверя не прибавляется (docs/figures.md, «Чего делать нельзя»). Цвет собаки — из палитры; волк ролика —
+ * боец, и он весь в цвете своей стороны (`wolfLook`; docs/battle-replay.md, «Цвет — это сторона»).
  *
  * Модуль берут только ленивые куски — окружение посёлка и ролик боя: в первую загрузку он не входит.
  */
 import { addSlot, type Figure, type MountRig } from './figures';
+import type { Action } from './poses';
 import { humanRig } from './units';
 import { PALETTE } from './palette';
 
@@ -16,14 +18,34 @@ export interface CanineLook {
   size: number;
   coat: number;
   dark: number;
-  /** Пушистый хвост волка толще собачьего. */
+  /**
+   * Волчья стать: хвост поленом, грива на загривке и голова шире собачьей. Спереди — а ролик смотрит на стаю в лоб —
+   * без неё зверь читается узкой палочкой: бочка у псового в треть его роста.
+   */
   bushy: boolean;
 }
 
 /** Собака у костра — по колено человеку. */
 export const DOG: CanineLook = { size: 0.42, coat: PALETTE.dogCoat, dark: PALETTE.dogDark, bushy: false };
-/** Волк ролика — крупнее собаки, серый, хвост поленом. */
-export const WOLF: CanineLook = { size: 0.56, coat: PALETTE.wolfCoat, dark: PALETTE.wolfDark, bushy: true };
+
+/** Высота волка в холке: крупнее собаки и по пояс человеку — на дальнем плане он ещё виден пятном. */
+export const WOLF_SIZE = 0.56;
+
+/** Насколько темнее основного тона спина, лапы, уши и хвост волка: тот же цвет стороны, только в тени. */
+export const WOLF_DARK = 0.62;
+
+/** Тот же цвет темнее: каждый канал умножен на `k`. */
+export function darker(color: number, k: number): number {
+  const ch = (shift: number): number => Math.round(((color >> shift) & 255) * k) << shift;
+  return ch(16) | ch(8) | ch(0);
+}
+
+/**
+ * Волк ролика боя: боец, а не зверь двора, поэтому шерсть — цвет стороны (`CLOTH_OF`), а тёмные детали — тот же цвет
+ * темнее. Вид читается силуэтом — четыре лапы и хвост поленом против двух ног, — а чья стая, видно цветом за секунду,
+ * как у всякого бойца.
+ */
+export const wolfLook = (cloth: number): CanineLook => ({ size: WOLF_SIZE, coat: cloth, dark: darker(cloth, WOLF_DARK), bushy: true });
 
 /** Скелет псового: длинное низкое тело, шея вперёд, ноги до земли. */
 export function canineRig(s: number): MountRig {
@@ -33,7 +55,7 @@ export function canineRig(s: number): MountRig {
     bodyLen: s * 1.25,
     bodyW: s * 0.34,
     legY: s * 0.64,
-    legX: s * 0.11,
+    legX: s * 0.14,
     legZ: s * 0.4,
     legLen: s * 0.66,
     neckY: s * 0.86,
@@ -74,16 +96,20 @@ export function dressCanine(f: Figure, look: CanineLook): void {
   const tipFwd = m.neckLen * sa;
   const headUp = tipUp + s * 0.04;
   const headFwd = tipFwd + s * 0.02;
+  const headW = look.bushy ? s * 0.26 : s * 0.21;
+  const earX = look.bushy ? s * 0.085 : s * 0.065;
   addSlot(f, 'head', 'root', look.coat, [0, m.backY - m.barrelH / 2, 0], [m.bodyW, m.barrelH, m.bodyLen]);
   // Тёмная спина — седло поверх бочки, чуть выше её верха.
   addSlot(f, 'head', 'root', look.dark, [0, m.backY - m.barrelH * 0.3, -m.bodyLen * 0.06], [m.bodyW * 0.92, m.barrelH * 0.62, m.bodyLen * 0.78]);
   addSlot(f, 'body', 'neck', look.coat, [0, 0, 0], [m.bodyW * 0.62, m.neckLen * 1.1, m.bodyW * 0.66]);
-  addSlot(f, 'head', 'neck', look.coat, at(headUp, headFwd), [s * 0.21, s * 0.2, s * 0.24], [-a, 0, 0]);
+  // Грива: шире бочки, на загривке перед лопатками — спереди волк от неё широкий, а не узкий.
+  if (look.bushy) addSlot(f, 'head', 'root', look.coat, [0, m.backY - m.barrelH * 0.32, m.bodyLen * 0.36], [m.bodyW * 1.45, m.barrelH * 1.15, m.bodyLen * 0.26]);
+  addSlot(f, 'head', 'neck', look.coat, at(headUp, headFwd), [headW, s * 0.2, s * 0.24], [-a, 0, 0]);
   // Морда: короб вдоль взгляда — вперёд и чуть вниз; нос — тёмный торец.
   addSlot(f, 'plate', 'neck', look.coat, at(headUp - s * 0.04, headFwd + s * 0.15), [s * 0.1, s * 0.09, s * 0.17], [0.15 - a, 0, 0]);
   addSlot(f, 'plate', 'neck', look.dark, at(headUp - s * 0.05, headFwd + s * 0.24), [s * 0.05, s * 0.045, s * 0.03], [0.15 - a, 0, 0]);
   for (const side of [-1, 1]) {
-    addSlot(f, 'cap', 'neck', look.dark, at(headUp + s * 0.08, headFwd - s * 0.03, side * s * 0.065), [s * 0.07, s * 0.12, s * 0.05], [-0.15 - a, 0, -side * 0.22]);
+    addSlot(f, 'cap', 'neck', look.dark, at(headUp + s * 0.08, headFwd - s * 0.03, side * earX), [s * 0.07, s * 0.12, s * 0.05], [-0.15 - a, 0, -side * 0.22]);
   }
   for (const [upper, lower] of [
     ['legFL', 'hockFL'],
@@ -98,8 +124,22 @@ export function dressCanine(f: Figure, look: CanineLook): void {
   addSlot(f, 'limb', 'tail', look.dark, [0, 0, 0], tail as [number, number, number], [0.9, 0, 0]);
 }
 
-/** Что делает псовый. */
-export type CanineAction = 'stand' | 'walk' | 'trot' | 'lie' | 'sniff' | 'lunge' | 'fall';
+/** Что делает псовый. `crouch` — волк ролика перед броском: припал, голова вперёд и вниз, хвост не ходит. */
+export type CanineAction = 'stand' | 'walk' | 'trot' | 'lie' | 'sniff' | 'crouch' | 'lunge' | 'fall';
+
+/**
+ * Поза людей — позой зверя: что делает волк, когда строй делает это (ролик боя, `battle/troops.ts`, и витрина фигур).
+ * Шагом стая не ходит: подходит и уходит рысью; перед сшибкой припадает, в свалке бросается. `hit` у людей — вздрог
+ * от удара; у волка это тот же припав.
+ */
+export const CANINE_OF: Record<Action, CanineAction> = {
+  stand: 'stand',
+  walk: 'trot',
+  guard: 'crouch',
+  strike: 'lunge',
+  hit: 'crouch',
+  fall: 'fall',
+};
 
 /**
  * Поза псового — чистая функция времени, как позы людей (`poses.ts`): ноги — ходом (`gait`), хвост —
@@ -142,12 +182,20 @@ export function poseCanine(f: Figure, action: CanineAction, t: number, down = 0)
       f.phase = w + t * 0.8;
       m.neckPitch = CANINE_NECK + 0.35 + 0.05 * Math.sin(t * 0.5 + w);
       return m.legLen * 0.66;
+    case 'crouch':
+      // Припал: ноги согнуты, корпус ниже, голова тянется вперёд к земле, хвост вытянут и почти не ходит.
+      f.gait = 0.35;
+      f.phase = w;
+      f.pitch = 0.06;
+      m.neckPitch = CANINE_NECK + 0.55 + 0.04 * Math.sin(t * 3 + w);
+      return m.legLen * 0.18;
     case 'lunge': {
-      // Бросок: передом вверх, задние толкают, шея тянется вперёд.
+      // Бросок низом: голова вперёд уже до прыжка, в прыжке перед чуть поднят, задние толкают. Волк не встаёт на
+      // дыбы, как конь: спереди вставший зверь читается столбиком, а не волком.
       const k = Math.max(0, Math.sin(t * 6 + w));
       f.gait = 0.6 * k;
-      f.pitch = -0.32 * k;
-      m.neckPitch = CANINE_NECK + 0.45 * k;
+      f.pitch = -0.16 * k;
+      m.neckPitch = CANINE_NECK + 0.5 + 0.2 * k;
       return 0;
     }
     case 'fall':

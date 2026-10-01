@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { FILE_STEP, RANK_STEP, type SectorFrame } from '@/battle/replay';
 import { INSTANCED } from '../materials';
 import { PALETTE } from '../palette';
+import { beastSector } from './troops';
 
 /** Щит на земле: тот же круг, что в руке, только лежит. */
 const SHIELD_R = 0.34;
@@ -88,7 +89,8 @@ export class Aftermath {
     let shields = 0;
     let shafts = 0;
     sectors.forEach((f, si) => {
-      if (f.wreck <= 0) return;
+      // Стая ничего не роняет: ни щита, ни копья у неё нет — на земле остаются только павшие волки.
+      if (f.wreck <= 0 || beastSector(f)) return;
       const back = Math.sign(f.z) || 1;
       const halfW = (f.files * FILE_STEP) / 2 + 0.4;
       const depth = Math.max(RANK_STEP, Math.min(f.ranks, Math.ceil(f.figures / Math.max(1, f.files))) * RANK_STEP);
