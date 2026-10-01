@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390,initial-scale=1">
+<title>До: посёлок</title>
+<link rel="stylesheet" href="../../../src/ui/styles.css">
+<link rel="stylesheet" href="../assets/phone.css">
+<style>
+  /*
+   * Подгонка рамки. В styles.css --safe-* объявлены на :root и там же сворачивают var(--tg-*) в число;
+   * .webview задаёт --tg-top / --tg-bottom ниже по дереву, и до --safe-* они не доходят. Здесь те же
+   * выражения объявлены заново на .webview, чтобы вырезы считались от значений рамки (верх 0, низ 34),
+   * как их отдаёт Telegram на телефоне. Классы игры не переопределяются.
+   */
+  .webview {
+    --safe-top: max(env(safe-area-inset-top, 0px), var(--tg-top, 0px));
+    --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-bottom, 0px));
+    --safe-left: max(env(safe-area-inset-left, 0px), var(--tg-left, 0px));
+    --safe-right: max(env(safe-area-inset-right, 0px), var(--tg-right, 0px));
+  }
+</style>
+</head>
+<body class="phone"><script src="../assets/sprite.js"></script>
+<div class="sys"><span>9:41</span><span class="sys-icons"><i class="sig"></i><i class="wifi"></i><i class="bat"></i></span></div>
+<div class="tgh"><span class="tgh-left">Закрыть</span><span class="tgh-title"><b>TRIBE</b><small>мини-приложение</small></span><span class="tgh-right"><span>···</span></span></div>
+<div class="webview"><div class="scene village"></div>
+<div class="app">
+  <!-- GameCanvas: .canvas-wrap с холстом диорамы — в макете вместо него подложка .scene выше. -->
+
+  <!-- TopBar -->
+  <div class="topbar">
+    <div class="hud-bar">
+      <span class="cell" title="День 149, ночь">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-day-night"/></svg></span>
+        <b>149</b>
+        <i>ночь</i>
+      </span>
+      <span class="sep"></span>
+      <button class="cell season season-summer" title="Лето: Длинный день: поля, стройка и добыча на пике, но зверь разбрёлся. Нажми, чтобы увидеть множители.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-season-sun"/></svg></span>
+        <i>Лето</i>
+        <span class="season-bar"><span style="width:77%"></span></span>
+      </button>
+      <span class="sep"></span>
+      <button class="cell tap" title="Население и жильё. Нажми, чтобы увидеть, как считается прирост.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-pop"/></svg></span>
+        <b>55</b>
+        <i>/55</i>
+      </button>
+      <span class="sep"></span>
+      <button class="cell tap" title="Мораль племени. Нажми, чтобы увидеть, что её поднимает и что тянет вниз.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-mood-mid"/></svg></span>
+        <b>58</b>
+      </button>
+      <span class="sep"></span>
+      <button class="cell tap army" title="Дружина. Нажми, чтобы увидеть состав, показатели и карточки войск.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-army"/></svg></span>
+        <b>0</b>
+        <i>дружина</i>
+      </button>
+    </div>
+
+    <!-- ResourceBar: склад ур. 1 — потолок 1200 + 3600 = 4 800 на каждый ресурс; еда упёрлась в него. -->
+    <div class="res-bar">
+      <span class="res" title="Древесина"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg><b>1,2к</b></span>
+      <span class="res" title="Камень"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-stone"/></svg><b>860</b></span>
+      <span class="res full" title="Еда"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-food"/></svg><b>4,8к</b></span>
+      <span class="res" title="Шкуры"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-hides"/></svg><b>140</b></span>
+      <span class="res" title="Кости"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-bones"/></svg><b>95</b></span>
+      <span class="res" title="Медь"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-copper"/></svg><b>60</b></span>
+      <span class="res" title="Железо"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-iron"/></svg><b>38</b></span>
+    </div>
+
+    <div class="top-row">
+      <!-- realm/Coat.tsx: CoatButton, CoatArt size 36, цвета PARTY_OWN -->
+      <button class="coat-btn" data-tut="coat" title="Держава: правительство, стройка, вера, армия, решения и настройки" aria-label="Держава, новых донесений: 3">
+        <svg width="36" height="36" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M6 5 H34 V19 C34 28 27 33 20 36 C13 33 6 28 6 19 Z" fill="#e8a43c" stroke="#b07724" stroke-width="2.4" stroke-linejoin="round"/>
+          <path d="M13 11 H16 V13.5 H18.5 V11 H21.5 V13.5 H24 V11 H27 V17 H25.5 V28 H14.5 V17 H13 Z" fill="#241a11"/>
+          <path d="M18 28 V23.5 C18 22 22 22 22 23.5 V28 Z" fill="#e8a43c"/>
+        </svg>
+        <span class="coat-badge">3</span>
+      </button>
+      <button class="map-btn" data-tut="nav-map" title="Карта мира: соседи, походы, разведка" aria-label="Карта мира">
+        <svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-map"/></svg>
+        <em>2</em>
+      </button>
+    </div>
+  </div>
+
+  <!-- AlertBar: набег (полный сбор уже не успевает — значок времени), потом тревоги alerts(s) -->
+  <div class="alerts">
+    <button class="alert raid">
+      <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-ui-time"/></svg></span>
+      <span class="txt">Набег: Волчья падь · 4:07 · полный сбор не успеет</span>
+    </button>
+    <button class="alert">
+      <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-job-smith"/></svg></span>
+      <span class="txt">Кузнецы стоят без заказа</span>
+    </button>
+  </div>
+
+  <!-- Sheet: закрыта, уехала за нижний край (translateY(100%)), содержимого нет -->
+  <div class="sheet" role="dialog" aria-hidden="true">
+    <div class="sheet-grab">
+      <span class="sheet-handle"></span>
+      <button class="sheet-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="sheet-body"></div>
+  </div>
+
+  <!-- BottomNav -->
+  <nav class="bottomnav">
+    <button data-tut="nav-people" class="">
+      <span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-nav-people"/></svg></span>
+      <span>Племя</span>
+      <span class="badge">32</span>
+    </button>
+    <button data-tut="nav-townhall" class="">
+      <span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-bld-town_hall"/></svg></span>
+      <span>Ратуша</span>
+      <span class="badge">4</span>
+    </button>
+    <button data-tut="nav-quests" class="">
+      <span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-nav-quests"/></svg></span>
+      <span>Задания</span>
+      <span class="badge">3</span>
+    </button>
+  </nav>
+</div>
+</div>
+<div class="home-ind"></div></body></html>
