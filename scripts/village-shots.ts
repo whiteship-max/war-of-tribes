@@ -19,17 +19,20 @@
 //
 // Бюджет железа (CLAUDE.md, раздел ⛔): стенд, а не приёмка — один заход не дольше
 // `BROWSER_MAX_MS`, потолок кадров стенда, рядом с чужой тяжёлой работой не запускается.
-// Несколько видов или ракурсов — отдельными короткими заходами с паузой между ними.
+// Несколько видов или ракурсов — отдельными короткими заходами с паузой между ними. Замер цены
+// кадра — не больше трёх проходов (`PASSES`, `BENCH_PASSES_MAX`), и перед каждым проходом и
+// заходом видеокарта остывает минуту от конца прошлого (`gpuCoolDown`; решение владельца,
+// 01.10.2026). Вид в `LOOKS` не повторяют: повтор — это второй проход без паузы.
 //
 // Запуск: npm run village:shots
 // Переменные: LOOKS=now,next:high,next:low  SHOTS=day-wide,night-wide,day-close,night-close (и dusk-wide, dawn-wide)
-//             SEASON=summer  LEVELS=10  BENCH=1  SECONDS=5  TAG=probe  PORT=4196  CDP_PORT=9339  HEAD=1
+//             SEASON=summer  LEVELS=10  BENCH=1  PASSES=1..3  SECONDS=5  TAG=probe  PORT=4196  CDP_PORT=9339  HEAD=1
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import { BROWSER_MAX_MS, REPORT_FPS, refuseIfBusy } from './lib/budget';
+import { BENCH_PASSES_MAX, BROWSER_MAX_MS, GPU_COOL_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
 const OUT = fileURLToPath(new URL('../snaps/village', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4196);
@@ -39,6 +42,8 @@ const SEASON = process.env.SEASON ?? 'summer';
 const LEVELS = Number(process.env.LEVELS ?? 10);
 const BENCH = process.env.BENCH === '1';
 const SECONDS = Number(process.env.SECONDS ?? 5);
+/** Проходов замера цены кадра: один, если не сказано; не больше `BENCH_PASSES_MAX` (бюджет железа). */
+const PASSES = Number(process.env.PASSES ?? 1);
 const list = (v: string | undefined, all: string[]): string[] => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : all);
 const LOOKS = list(process.env.LOOKS, ['now', 'next:high', 'next:low']);
 
@@ -222,11 +227,14 @@ interface Bench {
   gpuName: string;
 }
 
-async function bench(began: number): Promise<void> {
-  const rows: { look: string; b: Bench }[] = [];
+type Row = { look: string; b: Bench };
+
+/** Один проход замера: каждый вид по разу, в порядке `LOOKS`. */
+async function benchPass(began: number): Promise<Row[]> {
+  const rows: Row[] = [];
   for (const look of LOOKS) {
     if (Date.now() - began > BROWSER_MAX_MS) {
-      console.log(`\nСрок стенда (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
+      console.log(`\nСрок прохода (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
       break;
     }
     const tab = await open(pageUrl(look, 0.2));
@@ -236,32 +244,82 @@ async function bench(began: number): Promise<void> {
       await close(tab);
     }
   }
-  if (rows.length === 0) return;
-  const f = (v: number | null | undefined, d = 2): string => (v === null || v === undefined ? '—' : v.toFixed(d));
-  console.log(`\nВидеокарта: ${rows[0].b.gpuName}. Экран ${SCREEN.width}×${SCREEN.height} @${SCREEN.deviceScaleFactor}, потолок ${REPORT_FPS} кадров, ${SECONDS} с на вид.\n`);
+  return rows;
+}
+
+const f = (v: number | null | undefined, d = 2): string => (v === null || v === undefined ? '—' : v.toFixed(d));
+
+const median = (a: number[]): number | null => {
+  if (a.length === 0) return null;
+  const s = a.slice().sort((x, y) => x - y);
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+
+/**
+ * Таблица каждого прохода, состав окружения и — если проходов больше одного — сводка: время видеокарты
+ * медианой по проходам и отношение к прежнему виду (`now`) **внутри прохода**, медианой. Частота видеокарты
+ * под потолком кадров гуляет от прохода к проходу, и миллисекунды разных проходов не сравнимы, а отношение
+ * к `now` того же прохода — сравнимо: `now` в нём и мерка, и контроль.
+ */
+function printBench(passes: Row[][]): void {
+  const first = passes.find((p) => p.length > 0);
+  if (!first) return;
   console.log(
-    `${'вид'.padEnd(12)} ${'буфер'.padEnd(10)} ${'вызовов'.padStart(8)} ${'треуг.'.padStart(8)} ${'кадров'.padStart(7)} ` +
-      `${'ЦП мед'.padStart(7)} ${'ЦП p95'.padStart(7)} ${'ВК мед'.padStart(7)} ${'ВК p95'.padStart(7)} ${'верш. МБ'.padStart(9)} ${'текст. МБ'.padStart(9)}`,
+    `\nВидеокарта: ${first[0].b.gpuName}. Экран ${SCREEN.width}×${SCREEN.height} @${SCREEN.deviceScaleFactor}, потолок ${REPORT_FPS} кадров, ` +
+      `${SECONDS} с на вид; проходов ${passes.length}, между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`,
   );
-  for (const { look, b } of rows) {
+  passes.forEach((rows, i) => {
+    console.log(`\n${passes.length > 1 ? `проход ${i + 1}` : ''}`);
     console.log(
-      `${look.padEnd(12)} ${`${b.buffer[0]}×${b.buffer[1]}`.padEnd(10)} ${String(b.calls).padStart(8)} ${String(b.tris).padStart(8)} ${String(b.frames).padStart(7)} ` +
-        `${f(b.cpu[0]).padStart(7)} ${f(b.cpu[1]).padStart(7)} ${f(b.gpu?.[0]).padStart(7)} ${f(b.gpu?.[1]).padStart(7)} ${f(b.geoMb).padStart(9)} ${f(b.texMb).padStart(9)}`,
+      `${'вид'.padEnd(12)} ${'буфер'.padEnd(10)} ${'вызовов'.padStart(8)} ${'треуг.'.padStart(8)} ${'кадров'.padStart(7)} ` +
+        `${'ЦП мед'.padStart(7)} ${'ЦП p95'.padStart(7)} ${'ВК мед'.padStart(7)} ${'ВК p95'.padStart(7)} ${'верш. МБ'.padStart(9)} ${'текст. МБ'.padStart(9)}`,
     );
-  }
-  for (const { look, b } of rows) {
+    for (const { look, b } of rows) {
+      console.log(
+        `${look.padEnd(12)} ${`${b.buffer[0]}×${b.buffer[1]}`.padEnd(10)} ${String(b.calls).padStart(8)} ${String(b.tris).padStart(8)} ${String(b.frames).padStart(7)} ` +
+          `${f(b.cpu[0]).padStart(7)} ${f(b.cpu[1]).padStart(7)} ${f(b.gpu?.[0]).padStart(7)} ${f(b.gpu?.[1]).padStart(7)} ${f(b.geoMb).padStart(9)} ${f(b.texMb).padStart(9)}`,
+      );
+    }
+  });
+  for (const { look, b } of first) {
     if (!b.env) continue;
     const e = b.env;
+    const builds = passes.map((p) => p.find((r) => r.look === look)?.b.env?.build).filter((x) => !!x);
     console.log(
       `\n${look}: деревьев ${Object.entries(e.trees).map(([k, v]) => `${k} ${v}`).join(', ')}; мелочи ${Object.entries(e.props).map(([k, v]) => `${k} ${v}`).join(', ')};` +
-        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; карта земли ${e.map}²; сборка ${f(e.build.ms, 0)} мс` +
-        ` за ${e.build.slices} кусков, самый долгий кусок ${f(e.build.longest, 1)} мс, шаг ${f(e.build.step, 1)} мс (${e.build.stepIn})`,
+        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; карта земли ${e.map}²; сборка ` +
+        builds.map((x) => `${f(x!.ms, 0)} мс за ${x!.slices} кусков, самый долгий ${f(x!.longest, 1)} мс`).join(' / '),
     );
   }
-  console.log('\nЧисла одного прогона сравнимы между собой; с другим прогоном — нет (шапка файла).');
+  if (passes.length > 1) {
+    console.log('\nСводка: ВК мед — медиана по проходам; к now — отношение внутри прохода, медиана (по проходам — через «/»).');
+    for (const look of LOOKS) {
+      const gpu: number[] = [];
+      const ratio: number[] = [];
+      for (const rows of passes) {
+        const r = rows.find((x) => x.look === look)?.b.gpu?.[0];
+        const n = rows.find((x) => x.look === 'now')?.b.gpu?.[0];
+        if (r === undefined || r === null) continue;
+        gpu.push(r);
+        if (n) ratio.push(r / n);
+      }
+      console.log(`${look.padEnd(12)} ВК мед ${f(median(gpu)).padStart(6)}   к now ${f(median(ratio)).padStart(5)}   (${ratio.map((x) => f(x)).join(' / ')})`);
+    }
+  }
+  console.log('\nМиллисекунды сравнимы внутри прохода; между проходами — только отношением к now (шапка файла).');
 }
 
 async function main(): Promise<void> {
+  // Бюджет железа (решение владельца, 01.10.2026): замер цены кадра — не больше трёх проходов, и между ними
+  // видеокарта остывает. Повтор вида в одном проходе — это второй проход без паузы.
+  if (new Set(LOOKS).size !== LOOKS.length) {
+    console.error(`\nВид повторён в LOOKS — это второй проход без паузы. Проходы — PASSES=2 или 3: между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`);
+    process.exit(2);
+  }
+  if (!Number.isInteger(PASSES) || PASSES < 1 || PASSES > BENCH_PASSES_MAX) {
+    console.error(`\nPASSES=${process.env.PASSES}: проходов замера — от 1 до ${BENCH_PASSES_MAX} (бюджет железа).`);
+    process.exit(2);
+  }
   refuseIfBusy('Снимки посёлка');
   const vite = await createVite({
     configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
@@ -269,13 +327,24 @@ async function main(): Promise<void> {
     logLevel: 'warn',
   });
   await vite.listen();
-  const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', '--window-size=500,900', '--force-device-scale-factor=1']);
-  const began = Date.now();
+  const passes: Row[][] = [];
   try {
     console.log(`\n=== посёлок: ${BENCH ? 'цена кадра' : 'снимки'} (${LOOKS.join(', ')}; ${SEASON}, уровень ${LEVELS}) ===\n`);
-    await (BENCH ? bench(began) : shots(began));
+    for (let pass = 1; pass <= (BENCH ? PASSES : 1); pass++) {
+      // Видеокарта остывает минуту после прошлого захода стенда и между проходами; браузер на это время закрыт.
+      await gpuCoolDown(pass === 1 ? 'стендом посёлка' : `проходом ${pass}`);
+      const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', '--window-size=500,900', '--force-device-scale-factor=1']);
+      try {
+        const began = Date.now();
+        if (BENCH) passes.push(await benchPass(began));
+        else await shots(began);
+      } finally {
+        chrome.kill();
+        gpuStamp();
+      }
+    }
+    if (BENCH) printBench(passes);
   } finally {
-    chrome.kill();
     await vite.close();
     await sleep(300);
   }
