@@ -65,7 +65,7 @@ export const TILE_M: Record<LayerName, readonly [number, number]> = {
   rock: [6, 6],
   churchWin: [4, 12],
   field: [8, 8],
-  towerSlit: [4, 6],
+  towerSlit: [6, 7],
   gateArch: [6, 8],
   arcade: [4, 4.4],
   cloth: [2, 2],
@@ -278,7 +278,7 @@ function makeAshlar(W: number, H: number, seed: number, cMin = 0.32, cMax = 0.52
     const mott = 0.9 + fbm(u, v, 16, 4, seed + 11) * 0.2;
     const stain = Math.max(sstep(0.55, 0.8, fbm(u, v, 3, 3, seed + 13)), sstep(0.5, 0.85, vnoise(u * 10, v * 1.2, 10, seed + 15)) * 0.7);
     const grain = (vnoise(u * 256, v * 256, 256, seed + 17) - 0.5) * 0.06;
-    const k = bright * mott * (1 - stain * 0.28) + grain;
+    const k = bright * mott * (1 - stain * 0.16) + grain;
     col[0] = tmp[0] * k;
     col[1] = tmp[1] * k;
     col[2] = tmp[2] * k * (1 - stain * 0.05);
@@ -798,10 +798,10 @@ const roofTileLayer: Painter = (s, seed) => {
     k1 *= 1 + (1 - sstep(0, 0.02, ym - b.y)) * 0.18;
     // Лишайник пятнами и мох у хвостов.
     cells(u * 60, v * 60, 60, 60, 1, seed + 3, lc);
-    const spot = (1 - sstep(0.12, 0.22, lc.f1)) * sstep(0.45, 0.6, fbm(u, v, 4, 3, seed + 5));
-    const mossy = sstep(0.62, 0.75, fbm(u, v, 3, 4, seed + 7)) * (1 - t * 0.7);
-    mixc(tmp, lichen, spot * 0.7, tmp);
-    mixc(tmp, moss, mossy * 0.75, tmp);
+    const spot = (1 - sstep(0.1, 0.18, lc.f1)) * sstep(0.5, 0.65, fbm(u, v, 6, 3, seed + 5));
+    const mossy = sstep(0.66, 0.8, fbm(u, v, 5, 4, seed + 7)) * (1 - t * 0.7);
+    mixc(tmp, lichen, spot * 0.45, tmp);
+    mixc(tmp, moss, mossy * 0.45, tmp);
     const streak = vnoise(u * 20, v * 2, 20, seed + 9);
     k1 *= 1 - streak * 0.12;
     s.set(i, tmp, k1);
@@ -834,8 +834,8 @@ const roofSlateLayer: Painter = (s, seed) => {
     if (Math.abs(fx) > 0.475 || corner) kk *= 0.5;
     kk *= 0.55 + 0.45 * sstep(0, 0.25, 1 - fy);
     kk *= 1 + (1 - sstep(0, 0.08, fy)) * 0.15;
-    const spot = sstep(0.68, 0.8, fbm(u, v, 6, 4, seed + 3));
-    mixc(tmp, lichen, spot * 0.5, tmp);
+    const spot = sstep(0.7, 0.82, fbm(u, v, 8, 4, seed + 3));
+    mixc(tmp, lichen, spot * 0.25, tmp);
     s.set(i, tmp, kk);
     s.h[i] = 0.012 * (1 - fy) - (Math.abs(fx) > 0.475 || corner ? 0.006 : 0);
   });
@@ -872,7 +872,7 @@ const woodLayer: Painter = (s, seed) => {
 
 /** Брусчатка: окатанные камни ячейками, грязь в швах, верх отполирован ногами. */
 const cobbleLayer: Painter = (s, seed) => {
-  const p = 16;
+  const p = 22;
   const cell: Cell = { f1: 0, f2: 0, id: 0, dx: 0, dy: 0 };
   const stones: RGB[] = [C(CITY.cobble), C(CITY.cobbleWarm), C(CITY.cobbleDark), C(CITY.limestoneGrey), C(CITY.cobble)];
   const grime = C(CITY.grime);
@@ -889,10 +889,10 @@ const cobbleLayer: Painter = (s, seed) => {
       return;
     }
     const id = cell.id;
-    mixc(stones[id % 5], stones[(id >>> 5) % 5], ((id >>> 9) % 100) / 220, tmp);
+    mixc(stones[0], stones[id % 5], ((id >>> 9) % 100) / 260, tmp);
     const dome = Math.sqrt(Math.max(0, 1 - cell.f1 * cell.f1 * 1.6));
     const polish = sstep(0.6, 1, dome) * 0.12;
-    const k = 0.78 + ((id >>> 15) % 100) / 400 + polish + (fbm(u, v, 64, 2, seed + 5) - 0.5) * 0.1;
+    const k = 0.84 + ((id >>> 15) % 100) / 700 + polish * 0.7 + (fbm(u, v, 64, 2, seed + 5) - 0.5) * 0.08;
     s.set(i, tmp, k);
     s.h[i] = 0.035 * dome * sstep(0.1, 0.22, edge);
   });
@@ -908,8 +908,8 @@ const dirtLayer: Painter = (s, seed) => {
   const light = C(CITY.dirtLight);
   const pebble = C(CITY.rubbleGrey);
   s.each((_xm, _ym, u, v, i) => {
-    const m = fbm(u, v, 4, 5, seed);
-    mixc(dark, dirt, sstep(0.25, 0.55, m), tmp);
+    const m = fbm(u, v, 6, 5, seed);
+    mixc(dark, dirt, 0.3 + 0.7 * sstep(0.2, 0.65, m), tmp);
     mixc(tmp, light, sstep(0.6, 0.85, fbm(u, v, 8, 3, seed + 3)) * 0.6, tmp);
     cells(u * 44, v * 44, 44, 44, 1, seed + 5, cell);
     const peb = cell.f1 < 0.12 + (cell.id % 7) * 0.025 && cell.id % 3 === 0;
@@ -918,8 +918,8 @@ const dirtLayer: Painter = (s, seed) => {
       mixc(pebble, light, (cell.id >>> 8) % 2 ? 0.4 : 0, tmp);
       hh += 0.01 * (1 - cell.f1 * 4);
     }
-    const wet = 1 - sstep(0.18, 0.32, fbm(u, v, 3, 3, seed + 9));
-    s.set(i, tmp, (0.92 + vnoise(u * 120, v * 120, 120, seed + 11) * 0.12) * (1 - wet * 0.25));
+    const wet = 1 - sstep(0.16, 0.3, fbm(u, v, 5, 3, seed + 9));
+    s.set(i, tmp, (0.92 + vnoise(u * 120, v * 120, 120, seed + 11) * 0.12) * (1 - wet * 0.12));
     s.h[i] = hh - wet * 0.01;
   });
   return { relief: 0.9, cavity: 0.3, cavityM: 0.04, heightAlpha: true };
@@ -934,10 +934,10 @@ const grassLayer: Painter = (s, seed) => {
   const dark = C(CITY.grassDark);
   const clover = C(CITY.clover);
   s.each((_xm, _ym, u, v, i) => {
-    const m = fbm(u, v, 3, 5, seed);
-    mixc(dark, grass, sstep(0.3, 0.6, m), tmp);
-    mixc(tmp, dry, sstep(0.55, 0.8, fbm(u, v, 5, 4, seed + 3)) * 0.7, tmp);
-    mixc(tmp, clover, sstep(0.62, 0.7, fbm(u, v, 12, 3, seed + 5)) * 0.5, tmp);
+    const m = fbm(u, v, 4, 5, seed);
+    mixc(dark, grass, 0.35 + 0.65 * sstep(0.2, 0.7, m), tmp);
+    mixc(tmp, dry, sstep(0.55, 0.85, fbm(u, v, 6, 4, seed + 3)) * 0.45, tmp);
+    mixc(tmp, clover, sstep(0.62, 0.72, fbm(u, v, 12, 3, seed + 5)) * 0.35, tmp);
     const blade = vnoise(u * 220, v * 220, 220, seed + 7) * 0.6 + vnoise(u * 90, v * 300, 90, seed + 9) * 0.4;
     let k = 0.72 + blade * 0.42;
     let hh = blade * 0.03 + m * 0.02;
@@ -987,17 +987,18 @@ const rockLayer: Painter = (s, seed) => {
   const warm = C(CITY.limestoneWarm);
   const n = 11;
   s.each((xm, ym, u, v, i) => {
-    const warp = (fbm(u, v, 2, 3, seed) - 0.5) * 1.4 + (vnoise(u * 6, v, 6, seed + 1) - 0.5) * 0.5;
+    const warp = (fbm(u, v, 2, 3, seed) - 0.5) * 1.4 + (vnoise(u * 6, v * 6, 6, seed + 1) - 0.5) * 0.5;
     const band = (ym / s.H) * n + warp;
     const k = Math.floor(band);
     const f = band - k;
     const kk = ((k % n) + n) % n;
     const id = hash3(kk, 0, seed);
     // Вертикальные трещины пласта: свой шаг и сдвиг у каждого пласта.
-    const step = 0.9 + ((id >>> 5) % 100) / 60;
-    const jx = (xm + rnd(kk, 1, seed) * s.W) / step;
-    const jf = jx - Math.floor(jx) + (vnoise(u * 20, v * 8, 20, seed + 3) - 0.5) * 0.2;
-    const crack = (1 - sstep(0.0, 0.035, Math.abs(jf - 0.5) - 0.465)) * (rnd(Math.floor(jx), kk, seed + 5) < 0.5 ? 1 : 0);
+    // Шаг трещин делит плитку целым числом — без шва по краю.
+    const nJ = Math.round(s.W / (0.9 + ((id >>> 5) % 100) / 60));
+    const jx = ((xm + rnd(kk, 1, seed) * s.W) / s.W) * nJ;
+    const jf = jx - Math.floor(jx) + (vnoise(u * 20, v * 20, 20, seed + 3) - 0.5) * 0.2;
+    const crack = (1 - sstep(0.0, 0.035, Math.abs(jf - 0.5) - 0.465)) * (rnd(Math.floor(jx) % nJ, kk, seed + 5) < 0.5 ? 1 : 0);
     mixc(rock, warm, ((id >>> 3) % 100) / 200 + fbm(u, v, 12, 3, seed + 7) * 0.25, tmp);
     const ledge = sstep(0.0, 0.1, f) * (1 - sstep(0.85, 1, f) * 0.4);
     mixc(tmp, dark, (1 - sstep(0.0, 0.12, f)) * 0.7, tmp);
@@ -1087,22 +1088,37 @@ const towerSlitLayer: Painter = (s, seed) => {
   const wall = makeAshlar(s.W, s.H, seed, 0.34, 0.5, 0.55, 1.2);
   const col: RGB = [0, 0, 0];
   const dressed = C(CITY.limestoneWarm);
+  // Две бойницы на плитку, в разных рядах — сеткой не читаются.
+  const slits: [number, number][] = [
+    [1.6, 1.4],
+    [4.4, 4.6],
+  ];
   s.each((xm, ym, u, v, i) => {
-    const dx = Math.abs(xm - 2);
-    const inSlit = dx < 0.06 && ym > 2.2 && ym < 3.6;
-    const cross = Math.abs(ym - 2.9) < 0.05 && dx < 0.22;
-    if (inSlit || cross) {
-      s.set(i, C(CITY.glass), 0.35);
-      s.h[i] = -0.2;
-      s.a[i] = 0.15;
-      return;
-    }
-    if (dx < 0.3 && ym > 2.0 && ym < 3.8) {
-      const n = fbm(u, v, 32, 3, seed + 3);
-      s.set(i, dressed, 0.9 + n * 0.12 - (0.3 - dx) * 0.6);
-      s.h[i] = 0.01;
-      s.a[i] = 0;
-      return;
+    for (const [sx, sy] of slits) {
+      const dx = Math.abs(xm - sx);
+      const dy = ym - sy;
+      const inSlit = dx < 0.06 && dy > 0 && dy < 1.4;
+      const cross = Math.abs(dy - 0.7) < 0.05 && dx < 0.2;
+      if (inSlit || cross) {
+        s.set(i, C(CITY.glass), 0.35);
+        s.h[i] = -0.2;
+        s.a[i] = 0.15;
+        return;
+      }
+      if (dx < 0.3 && dy > -0.2 && dy < 1.6) {
+        const n = fbm(u, v, 32, 3, seed + 3);
+        s.set(i, dressed, 0.9 + n * 0.12 - (0.3 - dx) * 0.6);
+        s.h[i] = 0.01;
+        s.a[i] = 0;
+        return;
+      }
+      // Потёк под бойницей.
+      if (dx < 0.25 && dy < 0 && dy > -1.6) {
+        s.h[i] = wall(xm, ym, u, v, col);
+        s.set(i, col, 0.9 + (dy / 1.6) * 0.1 + (1 - dx / 0.25) * -0.06);
+        s.a[i] = 0;
+        return;
+      }
     }
     s.h[i] = wall(xm, ym, u, v, col);
     s.set(i, col);
@@ -1201,10 +1217,11 @@ const arcadeLayer: Painter = (s, seed) => {
 /** Полотно навесов: полосы, складки, переплетение; цвет даёт тон вершины. */
 const clothLayer: Painter = (s, seed) => {
   s.each((xm, ym, u, v, i) => {
-    const stripe = Math.floor(xm / 0.25) % 2 === 0;
-    const fold = Math.sin((ym / 0.5) * Math.PI * 2 + vnoise(u * 4, v * 2, 4, seed) * 2) * 0.5 + 0.5;
+    // Край полосы — не на краю плитки: сдвиг на полполосы.
+    const stripe = Math.floor((xm + 0.125) / 0.25) % 2 === 0;
+    const fold = Math.sin((xm / 0.5) * Math.PI * 2 + vnoise(u * 4, v * 4, 4, seed) * 2) * 0.5 + 0.5;
     const weave = vnoise(u * 300, v * 300, 300, seed + 3);
-    const k = (stripe ? 0.95 : 0.62) * (0.85 + fold * 0.2) * (0.94 + weave * 0.08) * (0.9 + fbm(u, v, 4, 3, seed + 5) * 0.15);
+    const k = (stripe ? 0.95 : 0.7) * (0.9 + fold * 0.12) * (0.94 + weave * 0.08) * (0.9 + fbm(u, v, 4, 3, seed + 5) * 0.15);
     s.set(i, C(CITY.plaster), k);
     s.h[i] = fold * 0.02;
   });

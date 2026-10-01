@@ -54,11 +54,18 @@ export interface CityUniforms {
   cTime: { value: number };
   cWarm: { value: THREE.Color };
   cSnowCol: { value: THREE.Color };
+  /** Огни ночи: (x, y, z, r²) — факелы стены и ворот, фонари площади; пустые — далеко внизу. */
+  cLights: { value: THREE.Vector4[] };
+  cTorchCol: { value: THREE.Color };
 }
+
+/** Сколько огней видит шейдер: тёплые пятна без точечных ламп (их цена — на каждый пиксель). */
+export const CITY_LIGHTS = 32;
 
 export function cityUniforms(): CityUniforms {
   const w = linear(CITY.windowWarm);
   const s = linear(CITY.snow);
+  const t = linear(CITY.torch);
   return {
     cityTex: { value: null },
     cNight: { value: 0 },
@@ -67,6 +74,8 @@ export function cityUniforms(): CityUniforms {
     cTime: { value: 0 },
     cWarm: { value: new THREE.Color(w[0], w[1], w[2]) },
     cSnowCol: { value: new THREE.Color(s[0], s[1], s[2]) },
+    cLights: { value: Array.from({ length: CITY_LIGHTS }, () => new THREE.Vector4(0, -1000, 0, 1)) },
+    cTorchCol: { value: new THREE.Color(t[0], t[1], t[2]) },
   };
 }
 
@@ -88,17 +97,38 @@ uniform float cSnow;
 uniform float cAutumn;
 uniform vec3 cWarm;
 uniform vec3 cSnowCol;
+uniform vec4 cLights[${CITY_LIGHTS}];
+uniform vec3 cTorchCol;
 varying vec2 vCUv;
 varying float vLayer;
 varying float vGlow;
 varying float vGrime;
 varying vec3 vCWPos;
 varying float vCNy;
+float cTorch(vec3 p) {
+  float acc = 0.0;
+  for (int i = 0; i < ${CITY_LIGHTS}; i++) {
+    vec4 l = cLights[i];
+    vec3 d = p - l.xyz;
+    float a = max(0.0, 1.0 - dot(d, d) / l.w);
+    acc += a * a * a;
+  }
+  return min(acc, 1.5);
+}
 float cHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// Цветокоррекция города: чуть глуше насыщенность и тёплый подъём теней — «осадная карта», а не игрушка.
+vec3 cGrade(vec3 c) {
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(vec3(l), c, 0.82);
+  return c * vec3(1.02, 1.0, 0.96);
+}
 float cMacro(vec2 p) {
   return sin(p.x * 0.13 + sin(p.y * 0.071) * 2.0) * sin(p.y * 0.11 + sin(p.x * 0.053) * 2.0) * 0.5 + 0.5;
 }
 `;
+
+/** Цветокоррекция перед выходом: та же для всех материалов города. */
+const graded = (src: string): string => src.replace('#include <opaque_fragment>', 'outgoingLight = cGrade(outgoingLight);\n#include <opaque_fragment>');
 
 /** Вершинная часть: свои атрибуты, мировое положение и вертикальность нормали (для снега). */
 function patchVertex(shader: { vertexShader: string }): void {
@@ -149,8 +179,10 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         // Свет окон: маска стекла слоя × «горит ли дом» × доля ночи; окно на окно — своё.
         float cWin = cHash(floor(vCWPos.xz * 0.7) + floor(vCWPos.y / 2.9) * 17.0);
         float cOn = step(0.32, cWin) * (0.65 + 0.35 * cWin);
-        totalEmissiveRadiance += cWarm * cTex.a * vGlow * cNight * cOn * 1.6 * (1.0 - cUp);`,
+        totalEmissiveRadiance += cWarm * cTex.a * vGlow * cNight * cOn * 1.6 * (1.0 - cUp);
+        totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.6;`,
       );
+    shader.fragmentShader = graded(shader.fragmentShader);
   };
   m.customProgramCacheKey = () => 'city-building';
   return m;
@@ -167,11 +199,13 @@ export interface GroundMap {
  * Земля: смешение травы, земли, брусчатки и пашни по карте покрытий и по высоте фактуры (камни
  * брусчатки торчат из грязи), скала на крутом, затенение у подножий из альфы карты.
  */
-export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMap): THREE.MeshLambertMaterial {
+export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMap, land: THREE.Texture, landAt: GroundMap): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   const extra = {
     cityMap: { value: map },
     cMapAt: { value: new THREE.Vector3(at.x0, at.z0, at.size) },
+    cityLand: { value: land },
+    cLandAt: { value: new THREE.Vector3(landAt.x0, landAt.z0, landAt.size) },
   };
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u, extra);
@@ -180,6 +214,8 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
     shader.fragmentShader =
       /* glsl */ `uniform sampler2D cityMap;
       uniform vec3 cMapAt;
+      uniform sampler2D cityLand;
+      uniform vec3 cLandAt;
       ` +
       COMMON_FRAG +
       shader.fragmentShader.replace(
@@ -189,7 +225,8 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         vec2 muv = (wp - cMapAt.xy) / cMapAt.z;
         vec4 cm4 = texture(cityMap, muv);
         float inMap = step(0.0, muv.x) * step(muv.x, 1.0) * step(0.0, muv.y) * step(muv.y, 1.0);
-        cm4 = mix(vec4(0.0, 0.0, 0.0, 1.0), cm4, inMap);
+        vec4 land = texture(cityLand, (wp - cLandAt.xy) / cLandAt.z);
+        cm4 = mix(vec4(0.0, 0.0, land.g, 1.0), cm4, inMap);
         // Поворот плитки по клеткам 37 м — повтор травы не складывается в решётку.
         vec4 tg = texture(cityTex, vec3(wp * ${T('grass')}, ${L.grass}.0));
         vec4 tg2 = texture(cityTex, vec3(wp.yx * ${T('grass')} * 0.37 + 0.3, ${L.grass}.0));
@@ -198,7 +235,7 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         vec4 tf = texture(cityTex, vec3(wp * ${T('field')}, ${L.field}.0));
         vec4 tr = texture(cityTex, vec3(vec2(wp.x + wp.y, vCWPos.y * 2.0) * ${T('rock')}, ${L.rock}.0));
         float macro = cMacro(wp * 0.35);
-        vec3 grass = mix(tg.rgb, tg2.rgb, 0.35) * (0.82 + 0.3 * macro);
+        vec3 grass = mix(tg.rgb, tg2.rgb, 0.4) * (0.9 + 0.16 * macro);
         // Веса: карта + высота фактуры; трава — остаток.
         float wc = cm4.r;
         float wd = cm4.g;
@@ -212,14 +249,27 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         float top = max(max(hc, hd), max(hf, hg)) - 0.28;
         vec4 bw = max(vec4(hc, hd, hf, hg) - top, 0.0);
         bw /= max(1e-4, bw.x + bw.y + bw.z + bw.w);
-        vec3 col = tc.rgb * bw.x + td.rgb * bw.y + tf.rgb * bw.z + grass * bw.w;
+        // Мостовая крупными пятнами: темнее у стен, светлее посередине улиц, кое-где старая и новая кладка.
+        float cmac = cMacro(wp * 1.7 + 13.0);
+        vec3 cob = tc.rgb * (0.72 + 0.3 * cmac) * mix(0.8, 1.0, cm4.a);
+        vec3 col = cob * bw.x + td.rgb * bw.y + tf.rgb * bw.z + grass * bw.w;
         col = mix(col, tr.rgb, wr);
+        // Полог дальнего леса: листва слоя в масштабе крон (клетка — 5–6 м) и пятна пород.
+        vec4 cp1 = texture(cityTex, vec3(wp / 170.0, ${L.foliage}.0));
+        vec4 cp2 = texture(cityTex, vec3(wp.yx / 61.0 + 0.4, ${L.foliage}.0));
+        vec3 canopy = mix(cp1.rgb, cp2.rgb, 0.35) * vec3(0.55, 0.62, 0.55) * (0.75 + 0.35 * macro);
+        col = mix(col, canopy, smoothstep(0.08, 0.4, land.r) * (1.0 - wr * 0.5));
         // Осень и зима: трава желтеет, на горизонталях снег.
         col = mix(col, col * vec3(1.15, 0.95, 0.6), cAutumn * bw.w);
         float cUp = smoothstep(0.6, 0.9, vCNy) * cSnow;
         col = mix(col, cSnowCol * (0.9 + 0.1 * tg.a), cUp * (0.85 - 0.3 * bw.x));
         diffuseColor.rgb *= col * cm4.a;`,
+      ).replace(
+        '#include <emissivemap_fragment>',
+        /* glsl */ `#include <emissivemap_fragment>
+        totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.8;`,
       );
+    shader.fragmentShader = graded(shader.fragmentShader);
   };
   m.customProgramCacheKey = () => 'city-ground';
   return m;
@@ -238,10 +288,13 @@ export function foliageMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         vec3 leaf = cTex.rgb;
         // Лиственные (слой листвы) осенью к охре и рыжему; хвоя (тон темнее) — меньше.
         leaf = mix(leaf, leaf * vec3(1.6, 1.05, 0.45), cAutumn * vGrime);
+        // Зимой лиственные голые: серо-бурые ветви; ели зелёные.
+        leaf = mix(leaf, vec3(0.2, 0.17, 0.14), cSnow * vGrime * 0.85);
         diffuseColor.rgb *= leaf;
         float cUp = smoothstep(0.35, 0.85, vCNy) * cSnow;
         diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * 0.9, cUp * 0.8);`,
     );
+    shader.fragmentShader = graded(shader.fragmentShader);
   };
   m.customProgramCacheKey = () => 'city-foliage';
   return m;

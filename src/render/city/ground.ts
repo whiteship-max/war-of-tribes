@@ -49,6 +49,14 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
   each(Math.min(...xs) - 2, Math.min(...zs) - 2, Math.max(...xs) + 2, Math.max(...zs) + 2, (x, z, i) => {
     if (insidePoly({ x, z }, sq)) c[i] = 1;
   });
+  // Мостовая не одним серым полем: грязь пятнами в швах и вдоль краёв, вытоптанное посередине.
+  for (let k = 0; k < n; k++) {
+    if (c[k] < 0.5) continue;
+    const x = X(k % size);
+    const z = Z(Math.floor(k / size));
+    const g = sstep(0.5, 0.78, fbm(x / 14 + 3, z / 14 + 3, 1e6, 4, 33)) * 0.55;
+    if (g > d[k]) d[k] = g;
+  }
   // Двор храма и дворы больших зданий — утоптанная земля пятнами; дорога из ворот вниз — земля.
   const gate = plan.gates[0];
   stampLine(
@@ -80,9 +88,17 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
   const wz = wall.map((p) => p.z);
   each(Math.min(...wx), Math.min(...wz), Math.max(...wx), Math.max(...wz), (x, z, i) => {
     if (!insidePoly({ x, z }, wall)) return;
-    const n = fbm(x / 40 + 10, z / 40 + 10, 1e6, 3, 21);
-    const w = 0.25 + sstep(0.45, 0.65, n) * 0.55;
+    const n = fbm(x / 70 + 10, z / 70 + 10, 1e6, 3, 21);
+    const w = 0.28 + sstep(0.45, 0.8, n) * 0.35;
     if (w > d[i]) d[i] = w;
+    // Огороды во дворах: грядки (фактура пашни) пятнами за домами.
+    const g = sstep(0.56, 0.64, fbm(x / 26 + 5, z / 26 + 5, 1e6, 3, 25)) * 0.9;
+    if (g > f[i]) f[i] = g;
+  });
+  // Двор замка — утоптанная земля.
+  const cw = plan.castleWall;
+  each(Math.min(...cw.map((p) => p.x)), Math.min(...cw.map((p) => p.z)), Math.max(...cw.map((p) => p.x)), Math.max(...cw.map((p) => p.z)), (x, z, i) => {
+    if (insidePoly({ x, z }, cw)) d[i] = Math.max(d[i], 0.75 + (vnoise(x / 6, z / 6, 1e6, 29) - 0.5) * 0.4);
   });
   // Под домами и большими зданиями — земля; вокруг подножий — тень (затенение).
   const shadeBox = (cx: number, cz: number, ux: number, uz: number, hu: number, hv: number, reach: number, k: number): void => {
@@ -134,7 +150,7 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
   const out = new Uint8Array(n * 4);
   for (let k = 0; k < n; k++) {
     const cc = clamp01(c[k]);
-    const dd = clamp01(d[k]) * (1 - cc);
+    const dd = clamp01(d[k]) * (1 - cc * 0.55);
     const ff = clamp01(f[k]) * (1 - cc) * (1 - dd);
     out[k * 4] = Math.round(cc * 255);
     out[k * 4 + 1] = Math.round(dd * 255);

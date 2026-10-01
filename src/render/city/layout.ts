@@ -737,17 +737,17 @@ export function cityPlan(seed = CITY_SEED): CityPlan {
   const yardTrees: CityPlan['yardTrees'] = [{ x: -18, z: -21, r: 4.5, seed: 1 }];
   const tr = stream(seed + 3);
   const hb = houses.map(boxOfHouse);
-  for (let k = 0; k < 900 && yardTrees.length < 70; k++) {
+  for (let k = 0; k < 4000 && yardTrees.length < 90; k++) {
     const x = (tr() - 0.5) * 180;
     const z = 120 - tr() * 225;
     const p = { x, z };
     if (!insidePoly(p, wall) || distPoly(p, wall, true) < 8) continue;
     if (insidePoly(p, SQUARE)) continue;
-    if (streets.some((s) => distPoly(p, s.pts) < s.half + 3)) continue;
-    const probe: Box = { cx: x, cz: z, ux: 1, uz: 0, hu: 2.2, hv: 2.2 };
+    if (streets.some((s) => distPoly(p, s.pts) < s.half + 2.2)) continue;
+    const probe: Box = { cx: x, cz: z, ux: 1, uz: 0, hu: 1.6, hv: 1.6 };
     if (hb.some((b) => boxesOverlap(probe, b))) continue;
     if (blocked.some((b) => boxesOverlap(probe, b))) continue;
-    if (yardTrees.some((t) => Math.hypot(t.x - x, t.z - z) < 7)) continue;
+    if (yardTrees.some((t) => Math.hypot(t.x - x, t.z - z) < 6)) continue;
     yardTrees.push({ x, z, r: 2.4 + tr() * 1.6, seed: Math.floor(tr() * 1e9) });
   }
   return {

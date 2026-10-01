@@ -24,7 +24,7 @@ export interface CityView {
 
 /** Ракурс игры — главный (docs/city.md, раздел 6): ворота внизу экрана, замок вверху. */
 export const CITY_VIEWS: Record<string, CityView> = {
-  game: { at: [2, 6, -6], dist: 300, elev: 48, azim: 14, fov: 38 },
+  game: { at: [0, 6, -2], dist: 420, elev: 52, azim: 14, fov: 36 },
   street: { at: [4, 4, 70], dist: 55, elev: 32, azim: 18, fov: 40 },
   gate: { at: [0, 6, 120], dist: 75, elev: 30, azim: 12, fov: 40 },
   square: { at: [0, 8, 0], dist: 95, elev: 40, azim: 16, fov: 40 },
@@ -87,8 +87,8 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
     camera.position.set(target.x + Math.sin(a) * Math.cos(e) * view.dist, target.y + Math.sin(e) * view.dist, target.z + Math.cos(a) * Math.cos(e) * view.dist);
     camera.lookAt(target);
     const fog = scene.fog as THREE.Fog;
-    fog.near = view.dist * 0.75;
-    fog.far = view.dist * 2.4 + 260;
+    fog.near = view.dist * 0.5;
+    fog.far = view.dist * 1.7 + 160;
   };
   const resize = (): void => {
     const w = window.innerWidth;
@@ -122,6 +122,13 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
       rig.hemi.intensity *= 1.35;
       if (city) {
         city.uniforms.cNight.value = windowNight(light);
+        const fl = city.group.getObjectByName('city-flames') as THREE.Points | undefined;
+        if (fl) {
+          const fm = fl.material as THREE.PointsMaterial;
+          fm.opacity = windowNight(light);
+          fl.visible = fm.opacity > 0.01;
+          fm.size = 3.6 * (1 + Math.sin(performance.now() * 0.011) * 0.08);
+        }
         city.uniforms.cSnow.value = seasonVis.snow;
         city.uniforms.cAutumn.value = season === 'autumn' ? 1 : 0;
       }

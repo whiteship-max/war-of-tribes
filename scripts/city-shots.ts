@@ -4,6 +4,7 @@
 //   QUALITY=high,low VIEWS=game,street SOLAR=0.2,0.75 TAG=r2 npm run city:shots
 //   EXTRA="at=4,5,70&dist=30" VIEWS=street npm run city:shots   — свой ракурс поверх названного
 //   TEX=1 npm run city:shots                   — слои текстур листом (без браузера)
+//   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера)
 //
 // Снимки — в `.city-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один
 // прогон, браузер с потолком кадров отчёта, не дольше двух минут на заход, минута остывания
@@ -17,6 +18,8 @@ import { launchChrome, sleep, Tab } from './lib/chrome';
 import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 import { QUALITY, qualityOf, type Quality } from '../src/render/quality';
 import { LAYERS, paintLayer } from '../src/render/city/tex';
+import { cityCounts, CITY_BUDGET } from '../src/render/city/budget';
+import { QUALITIES as ALL_QUALITIES } from '../src/render/quality';
 
 const OUT = fileURLToPath(new URL('../.city-shots', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4199);
@@ -125,6 +128,19 @@ async function main(): Promise<void> {
   await mkdir(OUT, { recursive: true });
   if (process.env.TEX === '1') {
     await texSheet();
+    return;
+  }
+  if (process.env.BUDGET === '1') {
+    // Бюджет без браузера: те же план, модели и расстановка, что у сборки (`render/city/budget.ts`).
+    console.log('\n=== город: бюджет по уровням (счёт без браузера) ===\n');
+    for (const q of ALL_QUALITIES) {
+      const c = cityCounts(q);
+      const lim = CITY_BUDGET[q];
+      console.log(
+        `  ${q.padEnd(6)} вызовов ${c.calls} (≤ ${lim.calls}), треугольников ${c.triangles} (≤ ${lim.triangles}; здания ${c.buildings}, ` +
+          `земля ${c.ground}, деревья ${c.trees}), текстуры ${c.textureMb.toFixed(1)} МБ (≤ ${lim.textureMb})`,
+      );
+    }
     return;
   }
   refuseIfBusy('Снимки города');

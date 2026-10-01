@@ -34,8 +34,8 @@ export const CITY = {
   tileDark: 0x7e4232,
   lichen: 0xa7a072,
   moss: 0x5f6b3a,
-  slate: 0x5d646c,
-  slateLight: 0x7c838a,
+  slate: 0x5e6165,
+  slateLight: 0x7b7e82,
   // Земля.
   cobble: 0x8f887d,
   cobbleWarm: 0x9c8b72,
@@ -44,9 +44,9 @@ export const CITY = {
   dirt: 0x7d6649,
   dirtDark: 0x5c4a35,
   dirtLight: 0x9a8262,
-  grass: 0x6c7d3c,
-  grassDry: 0x96914f,
-  grassDark: 0x4b5c2c,
+  grass: 0x6d7a43,
+  grassDry: 0x8e8a58,
+  grassDark: 0x56613b,
   clover: 0x5d7a3a,
   flowerWhite: 0xe8e4d4,
   flowerYellow: 0xd9bf45,
@@ -63,11 +63,17 @@ export const CITY = {
   stainGold: 0xa98b3c,
   // Тона вершин: штукатурка домов, дерево, кровли.
   wallTints: [0xf2ece0, 0xefe0c0, 0xead2b8, 0xe0e2dc, 0xf0dcc8, 0xe8d6a8, 0xdcd2c4] as readonly number[],
-  roofTints: [0xf0e6dc, 0xe8d0c0, 0xd8c0b0, 0xf4e0c8, 0xc8b8ac, 0xe0c8a8] as readonly number[],
+  roofTints: [0xf4e8e0, 0xc8a890, 0x9c8070, 0xe8b8a8, 0xb0a8a0, 0xf0d0b8, 0x988070, 0xd8b0a0] as readonly number[],
+  /** Тон сланца (серый) и дранки (выветренное дерево). */
+  slateTint: 0xdcdcdc,
+  shingleTint: 0xd8c4a8,
   stoneTints: [0xf2ece4, 0xece0cc, 0xe4ddd2, 0xf0e4d0] as readonly number[],
+  // Площадь: навесы рядов (тон полотна) и товар на прилавках.
+  awnings: [0xa8584a, 0x5a6e88, 0xc0a060, 0x6e7e50, 0xe0d8c4, 0x8a5a6a] as readonly number[],
+  goods: [0x9a7a4a, 0x7a8a3a, 0xb0603a, 0xc8b070, 0x6a5a8a] as readonly number[],
   // Ночь: тёплый свет окон и факелов.
   windowWarm: 0xffb45a,
-  torch: 0xff9a3c,
+  torch: 0xffb050,
   // Небо и дымка вида (днём берутся из рига `next`).
   snow: 0xeef0f2,
 } as const;

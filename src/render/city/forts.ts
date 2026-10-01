@@ -183,8 +183,8 @@ export function tower(b: Builder, t: Tower, detail: Detail): V3[] {
   const T = stoneT(0.97 + rnd(t.seed, 1, 1) * 0.06);
   const base = t.base - 1.8;
   const topY = t.base + t.height;
-  const roofHex = rnd(t.seed, 3, 1) < 0.55 ? CITY.roofTints[(t.seed >>> 3) % CITY.roofTints.length] : 0xe4e6ea;
-  const roofL = roofHex === 0xe4e6ea ? 'roofSlate' : 'roofTile';
+  const roofHex = rnd(t.seed, 3, 1) < 0.55 ? CITY.roofTints[(t.seed >>> 3) % CITY.roofTints.length] : CITY.slateTint;
+  const roofL = roofHex === CITY.slateTint ? 'roofSlate' : 'roofTile';
   const seg = detail === 0 ? 12 : 16;
   const lights: V3[] = [];
   if (t.kind === 'round') {
@@ -215,7 +215,7 @@ export function tower(b: Builder, t: Tower, detail: Detail): V3[] {
     box(b, t.x, t.z, fx, fz, s + 0.8, s + 0.8, topY, topY + 0.8, 'ashlar', T, 'ashlar', { aoBottom: 0.55 });
     crenelSquare(b, t.x, t.z, fx, fz, (s + 0.8) / 2, topY + 0.8, T, detail);
     const inner = s - 2.4;
-    hipRoof(b, t.x, t.z, fx, fz, inner, inner, topY + 0.8, 58, 'roofSlate', tint(0xe4e6ea));
+    hipRoof(b, t.x, t.z, fx, fz, inner, inner, topY + 0.8, 58, 'roofSlate', tint(CITY.slateTint));
     for (const [a, c] of [
       [1, 1],
       [1, -1],
@@ -227,7 +227,7 @@ export function tower(b: Builder, t: Tower, detail: Detail): V3[] {
       const x = t.x + fx * (s / 2) * a + rx * (s / 2) * c;
       const z = t.z + fz * (s / 2) * a + rz * (s / 2) * c;
       cylinder(b, x, z, 1.35, topY - 4, topY + 2.2, 10, 'ashlar', T, { aoBottom: 0.6 });
-      cone(b, x, z, 1.6, topY + 2.1, topY + 2.1 + 4.2, 10, 'roofSlate', tint(0xe4e6ea));
+      cone(b, x, z, 1.6, topY + 2.1, topY + 2.1 + 4.2, 10, 'roofSlate', tint(CITY.slateTint));
     }
     lights.push([t.x + fx * (s / 2 + 0.3), topY - 6, t.z + fz * (s / 2 + 0.3)]);
     return lights;
@@ -249,7 +249,7 @@ export function tower(b: Builder, t: Tower, detail: Detail): V3[] {
       box(b, t.x + fx * (ls / 2) * a + rx * (ls / 2) * c, t.z + fz * (ls / 2) * a + rz * (ls / 2) * c, fx, fz, 0.35, 0.35, ly, ly + 3.2, 'wood', tint(CITY.oak), null);
     }
     box(b, t.x, t.z, fx, fz, ls + 0.4, ls + 0.4, ly + 3.2, ly + 3.6, 'wood', tint(CITY.oak, 0.9), null);
-    hipRoof(b, t.x, t.z, fx, fz, ls + 1.2, ls + 1.2, ly + 3.55, 60, 'roofSlate', tint(0xe4e6ea));
+    hipRoof(b, t.x, t.z, fx, fz, ls + 1.2, ls + 1.2, ly + 3.55, 60, 'roofSlate', tint(CITY.slateTint));
     lights.push([t.x, ly + 1.6, t.z]);
     return lights;
   }
@@ -337,19 +337,34 @@ function squareRect(cx: number, cz: number, fx: number, fz: number, w: number, d
   ];
 }
 
-/** Перед и зад надвратной башни: плитка проезда (арка с решёткой) на нижние 8 м. */
+/**
+ * Перед и зад надвратной башни: одна арка проезда посередине (плитка ворот, 6 м), по бокам — кладка;
+ * бока башни — бойницы. Проезд один: плитка не повторяется по ширине.
+ */
 function gateFaces(b: Builder, cx: number, cz: number, fx: number, fz: number, s: number, y0: number, y1: number, t: V3): void {
   const rx = fz;
   const rz = -fx;
   const h = s / 2;
   const [tw, th] = TILE_M.gateArch;
-  const u0 = 0.5 - s / tw / 2;
-  const u1 = 0.5 + s / tw / 2;
   const v1 = (y1 - y0) / th;
-  // Перед (наружу): слева направо снаружи — вдоль +r.
-  b.quad([cx + fx * h - rx * h, y0, cz + fz * h - rz * h], [cx + fx * h + rx * h, y0, cz + fz * h + rz * h], [cx + fx * h + rx * h, y1, cz + fz * h + rz * h], [cx + fx * h - rx * h, y1, cz + fz * h - rz * h], [u0, 0, u1, 0, u1, v1, u0, v1], L.gateArch, t, [0.75, 0.75, 1, 1], 0.6);
-  // Зад (в город).
-  b.quad([cx - fx * h + rx * h, y0, cz - fz * h + rz * h], [cx - fx * h - rx * h, y0, cz - fz * h - rz * h], [cx - fx * h - rx * h, y1, cz - fz * h - rz * h], [cx - fx * h + rx * h, y1, cz - fz * h + rz * h], [u0, 0, u1, 0, u1, v1, u0, v1], L.gateArch, t, [0.75, 0.75, 1, 1], 0.6);
+  const half = tw / 2;
+  for (const side of [1, -1]) {
+    // Вдоль «вправо» снаружи: у переда — +r, у зада — −r.
+    const dirx = rx * side;
+    const dirz = rz * side;
+    const ox = cx + fx * h * side;
+    const oz = cz + fz * h * side;
+    const at = (r: number, y: number): V3 => [ox + dirx * r, y, oz + dirz * r];
+    const want: V3 = [fx * side, 0, fz * side];
+    quadToward(b, at(-half, y0), at(half, y0), at(half, y1), at(-half, y1), [0, 0, 1, 0, 1, v1, 0, v1], L.gateArch, t, want, [0.75, 0.75, 1, 1], 0.6);
+    const [aw, ah] = TILE_M.ashlar;
+    for (const [r0, r1] of [
+      [-h, -half],
+      [half, h],
+    ]) {
+      quadToward(b, at(r0, y0), at(r1, y0), at(r1, y1), at(r0, y1), [r0 / aw, y0 / ah, r1 / aw, y0 / ah, r1 / aw, y1 / ah, r0 / aw, y1 / ah], L.ashlar, t, want, [0.75, 0.75, 1, 1]);
+    }
+  }
   // Бока.
   wall(b, { ax: cx + fx * h + rx * h, az: cz + fz * h + rz * h, bx: cx - fx * h + rx * h, bz: cz - fz * h + rz * h, y0, y1, layer: 'towerSlit', tint: t, aoBottom: 0.75 });
   wall(b, { ax: cx - fx * h - rx * h, az: cz - fz * h - rz * h, bx: cx + fx * h - rx * h, bz: cz + fz * h - rz * h, y0, y1, layer: 'towerSlit', tint: t, aoBottom: 0.75 });

@@ -298,8 +298,8 @@ export function house(b: Builder, h: House, detail: Detail): HouseOut {
   // Кровля над верхним этажом.
   const sx = lean * (h.floors - 1);
   const roofLayer: LayerName = h.roof === 'tile' ? 'roofTile' : 'roofSlate';
-  const roofHex = h.roof === 'shingle' ? 0xb08a68 : h.roof === 'slate' ? 0xe4e6ea : pick(CITY.roofTints, h.roofTint);
-  const roofT = tint(roofHex);
+  const roofHex = h.roof === 'shingle' ? CITY.shingleTint : h.roof === 'slate' ? CITY.slateTint : pick(CITY.roofTints, h.roofTint);
+  const roofT = tint(roofHex, 0.92 + rnd(h.seed, 21, 1) * 0.16);
   const pitch = h.roof === 'shingle' ? h.pitch + 0.05 : h.pitch;
   const r = gableRoof(b, fr, -hd, front, -hw + sx, hw + sx, y, pitch, h.gable, roofLayer, roofT, detail, h.seed);
   // Щипцы: спереди и сзади (конёк вдоль «вперёд») или по бокам.

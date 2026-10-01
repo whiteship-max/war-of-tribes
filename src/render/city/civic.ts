@@ -120,7 +120,7 @@ function body(b: Builder, c: Civic, s: Body, detail: Detail): { top: number; rid
     // Башенка на коньке: восьмигранник и шпиль.
     const [x, z] = fr.q(0, 0);
     cylinder(b, x, z, 1.1, r.ridge - 1.5, r.ridge + 2.2, 8, 'wood', tint(CITY.timberGrey, 1.1), { aoBottom: 0.7 });
-    cone(b, x, z, 1.35, r.ridge + 2.1, r.ridge + 7.5, 8, 'roofSlate', tint(0xe4e6ea));
+    cone(b, x, z, 1.35, r.ridge + 2.1, r.ridge + 7.5, 8, 'roofSlate', tint(CITY.slateTint));
   }
   if ((s.dormers ?? 0) > 0 && detail > 0) {
     // Слуховые окна-«глаза» в несколько рядов по скатам (Хлебный дом).
@@ -200,7 +200,7 @@ function church(b: Builder, c: Civic, detail: Detail): V3[] {
     }
   }
   // Кровля нефа: конёк вдоль r, сланец.
-  const roofT = tint(0xe4e6ea);
+  const roofT = tint(CITY.slateTint);
   const rr = gableRoof(b, fr, -hd, hd, r0, r1, base + naveH, (56 * Math.PI) / 180, false, 'roofSlate', roofT, detail, c.seed, { eave: 0.6, verge: 0.2 });
   gableTri(b, fr, [-hd, r0], [hd, r0], base + naveH, rr.ridge, 'ashlar', T, base, 4, 0);
   // Апсида: половина восьмиугольника на восток, стены с окнами и полушатёр.
@@ -278,7 +278,7 @@ function hall(b: Builder, c: Civic, detail: Detail): V3[] {
         { h: 3.2, front: 'stoneWin', side: 'stoneWin' },
       ],
       wallHex: CITY.stoneTints[3],
-      roof: { pitch: (57 * Math.PI) / 180, layer: 'roofTile', hex: 0xd8b8a8, alongF: false },
+      roof: { pitch: (57 * Math.PI) / 180, layer: 'roofTile', hex: CITY.roofTints[3], alongF: false },
       stepped: true,
       turret: true,
       chimneys: 2,
@@ -296,7 +296,7 @@ const CIVIC_BODY: Partial<Record<Civic['kind'], Body>> = {
       { h: STOREY_H, front: 'timberC', side: 'timberC' },
     ],
     wallHex: CITY.stoneTints[1],
-    roof: { pitch: (60 * Math.PI) / 180, layer: 'roofTile', hex: 0xe8d0c0, alongF: false },
+    roof: { pitch: (60 * Math.PI) / 180, layer: 'roofTile', hex: CITY.roofTints[5], alongF: false },
     dormers: 2,
   },
   guild: {
@@ -306,20 +306,20 @@ const CIVIC_BODY: Partial<Record<Civic['kind'], Body>> = {
       { h: 3.0, front: 'stoneWin', side: 'stoneWin' },
     ],
     wallHex: CITY.stoneTints[2],
-    roof: { pitch: (55 * Math.PI) / 180, layer: 'roofTile', hex: 0xc8b8ac, alongF: true },
+    roof: { pitch: (55 * Math.PI) / 180, layer: 'roofTile', hex: CITY.roofTints[4], alongF: true },
     stepped: true,
     chimneys: 1,
   },
   smithy: {
     storeys: [{ h: 4, front: 'groundDoor', side: 'rubble' }],
     wallHex: CITY.stoneTints[1],
-    roof: { pitch: (42 * Math.PI) / 180, layer: 'roofSlate', hex: 0xa08060, alongF: false },
+    roof: { pitch: (42 * Math.PI) / 180, layer: 'roofSlate', hex: CITY.shingleTint, alongF: false },
     chimneys: 1,
   },
   stable: {
     storeys: [{ h: 3.8, front: 'timberC', side: 'timberC' }],
     wallHex: CITY.wallTints[1],
-    roof: { pitch: (48 * Math.PI) / 180, layer: 'roofSlate', hex: 0xb08a68, alongF: false },
+    roof: { pitch: (48 * Math.PI) / 180, layer: 'roofSlate', hex: CITY.shingleTint, alongF: false },
   },
   tavern: {
     storeys: [
@@ -348,7 +348,7 @@ const CIVIC_BODY: Partial<Record<Civic['kind'], Body>> = {
       { h: 3.4, front: 'stoneWin', side: 'stoneWin' },
     ],
     wallHex: CITY.stoneTints[0],
-    roof: { pitch: (58 * Math.PI) / 180, layer: 'roofSlate', hex: 0xe4e6ea, alongF: false },
+    roof: { pitch: (58 * Math.PI) / 180, layer: 'roofSlate', hex: CITY.slateTint, alongF: false },
     chimneys: 2,
   },
   barracks: {
@@ -376,7 +376,6 @@ export function civic(b: Builder, c: Civic, detail: Detail): { chimneys: V3[]; l
 // ---------------------------------------------------------------------------------------------
 // Площадь.
 
-const AWNINGS = [0xb04a3a, 0x3e5f8a, 0xc9a24a, 0x5d7a3a, 0xe8e0cc, 0x8a4a6a];
 
 /** Торговый ряд: столбы, прилавок, полотняный навес, товар на прилавке. */
 export function stall(b: Builder, s: Stall, detail: Detail): void {
@@ -395,7 +394,7 @@ export function stall(b: Builder, s: Stall, detail: Detail): void {
       box(b, x, z, fx, fz, 0.12, 0.12, y, y + (f > 0 ? 2.1 : 2.5), 'wood', tint(CITY.oak), null);
     }
   }
-  const col = tint(AWNINGS[s.seed % AWNINGS.length], 1.0);
+  const col = tint(CITY.awnings[s.seed % CITY.awnings.length], 1.0);
   const A: V3 = [s.x - rx * (s.w / 2 + 0.15) + fx * (d / 2 + 0.6), y + 1.95, s.z - rz * (s.w / 2 + 0.15) + fz * (d / 2 + 0.6)];
   const B: V3 = [s.x + rx * (s.w / 2 + 0.15) + fx * (d / 2 + 0.6), y + 1.95, s.z + rz * (s.w / 2 + 0.15) + fz * (d / 2 + 0.6)];
   const C: V3 = [s.x + rx * (s.w / 2 + 0.15) - fx * (d / 2 + 0.1), y + 2.6, s.z + rz * (s.w / 2 + 0.15) - fz * (d / 2 + 0.1)];
@@ -403,11 +402,10 @@ export function stall(b: Builder, s: Stall, detail: Detail): void {
   pushQuadOut(b, A, B, C, D, 'cloth', col, [s.x, y + 10, s.z], 1);
   if (detail > 0) pushQuadOut(b, A, B, C, D, 'cloth', [col[0] * 0.6, col[1] * 0.6, col[2] * 0.6], [s.x, y - 10, s.z], 0.6);
   // Товар: ящики и короба разного цвета.
-  const goods = [0x9a7a4a, 0x7a8a3a, 0xb0603a, 0xc8b070, 0x6a5a8a];
   const n = 3;
   for (let k = 0; k < n; k++) {
     const off = (k - (n - 1) / 2) * (s.w / n);
-    const g = goods[(s.seed >>> (k * 3)) % goods.length];
+    const g = CITY.goods[(s.seed >>> (k * 3)) % CITY.goods.length];
     box(b, s.x + rx * off + fx * 0.4, s.z + rz * off + fz * 0.4, fx, fz, s.w / n - 0.25, 0.5, y + 0.95, y + 1.18 + rnd(s.seed, k, 3) * 0.2, 'wood', tint(g, 1.1), 'wood');
   }
 }
@@ -421,7 +419,7 @@ export function well(b: Builder, p: P, detail: Detail): void {
   for (const s of [-1, 1]) box(b, p.x + s * 1.2, p.z, 1, 0, 0.18, 0.18, y + 0.9, y + 3.0, 'wood', tint(CITY.oak), null);
   box(b, p.x, p.z, 1, 0, 0.12, 2.6, y + 2.5, y + 2.62, 'wood', tint(CITY.oak), 'wood');
   const fr = new Frame(p.x, p.z, 0, 1);
-  gableRoof(b, fr, -1.3, 1.3, -1.0, 1.0, y + 2.9, (40 * Math.PI) / 180, true, 'roofSlate', tint(0xb08a68), detail, 7, { eave: 0.3, verge: 0.2 });
+  gableRoof(b, fr, -1.3, 1.3, -1.0, 1.0, y + 2.9, (40 * Math.PI) / 180, true, 'roofSlate', tint(CITY.shingleTint), detail, 7, { eave: 0.3, verge: 0.2 });
 }
 
 /** Огненная чаша у колодца — «Костёр» игры. */
