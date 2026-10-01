@@ -483,6 +483,53 @@ export function marketProps(b: Builder, seed: number, detail: Detail): void {
   crates(b, 16, 22.8, 3, seed + 23);
 }
 
+/**
+ * Желоб посреди мостовой: полоса плоских плит с тёмной сырой серединой — по нему вода стекает к
+ * воротам (docs/city.md, 11.6). Лежит на земле, шаг 1.5 м — чтобы не уходить в склон между точками;
+ * у концов улицы отступает на `trim` и рвётся ближе 7 м к воротам `gates`: в проезд не заходит.
+ */
+export function gutter(b: Builder, pts: readonly P[], gates: readonly P[] = [], trim = 6): void {
+  const acc = [0];
+  for (let k = 1; k < pts.length; k++) acc.push(acc[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z));
+  const total = acc[acc.length - 1];
+  if (total < trim * 2 + 3) return;
+  const along = (s: number): { x: number; z: number; tx: number; tz: number } => {
+    let k = 1;
+    while (k < pts.length - 1 && acc[k] < s) k++;
+    const a = pts[k - 1];
+    const e = pts[k];
+    const l = acc[k] - acc[k - 1] || 1;
+    const f = Math.min(1, Math.max(0, (s - acc[k - 1]) / l));
+    return { x: a.x + (e.x - a.x) * f, z: a.z + (e.z - a.z) * f, tx: (e.x - a.x) / l, tz: (e.z - a.z) / l };
+  };
+  const w = 0.38;
+  const T = tint(CITY.gutter);
+  const [tw, th] = TILE_M.ashlar;
+  const n = Math.ceil((total - trim * 2) / 1.5);
+  let prev: { l: V3; c: V3; r: V3; v: number } | null = null;
+  for (let k = 0; k <= n; k++) {
+    const s = trim + ((total - trim * 2) * k) / n;
+    const p = along(s);
+    if (gates.some((g) => Math.hypot(p.x - g.x, p.z - g.z) < 7)) {
+      prev = null;
+      continue;
+    }
+    // Поперёк — (−tz, tx): тогда обход «лево → середина → дальше» смотрит нормалью вверх.
+    const at = (o: number, dy: number): V3 => {
+      const x = p.x - p.tz * o;
+      const z = p.z + p.tx * o;
+      return [x, heightAt(x, z) + dy, z];
+    };
+    const cur = { l: at(-w, 0.06), c: at(0, 0.035), r: at(w, 0.06), v: s / th };
+    if (prev) {
+      const u = w / tw;
+      b.quad(prev.l, prev.c, cur.c, cur.l, [-u, prev.v, 0, prev.v, 0, cur.v, -u, cur.v], L.ashlar, T, [1, 0.4, 0.4, 1], 0, [0.3, 1, 1, 0.3]);
+      b.quad(prev.c, prev.r, cur.r, cur.c, [0, prev.v, u, prev.v, u, cur.v, 0, cur.v], L.ashlar, T, [0.4, 1, 1, 0.4], 0, [1, 0.3, 0.3, 1]);
+    }
+    prev = cur;
+  }
+}
+
 /** Колодец: каменное кольцо, два столба и двускатный навес. */
 export function well(b: Builder, p: P, detail: Detail): void {
   const y = heightAt(p.x, p.z);

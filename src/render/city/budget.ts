@@ -9,7 +9,7 @@ import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { yard } from './outskirts';
 import { house } from './kit';
 import { cityWall, tower } from './forts';
-import { churchyard, civic, fireBowl, marketProps, stall, statue, well } from './civic';
+import { churchyard, civic, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
 import { CITY_SPEC, LIFE_CAP, LIFE_TRIS } from './spec';
@@ -93,6 +93,8 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
       b.owner = 0;
     }
   }
+  // Желоб посреди мощёных улиц — ничей: улица не постройка.
+  for (const st of plan.streets) if (st.surface === 'cobble' && st.half >= 3) gutter(b, st.pts, plan.gates);
   // Ряды — одной коробкой на весь рынок: тап между прилавками — тоже рынок.
   b.owner = ownerCode('market');
   const marketFrom = b.mark().v;
