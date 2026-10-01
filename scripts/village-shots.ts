@@ -229,10 +229,30 @@ interface Bench {
 
 type Row = { look: string; b: Bench };
 
-/** Один проход замера: каждый вид по разу, в порядке `LOOKS`. */
-async function benchPass(began: number): Promise<Row[]> {
+/**
+ * Прогрев перед замером прохода, секунды. Видеокарта после паузы и запуска браузера стоит на высокой
+ * частоте и под потолком кадров за несколько секунд сходит ниже: вид, мерянный первым, выходил впятеро
+ * дешевле тех же чисел позже в проходе (замер 01.10.2026, docs/graphics_world.md, 11.1). Прогрев — первый
+ * вид прохода без замера. Он убирает рывок первого вида, но не дрейф частоты: отношение одного вида к `now`
+ * ходит от прохода к проходу на десятки процентов, и разницу меньше этого способ не различает (11.1).
+ */
+const WARMUP = Number(process.env.WARMUP ?? 8);
+
+/**
+ * Один проход замера: каждый вид по разу. Порядок сдвигается от прохода к проходу (`pass`): остаток дрейфа
+ * частоты ложится на разные виды и гасится медианой сводки, а не копится на первом.
+ */
+async function benchPass(began: number, pass: number): Promise<Row[]> {
+  const shift = pass % LOOKS.length;
+  const order = LOOKS.slice(shift).concat(LOOKS.slice(0, shift));
+  const warm = await open(pageUrl(order[0], 0.2));
+  try {
+    await sleep(WARMUP * 1000);
+  } finally {
+    await close(warm);
+  }
   const rows: Row[] = [];
-  for (const look of LOOKS) {
+  for (const look of order) {
     if (Date.now() - began > BROWSER_MAX_MS) {
       console.log(`\nСрок прохода (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
       break;
@@ -266,7 +286,7 @@ function printBench(passes: Row[][]): void {
   if (!first) return;
   console.log(
     `\nВидеокарта: ${first[0].b.gpuName}. Экран ${SCREEN.width}×${SCREEN.height} @${SCREEN.deviceScaleFactor}, потолок ${REPORT_FPS} кадров, ` +
-      `${SECONDS} с на вид; проходов ${passes.length}, между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`,
+      `${SECONDS} с на вид, прогрев ${WARMUP} с; проходов ${passes.length}, порядок видов сдвигается от прохода к проходу, между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`,
   );
   passes.forEach((rows, i) => {
     console.log(`\n${passes.length > 1 ? `проход ${i + 1}` : ''}`);
@@ -336,7 +356,7 @@ async function main(): Promise<void> {
       const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', '--window-size=500,900', '--force-device-scale-factor=1']);
       try {
         const began = Date.now();
-        if (BENCH) passes.push(await benchPass(began));
+        if (BENCH) passes.push(await benchPass(began, pass - 1));
         else await shots(began);
       } finally {
         chrome.kill();
