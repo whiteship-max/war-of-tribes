@@ -1,0 +1,22 @@
+# Переводы строк — LF в репозитории и на диске, при любом core.autocrlf.
+# Системный gitconfig машины владельца — core.autocrlf=true: без этого файла свежий worktree
+# и файлы, переписанные слиянием, ложились на диск с CRLF, и тесты по исходникам
+# (world/spoils.test.ts, world/gatefight.test.ts ищут '\n  }\n') падали не из кода.
+* text=auto eol=lf
+
+# Бинарные — как есть, без перевода строк и без текстового диффа.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+*.docx binary
+*.glb binary
