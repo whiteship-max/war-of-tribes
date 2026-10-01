@@ -690,10 +690,12 @@ export class TribeScene {
    * `next` — жители у костра переодеваются в покрои и позы (`env/folk.ts`). Новые здания и жители
    * оденутся при появлении.
    */
-  private envArrived(m: Pick<typeof EnvModule, 'dressFacade' | 'FACADE_SNOW' | 'startLife'>): void {
+  private envArrived(m: Pick<typeof EnvModule, 'dressFacade' | 'FACADE_SNOW' | 'startLife' | 'roundSmoke'>): void {
     if (this.disposed) return;
     this.facade = m;
     for (const view of this.buildings.values()) m.dressFacade(view.group);
+    // Клубы дыма — круглые и мягкие: костёр, дым работы и очаги (docs/graphics_world.md, 11.6).
+    for (const s of [this.smoke, this.chimneys, this.hearths]) m.roundSmoke(s.points.material as THREE.PointsMaterial);
     this.life = m.startLife({ pool: this.figures, quality: this.quality });
     for (const agent of this.agents.values()) this.life.dressFolk(agent);
   }

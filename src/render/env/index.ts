@@ -65,6 +65,8 @@ export type { EnvVillage } from './rules';
 export { FACADE_SNOW, dressFacade } from './facade';
 // Люди и звери посёлка вида `next` (этап 2, пункт 3) — тем же куском.
 export { startLife, type VillageLife } from './folk';
+// Круглые мягкие клубы дыма вида `next` (этап 2, 11.6) — тем же куском.
+export { roundSmoke } from './smoke';
 
 export interface EnvOptions {
   quality: Quality;
