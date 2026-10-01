@@ -23,8 +23,10 @@ function ribbon(pts: { x: number; z: number; y: number }[], half: number, pos: n
   }
   for (let k = 0; k < pts.length - 1; k++) {
     const a = base + k * 2;
-    // Обход сверху против часовой: нормаль вверх.
-    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    // Вершина a — слева по ходу, a + 1 — справа: обход a → a + 1 → a + 2 против часовой, если смотреть
+    // сверху, — грань лицом вверх (иначе при двусторонней грани three перевернул бы нормаль вниз, и вода
+    // с зимним льдом не получали бы солнца).
+    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
   }
 }
 
@@ -34,7 +36,7 @@ export function buildWater(u: CityUniforms): THREE.Mesh {
   const edge: number[] = [];
   ribbon(riverRibbon(), RIVER_HALF + 1.5, pos, idx, edge);
   ribbon(raceRibbon(), RACE_HALF + 1.2, pos, idx, edge);
-  // Обход ленты зависит от того, куда идёт ломаная, — грани с двух сторон, нормаль вверх задана явно.
+  // Нормаль вверх задана явно; грани — лицом вверх (обход в `ribbon`), с двух сторон — на всякий ракурс.
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
   const nor = new Float32Array(pos.length);

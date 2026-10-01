@@ -19,13 +19,14 @@ import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
 import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
 import { buildCity, CITY_SPEC, type CityBuild } from './index';
-import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf } from './camera';
+import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt } from './camera';
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
 
 /** Значок над крышей: доля высоты экрана (спрайт без перспективы — читается на любом приближении). */
 const MARKER_SCREEN = 0.028;
+
 
 export class CityScene extends TribeScene {
   /** Собранный город; до его прихода в кадре — дымка. */
@@ -153,8 +154,8 @@ export class CityScene extends TribeScene {
     // Риг посёлка ставит лампу в сорока единицах от середины: городу — над целью камеры, далеко,
     // чтобы коробка теней шла за кадром.
     const sun = this.rig.sun;
-    const dir = sun.position.normalize();
-    sun.position.copy(this.target).addScaledVector(dir, 600);
+    const at = citySunAt(this.target, sun.position);
+    sun.position.set(at.x, at.y, at.z);
     sun.target.position.copy(this.target);
     sun.target.updateMatrixWorld();
     // Узкие улицы глубже открытого посёлка: заполняющему свету — треть сверху (стенд, круг 2).
@@ -339,6 +340,19 @@ export class CityScene extends TribeScene {
   override textureBytes(): number {
     const s = this.rig.sun.shadow.mapSize.x;
     return s * s * 8 + (this.town?.textureBytes ?? 0);
+  }
+
+  /**
+   * Сторож плавности города опускает плотность пикселей на этот заход, но **не пишет память устройства**
+   * (`gfx.rememberAutoCap`): она общая с посёлком, и тяжёлый кадр города на неделю опустил бы обычный вид
+   * игрока (находка проверки, docs/city.md, 11.9). Решение по уровню города — до следующего захода.
+   */
+  protected override watch(gap: number): void {
+    if (!this.steady || !this.settled()) return;
+    const next = this.steady.feed(gap);
+    if (!next) return;
+    this.dprLevel = next;
+    this.needSize = true;
   }
 
   override dispose(): void {

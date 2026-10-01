@@ -62,3 +62,13 @@ export function cityFog(dist: number): { near: number; far: number } {
 
 /** Коробка теней вокруг цели: чем ближе камера, тем меньше коробка и чётче тень. */
 export const cityShadowHalf = (dist: number): number => Math.min(190, Math.max(55, dist * 0.42));
+
+/**
+ * Где стоит лампа солнца (луны): над целью камеры, по направлению светила, далеко — коробка теней идёт за
+ * кадром. Направление берётся из позиции, которую ставит общий риг (`lighting.applyDayNight`), и не
+ * зависит от того, куда смотрит камера.
+ */
+export function citySunAt(target: { x: number; y: number; z: number }, from: { x: number; y: number; z: number }, dist = 600): { x: number; y: number; z: number } {
+  const l = Math.hypot(from.x, from.y, from.z) || 1;
+  return { x: target.x + (from.x / l) * dist, y: target.y + (from.y / l) * dist, z: target.z + (from.z / l) * dist };
+}

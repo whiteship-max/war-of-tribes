@@ -407,11 +407,13 @@ export class CityLife {
       const b0 = pos.length / 3;
       const ph = 3.2;
       const pr = 0.06;
+      // Обход по часовой, если смотреть сверху: грань древка смотрит наружу (с двусторонним материалом
+      // иначе three перевернул бы нормаль внутрь, и древко светилось бы с теневой стороны).
       const ring = [
         [pr, pr],
-        [-pr, pr],
-        [-pr, -pr],
         [pr, -pr],
+        [-pr, -pr],
+        [-pr, pr],
       ];
       for (let k = 0; k < 4; k++) {
         const [ax, az] = ring[k];

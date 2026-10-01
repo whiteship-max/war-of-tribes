@@ -105,9 +105,12 @@ async function shot(q: Quality, view: string, solar: number): Promise<void> {
 
 /** Игра по адресу `?look=city`: новая партия, вход, стартовый кадр города и счётчики сцены. */
 async function gameShot(q: Quality): Promise<void> {
-  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=city&quality=${q}`));
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=${process.env.LOOK ?? 'city'}&quality=${q}`));
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
+    // Касание — до перезагрузки: иначе страница не считает себя сенсорной, и касание CDP не становится
+    // указателем `touch` (как у `tap:report`).
+    if (process.env.TAP === '1') await tab.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
     await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
     await tab.send('Page.reload');
     let ok = false;
@@ -130,6 +133,10 @@ async function gameShot(q: Quality): Promise<void> {
       s.built.then(() => { clearTimeout(t); ok(JSON.stringify('собран')); });
     })`);
     console.log(`  игра ${q}: ${built}`);
+    // Обучение снято: его затемнение — не вид города (как у `tap:report`).
+    await tab.eval<string>(`(() => { const s = window.__game.getState().s; s.tutorialDone = true; window.__game.setState({ s: { ...s } }); return JSON.stringify('ok'); })()`);
+    // Касание — сразу, пока сторож кадров не счёл медленные программные кадры остановкой (см. `gameTaps`).
+    if (process.env.TAP === '1') await gameTaps(tab);
     await sleep(3000);
     const c = await tab.eval<{ calls: number; triangles: number }>('JSON.stringify(window.__scene.stats())');
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
@@ -140,6 +147,60 @@ async function gameShot(q: Quality): Promise<void> {
     tab.close();
     await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
   }
+}
+
+/**
+ * Касание в самой игре (`TAP=1` к `GAME=1`): обучение снято, каждая постройка, чья середина на экране между шапкой и
+ * нижней панелью, получает настоящий тап пальцем (касание CDP, тот же путь, что у игрока: общий судья жеста →
+ * `CityScene.pickAt` → окно постройки). Печатает, сколько открыли своё окно, и кто открыл чужое. Не отчёт: числа —
+ * стенду, судит `sites.test.ts` по раскладке.
+ */
+async function gameTaps(tab: Tab): Promise<void> {
+  await tab.eval<string>(`(() => {
+    const g = window.__game.getState();
+    const s = g.s;
+    s.tutorialDone = true;
+    s.inbox = [];
+    s.winterWarning = false;
+    s.nextEventAt = s.time + 1e9;
+    window.__game.setState({ s: { ...s } });
+    g.openBuilding(null);
+    return JSON.stringify('ok');
+  })()`);
+  // Кадр города в облаке рисует программная видеокарта — около полсекунды: отпускание пальца ждало бы
+  // кадра, и тап выходил бы дольше `TAP_MS` (долгое нажатие). На время тапов мир скрыт — кадр пуст и
+  // быстр; касание судит коробки мест, а не пиксели, — проверяется цепочка касания, а не скорость
+  // программной отрисовки.
+  await tab.eval<string>(`(() => { const sc = window.__scene; sc.scene.children.forEach((o) => { if (o.type === 'Group') o.visible = false; }); return JSON.stringify('ok'); })()`);
+  await sleep(1500);
+  const list = await tab.eval<{ id: number; type: string; x: number; y: number }[]>(`JSON.stringify(
+    window.__game.getState().s.buildings.map((b) => {
+      const p = window.__scene.screenSpot(b.id);
+      return p ? { id: b.id, type: b.type, x: p.x, y: p.y } : null;
+    }).filter((p) => p && p.x > 8 && p.x < innerWidth - 8 && p.y > 130 && p.y < innerHeight - 90)
+  )`);
+  let own = 0;
+  const wrong: string[] = [];
+  for (const p of list) {
+    await tab.eval<string>(`(() => { window.__game.getState().openBuilding(null); return JSON.stringify('ok'); })()`);
+    await sleep(450);
+    const free = await tab.eval<boolean>(`JSON.stringify(document.elementFromPoint(${p.x}, ${p.y}) instanceof HTMLCanvasElement)`);
+    if (!free) {
+      const who = await tab.eval<string>(`JSON.stringify((() => { const e = document.elementFromPoint(${p.x}, ${p.y}); return e ? e.tagName + '.' + String(e.className).slice(0, 40) : '—'; })())`);
+      wrong.push(`${p.type}: точка под разметкой (${who})`);
+      continue;
+    }
+    const pt = { x: p.x, y: p.y, radiusX: 12, radiusY: 12, force: 1 };
+    await tab.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt] });
+    await sleep(90);
+    await tab.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(60);
+    const sheet = await tab.eval<number | null>(`JSON.stringify((() => { const sh = window.__game.getState().sheet; return sh && sh.kind === 'building' ? sh.id : null; })())`);
+    if (sheet === p.id) own++;
+    else wrong.push(`${p.type} → ${sheet === null ? 'ничего' : (list.find((o) => o.id === sheet)?.type ?? `id ${sheet}`)}`);
+  }
+  console.log(`  касание в игре: тапов ${list.length}, своё окно — ${own}${wrong.length ? `; мимо: ${wrong.join(', ')}` : ''}`);
+  await tab.eval<string>(`(() => { const sc = window.__scene; window.__game.getState().openBuilding(null); sc.scene.children.forEach((o) => { if (o.type === 'Group') o.visible = true; }); return JSON.stringify('ok'); })()`);
 }
 
 /** Слои текстур листом — без браузера: самопроверка материала. */

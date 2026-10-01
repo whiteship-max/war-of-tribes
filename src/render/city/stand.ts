@@ -66,7 +66,7 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(pixelRatio(dpr));
   configureRenderer(renderer);
-  if (q === 'low') renderer.shadowMap.type = 0 as THREE.ShadowMapType;
+  if (q === 'low') renderer.shadowMap.type = 0;
   renderer.info.autoReset = false;
   const scene = new THREE.Scene();
   configureSky(scene);

@@ -528,7 +528,7 @@ describe('окружение пробы: первая загрузка', () => {
     // Имя класса, взятое ленивым куском, дописывается в общий кусок three первой загрузки
     // (docs/prologue.md, «три имени»). Игра — всё, кроме ленивых дверей.
     const all = sources(path.join(ROOT, 'src')).map((f) => f.split(path.sep).join('/'));
-    const lazy = /\/src\/(render\/env|prologue|render\/battle|ui\/battle)\//;
+    const lazy = /\/src\/(render\/env|render\/city|prologue|render\/battle|ui\/battle)\//;
     const game = new Set(all.filter((f) => !lazy.test(f)).flatMap(threeNames));
     const env = all.filter((f) => f.includes('/src/render/env/'));
     // Область: файлы окружения найдены, и имена three в них есть.
@@ -536,5 +536,21 @@ describe('окружение пробы: первая загрузка', () => {
     const used = new Set(env.flatMap(threeNames));
     expect(used.size).toBeGreaterThan(5);
     expect([...used].filter((n) => !game.has(n))).toEqual([]);
+  });
+
+  it('кусок города не берёт имён three сверх игры — кроме пяти, что рендерер three держит сам', () => {
+    // Вид «город» (docs/city.md) — свой ленивый кусок, но кусок three у всех один: новое имя класса из города
+    // дописалось бы в первую загрузку. Пять имён ниже город брал с ночи 1 — это константы и класс, которыми
+    // пользуется сам рендерер three (смешение, фильтры, повтор, вектор окна), кусок three от них не вырос:
+    // `npm run build` на ветке города даёт тот же `three-YLlhFw_e.js`, 125 017 байт gzip, что и `master`.
+    const all = sources(path.join(ROOT, 'src')).map((f) => f.split(path.sep).join('/'));
+    const lazy = /\/src\/(render\/env|render\/city|prologue|render\/battle|ui\/battle)\//;
+    const game = new Set(all.filter((f) => !lazy.test(f)).flatMap(threeNames));
+    const city = all.filter((f) => f.includes('/src/render/city/'));
+    expect(city.length).toBeGreaterThanOrEqual(10);
+    const used = new Set(city.flatMap(threeNames));
+    expect(used.size).toBeGreaterThan(10);
+    const allowed = new Set(['AdditiveBlending', 'LinearFilter', 'LinearMipmapLinearFilter', 'RepeatWrapping', 'Vector4']);
+    expect([...used].filter((n) => !game.has(n) && !allowed.has(n))).toEqual([]);
   });
 });
