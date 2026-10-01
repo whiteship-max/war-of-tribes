@@ -14,7 +14,8 @@
 // instanceColor), один на весь дым труб (точки, weather.ts), а горн у кузницы
 // был в модели и раньше — он просто гаснет без кузнецов.
 import * as THREE from 'three';
-import type { BuildingTypeId } from '@/game/types';
+import type { Building, BuildingTypeId, GameState } from '@/game/types';
+import { handsCount, workerCount } from '@/game/derived';
 import { INSTANCED } from './materials';
 import { PALETTE } from './palette';
 import { placeOf, plotRadius } from './plan';
@@ -58,6 +59,14 @@ export const WORK_SIGN: Partial<Record<BuildingTypeId, Sign>> = {
   smithy: { load: 'stone', smoke: true, glow: true },
   storage: { load: 'sack' },
 };
+
+/**
+ * Работает ли здание — по этому зажигаются его признаки (у посёлка и у города одно правило). Склад —
+ * исключение по запасам (`full` — закрома полны на виду), кузница — по заказам: кузнецы у горна без
+ * заказа не работают. Двор, где работают одни невольники, работает: признак зажигают руки на местах.
+ */
+export const workBusy = (s: GameState, b: Building, full: boolean): boolean =>
+  b.type === 'storage' ? full : b.type === 'smithy' ? workerCount(s, b.id) > 0 && (s.forge?.length ?? 0) > 0 : handsCount(s, b.id) > 0;
 
 /** Высота дыма над зданием — над коньком, а не из стены. */
 export const SMOKE_HEIGHT = 2.2;

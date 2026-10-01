@@ -5,7 +5,7 @@
 import { CITY } from './palette';
 import { Builder, tint, type V3 } from './geom';
 import { distPoly, heightAt, insidePoly, riverX, RIVER_HALF, type CityPlan, type P } from './layout';
-import { fieldAt } from './ground';
+import { fieldAt, openLand } from './ground';
 import { L, TILE_M } from './tex';
 import { fbm, hash3, rnd, sstep, vnoise } from './noise';
 
@@ -24,10 +24,9 @@ export function forestAt(x: number, z: number, plan: CityPlan): number {
   if (fieldAt(x, z, plan) > 0) return 0;
   const rd = Math.abs(x - riverX(z));
   if (rd < RIVER_HALF + 5) return 0;
-  // Луг вдоль реки и у дорог.
+  // Луг вдоль реки; дороги, дворы и предместье — без леса (поляна с рваным краем — шум ниже).
   const bank = sstep(RIVER_HALF + 5, RIVER_HALF + 26, rd);
-  const roadS = Math.abs(x - (plan.gates[0].x - 4 * Math.sin(z / 60))) < 12 && z > 120;
-  if (roadS) return 0;
+  if (!openLand(x, z, plan, 3 + vnoise(x / 9, z / 9, 1e6, 53) * 6)) return 0;
   const big = fbm(x / 260 + 7, z / 260 + 7, 1e6, 3, 43);
   const mid = fbm(x / 70 + 3, z / 70 + 3, 1e6, 3, 47);
   // Склон к реке и север за замком — сплошной лес; восток и юг — перелески.

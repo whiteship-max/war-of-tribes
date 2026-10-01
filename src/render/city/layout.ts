@@ -99,13 +99,49 @@ export function heightAt(x: number, z: number): number {
   // Река в западной долине.
   const rd = Math.abs(x - riverX(z));
   h -= 2.2 * (1 - sstep(RIVER_HALF - 2, RIVER_HALF + 10, rd));
+  // Мельничный ручей: канава от реки к колесу лесопилки и обратно.
+  if (x > -166 && x < -112 && z > -4 && z < 40) {
+    const dr = distPoly({ x, z }, RACE);
+    if (dr < RACE_HALF + 3.5) h = lerp(RACE_LEVEL - 0.9, h, sstep(RACE_HALF - 0.6, RACE_HALF + 3.5, dr));
+  }
   return h;
 }
+
+/**
+ * Мельничный ручей лесопилки (docs/city.md, раздел 5): вода отводится из реки выше по течению, обходит
+ * мельницу с востока, бежит на запад под колесом вдоль её южной стены и возвращается в реку ниже.
+ * Колесо стоит в нём лицом к камере игры — в самой реке, текущей с севера на юг, оно было бы видно
+ * только ребром.
+ */
+export const RACE: readonly P[] = [
+  { x: -158, z: 2 },
+  { x: -140, z: 3 },
+  { x: -124, z: 8 },
+  { x: -120, z: 19 },
+  { x: -126, z: 27.5 },
+  { x: -146, z: 29 },
+  { x: -159, z: 34 },
+];
+export const RACE_HALF = 1.9;
+/** Уровень воды в ручье — уровень реки у отвода, на полметра ниже долины. */
+export const RACE_LEVEL = -15.6;
 
 export const RIVER_HALF = 9;
 export const riverX = (z: number): number => -168 + 14 * Math.sin(z / 95 + 0.6);
 /** Уровень воды реки. */
 export const RIVER_Y = -14.4;
+
+/**
+ * Уровень воды реки у этого `z`: на полметра ниже нижнего из берегов, но не ниже дна плюс полметра.
+ * Долина неровная (шум рельефа ±1.5 м), и вода на одной высоте вдоль всей реки то заливала бы берег,
+ * то висела бы над дном.
+ */
+export function riverLevel(z: number): number {
+  const c = riverX(z);
+  const bank = Math.min(heightAt(c - RIVER_HALF, z), heightAt(c + RIVER_HALF, z));
+  const bed = heightAt(c, z);
+  return Math.max(bed + 0.5, bank - 0.5);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Геометрия плана: отрезки, ломаные, многоугольники.
@@ -265,6 +301,20 @@ export interface Stall {
   seed: number;
 }
 
+/** Двор за стеной — постройка игры с `outside` (docs/city.md, раздел 5): место, поворот фасада, поляна. */
+export type YardKind = 'gathering' | 'sawmill' | 'quarry' | 'hunter_hut' | 'mine' | 'farm' | 'pen';
+
+export interface Yard {
+  kind: YardKind;
+  x: number;
+  z: number;
+  /** Куда смотрит фасад (угол в плане, рад; 0 — на +x). */
+  rot: number;
+  /** Поляна вокруг двора: ни леса, ни пашни. */
+  r: number;
+  seed: number;
+}
+
 export interface CityPlan {
   wall: P[];
   castleWall: P[];
@@ -280,6 +330,112 @@ export interface CityPlan {
   statue: P;
   /** Деревья во дворах и на площади (липа). */
   yardTrees: { x: number; z: number; r: number; seed: number }[];
+  /** Дороги за стеной: в долину, на восток и тропы к дворам. */
+  roads: Street[];
+  /** Семь дворов игры за стеной. */
+  yards: Yard[];
+  /** Предместье у южной дороги — дома Жилищ за стеной. */
+  suburb: House[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// За стеной: дороги, дворы, предместье.
+
+/** Дороги и тропы за стеной: центральные линии, сглаженные, как улицы. */
+function roadsOf(gates: { x: number; z: number }[]): Street[] {
+  const g = gates[0];
+  const e = gates[1];
+  const r = (name: string, pts: P[], half: number): Street => ({ name, pts: smoothPath(pts, 2), half, surface: 'dirt', sides: 'none', rich: 0 });
+  return [
+    r('Дорога в долину', [{ x: g.x, z: g.z }, { x: g.x + 2, z: g.z + 40 }, { x: g.x - 8, z: g.z + 110 }, { x: g.x - 4, z: g.z + 200 }, { x: g.x + 6, z: g.z + 330 }], 3.2),
+    r('Восточная дорога', [{ x: e.x, z: e.z }, { x: e.x + 40, z: e.z + 6 }, { x: e.x + 110, z: e.z - 20 }, { x: e.x + 200, z: e.z - 10 }, { x: e.x + 330, z: e.z + 10 }], 2.6),
+    // Тропа на запад: из предместья вниз по склону к опушке, навесу собирателей и лесопилке на реке.
+    r('Тропа к реке', [{ x: g.x - 4, z: g.z + 74 }, { x: -40, z: 196 }, { x: -78, z: 160 }, { x: -96, z: 112 }, { x: -122, z: 70 }, { x: -136, z: 30 }], 2),
+    // От восточной дороги на север по склону — к руднику, каменоломне под замком и дальше в лес, к охотничьему домику.
+    r('Тропа к руднику', [{ x: e.x + 30, z: e.z + 4 }, { x: 122, z: -46 }, { x: 112, z: -104 }, { x: 80, z: -170 }, { x: 46, z: -222 }], 1.8),
+    // К загону: от дороги в долину на восток.
+    r('Тропа к загону', [{ x: g.x + 2, z: g.z + 36 }, { x: 40, z: 168 }, { x: 78, z: 162 }], 1.8),
+  ];
+}
+
+/**
+ * Дворы за стеной: где им положено по ремеслу (docs/city.md, раздел 5). Навес собирателей — на опушке у
+ * подножия западного склона, лесопилка — на восточном берегу реки (колесо в воде), каменоломня — в
+ * склоне мыса под замком, охотничий домик — в северном лесу, рудник — в восточном склоне, хутор — в
+ * восточной долине у дороги, загон — на выгоне к юго-востоку.
+ */
+function yardsOf(seed: number): Yard[] {
+  const y = (kind: YardKind, x: number, z: number, rot: number, r: number, k: number): Yard => ({ kind, x, z, rot, r, seed: hash3(k, 17, seed) });
+  const S = Math.PI / 2;
+  // Фасады — к югу и востоку, к камере игры (она смотрит с юга на север): двор читается лицом.
+  const SE = Math.PI / 4;
+  return [
+    y('gathering', -100, 104, SE, 15, 1),
+    y('sawmill', -136, 20, S, 20, 2),
+    y('quarry', 68, -172, SE, 22, 3),
+    y('hunter_hut', 34, -232, S, 15, 4),
+    y('mine', 106, -116, SE * 0.6, 18, 5),
+    y('farm', 152, 26, S, 30, 6),
+    y('pen', 92, 158, S, 24, 7),
+  ];
+}
+
+/** Предместье: дома по обе стороны дороги в долину — за гласисом, до полей. */
+function placeSuburb(road: Street, wall: P[], yards: Yard[], seed: number): House[] {
+  const out: House[] = [];
+  const boxes: Box[] = [];
+  const r = stream(seed);
+  const len = polyLength(road.pts);
+  for (const side of [1, -1] as const) {
+    let s = 30;
+    while (s < len - 10) {
+      const w = 5 + r() * 2.6;
+      const mid = along(road.pts, s + w / 2);
+      if (mid.p.z > 232) break;
+      const d = 7.5 + r() * 2.5;
+      const nx = -mid.t.z * side;
+      const nz = mid.t.x * side;
+      const front = road.half + 1.2 + r() * 1.5;
+      const cx = mid.p.x + nx * (front + d / 2);
+      const cz = mid.p.z + nz * (front + d / 2);
+      const box: Box = { cx, cz, ux: mid.t.x, uz: mid.t.z, hu: w / 2, hv: d / 2 };
+      const pts = boxCorners(box);
+      const ok =
+        pts.every((q) => !insidePoly(q, wall) && distPoly(q, wall, true) > 34) &&
+        !boxes.some((b) => boxesOverlap(box, b, 0.6)) &&
+        yards.every((yd) => Math.hypot(cx - yd.x, cz - yd.z) > yd.r + 6);
+      if (ok) {
+        const fl = heightAt(mid.p.x + nx * (front + 0.5), mid.p.z + nz * (front + 0.5));
+        let low = fl;
+        for (const q of pts) low = Math.min(low, heightAt(q.x, q.z));
+        out.push({
+          x: cx,
+          z: cz,
+          fx: -nx,
+          fz: -nz,
+          w,
+          d,
+          // Предместье беднее: в один-два этажа, фахверк и штукатурка, кровли — больше дранки.
+          floors: r() < 0.45 ? 1 : 2,
+          style: r() < 0.25 ? 'plaster' : 'timber',
+          frame: Math.floor(r() * 3),
+          gable: r() < 0.7,
+          roof: r() < 0.45 ? 'tile' : 'shingle',
+          pitch: (50 + r() * 12) * (Math.PI / 180),
+          jetty: r() < 0.5 ? 0 : 0.25 + r() * 0.2,
+          floor: fl,
+          low,
+          wallTint: Math.floor(r() * 7),
+          roofTint: Math.floor(r() * 6),
+          seed: Math.floor(r() * 1e9),
+          rich: 0.1,
+        });
+        boxes.push(box);
+        s += w + 0.8 + (r() < 0.25 ? 4 + r() * 5 : 0);
+      } else s += 2;
+    }
+  }
+  return out;
 }
 
 /** Стена города — замкнутый контур по бровке плато, с юга до рва. */
@@ -699,10 +855,10 @@ function placeHouses(streets: Street[], wall: P[], blocked: Box[], seed: number)
 function placeStalls(seed: number): Stall[] {
   const out: Stall[] = [];
   const r = stream(seed);
+  // Ряды — в южной половине площади, но не вплотную к домам; колодец с огнём — в северной.
   for (let row = 0; row < 3; row++) {
-    const z = 10 + row * 6.5;
+    const z = 5 + row * 6.5;
     for (let x = -12; x < 22; x += 4.2 + r() * 0.8) {
-      if (Math.abs(x - 4) < 5 && row === 0) continue;
       out.push({ x, z: z + (r() - 0.5) * 0.6, rot: row % 2 ? Math.PI : 0, w: 3.2 + r() * 0.8, seed: Math.floor(r() * 1e9) });
     }
   }
@@ -750,6 +906,9 @@ export function cityPlan(seed = CITY_SEED): CityPlan {
     if (yardTrees.some((t) => Math.hypot(t.x - x, t.z - z) < 6)) continue;
     yardTrees.push({ x, z, r: 2.4 + tr() * 1.6, seed: Math.floor(tr() * 1e9) });
   }
+  const roads = roadsOf(gates);
+  const yards = yardsOf(seed);
+  const suburb = placeSuburb(roads[0], wall, yards, seed + 4);
   return {
     wall,
     castleWall,
@@ -760,9 +919,12 @@ export function cityPlan(seed = CITY_SEED): CityPlan {
     civic,
     houses,
     stalls,
-    well: { x: 4, z: 3 },
+    well: { x: 2, z: -7 },
     statue: { x: -21, z: 5 },
     yardTrees,
+    roads,
+    yards,
+    suburb,
   };
 }
 

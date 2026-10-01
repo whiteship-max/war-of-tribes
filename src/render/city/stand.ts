@@ -10,6 +10,7 @@ import { qualityOf, type Quality } from '../quality';
 import type { Season } from '@/game/types';
 import { buildCity, CITY_SPEC, type CityBuild } from './index';
 import { heightAt } from './layout';
+import { CityLife } from './life';
 
 const DEG = Math.PI / 180;
 
@@ -103,6 +104,9 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
   place();
 
   let city: CityBuild | null = null;
+  let life: CityLife | null = null;
+  const t0 = performance.now();
+  let tPrev = t0;
   const sunAt = new THREE.Vector3();
   const stand = {
     renderer,
@@ -132,6 +136,9 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
         }
         city.uniforms.cSnow.value = seasonVis.snow;
         city.uniforms.cAutumn.value = season === 'autumn' ? 1 : 0;
+        const now = performance.now();
+        life?.update(Math.min(0.1, (now - tPrev) / 1000), (now - t0) / 1000, windowNight(light), seasonVis.snow);
+        tPrev = now;
       }
       renderer.info.reset();
       stand.beforeRender?.();
@@ -175,6 +182,10 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
     city = c;
     stand.build = c;
     scene.add(c.group);
+    // Жизнь: сколько людей и стражи — адресом (`people=`, `guards=`), по умолчанию — средний город.
+    life = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: q });
+    life.set(num('people', 200), num('guards', 20), []);
+    scene.add(life.group);
     target.y = view.at[1] || heightAt(view.at[0], view.at[2]);
     place();
     document.body.dataset.ready = '1';

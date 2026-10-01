@@ -6,6 +6,7 @@ import type { BuildingTypeId } from '@/game/types';
 import { Builder, type V3 } from './geom';
 import { cityPlan, type CityPlan, type Civic, type TowerKind } from './layout';
 import { ownerCode, siteOf, wallSites, type Site } from './sites';
+import { yard } from './outskirts';
 import { house } from './kit';
 import { cityWall, tower } from './forts';
 import { churchyard, civic, fireBowl, stall, statue, well } from './civic';
@@ -25,9 +26,11 @@ export interface StaticBuild {
   b: Builder;
   lights: V3[];
   chimneys: V3[];
+  /** Верхушки башен — под флаги. */
+  flagTops: V3[];
   /** Коробки 24 построек игры (`sites.ts`) — сняты с самих моделей. */
   sites: Site[];
-  marks: { houses: number; forts: number; civic: number };
+  marks: { houses: number; forts: number; civic: number; outside: number };
 }
 
 /** Чья постройка — большое здание города (docs/city.md, раздел 5); палас — замок, казна в нём. */
@@ -53,6 +56,7 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
   const b = new Builder();
   const lights: V3[] = [];
   const chimneys: V3[] = [];
+  const flagTops: V3[] = [];
   const sites: Site[] = [];
   /** Писать часть постройки `type` и снять её коробку в рамке (cx, cz, fx, fz). */
   const own = (type: BuildingTypeId, cx: number, cz: number, fx: number, fz: number, draw: () => void): void => {
@@ -69,7 +73,12 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
   cityWall(b, plan.wall, { x: 0, z: 0 }, plan.towers, d, (s, p) => (p.z > 100 || p.x < -40) && Math.floor(s / 70) % 2 === 0);
   cityWall(b, plan.castleWall, { x: -4, z: -150 }, plan.towers, d, () => false);
   sites.push(...wallSites(plan.wall), ...wallSites(plan.castleWall));
-  for (const t of plan.towers) own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => lights.push(...tower(b, t, d)));
+  for (const t of plan.towers) {
+    own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => lights.push(...tower(b, t, d)));
+    // Флаг — над верхом башни, посередине (`life.ts`).
+    const s = sites[sites.length - 1];
+    flagTops.push([t.x, s.y1, t.z]);
+  }
   const forts = b.mark().t;
   for (const c of plan.civic) {
     own(CIVIC_OWNER[c.kind], c.x, c.z, Math.cos(c.rot), Math.sin(c.rot), () => {
@@ -95,7 +104,17 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
     lights.push(fireBowl(b, bowl));
   });
   own('statue', plan.statue.x, plan.statue.z, 1, 0, () => statue(b, plan.statue, 0));
-  return { b, lights, chimneys, sites, marks: { houses, forts, civic: b.mark().t } };
+  const civicT = b.mark().t;
+  // За стеной: предместье (дома Жилищ) и семь дворов.
+  for (const h of plan.suburb) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, d).chimneys));
+  for (const y of plan.yards) {
+    own(y.kind, y.x, y.z, Math.cos(y.rot), Math.sin(y.rot), () => {
+      const r = yard(b, y, d);
+      lights.push(...r.lights);
+      chimneys.push(...r.chimneys);
+    });
+  }
+  return { b, lights, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t } };
 }
 
 export interface CityCounts {

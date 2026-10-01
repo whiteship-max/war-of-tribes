@@ -76,31 +76,52 @@ const RAY = new THREE.Raycaster();
 const NDC = new THREE.Vector2();
 
 /**
+ * Всё, что касанию нужно от кадра: раздутые области мелких построек и экранные коробки мест (для
+ * прощения промаха — считаются, только если понадобились). Камера та же — кадр тот же: тест считает
+ * его один раз на ракурс, сцена — на каждое нажатие.
+ */
+export interface PickFrame {
+  items: readonly Pickable[];
+  camera: THREE.Camera;
+  rect: ScreenRect;
+  small: HitBox[];
+  boxes: HitBox[] | null;
+}
+
+export function pickFrame(items: readonly Pickable[], camera: THREE.Camera, rect: ScreenRect): PickFrame {
+  const small: HitBox[] = [];
+  for (const it of items) {
+    const raw = screenBox(it.id, it.sites, camera, rect);
+    if (raw && isSmall(raw)) small.push(hitBox(it.id, raw.x - raw.hw, raw.y - raw.hh, raw.x + raw.hw, raw.y + raw.hh));
+  }
+  return { items, camera, rect, small, boxes: null };
+}
+
+/**
  * Постройка под пальцем (x, y — пиксели страницы) или null. Три ступени: мелкая постройка в своей
  * раздутой области; иначе первая по лучу коробка; иначе ближайшая в пределах прощения.
  */
-export function cityPick(items: readonly Pickable[], camera: THREE.Camera, rect: ScreenRect, x: number, y: number): number | null {
+export function pickIn(f: PickFrame, x: number, y: number): number | null {
+  const { rect } = f;
   if (rect.width < 1 || rect.height < 1) return null;
   // 1. Мелкая постройка — не меньше пальца, и в своей области она сильнее соседа (как в посёлке).
   let small: number | null = null;
   let smallScore = Infinity;
-  for (const it of items) {
-    const raw = screenBox(it.id, it.sites, camera, rect);
-    if (!raw || !isSmall(raw)) continue;
-    const score = tapScore(hitBox(it.id, raw.x - raw.hw, raw.y - raw.hh, raw.x + raw.hw, raw.y + raw.hh), x, y, 0);
+  for (const b of f.small) {
+    const score = tapScore(b, x, y, 0);
     if (score <= 1 && score < smallScore) {
       smallScore = score;
-      small = it.id;
+      small = b.id;
     }
   }
   if (small !== null) return small;
   // 2. Луч: что видно первым.
   NDC.set(((x - rect.left) / rect.width) * 2 - 1, -(((y - rect.top) / rect.height) * 2 - 1));
-  RAY.setFromCamera(NDC, camera);
+  RAY.setFromCamera(NDC, f.camera);
   const { origin, direction } = RAY.ray;
   let best: number | null = null;
   let bestT = Infinity;
-  for (const it of items) {
+  for (const it of f.items) {
     for (const s of it.sites) {
       const t = raySite(origin, direction, s);
       if (t < bestT) {
@@ -111,12 +132,18 @@ export function cityPick(items: readonly Pickable[], camera: THREE.Camera, rect:
   }
   if (best !== null) return best;
   // 3. Промах прощается: ближайшее место в пределах полупальца.
-  const boxes: HitBox[] = [];
-  for (const it of items) {
-    for (const s of it.sites) {
-      const b = screenBox(it.id, [s], camera, rect);
-      if (b) boxes.push(b);
+  if (!f.boxes) {
+    f.boxes = [];
+    for (const it of f.items) {
+      for (const s of it.sites) {
+        const b = screenBox(it.id, [s], f.camera, rect);
+        if (b) f.boxes.push(b);
+      }
     }
   }
-  return pickBox(boxes, x, y, TAP_FORGIVE);
+  return pickBox(f.boxes, x, y, TAP_FORGIVE);
 }
+
+/** Касание одним вызовом — сцене на каждое нажатие. */
+export const cityPick = (items: readonly Pickable[], camera: THREE.Camera, rect: ScreenRect, x: number, y: number): number | null =>
+  pickIn(pickFrame(items, camera, rect), x, y);

@@ -24,6 +24,28 @@ const inTower = (towers: readonly Tower[], x: number, z: number, pad = 0): boole
   towers.some((t) => Math.hypot(t.x - x, t.z - z) < t.size / 2 + pad);
 
 /**
+ * Высота боевого хода в вершинах контура: земля, сглаженная по соседям (стена не повторяет каждую
+ * кочку), плюс высота стены. Одна на стену и на стражу, что ходит по ней (`life.ts`).
+ */
+export function wallTops(pts: readonly P[]): number[] {
+  const n = pts.length;
+  const ground = pts.map((p) => heightAt(p.x, p.z));
+  const top: number[] = [];
+  for (let k = 0; k < n; k++) {
+    let s = 0;
+    let w = 0;
+    for (let j = -6; j <= 6; j++) {
+      const g = ground[(k + j + n) % n];
+      const wt = 1 - Math.abs(j) / 7;
+      s += g * wt;
+      w += wt;
+    }
+    top.push(s / w + WALL_H);
+  }
+  return top;
+}
+
+/**
  * Стена по замкнутому контуру. `center` — точка внутри (куда смотрит «внутрь»). `covered(s)` —
  * крыт ли ход на длине `s` по контуру.
  */
@@ -32,7 +54,6 @@ export function cityWall(b: Builder, pts: readonly P[], center: P, towers: reado
   // Нормали наружу в вершинах и сглаженная высота земли вдоль контура.
   const nx: number[] = [];
   const nz: number[] = [];
-  const ground: number[] = [];
   for (let k = 0; k < n; k++) {
     const a = pts[(k - 1 + n) % n];
     const c = pts[(k + 1) % n];
@@ -47,20 +68,8 @@ export function cityWall(b: Builder, pts: readonly P[], center: P, towers: reado
     }
     nx.push(x);
     nz.push(z);
-    ground.push(heightAt(pts[k].x, pts[k].z));
   }
-  const top: number[] = [];
-  for (let k = 0; k < n; k++) {
-    let s = 0;
-    let w = 0;
-    for (let j = -6; j <= 6; j++) {
-      const g = ground[(k + j + n) % n];
-      const wt = 1 - Math.abs(j) / 7;
-      s += g * wt;
-      w += wt;
-    }
-    top.push(s / w + WALL_H);
-  }
+  const top = wallTops(pts);
   const T = stoneT();
   const Tdark = stoneT(0.92);
   let sAcc = 0;

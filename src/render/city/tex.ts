@@ -36,6 +36,7 @@ export const LAYERS = [
   'gateArch',
   'arcade',
   'cloth',
+  'cut',
 ] as const;
 export type LayerName = (typeof LAYERS)[number];
 
@@ -69,6 +70,7 @@ export const TILE_M: Record<LayerName, readonly [number, number]> = {
   gateArch: [6, 8],
   arcade: [4, 4.4],
   cloth: [2, 2],
+  cut: [4, 4],
 };
 
 type RGB = [number, number, number];
@@ -1010,6 +1012,44 @@ const rockLayer: Painter = (s, seed) => {
   return { relief: 1, cavity: 0.4, cavityM: 0.08 };
 };
 
+/**
+ * Свежий срез известняка в каменоломне: светлый, тёплый, пластами по метру с небольшим, по плоскости —
+ * косые следы кирки, по швам пластов — ряды клиновых гнёзд, сверху — потемнее, выветренное.
+ */
+const cutLayer: Painter = (s, seed) => {
+  const tmp: RGB = [0, 0, 0];
+  const pale = C(0xd9ccb0);
+  const lime = C(CITY.limestone);
+  const weather = C(CITY.limestoneGrey);
+  const n = 3;
+  s.each((xm, ym, u, v, i) => {
+    const warp = (fbm(u, v, 2, 3, seed) - 0.5) * 0.5;
+    const band = v * n + warp;
+    const k = Math.floor(band);
+    const f = band - k;
+    const kk = ((k % n) + n) % n;
+    mixc(pale, lime, fbm(u, v, 6, 3, seed + 1) * 0.7 + rnd(kk, 3, seed) * 0.2, tmp);
+    // Шов пласта — тонкая тень над уступчиком.
+    const seam = 1 - sstep(0.0, 0.05, f);
+    mixc(tmp, weather, seam * 0.55, tmp);
+    // Следы кирки: косые борозды, у каждого пласта — свой наклон.
+    const slope = rnd(kk, 7, seed) < 0.5 ? 1 : -1;
+    const tool = Math.sin((u * 40 + slope * v * 24 + fbm(u, v, 16, 2, seed + 3) * 0.6) * Math.PI * 2) * 0.5 + 0.5;
+    // Клиновые гнёзда по шву: короткие тёмные щели шагом в четверть метра.
+    const wedgeRow = f > 0.06 && f < 0.16 && rnd(kk, 9, seed) < 0.6;
+    const wx = (u * 16) % 1;
+    const wedge = wedgeRow && wx > 0.42 && wx < 0.52 ? 1 : 0;
+    // Выветренный верх плитки и пятна.
+    const stain = sstep(0.6, 0.8, fbm(u, v, 4, 3, seed + 5)) * 0.35;
+    mixc(tmp, weather, stain, tmp);
+    s.set(i, tmp, (0.97 + tool * 0.06) * (1 - wedge * 0.55));
+    s.h[i] = sstep(0.0, 0.06, f) * 0.04 + tool * 0.006 - wedge * 0.03 + fbm(u, v, 20, 2, seed + 7) * 0.01;
+    void xm;
+    void ym;
+  });
+  return { relief: 0.9, cavity: 0.3, cavityM: 0.05 };
+};
+
 /** Стена храма: крупная кладка, стрельчатое окно с витражом, карниз-пояс. */
 const churchWinLayer: Painter = (s, seed) => {
   const wall = makeAshlar(s.W, s.H, seed, 0.36, 0.5, 0.6, 1.2);
@@ -1251,6 +1291,7 @@ const PAINTERS: Record<LayerName, Painter> = {
   gateArch: gateArchLayer,
   arcade: arcadeLayer,
   cloth: clothLayer,
+  cut: cutLayer,
 };
 
 /** Зерно текстур города — одно; слой берёт своё смещение. */

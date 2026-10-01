@@ -9,14 +9,14 @@ import { heightAt, type Civic, type P, type Stall } from './layout';
 import { L, TILE_M, type LayerName } from './tex';
 import { rnd } from './noise';
 
-interface Storey {
+export interface Storey {
   h: number;
   front: LayerName;
   side: LayerName;
   back?: LayerName;
 }
 
-interface Body {
+export interface Body {
   storeys: Storey[];
   wallHex: number;
   roof: { pitch: number; layer: 'roofTile' | 'roofSlate'; hex: number; alongF: boolean };
@@ -43,7 +43,7 @@ const lowUnder = (fr: Frame, w: number, d: number): number => {
 };
 
 /** Коробка большого здания по этажам, кровля, щипцы (простые или ступенчатые), трубы, слуховые окна. */
-function body(b: Builder, c: Civic, s: Body, detail: Detail): { top: number; ridge: number; chimneys: V3[] } {
+export function body(b: Builder, c: Civic, s: Body, detail: Detail): { top: number; ridge: number; chimneys: V3[] } {
   const fr = new Frame(c.x, c.z, Math.cos(c.rot), Math.sin(c.rot));
   const hw = c.w / 2;
   const hd = c.d / 2;

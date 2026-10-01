@@ -123,12 +123,19 @@ const area = (s: Site): number => s.hf * s.hr;
 /**
  * Главное место постройки — по нему значок, кольцо выбора и подсветка обучения. Одна коробка — она;
  * у Жилищ — дом у площади (ближайший к её середине), у башен — надвратная главных ворот (самая
- * большая), у стены — звено у главных ворот (самое южное).
+ * большая), у Тайника — донжон (самый высокий: палас рядом ниже), у стены — звено южной половины
+ * дальше всех от башен (звено у самой башни прячется за ней).
  */
 export function mainSite(sites: readonly Site[], type: BuildingTypeId): Site | null {
   const own = sites.filter((s) => s.type === type);
   if (own.length === 0) return null;
   if (type === 'houses') return own.reduce((a, b) => (Math.hypot(a.x, a.z) <= Math.hypot(b.x, b.z) ? a : b));
-  if (type === 'palisade') return own.reduce((a, b) => (a.z >= b.z ? a : b));
+  if (type === 'cache') return own.reduce((a, b) => (a.y1 - a.y0 >= b.y1 - b.y0 ? a : b));
+  if (type === 'palisade') {
+    const towers = sites.filter((s) => s.type === 'tower' || s.type === 'watch');
+    const clear = (s: Site): number => Math.min(...towers.map((t) => Math.hypot(t.x - s.x, t.z - s.z)));
+    const south = own.filter((s) => s.z > 0);
+    return (south.length > 0 ? south : own).reduce((a, b) => (clear(a) >= clear(b) ? a : b));
+  }
   return own.reduce((a, b) => (area(a) >= area(b) ? a : b));
 }

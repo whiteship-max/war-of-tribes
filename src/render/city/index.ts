@@ -69,6 +69,8 @@ export interface CityBuild {
   textureBytes: number;
   /** Где дымят трубы. */
   chimneys: V3[];
+  /** Верхушки башен — под флаги. */
+  flagTops: V3[];
   /** Огни ночи: факелы стены и ворот, фонари площади. */
   lights: V3[];
   /** Коробки 24 построек игры (`sites.ts`). */
@@ -119,7 +121,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   group.name = 'city';
 
   // Здания — один меш; та же дорога, что у счёта бюджета (`budget.buildStatic`).
-  const { b, lights, chimneys, marks, sites } = buildStatic(plan, q);
+  const { b, lights, chimneys, flagTops, marks, sites } = buildStatic(plan, q);
   // Огни ночи: ближние к середине города — в шейдер пятнами, все — огоньками.
   const center = { x: 0, z: -10 };
   const lit = [...lights].sort((a, c) => Math.hypot(a[0] - center.x, a[2] - center.z) - Math.hypot(c[0] - center.x, c[2] - center.z));
@@ -218,6 +220,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     },
     textureBytes: texBytes,
     chimneys,
+    flagTops,
     lights,
     sites,
     dispose(): void {

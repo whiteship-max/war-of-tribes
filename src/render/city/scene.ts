@@ -6,8 +6,12 @@
 //
 // Ленивый кусок: едет до игры только при `?look=city` (`main.tsx`) и кладёт свой класс в `SCENES`.
 import * as THREE from 'three';
-import type { GameState } from '@/game/types';
-import { buildingAttention, dayFraction, seasonOf, solarPhase, type Attention } from '@/game/derived';
+import type { BuildingTypeId, GameState } from '@/game/types';
+import { armySize, buildingAttention, dayFraction, population, seasonOf, solarPhase, type Attention } from '@/game/derived';
+import type { SmokeSource } from '../weather';
+import { WORK_SIGN, workBusy } from '../worksigns';
+import type { V3 } from './geom';
+import { CityLife } from './life';
 import { gameSeconds } from '@/game/pace';
 import { TAP_TARGET } from '@/gestures';
 import { SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
@@ -30,6 +34,10 @@ export class CityScene extends TribeScene {
   private sites: Site[] = [];
   /** Город встал в сцену — стенду, чтобы снимать. */
   readonly built: Promise<void>;
+  /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
+  private folk: CityLife | null = null;
+  /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
+  private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
   constructor(canvas: HTMLCanvasElement, pixelRatio: number | null = null, opts: SceneLook = {}) {
     super(canvas, pixelRatio, { ...opts, look: 'city' });
@@ -65,8 +73,34 @@ export class CityScene extends TribeScene {
     this.sites = c.sites;
     this.terrain = c.group;
     this.scene.add(c.group);
+    this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
+    this.scene.add(this.folk.group);
+    this.folk.set(this.crowd.people, this.crowd.guards, this.workSmoke());
     for (const view of this.buildings.values()) this.place3(view);
     if (this.selected !== null) this.setSelected(this.selected);
+  }
+
+  /** Дым работы: над трубой работающей кузницы (`worksigns.workBusy`, правило посёлка). */
+  private workSmoke(): SmokeSource[] {
+    const c = this.town;
+    if (!c) return [];
+    const out: SmokeSource[] = [];
+    for (const type of this.crowd.busy) {
+      const m = mainSite(this.sites, type);
+      if (!m) continue;
+      // Труба этого здания — ближайшая к его середине в его следе.
+      let best: V3 | null = null;
+      let bd = Math.max(m.hf, m.hr) + 1;
+      for (const ch of c.chimneys) {
+        const d = Math.hypot(ch[0] - m.x, ch[2] - m.z);
+        if (d < bd) {
+          bd = d;
+          best = ch;
+        }
+      }
+      if (best) out.push({ x: best[0], y: best[1], z: best[2], puffs: 9, top: 16 });
+    }
+    return out;
   }
 
   // ---------- Камера ----------
@@ -159,6 +193,7 @@ export class CityScene extends TribeScene {
         fl.visible = night > 0.01;
         fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
       }
+      this.folk?.update(dt, t, night, this.seasonVis.snow);
     }
     for (const view of this.buildings.values()) {
       if (view.marker) view.marker.position.y = view.markerY + Math.sin(t * 2.2 + view.markerY) * 0.6;
@@ -208,6 +243,13 @@ export class CityScene extends TribeScene {
       this.buildings.delete(id);
     }
     if (this.selected !== null) this.setSelected(this.selected);
+    // Улицы — по населению, стена — по войску; дым работы — по правилу посёлка (`workBusy`).
+    this.crowd = {
+      people: 20 + population(s) * 0.8,
+      guards: 4 + armySize(s) * 0.5,
+      busy: s.buildings.filter((b) => WORK_SIGN[b.type]?.smoke && workBusy(s, b, false)).map((b) => b.type),
+    };
+    this.folk?.set(this.crowd.people, this.crowd.guards, this.workSmoke());
   }
 
   /** Группа здания — на главное место его постройки, значок — над крышей. */
@@ -294,6 +336,8 @@ export class CityScene extends TribeScene {
   }
 
   override dispose(): void {
+    this.folk?.dispose();
+    this.folk = null;
     this.town?.dispose();
     this.town = null;
     super.dispose();

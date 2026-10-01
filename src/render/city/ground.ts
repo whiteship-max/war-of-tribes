@@ -2,7 +2,7 @@
 // брусчатка, земля, пашня и затенение у подножий (docs/city.md, раздел 4). Чистый модуль без three:
 // сетка и карта — массивы, сцена заворачивает их в буферы и текстуру.
 import { clamp01, fbm, sstep, vnoise } from './noise';
-import { distSeg, heightAt, insidePoly, riverX, RIVER_HALF, type CityPlan, type P } from './layout';
+import { distSeg, heightAt, insidePoly, riverX, RIVER_HALF, type CityPlan, type P, type YardKind } from './layout';
 
 /** Где лежит карта покрытий: квадрат в метрах. */
 export const MAP_AT = { x0: -256, z0: -300, size: 512 } as const;
@@ -57,31 +57,17 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
     const g = sstep(0.5, 0.78, fbm(x / 14 + 3, z / 14 + 3, 1e6, 4, 33)) * 0.55;
     if (g > d[k]) d[k] = g;
   }
-  // Двор храма и дворы больших зданий — утоптанная земля пятнами; дорога из ворот вниз — земля.
-  const gate = plan.gates[0];
-  stampLine(
-    [
-      { x: gate.x, z: gate.z },
-      { x: gate.x + 2, z: gate.z + 40 },
-      { x: gate.x - 8, z: gate.z + 110 },
-      { x: gate.x - 4, z: gate.z + 200 },
-    ],
-    3.2,
-    d,
-    1.2,
-  );
-  const east = plan.gates[1];
-  stampLine(
-    [
-      { x: east.x, z: east.z },
-      { x: east.x + 40, z: east.z + 6 },
-      { x: east.x + 110, z: east.z - 20 },
-      { x: east.x + 200, z: east.z - 10 },
-    ],
-    2.6,
-    d,
-    1.2,
-  );
+  // Дороги и тропы за стеной — земля; дворы — вытоптанная поляна пятнами.
+  for (const r of plan.roads) stampLine(r.pts, r.half, d, 1.2);
+  for (const y of plan.yards) {
+    // Вытоптано по ремеслу: у забоя и пилорамы — вся поляна, у загона и хутора — пятнами, выгон — луг.
+    const [reach, k0] = YARD_TRAMPLE[y.kind];
+    each(y.x - y.r, y.z - y.r, y.x + y.r, y.z + y.r, (x, z, i) => {
+      const k = Math.hypot(x - y.x, z - y.z) / (y.r * reach);
+      const w = (1 - sstep(0.35, 0.95, k + (vnoise(x / 5, z / 5, 1e6, 31) - 0.5) * 0.45)) * k0;
+      if (w > d[i]) d[i] = w;
+    });
+  }
   // Внутри стены, вне улиц: дворы — трава с вытоптанными пятнами земли.
   const wall = plan.wall;
   const wx = wall.map((p) => p.x);
@@ -119,7 +105,7 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
       if (s < ao[i]) ao[i] = s;
     });
   };
-  for (const h of plan.houses) shadeBox(h.x, h.z, -h.fz, h.fx, h.w / 2 + 0.1, h.d / 2 + 0.1, 1.6, 0.42);
+  for (const h of [...plan.houses, ...plan.suburb]) shadeBox(h.x, h.z, -h.fz, h.fx, h.w / 2 + 0.1, h.d / 2 + 0.1, 1.6, 0.42);
   for (const cv of plan.civic) shadeBox(cv.x, cv.z, -Math.sin(cv.rot), Math.cos(cv.rot), cv.w / 2, cv.d / 2, 2.2, 0.45);
   for (const t of plan.towers) shadeBox(t.x, t.z, 1, 0, t.size / 2, t.size / 2, 2.5, 0.5);
   // Подножие стены: тень с обеих сторон и полоса земли.
@@ -160,12 +146,35 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
   return out;
 }
 
+/** Сколько земли вытоптано у двора: доля поляны и сила. */
+const YARD_TRAMPLE: Record<YardKind, [number, number]> = {
+  gathering: [0.75, 0.7],
+  sawmill: [0.85, 0.8],
+  quarry: [0.95, 0.85],
+  hunter_hut: [0.6, 0.6],
+  mine: [0.85, 0.8],
+  farm: [0.55, 0.55],
+  pen: [0.3, 0.45],
+};
+
+/** Свободна ли земля за стеной от дворов, предместья и дорог (пашня и лес туда не заходят). */
+export function openLand(x: number, z: number, plan: CityPlan, pad = 0): boolean {
+  for (const y of plan.yards) if (Math.hypot(x - y.x, z - y.z) < y.r + pad) return false;
+  for (const h of plan.suburb) if (Math.hypot(x - h.x, z - h.z) < Math.max(h.w, h.d) + 4 + pad) return false;
+  for (const r of plan.roads) {
+    const pts = r.pts;
+    for (let k = 0; k < pts.length - 1; k++) if (distSeg({ x, z }, pts[k], pts[k + 1]).d < r.half + 2 + pad) return false;
+  }
+  return true;
+}
+
 /** Вне стены и гласиса: восточный склон и шея мыса — поля полосами. */
 export function fieldAt(x: number, z: number, plan: CityPlan): number {
   if (insidePoly({ x, z }, plan.wall) || insidePoly({ x, z }, plan.castleWall)) return 0;
   const east = x > 125 && x < 330 && z > -170 && z < 190;
   const south = z > 175 && z < 330 && Math.abs(x) < 220;
   if (!east && !south) return 0;
+  if (!openLand(x, z, plan, 2)) return 0;
   // Поля — клетки 40×90 м со своим направлением полос; межи — трава.
   const cx = Math.floor((x + 1000) / 46);
   const cz = Math.floor((z + 1000) / 88);

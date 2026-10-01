@@ -5,12 +5,10 @@ import {
   buildingAttention,
   caravanProgress,
   dayFraction,
-  handsCount,
   isSite,
   seasonOf,
   solarPhase,
   storageCap,
-  workerCount,
   type Attention,
 } from '@/game/derived';
 import { TROOP_IDS } from '@/game/data/troops';
@@ -34,7 +32,7 @@ import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
 import { CHIMNEY_LOOK, HEARTH_LOOK, Smoke, Snowfall, chimneySmoke, hearthSmoke, type SmokeSource } from './weather';
-import { SMOKE_HEIGHT, WORK_SIGN, WorkSigns, type LoadKind } from './worksigns';
+import { SMOKE_HEIGHT, WORK_SIGN, WorkSigns, workBusy, type LoadKind } from './worksigns';
 import {
   RIG,
   SHADOW_MAP,
@@ -1675,12 +1673,7 @@ export class TribeScene {
       // простоя, который игрок обязан заметить со сцены, не открывая панели.
       // Двор, где работают одни невольники, работает: признак зажигают руки на
       // местах, а не то, вольные ли это руки.
-      const busy =
-        b.type === 'storage'
-          ? full
-          : b.type === 'smithy'
-            ? workerCount(s, b.id) > 0 && (s.forge?.length ?? 0) > 0
-            : handsCount(s, b.id) > 0;
+      const busy = workBusy(s, b, full);
       const view = this.buildings.get(b.id);
       if (view?.glow) view.glow.visible = busy;
       if (!busy) continue;
