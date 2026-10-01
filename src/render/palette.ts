@@ -219,6 +219,20 @@ export const PALETTE = {
   stake: 0x60432a,
   skin: 0xd9a77a,
   hair: 0x3b2a20,
+  /** Вид `next`, этап 2 (`render/env/folk.ts`): платок и передник женщины у костра. */
+  scarf: 0xd8cdb4,
+  apron: 0xc8b893,
+  /** Собака у костра: рыжая с тёмной спиной (`render/beasts.ts`). */
+  dogCoat: 0x9a6a40,
+  dogDark: 0x5c4029,
+  /** Волк ролика боя: серый с тёмной спиной. */
+  wolfCoat: 0x80796e,
+  wolfDark: 0x4f4a43,
+  /** Куры у огородов: белая и рыжая, гребень и клюв. */
+  hen: 0xdcd4c2,
+  henBrown: 0xa26a3c,
+  comb: 0xb6402f,
+  beak: 0xd6a03e,
 
   // ---------- Огонь (светится сам, единственное исключение из правила про ff) ----------
   fire: 0xff7a1a,

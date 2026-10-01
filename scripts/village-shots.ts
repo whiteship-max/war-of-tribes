@@ -34,6 +34,7 @@ import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
 import type { BuildingTypeId } from '../src/game/types';
 import { placeOf } from '../src/render/plan';
+import { PASTURE, gardenSpots } from '../src/render/env/rules';
 import { BENCH_PASSES_MAX, BROWSER_MAX_MS, GPU_COOL_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
 const OUT = fileURLToPath(new URL('../snaps/village', import.meta.url));
@@ -86,6 +87,11 @@ const SHOTS: Shot[] = [
   { name: 'hall-close', solar: 0.2, at: near('town_hall'), why: 'ратуша вблизи, день: камень, кровля' },
   { name: 'church-close', solar: 0.2, at: near('church'), why: 'церковь вблизи, день' },
   { name: 'houses-night', solar: 0.75, at: near('houses'), why: 'жилища вблизи, ночь: окна и фактура под луной' },
+  // Люди и звери (этап 2, пункт 3): площадь у костра, огород с курами, выгон с овцами.
+  { name: 'plaza-close', solar: 0.2, at: [0, 0], why: 'площадь у костра, день: покрои, позы, собака' },
+  { name: 'plaza-night', solar: 0.75, at: [0, 0], why: 'площадь у костра, ночь: греют руки' },
+  { name: 'hens-close', solar: 0.2, at: [gardenSpots()[0].x, gardenSpots()[0].z], why: 'огород с курами, день' },
+  { name: 'sheep-close', solar: 0.2, at: [PASTURE.x, PASTURE.z], why: 'выгон с овцами, день: пасутся' },
 ];
 
 /** Ракурсы захода по умолчанию — прежние четыре. */

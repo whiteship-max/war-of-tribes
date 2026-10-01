@@ -44,9 +44,14 @@ export class VillagerAgent {
   private timer = 1 + Math.random() * 3;
   private target = new THREE.Vector3();
   night = false;
+  /**
+   * Поза, пока житель стоит. Пусто — стойка (`poses`); у вида `next` её ставит кусок окружения
+   * (`env/folk.folkIdle`: греют руки у огня, говорят) вместе с новыми покроями.
+   */
+  idle: ((f: Figure, t: number, night: boolean) => void) | null = null;
 
   /** `kind` — покрой одежды: жителей различает только вид, ролей у них нет. */
-  constructor(kind: number) {
+  constructor(readonly kind: number) {
     const f = this.figure;
     dressVillager(f, kind);
     const a = Math.random() * Math.PI * 2;
@@ -79,7 +84,8 @@ export class VillagerAgent {
       return;
     }
 
-    poseFigure(f, 'stand', t);
+    if (this.idle) this.idle(f, t, this.night);
+    else poseFigure(f, 'stand', t);
     p.y = 0;
     this.timer -= dt;
     if (this.timer > 0) return;

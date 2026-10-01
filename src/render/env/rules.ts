@@ -341,6 +341,11 @@ function gardensOf(): Field[] {
   return out;
 }
 
+/** Середины огородов внутри стены — у них роются куры (`env/folk`). */
+export function gardenSpots(): { x: number; z: number }[] {
+  return plantings().gardens.map((g) => ({ x: g.x, z: g.z }));
+}
+
 /** Поле и огороды считаются один раз: они от плана, а не от построек. */
 let planted: { fields: Field[]; gardens: Field[] } | null = null;
 function plantings(): { fields: Field[]; gardens: Field[] } {

@@ -63,6 +63,8 @@ import { makeLife, type Life } from './life';
 export type { EnvVillage } from './rules';
 // Фактура построек вида `next` (этап 2, пункт 2) едет тем же ленивым куском: сцена одевает здания, когда он пришёл.
 export { FACADE_SNOW, dressFacade } from './facade';
+// Люди и звери посёлка вида `next` (этап 2, пункт 3) — тем же куском.
+export { startLife, type VillageLife } from './folk';
 
 export interface EnvOptions {
   quality: Quality;
@@ -557,7 +559,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     compile(fences);
     yield;
     const flock = spec.props >= 0.7 ? farm.flock : [];
-    const sheep = instanced(sheepModel(), mat(vegMaterial('sheep', { a: color('wool'), b: color('woolDark'), sway: 0, flat: true }, shared)), flock.length, 'sheep');
+    const sheep = instanced(sheepModel(), mat(vegMaterial('sheep', { a: color('wool'), b: color('woolDark'), sway: 0, flat: true, graze: true }, shared)), flock.length, 'sheep');
     (yield* fillJob(sheep, flock, (i) => C.setScalar(flock[i].hue)))();
     sheepCount = sheep.count;
     group.add(sheep);

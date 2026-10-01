@@ -374,9 +374,11 @@ export class TribeScene {
   private envMounting: EnvWorld | null = null;
   /**
    * Фактура построек вида `next` (`env/facade.ts`) — едет куском окружения. До его прихода здания
-   * стоят прежним телом; пришёл — одеваются все (`dressBuildings`), новые — сразу.
+   * стоят прежним телом; пришёл — одеваются все (`envArrived`), новые — сразу.
    */
   private facade: Pick<typeof EnvModule, 'dressFacade' | 'FACADE_SNOW'> | null = null;
+  /** Люди и звери вида `next` (`env/folk.ts`): покрои и позы у огня, собака, куры. Едут тем же куском. */
+  private life: EnvModule.VillageLife | null = null;
   /** Что насчитал свет последнего кадра: доля дня и ночи. */
   private light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
   /** Посёлок, под который лежит земля окружения: заново — только при смене построек. */
@@ -450,7 +452,7 @@ export class TribeScene {
     this.ready =
       this.look === 'next'
         ? import('./env').then((m) => {
-            this.dressBuildings(m);
+            this.envArrived(m);
             return this.startEnv(m.startEnv);
           })
         : Promise.resolve();
@@ -683,11 +685,17 @@ export class TribeScene {
     return pixelRatio(this.pixelRatio);
   }
 
-  /** Приехал кусок окружения с фактурой: одеть в неё здания, что уже стоят; новые оденутся при постройке. */
-  private dressBuildings(m: Pick<typeof EnvModule, 'dressFacade' | 'FACADE_SNOW'>): void {
+  /**
+   * Приехал кусок окружения: одеть в фактуру здания, что уже стоят, и завести людей и зверей вида
+   * `next` — жители у костра переодеваются в покрои и позы (`env/folk.ts`). Новые здания и жители
+   * оденутся при появлении.
+   */
+  private envArrived(m: Pick<typeof EnvModule, 'dressFacade' | 'FACADE_SNOW' | 'startLife'>): void {
     if (this.disposed) return;
     this.facade = m;
     for (const view of this.buildings.values()) m.dressFacade(view.group);
+    this.life = m.startLife({ pool: this.figures, quality: this.quality });
+    for (const agent of this.agents.values()) this.life.dressFolk(agent);
   }
 
   /**
@@ -951,6 +959,8 @@ export class TribeScene {
    */
   dispose(): void {
     this.disposed = true;
+    this.life?.dispose();
+    this.life = null;
     if (active === this) active = null;
     this.beat.stop();
     // Материалы и текстуры окружения свои у каждой сцены (не модульные): их отдаёт оно само.
@@ -1516,6 +1526,8 @@ export class TribeScene {
       const agent = new VillagerAgent(this.nextAgentId);
       this.agents.set(this.nextAgentId++, agent);
       this.figures.add(agent.figure);
+      // Вид `next`: покрой и позы у огня из куска окружения (`env/folk.ts`), если он уже приехал.
+      this.life?.dressFolk(agent);
     }
 
     // Герой: одна фигурка у статуи. Место полководца пустует — площадь пуста.
@@ -1737,6 +1749,7 @@ export class TribeScene {
     // Дружина несёт службу и ночью: у ворот всегда кто-то стоит.
     for (const a of this.soldiers) a.update(dt, t);
     this.hero?.update(t);
+    this.life?.update(dt, t, night);
     this.figures.update();
     for (const view of this.caravans.values()) {
       const total = Math.max(0.001, view.arriveAt - view.departAt);

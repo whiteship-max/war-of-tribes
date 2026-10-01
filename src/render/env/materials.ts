@@ -109,6 +109,18 @@ vEnvData = color;
  * пучок уходит в землю к своему основанию, а не исчезает гранью.
  */
 const VEG_VERT_PROJECT = /* glsl */ `
+#ifdef ENV_GRAZE
+  // Sheep graze: the head (model x beyond the neck) dips to the grass and back, each sheep at its own time.
+  vec3 envHome = vec3( 0.0 );
+  #ifdef USE_INSTANCING
+    envHome = instanceMatrix[ 3 ].xyz;
+  #endif
+  float envGz = step( 0.3, transformed.x ) * smoothstep( 0.1, 0.7, sin( uEnvTime * 0.45 + envHome.x * 1.7 + envHome.z * 2.3 ) );
+  vec2 envNk = transformed.xy - vec2( 0.3, 0.42 );
+  float envGc = cos( -0.8 * envGz );
+  float envGs = sin( -0.8 * envGz );
+  transformed.xy = vec2( 0.3, 0.42 ) + vec2( envGc * envNk.x - envGs * envNk.y, envGs * envNk.x + envGc * envNk.y );
+#endif
 vec4 mvPosition = vec4( transformed, 1.0 );
 vec3 envBase = vec3( 0.0 );
 #ifdef USE_INSTANCING
@@ -199,6 +211,8 @@ export interface VegOptions {
   snowy?: boolean;
   /** Второй осенний цвет кроны — у половины деревьев вразнобой (`EnvShared.turn`). */
   turnTo?: THREE.Color;
+  /** Пасётся: голова (модель по x дальше шеи) опускается к траве и поднимается, у каждого экземпляра в свой срок (овцы). */
+  graze?: boolean;
 }
 
 export function vegMaterial(name: string, o: VegOptions, shared: EnvShared): THREE.MeshLambertMaterial {
@@ -212,6 +226,7 @@ export function vegMaterial(name: string, o: VegOptions, shared: EnvShared): THR
   // Двусторонний покров без плоского затенения держит нормаль вверх (`VEG_NORMAL`).
   if (o.twoSided && !o.flat) defines.ENV_UP = '';
   if (o.snowy) defines.ENV_SNOW = '';
+  if (o.graze) defines.ENV_GRAZE = '';
   mat.defines = defines;
   const own = {
     uEnvA: { value: o.a },
