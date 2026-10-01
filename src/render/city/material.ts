@@ -197,10 +197,14 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
       .replace(
         '#include <emissivemap_fragment>',
         /* glsl */ `#include <emissivemap_fragment>
-        // Свет окон: маска стекла слоя × «горит ли дом» × доля ночи; окно на окно — своё.
+        // Свет окон: маска стекла слоя × «горит ли дом» × доля ночи; окно на окно — своё. Свечение ниже 0.95 —
+        // ровное (храм, проезд ворот): высокий витраж и арка выше ячейки окна, ячейки резали бы их в шахматку.
         float cWin = cHash(floor(vCWPos.xz * 0.7) + floor(vCWPos.y / 2.9) * 17.0);
-        float cOn = step(0.32, cWin) * (0.65 + 0.35 * cWin);
-        totalEmissiveRadiance += cWarm * cTex.a * vGlow * cNight * cOn * 1.6 * (1.0 - cUp);
+        float cOn = mix(1.0, step(0.32, cWin) * (0.65 + 0.35 * cWin), step(0.95, vGlow));
+        // Ровный свет идёт сквозь стекло своего цвета: витраж ночью — цветная мозаика, серый ход ворот — тёплый.
+        vec3 cHue = diffuseColor.rgb / max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 0.001));
+        vec3 cLamp = mix(cWarm * cHue * 1.25, cWarm, step(0.95, vGlow));
+        totalEmissiveRadiance += cLamp * cTex.a * vGlow * cNight * cOn * 1.6 * (1.0 - cUp);
         totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.6;
         // Выбранная постройка светлеет пульсом — вся: все дома Жилищ, все башни, вся стена.
         float cIsSel = step(0.5, cSel) * (1.0 - step(0.5, abs(vOwner - cSel)));

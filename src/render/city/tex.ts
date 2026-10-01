@@ -1205,17 +1205,21 @@ const gateArchLayer: Painter = (s, seed) => {
       let k = depth;
       const gx = Math.abs(((xm - cx + 10) / 0.36) % 1 - 0.5) < 0.1;
       const gy = Math.abs(((ym + 10) / 0.45) % 1 - 0.5) < 0.08;
+      let bar = false;
       if (ym > 4.1 && (gx || gy)) {
         mixc(col, C(CITY.iron), 0.9, col);
         k = 0.55;
+        bar = true;
       }
       if (ym > 3.7 && ym < 4.1 && gx) {
         mixc(col, C(CITY.iron), 0.9, col);
         k = 0.6;
+        bar = true;
       }
       s.set(i, col, k);
       s.h[i] = -0.4;
-      s.a[i] = 0.3;
+      // Ночью ход светится факелами изнутри — ярче у мостовой; решётка остаётся тёмной на свету.
+      s.a[i] = bar ? 0 : 0.3 * (0.25 + 0.75 * clamp01(1 - ym / 5.5) ** 1.5);
       return;
     }
     if (dist < r + 0.5 && ym > 0) {
