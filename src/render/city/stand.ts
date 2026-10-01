@@ -191,6 +191,9 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
     scene.add(life.group);
     target.y = view.at[1] || heightAt(view.at[0], view.at[2]);
     place();
-    document.body.dataset.ready = '1';
+    // Снимок — на полных слоях: сначала город встаёт на мелких (256²).
+    void c.full.then(() => {
+      document.body.dataset.ready = '1';
+    });
   });
 }

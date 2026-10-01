@@ -82,6 +82,8 @@ export interface CityBuild {
   sites: Site[];
   /** Отдать материалы и текстуры (геометрию отдаёт сцена обходом). */
   dispose(): void;
+  /** Полные слои текстур встали (сначала город стоит на слоях 256²). */
+  full: Promise<void>;
 }
 
 /** Огоньки факелов: точки с мягким пятном, видны ночью (прозрачность — доля ночи). */
@@ -138,8 +140,11 @@ export function worldOf(q: Quality): Promise<CityWorld> {
 export async function buildCity(q: Quality): Promise<CityBuild> {
   const spec = CITY_SPEC[q];
   const t0 = performance.now();
-  // Два потока разом: слои текстур и мир; кадр ждёт только заворачивания готового в буферы.
-  const layersP = paintLayers(spec.tex);
+  // Два потока разом: слои текстур и мир; кадр ждёт только заворачивания готового в буферы. Слои — сначала
+  // мелкие (256², ~четверть времени): город встаёт с ними, а полные подменяют их, когда готовы.
+  const FIRST = 256;
+  const progressive = spec.tex > FIRST;
+  const layersP = paintLayers(progressive ? FIRST : spec.tex);
   const w = await worldOf(q);
   const tWorld = performance.now();
   const { plan, lights, chimneys, flagTops, marks, sites, map, land, grid, trees } = w;
@@ -215,10 +220,23 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   const tMain = performance.now();
 
   const layers = await layersP;
-  const tex = new LayerTexture(layers, spec.tex, LAYERS.length, spec.anisotropy);
+  let tex = new LayerTexture(layers, progressive ? FIRST : spec.tex, LAYERS.length, spec.anisotropy);
   u.cityTex.value = tex;
+  let gone = false;
+  // Полные слои — следом, в том же потоке слоёв: подмена одной заливкой, город уже стоит.
+  const full = progressive
+    ? paintLayers(spec.tex).then((data) => {
+        if (gone) return;
+        const next = new LayerTexture(data, spec.tex, LAYERS.length, spec.anisotropy);
+        u.cityTex.value = next;
+        tex.dispose();
+        tex = next;
+      })
+    : Promise.resolve();
   const tTex = performance.now();
-  const texBytes = Math.round(layers.length * (4 / 3)) + Math.round(map.length * (4 / 3)) + Math.round(land.length * (4 / 3));
+  // Память — по полным слоям: мелкие живут, пока те не пришли.
+  const fullBytes = spec.tex * spec.tex * 4 * LAYERS.length;
+  const texBytes = Math.round(fullBytes * (4 / 3)) + Math.round(map.length * (4 / 3)) + Math.round(land.length * (4 / 3));
   return {
     group,
     uniforms: u,
@@ -256,9 +274,11 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
         map?.dispose();
         m.dispose();
       }
+      gone = true;
       tex.dispose();
       mapTex.dispose();
       landTex.dispose();
     },
+    full,
   };
 }

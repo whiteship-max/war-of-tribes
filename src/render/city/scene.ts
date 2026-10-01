@@ -32,7 +32,7 @@ export class CityScene extends TribeScene {
   private town: CityBuild | null = null;
   /** Коробки 24 построек — с моделей, приходят вместе с городом. */
   private sites: Site[] = [];
-  /** Город встал в сцену — стенду, чтобы снимать. */
+  /** Город встал в сцену на полных слоях — стенду, чтобы снимать. */
   readonly built: Promise<void>;
   /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
   private folk: CityLife | null = null;
@@ -59,7 +59,11 @@ export class CityScene extends TribeScene {
     const ring = this.selection.material as THREE.MeshBasicMaterial;
     ring.polygonOffset = true;
     ring.polygonOffsetFactor = -4;
-    this.built = buildCity(this.quality).then((c) => this.mount(c));
+    // Город встаёт на слоях 256², `built` — когда пришли и полные (стенду — снимать на них).
+    this.built = buildCity(this.quality).then((c) => {
+      this.mount(c);
+      return c.full;
+    });
   }
 
   /** Город собран: встаёт целиком, на место дымки. Сцену могли выгрузить, пока он собирался. */
