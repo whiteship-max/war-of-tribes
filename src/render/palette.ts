@@ -457,6 +457,11 @@ export const AO_BASE: Mul = [0.62, 0.63, 0.72];
 export const AO_WALL: Mul = [0.86, 0.87, 0.92];
 /** Основание столба. */
 export const AO_POST: Mul = [0.78, 0.79, 0.86];
+
+/** Фактура вида `next` (`render/env/facade.ts`): затенение углов грани и полосы под свесом — холодное, как все затемнения. */
+export const FACADE_SHADE: Mul = [0.74, 0.76, 0.86];
+/** Мох и сырость у земли на камне вида `next` — множитель к цвету камня, зеленее и темнее. */
+export const FACADE_MOSS: Mul = [0.8, 0.9, 0.7];
 /** Пятно под зданием на земле (умножающая декаль). */
 export const GROUND_SHADE: Mul = [0.68, 0.7, 0.8];
 /**

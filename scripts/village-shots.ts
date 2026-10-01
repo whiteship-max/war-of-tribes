@@ -32,6 +32,8 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import type { BuildingTypeId } from '../src/game/types';
+import { placeOf } from '../src/render/plan';
 import { BENCH_PASSES_MAX, BROWSER_MAX_MS, GPU_COOL_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
 const OUT = fileURLToPath(new URL('../snaps/village', import.meta.url));
@@ -65,6 +67,12 @@ interface Shot {
 
 const CLOSE: [number, number] = [Math.cos((95 * Math.PI) / 180) * 21, Math.sin((95 * Math.PI) / 180) * 21];
 
+/** Камера над местом здания по плану (`plan.placeOf`). */
+const near = (type: BuildingTypeId): [number, number] => {
+  const p = placeOf(type);
+  return [p.x, p.z];
+};
+
 const SHOTS: Shot[] = [
   { name: 'day-wide', solar: 0.2, why: 'день, общий план — кадр, с которого открывается игра' },
   { name: 'night-wide', solar: 0.75, why: 'глубокая ночь, общий план' },
@@ -73,6 +81,11 @@ const SHOTS: Shot[] = [
   // Только по имени (`SHOTS=dusk-wide`): в заход по умолчанию не входят — стенд короче двух минут.
   { name: 'dusk-wide', solar: 0.47, why: 'золотой час перед закатом, общий план (вид next, 9.9)' },
   { name: 'dawn-wide', solar: 0.03, why: 'рассвет, общий план' },
+  // Постройки вблизи (этап 2, пункт 2: фактура) — место здания из плана, пол приближения.
+  { name: 'houses-close', solar: 0.2, at: near('houses'), why: 'жилища вблизи, день: черепица, штукатурка, брус' },
+  { name: 'hall-close', solar: 0.2, at: near('town_hall'), why: 'ратуша вблизи, день: камень, кровля' },
+  { name: 'church-close', solar: 0.2, at: near('church'), why: 'церковь вблизи, день' },
+  { name: 'houses-night', solar: 0.75, at: near('houses'), why: 'жилища вблизи, ночь: окна и фактура под луной' },
 ];
 
 /** Ракурсы захода по умолчанию — прежние четыре. */
@@ -151,6 +164,13 @@ async function shots(began: number): Promise<void> {
  * не зовёт кадр ни разу, он только оборачивает его: процессорное время всего кадра и
  * время видеокарты на `render` (запросы времени копятся и снимаются по готовности, кадр
  * с «разрывом» видеокарты в счёт не идёт — как у стенда предыстории).
+ *
+ * Третье число — **кадр до конца видеокарты** (`sync`): после отрисовки стенд читает один пиксель
+ * кадра (`readPixels` обязан дождаться конца отрисовки; `gl.finish` в Chrome видеокарту не ждёт —
+ * проверено) и засекает время от начала кадра. Оно идёт за таймером видеокарты плюс около 3 мс:
+ * таймер меряет настоящую работу, но при той частоте, на которой карта стоит сейчас, а частота у
+ * GTX 1060 под потолком кадров прыгает от вида к виду (docs/graphics_world.md, 11.0 и 11.2).
+ * Потолок кадров тот же, лишней работы нет — только ожидание.
  */
 const PROBE = (ms: number): string => `
 (async () => {
@@ -159,15 +179,22 @@ const PROBE = (ms: number): string => `
   const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   const cpu = [];
   const gpu = [];
+  const sync = [];
+  const px = new Uint8Array(4);
   const pending = [];
   let calls = 0;
   let tris = 0;
   let q = null;
+  let a0 = 0;
+  let cpuNow = 0;
   const frame = s.frame;
-  s.frame = function () { const a = performance.now(); frame.call(s); cpu.push(performance.now() - a); };
+  s.frame = function () { a0 = performance.now(); cpuNow = 0; frame.call(s); cpu.push(cpuNow || performance.now() - a0); };
   s.beforeRender = () => { if (ext) { q = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, q); } };
   s.afterRender = () => {
     if (q) { gl.endQuery(ext.TIME_ELAPSED_EXT); pending.push(q); q = null; }
+    cpuNow = performance.now() - a0;
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    sync.push(performance.now() - a0);
     const st = s.stats();
     calls = Math.max(calls, st.calls);
     tris = Math.max(tris, st.triangles);
@@ -190,6 +217,7 @@ const PROBE = (ms: number): string => `
     frames: cpu.length,
     cpu: [at(cpu, 0.5), at(cpu, 0.95)],
     gpu: ext ? [at(gpu, 0.5), at(gpu, 0.95)] : null,
+    sync: [at(sync, 0.5), at(sync, 0.95)],
     calls,
     tris,
     geoMb: mem.bytes / 1048576,
@@ -206,6 +234,8 @@ interface Bench {
   frames: number;
   cpu: [number, number];
   gpu: [number, number] | null;
+  /** Кадр до конца видеокарты: от начала кадра до `gl.finish` после отрисовки, медиана и p95. */
+  sync: [number, number];
   calls: number;
   tris: number;
   geoMb: number;
@@ -235,11 +265,11 @@ interface Bench {
 type Row = { look: string; b: Bench };
 
 /**
- * Прогрев перед замером прохода, секунды. Видеокарта после паузы и запуска браузера стоит на высокой
- * частоте и под потолком кадров за несколько секунд сходит ниже: вид, мерянный первым, выходил впятеро
- * дешевле тех же чисел позже в проходе (замер 01.10.2026, docs/graphics_world.md, 11.1). Прогрев — первый
- * вид прохода без замера. Он убирает рывок первого вида, но не дрейф частоты: отношение одного вида к `now`
- * ходит от прохода к проходу на десятки процентов, и разницу меньше этого способ не различает (11.1).
+ * Прогрев перед замером прохода, секунды: самый тяжёлый вид (`next:high`, если он в `LOOKS`) без замера.
+ * Без прогрева вид, мерянный первым после запуска браузера, выходил впятеро дешевле тех же чисел позже в
+ * проходе (замер 01.10.2026, docs/graphics_world.md, 11.0). Прогрев убирает этот рывок, но не прыжки
+ * частоты: один и тот же вид в соседних проходах выходит то 1.8, то 6.8 мс, и разницу меньше десятков
+ * процентов способ не различает (11.0, 11.2).
  */
 const WARMUP = Number(process.env.WARMUP ?? 8);
 
@@ -250,7 +280,7 @@ const WARMUP = Number(process.env.WARMUP ?? 8);
 async function benchPass(began: number, pass: number): Promise<Row[]> {
   const shift = pass % LOOKS.length;
   const order = LOOKS.slice(shift).concat(LOOKS.slice(0, shift));
-  const warm = await open(pageUrl(order[0], 0.2));
+  const warm = await open(pageUrl(LOOKS.includes('next:high') ? 'next:high' : order[0], 0.2));
   try {
     await sleep(WARMUP * 1000);
   } finally {
@@ -297,12 +327,12 @@ function printBench(passes: Row[][]): void {
     console.log(`\n${passes.length > 1 ? `проход ${i + 1}` : ''}`);
     console.log(
       `${'вид'.padEnd(12)} ${'буфер'.padEnd(10)} ${'вызовов'.padStart(8)} ${'треуг.'.padStart(8)} ${'кадров'.padStart(7)} ` +
-        `${'ЦП мед'.padStart(7)} ${'ЦП p95'.padStart(7)} ${'ВК мед'.padStart(7)} ${'ВК p95'.padStart(7)} ${'верш. МБ'.padStart(9)} ${'текст. МБ'.padStart(9)}`,
+        `${'ЦП мед'.padStart(7)} ${'ЦП p95'.padStart(7)} ${'ВК мед'.padStart(7)} ${'ВК p95'.padStart(7)} ${'кадр мед'.padStart(8)} ${'кадр p95'.padStart(8)} ${'верш. МБ'.padStart(9)} ${'текст. МБ'.padStart(9)}`,
     );
     for (const { look, b } of rows) {
       console.log(
         `${look.padEnd(12)} ${`${b.buffer[0]}×${b.buffer[1]}`.padEnd(10)} ${String(b.calls).padStart(8)} ${String(b.tris).padStart(8)} ${String(b.frames).padStart(7)} ` +
-          `${f(b.cpu[0]).padStart(7)} ${f(b.cpu[1]).padStart(7)} ${f(b.gpu?.[0]).padStart(7)} ${f(b.gpu?.[1]).padStart(7)} ${f(b.geoMb).padStart(9)} ${f(b.texMb).padStart(9)}`,
+          `${f(b.cpu[0]).padStart(7)} ${f(b.cpu[1]).padStart(7)} ${f(b.gpu?.[0]).padStart(7)} ${f(b.gpu?.[1]).padStart(7)} ${f(b.sync[0]).padStart(8)} ${f(b.sync[1]).padStart(8)} ${f(b.geoMb).padStart(9)} ${f(b.texMb).padStart(9)}`,
       );
     }
   });
@@ -318,18 +348,24 @@ function printBench(passes: Row[][]): void {
     );
   }
   if (passes.length > 1) {
-    console.log('\nСводка: ВК мед — медиана по проходам; к now — отношение внутри прохода, медиана (по проходам — через «/»).');
-    for (const look of LOOKS) {
-      const gpu: number[] = [];
-      const ratio: number[] = [];
-      for (const rows of passes) {
-        const r = rows.find((x) => x.look === look)?.b.gpu?.[0];
-        const n = rows.find((x) => x.look === 'now')?.b.gpu?.[0];
-        if (r === undefined || r === null) continue;
-        gpu.push(r);
-        if (n) ratio.push(r / n);
+    console.log('\nСводка: медиана по проходам; к now — отношение внутри прохода, медиана (по проходам — через «/»).');
+    const pick = (b: Bench, what: 'gpu' | 'sync'): number | null | undefined => (what === 'gpu' ? b.gpu?.[0] : b.sync[0]);
+    for (const what of ['sync', 'gpu'] as const) {
+      console.log(what === 'sync' ? 'кадр до конца видеокарты:' : 'таймер видеокарты:');
+      for (const look of LOOKS) {
+        const ms: number[] = [];
+        const ratio: number[] = [];
+        for (const rows of passes) {
+          const row = rows.find((x) => x.look === look);
+          const ref = rows.find((x) => x.look === 'now');
+          const r = row && pick(row.b, what);
+          const n = ref && pick(ref.b, what);
+          if (r === undefined || r === null) continue;
+          ms.push(r);
+          if (n) ratio.push(r / n);
+        }
+        console.log(`  ${look.padEnd(12)} мед ${f(median(ms)).padStart(6)}   к now ${f(median(ratio)).padStart(5)}   (${ratio.map((x) => f(x)).join(' / ')})`);
       }
-      console.log(`${look.padEnd(12)} ВК мед ${f(median(gpu)).padStart(6)}   к now ${f(median(ratio)).padStart(5)}   (${ratio.map((x) => f(x)).join(' / ')})`);
     }
   }
   console.log('\nМиллисекунды сравнимы внутри прохода; между проходами — только отношением к now (шапка файла).');

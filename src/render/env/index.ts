@@ -61,6 +61,8 @@ import { envShared, groundMaterial, shadeMaterial, vegMaterial, type EnvShared, 
 import { makeLife, type Life } from './life';
 
 export type { EnvVillage } from './rules';
+// Фактура построек вида `next` (этап 2, пункт 2) едет тем же ленивым куском: сцена одевает здания, когда он пришёл.
+export { FACADE_SNOW, dressFacade } from './facade';
 
 export interface EnvOptions {
   quality: Quality;

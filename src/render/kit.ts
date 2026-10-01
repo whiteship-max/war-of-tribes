@@ -24,6 +24,8 @@ export interface Paint {
   mat: THREE.Material;
   /** Линейный цвет для вершин; отсутствует, если цвет несёт сам материал. */
   tint: THREE.Color | null;
+  /** Ключ палитры краски — по нему фактура вида `next` узнаёт поверхность (`SURFACE`). */
+  key?: MatKey;
   /**
    * Окно: деталь светится ночью тёплым (`render/glow.ts`). Цвет тот же — днём окно тёмное,
    * как было; признак едет в атрибуте вершин `glow`, а не в материале: окна и стены — одна
@@ -61,8 +63,8 @@ export function paintOf(key: MatKey): Paint {
   let p = paints.get(key);
   if (!p) {
     p = isSeasonal(key)
-      ? { mat: KIT[key], tint: null }
-      : { mat: KIT.body, tint: new THREE.Color().setHex(PALETTE[key]) };
+      ? { mat: KIT[key], tint: null, key }
+      : { mat: KIT.body, tint: new THREE.Color().setHex(PALETTE[key]), key };
     paints.set(key, p);
   }
   return p;
@@ -463,6 +465,120 @@ export function woodpile(paint: Paint, x: number, z: number, rot = 0): Part[] {
   return out;
 }
 
+// ---------- Фактура вида `next` (этап 2, пункт 2) ----------
+
+/**
+ * Поверхность детали для фактуры вида `next` (`render/env/facade.ts`): штукатурка, брус и доска, камень.
+ * Номер едет в вершинах (`fac`, третий байт), и шейдер тела рисует по нему узор — без текстур и без новых
+ * вызовов: тело у всех частей здания одно. Чего нет в таблице — без узора (0). Кровли (черепица,
+ * солома, дранка) — сезонные материалы, у них узор свой (`facade.FACADE_ROOFS`).
+ */
+export const SURFACE: Partial<Record<MatKey, number>> = {
+  plaster: 1,
+  wood: 2,
+  woodDark: 2,
+  plank: 2,
+  timber: 2,
+  stake: 2,
+  stone: 3,
+  stoneDark: 3,
+  stoneLight: 3,
+};
+
+let facade = 0;
+
+/**
+ * Собрать модели с признаками фактуры: внутри `build` склейка (`assemble`) пишет в вершины признаки
+ * фактуры одним атрибутом `fac` — место на грани, номер поверхности и свет окна (`facadeTags`). Снаружи —
+ * не пишет: прежний вид, дороги, декор и предыстория собираются как прежде, байт в байт.
+ */
+export function withFacade<T>(build: () => T): T {
+  facade++;
+  try {
+    return build();
+  } finally {
+    facade--;
+  }
+}
+
+/** Грань уже этого — столб, брус, грань круглой стены: края у неё нет, и углы она не затеняет. */
+const FACE_MIN = 0.9;
+
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _c = new THREE.Vector3();
+const _n = new THREE.Vector3();
+const _t = new THREE.Vector3();
+const _u = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Признаки фактуры вершин — один атрибут `fac` по байту на признак (нормированный, 0..1), четыре байта на
+ * вершину: место на грани по ширине и по высоте, номер поверхности (`SURFACE`, целым в байте) и свет
+ * окна (`windowLight`, доля). Место на грани — для затенения углов и полосы под свесом (`facade`): грань
+ * — треугольники детали с одной нормалью, у коробки — сторона, у призмы фронтона — весь пятиугольник.
+ * Ширина — по горизонтали грани, высота — вверх по ней; у узкой грани ширины нет (0.5), у плоской —
+ * высоты (0.5).
+ */
+function facadeTags(g: THREE.BufferGeometry, surf: number, glow: number): Uint8Array {
+  const pos = g.attributes.position;
+  const out = new Uint8Array(pos.count * 4);
+  const byte = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255);
+  for (let i = 0; i < pos.count; i++) {
+    out[i * 4] = byte(0.5);
+    out[i * 4 + 1] = byte(0.5);
+    out[i * 4 + 2] = surf;
+    out[i * 4 + 3] = byte(glow);
+  }
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i + 2 < pos.count; i += 3) {
+    _a.fromBufferAttribute(pos, i);
+    _b.fromBufferAttribute(pos, i + 1);
+    _c.fromBufferAttribute(pos, i + 2);
+    _n.subVectors(_b, _a).cross(_u.subVectors(_c, _a));
+    if (_n.lengthSq() < 1e-12) continue;
+    _n.normalize();
+    const key = `${Math.round(_n.x * 20)},${Math.round(_n.y * 20)},${Math.round(_n.z * 20)}`;
+    let list = groups.get(key);
+    if (!list) groups.set(key, (list = []));
+    list.push(i);
+  }
+  for (const [key, tris] of groups) {
+    const [nx, ny, nz] = key.split(',').map((v) => Number(v) / 20);
+    _n.set(nx, ny, nz).normalize();
+    // Вертикальная грань: ширина — по горизонтали, высота — вверх. Наклонная — вверх по скату.
+    if (Math.abs(_n.y) > 0.92) _t.set(1, 0, 0);
+    else _t.crossVectors(UP, _n).normalize();
+    _u.crossVectors(_n, _t).normalize();
+    if (_u.y < 0) _u.negate();
+    let u0 = Infinity;
+    let u1 = -Infinity;
+    let v0 = Infinity;
+    let v1 = -Infinity;
+    for (const i of tris) {
+      for (let k = 0; k < 3; k++) {
+        _a.fromBufferAttribute(pos, i + k);
+        const u = _a.dot(_t);
+        const v = _a.dot(_u);
+        u0 = Math.min(u0, u);
+        u1 = Math.max(u1, u);
+        v0 = Math.min(v0, v);
+        v1 = Math.max(v1, v);
+      }
+    }
+    const wide = u1 - u0 >= FACE_MIN;
+    const tall = v1 - v0 >= 0.3 && Math.abs(_n.y) < 0.92;
+    for (const i of tris) {
+      for (let k = 0; k < 3; k++) {
+        _a.fromBufferAttribute(pos, i + k);
+        out[(i + k) * 4] = byte(wide ? (_a.dot(_t) - u0) / (u1 - u0) : 0.5);
+        out[(i + k) * 4 + 1] = byte(tall ? (_a.dot(_u) - v0) / (v1 - v0) : 0.5);
+      }
+    }
+  }
+  return out;
+}
+
 // ---------- Сборка ----------
 
 const smooth = (t: number): number => {
@@ -512,8 +628,10 @@ export function assemble(parts: Part[]): THREE.Mesh {
     // Текстур нет: uv только мешает склейке разных примитивов.
     g.deleteAttribute('uv');
     bakeColors(g, p.paint.tint, p.ao);
-    if (lit) {
-      const glow = p.paint.glow ? windowLight(window++) : 0;
+    const glow = lit && p.paint.glow ? windowLight(window++) : 0;
+    if (facade > 0) {
+      g.setAttribute('fac', new THREE.BufferAttribute(facadeTags(g, (p.paint.key && SURFACE[p.paint.key]) || 0, glow), 4, true));
+    } else if (lit) {
       g.setAttribute('glow', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(glow), 1));
     }
     let list = byMat.get(p.paint.mat);

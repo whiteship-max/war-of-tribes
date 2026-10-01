@@ -6,6 +6,7 @@ import {
   AO_POST,
   AO_WALL,
   EMISSIVE_KEYS,
+  FACADE_SHADE,
   GROUND_SHADE,
   JOB_TINT,
   LIGHT_KEYS,
@@ -65,7 +66,7 @@ describe('палитра', () => {
   });
 
   it('все затемнения холодные: синий канал не темнеет сильнее красного', () => {
-    for (const mul of [AO_BASE, AO_WALL, AO_POST, GROUND_SHADE]) {
+    for (const mul of [AO_BASE, AO_WALL, AO_POST, GROUND_SHADE, FACADE_SHADE]) {
       expect(mul[2]).toBeGreaterThan(mul[0]);
       expect(mul[0]).toBeGreaterThan(0.5);
       expect(mul[2]).toBeLessThanOrEqual(1);

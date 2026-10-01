@@ -1393,8 +1393,11 @@ export const footprintOf = (type: BuildingTypeId, tier: Tier = 0): [number, numb
  * отрисовки на материал вместо одного на каждую доску. Визуально модель та же,
  * добавляется только контактное затемнение у земли.
  */
-export function createBuildingGroup(type: BuildingTypeId, tier: Tier): THREE.Group {
-  return K.collapse(legacyModel(type, tier), K.GROUND_AO);
+export function createBuildingGroup(type: BuildingTypeId, tier: Tier, facade = false): THREE.Group {
+  // `facade` — для вида `next`: в вершины уходят признаки фактуры (`kit.withFacade`, `render/env/facade.ts`);
+  // без него модель та же, что всегда, байт в байт.
+  const build = (): THREE.Group => K.collapse(legacyModel(type, tier), K.GROUND_AO);
+  return facade ? K.withFacade(build) : build();
 }
 
 function legacyModel(type: BuildingTypeId, tier: Tier): THREE.Group {

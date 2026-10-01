@@ -60,9 +60,10 @@ import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
 import { BUILD_SLICE_MS, QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
 import { autoCap, capQuality, rememberAutoCap } from './gfx';
 import { Steady } from './steady';
-import { WINDOW_NIGHT, dropGlow, lightWindows } from './glow';
+import { WINDOW_NIGHT, dropGlow } from './glow';
 import { serverNow } from '@/net/clock';
 import type { EnvWorld, StartEnv } from './env';
+import type * as EnvModule from './env';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
 
@@ -371,6 +372,11 @@ export class TribeScene {
   private envJob: { world: EnvWorld; mounted: () => void } | null = null;
   /** Собранное окружение, которое ждёт программ шейдеров: смена построек идёт и ему. */
   private envMounting: EnvWorld | null = null;
+  /**
+   * Фактура построек вида `next` (`env/facade.ts`) — едет куском окружения. До его прихода здания
+   * стоят прежним телом; пришёл — одеваются все (`dressBuildings`), новые — сразу.
+   */
+  private facade: Pick<typeof EnvModule, 'dressFacade' | 'FACADE_SNOW'> | null = null;
   /** Что насчитал свет последнего кадра: доля дня и ночи. */
   private light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
   /** Посёлок, под который лежит земля окружения: заново — только при смене построек. */
@@ -441,7 +447,13 @@ export class TribeScene {
     this.scene.add(this.terrain);
     // Окружение пробы едет своим куском: в первую загрузку игры оно не входит, а до его
     // прихода сцена стоит на прежней земле — первый кадр не ждёт ничего.
-    this.ready = this.look === 'next' ? import('./env').then((m) => this.startEnv(m.startEnv)) : Promise.resolve();
+    this.ready =
+      this.look === 'next'
+        ? import('./env').then((m) => {
+            this.dressBuildings(m);
+            return this.startEnv(m.startEnv);
+          })
+        : Promise.resolve();
     this.scene.add(this.figures.group);
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
@@ -669,6 +681,13 @@ export class TribeScene {
     // задал стенд вместо экрана) и не выше потолка двери кадра.
     if (this.look === 'next') return pixelRatio(qualityDpr(this.dprLevel, this.pixelRatio ?? deviceRatio()));
     return pixelRatio(this.pixelRatio);
+  }
+
+  /** Приехал кусок окружения с фактурой: одеть в неё здания, что уже стоят; новые оденутся при постройке. */
+  private dressBuildings(m: Pick<typeof EnvModule, 'dressFacade' | 'FACADE_SNOW'>): void {
+    if (this.disposed) return;
+    this.facade = m;
+    for (const view of this.buildings.values()) m.dressFacade(view.group);
   }
 
   /**
@@ -1424,9 +1443,10 @@ export class TribeScene {
         view = undefined;
       }
       if (!view) {
-        const group = createBuildingGroup(b.type, tier);
-        // Окна: у вида `next` светятся ночью; у нынешнего признак окон снимается до выгрузки.
-        if (this.look === 'next') lightWindows(group);
+        // Вид `next`: модель с признаками фактуры, одетая в неё (окна ночью — там же, `env/facade.ts`).
+        // Нынешний: та же модель, что всегда, и признак окон снимается до выгрузки.
+        const group = createBuildingGroup(b.type, tier, this.look === 'next');
+        if (this.look === 'next') this.facade?.dressFacade(group);
         else dropGlow(group);
         // Силуэт снимается до расстановки: коробка нужна в собственных
         // координатах группы, а место и поворот придут её матрицей.
@@ -1744,6 +1764,8 @@ export class TribeScene {
     this.fireLight.intensity = this.look === 'next' ? fireGlow(this.light.nightK, t) : fireIntensity(night, t);
     // Окна загораются в сумерках, раньше глубокой ночи: свет в доме зажигают, когда темнеет.
     if (this.look === 'next') WINDOW_NIGHT.value = windowNight(this.light);
+    // Под снегом узор кровель гаснет: снег лёг на ряды черепицы и связки соломы.
+    if (this.facade) this.facade.FACADE_SNOW.value = this.seasonVis.snow;
 
     // Камера сама по себе не двигается: её ведёт палец. Крутится она ровно в
     // одном случае — под замером частоты кадров на стенде.
