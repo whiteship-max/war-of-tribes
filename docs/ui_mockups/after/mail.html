@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390,initial-scale=1">
+<title>После: вести</title>
+<link rel="stylesheet" href="../assets/phone.css">
+<link rel="stylesheet" href="../assets/after.css">
+<!--
+  Вести «после» (ui_audit.md, 6.4): то, что в «до» было вкладкой «Решения» меню державы, — место нижней навигации.
+  Состояние — то же, что у before/realm.html: три вести — «На нас идут» (Логово разбойников, 2 ч 47 мин), «Бродячая
+  артель» (9 ч 12 мин), «Беженцы у ворот» (21 ч 05 мин). «Посёлок» в строке от кого → «Город» (словарь 4.4).
+  Первой стоит та, что раньше решится сама; срок красным у набега — он придёт без ответа.
+  Шторка — на нижней ступени 40 %: сцена над ней живая. Условно: золото 185.
+-->
+</head>
+<body class="phone"><script src="../assets/sprite.js"></script><script src="../assets/stubs.js"></script>
+<div class="sys"><span>9:41</span><span class="sys-icons"><i class="sig"></i><i class="wifi"></i><i class="bat"></i></span></div>
+<div class="tgh"><span class="tgh-left">‹ Назад</span><span class="tgh-title"><b>TRIBE</b><small>мини-приложение</small></span><span class="tgh-right"><span>···</span></span></div>
+<div class="webview"><div class="scene village"></div>
+
+  <div class="hud">
+    <div class="hud-top">
+      <div class="coat">
+        <svg class="shield" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M6 5 H34 V19 C34 28 27 33 20 36 C13 33 6 28 6 19 Z" fill="#e8a43c" stroke="#b07724" stroke-width="2.4" stroke-linejoin="round"/>
+          <path d="M13 11 H16 V13.5 H18.5 V11 H21.5 V13.5 H24 V11 H27 V17 H25.5 V28 H14.5 V17 H13 Z" fill="#241a11"/>
+          <path d="M18 28 V23.5 C18 22 22 22 22 23.5 V28 Z" fill="#e8a43c"/>
+        </svg>
+      </div>
+      <div class="stat"><svg class="ic"><use href="#i-res-gold"/></svg><b>185</b></div>
+      <div class="stat"><svg class="ic"><use href="#i-hud-pop"/></svg><b>74</b><small>/80</small></div>
+      <div class="stat"><svg class="ic"><use href="#i-mood-mid"/></svg><b>64</b></div>
+      <div class="stat"><svg class="ic"><use href="#i-hud-army"/></svg><b>38</b></div>
+      <div class="grow"></div>
+      <div class="stat season">
+        <div class="season-line"><svg class="ic i20"><use href="#i-season-autumn"/></svg></div>
+        <div class="prog"><i style="width:52%"></i></div>
+      </div>
+    </div>
+    <div class="res-row">
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-wood"/></svg></span><b>1,2к</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-stone"/></svg></span><b>864</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-food"/></svg></span><b>2,3к</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-hides"/></svg></span><b>214</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-bones"/></svg></span><b>188</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-copper"/></svg></span><b>96</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-iron"/></svg></span><b>57</b></div>
+    </div>
+  </div>
+
+  <div class="alerts">
+    <div class="alert urgent"><div class="ring"><svg class="ic i24"><use href="#i-alert-raid"/></svg></div><span class="timer">2:47:00</span></div>
+  </div>
+
+  <div class="sheet" style="height:382px">
+    <div class="grab"><i></i></div>
+    <div class="sh-head">
+      <div class="hico"><svg class="ic i28 not-in-sheet"><use href="#i-ui-mail"/></svg></div>
+      <div class="t"><b>Вести</b></div>
+      <div class="x"><svg class="ic i20 not-in-sheet"><use href="#i-ui-close"/></svg></div>
+    </div>
+    <div class="sh-body">
+      <div class="row" style="min-height:56px">
+        <svg class="ic i28"><use href="#i-letter-raid"/></svg>
+        <div class="t"><b>На нас идут</b><small>Логово разбойников</small></div>
+        <span class="due bad num">2 ч 47 мин</span><i class="nd"></i>
+      </div>
+      <div class="row" style="min-height:56px">
+        <svg class="ic i28"><use href="#i-evt-wanderers"/></svg>
+        <div class="t"><b>Бродячая артель</b><small>Город</small></div>
+        <span class="due num">9 ч 12 мин</span><i class="nd"></i>
+      </div>
+      <div class="row" style="min-height:56px">
+        <svg class="ic i28"><use href="#i-evt-refugees"/></svg>
+        <div class="t"><b>Беженцы у ворот</b><small>Город</small></div>
+        <span class="due num">21 ч 05 мин</span><i class="nd"></i>
+      </div>
+    </div>
+    <div class="sh-foot" style="border-top:0; background:none; padding-top:0"></div>
+  </div>
+
+  <nav class="nav">
+    <button><span class="ib"><svg class="ic i28"><use href="#i-ui-hammer"/></svg></span>Стройка</button>
+    <button><span class="ib"><svg class="ic i28"><use href="#i-nav-people"/></svg></span>Племя</button>
+    <button class="main"><span class="ib"><svg class="ic i28"><use href="#i-hud-map"/></svg></span>Карта</button>
+    <button><span class="ib"><svg class="ic i28"><use href="#i-hud-army"/></svg></span>Дружина</button>
+    <button class="on"><span class="ib"><svg class="ic i28 not-in-sheet"><use href="#i-ui-mail"/></svg><span class="badge urgent">3</span></span>Вести</button>
+  </nav>
+</div>
+<div class="home-ind"></div></body></html>
