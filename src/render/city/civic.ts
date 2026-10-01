@@ -4,7 +4,7 @@
 // ограда церковного двора. Один вид навсегда: уровни игры модель не меняют.
 import { CITY } from './palette';
 import { Builder, box, cone, cylinder, pyramid, tint, wall, type V3 } from './geom';
-import { Frame, GROUND_H, STOREY_H, chimney, face, gableRoof, gableTri, pushQuadOut, type Detail } from './kit';
+import { Frame, GROUND_H, STOREY_H, chimney, face, gableRoof, gableTri, log, pushQuadOut, type Detail } from './kit';
 import { heightAt, type Civic, type P, type Stall } from './layout';
 import { L, TILE_M, type LayerName } from './tex';
 import { rnd } from './noise';
@@ -408,6 +408,79 @@ export function stall(b: Builder, s: Stall, detail: Detail): void {
     const g = CITY.goods[(s.seed >>> (k * 3)) % CITY.goods.length];
     box(b, s.x + rx * off + fx * 0.4, s.z + rz * off + fz * 0.4, fx, fz, s.w / n - 0.25, 0.5, y + 0.95, y + 1.18 + rnd(s.seed, k, 3) * 0.2, 'wood', tint(g, 1.1), 'wood');
   }
+}
+
+/** Бочка: клёпка, крышка и два железных обруча (обручи — со среднего уровня). */
+function barrel(b: Builder, x: number, z: number, y: number, seed: number, detail: Detail): void {
+  const seg = detail === 0 ? 6 : 8;
+  const t = tint(CITY.oakLight, 0.85 + rnd(seed, 1, 7) * 0.3);
+  cylinder(b, x, z, 0.36, y, y + 0.9, seg, 'wood', t, { aoBottom: 0.6 });
+  cone(b, x, z, 0.36, y + 0.9, y + 0.95, seg, 'wood', [t[0] * 1.2, t[1] * 1.15, t[2] * 1.1], 1);
+  if (detail === 0) return;
+  for (const h of [0.16, 0.66]) cylinder(b, x, z, 0.375, y + h, y + h + 0.08, seg, 'wood', tint(CITY.iron, 1.6));
+}
+
+/** Повозка у рядов: короб на двух колёсах, оглобли опущены к земле, в коробе — мешки. */
+function cart(b: Builder, x: number, z: number, rot: number, seed: number, detail: Detail): void {
+  const fx = Math.cos(rot);
+  const fz = Math.sin(rot);
+  const rx = fz;
+  const rz = -fx;
+  const y = heightAt(x, z);
+  const wood = tint(CITY.oakLight, 0.95);
+  const P = (f: number, r: number, h: number): V3 => [x + fx * f + rx * r, y + h, z + fz * f + rz * r];
+  box(b, x, z, fx, fz, 1.4, 2.4, y + 0.62, y + 0.76, 'wood', wood, 'wood');
+  for (const s of [-1, 1]) {
+    box(b, x + rx * s * 0.66, z + rz * s * 0.66, fx, fz, 0.08, 2.4, y + 0.76, y + 1.16, 'wood', wood, 'wood');
+    box(b, x + fx * s * 1.16, z + fz * s * 1.16, fx, fz, 1.24, 0.08, y + 0.76, y + 1.1, 'wood', wood, 'wood');
+    // Колесо — короткий многогранник поперёк хода, ось — под серединой короба.
+    log(b, P(-0.2, s * 0.76, 0.6), P(-0.2, s * 0.9, 0.6), 0.6, tint(CITY.oak), detail === 0 ? 6 : 10);
+    log(b, P(1.2, s * 0.45, 0.7), P(3.3, s * 0.38, 0.12), 0.05, tint(CITY.oak), 4, false);
+  }
+  const goods = CITY.goods;
+  for (let k = 0; k < 3; k++) {
+    const g = goods[(seed >>> (k * 3)) % goods.length];
+    const h = 0.32 + rnd(seed, k, 5) * 0.18;
+    box(b, x + fx * (k - 1) * 0.7, z + fz * (k - 1) * 0.7, fx, fz, 1.05, 0.6, y + 0.76, y + 0.76 + h, 'cloth', tint(g, 0.9), 'cloth');
+  }
+}
+
+/** Ящики: стопка в два яруса, каждый чуть повёрнут. */
+function crates(b: Builder, x: number, z: number, n: number, seed: number): void {
+  for (let k = 0; k < n; k++) {
+    const a = rnd(seed, k, 11) * 0.5;
+    const up = k >= n - 1 && n > 2;
+    const ox = up ? 0.2 : (k - (n - 2) / 2) * 0.85;
+    const y = heightAt(x + ox, z) + (up ? 0.8 : 0);
+    const t = tint(CITY.oakLight, 0.9 + rnd(seed, k, 13) * 0.35);
+    box(b, x + ox, z + (up ? 0.1 : 0), Math.cos(a), Math.sin(a), 0.8, 0.8, y, y + 0.8, 'wood', t, 'wood', { aoBottom: up ? 0.8 : 0.6 });
+  }
+}
+
+/**
+ * Мелочь у рядов рынка: повозки, бочки, ящики (docs/city.md, 11.6). Стоят по краям рядов, а не
+ * между ними: проход вдоль прилавков остаётся улицей.
+ */
+export function marketProps(b: Builder, seed: number, detail: Detail): void {
+  cart(b, -17, 12.5, Math.PI / 2 + 0.35, seed, detail);
+  cart(b, 26, 9, Math.PI / 2 - 0.4, seed + 1, detail);
+  const groups: [number, number, number][] = [
+    [-16.5, 19.5, 3],
+    [25, 16.5, 2],
+    [8, 22.8, 3],
+  ];
+  groups.forEach(([gx, gz, n], i) => {
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + i;
+      const r = n > 1 ? 0.45 : 0;
+      const x = gx + Math.cos(a) * r;
+      const z = gz + Math.sin(a) * r;
+      barrel(b, x, z, heightAt(x, z), seed + i * 7 + k, detail);
+    }
+  });
+  crates(b, -15.5, 5.5, 3, seed + 21);
+  crates(b, 25.5, 3.5, 2, seed + 22);
+  crates(b, 16, 22.8, 3, seed + 23);
 }
 
 /** Колодец: каменное кольцо, два столба и двускатный навес. */

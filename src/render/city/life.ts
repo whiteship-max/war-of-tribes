@@ -238,6 +238,8 @@ export class CityLife {
   private people: THREE.InstancedMesh;
   private sentries: THREE.InstancedMesh;
   private beasts: THREE.InstancedMesh;
+  /** Факелы стражи: огонёк над плечом каждого — ночью идут по стене вместе с ним. */
+  private torches: THREE.Points;
   private beastAt: { x: number; z: number; y: number; yaw: number; r: number; seed: number }[] = [];
   private smoke: Smoke;
   private smokeOn: SmokeSource[] = [];
@@ -314,6 +316,25 @@ export class CityLife {
       sm.alphaTest = 0.01;
     }
     this.smoke.points.name = 'city-smoke';
+    // Факелы стражи — точки с мягким пятном, как огоньки стены (`index.flames`), видны в сумерках и ночью.
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.cap.guards * 3), 3));
+    this.torches = new THREE.Points(
+      tg,
+      new THREE.PointsMaterial({
+        size: 2.4,
+        map: softDot(),
+        color: 0xffa040,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0,
+      }),
+    );
+    this.torches.name = 'city-torches';
+    this.torches.frustumCulled = false;
+    this.torches.visible = false;
+    this.group.add(this.torches);
     this.group.add(this.smoke.points);
     // Дым идёт не из каждой трубы: топят там, где сейчас готовят, — доля от зерна.
     this.smokeOn = input.chimneys
@@ -616,6 +637,21 @@ export class CityLife {
       this.place(this.sentries, i, a.p.x, heightOnPath(this.wall, s), a.p.z, yaw, 1);
     }
     this.sentries.instanceMatrix.needsUpdate = true;
+    // Факел — над правым плечом стража, мерцает; ночью виден, днём погашен.
+    const tm = this.torches.material as THREE.PointsMaterial;
+    tm.opacity = night;
+    this.torches.visible = night > 0.02 && this.sentries.count > 0;
+    if (this.torches.visible) {
+      const tp = this.torches.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < this.sentries.count; i++) {
+        this.sentries.getMatrixAt(i, this.m4);
+        const v = this.v3.set(0.15, 2.05, 0.32).applyMatrix4(this.m4);
+        tp.setXYZ(i, v.x, v.y, v.z);
+      }
+      tp.needsUpdate = true;
+      this.torches.geometry.setDrawRange(0, this.sentries.count);
+      tm.size = 2.4 * (1 + Math.sin(t * 13) * 0.1);
+    }
     // Скот бродит медленно: круг в пару метров у своего места.
     this.beasts.count = this.beastAt.length;
     this.beastAt.forEach((b, i) => {
@@ -638,6 +674,9 @@ export class CityLife {
     const sm = this.smoke.points.material as THREE.PointsMaterial;
     sm.map?.dispose();
     sm.dispose();
+    const tm = this.torches.material as THREE.PointsMaterial;
+    tm.map?.dispose();
+    tm.dispose();
     (this.people.material as THREE.Material).dispose();
     (this.flags.material as THREE.Material).dispose();
     (this.birds.material as THREE.Material).dispose();

@@ -96,6 +96,28 @@ describe('город: жизнь', () => {
     life.dispose();
   });
 
+  it('ночью у каждого стража факел над плечом, днём факелы погашены', () => {
+    const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'medium' });
+    const torches = life.group.getObjectByName('city-torches') as THREE.Points;
+    life.set(100, 12, []);
+    life.update(0.1, 0, 0, 0);
+    expect(torches.visible, 'днём факела нет').toBe(false);
+    life.update(0.1, 0.1, 1, 0);
+    const guards = placed(mesh(life, 'city-guards'));
+    // Граница области: ночь и стража на стене — иначе факелов нечем проверить.
+    expect(guards.length).toBe(12);
+    expect(torches.visible, 'ночью факел горит').toBe(true);
+    expect(torches.geometry.drawRange.count).toBe(guards.length);
+    const pos = torches.geometry.attributes.position as THREE.BufferAttribute;
+    guards.forEach((g, i) => {
+      const t = new THREE.Vector3().fromBufferAttribute(pos, i);
+      expect(Math.hypot(t.x - g.x, t.z - g.z), 'факел у своего стража').toBeLessThan(0.6);
+      expect(t.y - g.y, 'факел над плечом').toBeGreaterThan(1.6);
+      expect(t.y - g.y, 'факел над плечом').toBeLessThan(2.6);
+    });
+    life.dispose();
+  });
+
   it('у каждой башни флаг; дым идёт не из всех труб и не больше уровня', () => {
     for (const q of QUALITIES) {
       const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: q });

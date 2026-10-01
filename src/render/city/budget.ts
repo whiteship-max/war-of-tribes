@@ -9,7 +9,7 @@ import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { yard } from './outskirts';
 import { house } from './kit';
 import { cityWall, tower } from './forts';
-import { churchyard, civic, fireBowl, stall, statue, well } from './civic';
+import { churchyard, civic, fireBowl, marketProps, stall, statue, well } from './civic';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
 import { CITY_SPEC, LIFE_CAP, LIFE_TRIS } from './spec';
@@ -97,6 +97,7 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
   b.owner = ownerCode('market');
   const marketFrom = b.mark().v;
   for (const s of plan.stalls) stall(b, s, d);
+  marketProps(b, plan.stalls[0]?.seed ?? 0, d);
   sites.push(siteOf('market', b.extent(marketFrom, 0, 0, 1, 0), 0, 0, 1, 0));
   const bowl = { x: plan.well.x + 3.2, z: plan.well.z + 1.5 };
   own('campfire', plan.well.x, plan.well.z, 1, 0, () => {
@@ -138,8 +139,8 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   let treeTris = 0;
   let treeShadow = 0;
-  // Здания, их тень, земля, огоньки ночью; вода; люди, стража, скот, дым, флаги, птицы (тени у них нет).
-  let calls = 1 + 1 + 1 + 1 + 1 + 6;
+  // Здания, их тень, земля, огоньки ночью; вода; люди, стража, скот, дым, флаги, птицы, факелы стражи (тени у них нет).
+  let calls = 1 + 1 + 1 + 1 + 1 + 7;
   for (const sp of Object.keys(trees) as Species[]) {
     const n = trees[sp].length;
     if (n === 0) continue;

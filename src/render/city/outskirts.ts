@@ -7,7 +7,7 @@
 // подробностью выше низкой: силуэт двора держат объёмы.
 import { CITY } from './palette';
 import { Builder, box, cone, cylinder, flat, tint, type V3 } from './geom';
-import { Frame, pushQuadOut, pushTriOut, type Detail } from './kit';
+import { Frame, log, pushQuadOut, type Detail } from './kit';
 import { body } from './civic';
 import { heightAt, RACE_LEVEL, type Civic, type Yard } from './layout';
 import { rnd } from './noise';
@@ -32,47 +32,6 @@ function lowUnder(fr: Frame, hf: number, hr: number): number {
     lo = Math.min(lo, heightAt(x, z));
   }
   return lo;
-}
-
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const crs = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const nrm = (a: V3): V3 => {
-  const l = Math.hypot(a[0], a[1], a[2]) || 1;
-  return [a[0] / l, a[1] / l, a[2] / l];
-};
-
-/** Бревно (или жердь): многогранник от `a` до `e`, радиус `r`; торцы — при `caps`. */
-export function log(b: Builder, a: V3, e: V3, r: number, t: V3, sides = 6, caps = true): void {
-  const ax = nrm(sub(e, a));
-  let u = crs(ax, [0, 1, 0]);
-  if (Math.hypot(u[0], u[1], u[2]) < 1e-3) u = crs(ax, [1, 0, 0]);
-  u = nrm(u);
-  const v = crs(ax, u);
-  const at = (p: V3, k: number): V3 => {
-    const ang = (k / sides) * Math.PI * 2;
-    const c = Math.cos(ang) * r;
-    const s = Math.sin(ang) * r;
-    return [p[0] + u[0] * c + v[0] * s, p[1] + u[1] * c + v[1] * s, p[2] + u[2] * c + v[2] * s];
-  };
-  for (let k = 0; k < sides; k++) {
-    const a0 = at(a, k);
-    const a1 = at(a, k + 1);
-    const e1 = at(e, k + 1);
-    const e0 = at(e, k);
-    const ang = ((k + 0.5) / sides) * Math.PI * 2;
-    const out: V3 = [a0[0] + u[0] * Math.cos(ang) * 5 + v[0] * Math.sin(ang) * 5, a0[1] + u[1] * Math.cos(ang) * 5 + v[1] * Math.sin(ang) * 5, a0[2] + u[2] * Math.cos(ang) * 5 + v[2] * Math.sin(ang) * 5];
-    pushQuadOut(b, a0, a1, e1, e0, 'wood', t, out, k < sides / 2 ? 0.95 : 0.7);
-  }
-  if (!caps) return;
-  // Торцы — светлее: свежий спил.
-  const cap: V3 = [t[0] * 1.35, t[1] * 1.3, t[2] * 1.2];
-  for (const [p, dir] of [
-    [a, -1],
-    [e, 1],
-  ] as const) {
-    const out: V3 = [p[0] + ax[0] * dir * 5, p[1] + ax[1] * dir * 5, p[2] + ax[2] * dir * 5];
-    for (let k = 1; k < sides - 1; k++) pushTriOut(b, at(p, 0), at(p, k), at(p, k + 1), 'wood', cap, out);
-  }
 }
 
 /** Столб в рамке: квадратный брус от земли под ним до `top` (над землёй, если `fromGround`). */
