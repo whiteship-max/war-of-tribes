@@ -87,8 +87,9 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
     camera.position.set(target.x + Math.sin(a) * Math.cos(e) * view.dist, target.y + Math.sin(e) * view.dist, target.z + Math.cos(a) * Math.cos(e) * view.dist);
     camera.lookAt(target);
     const fog = scene.fog as THREE.Fog;
-    fog.near = view.dist * 0.5;
-    fog.far = view.dist * 1.7 + 160;
+    // Дымка — за целью: середина кадра чистая, даль уходит в воздух.
+    fog.near = view.dist * 0.8;
+    fog.far = view.dist * 2.1 + 150;
   };
   const resize = (): void => {
     const w = window.innerWidth;

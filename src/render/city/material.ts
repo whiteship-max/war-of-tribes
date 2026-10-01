@@ -251,7 +251,9 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         bw /= max(1e-4, bw.x + bw.y + bw.z + bw.w);
         // Мостовая крупными пятнами: темнее у стен, светлее посередине улиц, кое-где старая и новая кладка.
         float cmac = cMacro(wp * 1.7 + 13.0);
-        vec3 cob = tc.rgb * (0.72 + 0.3 * cmac) * mix(0.8, 1.0, cm4.a);
+        vec3 cob = tc.rgb * vec3(0.92, 0.88, 0.82) * (0.62 + 0.3 * cmac) * mix(0.72, 1.0, cm4.a);
+        // У стен домов в швах больше грязи.
+        cob = mix(cob, td.rgb * 0.8, (1.0 - cm4.a) * 0.35);
         vec3 col = cob * bw.x + td.rgb * bw.y + tf.rgb * bw.z + grass * bw.w;
         col = mix(col, tr.rgb, wr);
         // Полог дальнего леса: листва слоя в масштабе крон (клетка — 5–6 м) и пятна пород.

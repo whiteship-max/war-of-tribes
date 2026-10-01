@@ -5,7 +5,7 @@
 // `detail` — уровень подробности по качеству: 0 — низкий (без слуховых окон, досок свесов, конька и
 // прогиба), 1 — средний, 2 — высокий.
 import { CITY } from './palette';
-import { Builder, box, slope, tint, wall, type V3 } from './geom';
+import { Builder, box, tint, wall, type V3 } from './geom';
 import type { House } from './layout';
 import { L, TILE_M, type LayerName } from './tex';
 import { rnd } from './noise';
@@ -98,8 +98,10 @@ export function gableTri(b: Builder, fr: Frame, a: [number, number], e: [number,
 const pick = <T>(arr: readonly T[], k: number): T => arr[((k % arr.length) + arr.length) % arr.length];
 
 /**
- * Двускатная кровля над прямоугольником рамки: `f0..f1` вперёд, `r0..r1` вправо, карниз на `y`.
+ * Кровля над прямоугольником рамки: `f0..f1` вперёд, `r0..r1` вправо, карниз на `y`.
  * `alongF` — конёк вдоль «вперёд» (щипцы спереди и сзади), иначе — вдоль «вправо».
+ * `hip` — вальма на концах конька: 0 — двускатная со щипцами, 0..1 — полувальма (щипец срезан
+ * сверху на эту долю), 1 — вальмовая. Возвращает конёк, подъём и срез щипца (для стены щипца).
  */
 export function gableRoof(
   b: Builder,
@@ -116,7 +118,8 @@ export function gableRoof(
   detail: Detail,
   seed: number,
   over = { eave: 0.45, verge: 0.35 },
-): { ridge: number; rise: number } {
+  hip = 0,
+): { ridge: number; rise: number; cutY: number; cutHalf: number } {
   const tp = Math.tan(pitch);
   // Оси кровли: «длина» вдоль конька (l), «поперёк» (c).
   const lo = alongF ? f0 : r0;
@@ -128,45 +131,66 @@ export function gableRoof(
   const rise = half * tp;
   const ridge = y + rise;
   const oe = over.eave;
-  const ov = over.verge;
   const yEave = y - oe * tp;
-  const sag = detail > 0 ? 0.03 + rnd(seed, 1, 3) * 0.06 : 0;
-  // Точка кровли: l — вдоль конька, c — поперёк, h — высота.
   const P = (l: number, c: number, h: number): V3 => (alongF ? fr.p(l, c, h) : fr.p(c, l, h));
-  const L0 = lo - ov;
-  const L1 = hi + ov;
+  const hipped = hip > 0;
+  // Концы ската: у щипца — свес по фронтону, у вальмы — почти по стене.
+  const endOver = hipped ? (hip >= 1 ? oe : 0.2) : over.verge;
+  const L0 = lo - endOver;
+  const L1 = hi + endOver;
   const Lm = (L0 + L1) / 2;
-  const segs: [number, number, number, number][] =
-    detail > 0
-      ? [
-          [L0, Lm, 0, sag],
-          [Lm, L1, sag, 0],
-        ]
-      : [[L0, L1, 0, 0]];
-  // Две плоскости: сторона c0 (обход — чтобы нормаль смотрела наружу) и сторона c1.
+  // Срез: высота, где кончается щипец, и полуширина ската там; вынос конька от концов.
+  const run = half + oe;
+  const yCut = hipped ? yEave + (ridge - yEave) * (1 - hip) : ridge;
+  const cutHalf = hipped ? run * hip : 0;
+  const inset = hipped ? Math.min(run * hip, (L1 - L0) / 2 - 0.05) : 0;
+  const R0 = L0 + inset;
+  const R1 = L1 - inset;
+  const sag = detail > 0 && !hipped ? 0.03 + rnd(seed, 1, 3) * 0.06 : 0;
+  const segs: [number, number, number, number][] = sag > 0 ? [[L0, Lm, 0, sag], [Lm, L1, sag, 0]] : [[L0, L1, 0, 0]];
   let u = rnd(seed, 2, 3) * 4;
-  for (const [la, lb, sa, sb] of segs) {
-    const wseg = lb - la;
-    // Сторона «c1» (по +c): карниз на c1+oe, конёк на mid.
-    const e0 = P(la, c1 + oe, yEave - sa * 0.5);
-    const e1 = P(lb, c1 + oe, yEave - sb * 0.5);
-    const k0 = P(la, mid, ridge - sa);
-    const k1 = P(lb, mid, ridge - sb);
-    // Сторона «c0».
-    const g0 = P(lb, c0 - oe, yEave - sb * 0.5);
-    const g1 = P(la, c0 - oe, yEave - sa * 0.5);
-    const m0 = P(lb, mid, ridge - sb);
-    const m1 = P(la, mid, ridge - sa);
-    // Обход «вдоль карниза слева направо снаружи» зависит от рамки: проверяем нормаль.
-    const pushSlope = (a: V3, bb: V3, c: V3, d: V3): void => {
-      const n = cross(sub(bb, a), sub(d, a));
-      if (n[1] < 0) slope(b, bb, a, d, c, layer, t, u);
-      else slope(b, a, bb, c, d, layer, t, u);
-    };
-    pushSlope(e0, e1, k1, k0);
-    pushSlope(g0, g1, m1, m0);
-    u += wseg / TILE_M[layer][0];
+  const [tw, th] = TILE_M[layer];
+  const quadUp = (a: V3, bb: V3, c: V3, d: V3, uv: readonly [number, number, number, number, number, number, number, number]): void => {
+    const n = cross(sub(bb, a), sub(d, a));
+    if (n[1] >= 0) b.quad(a, bb, c, d, uv, L[layer], t, [0.92, 0.92, 1, 1]);
+    else b.quad(bb, a, d, c, [uv[2], uv[3], uv[0], uv[1], uv[6], uv[7], uv[4], uv[5]], L[layer], t, [0.92, 0.92, 1, 1]);
+  };
+  const slant = (h0: number, h1: number): number => (h1 - h0) / Math.sin(pitch) / th;
+  for (const side of [1, -1]) {
+    const ce = side > 0 ? c1 + oe : c0 - oe;
+    const cc = mid + side * cutHalf;
+    if (!hipped) {
+      for (const [la, lb, sa, sb] of segs) {
+        const ua = u + (la - L0) / tw;
+        const ub = u + (lb - L0) / tw;
+        const v1 = slant(yEave, ridge);
+        quadUp(P(la, ce, yEave - sa * 0.5), P(lb, ce, yEave - sb * 0.5), P(lb, mid, ridge - sb), P(la, mid, ridge - sa), [ua, 0, ub, 0, ub, v1, ua, v1]);
+      }
+    } else {
+      // Полоса от карниза до среза — во всю длину, выше — трапеция до укороченного конька.
+      const vc = slant(yEave, yCut);
+      if (yCut > yEave + 0.01) quadUp(P(L0, ce, yEave), P(L1, ce, yEave), P(L1, cc, yCut), P(L0, cc, yCut), [u, 0, u + (L1 - L0) / tw, 0, u + (L1 - L0) / tw, vc, u, vc]);
+      const vr = slant(yEave, ridge);
+      quadUp(P(L0, cc, yCut), P(L1, cc, yCut), P(R1, mid, ridge), P(R0, mid, ridge), [u, vc, u + (L1 - L0) / tw, vc, u + (R1 - L0) / tw, vr, u + (R0 - L0) / tw, vr]);
+    }
   }
+  if (hipped) {
+    // Скаты вальмы: треугольник от среза к концу конька — на обоих концах.
+    for (const [end, rEnd, dir] of [
+      [L0, R0, -1],
+      [L1, R1, 1],
+    ] as const) {
+      const A = P(end, mid - cutHalf, yCut);
+      const B = P(end, mid + cutHalf, yCut);
+      const K = P(rEnd, mid, ridge);
+      const w = (cutHalf * 2) / tw;
+      const n = cross(sub(B, A), sub(K, A));
+      const out = P(end + dir * 3, mid, yCut + 2);
+      if (dot(n, sub(out, A)) >= 0) b.tri(A, B, K, [0, 0, w, 0, w / 2, slant(yCut, ridge)], L[layer], t, [0.92, 0.92, 1]);
+      else b.tri(B, A, K, [0, 0, w, 0, w / 2, slant(yCut, ridge)], L[layer], t, [0.92, 0.92, 1]);
+    }
+  }
+  void u;
   if (detail > 0) {
     // Доски карниза: узкая полоса под краем ската, снаружи.
     const fasc = 0.16;
@@ -183,31 +207,53 @@ export function gableRoof(
     const capW = 0.14;
     const capH = 0.07;
     const cap = [t[0] * 0.78, t[1] * 0.74, t[2] * 0.72] as V3;
+    const cl = (R1 - R0) / 4;
     for (const side of [1, -1]) {
-      const a0 = P(L0, mid, ridge + capH);
-      const a1 = P(L1, mid, ridge + capH);
-      const b0 = P(L0, mid + side * capW, ridge + capH - capW * tp * 0.6);
-      const b1 = P(L1, mid + side * capW, ridge + capH - capW * tp * 0.6);
+      const a0 = P(R0, mid, ridge + capH);
+      const a1 = P(R1, mid, ridge + capH);
+      const b0 = P(R0, mid + side * capW, ridge + capH - capW * tp * 0.6);
+      const b1 = P(R1, mid + side * capW, ridge + capH - capW * tp * 0.6);
       const n = cross(sub(a1, a0), sub(b0, a0));
-      if ((n[1] < 0) !== false) b.quad(a0, a1, b1, b0, [0, 0, (L1 - L0) / 4, 0, (L1 - L0) / 4, 0.05, 0, 0.05], L[layer], cap);
-      else b.quad(a1, a0, b0, b1, [0, 0, (L1 - L0) / 4, 0, (L1 - L0) / 4, 0.05, 0, 0.05], L[layer], cap);
+      if (n[1] >= 0) b.quad(a0, a1, b1, b0, [0, 0, cl, 0, cl, 0.05, 0, 0.05], L[layer], cap);
+      else b.quad(a1, a0, b0, b1, [0, 0, cl, 0, cl, 0.05, 0, 0.05], L[layer], cap);
     }
-  }
-  // Доски щипцов (ветровые) и тень свеса — на обоих концах конька.
-  if (detail > 0) {
-    const wood = tint(CITY.oak, 1.0);
-    for (const end of [L0, L1]) {
-      for (const side of [c0 - oe, c1 + oe]) {
-        const A = P(end, side, yEave);
-        const K = P(end, mid, ridge);
-        const A2: V3 = [A[0], A[1] - 0.16, A[2]];
-        const K2: V3 = [K[0], K[1] - 0.16, K[2]];
-        const outward = P(end + (end === L0 ? -1 : 1), mid, ridge);
-        pushQuadOut(b, A, K, K2, A2, 'wood', wood, outward);
+    // Доски щипцов (ветровые) — только у щипцов, у вальмы их нет.
+    if (!hipped) {
+      const wood2 = tint(CITY.oak, 1.0);
+      for (const end of [L0, L1]) {
+        for (const side of [c0 - oe, c1 + oe]) {
+          const A = P(end, side, yEave);
+          const K = P(end, mid, ridge);
+          const A2: V3 = [A[0], A[1] - 0.16, A[2]];
+          const K2: V3 = [K[0], K[1] - 0.16, K[2]];
+          const outward = P(end + (end === L0 ? -1 : 1), mid, ridge);
+          pushQuadOut(b, A, K, K2, A2, 'wood', wood2, outward);
+        }
       }
     }
   }
-  return { ridge, rise };
+  // Срез щипца на стене: высота и полуширина в плоскости стены (там свеса нет).
+  const wallCutHalf = hipped ? Math.max(0, half - (yCut - y) / tp) : 0;
+  return { ridge, rise, cutY: hipped ? yCut : ridge, cutHalf: hip >= 1 ? -1 : wallCutHalf };
+}
+
+/** Стена щипца под полувальмой: трапеция от низа щипца до среза (у вальмы стены щипца нет). */
+export function gableTrap(b: Builder, fr: Frame, a: [number, number], e: [number, number], y0: number, yCut: number, cutHalf: number, layer: LayerName, t: V3, vBase: number, vTile: number, glow: number): void {
+  if (cutHalf < 0) return;
+  const A = fr.p(a[0], a[1], y0);
+  const E = fr.p(e[0], e[1], y0);
+  const mx = (a[0] + e[0]) / 2;
+  const mr = (a[1] + e[1]) / 2;
+  const len = Math.hypot(E[0] - A[0], E[2] - A[2]);
+  const ux = (e[0] - a[0]) / len;
+  const ur = (e[1] - a[1]) / len;
+  const Ct = fr.p(mx + ux * cutHalf, mr + ur * cutHalf, yCut);
+  const Dt = fr.p(mx - ux * cutHalf, mr - ur * cutHalf, yCut);
+  const span = spanOf(layer, len);
+  const v0 = (y0 - vBase) / vTile;
+  const v1 = (yCut - vBase) / vTile;
+  const f = cutHalf / len;
+  b.quad(A, E, Ct, Dt, [0, v0, span, v0, span * (0.5 + f), v1, span * (0.5 - f), v1], L[layer], t, [0.95, 0.95, 1, 1], glow);
 }
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -301,15 +347,36 @@ export function house(b: Builder, h: House, detail: Detail): HouseOut {
   const roofHex = h.roof === 'shingle' ? CITY.shingleTint : h.roof === 'slate' ? CITY.slateTint : pick(CITY.roofTints, h.roofTint);
   const roofT = tint(roofHex, 0.92 + rnd(h.seed, 21, 1) * 0.16);
   const pitch = h.roof === 'shingle' ? h.pitch + 0.05 : h.pitch;
-  const r = gableRoof(b, fr, -hd, front, -hw + sx, hw + sx, y, pitch, h.gable, roofLayer, roofT, detail, h.seed);
-  // Щипцы: спереди и сзади (конёк вдоль «вперёд») или по бокам.
+  // Форма кровли: щипец, полувальма (щипец срезан сверху) или вальма — у широких домов карнизом.
+  const form = rnd(h.seed, 23, 1);
+  const hip = !h.gable && h.w > 7.5 && form < 0.3 ? 1 : form < 0.28 ? 0.32 + rnd(h.seed, 25, 1) * 0.12 : 0;
+  const r = gableRoof(b, fr, -hd, front, -hw + sx, hw + sx, y, pitch, h.gable, roofLayer, roofT, detail, h.seed, undefined, hip);
+  // Щипцы: спереди и сзади (конёк вдоль «вперёд») или по бокам; под полувальмой — трапеция.
   const glow = lit;
-  if (h.gable) {
-    gableTri(b, fr, [front, -hw + sx], [front, hw + sx], y, r.ridge, upLayer, wallT, y, STOREY_H, glow);
-    gableTri(b, fr, [-hd, hw + sx], [-hd, -hw + sx], y, r.ridge, upLayer, wallT, y, STOREY_H, glow);
-  } else {
-    gableTri(b, fr, [front, hw + sx], [-hd, hw + sx], y, r.ridge, upLayer, wallT, y, STOREY_H, glow);
-    gableTri(b, fr, [-hd, -hw + sx], [front, -hw + sx], y, r.ridge, upLayer, wallT, y, STOREY_H, glow);
+  const ends: [[number, number], [number, number]][] = h.gable
+    ? [
+        [
+          [front, -hw + sx],
+          [front, hw + sx],
+        ],
+        [
+          [-hd, hw + sx],
+          [-hd, -hw + sx],
+        ],
+      ]
+    : [
+        [
+          [front, hw + sx],
+          [-hd, hw + sx],
+        ],
+        [
+          [-hd, -hw + sx],
+          [front, -hw + sx],
+        ],
+      ];
+  for (const [a, e] of ends) {
+    if (hip > 0) gableTrap(b, fr, a, e, y, r.cutY, r.cutHalf, upLayer, wallT, y, STOREY_H, glow);
+    else gableTri(b, fr, a, e, y, r.ridge, upLayer, wallT, y, STOREY_H, glow);
   }
   // Слуховое окно на скате к улице у домов карнизом к улице.
   if (!h.gable && detail > 0 && h.w > 5.5) {
