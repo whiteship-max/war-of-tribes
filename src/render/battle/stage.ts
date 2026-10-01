@@ -8,7 +8,9 @@ import type { Side } from '@/battle/types';
 import { FigurePool } from '../figures';
 import type { Action } from '../poses';
 import { buildSky, setupFieldScene } from './field';
+import type { Look } from '../lighting';
 import { buildGround, type GroundView } from './ground';
+import { buildMeadow, type MeadowView } from './meadow';
 import { Aftermath } from './aftermath';
 import { ArrowStorm } from './arrows';
 import { MassView } from './mass';
@@ -45,16 +47,23 @@ export class BattleStage {
   private wreck: Aftermath;
   /** Земля клетки, на которой случился бой, и купол неба над ней. */
   private ground: GroundView;
+  /** Луг и опушка окружения — только у вида `next` (docs/graphics_world.md, 11.5). */
+  private meadow: MeadowView | null = null;
   private sky: THREE.Mesh;
   private us: Side;
 
-  constructor(cast: Cast) {
+  constructor(cast: Cast, look: Look = 'now') {
     this.us = cast.us;
     // Свет и земля — из раскадровки, то есть из записи боя. Ни настоящих часов,
-    // ни карты мира: повтор через неделю обязан дать тот же кадр.
-    setupFieldScene(this.scene, cast.ground);
-    this.ground = buildGround(cast.ground);
+    // ни карты мира: повтор через неделю обязан дать тот же кадр. Вид `next` — свет
+    // окружения посёлка (docs/graphics_world.md, 11.5).
+    setupFieldScene(this.scene, cast.ground, look);
+    this.ground = buildGround(cast.ground, look);
     this.scene.add(this.ground.group);
+    if (look === 'next') {
+      this.meadow = buildMeadow(cast.ground);
+      this.scene.add(this.meadow.group);
+    }
     // Купол собирается после света: цвета он берёт у самой сцены.
     this.sky = buildSky(this.scene, cast.ground);
     this.scene.add(this.sky);
@@ -102,6 +111,8 @@ export class BattleStage {
     this.mass.update(frame.sectors, (f) => CLOTH_OF(f.side === this.us), { couch: frame.couch, time: t, impact: frame.impact });
     this.wreck.update(frame.sectors, (f) => CLOTH_OF(f.side === this.us));
     this.arrows.update(frame.volleys);
+    // Трава и кроны качаются по времени ролика: повтор качает их так же.
+    this.meadow?.update(t);
   }
 
   /** Сколько инстансов примитивов заказано на всех — по этому числу считают бюджет. */
@@ -116,6 +127,7 @@ export class BattleStage {
     for (const b of this.blocks) b.dispose(this.pool);
     this.blocks = [];
     this.ground.dispose();
+    this.meadow?.dispose();
     this.sky.geometry.dispose();
     (this.sky.material as THREE.Material).dispose();
     this.scene.clear();

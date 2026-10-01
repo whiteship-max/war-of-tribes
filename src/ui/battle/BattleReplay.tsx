@@ -27,6 +27,7 @@ import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { beastWords } from '@/game/battle/beasts';
+import { gfx, sceneGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import type { BattleRecord } from '@/world/types';
 
@@ -77,6 +78,8 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
     // возврат после боя не стоит ни одной загрузки.
     villageMusic.duck(true);
     const player = new ReplayPlayer(renderer, cast, {
+      // Вид сцены — тот же, что у посёлка (адрес сильнее выбора в настройках): у `next` свет и луг окружения.
+      look: sceneGfx(gfx(), window.location.search).look,
       onFrame: (f) => {
         // Слой музыки идёт из кадра, как и всё остальное: звук ничего не решает.
         battleMusic.set(f.music);
