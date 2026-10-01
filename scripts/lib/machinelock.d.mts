@@ -18,6 +18,7 @@ export interface TakeOptions {
   file?: string;
   env?: NodeJS.ProcessEnv;
   born?: (pid: number) => number | null;
+  state?: (pid: number) => string | null;
   mine?: (pid: number) => boolean;
 }
 
@@ -30,9 +31,11 @@ export const POLL_MS: number;
 export const SAY_MS: number;
 export function tokenOf(rec: LockRecord): string;
 export function readLock(file?: string): Held | null;
-export function processExists(pid: number): boolean;
+export function statState(line: string): string | null;
+export function processState(pid: number): string | null;
+export function processExists(pid: number, state?: (pid: number) => string | null): boolean;
 export function processBorn(pid: number): number | null;
-export function holderAlive(rec: LockRecord, born?: (pid: number) => number | null): boolean;
+export function holderAlive(rec: LockRecord, born?: (pid: number) => number | null, state?: (pid: number) => string | null): boolean;
 export function isOurs(rec: Held | null, env?: NodeJS.ProcessEnv): boolean;
 export function tryTake(project: string, task: string, options?: TakeOptions): Take;
 export function releaseLock(rec: LockRecord, file?: string): void;
