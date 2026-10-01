@@ -1,14 +1,17 @@
-// Отчёт о бое со зверями у ворот (стая волков, docs/battle_eu4.md, 14.28): в прежнем виде «Смотреть бой» у него нет —
-// фигуры волка там нет (слово владельца; долг графики — docs/PROMISES_DEBT.md), а журнал есть. Волк в сцене боя есть
-// только в виде `next` (docs/graphics_world.md, 11.4): там стая идёт веткой людей — с роликом, — и ролик одевает её
-// волками, а подписи пишет словами о стае. Держит это чтение исходников: кнопка ролика стоит только в ветке записи
+// Отчёт о бое со зверями у ворот (стая волков, docs/battle_eu4.md, 14.28). Волк в сцене боя есть только в виде `next`
+// (docs/graphics_world.md, 11.4), а он с 01.10.2026 — вид по умолчанию (раздел 12): там стая идёт веткой людей — с
+// роликом, — и ролик одевает её волками, а подписи пишет словами о стае. В «Простом виде» из настроек фигуры волка нет:
+// «Смотреть бой» у записи нет, а журнал есть. Держит это чтение исходников: кнопка ролика стоит только в ветке записи
 // людей, журнал — в обеих, а ветка зверей открыта лишь тогда, когда сцена рисует прежний вид.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { gfx, sceneGfx, setGfxStorage } from '@/render/gfx';
 
 const src = readFileSync(path.join(process.cwd(), 'src/ui/panels/ReportPanel.tsx'), 'utf8');
 const replay = readFileSync(path.join(process.cwd(), 'src/ui/battle/BattleReplay.tsx'), 'utf8');
+
+afterEach(() => setGfxStorage({ read: () => null, write: () => undefined }));
 
 describe('отчёт о бое со зверями: журнал есть, ролик — только с фигурой волка', () => {
   it('«Смотреть бой» стоит только в ветке записи людей', () => {
@@ -28,6 +31,12 @@ describe('отчёт о бое со зверями: журнал есть, ро�
     expect(src, 'звери без волка — по полю записи и виду сцены').toMatch(/const beasts = rec\?\.beasts !== undefined && !wolfDrawn\(\);/);
     // Вид — тот же, что у сцены игры: адрес сильнее выбора в настройках.
     expect(src).toMatch(/const wolfDrawn = \(\): boolean => sceneGfx\(gfx\(\), window\.location\.search\)\.look === 'next';/);
+  });
+
+  it('по умолчанию у стаи — «Смотреть бой»: вид, который игра рисует без выбора, рисует волка', () => {
+    // Ничего не выбрано и адрес пуст — так у игрока. `wolfDrawn` читает то же (утверждение выше).
+    setGfxStorage({ read: () => null, write: () => undefined });
+    expect(sceneGfx(gfx(), '').look).toBe('next');
   });
 
   it('ролик стаи: сторона зверей идёт в раскадровку, подписи — словами о стае', () => {

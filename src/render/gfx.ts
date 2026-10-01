@@ -11,9 +11,13 @@
  * сцену с новым видом (`ui/GameCanvas.tsx`) — сменить вид на живой сцене нельзя, нужен
  * новый холст (docs/handbook/scene.md).
  *
- * ПО УМОЛЧАНИЮ ИГРОК ВИДИТ ПРЕЖНИЙ ВИД (`now`), пока владелец не решит иначе
- * (docs/graphics_world.md, 9.6). Уровень — «авто»: по устройству (`quality.autoQuality`),
- * но не выше того, до чего сторож опустил его на этом устройстве за последнюю неделю.
+ * ПО УМОЛЧАНИЮ ИГРОК ВИДИТ НОВЫЙ ВИД (`next`) — решение владельца 01.10.2026, после
+ * проверки на ПК и телефоне (docs/graphics_world.md, раздел 12). Прежний вид (`now`) остаётся
+ * в настройках строкой «Простой вид» — для слабых устройств и на случай проблем, — и игрок,
+ * выбравший его раньше, остаётся на нём: запись `look: 'now'` пишет только выключатель вида
+ * в настройках, так что она всегда — выбор игрока, а не умолчание прошлой сборки.
+ * Уровень — «авто»: по устройству (`quality.autoQuality`, телефон — не выше среднего), но
+ * не выше того, до чего сторож опустил его на этом устройстве за последнюю неделю.
  */
 import type { Look } from './lighting';
 import { QUALITIES, qualityOf, type Quality } from './quality';
@@ -26,7 +30,7 @@ export interface Gfx {
   quality: GfxQuality;
 }
 
-export const GFX_DEFAULT: Gfx = { look: 'now', quality: 'auto' };
+export const GFX_DEFAULT: Gfx = { look: 'next', quality: 'auto' };
 
 /** Уровни в пункте «Графика» — порядок кнопок и их слова. */
 export const GFX_QUALITIES: readonly (readonly [GfxQuality, string])[] = [
@@ -91,12 +95,15 @@ export function setGfxStorage(next: GfxStorage): void {
   cache = null;
 }
 
-/** Выбор из записи. Чужое и битое — умолчание, поле за полем. */
+/**
+ * Выбор из записи. Чужое и битое — умолчание, поле за полем. Вид из записи берётся только
+ * названный: `now` — выбор игрока, и смена умолчания его не отнимает.
+ */
 export function gfxOf(raw: string | null): Gfx {
   try {
     const o = JSON.parse(raw ?? 'null') as { look?: unknown; quality?: unknown } | null;
     if (!o || typeof o !== 'object') return GFX_DEFAULT;
-    const look: Look = o.look === 'next' ? 'next' : 'now';
+    const look: Look = o.look === 'now' || o.look === 'next' ? o.look : GFX_DEFAULT.look;
     const q = typeof o.quality === 'string' ? o.quality : null;
     const quality: GfxQuality = q === 'auto' ? 'auto' : (qualityOf(q) ?? 'auto');
     return { look, quality };

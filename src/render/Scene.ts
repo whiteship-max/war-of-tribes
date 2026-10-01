@@ -180,9 +180,10 @@ let active: TribeScene | null = null;
 export const activeScene = (): TribeScene | null => active;
 
 /**
- * Вид и уровень качества сцены. Игра их не передаёт — и рисует нынешний вид, как до
- * пробы; стенд передаёт (`?showcase=village&look=next&quality=low`). Уровень качества
- * действует только на вид `next`: у нынешнего кадра свои числа, и проба их не трогает.
+ * Вид и уровень качества сцены. Игра передаёт выбор игрока (`gfx.sceneGfx`: по умолчанию —
+ * `next`, «Простой вид» — `now`), стенд — адрес (`?showcase=village&look=next&quality=low`);
+ * без вида сцена рисует прежний. Уровень качества действует только на вид `next`: у
+ * прежнего кадра свои числа, и новый вид их не трогает.
  */
 export interface SceneLook {
   look?: Look;

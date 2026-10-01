@@ -31,8 +31,9 @@ import { gfx, sceneGfx } from '@/render/gfx';
 export const LOPSIDED = 3;
 
 /**
- * Фигура волка в сцене боя есть только в виде `next` (docs/graphics_world.md, 11.4): там стая смотрится роликом, как
- * всякий бой. Вид — тот же, что рисует сцена игры: адрес (`?look=next`) сильнее выбора в настройках (`sceneGfx`).
+ * Фигура волка в сцене боя есть только в виде `next` (docs/graphics_world.md, 11.4) — а он с 01.10.2026 вид по умолчанию
+ * (раздел 12): там стая смотрится роликом, как всякий бой. В «Простом виде» из настроек волка нет. Вид — тот же, что
+ * рисует сцена игры: адрес (`?look=`) сильнее выбора в настройках (`sceneGfx`).
  */
 const wolfDrawn = (): boolean => sceneGfx(gfx(), window.location.search).look === 'next';
 
@@ -172,9 +173,9 @@ export function ReportPanel({ id }: { id: string }) {
     if (reports.length === 0) void loadReports();
   }, [reports.length, loadReports]);
   const rec = report?.battle ?? null;
-  // Звери у ворот (`BattleRecord.beasts`) без фигуры волка: в прежнем виде ролику рисовать их нечем (долг графики,
-  // docs/PROMISES_DEBT.md), — поэтому ни «Смотреть бой», ни выбора итога; журнал показан сразу. В виде `next` волк
-  // есть, и стая идёт веткой людей — с роликом.
+  // Звери у ворот (`BattleRecord.beasts`) без фигуры волка: в простом (прежнем) виде ролику рисовать их нечем, —
+  // поэтому ни «Смотреть бой», ни выбора итога; журнал показан сразу. В виде `next` — он по умолчанию — волк есть, и
+  // стая идёт веткой людей — с роликом.
   const beasts = rec?.beasts !== undefined && !wolfDrawn();
   // Несопоставимые силы — смотреть нечего, подставляем итог, что бы ни выбрали раньше.
   const lopsided = rec ? lopsidedness(rec) >= LOPSIDED : false;

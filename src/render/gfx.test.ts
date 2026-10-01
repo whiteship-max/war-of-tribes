@@ -29,16 +29,45 @@ beforeEach(() => {
 afterEach(() => setGfxStorage({ read: () => null, write: () => undefined }));
 
 describe('выбор игрока', () => {
-  it('по умолчанию — прежний вид и уровень по устройству', () => {
+  it('по умолчанию — новый вид, прежний доступен в настройках', () => {
+    // Ничего не выбрано — новый вид и уровень по устройству (телефон сам выше среднего не встаёт — `quality.test.ts`).
+    expect(mem.size, 'область: записи нет').toBe(0);
+    expect(gfx()).toEqual({ look: 'next', quality: 'auto' });
+    expect(GFX_DEFAULT).toEqual({ look: 'next', quality: 'auto' });
+    // Прежний вид — строка «Простой вид» в настройках: включённая пишет `now`, выключенная возвращает `next`;
+    // строка уровня при простом виде спрятана — у прежнего вида уровень ничего не меняет.
+    const src = readFileSync(path.resolve(__dirname, '../ui/parts/Settings.tsx'), 'utf8');
+    expect(src, 'строка прежнего вида в настройках').toMatch(/<span className="name">\s*Простой вид\s*<em/);
+    expect(src, 'простой вид — это прежний').toContain("const simple = look.look === 'now';");
+    expect(src, 'выключатель пишет прежний вид и снимает его').toContain(
+      "onClick={() => setGfx({ look: simple ? 'next' : 'now' })} aria-pressed={simple}",
+    );
+    expect(src, 'уровень — только у нового вида').toMatch(/\{!simple && \(\s*<div className="set-row pick">/);
+    setGfx({ look: 'now' });
     expect(gfx()).toEqual({ look: 'now', quality: 'auto' });
-    expect(GFX_DEFAULT.look).toBe('now');
+    setGfx({ look: 'next' });
+    expect(gfx()).toEqual({ look: 'next', quality: 'auto' });
+  });
+
+  it('прежний вид, выбранный раньше, остаётся: смена умолчания выбора не отнимает', () => {
+    // Запись прошлой сборки: игрок выключил «Новый вид» — выключатель писал `look: 'now'` и уровень как был.
+    mem.set(GFX_KEY, JSON.stringify({ look: 'now', quality: 'auto' }));
+    expect(gfx()).toEqual({ look: 'now', quality: 'auto' });
+    mem.set(GFX_KEY, JSON.stringify({ look: 'now', quality: 'low' }));
+    expect(gfx()).toEqual({ look: 'now', quality: 'low' });
+    expect(sceneGfx(gfx(), '').look).toBe('now');
+    // Выбравший новый вид — на нём же.
+    mem.set(GFX_KEY, JSON.stringify({ look: 'next', quality: 'medium' }));
+    expect(gfx()).toEqual({ look: 'next', quality: 'medium' });
   });
 
   it('битая и чужая запись — умолчание, поле за полем', () => {
     expect(gfxOf('{')).toEqual(GFX_DEFAULT);
     expect(gfxOf('"next"')).toEqual(GFX_DEFAULT);
     expect(gfxOf(JSON.stringify({ look: 'next', quality: 'ultra' }))).toEqual({ look: 'next', quality: 'auto' });
-    expect(gfxOf(JSON.stringify({ look: 'wow', quality: 'low' }))).toEqual({ look: 'now', quality: 'low' });
+    // Вид, которого нет, и запись без вида — не выбор прежнего: умолчание.
+    expect(gfxOf(JSON.stringify({ look: 'wow', quality: 'low' }))).toEqual({ look: 'next', quality: 'low' });
+    expect(gfxOf(JSON.stringify({ quality: 'high' }))).toEqual({ look: 'next', quality: 'high' });
   });
 
   it('запись будит подписчиков, чтение отдаёт тот же объект, пока запись та же', () => {
@@ -46,10 +75,12 @@ describe('выбор игрока', () => {
     const off = subscribeGfx(() => calls++);
     const a = gfx();
     expect(gfx()).toBe(a);
-    setGfx({ look: 'next' });
+    setGfx({ look: 'now' });
     expect(calls).toBe(1);
-    expect(gfx()).toEqual({ look: 'next', quality: 'auto' });
+    expect(gfx()).toEqual({ look: 'now', quality: 'auto' });
+    setGfx({ look: 'next' });
     setGfx({ quality: 'low' });
+    expect(calls).toBe(3);
     expect(gfx()).toEqual({ look: 'next', quality: 'low' });
     expect(JSON.parse(mem.get(GFX_KEY)!)).toEqual({ look: 'next', quality: 'low' });
     off();
@@ -64,6 +95,8 @@ describe('что рисовать', () => {
     expect(sceneGfx(g, '?quality=auto')).toEqual({ look: 'now', quality: null, asked: false });
     // Ступени предыстории (`?look=lite`) — не вид посёлка.
     expect(sceneGfx(g, '?look=lite').look).toBe('now');
+    // Простой вид адресом — при новом виде в записи.
+    expect(sceneGfx({ look: 'next', quality: 'auto' }, '?look=now')).toEqual({ look: 'now', quality: null, asked: false });
     expect(mem.size).toBe(0);
   });
 });
