@@ -219,6 +219,17 @@ export const PALETTE = {
   stake: 0x60432a,
   skin: 0xd9a77a,
   hair: 0x3b2a20,
+  /** Вид `next`, этап 2 (`render/env/folk.ts`): платок и передник женщины у костра. */
+  scarf: 0xd8cdb4,
+  apron: 0xc8b893,
+  /** Собака у костра: рыжая с тёмной спиной (`render/beasts.ts`). */
+  dogCoat: 0x9a6a40,
+  dogDark: 0x5c4029,
+  /** Куры у огородов: белая и рыжая, гребень и клюв. */
+  hen: 0xdcd4c2,
+  henBrown: 0xa26a3c,
+  comb: 0xb6402f,
+  beak: 0xd6a03e,
 
   // ---------- Огонь (светится сам, единственное исключение из правила про ff) ----------
   fire: 0xff7a1a,
@@ -457,6 +468,11 @@ export const AO_BASE: Mul = [0.62, 0.63, 0.72];
 export const AO_WALL: Mul = [0.86, 0.87, 0.92];
 /** Основание столба. */
 export const AO_POST: Mul = [0.78, 0.79, 0.86];
+
+/** Фактура вида `next` (`render/env/facade.ts`): затенение углов грани и полосы под свесом — холодное, как все затемнения. */
+export const FACADE_SHADE: Mul = [0.74, 0.76, 0.86];
+/** Мох и сырость у земли на камне вида `next` — множитель к цвету камня, зеленее и темнее. */
+export const FACADE_MOSS: Mul = [0.8, 0.9, 0.7];
 /** Пятно под зданием на земле (умножающая декаль). */
 export const GROUND_SHADE: Mul = [0.68, 0.7, 0.8];
 /**

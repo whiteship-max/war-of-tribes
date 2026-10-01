@@ -15,10 +15,15 @@
 // 2. **Всё склеено.** Плита земли — один вызов, ближний декор — один, дальний
 //    план — один. Тени отбрасывает только ближний: дальнему лесу тень не
 //    положена, ровно как в деревне.
+//
+// Вид `next` (docs/graphics_world.md, 11.5) красит плиту цветами луга окружения посёлка — пятнами тёмного и
+// светлого дёрна, с мягким затенением — и оставляет опушку пустой: деревья, траву и цветы окружения ставит
+// `meadow.ts` на места, которые отдаёт земля (`woodsSpots`, `meadowAt`). Прежний вид — кадр в кадр прежний.
 import * as THREE from 'three';
 import type { Ground } from '@/battle/replay';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GRASS_DARK_MUL, GRASS_LIGHT_MUL, PALETTE, seasonColor, type Mul, type PaletteKey } from '../palette';
+import type { Look } from '../lighting';
 
 /**
  * Половина стороны подробной земли. Дальше идёт подстилка (`SKIRT_HALF`): у
@@ -97,7 +102,7 @@ const FAR_HILLS = { from: 74, to: 108, height: 13, count: 44 };
 const FAR_HAZE = 0.4;
 
 /** Детерминированный шум: та же запись боя — то же поле до кустика. */
-function hash(n: number): number {
+export function hash(n: number): number {
   let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
@@ -183,8 +188,64 @@ function wet(g: Ground, x: number, z: number): number {
 /** Стоять здесь дереву или камню нельзя: под ним вода. */
 const flooded = (g: Ground, x: number, z: number): boolean => wet(g, x, z) > 0.45;
 
+/**
+ * Сухой луг: здесь растут трава и цветы вида `next`. Не у воды (ил начинается раньше, чем вода; отмель брода лежит в
+ * русле — её отсекает та же вода), не на тракте и его обочине, и в пределах подробной плиты.
+ */
+export function meadowAt(g: Ground, x: number, z: number): boolean {
+  if (Math.max(Math.abs(x), Math.abs(z)) > FIELD_HALF - 2) return false;
+  if (wet(g, x, z) > 0.15) return false;
+  if (g.road && Math.abs(x) < ROAD_HALF + 0.45) return false;
+  return true;
+}
+
+/** Место дерева опушки: где стоит, какой высоты, высокое ли и ближнее ли (ближнее отбрасывает тень). */
+export interface WoodsSpot {
+  x: number;
+  y: number;
+  z: number;
+  scale: number;
+  tall: boolean;
+  near: boolean;
+}
+
+/**
+ * Места деревьев опушки — одни на оба вида: прежний ставит на них конусы, `next` — деревья окружения
+ * (`meadow.ts`). Порядок и выбор — те же, что у прежней опушки: прежний кадр не меняется ни деревом.
+ */
+export function woodsSpots(g: Ground): WoodsSpot[] {
+  const out: WoodsSpot[] = [];
+  if (!g.woods) return out;
+  for (let i = 0; i < WOODS_COUNT; i++) {
+    const a = hash(g.seed + i * 17) * Math.PI * 2;
+    const r = WOODS_FROM + hash(g.seed + i * 29) * (WOODS_TO - WOODS_FROM);
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    // Вид на дальнее войско лес не загораживает: перед строем он расступается.
+    if (flooded(g, x, z)) continue;
+    const y = groundHeight(g, x, z);
+    const scale = 0.85 + hash(g.seed + i * 41) * 0.5;
+    const tall = hash(g.seed + i * 53) > 0.5;
+    out.push({ x, y, z, scale, tall, near: r < WOODS_NEAR });
+  }
+  return out;
+}
+
 /** Насколько цвет дна уведён от травы к илу: ил чистым цветом слишком шоколадный. */
 const BED_MIX = 0.62;
+
+const C3 = new THREE.Color();
+
+/**
+ * Трава луга вида `next`: пятна тёмного и светлого дёрна, как у земли посёлка (`env/materials`, цвет `envG`) —
+ * крупные пятна и мелкая рябь, — запечённые в вершины плиты. Зимой — прежний снег.
+ */
+function swardOf(g: Ground, x: number, z: number, out: THREE.Color): THREE.Color {
+  const big = noise(g.seed + 23, x, z, 21);
+  const fine = noise(g.seed + 11, x, z, 6);
+  const p = Math.min(1, Math.max(0, big * 0.8 + fine * 0.35 - 0.08));
+  return out.setHex(PALETTE.swardDark).lerp(C3.setHex(PALETTE.swardLight), smooth((p - 0.2) / 0.6));
+}
 
 /** Умножитель цвета травы: от сырой низины к выгоревшему бугру. */
 function grassMul(g: Ground, x: number, z: number, out: THREE.Color): THREE.Color {
@@ -200,20 +261,25 @@ function grassMul(g: Ground, x: number, z: number, out: THREE.Color): THREE.Colo
  * Плита земли: рельеф и цвет запечены в вершины. Один вызов отрисовки на всю
  * землю, сколько бы примет у места ни было.
  */
-function buildPlate(g: Ground): THREE.BufferGeometry {
+function buildPlate(g: Ground, look: Look): THREE.BufferGeometry {
   const geo = new THREE.PlaneGeometry(FIELD_HALF * 2, FIELD_HALF * 2, PLATE_SEGMENTS, PLATE_SEGMENTS);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const col = new Float32Array(pos.count * 3);
   const grass = colorOf(g, 'field');
-  const bed = new THREE.Color(colorOf(g, 'field')).lerp(new THREE.Color(colorOf(g, 'soil')), BED_MIX).getHex();
+  // Луг вида `next` — дёрн окружения; зимой снег прежний.
+  const sward = look === 'next' && !g.winter;
+  const field = sward ? PALETTE.swardDark : colorOf(g, 'field');
+  const bed = new THREE.Color(field).lerp(new THREE.Color(colorOf(g, 'soil')), BED_MIX).getHex();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
     const y = groundHeight(g, x, z);
     pos.setY(i, y);
     // Трава уходит в ил долей, а не полосой: у воды она просто темнеет.
-    C.setHex(grass).multiply(grassMul(g, x, z, C2)).lerp(C2.setHex(bed), wet(g, x, z));
+    if (sward) swardOf(g, x, z, C);
+    else C.setHex(grass).multiply(grassMul(g, x, z, C2));
+    C.lerp(C2.setHex(bed), wet(g, x, z));
     col[i * 3] = C.r;
     col[i * 3 + 1] = C.g;
     col[i * 3 + 2] = C.b;
@@ -285,15 +351,20 @@ export interface GroundView {
 
 /**
  * Земля клетки целиком. Три меша: плита (принимает тени), ближний декор
- * (отбрасывает) и дальний план (ни того, ни другого).
+ * (отбрасывает) и дальний план (ни того, ни другого). У вида `next` плита гладкая
+ * (свой материал без плоского затенения: луг, а не гранёный стол), а опушки нет — её
+ * деревья ставит `meadow.ts`.
  */
-export function buildGround(g: Ground): GroundView {
+export function buildGround(g: Ground, look: Look = 'now'): GroundView {
   // Один белый множитель на всю землю: цвет живёт в вершинах, а материал —
   // свой, не общий. Сезон деревни до него не дотягивается по построению.
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, vertexColors: true });
   mat.name = 'battle-ground';
+  const smoothPlate = look === 'next' && !g.winter;
+  const plateMat = smoothPlate ? new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true }) : mat;
+  if (smoothPlate) plateMat.name = 'battle-ground-sward';
 
-  const plate: THREE.BufferGeometry[] = [buildPlate(g)];
+  const plate: THREE.BufferGeometry[] = [buildPlate(g, look)];
   const near: THREE.BufferGeometry[] = [];
   const far: THREE.BufferGeometry[] = [];
 
@@ -327,21 +398,13 @@ export function buildGround(g: Ground): GroundView {
 
   // Опушка. Ближние деревья отбрасывают тень — на низком солнце она ложится
   // через полполя и стоит дороже любой детали; дальним тень не положена.
-  if (g.woods) {
-    for (let i = 0; i < WOODS_COUNT; i++) {
-      const a = hash(g.seed + i * 17) * Math.PI * 2;
-      const r = WOODS_FROM + hash(g.seed + i * 29) * (WOODS_TO - WOODS_FROM);
-      const x = Math.cos(a) * r;
-      const z = Math.sin(a) * r;
-      // Вид на дальнее войско лес не загораживает: перед строем он расступается.
-      if (flooded(g, x, z)) continue;
-      const y = groundHeight(g, x, z);
-      const scale = 0.85 + hash(g.seed + i * 41) * 0.5;
-      const tall = hash(g.seed + i * 53) > 0.5;
-      if (r < WOODS_NEAR) {
-        for (const geo of tree(g, scale, tall)) near.push(geo.translate(x, y, z));
+  // У вида `next` на тех же местах стоят деревья окружения (`meadow.ts`).
+  if (look === 'now') {
+    for (const t of woodsSpots(g)) {
+      if (t.near) {
+        for (const geo of tree(g, t.scale, t.tall)) near.push(geo.translate(t.x, t.y, t.z));
       } else {
-        far.push(farTree(g, scale, tall).translate(x, y, z));
+        far.push(farTree(g, t.scale, t.tall).translate(t.x, t.y, t.z));
       }
     }
   }
@@ -369,7 +432,7 @@ export function buildGround(g: Ground): GroundView {
   // Подстилка: земля за подробной плитой. У стратегического плана верх кадра
   // стоит на горизонте, и без неё видно, где плита кончается. Кладётся рамкой
   // из восьми полос, потому что середина у неё уже есть.
-  for (const s of skirt(g)) plate.push(s);
+  for (const s of skirt(g, look)) plate.push(s);
 
   // Дальний план: гряда за дымкой. Она никогда не в фокусе — и не должна быть:
   // без неё горизонт пуст и поле читается зелёным диском, с ней у кадра
@@ -389,14 +452,14 @@ export function buildGround(g: Ground): GroundView {
   const group = new THREE.Group();
   group.name = 'ground';
   const meshes: THREE.Mesh[] = [];
-  const add = (parts: THREE.BufferGeometry[], cast: boolean, receive: boolean): void => {
+  const add = (parts: THREE.BufferGeometry[], cast: boolean, receive: boolean, material: THREE.Material = mat): void => {
     if (parts.length === 0) return;
     // Без групп: группа — это отдельный вызов отрисовки, а материал здесь один
     // на всё, и цвет живёт в вершинах именно ради этого.
     const geo = parts.length === 1 ? parts[0] : mergeGeometries(parts.map(nonIndexed), false);
     if (!geo) throw new Error('земля боя: не склеилась');
     if (parts.length > 1) for (const p of parts) p.dispose();
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = new THREE.Mesh(geo, material);
     mesh.castShadow = cast;
     mesh.receiveShadow = receive;
     // Земля и лес неподвижны и заведомо в кадре: сфера по каждому только мешает.
@@ -404,7 +467,7 @@ export function buildGround(g: Ground): GroundView {
     meshes.push(mesh);
     group.add(mesh);
   };
-  add(plate, false, true);
+  add(plate, false, true, plateMat);
   add(near, true, true);
   add(far, false, false);
 
@@ -413,6 +476,7 @@ export function buildGround(g: Ground): GroundView {
     dispose(): void {
       for (const m of meshes) m.geometry.dispose();
       mat.dispose();
+      if (plateMat !== mat) plateMat.dispose();
     },
   };
 }
@@ -422,14 +486,16 @@ export function buildGround(g: Ground): GroundView {
  * `SKIRT_HALF`. Ровная и на нуле — плита у своего края тоже приведена к нулю
  * (`groundHeight`), поэтому шва между ними нет.
  */
-function skirt(g: Ground): THREE.BufferGeometry[] {
+function skirt(g: Ground, look: Look): THREE.BufferGeometry[] {
   const a = FIELD_HALF;
   const b = SKIRT_HALF;
   const side = b - a;
   const mid = (a + b) / 2;
-  const color = new THREE.Color(colorOf(g, 'field')).multiply(
-    C2.setRGB(GRASS_DARK_MUL[0], GRASS_DARK_MUL[1], GRASS_DARK_MUL[2]),
-  );
+  // У вида `next` подстилка — тёмный дёрн луга: край плиты сходится с ней без шва.
+  const color =
+    look === 'next' && !g.winter
+      ? new THREE.Color(PALETTE.swardDark)
+      : new THREE.Color(colorOf(g, 'field')).multiply(C2.setRGB(GRASS_DARK_MUL[0], GRASS_DARK_MUL[1], GRASS_DARK_MUL[2]));
   const out: THREE.BufferGeometry[] = [];
   for (const sx of [-1, 0, 1]) {
     for (const sz of [-1, 0, 1]) {

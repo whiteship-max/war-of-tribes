@@ -40,7 +40,8 @@
     "emoji:build": "node scripts/build-emoji.mjs",
     "world:build": "node scripts/build-world.mjs",
     "map:shots": "vite-node scripts/map-shots.ts",
-    "village:shots": "vite-node scripts/village-shots.ts"
+    "village:shots": "vite-node scripts/village-shots.ts",
+    "replay:shots": "vite-node scripts/replay-shots.ts"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.3",

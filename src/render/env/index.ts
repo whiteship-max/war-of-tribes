@@ -27,6 +27,7 @@ import { QUALITY, type Quality } from '../quality';
 import type { SeasonVisuals } from '../season';
 import type { DayLight } from '../lighting';
 import {
+  CROPS_CAP,
   CROWN,
   FLOWER_COLORS,
   HAY_SPREAD,
@@ -60,6 +61,12 @@ import { envShared, groundMaterial, shadeMaterial, vegMaterial, type EnvShared, 
 import { makeLife, type Life } from './life';
 
 export type { EnvVillage } from './rules';
+// Фактура построек вида `next` (этап 2, пункт 2) едет тем же ленивым куском: сцена одевает здания, когда он пришёл.
+export { FACADE_SNOW, dressFacade } from './facade';
+// Люди и звери посёлка вида `next` (этап 2, пункт 3) — тем же куском.
+export { startLife, type VillageLife } from './folk';
+// Круглые мягкие клубы дыма вида `next` (этап 2, 11.6) — тем же куском.
+export { roundSmoke } from './smoke';
 
 export interface EnvOptions {
   quality: Quality;
@@ -112,6 +119,9 @@ export interface EnvCounts {
   hay: number;
   fences: number;
   sheep: number;
+  /** Полосы пашни у ворот и огороды внутри стены (этап 2, пункт 1). */
+  fields: number;
+  gardens: number;
   /** Сторона карты земли, текселей. */
   map: number;
   /** Сколько миллисекунд заняла сборка на этом устройстве: карта земли, расстановка, меши. */
@@ -420,8 +430,9 @@ export function startEnv(o: EnvOptions): EnvWorld {
     const commits = [
       yield* fillJob(g, tufts, (i) => C.setRGB(tufts[i].hue, tufts[i].hue, 0.95 + (tufts[i].hue - 1) * 0.3)),
       yield* fillJob(f, fl, (i) => C.copy(petal[fl[i].color % FLOWER_COLORS])),
-      // Озимая рожь — цвета пашни сезона, яровые (овёс, ячмень) — зеленее и холоднее.
-      yield* fillJob(k, cr, (i) => (cr[i].sowing === 'spring' ? C.setRGB(cr[i].hue * 0.88, cr[i].hue * 1.04, cr[i].hue * 0.8) : C.setScalar(cr[i].hue))),
+      // Озимая рожь — цвета пашни сезона, яровые (овёс, ячмень) и грядки — зелёные: так же их
+      // красит земля под ними (`env/materials`, зелень луга с долей цвета пашни).
+      yield* fillJob(k, cr, (i) => (cr[i].sowing === 'spring' ? C.setRGB(cr[i].hue * 0.72, cr[i].hue * 1.0, cr[i].hue * 0.55) : C.setScalar(cr[i].hue))),
     ];
     return (): void => {
       for (const commit of commits) commit();
@@ -461,8 +472,10 @@ export function startEnv(o: EnvOptions): EnvWorld {
             soil: color('soil'),
             stone: color('rock'),
             graze: color('graze'),
+            crop: color('crop'),
           },
           shared,
+          cropShow,
         ),
       ),
     );
@@ -548,7 +561,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     compile(fences);
     yield;
     const flock = spec.props >= 0.7 ? farm.flock : [];
-    const sheep = instanced(sheepModel(), mat(vegMaterial('sheep', { a: color('wool'), b: color('woolDark'), sway: 0, flat: true }, shared)), flock.length, 'sheep');
+    const sheep = instanced(sheepModel(), mat(vegMaterial('sheep', { a: color('wool'), b: color('woolDark'), sway: 0, flat: true, graze: true }, shared)), flock.length, 'sheep');
     (yield* fillJob(sheep, flock, (i) => C.setScalar(flock[i].hue)))();
     sheepCount = sheep.count;
     group.add(sheep);
@@ -564,7 +577,7 @@ export function startEnv(o: EnvOptions): EnvWorld {
     grass.receiveShadow = true;
     yield;
     const cropMat = mat(vegMaterial('crop', { a: color('meadow'), b: color('crop'), sway: 1.2, twoSided: true, fade: true, show: cropShow }, shared));
-    crops = instanced(tuftModel(true), cropMat, 400, 'crops');
+    crops = instanced(tuftModel(true), cropMat, CROPS_CAP, 'crops');
     const flowerMat = mat(vegMaterial('flower', { a: color('meadow'), b: color('grassTip'), sway: 0.9, twoSided: true, fade: true, petal: true, show: bloom }, shared));
     flowers = instanced(flowerModel(), flowerMat, spec.flowers, 'flowers');
     flowers.receiveShadow = true;
@@ -769,6 +782,8 @@ export function startEnv(o: EnvOptions): EnvWorld {
       hay: hayCount,
       fences: fenceCount,
       sheep: sheepCount,
+      fields: layout.fields.length,
+      gardens: layout.gardens.length,
       map: map?.size ?? 0,
       buildMs: build.ms,
       build: { ...build },

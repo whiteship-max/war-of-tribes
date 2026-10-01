@@ -25,6 +25,7 @@ import type { UnitKind } from '@/battle/types';
 import { INSTANCED, SHADE } from '../materials';
 import { MAN_HEIGHT, SPEAR_LEN } from '../units';
 import { PALETTE } from '../palette';
+import { beastSector } from './troops';
 
 /**
  * Длина древка. Не «побольше человека», а ровно то копьё, которое держал бы
@@ -265,8 +266,9 @@ export class MassView {
       // Знамёна тоже стоят на занятых местах: знамя держит знаменосец, и без
       // него это шест посреди травы. Конница знамя нести может — одно древко в
       // руке всадника не лес, — поэтому места берутся все занятые, а не только
-      // пешие.
-      for (let i = 0; i < f.banners && f.figures > 0; i++) {
+      // пешие. Стае знамя нести некому: у зверей его нет вовсе (`beastSector`).
+      const flagged = !beastSector(f);
+      for (let i = 0; i < f.banners && f.figures > 0 && flagged; i++) {
         const u = f.banners === 1 ? 0.5 : i / (f.banners - 1);
         const at = Math.min(f.figures - 1, Math.round(u * (f.figures - 1)));
         const spot = figureSpot(f, at, back);

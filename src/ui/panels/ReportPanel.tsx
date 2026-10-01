@@ -25,9 +25,16 @@ import { UNITS } from '@/world/data/units';
 import { formatCoord } from '@/world/geo';
 import type { BattleRecord, Loot, Report, UnitStack } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
+import { gfx, sceneGfx } from '@/render/gfx';
 
 /** Силы несопоставимы — смотреть нечего: мгновенный итог по умолчанию. */
 export const LOPSIDED = 3;
+
+/**
+ * Фигура волка в сцене боя есть только в виде `next` (docs/graphics_world.md, 11.4): там стая смотрится роликом, как
+ * всякий бой. Вид — тот же, что рисует сцена игры: адрес (`?look=next`) сильнее выбора в настройках (`sceneGfx`).
+ */
+const wolfDrawn = (): boolean => sceneGfx(gfx(), window.location.search).look === 'next';
 
 const unitsText = (units: UnitStack): string =>
   UNITS.filter((u) => (units[u.id] ?? 0) > 0)
@@ -165,9 +172,10 @@ export function ReportPanel({ id }: { id: string }) {
     if (reports.length === 0) void loadReports();
   }, [reports.length, loadReports]);
   const rec = report?.battle ?? null;
-  // Звери у ворот (`BattleRecord.beasts`): ролику рисовать их нечем — фигуры волка в сцене боя нет (долг графики,
-  // docs/PROMISES_DEBT.md), — поэтому ни «Смотреть бой», ни выбора итога; журнал показан сразу.
-  const beasts = rec?.beasts !== undefined;
+  // Звери у ворот (`BattleRecord.beasts`) без фигуры волка: в прежнем виде ролику рисовать их нечем (долг графики,
+  // docs/PROMISES_DEBT.md), — поэтому ни «Смотреть бой», ни выбора итога; журнал показан сразу. В виде `next` волк
+  // есть, и стая идёт веткой людей — с роликом.
+  const beasts = rec?.beasts !== undefined && !wolfDrawn();
   // Несопоставимые силы — смотреть нечего, подставляем итог, что бы ни выбрали раньше.
   const lopsided = rec ? lopsidedness(rec) >= LOPSIDED : false;
   const [watch, setWatch] = useState(() => Boolean(s.battleWatch) && !lopsided);

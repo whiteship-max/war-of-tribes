@@ -76,7 +76,7 @@ export function humanRig(height = MAN_HEIGHT, build = 1): Rig {
 }
 
 /** Размеры, которые нужны при одевании, но суставам не нужны. */
-interface Body {
+export interface Body {
   rig: Rig;
   headH: number;
   headCenter: number;
@@ -89,7 +89,7 @@ interface Body {
   armW: number;
 }
 
-function bodyOf(rig: Rig, build: number): Body {
+export function bodyOf(rig: Rig, build: number): Body {
   const h = rig.height;
   const headH = h / HEADS;
   return {
@@ -110,7 +110,7 @@ function bodyOf(rig: Rig, build: number): Body {
  * Голое тело: ноги, руки, корпус, голова. Одежда — это цвета, а не отдельные
  * детали: на боевом масштабе рукав от руки не отличить, а инстанс стоит денег.
  */
-function torso(f: Figure, b: Body, cloth: number, legs: number, skin: number): void {
+export function torso(f: Figure, b: Body, cloth: number, legs: number, skin: number): void {
   const { rig } = b;
   for (const [upper, lower] of [['legL', 'kneeL'], ['legR', 'kneeR']] as const) {
     addSlot(f, 'limb', upper, legs, [0, 0, 0], [b.legW, b.legLen * 0.51, b.legW * 1.12]);
@@ -130,7 +130,7 @@ function torso(f: Figure, b: Body, cloth: number, legs: number, skin: number): v
 }
 
 /** Шапка, капюшон или шлем поверх головы. `tall` — во сколько раз выше плоской. */
-function headwear(f: Figure, b: Body, color: number, tall: number, drop = 0): void {
+export function headwear(f: Figure, b: Body, color: number, tall: number, drop = 0): void {
   // Основание конуса лежит на верхней части головы: низкая посадка
   // прятала конус внутри черепа и оставляла макушку снаружи.
   const y = b.headCenter - b.rig.neckY + b.headH * (0.35 - drop);
@@ -138,7 +138,7 @@ function headwear(f: Figure, b: Body, color: number, tall: number, drop = 0): vo
 }
 
 /** Шея заменяет отдельный пояс: сохраняем число деталей и соединяем голову с грудью. */
-function neck(f: Figure, b: Body): void {
+export function neck(f: Figure, b: Body): void {
   addSlot(f, 'shaft', 'head', PALETTE.skin, [0, -b.headH * 0.13, 0], [b.headH * 0.38, b.headH * 0.4, b.headH * 0.4]);
 }
 

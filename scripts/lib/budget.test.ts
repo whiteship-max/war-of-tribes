@@ -7,7 +7,22 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { BROWSER_MAX_MS, CORE_SHARE, FREE_LOAD, HEAVY_PAUSE_MS, REPORT_DPR, REPORT_FPS, UNCAPPED, budgetCores, busyWords, foreignRuns, heavyWork } from './budget';
+import {
+  BENCH_PASSES_MAX,
+  BROWSER_MAX_MS,
+  CORE_SHARE,
+  FREE_LOAD,
+  GPU_COOL_MS,
+  HEAVY_PAUSE_MS,
+  REPORT_DPR,
+  REPORT_FPS,
+  UNCAPPED,
+  budgetCores,
+  busyWords,
+  foreignRuns,
+  gpuRest,
+  heavyWork,
+} from './budget';
 import { FPS_CAP } from '../../src/render/loop';
 
 const ROOT = join(__dirname, '..', '..');
@@ -24,15 +39,16 @@ const walk = (dir: string, out: string[] = []): string[] => {
 };
 
 describe('ядра', () => {
-  it('прогон берёт не больше половины ядер и хотя бы одно', () => {
-    // Решение владельца 29.09.2026: 6 из 12 — после выключения машины от перегрева под 8 из 12.
-    expect(CORE_SHARE).toBeCloseTo(1 / 2, 12);
+  it('прогон берёт не больше трети ядер и хотя бы одно', () => {
+    // Решение владельца 01.10.2026: 4 из 12, «не 6» — машина уже выключалась от перегрева (29.09.2026 — под 8 из 12;
+    // после того была половина).
+    expect(CORE_SHARE).toBeCloseTo(1 / 3, 12);
     for (let n = 1; n <= 64; n++) {
       const k = budgetCores(n);
       expect(k).toBeGreaterThanOrEqual(1);
-      if (n >= 2) expect(k).toBeLessThanOrEqual(n / 2);
+      if (n >= 3) expect(k).toBeLessThanOrEqual(n / 3);
     }
-    expect(budgetCores(12)).toBe(6);
+    expect(budgetCores(12)).toBe(4);
   });
 
   it('все ядра себе не берёт никто: ни тесты, ни веер, ни приёмка', () => {
@@ -147,6 +163,33 @@ describe('браузер', () => {
 
   it('прогон стенда сцены — не дольше двух минут подряд', () => {
     expect(BROWSER_MAX_MS).toBe(2 * 60_000);
+  });
+
+  it('замер цены кадра: не больше трёх проходов, и видеокарта остывает минуту после прошлого захода', () => {
+    // Решение владельца 01.10.2026. Граница области: внутри минуты от конца прошлого захода — ждать остаток, за ней —
+    // не ждать; отметки нет — не ждать.
+    expect(BENCH_PASSES_MAX).toBe(3);
+    expect(GPU_COOL_MS).toBe(60_000);
+    const end = 1_000_000;
+    expect(gpuRest(end, end), 'сразу после захода — вся минута').toBe(GPU_COOL_MS);
+    expect(gpuRest(end, end + 45_000), 'через 45 с — остаток').toBe(15_000);
+    expect(gpuRest(end, end + GPU_COOL_MS), 'через минуту — не ждать').toBe(0);
+    expect(gpuRest(null, end), 'стенд не шёл — не ждать').toBe(0);
+    // Часы ушли назад (отметка из будущего) — ждать не больше минуты, а не вечно.
+    expect(gpuRest(end + 10 * GPU_COOL_MS, end)).toBe(GPU_COOL_MS);
+    // Стенд посёлка держит правило сам: пауза перед заходом и между проходами, проходов не больше трёх, повтор вида в
+    // одном проходе — запрещён (это второй проход без паузы).
+    const shots = strip(readFileSync(join(ROOT, 'scripts', 'village-shots.ts'), 'utf8'));
+    expect(shots).toMatch(/await gpuCoolDown\(/);
+    expect(shots).toMatch(/gpuStamp\(\)/);
+    expect(shots).toMatch(/BENCH_PASSES_MAX/);
+    expect(shots).toMatch(/new Set\(LOOKS\)\.size !== LOOKS\.length/);
+    // Стенд ролика (`replay:shots`) — тот же порядок: отказ рядом с чужим, пауза перед заходом, отметка конца, срок захода.
+    const replay = strip(readFileSync(join(ROOT, 'scripts', 'replay-shots.ts'), 'utf8'));
+    expect(replay).toMatch(/refuseIfBusy\(/);
+    expect(replay).toMatch(/await gpuCoolDown\(/);
+    expect(replay).toMatch(/gpuStamp\(\)/);
+    expect(replay).toMatch(/Date\.now\(\) - began > BROWSER_MAX_MS/);
   });
 
   it('браузерные отчёты приёмки — по одному и с паузой перед каждым, и на базе тоже', () => {

@@ -26,12 +26,15 @@ import { ReplayPlayer } from '@/render/battle/player';
 import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
+import { beastWords } from '@/game/battle/beasts';
+import { gfx, sceneGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import type { BattleRecord } from '@/world/types';
 
 export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
   const us = rec.us;
-  const cast = useMemo(() => castOfRecord(rec.result, rec.us, rec.troops, rec.militia, rec.place), [rec]);
+  // Стая у ворот (`rec.beasts`) получает метку зверя: ролик одевает её волками, а не всадниками рода ядра.
+  const cast = useMemo(() => castOfRecord(rec.result, rec.us, rec.troops, rec.militia, rec.place, rec.beasts), [rec]);
   // Первый кадр есть до запуска: управление обязано быть на экране сразу,
   // а не появляться, когда рендерер отдаст первый onFrame.
   const [frame, setFrame] = useState<Frame>(() => frameAt(cast, 0));
@@ -75,6 +78,8 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
     // возврат после боя не стоит ни одной загрузки.
     villageMusic.duck(true);
     const player = new ReplayPlayer(renderer, cast, {
+      // Вид сцены — тот же, что у посёлка (адрес сильнее выбора в настройках): у `next` свет и луг окружения.
+      look: sceneGfx(gfx(), window.location.search).look,
       onFrame: (f) => {
         // Слой музыки идёт из кадра, как и всё остальное: звук ничего не решает.
         battleMusic.set(f.music);
@@ -121,7 +126,8 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
           {frame.side[us].men} · {frame.side[us === 'attacker' ? 'defender' : 'attacker'].men}
         </span>
       </div>
-      {frame.caption && <div className="replay-caption">{frame.caption}</div>}
+      {/* Подпись — строка журнала ядра; о стае она говорит словами о волках, как отчёт (`game/battle/beasts`). */}
+      {frame.caption && <div className="replay-caption">{beastWords(frame.caption, rec.beasts, us)}</div>}
       <div className="replay-controls">
         {frame.controls.map((c) => (
           <button className="btn" key={c.id} onClick={() => done.current()}>

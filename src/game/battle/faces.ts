@@ -21,10 +21,17 @@ import { battleWeight } from './price';
  * нанять и нельзя одеть. Поэтому в `TroopStack` их не запишешь, и метка у них
  * своя.
  */
-export type FaceId = TroopId | 'militia';
+export type FaceId = TroopId | 'militia' | 'wolf';
 
 /** Ополчение выходит в поле пехотой, а с башни — стрелками (см. `militiaArchers`). */
 export const MILITIA: FaceId = 'militia';
+
+/**
+ * Звери у ворот (`BattleRecord.beasts`): стая волков. Тоже не вид — её не нанять и не одеть, — и одевается она
+ * не бойцом, а зверем (`render/beasts.ts`). Метку ставит раскадровка записи (`cast.castOfRecord`) по стороне
+ * зверей; звери сегодня одни — волки, как и слова о них (`beasts.ts` рядом).
+ */
+export const BEAST: FaceId = 'wolf';
 
 /** Состав стороны глазами показа: сколько кого стояло. */
 export interface SideFaces {
@@ -100,10 +107,11 @@ export function facesOf(side: SideFaces): Face[] {
  * род показывается видом с ближайшей ступенью снаряжения — тем же правилом,
  * что и чужой гарнизон, а не отдельной таблицей.
  */
-export type Wear = { wear: 'troop'; troop: TroopId } | { wear: 'folk' };
+export type Wear = { wear: 'troop'; troop: TroopId } | { wear: 'folk' } | { wear: 'beast' };
 
 export function wearOf(id: string, kind: UnitKind): Wear {
   if (id === MILITIA) return { wear: 'folk' };
+  if (id === BEAST) return { wear: 'beast' };
   if (id in TROOP_BY_ID) return { wear: 'troop', troop: id as TroopId };
   const guess = troopOfKind(kind, 0);
   return guess ? { wear: 'troop', troop: guess } : { wear: 'folk' };

@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import type { Ground } from '@/battle/replay';
 import { PALETTE, seasonColor } from '../palette';
-import { applyDayNight, configureSky, createLightRig, fitShadow, type LightRig } from '../lighting';
+import { RIG, applyDayNight, configureSky, createLightRig, fitShadow, type LightRig, type Look } from '../lighting';
 
 /**
  * Куда стоит солнце боя. У деревни ключевой азимут выведен из её стартовой
@@ -89,9 +89,10 @@ const C2 = new THREE.Color();
 
 /**
  * Небо, туман и свет боевой сцены. Всё выведено из `ground`: тот же бой — тот же
- * свет, всегда.
+ * свет, всегда. `look` — числа света вида (`lighting.RIG`): у `next` тёплая полусфера и
+ * золотой час, как у посёлка (docs/graphics_world.md, 11.5); у `now` — прежний свет.
  */
-export function setupFieldScene(scene: THREE.Scene, ground: Ground): LightRig {
+export function setupFieldScene(scene: THREE.Scene, ground: Ground, look: Look = 'now'): LightRig {
   configureSky(scene);
   scene.fog = new THREE.Fog(PALETTE.fog, FOG.near, FOG.far);
   const rig = createLightRig(scene, SHADOW_MAP);
@@ -109,6 +110,7 @@ export function setupFieldScene(scene: THREE.Scene, ground: Ground): LightRig {
       sunArc: SUN_ARC * (ground.winter ? 0.8 : 1),
     },
     SUN_AZIMUTH,
+    RIG[look],
   );
   lowSun(rig, scene, ground);
   return rig;

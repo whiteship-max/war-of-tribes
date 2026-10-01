@@ -10,7 +10,7 @@ import { TROOP_IDS } from '../data/troops';
 import type { TroopId } from '../types';
 import { KIND_OF, gearOfTroop, type TroopStack } from './kinds';
 import { kindsOf } from './price';
-import { MILITIA, facesOf, facesTotal, troopOfKind, troopsOfKinds, wearOf } from './faces';
+import { BEAST, MILITIA, facesOf, facesTotal, troopOfKind, troopsOfKinds, wearOf } from './faces';
 import { castOfRecord } from './cast';
 
 const fight = (a: TroopStack, d: TroopStack, seed = 7) =>
@@ -117,6 +117,25 @@ describe('раскадровка получает виды, а не роды', (
     const mine = new Set<string>();
     for (const c of cast.sectors) if (c.side === 'defender') for (const f of c.byFace) mine.add(f.id);
     expect(mine.has(MILITIA)).toBe(true);
+  });
+
+  it('стая у ворот: сторона зверей — метка зверя по родам ядра; люди и число фигур — как без неё', () => {
+    // Как в игре (`LocalWorld.gateParty`): волки — лёгкая конница без состава племени.
+    const result = simulateBattle({ seed: 7, attacker: deploySetup({ cavalry: 60 }), defender: deploySetup(kindsOf(MIXED)) });
+    const plain = castOfRecord(result, 'defender', { attacker: {}, defender: MIXED });
+    const pack = castOfRecord(result, 'defender', { attacker: {}, defender: MIXED }, undefined, undefined, 'attacker');
+    const ids = (c: typeof plain, side: 'attacker' | 'defender'): string[] => [
+      ...new Set(c.sectors.filter((s) => s.side === side).flatMap((s) => s.byFace.map((f) => f.id))),
+    ];
+    // Граница области: без стороны зверей стая пришла бы родом — и ролик одел бы её всадниками.
+    expect(ids(plain, 'attacker')).toEqual(['cavalry']);
+    expect(wearOf('cavalry', 'cavalry').wear).toBe('troop');
+    expect(ids(pack, 'attacker')).toEqual([BEAST]);
+    expect(wearOf(BEAST, 'cavalry')).toEqual({ wear: 'beast' });
+    expect(ids(pack, 'defender')).toEqual(ids(plain, 'defender'));
+    // Метка меняет одежду, а не счёт: фигур по секторам столько же.
+    expect(pack.sectors.map((s) => s.figures)).toEqual(plain.sectors.map((s) => s.figures));
+    expect(pack.figures).toEqual(plain.figures);
   });
 
   it('раскадровка самодостаточна и повторяется: тот же вход — те же кадры', () => {

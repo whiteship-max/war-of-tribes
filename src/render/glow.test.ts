@@ -2,12 +2,10 @@
 // прибавляет, днём окно — прежняя тёмная краска, у нынешнего вида признака нет вовсе.
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { BUILDINGS } from '@/game/data/buildings';
 import { createBuildingGroup, type Tier } from './buildings';
-import { LIT_BODY, dropGlow, lightWindows } from './glow';
+import { dropGlow } from './glow';
 import { pane, paintOf, windowLight } from './kit';
 import { windowNight } from './lighting';
-import { KIT } from './materials';
 
 const TIERS: Tier[] = [0, 1, 2];
 
@@ -19,8 +17,6 @@ function meshes(g: THREE.Object3D): THREE.Mesh[] {
   });
   return out;
 }
-
-const mats = (m: THREE.Mesh): THREE.Material[] => (Array.isArray(m.material) ? m.material : [m.material]);
 
 describe('окна: признак в вершинах', () => {
   it('у жилищ на каждой ступени окна светятся, и не все вершины дома — окна', () => {
@@ -59,22 +55,7 @@ describe('окна: признак в вершинах', () => {
     expect(new Set(v.map((x) => x.toFixed(2))).size).toBeGreaterThan(20);
   });
 
-  it('светящееся тело встаёт на место тела — групп и вызовов столько же', () => {
-    for (const b of BUILDINGS) {
-      for (const t of TIERS) {
-        const g = createBuildingGroup(b.id, t);
-        const before = meshes(g).map((m) => mats(m).length);
-        const hadBody = meshes(g).some((m) => m.geometry.getAttribute('glow') && mats(m).includes(KIT.body));
-        lightWindows(g);
-        expect(meshes(g).map((m) => mats(m).length), `${b.id}/${t}`).toEqual(before);
-        for (const m of meshes(g)) {
-          if (!m.geometry.getAttribute('glow')) expect(mats(m)).not.toContain(LIT_BODY);
-          else expect(mats(m)).not.toContain(KIT.body);
-        }
-        if (hadBody) expect(meshes(g).some((m) => mats(m).includes(LIT_BODY))).toBe(true);
-      }
-    }
-  });
+  // Подмена тела на светящееся (фактура вида `next`) — в `env/facade.test.ts`.
 
   it('у нынешнего вида признака нет: атрибуты те же, что у здания без окон', () => {
     const g = createBuildingGroup('houses', 2);
