@@ -66,18 +66,24 @@ const hex = (cp: number): string => `U+${cp.toString(16).toUpperCase()}`;
  * Долг, а не исключение: места, где символ новее 12.0 стоял до теста. Замена ждёт решения
  * владельца. Список сверяется **ровно** — новое место уронит тест, и починенное тоже,
  * пока его не вычеркнут отсюда. Дописывать сюда нельзя.
+ *
+ * Место узнаётся по содержимому — файл, символ и кусок той же строки кода (`near`), — а не
+ * по номеру строки: прежде номер сдвигала любая строка комментария выше долга, и тест падал
+ * не из кода. Кусок обязан узнавать ровно одно место; узнал два — тест падает тоже.
  */
-const DEBT: readonly string[] = [
-  'game/data/troops.ts:48 U+1FA83',
-  'ui/SyncModal.tsx:27 U+1FA9F',
-  'ui/map/ActionMenu.tsx:450 U+1FAE5',
-  'ui/panels/ReportPanel.tsx:349 U+1FAA6',
-  'ui/parts/Tavern.tsx:22 U+1FA99',
-  'ui/parts/Tavern.tsx:35 U+1FA99',
-  'ui/parts/Tavern.tsx:58 U+1FA99',
-  'ui/parts/TroopCardView.tsx:155 U+1FAA8',
-  'world/data/diplomacy.ts:101 U+1FAA8',
+const DEBT: readonly { file: string; cp: number; near: string }[] = [
+  { file: 'game/data/troops.ts', cp: 0x1fa83, near: "icon: '" },
+  { file: 'ui/SyncModal.tsx', cp: 0x1fa9f, near: 'className="m-ico"' },
+  { file: 'ui/map/ActionMenu.tsx', cp: 0x1fae5, near: 'name="ui-eye-off"' },
+  { file: 'ui/panels/ReportPanel.tsx', cp: 0x1faa6, near: 'name="ui-grave"' },
+  { file: 'ui/parts/Tavern.tsx', cp: 0x1fa99, near: 'казна: {Math.floor(s.gold)}' },
+  { file: 'ui/parts/Tavern.tsx', cp: 0x1fa99, near: '<span className="ico">' },
+  { file: 'ui/parts/Tavern.tsx', cp: 0x1fa99, near: 'Задать пир' },
+  { file: 'ui/parts/TroopCardView.tsx', cp: 0x1faa8, near: 't.mult <= 1' },
+  { file: 'world/data/diplomacy.ts', cp: 0x1faa8, near: "icon: '" },
 ];
+
+const debtName = (d: (typeof DEBT)[number]): string => `${d.file} ${hex(d.cp)} «${d.near}»`;
 
 describe('эмодзи — только из Emoji 12.0 и старше', () => {
   it('список — таблица 12.0, и граница стоит там, где кончается 12.0', () => {
@@ -120,12 +126,17 @@ describe('эмодзи — только из Emoji 12.0 и старше', () => 
     for (const file of sources(ROOT)) {
       files++;
       const code = strip(readFileSync(file, 'utf8'));
+      const lines = code.split('\n');
       const path = rel(file);
       for (const { cp, line } of emojiIn(code)) {
         found++;
-        if (!allowed(cp)) hits.push(`${path}:${line} ${hex(cp)}`);
+        if (allowed(cp)) continue;
+        // Место долга — то, которое узнаёт ровно одна его запись; иначе место новое (или
+        // запись узнаёт не одно), и в ответе стоит номер строки — чтобы его найти.
+        const debt = DEBT.filter((d) => d.file === path && d.cp === cp && lines[line - 1].includes(d.near));
+        hits.push(debt.length === 1 ? debtName(debt[0]) : `${path}:${line} ${hex(cp)}`);
       }
-      code.split('\n').forEach((l, i) => {
+      lines.forEach((l, i) => {
         if (l.includes(ZWJ)) zwj.push(`${path}:${i + 1}`);
       });
     }
@@ -133,6 +144,7 @@ describe('эмодзи — только из Emoji 12.0 и старше', () => 
     expect(files, 'обошли весь src').toBeGreaterThan(300);
     expect(found, 'эмодзи в коде есть — правило спрашивалось').toBeGreaterThan(300);
     expect(zwj, 'склейки ZWJ списком кодовых точек не проверить').toEqual([]);
-    expect(hits.sort()).toEqual([...DEBT].sort());
+    // Каждая запись долга узнаёт ровно одно место: два места под одной записью дали бы её имя дважды.
+    expect(hits.sort()).toEqual(DEBT.map(debtName).sort());
   });
 });
