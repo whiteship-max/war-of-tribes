@@ -29,3 +29,16 @@ export const CITY_SPEC: Record<Quality, CitySpec> = {
   low: { tex: 256, map: 512, groundCells: 120, groundCell: 3.6, detail: 0, anisotropy: 1, shadowMap: 1024, treeNear: 220, nearStep: 10, farStep: 22, treeReach: 650, land: 128 },
 };
 
+
+/** Сколько фигур жизни уровень показывает самое большее (`life.ts`, docs/city.md, 11.4). */
+export const LIFE_CAP: Record<Quality, { people: number; guards: number; birds: number; animals: number; smoke: number }> = {
+  low: { people: 70, guards: 10, birds: 12, animals: 8, smoke: 40 },
+  medium: { people: 160, guards: 18, birds: 28, animals: 14, smoke: 90 },
+  high: { people: 260, guards: 26, birds: 44, animals: 18, smoke: 160 },
+};
+
+/**
+ * Треугольников у фигуры жизни — счёту бюджета (`budget.cityCounts`); сами фигуры строит `life.ts`, а что
+ * числа с ними сходятся, держит тест (`life.test.ts`).
+ */
+export const LIFE_TRIS = { person: 36, guard: 72, beast: 36, bird: 2, flag: 44 } as const;

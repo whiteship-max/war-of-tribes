@@ -99,6 +99,7 @@ varying float vGrime;
 varying vec3 vCWPos;
 varying float vCNy;
 varying float vOwner;
+varying float vSeed;
 `;
 
 const COMMON_FRAG = /* glsl */ `
@@ -113,6 +114,7 @@ uniform vec3 cTorchCol;
 uniform float cSel;
 uniform float cSelGlow;
 varying float vOwner;
+varying float vSeed;
 varying vec2 vCUv;
 varying float vLayer;
 varying float vGlow;
@@ -156,9 +158,12 @@ function patchVertex(shader: { vertexShader: string }): void {
     vOwner = cfg.w;
     vec4 cwp = vec4(transformed, 1.0);
     vec3 cwn = objectNormal;
+    // Своё число экземпляра (дерева) — от его места: осенью кроны желтеют и краснеют вразнобой.
+    vSeed = 0.0;
     #ifdef USE_INSTANCING
       cwp = instanceMatrix * cwp;
       cwn = mat3(instanceMatrix) * cwn;
+      vSeed = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
     #endif
     cwp = modelMatrix * cwp;
     vCWPos = cwp.xyz;
@@ -307,8 +312,9 @@ export function foliageMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
       /* glsl */ `
         vec4 cTex = texture(cityTex, vec3(vCUv, vLayer));
         vec3 leaf = cTex.rgb;
-        // Лиственные (слой листвы) осенью к охре и рыжему; хвоя (тон темнее) — меньше.
-        leaf = mix(leaf, leaf * vec3(1.6, 1.05, 0.45), cAutumn * vGrime);
+        // Лиственные (слой листвы) осенью — вразнобой: золото, рыжее, ржавое, у кого-то ещё зелень.
+        vec3 fall = vSeed < 0.38 ? vec3(1.55, 1.2, 0.32) : vSeed < 0.7 ? vec3(1.65, 0.86, 0.3) : vSeed < 0.88 ? vec3(1.35, 0.55, 0.28) : vec3(1.1, 1.05, 0.55);
+        leaf = mix(leaf, leaf * fall, cAutumn * vGrime);
         vec3 summer = diffuseColor.rgb * leaf;
         // Зимой лиственные голые: сеть ветвей серо-бурая, в просветах — светлее (небо и снег сквозь
         // ветви). Тон экземпляра (зелень породы) зиме не указ — иначе голая крона выходила серо-зелёной.

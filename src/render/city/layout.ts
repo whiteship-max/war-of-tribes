@@ -109,6 +109,16 @@ export function heightAt(x: number, z: number): number {
   return h;
 }
 
+/** Середина ленты воды реки через 8 м — от горизонта до горизонта (`water.ts`, счёт бюджета). */
+export function riverRibbon(): { x: number; z: number; y: number }[] {
+  const out: { x: number; z: number; y: number }[] = [];
+  for (let z = -1100; z <= 1100; z += 8) out.push({ x: riverX(z), z, y: riverLevel(z) });
+  return out;
+}
+
+/** Середина ленты воды мельничного ручья. */
+export const raceRibbon = (): { x: number; z: number; y: number }[] => smoothPath(RACE, 2).map((p) => ({ ...p, y: RACE_LEVEL }));
+
 /**
  * Мельничный ручей лесопилки (docs/city.md, раздел 5): вода отводится из реки выше по течению, обходит
  * мельницу с востока, бежит на запад под колесом вдоль её южной стены и возвращается в реку ниже.

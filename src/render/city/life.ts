@@ -12,13 +12,8 @@ import { heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
 import { linear } from './palette';
-
-/** Сколько фигур уровень показывает самое большее. */
-export const LIFE_CAP: Record<Quality, { people: number; guards: number; birds: number; animals: number; smoke: number }> = {
-  low: { people: 70, guards: 10, birds: 12, animals: 8, smoke: 40 },
-  medium: { people: 160, guards: 18, birds: 28, animals: 14, smoke: 90 },
-  high: { people: 260, guards: 26, birds: 44, animals: 18, smoke: 160 },
-};
+import { LIFE_CAP } from './spec';
+export { LIFE_CAP } from './spec';
 
 // ---------------------------------------------------------------------------------------------
 // Модели: фигура стоит в начале координат лицом на +x; масштаб — метры.
@@ -90,7 +85,7 @@ const STEEL: V3 = linear(0x8a8e92);
 const SHAFT: V3 = linear(0x5a4632);
 
 /** Горожанин: ноги, рубаха до колен (цвет экземпляра), голова. */
-const personGeometry = (): THREE.BufferGeometry =>
+export const personGeometry = (): THREE.BufferGeometry =>
   figure([
     { x: 0, y0: 0, y1: 0.78, hw: 0.17, hd: 0.11, col: LEGS, tint: 0 },
     { x: 0, y0: 0.62, y1: 1.42, hw: 0.27, hd: 0.16, taper: 0.78, col: WHITE, tint: 1 },
@@ -98,7 +93,7 @@ const personGeometry = (): THREE.BufferGeometry =>
   ]);
 
 /** Стражник: то же и шлем, древко копья выше головы. */
-const guardGeometry = (): THREE.BufferGeometry =>
+export const guardGeometry = (): THREE.BufferGeometry =>
   figure([
     { x: 0, y0: 0, y1: 0.8, hw: 0.17, hd: 0.12, col: LEGS, tint: 0 },
     { x: 0, y0: 0.65, y1: 1.45, hw: 0.29, hd: 0.18, taper: 0.8, col: WHITE, tint: 1 },
@@ -109,7 +104,7 @@ const guardGeometry = (): THREE.BufferGeometry =>
   ]);
 
 /** Овца (корова — та же, крупнее и в своём цвете): туловище, голова, четыре ноги одной коробкой. */
-const beastGeometry = (): THREE.BufferGeometry =>
+export const beastGeometry = (): THREE.BufferGeometry =>
   figure([
     { x: 0, y0: 0, y1: 0.35, hw: 0.2, hd: 0.36, col: LEGS, tint: 0 },
     { x: 0, y0: 0.3, y1: 0.85, hw: 0.28, hd: 0.55, taper: 0.9, col: WHITE, tint: 1 },
@@ -391,7 +386,7 @@ export class CityLife {
 
   /**
    * Флаги на башнях: древко и полотнище, полотнище вьётся в шейдере (ветер один на всех). Один меш на
-   * все флаги; цвет — полосы города, красный с охрой.
+   * все флаги; цвет — красное поле города с золотой бахромой.
    */
   private buildFlags(tops: V3[]): THREE.Mesh {
     const pos: number[] = [];
@@ -442,7 +437,8 @@ export class CityLife {
           const v = j / NY;
           pos.push(x + wx * u * 2.4, y + ph - 0.1 - v * 1.4, z + wz * u * 2.4);
           nor.push(-wz, 0, wx);
-          const c = v < 0.5 ? red : gold;
+          // Красное полотнище с золотой бахромой на конце: одно поле, без полос (полосы читались чужим флагом).
+          const c = u > 0.84 ? gold : red;
           col.push(...c);
           flap.push(u);
         }

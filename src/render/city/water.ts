@@ -3,7 +3,7 @@
 // Френелю и блик солнца — в собственном свечении (его свет не гасит), зимой — лёд у берегов. Уровень
 // воды идёт за долиной (`layout.riverLevel`): берега выше воды на полметра.
 import * as THREE from 'three';
-import { RACE, RACE_HALF, RACE_LEVEL, RIVER_HALF, riverLevel, riverX, smoothPath } from './layout';
+import { RACE_HALF, RIVER_HALF, raceRibbon, riverRibbon } from './layout';
 import type { CityUniforms } from './material';
 
 /** Лента вдоль ломаной: середина, полуширина, высота воды в точке. */
@@ -32,16 +32,8 @@ export function buildWater(u: CityUniforms): THREE.Mesh {
   const pos: number[] = [];
   const idx: number[] = [];
   const edge: number[] = [];
-  const river: { x: number; z: number; y: number }[] = [];
-  for (let z = -1100; z <= 1100; z += 8) river.push({ x: riverX(z), z, y: riverLevel(z) });
-  ribbon(river, RIVER_HALF + 1.5, pos, idx, edge);
-  ribbon(
-    smoothPath(RACE, 2).map((p) => ({ ...p, y: RACE_LEVEL })),
-    RACE_HALF + 1.2,
-    pos,
-    idx,
-    edge,
-  );
+  ribbon(riverRibbon(), RIVER_HALF + 1.5, pos, idx, edge);
+  ribbon(raceRibbon(), RACE_HALF + 1.2, pos, idx, edge);
   // Обход ленты зависит от того, куда идёт ломаная, — грани с двух сторон, нормаль вверх задана явно.
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));

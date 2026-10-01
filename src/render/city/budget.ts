@@ -4,7 +4,7 @@
 import type { Quality } from '../quality';
 import type { BuildingTypeId } from '@/game/types';
 import { Builder, type V3 } from './geom';
-import { cityPlan, type CityPlan, type Civic, type TowerKind } from './layout';
+import { cityPlan, raceRibbon, riverRibbon, type CityPlan, type Civic, type TowerKind } from './layout';
 import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { yard } from './outskirts';
 import { house } from './kit';
@@ -12,7 +12,7 @@ import { cityWall, tower } from './forts';
 import { churchyard, civic, fireBowl, stall, statue, well } from './civic';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
-import { CITY_SPEC } from './spec';
+import { CITY_SPEC, LIFE_CAP, LIFE_TRIS } from './spec';
 
 /** Границы владельца по уровням (задание ночи 1): вызовы, треугольники, МБ текстур, МБ докачки. */
 export const CITY_BUDGET: Record<Quality, { calls: number; triangles: number; textureMb: number; downloadMb: number }> = {
@@ -124,6 +124,8 @@ export interface CityCounts {
   buildings: number;
   ground: number;
   trees: number;
+  /** Вода, люди, стража, скот, птицы, флаги — потолок уровня (`spec.LIFE_CAP`). */
+  life: number;
   textureMb: number;
 }
 
@@ -136,7 +138,8 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   let treeTris = 0;
   let treeShadow = 0;
-  let calls = 1 + 1 + 1 + 1; // здания, их тень, земля, огоньки ночью
+  // Здания, их тень, земля, огоньки ночью; вода; люди, стража, скот, дым, флаги, птицы (тени у них нет).
+  let calls = 1 + 1 + 1 + 1 + 1 + 6;
   for (const sp of Object.keys(trees) as Species[]) {
     const n = trees[sp].length;
     if (n === 0) continue;
@@ -146,15 +149,25 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
     calls += far ? 1 : 2;
     if (!far) treeShadow += t;
   }
+  const cap = LIFE_CAP[q];
+  const water = (riverRibbon().length - 1 + raceRibbon().length - 1) * 2;
+  const life =
+    water +
+    cap.people * LIFE_TRIS.person +
+    cap.guards * LIFE_TRIS.guard +
+    cap.animals * LIFE_TRIS.beast +
+    cap.birds * LIFE_TRIS.bird +
+    plan.towers.length * LIFE_TRIS.flag;
   const layerBytes = spec.tex * spec.tex * 4 * LAYERS.length * (4 / 3);
   const mapBytes = (spec.map * spec.map + spec.land * spec.land) * 4 * (4 / 3);
   const shadowBytes = spec.shadowMap * spec.shadowMap * 8;
   return {
     calls,
-    triangles: b.triangleCount * 2 + ground + treeTris + treeShadow,
+    triangles: b.triangleCount * 2 + ground + treeTris + treeShadow + life,
     buildings: b.triangleCount,
     ground,
     trees: treeTris,
+    life,
     textureMb: (layerBytes + mapBytes + shadowBytes) / 1048576,
   };
 }
