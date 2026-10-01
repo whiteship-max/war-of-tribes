@@ -1,18 +1,20 @@
-// Сборка вида «город» (docs/city.md, раздел 7): слои текстур в потоке, план, модели в один меш,
-// земля с картой покрытий. Ленивый кусок: грузит его стенд (`?showcase=city`), позже — сцена при
-// `look=city`. Возвращает группу и ручки (ночь, снег, осень) — кадр сцена рисует сама.
+// Сборка вида «город» (docs/city.md, разделы 7 и 11.5): слои текстур и мир (план, модели, карты,
+// расстановка) — в двух потоках; здесь — только буферы, текстуры и материалы. Ленивый кусок: грузят
+// его стенд (`?showcase=city`) и сцена игры при `?look=city`. Возвращает группу и ручки (ночь, снег,
+// осень) — кадр сцена рисует сама.
 import * as THREE from 'three';
 import type { Builder, V3 } from './geom';
-import { cityPlan, type CityPlan } from './layout';
-import { buildStatic } from './budget';
+import type { CityPlan } from './layout';
+import { arraysOf, buildWorld, type CityWorld, type MeshArrays } from './world';
 import { LAYERS, paintLayer, TEX_SEED } from './tex';
 import { buildingMaterial, cityUniforms, CITY_LIGHTS, foliageMaterial, groundMaterial, LayerTexture, MapTexture, type CityUniforms } from './material';
 import { CITY } from './palette';
-import { groundGrid, groundMap, MAP_AT } from './ground';
-import { LAND_AT, landMap, placeTrees, treeModel, type Species } from './nature';
+import { MAP_AT } from './ground';
+import { LAND_AT, treeModel, type Species } from './nature';
 import type { Quality } from '../quality';
 import { CITY_SPEC } from './spec';
 import type { Site } from './sites';
+import { buildWater } from './water';
 export { CITY_SPEC, type CitySpec } from './spec';
 
 /** Слои текстур в потоке: кадр не ждёт генерации. Нет потока — считаем здесь же. */
@@ -47,14 +49,17 @@ export function meshOf(b: Builder, mat: THREE.Material): THREE.Mesh {
   return new THREE.Mesh(geometryOf(b), mat);
 }
 
-export function geometryOf(b: Builder): THREE.BufferGeometry {
+export const geometryOf = (b: Builder): THREE.BufferGeometry => geometryFrom(arraysOf(b));
+
+/** Буферы меша из плоских массивов (их отдаёт поток мира без копии). */
+export function geometryFrom(a: MeshArrays): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b.pos), 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(b.nor), 3));
-  g.setAttribute('cuv', new THREE.BufferAttribute(new Float32Array(b.uv), 2));
-  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(b.col), 3));
-  g.setAttribute('cfg', new THREE.BufferAttribute(new Uint8Array(b.cfg), 4));
-  g.setIndex(new THREE.BufferAttribute(b.vertexCount > 65535 ? new Uint32Array(b.idx) : new Uint16Array(b.idx), 1));
+  g.setAttribute('position', new THREE.BufferAttribute(a.pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(a.nor, 3));
+  g.setAttribute('cuv', new THREE.BufferAttribute(a.uv, 2));
+  g.setAttribute('color', new THREE.BufferAttribute(a.col, 3));
+  g.setAttribute('cfg', new THREE.BufferAttribute(a.cfg, 4));
+  g.setIndex(new THREE.BufferAttribute(a.idx, 1));
   g.computeBoundingSphere();
   return g;
 }
@@ -110,37 +115,54 @@ function flames(lights: V3[]): THREE.Points {
   return p;
 }
 
+/** Мир города в потоке: план, меш зданий, карты, расстановка. Нет потока — здесь же. */
+export function worldOf(q: Quality): Promise<CityWorld> {
+  try {
+    const w = new Worker(new URL('./world.worker.ts', import.meta.url), { type: 'module' });
+    return new Promise<CityWorld>((resolve, reject) => {
+      w.onmessage = (e: MessageEvent<CityWorld>): void => {
+        resolve(e.data);
+        w.terminate();
+      };
+      w.onerror = (e): void => {
+        w.terminate();
+        reject(e);
+      };
+      w.postMessage({ quality: q });
+    }).catch(() => buildWorld(q));
+  } catch {
+    return Promise.resolve(buildWorld(q));
+  }
+}
+
 export async function buildCity(q: Quality): Promise<CityBuild> {
   const spec = CITY_SPEC[q];
   const t0 = performance.now();
+  // Два потока разом: слои текстур и мир; кадр ждёт только заворачивания готового в буферы.
   const layersP = paintLayers(spec.tex);
-  const plan = cityPlan();
-  const tPlan = performance.now();
+  const w = await worldOf(q);
+  const tWorld = performance.now();
+  const { plan, lights, chimneys, flagTops, marks, sites, map, land, grid, trees } = w;
   const u = cityUniforms();
   const group = new THREE.Group();
   group.name = 'city';
 
-  // Здания — один меш; та же дорога, что у счёта бюджета (`budget.buildStatic`).
-  const { b, lights, chimneys, flagTops, marks, sites } = buildStatic(plan, q);
+  // Здания — один меш; та же дорога, что у счёта бюджета (`budget.buildStatic`, в потоке).
   // Огни ночи: ближние к середине города — в шейдер пятнами, все — огоньками.
   const center = { x: 0, z: -10 };
   const lit = [...lights].sort((a, c) => Math.hypot(a[0] - center.x, a[2] - center.z) - Math.hypot(c[0] - center.x, c[2] - center.z));
   lit.slice(0, CITY_LIGHTS).forEach((p, k) => u.cLights.value[k].set(p[0], p[1] - 0.8, p[2], 9.5 * 9.5));
   const bMat = buildingMaterial(u);
-  const bMesh = meshOf(b, bMat);
+  const bMesh = new THREE.Mesh(geometryFrom(w.buildings), bMat);
   bMesh.name = 'city-buildings';
   bMesh.castShadow = true;
   bMesh.receiveShadow = true;
   group.add(bMesh);
   group.add(flames(lights));
-  const tBuild = performance.now();
 
   // Земля.
-  const map = groundMap(plan, spec.map);
   const mapTex = new MapTexture(map, spec.map);
-  const land = landMap(plan, spec.land);
   const landTex = new MapTexture(land, spec.land);
-  const grid = groundGrid(spec.groundCells, spec.groundCell, { x: 0, z: -20 }, 1400);
   const gg = new THREE.BufferGeometry();
   gg.setAttribute('position', new THREE.BufferAttribute(grid.positions, 3));
   gg.setAttribute('normal', new THREE.BufferAttribute(grid.normals, 3));
@@ -154,10 +176,11 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   gMesh.name = 'city-ground';
   gMesh.receiveShadow = true;
   group.add(gMesh);
-  const tGround = performance.now();
+  // Вода: река и мельничный ручей — одна лента.
+  const water = buildWater(u);
+  group.add(water);
 
   // Деревья: экземплярами по видам; ближние отбрасывают тень, дальние — нет.
-  const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   const fMat = foliageMaterial(u);
   const m4 = new THREE.Matrix4();
   const q4 = new THREE.Quaternion();
@@ -189,7 +212,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     group.add(im);
     treeTris += model.triangleCount * list.length;
   }
-  const tTrees = performance.now();
+  const tMain = performance.now();
 
   const layers = await layersP;
   const tex = new LayerTexture(layers, spec.tex, LAYERS.length, spec.anisotropy);
@@ -202,20 +225,24 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     plan,
     counts: {
       houses: plan.houses.length,
+      suburb: plan.suburb.length,
       houseTris: marks.houses,
       fortTris: marks.forts - marks.houses,
       civicTris: marks.civic - marks.forts,
+      outsideTris: marks.outside - marks.civic,
       lights: lights.length,
-      buildingTris: b.triangleCount,
-      buildingVerts: b.vertexCount,
+      buildingTris: w.buildingTris,
+      buildingVerts: w.buildings.pos.length / 3,
       groundTris: grid.index.length / 3,
-      planMs: Math.round(tPlan - t0),
-      buildMs: Math.round(tBuild - tPlan),
-      groundMs: Math.round(tGround - tBuild),
-      treeMs: Math.round(tTrees - tGround),
+      planMs: Math.round(w.ms.plan),
+      buildMs: Math.round(w.ms.build),
+      groundMs: Math.round(w.ms.ground),
+      treeMs: Math.round(w.ms.trees),
+      worldWaitMs: Math.round(tWorld - t0),
+      mainMs: Math.round(tMain - tWorld),
       treeTris,
       ...treeCounts,
-      texWaitMs: Math.round(tTex - tTrees),
+      texWaitMs: Math.round(tTex - tMain),
       totalMs: Math.round(tTex - t0),
     },
     textureBytes: texBytes,
@@ -224,7 +251,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     lights,
     sites,
     dispose(): void {
-      for (const m of [bMat, fMat, gMesh.material as THREE.Material, (group.getObjectByName('city-flames') as THREE.Points).material as THREE.PointsMaterial]) {
+      for (const m of [bMat, fMat, gMesh.material as THREE.Material, water.material as THREE.Material, (group.getObjectByName('city-flames') as THREE.Points).material as THREE.PointsMaterial]) {
         const map = (m as THREE.PointsMaterial).map;
         map?.dispose();
         m.dispose();

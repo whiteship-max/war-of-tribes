@@ -184,6 +184,8 @@ export class CityScene extends TribeScene {
       u.cSnow.value = this.seasonVis.snow;
       u.cAutumn.value = Math.max(0, Math.min(1, this.seasonVis.turn));
       u.cTime.value = t;
+      u.cSunDir.value.copy(this.rig.sun.position).sub(this.target).normalize();
+      u.cSky.value.copy((this.scene.fog as THREE.Fog).color);
       u.cSel.value = this.selected !== null ? ownerCode(this.buildings.get(this.selected)?.type ?? 'campfire') : 0;
       u.cSelGlow.value = 0.18 + Math.sin(t * 3) * 0.1;
       const fl = c.group.getObjectByName('city-flames') as THREE.Points | undefined;

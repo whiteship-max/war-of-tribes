@@ -537,6 +537,19 @@ function paintShutter(o: Opening, xm: number, ym: number, u: number, v: number, 
   return 0.03 + (diag || bar ? 0.012 : 0) - (gap ? 0.01 : 0);
 }
 
+/**
+ * Потёк под кромкой (x0..x1 на высоте y): сила 0..1. Струи — по столбцам своей длины (0.3–1.3 м), гуще
+ * у кромки. Шум — по доле плитки `u` с целым периодом: плитка тайлится.
+ */
+function streakUnder(x0: number, x1: number, y: number, xm: number, ym: number, u: number, seed: number): number {
+  if (xm < x0 + 0.03 || xm > x1 - 0.03 || ym > y || ym < y - 1.4) return 0;
+  const col = vnoise(u * 48, 0.5, 48, seed);
+  const len = 0.3 + col * 1.0;
+  const down = (y - ym) / len;
+  if (down > 1) return 0;
+  return (1 - down) * (1 - down) * (0.35 + 0.65 * sstep(0.35, 0.75, col));
+}
+
 function makeTimber(fr: Frame, W: number, H: number, seed: number) {
   const plaster = makePlaster(W, H, seed + 100, 1.04, 0.8);
   const wood = C(fr.timber);
@@ -585,9 +598,12 @@ function makeTimber(fr: Frame, W: number, H: number, seed: number) {
     const hh = plaster(xm, ym, u, v, col);
     // Штукатурка у балки чуть темнее — затекшая грязь и тень.
     const near = 1 - sstep(0, 0.06, best);
-    col[0] *= 1 - near * 0.18;
-    col[1] *= 1 - near * 0.18;
-    col[2] *= 1 - near * 0.2;
+    // Потёки под подоконником: дождь с доски — тёмные струи, гуще у доски, гаснут книзу.
+    let streak = 0;
+    for (const o of fr.windows) streak = Math.max(streak, streakUnder(o.x0, o.x1, o.y0 - 0.07, xm, ym, u, seed + 23));
+    col[0] *= (1 - near * 0.18) * (1 - streak * 0.24);
+    col[1] *= (1 - near * 0.18) * (1 - streak * 0.25);
+    col[2] *= (1 - near * 0.2) * (1 - streak * 0.27);
     return hh;
   };
 }
@@ -685,7 +701,10 @@ const stoneWinLayer: Painter = (s, seed) => {
       return;
     }
     s.h[i] = wall(xm, ym, u, v, col);
-    s.set(i, col);
+    // Потёки под подоконником пары — по камню слабее, чем по штукатурке.
+    const base = xm - bx;
+    const st = streakUnder(base + 0.38, base + 1.62, 0.88, xm, ym, u, seed + 23);
+    s.set(i, col, 1 - st * 0.2);
   });
   return { relief: 0.9, cavity: 0.4, cavityM: 0.05 };
 };

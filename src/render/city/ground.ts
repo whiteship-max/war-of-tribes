@@ -2,7 +2,7 @@
 // брусчатка, земля, пашня и затенение у подножий (docs/city.md, раздел 4). Чистый модуль без three:
 // сетка и карта — массивы, сцена заворачивает их в буферы и текстуру.
 import { clamp01, fbm, sstep, vnoise } from './noise';
-import { distSeg, heightAt, insidePoly, riverX, RIVER_HALF, type CityPlan, type P, type YardKind } from './layout';
+import { distSeg, heightAt, insidePoly, RACE, RACE_HALF, riverX, RIVER_HALF, smoothPath, type CityPlan, type P, type YardKind } from './layout';
 
 /** Где лежит карта покрытий: квадрат в метрах. */
 export const MAP_AT = { x0: -256, z0: -300, size: 512 } as const;
@@ -57,6 +57,13 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
     const g = sstep(0.5, 0.78, fbm(x / 14 + 3, z / 14 + 3, 1e6, 4, 33)) * 0.55;
     if (g > d[k]) d[k] = g;
   }
+  // Берег реки и ручья — сырая земля полосой с рваным краем: вода ложится на отмель, а не на траву.
+  each(-256, MAP_AT.z0, -100, MAP_AT.z0 + MAP_AT.size, (x, z, i) => {
+    const rd = Math.abs(x - riverX(z)) + (vnoise(x / 6, z / 6, 1e6, 37) - 0.5) * 3;
+    const w = (1 - sstep(RIVER_HALF + 1, RIVER_HALF + 6, rd)) * 0.85;
+    if (w > d[i]) d[i] = w;
+  });
+  stampLine(smoothPath(RACE, 2), RACE_HALF + 1.6, d, 1.4);
   // Дороги и тропы за стеной — земля; дворы — вытоптанная поляна пятнами.
   for (const r of plan.roads) stampLine(r.pts, r.half, d, 1.2);
   for (const y of plan.yards) {

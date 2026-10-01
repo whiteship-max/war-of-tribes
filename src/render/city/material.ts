@@ -60,6 +60,9 @@ export interface CityUniforms {
   /** Выбранная постройка — байт владельца вершины (`sites.ownerCode`), 0 — ничего; и сила подсветки. */
   cSel: { value: number };
   cSelGlow: { value: number };
+  /** Направление на светило и цвет неба (дымки) — блик и отражение воды (`water.ts`). */
+  cSunDir: { value: THREE.Vector3 };
+  cSky: { value: THREE.Color };
 }
 
 /** Сколько огней видит шейдер: тёплые пятна без точечных ламп (их цена — на каждый пиксель). */
@@ -81,6 +84,8 @@ export function cityUniforms(): CityUniforms {
     cTorchCol: { value: new THREE.Color(t[0], t[1], t[2]) },
     cSel: { value: 0 },
     cSelGlow: { value: 0 },
+    cSunDir: { value: new THREE.Vector3(0.3, 0.8, 0.5) },
+    cSky: { value: new THREE.Color(0.5, 0.6, 0.7) },
   };
 }
 
@@ -304,9 +309,12 @@ export function foliageMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         vec3 leaf = cTex.rgb;
         // Лиственные (слой листвы) осенью к охре и рыжему; хвоя (тон темнее) — меньше.
         leaf = mix(leaf, leaf * vec3(1.6, 1.05, 0.45), cAutumn * vGrime);
-        // Зимой лиственные голые: серо-бурые ветви; ели зелёные.
-        leaf = mix(leaf, vec3(0.2, 0.17, 0.14), cSnow * vGrime * 0.85);
-        diffuseColor.rgb *= leaf;
+        vec3 summer = diffuseColor.rgb * leaf;
+        // Зимой лиственные голые: сеть ветвей серо-бурая, в просветах — светлее (небо и снег сквозь
+        // ветви). Тон экземпляра (зелень породы) зиме не указ — иначе голая крона выходила серо-зелёной.
+        float twig = dot(cTex.rgb, vec3(0.3, 0.59, 0.11));
+        vec3 bare = mix(vec3(0.15, 0.125, 0.105), vec3(0.4, 0.38, 0.36), smoothstep(0.2, 0.5, twig));
+        diffuseColor.rgb = mix(summer, bare, cSnow * vGrime * 0.92);
         float cUp = smoothstep(0.35, 0.85, vCNy) * cSnow;
         diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * 0.9, cUp * 0.8);`,
     );

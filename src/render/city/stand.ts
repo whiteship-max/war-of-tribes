@@ -135,6 +135,9 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
           fm.size = 3.6 * (1 + Math.sin(performance.now() * 0.011) * 0.08);
         }
         city.uniforms.cSnow.value = seasonVis.snow;
+        city.uniforms.cSunDir.value.copy(rig.sun.position).sub(center).normalize();
+        city.uniforms.cSky.value.copy((scene.fog as THREE.Fog).color);
+        city.uniforms.cTime.value = (performance.now() - t0) / 1000;
         city.uniforms.cAutumn.value = season === 'autumn' ? 1 : 0;
         const now = performance.now();
         life?.update(Math.min(0.1, (now - tPrev) / 1000), (now - t0) / 1000, windowNight(light), seasonVis.snow);
