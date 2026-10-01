@@ -147,7 +147,8 @@ describe('сцена ролика: луг — только у вида next', ()
 
   it('ролик в игре берёт вид сцены посёлка; луг не трогает материалов посёлка', () => {
     const replay = readFileSync(join(process.cwd(), 'src/ui/battle/BattleReplay.tsx'), 'utf8');
-    expect(replay).toMatch(/look: sceneGfx\(gfx\(\), window\.location\.search\)\.look,/);
+    // Вид «город» (docs/city.md) своего поля боя не имеет — его ролик идёт в виде `next`.
+    expect(replay).toMatch(/look: sceneGfx\(gfx\(\), window\.location\.search\)\.look === 'now' \? 'now' : 'next',/);
     const src = stripComments(readFileSync(join(__dirname, 'meadow.ts'), 'utf8'));
     // Свои материалы и свои числа кадра: общие наборы посёлка переливает его сезон.
     expect(src).not.toMatch(/\bKIT\b|\bLEGACY\b|SeasonVisuals/);

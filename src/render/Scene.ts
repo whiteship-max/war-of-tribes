@@ -67,7 +67,7 @@ import type * as EnvModule from './env';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
 
-interface BuildingView {
+export interface BuildingView {
   group: THREE.Group;
   /** Визуальная ступень: модель меняется на её пороге, а не на каждом уровне. */
   tier: Tier;
@@ -180,6 +180,12 @@ let active: TribeScene | null = null;
 export const activeScene = (): TribeScene | null => active;
 
 /**
+ * Сцены других видов — своими ленивыми кусками: вид «город» (docs/city.md) кладёт сюда свой класс,
+ * когда его кусок приехал (`main.tsx` везёт его до игры). Нет класса — посёлок.
+ */
+export const SCENES: Partial<Record<Look, typeof TribeScene>> = {};
+
+/**
  * Вид и уровень качества сцены. Игра передаёт выбор игрока (`gfx.sceneGfx`: по умолчанию —
  * `next`, «Простой вид» — `now`), стенд — адрес (`?showcase=village&look=next&quality=low`);
  * без вида сцена рисует прежний. Уровень качества действует только на вид `next`: у
@@ -218,17 +224,17 @@ function readCaps(gl: WebGLRenderingContext | WebGL2RenderingContext): DeviceCap
 }
 
 export class TribeScene {
-  private renderer: THREE.WebGLRenderer;
-  private scene = new THREE.Scene();
-  private camera: THREE.PerspectiveCamera;
-  private rig: LightRig;
-  private fireLight: THREE.PointLight;
+  protected renderer: THREE.WebGLRenderer;
+  protected scene = new THREE.Scene();
+  protected camera: THREE.PerspectiveCamera;
+  protected rig: LightRig;
+  protected fireLight: THREE.PointLight;
   /** Ландшафт с окружением — одной группой, чтобы силуэтный режим мог его погасить. */
-  private terrain: THREE.Group;
+  protected terrain: THREE.Group;
   /** Силуэтный режим стенда: всё чёрным на белом, только постройки. */
-  private silhouette = false;
+  protected silhouette = false;
   private silhouetteMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-  private buildings = new Map<number, BuildingView>();
+  protected buildings = new Map<number, BuildingView>();
   private agents = new Map<number, VillagerAgent>();
   private nextAgentId = 1;
   private soldiers: SoldierAgent[] = [];
@@ -237,7 +243,7 @@ export class TribeScene {
   /** Род, под который одет герой сейчас: сменился — фигурку пересобираем. */
   private heroKey: string | null = null;
   /** Все фигурки — жители и бойцы — одним пулом инстансов: число вызовов от числа фигур не зависит (figures.ts). */
-  private figures = new FigurePool();
+  protected figures = new FigurePool();
   /** Караваны рынка: телега на дороге у ворот, пока покупка в пути. */
   private caravans = new Map<number, { agent: CaravanAgent; departAt: number; arriveAt: number }>();
   /** Обстановка посёлка: площадь, дороги, размеченные площадки и декор. */
@@ -246,7 +252,7 @@ export class TribeScene {
   private villageKey = '';
   /** Слепок армии — по нему пересобираются фигурки бойцов. */
   private armyKey = '';
-  private clock = new THREE.Clock();
+  protected clock = new THREE.Clock();
   /**
    * Цепочка кадров и все причины, по которым она сейчас стоит: карта, скрытая
    * страница, потерянный контекст, выгруженная сцена. Флаг тут не годится —
@@ -258,12 +264,12 @@ export class TribeScene {
     () => this.rewind(),
   );
   /** Сколько кадров нарисовано за жизнь сцены и когда был последний. */
-  private drawn = 0;
-  private lastFrame = 0;
+  protected drawn = 0;
+  protected lastFrame = 0;
   /** Размер и плотность, с которыми настроен буфер. По ним видно, что он отстал. */
   private sized = { w: 0, h: 0, dpr: 0 };
   /** Пересчёт отложен: холста в этот момент не было или он был нулевой. */
-  private needSize = false;
+  protected needSize = false;
   /**
    * Контекст потерян и не вернулся в срок — сцену пора собирать заново. Делает
    * это владелец канвы (`ui/GameCanvas`), а не сцена: пересборка означает новый
@@ -271,31 +277,31 @@ export class TribeScene {
    */
   onLost: (() => void) | null = null;
   private restoreTimer = 0;
-  private frameNo = 0;
+  protected frameNo = 0;
   /** Было ли уже состояние: по первому sync сезон ставится без перелива. */
-  private synced = false;
-  private gameTime = 0;
-  private gameTimeAt = 0;
+  protected synced = false;
+  protected gameTime = 0;
+  protected gameTimeAt = 0;
   private flame: THREE.Object3D | null = null;
   private flameInner: THREE.Object3D | null = null;
-  private seasonVis = new SeasonVisuals();
-  private snowfall = new Snowfall();
-  private smoke = new Smoke();
+  protected seasonVis = new SeasonVisuals();
+  protected snowfall = new Snowfall();
+  protected smoke = new Smoke();
   /** Дым труб — своя система: он гуще очажного, иначе признак работы не виден. */
-  private chimneys = new Smoke(CHIMNEY_LOOK, []);
+  protected chimneys = new Smoke(CHIMNEY_LOOK, []);
   /**
    * Дым очагов над трубами домов — только у вида `next` (`weather.HEARTH_LOOK`): живой
    * посёлок. Своя система точек (один вызов), чтобы не спутать его с дымом работы.
    */
   private hearths = new Smoke(HEARTH_LOOK, []);
   /** Признаки занятости зданий: грузы у стен. Один вызов отрисовки на все. */
-  private signs = new WorkSigns();
-  private season: Season = 'spring';
-  private disposed = false;
+  protected signs = new WorkSigns();
+  protected season: Season = 'spring';
+  protected disposed = false;
   /** Канва и рендерер отданы ролику о бое: диорама молчит, пока их не вернут. */
-  private lent = false;
-  private selection: THREE.Mesh;
-  private selected: number | null = null;
+  protected lent = false;
+  protected selection: THREE.Mesh;
+  protected selected: number | null = null;
   /**
    * Разбор жеста — общий с картой мира (`src/gestures.ts`). Он же и командует
    * камерой: пока `panning` говорит «нет», картинка не двигается ни на пиксель.
@@ -333,24 +339,26 @@ export class TribeScene {
    * правило, что и везде: одно число живёт в одном месте. Позиция считается из
    * них (`place`), и обратного хода нет.
    */
-  private target = new THREE.Vector3(0, 0.4, 0);
+  protected target = new THREE.Vector3(0, 0.4, 0);
   /** Наклон камеры: ставит кадрирование от аспекта, жест его не трогает. */
-  private polar = 0.95;
+  protected polar = 0.95;
   /** Расстояние до цели — единственное, что меняет щипок. */
-  private dist = 20;
+  protected dist = 20;
   /** Пол и потолок приближения, из `zoomRange`. */
-  private zoom = { min: 7, max: 26 };
+  protected zoom = { min: 7, max: 26 };
+  /** Шаг панорамы, который ещё движение пальца, а не вырождение у горизонта (`camera.PAN_STEP_MAX`). */
+  protected stepMax = PAN_STEP_MAX;
   /**
    * Автоповорот стенда: единственное место в игре, где камера вообще
    * поворачивается. Им меряют частоту кадров на телефоне (`?showcase=village&perf=8`),
    * и в жест он не превращается ничем — ни кнопкой, ни настройкой.
    */
-  private spinRate = 0;
-  private spinTurn = 0;
+  protected spinRate = 0;
+  protected spinTurn = 0;
   /** После ручного движения камеру больше не переставляем. */
-  private userMoved = false;
+  protected userMoved = false;
   /** Вид: нынешний или проба окружения (`lighting.Look`). */
-  private look: Look;
+  protected look: Look;
   /** Уровень качества пробы; у нынешнего вида не читается. */
   readonly quality: Quality;
   /**
@@ -358,9 +366,9 @@ export class TribeScene {
    * опустив уровень, опускает плотность сразу (главная ручка цены кадра на телефоне), а
    * траву и тени — со следующего захода (`gfx.rememberAutoCap`).
    */
-  private dprLevel: Quality;
+  protected dprLevel: Quality;
   /** Сторож плавности посёлка (`render/steady`) — только у вида `next` с уровнем по устройству. */
-  private steady: Steady<Quality> | null = null;
+  protected steady: Steady<Quality> | null = null;
   /**
    * Окружение пробы: земля, трава, лес, мелочь (`render/env`). Едет своим куском после
    * первого кадра — в первую загрузку не входит; до его прихода стоит прежняя земля.
@@ -381,7 +389,7 @@ export class TribeScene {
   /** Люди и звери вида `next` (`env/folk.ts`): покрои и позы у огня, собака, куры. Едут тем же куском. */
   private life: EnvModule.VillageLife | null = null;
   /** Что насчитал свет последнего кадра: доля дня и ночи. */
-  private light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
+  protected light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
   /** Посёлок, под который лежит земля окружения: заново — только при смене построек. */
   private envVillage: { present: BuildingTypeId[]; built: { type: BuildingTypeId; tier: Tier }[] } | null = null;
   /**
@@ -396,21 +404,21 @@ export class TribeScene {
    * pixelRatio — принудительная плотность пикселей (стенд); по умолчанию — экрана,
    * в [1, 2]. Выше потолка двери кадра (`loop.DPR_CAP`) не бывает ни та, ни другая.
    */
-  constructor(private canvas: HTMLCanvasElement, private pixelRatio: number | null = null, opts: SceneLook = {}) {
+  constructor(protected canvas: HTMLCanvasElement, protected pixelRatio: number | null = null, opts: SceneLook = {}) {
     this.look = opts.look ?? 'now';
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     // Нынешний вид уровня не читает, и устройство у игрока о нём не спрашивается.
     this.quality =
       opts.quality ??
-      (this.look === 'next' ? capQuality(autoQuality(readCaps(this.renderer.getContext())), autoCap(serverNow())) : 'medium');
+      (this.look !== 'now' ? capQuality(autoQuality(readCaps(this.renderer.getContext())), autoCap(serverNow())) : 'medium');
     this.dprLevel = this.quality;
-    if (this.look === 'next' && !opts.quality) this.steady = new Steady(QUALITIES, this.quality, VILLAGE_STEADY);
+    if (this.look !== 'now' && !opts.quality) this.steady = new Steady(QUALITIES, this.quality, VILLAGE_STEADY);
     // На 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое — отсюда потолок.
     this.renderer.setPixelRatio(this.dpr());
     configureRenderer(this.renderer);
     // Жёсткая тень на низком уровне: одна выборка карты вместо девяти (0 — BasicShadowMap;
     // числом, а не именем three: имя дописалось бы в первую загрузку).
-    if (this.look === 'next' && !QUALITY[this.quality].shadowSoft) this.renderer.shadowMap.type = 0;
+    if (this.look !== 'now' && !QUALITY[this.quality].shadowSoft) this.renderer.shadowMap.type = 0;
     configureSky(this.scene);
     // Честный счёт вызовов: при autoReset счётчик сбрасывается после теневого
     // прохода, и stats() занижал бы бюджет вдвое. Сбрасываем сами перед кадром.
@@ -665,13 +673,18 @@ export class TribeScene {
     this.steady?.set(this.steady.tier);
   }
 
+  /** Мир встал целиком: сборка кусками больше не отнимает у кадра своих миллисекунд. */
+  protected settled(): boolean {
+    return !!this.env && !this.envJob;
+  }
+
   /**
    * Сторож плавности: судит кадры, только когда окружение уже стоит (сборка кусками
    * отнимает у кадра свои миллисекунды — это не цена уровня) и холст не одолжен ролику.
    * Опустил — плотность сразу, остальное — со следующего захода.
    */
-  private watch(gap: number): void {
-    if (!this.steady || !this.env || this.envJob) return;
+  protected watch(gap: number): void {
+    if (!this.steady || !this.settled()) return;
     const next = this.steady.feed(gap);
     if (!next) return;
     this.dprLevel = next;
@@ -679,10 +692,10 @@ export class TribeScene {
     rememberAutoCap(next, serverNow());
   }
 
-  private dpr(): number {
+  protected dpr(): number {
     // Вид `next` берёт плотность своего уровня качества — не выше экрана (или той, что
     // задал стенд вместо экрана) и не выше потолка двери кадра.
-    if (this.look === 'next') return pixelRatio(qualityDpr(this.dprLevel, this.pixelRatio ?? deviceRatio()));
+    if (this.look !== 'now') return pixelRatio(qualityDpr(this.dprLevel, this.pixelRatio ?? deviceRatio()));
     return pixelRatio(this.pixelRatio);
   }
 
@@ -824,7 +837,7 @@ export class TribeScene {
    * возвращении вебвью из фона. Буфер при этом остаётся прежним, и картинка либо
    * мылится, либо не появляется вовсе.
    */
-  private checkSize(): void {
+  protected checkSize(): void {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     if (w < 1 || h < 1) {
@@ -840,7 +853,7 @@ export class TribeScene {
    * раскладка по three.js. Туман и коробка теней сжимаются вместе с дистанцией:
    * дальняя геометрия не рисуется.
    */
-  private applyFraming(aspect: number): void {
+  protected applyFraming(aspect: number): void {
     const f = framing(aspect);
     const zoom = zoomRange(f);
 
@@ -877,7 +890,7 @@ export class TribeScene {
    * на игру азимут. Второго способа сдвинуть камеру в сцене нет — всё, что
    * двигает обзор, правит эти числа и зовёт `place`.
    */
-  private place(): void {
+  protected place(): void {
     this.camera.position
       .setFromSpherical(new THREE.Spherical(this.dist, this.polar, AZIMUTH + this.spinTurn))
       .add(this.target);
@@ -1052,7 +1065,7 @@ export class TribeScene {
    * заново — ракурс от этого не дёргается, потому что угол и расстояние
    * привязкой не трогаются. Зовётся там, где сцена двигает камеру (`shift`).
    */
-  private leash = (): void => {
+  protected leash = (): void => {
     const t = this.target;
     const fixed = clampPan(t.x, t.z);
     t.x = fixed.x;
@@ -1100,7 +1113,7 @@ export class TribeScene {
     const dz = a.z - b.z;
     // У горизонта луч ложится почти вдоль земли, и один пиксель даёт километры.
     // Такой шаг не подрезается, а отбрасывается: он не движение пальца.
-    if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) > PAN_STEP_MAX) return;
+    if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) > this.stepMax) return;
     this.userMoved = true;
     this.shift(dx, dz);
   }
@@ -1130,7 +1143,7 @@ export class TribeScene {
     const dz = before.z - after.z;
     // У горизонта луч ложится почти вдоль земли — такая поправка не движение
     // курсора, а вырождение расчёта, и её отбрасывают целиком (как в `pan`).
-    if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) > PAN_STEP_MAX) return;
+    if (!Number.isFinite(dx) || !Number.isFinite(dz) || Math.hypot(dx, dz) > this.stepMax) return;
     this.shift(dx, dz);
   }
 
@@ -1302,7 +1315,7 @@ export class TribeScene {
    * Стена спрашивается последней и по-своему: коробки у кольца вокруг посёлка
    * быть не может, она накрыла бы весь посёлок (см. `pick.onRing`).
    */
-  private pickAt(clientX: number, clientY: number): number | null {
+  protected pickAt(clientX: number, clientY: number): number | null {
     const boxes: HitBox[] = [];
     for (const id of this.buildings.keys()) {
       const box = this.hitBoxOf(id);
@@ -1314,7 +1327,7 @@ export class TribeScene {
   }
 
   /** Тап по кладке: точка касания опускается на землю и меряется до кольца стены. */
-  private pickWall(clientX: number, clientY: number): number | null {
+  protected pickWall(clientX: number, clientY: number): number | null {
     let wall: number | null = null;
     for (const [id, view] of this.buildings) if (view.type === 'palisade') wall = id;
     if (wall === null) return null;
@@ -1327,7 +1340,7 @@ export class TribeScene {
     return onRing(at.x, at.z, WALL_RADIUS, WALL_BAND) ? wall : null;
   }
 
-  private toNdc(clientX: number, clientY: number): { x: number; y: number } | null {
+  protected toNdc(clientX: number, clientY: number): { x: number; y: number } | null {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return null;
     return {
@@ -1342,7 +1355,7 @@ export class TribeScene {
    * модели, поэтому тонкая геометрия ранних ступеней тапу не мешает, а высокая
    * постройка ловит палец и по крыше.
    */
-  private hitBoxOf(id: number): HitBox | null {
+  protected hitBoxOf(id: number): HitBox | null {
     const view = this.buildings.get(id);
     // Стена — кольцо вокруг всего посёлка, прямоугольника у неё не бывает.
     if (!view || view.type === 'palisade') return null;
@@ -1365,7 +1378,7 @@ export class TribeScene {
   }
 
   /** Подсветка стены: кольцо целиком, иначе обучению нечего показать. */
-  private wallSpot(id: number): HitBox | null {
+  protected wallSpot(id: number): HitBox | null {
     const view = this.buildings.get(id);
     if (!view || view.type !== 'palisade') return null;
     const rect = this.canvas.getBoundingClientRect();
@@ -1406,7 +1419,7 @@ export class TribeScene {
 
   // ---------- Синхронизация с состоянием ----------
 
-  private setMarker(view: BuildingView, kind: Attention | null): void {
+  protected setMarker(view: BuildingView, kind: Attention | null): void {
     if (view.markerKind === kind) return;
     view.markerKind = kind;
     if (view.marker) {
@@ -1713,7 +1726,7 @@ export class TribeScene {
     this.frame();
   }
 
-  private frame(): void {
+  protected frame(): void {
     // Считается кадр лупа, а не кадр диорамы: одолженная ролику канва рисуется
     // им, и «кадры идут» тут значит именно то, что цепочка жива.
     this.drawn++;
@@ -1808,9 +1821,9 @@ export class TribeScene {
   }
 
   /** solar: 0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — глубокая ночь. */
-  private applyDayNight(solar: number): void {
+  protected applyDayNight(solar: number): void {
     if (this.silhouette) return;
-    this.light = applyDayNight(this.rig, this.scene, solar, this.seasonVis, undefined, RIG[this.look]);
+    this.light = applyDayNight(this.rig, this.scene, solar, this.seasonVis, undefined, RIG[this.look as Exclude<Look, 'city'>]);
   }
 
   // ---------- Стенд-витрина ----------

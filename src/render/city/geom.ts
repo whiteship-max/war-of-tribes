@@ -3,7 +3,8 @@
 // Один построитель — один меш: все дома, стена и башни города ложатся в один-два вызова отрисовки.
 //
 // Вершина несёт: положение, нормаль, UV (в плитках слоя — повтор делает выборка), тон (линейный
-// RGB × затенение), `cfg` = (слой, свет окна ночью 0..255, грязь у земли 0..255, запас).
+// RGB × затенение), `cfg` = (слой, свет окна ночью 0..255, грязь у земли 0..255, постройка игры —
+// номер в `sites.CITY_OWNERS` + 1, 0 — убранство без постройки: по нему подсвечивается выбранное).
 import { L, TILE_M, type LayerName } from './tex';
 import { linear } from './palette';
 
@@ -16,6 +17,8 @@ export class Builder {
   col: number[] = [];
   cfg: number[] = [];
   idx: number[] = [];
+  /** Чья постройка пишется сейчас: четвёртый байт `cfg` (0 — ничья). */
+  owner = 0;
   private n = 0;
 
   get vertexCount(): number {
@@ -63,7 +66,7 @@ export class Builder {
       this.nor.push(nx, ny, nz);
       this.uv.push(uv[k * 2], uv[k * 2 + 1]);
       this.col.push(tint[0] * ao[k], tint[1] * ao[k], tint[2] * ao[k]);
-      this.cfg.push(layer, Math.round(glow * 255), Math.round(grime[k] * 255), 0);
+      this.cfg.push(layer, Math.round(glow * 255), Math.round(grime[k] * 255), this.owner);
     }
     this.n += 4;
     this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -92,7 +95,7 @@ export class Builder {
       this.nor.push(nx, ny, nz);
       this.uv.push(uv[k * 2], uv[k * 2 + 1]);
       this.col.push(tint[0] * ao[k], tint[1] * ao[k], tint[2] * ao[k]);
-      this.cfg.push(layer, Math.round(glow * 255), 0, 0);
+      this.cfg.push(layer, Math.round(glow * 255), 0, this.owner);
     }
     this.n += 3;
     this.idx.push(base, base + 1, base + 2);
@@ -102,6 +105,39 @@ export class Builder {
   mark(): { v: number; t: number } {
     return { v: this.n, t: this.idx.length / 3 };
   }
+
+  /**
+   * Охват вершин с номера `from` в рамке плана: середина (cx, cz), «вперёд» (fx, fz). Отдаёт пределы
+   * вперёд (`f0..f1`), вправо (`r0..r1`) и по высоте — коробку касания, снятую с самой модели.
+   */
+  extent(from: number, cx: number, cz: number, fx: number, fz: number): Extent {
+    const e: Extent = { f0: Infinity, f1: -Infinity, r0: Infinity, r1: -Infinity, y0: Infinity, y1: -Infinity };
+    for (let k = from; k < this.n; k++) {
+      const dx = this.pos[k * 3] - cx;
+      const y = this.pos[k * 3 + 1];
+      const dz = this.pos[k * 3 + 2] - cz;
+      // «Вправо» — как у `kit.Frame`: (fz, −fx).
+      const f = dx * fx + dz * fz;
+      const r = dx * fz - dz * fx;
+      if (f < e.f0) e.f0 = f;
+      if (f > e.f1) e.f1 = f;
+      if (r < e.r0) e.r0 = r;
+      if (r > e.r1) e.r1 = r;
+      if (y < e.y0) e.y0 = y;
+      if (y > e.y1) e.y1 = y;
+    }
+    return e;
+  }
+}
+
+/** Пределы вершин в рамке плана — `Builder.extent`. */
+export interface Extent {
+  f0: number;
+  f1: number;
+  r0: number;
+  r1: number;
+  y0: number;
+  y1: number;
 }
 
 /** Тон из sRGB hex — линейный, как ждёт материал. */

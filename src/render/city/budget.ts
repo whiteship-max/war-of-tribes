@@ -2,8 +2,10 @@
 // что у сборки, — вызовы отрисовки, треугольники кадра с теневым проходом и память текстур. Стенд
 // (`npm run city:shots`) меряет то же на настоящем кадре; тест держит границы владельца по уровням.
 import type { Quality } from '../quality';
+import type { BuildingTypeId } from '@/game/types';
 import { Builder, type V3 } from './geom';
-import { cityPlan, type CityPlan } from './layout';
+import { cityPlan, type CityPlan, type Civic, type TowerKind } from './layout';
+import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { house } from './kit';
 import { cityWall, tower } from './forts';
 import { churchyard, civic, fireBowl, stall, statue, well } from './civic';
@@ -18,13 +20,32 @@ export const CITY_BUDGET: Record<Quality, { calls: number; triangles: number; te
   low: { calls: 140, triangles: 200_000, textureMb: 32, downloadMb: 1 },
 };
 
-/** Что собрано в меш зданий: построитель, огни ночи, трубы и где кончилась каждая часть. */
+/** Что собрано в меш зданий: построитель, огни ночи, трубы, места построек и где кончилась каждая часть. */
 export interface StaticBuild {
   b: Builder;
   lights: V3[];
   chimneys: V3[];
+  /** Коробки 24 построек игры (`sites.ts`) — сняты с самих моделей. */
+  sites: Site[];
   marks: { houses: number; forts: number; civic: number };
 }
+
+/** Чья постройка — большое здание города (docs/city.md, раздел 5); палас — замок, казна в нём. */
+const CIVIC_OWNER: Record<Civic['kind'], BuildingTypeId> = {
+  church: 'church',
+  hall: 'town_hall',
+  granary: 'storage',
+  guild: 'workshop',
+  smithy: 'smithy',
+  stable: 'stable',
+  tavern: 'tavern',
+  spital: 'infirmary',
+  palas: 'cache',
+  barracks: 'barracks',
+};
+
+/** Чья постройка — башня: Дозор, донжон-тайник, остальные — Башня игры. */
+const towerOwner = (k: TowerKind): BuildingTypeId => (k === 'watch' ? 'watch' : k === 'keep' ? 'cache' : 'tower');
 
 /** Здания, стены и убранство в построитель — одна дорога для сборки сцены и для счёта бюджета. */
 export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
@@ -32,24 +53,49 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
   const b = new Builder();
   const lights: V3[] = [];
   const chimneys: V3[] = [];
-  for (const h of plan.houses) chimneys.push(...house(b, h, d).chimneys);
+  const sites: Site[] = [];
+  /** Писать часть постройки `type` и снять её коробку в рамке (cx, cz, fx, fz). */
+  const own = (type: BuildingTypeId, cx: number, cz: number, fx: number, fz: number, draw: () => void): void => {
+    b.owner = ownerCode(type);
+    const from = b.mark().v;
+    draw();
+    sites.push(siteOf(type, b.extent(from, cx, cz, fx, fz), cx, cz, fx, fz));
+    b.owner = 0;
+  };
+  for (const h of plan.houses) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, d).chimneys));
   const houses = b.mark().t;
   // Стена города: крытый ход — на южной и западной сторонах через пролёт.
+  b.owner = ownerCode('palisade');
   cityWall(b, plan.wall, { x: 0, z: 0 }, plan.towers, d, (s, p) => (p.z > 100 || p.x < -40) && Math.floor(s / 70) % 2 === 0);
   cityWall(b, plan.castleWall, { x: -4, z: -150 }, plan.towers, d, () => false);
-  for (const t of plan.towers) lights.push(...tower(b, t, d));
+  sites.push(...wallSites(plan.wall), ...wallSites(plan.castleWall));
+  for (const t of plan.towers) own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => lights.push(...tower(b, t, d)));
   const forts = b.mark().t;
   for (const c of plan.civic) {
-    const r = civic(b, c, d);
-    chimneys.push(...r.chimneys);
-    lights.push(...r.lights);
-    if (c.kind === 'church') churchyard(b, c);
+    own(CIVIC_OWNER[c.kind], c.x, c.z, Math.cos(c.rot), Math.sin(c.rot), () => {
+      const r = civic(b, c, d);
+      chimneys.push(...r.chimneys);
+      lights.push(...r.lights);
+    });
+    // Ограда двора — храму, но коробкой не служит: двор — земля, а не здание.
+    if (c.kind === 'church') {
+      b.owner = ownerCode('church');
+      churchyard(b, c);
+      b.owner = 0;
+    }
   }
+  // Ряды — одной коробкой на весь рынок: тап между прилавками — тоже рынок.
+  b.owner = ownerCode('market');
+  const marketFrom = b.mark().v;
   for (const s of plan.stalls) stall(b, s, d);
-  well(b, plan.well, d);
-  lights.push(fireBowl(b, { x: plan.well.x + 3.2, z: plan.well.z + 1.5 }));
-  statue(b, plan.statue, 0);
-  return { b, lights, chimneys, marks: { houses, forts, civic: b.mark().t } };
+  sites.push(siteOf('market', b.extent(marketFrom, 0, 0, 1, 0), 0, 0, 1, 0));
+  const bowl = { x: plan.well.x + 3.2, z: plan.well.z + 1.5 };
+  own('campfire', plan.well.x, plan.well.z, 1, 0, () => {
+    well(b, plan.well, d);
+    lights.push(fireBowl(b, bowl));
+  });
+  own('statue', plan.statue.x, plan.statue.z, 1, 0, () => statue(b, plan.statue, 0));
+  return { b, lights, chimneys, sites, marks: { houses, forts, civic: b.mark().t } };
 }
 
 export interface CityCounts {

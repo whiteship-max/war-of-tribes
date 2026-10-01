@@ -127,9 +127,14 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/render\/env\//],
   },
   {
-    // Вид «город» (docs/city.md): стенд и, позже, сцена при look=city — своим куском.
-    name: 'город',
+    // Вид «город» (docs/city.md): стенд и сцена игры при `?look=city` — своим куском.
+    name: 'город: стенд',
     door: /\/src\/render\/city\/stand\.ts$/,
+    owns: [/\/src\/render\/city\//],
+  },
+  {
+    name: 'город: сцена игры',
+    door: /\/src\/render\/city\/scene\.ts$/,
     owns: [/\/src\/render\/city\//],
   },
 ];

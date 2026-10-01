@@ -12,6 +12,7 @@ import { groundGrid, groundMap, MAP_AT } from './ground';
 import { LAND_AT, landMap, placeTrees, treeModel, type Species } from './nature';
 import type { Quality } from '../quality';
 import { CITY_SPEC } from './spec';
+import type { Site } from './sites';
 export { CITY_SPEC, type CitySpec } from './spec';
 
 /** Слои текстур в потоке: кадр не ждёт генерации. Нет потока — считаем здесь же. */
@@ -70,6 +71,10 @@ export interface CityBuild {
   chimneys: V3[];
   /** Огни ночи: факелы стены и ворот, фонари площади. */
   lights: V3[];
+  /** Коробки 24 построек игры (`sites.ts`). */
+  sites: Site[];
+  /** Отдать материалы и текстуры (геометрию отдаёт сцена обходом). */
+  dispose(): void;
 }
 
 /** Огоньки факелов: точки с мягким пятном, видны ночью (прозрачность — доля ночи). */
@@ -114,7 +119,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   group.name = 'city';
 
   // Здания — один меш; та же дорога, что у счёта бюджета (`budget.buildStatic`).
-  const { b, lights, chimneys, marks } = buildStatic(plan, q);
+  const { b, lights, chimneys, marks, sites } = buildStatic(plan, q);
   // Огни ночи: ближние к середине города — в шейдер пятнами, все — огоньками.
   const center = { x: 0, z: -10 };
   const lit = [...lights].sort((a, c) => Math.hypot(a[0] - center.x, a[2] - center.z) - Math.hypot(c[0] - center.x, c[2] - center.z));
@@ -214,5 +219,16 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     textureBytes: texBytes,
     chimneys,
     lights,
+    sites,
+    dispose(): void {
+      for (const m of [bMat, fMat, gMesh.material as THREE.Material, (group.getObjectByName('city-flames') as THREE.Points).material as THREE.PointsMaterial]) {
+        const map = (m as THREE.PointsMaterial).map;
+        map?.dispose();
+        m.dispose();
+      }
+      tex.dispose();
+      mapTex.dispose();
+      landTex.dispose();
+    },
   };
 }

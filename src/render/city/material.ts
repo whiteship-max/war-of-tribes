@@ -57,6 +57,9 @@ export interface CityUniforms {
   /** Огни ночи: (x, y, z, r²) — факелы стены и ворот, фонари площади; пустые — далеко внизу. */
   cLights: { value: THREE.Vector4[] };
   cTorchCol: { value: THREE.Color };
+  /** Выбранная постройка — байт владельца вершины (`sites.ownerCode`), 0 — ничего; и сила подсветки. */
+  cSel: { value: number };
+  cSelGlow: { value: number };
 }
 
 /** Сколько огней видит шейдер: тёплые пятна без точечных ламп (их цена — на каждый пиксель). */
@@ -76,6 +79,8 @@ export function cityUniforms(): CityUniforms {
     cSnowCol: { value: new THREE.Color(s[0], s[1], s[2]) },
     cLights: { value: Array.from({ length: CITY_LIGHTS }, () => new THREE.Vector4(0, -1000, 0, 1)) },
     cTorchCol: { value: new THREE.Color(t[0], t[1], t[2]) },
+    cSel: { value: 0 },
+    cSelGlow: { value: 0 },
   };
 }
 
@@ -88,6 +93,7 @@ varying float vGlow;
 varying float vGrime;
 varying vec3 vCWPos;
 varying float vCNy;
+varying float vOwner;
 `;
 
 const COMMON_FRAG = /* glsl */ `
@@ -99,6 +105,9 @@ uniform vec3 cWarm;
 uniform vec3 cSnowCol;
 uniform vec4 cLights[${CITY_LIGHTS}];
 uniform vec3 cTorchCol;
+uniform float cSel;
+uniform float cSelGlow;
+varying float vOwner;
 varying vec2 vCUv;
 varying float vLayer;
 varying float vGlow;
@@ -139,6 +148,7 @@ function patchVertex(shader: { vertexShader: string }): void {
     vLayer = cfg.x;
     vGlow = cfg.y / 255.0;
     vGrime = cfg.z / 255.0;
+    vOwner = cfg.w;
     vec4 cwp = vec4(transformed, 1.0);
     vec3 cwn = objectNormal;
     #ifdef USE_INSTANCING
@@ -181,7 +191,10 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         float cWin = cHash(floor(vCWPos.xz * 0.7) + floor(vCWPos.y / 2.9) * 17.0);
         float cOn = step(0.32, cWin) * (0.65 + 0.35 * cWin);
         totalEmissiveRadiance += cWarm * cTex.a * vGlow * cNight * cOn * 1.6 * (1.0 - cUp);
-        totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.6;`,
+        totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.6;
+        // Выбранная постройка светлеет пульсом — вся: все дома Жилищ, все башни, вся стена.
+        float cIsSel = step(0.5, cSel) * (1.0 - step(0.5, abs(vOwner - cSel)));
+        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + cWarm * 0.06) * cIsSel * cSelGlow;`,
       );
     shader.fragmentShader = graded(shader.fragmentShader);
   };

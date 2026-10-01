@@ -79,7 +79,8 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
     villageMusic.duck(true);
     const player = new ReplayPlayer(renderer, cast, {
       // Вид сцены — тот же, что у посёлка (адрес сильнее выбора в настройках): у `next` свет и луг окружения.
-      look: sceneGfx(gfx(), window.location.search).look,
+      // У вида «город» своего поля боя нет — ролик идёт в виде `next`.
+      look: sceneGfx(gfx(), window.location.search).look === 'now' ? 'now' : 'next',
       onFrame: (f) => {
         // Слой музыки идёт из кадра, как и всё остальное: звук ничего не решает.
         battleMusic.set(f.music);

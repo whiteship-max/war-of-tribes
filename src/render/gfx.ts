@@ -46,7 +46,7 @@ export const GFX_QUALITIES: readonly (readonly [GfxQuality, string])[] = [
  */
 export function gfxKey(g: Gfx, search: string): string {
   const s = sceneGfx(g, search);
-  return s.look === 'next' ? `next:${s.quality ?? 'auto'}` : 'now';
+  return s.look === 'now' ? 'now' : `${s.look}:${s.quality ?? 'auto'}`;
 }
 
 /** Выбор игрока. Пишет его только пункт «Графика» (`setGfx`) — тест «рычаг один». */
@@ -174,11 +174,12 @@ export interface SceneGfx {
 /**
  * Вид и уровень для сцены игры. Адрес (`?look=next&quality=low`) сильнее записи — так
  * владелец проверяет вид на телефоне, не трогая настроек; в запись адрес не пишется.
+ * Вид «город» (`?look=city`, docs/city.md) — только адресом: в настройках его нет.
  */
 export function sceneGfx(g: Gfx, search: string): SceneGfx {
   const p = new URLSearchParams(search);
   const urlLook = p.get('look');
-  const look: Look = urlLook === 'next' || urlLook === 'now' ? urlLook : g.look;
+  const look: Look = urlLook === 'next' || urlLook === 'now' || urlLook === 'city' ? urlLook : g.look;
   const urlQ = p.get('quality');
   const chosen: GfxQuality = urlQ === 'auto' ? 'auto' : (qualityOf(urlQ) ?? g.quality);
   const quality = chosen === 'auto' ? null : chosen;

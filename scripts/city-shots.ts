@@ -5,6 +5,8 @@
 //   EXTRA="at=4,5,70&dist=30" VIEWS=street npm run city:shots   — свой ракурс поверх названного
 //   TEX=1 npm run city:shots                   — слои текстур листом (без браузера)
 //   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера)
+//   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
+//                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //
 // Снимки — в `.city-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один
 // прогон, браузер с потолком кадров отчёта, не дольше двух минут на заход, минута остывания
@@ -14,7 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import sharp from 'sharp';
-import { launchChrome, sleep, Tab } from './lib/chrome';
+import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 import { QUALITY, qualityOf, type Quality } from '../src/render/quality';
 import { LAYERS, paintLayer } from '../src/render/city/tex';
@@ -101,6 +103,45 @@ async function shot(q: Quality, view: string, solar: number): Promise<void> {
   }
 }
 
+/** Игра по адресу `?look=city`: новая партия, вход, стартовый кадр города и счётчики сцены. */
+async function gameShot(q: Quality): Promise<void> {
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=city&quality=${q}`));
+  try {
+    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
+    await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
+    await tab.send('Page.reload');
+    let ok = false;
+    for (let i = 0; i < 200; i++) {
+      await sleep(300);
+      if (await tab.eval<boolean>('JSON.stringify(!!(window.__scene && window.__game))').catch(() => false)) {
+        ok = true;
+        break;
+      }
+    }
+    if (!ok) {
+      console.log('  игра: сцена не поднялась за 60 с');
+      return;
+    }
+    await tab.eval<string>(`(() => { const go = document.querySelector('.start-go'); if (go) go.click(); return JSON.stringify(go ? 'вошли' : 'нет кнопки'); })()`);
+    const built = await tab.eval<string>(`new Promise((ok) => {
+      const s = window.__scene;
+      if (!s || !s.built) return ok(JSON.stringify('не город: ' + (s && s.constructor && s.constructor.name)));
+      const t = setTimeout(() => ok(JSON.stringify('не собрался за 90 с')), 90000);
+      s.built.then(() => { clearTimeout(t); ok(JSON.stringify('собран')); });
+    })`);
+    console.log(`  игра ${q}: ${built}`);
+    await sleep(3000);
+    const c = await tab.eval<{ calls: number; triangles: number }>('JSON.stringify(window.__scene.stats())');
+    const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    const name = `${TAG}-game-${q}.png`;
+    await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+    console.log(`  игра ${q}: вызовов ${c.calls}, треугольников ${c.triangles} → .city-shots/${name}`);
+  } finally {
+    tab.close();
+    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
+  }
+}
+
 /** Слои текстур листом — без браузера: самопроверка материала. */
 async function texSheet(): Promise<void> {
   const S = Number(process.env.S ?? 256);
@@ -159,6 +200,10 @@ async function main(): Promise<void> {
     const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', '--window-size=500,900', '--force-device-scale-factor=1', ...root]);
     try {
       const began = Date.now();
+      if (process.env.GAME === '1') {
+        for (const q of QUALITIES) await gameShot(q);
+        return;
+      }
       outer: for (const q of QUALITIES) {
         for (const view of VIEWS) {
           for (const solar of SOLARS) {
