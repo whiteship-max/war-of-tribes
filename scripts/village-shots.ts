@@ -22,7 +22,7 @@
 // Несколько видов или ракурсов — отдельными короткими заходами с паузой между ними.
 //
 // Запуск: npm run village:shots
-// Переменные: LOOKS=now,next:high,next:low  SHOTS=day-wide,night-wide,day-close,night-close
+// Переменные: LOOKS=now,next:high,next:low  SHOTS=day-wide,night-wide,day-close,night-close (и dusk-wide, dawn-wide)
 //             SEASON=summer  LEVELS=10  BENCH=1  SECONDS=5  TAG=probe  PORT=4196  CDP_PORT=9339  HEAD=1
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -65,7 +65,13 @@ const SHOTS: Shot[] = [
   { name: 'night-wide', solar: 0.75, why: 'глубокая ночь, общий план' },
   { name: 'day-close', solar: 0.2, at: CLOSE, why: 'день, участок за частоколом на полу приближения' },
   { name: 'night-close', solar: 0.75, at: CLOSE, why: 'ночь, тот же участок' },
+  // Только по имени (`SHOTS=dusk-wide`): в заход по умолчанию не входят — стенд короче двух минут.
+  { name: 'dusk-wide', solar: 0.47, why: 'золотой час перед закатом, общий план (вид next, 9.9)' },
+  { name: 'dawn-wide', solar: 0.03, why: 'рассвет, общий план' },
 ];
+
+/** Ракурсы захода по умолчанию — прежние четыре. */
+const DEFAULT_SHOTS = ['day-wide', 'night-wide', 'day-close', 'night-close'];
 
 function pageUrl(look: string, solar: number, at?: [number, number]): string {
   const [kind, quality] = look.split(':');
@@ -111,7 +117,7 @@ async function close(tab: Tab): Promise<void> {
 
 async function shots(began: number): Promise<void> {
   await mkdir(OUT, { recursive: true });
-  const wanted = list(process.env.SHOTS, SHOTS.map((s) => s.name));
+  const wanted = list(process.env.SHOTS, DEFAULT_SHOTS);
   for (const look of LOOKS) {
     for (const shot of SHOTS.filter((s) => wanted.includes(s.name))) {
       if (Date.now() - began > BROWSER_MAX_MS) {
@@ -201,7 +207,18 @@ interface Bench {
   texMb: number;
   programs: number;
   buffer: [number, number];
-  env: { trees: Record<string, number>; props: Record<string, number>; grass: number; flowers: number; crops: number; blobs: number; map: number; buildMs: number } | null;
+  env: {
+    trees: Record<string, number>;
+    props: Record<string, number>;
+    grass: number;
+    flowers: number;
+    crops: number;
+    blobs: number;
+    map: number;
+    buildMs: number;
+    /** Сборка кусками между кадрами (`env/index.startEnv`): всего, сколько кусков, самый долгий. */
+    build: { ms: number; slices: number; longest: number; step: number; stepIn: string };
+  } | null;
   gpuName: string;
 }
 
@@ -237,7 +254,8 @@ async function bench(began: number): Promise<void> {
     const e = b.env;
     console.log(
       `\n${look}: деревьев ${Object.entries(e.trees).map(([k, v]) => `${k} ${v}`).join(', ')}; мелочи ${Object.entries(e.props).map(([k, v]) => `${k} ${v}`).join(', ')};` +
-        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; карта земли ${e.map}²; сборка ${f(e.buildMs, 0)} мс`,
+        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; карта земли ${e.map}²; сборка ${f(e.build.ms, 0)} мс` +
+        ` за ${e.build.slices} кусков, самый долгий кусок ${f(e.build.longest, 1)} мс, шаг ${f(e.build.step, 1)} мс (${e.build.stepIn})`,
     );
   }
   console.log('\nЧисла одного прогона сравнимы между собой; с другим прогоном — нет (шапка файла).');

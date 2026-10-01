@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { LOCK_ENV, processBorn, processExists, readLock, releaseLock, takeLock, tokenOf, tryTake, type LockRecord } from './machinelock.mjs';
+import { LOCK_ENV, holderAlive, processBorn, processExists, processState, readLock, releaseLock, statState, takeLock, tokenOf, tryTake, type LockRecord } from './machinelock.mjs';
 
 const MODULE = join(__dirname, 'machinelock.mjs');
 const dirs: string[] = [];
@@ -91,6 +91,46 @@ describe('замок машины', () => {
     writeFileSync(file, `${JSON.stringify(fresh)}\n`);
     const busy = tryTake('тест', 'ждёт', { file, env: {} });
     expect('held' in busy, 'запись моложе процесса — жив').toBe(true);
+  }, 30_000);
+
+  it('зомби замок не держит: вышедший держатель, которого не подобрал родитель, мёртв', async () => {
+    // В контейнере первый процесс осиротевших не подбирает: убитый держатель остаётся зомби, и номер его «есть».
+    // Состояние — буква за именем в `/proc/<pid>/stat`, а имя в скобках само может содержать скобку и пробел.
+    expect(statState('4242 (node) S 1 4242 4242 0 -1')).toBe('S');
+    expect(statState('4242 (we) ird name) Z 1 4242 4242 0 -1'), 'имя со скобкой и пробелом').toBe('Z');
+    expect(statState('not a stat line')).toBeNull();
+    // Зомби на машине владельца не бывает (Windows), поэтому состояние держателя подменяется; настоящий зомби — ниже.
+    const file = tempLock();
+    const { rec } = await holder(file);
+    // Граница области: держатель есть и родился не позже замка — снять замок может только правило «зомби — мёртв».
+    expect(holderAlive(rec), 'настоящий держатель жив').toBe(true);
+    for (const gone of ['Z', 'X', 'x']) expect(processExists(rec.pid, () => gone), `состояние ${gone} — не жив`).toBe(false);
+    const asleep = tryTake('тест', 'ждёт', { file, env: {}, state: (pid) => (pid === rec.pid ? 'S' : null) });
+    expect('held' in asleep, 'спящий держатель держит').toBe(true);
+    const took = tryTake('тест', 'берёт', { file, env: {}, state: (pid) => (pid === rec.pid ? 'Z' : null) });
+    expect('taken' in took, 'держатель-зомби мёртв: замок снят и взят').toBe(true);
+    if ('taken' in took) took.release();
+  }, 30_000);
+
+  it.skipIf(process.platform === 'win32')('настоящий зомби: номер есть, а замок снимается', async () => {
+    // Оболочка заводит короткий `sleep` и сама становится долгим, который детей не подбирает: вышедший — зомби. Секунда
+    // жизни ребёнка — с запасом: bash в роли `sh` подбирает детей до `exec`, и ребёнок не должен успеть выйти раньше.
+    const parent = spawn('sh', ['-c', 'sleep 1 & echo $!; exec sleep 30'], { stdio: ['ignore', 'pipe', 'inherit'] });
+    kids.push(parent);
+    const pid = Number(await new Promise<string>((resolve) => parent.stdout!.once('data', (b) => resolve(String(b).trim()))));
+    for (let i = 0; i < 100 && processState(pid) !== 'Z'; i++) await new Promise((r) => setTimeout(r, 100));
+    expect(processState(pid), 'вышедший и неподобранный — зомби').toBe('Z');
+    const born = processBorn(pid);
+    const rec = { project: 'проба', task: 'держит', pid, started: new Date(born ?? Date.now()).toISOString() };
+    // Граница области: номер есть, и родился процесс не позже замка — без состояния держатель считался бы живым.
+    expect(() => process.kill(pid, 0), 'номер зомби находится').not.toThrow();
+    expect(holderAlive(rec, processBorn, () => null), 'без состояния — жив').toBe(true);
+    expect(processExists(pid), 'зомби не жив').toBe(false);
+    const file = tempLock();
+    writeFileSync(file, `${JSON.stringify(rec)}\n`);
+    const took = tryTake('тест', 'берёт', { file, env: {} });
+    expect('taken' in took, 'замок зомби снят и взят').toBe(true);
+    if ('taken' in took) took.release();
   }, 30_000);
 
   it('свой замок: отметка предка в окружении — не ждать; чужой без отметки — ждать', async () => {

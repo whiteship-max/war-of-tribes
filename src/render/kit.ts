@@ -24,9 +24,33 @@ export interface Paint {
   mat: THREE.Material;
   /** Линейный цвет для вершин; отсутствует, если цвет несёт сам материал. */
   tint: THREE.Color | null;
+  /**
+   * Окно: деталь светится ночью тёплым (`render/glow.ts`). Цвет тот же — днём окно тёмное,
+   * как было; признак едет в атрибуте вершин `glow`, а не в материале: окна и стены — одна
+   * группа «тела», и лишнего вызова отрисовки у дома нет.
+   */
+  glow?: boolean;
 }
 
 const paints = new Map<MatKey, Paint>();
+
+let glass: Paint | null = null;
+
+/** Окно: краска `dark` со светом ночью — днём неотличима от прежней. */
+export function pane(): Paint {
+  glass ??= { ...paintOf('dark'), glow: true };
+  return glass;
+}
+
+/**
+ * Сколько света у окна: каждое своё, чуть ярче или тусклее, а каждое седьмое — тёмное (там
+ * спят). Хешем от номера детали в модели — тот же дом горит так же при каждой сборке.
+ */
+export function windowLight(i: number): number {
+  const h = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+  const k = h - Math.floor(h);
+  return k < 1 / 7 ? 0 : 0.6 + 0.4 * ((k * 7) % 1);
+}
 
 /**
  * Краска по имени цвета палитры. Сезонные цвета (кровли, пашня) — настоящие
@@ -479,12 +503,19 @@ export function bakeColors(geo: THREE.BufferGeometry, tint: THREE.Color | null, 
  */
 export function assemble(parts: Part[]): THREE.Mesh {
   const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  // Есть окна — атрибут `glow` у каждой детали: склейка требует одного набора атрибутов.
+  const lit = parts.some((p) => p.paint.glow);
+  let window = 0;
   for (const p of parts) {
     const g = p.geo.index ? p.geo.toNonIndexed() : p.geo;
     if (g !== p.geo) p.geo.dispose();
     // Текстур нет: uv только мешает склейке разных примитивов.
     g.deleteAttribute('uv');
     bakeColors(g, p.paint.tint, p.ao);
+    if (lit) {
+      const glow = p.paint.glow ? windowLight(window++) : 0;
+      g.setAttribute('glow', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(glow), 1));
+    }
     let list = byMat.get(p.paint.mat);
     if (!list) byMat.set(p.paint.mat, (list = []));
     list.push(g);

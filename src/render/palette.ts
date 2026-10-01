@@ -30,11 +30,24 @@ export const PALETTE = {
   /** Солнце — единственный источник с тенью: тёплое днём, оранжевое на закате. */
   sunDay: 0xffe4bf,
   sunDusk: 0xffb27a,
+  /**
+   * Золотой час вида `next` (docs/graphics_world.md, 9.9): солнце в последний час перед
+   * закатом и первый после рассвета — тёплое золото, а не белое; полусфера сверху —
+   * медовая. Это цвет света, а не краска — в ряд `LIGHT_KEYS`.
+   */
+  sunGold: 0xffc98a,
+  hemiGold: 0xd9bc96,
   /** Ночью та же лампа становится луной. */
   moon: 0x8ea3cf,
   /** Заполняющий свет: небо сверху — холодное, земля снизу — тёплая и глухая. */
   hemiSky: 0x9db7d9,
   hemiGround: 0x6e6a5c,
+  /**
+   * Полусфера дня у вида `next`: небо сверху — голубое, но не бирюзовое, отсвет снизу —
+   * от тёплой земли. Голубой сверху на зелёном лугу и давал ему «лайм» (9.4).
+   */
+  hemiSkyWarm: 0xaab9cc,
+  hemiGroundWarm: 0x766c59,
   hemiSkyNight: 0x46598a,
   hemiGroundNight: 0x2a2c38,
   /**
@@ -49,6 +62,8 @@ export const PALETTE = {
   nightSky: 0x223050,
   nightHaze: 0x33456b,
   fireLight: 0xff9a3a,
+  /** Свет окна ночью (вид `next`, `render/glow.ts`): тёплый, как свеча и очаг за ставнем. */
+  windowGlow: 0xf2a25a,
   snowflake: 0xe8eef4,
   smoke: 0xd8d2c8,
 
@@ -98,35 +113,66 @@ export const PALETTE = {
    * Дёрн пробы: луг теплее и глуше прежней травы (`grass*`) — к охре и тёплым жёлтым
    * значка города на карте мира. Свои ключи, а не правка прежних: нынешний вид игры
    * проба не трогает ни на бит.
+   *
+   * Ночь 1 (docs/graphics_world.md, 9.4): весь дневной ряд зелени — дёрн, трава, мох,
+   * папоротник, кроны, всходы, подстилка — сдвинут к жёлтому на 8° тона (хвоя и подстилка
+   * — на 4–6°) и приглушён: луг на 15 % насыщенности и 5 % яркости (0.3R + 0.59G + 0.11B),
+   * кроны и мох — на 10 % насыщенности при той же яркости. «Лаймовое» ушло к оливе; ночь
+   * обесцвечивает к серому той же яркости — у крон она не сдвинулась, у луга темнее на 5 %.
    */
-  swardDark: 0x6c8544,
-  swardLight: 0xa5b15e,
+  swardDark: 0x6d7a46,
+  swardLight: 0xa3a460,
   /** Кончики травы: светлее и желтее земли под ними — пучок читается на лугу. */
-  grassTip: 0xb2c068,
+  grassTip: 0xb0b26a,
   /** Густой луг: пятнами, там же и цветы. */
-  meadow: 0x90ab56,
+  meadow: 0x919d58,
   /** Лесная подстилка: хвоя и прошлогодний лист под пологом. */
-  litter: 0x58603c,
+  litter: 0x5a5f3e,
   /** Мох на камнях и пнях. */
-  moss: 0x72934a,
-  fern: 0x5e9446,
+  moss: 0x7a8e4d,
+  fern: 0x688e49,
   /** Кроны пород: ель — синяя и тёмная, сосна — теплее, дуб — средний, берёза — светлая. */
-  spruce: 0x3e6d4a,
-  pine: 0x4f7a43,
-  oak: 0x5f8d42,
-  birch: 0x8fb853,
+  spruce: 0x416c49,
+  pine: 0x547745,
+  oak: 0x688845,
+  birch: 0x99b258,
   /** Кора берёзы — белая с тёмными поясками (поясками — затемнение вершин). */
   birchBark: 0xe0dbcd,
   /** Кора сосны — рыжая в верхней части ствола. */
   pineBark: 0x98603a,
   /** Всходы на пашне: весной зелёные, летом спелые, осенью стерня. */
-  crop: 0x93c25a,
+  crop: 0x9cbd5f,
   /** Луговые цветы Европы: ромашка, лютик, василёк, клевер, мак. */
   flowerWhite: 0xeee8d8,
   flowerYellow: 0xe9c648,
   flowerBlue: 0x6d87d1,
   flowerPink: 0xd98aa8,
   flowerRed: 0xcc4a3e,
+  /**
+   * Угодья (docs/graphics_world.md, 9.7): сено стога и его макушка — выгоревшая летом,
+   * под снегом зимой; жерди и столбы изгороди — старое серо-бурое дерево; руно овцы и её
+   * тёмные морда и ноги; выеденная трава выгона — короче, желтее и суше луга.
+   */
+  hay: 0xc4a15e,
+  hayTop: 0xb39150,
+  rail: 0x8f7556,
+  railDark: 0x5f4b37,
+  wool: 0xe2dccb,
+  woolDark: 0x3b3431,
+  graze: 0xa39f66,
+  /**
+   * Времена года окружения (9.10). Снег — свой цвет: им ложатся шапки на кроны, камни,
+   * жерди и стога и пятна на землю (шейдер, по доле зимы). Зимняя земля и трава под ним —
+   * жухлые, а не белые: где снег сдуло и на тропах, видна земля. Осенью листва жёлтая и
+   * рыжая не сплошь: часть дубов — ржавые, часть берёз — ещё зеленоватые (`oakRust`,
+   * `birchLate` — второй цвет кроны, вразнобой по деревьям).
+   */
+  snow: 0xe9eef3,
+  oakRust: 0x9a4526,
+  birchLate: 0xb4b24c,
+  /** Живность (9.8): птицы над лесом — тёмный силуэт; светлячки — тёплый жёлто-зелёный огонёк. */
+  bird: 0x2f2a2a,
+  firefly: 0xe6ee7a,
 
   // ---------- Дерево ----------
   wood: 0x9d6d42,
@@ -239,7 +285,7 @@ export const TROOP_TINT: Record<TroopId, number> = {
 /** Ключи, которым разрешён канал ff: они не освещаются, а светятся. */
 export const EMISSIVE_KEYS: PaletteKey[] = ['fire', 'fireInner', 'forge'];
 /** Цвета источников света — не поверхности, правило про белое на них не действует. */
-export const LIGHT_KEYS: PaletteKey[] = ['sunDay', 'sunDusk', 'fireLight'];
+export const LIGHT_KEYS: PaletteKey[] = ['sunDay', 'sunDusk', 'sunGold', 'fireLight'];
 
 /**
  * Сезонные переопределения. Весна — сама палитра; лето, осень и зима меняют
@@ -270,17 +316,17 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     tile: 0xc25f42,
     sky: 0x93c6ea,
     fog: 0xb8d5ea,
-    swardDark: 0x6f8742,
-    swardLight: 0xabb45b,
-    grassTip: 0xbac462,
-    meadow: 0x95ad53,
-    litter: 0x535c3a,
-    moss: 0x6c8f44,
-    fern: 0x578e41,
-    spruce: 0x3a6a4b,
-    pine: 0x4a7742,
-    oak: 0x51803f,
-    birch: 0x80ad4c,
+    swardDark: 0x707c44,
+    swardLight: 0xa9a65f,
+    grassTip: 0xb8b566,
+    meadow: 0x959f56,
+    litter: 0x555b3c,
+    moss: 0x748a47,
+    fern: 0x618844,
+    spruce: 0x3d694a,
+    pine: 0x4f7444,
+    oak: 0x597b42,
+    birch: 0x8aa750,
     crop: 0xd6b75c,
   },
   autumn: {
@@ -318,6 +364,8 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     oak: 0xb36f2c,
     birch: 0xdcb33b,
     crop: 0xbfa35a,
+    hayTop: 0x9c7a45,
+    graze: 0xa8965c,
   },
   winter: {
     // Зимнее солнце бледное; снег голубой, не белый: с солнцем и полусферой он и так у предела.
@@ -343,29 +391,40 @@ export const SEASON_OVERRIDES: Record<Season, Partial<Record<PaletteKey, number>
     tile: 0xdfd9d5,
     sky: 0xacb9c9,
     fog: 0xbcc7d3,
-    swardDark: 0xc4cfdb,
-    swardLight: 0xe0e7ef,
-    grassTip: 0xe4eaf0,
-    meadow: 0xdbe3eb,
-    litter: 0xc8d1db,
-    moss: 0xdde5ec,
-    fern: 0xc9d3dc,
-    spruce: 0xaebfc6,
-    pine: 0xb3c3c8,
-    oak: 0xc6ced6,
-    birch: 0xd6dee6,
+    swardDark: 0x7d7a58,
+    swardLight: 0x9f9670,
+    grassTip: 0xc2b489,
+    meadow: 0xa89c72,
+    litter: 0x6e5f47,
+    moss: 0x7d8663,
+    fern: 0x8d6d48,
+    spruce: 0x33584a,
+    pine: 0x3f5f45,
+    oak: 0x8d8479,
+    birch: 0xaca598,
     crop: 0xd9e1e9,
+    hayTop: 0xe8edf2,
+    graze: 0x9f9670,
   },
 };
 
 /** Плотность снега по сезону: гонит частицы, дым и белизну. */
 export const SEASON_SNOW: Record<Season, number> = { spring: 0, summer: 0, autumn: 0, winter: 1 };
 
+/** Доля деревьев, чья листва осенью ушла во второй цвет (`oakRust`, `birchLate`): только осень. */
+export const SEASON_TURN: Record<Season, number> = { spring: 0, summer: 0, autumn: 1, winter: 0 };
+
 /**
  * Доля травы, что торчит из земли, по сезону: зимой пучки прячет снег (окружение
  * пробы, `render/env`). Не цвет, но сезонное число — живёт рядом со снегом.
  */
 export const SEASON_SWARD: Record<Season, number> = { spring: 0.9, summer: 1, autumn: 0.85, winter: 0.3 };
+
+/**
+ * Доля всходов на пашне по сезону: весной всходят, летом колос, осенью стерня после жатвы,
+ * зимой пашня под снегом.
+ */
+export const SEASON_CROP: Record<Season, number> = { spring: 0.7, summer: 1, autumn: 0.35, winter: 0 };
 
 /** Доля цветущих цветов по сезону: летом все, осенью редкие, зимой ни одного. */
 export const SEASON_BLOOM: Record<Season, number> = { spring: 0.75, summer: 1, autumn: 0.2, winter: 0 };

@@ -33,7 +33,7 @@ import { HeroAgent, heroKind, heroShown } from './hero';
 import { FigurePool } from './figures';
 import { CaravanAgent } from './caravan';
 import { SeasonVisuals } from './season';
-import { CHIMNEY_LOOK, Smoke, Snowfall, chimneySmoke, type SmokeSource } from './weather';
+import { CHIMNEY_LOOK, HEARTH_LOOK, Smoke, Snowfall, chimneySmoke, hearthSmoke, type SmokeSource } from './weather';
 import { SMOKE_HEIGHT, WORK_SIGN, WorkSigns, type LoadKind } from './worksigns';
 import {
   RIG,
@@ -43,6 +43,7 @@ import {
   configureSky,
   createLightRig,
   fireGlow,
+  windowNight,
   fireIntensity,
   fitShadow,
   type DayLight,
@@ -56,8 +57,12 @@ import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/ges
 import { hitBox, onRing, pickBox, projectHitBox, silhouetteBox, type HitBox } from './pick';
 import { AZIMUTH, PAN_STEP_MAX, clampPan, framing, zoomRange } from './camera';
 import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
-import { QUALITY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
-import type { BuildEnv, EnvWorld } from './env';
+import { BUILD_SLICE_MS, QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
+import { autoCap, capQuality, rememberAutoCap } from './gfx';
+import { Steady } from './steady';
+import { WINDOW_NIGHT, dropGlow, lightWindows } from './glow';
+import { serverNow } from '@/net/clock';
+import type { EnvWorld, StartEnv } from './env';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
 
@@ -163,6 +168,13 @@ const MARKER_HEIGHT: Partial<Record<Building['type'], number>> = {
  */
 export const RESTORE_WAIT = 3000;
 
+/**
+ * Сколько ждать готовности программ шейдеров окружения (`waitPrograms`), мс. С параллельной
+ * сборкой браузер доготавливает их за доли секунды; без неё `compile` уже собрал их
+ * по одной — ждать нечего. Срок — чтобы мир встал, даже если браузер медлит.
+ */
+const ENV_COMPILE_WAIT = 2000;
+
 let active: TribeScene | null = null;
 export const activeScene = (): TribeScene | null => active;
 
@@ -173,7 +185,11 @@ export const activeScene = (): TribeScene | null => active;
  */
 export interface SceneLook {
   look?: Look;
-  /** `null` — по устройству (`quality.autoQuality`). */
+  /**
+   * `null` — по устройству (`quality.autoQuality`), но не выше того, до чего сторож
+   * плавности опустил уровень на этом устройстве за неделю (`gfx.autoCap`); тогда же
+   * сторож и следит. Заданный уровень (стенд, выбор игрока) сторож не трогает.
+   */
   quality?: Quality | null;
 }
 
@@ -265,6 +281,11 @@ export class TribeScene {
   private smoke = new Smoke();
   /** Дым труб — своя система: он гуще очажного, иначе признак работы не виден. */
   private chimneys = new Smoke(CHIMNEY_LOOK, []);
+  /**
+   * Дым очагов над трубами домов — только у вида `next` (`weather.HEARTH_LOOK`): живой
+   * посёлок. Своя система точек (один вызов), чтобы не спутать его с дымом работы.
+   */
+  private hearths = new Smoke(HEARTH_LOOK, []);
   /** Признаки занятости зданий: грузы у стен. Один вызов отрисовки на все. */
   private signs = new WorkSigns();
   private season: Season = 'spring';
@@ -331,10 +352,25 @@ export class TribeScene {
   /** Уровень качества пробы; у нынешнего вида не читается. */
   readonly quality: Quality;
   /**
+   * Уровень, чью плотность пикселей берёт буфер. Сначала — `quality`; сторож плавности,
+   * опустив уровень, опускает плотность сразу (главная ручка цены кадра на телефоне), а
+   * траву и тени — со следующего захода (`gfx.rememberAutoCap`).
+   */
+  private dprLevel: Quality;
+  /** Сторож плавности посёлка (`render/steady`) — только у вида `next` с уровнем по устройству. */
+  private steady: Steady<Quality> | null = null;
+  /**
    * Окружение пробы: земля, трава, лес, мелочь (`render/env`). Едет своим куском после
    * первого кадра — в первую загрузку не входит; до его прихода стоит прежняя земля.
    */
   private env: EnvWorld | null = null;
+  /**
+   * Окружение, которое ещё собирается — кусками между кадрами (`env/index.startEnv`), —
+   * и обещание стенду, что оно встанет. В кадре до его конца стоит прежняя земля.
+   */
+  private envJob: { world: EnvWorld; mounted: () => void } | null = null;
+  /** Собранное окружение, которое ждёт программ шейдеров: смена построек идёт и ему. */
+  private envMounting: EnvWorld | null = null;
   /** Что насчитал свет последнего кадра: доля дня и ночи. */
   private light: DayLight = { daylight: 1, nightK: 0, dusk: 0 };
   /** Посёлок, под который лежит земля окружения: заново — только при смене построек. */
@@ -355,7 +391,11 @@ export class TribeScene {
     this.look = opts.look ?? 'now';
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     // Нынешний вид уровня не читает, и устройство у игрока о нём не спрашивается.
-    this.quality = opts.quality ?? (this.look === 'next' ? autoQuality(readCaps(this.renderer.getContext())) : 'medium');
+    this.quality =
+      opts.quality ??
+      (this.look === 'next' ? capQuality(autoQuality(readCaps(this.renderer.getContext())), autoCap(serverNow())) : 'medium');
+    this.dprLevel = this.quality;
+    if (this.look === 'next' && !opts.quality) this.steady = new Steady(QUALITIES, this.quality, VILLAGE_STEADY);
     // На 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое — отсюда потолок.
     this.renderer.setPixelRatio(this.dpr());
     configureRenderer(this.renderer);
@@ -401,11 +441,12 @@ export class TribeScene {
     this.scene.add(this.terrain);
     // Окружение пробы едет своим куском: в первую загрузку игры оно не входит, а до его
     // прихода сцена стоит на прежней земле — первый кадр не ждёт ничего.
-    this.ready = this.look === 'next' ? import('./env').then((m) => this.mountEnv(m.buildEnv)) : Promise.resolve();
+    this.ready = this.look === 'next' ? import('./env').then((m) => this.startEnv(m.startEnv)) : Promise.resolve();
     this.scene.add(this.figures.group);
     this.scene.add(this.snowfall.points);
     this.scene.add(this.smoke.points);
     this.scene.add(this.chimneys.points);
+    if (this.look === 'next') this.scene.add(this.hearths.points);
     this.scene.add(this.signs.group);
 
     this.selection = new THREE.Mesh(
@@ -605,22 +646,102 @@ export class TribeScene {
   private rewind(): void {
     this.clock.getDelta();
     this.gameTimeAt = performance.now();
+    // Цепочка встала и пошла заново: первые кадры — не цена уровня.
+    this.steady?.set(this.steady.tier);
+  }
+
+  /**
+   * Сторож плавности: судит кадры, только когда окружение уже стоит (сборка кусками
+   * отнимает у кадра свои миллисекунды — это не цена уровня) и холст не одолжен ролику.
+   * Опустил — плотность сразу, остальное — со следующего захода.
+   */
+  private watch(gap: number): void {
+    if (!this.steady || !this.env || this.envJob) return;
+    const next = this.steady.feed(gap);
+    if (!next) return;
+    this.dprLevel = next;
+    this.needSize = true;
+    rememberAutoCap(next, serverNow());
   }
 
   private dpr(): number {
     // Вид `next` берёт плотность своего уровня качества — не выше экрана (или той, что
     // задал стенд вместо экрана) и не выше потолка двери кадра.
-    if (this.look === 'next') return pixelRatio(qualityDpr(this.quality, this.pixelRatio ?? deviceRatio()));
+    if (this.look === 'next') return pixelRatio(qualityDpr(this.dprLevel, this.pixelRatio ?? deviceRatio()));
     return pixelRatio(this.pixelRatio);
   }
 
   /**
-   * Приехало окружение пробы: оно встаёт на место прежней земли с лесом. Сцену могли
-   * выгрузить, пока кусок ехал, — тогда ставить некуда.
+   * Приехал кусок окружения пробы: сборка заводится, а ведёт её кадр (`workEnv`) —
+   * кусками под `BUILD_SLICE_MS`. Сцену могли выгрузить, пока кусок ехал, — тогда
+   * собирать не для кого. Обещание сбывается, когда окружение встало в сцену.
    */
-  private mountEnv(build: BuildEnv): void {
-    if (this.disposed) return;
-    const env = build({ quality: this.quality, season: this.seasonVis, village: this.envVillage });
+  private startEnv(start: StartEnv): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    const world = start({
+      quality: this.quality,
+      season: this.seasonVis,
+      village: this.envVillage,
+      // Программы шейдеров — со светом, туманом и тенями этой сцены, иначе в кадре их
+      // собрали бы второй раз.
+      compile: (o) => void this.renderer.compile(o, this.camera, this.scene),
+    });
+    return new Promise((mounted) => {
+      this.envJob = { world, mounted };
+    });
+  }
+
+  /**
+   * Кусок работы окружения в этом кадре: первая сборка или пересчёт под постройки.
+   * Собрано впервые — дождаться программ шейдеров, не держа кадр (`compileAsync`
+   * с `KHR_parallel_shader_compile`), и поставить мир целиком.
+   */
+  private workEnv(): void {
+    const until = performance.now() + BUILD_SLICE_MS;
+    if (this.env) this.env.work(until);
+    const job = this.envJob;
+    if (!job || !job.world.work(until)) return;
+    this.envJob = null;
+    this.envMounting = job.world;
+    this.waitPrograms(job.world, () => {
+      this.mountEnv(job.world);
+      job.mounted();
+    });
+  }
+
+  /**
+   * Дождаться программ шейдеров окружения, не держа кадр. `compileAsync` three не годится:
+   * при потерянном контексте его опрос не кончается никогда, а после выгрузки сцены падает
+   * исключением из таймера (разбор ночи 1). Здесь опрос свой и с выходами: сцена выгружена,
+   * контекст потерян или срок вышел — мир ставится как есть, программы доберёт кадр.
+   */
+  private waitPrograms(world: EnvWorld, done: () => void): void {
+    const materials = [...this.renderer.compile(world.group, this.camera, this.scene)];
+    const began = performance.now();
+    const poll = (): void => {
+      const over = this.disposed || this.renderer.getContext().isContextLost() || performance.now() - began > ENV_COMPILE_WAIT;
+      const ready =
+        over ||
+        materials.every((m) => {
+          const program = (this.renderer.properties.get(m) as { currentProgram?: { isReady(): boolean } }).currentProgram;
+          return !program || program.isReady();
+        });
+      if (ready) done();
+      else setTimeout(poll, 16);
+    };
+    poll();
+  }
+
+  /**
+   * Окружение собрано: оно встаёт на место прежней земли с лесом. Сцену могли
+   * выгрузить, пока ждали программ, — тогда ставить некуда.
+   */
+  private mountEnv(env: EnvWorld): void {
+    if (this.envMounting === env) this.envMounting = null;
+    if (this.disposed) {
+      env.dispose();
+      return;
+    }
     this.scene.remove(this.terrain);
     disposeGeometries(this.terrain);
     this.env = env;
@@ -816,6 +937,8 @@ export class TribeScene {
     // Материалы и текстуры окружения свои у каждой сцены (не модульные): их отдаёт оно само.
     this.env?.dispose();
     this.env = null;
+    this.envJob?.world.dispose();
+    this.envJob = null;
     this.clearWait();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
@@ -1302,6 +1425,9 @@ export class TribeScene {
       }
       if (!view) {
         const group = createBuildingGroup(b.type, tier);
+        // Окна: у вида `next` светятся ночью; у нынешнего признак окон снимается до выгрузки.
+        if (this.look === 'next') lightWindows(group);
+        else dropGlow(group);
         // Силуэт снимается до расстановки: коробка нужна в собственных
         // координатах группы, а место и поворот придут её матрицей.
         const box = silhouetteBox(group);
@@ -1385,6 +1511,7 @@ export class TribeScene {
     }
 
     this.syncWorkSigns(s);
+    this.syncHearths();
     this.syncSoldiers(s);
     this.syncCaravans(s);
   }
@@ -1432,7 +1559,7 @@ export class TribeScene {
     // Земля окружения знает, где стоят дома и дороги: трава к ним не подходит, земля у
     // них вытоптана. Меняется это с той же редкостью, что обстановка.
     this.envVillage = { present, built };
-    this.env?.setVillage(this.envVillage);
+    (this.env ?? this.envJob?.world ?? this.envMounting)?.setVillage(this.envVillage);
     if (this.village) {
       this.scene.remove(this.village);
       disposeGeometries(this.village);
@@ -1519,6 +1646,26 @@ export class TribeScene {
     this.chimneys.setSources(smoke);
   }
 
+  /**
+   * Дым очагов (вид `next`): над каждой трубой дома, где бы дом ни стоял и как бы ни
+   * подрос, — верхушки труб модель помнит сама (`buildings.houses`, `userData.chimneys`).
+   * Список пересобирается, только если трубы сдвинулись.
+   */
+  private syncHearths(): void {
+    if (this.look !== 'next') return;
+    const smoke: SmokeSource[] = [];
+    for (const view of this.buildings.values()) {
+      const tops = view.group.userData.chimneys as THREE.Vector3[] | undefined;
+      if (!tops) continue;
+      view.group.updateMatrixWorld(true);
+      for (const top of tops) {
+        const at = top.clone().applyMatrix4(view.group.matrixWorld);
+        smoke.push(hearthSmoke(at.x, at.y, at.z));
+      }
+    }
+    this.hearths.setSources(smoke);
+  }
+
   // ---------- Анимация ----------
 
 
@@ -1535,13 +1682,16 @@ export class TribeScene {
     // Считается кадр лупа, а не кадр диорамы: одолженная ролику канва рисуется
     // им, и «кадры идут» тут значит именно то, что цепочка жива.
     this.drawn++;
-    this.lastFrame = performance.now();
+    const now = performance.now();
+    const gap = now - this.lastFrame;
+    this.lastFrame = now;
     // Отложенный пересчёт — первым же кадром: холст мог вернуться из фона
     // нулевым, и тогда его размер надо взять при первой возможности.
     if (this.needSize || this.drawn % 60 === 0) this.checkSize();
     const dt = Math.min(0.1, this.clock.getDelta());
     // Канва отдана ролику о бое: он рисует в неё сам, диораме тут делать нечего.
     if (this.lent) return;
+    this.watch(gap);
     const t = this.clock.elapsedTime;
 
     // Между пульсами время партии тянется само — настоящие секунды переводит в игровые
@@ -1556,6 +1706,7 @@ export class TribeScene {
     this.snowfall.update(dt, t, snow);
     this.smoke.update(dt, snow);
     this.chimneys.update(dt, snow);
+    if (this.look === 'next') this.hearths.update(dt, snow);
 
     const night = solar > 0.58 && solar < 0.97;
     for (const a of this.agents.values()) {
@@ -1591,6 +1742,8 @@ export class TribeScene {
       if (view.glow?.visible) view.glow.scale.setScalar(1 + Math.sin(t * 7 + view.markerY) * 0.14);
     }
     this.fireLight.intensity = this.look === 'next' ? fireGlow(this.light.nightK, t) : fireIntensity(night, t);
+    // Окна загораются в сумерках, раньше глубокой ночи: свет в доме зажигают, когда темнеет.
+    if (this.look === 'next') WINDOW_NIGHT.value = windowNight(this.light);
 
     // Камера сама по себе не двигается: её ведёт палец. Крутится она ровно в
     // одном случае — под замером частоты кадров на стенде.
@@ -1598,6 +1751,7 @@ export class TribeScene {
       this.spinTurn += this.spinRate * dt;
       this.place();
     }
+    this.workEnv();
     if (this.env) {
       const fog = this.scene.fog as THREE.Fog | null;
       this.env.update({
@@ -1695,6 +1849,7 @@ export class TribeScene {
     this.snowfall.points.visible = !on && this.snowfall.points.visible;
     this.smoke.points.visible = !on;
     this.chimneys.points.visible = !on && this.chimneys.active;
+    this.hearths.points.visible = !on && this.hearths.active;
     this.selection.visible = !on && this.selected !== null;
     for (const view of this.buildings.values()) {
       if (view.marker) view.marker.visible = !on;

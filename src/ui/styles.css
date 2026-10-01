@@ -3287,6 +3287,38 @@ body {
   background: var(--accent-text);
 }
 
+/*
+ * Строка выбора из нескольких (уровень графики): имя сверху, кнопки — под ним во
+ * всю ширину. Четыре кнопки помещаются в 360 px, каждая не ниже пальца.
+ */
+.set-row.pick {
+  flex-wrap: wrap;
+}
+
+.set-seg {
+  flex: 1 0 100%;
+  display: flex;
+  gap: 4px;
+}
+
+.set-seg button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.set-seg button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
 /* Строки настроек столбиком: без зазора вторая села бы на первую вплотную. */
 .set-list {
   display: flex;

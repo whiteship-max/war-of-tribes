@@ -7,15 +7,18 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь две, и это не заготовка под список. Свалкой раздел становится с
-// той строки, которую добавили «раз уж всё равно открыли»: игрок перестаёт
-// читать и начинает пролистывать. Новая строка появляется тогда, когда без неё
-// что-то нельзя сделать, а не тогда, когда её удобно сюда положить.
+// Строк здесь три — музыка, графика, язык, — и это не заготовка под список.
+// Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
+// открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
+// появляется тогда, когда без неё что-то нельзя сделать, а не тогда, когда её
+// удобно сюда положить. Графика — такая: без неё новый вид не включить и
+// телефону, который не тянет, уровень не опустить (docs/graphics_world.md, 9.6).
 //
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
 import { useSyncExternalStore } from 'react';
 import { setSoundOn, soundOn, subscribeSound } from '@/sound/settings';
+import { GFX_QUALITIES, gfx, setGfx, subscribeGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -40,6 +43,8 @@ import { Icon } from '@/ui/icons/Icon';
  */
 export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
+  const look = useSyncExternalStore(subscribeGfx, gfx, gfx);
+  const next = look.look === 'next';
 
   const flip = (): void => {
     const next = !on;
@@ -71,6 +76,49 @@ export function Settings() {
             <i />
           </span>
         </button>
+
+        {/*
+          Графика — рычаг вида и уровня, единственный (`render/gfx.ts`, тест «рычаг
+          один»). Новый вид пока проба и по умолчанию выключен — до слова владельца.
+          Сцена слушает запись сама и пересобирается на новой канве (`GameCanvas`):
+          сменить вид на живой сцене нельзя.
+        */}
+        <button className={`set-row${next ? ' on' : ''}`} onClick={() => setGfx({ look: next ? 'now' : 'next' })} aria-pressed={next}>
+          <span className="ico">
+            <Icon name="ui-look" glyph="🌲" />
+          </span>
+          <span className="name">
+            Новый вид
+            <em className="sub">лес до горизонта, трава, светлая ночь — проба</em>
+          </span>
+          <span className="sw">
+            <i />
+          </span>
+        </button>
+
+        {/*
+          Уровень графики — только при новом виде: у прежнего он ничего не меняет, а
+          строка, которая ничего не меняет, — обещание, которого мы не держим (как
+          язык ниже). Четыре кнопки, а не выпадающий список: выбор виден целиком.
+        */}
+        {next && (
+          <div className="set-row pick">
+            <span className="ico">
+              <Icon name="ui-gfx" glyph="🎨" />
+            </span>
+            <span className="name">
+              Графика
+              <em className="sub">«Авто» — по устройству; не тянет — опустится сама</em>
+            </span>
+            <div className="set-seg" role="group" aria-label="Уровень графики">
+              {GFX_QUALITIES.map(([q, label]) => (
+                <button key={q} className={look.quality === q ? 'on' : ''} aria-pressed={look.quality === q} onClick={() => setGfx({ quality: q })}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/*
           Язык. Это **не** настройка, а сообщение, и потому не кнопка: нажимать

@@ -8,9 +8,11 @@ import {
   PALETTE,
   SEASONAL_KEYS,
   SEASON_BLOOM,
+  SEASON_CROP,
   SEASON_SNOW,
   SEASON_SUN_ARC,
   SEASON_SWARD,
+  SEASON_TURN,
   seasonColor,
   type PaletteKey,
 } from './palette';
@@ -43,6 +45,10 @@ export class SeasonVisuals {
   /** Доля травы над снегом и доля цветущих цветов (`SEASON_SWARD`, `SEASON_BLOOM`). */
   sward = 1;
   bloom = 1;
+  /** Доля всходов на пашне (`SEASON_CROP`). */
+  crop = 1;
+  /** Доля деревьев со второй осенней листвой (`SEASON_TURN`). */
+  turn = 0;
   private started = false;
   /** Сезон, к которому идёт перелив: по нему встаёт цвет, спрошенный впервые. */
   private target: Season = 'spring';
@@ -92,5 +98,7 @@ export class SeasonVisuals {
     this.snow += (SEASON_SNOW[season] - this.snow) * k;
     this.sward += (SEASON_SWARD[season] - this.sward) * k;
     this.bloom += (SEASON_BLOOM[season] - this.bloom) * k;
+    this.crop += (SEASON_CROP[season] - this.crop) * k;
+    this.turn += (SEASON_TURN[season] - this.turn) * k;
   }
 }

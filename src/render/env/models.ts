@@ -1,6 +1,7 @@
 /**
  * Модели окружения: четыре породы деревьев (ближняя и дальняя форма), мелочь, пучок
- * травы, цветок, всход и пятно тени. Каждая — одна геометрия на все экземпляры.
+ * травы, цветок, всход, угодья (стог, звено изгороди, овца) и пятно тени. Каждая — одна
+ * геометрия на все экземпляры.
  *
  * ЦВЕТ ВЕРШИН — НЕ ЦВЕТ, А ТРИ ЧИСЛА (материал читает их сам, `env/materials.ts`):
  *   r — затемнение: низ кроны и ствола темнее, верх светлее — объём без второй лампы;
@@ -10,13 +11,13 @@
  * без единой строки здесь.
  *
  * Бюджет треугольников — у каждой модели в заголовке; меняешь модель — перемерь
- * (`env/budget.test.ts` считает кадр по этим геометриям).
+ * (`env/build.test.ts` считает мир уровня по этим геометриям).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CLEAR_EDGE, CLEAR_RADIUS } from '../plan';
 import { GROUND_RADIUS } from '../terrain';
-import { FAR_RADIUS, envHeight, type PropKind, type Species } from './rules';
+import { FAR_RADIUS, drain, envHeight, type Job, type PropKind, type Species } from './rules';
 
 // ---------- Сборка ----------
 
@@ -423,6 +424,50 @@ export function flowerModel(): THREE.BufferGeometry {
   return flatGeo(pos, col, true);
 }
 
+// ---------- Угодья ----------
+
+/**
+ * Стог: копна-цилиндр и конус макушки. Низ — цвет сена (`hay`), макушка — свой (`hayTop`):
+ * летом выгоревшая, зимой под снегом. ≈ 32 треугольника.
+ */
+export function hayModel(): THREE.BufferGeometry {
+  return build(
+    [
+      piece(at(new THREE.CylinderGeometry(0.55, 0.62, 0.55, 8, 1, true), 0, 0.275, 0), [0.7, 0.95], [0, 0.1]),
+      piece(at(new THREE.ConeGeometry(0.6, 0.78, 8, 1, true), 0, 0.55 + 0.39, 0), [0.92, 1.08], [0.35, 1]),
+    ],
+    { sway: 3, swayFrom: 0.5, jitter: 0.05 },
+  );
+}
+
+/**
+ * Звено изгороди длиной 1 вдоль оси x: два столба и две жерди. Длину звена задаёт масштаб
+ * экземпляра по x. Столбы — тёмное дерево (`railDark`), жерди — светлее (`rail`). 48 треугольников.
+ */
+export function fenceModel(): THREE.BufferGeometry {
+  const p: Piece[] = [];
+  for (const x of [-0.47, 0.47]) p.push(piece(at(new THREE.BoxGeometry(0.07, 0.62, 0.07), x, 0.31, 0), [0.7, 1], [0, 0]));
+  p.push(piece(at(new THREE.BoxGeometry(1.0, 0.05, 0.04), 0, 0.24, 0.01, 1, 1, 1, 0.03), [0.85, 1], [1, 1]));
+  p.push(piece(at(new THREE.BoxGeometry(1.0, 0.05, 0.04), 0, 0.46, -0.01, 1, 1, 1, -0.02), [0.9, 1.02], [1, 1]));
+  return build(p, { sway: 1 });
+}
+
+/**
+ * Овца: руно — сплюснутый многогранник, голова и ноги — тёмные (`woolDark`), руно —
+ * светлое (`wool`). Мордой по оси +x. ≈ 56 треугольников.
+ */
+export function sheepModel(): THREE.BufferGeometry {
+  return build(
+    [
+      piece(at(new THREE.IcosahedronGeometry(0.28, 0), 0, 0.36, 0, 1.3, 0.8, 0.95), [0.78, 1.05], [0, 0]),
+      piece(at(new THREE.BoxGeometry(0.16, 0.17, 0.15), 0.4, 0.4, 0, 1, 1, 1, 0), [0.8, 1], [1, 1]),
+      piece(at(new THREE.BoxGeometry(0.09, 0.22, 0.34), 0.2, 0.11, 0), [0.7, 0.9], [1, 1]),
+      piece(at(new THREE.BoxGeometry(0.09, 0.22, 0.34), -0.2, 0.11, 0), [0.7, 0.9], [1, 1]),
+    ],
+    { sway: 1, jitter: 0.02 },
+  );
+}
+
 /**
  * Пятно тени: квадрат в плоскости земли, от −1 до 1. Круг и мягкий край рисует шейдер
  * (`env/materials.shadeMaterial`), там же пятно вытягивается от солнца.
@@ -442,7 +487,10 @@ export function blobModel(): THREE.BufferGeometry {
  * опускается обрывом — последнее кольцо уходит под туман. Цвет земли — в шейдере
  * (`env/materials.groundMaterial`), вершинам цвет не нужен.
  */
-export function groundModel(): THREE.BufferGeometry {
+export const groundModel = (): THREE.BufferGeometry => drain(groundModelJob());
+
+/** Земля по кольцам: высота вершины — шум, и все кольца разом — десятки миллисекунд. */
+export function* groundModelJob(): Job<THREE.BufferGeometry> {
   const radii = [0];
   let r = 0;
   while (r < CLEAR_RADIUS) radii.push((r += 1.4));
@@ -471,12 +519,43 @@ export function groundModel(): THREE.BufferGeometry {
       pz[k] = z;
       py[k] = envHeight(x, z) - (i === rings - 1 ? 3 : 0);
     }
+    if ((i & 3) === 3) yield;
   }
-  const pos: number[] = [];
-  const emit = (...ids: number[]): void => {
-    for (const v of ids) pos.push(px[v], py[v], pz[v]);
+  // Треугольников: веер у середины и по два на клетку колец. Позиции и нормали — сразу в
+  // массивы, нормаль — грани: земля с плоским затенением, и общий пересчёт нормалей three
+  // был самым долгим куском сборки — десятки миллисекунд в первый раз.
+  const tris = SEG + (rings - 2) * SEG * 2;
+  const pos = new Float32Array(tris * 9);
+  const nor = new Float32Array(tris * 9);
+  let o = 0;
+  const tri = (a: number, b: number, c: number): void => {
+    const ex = px[b] - px[a];
+    const ey = py[b] - py[a];
+    const ez = pz[b] - pz[a];
+    const fx = px[c] - px[a];
+    const fy = py[c] - py[a];
+    const fz = pz[c] - pz[a];
+    let nx = ey * fz - ez * fy;
+    let ny = ez * fx - ex * fz;
+    let nz = ex * fy - ey * fx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    const put = (v: number): void => {
+      pos[o] = px[v];
+      pos[o + 1] = py[v];
+      pos[o + 2] = pz[v];
+      nor[o] = nx;
+      nor[o + 1] = ny;
+      nor[o + 2] = nz;
+      o += 3;
+    };
+    put(a);
+    put(b);
+    put(c);
   };
-  for (let j = 0; j < SEG; j++) emit(0, SEG + ((j + 1) % SEG), SEG + j);
+  for (let j = 0; j < SEG; j++) tri(0, SEG + ((j + 1) % SEG), SEG + j);
   for (let i = 1; i < rings - 1; i++) {
     for (let j = 0; j < SEG; j++) {
       const n = (j + 1) % SEG;
@@ -484,13 +563,19 @@ export function groundModel(): THREE.BufferGeometry {
       const b = i * SEG + n;
       const c = (i + 1) * SEG + n;
       const d = (i + 1) * SEG + j;
-      if (jit(i * 3 + j * 5, 33) < 0) emit(a, c, d, a, b, c);
-      else emit(a, b, d, b, c, d);
+      if (jit(i * 3 + j * 5, 33) < 0) {
+        tri(a, c, d);
+        tri(a, b, c);
+      } else {
+        tri(a, b, d);
+        tri(b, c, d);
+      }
     }
+    if ((i & 3) === 3) yield;
   }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.computeBoundingSphere();
   return geo;
 }

@@ -10,9 +10,11 @@
  * ЗАПИСЬ. JSON одной строкой: `{ project, task, pid, started }` — проект, задача, номер процесса и минута взятия (ISO).
  * Создаётся атомарно (`wx`: второй создатель получает отказ), снимается тем, кто взял.
  *
- * МЁРТВЫЙ ЗАМОК снимается сам. Мёртв — если процесса с этим номером нет или **процесс с этим номером родился позже
- * замка**: машина владельца выключается посреди прогона (трижды за неделю), замок переживает перезагрузку, а номер
- * на Windows быстро достаётся другому процессу, и без второй проверки все тяжёлые задачи ждали бы вечно.
+ * МЁРТВЫЙ ЗАМОК снимается сам. Мёртв — если процесса с этим номером нет, если он **зомби** или **процесс с этим номером
+ * родился позже замка**. Зомби — вышедший процесс, которого не подобрал родитель: номер он держит, а работу — нет; так
+ * бывает в контейнере, где первый процесс осиротевших не подбирает, и убитый держатель держал бы замок вечно. Последняя
+ * проверка — для перезагрузки: машина владельца выключается посреди прогона (трижды за неделю), замок её переживает, а
+ * номер на Windows быстро достаётся другому процессу, и без неё все тяжёлые задачи ждали бы вечно.
  *
  * СВОЙ ЗАМОК. Взявший кладёт отметку в переменную окружения (`HEAVY_JOB_LOCK`), и его потомки её наследуют: отчёт под
  * приёмкой, сборка базы во втором worktree, дочерние процессы веера — своя работа, и замок им не мешает.
@@ -72,14 +74,47 @@ export function readLock(file = LOCK_FILE) {
   return { broken: true, age };
 }
 
-/** Есть ли процесс с этим номером. */
-export function processExists(pid) {
+/** Состояния вышедшего процесса: зомби (`Z`) — вышел, а родитель его не подобрал; `X` и `x` — уже убирается. */
+const GONE = new Set(['Z', 'X', 'x']);
+
+/**
+ * Буква состояния из строки `/proc/<pid>/stat`: она стоит сразу за именем процесса, а имя — в скобках и само может
+ * содержать и скобки, и пробелы; поэтому ищется последняя `)`. Строка не та — `null`.
+ */
+export function statState(line) {
+  const close = line.lastIndexOf(')');
+  if (close < 0) return null;
+  return line.slice(close + 1).trimStart()[0] ?? null;
+}
+
+/**
+ * Состояние процесса — буква, как у `ps` (`R`, `S`, `Z`…); не узнать — `null`. На Windows зомби нет: вышедший процесс,
+ * чей дескриптор ещё кто-то держит, `process.kill(pid, 0)` и так не находит — libuv спрашивает код выхода.
+ */
+export function processState(pid) {
+  if (process.platform === 'win32') return null;
+  if (process.platform === 'linux') {
+    try {
+      return statState(readFileSync(`/proc/${Number(pid)}/stat`, 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+  const r = spawnSync('ps', ['-o', 'stat=', '-p', String(Number(pid))], { encoding: 'utf8' });
+  return (r.stdout ?? '').trim()[0] ?? null;
+}
+
+/**
+ * Жив ли процесс с этим номером: есть и не зомби. Чьё состояние не узнать, тот жив. `state` — подмена для тестов: на
+ * машине владельца (Windows) зомби не бывает.
+ */
+export function processExists(pid, state = processState) {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (e) {
-    return e.code === 'EPERM';
+    if (e.code !== 'EPERM') return false;
   }
+  return !GONE.has(state(pid));
 }
 
 /** Когда родился процесс, миллисекунды; не узнать — `null`. */
@@ -99,11 +134,11 @@ export function processBorn(pid) {
 }
 
 /**
- * Жив ли взявший: процесс есть и родился не позже замка. Чего не узнать, то считается живым — ждать лишнее безопаснее,
- * чем снять чужой живой замок.
+ * Жив ли взявший: процесс есть, не зомби и родился не позже замка. Чего не узнать, то считается живым — ждать лишнее
+ * безопаснее, чем снять чужой живой замок.
  */
-export function holderAlive(rec, born = processBorn) {
-  if (!processExists(rec.pid)) return false;
+export function holderAlive(rec, born = processBorn, state = processState) {
+  if (!processExists(rec.pid, state)) return false;
   const started = Date.parse(rec.started);
   if (Number.isNaN(started)) return true;
   const b = born(rec.pid);
@@ -152,6 +187,7 @@ export function tryTake(project, task, options = {}) {
   const file = options.file ?? LOCK_FILE;
   const env = options.env ?? process.env;
   const born = options.born ?? processBorn;
+  const state = options.state ?? processState;
   for (let attempt = 0; attempt < 5; attempt++) {
     const rec = { project, task, pid: process.pid, started: new Date().toISOString() };
     try {
@@ -176,7 +212,7 @@ export function tryTake(project, task, options = {}) {
       continue;
     }
     if (isOurs(held, env)) return { ours: true, lock: held };
-    if (!holderAlive(held, born)) {
+    if (!holderAlive(held, born, state)) {
       removeDead(file, held);
       continue;
     }

@@ -10,15 +10,20 @@ import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
 import { visualTier } from '../buildings';
 import { CLEAR_EDGE, CLEAR_RADIUS, GATE_ANGLE, GATE_CLEAR_HALF, WALL_RADIUS, inCleared } from '../plan';
-import { FOREST_FROM, GROUND_RADIUS, ZONES } from '../terrain';
-import { BUDGET, QUALITIES, QUALITY } from '../quality';
-import { blobModel, flowerModel, groundModel, propModel, treeModel, trianglesOf, tuftModel } from './models';
+import { FOREST_FROM, GLADES, GROUND_RADIUS, ZONES } from '../terrain';
+import { QUALITY } from '../quality';
 import {
   CROWN,
+  HAY_SPREAD,
   PROP_KINDS,
   PROP_SPREAD,
+  SEAM,
+  SHEEP_SPREAD,
   SPECIES,
+  edgeRadius,
+  farmDist,
   forestDensity,
+  gateEdge,
   groundMap,
   layoutOf,
   roadDist,
@@ -161,43 +166,196 @@ describe('окружение пробы: правила леса', () => {
   });
 });
 
-describe('окружение пробы: бюджет уровней', () => {
-  it('окружение каждого уровня укладывается в свой бюджет вызовов, треугольников и памяти текстур', () => {
-    const tri = {
-      near: Object.fromEntries(SPECIES.map((s) => [s, trianglesOf(treeModel(s, 'near'))])) as Record<string, number>,
-      far: Object.fromEntries(SPECIES.map((s) => [s, trianglesOf(treeModel(s, 'far'))])) as Record<string, number>,
-      prop: Object.fromEntries(PROP_KINDS.map((k) => [k, trianglesOf(propModel(k))])) as Record<string, number>,
+/** Точка на луче ворот: вдоль дороги и поперёк неё (со знаком). */
+const gateAxes = (x: number, z: number): { along: number; across: number } => ({
+  along: x * Math.cos(GATE_ANGLE) + z * Math.sin(GATE_ANGLE),
+  across: -x * Math.sin(GATE_ANGLE) + z * Math.cos(GATE_ANGLE),
+});
+
+/** Прогалины угодий и коридор ворот — там край задан не опушкой. */
+const offEdge = (x: number, z: number): boolean =>
+  inGate(x, z, 4) || GLADES.some((g) => Math.hypot(x - g.at.x, z - g.at.z) < g.r * 1.3) || trailDist(layout, x, z) < 1.5;
+
+describe('окружение пробы: рваный край леса', () => {
+  it('край леса не окружность: заливы и мысы по кругу, и лес идёт за краем, а не за радиусом', () => {
+    // Сам край: по кругу он ходит больше чем на две с половиной единицы и много раз.
+    const N = 360;
+    // Край зависит от точки, а не от угла: радиус края в направлении — неподвижная точка
+    // r = edgeRadius(r · направление), три шага от FOREST_FROM.
+    const e = Array.from({ length: N }, (_, k) => {
+      const a = (k / N) * 2 * Math.PI;
+      let r = FOREST_FROM;
+      for (let i = 0; i < 3; i++) r = edgeRadius(Math.cos(a) * r, Math.sin(a) * r);
+      return r;
+    });
+    expect(Math.max(...e) - Math.min(...e), 'размах края, ед.').toBeGreaterThan(2.5);
+    let turns = 0;
+    for (let k = 0; k < N; k++) {
+      const d0 = e[k] - e[(k + N - 1) % N];
+      const d1 = e[(k + 1) % N] - e[k];
+      if (d0 * d1 < 0) turns++;
+    }
+    expect(turns, 'заливов и мысов').toBeGreaterThan(20);
+    // Лес идёт за краем: перед ним (на 0.8 ближе) лес редок, за ним (на 1.5 дальше) — гуще.
+    // Область — направления, где край задан опушкой, а не дорогой, угодьем или тропой.
+    let asked = 0;
+    let sparse = 0;
+    let before = 0;
+    let after = 0;
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * 2 * Math.PI;
+      const c = Math.cos(a);
+      const sn = Math.sin(a);
+      if (offEdge(c * e[k], sn * e[k])) continue;
+      asked++;
+      const din = forestDensity(layout, c * (e[k] - 0.8), sn * (e[k] - 0.8));
+      if (din < 0.25) sparse++;
+      before += din;
+      after += forestDensity(layout, c * (e[k] + 1.5), sn * (e[k] + 1.5));
+    }
+    expect(asked, 'направлений с опушкой').toBeGreaterThan(N / 3);
+    expect(sparse / asked, 'перед краем леса нет').toBeGreaterThan(0.95);
+    expect(after, 'за краем лес гуще, чем перед ним').toBeGreaterThan(before * 3);
+  });
+
+  it('стена у дороги ворот рваная: отступ от коридора ходит вдоль дороги, а в коридор не заходит', () => {
+    // Сама стена: на одном отступе от коридора лес то почти стоит, то почти нет.
+    const at = (along: number, across: number) => ({
+      x: along * Math.cos(GATE_ANGLE) - across * Math.sin(GATE_ANGLE),
+      z: along * Math.sin(GATE_ANGLE) + across * Math.cos(GATE_ANGLE),
+    });
+    for (const side of [1, -1]) {
+      const wall: number[] = [];
+      for (let along = CLEAR_RADIUS + 1; along < GROUND_RADIUS - 2; along += 0.5) {
+        const p = at(along, side * (GATE_CLEAR_HALF + 1.2));
+        wall.push(gateEdge(p.x, p.z));
+      }
+      expect(Math.min(...wall), `обочина ${side}: стена отступила`).toBeLessThan(0.5);
+      expect(Math.max(...wall), `обочина ${side}: стена подошла`).toBeGreaterThan(0.8);
+    }
+    // И деревья стоят по этой стене: ни одного в коридоре — пол правила расчистки на месте.
+    const road = trees.filter((t) => !t.far && gateAxes(t.x, t.z).along > CLEAR_RADIUS && Math.abs(gateAxes(t.x, t.z).across) < 12);
+    expect(road.length, 'деревьев у дороги').toBeGreaterThan(20);
+    for (const t of road) expect(Math.abs(gateAxes(t.x, t.z).across)).toBeGreaterThan(GATE_CLEAR_HALF);
+  });
+
+  it('на опушке подлесок и молодняк: кусты у края, деревья у края мельче, чем в чаще', () => {
+    const fringeBushes = props.filter((p) => (p.kind === 'bush' || p.kind === 'berry') && Math.abs(Math.hypot(p.x, p.z) - edgeRadius(p.x, p.z)) < 1.5);
+    expect(fringeBushes.length, 'кустов на опушке').toBeGreaterThan(40);
+    const near = trees.filter((t) => !t.far && Math.hypot(t.x, t.z) - edgeRadius(t.x, t.z) < 0.5);
+    const deep = trees.filter((t) => !t.far && Math.hypot(t.x, t.z) - edgeRadius(t.x, t.z) > 4);
+    expect(near.length, 'деревьев у края').toBeGreaterThan(40);
+    const mean = (l: typeof trees): number => l.reduce((a, t) => a + t.scale, 0) / l.length;
+    expect(mean(near)).toBeLessThan(mean(deep) * 0.8);
+    const young = trees.filter((t) => t.scale < 0.6);
+    expect(young.length, 'молодняка').toBeGreaterThan(30);
+  });
+
+  it('шов ближнего и дальнего леса не читается кольцом: подстилка по кругу не проваливается', () => {
+    // Средняя подстилка на окружности, без коридора ворот: область — от чащи до края прежнего мира.
+    const ring = (r: number): number => {
+      let sum = 0;
+      let n = 0;
+      for (let k = 0; k < 360; k++) {
+        const a = (k / 360) * 2 * Math.PI;
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r;
+        if (inGate(x, z, 3.5)) continue;
+        sum += sample(map, map.litter, x, z);
+        n++;
+      }
+      return sum / n;
     };
-    const tuft = trianglesOf(tuftModel(false));
-    const crop = trianglesOf(tuftModel(true));
-    const flower = trianglesOf(flowerModel());
-    const blob = trianglesOf(blobModel());
-    for (const q of QUALITIES) {
-      const spec = QUALITY[q];
-      const qmap = groundMap(layout, spec.groundMap);
-      const qprops = scatterProps(layout, spec.props);
-      const g = scatterGrass(layout, qmap, spec.grass);
-      const f = scatterFlowers(layout, qmap, spec.flowers);
-      const c = scatterCrops(layout, spec.grass > 0 ? 1 : 0.5);
-      // Верхняя граница: все деревья прежнего мира ближней моделью, дальний лес — дальней.
-      const triangles =
-        trianglesOf(groundModel()) +
-        trees.reduce((n, t) => n + (t.far ? tri.far[t.species] : tri.near[t.species]), 0) +
-        qprops.reduce((n, p) => n + tri.prop[p.kind], 0) +
-        g.length * tuft +
-        c.length * crop +
-        f.length * flower +
-        (trees.filter((t) => !t.far).length + qprops.length) * blob;
-      // Вызовы: земля, по два меша на породу, по мешу на вид мелочи, покров и пятна.
-      const calls = 1 + SPECIES.length * 2 + PROP_KINDS.length + (g.length > 0 ? 1 : 0) + 1 + (f.length > 0 ? 1 : 0) + 1;
-      const textureMb = (spec.shadowMap ** 2 * 8 + spec.groundMap ** 2 * 4 * 2 * (4 / 3) + 128 * 128 * 4 * (4 / 3)) / 1048576;
-      expect(g.length, `${q}: трава не больше заказанного`).toBeLessThanOrEqual(spec.grass);
-      expect(triangles, `${q}: треугольники`).toBeLessThanOrEqual(BUDGET[q].triangles);
-      expect(calls, `${q}: вызовы`).toBeLessThanOrEqual(BUDGET[q].calls);
-      expect(textureMb, `${q}: текстуры`).toBeLessThanOrEqual(BUDGET[q].textureMb);
+    const deep = ring(SEAM - 2);
+    expect(deep, 'в чаще подстилка есть').toBeGreaterThan(0.7);
+    for (let r = SEAM - 2; r <= GROUND_RADIUS - 1.3; r += 0.25) expect(ring(r), `подстилка на ${r.toFixed(2)}`).toBeGreaterThan(deep - 0.1);
+  });
+
+  it('одинокие деревья стоят на лугу перед опушкой, но не в расчистке', () => {
+    const lone = trees.filter((t) => !t.far && Math.hypot(t.x, t.z) < edgeRadius(t.x, t.z) - 1.3 && t.scale >= 0.85);
+    expect(lone.length).toBeGreaterThan(2);
+    for (const t of lone) expect(inCleared(t.x, t.z, CROWN[t.species] * t.scale)).toBe(false);
+  });
+});
+
+describe('окружение пробы: угодья', () => {
+  const farm = layout.farm;
+  const pasture = farm.pasture;
+  /** Звено у выгона, а не у тропы. */
+  const ringPanel = (x: number, z: number): boolean => Math.abs(Math.hypot(x - pasture.x, z - pasture.z) - pasture.r) < 0.3;
+
+  it('стога, изгороди и стадо есть, и всё — за чертой расчистки и не в коридоре ворот', () => {
+    expect(farm.hay.length, 'стогов').toBeGreaterThanOrEqual(4);
+    expect(farm.fences.length, 'звеньев изгороди').toBeGreaterThanOrEqual(12);
+    expect(farm.flock.length, 'овец').toBeGreaterThanOrEqual(5);
+    for (const h of farm.hay) {
+      expect(inCleared(h.x, h.z, HAY_SPREAD * h.scale)).toBe(false);
+      expect(inGate(h.x, h.z, HAY_SPREAD)).toBe(false);
+    }
+    for (const f of farm.fences) {
+      expect(inCleared(f.x, f.z, f.length / 2)).toBe(false);
+      expect(inGate(f.x, f.z, f.length / 2)).toBe(false);
+    }
+    for (const o of farm.flock) {
+      expect(inCleared(o.x, o.z, SHEEP_SPREAD * o.scale)).toBe(false);
+      expect(Math.hypot(o.x - pasture.x, o.z - pasture.z), 'овца внутри изгороди').toBeLessThan(pasture.r - 0.3);
     }
   });
 
+  it('изгороди вдоль троп стоят у тропы, а не на ней, — у нескольких троп', () => {
+    const byTrail = farm.fences.filter((f) => !ringPanel(f.x, f.z));
+    expect(byTrail.length, 'звеньев у троп').toBeGreaterThan(4);
+    for (const f of byTrail) {
+      const d = trailDist(layout, f.x, f.z);
+      expect(d, 'звено не на тропе').toBeGreaterThan(0.2);
+      expect(d, 'звено у тропы').toBeLessThan(0.8);
+    }
+    // У скольких троп есть изгородь: тропа — ближайшая к звену.
+    const trails = new Set(byTrail.map((f) => layout.trails.findIndex((t) => Math.hypot((t.ax + t.bx) / 2 - f.x, (t.az + t.bz) / 2 - f.z) < 1.2)));
+    trails.delete(-1);
+    expect(trails.size, 'троп с изгородью').toBeGreaterThanOrEqual(3);
+  });
+
+  it('ни крона, ни мелочь не протыкают изгородь, стог и выгон', () => {
+    // Область: деревья и мелочь у угодий есть — правило спрашивается.
+    const nearTrees = trees.filter((t) => !t.far && farmDist(layout, t.x, t.z) < 3);
+    const nearProps = props.filter((p) => farmDist(layout, p.x, p.z) < 3);
+    expect(nearTrees.length, 'деревьев у угодий').toBeGreaterThan(10);
+    expect(nearProps.length, 'мелочи у угодий').toBeGreaterThan(3);
+    for (const t of nearTrees) expect(farmDist(layout, t.x, t.z)).toBeGreaterThanOrEqual(CROWN[t.species] * t.scale - 1e-9);
+    for (const p of nearProps) expect(farmDist(layout, p.x, p.z)).toBeGreaterThanOrEqual(PROP_SPREAD[p.kind] * p.scale - 1e-9);
+  });
+
+  it('стога у пашни — не на полосах и не на тропах', () => {
+    const byField = farm.hay.filter((h) => Math.hypot(h.x - ZONES.fields.x, h.z - ZONES.fields.z) < 7);
+    expect(byField.length, 'стогов у пашни').toBeGreaterThanOrEqual(2);
+    for (const h of farm.hay) {
+      expect(sample(map, map.field, h.x, h.z), 'стог не на полосе').toBeLessThan(0.1);
+      expect(trailDist(layout, h.x, h.z), 'стог не на тропе').toBeGreaterThan(HAY_SPREAD * h.scale);
+    }
+  });
+
+  it('трёхполье: озимые, яровые и пар; на пару всходов нет', () => {
+    expect(new Set(layout.fields.map((f) => f.sowing))).toEqual(new Set(['winter', 'spring', 'fallow']));
+    const crops = scatterCrops(layout, 1);
+    const fallow = layout.fields.filter((f) => f.sowing === 'fallow');
+    expect(fallow.length).toBeGreaterThan(0);
+    for (const f of fallow) {
+      const on = crops.filter((c) => Math.hypot(c.x - f.x, c.z - f.z) < Math.min(f.across, f.along) * 0.8);
+      expect(on.length, 'всходов на пару').toBe(0);
+    }
+    expect(new Set(crops.map((c) => c.sowing))).toEqual(new Set(['winter', 'spring']));
+  });
+
+  it('выгон: трава выедена, лес расступился, тропа от двора подходит к воротцам', () => {
+    expect(sample(map, map.graze, pasture.x, pasture.z)).toBeGreaterThan(0.6);
+    expect(sample(map, map.graze, -pasture.x, -pasture.z)).toBe(0);
+    expect(forestDensity(layout, pasture.x, pasture.z)).toBeLessThan(0.1);
+    expect(layout.trails.some((t) => Math.hypot(t.bx - pasture.x, t.bz - pasture.z) < 0.5), 'тропа кончается на выгоне').toBe(true);
+  });
+});
+
+describe('окружение пробы: бюджет уровней', () => {
   it('уровни идут по убыванию: низкий ничем не дороже среднего, средний — высокого', () => {
     const keys = ['dpr', 'shadowMap', 'grass', 'flowers', 'props', 'grassFar', 'treeNear', 'groundMap'] as const;
     for (const k of keys) {

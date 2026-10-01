@@ -87,10 +87,24 @@ export const fireSmoke = (): SmokeSource => ({ x: 0, y: 0.8, z: 0, puffs: FIRE_P
 export interface SmokeLook {
   size: number;
   opacity: number;
+  /**
+   * Снос ветром: насколько клуб уходит вбок на единицу подъёма, по осям мира. Нет — дым
+   * встаёт столбом (прежние системы).
+   */
+  drift?: { x: number; z: number };
 }
 
 export const FIRE_LOOK: SmokeLook = { size: 0.3, opacity: 0.12 };
 export const CHIMNEY_LOOK: SmokeLook = { size: 0.5, opacity: 0.3 };
+/**
+ * Дым очагов над трубами домов (вид `next`): живой посёлок, а не признак работы. Реже,
+ * тоньше и прозрачнее дыма работы (`CHIMNEY_LOOK`) — тот остаётся знаком, что двор
+ * работает, и спутать их нельзя. Сносится ветром.
+ */
+export const HEARTH_LOOK: SmokeLook = { size: 0.34, opacity: 0.16, drift: { x: 0.42, z: -0.18 } };
+
+/** Дым очага: над трубой дома, невысокий. */
+export const hearthSmoke = (x: number, y: number, z: number): SmokeSource => ({ x, y, z, puffs: 5, top: 1.8 });
 
 export const chimneySmoke = (x: number, y: number, z: number): SmokeSource => ({
   x,
@@ -174,9 +188,10 @@ export class Smoke {
       // Клуб расходится тем шире, чем выше поднялся.
       const spread = 0.15 + p * (0.9 + snow * 0.5) * (src.top / FIRE_TOP);
       const a = i * 2.399 + p * 2.2;
-      pos[i * 3] = src.x + Math.cos(a) * spread;
+      const drift = this.look.drift;
+      pos[i * 3] = src.x + Math.cos(a) * spread + (drift ? drift.x * p * src.top : 0);
       pos[i * 3 + 1] = src.y + p * src.top;
-      pos[i * 3 + 2] = src.z + Math.sin(a) * spread;
+      pos[i * 3 + 2] = src.z + Math.sin(a) * spread + (drift ? drift.z * p * src.top : 0);
     }
     attr.needsUpdate = true;
   }

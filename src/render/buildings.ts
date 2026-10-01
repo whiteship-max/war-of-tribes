@@ -107,7 +107,13 @@ const styleFrom = (set: Record<MatKey, THREE.Material>, roles: Roles): Style =>
 export const STYLE: Style = styleFrom(LEGACY, ROLES);
 
 /** Краски для набора деталей: по роли — краска (см. kit.paintOf). */
-export type Paint = Record<keyof Roles, K.Paint> & { roofPaint: K.RoofPaint; ink: K.Paint; features: Features };
+export type Paint = Record<keyof Roles, K.Paint> & {
+  roofPaint: K.RoofPaint;
+  ink: K.Paint;
+  /** Окно: та же краска, что `ink`, но ночью светится (`kit.pane`). Двери — `ink`. */
+  pane: K.Paint;
+  features: Features;
+};
 
 let paintCache: Paint | null = null;
 
@@ -122,6 +128,7 @@ export function stylePaint(): Paint {
     ...p,
     roofPaint: { kind: f.roof, roof: p.roof, roofDark: p.roofDark, trim: hard ? p.accent : p.beam },
     ink: K.paintOf('dark'),
+    pane: K.pane(),
     features: f,
   };
   return paintCache;
@@ -210,10 +217,14 @@ function shiftParts(parts: K.Part[], x: number, z: number, rotY: number, scale: 
   return parts;
 }
 
-/** Жилой двор: отдельные фронтоны и трубы вместо круглых кровель. */
-function residentialParts(t: Tier): K.Part[] {
+/**
+ * Жилой двор: отдельные фронтоны и трубы вместо круглых кровель. `tops` — куда сложить
+ * верхушки труб в координатах модели: над ними идёт дым очагов (`Scene.syncHearths`).
+ */
+function residentialParts(t: Tier, tops: THREE.Vector3[] = []): K.Part[] {
   const p = stylePaint();
   const parts: K.Part[] = [];
+  const scale = [0.65, 1, 0.98][t];
   const home = (x: number, z: number, w: number, d: number, h: number, upper: number, rot = 0): void => {
     const a: K.Part[] = [];
     const y0 = 0.16;
@@ -237,20 +248,24 @@ function residentialParts(t: Tier): K.Part[] {
       a.push(K.box(0.075, rise, 0.075, p.beam, 0, eave + rise / 2, fz));
       if (upper) {
         for (const sx of [-1, 1]) {
-          a.push(K.box(0.22, 0.32, 0.045, p.ink, sx * uw * 0.25, y0 + h + upper * 0.53, fz + side * 0.035));
+          a.push(K.box(0.22, 0.32, 0.045, p.pane, sx * uw * 0.25, y0 + h + upper * 0.53, fz + side * 0.035));
           a.push(K.box(0.10, 0.34, 0.045, p.post, sx * uw * 0.25 + 0.15, y0 + h + upper * 0.53, fz + side * 0.05));
         }
       }
     }
     for (const sx of [-1, 1]) {
       a.push(K.box(0.075, 0.09, d, p.beam, sx * (w / 2 + 0.02), y0 + h * 0.48, 0));
-      a.push(K.box(0.05, 0.3, 0.24, p.ink, sx * (w / 2 + 0.025), y0 + h * 0.66, -d * 0.18));
+      a.push(K.box(0.05, 0.3, 0.24, p.pane, sx * (w / 2 + 0.025), y0 + h * 0.66, -d * 0.18));
       a.push(K.box(0.07, 0.3, 0.1, p.post, sx * (w / 2 + 0.04), y0 + h * 0.66, -d * 0.18 + 0.18));
     }
     a.push(...K.door(0.3, h * 0.72, p.ink, p.beam, -w * 0.18, d / 2 + 0.03));
     a.push(K.stepStone(0.43, p.base, -w * 0.18, d / 2 + 0.13));
     a.push(K.box(0.075, Math.hypot(uw * 0.32, rise * 0.7), 0.08, p.beam, uw * 0.16, eave + rise * 0.35, ud / 2 + 0.03, { z: Math.atan2(uw * 0.32, rise * 0.7) }));
     a.push(...K.chimney(0.22, rise * 0.7 + 0.32, p.base, p.base, -uw * 0.24, eave + rise * 0.3, -ud * 0.23));
+    // Верх колпака трубы — тем же переносом, что и сам дом, и тем же масштабом ступени.
+    const top = new THREE.Vector3(-uw * 0.24, eave + rise * 0.3 + rise * 0.7 + 0.32 + 0.22 * 0.3, -ud * 0.23);
+    top.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot).add(new THREE.Vector3(x, 0, z)).multiplyScalar(scale);
+    tops.push(top);
     parts.push(...shiftParts(a, x, z, rot, 1));
   };
   if (t === 2) {
@@ -263,12 +278,15 @@ function residentialParts(t: Tier): K.Part[] {
     home(0.95, -0.1, 0.85, 1.25, 0.75, 0, -0.12);
     if (t === 1) home(-0.1, -1.2, 1.1, 0.85, 0.85, 0, Math.PI / 2);
   }
-  return shiftParts(parts, 0, 0, 0, [0.65, 1, 0.98][t]);
+  return shiftParts(parts, 0, 0, 0, scale);
 }
 
 function houses(t: Tier): THREE.Group {
   const g = new THREE.Group();
-  g.add(K.assemble(residentialParts(t)));
+  const tops: THREE.Vector3[] = [];
+  g.add(K.assemble(residentialParts(t, tops)));
+  // Трубы очагов: сцена ставит над ними дым (вид `next`).
+  g.userData.chimneys = tops;
   return g;
 }
 
@@ -482,7 +500,7 @@ function tavern(t:Tier):THREE.Group {
     a.push(...K.roofGable(2.0,1.16,0.53,1.42,p.roofPaint,0.14,0,-1.02));
     a.push(K.box(0.45,0.94,0.05,p.ink,-0.35,0.55,-0.41));
     for(const x of [-0.89,0.89]) a.push(K.box(0.12,1.3,0.07,wood,x,0.74,-0.39));
-    a.push(K.box(0.38,0.4,0.07,p.ink,0.45,0.94,-0.39));
+    a.push(K.box(0.38,0.4,0.07,p.pane,0.45,0.94,-0.39));
     a.push(K.box(0.09,1.9,0.09,wood,1.22,0.95,-0.35));
     a.push(K.box(0.58,0.08,0.08,wood,1.44,1.83,-0.35));
     a.push(K.box(0.39,0.39,0.075,K.paintOf('cut'),1.55,1.53,-0.35));
@@ -646,8 +664,9 @@ function church(t: Tier): THREE.Group {
   a.push(K.plinth(w, d, dark, 0, z));
   a.push(K.wallGable(w, h, d, rise, stone, 0, z, undefined, 0.13));
   a.push(...K.roofGable(w, d, rise, h + 0.13, p.roofPaint, 0.12, 0, z));
-  const opening = (width: number, spring: number, x: number, y: number, z: number, rot = 0): void => {
-    a.push(K.arch(width - 0.1, spring, 0, 0.035, p.ink, x, y, z, { y: rot }));
+  // `glass` — окно, светится ночью; без него — портал (дверь не светится).
+  const opening = (width: number, spring: number, x: number, y: number, z: number, rot = 0, glass = true): void => {
+    a.push(K.arch(width - 0.1, spring, 0, 0.035, glass ? p.pane : p.ink, x, y, z, { y: rot }));
     a.push(K.arch(width, spring, 0.085, 0.08, p.base, x, y - 0.025, z, { y: rot }));
   };
   for (const side of [-1, 1]) {
@@ -681,7 +700,7 @@ function church(t: Tier): THREE.Group {
   const top = th + spire + 0.1;
   a.push(K.box(0.065, 0.46, 0.065, p.accent, 0, top + 0.18, tz));
   a.push(K.box(0.3, 0.065, 0.065, p.accent, 0, top + 0.28, tz));
-  opening(tw * 0.72, 0.56, 0, 0.15, tz + tw / 2 + 0.03);
+  opening(tw * 0.72, 0.56, 0, 0.15, tz + tw / 2 + 0.03, 0, false);
   if (t >= 1) opening(0.25, 0.65, 0, 1.5, tz + tw / 2 + 0.03);
   if (t === 2) {
     opening(0.3, 1.0, 0, 3.45, tz + tw / 2 + 0.03);
@@ -746,7 +765,7 @@ function smithy(t: Tier): THREE.Group {
     a.push(K.box(w * 0.65, h, 0.14, p.wall, x - w * 0.175, h / 2, d / 2 - 0.07));
     a.push(K.wallGable(w, 0.08, d, 0.45, p.wall, x, 0, undefined, h - 0.08));
     a.push(...K.door(0.4, 0.92, p.ink, p.beam, x - w * 0.15, d / 2 + 0.015));
-    a.push(K.box(0.3, 0.3, 0.04, p.ink, x - w * 0.15, 1.5, d / 2 + 0.025));
+    a.push(K.box(0.3, 0.3, 0.04, p.pane, x - w * 0.15, 1.5, d / 2 + 0.025));
     a.push(K.box(w, 0.12, 0.1, p.beam, x, 1.18, d / 2 + 0.04));
     // Низкий рабочий навес не скрывает массивную трубу.
     a.push(K.roofLean(1.3, 1.25, 1.77, p.roof, -0.4, 0.75, 0.18));
@@ -827,11 +846,12 @@ function townHall(t: Tier): THREE.Group {
   parts.push(K.wallGable(w + 0.08, upperH, d + 0.04, rise, t === 2 ? stone : p.wall, cx, 0, undefined, 0.16 + baseH));
   parts.push(...K.roofGable(w + 0.08, d + 0.04, rise, roofY, p.roofPaint, 0.16, cx));
   // Тёмная вставка повторяет арочный контур, поэтому углы не торчат из свода.
-  const opening = (x: number, y: number, z: number, width: number, spring: number, rot?: K.Rot): void => {
-    parts.push(K.arch(width, spring, 0, 0.035, p.ink, x, y, z, rot));
+  // `glass` — окно, светится ночью; портал (первый вызов) — дверь, не светится.
+  const opening = (x: number, y: number, z: number, width: number, spring: number, rot?: K.Rot, glass = true): void => {
+    parts.push(K.arch(width, spring, 0, 0.035, glass ? p.pane : p.ink, x, y, z, rot));
     parts.push(K.arch(width + 0.16, spring, 0.085, 0.13, stone, x, y, z + (rot ? 0 : 0.04), rot));
   };
-  opening(cx, 0.18, front + 0.035 - (t ? 0.44 : 0), 0.57, 0.44);
+  opening(cx, 0.18, front + 0.035 - (t ? 0.44 : 0), 0.57, 0.44, undefined, false);
   parts.push(K.box(0.76, 0.1, 0.36, stone, cx, 0.08, front + 0.12));
   if (t >= 1) {
     // Настоящая глубина аркады: зал отступает назад, между опорами есть просвет.
@@ -1240,8 +1260,8 @@ function watchTower(t: Tier): THREE.Group {
         a.push(K.box(0.22, 0.2, 0.22, K.paintOf('stoneDark'), x, y, z));
     }
     for (const y of [2.1, 3.65]) {
-      a.push(K.box(0.12, 0.56, 0.035, p.ink, 0, y, 0.75));
-      a.push(K.box(0.035, 0.56, 0.12, p.ink, 0.75, y, 0));
+      a.push(K.box(0.12, 0.56, 0.035, p.pane, 0, y, 0.75));
+      a.push(K.box(0.035, 0.56, 0.12, p.pane, 0.75, y, 0));
     }
     // Сигнальная корзина вне кровли, без отдельного источника света и материала.
     a.push(K.box(1.2, 0.15, 0.15, wood, 1.05, h + 0.28, 0));

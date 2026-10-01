@@ -13,6 +13,7 @@
  * материалы посёлка (`KIT`, `LEGACY`) проба не трогает ни на бит.
  */
 import * as THREE from 'three';
+import { CLEAR_RADIUS } from '../plan';
 
 /** Общие на всё окружение числа кадра: время, ветер, дальность травы, доля ночи. */
 export interface EnvShared {
@@ -25,14 +26,50 @@ export interface EnvShared {
    * серо-синей земле красная черепица и светлая штукатурка и держат ночной кадр.
    */
   night: { value: number };
+  /**
+   * Густота теней облаков, 0..1 (9.8): днём, не в сумерках и не на низком уровне. Облака —
+   * пятна, плывущие по земле и лесу за чертой расчистки; посёлок они не темнят: дома
+   * рисует тело набора, которого облака не знают, и тень, скользящая по лугу и минующая
+   * дом, читалась бы ошибкой.
+   */
+  cloud: { value: number };
+  /** Доля зимы (`SeasonVisuals.snow`): шапки снега на кронах и верхах, снег на земле. */
+  snow: { value: number };
+  /** Доля деревьев со второй осенней листвой (`SeasonVisuals.turn`). */
+  turn: { value: number };
+  /** Цвет снега — живой цвет сезона (`palette.snow`). */
+  snowColor: { value: THREE.Color };
 }
 
-export const envShared = (): EnvShared => ({ time: { value: 0 }, wind: { value: 0 }, far: { value: 100 }, night: { value: 0 } });
+export const envShared = (): EnvShared => ({
+  time: { value: 0 },
+  wind: { value: 0 },
+  far: { value: 100 },
+  night: { value: 0 },
+  cloud: { value: 0 },
+  snow: { value: 0 },
+  turn: { value: 0 },
+  snowColor: { value: new THREE.Color(0xe9eef3) },
+});
 
 /** Обесцвечивание альбедо к серому той же яркости — одна строка на растения и землю. */
 const NIGHT_GREY = /* glsl */ `
 vec3 envNightGrey( vec3 c, float k ) {
   return mix( c, vec3( dot( c, vec3( 0.3, 0.59, 0.11 ) ) ), k );
+}
+`;
+
+/**
+ * Тень облака в точке земли, 0..1: крупные пятна из трёх синусов, плывущие с ветром. Без
+ * текстуры — одна формула на землю (по пикселю) и растительность (по экземпляру). За
+ * чертой расчистки — полная, в посёлке — нет (см. `EnvShared.cloud`).
+ */
+const CLOUD = /* glsl */ `
+float envCloud( vec2 p, float t ) {
+  float a = sin( p.x * 0.083 + t * 0.021 ) * sin( p.y * 0.071 - t * 0.017 );
+  float b = sin( ( p.x + p.y ) * 0.047 + t * 0.013 + 1.7 );
+  float c = 0.5 + 0.32 * a + 0.22 * b;
+  return smoothstep( 0.52, 0.74, c ) * smoothstep( ${(CLEAR_RADIUS - 3).toFixed(2)}, ${(CLEAR_RADIUS + 3).toFixed(2)}, length( p ) );
 }
 `;
 
@@ -44,8 +81,13 @@ uniform float uEnvWind;
 uniform float uEnvSway;
 uniform float uEnvFar;
 uniform float uEnvShow;
+uniform float uEnvCloud;
+uniform float uEnvTurn;
 varying vec3 vEnvData;
 varying vec3 vEnvTint;
+varying float vEnvShade;
+varying float vEnvTurn;
+${CLOUD}
 `;
 
 /** Цвет вершин — не цвет, а три числа (`env/models.ts`); цвет экземпляра — разброс или цвет цветка. */
@@ -86,6 +128,9 @@ float envK = 1.0;
   envK *= 1.0 - smoothstep( uEnvFar * 0.8, uEnvFar, distance( cameraPosition, envBase ) );
 #endif
 mvPosition.xyz = envBase + ( mvPosition.xyz - envBase ) * envK;
+vEnvShade = 1.0 - uEnvCloud * envCloud( envBase.xz, uEnvTime );
+// Autumn second crown colour: only for about half of the trees, by position.
+vEnvTurn = uEnvTurn * step( 0.5, fract( sin( dot( envBase.xz, vec2( 41.37, 17.91 ) ) ) * 24634.6345 ) );
 mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 `;
@@ -94,8 +139,13 @@ const VEG_FRAG_PARS = /* glsl */ `
 uniform vec3 uEnvA;
 uniform vec3 uEnvB;
 uniform float uEnvNight;
+uniform vec3 uEnvTurnCol;
+uniform float uEnvSnow;
+uniform vec3 uEnvSnowCol;
 varying vec3 vEnvData;
 varying vec3 vEnvTint;
+varying float vEnvShade;
+varying float vEnvTurn;
 ${NIGHT_GREY}
 `;
 
@@ -111,15 +161,21 @@ const VEG_NORMAL = /* glsl */ `
   normal = normalize( vNormal );
   nonPerturbedNormal = normal;
 #endif
+#ifdef ENV_SNOW
+  // Snow caps: faces looking up take the snow colour, only on the crown/top share.
+  float envUp = dot( normal, normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz ) );
+  float envCap = uEnvSnow * smoothstep( 0.3, 0.7, envUp ) * smoothstep( 0.2, 0.6, vEnvData.g );
+  diffuseColor.rgb = mix( diffuseColor.rgb, envNightGrey( uEnvSnowCol, uEnvNight ) * ( 0.9 + 0.1 * vEnvData.r ), envCap );
+#endif
 `;
 
 const VEG_FRAG_COLOR = /* glsl */ `
 #ifdef ENV_PETAL
   vec3 envCol = mix( uEnvA, vEnvTint, vEnvData.g );
 #else
-  vec3 envCol = mix( uEnvA, uEnvB, vEnvData.g ) * vEnvTint;
+  vec3 envCol = mix( uEnvA, mix( uEnvB, uEnvTurnCol, vEnvTurn ), vEnvData.g ) * vEnvTint;
 #endif
-diffuseColor.rgb *= envNightGrey( envCol, uEnvNight ) * vEnvData.r;
+diffuseColor.rgb *= envNightGrey( envCol, uEnvNight ) * vEnvData.r * vEnvShade;
 `;
 
 export interface VegOptions {
@@ -139,6 +195,10 @@ export interface VegOptions {
   petal?: boolean;
   /** Доля показанных экземпляров по сезону (трава зимой, цветы осенью). */
   show?: { value: number };
+  /** Зимой на верхних гранях второго цвета лежит снег (кроны, камни, жерди, стога). */
+  snowy?: boolean;
+  /** Второй осенний цвет кроны — у половины деревьев вразнобой (`EnvShared.turn`). */
+  turnTo?: THREE.Color;
 }
 
 export function vegMaterial(name: string, o: VegOptions, shared: EnvShared): THREE.MeshLambertMaterial {
@@ -151,6 +211,7 @@ export function vegMaterial(name: string, o: VegOptions, shared: EnvShared): THR
   if (o.show) defines.ENV_SHOW = '';
   // Двусторонний покров без плоского затенения держит нормаль вверх (`VEG_NORMAL`).
   if (o.twoSided && !o.flat) defines.ENV_UP = '';
+  if (o.snowy) defines.ENV_SNOW = '';
   mat.defines = defines;
   const own = {
     uEnvA: { value: o.a },
@@ -161,6 +222,11 @@ export function vegMaterial(name: string, o: VegOptions, shared: EnvShared): THR
     uEnvWind: shared.wind,
     uEnvFar: shared.far,
     uEnvNight: shared.night,
+    uEnvCloud: shared.cloud,
+    uEnvTurn: o.turnTo ? shared.turn : { value: 0 },
+    uEnvTurnCol: { value: o.turnTo ?? o.b },
+    uEnvSnow: shared.snow,
+    uEnvSnowCol: shared.snowColor,
   };
   mat.onBeforeCompile = (shader): void => {
     Object.assign(shader.uniforms, own);
@@ -190,6 +256,8 @@ export interface GroundColors {
   trample: THREE.Color;
   soil: THREE.Color;
   stone: THREE.Color;
+  /** Выгон: выеденная трава. */
+  graze: THREE.Color;
 }
 
 const GROUND_VERT_PARS = /* glsl */ `
@@ -215,9 +283,15 @@ uniform vec3 uDirt;
 uniform vec3 uTrample;
 uniform vec3 uSoil;
 uniform vec3 uStone;
+uniform vec3 uGraze;
 uniform float uEnvNight;
+uniform float uEnvTime;
+uniform float uEnvCloud;
+uniform float uEnvSnow;
+uniform vec3 uEnvSnowCol;
 varying vec2 vEnvXZ;
 ${NIGHT_GREY}
+${CLOUD}
 `;
 
 /**
@@ -239,12 +313,18 @@ float envLit = smoothstep( 0.3, 0.7, envA.g + ( envM.r - 0.5 ) * 0.5 );
 envG = mix( envG, uLitter * ( 0.82 + 0.34 * envM.b ), envLit );
 float envSoil = smoothstep( 0.3, 0.72, envA.r + ( envM.b - 0.5 ) * 0.45 );
 envG = mix( envG, mix( uTrample, uDirt, envN.g ) * ( 0.9 + 0.2 * envM.r ), envSoil );
+float envGz = smoothstep( 0.15, 0.7, envB.b + ( envM.g - 0.5 ) * 0.3 );
+envG = mix( envG, uGraze * ( 0.88 + 0.24 * envM.r ), envGz * 0.8 );
 float envFld = smoothstep( 0.35, 0.65, envB.r );
-float envFur = 0.8 + 0.2 * sin( dot( vEnvXZ, uFurrow ) * 18.0 );
+// Furrows run along the strip, like the crop rows (rules.scatterCrops).
+float envFur = 0.8 + 0.2 * sin( dot( vEnvXZ, vec2( -uFurrow.y, uFurrow.x ) ) * 18.0 );
 envG = mix( envG, uSoil * envFur, envFld );
 float envSt = smoothstep( 0.35, 0.65, envA.b + ( envM.g - 0.5 ) * 0.5 );
 envG = mix( envG, uStone * ( 0.76 + 0.38 * envM.r ), envSt );
-diffuseColor.rgb *= envNightGrey( envG, uEnvNight );
+// Snow: patches by noise; paths, stones and litter under canopy keep less of it.
+float envSnow = uEnvSnow * smoothstep( 0.18, 0.5, 0.95 - envSoil * 0.55 - envSt * 0.4 - envLit * 0.25 + ( envN.r - 0.5 ) * 0.6 + ( envM.g - 0.5 ) * 0.25 );
+envG = mix( envG, uEnvSnowCol * ( 0.9 + 0.1 * envM.r ), envSnow );
+diffuseColor.rgb *= envNightGrey( envG, uEnvNight ) * ( 1.0 - uEnvCloud * envCloud( vEnvXZ, uEnvTime ) );
 `;
 
 export interface GroundMaps {
@@ -273,7 +353,12 @@ export function groundMaterial(maps: GroundMaps, c: GroundColors, shared: EnvSha
     uTrample: { value: c.trample },
     uSoil: { value: c.soil },
     uStone: { value: c.stone },
+    uGraze: { value: c.graze },
     uEnvNight: shared.night,
+    uEnvTime: shared.time,
+    uEnvCloud: shared.cloud,
+    uEnvSnow: shared.snow,
+    uEnvSnowCol: shared.snowColor,
   };
   mat.onBeforeCompile = (shader): void => {
     Object.assign(shader.uniforms, own);

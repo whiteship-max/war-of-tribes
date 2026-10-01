@@ -8,6 +8,7 @@ import { diagnose, sceneLog, type Verdict } from '@/scenelog';
 import { SceneTrouble } from './SceneTrouble';
 import { applyViewport } from '@/telegram/webapp';
 import { nextFrame } from '@/render/loop';
+import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
 
 /**
  * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —
@@ -44,6 +45,21 @@ export function GameCanvas() {
    */
   const rebuiltAt = useRef(Number.NEGATIVE_INFINITY);
 
+  /**
+   * Графика сменилась в настройках — сцена пересобирается на новой канве с новым видом:
+   * сменить вид на живой сцене нельзя (docs/handbook/scene.md). Это не лечение, поэтому
+   * отметки «только что пересобирали» нет — потеря контекста следом лечится как обычно.
+   */
+  useLayoutEffect(() => {
+    let key = gfxKey(gfx(), window.location.search);
+    return subscribeGfx(() => {
+      const next = gfxKey(gfx(), window.location.search);
+      if (next === key) return;
+      key = next;
+      setGen((n) => n + 1);
+    });
+  }, []);
+
   const rebuild = useCallback(() => {
     rebuiltAt.current = performance.now();
     setTrouble(null);
@@ -78,7 +94,8 @@ export function GameCanvas() {
     // Стадия загрузки и её снятие бывают раз за партию: пересборка диораму
     // меняет, а экран загрузки давно ушёл, и звать его обратно незачем.
     if (gen === 0) bootStage('scene');
-    const scene = new TribeScene(canvas);
+    // Вид и уровень — выбор игрока (пункт «Графика»), адрес сильнее записи.
+    const scene = new TribeScene(canvas, null, sceneGfx(gfx(), window.location.search));
     sceneRef.current = scene;
     sceneLog.mark(gen === 0 ? 'scene' : 'rebuild', `сборка №${gen + 1}`);
     // Тап по зданию открывает его панель; тап по пустому месту закрывает открытую.
