@@ -219,6 +219,11 @@ interface Bench {
     flowers: number;
     crops: number;
     blobs: number;
+    hay: number;
+    fences: number;
+    sheep: number;
+    fields: number;
+    gardens: number;
     map: number;
     buildMs: number;
     /** Сборка кусками между кадрами (`env/index.startEnv`): всего, сколько кусков, самый долгий. */
@@ -307,7 +312,8 @@ function printBench(passes: Row[][]): void {
     const builds = passes.map((p) => p.find((r) => r.look === look)?.b.env?.build).filter((x) => !!x);
     console.log(
       `\n${look}: деревьев ${Object.entries(e.trees).map(([k, v]) => `${k} ${v}`).join(', ')}; мелочи ${Object.entries(e.props).map(([k, v]) => `${k} ${v}`).join(', ')};` +
-        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; карта земли ${e.map}²; сборка ` +
+        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; угодья: полос ${e.fields}, огородов ${e.gardens}, стогов ${e.hay},` +
+        ` звеньев изгороди ${e.fences}, овец ${e.sheep}; карта земли ${e.map}²; сборка ` +
         builds.map((x) => `${f(x!.ms, 0)} мс за ${x!.slices} кусков, самый долгий ${f(x!.longest, 1)} мс`).join(' / '),
     );
   }

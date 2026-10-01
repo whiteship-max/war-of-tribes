@@ -17,7 +17,22 @@
  * не на стене (docs/graphics_world.md, раздел 3, «Покров, а не предметы»).
  */
 import type { BuildingTypeId } from '@/game/types';
-import { CLEAR_EDGE, CLEAR_RADIUS, GATE_ANGLE, GATE_CLEAR_HALF, OUTSKIRTS_RADIUS, PLAN, WALL_RADIUS, inCleared } from '../plan';
+import {
+  CLEAR_EDGE,
+  CLEAR_RADIUS,
+  FIELD_ROAD,
+  GATE_ANGLE,
+  GATE_CLEAR_HALF,
+  OUTSKIRTS_RADIUS,
+  PLAN,
+  PLAZA_RADIUS,
+  RING_RADIUS,
+  SPARE_PLOTS,
+  WALL_RADIUS,
+  inCleared,
+  placeOf,
+  plotRadius,
+} from '../plan';
 import { FOREST_FROM, GLADES, GROUND_RADIUS, ZONES, groundHeight, vnoise } from '../terrain';
 import { decalSpotFor, roadLayout } from '../village';
 import type { Tier } from '../buildings';
@@ -146,9 +161,11 @@ export interface Layout {
   trails: Strip[];
   /** Основания построек. */
   spots: Disc[];
-  /** Полосы пашни у поля. */
+  /** Полосы пашни: открытое поле у ворот (`openField`). */
   fields: Field[];
-  /** Направление борозд (единичное, в плоскости земли). */
+  /** Огороды внутри стены — грядки у дворов, тоже покров (`gardensOf`). */
+  gardens: Field[];
+  /** Направление борозд (единичное, в плоскости земли): одно на пашню и грядки. */
   furrow: { x: number; z: number };
   /** Угодья: стога, изгороди, выгон и овцы. */
   farm: Farm;
@@ -177,6 +194,158 @@ function trail(to: { x: number; z: number }, half: number, salt: number, out: St
     px = x;
     pz = z;
   }
+}
+
+// ---------- Пашня у ворот и огороды (этап 2, пункт 1) ----------
+
+const DEG = Math.PI / 180;
+
+/** Мостовая плана целиком: посёлок стоит с первой секунды, и сеть дорог от уровней не зависит. */
+const PLAN_ROADS = roadLayout(Object.keys(PLAN) as BuildingTypeId[]);
+const PLAN_LINES: Strip[] = PLAN_ROADS.lines.map((l) => ({
+  ax: Math.cos(l.angle) * l.from,
+  az: Math.sin(l.angle) * l.from,
+  bx: Math.cos(l.angle) * l.to,
+  bz: Math.sin(l.angle) * l.to,
+  half: l.half,
+}));
+
+/** Расстояние до мостовой плана — площади, колец и прямых — минус её полуширина. */
+function planRoadDist(x: number, z: number): number {
+  const r = Math.hypot(x, z);
+  let d = r - PLAN_ROADS.plaza;
+  for (const ring of PLAN_ROADS.rings) d = Math.min(d, Math.abs(r - ring.r) - ring.half);
+  for (const s of PLAN_LINES) d = Math.min(d, stripDist(s, x, z));
+  return d;
+}
+
+/** Площадка свободного места плана: на ней лежит хозяйство (`village.buildVillage`, `decorFor`) или встанет дом. */
+export const SPARE_PLOT = 2.2;
+
+/**
+ * Расстояние до ближайшей площадки плана минус её радиус — построена она или нет: то, что
+ * лежит на земле, не должно уйти под дом, который поставят позже, и под хозяйство пустого места.
+ */
+function planPlotDist(x: number, z: number): number {
+  let d = Infinity;
+  for (const type of Object.keys(PLAN) as BuildingTypeId[]) {
+    const p = placeOf(type);
+    d = Math.min(d, Math.hypot(x - p.x, z - p.z) - plotRadius(type));
+  }
+  for (const s of SPARE_PLOTS) {
+    const r = RING_RADIUS[s.ring];
+    d = Math.min(d, Math.hypot(x - Math.cos(s.angle) * r, z - Math.sin(s.angle) * r) - SPARE_PLOT);
+  }
+  return d;
+}
+
+/**
+ * Открытое поле у ворот — пашня в кадре. На стартовом ракурсе низ экрана смотрит в ворота, лево —
+ * в ферму (`camera.AZIMUTH`, `plan.GATE_ANGLE`), и прежняя пашня у прогалины `ZONES.fields`
+ * лежала далеко за левым краем. Луг между выездом из ворот и фермой — в кадре, построек на нём
+ * нет. Пашня — **покров**: цвет и борозды земли и низкие всходы, а не предмет, поэтому ей можно в
+ * расчистку; стога у неё — предметы и стоят за чертой (`farmOf`). Полосы — параллельно, клином
+ * вдоль `FIELD_ANGLE`: борозды шейдер ведёт одним направлением на весь мир. Угол — ближе к воротам,
+ * чем середина луга: со стороны фермы крайние полосы уходили за левый край кадра (тест «угодья в
+ * кадре» меряет долю пашни на экране).
+ */
+export const FIELD_ANGLE = 88 * DEG;
+/** Полуширина полосы и шаг полос: полоса и межа между ними. */
+const FIELD_HALF = 0.62;
+const FIELD_PITCH = 1.55;
+/** Сколько полос на клин: крайние короче или выпадают — их режут дороги, коридор и ферма. */
+const FIELD_COUNT = 11;
+
+/** Можно ли пашне лечь в точку: на лугу между просёлком и чертой, не на дороге, не в коридоре ворот, не на площадке. */
+function fieldFits(x: number, z: number): boolean {
+  const r = Math.hypot(x, z);
+  if (r < FIELD_ROAD + 1.1 || r > CLEAR_RADIUS - 0.4) return false;
+  const along = x * Math.cos(GATE_ANGLE) + z * Math.sin(GATE_ANGLE);
+  if (along > 0 && Math.abs(-x * Math.sin(GATE_ANGLE) + z * Math.cos(GATE_ANGLE)) < GATE_CLEAR_HALF + 0.5) return false;
+  return planRoadDist(x, z) > 0.45 && planPlotDist(x, z) > 0.5;
+}
+
+/**
+ * Полосы клина: на каждую — самый длинный отрезок вдоль борозды, где полоса целиком (середина и оба
+ * края) ложится на луг. Трёхполье — тремя полями: соседние полосы одного поля засеяны одним, и
+ * поля читаются полями, а не пёстрой лентой.
+ */
+function openField(): Field[] {
+  const a = { x: Math.cos(FIELD_ANGLE), z: Math.sin(FIELD_ANGLE) };
+  const b = { x: -a.z, z: a.x };
+  const STEP = 0.1;
+  const strips: { c: number; from: number; to: number }[] = [];
+  for (let i = 0; i < FIELD_COUNT; i++) {
+    const c = (i - (FIELD_COUNT - 1) / 2) * FIELD_PITCH;
+    let best = { from: 0, to: 0 };
+    let start = -1;
+    for (let k = 100; k <= 280; k++) {
+      const t = k * STEP;
+      const ok = [-FIELD_HALF, 0, FIELD_HALF].every((v) => fieldFits(b.x * (c + v) + a.x * t, b.z * (c + v) + a.z * t));
+      if (ok && start < 0) start = t;
+      if (start >= 0 && (!ok || k === 280)) {
+        const end = ok ? t : t - STEP;
+        if (end - start > best.to - best.from) best = { from: start, to: end };
+        start = -1;
+      }
+    }
+    if (best.to - best.from >= 2.4) strips.push({ c, ...best });
+  }
+  const turn = Math.floor(hash(0, 52) * 3);
+  return strips.map((s, k) => {
+    const mid = (s.from + s.to) / 2;
+    return {
+      x: b.x * s.c + a.x * mid,
+      z: b.z * s.c + a.z * mid,
+      along: (s.to - s.from) / 2 - 0.05,
+      across: FIELD_HALF,
+      sowing: SOWINGS[(Math.floor((k * 3) / strips.length) + turn) % 3],
+    };
+  });
+}
+
+/**
+ * Огороды внутри стены — грядки у дворов, тоже покров (этап 2, пункт 1): внутри стены было много
+ * пустой травы. Грядка — земля с бороздами и зелень всходов, а не предмет; лежит у площадки дома,
+ * но не на ней (и не на будущей), не на мостовой, не на площади и не у стены. Грядки — вдоль того
+ * же направления борозд, что пашня.
+ */
+const GARDEN_ALONG = 1.05;
+const GARDEN_ACROSS = 0.72;
+const GARDEN_MAX = 10;
+
+function gardensOf(): Field[] {
+  const reach = Math.hypot(GARDEN_ALONG, GARDEN_ACROSS);
+  const found: { x: number; z: number; key: number }[] = [];
+  let n = 0;
+  for (let r = PLAZA_RADIUS + 2.6; r < WALL_RADIUS - 1.6 - reach; r += 1.1) {
+    const count = Math.floor((2 * Math.PI * r) / 1.2);
+    for (let j = 0; j < count; j++) {
+      n++;
+      const ang = ((j + hash(n, 90)) / count) * Math.PI * 2;
+      const x = Math.cos(ang) * r;
+      const z = Math.sin(ang) * r;
+      const plot = planPlotDist(x, z);
+      // У двора, а не посреди пустыря: край грядки — в паре шагов от площадки.
+      if (plot < reach + 0.25 || plot > reach + 1.8 || planRoadDist(x, z) < reach + 0.25) continue;
+      found.push({ x, z, key: hash(n, 91) });
+    }
+  }
+  found.sort((p, q) => p.key - q.key);
+  const out: Field[] = [];
+  for (const p of found) {
+    if (out.length >= GARDEN_MAX) break;
+    if (out.some((g) => Math.hypot(g.x - p.x, g.z - p.z) < 2 * reach + 0.6)) continue;
+    out.push({ x: p.x, z: p.z, along: GARDEN_ALONG, across: GARDEN_ACROSS, sowing: 'spring' });
+  }
+  return out;
+}
+
+/** Поле и огороды считаются один раз: они от плана, а не от построек. */
+let planted: { fields: Field[]; gardens: Field[] } | null = null;
+function plantings(): { fields: Field[]; gardens: Field[] } {
+  planted ??= { fields: openField(), gardens: gardensOf() };
+  return planted;
 }
 
 /**
@@ -222,25 +391,20 @@ export function layoutOf(village: EnvVillage | null): Layout {
     trails.push({ ax: gx * r0 - gz * w0, az: gz * r0 + gx * w0, bx: gx * r1 - gz * w1, bz: gz * r1 + gx * w1, half: 0.55 });
   }
 
-  // Пашня: полосы бок о бок, борозды — вдоль радиуса от посёлка (открытое поле
-  // средневековья — узкие длинные полосы с межами между ними).
-  const fa = Math.atan2(ZONES.fields.z, ZONES.fields.x);
-  const along = { x: Math.cos(fa), z: Math.sin(fa) };
-  const across = { x: -along.z, z: along.x };
-  const fields: Field[] = [];
-  for (let i = -2; i <= 2; i++) {
-    const len = 1.6 + hash(i + 3, 50) * 0.8;
-    const shift = (hash(i + 3, 51) - 0.5) * 1.2;
-    fields.push({
-      x: ZONES.fields.x + across.x * i * 1.55 + along.x * shift,
-      z: ZONES.fields.z + across.z * i * 1.55 + along.z * shift,
-      along: len,
-      across: 0.62,
-      // Трёхполье по кругу: у соседних полос разное, и все три вида есть всегда.
-      sowing: SOWINGS[(i + 2 + Math.floor(hash(0, 52) * 3)) % 3],
-    });
-  }
-  const layout: Layout = { rings, lines, trails, spots, fields, furrow: along, farm: { pasture: { ...PASTURE }, hay: [], fences: [], flock: [] } };
+  // Пашня — открытое поле у ворот, огороды — у дворов (`plantings`): узкие длинные полосы с межами,
+  // борозды — вдоль клина. Прежняя пашня у прогалины `ZONES.fields` стала сенокосом (`farmOf`).
+  const { fields, gardens } = plantings();
+  const furrow = { x: Math.cos(FIELD_ANGLE), z: Math.sin(FIELD_ANGLE) };
+  const layout: Layout = {
+    rings,
+    lines,
+    trails,
+    spots,
+    fields: fields.map((f) => ({ ...f })),
+    gardens: gardens.map((g) => ({ ...g })),
+    furrow,
+    farm: { pasture: { ...PASTURE }, hay: [], fences: [], flock: [] },
+  };
   layout.farm = farmOf(layout);
   return layout;
 }
@@ -248,12 +412,14 @@ export function layoutOf(village: EnvVillage | null): Layout {
 const SOWINGS: readonly Sowing[] = ['winter', 'spring', 'fallow'];
 
 /**
- * Выгон — у скотного двора, за чертой расчистки, по его направлению от посёлка. Своя
- * прогалина (`ENV_GLADES`) и своя тропа от двора. Не угодье игры — отрисовка: в прежнем
- * виде и в данных игры его нет.
+ * Выгон — за чертой расчистки, рядом со скотным двором и в кадре (этап 2, пункт 1). Прямо по
+ * направлению двора (179°) он лежал за левым краем портретного кадра; ближайшее место, где весь
+ * его круг с изгородью и за чертой, и на экране, — 17° дальше по кольцу, к каменоломне (верхний
+ * левый угол кадра). Своя прогалина (`ENV_GLADES`) и своя тропа. Не угодье игры — отрисовка: в
+ * прежнем виде и в данных игры его нет.
  */
-const PEN_ANGLE = PLAN.pen?.angle ?? Math.PI;
-export const PASTURE: Disc = { x: Math.cos(PEN_ANGLE) * 30.5, z: Math.sin(PEN_ANGLE) * 30.5, r: 3.2 };
+export const PASTURE_ANGLE = (PLAN.pen?.angle ?? Math.PI) + 17 * DEG;
+export const PASTURE: Disc = { x: Math.cos(PASTURE_ANGLE) * 29.5, z: Math.sin(PASTURE_ANGLE) * 29.5, r: 3.2 };
 
 /** Прогалины окружения: угодья прежнего мира и выгон. Прежние `GLADES` не трогаются. */
 export const ENV_GLADES: { at: { x: number; z: number }; r: number; keep: number }[] = [
@@ -275,22 +441,38 @@ function farmOf(l: Layout): Farm {
   const flock: Spot[] = [];
   const free = (x: number, z: number, r: number): boolean => !inCleared(x, z, r) && trailDist(l, x, z) > r + 0.25;
 
-  // Стога — у торцов засеянных полос: жнут и мечут стог тут же, у поля.
+  // Стога — у дальних торцов засеянных полос: жнут и мечут стог тут же, у поля. Поле лежит в
+  // расчистке, где предметов нет, — стог встаёт за чертой, сразу за торцом своей полосы.
   let n = 0;
   for (const f of l.fields) {
     if (f.sowing === 'fallow') continue;
-    const end = hash(n, 53) < 0.5 ? -1 : 1;
-    const u = end * (f.along + 0.75);
-    const v = (hash(n, 54) - 0.5) * 0.5;
-    const x = f.x + l.furrow.x * u - l.furrow.z * v;
-    const z = f.z + l.furrow.z * u + l.furrow.x * v;
-    const scale = 0.85 + hash(n, 55) * 0.3;
-    if (free(x, z, HAY_SPREAD * scale)) hay.push({ x, y: groundHeight(x, z) - 0.03, z, scale, rot: hash(n, 56) * Math.PI * 2, hue: 0.92 + hash(n, 57) * 0.16 });
     n++;
+    if (hash(n, 53) < 0.35) continue;
+    const out = f.x * l.furrow.x + f.z * l.furrow.z > 0 ? 1 : -1;
+    const v = (hash(n, 54) - 0.5) * 0.5;
+    const scale = 0.85 + hash(n, 55) * 0.3;
+    for (let u = f.along + 0.75; u < f.along + 3.5; u += 0.25) {
+      const x = f.x + l.furrow.x * u * out - l.furrow.z * v;
+      const z = f.z + l.furrow.z * u * out + l.furrow.x * v;
+      if (!free(x, z, HAY_SPREAD * scale)) continue;
+      if (forestDensity(l, x, z, 1) <= 0.45) hay.push({ x, y: groundHeight(x, z) - 0.03, z, scale, rot: hash(n, 56) * Math.PI * 2, hue: 0.92 + hash(n, 57) * 0.16 });
+      break;
+    }
+  }
+
+  // Сенокос в прежней прогалине пашни у фермы: тропа от двора ведёт туда, и прогалина не стоит пустой.
+  for (let i = 0; i < 4; i++) {
+    const a = hash(i, 85) * Math.PI * 2;
+    const r = 1 + Math.sqrt(hash(i, 86)) * 3.2;
+    const x = ZONES.fields.x + Math.cos(a) * r;
+    const z = ZONES.fields.z + Math.sin(a) * r;
+    const scale = 0.85 + hash(i, 87) * 0.3;
+    if (!free(x, z, HAY_SPREAD * scale) || hay.some((h) => Math.hypot(h.x - x, h.z - z) < 1.8)) continue;
+    hay.push({ x, y: groundHeight(x, z) - 0.03, z, scale, rot: hash(i, 88) * Math.PI * 2, hue: 0.9 + hash(i, 89) * 0.18 });
   }
 
   // Сенокос у дороги из ворот: стога на лугу по обе стороны от выезда — там луг открыт
-  // взгляду с первого кадра игры, а пашня и выгон лежат сбоку, за краем портретного кадра.
+  // взгляду с первого кадра игры, рядом с пашней у ворот.
   // Кладут их на полосе вырубки, перед опушкой: ближе — расчистка, где предметов нет.
   for (let i = 0; i < 14; i++) {
     const side = i % 2 ? 1 : -1;
@@ -423,19 +605,25 @@ export function trailDist(l: Layout, x: number, z: number): number {
   return d;
 }
 
-/** Внутри полосы пашни: 1 — середина, 0 — межа и дальше; край мягкий. */
+/**
+ * Что посеяно — уровнем канала пашни над порогом полосы: шейдер земли (`env/materials`) берёт
+ * маску полосы до 0.6, а выше — что на ней: пар зарастает травой, яровые зеленее, рожь — цвета
+ * пашни сезона. Пар выше порога межи (0.6 в `verge`), и цветы пара — по краю, а не ковром.
+ */
+export const SOWN_LEVEL: Record<Sowing, number> = { fallow: 0.62, spring: 0.84, winter: 1 };
+
+/** Ёмкость меша всходов: всходов на пашне и грядках при полной густоте не больше (тест). */
+export const CROPS_CAP = 800;
+
+/** Внутри полосы пашни или грядки: уровень посева в середине, 0 — межа и дальше; край мягкий. */
 function fieldAt(l: Layout, x: number, z: number): number {
   let best = 0;
-  for (const f of l.fields) {
+  for (const f of l.fields.concat(l.gardens)) {
     const dx = x - f.x;
     const dz = z - f.z;
     const u = Math.abs(dx * l.furrow.x + dz * l.furrow.z);
     const v = Math.abs(-dx * l.furrow.z + dz * l.furrow.x);
-    // Пар зарастает: земля полосы видна наполовину, между — трава.
-    // Пар — две трети: середина полосы выше порога межи (`groundMap`, 0.6), и цветы пара —
-    // по краю, а не сплошным ковром.
-    const k = f.sowing === 'fallow' ? 0.65 : 1;
-    best = Math.max(best, k * Math.min(smooth((f.along - u) / 0.25), smooth((f.across - v) / 0.18)));
+    best = Math.max(best, SOWN_LEVEL[f.sowing] * Math.min(smooth((f.along - u) / 0.25), smooth((f.across - v) / 0.18)));
   }
   return best;
 }
@@ -514,6 +702,16 @@ export function* groundMapJob(l: Layout, size: number): Job<GroundMap> {
   // на телефоне считалась бы секунду — девяносто расстояний на каждый тексель.
   const lines = l.lines.map((s) => boxStrip(s, 0.7));
   const trails = l.trails.map((s) => boxStrip(s, 1.5));
+  // Пашня и грядки — коробкой на всё сразу: вне её канал пашни пуст.
+  const sown = l.fields.concat(l.gardens);
+  const pad = Math.max(0, ...sown.map((f) => Math.hypot(f.along, f.across))) + 0.3;
+  const sownBox = {
+    item: null,
+    x0: Math.min(...sown.map((f) => f.x)) - pad,
+    x1: Math.max(...sown.map((f) => f.x)) + pad,
+    z0: Math.min(...sown.map((f) => f.z)) - pad,
+    z1: Math.max(...sown.map((f) => f.z)) + pad,
+  };
   const spots = l.spots.map((d) => {
     const p = d.r * 1.7 + 0.5;
     return { item: d, x0: d.x - p, x1: d.x + p, z0: d.z - p, z1: d.z + p };
@@ -533,14 +731,17 @@ export function* groundMapJob(l: Layout, size: number): Job<GroundMap> {
       let tr = Infinity;
       for (const b of trails) if (inBox(b, x, z)) tr = Math.min(tr, stripDist(b.item, x, z));
       let soil = Math.max(0.75 * (1 - smooth((road - 0.02) / 0.32)), 1 - smooth((tr + 0.08 + wob * 0.06) / 0.28));
-      // У домов вытоптано шире, чем лежит декаль: двор, где ходят.
+      // У домов вытоптано шире, чем лежит декаль: двор, где ходят. За двором — кайма, где у
+      // дома растут цветы (палисадник): внутри стены цветы только там.
       let under = 1;
+      let yard = 0;
       for (const b of spots) {
         if (!inBox(b, x, z)) continue;
         const s = b.item;
         const d = Math.hypot(x - s.x, z - s.z);
         soil = Math.max(soil, (1 - smooth((d - s.r * 1.05) / (s.r * 0.55 + 0.4))) * 0.85);
         if (d < s.r * 1.08) under = 0;
+        yard = Math.max(yard, smooth((d - s.r * 1.3) / 0.35) * (1 - smooth((d - s.r * 1.75) / 0.35)));
       }
       // Внутри стены трава вытоптана местами — пятнами, а не сплошь.
       if (r < WALL_RADIUS - 0.8) soil = Math.max(soil, 0.35 * smooth((vnoise(x / 2.6, z / 2.6) + 0.1) / 0.6));
@@ -567,7 +768,7 @@ export function* groundMapJob(l: Layout, size: number): Job<GroundMap> {
       // Каменистая земля у скал: пятнами, трава между камнями остаётся.
       const rocks = Math.hypot(x - ZONES.rocks.x, z - ZONES.rocks.z);
       const stone = (1 - smooth((rocks - 3.2 + wob * 1.4) / 2.2)) * smooth((vnoise(x / 1.4 + 2, z / 1.4 - 6) + 0.35) / 0.7) * 0.85;
-      const field = Math.hypot(x - ZONES.fields.x, z - ZONES.fields.z) < 7 ? fieldAt(l, x, z) : 0;
+      const field = inBox(sownBox, x, z) ? fieldAt(l, x, z) : 0;
       // Выгон: внутри изгороди трава выедена, у воротец и кормушки вытоптана пятнами.
       const pd = Math.hypot(x - l.farm.pasture.x, z - l.farm.pasture.z) - l.farm.pasture.r;
       const graze = pd < 1 ? (1 - smooth((pd + 0.2) / 0.9)) * (0.75 + 0.25 * smooth((vnoise(x / 1.1 + 5, z / 1.1 - 8) + 0.2) / 0.6)) : 0;
@@ -582,14 +783,17 @@ export function* groundMapJob(l: Layout, size: number): Job<GroundMap> {
       m.graze[k] = graze;
 
       // Трава: на лугу за стеной гуще всего, внутри стены реже, в лесу — редкими пучками.
-      const open = r < WALL_RADIUS - 1.2 ? 0.3 : 1;
+      // Внутри стены — половина густоты луга, прежде треть: посёлок не стоит на голом цветном круге.
+      const open = r < WALL_RADIUS - 1.2 ? 0.5 : 1;
       let grass = open * (1 - litter * 0.72) * (1 - clamp01(soil) * 0.95) * (1 - stone) * (1 - field) * (1 - graze * 0.6) * under;
       if (Math.abs(r - WALL_RADIUS) < 1.35 || road < 0.12 || tr < 0.05 || r > GROUND_RADIUS - 1.5) grass = 0;
       m.grass[k] = clamp01(grass * (0.75 + 0.5 * lush));
       // Цветы: куртинами на пятнах густого луга и по межам пашни, а не ровной сыпью.
       const verge = field > 0.02 && field < 0.6 ? 0.9 : 0;
       const patch = smooth((lush - 0.35) / 0.4) * smooth((vnoise(x / 1.6 + 17, z / 1.6 - 3) + 0.1) / 0.5);
-      m.bloom[k] = r < WALL_RADIUS + 1.4 || road < 0.2 ? 0 : clamp01(Math.max(patch * grass * (1 - graze), verge));
+      // Внутри стены цветы — только палисадником у дворов, пятнами по мелкому шуму.
+      const garth = r < WALL_RADIUS - 1.4 && road >= 0.25 ? yard * 0.7 * smooth((vnoise(x / 0.9 + 23, z / 0.9 - 11) + 0.15) / 0.5) * under : 0;
+      m.bloom[k] = road < 0.2 ? 0 : r < WALL_RADIUS + 1.4 ? clamp01(garth) : clamp01(Math.max(patch * grass * (1 - graze), verge));
       // Ряд через посёлок спрашивает дома и дороги — он дороже ряда в лесу: кусок — треть
       // сотни текселей, а не ряд целиком.
       if ((i & 31) === 31) yield;
@@ -992,12 +1196,15 @@ export interface Crop extends Tuft {
   sowing: Sowing;
 }
 
-/** Всходы на пашне: рядами вдоль борозд, по одному пучку на шаг; на пару — ничего. */
+/**
+ * Всходы на пашне и грядках: рядами вдоль борозд, по одному пучку на шаг; на пару — ничего.
+ * Поле и огороды лежат в расчистке, и всход — покров: не на мостовой, не на тропе, не под домом.
+ */
 export function scatterCrops(l: Layout, keep: number): Crop[] {
   const out: Crop[] = [];
   const across = { x: -l.furrow.z, z: l.furrow.x };
   let i = 0;
-  for (const f of l.fields) {
+  for (const f of l.fields.concat(l.gardens)) {
     if (f.sowing === 'fallow') continue;
     for (let v = -f.across + 0.2; v <= f.across - 0.2; v += 0.3) {
       for (let u = -f.along + 0.15; u <= f.along - 0.15; u += 0.3) {
@@ -1005,6 +1212,7 @@ export function scatterCrops(l: Layout, keep: number): Crop[] {
         if (hash(i, 600) > keep) continue;
         const x = f.x + l.furrow.x * u + across.x * v + (hash(i, 601) - 0.5) * 0.08;
         const z = f.z + l.furrow.z * u + across.z * v + (hash(i, 602) - 0.5) * 0.08;
+        if (!coverFits(l, x, z)) continue;
         out.push({ x, y: groundHeight(x, z) - 0.02, z, scale: 0.85 + hash(i, 603) * 0.3, rot: hash(i, 604) * Math.PI * 2, hue: 0.92 + hash(i, 605) * 0.16, sowing: f.sowing });
       }
     }

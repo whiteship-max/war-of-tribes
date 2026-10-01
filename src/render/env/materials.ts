@@ -258,6 +258,8 @@ export interface GroundColors {
   stone: THREE.Color;
   /** Выгон: выеденная трава. */
   graze: THREE.Color;
+  /** Всходы пашни — цвет сезона, тот же, что у пучков всходов. */
+  crop: THREE.Color;
 }
 
 const GROUND_VERT_PARS = /* glsl */ `
@@ -284,6 +286,8 @@ uniform vec3 uTrample;
 uniform vec3 uSoil;
 uniform vec3 uStone;
 uniform vec3 uGraze;
+uniform vec3 uCrop;
+uniform float uCropShow;
 uniform float uEnvNight;
 uniform float uEnvTime;
 uniform float uEnvCloud;
@@ -315,10 +319,20 @@ float envSoil = smoothstep( 0.3, 0.72, envA.r + ( envM.b - 0.5 ) * 0.45 );
 envG = mix( envG, mix( uTrample, uDirt, envN.g ) * ( 0.9 + 0.2 * envM.r ), envSoil );
 float envGz = smoothstep( 0.15, 0.7, envB.b + ( envM.g - 0.5 ) * 0.3 );
 envG = mix( envG, uGraze * ( 0.88 + 0.24 * envM.r ), envGz * 0.8 );
-float envFld = smoothstep( 0.35, 0.65, envB.r );
+float envFld = smoothstep( 0.35, 0.6, envB.r );
 // Furrows run along the strip, like the crop rows (rules.scatterCrops).
 float envFur = 0.8 + 0.2 * sin( dot( vEnvXZ, vec2( -uFurrow.y, uFurrow.x ) ) * 18.0 );
-envG = mix( envG, uSoil * envFur, envFld );
+// What is sown is the channel level above the mask (rules.SOWN_LEVEL): fallow ~0, spring
+// crops ~0.6, winter rye 1. Rye takes the season's field colour, spring crops (and garden
+// beds) are the season's meadow green with a touch of it, like the crop tufts (env/index);
+// the canopy follows the season (SEASON_CROP) in rows.
+float envSow = clamp( ( envB.r - 0.6 ) / 0.4, 0.0, 1.0 );
+vec3 envCropC = mix( mix( uLush, uCrop, 0.3 ), uCrop, smoothstep( 0.75, 0.95, envSow ) );
+float envRows = uCropShow * smoothstep( 0.3, 0.55, envSow ) * ( 0.55 + 0.45 * smoothstep( 0.7, 0.95, envFur ) );
+vec3 envPl = mix( uSoil * envFur, envCropC * ( 0.9 + 0.12 * envFur ), envRows );
+// Fallow rests a year: half overgrown, the sward shows through the old furrows.
+envPl = mix( envPl, envG, ( 1.0 - smoothstep( 0.05, 0.25, envSow ) ) * 0.5 );
+envG = mix( envG, envPl, envFld );
 float envSt = smoothstep( 0.35, 0.65, envA.b + ( envM.g - 0.5 ) * 0.5 );
 envG = mix( envG, uStone * ( 0.76 + 0.38 * envM.r ), envSt );
 // Snow: patches by noise; paths, stones and litter under canopy keep less of it.
@@ -336,7 +350,8 @@ export interface GroundMaps {
   furrow: THREE.Vector2;
 }
 
-export function groundMaterial(maps: GroundMaps, c: GroundColors, shared: EnvShared): THREE.MeshLambertMaterial {
+/** `cropShow` — доля всходов сезона (`SEASON_CROP`), общая с пучками всходов. */
+export function groundMaterial(maps: GroundMaps, c: GroundColors, shared: EnvShared, cropShow: { value: number }): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
   mat.name = 'env-ground';
   const own = {
@@ -354,6 +369,8 @@ export function groundMaterial(maps: GroundMaps, c: GroundColors, shared: EnvSha
     uSoil: { value: c.soil },
     uStone: { value: c.stone },
     uGraze: { value: c.graze },
+    uCrop: { value: c.crop },
+    uCropShow: cropShow,
     uEnvNight: shared.night,
     uEnvTime: shared.time,
     uEnvCloud: shared.cloud,
