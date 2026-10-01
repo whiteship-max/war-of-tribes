@@ -170,8 +170,9 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         // Грязь и сырость у земли: темнее и в зелень.
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.52, 0.53, 0.42), vGrime * 0.7);
         // Снег — на горизонталях (кровли, карнизы, зубцы).
-        float cUp = smoothstep(0.45, 0.8, vCNy) * cSnow;
-        diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol, cUp * 0.92);`,
+        // Кровли 50–60° (нормаль 0.5–0.64 вверх) держат снег: порог ниже, чем у земли.
+        float cUp = smoothstep(0.3, 0.55, vCNy) * cSnow;
+        diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * (0.85 + 0.15 * cTex.r), cUp * 0.9);`,
       )
       .replace(
         '#include <emissivemap_fragment>',
