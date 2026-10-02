@@ -354,6 +354,7 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     ladders.castShadow = true;
     ladders.frustumCulled = false;
     group.add(ladders);
+    disposables.push(ladders);
   }
 
   // ---- таран ----
@@ -398,6 +399,7 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     leaves.castShadow = true;
     leaves.frustumCulled = false;
     group.add(leaves);
+    disposables.push(leaves);
   }
 
   const M4 = new THREE.Matrix4();
@@ -433,7 +435,8 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
       const until = Math.min(t, u.fleeAt ?? Infinity, w.gateAt !== null && w.gateAt > 0 ? w.gateAt + 0.3 : Infinity);
       const pose = unitPose(plan, u, until);
       const swing = t <= until ? ramSwing(site.ram, t) : 0;
-      const head = Math.max(0.02, Math.max(0.3, outOf(w, pose.z) - 0.8) - swing * 0.45);
+      // Удар доходит до створок (они в проезде, на 0.45 за наружной гранью).
+      const head = Math.max(-0.4, Math.max(0.3, outOf(w, pose.z) - 0.8) - swing * 0.75);
       const z = w.z - s * head;
       V.set(site.ram.x, heightAt(f, site.ram.x, z), z);
       // Тело тарана — наружу от головы: поворот на π, если город у +Z.

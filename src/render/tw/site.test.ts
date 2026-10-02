@@ -69,6 +69,49 @@ const deadBy = (p: TwPlan, id: number, t: number): number => {
   return n;
 };
 
+describe('место боя: стена — граница', () => {
+  it('за стену не заходят: чужие — только проездом или по лестнице; свои вне хода — не в толще; на штурме свои — за стеной', () => {
+    // Набор: все места со стеной, по четыре боя (разный перевес); граница области — линия стены. Точки — каждая видимая
+    // фигура каждые полсекунды, павшие — там, где лежат. Счётчик ниже проверяет, что у стены есть кто-то с обеих сторон.
+    let near = 0;
+    for (const kind of ['wall', 'gate', 'sortie', 'camp', 'joint'] as const) {
+      for (const [men, foe, seed] of [
+        [420, 560, 3],
+        [500, 460, 6],
+        [150, 400, 1],
+        [600, 300, 7],
+      ]) {
+        const p = planOf(`replay=tw&men=${men}&foe=${foe}&seed=${seed}&site=${kind}`);
+        const w = p.site!.wall!;
+        const fr = figureFrame(p.figures);
+        for (let t = 0; t <= p.seconds; t += 0.5) {
+          poseFigures(p, t, fr);
+          for (let i = 0; i < p.figures; i++) {
+            if (!fr.shown[i]) continue;
+            const u = p.units[p.unitOf[i]];
+            const owner = u.side === w.side && w.inward === (u.ours ? -1 : 1);
+            const when = Math.min(t, p.deathAt[i]);
+            const over = p.goAt[i] <= when && (p.goKind[i] === 3 || p.goKind[i] === 4);
+            const d = outOf(w, fr.z[i]);
+            if (Math.abs(d) < 4) near++;
+            const at = `${kind} ${men}/${foe} seed ${seed} t ${t} фигура ${i} (${u.side} ${u.row} ${u.form}) x ${(fr.x[i] - w.gateX).toFixed(2)} клип ${fr.clip[i]} путь ${p.goKind[i]}`;
+            if (!owner && !over && p.climb[i] < 0) expect(d, `чужой за стеной: ${at}`).toBeGreaterThan(0.02);
+            if (!owner && over && inWallBody(w, fr.x[i], fr.z[i])) {
+              // Через толщу (туда и, отбитым, назад) — только по своей лестнице и поверху; проезд ворот в толщу не входит.
+              const lad = Math.min(...p.site!.ladders.filter((l) => l.unit === u.id).map((l) => Math.abs(l.x - fr.x[i])));
+              expect(lad, `чужой в толще не у своей лестницы: ${at}`).toBeLessThan(1.6);
+              expect(fr.y[i], `чужой в толще не поверху: ${at}`).toBeGreaterThan(w.base + w.top - 0.05);
+            }
+            if (owner && !u.perch) expect(inWallBody(w, fr.x[i], fr.z[i]), `свой в толще стены: ${at}`).toBe(false);
+            if (kind === 'wall' && owner) expect(d, `защитник перед стеной: ${at}`).toBeLessThan(0.05);
+          }
+        }
+      }
+    }
+    expect(near).toBeGreaterThan(1000);
+  });
+});
+
 describe('место боя: показ, а не второй бой', () => {
   it('место не меняет темпа потерь: у каждого отряда к той же секунде пало столько же, что в поле', () => {
     // Набор: каждое место на двух сидах. Окна огня кругов — граница области: в них гибель под стрелами сдвигается к
