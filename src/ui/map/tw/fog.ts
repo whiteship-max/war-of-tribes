@@ -16,7 +16,7 @@ import { type CachedChunk, cachedChunk, chunkKey, chunkKeysIn, chunkRect, explor
 import { cellInSight, sightDiscs, useWorld, worldNow } from '@/world/store';
 import type { SightDisc } from '@/world/fog';
 import { type Camera, type Viewport, toScreen, viewRect } from '../grid';
-import { bakeParchment } from './parchment';
+import { SHEET_PAD, SHEET_PX, bakeParchment } from './parchment';
 import { baked, mayBake } from './gate';
 import { C } from './palette';
 
@@ -111,13 +111,6 @@ function drawRaster(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): v
 
 // ---------- Пергамент по кускам ----------
 
-/** Пикселей на клетку листа в игре: кромка рвётся на треть клетки, берег — линией в полтора пикселя. */
-export const SHEET_PX = 4;
-/**
- * Запас листа за край куска, в клетках: берег и его штрихи считаются по сглаженной маске суши, и без
- * запаса у края куска контур обрывался бы — по стыкам кусков шли бы швы. Кадр рисует лист без запаса.
- */
-export const SHEET_PAD = 2;
 /**
  * Листов в памяти: не меньше 64 (по 144² px — 83 КБ, всего 5.3 МБ) и не меньше видимых кусков с запасом: на
  * большом экране листов на виду больше, и при постоянном потолке кэш вытеснял бы видимые (как средний слой).

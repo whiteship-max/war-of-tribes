@@ -31,7 +31,6 @@ import { TILE_SRC, prepareTiles, tileAt, tileBakes } from '../ground';
 import { chunkBitmap, overviewSrc } from '../tiles';
 import { grainTile, makeCanvas, vignette } from '../paint';
 import { MID_CELLS, OVERVIEW_PX, bakeChunk, bakeMid, bakeStats, bakeTile, chunkStats, setTwLook } from './bake';
-import { SHEET_PX } from './fog';
 import {
   BADGE_PX,
   PIN_PX,
@@ -57,7 +56,7 @@ import {
 } from './mini';
 import { placeLabel, regionLabel } from './labels';
 import { contour, soften } from './border';
-import { PARCHMENT_PX, bakeParchment } from './parchment';
+import { PARCHMENT_PX, SHEET_PX, bakeParchment } from './parchment';
 import { drawSettlement as oldSettlement, type Look as OldLook } from '../village';
 import { drawParty as oldParty, lookOf as oldPartyLook } from '../party';
 import { RELATION_META } from '@/world/data/meta';
