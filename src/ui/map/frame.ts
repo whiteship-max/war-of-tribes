@@ -25,6 +25,7 @@ import { drawZones } from './zones';
 import { drawFigures } from './figures';
 import { drawHeading, drawParty, lookOf as partyLook } from './party';
 import { drawFarRing, drawFell, fellShown, fittedLabel, worksStand } from './siegemark';
+import { twSlot } from './twslot';
 
 /** Занятые подписями места текущего кадра: соседи не пишут имена друг на друга. */
 interface Box {
@@ -44,7 +45,7 @@ const TOP_INSET = 52;
  * даже когда сверху рисуется ближний, — сквозь ещё не испечённый тайл виден
  * именно он, и дырки на экране не бывает никогда.
  */
-function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect: Rect): void {
+export function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect: Rect): void {
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   for (const chunk of loadedIn(rect)) {
@@ -247,7 +248,7 @@ function drawMarch(
  * Пульс идёт, пока метка стоит, а не гаснет через секунду: игрок приходит сюда
  * читать карточку и возвращается к ней глазами не раз.
  */
-function drawSpot(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, c: Coord, now: number): void {
+export function drawSpot(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, c: Coord, now: number): void {
   const [px, py] = toScreen(cam, vp, c.x + 0.5, c.y + 0.5);
   // Кольцо рисуется дважды: тёмный след пошире, светлое поверх. Земля под
   // меткой бывает и травой, и песком, и снегом, и одноцветное кольцо на
@@ -302,7 +303,7 @@ let grain: CanvasPattern | null = null;
  * Под движущимся — потому что зерно на таймере чужой армии это не бумага, а
  * грязь на стекле.
  */
-function drawPaper(ctx: CanvasRenderingContext2D, vp: Viewport): void {
+export function drawPaper(ctx: CanvasRenderingContext2D, vp: Viewport): void {
   if (!grain) grain = ctx.createPattern(grainTile(), 'repeat');
   if (grain) {
     ctx.fillStyle = grain;
@@ -331,6 +332,12 @@ export function drawFrame(
   dpr: number,
   frame: number,
 ): void {
+  // Новый вид карты (docs/map_tw.md) приехал — кадр целиком его: порядок слоёв и пороги масштаба у него свои.
+  const tw = twSlot();
+  if (tw) {
+    tw.frame(ctx, cam, vp, dpr, frame);
+    return;
+  }
   const rect = viewRect(cam, vp);
   const near = detailAlpha(cam.scale);
   const far = 1 - near;

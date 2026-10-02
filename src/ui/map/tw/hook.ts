@@ -8,8 +8,39 @@ import { seasonOf } from '@/game/derived';
 import { subscribeGfx } from '@/render/gfx';
 import { bakeChunk, chunkNeed, chunkReady, setTwLook } from './bake';
 import { twQuality } from './spec';
+import { pixelRatio } from '@/render/loop';
+import { sightDiscs, worldNow } from '@/world/store';
+import { setTwSlot } from '../twslot';
+import { viewRect } from '../grid';
+import { settlementsIn } from '../detail';
+import { drawTwFrame, dropFrame } from './frame';
+import { dropMinis } from './mini';
+import { dropLabels } from './labels';
+import { figureItems, hostItems, placeItems } from './scene';
+import { aimAt, aimsOf } from './tap';
 
 export { bakeTile } from './bake';
+
+// Кадр и палец нового вида — в ячейку прежнего кадра (`twslot.ts`): кусок приехал, и карта рисуется им.
+setTwSlot({
+  frame: drawTwFrame,
+  tap(cam, vp, x, y, hand) {
+    const state = useWorld.getState();
+    const now = worldNow();
+    const dpr = pixelRatio();
+    // Цели — из той же сцены, что рисует кадр, на той же камере: палец ищет нарисованное.
+    const places = placeItems(cam, vp, settlementsIn(viewRect(cam, vp)), dpr);
+    const hosts = hostItems(cam, vp, state.marches, sightDiscs(now), now, dpr);
+    const figures = figureItems(cam, vp, state.figures, now, dpr);
+    return aimAt(aimsOf(places, hosts, figures), x, y, hand);
+  },
+  drop() {
+    dropMinis();
+    dropLabels();
+    dropFrame();
+    dropChunks();
+  },
+});
 
 /** Сезон выпечки: зима белит горы и север, весна и осень — чуть. Меняется раз в сезон, не в кадр. */
 const SEASON_SNOW = { spring: 0.15, summer: 0, autumn: 0.25, winter: 1 } as const;

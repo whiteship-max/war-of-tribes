@@ -52,6 +52,7 @@ import {
   zoomAt,
 } from './grid';
 import { dropPaper, drawFrame } from './frame';
+import { twSlot } from './twslot';
 import { dropTiles } from './ground';
 import { dropBitmaps } from './tiles';
 import { type Look, dropSprites, silhouetteUrl } from './village';
@@ -333,6 +334,7 @@ export function WorldMap() {
     dropPaper();
     dropFog();
     dropZones();
+    twSlot()?.drop();
   }, [seed]);
 
   // ---------- Отрисовка ----------
@@ -370,6 +372,7 @@ export function WorldMap() {
       if (changed) {
         dropSprites();
         dropSiegeMarks();
+        twSlot()?.drop();
       }
     };
     resize();
@@ -433,6 +436,7 @@ export function WorldMap() {
       dropParties();
       dropFigures();
       dropSiegeMarks();
+      twSlot()?.drop();
     };
     // Полотно живёт весь показ карты: данные оно берёт из стора само.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -559,7 +563,10 @@ export function WorldMap() {
     // выбирает именно последняя точка — панорама карты идёт за пальцем один к
     // одному, и в сдвинутом кадре она означает ровно то же место, что нажатие.
     const world = p && tapped ? toWorld(cam.current, vp(), p.x, p.y) : null;
-    const c = world ? { x: Math.floor(world.x), y: Math.floor(world.y) } : null;
+    // Новый вид рисует объект крупнее его клетки и мельче пальца на дальнем масштабе — клетку, в которую
+    // целились, находит он сам (цель не меньше пальца); смысл тапа по клетке — прежний `openAt`.
+    const aimed = p && tapped ? twSlot()?.tap(cam.current, vp(), p.x, p.y, useWorld.getState().picked !== null) : null;
+    const c = aimed ?? (world ? { x: Math.floor(world.x), y: Math.floor(world.y) } : null);
     const inside =
       c !== null &&
       c.x >= WORLD_ORIGIN.x &&
@@ -656,7 +663,8 @@ export function WorldMap() {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
     const world = toWorld(cam.current, vp(), e.clientX - rect.left, e.clientY - rect.top);
-    const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
+    const aimed = twSlot()?.tap(cam.current, vp(), e.clientX - rect.left, e.clientY - rect.top, useWorld.getState().picked !== null);
+    const c = aimed ?? { x: Math.floor(world.x), y: Math.floor(world.y) };
     if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
     if (c.x >= WORLD_ORIGIN.x + WORLD_SIZE || c.y >= WORLD_ORIGIN.y + WORLD_SIZE) return;
     const g = useWorld.getState();

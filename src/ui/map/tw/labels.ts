@@ -76,3 +76,91 @@ export function regionLabel(ctx: C, text: string, x: number, y: number, size: nu
   ctx.fillText(text, x, y);
   ctx.restore();
 }
+
+// ---------- Подписи игры: испечённые ----------
+//
+// В кадре игры подпись — копирование испечённой: картуш своего города — это градиент и десяток путей, и
+// печь его шестьдесят раз в секунду — ровно то, что запрещает закон кадра (docs/world-map.md). Подпись
+// печётся один раз на (текст, своё, плотность); имя своего города меняет игрок, и старое вытесняется.
+
+export interface LabelSprite {
+  canvas: HTMLCanvasElement;
+  /** Размер в CSS-пикселях; точка подписи — середина. */
+  w: number;
+  h: number;
+}
+
+const labels = new Map<string, LabelSprite>();
+const LABELS_MAX = 96;
+
+/** Шрифт подписи — им же меряется вписывание имени (`fitName`). */
+export const labelFont = (own: boolean): string => (own ? `600 13px ${SERIF}` : `italic 600 12px ${SERIF}`);
+
+export function labelSprite(text: string, own: boolean, dpr: number): LabelSprite {
+  const key = `${own ? 1 : 0}|${dpr}|${text}`;
+  const have = labels.get(key);
+  if (have) {
+    labels.delete(key);
+    labels.set(key, have);
+    return have;
+  }
+  const probe = document.createElement('canvas').getContext('2d');
+  let tw = text.length * 7;
+  if (probe) {
+    probe.font = labelFont(own);
+    spaced(probe, own ? 1.2 : 0.6);
+    tw = probe.measureText(text).width;
+  }
+  // Картуш шире текста на поля и загнутые концы ленты; простая подпись — на ореол.
+  const w = Math.ceil(tw + (own ? 40 : 10));
+  const h = own ? 26 : 18;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(w * dpr);
+  canvas.height = Math.ceil(h * dpr);
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    placeLabel(ctx, text, w / 2, h / 2 - (own ? 1 : 0), own);
+  }
+  const out = { canvas, w, h };
+  labels.set(key, out);
+  if (labels.size > LABELS_MAX) {
+    const first = labels.keys().next().value as string;
+    const gone = labels.get(first);
+    if (gone) gone.canvas.width = 0;
+    labels.delete(first);
+  }
+  return out;
+}
+
+/** Имя крупного места — тоже испечённое: разрядка и курсив, по воде светлыми чернилами. */
+export function regionSprite(text: string, size: number, onWater: boolean, dpr: number): LabelSprite {
+  const key = `r|${size}|${onWater ? 1 : 0}|${dpr}|${text}`;
+  const have = labels.get(key);
+  if (have) return have;
+  const probe = document.createElement('canvas').getContext('2d');
+  let tw = text.length * size * 0.8;
+  if (probe) {
+    probe.font = `italic ${size}px ${SERIF}`;
+    spaced(probe, size * 0.35);
+    tw = probe.measureText(text).width;
+  }
+  const w = Math.ceil(tw + size);
+  const h = Math.ceil(size * 1.6);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(w * dpr);
+  canvas.height = Math.ceil(h * dpr);
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    regionLabel(ctx, text, w / 2, h / 2, size, onWater);
+  }
+  const out = { canvas, w, h };
+  labels.set(key, out);
+  return out;
+}
+
+export function dropLabels(): void {
+  for (const l of labels.values()) l.canvas.width = 0;
+  labels.clear();
+}
