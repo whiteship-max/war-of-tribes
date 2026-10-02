@@ -38,6 +38,16 @@ const PACK = 'replay=tw&beasts=1&men=60&foe=45&seed=7';
 const BIG = 'replay=tw&men=3000&foe=2600&seed=9&place=road&hour=13';
 /** Неровный бой: меньший ломается, конница большего гонит бегущих (правило погони ядра). */
 const CHASE = 'replay=tw&men=900&foe=400&seed=4&hour=11';
+/** Место боя (docs/battle_tw.md, раздел 13): штурм нашей стены — берут (ворота выбиты) и отбит. */
+const WALL = 'replay=tw&site=wall&men=420&foe=560&seed=3&hour=11';
+const WALL_HELD = 'replay=tw&site=wall&men=500&foe=400&seed=1&hour=15';
+/** У ворот: разбойники и стая; вылазка из ворот на лагерь; удар по лагерю под стенами; совместный; логово в лесу. */
+const GATE = 'replay=tw&site=gate&men=220&foe=260&seed=4&place=woods,road&hour=9';
+const WOLVES = 'replay=tw&site=gate&beasts=1&men=60&foe=50&seed=7&place=woods&hour=18';
+const SORTIE = 'replay=tw&site=sortie&men=300&foe=360&seed=5&hour=7';
+const CAMP = 'replay=tw&site=camp&men=500&foe=420&seed=6&hour=12';
+const JOINT = 'replay=tw&site=joint&men=600&foe=420&seed=6&hour=12';
+const LAIR = 'replay=tw&site=lair&men=300&foe=220&seed=8&place=woods&hour=17';
 
 interface Shot {
   name: string;
@@ -68,6 +78,22 @@ const SHOTS: Shot[] = [
   { name: 'last', query: `${FIELD}&at=last`, why: 'итог: поле с павшими, знамёна победителя стоят' },
   { name: 'big', query: `${BIG}&at=deploy`, why: 'большое войско: k > 1, потолок фигур уровня' },
   { name: 'top', query: `${FIELD}&at=deploy&cam=top`, why: 'сверху: строй по полосам' },
+  { name: 'wall-deploy', query: `${WALL}&at=deploy`, why: 'штурм: стена, башни, надвратная, город за стеной; защитники на ходу' },
+  { name: 'wall-ladders', query: `${WALL}&at=ladders`, why: 'штурм: лестницы у стены, лезут очередью, на ходу рубят' },
+  { name: 'wall-outside', query: `${WALL}&at=ladders&cam=outside`, why: 'штурм снаружи: лестницы, таран у ворот, защитники над зубцами' },
+  { name: 'wall-ram', query: `${WALL}&at=ram&cam=gate`, why: 'таран бьёт в ворота, створки дрожат' },
+  { name: 'wall-breach', query: `${WALL}&at=breach&cam=gate`, why: 'ворота выбиты: поток через проезд' },
+  { name: 'wall-streets', query: `${WALL}&at=streets`, why: 'бой в воротах и на улице к площади' },
+  { name: 'wall-over', query: `${WALL}&at=over&cam=outside`, why: 'через стену: по лестницам в город' },
+  { name: 'wall-held', query: `${WALL_HELD}&at=last`, why: 'штурм отбит: ворота целы, лестницы брошены, павшие под стеной' },
+  { name: 'gate', query: `${GATE}&at=clash`, why: 'разбойники у ворот: стрелки на стене, гарнизон перед воротами' },
+  { name: 'wolves', query: `${WOLVES}&at=clash&cam=foe`, why: 'стая у ворот: бегут низом, бросаются; павшие на боку' },
+  { name: 'wolves-last', query: `${WOLVES}&at=last&cam=foe`, why: 'стая: павшие волки лежат на боку' },
+  { name: 'sortie', query: `${SORTIE}&at=advance`, why: 'вылазка: из ворот на лагерь осаждающих, рогатки, шатры' },
+  { name: 'camp', query: `${CAMP}&at=clash`, why: 'удар по лагерю под стенами: лагерь, за ним город' },
+  { name: 'joint', query: `${JOINT}&at=deploy`, why: 'совместный удар: ворота города за лагерем открыты' },
+  { name: 'lair', query: `${LAIR}&at=deploy`, why: 'логово: лагерь в лесу, частокол, шалаши, костры' },
+  { name: 'lair-clash', query: `${LAIR}&at=clash&cam=low`, why: 'набег на логово: сшибка у частокола' },
 ];
 
 const DEFAULT_SHOTS = ['deploy', 'volley', 'clash', 'clash-near', 'ford-clash'];

@@ -15,7 +15,7 @@ import { wearOf } from '@/game/battle/faces';
 import { Figure, JOINTS, forEachPart, partGeometry, type JointId, type PartName } from '../figures';
 import { BEAT, poseFigure } from '../poses';
 import { FOLK_KINDS, dressSoldier, dressVillager } from '../units';
-import { WOLF_DARK, darker, dressCanine, poseCanine, wolfLook } from '../beasts';
+import { CANINE_NECK, WOLF_DARK, darker, dressCanine, poseCanine, wolfLook } from '../beasts';
 import { FOLK_TINT, PALETTE } from '../palette';
 import { CLIPS, type ClipId } from './plan';
 
@@ -101,9 +101,12 @@ function poseClip(f: Figure, look: Look, clip: ClipId, t: number, seconds: numbe
       case 'march':
         return poseCanine(f, 'trot', t);
       case 'run': {
+        // Бег стаи — низом: рысь, разогнанная в мах, корпус ниже, шея вытянута вперёд, ход шире.
         const drop = poseCanine(f, 'trot', t * (((Math.PI * 2) / 13) / seconds));
-        f.pitch += 0.05;
-        return drop;
+        f.gait = Math.max(-1, Math.min(1, f.gait * 1.4));
+        f.pitch -= 0.03;
+        if (f.rig.mount) f.rig.mount.neckPitch = CANINE_NECK + 0.62;
+        return drop + (f.rig.mount ? f.rig.mount.legLen * 0.16 : 0);
       }
       case 'guard':
       case 'shoot':

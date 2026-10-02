@@ -40,10 +40,14 @@ function countStage(stage: TwStage): Count {
   return { calls, triangles, figures: stage.plan.figures, bytes: stage.textureBytes() };
 }
 
-/** Самый тяжёлый кадр уровня: войска больше потолка с обеих сторон, все фигуры поставлены, лес. */
-function heaviest(q: Quality): Count {
-  const b = standBattle(new URLSearchParams('replay=tw&men=4000&foe=4000&seed=7&place=woods,road,river,ford'));
-  const plan = twPlanOfRecord(b.result, b.us, b.troops, q, undefined, b.place, b.beastSide);
+/**
+ * Самый тяжёлый кадр уровня: войска больше потолка с обеих сторон, все фигуры поставлены, лес. С местом боя
+ * (docs/battle_tw.md, раздел 13) — то же войско у стены, у ворот, у лагеря, у логова: камень, дома, шатры и лестницы
+ * поверх потолка фигур.
+ */
+function heaviest(q: Quality, site = ''): Count {
+  const b = standBattle(new URLSearchParams(`replay=tw&men=4000&foe=4000&seed=7&place=woods,road,river,ford${site ? `&site=${site}` : ''}`));
+  const plan = twPlanOfRecord(b.result, b.us, b.troops, q, b.militia, b.place, b.beastSide, b.site);
   const stage = new TwStage(plan, TW_SPEC[q]);
   // Кадр на построении: все живы и все стоят — фигур больше, чем когда-либо потом.
   const cam = { camera: new THREE.PerspectiveCamera(), now: { tx: 0, tz: 0, dist: 120, yaw: 0, pitch: 0.8 }, groundY: 0 };
@@ -73,6 +77,21 @@ describe('ролик TW: бюджет кадра по уровням', () => {
       for (const q of QUALITIES) {
         const c = counts[q];
         console.log(`${q}: фигур ${c.figures} · вызовов ${c.calls} · треугольников ${c.triangles} · текстуры ${(c.bytes / 1048576).toFixed(1)} МБ`);
+      }
+    }
+  });
+
+  it('место боя (стена, ворота, лагерь, логово) — в том же бюджете уровня', () => {
+    for (const site of ['wall', 'gate', 'sortie', 'camp', 'joint', 'lair']) {
+      for (const q of QUALITIES) {
+        const c = heaviest(q, site);
+        const b = TW_BUDGET[q];
+        if (process.env.TW_BUDGET_SHOW === '1') console.log(`${site} ${q}: фигур ${c.figures} · вызовов ${c.calls} · треугольников ${c.triangles} · текстуры ${(c.bytes / 1048576).toFixed(1)} МБ`);
+        expect(c.calls, `${site} ${q}: вызовов`).toBeLessThanOrEqual(b.calls);
+        expect(c.triangles, `${site} ${q}: треугольников`).toBeLessThanOrEqual(b.triangles);
+        expect(c.bytes / 1048576, `${site} ${q}: текстуры, МБ`).toBeLessThanOrEqual(b.textureMB);
+        // Точка внутри области: обе стороны на потолке фигур, место построено.
+        expect(c.figures, `${site} ${q}`).toBeGreaterThan(TW_SPEC[q].perSide * 1.8);
       }
     }
   });

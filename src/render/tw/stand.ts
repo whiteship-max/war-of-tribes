@@ -60,13 +60,33 @@ function moment(plan: TwPlan, at: string): number {
     }
     case 'last':
       return plan.seconds;
+    // Место боя (docs/battle_tw.md, раздел 13): лестницы у стены, таран, пролом ворот, улица, через стену.
+    case 'ladders':
+      return plan.clashAt + 2.5;
+    case 'ram': {
+      const h = plan.site?.ram?.hits[1];
+      return h !== undefined ? h - 0.05 : plan.clashAt + 2;
+    }
+    case 'breach': {
+      const g = plan.site?.wall?.gateAt;
+      return g !== null && g !== undefined && g > 0 ? g + 1.6 : plan.clashAt + 6;
+    }
+    case 'streets': {
+      const g = plan.site?.wall?.gateAt;
+      return g !== null && g !== undefined && g > 0 ? Math.min(plan.seconds, g + 7) : plan.timing.melee[1];
+    }
+    case 'over': {
+      let go = Infinity;
+      for (let i = 0; i < plan.figures; i++) if (plan.goKind[i] === 4) go = Math.min(go, plan.goAt[i]);
+      return Number.isFinite(go) ? go + 2 : plan.timing.melee[1];
+    }
     default:
       return 0;
   }
 }
 
 /** Положения камеры для снимков: от общего вида — ниже, сбоку, сверху, вплотную к сшибке. */
-function shot(base: CamState, cam: string): CamState {
+function shot(base: CamState, cam: string, plan: TwPlan): CamState {
   switch (cam) {
     case 'near':
       return { tx: base.tx * 0.3, tz: 0, dist: 15, yaw: 0.35, pitch: 0.36 };
@@ -76,6 +96,20 @@ function shot(base: CamState, cam: string): CamState {
       return { ...base, tz: 0, dist: base.dist * 0.75, yaw: Math.PI / 2, pitch: 0.55 };
     case 'top':
       return { ...base, dist: base.dist * 1.05, pitch: 1.2 };
+    // Штурм снаружи: из-за штурмующих на стену; у ворот — вплотную к проезду.
+    case 'outside':
+      return { ...base, tz: base.tz * 0.3, dist: base.dist * 0.7, yaw: Math.PI, pitch: 0.5 };
+    case 'foe': {
+      // Вплотную к первому отряду противника на линии: стая, лестницы, частокол — где бьются они, а не середина.
+      const u = plan.units.find((x) => x.side !== plan.us && x.row === 'front');
+      return u ? { tx: u.x, tz: 0, dist: 13, yaw: 0.4, pitch: 0.4 } : base;
+    }
+    case 'gate': {
+      // У ворот снаружи: цель — перед проездом, камера — со стороны поля, чуть наискось.
+      const w = plan.site?.wall;
+      if (!w) return base;
+      return { tx: w.gateX, tz: w.z - w.inward * 3, dist: 22, yaw: w.inward < 0 ? Math.PI * 0.86 : Math.PI * 0.14, pitch: 0.5 };
+    }
     default:
       return { ...base, pitch: OVERVIEW_PITCH };
   }
@@ -184,7 +218,7 @@ export function mountTwStand(p: URLSearchParams): void {
     player.seek(frozen ?? 0);
     if (cam !== 'auto') {
       player.cam.auto = false;
-      Object.assign(player.cam.goal, shot(player.stage.autoView(frozen ?? 0, canvas.clientWidth / Math.max(1, canvas.clientHeight)), cam));
+      Object.assign(player.cam.goal, shot(player.stage.autoView(frozen ?? 0, canvas.clientWidth / Math.max(1, canvas.clientHeight)), cam, plan));
       player.cam.snap();
     }
     player.draw();

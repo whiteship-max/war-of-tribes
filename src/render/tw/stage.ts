@@ -8,6 +8,7 @@ import { Arrows } from './arrows';
 import { Banners } from './banners';
 import { Crowd, SHADOW_LAYER } from './crowd';
 import { Dust } from './dust';
+import { buildFort, type FortView } from './fort';
 import { buildField, fogFor, type FieldView } from './field';
 import { OVERVIEW_PITCH, overview, type CamBounds, type CamState, type TacticalCamera } from './camera';
 import { figureFrame, poseFigures, unitPose, type FigureFrame, type TwPlan } from './plan';
@@ -27,6 +28,7 @@ export class TwStage {
   private banners: Banners;
   private arrows: Arrows;
   private dust: Dust;
+  readonly fort: FortView;
   private sky: THREE.Mesh;
   private rig: LightRig;
   private sunDir = new THREE.Vector3();
@@ -57,6 +59,9 @@ export class TwStage {
     this.scene.add(this.arrows.stuck);
     this.dust = new Dust(plan);
     this.scene.add(this.dust.mesh);
+    // Место боя: стена, ворота, город, лагерь, логово (docs/battle_tw.md, раздел 13); у поля — пустая группа.
+    this.fort = buildFort(plan, plan.quality);
+    this.scene.add(this.fort.group);
     this.frame = figureFrame(plan.figures);
   }
 
@@ -68,6 +73,7 @@ export class TwStage {
     this.arrows.update(t);
     this.dust.update(t, cam.camera);
     this.field.update(t);
+    this.fort.update(t);
     // Небо идёт за камерой, туман — от её расстояния, коробка теней — вокруг её цели.
     this.sky.position.copy(cam.camera.position);
     const fog = this.scene.fog as THREE.Fog;
@@ -125,6 +131,7 @@ export class TwStage {
     this.banners.dispose();
     this.arrows.dispose();
     this.dust.dispose();
+    this.fort.dispose();
     this.field.dispose();
     this.sky.geometry.dispose();
     (this.sky.material as THREE.Material).dispose();

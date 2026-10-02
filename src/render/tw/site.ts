@@ -269,11 +269,11 @@ export function townHouses(w: TwWall, depth: number, avoid: readonly Rect[], squ
         const z = z0 + s * (zz + wFront / 2);
         zz += wFront + (hash(seed, row * 97 + k, 53) < 0.18 ? 2.2 : 0.25);
         if (Math.abs(x) + d / 2 > w.halfX - 2) continue;
-        const r: Rect = { x0: x - d / 2 - 0.6, x1: x + d / 2 + 0.6, z0: Math.min(z, z) - wFront / 2 - 0.6, z1: z + wFront / 2 + 0.6 };
+        const r: Rect = { x0: x - d / 2 - 0.6, x1: x + d / 2 + 0.6, z0: z - wFront / 2 - 0.6, z1: z + wFront / 2 + 0.6 };
         if (avoid.some((a) => overlaps(a, r))) continue;
         if (Math.hypot(x - square.x, z - square.z) < square.r + Math.max(wFront, d) / 2 + 0.8) continue;
         // Фасад — к улице (к середине по X): глубина дома идёт поперёк улицы.
-        out.push({ x, z, w: wFront, d, yaw: sideX > 0 ? -Math.PI / 2 : Math.PI / 2, floors: 2 + (hash(seed, row, k + 54) < 0.35 ? 1 : 0), seed: (seed + row * 131 + k * 17 + (sideX > 0 ? 0 : 7)) | 0 });
+        out.push({ x, z, w: wFront, d, yaw: sideX > 0 ? -Math.PI / 2 : Math.PI / 2, floors: 2 + (hash(seed, row, k + 54) < 0.35 ? 1 : 0), seed: (seed + row * 131 + k * 17 + (sideX > 0 ? 0 : 7)) >>> 0 });
       }
     }
   }
@@ -300,7 +300,7 @@ export function wallTowers(halfX: number, gateX: number, between: readonly numbe
       round: Math.abs(Math.abs(x) - (halfX - TOWER / 2)) < 0.05 || hash(seed, i, 61) < 0.35,
       size: TOWER * (0.95 + hash(seed, i, 62) * 0.15),
       h: TOWER_H * (0.92 + hash(seed, i, 63) * 0.16),
-      seed: (seed * 31 + i * 7) | 0,
+      seed: (seed * 31 + i * 7) >>> 0,
     }));
 }
 
@@ -327,7 +327,7 @@ export function campOf(kind: TwSiteKind, halfX: number, back: number, dir: 1 | -
         fires.push({ x: x + jx, z: z0 + dir * (zz + jz) });
         continue;
       }
-      tents.push({ x: x + jx, z: z0 + dir * (zz + jz), yaw: hash(seed, n, 74) * Math.PI * 2, size: (lair ? 1.5 : 1.8) + hash(seed, n, 75) * 0.7, hide: lair, seed: (seed + n * 11) | 0 });
+      tents.push({ x: x + jx, z: z0 + dir * (zz + jz), yaw: hash(seed, n, 74) * Math.PI * 2, size: (lair ? 1.5 : 1.8) + hash(seed, n, 75) * 0.7, hide: lair, seed: (seed + n * 11) >>> 0 });
     }
   }
   const stakes: { x: number; z: number; yaw: number }[] = [];

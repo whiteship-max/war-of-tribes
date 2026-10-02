@@ -12,6 +12,7 @@ import { treeModel } from '../battle/flora';
 import type { TwSpec } from './spec';
 import { WATER_Y, hash, heightAt, smoothstep, vnoise, type TwField } from './terrain';
 import type { TwPlan } from './plan';
+import { siteBlocks, siteGround } from './site';
 
 /**
  * Краски земли: город и карта TW — одна гамма (`CITY` — трава, сухая трава, земля; вода — по глубине, как
@@ -33,6 +34,8 @@ const TONE = {
   ford: 0xc9bf9e,
   water: 0x4f8592,
   waterDeep: 0x2b5b72,
+  cobble: CITY.cobble,
+  cobbleWarm: CITY.cobbleWarm,
   snow: CITY.snow,
   snowShade: 0xb4c0cc,
 } as const;
@@ -107,6 +110,10 @@ function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, 
   const across = smoothstep(plan.field.halfX - 20, plan.field.halfX - 40, Math.abs(x));
   const tramp = Math.max(contact, deploy) * across * smoothstep(0.25, 0.6, n1 + n2 * 0.4) * detail;
   out.lerp(C2.set(TONE.dirt), tramp * 0.7);
+  // Место боя: утоптанная земля города и лагеря, мостовая улицы и площади.
+  const g = siteGround(plan.site, x, z);
+  if (g.dirt > 0) out.lerp(C2.set(TONE.dirt), g.dirt * (0.55 + 0.25 * n2));
+  if (g.cobble > 0) out.lerp(C2.set(n1 > 0.5 ? TONE.cobbleWarm : TONE.cobble), g.cobble * 0.7);
   if (f.road) {
     const rx = 7 + Math.sin(z / 30 + f.seed) * 5;
     const k = smoothstep(2.2, 1.1, Math.abs(x - rx));
@@ -261,7 +268,24 @@ function treeSpots(f: TwField, plan: TwPlan, cap: number): TreeSpot[] {
     if (hash(f.seed, i, 33) > p) continue;
     if (f.river && Math.abs(z - f.river.z) < f.river.half + 2.5) continue;
     if (f.road && Math.abs(x - (7 + Math.sin(z / 30 + f.seed) * 5)) < 3) continue;
+    // Город за стеной и лагерь — без деревьев.
+    if (siteBlocks(plan.site, x, z)) continue;
     out.push({ x, z, s: 2.2 + hash(f.seed, i, 34) * 1.4, rot: hash(f.seed, i, 35) * Math.PI * 2, tall: clump > 0.5 });
+  }
+  // Логово — в лесу: чаща кольцом за частоколом и по бокам, к полю — опушка (docs/battle_tw.md, раздел 13).
+  const c = plan.site?.kind === 'lair' ? plan.site.camp : null;
+  if (c) {
+    const front = Math.abs(c.z0) < Math.abs(c.z1) ? c.z0 : c.z1;
+    const dir = Math.sign(c.z1 + c.z0) || 1;
+    const ring = Math.round(cap * 0.45);
+    for (let i = 0, n = 0; n < ring && i < ring * 10; i++) {
+      const x = c.x0 - 16 + hash(f.seed, i, 91) * (c.x1 - c.x0 + 32);
+      const z = front + dir * (-2 + hash(f.seed, i, 92) * (Math.abs(c.z1 - c.z0) + 20));
+      const inCamp = x > c.x0 - 4 && x < c.x1 + 4 && z > c.z0 - 4 && z < c.z1 + 4;
+      if (inCamp || (z - front) * dir < 3 && Math.abs(x) < c.x1 + 4) continue;
+      n++;
+      out.push({ x, z, s: 2.4 + hash(f.seed, i, 93) * 1.6, rot: hash(f.seed, i, 94) * Math.PI * 2, tall: hash(f.seed, i, 95) < 0.7 });
+    }
   }
   return out;
 }
