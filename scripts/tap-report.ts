@@ -45,10 +45,18 @@
  * кадрируется, касание судится по местам построек — а рисования нет. Отсюда и
  * правило: **картинки с этого стенда чёрные**, скриншот доказывать им ничего не может.
  *
+ * ПАЛЕЦ — ПЯТНО, А НЕ ТОЧКА. Касание идёт с радиусом `FINGER_R`, и браузер отдаёт
+ * его ближайшей нажимаемой кнопке у края пятна, даже если середина пятна над канвой:
+ * середина главного звена частокола на стартовом кадре — у самой кромки нижней
+ * панели, и `pointerdown`, `touchstart` и `click` получала кнопка «Ратуша», хотя
+ * судья сцены отдавал частокол (docs/city.md, 12.4). Поэтому точка свободна, только
+ * если канва под всем пятном (`free`), и второй палец щипка ставится так же: на
+ * разметке его касание досталось бы кнопке, и город увидел бы одиночный тап.
+ *
  * ЧЕГО НЕ МЕРЯЕТ:
  *   рисунок      кадра нет вовсе — за внешним видом на `?showcase=` и в snaps/;
- *   разметку     двумерный слой сюда не входит: касания идут в точку экрана, а
- *                поверх канвы в игре только «дырка» обучения с pointer-events:none;
+ *   разметку     кнопки двумерного слоя стенд не жмёт: его касания — в точки, где
+ *                под всем пятном пальца канва (см. выше);
  *   быстродействие  кадров нет, мерить нечего — цена кадра на стенде сцены (`village:shots`);
  *   вебвью Телеграма  это Chrome, а не он: перехват жеста клиентом здесь не
  *                воспроизводится, и на такой случай в игре стоит журнал касаний
@@ -74,6 +82,9 @@ const LEVEL = Number(process.env.LEVEL ?? 1);
 
 /** Сколько ждём, пока точка касания освободится от шторки. */
 const CLEAR_WAIT_MS = 800;
+
+/** Радиус пятна пальца, px: им касаются (`dispatchTouchEvent`) и под всем пятном ищут канву (`free`). */
+const FINGER_R = 12;
 
 /** Сколько ждём, пока город встанет: мир и слои считаются в потоках. */
 const CITY_WAIT_MS = 90_000;
@@ -298,8 +309,14 @@ const PROBE = `
      * Спрашивается у самой страницы, а не выводится из наших представлений о
      * раскладке: над канвой живёт двумерный слой — шапка, нижняя панель, — и
      * когда шторка уезжает вниз, она ещё несколько кадров стоит между пальцем и городом.
+     * Палец — пятно радиуса r: канва нужна и в середине, и на краях пятна, иначе
+     * браузер отдаст касание кнопке у края (шапка стенда, «Палец — пятно»).
      */
-    free: (x, y) => JSON.stringify(document.elementFromPoint(x, y) === canvasOf()),
+    free: (x, y, r) => {
+      const c = canvasOf();
+      const at = [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]];
+      return JSON.stringify(at.every((d) => document.elementFromPoint(x + d[0], y + d[1]) === c));
+    },
 
     /**
      * Кто занял точку, если она не свободна. Без этого «в N следах точка
@@ -500,7 +517,7 @@ async function report(): Promise<void> {
   // (шапка, нижняя панель) со стартового кадра не тапается — к такой постройке
   // стенд подводит камеру, как игрок, и целится уже от неё.
   const inside = (p: { x: number; y: number }): boolean => p.x > 2 && p.y > 2 && p.x < view.w - 2 && p.y < view.h - 2;
-  const freeAt = (p: { x: number; y: number }): Promise<boolean> => tab.eval<boolean>(`window.__tap.free(${p.x}, ${p.y})`);
+  const freeAt = (p: { x: number; y: number }): Promise<boolean> => tab.eval<boolean>(`window.__tap.free(${p.x}, ${p.y}, ${FINGER_R})`);
   const points: Aim[] = [];
   /** Постройки, которых не достать и с подведённой камерой: стенд скажет о них вслух. */
   const unreachable: Box[] = [];
@@ -532,7 +549,7 @@ async function report(): Promise<void> {
   const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: Array<{ x: number; y: number }>): Promise<unknown> =>
     tab.send('Input.dispatchTouchEvent', {
       type,
-      touchPoints: points.map((p) => ({ ...p, radiusX: 12, radiusY: 12, force: 1 })),
+      touchPoints: points.map((p) => ({ ...p, radiusX: FINGER_R, radiusY: FINGER_R, force: 1 })),
     });
 
   /** Один след. Возвращает, что открылось, и на сколько город уехал под пальцем. */
@@ -555,7 +572,24 @@ async function report(): Promise<void> {
     const dx = 0.78;
     const dy = 0.62;
     const at = (k: number): { x: number; y: number } => ({ x: p.x + s.slip * k * dx, y: p.y + s.slip * k * dy });
-    const second = { x: Math.min(view.w - 6, p.x + 70), y: Math.min(view.h - 6, p.y + 70) };
+    // Второй палец — в 70 px наискось и тоже всем пятном на канву: на разметке его касание досталось бы
+    // кнопке, и город увидел бы одиночный тап. Свободной стороны нет — стенд скажет об этом строкой «ВНИМАНИЕ» (`blocked`).
+    let second = { x: p.x + 70, y: p.y + 70 };
+    if (fingers > 1) {
+      let found = false;
+      for (const [sx, sy] of [[70, 70], [-70, 70], [70, -70], [-70, -70]]) {
+        const c = { x: p.x + sx, y: p.y + sy };
+        if (await freeAt(c)) {
+          second = c;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        blocked++;
+        if (!blockedBy) blockedBy = await tab.eval<string>(`window.__tap.who(${second.x}, ${second.y})`);
+      }
+    }
     let t = 0;
     let last = at(0);
     await send('touchStart', [last]);
