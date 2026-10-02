@@ -5,7 +5,7 @@
 // перед сшибкой, грохот удара — там, где строи сошлись, залп — с лучников в миг срыва, свист — туча в полёте, стук — где она
 // ложится, крик бегущих — у отряда в миг слома, рог победителя — после слома побеждённых. Гул сечи, лязг и конский топот —
 // из кадра фигур (`ambienceAt`): сколько рубится, где и сколько коней в ходу. Тот же журнал — та же раскладка.
-import { ARROW_FLIGHT, CLIPS, RUN_LAST, targetOf, unitPose, type FigureFrame, type TwPlan, type TwUnit } from './plan';
+import { ARROW_FLIGHT, CLIPS, RUN_LAST, figurePose, figureState, targetOf, unitPose, type FigureFrame, type TwPlan, type TwUnit } from './plan';
 import { hash } from './terrain';
 
 export type CueKind = 'horn' | 'charge' | 'cry' | 'crash' | 'bows' | 'whistle' | 'thud' | 'panic' | 'victory';
@@ -87,7 +87,15 @@ export function cuesOf(plan: TwPlan): Cue[] {
     for (const v of u.volleys) {
       const e = targetOf(plan, u, v);
       if (!e) continue;
+      // Срыв — там, где стоят стреляющие: у резерва, ушедшего во вторую линию, — у первого вставшего.
       const a = unitPose(plan, u, v);
+      for (let i = u.first; i < u.first + u.figures; i++) {
+        if (plan.goAt[i] > v || plan.deathAt[i] <= v) continue;
+        const q = figurePose(plan, i, v, null, figureState());
+        a.x = q.x;
+        a.z = q.z;
+        break;
+      }
       const b = unitPose(plan, e, v + ARROW_FLIGHT);
       const size = u.figures / 60;
       const k = Math.round(v * 100) + u.id * 7919;
@@ -133,10 +141,18 @@ export function cuesOf(plan: TwPlan): Cue[] {
  */
 export class CueClock {
   private next = 0;
-  private last = -1;
+  private last: number | null = null;
   constructor(readonly cues: readonly Cue[]) {}
 
   take(t: number): Cue[] {
+    // Первый кадр со звуком (машинка приехала позже ролика): прозвучит то, что было за последние полторы секунды, —
+    // рог построения не теряется из-за медленной докачки.
+    if (this.last === null) {
+      const from = t - 1.5;
+      this.next = this.cues.findIndex((c) => c.at > from);
+      if (this.next < 0) this.next = this.cues.length;
+      this.last = from;
+    }
     if (t < this.last - 1e-6 || t - this.last > 1.5) {
       this.next = this.cues.findIndex((c) => c.at > t);
       if (this.next < 0) this.next = this.cues.length;

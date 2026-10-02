@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import type { UnitKind } from '@/battle/types';
 import { PALETTE } from '../palette';
 import { SIDE_COLOR } from './crowd';
-import type { FigureFrame, TwPlan, TwUnit } from './plan';
+import { bearerOf, type FigureFrame, type TwPlan, type TwUnit } from './plan';
 
 /** Высота древка и размер полотнища, метры сцены: выше копий (копьё — 1.4 роста, `SPEAR_LEN`). */
 const POLE = 3.3;
@@ -130,21 +130,8 @@ export class Banners {
     this.group.name = 'tw-banners';
     this.units = plan.units.filter((u) => u.banner !== null);
     const n = Math.max(1, this.units.length);
-    // Знаменосец — фигура ближе всех к середине строя, во второй шеренге, если она есть.
-    this.bearer = new Int32Array(this.units.length);
-    this.units.forEach((u, k) => {
-      const want = -Math.min(1, u.ranks - 1) * (u.depth / Math.max(1, u.ranks - 1));
-      let best = u.first;
-      let bestD = Infinity;
-      for (let i = u.first; i < u.first + u.figures; i++) {
-        const d = Math.abs(plan.lx[i]) + Math.abs(plan.lz[i] - want);
-        if (d < bestD) {
-          bestD = d;
-          best = i;
-        }
-      }
-      this.bearer[k] = best;
-    });
+    // Знаменосец — фигура ближе всех к середине строя, во второй шеренге, если она есть (`bearerOf`, одна дверь с режиссурой).
+    this.bearer = Int32Array.from(this.units.map((u) => bearerOf(plan, u)));
     const kitMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, flatShading: true });
     kitMat.name = 'tw-banner-kit';
     this.kit = new THREE.InstancedMesh(kitGeometry(), kitMat, n);

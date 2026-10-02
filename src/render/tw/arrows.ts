@@ -5,7 +5,7 @@
 // ширине и глубине, от сида. Стрела в небе — одна инстансированная тонкая пирамида, один вызов на всё поле.
 import * as THREE from 'three';
 import { PALETTE } from '../palette';
-import { ARROW_FLIGHT, aliveFigures, targetOf, unitPose, volleysAt, type TwPlan } from './plan';
+import { ARROW_FLIGHT, aliveFigures, figurePose, figureState, targetOf, unitPose, volleysAt, type TwPlan } from './plan';
 import { hash, heightAt } from './terrain';
 
 /** Стрела крупнее жизни: на общем виде залп должен читаться штрихами, а не пропадать. */
@@ -24,6 +24,7 @@ export class Arrows {
   private d = new THREE.Vector3();
   private s = new THREE.Vector3(1, 1, 1);
   private fwd = new THREE.Vector3(0, 0, 1);
+  private fig = figureState();
 
   constructor(
     private plan: TwPlan,
@@ -62,8 +63,14 @@ export class Arrows {
         const lag = hash(plan.cast.seed, v.at * 100 + k, 21) * 0.35;
         const u = (t - v.at - lag) / ARROW_FLIGHT;
         if (u < 0 || u > 1) continue;
-        const ax = a.x + plan.lx[i] * ca + plan.lz[i] * sa;
-        const az = a.z - plan.lx[i] * sa + plan.lz[i] * ca;
+        // Лучник резерва, уже вставший во вторую линию, стреляет оттуда, где стоит (`figurePose`), а не из блока резерва.
+        let ax = a.x + plan.lx[i] * ca + plan.lz[i] * sa;
+        let az = a.z - plan.lx[i] * sa + plan.lz[i] * ca;
+        if (plan.goAt[i] <= v.at) {
+          figurePose(plan, i, v.at, null, this.fig);
+          ax = this.fig.x;
+          az = this.fig.z;
+        }
         const ay = heightAt(plan.field, ax, az) + 1.3;
         // Куда: точка в строю цели, разброс — по его ширине и глубине.
         const ox = (hash(plan.cast.seed, k, v.to * 7 + 22) - 0.5) * (to.width + 2);

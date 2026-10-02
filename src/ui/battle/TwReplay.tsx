@@ -94,6 +94,15 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     let alive = true;
     let dispose: () => void = () => undefined;
     let onResize: () => void = () => undefined;
+    // Звук боя качается вместе с роликом, а не после него: рог построения не ждёт второй докачки.
+    const sound = import('@/sound/battlefx');
+    // Ролик не приехал — звук ему не нужен, и отказ его докачки не должен лететь в консоль необработанным.
+    sound.catch(() => undefined);
+    // Страница скрыта — кадров нет, и гул смолкает, а не тянет последний кадр.
+    const onHide = (): void => {
+      if (document.hidden) fx.current?.rest();
+    };
+    document.addEventListener('visibilitychange', onHide);
     void import('@/render/tw/play')
       .then((m) => {
         if (!alive || !layer.current) return;
@@ -126,14 +135,17 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
               setFrame(f);
               setHud(h);
             },
-            onEnd: () => setEnded(true),
+            onEnd: () => {
+              fx.current?.rest();
+              setEnded(true);
+            },
           },
         );
         player.current = p;
         clock = new m.CueClock(m.cuesOf(p.plan));
         // Звук боя — своей докачкой, после первого кадра. Контекст открыло нажатие «Смотреть бой» (`battleMusic.arm`):
         // машинка берёт у него выход и сама ничего не открывает; звук выключен — молчит и не грузит ни узла.
-        void import('@/sound/battlefx')
+        void sound
           .then((sfx) => {
             if (!alive) return;
             const f = sfx.battleFx(quality === 'low');
@@ -157,6 +169,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     return () => {
       alive = false;
       player.current = null;
+      document.removeEventListener('visibilitychange', onHide);
       fx.current?.stop();
       fx.current = null;
       window.removeEventListener('resize', onResize);
@@ -189,6 +202,11 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
       player.current?.start();
     }
   };
+  // Звук включили, пока шёл ролик: машинка берёт выход у уже открытого контекста — включение и было жестом.
+  useEffect(() => {
+    if (audible) fx.current?.arm();
+  }, [audible]);
+
   const hush = (): void => {
     const next = !muted;
     setMuted(next);

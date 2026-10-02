@@ -163,6 +163,11 @@ export class BattleFx {
     };
   }
 
+  /** Кадров нет (карточка итога, скрытая страница): гул и лязг смолкают, а не тянут последний кадр. */
+  rest(): void {
+    if (this.armed) this.host.bed(SILENT, 0);
+  }
+
   /** Тише на этот просмотр — или снова слышно. Настройку не пишет. */
   setMuted(on: boolean): void {
     this.muted = on;
@@ -586,8 +591,9 @@ class FxVoice implements FxHost {
     // Топот: галоп — три удара на круг, расписанные чуть вперёд по часам контекста.
     if (b.hooves > 0.03) {
       if (this.hoofAt < now) this.hoofAt = now + 0.02;
-      const dest = this.side(b.hoovesPan, 1);
-      while (this.hoofAt < now + 0.12) {
+      // Узел стороны — только когда в этот кадр выпадает удар: не на каждый кадр топота.
+      const dest = this.hoofAt < now + 0.12 ? this.side(b.hoovesPan, 1) : null;
+      while (dest && this.hoofAt < now + 0.12) {
         this.hoof(dest, this.hoofAt, b.hooves * 0.35 * (0.7 + 0.3 * rnd(this.beat, 3)));
         this.hoofAt += [0.11, 0.11, 0.24][this.beat++ % 3];
       }

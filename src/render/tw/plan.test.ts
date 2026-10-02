@@ -13,8 +13,11 @@ import {
   CONTACT_HALF,
   FORM,
   MAX_SECONDS,
+  CHASE_SECONDS,
+  GALLOP_SPEED,
   WAVER_SECONDS,
   advanceOf,
+  bearerOf,
   pushOf,
   aliveFigures,
   figureFrame,
@@ -297,11 +300,30 @@ describe('ролик TW: хореография по журналу', () => {
     expect(q.flankers).toBe(0);
   });
 
-  it('гонит только тот, кто быстрее бегущего (скорость рода ядра)', () => {
-    const chasers = [big, uneven].flatMap((p) => p.units.filter((u) => u.chase).map((u) => ({ u, e: p.units[u.chase!.target] })));
+  it('гонит только тот, кто быстрее бегущего (скорость рода ядра), и только недавно побежавших', () => {
+    // Бой, где ближний к коннице отряд бежал раньше слома своей стороны больше чем на срок погони: правило «недавно» в
+    // нём спрашивается (самопроверка: давно бежавший был бы ближней целью).
+    const early = planOf('replay=tw&men=600&foe=300&seed=7');
+    const chasers = [big, uneven, early].flatMap((p) => p.units.filter((u) => u.chase).map((u) => ({ u, e: p.units[u.chase!.target] })));
+    const stale = early.units.some((e) => e.fleeAt !== null && e.row !== 'general' && e.fleeAt < Math.min(early.brokenAt.attacker ?? Infinity, early.brokenAt.defender ?? Infinity) - CHASE_SECONDS);
+    expect(stale, 'граница области: давно бежавший отряд в бою есть').toBe(true);
     // Граница области: погоня в этих боях есть.
     expect(chasers.length).toBeGreaterThan(0);
-    for (const { u, e } of chasers) expect(UNIT_STATS[u.kind].speed, `${u.kind} гонит ${e.kind}`).toBeGreaterThan(UNIT_STATS[e.kind].speed);
+    for (const { u, e } of chasers) {
+      expect(UNIT_STATS[u.kind].speed, `${u.kind} гонит ${e.kind}`).toBeGreaterThan(UNIT_STATS[e.kind].speed);
+      // Гонят только недавно побежавших: бежавший полминуты назад уже за краем поля.
+      expect(e.fleeAt!, `${u.kind} гонит давно бежавших`).toBeGreaterThanOrEqual(u.chase!.from - CHASE_SECONDS);
+    }
+    // И не быстрее галопа: погоня — бег за спиной бегущих, а не скольжение через поле.
+    for (const p of [big, uneven]) {
+      for (const u of p.units.filter((x) => x.chase)) {
+        for (let t = u.chase!.from; t < u.chase!.from + CHASE_SECONDS; t += 0.1) {
+          const a = unitPose(p, u, t);
+          const b = unitPose(p, u, t + 0.1);
+          expect(Math.hypot(b.x - a.x, b.z - a.z), `отряд ${u.id}, t ${t.toFixed(1)}`).toBeLessThanOrEqual(GALLOP_SPEED * 0.1 + 0.05);
+        }
+      }
+    }
     // И никто медленный не гонит того, кто его быстрее или вровень.
     for (const p of [big, uneven]) {
       for (const u of p.units) {
@@ -311,6 +333,29 @@ describe('ролик TW: хореография по журналу', () => {
         const catchable = p.units.some((e) => e.side !== u.side && e.fleeAt !== null && e.row !== 'general' && UNIT_STATS[e.kind].speed < UNIT_STATS[u.kind].speed);
         expect(catchable, `${u.kind} мог гнать, но не гонит`).toBe(false);
       }
+    }
+  });
+
+  it('своим путём уходит только тот, чей отряд ещё не бежал, и знаменосец — последним', () => {
+    for (const p of [big, uneven]) {
+      let left = 0;
+      for (const u of p.units) {
+        const bearer = bearerOf(p, u);
+        let lastGo = -Infinity;
+        for (let i = u.first; i < u.first + u.figures; i++) {
+          if (!Number.isFinite(p.goAt[i])) continue;
+          left += 1;
+          // Отряд побежал раньше, чем фигура тронулась, — фигура бежит с ним (иначе бегство считалось бы дважды).
+          if (u.fleeAt !== null) expect(p.goAt[i], `фигура ${i}`).toBeLessThan(u.fleeAt);
+          if (i !== bearer) lastGo = Math.max(lastGo, p.goAt[i]);
+        }
+        // Обход позже может увести пришедших резервом из полосы — это другой ход; правило знамени — у струи резерва.
+        let flanked = false;
+        for (let i = u.first; i < u.first + u.figures; i++) if (p.goKind[i] === 2) flanked = true;
+        if (!flanked && Number.isFinite(p.goAt[bearer])) expect(p.goAt[bearer], `знаменосец отряда ${u.id}`).toBeGreaterThanOrEqual(lastGo);
+      }
+      // Граница области: свои пути в этих боях есть.
+      expect(left).toBeGreaterThan(0);
     }
   });
 
