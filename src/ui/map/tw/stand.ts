@@ -6,6 +6,8 @@
 //   ?showcase=map-tw                      Лигурийский берег: Генуя, Приморские Альпы, Апеннины
 //   &at=684,1213  &scale=44               середина кадра (клетка мира) и масштаб, px на клетку
 //   &view=start|near|mid|far|coast|mountains|forest|army    готовые ракурсы участка
+//   &view=eu-norway|eu-sahara|eu-anatolia|eu-britain|eu-hungary|eu-pyrenees|eu-crimea|eu-baltic|eu-greece|eu-alps
+//                                         края Европы (этап 2): та же выпечка на непохожей земле
 //   &view=objects|objects-far             галерея миниатюр над равниной (места, войска, работы, значки);
 //                                         &boxes=1 — рамки холста (пунктир) и тела (цель пальца)
 //   &quality=low|medium|high              уровень (по умолчанию — высокий: «в полном качестве»)
@@ -79,6 +81,18 @@ const VIEWS: Record<string, { at: [number, number]; scale: number }> = {
    * Галерея миниатюр над равниной. Кастильская месета — самое ровное окно атласа на 16×38 клеток без леса,
    * рек и хребтов (счёт по атласу, `geography.terrainAt`/`featuresAt`): купы и реки не спорят с макетами.
    */
+  // Вся Европа (этап 2): края атласа, где земля непохожа на лигурийский берег, — север, пустыня, степь,
+  // острова, равнина. Клетки — проекция атласа от настоящих долготы и широты (`world/atlas/project.cellOf`).
+  'eu-norway': { at: [710, 915], scale: 9 },
+  'eu-sahara': { at: [585, 1410], scale: 9 },
+  'eu-anatolia': { at: [1023, 1285], scale: 9 },
+  'eu-britain': { at: [594, 1028], scale: 9 },
+  'eu-hungary': { at: [830, 1170], scale: 9 },
+  'eu-pyrenees': { at: [588, 1231], scale: 9 },
+  'eu-crimea': { at: [1010, 1179], scale: 9 },
+  'eu-baltic': { at: [839, 992], scale: 9 },
+  'eu-greece': { at: [878, 1300], scale: 9 },
+  'eu-alps': { at: [715, 1179], scale: 24 },
   objects: { at: [550, 1283], scale: 44 },
   'objects-far': { at: [550, 1283], scale: 10 },
 };
