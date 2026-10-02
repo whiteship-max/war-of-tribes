@@ -392,7 +392,7 @@ class Battle {
    * Наблюдение для показа: кто уходил в обход (`BattleResult.moves`) и мораль сторон к концу фазы (`PhaseSpan.morale`).
    * Ядро его не читает — только пишет; `observe` выключает запись ради теста «наблюдение не меняет исход».
    */
-  private moved: { span: number; move: GroupMove; men: Stack }[] = [];
+  private moved = new Map<string, GroupMove>();
 
   constructor(
     readonly input: BattleInput,
@@ -598,7 +598,8 @@ class Battle {
         defender: Math.round((this.sides.defender.lostTotal - lostBefore.defender) * 10) / 10,
       },
       bySector: this.lossBySector(menBefore),
-      ...(this.observe ? { morale: { attacker: moraleOut(this.sides.attacker.morale), defender: moraleOut(this.sides.defender.morale) } } : {}),
+      // Мораль армии — средняя морали групп, каждая в 0..`MORALE.max`: до целых, как `SideResult.morale`.
+      ...(this.observe ? { morale: { attacker: Math.round(this.sides.attacker.morale), defender: Math.round(this.sides.defender.morale) } } : {}),
     });
     return broke || (CIRCLE_PHASES.includes(phase) && (this.sides.attacker.broken || this.sides.defender.broken));
   }
@@ -1258,14 +1259,11 @@ class Battle {
    * складываются: излишек строя уходит понемногу, тик за тиком, а показу нужен отряд, а не сотня строк.
    */
   noteMove(side: Side, sector: Sector, from: Lane, to: Lane, stack: Stack): void {
-    if (!this.observe || from === to) return;
-    const span = this.phases.length;
-    let row = this.moved.find((r) => r.span === span && r.move.side === side && r.move.sector === sector && r.move.from === from && r.move.to === to);
-    if (!row) {
-      row = { span, move: { tick: this.tick, phase: this.phase, side, sector, from, to, men: {} }, men: emptyStack() };
-      this.moved.push(row);
-    }
-    for (const k of UNIT_KINDS) row.men[k] += stack[k];
+    if (!this.observe) return;
+    const key = `${this.phases.length}${side}${sector}${from}${to}`;
+    const move = this.moved.get(key) ?? { tick: this.tick, phase: this.phase, side, sector, from, to, men: {} };
+    this.moved.set(key, move);
+    for (const k of UNIT_KINDS) move.men[k] = (move.men[k] ?? 0) + stack[k];
   }
 
   // ----- Мораль -----
@@ -1480,7 +1478,7 @@ class Battle {
       phases: this.phases,
       sides,
       log: this.log,
-      ...(this.observe ? { moves: this.moved.map((r) => movedOut(r.move, r.men)).filter((m) => Object.keys(m.men).length > 0) } : {}),
+      ...(this.observe ? { moves: [...this.moved.values()] } : {}),
     };
   }
 
@@ -1533,19 +1531,6 @@ class Battle {
       rangedTotal: Math.round(s.rangedTotal),
     };
   }
-}
-
-/** Мораль наружу — той же мерой, что `SideResult.morale`: 0..100, до целых. */
-const moraleOut = (m: number): number => Math.round(Math.max(0, Math.min(MORALE.max, m)));
-
-/** Ход в обход наружу: люди по родам до десятых, рода меньше десятой бойца не пишутся. */
-function movedOut(move: GroupMove, men: Stack): GroupMove {
-  const out: GroupMove['men'] = {};
-  for (const k of UNIT_KINDS) {
-    const n = Math.round(men[k] * 10) / 10;
-    if (n > 0) out[k] = n;
-  }
-  return { ...move, men: out };
 }
 
 /**

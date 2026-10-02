@@ -122,6 +122,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/render\/tw\//],
   },
   {
+    // Звуки боя ролика TW (docs/battle_tw.md, «Звук») — своя докачка: тянет её только ролик TW после первого кадра, в
+    // кусок ролика и в первую загрузку она не едет.
+    name: 'звук боя TW',
+    door: /\/src\/sound\/battlefx\.ts$/,
+    owns: [/\/src\/sound\/battlefx\.ts$/],
+  },
+  {
     name: 'предыстория',
     door: /\/src\/prologue\/Prologue\.tsx$/,
     owns: [/\/src\/prologue\//, /\/src\/sound\/howl\.ts$/],

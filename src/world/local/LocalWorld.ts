@@ -1594,7 +1594,7 @@ export class LocalWorld implements WorldApi {
       enemyLost: null,
       loot: spoils,
       hidden: took.hiddenTotal,
-      ...(gain.bonded ? { led: gain.bonded } : {}),
+      led: gain.bonded,
       intel: this.snapshot(s, at),
       battle: null,
       text: `В ${s.name} кончился хлеб. Гарнизон разошёлся.${gainText(took)}${
@@ -3685,7 +3685,7 @@ export class LocalWorld implements WorldApi {
       enemyLost,
       loot: spoils,
       hidden: took?.hiddenTotal ?? 0,
-      ...(gain?.bonded ? { led: gain.bonded } : {}),
+      led: gain?.bonded,
       intel,
       battle: record,
       text: burned
@@ -4152,8 +4152,8 @@ export class LocalWorld implements WorldApi {
       enemyLost: Math.round(m.power * outcome.attackerLoss),
       loot: spoils && loss && spoils.lostTotal > 0 ? loss.resources : null,
       hidden: spoils?.hiddenTotal ?? 0,
-      ...(led ? { led } : {}),
-      ...(held > 0 ? { held } : {}),
+      led: led || undefined,
+      held: held || undefined,
       intel: null,
       battle: record,
       ...(loss?.fallen ? { fallen: loss.fallen } : {}),

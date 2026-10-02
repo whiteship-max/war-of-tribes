@@ -1,0 +1,20 @@
+/* Верх прежнего ролика о бое — своим куском (`BattleReplay.tsx`): в первую загрузку не входит. Общий слой ролика
+   (`.replay`, подпись, кнопки) — в `ui/styles.css`: его рисует и заглушка «Ролик загружается…» до приезда куска. */
+
+.replay-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.replay-phase {
+  text-transform: lowercase;
+}
+
+.replay-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}

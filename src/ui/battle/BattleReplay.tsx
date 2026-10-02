@@ -31,6 +31,7 @@ import { battleMusic, villageMusic } from '@/sound/web';
 import type { BattleRecord, Report } from '@/world/types';
 import { battleLook } from './look';
 import { TwReplay } from './TwReplay';
+import './replay.css';
 
 /**
  * Ролик боя: прежний по умолчанию, в стиле Total War — за переключателем устройства (`?battle=tw`, `look.ts`;

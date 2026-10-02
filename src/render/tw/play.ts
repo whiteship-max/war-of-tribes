@@ -11,6 +11,7 @@ import { twPlanOfRecord } from './record';
 import { TwPlayer, type TwPlayerOptions } from './player';
 
 export { hudAt, type TwHud } from './hud';
+export { CueClock, ambienceAt, cuesOf } from './cues';
 
 export interface TwRecord {
   result: BattleResult;

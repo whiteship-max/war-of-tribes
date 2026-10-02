@@ -7,6 +7,7 @@
 //   &t=12.5 | &at=deploy|volley|advance|charge|clash|melee|reserve|flank|waver|rout|pursuit|last   кадр стоит
 //   &cam=auto|near|side|top|low                положение камеры для снимка
 //   &place=… &hour=… &winter=1 &beasts=1 &seed=… &clean=1 &dpr=2 &speed=2
+//   &sound=1                                   звук боя: первое касание холста открывает его (жест), настройку не трогает
 //
 // Счёт кадра — в `document.body.dataset.replay` (его читает `npm run tw:shots`), отладочный крючок — `window.twStand`.
 import * as THREE from 'three';
@@ -20,6 +21,8 @@ import { twPlanOfRecord } from './record';
 import { TwPlayer } from './player';
 import { ADVANCE_FROM, type TwPlan } from './plan';
 import { OVERVIEW_PITCH, type CamState } from './camera';
+import { CueClock, ambienceAt, cuesOf } from './cues';
+import type { BattleFx } from '@/sound/battlefx';
 
 /** Именованные моменты: по ним снимают кадры самопроверки. Ищутся по режиссуре, а не подбираются руками. */
 function moment(plan: TwPlan, at: string): number {
@@ -120,7 +123,7 @@ export function mountTwStand(p: URLSearchParams): void {
   renderer.info.autoReset = false;
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
 
-  const opts = { speed: Number(p.get('speed') ?? 1) } as { speed: number; onFrame?: () => void; onEnd?: () => void };
+  const opts = { speed: Number(p.get('speed') ?? 1) } as { speed: number; onFrame?: (t: number) => void; onEnd?: () => void };
   const player = new TwPlayer(renderer, plan, spec, opts);
   player.cam.attach(canvas);
   const play = button('Пауза', () => {
@@ -136,7 +139,31 @@ export function mountTwStand(p: URLSearchParams): void {
   player.cam.onTake = () => {
     overviewBtn.style.opacity = '1';
   };
-  opts.onFrame = () => publish();
+  // Звук стенда: машинка приезжает сразу, а открывается первым касанием — без жеста браузер не даст звука. Своя
+  // докачка, как в игре; настройку звука стенд не пишет — слышно только с `&sound=1`.
+  let fx: BattleFx | null = null;
+  let lastT = 0;
+  const clock = new CueClock(cuesOf(plan));
+  if (p.get('sound') === '1') {
+    void import('@/sound/battlefx').then((m) => {
+      const wake = (): void => {
+        canvas.removeEventListener('pointerdown', wake);
+        fx = m.battleFx(quality === 'low', () => true);
+        fx.arm();
+      };
+      canvas.addEventListener('pointerdown', wake);
+    });
+  }
+  opts.onFrame = (t: number) => {
+    publish();
+    if (fx) {
+      const e = player.cam.camera.matrixWorld.elements;
+      const r = Math.hypot(e[0], e[2]) || 1;
+      const c = player.cam.camera.position;
+      fx.frame(clock.take(t), ambienceAt(plan, player.stage.frame), { x: c.x, y: c.y, z: c.z, rx: e[0] / r, rz: e[2] / r }, Math.max(0, Math.min(0.25, t - lastT)));
+    }
+    lastT = t;
+  };
   opts.onEnd = () => {
     play.textContent = 'Смотреть';
   };

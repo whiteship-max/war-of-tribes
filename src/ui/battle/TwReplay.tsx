@@ -8,7 +8,7 @@
 // (CLAUDE.md, правило 18). Кнопки приходят данными (`TW_CONTROLS`, `SPEEDS`), а не разметкой — правило прежнего ролика.
 //
 // Камерой правит игрок: ввод — на слое ролика, а не на холсте, где сидит ввод сцены города.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
@@ -20,10 +20,13 @@ import { SKIP, frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { beastSummary, beastWords } from '@/game/battle/beasts';
 import { battleMusic, villageMusic } from '@/sound/web';
+import { soundOn, subscribeSound } from '@/sound/settings';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import type { BattleRecord, Report } from '@/world/types';
 import type { TwHud } from '@/render/tw/hud';
 import type { TwPlayer } from '@/render/tw/player';
+import type { BattleFx } from '@/sound/battlefx';
+import './tw.css';
 
 /** Кнопки ролика TW: «Пропустить», как у прежнего, и «Общий вид» — вернуть камеру режиссуре. */
 const OVERVIEW = { id: 'overview', label: 'Общий вид' } as const;
@@ -34,6 +37,11 @@ const SPEEDS = [1, 2, 4] as const;
 const AGAIN = { id: 'again', label: 'Смотреть снова' } as const;
 const TO_REPORT = { id: 'report', label: 'К отчёту' } as const;
 const CARD_CONTROLS = [AGAIN, TO_REPORT] as const;
+/**
+ * Звук в ролике — «тише» на этот просмотр, а не второй рычаг: включён ли звук вообще, решает одна настройка («Музыка»,
+ * `ui/parts/Settings.tsx`). Выключена она — кнопка погашена и говорит, где включить; настройку отсюда не пишет никто.
+ */
+const SOUND = { id: 'sound', on: '🔊', off: '🔇', why: 'Звук выключен в настройках' } as const;
 
 const css = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
 /** Знамя стороны на полосе — цвет стороны в бою: наши в синем, чужие в красном (правило ролика). */
@@ -55,6 +63,11 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
   done.current = onDone;
   const layer = useRef<HTMLDivElement>(null);
   const player = useRef<TwPlayer | null>(null);
+  const fx = useRef<BattleFx | null>(null);
+  const audible = useSyncExternalStore(subscribeSound, soundOn);
+  const [muted, setMuted] = useState(false);
+  const mute = useRef(false);
+  mute.current = muted;
 
   useEffect(() => {
     const scene = activeScene();
@@ -85,15 +98,26 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
       .then((m) => {
         if (!alive || !layer.current) return;
         const quality = scene?.quality ?? 'medium';
+        let clock: InstanceType<typeof m.CueClock> | null = null;
+        let lastT = 0;
         const p = m.playTw(
           renderer,
           { result: rec.result, us: rec.us, troops: rec.troops, militia: rec.militia, place: rec.place, beasts: rec.beasts },
           quality,
           layer.current,
           {
-            onFrame: (_t, castT) => {
+            onFrame: (t, castT) => {
               const f = frameAt(cast, castT);
-              battleMusic.set(f.music);
+              battleMusic.set(mute.current ? 'silence' : f.music);
+              // Звук боя: что пришло с прошлого кадра, гул на кадре, ухо — камера. Проигрыватель ещё строится — молчим.
+              const pl = player.current;
+              if (pl && fx.current && clock) {
+                const e = pl.cam.camera.matrixWorld.elements;
+                const r = Math.hypot(e[0], e[2]) || 1;
+                const cam = pl.cam.camera.position;
+                fx.current.frame(clock.take(t), m.ambienceAt(pl.plan, pl.stage.frame), { x: cam.x, y: cam.y, z: cam.z, rx: e[0] / r, rz: e[2] / r }, Math.max(0, Math.min(0.25, t - lastT)));
+              }
+              lastT = t;
               const h = m.hudAt(cast, rec.result, castT);
               const mor = (v: number | null): string => (v === null ? '-' : v.toFixed(2));
               const key = `${f.caption ?? ''}|${h.phase}|${h.round}|${f.side.attacker.men}|${f.side.defender.men}|${mor(h.morale.attacker)}|${mor(h.morale.defender)}`;
@@ -106,6 +130,18 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
           },
         );
         player.current = p;
+        clock = new m.CueClock(m.cuesOf(p.plan));
+        // Звук боя — своей докачкой, после первого кадра. Контекст открыло нажатие «Смотреть бой» (`battleMusic.arm`):
+        // машинка берёт у него выход и сама ничего не открывает; звук выключен — молчит и не грузит ни узла.
+        void import('@/sound/battlefx')
+          .then((sfx) => {
+            if (!alive) return;
+            const f = sfx.battleFx(quality === 'low');
+            f.arm();
+            f.setMuted(mute.current);
+            fx.current = f;
+          })
+          .catch(() => undefined);
         p.fit();
         p.start();
         onResize = () => p.fit();
@@ -121,6 +157,8 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     return () => {
       alive = false;
       player.current = null;
+      fx.current?.stop();
+      fx.current = null;
       window.removeEventListener('resize', onResize);
       dispose();
       battleMusic.stop();
@@ -150,6 +188,11 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
       player.current?.seek(0);
       player.current?.start();
     }
+  };
+  const hush = (): void => {
+    const next = !muted;
+    setMuted(next);
+    fx.current?.setMuted(next);
   };
   const go = (n: number): void => {
     setSpeed(n);
@@ -190,6 +233,16 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
               ×{n}
             </button>
           ))}
+          <button
+            className="btn ghost"
+            key={SOUND.id}
+            disabled={!audible}
+            title={audible ? undefined : SOUND.why}
+            aria-label={audible ? (muted ? 'Включить звук боя' : 'Тише') : SOUND.why}
+            onClick={hush}
+          >
+            {audible && !muted ? SOUND.on : SOUND.off}
+          </button>
         </div>
       </div>
       {loaded === 'fail' && <div className="replay-caption">Ролик не загрузился — итог боя в отчёте.</div>}
