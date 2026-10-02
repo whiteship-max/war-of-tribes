@@ -8,29 +8,27 @@
  *
  * ЗДЕСЬ НЕТ THREE. Выбор читают интерфейс (первая загрузка) и холст игры; сцену отсюда не
  * видно, и это нарочно: интерфейс говорит с записью, холст подписан на неё и пересобирает
- * сцену с новым видом (`ui/GameCanvas.tsx`) — сменить вид на живой сцене нельзя, нужен
- * новый холст (docs/handbook/scene.md).
+ * сцену с новым уровнем (`ui/GameCanvas.tsx`) — сменить уровень на живой сцене нельзя,
+ * нужен новый холст (docs/handbook/scene.md).
  *
- * ПО УМОЛЧАНИЮ ИГРОК ВИДИТ НОВЫЙ ВИД (`next`) — решение владельца 01.10.2026, после
- * проверки на ПК и телефоне (docs/graphics_world.md, раздел 12). Прежний вид (`now`) остаётся
- * в настройках строкой «Простой вид» — для слабых устройств и на случай проблем, — и игрок,
- * выбравший его раньше, остаётся на нём: запись `look: 'now'` пишет только выключатель вида
- * в настройках, так что она всегда — выбор игрока, а не умолчание прошлой сборки.
- * Уровень — «авто»: по устройству (`quality.autoQuality`, телефон — не выше среднего), но
- * не выше того, до чего сторож опустил его на этом устройстве за последнюю неделю.
+ * ВИД У ИГРЫ ОДИН — ГОРОД (решение владельца 02.10.2026, docs/city.md, «Город — единственный
+ * вид»): прежний посёлок («Простой вид») и вид `next` убраны вместе с кодом, выбирать нечего.
+ * Выбор — только уровень: «Авто» — по устройству (`quality.autoQuality`, телефон — не выше
+ * среднего), но не выше того, до чего сторож опустил его на этом устройстве за последнюю
+ * неделю; низкий — для слабых устройств вместо прежнего «Простого вида». Запись прошлых
+ * сборок несёт поле вида: кто выбрал прежний вид (`look: 'now'`), получает город на «Авто»,
+ * у остальных уровень остаётся их выбором (`gfxOf`).
  */
-import type { Look } from './lighting';
 import { QUALITIES, qualityOf, type Quality } from './quality';
 
 /** Уровень, выбранный игроком: «авто» — по устройству. */
 export type GfxQuality = 'auto' | Quality;
 
 export interface Gfx {
-  look: Look;
   quality: GfxQuality;
 }
 
-export const GFX_DEFAULT: Gfx = { look: 'next', quality: 'auto' };
+export const GFX_DEFAULT: Gfx = { quality: 'auto' };
 
 /** Уровни в пункте «Графика» — порядок кнопок и их слова. */
 export const GFX_QUALITIES: readonly (readonly [GfxQuality, string])[] = [
@@ -42,11 +40,10 @@ export const GFX_QUALITIES: readonly (readonly [GfxQuality, string])[] = [
 
 /**
  * Ключ того, что рисует сцена при этом выборе и адресе: сменился — сцену пересобирают
- * (`ui/GameCanvas`). У прежнего вида уровень не читается — его смена ключа не меняет.
+ * (`ui/GameCanvas`). Вид один, ключ — уровень.
  */
 export function gfxKey(g: Gfx, search: string): string {
-  const s = sceneGfx(g, search);
-  return s.look === 'now' ? 'now' : `${s.look}:${s.quality ?? 'auto'}`;
+  return sceneGfx(g, search).quality ?? 'auto';
 }
 
 /** Выбор игрока. Пишет его только пункт «Графика» (`setGfx`) — тест «рычаг один». */
@@ -96,17 +93,19 @@ export function setGfxStorage(next: GfxStorage): void {
 }
 
 /**
- * Выбор из записи. Чужое и битое — умолчание, поле за полем. Вид из записи берётся только
- * названный: `now` — выбор игрока, и смена умолчания его не отнимает.
+ * Выбор из записи. Чужое и битое — умолчание, поле за полем. Поле вида у записей прошлых
+ * сборок — не выбор, а след: вида больше нет. Запись прежнего вида (`look: 'now'` — его писал
+ * только выключатель «Простой вид», а при нём строка уровня была спрятана) — это слабое
+ * устройство или проблема с прежней графикой, и решение владельца для неё — город на «Авто»:
+ * уровень по устройству и сторож. У записи нового вида уровень — выбор игрока, он остаётся.
  */
 export function gfxOf(raw: string | null): Gfx {
   try {
     const o = JSON.parse(raw ?? 'null') as { look?: unknown; quality?: unknown } | null;
     if (!o || typeof o !== 'object') return GFX_DEFAULT;
-    const look: Look = o.look === 'now' || o.look === 'next' ? o.look : GFX_DEFAULT.look;
+    if (o.look === 'now') return GFX_DEFAULT;
     const q = typeof o.quality === 'string' ? o.quality : null;
-    const quality: GfxQuality = q === 'auto' ? 'auto' : (qualityOf(q) ?? 'auto');
-    return { look, quality };
+    return { quality: q === 'auto' ? 'auto' : (qualityOf(q) ?? 'auto') };
   } catch {
     return GFX_DEFAULT;
   }
@@ -163,25 +162,21 @@ export const capQuality = (q: Quality, cap: Quality | null): Quality =>
 
 // ---------- Что рисовать ----------
 
-/** Вид и уровень для сцены; `asked` — уровень задан (адресом или игроком), сторож его не трогает. */
+/** Уровень для сцены; `asked` — уровень задан (адресом или игроком), сторож его не трогает. */
 export interface SceneGfx {
-  look: Look;
   /** `null` — по устройству. */
   quality: Quality | null;
   asked: boolean;
 }
 
 /**
- * Вид и уровень для сцены игры. Адрес (`?look=next&quality=low`) сильнее записи — так
- * владелец проверяет вид на телефоне, не трогая настроек; в запись адрес не пишется.
- * Вид «город» (`?look=city`, docs/city.md) — только адресом: в настройках его нет.
+ * Уровень для сцены игры. Адрес (`?quality=low`) сильнее записи — так владелец проверяет
+ * уровень на телефоне, не трогая настроек; в запись адрес не пишется. Адрес вида
+ * (`?look=…` прошлых сборок) не читается: вид один — город.
  */
 export function sceneGfx(g: Gfx, search: string): SceneGfx {
-  const p = new URLSearchParams(search);
-  const urlLook = p.get('look');
-  const look: Look = urlLook === 'next' || urlLook === 'now' || urlLook === 'city' ? urlLook : g.look;
-  const urlQ = p.get('quality');
+  const urlQ = new URLSearchParams(search).get('quality');
   const chosen: GfxQuality = urlQ === 'auto' ? 'auto' : (qualityOf(urlQ) ?? g.quality);
   const quality = chosen === 'auto' ? null : chosen;
-  return { look, quality, asked: quality !== null };
+  return { quality, asked: quality !== null };
 }

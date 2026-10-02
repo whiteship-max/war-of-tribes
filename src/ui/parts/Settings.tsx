@@ -12,7 +12,7 @@
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
 // появляется тогда, когда без неё что-то нельзя сделать, а не тогда, когда её
 // удобно сюда положить. Графика — такая: без неё телефону, который не тянет,
-// уровень не опустить и на прежний вид не вернуться (docs/graphics_world.md, 9.6 и 12).
+// уровень не опустить (docs/graphics_world.md, 9.6; docs/city.md, «Город — единственный вид»).
 //
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
@@ -43,8 +43,7 @@ import { Icon } from '@/ui/icons/Icon';
  */
 export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
-  const look = useSyncExternalStore(subscribeGfx, gfx, gfx);
-  const simple = look.look === 'now';
+  const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
 
   const flip = (): void => {
     const next = !on;
@@ -78,49 +77,28 @@ export function Settings() {
         </button>
 
         {/*
-          Графика — рычаг вида и уровня, единственный (`render/gfx.ts`, тест «рычаг
-          один»). По умолчанию — новый вид (слово владельца 01.10.2026); прежний
-          остаётся запасным — «Простой вид». Выключатель стоит над строкой уровня, а не
-          под ней: строка уровня при простом виде прячется, и выключатель не уезжает
-          из-под пальца. Сцена слушает запись сама и пересобирается на новой канве
-          (`GameCanvas`): сменить вид на живой сцене нельзя.
+          Графика — рычаг уровня, единственный (`render/gfx.ts`, тест «рычаг один»). Вид у игры
+          один — город (слово владельца 02.10.2026); прежний «Простой вид» убран вместе с посёлком,
+          его место для слабых устройств — «Низкая». Четыре кнопки, а не выпадающий список: выбор
+          виден целиком. Сцена слушает запись сама и пересобирается на новой канве (`GameCanvas`):
+          сменить уровень на живой сцене нельзя.
         */}
-        <button className={`set-row${simple ? ' on' : ''}`} onClick={() => setGfx({ look: simple ? 'next' : 'now' })} aria-pressed={simple}>
+        <div className="set-row pick">
           <span className="ico">
-            <Icon name="ui-look" glyph="🌲" />
+            <Icon name="ui-gfx" glyph="🎨" />
           </span>
           <span className="name">
-            Простой вид
-            <em className="sub">прежняя графика — для слабых устройств и на случай проблем</em>
+            Графика
+            <em className="sub">«Авто» — по устройству; не тянет — опустится сама</em>
           </span>
-          <span className="sw">
-            <i />
-          </span>
-        </button>
-
-        {/*
-          Уровень графики — только при новом виде: у простого он ничего не меняет, а
-          строка, которая ничего не меняет, — обещание, которого мы не держим (как
-          язык ниже). Четыре кнопки, а не выпадающий список: выбор виден целиком.
-        */}
-        {!simple && (
-          <div className="set-row pick">
-            <span className="ico">
-              <Icon name="ui-gfx" glyph="🎨" />
-            </span>
-            <span className="name">
-              Графика
-              <em className="sub">«Авто» — по устройству; не тянет — опустится сама</em>
-            </span>
-            <div className="set-seg" role="group" aria-label="Уровень графики">
-              {GFX_QUALITIES.map(([q, label]) => (
-                <button key={q} className={look.quality === q ? 'on' : ''} aria-pressed={look.quality === q} onClick={() => setGfx({ quality: q })}>
-                  {label}
-                </button>
-              ))}
-            </div>
+          <div className="set-seg" role="group" aria-label="Уровень графики">
+            {GFX_QUALITIES.map(([q, label]) => (
+              <button key={q} className={chosen.quality === q ? 'on' : ''} aria-pressed={chosen.quality === q} onClick={() => setGfx({ quality: q })}>
+                {label}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
         {/*
           Язык. Это **не** настройка, а сообщение, и потому не кнопка: нажимать
