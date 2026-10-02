@@ -4,6 +4,9 @@
 //   SHOTS=start,coast,mountains QUALITY=high,medium TAG=r2 npm run map-tw:shots
 //   OLD=1 SHOTS=start npm run map-tw:shots                 — тот же участок прежней картой («до»)
 //   EXTRA="season=winter&night=1" npm run map-tw:shots     — свои параметры поверх ракурса
+//   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра с `?map=tw` (и `OLD=1` — без него):
+//                                                            закреплённый мир с домом в Генуе, кадр карты
+//                                                            на масштабах из SHOTS
 //
 // Снимки — в `.map-shots/` (в репозиторий не входит). Страница печёт кадр один раз и стоит: цепочки
 // кадров нет, видеокарту стенд не гонит. Числа выпечки — из самой страницы (`dataset.showcase`): тот же
@@ -15,6 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
+import { cellAt, openPinnedMap } from './lib/pinned';
 import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
 const OUT = fileURLToPath(new URL('../.map-shots', import.meta.url));
@@ -27,6 +31,9 @@ const QUALITIES = list(process.env.QUALITY, 'high');
 const TAG = process.env.TAG ?? 'probe';
 const EXTRA = process.env.EXTRA ?? '';
 const OLD = process.env.OLD === '1';
+const GAME = process.env.GAME === '1';
+/** Дом закреплённого мира для снимков игры — Генуя, тот же берег, что у стенда. */
+const GAME_HOME = cellAt(8.95, 44.47);
 
 function pageUrl(view: string, quality: string, old: boolean): string {
   const p = new URLSearchParams({ showcase: 'map-tw', view, quality, clean: '1', fpscap: String(REPORT_FPS) });
@@ -81,6 +88,36 @@ async function shot(view: string, quality: string, old: boolean): Promise<void> 
   }
 }
 
+/**
+ * Сама игра: закреплённый мир, карта открыта, камера над домом на масштабе из SHOTS. Новый вид — флагом
+ * адреса (`?map=tw`), прежний — без него. Тайлы печёт игра сама, по одному за кадр, — снимок ждёт, пока
+ * испечётся экран.
+ */
+async function gameShot(look: 'tw' | 'old'): Promise<void> {
+  const q = new URLSearchParams({ probe: '1', worldview: 'open', fpscap: String(REPORT_FPS) });
+  if (look === 'tw') q.set('map', 'tw');
+  if (QUALITIES[0]) q.set('quality', QUALITIES[0]);
+  const tab = await Tab.open(DEBUG_PORT, 'about:blank');
+  try {
+    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
+    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?${q.toString()}` });
+    await sleep(2500);
+    await openPinnedMap(tab, { home: GAME_HOME, onLog: (m) => console.log(m) });
+    for (const scale of SHOTS.map(Number).filter((v) => v > 0)) {
+      await tab.eval<string>(`(() => { window.__mapCam(${GAME_HOME.x}, ${GAME_HOME.y - 2}, ${scale}); return JSON.stringify('ok'); })()`);
+      await sleep(5000);
+      const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+      const name = `${TAG}-game-${look}-${scale}.png`;
+      await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+      const bakes = await tab.eval<string>('JSON.stringify(window.__mapPerf ? window.__mapPerf() : null)').catch(() => 'null');
+      console.log(`  игра ${look} ×${scale}: → .map-shots/${name}${bakes && bakes !== 'null' ? ` · ${String(bakes).slice(0, 160)}` : ''}`);
+    }
+  } finally {
+    tab.close();
+    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
+  }
+}
+
 async function main(): Promise<void> {
   await mkdir(OUT, { recursive: true });
   refuseIfBusy('Снимки карты');
@@ -98,6 +135,11 @@ async function main(): Promise<void> {
     const chrome = await launchChrome(DEBUG_PORT, ['--window-size=500,900', '--force-device-scale-factor=1', ...root]);
     try {
       const began = Date.now();
+      if (GAME) {
+        await gameShot('tw');
+        if (OLD && Date.now() - began < BROWSER_MAX_MS) await gameShot('old');
+        return;
+      }
       outer: for (const view of SHOTS) {
         for (const q of OLD ? [...QUALITIES, 'old'] : QUALITIES) {
           if (Date.now() - began > BROWSER_MAX_MS) {

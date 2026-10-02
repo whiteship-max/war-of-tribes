@@ -379,6 +379,9 @@ function drawGroves(
 
 // ---------- Берег: маска воды и полосы прибоя ----------
 
+/** Радиус суши под поселением, в клетках: двор с запасом, но не дальше своей клетки и соседей. */
+const HOME_LAND = 0.85;
+
 /**
  * Маска воды и полосы у уреза по пикселю выпечки — только там, где решётка видит берег: внутри
  * клетки решётки целиком на суше или целиком в воде считать нечего.
@@ -386,7 +389,7 @@ function drawGroves(
  * Суша — `landAt` по искривлённым координатам узлов (одна мерка на тайл, обзор и деревья). Между
  * узлами — билинейно, порог — половина. Полосы: светлый песок на суше у самого уреза, пена по воде.
  */
-function shoreMasks(area: Area, img: ImageData, band: ImageData): { water: boolean; land: boolean } {
+function shoreMasks(area: Area, img: ImageData, band: ImageData, homes: Clearing[]): { water: boolean; land: boolean } {
   const { grid, n, ml } = area;
   const L = new Float32Array(n * n);
   let anyW = false;
@@ -394,7 +397,18 @@ function shoreMasks(area: Area, img: ImageData, band: ImageData): { water: boole
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const k = (ml + j) * grid.nx + (ml + i);
-      const v = landAt(area.cells, grid.qx[k], grid.qy[k]);
+      let v = landAt(area.cells, grid.qx[k], grid.qy[k]);
+      // Под поселением всегда суша: клетка двора — суша в данных, а искривлённый берег мог бы зайти в
+      // неё на полклетки, и город встал бы на воду. Поселения не переезжают — перевыпечки от этого нет.
+      if (v < 0.75 && homes.length) {
+        const wx = grid.x0 + (ml + i) * grid.step;
+        const wy = grid.y0 + (ml + j) * grid.step;
+        for (const h of homes) {
+          const d = Math.hypot(wx - (h.x + 0.5), wy - (h.y + 0.5));
+          if (d < HOME_LAND * 0.6) v = Math.max(v, 0.75);
+          else if (d < HOME_LAND) v = Math.max(v, 0.5 + 0.25 * (1 - (d - HOME_LAND * 0.6) / (HOME_LAND * 0.4)));
+        }
+      }
       L[j * n + i] = v;
       if (v < 0.5) anyW = true;
       else anyL = true;
@@ -549,7 +563,8 @@ export function bakeTile(seed: number, tx: number, ty: number, take: () => HTMLC
 
   // Море: цвет по глубине растянут на тайл и вырезан маской берега; поверх — рябь и полосы у уреза.
   const fu = fullOf();
-  const shore = shoreMasks(area, fu.img, fu.band);
+  const homes = clearingsIn({ x: Math.floor(x) - 1, y: Math.floor(y) - 1, w: Math.ceil(side) + 3, h: Math.ceil(side) + 3 });
+  const shore = shoreMasks(area, fu.img, fu.band, homes);
   if (shore.water) {
     ctxOf(sm.water).putImageData(sm.waterImg, 0, 0);
     const wc = ctxOf(fu.water);
@@ -604,6 +619,20 @@ export const OVERVIEW_BLEED = 2;
  * крон — лес читается тёмной массой с крапом. Null — соседи куска ещё не приехали: испеки его без
  * них, и по краю куска встанет шов, когда они приедут.
  */
+/** Какие клетки нужны куску обзора: он сам и округа под свет, тень, сплайн и размытия. */
+export function chunkNeed(chunk: CachedChunk): Rect {
+  const bleed = OVERVIEW_BLEED / OVERVIEW_PX;
+  const need = needFor(chunk.rect.x - bleed, chunk.rect.y - bleed, chunk.rect.w + bleed * 2, OVERVIEW_PX);
+  return {
+    x: Math.max(WORLD_ORIGIN.x, need.x),
+    y: Math.max(WORLD_ORIGIN.y, need.y),
+    w: Math.min(WORLD_ORIGIN.x + WORLD_SIZE, need.x + need.w) - Math.max(WORLD_ORIGIN.x, need.x),
+    h: Math.min(WORLD_ORIGIN.y + WORLD_SIZE, need.y + need.h) - Math.max(WORLD_ORIGIN.y, need.y),
+  };
+}
+
+export const chunkReady = (chunk: CachedChunk): boolean => ready(chunkNeed(chunk));
+
 export function bakeChunk(seed: number, chunk: CachedChunk): HTMLCanvasElement | null {
   const nodes = OVERVIEW_PX;
   const sp = spec();
@@ -611,14 +640,7 @@ export function bakeChunk(seed: number, chunk: CachedChunk): HTMLCanvasElement |
   const x = chunk.rect.x - bleed;
   const y = chunk.rect.y - bleed;
   const w = chunk.rect.w + bleed * 2;
-  const need = needFor(x, y, w, nodes);
-  const clipped: Rect = {
-    x: Math.max(WORLD_ORIGIN.x, need.x),
-    y: Math.max(WORLD_ORIGIN.y, need.y),
-    w: Math.min(WORLD_ORIGIN.x + WORLD_SIZE, need.x + need.w) - Math.max(WORLD_ORIGIN.x, need.x),
-    h: Math.min(WORLD_ORIGIN.y + WORLD_SIZE, need.y + need.h) - Math.max(WORLD_ORIGIN.y, need.y),
-  };
-  if (!ready(clipped)) return null;
+  if (!chunkReady(chunk)) return null;
   const c0 = performance.now();
   const area = areaFor(seed, x, y, w, nodes, sp.castShadow);
   const c1 = performance.now();

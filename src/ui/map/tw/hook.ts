@@ -6,7 +6,7 @@ import { useWorld } from '@/world/store';
 import { useGame } from '@/game/store';
 import { seasonOf } from '@/game/derived';
 import { subscribeGfx } from '@/render/gfx';
-import { bakeChunk, setTwLook } from './bake';
+import { bakeChunk, chunkNeed, chunkReady, setTwLook } from './bake';
 import { twQuality } from './spec';
 
 export { bakeTile } from './bake';
@@ -25,6 +25,8 @@ const chunks = new Map<string, HTMLCanvasElement>();
 /** Не больше одной выпечки куска за кадр: кадр карты — 60 в секунду, отсчёт — по часам кадра. */
 let lastBake = -Infinity;
 const BAKE_GAP_MS = 14;
+/** Когда кусок последний раз заказывал свою округу. */
+const askedAt = new Map<string, number>();
 
 /**
  * Сверка вида с игрой: уровень из настроек и сезон партии. Сменился — испечённое устарело: вернёт
@@ -54,8 +56,20 @@ export function overviewChunk(chunk: CachedChunk): HTMLCanvasElement | null {
   }
   const now = performance.now();
   if (now - lastBake < BAKE_GAP_MS) return null;
-  const seed = useWorld.getState().info?.seed ?? 0;
+  const world = useWorld.getState();
+  const seed = world.info?.seed ?? 0;
   if (!seed) return null;
+  // Куску нужна округа: свет, тень и сплайн смотрят на клетки соседей. Кадр карты заказывает куски только
+  // под экраном и запасом, и край обзора без этого вечно стоял бы прежним растром. Заказ — раз в секунду
+  // на кусок: мир сам знает, что уже едет (`ensureRegion`).
+  if (!chunkReady(chunk)) {
+    const asked = askedAt.get(chunk.key) ?? -Infinity;
+    if (now - asked > 1000) {
+      askedAt.set(chunk.key, now);
+      world.ensureRegion(chunkNeed(chunk));
+    }
+    return null;
+  }
   const baked = bakeChunk(seed, chunk);
   if (!baked) return null;
   lastBake = now;
