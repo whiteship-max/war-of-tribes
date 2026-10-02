@@ -6,6 +6,8 @@
 //   ?showcase=map-tw                      Лигурийский берег: Генуя, Приморские Альпы, Апеннины
 //   &at=684,1213  &scale=44               середина кадра (клетка мира) и масштаб, px на клетку
 //   &view=start|near|mid|far|coast|mountains|forest|army    готовые ракурсы участка
+//   &view=objects|objects-far             галерея миниатюр над равниной (места, войска, работы, значки);
+//                                         &boxes=1 — рамки холста (пунктир) и тела (цель пальца)
 //   &quality=low|medium|high              уровень (по умолчанию — высокий: «в полном качестве»)
 //   &season=winter  &night=1              сезон выпечки и ночь поверх кадра
 //   &old=1                                прежняя карта на том же участке — «до»
@@ -26,13 +28,37 @@ import { TILE_SRC, prepareTiles, tileAt, tileBakes } from '../ground';
 import { chunkBitmap, overviewSrc } from '../tiles';
 import { grainTile, makeCanvas, vignette } from '../paint';
 import { OVERVIEW_PX, bakeChunk, bakeStats, bakeTile, chunkStats, setTwLook } from './bake';
-import { armySprite, citySprite, drawMini, lairSprite, miniBucket } from './mini';
+import {
+  BADGE_PX,
+  PIN_PX,
+  type BadgeKind,
+  type Body,
+  type HostLook,
+  type Mini,
+  type PinLook,
+  type PlaceKind,
+  type PlaceLook,
+  badgeSprite,
+  drawMini,
+  fellSprite,
+  flagSprite,
+  hostBody,
+  hostSprite,
+  miniBucket,
+  pinSprite,
+  placeBody,
+  placeSprite,
+  worksSprite,
+} from './mini';
 import { placeLabel, regionLabel } from './labels';
 import { contour, soften } from './border';
 import { PARCHMENT_PX, bakeParchment } from './parchment';
 import { drawSettlement as oldSettlement, type Look as OldLook } from '../village';
 import { drawParty as oldParty, lookOf as oldPartyLook } from '../party';
 import { RELATION_META } from '@/world/data/meta';
+import type { Fate, Stage } from '@/world/types';
+import { FELL_WORDS } from '../siegemark';
+import { CAMP_DX, CAMP_DY } from './scene';
 
 /** Сид стенда — тот же, что у закреплённого мира отчётов (`scripts/lib/pinned.ts`). Земле он не важен. */
 const SEED = 20260912;
@@ -49,6 +75,12 @@ const VIEWS: Record<string, { at: [number, number]; scale: number }> = {
   army: { at: [688, 1208], scale: 44 },
   /** Край старой карты: разведанное вокруг города, дальше — пергамент (`edge=1` включён сам). */
   edge: { at: [697, 1210], scale: 12 },
+  /**
+   * Галерея миниатюр над равниной. Кастильская месета — самое ровное окно атласа на 16×38 клеток без леса,
+   * рек и хребтов (счёт по атласу, `geography.terrainAt`/`featuresAt`): купы и реки не спорят с макетами.
+   */
+  objects: { at: [550, 1283], scale: 44 },
+  'objects-far': { at: [550, 1283], scale: 10 },
 };
 
 /**
@@ -344,8 +376,10 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dp
     oldSettlement(ctx, city, px, dpr, cx, cy);
     return;
   }
-  drawMini(ctx, lairSprite(1, px, dpr), px, b, lx, ly);
-  drawMini(ctx, citySprite({ color: OWN, own: true, variant: 1 }, px, dpr), px, b, cx, cy);
+  const den: PlaceLook = { kind: 'lair', stage: 'village', color: RELATION_META.barbarian.color, own: false, variant: 1, sacked: false };
+  const home: PlaceLook = { kind: 'city', stage: 'town', color: OWN, own: true, variant: 1, sacked: false };
+  drawMini(ctx, placeSprite(den, px, dpr), px, b, lx, ly);
+  drawMini(ctx, placeSprite(home, px, dpr), px, b, cx, cy);
 }
 
 function drawArmy(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, old: boolean): void {
@@ -356,7 +390,7 @@ function drawArmy(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr:
     oldParty(ctx, oldPartyLook({ own: true, units: { spearman: 24, archer: 10 }, standing: false, seen: true, west }), cam.scale, dpr, ax, ay);
     return;
   }
-  drawMini(ctx, armySprite({ color: OWN, size: 2, west }, cam.scale, dpr), cam.scale, miniBucket(cam.scale), ax, ay);
+  drawMini(ctx, hostSprite({ color: OWN, size: 2, west, camp: false }, cam.scale, dpr), cam.scale, miniBucket(cam.scale), ax, ay);
 }
 
 function drawNames(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old: boolean): void {
@@ -436,6 +470,280 @@ function drawPaper(ctx: CanvasRenderingContext2D, vp: Viewport): void {
   ctx.drawImage(vignette(), 0, 0, vp.w, vp.h);
 }
 
+
+// ---------- Галерея миниатюр (view=objects) ----------
+//
+// Всё, что кадр игры рисует миниатюрой и значком, — рядами над настоящей равниной, с подписью под каждым:
+// места по стадиям, пепелище и разорение, войска по размерам в обе стороны, лагеря, осадные работы по
+// ступеням, значки дальнего масштаба, стяги, бейджи и знаки участи. Раскладка — по ширине экрана; сколько
+// места ей нужно, страница пишет в `dataset.need`, и снимок подгоняет под это экран (`map-tw-shots.ts`).
+
+const STAGE_RU: Record<Stage, string> = { camp: 'лагерь', village: 'деревня', stronghold: 'крепость', town: 'город' };
+const STAGE_LIST: Stage[] = ['camp', 'village', 'stronghold', 'town'];
+const FOE = RELATION_META.enemy.color;
+const BARB = RELATION_META.barbarian.color;
+const NEUTRAL = RELATION_META.neutral.color;
+const ALLY = RELATION_META.ally.color;
+
+/** Предмет галереи: что нарисовано, подпись и сколько он занимает от своей точки, CSS px. */
+interface Exhibit {
+  cap: string;
+  l: number;
+  r: number;
+  up: number;
+  down: number;
+  draw: (ctx: CanvasRenderingContext2D, sx: number, sy: number) => void;
+  /** Тело — цель пальца, CSS px от точки (рамка при `boxes=1`). */
+  body?: { rx: number; up: number; down: number };
+}
+
+/**
+ * Миниатюра в клетках: размеры спрайта растягиваются из корзины, как в кадре игры. Спрайт берётся заново
+ * при рисовании — галерея на корзине 80 весит больше кэша (16 МБ), и спрайт, взятый для раскладки, к
+ * своему ходу мог быть уже вытеснен (обнулён) — как в кадре игры, где спрайт берут прямо перед копией.
+ */
+function miniExhibit(cap: string, get: () => Mini, px: number, body: Body | null, extra?: Exhibit['draw']): Exhibit {
+  const k = px / miniBucket(px);
+  const m = get();
+  return {
+    cap,
+    l: m.ax * k,
+    r: (m.w - m.ax) * k,
+    up: m.ay * k,
+    down: (m.h - m.ay) * k,
+    draw: (ctx, sx, sy) => {
+      drawMini(ctx, get(), px, miniBucket(px), sx, sy);
+      extra?.(ctx, sx, sy);
+    },
+    body: body ? { rx: body.rx * px, up: body.up * px, down: body.down * px } : undefined,
+  };
+}
+
+/** Значок постоянного размера: спрайт как есть, без растяжки; берётся заново при рисовании, как миниатюра. */
+function fixedExhibit(cap: string, get: () => Mini): Exhibit {
+  const m = get();
+  return {
+    cap,
+    l: m.ax,
+    r: m.w - m.ax,
+    up: m.ay,
+    down: m.h - m.ay,
+    draw: (ctx, sx, sy) => ctx.drawImage(get().canvas, sx - m.ax, sy - m.ay, m.w, m.h),
+    body: { rx: Math.max(m.ax, m.w - m.ax), up: m.ay, down: m.h - m.ay },
+  };
+}
+
+function placeExhibit(cap: string, l: PlaceLook, px: number, dpr: number): Exhibit {
+  return miniExhibit(cap, () => placeSprite(l, px, dpr), px, placeBody(l));
+}
+
+function hostExhibit(cap: string, l: HostLook, px: number, dpr: number): Exhibit {
+  return miniExhibit(cap, () => hostSprite(l, px, dpr), px, hostBody(l));
+}
+
+/** Осада целиком, как в игре: ров и задние рогатки под двором, город, передние поверх, лагерь сбоку. */
+function siegeExhibit(px: number, dpr: number): Exhibit {
+  const back = worksSprite(8, 8, 'back', px, dpr);
+  const city: PlaceLook = { kind: 'city', stage: 'stronghold', color: NEUTRAL, own: false, variant: 2, sacked: false };
+  const camp: HostLook = { color: FOE, size: 3, west: false, camp: true };
+  const cs = placeSprite(city, px, dpr);
+  const hs = hostSprite(camp, px, dpr);
+  const b = miniBucket(px);
+  const k = px / b;
+  // Сдвиг лагеря — тот же, что у кадра игры (`tw/scene.CAMP_DX`, `CAMP_DY`): шатры у стены, город виден.
+  const dx = CAMP_DX * px;
+  const dy = CAMP_DY * px;
+  return {
+    cap: 'осада 8/8',
+    l: Math.max(back.ax, cs.ax) * k,
+    r: Math.max((back.w - back.ax) * k, (cs.w - cs.ax) * k, dx + (hs.w - hs.ax) * k),
+    up: Math.max(back.ay, cs.ay) * k,
+    down: Math.max((back.h - back.ay) * k, (cs.h - cs.ay) * k, dy + (hs.h - hs.ay) * k),
+    draw: (ctx, sx, sy) => {
+      drawMini(ctx, worksSprite(8, 8, 'back', px, dpr), px, b, sx, sy);
+      drawMini(ctx, placeSprite(city, px, dpr), px, b, sx, sy);
+      drawMini(ctx, worksSprite(8, 8, 'front', px, dpr), px, b, sx, sy);
+      drawMini(ctx, hostSprite(camp, px, dpr), px, b, sx + dx, sy + dy);
+    },
+  };
+}
+
+function worksExhibit(f: number, r: number, px: number, dpr: number): Exhibit {
+  const b = miniBucket(px);
+  return miniExhibit(`работы ${f}/${r}`, () => worksSprite(f, r, 'back', px, dpr), px, null, (ctx, sx, sy) => {
+    // Точка города посередине кольца: работы обнимают двор, а не стоят сами по себе.
+    ctx.fillStyle = 'rgba(243, 233, 216, 0.75)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    drawMini(ctx, worksSprite(f, r, 'front', px, dpr), px, b, sx, sy);
+  });
+}
+
+function pinExhibit(cap: string, l: PinLook, dpr: number): Exhibit {
+  return fixedExhibit(cap, () => pinSprite(l, dpr));
+}
+
+function galleryRows(px: number, dpr: number, far: boolean): { title: string; items: Exhibit[] }[] {
+  const rows: { title: string; items: Exhibit[] }[] = [];
+  const place = (kind: PlaceKind, stage: Stage, color: string, own: boolean, variant: number, sacked = false): PlaceLook => ({
+    kind,
+    stage,
+    color,
+    own,
+    variant,
+    sacked,
+  });
+  if (!far) {
+    rows.push({ title: 'свой город (own)', items: STAGE_LIST.map((st, i) => placeExhibit(STAGE_RU[st], place('city', st, OWN, true, i % 3), px, dpr)) });
+    rows.push({
+      title: 'чужой город (нейтрал)',
+      items: STAGE_LIST.map((st, i) => placeExhibit(STAGE_RU[st], place('city', st, NEUTRAL, false, (i + 1) % 3), px, dpr)),
+    });
+    const castleColors = [NEUTRAL, ALLY, FOE, FOE];
+    const castleNames = ['нейтр', 'союз', 'враг', 'враг'];
+    rows.push({
+      title: 'замок',
+      items: STAGE_LIST.map((st, i) => placeExhibit(`${STAGE_RU[st]}·${castleNames[i]}`, place('castle', st, castleColors[i], false, i % 3), px, dpr)),
+    });
+    rows.push({ title: 'логово', items: STAGE_LIST.map((st, i) => placeExhibit(STAGE_RU[st], place('lair', st, BARB, false, i % 3), px, dpr)) });
+    rows.push({
+      title: 'пепелище · разорено',
+      items: [
+        placeExhibit('пепел·лагерь', place('ruin', 'camp', BARB, false, 0), px, dpr),
+        placeExhibit('пепел·крепость', place('ruin', 'stronghold', BARB, false, 1), px, dpr),
+        placeExhibit('пепел·город', place('ruin', 'town', BARB, false, 2), px, dpr),
+        placeExhibit('разор·деревня', place('city', 'village', FOE, false, 0, true), px, dpr),
+        placeExhibit('разор·город', place('city', 'town', FOE, false, 1, true), px, dpr),
+        placeExhibit('разор·замок', place('castle', 'stronghold', NEUTRAL, false, 2, true), px, dpr),
+      ],
+    });
+    const sizes = [0, 1, 2, 3, 4] as const;
+    const sizeCap = (s: number): string => (s === 0 ? '0 слух' : s === 4 ? '4 орда' : String(s));
+    rows.push({ title: 'войско на восток (своё)', items: sizes.map((s) => hostExhibit(sizeCap(s), { color: OWN, size: s, west: false, camp: false }, px, dpr)) });
+    rows.push({ title: 'войско на запад (враг)', items: sizes.map((s) => hostExhibit(sizeCap(s), { color: FOE, size: s, west: true, camp: false }, px, dpr)) });
+    rows.push({
+      title: 'лагерь войска',
+      items: [
+        hostExhibit('свой 1', { color: OWN, size: 1, west: false, camp: true }, px, dpr),
+        hostExhibit('свой 2', { color: OWN, size: 2, west: false, camp: true }, px, dpr),
+        hostExhibit('враг 3', { color: FOE, size: 3, west: false, camp: true }, px, dpr),
+        hostExhibit('враг 4', { color: FOE, size: 4, west: false, camp: true }, px, dpr),
+        hostExhibit('враг слух', { color: FOE, size: 0, west: false, camp: true }, px, dpr),
+      ],
+    });
+    rows.push({
+      title: 'осадные работы (фронт/тыл)',
+      items: [worksExhibit(0, 0, px, dpr), worksExhibit(2, 2, px, dpr), worksExhibit(4, 4, px, dpr), worksExhibit(8, 8, px, dpr)],
+    });
+    rows.push({ title: 'осада как в игре', items: [siegeExhibit(px, dpr)] });
+  }
+  rows.push({
+    title: `значки мест (${PIN_PX} px)`,
+    items: [
+      pinExhibit('свой', { kind: 'city', color: OWN, own: true }, dpr),
+      pinExhibit('город', { kind: 'city', color: NEUTRAL, own: false }, dpr),
+      pinExhibit('враг', { kind: 'city', color: FOE, own: false }, dpr),
+      pinExhibit('союз', { kind: 'city', color: ALLY, own: false }, dpr),
+      pinExhibit('замок', { kind: 'castle', color: FOE, own: false }, dpr),
+      pinExhibit('замок', { kind: 'castle', color: NEUTRAL, own: false }, dpr),
+      pinExhibit('логово', { kind: 'lair', color: BARB, own: false }, dpr),
+      pinExhibit('пепел', { kind: 'ruin', color: BARB, own: false }, dpr),
+    ],
+  });
+  const flags: Exhibit[] = [];
+  for (const [color, who] of [
+    [OWN, 'с'],
+    [FOE, 'в'],
+  ] as const) {
+    for (const size of [0, 1, 2, 3, 4] as const) flags.push(fixedExhibit(`${who}${size}`, () => flagSprite({ color, size, camp: false }, dpr)));
+  }
+  flags.push(fixedExhibit('с·лаг', () => flagSprite({ color: OWN, size: 2, camp: true }, dpr)));
+  flags.push(fixedExhibit('в·лаг', () => flagSprite({ color: FOE, size: 3, camp: true }, dpr)));
+  rows.push({ title: 'стяги войск (с — своё, в — враг; число — размер)', items: flags });
+  const badges: Exhibit[] = (['attack', 'troops', 'siege'] as BadgeKind[]).map((k) => fixedExhibit(k, () => badgeSprite(k, dpr)));
+  rows.push({ title: `бейджи (${BADGE_PX} px)`, items: badges });
+  rows.push({
+    title: 'знак участи',
+    items: (['burn', 'captives', 'plunder'] as Fate[]).map((f) => fixedExhibit(f, () => fellSprite(f, FELL_WORDS[f], dpr))),
+  });
+  return rows;
+}
+
+/** Раскладка и рисование галереи. Возвращает, сколько места ей нужно (ширина, высота), CSS px. */
+function drawGallery(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, dpr: number, far: boolean, boxes: boolean): { w: number; h: number } {
+  const rows = galleryRows(px, dpr, far);
+  const PAD = 10;
+  const GAP = 10;
+  const CAP = 12;
+  ctx.font = '9px monospace';
+  const capW = (s: string): number => ctx.measureText(s).width + 4;
+  let y = PAD;
+  // Ширина без переноса: по ней снимок подгоняет экран (строка, не влезшая в экран, уходит вниз).
+  let maxW = 0;
+  const label = (s: string, x: number, yy: number, font: string, color: string): void => {
+    ctx.font = font;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(26, 20, 16, 0.85)';
+    ctx.strokeText(s, x, yy);
+    ctx.fillStyle = color;
+    ctx.fillText(s, x, yy);
+  };
+  for (const row of rows) {
+    label(row.title, PAD, y, '10px monospace', '#f2d590');
+    y += 14;
+    // Строки по ширине экрана: предмет, не влезший справа, уходит на новую строку того же ряда.
+    let line: { e: Exhibit; ax: number }[] = [];
+    const flush = (): void => {
+      if (line.length === 0) return;
+      const up = Math.max(...line.map((p) => p.e.up));
+      const down = Math.max(...line.map((p) => p.e.down));
+      const ay = y + up;
+      for (const { e, ax } of line) {
+        if (boxes) {
+          ctx.save();
+          ctx.setLineDash([3, 3]);
+          ctx.strokeStyle = 'rgba(243, 233, 216, 0.6)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(ax - e.l + 0.5, ay - e.up + 0.5, e.l + e.r - 1, e.up + e.down - 1);
+          ctx.restore();
+        }
+        e.draw(ctx, ax, ay);
+        if (boxes && e.body) {
+          ctx.strokeStyle = 'rgba(120, 220, 255, 0.85)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(ax - e.body.rx, ay - e.body.up, e.body.rx * 2, e.body.up + e.body.down);
+        }
+        ctx.font = '9px monospace';
+        const cw = ctx.measureText(e.cap).width;
+        label(e.cap, ax - cw / 2, ay + down + 2, '9px monospace', '#f3e9d8');
+      }
+      y = ay + down + CAP + GAP;
+      line = [];
+    };
+    let x = PAD;
+    let natural = PAD;
+    for (const e of row.items) {
+      ctx.font = '9px monospace';
+      const half = capW(e.cap) / 2;
+      const l = Math.max(e.l, half);
+      const r = Math.max(e.r, half);
+      natural += l + r + GAP;
+      if (line.length > 0 && x + l + r > vp.w - PAD) {
+        flush();
+        x = PAD;
+      }
+      line.push({ e, ax: x + l });
+      x += l + r + GAP;
+    }
+    maxW = Math.max(maxW, natural - GAP + PAD);
+    flush();
+  }
+  return { w: Math.ceil(maxW), h: Math.ceil(y + PAD) };
+}
+
 export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   document.title = 'TRIBE · стенд карты';
   const view = VIEWS[p.get('view') ?? 'start'] ?? VIEWS.start;
@@ -479,6 +787,15 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   const stats: Stats = { tiles: 0, bakeMs: [], parts: {}, chunks: 0, chunkMs: [] };
   drawOverview(ctx, cam, vp, old, stats);
   drawTiles(ctx, cam, vp, old, stats);
+  const gallery = (p.get('view') ?? '').startsWith('objects');
+  if (gallery) {
+    // Галерея: только земля и миниатюры — ни владения, ни похода, ни бумаги поверх.
+    const need = drawGallery(ctx, vp, cam.scale, dpr, p.get('view') === 'objects-far', p.get('boxes') === '1');
+    document.body.dataset.need = `${need.w},${need.h}`;
+    document.body.dataset.showcase = JSON.stringify({ view: p.get('view'), cam, tiles: stats.tiles, need });
+    document.body.dataset.ready = '1';
+    return;
+  }
   if (!old) drawRealm(ctx, cam, vp);
   drawPlaces(ctx, cam, vp, dpr, old);
   if (!old && (p.get('edge') === '1' || p.get('view') === 'edge')) drawEdge(ctx, cam, vp);
