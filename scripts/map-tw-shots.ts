@@ -129,6 +129,8 @@ async function gameShot(look: 'tw' | 'old'): Promise<void> {
   if (process.env.FOG !== '1') q.set('worldview', 'open');
   if (look === 'tw') q.set('map', 'tw');
   if (QUALITIES[0]) q.set('quality', QUALITIES[0]);
+  // Свои параметры и игре: `EXTRA="night=1"` — ночь без ожидания ночи.
+  for (const [k, v] of new URLSearchParams(EXTRA)) q.set(k, v);
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);

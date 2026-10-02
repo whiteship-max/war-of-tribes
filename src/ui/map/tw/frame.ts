@@ -6,6 +6,8 @@
 // войска, значки и подписи — копирование испечённого; путями остаются только линии походов (концы у них
 // едут каждый кадр) и наконечники хода. Что где стоит — одна правда на кадр и палец (`tw/scene.ts`).
 import { sightDiscs, useWorld, worldNow } from '@/world/store';
+import { useGame } from '@/game/store';
+import { drawNight, dropNight, nightAt } from './night';
 import { secondsLeft } from '@/world/geo';
 import { sideWorks } from '@/world/works';
 import { realLeft } from '@/ui/parts/wait';
@@ -341,6 +343,22 @@ function drawSelected(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, 
 
 // ---------- Кадр ----------
 
+/**
+ * Сколько ночи сейчас: по игровому времени партии. `?night=0|1` в адресе — стенду снимков (`map-tw:shots`):
+ * дождаться настоящей ночи в снимке нечем.
+ */
+const FORCED_NIGHT = ((): number | null => {
+  if (typeof location === 'undefined') return null;
+  const v = new URLSearchParams(location.search).get('night');
+  return v === null ? null : Math.max(0, Math.min(1, Number(v) || 0));
+})();
+
+function nightNow(): number {
+  if (FORCED_NIGHT !== null) return FORCED_NIGHT;
+  const s = useGame.getState().s;
+  return s ? nightAt(s.time) : 0;
+}
+
 /** Слой земли среднего масштаба (`tw/mid.ts`) — заводит дверь вида, когда он есть. */
 let midLayer: ((ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect: Rect) => void) | null = null;
 export const setMidLayer = (f: typeof midLayer): void => {
@@ -383,6 +401,9 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawHosts(ctx, cam, hostItems(cam, vp, state.marches, discs, now, dpr), dpr, now);
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);
 
+  // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
+  drawNight(ctx, vp.w, vp.h, cam.scale, places, nightNow(), dpr);
+
   drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, places, dpr, now));
 
   if (state.spotlight) drawSpot(ctx, cam, vp, state.spotlight, now);
@@ -391,4 +412,5 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
 export function dropFrame(): void {
   fitted.clear();
+  dropNight();
 }
