@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { standBattle } from '../battle-stand';
 import { MAN_HEIGHT } from '../units';
 import { twPlanOfRecord } from './record';
-import { figureFrame, poseFigures, type TwPlan } from './plan';
+import { figureFrame, figurePose, figureState, poseFigures, type TwPlan } from './plan';
 import { cuesOf } from './cues';
 import { CITY_M, SITE_KINDS, inWallBody, outOf, siteKindOf, type TwSiteKind } from './site';
 
@@ -152,6 +152,39 @@ describe('место боя: ворота — по журналу', () => {
     }
     expect(broke, 'в наборе есть выбитые ворота').toBeGreaterThan(3);
     expect(held, 'в наборе есть устоявшие ворота').toBeGreaterThan(3);
+  });
+
+  it('сквозь камень не идут: через толщу стены — только проездом ворот или по своей лестнице', () => {
+    // Граница области — толща стены по Z; точки — путь каждой фигуры через ворота (ход 3) и через стену (ход 4) с шагом в
+    // двадцатую секунды. Счётчики ниже проверяют, что такие пути в наборе есть.
+    let gate = 0;
+    let over = 0;
+    for (const p of plans) {
+      const w = p.site!.wall!;
+      const fig = figureState();
+      for (let i = 0; i < p.figures; i++) {
+        const kind = p.goKind[i];
+        if (kind !== 3 && kind !== 4) continue;
+        const u = p.units[p.unitOf[i]];
+        const end = Math.min(p.goAt[i] + p.path[i * 8 + 7], u.fleeAt ?? Infinity, p.deathAt[i]);
+        for (let t = p.goAt[i]; t <= end; t += 0.05) {
+          figurePose(p, i, t, null, fig);
+          const d = -outOf(w, fig.z);
+          if (d <= 0.02 || d >= w.thick - 0.02) continue;
+          if (kind === 3) {
+            gate++;
+            expect(Math.abs(fig.x - w.gateX), `через ворота: фигура ${i}, t ${t.toFixed(2)}`).toBeLessThan(w.gateHalf);
+          } else {
+            over++;
+            const near = Math.min(...p.site!.ladders.filter((l) => l.unit === u.id).map((l) => Math.abs(l.x - fig.x)));
+            expect(near, `через стену у своей лестницы: фигура ${i}, t ${t.toFixed(2)}`).toBeLessThan(1.6);
+            expect(fig.y, `через стену — поверху: фигура ${i}`).toBeGreaterThan(w.base + w.top - 0.05);
+          }
+        }
+      }
+    }
+    expect(gate, 'пути через ворота в наборе есть').toBeGreaterThan(0);
+    expect(over, 'пути через стену в наборе есть').toBeGreaterThan(0);
   });
 
   it('через ворота идут только после пролома, и только штурмующие', () => {
