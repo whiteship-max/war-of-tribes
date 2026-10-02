@@ -53,6 +53,7 @@
 // от ближнего масштаба к дальнему и в броске издали, ×1 и ×4 (`lib/flight.ts`). Это замер руками, а не
 // приёмка: остальные разделы не гоняются, браузер — один заход до двух минут, перед ним видеокарта остывает
 // минуту от прошлого захода (`budget.gpuCoolDown`). Сравнивать — прогоны одного вида с разными `MAP`/`QUALITY`.
+// PREBAKE=page — новый вид без рабочего потока: регион печёт страница сама, по кадрам и стоя (docs/map_tw.md, 13.4).
 import { createServer, type Server } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -433,8 +434,14 @@ const QUALITY = ((): string => {
   return q;
 })();
 
-/** Хвост адреса страницы: вид и уровень. Без переменных — пусто, и адреса прежние. */
-const VIEW = LOOK + (QUALITY ? `&quality=${QUALITY}` : '');
+/**
+ * `PREBAKE=page` — карта по регионам без рабочего потока (docs/map_tw.md, раздел 13.4): страница печёт регион сама,
+ * по кадрам и только стоя, — так, как на Safari до 16.4, где `OffscreenCanvas` в потоке нет.
+ */
+const PREBAKE = process.env.PREBAKE === 'page' ? '&prebake=page' : '';
+
+/** Хвост адреса страницы: вид, уровень и путь выпечки. Без переменных — пусто, и адреса прежние. */
+const VIEW = LOOK + (QUALITY ? `&quality=${QUALITY}` : '') + PREBAKE;
 
 /** Карта в движении (`MOTION=1`): только этот раздел. */
 const MOTION = process.env.MOTION === '1';
@@ -477,7 +484,7 @@ async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]
  */
 async function motionMain(): Promise<void> {
   console.log('\n=== карта в движении ===\n');
-  console.log(`Вид: ${LOOK ? 'новый (map=tw)' : 'прежний'}; уровень качества: ${QUALITY || 'Авто'}${LOOK ? '' : ' (у прежней карты уровней нет)'}.`);
+  console.log(`Вид: ${LOOK ? 'новый (map=tw)' : 'прежний'}; уровень качества: ${QUALITY || 'Авто'}${LOOK ? '' : ' (у прежней карты уровней нет)'}${PREBAKE ? '; регион печёт страница (без потока)' : ''}.`);
   console.log(`Мир закреплён (дом ${PINNED_HOME.x}|${PINNED_HOME.y}, сид ${PINNED_SEED}), экран телефона 375×812 @2, потолок игры — 60 кадров.`);
   console.log('Кадр — время drawFrame, мс: вся карта за кадр, с выпечкой, если она пришлась на этот кадр.');
   console.log(`Бросок — спираль у дома на 44 px на клетку; стоя — дома после броска; щипок — ${PINCH.near} → ${PINCH.far} → ${PINCH.near} px`);

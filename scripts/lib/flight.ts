@@ -72,6 +72,8 @@ export interface Flight {
   /** Карта в движении: щипок и бросок издали, каждый — с карты, открытой заново. */
   zoom?: Motion;
   far?: Motion;
+  /** Карта в движении нового вида: работы службы заранее печёмого за заход. */
+  prebaked?: Prebaked | null;
 }
 
 /** Проход карты в движении: цена кадра, интервалы между кадрами и выпечки тайлов ближнего масштаба. */
@@ -79,6 +81,19 @@ export interface Motion {
   cost: number[];
   dts: number[];
   bakes: number[];
+  /** Сколько тайлов экрана не испечено, по кадрам прохода. null — сборка счёта не ведёт. */
+  gaps?: number[] | null;
+}
+
+/**
+ * Карта по регионам (docs/map_tw.md, раздел 13.4): что испёк рабочий поток и что страница за заход — по видам работ,
+ * мс. null — у вида нет службы заранее печёмого (прежняя карта).
+ */
+export interface Prebaked {
+  exec: string | null;
+  worker: Record<string, number[]>;
+  page: Record<string, number[]>;
+  memory: Record<string, number>;
 }
 
 /**
@@ -156,6 +171,11 @@ const FLIGHT_PROBE = `
   window.__flightGaps = () => JSON.stringify(window.__mapGaps ? window.__mapGaps() : null);
   window.__flightCache = () => JSON.stringify(window.__mapTiles ? window.__mapTiles() : null);
   window.__flightCost = () => JSON.stringify(window.__mapPerf ? window.__mapPerf() : []);
+  window.__flightPrebake = () => {
+    if (!window.__twPrebake) return JSON.stringify(null);
+    const p = window.__twPrebake();
+    return JSON.stringify({ exec: p.exec, worker: p.spent.worker, page: p.spent.page, memory: p.memory });
+  };
   window.__mapShut = () => {
     window.__game.getState().closeMap();
     return JSON.stringify('ok');
@@ -182,13 +202,15 @@ async function motionPass(tab: Tab, slow: number, at: number, start: string, sto
   await sleep(slow === 1 ? 2500 : 6000);
   await tab.eval<number[]>('window.__flightBakes()');
   await tab.eval<number[]>('window.__flightCost()');
+  await tab.eval<number[] | null>('window.__flightGaps()');
   await tab.eval<string>(start);
   await sleep(FLY_SECONDS * 1000);
   const dts = await tab.eval<number[]>('window.__dtsTake()');
   const cost = await tab.eval<number[]>('window.__flightCost()');
   const bakes = await tab.eval<number[]>('window.__flightBakes()');
+  const gaps = await tab.eval<number[] | null>('window.__flightGaps()');
   await tab.eval<string>(stop);
-  return { cost, dts, bakes };
+  return { cost, dts, bakes, gaps };
 }
 
 /**
@@ -250,7 +272,8 @@ export async function measureFlight(
     }
     const zoom = await motionPass(tab, slow, PINCH.near, `window.__zoom(true, ${PINCH.near}, ${PINCH.far}, ${FLY_SECONDS}, ${PINCH.drift})`, 'window.__zoom(false)');
     const far = await motionPass(tab, slow, FAR_SCALE, `window.__fly(true, ${FAR_SCALE})`, 'window.__fly(false)');
-    out.push({ slow, bakes, fly, gaps, still, stillBakes, cache, flyCost, stillCost, zoom, far });
+    const prebaked = await tab.eval<Prebaked | null>('window.__flightPrebake()');
+    out.push({ slow, bakes, fly, gaps, still, stillBakes, cache, flyCost, stillCost, zoom, far, prebaked });
   }
   await tab.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   tab.close();
@@ -296,15 +319,30 @@ export function printFlight(flown: Flight[], log: (s: string) => void = console.
 export function printMotion(flown: Flight[], log: (s: string) => void = console.log): void {
   log(`${pad('×', 3)} ${pad('что', 16)} ${pad('штук', 6)} ${pad('медиана', 8)} ${pad('p95', 8)} ${pad('макс', 8)} прочее`);
   const longOf = (d: number[]): number => (d.length ? Math.round((100 * d.filter((x) => x > LONG_FRAME).length) / d.length) : 0);
+  // Кадров, где на экране не все тайлы ближнего масштаба (у прежней карты — сквозь них виден обзор, у нового вида —
+  // средний слой или грубый растр): цена тонкого запаса и выпечки вне кадра.
+  const holesOf = (g: number[] | null | undefined): string => (g && g.length ? `, с недопечённым ${live(Math.round((100 * g.filter((v) => v > 0).length) / g.length))}%` : '');
   for (const f of flown) {
     const row = (name: string, a: number[], tail: string): void =>
       log(
         `${pad(String(f.slow), 3)} ${pad(name, 16)} ${live(String(a.length).padStart(5))} ${live(num(median(a), 8))} ${live(num(pct(a, 0.95), 8))} ${live(num(Math.max(0, ...a), 8))} ${tail}`,
       );
     row('выпечка тайла', f.bakes, '');
-    if (f.flyCost) row('кадр: бросок', f.flyCost, `длинных ${live(longOf(f.fly))}%`);
+    if (f.flyCost) row('кадр: бросок', f.flyCost, `длинных ${live(longOf(f.fly))}%${holesOf(f.gaps)}`);
     if (f.stillCost) row('кадр: стоя', f.stillCost, `длинных ${live(longOf(f.still))}%, выпечек стоя ${f.stillBakes}`);
-    if (f.zoom) row(`кадр: щипок`, f.zoom.cost, `длинных ${live(longOf(f.zoom.dts))}%, тайлов испечено ${live(f.zoom.bakes.length)}`);
-    if (f.far) row(`кадр: издали`, f.far.cost, `длинных ${live(longOf(f.far.dts))}%`);
+    if (f.zoom) row(`кадр: щипок`, f.zoom.cost, `длинных ${live(longOf(f.zoom.dts))}%, тайлов испечено ${live(f.zoom.bakes.length)}${holesOf(f.zoom.gaps)}`);
+    if (f.far) row(`кадр: издали`, f.far.cost, `длинных ${live(longOf(f.far.dts))}%${holesOf(f.far.gaps)}`);
+    // Новый вид (карта по регионам): работы рабочего потока и страницы за заход до этого замедления, нарастающим итогом.
+    if (f.prebaked) {
+      for (const where of ['worker', 'page'] as const) {
+        for (const [kind, ms] of Object.entries(f.prebaked[where])) {
+          if (ms.length) row(`${where === 'worker' ? 'поток' : 'страница'}: ${kind}`, ms, '');
+        }
+      }
+    }
+  }
+  const last = flown[flown.length - 1]?.prebaked;
+  if (last) {
+    log(`Печёт: ${last.exec ?? '—'}; память заранее испечённого, МБ: ${Object.entries(last.memory).map(([k, v]) => `${k} ${(v / 1048576).toFixed(1)}`).join(', ')}.`);
   }
 }

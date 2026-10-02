@@ -16,6 +16,7 @@ import { TRIBE_COLORS } from '@/world/data/meta';
 import type { Rect } from '@/world/types';
 import { type Camera, type Viewport, toScreen, viewRect } from '../grid';
 import { type Segment, contour, soften } from './border';
+import { drawCells } from './layers';
 
 const TINT = 0.2;
 const MARGIN = 6;
@@ -172,12 +173,19 @@ export function drawTwZones(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
     if (stale) baked = bake(x0, y0, w, h, cam.scale, now) ?? baked;
   }
   if (!baked) return;
-  const [sx, sy] = toScreen(cam, vp, baked.x, baked.y);
-  const [ex, ey] = toScreen(cam, vp, baked.x + baked.w, baked.y + baked.h);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(baked.tint, Math.round(sx), Math.round(sy), Math.round(ex - sx), Math.round(ey - sy));
-  if (baked.lines) ctx.drawImage(baked.lines, sx, sy, ex - sx, ey - sy);
+  if (area) {
+    // Растр над рамкой региона — только видимая часть (`layers.drawCells`).
+    const r = { x: baked.x, y: baked.y, w: baked.w, h: baked.h };
+    drawCells(ctx, cam, vp, baked.tint, r);
+    if (baked.lines) drawCells(ctx, cam, vp, baked.lines, r, baked.px);
+  } else {
+    const [sx, sy] = toScreen(cam, vp, baked.x, baked.y);
+    const [ex, ey] = toScreen(cam, vp, baked.x + baked.w, baked.y + baked.h);
+    ctx.drawImage(baked.tint, Math.round(sx), Math.round(sy), Math.round(ex - sx), Math.round(ey - sy));
+    if (baked.lines) ctx.drawImage(baked.lines, sx, sy, ex - sx, ey - sy);
+  }
   ctx.restore();
 }
 

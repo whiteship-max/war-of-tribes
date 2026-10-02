@@ -20,6 +20,7 @@ import { type Canvas, ctxOf, makeCanvas } from './canvas';
 import type { Knowledge } from './knowledge';
 import { C } from './palette';
 import { SHEET_PAD, SHEET_PX } from './parchment';
+import { drawCells } from './layers';
 import { type Ground, moving } from './prebake';
 
 // ---------- Полутень и глубокое незнание ----------
@@ -104,11 +105,9 @@ function drawRaster(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, g:
   const stale = !prev || prev.gen !== g.knowledgeGen || prev.discs !== key;
   if (!prev || (stale && !moving() && t - prev.at > REBAKE_MS)) raster = bakeRaster(rect, k, discs, g.knowledgeGen, key, t);
   if (!raster) return;
-  const [sx, sy] = toScreen(cam, vp, raster.rect.x, raster.rect.y);
-  const [ex, ey] = toScreen(cam, vp, raster.rect.x + raster.rect.w, raster.rect.y + raster.rect.h);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(raster.canvas, Math.round(sx), Math.round(sy), Math.round(ex - sx), Math.round(ey - sy));
+  drawCells(ctx, cam, vp, raster.canvas, raster.rect);
   ctx.restore();
 }
 
