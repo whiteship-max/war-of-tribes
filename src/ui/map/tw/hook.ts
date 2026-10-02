@@ -38,15 +38,26 @@ export function syncLook(): boolean {
   const quality = gfxDirty ? twQuality() : undefined;
   gfxDirty = false;
   const changed = setTwLook(quality ? { quality, season } : { season });
-  if (changed) {
-    for (const c of chunks.values()) c.width = 0;
-    chunks.clear();
-  }
+  if (changed) dropChunks();
   return changed;
+}
+
+/** Под какой сид испечены куски обзора. */
+let chunksSeed = 0;
+
+function dropChunks(): void {
+  for (const c of chunks.values()) c.width = 0;
+  chunks.clear();
 }
 
 /** Кусок обзора нового вида или null — тогда кадр рисует прежний растр, пока этот не испечётся. */
 export function overviewChunk(chunk: CachedChunk): HTMLCanvasElement | null {
+  // Новый мир — новые складки и купы: испечённое под прежний сид не годится.
+  const seedNow = useWorld.getState().info?.seed ?? 0;
+  if (seedNow !== chunksSeed) {
+    dropChunks();
+    chunksSeed = seedNow;
+  }
   const have = chunks.get(chunk.key);
   if (have) {
     // Свежий в конец: вытесняется давно не нужный.
@@ -57,7 +68,7 @@ export function overviewChunk(chunk: CachedChunk): HTMLCanvasElement | null {
   const now = performance.now();
   if (now - lastBake < BAKE_GAP_MS) return null;
   const world = useWorld.getState();
-  const seed = world.info?.seed ?? 0;
+  const seed = seedNow;
   if (!seed) return null;
   // Куску нужна округа: свет, тень и сплайн смотрят на клетки соседей. Кадр карты заказывает куски только
   // под экраном и запасом, и край обзора без этого вечно стоял бы прежним растром. Заказ — раз в секунду

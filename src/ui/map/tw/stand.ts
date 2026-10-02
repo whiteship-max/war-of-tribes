@@ -29,6 +29,7 @@ import { OVERVIEW_PX, bakeChunk, bakeStats, bakeTile, chunkStats, setTwLook } fr
 import { armySprite, citySprite, drawMini, lairSprite, miniBucket } from './mini';
 import { placeLabel, regionLabel } from './labels';
 import { contour, soften } from './border';
+import { PARCHMENT_PX, bakeParchment } from './parchment';
 import { drawSettlement as oldSettlement, type Look as OldLook } from '../village';
 import { drawParty as oldParty, lookOf as oldPartyLook } from '../party';
 import { RELATION_META } from '@/world/data/meta';
@@ -46,6 +47,8 @@ const VIEWS: Record<string, { at: [number, number]; scale: number }> = {
   mountains: { at: [668, 1206], scale: 44 },
   forest: { at: [690, 1200], scale: 44 },
   army: { at: [688, 1208], scale: 44 },
+  /** Край старой карты: разведанное вокруг города, дальше — пергамент (`edge=1` включён сам). */
+  edge: { at: [697, 1210], scale: 12 },
 };
 
 /**
@@ -385,6 +388,23 @@ function drawNames(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old
   regionLabel(ctx, SCENE.sea.name, sx, sy, Math.max(13, Math.min(22, cam.scale * 0.42)), true);
 }
 
+/** Сколько клеток вокруг города разведано в пробе края: дальше — пергамент старой карты. */
+const KNOWN_R = 15;
+
+/** Край старой карты поверх земли (`parchment.ts`) — проба вида: в игре туман пока прежний (этап 2). */
+function drawEdge(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
+  const r = viewRect(cam, vp);
+  const area = { x: Math.floor(r.x) - 1, y: Math.floor(r.y) - 1, w: Math.ceil(r.w) + 3, h: Math.ceil(r.h) + 3 };
+  const known = (x: number, y: number): number => {
+    const d = Math.hypot(x - SCENE.home.x - 0.5, y - SCENE.home.y - 0.5);
+    return d < KNOWN_R - 1 ? 1 : d > KNOWN_R + 1 ? 0 : (KNOWN_R + 1 - d) / 2;
+  };
+  const canvas = bakeParchment(SEED, area, (x, y) => geoTerrain(SEED, x, y), known);
+  const [sx, sy] = toScreen(cam, vp, area.x, area.y);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(canvas, sx, sy, (canvas.width / PARCHMENT_PX) * cam.scale, (canvas.height / PARCHMENT_PX) * cam.scale);
+}
+
 /** Ночь: умножение синим на весь кадр и тёплые огни поселений поверх — одна заливка и два пятна. */
 function drawNight(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
   ctx.save();
@@ -461,6 +481,7 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   drawTiles(ctx, cam, vp, old, stats);
   if (!old) drawRealm(ctx, cam, vp);
   drawPlaces(ctx, cam, vp, dpr, old);
+  if (!old && (p.get('edge') === '1' || p.get('view') === 'edge')) drawEdge(ctx, cam, vp);
   drawPaper(ctx, vp);
   if (p.get('night') === '1') drawNight(ctx, cam, vp);
   drawRoute(ctx, cam, vp);

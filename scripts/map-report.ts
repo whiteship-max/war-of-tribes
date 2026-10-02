@@ -46,6 +46,7 @@
 //
 // Запуск: npm run map:report   (нужен собранный dist: npm run build)
 // Переменные: PORT=4191  CDP_PORT=9334  CHROME=путь\к\chrome.exe  HEAD=1  SECONDS=3
+// MAP=tw — карта нового вида (docs/map_tw.md, `?map=tw`): те же замеры на ней; без переменной вывод прежний.
 import { createServer, type Server } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -412,9 +413,12 @@ const FEATURE_MIN = 2;
 /** Размеры, на которых меряются силуэты. Ниже пола `agentUnit` — нарочно. */
 const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
 
+/** Вид карты под замером: прежний или новый (`MAP=tw`, docs/map_tw.md). */
+const LOOK = process.env.MAP === 'tw' ? '&map=tw' : '';
+
 async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]; flown: Flight[] }> {
   // Без потолка кадров отчёта (`budget.REPORT_FPS`): этот отчёт меряет цену кадра карты на потолке самой игры.
-  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1`);
+  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1${LOOK}`);
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');
   await sleep(4000);
@@ -437,7 +441,7 @@ async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]
   await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
   // Бросок и стоянка — своей вкладкой и общим замером (`lib/flight.ts`): им же меряют
   // сборки «до и после», и копии замера расходиться не с чем.
-  const flown = await measureFlight(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1&worldview=open`, (line) =>
+  const flown = await measureFlight(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1&worldview=open${LOOK}`, (line) =>
     console.log(line),
   );
   return { shots: out, looks, flown };
