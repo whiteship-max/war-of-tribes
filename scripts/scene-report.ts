@@ -164,6 +164,16 @@ async function measure(): Promise<Probe> {
   await tab.send('Page.reload');
   await sleep(3500);
   await tab.eval<string>(PROBE);
+  // Сцена игры — город (docs/city.md, «Город — единственный вид»): его мир собирается в потоках и встаёт не сразу, а
+  // слои текстур подменяются полными следом. Память диорамы меряется на вставшем городе — иначе число зависело бы от
+  // скорости машины, а не от кода. Не встал за полторы минуты — это находка, и отчёт падает, а не меряет пустоту.
+  const city = await tab.eval<string>(`new Promise((ok) => {
+    const s = window.__scene;
+    if (!s || !s.ready) return ok(JSON.stringify('нет сцены'));
+    const t = setTimeout(() => ok(JSON.stringify('не встал')), 90000);
+    s.ready.then(() => { clearTimeout(t); ok(JSON.stringify('встал')); });
+  })`);
+  if (city !== 'встал') throw new Error(`город ${city} — замер памяти диорамы мерил бы пустоту`);
 
   const state = (): Promise<PageState> => tab.eval<PageState>('window.__state()');
   const settled = async (): Promise<number> => {
