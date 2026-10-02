@@ -56,7 +56,8 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
   const [frame, setFrame] = useState<Frame>(() => frameAt(cast, 0));
   const [hud, setHud] = useState<TwHud | null>(null);
   const [loaded, setLoaded] = useState<'wait' | 'ok' | 'fail'>('wait');
-  const [speed, setSpeed] = useState<number>(1);
+  // Скорость ролика — своё имя, не `speed`: «скорость» в игре — часы партии (`game/pace`), и путать их нельзя.
+  const [rate, setRate] = useState<number>(1);
   const [ended, setEnded] = useState(false);
   const shown = useRef('');
   const done = useRef(onDone);
@@ -213,7 +214,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     fx.current?.setMuted(next);
   };
   const go = (n: number): void => {
-    setSpeed(n);
+    setRate(n);
     if (player.current) player.current.speed = n;
   };
 
@@ -247,7 +248,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
         </div>
         <div className="tw-speed">
           {SPEEDS.map((n) => (
-            <button className={`btn${speed === n ? '' : ' ghost'}`} key={n} onClick={() => go(n)}>
+            <button className={`btn${rate === n ? '' : ' ghost'}`} key={n} onClick={() => go(n)}>
               ×{n}
             </button>
           ))}

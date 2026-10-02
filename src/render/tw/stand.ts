@@ -166,6 +166,8 @@ export function mountTwStand(p: URLSearchParams): void {
   };
   opts.onEnd = () => {
     play.textContent = 'Смотреть';
+    // Кадров больше нет — гул смолкает, а не тянет последний кадр.
+    fx?.rest();
   };
 
   const resize = (): void => {
