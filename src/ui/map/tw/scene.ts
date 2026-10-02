@@ -22,11 +22,12 @@ import { type HostLook, type PlaceKind, type PlaceLook, PIN_PX, flagSprite, host
 
 /**
  * С какого масштаба места и войска — миниатюры, а не значки постоянного размера. Ниже `MINI_LO` миниатюра
- * в клетку мельче пальца и неразличима (город в 3.5 клетки на 10 px на клетку — 35 px каши), выше
- * `MINI_HI` значок прячется: между ними перелив встречной прозрачностью, как у тайлов.
+ * мельче значка и неразличима (стоянка логова — полторы клетки, на 12 px — 18 px каши), выше `MINI_HI`
+ * значок прячется. Полоса перелива узкая: в широкой полупрозрачные значок и миниатюра читались кашей
+ * (снимки игры этапа 2, круг 4, ×14).
  */
-export const MINI_LO = 11;
-export const MINI_HI = 15;
+export const MINI_LO = 15;
+export const MINI_HI = 17;
 
 /** Доля миниатюры на масштабе: 0 — значки, 1 — миниатюры. */
 export function miniAlpha(scale: number): number {
@@ -58,10 +59,18 @@ const bodyBox = (sx: number, sy: number, rx: number, up: number, down: number): 
 
 // ---------- Места ----------
 
-/** Вид места из полей мира. Своё поселение — город в духе нового города, двор живого игрока — замок. */
+/**
+ * Вид места из полей мира. Двор живого игрока — замок, логово — логово, сожжённое — пепелище.
+ *
+ * Своё поселение — **всегда каменный город** (стадия «город» миниатюры), в духе нового города: игрок видит
+ * свой город стеной из известняка с башнями с первой минуты (вид города — единственный вид игры), и хутор
+ * под вышкой на карте рассказывал бы о другом месте. Рост своего города виден в самом городе; размер на
+ * карте — у чужих мест, о которых другого знания нет (снимки игры этапа 2, круг 4).
+ */
 export function placeLookOf(s: SettlementView): PlaceLook {
   const kind: PlaceKind = s.ruin ? 'ruin' : s.relation === 'barbarian' ? 'lair' : s.castle && !s.mine ? 'castle' : 'city';
-  return { kind, stage: s.stage, color: s.color, own: s.mine, variant: variantOf(s.id), sacked: s.sacked };
+  const stage = s.mine && kind === 'city' ? 'town' : s.stage;
+  return { kind, stage, color: s.color, own: s.mine, variant: variantOf(s.id), sacked: s.sacked };
 }
 
 export interface PlaceItem {

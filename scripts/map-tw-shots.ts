@@ -7,7 +7,8 @@
 //   SHOTS=objects EXTRA="scale=22" npm run map-tw:shots    — галерея миниатюр (места, войска, работы, значки);
 //                                                            экран подгоняется под галерею (`dataset.need`)
 //   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра с `?map=tw` (и `OLD=1` — без него;
-//                                                            `FOG=1` — с туманом, как у игрока):
+//                                                            `FOG=1` — с туманом, как у игрока; `MARCHES=1` —
+//                                                            с отрядами и лагерями у дома):
 //                                                            закреплённый мир с домом в Генуе, кадр карты
 //                                                            на масштабах из SHOTS
 //
@@ -35,6 +36,35 @@ const TAG = process.env.TAG ?? 'probe';
 const EXTRA = process.env.EXTRA ?? '';
 const OLD = process.env.OLD === '1';
 const GAME = process.env.GAME === '1';
+/**
+ * `MARCHES=1` — снимку игры отряды у дома: чужой набег на дом (бейдж «под ударом»), своё войско в походе,
+ * чужой лагерь и свой лагерь у цели, полководец с войском. Пульс мира замирает, чтобы он не затёр их
+ * (тот же приём, что `__parties` у `map:report`). Только для глаз — числа отсюда не берутся.
+ */
+const MARCHES = process.env.MARCHES === '1';
+const MARCHES_JS = `(() => {
+  const W = window.__world;
+  W.setState({ pulse: async () => {} });
+  const g = W.getState();
+  const h = g.info.home;
+  const now = Date.now();
+  const m = (id, own, phase, from, to, men, targetId) => ({
+    id, mission: 'raid', units: { warrior: men }, own, hostile: !own, phase, from, to,
+    fromName: 'Стенд', toName: 'Стенд', targetId, departAt: now - 600000, arriveAt: now + 600000, loot: null, recallable: false,
+  });
+  const at = (dx, dy) => ({ x: h.x + dx, y: h.y + dy });
+  W.setState({
+    marches: [
+      m('raid', false, 'out', at(-7, -6), at(0, 0), 40, g.info.homeId),
+      m('host', true, 'out', at(1, 0), at(6, -6), 200, 'x1'),
+      m('camp', false, 'stay', at(-6, -2), at(-4, -3), 12, 'x2'),
+      m('ours', true, 'stay', at(0, 0), at(3, -4), 30, 'x3'),
+    ],
+    figures: g.figures.map((f) => (f.id === 'general' ? { ...f, troops: { legionary: 60 } } : f)),
+  });
+  return JSON.stringify('ok');
+})()`;
+
 /** Дом закреплённого мира для снимков игры — Генуя, тот же берег, что у стенда. */
 const GAME_HOME = cellAt(8.95, 44.47);
 
@@ -137,6 +167,7 @@ async function gameShot(look: 'tw' | 'old'): Promise<void> {
     await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?${q.toString()}` });
     await sleep(2500);
     await openPinnedMap(tab, { home: GAME_HOME, onLog: (m) => console.log(m) });
+    if (MARCHES) await tab.eval<string>(MARCHES_JS);
     for (const scale of SHOTS.map(Number).filter((v) => v > 0)) {
       await tab.eval<string>(`(() => { window.__mapCam(${GAME_HOME.x}, ${GAME_HOME.y - 2}, ${scale}); return JSON.stringify('ok'); })()`);
       await sleep(5000);

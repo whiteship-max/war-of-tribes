@@ -21,7 +21,7 @@ import { fakeCanvasEnv, waterChunk } from '../fakecanvas';
 import { dropTiles, tileBakes } from '../ground';
 import { cacheFor } from '../grid';
 import { dropMinis } from './mini';
-import { figureItems, hostItems, MINI_HI, MINI_LO, placeItems } from './scene';
+import { figureItems, hostItems, MINI_HI, MINI_LO, placeItems, placeLookOf } from './scene';
 import { aimAt, aimsOf } from './tap';
 import { drawTwFrame } from './frame';
 
@@ -254,6 +254,19 @@ describe('цель пальца: каждый объект открываетс�
       const cy = (it.body.y0 + it.body.y1) / 2;
       expect(aimAt(aims, cx, cy, false)).toEqual({ x: it.s.x, y: it.s.y });
     }
+  });
+});
+
+describe('вид места из полей мира', () => {
+  it('своё — всегда каменный город, чужое — по своей стадии; живой игрок — замок, логово, пепелище', () => {
+    for (const stage of ['camp', 'village', 'stronghold', 'town'] as Stage[]) {
+      const own = placeLookOf(place({ id: 'h', x: 0, y: 0, mine: true, relation: 'self', stage }));
+      expect(own).toMatchObject({ kind: 'city', stage: 'town', own: true });
+      expect(placeLookOf(place({ id: 'n', x: 0, y: 0, stage })).stage).toBe(stage);
+      expect(placeLookOf(place({ id: 'c', x: 0, y: 0, castle: true, stage }))).toMatchObject({ kind: 'castle', stage });
+      expect(placeLookOf(place({ id: 'l', x: 0, y: 0, relation: 'barbarian', stage }))).toMatchObject({ kind: 'lair', stage });
+    }
+    expect(placeLookOf(place({ id: 'r', x: 0, y: 0, relation: 'barbarian', ruin: true, stage: 'camp' })).kind).toBe('ruin');
   });
 });
 
