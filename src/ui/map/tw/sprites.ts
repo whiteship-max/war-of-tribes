@@ -107,9 +107,10 @@ export function crown(kind: number, isConifer: boolean): HTMLCanvasElement {
  * он стоит в выпечке впятеро меньше копирований, чем деревом: на телефоне это и есть цена тайла.
  * `count` — крон в купе (1…5), `variant` — раскладка, `isConifer` — порода.
  */
-export const GROVE_PX = 80;
+export const GROVE_PX = 100;
 /** Сколько клеток покрывает спрайт купы. */
-export const GROVE_CELLS = 0.62;
+/** Холст с запасом под тень: крона того же размера, что и при 80 px на 0.62 клетки, а тень не режется краем. */
+export const GROVE_CELLS = 0.775;
 export const GROVE_MAX = 5;
 export const GROVE_VARIANTS = 3;
 const groves = new Map<number, HTMLCanvasElement>();

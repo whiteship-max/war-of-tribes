@@ -65,7 +65,7 @@ function codeOf(t: Terrain | null): number {
  */
 export const SHADOW_REACH = 2.5;
 /** Вертикальный масштаб: клеток длины на единицу высоты. Больше — круче склоны и резче свет. */
-export const RELIEF_V = 2.4;
+export const RELIEF_V = 2.9;
 /** Солнце: слева-сверху, над горизонтом на 36°. */
 const SUN_ELEVATION = (36 * Math.PI) / 180;
 const SUN_XY = Math.cos(SUN_ELEVATION) / Math.SQRT2;
@@ -96,8 +96,8 @@ const FOLDS = [
   { period: 4.4, weight: 1.25, salt: 13007, angle: 0.91 },
   { period: 2.1, weight: 1, salt: 13001, angle: 0.37 },
   { period: 0.93, weight: 0.42, salt: 13037, angle: 1.21 },
-  { period: 0.41, weight: 0.18, salt: 13063, angle: 2.03 },
-  { period: 0.19, weight: 0.07, salt: 13093, angle: 2.71 },
+  { period: 0.41, weight: 0.22, salt: 13063, angle: 2.03 },
+  { period: 0.19, weight: 0.1, salt: 13093, angle: 2.71 },
 ] as const;
 const FOLD_SUM = FOLDS.reduce((a, o) => a + o.weight, 0);
 /** Сила складок на шероховатости 1. */
@@ -443,9 +443,41 @@ export interface Grid {
 /** Запас решётки к солнцу (влево и вверх), в узлах: под самую длинную тень. */
 export const shadowMargin = (nodesPerCell: number): number => Math.ceil((SHADOW_REACH * nodesPerCell) / Math.SQRT2);
 
+/** Октавы складок над областью: считаются один раз на выпечку. */
+export type Folds = ReturnType<typeof gradOctave>[];
+
+export function foldsFor(seed: number, x: number, y: number, side: number): Folds {
+  return FOLDS.map((o) => gradOctave(seed, x - 1, y - 1, side + 2, side + 2, o.period, o.salt, o.angle));
+}
+
+/**
+ * Высота в мировой точке: сплайн поля клеток по искривлённым координатам и складки по шероховатости.
+ * Одна функция на решётку и на отдельные точки — две копии разошлись бы на первой же правке.
+ */
+export function heightAt(cells: Cells, wp: Warp, folds: Folds, px: number, py: number): number {
+  return heightWarped(cells, folds, px + warpX(wp, px, py), py + warpY(wp, px, py));
+}
+
+/** Высота по уже искривлённой точке выборки: решётка искривляет узел один раз и берёт его же под цвет. */
+function heightWarped(cells: Cells, folds: Folds, sx: number, sy: number): number {
+  bspline(cells, sx, sy);
+  let hh = dot(cells, cells.height);
+  const ro = dot(cells, cells.rough);
+  if (ro > 0.01) {
+    let sum = 0;
+    for (let o = 0; o < FOLDS.length; o++) {
+      const v = perlin(folds[o], sx, sy);
+      sum += FOLDS[o].weight * (1 - (v < 0 ? -v : v));
+    }
+    hh += ro * FOLD_AMP * (sum / FOLD_SUM - 0.62);
+  }
+  // Уровень моря: свет считается по суше, а дно под водой плоское. Иначе сплайн тянул бы берег в
+  // море склоном, и вдоль каждого берега, отвёрнутого от солнца, шла бы грязная тёмная полоса.
+  return hh < 0 ? 0 : hh;
+}
+
 export function heightGrid(seed: number, cells: Cells, wp: Warp, x0: number, y0: number, nx: number, ny: number, stepCells: number): Grid {
-  const span = Math.max(nx, ny) * stepCells;
-  const folds = FOLDS.map((o) => gradOctave(seed, x0 - 1, y0 - 1, span + 2, span + 2, o.period, o.salt, o.angle));
+  const folds = foldsFor(seed, x0, y0, Math.max(nx, ny) * stepCells);
   const h = new Float32Array(nx * ny);
   const qx = new Float32Array(nx * ny);
   const qy = new Float32Array(nx * ny);
@@ -459,20 +491,7 @@ export function heightGrid(seed: number, cells: Cells, wp: Warp, x0: number, y0:
       const sy = py + warpY(wp, px, py);
       qx[k] = sx;
       qy[k] = sy;
-      bspline(cells, sx, sy);
-      let hh = dot(cells, cells.height);
-      const ro = dot(cells, cells.rough);
-      if (ro > 0.01) {
-        let sum = 0;
-        for (let o = 0; o < FOLDS.length; o++) {
-          const v = perlin(folds[o], sx, sy);
-          sum += FOLDS[o].weight * (1 - (v < 0 ? -v : v));
-        }
-        hh += ro * FOLD_AMP * (sum / FOLD_SUM - 0.62);
-      }
-      // Уровень моря: свет считается по суше, а дно под водой плоское. Иначе сплайн тянул бы берег в
-      // море склоном, и вдоль каждого берега, отвёрнутого от солнца, шла бы грязная тёмная полоса.
-      if (hh < 0) hh = 0;
+      const hh = heightWarped(cells, folds, sx, sy);
       h[k] = hh;
       if (hh > top) top = hh;
     }
