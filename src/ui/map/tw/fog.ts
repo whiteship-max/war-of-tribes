@@ -141,34 +141,35 @@ function signOf(c: CachedChunk): { sign: number; open: number } {
 
 interface Sheet {
   canvas: HTMLCanvasElement | null;
-  version: string;
+  version: number;
 }
 
 const sheets = new Map<string, Sheet>();
 let sheetsSeed = 0;
 
 /**
- * Версия листа: подписи куска и восьми соседей (кромка заходит к соседу на клетку). Кусок, которого ещё
- * нет, — «нет»; лист с таким соседом всё равно печётся: край мира и ещё не приехавшие соседи — незнание.
- * Null — листа не нужно: кусок и все соседи разведаны целиком.
+ * Версия листа: подписи куска и восьми соседей (кромка заходит к соседу на клетку), свёрнутые в число —
+ * версию спрашивают у каждого видимого куска в каждом кадре, и строка на кусок была бы мусором для сборщика.
+ * Куска, которого ещё нет, — свой знак; лист с таким соседом всё равно печётся: край мира и ещё не
+ * приехавшие соседи — незнание. Null — листа не нужно: кусок и все соседи разведаны целиком.
  */
-function versionOf(cx: number, cy: number): string | null {
-  const parts: string[] = [];
+function versionOf(cx: number, cy: number): number | null {
+  let h = 2166136261;
   let unknown = false;
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
       const c = cachedChunk(chunkKey(cx + dx, cy + dy));
-      if (!c) {
-        parts.push('-');
-        unknown = true;
-        continue;
+      let v = 0x9e3779b9;
+      if (!c) unknown = true;
+      else {
+        const s = signOf(c);
+        if (s.open < c.explored.length) unknown = true;
+        v = s.sign;
       }
-      const s = signOf(c);
-      if (s.open < c.explored.length) unknown = true;
-      parts.push(`${s.sign}`);
+      h = Math.imul(h ^ v, 16777619) >>> 0;
     }
   }
-  return unknown ? parts.join('.') : null;
+  return unknown ? h : null;
 }
 
 /** Разведанность в мировой точке: билинейно между серединами клеток — кромка без ступенек сетки. */
